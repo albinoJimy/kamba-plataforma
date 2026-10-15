@@ -135,6 +135,27 @@ MUTACOES: list[tuple[str, str, str, str]] = [
      "	  excluir=$$(sed \"s|^|--test-coverage-exclude=|\" \"$$lista\" | tr \"\\n\" \" \"); \\\n",
      "	  excluir=$$(sed \"s|^|--test-coverage-include=|\" \"$$lista\" | tr \"\\n\" \" \"); \\\n"),
 
+    # --- a cablagem do lado Python (KAM-151) ---
+    #
+    # Do lado Node o universo garante-se por injeccao, e as mutacoes acima
+    # provam-na. Do lado Python garante-se por **cablagem**: um `--source=` por
+    # pasta de `.py` do ambito. Estas quatro provam que essa cablagem morde —
+    # sem elas, a propriedade que o KAM-151 entrega estava provada por uma
+    # execucao pontual e nao por oraculo permanente.
+    ("cablagem: services/agr/src volta a nao ser medido", MAKEFILE,
+     "	@$(VENV_PYTHON) -m coverage run --branch --source=services/agr/src \\\n",
+     "	@$(VENV_PYTHON) -m coverage run --branch --source=libs/py-core/src \\\n"),
+    ("cablagem: o LCOV do AGR sai do glob que o gate le", MAKEFILE,
+     "	@$(VENV_PYTHON) -m coverage lcov -o ci/coverage/python-services-agr.lcov --quiet\n",
+     "	@$(VENV_PYTHON) -m coverage lcov -o ci/coverage/agr.dat --quiet\n"),
+    ("cablagem: o LCOV do AGR ganha um nome que nao resolve para pasta", MAKEFILE,
+     "	@$(VENV_PYTHON) -m coverage lcov -o ci/coverage/python-services-agr.lcov --quiet\n",
+     "	@$(VENV_PYTHON) -m coverage lcov -o ci/coverage/python-agr.lcov --quiet\n"),
+    ("cablagem: o run do AGR apaga os dados do libs antes do seu LCOV", MAKEFILE,
+     "	@$(VENV_PYTHON) -m coverage lcov -o ci/coverage/python-libs.lcov --quiet\n"
+     "	@# E a suite do AGR",
+     "	@# E a suite do AGR"),
+
     # --- os limiares, que decidem quem e medido ---
     ("limiares: o estrato restante baixa de 75 para 50", LIMIARES,
      "    minimo_linhas: 75", "    minimo_linhas: 50"),

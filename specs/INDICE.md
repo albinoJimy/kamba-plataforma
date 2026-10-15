@@ -12,7 +12,7 @@
 
 ## 1. Propósito
 
-Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **150 tickets atómicos (KAM-001 a KAM-150)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
+Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **151 tickets atómicos (KAM-001 a KAM-150 e KAM-152)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-150 e o KAM-152 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**. O identificador **151** está reclamado por um ramo em voo e ainda não tem bloco, pelo que a numeração é descontínua e o intervalo deixou de valer como contagem: escreve-se `KAM-001 – KAM-150, KAM-152` e **não** fechado, porque o gate 3 expande intervalos e um intervalo fechado exigiria que o 151 existisse no §4.
 
 O que **não** está aqui: a Fase 2 (Clusters) e a Fase 3 (Escala). Esses epics (geo e logística, estafetas, analytics e Score, índice federado, AdsEngine, vitrine SEO, API pública, Fluxo B) só se escrevem quando o **Gate do Piloto (KAM-110)** for verde. Está declarado em §6.
 
@@ -48,7 +48,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 
 | Epic | Range | N.º tickets | Fase |
 |------|-------|-------------|------|
-| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 | 35 | 0–1 |
+| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-152 | 37 | 0–1 |
 | EPIC-02 Canais WhatsApp e Handoff | KAM-013 – KAM-024, KAM-115 | 13 | 0–1 |
 | EPIC-03 Agent Runtime e Verticais | KAM-025 – KAM-040, KAM-114 | 17 | 0–1 |
 | EPIC-04 Core de Comércio | KAM-041 – KAM-051 | 11 | 0–1 |
@@ -59,7 +59,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117 | 16 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
 | EPIC-11 Módulos de Entrada | KAM-118 – KAM-127 | 10 | 1 |
-| **TOTAL** | **KAM-001 – KAM-150** | **150** | — |
+| **TOTAL** | **KAM-001 – KAM-148, KAM-150 – KAM-152** | **152** | — |
 
 ### 3.2 Fases
 
@@ -117,6 +117,8 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-147 | Os anexos de evidência que o DoD do KAM-128 e do KAM-129 nomeia e não existem | fix | S | P2 | 0 | KAM-128, KAM-129, KAM-145 |
 | KAM-148 | Leituras silenciosas nos outros dois leitores de YAML (`yamlreg` e `yamlsubset`) | fix | M | P2 | 1 | KAM-136 |
 | KAM-150 | Regras de `CODEOWNERS` penduradas no prefixo que o KAM-128 removeu | fix | S | P1 | 0 | KAM-128 |
+| KAM-151 | Cobertura Python sobre `services/agr/src/`, que nenhum alvo media | fix | S | P2 | 1 | KAM-132 |
+| KAM-152 | `db/gate8.py`: um caminho que não existe, numa mensagem que manda correr o ficheiro | fix | S | P2 | 0 | — |
 
 ### EPIC-02 — Canais WhatsApp e Handoff
 
@@ -335,3 +337,5 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.12 | Outubro 2026 | KAM-148 acrescentado: a varredura de leituras silenciosas nos outros dois leitores de subconjunto de YAML (`tools/canon_lint/yamlreg.py`, que lê os `registry/*.yaml`, e `tools/secrets_inventory/yamlsubset.py`, que lê o `../ops/secrets-inventory.yaml`). É a lacuna 22 de `../docs/ci.md` §7, aberta pelo KAM-136 ao varrer só o primeiro dos três leitores, e a decisão devolvida ao fundador no bloco desse ticket. `fix`, P2, Fase 1, a depender do KAM-136. Total: 144 tickets. | Equipa KAMBÁ |
 | 1.13 | Outubro 2026 | KAM-149 (`docs/seguranca/validar.py` aborta com a contagem do canon fixada): `fix` do EPIC-07 para a linha 43 do validador dos artefactos de segurança, que fixa 138 tickets e aborta com `AssertionError` desde que o *backlog* passou desse número — a verificação por máquina dos artefactos do KAM-065 não corre desde o KAM-139. Vinha da linha 6 de `../docs/dividas-documentais.md`, que o declara código e não resíduo textual. Total passa a 144 tickets em 11 epics. | Equipa KAMBÁ |
 | 1.14 | Outubro 2026 | KAM-150 acrescentado: três regras de `CODEOWNERS` ficaram presas ao prefixo `/tecnica/` que o KAM-128 removeu e, por isso, não atribuem dono nenhum — defeito declarado fora de âmbito na verificação do KAM-128, onde deixa o DoD «Referências» por marcar. Os identificadores **145 a 148 foram saltados**: estão todos reclamados por ramos em voo, medido sobre `refs/heads`, `refs/remotes` e os nomes de ramo (o 149 foi o primeiro livre). Não se citam aqui como `KAM-NNN` porque não existem no §4 — o gate 3 recusa-os, e foi o gate que o apanhou. O 144 era um deles e chegou a `main` entretanto, pelo PR #44. Quantos dos outros chegam, e por que ordem, é de quem integra. Total: 145 tickets (KAM-001 a KAM-144 e KAM-150). | Equipa KAMBÁ |
+| 1.15 | Outubro 2026 | KAM-151 acrescentado: fecha a lacuna 25 de `../docs/ci.md` §7 — `services/agr/src/` declarado no âmbito do *gate* 4 (`services/*/src/**`) e medido por alvo nenhum, apesar de `services/agr/tests/` existir. Depende do KAM-132 e entra no seu `Bloqueia`. Nasceu KAM-144, foi KAM-148 e é KAM-151: cinco PRs reclamaram o mesmo ID e a sessão que coordena a fila atribuiu-os por ordem de PR, fundindo por ordem crescente de ID para a série ficar contígua — **com o KAM-150 em `main`, está**: 151 tickets, de KAM-001 a KAM-151, sem buracos. O ticket destapou a **lacuna 26** (um `.py` medido a 0% faz o número descer e não sai nomeado no relatório). | Equipa KAMBÁ |
+| 1.16 | Outubro 2026 | KAM-152 acrescentado e entregue: o caminho `db/gate8.py`, que não existe (o ficheiro é `db/gate_bd.py`), estava citado em **8** ocorrências de **7** ficheiros — **7 vivas em 6** —, e uma delas era a mensagem de erro do trinco do *gate* 8, que mandava o utilizador correr um ficheiro inexistente. O pedido nomeava três sítios. O nome do trinco `*_gate8` (**21** ocorrências em ficheiros vivos, invariantes entre `main` e o ramo) não foi tocado: é o nome canónico da base descartável, e a fasquia `grep gate8 → 0` do pedido fica registada como impossível à letra. `../docs/seguranca/validar.py` passa de 5 para 3 erros, com o `assert` da contagem relaxado em memória — corrigi-lo é o **KAM-149**. **O ticket nasceu KAM-150 e renumerou para 152**, porque o `albinoJimy/kamba#47` fundiu durante o trabalho e levou esse ID; o **151** está reclamado por um ramo em voo e sem bloco, pelo que o intervalo passa a descontínuo. Total: 151 tickets. | Equipa KAMBÁ |

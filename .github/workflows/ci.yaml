@@ -214,7 +214,7 @@ jobs:
         # O alvo levanta o seu proprio PostgreSQL com `docker run`, em vez de um
         # `services:` do workflow. E de proposito: assim o gate corre igual na
         # maquina e no runner, e a imagem, o digest e as palavras-passe geradas
-        # vivem num sitio so (`db/gate8.py`) e nao em dois.
+        # vivem num sitio so (`db/gate_bd.py`) e nao em dois.
         run: make ci-8
 
   # ---------------------------------------------------------------------------

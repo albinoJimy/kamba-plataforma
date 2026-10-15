@@ -228,14 +228,18 @@ repositório, e era o número agregado que o §4.1 comparava com o limiar:
 
 | | O que entra no denominador | Como |
 |---|---|---|
-| Python | Todo o `.py` **medido por um alvo**, importado ou não (`tools/` e `libs/py-core/src`; `services/agr/src/` fica de fora — lacuna 25) | `coverage run --source=.` percorre o disco |
+| Python | Todo o `.py` **medido por um alvo**, importado ou não — e desde o KAM-151 há um `--source=` por cada pasta do âmbito (`tools/`, `libs/py-core/src`, `services/agr/src`) | `coverage run --source=<pasta>` percorre o disco |
 | Node, até ao KAM-132 | Só o que algum teste **carregou** | o V8 reporta os *scripts* que correram |
 | Node, desde o KAM-132 | Todo o código do âmbito que o Node executa (`.ts`, `.mts`, `.cts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.jsx`), carregado ou não | o `coverage_gate` lê o âmbito do disco e injecta a 0% o que nenhum relatório mediu |
 
 > **O título desta secção diz «o mesmo universo» e não «a mesma régua»**, de
 > propósito: a **definição de linha** continua diferente nas duas metades
-> (lacuna 23), e do lado Python falta um alvo (lacuna 25). O que o KAM-132
-> fechou é o universo medido, que era a assimetria com consequência no número.
+> (lacuna 23). O que o KAM-132 fechou é o universo medido, que era a assimetria
+> com consequência no número — e fechou-o do lado Node. Do lado Python o
+> universo não se garante por injecção mas por **cablagem**, um `--source=` por
+> pasta do âmbito, e faltava o de `services/agr/src/`: é o que o **KAM-151**
+> acrescentou, com o teste que torna a falta vermelha em vez de invisível
+> (lacuna 25).
 
 A consequência da linha do meio era precisa e pior do que parece: **um serviço
 Node inteiro sem um único teste não fazia o *gate* 4 vermelho.** Mantinha-o
@@ -1164,16 +1168,50 @@ resposta seria pior do que nomeá-las:
     nenhum *gate* o diz. O KAM-132 não o fechou porque fechá-lo é decidir que
     todo o `.ts` do repositório tem cobertura exigida, que é a mesma classe de
     decisão da lacuna 7 e não é deste ticket.
-25. **Do lado Python, `services/agr/src/` não é medido por nenhum alvo.** O
-    `make coverage-python` mede `tools/` e `libs/py-core/src`; os três ficheiros
-    de `services/agr/src/kamba_agr/` (`__init__.py`, `app.py`, `meta.py`) estão
-    no âmbito do `ci/thresholds.yaml` (`services/*/src/**`) e não entram no
-    denominador, apesar de `services/agr/tests/` existir. É a mesma classe de
-    defeito que o KAM-132 fechou do lado Node — âmbito declarado, medição em
-    falta —, e o KAM-132 não a fechou por duas razões: a cura é cablagem do
-    alvo de Python (correr a *suite* de `agr` sob `coverage`), e injectá-los a
-    0% a partir do disco exigiria contar **instruções**, que é a régua do
-    `coverage.py` e não o número de linhas. Ticket próprio.
+25. ~~**Do lado Python, `services/agr/src/` não é medido por nenhum alvo.**~~
+    **Fechada pelo KAM-151** (§3, *gate* 4): o `make coverage-python` ganhou um
+    terceiro `coverage run --source=services/agr/src` que corre a *suite* de
+    `services/agr/tests/` — a que já existia — e funde o LCOV com os outros. A
+    lacuna estava certa no defeito e certa na cura: a via do KAM-132 (injectar
+    do disco a 0%) não serve para `.py`, porque exigiria contar **instruções**,
+    que é a régua do `coverage.py` e não o número de linhas do ficheiro.
+    **O que faltava não eram os testes, era a medição**: os três ficheiros já
+    estavam exercitados, e medi-los deu **93%** (29/31 instruções) — o estrato
+    `restante` **não se moveu**, e o que conta é o delta, que não depende da
+    árvore: **+29** no numerador, **+31** no denominador, **+3** ficheiros no
+    estrato. Medido duas vezes, por o `main` ter andado entre uma e outra:
+    91% → 91% (9652/10526 → 9681/10557) em `f4c7e3d`, e 92% → 92%
+    (9880/10730 → 9909/10761) na árvore que funde. **As 31 são instruções e não
+    linhas de ficheiro** (os três ficheiros têm 77 linhas): é a régua do
+    `coverage.py`, e é a razão pela qual a lacuna 23 continua aberta.
+    O que o ticket acrescentou de novo, e que a lacuna não pedia, é o **gate da
+    própria cablagem**:
+    `tools/lint_arch/tests/test_makefile.py::TestCoberturaPythonMedeOAmbito`
+    lê o âmbito do `ci/thresholds.yaml` e falha quando uma pasta de `.py` do
+    âmbito não tem `--source=` que a meça — sem isso, a próxima pasta repetia a
+    lacuna em silêncio. **Fica aberto o que o ticket deixou fora:**
+    as duas instruções não cobertas são o corpo de
+    `kamba_agr.create_app()`, a fachada de importação tardia que existe para
+    `meta` ser legível sem Starlette instalado e que nenhum teste chama —
+    os testes importam `kamba_agr.app.create_app` directamente (nomeado em
+    [`evidencia/KAM-151.md`](evidencia/KAM-151.md) §2 e §6). E **a lacuna 26**,
+    que este ticket destapou ao fechar esta: o `.py` medido a 0% faz o número
+    descer e não sai nomeado no relatório.
+
+26. **Um `.py` medido a 0% não sai nomeado no relatório do *gate*.** Do lado
+    Node, um ficheiro do âmbito que nenhum teste carrega entra por **injecção**,
+    e o `coverage_gate` imprime-o pelo nome — é o que faz uma descida da
+    percentagem ser accionável. Do lado Python o ficheiro entra por **medição**,
+    não passa pela lista `injectados`, e o achado de estrato abaixo do limiar
+    imprime a percentagem, a fracção e a contagem de ficheiros, nunca os nomes:
+    quem vê o *gate* vermelho sabe que o estrato desceu e não sabe por causa de
+    quê. Medido no KAM-151: um módulo de 840 instruções sem testes em
+    `services/agr/src/` leva o `restante` de 91% para 84% e **não aparece** na
+    saída, onde só os três `.ts` injectados saem nomeados. Destapada ao fechar a
+    lacuna 25 — uma versão do KAM-151 afirmou o contrário, por ter copiado a
+    frase do caso Node do §3. Não se fecha aí porque nomear o que foi medido é
+    mexer no relatório para **todos** os estratos e nas duas linguagens, e é
+    decisão do dono do *gate* 4, não cablagem de um alvo.
 
 > As lacunas 9 a 14 vêm da revisão adversarial, e cada uma está reproduzida com
 > um comando em [`ANALISE-02`](analises/ANALISE-02-KAM-002-pipeline-ci.md).
@@ -1281,3 +1319,4 @@ sobrevivem ao PR.
 | 1.16 | Outubro 2026 | **KAM-131**: o *gate* 9 passa a correr duas passagens — a árvore (inalterada) **e** os *blobs* que o intervalo do PR acrescenta à história (`scan_secrets … history`). Fecha a lacuna 9 do §7. O conjunto de *blobs* sai de `git rev-list --objects base..head` e de `git log --raw -c`, deduplicado por SHA de objecto mas com as áreas de `ci/secrets-allow.yaml` aplicadas a **todos** os caminhos do *blob*; o que fazer sem intervalo está escrito por accionamento, e um clone raso, uma base irresolúvel, um intervalo de zero *commits* num PR ou um *blob* que o `git` não devolve são vermelhos. O relatório diz o que **não** varreu. O *job* ganha `fetch-depth: 0` e três variáveis em bruto, confrontadas linha a linha por `tools/lint_arch/tests/test_ci_gate9.py` — não há *lint* de *workflows*. O `-c`, o confronto por linha inteira e os contadores vieram da revisão adversarial ([`ANALISE-14`](analises/ANALISE-14-KAM-131-gate-9-na-historia.md)), que construiu três evasões à primeira versão. Sem *gate* novo: `esperados` continua em 9. | Equipa KAMBÁ |
 | 1.17 | Outubro 2026 | **KAM-132**: o *gate* 4 passa a medir o mesmo **universo** nos dois lados — o `coverage_gate` lê do disco o âmbito de `ci/thresholds.yaml`, a partir das raízes dos próprios `padroes`, e injecta a 0% o código que nenhum relatório mediu. Medido com `make ci-4` nos dois estados: `restante` 91% → 91% (o estrato não tinha nada invisível) e `critico` 99% → 94%, com os três ficheiros que entraram a 0% nomeados; um módulo de 50 declarações sem teste, que deixava os três números iguais, leva o `restante` a 88%. O limiar **não** foi tocado. Lacuna 10 fechada, com duas correcções ao que ela propunha: a *flag* sozinha **não** move o denominador (é um filtro; medido no Node 24.21.0 e confirmado no código do próprio Node) e **a de inclusão não se usa** — retirava do relatório o ficheiro que nenhum estrato classifica, que tem de falhar o *gate*; o `make coverage-node` passa `--test-coverage-exclude`. A revisão independente ([`ANALISE-15`](analises/ANALISE-15-KAM-132-cobertura-de-todo-o-typescript.md)) devolveu 3 maiores, 9 menores e 1 suspeita. Lacunas 23 a 25 novas: o `LF` do Node conta comentários, um `.ts` sem estrato continua invisível, e `services/agr/src/` não é medido do lado Python. | Equipa KAMBÁ |
 | 1.18 | Outubro 2026 | **KAM-148**: a lacuna 22 fecha. Os outros dois leitores de subconjunto de YAML — `tools/canon_lint/yamlreg.py` (os `registry/*.yaml`) e `tools/secrets_inventory/yamlsubset.py` (o `ops/secrets-inventory.yaml`) — passam pela varredura do KAM-136: 240 construções classificadas por execução contra a cópia congelada de cada leitor, 110 leituras silenciosas fechadas (96 por recusa, 14 por leitura correcta), equivalência campo a campo com 0 divergências e um *docstring* por leitor com um teste por linha da lista do que recusa. | Equipa KAMBÁ |
+| 1.19 | Outubro 2026 | KAM-151: a lacuna 25 fecha. O `make coverage-python` mede `services/agr/src/`, que estava no âmbito do *gate* 4 e fora do denominador desde o KAM-002 — com a *suite* a exercitá-lo. O §3 deixa de dizer que falta um alvo do lado Python, e a falta de um `--source=` para uma pasta de `.py` do âmbito passa a falhar um teste. Medido: o **delta**, que é o que o ticket faz e não depende da árvore: **+29** no numerador, **+31** no denominador, **+3** ficheiros, com a percentagem a não se mover. Na árvore que funde: `restante` 92% → 92% (9880/10730 → 9909/10761), 100 → 103 ficheiros; em `f4c7e3d`, onde foi medido primeiro, era 91% → 91% (9652/10526 → 9681/10557). O absoluto subiu porque o KAM-148 acrescentou código testado a `tools/`, que está no estrato; `critico` intacto; limiar não tocado. A prova por mutação do *gate* 4 passa de 24 para 28 (28 apanhadas, 0 sobreviventes), com quatro `cablagem:` novas do lado Python. **Lacuna 26 nova**, destapada por este ticket e trazida pela revisão adversarial: um `.py` medido a 0% faz o número descer e não sai nomeado no relatório. | Equipa KAMBÁ |
