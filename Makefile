@@ -553,6 +553,33 @@ coverage-python: exige-suites
 	    cat ci/coverage/python-libs.log >&2; exit 1; }
 	@rm -f ci/coverage/python-libs.log
 	@$(VENV_PYTHON) -m coverage lcov -o ci/coverage/python-libs.lcov --quiet
+	@# E a suite do AGR, que e o unico Python dentro de `services/*/src/**` — o
+	@# ambito que o `ci/thresholds.yaml` declara e que nenhum alvo media. Os
+	@# testes de `services/agr/tests/` ja existiam e exercitavam os tres
+	@# ficheiros a fundo: o que faltava era a **medicao**, pelo que o estrato
+	@# `restante` nao descia se alguem lhes mexesse (KAM-151, lacuna 25 do
+	@# docs/ci.md §7). E a mesma classe de defeito que o KAM-132 fechou do lado
+	@# Node — ambito declarado, medicao em falta — e cura-se aqui, no alvo, e nao
+	@# no `universo()` do `coverage_gate`: injectar um `.py` a 0% exigia contar
+	@# **instrucoes**, que e a regua do `coverage.py` e nao o numero de linhas do
+	@# ficheiro (ver `EXTENSOES_DO_UNIVERSO` em tools/coverage_gate.py).
+	@#
+	@# **Corre depois do `coverage lcov` do `libs/py-core`, e a ordem nao e
+	@# estetica:** `coverage run` sem `--append` apaga o ficheiro de dados, pelo
+	@# que um bloco novo entre o `run` e o `lcov` de outro deixava esse outro com
+	@# um relatorio vazio, sem erro nenhum. Preso por teste em
+	@# `tools/lint_arch/tests/test_makefile.py::TestCoberturaPythonMedeOAmbito`.
+	@#
+	@# O nome do LCOV e `python-services-agr.lcov` por exigencia do
+	@# `coverage_gate.base_do_nome`, que le o pacote do nome do ficheiro:
+	@# `python-agr.lcov` dava a base `agr`, que nao e familia nenhuma.
+	@$(VENV_PYTHON) -m coverage run --branch --source=services/agr/src \
+	  -m unittest discover -s services/agr/tests -t services/agr/tests \
+	  >ci/coverage/python-agr.log 2>&1 || { \
+	    echo "    FALHA: services/agr" >&2; \
+	    cat ci/coverage/python-agr.log >&2; exit 1; }
+	@rm -f ci/coverage/python-agr.log
+	@$(VENV_PYTHON) -m coverage lcov -o ci/coverage/python-services-agr.lcov --quiet
 	@echo "    testes Python verdes"
 
 ## ci-9: gate 9 — varrimento de segredos

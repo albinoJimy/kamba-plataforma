@@ -12,6 +12,8 @@ import re
 import unittest
 from pathlib import Path
 
+from coverage_gate import base_do_nome, ler_limiares, universo
+
 ROOT = Path(__file__).resolve().parents[3]
 MAKEFILE = ROOT / "Makefile"
 
@@ -226,6 +228,213 @@ class TestCoberturaNodeMedeOAmbito(unittest.TestCase):
         self.assertTrue(linhas, "o alvo nao corre `node --test`")
         for linha in linhas:
             self.assertIn("$$excluir", linha, linha)
+
+
+def _comandos(linhas: list[str]) -> list[str]:
+    """As linhas de receita juntas pelas barras de continuacao.
+
+    Um `cd tools && ... --source=.` tem o `cd` e o `--source` em linhas
+    diferentes do **mesmo** comando, e ler linha a linha perdia a ligacao entre
+    os dois — que e precisamente o que diz qual a pasta medida.
+    """
+    comandos: list[str] = []
+    actual = ""
+    for linha in linhas:
+        corpo = linha.lstrip(TABULACAO).lstrip("@")
+        if corpo.rstrip().endswith("\\"):
+            actual += corpo.rstrip()[:-1] + " "
+            continue
+        comandos.append(actual + corpo)
+        actual = ""
+    if actual:
+        comandos.append(actual)
+    return comandos
+
+
+class TestCoberturaPythonMedeOAmbito(unittest.TestCase):
+    """A cablagem do KAM-151, que fechou a lacuna 25 — e que se desfaz calada.
+
+    O `ci/thresholds.yaml` declara **quem e medido**, mas do lado Python nao ha
+    quem o imponha: o `universo()` do `coverage_gate` injecta a 0% o `.ts` que
+    nenhum relatorio mediu e **nao** o pode fazer com `.py`, porque a regua do
+    `coverage.py` sao instrucoes e nao linhas do ficheiro. O universo do Python
+    garante-se por cablagem: um `--source=` neste alvo por cada pasta de `.py`
+    do ambito.
+
+    E isso nao tinha gate. Os tres ficheiros de `services/agr/src/kamba_agr/`
+    estiveram no ambito desde o KAM-002 e fora do denominador desde sempre,
+    **com `services/agr/tests/` a exercita-los a fundo**: faltava a medicao, e
+    nao os testes. Ninguem notou porque nada ficava vermelho — a mesma classe de
+    defeito que o KAM-132 fechou do lado Node. Estes testes sao o que faz a
+    proxima pasta de `.py` do ambito ficar vermelha em vez de invisivel.
+    """
+
+    def setUp(self) -> None:
+        self.linhas = MAKEFILE.read_text(encoding="utf-8").splitlines()
+        self.receita = _receita(self.linhas, "coverage-python")
+
+    def _pastas_medidas(self) -> set[str]:
+        """As pastas que a receita mede, em caminho relativo a raiz.
+
+        Le-se do `--source=` de cada `coverage run`, com o `cd <pasta> &&` do
+        mesmo comando a dar o prefixo: `cd tools && ... --source=.` mede
+        `tools`.
+        """
+        pastas: set[str] = set()
+        for comando in _comandos(self.receita):
+            if "coverage run" not in comando:
+                continue
+            # **Um `cd` por comando.** O prefixo do primeiro `cd` vale para
+            # todos os `--source=` do mesmo comando; dois `cd` diferentes num
+            # so comando atribuiriam a pasta errada e nada ficaria vermelho.
+            # Hoje so o laco das suites de `tools/` tem `cd`, e tem um.
+            cd = re.search(r"\bcd\s+([^\s&]+)\s*&&", comando)
+            prefixo = cd.group(1).strip("\"'") if cd else ""
+            for fonte in re.findall(r"--source=(\S+)", comando):
+                fonte = fonte.strip("\"'")
+                if fonte == ".":
+                    caminho = prefixo
+                elif prefixo:
+                    caminho = f"{prefixo}/{fonte}"
+                else:
+                    caminho = fonte
+                if caminho:
+                    pastas.add(caminho.rstrip("/"))
+        return pastas
+
+    def test_todo_o_py_do_ambito_cai_sob_um_source(self) -> None:
+        """O teste que a lacuna 25 nao tinha.
+
+        O universo sai do **mesmo** `ci/thresholds.yaml` que classifica o que
+        foi medido — os `padroes` dos estratos menos os `excluidos` —, e nao de
+        uma lista escrita aqui, que divergiria dele em silencio como a do
+        `make coverage-node` teria divergido.
+        """
+        limiares = ler_limiares(ROOT)
+        do_ambito = universo(ROOT, limiares, extensoes=(".py",))
+        self.assertTrue(
+            do_ambito, "universo de `.py` vazio: o teste nao provaria nada"
+        )
+        pastas = self._pastas_medidas()
+        self.assertTrue(pastas, "a receita nao tem nenhum `--source=`")
+        sem_medicao = sorted(
+            caminho
+            for caminho in do_ambito
+            if not any(
+                caminho == pasta or caminho.startswith(f"{pasta}/")
+                for pasta in pastas
+            )
+        )
+        self.assertEqual(
+            sem_medicao,
+            [],
+            "`.py` no ambito de ci/thresholds.yaml que nenhum `--source=` de "
+            f"`coverage-python` mede: {sem_medicao}. As pastas medidas sao "
+            f"{sorted(pastas)}. Acrescente um `--source=` ao alvo, ou o ficheiro "
+            "a `excluidos` com a razao — o que nao se pode e deixa-lo declarado "
+            "no ambito e fora do denominador (lacuna 25 de docs/ci.md §7).",
+        )
+
+    def test_o_agr_e_medido_por_nome(self) -> None:
+        """A pasta que a lacuna 25 nomeia, pregada a parte.
+
+        O teste acima e geral e passaria se alguem **retirasse** o AGR do ambito
+        em vez de o medir. Este diz que a pasta que o KAM-151 veio medir continua
+        medida.
+        """
+        self.assertIn("services/agr/src", self._pastas_medidas())
+
+    def test_cada_coverage_run_escreve_o_seu_lcov_antes_do_proximo(self) -> None:
+        """`coverage run` sem `--append` **apaga** o ficheiro de dados.
+
+        Um bloco novo entre o `run` e o `coverage lcov` de outro deixava esse
+        outro com um relatorio vazio, sem erro nenhum: o gate media menos e
+        continuava verde. A regra e conservadora de proposito — o `cd tools`
+        escreve noutro ficheiro de dados —, porque e mais barato mante-la do que
+        qualificar quais os blocos que partilham o ficheiro.
+        """
+        texto = SALTO.join(self.receita)
+        marcas = [m.group(1) for m in re.finditer(r"coverage (run|lcov)", texto)]
+        self.assertIn("run", marcas, "a receita nao corre `coverage run`")
+        self.assertIn("lcov", marcas, "a receita nao escreve nenhum LCOV")
+        for anterior, seguinte in zip(marcas, marcas[1:]):
+            if anterior == "run" and seguinte == "run":
+                self.fail(
+                    "ha dois `coverage run` seguidos sem `coverage lcov` pelo "
+                    f"meio, e o segundo apaga os dados do primeiro: {marcas}"
+                )
+        self.assertEqual(
+            marcas[-1], "lcov", "o ultimo `coverage run` nao escreve LCOV nenhum"
+        )
+
+    def _destinos_dos_lcov(self) -> list[str]:
+        """O destino de cada `coverage lcov`, relativo a raiz."""
+        destinos: list[str] = []
+        for comando in _comandos(self.receita):
+            if "coverage lcov" not in comando:
+                continue
+            alvos = re.findall(r"-o\s+(\S+)", comando)
+            self.assertEqual(
+                len(alvos), 1, f"`coverage lcov` sem um `-o` claro: {comando[:80]!r}"
+            )
+            destinos.append(alvos[0].replace("$(ROOT)/", "").lstrip("/"))
+        return destinos
+
+    def test_cada_coverage_run_escreve_um_lcov_que_o_gate_le(self) -> None:
+        """Liga as **tres** pecas: `coverage run` -> nome do LCOV -> glob do gate.
+
+        Cada peca sozinha passa com o arreio desfeito, e e a juncao que importa.
+
+        O `coverage_gate.main` le `ci/coverage/*.lcov` por `glob`: um destino
+        com outra extensao — `ci/coverage/agr.dat` — deixa o relatorio **fora do
+        gate sem nada ficar vermelho**, que e a mesma classe de defeito que esta
+        classe fecha, um nivel acima. E o `base_do_nome` le o pacote do **nome**
+        do ficheiro: `python-agr.lcov` dava a base `agr`, que nao e familia
+        nenhuma nem pasta do disco, enquanto `python-services-agr.lcov` da
+        `services/agr`. Hoje os dois nomes funcionariam, porque o
+        `coverage lcov` corre da raiz e emite caminhos relativos a ela; no dia em
+        que os emitir relativos ao pacote, um nome que nao resolve manda os
+        ficheiros todos para «nao classificados».
+        """
+        runs = [c for c in _comandos(self.receita) if "coverage run" in c]
+        destinos = self._destinos_dos_lcov()
+        self.assertTrue(runs, "a receita nao corre `coverage run`")
+        self.assertEqual(
+            len(destinos),
+            len(runs),
+            "cada `coverage run` precisa do seu `coverage lcov`: "
+            f"{len(runs)} run(s) contra {len(destinos)} lcov(s)",
+        )
+        for destino in destinos:
+            with self.subTest(destino=destino):
+                self.assertRegex(
+                    destino,
+                    r"^ci/coverage/[^/]+\.lcov$",
+                    "o destino cai fora do glob `ci/coverage/*.lcov` do "
+                    "coverage_gate, e o relatorio nunca chega ao gate",
+                )
+                base = base_do_nome(Path(destino))
+                self.assertTrue(base, f"`{destino}` nao diz a que pacote pertence")
+                self.assertTrue(
+                    (ROOT / base).is_dir(),
+                    f"`{destino}` resolve para `{base}`, que nao e pasta do "
+                    "repositorio",
+                )
+
+    def test_cada_pasta_medida_tem_um_lcov_com_o_seu_nome(self) -> None:
+        """A pasta que um `--source=` mede tem de ser a base do LCOV que a leva.
+
+        Sem isto, o alvo pode medir `services/agr/src` e escrever o resultado
+        num `python-libs.lcov`: o gate le-o, e classifica-o pela base errada.
+        """
+        bases = {base_do_nome(Path(d)) for d in self._destinos_dos_lcov()}
+        for pasta in sorted(self._pastas_medidas()):
+            with self.subTest(pasta=pasta):
+                self.assertTrue(
+                    any(pasta == b or pasta.startswith(f"{b}/") for b in bases),
+                    f"a pasta medida `{pasta}` nao tem LCOV com o seu nome; "
+                    f"as bases dos LCOV sao {sorted(bases)}",
+                )
 
 
 class TestSuitesDeTools(unittest.TestCase):

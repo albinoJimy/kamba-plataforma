@@ -23,7 +23,7 @@ primeira versao deste ficheiro prometia isto e so fazia a primeira linha:
 **Os papeis sao globais a instancia.** Correr isto contra uma instancia que
 outros servicos usam troca-lhes as palavras-passe. O trinco `*_gate8` protege
 uma base, nao protege a instancia: o gate 8 so e seguro contra uma instancia
-descartavel, e `gate8.py` recusa o modo `--bd-existente` sem as tres
+descartavel, e `gate_bd.py` recusa o modo `--bd-existente` sem as tres
 palavras-passe dadas explicitamente.
 
 A palavra-passe **nunca vai em claro para o servidor**: calcula-se o

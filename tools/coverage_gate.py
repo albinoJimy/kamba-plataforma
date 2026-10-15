@@ -70,11 +70,20 @@ from kamba_yaml import YamlSubsetError, load_file
 #: TypeScript tanto como `.ts`. O `module: nodenext` do `tsconfig.base.json`
 #: corre-os sem configuracao nenhuma.
 #:
-#: Os `.py` **nao** entram, e a razao e a regua: sabe-se qual e o `LF` que o Node
-#: daria a um ficheiro que nao mediu (`linhas_do_ficheiro`), e injectar um `.py`
-#: exigia contar **instrucoes**, que e a regua do `coverage.py`. Do lado Python o
-#: `coverage run --source=.` ja mede o que nao e importado, excepto
-#: `services/agr/src/`, que nenhum alvo mede — lacuna 25 de `docs/ci.md` §7.
+#: Os `.py` **nao** entram por omissao, e a razao e a regua: sabe-se qual e o
+#: `LF` que o Node daria a um ficheiro que nao mediu (`linhas_do_ficheiro`), e
+#: injectar um `.py` exigia contar **instrucoes**, que e a regua do
+#: `coverage.py`. Do lado Python nao e preciso: o `coverage run --source=<pasta>`
+#: percorre o disco e mede o que nao e importado, pelo que o universo do Python
+#: garante-se **por cablagem do alvo** — ha um `--source=` em
+#: `make coverage-python` por cada pasta de `.py` do ambito. O que faltava era um
+#: para `services/agr/src/`, e a falta nao tinha gate: e a lacuna 25 de
+#: `docs/ci.md` §7, fechada pelo KAM-151, que poe
+#: `tools/lint_arch/tests/test_makefile.py::TestCoberturaPythonMedeOAmbito` a
+#: falhar quando uma pasta de `.py` do ambito nao tem `--source=` que a meca. E
+#: para esse teste que o `universo()` aceita outras `extensoes`: a lista de quem
+#: tem de ser medido sai do mesmo `ci/thresholds.yaml` que classifica o que foi
+#: medido, e nao de uma segunda lista escrita no Makefile que pudesse divergir.
 EXTENSOES_DO_UNIVERSO = (
     ".ts", ".mts", ".cts", ".tsx", ".js", ".mjs", ".cjs", ".jsx",
 )
@@ -206,7 +215,11 @@ def raizes_do_universo(limiares: Limiares) -> tuple[str, ...]:
     return tuple(sorted(raizes))
 
 
-def _percorrer(raiz: Path, limiares: Limiares):
+def _percorrer(
+    raiz: Path,
+    limiares: Limiares,
+    extensoes: tuple[str, ...] = EXTENSOES_DO_UNIVERSO,
+):
     """Os ficheiros medíveis dentro das raizes, em caminho relativo a `raiz`."""
     for nome_da_raiz in raizes_do_universo(limiares):
         base = raiz / nome_da_raiz
@@ -219,11 +232,15 @@ def _percorrer(raiz: Path, limiares: Limiares):
                 if s not in PASTAS_FORA_DO_UNIVERSO and not s.startswith(".")
             )
             for nome in sorted(ficheiros):
-                if nome.endswith(EXTENSOES_DO_UNIVERSO):
+                if nome.endswith(extensoes):
                     yield (Path(pasta) / nome).relative_to(raiz).as_posix()
 
 
-def universo(raiz: Path, limiares: Limiares) -> list[str]:
+def universo(
+    raiz: Path,
+    limiares: Limiares,
+    extensoes: tuple[str, ...] = EXTENSOES_DO_UNIVERSO,
+) -> list[str]:
     """Os ficheiros do disco que `ci/thresholds.yaml` poe num estrato.
 
     **E a lista que o lado Node nao media** (ver o cabecalho deste modulo). Sai
@@ -241,7 +258,7 @@ def universo(raiz: Path, limiares: Limiares) -> list[str]:
     """
     return sorted(
         c
-        for c in _percorrer(raiz, limiares)
+        for c in _percorrer(raiz, limiares, extensoes)
         if not limiares.esta_excluido(c) and limiares.classificar(c) is not None
     )
 

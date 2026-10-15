@@ -5,7 +5,7 @@ Estes testes sao **destrutivos**: fazem `downgrade base`, que apaga o schema
 
     a base tem de se chamar exactamente `kamba_gate8`.
 
-`db/gate8.py` cria uma base com esse nome num PostgreSQL descartavel. Apontar
+`db/gate_bd.py` cria uma base com esse nome num PostgreSQL descartavel. Apontar
 estes testes a `kamba_platform` — por engano num `.env`, por uma variavel
 herdada da shell — faz a suite recusar-se a correr em vez de apagar a base de
 desenvolvimento.
@@ -45,7 +45,7 @@ def exigir_base_descartavel() -> None:
         raise unittest.SkipTest(
             f"KAMBA_DB_NAME={base!r} nao e {BASE_DESCARTAVEL!r}. Os testes do "
             "gate 8 apagam o schema `platform` e so correm contra a base "
-            "descartavel que `python db/gate8.py` cria."
+            "descartavel que `python db/gate_bd.py` cria."
         )
 
 

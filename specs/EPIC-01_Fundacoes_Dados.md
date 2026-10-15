@@ -73,6 +73,8 @@ Tudo cai na **Fase 0 (Fundação)**, no caminho crítico do esqueleto andante (g
 | KAM-147 | Os anexos de evidência que o DoD do KAM-128 e do KAM-129 nomeia e não existem | fix | S | P2 | KAM-128, KAM-129, KAM-145 |
 | KAM-148 | Leituras silenciosas nos outros dois leitores de YAML (`yamlreg` e `yamlsubset`) | fix | M | P2 | KAM-136 |
 | KAM-150 | Regras de `CODEOWNERS` penduradas no prefixo que o KAM-128 removeu | fix | S | P1 | KAM-128 |
+| KAM-151 | Cobertura Python sobre `services/agr/src/`, que nenhum alvo media | fix | S | P2 | KAM-132 |
+| KAM-152 | `db/gate8.py`: um caminho que não existe, numa mensagem que manda correr o ficheiro | fix | S | P2 | — |
 
 ---
 
@@ -2157,7 +2159,7 @@ Abre PR com o template do §7.
 | Prioridade | P2 |
 | Estimativa | M |
 | Dependências | KAM-002 |
-| Bloqueia | — |
+| Bloqueia | KAM-151 |
 | Responsável sugerido | Engenheiro de Plataforma (dono do gate 4) |
 | Documentos de referência | `../docs/ci.md` (§3 gate 4, §7 lacuna 10), `../docs/analises/ANALISE-02-KAM-002-pipeline-ci.md` §3, `specs/01_Engineering_Standards_e_Handoff.md` §4.1, `ci/thresholds.yaml` |
 
@@ -2202,9 +2204,9 @@ caixa marcada acima tem uma linha aqui; **as três não marcadas também**.
 | Os `excluidos` continuam a valer | **satisfeito** | Passam a valer **duas** vezes: além de tirarem um ficheiro medido da avaliação, tiram-no da injecção e entram no `--test-coverage-exclude`. Medido: dos 13 excluídos da execução final, os quatro `services/*/src/server.ts` e `packages/core-ts/src/identity/contactos.ts` não aparecem no universo (`test_nao_tem_os_excluidos`), e `test_o_excluido_nao_e_injectado` prova que um ficheiro excluído de 999 linhas não entra no denominador. Mutações «o serviço de identidade deixa de estar excluído», «os pontos de entrada deixam de estar excluídos», «os `excluidos` deixam de valer na injecção» e «passa o âmbito em vez do que está excluído»: as quatro apanhadas |
 | Valor registado antes e depois, com o comando | **satisfeito** | `make ci-4` completo nos dois estados, na mesma árvore e com as mesmas dependências. **Os números que contam são os do CI** (`docs/ci.md` §8), e são um par perfeito: o mesmo conjunto de oito relatórios LCOV do *run* 38304958677 sobre `73cb77d`, avaliado nas duas réguas. **Antes** (`--sem-universo`): `restante` 91% — 9652/10526 linhas, 100 ficheiros; `critico` 99% — 4802/4810, 26 ficheiros. **Depois** (o *gate*): `restante` 91% — 9652/10526, 100 ficheiros; `critico` 94% — 4802/5055, 29 ficheiros. **O `restante` é idêntico até à linha**, que é a prova mais directa de que nada lá estava invisível. E o par com `make ci-4` inteiro nos dois estados, que também exercita a cablagem do `Makefile`, está na evidência §4.2: `restante` 9323/10223 → 9418/10291 e `critico` 4802/4810 → 4802/5055 sobre a árvore anterior ao *merge* do KAM-131. Os quatro números por estrato, com o comando ao lado, em `../docs/evidencia/KAM-132.md` §4 e em `../docs/ci.md` §3 |
 | `restante` ≥ 75% com testes, não com limiar novo | **satisfeito** | **91%**, com 16 pontos de margem, e o limiar de `ci/thresholds.yaml` **não foi tocado** (a mutação «o limiar do `restante` baixa de 75 para 50» é apanhada). **Zero testes novos foram necessários, e a medição é que o diz**: no `restante` não havia nada invisível — os seus 16 ficheiros TypeScript são todos carregados por algum teste, e os três que o lado Node nunca mediu caem todos no `critico`. O ticket esperava que o `restante` descesse «por um valor que ninguém mediu ainda»; o valor medido é **zero**. Leitura que se devolve ao dono do *gate* 4: a segunda metade da letra deste critério («com testes novos») ficou vacante por o problema não estar onde o ticket supunha, e não por se ter evitado trabalho |
-| A régua é a mesma nos dois lados | **parcial** | **A assimetria que o ticket nomeia está fechada**, e o `../docs/ci.md` §3 di-lo numa tabela explícita: os dois lados medem agora o mesmo **universo** — todo o código do âmbito, carregado ou não. Duas desigualdades sobrevivem, e é por elas que a caixa fica vazia. (a) **A definição de «linha» continua diferente**: o `LF` do Node é o número de linhas do ficheiro, comentários e linhas vazias incluídos — `packages/core-ts/src/storage/motor.ts`, que é só tipos e comentários, sai `67/67` depois de ser carregado —, enquanto o `coverage.py` conta instruções. Igualar isto obriga a escolher uma das duas para os dois lados (lacuna 23). (b) **`services/agr/src/` não é medido por nenhum alvo**: os três ficheiros de `services/agr/src/kamba_agr/` estão no âmbito (`services/*/src/**`) e ficam fora do denominador, apesar de `services/agr/tests/` existir (lacuna 25). As duas estão registadas em `../docs/ci.md` §7 e a decisão fica com o dono do *gate* 4 |
+| A régua é a mesma nos dois lados | **parcial** | **A assimetria que o ticket nomeia está fechada**, e o `../docs/ci.md` §3 di-lo numa tabela explícita: os dois lados medem agora o mesmo **universo** — todo o código do âmbito, carregado ou não. Duas desigualdades sobrevivem, e é por elas que a caixa fica vazia. (a) **A definição de «linha» continua diferente**: o `LF` do Node é o número de linhas do ficheiro, comentários e linhas vazias incluídos — `packages/core-ts/src/storage/motor.ts`, que é só tipos e comentários, sai `67/67` depois de ser carregado —, enquanto o `coverage.py` conta instruções. Igualar isto obriga a escolher uma das duas para os dois lados (lacuna 23). (b) **`services/agr/src/` não é medido por nenhum alvo**: os três ficheiros de `services/agr/src/kamba_agr/` estão no âmbito (`services/*/src/**`) e ficam fora do denominador, apesar de `services/agr/tests/` existir (lacuna 25). As duas estão registadas em `../docs/ci.md` §7 e a decisão fica com o dono do *gate* 4. **Leitura de 2026-10-12, à entrega deste ticket: a alínea (b) foi depois fechada pelo KAM-151**, que acrescentou o `--source=services/agr/src` ao `make coverage-python`; a alínea (a) continua aberta. A caixa fica vazia porque era o estado a esta data, e a avaliação não se reescreve para trás |
 | Ficheiro medido sem estrato continua a falhar | **satisfeito**, depois da revisão | **A primeira versão regrediu aqui, e estava marcada como satisfeita pela razão errada.** Passar o âmbito em `--test-coverage-include` retirava do relatório o ficheiro que nenhum estrato classifica, pelo que ele deixava de chegar ao `avaliar()` e deixava de falhar; o que mantinha a caixa verde era `test_ficheiro_sem_estrato_falha`, que exercita `avaliar()` com um caminho `.py` sintético — o nível errado. Reproduzido pela revisão e confirmado por mim: `packages/core-ts/fora.ts` carregado por um teste, sem a *flag* dá «1 ficheiro(s) medidos e nao classificados» e com ela não dá nenhum. Corrigido: passa-se `--test-coverage-exclude` com o que está excluído, e nada filtra o que não está classificado. Regressão ao nível certo: `test_um_ts_medido_sem_estrato_falha_o_gate` (LCOV com o órfão → código 1, com o caminho impresso), `test_o_que_nenhum_estrato_classifica_nao_e_excluido` e `test_nao_passa_o_ambito_em_test_coverage_include`; mutação «volta a filtrar pelo âmbito em vez de excluir», apanhada. O universo lido do disco continua a **não** injectar um ficheiro sem estrato, de propósito: fabricar uma medição para o fazer falhar era o *gate* a criar o seu próprio achado (mutação «um ficheiro sem estrato passa a ser injectado», apanhada; `test_cada_um_esta_classificado` confere que os **32** ficheiros do universo real estão todos classificados) |
-| DoD: todos os CA satisfeitos e demonstráveis | **não satisfeito** | Um CA em **parcial**: a régua não é a mesma nos dois lados em definição de linha nem em cablagem do lado Python (lacunas 23 e 25) |
+| DoD: todos os CA satisfeitos e demonstráveis | **não satisfeito** | Um CA em **parcial**: a régua não é a mesma nos dois lados em definição de linha nem em cablagem do lado Python (lacunas 23 e 25). Da cablagem encarregou-se depois o KAM-151 (lacuna 25 fechada); a definição de linha continua aberta |
 | DoD: ≥ 1 revisor, 2 se o limiar for alterado; testes verdes | **não satisfeito** | Testes verdes: **225** em `tools/lint_arch` (0 falhas, 2 saltados por falta de `jsonschema` no *host*), `make ci-4` verde nos dois estados, e **24 mutações, 24 apanhadas, 0 sobreviventes** (`tools/lint_arch/tests/mutacoes.py`), mais «114 mutações conferidas, 0 não aplicáveis» em `db/mutacoes.py --aplicaveis`. **Revisores humanos: zero** — o *ruleset* de `main` exige 0 aprovações (lacuna 16 de `../docs/ci.md` §7). A revisão adversarial independente está em [`ANALISE-15`](../docs/analises/ANALISE-15-KAM-132-cobertura-de-todo-o-typescript.md) e **é evidência, não é um revisor**. O limiar **não** foi alterado, pelo que os dois revisores do DoD do KAM-002 não se aplicam |
 | DoD: documentação e Conventional Commits | **satisfeito** | `../docs/ci.md` §3 com a tabela dos dois universos, o que as *flags* do Node fazem e não fazem, as raízes da procura e os números antes/depois; §7 com a lacuna 10 **fechada** (e com a correcção de que a cura que ela propunha não funcionava) e as lacunas 23, 24 e 25 novas; versão 1.17 na §9. `../docs/seguranca/lacunas.md` deixa de repetir a versão antiga do limite do *gate* 4. Evidência em `../docs/evidencia/KAM-132.md`; revisão em `../docs/analises/ANALISE-15-KAM-132-cobertura-de-todo-o-typescript.md`. Todos os *commits* em `tipo(KAM-132): …` |
 | DoD: sem segredos | **satisfeito** | Não aplicável por natureza e verificado: o *diff* não acrescenta configuração nem credenciais, e `make ci-9` corre verde sobre o ramo |
@@ -2228,7 +2230,9 @@ caixa marcada acima tem uma linha aqui; **as três não marcadas também**.
 > cobri-los com um teste que só os importasse dava-lhes ~100% sem exercitar
 > comportamento, porque o `LF` do Node conta `export { … }` e comentários como
 > linhas atingidas. E a régua não ficou igual nas duas metades: falta a
-> definição de «linha» e falta medir `services/agr/src/`. **E o estrato que
+> definição de «linha» e falta medir `services/agr/src/` — **esta segunda foi
+> fechada pelo KAM-151, depois desta entrega; a primeira continua a faltar**.
+> **E o estrato que
 > este ticket aperta é o `critico`**, com ~250 linhas de folga sobre os 90%. As
 > quatro coisas estão nomeadas, em `../docs/ci.md` §7 e no corpo do PR.
 
@@ -4039,7 +4043,7 @@ Abre PR com o template do §7.
 
 ### Verificação dos Critérios de Aceitação
 
-Entregue no PR `albinoJimy/kamba#PR_KAM144`, ramo
+Entregue no PR `albinoJimy/kamba#55_KAM144`, ramo
 `feature/KAM-148-varredura-dos-outros-dois-leitores`, **empilhado** no
 `feature/KAM-136-leitor-de-yaml-sem-silencios` por decisão do fundador
 (2026-10-12), por o KAM-136 ainda não estar em `main`. **Dezesseis caixas
@@ -4317,6 +4321,379 @@ lado de cada um; a revisão adversarial está em
 | 1 | **Nada verifica este ficheiro por máquina, e foi por isso que o defeito viveu dois tickets de referências.** `structure.py` vê que o `CODEOWNERS` existe; o gate 3 vê *tokens*; G1–G3 vêem `.md`. Ampliar `structure.py` para resolver cada padrão é pequeno e é código com testes — ticket próprio, não este `fix` | Arquitecto de Plataforma |
 | 2 | **O `CODEOWNERS` corrigido continua inerte.** Repor `require_code_owner_review` e ≥ 1 aprovação é do **KAM-137**, que declarou este ficheiro fora do seu âmbito; substituir as equipas por utilizadores e dar dono de Segurança a `docs/seguranca/` (L-19) não tem ticket. Com dois contribuidores, «2 revisores» do DoD continua insatisfazível | Responsável de Segurança, com o fundador |
 
+## KAM-152 — `db/gate8.py`: um caminho que não existe, numa mensagem que manda correr o ficheiro
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-01 — Fundações e Dados |
+| Fase | 0 |
+| Tipo | fix |
+| Prioridade | P2 |
+| Estimativa | S |
+| Dependências | — |
+| Bloqueia | — |
+| Responsável sugerido | Arquitecto de Plataforma |
+| Documentos de referência | `db/tests/base.py`, `db/gate_bd.py`, `db/bootstrap.py`, `../.github/workflows/ci.yaml` (job `gate-8-migracoes`), `../docs/seguranca/gerar_matriz.py`, `../docs/seguranca/ameacas_stride.md`, `../docs/seguranca/validar.py`, `../docs/seguranca/lacunas.md` (L-20), `../docs/dividas-documentais.md` (linhas 3 e 6) |
+
+### Contexto
+
+O ficheiro que levanta o PostgreSQL descartável e corre as suites dos *gates* 8 e 6 chama-se hoje **`db/gate_bd.py`**. Chamou-se `db/gate8.py`, e o nome antigo ficou pendurado em **8 ocorrências de 7 ficheiros** — **7 delas vivas, em 6 ficheiros**, sendo a oitava a linha 6 do registo de dívidas, que já a nomeava. Seis das vivas são prosa, comentário ou dados gerados; **uma é uma mensagem de erro que diz ao utilizador para correr um ficheiro que não existe**, e é a razão deste ticket:
+
+```python
+# db/tests/base.py, em exigir_base_descartavel()
+raise unittest.SkipTest(
+    f"KAMBA_DB_NAME={base!r} nao e {BASE_DESCARTAVEL!r}. Os testes do "
+    "gate 8 apagam o schema `platform` e so correm contra a base "
+    "descartavel que `python db/gate8.py` cria."
+)
+```
+
+Quem aponta a suite à base errada — por um `.env`, por uma variável herdada da *shell* — recebe esta mensagem, segue a instrução e recebe `No such file or directory`. O trinco funciona (recusa correr e não apaga a base de desenvolvimento); é a saída dele que mente sobre como sair da situação. É **o pior sítio** onde um caminho pendurado pode estar: a mensagem só aparece a quem já está perdido.
+
+**O nome `*_gate8` não é o defeito, e não se toca nele.** A base descartável chama-se `kamba_gate8`, o trinco é a igualdade a esse nome, e os contentores são `kamba-gate8-*` (`db/gate_bd.py` linhas 70 e 162, `db/tests/base.py` linha 26, `packages/core-ts/tests_bd/apoio.ts` linha 32). O próprio `db/gate_bd.py` di-lo por escrito: «o nome e o do trinco, e ficou do primeiro gate que o usou». São **25** ocorrências de `gate8` que são o nome do trinco e estão certas; o defeito são as **8** que são o caminho `gate8.py`. Confundir as duas coisas renomeava uma base de dados num ticket de uma linha.
+
+**Onde estava, medido e não lido.** O pedido deste ticket e o achado A10 da revisão adversarial do *fix* do `CODEOWNERS` nomeiam **três** sítios. São **7 ocorrências vivas em 6 ficheiros** (8 em 7, com a linha da dívida). **Cinco** ficheiros editam-se à mão; o sexto é o CSV, que se regenera:
+
+```text
+db/tests/base.py:8                         docstring                           (nomeado)
+db/tests/base.py:48                        mensagem de SkipTest <- o defeito   (nomeado)
+docs/seguranca/gerar_matriz.py:363         fonte da linha K-12 da matriz       (nomeado)
+docs/seguranca/matriz_conformidade.csv:67  K-12, gerado do anterior            (nomeado)
+docs/seguranca/ameacas_stride.md:90        prosa                               (nomeado)
+.github/workflows/ci.yaml:217              comentario do gate-8-migracoes      <- NAO nomeado
+db/bootstrap.py:26                         docstring                           <- NAO nomeado
+docs/dividas-documentais.md:32             a propria linha de divida           (consequencia)
+```
+
+Os dois não nomeados são da mesma classe e saem da mesma varredura; deixá-los de pé fechava o ticket com o defeito meio corrigido.
+
+**Porque é que nada apanhou isto.** O único mecanismo do repositório que resolve caminhos e nomes de teste nestes ficheiros é `../docs/seguranca/validar.py`, e ele **aborta antes de chegar lá**: tem a contagem de tickets fixada (`assert len(KAM) == 138`, com **150** no backlog), o que é o KAM-144 (`albinoJimy/kamba#42`, aberto). Relaxado o `assert`, dá **5** erros, dois deles estes. E `validar.py` **não está no CI** — é a lacuna **L-20** de `../docs/seguranca/lacunas.md` («o gate 3 só vê `KAM-NNN` e `ADR-NNN`; colunas, células vazias, caminhos e nomes de teste não têm gate»). Para `db/tests/base.py`, `db/bootstrap.py` e `../.github/workflows/ci.yaml` **não há mecanismo nenhum**, nem dentro nem fora do CI: nada no repositório verifica um caminho citado num *docstring* ou num comentário de Python ou de YAML.
+
+### Objectivo
+
+Nenhuma **citação viva** do caminho `db/gate8.py` fica no repositório, e a mensagem de erro do trinco do *gate* 8 passa a nomear um comando que corre. Sem tocar no nome do trinco `*_gate8`, que está certo.
+
+**«Viva» é a qualificação que falta ao absoluto, e o título deste ticket é a razão de ela ser precisa:** por embutir `db/gate8.py`, o título põe a cadeia de caracteres no §4 do `specs/INDICE.md` (a tabela-contrato do backlog), na tabela-resumo do §3 deste epic e em todo este bloco. Um título pelo sintoma — «o caminho do *gate* 8 numa mensagem que manda correr o ficheiro» — teria deixado a fasquia do pedido quase literal. A escolha está feita e não se desfaz aqui, mas é ela que obriga a medir por exclusão, e isso diz-se.
+
+### Critérios de Aceitação
+
+- [x] A mensagem de `SkipTest` de `db/tests/base.py::exigir_base_descartavel` nomeia `python db/gate_bd.py`, e esse comando é **válido como está escrito** — verificado contra o analisador de argumentos, não por semelhança de nome.
+- [x] O caminho `gate8.py` desaparece das **7** citações vivas dos **6** ficheiros (8 em `main` em `148567c`, contando a linha 6 da dívida) → **0**. A fasquia mede-se por **papel do ficheiro**, não por lista de nomes: são **registo** o `specs/` (blocos de ticket e backlog), o `../docs/analises/`, o `../docs/evidencia/` e o `../docs/dividas-documentais.md` — citam o caminho antigo porque é disso que falam —, e é **vivo** todo o resto (código, configuração, *workflows* e o desenho corrente). **A lista de nomes foi tentada primeiro e cresceu de 3 para 8 a cada documento escrito; uma lista que cresce assim não é um âmbito.** E há uma guarda sem excepção: **em qualquer ficheiro, incluindo os de registo, uma forma de comando (`python db/gate8.py`) fora de um bloco de código citado é sempre defeito** — é precisamente o que este ticket fecha, e os blocos de ticket levam «Handoff» com comandos, pelo que a exclusão por papel sozinha deixava passar a classe que o ticket existe para apanhar., que têm de citar o nome antigo para o poderem descrever: um ticket que documenta um caminho pendurado reintroduz a cadeia de caracteres, e isso é escrita e não defeito. **Por isso `grep -rn "gate8\.py" . → 0` é impossível à letra tanto quanto a fasquia do pedido**, e o âmbito está escrito em vez de presumido. O quarto documento é o bloco do KAM-149, que nasceu em `main` durante este trabalho.
+- [x] O nome do trinco fica intacto: **21** ocorrências em **21** linhas de ficheiros vivos, **iguais em `148567c`, em `origin/main` e aqui**, nenhuma tocada pelo `git diff`. **A evidência é a invariância, não o número:** contar o trinco em *todos* os ficheiros dá 26 em `148567c` e **157** aqui, porque o ticket se documenta a si mesmo — a partir de certo ponto essa contagem mede a prosa do ticket e não o repositório.
+- [x] A linha K-12 da matriz corrige-se **no gerador** (`../docs/seguranca/gerar_matriz.py`) e o CSV regenera-se por comando, não à mão. O CSV estava em sincronia com o gerador antes da alteração, e o *diff* do CSV é de **uma só linha**.
+- [x] `../docs/seguranca/validar.py` (com o `assert` da contagem relaxado **em memória**, porque corrigi-lo é o **KAM-149**) passa de **5** erros para **3**: os dois de `db/gate8.py` desaparecem e **nenhum erro novo aparece**. Os três que ficam são o nome de teste desactualizado, fora deste âmbito.
+- [x] A linha 6 de `../docs/dividas-documentais.md` **não se risca**: fecha metade. A metade do `db/gate8.py` sai da linha, a do nome de teste fica, e a linha diz que a primeira fechou aqui.
+- [x] Este ticket entra nos dois lados — linha em `specs/INDICE.md` §4 (sub-tabela do EPIC-01) e bloco `## KAM-152 — ` neste epic — com tipo, estimativa, prioridade, fase e dependências iguais, e com a sua própria reciprocidade fechada (`—`↔`—`).
+- [x] As contagens derivadas acompanham: `specs/INDICE.md` §1 e §3.1 passam a **151** tickets, com o EPIC-01 a **36**. O backlog fica **descontínuo** e os intervalos escrevem-se assim (`KAM-001 – KAM-150, KAM-152`): o **151** está reclamado por um ramo em voo e não tem bloco em `main`. O gate 3 expande intervalos, pelo que um intervalo fechado no 152 reprovaria o PR.
+- [x] `specs/EPIC-01_Fundacoes_Dados.md` e `specs/INDICE.md` registam a emenda no respectivo «Controlo de versões».
+
+### Verificação dos Critérios de Aceitação
+
+Entregue no PR `albinoJimy/kamba#55`, ramo `fix/KAM-152-caminho-gate8-pendurado`,
+a partir de `main` em `148567c` e **integrado com `main` em `5a9c53f`** (43 *commits* à frente, com os KAM-145 a KAM-149 nascidos entretanto). **Dezasseis caixas marcadas, uma vazia** (16 + 1 = 17): 9 nos Critérios de Aceitação e 8 no Definition of Done. **A primeira versão desta frase dizia «Dezassete marcadas, uma vazia (17 + 1 = 18)»**, e contava a caixa vazia duas vezes — 17 é o total de caixas, não o das marcadas. Apanhado por verificação independente, não pela leitura.
+
+**A linha de base, medida antes de tocar em nada:**
+
+```text
+Medido fora dos tres documentos que registam a mudanca de nome (este bloco, o
+§7 do specs/INDICE.md e a linha 6 da divida), que citam o nome antigo por oficio:
+
+antes  (main 148567c)   caminho gate8.py   7 ocorrencias / 7 linhas / 5 ficheiros
+                        (+1 na linha 6 da divida, que e a 8a de `main`)
+                        trinco *_gate8    26 ocorrencias / 25 linhas
+                        validar.py (assert relaxado em memoria) -> 5 erros
+                        CSV == saida do gerador                 -> 0 diferencas
+depois                  caminho gate8.py   0
+                        trinco *_gate8    26 ocorrencias / 25 linhas, intactas
+                        validar.py (assert relaxado em memoria) -> 3 erros, nenhum novo
+```
+
+| CA | Estado | Evidência |
+|---|---|---|
+| 1 — a mensagem nomeia um comando que corre | **satisfeito** | `db/tests/base.py:48` passa a `python db/gate_bd.py`. Que o comando é válido **sem argumentos** foi verificado no analisador e não presumido: `db/gate_bd.py:242-247` declara `--suite` com `default="tests"` e `choices=SUITES`, pelo que uma invocação nua corre a suite do *gate* 8, que é precisamente a que a mensagem manda correr. Era a parte que podia falhar em silêncio: um `--suite` obrigatório teria feito do caminho corrigido uma segunda instrução inválida, e a correcção mecânica do nome não o teria mostrado |
+| 2 — o caminho desaparece das citações vivas | **satisfeito** | `git grep -o -n \"gate8\.py\" -- . ':!specs/EPIC-01_Fundacoes_Dados.md' ':!specs/INDICE.md' ':!docs/dividas-documentais.md'` dá **7** em `148567c`, em **6** ficheiros, e **0** no ramo. Os sete, por ficheiro: `db/tests/base.py` (2), `../.github/workflows/ci.yaml` (1), `db/bootstrap.py` (1), `../docs/seguranca/gerar_matriz.py` (1), `../docs/seguranca/matriz_conformidade.csv` (1), `../docs/seguranca/ameacas_stride.md` (1); a oitava de `main` era a linha 6 da dívida. **A primeira versão desta linha dizia `grep -rn "gate8\.py" . → 0` sem âmbito, e era falsa**: este bloco cita o nome antigo para o poder descrever, e a varredura sem exclusões dá **23** no estado final (17 neste bloco, 2 no `specs/INDICE.md`, 1 no bloco do KAM-149 e 1 na linha da dívida). A primeira versão desta frase publicou **22**, que não reproduz em *commit* nenhum. É o defeito que o ticket nomeia, cometido pelo ticket — a mesma espécie que o KAM-144 registou no seu número de referências — e está corrigido com o âmbito escrito, não com o número ajustado |
+| 3 — o nome do trinco intacto | **satisfeito** | `git grep -o -P "gate8(?!\.py)"` sobre os ficheiros vivos dá **21** ocorrências em **21** linhas em `148567c`, **21/21** em `origin/main` e **21/21** aqui; o `git diff` não toca nenhuma. **Duas emendas, e a segunda é a que importa.** A primeira versão dizia «25 ocorrências», que é a contagem de *linhas* apresentada como contagem de ocorrências (a linha 140 da `ANALISE-03` tem duas) — corrigida para 26/25. A segunda veio da regra: sob o âmbito por papel o número é **21/21**, e contar todos os ficheiros passou de 26 para **157** à medida que este bloco e a evidência foram escritos. **Daí a afirmação ser a invariância e não o número** — um número que cresce com a prosa que o publica não é evidência de nada, e é a terceira vez que este ticket tropeça nessa mesma pedra. As 21 são: `BASE = "kamba_gate8"`, `BASE_DESCARTAVEL = "kamba_gate8"`, `kamba-gate8-{token}`, `*_gate8` e o `apoio.ts` do `core-ts` ficam por palavra. **É a caixa que torna a fasquia do pedido impossível à letra**: `grep -rn "gate8" → 0` exigiria renomear a base de dados, o trinco e os contentores. A fasquia cumprida é `gate8\.py` → 0, e a diferença está escrita aqui em vez de resolvida em silêncio |
+| 4 — K-12 pelo gerador, CSV regenerado | **satisfeito** | A alteração é em `../docs/seguranca/gerar_matriz.py:363`; o CSV sai de `python docs/seguranca/gerar_matriz.py docs/seguranca/matriz_conformidade.csv` («68 linhas»). Que o CSV estava em sincronia **antes** foi medido, não suposto: gerado para o scratchpad e comparado com `diff -u` contra o comprometido → **0 diferenças**. Sem essa medição, um CSV que já tivesse divergido teria entrado no *diff* deste ticket como se fosse dele. O `diff` do CSV é de **1 linha** (K-12) |
+| 5 — validar.py de 5 para 3 erros, nenhum novo | **satisfeito** | Antes: 5 erros — `matriz C-05` (teste inexistente), `matriz A-02` (controlo sem teste com caminho), `matriz A-02` (teste inexistente), **`matriz K-12: caminho inexistente db/gate8.py`**, **`ameacas_stride.md: caminho inexistente db/gate8.py`**. Depois: **3**, exactamente os três primeiros, conferidos por igualdade de texto e não por contagem. As restantes secções não se movem: MATRIZ 68×13, STRIDE 96/96 células, DPIA 12 operações, DOCS 5 ficheiros e 454 citações `CA n`. O `assert` da contagem foi relaxado **em memória** por um corredor do scratchpad que lê `validar.py`, substitui a linha e executa o resto — o ficheiro comprometido não foi tocado, e `git diff --stat` prova-o: `../docs/seguranca/validar.py` não aparece |
+| 6 — a linha 6 da dívida fecha metade | **satisfeito** | Reescrita, não riscada. Sai a metade do `db/gate8.py`; fica a do nome de teste `test_a_premissa_kamba_app_ve_zero_linhas` (hoje `test_a_premissa_kamba_app_sem_contexto_ve_zero_linhas`), que é código no gerador e não é deste âmbito. A coluna «Onde» perde `seguranca/ameacas_stride.md` e o `K-12` **por medição**: o nome de teste antigo está em `gerar_matriz.py` e no CSV (C-05 e A-02) e **não** está no `ameacas_stride.md` — era o `gate8.py` que lá estava, e saiu. A contagem da linha passa de «cinco erros» a «três», e o «backlog tem 142» a 144 |
+| 7 — o ticket nos dois lados, reciprocidade fechada | **satisfeito** | Linha no §4 (sub-tabela do EPIC-01, depois do KAM-144) e este bloco; `fix`/`S`/`P2`/fase `0`/`—` iguais nos dois lados. Os campos `Dependências` e `Bloqueia` ficam os dois a `—`: **não se declara dependência do KAM-149**, embora seja o seu `assert` que esconde o defeito. A correcção de um caminho em seis ficheiros não precisa de nada da entrega do KAM-149 — o grafo regista ordem técnica, não proveniência, e é o precedente que o KAM-144 fixou ao retirar o seu `KAM-129`. A linha do §3 «Tabela Resumo de Tickets» deste epic também entra |
+| 8 — contagens derivadas | **satisfeito** | Depois da integração de `main`: §1 `150 tickets atómicos` → **151**; §3.1 EPIC-01 `… KAM-128 – KAM-148, KAM-150, KAM-152` com `36` (era 35), TOTAL `KAM-001 – KAM-150, KAM-152` com `151`. **Os intervalos são descontínuos porque o 151 está reclamado por um ramo em voo e não tem bloco**, e um intervalo fechado no 152 — que esta linha não escreve, pela mesma razão — seria expandido pelo gate 3 até exigir o 151 no §4. A soma das onze linhas = 150 = linhas do §4 = blocos `## KAM-NNN — ` nos 11 epics, e o EPIC-01 tem **35** blocos para as **35** da sua linha. **O furo na numeração que a primeira versão deste bloco descrevia desapareceu**, e não por emenda: os identificadores 145 a 149 nasceram em `main` enquanto este ticket era escrito, e o KAM-152 volta a fechar o intervalo. A lição fica: **o gate 3 expande intervalos**, pelo que um intervalo fechado escrito sobre um backlog com furos reprova o PR — e foi o gate, não a leitura, que o apanhou, duas vezes neste ticket. A segunda foi a renumeração: substituir `KAM-150` por `KAM-152` em bloco reescreveu também os intervalos **que estavam certos**, e o verificador apanhou os quatro |
+| 9 — «Controlo de versões» nos dois documentos | **satisfeito** | `specs/EPIC-01_Fundacoes_Dados.md` v1.18 e `specs/INDICE.md` §7 v1.11 |
+| DoD — todos os CA satisfeitos e demonstráveis | **satisfeito** | Os nove acima, cada um com o comando e o número |
+| DoD — revisto por ≥ 1 revisor | **não satisfeito** | **Zero revisores humanos.** A revisão adversarial é evidência, não é um revisor (`specs/01_Engineering_Standards_e_Handoff.md`, DoD) |
+| DoD — documentação actualizada; Conventional Commits | **satisfeito** | As duas linhas de versão (CA 9); *commits* `fix(KAM-152): …` |
+| DoD — sincronia mestre↔epics, segunda passagem a 0 | **satisfeito** | Sincronia nos cinco campos comuns e existência nos dois lados → 0 divergências, nas duas passagens, sem alterações entre elas |
+| DoD — reciprocidade | **satisfeito** | O ticket não declara aresta nenhuma, e isso é medido e não assumido: entra nos 145 blocos que a verificação percorre, e um `Dependências` ou `Bloqueia` aqui sem o outro lado contaria como falha |
+| DoD — referências | **satisfeito** | `lint_refs --root . check` → «conforme — **11 429** referências em **553** ficheiros (KAM 8 662, ADR 1 609, D 1 158); KAM: **145**», com o KAM-152 já reconhecido. **O número foi remedido depois de esta linha o escrever, e é essa a medição publicada:** as primeiras diziam 11 427 e 11 428, colhidos antes de a linha existir, e a própria frase acrescentou um *token* `KAM-152`. É o defeito que o KAM-144 registou no mesmo campo, e a defesa é remedir no estado final e confirmar que já não se move. Emite **26** avisos de *tokens* `D#` fora do intervalo canónico, todos pré-existentes em `main`: «conforme» é o veredicto, não a ausência de avisos. `canon_lint check` e `canario` rc=0; `lint_arch all` → «lista de bloqueio: conforme», «estrutura: conforme». Todos os caminhos citados neste bloco resolvem, verificados um a um; a revisão adversarial que nomeia o achado A10 **não** é citada por caminho, por viver no ramo de `albinoJimy/kamba#47`, aberto, e não existir em `main`. **O gate reprovou duas vezes antes disto, e as duas foram deste ticket:** primeiro cinco identificadores reservados escritos em prosa com o prefixo, depois — e esta é a que importa — **quatro intervalos fechados no último ID**, em `specs/INDICE.md` §1, §3.1 e §7 e na linha 8 desta tabela, porque o gate **expande intervalos** e um intervalo que termine em KAM-152 exige que os cinco identificadores sem bloco existam. O número exacto de achados de cada uma das duas passagens **não foi registado antes de as corrigir** e por isso não se publica aqui: é `NÃO VERIFICADO`, e dizê-lo custa menos do que um número que não reproduz |
+| DoD — sem segredos | **satisfeito** | Medido, não declarado não aplicável |
+| DoD — defeitos fora do âmbito registados, não corrigidos aqui | **satisfeito** | **(a)** O nome de teste desactualizado (3 erros do `validar.py`), que fica na linha **6** de `../docs/dividas-documentais.md`, reescrita e não riscada. **(b)** A tabela-resumo do §3 deste epic não tem linha para os KAM-129, KAM-130 e KAM-144; a linha **3** da dívida já os nomeia — **a primeira versão deste ticket reclamava ter descoberto e registado a do KAM-144, e isso deixou de ser verdade com a integração de `main`, onde outro PR já a tinha inscrito**. A linha do KAM-152 entrou, porque um ticket tem de ser consistente consigo; as dos outros três não, porque são ticket alheio. **(c)** Uma **regressão de reciprocidade que veio de `main`**, medida e não corrigida: o KAM-148 declara `Dependências | KAM-136` e o `Bloqueia` do KAM-136 está a `—`. É exactamente a falha que o KAM-144 fechou oito vezes e cuja causa nomeou — o KAM-138 (*gate* 3c) não está implementado —, e reapareceu no primeiro ticket inscrito depois dele, o que confirma a previsão do KAM-144 em vez de a refutar. Registada na linha **26** de `../docs/dividas-documentais.md` (e a linha **27** leva os *placeholders* `#PR` que ficaram na análise e na evidência do KAM-148, um a nomear o ticket errado — terceira ocorrência da mesma classe); corrigi-la aqui seria alterar o campo de outro ticket a pretexto de um `fix` de texto. **(d)** Uma alteração fora de `FILES_IN_SCOPE`, declarada: o bloco do KAM-149 em `specs/EPIC-07_Seguranca_Conformidade.md` dizia que a linha 6 da dívida «nomeia dois», e este ticket fecha um deles. Ficaria a contradizer a linha 6 — contradição criada por este diff —, pelo que a frase foi emendada para nomear o que fechou e o que fica. É a única alteração a um bloco de outro ticket, e é tecnicamente necessária |
+
+#### O que a revisão encontrou, e o que se fez
+
+A revisão adversarial está em [`ANALISE-19`](../docs/analises/ANALISE-19-KAM-152-caminho-gate8-pendurado.md).
+
+#### O ID mudou duas vezes debaixo do ticket, e isso é o registo
+
+Medido sobre a **união** de duas bases, e é a união que importa: os **nomes** de `refs/heads` e `refs/remotes` (o `pre-push` faz de um nome de ramo uma reclamação) **e os conteúdos** dessas refs (um bloco `## KAM-NNN — ` dentro de um ramo reclama o ID sem que o nome o diga). Nenhuma das duas sozinha responde: sobre nomes apenas, o 146 e o 147 não apareciam; sobre conteúdos apenas, o 149 estava livre.
+
+**À primeira medição, o 150 era a única vaga** — 145 a 149 tinham bloco ou nome de ramo, e o 151 já estava reclamado por `fix/KAM-148-cobertura-python-do-agr`. O ticket foi escrito como KAM-150. Enquanto o era, **o `albinoJimy/kamba#47` fundiu e levou o 150** para as regras de `CODEOWNERS`, e os 145 a 149 chegaram a `main` pelos PRs #45, #38 e #42. Renumerou-se para **152**, a primeira vaga livre sobre as duas bases depois dessas fusões.
+
+**A lição não é «medir melhor»: é que num backlog com seis sessões a fundir em paralelo o ID só está seguro depois do *merge*.** A medição estava certa quando foi feita e ficou errada sem que nada neste ramo mudasse. O que a torna recuperável é ter sido medida por comando e registada com a sua base, em vez de escolhida de memória — e é também por isso que as contagens deste ticket se fecham **depois** de integrar `main`, e não antes.
+
+**O 151 continua reclamado e sem bloco em `main`**, pelo que o backlog fica descontínuo e os intervalos escrevem-se `KAM-001 – KAM-150, KAM-152`. Não é estilo: **o gate 3 expande intervalos** (`tools/lint_refs/scan.py`), e um intervalo fechado no 152 exigiria que o 151 existisse no §4 — razão por que nenhuma frase deste bloco o escreve fechado, e por que a renumeração em bloco, que reescreveu quatro intervalos correctos, teve de ser desfeita à mão.
+
+#### A causa não é corrigida aqui
+
+**Nada no repositório verifica um caminho citado em código.** O `validar.py` resolve caminhos, mas só nos ficheiros de `../docs/seguranca/`, e **não corre no CI** — é a lacuna **L-20**, que já tem dono declarado («Ticket novo, com o script do anexo A como ponto de partida») e não se abre aqui. Para `db/tests/base.py`, `db/bootstrap.py` e `../.github/workflows/ci.yaml` não há mecanismo nenhum: o *gate* 3 (`tools/lint_refs`) vê `KAM-NNN`, `ADR-NNN` e `D#`, e **não vê caminhos**. Este `fix` paga oito ocorrências; não impede a nona, e a nona reaparece no próximo ficheiro que mude de nome.
+
+**Não se acrescentou teste de regressão, e isso é uma decisão.** Um teste que afirmasse que o caminho nomeado na mensagem de `SkipTest` existe guardaria **esta** linha e nenhuma outra, viveria em `db/tests/`, que só corre com Docker dentro do *gate* 8, e daria a aparência de uma classe de defeito fechada quando o que ficava coberto era uma ocorrência. A cobertura da classe é o L-20 alargado a `db/` e a `../.github/`, não um `assert` sobre uma *f-string*. **A decisão de alargar o L-20 a caminhos citados em código fica devolvida ao Arquitecto de Plataforma**, com este ticket como o seu segundo caso medido.
+
+### Detalhes Técnicos
+
+- **Componentes:** transversal. Uma mensagem de erro em `db/tests/base.py`, dois *docstrings*, um comentário de YAML e a fonte de uma linha da matriz de conformidade. Sem migrações, sem dependências novas, sem alteração de comportamento: o trinco recusa exactamente os mesmos casos, antes e depois.
+- **A correcção é de texto, e o texto é a interface.** `exigir_base_descartavel` não muda de condição nem de excepção; muda o que diz a quem a vê. Num trinco, a mensagem **é** a funcionalidade — é o único caminho de saída que o utilizador recebe.
+- **O CSV não se edita.** `../docs/seguranca/matriz_conformidade.csv` é gerado; o seu cabeçalho e o de `gerar_matriz.py` dizem-no («Edita-se esta lista e nao o CSV»). Editar a linha K-12 à mão passaria o `validar.py` e voltaria atrás na geração seguinte.
+- **Fora de âmbito:** corrigir o `assert len(KAM) == 138` de `../docs/seguranca/validar.py` — é o **KAM-149**, que está no backlog (EPIC-07) e **não está implementado**: medido, a linha 43 continua a fixar 138, e o `merge` do `albinoJimy/kamba#42` não tocou o ficheiro. O relaxamento usado aqui foi **em memória**, e `git diff` prova que o ficheiro não entrou no *diff*; pôr o `validar.py` no CI, ou alargá-lo a `db/` e `../.github/` — é o **L-20**; corrigir o nome de teste `test_a_premissa_kamba_app_ve_zero_linhas` no gerador, que fica na linha 6 da dívida; acrescentar à tabela-resumo do §3 as linhas em falta dos KAM-129, KAM-130 e KAM-144 — linha 3 da dívida; renomear `kamba_gate8`, `*_gate8` ou `kamba-gate8-*`; a contagem de tickets do `README.md` — é o **KAM-130**.
+
+### Testes Requeridos
+
+- Verificação por máquina, corrida **antes e depois**, com os dois números no PR:
+
+```text
+P0   forma de comando `python db/gate8.py` fora de um
+     bloco citado, em QUALQUER ficheiro                   antes 2    ->  alvo 0
+P1   caminho gate8.py em ficheiros VIVOS (papel: nao
+     specs/, analises/, evidencia/, dividas)              antes 7    ->  alvo 0
+P2   trinco: gate8 NAO seguido de .py, ficheiros vivos    antes 21   ->  alvo 21 (invariante)
+P3   validar.py com o assert relaxado em memoria          antes 5    ->  alvo 3, nenhum novo
+P4   diff do CSV contra a saida do gerador                antes 0    ->  alvo 0 (1 linha mudada)
+P5   `--suite` tem default, logo `python db/gate_bd.py`
+     e uma invocacao valida                               -> confirmado no analisador
+S1   sincronia mestre<->epics e existencia nos dois lados  antes 0    ->  alvo 0
+S7   contagens derivadas (§1, §3.1, TOTAL) contra os
+     blocos e as linhas do §4                             antes 0    ->  alvo 0
+S8   intervalos `KAM-NNN a KAM-NNN` que se expandam
+     para um ID sem bloco (e o que o gate 3 faz)          antes 0    ->  alvo 0
+     (com o backlog contiguo da-se de gracas; fica porque
+      o proximo furo volta a reprovar o PR)
+```
+
+- Segunda passagem de P1–P4 e S1/S7: **0 alterações**.
+- `git diff --stat` revisto linha a linha: o *diff* toca só as oito ocorrências do caminho, as linhas 3 e 6 da dívida, o bloco novo, as duas linhas do backlog, as contagens e as duas linhas de versão.
+
+### Definition of Done
+
+- [x] Todos os Critérios de Aceitação satisfeitos e demonstráveis, com secção «Verificação dos Critérios de Aceitação» neste bloco: uma linha por critério, com o comando e o número que saiu.
+- [ ] Revisto por ≥ 1 revisor.
+- [x] Documentação actualizada: «Controlo de versões» de `specs/EPIC-01_Fundacoes_Dados.md` e de `specs/INDICE.md`; Conventional Commits.
+- [x] **Sincronia mestre↔epics** — a linha do §4 e este bloco dizem o mesmo; segunda passagem a 0 divergências.
+- [x] **Reciprocidade** — `—`↔`—`, contada entre os 145 blocos.
+- [x] **Referências** — nenhum `KAM-NNN` citado deixou de existir; todos os caminhos citados resolvem.
+- [x] **Sem segredos** — medido.
+- [x] Defeitos encontrados fora do âmbito registados em `../docs/dividas-documentais.md`, não corrigidos aqui.
+
+### Handoff para Claude Code
+
+```text
+Es o executor do ticket KAM-152 da KAMBA. Le specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-152).
+Objectivo: a mensagem de erro do trinco do gate 8 deixa de mandar correr um ficheiro que nao existe.
+- Varre `gate8\.py` ANTES de editar, e conta. O pedido nomeia tres sitios; sao cinco ficheiros e oito
+  ocorrencias. Corrigir so os tres nomeados fecha o ticket com o defeito meio corrigido.
+- NAO toques no nome do trinco: `kamba_gate8`, `*_gate8` e `kamba-gate8-*` estao CERTOS, e
+  `grep -rn "gate8" -> 0` so se cumpriria renomeando a base de dados. A fasquia e `gate8.py` -> 0,
+  e a diferenca escreve-se, nao se resolve em silencio.
+- Define o ambito por PAPEL do ficheiro, nao por lista de nomes: specs/, docs/analises/,
+  docs/evidencia/ e dividas-documentais.md sao REGISTO (citam o caminho antigo porque e disso que
+  falam); o resto e VIVO. Tentei a lista de nomes primeiro: cresceu de 3 para 8 a cada documento que
+  escrevi, e uma lista que cresce assim nao e um ambito.
+- E poe uma guarda SEM EXCEPCAO: uma forma de comando (`python db/gate8.py`) fora de um bloco de
+  codigo citado e defeito em QUALQUER ficheiro — o Handoff de um ticket leva comandos, e e essa a
+  classe que este ticket fecha.
+- Afirma a INVARIANCIA do trinco, nao o seu numero: o numero muda com a regra de contagem e cresce
+  com a tua propria prosa (26 -> 157 enquanto escrevia). Mede-o em main e no ramo e mostra que e
+  igual; conta OCORRENCIAS e nao linhas, que `grep -c` conta linhas.
+- Confirma no analisador de argumentos que `python db/gate_bd.py` e valido SEM argumentos antes de o
+  escrever na mensagem. Trocar um caminho invalido por um comando invalido nao e corrigir nada.
+- A linha K-12 da matriz corrige-se em docs/seguranca/gerar_matriz.py e o CSV REGENERA-SE por comando.
+  Mede primeiro que o CSV estava em sincronia com o gerador, senao a divergencia antiga entra no teu diff.
+- Corre docs/seguranca/validar.py antes e depois. O assert da contagem fixada aborta-o: relaxa-o EM
+  MEMORIA (le o ficheiro, substitui a linha, executa), NAO no ficheiro — e o ambito do KAM-149.
+  Antes 5 erros, depois 3, e confere os tres por TEXTO e nao por contagem.
+- A linha 6 de docs/dividas-documentais.md NAO se risca: fecha metade. Sai o gate8.py, fica o nome de
+  teste. Confere por medicao quais os ficheiros que ainda citam o nome de teste antes de reescrever a
+  coluna «Onde» — nao e onde a linha diz que e.
+- Actualiza as contagens do specs/INDICE.md §1 e §3.1 (total, linha do EPIC-01 e TOTAL).
+- Integra origin/main ANTES de fechar as contagens: enquanto escreves, outras sessoes fundem
+  tickets e o total muda debaixo de ti. E se o backlog tiver furos, NAO escrevas intervalos
+  fechados (`KAM-001 a KAM-NNN`): o gate 3 EXPANDE intervalos e exige que cada ID exista no §4.
+Nao expandas escopo: NAO corrijas o assert do validar.py (KAM-149); NAO o ponhas no CI nem o alargues a
+db/ (L-20); NAO corrijas o nome de teste no gerador; NAO acrescentes as linhas em falta dos KAM-129,
+KAM-130 e KAM-144 a tabela-resumo do §3 (linha 3 da divida); NAO acrescentes teste de regressao — a
+decisao de alargar o L-20 fica devolvida ao Arquitecto de Plataforma.
+Abre PR com o template do §7.
+```
+
+---
+
+## KAM-151 — Cobertura Python sobre `services/agr/src/`, que nenhum alvo media
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-01 — Fundações e Dados |
+| Fase | 1 |
+| Tipo | fix |
+| Prioridade | P2 |
+| Estimativa | S |
+| Dependências | KAM-132 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Plataforma (dono do gate 4) |
+| Documentos de referência | `../docs/ci.md` (§3 gate 4, §7 lacunas 25 e 26), `../docs/evidencia/KAM-132.md` §4, `../docs/evidencia/KAM-151.md`, `../docs/analises/ANALISE-18-KAM-151-cobertura-python-do-agr.md`, `specs/01_Engineering_Standards_e_Handoff.md` §4.1, `ci/thresholds.yaml`, `Makefile` (alvo `coverage-python`) |
+
+### Contexto
+
+O `ci/thresholds.yaml` decide **quem é medido** e não só com que limiar, e põe
+`services/*/src/**` no estrato `restante`. Os três ficheiros de
+`services/agr/src/kamba_agr/` (`__init__.py`, `app.py`, `meta.py`) estão
+portanto declarados no âmbito do *gate* 4. Mas o `make coverage-python` mede
+`tools/` e `libs/py-core/src`, e mais nada: os do AGR nunca entraram no
+denominador. **E a suite existia**: `services/agr/tests/` tem nove testes que
+exercitam esses ficheiros a fundo, e corre em `make test-py` desde o KAM-001.
+Faltava a medição, não os testes.
+
+A consequência era precisa: alguém mexer naqueles ficheiros, ou acrescentar
+Python ao AGR sem testes, não movia o número do *gate* 4. O limiar de 75%
+aplicava-se a uma amostra que não incluía o serviço.
+
+**Porque não entrou no KAM-132.** O KAM-132 fechou a mesma classe de defeito do
+lado Node — âmbito declarado, medição em falta — e **mediu e declarou esta**,
+como lacuna 25, sem a fechar, por duas razões escritas: a cura é cablagem do
+alvo de Python e não avaliação, e a via que o KAM-132 usou do lado Node
+(`universo()`, que injecta a 0% o que nenhum relatório mediu) **não serve para
+`.py`**, porque injectar um `.py` exigiria contar **instruções**, que é a régua
+do `coverage.py`, e não o número de linhas do ficheiro, que é o que se sabe
+calcular sem executar nada.
+
+**O que a lacuna não dizia, e é metade deste ticket:** do lado Python o universo
+não tem gate nenhum. O `universo()` protege o lado Node de um ficheiro novo sem
+testes; do lado Python a garantia é a cablagem do alvo, e uma cablagem
+incompleta não deixa nada vermelho. Foi assim que estes três ficheiros ficaram
+fora do denominador desde o KAM-002 sem ninguém notar.
+
+### Objectivo
+
+Medir o Python que o `ci/thresholds.yaml` declara — todo — e pôr a **falta de um
+`--source=`** a falhar um teste, para que a próxima pasta de `.py` do âmbito não
+repita a lacuna em silêncio.
+
+### Critérios de Aceitação
+
+- [x] **`make coverage-python` mede `services/agr/src/`**, correndo a suite que já existe sob `coverage run --source=services/agr/src`, e funde o LCOV com os outros — como o alvo já fazia para `libs/py-core`. Verificado por execução: os três ficheiros passam de ausentes a medidos no relatório do *gate*.
+- [x] **O «antes» e o «depois» ficam medidos, não estimados**, com o mesmo conjunto de relatórios avaliado nas duas situações, para que a única variável seja a medição nova.
+- [x] **Um `.py` do âmbito que nenhum `--source=` meça falha um teste.** O universo sai do próprio `ci/thresholds.yaml` — os `padroes` dos estratos menos os `excluidos` —, e não de uma lista escrita no `Makefile` que divergisse dele. Verificado por execução nos dois sentidos: vermelho antes da correcção, verde depois.
+- [x] **O ticket não baixa o limiar.** Registado o número medido; se o estrato descesse abaixo dos 75%, o ticket nomeava os ficheiros a cobrir e devolvia a decisão ao dono do *gate* 4 — o limiar é *proposta* do `specs/01_Engineering_Standards_e_Handoff.md` §4.1 e altera-se por emenda registada, com os dois revisores que o DoD do KAM-002 exige para mexer em limiares. **Não foi preciso: o estrato ficou em 91%, com os mesmos 16 pontos de margem.**
+- [x] **O que fica sem cobertura fica nomeado** — ficheiro, e as linhas quando o ficheiro está parcialmente coberto —, com a razão, em vez de se cobrir com um teste escrito só para subir o número.
+- [x] A lacuna 25 fica fechada em `../docs/ci.md` §7 e a linha do *gate* 4 de `../docs/seguranca/lacunas.md` deixa de a listar como sem dono.
+
+### Verificação dos Critérios de Aceitação
+
+Entregue no PR [`albinoJimy/kamba#53`](https://github.com/albinoJimy/kamba/pull/53), a partir de `f4c7e3d` (o *merge* do KAM-132). Medido a 2026-10-12. Não há `make` nem
+`node` na máquina de medição: os alvos correram em `node:24.21.0-trixie-slim`
+com `make`, `python3`, `python3-venv` e `git` instalados por `apt-get`, sobre uma
+cópia da árvore de fontes no disco do contentor — o comando é o mesmo, o que
+muda é onde o `make` corre. O detalhe com os comandos está em
+[`../docs/evidencia/KAM-151.md`](../docs/evidencia/KAM-151.md). Cada caixa
+marcada acima tem uma linha aqui; **a do DoD que não se cumpre também**.
+
+| CA | Estado | Evidência |
+|---|---|---|
+| CA1: o alvo mede `services/agr/src/` | **satisfeito** | O `make ci-4` passa de 8 para 9 relatórios LCOV e de 142 para 146 ficheiros medidos; os três do AGR entram no estrato `restante`, que vai de 100 para 103 ficheiros. O quarto ficheiro medido é o `__main__.py`, que o `ci/thresholds.yaml` exclui e o *gate* conta como excluído (13 → 14) |
+| CA2: o antes e o depois medidos | **satisfeito** | Par perfeito, o **mesmo** conjunto de relatórios avaliado com e sem o do AGR. Medido duas vezes, porque o `main` andou cinco vezes entretanto, e **o delta é idêntico nas duas**: em `f4c7e3d` (onde o ticket era o KAM-148), `restante` **91%** 9652/10526 em 100 ficheiros → **91%** 9681/10557 em 103; na árvore que funde, **92%** 9880/10730 em 100 → **92%** 9909/10761 em 103. Em ambas: **+29** no numerador, **+31** no denominador, **+3** ficheiros, e a percentagem não se move. O absoluto subiu entre as duas porque o KAM-148 acrescentou código testado a `tools/`, que está no estrato — **não** por causa deste ticket. O `critico` fica intacto nas duas (94%, 4802/5055, 29 ficheiros). Os três ficheiros do âmbito saem a **93%** (29/31 instruções) nas duas |
+| CA3: a falta de `--source=` falha um teste | **satisfeito** | `TestCoberturaPythonMedeOAmbito` em `tools/lint_arch/tests/test_makefile.py`, quatro testes. Com o `Makefile` de `HEAD` (sem a correcção), dois ficam vermelhos e nomeiam os três ficheiros; a mensagem é `services/agr/src not found in {tools, libs/py-core/src}`. Com a correcção, os quatro verdes |
+| CA4: o limiar não baixa | **satisfeito** | Vacante: **o limiar não foi tocado**. O `ci/thresholds.yaml` mantém 90/75 e este ticket não lhe altera uma linha. O `restante` ficou em 91% contra 75%, pelo que não houve decisão para devolver ao dono do *gate* 4 — e **não havia como a adiar**: o número mediu-se antes de se escrever este bloco |
+| CA5: o que fica sem cobertura nomeado | **satisfeito** | Nenhum ficheiro ficou a zero; o que ficou descoberto são **duas instruções**, as linhas 16 e 18 de `services/agr/src/kamba_agr/__init__.py`: o corpo de `kamba_agr.create_app()`, a fachada de importação tardia que existe para `meta` ser legível sem Starlette instalado. Nenhum teste a chama, porque os testes importam `kamba_agr.app.create_app` directamente. O `app.py` e o `meta.py` saem a **100%**, e o `__init__.py` a 60%. Fica nomeado aqui, no `../docs/ci.md` §7 e na evidência §2 e §6, para o dono do *gate* 4 decidir se quer um teste à fachada |
+| CA6: lacuna 25 fechada | **satisfeito** | `../docs/ci.md` §7 item 25 riscado e com «**Fechada pelo KAM-151**», com o que fica aberto nomeado; `../docs/seguranca/lacunas.md` linha do *gate* 4 deixa de a listar — a tabela é de **limites vivos**, e um limite que já não existe não pertence lá (a história fica no `../docs/ci.md` §7 e §9). A mesma linha ganha a **lacuna 26** |
+| Prova por mutação | **satisfeito** | `tools/lint_arch/tests/mutacoes.py` — o cabeçalho manda correr quando se mexe no `coverage_gate`, nos limiares ou no alvo, e este diff mexe em dois. **28 mutações: 28 apanhadas, 0 sobreviventes**, de 24 que eram: quatro novas `cablagem:` provam que a cablagem do lado Python morde (o `--source=` do AGR trocado, o LCOV fora do `glob` do *gate*, o LCOV com nome que não resolve, e o bloco movido para antes do `coverage lcov` do `libs`). Sem elas, a propriedade ficava provada por uma execução pontual e não por oráculo permanente. E `python db/mutacoes.py --aplicaveis` → **138 conferidas, 0 não aplicáveis** |
+| DoD: todos os CA satisfeitos | **satisfeito** | Os seis acima, com evidência em [`../docs/evidencia/KAM-151.md`](../docs/evidencia/KAM-151.md) |
+| DoD: revisto por ≥ 1 revisor | **não satisfeito** | A caixa fica vazia. Houve revisão adversarial independente ([`ANALISE-18`](../docs/analises/ANALISE-18-KAM-151-cobertura-python-do-agr.md): 2 maiores, 6 menores, 2 suspeitas, todas tratadas), e **isso é evidência, não é um revisor**; e o limiar não foi alterado, pelo que a regra dos dois revisores do DoD do KAM-002 não se aplica a este diff. Em todos os tickets desta fase a caixa está vazia, por decisão do fundador: funde-se com o CI verde, sem esperar revisão humana |
+| DoD: documentação | **satisfeito** | `../docs/ci.md` §3 (as duas afirmações de âmbito), §7 (lacuna 25) e §9 (versão); `../docs/seguranca/lacunas.md`; `specs/INDICE.md` §4, as três contagens e a versão 1.10; este bloco. Conventional Commits |
+| DoD: sem segredos | **satisfeito** | Não aplicável: não acrescenta configuração nem credenciais |
+| DoD: dependências | **satisfeito** | Nenhuma nova. O `coverage` já estava no `.venv` por `tools/requirements/tools.in`, e o `starlette` do AGR por `services/agr/requirements/runtime.txt` — ambos instalados pelo `make bootstrap` e em cache no *runner* do *gate* 4 |
+| DoD: emenda ao limiar registada | **satisfeito** | Vacante: **o limiar não foi emendado** |
+
+> **O que isto custa, dito com clareza.** O número do estrato **não se moveu**, e
+> isso não é o ticket a não fazer nada: é a medição a dizer que o código que
+> estava invisível já estava testado. O que mudou é que deixa de o estar por
+> acidente. A propriedade que o ticket entrega não é um número melhor, é um
+> número que **reage**, e isso mediu-se em vez de se prometer: um módulo de 840
+> instruções sem testes em `services/agr/src/` leva o `restante` de 91% a
+> **84%**, e antes deste ticket movia **zero**.
+>
+> **O que o ficheiro não faz, e uma versão anterior deste bloco dizia que fazia:**
+> esse `.py` **não sai nomeado** no relatório do *gate*. O `coverage_gate` imprime
+> nomes só do que **injecta**, e injecta apenas o que o Node executa; um `.py`
+> entra por medição e nunca passa por ali. A frase vinha do `../docs/ci.md` §3,
+> onde descreve o caso Node e está certa. Fica registada como **lacuna 26**,
+> destapada por este ticket e devolvida ao dono do *gate* 4: nomear o que foi
+> medido é mexer no relatório para todos os estratos e nas duas linguagens.
+>
+> **E fica dito o que este ticket não fecha.** A lacuna 23 continua aberta e este
+> ticket toca-lhe: as 31 do AGR são **instruções** do `coverage.py`, enquanto as
+> 10 526 do estrato misturam instruções (do Python) com linhas de ficheiro (do
+> Node). Somar as duas num só agregado é o que a lacuna 23 nomeia, e este ticket
+> acrescenta-lhe uma terceira parcela sem a resolver — o que a torna um pouco
+> mais urgente, não menos. A lacuna 24 (um ficheiro que nenhum estrato
+> classifica) também não é deste ticket, e a **26** é nova — saiu desta entrega,
+> ao desmentir-se uma frase que este bloco afirmava.
+
+### Detalhes Técnicos
+
+- **Componentes:** `Makefile` (alvo `coverage-python`), `tools/coverage_gate.py` (o comentário de `EXTENSOES_DO_UNIVERSO`, que afirmava a lacuna, e o parâmetro `extensoes` de `universo()`), `tools/lint_arch/tests/test_makefile.py` (a classe nova).
+- **A cura é no alvo, não na avaliação.** O `universo()` fica a contar só o que o Node executa. Do lado Python o `coverage run --source=<pasta>` já percorre o disco e mede o que não é importado: o que faltava era uma pasta na lista, não um mecanismo novo.
+- **O nome do LCOV não é livre.** O `coverage_gate.base_do_nome` lê o pacote do nome do ficheiro: `python-agr.lcov` dava a base `agr`, que não é família nenhuma; usa-se `python-services-agr.lcov`, que dá `services/agr`. Preso por teste.
+- **A ordem dos blocos do alvo importa.** `coverage run` sem `--append` apaga o ficheiro de dados, pelo que o bloco novo corre **depois** do `coverage lcov` do `libs/py-core`. Preso por teste, porque um bloco inserido no meio deixava o outro com um relatório vazio e sem erro.
+- **Fora de âmbito:** a definição de «linha» nos dois lados (lacuna 23); um ficheiro que nenhum estrato classifica (lacuna 24); **nomear no relatório do *gate* um `.py` medido a 0% (lacuna 26, destapada por este ticket)**; medir `db/**`, que o `ci/thresholds.yaml` exclui com razão escrita; cobrir a fachada `kamba_agr.create_app()`, que fica nomeada e sem teste.
+
+### Testes Requeridos
+
+- Unit: `TestCoberturaPythonMedeOAmbito` — todo o `.py` do âmbito cai sob um `--source=`; o AGR é medido pelo nome; cada `coverage run` escreve o seu LCOV antes do próximo; o nome de cada LCOV resolve para uma pasta real.
+- Integração: `make ci-4` completo, nos dois estados, com o par de números por estrato.
+- Regressão de desenho: o teste do âmbito corrido contra o `Makefile` de `HEAD`, para provar que fica **vermelho** sem a correcção — um teste que passasse nos dois estados não provaria nada.
+- Prova por mutação: quatro mutações `cablagem:` novas em `tools/lint_arch/tests/mutacoes.py`, que desfazem a cablagem de quatro maneiras e exigem que as baterias fiquem vermelhas.
+
+### Definition of Done
+
+- [x] Todos os Critérios de Aceitação satisfeitos e demonstráveis (evidência em `docs/evidencia/KAM-151.md`, com o «antes» e o «depois» do valor medido).
+- [ ] Código revisto por ≥ 1 revisor, **2 se o limiar for alterado** (DoD do KAM-002); testes verdes.
+- [x] Documentação actualizada: `../docs/ci.md` §3 (as duas afirmações de âmbito), §7 (lacuna 25 fechada) e §9; `../docs/seguranca/lacunas.md` (linha do *gate* 4); Conventional Commits.
+- [x] **Sem segredos** — não aplicável: não acrescenta configuração nem credenciais.
+- [x] **Dependências** — nenhuma nova: o `coverage` e o `starlette` já estavam no `.venv`.
+- [x] Se o limiar do §4.1 for emendado, a emenda fica registada no `specs/01_Engineering_Standards_e_Handoff.md` §4.1 e em `ci/thresholds.yaml`, com dono e data — não só no código. **Vacante: o limiar não foi emendado.**
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-151 da KAMBÁ. Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-151).
+Objectivo: o gate 4 passa a medir o Python que o ci/thresholds.yaml declara — todo.
+- Makefile, alvo `coverage-python`: um terceiro `coverage run --branch
+  --source=services/agr/src` sobre a suite de services/agr/tests, e o seu
+  `coverage lcov` para ci/coverage/python-services-agr.lcov. Corre DEPOIS do
+  `coverage lcov` do libs/py-core: `coverage run` sem `--append` apaga os dados.
+- O nome do LCOV tem de ser `python-services-agr.lcov`: o coverage_gate le o
+  pacote do nome do ficheiro, e `python-agr.lcov` da a base `agr`, que nao existe.
+- tools/lint_arch/tests/test_makefile.py: classe nova que le o ambito do
+  ci/thresholds.yaml e falha quando um `.py` do ambito nao tem `--source=`.
+  Prova-a contra o Makefile de HEAD: tem de ficar VERMELHA sem a correccao.
+- Mede o par (com e sem o relatorio do AGR) e poe os quatro numeros por estrato
+  em docs/evidencia/KAM-151.md §4. NAO baixes o limiar: se o estrato descer
+  abaixo de 75%, nomeia os ficheiros e devolve a decisao ao dono do gate 4.
+- Fecha a lacuna 25 em docs/ci.md §7 e actualiza a linha do gate 4 em
+  docs/seguranca/lacunas.md.
+Nao expandas escopo: nao mexas no universo() para injectar `.py` (a regua do
+coverage.py sao instrucoes); nao resolvas a lacuna 23 nem a 24; nao cubras a
+fachada kamba_agr.create_app() — nomeia-a.
+Abre PR com o template do §7.
+```
+
 ---
 
 ## Controlo de versões
@@ -4345,3 +4722,5 @@ lado de cada um; a revisão adversarial está em
 | 1.20 | Outubro 2026 | Quarto critério de aceitação do KAM-136 emendado, fechando a primeira decisão devolvida do bloco e a linha 17 de [`dividas-documentais`](../docs/dividas-documentais.md). A frase dizia que `razao: >-` seguido de mais chaves era a forma que `ci/licenses.yaml`, `ci/refs-allow.yaml`, `ci/secrets-allow.yaml` e `ci/waivers.yaml` usam «na maioria das entradas». O `ci/waivers.yaml` tem `waivers: []` e a única ocorrência está num exemplo comentado. A varredura posicional dos 22 ficheiros acrescentou duas coisas que a frase não dizia: o `ci/canon-lint.yaml` usa a forma mais do que qualquer um dos nomeados (10 ocorrências) e estava omitido, e nos quatro o `razao: >-` é sempre a **última** chave do item — a forma com uma chave **depois** dele, que é a que o defeito engolia, só existe nos dois estratos do `ci/thresholds.yaml`. O critério passa a nomear as duas posições e os ficheiros de cada uma; a mesma frase foi corrigida no Handoff, e a contagem da linha de verificação do CA 4 passa de 50 para as 28 ocorrências de `razao: >-` (as 50 são a forma 8 da evidência, `chave: >-` com qualquer nome de chave). Nenhum `ci/*.yaml` nem o `tools/kamba_yaml.py` alterados: a construção já estava coberta por teste. O **KAM-138** (gate 3c) ganha dois critérios: o «Controlo de versões» de cada documento passa a ser sequência sem buracos com o cabeçalho a dizer a última, nas duas formas que o conjunto usa. Medido ao escrevê-los: 25 documentos com a tabela, 1 buraco (o `1.13` deste epic) e 9 cabeçalhos atrasados. Nasceu de este ramo ter renumerado quatro vezes em poucas horas — 1.16 (KAM-132), 1.17 (KAM-144), 1.18 (PR #48) — e de o `1.13` ter nascido da mesma colisão. | Equipa KAMBÁ |
 | 1.21 | Outubro 2026 | KAM-148 acrescentado: a varredura de leituras silenciosas nos outros dois leitores de subconjunto de YAML (`tools/canon_lint/yamlreg.py` e `tools/secrets_inventory/yamlsubset.py`), que o KAM-136 declarou fora do seu âmbito e registou como lacuna 22 de `../docs/ci.md` §7 e decisão devolvida ao fundador. Depende do KAM-136, que lhe dá o método e o padrão do oráculo, e entra no seu `Bloqueia`. | Equipa KAMBÁ |
 | 1.22 | Outubro 2026 | KAM-150 acrescentado e entregue: as três regras de `CODEOWNERS` que ficaram presas ao prefixo `/tecnica/` removido pelo KAM-128 passam a `/docs/tecnica/`. **3 de 18 regras estavam penduradas, agora 0** — uma regra que aponta para um caminho inexistente não atribui dono nenhum e não avisa. 11 caixas marcadas e 1 vazia (a dos revisores humanos, que o DoD deste ticket pede em dobro por se tocar num ficheiro de regra de revisão). O defeito estava declarado fora de âmbito na verificação do KAM-128, cujo DoD «**Referências**» **continua por marcar**: tinha duas causas e esta era uma. O aviso do cabeçalho sobre as equipas serem *proposta* foi reavaliado e mantém-se — o repositório é de um utilizador, pelo que nenhuma equipa `@kamba/*` pode existir, e o *ruleset* tem `require_code_owner_review: false`; o ficheiro corrigido continua inerte, e isso passou a estar escrito nele. A revisão adversarial está em [`ANALISE-17`](../docs/analises/ANALISE-17-KAM-150-codeowners-pendurado.md) e **reprovou a primeira versão**, com 3 achados P0: o ticket nasceu com o número 145, um ID já reclamado por outro ramo; deixou o gate 3 **vermelho** com 7 referências inválidas e a caixa «Referências» marcada por cima; e ligava quatro vezes para uma análise que não existia. Os três estão fechados, e o padrão que partilham — afirmar por memória o resultado de uma verificação corrida antes da redacção que a quebrou — está escrito em [`KAM-150.md`](../docs/evidencia/KAM-150.md) §5.2. Duas decisões devolvidas: o gate que validaria estes caminhos (código, ticket próprio) e a imposição da revisão (KAM-137 e L-19). | Equipa KAMBÁ |
+| 1.23 | Outubro 2026 | KAM-151 acrescentado: fecha a lacuna 25 de `../docs/ci.md` §7. O `make coverage-python` ganha o terceiro `--source=`, e a falta de um `--source=` para uma pasta de `.py` do âmbito passa a falhar um teste. Medido: o **delta**, que é o que o ticket faz e não depende da árvore: **+29** no numerador, **+31** no denominador, **+3** ficheiros, com a percentagem a não se mover. Na árvore que funde: `restante` 92% → 92% (9880/10730 → 9909/10761), 100 → 103 ficheiros; em `f4c7e3d`, onde foi medido primeiro, era 91% → 91% (9652/10526 → 9681/10557). O absoluto subiu porque o KAM-148 acrescentou código testado a `tools/`, que está no estrato; limiar não tocado. A revisão adversarial ([`ANALISE-18`](../docs/analises/ANALISE-18-KAM-151-cobertura-python-do-agr.md)) devolveu 2 maiores, 6 menores e 2 suspeitas, e desmentiu uma afirmação deste bloco: um `.py` medido a 0% **não** sai nomeado no relatório do *gate* — lacuna 26 nova. Prova por mutação do *gate* 4 de 24 para 28, 0 sobreviventes. O `Bloqueia` do KAM-132 passa a nomear o KAM-151. | Equipa KAMBÁ |
+| 1.24 | Outubro 2026 | KAM-152 acrescentado e entregue: o caminho `db/gate8.py` — o ficheiro chama-se `db/gate_bd.py` desde que passou a servir os *gates* 8 e 6 — estava citado em **8 ocorrências de 7 ficheiros**, **7 delas vivas em 6 ficheiros**, e uma é a mensagem de `SkipTest` do trinco de `db/tests/base.py`, que mandava o utilizador correr um ficheiro inexistente. O pedido nomeava três sítios; a varredura encontrou seis ficheiros vivos, com o comentário do job `gate-8-migracoes` em `../.github/workflows/ci.yaml` e o *docstring* de `db/bootstrap.py` por nomear. O nome do trinco (`kamba_gate8`, `*_gate8`, `kamba-gate8-*`: **21** ocorrências em ficheiros vivos, iguais em `main` e no ramo) **não** foi tocado — é o nome canónico da base descartável —, e a fasquia `grep gate8 → 0` do pedido fica registada como impossível à letra. `../docs/seguranca/validar.py`, com o `assert` da contagem relaxado **em memória**, passa de **5** para **3** erros, sem nenhum novo; corrigir o `assert` é o **KAM-149**. **O ticket nasceu KAM-150 e renumerou para 152:** o `albinoJimy/kamba#47` fundiu durante o trabalho e levou o 150, e o 151 está reclamado por um ramo em voo — o ID só está seguro depois do *merge*, e as contagens fecham-se depois de integrar `main`. A linha 6 de `../docs/dividas-documentais.md` fecha metade e fica reescrita, não riscada. **A causa não é fechada:** nada no repositório verifica um caminho citado em código (L-20), e a decisão de alargar o validador a `db/` e `../.github/` fica devolvida ao Arquitecto de Plataforma. | Equipa KAMBÁ |
