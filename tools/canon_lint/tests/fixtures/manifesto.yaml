@@ -1,0 +1,100 @@
+# Manifesto das fixtures do gate 3b (KAM-111)
+#
+# Lido por `python -m canon_lint canario` (que o `make ci-3b` corre) e pelos
+# testes. Para cada divergencia do ticket: uma fixture NEGATIVA, que tem de
+# falhar com a mensagem `espera`, e uma POSITIVA, que tem de passar sem achado
+# nenhum. A mensagem tem a forma que o criterio de aceitacao pede:
+# «<variante> → <canonico>, dicionario §3.x».
+#
+# O criterio pede 12 + 12. Estao aqui 10 + 10, e as duas que faltam estao em
+# `sem_forma_de_nome`, com a razao: nao se inventou uma fixture para fazer a
+# conta dar doze.
+#
+# ESTE FICHEIRO NAO DECIDE O QUE O CANARIO PROVA. O conjunto de divergencias
+# com fixture obrigatoria, as duas que podem nao a ter e o minimo de negativas
+# por superficie estao em `tools/canon_lint/cli.py`. Retirar um caso daqui, ou
+# mudar um para `sem_forma_de_nome`, faz o canario FALHAR. E cada negativa tem
+# de dar exactamente um achado, cuja mensagem COMECA pelo `espera`.
+#
+# A positiva do D-03 nao tem `currency`, e isso e um defeito do canon e nao
+# desta fixture: o D-03 do ticket da `valor_minor` + `currency` como forma
+# canonica «(§3.4)», mas o §3 do dicionario nao lista `currency` (so o §2). O
+# lint recusa-o como campo fora do dicionario. Fica registado (KAM-141).
+
+version: 1
+
+casos:
+  - divergencia: D-01
+    superficie: migracoes
+    negativa: negativas/D-01_contacts.py
+    positiva: positivas/D-01_contacts.py
+    espera: "`contacts.bsuid` → `contacts(contact_id, tenant_id, criado_at, …)`, dicionário §3.1"
+
+  - divergencia: D-02
+    superficie: migracoes
+    negativa: negativas/D-02_consent_log.py
+    positiva: positivas/D-02_consent_event.py
+    espera: "`consent_log` → `consent_event (append-only)`, dicionário §3.1"
+
+  - divergencia: D-03
+    superficie: eventos
+    negativa: negativas/D-03_valor_kz/v1.schema.json
+    positiva: positivas/D-03_valor_minor/v1.schema.json
+    espera: "`valor_kz` → `valor_minor`, dicionário §3.4"
+
+  - divergencia: D-04
+    superficie: migracoes
+    negativa: negativas/D-04_callback_hmac_ok.py
+    positiva: positivas/D-04_authn.py
+    espera: "`callback_hmac_ok` → `payment_events.authn_ok boolean + authn_method ∈ {hmac, manual, consulta}`, dicionário §3.4"
+
+  - divergencia: D-05
+    superficie: registo
+    negativa: negativas/D-05_um_evento.yaml
+    positiva: positivas/D-05_dois_eventos.yaml
+    espera: "`payment.confirmed` sem `payment.manual_confirmed` → `payment.confirmed (facilitador autenticado) e payment.manual_confirmed (ManualProvider)`, dicionário §3.4"
+
+  - divergencia: D-06
+    superficie: migracoes
+    negativa: negativas/D-06_unique.py
+    positiva: positivas/D-06_unique.py
+    espera: "`UNIQUE(provider, referencia)` em `payment_events` → `Conforme ../docs/tecnica/04 (inclui account_id, tipo de evento e sequência); não UNIQUE(provider, referencia)`, dicionário §3.4"
+
+  - divergencia: D-08
+    superficie: migracoes
+    negativa: negativas/D-08_sem_restrito.py
+    positiva: positivas/D-08_com_restrito.py
+    espera: "`tenants.estado` com {onboarding, ativo, suspenso, encerrado} → `onboarding, ativo, restrito, suspenso, encerrado`, dicionário §3.2"
+
+  - divergencia: D-10
+    superficie: migracoes
+    negativa: negativas/D-10_llm_calls.py
+    positiva: positivas/D-10_llm_call_log.py
+    espera: "`llm_calls` → `llm_call_log`, dicionário §3.6"
+
+  - divergencia: D-11
+    superficie: registo
+    negativa: negativas/D-11_cart_id.yaml
+    positiva: positivas/D-11_hold_id.yaml
+    espera: "`confirm:{cart_id}` em `servicos` → `confirm:{hold_id}`, dicionário §3.3"
+
+  - divergencia: D-12
+    superficie: eventos
+    negativa: negativas/D-12_versao_livre/v1.schema.json
+    positiva: positivas/D-12_versao_fixa/v1.schema.json
+    espera: "`versao` livre em `v1.schema.json` → `versao` com `const: 1`, dicionário §3.5"
+
+# Divergencias do KAM-111 que NAO tem forma de nome em nenhuma das tres
+# superficies que o criterio de aceitacao enumera, e por isso nao tem fixture.
+sem_forma_de_nome:
+  - divergencia: D-07
+    razao: >-
+      «`tenant.activated` como gatilho → `tenant.approved`». Os dois sao tipos de
+      evento canonicos (dicionario §3.5); o defeito e QUEM reage a qual, e o
+      consumidor do provisioning nao e uma vertical do registo, nao tem schema
+      proprio e nao e DDL. Nenhuma das tres superficies o exprime.
+  - divergencia: D-09
+    razao: >-
+      «retencao de `assistant_queries` 12 vs 13 meses». E um numero de uma
+      tabela de retencao em prosa (`docs/tecnica/06` §7.4). Nao e nome de
+      tabela, coluna, valor de CHECK, evento, campo nem parametro.

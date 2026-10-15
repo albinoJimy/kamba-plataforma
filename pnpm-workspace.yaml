@@ -1,0 +1,6 @@
+packages:
+  - "services/gwy"
+  - "services/worker-canal"
+  - "services/com"
+  - "services/onboarding-web"
+  - "packages/*"

@@ -1,0 +1,33 @@
+# Donos por area (KAM-001). O dono revê; nao e o unico que escreve.
+# Os papeis seguem specs/INDICE.md §4 ("Responsavel sugerido" por ticket).
+#
+# ATENCAO: as equipas abaixo sao *proposta*. Enquanto a organizacao do GitHub nao
+# existir, substituir por utilizadores reais ou o ficheiro nao tem efeito — um
+# CODEOWNERS que aponta para equipas inexistentes nao bloqueia nada.
+# Medido no KAM-150: o repositorio e de um utilizador, nao de uma organizacao
+# (`isInOrganization: false`), pelo que nenhuma equipa `@kamba/*` pode ser dona
+# aqui; e o ruleset de `main` tem `require_code_owner_review: false` e 0
+# aprovacoes exigidas (docs/ci.md §7, lacuna 16; KAM-137). Caminhos certos nao
+# sao revisao imposta.
+
+*                           @kamba/plataforma
+
+/tools/                     @kamba/plataforma
+/tools/blocklist.yaml       @kamba/plataforma @kamba/seguranca
+/infra/                     @kamba/plataforma @kamba/sre
+/db/                        @kamba/plataforma
+/canon/                     @kamba/plataforma
+/registry/                  @kamba/produto-ia @kamba/plataforma
+/packages/contracts/        @kamba/plataforma @kamba/produto-ia
+
+/services/gwy/              @kamba/plataforma
+/services/worker-canal/     @kamba/plataforma
+/services/agr/              @kamba/produto-ia
+/services/com/              @kamba/comercio
+/services/onboarding-web/   @kamba/comercio
+
+/specs/                     @kamba/plataforma @kamba/produto
+/docs/tecnica/              @kamba/plataforma
+/docs/tecnica/evidencia/    @kamba/plataforma @kamba/seguranca
+/docs/tecnica/08_Seguranca_Conformidade.md  @kamba/seguranca
+/docs/adr/                  @kamba/plataforma

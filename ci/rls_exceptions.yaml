@@ -1,0 +1,26 @@
+# Excepcoes a RLS por tenant (gate 6, teste de catalogo X-05) — KAM-004
+#
+# O gate 6 falha se uma tabela com coluna `tenant_id`, num schema aplicacional,
+# nao tiver `ENABLE ROW LEVEL SECURITY`, `FORCE ROW LEVEL SECURITY` e pelo menos
+# uma politica. Este ficheiro e a unica forma de dispensar uma tabela — e esta
+# vazio, e deve continuar vazio enquanto puder.
+#
+# Uma excepcao aqui nao e um waiver com prazo: e uma decisao de arquitectura.
+# Por isso exige um ADR, e nao uma aprovacao datada. Uma tabela com `tenant_id`
+# sem RLS e uma tabela em que um defeito na ToolLayer mostra dados de outro
+# tenant, e isso so se aceita com a razao escrita num documento que alguem
+# reviu (ADR-015).
+#
+# Campos, todos obrigatorios (`db/tests_isolamento/catalogo.py` recusa o
+# ficheiro sem eles):
+#
+#   tabela   `schema.tabela`, exactamente como o catalogo a mostra
+#   adr      `ADR-NNN` (canonico) ou `ADR-LNNN` (local) que o fundamenta
+#   razao    porque e aceitavel, numa frase que sobreviva a sair o autor
+#
+# Uma entrada cuja tabela ja nao exista, ou que entretanto tenha RLS, **falha o
+# gate**: uma excepcao morta e uma porta que ficou aberta sem ninguem a usar.
+
+version: 1
+
+excepcoes: []

@@ -1,0 +1,2 @@
+# Fixture f7: LiteLLM abaixo de 1.83.0 (ADR-005).
+litellm==1.82.7

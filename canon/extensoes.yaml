@@ -1,0 +1,160 @@
+# Extensoes ao dicionario canonico — gate 3b (KAM-111)
+#
+# Um nome de tabela, coluna, valor, evento, campo ou tool que o §3 de
+# `specs/02_Dicionario_de_Dados_Canonico.md` NAO cobre so passa o gate 3b se
+# estiver aqui, com quatro coisas: o nome, o tipo, o ticket que o introduziu e a
+# data em que entrou.
+#
+# Isto NAO e uma lista de dispensas:
+#
+#   * uma VARIANTE que o dicionario substitui (`valor_kz`, `sig_ok`, …) nao pode
+#     ser declarada aqui — o lint recusa o ficheiro;
+#   * um nome que o dicionario ja cobre tambem nao (a extensao seria ruido);
+#   * uma extensao que nenhuma superficie usa falha o gate (lista que nao apodrece).
+#
+# A extensao e sempre QUALIFICADA: `tenants.nif` nao torna `nif` valido noutra
+# tabela. Como acrescentar uma: `docs/nomes-canonicos.md` §4.
+#
+# Revisao: o criterio de aceitacao do KAM-111 pede que este ficheiro seja
+# revisto pelo Arquitecto de Plataforma. O `CODEOWNERS` atribui-lho; enquanto as
+# equipas do GitHub forem proposta, essa revisao nao e imposta por maquina, e
+# as entradas abaixo AGUARDAM essa revisao.
+#
+# As 20 entradas sao as colunas da revisao `0001` (KAM-003) que o §3.2 nao
+# enumera: o dicionario escreve `tenant_channels(tenant_id, phone_number_id,
+# waba_id, vertical, estado, …)` com reticencias, e `platform.tenants(id uuid)`
+# so com a chave. Vem do DDL de `docs/tecnica/03` §5.2 (`tenants`) e de
+# `docs/tecnica/01` §7.1 (`tenant_channels`), e estao no inventario fechado de
+# `db/tests/test_inventario.py`.
+#
+# As do KAM-008 sao o que a revisao `0003` (identidade de contacto) usa e o
+# §3.1 nao enumera: tres colunas de `contact_endpoints` — o dicionario escreve a
+# tabela com reticencias — e os valores dos tres dominios fechados. Os valores
+# ficam aqui, **qualificados**, e nao no dicionario: um `telefone` ou um `bsuid`
+# na coluna do nome canonico passava a ser aceite em qualquer posicao, incluindo
+# como nome de coluna. `finalidade`, `recolhido_at` e `expira_at` vem de
+# `docs/tecnica/03` §5.3, e os valores de `finalidade` sao os de la (*proposta*:
+# os prazos e as finalidades estao por confirmar por parecer). As tabelas
+# `contact_deks` e `hmac_key_versions`, as colunas `hmac_kid`, `erased_at`,
+# `merged_into` e `merged_at` (linha «Estado de um contacto») e o papel
+# `kamba_identity` entraram no dicionario (emenda 1.8, §3.1 e §3.2).
+
+version: 1
+
+extensoes:
+  - nome: tenants.nome
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: tenants.nif
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: tenants.contacto_negocio_enc
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: tenants.owner_contact_id
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: tenants.zona
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: tenants.plus_code
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: tenants.medusa_sales_channel_id
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: tenants.medusa_merchant_id
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: tenants.chatwoot_account_id
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: tenants.litellm_key_id
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: tenants.fuso_horario
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: tenants.deleted_at
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: tenant_channels.waac_id
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: tenant_channels.token_ref
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: tenant_channels.quality_rating
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: tenant_channels.messaging_limit
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: tenant_channels.free_tier_used
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: tenant_channels.free_tier_month
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: tenant_channels.coexistence_synced_at
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: tenant_channels.last_account_update_at
+    tipo: coluna
+    ticket: KAM-003
+    data: 2026-10-11
+  - nome: contact_endpoints.finalidade
+    tipo: coluna
+    ticket: KAM-008
+    data: 2026-10-12
+  - nome: contact_endpoints.recolhido_at
+    tipo: coluna
+    ticket: KAM-008
+    data: 2026-10-12
+  - nome: contact_endpoints.expira_at
+    tipo: coluna
+    ticket: KAM-008
+    data: 2026-10-12
+  - nome: contact_endpoints.tipo=bsuid
+    tipo: valor
+    ticket: KAM-008
+    data: 2026-10-12
+  - nome: contact_endpoints.tipo=telefone
+    tipo: valor
+    ticket: KAM-008
+    data: 2026-10-12
+  - nome: contact_endpoints.finalidade=pagamento_express
+    tipo: valor
+    ticket: KAM-008
+    data: 2026-10-12
+  - nome: contact_endpoints.finalidade=entrega
+    tipo: valor
+    ticket: KAM-008
+    data: 2026-10-12
+  - nome: contact_endpoints.finalidade=contacto_pedido
+    tipo: valor
+    ticket: KAM-008
+    data: 2026-10-12
+  - nome: hmac_key_versions.estado=retirada
+    tipo: valor
+    ticket: KAM-008
+    data: 2026-10-12

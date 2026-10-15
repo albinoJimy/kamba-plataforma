@@ -1,0 +1,2 @@
+# Fixture f2: o runtime em memoria do LangGraph Server (ADR-002).
+langgraph-runtime-inmem==0.17.0

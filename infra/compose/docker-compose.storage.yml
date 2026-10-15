@@ -1,0 +1,75 @@
+# SeaweedFS descartavel para a suite de contrato do StorageProvider (KAM-011).
+#
+# Levanta-se com `make storage-contrato` (ou `python infra/storage/contrato.py`),
+# que gera as credenciais, escolhe a porta, corre as suites e apaga tudo no fim.
+# Nao e para se levantar a mao nem para ficar de pe.
+#
+# O QUE ESTE FICHEIRO NAO E — e a razao de estar separado do compose de
+# desenvolvimento: **nao e a decisao D6**. A D6 (SeaweedFS auto-alojado ou S3
+# gerido) esta ABERTA e depende do alojamento, D1 (`docs/tecnica/00` §13.3;
+# Carta §4.2). O SeaweedFS esta aqui porque e o servidor S3 de licenca
+# permissiva contra o qual o criterio de aceitacao 5 do KAM-011 manda correr a
+# suite — e um servidor de teste, que vive em `tmpfs` e morre com a execucao.
+# Por isso nao entra em `docker-compose.dev.yml`: a pilha de desenvolvimento
+# nao ganha um armazenamento por omissao enquanto a escolha nao estiver feita.
+#
+# Quatro regras:
+#
+# 1. **Imagem por digest.** O criterio diz 4.48, e uma etiqueta que flutue
+#    deixava de o provar. Digest obtido de `docker pull chrislusf/seaweedfs:4.48`
+#    a 2026-10-12; a imagem declara `org.opencontainers.image.version=4.48`,
+#    revisao 530be3e3 e licenca Apache-2.0 (docs/evidencia/KAM-011-seaweedfs.md §2).
+# 2. **Nada escuta fora de localhost.** A porta S3 publica-se em 127.0.0.1.
+# 3. **Sem credenciais no ficheiro.** O par de teste e gerado em cada execucao
+#    e chega pelo ambiente; sem ele o compose recusa-se a arrancar. O SeaweedFS
+#    le `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` e passa a **exigir**
+#    assinatura — verificado: um pedido anonimo recebe 403.
+# 4. **Os dados vivem em `tmpfs`.** Nada sobrevive ao contentor.
+#
+# MinIO nao aparece aqui nem em mais lado nenhum: esta arquivado e excluido
+# (ADR-014, E4 §2.11), e `tools/blocklist.yaml` recusa-o.
+
+name: kamba-storage-contrato
+
+services:
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+    command:
+      - "server"
+      - "-s3"
+      - "-dir=/data"
+      # Um no so, com volumes pequenos: e um servidor de teste em memoria.
+      - "-volume.max=20"
+      - "-master.volumeSizeLimitMB=64"
+    environment:
+      AWS_ACCESS_KEY_ID: ${KAMBA_SECRET_STORAGE_ACCESS_KEY_ID:?gerado por infra/storage/contrato.py}
+      AWS_SECRET_ACCESS_KEY: ${KAMBA_SECRET_STORAGE_SECRET_ACCESS_KEY:?gerado por infra/storage/contrato.py}
+    # A imagem arranca como root so para fazer `chown` de /data e descer para
+    # o utilizador `seaweed` (uid 1000). Aqui arranca-se ja como ele, com o
+    # `tmpfs` entregue a esse uid — e por isso pode largar todas as
+    # capacidades.
+    user: "1000:1000"
+    # So escreve em /data e em /tmp, e os dois sao `tmpfs`.
+    read_only: true
+    tmpfs:
+      - /data:size=1g,uid=1000,gid=1000,mode=0700
+      - /tmp:size=64m,uid=1000,gid=1000,mode=0700
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "127.0.0.1:${KAMBA_STORAGE_PORT:?escolhida por infra/storage/contrato.py}:8333"
+    healthcheck:
+      # O mestre responde antes do gateway S3; quem espera pelo S3 e o
+      # orquestrador, com um pedido assinado.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9333/cluster/status"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "1"

@@ -1,0 +1,19 @@
+# Lista de saidas de `com` — KAM-067, criterio 9.
+#
+# Negado por omissao: o que nao esta em `destinos` nao sai. Este ficheiro e o
+# contrato; **a aplicacao na rede e do KAM-076** (proxy de saida com allowlist
+# de FQDN). `make supply-chain` falha se o ficheiro faltar, se `por_omissao`
+# deixar de ser `negar`, ou se um destino nao tiver nome (`*`, IP, CIDR).
+#
+# Hoje o servico e o esqueleto do KAM-001 (`/healthz`) e nao abre ligacao
+# nenhuma para fora. O adaptador de comercio fala com o Medusa na rede
+# interna (KAM-042).
+#
+# Cada destino: `fqdn`, `porta`, `protocolo`, `razao` e `ticket` (KAM-NNN).
+# Ligacoes a outros servicos da pilha (base de dados, fila) nao sao saidas: sao
+# redes do compose.
+
+version: 1
+servico: com
+por_omissao: negar
+destinos: []

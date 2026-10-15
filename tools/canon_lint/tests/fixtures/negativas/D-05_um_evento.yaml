@@ -1,0 +1,9 @@
+# Fixture NEGATIVA do gate 3b — D-05 (KAM-111). Nao e um ficheiro do registo.
+id: servicos
+version: 1.0.0
+phase: P
+entitlements: { modulo: servicos, limites: [msgs_ai_mes, marcacoes_mes] }
+subscriptions:
+  - { tipo: booking.created,          versao: 1 }
+  - { tipo: payment.confirmed,        versao: 1 }     # os dois caminhos tratados como um
+guardrails: { confirmacao: "confirm:{hold_id}" }

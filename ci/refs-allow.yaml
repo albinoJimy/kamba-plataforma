@@ -1,0 +1,142 @@
+# Excepcoes ao gate 3 (lint de referencias cruzadas) — KAM-002
+#
+# O gate 3 varre a arvore seguida pelo git e falha se encontrar um `KAM-NNN`,
+# `ADR-NNN` ou `D#` que nao exista. Isto e a lista das ocorrencias em que uma
+# referencia inexistente **esta correcta onde esta**.
+#
+# Nao e um mecanismo de dispensa generico: cada entrada nomeia o ficheiro, o
+# token exacto e a razao. Nao ha curingas no token. Um waiver de gate vive em
+# `ci/waivers.yaml` e tem prazo; isto nao tem prazo porque nao e excepcao a uma
+# regra — e a regra a reconhecer que uma referencia pode ser citada *como
+# exemplo de referencia invalida*.
+
+version: 1
+
+# Placeholders: a forma de uma referencia, nao uma referencia. Valem em qualquer
+# ficheiro, porque e assim que a documentacao ensina o formato.
+# Placeholders: a **forma** de uma referencia, nao uma referencia. Nenhum destes
+# e um identificador, e por isso valem em qualquer ficheiro — e assim que a
+# documentacao ensina o formato.
+#
+# `KAM-999` **nao** esta aqui, de proposito. Tem a forma de um identificador
+# real, e e um ID deliberadamente invalido: so e aceitavel onde esta declarado
+# em `excepcoes`. Tendo-o estado aqui por engano, ficava permitido em `specs/` e
+# `docs/` e a excepcao por ficheiro deixava de servir para nada — um teste
+# (`test_a_area_de_implementacao_nao_se_estende_ao_canon`) existe para isso nao
+# voltar.
+placeholders:
+  - KAM-NNN
+  - ADR-NNN
+  - ADR-0XX
+  - EPIC-XX
+  - "D#"
+  - "H#"
+  - "E#"
+
+# ------------------------------------------------- a serie `D` esta sobrecarregada
+#
+# O canon usa `D<numero>` para **duas coisas**: as decisoes abertas de
+# `docs/tecnica/00` §13.3 (`D1`-`D13`) e **prazos em dias** nas tabelas de
+# off-boarding e de governacao (`D0`, `D30`, `D60`). A sintaxe nao as distingue.
+#
+# Medicao sobre a arvore seguida pelo git (2026-10-11), por token:
+#
+#   D1 168x   D2  67x   D3  62x   D4  58x   D5  62x   D6  46x   D7  41x
+#   D8  57x   D9  79x   D10 56x   D11 10x   D12 63x   D13 27x
+#   D0   9x   D30 10x   D60  1x
+#
+# Os treze primeiros sao decisoes, todos. Os tres ultimos sao prazos, todos
+# (`| Purga | D30 |`, `| Fecho de pendentes | D0-D7 |`, `retencao D30/D60`).
+#
+# Regra que daqui resulta, e que esta implementada em `tools/lint_refs/scan.py`:
+# um `D<numero>` **fora do intervalo canonico** nao e tratado como referencia a
+# decisao — e contado e reportado como aviso, nao como falha. Dentro do
+# intervalo, e sempre uma referencia valida por construcao.
+#
+# Isto torna a parte `D` do gate quase vazia, e e melhor dizer-lo do que
+# finge-lo: o gate 3 so apanha um `D#` errado no dia em que o §13.3 encolher.
+# A correccao de fundo e o canon deixar de escrever prazos como `D30` — esta
+# pedida num ticket proprio, nao neste.
+serie_d:
+  prazos_conhecidos:
+    - D0
+    - D30
+    - D60
+
+# ------------------------------------------- areas cujo tema sao referencias
+#
+# Ha ficheiros em que citar uma referencia invalida e **o assunto**: a
+# implementacao do gate 3, os seus testes, e este proprio ficheiro de excepcoes.
+# Nao se pode declarar uma excepcao para `ADR-021` sem escrever `ADR-021`, nem
+# testar que `KAM-999` e recusado sem o nomear.
+#
+# Isto nao e um enfraquecimento do gate — e reconhecer que a ferramenta que
+# valida referencias tem de poder nomear as que rejeita. **Nao se estende a
+# `specs/` nem a `docs/`**, onde uma referencia invalida e um defeito: ai cada
+# ocorrencia precisa de uma entrada em `excepcoes`, com ficheiro, token e razao.
+areas:
+  - caminho: ci/refs-allow.yaml
+    razao: >-
+      Este ficheiro. Declarar uma excepcao para um token exige escrever o token,
+      e o varrimento le-o como qualquer outro ficheiro.
+
+  - caminho: "tools/lint_refs/**"
+    razao: >-
+      A implementacao do gate 3 e os seus testes. Os testes exercitam
+      deliberadamente `KAM-999`, `ADR-021` e `D14`, que e o que o criterio de
+      aceitacao do KAM-002 pede («referencias validas, KAM-999, ADR-020, D13»);
+      e os comentarios do codigo citam as formas reais que causam falsos
+      positivos, com o ficheiro de origem.
+
+excepcoes:
+  - ficheiro: specs/EPIC-01_Fundacoes_Dados.md
+    token: KAM-999
+    razao: >-
+      Linha de `Testes Requeridos` do proprio KAM-002: "lint_refs (referencias
+      validas, `KAM-999`, `ADR-020`, `D13`)". E um ID deliberadamente invalido,
+      citado como criterio de teste. Sem esta entrada, o ficheiro do ticket que
+      pede o gate 3 e o primeiro a ser reprovado por ele.
+
+  - ficheiro: docs/ci.md
+    token: KAM-999
+    razao: >-
+      Duas passagens de `docs/ci.md` citam o ID como exemplo e nao como
+      referencia. No gate 3, para explicar porque se varre `git ls-files` e nao
+      o sistema de ficheiros: as copias em `.claude/worktrees/*` trazem cada uma
+      o seu `KAM-999`. Na secao 8, para dizer qual foi a quebra introduzida no
+      PR de teste do proprio gate 3. Entra como excepcao por token e **nao**
+      como area: `docs/` e canon-adjacente, e uma referencia invalida ai e um
+      defeito.
+
+  - ficheiro: docs/analises/ANALISE-02-KAM-002-pipeline-ci.md
+    token: KAM-999
+    razao: >-
+      A analise descreve as formas de citar um ticket inexistente que o gate 3
+      deixava passar, e cita-as para o dizer: `KAM-999` com hifen tipografico e
+      `KAM-0999` com quatro digitos. Sao exemplos do defeito corrigido, nao
+      referencias. Entra por token e nao por area: `analises/` fala do canon, e
+      uma referencia invalida que nao seja exemplo e um defeito ai tambem.
+
+  - ficheiro: docs/analises/ANALISE-02-KAM-002-pipeline-ci.md
+    token: KAM-0999
+    razao: Mesma linha e mesma razao de `KAM-999`.
+
+  - ficheiro: tools/lint_arch/tests/test_conventions.py
+    token: KAM-0001
+    razao: >-
+      Caso do validador de ambito de commit: a lista de ambitos deliberadamente
+      invalidos inclui `KAM-0001`, `KAM-1` e `kam-001`, para provar que o
+      `lint_arch` os recusa. Entrou no alcance do gate 3 quando o padrao passou
+      a ver quatro digitos — antes `KAM-0001` nao batia em padrao nenhum, que
+      era precisamente o buraco que se fechou.
+
+  - ficheiro: docs/adr/README.md
+    token: ADR-021
+    razao: >-
+      O README dos ADRs locais explica porque nao se numeram `ADR-021`,
+      `ADR-022`: colidiriam com a sequencia canonica se ela crescer. Sao
+      numeros citados para dizer que nao se usam.
+
+  - ficheiro: docs/adr/README.md
+    token: ADR-022
+    razao: Mesma linha e mesma razao de `ADR-021`.

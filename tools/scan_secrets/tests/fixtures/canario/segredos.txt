@@ -1,0 +1,25 @@
+# Valores de forma real, nunca emitidos. Ver README.md desta pasta.
+openai_key=sk-proj-K7mQ2vXn4pL9wR3tY6uI8oA1sD5fG0hJ2kL4nM6pQ8rS0tU2
+anthropic_key=sk-ant-api03-Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Ji1Hg0Fe9Dc8Ba7
+github_token=ghp_9kL2mN4pQ6rS8tU0vW2xY4zA6bC8dE0fG2hJ
+aws_key=AKIAQ7W2E9R4T6Y8U0I2
+google_key=AIzaB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3zA5
+slack_token=xoxb-123456789012-abcdefghijklmnop
+stripe_key=sk_live_K9mN2pQ4rS6tU8vW0xY2zA4bC
+meta_token=EAAQ7w2e9r4t6y8u0i2o4p6a8s0d2f4g6h8j0k2l4m6n8p0q2r4s6t8u0v2w4x6y8z0
+jwt=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.K7mQ2vXn4pL9wR3tY6uI8oA
+db_url=postgres://kamba:Xk9mQ2vLn4pR7wT3@db.exemplo.invalid:5432/platform
+# Atribuicao a um nome que significa segredo, sem prefixo de emissor.
+#
+# O comentario que aqui estava dizia que `github_token=` NAO era coberto - o
+# `_` antes de `token` e caractere de palavra, e a fronteira de palavra nao
+# casa dentro do nome - e tratava isso como se fosse aceitavel. Nao era:
+# deixava de fora `POSTGRES_PASSWORD=`, `META_ACCESS_TOKEN=` e
+# `AWS_SECRET_ACCESS_KEY=`, que sao a forma dominante de variavel de ambiente
+# e a que o `.env.example` deste repositorio usa. O padrao foi corrigido, e os
+# tres casos estao em casos.txt.
+#
+# O comentario antigo tinha tambem um caractere de backspace literal, escrito
+# por um script que colapsou a barra invertida de uma fronteira de palavra.
+api_key = "K7mQ2vXn4pL9wR3tY6uI8oA1sD5fG0hJ"
+client_secret: Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Ji1Hg0F

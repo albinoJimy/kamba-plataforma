@@ -1,0 +1,9 @@
+{
+  "_comment": "Os testes importam a fonte com extensao .ts explicita (como o Node exige) e nao emitem nada, pelo que precisam de um tsconfig proprio: `allowImportingTsExtensions` e incompativel com emissao.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

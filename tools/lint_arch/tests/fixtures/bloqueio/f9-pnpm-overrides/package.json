@@ -1,0 +1,12 @@
+{
+  "name": "fixture-pnpm-overrides",
+  "_comment": "Fixture f9: overrides substituem dependencias transitivas (ADR-002).",
+  "pnpm": {
+    "overrides": {
+      "n8n": "2.42.5"
+    }
+  },
+  "resolutions": {
+    "typebot": "3.19.0"
+  }
+}

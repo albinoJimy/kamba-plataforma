@@ -1,0 +1,7 @@
+{
+  "name": "fixture-alias",
+  "_comment": "Fixture f12: o alias npm esconde o pacote real no especificador (ADR-014).",
+  "dependencies": {
+    "storage": "npm:minio@8.0.0"
+  }
+}

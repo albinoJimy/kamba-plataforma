@@ -1,0 +1,19 @@
+# Dependencias das ferramentas de verificacao (KAM-001) — pins exactos.
+# Gerar o lock com hashes: make lock   (ver tools/pip_lock.py)
+#
+# Nota: `tools/lint_arch` NAO usa nada daqui. Depende so da biblioteca padrao,
+# para poder correr antes de qualquer instalacao (docs/tecnica/08 §4.8). O que esta
+# aqui serve a validacao de contratos (`tools/healthz_check.py`), que por desenho
+# corre depois do bootstrap.
+jsonschema==4.26.0
+
+# Gate 4: medicao de cobertura do lado Python. O lado Node usa o que o Node 24
+# ja traz (`--experimental-test-coverage`), pelo que nao ha dependencia la.
+coverage==7.16.2
+
+# Fecho transitivo.
+attrs==26.1.0
+jsonschema-specifications==2025.9.1
+referencing==0.37.0
+rpds-py==2026.9.1
+typing-extensions==4.16.0

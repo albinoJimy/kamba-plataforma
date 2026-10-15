@@ -1,0 +1,103 @@
+# Lista de bloqueio de dependencias — KAMBÁ (KAM-001)
+#
+# O que esta aqui nao entra no repositorio. Cada entrada cita o ADR que a proibe
+# e a evidencia que a sustenta, para que a mensagem de erro seja accionavel e nao
+# apenas um "nao".
+#
+# Formato (subconjunto estrito de YAML, lido por tools/lint_arch/blocklist.py):
+#   - name:            nome do pacote ou da imagem, em minusculas
+#     kind:            npm | pypi | image | any
+#     match:           exact | prefix | boundary | substring
+#     forbidden_below: (opcional) versao a partir da qual deixa de estar bloqueado
+#     adr:             ADR canonico que fundamenta a proibicao
+#     evidence:        referencia ao anexo de evidencia
+#     reason:          uma linha, em portugues, dita ao humano que viu o erro
+#
+# Sobre `match: boundary` — e o modo que se usa para nomes curtos. O nome tem de
+# aparecer delimitado por algo que nao seja letra nem digito, pelo que apanha
+# `n8n`, `n8nio/n8n`, `n8n-nodes-base` e `langgenius/dify-api`, e **nao** apanha
+# `modify-values`, `codify`, `minion` nem `dominion` — pacotes npm reais que um
+# `substring` bloquearia sem razao nenhuma (o `modify-values` e da familia
+# `conventional-changelog`, o mesmo ecossistema do `@commitlint/*` que este
+# repositorio usa). Um gate que bloqueia o que ninguem escolheu e um gate que
+# alguem acaba por desligar.
+#
+# Os nomes PyPI comparam-se normalizados por PEP 503: `langgraph_api` e
+# `langgraph-api` sao o mesmo pacote. As imagens comparam-se por todos os
+# sufixos do caminho: `ghcr.io/berriai/litellm` bate em `litellm`.
+#
+# Alterar esta lista exige citar o ADR e a evidencia. Remover uma entrada exige
+# substituir ou emendar o ADR correspondente (specs/01 §5).
+
+version: 1
+entries:
+  - name: langgraph-api
+    kind: pypi
+    match: exact
+    adr: ADR-002
+    evidence: docs/tecnica/evidencia/E4_Stack_Licencas.md §2.6
+    reason: LangGraph Server e Elastic-2.0 e exige chave de licenca e beacon.langchain.com; usa-se a biblioteca MIT langgraph.
+
+  - name: langgraph-api
+    kind: image
+    match: boundary
+    adr: ADR-002
+    evidence: docs/tecnica/evidencia/E4_Stack_Licencas.md §2.6
+    reason: Imagem do LangGraph Server (Elastic-2.0); o runtime e nosso, com checkpointer Postgres proprio.
+
+  - name: langgraph-runtime-inmem
+    kind: pypi
+    match: exact
+    adr: ADR-002
+    evidence: docs/tecnica/evidencia/E4_Stack_Licencas.md §2.6
+    reason: Pacote Elastic-2.0 do LangGraph Server; nao entra no servico.
+
+  - name: dify
+    kind: any
+    match: boundary
+    adr: ADR-002
+    evidence: docs/tecnica/evidencia/E4_Stack_Licencas.md §2.5
+    reason: Licenca Apache-2.0 modificada proibe operar ambiente multi-tenant sem autorizacao escrita.
+
+  - name: langgenius
+    kind: image
+    match: prefix
+    adr: ADR-002
+    evidence: docs/tecnica/evidencia/E4_Stack_Licencas.md §2.5
+    reason: Todas as imagens do Dify sao publicadas sob langgenius/; a clausula multi-tenant aplica-se a todas.
+
+  - name: n8n
+    kind: any
+    match: boundary
+    adr: ADR-002
+    evidence: docs/tecnica/evidencia/E4_Stack_Licencas.md §2.4
+    reason: Sustainable Use License 1.0; vedado a qualquer superficie exposta a tenants e fora de producao.
+
+  - name: n8nio
+    kind: image
+    match: prefix
+    adr: ADR-002
+    evidence: docs/tecnica/evidencia/E4_Stack_Licencas.md §2.4
+    reason: Imagens oficiais do n8n; a SUL aplica-se a todas.
+
+  - name: typebot
+    kind: any
+    match: boundary
+    adr: ADR-002
+    evidence: docs/tecnica/evidencia/E4_Stack_Licencas.md §2.3
+    reason: FSL-1.1 proibe Competing Use; fluxos deterministicos dos tenants correm em LangGraph.
+
+  - name: minio
+    kind: any
+    match: boundary
+    adr: ADR-014
+    evidence: docs/tecnica/evidencia/E4_Stack_Licencas.md §2.11
+    reason: Repositorio arquivado em 2026-04-24, sem manutencao nem binarios; usa-se StorageProvider (SeaweedFS ou S3 gerido).
+
+  - name: litellm
+    kind: any
+    match: boundary
+    forbidden_below: 1.83.0
+    adr: ADR-005
+    evidence: docs/tecnica/evidencia/E4_Stack_Licencas.md §2.7
+    reason: As versoes PyPI 1.82.7 e 1.82.8 foram publicadas com malware a 2026-03-24; so >= 1.83.0, por digest.

@@ -1,0 +1,20 @@
+{
+  "name": "@kamba/worker-canal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Worker de canal — consumidor da fila de entrada; esqueleto",
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.ts",
+    "start": "node src/server.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.4",
+    "@kamba/contracts": "workspace:*",
+    "@kamba/core-ts": "workspace:*",
+    "hono": "4.13.13"
+  }
+}

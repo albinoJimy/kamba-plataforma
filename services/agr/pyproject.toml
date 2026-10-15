@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kamba-agr"
+version = "0.1.0"
+description = "AGR — runtime de agentes da KAMBÁ; esqueleto (KAM-001)"
+# Python 3.12 por decisao de `docs/tecnica/09` §3.1: e a versao em que o AGR
+# **corre** (imagem `python:3.12-slim`). O intervalo e fechado em cima porque
+# subir de minor em producao e uma decisao, nao um efeito colateral de quem
+# instalou primeiro — mas correr os testes numa maquina com 3.13 e permitido, e
+# e por isso que `make doctor` pede apenas >= 3.12.
+requires-python = ">=3.12,<3.13"
+# As versoes vivem em `requirements/runtime.in` e sao instaladas a partir de
+# `requirements/runtime.txt` com `pip install --require-hashes` (docs/tecnica/08 §4.8).
+# Aqui declaram-se apenas os nomes, para que `lint_arch` e as ferramentas de
+# empacotamento vejam a arvore.
+dependencies = [
+  "starlette",
+  "uvicorn",
+  "kamba-core",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

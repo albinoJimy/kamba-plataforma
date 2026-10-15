@@ -1,0 +1,140 @@
+{
+  // Renovate — actualizacoes de dependencias com janela de quarentena (KAM-001).
+  //
+  // `tecnica/08` §4.8: "Janela de quarentena para versoes novas (p. ex. >= 7 dias)
+  // via Renovate; excepcao para correcoes de seguranca com revisao."
+  //
+  // A quarentena e a defesa contra o caso do LiteLLM (versoes PyPI 1.82.7 e
+  // 1.82.8 maliciosas a 2026-03-24, retiradas em ~40 minutos): uma versao que
+  // tem de esperar sete dias para entrar e uma versao que ja foi vista por
+  // outras pessoas.
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+
+  extends: [
+    "config:recommended",
+    // Agrupa as actualizacoes de patch/minor das devDependencies num PR,
+    // para que a quarentena nao se traduza em dezenas de PRs por semana.
+    "group:monorepos",
+  ],
+
+  timezone: "Africa/Luanda",
+  schedule: ["before 6am on monday"],
+  prConcurrentLimit: 5,
+  prHourlyLimit: 2,
+  dependencyDashboard: true,
+
+  // Conventional Commits com ID de ticket (specs/01 §5). O Renovate nao sabe a
+  // que ticket pertence uma actualizacao, por isso usa-se o ticket que criou a
+  // politica de dependencias. Reescrever para outro ticket, se houver, e do
+  // revisor.
+  commitMessagePrefix: "chore(KAM-001):",
+  // `semanticCommits: "disabled"` porque o prefixo acima ja da a mensagem a
+  // forma `tipo(KAM-NNN): …` que o `commitlint` exige; deixar o Renovate
+  // compor tambem o seu prefixo semantico duplicava-o. (A preset
+  // `:semanticCommits` foi retirada do `extends` pela mesma razao: contradizia
+  // esta linha.)
+  semanticCommits: "disabled",
+
+  // O ramo tem de passar `^(feature|fix)/KAM-[0-9]{3}-[a-z0-9]+([-.][a-z0-9]+)*$`
+  // (tools/conventions.json). O `branchTopic` por omissao do Renovate e
+  // `{{{depNameSanitized}}}-{{{newMajor}}}.x`, que produz
+  // `…-typescript-5.x` — recusado, porque o `.x` cria um grupo que comeca por
+  // digito depois de um ponto. Fixa-se um topico sem o sufixo de versao.
+  branchPrefix: "feature/KAM-001-renovate-",
+  branchTopic: "{{{depNameSanitized}}}",
+
+  labels: ["dependencias"],
+  reviewers: ["team:plataforma"],
+
+  // ---------------------------------------------------------------- QUARENTENA
+  // Nenhuma versao entra antes de sete dias de existencia publica.
+  minimumReleaseAge: "7 days",
+
+  // Lockfiles com hash sao o contrato (tecnica/08 §4.8): fixa-se a versao exacta
+  // e actualiza-se o lock, nunca um intervalo que resolve de forma diferente em
+  // cada maquina.
+  rangeStrategy: "pin",
+  postUpdateOptions: ["pnpmDedupe"],
+  lockFileMaintenance: {
+    enabled: true,
+    schedule: ["before 6am on the first day of the month"],
+  },
+
+  vulnerabilityAlerts: {
+    // A excepcao que `tecnica/08` §4.8 preve: correcoes de seguranca dispensam a
+    // quarentena, **mas nao dispensam a revisao**. Sem auto-merge, em nenhuma
+    // circunstancia: foi por uma actualizacao automatica que o incidente do
+    // LiteLLM teria entrado.
+    minimumReleaseAge: null,
+    enabled: true,
+    labels: ["dependencias", "seguranca"],
+    reviewers: ["team:plataforma", "team:seguranca"],
+    schedule: ["at any time"],
+    automerge: false,
+  },
+
+  // Em nenhum caso, e para nenhuma dependencia. Uma dependencia que entra sem
+  // um humano a ver e uma dependencia que ninguem reviu.
+  automerge: false,
+
+  packageRules: [
+    {
+      description: "Postgres, pgvector e a fila sao infraestrutura com evidencia escrita: so sobem por decisao, nunca por PR automatico.",
+      matchDatasources: ["docker"],
+      matchPackageNames: [
+        "pgvector/pgvector",
+        "valkey/valkey",
+        "redis",
+        "postgres",
+      ],
+      enabled: false,
+    },
+    {
+      description: "Hono fica em 4.x: o 5.0.0-rc.0 saiu a 2026-10-08 e um release candidate nao entra em producao (tecnica/09 §3.1, E4 §2.13).",
+      matchPackageNames: ["hono"],
+      allowedVersions: "<5.0.0",
+    },
+    {
+      description: "Node fica em 24 LTS. Subir de major e uma decisao de arquitectura, nao um PR de dependencias (docs/evidencia/KAM-001-node.md).",
+      matchPackageNames: ["node", "@types/node"],
+      allowedVersions: "<25.0.0",
+    },
+    {
+      description: "TypeScript fica em 5.x: o 7.x e a reescrita nativa e a avaliacao pertence ao ticket dos gates de tipos (KAM-002). Ver docs/adr/ADR-L001-toolchain.md.",
+      matchPackageNames: ["typescript"],
+      allowedVersions: "<7.0.0",
+    },
+    {
+      description: "LiteLLM nunca desce abaixo de 1.83.0 (ADR-005; E4 §2.7: as 1.82.7 e 1.82.8 foram maliciosas).",
+      matchPackageNames: ["litellm"],
+      allowedVersions: ">=1.83.0",
+    },
+    {
+      description: "Medusa fica em 2.21.x enquanto o spike de isolamento entre vendedores (KAM-041) nao fechar (ADR-003).",
+      matchPackageNames: ["@medusajs/medusa", "@medusajs/framework"],
+      allowedVersions: "<2.22.0",
+    },
+    {
+      description: "Dependencias na lista de bloqueio nao se actualizam: nao existem aqui. Esta regra garante que um PR do Renovate nunca as reintroduz (tools/blocklist.yaml).",
+      matchPackageNames: [
+        "langgraph-api",
+        "langgraph-runtime-inmem",
+        "/^@typebot\\.io//",
+        "/typebot/",
+        "/^n8n/",
+        "/dify/",
+        "/minio/",
+      ],
+      enabled: false,
+    },
+  ],
+
+  pip_requirements: {
+    // Os locks Python sao gerados por `tools/pip_lock.py` a partir dos `.in`.
+    // O Renovate propoe a subida no `.in`; `make lock` regenera os hashes.
+    managerFilePatterns: [
+      "/requirements/.*\\.in$/",
+      "/requirements.*\\.in$/",
+    ],
+  },
+}

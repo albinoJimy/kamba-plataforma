@@ -1,0 +1,15 @@
+# Lista de saidas de `seaweedfs` — KAM-067, criterio 9; servico do KAM-011.
+#
+# Negado por omissao: o que nao esta em `destinos` nao sai. Este ficheiro e o
+# contrato; a aplicacao na rede e do KAM-076.
+#
+# Servidor S3 **de teste**, de `infra/compose/docker-compose.storage.yml`: um
+# no so, em tmpfs, levantado e apagado por `make storage-contrato`. Recebe
+# pedidos em 127.0.0.1 e nao tem razao para sair para lado nenhum. Nao e a
+# decisao D6 — se um dia houver um SeaweedFS em staging ou producao, a lista
+# de saidas dele (replicacao, copias) decide-se nessa altura.
+
+version: 1
+servico: seaweedfs
+por_omissao: negar
+destinos: []

@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kamba-core"
+version = "0.1.0"
+description = "Nucleo partilhado pelos servicos Python da KAMBÁ (KAM-001)"
+requires-python = ">=3.12,<3.13"
+# Sem dependencias, de proposito: o nucleo partilhado nao impoe bibliotecas
+# aos servicos que o usam.
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,2 @@
+# Fixture f13: -e git+...#egg= instala sem declarar o requisito (ADR-002).
+-e git+https://github.com/langchain-ai/langgraph-api@main#egg=langgraph_api

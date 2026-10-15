@@ -1,0 +1,358 @@
+# Pipeline de CI — KAM-002
+#
+# Este ficheiro **so orquestra**. Toda a logica de cada gate vive num alvo
+# `make ci-<n>`, por tres razoes:
+#
+# 1. Qualquer gate corre a mao, localmente, com o mesmo comando que o pipeline
+#    usa. Um gate que so se reproduz no CI e um gate que se depura por tentativa.
+# 2. Nada fica preso ao GitHub Actions. O ticket diz «GitHub Actions como
+#    proposta (confirmar com o alojamento do codigo)»; a condicao esta satisfeita
+#    — o codigo esta no GitHub — mas trocar de plataforma nao deve custar mais do
+#    que reescrever este ficheiro.
+# 3. A numeracao e a do §4 do Engineering Standards e nao se renumera: o gate 11
+#    e o gate 11 na documentacao, nos waivers e nos tickets a jusante.
+#
+# Sem chaves estaticas. A autenticacao e por OIDC (`id-token: write`), como
+# `docs/tecnica/08` §4.8 exige. Nenhuma referencia ao cofre de segredos do
+# GitHub aparece abaixo — o criterio de aceitacao do KAM-002 pede que um grep
+# por essas referencias devolva zero, e este comentario tambem nao as escreve,
+# para que o grep seja limpo e nao precise de excepcoes. O gate 9 varre este
+# proprio ficheiro.
+
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  # Permite reexecutar sem abrir um PR novo.
+  workflow_dispatch:
+
+# Fail-closed por omissao: o token tem o minimo, e cada job pede o que precisa.
+permissions:
+  contents: read
+
+concurrency:
+  # Um PR actualizado cancela a execucao anterior: o que interessa e o estado do
+  # ultimo commit, nao a fila de todos.
+  #
+  # So nos PRs. Em `main`, uma serie rapida de merges cancelaria as execucoes
+  # anteriores e os commits intermedios ficariam sem nenhuma execucao concluida
+  # — que e precisamente o historico que se quer poder consultar.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Fixas aqui para que mudar de versao seja uma alteracao visivel no diff, e nao
+  # um efeito de o runner ter sido actualizado.
+  NODE_VERSION: "24.21.0"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Gates em ambito do KAM-002
+  # ---------------------------------------------------------------------------
+
+  gate-1-build:
+    name: "gate 1 — build"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/preparar
+      - name: make ci-1
+        run: make ci-1
+
+  gate-2-tipos:
+    name: "gate 2 — lint e tipos"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/preparar
+      - name: make ci-2
+        run: make ci-2
+
+  gate-3-referencias:
+    name: "gate 3 — referencias cruzadas"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # O gate 3 le os conjuntos validos de `specs/INDICE.md` e de
+      # `docs/tecnica/00`, e varre `git ls-files`. Nao precisa de instalacao
+      # nenhuma: `lint_refs` depende so da biblioteca padrao do Python.
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: make ci-3
+        run: make ci-3
+
+  # Gate 3b (KAM-111). Bloco proprio, sem tocar nos vizinhos: compara os nomes
+  # das migracoes, dos schemas de evento, do registo e de `docs/tecnica/` com o
+  # dicionario canonico. Como o gate 3, depende so da biblioteca padrao do
+  # Python e do git — nao precisa de instalacao nenhuma.
+  gate-3b-nomes-canonicos:
+    name: "gate 3b — nomes canonicos"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: make ci-3b
+        run: make ci-3b
+
+  gate-4-unit:
+    name: "gate 4 — unit e cobertura"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/preparar
+      - name: make ci-4
+        run: make ci-4
+      - name: arquivar os relatorios de cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cobertura
+          path: ci/coverage/
+          retention-days: 90
+
+  gate-9-segredos:
+    name: "gate 9 — segredos"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # A segunda passagem do gate 9 (KAM-131) le os commits do intervalo do
+          # PR. Com a profundidade 1 do `checkout` por omissao, o SHA de base
+          # nem existe no clone — e o gate fica **vermelho** por configuracao,
+          # nao verde em silencio (`historia.py:_resolver`).
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: make ci-9
+        # `scan_secrets` depende so da biblioteca padrao, pela mesma razao que o
+        # hook de pre-commit: tem de poder correr antes de qualquer instalacao.
+        #
+        # Os tres valores vao em bruto, como o evento os traz. O que fazer com
+        # eles decide-se em `decidir_intervalo`, que tem testes; este YAML nao
+        # tem nenhuma condicao dentro, porque nao ha *lint* de *workflows* e uma
+        # condicao aqui nao seria verificavel. O que verifica estas tres linhas
+        # e `tools/lint_arch/tests/test_ci_gate9.py`.
+        #
+        # Cada accionamento com intervalo traz a base na sua chave. O
+        # `merge_group` esta na cadeia por antecipacao: e fail-closed em
+        # `SEM_INTERVALO`, pelo que no dia em que a fila de merge se ligar sem
+        # esta linha o gate 9 ficava vermelho em todas as execucoes.
+        env:
+          GATE9_EVENTO: ${{ github.event_name }}
+          GATE9_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+          GATE9_HEAD: ${{ github.sha }}
+        run: make ci-9
+
+  gate-11-supply-chain:
+    name: "gate 11 — SCA, licencas e SBOM"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/preparar
+      - name: make ci-11
+        run: make ci-11
+      - name: arquivar os SBOM
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: ci/sbom/
+          # 90 dias, como o criterio de aceitacao do KAM-002 pede.
+          retention-days: 90
+
+  gate-6-isolamento:
+    name: "gate 6 — isolamento de tenant"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/preparar
+      - name: make ci-6
+        # Como o gate 8, levanta o seu proprio PostgreSQL: a suite semeia dois
+        # tenants e ataca um com o contexto do outro, e isso nao se faz contra
+        # uma base que mais alguem use.
+        run: make ci-6
+
+  gate-8-migracoes:
+    name: "gate 8 — migracoes"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/preparar
+      - name: make ci-8
+        # O alvo levanta o seu proprio PostgreSQL com `docker run`, em vez de um
+        # `services:` do workflow. E de proposito: assim o gate corre igual na
+        # maquina e no runner, e a imagem, o digest e as palavras-passe geradas
+        # vivem num sitio so (`db/gate8.py`) e nao em dois.
+        run: make ci-8
+
+  # ---------------------------------------------------------------------------
+  # Gates reservados — falham por desenho
+  # ---------------------------------------------------------------------------
+  #
+  # Os gates 5 e 7 existem no §4 do Engineering Standards e sao implementados
+  # pelos tickets que criam o que eles testam. Ficam aqui a falhar: um job
+  # reservado que passasse em silencio fazia o pipeline parecer que cobre o que
+  # nao cobre, e nada obrigaria ninguem a liga-lo.
+  #
+  # `continue-on-error: true` para que **nao bloqueiem** o merge hoje — nao estao
+  # nos *required checks* — mas aparecam vermelhos em cada PR. A valvula formal e
+  # `ci/waivers.yaml`, com prazo de 30 dias.
+
+  gates-reservados:
+    name: "gates 5 e 7 — reservados (nao bloqueiam)"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - gate: 5
+            ticket: KAM-003
+          - gate: 7
+            ticket: KAM-007
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: "gate ${{ matrix.gate }} (${{ matrix.ticket }})"
+        run: make ci-${{ matrix.gate }}
+
+  # ---------------------------------------------------------------------------
+  # Vigia da prova nocturna — KAM-143
+  # ---------------------------------------------------------------------------
+  #
+  # A prova por mutacao completa saiu do caminho dos PRs e corre de noite
+  # (`mutacoes.yaml`). Isso cria um modo de falha mais calado do que uma
+  # sobrevivente: a noite que **nao correu**. Tres formas realistas de
+  # acontecer — uma execucao em fila cancelada pelo GitHub (um cancelamento nao
+  # e `failure()`, logo nao abre *issue*), o GitHub a desactivar tarefas
+  # agendadas depois de 60 dias sem actividade no repositorio, e um *issue*
+  # aberto esquecido, que silencia as noites seguintes por desenho.
+  #
+  # Esta vigia da por isso. **Nao bloqueia** (`continue-on-error`) e nao esta
+  # nos `needs` do resumo: uma noite em falta nao e razao para travar um PR, e
+  # e razao para alguem olhar.
+  vigia-das-mutacoes:
+    name: "vigia — prova nocturna (nao bloqueia)"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: a ultima noite concluida tem menos de 36 horas?
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # 36 h e uma noite mais a folga de uma: a tarefa corre as 02:10 UTC,
+          # e um atraso de horas nao e uma noite perdida.
+          limite=$((36 * 3600))
+          ultima=$(gh run list --workflow mutacoes.yaml --event schedule \
+            --status completed --limit 1 --json updatedAt --jq '.[0].updatedAt // ""')
+          if [ -z "$ultima" ]; then
+            echo "A prova nocturna nunca concluiu uma execucao agendada." >&2
+            echo 'Enquanto o KAM-143 nao tiver passado uma noite em main, isto e' >&2
+            echo 'o esperado. Depois disso, e uma tarefa que deixou de correr.' >&2
+            exit 1
+          fi
+          idade=$(( $(date -u +%s) - $(date -u -d "$ultima" +%s) ))
+          echo "ultima noite concluida: $ultima (ha $((idade / 3600)) h)"
+          if [ "$idade" -gt "$limite" ]; then
+            echo "Passaram mais de 36 h sem uma prova nocturna concluida." >&2
+            echo 'Ve .github/workflows/mutacoes.yaml: pode estar desactivada por' >&2
+            echo 'inactividade, ou as execucoes podem estar a ser canceladas em fila.' >&2
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Resumo
+  # ---------------------------------------------------------------------------
+
+  gates-em-ambito:
+    name: "gates do KAM-002"
+    runs-on: ubuntu-latest
+    needs:
+      - gate-1-build
+      - gate-2-tipos
+      - gate-3-referencias
+      - gate-3b-nomes-canonicos
+      - gate-4-unit
+      - gate-6-isolamento
+      - gate-8-migracoes
+      - gate-9-segredos
+      - gate-11-supply-chain
+    if: always()
+    permissions:
+      contents: read
+    steps:
+      - name: verificar que nenhum gate falhou nem foi saltado
+        # `needs.*.result` tem de ser `success` em todos. Um `skipped` conta como
+        # falha: a regra transversal do §4 diz que nenhum gate se marca `skip` sem
+        # ADR ou aprovacao registada, e esse registo e `ci/waivers.yaml`, nao uma
+        # condicao no workflow.
+        run: |
+          resultados='${{ toJSON(needs) }}'
+          echo "$resultados"
+          # Logica **positiva**: exige-se `success` em todos, em vez de excluir
+          # tres resultados conhecidos.
+          #
+          # A versao anterior fazia `grep` de `failure`, `cancelled` e
+          # `skipped` e passava em tudo o resto — pelo que um `result` novo que
+          # o GitHub venha a introduzir passaria sem ninguem decidir isso. Numa
+          # verificacao que existe para ser a ultima porta, a lista de
+          # aceitaveis tem de ser a curta.
+          maus=$(echo "$resultados" | grep -o '"result": *"[a-z]*"' | grep -v '"result": *"success"' || true)
+          if [ -n "$maus" ]; then
+            echo "::error::gates que nao terminaram em success:"
+            echo "$maus"
+            echo "Um gate saltado conta como falha: a regra do §4 e que nenhum"
+            echo "gate se marca skip sem registo em ci/waivers.yaml."
+            exit 1
+          fi
+          contados=$(printf '%s' "$resultados" | grep -c '"result": *"success"')
+          esperados=9
+          if [ "$contados" -ne "$esperados" ]; then
+            echo "::error::esperava $esperados gates e contei $contados"
+            echo "Um gate que desapareca do \`needs\` desapareceria tambem desta"
+            echo "verificacao, e e por isso que se conta."
+            exit 1
+          fi
+          echo "todos os $esperados gates activos estao verdes"

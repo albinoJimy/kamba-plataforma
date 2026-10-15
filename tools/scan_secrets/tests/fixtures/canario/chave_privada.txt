@@ -1,0 +1,4 @@
+-----BEGIN RSA PRIVATE KEY-----
+ESTE BLOCO NAO E UMA CHAVE. Serve para o padrao de bloco de chave privada ter
+um caso de teste. O conteudo e texto, nao base64 de uma chave.
+-----END RSA PRIVATE KEY-----

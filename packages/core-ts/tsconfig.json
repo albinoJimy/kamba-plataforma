@@ -1,0 +1,14 @@
+{
+  "_comment": "KAM-010 acrescentou `allowImportingTsExtensions` + `rewriteRelativeImportExtensions`. O `src/secrets/` e o primeiro modulo deste pacote com varios ficheiros, e portanto o primeiro com imports relativos. Os testes correm no `node --test` sobre a fonte, onde o Node exige a extensao `.ts` literal (nao reescreve especificadores); a emissao precisa de `.js` no `dist/`. Essa contradicao e exactamente o que o par de opcoes resolve desde o TypeScript 5.7: aceita-se `./port.ts` na fonte e emite-se `./port.js`. A nota de `docs/adr/ADR-L001-toolchain.md` §9 de que `allowImportingTsExtensions` e incompativel com emissao vale para a opcao sozinha.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": ["src/**/*.ts"]
+}

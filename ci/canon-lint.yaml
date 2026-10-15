@@ -1,0 +1,265 @@
+# Politica do gate 3b (lint de nomes canonicos) — KAM-111
+#
+# Os NOMES nao estao aqui: vem de `canon/dicionario.yaml`, que e exportado do §3
+# de `specs/02_Dicionario_de_Dados_Canonico.md`. Este ficheiro diz so duas
+# coisas que o Markdown nao da de forma legivel por maquina:
+#
+#   1. ONDE estao as superficies que o lint le;
+#   2. as poucas regras do §3 que estao escritas em prosa e precisam de um
+#      ponteiro para a linha do dicionario de onde vem.
+#
+# Cada regra do ponto 2 cita a `seccao` e o `conceito` da linha do dicionario, e
+# o lint CONFIRMA a citacao ao arrancar: se a linha desaparecer ou deixar de
+# dizer o que a regra afirma, o gate falha com erro de configuracao. A politica
+# nao pode proibir o que o dicionario nao proibe.
+#
+# Todas as chaves deste ficheiro sao lidas por `tools/canon_lint/dicionario.py`.
+# Uma chave desconhecida e recusada — nao ha aqui regra que nenhum codigo leia.
+#
+# NOTA DE FORMA: este ficheiro e lido pelo `tools/kamba_yaml.py`, que NAO aceita
+# listas de fluxo com conteudo (`[a, b]`). As listas escrevem-se em bloco.
+
+version: 1
+
+# ----------------------------------------------------------------- superficies
+#
+# Padroes `fnmatch` sensiveis a caixa; o `*` ATRAVESSA barras.
+#
+# `eventos` e `registo` estao hoje VAZIAS: `contratos/eventos/` nasce com o
+# KAM-007 e os ficheiros de `registry/` com o EPIC-03. O lint di-lo na saida em
+# vez de as dar por conformes, e as fixtures (`make ci-3b` corre-as) provam que
+# as duas verificacoes mordem enquanto nao houver ficheiros reais.
+superficies:
+  migracoes:
+    - "db/migrations/versions/*.py"
+  eventos:
+    - "contratos/eventos/*.schema.json"
+  registo:
+    - "registry/*.yaml"
+  documentos:
+    - "docs/tecnica/*.md"
+
+# ------------------------------------------------------------------ sentinelas
+#
+# Um ficheiro que bate num destes padroes e NAO esta na superficie indicada
+# falha o gate. E a defesa contra a superficie que fica vazia por o ficheiro ter
+# nascido noutra pasta: sem isto, uma migracao em `services/com/migrations/`
+# nunca era lida e o gate ficava verde.
+#
+# As sentinelas comparam-se com o caminho EM MINUSCULAS: `registry/x.YAML` e
+# `db/migrations/versions/0002.PY` batem na sentinela, nao batem na superficie
+# (que e sensivel a caixa), e por isso falham.
+#
+# As dez primeiras sao OBRIGATORIAS — estao tambem em
+# `tools/canon_lint/dicionario.py` (`SENTINELAS_MINIMAS`) e retira-las daqui e
+# erro de configuracao. Abaixo delas pode acrescentar-se.
+#
+# Tres consequencias que sao decisoes, e nao acidentes:
+#
+#   * `*.sql` em qualquer sitio tem de ser superficie ou estar declarado. O
+#     `EPIC-06` manda por o schema `idx` em `migrations/NNNN_idx_schema.sql`:
+#     no dia em que esse ficheiro nascer, o gate falha ate o caminho entrar em
+#     `superficies.migracoes`.
+#   * `*/migrations/*` apanha as migracoes TypeScript do Medusa
+#     (`docs/tecnica/03` §11). O gate 3b NAO le TypeScript. Quando o spike D3
+#     as criar, o gate falha, e quem as declarar em `fora_de_ambito` escreve
+#     nesse momento porque e que o schema do Medusa fica fora do dicionario
+#     (os «esquemas do Medusa» do §3.6) — em vez de ficarem de fora por ninguem
+#     ter reparado.
+#   * um schema de evento com outro nome (`packages/contracts/x.v1.json`) so e
+#     apanhado se estiver numa pasta `eventos/` ou `events/`, ou se acabar em
+#     `.schema.json`. E limite dito.
+sentinelas:
+  - padrao: "migrations/*"
+    superficie: migracoes
+  - padrao: "*/migrations/*"
+    superficie: migracoes
+  - padrao: "*/versions/*.py"
+    superficie: migracoes
+  - padrao: "*.sql"
+    superficie: migracoes
+  - padrao: "*.schema.json"
+    superficie: eventos
+  - padrao: "*/eventos/*"
+    superficie: eventos
+  - padrao: "*/events/*"
+    superficie: eventos
+  - padrao: "registry/*"
+    superficie: registo
+  - padrao: "*/registry/*"
+    superficie: registo
+  - padrao: "docs/tecnica/*.md"
+    superficie: documentos
+  - padrao: "*.schema.yaml"
+    superficie: eventos
+  - padrao: "*/registo/*"
+    superficie: registo
+  - padrao: "registo/*"
+    superficie: registo
+
+fora_de_ambito:
+  - caminho: "tools/canon_lint/tests/fixtures/*"
+    razao: >-
+      As fixtures do proprio gate 3b: migracoes, schemas e ficheiros de registo
+      deliberadamente errados (as negativas) e certos (as positivas). Sao lidas
+      pelo `canon_lint canario` e pelos testes, uma a uma, e nao pelo varrimento
+      da arvore — que ficaria vermelho por desenho.
+
+  - caminho: "db/migrations/env.py"
+    razao: >-
+      O ambiente do Alembic: abre a ligacao e chama as revisoes. Nao e uma
+      revisao e nao tem DDL; as revisoes estao em `db/migrations/versions/`.
+
+  - caminho: "db/migrations/script.py.mako"
+    razao: >-
+      O modelo com que o Alembic gera uma revisao nova. E um *template*, nao
+      Python valido, e nao tem DDL.
+
+  - caminho: "db/migrations/alembic.ini"
+    razao: >-
+      Configuracao do Alembic (caminho das revisoes, formato do registo). Sem
+      nomes de dados.
+
+  - caminho: "db/migrations/README.md"
+    razao: >-
+      Documentacao da pasta de migracoes. Prosa; os nomes que la aparecem sao
+      verificados onde sao contrato, nas revisoes.
+
+  - caminho: "registry/README.md"
+    razao: >-
+      O README do directorio reservado pelo KAM-001. Nao e um ficheiro do
+      AgentRegistry; os ficheiros do registo sao `registry/*.yaml`.
+
+  - caminho: "infra/compose/postgres/initdb/01-bases-e-extensoes.sql"
+    razao: >-
+      Arranque do Postgres de desenvolvimento (KAM-001): cria as bases
+      `kamba_medusa` e `kamba_chatwoot`, as extensoes `vector` e `pg_trgm`, e
+      verifica versoes. Nao cria esquema, tabela nem coluna do dominio KAMBA —
+      esses nascem so pelas revisoes do Alembic.
+
+# ----------------------------------------------- modulos auxiliares de migracao
+#
+# Uma revisao so pode importar o Alembic, o SQLAlchemy, a biblioteca padrao e os
+# modulos declarados aqui. Um `import` de outra coisa falha: o lint nao tem como
+# saber que SQL ela executa.
+#
+# Um modulo declarado NAO e dispensado de leitura. Quando uma revisao chama
+# `rls.enable_tenant_rls("tenants", coluna="id")`, o lint abre o ficheiro,
+# segue o corpo da funcao com os argumentos da chamada, e verifica o SQL que
+# dai sai — o mesmo que a revisao executaria. Se o corpo tiver algo que o lint
+# nao segue, a chamada falha.
+auxiliares_de_migracao:
+  - modulo: rls
+    ficheiro: db/rls.py
+    razao: >-
+      KAM-004: o unico sitio onde a politica de RLS por tenant se escreve
+      (`ENABLE`/`FORCE ROW LEVEL SECURITY` e `CREATE POLICY tenant_iso`). As
+      revisoes chamam `enable_tenant_rls`/`disable_tenant_rls` em vez de
+      repetirem o SQL. O ficheiro entra com o KAM-004; enquanto nao existir,
+      nenhuma revisao o importa e esta entrada nao e exercida.
+
+# ------------------------------------------- dominios dados por conceito no §3
+#
+# O dicionario escreve a maior parte dos dominios como `coluna ∈ {a, b}`, e a
+# exportacao le-os sozinha. Estes dois estao escritos como uma lista de estados
+# numa linha cujo conceito e o estado, sem a coluna na celula do nome. O
+# ponteiro diz a que coluna a lista se aplica.
+dominios_por_conceito:
+  - coluna: tenants.estado
+    seccao: "3.2"
+    conceito: "Estado do tenant"
+  - coluna: tenant_channels.estado
+    seccao: "3.2"
+    conceito: "Estado do canal"
+
+# Dominios que o dicionario escreve sem tabela e que NAO se aplicam a colunas de
+# base de dados com o mesmo nome.
+dominios_so_no_registo:
+  - coluna: id
+    razao: >-
+      §3.2, «Vertical»: «No registo (`registry/*.yaml`): `id` ∈ {vendedor, …}».
+      E o `id` de um ficheiro do registo; aplicado ao DDL, toda a chave
+      primaria `id uuid` passava a ter de ser uma vertical.
+  - coluna: modulo
+    razao: >-
+      §3.7 da `modulo` ∈ {catalogo, foto, social, orcamento}, mas o §3.2 diz que
+      `entitlements.modulo` tem `CHECK` de FORMA e nao de dominio (os modulos
+      sao configuracao, ADR-012), e a revisao 0001 implementa-o assim. As duas
+      linhas do dicionario nao concordam; no registo aceitam-se as verticais e
+      estes quatro. Registado como contradicao do canon em
+      `docs/nomes-canonicos.md` §6.
+
+# ------------------------------------------------ unicidades que o §3 proibe
+#
+# §3.4, «Unicidade do ledger»: «**nao** `UNIQUE(provider, referencia)`». O ledger
+# e append-only e a mesma referencia tem varias linhas (D-06).
+unicidades_proibidas:
+  - colunas:
+      - provider
+      - referencia
+    seccao: "3.4"
+    conceito: "Unicidade do ledger"
+
+# ----------------------------------------------- identificador de confirmacao
+#
+# §3.3: `confirm:{cart_id}` (Vendedor), `confirm:{hold_id}` (Servicos),
+# `confirm:{item_id}` (modulos de entrada). A atribuicao esta entre parenteses
+# na celula, em prosa (D-11). As tres ultimas linhas sao LEITURA, e *proposta*:
+# o dicionario diz «modulos de entrada: conteudo, proposta, publicacao de
+# produto», e as verticais de entrada do §3.2 sao `catalogo`, `social` e
+# `orcamento`.
+confirmacao:
+  seccao: "3.3"
+  conceito: "Identificador de confirmação"
+  por_vertical:
+    - vertical: vendedor
+      identificador: "confirm:{cart_id}"
+    - vertical: servicos
+      identificador: "confirm:{hold_id}"
+    - vertical: catalogo
+      identificador: "confirm:{item_id}"
+    - vertical: social
+      identificador: "confirm:{item_id}"
+    - vertical: orcamento
+      identificador: "confirm:{item_id}"
+
+# ------------------------------------------------- os dois eventos de pagamento
+#
+# §3.4: «Dois eventos distintos; consumidores que nao distinguem subscrevem
+# ambos» (D-05). Um ficheiro do registo que subscreve um e nao o outro falha,
+# salvo se o seu `id` estiver aqui — a declaracao de que esse consumidor trata
+# os dois caminhos de maneira diferente e so quer um. Em bloco:
+#
+#   distinguem_o_caminho:
+#     - vendedor
+eventos_de_pagamento:
+  seccao: "3.4"
+  conceito: "Eventos de pagamento"
+  distinguem_o_caminho: []
+
+# Schemas da superficie `eventos` que NAO descrevem um evento (um envelope
+# partilhado, por exemplo) e por isso nao se chamam `v<N>.schema.json`. Todos os
+# outros ficheiros da superficie tem de ter esse nome, com `tipo` e `versao`
+# fixos. Vazia hoje.
+eventos_partilhados: []
+
+# ------------------------------------------------- linhas do §3 que o lint cita
+envelope:
+  seccao: "3.5"
+  conceito: "Envelope"
+
+limites:
+  seccao: "3.2"
+  conceito: "Entitlement (chaves)"
+
+verticais:
+  seccao: "3.2"
+  conceito: "Vertical"
+
+papeis:
+  seccao: "3.2"
+  conceito: "Papéis de base de dados"
+
+esquemas:
+  seccao: "3.6"
+  conceito: "Esquemas"

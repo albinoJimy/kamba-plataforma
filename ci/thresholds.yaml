@@ -1,0 +1,148 @@
+# Limiares do gate 4 (unit + cobertura) — KAM-002
+#
+# Proposta inicial do §4.1 do Engineering Standards: >= 90% em codigo de
+# dinheiro, isolamento e validador; >= 75% no restante. Os numeros sao
+# *proposta*, a calibrar no Piloto; o que este ficheiro acrescenta e **a
+# taxonomia**, que nenhum documento tinha: como se decide o que e "codigo de
+# dinheiro" (`specs/01` §4.1 nomeia os estratos e nao diz como classificar).
+#
+# A classificacao e por padrao de caminho, avaliada **na ordem em que esta
+# escrita**: o primeiro padrao que bater decide o estrato do ficheiro. Posto de
+# outra forma: os padroes mais especificos vem primeiro.
+#
+# ESTE FICHEIRO DECIDE TAMBEM **QUEM E MEDIDO**, e nao so com que limiar (desde
+# o KAM-132). Os `padroes` menos os `excluidos` sao o universo que o
+# `tools/coverage_gate.py` le do disco: o que esta la e nenhum relatorio mediu
+# entra a 0% das suas linhas. Era a assimetria entre os dois lados — o
+# `coverage run --source=.` do Python ja media o que nao e importado, e o V8 so
+# reporta o que os testes carregam, pelo que TypeScript sem testes nao movia a
+# percentagem. Consequencia pratica: acrescentar um padrao aqui pode **baixar**
+# o numero medido, porque traz ficheiros novos para o denominador.
+#
+# ATENCAO A SEMANTICA DOS PADROES. Sao `fnmatch`, nao `glob`: o `*` **atravessa
+# barras**. `*/pagamentos/*` apanha `services/com/src/pagamentos/x.ts` e
+# `services/com/src/dominio/pagamentos/y.ts`, a qualquer profundidade.
+#
+# O inverso tambem e verdade e foi um defeito real: `services/*/src/**/pagamentos/**`
+# **nao** apanhava `services/com/src/pagamentos/x.ts`, porque o `**/` exige um
+# segmento pelo meio que ali nao existe. O estrato critico ficava vazio sem
+# ninguem dar por isso, e o gate 4 passava sobre codigo de dinheiro sem o medir.
+# Os padroes abaixo usam a forma `*/<pasta>/*`, que e a que funciona.
+#
+# NOTA IMPORTANTE, para nao se ler este ficheiro como mais garantia do que da:
+# o estrato `critico` esteve **vazio** ate ao KAM-004, e hoje tem codigo de
+# **isolamento** — os dois helpers de `tenant_guard` e, desde o KAM-011, a porta
+# de armazenamento (`storage/`), em Python e em TypeScript —, desde o KAM-068 o
+# **logger** nas duas linguagens (ver a nota no padrao) e, desde o KAM-008, o de
+# **identidade de contacto** (`*/identity/*`): as chaves, a cifra e o SQL. O
+# servico que os usa contra a base mede-se noutro sitio (ver `excluidos`).
+# Continua a nao existir codigo de dinheiro nem de validador no repositorio: os
+# padroes desses dois estao escritos para os tickets que os vao criar (KAM-052+
+# pagamentos, KAM-007 validador de citacao), e o gate comeca a morder neles no
+# dia em que o primeiro ficheiro bater num padrao.
+
+version: 1
+
+estratos:
+  - nome: critico
+    minimo_linhas: 90
+    razao: >-
+      Dinheiro, isolamento de tenant e validador de citacao. Um defeito aqui nao
+      e um bug: e dinheiro errado, dados de outro tenant, ou um numero inventado
+      apresentado a um cliente (specs/01 §4.1, §6 principios 4 e 5).
+    padroes:
+      # Pagamentos e liquidacao (KAM-052 em diante).
+      - "*/pagamentos/*"
+      - "*/payments/*"
+      - "*/liquidacao/*"
+      # Isolamento de tenant e contacto (KAM-004, KAM-008).
+      - "*/tenant_guard/*"
+      - "*/isolamento/*"
+      - "*/rls/*"
+      - "*/identity/*"
+      # Armazenamento por tenant (KAM-011): o prefixo `t/{tenant_id}/` e a
+      # camada «Storage» de docs/tecnica/08 §3.1. O modulo inteiro, e nao so a
+      # guarda: a assinatura dos pedidos e das URLs e o que impede uma URL de um
+      # objecto de abrir outro.
+      - "*/storage/*"
+      # Validador de citacao de numeros e sku (KAM-007, ADR-007).
+      - "*/validador/*"
+      - "*/citacao/*"
+      # ToolLayer: toda a tool classificada `money` passa por aqui (ADR-015).
+      - "*/toollayer/*"
+      # Logger com allowlist (KAM-068, ADR-010). **Alarga a taxonomia**, e por
+      # isso fica dito: o §4.1 nomeia dinheiro, isolamento e validador, e a
+      # privacidade nao esta la. Entra porque o DoD do KAM-068 exige «cobertura
+      # do modulo de logger >= 90%», e este estrato e o unico mecanismo que
+      # impoe 90% — sem o padrao, o modulo ficava no `restante`, a 75%, e a
+      # caixa do DoD nao tinha gate que a sustentasse. Um defeito aqui e um
+      # telefone ou o texto de uma conversa num sitio que a equipa toda le.
+      # *Proposta*, como os limiares: alterar este ficheiro pede dois revisores.
+      #
+      # O limiar e agregado por estrato: este padrao partilha os 90% com
+      # `tenant_guard`. A cobertura do logger sozinho mede-se a parte e esta em
+      # `docs/logs.md` §8.
+      - "*/logger/*"
+
+  - nome: restante
+    minimo_linhas: 75
+    razao: >-
+      Todo o resto do codigo de execucao, **e as ferramentas de verificacao**. As
+      ferramentas entram aqui por uma razao que vale a pena nomear: e nelas que
+      vivem os gates. Um `lint_refs` sem testes nao protege referencias; um
+      `scan_secrets` sem testes nao protege segredos. Deixa-las fora da medicao
+      fazia o gate 4 passar com os dois estratos vazios — o que aconteceu na
+      primeira versao deste ficheiro e e o defeito que esta linha fecha.
+    padroes:
+      - "services/*/src/**"
+      - "packages/*/src/**"
+      - "libs/*/src/**"
+      - "tools/**"
+
+# Ficheiros que nao contam para a cobertura. Nao e indulgencia: e nao medir o
+# que nao tem logica para medir, porque um denominador inflacionado por
+# ficheiros triviais faz o numero subir sem o codigo ficar mais testado.
+#
+# Desde o KAM-132 valem **duas** vezes, e a segunda e a que importa: alem de
+# tirarem um ficheiro medido da avaliacao, tiram-no da injeccao a 0% e do
+# `--test-coverage-include` do `make coverage-node`. Um ponto de entrada ou um
+# ficheiro de teste nao passa a denominador por nao ter sido carregado.
+excluidos:
+  - "**/tests/**"
+  - "**/*.test.ts"
+  - "**/test_*.py"
+  - "**/dist/**"
+  - "**/node_modules/**"
+  - "**/__pycache__/**"
+  # Pontos de entrada: arrancam o processo e nao tem ramos. Testam-se por
+  # integracao (`make smoke`, `make ci-*`), nao por unidade.
+  #
+  # Os `__main__.py` das ferramentas sao duas linhas — `from .cli import main` e
+  # `raise SystemExit(main())`. Sao exercitados por **cada** invocacao de
+  # `python -m <ferramenta>`, inclusive nos gates, mas o `unittest` nao os
+  # importa. Medi-los dava 0% a oito ficheiros e baixava o denominador por nada.
+  - "services/*/src/server.ts"
+  - "**/__main__.py"
+  # O codigo de `db/` — o bootstrap dos papeis, o orquestrador do gate 8, o
+  # ambiente do Alembic e as revisoes — so faz sentido contra um PostgreSQL
+  # real, e e ai que e exercitado: o gate 8 corre 60+ testes de integracao
+  # sobre ele, incluindo uma prova por mutacao registada no bloco do KAM-003.
+  # Fica fora da **medicao** do gate 4, e isso e uma limitacao dita, nao uma
+  # dispensa: ninguem mede hoje que percentagem de `db/*.py` esses testes
+  # tocam. Medir obrigava a correr o gate 8 sob `coverage` e a fundir os LCOV.
+  - "db/**"
+  # O servico de identidade (KAM-008) e a mesma situacao, em TypeScript: resolve,
+  # funde, roda e apaga contactos **numa base de dados**, e sem ela so correm as
+  # recusas a entrada. Nao fica por medir: `db/tests_identidade/` corre-o contra
+  # o PostgreSQL do gate 8 com `--experimental-test-coverage` e **falha abaixo
+  # de 90% de linhas, por ficheiro** — o limiar do estrato `critico`, lido deste
+  # ficheiro. Sai da medicao do gate 4 para nao entrar duas vezes, uma delas com
+  # um numero que so diria que o gate 4 nao tem base de dados. Os outros
+  # ficheiros de `*/identity/*` (chaves, cifra, SQL) ficam no gate 4, no estrato
+  # `critico`.
+  - "packages/core-ts/src/identity/contactos.ts"
+
+# Tolerancia zero: descer 1 ponto abaixo do limiar falha o gate. O ticket diz
+# "descer 1 ponto abaixo falha o gate", pelo que nao ha margem nem arredondamento
+# para cima.
+arredondamento: truncar

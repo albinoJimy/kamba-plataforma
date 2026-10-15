@@ -1,0 +1,4 @@
+# Fixture f4: n8n por imagem (ADR-002).
+services:
+  automacoes:
+    image: n8nio/n8n:2.42.5

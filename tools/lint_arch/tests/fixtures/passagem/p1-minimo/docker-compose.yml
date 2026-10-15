@@ -1,0 +1,5 @@
+services:
+  pg:
+    image: pgvector/pgvector:0.8.7-pg18
+  sto:
+    image: chrislusf/seaweedfs:4.48

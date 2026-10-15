@@ -1,0 +1,2 @@
+# Fixture p2: LiteLLM corrigido, pin exacto acima do limiar (ADR-005).
+litellm==1.104.2

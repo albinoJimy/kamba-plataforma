@@ -1,0 +1,4 @@
+# Fixture p4: a forma correcta do LiteLLM — versao na tag e digest fixado.
+services:
+  llm:
+    image: ghcr.io/berriai/litellm:main-v1.104.2

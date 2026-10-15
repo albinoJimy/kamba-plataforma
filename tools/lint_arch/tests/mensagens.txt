@@ -1,0 +1,16 @@
+chore(KAM-001): cria a arvore do monorepo e a toolchain
+feat(KAM-004): acrescenta RLS FORCE as tabelas com tenant_id
+fix(KAM-052): corrige o callback do PSP sem assinatura HMAC
+docs(KAM-001): registra o intervalo de Node do Medusa
+spike(KAM-041): mede o isolamento entre vendedores no Medusa
+arranjei umas coisas
+chore: sem ticket nenhum
+build(KAM-001): tipo fora da lista
+chore(monorepo): ambito que nao e ticket
+chore(kam-001): ambito em minusculas
+chore(KAM-1): ticket com um digito
+chore(KAM-001): Comeca com maiuscula
+chore(KAM-001): acaba em ponto.
+chore(KAM-001): curto
+chore(KAM-001): CRIA TUDO EM MAIUSCULAS
+chore(KAM-002): aceita prosa com dois pontos no corpo

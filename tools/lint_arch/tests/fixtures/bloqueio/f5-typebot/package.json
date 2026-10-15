@@ -1,0 +1,6 @@
+{
+  "name": "fixture-typebot",
+  "dependencies": {
+    "@typebot.io/js": "0.3.0"
+  }
+}

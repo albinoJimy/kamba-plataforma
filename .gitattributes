@@ -1,0 +1,7 @@
+# Finais de linha deterministas, independentes do core.autocrlf de cada máquina.
+# Sem isto, o mesmo documento aparece como alterado por inteiro em máquinas
+# diferentes — e a auditoria de changeset deixa de distinguir o que mudou.
+* text=auto eol=lf
+
+# Diff de Markdown por secção em vez de por bloco anónimo
+*.md diff=markdown

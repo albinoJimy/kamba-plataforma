@@ -1,0 +1,3 @@
+# Fixture f1: o pacote Elastic-2.0 do LangGraph Server (ADR-002).
+langgraph==1.2.14
+langgraph-api==0.15.4

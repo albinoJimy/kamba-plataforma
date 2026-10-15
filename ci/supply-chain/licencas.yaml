@@ -1,0 +1,329 @@
+# Registo de licencas por versao — KAM-067
+#
+# Nao confundir com `ci/licenses.yaml` (KAM-002), que e a **politica**: que
+# licencas entram. Este ficheiro e o **registo**: que versao de cada componente
+# foi lida, que licenca tinha nesse dia, e de onde se leu.
+#
+# E a mitigacao que o E4 §5 pede para o risco «a licenca desliza para open-core
+# mais restritivo», que o E4 atribui a Medusa (EE desde 2026-08), Chatwoot,
+# Langfuse, Meilisearch, Typebot, n8n e LiteLLM: «fixar versao MIT conhecida;
+# manter registo de licencas por versao».
+#
+# `make supply-chain` confronta cada linha com quatro coisas:
+#
+#   1. a politica: o `estado` tem de ser o que `ci/licenses.yaml` da para a
+#      `licenca` escrita. Uma BUSL nao se regista como `permitido`.
+#   2. a lista de bloqueio: o que se diz `bloqueado` tem de estar em
+#      `tools/blocklist.yaml`.
+#   3. o repositorio: o que se diz `nao_adoptado` ou `bloqueado` nao pode estar
+#      nos manifestos nem nas imagens; e a versao em uso tem de ser a `versao`
+#      aqui escrita — subir de versao obriga a reler a licenca.
+#   4. o inventario de imagens: cada componente de cada imagem tem linha aqui.
+#
+# Campos:
+#
+#   componente          nome curto, em minusculas.
+#   versao              a versao para a qual a licenca foi lida.
+#   licenca             expressao SPDX. Onde nao ha identificador SPDX usa-se
+#                       `LicenseRef-...` (que a politica trata como
+#                       desconhecida) ou o prefixo que a politica nega.
+#   data_verificacao    quando se leu. Nao pode ser futura.
+#   fonte               onde se leu.
+#   estado_verificacao  CONFIRMADO | INDÍCIO | NÃO VERIFICADO — herdado da
+#                       fonte, nunca promovido.
+#   estado              permitido            a licenca passa a politica
+#                       pendente_de_decisao  travado por uma decisao aberta
+#                                            (exige `decisao: D#`)
+#                       bloqueado            esta na lista de bloqueio
+#                       excepcao             licenca negada, admitida por ADR
+#                                            (exige `excepcao_adr` e `nota`)
+#                       nao_adoptado         nao esta no repositorio; a licenca
+#                                            fica lida para quando for proposto
+#   ligacoes            (opcional) como o componente aparece no repositorio:
+#                       `npm:<pacote>`, `pypi:<pacote>`, `imagem:<repositorio>`.
+#                       E por aqui que se confere a versao em uso.
+#   ee                  obrigatorio para os componentes com edicao Enterprise no
+#                       mesmo repositorio: que partes sao, e ficam desligadas.
+#   nota                texto livre.
+#
+# O QUE ESTE REGISTO NAO COBRE, e fica dito:
+#
+#   - as dependencias npm e PyPI em geral: essas sao lidas do disco, uma a uma,
+#     pelo gate 11 (`tools/sbom`), em cada PR. Aqui so esta o que tem risco de
+#     licenca nomeado no E4, mais o que as imagens trazem;
+#   - os pacotes de sistema dentro das imagens de base (Debian: glibc, bash,
+#     coreutils...). Sabe-los exige SBOM por imagem, que e o KAM-078;
+#   - a **activacao** das funcoes Enterprise. O campo `ee` regista o que tem de
+#     ficar desligado; o teste de configuracao que o verifica (criterio 7 do
+#     KAM-067) so pode existir quando o componente estiver instalado.
+#
+# `data_verificacao` e a data da leitura que a `fonte` regista. As linhas que
+# citam o E4 herdam a data de consulta do E4 (2026-10-08) e o seu estado.
+
+version: 1
+
+componentes:
+  # ------------------------------------------------- no repositorio, em uso
+  - componente: postgresql
+    versao: "18.6"
+    licenca: PostgreSQL
+    data_verificacao: "2026-10-08"
+    fonte: "docs/tecnica/evidencia/E4_Stack_Licencas.md §1 (postgresql.org/support/versioning)"
+    estado_verificacao: CONFIRMADO
+    estado: permitido
+    nota: >-
+      Vem na imagem pgvector/pgvector. A versao 18.6 e afirmada por execucao no
+      gate 8, que le a versao do servidor; a etiqueta da imagem nao a traz.
+
+  - componente: pgvector
+    versao: "0.8.7"
+    licenca: PostgreSQL
+    data_verificacao: "2026-10-08"
+    fonte: "docs/tecnica/evidencia/E4_Stack_Licencas.md §1 (github.com/pgvector/pgvector, texto lido)"
+    estado_verificacao: CONFIRMADO
+    estado: permitido
+    ligacoes:
+      - "imagem:pgvector/pgvector"
+
+  - componente: valkey
+    versao: "9.1.2"
+    licenca: BSD-3-Clause
+    data_verificacao: "2026-10-12"
+    fonte: "ci/licenses.yaml (KAM-002); o E4 nao tem linha para o Valkey e ninguem leu o ficheiro de licenca"
+    estado_verificacao: INDÍCIO
+    estado: pendente_de_decisao
+    decisao: D12
+    ligacoes:
+      - "imagem:valkey/valkey"
+    nota: >-
+      E a omissao do compose de desenvolvimento, nao uma escolha: a D12 esta
+      aberta. A BSD-3-Clause esta na allowlist, e e por isso que o estado e
+      pendente e nao permitido — aprova-lo pela licenca fechava a decisao pela
+      porta de tras.
+
+  - componente: redis
+    versao: "8.10.2"
+    licenca: NOASSERTION
+    data_verificacao: "2026-10-12"
+    fonte: "ci/licenses.yaml (KAM-002): «RSAL/SSPL desde a 7.4; a 8 volta a oferecer AGPL — conhecimento geral»; E4 §2.8 nao o verifica"
+    estado_verificacao: NÃO VERIFICADO
+    estado: pendente_de_decisao
+    decisao: D12
+    ligacoes:
+      - "imagem:redis"
+    nota: >-
+      A alternativa da D12. Nao esta no repositorio; a versao e a que o
+      `.env.example` sugere para a experimentar.
+
+  - componente: node
+    versao: "24.21.0"
+    licenca: MIT
+    data_verificacao: "2026-10-12"
+    fonte: "/usr/local/LICENSE dentro da imagem node:24.21.0-trixie-slim, lida pelo digest do inventario"
+    estado_verificacao: CONFIRMADO
+    estado: permitido
+    ligacoes:
+      - "imagem:node"
+    nota: >-
+      E a licenca do Node.js. Os pacotes Debian da imagem de base nao estao
+      cobertos (ver o cabecalho).
+
+  - componente: python
+    versao: "3.12.15"
+    licenca: PSF-2.0
+    data_verificacao: "2026-10-12"
+    fonte: "/usr/local/lib/python3.12/LICENSE.txt dentro da imagem python:3.12-slim-trixie, pelo digest do inventario; so se leu o cabecalho"
+    estado_verificacao: INDÍCIO
+    estado: permitido
+    ligacoes:
+      - "imagem:python"
+    nota: >-
+      `python --version` dentro da imagem deu 3.12.15. Os pacotes Debian da
+      imagem de base nao estao cobertos (ver o cabecalho).
+
+  - componente: hono
+    versao: "4.13.13"
+    licenca: MIT
+    data_verificacao: "2026-10-08"
+    fonte: "docs/tecnica/evidencia/E4_Stack_Licencas.md §1 e §2.13 (github.com/honojs/hono; npm)"
+    estado_verificacao: CONFIRMADO
+    estado: permitido
+    ligacoes:
+      - "npm:hono"
+    nota: >-
+      Fica em 4.x: o 5.0.0-rc.0 saiu a 2026-10-08 e um release candidate nao
+      entra em producao (E4 §2.13; regra no renovate.json5).
+
+  # --------------------------------- previstos, ainda fora do repositorio
+  - componente: litellm
+    versao: "1.104.2"
+    licenca: MIT
+    data_verificacao: "2026-10-08"
+    fonte: "docs/tecnica/evidencia/E4_Stack_Licencas.md §1 e §2.7 (LICENSE e enterprise/LICENSE.md)"
+    estado_verificacao: CONFIRMADO
+    estado: permitido
+    ligacoes:
+      - "pypi:litellm"
+      - "imagem:litellm"
+    ee: >-
+      A pasta `enterprise/` e proprietaria e exige subscricao em producao: SSO e
+      SCIM, OIDC/JWT, audit logs, gestores de segredos, rotacao de chaves e
+      administracao por organizacao. Nao se usam (KAM-030).
+    nota: >-
+      Entra com o KAM-030, por imagem com digest e `cosign: verificar`. Nunca
+      abaixo de 1.83.0: as 1.82.7 e 1.82.8 do PyPI foram maliciosas
+      (tools/blocklist.yaml).
+
+  - componente: medusa
+    versao: "2.21.2"
+    licenca: MIT
+    data_verificacao: "2026-10-08"
+    fonte: "docs/tecnica/evidencia/E4_Stack_Licencas.md §1 e §2.1 (LICENSE e ENTERPRISE-LICENSE.md)"
+    estado_verificacao: CONFIRMADO
+    estado: permitido
+    ligacoes:
+      - "npm:@medusajs/medusa"
+      - "npm:@medusajs/framework"
+    ee: >-
+      Proprietario desde 2026-08-11: RBAC (modulo `rbac`, `policies`, rotas
+      `admin/rbac`) e SSO/OIDC (`providers/auth-oidc`). Activar uma feature flag
+      Enterprise e declarar que se tem acordo comercial. Ficam desligadas.
+    nota: >-
+      O SPDX do GitHub e NOASSERTION, por o repositorio ser MIT excepto a
+      Enterprise Edition; regista-se MIT porque e o que o LICENSE diz do que se
+      usa. As versoes anteriores a 2026-08-11 continuam MIT.
+
+  - componente: chatwoot
+    versao: "4.18.0"
+    licenca: MIT
+    data_verificacao: "2026-10-08"
+    fonte: "docs/tecnica/evidencia/E4_Stack_Licencas.md §1 e §2.2 (LICENSE e enterprise/LICENSE)"
+    estado_verificacao: CONFIRMADO
+    estado: permitido
+    ligacoes:
+      - "imagem:chatwoot"
+    ee: >-
+      A pasta `enterprise/` so pode correr em producao com subscricao: custom
+      roles, SAML, SLA, Captain, audit logs, limites de capacidade e marca
+      branca. Nao se carrega.
+
+  - componente: langgraph
+    versao: "1.2.14"
+    licenca: MIT
+    data_verificacao: "2026-10-08"
+    fonte: "docs/tecnica/evidencia/E4_Stack_Licencas.md §1 e §2.6 (pypi.org/pypi/langgraph/json)"
+    estado_verificacao: CONFIRMADO
+    estado: permitido
+    ligacoes:
+      - "pypi:langgraph"
+    nota: So a biblioteca. O servidor e outro componente, e esta bloqueado.
+
+  - componente: seaweedfs
+    versao: "4.48"
+    licenca: Apache-2.0
+    data_verificacao: "2026-10-08"
+    fonte: "docs/tecnica/evidencia/E4_Stack_Licencas.md §1 e §2.11 (github.com/seaweedfs/seaweedfs)"
+    estado_verificacao: CONFIRMADO
+    estado: permitido
+    ligacoes:
+      - "imagem:seaweedfs"
+    nota: >-
+      A licenca passa. Se e SeaweedFS ou S3 gerido e a decisao D6, que esta
+      aberta e nao e de licenca.
+
+  - componente: bullmq
+    versao: "6.3.11"
+    licenca: MIT
+    data_verificacao: "2026-10-08"
+    fonte: "docs/tecnica/evidencia/E4_Stack_Licencas.md §1 (github.com/taskforcesh/bullmq; registry.npmjs.org)"
+    estado_verificacao: CONFIRMADO
+    estado: permitido
+    ligacoes:
+      - "npm:bullmq"
+
+  # ------------------------------------------------------- nao adoptados
+  - componente: meilisearch
+    versao: "1.54.3"
+    licenca: MIT AND BUSL-1.1
+    data_verificacao: "2026-10-08"
+    fonte: "docs/tecnica/evidencia/E4_Stack_Licencas.md §1 e §2.13 (LICENSE e LICENSE-EE)"
+    estado_verificacao: CONFIRMADO
+    estado: nao_adoptado
+    ligacoes:
+      - "npm:meilisearch"
+      - "pypi:meilisearch"
+      - "imagem:meilisearch"
+    ee: >-
+      Os ficheiros «Enterprise Edition» em `enterprise_editions` sao BUSL-1.1 e
+      a producao exige licenca comercial. A expressao e um `AND`: pela politica
+      a pior manda, e o componente so entra com excepcao registada em ADR.
+
+  - componente: langfuse
+    versao: "4.55.0"
+    licenca: MIT
+    data_verificacao: "2026-10-08"
+    fonte: "docs/tecnica/evidencia/E4_Stack_Licencas.md §1 e §2.8 (LICENSE)"
+    estado_verificacao: CONFIRMADO
+    estado: nao_adoptado
+    ligacoes:
+      - "imagem:langfuse"
+      - "npm:langfuse"
+      - "pypi:langfuse"
+    ee: >-
+      As pastas `ee/`, `web/src/ee/` e `worker/src/ee/` estao sob a Enterprise
+      License: desenvolvimento e teste sim, producao so com acordo.
+    nota: Fora do Piloto pelo ADR-018; so no perfil de observabilidade de staging (KAM-076).
+
+  # ------------------------------------------------------------ bloqueados
+  - componente: langgraph-api
+    versao: "0.15.4"
+    licenca: Elastic-2.0
+    data_verificacao: "2026-10-08"
+    fonte: "docs/tecnica/evidencia/E4_Stack_Licencas.md §1 e §2.6 (pypi.org/pypi/langgraph-api/json)"
+    estado_verificacao: CONFIRMADO
+    estado: bloqueado
+    ligacoes:
+      - "pypi:langgraph-api"
+    nota: >-
+      O LangGraph Server. O `langgraph-runtime-inmem` esta sob a mesma licenca e
+      tambem esta na lista de bloqueio (ADR-002).
+
+  - componente: typebot
+    versao: "3.19.0"
+    licenca: FSL-1.1-Apache-2.0
+    data_verificacao: "2026-10-08"
+    fonte: "docs/tecnica/evidencia/E4_Stack_Licencas.md §1 e §2.3 (LICENSE)"
+    estado_verificacao: CONFIRMADO
+    estado: bloqueado
+
+  - componente: n8n
+    versao: "2.42.5"
+    licenca: SUL-1.0
+    data_verificacao: "2026-10-08"
+    fonte: "docs/tecnica/evidencia/E4_Stack_Licencas.md §1 e §2.4 (LICENSE.md)"
+    estado_verificacao: CONFIRMADO
+    estado: bloqueado
+    nota: >-
+      Sustainable Use License 1.0. Nao tem identificador SPDX; `SUL-1.0` e a
+      forma que a politica nega por prefixo.
+
+  - componente: dify
+    versao: "1.17.1"
+    licenca: LicenseRef-Dify-Apache-2.0-modificada
+    data_verificacao: "2026-10-08"
+    fonte: "docs/tecnica/evidencia/E4_Stack_Licencas.md §1 e §2.5 (LICENSE)"
+    estado_verificacao: CONFIRMADO
+    estado: bloqueado
+    nota: >-
+      Apache-2.0 com clausulas acrescentadas: proibe operar um ambiente
+      multi-tenant sem autorizacao escrita. Nao e Apache-2.0, e por isso nao se
+      escreve como tal.
+
+  - componente: minio
+    versao: "RELEASE.2025-10-15"
+    licenca: AGPL-3.0
+    data_verificacao: "2026-10-08"
+    fonte: "docs/tecnica/evidencia/E4_Stack_Licencas.md §1 e §2.11 (github.com/minio/minio, arquivado)"
+    estado_verificacao: CONFIRMADO
+    estado: bloqueado
+    nota: Repositorio arquivado em 2026-04; bloqueado pelo ADR-014 antes de o ser pela licenca.

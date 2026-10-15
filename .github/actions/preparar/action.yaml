@@ -1,0 +1,49 @@
+# Accao composta: prepara a toolchain para os gates que precisam dela.
+#
+# Existe para que os jobs do workflow nao repitam seis vezes os mesmos cinco
+# passos. Os gates 3 e 9 **nao** a usam: dependem so da biblioteca padrao do
+# Python, e dar-lhes a toolchain inteira esconderia essa propriedade — que e
+# deliberada e esta registada em `docs/adr/ADR-L001-toolchain.md` §6.
+
+name: preparar
+description: Instala Node, pnpm e Python e corre o bootstrap a partir dos lockfiles
+
+runs:
+  using: composite
+  steps:
+    - name: Node
+      uses: actions/setup-node@v6
+      with:
+        node-version-file: .node-version
+
+    - name: pnpm
+      # O `packageManager` do package.json fixa a versao **com hash de
+      # integridade**, e e o Corepack que o verifica. Nao se declara a versao
+      # aqui: declara-la em dois sitios e tê-los a divergir.
+      shell: bash
+      run: corepack enable
+
+    - name: Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+
+    - name: cache do pnpm
+      uses: actions/cache@v4
+      with:
+        path: ~/.local/share/pnpm/store
+        key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: pnpm-${{ runner.os }}-
+
+    - name: cache do venv
+      uses: actions/cache@v4
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-${{ hashFiles('tools/requirements/tools.txt', 'services/agr/requirements/runtime.txt') }}
+
+    - name: bootstrap
+      shell: bash
+      # O `make bootstrap` corre o `lint-arch` **antes** de instalar, que e a
+      # unica ordem em que a lista de bloqueio serve para algo
+      # (`docs/tecnica/08` §4.8).
+      run: make bootstrap

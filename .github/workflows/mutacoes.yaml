@@ -1,0 +1,219 @@
+# Prova por mutacao completa, de noite — KAM-143
+#
+# **Isto nao e um gate.** Nao corre em PRs, nao esta nos *required checks* e
+# nao bloqueia merge nenhum. E a outra metade de uma decisao: no PR correm-se
+# as mutacoes **novas** (minutos); a lista **inteira** corre aqui, de noite,
+# sobre `main`.
+#
+# O que se perde, dito a cabeca: deixa de haver garantia de que a lista inteira
+# estava verde **no momento do merge**. Uma mutacao antiga que deixe de ser
+# apanhada por causa de um PR aparece na manha seguinte, nao antes do merge.
+# Foi decisao do fundador (Outubro 2026), tomada com esse custo escrito
+# (`docs/ci.md` §3, gate 8, e o bloco do KAM-143).
+#
+# Porque e um ficheiro separado do `ci.yaml`: o `ci.yaml` orquestra gates, e o
+# seu job de resumo conta os `needs` (`esperados=N`). Um job agendado aqui nao
+# pode entrar nessa conta — e se entrasse, um PR ficaria a espera de tres horas
+# de mutacoes.
+#
+# A logica nao vive aqui. Vive em `db/mutacoes.py`, que corre igual nesta
+# maquina e no *runner*, com o mesmo comando — a mesma razao por que os gates
+# vivem em alvos `make`.
+
+name: mutacoes
+
+on:
+  schedule:
+    # 02:10 UTC = 03:10 em Luanda (WAT, sem horario de verao). Depois de o dia
+    # de trabalho acabar e antes de comecar; os minutos nao sao redondos de
+    # proposito, porque a hora em ponto e quando o GitHub tem mais fila.
+    - cron: "10 2 * * *"
+  # Para correr a lista inteira a mao, sem esperar pela noite.
+  workflow_dispatch:
+    inputs:
+      filtro:
+        description: "Excerto do nome, ou uma suite. Vazio = a lista inteira."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  # Nao e por causa do Docker — cada execucao tem o seu runner efemero e o seu
+  # proprio Docker. E para nao gastar o dobro dos minutos nem abrir dois
+  # *issues* pela mesma noite. `cancel-in-progress: false` porque a execucao
+  # que ja esta a correr e a que interessa; a segunda espera.
+  #
+  # Efeito a saber: uma terceira execucao em fila e **cancelada** pelo GitHub, e
+  # um cancelamento nao e `failure()` — nao abre *issue*. Por isso existe a
+  # vigia de `ci.yaml`, que da pela noite que nao correu.
+  group: mutacoes-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.12"
+  # Cada fatia corre numa maquina de 2 nucleos. Mais do que duas execucoes
+  # simultaneas por fatia esgota-lhe as ligacoes, e isso nao torna a prova mais
+  # rapida: torna-a invalida (`SINAIS_DE_CARGA` em `db/mutacoes.py`).
+  KAMBA_MUTACOES_PARALELO: "2"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Antes de gastar horas: as mutacoes ainda aplicam-se?
+  # ---------------------------------------------------------------------------
+  #
+  # Segundos, sem Docker. Uma mutacao cujo texto ja nao exista no ficheiro alvo
+  # e uma prova que deixou de provar, e nao vale a pena levantar seis maquinas
+  # para descobrir isso no fim.
+  aplicaveis:
+    name: "mutacoes aplicaveis"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: cada mutacao ainda encontra o seu texto
+        run: python db/mutacoes.py --aplicaveis
+
+  # ---------------------------------------------------------------------------
+  # A lista inteira, repartida por fatias
+  # ---------------------------------------------------------------------------
+  #
+  # `--fatia i/6` leva a i-esima mutacao de cada seis, alternadamente: as
+  # mutacoes de um ticket estao juntas na lista e nao custam todas o mesmo, e em
+  # blocos uma fatia levava todas as caras. Em serie nesta maquina, 95 mutacoes
+  # levaram 3 h 24 min (medido a 2026-10-12); por fatias, cada runner leva a
+  # sexta parte.
+  #
+  # `fail-fast: false` porque o relatorio interessa todo: saber que duas fatias
+  # tem sobreviventes vale mais do que parar na primeira.
+  fatias:
+    name: "mutacoes — fatia ${{ matrix.fatia }}/6"
+    needs: aplicaveis
+    runs-on: ubuntu-latest
+    # Medido: ~5–10 min por fatia com a lista de 48, ~10–15 min com a de 110 do
+    # ramo do KAM-008. 90 min e folga de uma ordem de grandeza; 300 eram trinta
+    # vezes o esperado, e um tecto que nao morde nao protege de nada — uma fatia
+    # pendurada queimava cinco horas de runner antes de morrer.
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        fatia: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: dependencias das migracoes, e so elas
+        # Nao se usa a accao `preparar`: ela corre o `make bootstrap` inteiro
+        # (Node, pnpm, build dos pacotes), e esta prova so precisa de Python e
+        # Docker. Eram minutos de Node x seis runners, por noite.
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --quiet --require-hashes --no-deps \
+            -r db/requirements/migrations.txt
+      - name: prova por mutacao
+        # O corredor levanta o seu proprio PostgreSQL por mutacao, com a imagem
+        # fixada por digest em `db/gate_bd.py` — a mesma dos gates 6 e 8.
+        #
+        # O filtro vem da entrada do `workflow_dispatch` por uma variavel de
+        # ambiente, e nao interpolado no `run`: interpolar entrada de quem
+        # dispara dentro de um shell e injeccao de comandos.
+        env:
+          FILTRO: ${{ github.event.inputs.filtro }}
+          FATIA: ${{ matrix.fatia }}
+          REGISTO: ${{ runner.temp }}/mutacoes-fatia-${{ matrix.fatia }}.log
+        run: |
+          set -o pipefail
+          # Com filtro (execucao a mao), a lista escolhida e curta e seis fatias
+          # deixariam fatias vazias — que saem com erro, e bem. Nesse caso corre
+          # **tudo** na fatia 1 e as outras nao fazem nada: assim o teste manual
+          # que o ticket exige («com um filtro curto») pode passar.
+          if [ -n "${FILTRO:-}" ]; then
+            if [ "$FATIA" != "1" ]; then
+              echo "execucao a mao com filtro ${FILTRO}: so a fatia 1 corre"
+              exit 0
+            fi
+            reparticao="1/1"
+          else
+            reparticao="${FATIA}/6"
+          fi
+          .venv/bin/python db/mutacoes.py .venv/bin/python "${FILTRO:-}" \
+            --fatia "$reparticao" 2>&1 | tee "$REGISTO"
+      - name: guardar o relatorio
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutacoes-fatia-${{ matrix.fatia }}
+          path: ${{ runner.temp }}/mutacoes-fatia-${{ matrix.fatia }}.log
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # Quem le o resultado
+  # ---------------------------------------------------------------------------
+  #
+  # Uma tarefa nocturna vermelha que ninguem le e ruido. Esta abre um *issue*
+  # no GitHub com a ligacao para o registo, e **nao** abre um segundo enquanto o
+  # primeiro estiver aberto (senao haveria um por noite).
+  #
+  # So nas execucoes agendadas: quem dispara a mao esta a ver o resultado, e nao
+  # precisa de um *issue* para dar por ele.
+  #
+  # O *issue* nao e um ticket do backlog: o backlog vive em
+  # `specs/INDICE.md` §4, e e um humano que decide se isto vira ticket `fix`.
+  # Esta distincao esta escrita no corpo do proprio issue.
+  alerta:
+    name: "mutacoes — alerta de sobrevivente"
+    # As duas: se a verificacao de aplicabilidade falhar, as fatias ficam
+    # saltadas, e um `needs` so com elas nao daria `failure()`.
+    needs: [aplicaveis, fatias]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: abrir um issue, se nao houver um aberto
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EXECUCAO: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          abertos=$(gh issue list --label mutacoes --state open --limit 1 --json number --jq 'length')
+          if [ "$abertos" != "0" ]; then
+            echo "ja ha um issue de mutacoes aberto; nao abro outro"
+            exit 0
+          fi
+          # Criar so se faltar, em vez de criar e engolir o erro: um `|| true`
+          # ali engolia tambem uma falha de autenticacao, e o canal ficava sem
+          # explicacao.
+          if ! gh label list --limit 200 --json name --jq '.[].name' | grep -qx mutacoes; then
+            gh label create mutacoes --color B60205 \
+              --description "Prova por mutacao nocturna sem ficar verde (KAM-143)"
+          fi
+          # O corpo e um ficheiro do repositorio, nao uma cadeia dentro deste
+          # shell: cada acento grave do Markdown numa cadeia entre aspas era
+          # substituicao de comando, e o texto do alerta revê-se em diff como
+          # qualquer outro documento.
+          cp .github/mutacoes-alerta.md corpo.md
+          printf '\nRegisto por fatia (artefactos da execucao): %s\nCommit: %s\n' \
+            "$EXECUCAO" "$COMMIT" >> corpo.md
+          # Titulo neutro: a causa pode ser uma sobrevivente, uma PROVA
+          # INVALIDA, uma mutacao que deixou de se aplicar, ou o job de
+          # aplicabilidade — caso em que as fatias nem correram. Dizer
+          # «ha sobreviventes» seria afirmar o que ainda nao se sabe.
+          gh issue create --label mutacoes \
+            --title "Prova por mutacao nocturna nao ficou verde (${COMMIT:0:7})" \
+            --body-file corpo.md

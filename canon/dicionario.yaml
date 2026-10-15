@@ -1,0 +1,1679 @@
+# GERADO — nao editar a mao.
+#
+# Exportacao do §3 de specs/02_Dicionario_de_Dados_Canonico.md (KAM-111).
+# A fonte da verdade e o Markdown. Para regenerar:
+#
+#     cd tools && python -m dict_export --root ..
+#
+# O gate 3b (`make ci-3b`) falha se este ficheiro divergir do Markdown, pelo que
+# uma alteracao feita aqui a mao nao sobrevive ao CI. As regras da exportacao
+# estao em tools/dict_export/exportar.py; o que cada bloco significa esta em
+# docs/nomes-canonicos.md.
+
+version: 1
+fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
+versao_dicionario: "1.8"
+entradas:
+  - seccao: "3.1"
+    conceito: "Contacto"
+    canonico: "contacts(contact_id, tenant_id, criado_at, …)"
+    literais:
+      - "contacts(contact_id, tenant_id, criado_at, …)"
+    nomes:
+      - "contacts"
+      - "contact_id"
+      - "tenant_id"
+      - "criado_at"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.1"
+    conceito: "Endpoints do contacto"
+    canonico: "contact_endpoints(contact_id, tipo, bsuid_hmac, bsuid_enc, dek_id, phone_enc, …)"
+    literais:
+      - "contact_endpoints(contact_id, tipo, bsuid_hmac, bsuid_enc, dek_id, phone_enc, …)"
+    nomes:
+      - "contact_endpoints"
+      - "contact_id"
+      - "tipo"
+      - "bsuid_hmac"
+      - "bsuid_enc"
+      - "dek_id"
+      - "phone_enc"
+    nomes_nota:
+      - "bsuid_enc"
+      - "phone_enc"
+      - "dek_id"
+      - "recipient"
+    variantes_literais: []
+  - seccao: "3.1"
+    conceito: "HMAC de pesquisa de um contacto"
+    canonico: "contact_endpoints.bsuid_hmac (BSUID) e contacts.phone_hmac (telefone), cada um com a versão da chave em hmac_kid"
+    literais:
+      - "contact_endpoints.bsuid_hmac"
+      - "contacts.phone_hmac"
+      - "hmac_kid"
+    nomes:
+      - "contact_endpoints.bsuid_hmac"
+      - "contacts.phone_hmac"
+      - "hmac_kid"
+    nomes_nota:
+      - "UNIQUE"
+      - "tenant_id"
+      - "hmac_kid"
+      - "contacts"
+      - "contact_endpoints"
+      - "bsuid_hmac"
+    variantes_literais:
+      - "lookup_hmac"
+  - seccao: "3.1"
+    conceito: "Estado de um contacto"
+    canonico: "contacts.erased_at (apagado a pedido do titular), contacts.merged_into e contacts.merged_at (absorvido numa fusão: a linha fica como lápide e aponta para quem a absorveu)"
+    literais:
+      - "contacts.erased_at"
+      - "contacts.merged_into"
+      - "contacts.merged_at"
+    nomes:
+      - "contacts.erased_at"
+      - "contacts.merged_into"
+      - "contacts.merged_at"
+    nomes_nota:
+      - "erased_at"
+      - "phone_hmac"
+    variantes_literais: []
+  - seccao: "3.1"
+    conceito: "Chave de dados do contacto"
+    canonico: "contact_deks(dek_id, tenant_id, contact_id, wrapped_dek, kek_id, criado_at, destroyed_at)"
+    literais:
+      - "contact_deks(dek_id, tenant_id, contact_id, wrapped_dek, kek_id, criado_at, destroyed_at)"
+    nomes:
+      - "contact_deks"
+      - "dek_id"
+      - "tenant_id"
+      - "contact_id"
+      - "wrapped_dek"
+      - "kek_id"
+      - "criado_at"
+      - "destroyed_at"
+    nomes_nota:
+      - "wrapped_dek"
+      - "destroyed_at"
+    variantes_literais: []
+  - seccao: "3.1"
+    conceito: "Versões da chave de pesquisa"
+    canonico: "hmac_key_versions(kid, estado, criado_at)"
+    literais:
+      - "hmac_key_versions(kid, estado, criado_at)"
+    nomes:
+      - "hmac_key_versions"
+      - "kid"
+      - "estado"
+      - "criado_at"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.1"
+    conceito: "Pseudónimo para analytics"
+    canonico: "sujeito_ref = HMAC(chave_mensal, contact_id)"
+    literais:
+      - "sujeito_ref = HMAC(chave_mensal, contact_id)"
+    nomes:
+      - "sujeito_ref"
+      - "HMAC"
+      - "chave_mensal"
+      - "contact_id"
+    nomes_nota: []
+    variantes_literais:
+      - "msisdn_hash"
+  - seccao: "3.1"
+    conceito: "Prova de consentimento"
+    canonico: "consent_event (append-only)"
+    literais:
+      - "consent_event"
+    nomes:
+      - "consent_event"
+    nomes_nota:
+      - "tenant_id"
+      - "contact_id"
+      - "purpose"
+      - "text_version"
+      - "accepted"
+      - "canal"
+      - "evidence_hash"
+      - "ocorrido_em"
+      - "transaccao"
+      - "marketing"
+      - "partilha_estafeta"
+      - "melhoria"
+      - "notificacao_dono"
+    variantes_literais:
+      - "consent_log"
+      - "consent_ledger"
+      - "consents"
+  - seccao: "3.1"
+    conceito: "Chave de conversa"
+    canonico: "thread_id = {tenant_id}:{contact_id}"
+    literais:
+      - "thread_id = {tenant_id}:{contact_id}"
+    nomes:
+      - "thread_id"
+      - "tenant_id"
+      - "contact_id"
+    nomes_nota: []
+    variantes_literais:
+      - "msisdn_hash+tenant"
+  - seccao: "3.2"
+    conceito: "Estado do tenant"
+    canonico: "onboarding, ativo, restrito, suspenso, encerrado"
+    literais:
+      - "onboarding"
+      - "ativo"
+      - "restrito"
+      - "suspenso"
+      - "encerrado"
+    nomes:
+      - "onboarding"
+      - "ativo"
+      - "restrito"
+      - "suspenso"
+      - "encerrado"
+    nomes_nota:
+      - "restrito"
+      - "suspenso"
+    variantes_literais:
+      - "tenants.estado"
+      - "restrito"
+  - seccao: "3.2"
+    conceito: "Fase do onboarding"
+    canonico: "onboarding_case.fase: kyc_pendente, aprovado, provisionando, aguarda_es, aguarda_catalogo, pronto"
+    literais:
+      - "onboarding_case.fase"
+      - "kyc_pendente"
+      - "aprovado"
+      - "provisionando"
+      - "aguarda_es"
+      - "aguarda_catalogo"
+      - "pronto"
+    nomes:
+      - "onboarding_case.fase"
+      - "kyc_pendente"
+      - "aprovado"
+      - "provisionando"
+      - "aguarda_es"
+      - "aguarda_catalogo"
+      - "pronto"
+    nomes_nota:
+      - "onboarding"
+    variantes_literais: []
+  - seccao: "3.2"
+    conceito: "Pré-alocação do tenant"
+    canonico: "onboarding_case.tenant_id criado no registo"
+    literais:
+      - "onboarding_case.tenant_id"
+    nomes:
+      - "onboarding_case.tenant_id"
+    nomes_nota:
+      - "events_outbox.tenant_id"
+      - "NOT"
+      - "NULL"
+    variantes_literais: []
+  - seccao: "3.2"
+    conceito: "Entitlement (chaves)"
+    canonico: "msgs_ai_mes, marcacoes_mes, imagens_mes, posts_mes, orcamentos_mes, valor_max_pedido_minor (limite do plano e do tecto K1/K2), manual_max_minor (limite do ManualProvider)"
+    literais:
+      - "msgs_ai_mes"
+      - "marcacoes_mes"
+      - "imagens_mes"
+      - "posts_mes"
+      - "orcamentos_mes"
+      - "valor_max_pedido_minor"
+      - "manual_max_minor"
+      - "ManualProvider"
+    nomes:
+      - "msgs_ai_mes"
+      - "marcacoes_mes"
+      - "imagens_mes"
+      - "posts_mes"
+      - "orcamentos_mes"
+      - "valor_max_pedido_minor"
+      - "manual_max_minor"
+      - "ManualProvider"
+    nomes_nota:
+      - "valor_max_pedido_minor"
+      - "ManualProvider"
+      - "manual_max_minor"
+    variantes_literais:
+      - "valor_max_pedido_kz"
+      - "manual_max_minor"
+  - seccao: "3.2"
+    conceito: "Tenant (tabela e chave)"
+    canonico: "platform.tenants(id uuid) — a chave primária chama-se id, não tenant_id"
+    literais:
+      - "platform.tenants(id uuid)"
+      - "id"
+      - "tenant_id"
+    nomes:
+      - "platform.tenants"
+      - "id"
+      - "uuid"
+      - "tenant_id"
+    nomes_nota:
+      - "contacts"
+      - "contact_id"
+      - "REFERENCES"
+      - "platform.tenants"
+      - "id"
+      - "app.tenant_id"
+      - "tenant_id"
+      - "ALTER"
+    variantes_literais: []
+  - seccao: "3.2"
+    conceito: "Tipo de tenant"
+    canonico: "tenants.tipo ∈ {pme, courier, reseller, agent, platform}"
+    literais:
+      - "tenants.tipo"
+      - "pme"
+      - "courier"
+      - "reseller"
+      - "agent"
+      - "platform"
+    nomes:
+      - "tenants.tipo"
+      - "pme"
+      - "courier"
+      - "reseller"
+      - "agent"
+      - "platform"
+    nomes_nota:
+      - "platform"
+    variantes_literais: []
+  - seccao: "3.2"
+    conceito: "Canal"
+    canonico: "tenant_channels(tenant_id, phone_number_id, waba_id, vertical, estado, …)"
+    literais:
+      - "tenant_channels(tenant_id, phone_number_id, waba_id, vertical, estado, …)"
+    nomes:
+      - "tenant_channels"
+      - "tenant_id"
+      - "phone_number_id"
+      - "waba_id"
+      - "vertical"
+      - "estado"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.2"
+    conceito: "Estado do canal"
+    canonico: "pendente, ativo, restrito, desligado, suspenso, encerrado"
+    literais:
+      - "pendente"
+      - "ativo"
+      - "restrito"
+      - "desligado"
+      - "suspenso"
+      - "encerrado"
+    nomes:
+      - "pendente"
+      - "ativo"
+      - "restrito"
+      - "desligado"
+      - "suspenso"
+      - "encerrado"
+    nomes_nota: []
+    variantes_literais:
+      - "tenant_channels.estado"
+  - seccao: "3.2"
+    conceito: "Origem do canal"
+    canonico: "tenant_channels.origem ∈ {pme, plataforma}"
+    literais:
+      - "tenant_channels.origem"
+      - "pme"
+      - "plataforma"
+    nomes:
+      - "tenant_channels.origem"
+      - "pme"
+      - "plataforma"
+    nomes_nota:
+      - "plataforma"
+    variantes_literais: []
+  - seccao: "3.2"
+    conceito: "Modo do canal"
+    canonico: "tenant_channels.channel_mode ∈ {coexistencia, cloud_only}"
+    literais:
+      - "tenant_channels.channel_mode"
+      - "coexistencia"
+      - "cloud_only"
+    nomes:
+      - "tenant_channels.channel_mode"
+      - "coexistencia"
+      - "cloud_only"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.2"
+    conceito: "Entitlement (tabela)"
+    canonico: "entitlements(tenant_id, modulo, limites jsonb, ativo boolean), chave (tenant_id, modulo)"
+    literais:
+      - "entitlements(tenant_id, modulo, limites jsonb, ativo boolean)"
+      - "(tenant_id, modulo)"
+    nomes:
+      - "entitlements"
+      - "tenant_id"
+      - "modulo"
+      - "limites"
+      - "jsonb"
+      - "ativo"
+      - "boolean"
+    nomes_nota:
+      - "limites"
+      - "modulo"
+    variantes_literais: []
+  - seccao: "3.2"
+    conceito: "Papéis de base de dados"
+    canonico: "kamba_migrator (DDL, dono das tabelas), kamba_app (NOBYPASSRLS, sem DDL), kamba_batch (BYPASSRLS, auditado)"
+    literais:
+      - "kamba_migrator"
+      - "kamba_app"
+      - "NOBYPASSRLS"
+      - "kamba_batch"
+      - "BYPASSRLS"
+    nomes:
+      - "kamba_migrator"
+      - "kamba_app"
+      - "NOBYPASSRLS"
+      - "kamba_batch"
+      - "BYPASSRLS"
+    nomes_nota:
+      - "REVOKE"
+      - "FROM"
+      - "PUBLIC"
+      - "kamba_app"
+    variantes_literais:
+      - "kamba_ops"
+  - seccao: "3.2"
+    conceito: "Privilégios de kamba_app"
+    canonico: "SELECT e INSERT por tabela; UPDATE por coluna; sem DELETE em tabela nenhuma de platform"
+    literais:
+      - "SELECT"
+      - "INSERT"
+      - "UPDATE"
+      - "DELETE"
+      - "platform"
+    nomes:
+      - "kamba_app"
+      - "SELECT"
+      - "INSERT"
+      - "UPDATE"
+      - "DELETE"
+      - "platform"
+    nomes_nota:
+      - "kamba_batch"
+      - "kamba_app"
+      - "tenants.tipo"
+      - "tenant_channels.origem"
+      - "UPDATE"
+      - "platform"
+      - "pme"
+      - "tenant_channels.tenant_id"
+      - "criado_at"
+      - "tenants.plano"
+      - "estado"
+      - "verificado_at"
+    variantes_literais:
+      - "kamba_batch"
+  - seccao: "3.2"
+    conceito: "Forma das chaves de configuração em colunas"
+    canonico: "tenant_channels.vertical e entitlements.modulo: ^[a-z][a-z0-9_]$"
+    literais:
+      - "tenant_channels.vertical"
+      - "entitlements.modulo"
+      - "^[a-z][a-z0-9_]*$"
+    nomes:
+      - "tenant_channels.vertical"
+      - "entitlements.modulo"
+      - "a"
+      - "z"
+      - "z0"
+      - "_"
+    nomes_nota:
+      - "CHECK"
+      - "snake_case"
+      - "Assistente"
+      - "assistente"
+    variantes_literais: []
+  - seccao: "3.2"
+    conceito: "Contexto de tenant na base"
+    canonico: "variável app.tenant_id, definida com set_config('app.tenant_id', <uuid>, true) — local à transacção"
+    literais:
+      - "app.tenant_id"
+      - "set_config('app.tenant_id', <uuid>, true)"
+    nomes:
+      - "app.tenant_id"
+      - "set_config"
+      - "uuid"
+      - "true"
+    nomes_nota:
+      - "tenant_guard"
+      - "tx"
+      - "comTenant"
+    variantes_literais:
+      - "SET"
+  - seccao: "3.2"
+    conceito: "Política de isolamento"
+    canonico: "tenant_iso (USING e WITH CHECK), criada por rls.enable_tenant_rls"
+    literais:
+      - "tenant_iso"
+      - "rls.enable_tenant_rls"
+    nomes:
+      - "tenant_iso"
+      - "rls.enable_tenant_rls"
+    nomes_nota:
+      - "tenants"
+      - "id"
+      - "tenant_id"
+    variantes_literais:
+      - "tenant_isolamento"
+  - seccao: "3.2"
+    conceito: "Papel do resolvedor"
+    canonico: "kamba_resolver — NOBYPASSRLS; política própria resolver_leitura (FOR SELECT … USING (true)); SELECT só em tenant_channels(id, tenant_id, phone_number_id, vertical, origem, estado, channel_mode) e tenants(id, tipo, estado)"
+    literais:
+      - "kamba_resolver"
+      - "NOBYPASSRLS"
+      - "resolver_leitura"
+      - "FOR SELECT … USING (true)"
+      - "SELECT"
+      - "tenant_channels(id, tenant_id, phone_number_id, vertical, origem, estado, channel_mode)"
+      - "tenants(id, tipo, estado)"
+    nomes:
+      - "kamba_resolver"
+      - "NOBYPASSRLS"
+      - "resolver_leitura"
+      - "FOR"
+      - "SELECT"
+      - "USING"
+      - "true"
+      - "tenant_channels"
+      - "id"
+      - "tenant_id"
+      - "phone_number_id"
+      - "vertical"
+      - "origem"
+      - "estado"
+      - "channel_mode"
+      - "tenants"
+      - "tipo"
+    nomes_nota:
+      - "phone_number_id"
+      - "tenant"
+    variantes_literais: []
+  - seccao: "3.2"
+    conceito: "Papel de identidade"
+    canonico: "kamba_identity — NOBYPASSRLS; o único papel de serviço com SELECT em contact_endpoints e contact_deks, e com DELETE (só em contact_endpoints)"
+    literais:
+      - "kamba_identity"
+      - "NOBYPASSRLS"
+      - "SELECT"
+      - "contact_endpoints"
+      - "contact_deks"
+      - "DELETE"
+      - "contact_endpoints"
+    nomes:
+      - "kamba_identity"
+      - "NOBYPASSRLS"
+      - "SELECT"
+      - "contact_endpoints"
+      - "contact_deks"
+      - "DELETE"
+    nomes_nota:
+      - "kamba_app"
+      - "contacts"
+      - "contact_id"
+      - "tenant_id"
+      - "criado_at"
+      - "erased_at"
+      - "merged_into"
+      - "merged_at"
+      - "kamba_batch"
+      - "kamba_resolver"
+    variantes_literais: []
+  - seccao: "3.2"
+    conceito: "Vertical"
+    canonico: "No registo (registry/.yaml): id ∈ {vendedor, servicos, catalogo, social, orcamento}. Em tenant_channels.vertical: só as de atendimento (vendedor, servicos). A persona dono é resolvida pelo CHR a partir de contacts.papel e agrega os módulos de entrada; os módulos activos de um tenant vivem em entitlements.modulo"
+    literais:
+      - "id"
+      - "vendedor"
+      - "servicos"
+      - "catalogo"
+      - "social"
+      - "orcamento"
+      - "tenant_channels.vertical"
+      - "vendedor"
+      - "servicos"
+      - "dono"
+      - "contacts.papel"
+      - "entitlements.modulo"
+    nomes:
+      - "id"
+      - "vendedor"
+      - "servicos"
+      - "catalogo"
+      - "social"
+      - "orcamento"
+      - "tenant_channels.vertical"
+      - "dono"
+      - "contacts.papel"
+      - "entitlements.modulo"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.3"
+    conceito: "Preço"
+    canonico: "preco_minor + preco_tipo ∈ {fixo, a_partir_de, sob_consulta}"
+    literais:
+      - "preco_minor"
+      - "preco_tipo"
+      - "fixo"
+      - "a_partir_de"
+      - "sob_consulta"
+    nomes:
+      - "preco_minor"
+      - "preco_tipo"
+      - "fixo"
+      - "a_partir_de"
+      - "sob_consulta"
+    nomes_nota: []
+    variantes_literais:
+      - "preco_kz"
+      - "'exato'"
+  - seccao: "3.3"
+    conceito: "Stock"
+    canonico: "stock_modo ∈ {garantido, indicativo, confirmar_dono}"
+    literais:
+      - "stock_modo"
+      - "garantido"
+      - "indicativo"
+      - "confirmar_dono"
+    nomes:
+      - "stock_modo"
+      - "garantido"
+      - "indicativo"
+      - "confirmar_dono"
+    nomes_nota:
+      - "confirmar_dono"
+    variantes_literais:
+      - "p.stock>0"
+  - seccao: "3.3"
+    conceito: "Encomenda (estados)"
+    canonico: "criada, aguarda_pagamento, pendente_confirmacao, paga, expirada, em_entrega, entrega_falhada, entregue, em_disputa, reembolso_pendente, reembolsada, cancelada"
+    literais:
+      - "criada"
+      - "aguarda_pagamento"
+      - "pendente_confirmacao"
+      - "paga"
+      - "expirada"
+      - "em_entrega"
+      - "entrega_falhada"
+      - "entregue"
+      - "em_disputa"
+      - "reembolso_pendente"
+      - "reembolsada"
+      - "cancelada"
+    nomes:
+      - "criada"
+      - "aguarda_pagamento"
+      - "pendente_confirmacao"
+      - "paga"
+      - "expirada"
+      - "em_entrega"
+      - "entrega_falhada"
+      - "entregue"
+      - "em_disputa"
+      - "reembolso_pendente"
+      - "reembolsada"
+      - "cancelada"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.3"
+    conceito: "Total da encomenda"
+    canonico: "total_minor"
+    literais:
+      - "total_minor"
+    nomes:
+      - "total_minor"
+    nomes_nota: []
+    variantes_literais:
+      - "total_kz"
+  - seccao: "3.3"
+    conceito: "Identificador de confirmação"
+    canonico: "confirm:{cart_id} (Vendedor), confirm:{hold_id} (Serviços), confirm:{item_id} (módulos de entrada: conteúdo, proposta, publicação de produto; proposta)"
+    literais:
+      - "confirm:{cart_id}"
+      - "confirm:{hold_id}"
+      - "confirm:{item_id}"
+    nomes:
+      - "confirm"
+      - "cart_id"
+      - "hold_id"
+      - "item_id"
+    nomes_nota: []
+    variantes_literais:
+      - "confirm:{cart_id}"
+  - seccao: "3.3"
+    conceito: "Marcação"
+    canonico: "bookings(booking_id, tenant_id, contact_id, service_id, resource_id, inicio_at, fim_at, estado, hold_id)"
+    literais:
+      - "bookings(booking_id, tenant_id, contact_id, service_id, resource_id, inicio_at, fim_at, estado, hold_id)"
+    nomes:
+      - "bookings"
+      - "booking_id"
+      - "tenant_id"
+      - "contact_id"
+      - "service_id"
+      - "resource_id"
+      - "inicio_at"
+      - "fim_at"
+      - "estado"
+      - "hold_id"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.4"
+    conceito: "Valor"
+    canonico: "valor_minor"
+    literais:
+      - "valor_minor"
+    nomes:
+      - "valor_minor"
+    nomes_nota: []
+    variantes_literais:
+      - "valor_kz"
+  - seccao: "3.4"
+    conceito: "Autenticação do evento"
+    canonico: "payment_events.authn_ok boolean + authn_method ∈ {hmac, manual, consulta}"
+    literais:
+      - "payment_events.authn_ok boolean"
+      - "authn_method"
+      - "hmac"
+      - "manual"
+      - "consulta"
+    nomes:
+      - "payment_events.authn_ok"
+      - "boolean"
+      - "authn_method"
+      - "hmac"
+      - "manual"
+      - "consulta"
+    nomes_nota:
+      - "ManualProvider"
+      - "authn_method"
+      - "manual"
+    variantes_literais:
+      - "callback_hmac_ok"
+      - "sig_ok"
+  - seccao: "3.4"
+    conceito: "Eventos de pagamento"
+    canonico: "payment.confirmed (facilitador autenticado) e payment.manual_confirmed (ManualProvider)"
+    literais:
+      - "payment.confirmed"
+      - "payment.manual_confirmed"
+      - "ManualProvider"
+    nomes:
+      - "payment.confirmed"
+      - "payment.manual_confirmed"
+      - "ManualProvider"
+    nomes_nota: []
+    variantes_literais:
+      - "payment.confirmed"
+  - seccao: "3.4"
+    conceito: "Unicidade do ledger"
+    canonico: "Conforme ../docs/tecnica/04 (inclui account_id, tipo de evento e sequência); não UNIQUE(provider, referencia)"
+    literais:
+      - "account_id"
+      - "UNIQUE(provider, referencia)"
+    nomes:
+      - "account_id"
+      - "UNIQUE"
+      - "provider"
+      - "referencia"
+    nomes_nota:
+      - "referencia"
+    variantes_literais:
+      - "db.seen(provider, ev.reference)"
+  - seccao: "3.4"
+    conceito: "Replay"
+    canonico: "Idempotência por (provider, account_id, referencia); timestamp assinado só se o facilitador o fornecer"
+    literais:
+      - "(provider, account_id, referencia)"
+    nomes:
+      - "provider"
+      - "account_id"
+      - "referencia"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.4"
+    conceito: "Beneficiário"
+    canonico: "beneficiary_kind ∈ {pme, plataforma_receita_propria}"
+    literais:
+      - "beneficiary_kind"
+      - "pme"
+      - "plataforma_receita_propria"
+    nomes:
+      - "beneficiary_kind"
+      - "pme"
+      - "plataforma_receita_propria"
+    nomes_nota:
+      - "platform"
+    variantes_literais: []
+  - seccao: "3.5"
+    conceito: "Envelope"
+    canonico: "id, tipo, versao, tenant_id, agregado, seq, trace_id, ocorrido_em, payload"
+    literais:
+      - "id"
+      - "tipo"
+      - "versao"
+      - "tenant_id"
+      - "agregado"
+      - "seq"
+      - "trace_id"
+      - "ocorrido_em"
+      - "payload"
+    nomes:
+      - "id"
+      - "tipo"
+      - "versao"
+      - "tenant_id"
+      - "agregado"
+      - "seq"
+      - "trace_id"
+      - "ocorrido_em"
+      - "payload"
+    nomes_nota:
+      - "seq"
+    variantes_literais: []
+  - seccao: "3.5"
+    conceito: "Tipos do Piloto"
+    canonico: "channel.inactivity_warning, order.created, order.expired, order.delivered, payment.confirmed, payment.manual_confirmed, booking.created, booking.reminder_due, booking.cancelled, stock.low, review.created, query.unresolved, tenant.approved, tenant.provisioned, tenant.activated, channel.updated, contact.merged, conversation.mode_changed"
+    literais:
+      - "channel.inactivity_warning"
+      - "order.created"
+      - "order.expired"
+      - "order.delivered"
+      - "payment.confirmed"
+      - "payment.manual_confirmed"
+      - "booking.created"
+      - "booking.reminder_due"
+      - "booking.cancelled"
+      - "stock.low"
+      - "review.created"
+      - "query.unresolved"
+      - "tenant.approved"
+      - "tenant.provisioned"
+      - "tenant.activated"
+      - "channel.updated"
+      - "contact.merged"
+      - "conversation.mode_changed"
+    nomes:
+      - "channel.inactivity_warning"
+      - "order.created"
+      - "order.expired"
+      - "order.delivered"
+      - "payment.confirmed"
+      - "payment.manual_confirmed"
+      - "booking.created"
+      - "booking.reminder_due"
+      - "booking.cancelled"
+      - "stock.low"
+      - "review.created"
+      - "query.unresolved"
+      - "tenant.approved"
+      - "tenant.provisioned"
+      - "tenant.activated"
+      - "channel.updated"
+      - "contact.merged"
+      - "conversation.mode_changed"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.5"
+    conceito: "Gatilho do provisioning"
+    canonico: "tenant.approved"
+    literais:
+      - "tenant.approved"
+    nomes:
+      - "tenant.approved"
+    nomes_nota:
+      - "tenant.activated"
+    variantes_literais: []
+  - seccao: "3.5"
+    conceito: "Evento do gate da Fase 0"
+    canonico: "Um pedido do Vendedor pago via ManualProvider emite payment.manual_confirmed; a vertical Serviços consome-o e confirma uma marcação com sinal (KAM-039, KAM-108)"
+    literais:
+      - "ManualProvider"
+      - "payment.manual_confirmed"
+    nomes:
+      - "ManualProvider"
+      - "payment.manual_confirmed"
+    nomes_nota:
+      - "servicos.yaml"
+    variantes_literais: []
+  - seccao: "3.5"
+    conceito: "Consumidores"
+    canonico: "Idempotentes por (consumer, event_id); DLQ após 5 tentativas"
+    literais:
+      - "(consumer, event_id)"
+    nomes:
+      - "consumer"
+      - "event_id"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.6"
+    conceito: "Registo de chamadas LLM"
+    canonico: "llm_call_log"
+    literais:
+      - "llm_call_log"
+    nomes:
+      - "llm_call_log"
+    nomes_nota: []
+    variantes_literais:
+      - "llm_calls"
+  - seccao: "3.6"
+    conceito: "Esquema do checkpointer"
+    canonico: "lg"
+    literais:
+      - "lg"
+    nomes:
+      - "lg"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.6"
+    conceito: "Esquemas"
+    canonico: "platform, lg, idx, servicos, esquemas do Medusa"
+    literais:
+      - "platform"
+      - "lg"
+      - "idx"
+      - "servicos"
+    nomes:
+      - "platform"
+      - "lg"
+      - "idx"
+      - "servicos"
+    nomes_nota:
+      - "idx"
+    variantes_literais: []
+  - seccao: "3.6"
+    conceito: "Retenção de assistant_queries"
+    canonico: "12 meses (proposta; a confirmar por parecer)"
+    literais: []
+    nomes:
+      - "assistant_queries"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.6"
+    conceito: "Coordenadas"
+    canonico: "Arredondadas à zona; exactas só no pedido de entrega (Clusters)"
+    literais: []
+    nomes: []
+    nomes_nota: []
+    variantes_literais:
+      - "assistant_queries"
+  - seccao: "3.7"
+    conceito: "Papel do contacto"
+    canonico: "contacts.papel ∈ {cliente, dono}"
+    literais:
+      - "contacts.papel"
+      - "cliente"
+      - "dono"
+    nomes:
+      - "contacts.papel"
+      - "cliente"
+      - "dono"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.7"
+    conceito: "Persona do dono"
+    canonico: "dono (Assistente do Dono)"
+    literais:
+      - "dono"
+    nomes:
+      - "dono"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.7"
+    conceito: "Ferramenta de imagem"
+    canonico: "foto (tool enhance_image), interface ImageProvider"
+    literais:
+      - "foto"
+      - "enhance_image"
+      - "ImageProvider"
+    nomes:
+      - "foto"
+      - "enhance_image"
+      - "ImageProvider"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.7"
+    conceito: "Trabalhos de imagem"
+    canonico: "image_jobs"
+    literais:
+      - "image_jobs"
+    nomes:
+      - "image_jobs"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.7"
+    conceito: "Perfil de marca, calendário e itens de conteúdo"
+    canonico: "brand_profile, content_calendar, content_items"
+    literais:
+      - "brand_profile"
+      - "content_calendar"
+      - "content_items"
+    nomes:
+      - "brand_profile"
+      - "content_calendar"
+      - "content_items"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.7"
+    conceito: "Pedidos de orçamento"
+    canonico: "quote_requests; fact quote_price"
+    literais:
+      - "quote_requests"
+      - "quote_price"
+    nomes:
+      - "quote_requests"
+      - "quote_price"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.7"
+    conceito: "Entitlements de módulo"
+    canonico: "modulo ∈ {catalogo, foto, social, orcamento} com limites imagens_mes, posts_mes, orcamentos_mes"
+    literais:
+      - "modulo"
+      - "catalogo"
+      - "foto"
+      - "social"
+      - "orcamento"
+      - "imagens_mes"
+      - "posts_mes"
+      - "orcamentos_mes"
+    nomes:
+      - "modulo"
+      - "catalogo"
+      - "foto"
+      - "social"
+      - "orcamento"
+      - "imagens_mes"
+      - "posts_mes"
+      - "orcamentos_mes"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.7"
+    conceito: "Eventos"
+    canonico: "quote.requested, quote.sent, content.approved"
+    literais:
+      - "quote.requested"
+      - "quote.sent"
+      - "content.approved"
+    nomes:
+      - "quote.requested"
+      - "quote.sent"
+      - "content.approved"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.8"
+    conceito: "Avisos ao dono por canal alternativo"
+    canonico: "owner_notices"
+    literais:
+      - "owner_notices"
+    nomes:
+      - "owner_notices"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.8"
+    conceito: "Decisões do modo concierge (aprovado, editado, rejeitado)"
+    canonico: "draft_decisions e política concierge"
+    literais:
+      - "draft_decisions"
+      - "concierge"
+    nomes:
+      - "draft_decisions"
+      - "concierge"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.8"
+    conceito: "Edição livre de número no rascunho do concierge"
+    canonico: "edicao_numero_livre"
+    literais:
+      - "edicao_numero_livre"
+    nomes:
+      - "edicao_numero_livre"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.8"
+    conceito: "Vistas de churn e tenants dormentes"
+    canonico: "v_churn_signals, v_tenant_dormente"
+    literais:
+      - "v_churn_signals"
+      - "v_tenant_dormente"
+    nomes:
+      - "v_churn_signals"
+      - "v_tenant_dormente"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.8"
+    conceito: "Evento de aviso de inactividade do canal"
+    canonico: "channel.inactivity_warning"
+    literais:
+      - "channel.inactivity_warning"
+    nomes:
+      - "channel.inactivity_warning"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.9"
+    conceito: "Referência opaca a um segredo no cofre"
+    canonico: "SecretRef: <id> ou <id>/<instância>"
+    literais:
+      - "SecretRef"
+      - "<id>"
+    nomes:
+      - "SecretRef"
+      - "id"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.9"
+    conceito: "Porta de leitura de segredos"
+    canonico: "SecretProvider com get, getRing, versions, health"
+    literais:
+      - "SecretProvider"
+      - "get"
+      - "getRing"
+      - "versions"
+      - "health"
+    nomes:
+      - "SecretProvider"
+      - "get"
+      - "getRing"
+      - "versions"
+      - "health"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.9"
+    conceito: "Par de versões vivas de um segredo"
+    canonico: "anel; getRing devolve [actual, anterior], com anterior nulo quando nunca houve rotação"
+    literais:
+      - "getRing"
+      - "[actual, anterior]"
+      - "anterior"
+    nomes:
+      - "getRing"
+      - "actual"
+      - "anterior"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.9"
+    conceito: "Inventário de segredos"
+    canonico: "ops/secrets-inventory.yaml, com id, owner, rotacao_dias, rotacao_gatilho, ambientes, obrigatorio_em, consumidores, instancias, anel, kid"
+    literais:
+      - "id"
+      - "owner"
+      - "rotacao_dias"
+      - "rotacao_gatilho"
+      - "ambientes"
+      - "obrigatorio_em"
+      - "consumidores"
+      - "instancias"
+      - "anel"
+      - "kid"
+    nomes:
+      - "id"
+      - "owner"
+      - "rotacao_dias"
+      - "rotacao_gatilho"
+      - "ambientes"
+      - "obrigatorio_em"
+      - "consumidores"
+      - "instancias"
+      - "anel"
+      - "kid"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.9"
+    conceito: "Papéis responsáveis (owner)"
+    canonico: "seguranca, eng_canais, eng_runtime, eng_pagamentos, sre, privacidade (de ../docs/tecnica/08 §1.3)"
+    literais:
+      - "seguranca"
+      - "eng_canais"
+      - "eng_runtime"
+      - "eng_pagamentos"
+      - "sre"
+      - "privacidade"
+    nomes:
+      - "owner"
+      - "seguranca"
+      - "eng_canais"
+      - "eng_runtime"
+      - "eng_pagamentos"
+      - "sre"
+      - "privacidade"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.9"
+    conceito: "Endereçamento de instâncias (instancias)"
+    canonico: "nenhuma, tenant, provedor, conta, epoca"
+    literais:
+      - "nenhuma"
+      - "tenant"
+      - "provedor"
+      - "conta"
+      - "epoca"
+    nomes:
+      - "instancias"
+      - "nenhuma"
+      - "tenant"
+      - "provedor"
+      - "conta"
+      - "epoca"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.9"
+    conceito: "Variável de ambiente de um segredo"
+    canonico: "KAMBA_SECRET_<ID> e KAMBA_SECRET_<ID>_ANTERIOR (ADR-L002)"
+    literais:
+      - "KAMBA_SECRET_<ID>"
+      - "KAMBA_SECRET_<ID>_ANTERIOR"
+    nomes:
+      - "KAMBA_SECRET_"
+      - "ID"
+      - "_ANTERIOR"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.9"
+    conceito: "id dos segredos do ../docs/tecnica/08 §5"
+    canonico: "meta_app_secret, meta_verify_token, meta_client_token, kek_token_cliente, meta_pin_2fa, proxypay_api_key, appypay_client_secret, litellm_master_key, litellm_virtual_key, llm_provider_key, stt_provider_key, db_app_password, db_migrator_password, db_batch_password, pepper_contact_hmac, chatwoot_platform_token, chatwoot_bot_token, vpn_wireguard_admin, doppler_service_token"
+    literais:
+      - "meta_app_secret"
+      - "meta_verify_token"
+      - "meta_client_token"
+      - "kek_token_cliente"
+      - "meta_pin_2fa"
+      - "proxypay_api_key"
+      - "appypay_client_secret"
+      - "litellm_master_key"
+      - "litellm_virtual_key"
+      - "llm_provider_key"
+      - "stt_provider_key"
+      - "db_app_password"
+      - "db_migrator_password"
+      - "db_batch_password"
+      - "pepper_contact_hmac"
+      - "chatwoot_platform_token"
+      - "chatwoot_bot_token"
+      - "vpn_wireguard_admin"
+      - "doppler_service_token"
+    nomes:
+      - "id"
+      - "meta_app_secret"
+      - "meta_verify_token"
+      - "meta_client_token"
+      - "kek_token_cliente"
+      - "meta_pin_2fa"
+      - "proxypay_api_key"
+      - "appypay_client_secret"
+      - "litellm_master_key"
+      - "litellm_virtual_key"
+      - "llm_provider_key"
+      - "stt_provider_key"
+      - "db_app_password"
+      - "db_migrator_password"
+      - "db_batch_password"
+      - "pepper_contact_hmac"
+      - "chatwoot_platform_token"
+      - "chatwoot_bot_token"
+      - "vpn_wireguard_admin"
+      - "doppler_service_token"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.9"
+    conceito: "id dos segredos de identidade de contacto"
+    canonico: "db_identity_password, kek_contact_dek, sujeito_epoch_key"
+    literais:
+      - "db_identity_password"
+      - "kek_contact_dek"
+      - "sujeito_epoch_key"
+    nomes:
+      - "id"
+      - "db_identity_password"
+      - "kek_contact_dek"
+      - "sujeito_epoch_key"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.10"
+    conceito: "Campos de uma linha de log (lista fechada; um campo novo é um PR revisto pelo Responsável de Segurança)"
+    canonico: "ts, level, svc, tenant_id, contact_hmac_prefix, turn_id, msg_id, wa_type, latency_ms, tool, outcome, error_code"
+    literais:
+      - "ts"
+      - "level"
+      - "svc"
+      - "tenant_id"
+      - "contact_hmac_prefix"
+      - "turn_id"
+      - "msg_id"
+      - "wa_type"
+      - "latency_ms"
+      - "tool"
+      - "outcome"
+      - "error_code"
+    nomes:
+      - "ts"
+      - "level"
+      - "svc"
+      - "tenant_id"
+      - "contact_hmac_prefix"
+      - "turn_id"
+      - "msg_id"
+      - "wa_type"
+      - "latency_ms"
+      - "tool"
+      - "outcome"
+      - "error_code"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.10"
+    conceito: "Campos recusados pelo logger (contador; o sufixo é o motivo)"
+    canonico: "log_field_rejected_total"
+    literais:
+      - "log_field_rejected_total"
+    nomes:
+      - "log_field_rejected_total"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.10"
+    conceito: "Linhas que o logger não conseguiu escrever (contador)"
+    canonico: "log_write_failed_total"
+    literais:
+      - "log_write_failed_total"
+    nomes:
+      - "log_write_failed_total"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.10"
+    conceito: "Variável de ambiente do modo estrito do logger (só em testes)"
+    canonico: "KAMBA_LOG_ESTRITO"
+    literais:
+      - "KAMBA_LOG_ESTRITO"
+    nomes:
+      - "KAMBA_LOG_ESTRITO"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.10"
+    conceito: "Identificador externo em forma registável (um wamid, um event_id): m_ mais 32 hexadecimais do SHA-256"
+    canonico: "id_opaco"
+    literais:
+      - "id_opaco"
+    nomes:
+      - "wamid"
+      - "event_id"
+      - "m_"
+      - "id_opaco"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.11"
+    conceito: "Porta de armazenamento de objectos"
+    canonico: "StorageProvider, com signUrl e as operações de escrita, leitura, metadados, eliminação e listagem; toda a operação leva o tenant do contexto"
+    literais:
+      - "StorageProvider"
+      - "signUrl"
+    nomes:
+      - "StorageProvider"
+      - "signUrl"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.11"
+    conceito: "Chave de um objecto"
+    canonico: "ObjectKey, na forma t/{tenant_id}/{classe}/{aaaa}/{mm}/{uuid}: tenant em UUID canónico minúsculo, ano e mês em UTC, identificador aleatório"
+    literais:
+      - "ObjectKey"
+    nomes:
+      - "ObjectKey"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.11"
+    conceito: "Referência a um objecto guardado"
+    canonico: "ObjectRef: a chave, o tamanho em bytes e a soma SHA-256 do conteúdo; é o que um consumidor persiste, nunca uma URL"
+    literais:
+      - "ObjectRef"
+    nomes:
+      - "ObjectRef"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.11"
+    conceito: "Prazo a partir do qual um objecto pode ser purgado"
+    canonico: "retain_until, metadado obrigatório de todo o objecto; no servidor S3 vai como metadado do utilizador «retain-until» (com hífen: é um cabeçalho HTTP), em UTC"
+    literais:
+      - "retain_until"
+    nomes:
+      - "retain_until"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.11"
+    conceito: "Destino dos dados do armazenamento"
+    canonico: "destino.country (ISO 3166-1 alfa-2), destino.provider e apd_ref, com os nomes das colunas da tabela de destinos do KAM-069"
+    literais:
+      - "destino.country"
+      - "destino.provider"
+      - "apd_ref"
+    nomes:
+      - "destino.country"
+      - "destino.provider"
+      - "apd_ref"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.11"
+    conceito: "Variáveis de configuração do armazenamento"
+    canonico: "KAMBA_STORAGE_ENDPOINT, KAMBA_STORAGE_BUCKET, KAMBA_STORAGE_REGION, KAMBA_STORAGE_DESTINO_COUNTRY, KAMBA_STORAGE_DESTINO_PROVIDER, KAMBA_STORAGE_DESTINO_APD_REF"
+    literais:
+      - "KAMBA_STORAGE_ENDPOINT"
+      - "KAMBA_STORAGE_BUCKET"
+      - "KAMBA_STORAGE_REGION"
+      - "KAMBA_STORAGE_DESTINO_COUNTRY"
+      - "KAMBA_STORAGE_DESTINO_PROVIDER"
+      - "KAMBA_STORAGE_DESTINO_APD_REF"
+    nomes:
+      - "KAMBA_STORAGE_ENDPOINT"
+      - "KAMBA_STORAGE_BUCKET"
+      - "KAMBA_STORAGE_REGION"
+      - "KAMBA_STORAGE_DESTINO_COUNTRY"
+      - "KAMBA_STORAGE_DESTINO_PROVIDER"
+      - "KAMBA_STORAGE_DESTINO_APD_REF"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.11"
+    conceito: "id dos segredos do armazenamento"
+    canonico: "storage_access_key_id, storage_secret_access_key"
+    literais:
+      - "storage_access_key_id"
+      - "storage_secret_access_key"
+    nomes:
+      - "id"
+      - "storage_access_key_id"
+      - "storage_secret_access_key"
+    nomes_nota: []
+    variantes_literais: []
+
+tabelas:
+  - nome: "contacts"
+    esquema: ""
+    colunas:
+      - "contact_id"
+      - "tenant_id"
+      - "criado_at"
+    aberta: true
+    assinatura: "contacts(contact_id, tenant_id, criado_at, …)"
+    seccao: "3.1"
+    conceito: "Contacto"
+  - nome: "contact_endpoints"
+    esquema: ""
+    colunas:
+      - "contact_id"
+      - "tipo"
+      - "bsuid_hmac"
+      - "bsuid_enc"
+      - "dek_id"
+      - "phone_enc"
+    aberta: true
+    assinatura: "contact_endpoints(contact_id, tipo, bsuid_hmac, bsuid_enc, dek_id, phone_enc, …)"
+    seccao: "3.1"
+    conceito: "Endpoints do contacto"
+  - nome: "contact_deks"
+    esquema: ""
+    colunas:
+      - "dek_id"
+      - "tenant_id"
+      - "contact_id"
+      - "wrapped_dek"
+      - "kek_id"
+      - "criado_at"
+      - "destroyed_at"
+    aberta: false
+    assinatura: "contact_deks(dek_id, tenant_id, contact_id, wrapped_dek, kek_id, criado_at, destroyed_at)"
+    seccao: "3.1"
+    conceito: "Chave de dados do contacto"
+  - nome: "hmac_key_versions"
+    esquema: ""
+    colunas:
+      - "kid"
+      - "estado"
+      - "criado_at"
+    aberta: false
+    assinatura: "hmac_key_versions(kid, estado, criado_at)"
+    seccao: "3.1"
+    conceito: "Versões da chave de pesquisa"
+  - nome: "tenants"
+    esquema: "platform"
+    colunas:
+      - "id"
+    aberta: false
+    assinatura: "platform.tenants(id uuid)"
+    seccao: "3.2"
+    conceito: "Tenant (tabela e chave)"
+  - nome: "tenant_channels"
+    esquema: ""
+    colunas:
+      - "tenant_id"
+      - "phone_number_id"
+      - "waba_id"
+      - "vertical"
+      - "estado"
+    aberta: true
+    assinatura: "tenant_channels(tenant_id, phone_number_id, waba_id, vertical, estado, …)"
+    seccao: "3.2"
+    conceito: "Canal"
+  - nome: "entitlements"
+    esquema: ""
+    colunas:
+      - "tenant_id"
+      - "modulo"
+      - "limites"
+      - "ativo"
+    aberta: false
+    assinatura: "entitlements(tenant_id, modulo, limites jsonb, ativo boolean)"
+    seccao: "3.2"
+    conceito: "Entitlement (tabela)"
+  - nome: "set_config"
+    esquema: ""
+    colunas:
+      - "true"
+    aberta: false
+    assinatura: "set_config('app.tenant_id', <uuid>, true)"
+    seccao: "3.2"
+    conceito: "Contexto de tenant na base"
+  - nome: "tenant_channels"
+    esquema: ""
+    colunas:
+      - "id"
+      - "tenant_id"
+      - "phone_number_id"
+      - "vertical"
+      - "origem"
+      - "estado"
+      - "channel_mode"
+    aberta: false
+    assinatura: "tenant_channels(id, tenant_id, phone_number_id, vertical, origem, estado, channel_mode)"
+    seccao: "3.2"
+    conceito: "Papel do resolvedor"
+  - nome: "tenants"
+    esquema: ""
+    colunas:
+      - "id"
+      - "tipo"
+      - "estado"
+    aberta: false
+    assinatura: "tenants(id, tipo, estado)"
+    seccao: "3.2"
+    conceito: "Papel do resolvedor"
+  - nome: "bookings"
+    esquema: ""
+    colunas:
+      - "booking_id"
+      - "tenant_id"
+      - "contact_id"
+      - "service_id"
+      - "resource_id"
+      - "inicio_at"
+      - "fim_at"
+      - "estado"
+      - "hold_id"
+    aberta: false
+    assinatura: "bookings(booking_id, tenant_id, contact_id, service_id, resource_id, inicio_at, fim_at, estado, hold_id)"
+    seccao: "3.3"
+    conceito: "Marcação"
+
+dominios:
+  - coluna: "tenants.tipo"
+    valores:
+      - "pme"
+      - "courier"
+      - "reseller"
+      - "agent"
+      - "platform"
+    seccao: "3.2"
+    conceito: "Tipo de tenant"
+  - coluna: "tenant_channels.origem"
+    valores:
+      - "pme"
+      - "plataforma"
+    seccao: "3.2"
+    conceito: "Origem do canal"
+  - coluna: "tenant_channels.channel_mode"
+    valores:
+      - "coexistencia"
+      - "cloud_only"
+    seccao: "3.2"
+    conceito: "Modo do canal"
+  - coluna: "id"
+    valores:
+      - "vendedor"
+      - "servicos"
+      - "catalogo"
+      - "social"
+      - "orcamento"
+    seccao: "3.2"
+    conceito: "Vertical"
+  - coluna: "preco_tipo"
+    valores:
+      - "fixo"
+      - "a_partir_de"
+      - "sob_consulta"
+    seccao: "3.3"
+    conceito: "Preço"
+  - coluna: "stock_modo"
+    valores:
+      - "garantido"
+      - "indicativo"
+      - "confirmar_dono"
+    seccao: "3.3"
+    conceito: "Stock"
+  - coluna: "authn_method"
+    valores:
+      - "hmac"
+      - "manual"
+      - "consulta"
+    seccao: "3.4"
+    conceito: "Autenticação do evento"
+  - coluna: "beneficiary_kind"
+    valores:
+      - "pme"
+      - "plataforma_receita_propria"
+    seccao: "3.4"
+    conceito: "Beneficiário"
+  - coluna: "contacts.papel"
+    valores:
+      - "cliente"
+      - "dono"
+    seccao: "3.7"
+    conceito: "Papel do contacto"
+  - coluna: "modulo"
+    valores:
+      - "catalogo"
+      - "foto"
+      - "social"
+      - "orcamento"
+    seccao: "3.7"
+    conceito: "Entitlements de módulo"
+
+variantes:
+  - nome: "lookup_hmac"
+    tipo: "nome"
+    seccao: "3.1"
+    conceito: "HMAC de pesquisa de um contacto"
+    canonico: "contact_endpoints.bsuid_hmac (BSUID) e contacts.phone_hmac (telefone), cada um com a versão da chave em hmac_kid"
+  - nome: "msisdn_hash"
+    tipo: "nome"
+    seccao: "3.1"
+    conceito: "Pseudónimo para analytics"
+    canonico: "sujeito_ref = HMAC(chave_mensal, contact_id)"
+  - nome: "consent_log"
+    tipo: "nome"
+    seccao: "3.1"
+    conceito: "Prova de consentimento"
+    canonico: "consent_event (append-only)"
+  - nome: "consent_ledger"
+    tipo: "nome"
+    seccao: "3.1"
+    conceito: "Prova de consentimento"
+    canonico: "consent_event (append-only)"
+  - nome: "consents"
+    tipo: "nome"
+    seccao: "3.1"
+    conceito: "Prova de consentimento"
+    canonico: "consent_event (append-only)"
+  - nome: "valor_max_pedido_kz"
+    tipo: "nome"
+    seccao: "3.2"
+    conceito: "Entitlement (chaves)"
+    canonico: "msgs_ai_mes, marcacoes_mes, imagens_mes, posts_mes, orcamentos_mes, valor_max_pedido_minor (limite do plano e do tecto K1/K2), manual_max_minor (limite do ManualProvider)"
+  - nome: "kamba_ops"
+    tipo: "nome"
+    seccao: "3.2"
+    conceito: "Papéis de base de dados"
+    canonico: "kamba_migrator (DDL, dono das tabelas), kamba_app (NOBYPASSRLS, sem DDL), kamba_batch (BYPASSRLS, auditado)"
+  - nome: "tenant_isolamento"
+    tipo: "nome"
+    seccao: "3.2"
+    conceito: "Política de isolamento"
+    canonico: "tenant_iso (USING e WITH CHECK), criada por rls.enable_tenant_rls"
+  - nome: "preco_kz"
+    tipo: "nome"
+    seccao: "3.3"
+    conceito: "Preço"
+    canonico: "preco_minor + preco_tipo ∈ {fixo, a_partir_de, sob_consulta}"
+  - nome: "exato"
+    tipo: "valor"
+    seccao: "3.3"
+    conceito: "Preço"
+    canonico: "preco_minor + preco_tipo ∈ {fixo, a_partir_de, sob_consulta}"
+  - nome: "total_kz"
+    tipo: "nome"
+    seccao: "3.3"
+    conceito: "Total da encomenda"
+    canonico: "total_minor"
+  - nome: "valor_kz"
+    tipo: "nome"
+    seccao: "3.4"
+    conceito: "Valor"
+    canonico: "valor_minor"
+  - nome: "callback_hmac_ok"
+    tipo: "nome"
+    seccao: "3.4"
+    conceito: "Autenticação do evento"
+    canonico: "payment_events.authn_ok boolean + authn_method ∈ {hmac, manual, consulta}"
+  - nome: "sig_ok"
+    tipo: "nome"
+    seccao: "3.4"
+    conceito: "Autenticação do evento"
+    canonico: "payment_events.authn_ok boolean + authn_method ∈ {hmac, manual, consulta}"
+  - nome: "llm_calls"
+    tipo: "nome"
+    seccao: "3.6"
+    conceito: "Registo de chamadas LLM"
+    canonico: "llm_call_log"
+
+contradicoes:
+  - nome: "manual_max_minor"
+    seccao: "3.2"
+    conceito: "Entitlement (chaves)"
+    razao: "esta na coluna do nome canonico e na coluna «Substitui» da mesma linha; tratado como canonico"

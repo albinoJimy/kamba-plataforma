@@ -1,0 +1,4 @@
+# Fixture f3: Dify por imagem (ADR-002).
+services:
+  dify-api:
+    image: langgenius/dify-api:1.17.1

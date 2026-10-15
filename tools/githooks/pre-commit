@@ -1,0 +1,40 @@
+#!/bin/sh
+# Hook pre-commit — gate 9: varrimento de segredos (KAM-002).
+#
+# Corre o **mesmo** scanner que o gate 9 do pipeline, sobre o que esta em stage.
+# O ticket exige-o por escrito: "o hook de pre-commit aplica o mesmo scanner".
+#
+# A razao e dura: um segredo que passa o pre-commit e chega ao servidor do git
+# deixa de se remover apagando uma linha. Fica na historia, e a correccao passa a
+# ser reescrever a historia **e** rodar a chave. O pre-commit e a ultima barreira
+# antes de isso ser verdade.
+#
+# Instala-se com `make hooks`.
+set -eu
+
+ROOT=$(git rev-parse --show-toplevel)
+. "$ROOT/tools/githooks/_python.sh"
+PYTHON=$(kamba_find_python) || exit 1
+
+# Corre-se de dentro de `tools/` em vez de mexer no PYTHONPATH: o separador de
+# `sys.path` e `;` em Windows e `:` no resto, e construi-lo a mao quebra num dos
+# dois. O `--root` mantem a raiz explicita.
+(cd "$ROOT/tools" && "$PYTHON" -m scan_secrets --root "$ROOT" staged) || {
+  cat >&2 <<'AJUDA'
+
+  O commit foi recusado porque o que esta em stage parece conter um segredo.
+
+  Se for um segredo a serio:
+    1. **Rode a chave.** Nao basta apagar a linha: o valor fica no stage e,
+       se o commit passar, na historia.
+    2. Tire o valor do ficheiro e ponha-o no gestor de segredos (KAM-010).
+    3. Use `.env` local, que esta no `.gitignore`.
+
+  Se nao for um segredo — um exemplo, um placeholder, um digest — declare a
+  area e a classe em `ci/secrets-allow.yaml`, com a razao escrita.
+
+  Para inspeccionar sem fazer commit:
+      cd tools && python -m scan_secrets --root .. staged
+AJUDA
+  exit 1
+}

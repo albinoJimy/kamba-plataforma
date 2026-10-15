@@ -1,0 +1,53 @@
+#!/bin/sh
+# Hook commit-msg — Conventional Commits com ID de ticket (specs/01 §5).
+#
+# Instala-se com `make hooks` (que faz `git config core.hooksPath tools/githooks`).
+#
+# Valida com `lint_arch`, que le `tools/conventions.json` — o mesmo ficheiro que
+# o `commitlint.config.cjs` le. Usa-se o caminho Python e nao o commitlint porque
+# o hook tem de funcionar antes de haver `node_modules`: um hook que so protege
+# depois do `pnpm install` nao protege o primeiro commit de ninguem.
+#
+# Quando o `pnpm` esta disponivel, corre-se tambem o commitlint, para que as duas
+# vias nao possam divergir sem se dar por isso.
+set -eu
+
+ROOT=$(git rev-parse --show-toplevel)
+. "$ROOT/tools/githooks/_python.sh"
+PYTHON=$(kamba_find_python) || exit 1
+
+# O git passa o caminho da mensagem relativo a raiz; torna-se absoluto porque a
+# invocacao abaixo muda de directorio.
+case "$1" in
+  /* | ?:*) MENSAGEM="$1" ;;
+  *) MENSAGEM="$ROOT/$1" ;;
+esac
+
+# Corre-se de dentro de `tools/` em vez de mexer no PYTHONPATH: o `python -m`
+# poe o directorio actual no `sys.path`, e isso funciona em todas as plataformas.
+# Juntar caminhos ao PYTHONPATH com `:` quebra em Windows, onde o separador e
+# `;` — e quebra em silencio, com um "No module named lint_arch" que nao tem
+# nada a ver com o commit. O `--root` mantem a raiz explicita, pelo que o
+# directorio actual nao afecta o que e verificado.
+(cd "$ROOT/tools" && "$PYTHON" -m lint_arch --root "$ROOT" commit-msg "$MENSAGEM") || {
+    cat >&2 <<'AJUDA'
+
+  Formato esperado:  tipo(KAM-NNN): descricao no imperativo
+
+  Exemplo:           chore(KAM-001): cria a arvore do monorepo
+  Tipos:             feat, fix, chore, refactor, test, docs, spike
+
+  Siglas no meio da descricao sao permitidas (RLS, HMAC, BSUID, APD, AGT).
+  As regras estao em tools/conventions.json (specs/01 §5).
+AJUDA
+    exit 1
+  }
+
+# O commitlint corre **se** houver com que o correr. A presenca do shim em
+# `node_modules/.bin` nao basta: ele e um script que invoca `node`, e numa
+# maquina com o `node_modules` instalado por contentor (como a do KAM-001) o
+# `node` pode nao existir no host. Sem esta guarda, o hook recusava commits com
+# `exec: node: not found` — uma mensagem que nada tem a ver com o commit.
+if [ -x "$ROOT/node_modules/.bin/commitlint" ] && command -v node >/dev/null 2>&1; then
+  "$ROOT/node_modules/.bin/commitlint" --edit "$MENSAGEM"
+fi

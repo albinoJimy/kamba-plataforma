@@ -1,0 +1,26 @@
+{
+  "name": "@kamba/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Contratos de eventos e de tools em JSON Schema — fonte unica para TypeScript e Python (KAM-001)",
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./schemas/*": "./schemas/*"
+  },
+  "files": [
+    "dist",
+    "schemas"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.tests.json",
+    "test": "node --test tests/*.test.ts"
+  },
+  "types": "./dist/index.d.ts"
+}

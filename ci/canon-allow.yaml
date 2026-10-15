@@ -1,0 +1,161 @@
+# Variantes que ficam em `docs/tecnica/` — gate 3b, superficie `documentos` (KAM-111)
+#
+# O gate 3b falha se um documento de `docs/tecnica/` contiver um nome que o
+# dicionario substitui (coluna «Substitui» do §3). Isto e a lista das
+# ocorrencias que la ficam, e porque.
+#
+# Cada entrada e por FICHEIRO, VARIANTE e NUMERO EXACTO DE OCORRENCIAS:
+#
+#   * mais ocorrencias do que as declaradas -> falha (alguem repos a variante);
+#   * menos -> falha (a excepcao ja nao corresponde ao documento; actualize-a);
+#   * zero  -> falha (retire a excepcao).
+#
+# Duas classes, e a diferenca e a que importa:
+#
+# `historicas` — a variante e citada PARA DIZER QUE FOI SUBSTITUIDA: tabelas
+#   «correccao ao doc 11», notas «corrige X». Sao as «notas explicitas
+#   "substitui X" e tabelas de correccao historicas» que o criterio de aceitacao
+#   do KAM-111 exclui da contagem. Nao tem prazo — e por isso tem `ancoras`:
+#   excertos do documento que mostram que a variante esta a ser citada. Cada
+#   linha onde ela aparece tem de conter pelo menos um. Sem ancora, trocar a
+#   citacao por um uso vivo mantinha a contagem e passava.
+#
+# `dividas` — divergencia REAL: o documento usa a variante como se fosse o nome.
+#   Nao constam das 12 que o KAM-111 enumera, e o ticket diz «as 12 e so essas»,
+#   pelo que nao foram corrigidas nele. Tem `origem`, `criado_em` e `expira_em`
+#   (maximo 30 dias, *proposta*, igual ao dos waivers). UMA DIVIDA VENCIDA FALHA
+#   O GATE: a 2026-11-11 este ficheiro deixa `main` vermelho se as correccoes
+#   nao tiverem sido feitas. E de proposito — a alternativa e uma lista de
+#   dividas que ninguem revisita — e esta dito no bloco do KAM-111 do EPIC-01
+#   (seccao de verificacao) e no ticket KAM-139, que as paga.
+#   `criado_em` nao pode ser futuro: o prazo conta-se do dia do registo.
+
+version: 1
+
+historicas:
+  - ficheiro: docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md
+    variante: msisdn_hash
+    ocorrencias: 1
+    ancoras:
+      - "do documento exploratório"
+    razao: "§6.3, regra (c): «corrige `msisdn_hash+tenant` do documento exploratorio». Cita a chave antiga para dizer que o `thread_id` passou a `tenant_id:contact_id`."
+
+  - ficheiro: docs/tecnica/02_Agent_Runtime_Verticais.md
+    variante: msisdn_hash
+    ocorrencias: 2
+    ancoras:
+      - "`tenant_id:contact_id` (§12)"
+      - "**correcção** do exploratório"
+    razao: "§7 (tabela de correccoes ao grafo exploratorio, linha 10) e §12 (`thread_id`, «correccao do exploratorio»). As duas citam `msisdn_hash+tenant` como a forma que foi substituida."
+
+  - ficheiro: docs/tecnica/03_Core_Comercio_Medusa.md
+    variante: total_kz
+    ocorrencias: 1
+    ancoras:
+      - "do doc 11 perde cêntimos"
+    razao: "§5.1, convencao 2: «`total_kz int` do doc 11 perde centimos». E a linha da tabela de correccoes ao documento 11 que justifica `*_minor`."
+
+  - ficheiro: docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md
+    variante: callback_hmac_ok
+    ocorrencias: 1
+    ancoras:
+      - "Estado é *projecção*"
+    razao: "§6.1, tabela «Correccao ao documento 11 §2»: a coluna «Problema do DDL original» cita o nome antigo; a coluna «Correccao» da `authn_method` + `authn_ok`."
+
+  - ficheiro: docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md
+    variante: valor_kz
+    ocorrencias: 1
+    ancoras:
+      - "sem moeda | Perde cêntimos"
+    razao: "§6.1, a mesma tabela de correccoes: «`valor_kz int`, sem moeda» e o problema; `valor_minor bigint` + `currency` e a correccao."
+
+  - ficheiro: docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md
+    variante: msisdn_hash
+    ocorrencias: 1
+    ancoras:
+      - "Divergências deliberadas face à biblioteca"
+    razao: "§2, «Divergencias deliberadas face a biblioteca»: enumera `msisdn_hash` em `assistant_queries` como uma das coisas que este documento corrige."
+
+  - ficheiro: docs/tecnica/06_Dados_Eventos_Analytics.md
+    variante: msisdn_hash
+    ocorrencias: 5
+    ancoras:
+      - "por época; correcção a"
+      - "Divergências deliberadas face ao doc 11"
+      - "### 7.2 Identidade em duas camadas (corrige"
+      - "Correcção a registar em"
+      - "Mudanças face ao doc 11 §2"
+    razao: "§2 (ADR-010 e «Divergencias deliberadas face ao doc 11»), titulo e ultima alinea do §7.2, e §8 («Mudancas face ao doc 11»). As cinco dizem `msisdn_hash` -> `sujeito_ref`."
+
+dividas:
+  - ficheiro: docs/tecnica/02_Agent_Runtime_Verticais.md
+    variante: valor_max_pedido_kz
+    ocorrencias: 3
+    origem: KAM-111
+    criado_em: 2026-10-11
+    expira_em: 2026-11-10
+    razao: "§5.1 (`limites` de `registry/vendedor.yaml`) e §6.1-§6.2 (pipeline de `invoke` e `criar_pedido`). O dicionario §3.2 fixa `valor_max_pedido_minor`. Divergencia real, registada na emenda E-01 da Carta e fora das 12 do KAM-111. Emenda proposta: trocar as tres ocorrencias."
+
+  - ficheiro: docs/tecnica/03_Core_Comercio_Medusa.md
+    variante: kamba_ops
+    ocorrencias: 1
+    origem: KAM-111
+    criado_em: 2026-10-11
+    expira_em: 2026-11-10
+    razao: "§5.5, comentario dos papeis: «kamba_ops (BYPASSRLS, auditado)». O dicionario §3.2 (emenda 1.2) resolve a favor de `kamba_batch`, de `docs/tecnica/08` §3.3. Fora das 12 do KAM-111. Emenda proposta: `kamba_batch`."
+
+  - ficheiro: docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md
+    variante: kamba_ops
+    ocorrencias: 2
+    origem: KAM-111
+    criado_em: 2026-10-11
+    expira_em: 2026-11-10
+    razao: "§6.2: `REVOKE ALL … FROM PUBLIC, kamba_app, kamba_ops` e `GRANT SELECT … TO kamba_app, kamba_ops`. O DDL de pagamentos revoga de um papel que nao existe (dicionario §3.2). Tem de estar corrigido antes do KAM-053. Emenda proposta: `kamba_batch`."
+
+  - ficheiro: docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md
+    variante: preco_kz
+    ocorrencias: 5
+    origem: KAM-111
+    criado_em: 2026-10-11
+    expira_em: 2026-11-10
+    razao: "§6.1 (consulta hibrida e contrato de saida da tool) e §12 (`sponsored_placements`). O dicionario §3.3 fixa `preco_minor`. Nao e so nome: muda a unidade (Kz inteiros -> centimos). Fora das 12 do KAM-111. Emenda proposta: `preco_minor` com a unidade revista."
+
+  - ficheiro: docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md
+    variante: exato
+    ocorrencias: 1
+    origem: KAM-111
+    criado_em: 2026-10-11
+    expira_em: 2026-11-10
+    razao: "§6.1, contrato de saida da tool: `preco_tipo ('exato'|'a_partir_de'|'sob_consulta')`. O dicionario §3.3 fixa `fixo`. Fora das 12 do KAM-111. Emenda proposta: `'fixo'`."
+
+  - ficheiro: docs/tecnica/06_Dados_Eventos_Analytics.md
+    variante: preco_kz
+    ocorrencias: 3
+    origem: KAM-111
+    criado_em: 2026-10-11
+    expira_em: 2026-11-10
+    razao: "§10.2, DDL e vista do indice de precos (Diferido): `preco_kz int` e `ORDER BY preco_kz`. O dicionario §3.3 fixa `preco_minor`. Fora das 12 do KAM-111. Emenda proposta: `preco_minor`."
+
+  - ficheiro: docs/tecnica/06_Dados_Eventos_Analytics.md
+    variante: exato
+    ocorrencias: 1
+    origem: KAM-111
+    criado_em: 2026-10-11
+    expira_em: 2026-11-10
+    razao: "§10.2: `CHECK (preco_tipo = 'exato')`. O dicionario §3.3 fixa `fixo`. Fora das 12 do KAM-111. Emenda proposta: `'fixo'`."
+
+  - ficheiro: docs/tecnica/06_Dados_Eventos_Analytics.md
+    variante: total_kz
+    ocorrencias: 2
+    origem: KAM-111
+    criado_em: 2026-10-11
+    expira_em: 2026-11-10
+    razao: "§6.1 (payload de exemplo de `order.created`) e §12 (consulta de reconciliacao do GMV). O dicionario §3.3 fixa `total_minor`. Fora das 12 do KAM-111 (o D-03 so cobre `valor_kz`). Emenda proposta: `total_minor`."
+
+  - ficheiro: docs/tecnica/03_Core_Comercio_Medusa.md
+    variante: tenant_isolamento
+    ocorrencias: 1
+    origem: KAM-111
+    criado_em: 2026-10-11
+    expira_em: 2026-11-10
+    razao: "§5.5: `CREATE POLICY tenant_isolamento`. A emenda 1.5 do dicionario (KAM-004) fixa `tenant_iso`, o nome de `docs/tecnica/08` §3.3 e o que `db/rls.py` cria, e regista esta divergencia. Passou a variante com o merge do KAM-004; fora das 12 do KAM-111. Emenda proposta: `tenant_iso`."

@@ -1,0 +1,18 @@
+# Lista de saidas de `queue` — KAM-067, criterio 9.
+#
+# Negado por omissao: o que nao esta em `destinos` nao sai. Este ficheiro e o
+# contrato; **a aplicacao na rede e do KAM-076** (proxy de saida com allowlist
+# de FQDN). `make supply-chain` falha se o ficheiro faltar, se `por_omissao`
+# deixar de ser `negar`, ou se um destino nao tiver nome (`*`, IP, CIDR).
+#
+# Fila (Valkey ou Redis, D12). Esta so na rede `data`, que e
+# `internal: true` (docs/tecnica/09 §3.2): nao tem rota de saida.
+#
+# Cada destino: `fqdn`, `porta`, `protocolo`, `razao` e `ticket` (KAM-NNN).
+# Ligacoes a outros servicos da pilha (base de dados, fila) nao sao saidas: sao
+# redes do compose.
+
+version: 1
+servico: queue
+por_omissao: negar
+destinos: []

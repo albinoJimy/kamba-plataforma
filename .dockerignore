@@ -1,0 +1,50 @@
+# O contexto de build e o monorepo; o que nao e codigo de execucao fica fora.
+#
+# A primeira secao nao e optimizacao: e o controlo que impede um segredo de
+# entrar numa camada de imagem. O `make bootstrap` cria `.env` na raiz a partir
+# de `.env.example`, e os Dockerfile dos servicos Node copiam o contexto — sem
+# estas linhas, a senha do Postgres do desenvolvedor ficava em `docker history`
+# de qualquer imagem construida localmente, contra o DoD do KAM-001 ("sem
+# segredos"), `docs/tecnica/08` §5 e o critério de saida do EPIC-01 ("0 segredos em
+# camadas de imagem").
+#
+# `tools/lint_arch structure` recusa um `.dockerignore` sem estas regras, para
+# que apagá-las seja um erro e nao um descuido silencioso.
+
+# --- segredos: nunca entram numa imagem ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+.netrc
+.npmrc.local
+secrets/
+.doppler/
+
+# --- artefactos e estado local ---
+.git
+.github
+.claude
+node_modules
+**/node_modules
+packages/*/dist
+.venv
+**/.venv
+**/__pycache__
+**/*.pyc
+dist
+build
+scratch
+tmp
+
+# --- conjunto documental ---
+# E a fonte de verdade do projecto, mas nao e codigo de execucao.
+*.md
+specs
+tecnica
+analises
+docs

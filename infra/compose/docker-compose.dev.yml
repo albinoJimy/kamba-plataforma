@@ -1,0 +1,333 @@
+# Pilha de desenvolvimento local da KAMBÁ (KAM-001).
+#
+# Levanta-se com `make up` a partir da raiz do repositorio.
+#
+# Tres regras que este ficheiro cumpre e que nao sao negociaveis:
+#
+# 1. **Nada escuta fora de localhost.** Todas as publicacoes de porta sao
+#    `127.0.0.1:...` (DoD do KAM-001). Uma porta de desenvolvimento aberta na
+#    rede local e uma base de dados de desenvolvimento aberta na rede local.
+# 2. **A rede de dados nao sai.** `data` e `internal: true` (`docs/tecnica/09` §3.2):
+#    um pacote comprometido dentro do Postgres nao tem rota para fora.
+# 3. **A imagem da fila e parametrizada.** A decisao D12 (licenca do Redis vs
+#    Valkey) esta ABERTA; nada aqui nem no codigo depende de qual das duas e.
+#    Trocar significa mudar duas variaveis de ambiente, nao editar codigo.
+#
+# 4. **Toda a imagem vem por digest, e todo o servico corre so de leitura**
+#    (KAM-067). O digest de cada imagem esta registado em
+#    `ci/supply-chain/imagens.yaml`, com a data e a fonte de onde se leu; o que
+#    um servico precisa de escrever esta declarado em `volumes:` ou `tmpfs:`.
+#    `make supply-chain` falha se alguma das duas coisas deixar de ser verdade.
+#
+# O que este ficheiro NAO faz, por desenho: nao verifica assinaturas — nenhuma
+# destas imagens tem assinatura cosign apurada (ver o inventario) —, nao cria
+# tabelas nem corre migracoes (KAM-003), e nao e a definicao de staging nem de
+# producao (KAM-075, KAM-076).
+
+name: kamba-dev
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  read_only: true
+  user: "node"
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  networks:
+    - app
+  environment: &service-env
+    NODE_ENV: development
+    HOST: 0.0.0.0
+    KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  # ---------------------------------------------------------------- dados
+  postgres:
+    # PostgreSQL 18.6 + pgvector 0.8.7 (ADR-006, E4 §2.9).
+    # Verificado a 2026-10-10: esta tag contem `postgres (PostgreSQL) 18.6
+    # (Debian 18.6-1.pgdg12+2)` e pgvector 0.8.7 — ver docs/evidencia/KAM-001-node.md §3.
+    image: pgvector/pgvector:0.8.7-pg18@sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11
+    restart: unless-stopped
+    # So de leitura (KAM-067). O PostgreSQL escreve em tres sitios, e os tres
+    # estao declarados: os dados (volume), o socket e o ficheiro de bloqueio
+    # (`/var/run/postgresql`) e os temporarios (`/tmp`).
+    read_only: true
+    tmpfs:
+      - /var/run/postgresql:mode=0775,uid=999,gid=999
+      - /tmp:size=64m,mode=1777
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-kamba}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: ${POSTGRES_DB:-kamba_platform}
+      # `scram-sha-256` tambem em desenvolvimento: um ambiente de
+      # desenvolvimento com `trust` ensina o habito errado.
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      # ATENCAO: o ponto de montagem e `/var/lib/postgresql`, **nao**
+      # `/var/lib/postgresql/data`. As imagens oficiais do PostgreSQL 18+
+      # guardam os dados num subdirectorio com o nome da versao maior e
+      # **recusam arrancar** se encontrarem dados no caminho antigo
+      # (docker-library/postgres#1259). Com a convencao antiga o contentor
+      # fica unhealthy com "these Docker images are configured to store
+      # database data in a format which is compatible with pg_ctlcluster".
+      # Verificado por execucao a 2026-10-10 com pgvector/pgvector:0.8.7-pg18.
+      - postgres-data:/var/lib/postgresql
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
+    # Sem `ports:`, de proposito. O servico esta so na rede `data`, que e
+    # `internal: true` (`docs/tecnica/09` §3.2, regra 2), e o Docker **nao publica
+    # portas** de um contentor ligado apenas a uma rede interna: uma declaracao
+    # `ports:` aqui seria decoracao — verificado por execucao a 2026-10-10, a
+    # porta ficava a recusar conexoes no host.
+    #
+    # Para chegar a base ou a fila a partir da sua maquina use `make psql` e
+    # `make queue-cli`, que entram pelo contentor. E mais restritivo do que
+    # publicar em 127.0.0.1 e cumpre o DoD do KAM-001 com folga.
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kamba} -d ${POSTGRES_DB:-kamba_platform}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    logging: *logging
+
+  queue:
+    # Fila BullMQ (ADR-009). **Decisao D12 em aberto**: Redis >= 7.4 mudou de
+    # licenca (RSAL/SSPL) e propoe-se Valkey (BSD-3), a validar em staging com
+    # BullMQ, Chatwoot e Medusa (`docs/tecnica/09` §3.1, §20).
+    #
+    # O servico chama-se `queue` e nao `redis` nem `valkey`, de proposito: o nome
+    # do servico e a cadeia de ligacao nao podem carregar a decisao que ainda nao
+    # foi tomada. O `command` so leva flags; os entrypoints de ambas as imagens
+    # prefixam o binario do servidor quando o primeiro argumento comeca por `-`.
+    image: ${KAMBA_QUEUE_IMAGE:-valkey/valkey:9.1.2-trixie@sha256:418652cfb58ef879d4978c33553735d7147016032d5aefaa14c828e611eb9dfd}
+    restart: unless-stopped
+    # So de leitura (KAM-067): o unico sitio onde a fila escreve e `/data`.
+    read_only: true
+    command:
+      # AOF, exigido pelo BullMQ: sem persistencia, uma reinicializacao perde
+      # trabalhos aceites (E4 §2.10).
+      - "--appendonly"
+      - "yes"
+      - "--appendfsync"
+      - "everysec"
+      - "--dir"
+      - "/data"
+      - "--save"
+      - ""
+    volumes:
+      - queue-data:/data
+    # Sem `ports:`, de proposito. O servico esta so na rede `data`, que e
+    # `internal: true` (`docs/tecnica/09` §3.2, regra 2), e o Docker **nao publica
+    # portas** de um contentor ligado apenas a uma rede interna: uma declaracao
+    # `ports:` aqui seria decoracao — verificado por execucao a 2026-10-10, a
+    # porta ficava a recusar conexoes no host.
+    #
+    # Para chegar a base ou a fila a partir da sua maquina use `make psql` e
+    # `make queue-cli`, que entram pelo contentor. E mais restritivo do que
+    # publicar em 127.0.0.1 e cumpre o DoD do KAM-001 com folga.
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD-SHELL", "${KAMBA_QUEUE_CLI:-valkey-cli} ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    logging: *logging
+
+  # -------------------------------------------------------------- servicos
+  gwy:
+    <<: *service-defaults
+    build:
+      context: ../..
+      dockerfile: services/gwy/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+    environment:
+      <<: *service-env
+      PORT: "3000"
+    healthcheck:
+      # O Node 24 tem `fetch` nativo: a sonda nao precisa de curl na imagem.
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3000/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    ports:
+      - "127.0.0.1:${GWY_PORT:-3000}:3000"
+    networks:
+      - app
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+
+  worker-canal:
+    <<: *service-defaults
+    build:
+      context: ../..
+      dockerfile: services/worker-canal/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+    environment:
+      <<: *service-env
+      PORT: "3001"
+    healthcheck:
+      # O Node 24 tem `fetch` nativo: a sonda nao precisa de curl na imagem.
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3001/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    ports:
+      - "127.0.0.1:${WORKER_CANAL_PORT:-3001}:3001"
+    networks:
+      - app
+      - data
+    depends_on:
+      queue:
+        condition: service_healthy
+
+  agr:
+    <<: *service-defaults
+    # O AGR corre `python:3.12-slim`, onde nao existe o utilizador `node`.
+    user: "nobody"
+    build:
+      context: ../..
+      dockerfile: services/agr/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+    environment:
+      HOST: 0.0.0.0
+      # A porta **dentro** do contentor e fixa; e `AGR_PORT` que move a porta
+      # publicada no host. Parametrizar as duas obrigaria a mante-las em sincronia
+      # a mao, e o `healthcheck` interno le `PORT` precisamente para nao assumir.
+      PORT: "8000"
+      KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+    healthcheck:
+      # `urllib` da biblioteca padrao: a sonda nao precisa de curl na imagem.
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import os, sys, urllib.request;
+          porta = os.environ.get('PORT', '8000');
+          sys.exit(0 if urllib.request.urlopen(
+          f'http://127.0.0.1:{porta}/healthz', timeout=4).status == 200 else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    ports:
+      - "127.0.0.1:${AGR_PORT:-8000}:8000"
+    networks:
+      - app
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+
+  com:
+    <<: *service-defaults
+    build:
+      context: ../..
+      dockerfile: services/com/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+    environment:
+      <<: *service-env
+      PORT: "3002"
+    healthcheck:
+      # O Node 24 tem `fetch` nativo: a sonda nao precisa de curl na imagem.
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3002/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    ports:
+      - "127.0.0.1:${COM_PORT:-3002}:3002"
+    networks:
+      - app
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  onboarding-web:
+    <<: *service-defaults
+    build:
+      context: ../..
+      dockerfile: services/onboarding-web/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+    environment:
+      <<: *service-env
+      PORT: "3003"
+    healthcheck:
+      # O Node 24 tem `fetch` nativo: a sonda nao precisa de curl na imagem.
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3003/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    ports:
+      - "127.0.0.1:${ONBOARDING_WEB_PORT:-3003}:3003"
+
+networks:
+  # `edge` (proxy inverso TLS) e `ops` (Prometheus, Loki, pgBackRest) fazem parte
+  # da topologia de `docs/tecnica/09` §3.2 mas nao do compose de desenvolvimento:
+  # entram com o KAM-075 e o KAM-076.
+  app:
+    driver: bridge
+  data:
+    driver: bridge
+    # Sem rota de saida: `docs/tecnica/09` §3.2, regra 2.
+    internal: true
+
+volumes:
+  postgres-data:
+  queue-data:

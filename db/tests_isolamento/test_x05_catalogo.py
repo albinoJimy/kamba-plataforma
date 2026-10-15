@@ -1,0 +1,345 @@
+"""X-05 — catalogo: toda a tabela com coluna de tenant tem RLS `FORCE` e politica.
+
+Criterios de aceitacao 1 e 6 do KAM-004, e a regressao que os Testes Requeridos
+pedem: «uma migracao de teste que cria tabela com `tenant_id` sem RLS deve
+fazer X-05 falhar».
+"""
+
+from __future__ import annotations
+
+import tempfile
+import unittest
+from pathlib import Path
+
+import ligacao
+from tests.base import ComBase
+from tests_isolamento import catalogo, sementes
+
+
+class TestCatalogoReal(ComBase):
+    """O schema tal como as migracoes o deixam."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.cursor = self.ligar("admin").cursor()
+
+    def test_x05_todas_as_tabelas_isoladas_tem_rls_force_e_politica(self) -> None:
+        self.assertEqual(
+            catalogo.verificar_rls(self.cursor, catalogo.excepcoes_rls()), []
+        )
+
+    def test_a_lista_de_excepcoes_esta_vazia(self) -> None:
+        """O criterio diz «inicialmente vazia»; quem a encher muda este teste a ver."""
+        self.assertEqual(catalogo.excepcoes_rls(), {})
+
+    def test_a_descoberta_encontra_as_seis_tabelas(self) -> None:
+        """Se a descoberta encolher, a suite inteira passa a testar menos."""
+        self.assertEqual(
+            catalogo.tabelas_isoladas(self.cursor),
+            [
+                ("platform", "contact_deks", "tenant_id"),
+                ("platform", "contact_endpoints", "tenant_id"),
+                ("platform", "contacts", "tenant_id"),
+                ("platform", "entitlements", "tenant_id"),
+                ("platform", "tenant_channels", "tenant_id"),
+                ("platform", "tenants", "id"),
+            ],
+        )
+
+    def test_cada_tabela_isolada_tem_receita_de_sementes(self) -> None:
+        """Uma tabela que a suite nao sabe semear e uma tabela que nao testa."""
+        descobertas = {(s, t) for s, t, _ in catalogo.tabelas_isoladas(self.cursor)}
+        self.assertEqual(descobertas, set(sementes.RECEITAS))
+        self.assertEqual(set(sementes.ORDEM), set(sementes.RECEITAS))
+
+    def test_as_politicas_sao_exactamente_as_declaradas(self) -> None:
+        """Politicas permissivas somam-se por OU: uma a mais abre o que a `tenant_iso` fecha.
+
+        O teste abaixo so olha para a `tenant_iso`. Uma `CREATE POLICY ... FOR
+        SELECT TO kamba_app USING (true)` em `contacts` deixava-a intacta e
+        punha a aplicacao a ler os contactos de todos os tenants (revisao
+        adversarial do KAM-008). Lista fechada: quem acrescentar uma politica
+        escreve-a aqui, com o papel a que se aplica.
+        """
+        linhas = self.consultar(
+            "SELECT tablename::text, policyname::text, cmd::text, roles::text "
+            "FROM pg_policies ORDER BY 1, 2"
+        )
+        self.assertEqual(
+            linhas,
+            [
+                ("contact_deks", "tenant_iso", "ALL", "{public}"),
+                ("contact_endpoints", "tenant_iso", "ALL", "{public}"),
+                ("contacts", "tenant_iso", "ALL", "{public}"),
+                ("entitlements", "tenant_iso", "ALL", "{public}"),
+                ("tenant_channels", "resolver_leitura", "SELECT", "{kamba_resolver}"),
+                ("tenant_channels", "tenant_iso", "ALL", "{public}"),
+                ("tenants", "resolver_leitura", "SELECT", "{kamba_resolver}"),
+                ("tenants", "tenant_iso", "ALL", "{public}"),
+            ],
+        )
+
+    def test_a_politica_e_a_tenant_iso_com_using_e_with_check(self) -> None:
+        linhas = self.consultar(
+            "SELECT tablename, cmd, permissive, roles::text, qual, with_check "
+            "FROM pg_policies WHERE schemaname = 'platform' AND policyname = 'tenant_iso' "
+            "ORDER BY 1"
+        )
+        self.assertEqual(
+            [l[0] for l in linhas],
+            ["contact_deks", "contact_endpoints", "contacts", "entitlements",
+             "tenant_channels", "tenants"],
+        )
+        for tabela, comando, permissiva, papeis, qual, com_check in linhas:
+            with self.subTest(tabela=tabela):
+                self.assertEqual((comando, permissiva, papeis), ("ALL", "PERMISSIVE", "{public}"))
+                coluna = "id" if tabela == "tenants" else "tenant_id"
+                for predicado in (qual, com_check):
+                    self.assertIn(coluna, predicado)
+                    self.assertIn("app.tenant_id", predicado)
+                    self.assertIn("NULLIF", predicado.upper())
+
+    def test_nao_ha_security_definer_fora_da_lista(self) -> None:
+        self.assertEqual(
+            catalogo.verificar_security_definer(
+                self.cursor, catalogo.funcoes_permitidas()
+            ),
+            [],
+        )
+
+    def test_nao_ha_vistas_sem_security_invoker(self) -> None:
+        self.assertEqual(catalogo.verificar_vistas(self.cursor), [])
+
+    def test_nao_ha_colunas_de_tenant_com_outro_nome(self) -> None:
+        self.assertEqual(catalogo.verificar_colunas_de_tenant(self.cursor), [])
+
+
+class TestRegressao(ComBase):
+    """A verificacao sabe dizer «esta mal» — e nomeia o que esta mal.
+
+    Cada teste cria o defeito de proposito, numa transaccao que nunca e
+    confirmada: o DDL do PostgreSQL e transaccional, e o `tearDown` desfaz tudo.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.conexao = self.ligar("admin")
+        self.cursor = self.conexao.cursor()
+
+    def test_tabela_com_tenant_id_sem_rls_faz_x05_falhar(self) -> None:
+        self.cursor.execute(
+            "CREATE TABLE platform.esquecida (id uuid PRIMARY KEY, tenant_id uuid NOT NULL)"
+        )
+        problemas = catalogo.verificar_rls(self.cursor)
+        self.assertEqual(len(problemas), 1, problemas)
+        self.assertIn("platform.esquecida", problemas[0])
+        self.assertIn("ENABLE ROW LEVEL SECURITY", problemas[0])
+        self.assertIn("FORCE ROW LEVEL SECURITY", problemas[0])
+        self.assertIn("pelo menos uma politica", problemas[0])
+
+    def test_cada_metade_em_falta_e_nomeada(self) -> None:
+        """`ENABLE` sem `FORCE` deixa o dono ver tudo; sem politica ninguem ve nada."""
+        self.cursor.execute(
+            "CREATE TABLE platform.a_meio (id uuid PRIMARY KEY, tenant_id uuid NOT NULL)"
+        )
+        self.cursor.execute("ALTER TABLE platform.a_meio ENABLE ROW LEVEL SECURITY")
+        problemas = catalogo.verificar_rls(self.cursor)
+        self.assertEqual(len(problemas), 1, problemas)
+        self.assertNotIn("ENABLE ROW LEVEL SECURITY", problemas[0])
+        self.assertIn("FORCE ROW LEVEL SECURITY", problemas[0])
+        self.assertIn("pelo menos uma politica", problemas[0])
+
+    def test_noutro_schema_aplicacional_tambem_e_apanhada(self) -> None:
+        """A descoberta nao e so `platform`: um schema novo entra sozinho."""
+        self.cursor.execute("CREATE SCHEMA servicos_ensaio")
+        self.cursor.execute(
+            "CREATE TABLE servicos_ensaio.marcacoes (id uuid, tenant_id uuid)"
+        )
+        problemas = catalogo.verificar_rls(self.cursor)
+        self.assertTrue(any("servicos_ensaio.marcacoes" in p for p in problemas))
+
+    def test_em_public_tambem_e_apanhada(self) -> None:
+        """`public` nao e um sitio onde se possa esconder uma tabela de tenant."""
+        self.cursor.execute(
+            "CREATE TABLE public.encomendas_ensaio (id uuid, tenant_id uuid)"
+        )
+        problemas = catalogo.verificar_rls(self.cursor)
+        self.assertEqual(len(problemas), 1, problemas)
+        self.assertIn("public.encomendas_ensaio", problemas[0])
+
+    def test_tabela_particionada_e_cada_particao_sao_apanhadas(self) -> None:
+        """A RLS da tabela-mae nao se aplica a quem leia a particao directamente."""
+        self.cursor.execute(
+            "CREATE TABLE platform.eventos_ensaio (tenant_id uuid NOT NULL, n integer) "
+            "PARTITION BY RANGE (n)"
+        )
+        self.cursor.execute(
+            "CREATE TABLE platform.eventos_ensaio_1 PARTITION OF platform.eventos_ensaio "
+            "FOR VALUES FROM (0) TO (10)"
+        )
+        problemas = catalogo.verificar_rls(self.cursor)
+        self.assertEqual(len(problemas), 2, problemas)
+        self.assertTrue(any("platform.eventos_ensaio:" in p for p in problemas))
+        self.assertTrue(any("platform.eventos_ensaio_1:" in p for p in problemas))
+
+    def test_coluna_de_tenant_com_outro_nome_e_apanhada(self) -> None:
+        self.cursor.execute(
+            "CREATE TABLE platform.nomes_ensaio "
+            '(tenant uuid, tenantid uuid, owner_tenant_id uuid, "Tenant_Id" uuid, '
+            "tenant_id uuid, inquilino uuid)"
+        )
+        self.cursor.execute("CREATE TABLE public.nomes_ensaio (id_tenant uuid)")
+        problemas = catalogo.verificar_colunas_de_tenant(self.cursor)
+        self.assertEqual(len(problemas), 5, problemas)
+        for coluna in ("tenant:", "tenantid:", "owner_tenant_id:", "Tenant_Id:"):
+            self.assertTrue(
+                any(f"platform.nomes_ensaio.{coluna}" in p for p in problemas), coluna
+            )
+        self.assertTrue(any("public.nomes_ensaio.id_tenant:" in p for p in problemas))
+
+    def test_uma_excepcao_dispensa_a_tabela_e_so_ela(self) -> None:
+        self.cursor.execute("CREATE TABLE platform.dispensada (tenant_id uuid)")
+        self.cursor.execute("CREATE TABLE platform.nao_dispensada (tenant_id uuid)")
+        problemas = catalogo.verificar_rls(
+            self.cursor, {"platform.dispensada": {"adr": "ADR-015"}}
+        )
+        self.assertEqual(len(problemas), 1, problemas)
+        self.assertIn("platform.nao_dispensada", problemas[0])
+
+    def test_excepcao_morta_falha(self) -> None:
+        """Uma excepcao para uma tabela que ja tem RLS, ou que nao existe."""
+        problemas = catalogo.verificar_rls(
+            self.cursor,
+            {
+                "platform.tenant_channels": {"adr": "ADR-015"},
+                "platform.nunca_existiu": {"adr": "ADR-015"},
+            },
+        )
+        self.assertEqual(len(problemas), 2, problemas)
+        self.assertTrue(all("morta" in p for p in problemas))
+
+    def test_security_definer_e_apanhada(self) -> None:
+        self.cursor.execute(
+            "CREATE FUNCTION platform.atalho() RETURNS bigint LANGUAGE sql "
+            "SECURITY DEFINER AS 'SELECT count(*) FROM platform.tenants'"
+        )
+        problemas = catalogo.verificar_security_definer(self.cursor)
+        self.assertEqual(len(problemas), 1, problemas)
+        self.assertIn("platform.atalho()", problemas[0])
+        self.assertEqual(
+            catalogo.verificar_security_definer(
+                self.cursor, {"platform.atalho()": {"adr": "ADR-015"}}
+            ),
+            [],
+        )
+
+    def test_security_definer_em_public_tambem_e_apanhada(self) -> None:
+        """`PUBLIC` tem `EXECUTE` em `public`: era o atalho que ninguem via."""
+        self.cursor.execute(
+            "CREATE FUNCTION public.atalho_ensaio() RETURNS bigint LANGUAGE sql "
+            "SECURITY DEFINER AS 'SELECT count(*) FROM platform.tenants'"
+        )
+        problemas = catalogo.verificar_security_definer(self.cursor)
+        self.assertEqual(len(problemas), 1, problemas)
+        self.assertIn("public.atalho_ensaio()", problemas[0])
+
+    def test_funcao_invoker_nao_e_apanhada(self) -> None:
+        self.cursor.execute(
+            "CREATE FUNCTION platform.normal() RETURNS integer LANGUAGE sql AS 'SELECT 1'"
+        )
+        self.assertEqual(catalogo.verificar_security_definer(self.cursor), [])
+
+    def test_funcao_permitida_que_nao_existe_falha(self) -> None:
+        problemas = catalogo.verificar_security_definer(
+            self.cursor, {"platform.fantasma()": {"adr": "ADR-015"}}
+        )
+        self.assertEqual(len(problemas), 1)
+        self.assertIn("nao existe", problemas[0])
+
+    def test_vista_sem_security_invoker_e_apanhada_e_com_ele_nao(self) -> None:
+        self.cursor.execute(
+            "CREATE VIEW platform.v_sem AS SELECT id FROM platform.tenants"
+        )
+        self.cursor.execute(
+            "CREATE VIEW platform.v_com WITH (security_invoker = true) AS "
+            "SELECT id FROM platform.tenants"
+        )
+        problemas = catalogo.verificar_vistas(self.cursor)
+        self.assertEqual(len(problemas), 1, problemas)
+        self.assertIn("platform.v_sem", problemas[0])
+
+    def test_vista_em_public_tambem_e_apanhada(self) -> None:
+        self.cursor.execute(
+            "CREATE VIEW public.v_tudo_ensaio AS SELECT * FROM platform.tenants"
+        )
+        problemas = catalogo.verificar_vistas(self.cursor)
+        self.assertEqual(len(problemas), 1, problemas)
+        self.assertIn("public.v_tudo_ensaio", problemas[0])
+
+    def test_vista_materializada_e_sempre_apanhada(self) -> None:
+        """Nao tem RLS nem `security_invoker`: guarda linhas de todos os tenants."""
+        self.cursor.execute(
+            "CREATE MATERIALIZED VIEW platform.mv_ensaio AS "
+            "SELECT id, tipo FROM platform.tenants"
+        )
+        problemas = catalogo.verificar_vistas(self.cursor)
+        self.assertEqual(len(problemas), 1, problemas)
+        self.assertIn("platform.mv_ensaio", problemas[0])
+
+
+class TestFicheirosDePolitica(unittest.TestCase):
+    """`ci/rls_exceptions.yaml` e `ci/secdef_allowlist.yaml`: exigem ADR."""
+
+    def escrever(self, nome: str, corpo: str) -> Path:
+        raiz = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (raiz / "ci").mkdir()
+        (raiz / "ci" / nome).write_text(corpo, encoding="utf-8", newline="\n")
+        return raiz
+
+    ENTRADA = (
+        "version: 1\nexcepcoes:\n  - tabela: platform.x\n    adr: {adr}\n"
+        "    razao: >-\n      Uma razao com mais de trinta caracteres, para passar a regra.\n"
+    )
+
+    def test_excepcao_com_adr_e_aceite(self) -> None:
+        for adr in ("ADR-015", "ADR-L003"):
+            with self.subTest(adr=adr):
+                raiz = self.escrever("rls_exceptions.yaml", self.ENTRADA.format(adr=adr))
+                self.assertEqual(list(catalogo.excepcoes_rls(raiz)), ["platform.x"])
+
+    def test_excepcao_sem_adr_valido_e_recusada(self) -> None:
+        """Uma aprovacao datada serve para um waiver; aqui nao."""
+        for adr in ("aprovacao:fundador@2026-10-11", "KAM-004", "ADR-15", "adr-015"):
+            with self.subTest(adr=adr):
+                raiz = self.escrever(
+                    "rls_exceptions.yaml", self.ENTRADA.format(adr=f'"{adr}"')
+                )
+                with self.assertRaises(catalogo.PoliticaInvalida):
+                    catalogo.excepcoes_rls(raiz)
+
+    def test_campos_em_falta_razao_curta_e_versao_errada(self) -> None:
+        casos = {
+            "sem adr": "version: 1\nexcepcoes:\n  - tabela: platform.x\n    razao: >-\n      Uma razao com mais de trinta caracteres, para passar.\n",
+            "razao curta": "version: 1\nexcepcoes:\n  - tabela: platform.x\n    adr: ADR-015\n    razao: curta\n",
+            "versao": "version: 2\nexcepcoes: []\n",
+        }
+        for nome, corpo in casos.items():
+            with self.subTest(caso=nome):
+                raiz = self.escrever("rls_exceptions.yaml", corpo)
+                with self.assertRaises(catalogo.PoliticaInvalida):
+                    catalogo.excepcoes_rls(raiz)
+
+    def test_ficheiro_em_falta_levanta(self) -> None:
+        raiz = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        with self.assertRaises(catalogo.PoliticaInvalida):
+            catalogo.excepcoes_rls(raiz)
+        with self.assertRaises(catalogo.PoliticaInvalida):
+            catalogo.funcoes_permitidas(raiz)
+
+    def test_os_ficheiros_reais_leem_se_e_estao_vazios(self) -> None:
+        self.assertEqual(catalogo.excepcoes_rls(), {})
+        self.assertEqual(catalogo.funcoes_permitidas(), {})
+
+
+if __name__ == "__main__":
+    unittest.main()

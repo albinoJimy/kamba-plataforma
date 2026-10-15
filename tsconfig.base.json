@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+
+  // Opcoes comuns a todos os pacotes (KAM-001).
+  //
+  // Nao define `noEmit` nem `outDir`: quem emite e quem nao emite esta decidido
+  // em cada tsconfig, porque as duas coisas sao incompativeis com
+  // `allowImportingTsExtensions`. Ver docs/adr/ADR-L001-toolchain.md §9.
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // Os servicos correm TypeScript directamente no Node 24, que apaga tipos
+    // mas NAO transforma codigo. `enum`, `namespace` com valores, propriedades
+    // de parametro e aliases de import rebentam em execucao com
+    // ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX. Esta opcao transforma isso num erro de
+    // tipos, que e onde se quer descobri-lo.
+    "erasableSyntaxOnly": true,
+
+    "skipLibCheck": true,
+    "types": ["node"]
+  }
+}

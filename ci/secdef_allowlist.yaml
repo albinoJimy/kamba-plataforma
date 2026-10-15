@@ -1,0 +1,24 @@
+# Funcoes `SECURITY DEFINER` permitidas (gate 6) — KAM-004
+#
+# Uma funcao `SECURITY DEFINER` corre com os privilegios de quem a criou, nao de
+# quem a chama. Criada por `kamba_migrator` — dono das tabelas — e chamada por
+# `kamba_app`, le por cima da RLS se o dono nao estiver sujeito a ela, e mesmo
+# com `FORCE` e a forma mais curta de escrever um atalho por engano. O
+# `docs/tecnica/08` §3.3 proibe-as «excepto lista aprovada»; a lista e este
+# ficheiro, e esta vazia.
+#
+# O gate 6 falha se existir, num schema aplicacional, uma funcao
+# `SECURITY DEFINER` que nao esteja aqui. E falha tambem com uma vista sem
+# `security_invoker = true` — para vistas nao ha lista: nao ha excepcao.
+#
+# Campos, todos obrigatorios:
+#
+#   funcao   `schema.nome(tipos dos argumentos)`, como `pg_get_function_identity_arguments`
+#   adr      `ADR-NNN` ou `ADR-LNNN` que a fundamenta
+#   razao    o que a funcao faz que nao se consegue fazer como `SECURITY INVOKER`
+#
+# Uma entrada cuja funcao ja nao exista falha o gate.
+
+version: 1
+
+funcoes: []

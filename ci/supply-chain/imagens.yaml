@@ -1,0 +1,153 @@
+# Inventario de imagens — KAM-067
+#
+# Toda a imagem que o repositorio referencia esta aqui, com o digest **lido da
+# fonte** e a data em que se leu. `make supply-chain` falha se:
+#
+#   - uma referencia (compose, Dockerfile, workflow, `.env*`, ou uma constante
+#     declarada abaixo) nao trouxer `@sha256:`;
+#   - o digest de uma referencia nao for o de uma linha deste ficheiro;
+#   - uma linha deste ficheiro nao for referenciada por nada (entrada morta).
+#
+# Como acrescentar ou actualizar uma imagem — sempre por esta ordem:
+#
+#   1. ler o digest da fonte, nunca de memoria nem de outro ficheiro:
+#        docker buildx imagetools inspect <registo>/<nome>:<etiqueta>
+#      (o digest do **indice** multi-arquitectura, que e o que serve as duas
+#      arquitecturas que a equipa usa);
+#   2. escreve-lo aqui, com `lido_em` e `lido_de`;
+#   3. so depois nas referencias.
+#
+# Campos (`tools/supply_chain/imagens.py` recusa o ficheiro sem eles, e recusa
+# qualquer chave que nao leia):
+#
+#   nome          repositorio, sem etiqueta. `node` e `docker.io/library/node`
+#                 sao a mesma imagem.
+#   etiqueta      a etiqueta a que o digest correspondia quando foi lido.
+#   digest        `sha256:` + 64 hexadecimais.
+#   lido_em       data ISO da leitura. Nao pode ser futura.
+#   lido_de       o comando ou o endereco de onde se leu.
+#   componentes   os componentes de `licencas.yaml` que a imagem traz. Cada um
+#                 tem de ter linha la.
+#   cosign        um de:
+#                   verificar   ha assinatura publicada; o gate corre
+#                               `cosign verify` contra o digest. Exige
+#                               `cosign_identidade` e `cosign_emissor`.
+#                   n/a         **apurou-se** que nao ha assinatura publicada.
+#                               Exige `cosign_razao` com a compensacao.
+#                   por_apurar  ninguem verificou se ha. Nao e um estado final:
+#                               o gate conta-as em voz alta em cada execucao.
+#   cosign_razao  obrigatoria para `n/a` e `por_apurar` (>= 40 caracteres).
+#
+# SOBRE O ESTADO `por_apurar` DAS QUATRO LINHAS ABAIXO. O criterio 2 do KAM-067
+# admite dois estados: verificar onde ha assinatura, `n/a` onde nao ha. Escrever
+# `n/a` afirmava que **nao existe** assinatura publicada para estas imagens, e
+# isso ninguem verificou: nao ha `cosign` nesta maquina nem no runner, e nao se
+# descarrega um binario de terceiros para o descobrir a meio de um ticket. O
+# estado honesto e o terceiro. A compensacao que o criterio pede — digest, SBOM
+# e varrimento — esta hoje feita **a um terco**: o digest esta fixado; o SBOM
+# por imagem e o varrimento das camadas dependem de um pipeline que construa e
+# publique imagens, que e o KAM-078.
+#
+# O que se apurou sem instalar nada: a 2026-10-12, a etiqueta
+# `sha256-<digest>.sig` (onde o cosign guarda assinaturas no esquema antigo) da
+# `not found` no Docker Hub para as quatro. E INDICIO de ausencia, nao prova —
+# nao cobre a API de referrers nem assinaturas por plataforma —, e por isso nao
+# chega para `n/a`.
+#
+# O LiteLLM, quando entrar (KAM-030), **nao pode** vir com `n/a` nem com
+# `por_apurar`: a assinatura esta publicada desde a v1.83.0 (E4 §2.7,
+# CONFIRMADO), e essa exigencia esta no codigo, nao neste ficheiro.
+
+version: 1
+
+imagens:
+  - nome: pgvector/pgvector
+    etiqueta: 0.8.7-pg18
+    digest: "sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11"
+    lido_em: "2026-10-12"
+    lido_de: "docker buildx imagetools inspect docker.io/pgvector/pgvector:0.8.7-pg18 (indice OCI); o mesmo digest observado a 2026-10-10 em docs/evidencia/KAM-001-node.md §3"
+    componentes:
+      - postgresql
+      - pgvector
+    cosign: por_apurar
+    cosign_razao: >-
+      Nao se apurou se o projecto pgvector publica assinatura cosign para esta
+      imagem. Compensacao em vigor: digest fixado. Em falta: SBOM por imagem e
+      varrimento das camadas (KAM-078).
+
+  - nome: valkey/valkey
+    etiqueta: 9.1.2-trixie
+    digest: "sha256:418652cfb58ef879d4978c33553735d7147016032d5aefaa14c828e611eb9dfd"
+    lido_em: "2026-10-12"
+    lido_de: "docker buildx imagetools inspect docker.io/valkey/valkey:9.1.2-trixie (indice OCI)"
+    componentes:
+      - valkey
+    cosign: por_apurar
+    cosign_razao: >-
+      Nao se apurou se o projecto Valkey publica assinatura cosign para esta
+      imagem. Compensacao em vigor: digest fixado. Em falta: SBOM por imagem e
+      varrimento das camadas (KAM-078). A imagem e a omissao de uma decisao
+      aberta (D12), nao uma escolha.
+
+  - nome: node
+    etiqueta: 24.21.0-trixie-slim
+    digest: "sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66"
+    lido_em: "2026-10-12"
+    lido_de: "docker buildx imagetools inspect docker.io/library/node:24.21.0-trixie-slim (indice OCI)"
+    componentes:
+      - node
+    cosign: por_apurar
+    cosign_razao: >-
+      Nao se apurou se a imagem oficial do Node tem assinatura cosign publicada.
+      Compensacao em vigor: digest fixado. Em falta: SBOM por imagem e
+      varrimento das camadas, incluindo os pacotes Debian da base (KAM-078).
+
+  - nome: python
+    etiqueta: 3.12-slim-trixie
+    digest: "sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1"
+    lido_em: "2026-10-12"
+    lido_de: "docker buildx imagetools inspect docker.io/library/python:3.12-slim-trixie (indice OCI); `python --version` dentro da imagem deu 3.12.15"
+    componentes:
+      - python
+    cosign: por_apurar
+    cosign_razao: >-
+      Nao se apurou se a imagem oficial do Python tem assinatura cosign
+      publicada. Compensacao em vigor: digest fixado — e aqui importa mais do
+      que nas outras, porque a etiqueta `3.12-slim-trixie` flutua de *patch*.
+      Em falta: SBOM por imagem e varrimento das camadas (KAM-078).
+
+  # KAM-011. Servidor S3 **de teste**: so aparece em
+  # `infra/compose/docker-compose.storage.yml`, que `make storage-contrato`
+  # levanta e apaga. Estar neste inventario nao e a decisao D6 (SeaweedFS ou S3
+  # gerido), que continua aberta: e o registo do digest de uma imagem que o
+  # repositorio referencia.
+  - nome: chrislusf/seaweedfs
+    etiqueta: "4.48"
+    digest: "sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d"
+    lido_em: "2026-10-12"
+    lido_de: "docker buildx imagetools inspect docker.io/chrislusf/seaweedfs:4.48 (indice OCI); o mesmo digest em `docker image inspect` depois de `docker pull` (docs/evidencia/KAM-011-seaweedfs.md §2)"
+    componentes:
+      - seaweedfs
+    cosign: por_apurar
+    cosign_razao: >-
+      Nao se apurou se o projecto SeaweedFS publica assinatura cosign para esta
+      imagem. Compensacao em vigor: digest fixado, e a imagem so corre em
+      testes locais, em tmpfs, sem dados reais. Em falta: SBOM por imagem e
+      varrimento das camadas (KAM-078).
+
+# Codigo que lanca contentores sem passar por um compose. Um
+# `subprocess.run(["docker", "run", imagem])` nao e um manifesto, e nenhum
+# leitor estruturado o encontra: o ficheiro declara-se aqui, com a constante de
+# modulo que guarda a referencia. Um ficheiro Python que chame o Docker e nao
+# esteja nesta lista falha o gate.
+fontes_adicionais:
+  - ficheiro: db/gate_bd.py
+    constante: IMAGEM
+  - ficheiro: db/tests_identidade/node.py
+    constante: IMAGEM_NODE
+  # KAM-011: a suite TypeScript do contrato de armazenamento e a prova por
+  # mutacao correm num contentor Node quando a maquina nao tem `node`.
+  - ficheiro: infra/storage/contrato.py
+    constante: IMAGEM_NODE
+  - ficheiro: infra/storage/mutacoes.py
+    constante: IMAGEM_NODE

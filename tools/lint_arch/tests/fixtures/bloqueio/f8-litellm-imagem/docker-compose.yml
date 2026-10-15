@@ -1,0 +1,5 @@
+# Fixture f8: imagem oficial do LiteLLM abaixo do limiar (ADR-005).
+# Escrever o registo nao faz o bloqueio desaparecer.
+services:
+  llm:
+    image: ghcr.io/berriai/litellm:main-v1.82.7

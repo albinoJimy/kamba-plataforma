@@ -1,0 +1,66 @@
+# Excepcoes aos gates de CI — KAM-002
+#
+# **Este e o unico mecanismo de excepcao do pipeline.** A regra transversal do
+# §4 do Engineering Standards diz: "nenhum gate pode ser marcado skip sem ADR ou
+# aprovacao registada". Dois tickets a jusante repetem a exigencia com palavras
+# diferentes — o KAM-067 diz "excepcao registada em ADR" e o KAM-078 diz "exige
+# referencia a ADR/aprovacao (lint do pipeline)" — e ambos consomem este
+# esquema, em vez de inventarem o seu.
+#
+# Campos obrigatorios (`tools/ci_waivers.py` recusa o ficheiro sem eles):
+#
+#   gate               numero do gate
+#   alvo               o que exactamente e dispensado. Nunca "tudo".
+#                      Por gate:
+#                        3   o ficheiro e o token (ver tambem ci/refs-allow.yaml)
+#                        4   o ficheiro ou o estrato
+#                        5-8 so `alvo: pipeline` dispensa um gate reservado; um
+#                            alvo que nomeie outra coisa nao dispensa nada, e o
+#                            validador di-lo. Antes comparava-se so o `gate`, e
+#                            um waiver cujo alvo era um pacote npm dispensava o
+#                            gate 5 inteiro.
+#                        9   o ficheiro (ver tambem ci/secrets-allow.yaml)
+#                        11  o `purl` do pacote (`pkg:npm/lodash@4.17.11`) para
+#                            uma licenca, ou o identificador da vulnerabilidade
+#                            (`GHSA-...`, `CVE-...`) para o varrimento da OSV.
+#                            Uma licenca **proibida** so se dispensa com
+#                            `adr_ou_aprovacao: ADR-NNN`: uma aprovacao datada
+#                            nao chega (KAM-067; docs/supply-chain.md §6.4)
+#   adr_ou_aprovacao   `ADR-NNN` que o fundamenta, ou `aprovacao:<quem>@<data>`
+#                      para uma decisao humana registada
+#   autor              quem o escreveu, e a quem se pergunta
+#   razao              porque e aceitavel, numa frase que sobreviva a sair o autor
+#
+# A chave `regra`, que uma versao anterior deste cabecalho documentava
+# (`gate: 11, regra: licenca`), **nao e lida por codigo nenhum**: um waiver de
+# gate 11 dispensa o alvo para qualquer veredicto, e nao so para o que `regra`
+# nomearia. Registado como lacuna 12 em docs/ci.md §7, com as outras chaves de
+# configuracao que prometem politica que o codigo nao le.
+#   expira_em          data ISO, no maximo 30 dias apos a criacao (*proposta* do
+#                      ticket). Um waiver expirado **falha o pipeline** — nao se
+#                      ignora nem avisa
+#
+# Um waiver sem referencia, sem data, ou expirado, faz o `make ci-waivers`
+# falhar. Isso e deliberado: a alternativa e uma excepcao que fica para sempre
+# porque ninguem reparou que caducou.
+
+version: 1
+
+# Nenhuma excepcao activa. O ficheiro existe vazio de proposito: o esquema e o
+# contrato, e os gates sao aplicados sem excepcoes no estado inicial.
+#
+# O exemplo abaixo esta comentado para mostrar a forma, e nao conta como
+# excepcao. `tools/ci_waivers.py` tem fixtures que validam cada campo.
+#
+# waivers:
+#   - gate: 11
+#     regra: licenca
+#     alvo: "pkg:npm/exemplo@1.0.0"
+#     adr_ou_aprovacao: ADR-014
+#     autor: nome.sobrenome
+#     razao: >-
+#       A licenca e AGPL-3.0, mas o componente corre como servico separado e nao
+#       e distribuido, o que o ADR-014 cobre. Rever quando a D6 fechar.
+#     expira_em: 2026-11-10
+
+waivers: []

@@ -1,0 +1,4 @@
+# Fixture f14: um compose reconhece-se pelo conteudo, nao pelo nome (ADR-014).
+services:
+  sto:
+    image: minio/minio:latest

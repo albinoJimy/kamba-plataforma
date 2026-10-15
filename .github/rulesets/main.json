@@ -1,0 +1,68 @@
+{
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": {
+      "exclude": [],
+      "include": [
+        "~DEFAULT_BRANCH"
+      ]
+    }
+  },
+  "enforcement": "active",
+  "name": "main: gates fail-closed do KAM-002",
+  "rules": [
+    {
+      "parameters": {
+        "allowed_merge_methods": [
+          "merge",
+          "squash"
+        ],
+        "dismiss_stale_reviews_on_push": true,
+        "require_code_owner_review": false,
+        "require_extra_approval_for_unattributed_changes": true,
+        "require_last_push_approval": false,
+        "required_approving_review_count": 0,
+        "required_review_thread_resolution": false,
+        "required_reviewers": []
+      },
+      "type": "pull_request"
+    },
+    {
+      "parameters": {
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          {
+            "context": "gate 1 — build"
+          },
+          {
+            "context": "gate 2 — lint e tipos"
+          },
+          {
+            "context": "gate 3 — referencias cruzadas"
+          },
+          {
+            "context": "gate 4 — unit e cobertura"
+          },
+          {
+            "context": "gate 9 — segredos"
+          },
+          {
+            "context": "gate 11 — SCA, licencas e SBOM"
+          },
+          {
+            "context": "gates do KAM-002"
+          }
+        ],
+        "strict_required_status_checks_policy": false
+      },
+      "type": "required_status_checks"
+    },
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "non_fast_forward"
+    }
+  ],
+  "target": "branch"
+}

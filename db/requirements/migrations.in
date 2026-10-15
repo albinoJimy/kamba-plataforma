@@ -1,0 +1,34 @@
+# Dependencias das migracoes (KAM-003) — pins exactos.
+# Gerar o lock com hashes: make lock   (ver tools/pip_lock.py)
+#
+# O canon nomeia o Alembic (`docs/tecnica/03` §11) e **nao** nomeia o driver.
+# A escolha e deste ticket, e a allowlist de licencas do KAM-002 restringiu-a
+# mais do que o esperado — medido contra o PyPI, nao de memoria:
+#
+#   psycopg 3.3.6      LGPL-3.0-only       PROIBIDA (`LGPL-` esta nas negadas)
+#   psycopg2-binary    LGPL with exceptions PROIBIDA, pela mesma razao
+#   asyncpg 0.32.0     Apache-2.0          permitida, mas obriga a `env.py` assincrono
+#   pg8000 1.31.5      BSD-3-Clause        permitida (via classificador)
+#
+# Escolhe-se o **pg8000** por duas razoes alem da licenca: e Python puro, pelo
+# que o fecho com `--require-hashes --no-deps` vale no Windows e no Linux sem
+# wheels por plataforma (problema que o KAM-001 ja pagou); e e sincrono, e as
+# migracoes sao o sitio onde a simplicidade mais vale.
+#
+# A exclusao do psycopg fica registada e nao resolvida: LGPL num driver de
+# Python importado dinamicamente nao e, na pratica, um problema de
+# distribuicao, mas a politica nega a familia inteira, e emenda-la pede dois
+# revisores (DoD do KAM-002).
+alembic==1.20.0
+pg8000==1.31.5
+
+# Fecho transitivo. Cada linha tem a licenca ao lado porque o gate 11 le estas
+# dependencias e porque uma delas obrigou a corrigir a allowlist:
+SQLAlchemy==2.1.4          # MIT
+Mako==1.4.3                # MIT
+MarkupSafe==3.0.4          # BSD-3-Clause
+scramp==1.4.17             # MIT-0  <- obrigou a reentrada de MIT-0 em ci/licenses.yaml
+asn1crypto==1.5.1          # MIT
+python-dateutil==2.9.0.post0  # Apache-2.0 (declara tambem BSD; o leitor toma o primeiro)
+six==1.17.0                # MIT
+typing-extensions==4.16.0  # PSF-2.0 — mesma versao de tools/requirements/tools.in

@@ -1,0 +1,62 @@
+#!/bin/sh
+# Hook pre-push — nome de ramo conforme ao §5 do Engineering Standards.
+#
+# Corre no push e nao no commit: ramos renomeiam-se, e bloquear cada commit por
+# causa do nome do ramo ensina as pessoas a usar `--no-verify`, que e pior.
+#
+# Valida as **referencias que estao a ser empurradas**, lidas do stdin, e nao o
+# `HEAD`. A diferenca importa e nao e teorica: `git push origin outro-ramo`
+# empurra `outro-ramo` enquanto o `HEAD` esta noutro sitio, e um hook que
+# validasse o `HEAD` daria por conforme um nome que nunca examinou. Foi assim
+# que um `test/KAM-002-...` passou a validacao estando eu num `feature/`.
+#
+# O git passa, por cada ref, uma linha:
+#     <ref local> <sha local> <ref remota> <sha remoto>
+set -eu
+
+ROOT=$(git rev-parse --show-toplevel)
+. "$ROOT/tools/githooks/_python.sh"
+PYTHON=$(kamba_find_python) || exit 1
+
+validar() {
+  # Corre-se de dentro de `tools/` em vez de mexer no PYTHONPATH: o separador de
+  # `sys.path` e `;` em Windows e `:` no resto, e construi-lo a mao quebra num.
+  (cd "$ROOT/tools" && "$PYTHON" -m lint_arch --root "$ROOT" branch "$1") || {
+    cat >&2 <<AJUDA
+
+  Formato esperado:  feature/KAM-NNN-<slug>  ou  fix/KAM-NNN-<slug>
+
+  Recusado:          $1
+  Exemplo:           feature/KAM-001-monorepo-e-toolchain
+  Renomear:          git branch -m feature/KAM-NNN-<slug>
+
+  Tickets de tipo \`chore\` tambem usam \`feature/\`: o prefixo diz o que o ramo
+  faz ao repositorio, nao o tipo do ticket. As regras estao em
+  tools/conventions.json (specs/01 §5).
+AJUDA
+    return 1
+  }
+}
+
+ALGUMA=0
+while read -r ref_local _ ref_remota _; do
+  [ -z "${ref_remota:-}" ] && continue
+  # Apagar um ramo remoto chega com o sha local a zeros e sem ref local.
+  case "$ref_local" in
+    "" | "(delete)") continue ;;
+  esac
+  nome=${ref_remota#refs/heads/}
+  # Etiquetas e outras refs nao sao ramos e nao seguem esta convencao.
+  case "$ref_remota" in
+    refs/heads/*) ;;
+    *) continue ;;
+  esac
+  ALGUMA=1
+  validar "$nome" || exit 1
+done
+
+# Sem nada no stdin (invocacao manual, ou um git que nao o forneca), valida-se o
+# ramo actual — melhor do que nao validar nada.
+if [ "$ALGUMA" = "0" ]; then
+  validar "$(git rev-parse --abbrev-ref HEAD)" || exit 1
+fi

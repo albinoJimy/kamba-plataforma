@@ -1,0 +1,69 @@
+# Estado transitório de execução (ver .claude/skills/agentic-engineering)
+# É estado retomável, não fonte de verdade — fica fora do git por desenho.
+.claude/state/
+
+# Configuração local e pessoal do Claude Code
+.claude/settings.local.json
+
+# Rascunhos e trabalho temporário
+scratch/
+tmp/
+*.bak
+*.orig
+*.tmp
+
+# Artefactos de exportação (regeram-se a partir do Markdown)
+*.docx
+*.pdf
+*.pptx
+*.xlsx
+
+# Ruído do sistema operativo e de editores
+Thumbs.db
+desktop.ini
+.DS_Store
+*~
+*.swp
+.idea/
+.vscode/
+
+# Ambiente local: copia de .env.example com valores reais.
+.env
+.env.local
+
+# Ambientes virtuais Python
+.venv/
+.venv-*/
+
+# Bytecode do Python
+__pycache__/
+*.py[cod]
+
+# Saida de compilacao dos pacotes partilhados (gerada por `make build`)
+packages/*/dist/
+
+# Dependencias do Node (monorepo pnpm)
+node_modules/
+.pnpm-store/
+
+# Arvores de trabalho de tarefas paralelas (copias do repositorio)
+.claude/worktrees/
+
+# SBOM e relatorios de cobertura gerados pelos gates 11 e 4. Sao artefactos de
+# build: o ticket pede 90 dias de retencao no CI, nao no git. O `ci/coverage/`
+# ficou de fora quando o `ci/sbom/` entrou, pelo que um `git add -A` depois de
+# um `make ci-4` levava os LCOV — e, com os registos de falha, levaria tambem a
+# saida de testes vermelhos.
+ci/sbom/
+ci/coverage/
+# Copia temporaria do canario, criada e apagada pelo `make ci-9`.
+ci/prova-canario/
+# Fixtures e logs do X-11, gerados pelo `make x11` (gate 6). As fixtures tem
+# mil valores com forma de telefone, de IBAN e de token: geram-se, nao se guardam.
+ci/x11/
+
+# Dados brutos do `coverage.py`. Nasceram na raiz e em `tools/` ao correr os
+# alvos de cobertura e apareceram num `git add -A` — a mesma classe de defeito
+# que o `ci/coverage/` em falta. O LCOV e o que se arquiva; isto e intermediario.
+.coverage
+.coverage.*

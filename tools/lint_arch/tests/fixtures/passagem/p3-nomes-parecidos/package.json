@@ -1,0 +1,13 @@
+{
+  "name": "fixture-nomes-parecidos",
+  "_comment": "Fixture p3: pacotes npm REAIS que contem as cadeias bloqueadas por acidente. Um match por substring bloqueava-os todos e deixava make check vermelho por um pacote que ninguem escolheu — o modify-values e da familia conventional-changelog, o mesmo ecossistema do @commitlint que este repositorio usa.",
+  "dependencies": {
+    "modify-values": "2.1.1",
+    "modify-babel-preset": "3.2.1",
+    "codify": "1.2.2",
+    "solidify": "3.0.0",
+    "nodify": "0.1.2",
+    "minion": "1.5.5",
+    "dominion": "0.2.2"
+  }
+}

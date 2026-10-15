@@ -1,0 +1,4 @@
+# Esta matriz nao vive neste repositorio. Conteudo: a matriz requisito -> controlo -> teste, que mostra o que nao tem teste.
+# Vive em albinoJimy/kamba (privado), no mesmo caminho: docs/seguranca/matriz_conformidade.csv
+# Este repositorio e publico, e a matriz mostra o que ainda nao tem teste.
+requisito,controlo,teste,estado

@@ -1,0 +1,155 @@
+# Politica de licencas do gate 11 — KAM-002
+#
+# O ticket propoe `MIT, Apache-2.0, BSD, ISC, PostgreSQL, MPL-2.0`, e diz-lhe
+# *proposta*. Aplicada a letra, essa lista produz **tres falsos vermelhos no
+# primeiro PR**, verificados contra as dependencias que o repositorio ja tem:
+#
+#   1. `BSD` nao e um identificador SPDX. Os validos sao `BSD-2-Clause`,
+#      `BSD-3-Clause`, `0BSD`. Um comparador de strings rejeitaria `starlette`,
+#      `uvicorn`, `click`, `idna` e `fast-uri`, que ja estao nos locks.
+#   2. `typing-extensions==4.16.0` e `PSF-2.0`, e esta fixado nos **dois**
+#      ficheiros `.in`. Nao e MIT, nem Apache, nem BSD, nem ISC.
+#   3. Os sete `package.json` do proprio monorepo declaram `UNLICENSED` — que e
+#      convencao do npm e nao SPDX. Um scanner que inclua o workspace (o que
+#      `syft` e `cyclonedx-npm` fazem por omissao) marca o nosso codigo como
+#      licenca nao permitida.
+#
+# Este ficheiro corrige as tres e acrescenta o que a proposta nao tinha:
+# avaliacao de **expressoes** SPDX, politica para `NOASSERTION`, e um terceiro
+# estado para o que depende de uma decisao aberta — exigido por
+# `specs/EPIC-07` §(Redis/Valkey): "ate la, a lista de licencas marca-o como
+# pendente de decisao e nao como aprovado".
+#
+# Fonte das licencas de terceiros: `docs/tecnica/evidencia/E4_Stack_Licencas.md`.
+# Herda-se o estado de verificacao do E4; onde o E4 diz NOASSERTION, aqui diz
+# NOASSERTION.
+
+version: 1
+
+# ---------------------------------------------------------------- permitidas
+# Identificadores SPDX exactos. Nada de prefixos nem de familias: `BSD` sozinho
+# nao bate em nada, de proposito, para que ninguem o reintroduza por engano.
+# Toda a entrada aqui e uma regra de bloqueio, e o DoD pede dois revisores para
+# as alterar. Por isso nenhuma entra "por conveniencia": entra porque um pacote
+# real a exige, e com a razao escrita.
+#
+# `MIT-0`, `Unlicense` e `CC0-1.0` estiveram aqui e sairam: nao constavam da
+# proposta do ticket, nenhuma dependencia da arvore as usa (medido: MIT 70,
+# ISC 9, UNLICENSED 7, Python-2.0 1, BSD-3-Clause 1, Apache-2.0 1, PSF-2.0 1),
+# e nenhuma tinha razao escrita. A `CC0-1.0` nao e sequer uma licenca — e uma
+# renuncia de dominio publico, com efeito diferente nas jurisdicoes que a nao
+# reconhecem. Se alguma passar a ser necessaria, o gate diz qual e o pacote.
+permitidas:
+  - MIT
+  - Apache-2.0
+  - BSD-2-Clause
+  - BSD-3-Clause
+  - 0BSD
+  - ISC
+  - PostgreSQL
+  - MPL-2.0
+  # Acrescentadas face a proposta do ticket, com razao:
+  # `scramp@1.4.17`, via pg8000 -> alembic (KAM-003). Declara MIT-0 por
+  # classificador. A MIT-0 e a MIT sem a exigencia de atribuicao: mais
+  # permissiva, nao menos. Esteve nesta lista, saiu na revisao do KAM-002 por
+  # «nenhuma dependencia a usa e nao tem razao escrita», e volta agora porque
+  # uma usa — e com a razao escrita, que e o padrao que a saida fixou.
+  - MIT-0
+  # `typing-extensions` (pin directo nos dois `.in`) e parte do ecossistema da
+  # stdlib do Python. A PSF-2.0 e permissiva e compativel com uso comercial.
+  - PSF-2.0
+  # `argparse@2.0.1`, port JS do argparse, via js-yaml -> cosmiconfig ->
+  # @commitlint/load. Mesma familia e mesma leitura.
+  - Python-2.0
+
+# ------------------------------------------------------------------ negadas
+# Nao e "nao permitida": e **proibida**, e so passa com waiver em
+# `ci/waivers.yaml` que cite um ADR. A lista vem de `specs/EPIC-07` e de
+# `docs/tecnica/evidencia/E4_Stack_Licencas.md`.
+#
+# Compara-se por prefixo, porque estas familias tem muitas variantes e o que as
+# torna problematicas e a familia, nao a versao.
+negadas:
+  - prefixo: AGPL
+    razao: Copyleft de rede; servir software modificado obriga a publicar o codigo. MinIO (arquivado) e Garage, que e alternativa viva na D6.
+  - prefixo: SSPL
+    razao: Nao OSI; obriga a publicar toda a pilha de servico.
+  - prefixo: BUSL
+    razao: Nao OSI ate a Change License. Restate e HashiCorp Vault, que e candidato a cofre de segredos (E4 §2.14).
+  - prefixo: Elastic
+    razao: Elastic-2.0. `langgraph-api` e `langgraph-runtime-inmem` (ADR-002); ja estao em tools/blocklist.yaml.
+  - prefixo: FSL
+    razao: Functional Source License, clausula "Competing Use". Typebot (E4 §2.3); ja bloqueado.
+  - prefixo: SUL
+    razao: Sustainable Use License, sem SPDX. n8n (E4 §2.4); ja bloqueado.
+  - prefixo: GPL-
+    razao: Copyleft forte. Nominatim e GPL-3.0 e usa-se como servico separado (E4 §2.12) — por isso exige waiver com a leitura escrita, nao silencio.
+  - prefixo: LGPL
+    razao: Copyleft fraco; exige analise de ligacao antes de entrar.
+  - prefixo: CC-BY-NC
+    razao: Proibe uso comercial.
+  - prefixo: CC-BY-SA
+    razao: Copyleft sobre conteudo; incompativel com distribuicao fechada.
+
+# ------------------------------------------------- pendentes de decisao (D#)
+# Terceiro estado, exigido por `specs/EPIC-07`: nem aprovado nem bloqueado.
+# **Falha o gate** como as negadas, mas com mensagem diferente — a correccao e
+# fechar a decisao, nao escrever um waiver.
+pendentes_de_decisao:
+  - nome: redis
+    decisao: D12
+    razao: >-
+      Redis >= 7.4 mudou para RSAL/SSPL; o Redis 8 volta a oferecer AGPL
+      (conhecimento geral, NAO VERIFICADO em E4 §2.8). A alternativa e o Valkey
+      (BSD-3-Clause). Enquanto a D12 estiver aberta, o Redis nao e aprovado.
+  - nome: valkey
+    decisao: D12
+    razao: >-
+      BSD-3-Clause, que esta na allowlist — mas a escolha entre Redis e Valkey e
+      a propria D12, e aprovar um lado por via da licenca fecharia a decisao
+      pela porta de tras. Passa quando a D12 fechar.
+
+# ------------------------------------------------------------ desconhecidas
+# `NOASSERTION` e `UNKNOWN` tratam-se como negadas, com mensagem propria.
+#
+# Nao e pedantismo: o Medusa v2 — o Registo de Comercio do Piloto (ADR-003) — tem
+# `NOASSERTION` no SPDX do GitHub, porque o repositorio e MIT **excepto** a
+# Enterprise Edition. "Nao sei" sobre a licenca do componente central do comercio
+# nao pode passar em silencio (E4 §1, linha do Medusa v2).
+desconhecidas:
+  politica: falha
+  razao: >-
+    Uma licenca que o scanner nao consegue determinar e uma licenca nao revista.
+    Fail-closed, com waiver obrigatorio a citar quem a leu e onde.
+
+# --------------------------------------------- pacotes do proprio workspace
+# Os nossos `package.json` declaram `UNLICENSED` (convencao npm, nao SPDX). Nao
+# se resolve pela allowlist — acrescentar `UNLICENSED` as permitidas deixaria
+# passar qualquer dependencia de terceiros que a declarasse. Resolve-se por
+# identidade: estes sao os nossos, e a licenca do nosso codigo nao e materia do
+# gate 11.
+proprios:
+  - "@kamba/contracts"
+  - "@kamba/core-ts"
+  - "@kamba/gwy"
+  - "@kamba/worker-canal"
+  - "@kamba/com"
+  - "@kamba/onboarding-web"
+  - kamba
+  - kamba-core
+  - kamba-agr
+
+# --------------------------------------------------------- expressoes SPDX
+# `MIT AND BUSL-1.1` (Meilisearch, E4 §2.13) e `FSL-1.1-Apache-2.0` (Typebot) nao
+# sao strings a comparar: sao expressoes a avaliar.
+#
+# Regra: numa expressao, **um termo negado faz falhar**, mesmo que outro termo
+# seja permitido. `MIT AND BUSL-1.1` falha; `MIT OR Apache-2.0` passa.
+#
+# A assimetria entre AND e OR e deliberada e vale explicacao:
+#   - `AND` significa "cumpre as duas" — logo cumpre a pior, e e a pior que conta.
+#   - `OR` significa "escolhe uma" — e nos escolhemos uma permitida, se houver.
+expressoes:
+  and: todas_tem_de_passar
+  or: basta_uma_passar
+  with: avalia_a_licenca_e_ignora_a_excepcao

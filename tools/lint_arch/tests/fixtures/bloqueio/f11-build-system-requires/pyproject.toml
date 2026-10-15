@@ -1,0 +1,4 @@
+# Fixture f11: build-system.requires instala antes de tudo, sem hashes (ADR-002).
+[build-system]
+requires = ["setuptools>=80", "langgraph-api==0.15.4"]
+build-backend = "setuptools.build_meta"

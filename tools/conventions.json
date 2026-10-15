@@ -1,0 +1,58 @@
+{
+  "$comment": "Fonte unica das convencoes do §5 de specs/01_Engineering_Standards_e_Handoff.md. Lido por commitlint.config.cjs (JS) e por tools/lint_arch/conventions.py (Python). TODA a regra que uma das duas vias impoe tem de estar aqui e estar implementada na outra: se o commitlint tiver uma regra que o Python nao tem, o hook aceita o que o CI recusa — que e exactamente o defeito que este ficheiro existe para impedir.",
+  "commit": {
+    "types": [
+      "feat",
+      "fix",
+      "chore",
+      "refactor",
+      "test",
+      "docs",
+      "spike"
+    ],
+    "scopePattern": "^KAM-[0-9]{3}$",
+    "subjectMinLength": 8,
+    "subjectMaxLength": 100,
+    "headerMaxLength": 120,
+    "$comment_subject": "A descricao comeca em minuscula e nao acaba em ponto. NAO se exige minuscula no resto: o vocabulario normal deste projecto inclui RLS, HMAC, BSUID, Postgres, KAMBÁ, AGT, APD e BNA, e uma regra 'lower-case' sobre a frase inteira recusaria 'acrescenta RLS FORCE ao schema platform'.",
+    "subjectStartsLowercase": true,
+    "subjectEndsWithoutPeriod": true,
+    "bodyLeadingBlank": true,
+    "footerLeadingBlank": true,
+    "exemptHeaderPatterns": [
+      "^Merge ",
+      "^Revert \"",
+      "^fixup! ",
+      "^squash! "
+    ],
+    "$comment_footer": "Tokens que contam como rodape. Lista fechada, de proposito: a deteccao por `<palavra>: ` apanhava prosa — `importador: a raiz leva 91…` no meio do corpo era lido como rodape e exigia linha em branco antes. O conventional-commits-parser que o commitlint usa tambem nao trata prosa como rodape, pelo que fechar a lista aproxima as duas vias em vez de as afastar.",
+    "footerTokens": [
+      "BREAKING CHANGE",
+      "BREAKING-CHANGE",
+      "Refs",
+      "Ref",
+      "Closes",
+      "Close",
+      "Fixes",
+      "Fix",
+      "Resolves",
+      "Resolve",
+      "Co-Authored-By",
+      "Co-authored-by",
+      "Signed-off-by",
+      "Reviewed-by",
+      "Reported-by",
+      "See-also"
+    ]
+  },
+  "branch": {
+    "$comment": "Tickets de tipo `chore` tambem usam `feature/`: o prefixo diz o que o ramo faz ao repositorio, nao o tipo do ticket. O `.` e aceite no slug porque o Renovate o produz em nomes como `renovate-typescript-5.x`.",
+    "patterns": [
+      "^(feature|fix)/KAM-[0-9]{3}-[a-z0-9]+([-.][a-z0-9]+)*$"
+    ],
+    "exempt": [
+      "main",
+      "HEAD"
+    ]
+  }
+}

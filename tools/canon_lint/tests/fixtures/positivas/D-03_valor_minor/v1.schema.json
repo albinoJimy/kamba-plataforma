@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "payment.confirmed — fixture do gate 3b (KAM-111); nao e um contrato",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "tipo",
+    "versao",
+    "tenant_id",
+    "ocorrido_em",
+    "payload"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "tipo": {
+      "const": "payment.confirmed"
+    },
+    "versao": {
+      "const": 1
+    },
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "ocorrido_em": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "referencia": {
+          "type": "string"
+        },
+        "valor_minor": {
+          "type": "integer"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,1283 @@
+# Pipeline de CI — gates, alvos e donos
+
+| Campo | Valor |
+|---|---|
+| Ticket | KAM-002 — Pipeline de CI base: gates fail-closed |
+| Fonte normativa | [`specs/01_Engineering_Standards_e_Handoff.md`](../specs/01_Engineering_Standards_e_Handoff.md) §4 (os 18 gates) e §4.1 (limiares) |
+| Desenho | [`docs/tecnica/09_Topologia_Operacao_Escala.md`](tecnica/09_Topologia_Operacao_Escala.md) §7, [`docs/tecnica/08_Seguranca_Conformidade.md`](tecnica/08_Seguranca_Conformidade.md) §4.8 |
+| Plataforma | GitHub Actions ([`.github/workflows/ci.yaml`](../.github/workflows/ci.yaml)) |
+| Estado | Gates 1, 2, 3, 3b, 4, 6, 8, 9 e 11 **activos**; 5 e 7 reservados e a falhar; 10 e 12–18 fora de âmbito |
+
+> **Nada está ratificado.** Os limiares, os donos e a plataforma de CI são
+> *proposta* até o fundador os aprovar. Onde este documento diz «proposta», é
+> porque nenhuma fonte canónica o decide.
+
+---
+
+## 1. O princípio
+
+O pipeline é **fail-closed**: qualquer gate vermelho bloqueia a progressão. A
+regra transversal do §4 acrescenta que **nenhum gate se marca `skip` sem ADR ou
+aprovação registada** — e esse registo é [`ci/waivers.yaml`](../ci/waivers.yaml),
+não uma condição no *workflow*.
+
+Cada gate é um alvo `make ci-<n>`. O *workflow* só os orquestra. Três razões:
+
+1. **Qualquer gate corre à mão**, localmente, com o mesmo comando que o pipeline
+   usa. Um gate que só se reproduz no CI é um gate que se depura por tentativa.
+2. **Nada fica preso à plataforma.** Trocar de CI não deve custar mais do que
+   reescrever `.github/workflows/ci.yaml`.
+3. **A numeração é a do §4 e não se renumera.** O gate 11 é o gate 11 na
+   documentação, nos *waivers* e nos tickets a jusante.
+
+---
+
+## 2. Gate → alvo → dono
+
+> **Os donos são *proposta*, e vale a pena dizer porquê.** `specs/01` §4 não tem
+> coluna de dono. `docs/tecnica/09` §7 atribui donos a seis gates — isolamento,
+> *eval*, licenças, *supply chain*, migrações e *smoke* — e **nenhum aos gates 1,
+> 2, 3, 4 e 9**. O DoD do KAM-002 exige esta tabela com donos, pelo que a coluna
+> existe; os cinco que faltavam são propostos aqui e precisam de ratificação.
+> A lacuna está registada em [§7](#7-lacunas-do-canon-que-este-ticket-encontrou).
+
+| # | Gate | Alvo | Dono | Origem do dono |
+|---|---|---|---|---|
+| 1 | Build a partir dos lockfiles | `make ci-1` | Plataforma | **proposta** |
+| 2 | Lint, formato e tipos — e, desde o KAM-068, nenhum serviço a escrever fora do *logger* | `make ci-2` | Plataforma | **proposta** |
+| 3 | Referências cruzadas (`KAM`, `ADR`, `D#`) | `make ci-3` | Plataforma | **proposta** |
+| 3b | Nomes canónicos | `make ci-3b` | Arquitecto de Plataforma | KAM-111 (activo desde o KAM-111) |
+| 4 | Unit e cobertura | `make ci-4` | Plataforma | **proposta** |
+| 5 | Integração | `make ci-5` *(reservado)* | — | **lacuna**: nenhum ticket o reclama |
+| 6 | Isolamento de tenant (camada SQL: RLS, X-03, X-04, X-05) e *logs* sem identificadores (X-11) | `make ci-6` | Segurança | `docs/tecnica/09` §7 (activo desde o KAM-004; o X-11 entrou com o KAM-068; a suite ponta a ponta é KAM-066) |
+| 7 | Contratos | `make ci-7` *(reservado)* | Plataforma | KAM-007, KAM-024 |
+| 8 | Migrações: aplicar, reverter, voltar a aplicar | `make ci-8` | Plataforma | `docs/tecnica/09` §7 (activo desde o KAM-003) |
+| 9 | Segredos (árvore **e** história do PR) | `make ci-9` | Segurança | **proposta** |
+| 10 | SAST | — | — | **lacuna**: sem ticket |
+| 11 | SCA, licenças, vulnerabilidades e SBOM | `make ci-11` | Segurança | `docs/tecnica/09` §7 |
+| 12–18 | Categorias, *eval*, imagem, deploy, aprovação, tag | — | ver KAM-067, KAM-078, KAM-088 | — |
+
+`make ci` corre os nove activos (os seis do KAM-002, o 8 do KAM-003, o 6 do KAM-004 e o 3b do KAM-111). `make ci-waivers` valida as excepções.
+
+---
+
+## 3. O que cada gate activo faz
+
+### Gate 1 — build
+
+`pnpm install --frozen-lockfile --ignore-scripts`, `pnpm run build` e
+`make lock-check`. As duas *flags* são a razão de ser do gate: o build vem do
+*lockfile* e **não executa código de terceiros na instalação** — foi por
+`postinstall` que vários ataques de cadeia de abastecimento passaram
+(`docs/tecnica/08` §4.8; E4 §2.7, o incidente do LiteLLM).
+
+`lock-check` é **offline** por desenho. A verificação dos *hashes* contra a PyPI
+é `make lock-verify`, separada: o critério de aceitação do KAM-001 diz «termina
+verde usando apenas lockfiles», e um gate que vai à rede por cada *pin* falha por
+ligação e não por código — o que, para uma equipa em Luanda e para um *runner*
+sem egresso, é o pior tipo de gate.
+
+### Gate 2 — lint e tipos
+
+`tsc` em todos os projectos e `lint_arch` (lista de bloqueio + estrutura).
+
+**Não há *linter* de estilo.** A escolha do ESLint ficou declarada fora de âmbito
+no KAM-001 ([ADR-L001](adr/ADR-L001-toolchain.md) §8) e não se decide aqui por
+conveniência de ter a coluna preenchida.
+
+**Desde o KAM-068 há um terceiro passo: `make log-lint`.** Nenhum ficheiro de
+`services/*`, `packages/*` ou `libs/*` (fora das pastas `tests`) usa `console`,
+`print`, `logging`, `traceback`, o `stdout` ou o `stderr`, nem sai com texto —
+a única isenção é o próprio *logger*. Entrou neste *gate*, e não num *job* novo, porque é o que o *gate* 2
+já é: uma verificação estática da fonte, sem executar nada. E traz o seu
+canário, pela razão do *gate* 3b: 29 *fixtures* negativas têm de falhar, cada
+uma pela regra do seu nome e só por ela, com as regras obrigatórias fixas no
+código. A
+política, o âmbito e o que o *lint* não apanha estão em [`logs.md`](logs.md) §4.1
+e §7.
+
+### Gate 3 — referências cruzadas
+
+Falha se o repositório citar um `KAM-NNN` fora do backlog mestre, um `ADR-NNN`
+fora de `docs/tecnica/00` §8, ou um `D#` fora de §13.3. Os conjuntos válidos são
+**lidos das fontes canónicas**, nunca de constantes: hoje `KAM-001`–`KAM-130`,
+`ADR-001`–`ADR-020`, `D1`–`D13`.
+
+Varre `git ls-files`, não o *diff*. O *diff* torna o gate não-determinista — o
+mesmo *commit* passa ou falha conforme a base — e deixa passar apodrecimento
+pré-existente. Resolve também os `.claude/worktrees/*`, que são cópias completas
+do repositório, ignoradas pelo git mas visíveis a qualquer varrimento do sistema
+de ficheiros, cada uma com o seu próprio `KAM-999`.
+
+**A série `D` está sobrecarregada no canon**: significa decisão aberta *e* prazo
+em dias. Medido token a token sobre a árvore seguida pelo git: `D1`–`D13` são
+decisões (168, 67, 62, 58, 62, 46, 41, 57, 79, 56, 10, 63 e 27 ocorrências);
+`D0`, `D30` e `D60` são prazos. Um `D` fora do intervalo canónico é **aviso**,
+não falha, e intervalos de prazos não se expandem — `Prazos D0–D30`
+(`specs/EPIC-09`) inventava `D14`…`D29`, 32 referências que ninguém escreveu.
+A correcção de fundo é o canon deixar de escrever prazos como `D30`, e está
+pedida num ticket próprio.
+
+Excepções em [`ci/refs-allow.yaml`](../ci/refs-allow.yaml), cada uma com
+ficheiro, token e razão.
+
+### Gate 3b — nomes canónicos
+
+Entrou com o KAM-111. Falha se uma migração, um *schema* de evento, um ficheiro
+do registo ou um documento de `docs/tecnica/` usar um nome que o dicionário
+canónico substitui — e, nas três primeiras superfícies, um nome que o
+dicionário não cobre e que não está em
+[`canon/extensoes.yaml`](../canon/extensoes.yaml). O mecanismo, as regras e a
+forma de acrescentar uma extensão estão em
+[`docs/nomes-canonicos.md`](nomes-canonicos.md); aqui fica só o que o *gate* é
+enquanto *gate*.
+
+`make ci-3b` são **três passos, e os três contam**:
+
+1. **`dict_export --check`** — [`canon/dicionario.yaml`](../canon/dicionario.yaml)
+   corresponde ao §3 do dicionário. A fonte da verdade é o Markdown; o YAML é
+   gerado. Um dos dois alterado sem o outro falha aqui.
+2. **`canon_lint check`** — as quatro superfícies.
+3. **`canon_lint canario`** — dez *fixtures* negativas têm de dar **exactamente
+   um** achado, com a mensagem esperada, e dez positivas têm de passar.
+
+> **O terceiro passo existe por causa das duas superfícies vazias.** Não há
+> hoje nenhum *schema* de evento nem nenhum ficheiro em `registry/`: o passo 2
+> passa nelas **sem ter lido nada**, e di-lo na saída («A SUPERFÍCIE AINDA NÃO
+> EXISTE; nada foi verificado aqui»). Sem o canário, a prova de que essas duas
+> verificações mordem vivia só num `unittest` — o padrão que deixou o *gate* 9
+> sete PRs sem prova (§3, *gate* 9).
+>
+> **E o que o canário prova está no código, não no manifesto.** A primeira
+> versão lia do YAML de *fixtures* quantos casos havia: com `casos: []` dava «0
+> negativas vermelhas» e saída 0, e os testes continuavam verdes
+> ([`ANALISE-05`](analises/ANALISE-05-KAM-111-dicionario-canonico-e-lint.md),
+> B1). O conjunto de divergências com *fixture* obrigatória, as duas que podem
+> não a ter e o mínimo de uma negativa por superfície estão agora em
+> `tools/canon_lint/cli.py`.
+
+**Falha fechada**, e cada sítio tem um teste que falha se a regra for retirada
+(prova por mutação: `ANALISE-05` §5):
+
+- **uma revisão que o lint não consegue seguir falha.** As revisões são Python;
+  o lint lê a árvore sintáctica e resolve cadeias, constantes de módulo,
+  *f-strings* sobre elas, ciclos sobre constantes e chamadas a módulos
+  auxiliares **declarados** — abrindo o auxiliar e seguindo-o com os argumentos
+  da chamada. É assim que lê a revisão `0002` do KAM-004, que chama `db/rls.py`.
+  Tudo o resto — a API de operações do Alembic, `sa.Table`, um `import` não
+  declarado, um *alias* de `op`, uma constante reatribuída, uma revisão de que
+  não se leu instrução nenhuma — é achado, com a linha;
+- uma instrução SQL de forma desconhecida **falha**, e um bloco `$$` com
+  `CREATE` ou `ALTER` lá dentro também;
+- uma coluna com domínio no dicionário num `CHECK` ilegível, ou criada sem
+  `CHECK` nenhum, **falha**;
+- um ficheiro com forma de superfície fora dos padrões — uma migração em
+  `services/x/migrations/`, um `.sql` em qualquer sítio, um `registry/x.YAML` —
+  **falha** (sentinelas). As dez mínimas estão no código, e retirá-las da
+  política é erro;
+- um ficheiro de política em falta, mal formado ou com uma chave que nenhum
+  código lê é **erro** (saída 2), não «conforme».
+
+**As excepções têm contagem, âncora ou prazo.**
+[`ci/canon-allow.yaml`](../ci/canon-allow.yaml) lista as variantes que ficam em
+`docs/tecnica/`, por ficheiro, variante e **número exacto de ocorrências**: a
+décima não entra atrás da primeira, e uma excepção que já não corresponde a
+nada também falha. São 31 ocorrências: 12 **históricas** (a variante é citada
+para dizer que foi substituída — cada uma com a **âncora** que o prova, porque
+não têm prazo) e 19 **dívidas** — divergências reais que as doze do KAM-111 não
+enumeram.
+
+> **As dívidas vencem a 2026-11-10, e a partir daí o *gate* fica vermelho em
+> `main` e em todos os PR.** É de propósito, e é o risco operacional deste
+> *gate*: nove entradas, seis variantes (`kamba_ops`, `valor_max_pedido_kz`,
+> `preco_kz`, `'exato'`, `total_kz`, `tenant_isolamento`). **O ticket que as paga é o KAM-139.** O
+> prazo de 30 dias é *proposta*, igual ao dos *waivers*, conta-se de
+> `criado_em`, e `criado_em` não pode ser futuro.
+
+**O *gate* não usa `ci/waivers.yaml`.** Um *waiver* dispensa um *gate*; aqui o
+que se declara é uma ocorrência, com a contagem que a prende. E um *waiver*
+exige `aprovacao:<quem>@<data>`, que este ticket não tinha de quem obter.
+
+**O que a revisão adversarial mudou.** A primeira versão passou os oito *gates*
+e foi reprovada: três bloqueantes, nove maiores. Os defeitos eram os que as
+`ANALISE-02` e `-03` já descreviam — o canário que se esvaziava, o domínio
+fechado que se contornava com a forma que o `pg_dump` escreve
+(`estado::text IN (…)`), a variante que não era vista dentro de uma cadeia
+(`'{"valor_max_pedido_kz": 5}'`, o único sítio onde uma migração a escreveria),
+SQL não literal que passava em silêncio contra o que esta secção afirmava. Estão
+corrigidos, cada um com teste; o que não está — e o que se mediu — fica em
+[`docs/nomes-canonicos.md`](nomes-canonicos.md) §1 e na `ANALISE-05`.
+
+Medido: o *job* do *gate* 3b leva **7 s** no *runner* (Python 3.12); `make
+ci-3b` num contentor Linux local (Python 3.13), 0,9 s — contra os 60 s do
+critério. 49 instruções (21 da revisão `0001`, 28 da `0002`), 3 tabelas, 38
+colunas e 20 valores de `CHECK`; 17 documentos.
+
+### Gate 4 — unit e cobertura
+
+Mede com `node --test --experimental-test-coverage` (sem dependência: o Node 24
+já traz) e com `coverage.py`, ambos em **LCOV** — o único formato que as duas
+ferramentas emitem sem tradução nossa. Depois aplica
+[`ci/thresholds.yaml`](../ci/thresholds.yaml).
+
+#### Os dois lados passam a medir o mesmo universo (KAM-132)
+
+Vale dizê-lo antes da taxonomia, porque durante onze versões deste documento
+«cobertura» significou **duas coisas diferentes** em cada metade do
+repositório, e era o número agregado que o §4.1 comparava com o limiar:
+
+| | O que entra no denominador | Como |
+|---|---|---|
+| Python | Todo o `.py` **medido por um alvo**, importado ou não (`tools/` e `libs/py-core/src`; `services/agr/src/` fica de fora — lacuna 25) | `coverage run --source=.` percorre o disco |
+| Node, até ao KAM-132 | Só o que algum teste **carregou** | o V8 reporta os *scripts* que correram |
+| Node, desde o KAM-132 | Todo o código do âmbito que o Node executa (`.ts`, `.mts`, `.cts`, `.tsx`, `.js`, `.mjs`, `.cjs`, `.jsx`), carregado ou não | o `coverage_gate` lê o âmbito do disco e injecta a 0% o que nenhum relatório mediu |
+
+> **O título desta secção diz «o mesmo universo» e não «a mesma régua»**, de
+> propósito: a **definição de linha** continua diferente nas duas metades
+> (lacuna 23), e do lado Python falta um alvo (lacuna 25). O que o KAM-132
+> fechou é o universo medido, que era a assimetria com consequência no número.
+
+A consequência da linha do meio era precisa e pior do que parece: **um serviço
+Node inteiro sem um único teste não fazia o *gate* 4 vermelho.** Mantinha-o
+verde, porque não era medido — o limiar de 75% aplicava-se à amostra que o
+próprio código escolhia, os ficheiros que alguém se lembrou de importar num
+teste.
+
+> **`--test-coverage-include` não resolve isto**, ao contrário do que a
+> [§7](#7-lacunas-do-canon-que-este-ticket-encontrou) lacuna 10 supunha quando
+> foi escrita. É um **filtro** sobre o que o V8 reportou, e nunca vai ao disco.
+> Está medido no Node 24.21.0 — com `--test-coverage-include=src/**` sobre uma
+> *suite* que carrega um ficheiro, o relatório fica com esse ficheiro e mais
+> nenhum; com `--test-coverage-include=src/storage/motor.ts`, que nenhum teste
+> carrega, o relatório fica **vazio** em vez de ganhar `motor.ts` a 0% — e está
+> escrito no próprio Node, em `lib/internal/test_runner/coverage.js`: «This
+> check filters out files that do not match the include globs».
+>
+> **E a *flag* de inclusão não se usa, porque faz pior do que nada.** A primeira
+> versão do KAM-132 passava-lhe o âmbito, para o LCOV ficar igual ao que o
+> *gate* conta. A revisão adversarial mostrou o custo por execução: a inclusão
+> **retira do relatório tudo o que não esteja na lista**, e um ficheiro que
+> nenhum estrato classifica não está nela — logo deixava de chegar ao *gate* e
+> deixava de o falhar. Um `packages/core-ts/fora.ts` carregado por um teste
+> falhava o *gate* sem a *flag* e passava com ela. A regra que impede um
+> directório novo de deixar de ter cobertura exigida em silêncio tinha ficado
+> **inalcançável** do lado Node.
+>
+> O que o `make coverage-node` passa é **`--test-coverage-exclude`** com os
+> ficheiros que os `excluidos` do `ci/thresholds.yaml` já não contam. A lista
+> não se escreve no `Makefile`: pede-se ao `coverage_gate`
+> (`--exclusoes-node <pacote>`), que a deriva do mesmo ficheiro de limiares que
+> depois classifica o que foi medido. Uma segunda lista a divergir dos limiares
+> põe ficheiros fora da medição sem ninguém dar por isso, que é exactamente o
+> defeito que este *gate* existe para não ter.
+>
+> São **caminhos exactos, não *globs***. O `ci/thresholds.yaml` lê padrões com
+> `fnmatch` e o Node lê-os com o seu próprio *glob*: `*` atravessa barras num e
+> não no outro, e um `./` à cabeça faz o padrão do Node não bater em nada
+> (medido: `--test-coverage-include=./src/**` dá zero ficheiros). Com caminhos
+> exactos não há tradução nenhuma a divergir. E o `coverage_gate` **recusa** um
+> caminho com espaço em branco, porque o `Makefile` expande a lista sem aspas e
+> um caminho partido em dois deixava de bater, em silêncio.
+
+Quem conta o código sem testes é o `coverage_gate`: lê do disco os ficheiros que
+os `padroes` dos estratos classificam e os `excluidos` não retiram, e **injecta
+a 0%** os que nenhum relatório mediu, imprimindo-os pelo nome. O denominador de
+um ficheiro injectado é o seu número de linhas, que é a régua que o próprio Node
+usa — o `LF` do LCOV do Node é o número de linhas do ficheiro, comentários e
+linhas vazias incluídas (medido: nos 26 registos de `packages/core-ts/src/` em
+medição o `LF` deu exactamente o `wc -l` de cada um). Contam-se os terminadores
+de linha do JavaScript (LF, CR, LS e PS) e **não** os do `str.splitlines` do
+Python, que divide também em `\x0b`, `\x0c` e `\x85`: um ficheiro de cinco linhas
+com um *form feed* dentro de um literal dá `LF:5` no Node e dava 8 pelo
+`splitlines`.
+
+A procura começa nas **raízes dos `padroes`** — os primeiros segmentos literais,
+hoje `libs/`, `packages/`, `services/` e `tools/` —, e não na raiz do
+repositório. Não é arrumação: `*/identity/*` apanha qualquer caminho com esse
+segmento, porque o `*` do `fnmatch` atravessa barras, e uma cópia de
+`packages/core-ts/src/` dentro de `tmp/` — que o `.gitignore` ignora — levava o
+estrato `critico` de 94% para **46%**. Um ficheiro de limiares cujos padrões
+comecem todos por `*` não diz por onde procurar, e é **erro de configuração**,
+não universo vazio.
+
+Isto tem quatro consequências que ficam ditas em vez de serem descobertas:
+
+- **Os `excluidos` passam a valer duas vezes.** Além de tirarem um ficheiro
+  medido da avaliação, tiram-no da injecção e do `--test-coverage-include`. Um
+  ponto de entrada (`services/*/src/server.ts`) ou o serviço de identidade
+  (`packages/core-ts/src/identity/contactos.ts`, medido contra a base de dados
+  no *gate* 8) não passam a denominador por não serem carregados.
+- **Acrescentar um padrão a `ci/thresholds.yaml` pode baixar o número**, porque
+  traz ficheiros novos para o denominador. Antes só mudava o limiar aplicado.
+- **Árvores de trabalho e pastas de ferramenta não contam.** `.claude/worktrees/`
+  tem cópias inteiras do repositório; ficam fora por não estarem numa raiz, e
+  uma pasta com ponto à cabeça **dentro** de uma raiz fica fora pela regra do
+  ponto.
+- **O universo é o disco, não o índice do git.** Um ficheiro por versionar
+  dentro de uma raiz conta; o número local pode portanto divergir do número do
+  CI, que mede um *checkout* limpo. É a mesma propriedade do lado Python
+  (`coverage run --source=.` também lê o disco) e é o que torna a demonstração
+  deste *gate* reproduzível à mão, mas vale saber: **o número do CI é o que
+  decide**, como já valia para o *gate* 11 (§8).
+
+**O que custou**, no *run* do CI do PR do KAM-132 — o mesmo conjunto de oito
+relatórios LCOV avaliado nas duas réguas, pelo que a única variável é a régua
+(detalhe e comandos em [`evidencia/KAM-132.md`](evidencia/KAM-132.md)):
+
+| | `restante` | `critico` |
+|---|---|---|
+| antes (régua antiga) | 91% — 9652/10526 linhas, 100 ficheiros | 99% — 4802/4810 linhas, 26 ficheiros |
+| depois (o *gate*) | 91% — 9652/10526 linhas, 100 ficheiros | 94% — 4802/5055 linhas, 29 ficheiros |
+
+**O `restante` é idêntico nas duas réguas, até à linha.** O que mudou está todo
+no `critico`: entraram
+`packages/core-ts/src/identity/index.ts`,
+`packages/core-ts/src/storage/index.ts` e
+`packages/core-ts/src/storage/motor.ts`, 245 linhas a 0%, que nenhum teste
+importa. **No `restante` não havia nada invisível** — os seus 16 ficheiros
+TypeScript são todos carregados por algum teste —, pelo que os 75% nunca
+estiveram em risco e o limiar não foi tocado. O que mexe no denominador do
+`restante` é o `coverage_gate` a crescer com baterias próprias, não a injecção.
+**O estrato que este ticket aperta é o `critico`**: 94% contra 90% deixa cerca
+de 250 linhas de folga, e três dos seus 29 ficheiros estão a 0% por nenhum teste
+os importar.
+
+E a propriedade que faltava, por execução: um módulo de **50 declarações em 355
+linhas** sem um único teste, posto em `packages/core-ts/src/`, deixava o
+`restante` **exactamente igual** (91%, 9418/10291, 99 ficheiros) e passa a
+levá-lo a **88%** (9418/10646, 100 ficheiros). Três pontos, e o ficheiro sai
+nomeado no relatório do *gate*.
+
+**O que nenhum documento tinha é a taxonomia.** O §4.1 nomeia os estratos — «≥
+90% em código de dinheiro, isolamento e validador; ≥ 75% no restante» — e não diz
+como classificar um ficheiro num deles. A classificação é por *glob* de caminho,
+avaliada **na ordem escrita**: o primeiro padrão que bate decide.
+
+> **O estrato `critico` esteve vazio até ao KAM-004, e hoje só tem código de
+> isolamento.** Os dois *helpers* de `tenant_guard` caem nele e estão a 100%.
+> Continua a não existir código de dinheiro nem de validador no repositório: os
+> padrões desses dois estão escritos para os tickets que os vão criar (KAM-052+
+> pagamentos, KAM-007 validador), e o gate começa a morder neles no dia em que o
+> primeiro ficheiro bater num padrão. Um limiar de 90% sobre zero ficheiros não
+> protege nada — e foi por isso que isto esteve sempre dito, e não implícito.
+>
+> **Desde o KAM-011 o estrato tem também `*/storage/*`**: a porta de
+> armazenamento, em TypeScript e em Python. É a camada «Storage» do isolamento
+> (`docs/tecnica/08` §3.1), e entra inteira — a guarda e a assinatura dos
+> pedidos —, porque é a assinatura que impede a URL de um objecto de abrir
+> outro. Medido no *run* do PR do KAM-011: estrato `critico` a 100% (2879 de
+> 2879 linhas, 18 ficheiros — os dois `tenant_guard` e os dois `storage/`).
+
+Trunca-se, não se arredonda: o ticket diz «descer 1 ponto abaixo falha o gate»,
+pelo que 89,9% não é 90%.
+
+**O limiar é agregado por estrato, não por ficheiro**, porque é assim que o §4.1
+o escreve: «Cobertura de linhas no restante ≥ 75%» é uma percentagem do estrato.
+Isto tem uma consequência que vale dizer em vez de descobrir: **um módulo
+pequeno sem testes nenhuns não faz o gate vermelho** — faz o número descer, o
+que desde o KAM-132 também vale para o TypeScript, mas um estrato grande
+absorve um ficheiro pequeno. Está medido, e não inferido — o PR de teste do gate
+4 acrescentou primeiro um módulo de 21 linhas sem cobertura, o estrato
+`restante` foi de 79,4% para 79,1% (2091/2643 linhas em 42 ficheiros), e o gate
+passou. Com 2091 linhas cobertas, descer abaixo de 75% exige mais de 145 linhas
+não cobertas de uma vez.
+
+Ficheiro medido que nenhum estrato classifica **falha** o gate, e não é nota: é
+a única forma de um directório novo não passar a ter cobertura exigida sem
+alguém decidir isso. Um ficheiro do âmbito que nenhum relatório mediu **não**
+falha por si: entra a 0% e deixa o limiar decidir — fabricar um achado a partir
+de uma medição que o gate inventou seria o gate a avaliar-se a si mesmo.
+
+> Um piso por ficheiro apanharia o módulo de 21 linhas, e o §4.1 não o pede.
+> Acrescentá-lo aqui seria inventar requisito; fica registado na §7 como lacuna
+> do canon, para quem decidir o limiar decidir também a sua granularidade. O
+> KAM-132 não o acrescentou por essa razão, e não por ser difícil.
+
+### Gate 9 — segredos
+
+**Duas passagens, e nenhuma substitui a outra** (KAM-131):
+
+| Passagem | Alcance | Comando |
+|---|---|---|
+| `tree` | a árvore seguida pelo git, **agora** | `scan_secrets … tree` |
+| `history` | os *blobs* que o intervalo do PR acrescenta à história | `scan_secrets … history --base <ref> --head <ref>` |
+
+Varre por **forma** e não por conteúdo: chaves com prefixo conhecido, blocos de
+chave privada, credenciais em URL, e atribuições a nomes que significam segredo
+com entropia suficiente. O *scanner* é o mesmo nas duas passagens; o que muda é
+o conjunto de objectos que lê.
+
+#### A segunda passagem: os *blobs* novos do PR
+
+Até ao KAM-131 o *gate* via só a árvore final. Um segredo posto no *commit* A e
+retirado no *commit* B passava — a árvore já não o tinha — e entrava no `main`
+com o *merge*, porque o `main` recebe os dois *commits*. Era a lacuna 9 do
+[§7](#7-lacunas-do-canon-que-este-ticket-encontrou) e o achado M8 da
+[`ANALISE-02`](analises/ANALISE-02-KAM-002-pipeline-ci.md), **e era exactamente
+o cenário com que esta secção justifica o *pre-commit***.
+
+O conjunto de *blobs* sai de **duas travessias**:
+
+- `git rev-list --objects <base>..<head>` — todo o objecto **alcançável** da
+  cabeça e não da base. Dá o conjunto, mas **um** caminho por objecto: o `git`
+  imprime cada objecto uma vez, com o nome em que a travessia o encontrou.
+- `git log --raw -c` sobre o mesmo intervalo — dá **todos** os caminhos e o
+  *commit* em que cada *blob* entrou, que é o que a correcção precisa de saber.
+  `-c` e não `-m`: com `-m`, numa cabeça que é o *merge commit* de teste do PR, o
+  *diff* contra cada pai arrastaria tudo o que o `main` ganhou desde a bifurcação
+  — o `main` inteiro. Com `-c`, um *merge* leva só os caminhos que diferem de
+  **todos** os pais: nada num *merge* limpo, e o que ele introduza por si quando
+  o houver.
+
+> **O `-c` custou duas evasões para aparecer.** A primeira versão corria
+> `git log --raw` sem nenhum dos dois, e nessa forma o `git` não imprime sequer o
+> cabeçalho de um *merge*. A revisão adversarial construiu, e correu, duas
+> maneiras de pôr um segredo num *commit* do PR e o *gate* ficar verde: (a) um
+> *evil merge* que acrescenta o **mesmo** *blob* na pasta do canário e fora dela
+> — o `rev-list` nomeava só o caminho do canário, a área permitia-o, e o
+> resultado dependia da ordem alfabética da travessia; (b) um *blob* que já
+> estava na base e que um *evil merge* repõe fora da área — o `rev-list` exclui-o
+> por ser alcançável da base, e o `log` sem `-c` não o via. Ambas fecham com o
+> `-c`, e cada uma tem o seu teste. Está em
+> [`ANALISE-14`](analises/ANALISE-14-KAM-131-gate-9-na-historia.md) A1 e A2.
+
+A **deduplicação é por SHA de objecto** no que custa (ler o *blob* e casar os
+padrões), e nunca na aplicação das áreas permitidas: as áreas de
+[`ci/secrets-allow.yaml`](../ci/secrets-allow.yaml) aplicam-se a **todos** os
+caminhos em que o *blob* entrou, com o caminho que tinha nesse *commit*. Um
+segredo movido para fora da pasta do canário num *commit* intermédio é achado —
+deduplicar e aplicar a área de um só caminho daria verde pelo caminho mais
+conveniente.
+
+**O que o *gate* faz quando não há intervalo está escrito, por accionamento,** e
+não deixado ao caso (`tools/scan_secrets/historia.py`, `SEM_INTERVALO`):
+
+| Accionamento | Sem SHA de base |
+|---|---|
+| `pull_request`, `pull_request_target`, `merge_group` | **gate vermelho** — é o accionamento que decide um *merge*, e um *gate* que não sabe o que varrer não dá passagem. Cada um destes traz a base na sua própria chave do evento, e as três estão na cadeia do `GATE9_BASE`: um accionamento *fail-closed* cuja chave não vá no *job* ficaria vermelho em **todas** as execuções no dia em que se ligar (`ANALISE-14` A10) |
+| `push` com `before` a zeros (ramo novo) | modo `so-arvore`, **declarado**: não existe estado anterior, e o `main` só recebe *commits* por PRs que foram varridos |
+| `workflow_dispatch`, `schedule` | modo `so-arvore`, **declarado**: o accionamento não traz intervalo |
+| execução local (`make ci-9` sem as variáveis) | modo `so-arvore`, **declarado** |
+
+No modo `so-arvore` o comando imprime `passagem da historia NAO CORRIDA` com a
+razão, e um `::warning::` para que a linha chegue ao resumo do *job* — **não** dá
+a passagem por satisfeita. E um intervalo que existe mas não se resolve é sempre
+vermelho: base ou cabeça que o `rev-parse` não acha, um clone **raso** (com o
+`fetch-depth: 0` nomeado na mensagem de erro), ou um *blob* que está no intervalo
+e que o `git cat-file` não devolve.
+
+**Num accionamento que decide um *merge*, um intervalo de zero *commits* é
+erro.** A cabeça de um `pull_request` é o *merge commit* de teste, que é novo por
+construção: zero *commits* ali significa que a base e a cabeça vieram trocadas,
+ou iguais. Foi assim que a revisão adversarial pôs o *gate* a não varrer nada e a
+dizer-se limpo, trocando duas linhas do YAML sem nenhuma asserção falhar
+([`ANALISE-14`](analises/ANALISE-14-KAM-131-gate-9-na-historia.md) A3) — e é por
+isso que as asserções de `test_ci_gate9.py` passaram a prender a **linha
+inteira**, e não a expressão solta.
+
+**O relatório diz o que não varreu.** Conta os *blobs* que leu e descodificou,
+os *bytes* desses, e à parte os que saltou por extensão de binário e os que não
+são texto UTF-8 — com as palavras `NAO varrido(s)`. A primeira versão somava os
+*bytes* antes de descodificar e contava os *blobs* que *pretendia* ler: dizia «1
+*blob* novo, 73 *bytes* lidos, limpo» sobre um ficheiro que não tinha varrido
+(`ANALISE-14` A4). **A lista de extensões de binário fica como está** — alterar o
+*scanner* por forma está fora do âmbito do KAM-131 —, e com ela fica o limite:
+quem comete escolhe a extensão, e na história o ficheiro não precisa de
+sobreviver ao *commit* seguinte (`ANALISE-14` A5).
+
+O *job* passa os três valores em bruto (`github.event_name`,
+`github.event.pull_request.base.sha || github.event.before`, `github.sha`) e
+**não decide nada**: a decisão é uma função pura com testes. Isto é deliberado —
+**não há *lint* de *workflows*** (§7, lacuna 15), pelo que uma condição escrita
+em YAML não seria verificável por teste nenhum. As três linhas e o
+`fetch-depth: 0` são confrontados por
+`tools/lint_arch/tests/test_ci_gate9.py`, e são isso que torna uma mutação ao
+YAML detectável.
+
+> **O erro conhecido, e a sua direcção.** `github.event.pull_request.base.sha` é
+> a ponta de `main` no momento do evento. Se `main` andou desde então, o
+> *merge ref* que o *checkout* traz tem outro primeiro pai e o intervalo inclui
+> *commits* de `main` — o *gate* varre a mais, não a menos. Um segredo já em
+> `main` faria um PR inocente ficar vermelho, o que é um falso alarme mas **não**
+> uma passagem indevida. Preferiu-se isso a adivinhar a base: o critério de
+> aceitação 4 pede que o `base` chegue ao *gate* sem o *workflow* o adivinhar.
+
+**O mesmo scanner corre como *hook* de pre-commit**, sobre o que está em *stage*,
+e o KAM-131 **não lhe mudou o âmbito**. O ticket exige-o, e não é conveniência: um
+segredo que passa o pre-commit e chega ao servidor deixa de se remover apagando
+uma linha — fica na história, e a correcção passa a ser reescrever a história
+**e** rodar a chave. O *hook* é local, contorna-se e pode nem estar instalado; a
+segunda passagem do *gate* é a rede que apanha isso.
+
+Áreas permitidas em [`ci/secrets-allow.yaml`](../ci/secrets-allow.yaml), por
+**classe** e não por interruptor. Nem as *fixtures* são passe livre: a única área
+onde um valor de forma real é permitido é a pasta do canário, que existe para
+provar que o scanner funciona.
+
+**Um digest nunca é achado.** É público por desenho — serve para verificar, não
+para autenticar — e reportá-los dava 11 falsos positivos só com o SHA fictício
+dos testes do KAM-001. O reconhecimento serve para **suprimir**: evita que um
+`sha256:` seja lido como atribuição.
+
+A amostra no relatório nunca revela o valor: os **quatro primeiros**
+caracteres, os **dois últimos** e o comprimento. (O KAM-002 escreveu aqui
+«quatro caracteres e o comprimento», e `_ofuscar` sempre mostrou seis — a
+descrição estava errada, não o código. `ANALISE-14` A15.) Um relatório de
+segredos que imprime o segredo copia-o para os *logs* do CI, que é exactamente
+onde ele não pode estar.
+
+> **O canário prova-se no *gate*, e não só num teste unitário.** A pasta do
+> canário é a única área onde um valor com forma real é permitido, pelo que a
+> varredura da árvore passa por lá sem o apanhar — e é isso que se quer. Mas
+> assim a única prova de que o *scanner* detecta alguma coisa vinha de um
+> `unittest`, que durante sete PRs não era corrido por nada que pudesse falhar
+> (§3, *gate* 4). O `make ci-9` passou a copiar o canário para fora da área e a
+> exigir nove achados ou mais; hoje dá 17. É uma leitura do CA — que pede que um
+> canário numa *fixture* **falhe** o PR — e não a sua letra: a área permitida
+> existe, e a prova de que o *gate* morde está agora no *gate*.
+
+### Gate 11 — SCA, licenças, vulnerabilidades e SBOM
+
+Gera SBOM CycloneDX 1.6 por alvo e confronta as licenças dos componentes
+instalados com [`ci/licenses.yaml`](../ci/licenses.yaml). A lista de bloqueio não
+se reimplementa: chama `lint_arch deps`, do KAM-001.
+
+Lê **do disco**, não da rede: os metadados estão nos pacotes que o
+`make bootstrap` instalou. Consequência a assumir: sem `bootstrap` não há
+componentes para varrer, e o `Makefile` encadeia os dois.
+
+Avaliam-se **expressões** SPDX, não cadeias. `MIT AND BUSL-1.1` (Meilisearch, E4
+§2.13) falha, porque num `AND` a pior manda; `MIT OR Apache-2.0` passa, porque
+num `OR` escolhemos uma permitida. Quatro veredictos, não dois:
+
+| Veredicto | O que fazer |
+|---|---|
+| permitida | nada |
+| negada | tirar a dependência, ou *waiver* com ADR |
+| **pendente de decisão** | fechar a decisão aberta que a trava (`D#`) |
+| desconhecida | descobrir a licença e registar; nunca deixar passar |
+
+O estado `pendente_de_decisao` é exigido por `specs/EPIC-07` para Redis/Valkey: o
+Valkey é `BSD-3-Clause`, que está na *allowlist*, e aprová-lo por via da licença
+fecharia a **D12** pela porta de trás — a escolha entre Redis e Valkey *é* a
+decisão.
+
+#### A *allowlist* proposta pelo ticket dava três falsos vermelhos
+
+A proposta (`MIT, Apache-2.0, BSD, ISC, PostgreSQL, MPL-2.0`) está marcada como
+*proposta*. Aplicada à letra, contra as dependências que o repositório tem:
+
+| Problema | Evidência |
+|---|---|
+| `BSD` não é identificador SPDX | está instalado `BSD-3-Clause` |
+| `PSF-2.0` fora da lista | `typing-extensions@4.16.0`, fixado nos **dois** `.in` |
+| `UNLICENSED` fora da lista | os sete `package.json` do monorepo que o declaram (os outros dois `proprios` são pacotes Python sem campo de licença) |
+| `Python-2.0` fora da lista | `argparse@2.0.1`, via `js-yaml` → `cosmiconfig` → `@commitlint/load` |
+
+Corrigido: identificadores SPDX exactos, `PSF-2.0` e `Python-2.0` acrescentados
+com razão, e os pacotes do *workspace* resolvidos por **identidade** — pôr
+`UNLICENSED` nas permitidas deixaria passar qualquer dependência de terceiros que
+a declarasse.
+
+#### SBOM por serviço, e não nove cópias
+
+O `pnpm` tem uma loja única e o `venv` é um só, pelo que «o que está instalado» é
+sempre o *workspace* inteiro. A primeira versão dava nove ficheiros com os mesmos
+92 componentes — o que satisfaz a letra de «SBOM por serviço» e não a pergunta a
+que um SBOM existe para responder.
+
+O fecho real vem do `pnpm-lock.yaml`, por travessia a partir das dependências
+directas de cada importador: a raiz leva 91 componentes, cada serviço Node leva 3
+(o seu pacote, `hono` e `@hono/node-server`).
+
+É determinista — sem *timestamp*, chaves ordenadas. Um SBOM que muda a cada
+execução deixa de se poder comparar, e comparar é metade da utilidade de o ter.
+
+#### Fronteira com o KAM-067
+
+O ticket manda não duplicar. A divisão, dimensão por dimensão:
+
+| Dimensão | Gate 11 (KAM-002) | KAM-067 |
+|---|---|---|
+| Unidade | por **serviço** (código-fonte, lockfiles) | por **imagem** (camadas) |
+| Momento | cada **PR** | *build* da imagem e **release** |
+| Artefacto | artefacto do CI, 90 dias | guardado com o *release*, no manifesto da tag |
+| Gate que falha | 11 | 14 (imagem) e 18 (*release* sem SBOM) |
+| Digests, cosign, quarentena, egress | **fora** | **todo** |
+
+O gerador é o mesmo, e é por isso que vive em `tools/sbom/` e não em
+`ci/supply-chain/`.
+
+#### O que o KAM-067 acrescentou a este gate
+
+A tabela acima foi escrita antes do KAM-067 e continua certa quanto à
+**fronteira**; o que mudou é que a parte do KAM-067 que se verifica **no
+repositório** passou a correr aqui, em cada PR. `make ci-11` chama, no fim,
+`make supply-chain`:
+
+| Passo | O que faz |
+|---|---|
+| `supply_chain check` | imagens por *digest* e no inventário; nenhuma instalação em *runtime*, e as de *build* só do *lockfile*; serviços de compose só de leitura; lista de saídas por serviço; registo de licenças por versão coerente com a política e com a lista de bloqueio; quarentena do Renovate; workflows sem chaves estáticas |
+| `supply_chain canario` | copia o repositório, aplica 59 defeitos um de cada vez, e exige que cada um dê vermelho **pela regra esperada** |
+
+Não é um gate novo, de propósito: os gates 14 (publicação da imagem) e 18
+(*release*) são do KAM-078, que é quem constrói e publica imagens. Isto é a
+verificação estática, anterior a existir imagem — a mesma relação que o
+varrimento da OSV tem com o gate 14, mais abaixo. O nome do *job* e
+`esperados=9` no resumo não mudaram.
+
+Uma condição do próprio `tools/sbom` também mudou: **uma licença proibida só se
+dispensa com *waiver* que cite um ADR que exista**. Uma `aprovacao:<quem>@<data>` continua a
+servir para uma licença por determinar, e deixou de servir para uma AGPL ou uma
+BUSL (`tools/sbom/tests/test_excepcao_em_adr.py`).
+
+O que fica por fazer — `cosign verify` real, SBOM por imagem, *flags*
+*Enterprise* — e porquê, está em [`supply-chain.md`](supply-chain.md) §9. As
+regras, o inventário de imagens e o guia de excepções estão no mesmo documento.
+
+---
+
+> **O *job* no GitHub continua a chamar-se `gate 11 — SCA, licencas e SBOM`**,
+> sem a palavra «vulnerabilidades». O nome do *job* é o **contexto do *required
+> check***: está no *ruleset* e nos *runs* dos seis PRs de teste que são a
+> evidência da §8. Renomeá-lo invalidaria os dois ao mesmo tempo, por uma
+> palavra. A tabela da §2 e esta secção dizem o que o *gate* faz; o nome do *job*
+> fica estável de propósito.
+
+#### Vulnerabilidades (OSV)
+
+O critério de aceitação diz que o *gate* 11 «falha com vulnerabilidade crítica
+**sem excepção registada**». Essa metade do *gate* não existia na primeira
+versão deste ticket — e, pior do que faltar, não estava declarada em sítio
+nenhum, enquanto o `ci/waivers.yaml` dizia ao leitor que `alvo` podia ser «uma
+CVE». Foi a revisão adversarial que o encontrou ([`ANALISE-02`](analises/ANALISE-02-KAM-002-pipeline-ci.md) B2).
+
+Consulta-se a **OSV** (<https://osv.dev>) por `purl`, e não `pnpm audit` ou
+`pip-audit`, por três razões: é uma fonte para os dois ecossistemas, consultada
+pelo identificador que o SBOM já produz, sem tradução nossa pelo meio; não
+precisa de gestor de pacotes nem de credenciais, o que encaixa no «sem chaves
+estáticas» do CA; e devolve o intervalo afectado por versão, pelo que a decisão
+é sobre a versão que está no *lockfile*.
+
+Só `CRITICAL` bloqueia — é o que o critério nomeia. As outras entram no
+relatório como aviso, sem parar o trabalho de ninguém. Uma severidade ausente
+**não** bloqueia: bloquear por falta de metadados transformaria cada aviso
+incompleto num PR parado.
+
+> **Fail-closed inclui a rede.** Se a OSV não responder, o *gate* falha. Um
+> *gate* de segurança que passa quando não consegue verificar é um *gate* que
+> mente. Para trabalho local sem rede existe `KAMBA_SEM_REDE=1`, que **salta** o
+> varrimento dizendo-o em voz alta — e uma execução feita com ela **não**
+> satisfaz o *gate* 11. O CI nunca a define.
+
+Verificado a correr, e não por inspecção: `lodash@4.17.11` e `django@3.0.0`
+devolvem 48 vulnerabilidades, 5 delas `CRITICAL`, entre as quais a
+`GHSA-jf85-cpcp-j695`. Sobre os 76 componentes instalados deste repositório:
+zero.
+
+Para dispensar uma: entrada em [`ci/waivers.yaml`](../ci/waivers.yaml) com
+`gate: 11` e `alvo` igual ao `purl` do pacote ou ao identificador da
+vulnerabilidade. Um *waiver* sem `alvo` não dispensa nada.
+
+**Isto não duplica o *gate* 14.** O `specs/EPIC-08` atribui ao *gate* 14
+(KAM-067) «vulnerabilidade crítica sem excepção registada também falha», e é
+verdade — mas por **imagem** e no **release**, sobre o que a imagem contém
+depois de construída. O *gate* 11 corre por **PR**, sobre as dependências
+declaradas nos *lockfiles*, antes de existir imagem nenhuma. São dois momentos e
+dois objectos; apanhar no primeiro é mais barato, e não dispensa o segundo.
+
+---
+
+### Gate 6 — isolamento de tenant
+
+Entrou com o KAM-004, que ligou a *row-level security*. É a **camada SQL** do
+isolamento — X-03, X-04 e X-05 da matriz do `docs/tecnica/08` §3.7; as rotas, as
+tools, o storage e a injecção de *prompt* (X-01, X-02, X-06 a X-10) são do
+KAM-066 e não estão aqui. O desenho, a política e os papéis estão em
+[`isolamento.md`](isolamento.md); esta secção é só sobre o *gate*.
+
+Usa o mesmo PostgreSQL descartável do gate 8, pelo mesmo orquestrador
+(`db/gate_bd.py --suite tests_isolamento`), e pela mesma razão: a *suite* semeia
+dois tenants e ataca um com o contexto do outro, e isso não se faz contra uma
+base que mais alguém use.
+
+Três coisas tornam este *gate* difícil de satisfazer pela razão errada:
+
+- **É parametrizado sobre o catálogo.** A *suite* pergunta à base que tabelas
+  têm coluna `tenant_id`, em qualquer schema aplicacional. Uma tabela nova entra
+  sozinha em todos os testes; sem receita de sementes, o *gate* falha.
+- **Cada caso afirma primeiro a metade positiva.** «A não vê B» prova-se
+  trivialmente com uma base vazia. Cada teste exige antes que A veja as suas.
+- **A recusa é conferida pelo texto, não só pelo código.** `42501` é o SQLSTATE
+  de uma linha recusada pela política **e** de um privilégio em falta. Um teste
+  que aceitasse qualquer `42501` passava se alguém tirasse o `INSERT` a
+  `kamba_app` — pela razão errada.
+
+As excepções vivem em [`ci/rls_exceptions.yaml`](../ci/rls_exceptions.yaml) e em
+[`ci/secdef_allowlist.yaml`](../ci/secdef_allowlist.yaml), os dois vazios. Ao
+contrário de um *waiver*, **exigem um ADR** e não uma aprovação datada: uma
+tabela com `tenant_id` sem RLS é uma decisão de arquitectura, não uma dispensa
+com prazo. E uma excepção morta — para uma tabela que já tem RLS, ou que já não
+existe — falha o *gate*.
+
+**O estrato `critico` deixou de estar vazio.** Desde o KAM-002 que o limiar de
+90% não tinha código sobre que morder (§3, *gate* 4). Os dois *helpers* de
+`tenant_guard` — Python e TypeScript — caem nele, e estão a 100% (240 de 240
+linhas no *run* do PR do KAM-004).
+
+#### X-11 — *logs* sem identificadores (KAM-068)
+
+O primeiro passo do `make ci-6` é `make x11`, que não precisa de base de dados.
+Está neste *gate* porque é aqui que `docs/tecnica/08` o põe: a §14 mede «leituras
+cruzadas» pela «suite X-01..X-11 em cada PR», e a §7.3 chama X-11 ao varrimento
+dos *logs*. (A §3.7, que define os outros, não o define — `seguranca/lacunas.md`,
+L-23.)
+
+Mil chamadas com telefones, NIF, e-mails, texto, tokens, IBAN e referências
+passam pelo *logger* em Python e em TypeScript. O alvo exige três coisas, por
+esta ordem: que **os padrões vejam os identificadores na entrada** (controlo
+positivo — sem ele o zero não dizia nada); que **a saída das duas linguagens
+seja igual byte a byte**, e os contadores de rejeição também; e que o
+varrimento dê **zero achados** em exactamente 1 030 linhas por linguagem (as
+1 000 de canários e 30 de forma, que exercitam as regras que os canários não
+tocam).
+
+Três coisas a saber antes de mexer nele:
+
+- **o varrimento conhece a forma da linha.** Um `tenant_id` é um UUID, e cerca
+  de 0,6% dos UUID aleatórios têm a forma de um telemóvel angolano lá dentro;
+  os campos de forma fechada são conferidos pela forma e não varridos;
+- **o padrão do NIF é um parâmetro** (`make x11 X11_NIF='<regex>'`). Nenhum
+  documento o define, e sem ele a saída diz que o NIF não é medido por padrão
+  próprio;
+- **não varre a suite cruzada ponta a ponta**, que é o KAM-066 e não existe. A
+  camada SQL deste *gate* não escreve pelo *logger*.
+
+O desenho, os padrões e os limites estão em [`logs.md`](logs.md) §4.2 e §7.
+
+---
+
+### Gate 8 — migrações
+
+Entrou com o KAM-003, que é o primeiro ticket a ter o que este *gate* testa. O
+critério é o do `specs/01` §4 — «aplicar e reverter; sem perda em dados de
+teste» — e o do próprio ticket: `upgrade → downgrade → upgrade` contra um
+PostgreSQL 18.6 vazio, com 0 objectos em `platform` depois do `downgrade`.
+
+**O *gate* levanta o seu próprio PostgreSQL** (`db/gate_bd.py`), e não usa o do
+compose de desenvolvimento. Não pode: a *suite* faz `downgrade base`, que apaga
+o schema. Quatro coisas tornam isso seguro em vez de assustador:
+
+- a imagem é a do compose, **fixada por *digest***. O critério diz 18.6, e uma
+  etiqueta que flutue de *minor* deixava de o provar — há um teste que lê a
+  versão do servidor. Desde o KAM-067 a fixação de *digests* é sistemática
+  ([`supply-chain.md`](supply-chain.md) §3), e a constante deste *gate* está
+  declarada no inventário de imagens;
+- os dados vivem em `tmpfs` e o contentor é removido no fim, corra a *suite*
+  bem ou mal;
+- as palavras-passe são geradas em cada execução e passam pelo ambiente, nunca
+  pela linha de comandos;
+- **a *suite* recusa-se a correr se a base não se chamar `*_gate8`.** É o trinco
+  contra um `.env` errado ou uma variável herdada da *shell*: sem ele, o *gate*
+  estava a um esquecimento de apagar a base de desenvolvimento.
+
+No *workflow* o *job* chama `make ci-8` e mais nada. Não há `services:`, de
+propósito: a imagem, o *digest* e as credenciais vivem num sítio só, e o *gate*
+corre igual na máquina e no *runner* — verificado nos dois sentidos, num
+contentor Linux e directamente em Windows, porque o `pg8000` é Python puro.
+
+O que a *suite* cobre, além do ciclo: um caso negativo por `CHECK` e por
+`UNIQUE`; os domínios fechados lidos **do catálogo** e não só testados por
+inserção (sem isso, um sexto estado acrescentado por engano passava); um
+**inventário fechado** de colunas, com tipo, nulidade, omissão e a resposta a
+«guarda dados pessoais?»; a **matriz exacta** de privilégios por tabela e por
+coluna, as pertenças e os privilégios por omissão — o que cada papel
+*consegue*, e não só os atributos que tem; e a guarda de arranque do Fluxo B
+contra linhas reais, incluindo um ensaio com a RLS que o KAM-004 vai ligar.
+
+> **Os testes foram provados por mutação — duas vezes, e a primeira estava
+> errada.** A *suite* passou à primeira, que é quando menos se sabe se morde.
+> Seis mutações minhas foram apanhadas, e isso deu confiança a mais: a revisão
+> adversarial fez outras cinco (`GRANT kamba_batch TO kamba_app`, `ON DELETE
+> CASCADE`, treze `NOT NULL` retirados, privilégios por omissão, uma coluna de
+> contacto em claro) e **as cinco deixavam os 75 testes verdes**. Uma prova por
+> mutação vale o que valerem as mutações, e quem escreveu os testes é o pior
+> autor possível delas.
+>
+> A prova está agora em `db/mutacoes.py`: uma alteração por execução, em cópia
+> fora do repositório. No KAM-003 eram vinte, e as vinte apanhadas
+> ([`ANALISE-03`](analises/ANALISE-03-KAM-003-schema-platform.md) §4). Não faz
+> parte do *gate* e corre-se quando se mexe nos testes, na revisão ou no código
+> que as mutações alteram.
+>
+> **A lista cresce com cada ticket de base de dados, e o tempo com ela.** No
+> KAM-004 eram 48 alterações; com o KAM-008 passam de 90, e uma execução
+> completa em série levou três horas e meia. Por isso corre em paralelo
+> (`KAMBA_MUTACOES_PARALELO`, por omissão 8) e aceita um excerto do nome como
+> filtro, para se repetirem só as novas; `python db/mutacoes.py --aplicaveis`
+> confere em segundos, e sem Docker, que nenhuma mutação antiga deixou de se
+> aplicar.
+>
+> Paralelismo tem um preço, e está pago: com a máquina a esgotar ligações ou à
+> espera de um trinco, a *suite* falha por **carga** e não por a mutação ter
+> sido apanhada — e isso contava como «apanhada». `SINAIS_DE_CARGA` nomeia
+> essas falhas do servidor, cada uma conta como `PROVA INVALIDA`, e o corredor
+> sai diferente de zero. **Subir o paralelismo não pode tornar a prova mais
+> fácil**; a classificação da saída tem testes próprios
+> (`db/tests/test_mutacoes.py`), porque um instrumento que mede testes também
+> tem de ser medido.
+>
+> **E a lista inteira saiu do caminho dos PRs** (KAM-143). No PR correm-se as
+> mutações novas, mais `--aplicaveis`; a lista completa corre **uma vez por
+> noite**, sobre `main`, repartida por seis *runners* (`--fatia i/6`) na tarefa
+> [`mutacoes.yaml`](../.github/workflows/mutacoes.yaml). Não é um *gate*: não
+> corre em PRs, não entra nos `needs` do resumo nem no `esperados`, e não
+> bloqueia merge nenhum.
+>
+> **O que se perde, e foi decidido com isto escrito:** deixa de haver garantia
+> de que a lista inteira estava verde **no momento do merge**. Uma mutação
+> antiga que deixe de ser apanhada por causa de um PR aparece na manhã
+> seguinte, não antes do merge, e a tarefa não diz qual PR a quebrou — diz o
+> *commit* de `main` em que correu. Decisão do fundador (Outubro 2026), tomada
+> enquanto o projecto não está em produção.
+>
+> **O que não se perde:** nada do que é novo deixa de ser provado antes do
+> merge, e uma sobrevivente não fica calada — a tarefa abre um *issue* com a
+> ligação para o registo e não abre um segundo enquanto esse estiver aberto. O
+> corpo do *issue* é um ficheiro do repositório
+> ([`mutacoes-alerta.md`](../.github/mutacoes-alerta.md)), para se rever em
+> *diff*, e diz à cabeça que **não é um ticket do backlog**.
+>
+> O que **não** se fez, e porquê: reutilizar uma base de dados entre mutações
+> poupava mais tempo do que tudo o resto — a maior parte dos minutos é a
+> levantar e a derrubar PostgreSQL —, mas uma base que uma mutação deixe suja
+> faz a seguinte falhar, e uma falha herdada conta como «apanhada». Seria
+> trocar tempo por exactamente o defeito que esta prova existe para apanhar.
+
+**O trinco protege a base, não a instância.** Os papéis de base de dados são
+globais à instância: o `bootstrap` redefine-lhes a palavra-passe, e correr o
+*gate* contra uma instância que outros serviços usam trocava-lhes as
+credenciais. Por isso o modo `--bd-existente` exige as três palavras-passe dadas
+no ambiente, e só é seguro contra uma instância descartável. O caminho por
+omissão — o que o CI usa — cria a sua.
+
+**A *suite* tem limite de tempo, e um teste saltado falha.** Um *gate* pendurado
+é pior do que um vermelho; aconteceu uma vez, por um bloqueio entre ligações de
+um teste, e durou dez minutos. E o `python -m unittest` sai com 0 quando todos
+os testes são saltados — pelo que o *gate* usa um corredor próprio
+(`db/correr_suite.py`) em que saltar é falhar.
+
+**O que este *gate* não mede.** O código de `db/` está excluído da medição do
+*gate* 4 (`ci/thresholds.yaml`): é exercitado aqui, contra uma base real, e
+ninguém mede hoje que percentagem dele estes testes tocam. É limitação dita, não
+dispensa.
+
+#### A segunda metade: identidade de contacto (KAM-008)
+
+O `make ci-8` corre duas *suites*, cada uma com a sua base descartável:
+`tests` (as migrações, acima) e **`tests_identidade`**, que entrou com o
+KAM-008. Esta põe o módulo de identidade — TypeScript, em
+`packages/core-ts/src/identity/` — a correr contra o PostgreSQL com o papel
+`kamba_identity` verdadeiro e a RLS ligada. O desenho está em
+[`identidade.md`](identidade.md); aqui fica o que o *gate* mede.
+
+- **Os testes em Node correm uma vez**, por `db/tests_identidade/`: os três
+  ficheiros unitários de identidade (os mesmos do *gate* 4) e
+  `tests_bd/identity.bd.test.ts`, que só corre aqui. Um teste saltado falha, e a
+  lista dos grupos e dos testes que dão a letra de cada critério está fechada
+  na *suite* — um grupo que desapareça não passa por haver menos testes.
+- **Os canários procuram-se de fora do processo que os semeou.** 1 000 contactos
+  com BSUID e telefone canário; depois, o `pg_dump` da base inteira, o registo do
+  servidor com `log_statement = 'all'` (instruções **e** parâmetros) e a saída
+  dos testes. Cada canário procura-se **em claro e em hexadecimal** — é assim
+  que o `pg_dump` e o registo escrevem um `bytea`, e um BSUID guardado em claro
+  numa coluna `bytea` não aparecia como texto. A procura tem controlo positivo:
+  um valor que **tem** de lá estar, e um canário posto de propósito que tem de
+  ser encontrado.
+- **A cobertura de `src/identity/` mede-se aqui, por ficheiro**, contra o
+  limiar do estrato `critico` (90%), lido de `ci/thresholds.yaml`.
+  `contactos.ts` está excluído da medição do *gate* 4 por essa razão, e só por
+  essa: sem base de dados, o serviço não corre.
+
+**Fica no *job* do *gate* 8, e não num *gate* novo.** Precisa do mesmo
+PostgreSQL e das mesmas migrações, e não acrescenta um *job* aos `needs` do
+resumo. O *gate* 5 («integração: serviços contra Postgres e Redis reais»)
+continua reservado: quando um serviço tiver integração para correr, é para lá
+que isto se muda — decisão registada no bloco do KAM-008.
+
+**Onde isto deixa de correr igual na máquina e no *runner*.** No *runner* há
+`node` no `PATH`. Numa máquina sem ele, a *suite* corre a imagem oficial do Node
+**na rede do contentor do PostgreSQL** (`--network container:…`), sem publicar
+mais nada. Nos dois casos o `pg_dump` e o registo pedem-se ao contentor, cujo
+nome o `gate_bd.py` passa em `KAMBA_GATE_CONTENTOR`; com `--bd-existente` e sem
+essa variável, a *suite* **falha** em vez de saltar o *dump*.
+
+**O Alembic deixou de ser um processo por chamada nos testes.** A *suite* `tests`
+chamava `python -m alembic` dezenas de vezes; medido em Windows, oito a nove
+segundos por chamada, e a *suite* a passar dos dez minutos com as migrações do
+KAM-008. Agora os testes chamam a mesma classe da linha de comandos
+(`alembic.config.CommandLine`) dentro do processo, e só se chama de todo quando
+a base não está na revisão de cabeça. O ciclo `upgrade → downgrade → upgrade`
+do critério 1 do KAM-003 continua a correr o executável, num processo novo, e há
+um teste que confere que as duas vias dizem o mesmo.
+
+---
+
+## 4. Gates reservados (5 e 7)
+
+Existem no §4 e são implementados pelos tickets que criam o que eles testam.
+Ficam a **falhar**, de propósito.
+
+Não é teimosia: um *job* reservado que passasse em silêncio fazia o pipeline
+parecer que cobre o que não cobre, e nada obrigaria ninguém a ligá-lo. Um *job*
+vermelho com o ticket no nome é um lembrete que não se perde.
+
+No *workflow* estão com `continue-on-error: true` e **fora dos *required
+checks***: aparecem vermelhos em cada PR e não bloqueiam o *merge* hoje. A
+válvula formal é um *waiver* com prazo de 30 dias.
+
+---
+
+## 5. Excepções (*waivers*)
+
+[`ci/waivers.yaml`](../ci/waivers.yaml) é **o** mecanismo. O KAM-067 diz
+«excepção registada em ADR» e o KAM-078 diz «exige referência a ADR/aprovação»;
+ambos consomem este esquema em vez de inventarem o seu.
+
+| Campo | Obrigatório | Nota |
+|---|---|---|
+| `gate` | sim | os gates 1 e 2 **não** aceitam *waiver*: um build que não compila corrige-se |
+| `alvo` | sim | o que exactamente se dispensa; nunca «tudo» |
+| `adr_ou_aprovacao` | sim | `ADR-NNN`, `ADR-LNNN` ou `aprovacao:<quem>@<data>` |
+| `autor` | sim | a quem se pergunta |
+| `razao` | sim | ≥ 40 caracteres: tem de sobreviver à saída do autor |
+| `expira_em` | sim | data ISO, ≤ 30 dias (*proposta* do ticket) |
+
+**Um *waiver* expirado falha o pipeline.** Não avisa, não ignora. A alternativa
+produz excepções que ninguém revisita, porque nada obriga a isso.
+
+---
+
+## 6. Autenticação
+
+Por **OIDC** (`id-token: write`), como `docs/tecnica/08` §4.8 exige. Não há
+chaves estáticas: um `grep` por referências ao cofre de segredos do GitHub nos
+*workflows* devolve zero, e o gate 9 varre os próprios ficheiros do *workflow*.
+Desde o KAM-067 esse `grep` deixou de ser uma frase deste documento: é a regra
+`chave-estatica-no-ci`, que falha o gate 11 ([`supply-chain.md`](supply-chain.md) §7).
+
+O `permissions` de topo é `contents: read` e cada *job* pede o mínimo que precisa.
+
+---
+
+## 7. Lacunas do canon que este ticket encontrou
+
+Ficam registadas porque são do canon e não deste ticket, e porque inventar-lhes
+resposta seria pior do que nomeá-las:
+
+1. **Os donos dos gates 1, 2, 3, 4 e 9 não existem em nenhum documento.**
+   `specs/01` §4 não tem coluna de dono; `docs/tecnica/09` §7 só atribui seis. Os
+   cinco da tabela §2 são **proposta**.
+2. **O gate 5 (integração) não é reclamado por nenhum ticket.**
+   `specs/EPIC-01` atribui os gates 5–8 a KAM-003, KAM-004, KAM-007 e KAM-024,
+   mas nenhum dos quatro menciona o gate 5.
+3. **O gate 10 (SAST) não tem ticket.** O KAM-002 exclui-o explicitamente.
+4. **A série `D` significa duas coisas** — decisão aberta e prazo em dias — e isso
+   limita o que o gate 3 pode garantir (§3).
+5. **`docs/evidencia/KAM-024.md` é citado em `specs/EPIC-02` e não existe.**
+6. **Os anexos `E1`–`E5` não têm índice canónico** em nenhum dos três `INDICE.md`.
+7. **O §4.1 fixa o limiar de cobertura e não a sua granularidade.** Agregado por
+   estrato (o que está implementado, por ser a leitura literal) deixa passar um
+   módulo pequeno sem testes; um piso por ficheiro apanha-o e fecha a porta a
+   ficheiros gerados legítimos. A decisão é do canon, não deste ticket (§3,
+   gate 4).
+8. **O critério de *flags* de edição *enterprise*** que `docs/tecnica/09` §7
+   atribui ao *gate* das licenças — `rbac`/`auth-oidc` Medusa, `enterprise/`
+   Chatwoot, `ee/` Langfuse activos — não está implementado, e é dessa linha que
+   a tabela §2 herda o dono do *gate* 11. Fica para o ticket que instalar esses
+   componentes: hoje não há o que verificar. **Continua aberta depois do
+   KAM-067**, pela mesma razão — o critério 7 desse ticket ficou por cumprir, e o
+   que entrou foi o registo do que tem de ficar desligado (campo `ee` de
+   `ci/supply-chain/licencas.yaml`).
+9. ~~**O *gate* 9 varre a árvore, não a história do PR.**~~ **FECHADA pelo
+   KAM-131.** Um segredo posto num *commit* e retirado no seguinte passava, e
+   entrava no `main` com o *merge* — que é precisamente o cenário com que o §3
+   justifica o *pre-commit*. O *gate* 9 corre agora **duas** passagens; o
+   conjunto de *blobs* é o do intervalo do PR, as áreas permitidas aplicam-se
+   com o caminho que o *blob* tinha nesse *commit*, e o `base` chega ao *gate*
+   em bruto a partir do evento (§3, *gate* 9). **Fica aberta a parte que não era
+   do ticket:** a decisão de subir a prioridade de P1 a P0 é do Responsável de
+   Segurança com o Arquitecto de Plataforma, e não foi tomada.
+10. ~~**A cobertura Node mede só os ficheiros carregados pelos testes.**~~
+    **Fechada pelo KAM-132** (§3, *gate* 4): o `coverage_gate` lê do disco o
+    âmbito de `ci/thresholds.yaml` e injecta a 0% o que nenhum relatório mediu,
+    pelo que o denominador do lado Node cresce com TypeScript sem testes, como
+    já crescia do lado Python. **A lacuna estava certa no defeito e errada na
+    cura**: `--test-coverage-include` é um filtro sobre o que o V8 reportou e
+    nunca vai ao disco, pelo que sozinho não move o denominador — medido no Node
+    24.21.0 e confirmado no código do próprio Node. A *flag* entrou, mas para
+    fazer o relatório ser igual ao âmbito — e nem para isso ficou, porque a
+    inclusão retirava do relatório o ficheiro que nenhum estrato classifica. O
+    que o `make coverage-node` passa é `--test-coverage-exclude`.
+11. **O SBOM por serviço não atravessa um `link:`.** Omite os pacotes do próprio
+    *workspace* que o serviço carrega: o `services/gwy` declara
+    `@kamba/core-ts`, os testes carregam-no, e não aparece no seu SBOM. O fecho
+    completo (`kamba.cdx.json`) está correcto, pelo que licenças e
+    vulnerabilidades são verificadas sobre tudo — o que falta é a atribuição por
+    serviço. Ticket próprio.
+12. **Sete chaves de `ci/*.yaml` que nenhum código lê** (`arredondamento`,
+    `desconhecidas.politica`, `expressoes.and/or/with`, `prazos_conhecidos`,
+    `regra`). O objectivo do ticket promete «limiares e excepções em ficheiros
+    versionados»; um ficheiro que descreve regras que o código não lê é pior do
+    que não as descrever, porque alguém vai editá-lo a pensar que alterou a
+    política. Ou se leem, ou passam a comentário.
+13. **O validador de *waivers* aceita o que não devia:** uma data de aprovação
+    impossível (`@9999-99-99`), um prazo contado de hoje e não da criação — não
+    há `criado_em`, pelo que um *waiver* se renova para sempre com um *diff* de
+    um caractere — e chaves desconhecidas em silêncio. E `GATES_COM_WAIVER` não
+    inclui os *gates* 14 e 18, que a §5 diz que consomem este esquema.
+14. ~~**O `tools/kamba_yaml.py` tem dois erros de leitura silenciosos:** um `>-`
+    como primeira chave de um item de lista engole as chaves seguintes, e um
+    item de lista não citado que contenha `:` torna-se um mapa. O módulo
+    argumenta que a recusa larga é o que o torna confiável, e estes dois casos
+    são o contrário disso.~~ **Fechada pelo KAM-136.** O caso 1 passou a
+    **ler-se correctamente** — o defeito era a indentação do pai passada à
+    dobra, não uma regra em falta — e o caso 2 passou a **ler-se como cadeia**,
+    porque o YAML exige `:` seguido de espaço ou fim de linha para separar
+    chave de valor. A varredura classificou **101** construções contra o leitor
+    anterior e fechou **56** leituras silenciosas, 46 delas por recusa: `>` e
+    `>+` lidos como `>-`; `#` e linha vazia dentro de um escalar dobrado **em
+    qualquer posição, incluindo antes da primeira linha de conteúdo**;
+    indentação irregular dentro da dobra; aspa aberta e não fechada; escalares
+    que parecem número e não são inteiro decimal (incluindo `017` e `0644`,
+    octais em YAML 1.1 e decimais em 1.2, e `1:30`, sexagesimal em 1.1);
+    escalares ambíguos como booleano ou nulo; caracteres de controlo; `NEL` e
+    `U+2028` como quebras de linha; e um escalar não citado com `: `, que o
+    YAML também recusa. Cinco recusas que recusavam **de mais** passaram a
+    ler-se: o BOM UTF-8, o `---` de um documento único, um `---` indentado
+    dentro de um escalar dobrado e `[ ]`. O *docstring* do módulo passa a listar
+    o que recusa, e **cada linha da lista tem um teste** — duas estavam falsas
+    na primeira versão. A estrutura lida dos 22 ficheiros reais é a mesma antes
+    e depois, campo a campo (2 221 campos folha, 0 divergências), provado por um
+    teste permanente que usa a cópia congelada do leitor anterior como oráculo
+    (`tools/lint_arch/tests/leitor_antes_do_kam136.py`). O `ci_waivers` e o
+    `supply_chain egress` — os dois únicos dos dez consumidores que reportavam
+    uma recusa do leitor como achado, e portanto dispensável por *waiver* —
+    passam a devolver 2. Evidência em
+    [`evidencia/KAM-136.md`](evidencia/KAM-136.md); revisão adversarial em
+    [`ANALISE-12`](analises/ANALISE-12-KAM-136-leitor-de-yaml.md), que
+    encontrou um bloqueador da mesma família do caso 1 e outro no `egress` que
+    a primeira versão da evidência dava por conforme. **Fica aberto o que o
+    ticket deixou fora:** o repositório tem **três** leitores de subconjunto de
+    YAML — este, `tools/canon_lint/yamlreg.py` e
+    `tools/secrets_inventory/yamlsubset.py` — e só o primeiro foi varrido
+    (lacuna 22).
+15. **O *ruleset* não tem quem o verifique.** Está espelhado em
+    [`.github/rulesets/main.json`](../.github/rulesets/main.json), e o espelho
+    não é aplicado por nada: fechar a volta precisa de um *token* com
+    `administration: write`, que o CA deste ticket proíbe («sem chaves
+    estáticas»).
+16. **Nenhum PR tem revisão humana imposta por máquina.** O *ruleset* exigia uma
+    aprovação, e com um só contribuidor a regra não podia ser satisfeita: o
+    GitHub não deixa o autor aprovar o próprio PR. O fundador baixou-a para 0
+    para fundir o KAM-002. O DoD continua a pedir revisor e as caixas ficam por
+    marcar nos tickets, mas nada bloqueia o *merge* sem ela. **Volta a 1 com o
+    segundo contribuidor** (`.github/rulesets/README.md`).
+17. **O *gate* 3b bloqueia pelo *job* de resumo, não por nome próprio.** Está
+    nos `needs` de `gates do KAM-002`, que é *required check*; o contexto
+    `gate 3b — nomes canonicos` **não** foi acrescentado ao *ruleset*, porque
+    isso é uma alteração de configuração do repositório que este ticket não
+    fez (lacuna 15: o espelho não é aplicado por nada). O efeito é o mesmo do
+    *gate* 8, que também só bloqueia pelo resumo.
+18. **Duas das doze divergências do KAM-111 não têm forma de nome** (D-07, o
+    gatilho do *provisioning*; D-09, a retenção de `assistant_queries`) e o
+    *gate* 3b não as vê. O critério de aceitação pede doze *fixtures*; há dez.
+    Não se inventaram duas para a conta fechar; a decisão é do KAM-141.
+19. **O dicionário tem uma contradição que o *gate* imprime em cada execução**
+    (`manual_max_minor` nas duas colunas da mesma linha) e não lista `currency`
+    no §3. Ver [`docs/nomes-canonicos.md`](nomes-canonicos.md) §7, com mais
+    sete achados do mesmo género. Ticket: KAM-141.
+20. **O nível 2 do *gate* 3b não sabe o tipo de um nome.** Tabelas, colunas,
+    valores, campos e parâmetros partilham um conjunto: `estado` é aceite como
+    coluna de qualquer tabela. Medido com 77 nomes plausivelmente errados: 37
+    (48%) passam como coluna, 0 como evento, *tool* ou papel — eram 51 (66%) em
+    qualquer posição antes da revisão adversarial. Fechar o resto pede que o
+    dicionário diga o tipo de cada nome (KAM-141).
+21. **O *gate* 3b tem um prazo dentro: a 2026-11-11 fica vermelho** em `main` e
+    em todos os PR se as 19 dívidas de `ci/canon-allow.yaml` não tiverem sido
+    pagas. É deliberado e tem dono: KAM-139.
+22. ~~**Há três leitores de subconjunto de YAML, e o KAM-136 varreu um.** O
+    `tools/kamba_yaml.py` (os `ci/*.yaml`, `canon/*.yaml`, `tools/blocklist.yaml`
+    e os `egress.yaml`), o `tools/canon_lint/yamlreg.py` (estilo de fluxo, que o
+    primeiro recusa de propósito) e o `tools/secrets_inventory/yamlsubset.py`
+    (`ops/secrets-inventory.yaml`, que o primeiro também recusa). Cada um tem a
+    sua razão escrita e nenhum é redundante, mas **a varredura de leituras
+    silenciosas do KAM-136 cobriu só o primeiro** — e dos 101 casos que ela
+    classificou, 56 liam mal sem o dizer. Os outros dois leem limiares,
+    excepções e o inventário de segredos. O `yamlsubset.py` cita ainda
+    `tools/lint_arch/yamlmini.py`, que já não existe (passou a
+    `tools/kamba_yaml.py`). Precisa de ticket.~~ **Fechada pelo KAM-148.** Os
+    outros dois leitores foram varridos com o método do KAM-136 — cada
+    construção corrida contra uma cópia congelada do leitor anterior **e** contra
+    o actual, e classificada pela diferença — e a mesma classe de defeito estava
+    nos dois: **240 construções** classificadas (131 no `yamlreg`, 109 no
+    `yamlsubset`) e **110 leituras silenciosas fechadas**, 96 por recusa e 14 por
+    leitura correcta, mais duas recusas que recusavam de mais e passaram a ler. As piores eram uma **chave de topo repetida** no
+    `yamlsubset`, que calava a primeira sem dizer nada — no inventário de
+    segredos, uma entrada que desaparece — o `chave:valor` sem espaço, que
+    virava um mapa (o caso 2 do KAM-136, vivo ali), o `split(",")` que partia
+    `["x, y", z]` em três itens, e o `FALSE` lido como a cadeia `"FALSE"`, que é
+    **verdadeira** em Python. O que se interpreta e o que se recusa está escrito
+    caso a caso no bloco do ticket e em
+    [`ANALISE-13`](analises/ANALISE-13-KAM-148-leitores-de-yaml.md); a decisão
+    foi a mesma do KAM-136 em tudo menos onde o corpus a mudava, e essas
+    divergências estão justificadas. O *docstring* de cada leitor passa a listar
+    o que recusa, com um teste por linha, e o do `yamlsubset` deixa de citar o
+    `tools/lint_arch/yamlmini.py` (linha 16 de
+    [`dividas-documentais.md`](dividas-documentais.md), paga). A equivalência
+    campo a campo está provada por teste permanente, com a cópia congelada como
+    oráculo e o corpus descoberto por *glob*: **0 divergências** em 525 campos
+    folha: 418 do `ops/secrets-inventory.yaml`, 50 nas quatro *fixtures* da
+    superfície 3 e 57 nos dois manifestos de `docs/tecnica/02` §5.1, lidos do
+    próprio documento — a forma que o EPIC-03 vai escrever, e a prova de que
+    nenhuma recusa nova lhe toca.
+    **O que fica dito, e não fechado:** o `registry/` não tem hoje nenhum
+    ficheiro de produção — o conteúdo é do EPIC-03 — pelo que o corpus real do
+    `yamlreg` são quatro *fixtures*; o primeiro manifesto entra na equivalência
+    sem se alterar uma linha, e é por isso que corrigir o leitor **antes** dele
+    era o momento mais barato. Os três leitores continuam três: fundi-los, ou
+    adoptar uma biblioteca de YAML, contraria a razão de existir dos três (o
+    *gate* 9 e o *hook* de *pre-commit* correm antes de qualquer instalação).
+23. **O `LF` do Node conta linhas de comentário e linhas vazias; o do
+    `coverage.py` conta instruções.** São duas definições de «linha coberta» no
+    mesmo número agregado, e a do Node **infla** a cobertura de código muito
+    comentado — que é a norma deste repositório. Medido no KAM-132:
+    `packages/core-ts/src/storage/motor.ts`, que é só tipos e comentários, sai
+    `67/67` depois de ser carregado, e `src/identity/chaves.ts` sai `235/407`
+    contando os 407 como linhas do ficheiro. O KAM-132 igualou o **universo**
+    medido; igualar a **definição de linha** é outra coisa, obriga a escolher
+    uma das duas para os dois lados, e não tem ticket.
+24. **Um `.ts` que nenhum estrato classifica continua invisível.** A regra
+    «medido e não classificado falha o *gate*» é sobre o que foi medido; um
+    ficheiro fora de `services/*/src/**`, `packages/*/src/**` e `libs/*/src/**`
+    — uma pasta `apps/` nova, por exemplo — não é medido nem injectado, e
+    nenhum *gate* o diz. O KAM-132 não o fechou porque fechá-lo é decidir que
+    todo o `.ts` do repositório tem cobertura exigida, que é a mesma classe de
+    decisão da lacuna 7 e não é deste ticket.
+25. **Do lado Python, `services/agr/src/` não é medido por nenhum alvo.** O
+    `make coverage-python` mede `tools/` e `libs/py-core/src`; os três ficheiros
+    de `services/agr/src/kamba_agr/` (`__init__.py`, `app.py`, `meta.py`) estão
+    no âmbito do `ci/thresholds.yaml` (`services/*/src/**`) e não entram no
+    denominador, apesar de `services/agr/tests/` existir. É a mesma classe de
+    defeito que o KAM-132 fechou do lado Node — âmbito declarado, medição em
+    falta —, e o KAM-132 não a fechou por duas razões: a cura é cablagem do
+    alvo de Python (correr a *suite* de `agr` sob `coverage`), e injectá-los a
+    0% a partir do disco exigiria contar **instruções**, que é a régua do
+    `coverage.py` e não o número de linhas. Ticket próprio.
+
+> As lacunas 9 a 14 vêm da revisão adversarial, e cada uma está reproduzida com
+> um comando em [`ANALISE-02`](analises/ANALISE-02-KAM-002-pipeline-ci.md).
+> Não se corrigiram no KAM-002 porque são trabalho com medição própria, não
+> porque sejam pequenas — e deixá-las sem nome seria o defeito que este documento
+> existe para não ter. A **9** está fechada (KAM-131); as outras cinco são
+> KAM-132 a KAM-136.
+
+---
+
+## 8. Demonstração: 6 PRs vermelhos, 6 bloqueios
+
+O critério de aceitação pede prova por execução, e não por leitura: «um PR sem
+eles verdes não faz *merge* (verificado por um PR de teste deliberadamente
+vermelho por *gate*: 6 PR, 6 bloqueios)». Correu-se sobre o *ruleset* `main:
+gates fail-closed do KAM-002` (id 24879081), que exige os seis *gates* activos,
+uma aprovação, e proíbe `deletion` e `non_fast_forward`. (A aprovação exigida passou a 0 depois desta demonstração — §7, lacuna 16.)
+
+| PR | Quebra introduzida | *Gate* que falhou | Outros *gates* |
+|---|---|---|---|
+| #5 | `export const porta: number = "isto nao e um numero"` | 2 — lint e tipos | os cinco verdes |
+| #6 | documento a citar `KAM-999`, que não existe no *backlog* | 3 — referências cruzadas | os cinco verdes |
+| #7 | módulo de ~450 declarações sem teste nenhum | 4 — unit e cobertura (66%, mínimo 75%) | os cinco verdes |
+| #8 | `export const apiKey = "K7mQ…"` com forma de chave de API | 9 — segredos | os cinco verdes |
+| #9 | dependência `zod` no `package.json` e fora do *lockfile* | 1 — build | **2, 4 e 11 também** |
+| #10 | `PSF-2.0` retirado da *allowlist* (torna `typing-extensions` proibida) | 11 — SCA, licenças, vulnerabilidades e SBOM | os cinco verdes |
+| #4 | nenhuma (o próprio KAM-002) | nenhum | **os seis verdes** |
+
+Três coisas que esta tabela diz e que vale a pena não deixar implícitas:
+
+**O PR #9 arrasta três *gates*, e isso está correcto.** O *gate* 1 é
+`pnpm install --frozen-lockfile`; quando falha não há `node_modules`, e os
+*gates* 2 (`tsc`), 4 (`node --test`) e 11 (lê as licenças do disco) não têm com
+que correr. Um *gate* que passasse sem dependências instaladas é que seria
+defeito. A cascata é consequência da ordem de dependências do *workflow*, não
+imprecisão da atribuição.
+
+**O PR #7 passou à primeira tentativa, e o *gate* estava certo.** A primeira
+versão acrescentou 21 linhas sem cobertura: o estrato `restante` foi de 79,4%
+para 79,1% e o *gate* 4 passou, porque o limiar do §4.1 é agregado por estrato
+(§3, *gate* 4). A demonstração estava fraca, não o *gate*; reforçada para ~450
+declarações, o estrato caiu para 66% e o *gate* ficou vermelho. Fica escrito
+porque é a parte da demonstração que ensina algo: **um *gate* pode passar pela
+razão certa e ainda assim deixar uma demonstração sem valor.**
+
+**Os *gates* 5–8 aparecem vermelhos nos sete PRs** (à data desta demonstração o 8 ainda era reservado; passou a activo com o KAM-003), por desenho (§4): são
+`continue-on-error` e não estão nos *required checks*, pelo que não bloqueiam
+nada — mas também não se deixam esquecer.
+
+Medição local, no mesmo *commit*: `make ci` verde em **216 s** (168 s de
+`bootstrap` + 48 s de *gates*). *Gate* 3: 6930 referências em 210 ficheiros.
+*Gate* 9: 236 ficheiros varridos, 0 segredos. *Gate* 11: 99 componentes, 90 com
+licença permitida, 9 nossos, e 90 de terceiros consultados na OSV sem nenhuma
+`CRITICAL`. *Gate* 4: 78% sobre 2821 linhas, testes verdes.
+
+Cada número acima reproduz-se com um comando, e é por isso que estão aqui em
+vez de numa mensagem de *commit*:
+
+```bash
+python -c "import sys; sys.path.insert(0,'tools'); from lint_refs.cli import main; sys.exit(main(['--root','.','check']))"
+python -c "import sys; sys.path.insert(0,'tools'); from scan_secrets.cli import main; sys.exit(main(['--root','.','tree']))"
+cd tools && python -m sbom --root .. licenses
+make ci-4
+```
+
+> **Os números do *gate* 11 mudam com o `node_modules`**, porque a contagem é do
+> que está no disco e não do que o *lockfile* declara — e isso vale a pena
+> contar como aconteceu. A revisão adversarial mediu 92 componentes e 83
+> permitidas contra os 99 e 90 escritos aqui, e concluiu que o número não
+> reproduzia. Reproduz: **num `pnpm install --frozen-lockfile` limpo, que é o
+> que o CI faz,** são 99 e 90. Os 92 eram de uma árvore de trabalho com
+> instalações parciais por cima.
+>
+> Os números desta secção são os do CI, que é a árvore que decide se um PR
+> passa. Uma contagem feita na máquina de alguém pode divergir, e divergir não é
+> defeito — é o que a guarda de instalação do *gate* 11 passou a dizer em voz
+> alta em vez de deixar passar.
+
+Os seis PRs de teste foram fechados e os seus ramos apagados depois desta
+medição; os números acima são verificáveis nos *runs* do GitHub Actions, que
+sobrevivem ao PR.
+
+---
+
+## 9. Controlo de versões
+
+| Versão | Data | Alteração | Autor |
+|---|---|---|---|
+| 1.0 | Outubro 2026 | Emissão inicial (KAM-002): gates 1, 2, 3, 4, 9 e 11 activos; 5–8 reservados; *waivers*, limiares, *allowlist* de licenças e áreas de segredos; seis lacunas do canon registadas. | Equipa KAMBÁ |
+| 1.1 | Outubro 2026 | Demonstração dos 6 bloqueios registada (§8); granularidade do limiar de cobertura documentada (§3) e acrescentada como sétima lacuna do canon (§7). | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | Revisão adversarial ([`ANALISE-02`](analises/ANALISE-02-KAM-002-pipeline-ci.md)): varrimento de vulnerabilidades acrescentado ao gate 11 (§3); alcance do gate 3 passado a lista de exclusão; três evasões do gate 9 fechadas; guarda de instalação no gate 11; *ruleset* espelhado e o *job* de resumo nos *required checks*; números do gate 11 corrigidos (92/83, com comando ao lado); oito lacunas novas (§7, 8–15). | Equipa KAMBÁ |
+| 1.3 | Outubro 2026 | O `make ci-9` passa a provar o canário fora da sua área (17 achados), em vez de a prova viver só num `unittest`. Números da §8 fixados nos do CI. | Equipa KAMBÁ |
+| 1.4 | Outubro 2026 | **Gate 8 activo** (KAM-003): migrações contra um PostgreSQL 18.6 descartável, fixado por *digest*, com trinco `*_gate8`; reservados passam a 5–7; `make ci` corre sete. | Equipa KAMBÁ |
+| 1.5 | Outubro 2026 | *Gate* 8 depois da revisão adversarial do KAM-003 ([`ANALISE-03`](analises/ANALISE-03-KAM-003-schema-platform.md)): prova por mutação refeita e posta no repositório (20/20); trinco por igualdade; `--bd-existente` exige as palavras-passe; limite de tempo; saltar é falhar. | Equipa KAMBÁ |
+| 1.6 | Outubro 2026 | KAM-002 fundido em `main`. Aprovações exigidas pelo *ruleset* passam de 1 para 0, por decisão do fundador: com um só contribuidor a regra era insatisfazível. Registado como lacuna 16, com a condição de reversão. | Equipa KAMBÁ |
+| 1.7 | Outubro 2026 | **Gate 6 activo** (KAM-004): isolamento de tenant na camada SQL, parametrizado sobre o catálogo; `ci/rls_exceptions.yaml` e `ci/secdef_allowlist.yaml`; reservados passam a 5 e 7; `make ci` corre oito; o estrato `critico` deixa de estar vazio. O orquestrador passa a `db/gate_bd.py`. | Equipa KAMBÁ |
+| 1.8 | Outubro 2026 | **Gate 3b activo** (KAM-111): exportação do dicionário, quatro superfícies e canário; `make ci` corre nove; lacunas 17 a 21. Inclui o que a revisão adversarial ([`ANALISE-05`](analises/ANALISE-05-KAM-111-dicionario-canonico-e-lint.md)) mudou: canário fixado no código, leitura das revisões por avaliação estática (com os auxiliares do KAM-004), domínios fechados nas formas do `pg_dump`, variantes em cadeias, sentinelas mínimas no código. | Equipa KAMBÁ |
+| 1.9 | Outubro 2026 | **Gate 11 alargado** (KAM-067): `make ci-11` passa a chamar `make supply-chain` — imagens por *digest* com inventário, sem instalação em *runtime*, serviços só de leitura, lista de saídas por serviço, registo de licenças por versão, quarentena e CI sem chaves, com canário de 59 mutações. Uma licença proibida só se dispensa com ADR. Sem gate novo: `esperados` continua em 9. Detalhe em [`supply-chain.md`](supply-chain.md). | Equipa KAMBÁ |
+| 1.10 | Outubro 2026 | **KAM-068**: `make log-lint` como terceiro passo do *gate* 2 (nenhum serviço escreve fora do *logger*, com canário) e `make x11` como primeiro passo do *gate* 6 (1 000 *fixtures* pelos dois *loggers*, saída igual byte a byte, zero achados). Sem *job* novo: os `needs` e o `esperados` do resumo não mudam. O *logger* entra no estrato `critico` de `ci/thresholds.yaml`. | Equipa KAMBÁ |
+| 1.11 | Outubro 2026 | KAM-011: o padrão `*/storage/*` entra no estrato `critico` (§3, *gate* 4). Nenhum *gate* novo: a prova contra um servidor S3 real é `make storage-contrato`, à mão ([`armazenamento.md`](armazenamento.md) §7). | Equipa KAMBÁ |
+| 1.12 | Outubro 2026 | Prova por mutação dos *gates* de base de dados: paralelismo por omissão de 4 para 8, e uma falha por **carga** da máquina deixa de contar como «apanhada» (`SINAIS_DE_CARGA` → `PROVA INVALIDA`). A classificação da saída ganha testes próprios (`db/tests/test_mutacoes.py`). Seguimento do KAM-142. | Equipa KAMBÁ |
+| 1.13 | Outubro 2026 | **KAM-143**: a prova por mutação completa sai do caminho dos PRs e passa a tarefa nocturna no GitHub, fatiada por seis *runners*, com *issue* automático em caso de sobrevivente. Não é um *gate*. O custo — deixar de haver garantia de que a lista estava verde no momento do merge — está escrito no §3, no gate 8. | Equipa KAMBÁ |
+| 1.14 | Outubro 2026 | KAM-008: o *gate* 8 passa a correr duas *suites* — `tests` e **`tests_identidade`** (o módulo de identidade de contacto contra o PostgreSQL, com canários no `pg_dump` e no registo do servidor, e a cobertura de `src/identity/` medida por ficheiro); `contactos.ts` excluído da medição do *gate* 4 e `*/identity/*` no estrato `critico`; os testes de `db/` chamam o Alembic no processo. | Equipa KAMBÁ |
+| 1.15 | Outubro 2026 | **KAM-136: lacuna 14 fechada.** O `tools/kamba_yaml.py` — o leitor de todos os `ci/*.yaml`, que corre antes de qualquer instalação — deixa de ter casos em que lê mal sem o dizer. Os dois do bloco passaram a ler-se correctamente (o `>-` como primeira chave de um item) e como cadeia (o item não citado com `:`); a varredura classificou **101** construções contra o leitor anterior e fechou **56** leituras silenciosas, 46 delas por recusa, e desfez 5 recusas que recusavam de mais (BOM, `---` de documento único, `[ ]`). A estrutura lida dos 22 ficheiros reais é a mesma antes e depois (2 221 campos folha, 0 divergências), com a cópia congelada do leitor anterior como oráculo permanente. O `ci_waivers` e o `supply_chain egress` passam a devolver 2 — e não 1 — quando o leitor recusa o ficheiro: eram os dois únicos dos dez consumidores a reportar uma recusa como achado, que o *gate* 11 dispensa por *waiver*. Nenhuma dependência nova e nenhum `ci/*.yaml` reescrito. **A primeira versão da correcção não cumpria o objectivo**: a revisão adversarial independente ([`ANALISE-12`](analises/ANALISE-12-KAM-136-leitor-de-yaml.md)) encontrou 2 bloqueadores e 26 achados, com disposição escrita para todos. **Lacuna 22 nova:** há três leitores de subconjunto de YAML e só um foi varrido. | Equipa KAMBÁ |
+| 1.16 | Outubro 2026 | **KAM-131**: o *gate* 9 passa a correr duas passagens — a árvore (inalterada) **e** os *blobs* que o intervalo do PR acrescenta à história (`scan_secrets … history`). Fecha a lacuna 9 do §7. O conjunto de *blobs* sai de `git rev-list --objects base..head` e de `git log --raw -c`, deduplicado por SHA de objecto mas com as áreas de `ci/secrets-allow.yaml` aplicadas a **todos** os caminhos do *blob*; o que fazer sem intervalo está escrito por accionamento, e um clone raso, uma base irresolúvel, um intervalo de zero *commits* num PR ou um *blob* que o `git` não devolve são vermelhos. O relatório diz o que **não** varreu. O *job* ganha `fetch-depth: 0` e três variáveis em bruto, confrontadas linha a linha por `tools/lint_arch/tests/test_ci_gate9.py` — não há *lint* de *workflows*. O `-c`, o confronto por linha inteira e os contadores vieram da revisão adversarial ([`ANALISE-14`](analises/ANALISE-14-KAM-131-gate-9-na-historia.md)), que construiu três evasões à primeira versão. Sem *gate* novo: `esperados` continua em 9. | Equipa KAMBÁ |
+| 1.17 | Outubro 2026 | **KAM-132**: o *gate* 4 passa a medir o mesmo **universo** nos dois lados — o `coverage_gate` lê do disco o âmbito de `ci/thresholds.yaml`, a partir das raízes dos próprios `padroes`, e injecta a 0% o código que nenhum relatório mediu. Medido com `make ci-4` nos dois estados: `restante` 91% → 91% (o estrato não tinha nada invisível) e `critico` 99% → 94%, com os três ficheiros que entraram a 0% nomeados; um módulo de 50 declarações sem teste, que deixava os três números iguais, leva o `restante` a 88%. O limiar **não** foi tocado. Lacuna 10 fechada, com duas correcções ao que ela propunha: a *flag* sozinha **não** move o denominador (é um filtro; medido no Node 24.21.0 e confirmado no código do próprio Node) e **a de inclusão não se usa** — retirava do relatório o ficheiro que nenhum estrato classifica, que tem de falhar o *gate*; o `make coverage-node` passa `--test-coverage-exclude`. A revisão independente ([`ANALISE-15`](analises/ANALISE-15-KAM-132-cobertura-de-todo-o-typescript.md)) devolveu 3 maiores, 9 menores e 1 suspeita. Lacunas 23 a 25 novas: o `LF` do Node conta comentários, um `.ts` sem estrato continua invisível, e `services/agr/src/` não é medido do lado Python. | Equipa KAMBÁ |
+| 1.18 | Outubro 2026 | **KAM-148**: a lacuna 22 fecha. Os outros dois leitores de subconjunto de YAML — `tools/canon_lint/yamlreg.py` (os `registry/*.yaml`) e `tools/secrets_inventory/yamlsubset.py` (o `ops/secrets-inventory.yaml`) — passam pela varredura do KAM-136: 240 construções classificadas por execução contra a cópia congelada de cada leitor, 110 leituras silenciosas fechadas (96 por recusa, 14 por leitura correcta), equivalência campo a campo com 0 divergências e um *docstring* por leitor com um teste por linha da lista do que recusa. | Equipa KAMBÁ |
