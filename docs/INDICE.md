@@ -45,7 +45,7 @@ docs/
   adr/                           ADRs locais (ADR-L###)
   evidencia/                     evidência de execução por ticket
 specs/                           backlog executável (KAM-NNN), na raiz do repositório
-  tickets/                       um ficheiro por ticket do EPIC-01 (40; KAM-155)
+  tickets/                       um ficheiro por ticket do EPIC-01 (43; KAM-155)
 ```
 
 | Nº | Documento | Foco | Ficheiro | Linhas |
