@@ -959,9 +959,12 @@ Três detalhes que são decisões, e não acidentes:
   correm em três e a carga corre uma vez. Não é opcional: o `make ci-8` corre-a.
 
 O que estas duas medem, e o que **não** medem, está na secção de verificação do
-bloco do KAM-005 em `../specs/EPIC-01_Fundacoes_Dados.md` — incluindo as três
-caixas que ficaram vazias, uma delas por o p95 medido (6,0 s) estar acima do
-limiar *proposto* (1 s). O desenho está em [`eventos.md`](eventos.md).
+bloco do KAM-005 em `../specs/EPIC-01_Fundacoes_Dados.md`. **Três caixas desse
+bloco fecharam na primeira execução destas *suites* aqui**: no anfitrião de
+desenvolvimento (Windows) a da fila parada não reproduzia e o p95 media 6,0 s,
+acima do limiar *proposto* de 1 s; em `ubuntu-latest` a fila parada passa e o p95
+é **0,195 s** ([execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356)). Fica uma vazia, a dos dois revisores. O
+desenho está em [`eventos.md`](eventos.md).
 
 **Fica no *job* do *gate* 8, e não num *gate* novo.** Precisa do mesmo
 PostgreSQL e das mesmas migrações, e não acrescenta um *job* aos `needs` do
@@ -1383,3 +1386,4 @@ sobrevivem ao PR.
 | 1.20 | Outubro 2026 | **KAM-154**: o *gate* 2 passa a resolver cada regra do `CODEOWNERS` contra a árvore seguida pelo git. Uma regra que não case com nada reprova o PR — até aqui era ignorada pelo GitHub e deixava a área sem dono, em silêncio, que foi como três regras sobreviveram ao prefixo removido pelo KAM-128 e a dois tickets de medição de referências. Implementa a semântica de *glob* documentada e não `[ -e ]`, e é *fail-closed* no que o GitHub não suporta. Entrou neste *gate* pela razão do `log-lint`, e não como número novo de `specs/01` §4. Não valida se o dono existe: isso é o KAM-137 e a lacuna L-19. | Equipa KAMBÁ |
 | 1.21 | Outubro 2026 | KAM-145: o *gate* 3 passa a ter um segundo passo, `lint_handoff`, que lê os **caminhos** dentro dos blocos `### Handoff para Claude Code` e exige que sejam relativos à raiz do repositório — que é onde o executor corre, agora declarado em `../specs/01_Engineering_Standards_e_Handoff.md` §5. Converteram-se **254** ocorrências nos onze epics (247 que apontavam para fora da árvore e 7 sem directório nenhum), entre elas as quatro instruções que mandam escrever um ficheiro de validação. Entra no `ci-3` e **não** como *gate* novo, para não acrescentar um contexto exigido ao *ruleset* de `main`: os sete mantêm-se. Fora dos blocos de *handoff* a regra continua a ser a do KAM-128. | Equipa KAMBÁ |
 | 1.22 | Outubro 2026 | KAM-005: o *gate* 8 passa a correr **quatro** *suites* — `tests_eventos` e `tests_eventos_carga` juntam-se às duas, com uma rede Docker própria, PostgreSQL **e** Valkey (digest em `ci/supply-chain/imagens.yaml`), o contentor da fila sem `--rm` e porta fixa para o critério 4 a poder pará-la, e o `kill -9` mandado ao contentor. A carga fica em *suite* própria por custo das mutações. O *gate* 6 ganha `verificar_particoes`: a política de uma tabela particionada não cobre quem lê a partição directamente. | Equipa KAMBÁ |
+| 1.23 | Outubro 2026 | KAM-005: as *suites* de eventos correm pela primeira vez num anfitrião Linux ([execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356)) e fecham três caixas do bloco — a da fila parada, que no anfitrião Windows não reproduzia, e a do p95, que lá media 6,0 s e aqui mede **0,195 s**. | Equipa KAMBÁ |

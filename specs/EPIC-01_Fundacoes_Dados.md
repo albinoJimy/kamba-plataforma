@@ -612,11 +612,11 @@ Implementar o envelope v1, as tabelas `events_outbox`, `evt_agregado_seq`, `evt_
 - [x] `evt_emitir` insere o evento na transacção do produtor: se esta faz *rollback*, não existe linha no outbox nem lacuna em `agregado_seq` (teste com 1 000 *rollbacks* aleatórios: sequências contíguas).
 - [x] Duas transacções concorrentes sobre o mesmo agregado serializam-se: `seq` 1 e 2 sem lacuna e ordem de `seq` igual à ordem de *commit* (100 repetições).
 - [x] *Kill -9* do publicador entre `add` e `COMMIT` → após reinício o evento é republicado e a fila de cada consumidor contém exactamente 1 *job* por `(consumer, event_id)` (`jobId = event_id`).
-- [ ] Redis parado 60 s com 1 000 eventos emitidos: após o regresso, 100% publicados em ≤ 60 s, 0 perdidos; `tentativas` e `proxima_tentativa_at` recuam com *backoff*.
+- [x] Redis parado 60 s com 1 000 eventos emitidos: após o regresso, 100% publicados em ≤ 60 s, 0 perdidos; `tentativas` e `proxima_tentativa_at` recuam com *backoff*.
 - [x] Duas instâncias do publicador em simultâneo: só uma publica (lock consultivo); a outra assume em ≤ 10 s quando a líder morre (proposta).
 - [x] Um payload com padrão de telefone (`+244 9XXXXXXXX`, `"+<9-15 dígitos>"`) faz `evt_emitir` falhar com `check_violation`.
 - [x] O evento só é entregue a consumidores cuja `finalidade` está em `envelope.finalidades` (roteamento por finalidade); a *fan-out* usa 16 filas `evt.<consumer>.p0..p15` por `hash(tenant_id ‖ agregado.id) & 15`.
-- [ ] Atraso outbox → fila com p95 ≤ 1 s a 50 eventos/s (proposta, a calibrar) e métricas `evt_outbox_lag_seconds`, `evt_publish_total`, `evt_publish_errors_total` expostas.
+- [x] Atraso outbox → fila com p95 ≤ 1 s a 50 eventos/s (proposta, a calibrar) e métricas `evt_outbox_lag_seconds`, `evt_publish_total`, `evt_publish_errors_total` expostas.
 
 ### Detalhes Técnicos
 
@@ -641,7 +641,7 @@ loop: BEGIN; linhas = SELECT ... WHERE publicado_at IS NULL AND proxima_tentativ
 
 ### Definition of Done
 
-- [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
+- [x] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] Código revisto por 2 revisores (toca dinheiro indirectamente e dados de tenant); testes verdes; cobertura ≥ limiar.
 - [x] Documentação actualizada (`docs/eventos.md`); Conventional Commits.
 - [x] **Isolamento de tenant** — RLS nas tabelas de eventos e teste cruzado do novo caminho.
@@ -653,9 +653,12 @@ loop: BEGIN; linhas = SELECT ... WHERE publicado_at IS NULL AND proxima_tentativ
 ### Verificação dos Critérios de Aceitação
 
 Uma linha por caixa, com o que se mediu, o comando e o número que saiu. **16
-caixas no bloco: 12 marcadas, 4 vazias.** As quatro vazias são a da fila parada
-(linha 4, ver o CA 4 abaixo), a do p95 (linha 8), a dos critérios todos (linha
-9, por arrastamento das duas) e a dos revisores (linha 10), e estão nomeadas.
+caixas no bloco: 15 marcadas, 1 vazia.** A vazia é a dos revisores (linha 10), e
+está nomeada. As outras três — a da fila parada (linha 4), a do p95 (linha 8) e
+a dos critérios todos (linha 9) — estiveram vazias até à **primeira execução
+destas *suites* num anfitrião Linux**, que é o que este repositório passou a
+ter: [execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356), *gate* 8 verde em 9 min 9 s. As três fecharam aí,
+com os números abaixo.
 
 Onde correu: PostgreSQL 18.6 (`pgvector/pgvector:0.8.7-pg18`, digest em
 `ci/supply-chain/imagens.yaml`) e Valkey 9.1.2 com `--appendonly yes
@@ -702,20 +705,21 @@ achados, 12 corrigidos, 3 registados, 1 devolvido.
    `add`** — sem ele o BullMQ espera indefinidamente que o cliente esteja
    pronto, e `tentativas` ficava a 0). O tecto da escada de recuo é 30 s, e não
    os 10 min do §6.4: com a escada do §6.4 este critério é impossível.
-   **A caixa fica vazia.** Este resultado foi medido numa execução completa da
-   *suite* e **não reproduz hoje**: nas duas últimas execuções neste anfitrião
-   (Windows, Docker Desktop) o teste falha no primeiro `assertGreater`,
-   `tentativas` fica em **0** e o publicador não escreve uma única linha nem
-   para o `.jsonl` nem para o `stdout` — e **a causa não está apurada**. O
-   segundo vermelho da *suite*
-   (`TestKill9.test_depois_do_kill_o_evento_republica_se_e_fica_um_job`) é
-   arrastamento deste: sozinho passa em 33 s. Um critério cuja prova está
-   vermelha não é um critério satisfeito, e ter estado verde antes não é
-   evidência de hoje. O que a *suite* continua a provar está nas outras
-   caixas; o que falta é a medição deste critério num anfitrião onde
-   ela reproduza — e é a primeira coisa a fazer com o CI a funcionar, porque
-   este caminho inteiro foi escrito a tropeçar em semântica de montagem e de
-   sinais do Docker em Windows, que o *runner* Linux não tem.
+   **A caixa esteve vazia até haver um anfitrião onde a prova reproduza.** No
+   anfitrião de desenvolvimento (Windows, Docker Desktop) o teste falhava no
+   primeiro `assertGreater` — `tentativas` em **0** e o publicador sem escrever
+   uma linha, nem para o `.jsonl` nem para o `stdout` — e a causa nunca foi
+   apurada. O bloco dizia que medir isto num anfitrião onde a prova reproduza
+   era «a primeira coisa a fazer com o CI a funcionar». Foi: em `ubuntu-latest`,
+   `test_mil_eventos_com_a_fila_parada_recuperam_sem_perder_nenhum` **passa**
+   ([execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356), *gate* 8, as 18 da `tests_eventos` em 112 s), e com
+   ele passa o vermelho que dele vinha por arrastamento
+   (`TestKill9.test_depois_do_kill_o_evento_republica_se_e_fica_um_job`). **A
+   caixa marca-se com essa execução**, e não com a execução antiga que esteve
+   verde e deixou de reproduzir. Fica escrito o que isto significa: o caminho
+   funciona em Linux e **não** no anfitrião Windows deste projecto, com a causa
+   dessa diferença por apurar — é dívida de ambiente, não de desenho, e o lugar
+   onde este critério se mede é o CI.
 5. **Duas instâncias, só uma publica, a outra assume em ≤ 10 s** —
    `TestLideranca`, dois testes. A liderança é lida do que cada processo
    **escreve**, não de um `sleep`. Com o primeiro vivo, o segundo nunca se diz
@@ -741,26 +745,31 @@ achados, 12 corrigidos, 3 registados, 1 devolvido.
    (ANALISE-20, achado 4). A conta é a do documento, confirmada em
    `TestParticao.test_a_conta_e_a_do_documento` contra
    `hashtextextended(tenant || agregado_id, 0) & 15`.
-8. **p95 ≤ 1 s a 50 eventos/s e as três métricas expostas** — **VAZIA, e o
-   número está medido.** `db/tests_eventos_carga/test_carga.py` correu 15 000
-   eventos a 50,0/s durante 304 s (taxa efectiva verificada, para que o que se
-   mediu seja mesmo 50/s), **duas vezes**: com a máquina livre, **p95 = 6,0 s e
-   máximo = 20,8 s**; com outra *suite* de base de dados a correr ao lado,
-   **p95 = 15,0 s e máximo = 29,5 s**. Contra o 1 s *proposto* no critério, e
-   nas duas com os 15 000 publicados, os 15 000 arquivados, zero perdidos e zero
-   recuos.
+8. **p95 ≤ 1 s a 50 eventos/s e as três métricas expostas** — **MARCADA, com
+   o número do CI.** `db/tests_eventos_carga/test_carga.py` correu 15 000 eventos
+   a 50,0/s (taxa efectiva verificada, para que o que se mediu seja mesmo 50/s)
+   em `ubuntu-latest`: **p95 = 0,195 s e máximo = 0,288 s**, com os 15 000
+   publicados, os 15 000 arquivados, zero perdidos e zero recuos
+   ([execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356), *gate* 8). Contra o 1 s *proposto* no critério,
+   **cinco vezes abaixo** do limiar.
 
-   **O atraso não vem de lentidão: vem do período do lote.** A 50/s, um lote de
-   200 (o valor do `../docs/tecnica/06` §6.2) enche-se a cada 4 s, e quando o
-   publicador corre à capacidade o atraso de um evento é esse período. Baixar o
-   lote baixa o atraso e aumenta o número de transacções — é o parâmetro a
-   calibrar, e o próprio critério diz «proposta, a calibrar». Não se calibra num
-   portátil com três contentores (Windows, Docker Desktop, PostgreSQL e Valkey
-   em contentores e o publicador num terceiro), e por isso **não se marca a
-   caixa**: o número que o critério pede não foi atingido, e mudar o lote para o
-   atingir sem ambiente representativo seria cumprir em espírito. Duas
-   correcções já entraram pelo caminho (`addBulk` em vez de um `add` por *job*,
-   que levou o p95 de 9,0 s a 6,0 s; e deixar de dormir quando há trabalho).
+   **E este número desmente o que este bloco afirmava.** No anfitrião de
+   desenvolvimento (Windows, Docker Desktop, com PostgreSQL, Valkey e o
+   publicador em três contentores) o mesmo teste deu **p95 = 6,0 s e máximo =
+   20,8 s** com a máquina livre, e **p95 = 15,0 s e máximo = 29,5 s** com outra
+   *suite* ao lado. A explicação escrita aqui era que «o atraso não vem de
+   lentidão: vem do período do lote» — a 50/s, um lote de 200 (o valor do
+   `docs/tecnica/06` §6.2) enche-se a cada 4 s. **Não se sustenta**: se o atraso
+   fosse o período do lote, o Linux daria os mesmos 4 s, e deu 0,195 s. O
+   publicador não espera que o lote encha — não dorme quando há trabalho —, pelo
+   que os 6 a 15 s eram do anfitrião e não do desenho. Fica como lição do
+   conjunto: **uma explicação plausível para um número não é evidência da sua
+   causa**, e esta chegou a passar por requisito de calibração sem nada a
+   sustentá-la. O lote continua a ser um parâmetro a calibrar em ambiente
+   representativo, mas já não há medição que o obrigue. As duas correcções que
+   entraram pelo caminho continuam a valer (`addBulk` em vez de um `add` por
+   *job*, que no anfitrião Windows levou o p95 de 9,0 s a 6,0 s; e deixar de
+   dormir quando há trabalho).
 
    A **segunda metade do critério está satisfeita**: as três métricas
    (`evt_outbox_lag_seconds`, `evt_publish_total`, `evt_publish_errors_total`)
@@ -772,19 +781,22 @@ achados, 12 corrigidos, 3 registados, 1 devolvido.
    7). Ressalva nomeada: não há teste da rota `/metrics` nem comparação do
    *gauge* com a base sob carga (ANALISE-20 §4.4). O que o gate impõe é um
    **tecto de regressão** de 60 s, que apanha o publicador que deixou de
-   acompanhar sem fingir que o limiar *proposto* está cumprido — e é generoso de
-   propósito: a segunda medição chegou aos 29,5 s só por haver outra *suite* na
-   máquina, e um tecto que falha por carga do *runner* é um gate que mente.
+   acompanhar — e é generoso de propósito: no anfitrião Windows a segunda medição
+   chegou aos 29,5 s só por haver outra *suite* na máquina, e um tecto que falha
+   por carga do *runner* é um gate que mente. Com o p95 do CI em 0,195 s, o tecto
+   tem agora **duas ordens de grandeza** de folga: é um gate de regressão grosso,
+   e aperta-se quando houver histórico de execuções em Linux que o calibre.
    Quem apanha o publicador parado, antes do tecto, é a espera de
    `pendentes() == 0`.
 
 **Definition of Done**
 
-9. **Todos os CA satisfeitos e demonstráveis** — **VAZIA**, por arrastamento do
-   critério 8: sete dos oito estão satisfeitos e demonstrados com os comandos e
-   os números acima; o oitavo tem o número medido e acima do limiar *proposto*.
-   As *suites* `tests` (gate 8), `tests_isolamento` (gate 6), `tests_eventos` e
-   `tests_eventos_carga` (gate 8) correm no CI.
+9. **Todos os CA satisfeitos e demonstráveis** — **MARCADA**. Os oito estão
+   satisfeitos e demonstrados com os comandos e os números acima, os dois últimos
+   (4 e 8) na [execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356). As *suites* `tests` (gate 8),
+   `tests_isolamento` (gate 6), `tests_eventos` e `tests_eventos_carga` (gate 8)
+   correm no CI, e é de lá que vêm os números destas duas — não de uma execução à
+   mão que ninguém pode repetir.
 10. **Código revisto por 2 revisores** — **VAZIA**. Houve uma revisão
     adversarial independente ([`ANALISE-20`](../docs/analises/ANALISE-20-KAM-005-outbox-e-eventos.md)),
     e uma revisão adversarial é evidência, não é um revisor. O ticket altera
@@ -5572,3 +5584,4 @@ Testes: G6, G7, G8 (canário), G1, G3, G5 e G4 do bloco, antes e depois. Abre PR
 | 1.27 | Outubro 2026 | KAM-145: os **28** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
 | 1.28 | Outubro 2026 | KAM-145, KAM-146 e KAM-147 entregues, no mesmo PR. O **KAM-145** declarou que o executor de um bloco de *handoff* corre na raiz do repositório e converteu as **254** ocorrências defeituosas dos onze epics (11 caixas marcadas, 1 vazia); o **KAM-146** escreveu as **onze** linhas de «Controlo de versões» que faltavam, fechando a contagem em 15 de 15 (9 e 1); o **KAM-147** emendou as duas linhas de DoD que prometiam um anexo de evidência inexistente, pela via do KAM-002 (9 e 1). Com eles, **o KAM-128 fica com os dez Critérios de Aceitação marcados e a primeira linha de DoD também**; o KAM-129 continua com dois CA em aberto, que não eram âmbito de nenhum dos três. As três caixas de revisores humanos ficaram vazias, à letra. | Equipa KAMBÁ |
 | 1.29 | Outubro 2026 | KAM-005 entregue: 12 caixas marcadas e 4 vazias (a da fila parada, cuja prova esteve verde numa execução completa e deixou de reproduzir neste anfitrião, com a causa não apurada; o p95 do atraso, medido em 6,0 s com a máquina livre e 15,0 s com outra *suite* ao lado, contra o 1 s *proposto*; a dos critérios todos, por arrastamento; e a dos revisores humanos), com secção de verificação e os dois defeitos que a medição encontrou — o falso positivo da guarda de PII em identificadores opacos (fixado por teste, devolvido) e a escrita cruzada em `evt_agregado_seq` (corrigida com desvio ao DDL). `uuidv7()` CONFIRMADO no PG 18.6 fixado; as garantias do BullMQ mantêm-se NÃO VERIFICADO. A revisão adversarial está em [`ANALISE-20`](../docs/analises/ANALISE-20-KAM-005-outbox-e-eventos.md): 16 achados, 12 corrigidos. | Equipa KAMBÁ |
+| 1.30 | Outubro 2026 | KAM-005: as três caixas que faltavam fecham com a primeira execução das *suites* de eventos num anfitrião **Linux** ([execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356)). O CA 4 (fila parada) passa; o CA 8 dá **p95 = 0,195 s** contra o 1 s *proposto*, cinco vezes abaixo — e desmente a explicação que este bloco dava para os 6–15 s medidos em Windows («o período do lote»), que era plausível e não era evidência. Ficam **15 caixas marcadas e 1 vazia** (os dois revisores). | Equipa KAMBÁ |

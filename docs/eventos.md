@@ -362,30 +362,38 @@ abrir lá a rota mudava um contrato de outro ticket por conveniência deste.
 Não há quem recolha estas métricas: é a mesma lacuna que `docs/isolamento.md` §7
 registou para `rls_context_missing_total`. Uma pilha de recolha não tem ticket.
 
-### O atraso medido, e porque a caixa do critério 8 ficou vazia
+### O atraso medido, e o anfitrião que o explicava mal
 
-A medição de carga deste ticket — 15 000 eventos a 50,0/s durante 304 s — correu
-duas vezes: com a máquina livre, **p95 = 6,0 s e máximo = 20,8 s**; com outra
-*suite* de base de dados ao lado, **p95 = 15,0 s e máximo = 29,5 s**. Contra o
-1 s *proposto* no critério, e nas duas com tudo publicado, tudo arquivado, zero
-perdidos e zero recuos.
+**O número que conta é o do CI**, porque é o que qualquer pessoa pode repetir:
+15 000 eventos a 50,0/s em `ubuntu-latest` deram **p95 = 0,195 s e máximo =
+0,288 s** ([execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356), *gate* 8), com tudo publicado, tudo
+arquivado, zero perdidos e zero recuos. Contra o 1 s *proposto* no critério,
+cinco vezes abaixo — e por isso a caixa do critério 8 está **marcada**.
 
-**O atraso não vem de lentidão: vem do período do lote.** A 50 eventos/s, um
-lote de 200 — o valor do `docs/tecnica/06` §6.2 — enche-se a cada 4 s, e quando o
-publicador corre à capacidade o atraso de um evento é esse período. Duas
-correcções entraram pelo caminho e ajudaram sem resolver: o `addBulk` em vez de
-um `add` por *job*, que levou o p95 de 9,0 s a 6,0 s, e deixar de dormir os
-200 ms entre ciclos quando há trabalho.
+No anfitrião de desenvolvimento a mesma medição deu outra coisa: com a máquina
+livre, **p95 = 6,0 s e máximo = 20,8 s**; com outra *suite* de base de dados ao
+lado, **p95 = 15,0 s e máximo = 29,5 s**.
 
-O que resolve é **baixar o lote** — o que aumenta o número de transacções — e
-isso é calibração. O ambiente da medição (Windows, Docker Desktop, PostgreSQL e
-Valkey em contentores e o publicador num terceiro) não é onde um alvo de latência
-se calibra — e a diferença entre as duas medições mostra-o: 2,5× de variação só
-por haver outra *suite* na máquina. Por isso os números ficam escritos, a caixa
-fica vazia, e o que o gate impõe é um **tecto de regressão** de 60 s — generoso
-de propósito, porque um tecto que falha por carga do *runner* é um gate que
-mente. Quem apanha o publicador parado é a espera de `pendentes() == 0`, antes
-do tecto. Decisão aberta 8.
+**A explicação que este documento dava para esses segundos estava errada, e vale
+a pena dizer porquê.** Dizia: «o atraso não vem de lentidão, vem do período do
+lote» — a 50 eventos/s um lote de 200 (o valor do `docs/tecnica/06` §6.2)
+enche-se a cada 4 s. Se fosse isso, o Linux daria os mesmos 4 s. Deu 0,195 s. O
+publicador não espera que o lote encha — não dorme os 200 ms quando há trabalho
+—, pelo que o lote nunca foi o tecto do atraso: os 6 a 15 s eram do anfitrião
+(Windows, Docker Desktop, PostgreSQL e Valkey em contentores e o publicador num
+terceiro), e a variação de 2,5× entre as duas medições era o mesmo sinal. Uma
+explicação plausível para um número não é evidência da sua causa.
+
+As duas correcções que entraram pelo caminho continuam a valer: o `addBulk` em
+vez de um `add` por *job* (que no anfitrião Windows levou o p95 de 9,0 s a 6,0 s)
+e deixar de dormir entre ciclos quando há trabalho.
+
+Baixar o lote continua a ser calibração possível, mas já não há medição que a
+obrigue. O que o gate impõe é um **tecto de regressão** de 60 s — generoso de
+propósito, porque um tecto que falha por carga do *runner* é um gate que mente,
+e com o p95 em 0,195 s tem duas ordens de grandeza de folga. Quem apanha o
+publicador parado é a espera de `pendentes() == 0`, antes do tecto. Decisão
+aberta 8.
 
 ### Porque é um processo do `worker-canal` e não um serviço próprio
 
@@ -492,7 +500,7 @@ aberta.
 | 5 | **O *job* de retenção do *outbox* publicado** (7 dias, §7.4): o privilégio existe (`DELETE` ao `kamba_batch`), o *job* não | Sem ticket; idem |
 | 6 | **`order.paid` não está no dicionário.** O Contexto do KAM-005 e o catálogo de `docs/tecnica/06` §5 usam-no; o §3.5 do dicionário («Tipos do Piloto») não o tem | Devolvida — paga-a o KAM-007, com o catálogo |
 | 7 | **`LISTEN evt_novo` sem quem faça `NOTIFY`.** O publicador escuta o canal (§6.2) e o `evt_emitir` não o avisa: o laço acorda pelo intervalo de 200 ms, que é o limite superior do atraso | Sem ticket; o `NOTIFY` entra quando o atraso medido o justificar |
-| 8 | **O limiar de p95 ≤ 1 s** a 50 eventos/s é *proposta* do próprio ticket. **Medido: 6,0 s com a máquina livre, 15,0 s com outra *suite* ao lado**, com tudo publicado e nada perdido — o atraso é o período do lote de 200 (§6.2), não lentidão. Calibrar o lote, e medir em ambiente representativo, é o que falta | Aberta, com o número escrito (§6). A caixa do critério 8 ficou **vazia** |
+| 8 | **O limiar de p95 ≤ 1 s** a 50 eventos/s é *proposta* do próprio ticket. **Medido no CI (`ubuntu-latest`): p95 = 0,195 s, máximo = 0,288 s** ([execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356)) — cinco vezes abaixo do limiar, com tudo publicado e nada perdido. No anfitrião Windows deu 6,0 s e 15,0 s, e a explicação que este documento dava para a diferença (o período do lote de 200, §6.2) **não se sustenta**: se fosse o lote, o Linux daria os mesmos 4 s | Fechada com o número do CI (§6). A caixa do critério 8 está **marcada** |
 | 10 | **A emenda 1.9 do dicionário é *proposta*, e este PR apagou a extensão `contact_endpoints.finalidade`** que o KAM-008 tinha em `canon/extensoes.yaml` (ficou redundante com o nome no §3.5). Se a emenda não for ratificada, a extensão tem de ser reposta **no mesmo passo**, ou o gate 3b falha numa superfície do KAM-008 | Registada (ANALISE-20 §4.3) |
 | 11 | **A guarda de PII tem falsos positivos em identificadores opacos.** O `+` de `\+?244 ?9[0-9]{8}` é opcional, pelo que qualquer corrida de doze dígitos começada por `2449` é apanhada — e um identificador hexadecimal de 32 caracteres contém uma dessas de vez em quando (aconteceu na medição de carga, ao evento ~8 000 de 15 000). **A consequência é a transacção de negócio a falhar**, porque `evt_emitir` corre nela. Apertar o padrão — exigir o `+`, ou uma fronteira de palavra — muda o §6.1 | Devolvida. O comportamento está fixado por teste, não corrigido |
 | 9 | **Quem recolhe as métricas.** Existem em memória e em `/metrics`; não há Prometheus (§6) | Sem ticket, como em `docs/isolamento.md` §7 |
@@ -502,3 +510,4 @@ aberta.
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão (KAM-005): revisão `0004`, envelope v1, publicador de instância única, roteamento por finalidade, as três métricas, e o que fica por decidir. Registo de que `uuidv7()` é CONFIRMADO no PG 18.6 fixado, de que a política de uma tabela particionada não cobre a partição, e de que a escada do §6.4 é da DLQ e não do *outbox*. | Equipa KAMBÁ |
+| 1.1 | Outubro 2026 | O atraso medido passa a ser o do CI: **p95 = 0,195 s** a 50 eventos/s em `ubuntu-latest` ([execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356)), cinco vezes abaixo do limiar *proposto*. A explicação que o §6 dava para os 6–15 s medidos em Windows — «o período do lote» — fica corrigida: se fosse o lote, o Linux daria os mesmos 4 s. A ressalva 8 do §10 fecha. | Equipa KAMBÁ |
