@@ -32,7 +32,7 @@ class TestCatalogoReal(ComBase):
         """O criterio diz «inicialmente vazia»; quem a encher muda este teste a ver."""
         self.assertEqual(catalogo.excepcoes_rls(), {})
 
-    def test_a_descoberta_encontra_as_nove_tabelas(self) -> None:
+    def test_a_descoberta_encontra_as_doze_tabelas(self) -> None:
         """Se a descoberta encolher, a suite inteira passa a testar menos."""
         self.assertEqual(
             catalogo.tabelas_isoladas(self.cursor),
@@ -41,8 +41,15 @@ class TestCatalogoReal(ComBase):
                 ("platform", "contact_endpoints", "tenant_id"),
                 ("platform", "contacts", "tenant_id"),
                 ("platform", "entitlements", "tenant_id"),
+                # KAM-006: as tres do consumo. A `evt_dlq_aprovacoes` **nao**
+                # esta aqui, e nao e esquecimento: nao tem `tenant_id`, porque
+                # o isolamento do que se aprova vem da linha da DLQ que ela
+                # referencia.
+                ("platform", "events_consumed", "tenant_id"),
+                ("platform", "events_dlq", "tenant_id"),
                 ("platform", "events_log", "tenant_id"),
                 ("platform", "events_outbox", "tenant_id"),
+                ("platform", "evt_acoes", "tenant_id"),
                 ("platform", "evt_agregado_seq", "tenant_id"),
                 ("platform", "tenant_channels", "tenant_id"),
                 ("platform", "tenants", "id"),

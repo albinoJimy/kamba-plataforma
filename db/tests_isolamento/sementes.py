@@ -219,6 +219,47 @@ def _evento_no_arquivo(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+# As tres receitas do consumo (KAM-006). Semeia o administrador da instancia,
+# pela mesma razao das de eventos: `kamba_app` escreve-as sob `WITH CHECK` e as
+# receitas nao definem contexto de tenant.
+
+
+def _consumo(cursor, tenant_id: str, canario: str) -> None:
+    """Uma linha da janela de deduplicacao. O canario vai no `agregado_id`."""
+    cursor.execute(
+        "INSERT INTO platform.events_consumed "
+        "(consumer, event_id, tenant_id, agregado_tipo, agregado_id, agregado_seq) "
+        "VALUES ('ensaio-iso', gen_random_uuid(), %s::uuid, 'order', %s::text, 1)",
+        (tenant_id, canario),
+    )
+
+
+def _entrada_na_dlq(cursor, tenant_id: str, canario: str) -> None:
+    """Uma entrada aberta da DLQ. O canario vai no `agregado_id` do envelope...
+
+    ...e tambem na coluna `erro`, que e a unica de texto arbitrario desta
+    tabela. O envelope e coerente com a linha, como nas receitas de eventos: um
+    envelope com outro `tenant_id` era um canario falso.
+    """
+    cursor.execute(
+        "INSERT INTO platform.events_dlq "
+        "(consumer, event_id, tipo, versao, tenant_id, envelope, erro, tentativas) "
+        "VALUES ('ensaio-iso', gen_random_uuid(), 'order.created', 1, %s::uuid, "
+        f"{_ENVELOPE}, %s::text, 6)",
+        (tenant_id, tenant_id, canario, canario, canario),
+    )
+
+
+def _accao_externa(cursor, tenant_id: str, canario: str) -> None:
+    """Uma accao externa registada. O canario vai na `accao`."""
+    cursor.execute(
+        "INSERT INTO platform.evt_acoes "
+        "(idempotency_key, consumer, event_id, accao, tenant_id) "
+        "VALUES (%s, 'ensaio-iso', gen_random_uuid(), %s, %s::uuid)",
+        (f"ensaio-iso:{canario}", canario, tenant_id),
+    )
+
+
 #: (schema, tabela) -> receita. A ordem de insercao respeita as FK.
 RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "tenants"): Receita(_tenant, "nome", "nome", "Nome alterado"),
@@ -251,6 +292,25 @@ RECEITAS: dict[tuple[str, str], Receita] = {
         _evento_no_arquivo, "agregado_id", None, None,
         semeador="admin", escrita_do_papel=False,
     ),
+    # KAM-006. `kamba_app` insere e le as suas linhas da janela de
+    # deduplicacao, e nao altera nenhuma: apagar ou mexer numa linha daqui era
+    # permitir que o efeito se repetisse, e isso e da retencao (`kamba_batch`).
+    ("platform", "events_consumed"): Receita(
+        _consumo, "agregado_id", None, None, semeador="admin"
+    ),
+    # A DLQ e o unico sitio onde `kamba_app` **escreve sem ler**: o `id` e
+    # sequencial e um papel com RLS que o lesse media o volume de falhas do
+    # vizinho. A politica continua a valer na escrita (`WITH CHECK`), e e isso
+    # que o X-04 exercita; a leitura do papel esta fechada por privilegio.
+    ("platform", "events_dlq"): Receita(
+        _entrada_na_dlq, "erro", None, None,
+        semeador="admin", escrita_do_papel=False,
+    ),
+    # As accoes externas: `kamba_app` regista e fecha a sua (o `UPDATE` e por
+    # coluna, e o `estado` e uma delas).
+    ("platform", "evt_acoes"): Receita(
+        _accao_externa, "accao", "estado", "falhada", semeador="admin"
+    ),
 }
 
 #: `tenants` primeiro: as outras referenciam-na. Depois, pela ordem das FK. As
@@ -266,6 +326,9 @@ ORDEM = (
     ("platform", "events_outbox"),
     ("platform", "evt_agregado_seq"),
     ("platform", "events_log"),
+    ("platform", "events_consumed"),
+    ("platform", "events_dlq"),
+    ("platform", "evt_acoes"),
 )
 
 #: As identidades com que as receitas semeiam.
