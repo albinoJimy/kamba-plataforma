@@ -136,9 +136,14 @@ async function principal(): Promise<void> {
     efeito: async () => {},
     metricas: METRICAS,
     url: urlDaFila,
-    log: (dados) => log.info({ outcome: 'consumo', ...dados }),
+    // O `log` da biblioteca tem *allowlist* de campos (`docs/tecnica/08`
+    // §7.3): `consumer`, `fila` e `event_id` **não** estão nela, e um campo
+    // fora dela é erro de compilação — que é como deve ser, porque um
+    // `event_id` num registo é um identificador a mais. Fica o desfecho, e o
+    // detalhe vive na base (`events_consumed`, `events_dlq`).
+    log: (dados) => log.info({ outcome: `consumo_${String(dados.desfecho)}` }),
   });
-  log.info({ outcome: 'service_started', consumer, filas: filasDe(consumer).length });
+  log.info({ outcome: 'service_started' });
 
   const filas = new FilasBullmq({ url: urlDaFila });
   const paragem = new AbortController();
