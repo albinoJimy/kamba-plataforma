@@ -10,7 +10,8 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from lint_handoff.scan import varrer_arvore, varrer_ficheiro
+from lint_handoff.scan import (PADROES, contar_blocos, ficheiros, varrer_arvore,
+                               varrer_ficheiro)
 
 CERCA = '```'
 
@@ -131,6 +132,59 @@ class TestArvore(unittest.TestCase):
                     _doc(f'### Handoff para Claude Code\n\n§text\n{p}\n§\n'), encoding='utf-8')
             self.assertEqual([x.ficheiro for x in varrer_arvore(raiz)],
                              ['specs/EPIC-01_A.md', 'specs/EPIC-02_B.md'])
+
+
+class TestOsDoisSitios(unittest.TestCase):
+    """Os blocos vivem em dois sitios desde o KAM-155, e o gate le os dois.
+
+    O EPIC-01 passou a ter um ficheiro por ticket em `specs/tickets/`; os outros
+    dez epics mantem os blocos no proprio ficheiro. Com um glob so, 39 blocos
+    deixavam de ser lidos — e o gate dizia «conforme».
+    """
+
+    BLOCO = ('## KAM-{n} — t\n\n### Handoff para Claude Code\n\n'
+             '§text\n../docs/{f}.md\n§\n')
+
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.raiz = Path(self._tmp.name)
+        (self.raiz / 'specs' / 'tickets').mkdir(parents=True)
+        (self.raiz / 'specs' / 'EPIC-02_B.md').write_text(
+            _doc(self.BLOCO.format(n='013', f='a')), encoding='utf-8')
+        (self.raiz / 'specs' / 'tickets' / 'KAM-001.md').write_text(
+            _doc(self.BLOCO.format(n='001', f='b')), encoding='utf-8')
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_os_padroes_por_omissao_sao_os_dois(self) -> None:
+        self.assertEqual(PADROES, ('specs/EPIC-*.md', 'specs/tickets/*.md'))
+
+    def test_le_o_epic_e_o_ficheiro_de_ticket(self) -> None:
+        self.assertEqual([x.ficheiro for x in varrer_arvore(self.raiz)],
+                         ['specs/EPIC-02_B.md', 'specs/tickets/KAM-001.md'])
+
+    def test_um_padrao_so_deixa_metade_sem_ser_lida(self) -> None:
+        """A razao de a lista existir: era isto que acontecia antes do KAM-155."""
+        self.assertEqual([x.ficheiro for x in varrer_arvore(self.raiz, 'specs/EPIC-*.md')],
+                         ['specs/EPIC-02_B.md'])
+
+    def test_os_blocos_e_os_titulos_batem_sobre_as_duas_pastas(self) -> None:
+        self.assertEqual(contar_blocos(self.raiz), (2, 2))
+
+    def test_padroes_que_se_sobrepoem_nao_contam_duas_vezes(self) -> None:
+        """Sem tirar repetidos, blocos e titulos dobravam os dois — e batiam.
+
+        Uma conta que mente ao contrario e pior do que uma que falha: a guarda
+        do `check` compara os dois numeros, e 4 contra 4 passa tao bem como
+        2 contra 2.
+        """
+        padroes = ('specs/tickets/*.md', 'specs/tickets/KAM-001.md', 'specs/EPIC-*.md')
+        self.assertEqual([f.name for f in ficheiros(self.raiz, padroes)],
+                         ['EPIC-02_B.md', 'KAM-001.md'])
+        self.assertEqual(contar_blocos(self.raiz, padroes), (2, 2))
+
+    def test_uma_cadeia_vale_como_lista_de_um(self) -> None:
+        self.assertEqual(ficheiros(self.raiz, 'specs/tickets/*.md'),
+                         ficheiros(self.raiz, ('specs/tickets/*.md',)))
 
 
 if __name__ == '__main__':

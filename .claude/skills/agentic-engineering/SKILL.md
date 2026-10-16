@@ -159,7 +159,7 @@ Quando duas fontes discordam, **não escolhas em silêncio**. Regista o conflito
 | 3 | `specs/02_Dicionario_de_Dados_Canonico.md` — **prevalece sobre `docs/tecnica/` até KAM-111 estar feito** |
 | 4 | `specs/01_Engineering_Standards_e_Handoff.md` — DoR, DoD, gates, convenções |
 | 5 | `specs/INDICE.md` §4 — backlog mestre: a linha do ticket é o contrato (ID, tipo, estimativa, prioridade, fase, dependências) |
-| 6 | O ticket `KAM-NNN` no `specs/EPIC-XX_*.md` e os seus critérios de aceitação |
+| 6 | O ticket `KAM-NNN` — em `specs/tickets/KAM-NNN.md` no EPIC-01, no `specs/EPIC-XX_*.md` nos outros dez — e os seus critérios de aceitação |
 | 7 | `docs/tecnica/01`–`docs/tecnica/10` — desenho por subsistema |
 | 8 | `docs/tecnica/evidencia/E1`–`E5` — factos sobre Meta, pagamentos, lei, licenças e módulos de entrada, **com o seu estado** |
 | 9 | `docs/exploracao/14-tese-minima-e-plano-de-validacao.md` — escopo do Piloto e hipóteses H1…H12 |
@@ -452,7 +452,7 @@ Sem evidência, escreve `NÃO VERIFICADO`. É informação útil. «Provavelment
 | Nome, estado, evento ou unidade | `specs/02_Dicionario_de_Dados_Canonico.md` §3, com emenda no §6 |
 | Facto novo sobre Meta, pagamentos, lei, licenças | `docs/tecnica/evidencia/EN_*.md`, com URL, data e estado |
 | Hipótese de negócio nova | `docs/exploracao/14-tese-minima-e-plano-de-validacao.md` §2 (H#), com limiar e prazo |
-| Trabalho a fazer | ticket novo em `specs/EPIC-XX_*.md` **e** linha no backlog mestre `specs/INDICE.md` §4 |
+| Trabalho a fazer | ticket novo em `specs/tickets/KAM-NNN.md` (EPIC-01) ou `specs/EPIC-XX_*.md` (os outros dez) **e** linha no backlog mestre `specs/INDICE.md` §4 |
 | Achado de revisão | `docs/analises/ANALISE-NN-<slug>.md` |
 | Resíduo textual fora do âmbito (sem código nem decisão) | `docs/dividas-documentais.md`, uma linha |
 | Desenho de subsistema | `docs/tecnica/01`–`docs/tecnica/10`, na secção própria ou como adenda datada |

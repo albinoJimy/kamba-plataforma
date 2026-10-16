@@ -89,13 +89,26 @@ areas:
       positivos, com o ficheiro de origem.
 
 excepcoes:
-  - ficheiro: specs/EPIC-01_Fundacoes_Dados.md
+  - ficheiro: specs/tickets/KAM-002.md
     token: KAM-999
     razao: >-
       Linha de `Testes Requeridos` do proprio KAM-002: "lint_refs (referencias
       validas, `KAM-999`, `ADR-020`, `D13`)". E um ID deliberadamente invalido,
       citado como criterio de teste. Sem esta entrada, o ficheiro do ticket que
-      pede o gate 3 e o primeiro a ser reprovado por ele.
+      pede o gate 3 e o primeiro a ser reprovado por ele. A chave era
+      `specs/EPIC-01_Fundacoes_Dados.md` enquanto o bloco vivia no epic; o
+      KAM-155 mudou-a com o bloco, para a excepcao continuar a cobrir as duas
+      ocorrencias que a justificam e nada mais.
+
+  - ficheiro: specs/tickets/KAM-155.md
+    token: KAM-999
+    razao: >-
+      Duas passagens do bloco do KAM-155 citam o ID a falar da **propria
+      excepcao** que este ficheiro declara: a dos `Testes Requeridos` («a
+      excepcao do KAM-999 vale no ficheiro do ticket e nao no epic») e a linha 7
+      da verificacao, que registra que a chave seguiu o bloco. Nao e uma
+      referencia a um ticket: e a citacao de um ID deliberadamente invalido, a
+      mesma razao da entrada do KAM-002.
 
   - ficheiro: docs/ci.md
     token: KAM-999

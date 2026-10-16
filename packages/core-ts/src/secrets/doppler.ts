@@ -5,8 +5,8 @@
  *
  * Está **escrita e testada contra um *fake* de transporte, sem credenciais e
  * sem nunca ter falado com a Doppler**. Não existe conta Doppler neste ticket
- * (ver `specs/EPIC-01_Fundacoes_Dados.md`, bloco KAM-010, secção
- * «Verificação dos Critérios de Aceitação»), pelo que:
+ * (ver `specs/tickets/KAM-010.md`, secção «Verificação dos Critérios de
+ * Aceitação» — o bloco saiu do ficheiro do epic no KAM-155), pelo que:
  *
  * - O caminho, os parâmetros e a **forma exacta da resposta** da API são
  *   **NÃO VERIFICADO**. Confirmam-se na referência da API em

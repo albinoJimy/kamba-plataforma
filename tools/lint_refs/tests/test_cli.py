@@ -96,8 +96,16 @@ class TestExcepcoes(unittest.TestCase):
                 self.assertTrue(self.excepcoes.permite("qualquer/ficheiro.md", token))
 
     def test_a_excepcao_do_kam_999_e_so_no_ficheiro_do_ticket(self) -> None:
-        """Esta e a excepcao que impede o ticket de reprovar o seu proprio gate."""
-        self.assertTrue(
+        """Esta e a excepcao que impede o ticket de reprovar o seu proprio gate.
+
+        O ficheiro e o do KAM-002 em `specs/tickets/`: o KAM-155 tirou os blocos
+        de ticket do `specs/EPIC-01_Fundacoes_Dados.md`, que ficou indice, e a
+        excepcao seguiu o bloco. O epic deixou de a ter, e e isso que a segunda
+        assercao fixa — senao a excepcao passava a cobrir um ficheiro onde o
+        token nao aparece.
+        """
+        self.assertTrue(self.excepcoes.permite("specs/tickets/KAM-002.md", "KAM-999"))
+        self.assertFalse(
             self.excepcoes.permite("specs/EPIC-01_Fundacoes_Dados.md", "KAM-999")
         )
 
