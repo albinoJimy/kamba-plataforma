@@ -124,8 +124,10 @@ class TestCatalogoReal(ComBase):
         self.assertEqual(
             [l[0] for l in linhas],
             ["contact_deks", "contact_endpoints", "contacts", "entitlements",
+             # KAM-006: as tres do consumo com `tenant_id`.
+             "events_consumed", "events_dlq",
              "events_log", "events_log_default", "events_outbox",
-             "evt_agregado_seq", "tenant_channels", "tenants"],
+             "evt_acoes", "evt_agregado_seq", "tenant_channels", "tenants"],
         )
         for tabela, comando, permissiva, papeis, qual, com_check in linhas:
             with self.subTest(tabela=tabela):

@@ -136,9 +136,9 @@ async function principal(): Promise<void> {
     efeito: async () => {},
     metricas: METRICAS,
     url: urlDaFila,
-    log: (dados) => log.info('consumo', dados),
+    log: (dados) => log.info({ outcome: 'consumo', ...dados }),
   });
-  log.info('arrancou', { consumer, filas: filasDe(consumer).length });
+  log.info({ outcome: 'service_started', consumer, filas: filasDe(consumer).length });
 
   const filas = new FilasBullmq({ url: urlDaFila });
   const paragem = new AbortController();
