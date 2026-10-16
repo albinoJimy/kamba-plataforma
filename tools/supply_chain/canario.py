@@ -488,7 +488,13 @@ MUTACOES: tuple[Mutacao, ...] = (
     Mutacao(
         "bloqueado-so-no-papel",
         "um componente registado como `bloqueado` que a lista de bloqueio nao bloqueia",
-        frozenset({"bloqueado-fora-da-lista"}),
+        # **Dois** achados, e nao um, desde o KAM-005: o BullMQ entrou no
+        # repositorio (e dependencia de `packages/core-ts`), e por isso
+        # declara-lo `bloqueado` deixa de ser so «bloqueado fora da lista de
+        # bloqueio» — passa a ser tambem «componente presente sem aprovacao».
+        # Os dois achados sao correctos e a mutacao continua a provar a regra
+        # que vinha provar; o que mudou foi o mundo, nao o lint.
+        frozenset({"bloqueado-fora-da-lista", "componente-presente-sem-aprovacao"}),
         lambda c: c.trocar(_LICENCAS, _ESTADO_DO_BULLMQ, '    estado: bloqueado\n    ligacoes:\n      - "npm:bullmq"'),
     ),
     Mutacao(

@@ -102,6 +102,34 @@ pendentes_de_decisao:
       Redis >= 7.4 mudou para RSAL/SSPL; o Redis 8 volta a oferecer AGPL
       (conhecimento geral, NAO VERIFICADO em E4 §2.8). A alternativa e o Valkey
       (BSD-3-Clause). Enquanto a D12 estiver aberta, o Redis nao e aprovado.
+    # A travagem e por **nome** e por correspondencia parcial, de proposito: sem
+    # isso um `redis-stack-server` passava ao lado. O preco e apanhar pacotes
+    # cujo nome contem `redis` e que **nao sao o servidor** — e esses nomeiam-se
+    # aqui, um a um, com a razao. A lista nao e uma dispensa: e a distincao
+    # entre o componente que a D12 trava (o servidor) e bibliotecas de cliente
+    # que nada tem a ver com a licenca dele.
+    #
+    # KAM-005: o publicador usa o `ioredis`, que e o cliente que o BullMQ tem
+    # como *peer*. Os tres sao MIT e sao do mesmo autor do `ioredis`.
+    excepcoes:
+      - nome: ioredis
+        razao: >-
+          Cliente Node para Redis-compativel (MIT). E uma biblioteca de
+          cliente, nao o servidor: fala com o Valkey do compose tal como
+          falaria com um Redis, e a sua licenca nao depende da D12.
+      - nome: redis-parser
+        razao: >-
+          Analisador do protocolo RESP (MIT), dependencia do `ioredis`. Le
+          octetos; nao e o servidor.
+      - nome: redis-errors
+        razao: >-
+          Classes de erro do `ioredis` (MIT). Nao e o servidor.
+      - nome: "@ioredis/commands"
+        razao: >-
+          Tabela dos comandos do protocolo, gerada (MIT). E uma lista de nomes
+          de comandos e da sua aritmetica; nao e o servidor. Entra pelo
+          `ioredis` e ha mais do que uma versao na loja do `pnpm`, pelo que a
+          excepcao e por nome e vale para todas.
   - nome: valkey
     decisao: D12
     razao: >-

@@ -900,9 +900,10 @@ dispensa.
 
 #### A segunda metade: identidade de contacto (KAM-008)
 
-O `make ci-8` corre duas *suites*, cada uma com a sua base descartável:
-`tests` (as migrações, acima) e **`tests_identidade`**, que entrou com o
-KAM-008. Esta põe o módulo de identidade — TypeScript, em
+O `make ci-8` corre **quatro** *suites*, cada uma com a sua base descartável:
+`tests` (as migrações, acima), **`tests_identidade`** (esta secção),
+**`tests_eventos`** e **`tests_eventos_carga`** (a secção seguinte, KAM-005).
+A de identidade entrou com o KAM-008. Esta põe o módulo de identidade — TypeScript, em
 `packages/core-ts/src/identity/` — a correr contra o PostgreSQL com o papel
 `kamba_identity` verdadeiro e a RLS ligada. O desenho está em
 [`identidade.md`](identidade.md); aqui fica o que o *gate* mede.
@@ -924,6 +925,46 @@ KAM-008. Esta põe o módulo de identidade — TypeScript, em
   limiar do estrato `critico` (90%), lido de `ci/thresholds.yaml`.
   `contactos.ts` está excluído da medição do *gate* 4 por essa razão, e só por
   essa: sem base de dados, o serviço não corre.
+
+#### A terceira e a quarta: o publicador de eventos (KAM-005)
+
+O KAM-005 acrescenta duas *suites*, e são as primeiras que precisam de **mais do
+que uma base de dados**: o publicador entrega a filas BullMQ, e as garantias de
+entrega do BullMQ estão `NÃO VERIFICADO` (`tecnica/evidencia/E4` §2.10). O
+recuo, a republicação depois de um `kill -9`, a eleição de líder e o atraso sob
+carga não se provam contra uma fila em memória — provar contra uma fila falsa era
+provar o desenho do teste.
+
+Por isso, para estas duas, o `db/gate_bd.py` levanta **uma rede Docker própria**
+com o PostgreSQL e um Valkey 9.1.2 (`--appendonly yes --appendfsync everysec`, a
+configuração que o desenho assume), os dois em `tmpfs` e apagados no fim. O
+digest do Valkey está em `ci/supply-chain/imagens.yaml` e a constante
+`IMAGEM_FILA` de `db/gate_bd.py` está declarada em `fontes_adicionais`, pelo que
+o *gate* 11 falha se os dois divergirem.
+
+Três detalhes que são decisões, e não acidentes:
+
+- **O contentor da fila não leva `--rm`.** O critério 4 **pára** a fila (`docker
+  stop`) e volta a arrancá-la; com `--rm`, o `stop` remove o contentor e não há
+  `start` depois. E a porta publicada é **fixa**, escolhida pelo processo: uma
+  porta efémera muda no `docker start`, e a *suite* ficava a falar com a antiga.
+- **O `kill -9` é um `kill -9`.** O publicador corre como processo
+  (`packages/core-ts/tests_bd/publicador_runner.ts`), parado de propósito entre
+  o `add` e o `COMMIT`, e o sinal vai ao **contentor**: matar o `docker run`
+  deixava o Node de dentro a publicar com o *lock* consultivo na mão.
+- **A carga está em *suite* própria (`tests_eventos_carga`), e é por custo.** São
+  cinco minutos — o número é do critério 8 — e uma *suite* custa isso **por cada
+  mutação** que a escolha em `db/mutacoes.py`. Dentro de `tests_eventos`, cada
+  mutação do publicador passava a custar oito minutos; separada, as do publicador
+  correm em três e a carga corre uma vez. Não é opcional: o `make ci-8` corre-a.
+
+O que estas duas medem, e o que **não** medem, está na secção de verificação do
+bloco do KAM-005 em `../specs/EPIC-01_Fundacoes_Dados.md`. **Três caixas desse
+bloco fecharam na primeira execução destas *suites* aqui**: no anfitrião de
+desenvolvimento (Windows) a da fila parada não reproduzia e o p95 media 6,0 s,
+acima do limiar *proposto* de 1 s; em `ubuntu-latest` a fila parada passa e o p95
+é **0,195 s** ([execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356)). Fica uma vazia, a dos dois revisores. O
+desenho está em [`eventos.md`](eventos.md).
 
 **Fica no *job* do *gate* 8, e não num *gate* novo.** Precisa do mesmo
 PostgreSQL e das mesmas migrações, e não acrescenta um *job* aos `needs` do
@@ -1344,3 +1385,5 @@ sobrevivem ao PR.
 | 1.19 | Outubro 2026 | KAM-151: a lacuna 25 fecha. O `make coverage-python` mede `services/agr/src/`, que estava no âmbito do *gate* 4 e fora do denominador desde o KAM-002 — com a *suite* a exercitá-lo. O §3 deixa de dizer que falta um alvo do lado Python, e a falta de um `--source=` para uma pasta de `.py` do âmbito passa a falhar um teste. Medido: o **delta**, que é o que o ticket faz e não depende da árvore: **+29** no numerador, **+31** no denominador, **+3** ficheiros, com a percentagem a não se mover. Na árvore que funde: `restante` 92% → 92% (9880/10730 → 9909/10761), 100 → 103 ficheiros; em `f4c7e3d`, onde foi medido primeiro, era 91% → 91% (9652/10526 → 9681/10557). O absoluto subiu porque o KAM-148 acrescentou código testado a `tools/`, que está no estrato; `critico` intacto; limiar não tocado. A prova por mutação do *gate* 4 passa de 24 para 28 (28 apanhadas, 0 sobreviventes), com quatro `cablagem:` novas do lado Python. **Lacuna 26 nova**, destapada por este ticket e trazida pela revisão adversarial: um `.py` medido a 0% faz o número descer e não sai nomeado no relatório. | Equipa KAMBÁ |
 | 1.20 | Outubro 2026 | **KAM-154**: o *gate* 2 passa a resolver cada regra do `CODEOWNERS` contra a árvore seguida pelo git. Uma regra que não case com nada reprova o PR — até aqui era ignorada pelo GitHub e deixava a área sem dono, em silêncio, que foi como três regras sobreviveram ao prefixo removido pelo KAM-128 e a dois tickets de medição de referências. Implementa a semântica de *glob* documentada e não `[ -e ]`, e é *fail-closed* no que o GitHub não suporta. Entrou neste *gate* pela razão do `log-lint`, e não como número novo de `specs/01` §4. Não valida se o dono existe: isso é o KAM-137 e a lacuna L-19. | Equipa KAMBÁ |
 | 1.21 | Outubro 2026 | KAM-145: o *gate* 3 passa a ter um segundo passo, `lint_handoff`, que lê os **caminhos** dentro dos blocos `### Handoff para Claude Code` e exige que sejam relativos à raiz do repositório — que é onde o executor corre, agora declarado em `../specs/01_Engineering_Standards_e_Handoff.md` §5. Converteram-se **254** ocorrências nos onze epics (247 que apontavam para fora da árvore e 7 sem directório nenhum), entre elas as quatro instruções que mandam escrever um ficheiro de validação. Entra no `ci-3` e **não** como *gate* novo, para não acrescentar um contexto exigido ao *ruleset* de `main`: os sete mantêm-se. Fora dos blocos de *handoff* a regra continua a ser a do KAM-128. | Equipa KAMBÁ |
+| 1.22 | Outubro 2026 | KAM-005: o *gate* 8 passa a correr **quatro** *suites* — `tests_eventos` e `tests_eventos_carga` juntam-se às duas, com uma rede Docker própria, PostgreSQL **e** Valkey (digest em `ci/supply-chain/imagens.yaml`), o contentor da fila sem `--rm` e porta fixa para o critério 4 a poder pará-la, e o `kill -9` mandado ao contentor. A carga fica em *suite* própria por custo das mutações. O *gate* 6 ganha `verificar_particoes`: a política de uma tabela particionada não cobre quem lê a partição directamente. | Equipa KAMBÁ |
+| 1.23 | Outubro 2026 | KAM-005: as *suites* de eventos correm pela primeira vez num anfitrião Linux ([execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356)) e fecham três caixas do bloco — a da fila parada, que no anfitrião Windows não reproduzia, e a do p95, que lá media 6,0 s e aqui mede **0,195 s**. | Equipa KAMBÁ |

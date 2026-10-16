@@ -53,17 +53,32 @@ class Receita:
     inserir: Callable
     #: Coluna onde o canario fica.
     coluna_do_canario: str
-    #: Coluna que o papel da tabela pode alterar (para os testes de escrita cruzada).
-    coluna_alteravel: str
-    #: Um valor valido para essa coluna.
+    #: Coluna que o papel da tabela pode alterar (para os testes de escrita
+    #: cruzada). `None` quando **nenhum** papel sujeito a RLS lhe pode escrever:
+    #: `events_outbox` (o estado de publicacao e do publicador) e `events_log`
+    #: (arquivo imutavel). Nesse caso o que se prova e que o papel **nao tem** o
+    #: privilegio de `UPDATE` — que e mais forte do que provar que a politica o
+    #: recusa, porque nao depende da politica estar certa.
+    coluna_alteravel: str | None
+    #: Um valor valido para essa coluna, ou `None` quando ela e `None`.
     valor_alteravel: object
     #: Identidade (de `ligacao.PAPEIS`) que le e escreve a tabela em producao.
     papel: str = "app"
     #: Identidade que semeia e apaga. `kamba_batch` onde ele tem privilegios; o
-    #: administrador da instancia nas tabelas de identidade, onde nao tem.
+    #: administrador da instancia nas tabelas de identidade e de eventos, onde
+    #: nao tem (ou onde o `INSERT` esta sob `WITH CHECK` e as receitas nao
+    #: definem contexto).
     semeador: str = "batch"
     #: Como o canario fica guardado na coluna (texto, octetos ou resumo).
     guardado: Callable[[str], object] = _texto
+    #: `True` quando o `papel` **insere** na tabela, e a RLS e a ultima barreira
+    #: na escrita. `False` quando nenhum papel sujeito a RLS lhe escreve — e o
+    #: caso do `events_log`, que so o `kamba_batch` arquiva (`BYPASSRLS`, *job*
+    #: auditado): a politica dessa tabela protege a **leitura**, e o que
+    #: protege a escrita e a falta de privilegio. Os testes de escrita cruzada
+    #: trocam, nessas tabelas, «a politica recusa» por «o privilegio nem
+    #: existe».
+    escrita_do_papel: bool = True
 
 
 def _tenant(cursor, tenant_id: str, canario: str) -> None:
@@ -141,6 +156,69 @@ def _identidade(inserir, coluna, alteravel, valor, guardado) -> Receita:
     )
 
 
+# As duas receitas de eventos (KAM-005). O canario vai no `agregado_id`, que e
+# `text` e e a unica coluna destas tabelas que aceita uma cadeia arbitraria sem
+# mentir sobre o que guarda: as outras sao identificadores, tempos, contadores e
+# o `envelope`.
+#
+# Semeia o **administrador da instancia**, e nao o `kamba_batch`: ele nao tem
+# `INSERT` no `events_outbox` (o produtor e a aplicacao, sob `WITH CHECK`), e as
+# receitas nao definem contexto de tenant. No `events_log` tem `INSERT`, mas
+# semear as duas com o mesmo papel poupa uma ligacao e uma pergunta.
+#
+# O `envelope` e um envelope v1 minimo e **coerente com a linha**: o
+# `tenant_id`, o `agregado` e o `seq` dentro dele sao os mesmos das colunas. Um
+# envelope com outro `tenant_id` era um canario falso — o teste procura o
+# identificador de B no texto de tudo o que A le, e encontrava-o na linha de A.
+
+_ENVELOPE = (
+    "jsonb_build_object("
+    "'id', gen_random_uuid(), 'tipo', 'order.created', 'versao', 1, "
+    "'tenant_id', %s::uuid, 'ocorrido_em', now(), 'registado_em', now(), "
+    "'produtor', 'sementes@0', "
+    "'agregado', jsonb_build_object('tipo', 'order', 'id', %s::text, 'seq', 1), "
+    "'correlacao_id', NULL, 'causa_id', NULL, 'trace_id', NULL, "
+    "'classe_pii', 'P1', 'finalidades', to_jsonb(ARRAY['transacao']), "
+    "'payload', jsonb_build_object('order_id', %s::text))"
+)
+
+
+def _evento_no_outbox(cursor, tenant_id: str, canario: str) -> None:
+    cursor.execute(
+        "INSERT INTO platform.events_outbox "
+        "(event_id, tipo, versao, tenant_id, agregado_tipo, agregado_id, "
+        " agregado_seq, particao, envelope) "
+        "VALUES (gen_random_uuid(), 'order.created', 1, %s::uuid, 'order', %s::text, 1, 0, "
+        f"{_ENVELOPE})",
+        (tenant_id, canario, tenant_id, canario, canario),
+    )
+
+
+def _contador_do_agregado(cursor, tenant_id: str, canario: str) -> None:
+    """O contador de `seq`. O canario vai no `agregado_id`.
+
+    O `seq` nasce a 1, como o `evt_emitir` o poe. A tabela ganhou `tenant_id`
+    com o KAM-005 — desvio ao DDL do documento, registado — e por isso entra na
+    descoberta do X-05 como as outras.
+    """
+    cursor.execute(
+        "INSERT INTO platform.evt_agregado_seq "
+        "(tenant_id, agregado_tipo, agregado_id, seq) VALUES (%s, 'order', %s, 1)",
+        (tenant_id, canario),
+    )
+
+
+def _evento_no_arquivo(cursor, tenant_id: str, canario: str) -> None:
+    cursor.execute(
+        "INSERT INTO platform.events_log "
+        "(event_id, tipo, versao, tenant_id, agregado_tipo, agregado_id, "
+        " agregado_seq, ocorrido_em, registado_em, classe_pii, envelope) "
+        "VALUES (gen_random_uuid(), 'order.created', 1, %s::uuid, 'order', %s::text, 1, "
+        f"now(), now(), 'P1', {_ENVELOPE})",
+        (tenant_id, canario, tenant_id, canario, canario),
+    )
+
+
 #: (schema, tabela) -> receita. A ordem de insercao respeita as FK.
 RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "tenants"): Receita(_tenant, "nome", "nome", "Nome alterado"),
@@ -155,9 +233,29 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "contact_endpoints"): _identidade(
         _endpoint, "bsuid_enc", "expira_at", "2099-01-01T00:00:00+00:00", _octetos
     ),
+    # KAM-005. O produtor (`kamba_app`) insere no outbox sob `WITH CHECK` e le as
+    # suas linhas; nao altera nenhuma coluna, e e por isso que a alteravel e
+    # `None`. O arquivo e imutavel e so o `kamba_batch` lhe escreve: a politica
+    # protege a leitura do produtor, e a escrita esta protegida pela falta de
+    # privilegio (`escrita_do_papel=False`).
+    ("platform", "events_outbox"): Receita(
+        _evento_no_outbox, "agregado_id", None, None, semeador="admin"
+    ),
+    # O contador e a unica tabela de eventos que `kamba_app` **altera** (so a
+    # coluna `seq`, pelo `ON CONFLICT` do `evt_emitir`), e por isso e a unica em
+    # que a coluna alteravel nao e `None`.
+    ("platform", "evt_agregado_seq"): Receita(
+        _contador_do_agregado, "agregado_id", "seq", 7, semeador="admin"
+    ),
+    ("platform", "events_log"): Receita(
+        _evento_no_arquivo, "agregado_id", None, None,
+        semeador="admin", escrita_do_papel=False,
+    ),
 }
 
-#: `tenants` primeiro: as outras referenciam-na. Depois, pela ordem das FK.
+#: `tenants` primeiro: as outras referenciam-na. Depois, pela ordem das FK. As
+#: de eventos nao tem FK para nada (o `agregado_id` e uma referencia logica, por
+#: desenho: o agregado vive no Medusa ou noutro schema) e ficam no fim.
 ORDEM = (
     ("platform", "tenants"),
     ("platform", "tenant_channels"),
@@ -165,6 +263,9 @@ ORDEM = (
     ("platform", "contacts"),
     ("platform", "contact_deks"),
     ("platform", "contact_endpoints"),
+    ("platform", "events_outbox"),
+    ("platform", "evt_agregado_seq"),
+    ("platform", "events_log"),
 )
 
 #: As identidades com que as receitas semeiam.

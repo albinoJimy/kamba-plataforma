@@ -1,0 +1,28 @@
+{
+  "nota": "Cadeias do guarda de PII do KAM-005. Corridas pelos DOIS lados: o modulo TypeScript (packages/core-ts/tests/eventos.pii.test.ts) e o PostgreSQL (db/tests/test_eventos_schema.TestParidadeDoGuardaDePii, com os dois `~` de platform.evt_emitir). Um veredicto diferente entre os dois falha o gate 8. Nenhuma destas cadeias e um numero real: os `9` seguem-se de digitos inventados.",
+  "apanhados": [
+    "+244912345678",
+    "244912345678",
+    "+244 912345678",
+    "244 912345678",
+    "o cliente e 244923456789 e paga amanha",
+    "{\"recipient\": \"+244912345678\"}",
+    "{\"referencia\": \"+351912345678\"}",
+    "{\"x\": \"+123456789\"}",
+    "{\"x\": \"+123456789012345\"}",
+    "12449123456789"
+  ],
+  "passam": [
+    "{\"order_id\": \"9b2f6c1a-7e3d-4c80-b5a1-2d9e8f7a6b50\"}",
+    "{\"valor_minor\": 24500000, \"currency\": \"AOA\"}",
+    "{\"referencia\": \"102345678\"}",
+    "244812345678",
+    "+244-912345678",
+    "+2449123456",
+    "{\"x\": \"+12345678\"}",
+    "{\"x\": \"+1234567890123456\"}",
+    "{\"x\": \"+351912345678x\"}",
+    "{\"contact_id\": \"3f1c2a9e-0d4b-4e55-9a7c-1b2c3d4e5f60\"}",
+    ""
+  ]
+}

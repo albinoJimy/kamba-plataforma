@@ -71,6 +71,60 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+
+def _eventos(**por_papel: set[str]) -> dict[str, set[str]]:
+    """Matriz de uma tabela da revisao 0004 (KAM-005).
+
+    O dono tem tudo; `kamba_resolver` e `kamba_identity` **nada** — nao produzem
+    nem consomem eventos; `public` nada. O que varia e `kamba_app` (o produtor)
+    e `kamba_batch` (o publicador e a retencao), e cada tabela diz o seu.
+    """
+    base = {
+        "kamba_app": set(),
+        "kamba_batch": set(),
+        "kamba_resolver": set(),
+        "kamba_identity": set(),
+        "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+        "public": set(),
+    }
+    base.update(por_papel)
+    return base
+
+
+ESPERADO_POR_TABELA.update(
+    {
+        # O produtor insere (sob `WITH CHECK`: o `tenant_id` tem de ser o do
+        # contexto) e le as **suas** linhas; nao tem `UPDATE` — o estado de
+        # publicacao e do publicador — nem `DELETE`. O `kamba_batch` publica
+        # (`SELECT`, `UPDATE`) e purga o publicado (`DELETE`, 7 dias,
+        # `docs/tecnica/06` §7.4).
+        "events_outbox": _eventos(
+            kamba_app={"SELECT", "INSERT"},
+            kamba_batch={"SELECT", "UPDATE", "DELETE"},
+        ),
+        # O contador do `evt_emitir`, que corre como quem chama: o produtor
+        # precisa de `INSERT` e `SELECT` de tabela, e de `UPDATE` **so na coluna
+        # `seq`** (ver `COLUNAS_POR_PAPEL`). Mudar `agregado_tipo` ou
+        # `agregado_id` era reescrever a chave de outro agregado.
+        "evt_agregado_seq": _eventos(kamba_app={"SELECT", "INSERT"}),
+        # Configuracao de entrega. Quem a le e o publicador; quem a escreve e
+        # uma revisao ou um *job* nomeado, com o privilegio pedido no ticket que
+        # o criar (KAM-006 em diante).
+        "evt_subscricoes": _eventos(kamba_batch={"SELECT"}),
+        # Arquivo imutavel: **ninguem** tem `UPDATE` nem `DELETE`. O produtor le
+        # o historico das suas linhas (a politica `tenant_iso` filtra-o); o
+        # publicador arquiva.
+        "events_log": _eventos(
+            kamba_app={"SELECT"}, kamba_batch={"SELECT", "INSERT"}
+        ),
+        # A particao nao herda privilegios do pai — mediu-se: uma particao nova
+        # nasce com `relacl` vazio. Fica assim de proposito: quem acede, acede
+        # pelo pai, e e la que a politica e os privilegios valem. Uma concessao
+        # aqui era um caminho directo que a RLS do pai nao cobre.
+        "events_log_default": _eventos(),
+    }
+)
+
 #: (papel, tabela, privilegio) -> colunas concedidas **por coluna** nas tabelas
 #: da revisao 0003. O que nao esta aqui nao tem privilegio de coluna nenhum.
 COLUNAS_POR_PAPEL = {
@@ -88,8 +142,28 @@ COLUNAS_POR_PAPEL = {
         "contact_id", "wrapped_dek", "kek_id", "destroyed_at",
     },
     ("kamba_identity", "hmac_key_versions", "UPDATE"): {"estado"},
+    # KAM-005: o `evt_emitir` faz `ON CONFLICT ... DO UPDATE SET seq = seq + 1`,
+    # e corre como quem chama. E o unico `UPDATE` de `kamba_app` nas tabelas de
+    # eventos, e e **uma** coluna.
+    ("kamba_app", "evt_agregado_seq", "UPDATE"): {"seq"},
 }
 PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
+
+#: As tabelas cuja matriz se confere **coluna a coluna**, nos dois sentidos: as
+#: quatro da identidade (KAM-008) e as cinco de eventos (KAM-005). Sao as que
+#: tem privilegios por coluna, ou onde um privilegio de coluna a mais seria
+#: invisivel na matriz de tabela.
+TABELAS_COM_MATRIZ_DE_COLUNA = (
+    "contacts",
+    "contact_deks",
+    "contact_endpoints",
+    "hmac_key_versions",
+    "events_outbox",
+    "evt_agregado_seq",
+    "evt_subscricoes",
+    "events_log",
+    "events_log_default",
+)
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.
 IMUTAVEIS_PARA_A_APP = {
@@ -184,24 +258,36 @@ class TestMatrizDePrivilegios(ComBase):
                     set(por_papel) - {"public"}, set(ligacao.PAPEIS.values())
                 )
 
-    def test_privilegios_por_coluna_nas_tabelas_de_identidade(self) -> None:
+    def test_privilegios_por_coluna_nas_tabelas_com_matriz(self) -> None:
         """Coluna a coluna, nos dois sentidos, para todos os papeis menos o dono.
 
         `has_column_privilege` tambem responde `true` quando o privilegio e de
         tabela; por isso o esperado e a uniao dos dois. Um `GRANT UPDATE
-        (tenant_id)` a `kamba_identity`, ou um `GRANT SELECT (phone_hmac)` a
-        `kamba_app`, aparece aqui como uma coluna a mais.
+        (tenant_id)` a `kamba_identity`, um `GRANT SELECT (phone_hmac)` a
+        `kamba_app`, ou um `GRANT UPDATE (publicado_at)` a `kamba_app` no outbox
+        (KAM-005), aparece aqui como uma coluna a mais.
         """
+        # Uma consulta **por tabela**, e nao uma por celula: com as cinco
+        # tabelas de eventos (KAM-005) a matriz passou a ter perto de 2 500
+        # celulas, e uma ida a base por celula levava a suite ao limite de
+        # tempo do gate. O `unnest` cruzado devolve a matriz inteira de uma vez;
+        # as asercoes sao as mesmas, celula a celula.
+        papeis = ("kamba_app", "kamba_batch", "kamba_resolver", "kamba_identity", "public")
         cursor = self.ligar("admin").cursor()
-        for tabela in ("contacts", "contact_deks", "contact_endpoints", "hmac_key_versions"):
+        for tabela in TABELAS_COM_MATRIZ_DE_COLUNA:
             cursor.execute(
-                "SELECT column_name::text FROM information_schema.columns "
-                "WHERE table_schema = 'platform' AND table_name = %s",
-                (tabela,),
+                "SELECT r.papel, c.column_name::text, p.priv, "
+                "       has_column_privilege(r.papel, %s, c.column_name, p.priv) "
+                "  FROM unnest(%s::text[]) AS r(papel) "
+                " CROSS JOIN unnest(%s::text[]) AS p(priv) "
+                " CROSS JOIN information_schema.columns c "
+                " WHERE c.table_schema = 'platform' AND c.table_name = %s",
+                (f"platform.{tabela}", list(papeis), list(PRIVILEGIOS_DE_COLUNA), tabela),
             )
-            colunas = sorted(linha[0] for linha in cursor.fetchall())
-            self.assertTrue(colunas)
-            for papel in ("kamba_app", "kamba_batch", "kamba_resolver", "kamba_identity", "public"):
+            matriz = {(p, c, v): bool(tem) for p, c, v, tem in cursor.fetchall()}
+            colunas = sorted({c for _, c, _ in matriz})
+            self.assertTrue(colunas, f"{tabela} sem colunas")
+            for papel in papeis:
                 for privilegio in PRIVILEGIOS_DE_COLUNA:
                     de_tabela = privilegio in ESPERADO_POR_TABELA[tabela][papel]
                     por_coluna = COLUNAS_POR_PAPEL.get((papel, tabela, privilegio), set())
@@ -210,12 +296,9 @@ class TestMatrizDePrivilegios(ComBase):
                         with self.subTest(
                             papel=papel, coluna=f"{tabela}.{coluna}", privilegio=privilegio
                         ):
-                            cursor.execute(
-                                "SELECT has_column_privilege(%s, %s, %s, %s)",
-                                (papel, f"platform.{tabela}", coluna, privilegio),
-                            )
                             self.assertEqual(
-                                cursor.fetchone()[0], de_tabela or coluna in por_coluna
+                                matriz[(papel, coluna, privilegio)],
+                                de_tabela or coluna in por_coluna,
                             )
 
     def test_ninguem_pode_passar_privilegios_adiante(self) -> None:

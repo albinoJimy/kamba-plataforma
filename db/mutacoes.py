@@ -114,6 +114,15 @@ SUITES_DE_TOOLS = {
 #: O leitor de YAML (KAM-136). As duas suites leem por ele as listas de
 #: excepcoes de `ci/` e o limiar do estrato `critico`.
 KYAML = "tools/kamba_yaml.py"
+#: KAM-005: a revisao do outbox e os modulos de eventos em TypeScript.
+REV4 = "db/migrations/versions/0004_outbox_e_eventos.py"
+EVENTOS = "tests_eventos"
+EV_ENVELOPE = "packages/core-ts/src/eventos/envelope.ts"
+EV_PII = "packages/core-ts/src/eventos/pii.ts"
+EV_PARTICAO = "packages/core-ts/src/eventos/particao.ts"
+EV_CONSULTAS = "packages/core-ts/src/eventos/consultas.ts"
+EV_PUBLICADOR = "packages/core-ts/src/eventos/publicador.ts"
+EV_FILAS = "packages/core-ts/src/eventos/filas_bullmq.ts"
 
 MUTACOES = [
     ("estado a mais no CHECK de tenants", REV,
@@ -232,9 +241,20 @@ MUTACOES = [
      '    op.execute("GRANT USAGE ON SCHEMA platform TO kamba_resolver")\n'
      '    op.execute("GRANT UPDATE (estado) ON platform.tenant_channels TO kamba_resolver")\n',
      ISOLAMENTO),
+    # O texto mudou com o KAM-005 (`AND NOT c.relispartition`, que tirou as
+    # particoes da descoberta e as passou para `verificar_particoes`). A mutacao
+    # continua a ser a mesma: tirar as tabelas particionadas (`'p'`) da
+    # descoberta, e a apanha e a contagem do X-05 — o `events_log` e uma delas.
     ("catalogo: a descoberta ignora tabelas particionadas", CATALOGO,
-     "WHERE c.relkind IN ('r', 'p') AND a.attname = 'tenant_id'",
-     "WHERE c.relkind IN ('r') AND a.attname = 'tenant_id'", ISOLAMENTO),
+     "WHERE c.relkind IN ('r', 'p') AND NOT c.relispartition ",
+     "WHERE c.relkind IN ('r') AND NOT c.relispartition ", ISOLAMENTO),
+    # KAM-005: a descoberta de particoes deixa de excluir indices. O
+    # `pg_inherits` liga tambem um indice particionado aos seus filhos, e o
+    # `pg_attribute` tem linhas para as colunas de um indice: sem o filtro, o
+    # X-05 pedia uma politica de RLS **num indice** (medido, e corrigido).
+    ("catalogo: a descoberta de particoes apanha indices", CATALOGO,
+     "WHERE c.relispartition AND c.relkind IN ('r', 'p') ",
+     "WHERE c.relispartition ", ISOLAMENTO),
     ("catalogo: vistas materializadas fora da verificacao", CATALOGO,
      "WHERE c.relkind IN ('v', 'm')", "WHERE c.relkind IN ('v')", ISOLAMENTO),
     ("catalogo: public volta a ficar de fora", CATALOGO,
@@ -594,6 +614,237 @@ MUTACOES = [
      "            primeiro.update(seguintes)\n",
      "",
      IDENTIDADE),
+    # ------------------------------------------------------------------- KAM-005
+    # Outbox, envelope e publicador. As da revisao correm no gate 8 (suite
+    # `tests`); as que tiram RLS correm no gate 6 (`ISOLAMENTO`).
+    ("0004: guarda de PII sem o padrao angolano", REV4,
+     "IF p_payload::text ~ '\\+?244 ?9[0-9]{8}' OR p_payload::text ~ '\"\\+[0-9]{9,15}\"' THEN",
+     "IF p_payload::text ~ '\"\\+[0-9]{9,15}\"' THEN"),
+    ("0004: guarda de PII sem o padrao E.164", REV4,
+     "IF p_payload::text ~ '\\+?244 ?9[0-9]{8}' OR p_payload::text ~ '\"\\+[0-9]{9,15}\"' THEN",
+     "IF p_payload::text ~ '\\+?244 ?9[0-9]{8}' THEN"),
+    ("0004: guarda de PII depois de escrever no outbox", REV4,
+     "        BEGIN\n          IF p_payload::text ~",
+     "        BEGIN\n          IF false AND p_payload::text ~"),
+    ("0004: o contador nao incrementa (seq de uma sequencia)", REV4,
+     "            DO UPDATE SET seq = platform.evt_agregado_seq.seq + 1\n"
+     "            RETURNING seq INTO v_seq;",
+     "            DO UPDATE SET seq = platform.evt_agregado_seq.seq\n"
+     "            RETURNING seq + 1 INTO v_seq;"),
+    ("0004: a particao usa oito filas em vez de dezasseis", REV4,
+     "v_part := (hashtextextended(p_tenant::text || p_agg_id, 0) & 15)::smallint;",
+     "v_part := (hashtextextended(p_tenant::text || p_agg_id, 0) & 7)::smallint;"),
+    ("0004: a particao ignora o tenant", REV4,
+     "v_part := (hashtextextended(p_tenant::text || p_agg_id, 0) & 15)::smallint;",
+     "v_part := (hashtextextended(p_agg_id, 0) & 15)::smallint;"),
+    ("0004: o envelope perde o seq do agregado", REV4,
+     "'agregado', jsonb_build_object('tipo', p_agg_tipo, 'id', p_agg_id, 'seq', v_seq),",
+     "'agregado', jsonb_build_object('tipo', p_agg_tipo, 'id', p_agg_id),"),
+    ("0004: o envelope leva outro tenant que a coluna", REV4,
+     "'tenant_id', p_tenant,\n                'ocorrido_em', p_ocorrido_em,",
+     "'tenant_id', gen_random_uuid(),\n                'ocorrido_em', p_ocorrido_em,"),
+    ("0004: evt_emitir passa a SECURITY DEFINER", REV4,
+     "        RETURNS uuid LANGUAGE plpgsql AS $$",
+     "        RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$"),
+    ("0004: o arquivo ganha UPDATE para o publicador", REV4,
+     'op.execute("GRANT SELECT, INSERT ON platform.events_log TO kamba_batch")',
+     'op.execute("GRANT SELECT, INSERT, UPDATE ON platform.events_log TO kamba_batch")'),
+    ("0004: o produtor ganha UPDATE no outbox", REV4,
+     'op.execute("GRANT SELECT, INSERT ON platform.events_outbox TO kamba_app")',
+     'op.execute("GRANT SELECT, INSERT, UPDATE ON platform.events_outbox TO kamba_app")'),
+    ("0004: a particao DEFAULT passa a mensal", REV4,
+     "          PARTITION OF platform.events_log DEFAULT",
+     "          PARTITION OF platform.events_log\n"
+     "          FOR VALUES FROM ('2026-11-01') TO ('2026-12-01')"),
+    ("0004: o indice de pendentes deixa de ser parcial", REV4,
+     "          ON platform.events_outbox (proxima_tentativa_at, id)\n"
+     "          WHERE publicado_at IS NULL",
+     "          ON platform.events_outbox (proxima_tentativa_at, id)"),
+    ("0004: o outbox perde a unicidade do event_id", REV4,
+     "          event_id             uuid NOT NULL\n"
+     "                               CONSTRAINT events_outbox_event_id_uq UNIQUE,",
+     "          event_id             uuid NOT NULL,"),
+    ("0004: o outbox perde a unicidade do triplo do agregado", REV4,
+     "          CONSTRAINT events_outbox_agregado_uq\n"
+     "            UNIQUE (tenant_id, agregado_tipo, agregado_id, agregado_seq)\n",
+     ""),
+    # As duas que provam o desvio do achado 2: sem o `tenant_id` na unicidade e
+    # no `ON CONFLICT`, o espaco de `seq` volta a ser global e um tenant corta a
+    # emissao de outro.
+    ("0004: a unicidade do triplo ignora o tenant", REV4,
+     "            UNIQUE (tenant_id, agregado_tipo, agregado_id, agregado_seq)",
+     "            UNIQUE (agregado_tipo, agregado_id, agregado_seq)"),
+    ("0004: o contador do agregado ignora o tenant", REV4,
+     "            ON CONFLICT (tenant_id, agregado_tipo, agregado_id)",
+     "            ON CONFLICT (agregado_tipo, agregado_id)"),
+    ("0004: o downgrade apaga os eventos sem pedir copia", REV4,
+     "    contagens = _contar()\n    if not any(contagens.values()):\n        return\n",
+     "    contagens = _contar()\n    return\n"),
+    ("0004: a copia logica escreve por cima de uma anterior", REV4,
+     "os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600",
+     "os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600"),
+    ("0004: o downgrade copia antes de desligar a RLS (le zero linhas)", REV4,
+     '    rls.disable_tenant_rls("events_log_default")\n'
+     '    rls.disable_tenant_rls("events_log")\n'
+     '    rls.disable_tenant_rls("evt_agregado_seq")\n'
+     '    rls.disable_tenant_rls("events_outbox")\n'
+     "    _copia_logica()\n",
+     "    _copia_logica()\n"
+     '    rls.disable_tenant_rls("events_log_default")\n'
+     '    rls.disable_tenant_rls("events_log")\n'
+     '    rls.disable_tenant_rls("evt_agregado_seq")\n'
+     '    rls.disable_tenant_rls("events_outbox")\n'),
+    ("0004: o outbox fica sem RLS", REV4,
+     '    "events_outbox",\n    "evt_agregado_seq",\n',
+     '    "evt_agregado_seq",\n', ISOLAMENTO),
+    ("0004: o contador do agregado fica sem RLS", REV4,
+     '    "events_outbox",\n    "evt_agregado_seq",\n',
+     '    "events_outbox",\n', ISOLAMENTO),
+    ("0004: a particao do arquivo fica sem RLS propria", REV4,
+     '    "events_log",\n    "events_log_default",\n)',
+     '    "events_log",\n)', ISOLAMENTO),
+    ("0004: o arquivo fica sem RLS", REV4,
+     '    "events_log",\n    "events_log_default",\n)',
+     '    "events_log_default",\n)', ISOLAMENTO),
+    ("0004: o produtor ganha DELETE no outbox", REV4,
+     'op.execute(\n        "GRANT SELECT, UPDATE, DELETE ON platform.events_outbox TO kamba_batch"\n    )',
+     'op.execute(\n        "GRANT SELECT, UPDATE, DELETE ON platform.events_outbox TO kamba_app"\n    )'),
+    # --------------------------------------------------- KAM-005, o publicador
+    # Correm contra `tests_eventos` — PostgreSQL **e** fila reais. A medicao de
+    # carga esta em `tests_eventos_carga`, a parte, para que cada uma destas
+    # custe tres minutos e nao oito (ver o comentario dessa suite).
+    # A mutacao central: trocar a ordem `add` -> `COMMIT` por `COMMIT` -> `add`.
+    # E o modo de falha que o outbox existe para nao ter — um `kill -9` logo
+    # depois do `COMMIT` deixava a linha publicada e o *job* por criar — e e o
+    # criterio 3 que a apanha.
+    ("eventos: o publicador confirma antes de por na fila", EV_PUBLICADOR,
+     "      const ids = boas.map((p) => p.linha.id);\n"
+     "      if (ids.length > 0) {\n"
+     "        await this.#bd.query(SQL_ARQUIVAR, [ids]);\n"
+     "        await this.#bd.query(SQL_MARCAR_PUBLICADO, [ids]);\n"
+     "      }\n"
+     '      await this.#bd.query("COMMIT");\n',
+     '      await this.#bd.query("COMMIT");\n'
+     "      const ids = boas.map((p) => p.linha.id);\n"
+     "      if (ids.length > 0) {\n"
+     "        await this.#bd.query(SQL_ARQUIVAR, [ids]);\n"
+     "        await this.#bd.query(SQL_MARCAR_PUBLICADO, [ids]);\n"
+     "      }\n",
+     EVENTOS),
+    # Achado 1: a fase 1 deixa de cortar por agregado e passa a derrubar o lote.
+    # A mutacao poe de volta o defeito que o achado 1 descreve.
+    ("eventos: uma linha invalida volta a derrubar o lote", EV_PUBLICADOR,
+     "      } catch (erro) {\n"
+     "        const motivo = motivoDoErro(erro);\n"
+     "        this.#metricas.contar(METRICA_ERROS, motivo);\n"
+     '        this.#log?.warn({ outcome: "evt_bloqueado", error_code: motivo });\n'
+     "        agregadosBloqueados.add(agregado);\n"
+     "        adiadas.push(linha);\n"
+     "      }\n",
+     "      } catch (erro) {\n"
+     "        const motivo = motivoDoErro(erro);\n"
+     "        this.#metricas.contar(METRICA_ERROS, motivo);\n"
+     '        this.#log?.warn({ outcome: "evt_bloqueado", error_code: motivo });\n'
+     "        throw erro;\n"
+     "      }\n",
+     EVENTOS),
+    # Achado 1, segunda metade: o corte deixa de ser por agregado e passa a ser
+    # so da linha ma — o que perde a ordem causal do agregado dela.
+    ("eventos: o corte deixa de arrastar o resto do agregado", EV_PUBLICADOR,
+     "      if (agregadosBloqueados.has(agregado)) {\n"
+     "        adiadas.push(linha);\n"
+     "        continue;\n"
+     "      }\n",
+     ""),
+    # Achado 13: o erro do laco volta a nao largar o lock consultivo.
+    ("eventos: um erro transitorio deixa o lock preso", EV_PUBLICADOR,
+     "        await this.largar();\n"
+     "      }\n"
+     "      await esperar(this.#intervalo, sinal);",
+     "        this.#lider = false;\n"
+     "      }\n"
+     "      await esperar(this.#intervalo, sinal);",
+     EVENTOS),
+    # Achado 7: o atraso do criterio 8 volta a ser medido pelo relogio do
+    # inicio da transaccao, que exclui o enfileiramento do lote.
+    ("eventos: o atraso e medido antes do trabalho", EV_CONSULTAS,
+     "     SET publicado_at = clock_timestamp()",
+     "     SET publicado_at = now()"),
+    # Achado 5: o cliente da fila volta a esconder a indisponibilidade.
+    ("eventos: a fila em baixo deixa de falhar o add", EV_FILAS,
+     "  enableOfflineQueue: false,",
+     "  enableOfflineQueue: true,",
+     EVENTOS),
+    # A que mais importa das tres: sem limite no `add`, o publicador fica
+    # pendurado com a fila em baixo e o recuo do criterio 4 nunca acontece.
+    ("eventos: o add espera indefinidamente pela fila", EV_FILAS,
+     "export const TEMPO_MAXIMO_DO_ADD = 5_000;",
+     "export const TEMPO_MAXIMO_DO_ADD = 3_600_000;",
+     EVENTOS),
+    ("eventos: o envelope deixa de recusar campos desconhecidos", EV_ENVELOPE,
+     "  if (demais.length > 0) {\n"
+     "    throw new EnvelopeInvalidoError(\n"
+     "      `campo(s) de topo desconhecido(s): ${demais.sort().join(\", \")}`,\n"
+     "    );\n"
+     "  }\n",
+     ""),
+    ("eventos: o envelope aceita classe_pii P2", EV_ENVELOPE,
+     '  if (classe === "P2") {',
+     '  if (classe === "P9") {'),
+    ("eventos: o guarda de PII perde o padrao angolano", EV_PII,
+     "export const PADROES_DE_TELEFONE = [TELEFONE_AO, E164_ENTRE_ASPAS] as const;",
+     "export const PADROES_DE_TELEFONE = [E164_ENTRE_ASPAS] as const;"),
+    ("eventos: o guarda de PII perde o padrao E.164", EV_PII,
+     "export const PADROES_DE_TELEFONE = [TELEFONE_AO, E164_ENTRE_ASPAS] as const;",
+     "export const PADROES_DE_TELEFONE = [TELEFONE_AO] as const;"),
+    ("eventos: o recuo do outbox perde o tecto de 30 s", EV_PUBLICADOR,
+     "export const ESCADA_DE_RECUO = [1_000, 2_000, 5_000, 15_000, 30_000] as const;",
+     "export const ESCADA_DE_RECUO = [1_000, 5_000, 30_000, 120_000, 600_000] as const;",
+     EVENTOS),
+    ("eventos: o arquivo deixa de absorver a republicacao", EV_CONSULTAS,
+     "  ON CONFLICT DO NOTHING",
+     "  ON CONFLICT (event_id, ocorrido_em) DO UPDATE SET registado_em = now()",
+     EVENTOS),
+    ("eventos: o jobId deixa de ser o event_id", EV_PUBLICADOR,
+     "        jobId: envelope.id,",
+     "        jobId: `${envelope.id}:${alvo.consumer}`,",
+     EVENTOS),
+    ("eventos: a entrega ignora a finalidade do envelope", EV_PUBLICADOR,
+     "  return subscricoes.filter(\n"
+     "    (s) => s.tipo === envelope.tipo && finalidades.has(s.finalidade),\n"
+     "  );",
+     "  return subscricoes.filter((s) => s.tipo === envelope.tipo);",
+     EVENTOS),
+    ("eventos: a entrega ignora o tipo do envelope", EV_PUBLICADOR,
+     "  return subscricoes.filter(\n"
+     "    (s) => s.tipo === envelope.tipo && finalidades.has(s.finalidade),\n"
+     "  );",
+     "  return subscricoes.filter((s) => finalidades.has(s.finalidade));",
+     EVENTOS),
+    ("eventos: o recuo nao adia nada", EV_CONSULTAS,
+     "         proxima_tentativa_at = now() + make_interval(secs => $2::double precision / 1000)",
+     "         proxima_tentativa_at = now() + make_interval(secs => $2::double precision * 0)",
+     EVENTOS),
+    ("eventos: o publicador varre por ordem inversa de escrita", EV_CONSULTAS,
+     "   ORDER BY id\n   LIMIT $1",
+     "   ORDER BY id DESC\n   LIMIT $1",
+     EVENTOS),
+    ("eventos: o publicador le as subscricoes inactivas", EV_CONSULTAS,
+     "    FROM platform.evt_subscricoes\n   WHERE activo",
+     "    FROM platform.evt_subscricoes\n   WHERE activo IS NOT NULL",
+     EVENTOS),
+    ("eventos: a lideranca deixa de ser exclusiva", EV_CONSULTAS,
+     'export const SQL_ELEGER = "SELECT pg_try_advisory_lock($1) AS lider";',
+     'export const SQL_ELEGER = "SELECT ($1 IS NOT NULL) AS lider";',
+     EVENTOS),
+    ("eventos: a particao dobra por modulo em vez de falhar", EV_PARTICAO,
+     "  return `${PREFIXO_DA_FILA}.${consumer}.p${exigirParticao(particao)}`;",
+     "  return `${PREFIXO_DA_FILA}.${consumer}.p${particao % PARTICOES}`;",
+     EVENTOS),
+    ("eventos: o publicador nao repete o guarda de PII", EV_PUBLICADOR,
+     '    exigirSemTelefone(envelope.payload, "payload do evento");\n',
+     "",
+     EVENTOS),
 ]
 
 
@@ -618,6 +869,23 @@ def _copiar(destino: Path, suite: str = "tests") -> None:
         RAIZ / "packages" / "core-ts", destino / "packages" / "core-ts",
         ignore=shutil.ignore_patterns("node_modules", "dist"),
     )
+    # E o que a **lista inteira** precisa de encontrar, mesmo que esta suite nao
+    # o corra: o `tests/test_mutacoes.py` corre `--aplicaveis` sobre a lista real
+    # **de dentro da copia**, e um ficheiro que falte conta como mutacao nao
+    # aplicavel. Sem isto, as 24 entradas do KAM-131 (`tools/scan_secrets`, o
+    # `ci.yaml` e o `Makefile`) davam a linha de base vermelha em **todas** as
+    # mutacoes da suite `tests` — isto e, nenhuma se podia correr. Encontrado
+    # ao correr as do KAM-005; sao poucos kilobytes.
+    shutil.copytree(
+        RAIZ / "tools" / "scan_secrets", destino / "tools" / "scan_secrets",
+        ignore=ignorar,
+    )
+    (destino / ".github" / "workflows").mkdir(parents=True)
+    shutil.copy(
+        RAIZ / ".github" / "workflows" / "ci.yaml",
+        destino / ".github" / "workflows" / "ci.yaml",
+    )
+    shutil.copy(RAIZ / "Makefile", destino / "Makefile")
 
 
 def _copiar_para_o_gate_9(destino: Path, ignorar) -> None:

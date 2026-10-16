@@ -115,7 +115,66 @@ INVENTARIO = {
         "estado": ("text", NAO, None, "nao"),
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
     },
+    # ------------------------------------------------------------ KAM-005
+    # Eventos. A resposta a «guarda dados pessoais?» e a mesma em todas as
+    # colunas `envelope`: o envelope v1 **nao leva PII P2** (ADR-010,
+    # `docs/tecnica/06` §7.1) — a referencia a uma pessoa e `contact_id`, dentro
+    # do `payload`, e e opaca. Quem o garante nao e este inventario: e a guarda
+    # de PII do `evt_emitir` (criterio 6), o espelho dela no publicador, e o
+    # schema fechado de cada evento (KAM-007).
+    "events_outbox": {
+        "id": ("bigint", NAO, None, "nao"),
+        "event_id": ("uuid", NAO, None, "identificador do evento (UUIDv7); nao identifica pessoas"),
+        "tipo": ("text", NAO, None, "nao"),
+        "versao": ("smallint", NAO, None, "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "agregado_tipo": ("text", NAO, None, "nao"),
+        "agregado_id": ("text", NAO, None, "identificador do agregado (pedido, marcacao); opaco"),
+        "agregado_seq": ("bigint", NAO, None, "nao"),
+        "particao": ("smallint", NAO, None, "nao"),
+        "envelope": ("jsonb", NAO, None, "envelope v1 sem PII P2; a referencia a pessoa e contact_id, opaco (ADR-010)"),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "publicado_at": ("timestamp with time zone", SIM, None, "nao"),
+        "tentativas": ("integer", NAO, "0", "nao"),
+        "proxima_tentativa_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
+    "evt_agregado_seq": {
+        # O `tenant_id` e um desvio ao DDL do `docs/tecnica/06` §6.1, e esta
+        # explicado na revisao: sem ele o contador e global e um tenant corta a
+        # emissao de eventos de outro (ANALISE-20, achado 2).
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "agregado_tipo": ("text", NAO, None, "nao"),
+        "agregado_id": ("text", NAO, None, "identificador do agregado; opaco"),
+        "seq": ("bigint", NAO, None, "nao"),
+    },
+    "evt_subscricoes": {
+        "consumer": ("text", NAO, None, "nao"),
+        "tipo": ("text", NAO, None, "nao"),
+        "versao_max": ("smallint", NAO, "1", "nao"),
+        "finalidade": ("text", NAO, None, "finalidade de uso do consumidor; nao identifica ninguem"),
+        "exige_ordem": ("boolean", NAO, "false", "nao"),
+        "activo": ("boolean", NAO, "true", "nao"),
+    },
+    "events_log": {
+        "event_id": ("uuid", NAO, None, "identificador do evento (UUIDv7); nao identifica pessoas"),
+        "tipo": ("text", NAO, None, "nao"),
+        "versao": ("smallint", NAO, None, "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "agregado_tipo": ("text", NAO, None, "nao"),
+        "agregado_id": ("text", NAO, None, "identificador do agregado; opaco"),
+        "agregado_seq": ("bigint", NAO, None, "nao"),
+        "ocorrido_em": ("timestamp with time zone", NAO, None, "nao"),
+        "registado_em": ("timestamp with time zone", NAO, None, "nao"),
+        "classe_pii": ("text", NAO, None, "classe do dado do envelope; nao e dado"),
+        "envelope": ("jsonb", NAO, None, "envelope v1 sem PII P2; a referencia a pessoa e contact_id, opaco (ADR-010)"),
+    },
 }
+
+#: A particao `DEFAULT` tem as colunas do pai, uma a uma. Esta aqui — e nao
+#: escrita a mao — porque uma particao que divergisse do pai era impossivel no
+#: PostgreSQL, e repetir onze linhas convidava a que divergissem **no
+#: inventario**: a copia envelhecia e ninguem notava.
+INVENTARIO["events_log_default"] = dict(INVENTARIO["events_log"])
 
 
 class TestInventario(ComBase):
@@ -206,24 +265,37 @@ class TestInventario(ComBase):
         )
 
     def test_os_indices_unicos_parciais_sao_os_esperados(self) -> None:
-        """Nao sao restricoes no catalogo; sem lista, um que desaparecesse passava."""
+        """Nao sao restricoes no catalogo; sem lista, um que desaparecesse passava.
+
+        A lista diz tambem se cada um e **unico**, e isso nao e detalhe: um
+        indice parcial unico impoe uma regra de negocio (um telefone por
+        contacto e finalidade, uma versao actual de chave), e um parcial nao
+        unico e so velocidade. Perder o `UNIQUE` de um dos primeiros nao muda o
+        plano de nenhuma consulta — nao se ve em lado nenhum — e abre a porta a
+        duas linhas onde devia haver uma.
+        """
+        parciais = {
+            "contact_endpoints_telefone_uq": True,
+            "contacts_phone_hmac_uq": True,
+            "hmac_key_versions_actual_uq": True,
+            "hmac_key_versions_anterior_uq": True,
+            "tenants_nif_uq": True,
+            # KAM-005: parcial e **nao** unico. E o indice que o publicador
+            # varre (`docs/tecnica/06` §6.1), e so cobre o que falta publicar:
+            # depois de publicada, a linha sai do indice e o varrimento nao
+            # cresce com o arquivo.
+            "events_outbox_pendentes": False,
+        }
         linhas = self.consultar(
             "SELECT indexname::text, indexdef FROM pg_indexes "
             "WHERE schemaname = 'platform' AND indexdef LIKE '%%WHERE%%' ORDER BY 1"
         )
-        self.assertEqual(
-            sorted(nome for nome, _ in linhas),
-            [
-                "contact_endpoints_telefone_uq",
-                "contacts_phone_hmac_uq",
-                "hmac_key_versions_actual_uq",
-                "hmac_key_versions_anterior_uq",
-                "tenants_nif_uq",
-            ],
-        )
+        self.assertEqual(sorted(nome for nome, _ in linhas), sorted(parciais))
         for nome, definicao in linhas:
             with self.subTest(indice=nome):
-                self.assertIn("CREATE UNIQUE INDEX", definicao)
+                self.assertEqual(
+                    definicao.startswith("CREATE UNIQUE INDEX"), parciais[nome]
+                )
 
     def test_as_restricoes_sao_as_esperadas(self) -> None:
         """Lista fechada de CHECK, UNIQUE e PK: uma que desapareca nao passa calada."""
@@ -256,6 +328,19 @@ class TestInventario(ComBase):
                     "hmac_key_versions_estado_ck",
                     "hmac_key_versions_kid_ck",
                     "hmac_key_versions_pkey",
+                    # KAM-005. A forma do `docs/tecnica/06` §6.1 e §6.5: o
+                    # `events_outbox` tem a chave de identidade, a unicidade do
+                    # `event_id` (que e o que deduplica na fila) e a do triplo do
+                    # agregado (que e o que impede duas linhas com o mesmo
+                    # `seq`); `events_log` tem a chave composta com a coluna de
+                    # particao, e a particao `DEFAULT` tem a sua.
+                    "events_log_default_pkey",
+                    "events_log_pkey",
+                    "events_outbox_agregado_uq",
+                    "events_outbox_event_id_uq",
+                    "events_outbox_pkey",
+                    "evt_agregado_seq_pkey",
+                    "evt_subscricoes_pkey",
                     "entitlements_limites_ck",
                     "entitlements_modulo_ck",
                     "entitlements_pk",

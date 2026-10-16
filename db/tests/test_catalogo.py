@@ -109,24 +109,57 @@ class TestConvencoes(ComBase):
         self.assertEqual(tuple(t for (t,) in tabelas), TABELAS)
 
     def test_as_chaves_primarias_sao_uuid_com_omissao_gerada(self) -> None:
+        """Toda a coluna `id` e `uuid` gerada — menos uma, e essa tem razao.
+
+        `events_outbox.id` e `bigint GENERATED ALWAYS AS IDENTITY`: e a **ordem
+        de escrita** que o publicador varre (`ORDER BY id`, `docs/tecnica/06`
+        §6.2), e um UUIDv4 nao tem ordem. A chave de idempotencia do evento e o
+        `event_id`, que e UUIDv7. A excepcao esta escrita no dicionario §3.5
+        (emenda 1.9) e e deliberada, nao esquecimento.
+        """
+        por_identidade = {"events_outbox"}
         linhas = self.consultar(
             "SELECT table_name, data_type, column_default FROM information_schema.columns "
             "WHERE table_schema = 'platform' AND column_name = 'id'"
         )
         self.assertEqual(
-            {t for t, _, _ in linhas}, {"tenants", "tenant_channels", "contact_endpoints"}
+            {t for t, _, _ in linhas},
+            {"tenants", "tenant_channels", "contact_endpoints"} | por_identidade,
         )
         for tabela, tipo, omissao in linhas:
             with self.subTest(tabela=tabela):
-                self.assertEqual(tipo, "uuid")
-                self.assertEqual(omissao, "gen_random_uuid()")
+                if tabela in por_identidade:
+                    self.assertEqual(tipo, "bigint")
+                    self.assertIsNone(omissao, "IDENTITY nao e uma omissao de coluna")
+                else:
+                    self.assertEqual(tipo, "uuid")
+                    self.assertEqual(omissao, "gen_random_uuid()")
+
+    def test_a_unica_coluna_de_identidade_e_a_do_outbox(self) -> None:
+        """Uma `GENERATED AS IDENTITY` a mais era uma chave sequencial nova.
+
+        Chaves sequenciais vazam volume (quantos pedidos tem o vizinho) e por
+        isso o dicionario §2 manda `uuid`. O outbox e a excepcao, e e **so**
+        esta: a tabela nao e exposta a nenhum tenant e a ordem e o que o
+        publicador precisa.
+        """
+        linhas = self.consultar(
+            "SELECT c.relname::text, a.attname::text, a.attidentity "
+            "FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid "
+            "WHERE c.relnamespace = 'platform'::regnamespace AND a.attidentity <> '' "
+            "ORDER BY 1, 2"
+        )
+        self.assertEqual(linhas, [("events_outbox", "id", "a")])
 
     def test_as_chaves_primarias_sao_as_declaradas(self) -> None:
-        """Todas `uuid` geradas, menos duas que tem razao escrita.
+        """Todas `uuid` geradas, menos as que tem razao escrita.
 
         `entitlements` tem chave composta (KAM-003). `hmac_key_versions.kid` e
         `text`: e o identificador que o cofre da a versao do segredo, e nao um
-        identificador que a base gere.
+        identificador que a base gere. As cinco tabelas de eventos (KAM-005) vem
+        com a forma do `docs/tecnica/06` §6.1 e §6.5: `events_outbox` tem `id`
+        de identidade, `events_log` tem chave composta com a coluna de particao
+        (`ocorrido_em`), e os dois contadores tem chave natural.
         """
         linhas = self.consultar(
             "SELECT c.relname::text, a.attname::text, format_type(a.atttypid, a.atttypmod), "
@@ -145,6 +178,16 @@ class TestConvencoes(ComBase):
                 ("contacts", "contact_id", "uuid", "gen_random_uuid()"),
                 ("entitlements", "modulo", "text", None),
                 ("entitlements", "tenant_id", "uuid", None),
+                ("events_log", "event_id", "uuid", None),
+                ("events_log", "ocorrido_em", "timestamp with time zone", None),
+                ("events_log_default", "event_id", "uuid", None),
+                ("events_log_default", "ocorrido_em", "timestamp with time zone", None),
+                ("events_outbox", "id", "bigint", None),
+                ("evt_agregado_seq", "agregado_id", "text", None),
+                ("evt_agregado_seq", "agregado_tipo", "text", None),
+                ("evt_agregado_seq", "tenant_id", "uuid", None),
+                ("evt_subscricoes", "consumer", "text", None),
+                ("evt_subscricoes", "tipo", "text", None),
                 ("hmac_key_versions", "kid", "text", None),
                 ("tenant_channels", "id", "uuid", "gen_random_uuid()"),
                 ("tenants", "id", "uuid", "gen_random_uuid()"),
@@ -191,7 +234,13 @@ class TestConvencoes(ComBase):
         self.assertEqual(
             {t for t, _ in com_tenant},
             {"tenant_channels", "entitlements", "contacts", "contact_deks",
-             "contact_endpoints"},
+             "contact_endpoints",
+             # KAM-005. O `events_log` tem o indice `(tenant_id, ocorrido_em)` e
+             # a particao herda-o (o indice de uma particionada propaga-se);
+             # o `events_outbox` tem `(tenant_id, criado_at)`, acrescentado ao
+             # DDL do `docs/tecnica/06` §6.1 exactamente por esta regra.
+             "events_outbox", "evt_agregado_seq", "events_log",
+             "events_log_default"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):

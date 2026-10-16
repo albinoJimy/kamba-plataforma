@@ -32,7 +32,7 @@ class TestCatalogoReal(ComBase):
         """O criterio diz «inicialmente vazia»; quem a encher muda este teste a ver."""
         self.assertEqual(catalogo.excepcoes_rls(), {})
 
-    def test_a_descoberta_encontra_as_seis_tabelas(self) -> None:
+    def test_a_descoberta_encontra_as_nove_tabelas(self) -> None:
         """Se a descoberta encolher, a suite inteira passa a testar menos."""
         self.assertEqual(
             catalogo.tabelas_isoladas(self.cursor),
@@ -41,10 +41,32 @@ class TestCatalogoReal(ComBase):
                 ("platform", "contact_endpoints", "tenant_id"),
                 ("platform", "contacts", "tenant_id"),
                 ("platform", "entitlements", "tenant_id"),
+                ("platform", "events_log", "tenant_id"),
+                ("platform", "events_outbox", "tenant_id"),
+                ("platform", "evt_agregado_seq", "tenant_id"),
                 ("platform", "tenant_channels", "tenant_id"),
                 ("platform", "tenants", "id"),
             ],
         )
+
+    def test_a_particao_do_arquivo_nao_entra_na_descoberta(self) -> None:
+        """E tem de ser encontrada **como particao**, ou nao se verificava nada.
+
+        A `events_log_default` tem `tenant_id` e entrava na descoberta sozinha,
+        com ela a receita de sementes e os canarios — sobre a mesma linha que o
+        pai ja semeia. Fica de fora da descoberta e dentro de
+        `particoes_de_isoladas`, que e o que `verificar_particoes` percorre.
+        """
+        descobertas = {t for _, t, _ in catalogo.tabelas_isoladas(self.cursor)}
+        self.assertNotIn("events_log_default", descobertas)
+        self.assertEqual(
+            catalogo.particoes_de_isoladas(self.cursor),
+            [("platform", "events_log_default", "events_log")],
+        )
+
+    def test_cada_particao_tem_a_sua_rls_e_nenhum_privilegio(self) -> None:
+        """X-05, segunda parte (KAM-005): a politica do pai nao cobre a particao."""
+        self.assertEqual(catalogo.verificar_particoes(self.cursor), [])
 
     def test_cada_tabela_isolada_tem_receita_de_sementes(self) -> None:
         """Uma tabela que a suite nao sabe semear e uma tabela que nao testa."""
@@ -72,6 +94,10 @@ class TestCatalogoReal(ComBase):
                 ("contact_endpoints", "tenant_iso", "ALL", "{public}"),
                 ("contacts", "tenant_iso", "ALL", "{public}"),
                 ("entitlements", "tenant_iso", "ALL", "{public}"),
+                ("events_log", "tenant_iso", "ALL", "{public}"),
+                ("events_log_default", "tenant_iso", "ALL", "{public}"),
+                ("events_outbox", "tenant_iso", "ALL", "{public}"),
+                ("evt_agregado_seq", "tenant_iso", "ALL", "{public}"),
                 ("tenant_channels", "resolver_leitura", "SELECT", "{kamba_resolver}"),
                 ("tenant_channels", "tenant_iso", "ALL", "{public}"),
                 ("tenants", "resolver_leitura", "SELECT", "{kamba_resolver}"),
@@ -88,7 +114,8 @@ class TestCatalogoReal(ComBase):
         self.assertEqual(
             [l[0] for l in linhas],
             ["contact_deks", "contact_endpoints", "contacts", "entitlements",
-             "tenant_channels", "tenants"],
+             "events_log", "events_log_default", "events_outbox",
+             "evt_agregado_seq", "tenant_channels", "tenants"],
         )
         for tabela, comando, permissiva, papeis, qual, com_check in linhas:
             with self.subTest(tabela=tabela):
@@ -167,8 +194,7 @@ class TestRegressao(ComBase):
         self.assertEqual(len(problemas), 1, problemas)
         self.assertIn("public.encomendas_ensaio", problemas[0])
 
-    def test_tabela_particionada_e_cada_particao_sao_apanhadas(self) -> None:
-        """A RLS da tabela-mae nao se aplica a quem leia a particao directamente."""
+    def _particionada_de_ensaio(self) -> None:
         self.cursor.execute(
             "CREATE TABLE platform.eventos_ensaio (tenant_id uuid NOT NULL, n integer) "
             "PARTITION BY RANGE (n)"
@@ -177,10 +203,66 @@ class TestRegressao(ComBase):
             "CREATE TABLE platform.eventos_ensaio_1 PARTITION OF platform.eventos_ensaio "
             "FOR VALUES FROM (0) TO (10)"
         )
+
+    def test_tabela_particionada_sem_rls_e_apanhada_pelo_x05(self) -> None:
+        """A mae e uma tabela com `tenant_id` como as outras: entra na descoberta.
+
+        A particao **nao** entra — tem a sua verificacao, no teste seguinte. Foi
+        esta a mudanca do KAM-005: ate la as duas vinham por `verificar_rls`, e
+        com elas vinha a exigencia de uma receita de sementes por particao, que
+        nao fecha quando as particoes nascem mensalmente de um *job*.
+        """
+        self._particionada_de_ensaio()
         problemas = catalogo.verificar_rls(self.cursor)
-        self.assertEqual(len(problemas), 2, problemas)
-        self.assertTrue(any("platform.eventos_ensaio:" in p for p in problemas))
-        self.assertTrue(any("platform.eventos_ensaio_1:" in p for p in problemas))
+        self.assertEqual(len(problemas), 1, problemas)
+        self.assertIn("platform.eventos_ensaio:", problemas[0])
+
+    def test_a_rls_da_mae_nao_chega_a_particao_e_a_verificacao_di_lo(self) -> None:
+        """Mediu-se contra o PostgreSQL 18.6: a politica da mae nao cobre a particao.
+
+        Com a mae em `ENABLE`/`FORCE` e com politica, a particao fica com
+        `relrowsecurity = false` e zero politicas, e um `SELECT` feito nela
+        devolve as linhas de todos os tenants. E por isso que
+        `verificar_particoes` existe, e e isto que ela tem de dizer.
+        """
+        self._particionada_de_ensaio()
+        self.cursor.execute(
+            "ALTER TABLE platform.eventos_ensaio ENABLE ROW LEVEL SECURITY"
+        )
+        self.cursor.execute(
+            "ALTER TABLE platform.eventos_ensaio FORCE ROW LEVEL SECURITY"
+        )
+        self.cursor.execute(
+            "CREATE POLICY tenant_iso ON platform.eventos_ensaio "
+            "USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)"
+        )
+        # A mae ja esta conforme; a particao continua sem nada.
+        self.assertEqual(catalogo.verificar_rls(self.cursor), [])
+        problemas = catalogo.verificar_particoes(self.cursor)
+        self.assertEqual(len(problemas), 1, problemas)
+        self.assertIn("platform.eventos_ensaio_1", problemas[0])
+        self.assertIn("ENABLE ROW LEVEL SECURITY", problemas[0])
+        self.assertIn("FORCE ROW LEVEL SECURITY", problemas[0])
+        self.assertIn("pelo menos uma politica", problemas[0])
+
+    def test_um_privilegio_concedido_na_particao_e_apanhado(self) -> None:
+        """Quem acede, acede pela mae: uma concessao directa abre um caminho sem ela."""
+        self._particionada_de_ensaio()
+        for alvo in ("platform.eventos_ensaio", "platform.eventos_ensaio_1"):
+            self.cursor.execute(f"ALTER TABLE {alvo} ENABLE ROW LEVEL SECURITY")
+            self.cursor.execute(f"ALTER TABLE {alvo} FORCE ROW LEVEL SECURITY")
+            self.cursor.execute(
+                f"CREATE POLICY tenant_iso ON {alvo} USING "
+                "(tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)"
+            )
+        self.assertEqual(catalogo.verificar_particoes(self.cursor), [])
+
+        self.cursor.execute(
+            "GRANT SELECT ON platform.eventos_ensaio_1 TO kamba_app"
+        )
+        problemas = catalogo.verificar_particoes(self.cursor)
+        self.assertEqual(len(problemas), 1, problemas)
+        self.assertIn("kamba_app tem privilegio", problemas[0])
 
     def test_coluna_de_tenant_com_outro_nome_e_apanhada(self) -> None:
         self.cursor.execute(

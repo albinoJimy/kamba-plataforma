@@ -95,3 +95,24 @@ class ComDoisTenants(ComBase):
             cursor.execute("ROLLBACK TO SAVEPOINT caso_negativo")
         self.assertEqual(sqlstate(capturado.exception), PRIVILEGIO_INSUFICIENTE)
         self.assertIn("row-level security", str(capturado.exception))
+
+    def _inserir_sem_privilegio(self, cursor, receita, tenant_id: str) -> None:
+        """A receita tem de ser recusada **pelo privilegio**, nao pela politica.
+
+        O inverso de `_inserir_tem_de_falhar`, e para as tabelas em que nenhum
+        papel sujeito a RLS escreve (`Receita.escrita_do_papel = False`). O
+        mesmo `42501` com outro texto: aceitar qualquer `42501` aqui passava se
+        alguem desse `INSERT` ao papel e a politica o recusasse — o que e uma
+        protecao mais fraca do que a que esta tabela tem hoje.
+        """
+        import pg8000.dbapi
+
+        cursor.execute("SAVEPOINT caso_negativo")
+        try:
+            with self.assertRaises(pg8000.dbapi.DatabaseError) as capturado:
+                receita.inserir(cursor, tenant_id, f"canario_intruso_{uuid.uuid4().hex}")
+        finally:
+            cursor.execute("ROLLBACK TO SAVEPOINT caso_negativo")
+        self.assertEqual(sqlstate(capturado.exception), PRIVILEGIO_INSUFICIENTE)
+        self.assertIn("permission denied", str(capturado.exception))
+        self.assertNotIn("row-level security", str(capturado.exception))

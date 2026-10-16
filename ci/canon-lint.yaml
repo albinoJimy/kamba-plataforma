@@ -105,6 +105,37 @@ fora_de_ambito:
       pelo `canon_lint canario` e pelos testes, uma a uma, e nao pelo varrimento
       da arvore — que ficaria vermelho por desenho.
 
+  - caminho: "packages/core-ts/src/eventos/*"
+    razao: >-
+      KAM-005: a biblioteca TypeScript do envelope e do publicador. Bate na
+      sentinela `*/eventos/*`, mas a superficie `eventos` sao os **schemas** de
+      evento (`contratos/eventos/*.schema.json`, KAM-007) e o gate 3b nao le
+      TypeScript. Os nomes que este codigo usa sao contrato onde sao escritos:
+      no DDL da revisao `0004`, que esta na superficie `migracoes` e e lido.
+
+  - caminho: "packages/core-ts/tests/eventos.*"
+    razao: >-
+      KAM-005: os testes unitarios do envelope, do guarda de PII, das metricas,
+      do conversor e do laco do publicador. Pela mesma razao da entrada acima, e
+      sao testes: os nomes que usam vem da *fixture* e dos modulos.
+
+  - caminho: "packages/core-ts/tests/fixtures/eventos_pii.json"
+    razao: >-
+      KAM-005: as cadeias do guarda de PII, corridas pelos dois lados (o modulo
+      TypeScript e os dois `~` de `platform.evt_emitir`). Nao e um schema de
+      evento; sao dados de teste, e nenhum deles e um numero real.
+
+  - caminho: "db/tests_eventos/*"
+    razao: >-
+      KAM-005: a suite que corre o publicador contra PostgreSQL e fila reais.
+      Bate na sentinela `*/eventos/*`; nao tem DDL nem schemas, e os nomes que
+      usa sao os da revisao `0004`, que o gate le.
+
+  - caminho: "db/tests_eventos_carga/*"
+    razao: >-
+      KAM-005: a medicao de carga do criterio 8, em suite propria por custo.
+      Pela mesma razao da entrada acima.
+
   - caminho: "db/migrations/env.py"
     razao: >-
       O ambiente do Alembic: abre a ligacao e chama as revisoes. Nao e uma

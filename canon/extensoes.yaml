@@ -122,10 +122,13 @@ extensoes:
     tipo: coluna
     ticket: KAM-003
     data: 2026-10-11
-  - nome: contact_endpoints.finalidade
-    tipo: coluna
-    ticket: KAM-008
-    data: 2026-10-12
+  # `contact_endpoints.finalidade` esteve aqui, do KAM-008. Saiu com a emenda
+  # 1.9 (KAM-005): o §3.5 passou a nomear `evt_subscricoes(… finalidade …)`, e o
+  # §3 e uma lista de nomes por conceito — um nome do dicionario vale em
+  # qualquer tabela. A extensao qualificada ficou redundante, e o lint recusa
+  # extensoes redundantes. Os **valores** de `contact_endpoints.finalidade`
+  # continuam abaixo, qualificados: um `entrega` na coluna do nome canonico
+  # passava a ser aceite em qualquer posicao.
   - nome: contact_endpoints.recolhido_at
     tipo: coluna
     ticket: KAM-008

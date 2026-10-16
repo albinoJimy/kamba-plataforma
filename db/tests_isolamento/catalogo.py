@@ -90,13 +90,24 @@ def tabelas_isoladas(cursor) -> list[tuple[str, str, str]]:
     schemas aplicacionais, mais as isoladas por outra coluna. E esta lista que
     parametriza a suite inteira — uma tabela nova entra sozinha em X-03, X-04 e
     X-05.
+
+    **As particoes ficam de fora, e tem verificacao propria** (KAM-005). Uma
+    particao e uma linha do catalogo com as colunas do pai, incluindo o
+    `tenant_id`: entrava aqui sozinha, e com ela entravam as receitas de
+    sementes, os canarios e a escrita cruzada — sobre uma relacao a que
+    ninguem acede directamente. Pior: as particoes mensais do `events_log`
+    nascem de um *job*, com nome que leva a data, e a lista mudava todos os
+    meses. O que precisa de ser verdade sobre elas e outra coisa, e esta em
+    `verificar_particoes`: ter a sua propria RLS **e** nao ter privilegio
+    concedido a papel nenhum.
     """
     com_tenant = _linhas(
         cursor,
         "SELECT n.nspname, c.relname FROM pg_class c "
         "JOIN pg_namespace n ON n.oid = c.relnamespace "
         "JOIN pg_attribute a ON a.attrelid = c.oid "
-        "WHERE c.relkind IN ('r', 'p') AND a.attname = 'tenant_id' "
+        "WHERE c.relkind IN ('r', 'p') AND NOT c.relispartition "
+        "AND a.attname = 'tenant_id' "
         "AND a.attnum > 0 AND NOT a.attisdropped "
         "AND n.nspname <> ALL(%s) AND n.nspname NOT LIKE 'pg!_%%' ESCAPE '!' "
         "ORDER BY 1, 2",
@@ -180,6 +191,107 @@ def verificar_rls(cursor, excepcoes: dict[str, dict] | None = None) -> list[str]
             f"{nome}: esta em ci/rls_exceptions.yaml e nao e uma tabela com "
             "coluna de tenant — a excepcao esta morta, retire-a"
         )
+    return problemas
+
+
+#: Papeis de servico. Uma particao nao pode ter privilegio concedido a nenhum.
+PAPEIS_DE_SERVICO = (
+    "kamba_app",
+    "kamba_batch",
+    "kamba_resolver",
+    "kamba_identity",
+    "public",
+)
+
+
+def particoes_de_isoladas(cursor) -> list[tuple[str, str, str]]:
+    """(schema, particao, pai) de cada particao de uma tabela com `tenant_id`.
+
+    `relkind IN ('r', 'p')` nos **dois** lados, e nao e detalhe: o `pg_inherits`
+    liga tambem um indice particionado aos seus indices-filhos, e o
+    `pg_attribute` tem linhas para as colunas de um indice. Sem o filtro, o
+    indice `events_log_default_tenant_id_ocorrido_em_idx` aparecia como «uma
+    particao com `tenant_id` sem RLS» e o X-05 falhava a pedir uma politica num
+    indice (medido).
+    """
+    return _linhas(
+        cursor,
+        "SELECT n.nspname, c.relname, p.relname FROM pg_class c "
+        "JOIN pg_namespace n ON n.oid = c.relnamespace "
+        "JOIN pg_inherits i ON i.inhrelid = c.oid "
+        "JOIN pg_class p ON p.oid = i.inhparent "
+        "JOIN pg_attribute a ON a.attrelid = c.oid "
+        "WHERE c.relispartition AND c.relkind IN ('r', 'p') "
+        "AND p.relkind IN ('r', 'p') AND a.attname = 'tenant_id' "
+        "AND a.attnum > 0 AND NOT a.attisdropped "
+        "AND n.nspname <> ALL(%s) AND n.nspname NOT LIKE 'pg!_%%' ESCAPE '!' "
+        "ORDER BY 1, 2",
+        (list(SCHEMAS_DE_SISTEMA),),
+    )
+
+
+def verificar_particoes(cursor) -> list[str]:
+    """X-05, segunda parte: as particoes de uma tabela isolada (KAM-005).
+
+    **Mediu-se contra o PostgreSQL 18.6, e o resultado e o que torna esta
+    verificacao necessaria:** ligar `ENABLE`/`FORCE ROW LEVEL SECURITY` e criar
+    a politica no pai particionado **nao** protege quem le a particao
+    directamente. Com o contexto do tenant A, um `SELECT` na particao devolveu
+    as linhas dos **dois** tenants; sem contexto nenhum, tambem. O catalogo
+    di-lo: a particao fica com `relrowsecurity = false` e zero politicas.
+
+    Logo, duas exigencias, e as duas tem de valer:
+
+    1. **A particao tem a sua propria RLS** — `ENABLE`, `FORCE` e ao menos uma
+       politica. E o que a revisao faz (`rls.enable_tenant_rls`) e o que o
+       `db/eventos_particoes.py` tem de fazer em cada particao que criar.
+    2. **Nenhum papel de servico tem privilegio na particao.** Quem acede,
+       acede pelo pai — e e no pai que o privilegio e a politica se avaliam.
+       Uma particao nasce com `relacl` vazio (medido), pelo que isto e o estado
+       por omissao; a verificacao esta aqui para que uma concessao directa, que
+       abriria um caminho sem RLS do pai, nao passe calada.
+
+    A primeira sozinha chegava para o isolamento; a segunda e defesa em
+    profundidade, e e de graca.
+    """
+    problemas: list[str] = []
+    for schema, particao, pai in particoes_de_isoladas(cursor):
+        nome = f"{schema}.{particao}"
+        activa, forcada, politicas = _linhas(
+            cursor,
+            "SELECT c.relrowsecurity, c.relforcerowsecurity, "
+            "(SELECT count(*) FROM pg_policy p WHERE p.polrelid = c.oid) "
+            "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = %s AND c.relname = %s",
+            (schema, particao),
+        )[0]
+        em_falta = []
+        if not activa:
+            em_falta.append("ENABLE ROW LEVEL SECURITY")
+        if not forcada:
+            em_falta.append("FORCE ROW LEVEL SECURITY")
+        if not politicas:
+            em_falta.append("pelo menos uma politica")
+        if em_falta:
+            problemas.append(
+                f"{nome}: e particao de {pai} e falta-lhe {', '.join(em_falta)}. "
+                "A politica do pai NAO protege quem le a particao directamente "
+                "(medido no PostgreSQL 18.6): chame `rls.enable_tenant_rls` "
+                "tambem na particao."
+            )
+        for papel in PAPEIS_DE_SERVICO:
+            tem = _linhas(
+                cursor,
+                "SELECT bool_or(has_table_privilege(%s, %s, p)) "
+                "FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE']) AS p",
+                (papel, nome),
+            )[0][0]
+            if tem:
+                problemas.append(
+                    f"{nome}: {papel} tem privilegio **na particao**. Quem acede, "
+                    f"acede por {pai}: um privilegio directo abre um caminho que "
+                    "a politica do pai nao cobre."
+                )
     return problemas
 
 

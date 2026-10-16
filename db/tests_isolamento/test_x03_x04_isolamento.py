@@ -168,9 +168,29 @@ class TestX04SemContexto(ComDoisTenants):
 
     def test_insert_sem_contexto_falha(self) -> None:
         for schema, tabela, _, receita in self.por_tabela():
+            if not receita.escrita_do_papel:
+                continue  # ver `test_onde_o_papel_nao_escreve_...`
             with self.subTest(tabela=f"{schema}.{tabela}"):
                 cursor = self.cursor_de(receita.papel)
                 self._inserir_tem_de_falhar(cursor, receita, self.a.id)
+
+    def test_onde_o_papel_nao_escreve_o_insert_nem_chega_a_politica(self) -> None:
+        """`events_log` e arquivo: so o `kamba_batch` escreve, e ele e auditado.
+
+        Nenhum papel sujeito a RLS lhe insere, pelo que nao ha `WITH CHECK` que
+        se possa exercer. O que se prova e mais forte: o papel que a **le** nao
+        tem sequer o privilegio de `INSERT`, e por isso a politica nunca e a
+        unica coisa entre o produtor e o arquivo.
+        """
+        cobertas = 0
+        for schema, tabela, _, receita in self.por_tabela():
+            if receita.escrita_do_papel:
+                continue
+            cobertas += 1
+            with self.subTest(tabela=f"{schema}.{tabela}"):
+                cursor = self.cursor_de(receita.papel, self.a.id)
+                self._inserir_sem_privilegio(cursor, receita, self.a.id)
+        self.assertTrue(cobertas, "nenhuma tabela e so-leitura para o seu papel")
 
     def test_um_contexto_que_nao_e_uuid_e_erro_e_nao_linhas(self) -> None:
         """Falha fechada pelo lado ruidoso: o `::uuid` da politica rebenta."""
@@ -198,6 +218,8 @@ class TestEscritaCruzada(ComDoisTenants):
     def test_insert_com_o_tenant_de_b_sob_contexto_a_falha(self) -> None:
         """`WITH CHECK`. Para `tenants`, e criar um tenant cujo `id` nao e o do contexto."""
         for schema, tabela, _, receita in self.por_tabela():
+            if not receita.escrita_do_papel:
+                continue  # ver `test_onde_o_papel_nao_escreve_...`
             with self.subTest(tabela=f"{schema}.{tabela}"):
                 cursor = self.cursor_de(receita.papel, self.a.id)
                 alvo = str(uuid.uuid4()) if tabela == "tenants" else self.b.id
@@ -205,6 +227,8 @@ class TestEscritaCruzada(ComDoisTenants):
 
     def test_update_sobre_linhas_de_b_afecta_zero_linhas(self) -> None:
         for schema, tabela, coluna, receita in self.por_tabela():
+            if receita.coluna_alteravel is None:
+                continue  # ver `test_nas_tabelas_imutaveis_...`
             with self.subTest(tabela=f"{schema}.{tabela}"):
                 cursor = self.cursor_de(receita.papel, self.a.id)
                 cursor.execute(
@@ -217,6 +241,8 @@ class TestEscritaCruzada(ComDoisTenants):
     def test_update_sem_where_so_toca_nas_linhas_de_a(self) -> None:
         """O caso perigoso: um `UPDATE` sem filtro. A politica e o filtro."""
         for schema, tabela, coluna, receita in self.por_tabela():
+            if receita.coluna_alteravel is None:
+                continue  # ver `test_nas_tabelas_imutaveis_...`
             with self.subTest(tabela=f"{schema}.{tabela}"):
                 cursor = self.cursor_de(receita.papel, self.a.id)
                 cursor.execute(
@@ -224,6 +250,31 @@ class TestEscritaCruzada(ComDoisTenants):
                     f"{receita.coluna_alteravel}"
                 )
                 self.assertEqual(cursor.rowcount, 1)
+
+    def test_nas_tabelas_imutaveis_o_papel_nao_tem_update(self) -> None:
+        """Nao ha coluna alteravel porque nao ha `UPDATE` (KAM-005).
+
+        O `events_outbox` e o `events_log` nao tem, para o papel que os le,
+        nenhuma coluna que ele possa alterar: o estado de publicacao e do
+        publicador e o arquivo e imutavel. Provar isso pela **ausencia de
+        privilegio** e mais forte do que por politica — nao depende de a
+        politica estar certa — e e por isso que os dois testes acima saltam
+        estas tabelas em vez de inventarem uma coluna alteravel.
+        """
+        cobertas = 0
+        for schema, tabela, _, receita in self.por_tabela():
+            if receita.coluna_alteravel is not None:
+                continue
+            cobertas += 1
+            with self.subTest(tabela=f"{schema}.{tabela}"):
+                cursor = self.cursor_de(receita.papel, self.a.id)
+                self.assertErroSql(
+                    PRIVILEGIO_INSUFICIENTE,
+                    cursor,
+                    f"UPDATE {schema}.{tabela} SET {receita.coluna_do_canario} = "
+                    f"{receita.coluna_do_canario}",
+                )
+        self.assertTrue(cobertas, "nenhuma tabela e imutavel para o seu papel")
 
     def test_update_nao_muda_uma_linha_de_a_para_b(self) -> None:
         """`WITH CHECK` tambem no `UPDATE`: A nao oferece uma linha sua a B.
