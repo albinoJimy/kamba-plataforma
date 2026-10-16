@@ -59,7 +59,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117 | 16 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
 | EPIC-11 Módulos de Entrada | KAM-118 – KAM-127 | 10 | 1 |
-| **TOTAL** | **KAM-001 – KAM-148, KAM-150 – KAM-152** | **152** | — |
+| **TOTAL** | **KAM-001 – KAM-152** | **152** | — |
 
 ### 3.2 Fases
 
