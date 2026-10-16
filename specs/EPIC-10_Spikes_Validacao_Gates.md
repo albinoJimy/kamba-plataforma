@@ -8,7 +8,7 @@
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` |
-| Documentos relacionados | `../docs/tecnica/00_Arquitectura_Solucao.md` (§13), `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md`, `../docs/tecnica/08_Seguranca_Conformidade.md` (§8, §13), `../docs/tecnica/09_Topologia_Operacao_Escala.md` (§5), `../docs/tecnica/10_Onboarding_Governanca.md` (§6), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md`, `E2_Pagamentos_Angola.md`, `E3_Regulatorio_Dados.md`, `E4_Stack_Licencas.md`, `specs/00_KAMBA_Carta.md`, `specs/EPIC-02_Canais_WhatsApp_Handoff.md`, `specs/EPIC-08_Topologia_Operacao.md`, `specs/01_Engineering_Standards_e_Handoff.md` |
+| Documentos relacionados | `../docs/tecnica/00_Arquitectura_Solucao.md` (§13), `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md`, `../docs/tecnica/08_Seguranca_Conformidade.md` (§8, §13), `../docs/tecnica/09_Topologia_Operacao_Escala.md` (§5), `../docs/tecnica/10_Onboarding_Governanca.md` (§6), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md`, `../docs/tecnica/evidencia/E2_Pagamentos_Angola.md`, `../docs/tecnica/evidencia/E3_Regulatorio_Dados.md`, `../docs/tecnica/evidencia/E4_Stack_Licencas.md`, `specs/00_KAMBA_Carta.md`, `specs/EPIC-02_Canais_WhatsApp_Handoff.md`, `specs/EPIC-08_Topologia_Operacao.md`, `specs/01_Engineering_Standards_e_Handoff.md` |
 
 ---
 
@@ -759,3 +759,4 @@ Não expandas escopo: escrever os epics da Fase 2 é trabalho posterior, só se 
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: KAM-100 a KAM-110 (spikes, pedidos à Meta, bancos e jurídico, alojamento, entrevistas, voz, gates da Fase 0 e do Piloto). | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | KAM-129: as 27 referências aos anexos de evidência e aos artefactos de validação passam a `../docs/tecnica/evidencia/…`; antes não resolviam de posição nenhuma. As duas que já estavam correctas («Natureza dos tickets» e o Registo de Hipóteses do KAM-100) ficaram intactas. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | KAM-145: três das quatro referências a anexos de evidência da linha «Documentos relacionados» da tabela de cabeçalho passam a trazer o prefixo `../docs/tecnica/evidencia/`. Estavam citadas **sem directório nenhum** desde a emissão — pré-existentes ao KAM-128 e ao KAM-129 — e não resolviam a partir de `specs/`; eram invisíveis às buscas G1 e G2 do KAM-129, que ancoram no prefixo. Forma de citação (nome completo) inalterada; sem alteração de conteúdo técnico: o *diff* é de uma linha, 1 inserção contra 1 eliminação. | Equipa KAMBÁ |
