@@ -145,10 +145,41 @@ não case nenhuma linha falha o gate.
 Excepções em [`ci/handoff-allow.yaml`](../ci/handoff-allow.yaml), cada uma com o
 excerto da linha e a razão. São para a linha cujo **assunto é uma forma de caminho**:
 o literal que o executor tem de produzir, e não um ficheiro que ele abre. Hoje são
-três, todas frases que ensinam ou ilustram a convenção de prosa do KAM-128.
+**quatro**, todas frases que ensinam ou ilustram a convenção de prosa do KAM-128 ou descrevem o resultado que um ticket produz.
 
 Entra no `ci-3` e **não** como *gate* novo de propósito: um *gate* novo acrescentaria
 um contexto exigido ao *ruleset* de `main`. Os sete mantêm-se.
+
+**Terceiro passo: as contagens escritas em prosa** (`lint_contagens`, KAM-158).
+«N tickets», «N ADRs», «N epics» são números que derivam de um sítio onde as
+coisas se contam — as linhas `| KAM-NNN |` do `../specs/INDICE.md` §4, os
+`ADR-NNN` do §8 do `tecnica/00`, os ficheiros de epic. Escritos à mão num
+segundo sítio, deixam de acompanhar: aconteceu **quatro** vezes (dívidas
+~~19~~, 26, 30 e o §1 do `INDICE`), e quatro vezes se corrigiu à mão. Este
+passo confronta cada contagem com a sua fonte e imprime, quando falha, o sítio,
+os dois números e o comando que reproduz o da fonte.
+
+Três decisões que o tornam utilizável:
+
+- **Lê uma zona, não o ficheiro todo.** Uma linha de «Controlo de versões» e uma
+  secção «Verificação dos Critérios de Aceitação» registam o que era verdade
+  **então**; corrigi-las falsearia o registo. `analises/` e `evidencia/` ficam
+  de fora por inteiro, pela mesma razão: são registos datados.
+- **A fonte depende de onde está escrito.** «São 11 tickets» dentro do `EPIC-04`
+  fala desse epic; a mesma frase no `INDICE` fala do total. Um número passa se
+  for **um dos dois** que a árvore conta, e não há terceira leitura.
+- **Duas listas em [`ci/contagens-allow.yaml`](../ci/contagens-allow.yaml), com
+  significados diferentes:** `excepcoes` são linhas em que o número **está
+  certo** por não ser uma contagem do conjunto (a citação de um defeito passado,
+  a descrição do conteúdo de outro documento) e não têm prazo; `dividas` são
+  contagens **erradas** que pertencem a outro ticket, com dono, `ocorrencias` e
+  `expira_em` — e a partir dessa data o *gate* falha. Uma declaração que não
+  casa nada, em qualquer das duas, falha o *gate*.
+
+E duas guardas contra dizer «conforme» sobre o vazio: cada grandeza declarada
+tem de aparecer pelo menos uma vez (um padrão que deixa de casar nada não
+protege nada, e isso não se vê no total), e a população encontrada tem de ficar
+acima de um mínimo escrito à mão, como o `esperados=N` do resumo.
 
 ### Gate 3b — nomes canónicos
 
@@ -1395,3 +1426,4 @@ sobrevivem ao PR.
 | 1.22 | Outubro 2026 | KAM-005: o *gate* 8 passa a correr **quatro** *suites* — `tests_eventos` e `tests_eventos_carga` juntam-se às duas, com uma rede Docker própria, PostgreSQL **e** Valkey (digest em `ci/supply-chain/imagens.yaml`), o contentor da fila sem `--rm` e porta fixa para o critério 4 a poder pará-la, e o `kill -9` mandado ao contentor. A carga fica em *suite* própria por custo das mutações. O *gate* 6 ganha `verificar_particoes`: a política de uma tabela particionada não cobre quem lê a partição directamente. | Equipa KAMBÁ |
 | 1.23 | Outubro 2026 | KAM-005: as *suites* de eventos correm pela primeira vez num anfitrião Linux ([execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356)) e fecham três caixas do bloco — a da fila parada, que no anfitrião Windows não reproduzia, e a do p95, que lá media 6,0 s e aqui mede **0,195 s**. | Equipa KAMBÁ |
 | 1.24 | Outubro 2026 | KAM-155: o segundo passo do *gate* 3 passa a ler **dois** globos — `specs/EPIC-*.md` e `specs/tickets/*.md` —, porque o EPIC-01 passou a ter um ficheiro por ticket. Com um só, o *gate* ficava verde e deixava 39 blocos sem ser lidos. | Equipa KAMBÁ |
+| 1.25 | Outubro 2026 | KAM-158: o *gate* 3 ganha um **terceiro** passo, `lint_contagens`, que confronta cada contagem escrita em prosa com a fonte que a conta. Fecha por máquina a classe «contagem que não acompanha», que já custou quatro correcções à mão. A dívida 30 fica paga; seis ficam declaradas com dono (KAM-130) e prazo. | Equipa KAMBÁ |

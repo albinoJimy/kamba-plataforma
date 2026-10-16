@@ -515,7 +515,16 @@ class TestLideranca(ComFila):
         )
 
         # E publica: assumir sem publicar nao e assumir.
-        (outro,) = self.emitir()
+        #
+        # Noutra particao, de proposito: as duas asercoes abaixo sao sobre a
+        # fila de `outro`, e com os dois eventos na mesma particao (uma vez em
+        # dezasseis, com agregados ao acaso) a fila leva **os dois** — o
+        # primeiro por direito. `pendentes` dava 2 e `espera` dava uma lista de
+        # dois, sem nada estar errado. E a mesma causa que o
+        # `test_so_quem_tem_a_finalidade_do_envelope_recebe` ja tinha corrigido,
+        # neste teste irmao que nao foi varrido na altura.
+        (outro,) = self.emitir(
+            agregado=self.agregado_fora_da_particao(self.particao_de(identificador)))
         self.assertTrue(esperar_por(lambda: self.pendentes() == 0, 60))
         self.assertEqual(self.fila.pendentes(self.nome_da_fila(outro)), 1)
         self.assertEqual(self.fila.espera(self.nome_da_fila(outro)), [outro])
