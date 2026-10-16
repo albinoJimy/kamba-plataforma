@@ -154,7 +154,7 @@ KAM-004 consta como implementada no PR #16 e por fundir, sem citar testes que `m
 
 ```text
 És o executor do ticket KAM-065 da KAMBÁ (chore). Lê specs/EPIC-07_Seguranca_Conformidade.md (bloco KAM-065),
-../docs/tecnica/08 (§4, §8.5, §8.7, §9, §12, §13) e ../docs/tecnica/evidencia/E3 (requisitos 1-25).
+docs/tecnica/08 (§4, §8.5, §8.7, §9, §12, §13) e docs/tecnica/evidencia/E3 (requisitos 1-25).
 Objectivo: ameacas_stride.md (16 componentes x 6 categorias), matriz_conformidade.csv (>= 54 linhas, com id, origem,
 controlo, componente, ticket, teste_id, dono, fase, estado_evidencia, juridico, criterio_saida), lacunas.md,
 DPIA alargada (>= 6 operações) e riscos_residuais.md.
@@ -220,7 +220,7 @@ Construir o *harness* de testes cruzados com canários que enumera automaticamen
 
 ```text
 És o executor do ticket KAM-066 da KAMBÁ. Lê specs/EPIC-07_Seguranca_Conformidade.md (bloco KAM-066),
-../docs/tecnica/08 §3 (3.1-3.8) e §14, ../docs/tecnica/03 §5.5 e ADR-015.
+docs/tecnica/08 §3 (3.1-3.8) e §14, docs/tecnica/03 §5.5 e ADR-015.
 Objectivo: harness de testes cruzados com canários por tabela/objecto, enumeração automática de rotas, tools do REG,
 jobs e consumidores, casos X-01..X-06 e X-08..X-11 (registerCase), isolamento de contacto (X lê Y => 0 linhas),
 teste de pooling com SET LOCAL e testes de mutação (remover WHERE/policy => build vermelho).
@@ -325,7 +325,7 @@ correcções.
 
 ```text
 És o executor do ticket KAM-067 da KAMBÁ. Lê specs/EPIC-07_Seguranca_Conformidade.md (bloco KAM-067),
-../docs/tecnica/08 §4.8, ../docs/tecnica/evidencia/E4 (§1, §2, §4, §5) e ADR-002/005/014.
+docs/tecnica/08 §4.8, docs/tecnica/evidencia/E4 (§1, §2, §4, §5) e ADR-002/005/014.
 Objectivo: lint de imagens por digest, cosign verify onde publicado, SBOM CycloneDX por imagem e release, lockfiles com
 hash e sem instalação em runtime, lista de bloqueio (langgraph-api, langgraph-runtime-inmem, MinIO, n8n/Typebot/Dify em
 superfícies de tenants, LiteLLM < 1.83.0), porta de licenças com licencas.yaml, teste das flags Enterprise
@@ -440,7 +440,7 @@ evidência, não é um revisor.
 
 ```text
 És o executor do ticket KAM-068 da KAMBÁ. Lê specs/EPIC-07_Seguranca_Conformidade.md (bloco KAM-068),
-../docs/tecnica/08 (§7.3, §14) e ../docs/tecnica/06 §7.3, e ADR-010.
+docs/tecnica/08 (§7.3, §14) e docs/tecnica/06 §7.3, e ADR-010.
 Objectivo: logger tipado (TS e Python) com allowlist ts, level, svc, tenant_id, contact_hmac_prefix, turn_id, msg_id,
 wa_type, latency_ms, tool, outcome, error_code; sem texto de mensagem, transcrição, telefone, morada ou nome;
 erros por error_code; mascarar referências de pagamento; teste X-11 (telefone e NIF) no CI; proibir console.log/print.
@@ -509,7 +509,7 @@ Implementar o inventário de subprocessadores, a tabela `tenant_destinations` e 
 
 ```text
 És o executor do ticket KAM-069 da KAMBÁ. Lê specs/EPIC-07_Seguranca_Conformidade.md (bloco KAM-069),
-../docs/tecnica/08 (§7.4, §8.2, §8.3, §8.6), ../docs/tecnica/evidencia/E3 (§2, requisitos 4, 5, 8, 9, 25) e ADR-008.
+docs/tecnica/08 (§7.4, §8.2, §8.3, §8.6), docs/tecnica/evidencia/E3 (§2, requisitos 4, 5, 8, 9, 25) e ADR-008.
 Objectivo: tenant_destinations + assertDestinationAllowed (negado por omissão, falha fechada), inventário de
 subprocessadores (11 linhas de §8.3.2), v_transfer_audit, gate de go-live de tenant e mapa de tratamentos gerado.
 - Nunca infiras 'país adequado'; só status 'autorizado' com apd_ref liberta a chamada.
@@ -577,7 +577,7 @@ Implementar o fluxo de pedido do titular pelo mesmo canal (identificação por B
 
 ```text
 És o executor do ticket KAM-070 da KAMBÁ. Lê specs/EPIC-07_Seguranca_Conformidade.md (bloco KAM-070),
-../docs/tecnica/08 (§7.2, §8.1, §8.4, §11), ../docs/tecnica/06 (§5, §7.2, §7.6), ../docs/tecnica/03 §5.3 e E3 req. 13.
+docs/tecnica/08 (§7.2, §8.1, §8.4, §11), docs/tecnica/06 (§5, §7.2, §7.6), docs/tecnica/03 §5.3 e E3 req. 13.
 Objectivo: pedidos do titular pelo mesmo canal (identificação por BSUID/HMAC, prazo interno 30 d) com exportação,
 rectificação, oposição e eliminação orquestrada por privacy.erasure_requested/applied em cofre, AGR, STO, DAT, IDX e
 Chatwoot; erasure ledger reaplicado após restauro; payment_events/encomendas mantêm-se.
@@ -645,7 +645,7 @@ Implementar o registo de classes de retenção como configuração versionada, o
 
 ```text
 És o executor do ticket KAM-071 da KAMBÁ. Lê specs/EPIC-07_Seguranca_Conformidade.md (bloco KAM-071),
-../docs/tecnica/08 (§7.1, §7.5, §8.8, §11), ../docs/tecnica/06 §7.4 e ../docs/tecnica/evidencia/E3 §6 (req. 7 e 14).
+docs/tecnica/08 (§7.1, §7.5, §8.8, §11), docs/tecnica/06 §7.4 e docs/tecnica/evidencia/E3 §6 (req. 7 e 14).
 Objectivo: retention_policy versionada, jobs de purga (TTL no STO, DROP PARTITION, eliminação por tenant) com purge_log
 sem conteúdo, dry-run e legal hold, cobertura de 100% das tabelas com dados pessoais (teste de catálogo).
 - Prazos são PROPOSTAS; usa 13 meses para assistant_queries (06) e regista a divergência com 08 (12 meses).
@@ -713,7 +713,7 @@ Implementar do lado do consumidor o suporte a duas chaves (anel `[actual, anteri
 
 ```text
 És o executor do ticket KAM-072 da KAMBÁ. Lê specs/EPIC-07_Seguranca_Conformidade.md (bloco KAM-072),
-../docs/tecnica/08 §5 e §7.2, ../docs/tecnica/04 §3.3 (F-16) e ../docs/tecnica/evidencia/E4 §2.7 e §2.14.
+docs/tecnica/08 §5 e §7.2, docs/tecnica/04 §3.3 (F-16) e docs/tecnica/evidencia/E4 §2.7 e §2.14.
 Objectivo: anel de chaves [actual, anterior] com kid no GWY (Meta App Secret) e em PAY (chave HMAC do facilitador),
 rotação do pepper do HMAC de contactos (hmac_key_ver, lookup corrente+anterior, re-chaveamento em lotes),
 re-cifra de DEK/KEK dos tokens de cliente, runbooks ensaiados em staging e métrica secret_age_days.
@@ -781,7 +781,7 @@ Executar um red-team adversarial PT-AO contra o AGR já com os guardrails de KAM
 
 ```text
 És o executor do ticket KAM-073 da KAMBÁ (chore). Lê specs/EPIC-07_Seguranca_Conformidade.md (bloco KAM-073),
-../docs/tecnica/08 §4.3, §4.4, §3.7 (X-09) e ADR-007/015.
+docs/tecnica/08 §4.3, §4.4, §3.7 (X-09) e ADR-007/015.
 Objectivo: conjunto adversarial PT-AO (>= 100 casos: injecção cruzada, indirecta via catálogo/OCR, exfiltração,
 abuso de tools, denial of wallet, voz), execução em staging com canários, relatório com achados P1-P4 e promoção dos
 casos falhados a asserções determinísticas do gate golden.
@@ -848,7 +848,7 @@ Obter um relatório independente sobre isolamento, segredos, callbacks de pagame
 
 ```text
 És o executor do ticket KAM-074 da KAMBÁ (chore: preparar e acompanhar a revisão independente).
-Lê specs/EPIC-07_Seguranca_Conformidade.md (bloco KAM-074), ../docs/tecnica/08 (§3, §4, §8.5 req. 11, §10) e a matriz de KAM-065.
+Lê specs/EPIC-07_Seguranca_Conformidade.md (bloco KAM-074), docs/tecnica/08 (§3, §4, §8.5 req. 11, §10) e a matriz de KAM-065.
 Objectivo: preparar o pacote de revisão (âmbito, acessos mínimos a staging com dados sintéticos, matriz, suite KAM-066,
 relatório KAM-073, SBOM), registar o relatório do revisor independente com achados crítico/alto/médio/baixo,
 abrir tickets 'fix' e anexar o re-teste e a decisão pronto/não pronto.
@@ -912,7 +912,7 @@ Implementar o pipeline que, antes de qualquer chamada ao LLM ou ao STT, remove o
 
 ```text
 És o executor do ticket KAM-112 da KAMBÁ. Lê specs/EPIC-07_Seguranca_Conformidade.md (bloco KAM-112),
-../docs/tecnica/08 (§7.4, §7.5, §8.5 req. 6), ../docs/tecnica/02 (§8.4, §13.4) e ADR-007, ADR-008, ADR-010.
+docs/tecnica/08 (§7.4, §7.5, §8.5 req. 6), docs/tecnica/02 (§8.4, §13.4) e ADR-007, ADR-008, ADR-010.
 Objectivo: minimise() antes do LLM e do STT: telefone +244, BSUID, e-mail, NIF, moradas e nomes de terceiros viram tokens;
 o contacto é «Cliente»; preços, totais, quantidades, horas e sku passam intactos.
 - Detector local (regras, dicionários, contexto), sem chamar LLM externo; NIF parametrizável: não inventes o formato.
@@ -974,7 +974,7 @@ Produzir o runbook de resposta a incidentes e os modelos de notificação (APD, 
 
 ```text
 És o executor do ticket KAM-113 da KAMBÁ (chore: runbook de incidentes e notificação de violação de dados).
-Lê specs/EPIC-07_Seguranca_Conformidade.md (bloco KAM-113), ../docs/tecnica/08 (§10, §8.5 req. 12 e 25) e ../docs/tecnica/evidencia/E3 (pergunta 7).
+Lê specs/EPIC-07_Seguranca_Conformidade.md (bloco KAM-113), docs/tecnica/08 (§10, §8.5 req. 12 e 25) e docs/tecnica/evidencia/E3 (pergunta 7).
 Objectivo: runbook, classificação P1 a P4, 3 modelos de notificação (APD, PME, titular), lista de contactos e plano do exercício.
 - Prazos propostos (1 h, 24 h, 24 h PME, 72 h APD e titulares, 5 dias úteis T3): boa prática, a confirmar por parecer.
 - Não afirmes obrigação legal: a Circular 02 e o 72 h são INDÍCIO; coimas do Art. 51.º em USD, triplicadas para pessoas colectivas.
@@ -1137,3 +1137,4 @@ Abre PR com o template do §7.
 | 1.4 | Outubro 2026 | KAM-068: caixas do ticket marcadas com evidência (dez de catorze) e secção de verificação dos critérios de aceitação; CA4, CA5 e CA7 ficam vazios, os dois primeiros por contradição com o CA1, devolvida ao Responsável de Segurança. Política em `../docs/logs.md`, revisão em `../docs/analises/ANALISE-11-KAM-068-logs-sem-conteudo.md`. | Equipa KAMBÁ |
 | 1.5 | Outubro 2026 | KAM-068, seguimento: números da secção de verificação actualizados depois da primeira revisão adversarial, recebida com o PR já fundido (30 *fixtures* de forma no X-11, canário do *lint* com 29 negativas, prova por mutação). **As caixas não mudam.** | Equipa KAMBÁ |
 | 1.6 | Outubro 2026 | KAM-149 (`docs/seguranca/validar.py` aborta com a contagem do canon fixada) acrescentado como `fix`: a linha 43 fixa 138 tickets e o *backlog* tem 143, pelo que o validador rebenta antes das suas quatro verificações. Vinha da linha 6 de `../docs/dividas-documentais.md`, que o declara código e não resíduo textual, e nenhum ticket aberto o reclamava. O `Bloqueia` do KAM-065 actualizado. | Equipa KAMBÁ |
+| 1.7 | Outubro 2026 | KAM-145: os **25** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |

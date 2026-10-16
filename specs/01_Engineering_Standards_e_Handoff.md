@@ -122,6 +122,7 @@ Regra transversal: nenhum gate pode ser marcado *skip* sem ADR ou aprovação re
 - **Dinheiro.** Valores em Kz como inteiros (sem vírgula flutuante); moeda explícita.
 - **Datas.** UTC no armazenamento; fuso `Africa/Luanda` na apresentação.
 - **Idioma.** Texto ao utilizador em português de Angola; código e identificadores em inglês técnico; documentação na grafia do conjunto (`arquitectura`, `activo`).
+- **O executor corre na raiz do repositório.** Todo o bloco `### Handoff para Claude Code` fala a um processo cujo *directório de trabalho* (`cwd`) é a raiz do repositório, e **os caminhos dentro desse bloco são relativos à raiz**: `specs/EPIC-01_Fundacoes_Dados.md`, `docs/tecnica/00_Arquitectura_Solucao.md`, `tools/lint_refs/`. Um `../docs/…` dentro de um bloco de *handoff* aponta para **fora** da árvore e é defeito, mesmo quando resolve por acidente a partir da pasta do ficheiro. Esta regra vale **só** dentro desses blocos: fora deles, uma referência de documento para documento continua a ser relativa à posição do ficheiro que a contém (`../docs/…` a partir de `specs/`), que é a convenção do KAM-128. A distinção não é arbitrária: um bloco de *handoff* é uma instrução a um processo com `cwd`; a prosa é uma ligação para um leitor que navega ficheiros. Decidido no **KAM-145**.
 
 ---
 
@@ -178,10 +179,10 @@ Regra transversal: nenhum gate pode ser marcado *skip* sem ADR ou aprovação re
 conversacional para Angola). Identifica o ID (KAM-NNN) e lê, por esta ordem:
 
 1. specs/EPIC-XX_*.md (bloco do ticket): Contexto, Objectivo, Critérios, Detalhes, Testes, DoD.
-2. ../docs/tecnica/00_Arquitectura_Solucao.md (ADRs e decisões abertas D1–D12) e o documento
-   ../docs/tecnica/NN_*.md indicado nas referências do ticket.
+2. docs/tecnica/00_Arquitectura_Solucao.md (ADRs e decisões abertas D1–D12) e o documento
+   docs/tecnica/NN_*.md indicado nas referências do ticket.
 3. specs/01_Engineering_Standards_e_Handoff.md (DoR, DoD, convenções, template de PR).
-4. ../docs/tecnica/evidencia/ quando o ticket depender de facto sobre Meta, pagamentos, lei ou licenças.
+4. docs/tecnica/evidencia/ quando o ticket depender de facto sobre Meta, pagamentos, lei ou licenças.
 
 Regras (não-negociáveis):
 - Implementa só o que satisfaz os Critérios de Aceitação. Não expandas escopo; um defeito fora
@@ -217,3 +218,4 @@ template da §7. Conventional Commits: tipo(KAM-NNN): descrição.
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | §6, princípio 1: excepção para resíduos textuais, que vão para `../docs/dividas-documentais.md` (KAM-142). *Proposta*, como o resto do documento, até ratificação. | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | KAM-145: o §5 passa a declarar que o executor de um bloco de *handoff* corre na raiz do repositório e que os caminhos dentro desse bloco são relativos à raiz, deixando explícito que a regra de referência entre documentos (KAM-128) continua a valer fora deles. Os **três** caminhos `../docs/…` do próprio §8 passam à forma nova. Sem alteração de nenhum gate, DoR ou DoD. | Equipa KAMBÁ |

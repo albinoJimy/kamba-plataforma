@@ -125,7 +125,7 @@ Saída verificável: relatório `docs/spikes/KAM-041-medusa.md`, repositório de
 
 ```text
 És o executor do ticket KAM-041 (spike) da KAMBÁ.
-Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-041) e ../docs/tecnica/03_Core_Comercio_Medusa.md (§3.3, §4).
+Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-041) e docs/tecnica/03_Core_Comercio_Medusa.md (§3.3, §4).
 Objectivo: provar ou reprovar Medusa v2 puro + merchant_id contra AC-1..AC-10, com a matriz ISO-01..60,
 e escrever a decisão D3 (opção B ou fallback C) em docs/spikes/KAM-041-medusa.md.
 - Timebox de 5 dias; relatório com passa/falha por critério e evidência.
@@ -199,7 +199,7 @@ Implementar a porta `CommerceRegistry` (11 métodos, `ctx` obrigatório, falha f
 
 ```text
 És o executor do ticket KAM-042 da KAMBÁ.
-Lê specs/EPIC-04_Core_Comercio.md (blocos KAM-041 e KAM-042) e ../docs/tecnica/03_Core_Comercio_Medusa.md (§3, §4, §5.5).
+Lê specs/EPIC-04_Core_Comercio.md (blocos KAM-041 e KAM-042) e docs/tecnica/03_Core_Comercio_Medusa.md (§3, §4, §5.5).
 Objectivo: porta CommerceRegistry (ctx obrigatório, falha fechada) e adaptador da opção decidida em KAM-041,
 com repositório base que injecta tenant/merchant, RLS FORCE, pipeline de migrações e suite ISO no CI.
 - Ninguém fora do COM tem credenciais do Medusa; nenhuma flag Enterprise (rbac, auth-oidc, policies).
@@ -272,7 +272,7 @@ Implementar `offer_terms` e `price_quotes`, `getOfferView`, o rascunho e a publi
 
 ```text
 És o executor do ticket KAM-043 da KAMBÁ.
-Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-043) e ../docs/tecnica/03_Core_Comercio_Medusa.md (§5.4, §7).
+Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-043) e docs/tecnica/03_Core_Comercio_Medusa.md (§5.4, §7).
 Objectivo: offer_terms e price_quotes com RLS FORCE, getOfferView com modo de preço/stock, rascunho e publicação
 com OwnerConfirmation, ajuste de stock auditado, eventos sem preço/stock e searchOffers lexical mínima.
 - Dinheiro em bigint minor, currency AOA. Preço só do Registo/offer_terms/price_quotes, nunca do chamador.
@@ -348,7 +348,7 @@ Implementar `orders_mirror`, `order_state_log`, `order_state_graph`, a função 
 
 ```text
 És o executor do ticket KAM-044 da KAMBÁ.
-Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-044) e ../docs/tecnica/03_Core_Comercio_Medusa.md (§5.4, §6.1, §6.2, §10).
+Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-044) e docs/tecnica/03_Core_Comercio_Medusa.md (§5.4, §6.1, §6.2, §10).
 Objectivo: orders_mirror, order_state_log, order_state_graph (dados + trigger), transition com CAS por version,
 eventos via outbox na mesma transacção e job de reconciliação Registo↔espelho.
 - paga só por evento autenticado ou confirmação manual auditada. Sem msisdn nas tabelas de pedidos.
@@ -423,7 +423,7 @@ Implementar `stock_reservations`, `reserveStock` atómico, `commitReservation`, 
 
 ```text
 És o executor do ticket KAM-045 da KAMBÁ.
-Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-045) e ../docs/tecnica/03_Core_Comercio_Medusa.md (§6.4, §6.5, §6.6).
+Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-045) e docs/tecnica/03_Core_Comercio_Medusa.md (§6.4, §6.5, §6.6).
 Objectivo: stock_reservations, reserveStock atómico, commit/release/extend, scheduler de expiração com consulta
 final ao PAY e consumidor de charge.issued que fixa expira_at.
 - 24–72 h + folga de 15 min; Express 30 min (propostas a calibrar). Nunca libertar sem consulta final ao PAY.
@@ -496,8 +496,8 @@ Implementar `propose_cart` (leitura, total calculado no backend) e `createOrder`
 
 ```text
 És o executor do ticket KAM-046 da KAMBÁ.
-Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-046), ../docs/tecnica/03_Core_Comercio_Medusa.md (§6.3, §7.3, §10.2)
-e ../docs/tecnica/02_Agent_Runtime_Verticais.md (§6.3).
+Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-046), docs/tecnica/03_Core_Comercio_Medusa.md (§6.3, §7.3, §10.2)
+e docs/tecnica/02_Agent_Runtime_Verticais.md (§6.3).
 Objectivo: propose_cart (leitura, total no backend) e createOrder idempotente por intent_key (saga Registo+espelho),
 revalidação de preço/stock, confirmação do dono para itens críticos e sinal de pedido por pagar semelhante.
 - intent_key por intenção (tenant, contacto, draft_id, draft_version), nunca por tempo nem telefone.
@@ -582,10 +582,10 @@ CREATE TABLE servicos.bookings (
 
 ```text
 És o executor do ticket KAM-047 da KAMBÁ.
-Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-047) e ../docs/tecnica/02_Agent_Runtime_Verticais.md (§8.2, §8.3).
+Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-047) e docs/tecnica/02_Agent_Runtime_Verticais.md (§8.2, §8.3).
 Objectivo: módulo servicos (esquema próprio, RLS) com serviços, recursos, regras de disponibilidade, holds com TTL,
 marcações idempotentes e API ctx-first; sobreposição impossível por restrição de exclusão na BD.
-- O DDL é proposta (../docs/tecnica/03 não o especifica): valida btree_gist e regista o DDL final para ratificação.
+- O DDL é proposta (docs/tecnica/03 não o especifica): valida btree_gist e regista o DDL final para ratificação.
 - Máximo de 10 opções por disponibilidade; datas em UTC no armazenamento e Africa/Luanda na apresentação.
 - booking.created via outbox, sem PII.
 Não expandas escopo: grafo (KAM-035) e lembretes (KAM-048).
@@ -656,8 +656,8 @@ Implementar o agendamento, o cancelamento e a entrega idempotente de lembretes d
 
 ```text
 És o executor do ticket KAM-048 da KAMBÁ.
-Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-048), ../docs/tecnica/02_Agent_Runtime_Verticais.md (§8.2)
-e ../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§8.2–§8.4).
+Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-048), docs/tecnica/02_Agent_Runtime_Verticais.md (§8.2)
+e docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§8.2–§8.4).
 Objectivo: agendar, cancelar e entregar lembretes idempotentes (T−24 h, valor proposta) por mensagem livre (janela aberta)
 ou template utility lembrete_marcacao (janela fechada), com opt-in e estado do template verificados.
 - Nunca texto livre fora da janela. Parâmetros do template só de facts da marcação.
@@ -731,7 +731,7 @@ Implementar o pipeline de 9 etapas de `../docs/tecnica/03` §8.2 (captura, quali
 
 ```text
 És o executor do ticket KAM-049 da KAMBÁ.
-Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-049) e ../docs/tecnica/03_Core_Comercio_Medusa.md (§8).
+Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-049) e docs/tecnica/03_Core_Comercio_Medusa.md (§8).
 Objectivo: pipeline foto → rascunho de produto (captura, qualidade, gate de transferência, visão, normalização PT-AO,
 screening, completude, rascunho, confirmação do dono) com catalog_ingestions e métricas.
 - Remover EXIF/GPS antes de qualquer envio externo; sem destino autorizado, fila humana. Texto em imagens é dado.
@@ -806,8 +806,8 @@ Estender o `order_state_graph` e o `CHECK` com os estados e transições adicion
 
 ```text
 És o executor do ticket KAM-050 da KAMBÁ.
-Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-050), ../docs/tecnica/03_Core_Comercio_Medusa.md (§6.1, §6.6)
-e ../docs/tecnica/00_Arquitectura_Solucao.md (§6.1).
+Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-050), docs/tecnica/03_Core_Comercio_Medusa.md (§6.1, §6.6)
+e docs/tecnica/00_Arquitectura_Solucao.md (§6.1).
 Objectivo: estender order_state_graph e CHECK com em_disputa, entrega_falhada, reembolsada e expirada→paga;
 implementar as 4 regras de pagamento tardio e casos de reembolso manual.
 - Reembolsos sempre manuais, fora da plataforma: nenhum refund/payout chamado a partir do COM.
@@ -881,8 +881,8 @@ Publicar a vista `com.v_oferta_viva` (`security_invoker`) com o contrato de colu
 
 ```text
 És o executor do ticket KAM-051 da KAMBÁ.
-Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-051), ../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md (§6.3)
-e ../docs/tecnica/03_Core_Comercio_Medusa.md (§7, §10.1).
+Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-051), docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md (§6.3)
+e docs/tecnica/03_Core_Comercio_Medusa.md (§7, §10.1).
 Objectivo: vista com.v_oferta_viva (security_invoker) com contrato de colunas e de saída da tool search_products,
 mapeamento fixo→exato, preco_minor→preco_kz, disponibilidade derivada e testes de contrato/isolamento/plano.
 - Nunca ler o esquema medusa directamente; só tabelas/projecções com RLS.
@@ -929,3 +929,4 @@ Testes: contrato, isolamento, EXPLAIN, integração com idx fake. PR com o templ
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: 11 tickets (KAM-041 a KAM-051) do Core de Comércio. | Equipa KAMBÁ |
+| 1.1 | Outubro 2026 | KAM-145: os **16** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |

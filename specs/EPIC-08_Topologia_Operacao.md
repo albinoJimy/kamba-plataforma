@@ -105,8 +105,8 @@ Definir e provisionar `dev`, `staging` e `prod` por infraestrutura como código 
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-075 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-075), ../docs/tecnica/09_Topologia_Operacao_Escala.md (§5.3, §6, §8.2),
-specs/01_Engineering_Standards_e_Handoff.md e ../docs/tecnica/00_Arquitectura_Solucao.md (ADR-008, D1).
+Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-075), docs/tecnica/09_Topologia_Operacao_Escala.md (§5.3, §6, §8.2),
+specs/01_Engineering_Standards_e_Handoff.md e docs/tecnica/00_Arquitectura_Solucao.md (ADR-008, D1).
 Objectivo: IaC mínima e portátil para dev/staging/prod com a matriz do doc 09 §6.
 - Cria infra/ com módulos e envs; fixa a ferramenta num ADR local curto (sem chaves estáticas, sem recurso de fornecedor único).
 - Implementa kamba_data_class (synthetic|real) em prod: real só com decisão D1 e apd_ref; teste negativo incluído.
@@ -168,8 +168,8 @@ Entregar o Compose de produção (e o de *staging*, com as mesmas imagens) do co
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-076 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-076), ../docs/tecnica/09_Topologia_Operacao_Escala.md (§3, §4, §20),
-../docs/tecnica/08_Seguranca_Conformidade.md (§4.4, §4.8) e specs/01_Engineering_Standards_e_Handoff.md.
+Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-076), docs/tecnica/09_Topologia_Operacao_Escala.md (§3, §4, §20),
+docs/tecnica/08_Seguranca_Conformidade.md (§4.4, §4.8) e specs/01_Engineering_Standards_e_Handoff.md.
 Objectivo: Compose de produção do conjunto reduzido com redes edge/app/data/ops e contentores endurecidos.
 - Serviços: GWY x2, AGR workers x2, Chatwoot, Medusa, onboarding-web, Postgres 18.6, Valkey (a validar), LiteLLM, STO, proxy TLS, proxy de saída, monitorização.
 - Proibido em prod: Langfuse, Nominatim, Typebot, n8n, vitrine, MinIO (teste de denylist).
@@ -229,8 +229,8 @@ Pôr o *host* de produção no alojamento decidido em D1, com TLS válido, DNS, 
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-077 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-077), ../docs/tecnica/09_Topologia_Operacao_Escala.md (§3.2, §5),
-../docs/tecnica/08_Seguranca_Conformidade.md (§8.3, §15) e a decisão D1 produzida por KAM-105.
+Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-077), docs/tecnica/09_Topologia_Operacao_Escala.md (§3.2, §5),
+docs/tecnica/08_Seguranca_Conformidade.md (§8.3, §15) e a decisão D1 produzida por KAM-105.
 Objectivo: configurar TLS, DNS, borda, VPN e egress no host decidido por D1, sem escolher o fornecedor.
 - Se KAM-105 ainda não decidiu D1, pára e di-lo: prepara só o staging com o módulo provider substituível.
 - Webhook Meta: HTTPS válido, GET de verificação, POST com X-Hub-Signature-256 sobre o corpo bruto; caminho /webhooks/* directo à origem por omissão (D12).
@@ -293,7 +293,7 @@ Automatizar o caminho `merge → imagem assinada → staging → smoke → aprov
 ```text
 És o executor do ticket KAM-078 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
 Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-078), specs/01_Engineering_Standards_e_Handoff.md (§4, gates 14-18),
-../docs/tecnica/09_Topologia_Operacao_Escala.md (§6, §7) e o pipeline base de KAM-002.
+docs/tecnica/09_Topologia_Operacao_Escala.md (§6, §7) e o pipeline base de KAM-002.
 Objectivo: gates 14-18, deploy rolling por release.lock e smoke ponta a ponta com o número de teste da Meta.
 - Estende o pipeline de KAM-002; não dupliques gates 1-13. OIDC no CI, sem chaves estáticas.
 - Smoke: mensagem ao número de teste -> resposta correcta em <=15 s; pedido -> paga (ManualProvider; sandbox ProxyPay se KAM-056 existir).
@@ -355,8 +355,8 @@ Entregar backups cifrados e verificáveis das bases `platform`, `medusa` e `chat
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-079 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-079), ../docs/tecnica/09_Topologia_Operacao_Escala.md (§8),
-../docs/tecnica/08_Seguranca_Conformidade.md (§6, §11, §13 N2) e o Compose de KAM-076.
+Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-079), docs/tecnica/09_Topologia_Operacao_Escala.md (§8),
+docs/tecnica/08_Seguranca_Conformidade.md (§6, §11, §13 N2) e o Compose de KAM-076.
 Objectivo: pgBackRest com repo1 fora do host e dentro da jurisdição autorizada, PITR 7 dias, retenção 35 dias, restauro mensal automático.
 - Configura stanza, cifra AES-256, archive_timeout=60s, semanal completo/diário diferencial; alerta se o último WAL > 5 min.
 - Escreve o job de restauro mensal (host descartável, contagens, hash-chain do audit_log, smoke) e o script de medição de tempo e débito.
@@ -416,8 +416,8 @@ Pôr em funcionamento métricas, logs JSON sem conteúdo, painéis, 12 alertas t
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-080 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-080), ../docs/tecnica/09_Topologia_Operacao_Escala.md (§9, §13),
-../docs/tecnica/08_Seguranca_Conformidade.md (§7.3) e o Compose de KAM-076.
+Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-080), docs/tecnica/09_Topologia_Operacao_Escala.md (§9, §13),
+docs/tecnica/08_Seguranca_Conformidade.md (§7.3) e o Compose de KAM-076.
 Objectivo: métricas, logs JSON sem conteúdo, painéis, 12 alertas com runbook e sonda sintética externa.
 - Prometheus/Alertmanager/Grafana/Loki/Alloy como código; Loki 30 dias; etiquetas proibidas: contact_id, telefone, BSUID.
 - Cria os stubs RB-K01..RB-K10 e o lint que falha se um alerta não tiver runbook_url válido.
@@ -478,8 +478,8 @@ Calcular e mostrar, por tenant e por conversa, o custo de LLM, STT e mensagens M
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-081 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-081), ../docs/tecnica/09_Topologia_Operacao_Escala.md (§9, §14),
-../docs/tecnica/evidencia/E1_Meta_WhatsApp.md (§1) e o esquema de llm_call_log de KAM-030.
+Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-081), docs/tecnica/09_Topologia_Operacao_Escala.md (§9, §14),
+docs/tecnica/evidencia/E1_Meta_WhatsApp.md (§1) e o esquema de llm_call_log de KAM-030.
 Objectivo: custo por tenant e por conversa (LLM, STT, Meta), free tier, margem e comparação estimado vs medido.
 - Cria a vista v_tenant_cost_daily, o comando h6-export (amostra de N conversas, percentis, rácio à mensalidade) e os painéis.
 - Preços e câmbio são parâmetros versionados com data; não fixes tarifas de terceiros como factos.
@@ -538,7 +538,7 @@ Medir os 8 SLIs, mostrar o orçamento restante, alertar por consumo (*burn rate*
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-082 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-082), ../docs/tecnica/09_Topologia_Operacao_Escala.md (§10, §16, §17)
+Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-082), docs/tecnica/09_Topologia_Operacao_Escala.md (§10, §16, §17)
 e as métricas de KAM-080.
 Objectivo: SLIs, orçamento de erro, alertas de burn rate, política de congelamento ligada ao gate 16 e simulação de on-call.
 - Escreve ops/slo.md e as recording rules dos 8 SLIs (216 min = 99,5% a 30 dias).
@@ -598,8 +598,8 @@ Transformar os stubs de KAM-080 em 10 runbooks executáveis por quem não esteve
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-083 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-083), ../docs/tecnica/09_Topologia_Operacao_Escala.md (§9.2, §12, §13),
-../docs/tecnica/08_Seguranca_Conformidade.md (§5, §10), ../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§10.5) e os stubs de KAM-080.
+Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-083), docs/tecnica/09_Topologia_Operacao_Escala.md (§9.2, §12, §13),
+docs/tecnica/08_Seguranca_Conformidade.md (§5, §10), docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§10.5) e os stubs de KAM-080.
 Objectivo: 10 runbooks executáveis (RB-K01..RB-K10), com modelo único, comandos exactos e textos às PMEs.
 - Preenche cada stub a partir das tabelas do doc 09; não acrescentes factos de terceiros que não estejam nas fontes (marca NÃO VERIFICADO).
 - Escreve o modelo, a folha de ensaio (tempos, lacunas) e o check de CI da bijecção alerta<->runbook.
@@ -660,8 +660,8 @@ Medir consumo, latência, ack e comportamento sob carga, falha de LLM e rajada n
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-084 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-084), ../docs/tecnica/09_Topologia_Operacao_Escala.md (§4, §11, §12, §14),
-../docs/tecnica/evidencia/E1_Meta_WhatsApp.md (§5) e o simulador de KAM-024.
+Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-084), docs/tecnica/09_Topologia_Operacao_Escala.md (§4, §11, §12, §14),
+docs/tecnica/evidencia/E1_Meta_WhatsApp.md (§5) e o simulador de KAM-024.
 Objectivo: validar ou corrigir as estimativas de dimensionamento com 7 cenários de carga no perfil P0.
 - Escreve os scripts de carga (S1, S2, rampa, rajada, degradação, limites Meta, flood) e a recolha de memória working set por serviço.
 - Gera o relatório com a tabela estimado vs medido e veredicto por serviço; nunca marques como confirmado o que não mediste.
@@ -722,8 +722,8 @@ Executar, num ambiente de ensaio com dados sintéticos, a perda do *host* de pro
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-085 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-085), ../docs/tecnica/09_Topologia_Operacao_Escala.md (§8, §13 RB-K08),
-../docs/tecnica/08_Seguranca_Conformidade.md (§11) e os artefactos de KAM-079.
+Lê specs/EPIC-08_Topologia_Operacao.md (bloco KAM-085), docs/tecnica/09_Topologia_Operacao_Escala.md (§8, §13 RB-K08),
+docs/tecnica/08_Seguranca_Conformidade.md (§11) e os artefactos de KAM-079.
 Objectivo: preparar e analisar um simulacro de DR com RTO e RPO medidos.
 - Prepara a folha de passos com carimbos, o script de linhas-marcador (1/s) e o script que calcula RPO e RTO por passo.
 - Prepara o gerador da base sintética (>=20 GB) e o script de verificações pós-restauro (contagens, hash-chain, smoke).
@@ -773,3 +773,4 @@ Não expandas escopo: a réplica de espera, se necessária, é ticket novo. PR c
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: KAM-075 a KAM-085 (topologia, alojamento, CI/CD, backups, observabilidade, SLOs, runbooks, carga e DR). | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | KAM-129: as 13 referências aos anexos E1–E4 passam a `../docs/tecnica/evidencia/…`; antes não resolviam de posição nenhuma. A referência ao relatório `Carga_Dimensionamento.md` (saída do KAM-084) **já estava correcta** e não foi tocada. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | KAM-145: os **21** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |

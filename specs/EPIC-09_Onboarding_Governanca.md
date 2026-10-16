@@ -138,8 +138,8 @@ CREATE UNIQUE INDEX onboarding_nif_vivo ON platform.onboarding_case (nif_hmac) W
 
 ```text
 És o executor do ticket KAM-086 da KAMBÁ (onboarding-web: registo, OTP e anti-abuso).
-Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-086), ../docs/tecnica/10_Onboarding_Governanca.md §4.1 e §12,
-../docs/tecnica/09 §3.1, ../docs/tecnica/08 §4.7 e specs/01_Engineering_Standards_e_Handoff.md.
+Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-086), docs/tecnica/10_Onboarding_Governanca.md §4.1 e §12,
+docs/tecnica/09 §3.1, docs/tecnica/08 §4.7 e specs/01_Engineering_Standards_e_Handoff.md.
 Objectivo: ligação /entrar com token assinado, registo (negócio, NIF, telefone, categoria, e-mail opcional),
 OTP por SMS (OtpProvider; whatsapp desactivado até D10), sessão por caso, anti-bot sem terceiros,
 detecção de duplicados por HMAC e medição de owner_active_seconds. Cria platform.onboarding_case com tenant_id
@@ -221,7 +221,7 @@ CREATE TABLE platform.kyc_check (
 
 ```text
 És o executor do ticket KAM-087 da KAMBÁ (KYC K1 automático).
-Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-087), ../docs/tecnica/10 §4.1 passo 3 e §9, ../docs/tecnica/08 §7.4 e §8.3,
+Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-087), docs/tecnica/10 §4.1 passo 3 e §9, docs/tecnica/08 §7.4 e §8.3,
 E3 e specs/01_Engineering_Standards_e_Handoff.md.
 Objectivo: upload seguro de NIF/alvará/BI/IBAN para o STO; OcrProvider (local + vision_llm via LiteLLM, este só com
 destino 'onboarding' autorizado com apd_ref); regras duras e ponderadas; score; decisão k1_ok | fila | ilegivel.
@@ -309,7 +309,7 @@ CREATE TABLE platform.screening_decision (  -- append-only
 
 ```text
 És o executor do ticket KAM-088 da KAMBÁ (screening de categorias).
-Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-088), ../docs/tecnica/10 §8, ../docs/tecnica/08 §8.9, E1 §4, E3 §5 e
+Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-088), docs/tecnica/10 §8, docs/tecnica/08 §8.9, E1 §4, E3 §5 e
 specs/01_Engineering_Standards_e_Handoff.md (gate 12).
 Objectivo: política Meta ∪ lei como policy-as-code versionada; motor regras + classificador (LiteLLM, alias
 screening-nano); screen(); assert_publishable(); re-análise por versão.
@@ -391,7 +391,7 @@ CREATE TABLE platform.review_decision_log ( -- append-only (INSERT)
 
 ```text
 És o executor do ticket KAM-089 da KAMBÁ (fila de revisão por excepção).
-Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-089), ../docs/tecnica/10 §4.1, §8.2, §16, §17 e
+Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-089), docs/tecnica/10 §4.1, §8.2, §16, §17 e
 specs/01_Engineering_Standards_e_Handoff.md.
 Objectivo: review_case + review_decision_log, SLA em dias úteis Africa/Luanda, dois revisores para risco alto, recurso
 único, amostragem de auditoria (20% proposta), consola mínima interna, quotas anti-inundação.
@@ -472,7 +472,7 @@ CREATE TABLE platform.contract_acceptance ( -- append-only
 
 ```text
 És o executor do ticket KAM-090 da KAMBÁ (aceite contratual versionado).
-Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-090), ../docs/tecnica/10 §7.4 e §14, ../docs/tecnica/08 §8.2–§8.5, E3 (req. 4, Q19)
+Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-090), docs/tecnica/10 §7.4 e §14, docs/tecnica/08 §8.2–§8.5, E3 (req. 4, Q19)
 e specs/01_Engineering_Standards_e_Handoff.md.
 Objectivo: contract_document (versões imutáveis com sha256), contract_acceptance append-only com assinatura por OTP e
 evidence_hash, gate que impede ativo sem aceite das versões vigentes, página pública de subprocessadores.
@@ -555,8 +555,8 @@ async function rollback(c: Case) { for (const s of reverse(await db.doneSteps(c.
 
 ```text
 És o executor do ticket KAM-091 da KAMBÁ (saga de provisioning).
-Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-091), ../docs/tecnica/10 §5 e §16, ../docs/tecnica/01 §11 e §13,
-../docs/tecnica/03 §5.2, E4 §2.2 e specs/01_Engineering_Standards_e_Handoff.md.
+Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-091), docs/tecnica/10 §5 e §16, docs/tecnica/01 §11 e §13,
+docs/tecnica/03 §5.2, E4 §2.2 e specs/01_Engineering_Standards_e_Handoff.md.
 Objectivo: saga de 8 passos disparada por tenant.approved, estado em provisioning_step, ensure idempotente por passo,
 compensação em ordem inversa (só passos 'done'), escalada ao 3.º falhanço para review_case 'saga', reconciliação nocturna.
 Regras: repetir o evento não duplica recursos; o WABA e o número do cliente nunca se apagam; a inbox via Platform API é
@@ -633,8 +633,8 @@ CREATE TABLE platform.tenant_state_log ( -- append-only
 
 ```text
 És o executor do ticket KAM-092 da KAMBÁ (eventos de tenant e ciclo de vida).
-Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-092), ../docs/tecnica/10 §5.1 e §15.1, ../docs/tecnica/00 §6.2,
-../docs/tecnica/06 §4–§5 e specs/01_Engineering_Standards_e_Handoff.md.
+Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-092), docs/tecnica/10 §5.1 e §15.1, docs/tecnica/00 §6.2,
+docs/tecnica/06 §4–§5 e specs/01_Engineering_Standards_e_Handoff.md.
 Objectivo: schemas v1 de tenant.approved/provisioned/activated; agregador de aprovação (KYC + screening + aceite);
 tabela onboarding_gate com 6 gates; platform.transition_tenant com as arestas de doc 00 §6.2 (inclui restrito);
 v_onboarding_kpis.
@@ -711,7 +711,7 @@ interface CapacityGate { reserve(onboardingId: string): Promise<'granted' | 'lis
 
 ```text
 És o executor do ticket KAM-093 da KAMBÁ (passo guiado do Embedded Signup).
-Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-093), ../docs/tecnica/10 §6, ../docs/tecnica/01 §4.3, §10 e §13, E1 e
+Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-093), docs/tecnica/10 §6, docs/tecnica/01 §4.3, §10 e §13, E1 e
 specs/01_Engineering_Standards_e_Handoff.md.
 Objectivo: página guiada do ES v4 (só v4), pré-voo, verificação de que o número ligado coincide com o OTP,
 estados do canal, abandono/retoma, falha de sincronização às 24 h, PARTNER_REMOVED, CapacityGate simples (10/7 dias).
@@ -787,8 +787,8 @@ interface SmokeProbe { start(onboardingId: string): Promise<{ instrucoes: string
 
 ```text
 És o executor do ticket KAM-094 da KAMBÁ (catálogo mínimo e teste ponta a ponta).
-Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-094), ../docs/tecnica/10 §4.1 passos 8–10, ../docs/tecnica/03 §8,
-../docs/tecnica/01 §13.2 e specs/01_Engineering_Standards_e_Handoff.md.
+Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-094), docs/tecnica/10 §4.1 passos 8–10, docs/tecnica/03 §8,
+docs/tecnica/01 §13.2 e specs/01_Engineering_Standards_e_Handoff.md.
 Objectivo: gate de ≥ 5 produtos publicados e permitidos, protecção de publicação com assert_publishable (BD), SmokeProbe
 owner_assisted, gates catalogo_minimo e e2e, activação única via KAM-092.
 Regras: um produto de categoria bloqueada nunca é publicado; sem remetente KAMBÁ (D10) o teste é assistido pelo dono;
@@ -865,7 +865,7 @@ CREATE TABLE platform.waitlist_entry (
 
 ```text
 És o executor do ticket KAM-095 da KAMBÁ (lista de espera do limite de onboarding da Meta).
-Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-095), ../docs/tecnica/10 §4.1 e §6.1, ../docs/tecnica/01 §4.2, E1 (Q9) e
+Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-095), docs/tecnica/10 §4.1 e §6.1, docs/tecnica/01 §4.2, E1 (Q9) e
 specs/01_Engineering_Standards_e_Handoff.md.
 Objectivo: waitlist_entry FIFO só com casos aprovados, capacidade configurável (10/7 dias por defeito), janela deslizante,
 convites de uso único (48 h, proposta), promoção automática, posição e estimativa rotulada.
@@ -942,8 +942,8 @@ CREATE TABLE platform.trust_order_eligibility ( -- escrita por função
 
 ```text
 És o executor do ticket KAM-096 da KAMBÁ (confiança gradual: tectos de valor por histórico).
-Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-096), ../docs/tecnica/10 §4.1 e §9, ../docs/tecnica/04 (M-2, M-3),
-../docs/tecnica/00 §6.1 e specs/01_Engineering_Standards_e_Handoff.md.
+Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-096), docs/tecnica/10 §4.1 e §9, docs/tecnica/04 (M-2, M-3),
+docs/tecnica/00 §6.1 e specs/01_Engineering_Standards_e_Handoff.md.
 Objectivo: níveis 0/1/2 (50.000 / 150.000 / 500.000 Kz em minor units, todos PROPOSTA), elegibilidade de pedidos,
 subida (5 pedidos em 30 dias, ≥ 3 compradores distintos, janela de 14 dias, valor ≥ 10.000 Kz) e descida automáticas,
 assertWithinTrustCeiling usado pelo ManualProvider.
@@ -1023,8 +1023,8 @@ CREATE TABLE platform.ts_sanction ( -- append-only
 
 ```text
 És o executor do ticket KAM-097 da KAMBÁ (Trust & Safety: sinais, auto-compra e escada de sanções).
-Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-097), ../docs/tecnica/10 §8.3 e §15.1, ../docs/tecnica/00 §6.2,
-../docs/tecnica/08 §4.6 e specs/01_Engineering_Standards_e_Handoff.md.
+Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-097), docs/tecnica/10 §8.3 e §15.1, docs/tecnica/00 §6.2,
+docs/tecnica/08 §4.6 e specs/01_Engineering_Standards_e_Handoff.md.
 Objectivo: consumidor idempotente de eventos de pedido/pagamento que gera ts_signal; marca de comprador independente
 (consumida por KAM-096); escada aviso→limitação→suspensão→encerramento registada e recorrível uma vez.
 Regras: suspensão e encerramento só por decisão humana; reclamações só de quem pagou; correlação entre tenants só por papel
@@ -1103,7 +1103,7 @@ CREATE TABLE platform.offboarding_run (
 
 ```text
 És o executor do ticket KAM-098 da KAMBÁ (off-boarding).
-Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-098), ../docs/tecnica/10 §15.2, ../docs/tecnica/08 §8.4, §8.8 e §11, E3 §6 e
+Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-098), docs/tecnica/10 §15.2, docs/tecnica/08 §8.4, §8.8 e §11, E3 §6 e
 specs/01_Engineering_Standards_e_Handoff.md.
 Objectivo: offboarding_run com fases verificacao, pendentes, canal, exportacao, revogacao, purga, certificado;
 exportação CSV/JSON com manifesto e hash; revogação de LiteLLM/Chatwoot/Medusa/entitlements; purga D30 com log;
@@ -1182,8 +1182,8 @@ PATCH /painel/produtos/:id  { preco_modo, preco_minor?, stock?, versao }   // ve
 
 ```text
 És o executor do ticket KAM-099 da KAMBÁ (painel light da PME).
-Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-099), ../docs/tecnica/09 §3.1, ../docs/tecnica/03 §7,
-../docs/tecnica/00 §13.2 e specs/01_Engineering_Standards_e_Handoff.md.
+Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-099), docs/tecnica/09 §3.1, docs/tecnica/03 §7,
+docs/tecnica/00 §13.2 e specs/01_Engineering_Standards_e_Handoff.md.
 Objectivo: painel móvel-primeiro no onboarding-web, login por OTP, edição de preço e stock, lista de encomendas com
 estado e estado do canal.
 Regras: tenant_id só da sessão; escritas só via CommerceRegistry/ToolLayer com audit_log; preço e stock nunca em prompts
@@ -1252,7 +1252,7 @@ Seleccionar um agregador de SMS local com contrato e teste de entrega medido em 
 
 ```text
 És o executor do ticket KAM-116 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-116), ../docs/tecnica/10 (§4.1 passo 2, §6.3), ../docs/tecnica/01 (L10) e ../docs/tecnica/08 (§8.3.2).
+Lê specs/EPIC-09_Onboarding_Governanca.md (bloco KAM-116), docs/tecnica/10 (§4.1 passo 2, §6.3), docs/tecnica/01 (L10) e docs/tecnica/08 (§8.3.2).
 Objectivo: interface SmsProvider + FakeSmsProvider + adaptador do agregador escolhido; matriz de decisão e teste de entrega.
 - A escolha e a medição de entrega são trabalho humano (cotações, números reais): prepara a matriz, o protocolo de teste e o relatório.
 - Entrega Unitel/Africell é NÃO VERIFICADA: mínimo 95% e p95 30 s são propostas; não afirmes taxas que não mediste.
@@ -1323,7 +1323,7 @@ Instrumentar as métricas de onboarding, os sinais de churn e a detecção de te
 
 ```text
 És o executor do ticket KAM-117 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-117 e KAM-092), ../docs/tecnica/10 (§13, §16), ../docs/tecnica/09 (§9.1, §9.2) e
+Lê specs/EPIC-09_Onboarding_Governanca.md (blocos KAM-117 e KAM-092), docs/tecnica/10 (§13, §16), docs/tecnica/09 (§9.1, §9.2) e
 specs/EPIC-08_Topologia_Operacao.md (KAM-081).
 Objectivo: KPIs de onboarding, sinais de churn e tenants dormentes, com painéis e alertas.
 - Estende v_onboarding_kpis (KAM-092); cria v_churn_signals e v_tenant_dormente; job diário idempotente.
@@ -1375,3 +1375,4 @@ Não expandas escopo: sem unit economics (KAM-081), sem encerramento (KAM-098). 
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: 14 tickets (KAM-086 a KAM-099) do onboarding self-service automático e da governação da Fase 1; KAM-116 e KAM-117 acrescentados na consolidação. | Equipa KAMBÁ |
+| 1.1 | Outubro 2026 | KAM-145: os **39** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |

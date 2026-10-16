@@ -617,3 +617,4 @@ Isto soma-se ao custo técnico do doc 09 §9; com 10 PMEs são ~13 a ~45 USD/mê
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: topologia revista, dimensionamento verificado, alojamento, CI/CD, backups, SLOs, runbooks, custos por estágio. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §9.3 e §20, D-10 (`llm_call_log`). | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | KAM-128: As **23** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |

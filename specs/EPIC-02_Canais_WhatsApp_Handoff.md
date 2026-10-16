@@ -126,8 +126,8 @@ app.post('/wa/webhook', async (c) => {
 
 ```text
 És o executor do ticket KAM-013 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-013), ../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§5) e
-../docs/tecnica/evidencia/E1_Meta_WhatsApp.md (§5). Objectivo: GWY como único endpoint de webhook da Meta.
+Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-013), docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§5) e
+docs/tecnica/evidencia/E1_Meta_WhatsApp.md (§5). Objectivo: GWY como único endpoint de webhook da Meta.
 - Hono 4.13.x (não o 5.0.0-rc.0); GET de verificação; POST com HMAC-SHA256 sobre o corpo bruto, ring [actual,
   anterior], timingSafeEqual; 401 se falhar; jobId = sha256(corpo); 200 só após enfileirar; 503 se Redis cair.
 - Worker: explode entry/changes/messages/statuses; inbound_events com UNIQUE (kind,event_key); quarentena
@@ -209,7 +209,7 @@ CREATE TABLE platform.conversations (
 
 ```text
 És o executor do ticket KAM-014 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-014) e ../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§6.3, §7, §10.2).
+Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-014) e docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§6.3, §7, §10.2).
 Objectivo: CHR (phone_number_id → tenant, canal, contacto, modo da conversa).
 - resolve() com cache de 60 s e invalidação por channel.updated; usa o papel kamba_resolver antes de haver contexto.
 - Matriz de estados do tenant/canal (§7.2); recusa Fluxo B no Piloto (KAMBA_FASE=piloto).
@@ -286,8 +286,8 @@ Implementar o `ChannelAdapter` de saída: decisão de envio por estado da janela
 
 ```text
 És o executor do ticket KAM-015 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-015), ../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§8) e
-../docs/tecnica/evidencia/E1_Meta_WhatsApp.md (§1, §5, §7). Objectivo: ChannelAdapter de saída.
+Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-015), docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§8) e
+docs/tecnica/evidencia/E1_Meta_WhatsApp.md (§1, §5, §7). Objectivo: ChannelAdapter de saída.
 - send(): janela aberta → mensagem livre; fechada → template utility ou WINDOW_CLOSED sem chamada HTTP.
 - outbound_messages e message_templates (DDL do doc 01 §8.3–8.4), idempotency_key única, estados monótonos,
   pricing por mensagem, custo em meta_rates.yaml (taxas CONFIRMADAS, revisão trimestral).
@@ -361,8 +361,8 @@ Implementar o lado servidor do onboarding de canal: receber o resultado do ES v4
 
 ```text
 És o executor do ticket KAM-016 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-016), ../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§4, §13) e
-../docs/tecnica/10_Onboarding_Governanca.md (§6). Objectivo: lado servidor do Embedded Signup v4.
+Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-016), docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§4, §13) e
+docs/tecnica/10_Onboarding_Governanca.md (§6). Objectivo: lado servidor do Embedded Signup v4.
 - Recebe code, waba_id, phone_number_id; troca o code por token; guarda no cofre (AES-256-GCM, DEK por tenant);
   subscreve os 11 campos de webhook e confirma por leitura; valida com evento de teste.
 - channel_onboarding com fases, passos idempotentes por (tenant_id, waba_id) e compensação; 409 se o número é de outro tenant.
@@ -438,8 +438,8 @@ Tratar os webhooks de coexistência e a sincronização inicial com prazo duro d
 
 ```text
 És o executor do ticket KAM-017 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-017), ../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§10.1, §10.4, §10.5)
-e ../docs/tecnica/evidencia/E1_Meta_WhatsApp.md (§2). Objectivo: coexistência (histórico, sync, echoes, PARTNER_REMOVED).
+Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-017), docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§10.1, §10.4, §10.5)
+e docs/tecnica/evidencia/E1_Meta_WhatsApp.md (§2). Objectivo: coexistência (histórico, sync, echoes, PARTNER_REMOVED).
 - history e smb_app_state_sync só ingestão (contactos e contagens); nunca AGR, nunca resposta; não persistas corpos.
 - Job de sincronização idempotente com deadline de 24 h e alerta aos 12 h; erro 2593109 é caso normal.
 - account_update → desligado + channel.updated + alerta; aviso aos 10 dias sem echo; reconexão por ES sem duplicar canal.
@@ -518,7 +518,7 @@ guard(conv, turn): lock(conv)
 
 ```text
 És o executor do ticket KAM-018 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-018), ../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§10.2, §10.3).
+Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-018), docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§10.2, §10.3).
 Objectivo: modos da conversa (bot, dono, humano, pausada) e silenciamento por echo.
 - Máquina de estados com a tabela de transições; silencio_dono_min = 30 (a calibrar); comando /bot.
 - Tratador de echoes: wamid ∉ outbound_messages ⇒ actividade humana; PreSendGuard sob pg_advisory_xact_lock.
@@ -604,8 +604,8 @@ interface HandoffProvider {
 
 ```text
 És o executor do ticket KAM-019 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-019), ../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§11) e
-../docs/tecnica/08_Seguranca_Conformidade.md (§3.6). Objectivo: HandoffProvider com Chatwoot (Desenho I).
+Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-019), docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§11) e
+docs/tecnica/08_Seguranca_Conformidade.md (§3.6). Objectivo: HandoffProvider com Chatwoot (Desenho I).
 - Uma conta Chatwoot por PME; agent bot com account_id; inbox de tipo API; zero credenciais Meta no Chatwoot.
 - mirrorMessage idempotente por wamid; openHandoff idempotente por handoffId (atributo na conversa);
   callbacks só com o secret do bot; resposta humana pelo Outbound (KAM-015).
@@ -681,8 +681,8 @@ Implementar o pipeline MED de recepção: descarga autenticada, validação, arm
 
 ```text
 És o executor do ticket KAM-020 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-020), ../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§5.4) e
-../docs/tecnica/08_Seguranca_Conformidade.md (§3.8, §7.5). Objectivo: pipeline MED de recepção de mídia.
+Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-020), docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§5.4) e
+docs/tecnica/08_Seguranca_Conformidade.md (§3.8, §7.5). Objectivo: pipeline MED de recepção de mídia.
 - Descarga autenticada por media_id (confirma o fluxo na documentação vigente da Meta), validação por allowlist,
   put no StorageProvider em t/{tenant_id}/media/..., registo idempotente em media_assets (UNIQUE tenant,wamid,media_id).
 - Nunca persistas URLs da Meta; URL interna assinada ≤ 300 s; áudio com retain_until = 24 h.
@@ -756,8 +756,8 @@ Persistir o estado de qualidade e de limites dos canais, aplicar a transição a
 
 ```text
 És o executor do ticket KAM-021 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-021), ../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§9) e
-../docs/tecnica/evidencia/E1_Meta_WhatsApp.md (§5). Objectivo: qualidade, estado restrito e limites do canal.
+Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-021), docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§9) e
+docs/tecnica/evidencia/E1_Meta_WhatsApp.md (§5). Objectivo: qualidade, estado restrito e limites do canal.
 - phone_number_quality_update, business_capability_update, account_alerts, message_template_quality_update.
 - RED → restrito (automático, reversível, sem marketing nem iniciar conversas); nunca suspenso automático.
 - channel_quality_log com event_key único; messaging_limit_usage_ratio (utilizadores únicos fora da janela / escalão).
@@ -830,8 +830,8 @@ Implementar a barreira de consentimento anterior ao AGR: aviso curto e versionad
 
 ```text
 És o executor do ticket KAM-022 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-022), ../docs/tecnica/10_Onboarding_Governanca.md (§7) e
-../docs/tecnica/06_Dados_Eventos_Analytics.md (§7.3). Objectivo: consentimento no 1.º contacto (ADR-010).
+Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-022), docs/tecnica/10_Onboarding_Governanca.md (§7) e
+docs/tecnica/06_Dados_Eventos_Analytics.md (§7.3). Objectivo: consentimento no 1.º contacto (ADR-010).
 - ConsentGate antes do AGR: sem consent_event válido, envia o aviso com 3 botões e não invoca o AGR.
 - consent_event append-only com contact_id uuid, text_version, evidence_hash; consent_texts versionados; vista consent_actual.
 - «PARAR» regista a revogação de marketing, pausa a conversa (KAM-018) e confirma; marketing só com opt-in separado.
@@ -904,8 +904,8 @@ Contar mensagens *service* entregues por canal e mês, alertar aos 800 e aos 1.0
 
 ```text
 És o executor do ticket KAM-023 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-023), ../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§8.4, §14) e
-../docs/tecnica/evidencia/E1_Meta_WhatsApp.md (§1). Objectivo: free tier de service messages e método de pagamento.
+Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-023), docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§8.4, §14) e
+docs/tecnica/evidencia/E1_Meta_WhatsApp.md (§1). Objectivo: free tier de service messages e método de pagamento.
 - Conta service/delivered por canal e mês (idempotente por wamid); alertas aos 800 e 1.000; reinício à meia-noite do fuso do canal.
 - Custo estimado = max(0, n − 1000) × 0,004 USD a partir de config/meta_rates.yaml; métricas por tenant.
 - Heurística de falta de método de pagamento: taxa de failed após 1.000 entregues; guarda os códigos vistos
@@ -979,8 +979,8 @@ Construir o simulador (biblioteca + CLI) que produz webhooks Meta assinados e um
 
 ```text
 És o executor do ticket KAM-024 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-024), ../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§4.4, §5.4, §16)
-e ../docs/tecnica/09_Topologia_Operacao_Escala.md (§6, §7). Objectivo: simulador de webhooks Meta e testes de contrato.
+Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-024), docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§4.4, §5.4, §16)
+e docs/tecnica/09_Topologia_Operacao_Escala.md (§6, §7). Objectivo: simulador de webhooks Meta e testes de contrato.
 - tools/meta-sim: payloads assinados e determinísticos para os 11 tipos de entrada e os 11 campos de webhook, com
   casos adversos (assinatura, JSON, duplicados, ordem, wa_id omitido, canal desconhecido) e modo de re-entrega.
 - Servidor Graph falso com cenários (200, 130429, 131049, 5xx, mídia, templates, troca de code, subscrições).
@@ -1053,7 +1053,7 @@ Consumir os eventos de falha ou risco do canal e enviar ao dono um aviso idempot
 
 ```text
 És o executor do ticket KAM-115 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-115), ../docs/tecnica/10 (§6.4, §13) e ../docs/tecnica/01 (§10.5, §14).
+Lê specs/EPIC-02_Canais_WhatsApp_Handoff.md (bloco KAM-115), docs/tecnica/10 (§6.4, §13) e docs/tecnica/01 (§10.5, §14).
 Objectivo: avisar o dono por e-mail e painel quando o canal falha ou está em risco.
 - Gatilhos: channel.updated (desligado), channel.inactivity_warning, restrito, motivo_restricao='payment_method', HND em baixo.
 - Idempotente por (tenant, gatilho, episódio); ≤ 1 aviso/gatilho/24 h e ≤ 3/dia; lembretes às 24 h e 72 h.
@@ -1103,3 +1103,4 @@ Testes: idempotência, limites, bounce, isolamento, X-11. Abre PR com o template
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: KAM-013 a KAM-024 (GWY, CHR, outbound, Embedded Signup v4, coexistência, handoff, mídia, qualidade, consentimento, simulador); KAM-115 (aviso ao dono por canal alternativo) acrescentado na consolidação. | Equipa KAMBÁ |
+| 1.1 | Outubro 2026 | KAM-145: os **24** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |

@@ -109,7 +109,7 @@ Entregar o pacote `pay-core` com a interface completa, `ProviderCapabilities`, r
 
 ```text
 És o executor do ticket KAM-052 da KAMBÁ. Lê specs/EPIC-05_Pagamentos_Billing.md (bloco KAM-052),
-../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md (§3.1, §3.5, §6.2, §10.2, §10.4) e ADR-004/011/013.
+docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md (§3.1, §3.5, §6.2, §10.2, §10.4) e ADR-004/011/013.
 Objectivo: pacote pay-core com a interface PaymentProvider completa (8 métodos), ProviderCapabilities,
 registo com regras de activação, tabela payment_accounts com trigger assert_beneficiary (G-1),
 flags G-2 e o harness da suite de conformidade (§3.5).
@@ -181,7 +181,7 @@ Implementar `payment_charges`, `payment_callbacks_inbox` e `payment_events` com 
 
 ```text
 És o executor do ticket KAM-053 da KAMBÁ. Lê specs/EPIC-05_Pagamentos_Billing.md (bloco KAM-053) e
-../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md (§5, §6.1, §6.2, §7, §8) e ../docs/tecnica/06 §6.1.
+docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md (§5, §6.1, §6.2, §7, §8) e docs/tecnica/06 §6.1.
 Objectivo: tabelas payment_charges, payment_callbacks_inbox e payment_events (DDL de §6.2, sem copiar o doc 11),
 imutabilidade por REVOKE + triggers, função SECURITY DEFINER append_payment_event (FOR UPDATE, sequencia,
 cadeia de hashes, projecção de estado, outbox na mesma transacção), next_state, rebuild_charge_state,
@@ -251,7 +251,7 @@ Implementar o `ManualProvider` (`manual`, e `cod` desligado por omissão), as ta
 
 ```text
 És o executor do ticket KAM-054 da KAMBÁ. Lê specs/EPIC-05_Pagamentos_Billing.md (bloco KAM-054) e
-../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md (§4 inteiro, §6.3, §7.2 F-18, §9) e ADR-013.
+docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md (§4 inteiro, §6.3, §7.2 F-18, §9) e ADR-013.
 Objectivo: ManualProvider com payment_confirmers, manual_confirmations e refund_cases; fluxo
 declaração do cliente -> desafio do valor -> confirmação -> segunda aprovação acima do limiar.
 - Só confirma quem está em payment_confirmers (BSUID do canal), nunca por texto; o cliente nunca confirma.
@@ -322,7 +322,7 @@ Registar os contratos v1 dos eventos de pagamento, preencher o mapeamento ledger
 
 ```text
 És o executor do ticket KAM-055 da KAMBÁ. Lê specs/EPIC-05_Pagamentos_Billing.md (bloco KAM-055),
-../docs/tecnica/04 (§5, §7.1), ../docs/tecnica/06 (§4, §5, §6.3) e ../docs/tecnica/03 (§6.2, §6.5, §6.6).
+docs/tecnica/04 (§5, §7.1), docs/tecnica/06 (§4, §5, §6.3) e docs/tecnica/03 (§6.2, §6.5, §6.6).
 Objectivo: schemas v1 dos eventos payment.*, mapeamento ledger -> evento (hmac/status_pull => payment.confirmed;
 humano_auditado => payment.manual_confirmed) e consumidor idempotente e ordenado no COM que leva a encomenda a
 paga, consome reservas, preenche paga_via/paga_at e emite order.paid; FK de orders_mirror nas tabelas de PAY.
@@ -391,7 +391,7 @@ Implementar o adaptador ProxyPay RPS (referência) com `createCharge`, `verifyCa
 
 ```text
 És o executor do ticket KAM-056 da KAMBÁ. Lê specs/EPIC-05_Pagamentos_Billing.md (bloco KAM-056),
-../docs/tecnica/04 (§3.2, §3.3, §3.5, §5, §7.2, §8) e ../docs/tecnica/evidencia/E2 §1.2. Só avanças com o contrato KAM-103
+docs/tecnica/04 (§3.2, §3.3, §3.5, §5, §7.2, §8) e docs/tecnica/evidencia/E2 §1.2. Só avanças com o contrato KAM-103
 (D4); senão deixa o adaptador atrás da flag proxypay_enabled=false.
 Objectivo: adaptador ProxyPay RPS (POST /reference_ids, PUT /references/{id}, X-Signature HMAC sobre o corpo cru,
 GET/DELETE /payments) + job de reconciliação; OPG (Express) atrás de segunda flag, tratado como dica + status_pull.
@@ -456,8 +456,8 @@ Produzir uma decisão escrita (adoptar, adiar ou rejeitar) sobre a AppyPay como 
 
 ```text
 És o executor do ticket KAM-057 da KAMBÁ (spike, S, sem código de produção).
-Lê specs/EPIC-05_Pagamentos_Billing.md (bloco KAM-057), ../docs/tecnica/04 (§3.2, §3.4, §10.2) e
-../docs/tecnica/evidencia/E2 (§1.3, §9 perguntas 11-15).
+Lê specs/EPIC-05_Pagamentos_Billing.md (bloco KAM-057), docs/tecnica/04 (§3.2, §3.4, §10.2) e
+docs/tecnica/evidencia/E2 (§1.3, §9 perguntas 11-15).
 Objectivo: matriz de decisão AppyPay vs ProxyPay (>= 12 critérios, cada um com CONFIRMADO/INDÍCIO/NÃO VERIFICADO e
 fonte), rascunho de ProviderCapabilities, perguntas por escrito e decisão adoptar/adiar/rejeitar em formato MADR.
 - A documentação Stoplight não foi lida: tudo o que vier de SDKs de terceiros é INDÍCIO.
@@ -522,7 +522,7 @@ Implementar o motor da régua sobre `billing_cycles`, idempotente por passo, com
 
 ```text
 És o executor do ticket KAM-058 da KAMBÁ. Lê specs/EPIC-05_Pagamentos_Billing.md (bloco KAM-058),
-../docs/tecnica/04 §11.2, ../docs/tecnica/00 §6.2 e a decisão aberta D10.
+docs/tecnica/04 §11.2, docs/tecnica/00 §6.2 e a decisão aberta D10.
 Objectivo: motor da régua de cobrança da assinatura (D+3 lembrete, D+7 aviso, D+10 ativo->suspenso, regularização
 -> ativo) sobre billing_cycles, idempotente por (billing_cycle_id, passo), relógio injectável, canal por porta
 OwnerNotifier (fallback: lista de ops até D10 fechar).
@@ -591,7 +591,7 @@ Implementar `price_book`, `subscriptions`, `billing_cycles` e `commission_accrua
 
 ```text
 És o executor do ticket KAM-059 da KAMBÁ. Lê specs/EPIC-05_Pagamentos_Billing.md (bloco KAM-059),
-../docs/tecnica/04 (§10.4, §11, §12, §13) e ADR-004, ADR-013, ADR-017.
+docs/tecnica/04 (§10.4, §11, §12, §13) e ADR-004, ADR-013, ADR-017.
 Objectivo: price_book versionado, subscriptions, billing_cycles e commission_accruals (só 'sombra'); abertura
 idempotente de ciclo+cobrança (72 h) numa payment_account 'plataforma_receita_propria'; ciclo paga por
 payment.confirmed autenticado ou por confirmação de ops com dupla aprovação; plano -> entitlements.
@@ -659,7 +659,7 @@ Implementar o motor de regras sobre `payment_events`, `payment_charges` e `manua
 
 ```text
 És o executor do ticket KAM-060 da KAMBÁ. Lê specs/EPIC-05_Pagamentos_Billing.md (bloco KAM-060),
-../docs/tecnica/04 (§7.2, §8, §9) e ../docs/tecnica/08 §4.6.
+docs/tecnica/04 (§7.2, §8, §9) e docs/tecnica/08 §4.6.
 Objectivo: motor determinístico de regras R-01..R-08 sobre o ledger e as confirmações manuais, tabela fraud_signals,
 acções reter_confirmacao/exigir_dupla/bloquear_contacto/suspender_manual aplicadas por flags no ManualProvider,
 alertas e reconciliação diária por extracto CSV (ajuste_reconciliacao compensatório).
@@ -705,3 +705,4 @@ Testes: unit por regra, integração com ManualProvider, cenários sintéticos, 
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: 9 tickets (KAM-052 a KAM-060) — interface PaymentProvider, ledger, ManualProvider, eventos de pagamento, ProxyPay, avaliação AppyPay, régua, billing da plataforma e anomalias. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | KAM-129: as 3 referências ao anexo E2 e ao directório de evidência passam a `../docs/tecnica/evidencia/…`; antes não resolviam de posição nenhuma. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | KAM-145: os **16** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
