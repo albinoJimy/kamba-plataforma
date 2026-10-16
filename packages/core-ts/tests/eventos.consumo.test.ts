@@ -31,6 +31,7 @@ import {
   ForaDeOrdem,
   METRICA_CONSUMIDOS,
   METRICA_RETENTATIVAS,
+  type EstadoDaEncomenda,
   type MaquinaDeEstados,
   Metricas,
   REPETICAO,
@@ -86,7 +87,7 @@ class BdFalsa {
     sql: string,
     parametros: readonly unknown[] = [],
   ): Promise<{ rows: Record<string, unknown>[]; rowCount: number | null }> {
-    const limpo = sql.trim().split("\n")[0].trim();
+    const limpo = (sql.trim().split("\n")[0] ?? "").trim();
     this.instrucoes.push(limpo);
     this.parametros.push([...parametros]);
     if (this.falhaEm !== null && limpo.startsWith(this.falhaEm)) {
@@ -111,12 +112,33 @@ class BdFalsa {
 /** Máquina que devolve o estado que lhe disserem, e conta as perguntas. */
 class MaquinaFalsa implements MaquinaDeEstados {
   perguntas = 0;
-  constructor(private readonly estado: string | null) {}
-  async estadoDe(): Promise<never | null> {
+  readonly #estado: string | null;
+
+  constructor(estado: string | null) {
+    this.#estado = estado;
+  }
+
+  async estadoDe(): Promise<EstadoDaEncomenda | null> {
     this.perguntas += 1;
-    return this.estado as never | null;
+    return this.#estado as EstadoDaEncomenda | null;
   }
 }
+
+/**
+ * O parâmetro `n` da instrução cujo prefixo bate, ou falha o teste.
+ *
+ * Com `noUncheckedIndexedAccess`, `bd.parametros[i][n]` é `unknown | undefined`
+ * e o compilador recusa. Um `!` calava-o; isto diz **qual** foi a instrução que
+ * não apareceu, que é o que interessa quando um teste quebra.
+ */
+function parametro(bd: BdFalsa, prefixo: string, n: number): unknown {
+  const indice = bd.instrucoes.findIndex((i) => i.startsWith(prefixo));
+  assert.notEqual(indice, -1, `nenhuma instrução começa por ${prefixo}`);
+  const linha = bd.parametros[indice];
+  assert.ok(linha !== undefined, `sem parâmetros para ${prefixo}`);
+  return linha[n];
+}
+
 
 describe("a máquina de estados do §6.1", () => {
   it("tem os doze estados do diagrama", () => {
@@ -466,10 +488,10 @@ describe("processar(): a política das seis tentativas", () => {
     assert.equal(resultado.desfecho, "dlq");
     assert.equal(resultado.erro, ForaDeOrdem.CODIGO);
     // O erro que vai para a coluna é exactamente o código do critério 4.
-    const indice = bd.instrucoes.findIndex((i) =>
-      i.startsWith("INSERT INTO platform.events_dlq"),
+    assert.equal(
+      parametro(bd, "INSERT INTO platform.events_dlq", 6),
+      ForaDeOrdem.CODIGO,
     );
-    assert.equal(bd.parametros[indice][6], ForaDeOrdem.CODIGO);
   });
 
   it("um erro técnico relança enquanto houver tentativas", async () => {

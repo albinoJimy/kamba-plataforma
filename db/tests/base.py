@@ -56,6 +56,14 @@ TABELAS_0005 = (
 #: outro ticket, e entra aqui pela mao de quem a criar.
 TABELAS = tuple(sorted(TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005))
 
+#: O que existe em `platform` quando a base esta na revisao `0004`.
+#:
+#: Pela mesma razao do `TABELAS_ATE_0003`, uma revisao a frente: um
+#: `downgrade 0003` desce primeiro a 0004 (que confirma) e so depois tenta a
+#: 0003. Se a 0003 recusar, a base fica em **0004** — e os testes que provam
+#: essa recusa comparam com isto, nao com a cabeca.
+TABELAS_ATE_0004 = tuple(sorted(TABELAS_0001 + TABELAS_0003 + TABELAS_0004))
+
 #: O que existe em `platform` quando a base esta na revisao `0003`.
 #:
 #: Faz falta porque o Alembic corre **uma transaccao por revisao**

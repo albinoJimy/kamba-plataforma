@@ -88,7 +88,7 @@ class BdFalsa {
     sql: string,
     parametros: readonly unknown[] = [],
   ): Promise<{ rows: Record<string, unknown>[]; rowCount: number | null }> {
-    this.instrucoes.push(sql.trim().split("\n")[0].trim());
+    this.instrucoes.push((sql.trim().split("\n")[0] ?? "").trim());
     this.parametros.push([...parametros]);
     if (sql === SQL_PARA_DLQ) {
       // Sem `RETURNING`: o que conta e a contagem de linhas.
@@ -109,6 +109,26 @@ class BdFalsa {
     }
     return { rows: [], rowCount: 0 };
   }
+}
+
+/**
+ * Os parâmetros da instrução cujo prefixo bate, ou falha o teste.
+ *
+ * Com `noUncheckedIndexedAccess`, `bd.parametros[i]` é `unknown[] | undefined`.
+ * Um `!` calava o compilador; isto diz **qual** foi a instrução que não
+ * apareceu, que é o que interessa quando um teste quebra.
+ */
+function parametros(bd: BdFalsa, prefixo: string): unknown[] {
+  const indice = bd.instrucoes.findIndex((i) => i.startsWith(prefixo));
+  assert.notEqual(indice, -1, `nenhuma instrução começa por ${prefixo}`);
+  const linha = bd.parametros[indice];
+  assert.ok(linha !== undefined, `sem parâmetros para ${prefixo}`);
+  return linha;
+}
+
+/** Um parâmetro só, pelo seu índice. */
+function parametro(bd: BdFalsa, prefixo: string, n: number): unknown {
+  return parametros(bd, prefixo)[n];
 }
 
 describe("a severidade de uma entrada da DLQ", () => {
@@ -271,8 +291,10 @@ describe("fechar() uma entrada", () => {
     const bd = new BdFalsa();
     bd.abertas = [{ tipo: "order.created", quantas: "4", mais_antiga: "2026-11-02T10:00:00Z" }];
     const linhas = await abertas(bd);
-    assert.equal(linhas[0].quantas, 4);
-    assert.ok(linhas[0].maisAntiga instanceof Date);
+    const primeira = linhas[0];
+    assert.ok(primeira !== undefined, "a leitura devia trazer uma linha");
+    assert.equal(primeira.quantas, 4);
+    assert.ok(primeira.maisAntiga instanceof Date);
   });
 });
 
@@ -314,8 +336,7 @@ describe("once(): o efeito externo que não se repete", () => {
     assert.ok(resultado.executou);
     assert.deepEqual(resultado.resultado, { mensagem: "wamid.X" });
     assert.equal(vezes, 1);
-    const indice = bd.instrucoes.findIndex((i) => i.startsWith("UPDATE platform.evt_acoes"));
-    assert.equal(bd.parametros[indice][1], "feita");
+    assert.equal(parametro(bd, "UPDATE platform.evt_acoes", 1), "feita");
   });
 
   it("na segunda chamada não corre, e devolve o resultado guardado", async () => {
@@ -359,11 +380,10 @@ describe("once(): o efeito externo que não se repete", () => {
       }),
       /500/,
     );
-    const indice = bd.instrucoes.findIndex((i) => i.startsWith("UPDATE platform.evt_acoes"));
-    assert.equal(bd.parametros[indice][1], "falhada");
+    assert.equal(parametro(bd, "UPDATE platform.evt_acoes", 1), "falhada");
     // Sem isto, a chave ficava `em_curso` para sempre e todas as re-entregas
     // adiavam: o efeito nunca acontecia e ninguém sabia porquê.
-    assert.match(String(bd.parametros[indice][2]), /500/);
+    assert.match(String(parametro(bd, "UPDATE platform.evt_acoes", 2)), /500/);
   });
 });
 
@@ -388,15 +408,13 @@ describe("o reconciliador", () => {
   it("passa a janela, a carência e o lote como parâmetros, para o relógio se acelerar", async () => {
     const bd = new BdFalsa();
     await reporUmaVez({ bd, filas: new FilasEmMemoria(), janela: 60, carencia: 0, lote: 7 });
-    const indice = bd.instrucoes.findIndex((i) => i.startsWith("SELECT l.event_id"));
-    assert.deepEqual(bd.parametros[indice], [60, 0, 7]);
+    assert.deepEqual(parametros(bd, "SELECT l.event_id"), [60, 0, 7]);
   });
 
   it("usa os valores do documento quando não lhe dizem outros", async () => {
     const bd = new BdFalsa();
     await reporUmaVez({ bd, filas: new FilasEmMemoria() });
-    const indice = bd.instrucoes.findIndex((i) => i.startsWith("SELECT l.event_id"));
-    assert.deepEqual(bd.parametros[indice], [
+    assert.deepEqual(parametros(bd, "SELECT l.event_id"), [
       JANELA_POR_OMISSAO,
       CARENCIA_POR_OMISSAO,
       LOTE_POR_OMISSAO,
@@ -429,8 +447,10 @@ describe("o reconciliador", () => {
       { event_id: EVENTO, tipo: "order.created", tenant_id: TENANT, agregado_id: "a", consumer: CONSUMER },
     ];
     await reporUmaVez({ bd, filas: new FilasEmMemoria() });
-    const indice = bd.instrucoes.findIndex((i) => i.startsWith("SELECT (hashtextextended"));
-    assert.ok(indice >= 0, "a partição recalcula-se na base e não em TypeScript");
-    assert.deepEqual(bd.parametros[indice], [TENANT, "a"]);
+    assert.deepEqual(
+      parametros(bd, "SELECT (hashtextextended"),
+      [TENANT, "a"],
+      "a partição recalcula-se na base e não em TypeScript",
+    );
   });
 });

@@ -1049,15 +1049,21 @@ class TestDowngradeDa0004(ComBase):
         from tests.base import alembic_ok, em_head
 
         _os.environ.pop("KAMBA_DOWNGRADE_0004_COPIA", None)
-        if em_head():
-            cursor = self._livre.cursor()
-            for tabela in ("events_outbox", "events_log", "evt_agregado_seq"):
-                cursor.execute(
-                    f"DELETE FROM platform.{tabela} WHERE agregado_id LIKE 'agg-%'"
-                )
-            cursor.execute("DELETE FROM platform.evt_subscricoes WHERE consumer = 'ensaio'")
-        else:
+        # Subir **e depois** apagar, nao uma coisa ou a outra. A versao
+        # anterior so apagava se a base ja estivesse em `head`: um teste que a
+        # deixasse noutra revisao era reposto sem limpeza, e as linhas semeadas
+        # ficavam para tras. A subscricao `ensaio` sobrevivia, e o teste
+        # seguinte rebentava com `duplicate key` — num ficheiro que nao era o
+        # culpado. Apanhado ao acrescentar a revisao 0005 (KAM-006), que poe
+        # mais um degrau entre a cabeca e a 0003.
+        if not em_head():
             alembic_ok("upgrade", "head")
+        cursor = self._livre.cursor()
+        for tabela in ("events_outbox", "events_log", "evt_agregado_seq"):
+            cursor.execute(
+                f"DELETE FROM platform.{tabela} WHERE agregado_id LIKE 'agg-%'"
+            )
+        cursor.execute("DELETE FROM platform.evt_subscricoes WHERE consumer = 'ensaio'")
 
     def semear(self) -> int:
         cursor = self._livre.cursor()
@@ -1117,7 +1123,7 @@ class TestDowngradeDa0004(ComBase):
         self.assertEqual(estado(), (1, 3))
 
     def test_com_linhas_e_sem_copia_o_downgrade_e_recusado(self) -> None:
-        from tests.base import TABELAS, alembic
+        from tests.base import TABELAS_ATE_0004, alembic
 
         self.semear()
         resultado = alembic("downgrade", "0003")
@@ -1126,8 +1132,11 @@ class TestDowngradeDa0004(ComBase):
         self.assertIn("KAMBA_DOWNGRADE_0004_COPIA", saida)
         self.assertIn("events_outbox: 3", saida)
         self.assertIn("events_log: 1", saida)
-        # O DDL e transaccional: o que o passo ja tinha desfeito voltou.
-        self.assertEqual(self.tabelas(), TABELAS)
+        # O DDL e transaccional: o que **este** passo ja tinha desfeito voltou.
+        # A base fica em 0004 e nao na cabeca: o passo 0005 -> 0004 correu e
+        # confirmou antes (uma transaccao por revisao), e por isso a comparacao
+        # e com `TABELAS_ATE_0004` (KAM-006).
+        self.assertEqual(self.tabelas(), TABELAS_ATE_0004)
 
     def test_com_copia_o_downgrade_avanca_e_a_copia_tem_tudo(self) -> None:
         import os as _os
@@ -1160,7 +1169,7 @@ class TestDowngradeDa0004(ComBase):
     def test_a_copia_nao_escreve_por_cima_de_uma_anterior(self) -> None:
         import os as _os
 
-        from tests.base import TABELAS, alembic
+        from tests.base import TABELAS_ATE_0004, alembic
 
         self.semear()
         self.copia.write_text("copia anterior\n", encoding="utf-8")
@@ -1170,7 +1179,8 @@ class TestDowngradeDa0004(ComBase):
 
         self.assertNotEqual(resultado.returncode, 0)
         self.assertEqual(self.copia.read_text(encoding="utf-8"), "copia anterior\n")
-        self.assertEqual(self.tabelas(), TABELAS)
+        # Em 0004, pela razao do teste acima.
+        self.assertEqual(self.tabelas(), TABELAS_ATE_0004)
 
 
 if __name__ == "__main__":
