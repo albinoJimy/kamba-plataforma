@@ -61,6 +61,15 @@ export async function processar(
   efeito: Efeito,
 ): Promise<ResultadoDoTrabalho> {
   const { tentativa, tentativasMaximas = TENTATIVAS, metricas } = opcoes;
+  // O `paraDlq` **não** leva métricas: `evt_dlq_open` é um *gauge* que se lê da
+  // tabela, e quem o publica é o processo pela ligação de operação (a de
+  // consumo tem só `INSERT` na DLQ). Quem acabou de falhar um evento não
+  // actualiza painéis.
+  const paraDlqBase = {
+    bd: opcoes.bd,
+    consumer: opcoes.consumer,
+    envelope: opcoes.envelope,
+  };
   if (!Number.isInteger(tentativa) || tentativa < 1) {
     throw new RangeError(`tentativa tem de ser um inteiro >= 1: ${tentativa}`);
   }
@@ -74,14 +83,7 @@ export async function processar(
       // Não há tentativa que resolva: um evento atrasado numa transição
       // inválida vai ser sempre inválido. Direito à DLQ, com o código que o
       // critério 4 exige.
-      await paraDlq({
-        bd: opcoes.bd,
-        consumer: opcoes.consumer,
-        envelope: opcoes.envelope,
-        erro: ForaDeOrdem.CODIGO,
-        tentativas: tentativa,
-        metricas,
-      });
+      await paraDlq({ ...paraDlqBase, erro: ForaDeOrdem.CODIGO, tentativas: tentativa });
       return { desfecho: 'dlq', erro: ForaDeOrdem.CODIGO };
     }
 
@@ -90,14 +92,7 @@ export async function processar(
       // Esgotadas as tentativas, uma pré-condição que nunca se verificou é
       // uma entrada na DLQ — e **não** uma transição aplicada à força (§6.3).
       const motivo = `adiado_sem_resolver: ${erro.porque}`;
-      await paraDlq({
-        bd: opcoes.bd,
-        consumer: opcoes.consumer,
-        envelope: opcoes.envelope,
-        erro: motivo,
-        tentativas: tentativa,
-        metricas,
-      });
+      await paraDlq({ ...paraDlqBase, erro: motivo, tentativas: tentativa });
       return { desfecho: 'dlq', erro: motivo };
     }
 
@@ -106,14 +101,7 @@ export async function processar(
     metricas?.contar(METRICA_RETENTATIVAS, 'erro');
     if (!ultima) throw erro;
     const motivo = erro instanceof Error ? `${erro.name}: ${erro.message}` : String(erro);
-    await paraDlq({
-      bd: opcoes.bd,
-      consumer: opcoes.consumer,
-      envelope: opcoes.envelope,
-      erro: motivo,
-      tentativas: tentativa,
-      metricas,
-    });
+    await paraDlq({ ...paraDlqBase, erro: motivo, tentativas: tentativa });
     return { desfecho: 'dlq', erro: motivo };
   }
 }

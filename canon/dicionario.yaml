@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.9"
+versao_dicionario: "1.10"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -851,7 +851,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.5"
     conceito: "Consumidores"
-    canonico: "Idempotentes por (consumer, event_id); DLQ após 5 tentativas"
+    canonico: "Idempotentes por (consumer, event_id); DLQ após 6 tentativas (1 + 5)"
     literais:
       - "(consumer, event_id)"
     nomes:
@@ -967,6 +967,109 @@ entradas:
       - "SECURITY"
       - "INVOKER"
       - "tenant_iso"
+    variantes_literais: []
+  - seccao: "3.5"
+    conceito: "Janela de deduplicação"
+    canonico: "events_consumed(consumer, event_id, tenant_id, agregado_tipo, agregado_id, agregado_seq, processado_at)"
+    literais:
+      - "events_consumed(consumer, event_id, tenant_id, agregado_tipo, agregado_id, agregado_seq, processado_at)"
+    nomes:
+      - "events_consumed"
+      - "consumer"
+      - "event_id"
+      - "tenant_id"
+      - "agregado_tipo"
+      - "agregado_id"
+      - "agregado_seq"
+      - "processado_at"
+    nomes_nota:
+      - "tenant_id"
+      - "evt_agregado_seq"
+      - "consumer"
+      - "event_id"
+    variantes_literais: []
+  - seccao: "3.5"
+    conceito: "Fila de mortos"
+    canonico: "events_dlq(id, consumer, event_id, tipo, versao, tenant_id, envelope, erro, tentativas, estado, criado_at, resolvido_at, resolvido_por)"
+    literais:
+      - "events_dlq(id, consumer, event_id, tipo, versao, tenant_id, envelope, erro, tentativas, estado, criado_at, resolvido_at, resolvido_por)"
+    nomes:
+      - "events_dlq"
+      - "id"
+      - "consumer"
+      - "event_id"
+      - "tipo"
+      - "versao"
+      - "tenant_id"
+      - "envelope"
+      - "erro"
+      - "tentativas"
+      - "estado"
+      - "criado_at"
+      - "resolvido_at"
+      - "resolvido_por"
+    nomes_nota:
+      - "estado"
+      - "aberta"
+      - "reprocessada"
+      - "descartada"
+      - "consumer"
+      - "event_id"
+    variantes_literais: []
+  - seccao: "3.5"
+    conceito: "Aprovações de descarte"
+    canonico: "evt_dlq_aprovacoes(dlq_id, aprovador, criado_at)"
+    literais:
+      - "evt_dlq_aprovacoes(dlq_id, aprovador, criado_at)"
+    nomes:
+      - "evt_dlq_aprovacoes"
+      - "dlq_id"
+      - "aprovador"
+      - "criado_at"
+    nomes_nota:
+      - "resolvido_por"
+      - "text"
+      - "dlq_id"
+      - "aprovador"
+    variantes_literais: []
+  - seccao: "3.5"
+    conceito: "Acções com efeito externo"
+    canonico: "evt_acoes(idempotency_key, consumer, event_id, accao, tenant_id, estado, resultado, criado_at, concluido_at)"
+    literais:
+      - "evt_acoes(idempotency_key, consumer, event_id, accao, tenant_id, estado, resultado, criado_at, concluido_at)"
+    nomes:
+      - "evt_acoes"
+      - "idempotency_key"
+      - "consumer"
+      - "event_id"
+      - "accao"
+      - "tenant_id"
+      - "estado"
+      - "resultado"
+      - "criado_at"
+      - "concluido_at"
+    nomes_nota:
+      - "consumer"
+      - "event_id"
+      - "ac"
+      - "o"
+      - "Idempotency"
+      - "Key"
+      - "estado"
+      - "em_curso"
+      - "feita"
+      - "falhada"
+    variantes_literais: []
+  - seccao: "3.5"
+    conceito: "Retenção das tabelas de eventos"
+    canonico: "evt_limpar_consumidos, evt_limpar_dlq"
+    literais:
+      - "evt_limpar_consumidos"
+      - "evt_limpar_dlq"
+    nomes:
+      - "evt_limpar_consumidos"
+      - "evt_limpar_dlq"
+    nomes_nota: []
     variantes_literais: []
   - seccao: "3.5"
     conceito: "Campos do envelope que o §6.1 acrescenta"
@@ -1720,6 +1823,66 @@ tabelas:
     assinatura: "events_log(event_id, tipo, versao, tenant_id, agregado_tipo, agregado_id, agregado_seq, ocorrido_em, registado_em, classe_pii, envelope)"
     seccao: "3.5"
     conceito: "Arquivo de eventos"
+  - nome: "events_consumed"
+    esquema: ""
+    colunas:
+      - "consumer"
+      - "event_id"
+      - "tenant_id"
+      - "agregado_tipo"
+      - "agregado_id"
+      - "agregado_seq"
+      - "processado_at"
+    aberta: false
+    assinatura: "events_consumed(consumer, event_id, tenant_id, agregado_tipo, agregado_id, agregado_seq, processado_at)"
+    seccao: "3.5"
+    conceito: "Janela de deduplicação"
+  - nome: "events_dlq"
+    esquema: ""
+    colunas:
+      - "id"
+      - "consumer"
+      - "event_id"
+      - "tipo"
+      - "versao"
+      - "tenant_id"
+      - "envelope"
+      - "erro"
+      - "tentativas"
+      - "estado"
+      - "criado_at"
+      - "resolvido_at"
+      - "resolvido_por"
+    aberta: false
+    assinatura: "events_dlq(id, consumer, event_id, tipo, versao, tenant_id, envelope, erro, tentativas, estado, criado_at, resolvido_at, resolvido_por)"
+    seccao: "3.5"
+    conceito: "Fila de mortos"
+  - nome: "evt_dlq_aprovacoes"
+    esquema: ""
+    colunas:
+      - "dlq_id"
+      - "aprovador"
+      - "criado_at"
+    aberta: false
+    assinatura: "evt_dlq_aprovacoes(dlq_id, aprovador, criado_at)"
+    seccao: "3.5"
+    conceito: "Aprovações de descarte"
+  - nome: "evt_acoes"
+    esquema: ""
+    colunas:
+      - "idempotency_key"
+      - "consumer"
+      - "event_id"
+      - "accao"
+      - "tenant_id"
+      - "estado"
+      - "resultado"
+      - "criado_at"
+      - "concluido_at"
+    aberta: false
+    assinatura: "evt_acoes(idempotency_key, consumer, event_id, accao, tenant_id, estado, resultado, criado_at, concluido_at)"
+    seccao: "3.5"
+    conceito: "Acções com efeito externo"
 
 dominios:
   - coluna: "tenants.tipo"

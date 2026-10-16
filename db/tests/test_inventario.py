@@ -168,6 +168,47 @@ INVENTARIO = {
         "classe_pii": ("text", NAO, None, "classe do dado do envelope; nao e dado"),
         "envelope": ("jsonb", NAO, None, "envelope v1 sem PII P2; a referencia a pessoa e contact_id, opaco (ADR-010)"),
     },
+    # ---------------------------------------------------------- KAM-006 (0005)
+    "events_consumed": {
+        "consumer": ("text", NAO, None, "nao"),
+        "event_id": ("uuid", NAO, None, "identificador do evento (UUIDv7); nao identifica pessoas"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "agregado_tipo": ("text", NAO, None, "nao"),
+        "agregado_id": ("text", NAO, None, "identificador do agregado; opaco"),
+        "agregado_seq": ("bigint", NAO, None, "nao"),
+        "processado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
+    "events_dlq": {
+        "id": ("bigint", NAO, None, "nao"),
+        "consumer": ("text", NAO, None, "nao"),
+        "event_id": ("uuid", NAO, None, "identificador do evento (UUIDv7); nao identifica pessoas"),
+        "tipo": ("text", NAO, None, "nao"),
+        "versao": ("smallint", NAO, None, "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "envelope": ("jsonb", NAO, None, "envelope v1 sem PII P2; a referencia a pessoa e contact_id, opaco (ADR-010)"),
+        "erro": ("text", NAO, None, "mensagem de erro do consumidor; nao leva payload"),
+        "tentativas": ("integer", NAO, None, "nao"),
+        "estado": ("text", NAO, "'aberta'::text", "nao"),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "resolvido_at": ("timestamp with time zone", SIM, None, "nao"),
+        "resolvido_por": ("text", SIM, None, "nome de quem resolveu: pessoa da plataforma, nao titular de dados"),
+    },
+    "evt_dlq_aprovacoes": {
+        "dlq_id": ("bigint", NAO, None, "nao"),
+        "aprovador": ("text", NAO, None, "nome de quem aprovou: pessoa da plataforma, nao titular de dados"),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
+    "evt_acoes": {
+        "idempotency_key": ("text", NAO, None, "consumer:event_id:accao; nao identifica pessoas"),
+        "consumer": ("text", NAO, None, "nao"),
+        "event_id": ("uuid", NAO, None, "identificador do evento (UUIDv7); nao identifica pessoas"),
+        "accao": ("text", NAO, None, "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "estado": ("text", NAO, "'em_curso'::text", "nao"),
+        "resultado": ("jsonb", SIM, None, "desfecho da accao externa; nao leva conteudo de mensagem"),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "concluido_at": ("timestamp with time zone", SIM, None, "nao"),
+    },
 }
 
 #: A particao `DEFAULT` tem as colunas do pai, uma a uma. Esta aqui — e nao
@@ -236,6 +277,11 @@ class TestInventario(ComBase):
                         "contacts_merged_fk",
                         "contacts_tenant_fk",
                         "entitlements_tenant_fk",
+                        # KAM-006: as aprovacoes apontam para a entrada da DLQ.
+                        # Sem `ON DELETE CASCADE`, como todas as outras: quem
+                        # apaga a entrada apaga as aprovacoes primeiro, por
+                        # extenso (`evt_limpar_dlq`).
+                        "evt_dlq_aprovacoes_dlq_fk",
                         "tenant_channels_tenant_fk",
                         "tenants_owner_fk",
                     ]
@@ -285,6 +331,10 @@ class TestInventario(ComBase):
             # depois de publicada, a linha sai do indice e o varrimento nao
             # cresce com o arquivo.
             "events_outbox_pendentes": False,
+            # KAM-006: parcial e **nao** unico, pela mesma ideia. E o indice do
+            # alerta e da metrica `evt_dlq_open`: so cobre o que esta aberto, e
+            # uma DLQ saudavel tem zero linhas aqui.
+            "events_dlq_abertas": False,
         }
         linhas = self.consultar(
             "SELECT indexname::text, indexdef FROM pg_indexes "
@@ -308,6 +358,18 @@ class TestInventario(ComBase):
             sorted(nome for (nome,) in linhas),
             sorted(
                 [
+                    # ------------------------------------- KAM-006 (0005)
+                    "events_consumed_pkey",
+                    "events_dlq_consumer_event_uq",
+                    "events_dlq_estado_ck",
+                    "events_dlq_pkey",
+                    "events_dlq_resolucao_ck",
+                    "evt_acoes_conclusao_ck",
+                    "evt_acoes_estado_ck",
+                    "evt_acoes_pkey",
+                    "evt_dlq_aprovacoes_aprovador_ck",
+                    "evt_dlq_aprovacoes_pkey",
+                    "evt_subscricoes_payment_exige_ordem",
                     "contact_deks_destruida_ck",
                     "contact_deks_kek_id_ck",
                     "contact_deks_pkey",

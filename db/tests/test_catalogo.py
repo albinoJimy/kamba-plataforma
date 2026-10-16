@@ -116,8 +116,15 @@ class TestConvencoes(ComBase):
         §6.2), e um UUIDv4 nao tem ordem. A chave de idempotencia do evento e o
         `event_id`, que e UUIDv7. A excepcao esta escrita no dicionario §3.5
         (emenda 1.9) e e deliberada, nao esquecimento.
+
+        `events_dlq.id` e a segunda, e a forma e a do §6.4. A razao da regra —
+        uma chave sequencial vaza volume ao vizinho — nao se aplica aqui porque
+        **nenhum papel sujeito a RLS le esta coluna**: `kamba_app` tem so
+        `INSERT` na DLQ, e quem a le e `kamba_batch`, que e operacao da
+        plataforma. Um `id` que uma pessoa escreve numa consola vale mais do que
+        um UUID, e e isso que a ferramenta de operacao usa (KAM-006).
         """
-        por_identidade = {"events_outbox"}
+        por_identidade = {"events_outbox", "events_dlq"}
         linhas = self.consultar(
             "SELECT table_name, data_type, column_default FROM information_schema.columns "
             "WHERE table_schema = 'platform' AND column_name = 'id'"
@@ -139,9 +146,11 @@ class TestConvencoes(ComBase):
         """Uma `GENERATED AS IDENTITY` a mais era uma chave sequencial nova.
 
         Chaves sequenciais vazam volume (quantos pedidos tem o vizinho) e por
-        isso o dicionario §2 manda `uuid`. O outbox e a excepcao, e e **so**
-        esta: a tabela nao e exposta a nenhum tenant e a ordem e o que o
-        publicador precisa.
+        isso o dicionario §2 manda `uuid`. Sao **duas** as excepcoes, e as duas
+        tem a mesma propriedade: nenhum papel sujeito a RLS le a coluna. O
+        outbox porque a tabela nao e exposta a nenhum tenant e a ordem e o que o
+        publicador precisa; a `events_dlq` porque `kamba_app` tem so `INSERT`
+        nela e quem a le e a operacao (KAM-006, §6.4).
         """
         linhas = self.consultar(
             "SELECT c.relname::text, a.attname::text, a.attidentity "
@@ -149,7 +158,9 @@ class TestConvencoes(ComBase):
             "WHERE c.relnamespace = 'platform'::regnamespace AND a.attidentity <> '' "
             "ORDER BY 1, 2"
         )
-        self.assertEqual(linhas, [("events_outbox", "id", "a")])
+        self.assertEqual(
+            linhas, [("events_dlq", "id", "a"), ("events_outbox", "id", "a")]
+        )
 
     def test_as_chaves_primarias_sao_as_declaradas(self) -> None:
         """Todas `uuid` geradas, menos as que tem razao escrita.
@@ -160,6 +171,14 @@ class TestConvencoes(ComBase):
         com a forma do `docs/tecnica/06` §6.1 e §6.5: `events_outbox` tem `id`
         de identidade, `events_log` tem chave composta com a coluna de particao
         (`ocorrido_em`), e os dois contadores tem chave natural.
+
+        As quatro do consumo (KAM-006, §6.3 e §6.4) seguem a mesma ideia: a
+        chave de `events_consumed` e **natural** e e o par que torna a entrega
+        at-least-once num efeito exactamente-uma-vez (`consumer`, `event_id`);
+        a de `evt_acoes` e a propria chave de idempotencia; a de
+        `evt_dlq_aprovacoes` e `(dlq_id, aprovador)`, e e ela que torna a mesma
+        pessoa a aprovar duas vezes impossivel; e a `events_dlq` tem `id` de
+        identidade, pela razao escrita no teste da coluna de identidade.
         """
         linhas = self.consultar(
             "SELECT c.relname::text, a.attname::text, format_type(a.atttypid, a.atttypmod), "
@@ -178,6 +197,9 @@ class TestConvencoes(ComBase):
                 ("contacts", "contact_id", "uuid", "gen_random_uuid()"),
                 ("entitlements", "modulo", "text", None),
                 ("entitlements", "tenant_id", "uuid", None),
+                ("events_consumed", "consumer", "text", None),
+                ("events_consumed", "event_id", "uuid", None),
+                ("events_dlq", "id", "bigint", None),
                 ("events_log", "event_id", "uuid", None),
                 ("events_log", "ocorrido_em", "timestamp with time zone", None),
                 ("events_log_default", "event_id", "uuid", None),
@@ -186,6 +208,9 @@ class TestConvencoes(ComBase):
                 ("evt_agregado_seq", "agregado_id", "text", None),
                 ("evt_agregado_seq", "agregado_tipo", "text", None),
                 ("evt_agregado_seq", "tenant_id", "uuid", None),
+                ("evt_acoes", "idempotency_key", "text", None),
+                ("evt_dlq_aprovacoes", "aprovador", "text", None),
+                ("evt_dlq_aprovacoes", "dlq_id", "bigint", None),
                 ("evt_subscricoes", "consumer", "text", None),
                 ("evt_subscricoes", "tipo", "text", None),
                 ("hmac_key_versions", "kid", "text", None),
@@ -240,7 +265,14 @@ class TestConvencoes(ComBase):
              # o `events_outbox` tem `(tenant_id, criado_at)`, acrescentado ao
              # DDL do `docs/tecnica/06` §6.1 exactamente por esta regra.
              "events_outbox", "evt_agregado_seq", "events_log",
-             "events_log_default"},
+             "events_log_default",
+             # KAM-006. As tres tem `(tenant_id, <tempo>)`: o `events_consumed`
+             # ganhou `tenant_id` por esta regra (o §6.3 nao o tem e sem ele a
+             # tabela ficava fora da RLS), e a DLQ e as accoes trazem-no do
+             # envelope. A `evt_dlq_aprovacoes` **nao** esta aqui: nao tem
+             # `tenant_id`, porque o isolamento do que se aprova vem da linha
+             # da DLQ que ela referencia.
+             "events_consumed", "events_dlq", "evt_acoes"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -270,7 +302,8 @@ class TestConvencoes(ComBase):
             "SELECT conname, confrelid::regclass::text FROM pg_constraint "
             "WHERE contype = 'f' AND connamespace = 'platform'::regnamespace"
         )
-        self.assertEqual(len(linhas), 12)
+        # 13 desde o KAM-006: a `evt_dlq_aprovacoes_dlq_fk`.
+        self.assertEqual(len(linhas), 13)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

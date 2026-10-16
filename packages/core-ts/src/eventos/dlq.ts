@@ -29,6 +29,7 @@ import {
 } from './consultas_consumo.ts';
 import type { Envelope } from './envelope.ts';
 import { METRICA_DLQ_ABERTAS, type Metricas } from './metricas.ts';
+
 import type { ClienteSql } from './publicador.ts';
 
 /**
@@ -92,7 +93,6 @@ export interface OpcoesDaDlq {
   readonly envelope: Envelope;
   readonly erro: string;
   readonly tentativas: number;
-  readonly metricas?: Metricas;
 }
 
 export interface ResultadoDaDlq {
@@ -109,7 +109,7 @@ export interface ResultadoDaDlq {
  * fila e volta — é melhor voltar do que desaparecer.
  */
 export async function paraDlq(opcoes: OpcoesDaDlq): Promise<ResultadoDaDlq> {
-  const { bd, consumer, envelope, erro, tentativas, metricas } = opcoes;
+  const { bd, consumer, envelope, erro, tentativas } = opcoes;
   const { rowCount } = await bd.query(SQL_PARA_DLQ, [
     consumer,
     envelope.id,
@@ -120,13 +120,13 @@ export async function paraDlq(opcoes: OpcoesDaDlq): Promise<ResultadoDaDlq> {
     erro,
     tentativas,
   ]);
+  // A métrica **não** se actualiza aqui, e são duas razões. A primeira é de
+  // privilégio: `evt_dlq_open` lê a tabela, e quem consome tem só `INSERT`
+  // nesta tabela (o `id` é sequencial e não pode ser lido por um papel com
+  // RLS). A segunda é de desenho: é um *gauge* da realidade e não um contador
+  // de chamadas, pelo que quem o publica é o processo, pela ligação de
+  // operação, com `publicarAbertas` — e não quem acabou de falhar um evento.
   const abriu = (rowCount ?? 0) > 0;
-  if (abriu && metricas !== undefined) {
-    // A métrica é um *gauge* da realidade, não um contador de chamadas: lê-se
-    // da base. Incrementar aqui dava um número que divergia da tabela ao
-    // primeiro reprocessamento.
-    await publicarAbertas(bd, metricas);
-  }
   return { abriu, severidade: severidade(envelope.tipo, 0) };
 }
 

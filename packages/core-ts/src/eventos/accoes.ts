@@ -46,9 +46,12 @@ export const ESTADOS_DE_ACCAO = ['em_curso', 'feita', 'falhada'] as const;
 export type EstadoDeAccao = (typeof ESTADOS_DE_ACCAO)[number];
 
 export class AccaoInvalidaError extends Error {
-  constructor(readonly accao: string) {
+  readonly accao: string;
+
+  constructor(accao: string) {
     super(`nome de acção inválido: ${JSON.stringify(accao)}`);
     this.name = 'AccaoInvalidaError';
+    this.accao = accao;
   }
 }
 

@@ -99,10 +99,7 @@ class BdFalsa {
       return { rows: [{ ultimo: this.ultimoSeq }], rowCount: 1 };
     }
     if (sql === SQL_PARA_DLQ) {
-      return {
-        rows: this.abriuDlq > 0 ? [{ id: "1", tipo: "order.created" }] : [],
-        rowCount: this.abriuDlq,
-      };
+      return { rows: [], rowCount: this.abriuDlq };
     }
     if (sql.includes("estado = 'aberta'")) {
       return { rows: this.abertas, rowCount: this.abertas.length };

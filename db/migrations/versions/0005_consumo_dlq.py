@@ -26,7 +26,12 @@ vem de `docs/tecnica/06`:
                           aprovacoes, a chave primaria `(dlq_id, aprovador)`
                           torna a mesma pessoa a aprovar duas vezes
                           **impossivel**, e nao apenas detectada.
-    evt_limpar_*          as duas retencoes (90 dias e 30 dias apos resolucao),
+    evt_limpar_*          as duas retencoes (90 dias e 30 dias apos resolucao).
+                          A da DLQ apaga **primeiro** as aprovacoes da entrada e
+                          so depois a entrada: a chave estrangeira nao tem
+                          `ON DELETE CASCADE` de proposito, porque o gate 8 tem
+                          uma regra fechada contra cascatas — e a regra esta
+                          certa, uma cascata esconde perda de dados.
                           como funcoes. O *job* diario que as chama nasce com a
                           retencao (KAM-071) ou com o procedimento de *deploy*
                           (KAM-078) — a mesma decisao que o KAM-005 tomou para
@@ -39,6 +44,14 @@ vem de `docs/tecnica/06`:
    papel que a leia ve quais os eventos que existem noutro tenant. E a mesma
    correccao que o KAM-005 fez ao `evt_agregado_seq` (ANALISE-20, achado 2), e o
    valor vem do envelope, que o tem sempre.
+
+1b. `events_consumed.agregado_tipo`, `agregado_id` e `agregado_seq` passam a
+   **NOT NULL**. No §6.3 sao anulaveis, e o `max(agregado_seq)` da verificacao de
+   ordem **ignora NULL**: uma linha escrita sem `seq` fazia o maximo parecer mais
+   antigo do que e, e com isso um evento atrasado passava por estar em ordem. O
+   envelope traz sempre `agregado = {tipo, id, seq}` — o `lerEnvelope` recusa-o
+   sem eles —, pelo que a coluna pode exigi-lo. Achado da revisao do espelho em
+   Python.
 2. `evt_subscricoes` ganha a restricao
    `evt_subscricoes_payment_exige_ordem`: `tipo LIKE 'payment.%'` obriga
    `exige_ordem`. O criterio 7 do ticket pede que **o arranque falhe** com uma
@@ -89,6 +102,10 @@ TABELAS_DE_TENANT = (
 TABELAS_SEM_TENANT = ("evt_dlq_aprovacoes",)
 
 #: Estados de uma entrada da DLQ (§6.4).
+#:
+#: O DDL escreve-os por extenso (o gate 3b le o SQL sem correr a revisao); esta
+#: tupla e a fonte com que a suite do gate 8 confronta o `CHECK`. Um dominio
+#: escrito em dois sitios que ninguem compara e um dominio que vai divergir.
 ESTADOS_DA_DLQ = ("aberta", "reprocessada", "descartada")
 
 #: Estados de uma accao externa. `em_curso` existe para o caso que importa: o
@@ -116,9 +133,9 @@ def upgrade() -> None:
           consumer      text NOT NULL,
           event_id      uuid NOT NULL,
           tenant_id     uuid NOT NULL,
-          agregado_tipo text,
-          agregado_id   text,
-          agregado_seq  bigint,
+          agregado_tipo text NOT NULL,
+          agregado_id   text NOT NULL,
+          agregado_seq  bigint NOT NULL,
           processado_at  timestamptz NOT NULL DEFAULT now(),
           CONSTRAINT events_consumed_pkey PRIMARY KEY (consumer, event_id)
         )
@@ -139,7 +156,7 @@ def upgrade() -> None:
     op.execute(
         """
         COMMENT ON COLUMN platform.events_consumed.agregado_seq IS
-          'Serve para detectar atrasos e auditar lacunas contra events_log, nao para esperar «o anterior»: o seq e contiguo por agregado e nao por consumidor (§6.3).'
+          'Serve para detectar atrasos e auditar lacunas contra events_log, nao para esperar «o anterior»: o seq e contiguo por agregado e nao por consumidor (§6.3). NOT NULL, ao contrario do DDL do documento: o max() ignora NULL, e uma linha sem seq fazia a verificacao de ordem ver um maximo mais antigo do que o real.'
         """
     )
     # O indice do §6.3, para a leitura do maximo por agregado quando a
@@ -162,8 +179,12 @@ def upgrade() -> None:
     )
 
     # ---------------------------------------------------------------- events_dlq
+    # Os tres estados por extenso, e nao um `join` sobre `ESTADOS_DA_DLQ`: o
+    # gate 3b le o SQL desta revisao **sem a correr**, e uma f-string deixa-o
+    # cego ao dominio. A tupla fica como fonte para a suite, que confronta o
+    # `CHECK` com ela.
     op.execute(
-        f"""
+        """
         CREATE TABLE platform.events_dlq (
           id          bigint GENERATED ALWAYS AS IDENTITY
                       CONSTRAINT events_dlq_pkey PRIMARY KEY,
@@ -177,7 +198,7 @@ def upgrade() -> None:
           tentativas  int NOT NULL,
           estado      text NOT NULL DEFAULT 'aberta'
                       CONSTRAINT events_dlq_estado_ck
-                      CHECK (estado IN ({', '.join(repr(e) for e in ESTADOS_DA_DLQ)})),
+                      CHECK (estado IN ('aberta', 'reprocessada', 'descartada')),
           criado_at   timestamptz NOT NULL DEFAULT now(),
           resolvido_at  timestamptz,
           resolvido_por text,
@@ -227,7 +248,7 @@ def upgrade() -> None:
         CREATE TABLE platform.evt_dlq_aprovacoes (
           dlq_id    bigint NOT NULL
                     CONSTRAINT evt_dlq_aprovacoes_dlq_fk
-                    REFERENCES platform.events_dlq (id) ON DELETE CASCADE,
+                    REFERENCES platform.events_dlq (id),
           aprovador text NOT NULL,
           criado_at timestamptz NOT NULL DEFAULT now(),
           CONSTRAINT evt_dlq_aprovacoes_pkey PRIMARY KEY (dlq_id, aprovador),
@@ -243,8 +264,9 @@ def upgrade() -> None:
     )
 
     # ------------------------------------------------------------------ evt_acoes
+    # Por extenso, pela mesma razao do `events_dlq`.
     op.execute(
-        f"""
+        """
         CREATE TABLE platform.evt_acoes (
           idempotency_key text NOT NULL
                           CONSTRAINT evt_acoes_pkey PRIMARY KEY,
@@ -254,7 +276,7 @@ def upgrade() -> None:
           tenant_id  uuid NOT NULL,
           estado     text NOT NULL DEFAULT 'em_curso'
                      CONSTRAINT evt_acoes_estado_ck
-                     CHECK (estado IN ({', '.join(repr(e) for e in ESTADOS_DE_ACCAO)})),
+                     CHECK (estado IN ('em_curso', 'feita', 'falhada')),
           resultado  jsonb,
           criado_at  timestamptz NOT NULL DEFAULT now(),
           concluido_at timestamptz,
@@ -339,6 +361,12 @@ def upgrade() -> None:
         RETURNS bigint LANGUAGE plpgsql AS $$
         DECLARE v_apagadas bigint;
         BEGIN
+          DELETE FROM platform.evt_dlq_aprovacoes a
+            USING platform.events_dlq d
+            WHERE a.dlq_id = d.id
+              AND d.estado <> 'aberta'
+              AND d.resolvido_at IS NOT NULL
+              AND d.resolvido_at < now() - make_interval(days => p_dias);
           DELETE FROM platform.events_dlq
             WHERE estado <> 'aberta'
               AND resolvido_at IS NOT NULL
@@ -370,7 +398,11 @@ def upgrade() -> None:
     # uma linha de deduplicacao e permitir que o efeito se repita, e isso e da
     # retencao, que corre como `kamba_batch`.
     op.execute("GRANT SELECT, INSERT ON platform.events_consumed TO kamba_app")
-    op.execute("GRANT SELECT, INSERT ON platform.events_dlq TO kamba_app")
+    # So `INSERT`, e nao `SELECT`: `kamba_app` abre a entrada e nunca a le.
+    # E o que mantem o `id` sequencial fora do alcance de um papel com RLS —
+    # sem isso, um tenant media pela sequencia quantas falhas o vizinho teve
+    # (a regra do dicionario §2, e a razao dela).
+    op.execute("GRANT INSERT ON platform.events_dlq TO kamba_app")
     op.execute("GRANT SELECT, INSERT ON platform.evt_acoes TO kamba_app")
     # Do `evt_acoes` muda-se o desfecho de uma accao que ele proprio registou.
     op.execute(
@@ -405,10 +437,12 @@ def upgrade() -> None:
 def _contar() -> dict[str, int]:
     """Quantas linhas ha em cada tabela a copiar."""
     contagens = {}
-    for tabela in TABELAS_COPIADAS:
-        contagens[tabela] = op.get_bind().exec_driver_sql(
-            f"SELECT count(*) FROM platform.{tabela}"
-        ).scalar()
+    for tabela_a_contar in TABELAS_COPIADAS:
+        contagens[tabela_a_contar] = (
+            op.get_bind()
+            .exec_driver_sql(f"SELECT count(*) FROM platform.{tabela_a_contar}")
+            .scalar_one()
+        )
     return contagens
 
 

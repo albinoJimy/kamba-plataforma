@@ -76,8 +76,9 @@ def _eventos(**por_papel: set[str]) -> dict[str, set[str]]:
     """Matriz de uma tabela da revisao 0004 (KAM-005).
 
     O dono tem tudo; `kamba_resolver` e `kamba_identity` **nada** — nao produzem
-    nem consomem eventos; `public` nada. O que varia e `kamba_app` (o produtor)
-    e `kamba_batch` (o publicador e a retencao), e cada tabela diz o seu.
+    nem consomem eventos; `public` nada. O que varia e `kamba_app` (o produtor e
+    quem consome) e `kamba_batch` (o publicador, o reconciliador, a operacao da
+    DLQ e a retencao), e cada tabela diz o seu.
     """
     base = {
         "kamba_app": set(),
@@ -122,6 +123,39 @@ ESPERADO_POR_TABELA.update(
         # pelo pai, e e la que a politica e os privilegios valem. Uma concessao
         # aqui era um caminho directo que a RLS do pai nao cobre.
         "events_log_default": _eventos(),
+        # ------------------------------------------------- KAM-006 (0005)
+        # Quem consome escreve a sua linha e le-a (a politica filtra-a); **nao**
+        # tem `UPDATE` nem `DELETE`: apagar uma linha de deduplicacao e permitir
+        # que o efeito se repita, e isso e da retencao, que corre como
+        # `kamba_batch`.
+        "events_consumed": _eventos(
+            kamba_app={"SELECT", "INSERT"},
+            kamba_batch={"SELECT", "DELETE"},
+        ),
+        # A DLQ e o unico sitio onde `kamba_app` escreve **sem** poder ler, e e
+        # deliberado: o `id` e sequencial, e um papel sujeito a RLS que o lesse
+        # media pela sequencia quantas falhas o vizinho teve (dicionario §2). Le
+        # quem opera, que e `kamba_batch` — e e ele que reprocessa, descarta e
+        # purga.
+        "events_dlq": _eventos(
+            kamba_app={"INSERT"},
+            # Sem `UPDATE` **de tabela**: o que `kamba_batch` tem e `UPDATE` por
+            # coluna, e so do desfecho (ver `COLUNAS_POR_PAPEL`). E a mesma
+            # forma do `evt_agregado_seq`: um privilegio de coluna nao se
+            # declara aqui, ou a matriz de tabela diria que ele altera o
+            # envelope e o erro — que sao o registo do que aconteceu.
+            kamba_batch={"SELECT", "DELETE"},
+        ),
+        # As aprovacoes de descarte sao acto de operacao: `kamba_app` nao as ve.
+        "evt_dlq_aprovacoes": _eventos(
+            kamba_batch={"SELECT", "INSERT", "DELETE"},
+        ),
+        # As accoes externas: quem consome registra e fecha a sua (o `UPDATE` e
+        # por coluna, ver `COLUNAS_POR_PAPEL`); a operacao le.
+        "evt_acoes": _eventos(
+            kamba_app={"SELECT", "INSERT"},
+            kamba_batch={"SELECT"},
+        ),
     }
 )
 
@@ -146,6 +180,13 @@ COLUNAS_POR_PAPEL = {
     # e corre como quem chama. E o unico `UPDATE` de `kamba_app` nas tabelas de
     # eventos, e e **uma** coluna.
     ("kamba_app", "evt_agregado_seq", "UPDATE"): {"seq"},
+    # KAM-006: o `once(key, fn)` fecha a accao que ele proprio abriu, e so o
+    # desfecho. Mudar `consumer`, `event_id` ou `accao` era reescrever a chave
+    # de idempotencia de outra accao.
+    ("kamba_app", "evt_acoes", "UPDATE"): {"estado", "resultado", "concluido_at"},
+    # E a operacao fecha a entrada da DLQ, tambem so o desfecho: o envelope e o
+    # erro sao o registo do que aconteceu, e nao se reescrevem.
+    ("kamba_batch", "events_dlq", "UPDATE"): {"estado", "resolvido_at", "resolvido_por"},
 }
 PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
 
@@ -163,6 +204,14 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     "evt_subscricoes",
     "events_log",
     "events_log_default",
+    # KAM-006: as quatro do consumo. Duas tem privilegio por coluna
+    # (`evt_acoes` e `events_dlq`), e as outras duas entram pela mesma razao das
+    # de eventos — um privilegio de coluna a mais seria invisivel na matriz de
+    # tabela.
+    "events_consumed",
+    "events_dlq",
+    "evt_dlq_aprovacoes",
+    "evt_acoes",
 )
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.

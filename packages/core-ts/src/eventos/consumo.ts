@@ -87,17 +87,38 @@ export function atrasoDaTentativaDoConsumidor(tentativas: number): number {
     throw new RangeError(`tentativas tem de ser um inteiro >= 1: ${tentativas}`);
   }
   const indice = Math.min(tentativas, ESCADA_DO_CONSUMIDOR.length) - 1;
-  return ESCADA_DO_CONSUMIDOR[indice];
+  // O indice esta sempre dentro da escada (o `min` garante-o), mas o
+  // `noUncheckedIndexedAccess` nao sabe isso — e um `!` calava a unica guarda
+  // que ha. O `??` com o ultimo degrau diz o mesmo e sobrevive a uma escada
+  // vazia, se alguem a esvaziar.
+  return ESCADA_DO_CONSUMIDOR[indice] ?? ESCADA_DO_CONSUMIDOR[ESCADA_DO_CONSUMIDOR.length - 1] ?? 0;
 }
 
 /** A pré-condição ainda não se verifica. Tenta-se outra vez. */
 export class Adiar extends Error {
+  readonly segundos: number;
+  readonly porque: string;
+
+  /**
+   * O mesmo atraso em milissegundos, que é a unidade da fila.
+   *
+   * Existe porque a escada deste módulo está em milissegundos e o `segundos`
+   * está em segundos (o §6.3 fala em «Adiar(5 s)»): um `× 1000` esquecido na
+   * fronteira transformava 5 s em 5 ms e queimava as seis tentativas num
+   * instante. Quem re-enfileira usa isto e não multiplica nada.
+   */
+  get atrasoMs(): number {
+    return this.segundos * 1_000;
+  }
+
   constructor(
-    readonly segundos: number = ADIAMENTO_POR_OMISSAO,
-    readonly porque = 'pré-condição de estado por verificar',
+    segundos: number = ADIAMENTO_POR_OMISSAO,
+    porque = 'pré-condição de estado por verificar',
   ) {
     super(`adiar ${segundos}s: ${porque}`);
     this.name = 'Adiar';
+    this.segundos = segundos;
+    this.porque = porque;
   }
 }
 
@@ -106,9 +127,12 @@ export class ForaDeOrdem extends Error {
   /** O valor que vai para a coluna `erro` da DLQ, e que o critério 4 exige. */
   static readonly CODIGO = 'fora_de_ordem';
 
-  constructor(readonly detalhe: string) {
+  readonly detalhe: string;
+
+  constructor(detalhe: string) {
     super(`${ForaDeOrdem.CODIGO}: ${detalhe}`);
     this.name = 'ForaDeOrdem';
+    this.detalhe = detalhe;
   }
 }
 
@@ -125,6 +149,27 @@ export interface ResultadoDoConsumo {
   readonly desfecho: Desfecho;
   /** O `seq` mais alto já consumido deste agregado, quando se leu. */
   readonly ultimoSeq: number | null;
+}
+
+/**
+ * O `seq` que a base devolveu, ou `null`.
+ *
+ * O `agregado_seq` é `bigint`, e o condutor devolve-o como cadeia. `Number()`
+ * sobre um valor acima de 2^53 arredonda **em silêncio**, e um `seq`
+ * arredondado compara-se mal — é a diferença entre adiar e mandar para a DLQ.
+ * Acima do inteiro seguro, isto lança: é teórico no Piloto, e um erro alto vale
+ * mais do que uma comparação errada. (Achado da revisão do espelho em Python.)
+ */
+function lerSeq(bruto: unknown): number | null {
+  if (bruto === null || bruto === undefined) return null;
+  const numero = Number(bruto);
+  if (!Number.isSafeInteger(numero)) {
+    throw new RangeError(
+      `agregado_seq fora do inteiro seguro: ${String(bruto)}. Comparar um seq ` +
+        'arredondado decidiria entre adiar e DLQ com um número errado',
+    );
+  }
+  return numero;
 }
 
 /** O efeito de negócio. Corre **dentro** da transacção, com o mesmo cliente. */
@@ -173,6 +218,8 @@ export async function consumir(
       return { desfecho: 'duplicado', ultimoSeq: null };
     }
 
+    // A leitura do último `seq` só interessa a quem exige ordem: é ela que
+    // distingue «vem atrasado» de «vem cedo».
     let ultimoSeq: number | null = null;
     if (exigeOrdem) {
       const { rows } = await bd.query(SQL_ULTIMO_SEQ, [
@@ -181,39 +228,48 @@ export async function consumir(
         agregado.id,
         envelope.id,
       ]);
-      const bruto = rows[0]?.ultimo;
-      ultimoSeq = bruto === null || bruto === undefined ? null : Number(bruto);
+      ultimoSeq = lerSeq(rows[0]?.ultimo);
+    }
 
-      const pretendido = ESTADO_PRETENDIDO[envelope.tipo];
-      if (pretendido !== undefined) {
-        if (maquina === undefined) {
-          throw new Error(
-            `o tipo ${envelope.tipo} tem estado pretendido e a subscrição exige ordem, ` +
-              'mas não foi dada máquina de estados: sem ela não se verifica a pré-condição',
+    // A pré-condição de estado é verificada **fora** do `exigeOrdem`, e isto é
+    // uma correcção: na primeira versão vivia dentro, e uma subscrição com
+    // `exige_ordem = false` sobre um tipo que causa transição aplicava-a **sem
+    // verificação nenhuma**. A restrição do DDL só obriga `exige_ordem` em
+    // `payment.%`, pelo que o buraco era alcançável por configuração.
+    //
+    // A ordem é outra coisa, e continua dependente de `exigeOrdem`: sem o
+    // último `seq` não se sabe se o evento vem atrasado, e sem isso a saída é
+    // sempre `Adiar` — nunca `fora_de_ordem`.
+    const pretendido = ESTADO_PRETENDIDO[envelope.tipo];
+    if (pretendido !== undefined) {
+      if (maquina === undefined) {
+        throw new Error(
+          `o tipo ${envelope.tipo} causa a transição para ${pretendido} e não foi dada ` +
+            'máquina de estados: sem ela não se verifica a pré-condição, e o ADR-013 ' +
+            'manda que o paga só se alcance por evento autenticado',
+        );
+      }
+      const estado = await maquina.estadoDe(agregado.tipo, agregado.id);
+      if (estado === null) {
+        // O agregado ainda não existe para este consumidor. Não é inválido:
+        // é cedo. `null` nunca é «pode».
+        throw new Adiar(
+          ADIAMENTO_POR_OMISSAO,
+          `${agregado.tipo} ${agregado.id} ainda não existe neste consumidor`,
+        );
+      }
+      if (!podeTransitar(estado, pretendido)) {
+        const atrasado = ultimoSeq !== null && agregado.seq < ultimoSeq;
+        if (atrasado) {
+          throw new ForaDeOrdem(
+            `seq ${agregado.seq} < ${ultimoSeq} e ${estado} -> ${pretendido} ` +
+              'não é transição válida',
           );
         }
-        const estado = await maquina.estadoDe(agregado.tipo, agregado.id);
-        if (estado === null) {
-          // O agregado ainda não existe para este consumidor. Não é inválido:
-          // é cedo. `null` nunca é «pode».
-          throw new Adiar(
-            ADIAMENTO_POR_OMISSAO,
-            `${agregado.tipo} ${agregado.id} ainda não existe neste consumidor`,
-          );
-        }
-        if (!podeTransitar(estado, pretendido)) {
-          const atrasado = ultimoSeq !== null && agregado.seq < ultimoSeq;
-          if (atrasado) {
-            throw new ForaDeOrdem(
-              `seq ${agregado.seq} < ${ultimoSeq} e ${estado} -> ${pretendido} ` +
-                'não é transição válida',
-            );
-          }
-          throw new Adiar(
-            ADIAMENTO_POR_OMISSAO,
-            `${estado} -> ${pretendido} ainda não é válido`,
-          );
-        }
+        throw new Adiar(
+          ADIAMENTO_POR_OMISSAO,
+          `${estado} -> ${pretendido} ainda não é válido`,
+        );
       }
     }
 

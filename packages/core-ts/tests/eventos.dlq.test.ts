@@ -91,10 +91,8 @@ class BdFalsa {
     this.instrucoes.push(sql.trim().split("\n")[0].trim());
     this.parametros.push([...parametros]);
     if (sql === SQL_PARA_DLQ) {
-      return {
-        rows: this.abriuDlq > 0 ? [{ id: "1", tipo: String(parametros[2]) }] : [],
-        rowCount: this.abriuDlq,
-      };
+      // Sem `RETURNING`: o que conta e a contagem de linhas.
+      return { rows: [], rowCount: this.abriuDlq };
     }
     if (sql === SQL_FECHAR_DLQ) return { rows: [], rowCount: this.fechou };
     if (sql === SQL_ABRIR_ACCAO) return { rows: [], rowCount: this.abriuAccao };
@@ -183,9 +181,16 @@ describe("paraDlq()", () => {
     assert.ok(!resultado.abriu);
   });
 
-  it("não lê a tabela das abertas quando não há métricas para actualizar", async () => {
+  it("não lê a tabela: quem consome tem só INSERT na DLQ", async () => {
+    // O `id` da DLQ é sequencial, e um papel sujeito a RLS que o lesse media o
+    // volume de falhas do vizinho. O `evt_dlq_open` é publicado pelo processo,
+    // pela ligação de operação.
     await paraDlq({ bd, consumer: CONSUMER, envelope: envelope(), erro: "x", tentativas: 1 });
-    assert.ok(!bd.instrucoes.some((i) => i.startsWith("SELECT tipo, count(*)")));
+    assert.deepEqual(
+      bd.instrucoes.filter((i) => i.startsWith("SELECT")),
+      [],
+      "nenhuma leitura: nem RETURNING, nem a contagem das abertas",
+    );
   });
 });
 

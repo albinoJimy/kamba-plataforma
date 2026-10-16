@@ -43,10 +43,18 @@ TABELAS_0004 = (
     "evt_subscricoes",
 )
 
+#: As quatro tabelas do consumo idempotente (KAM-006, revisao 0005).
+TABELAS_0005 = (
+    "events_consumed",
+    "events_dlq",
+    "evt_acoes",
+    "evt_dlq_aprovacoes",
+)
+
 #: Tudo o que existe em `platform` em `head`, por ordem alfabetica. Lista
 #: fechada: uma tabela a mais (encomendas, pagamentos, consumidores) e escopo de
 #: outro ticket, e entra aqui pela mao de quem a criar.
-TABELAS = tuple(sorted(TABELAS_0001 + TABELAS_0003 + TABELAS_0004))
+TABELAS = tuple(sorted(TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005))
 
 #: O que existe em `platform` quando a base esta na revisao `0003`.
 #:

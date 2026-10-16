@@ -60,18 +60,27 @@ export const TRANSICOES: Readonly<Record<EstadoDaEncomenda, readonly EstadoDaEnc
 };
 
 /**
- * Que estado cada tipo de evento pretende aplicar.
+ * Que estado cada tipo de evento **causa**.
  *
- * Só os tipos do Piloto que mudam o estado da encomenda (dicionário §3.5). Um
- * tipo que não esteja aqui **não** tem pré-condição de estado, e o consumidor
- * trata-o sem consultar a máquina — não é «pode tudo», é «isto não é uma
- * transição de encomenda».
+ * O critério é um só, e é esse que decide a lista: estão aqui os eventos cujo
+ * consumo **aplica** a transição, e é por isso que precisam da pré-condição de
+ * estado. São os dois de pagamento, e a razão é o ADR-013 — o `paga` só é
+ * alcançável por evento autenticado.
+ *
+ * **Não** estão aqui, e a primeira versão deste ficheiro tinha-os:
+ * `order.expired`, `order.delivered` e `order.paid`. Esses são emitidos pelo COM
+ * **depois** da transição (`../docs/tecnica/03` §6): quem os consome está a ser
+ * informado, não a decidir. Pedir-lhes uma pré-condição de estado era exigir
+ * que a réplica do consumidor já tivesse o estado **novo** para aceitar a
+ * notícia dele — e isso adiava toda a primeira entrega.
+ *
+ * Misturar os dois critérios foi o defeito: a revisão do espelho em Python
+ * apanhou-o ao perguntar porque faltava o `order.paid`, que é Sev1 ao lado de
+ * `payment.*` no §6.4 e não causa transição nenhuma.
  */
 export const ESTADO_PRETENDIDO: Readonly<Record<string, EstadoDaEncomenda>> = {
   'payment.confirmed': 'paga',
   'payment.manual_confirmed': 'paga',
-  'order.expired': 'expirada',
-  'order.delivered': 'entregue',
 };
 
 /** O que o consumidor pergunta antes de aplicar um efeito de transição. */
@@ -87,9 +96,12 @@ export interface MaquinaDeEstados {
 }
 
 export class EstadoDesconhecidoError extends Error {
-  constructor(readonly estado: string) {
+  readonly estado: string;
+
+  constructor(estado: string) {
     super(`estado fora da máquina do §6.1: ${estado}`);
     this.name = 'EstadoDesconhecidoError';
+    this.estado = estado;
   }
 }
 
@@ -154,8 +166,9 @@ export class MaquinaNaBase implements MaquinaDeEstados {
         `WHERE ${this.#colunaId} = $1`,
       [agregadoId],
     );
-    if (rows.length === 0) return null;
-    const estado = String(rows[0].estado);
+    const linha = rows[0];
+    if (linha === undefined) return null;
+    const estado = String(linha.estado);
     if (!eEstado(estado)) throw new EstadoDesconhecidoError(estado);
     return estado;
   }

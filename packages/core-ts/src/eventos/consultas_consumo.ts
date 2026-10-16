@@ -14,17 +14,22 @@
  * A linha de deduplicação. **É esta consulta que torna a entrega
  * *at-least-once* num efeito exactamente-uma-vez.**
  *
- * `ON CONFLICT DO NOTHING` devolve `rowCount = 0` quando a linha já existe, e é
- * esse zero que diz «duplicado». Corre na **mesma transacção** que o efeito: se
- * o efeito falhar, a linha desaparece com ele e a re-entrega volta a tentar.
- * Separar as duas transacções dava os dois modos de falha de uma vez — efeito
- * sem marca (repete-se) ou marca sem efeito (perde-se).
+ * `ON CONFLICT (consumer, event_id) DO NOTHING` devolve `rowCount = 0` quando a
+ * linha já existe, e é esse zero que diz «duplicado». Corre na **mesma
+ * transacção** que o efeito: se o efeito falhar, a linha desaparece com ele e a
+ * re-entrega volta a tentar. Separar as duas transacções dava os dois modos de
+ * falha de uma vez — efeito sem marca (repete-se) ou marca sem efeito (perde-se).
+ *
+ * **O alvo do conflito está nomeado**, e não é detalhe: com `DO NOTHING` sem
+ * alvo, um conflito em *qualquer* índice único que a tabela venha a ter devolve
+ * zero linhas, e esse zero lê-se «duplicado» — um efeito saltado em silêncio.
+ * (Achado da revisão do espelho em Python.)
  */
 export const SQL_MARCAR_CONSUMIDO = `
   INSERT INTO platform.events_consumed
     (consumer, event_id, tenant_id, agregado_tipo, agregado_id, agregado_seq)
   VALUES ($1, $2, $3, $4, $5, $6)
-  ON CONFLICT DO NOTHING
+  ON CONFLICT (consumer, event_id) DO NOTHING
 `;
 
 /**
@@ -48,15 +53,17 @@ export const SQL_ULTIMO_SEQ = `
  * construção (§6.4). Sem isto, um evento que falhasse em duas execuções abria
  * duas entradas e o alerta contava o dobro.
  *
- * Devolve a linha quando a escreve, e nada quando já existia — o chamador
- * distingue «abri» de «já estava», que é o que a métrica precisa de saber.
+ * **Sem `RETURNING`**, de propósito: `INSERT ... RETURNING` exige `SELECT` nas
+ * colunas devolvidas, e `kamba_app` tem só `INSERT` aqui — é o que mantém o `id`
+ * sequencial fora do alcance de um papel sujeito a RLS (um tenant mediria pela
+ * sequência quantas falhas o vizinho teve). A contagem de linhas basta: distingue
+ * «abri» de «já estava aberta».
  */
 export const SQL_PARA_DLQ = `
   INSERT INTO platform.events_dlq
     (consumer, event_id, tipo, versao, tenant_id, envelope, erro, tentativas)
   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
   ON CONFLICT (consumer, event_id) DO NOTHING
-  RETURNING id, tipo
 `;
 
 /** As entradas abertas, por tipo: é o que a métrica `evt_dlq_open` expõe. */
