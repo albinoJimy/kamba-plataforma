@@ -98,6 +98,9 @@ CI_YAML = ".github/workflows/ci.yaml"
 MAKEFILE = "Makefile"
 GATE9 = "gate9"
 GATE9_CI = "gate9_ci"
+#: KAM-158: o varredor das contagens em prosa. Corre-se `test_scan.py` e nao a
+#: bateria inteira: o `test_cli.py` tem um caso que afirma sobre o repositorio.
+CONTAGENS = "contagens"
 
 #: As baterias de `tools/` que esta prova sabe correr: `(pacote, padrao)`.
 #: Nao levantam base de dados nenhuma — o gate 9 nao tem base de dados — e por
@@ -110,9 +113,11 @@ GATE9_CI = "gate9_ci"
 SUITES_DE_TOOLS = {
     GATE9: ("scan_secrets", "test_historia.py"),
     GATE9_CI: ("lint_arch", "test_ci_gate9.py"),
+    CONTAGENS: ("lint_contagens", "test_scan.py"),
 }
 #: O leitor de YAML (KAM-136). As duas suites leem por ele as listas de
 #: excepcoes de `ci/` e o limiar do estrato `critico`.
+CONT_SCAN = "tools/lint_contagens/scan.py"
 KYAML = "tools/kamba_yaml.py"
 #: KAM-005: a revisao do outbox e os modulos de eventos em TypeScript.
 REV4 = "db/migrations/versions/0004_outbox_e_eventos.py"
@@ -845,6 +850,29 @@ MUTACOES = [
      '    exigirSemTelefone(envelope.payload, "payload do evento");\n',
      "",
      EVENTOS),
+    # ---------------------------------------------------------------- KAM-158
+    # O varredor das contagens em prosa. Cada uma tem de ser apanhada por
+    # `tools/lint_contagens/tests/test_scan.py` (suite `contagens`).
+    #
+    # Nao ha mutacao aos tres guardas da CLI (grandeza sem ocorrencias, minimo
+    # da populacao, declaracao que nao casa nada): a bateria que os exercita e o
+    # `test_cli.py`, que afirma sobre o repositorio real, e a copia da prova nao
+    # e o repositorio. Ficam cobertos por teste de unidade, e o bloco do ticket
+    # di-lo.
+    ("KAM-158 contagens: o comparador passa a dizer sempre que bate", CONT_SCAN,
+     "        return self.escrito in self.aceitaveis",
+     "        return True", CONTAGENS),
+    ("KAM-158 contagens: a linha de controlo de versoes deixa de ser historia", CONT_SCAN,
+     "        if em_verificacao or VERSAO.match(linha):",
+     "        if em_verificacao:", CONTAGENS),
+    ("KAM-158 contagens: o numero de um identificador volta a contar", CONT_SCAN,
+     "    'tickets': re.compile(r'(?<![\\w.-])(\\d{1,4})\\s+tickets?\\b', re.I),",
+     "    'tickets': re.compile(r'(?<![\\w.])(\\d{1,4})\\s+tickets?\\b', re.I),", CONTAGENS),
+    ("KAM-158 contagens: a leitura por epic desaparece", CONT_SCAN,
+     "        epic = epic_do_ficheiro(rel)\n"
+     "        if epic and epic in fontes.por_epic:\n"
+     "            valores.append(fontes.por_epic[epic])\n",
+     "", CONTAGENS),
 ]
 
 
@@ -856,7 +884,11 @@ def _copiar(destino: Path, suite: str = "tests") -> None:
         # As baterias de `tools/` nao abrem `db/`, `libs/py-core` nem
         # `packages/core-ts`: cada mutacao do gate 9 pagava megabytes de copia
         # para nada, e sao 25 mutacoes.
-        _copiar_para_o_gate_9(destino, ignorar)
+        #
+        # Cada suite de `tools/` leva o **seu** minimo, e nao o de outra: levar
+        # a copia do gate 9 para a suite das contagens dava a linha de base
+        # vermelha, e uma mutacao «apanhada» sobre isso nao significa nada.
+        COPIA_DE_TOOLS[suite](destino, ignorar)
         return
     shutil.copytree(RAIZ / "db", destino / "db", ignore=ignorar)
     shutil.copytree(RAIZ / "libs" / "py-core", destino / "libs" / "py-core", ignore=ignorar)
@@ -920,6 +952,29 @@ def _copiar_para_o_gate_9(destino: Path, ignorar) -> None:
         RAIZ / ".github" / "workflows" / "ci.yaml",
         destino / ".github" / "workflows" / "ci.yaml",
     )
+
+
+def _copiar_para_as_contagens(destino: Path, ignorar) -> None:
+    """O que as mutacoes do `lint_contagens` precisam, e so isso (KAM-158).
+
+    A bateria `test_scan.py` constroi as suas proprias arvores de prova em
+    `TemporaryDirectory`, pelo que nao precisa do conjunto documental: leva o
+    pacote e o `tools/kamba_yaml.py`, que o `cli` importa ao ser carregado.
+    """
+    shutil.copytree(
+        RAIZ / "tools" / "lint_contagens", destino / "tools" / "lint_contagens",
+        ignore=ignorar,
+    )
+    shutil.copy(RAIZ / "tools" / "kamba_yaml.py", destino / "tools" / "kamba_yaml.py")
+
+
+#: Que copia cada suite de `tools/` leva. Uma suite nova sem entrada aqui falha
+#: a dizer que falta — em vez de correr sobre a copia de outra.
+COPIA_DE_TOOLS = {
+    GATE9: _copiar_para_o_gate_9,
+    GATE9_CI: _copiar_para_o_gate_9,
+    CONTAGENS: _copiar_para_as_contagens,
+}
 
 
 def _gate_de_tools(copia: Path, pacote: str, padrao: str) -> tuple[int, str]:

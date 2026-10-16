@@ -392,14 +392,20 @@ x11:
 	@$(PYTHON) -m log_policy x11 --fixtures $(X11_DIR)/fixtures.json --linhas-esperadas 1030 $(if $(X11_NIF),--nif-padrao '$(X11_NIF)') $(X11_DIR)/py.log $(X11_DIR)/ts.log
 	@$(PYTHON) -m log_policy x11 --fixtures $(X11_DIR)/fixtures.json $(if $(X11_NIF),--nif-padrao '$(X11_NIF)') $(X11_DIR)/py.ponte.log
 
-## ci-3: gate 3 — referencias cruzadas (KAM, ADR, D#) e caminhos de handoff
+## ci-3: gate 3 — referencias cruzadas, caminhos de handoff e contagens
 #
-# Dois passos. O `lint_refs` le identificadores (KAM, ADR, D#) em todo o
-# conjunto; o `lint_handoff` le **caminhos**, e so dentro dos blocos
-# `### Handoff para Claude Code`, onde a regra e outra: o executor corre na
-# raiz do repositorio, pelo que ali os caminhos sao relativos a raiz
-# (specs/01_Engineering_Standards_e_Handoff.md §5, KAM-145). Fora desses
-# blocos vale a convencao do KAM-128 e o `lint_handoff` nao a le.
+# Tres passos, e cada um le uma coisa diferente do mesmo conjunto:
+#
+#  1. `lint_refs` le **identificadores** (KAM, ADR, D#) em todo o conjunto.
+#  2. `lint_handoff` le **caminhos**, e so dentro dos blocos
+#     `### Handoff para Claude Code`, onde a regra e outra: o executor corre
+#     na raiz do repositorio, pelo que ali os caminhos sao relativos a raiz
+#     (specs/01_Engineering_Standards_e_Handoff.md §5, KAM-145). Fora desses
+#     blocos vale a convencao do KAM-128 e o `lint_handoff` nao a le.
+#  3. `lint_contagens` le **contagens em prosa** («N tickets», «N ADRs»,
+#     «N epics») e confronta cada uma com a fonte que a conta (KAM-158).
+#     Nao le zonas de historia — uma linha de «Controlo de versoes» e uma
+#     seccao de verificacao registam o que era verdade **entao**.
 #
 # Entra aqui, e nao como gate novo, de proposito: um gate novo acrescentaria
 # um contexto exigido ao ruleset de `main` — alteracao de regra de bloqueio,
@@ -409,6 +415,7 @@ ci-3:
 	@echo "==> gate 3: referencias cruzadas"
 	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from lint_refs.cli import main; sys.exit(main(['--root', '$(ROOT)', 'check']))"
 	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from lint_handoff.cli import main; sys.exit(main(['--root', '$(ROOT)', 'check']))"
+	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from lint_contagens.cli import main; sys.exit(main(['--root', '$(ROOT)', 'check']))"
 
 # --- Gate 3b: nomes canonicos (KAM-111) --------------------------------------
 #
