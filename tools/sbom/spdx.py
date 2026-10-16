@@ -46,6 +46,11 @@ class Politica:
     permitidas: frozenset[str]
     negadas: tuple[tuple[str, str], ...]
     pendentes: tuple[tuple[str, str, str], ...]
+    #: Nomes que a correspondencia parcial de `pendentes` apanharia e **nao**
+    #: sao o componente travado: bibliotecas de cliente, utilitarios, analisadores
+    #: de protocolo. Cada um com a razao, em `ci/licenses.yaml`. Vazio por
+    #: omissao, para que uma politica construida a mao continue a valer.
+    excepcoes_de_nome: frozenset[str] = dataclasses.field(default_factory=frozenset)
 
     def classificar_termo(self, licenca: str) -> tuple[str, str]:
         """Classifica **um** identificador SPDX. Devolve (veredicto, razao)."""
@@ -150,6 +155,13 @@ def classificar_pacote(
     allowlist, e aprova-lo por via da licenca fecharia a D12 pela porta de tras.
     """
     minusculas = nome.strip().lower()
+    # As excepcoes vem **primeiro**: sao nomes exactos, e a correspondencia de
+    # `pendentes` e parcial. Sem isto, o `redis-parser` — MIT, analisador do
+    # protocolo RESP e dependencia do cliente `ioredis` — era travado pela D12,
+    # que e sobre a licenca do **servidor** (medido ao entrar o publicador do
+    # KAM-005). A lista esta em `ci/licenses.yaml`, nome a nome e com a razao.
+    if minusculas in politica.excepcoes_de_nome:
+        return classificar(expressao, politica)
     for pendente, decisao, razao in politica.pendentes:
         if pendente in minusculas:
             return PENDENTE, f"{decisao} esta aberta: {razao}"

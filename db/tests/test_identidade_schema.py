@@ -26,6 +26,7 @@ from tests.base import (
     PRIVILEGIO_INSUFICIENTE,
     TABELAS,
     TABELAS_0001,
+    TABELAS_ATE_0003,
     VIOLACAO_DE_CHECK,
     VIOLACAO_DE_FK,
     VIOLACAO_DE_NOT_NULL,
@@ -908,7 +909,13 @@ class TestDowngradeDa0003(unittest.TestCase):
         self.assertEqual(self.donos(), donos, "o passo falhou e anulou os donos")
         self.assertEqual(_estado_da_0003(self.cursor)["rls_de_tenants"], (True, True))
         # O DDL e transaccional: a RLS que o passo ja tinha desligado voltou.
-        self.assertEqual(_estado_da_0003(self.cursor)["tabelas"], TABELAS)
+        #
+        # `TABELAS_ATE_0003` e nao `TABELAS`: o Alembic corre **uma transaccao
+        # por revisao** (`transaction_per_migration=True`), pelo que um
+        # `downgrade 0002` a partir da cabeca desce a 0004 — que confirma — antes
+        # de tentar a 0003. O que esta recusa protege e a identidade, e essa fica
+        # inteira; e o que as linhas abaixo verificam.
+        self.assertEqual(_estado_da_0003(self.cursor)["tabelas"], TABELAS_ATE_0003)
         self.assertEqual(len(_estado_da_0003(self.cursor)["politicas"]), 3)
         self.assertEqual({tabela: self.linhas(tabela) for tabela in contagens}, antes)
 
@@ -989,7 +996,8 @@ class TestDowngradeDa0003(unittest.TestCase):
 
         self.assertNotEqual(resultado.returncode, 0)
         self.assertEqual(self.copia.read_text(encoding="utf-8"), "copia anterior\n")
-        self.assertEqual(_estado_da_0003(self.cursor)["tabelas"], TABELAS)
+        # Ver a nota em `test_com_linhas_e_sem_copia_...`: a 0004 ja desceu.
+        self.assertEqual(_estado_da_0003(self.cursor)["tabelas"], TABELAS_ATE_0003)
 
     def test_o_upgrade_preserva_os_tenants_e_trava_num_dono_orfao(self) -> None:
         """Aditiva para quem nao tem dono; fechada para um dono que nao aponta para nada.

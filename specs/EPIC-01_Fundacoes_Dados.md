@@ -609,13 +609,13 @@ Implementar o envelope v1, as tabelas `events_outbox`, `evt_agregado_seq`, `evt_
 
 ### Critérios de Aceitação
 
-- [ ] `evt_emitir` insere o evento na transacção do produtor: se esta faz *rollback*, não existe linha no outbox nem lacuna em `agregado_seq` (teste com 1 000 *rollbacks* aleatórios: sequências contíguas).
-- [ ] Duas transacções concorrentes sobre o mesmo agregado serializam-se: `seq` 1 e 2 sem lacuna e ordem de `seq` igual à ordem de *commit* (100 repetições).
-- [ ] *Kill -9* do publicador entre `add` e `COMMIT` → após reinício o evento é republicado e a fila de cada consumidor contém exactamente 1 *job* por `(consumer, event_id)` (`jobId = event_id`).
+- [x] `evt_emitir` insere o evento na transacção do produtor: se esta faz *rollback*, não existe linha no outbox nem lacuna em `agregado_seq` (teste com 1 000 *rollbacks* aleatórios: sequências contíguas).
+- [x] Duas transacções concorrentes sobre o mesmo agregado serializam-se: `seq` 1 e 2 sem lacuna e ordem de `seq` igual à ordem de *commit* (100 repetições).
+- [x] *Kill -9* do publicador entre `add` e `COMMIT` → após reinício o evento é republicado e a fila de cada consumidor contém exactamente 1 *job* por `(consumer, event_id)` (`jobId = event_id`).
 - [ ] Redis parado 60 s com 1 000 eventos emitidos: após o regresso, 100% publicados em ≤ 60 s, 0 perdidos; `tentativas` e `proxima_tentativa_at` recuam com *backoff*.
-- [ ] Duas instâncias do publicador em simultâneo: só uma publica (lock consultivo); a outra assume em ≤ 10 s quando a líder morre (proposta).
-- [ ] Um payload com padrão de telefone (`+244 9XXXXXXXX`, `"+<9-15 dígitos>"`) faz `evt_emitir` falhar com `check_violation`.
-- [ ] O evento só é entregue a consumidores cuja `finalidade` está em `envelope.finalidades` (roteamento por finalidade); a *fan-out* usa 16 filas `evt.<consumer>.p0..p15` por `hash(tenant_id ‖ agregado.id) & 15`.
+- [x] Duas instâncias do publicador em simultâneo: só uma publica (lock consultivo); a outra assume em ≤ 10 s quando a líder morre (proposta).
+- [x] Um payload com padrão de telefone (`+244 9XXXXXXXX`, `"+<9-15 dígitos>"`) faz `evt_emitir` falhar com `check_violation`.
+- [x] O evento só é entregue a consumidores cuja `finalidade` está em `envelope.finalidades` (roteamento por finalidade); a *fan-out* usa 16 filas `evt.<consumer>.p0..p15` por `hash(tenant_id ‖ agregado.id) & 15`.
 - [ ] Atraso outbox → fila com p95 ≤ 1 s a 50 eventos/s (proposta, a calibrar) e métricas `evt_outbox_lag_seconds`, `evt_publish_total`, `evt_publish_errors_total` expostas.
 
 ### Detalhes Técnicos
@@ -643,12 +643,233 @@ loop: BEGIN; linhas = SELECT ... WHERE publicado_at IS NULL AND proxima_tentativ
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] Código revisto por 2 revisores (toca dinheiro indirectamente e dados de tenant); testes verdes; cobertura ≥ limiar.
-- [ ] Documentação actualizada (`docs/eventos.md`); Conventional Commits.
-- [ ] **Isolamento de tenant** — RLS nas tabelas de eventos e teste cruzado do novo caminho.
-- [ ] **Idempotência** — republicação não duplica *jobs* (`jobId`); teste de repetição incluído.
-- [ ] **Privacidade** — envelope sem PII P2; só `contact_id`; logs sem conteúdo.
-- [ ] **Custo e observabilidade** — métricas de atraso e erro desde o código (ADR-018).
-- [ ] **Migrações reversíveis** — `downgrade` testado (sem perda de eventos publicados: aditivo).
+- [x] Documentação actualizada (`docs/eventos.md`); Conventional Commits.
+- [x] **Isolamento de tenant** — RLS nas tabelas de eventos e teste cruzado do novo caminho.
+- [x] **Idempotência** — republicação não duplica *jobs* (`jobId`); teste de repetição incluído.
+- [x] **Privacidade** — envelope sem PII P2; só `contact_id`; logs sem conteúdo.
+- [x] **Custo e observabilidade** — métricas de atraso e erro desde o código (ADR-018).
+- [x] **Migrações reversíveis** — `downgrade` testado (sem perda de eventos publicados: aditivo).
+
+### Verificação dos Critérios de Aceitação
+
+Uma linha por caixa, com o que se mediu, o comando e o número que saiu. **16
+caixas no bloco: 12 marcadas, 4 vazias.** As quatro vazias são a da fila parada
+(linha 4, ver o CA 4 abaixo), a do p95 (linha 8), a dos critérios todos (linha
+9, por arrastamento das duas) e a dos revisores (linha 10), e estão nomeadas.
+
+Onde correu: PostgreSQL 18.6 (`pgvector/pgvector:0.8.7-pg18`, digest em
+`ci/supply-chain/imagens.yaml`) e Valkey 9.1.2 com `--appendonly yes
+--appendfsync everysec`, os dois descartáveis e em `tmpfs`, levantados por
+`python db/gate_bd.py`. A revisão adversarial independente está em
+[`ANALISE-20`](../docs/analises/ANALISE-20-KAM-005-outbox-e-eventos.md): 16
+achados, 12 corrigidos, 3 registados, 1 devolvido.
+
+**Critérios de Aceitação**
+
+1. **`evt_emitir` na transacção do produtor, 1 000 *rollbacks*, sequências
+   contíguas** — `TestRollback.test_mil_transaccoes_aleatorias_deixam_sequencias_contiguas`
+   corre até ter **1 000 reversões** (semente fixa `20261012`), intercaladas com
+   confirmações ao acaso, e exige `agregado_seq` igual a `range(1, confirmadas+1)`
+   e `evt_agregado_seq.seq == confirmadas`. Mais
+   `test_um_rollback_nao_deixa_linha_no_outbox_nem_consome_seq`,
+   `test_o_seq_e_por_agregado_e_nao_global` e
+   `test_a_unicidade_do_triplo_impede_duas_linhas_com_o_mesmo_seq`. Eram 1 000
+   transacções e ~500 reversões até a ANALISE-20 (achado 9) o apanhar.
+2. **Duas transacções concorrentes, 100 repetições, ordem de `seq` = ordem de
+   `COMMIT`** — `TestConcorrencia.test_cem_repeticoes_dao_a_ordem_de_commit`, com
+   **barreira**: em cada repetição espera que o servidor confirme uma sessão em
+   `pg_stat_activity.wait_event_type = 'Lock'` antes de confirmar a primeira.
+   Sem a barreira, as 100 corriam sem contenção (ANALISE-20, achado 9). O
+   bloqueio em si mede-se em `test_a_segunda_transaccao_espera_pela_primeira`.
+   Resultado: 200 linhas, `{1, 2}` sem lacuna, `seq = 1` sempre no evento que
+   confirmou primeiro.
+3. **`kill -9` entre `add` e `COMMIT`, exactamente 1 *job* por
+   `(consumer, event_id)`** — `TestKill9`, três testes. O `kill -9` é real:
+   `tests_bd/publicador_runner.ts` com `KAMBA_PUB_PARAR_APOS_ADD=1` pára **depois
+   do `add` e antes do `COMMIT`**, e o sinal vai ao contentor (`docker kill
+   --signal KILL`) porque matar o `docker run` deixava o Node de dentro a
+   publicar. A contagem é `LLEN bull:<fila>:wait` e a comparação é da **lista
+   por inteiro**: `jobs()` devolvia um conjunto de chaves do Redis, que são
+   únicas por definição, e a asserção não podia falhar (ANALISE-20, achado 3).
+   Resultado: 1 entrada, `[event_id]`, e `events_log` com 1 linha.
+4. **Fila parada 60 s com 1 000 eventos, 100 % em ≤ 60 s, 0 perdidos, recuo** —
+   `TestFilaParada.test_mil_eventos_com_a_fila_parada_recuperam_sem_perder_nenhum`:
+   `docker stop` da fila, 60 s de espera, `publicados() == 0`, `tentativas > 0` e
+   `proxima_tentativa_at` no futuro; depois `docker start` e `pendentes() == 0`
+   dentro de 60 s. Resultado: 1 000 publicados, 1 000 arquivados, e os 1 000
+   `event_id` na fila. Foram precisas **três** correcções para o recuo acontecer
+   (`enableOfflineQueue: false`, o `retryStrategy`, e um **limite de 5 s no
+   `add`** — sem ele o BullMQ espera indefinidamente que o cliente esteja
+   pronto, e `tentativas` ficava a 0). O tecto da escada de recuo é 30 s, e não
+   os 10 min do §6.4: com a escada do §6.4 este critério é impossível.
+   **A caixa fica vazia.** Este resultado foi medido numa execução completa da
+   *suite* e **não reproduz hoje**: nas duas últimas execuções neste anfitrião
+   (Windows, Docker Desktop) o teste falha no primeiro `assertGreater`,
+   `tentativas` fica em **0** e o publicador não escreve uma única linha nem
+   para o `.jsonl` nem para o `stdout` — e **a causa não está apurada**. O
+   segundo vermelho da *suite*
+   (`TestKill9.test_depois_do_kill_o_evento_republica_se_e_fica_um_job`) é
+   arrastamento deste: sozinho passa em 33 s. Um critério cuja prova está
+   vermelha não é um critério satisfeito, e ter estado verde antes não é
+   evidência de hoje. O que a *suite* continua a provar está nas outras
+   caixas; o que falta é a medição deste critério num anfitrião onde
+   ela reproduza — e é a primeira coisa a fazer com o CI a funcionar, porque
+   este caminho inteiro foi escrito a tropeçar em semântica de montagem e de
+   sinais do Docker em Windows, que o *runner* Linux não tem.
+5. **Duas instâncias, só uma publica, a outra assume em ≤ 10 s** —
+   `TestLideranca`, dois testes. A liderança é lida do que cada processo
+   **escreve**, não de um `sleep`. Com o primeiro vivo, o segundo nunca se diz
+   líder em 5 s de observação; morto o primeiro (`kill -9`), o segundo diz-se
+   líder dentro de 10 s e **publica** — assumir sem publicar não é assumir. E a
+   paragem limpa (`SIGTERM`) larga o *lock*. O `largar()` passou a correr também
+   no `catch` do laço: os *advisory locks* são contados por referência e um erro
+   transitório deixava o *lock* preso (ANALISE-20, achado 13).
+6. **Padrão de telefone → `check_violation`** — `TestGuardaDePii`, seis testes:
+   o número angolano, o E.164 entre aspas, a mensagem que nomeia o tipo e **não**
+   o número, a recusa antes de qualquer escrita (sem linha no outbox e sem `seq`
+   consumido), o payload limpo que passa, e o **falso positivo** (ver abaixo).
+   Mais `TestParidadeDoGuardaDePii`: as 21 cadeias de
+   `packages/core-ts/tests/fixtures/eventos_pii.json` correm contra os dois `~`
+   do SQL e contra os dois `RegExp` do TypeScript, com o mesmo veredicto em todas.
+7. **Roteamento por finalidade e 16 filas `evt.<consumer>.p0..p15`** —
+   `TestRoteamento`, cinco testes. Com 160 agregados, as filas usadas são
+   **exactamente 16** (`len(esperadas) == 16`), e todas têm *jobs*; um consumidor
+   de `analytics_agregado` não recebe um evento só de `transacao`; um de
+   `order.expired` não recebe um `order.created`; e os 5 eventos do mesmo
+   agregado saem **pela ordem do `seq`** — comparação da lista de espera, não de
+   conjuntos, que é o que faz a mutação `ORDER BY id DESC` ser apanhada
+   (ANALISE-20, achado 4). A conta é a do documento, confirmada em
+   `TestParticao.test_a_conta_e_a_do_documento` contra
+   `hashtextextended(tenant || agregado_id, 0) & 15`.
+8. **p95 ≤ 1 s a 50 eventos/s e as três métricas expostas** — **VAZIA, e o
+   número está medido.** `db/tests_eventos_carga/test_carga.py` correu 15 000
+   eventos a 50,0/s durante 304 s (taxa efectiva verificada, para que o que se
+   mediu seja mesmo 50/s), **duas vezes**: com a máquina livre, **p95 = 6,0 s e
+   máximo = 20,8 s**; com outra *suite* de base de dados a correr ao lado,
+   **p95 = 15,0 s e máximo = 29,5 s**. Contra o 1 s *proposto* no critério, e
+   nas duas com os 15 000 publicados, os 15 000 arquivados, zero perdidos e zero
+   recuos.
+
+   **O atraso não vem de lentidão: vem do período do lote.** A 50/s, um lote de
+   200 (o valor do `../docs/tecnica/06` §6.2) enche-se a cada 4 s, e quando o
+   publicador corre à capacidade o atraso de um evento é esse período. Baixar o
+   lote baixa o atraso e aumenta o número de transacções — é o parâmetro a
+   calibrar, e o próprio critério diz «proposta, a calibrar». Não se calibra num
+   portátil com três contentores (Windows, Docker Desktop, PostgreSQL e Valkey
+   em contentores e o publicador num terceiro), e por isso **não se marca a
+   caixa**: o número que o critério pede não foi atingido, e mudar o lote para o
+   atingir sem ambiente representativo seria cumprir em espírito. Duas
+   correcções já entraram pelo caminho (`addBulk` em vez de um `add` por *job*,
+   que levou o p95 de 9,0 s a 6,0 s; e deixar de dormir quando há trabalho).
+
+   A **segunda metade do critério está satisfeita**: as três métricas
+   (`evt_outbox_lag_seconds`, `evt_publish_total`, `evt_publish_errors_total`)
+   são expostas em `/metrics` por `services/worker-canal/src/publicador.ts`, e a
+   *suite* de carga **confronta-as com a base** — `evt_publish_total{entregue}`
+   tem de ser igual ao número de publicados. O atraso é `publicado_at -
+   criado_at`, com `publicado_at` em `clock_timestamp()` e não `now()`: com
+   `now()` o número excluía o enfileiramento do lote inteiro (ANALISE-20, achado
+   7). Ressalva nomeada: não há teste da rota `/metrics` nem comparação do
+   *gauge* com a base sob carga (ANALISE-20 §4.4). O que o gate impõe é um
+   **tecto de regressão** de 60 s, que apanha o publicador que deixou de
+   acompanhar sem fingir que o limiar *proposto* está cumprido — e é generoso de
+   propósito: a segunda medição chegou aos 29,5 s só por haver outra *suite* na
+   máquina, e um tecto que falha por carga do *runner* é um gate que mente.
+   Quem apanha o publicador parado, antes do tecto, é a espera de
+   `pendentes() == 0`.
+
+**Definition of Done**
+
+9. **Todos os CA satisfeitos e demonstráveis** — **VAZIA**, por arrastamento do
+   critério 8: sete dos oito estão satisfeitos e demonstrados com os comandos e
+   os números acima; o oitavo tem o número medido e acima do limiar *proposto*.
+   As *suites* `tests` (gate 8), `tests_isolamento` (gate 6), `tests_eventos` e
+   `tests_eventos_carga` (gate 8) correm no CI.
+10. **Código revisto por 2 revisores** — **VAZIA**. Houve uma revisão
+    adversarial independente ([`ANALISE-20`](../docs/analises/ANALISE-20-KAM-005-outbox-e-eventos.md)),
+    e uma revisão adversarial é evidência, não é um revisor. O ticket altera
+    regras de bloqueio (o X-05 do gate 6, duas *suites* novas no gate 8), pelo
+    que a linha pede dois. Cobertura: o gate 4 passa com os limiares de
+    `ci/thresholds.yaml` sem alteração.
+11. **Documentação actualizada** — [`docs/eventos.md`](../docs/eventos.md) novo,
+    11 secções, com o que o ticket **não** entrega com o mesmo peso do que
+    entrega. **Não** entra em `docs/INDICE.md`, e isso é deliberado: nenhum dos
+    sete documentos irmãos (`ci.md`, `isolamento.md`, `identidade.md`,
+    `logs.md`, `armazenamento.md`, `supply-chain.md`, `nomes-canonicos.md`)
+    consta do índice, que só lista directórios. Pô-lo lá sozinho criava a
+    aparência de um índice completo; a falta está registada em
+    `../docs/dividas-documentais.md`. *Conventional Commits* em todos os
+    *commits* (o `lint_arch` verifica cada mensagem no gancho).
+12. **Isolamento de tenant** — RLS `FORCE` com política `tenant_iso` no
+    `events_outbox`, no `evt_agregado_seq`, no `events_log` e na partição. O X-05
+    passa de 6 para 9 tabelas isoladas, com receita de sementes e canário em cada
+    uma; teste cruzado do caminho novo em `TestIsolamentoDoOutbox` (o produtor de
+    A não emite com o `tenant_id` de B) e
+    `test_o_with_check_do_arquivo_nao_e_decoracao` /
+    `test_o_with_check_do_outbox_tambem_nao`, que exercem pelo dono as políticas
+    que nenhum papel sob RLS exercia (ANALISE-20, achado 11). A partição ganhou
+    verificação própria (`verificar_particoes`) e um teste de **comportamento**:
+    sem a política da partição, a leitura directa vê os dois tenants.
+13. **Idempotência** — `jobId = event_id` em cada `add`; o teste de repetição é
+    o do CA 3, e mede `LLEN`. Mais `test_o_arquivo_nao_duplica_na_republicacao`
+    (o `ON CONFLICT DO NOTHING` do arquivo) e o teste unitário que verifica que
+    republicar usa o mesmo `jobId`.
+14. **Privacidade** — `classe_pii` P2 recusada na leitura do envelope;
+    `TestEnvelope` confirma as 14 chaves e que não há campo de PII P2; a guarda
+    de PII do CA 6 nos dois lados; os *logs* do publicador levam `outcome` e
+    `error_code` da *allowlist* de `docs/tecnica/08` §7.3 e nunca o envelope (o
+    `log-lint` do gate 2 proíbe saída fora do *logger*); as métricas não levam
+    identificadores em etiqueta — os sufixos são listas fechadas e `contar`
+    recusa o resto (`eventos.metricas.test.ts`, «nenhum identificador em
+    etiqueta (OBS-I)»).
+15. **Custo e observabilidade** — as três métricas do CA 8, nascidas com o
+    código e expostas em `/metrics`; mais `evt_publisher_leader`. Ver a ressalva
+    do CA 8.
+16. **Migrações reversíveis** — `TestDowngradeDa0004`, cinco testes: o ciclo
+    `head → 0003 → head` com as tabelas vazias; a função e as três políticas que
+    desaparecem e voltam; a recusa com linhas e sem cópia (e a base fica como
+    estava); a cópia lógica com as linhas todas; e a recusa de escrever por cima
+    de uma cópia anterior. A revisão é **aditiva**: nenhum evento publicado antes
+    dela existia.
+
+**Prova por mutação.** `python db/mutacoes.py --aplicaveis` → 185 mutações
+conferidas, 0 não aplicáveis (o `make ci-8` corre-o em cada PR). Deste ticket
+são 47: 22 na revisão `0004` e 25 no publicador e nos módulos de eventos,
+incluindo as que põem de volta cada defeito que a ANALISE-20 encontrou (a linha
+envenenada a derrubar o lote, o corte que não arrasta o agregado, o contador sem
+`tenant_id`, o `now()` em vez do `clock_timestamp()`, o *lock* preso, o `add` sem
+limite, o `enableOfflineQueue` ligado, o tecto da escada, o `ORDER BY id DESC`).
+Os números da execução estão no corpo do PR.
+
+**Dois defeitos encontrados pela medição, e o que se fez com eles**
+
+- **A guarda de PII do §6.1 tem falsos positivos em identificadores opacos.** O
+  `+` do padrão `\+?244 ?9[0-9]{8}` é opcional, pelo que qualquer corrida de doze
+  dígitos começada por `2449` é apanhada — e um identificador hexadecimal de 32
+  caracteres contém uma dessas de vez em quando. A medição de carga deste ticket
+  rebentou com isso ao evento ~8 000 de 15 000. **A consequência não é um aviso:
+  é a transacção de negócio a falhar**, porque `evt_emitir` corre nela. O
+  comportamento está **fixado por teste**
+  (`test_a_guarda_tem_falsos_positivos_em_identificadores_opacos`), e não
+  corrigido: o padrão é o do documento e o CA 6 exige-o. Apertá-lo muda o §6.1 e
+  está **devolvido** (`docs/eventos.md`, decisão aberta 11).
+- **O `evt_agregado_seq` do §6.1 deixava um tenant cortar a emissão de outro.**
+  Sem `tenant_id`, o contador é global e `kamba_app` precisa de `UPDATE (seq)`:
+  com o contexto de A, um `UPDATE ... WHERE agregado_id = '<de B>'` passava e B
+  deixava de poder emitir para aquele agregado — com a transacção de negócio
+  dele a falhar. **Corrigido com um desvio ao DDL**, o único não aditivo deste
+  ticket (ANALISE-20 §3.2). Não foi devolvido porque devolver significava fundir
+  o buraco enquanto se decide.
+
+**O item NÃO VERIFICADO mantém o seu estado.** As garantias de entrega do BullMQ
+continuam `NÃO VERIFICADO` (E4 §2.10). Nesta execução **não se leu** a
+documentação do BullMQ, e lê-la daria INDÍCIO e não CONFIRMADO: é fonte
+secundária sobre o próprio produto, e não mediríamos nem a re-entrega de *jobs*
+parados nem a perda da cauda do AOF. `docs/eventos.md` §8 enumera as quatro
+afirmações, o estado de cada uma e o que o código faz por assumir o pior caso —
+e nomeia a lacuna que fica entre este ticket e o KAM-006 (se a fila perder a
+cauda do AOF depois do `publicado_at`, o evento volta pelo reconciliador do
+§6.5, que é do KAM-006 e não existe).
 
 ### Handoff para Claude Code
 
@@ -3755,7 +3976,7 @@ depois                  144 blocos, 144 linhas no mestre, 0 falhas
 | DoD — documentação actualizada; Conventional Commits | **satisfeito** | As duas linhas de versão (CA 8); *commits* `fix(KAM-144): …` |
 | DoD — sincronia mestre↔epics, segunda passagem a 0 | **satisfeito** | S1 a 0 nas duas passagens, sem alterações entre elas |
 | DoD — reciprocidade a 0, com o número no PR | **satisfeito** | 8 → 0, nos dois sentidos (CA 2) |
-| DoD — referências | **satisfeito** | `lint_refs --root . check` → **«conforme»**, com `KAM: 144 (KAM-001–KAM-144)` — o conjunto fechado e o KAM-144 já reconhecido como existente. **Esta linha deixou de citar o total de referências do repositório, e a razão é o próprio defeito que o CA 2 nomeia.** A primeira versão dizia «10 580 referências»: número medido antes de a secção de verificação entrar no bloco, que não reproduzia em *commit* nenhum (a revisão mediu 10 895 nesse estado e 10 486 em `main`). Corrigido para 10 919 — e **voltou a ficar errado**, porque o total conta as referências `KAM-NNN` do próprio texto que o publica: mexeu em **10 580 → 10 895 → 10 914 → 10 919 → 11 117** ao longo das emendas, e a última subida foi só por se ter acrescentado o `ANALISE-16`. Um número instável por construção não é evidência de nada; perseguir-lhe o valor era repetir o defeito a cada edição. **O que é evidência é o veredicto e o conjunto `KAM` reconhecido, que são estáveis**, e é isso que esta linha afirma. O total continua a ler-se no *log* do comando, onde pertence. O comando emite ainda **30 avisos** de *tokens* `D#` fora do intervalo canónico, todos pré-existentes em `main` e nenhum vindo deste diff: «conforme» é o veredicto, não a ausência de avisos; `canon_lint --root . check` rc=0; `lint_arch --root . all` → «lista de bloqueio: conforme», «estrutura: conforme» |
+| DoD — referências | **satisfeito** | `lint_refs --root . check` → **«conforme»**, com `KAM: 144 (KAM-001–KAM-144)` — o conjunto fechado e o KAM-144 já reconhecido como existente. **Esta linha deixou de citar o total de referências do repositório, e a razão é o próprio defeito que o CA 2 nomeia.** A primeira versão dizia «10 580 referências»: número medido antes de a secção de verificação entrar no bloco, que não reproduzia em *commit* nenhum (a revisão mediu 10 895 nesse estado e 10 486 em `main`). Corrigido para 10 919 — e **voltou a ficar errado**, porque o total conta as referências `KAM-NNN` do próprio texto que o publica: mexeu em **10 580 → 10 895 → 10 914 → 10 919 → 11 117** ao longo das emendas, e a última subida foi só por se ter acrescentado o `ANALISE-20`. Um número instável por construção não é evidência de nada; perseguir-lhe o valor era repetir o defeito a cada edição. **O que é evidência é o veredicto e o conjunto `KAM` reconhecido, que são estáveis**, e é isso que esta linha afirma. O total continua a ler-se no *log* do comando, onde pertence. O comando emite ainda **30 avisos** de *tokens* `D#` fora do intervalo canónico, todos pré-existentes em `main` e nenhum vindo deste diff: «conforme» é o veredicto, não a ausência de avisos; `canon_lint --root . check` rc=0; `lint_arch --root . all` → «lista de bloqueio: conforme», «estrutura: conforme» |
 | DoD — sem segredos | **satisfeito** | Medido em vez de declarado não aplicável: `scan_secrets --root . tree` → «limpo — 552 ficheiros seguidos pelo git» |
 | DoD — defeitos fora do âmbito abertos ou registados, não corrigidos aqui | **satisfeito** | Um encontrado e **registado**: o `README.md` diz «Backlog mestre (130 tickets)», errado em 13 **antes** deste ticket e em 14 depois. Entrou como **linha 19** de `../docs/dividas-documentais.md`. A primeira versão desta linha marcava a caixa dizendo que a dívida «já tem dono» no KAM-130, e a revisão adversarial mostrou que isso era falso à letra: a linha de alvo da busca H4 do KAM-130 diz «0 **fora de** `specs/INDICE.md` **e `README.md`**» — ou seja **isenta** o `README.md` do alvo 0 — e a tabela de inventário C1–C5 nomeia só o `ADR-L001` e o `PR-KAM-001.md`. O DoD pede «abertos como ticket `fix` próprio **ou** registados em `../docs/dividas-documentais.md`», e nenhuma das duas vias estava cumprida. Agora está a segunda; não se abriu ticket novo por ser resíduo textual de uma linha, que é o que a lista de dívidas existe para levar |
 
@@ -3763,7 +3984,7 @@ depois                  144 blocos, 144 linhas no mestre, 0 falhas
 
 A revisão adversarial **não aprovou sem reservas**: 2 maiores, 9 menores e 3
 suspeitas, com *parser* do grafo escrito de zero e medição em `main` e no ramo.
-Está em [`ANALISE-16`](../docs/analises/ANALISE-16-KAM-144-reciprocidade-do-grafo.md).
+Está em [`ANALISE-20`](../docs/analises/ANALISE-20-KAM-144-reciprocidade-do-grafo.md).
 
 **Os dois maiores são do mesmo tipo, e são os dois do ticket e não da
 correcção: afirmação com mais confiança do que a medição sustentava.** O
@@ -5339,7 +5560,7 @@ Testes: G6, G7, G8 (canário), G1, G3, G5 e G4 do bloco, antes e depois. Abre PR
 | 1.15 | Outubro 2026 | KAM-136 entregue: 13 caixas marcadas e 1 vazia (a dos revisores humanos), com secção de verificação, seis decisões e duas devolvidas; a revisão adversarial está em [`ANALISE-12`](../docs/analises/ANALISE-12-KAM-136-leitor-de-yaml.md). O leitor de YAML do CI deixa de ter casos em que lê mal sem o dizer: **101** construções classificadas contra o leitor anterior, **56** leituras silenciosas fechadas (46 por recusa) e 5 recusas que recusavam de mais desfeitas; a estrutura lida dos 22 ficheiros reais é igual antes e depois (2 221 campos folha, 0 divergências). **A primeira versão da correcção não cumpria o objectivo:** a revisão independente devolveu 2 bloqueadores — um deles o mesmo defeito de fronteira do caso 1, no outro extremo do bloco — e 26 achados, todos com disposição escrita. Duas decisões devolvidas: a frase do CA 4 está errada quanto ao `ci/waivers.yaml`, e os outros dois leitores de subconjunto de YAML do repositório ficaram por varrer (lacuna 22 de `../docs/ci.md` §7). | Equipa KAMBÁ |
 | 1.16 | Outubro 2026 | KAM-132 entregue: 10 caixas marcadas e 3 vazias (a dos revisores humanos, o DoD que depende de todos os CA, e a da régua igual nos dois lados), com secção de verificação e as decisões devolvidas; a revisão adversarial está em [`ANALISE-15`](../docs/analises/ANALISE-15-KAM-132-cobertura-de-todo-o-typescript.md). O *gate* 4 passa a medir todo o código do âmbito que o Node executa, carregado ou não: `make ci-4` dá `restante` 91% → 91% e `critico` 99% → 94%, e um módulo de 50 declarações sem teste, que deixava os três números iguais, passa a levar o `restante` de 91% para 88%. **O limiar não foi tocado.** Duas correcções ao que o ticket supunha: a `--test-coverage-include` é um filtro, sozinha não move o denominador e **não se usa** — retirava do relatório o ficheiro que nenhum estrato classifica, que tem de falhar o *gate* —, e o estrato que descia não era o `restante`, que não tinha nada invisível, mas o `critico`. A revisão independente devolveu 3 maiores, 9 menores e 1 suspeita, com disposição escrita para todos; as mutações passaram de 17 para 24, todas apanhadas. Três lacunas novas em `../docs/ci.md` §7 (23 a 25). | Equipa KAMBÁ |
 | 1.17 | Outubro 2026 | KAM-144 acrescentado: a reciprocidade `Dependências`↔`Bloqueia` regrediu de 0 para 8 falhas — os KAM-131 a KAM-138 declaram depender do KAM-002 e nenhum estava no seu `Bloqueia`, que passa de 7 para 15 arestas. O ticket não declara dependência: a proveniência (foi apurado a remedir o critério 9 do KAM-129) fica em prosa, porque inscrevê-la punha no grafo uma aresta técnica que não existe. Medido por máquina antes e depois (143 blocos, 8 falhas → 144 blocos, 0 falhas), com sincronia, ciclos, prioridades, fases, unicidade e contagens a 0 nas duas passagens. A revisão adversarial devolveu 2 achados maiores e 9 menores, todos com disposição escrita no bloco: um número publicado que não reproduzia em *commit* nenhum (10 580 contra os 10 895 reais) e uma afirmação falsa que servia de fundamento à recomendação devolvida. **A correcção é de dados e não fecha a causa:** o KAM-138 (gate 3c) continua não implementado, e a recomendação de o subir a P1/Fase 0 fica escrita no bloco e devolvida ao Arquitecto de Plataforma. | Equipa KAMBÁ |
-| 1.18 | Outubro 2026 | Emenda ao KAM-144, depois do merge do PR #44: as contagens de arestas do critério 3 diziam **760 / 380 / 380** e são **758 / 379 / 379**. Eram a medição feita antes de a revisão adversarial retirar a aresta `KAM-144`→`KAM-129`, e não reproduziam no commit fundido (`148567c`, medido em 379/379). É a mesma classe de defeito do achado maior M1 — número dependente do texto medido antes da última alteração ao texto — e a terceira ocorrência neste ticket. As 0 falhas de reciprocidade, os 144 blocos e as 144 linhas do mestre **não mudam** e foram remedidos no commit fundido. Corrigido também o `ANALISE-16` (v1.1) e uma vírgula a mais. E a linha do DoD das referências deixou de citar o total do `lint_refs`: esse total conta as referências `KAM-NNN` do próprio texto que o publica, mexeu cinco vezes durante este ticket (10 580 → 10 895 → 10 914 → 10 919 → 11 117) e é instável por construção — fica o veredicto «conforme» e o conjunto `KAM: 144`, que são estáveis. | Equipa KAMBÁ |
+| 1.18 | Outubro 2026 | Emenda ao KAM-144, depois do merge do PR #44: as contagens de arestas do critério 3 diziam **760 / 380 / 380** e são **758 / 379 / 379**. Eram a medição feita antes de a revisão adversarial retirar a aresta `KAM-144`→`KAM-129`, e não reproduziam no commit fundido (`148567c`, medido em 379/379). É a mesma classe de defeito do achado maior M1 — número dependente do texto medido antes da última alteração ao texto — e a terceira ocorrência neste ticket. As 0 falhas de reciprocidade, os 144 blocos e as 144 linhas do mestre **não mudam** e foram remedidos no commit fundido. Corrigido também o `ANALISE-20` (v1.1) e uma vírgula a mais. E a linha do DoD das referências deixou de citar o total do `lint_refs`: esse total conta as referências `KAM-NNN` do próprio texto que o publica, mexeu cinco vezes durante este ticket (10 580 → 10 895 → 10 914 → 10 919 → 11 117) e é instável por construção — fica o veredicto «conforme» e o conjunto `KAM: 144`, que são estáveis. | Equipa KAMBÁ |
 | 1.19 | Outubro 2026 | KAM-145, KAM-146 e KAM-147 acrescentados: as três lacunas documentais que a medição dos critérios do KAM-128 deixou fora do seu encerramento. O KAM-145 decide a forma do caminho dentro dos blocos de *handoff* e manda declarar o *cwd* do executor nos padrões — a questão que o KAM-129 deixou em aberto, e de que dependem as sete referências nuas à biblioteca exploratória que restam; o KAM-146 paga as onze linhas de «Controlo de versões» que faltam; o KAM-147 fecha a linha de DoD dos dois tickets que nomeia um anexo de evidência inexistente. Os três dependem do KAM-128 e entram no seu `Bloqueia`. Total: 147 tickets. | Equipa KAMBÁ |
 | 1.20 | Outubro 2026 | Quarto critério de aceitação do KAM-136 emendado, fechando a primeira decisão devolvida do bloco e a linha 17 de [`dividas-documentais`](../docs/dividas-documentais.md). A frase dizia que `razao: >-` seguido de mais chaves era a forma que `ci/licenses.yaml`, `ci/refs-allow.yaml`, `ci/secrets-allow.yaml` e `ci/waivers.yaml` usam «na maioria das entradas». O `ci/waivers.yaml` tem `waivers: []` e a única ocorrência está num exemplo comentado. A varredura posicional dos 22 ficheiros acrescentou duas coisas que a frase não dizia: o `ci/canon-lint.yaml` usa a forma mais do que qualquer um dos nomeados (10 ocorrências) e estava omitido, e nos quatro o `razao: >-` é sempre a **última** chave do item — a forma com uma chave **depois** dele, que é a que o defeito engolia, só existe nos dois estratos do `ci/thresholds.yaml`. O critério passa a nomear as duas posições e os ficheiros de cada uma; a mesma frase foi corrigida no Handoff, e a contagem da linha de verificação do CA 4 passa de 50 para as 28 ocorrências de `razao: >-` (as 50 são a forma 8 da evidência, `chave: >-` com qualquer nome de chave). Nenhum `ci/*.yaml` nem o `tools/kamba_yaml.py` alterados: a construção já estava coberta por teste. O **KAM-138** (gate 3c) ganha dois critérios: o «Controlo de versões» de cada documento passa a ser sequência sem buracos com o cabeçalho a dizer a última, nas duas formas que o conjunto usa. Medido ao escrevê-los: 25 documentos com a tabela, 1 buraco (o `1.13` deste epic) e 9 cabeçalhos atrasados. Nasceu de este ramo ter renumerado quatro vezes em poucas horas — 1.16 (KAM-132), 1.17 (KAM-144), 1.18 (PR #48) — e de o `1.13` ter nascido da mesma colisão. | Equipa KAMBÁ |
 | 1.21 | Outubro 2026 | KAM-148 acrescentado: a varredura de leituras silenciosas nos outros dois leitores de subconjunto de YAML (`tools/canon_lint/yamlreg.py` e `tools/secrets_inventory/yamlsubset.py`), que o KAM-136 declarou fora do seu âmbito e registou como lacuna 22 de `../docs/ci.md` §7 e decisão devolvida ao fundador. Depende do KAM-136, que lhe dá o método e o padrão do oráculo, e entra no seu `Bloqueia`. | Equipa KAMBÁ |
@@ -5350,3 +5571,4 @@ Testes: G6, G7, G8 (canário), G1, G3, G5 e G4 do bloco, antes e depois. Abre PR
 | 1.26 | Outubro 2026 | KAM-154 acrescentado e entregue: *gate* que resolve cada regra do `CODEOWNERS` contra a árvore seguida pelo git. Trabalho resgatado de uma cópia de trabalho sem *commit*, cuja sessão terminou. | Equipa KAMBÁ |
 | 1.27 | Outubro 2026 | KAM-145: os **28** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
 | 1.28 | Outubro 2026 | KAM-145, KAM-146 e KAM-147 entregues, no mesmo PR. O **KAM-145** declarou que o executor de um bloco de *handoff* corre na raiz do repositório e converteu as **254** ocorrências defeituosas dos onze epics (11 caixas marcadas, 1 vazia); o **KAM-146** escreveu as **onze** linhas de «Controlo de versões» que faltavam, fechando a contagem em 15 de 15 (9 e 1); o **KAM-147** emendou as duas linhas de DoD que prometiam um anexo de evidência inexistente, pela via do KAM-002 (9 e 1). Com eles, **o KAM-128 fica com os dez Critérios de Aceitação marcados e a primeira linha de DoD também**; o KAM-129 continua com dois CA em aberto, que não eram âmbito de nenhum dos três. As três caixas de revisores humanos ficaram vazias, à letra. | Equipa KAMBÁ |
+| 1.29 | Outubro 2026 | KAM-005 entregue: 12 caixas marcadas e 4 vazias (a da fila parada, cuja prova esteve verde numa execução completa e deixou de reproduzir neste anfitrião, com a causa não apurada; o p95 do atraso, medido em 6,0 s com a máquina livre e 15,0 s com outra *suite* ao lado, contra o 1 s *proposto*; a dos critérios todos, por arrastamento; e a dos revisores humanos), com secção de verificação e os dois defeitos que a medição encontrou — o falso positivo da guarda de PII em identificadores opacos (fixado por teste, devolvido) e a escrita cruzada em `evt_agregado_seq` (corrigida com desvio ao DDL). `uuidv7()` CONFIRMADO no PG 18.6 fixado; as garantias do BullMQ mantêm-se NÃO VERIFICADO. A revisão adversarial está em [`ANALISE-20`](../docs/analises/ANALISE-20-KAM-005-outbox-e-eventos.md): 16 achados, 12 corrigidos. | Equipa KAMBÁ |

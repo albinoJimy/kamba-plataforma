@@ -143,8 +143,28 @@ imagens:
 fontes_adicionais:
   - ficheiro: db/gate_bd.py
     constante: IMAGEM
+  # KAM-005: as suites de eventos levantam tambem a fila, porque as garantias do
+  # BullMQ estao NAO VERIFICADO (E4 §2.10) e o recuo, a republicacao e a
+  # eleicao de lider nao se provam contra uma fila em memoria. O digest esta num
+  # ficheiro proprio porque aqui so cabe **uma** constante por ficheiro, e o
+  # `db/gate_bd.py` ja esta acima com a do PostgreSQL.
+  - ficheiro: db/fila_do_gate.py
+    constante: IMAGEM
   - ficheiro: db/tests_identidade/node.py
     constante: IMAGEM_NODE
+  # KAM-005: o publicador e TypeScript e corre num contentor Node quando a
+  # maquina nao tem `node`, na rede do gate.
+  - ficheiro: db/tests_eventos/node.py
+    constante: IMAGEM_NODE
+  # KAM-005: o criterio 4 **para** a fila (`docker stop`) e volta a arranca-la.
+  # Nao referencia imagem nenhuma: age sobre um contentor que ja existe, pelo
+  # nome que `db/gate_bd.py` lhe poe (`KAMBA_GATE_FILA`). A imagem e o digest
+  # estao em `db/fila_do_gate.py`, acima.
+  - ficheiro: db/tests_eventos/test_publicador.py
+    sem_imagem: >-
+      Para e volta a arrancar o contentor da fila pelo nome, para o criterio 4
+      («Redis parado 60 s»). Nao nomeia imagem: o `docker stop` e o
+      `docker start` agem sobre um contentor existente.
   # KAM-011: a suite TypeScript do contrato de armazenamento e a prova por
   # mutacao correm num contentor Node quando a maquina nao tem `node`.
   - ficheiro: infra/storage/contrato.py

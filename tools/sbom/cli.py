@@ -59,6 +59,7 @@ def ler_politica(raiz: Path) -> tuple[Politica, frozenset[str]]:
         negadas.append((str(entrada["prefixo"]), str(entrada["razao"])))
 
     pendentes = []
+    excepcoes_de_nome: list[str] = []
     for indice, entrada in enumerate(dados.get("pendentes_de_decisao") or [], start=1):
         faltam = [c for c in ("nome", "decisao", "razao") if not entrada.get(c)]
         if faltam:
@@ -68,11 +69,23 @@ def ler_politica(raiz: Path) -> tuple[Politica, frozenset[str]]:
         pendentes.append(
             (str(entrada["nome"]).lower(), str(entrada["decisao"]), str(entrada["razao"]))
         )
+        # As excepcoes a correspondencia parcial do nome. Cada uma exige `nome` e
+        # `razao`: um nome sem razao e uma dispensa por omissao, e e isso que
+        # este ficheiro existe para nao ter.
+        for ordem, excepcao in enumerate(entrada.get("excepcoes") or [], start=1):
+            em_falta = [c for c in ("nome", "razao") if not excepcao.get(c)]
+            if em_falta:
+                raise ConfiguracaoInvalida(
+                    f"{caminho}: pendente {indice}, excepcao {ordem} sem "
+                    f"{', '.join(em_falta)}"
+                )
+            excepcoes_de_nome.append(str(excepcao["nome"]).lower())
 
     politica = Politica(
         permitidas=frozenset(str(x) for x in permitidas),
         negadas=tuple(negadas),
         pendentes=tuple(pendentes),
+        excepcoes_de_nome=frozenset(excepcoes_de_nome),
     )
     proprios = frozenset(str(x) for x in (dados.get("proprios") or []))
     return politica, proprios

@@ -57,6 +57,12 @@ import time
 from pathlib import Path
 
 DB = Path(__file__).resolve().parent
+sys.path.insert(0, str(DB))
+
+# O digest da fila vive em `db/fila_do_gate.py`, e nao aqui: o
+# `ci/supply-chain/imagens.yaml` aceita **uma** constante por ficheiro em
+# `fontes_adicionais`, e este ja la esta com a `IMAGEM` do PostgreSQL.
+import fila_do_gate  # noqa: E402
 
 #: A imagem do compose de desenvolvimento, com o digest observado e registado
 #: em `docs/evidencia/KAM-001-node.md` §3 (PostgreSQL 18.6, pgvector 0.8.7).
@@ -67,6 +73,7 @@ IMAGEM = (
     "pgvector/pgvector:0.8.7-pg18"
     "@sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11"
 )
+
 BASE = "kamba_gate8"
 ADMIN = "kamba"
 ESPERA_MAXIMA = 90
@@ -75,8 +82,19 @@ ESPERA_MAXIMA = 90
 #: perto de dez minutos na suite `tests` antes de se poupar o Alembic em
 #: `tests/base.py`), nao alvo.
 TEMPO_MAXIMO_DA_SUITE = 900
+#: As suites com fila levam mais: o criterio 4 para a fila 60 s de proposito e
+#: o criterio 8 mede 5 minutos de carga. Sao tempos do **criterio**, nao folga.
+TEMPO_MAXIMO_DOS_EVENTOS = 1500
 #: As suites que este ficheiro sabe correr. Lista fechada.
-SUITES = ("tests", "tests_identidade", "tests_isolamento")
+SUITES = (
+    "tests",
+    "tests_identidade",
+    "tests_isolamento",
+    "tests_eventos",
+    "tests_eventos_carga",
+)
+#: As que precisam tambem de uma fila.
+SUITES_COM_FILA = ("tests_eventos", "tests_eventos_carga")
 
 
 def _docker(*argumentos: str, ambiente=None) -> subprocess.CompletedProcess:
@@ -137,19 +155,22 @@ def _correr_suite(ambiente: dict[str, str], suite: str) -> int:
     # Pelo `correr_suite.py` e nao por `python -m unittest`: este sai com 0
     # quando todos os testes sao saltados, e o trinco da suite salta. Num gate,
     # saltar e falhar.
+    limite = (
+        TEMPO_MAXIMO_DOS_EVENTOS if suite in SUITES_COM_FILA else TEMPO_MAXIMO_DA_SUITE
+    )
     try:
         return subprocess.run(
             [sys.executable, "correr_suite.py", suite],
             cwd=DB,
             env=ambiente,
-            timeout=TEMPO_MAXIMO_DA_SUITE,
+            timeout=limite,
         ).returncode
     except subprocess.TimeoutExpired:
         # Um gate pendurado e pior do que um gate vermelho: ocupa o runner ate
         # ao limite do job e nao diz porque. Passar da folga e um bloqueio, e
         # diz-se.
         print(
-            f"gate de BD: a suite nao terminou em {TEMPO_MAXIMO_DA_SUITE}s. "
+            f"gate de BD: a suite nao terminou em {limite}s. "
             "Provavelmente um bloqueio entre ligacoes (um teste a fazer DDL com "
             "outra transaccao aberta).",
             file=sys.stderr,
@@ -159,11 +180,22 @@ def _correr_suite(ambiente: dict[str, str], suite: str) -> int:
 
 def com_contentor(suite: str) -> int:
     senha_admin = secrets.token_urlsafe(24)
-    nome = f"kamba-gate8-{secrets.token_hex(4)}"
+    sufixo = secrets.token_hex(4)
+    nome = f"kamba-gate8-{sufixo}"
+    com_fila = suite in SUITES_COM_FILA
+    # A rede so se cria quando faz falta: o caminho das outras tres suites fica
+    # exactamente como estava.
+    rede = f"kamba-eventos-{sufixo}" if com_fila else ""
     ambiente_docker = dict(os.environ)
     ambiente_docker.update(
         {"POSTGRES_USER": ADMIN, "POSTGRES_PASSWORD": senha_admin, "POSTGRES_DB": BASE}
     )
+    if com_fila:
+        criacao = _docker("network", "create", rede)
+        if criacao.returncode != 0:
+            print(f"gate de BD: nao foi possivel criar a rede:\n{criacao.stderr}",
+                  file=sys.stderr)
+            return 2
     arranque = _docker(
         "run", "--detach", "--rm", "--name", nome,
         # Sem valor: o Docker le-as do ambiente deste processo, pelo que a
@@ -172,13 +204,17 @@ def com_contentor(suite: str) -> int:
         "--env", "POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256",
         "--tmpfs", "/var/lib/postgresql",
         "--publish", "127.0.0.1::5432",
+        *(("--network", rede) if com_fila else ()),
         IMAGEM,
         ambiente=ambiente_docker,
     )
     if arranque.returncode != 0:
         print(f"gate de BD: nao foi possivel arrancar o PostgreSQL:\n{arranque.stderr}",
               file=sys.stderr)
+        if com_fila:
+            _docker("network", "rm", rede)
         return 2
+    fila = ""
     try:
         porta = _docker("port", nome, "5432/tcp").stdout.strip().rsplit(":", 1)[-1]
         if not porta.isdigit():
@@ -188,6 +224,21 @@ def com_contentor(suite: str) -> int:
         # Para a suite de identidade: e pelo contentor que se pede o `pg_dump`
         # e o registo do servidor.
         ambiente["KAMBA_GATE_CONTENTOR"] = nome
+        if com_fila:
+            fila = f"kamba-fila-{sufixo}"
+            porta_da_fila = fila_do_gate.arrancar(rede, fila)
+            ambiente.update(
+                {
+                    "KAMBA_GATE_FILA": fila,
+                    "KAMBA_GATE_REDE": rede,
+                    "KAMBA_FILA_HOST": "127.0.0.1",
+                    "KAMBA_FILA_PORT": porta_da_fila,
+                    # O publicador corre em Node, dentro da rede: chega a base e
+                    # a fila pelo nome do contentor, nao pela porta publicada.
+                    "KAMBA_QUEUE_URL": f"redis://{fila}:6379",
+                    "KAMBA_DB_HOST_NA_REDE": nome,
+                }
+            )
         _esperar_pela_base(ambiente)
         return _correr_suite(ambiente, suite)
     except RuntimeError as erro:
@@ -196,7 +247,11 @@ def com_contentor(suite: str) -> int:
         print(registo.stdout + registo.stderr, file=sys.stderr)
         return 2
     finally:
+        if fila:
+            _docker("rm", "--force", fila)
         _docker("rm", "--force", nome)
+        if com_fila:
+            _docker("network", "rm", rede)
 
 
 def com_bd_existente(suite: str) -> int:

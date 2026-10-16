@@ -7,7 +7,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from sbom import cyclonedx, pnpm_lock
+import pathlib
+
+from sbom import cli, cyclonedx, pnpm_lock, spdx
 from sbom.cli import (
     ConfiguracaoInvalida,
     componentes_do_alvo,
@@ -83,15 +85,60 @@ class TestFechoPorAlvo(unittest.TestCase):
     def setUp(self) -> None:
         self.directas, self.snapshots = pnpm_lock.ler(ROOT / "pnpm-lock.yaml")
 
-    def test_os_servicos_node_carregam_duas_dependencias(self) -> None:
-        for servico in ("services/gwy", "services/worker-canal", "services/com", "services/onboarding-web"):
+    #: Quantas dependencias cada servico Node carrega, pelo fecho do lockfile.
+    #: Lista fechada: um servico que ganhe uma dependencia muda o seu numero
+    #: aqui, e e isso que faz a entrada de uma dependencia nova ser uma decisao
+    #: e nao um acidente. O `worker-canal` passou de 2 a 19 com o KAM-005: o
+    #: publicador leva `pg`, e o `pg` leva dezasseis.
+    DEPENDENCIAS_POR_SERVICO = {
+        "services/gwy": 2,
+        "services/worker-canal": 19,
+        "services/com": 2,
+        "services/onboarding-web": 2,
+    }
+
+    def test_os_servicos_node_carregam_o_que_declaram(self) -> None:
+        for servico, quantas in self.DEPENDENCIAS_POR_SERVICO.items():
             with self.subTest(servico=servico):
                 fecho = pnpm_lock.fecho(servico, self.directas, self.snapshots)
                 self.assertEqual(
                     {x.split("@")[0] or "@" + x.split("@")[1] for x in fecho} & {"hono"},
                     {"hono"},
                 )
-                self.assertEqual(len(fecho), 2, sorted(fecho))
+                self.assertEqual(len(fecho), quantas, sorted(fecho))
+
+    def test_o_fecho_do_publicador_nao_atravessa_o_workspace(self) -> None:
+        """KAM-005 encontrou a lacuna do KAM-133 pelo lado de dentro.
+
+        O publicador vive em `services/worker-canal` e usa `bullmq` e `ioredis`,
+        que sao dependencias de `@kamba/core-ts` — e `@kamba/core-ts` entra por
+        `workspace:*`. O fecho **nao atravessa** essa ligacao, pelo que o SBOM
+        do servico nao mostra nem o `bullmq` nem o `ioredis`: mostra o `pg`, que
+        e dependencia directa dele.
+
+        Isto nao e um defeito deste teste — e a lacuna que o **KAM-133** paga
+        («SBOM por servico a atravessar as dependencias `link:` do
+        *workspace*»). Fica fixado aqui para que, no dia em que o KAM-133 a
+        fechar, este teste **falhe** e alguem actualize as contagens em vez de
+        o SBOM mudar em silencio.
+        """
+        fecho = pnpm_lock.fecho(
+            "services/worker-canal", self.directas, self.snapshots
+        )
+        nomes = {x.rsplit("@", 1)[0] for x in fecho}
+        self.assertIn("pg", nomes, sorted(nomes))
+        for pacote in ("bullmq", "ioredis"):
+            with self.subTest(pacote=pacote):
+                self.assertNotIn(pacote, nomes, "o KAM-133 fechou: actualize as contagens")
+
+        # E aparecem no fecho do pacote que os declara.
+        do_core = {
+            x.rsplit("@", 1)[0]
+            for x in pnpm_lock.fecho("packages/core-ts", self.directas, self.snapshots)
+        }
+        for pacote in ("bullmq", "ioredis"):
+            with self.subTest(pacote=pacote, alvo="packages/core-ts"):
+                self.assertIn(pacote, do_core, sorted(do_core))
 
     def test_a_raiz_carrega_o_fecho_das_devdependencies(self) -> None:
         """O `@commitlint/cli` tem tres pares; sem normalizar as chaves, o fecho
@@ -110,6 +157,64 @@ class TestFechoPorAlvo(unittest.TestCase):
         nomes = {c.nome for c in componentes_do_alvo(ROOT, "services/gwy", todos)}
         self.assertIn("@kamba/gwy", nomes)
         self.assertNotIn("@kamba/com", nomes, "o SBOM do gwy nao leva o com")
+
+
+class TestExcepcoesDeNome(unittest.TestCase):
+    """A travagem por nome da D12 apanha o servidor, nao as bibliotecas (KAM-005).
+
+    A correspondencia de `pendentes_de_decisao` e **parcial**, para que um
+    `redis-stack-server` nao passe ao lado. O preco e apanhar pacotes cujo nome
+    contem `redis` e que nao sao o servidor: o `ioredis` (cliente), o
+    `redis-parser` (analisador do protocolo), o `redis-errors` e a tabela de
+    comandos `@ioredis/commands`, os quatro MIT. Estao nomeados em
+    `ci/licenses.yaml`, um a um e com a razao.
+    """
+
+    def setUp(self) -> None:
+        self.politica, _ = ler_politica(ROOT)
+
+    def test_as_bibliotecas_de_cliente_passam(self) -> None:
+        for nome in ("ioredis", "redis-parser", "redis-errors", "@ioredis/commands"):
+            with self.subTest(pacote=nome):
+                veredicto, _ = spdx.classificar_pacote(nome, "MIT", self.politica)
+                self.assertEqual(veredicto, spdx.PERMITIDA)
+
+    def test_o_servidor_continua_travado_pela_d12(self) -> None:
+        for nome in ("redis", "redis-stack-server", "valkey"):
+            with self.subTest(pacote=nome):
+                veredicto, razao = spdx.classificar_pacote(nome, "MIT", self.politica)
+                self.assertEqual(veredicto, spdx.PENDENTE)
+                self.assertIn("D12", razao)
+
+    def test_uma_excepcao_sem_razao_e_recusada(self) -> None:
+        """Um nome sem razao e uma dispensa por omissao."""
+        import tempfile
+
+        raiz = pathlib.Path(tempfile.mkdtemp())
+        (raiz / "ci").mkdir()
+        politica = [
+            "version: 1",
+            "permitidas:",
+            "  - MIT",
+            "negadas: []",
+            "pendentes_de_decisao:",
+            "  - nome: redis",
+            "    decisao: D12",
+            "    razao: >-",
+            "      Uma razao com mais de trinta caracteres para passar.",
+            "    excepcoes:",
+            "      - nome: ioredis",
+        ]
+        (raiz / "ci" / "licenses.yaml").write_text(
+            "\n".join(politica) + "\n", encoding="utf-8", newline="\n"
+        )
+        with self.assertRaises(ConfiguracaoInvalida):
+            ler_politica(raiz)
+
+    def test_a_excepcao_nao_dispensa_a_licenca(self) -> None:
+        """Passar a travagem por nome nao e passar a politica de licencas."""
+        veredicto, _ = spdx.classificar_pacote("ioredis", "AGPL-3.0", self.politica)
+        self.assertEqual(veredicto, spdx.NEGADA)
 
 
 class TestSbom(unittest.TestCase):

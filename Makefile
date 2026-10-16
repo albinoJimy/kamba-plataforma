@@ -743,6 +743,22 @@ ci-8:
 	@# mesmas migracoes; o gate 5 (integracao de servicos) continua reservado.
 	@echo "==> gate 8: identidade de contacto contra um PostgreSQL 18.6 descartavel"
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_identidade
+	@# A terceira metade (KAM-005): o publicador de eventos, que tambem e
+	@# TypeScript, contra a mesma base **e** uma fila real. As garantias do
+	@# BullMQ estao NAO VERIFICADO (E4 §2.10): o recuo, a republicacao depois de
+	@# um `kill -9`, a eleicao de lider e o atraso sob carga nao se provam contra
+	@# uma fila em memoria, e e por isso que esta suite levanta um Valkey (a
+	@# omissao da D12) ao lado do PostgreSQL, na mesma rede, os dois em tmpfs e
+	@# apagados no fim. Leva mais tempo do que as outras duas juntas, e a razao
+	@# e o proprio criterio: o 4 para a fila 60 s, o 8 mede 5 minutos de carga.
+	@echo "==> gate 8: publicador de eventos contra PostgreSQL 18.6 e fila reais"
+	@$(VENV_PYTHON) db/gate_bd.py --suite tests_eventos
+	@# E a medicao de carga, em suite propria: sao cinco minutos (o numero e do
+	@# criterio 8), e uma suite custa isso **por cada mutacao** que a escolha.
+	@# Separada, as mutacoes do publicador correm em tres minutos e esta corre
+	@# uma vez. Nao e opcional: um p95 acima do limiar falha o build.
+	@echo "==> gate 8: carga de eventos (50/s durante 5 min)"
+	@$(VENV_PYTHON) db/gate_bd.py --suite tests_eventos_carga
 
 # -----------------------------------------------------------------------------
 # Limpeza

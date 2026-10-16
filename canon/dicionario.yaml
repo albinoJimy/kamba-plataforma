@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.8"
+versao_dicionario: "1.9"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -859,6 +859,142 @@ entradas:
       - "event_id"
     nomes_nota: []
     variantes_literais: []
+  - seccao: "3.5"
+    conceito: "Outbox transaccional"
+    canonico: "events_outbox(id, event_id, tipo, versao, tenant_id, agregado_tipo, agregado_id, agregado_seq, particao, envelope, criado_at, publicado_at, tentativas, proxima_tentativa_at)"
+    literais:
+      - "events_outbox(id, event_id, tipo, versao, tenant_id, agregado_tipo, agregado_id, agregado_seq, particao, envelope, criado_at, publicado_at, tentativas, proxima_tentativa_at)"
+    nomes:
+      - "events_outbox"
+      - "id"
+      - "event_id"
+      - "tipo"
+      - "versao"
+      - "tenant_id"
+      - "agregado_tipo"
+      - "agregado_id"
+      - "agregado_seq"
+      - "particao"
+      - "envelope"
+      - "criado_at"
+      - "publicado_at"
+      - "tentativas"
+      - "proxima_tentativa_at"
+    nomes_nota:
+      - "events_outbox.tenant_id"
+      - "NOT"
+      - "NULL"
+      - "id"
+      - "bigint"
+      - "uuid"
+      - "event_id"
+    variantes_literais: []
+  - seccao: "3.5"
+    conceito: "Sequência por agregado"
+    canonico: "evt_agregado_seq(tenant_id, agregado_tipo, agregado_id, seq)"
+    literais:
+      - "evt_agregado_seq(tenant_id, agregado_tipo, agregado_id, seq)"
+    nomes:
+      - "evt_agregado_seq"
+      - "tenant_id"
+      - "agregado_tipo"
+      - "agregado_id"
+      - "seq"
+    nomes_nota:
+      - "tenant_id"
+      - "tenant_iso"
+      - "events_outbox"
+      - "seq"
+    variantes_literais: []
+  - seccao: "3.5"
+    conceito: "Subscrições de entrega"
+    canonico: "evt_subscricoes(consumer, tipo, versao_max, finalidade, exige_ordem, activo)"
+    literais:
+      - "evt_subscricoes(consumer, tipo, versao_max, finalidade, exige_ordem, activo)"
+    nomes:
+      - "evt_subscricoes"
+      - "consumer"
+      - "tipo"
+      - "versao_max"
+      - "finalidade"
+      - "exige_ordem"
+      - "activo"
+    nomes_nota:
+      - "finalidade"
+      - "envelope.finalidades"
+    variantes_literais: []
+  - seccao: "3.5"
+    conceito: "Arquivo de eventos"
+    canonico: "events_log(event_id, tipo, versao, tenant_id, agregado_tipo, agregado_id, agregado_seq, ocorrido_em, registado_em, classe_pii, envelope)"
+    literais:
+      - "events_log(event_id, tipo, versao, tenant_id, agregado_tipo, agregado_id, agregado_seq, ocorrido_em, registado_em, classe_pii, envelope)"
+    nomes:
+      - "events_log"
+      - "event_id"
+      - "tipo"
+      - "versao"
+      - "tenant_id"
+      - "agregado_tipo"
+      - "agregado_id"
+      - "agregado_seq"
+      - "ocorrido_em"
+      - "registado_em"
+      - "classe_pii"
+      - "envelope"
+    nomes_nota:
+      - "ocorrido_em"
+      - "UPDATE"
+      - "DELETE"
+    variantes_literais: []
+  - seccao: "3.5"
+    conceito: "Partição DEFAULT do arquivo"
+    canonico: "events_log_default"
+    literais:
+      - "events_log_default"
+    nomes:
+      - "events_log_default"
+    nomes_nota:
+      - "DEFAULT"
+    variantes_literais: []
+  - seccao: "3.5"
+    conceito: "Emissão de um evento"
+    canonico: "evt_emitir"
+    literais:
+      - "evt_emitir"
+    nomes:
+      - "evt_emitir"
+    nomes_nota:
+      - "SECURITY"
+      - "INVOKER"
+      - "tenant_iso"
+    variantes_literais: []
+  - seccao: "3.5"
+    conceito: "Campos do envelope que o §6.1 acrescenta"
+    canonico: "registado_em, produtor, correlacao_id, causa_id, classe_pii, finalidades"
+    literais:
+      - "registado_em"
+      - "produtor"
+      - "correlacao_id"
+      - "causa_id"
+      - "classe_pii"
+      - "finalidades"
+    nomes:
+      - "registado_em"
+      - "produtor"
+      - "correlacao_id"
+      - "causa_id"
+      - "classe_pii"
+      - "finalidades"
+    nomes_nota:
+      - "jsonb_build_object"
+      - "evt_emitir"
+      - "seq"
+      - "events_log"
+      - "envelope"
+      - "agregado"
+      - "tipo"
+      - "id"
+    variantes_literais: []
   - seccao: "3.6"
     conceito: "Registo de chamadas LLM"
     canonico: "llm_call_log"
@@ -1521,6 +1657,69 @@ tabelas:
     assinatura: "bookings(booking_id, tenant_id, contact_id, service_id, resource_id, inicio_at, fim_at, estado, hold_id)"
     seccao: "3.3"
     conceito: "Marcação"
+  - nome: "events_outbox"
+    esquema: ""
+    colunas:
+      - "id"
+      - "event_id"
+      - "tipo"
+      - "versao"
+      - "tenant_id"
+      - "agregado_tipo"
+      - "agregado_id"
+      - "agregado_seq"
+      - "particao"
+      - "envelope"
+      - "criado_at"
+      - "publicado_at"
+      - "tentativas"
+      - "proxima_tentativa_at"
+    aberta: false
+    assinatura: "events_outbox(id, event_id, tipo, versao, tenant_id, agregado_tipo, agregado_id, agregado_seq, particao, envelope, criado_at, publicado_at, tentativas, proxima_tentativa_at)"
+    seccao: "3.5"
+    conceito: "Outbox transaccional"
+  - nome: "evt_agregado_seq"
+    esquema: ""
+    colunas:
+      - "tenant_id"
+      - "agregado_tipo"
+      - "agregado_id"
+      - "seq"
+    aberta: false
+    assinatura: "evt_agregado_seq(tenant_id, agregado_tipo, agregado_id, seq)"
+    seccao: "3.5"
+    conceito: "Sequência por agregado"
+  - nome: "evt_subscricoes"
+    esquema: ""
+    colunas:
+      - "consumer"
+      - "tipo"
+      - "versao_max"
+      - "finalidade"
+      - "exige_ordem"
+      - "activo"
+    aberta: false
+    assinatura: "evt_subscricoes(consumer, tipo, versao_max, finalidade, exige_ordem, activo)"
+    seccao: "3.5"
+    conceito: "Subscrições de entrega"
+  - nome: "events_log"
+    esquema: ""
+    colunas:
+      - "event_id"
+      - "tipo"
+      - "versao"
+      - "tenant_id"
+      - "agregado_tipo"
+      - "agregado_id"
+      - "agregado_seq"
+      - "ocorrido_em"
+      - "registado_em"
+      - "classe_pii"
+      - "envelope"
+    aberta: false
+    assinatura: "events_log(event_id, tipo, versao, tenant_id, agregado_tipo, agregado_id, agregado_seq, ocorrido_em, registado_em, classe_pii, envelope)"
+    seccao: "3.5"
+    conceito: "Arquivo de eventos"
 
 dominios:
   - coluna: "tenants.tipo"

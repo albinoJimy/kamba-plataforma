@@ -1,6 +1,7 @@
 """Corre a suite do gate 8 e falha se algum teste for saltado.
 
-    python correr_suite.py [tests|tests_identidade|tests_isolamento]   (a partir de `db/`)
+    python correr_suite.py <tests|tests_identidade|tests_isolamento|tests_eventos
+                            |tests_eventos_carga>
 
 O `python -m unittest` sai com 0 quando todos os testes sao **saltados**. E o
 trinco da suite (`tests/base.py`) levanta `SkipTest` quando a base nao se chama
@@ -24,7 +25,13 @@ DB = Path(__file__).resolve().parent
 def main() -> int:
     sys.path.insert(0, str(DB))
     directorio = sys.argv[1] if len(sys.argv) > 1 else "tests"
-    if directorio not in ("tests", "tests_identidade", "tests_isolamento"):
+    if directorio not in (
+        "tests",
+        "tests_identidade",
+        "tests_isolamento",
+        "tests_eventos",
+        "tests_eventos_carga",
+    ):
         print(f"suite desconhecida: {directorio!r}", file=sys.stderr)
         return 2
     suite = unittest.defaultTestLoader.discover(

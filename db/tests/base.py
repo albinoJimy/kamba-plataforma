@@ -31,10 +31,32 @@ TABELAS_0001 = ("entitlements", "tenant_channels", "tenants")
 #: O que a revisao 0003 (KAM-008) acrescenta: identidade de contacto.
 TABELAS_0003 = ("contact_deks", "contact_endpoints", "contacts", "hmac_key_versions")
 
+#: O que a revisao 0004 (KAM-005) acrescenta: outbox, sequencia por agregado,
+#: subscricoes e o arquivo de eventos. O `events_log_default` esta aqui porque
+#: o `pg_tables` lista a particao (`relkind` 'r') ao lado da particionada
+#: ('p'): sao duas linhas do catalogo, e a lista e do catalogo.
+TABELAS_0004 = (
+    "events_log",
+    "events_log_default",
+    "events_outbox",
+    "evt_agregado_seq",
+    "evt_subscricoes",
+)
+
 #: Tudo o que existe em `platform` em `head`, por ordem alfabetica. Lista
-#: fechada: uma tabela a mais (encomendas, pagamentos, eventos) e escopo de
+#: fechada: uma tabela a mais (encomendas, pagamentos, consumidores) e escopo de
 #: outro ticket, e entra aqui pela mao de quem a criar.
-TABELAS = tuple(sorted(TABELAS_0001 + TABELAS_0003))
+TABELAS = tuple(sorted(TABELAS_0001 + TABELAS_0003 + TABELAS_0004))
+
+#: O que existe em `platform` quando a base esta na revisao `0003`.
+#:
+#: Faz falta porque o Alembic corre **uma transaccao por revisao**
+#: (`transaction_per_migration=True` em `migrations/env.py`): um `downgrade 0002`
+#: a partir da cabeca desce a `0004` — que confirma — e so depois tenta a
+#: `0003`. Se a `0003` recusar (tem linhas de identidade e nao ha copia), a base
+#: fica em `0003`, nao em `head`. Os testes que provam essa recusa comparam com
+#: esta lista, e nao com `TABELAS`.
+TABELAS_ATE_0003 = tuple(sorted(TABELAS_0001 + TABELAS_0003))
 
 
 def exigir_base_descartavel() -> None:
