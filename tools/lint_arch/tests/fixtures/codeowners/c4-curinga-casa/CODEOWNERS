@@ -1,0 +1,5 @@
+# Nenhum destes tres existe como caminho literal: `[ -e ]` daria "pendurada" aos
+# tres, e os tres casam com ficheiros reais.
+*.md                        @kamba/produto
+**/evidencia/               @kamba/seguranca
+/docs/*/evidencia/E1_Meta.md  @kamba/plataforma

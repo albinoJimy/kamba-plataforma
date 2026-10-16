@@ -1,0 +1,4 @@
+# Curingas bem formados que nao casam com nada nesta arvore.
+*.rst                       @kamba/produto
+**/inexistente/             @kamba/seguranca
+/docs/*/nao-existe.md       @kamba/plataforma

@@ -4,11 +4,17 @@ A arvore e um contrato: os tickets seguintes assumem onde as coisas vivem
 (`db/migrations` para o KAM-003, `registry/` para o AgentRegistry, `packages/contracts`
 como fonte unica dos esquemas). Verificar que existe e mais barato do que descobrir
 que alguem a mudou.
+
+Desde o KAM-154 a verificacao nao para na existencia: as regras do `CODEOWNERS`
+tem de **resolver** contra a arvore seguida pelo git. A semantica de *glob* e o
+fundamento estao em [`codeowners.py`](codeowners.py).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+
+from . import codeowners
 
 #: Servicos do Piloto (`docs/tecnica/09` §3.1). `com` e o anfitriao do Medusa 2.21.x;
 #: a vitrine Next.js fica para Clusters e por isso nao esta aqui (ADR-019).
@@ -33,6 +39,8 @@ REQUIRED_FILES = (
     "pnpm-workspace.yaml",
     ".npmrc",
     ".node-version",
+    # Que o ficheiro exista e so metade: cada regra dele tem de casar com algo
+    # da arvore, ou atribui dono a nada e nao avisa. E `codeowners.check`.
     "CODEOWNERS",
     "renovate.json5",
     "commitlint.config.cjs",
@@ -72,8 +80,13 @@ FORBIDDEN_FILES = (
 REQUIRED_DOCKERIGNORE = (".env", ".env.*", "*.pem", "*.key")
 
 
-def check(root: Path) -> list[str]:
-    """Devolve a lista de desvios da estrutura. Lista vazia = conforme."""
+def check(root: Path, caminhos: list[str] | None = None) -> list[str]:
+    """Devolve a lista de desvios da estrutura. Lista vazia = conforme.
+
+    `caminhos` e a arvore contra a qual se resolvem as regras do `CODEOWNERS`;
+    omitido, le-se do git. Existe para que uma *fixture* possa ser varrida como
+    arvore independente, sem ter de ser um repositorio git.
+    """
     problems: list[str] = []
 
     dockerignore = root / ".dockerignore"
@@ -103,6 +116,14 @@ def check(root: Path) -> list[str]:
     for relative in REQUIRED_FILES:
         if not (root / relative).is_file():
             problems.append(f"ficheiro obrigatorio em falta: {relative}")
+
+    # Cada regra do `CODEOWNERS` tem de casar com alguma coisa da arvore seguida
+    # pelo git. Uma que nao case nao e recusada pelo GitHub: e ignorada, e a area
+    # fica sem dono em silencio (KAM-154). Cresce aqui, e nao num gate novo,
+    # porque este modulo ja conhece o ficheiro — e porque e o que o gate 2 ja e,
+    # uma verificacao estatica da fonte que nao executa nada, pela mesma razao
+    # que poe la o `log-lint` do KAM-068.
+    problems.extend(codeowners.check(root, caminhos=caminhos))
 
     for service in SERVICES:
         base = root / "services" / service

@@ -48,7 +48,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 
 | Epic | Range | N.º tickets | Fase |
 |------|-------|-------------|------|
-| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-153 | 38 | 0–1 |
+| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-154 | 39 | 0–1 |
 | EPIC-02 Canais WhatsApp e Handoff | KAM-013 – KAM-024, KAM-115 | 13 | 0–1 |
 | EPIC-03 Agent Runtime e Verticais | KAM-025 – KAM-040, KAM-114 | 17 | 0–1 |
 | EPIC-04 Core de Comércio | KAM-041 – KAM-051 | 11 | 0–1 |
@@ -59,7 +59,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117 | 16 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
 | EPIC-11 Módulos de Entrada | KAM-118 – KAM-127 | 10 | 1 |
-| **TOTAL** | **KAM-001 – KAM-153** | **153** | — |
+| **TOTAL** | **KAM-001 – KAM-154** | **154** | — |
 
 ### 3.2 Fases
 
@@ -285,6 +285,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-125 | Golden PT-AO e guardrails dos módulos do dono (catálogo, social, orçamento) | feature | M | P1 | 1 | KAM-040, KAM-119, KAM-121, KAM-123 |
 | KAM-126 | Spike Factura AI: parceiro certificado AGT, API e custo | spike | S | P2 | 1 | — |
 | KAM-127 | Experimento dos módulos de entrada: hipóteses H10–H12, regra de escopo e critérios de abate | chore | M | P1 | 1 | KAM-119, KAM-120, KAM-122, KAM-123, KAM-124, KAM-092, KAM-117, KAM-125 |
+| KAM-154 | *Gate* que resolve cada regra do `CODEOWNERS` contra a árvore seguida pelo git | feature | S | P1 | 0 | KAM-128 |
 
 ---
 
@@ -341,3 +342,4 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.15 | Outubro 2026 | KAM-151 acrescentado: fecha a lacuna 25 de `../docs/ci.md` §7 — `services/agr/src/` declarado no âmbito do *gate* 4 (`services/*/src/**`) e medido por alvo nenhum, apesar de `services/agr/tests/` existir. Depende do KAM-132 e entra no seu `Bloqueia`. Nasceu KAM-144, foi KAM-148 e é KAM-151: cinco PRs reclamaram o mesmo ID e a sessão que coordena a fila atribuiu-os por ordem de PR, fundindo por ordem crescente de ID para a série ficar contígua — **com o KAM-150 em `main`, está**: 151 tickets, de KAM-001 a KAM-151, sem buracos. O ticket destapou a **lacuna 26** (um `.py` medido a 0% faz o número descer e não sai nomeado no relatório). | Equipa KAMBÁ |
 | 1.16 | Outubro 2026 | KAM-152 acrescentado e entregue: o caminho `db/gate8.py`, que não existe (o ficheiro é `db/gate_bd.py`), estava citado em **8** ocorrências de **7** ficheiros — **7 vivas em 6** —, e uma delas era a mensagem de erro do trinco do *gate* 8, que mandava o utilizador correr um ficheiro inexistente. O pedido nomeava três sítios. O nome do trinco `*_gate8` (**21** ocorrências em ficheiros vivos, invariantes entre `main` e o ramo) não foi tocado: é o nome canónico da base descartável, e a fasquia `grep gate8 → 0` do pedido fica registada como impossível à letra. `../docs/seguranca/validar.py` passa de 5 para 3 erros, com o `assert` da contagem relaxado em memória — corrigi-lo é o **KAM-149**. **O ticket nasceu KAM-150 e renumerou para 152**, porque o `albinoJimy/kamba#47` fundiu durante o trabalho e levou esse ID; o **151** está reclamado por um ramo em voo e sem bloco, pelo que o intervalo passa a descontínuo. Total: 151 tickets. | Equipa KAMBÁ |
 | 1.17 | Outubro 2026 | KAM-153 acrescentado: `fix` para as três referências a anexo de evidência citadas **sem prefixo nenhum** em `specs/EPIC-10`, que as buscas G1 e G2 do KAM-129 não podiam ver por ancorarem no prefixo, e para a busca ancorada no *nome* do anexo que fecha a classe. Depende do KAM-129 e entra no seu `Bloqueia`. Total: **151** tickets em 11 epics. O identificador é o seguinte ao maior do `main`, e tem de o ser: o teste de contiguidade do gate 4 reprova qualquer buraco — e **este ticket foi renumerado quatro vezes** por isso, com dois PRs fechados, porque o `main` avançou quatro vezes durante o trabalho. A colisão entre ramos concorrentes neste número é estrutural e resolve-se na integração. | Equipa KAMBÁ |
+| 1.18 | Outubro 2026 | KAM-154 acrescentado: *gate* do `CODEOWNERS`. Total: 154 tickets. | Equipa KAMBÁ |

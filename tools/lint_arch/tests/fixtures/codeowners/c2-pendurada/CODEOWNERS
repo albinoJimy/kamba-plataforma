@@ -1,0 +1,3 @@
+# O prefixo que o KAM-128 removeu: a pasta mudou para `docs/tecnica/` e esta
+# regra ficou presa ao caminho antigo. O GitHub ignora-a, sem avisar.
+/tecnica/                   @kamba/plataforma
