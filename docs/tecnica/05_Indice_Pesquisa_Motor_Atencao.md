@@ -674,3 +674,4 @@ Por tenant e por dia (`dat.metricas_pesquisa`, doc 06): consultas, `resultado` (
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial. Corrige a query híbrida do doc 11 §7; fixa índice por tenant (P) e federado (C); especifica como Diferido o assistente de consumo, «quero comprar» e AdsEngine; remove os grupos de bairro. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §10 e §12, D-02 (`consent_event`). | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | KAM-128: As **12** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |

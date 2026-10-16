@@ -1,0 +1,38 @@
+# Excepcoes do lint_handoff (gate 3, segundo passo) — KAM-145
+#
+# Uma linha de bloco de *handoff* cujo ASSUNTO e uma forma de caminho cita um
+# literal que o executor tem de **produzir**, e nao um ficheiro que ele abre. A
+# regra do §5 de specs/01_Engineering_Standards_e_Handoff.md nao se lhe aplica,
+# e converte-la inverte o sentido da frase.
+#
+# Foi o que aconteceu: a conversao mecanica do KAM-145 alterou tres frases cujo
+# assunto era a convencao de prosa do KAM-128, e uma delas era a frase a que o
+# conjunto manda ir buscar essa convencao. A revisao adversarial apanhou-as.
+#
+# Cada entrada declara o excerto EXACTO da linha e a razao. Nao se usa numero de
+# linha: desloca-se a cada merge. Uma entrada que nao case nenhuma linha falha o
+# gate — uma excepcao esquecida e uma excepcao que mente.
+version: 1
+excepcoes:
+  - excerto: "A forma da referência depende da posição do ficheiro"
+    razao: >-
+      Ensina a convencao de prosa do KAM-128 ao executor, citando as duas
+      formas. O caminho relativo ao ficheiro que esta aqui e o literal que ele
+      escreve fora de um bloco de handoff, nao um ficheiro que abre.
+  - excerto: "referências a evidência de specs/ que não resolvem passam a"
+    razao: >-
+      Descreve o objectivo do KAM-129, que foi levar as referencias de prosa a
+      forma relativa ao ficheiro. O caminho citado e o resultado desse ticket.
+  - excerto: "referências já correctas e produzes"
+    razao: >-
+      Ilustra o modo de falha de uma substituicao mal ancorada. O caminho citado
+      e, de proposito, o caminho ERRADO que a substituicao produziria — e sai da
+      arvore, o que o gate deve recusar em qualquer outro sitio.
+  - excerto: "e a classe ganha uma busca que não dependa do prefixo"
+    razao: >-
+      Descreve o objectivo do KAM-153: as tres referencias nuas passam a ter a
+      forma relativa ao ficheiro. O caminho citado e o **resultado** que o
+      executor produz na prosa, fora de um bloco de handoff, e nao um ficheiro
+      que ele abre. Converte-lo inverteria a frase que define o ticket. O
+      excerto e da segunda linha da frase — a que tem o caminho — porque o
+      gate le linha a linha e a excepcao casa a linha, nao a frase.

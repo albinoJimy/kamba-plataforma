@@ -824,3 +824,4 @@ Correcção face ao documento exploratório: `../exploracao/10` e `../exploracao
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: canais WhatsApp, fluxo dual, coexistência, HND e onboarding do número, revistos com `evidencia/E1` e `E4`. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §6.2–§6.3, D-01 (`contacts` + `contact_endpoints`) e D-02 (`consent_event`); §11 e §13.2, D-07 (gatilho `tenant.approved`). | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | KAM-128: As **24** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |

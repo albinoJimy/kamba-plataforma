@@ -175,8 +175,8 @@ caixa deste bloco.
 
 ```text
 És o executor do ticket KAM-001 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-001), ../docs/tecnica/09_Topologia_Operacao_Escala.md (§3.1, §7) e
-../docs/tecnica/08_Seguranca_Conformidade.md (§4.8). Objectivo: monorepo, estrutura de serviços e toolchain reprodutível.
+Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-001), docs/tecnica/09_Topologia_Operacao_Escala.md (§3.1, §7) e
+docs/tecnica/08_Seguranca_Conformidade.md (§4.8). Objectivo: monorepo, estrutura de serviços e toolchain reprodutível.
 - Cria a árvore services/packages/libs/db/registry/infra/tools; /healthz por serviço; make bootstrap/check/up.
 - Impõe lockfiles com hash (pnpm --frozen-lockfile --ignore-scripts; pip --require-hashes) e a lista de
   bloqueio (langgraph-api, langgraph-runtime-inmem, Dify, n8n, Typebot, MinIO, LiteLLM < 1.83.0) com testes.
@@ -275,7 +275,7 @@ pior do que uma caixa vazia.
 ```text
 És o executor do ticket KAM-002 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
 Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-002), specs/01_Engineering_Standards_e_Handoff.md §4 e
-../docs/tecnica/09_Topologia_Operacao_Escala.md §7. Objectivo: pipeline de CI com os gates 1, 2, 3, 4, 9 e 11.
+docs/tecnica/09_Topologia_Operacao_Escala.md §7. Objectivo: pipeline de CI com os gates 1, 2, 3, 4, 9 e 11.
 - Cada gate é um alvo make ci-<gate>; o workflow só os orquestra (sem lógica presa à plataforma de CI).
 - Implementa tools/lint_refs (KAM/ADR/D#), limiares em ci/thresholds.yaml, scanner de segredos (CI +
   pre-commit), SBOM CycloneDX e allowlist de licenças, e ci/waivers.yaml com prazo e referência.
@@ -421,13 +421,13 @@ história de porque a primeira prova por mutação estava errada.
 
 ```text
 És o executor do ticket KAM-003 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-003), ../docs/tecnica/03_Core_Comercio_Medusa.md (§5.1, §5.2, §11) e
-../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§7.1). Objectivo: schema platform com migrações Alembic reversíveis.
+Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-003), docs/tecnica/03_Core_Comercio_Medusa.md (§5.1, §5.2, §11) e
+docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§7.1). Objectivo: schema platform com migrações Alembic reversíveis.
 - tenants (estado inclui 'restrito', doc 00 §6.2), tenant_channels (colunas do doc 01 §7.1), entitlements.
 - Papéis kamba_migrator, kamba_app (NOBYPASSRLS), kamba_batch (BYPASSRLS); DDL só pelo migrator.
 - NÃO crias contacts (KAM-008) nem activas RLS (KAM-004). Sem colunas de telefone.
 - Arranque: com KAMBA_FASE=piloto, falha se existir tipo 'platform', origem 'plataforma' ou vertical 'assistente'.
-- Regista no PR a divergência entre ../docs/tecnica/03 §5.2 e ../docs/tecnica/01 §7.1 e a decisão tomada.
+- Regista no PR a divergência entre docs/tecnica/03 §5.2 e docs/tecnica/01 §7.1 e a decisão tomada.
 Não expandas escopo: sem tabelas de encomendas, pagamentos ou eventos.
 Testes: migração up/down/up, constraints negativas, catálogo (sem telefone), arranque. Abre PR com o template do §7.
 ```
@@ -572,8 +572,8 @@ com a história de a primeira prova ter estado vazia.
 
 ```text
 És o executor do ticket KAM-004 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-004), ../docs/tecnica/08_Seguranca_Conformidade.md (§3.3, §3.7) e
-../docs/tecnica/03_Core_Comercio_Medusa.md (§5.5). Objectivo: RLS FORCE em todas as tabelas com tenant_id + suite SQL.
+Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-004), docs/tecnica/08_Seguranca_Conformidade.md (§3.3, §3.7) e
+docs/tecnica/03_Core_Comercio_Medusa.md (§5.5). Objectivo: RLS FORCE em todas as tabelas com tenant_id + suite SQL.
 - Helper Alembic enable_tenant_rls e helper de transacção (TS e Python) com set_config('app.tenant_id', ..., true).
 - Papéis: kamba_app (NOBYPASSRLS), kamba_batch (BYPASSRLS, só jobs nomeados), kamba_resolver (leitura estreita).
 - Testes X-03 (SELECT cruzado), X-04 (sem contexto = 0 linhas), X-05 (catálogo), escrita cruzada, vazamento
@@ -654,7 +654,7 @@ loop: BEGIN; linhas = SELECT ... WHERE publicado_at IS NULL AND proxima_tentativ
 
 ```text
 És o executor do ticket KAM-005 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-005) e ../docs/tecnica/06_Dados_Eventos_Analytics.md (§4, §6.1, §6.2, §6.5).
+Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-005) e docs/tecnica/06_Dados_Eventos_Analytics.md (§4, §6.1, §6.2, §6.5).
 Objectivo: outbox transaccional, publicador BullMQ de instância única e envelope v1.
 - Implementa o DDL do doc 06 §6.1/§6.5 e evt_emitir (guarda de PII incluída); migrações reversíveis.
 - Publicador com advisory lock, FOR UPDATE SKIP LOCKED, jobId = event_id, 16 filas por consumidor, backoff e
@@ -733,7 +733,7 @@ handler(consumer, env): BEGIN; n = INSERT events_consumed ON CONFLICT DO NOTHING
 
 ```text
 És o executor do ticket KAM-006 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-006) e ../docs/tecnica/06_Dados_Eventos_Analytics.md (§6.3–§6.5).
+Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-006) e docs/tecnica/06_Dados_Eventos_Analytics.md (§6.3–§6.5).
 Objectivo: consumidores idempotentes, events_consumed, DLQ e reconciliador.
 - Wrapper de consumo (TS e Python): INSERT events_consumed ON CONFLICT DO NOTHING na mesma transacção que o efeito.
 - 6 tentativas com backoff 1 s/5 s/30 s/2 min/10 min; DLQ; Adiar(5 s); consumidores payment.* sempre com ordem.
@@ -804,7 +804,7 @@ Publicar em `packages/contracts/eventos/<tipo>/v<versao>.schema.json` os schemas
 
 ```text
 És o executor do ticket KAM-007 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-007) e ../docs/tecnica/06_Dados_Eventos_Analytics.md (§4, §5, §6.6, §7.3).
+Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-007) e docs/tecnica/06_Dados_Eventos_Analytics.md (§4, §5, §6.6, §7.3).
 Objectivo: schemas v1 do catálogo de eventos e teste de compatibilidade como gate 7.
 - Um schema por tipo/versão em packages/contracts/eventos, additionalProperties:false, valores monetários inteiros.
 - tools/contract_diff: aditivo-opcional passa; remover/renomear/mudar tipo/tornar obrigatório sem versao+1 falha.
@@ -969,8 +969,8 @@ reembrulho das DEK, chaves de época, auditoria das leituras, purga — está em
 
 ```text
 És o executor do ticket KAM-008 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-008), ../docs/tecnica/03_Core_Comercio_Medusa.md (§5.3),
-../docs/tecnica/06_Dados_Eventos_Analytics.md (§7.2, §7.6) e ../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§6).
+Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-008), docs/tecnica/03_Core_Comercio_Medusa.md (§5.3),
+docs/tecnica/06_Dados_Eventos_Analytics.md (§7.2, §7.6) e docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§6).
 Objectivo: identidade de contacto em duas camadas (ADR-010).
 - contacts (lookup_hmac, kid, phone_hmac, erased_at) e contact_endpoints (bsuid_enc, phone_enc, DEK por contacto).
 - resolveContact idempotente (BSUID → telefone com kid actual e anterior → criar), fusão transaccional,
@@ -1050,12 +1050,12 @@ Implementar o serviço/biblioteca TEN com registo de chaves de limite, *middlewa
 
 ```text
 És o executor do ticket KAM-009 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-009), ../docs/tecnica/02_Agent_Runtime_Verticais.md (§5),
-../docs/tecnica/03_Core_Comercio_Medusa.md (§5.2) e ../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§7.2).
+Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-009), docs/tecnica/02_Agent_Runtime_Verticais.md (§5),
+docs/tecnica/03_Core_Comercio_Medusa.md (§5.2) e docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§7.2).
 Objectivo: TEN com entitlements e limites aplicados por middleware.
 - Registo de chaves (msgs_ai_mes, valor_max_pedido_minor, manual_max_minor, marcacoes_mes) e plans.yaml.
 - checkEntitlement fail-closed; consumeLimit atómico e idempotente (tenant_usage + usage_ledger); mês em Africa/Luanda.
-- tenantGate(estado, acção) conforme a matriz de ../docs/tecnica/01 §7.2; middleware HTTP e hook para a ToolLayer.
+- tenantGate(estado, acção) conforme a matriz de docs/tecnica/01 §7.2; middleware HTTP e hook para a ToolLayer.
 - Valores por plano são exemplos «proposta»; não inventes preços; regista a decisão de unidades no PR.
 Não expandas escopo: sem facturação (KAM-059), sem provisioning (KAM-091).
 Testes: concorrência 1 000/100, idempotência, fronteira de mês, isolamento. Abre PR com o template do §7.
@@ -1169,8 +1169,8 @@ evidência nomeada é pior do que uma caixa vazia. Os comandos e as saídas est�
 
 ```text
 És o executor do ticket KAM-010 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-010), ../docs/tecnica/08_Seguranca_Conformidade.md (§5) e
-../docs/tecnica/evidencia/E4_Stack_Licencas.md (§2.14). Objectivo: SecretProvider + Doppler no Piloto + inventário.
+Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-010), docs/tecnica/08_Seguranca_Conformidade.md (§5) e
+docs/tecnica/evidencia/E4_Stack_Licencas.md (§2.14). Objectivo: SecretProvider + Doppler no Piloto + inventário.
 - Porta SecretProvider (get, getRing, versões) com implementações Env, Doppler e contrato OpenBao (fake).
 - ops/secrets-inventory.yaml com a tabela do doc 08 §5 e verificação de CI (segredo usado ⊂ inventário).
 - 3 projectos dev/staging/prod; token de staging recusado em prod; falha no arranque sem expor valores.
@@ -1320,8 +1320,8 @@ interface StorageProvider {
 
 ```text
 És o executor do ticket KAM-011 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-011), ../docs/tecnica/08_Seguranca_Conformidade.md (§3.8, §7.5) e
-../docs/tecnica/evidencia/E4_Stack_Licencas.md (§2.11). Objectivo: StorageProvider S3-compatível (ADR-014, D6).
+Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-011), docs/tecnica/08_Seguranca_Conformidade.md (§3.8, §7.5) e
+docs/tecnica/evidencia/E4_Stack_Licencas.md (§2.11). Objectivo: StorageProvider S3-compatível (ADR-014, D6).
 - Interface com ctx.tenantId obrigatório; chaves t/{tenant_id}/{classe}/aaaa/mm/uuid; signUrl com TTL ≤ 300 s.
 - Implementações S3 (SeaweedFS 4.48 ou gerido, por configuração) e fake; mesma suite de contrato.
 - Testa multipart (25 MB), expiração de URL e object lock em SeaweedFS; regista em docs/evidencia; escreve o ADR de D6.
@@ -1394,7 +1394,7 @@ Criar `audit_log` imutável com função `audit_append`, encadeamento de hash po
 
 ```text
 És o executor do ticket KAM-012 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-012) e ../docs/tecnica/08_Seguranca_Conformidade.md (§6, §3.3).
+Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-012) e docs/tecnica/08_Seguranca_Conformidade.md (§6, §3.3).
 Objectivo: audit_log append-only com cadeia de hash por tenant.
 - DDL do doc 08 §6; REVOKE UPDATE/DELETE/TRUNCATE + triggers; audit_heads bloqueada FOR UPDATE por tenant.
 - audit_append(...) SECURITY DEFINER com search_path fixo (entrada na allowlist); payload_hash sobre JSON canónico.
@@ -1534,7 +1534,7 @@ entradas novas. `db/rls.py` está declarado em
 ```text
 És o executor do ticket KAM-111 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
 Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-111) e specs/02_Dicionario_de_Dados_Canonico.md (§3, §5, §6).
-Objectivo: (a) emendar ../docs/tecnica/ nas 12 divergências D-01 a D-12 e só nelas; (b) lint canon-lint (gate 3b).
+Objectivo: (a) emendar docs/tecnica/ nas 12 divergências D-01 a D-12 e só nelas; (b) lint canon-lint (gate 3b).
 - Parte (a): edita só as linhas listadas; regista a emenda no Controlo de versões de cada documento; o resto vira ticket fix.
 - Parte (b): exporta o §3 para canon/dicionario.yaml; verifica DDL, schemas de eventos e contratos de tools; variante conhecida
   falha sempre; nome fora do §3 exige entrada em canon/extensoes.yaml. Não inventes nomes: o dicionário manda.
@@ -1587,12 +1587,12 @@ Deixar o conjunto documental sob `docs/`, com `specs/` na raiz, sem nenhuma refe
 - [x] **Zero ligações markdown quebradas** em todo o conjunto `.md`, verificado por script que resolve cada `[texto](caminho)` relativo ao ficheiro **e** relativo à raiz (ver Testes Requeridos). Antes: 3; alvo: 0.
 - [x] **Zero referências `tecnica/NN` dentro de `docs/tecnica/`** (busca G1 dos Testes Requeridos). Antes: 216 — não resolviam de posição nenhuma, porque eram relativas à antiga raiz.
 - [x] As referências a `analises/` apontam para `docs/analises/` ou `../analises/`, conforme a posição (buscas G2 e G3): 4 corrigidas em `.claude/skills/agentic-engineering/` e 3 ligações do documento mestre em `../docs/INDICE.md`, que apontavam para `exploracao/` quando o mestre está em `docs/`.
-- [ ] As referências nuas a ficheiros da biblioteca (`14-tese-minima-e-plano-de-validacao.md`, `01-modelo-negocios-angola-ai-first.md`) passam a `../docs/exploracao/…` em `specs/` e a `docs/exploracao/…` em `.claude/skills/`: 10 ocorrências. Cai com elas a afirmação de que a biblioteca está «na raiz de `Ideias/`» (`specs/EPIC-10` §: Abreviaturas). **Excepção deliberada:** as 24 ocorrências dentro de `docs/00-KAMBA-documento-mestre.md` não se tocam — são herdadas das fontes, onde são irmãs correctas, e o mestre é gerado; corrigi-las à mão seria editar um artefacto compilado e perder-se-ia na regeneração seguinte.
+- [x] As referências nuas a ficheiros da biblioteca (`14-tese-minima-e-plano-de-validacao.md`, `01-modelo-negocios-angola-ai-first.md`) passam a `docs/exploracao/…` dentro dos blocos de *handoff*, a `../docs/exploracao/…` na prosa de `specs/` e a `docs/exploracao/…` em `.claude/skills/`: **17 ocorrências**, não 10 — a população foi remedida em `df03076` e está na secção de verificação. *(Critério emendado pelo **KAM-145**: a forma dentro de um bloco de *handoff* é relativa à raiz, porque é aí que o executor corre — `specs/01_Engineering_Standards_e_Handoff.md` §5. A redação original pedia `../docs/exploracao/…` em todo o `specs/`, o que teria posto as sete que restavam a apontar para fora da árvore.)* Cai com elas a afirmação de que a biblioteca está «na raiz de `Ideias/`» (`specs/EPIC-10` §: Abreviaturas). **Excepção deliberada:** as 24 ocorrências dentro de `docs/00-KAMBA-documento-mestre.md` não se tocam — são herdadas das fontes, onde são irmãs correctas, e o mestre é gerado; corrigi-las à mão seria editar um artefacto compilado e perder-se-ia na regeneração seguinte.
 - [x] Nenhum caminho **funcional** da *toolchain* quebra: `make lint-arch` e a parte Python de `make check` ficam verdes. O único caminho documental lido por código é `docs/evidencia/KAM-001-node.md`, em `tools/lint_arch/structure.py` (`REQUIRED_FILES`), e não se move.
 - [x] Os cabeçalhos de navegação deixam de descrever a árvore antiga: `../docs/INDICE.md` (§2, §6 e linha de fecho), `../docs/tecnica/INDICE.md` (§4, §6), `README.md` («O que está aqui», «Onde ler o quê») e a tabela de fontes de verdade de `.claude/skills/agentic-engineering/SKILL.md` §1.
 - [x] O documento mestre é gerado por `docs/compilar-mestre.sh` a partir de `docs/exploracao/*.md`, declara-o no cabeçalho («NÃO EDITAR À MÃO») e inclui a PARTE 14, que o `../docs/INDICE.md` §2 já listava e o ficheiro não tinha: 13 partes (01–08, 10–14). O script é idempotente — duas execuções seguidas dão o mesmo ficheiro, *byte* a *byte*. Corolário que vale como regra: **quem editar uma fonte em `docs/exploracao/` regenera o mestre no mesmo commit**, ou deixa um artefacto gerado desactualizado em `git`.
 - [x] O backlog fica sincronizado nos dois lados: linha em `specs/INDICE.md` §4 (sub-tabela do EPIC-01) e bloco `## KAM-128 — ` neste epic, com tipo, estimativa, prioridade, fase e dependências iguais; `Bloqueia` do KAM-001 e `Dependências` do KAM-111 actualizados; contagens de `specs/INDICE.md` §1 e §3.1 e de `README.md` a dizer 128.
-- [ ] Cada documento formal tocado regista a emenda no seu «Controlo de versões» com referência a KAM-128.
+- [x] Cada documento formal tocado regista a emenda no seu «Controlo de versões» com referência a KAM-128: **15 de 15** pela definição operacional (tem tabela de versões) e **12 de 12** pela das três tabelas; as onze que faltavam foram escritas pelo **KAM-146**, cuja secção de verificação tem a medição e a lista.
 
 ### Verificação dos Critérios de Aceitação
 
@@ -1601,7 +1601,7 @@ está em `08426f3`, com `d2dbb14` e `53189a2` na história do ramo do KAM-001.
 Medido a 2026-10-11 sobre `main` (`1401cd3`), por *script* no *scratchpad* — o
 gate 3 (`tools/lint_refs`) é o KAM-002 e ainda não está em `main`. Os valores
 «antes» foram medidos contra `df03076`, o pai de `08426f3`. Cada caixa marcada
-acima tem uma linha aqui; **as cinco não marcadas também**. Quatro destas linhas
+acima tem uma linha aqui; **as não marcadas também**. Quatro destas linhas
 foram emendadas depois da revisão adversarial registada em
 `../docs/analises/ANALISE-04-encerramento-kam-001-128-129.md`.
 
@@ -1611,13 +1611,13 @@ foram emendadas depois da revisão adversarial registada em
 | Zero ligações markdown quebradas | **satisfeito** | Resolvedor sobre os 66 `.md`, cada `[texto](caminho)` resolvido relativo ao ficheiro **e** relativo à raiz, excluídos os marcadores de forma: **antes 3, agora 0**. As três eram as mesmas de G3 — `docs/INDICE.md` a ligar para `exploracao/00-KAMBA-documento-mestre.md`, que está em `docs/` e não em `docs/exploracao/` |
 | G1: zero `tecnica/NN` em `docs/tecnica/` | **satisfeito** | **antes 216, agora 0**, medido com o padrão do CA sobre `docs/tecnica/` |
 | G2 e G3 a zero | **satisfeito** | Sobre a árvore seguida pelo git: G2 **antes 4, agora 0** (as 4 eram em `.claude/skills/agentic-engineering/`, como o CA diz); G3 **antes 3, agora 0** (as 3 ligações do mestre em `docs/INDICE.md`). Nota de medição: sobre o sistema de ficheiros cru G2 dá 1, num ficheiro de estado de execução sob `.claude/state/` — **não rastreado** e transitório, fora da árvore que o gate varre |
-| Referências nuas à biblioteca: 10 ocorrências | **não satisfeito** | As 10 estão corrigidas, mas **não eram todas**. Em `df03076` havia **17** ocorrências nuas em `specs/` e `.claude/skills/` — 8 em `specs/EPIC-10`, 6 em `specs/EPIC-11`, 3 na *skill*. Hoje restam **7**, contadas com a mesma exclusão de `EPIC-01` que as buscas G1–G3 declaram (o próprio texto deste critério acrescentou-lhe 2 ocorrências nuas): `specs/EPIC-10` linhas 105, 288, 469, 589, 649, 709 e `specs/EPIC-11` linha 784. Todas as 7 estão **dentro de blocos de *handoff*** — que é precisamente a questão que o KAM-129 deixou em aberto para os caminhos de evidência, mas que este ticket não declarou como excepção. O CA afirma uma população de 10 e a população é 17; fica por marcar até quem escreveu o critério decidir se os blocos de *handoff* são excepção. Segunda leitura, menor: a excepção declarada do mestre diz «24 ocorrências» e a medição dá **25** (sob qualquer regra de contagem que tentei — todas em *code-span*, nenhuma em posição de alvo de ligação); as 24 saem se se excluir a referência ao ficheiro `09`, que o mestre não inclui como parte |
+| Referências nuas à biblioteca: 10 ocorrências | **satisfeito** | **Fechou com o KAM-145, e não no encerramento original.** A redação do critério errava a população e a forma. A população: em `df03076` havia **17** ocorrências nuas em `specs/` e `.claude/skills/` — 8 em `specs/EPIC-10`, 6 em `specs/EPIC-11`, 3 na *skill* — e não 10. A forma: o critério pedia `../docs/exploracao/…` em todo o `specs/`, mas as 7 que restavam estavam **todas dentro de blocos de *handoff***, onde o executor corre na raiz e `../docs/…` aponta para fora da árvore. Era a questão que o KAM-129 deixou em aberto, e que o **KAM-145** decidiu: dentro desses blocos a forma é relativa à raiz. As 7 passaram a `docs/exploracao/…` e a medição fecha em **17 de 17**; restam 2 ocorrências nuas no conjunto, e são a citação do nome dentro deste próprio critério. Segunda leitura, menor, **que fica em aberto**: a excepção declarada do mestre diz «24 ocorrências» e a medição dá **25** — as 24 saem se se excluir a referência ao ficheiro `09`, que o mestre não inclui como parte |
 | Nenhum caminho funcional da *toolchain* quebra | **satisfeito** | `lint_arch --root . all` → «lista de bloqueio: conforme», «estrutura: conforme». Parte Python de `make check`: `pip_lock.py --check-offline` → «coerente com os pins» (2 ficheiros); `test-py` → as **três** suites verdes no contentor, **75 + 13 + 7**. No anfitrião só as duas primeiras são reproduzíveis — a do AGR exige o `.venv` que `make bootstrap` cria, e `libs/py-core` só passa com `PYTHONPATH` explícito. `docs/evidencia/KAM-001-node.md` continua em `REQUIRED_FILES` de `tools/lint_arch/structure.py` e não se moveu |
 | Cabeçalhos de navegação | **satisfeito** | Os quatro lidos e conformes à árvore nova: `docs/INDICE.md` §2 (bloco de árvore com `docs/` e `specs/` na raiz) e linha de fecho (liga a `00-KAMBA-documento-mestre.md` e `exploracao/13-big-picture-ecossistema.md`); `docs/tecnica/INDICE.md` §4 (`../exploracao/01`–`13`) e §6 (`../exploracao/`, `../00-KAMBA-documento-mestre.md`, `../../specs/INDICE.md`); `README.md` «O que está aqui» (árvore com `docs/` e as suas quatro subpastas) e «Onde ler o quê»; `.claude/skills/agentic-engineering/SKILL.md` §1 (tabela de fontes de verdade, com `docs/tecnica/`, `docs/exploracao/`). Duas ressalvas: o §6 de `docs/INDICE.md`, que o critério nomeia, não foi examinado na primeira passagem — está conforme à árvore, mas afirma que o mestre «compila as partes 01–13», afirmação que o CA8 deste ticket falsifica (13 partes, `01`–`08` e `10`–`14`); e o mesmo ficheiro repete-a no §2 e no §4. É defeito real, sem ticket que o cubra — inventariado em `../docs/analises/ANALISE-04-encerramento-kam-001-128-129.md` §5 |
 | Mestre gerado e idempotente | **satisfeito** | `bash docs/compilar-mestre.sh` duas vezes seguidas: «mestre regenerado: 175733 bytes, 13 partes» nas duas, `sha256` igual nas duas (`de9669847792bfc5998f22bd4cd0c58dbc7b44c8745060ca506100191d777fb7`) e **igual ao que está em git** — `git status --short` vazio depois de cada execução. Cabeçalho declara «NÃO EDITAR À MÃO»; 13 partes, `01`–`08` e `10`–`14`, com a PARTE 14 presente |
 | Backlog sincronizado e contagens | **satisfeito** | Linha do §4 com `chore`, `M`, `P0`, fase 0 e dependência `KAM-001` — igual ao bloco deste epic. `Bloqueia` do KAM-001 contém `KAM-128`; `Dependências` do KAM-111 contém `KAM-128`. No *merge* do ticket (`6eb618f`), `specs/INDICE.md` §1 dizia «128 tickets atómicos (KAM-001 a KAM-128)» e o `README.md` «Backlog mestre (128 tickets)». À data da medição (2026-10-11) diziam 130, por causa do KAM-129 e do KAM-130, e a linha de versão 1.4 do `specs/INDICE.md` regista essa passagem. **Remedição a 2026-10-12:** o backlog cresceu para **143** e o `specs/INDICE.md` §1 e o §3.1 acompanharam; o `README.md` ficou atrás, a dizer 130 — defeito de contagem da classe que o KAM-130 possui, não deste ticket. O que este critério exige é a sincronia dos dois lados, e essa mantém-se |
-| Controlo de versões com KAM-128 | **não satisfeito** | Dos **15** documentos formais tocados por `08426f3` que têm tabela de versões, só **4** registam a emenda: `docs/INDICE.md`, `docs/tecnica/INDICE.md`, `specs/INDICE.md` e `specs/EPIC-01_Fundacoes_Dados.md`. Os **11** que ficaram sem linha: `../docs/tecnica/00_Arquitectura_Solucao.md`, `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md`, `../docs/tecnica/02_Agent_Runtime_Verticais.md`, `../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md`, `../docs/tecnica/06_Dados_Eventos_Analytics.md`, `../docs/tecnica/07_Geo_Logistica_Federada.md`, `../docs/tecnica/08_Seguranca_Conformidade.md`, `../docs/tecnica/09_Topologia_Operacao_Escala.md`, `../docs/tecnica/10_Onboarding_Governanca.md`, `specs/EPIC-10_Spikes_Validacao_Gates.md` e `specs/EPIC-11_Modulos_Entrada.md` — todos com «Controlo de versões» e nenhum com menção a KAM-128 |
-| DoD: todos os CA satisfeitos, evidência em `docs/evidencia/KAM-128.md` | **não satisfeito** | Dois CA em aberto (população das referências nuas, controlo de versões), e o ficheiro de evidência que o DoD nomeia **não existe**: `docs/evidencia/` tem só `KAM-001-node.md` |
+| Controlo de versões com KAM-128 | **satisfeito** | **Fechou com o KAM-146, e não no encerramento original.** Dos **15** documentos formais tocados por `08426f3` que têm tabela de versões, só **4** registavam a emenda — `../docs/INDICE.md`, `../docs/tecnica/INDICE.md`, `specs/INDICE.md` e este epic. Os **11** que faltavam têm agora a sua linha, cada uma com a contagem do seu ficheiro, e a medição fecha em **15 de 15** pela definição operacional (tem tabela de versões) e **12 de 12** pela das três tabelas; a lista dos onze é a mesma nas duas. A secção de verificação do KAM-146 tem a lista e as contagens |
+| DoD: todos os CA satisfeitos | **satisfeito** | **Fechou em 2026-10-12, e não no encerramento original.** Quando este ticket foi entregue havia dois CA em aberto — a população das referências nuas e as linhas de «Controlo de versões» — e a linha de DoD prometia um anexo `docs/evidencia/KAM-128.md` que nunca existiu. Os dois CA fecharam com o **KAM-145** (a forma do caminho dentro dos blocos de *handoff*, que a população das nuas exigia decidir primeiro) e o **KAM-146** (as onze linhas que faltavam), e o **KAM-147** emendou esta linha de DoD para remeter para esta secção, como o KAM-002 faz, em vez de nomear o anexo. As **dez** caixas de Critérios de Aceitação estão agora marcadas |
 | DoD: ≥ 1 revisor e revisão do Arquitecto | **não satisfeito** | O PR #2 foi fundido com `reviewDecision: REVIEW_REQUIRED` e `reviews: []` — **zero** revisores humanos |
 | DoD: documentação actualizada | **satisfeito** | Os quatro documentos que o DoD nomeia estão actualizados (linha dos cabeçalhos de navegação, acima); *Conventional Commits*: `08426f3` é «chore(KAM-128): regulariza a reorganizacao documental e fecha as referencias» |
 | DoD: sincronia mestre↔epics | **satisfeito** | O critério é a **igualdade dos dois lados e zero divergências**, e não um número absoluto — que o backlog muda. À data da medição (2026-10-11): **130** linhas `KAM-NNN` no backlog mestre e **130** blocos `## KAM-NNN` únicos nos 11 epics, sem órfãos de nenhum lado, **0** divergências de tipo, prioridade, estimativa, fase e dependências, e segunda passagem byte a byte idêntica com `git status --short` vazio — verificação, não edição. **Remedido a 2026-10-12: 143 e 143, 0 órfãos de cada lado, 0 divergências.** O invariante aguenta |
@@ -1625,7 +1625,7 @@ foram emendadas depois da revisão adversarial registada em
 | DoD: sem segredos | **satisfeito** | Não aplicável como o ticket declara, e verificado: `08426f3` toca **23** ficheiros, **todos `.md`**; nenhuma configuração nem dependência nova. Ressalva de âmbito: o `docs/compilar-mestre.sh` não vem deste *commit* — foi criado por `53189a2`, e é o único dos três *commits* da cobertura retroactiva que acrescentou um *script* executável, pelo que é o que esta linha **não** cobre |
 | DoD: defeitos fora do âmbito em ticket próprio | **satisfeito** | KAM-129 (prefixo das referências de evidência) e KAM-130 (contagens e intervalos herdados) abertos, ambos com bloco próprio neste epic e linha no backlog mestre, e o bloco do KAM-130 escreve a justificação da separação |
 
-> **O que isto custa, dito com clareza.** Três defeitos reais, nenhum deles
+> **O que isto custa, dito com clareza.** Eram três defeitos reais, nenhum deles grave por si. **Dois estão pagos:** as sete referências nuas que restavam (KAM-145, que decidiu primeiro a forma do caminho dentro dos blocos de *handoff*) e as onze linhas de «Controlo de versões» (KAM-146). A promessa de um anexo de evidência foi **retirada** pelo KAM-147, que emendou a linha de DoD para remeter para esta secção, como o KAM-002 faz. O que fica é a revisão humana, que nenhum ticket deste backlog tem, e a linha de DoD das referências, cuja categoria de «entrega futura de outro ticket» a redação não cobre.
 > grande: sete referências nuas por converter, onze documentos formais sem linha
 > de versão, e três regras de `CODEOWNERS` penduradas. Nenhum impede navegar o
 > conjunto; todos contradizem uma afirmação do próprio ticket. Mais a revisão
@@ -1655,7 +1655,7 @@ G3  grep -rPo '\]\(exploracao/00-KAMBA' docs/ specs/ .claude/
 
 ### Definition of Done
 
-- [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis (evidência em `docs/evidencia/KAM-128.md`).
+- [x] Todos os Critérios de Aceitação satisfeitos e demonstráveis — a medição está na secção «Verificação dos Critérios de Aceitação» deste bloco, uma linha por critério. *(Linha emendada pelo **KAM-147**: nomeava um anexo `../docs/evidencia/KAM-128.md` que nunca existiu. A via escolhida foi a do KAM-002 — a medição vive no bloco do ticket, não num anexo à parte.)* As dez caixas de Critérios de Aceitação estão marcadas: as duas que faltavam fecharam com o **KAM-145** (forma do caminho e população das referências nuas) e o **KAM-146** (as onze linhas de «Controlo de versões»).
 - [ ] Revisto por ≥ 1 revisor; a árvore e a convenção de caminhos revistas também pelo Arquitecto de Plataforma.
 - [x] Documentação actualizada: `../docs/INDICE.md`, `../docs/tecnica/INDICE.md`, `README.md` e a tabela de fontes de verdade da *skill*; Conventional Commits.
 - [x] **Sincronia mestre↔epics** — a linha de `specs/INDICE.md` §4 e o bloco deste epic dizem o mesmo; segunda passagem de verificação dá 0 divergências.
@@ -1780,7 +1780,7 @@ os seus números medem, e é aí — não na aritmética — que a marcação en
 | G5: grafo recíproco | **satisfeito à data, com regressão posterior registada** | *Parser* dos campos `Dependências` e `Bloqueia` dos **130** blocos dos 11 epics, a 2026-10-11: **0** falhas de reciprocidade nos dois sentidos e **0** blocos duplicados. A caixa fica marcada porque o critério é sobre o estado que este ticket entregou, e esse está medido. **Mas o invariante já não se verifica em `main`:** remedido a 2026-10-12 sobre 143 blocos, dá **8 falhas** — `KAM-131` a `KAM-138` declaram `Dependências \| KAM-002` e nenhum entra no `Bloqueia` do KAM-002. É exactamente o modo de falha que o texto deste critério previu («um ticket novo que declare `Dependências \| KAM-NNN` sem entrar no `Bloqueia` do KAM-NNN satisfaz o critério de sincronia pela razão errada»), e aconteceu porque o G5 continua a ser um teste requerido e não um gate: o **KAM-138** (gate 3c) está aberto e não implementado, pelo que nada em `tools/` verifica reciprocidade e o CI fica verde com as 8 falhas |
 | Controlo de versões com KAM-129 | **satisfeito** | Os seis epics tocados têm a linha dentro da sua tabela de «Controlo de versões» (EPIC-05 L707, EPIC-06 L362, EPIC-07 L892, EPIC-08 L775, EPIC-10 L761, EPIC-11 L831, todas 5 linhas abaixo do cabeçalho da secção), e `specs/INDICE.md` regista a emenda na linha de versão 1.4. `specs/EPIC-01` regista-a na 1.2 |
 | Contagens herdadas não corrigidas aqui | **satisfeito** | O bloco `## KAM-130` existe neste epic e escreve a justificação da separação — critério fechado do KAM-129, âmbito que passaria de `specs/` para `docs/`, e cada contagem a exigir decisão de canon própria; regista também que não há sobreposição de linhas entre os dois |
-| DoD: todos os CA satisfeitos, evidência em `docs/evidencia/KAM-129.md` | **não satisfeito** | Dois CA em aberto depois da revisão (G1 à letra e a classe A), e o ficheiro de evidência que o DoD nomeia **não existe**: `docs/evidencia/` tem só `KAM-001-node.md` |
+| DoD: todos os CA satisfeitos | **não satisfeito** | Dois dos onze CA continuam em aberto depois da revisão — a busca G1 lida à letra e a classe A — e nenhum deles é âmbito de nenhum dos três tickets de 2026-10-12. **Uma das duas razões caiu:** a linha de DoD prometia um anexo `docs/evidencia/KAM-129.md` que nunca existiu, e o **KAM-147** emendou-a para remeter para esta secção, como o KAM-002 faz. A caixa continua vazia pelos dois CA, que é a razão que resta |
 | DoD: ≥ 1 revisor e revisão da distinção A/B | **não satisfeito** | O PR #3 foi fundido com `reviewDecision: REVIEW_REQUIRED` e `reviews: []` — **zero** revisores humanos |
 | DoD: documentação actualizada | **satisfeito** | `specs/INDICE.md` §1, §3.1, §4 e linha de versão; `README.md` a 130, que era o valor certo a 2026-10-11; «Controlo de versões» dos seis epics. *Conventional Commits*: `fix(KAM-129): corrige o prefixo das referencias aos anexos de evidencia` e `fix(KAM-129): emenda os achados da revisao adversarial` |
 | DoD: sincronia mestre↔epics | **satisfeito** | A 2026-10-11, 130 linhas no mestre e 130 blocos únicos nos epics, **0** divergências de campo, segunda passagem com saída idêntica e `git status` vazio. **Remedido a 2026-10-12: 143 e 143, 0 divergências** — o invariante aguenta, ao contrário da reciprocidade do G5 |
@@ -1795,7 +1795,7 @@ os seus números medem, e é aí — não na aritmética — que a marcação en
 > afirmam mais do que os seus números medem — «zero referências sem qualificador»
 > e «toda a referência de classe A» —, e as três referências nuas de
 > `specs/EPIC-10:11` falsificam os dois. A primeira marcação deste bloco deu os
-> números como prova do título; não eram. Falta ainda o ficheiro de evidência e a
+> números como prova do título; não eram. A promessa do ficheiro de evidência foi retirada pelo KAM-147, que emendou a linha de DoD para remeter para esta secção; falta a
 > revisão humana.
 
 ### Detalhes Técnicos
@@ -1835,7 +1835,7 @@ git diff --numstat -- specs/EPIC-05_Pagamentos_Billing.md specs/EPIC-06_Indice_P
 
 ### Definition of Done
 
-- [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis (evidência em `docs/evidencia/KAM-129.md`).
+- [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis — a medição está na secção «Verificação dos Critérios de Aceitação» deste bloco, uma linha por critério. *(Linha emendada pelo **KAM-147**: nomeava um anexo `../docs/evidencia/KAM-129.md` que nunca existiu. A via escolhida foi a do KAM-002.)* **Continua vazia**, e por outra razão: **dois** dos onze Critérios de Aceitação deste ticket estão em aberto — a busca G1 lida à letra e a classe A — e nenhum deles é âmbito do KAM-147. O que o KAM-147 fechou foi a promessa do anexo, não os critérios.
 - [ ] Revisto por ≥ 1 revisor; a distinção entre classe A e classe B revista também pelo Arquitecto de Plataforma, por ser onde um executor apressado criaria ficheiros a mais.
 - [x] Documentação actualizada: `specs/INDICE.md` (§1, §3.1, §4, Controlo de versões), `README.md` e o «Controlo de versões» de cada epic tocado; Conventional Commits.
 - [x] **Sincronia mestre↔epics** — a linha de `specs/INDICE.md` §4 e o bloco deste epic dizem o mesmo; segunda passagem de verificação dá 0 divergências.
@@ -3924,14 +3924,77 @@ Declarar o *cwd* do executor nos padrões, decidir **uma** convenção de caminh
 
 ### Critérios de Aceitação
 
-- [ ] **O *cwd* do executor está declarado** em `specs/01_Engineering_Standards_e_Handoff.md`, numa frase, no §5 ou no §8, e o §8 passa a citar os seus próprios quatro caminhos na forma que a declaração implica.
-- [ ] **Há uma convenção escrita para caminhos dentro de blocos de *handoff***, com a consequência de cada alternativa registada: tudo relativo à raiz, tudo relativo ao ficheiro, ou uma regra que distinga ler de escrever. **A escolha é do Arquitecto de Plataforma** (o papel que `specs/01_Engineering_Standards_e_Handoff.md` §9 nomeia para este documento; as três linhas de assinatura estão vazias e o documento é *proposta*): apresentam-se as alternativas e as consequências, e regista-se quem aprovou — não se decide sozinho entre duas afirmações do canon.
-- [ ] As **291** ocorrências medidas obedecem à convenção decidida: **0** de forma divergente, verificado por *script* sobre os onze `specs/EPIC-*.md`, com a tabela do «antes» e do «depois» no PR.
-- [ ] As **quatro** instruções `Cria …/validacao/*.md` não escrevem fora da árvore do repositório quando lidas à letra do *cwd* declarado.
-- [ ] **O critério em aberto do KAM-128 fica reconciliado com a decisão.** Se a convenção não for `../docs/exploracao/…`, o texto desse critério é emendado para dizer a forma decidida; e a medição dessa caixa passa a dizer **17 de 17** — que é a população real do critério, e não as 10 que o texto afirma, como a secção de verificação do KAM-128 já registou. A disposição da caixa é do DoD, não deste critério.
-- [ ] Nenhum caminho **fora** de blocos de *handoff* é tocado: a referência cruzada entre documentos continua a ser a regra do KAM-128.
-- [ ] A convenção fica verificada por máquina **neste PR**, pelo *script* de classificação, que passa a viver em `tools/` em vez de morrer no *scratchpad*: corre-o duas vezes e as duas dizem 0 divergentes. Inscrevê-la no **KAM-138** fica como proposta escrita nos «Detalhes Técnicos» — não como via alternativa para fechar este critério, porque poria trabalho num ticket que não é dependência deste. Uma convenção que nenhum gate lê volta a divergir.
-- [ ] Cada epic tocado e o `specs/01_Engineering_Standards_e_Handoff.md` registam a emenda no «Controlo de versões», **sem citar a forma antiga**, para não acender as buscas de regressão **G1 e G3 do KAM-129** (`grep -rnoE '(^|[^/A-Za-z._-])evidencia/'` e `grep -rnoE '\.\./docs/tecnica/\.\./|docs/docs/'`, ambas sobre `specs/*.md` com `--exclude=EPIC-01_Fundacoes_Dados.md`) — são essas que excluem **um só** ficheiro, e por isso que uma forma antiga escrita em qualquer dos outros dez as acende.
+- [x] **O *cwd* do executor está declarado** em `specs/01_Engineering_Standards_e_Handoff.md`, numa frase, no §5 ou no §8, e o §8 passa a citar os seus próprios quatro caminhos na forma que a declaração implica.
+- [x] **Há uma convenção escrita para caminhos dentro de blocos de *handoff***, com a consequência de cada alternativa registada: tudo relativo à raiz, tudo relativo ao ficheiro, ou uma regra que distinga ler de escrever. **A escolha é do Arquitecto de Plataforma** (o papel que `specs/01_Engineering_Standards_e_Handoff.md` §9 nomeia para este documento; as três linhas de assinatura estão vazias e o documento é *proposta*): apresentam-se as alternativas e as consequências, e regista-se quem aprovou — não se decide sozinho entre duas afirmações do canon.
+- [x] As **291** ocorrências medidas obedecem à convenção decidida: **0** de forma divergente, verificado por *script* sobre os onze `specs/EPIC-*.md`, com a tabela do «antes» e do «depois» no PR.
+- [x] As **quatro** instruções `Cria …/validacao/*.md` não escrevem fora da árvore do repositório quando lidas à letra do *cwd* declarado.
+- [x] **O critério em aberto do KAM-128 fica reconciliado com a decisão.** Se a convenção não for `../docs/exploracao/…`, o texto desse critério é emendado para dizer a forma decidida; e a medição dessa caixa passa a dizer **17 de 17** — que é a população real do critério, e não as 10 que o texto afirma, como a secção de verificação do KAM-128 já registou. A disposição da caixa é do DoD, não deste critério.
+- [x] Nenhum caminho **fora** de blocos de *handoff* é tocado: a referência cruzada entre documentos continua a ser a regra do KAM-128.
+- [x] A convenção fica verificada por máquina **neste PR**, pelo *script* de classificação, que passa a viver em `tools/` em vez de morrer no *scratchpad*: corre-o duas vezes e as duas dizem 0 divergentes. Inscrevê-la no **KAM-138** fica como proposta escrita nos «Detalhes Técnicos» — não como via alternativa para fechar este critério, porque poria trabalho num ticket que não é dependência deste. Uma convenção que nenhum gate lê volta a divergir.
+- [x] Cada epic tocado e o `specs/01_Engineering_Standards_e_Handoff.md` registam a emenda no «Controlo de versões», **sem citar a forma antiga**, para não acender as buscas de regressão **G1 e G3 do KAM-129** (`grep -rnoE '(^|[^/A-Za-z._-])evidencia/'` e `grep -rnoE '\.\./docs/tecnica/\.\./|docs/docs/'`, ambas sobre `specs/*.md` com `--exclude=EPIC-01_Fundacoes_Dados.md`) — são essas que excluem **um só** ficheiro, e por isso que uma forma antiga escrita em qualquer dos outros dez as acende.
+
+### Verificação dos Critérios de Aceitação
+
+Entregue no ramo `feature/KAM-145-caminhos-de-handoff-e-cwd`, a partir de `main` (`26226e0`). Medido a 2026-10-12 por `tools/lint_handoff`, que é entrega deste ticket e é o mesmo módulo que delimita os blocos para **editar** e para **verificar** — a edição e a verificação não podem discordar sobre o que é um bloco. Cada caixa marcada acima tem uma linha aqui; **a não marcada também**.
+
+**A decisão, e quem a tomou.** As três alternativas foram postas ao fundador a 2026-10-12, com a consequência de cada uma, e ele escolheu a primeira:
+
+| Alternativa | Consequência | Escolha |
+|---|---|---|
+| **Relativo à raiz do repositório** | É onde o executor corre, logo `docs/tecnica/…` e `specs/…`. Obriga a 254 edições e a emendar o texto de um critério do KAM-128, que mandava o contrário | **escolhida** |
+| Relativo à posição do ficheiro | Mantém `../docs/…`, a forma dominante (247 de 284), e só 37 mudam. Mas deixa as quatro instruções `Cria …/validacao/*.md` a escrever fora da árvore, e obrigaria a declarar o *cwd* como sendo a pasta do epic, o que é falso | — |
+| Regra que distinga ler de escrever | Mínimo de edições, mas duas convenções dentro do mesmo bloco — o que o KAM-129 disse ser pior do que o defeito | — |
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1. O *cwd* do executor está declarado | **satisfeito** | `specs/01_Engineering_Standards_e_Handoff.md` §5, entrada nova: «O executor corre na raiz do repositório». Antes: busca por `cwd`, `raiz do repositório`, `directório de trabalho` e `diretório de trabalho` nesse ficheiro → **0 ocorrências**. O §8 passou a citar os seus próprios **3** caminhos `../docs/…` na forma declarada |
+| 2. Convenção escrita, com a consequência de cada alternativa, aprovada por quem aprova os padrões | **satisfeito** | A tabela acima. A entrada do §5 diz a regra, o seu alcance (**só** dentro dos blocos de *handoff*) e a razão da distinção — um bloco de *handoff* é instrução a um processo com `cwd`; a prosa é ligação para um leitor que navega ficheiros. Aprovada pelo fundador, que é quem decide neste conjunto; as três linhas de assinatura do §9 continuam vazias, como em todo o conjunto |
+| 3. As ocorrências medidas obedecem à convenção: 0 divergentes | **satisfeito** | `lint_handoff --root . check` → «conforme — **536** caminho(s) em blocos de *handoff*, 11 ficheiro(s); **0** defeituoso(s)». Convertidas **254**: 247 que apontavam para fora da árvore e 7 sem directório. O censo antes e depois está abaixo. **Nota sobre o número do critério:** o critério foi escrito com **291**, que era a população de caminhos `docs/` — e essa está inteira em conformidade (247 convertidos + 37 que já estavam + 7 nuas convertidas). O *gate* conta **536** porque lê também `specs/`, `tools/`, `ci/`, `db/`, `ops/`, `canon/`, `libs/`, `services/` e `registry/`. Os dois números são da mesma árvore, com populações diferentes; o que fecha o critério é o **0 divergentes** |
+| 4. As quatro instruções `Cria …/validacao/*.md` não escrevem fora da árvore | **satisfeito** | `specs/EPIC-10_Spikes_Validacao_Gates.md` linhas 167, 230, 290 e 591, agora `Cria docs/tecnica/evidencia/validacao/…`. `grep -c 'Cria \.\./' specs/EPIC-*.md` → **0** em todos. Os quatro alvos ainda não existem — são a entrega do KAM-100, KAM-101, KAM-103 e KAM-109 — mas o caminho cai agora **dentro** da árvore |
+| 5. O critério em aberto do KAM-128 fica reconciliado | **satisfeito** | O critério das referências nuas (bloco KAM-128 deste epic) foi emendado para dizer a forma decidida, com a emenda atribuída a este ticket, e **marcado**: a sua medição é **17 de 17**, não 10. `grep -rPno` dos dois nomes sem directório sobre `specs/` e `.claude/` → **2** ocorrências, e ambas são a citação do nome **dentro do próprio critério**, que tem de as nomear para as corrigir |
+| 6. Nenhum caminho fora de blocos de *handoff* é tocado | **satisfeito** | *Script* que cruza as linhas novas de cada `@@` do `git diff -U0` com os intervalos que o `lint_handoff` delimita: **192** linhas alteradas **dentro** de blocos e **11** linhas de «Controlo de versões» acrescentadas, uma por epic. Fora de blocos, no `EPIC-01`: **1** linha de critério emendada — a do KAM-128, que o critério 5 manda emendar — **11** caixas marcadas, e as linhas novas das secções de verificação. **Nenhum caminho fora de um bloco de *handoff* foi tocado**, que é o que este critério afirma; a redação anterior dizia «e 1 fora», que contava só a linha de critério e não as caixas |
+| 7. A convenção fica verificada por máquina neste PR, pelo *script*, que passa a viver em `tools/` | **satisfeito** | `tools/lint_handoff/` (`scan.py`, `cli.py`, `__main__.py`), com **17** testes verdes em `tools/lint_handoff/tests/test_scan.py` que fixam as fronteiras do bloco e a classificação. Ligado ao **`ci-3`** do `Makefile` como segundo passo, e registado em `../docs/ci.md` §3. **Entra no `ci-3` e não como *gate* novo de propósito:** um *gate* novo acrescentaria um contexto exigido ao *ruleset* de `main`, que é alteração de regra de bloqueio e não é deste ticket. Os sete contextos mantêm-se. A inscrição no KAM-138 fica como proposta nos «Detalhes Técnicos», não como via para fechar este critério |
+| 8. Linhas de «Controlo de versões», sem citar a forma antiga | **satisfeito** | **11** epics, mais `specs/01_Engineering_Standards_e_Handoff.md` (1.2) e `../docs/ci.md` (1.18) — 13 linhas, cada uma com a contagem do seu ficheiro. Buscas de regressão depois: **G1 do KAM-129 → 0**, **G3 do KAM-129 → 0**, **G1 do KAM-128 → 0**, **G3 do KAM-128 → 0** |
+
+#### O censo, antes e depois
+
+`lint_handoff --root . censo`, as duas classes de defeito e a conforme:
+
+| Ficheiro | acima da raiz | sem directório | relativo à raiz |
+|---|---|---|---|
+| `specs/EPIC-01_Fundacoes_Dados.md` | 28 → **0** | 0 | 126 → **154** |
+| `specs/EPIC-02_Canais_WhatsApp_Handoff.md` | 24 → **0** | 0 | 14 → **38** |
+| `specs/EPIC-03_Agent_Runtime_Verticais.md` | 26 → **0** | 0 | 23 → **49** |
+| `specs/EPIC-04_Core_Comercio.md` | 16 → **0** | 0 | 12 → **28** |
+| `specs/EPIC-05_Pagamentos_Billing.md` | 16 → **0** | 0 | 9 → **25** |
+| `specs/EPIC-06_Indice_Pesquisa.md` | 5 → **0** | 0 | 4 → **9** |
+| `specs/EPIC-07_Seguranca_Conformidade.md` | 25 → **0** | 0 | 12 → **37** |
+| `specs/EPIC-08_Topologia_Operacao.md` | 21 → **0** | 0 | 15 → **36** |
+| `specs/EPIC-09_Onboarding_Governanca.md` | 39 → **0** | 0 | 31 → **70** |
+| `specs/EPIC-10_Spikes_Validacao_Gates.md` | 25 → **0** | 6 → **0** | 13 → **44** |
+| `specs/EPIC-11_Modulos_Entrada.md` | 22 → **0** | 1 → **0** | 23 → **46** |
+| **Total** | **247 → 0** | **7 → 0** | **282 → 536** |
+
+O total de caminhos não muda (**536** antes e depois): nenhum se perdeu nem se inventou, só mudou de forma.
+
+#### Os caminhos resolvem?
+
+A partição é exaustiva: **375** caminhos completos de ficheiro (com extensão), **138** na forma-código do conjunto (`docs/tecnica/08`, `docs/tecnica/evidencia/E5`), que o KAM-129 declarou convenção legítima e que não se expande aqui, e **23** em forma de directório (terminados em `/`). 375 + 138 + 23 = 536. Dos 23, três não resolvem, e os três estão explicados: dois são as ilustrações de defeito dentro dos blocos do KAM-128 e do KAM-129 — declaradas em `ci/handoff-allow.yaml` — e o terceiro é `tools/lint_backlog/`, entrega do KAM-138. Dos 375, **362 resolvem** a partir da raiz e **13 não** — e os 13 são entregas futuras de outros tickets, categoria pré-existente e legítima: `ci/backlog-allow.yaml` (KAM-138), seis `registry/*.yaml`, `docs/spikes/KAM-041-medusa.md`, `ops/slo.md` e os quatro `docs/tecnica/evidencia/validacao/*.md` do critério 4.
+
+#### Definition of Done
+
+| # | Linha | Estado |
+|---|---|---|
+| 1 | Todos os CA satisfeitos e demonstráveis, com a medição nesta secção | **marcada** — as oito caixas de Critérios de Aceitação estão marcadas, cada uma com a sua linha acima |
+| 2 | Convenção e *cwd* aprovados pelo Arquitecto de Plataforma; revisto por ≥ 1 revisor | **vazia** — a primeira metade cumpre-se: a convenção foi escolhida pelo fundador, de entre três alternativas apresentadas com as suas consequências, e está registada no §5. **A segunda não:** a caixa dos revisores humanos continua vazia, como em todo o backlog. A revisão adversarial é evidência, não é um revisor. Fica por marcar à letra, e não por aproximação |
+| 3 | Documentação actualizada; Conventional Commits | **marcada** — `specs/01` §5 e §8, `../docs/ci.md` §3 e a sua tabela de *gates*, `Makefile` (`ci-3`), 13 linhas de «Controlo de versões». *Commits* conformes |
+| 4 | **Sem segredos** | **marcada** — não aplicável: nenhum valor, chave ou token entra neste ticket |
+
+#### Decisões devolvidas
+
+**A inscrição no gate 3c (KAM-138) não foi feita.** Este ticket deixa a verificação a correr no `ci-3`, que não é um contexto novo do *ruleset*. Passar o `lint_handoff` a critério do KAM-138 — ou a *gate* próprio com contexto exigido — é alteração de regra de bloqueio, do Responsável de Segurança com o Arquitecto de Plataforma, e está escrita nos «Detalhes Técnicos» como proposta.
+
+**Partir este ticket em dois não se fez.** A alternativa está escrita nos «Detalhes Técnicos»: separar «declarar o *cwd* e escolher a convenção» de «aplicá-la às ocorrências». Executou-se de uma vez porque a decisão veio do fundador no mesmo acto, e aplicar logo evitou deixar a convenção declarada e desobedecida em 254 sítios. A estimativa manteve-se em **L**.
 
 ### Detalhes Técnicos
 
@@ -3952,10 +4015,10 @@ Declarar o *cwd* do executor nos padrões, decidir **uma** convenção de caminh
 
 ### Definition of Done
 
-- [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis, com a medição numa secção «Verificação dos Critérios de Aceitação» deste bloco.
+- [x] Todos os Critérios de Aceitação satisfeitos e demonstráveis, com a medição numa secção «Verificação dos Critérios de Aceitação» deste bloco.
 - [ ] A convenção e o *cwd* aprovados pelo **Arquitecto de Plataforma** (`specs/01_Engineering_Standards_e_Handoff.md` §9) e registados nesse documento; revisto por ≥ 1 revisor.
-- [ ] Documentação actualizada: linha de «Controlo de versões» em cada epic tocado e no `specs/01_Engineering_Standards_e_Handoff.md`; Conventional Commits.
-- [ ] **Sem segredos** — não aplicável.
+- [x] Documentação actualizada: linha de «Controlo de versões» em cada epic tocado e no `specs/01_Engineering_Standards_e_Handoff.md`; Conventional Commits.
+- [x] **Sem segredos** — não aplicável.
 
 ### Handoff para Claude Code
 
@@ -4023,12 +4086,65 @@ Dar a cada um dos onze documentos a sua linha de versão a referir o KAM-128, a 
 
 ### Critérios de Aceitação
 
-- [ ] Cada um dos **onze** documentos tem uma linha nova no seu «Controlo de versões» com referência a KAM-128, a dizer o que mudou nesse documento em concreto — não a mesma linha genérica onze vezes.
-- [ ] **Nenhuma linha nova cita a forma antiga** do caminho. Verificado com a busca certa para cada forma, e com a contagem igual antes e depois: `evidencia/EN` pelo **G1 do KAM-129** (`specs/*.md`, exclui só este epic — alcança portanto o `EPIC-10` e o `EPIC-11`, que são dois dos onze); `tecnica/NN` pelo **G1 do KAM-128** (`docs/tecnica/`, sem exclusão — alcança os outros nove). Para o **nome nu da biblioteca não existe busca de regressão nenhuma** no conjunto: essa verifica-se com o resolvedor de caminhos, nomeando-o nos «Testes Requeridos», e não se finge que uma busca a cobre.
-- [ ] O número de versão de cada linha segue a sequência da tabela do próprio documento, e nenhuma linha antiga é reescrita ou reordenada.
-- [ ] Nenhum conteúdo técnico muda: o `git diff` de cada ficheiro é a linha nova e mais nada.
-- [ ] **A definição de «documento formal» usada fica escrita** no bloco deste ticket, e os 8 ficheiros sem tabela de versões ficam nomeados, com a razão de ficarem de fora.
-- [ ] A medição da caixa do critério do KAM-128 dá **15 de 15** pela definição operacional (tem tabela `| Versão | Data |`) **e 12 de 12** pela definição das três tabelas — as duas têm de ser escritas, porque dão populações diferentes: os três que só a primeira conta (`../docs/INDICE.md`, `../docs/tecnica/INDICE.md`, `specs/INDICE.md`) **já têm** a linha, pelo que a lista dos onze em falta é a mesma nas duas. A disposição da caixa é do DoD.
+- [x] Cada um dos **onze** documentos tem uma linha nova no seu «Controlo de versões» com referência a KAM-128, a dizer o que mudou nesse documento em concreto — não a mesma linha genérica onze vezes.
+- [x] **Nenhuma linha nova cita a forma antiga** do caminho. Verificado com a busca certa para cada forma, e com a contagem igual antes e depois: `evidencia/EN` pelo **G1 do KAM-129** (`specs/*.md`, exclui só este epic — alcança portanto o `EPIC-10` e o `EPIC-11`, que são dois dos onze); `tecnica/NN` pelo **G1 do KAM-128** (`docs/tecnica/`, sem exclusão — alcança os outros nove). Para o **nome nu da biblioteca não existe busca de regressão nenhuma** no conjunto: essa verifica-se com o resolvedor de caminhos, nomeando-o nos «Testes Requeridos», e não se finge que uma busca a cobre.
+- [x] O número de versão de cada linha segue a sequência da tabela do próprio documento, e nenhuma linha antiga é reescrita ou reordenada.
+- [x] Nenhum conteúdo técnico muda: o `git diff` de cada ficheiro é a linha nova e mais nada.
+- [x] **A definição de «documento formal» usada fica escrita** no bloco deste ticket, e os 8 ficheiros sem tabela de versões ficam nomeados, com a razão de ficarem de fora.
+- [x] A medição da caixa do critério do KAM-128 dá **15 de 15** pela definição operacional (tem tabela `| Versão | Data |`) **e 12 de 12** pela definição das três tabelas — as duas têm de ser escritas, porque dão populações diferentes: os três que só a primeira conta (`../docs/INDICE.md`, `../docs/tecnica/INDICE.md`, `specs/INDICE.md`) **já têm** a linha, pelo que a lista dos onze em falta é a mesma nas duas. A disposição da caixa é do DoD.
+
+### Verificação dos Critérios de Aceitação
+
+Entregue no ramo `feature/KAM-145-caminhos-de-handoff-e-cwd`, a partir de `main` (`26226e0`), no mesmo PR do KAM-145 e do KAM-147. Medido a 2026-10-12 por *script* no *scratchpad*, que lista os `.md` de `08426f3`, detecta a tabela de versões pelo cabeçalho e procura a linha que cita o ticket. Cada caixa marcada acima tem uma linha aqui; **a não marcada também**.
+
+**A definição de «documento formal» usada, e porque se escolheu esta.** O conjunto tem **duas**, e dão populações diferentes:
+
+| Definição | Onde está | População nos 23 ficheiros de `08426f3` |
+|---|---|---|
+| **Operacional:** tem tabela de controlo de versões (cabeçalho `Versão \| Data`) | é a que o critério do KAM-128 implica, ao pedir que «cada documento formal tocado regista a emenda no seu "Controlo de versões"» | **15** |
+| **Das três tabelas:** cabeçalho `Campo \| Valor`, tabela de aprovação e controlo de versões | «Convenções não negociáveis» de `.claude/skills/agentic-engineering/SKILL.md` | **12** |
+
+Usou-se a **operacional**, porque é a que o próprio critério implica: um documento só pode registar a emenda «no seu Controlo de versões» se o tiver. A escolha não altera a lista dos onze em falta, e isso é o que a torna segura: os **três** que só a primeira conta — `../docs/INDICE.md`, `../docs/tecnica/INDICE.md` e `specs/INDICE.md` — **já tinham** a linha desde o KAM-128. As duas definições dão 15/15 e 12/12 sobre o mesmo trabalho.
+
+**`specs/01_Engineering_Standards_e_Handoff.md` não define «documento formal».** Busca por `documento formal` e `tabela de aprovação` nesse ficheiro → **0 ocorrências**. A regra das três tabelas vive só na *skill*, que a tabela de fontes de verdade da própria *skill* (§1) não lista. Fica registado aqui como achado; levar a definição aos padrões não é deste ticket.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1. Cada um dos onze tem linha nova, a dizer o que mudou nesse documento | **satisfeito** | **11** linhas, uma por ficheiro, cada uma com a contagem do seu: `00` (19), `01` (24), `02` (28), `05` (12), `06` (**18**), `07` (29), `08` (13), `09` (23), `10` (50), `specs/EPIC-10` (as 2 linhas do cabeçalho e da nota) e `specs/EPIC-11` (as 5 linhas de cabeçalho). As contagens saíram de `git show 08426f3 -- <ficheiro>`, uma por uma, classificando as linhas removidas. Nenhuma linha é genérica |
+| 2. Nenhuma linha nova cita a forma antiga | **satisfeito** | Duas camadas. **No *script*:** cada linha passa por cinco padrões proibidos antes de ser escrita, e o *script* falha se um deles casar. **Na medição:** as buscas antes e depois são idênticas — **G1 do KAM-129 → 0 e 0**, **G3 do KAM-129 → 0 e 0**, **G1 do KAM-128 → 0 e 0**, **G3 do KAM-128 → 0 e 0**. O **G2 do KAM-128** dá **29 antes e 29 depois**: não está a zero, e isso é defeito do padrão do G2, não destas linhas — está na linha 20 de `../docs/dividas-documentais.md`. As buscas certas para cada forma: `evidencia/EN` pelo **G1 do KAM-129** (`specs/*.md`, exclui só o `EPIC-01`, e por isso alcança o `EPIC-10` e o `EPIC-11`, que são dois dos onze); `tecnica/NN` pelo **G1 do KAM-128** (`docs/tecnica/`, sem exclusão, alcança os outros nove). Para o **nome nu da biblioteca não existe busca de regressão** no conjunto — essa verificou-se pelo resolvedor de caminhos, e não se finge que uma busca a cobre |
+| 3. O número de versão segue a sequência de cada documento, sem reescrever linhas antigas | **satisfeito** | O *script* lê os pares `maior.menor` da própria tabela e incrementa o menor do máximo: `00` 1.2, `01` 1.2, `02` 1.2, `05` 1.2, `06` 1.2, `07` 1.1, `08` 1.2, `09` 1.2, `10` 1.2, `EPIC-10` 1.3, `EPIC-11` 1.3. **Não se somou 0,01 a um decimal** — foi o erro que, na abertura destes tickets, produziu «1.91» a partir de 1.9. Nenhuma linha antiga foi reescrita nem reordenada: o `git diff` de cada ficheiro é uma linha acrescentada |
+| 4. Nenhum conteúdo técnico muda | **satisfeito** | `git diff --numstat` dos onze: **1 linha acrescentada e 0 removidas** em cada. Onze ficheiros, onze linhas |
+| 5. A definição usada fica escrita, e os 8 excluídos ficam nomeados | **satisfeito** | A tabela acima. Os **8** sem tabela de versões, nomeados com a razão: `README.md` e `../docs/PR-KAM-001.md` (nunca tiveram); `../docs/00-KAMBA-documento-mestre.md`, que é gerado por `../docs/compilar-mestre.sh` e diz «NÃO EDITAR À MÃO» — escrever-lhe uma linha perder-se-ia na regeneração seguinte; `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md`, da biblioteca histórica; e os **4** de `.claude/skills/agentic-engineering/`, que são instruções de ferramenta e não documento do conjunto |
+| 6. A medição da caixa do KAM-128 dá 15 de 15 e 12 de 12 | **satisfeito** | **15 de 15** pela definição operacional e **12 de 12** pela das três tabelas, com a lista dos onze igual nas duas. A caixa do critério do KAM-128 está marcada, e a sua linha de evidência remete para aqui |
+
+#### As onze linhas, e o que cada uma diz
+
+| Documento | Versão | O que a linha registra |
+|---|---|---|
+| `../docs/tecnica/00_Arquitectura_Solucao.md` | 1.2 | 19 referências irmãs. Os ADRs do §8 e as decisões abertas do §13.3 não foram tocados |
+| `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` | 1.2 | 24 referências irmãs |
+| `../docs/tecnica/02_Agent_Runtime_Verticais.md` | 1.2 | 28 referências irmãs |
+| `../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md` | 1.2 | 12 referências irmãs |
+| `../docs/tecnica/06_Dados_Eventos_Analytics.md` | 1.2 | 18 referências irmãs |
+| `../docs/tecnica/07_Geo_Logistica_Federada.md` | 1.1 | 29 referências irmãs |
+| `../docs/tecnica/08_Seguranca_Conformidade.md` | 1.2 | 13 referências irmãs |
+| `../docs/tecnica/09_Topologia_Operacao_Escala.md` | 1.2 | 23 referências irmãs |
+| `../docs/tecnica/10_Onboarding_Governanca.md` | 1.2 | 50 referências irmãs — o documento com mais referências cruzadas do conjunto |
+| `specs/EPIC-10_Spikes_Validacao_Gates.md` | 1.3 | O `Documento-fonte` do cabeçalho e a nota «Natureza dos tickets»: duas linhas |
+| `specs/EPIC-11_Modulos_Entrada.md` | 1.3 | As 5 linhas de cabeçalho — `Documento-fonte`, `Documentos relacionados` e três `Documentos de referência` de blocos de ticket |
+
+#### Definition of Done
+
+| # | Linha | Estado |
+|---|---|---|
+| 1 | Todos os CA satisfeitos e demonstráveis, com a medição nesta secção | **marcada** — as seis caixas de Critérios de Aceitação estão marcadas, cada uma com a sua linha acima |
+| 2 | Revisto por ≥ 1 revisor | **vazia** — a caixa dos revisores humanos continua vazia, como em todo o backlog. A revisão adversarial é evidência, não é um revisor |
+| 3 | Documentação actualizada; Conventional Commits | **marcada** — as onze linhas de «Controlo de versões», e a caixa do critério do KAM-128 marcada com a sua evidência. *Commits* conformes |
+| 4 | **Sem segredos** | **marcada** — não aplicável |
+
+#### Achado registado, fora de âmbito
+
+**`specs/01_Engineering_Standards_e_Handoff.md` não diz o que é um «documento formal»**, e a regra das três tabelas está só na *skill*, que a sua própria tabela de fontes de verdade não lista. Este ticket escreveu a definição que usou e mediu as duas; levar a definição aos padrões é alteração normativa e pertence a quem aprova o `specs/01`.
 
 ### Detalhes Técnicos
 
@@ -4044,10 +4160,10 @@ Dar a cada um dos onze documentos a sua linha de versão a referir o KAM-128, a 
 
 ### Definition of Done
 
-- [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis, com a medição numa secção «Verificação dos Critérios de Aceitação» deste bloco.
+- [x] Todos os Critérios de Aceitação satisfeitos e demonstráveis, com a medição numa secção «Verificação dos Critérios de Aceitação» deste bloco.
 - [ ] Revisto por ≥ 1 revisor.
-- [ ] Documentação actualizada; Conventional Commits.
-- [ ] **Sem segredos** — não aplicável.
+- [x] Documentação actualizada; Conventional Commits.
+- [x] **Sem segredos** — não aplicável.
 
 ### Handoff para Claude Code
 
@@ -4103,12 +4219,48 @@ Fechar a primeira linha de DoD do KAM-128 e do KAM-129 por uma das duas vias, de
 
 ### Critérios de Aceitação
 
-- [ ] **A escolha está escrita, com a razão e quem a aprovou:** escrever os dois anexos, ou emendar as duas linhas de DoD para remeterem para a secção «Verificação dos Critérios de Aceitação» do próprio bloco. Apresentam-se as duas, com a consequência de cada uma. **Decide o Arquitecto de Plataforma** — as linhas de DoD dos dois tickets estão assinadas «Equipa KAMBÁ», que não é uma pessoa, e `specs/01_Engineering_Standards_e_Handoff.md` §9 nomeia esse papel para os padrões. **Não se decide sozinho.**
-- [ ] Se a via for **escrever**: `../docs/evidencia/KAM-128.md` e `../docs/evidencia/KAM-129.md` existem, na forma de `KAM-131.md` e `KAM-136.md` (tabela `| Campo | Valor |` com `Ticket`, `Ramo`, `PR`, `Data`, `Máquina`, e remissão para o bloco do ticket), e **cada número neles é reproduzido ou citado** da secção de verificação do bloco correspondente, com o comando. **Nenhuma medição nova é inventada.** O que não se puder reproduzir hoje aparece como tal, com a razão.
-- [ ] Se a via for **emendar**: as duas linhas de DoD passam a remeter para a secção de verificação do próprio bloco, como o KAM-002 faz, e a emenda diz-se aplicável a estes dois tickets ou a todos — e nesse caso as outras **seis** linhas do epic são tratadas, ou ficam nomeadas como fora de âmbito.
-- [ ] Os PR e os *commits* citados estão certos: o KAM-128 foi entregue no PR `albinoJimy/kamba#2` (trabalho em `08426f3`, fundido em `6eb618f`) e o KAM-129 no PR `albinoJimy/kamba#3` (fundido em `1401cd3`), como as secções de verificação dos próprios blocos dizem.
-- [ ] A primeira linha de DoD de cada um dos dois tickets tem a sua medição escrita na secção de verificação do respectivo bloco: o que a via escolhida produziu, e o estado resultante. **As restantes caixas em aberto dos dois tickets não se tocam**: dependem do KAM-145 e do KAM-146, não deste ticket. A disposição da caixa é do DoD.
-- [ ] O caminho usado nas duas linhas de DoD obedece à convenção que o **KAM-145** decidir; se este ticket entrar primeiro, mantém-se a forma dominante do ficheiro e diz-se que se fez assim.
+- [x] **A escolha está escrita, com a razão e quem a aprovou:** escrever os dois anexos, ou emendar as duas linhas de DoD para remeterem para a secção «Verificação dos Critérios de Aceitação» do próprio bloco. Apresentam-se as duas, com a consequência de cada uma. **Decide o Arquitecto de Plataforma** — as linhas de DoD dos dois tickets estão assinadas «Equipa KAMBÁ», que não é uma pessoa, e `specs/01_Engineering_Standards_e_Handoff.md` §9 nomeia esse papel para os padrões. **Não se decide sozinho.**
+- [x] Se a via for **escrever**: `../docs/evidencia/KAM-128.md` e `../docs/evidencia/KAM-129.md` existem, na forma de `KAM-131.md` e `KAM-136.md` (tabela `| Campo | Valor |` com `Ticket`, `Ramo`, `PR`, `Data`, `Máquina`, e remissão para o bloco do ticket), e **cada número neles é reproduzido ou citado** da secção de verificação do bloco correspondente, com o comando. **Nenhuma medição nova é inventada.** O que não se puder reproduzir hoje aparece como tal, com a razão.
+- [x] Se a via for **emendar**: as duas linhas de DoD passam a remeter para a secção de verificação do próprio bloco, como o KAM-002 faz, e a emenda diz-se aplicável a estes dois tickets ou a todos — e nesse caso as outras **seis** linhas do epic são tratadas, ou ficam nomeadas como fora de âmbito.
+- [x] Os PR e os *commits* citados estão certos: o KAM-128 foi entregue no PR `albinoJimy/kamba#2` (trabalho em `08426f3`, fundido em `6eb618f`) e o KAM-129 no PR `albinoJimy/kamba#3` (fundido em `1401cd3`), como as secções de verificação dos próprios blocos dizem.
+- [x] A primeira linha de DoD de cada um dos dois tickets tem a sua medição escrita na secção de verificação do respectivo bloco: o que a via escolhida produziu, e o estado resultante. **As restantes caixas em aberto dos dois tickets não se tocam**: dependem do KAM-145 e do KAM-146, não deste ticket. A disposição da caixa é do DoD.
+- [x] O caminho usado nas duas linhas de DoD obedece à convenção que o **KAM-145** decidir; se este ticket entrar primeiro, mantém-se a forma dominante do ficheiro e diz-se que se fez assim.
+
+### Verificação dos Critérios de Aceitação
+
+Entregue no ramo `feature/KAM-145-caminhos-de-handoff-e-cwd`, a partir de `main` (`26226e0`), no mesmo PR do KAM-145 e do KAM-146. Medido a 2026-10-12. Cada caixa marcada acima tem uma linha aqui; **a não marcada também**.
+
+**A via escolhida: emendar as duas linhas.** As duas alternativas foram postas ao fundador a 2026-10-12, com a consequência de cada uma, e ele escolheu a segunda:
+
+| Via | Consequência | Escolha |
+|---|---|---|
+| **A — escrever os dois anexos** | `../docs/evidencia/KAM-128.md` e `KAM-129.md` na forma do KAM-131 e do KAM-136. Mantém a expectativa que as outras seis linhas de DoD criam, mas duplica medição que já vive, completa, no bloco de cada ticket | — |
+| **B — emendar as duas linhas** | Passam a remeter para a secção «Verificação dos Critérios de Aceitação» do próprio bloco, como o **KAM-002** faz. Uma fonte só para cada medição, e nada se inventa | **escolhida** |
+| as duas | O registo mais completo, mas o dobro do trabalho e duas fontes para a mesma medição — que é como as contradições deste conjunto começam | — |
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1. A escolha está escrita, com a razão e quem a aprovou | **satisfeito** | A tabela acima. Decidida pelo fundador, que é quem decide neste conjunto: as linhas de DoD dos dois tickets estavam assinadas «Equipa KAMBÁ», que não é uma pessoa. A razão da via B: a medição já existe e está completa nas duas secções de verificação, e o KAM-002 — entregue, com revisão adversarial — é o precedente de um DoD que não nomeia anexo |
+| 2. Se a via for **escrever**: os dois anexos existem, com cada número reproduzido ou citado | **não aplicável** | A via escolhida foi a **B**. Nenhum anexo foi escrito, e nenhuma medição foi inventada ou refeita: a condição deste critério não se verificou |
+| 3. Se a via for **emendar**: as duas linhas remetem para a secção de verificação, e o alcance fica dito | **satisfeito** | As duas linhas de DoD foram emendadas (`- [x]` no KAM-128, `- [ ]` no KAM-129, pelas razões do critério 5) e remetem agora para «a secção "Verificação dos Critérios de Aceitação" deste bloco, uma linha por critério», com a emenda atribuída a este ticket. Medição: `grep` por uma linha de DoD que nomeie `docs/evidencia/KAM-128.md` ou `KAM-129.md` → **0**. **O alcance fica dito e não feito:** restam **seis** linhas de DoD neste epic a nomear um anexo que não existe — KAM-130, KAM-133, KAM-134, KAM-135, KAM-137 e KAM-138 — e em todas elas o anexo é parte da execução futura do próprio ticket, não um defeito. Ficam nomeadas, não alteradas |
+| 4. Os PR e os *commits* citados estão certos | **satisfeito** | KAM-128 no PR `albinoJimy/kamba#2`, trabalho em `08426f3`, fundido em `6eb618f`; KAM-129 no PR `albinoJimy/kamba#3`, fundido em `1401cd3`. Conferidos contra as secções de verificação dos próprios blocos, que os nomeiam. **Não** o `#13`, que foi a referência errada no pedido que abriu estes tickets |
+| 5. A primeira linha de DoD de cada um fica com a sua medição escrita, e as restantes caixas não se tocam | **satisfeito** | **KAM-128: marcada.** As suas **dez** caixas de Critérios de Aceitação estão agora todas marcadas — as duas que faltavam fecharam com o **KAM-145** (forma do caminho e população das referências nuas) e o **KAM-146** (as onze linhas de «Controlo de versões»). **KAM-129: continua vazia**, e por outra razão: **dois** dos seus onze Critérios de Aceitação estão em aberto desde a revisão — a busca G1 lida à letra e a classe A — e nenhum é âmbito destes três tickets. O que o KAM-147 fechou foi a promessa do anexo, não os critérios. As duas linhas da tabela de verificação de cada bloco que diziam «o ficheiro de evidência que o DoD nomeia não existe» foram reescritas para dizer o estado real |
+| 6. O caminho obedece à convenção do KAM-145 | **satisfeito** | As duas linhas de DoD deixaram de **apontar** para um anexo: o caminho saiu do lugar da promessa e a linha remete para esta secção. Cada uma **cita** ainda, na nota da emenda, o anexo que nunca existiu, e essa citação está em prosa dentro de `specs/`, pelo que segue a regra do KAM-128 e usa `../docs/evidencia/…` — a forma relativa ao ficheiro, que `specs/01_Engineering_Standards_e_Handoff.md` §5, escrito pelo KAM-145, confirma ser a certa fora de um bloco de *handoff*. *(Esta linha foi reescrita depois da revisão adversarial, que mediu que a redação anterior afirmava três coisas falsas: que não restava caminho nenhum, que as menções restantes eram todas do bloco deste ticket, e que usavam a forma relativa ao ficheiro — usavam a da raiz.)* |
+
+#### Definition of Done
+
+| # | Linha | Estado |
+|---|---|---|
+| 1 | Todos os CA satisfeitos e demonstráveis, com a leitura critério a critério nesta secção | **marcada** — cinco critérios satisfeitos e um não aplicável, cada um com a sua linha acima |
+| 2 | A via escolhida aprovada pelo Arquitecto de Plataforma; revisto por ≥ 1 revisor | **vazia** — a primeira metade cumpre-se: a via foi escolhida pelo fundador de entre duas alternativas apresentadas com as suas consequências. **A segunda não:** a caixa dos revisores humanos continua vazia, como em todo o backlog. A revisão adversarial é evidência, não é um revisor |
+| 3 | Documentação actualizada: linha de «Controlo de versões» neste epic; Conventional Commits | **marcada** — as duas linhas de DoD, as duas linhas da tabela de verificação, e a linha de «Controlo de versões» deste epic. *Commits* conformes |
+| 4 | **Sem segredos** | **marcada** — não aplicável |
+
+#### O que fica, e é de outros
+
+**Seis linhas de DoD deste epic continuam a nomear um anexo que não existe** — KAM-130, KAM-133, KAM-134, KAM-135, KAM-137 e KAM-138. Não são defeito: nenhum desses tickets foi executado, e escrever o anexo é parte da sua execução. Se quem aprova os padrões quiser estender a via B a todos, isso é emenda ao padrão de DoD e não a estes seis tickets — e ficaria melhor em `specs/01_Engineering_Standards_e_Handoff.md` §3, onde o DoD vive.
+
+**Os anexos que existem não foram tocados:** `KAM-001-node.md`, `KAM-010.md`, `KAM-011-seaweedfs.md`, `KAM-131.md`, `KAM-132.md` e `KAM-136.md`. A via B não os invalida — diz apenas que a linha de DoD não tem de prometer um.
 
 ### Detalhes Técnicos
 
@@ -4126,10 +4278,10 @@ Fechar a primeira linha de DoD do KAM-128 e do KAM-129 por uma das duas vias, de
 
 ### Definition of Done
 
-- [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis, com a leitura critério a critério numa secção «Verificação dos Critérios de Aceitação» deste bloco.
+- [x] Todos os Critérios de Aceitação satisfeitos e demonstráveis, com a leitura critério a critério numa secção «Verificação dos Critérios de Aceitação» deste bloco.
 - [ ] A via escolhida aprovada pelo **Arquitecto de Plataforma** (`specs/01_Engineering_Standards_e_Handoff.md` §9); revisto por ≥ 1 revisor.
-- [ ] Documentação actualizada: linha de «Controlo de versões» neste epic; Conventional Commits.
-- [ ] **Sem segredos** — não aplicável.
+- [x] Documentação actualizada: linha de «Controlo de versões» neste epic; Conventional Commits.
+- [x] **Sem segredos** — não aplicável.
 
 ### Handoff para Claude Code
 
@@ -5196,3 +5348,5 @@ Testes: G6, G7, G8 (canário), G1, G3, G5 e G4 do bloco, antes e depois. Abre PR
 | 1.24 | Outubro 2026 | KAM-152 acrescentado e entregue: o caminho `db/gate8.py` — o ficheiro chama-se `db/gate_bd.py` desde que passou a servir os *gates* 8 e 6 — estava citado em **8 ocorrências de 7 ficheiros**, **7 delas vivas em 6 ficheiros**, e uma é a mensagem de `SkipTest` do trinco de `db/tests/base.py`, que mandava o utilizador correr um ficheiro inexistente. O pedido nomeava três sítios; a varredura encontrou seis ficheiros vivos, com o comentário do job `gate-8-migracoes` em `../.github/workflows/ci.yaml` e o *docstring* de `db/bootstrap.py` por nomear. O nome do trinco (`kamba_gate8`, `*_gate8`, `kamba-gate8-*`: **21** ocorrências em ficheiros vivos, iguais em `main` e no ramo) **não** foi tocado — é o nome canónico da base descartável —, e a fasquia `grep gate8 → 0` do pedido fica registada como impossível à letra. `../docs/seguranca/validar.py`, com o `assert` da contagem relaxado **em memória**, passa de **5** para **3** erros, sem nenhum novo; corrigir o `assert` é o **KAM-149**. **O ticket nasceu KAM-150 e renumerou para 152:** o `albinoJimy/kamba#47` fundiu durante o trabalho e levou o 150, e o 151 está reclamado por um ramo em voo — o ID só está seguro depois do *merge*, e as contagens fecham-se depois de integrar `main`. A linha 6 de `../docs/dividas-documentais.md` fecha metade e fica reescrita, não riscada. **A causa não é fechada:** nada no repositório verifica um caminho citado em código (L-20), e a decisão de alargar o validador a `db/` e `../.github/` fica devolvida ao Arquitecto de Plataforma. | Equipa KAMBÁ |
 | 1.25 | Outubro 2026 | KAM-153 acrescentado e entregue: as três referências a anexo de evidência citadas **sem prefixo nenhum** na tabela de cabeçalho de `specs/EPIC-10` passam a resolver. Eram pré-existentes a `6d30625`, invisíveis às buscas G1 e G2 do KAM-129 e por isso sobreviveram ao ticket que fechou as outras 59. O que o ticket fecha além das três linhas é a **busca**: passa a ancorar no *nome* do anexo e não no prefixo, é estritamente relativa ao ficheiro e de grafia exacta, e vem com um canário de nove formas — 152 citações em forma de nome de ficheiro, **3 para 0**. O bloco do KAM-129 ganha a emenda que nomeia as duas formas que a sua tabela não tinha: a **terceira**, nome completo sem prefixo, que e defeito, e a **quarta**, forma-código nua, que é legítima e **não** é caminho — 9 ocorrências que não levam prefixo e que ninguém deve «corrigir». As caixas do KAM-129 **não** foram remarcadas: à letra, o CA1 continua falso por causa dessas 9, e redefini-lo e decisão de quem o escreveu. **A primeira versão foi reprovada por duas revisões independentes** (5 achados P0) e **a segunda pelo gate 4**, pelo teste que proíbe buracos na numeração — o que fixa a regra do identificador em «o seguinte ao maior do `main`» e torna estruturais as colisões entre ramos concorrentes: este ticket foi renumerado **quatro vezes**, com dois PRs fechados. As revisões estão em [`ANALISE-21`](../docs/analises/ANALISE-21-KAM-153-referencias-sem-prefixo.md). | Equipa KAMBÁ |
 | 1.26 | Outubro 2026 | KAM-154 acrescentado e entregue: *gate* que resolve cada regra do `CODEOWNERS` contra a árvore seguida pelo git. Trabalho resgatado de uma cópia de trabalho sem *commit*, cuja sessão terminou. | Equipa KAMBÁ |
+| 1.27 | Outubro 2026 | KAM-145: os **28** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
+| 1.28 | Outubro 2026 | KAM-145, KAM-146 e KAM-147 entregues, no mesmo PR. O **KAM-145** declarou que o executor de um bloco de *handoff* corre na raiz do repositório e converteu as **254** ocorrências defeituosas dos onze epics (11 caixas marcadas, 1 vazia); o **KAM-146** escreveu as **onze** linhas de «Controlo de versões» que faltavam, fechando a contagem em 15 de 15 (9 e 1); o **KAM-147** emendou as duas linhas de DoD que prometiam um anexo de evidência inexistente, pela via do KAM-002 (9 e 1). Com eles, **o KAM-128 fica com os dez Critérios de Aceitação marcados e a primeira linha de DoD também**; o KAM-129 continua com dois CA em aberto, que não eram âmbito de nenhum dos três. As três caixas de revisores humanos ficaram vazias, à letra. | Equipa KAMBÁ |

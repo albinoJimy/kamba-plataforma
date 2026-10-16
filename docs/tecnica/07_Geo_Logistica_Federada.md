@@ -694,3 +694,4 @@ A densidade de estafetas por zona é a restrição real: a oferta sequencial de 
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: endereçamento (pin, texto, Plus Code), Nominatim, zonas e preço, estafeta como tenant, dispatch, COD, disputas, responsabilidade, payouts, privacidade, parcerias, custo e riscos. | Equipa KAMBÁ |
+| 1.1 | Outubro 2026 | KAM-128: As **29** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |

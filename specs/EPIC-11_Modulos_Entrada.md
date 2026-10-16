@@ -127,7 +127,7 @@ CREATE TABLE owner_actions (  -- proposta
 
 ```text
 És o executor do ticket KAM-118 da KAMBÁ (canal do dono e persona Assistente do Dono).
-Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-118), ../docs/tecnica/02 §21, ../docs/tecnica/08 §18, ../docs/tecnica/evidencia/E5 §4 e specs/01_Engineering_Standards_e_Handoff.md.
+Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-118), docs/tecnica/02 §21, docs/tecnica/08 §18, docs/tecnica/evidencia/E5 §4 e specs/01_Engineering_Standards_e_Handoff.md.
 Objectivo: o CHR reconhece o contacto papel='dono' no número da loja e encaminha para a persona 'dono'; painel web com as mesmas tools;
 botões confirm:{action_id} nas acções sensíveis; mudança de telefone com novo OTP; proactivas só com opt-in e template.
 Regras: o papel não muda por texto; tenant_id só do contexto; se o telefone do dono for o número da loja, só painel web; o dono inicia a conversa
@@ -200,7 +200,7 @@ Registar a vertical `catalogo` (`registry/catalogo.yaml`) com as 4 tools do §21
 
 ```text
 És o executor do ticket KAM-119 da KAMBÁ (vertical catalogo).
-Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-119), specs/EPIC-04_Core_Comercio.md (KAM-049), ../docs/tecnica/03 §8 e §17 e ../docs/tecnica/02 §21.3.
+Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-119), specs/EPIC-04_Core_Comercio.md (KAM-049), docs/tecnica/03 §8 e §17 e docs/tecnica/02 §21.3.
 Objectivo: registry/catalogo.yaml com create_product_draft, ask_missing_fields, publish_product (confirmação) e get_catalog_status sobre catalog_ingestions.
 Regras: o modelo nunca origina preço ou stock (parser determinístico + eco + botão); publicar exige confirm:{ingestion_id} e assert_publishable (KAM-088);
 fotos só do dono, sem pesquisa de imagens; texto de fotos e descrições é dado não confiável; reaproveita KAM-049, não o reescrevas.
@@ -277,7 +277,7 @@ CREATE TABLE image_jobs (  -- proposta (../docs/tecnica/03 §17); RLS FORCE
 
 ```text
 És o executor do ticket KAM-120 da KAMBÁ (Foto de produtos AI).
-Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-120), ../docs/tecnica/03 §17, ../docs/tecnica/evidencia/E5 §1 e §6 e specs/01_Engineering_Standards_e_Handoff.md.
+Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-120), docs/tecnica/03 §17, docs/tecnica/evidencia/E5 §1 e §6 e specs/01_Engineering_Standards_e_Handoff.md.
 Objectivo: ImageProvider + enhance_image + image_jobs + gate local de rostos/matrículas + EXIF + pipeline assíncrono + harness do bake-off.
 Regras: original nunca substituído; nada sai sem destino com apd_ref; BFL e remove.bg excluídos; só tier pago; sem fotos reais antes da carta de não-treino;
 preços de fornecedores são a verificar; qualidade em Angola NÃO VERIFICADA (mede, não assumas). Não implementes artes sociais (KAM-122) nem metering consolidado (KAM-124).
@@ -354,7 +354,7 @@ CREATE TABLE content_items (content_item_id uuid PRIMARY KEY DEFAULT gen_random_
 
 ```text
 És o executor do ticket KAM-121 da KAMBÁ (vertical social: perfil, calendário e legendas).
-Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-121), ../docs/tecnica/02 §21.3, ../docs/tecnica/08 §18, ../docs/tecnica/evidencia/E5 §2 e §7 e specs/EPIC-09 (KAM-088).
+Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-121), docs/tecnica/02 §21.3, docs/tecnica/08 §18, docs/tecnica/evidencia/E5 §2 e §7 e specs/EPIC-09 (KAM-088).
 Objectivo: registry/social.yaml com get_brand_profile, generate_calendar, generate_caption; brand_profile, content_items, legendas pt-AO e screening.
 Regras: sem tool de publicação; números e promoções só como facts do dono ou do Registo; horas calculadas por código; legendas passam por screen() e pela política de alegações;
 pt-BR é um risco medido por lexicon e golden; tudo nasce rascunho com is_ai_generated=true. Limiares são propostas.
@@ -423,7 +423,7 @@ Entregar `generate_art`, o compositor de artes por *templates*, a tool `request_
 
 ```text
 És o executor do ticket KAM-122 da KAMBÁ (artes e entrega para publicação manual).
-Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-122), ../docs/tecnica/02 §21.3, ../docs/tecnica/evidencia/E5 §2 e §3 e specs/01_Engineering_Standards_e_Handoff.md.
+Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-122), docs/tecnica/02 §21.3, docs/tecnica/evidencia/E5 §2 e §3 e specs/01_Engineering_Standards_e_Handoff.md.
 Objectivo: generate_art (templates + texto por código), request_approval com confirm:{content_item_id}, evento content.approved, SocialPublisher com ManualDelivery,
 entrega por WhatsApp e painel.
 Regras: nenhuma tool publica; sem tokens nem endpoints de redes; o modelo gera só o fundo e sem texto; preços na arte só de facts; aprovação ligada a hash e idempotente;
@@ -499,7 +499,7 @@ CREATE TABLE quote_requests (  -- proposta; RLS FORCE
 
 ```text
 És o executor do ticket KAM-123 da KAMBÁ (Orçamento expresso).
-Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-123), specs/EPIC-03 (KAM-031, KAM-032), ../docs/tecnica/02 §9 e §21.3 e ../docs/tecnica/evidencia/E5 §4, §5 e B10.
+Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-123), specs/EPIC-03 (KAM-031, KAM-032), docs/tecnica/02 §9 e §21.3 e docs/tecnica/evidencia/E5 §4, §5 e B10.
 Objectivo: request_quote (cliente) -> submit_quote (dono fixa quote_price) -> send_quote (confirm:{quote_id}); quote_requests; eventos quote.requested e quote.sent.
 Regras: o bot nunca calcula nem inventa o preço; a mensagem passa pelo validador com renderer por referência; sem PDF, sem numeração fiscal, rótulo «não é factura»;
 aceitação do cliente não cria pedido (vai ao dono); janela de 24 h tratada com template sem número. Sem base de preços extraída de terceiros.
@@ -575,7 +575,7 @@ CREATE TABLE module_cost_ledger (  -- proposta; append-only; RLS FORCE
 
 ```text
 És o executor do ticket KAM-124 da KAMBÁ (planos, entitlements e metering dos módulos de entrada).
-Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-124), specs/EPIC-01 (KAM-009), specs/EPIC-08 (KAM-081), ../docs/tecnica/09 §21 e ../docs/tecnica/evidencia/E5 §1.3 e B12.
+Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-124), specs/EPIC-01 (KAM-009), specs/EPIC-08 (KAM-081), docs/tecnica/09 §21 e docs/tecnica/evidencia/E5 §1.3 e B12.
 Objectivo: chaves modulo e limites imagens_mes/posts_mes/orcamentos_mes; plans.yaml com preços de teste; module_cost_ledger; v_module_cost_month e v_h12; alertas; h12-export.
 Regras: preços de teste são hipóteses (estado obrigatório); consumo atómico e idempotente; custo de imagem tem contador próprio (LiteLLM não o cobre);
 custos de fornecedores são a reverificar; sem PII nas vistas; sem billing (KAM-059). Testes: concorrência, idempotência, mês, isolamento, reconciliação. PR com o template da §7.
@@ -643,7 +643,7 @@ Estender o *eval harness* de KAM-040 com as suites `dono_catalogo`, `dono_social
 
 ```text
 És o executor do ticket KAM-125 da KAMBÁ (golden PT-AO dos módulos do dono).
-Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-125), specs/EPIC-03 (KAM-040), ../docs/tecnica/02 §16 e §21, ../docs/tecnica/08 §18 e ../docs/tecnica/evidencia/E5 §2.
+Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-125), specs/EPIC-03 (KAM-040), docs/tecnica/02 §16 e §21, docs/tecnica/08 §18 e docs/tecnica/evidencia/E5 §2.
 Objectivo: suites dono_catalogo, dono_social e dono_orcamento no harness, com os 4 gates duros (0 preços não-fact, 0 categoria bloqueada, 0 publicação automática,
 0 saída sem aprovação) e casos adversariais (pt-BR vs pt-AO, injecção, promessa proibida, desconto negociado).
 Regras: dataset sintético ou reescrito (ADR-018); gates duros determinísticos; juiz LLM só em métricas moles; teste de mutação do gate.
@@ -706,7 +706,7 @@ Produzir um relatório com ficha comparativa de parceiros, resposta escrita da A
 
 ```text
 És o executor do ticket KAM-126 da KAMBÁ (spike Factura AI).
-Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-126), ../docs/tecnica/evidencia/E2 §6, §8 e §9 e E3 §6.
+Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-126), docs/tecnica/evidencia/E2 §6, §8 e §9 e E3 §6.
 Objectivo: preparar o questionário à AGT, a ficha e a matriz de ≥ 3 parceiros (Vero, CacimboERP, 1 outro), o script de sandbox com dados sintéticos e o modelo de custo.
 Regras: certificados são auto-declarados até validação na lista da AGT (não os afirmes); sem NIF reais; sem código em main (spikes/ descartável); não decidas, recomenda com a regra pré-registada.
 Não implementes Factura AI nem InvoiceProvider. Testes: mock do sandbox e revisão do modelo de custo. PR (só documentação) com o template da §7.
@@ -781,7 +781,7 @@ CREATE TABLE module_decisions (  -- proposta; append-only
 
 ```text
 És o executor do ticket KAM-127 da KAMBÁ (experimento dos módulos de entrada).
-Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-127), 14-tese-minima-e-plano-de-validacao.md §2 (H10–H12), ../docs/tecnica/02 §21.5, ../docs/tecnica/09 §21 e specs/EPIC-09 (KAM-117).
+Lê specs/EPIC-11_Modulos_Entrada.md (bloco KAM-127), docs/exploracao/14-tese-minima-e-plano-de-validacao.md §2 (H10–H12), docs/tecnica/02 §21.5, docs/tecnica/09 §21 e specs/EPIC-09 (KAM-117).
 Objectivo: documento de pré-registo, vistas v_h10/v_h11/v_h12, registry/modulos_entrada.yaml com CI de ≤ 4 módulos, módulo module_decisions e a regra de decisão manter/ajustar/abater.
 Regras: limiares são propostas; uso = resultado de valor; pagamento = evento confirmado, não intenção; Catálogo AI nunca se abate; sem PII nem conteúdo nas vistas; não bloqueia o Gate do Piloto.
 Não implementes os módulos nem os custos (KAM-124). Testes: vistas, CI de escopo, desactivação isolada, ensaio de decisão. PR com o template da §7.
@@ -829,3 +829,5 @@ Não implementes os módulos nem os custos (KAM-124). Testes: vistas, CI de esco
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: 10 tickets (KAM-118 a KAM-127) dos módulos de entrada do Piloto (ADR-020): canal do dono, Catálogo AI conversacional, Foto de produtos AI, Social AI com publicação manual, Orçamento expresso, planos e metering, golden, spike Factura AI e experimento H10–H12. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | KAM-129: as 3 referências aos artefactos de validação passam a `../docs/tecnica/evidencia/validacao/…`; antes não resolviam de posição nenhuma. Os artefactos visados continuam a ser saída dos KAM-120 (registo do *bake-off*), KAM-126 e KAM-127, e não se criam aqui. | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | KAM-145: os **22** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. Com ele, a referência a um ficheiro da biblioteca exploratória que não tinha directorio nenhum passa a ter o seu, e deixa de não resolver de posição alguma. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
+| 1.3 | Outubro 2026 | KAM-128: As **5** linhas de cabeçalho — `Documento-fonte`, `Documentos relacionados` e três `Documentos de referência` de blocos de ticket — passam a citar o ficheiro da biblioteca exploratória pelo caminho completo. As restantes referências dessas mesmas linhas já estavam certas e ficaram intactas. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |

@@ -653,3 +653,4 @@ O Score tem contrato próprio com consentimento da PME por exportação, versão
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: contrato de eventos, *outbox*, privacidade e apagamento, `assistant_queries`, camada analítica, produtos de dados (Diferido), linhagem, reconciliação, SLIs. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §4, D-03 (`valor_minor` + `currency`) e D-04 (`authn_ok`, `authn_method`); §5, D-07; §7.2 e §7.6, D-01; §7.2 e §7.4, D-09 (12 meses, *proposta*); §7.3–§7.4, D-02; §9.2 e §10.3, D-03. | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | KAM-128: As **18** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |

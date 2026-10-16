@@ -947,3 +947,4 @@ Metering por módulo (KAM-124); budgets LiteLLM por tenant incluem o custo de im
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: Agent Runtime, AgentRegistry, ToolLayer, grafos Vendedor/Serviços corrigidos, validador, voz, `interrupt()` idempotente, checkpointer, LLM gateway e gate *golden*, revistos com `evidencia/E1` e `E4`. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §6.2–§6.3, D-11 (`confirm:{hold_id}` em Serviços); §13.1, D-07 (gatilho `tenant.approved`). | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | KAM-128: As **28** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |

@@ -737,3 +737,4 @@ Não fazem parte do cânone até aprovação.
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: isolamento, ameaças, segredos, auditoria, PII, conformidade (Lei 22/11, Meta, AGT, BNA, consumidor), incidentes, retenção, DPIA. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §4.5 e §6, D-06 (idempotência por `(provider, account_id, referencia)`; unicidade de `04` §6.2); §4.5 e §14, D-04; §8.1, §8.4, §8.5 e §8.7, D-02 (`consent_event`). | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | KAM-128: As **13** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |

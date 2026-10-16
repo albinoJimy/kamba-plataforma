@@ -102,8 +102,8 @@ Determinar, com 3 números +244 reais e consentimento dos donos, se a coexistên
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-100 (spike H3) da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-100), 14-tese-minima-e-plano-de-validacao.md (§2 H3, §3A Regra 5),
-../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§4.3, §10, §13) e ../docs/tecnica/evidencia/E1_Meta_WhatsApp.md (§2).
+Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-100), docs/exploracao/14-tese-minima-e-plano-de-validacao.md (§2 H3, §3A Regra 5),
+docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§4.3, §10, §13) e docs/tecnica/evidencia/E1_Meta_WhatsApp.md (§2).
 Objectivo: preparar o material para um spike com 3 números +244; NÃO falas com os donos nem decides o resultado.
 - Cria spikes/h3/: página ES v4 de coexistência, receptor de webhook com validação de X-Hub-Signature-256 sobre o corpo bruto e gravação sem conteúdo.
 - Escreve o script que gera a tabela N1-N3 e o modelo H3_Coexistencia_244.md, a folha de protocolo do operador e scripts/validar_evidencia.py.
@@ -162,9 +162,9 @@ Enviar as 15 perguntas de E1 à Meta (e as de custo a BSPs), registar cada respo
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-101 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-101) e ../docs/tecnica/evidencia/E1_Meta_WhatsApp.md (secção «Perguntas que só a Meta/BSP pode responder», §3, §4).
+Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-101) e docs/tecnica/evidencia/E1_Meta_WhatsApp.md (secção «Perguntas que só a Meta/BSP pode responder», §3, §4).
 Objectivo: preparar o dossiê de perguntas para a Meta e a folha de seguimento; NÃO envias nada nem inventas respostas.
-- Cria ../docs/tecnica/evidencia/validacao/Meta_Perguntas.md com as 15 perguntas (EN e PT), prioridade, decisão afectada e estado.
+- Cria docs/tecnica/evidencia/validacao/Meta_Perguntas.md com as 15 perguntas (EN e PT), prioridade, decisão afectada e estado.
 - Redige a mensagem de cada pergunta com contexto mínimo e sem dados pessoais; prepara o modelo de registo de respostas com classificação CONFIRMADO/INDÍCIO.
 - Relê as fontes primárias em inglês para os 4 trechos críticos e regista desvios face a E1 (URL, data, resumo curto).
 - Implementa a regra de decisão de H4 como checklist; não decidas por humanos.
@@ -224,10 +224,10 @@ Obter o estatuto de Tech Provider (ou documentar o bloqueio e o plano B) e decid
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-102 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-102), ../docs/tecnica/evidencia/E1_Meta_WhatsApp.md (§3, §8),
-../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§4) e ../docs/tecnica/10_Onboarding_Governanca.md (§6).
+Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-102), docs/tecnica/evidencia/E1_Meta_WhatsApp.md (§3, §8),
+docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§4) e docs/tecnica/10_Onboarding_Governanca.md (§6).
 Objectivo: preparar o dossiê de Business Verification, App Review e Tech Provider e a análise de D5; as submissões e decisões são humanas.
-- Cria ../docs/tecnica/evidencia/validacao/Tech_Provider_Dossie.md com a tabela de passos e a lista de documentos por passo.
+- Cria docs/tecnica/evidencia/validacao/Tech_Provider_Dossie.md com a tabela de passos e a lista de documentos por passo.
 - Escreve o storyboard dos 2 vídeos por permissão e a app mínima de demonstração (enviar mensagem, criar template) para conta de teste.
 - Prepara o modelo de cotação a BSPs e a matriz de decisão de D5; nada de preços de BSP sem cotação por escrito.
 - Não guardes segredos nem documentos da empresa no repositório.
@@ -285,9 +285,9 @@ Conhecer, por escrito, prazo e custo por PME de pelo menos um caminho banco + fa
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-103 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-103), ../docs/tecnica/evidencia/E2_Pagamentos_Angola.md (§1, §8, §9) e 14-tese-minima-e-plano-de-validacao.md (§2 H5, §6).
+Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-103), docs/tecnica/evidencia/E2_Pagamentos_Angola.md (§1, §8, §9) e docs/exploracao/14-tese-minima-e-plano-de-validacao.md (§2 H5, §6).
 Objectivo: preparar os dossiês para 2 bancos, ProxyPay e AppyPay, a matriz de decisão de D4 e a verificação do sandbox; as reuniões e contratos são humanos.
-- Cria ../docs/tecnica/evidencia/validacao/Pagamentos_Respostas.md com uma ficha por contraparte e as perguntas de E2 §9 por destinatário.
+- Cria docs/tecnica/evidencia/validacao/Pagamentos_Respostas.md com uma ficha por contraparte e as perguntas de E2 §9 por destinatário.
 - Escreve o script de verificação do sandbox ProxyPay e um receptor de callback que regista cabeçalhos (para saber se o OPG é assinado).
 - Constrói a matriz banco x facilitador com campo «fonte escrita» obrigatório; sem fonte, a célula fica NÃO VERIFICADO.
 - Nunca inventes preços da ProxyPay nem prazos de bancos; sem chaves nem documentos bancários no repositório.
@@ -343,11 +343,11 @@ Entregar ao advogado um pacote completo, priorizado e com os factos do caso, que
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-104 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-104), ../docs/tecnica/evidencia/E3_Regulatorio_Dados.md (20 perguntas),
-../docs/tecnica/evidencia/E2_Pagamentos_Angola.md (§9, perguntas 19-30) e ../docs/tecnica/08_Seguranca_Conformidade.md (§8, §13).
+Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-104), docs/tecnica/evidencia/E3_Regulatorio_Dados.md (20 perguntas),
+docs/tecnica/evidencia/E2_Pagamentos_Angola.md (§9, perguntas 19-30) e docs/tecnica/08_Seguranca_Conformidade.md (§8, §13).
 Objectivo: montar o pacote de perguntas para o advogado e o anexo de factos do caso; não dás parecer jurídico.
 - Consolida 40 perguntas (E3 1-20, E2 19-30, E1 Q7, N1, N2, N3, N5, X1-X3) com contexto, decisão afectada, prioridade e prazo pedido.
-- Gera o anexo de factos a partir de ../docs/tecnica/08 §8.3.2 e §11 e de ../docs/tecnica/00; sem dados pessoais.
+- Gera o anexo de factos a partir de docs/tecnica/08 §8.3.2 e §11 e de docs/tecnica/00; sem dados pessoais.
 - Cria o registo de respostas (campo «CONFIRMADO (jurídico)» só preenchido por humanos) e o mapa pergunta -> decisão -> ticket.
 - Marca «verificar no DR» onde o texto legal veio de portais não oficiais.
 Não expandas escopo: a decisão D1 é KAM-105. Testes: contagem 40/40 e verificação de ausência de PII. PR com o template da §7.
@@ -404,11 +404,11 @@ Decidir D1 com cotações reais, registar D6 (consequência) e D9 (papel e quem 
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-105 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-105), ../docs/tecnica/09_Topologia_Operacao_Escala.md (§5),
-../docs/tecnica/08_Seguranca_Conformidade.md (§8.3, §8.5, §8.6) e ../docs/tecnica/evidencia/E3_Regulatorio_Dados.md (§2, §7).
+Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-105), docs/tecnica/09_Topologia_Operacao_Escala.md (§5),
+docs/tecnica/08_Seguranca_Conformidade.md (§8.3, §8.5, §8.6) e docs/tecnica/evidencia/E3_Regulatorio_Dados.md (§2, §7).
 Objectivo: preparar a comparação de cotações, o mapa de tratamentos e o gate de go-live; a decisão D1 e a submissão à APD são humanas.
 - Cria Alojamento_Cotacoes.md (modelo de pedido e tabela), aplica a regra do doc 09 §5.3 e deixa a decisão por preencher.
-- Gera Mapa_Tratamentos_v1.md a partir do inventário de subprocessadores (../docs/tecnica/08 §8.3.2) e GoLive_Gate.md com as condições objectivas.
+- Gera Mapa_Tratamentos_v1.md a partir do inventário de subprocessadores (docs/tecnica/08 §8.3.2) e GoLive_Gate.md com as condições objectivas.
 - Cria a folha de seguimento da APD por destino; nunca estimes um preço, SLA ou prazo: «sem resposta» ou NÃO VERIFICADO.
 - Sem dados pessoais nem segredos.
 Não expandas escopo: a implementação do gate no código é KAM-069. Testes: revisão cruzada de fontes e de cobertura dos destinos. PR com o template da §7.
@@ -466,7 +466,7 @@ Abrir e testar 5 canais de acesso a PMEs, realizar 30 entrevistas estruturadas s
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-106 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-106) e 14-tese-minima-e-plano-de-validacao.md (§2 H1/H2, §3, §3A Regra 4, §6).
+Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-106) e docs/exploracao/14-tese-minima-e-plano-de-validacao.md (§2 H1/H2, §3, §3A Regra 4, §6).
 Objectivo: preparar o material das 30 entrevistas e a medição de H2; as entrevistas e as reuniões com canais são feitas por humanos.
 - Escreve Entrevistas_Guiao.md (sem pitch), a ficha de registo (CSV com os campos fixos) e o texto de consentimento em PT-AO.
 - Escreve o script de H2 (>=70% dos 20 itens em fixo ou a partir de; >=50% das PMEs) com testes de fronteira e o script de resumo por canal.
@@ -525,8 +525,8 @@ Medir WER, precisão numérica, latência e custo de dois STT com fala real em p
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-107 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-107), ../docs/tecnica/evidencia/E4_Stack_Licencas.md (§3), ../docs/tecnica/08_Seguranca_Conformidade.md (§7.5)
-e ../docs/tecnica/evidencia/E3_Regulatorio_Dados.md (req. 7 e 8).
+Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-107), docs/tecnica/evidencia/E4_Stack_Licencas.md (§3), docs/tecnica/08_Seguranca_Conformidade.md (§7.5)
+e docs/tecnica/evidencia/E3_Regulatorio_Dados.md (req. 7 e 8).
 Objectivo: preparar o spike de voz; a gravação, o consentimento e a anotação são humanos.
 - Escreve o protocolo de gravação, o roteiro (~220 frases PT-AO com números, preços, horas, moradas de Luanda), o manifesto do corpus e o script ffmpeg para Opus/OGG.
 - Implementa o harness para dois STT (Groq whisper-large-v3-turbo e OpenAI gpt-4o-mini-transcribe) atrás de SttProvider, e os scripts de WER (com normalizador de numerais), latência p50/p95 e custo.
@@ -585,10 +585,10 @@ Decidir, por checklist objectiva e demonstração repetível feita por quem não
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-108 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-108), ../docs/tecnica/00_Arquitectura_Solucao.md (§13.1, §13.2),
-14-tese-minima-e-plano-de-validacao.md (§3A) e specs/00_KAMBA_Carta.md (§4.2, §5).
+Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-108), docs/tecnica/00_Arquitectura_Solucao.md (§13.1, §13.2),
+docs/exploracao/14-tese-minima-e-plano-de-validacao.md (§3A) e specs/00_KAMBA_Carta.md (§4.2, §5).
 Objectivo: preparar a checklist, o guião da demonstração e o pacote de evidências do gate da Fase 0; o veredicto é humano.
-- Cria ../docs/tecnica/evidencia/validacao/Gate_Fase0.md com as linhas G0-1..G0-8, estado por linha e ligações às evidências.
+- Cria docs/tecnica/evidencia/validacao/Gate_Fase0.md com as linhas G0-1..G0-8, estado por linha e ligações às evidências.
 - Escreve o cenário scriptado do esqueleto andante e o script de traço por identificadores (mensagem -> pedido -> evento -> consumo), sem conteúdo nem telefone.
 - Escreve o script que recolhe métricas de reaproveitamento (KAM-039), resultados de CI e estado das decisões externas.
 - Não declares nenhuma linha como verde sem evidência ligada; deixa a decisão por preencher.
@@ -646,8 +646,8 @@ Operar o piloto com 10 PMEs e medir H1, H6, H8 e H9 com um protocolo pré-regist
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-109 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-109), 14-tese-minima-e-plano-de-validacao.md (§2, §3A Regra 4, §6),
-../docs/tecnica/09_Topologia_Operacao_Escala.md (§14) e o h6-export de KAM-081.
+Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-109), docs/exploracao/14-tese-minima-e-plano-de-validacao.md (§2, §3A Regra 4, §6),
+docs/tecnica/09_Topologia_Operacao_Escala.md (§14) e o h6-export de KAM-081.
 Objectivo: preparar protocolo, consultas, scripts de medição e relatório semanal do piloto; a operação com as PMEs e as decisões são humanas.
 - Escreve Piloto_Protocolo.md com as definições e limiares pré-registados (H1 >=5/10; H6 <=15%; H8 >=60%; H9 >=70% ao dia 60) e a regra de H9 inconclusiva.
 - Escreve as consultas e os scripts de H1, H6, H8, H9 sobre exportações, com testes de fronteira, e o sorteio de amostra com semente.
@@ -706,7 +706,7 @@ Registar, com a evidência das hipóteses e da Carta §5, a decisão de **contin
 ### Handoff para Claude Code
 ```text
 És o executor do ticket KAM-110 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-110), 14-tese-minima-e-plano-de-validacao.md (§2, §5, §6),
+Lê specs/EPIC-10_Spikes_Validacao_Gates.md (bloco KAM-110), docs/exploracao/14-tese-minima-e-plano-de-validacao.md (§2, §5, §6),
 specs/00_KAMBA_Carta.md (§5, §6) e o Registo_Hipoteses.md.
 Objectivo: preparar o pacote de evidência e o memorando de decisão do gate do Piloto; a decisão é do fundador e dos três papéis.
 - Gera Gate_Piloto.md com H1-H9, o estado por regra (sem dados = inconclusiva) e a verificação item a item da Carta §5, com ligações às evidências.
@@ -760,3 +760,5 @@ Não expandas escopo: escrever os epics da Fase 2 é trabalho posterior, só se 
 | 1.0 | Outubro 2026 | Emissão inicial: KAM-100 a KAM-110 (spikes, pedidos à Meta, bancos e jurídico, alojamento, entrevistas, voz, gates da Fase 0 e do Piloto). | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | KAM-129: as 27 referências aos anexos de evidência e aos artefactos de validação passam a `../docs/tecnica/evidencia/…`; antes não resolviam de posição nenhuma. As duas que já estavam correctas («Natureza dos tickets» e o Registo de Hipóteses do KAM-100) ficaram intactas. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-145: três das quatro referências a anexos de evidência da linha «Documentos relacionados» da tabela de cabeçalho passam a trazer o prefixo `../docs/tecnica/evidencia/`. Estavam citadas **sem directório nenhum** desde a emissão — pré-existentes ao KAM-128 e ao KAM-129 — e não resolviam a partir de `specs/`; eram invisíveis às buscas G1 e G2 do KAM-129, que ancoram no prefixo. Forma de citação (nome completo) inalterada; sem alteração de conteúdo técnico: o *diff* é de uma linha, 1 inserção contra 1 eliminação. | Equipa KAMBÁ |
+| 1.3 | Outubro 2026 | KAM-145: os **25** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. Com eles, as **6** referências a ficheiros da biblioteca exploratória que não tinham directorio nenhum passam a ter o seu, e deixam de não resolver de posição alguma. As **quatro** instruções que mandam criar um ficheiro de validação passam a escrever **dentro** da árvore do repositório. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
+| 1.4 | Outubro 2026 | KAM-128: O `Documento-fonte` do cabeçalho passa a citar o ficheiro da biblioteca exploratória pelo caminho completo, e a nota «Natureza dos tickets» deixa de descrever a árvore antiga. Duas linhas, sem alteração de conteúdo técnico. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |

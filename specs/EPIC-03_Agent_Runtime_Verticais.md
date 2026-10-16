@@ -131,7 +131,7 @@ async def handle(job):
 
 ```text
 És o executor do ticket KAM-025 da KAMBÁ.
-Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-025), ../docs/tecnica/02_Agent_Runtime_Verticais.md
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-025), docs/tecnica/02_Agent_Runtime_Verticais.md
 (§3, §4, §5.3, §11, §15.2) e specs/01_Engineering_Standards_e_Handoff.md.
 Objectivo: serviço AGR Python com workers assíncronos, lock por conversa, tectos de concorrência,
 API interna (/internal/turn, /internal/resume, /healthz) e guardas do ADR-002 (lista de bloqueio, egress).
@@ -208,8 +208,8 @@ Configurar o `AsyncPostgresSaver` (`langgraph-checkpoint-postgres` 3.1.2, MIT) n
 
 ```text
 És o executor do ticket KAM-026 da KAMBÁ.
-Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-026), ../docs/tecnica/02_Agent_Runtime_Verticais.md
-(§11, §12) e ../docs/tecnica/08_Seguranca_Conformidade.md (§7.1, §11).
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-026), docs/tecnica/02_Agent_Runtime_Verticais.md
+(§11, §12) e docs/tecnica/08_Seguranca_Conformidade.md (§7.1, §11).
 Objectivo: AsyncPostgresSaver (langgraph-checkpoint-postgres 3.1.2, MIT) no esquema lg, papel próprio,
 thread_id = tenant_id:contact_id, durabilidade síncrona para grafos com escrita, schema_version no estado,
 retenção/poda por thread_id.
@@ -289,7 +289,7 @@ servicos: { golden: "golden/servicos/v1", golden_gate: warn }
 
 ```text
 És o executor do ticket KAM-027 da KAMBÁ.
-Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-027) e ../docs/tecnica/02_Agent_Runtime_Verticais.md (§5).
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-027) e docs/tecnica/02_Agent_Runtime_Verticais.md (§5).
 Objectivo: AgentRegistry com load_all() fail-closed (6 validações de §5.2), resolve(ctx) com entitlement,
 registry/vendedor.yaml e registry/servicos.yaml. phase D rejeitado com KAMBA_FASE=piloto (ADR-011).
 - Nenhuma tool com parâmetro tenant_id/merchant_id visível ao modelo.
@@ -364,8 +364,8 @@ Implementar o contrato `ToolLayer` (`for_context`, `invoke`), o pipeline de 8 pa
 
 ```text
 És o executor do ticket KAM-028 da KAMBÁ.
-Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-028), ../docs/tecnica/02_Agent_Runtime_Verticais.md (§6)
-e ../docs/tecnica/08_Seguranca_Conformidade.md (§3.2, §4.3, §6).
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-028), docs/tecnica/02_Agent_Runtime_Verticais.md (§6)
+e docs/tecnica/08_Seguranca_Conformidade.md (§3.2, §4.3, §6).
 Objectivo: ToolLayer com for_context/invoke (8 passos fail-closed), classes read/write/money, tool_audit
 append-only, erros tipados, timeouts (read 2 s, write/money 8 s) e circuit breaker; backends fake.
 - O modelo nunca vê tenant_id: lint de CI nos esquemas das tools.
@@ -446,8 +446,8 @@ CREATE TABLE tool_idempotency (
 
 ```text
 És o executor do ticket KAM-029 da KAMBÁ.
-Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-029), ../docs/tecnica/02_Agent_Runtime_Verticais.md (§6.3)
-e ../docs/tecnica/03_Core_Comercio_Medusa.md (§6.3).
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-029), docs/tecnica/02_Agent_Runtime_Verticais.md (§6.3)
+e docs/tecnica/03_Core_Comercio_Medusa.md (§6.3).
 Objectivo: idempotência na TLS para tools write/money: key = sha256(tenant_id|contact_id|tool|cart_id),
 tabela tool_idempotency com RLS, replay com idempotent_replay=true, tratamento de concorrência e de falha a meio.
 - Nada de telefone nem janela temporal na chave.
@@ -519,8 +519,8 @@ Implantar o proxy LiteLLM (apenas a parte MIT) por digest com cosign, os aliases
 
 ```text
 És o executor do ticket KAM-030 da KAMBÁ.
-Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-030), ../docs/tecnica/02_Agent_Runtime_Verticais.md (§13, §14)
-e ../docs/tecnica/evidencia/E4_Stack_Licencas.md (§2.7).
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-030), docs/tecnica/02_Agent_Runtime_Verticais.md (§13, §14)
+e docs/tecnica/evidencia/E4_Stack_Licencas.md (§2.7).
 Objectivo: LiteLLM proxy por digest+cosign (>= 1.83.0), aliases por papel, chaves virtuais e budgets por tenant,
 cliente interno por papéis e dat.llm_call_log sem conteúdo.
 - Só a parte MIT. Nunca pip install na build. Rede interna e egress por allowlist.
@@ -597,7 +597,7 @@ Implementar o grafo do Vendedor completo e compilável, com todas as arestas dec
 
 ```text
 És o executor do ticket KAM-031 da KAMBÁ.
-Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-031) e ../docs/tecnica/02_Agent_Runtime_Verticais.md (§7, §6.2, §9).
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-031) e docs/tecnica/02_Agent_Runtime_Verticais.md (§7, §6.2, §9).
 Objectivo: grafo do Vendedor com 21 nós e as 39 arestas de §7.3, confirm_gate e fluxo de dois turnos.
 - A compra é: turno 1 (cart_build → compose com botões confirm:{cart_id}); turno 2 (confirm_gate → create_order).
 - compose devolve blocos; nenhum número em prosa; validate antes de guard_out; citation_retries limita o ciclo.
@@ -671,7 +671,7 @@ Implementar o *renderer* por referência, o extractor PT-AO de números/`sku`/da
 
 ```text
 És o executor do ticket KAM-032 da KAMBÁ.
-Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-032) e ../docs/tecnica/02_Agent_Runtime_Verticais.md (§9).
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-032) e docs/tecnica/02_Agent_Runtime_Verticais.md (§9).
 Objectivo: renderer por referência (blocos text/item/total/buttons/datetime) e validador pós-geração com
 extractor PT-AO, vínculo sku↔preço, regras a_partir_de/sob_consulta e métricas.
 - Tolerância zero em dinheiro; totais nunca somados pelo modelo; dígitos de descrições não são facts.
@@ -746,8 +746,8 @@ Implementar os guardrails de entrada (injecção, abuso, fora de domínio, dados
 
 ```text
 És o executor do ticket KAM-033 da KAMBÁ.
-Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-033), ../docs/tecnica/02_Agent_Runtime_Verticais.md (§8.4)
-e ../docs/tecnica/08_Seguranca_Conformidade.md (§4.3, §7.4, §7.5).
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-033), docs/tecnica/02_Agent_Runtime_Verticais.md (§8.4)
+e docs/tecnica/08_Seguranca_Conformidade.md (§4.3, §7.4, §7.5).
 Objectivo: guardrails de entrada (injecção, abuso, fora de domínio, cartão, sensível) e de saída (promessas,
 identidade, fuga), minimização antes do LLM, contadores por contacto e métricas.
 - Determinístico primeiro; classificador barato só se indeciso.
@@ -821,8 +821,8 @@ Implementar a porta `HandoffService` usada pelos nós de handoff de ambas as ver
 
 ```text
 És o executor do ticket KAM-034 da KAMBÁ.
-Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-034), ../docs/tecnica/02_Agent_Runtime_Verticais.md (§11)
-e ../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§11).
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-034), docs/tecnica/02_Agent_Runtime_Verticais.md (§11)
+e docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md (§11).
 Objectivo: HandoffService com handoff_prepare idempotente, handoff_wait só com interrupt(), handoff_close,
 /internal/resume com compare-and-set, timeout de 24 h e degradação.
 - handoff_id = sha256(thread_id:handoff_seq); todos os efeitos com chave de idempotência.
@@ -898,7 +898,7 @@ Implementar o grafo de Serviços sobre o módulo `servicos` (KAM-047) e a TLS, c
 
 ```text
 És o executor do ticket KAM-035 da KAMBÁ.
-Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-035) e ../docs/tecnica/02_Agent_Runtime_Verticais.md (§8).
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-035) e docs/tecnica/02_Agent_Runtime_Verticais.md (§8).
 Objectivo: grafo de Serviços (Rececionista) com slots_collect, check_availability, book_slot, cancel_booking,
 list_services e confirm_gate por hold_id, reutilizando os nós comuns do Vendedor sem flags de vertical no core.
 - Máximo 10 opções por lista; uma pergunta por mensagem; hora ambígua pergunta-se.
@@ -972,8 +972,8 @@ Implementar o nó `stt` e a interface `SttProvider`: descarregar a nota via MED/
 
 ```text
 És o executor do ticket KAM-036 da KAMBÁ.
-Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-036), ../docs/tecnica/02_Agent_Runtime_Verticais.md (§10)
-e ../docs/tecnica/08_Seguranca_Conformidade.md (§7.5).
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-036), docs/tecnica/02_Agent_Runtime_Verticais.md (§10)
+e docs/tecnica/08_Seguranca_Conformidade.md (§7.5).
 Objectivo: nó stt com SttProvider, confiança alta/média/baixa, eco com botões, fallback a humano e apagamento
 do áudio após transcrição; feature flag voice_enabled por tenant (omissão false até D1/APD).
 - Limiares são configuração a calibrar com áudio real; fornecedor de produção vem de KAM-107.
@@ -1047,7 +1047,7 @@ Implementar o sub-grafo determinístico do Vendedor, o detector de degradação 
 
 ```text
 És o executor do ticket KAM-037 da KAMBÁ.
-Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-037) e ../docs/tecnica/02_Agent_Runtime_Verticais.md (§14).
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-037) e docs/tecnica/02_Agent_Runtime_Verticais.md (§14).
 Objectivo: sub-grafo LangGraph sem LLM (menus, estado do pedido, horário/morada, referência emitida, humano)
 com detector de degradação (timeout 20 s, 429, budget, breaker, contrapressão) e métricas degraded_turns.
 - Nunca Typebot/n8n/Dify. Textos estáticos; números só por renderer e facts.
@@ -1121,8 +1121,8 @@ Ligar as `subscriptions` do registo (KAM-027) a consumidores no AGR: handlers id
 
 ```text
 És o executor do ticket KAM-038 da KAMBÁ.
-Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-038), ../docs/tecnica/02_Agent_Runtime_Verticais.md (§5.1, §8.2)
-e ../docs/tecnica/06_Dados_Eventos_Analytics.md (envelope e events_consumed).
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-038), docs/tecnica/02_Agent_Runtime_Verticais.md (§5.1, §8.2)
+e docs/tecnica/06_Dados_Eventos_Analytics.md (envelope e events_consumed).
 Objectivo: consumidores no AGR ligados às subscriptions dos registry/*.yaml; turnos por evento idempotentes
 (turn_id = event_id), sob o lock da conversa, com Outbound (janela/template) ou HND para o dono.
 - Versão de evento desconhecida falha visível → DLQ; nunca ignorar.
@@ -1194,7 +1194,7 @@ Entregar o teste de contrato automatizado e a medida de reaproveitamento em CI q
 
 ```text
 És o executor do ticket KAM-039 da KAMBÁ.
-Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-039) e ../docs/tecnica/02_Agent_Runtime_Verticais.md (§5.4, §17).
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-039) e docs/tecnica/02_Agent_Runtime_Verticais.md (§5.4, §17).
 Objectivo: teste de contrato da regra de dois (condições a–d) e métrica de reaproveitamento em CI (>= 70%).
 - Vendedor e Serviços no mesmo AGR/TLS/EVT/TEN sem flags de vertical no core; grep de nomes em core/ = 0.
 - Evento de pagamento do fluxo do Vendedor consumido pelo handler de Serviços sem alterar o bus.
@@ -1268,7 +1268,7 @@ Construir o dataset `golden/<vertical>/v1`, o *eval harness* (asserções determ
 
 ```text
 És o executor do ticket KAM-040 da KAMBÁ.
-Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-040), ../docs/tecnica/02_Agent_Runtime_Verticais.md (§16, §17)
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-040), docs/tecnica/02_Agent_Runtime_Verticais.md (§16, §17)
 e specs/01_Engineering_Standards_e_Handoff.md (§4 Gate 13).
 Objectivo: dataset golden PT-AO sintético por vertical, eval harness (asserções determinísticas primeiro, juiz LLM
 só para linguagem) e gate gates/<vertical>.yaml ligado ao CI e ao registry.
@@ -1342,7 +1342,7 @@ Implementar o fluxo rascunhar, apresentar e decidir (aprovar, editar, rejeitar),
 
 ```text
 És o executor do ticket KAM-114 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
-Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-114), ../docs/tecnica/01 (§10.2, §10.3), ../docs/tecnica/02 (§11) e o bloco KAM-034.
+Lê specs/EPIC-03_Agent_Runtime_Verticais.md (bloco KAM-114), docs/tecnica/01 (§10.2, §10.3), docs/tecnica/02 (§11) e o bloco KAM-034.
 Objectivo: modo concierge (a IA rascunha, o humano aprova) para o piloto, com registo de decisões e candidatos ao golden.
 - Política por tenant sobre o modo bot (não crias um quinto modo): draft_prepare idempotente + draft_wait só com interrupt().
 - Nunca envias sem decisão aprovado/editado; expira às 24 h; echo do dono ou handoff substitui o rascunho.
@@ -1389,3 +1389,4 @@ Não expandas escopo: sem aprovação automática, sem UI própria. Testes: esta
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: 16 tickets (KAM-025 a KAM-040) do Agent Runtime e Verticais; KAM-114 (modo concierge) acrescentado na consolidação. | Equipa KAMBÁ |
+| 1.1 | Outubro 2026 | KAM-145: os **26** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |

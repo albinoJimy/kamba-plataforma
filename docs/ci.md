@@ -45,7 +45,7 @@ Cada gate é um alvo `make ci-<n>`. O *workflow* só os orquestra. Três razões
 |---|---|---|---|---|
 | 1 | Build a partir dos lockfiles | `make ci-1` | Plataforma | **proposta** |
 | 2 | Lint, formato e tipos — e, desde o KAM-068, nenhum serviço a escrever fora do *logger* | `make ci-2` | Plataforma | **proposta** |
-| 3 | Referências cruzadas (`KAM`, `ADR`, `D#`) | `make ci-3` | Plataforma | **proposta** |
+| 3 | Referências cruzadas (`KAM`, `ADR`, `D#`) e caminhos dentro dos blocos de *handoff* | `make ci-3` | Plataforma | **proposta** |
 | 3b | Nomes canónicos | `make ci-3b` | Arquitecto de Plataforma | KAM-111 (activo desde o KAM-111) |
 | 4 | Unit e cobertura | `make ci-4` | Plataforma | **proposta** |
 | 5 | Integração | `make ci-5` *(reservado)* | — | **lacuna**: nenhum ticket o reclama |
@@ -120,6 +120,28 @@ pedida num ticket próprio.
 
 Excepções em [`ci/refs-allow.yaml`](../ci/refs-allow.yaml), cada uma com
 ficheiro, token e razão.
+
+**Segundo passo: os caminhos dentro dos blocos de *handoff*** (`lint_handoff`, KAM-145). O
+primeiro passo lê **identificadores** em todo o conjunto; este lê **caminhos**, e só
+dentro dos blocos `### Handoff para Claude Code`, onde a regra é outra: esse bloco fala a
+um processo cujo `cwd` é a raiz do repositório, pelo que ali os caminhos são relativos
+à raiz (`../specs/01_Engineering_Standards_e_Handoff.md` §5). Recusa duas classes: o
+caminho que, normalizado, sai da árvore, e o nome de ficheiro sem directório nenhum, que
+não resolve de posição alguma. **Fora desses blocos não lê nada** — aí vale a
+convenção do KAM-128, relativa à posição do ficheiro.
+
+Duas guardas contra o gate mentir: o número de blocos encontrados tem de igualar o
+número de blocos `## KAM-NNN` (um título mal escrito ou uma cerca que não fecha deixaria
+parte da árvore sem ser lida, e o gate diria «conforme»), e uma excepção declarada que
+não case nenhuma linha falha o gate.
+
+Excepções em [`ci/handoff-allow.yaml`](../ci/handoff-allow.yaml), cada uma com o
+excerto da linha e a razão. São para a linha cujo **assunto é uma forma de caminho**:
+o literal que o executor tem de produzir, e não um ficheiro que ele abre. Hoje são
+três, todas frases que ensinam ou ilustram a convenção de prosa do KAM-128.
+
+Entra no `ci-3` e **não** como *gate* novo de propósito: um *gate* novo acrescentaria
+um contexto exigido ao *ruleset* de `main`. Os sete mantêm-se.
 
 ### Gate 3b — nomes canónicos
 
@@ -1321,3 +1343,4 @@ sobrevivem ao PR.
 | 1.18 | Outubro 2026 | **KAM-148**: a lacuna 22 fecha. Os outros dois leitores de subconjunto de YAML — `tools/canon_lint/yamlreg.py` (os `registry/*.yaml`) e `tools/secrets_inventory/yamlsubset.py` (o `ops/secrets-inventory.yaml`) — passam pela varredura do KAM-136: 240 construções classificadas por execução contra a cópia congelada de cada leitor, 110 leituras silenciosas fechadas (96 por recusa, 14 por leitura correcta), equivalência campo a campo com 0 divergências e um *docstring* por leitor com um teste por linha da lista do que recusa. | Equipa KAMBÁ |
 | 1.19 | Outubro 2026 | KAM-151: a lacuna 25 fecha. O `make coverage-python` mede `services/agr/src/`, que estava no âmbito do *gate* 4 e fora do denominador desde o KAM-002 — com a *suite* a exercitá-lo. O §3 deixa de dizer que falta um alvo do lado Python, e a falta de um `--source=` para uma pasta de `.py` do âmbito passa a falhar um teste. Medido: o **delta**, que é o que o ticket faz e não depende da árvore: **+29** no numerador, **+31** no denominador, **+3** ficheiros, com a percentagem a não se mover. Na árvore que funde: `restante` 92% → 92% (9880/10730 → 9909/10761), 100 → 103 ficheiros; em `f4c7e3d`, onde foi medido primeiro, era 91% → 91% (9652/10526 → 9681/10557). O absoluto subiu porque o KAM-148 acrescentou código testado a `tools/`, que está no estrato; `critico` intacto; limiar não tocado. A prova por mutação do *gate* 4 passa de 24 para 28 (28 apanhadas, 0 sobreviventes), com quatro `cablagem:` novas do lado Python. **Lacuna 26 nova**, destapada por este ticket e trazida pela revisão adversarial: um `.py` medido a 0% faz o número descer e não sai nomeado no relatório. | Equipa KAMBÁ |
 | 1.20 | Outubro 2026 | **KAM-154**: o *gate* 2 passa a resolver cada regra do `CODEOWNERS` contra a árvore seguida pelo git. Uma regra que não case com nada reprova o PR — até aqui era ignorada pelo GitHub e deixava a área sem dono, em silêncio, que foi como três regras sobreviveram ao prefixo removido pelo KAM-128 e a dois tickets de medição de referências. Implementa a semântica de *glob* documentada e não `[ -e ]`, e é *fail-closed* no que o GitHub não suporta. Entrou neste *gate* pela razão do `log-lint`, e não como número novo de `specs/01` §4. Não valida se o dono existe: isso é o KAM-137 e a lacuna L-19. | Equipa KAMBÁ |
+| 1.21 | Outubro 2026 | KAM-145: o *gate* 3 passa a ter um segundo passo, `lint_handoff`, que lê os **caminhos** dentro dos blocos `### Handoff para Claude Code` e exige que sejam relativos à raiz do repositório — que é onde o executor corre, agora declarado em `../specs/01_Engineering_Standards_e_Handoff.md` §5. Converteram-se **254** ocorrências nos onze epics (247 que apontavam para fora da árvore e 7 sem directório nenhum), entre elas as quatro instruções que mandam escrever um ficheiro de validação. Entra no `ci-3` e **não** como *gate* novo, para não acrescentar um contexto exigido ao *ruleset* de `main`: os sete mantêm-se. Fora dos blocos de *handoff* a regra continua a ser a do KAM-128. | Equipa KAMBÁ |

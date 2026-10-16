@@ -753,3 +753,4 @@ Legenda: **R** executa, **A** responde, **C** consultado, **I** informado.
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: percursos, provisioning por saga, Embedded Signup v4, consentimento, screening e Trust & Safety, KYC e selo, rede de agentes, suporte e golden set, segmentos A/B, ciclo de vida e off-boarding, métricas e RACI. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §6.4 e §15.1, D-08 (estado `restrito`: limitação imposta pela Meta, distinta de `suspenso`). | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | KAM-128: As **50** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. É o documento com mais referências cruzadas do conjunto. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |

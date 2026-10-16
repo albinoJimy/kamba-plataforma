@@ -521,3 +521,4 @@ Não se salta K1→K3: sem isolamento testado e pagamento autenticado, escalar �
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial; ADR-001 a ADR-014 revistos com a evidência de `evidencia/E1`–`E4`. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §9, D-04 — `authn_ok` + `authn_method` no lugar da variante substituída. | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | KAM-128: As **19** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Os ADRs do §8 e as decisões abertas do §13.3 não foram tocados. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |

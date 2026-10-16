@@ -106,7 +106,7 @@ Criar o schema `idx` (extensões, configuração FTS `idx.kamba_pt`, `idx.search
 
 ```text
 És o executor do ticket KAM-061 da KAMBÁ. Lê specs/EPIC-06_Indice_Pesquisa.md (bloco KAM-061) e
-../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md (§4, §6, §7, §15) e ADR-006/007/008.
+docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md (§4, §6, §7, §15) e ADR-006/007/008.
 Objectivo: schema idx (vector>=0.8.7, pg_trgm, unaccent, config idx.kamba_pt), idx.search_doc SEM índice ANN,
 função idx.candidatos (RRF, três ramos com ORDER BY antes do LIMIT, porta de tenant activo), consumidor de
 catalog.product_changed e eventos de estado do tenant, e search_products com join à oferta viva.
@@ -176,7 +176,7 @@ Implementar `normalizar(texto, tenant_id, origem)` com os 9 passos do §5.1, a t
 
 ```text
 És o executor do ticket KAM-062 da KAMBÁ. Lê specs/EPIC-06_Indice_Pesquisa.md (bloco KAM-062) e
-../docs/tecnica/05 (§4.4, §5, §14.4).
+docs/tecnica/05 (§4.4, §5, §14.4).
 Objectivo: normalizar(texto, tenant_id, origem) em 9 passos (NFKC/unaccent, voz->números, restrições de preço,
 unidades, marcas, erros comuns, stopwords, sinónimos só na consulta), tabela idx.termo_canonico, norm_versao com
 reindexação em segundo plano, auto-correcção só com similarity >= 0.6 e >= 1 candidato.
@@ -245,7 +245,7 @@ Gerar os embeddings do catálogo e da consulta pelo gateway LLM (chave virtual p
 
 ```text
 És o executor do ticket KAM-063 da KAMBÁ. Lê specs/EPIC-06_Indice_Pesquisa.md (bloco KAM-063),
-../docs/tecnica/05 (§6.5, §7.4, §14.3, PROP-IDX-3/4) e ../docs/tecnica/08 (§7.4, §8.3).
+docs/tecnica/05 (§6.5, §7.4, §14.3, PROP-IDX-3/4) e docs/tecnica/08 (§7.4, §8.3).
 Objectivo: embeddings do catálogo e da consulta via gateway LiteLLM (chave virtual por tenant), gate de destino por
 tenant antes de CADA chamada, modo lexical (p_qvec NULL) quando o destino não tem apd_ref, falha ou excede 1,5 s,
 e decisão escrita do modelo com comparação híbrido vs lexical no dataset.
@@ -315,7 +315,7 @@ Construir o dataset `golden_search` (≥ 300 consultas, ≥ 5 catálogos), o exe
 
 ```text
 És o executor do ticket KAM-064 da KAMBÁ. Lê specs/EPIC-06_Indice_Pesquisa.md (bloco KAM-064),
-../docs/tecnica/05 (§14, §15) e ADR-018 (golden por reescrita sintética; não treinar com dados da Meta).
+docs/tecnica/05 (§14, §15) e ADR-018 (golden por reescrita sintética; não treinar com dados da Meta).
 Objectivo: dataset golden_search (>= 300 consultas, >= 5 catálogos, >= 20% typo/regionalismo, >= 10% não resolvível),
 executor com success@3, recall@10, nDCG@3, zero-result e falso-positivo em híbrido e lexical, gate de CI
 (nDCG@3 -2 pts, zero-result +1 pt, ou teste de isolamento falhado => build vermelho) e baseline versionada.
@@ -360,3 +360,4 @@ Testes: unit das métricas, integração do executor e do gate, scanner de PII. 
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: 4 tickets (KAM-061 a KAM-064) — pesquisa híbrida por tenant com RRF, normalização PT-AO, embeddings com modo lexical e avaliação de qualidade. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | KAM-129: as 4 referências aos anexos E1, E3 e E4 passam a `../docs/tecnica/evidencia/…`; antes não resolviam de posição nenhuma. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | KAM-145: os **5** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
