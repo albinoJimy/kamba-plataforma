@@ -130,6 +130,13 @@ caminho que, normalizado, sai da árvore, e o nome de ficheiro sem directório n
 não resolve de posição alguma. **Fora desses blocos não lê nada** — aí vale a
 convenção do KAM-128, relativa à posição do ficheiro.
 
+**Lê dois sítios, desde o KAM-155:** `specs/EPIC-*.md`, nos dez epics que mantêm os
+blocos no próprio ficheiro, e `specs/tickets/*.md`, no EPIC-01, que os tirou de lá. Com
+um glob só, o *gate* ficava verde sobre os dez e deixava **39** blocos sem ser lidos. A
+lista de globos é explícita no código (`PADROES`) e a resolução tira repetidos: dois
+globos sobrepostos contavam o mesmo ficheiro duas vezes, e a guarda da contagem passava
+a mentir ao contrário — blocos a dobrar contra títulos a dobrar, que batem.
+
 Duas guardas contra o gate mentir: o número de blocos encontrados tem de igualar o
 número de blocos `## KAM-NNN` (um título mal escrito ou uma cerca que não fecha deixaria
 parte da árvore sem ser lida, e o gate diria «conforme»), e uma excepção declarada que
@@ -1387,3 +1394,4 @@ sobrevivem ao PR.
 | 1.21 | Outubro 2026 | KAM-145: o *gate* 3 passa a ter um segundo passo, `lint_handoff`, que lê os **caminhos** dentro dos blocos `### Handoff para Claude Code` e exige que sejam relativos à raiz do repositório — que é onde o executor corre, agora declarado em `../specs/01_Engineering_Standards_e_Handoff.md` §5. Converteram-se **254** ocorrências nos onze epics (247 que apontavam para fora da árvore e 7 sem directório nenhum), entre elas as quatro instruções que mandam escrever um ficheiro de validação. Entra no `ci-3` e **não** como *gate* novo, para não acrescentar um contexto exigido ao *ruleset* de `main`: os sete mantêm-se. Fora dos blocos de *handoff* a regra continua a ser a do KAM-128. | Equipa KAMBÁ |
 | 1.22 | Outubro 2026 | KAM-005: o *gate* 8 passa a correr **quatro** *suites* — `tests_eventos` e `tests_eventos_carga` juntam-se às duas, com uma rede Docker própria, PostgreSQL **e** Valkey (digest em `ci/supply-chain/imagens.yaml`), o contentor da fila sem `--rm` e porta fixa para o critério 4 a poder pará-la, e o `kill -9` mandado ao contentor. A carga fica em *suite* própria por custo das mutações. O *gate* 6 ganha `verificar_particoes`: a política de uma tabela particionada não cobre quem lê a partição directamente. | Equipa KAMBÁ |
 | 1.23 | Outubro 2026 | KAM-005: as *suites* de eventos correm pela primeira vez num anfitrião Linux ([execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356)) e fecham três caixas do bloco — a da fila parada, que no anfitrião Windows não reproduzia, e a do p95, que lá media 6,0 s e aqui mede **0,195 s**. | Equipa KAMBÁ |
+| 1.24 | Outubro 2026 | KAM-155: o segundo passo do *gate* 3 passa a ler **dois** globos — `specs/EPIC-*.md` e `specs/tickets/*.md` —, porque o EPIC-01 passou a ter um ficheiro por ticket. Com um só, o *gate* ficava verde e deixava 39 blocos sem ser lidos. | Equipa KAMBÁ |

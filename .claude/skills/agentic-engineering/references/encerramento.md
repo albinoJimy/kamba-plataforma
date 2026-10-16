@@ -109,8 +109,9 @@ Riscos residuais:
 Conclusão: COMPLETO / INCOMPLETO / PARCIALMENTE VERIFICADO
 ```
 
-A origem dos requisitos são os **Critérios de Aceitação** do ticket `KAM-NNN` no
-`specs/EPIC-XX_*.md`, e o DoD de `specs/01_Engineering_Standards_e_Handoff.md` §3. Percorre-os um
+A origem dos requisitos são os **Critérios de Aceitação** do ticket `KAM-NNN` — em
+`specs/tickets/KAM-NNN.md` no EPIC-01, no `specs/EPIC-XX_*.md` nos outros dez (KAM-155) —
+e o DoD de `specs/01_Engineering_Standards_e_Handoff.md` §3. Percorre-os um
 a um, com a evidência ao lado. Um critério marcado sem evidência nomeada não está marcado — está
 presumido.
 
@@ -138,7 +139,10 @@ presumido.
 >
 > ```bash
 > # marcadas, e vazias — cada vazia tem de aparecer na secção de verificação
-> bloco=$(awk '/^## KAM-003 /,/^---$/' specs/EPIC-01_Fundacoes_Dados.md)
+> # No EPIC-01 cada ticket é um ficheiro (KAM-155), e o bloco é o ficheiro todo:
+> bloco=$(cat specs/tickets/KAM-003.md)
+> # Nos outros dez epics os blocos vivem dentro do ficheiro do epic:
+> # bloco=$(awk '/^## KAM-013 /,/^---$/' specs/EPIC-02_Canais_WhatsApp_Handoff.md)
 > echo "$bloco" | grep -c '^- \[x\]'
 > echo "$bloco" | grep -c '^- \[ \]'
 > ```
@@ -249,7 +253,7 @@ Depois de fechar, actualiza o conhecimento quando houver mesmo o que registar:
 | Facto novo sobre Meta, pagamentos, lei, licenças, fornecedores | `docs/tecnica/evidencia/EN_*.md`, com URL, data e estado |
 | Hipótese de negócio nova | `docs/exploracao/14-tese-minima-e-plano-de-validacao.md` §2 (H#), com limiar, prazo e pivô |
 | Desenho de subsistema | `docs/tecnica/01`–`docs/tecnica/10`, na secção própria ou como adenda datada |
-| Trabalho a fazer | ticket em `specs/EPIC-XX_*.md` **e** linha no backlog mestre `specs/INDICE.md` §4 |
+| Trabalho a fazer | ticket em `specs/tickets/KAM-NNN.md` (EPIC-01) ou `specs/EPIC-XX_*.md` (os outros dez) **e** linha no backlog mestre `specs/INDICE.md` §4 |
 | Achado de revisão | `docs/analises/ANALISE-NN-<slug>.md` |
 | Risco operacional ou armadilha de execução | o documento de operação (`docs/tecnica/09`) ou esta skill |
 

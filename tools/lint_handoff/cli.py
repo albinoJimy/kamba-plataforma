@@ -17,7 +17,8 @@ from pathlib import Path
 
 from kamba_yaml import YamlSubsetError, load_file
 
-from .scan import DEFEITOS, contar_blocos, varrer_arvore, varrer_ficheiro
+from .scan import (DEFEITOS, PADROES, contar_blocos, ficheiros, varrer_arvore,
+                   varrer_ficheiro)
 
 #: Onde vivem as excepcoes declaradas, relativo a raiz.
 ALLOW = 'ci/handoff-allow.yaml'
@@ -59,13 +60,13 @@ def ler_excepcoes(raiz: Path) -> tuple[str, ...]:
     return tuple(out)
 
 
-def _excepcoes_mortas(raiz: Path, padrao: str, excepcoes: tuple[str, ...]) -> list[str]:
+def _excepcoes_mortas(raiz: Path, padroes, excepcoes: tuple[str, ...]) -> list[str]:
     """As excepcoes que nao casam nenhuma linha de nenhum bloco de *handoff*.
 
     Uma excepcao esquecida continua a abrir uma porta que ninguem vigia.
     """
     vivas: set[str] = set()
-    for f in sorted(raiz.glob(padrao)):
+    for f in ficheiros(raiz, padroes):
         texto = f.read_text(encoding='utf-8')
         for e in excepcoes:
             if e in texto:
@@ -94,13 +95,16 @@ def main(argv: list[str] | None = None) -> int:
         description='Caminhos dentro de blocos de handoff: relativos a raiz do repositorio.',
     )
     p.add_argument('--root', default='.', help='raiz do repositorio (por omissao, o cwd)')
-    p.add_argument('--padrao', default='specs/EPIC-*.md', help='glob dos ficheiros a varrer')
+    p.add_argument('--padrao', action='append', dest='padroes', metavar='GLOB',
+                   help='glob dos ficheiros a varrer; repetivel. Por omissao: '
+                        + ' e '.join(PADROES))
     sub = p.add_subparsers(dest='acao', required=True)
     sub.add_parser('check', help='falha se houver caminho defeituoso')
     sub.add_parser('censo', help='imprime a populacao por classe')
     pf = sub.add_parser('file', help='varre um ficheiro')
     pf.add_argument('ficheiro')
     a = p.parse_args(argv)
+    padroes = tuple(a.padroes) if a.padroes else PADROES
 
     raiz = Path(a.root).resolve()
     if not raiz.is_dir():
@@ -120,9 +124,9 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         achados = varrer_ficheiro(f.resolve(), raiz, excepcoes)
     else:
-        achados = varrer_arvore(raiz, a.padrao, excepcoes)
+        achados = varrer_arvore(raiz, padroes, excepcoes)
         if not achados:
-            print(f'lint_handoff: nenhum bloco de handoff em {a.padrao!r} sob {raiz}',
+            print(f'lint_handoff: nenhum bloco de handoff em {list(padroes)!r} sob {raiz}',
                   file=sys.stderr)
             return 2
 
@@ -133,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
     # O delimitador tem de ver um bloco por ticket. Sem isto, «conforme» diz o
     # mesmo sobre a populacao inteira e sobre zero blocos reconhecidos. So se
     # exige onde ha titulos de ticket: uma arvore de prova nao os tem.
-    blocos, titulos = contar_blocos(raiz, a.padrao)
+    blocos, titulos = contar_blocos(raiz, padroes)
     if titulos and blocos != titulos:
         print(f'lint_handoff: {blocos} bloco(s) de handoff para {titulos} ticket(s) — '
               'cada bloco `## KAM-NNN` tem de ter exactamente um. Um titulo mal escrito, '
@@ -141,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
               'ser lida.', file=sys.stderr)
         return 2
 
-    mortas = _excepcoes_mortas(raiz, a.padrao, excepcoes)
+    mortas = _excepcoes_mortas(raiz, padroes, excepcoes)
     if mortas:
         print(f'lint_handoff: {len(mortas)} excepcao(oes) de {ALLOW} nao casam nenhuma linha:',
               file=sys.stderr)

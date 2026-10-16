@@ -129,16 +129,45 @@ def varrer_ficheiro(caminho: Path, raiz: Path, excepcoes: tuple[str, ...] = ()) 
     return out
 
 
-def varrer_arvore(raiz: Path, padrao: str = 'specs/EPIC-*.md',
+#: Onde vivem os blocos de *handoff*. Sao **dois** desde o KAM-155: os dez
+#: epics que mantem os blocos no proprio ficheiro, e os ficheiros por ticket do
+#: EPIC-01, que os tirou de la. Com um glob so, o gate ficava verde sobre os dez
+#: e deixava 39 blocos sem ser lidos — e um gate que nao le nao protege.
+PADROES = ('specs/EPIC-*.md', 'specs/tickets/*.md')
+
+
+def ficheiros(raiz: Path, padroes: str | tuple[str, ...] | list[str]) -> list[Path]:
+    """Os ficheiros de todos os globs, sem repetidos, por ordem de nome.
+
+    Sem repetidos de proposito: dois globs que se sobreponham contavam o mesmo
+    ficheiro duas vezes, e a conta de `contar_blocos` passava a mentir ao
+    contrario — blocos a dobrar contra titulos a dobrar, que batem.
+    """
+    if isinstance(padroes, str):
+        padroes = (padroes,)
+    # A chave e o caminho como o `glob` o devolve, **sem** `resolve()`: resolver
+    # troca a raiz por outra forma dela (o nome curto do Windows, o alvo de uma
+    # ligacao simbolica) e o `relative_to(raiz)` de `varrer_ficheiro` deixa de
+    # casar. Dois globos sobrepostos devolvem o mesmo caminho, pelo que o
+    # dicionario ja basta para tirar repetidos.
+    vistos: dict[Path, None] = {}
+    for padrao in padroes:
+        for f in raiz.glob(padrao):
+            vistos[f] = None
+    return sorted(vistos, key=lambda f: f.as_posix())
+
+
+def varrer_arvore(raiz: Path, padroes: str | tuple[str, ...] | list[str] = PADROES,
                   excepcoes: tuple[str, ...] = ()) -> list[Achado]:
-    """Varre os ficheiros que casam com `padrao`, por ordem de nome."""
+    """Varre os ficheiros que casam com `padroes`, por ordem de nome."""
     out: list[Achado] = []
-    for f in sorted(raiz.glob(padrao)):
+    for f in ficheiros(raiz, padroes):
         out.extend(varrer_ficheiro(f, raiz, excepcoes))
     return out
 
 
-def contar_blocos(raiz: Path, padrao: str = 'specs/EPIC-*.md') -> tuple[int, int]:
+def contar_blocos(raiz: Path,
+                  padroes: str | tuple[str, ...] | list[str] = PADROES) -> tuple[int, int]:
     """(blocos de *handoff* encontrados, titulos `## KAM-NNN` encontrados).
 
     Os dois numeros tem de bater. Sem isto, o `check` imprime «conforme» tanto
@@ -146,7 +175,7 @@ def contar_blocos(raiz: Path, padrao: str = 'specs/EPIC-*.md') -> tuple[int, int
     de reconhecer — e e a segunda que mente.
     """
     blocos = titulos = 0
-    for f in sorted(raiz.glob(padrao)):
+    for f in ficheiros(raiz, padroes):
         linhas = f.read_text(encoding='utf-8').split('\n')
         blocos += len(_blocos(linhas))
         titulos += sum(1 for l in linhas if re.match(r'^## KAM-\d+ ', l))

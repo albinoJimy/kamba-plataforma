@@ -45,6 +45,7 @@ docs/
   adr/                           ADRs locais (ADR-L###)
   evidencia/                     evidência de execução por ticket
 specs/                           backlog executável (KAM-NNN), na raiz do repositório
+  tickets/                       um ficheiro por ticket do EPIC-01 (40; KAM-155)
 ```
 
 | Nº | Documento | Foco | Ficheiro | Linhas |
@@ -218,6 +219,7 @@ core** (doc 10 §3, 13 §3).
 | 1.5 | Outubro 2026 | Diagramas C4 e fluxogramas (12); documento mestre compilado (00). | Equipa KAMBÁ |
 | 1.6 | Outubro 2026 | Big picture do ecossistema (13) incluindo governação, mapa de dinheiro e motor de atenção; índice formal (este documento). Total: 13 documentos activos. | Equipa KAMBÁ |
 | 1.7 | Outubro 2026 | KAM-128: conjunto reorganizado sob `docs/` (biblioteca em `exploracao/`, conjunto formal em `tecnica/`, análises em `analises/`); árvore registada no §2; `specs/` deixa de constar como «a criar» (§6); mestre passa a gerado por `compilar-mestre.sh` e a incluir o 14. | Equipa KAMBÁ |
+| 1.8 | Outubro 2026 | KAM-155: a árvore do §2 passa a mostrar `specs/tickets/`, onde vivem os 40 ficheiros de ticket do EPIC-01. | Equipa KAMBÁ |
 
 ---
 

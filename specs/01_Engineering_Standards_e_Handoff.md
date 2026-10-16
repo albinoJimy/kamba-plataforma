@@ -28,7 +28,7 @@ A tese do produto é tornar as falhas **arquitecturalmente impossíveis** em qua
 
 Um ticket só entra em execução quando **todos** os itens estão satisfeitos:
 
-- [ ] **ID `KAM-NNN`** no range do seu epic, vivendo em `specs/EPIC-XX`.
+- [ ] **ID `KAM-NNN`** no range do seu epic, vivendo em `specs/tickets/KAM-NNN.md` (EPIC-01) ou no `specs/EPIC-XX` do seu epic (os outros dez) — KAM-155.
 - [ ] **Contexto** e **Objectivo** escritos para um executor externo sem contexto oral.
 - [ ] **Critérios de Aceitação SMART** em *checkboxes*, verificáveis por teste ou observação.
 - [ ] **ADRs aplicáveis** citados por código (ex.: ADR-013, ADR-015); o ticket não contradiz nenhum ADR canónico de `../docs/tecnica/00` §8.
@@ -178,7 +178,7 @@ Regra transversal: nenhum gate pode ser marcado *skip* sem ADR ou aprovação re
 És o executor de um ticket do backlog da KAMBÁ (plataforma WhatsApp-native de comércio
 conversacional para Angola). Identifica o ID (KAM-NNN) e lê, por esta ordem:
 
-1. specs/EPIC-XX_*.md (bloco do ticket): Contexto, Objectivo, Critérios, Detalhes, Testes, DoD.
+1. specs/tickets/KAM-NNN.md (EPIC-01) ou specs/EPIC-XX_*.md (os outros dez), o bloco do ticket: Contexto, Objectivo, Critérios, Detalhes, Testes, DoD.
 2. docs/tecnica/00_Arquitectura_Solucao.md (ADRs e decisões abertas D1–D12) e o documento
    docs/tecnica/NN_*.md indicado nas referências do ticket.
 3. specs/01_Engineering_Standards_e_Handoff.md (DoR, DoD, convenções, template de PR).
