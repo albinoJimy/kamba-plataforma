@@ -62,7 +62,7 @@ docs/                conjunto documental (ver docs/INDICE.md)
   adr/               ADRs locais (ADR-L###); os canónicos estão em docs/tecnica/00 §8
   evidencia/         evidência de execução por ticket
 specs/               backlog executável (KAM-NNN) — na raiz, não é documentação
-  tickets/           um ficheiro por ticket do EPIC-01 (40); os outros dez epics
+  tickets/           um ficheiro por ticket do EPIC-01 (43); os outros dez epics
                      mantêm os blocos no próprio ficheiro (KAM-155)
 ```
 
@@ -214,7 +214,7 @@ verifica assinaturas, o AGR não tem grafo, o COM não arranca o Medusa.
 | Arquitectura, ADR-001…ADR-020, decisões abertas D1…D13 | [`docs/tecnica/00_Arquitectura_Solucao.md`](docs/tecnica/00_Arquitectura_Solucao.md) |
 | Como se chama cada coisa | [`specs/02_Dicionario_de_Dados_Canonico.md`](specs/02_Dicionario_de_Dados_Canonico.md) |
 | DoR, DoD, gates, convenções, template de PR | [`specs/01_Engineering_Standards_e_Handoff.md`](specs/01_Engineering_Standards_e_Handoff.md) |
-| Backlog mestre (155 tickets) | [`specs/INDICE.md`](specs/INDICE.md) §4 |
+| Backlog mestre (158 tickets) | [`specs/INDICE.md`](specs/INDICE.md) §4 |
 | Topologia, operação, CI/CD | [`docs/tecnica/09_Topologia_Operacao_Escala.md`](docs/tecnica/09_Topologia_Operacao_Escala.md) |
 | Segurança, conformidade, cadeia de abastecimento | [`docs/tecnica/08_Seguranca_Conformidade.md`](docs/tecnica/08_Seguranca_Conformidade.md) |
 | Licenças e versões verificadas | [`docs/tecnica/evidencia/E4_Stack_Licencas.md`](docs/tecnica/evidencia/E4_Stack_Licencas.md) |
