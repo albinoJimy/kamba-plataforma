@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import contextlib
 import io
+import sys
 import unittest
 import unittest.mock
+from pathlib import Path
 
 import mutacoes
 
@@ -258,6 +260,47 @@ class TestCodigoDeSaida(unittest.TestCase):
 
     def test_aplicaveis_sai_com_zero_sobre_a_lista_real(self) -> None:
         self.assertEqual(mutacoes.aplicaveis(), 0)
+
+
+class TestCaminhoDoPython(unittest.TestCase):
+    """O interpretador passado por argumento tem de ficar absoluto.
+
+    `_gate_de_tools` corre com o directorio de trabalho **dentro da copia**, e
+    um caminho relativo nao existe la. A tarefa nocturna do KAM-143 passava
+    `.venv/bin/python` relativo, e as seis fatias morreram todas com
+    `FileNotFoundError` sem correr uma mutacao — a prova nao falhou, nem
+    sequer comecou.
+    """
+
+    def _com_gate(self):
+        """Nao corre gate nenhum: so quer o valor de `PY` no fim."""
+        self.enterContext(
+            unittest.mock.patch.object(mutacoes, "linha_de_base", lambda suite: None)
+        )
+        self.enterContext(
+            unittest.mock.patch.object(
+                mutacoes, "correr", lambda *a, **k: ("apanhada (1)", "")
+            )
+        )
+        self.enterContext(contextlib.redirect_stdout(io.StringIO()))
+
+    def test_um_caminho_relativo_fica_absoluto(self) -> None:
+        self._com_gate()
+        mutacoes.main([".venv/bin/python", "catalogo:"])
+        self.assertTrue(Path(mutacoes.PY).is_absolute(), mutacoes.PY)
+        self.assertTrue(mutacoes.PY.endswith(("python", "python.exe")))
+
+    def test_um_caminho_absoluto_nao_e_tocado(self) -> None:
+        self._com_gate()
+        absoluto = str(Path(sys.executable).resolve())
+        mutacoes.main([absoluto, "catalogo:"])
+        self.assertEqual(mutacoes.PY, absoluto)
+
+    def test_um_nome_sem_barra_fica_como_esta(self) -> None:
+        """`python` resolve-se pelo PATH; torna-lo absoluto seria adivinhar."""
+        self._com_gate()
+        mutacoes.main(["python3", "catalogo:"])
+        self.assertEqual(mutacoes.PY, "python3")
 
 
 class TestPorqueFalhou(unittest.TestCase):

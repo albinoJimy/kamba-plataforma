@@ -891,7 +891,13 @@ def main(argumentos: list[str]) -> int:
             )
             return 2
     if argumentos:
+        # Absoluto, sempre: `_gate_de_tools` corre com o directorio de trabalho
+        # **dentro da copia**, e um caminho relativo como `.venv/bin/python` nao
+        # existe la. A tarefa nocturna passava-o relativo e as seis fatias
+        # morriam todas com FileNotFoundError, sem uma mutacao corrida.
         PY = argumentos[0]
+        if ("/" in PY or "\\" in PY) and not Path(PY).is_absolute():
+            PY = str(Path(PY).resolve())
     filtro = argumentos[1] if len(argumentos) > 1 else ""
 
     lista = escolhidas(filtro)

@@ -146,7 +146,11 @@ jobs:
           else
             reparticao="${FATIA}/6"
           fi
-          .venv/bin/python db/mutacoes.py .venv/bin/python "${FILTRO:-}" \
+          # Caminho absoluto: o corredor corre algumas suites com o
+          # directorio de trabalho dentro da copia, e um `.venv/...` relativo
+          # nao existe la. O proprio corredor passou a tornar absoluto o que
+          # receber (KAM-143), e aqui ja vai absoluto.
+          "$PWD/.venv/bin/python" db/mutacoes.py "$PWD/.venv/bin/python" "${FILTRO:-}" \
             --fatia "$reparticao" 2>&1 | tee "$REGISTO"
       - name: guardar o relatorio
         if: always()
