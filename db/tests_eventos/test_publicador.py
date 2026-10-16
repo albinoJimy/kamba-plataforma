@@ -256,7 +256,15 @@ class TestRoteamento(ComFila):
         self.subscrever(CONSUMER_ANALITICO, finalidade="analytics_agregado")
         self.subscrever(CONSUMER, tipo="order.expired", finalidade="transacao")
         (so_transacao,) = self.emitir(finalidades=("transacao",))
-        (ambas,) = self.emitir(finalidades=("transacao", "analytics_agregado"))
+        # Os dois eventos em particoes **diferentes**, de proposito: a asercao
+        # abaixo e de fila vazia, e com os dois na mesma particao (uma vez em
+        # dezasseis, com agregados ao acaso) a fila do consumidor analitico leva
+        # o evento das duas finalidades **por direito**. Falhava sem nada estar
+        # errado, e foi assim que falhou na primeira execucao em Linux.
+        (ambas,) = self.emitir(
+            finalidades=("transacao", "analytics_agregado"),
+            agregado=self.agregado_fora_da_particao(self.particao_de(so_transacao)),
+        )
         self.lancar_publicador()
 
         self.assertTrue(esperar_por(lambda: self.publicados() == 2, 60))

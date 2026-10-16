@@ -197,6 +197,32 @@ class ComFila(unittest.TestCase):
     def nome_da_fila(self, event_id: str, consumer: str = CONSUMER) -> str:
         return f"evt.{consumer}.p{self.particao_de(event_id)}"
 
+    def agregado_fora_da_particao(self, particao: int) -> str:
+        """Um agregado novo cuja particao **nao** e `particao`.
+
+        A particao e `hashtextextended(tenant || agregado_id, 0) & 15` (revisao
+        0004), e agregados ao acaso caem na mesma particao **uma vez em
+        dezasseis**. Um teste que afirme que a fila de uma particao esta vazia
+        enquanto outro evento, com direito a ela, cai na mesma particao falha
+        sem nada estar errado — e falhou: o `runner` Linux apanhou-o a primeira
+        execucao de uma suite que em Windows passava.
+
+        A conta vem da base e nao e repetida aqui em Python: se a revisao mudar
+        o `& 15`, este auxiliar muda com ela.
+        """
+        for _ in range(100):
+            candidato = self.agregado_novo()
+            self.cursor.execute(
+                "SELECT (hashtextextended(%s::text || %s, 0) & 15)::int",
+                (self.tenant, candidato),
+            )
+            if int(self.cursor.fetchone()[0]) != particao:
+                return candidato
+        raise AssertionError(
+            f"cem agregados seguidos e todos na particao {particao}: "
+            "a conta da particao deixou de distribuir"
+        )
+
     def recuo_de(self, event_id: str) -> tuple[int, bool]:
         """(`tentativas`, a proxima tentativa esta no futuro?)"""
         self.cursor.execute(

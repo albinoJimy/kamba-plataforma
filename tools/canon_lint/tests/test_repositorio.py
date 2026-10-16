@@ -245,8 +245,8 @@ class TestMutacoes(ComCopia):
 
     def test_auxiliar_que_deixa_de_se_seguir(self) -> None:
         """Se o auxiliar real mudar para uma forma que o lint nao segue, as revisoes
-        reais que o chamam — a 0002 e, desde o KAM-008, a 0003 — passam a falhar,
-        em vez de ficarem por ler."""
+        reais que o chamam — a 0002, a 0003 (KAM-008) e a 0004 (KAM-005) — passam
+        a falhar, em vez de ficarem por ler."""
         self.assertEqual(self.achados(), [])
         self.escrever("db/rls.py", AUXILIAR.replace('alvo = f"{schema}.{tabela}"', "alvo = montar(schema, tabela)"))
         achados = self.achados()
@@ -257,6 +257,7 @@ class TestMutacoes(ComCopia):
             {
                 "db/migrations/versions/0002_rls_por_tenant.py",
                 "db/migrations/versions/0003_identidade_de_contacto.py",
+                "db/migrations/versions/0004_outbox_e_eventos.py",
             },
         )
         self.assertTrue(all("via rls." in a.mensagem for a in achados))
