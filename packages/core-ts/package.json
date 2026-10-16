@@ -38,6 +38,10 @@
     "./eventos/filas_bullmq": {
       "types": "./dist/eventos/filas_bullmq.d.ts",
       "default": "./dist/eventos/filas_bullmq.js"
+    },
+    "./eventos/trabalhador_bullmq": {
+      "types": "./dist/eventos/trabalhador_bullmq.d.ts",
+      "default": "./dist/eventos/trabalhador_bullmq.js"
     }
   },
   "files": [

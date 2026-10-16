@@ -79,6 +79,13 @@ class Receita:
     #: trocam, nessas tabelas, «a politica recusa» por «o privilegio nem
     #: existe».
     escrita_do_papel: bool = True
+    #: `False` quando o papel da tabela **nao a le**. A `events_dlq` e a
+    #: primeira: `kamba_app` abre a entrada e nao tem `SELECT`, porque o `id` e
+    #: sequencial e um papel sujeito a RLS que o lesse media pela sequencia
+    #: quantas falhas o vizinho teve (dicionario §2, KAM-006). Nessas, o
+    #: X-03/X-04 troca «a politica devolve zero linhas» por «o privilegio nem
+    #: existe», que e mais forte: nao depende de a politica estar certa.
+    leitura_do_papel: bool = True
 
 
 def _tenant(cursor, tenant_id: str, canario: str) -> None:
@@ -304,7 +311,7 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     # que o X-04 exercita; a leitura do papel esta fechada por privilegio.
     ("platform", "events_dlq"): Receita(
         _entrada_na_dlq, "erro", None, None,
-        semeador="admin", escrita_do_papel=False,
+        semeador="admin", escrita_do_papel=False, leitura_do_papel=False,
     ),
     # As accoes externas: `kamba_app` regista e fecha a sua (o `UPDATE` e por
     # coluna, e o `estado` e uma delas).

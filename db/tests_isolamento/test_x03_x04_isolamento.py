@@ -39,6 +39,24 @@ def _linhas(cursor, sql: str, parametros: tuple = ()) -> list[tuple]:
 class TestX03LeituraCruzada(ComDoisTenants):
     """Com contexto A, `SELECT *` nao devolve nada de B."""
 
+    def test_onde_o_papel_nao_le_o_select_nem_chega_a_politica(self) -> None:
+        """A `events_dlq`: `kamba_app` escreve e **nao** le (KAM-006).
+
+        Provar que a politica devolve zero linhas seria provar menos: aqui nao
+        ha sequer privilegio, e e por isso que a leitura rebenta com `42501`
+        antes de a politica ser consultada. Se alguem der `SELECT` a este papel,
+        este teste fica vermelho — e e isso que se quer, porque o `id` da DLQ e
+        sequencial e uma leitura mede o volume de falhas do vizinho.
+        """
+        sem_leitura = self.por_tabela_sem_leitura()
+        self.assertTrue(sem_leitura, "a forma «escreve e nao le» deixou de existir")
+        for schema, tabela, _coluna, receita in sem_leitura:
+            with self.subTest(tabela=f"{schema}.{tabela}"):
+                cursor = self.cursor_de(receita.papel, self.a.id)
+                with self.assertRaises(Exception) as apanhado:
+                    cursor.execute(f"SELECT * FROM {schema}.{tabela}")
+                self.assertIn("42501", str(apanhado.exception))
+
     def test_a_ve_as_suas_linhas_e_nenhuma_de_b(self) -> None:
         for schema, tabela, coluna, receita in self.por_tabela():
             with self.subTest(tabela=f"{schema}.{tabela}"):
