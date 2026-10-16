@@ -1,0 +1,5 @@
+# Tres construcoes que o GitHub documenta como nao suportadas (e o `?`, que nao
+# documenta). Resolve-las seria inventar a semantica; recusam-se pelo nome.
+!/docs/privado/             @kamba/plataforma
+/docs/0[0-9]_*.md           @kamba/produto
+/docs/0?_Doc.md             @kamba/seguranca

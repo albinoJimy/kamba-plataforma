@@ -76,6 +76,7 @@ Tudo cai na **Fase 0 (Fundação)**, no caminho crítico do esqueleto andante (g
 | KAM-151 | Cobertura Python sobre `services/agr/src/`, que nenhum alvo media | fix | S | P2 | KAM-132 |
 | KAM-152 | `db/gate8.py`: um caminho que não existe, numa mensagem que manda correr o ficheiro | fix | S | P2 | — |
 | KAM-153 | Referências a anexo de evidência sem prefixo nenhum, e a busca que as veja | fix | S | P1 | KAM-129 |
+| KAM-154 | *Gate* que resolve cada regra do `CODEOWNERS` contra a árvore seguida pelo git | feature | S | P1 | KAM-128 |
 
 ---
 
@@ -2943,6 +2944,245 @@ mutação deliberada de uma estimativa só no §4. Abre PR com o template do §7
 
 ---
 
+## KAM-154 — *Gate* que resolve cada regra do `CODEOWNERS` contra a árvore seguida pelo git
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-01 — Fundações e Dados |
+| Fase | 0 |
+| Tipo | feature |
+| Prioridade | P1 |
+| Estimativa | S |
+| Dependências | KAM-128 |
+| Bloqueia | — |
+| Responsável sugerido | Arquitecto de Plataforma |
+| Documentos de referência | `CODEOWNERS`, `tools/lint_arch/structure.py`, `tools/lint_arch/codeowners.py`, `specs/01_Engineering_Standards_e_Handoff.md` §4 (tabela de gates), `../docs/ci.md` §3 (gate 2), bloco KAM-068 deste epic (o precedente do `log-lint`), `../docs/seguranca/lacunas.md` (L-19), bloco KAM-137 deste epic |
+
+### Contexto
+
+**Uma regra de `CODEOWNERS` cujo padrão não casa com nada não é recusada pelo
+GitHub: é ignorada.** A área que ela devia cobrir fica sem dono, em silêncio, e o
+efeito é o contrário do que o ficheiro existe para fazer. A documentação do
+GitHub descreve o que acontece a uma linha de sintaxe inválida — é saltada — e
+**não diz nada** sobre um padrão bem formado que não casa com nada; é esse o
+silêncio.
+
+Foi o que aconteceu entre o KAM-128 e a sua correcção. O KAM-128 moveu o conjunto
+documental da raiz para `docs/`, reescreveu as referências dentro dos `.md` e
+mediu-as; o `CODEOWNERS` ficou de fora, e três regras ficaram presas ao prefixo
+`/tecnica/`. Enquanto lá estiveram, `docs/tecnica/` e `docs/tecnica/evidencia/`
+caíram na regra geral `*` e o documento 08 de segurança perdeu o dono de
+Segurança que a regra específica lhe atribuía. Foram corrigidas **à mão**, no
+ramo `fix/…-codeowners-no-prefixo-removido` (PR `albinoJimy/kamba#47`).
+
+**O defeito que este ticket fecha não são os três caminhos: é não haver nada que
+os verifique.** Sobreviveu a dois tickets cujo objectivo declarado era medir
+referências — KAM-128 e KAM-129 — porque nenhum dos três mecanismos existentes
+olha para dentro deste ficheiro:
+
+| Mecanismo | O que faz | Porque não o apanhou |
+|---|---|---|
+| `tools/lint_arch/structure.py` | Tem `"CODEOWNERS"` em `REQUIRED_FILES` | Verifica que o ficheiro **existe**. Nunca lê uma linha dele |
+| Gate 3 (`tools/lint_refs`) | Valida *tokens* `KAM-NNN`, `ADR-NNN`, `D#` | Valida identificadores, não caminhos de ficheiro |
+| Buscas G1–G3 do KAM-128 | Varrem referências `tecnica/NN` | Varrem `.md`; o `CODEOWNERS` não tem extensão |
+
+### Objectivo
+
+Nenhuma regra do `CODEOWNERS` pode apontar para nada: cada padrão resolve-se
+contra a árvore seguida pelo git, por máquina e em cada PR, com a semântica de
+*glob* que o GitHub documenta — não com uma verificação de existência de caminho.
+
+### Critérios de Aceitação
+
+- [x] **Cada regra não-comentário do `CODEOWNERS` é resolvida contra a árvore
+  seguida pelo git**, e uma que não case com nenhum ficheiro nem directório falha
+  o *gate*, com o número da linha, o padrão e os donos que a regra atribuía.
+- [x] **A resolução implementa a semântica de *glob* do `CODEOWNERS`, não
+  `[ -e ]`.** Barra inicial e barra no meio ancoram na raiz; sem nenhuma das
+  duas, o padrão casa em qualquer nível; `*` não atravessa `/` e `**` atravessa;
+  `**/x` vale com zero segmentos; barra final exige directório; a comparação é
+  sensível à caixa. Um padrão que seja **prefixo** de um ficheiro real não
+  resolve.
+- [x] **O padrão `*` passa por casar, não por ser excepcionado pelo nome** — e
+  numa árvore vazia é acusado, porque aí não atribui dono a nada.
+- [x] **Uma construção que o GitHub documenta como não suportada é recusada pelo
+  nome** (`!`, `[ ]`, `\`) e também o `?`, que a documentação não menciona:
+  *fail-closed*, em vez de a resolver como se fosse literal.
+- [x] **A árvore é a do git (`git ls-files`), não a do disco**, e sem recurso a
+  `os.walk` quando o git não responde. Um ficheiro que o git não segue não faz
+  uma regra resolver.
+- [ ] **O `CODEOWNERS` real do repositório passa o *gate*** — 18 regras, 0
+  penduradas.
+- [x] **Uma *fixture* por caso**: regra que resolve; regra pendurada (reprova);
+  `*`; curinga que casa; curinga que não casa com nada; construção não suportada.
+- [x] **A escolha entre crescer no `lint-arch` e abrir um *gate* numerado próprio
+  de `specs/01` §4 fica registada**, com a razão.
+
+### Detalhes Técnicos
+
+- **Componentes:** `tools/lint_arch/` (módulo novo `codeowners.py`, chamado por
+  `structure.py`); sem código de *runtime*, sem migrações, sem dependências
+  novas. Só biblioteca padrão.
+- **Onde vive o *gate*, e porquê.** Cresce dentro do `lint_arch`, chamado por
+  `structure.check`, e entra no **gate 2** pelo `make lint-arch` que o gate 2 já
+  corre. **Não** abre *gate* numerado novo em `specs/01` §4, por quatro razões:
+  1. É o que o gate 2 já é — uma verificação estática da fonte, que não executa
+     nada. É o mesmo argumento, escrito, com que o KAM-068 pôs o `log-lint` no
+     gate 2 em vez de abrir um *job* (`../docs/ci.md` §3, gate 2).
+  2. O `structure.py` **já conhece o ficheiro**: tem `"CODEOWNERS"` em
+     `REQUIRED_FILES`. A verificação que falta é a segunda metade da que lá está.
+  3. A tabela de `specs/01` §4 é o **plano** dos 18 *gates*, não o registo do que
+     está implementado (`../docs/ci.md` §3 é esse registo). Acrescentar um número
+     19 para uma verificação de segundos obrigaria a emendar o canon e a tabela
+     de donos, sem nada ganhar em poder de bloqueio: o gate 2 já bloqueia o
+     merge.
+  4. Um *job* próprio custa um *runner* e um arranque por PR para uma
+     verificação que corre em milissegundos sobre 18 linhas.
+- **A semântica, e a sua fonte.** `docs.github.com` (*About code owners*) diz que
+  um padrão «segue a maior parte das mesmas regras dos ficheiros gitignore» e
+  enumera três excepções: `!` para negar, `[ ]` para intervalos e `\` para
+  escapar um `#` **não funcionam**. O `?` do gitignore **não é mencionado** —
+  fica `NÃO VERIFICADO` e recusado. Vence a **última** regra que casa, e os
+  caminhos são sensíveis à caixa. CONFIRMADO, fonte primária, lido a 2026-10-12.
+- **Porque não chega o `[ -e ]`.** O comando que mediu o defeito à mão resolve
+  cada padrão com `test -e`, e declara a ressalva: um padrão pode casar sem ser
+  um caminho literal. `*.md`, `**/x` e `/a/*/b` casam com ficheiros reais e
+  **nenhum existe como caminho** — o `[ -e ]` daria «pendurada» a uma regra sã.
+  Hoje nenhuma das 18 regras usa curingas no meio, pelo que a equivalência
+  «padrão resolve ↔ caminho existe» vale, e deixa de valer no dia em que alguém
+  escrever `*.md`. Um *gate* que dependa dessa coincidência dá «conforme» sem ter
+  verificado.
+- **Porque a árvore é a do git.** Pela razão do gate 3 — os `.claude/worktrees/*`
+  são cópias completas do repositório, ignoradas pelo git e visíveis a qualquer
+  `os.walk` — e por uma segunda, própria deste *gate*: é a árvore do git que o
+  GitHub resolve, e uma pasta que exista no disco sem nenhum ficheiro seguido
+  **não atribui dono a nada**. O `[ -e ]` dava-a por boa.
+- **Precondição de integração (não é dependência de desenho).** As três regras
+  penduradas ainda estão em `main`; a sua correcção está no PR
+  `albinoJimy/kamba#47`, aberto. Enquanto não fundir, o *gate* fica
+  **correctamente vermelho** sobre o ficheiro real e dois casos falham. Não é
+  aresta do grafo — este ticket não precisa de código nenhum desse — e por isso
+  não entra em `Dependências`: entra como ordem de merge, que é de quem integra.
+- **Fora de âmbito:**
+  - **Impor a revisão por dono de área** — substituir as equipas `@kamba/*` por
+    utilizadores reais, `require_code_owner_review`, aprovações exigidas. É
+    governação: **KAM-137** e a lacuna **L-19** de
+    `../docs/seguranca/lacunas.md`. Este ticket é só a verificação por máquina
+    dos caminhos, e um `CODEOWNERS` com caminhos certos **continua inerte**.
+  - **Validar quem é dono** (se a equipa ou o utilizador existe). Exige rede e
+    *scope* `admin:org`, e é a mesma decisão de governação.
+  - **Corrigir as três regras penduradas.** É o PR `albinoJimy/kamba#47`.
+  - **Outros caminhos pendurados do repositório** fora do `CODEOWNERS` (o
+    `db/gate8.py` citado em `../docs/seguranca/`, que é `db/gate_bd.py`): é a
+    linha 6 das dívidas documentais e um ticket de código próprio.
+
+### Testes Requeridos
+
+- **Uma *fixture* por caso** em `tools/lint_arch/tests/fixtures/codeowners/`,
+  cada uma uma árvore independente com o seu `CODEOWNERS`: `c1` regra que
+  resolve, `c2` regra pendurada, `c3` o `*`, `c4` curingas que casam, `c5`
+  curingas que não casam, `c6` construções não suportadas. Um caso prova que a
+  `c4` **distingue** as duas semânticas: nenhum dos seus três padrões existe como
+  caminho literal.
+- Um caso que falha se uma *fixture* nova não tiver teste próprio.
+- A semântica de *glob* caso a caso, sobre uma árvore literal (âncoras, `*`,
+  `**`, barra final, prefixo, caixa).
+- Um repositório git temporário: um ficheiro seguido e outro por seguir; a regra
+  que só casa com o segundo fica pendurada.
+- O `CODEOWNERS` real contra a árvore real, e as 18 regras contadas.
+- `make lint-arch` e `make check` verdes; gate 3 verde depois de o ticket entrar
+  nos dois lados do backlog.
+- **Prova por mutação** própria (`tools/lint_arch/tests/mutacoes_codeowners.py`),
+  ao lado do código, com linha de base verde.
+
+### Definition of Done
+
+- [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis (evidência em
+  [`../docs/evidencia/KAM-154.md`](../docs/evidencia/KAM-154.md)).
+- [ ] Revisto por ≥ 1 revisor; testes verdes.
+- [x] Documentação actualizada: `../docs/ci.md` §3 (gate 2) passa a descrever o
+  *gate*, e a decisão de onde vive fica registada; *Conventional Commits*.
+- [x] **Sincronia mestre↔epics** — a linha de `specs/INDICE.md` §4 e este bloco
+  dizem o mesmo; reciprocidade com o `Bloqueia` do KAM-128 fechada.
+- [x] **Referências** — todo o caminho citado resolve, e nenhum `KAM-NNN`,
+  `ADR-NNN` ou `D#` citado deixou de existir (gate 3 verde).
+- [x] **Sem segredos** — o ticket não acrescenta configuração nem dependências.
+- [x] Defeitos e resíduos encontrados fora do âmbito registados, não corrigidos
+  aqui (`specs/01_Engineering_Standards_e_Handoff.md` §6).
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-154 da KAMBÁ (plataforma WhatsApp-native de comércio conversacional para Angola).
+O cwd é a raiz do repositório.
+Lê specs/EPIC-01_Fundacoes_Dados.md (bloco KAM-154), tools/lint_arch/structure.py e CODEOWNERS.
+Objectivo: nenhuma regra de CODEOWNERS pode apontar para nada, verificado por maquina em cada PR.
+- MEDE PRIMEIRO: resolve as 18 regras contra `git ls-files` e guarda a saida.
+- Amplia tools/lint_arch/structure.py (modulo novo codeowners.py) para resolver cada padrao.
+- Implementa a semantica de glob do CODEOWNERS, NAO `[ -e ]`: ancoras, `*` que nao atravessa `/`,
+  `**` que atravessa, barra final que exige directorio, sensivel a caixa.
+- Fail-closed no que o GitHub nao suporta (`!`, `[ ]`, `\`) e no `?`, que nao documenta.
+- A arvore e a do git, sem recurso a os.walk.
+- O `*` passa por casar, nao por excepcao pelo nome.
+Nao expandas escopo: nao mexes no ruleset (KAM-137), nao substituis as equipas por utilizadores,
+nao validas se o dono existe, nao corriges as tres regras penduradas (PR #47).
+Testes: uma fixture por caso, a semantica caso a caso, um repositorio git temporario, o CODEOWNERS real,
+e prova por mutacao propria com linha de base verde.
+Abre PR com o template do §7.
+```
+
+### Verificação dos Critérios de Aceitação
+
+Entregue no ramo `claude/nice-jackson-e9dcbd`, a partir de `origin/main`
+(`26226e0`), com `origin/main` (`5a4f3ed`) integrado por *merge* a meio do
+trabalho — integração que obrigou a **renumerar o ticket de 148 para 149**,
+porque o PR `albinoJimy/kamba#38` fundiu entretanto e levou o 148. **Doze caixas
+marcadas e três vazias**: a do `CODEOWNERS` real, a linha de DoD que depende de
+todos os critérios, e a dos revisores humanos. Os números estão em
+[`../docs/evidencia/KAM-154.md`](../docs/evidencia/KAM-154.md), com o comando ao
+lado de cada um; a revisão adversarial está em
+[`ANALISE-19`](../docs/analises/ANALISE-19-KAM-154-gate-do-codeowners.md).
+
+| CA | Estado | Evidência |
+|---|---|---|
+| 1 — cada regra resolvida contra a árvore do git, com linha, padrão e donos | **satisfeito** | `python -m lint_arch --root . structure` sobre o ficheiro real: **3 achados de 18 regras**, cada um com `CODEOWNERS:<linha>`, o padrão e os donos que atribuía (L25, L26, L27). A *fixture* `c2` reproduz o caso isolado e um teste exige que a mensagem diga o **efeito** («sem dono»), não só que não casa |
+| 2 — semântica de *glob*, não `[ -e ]` | **satisfeito** | 13 casos em `TestSemantica`, um por regra: âncora inicial, âncora no meio, sem âncora, `*` que não atravessa `/`, `**` que atravessa, `**/x` com zero segmentos, barra final que exige directório, padrão sem barra final que casa com directório, **prefixo de um ficheiro real que não resolve**, e sensibilidade à caixa. A *fixture* `c4` prova a divergência face ao `[ -e ]`: os seus **3** padrões casam com ficheiros reais e **nenhum** existe como caminho literal, afirmado por um teste próprio (`test_c4_o_teste_ingenuo_reprovaria_os_tres`) |
+| 3 — o `*` passa por casar, não por excepção | **satisfeito** | `test_c3_a_estrela_resolve_sem_excepcao` (resolve numa árvore com ficheiros) e `test_a_estrela_e_acusada_quando_nao_casa_com_nada` (é acusado numa árvore vazia). A mutação «o `*` volta a ser excepcionado pelo nome» é **apanhada** |
+| 4 — *fail-closed* no que o GitHub não suporta | **satisfeito** | *Fixture* `c6` com `!`, `[ ]` e `?`: **3** achados, cada um recusado pelo nome da construção. `NAO_SUPORTADOS` cobre `!`, `[`, `]`, `\` e `?`; a fonte de cada um está no cabeçalho de `codeowners.py` e no §2 da evidência, com o `?` marcado **NÃO VERIFICADO** porque a documentação não o menciona. Duas mutações (`NAO_SUPORTADOS` vazio; o `?` deixa de ser recusado) são **apanhadas** |
+| 5 — a árvore é a do git, sem recurso a `os.walk` | **satisfeito** | `ficheiros_do_git` usa `git ls-files -z` e **levanta** `OSError` se o git não responder (`test_sem_git_o_gate_falha_em_vez_de_medir_o_disco`). Um repositório git temporário criado pelo teste prova a fronteira: um ficheiro seguido, outro por seguir, e só a regra do segundo fica pendurada (`test_um_ficheiro_que_o_git_nao_segue_nao_conta`). A mutação que acrescenta `--others` é **apanhada** |
+| 6 — **o `CODEOWNERS` real passa o *gate*** | **não satisfeito** | **3 de 18 regras penduradas** no ficheiro de hoje, e são as três que o PR `albinoJimy/kamba#47` corrige — aberto e **em conflito** com `main`. O *gate* está **correctamente vermelho**, e é a prova de que morde; mas a letra do critério é o ficheiro de hoje, e o ficheiro de hoje reprova. Medido que fica verde quando o PR 47 fundir: com o `CODEOWNERS` corrigido desse ramo aplicado a esta árvore, **18 regras, 0 penduradas**. Dois casos de teste ficam vermelhos e **não foram relaxados nem dispensados** (`../docs/evidencia/KAM-154.md` §6) |
+| 7 — uma *fixture* por caso | **satisfeito** | **6** *fixtures* em `tools/lint_arch/tests/fixtures/codeowners/`: `c1` resolve, `c2` pendurada, `c3` o `*`, `c4` curingas que casam, `c5` curingas que não casam, `c6` construções não suportadas. `test_todas_as_fixtures_estao_cobertas` falha se uma *fixture* nova não tiver teste próprio — a lição do `test_makefile.py`: uma *fixture* que deixe de ser exercitada tem de falhar em algum sítio, não deixar de correr calada |
+| 8 — a decisão de onde vive o *gate* registada | **satisfeito** | «Detalhes Técnicos» deste bloco e §4 de `../docs/evidencia/KAM-154.md`: cresce no `lint_arch` (gate 2) e **não** abre *gate* numerado, com as quatro razões e **o que se perde** dito (o achado não tem nome próprio no resumo do CI, a mesma crítica da lacuna 17 de `../docs/ci.md` §7). O precedente citado é o do KAM-068, que está escrito |
+| DoD — todos os CA satisfeitos, evidência em `../docs/evidencia/KAM-154.md` | **não satisfeito** | **Sete de oito.** O CA6 não está (acima). O ficheiro de evidência existe e tem o comando de cada número |
+| DoD — ≥ 1 revisor; testes verdes | **não satisfeito** | **Zero revisores humanos**, como em todos os tickets até aqui: o *ruleset* de `main` exige 0 aprovações, por decisão do fundador. A revisão adversarial ([`ANALISE-19`](../docs/analises/ANALISE-19-KAM-154-gate-do-codeowners.md)) é evidência, **não é um revisor**. E os testes **não** estão todos verdes: **271** casos na suite `lint_arch`, **269** verdes, **2** vermelhos pela razão do CA6. As suites vizinhas passam: `lint_refs` **46**, `canon_lint` **169**, `log_policy` **114**, OK nas três |
+| DoD — documentação actualizada; *Conventional Commits* | **satisfeito** | `../docs/ci.md` §3 (gate 2) passa a descrever o *gate*, o que ele **não** faz e porque entrou neste *gate*; linha de versão nova em `../docs/ci.md` (1.19), `specs/INDICE.md` (1.13) e neste epic (1.22). O `README.md` passa de **147** para **149** — estava **duas** atrás, porque o ticket que fundiu durante este trabalho não a tocou |
+| DoD — sincronia mestre↔epics | **satisfeito** | Linha do §4 (`feature`, `S`, `P1`, fase 0, `KAM-128`) igual ao cabeçalho deste bloco; `Bloqueia` do KAM-128 passa a incluir o KAM-154, fechando a reciprocidade; **149** linhas `KAM-NNN` no §4 e **35** blocos no EPIC-01, igual ao §3.1; contiguidade do backlog verificada pelo `test_kam_cobre_o_backlog_inteiro_sem_buracos` (**passa**, 149 IDs sem buracos) |
+| DoD — referências; todo o caminho citado resolve | **satisfeito** | *Gate* 3 **conforme** — **149** tickets reconhecidos (`KAM-001–KAM-154`), ADR 20, D 13, **0** referências inválidas. A contagem total de referências **não se fixa aqui**: muda sempre que um documento do conjunto cita uma, incluindo esta linha (lição da versão 1.18 deste epic). O *gate* 3 recusou-me um ID **duas vezes** durante o trabalho, e as duas estão contadas em `../docs/evidencia/KAM-154.md` §5.4 em vez de escondidas |
+| DoD — sem segredos | **satisfeito** | O *commit* toca um módulo novo de biblioteca padrão, duas baterias, seis *fixtures* e cinco `.md`; nenhuma configuração, nenhuma dependência, nenhuma variável de ambiente |
+| DoD — defeitos e resíduos fora do âmbito registados | **satisfeito** | Nomeados em «Fora de âmbito» e nas decisões devolvidas abaixo: a imposição da revisão (KAM-137 e L-19), a validação de quem é dono, o `db/gate8.py` (linha 6 das dívidas documentais) e a regra específica engolida por uma geral posterior, nomeada no §8 da evidência como verificação que este *gate* **não** faz |
+
+#### Decisões tomadas aqui, e porquê
+
+| # | Decisão | Razão |
+|---|---|---|
+| 1 | **O *gate* cresce no `lint-arch` (gate 2) e não abre número novo em `specs/01` §4** | É o que o gate 2 já é — verificação estática da fonte, sem executar nada — e o repositório já decidiu isto por escrito no KAM-068, para o `log-lint`. O `structure.py` já conhecia o ficheiro. A tabela do §4 é o plano dos 18 *gates*, não o registo do que está activo (esse é `../docs/ci.md` §3), e um número 19 obrigaria a emendar o canon sem ganhar poder de bloqueio nenhum |
+| 2 | **Implementa-se a semântica de *glob*, e não o `[ -e ]` que mediu o defeito à mão** | Um padrão pode casar sem ser um caminho literal. Está medido: os 3 padrões da *fixture* `c4` casam com ficheiros reais e nenhum existe como caminho — o `[ -e ]` dava «pendurada» aos três. Hoje nenhuma das 18 regras usa curingas, pelo que a equivalência vale **por coincidência**, e deixaria de valer sem aviso |
+| 3 | **O `*` não é excepcionado pelo nome** | Sob a semântica de *glob* resolve por casar, e a excepção que o comando manual precisava deixa de ser necessária. Excepcioná-lo daria «conforme» a um `CODEOWNERS` numa árvore vazia, que não atribui dono a nada. O teste da árvore vazia é o que torna a excepção impossível de repor em silêncio |
+| 4 | ***Fail-closed* no que o GitHub não suporta, e também no `?`** | A documentação enumera `!`, `[ ]` e `\` como não funcionando, e **não menciona** o `?`. Resolver qualquer um deles seria inventar semântica; recusá-los pelo nome diz à pessoa o que está errado. É o mesmo princípio do leitor de manifestos, que trata como achado uma declaração que não consegue classificar |
+| 5 | **A árvore é a do git, sem recurso ao disco** | Duas razões: os `.claude/worktrees/*` são cópias completas visíveis a qualquer `os.walk` (a razão do *gate* 3), e é a árvore do git que o GitHub resolve — uma pasta no disco sem ficheiros seguidos não atribui dono a nada. Um *gate* que caia para outra medição quando a primeira falha mede outra coisa sem o dizer |
+| 6 | **O ID segue a contiguidade, não o «primeiro livre» do enunciado** | O enunciado mandava medir o próximo ID livre (era 150). O `test_kam_cobre_o_backlog_inteiro_sem_buracos` (*gate* 4) **recusa um buraco na série**, pelo que o único ID legal é o seguinte ao máximo de `main`, mesmo disputado — como a versão 1.11 de `specs/INDICE.md` já dizia. Era 148; o PR `#38` levou-o a meio do trabalho e este subiu para **149**. Medição e narrativa em `../docs/evidencia/KAM-154.md` §5 |
+| 7 | **Uma mutação ficou fora da lista, com a prova de ser equivalente** | Trocar o `.*` de um `**` final por `[^/]*` sobrevive sempre, e **não é um teste em falta**: os directórios derivam-se dos ficheiros, pelo que para a pergunta «algum candidato casa?» as duas são equivalentes (provado por varredura exaustiva, 60 árvores × 7 padrões, **0** divergências). Uma entrada que sobrevivesse sempre poria o arreio vermelho para sempre |
+
+#### Decisões devolvidas
+
+| # | O que | A quem |
+|---|---|---|
+| 1 | **O `CODEOWNERS` verificado continua inerte.** O *gate* garante que nenhuma regra aponta para nada; **não** garante que alguém revê. Num repositório de utilizador não há equipas de nenhum tipo (`isInOrganization: false`), o *ruleset* tem `require_code_owner_review: false` e 0 aprovações, e as seis equipas `@kamba/*` são *proposta*. Repor a imposição é o **KAM-137**; substituir as equipas por utilizadores e dar dono de Segurança a `docs/seguranca/` é a segunda parte de **L-19**, e não tem ticket | Responsável de Segurança, com o fundador |
+| 2 | **O *gate* não apanha uma regra específica engolida por uma geral posterior.** Em `CODEOWNERS` vence a **última** regra que casa; hoje `/docs/tecnica/08_Seguranca_Conformidade.md` só tem dono de Segurança porque vem **depois** de `/docs/tecnica/`. Uma reordenação não quebra nenhum caminho e muda o dono, em silêncio — a mesma classe de falha deste ticket, noutro eixo. É verificação diferente e não estava no âmbito | Arquitecto de Plataforma |
+| 3 | **O achado não tem nome próprio no resumo do CI.** Sai sob o título «estrutura» do `lint_arch`, como o *gate* 3b sai pelo *job* de resumo — a lacuna 17 de `../docs/ci.md` §7. Decidir se os *gates* dentro do gate 2 passam a ter nome próprio é a mesma decisão para os três (`log-lint`, estrutura, `CODEOWNERS`) | Arquitecto de Plataforma |
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | # | Risco / item | Estado | Decisão ligada | Mitigação / critério de saída |
@@ -4955,3 +5195,4 @@ Testes: G6, G7, G8 (canário), G1, G3, G5 e G4 do bloco, antes e depois. Abre PR
 | 1.23 | Outubro 2026 | KAM-151 acrescentado: fecha a lacuna 25 de `../docs/ci.md` §7. O `make coverage-python` ganha o terceiro `--source=`, e a falta de um `--source=` para uma pasta de `.py` do âmbito passa a falhar um teste. Medido: o **delta**, que é o que o ticket faz e não depende da árvore: **+29** no numerador, **+31** no denominador, **+3** ficheiros, com a percentagem a não se mover. Na árvore que funde: `restante` 92% → 92% (9880/10730 → 9909/10761), 100 → 103 ficheiros; em `f4c7e3d`, onde foi medido primeiro, era 91% → 91% (9652/10526 → 9681/10557). O absoluto subiu porque o KAM-148 acrescentou código testado a `tools/`, que está no estrato; limiar não tocado. A revisão adversarial ([`ANALISE-18`](../docs/analises/ANALISE-18-KAM-151-cobertura-python-do-agr.md)) devolveu 2 maiores, 6 menores e 2 suspeitas, e desmentiu uma afirmação deste bloco: um `.py` medido a 0% **não** sai nomeado no relatório do *gate* — lacuna 26 nova. Prova por mutação do *gate* 4 de 24 para 28, 0 sobreviventes. O `Bloqueia` do KAM-132 passa a nomear o KAM-151. | Equipa KAMBÁ |
 | 1.24 | Outubro 2026 | KAM-152 acrescentado e entregue: o caminho `db/gate8.py` — o ficheiro chama-se `db/gate_bd.py` desde que passou a servir os *gates* 8 e 6 — estava citado em **8 ocorrências de 7 ficheiros**, **7 delas vivas em 6 ficheiros**, e uma é a mensagem de `SkipTest` do trinco de `db/tests/base.py`, que mandava o utilizador correr um ficheiro inexistente. O pedido nomeava três sítios; a varredura encontrou seis ficheiros vivos, com o comentário do job `gate-8-migracoes` em `../.github/workflows/ci.yaml` e o *docstring* de `db/bootstrap.py` por nomear. O nome do trinco (`kamba_gate8`, `*_gate8`, `kamba-gate8-*`: **21** ocorrências em ficheiros vivos, iguais em `main` e no ramo) **não** foi tocado — é o nome canónico da base descartável —, e a fasquia `grep gate8 → 0` do pedido fica registada como impossível à letra. `../docs/seguranca/validar.py`, com o `assert` da contagem relaxado **em memória**, passa de **5** para **3** erros, sem nenhum novo; corrigir o `assert` é o **KAM-149**. **O ticket nasceu KAM-150 e renumerou para 152:** o `albinoJimy/kamba#47` fundiu durante o trabalho e levou o 150, e o 151 está reclamado por um ramo em voo — o ID só está seguro depois do *merge*, e as contagens fecham-se depois de integrar `main`. A linha 6 de `../docs/dividas-documentais.md` fecha metade e fica reescrita, não riscada. **A causa não é fechada:** nada no repositório verifica um caminho citado em código (L-20), e a decisão de alargar o validador a `db/` e `../.github/` fica devolvida ao Arquitecto de Plataforma. | Equipa KAMBÁ |
 | 1.25 | Outubro 2026 | KAM-153 acrescentado e entregue: as três referências a anexo de evidência citadas **sem prefixo nenhum** na tabela de cabeçalho de `specs/EPIC-10` passam a resolver. Eram pré-existentes a `6d30625`, invisíveis às buscas G1 e G2 do KAM-129 e por isso sobreviveram ao ticket que fechou as outras 59. O que o ticket fecha além das três linhas é a **busca**: passa a ancorar no *nome* do anexo e não no prefixo, é estritamente relativa ao ficheiro e de grafia exacta, e vem com um canário de nove formas — 152 citações em forma de nome de ficheiro, **3 para 0**. O bloco do KAM-129 ganha a emenda que nomeia as duas formas que a sua tabela não tinha: a **terceira**, nome completo sem prefixo, que e defeito, e a **quarta**, forma-código nua, que é legítima e **não** é caminho — 9 ocorrências que não levam prefixo e que ninguém deve «corrigir». As caixas do KAM-129 **não** foram remarcadas: à letra, o CA1 continua falso por causa dessas 9, e redefini-lo e decisão de quem o escreveu. **A primeira versão foi reprovada por duas revisões independentes** (5 achados P0) e **a segunda pelo gate 4**, pelo teste que proíbe buracos na numeração — o que fixa a regra do identificador em «o seguinte ao maior do `main`» e torna estruturais as colisões entre ramos concorrentes: este ticket foi renumerado **quatro vezes**, com dois PRs fechados. As revisões estão em [`ANALISE-21`](../docs/analises/ANALISE-21-KAM-153-referencias-sem-prefixo.md). | Equipa KAMBÁ |
+| 1.26 | Outubro 2026 | KAM-154 acrescentado e entregue: *gate* que resolve cada regra do `CODEOWNERS` contra a árvore seguida pelo git. Trabalho resgatado de uma cópia de trabalho sem *commit*, cuja sessão terminou. | Equipa KAMBÁ |
