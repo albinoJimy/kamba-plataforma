@@ -32,6 +32,7 @@
 
 import {
   SQL_ABRIR_ACCAO,
+  SQL_DEFINIR_TENANT,
   SQL_FECHAR_ACCAO,
   SQL_LER_ACCAO,
 } from './consultas_consumo.ts';
@@ -95,6 +96,12 @@ export interface ResultadoDaAccao<T> {
  * Lança `Adiar` quando encontra a chave `em_curso`: ou outro processo está a
  * correr o efeito agora, ou um morreu a meio. Nos dois casos, a resposta certa
  * é tentar outra vez mais tarde — e no segundo, alguém tem de olhar.
+ *
+ * Cada uma dessas duas transacções curtas **põe o seu contexto de tenant**:
+ * `evt_acoes` tem `FORCE ROW LEVEL SECURITY` e quem a escreve é `kamba_app`,
+ * que é `NOBYPASSRLS`. Não se herda o contexto de quem chama — `once` é
+ * chamado de dentro e de fora da transacção do consumo, e depender de um `SET
+ * LOCAL` alheio fazia a mesma função funcionar num sítio e falhar no outro.
  */
 export async function once<T>(
   opcoes: OpcoesDaAccao,
@@ -103,10 +110,27 @@ export async function once<T>(
   const { bd, consumer, eventId, tenantId, accao } = opcoes;
   const chave = chaveDaAccao(consumer, eventId, accao);
 
-  const abriu = await bd.query(SQL_ABRIR_ACCAO, [chave, consumer, eventId, accao, tenantId]);
-  if ((abriu.rowCount ?? 0) === 0) {
+  const abertura = await comContexto(bd, tenantId, async () => {
+    const abriu = await bd.query(SQL_ABRIR_ACCAO, [chave, consumer, eventId, accao, tenantId]);
+    if ((abriu.rowCount ?? 0) > 0) return { nossa: true as const };
     const { rows } = await bd.query(SQL_LER_ACCAO, [chave]);
-    const estado = rows[0]?.estado as EstadoDeAccao | undefined;
+    return { nossa: false as const, linha: rows[0] };
+  });
+
+  if (!abertura.nossa) {
+    if (abertura.linha === undefined) {
+      // A chave colidiu e a linha **não se vê**. Com RLS, isso tem um
+      // significado só: a chave existe noutro tenant. Não se repete o efeito
+      // (a chave já foi dada a um terceiro) e não se finge que está feito —
+      // lança-se, alto, porque a forma da chave inclui o `event_id` e uma
+      // colisão entre tenants é defeito de construção da chave, não um caso a
+      // tratar.
+      throw new Error(
+        `a chave ${chave} já existe e não é deste tenant: a chave de idempotência ` +
+          'colidiu entre tenants, e repetir ou fingir o efeito eram os dois errados',
+      );
+    }
+    const estado = abertura.linha.estado as EstadoDeAccao | undefined;
     if (estado === 'em_curso') {
       throw new Adiar(
         5,
@@ -116,7 +140,7 @@ export async function once<T>(
     // `feita` ou `falhada`: já se decidiu, e não se repete. Devolve-se o que
     // ficou guardado — incluindo `null`, que é o resultado de quem não guardou
     // nada.
-    return { executou: false, resultado: (rows[0]?.resultado ?? null) as T | null };
+    return { executou: false, resultado: (abertura.linha.resultado ?? null) as T | null };
   }
 
   let resultado: T;
@@ -127,13 +151,45 @@ export async function once<T>(
     // `em_curso` para sempre e todas as re-entregas adiavam — o efeito nunca
     // acontecia e ninguém sabia porquê.
     const motivo = erro instanceof Error ? erro.message : String(erro);
-    await bd.query(SQL_FECHAR_ACCAO, [chave, 'falhada', JSON.stringify({ erro: motivo })]);
+    await comContexto(bd, tenantId, () =>
+      bd.query(SQL_FECHAR_ACCAO, [chave, 'falhada', JSON.stringify({ erro: motivo })]),
+    );
     throw erro;
   }
-  await bd.query(SQL_FECHAR_ACCAO, [
-    chave,
-    'feita',
-    resultado === undefined ? null : JSON.stringify(resultado),
-  ]);
+  await comContexto(bd, tenantId, () =>
+    bd.query(SQL_FECHAR_ACCAO, [
+      chave,
+      'feita',
+      resultado === undefined ? null : JSON.stringify(resultado),
+    ]),
+  );
   return { executou: true, resultado };
+}
+
+/**
+ * Corre `passo` numa transacção curta com o contexto de tenant posto.
+ *
+ * Três instruções sempre pela mesma ordem — `BEGIN`, `set_config`, o passo — e
+ * `ROLLBACK` em qualquer falha. Escrito uma vez porque o `once` precisa dela
+ * três vezes, e três cópias divergiam na que se esquecesse do `ROLLBACK`.
+ */
+async function comContexto<T>(
+  bd: ClienteSql,
+  tenantId: string,
+  passo: () => Promise<T>,
+): Promise<T> {
+  await bd.query('BEGIN');
+  try {
+    await bd.query(SQL_DEFINIR_TENANT, [tenantId, true]);
+    const resultado = await passo();
+    await bd.query('COMMIT');
+    return resultado;
+  } catch (erro) {
+    try {
+      await bd.query('ROLLBACK');
+    } catch {
+      /* a ligação já morreu; o erro de cima é o que explica */
+    }
+    throw erro;
+  }
 }

@@ -44,6 +44,7 @@ from kamba_core.eventos.consumo import (
     ESCADA_DO_CONSUMIDOR,
     METRICA_CONSUMIDOS,
     METRICA_RETENTATIVAS,
+    SQL_DEFINIR_TENANT,
     SQL_MARCAR_CONSUMIDO,
     SQL_ULTIMO_SEQ,
     TENTATIVAS,
@@ -120,6 +121,7 @@ class _Bd:
 
     def verbos(self) -> list[str]:
         nomes = {
+            SQL_DEFINIR_TENANT: "tenant",
             SQL_MARCAR_CONSUMIDO: "marcar",
             SQL_ULTIMO_SEQ: "ultimo_seq",
             SQL_DO_EFEITO: "efeito",
@@ -155,10 +157,12 @@ class _Efeito:
         self.erro = erro
         self.chamadas = 0
         self.clientes: list[object] = []
+        self.envelopes: list[object] = []
 
-    def __call__(self, bd) -> None:
+    def __call__(self, bd, envelope) -> None:
         self.chamadas += 1
         self.clientes.append(bd)
+        self.envelopes.append(envelope)
         if self.erro is not None:
             raise self.erro
         bd.executar(SQL_DO_EFEITO, ("paga", "ORD-1"))
@@ -182,6 +186,40 @@ def _opcoes(bd: _Bd, **extra) -> OpcoesDoConsumo:
     return OpcoesDoConsumo(**argumentos)  # type: ignore[arg-type]
 
 
+class TestContextoDeTenant(unittest.TestCase):
+    """O `SET LOCAL` que a RLS exige, e de onde o seu valor vem."""
+
+    def test_e_a_primeira_instrucao_depois_do_begin(self) -> None:
+        # Sem isto o consumidor nao escreve nada: as tres tabelas deste ticket
+        # tem `FORCE ROW LEVEL SECURITY` e quem consome e `kamba_app`, que e
+        # `NOBYPASSRLS`. O `INSERT` nao falha por privilegio — falha o
+        # `WITH CHECK` da politica `tenant_iso`.
+        bd = _Bd()
+        consumir(_opcoes(bd, exige_ordem=False), _Efeito())
+        self.assertEqual(bd.verbos()[:3], ["BEGIN", "tenant", "marcar"])
+
+    def test_o_valor_vem_do_envelope_e_e_local_a_transaccao(self) -> None:
+        bd = _Bd()
+        opcoes = _opcoes(bd, exige_ordem=False)
+        consumir(opcoes, _Efeito())
+        self.assertEqual(
+            bd.parametros_de(SQL_DEFINIR_TENANT),
+            (opcoes.envelope["tenant_id"], True),
+        )
+
+    def test_o_efeito_recebe_o_envelope(self) -> None:
+        """Um efeito que nao ve o evento nao pode aplicar nada.
+
+        Precisa do `payload` para saber o que fazer e do `tenant_id` para
+        escrever uma linha que passe a RLS.
+        """
+        bd = _Bd()
+        efeito = _Efeito()
+        opcoes = _opcoes(bd, exige_ordem=False)
+        consumir(opcoes, efeito)
+        self.assertEqual(efeito.envelopes, [opcoes.envelope])
+
+
 class TestDuplicado(unittest.TestCase):
     def test_zero_linhas_e_duplicado_e_confirma(self) -> None:
         bd = _Bd(contagem=0)
@@ -190,7 +228,7 @@ class TestDuplicado(unittest.TestCase):
         resultado = consumir(_opcoes(bd, metricas=metricas), efeito)
         self.assertEqual(resultado.desfecho, "duplicado")
         self.assertIsNone(resultado.ultimo_seq)
-        self.assertEqual(bd.verbos(), ["BEGIN", "marcar", "COMMIT"])
+        self.assertEqual(bd.verbos(), ["BEGIN", "tenant", "marcar", "COMMIT"])
         self.assertEqual(efeito.chamadas, 0)
         self.assertEqual(metricas.contagens, [(METRICA_CONSUMIDOS, "duplicado", 1)])
 
@@ -221,7 +259,7 @@ class TestAplicado(unittest.TestCase):
         efeito = _Efeito()
         resultado = consumir(_opcoes(bd), efeito)
         self.assertEqual(resultado.desfecho, "aplicado")
-        self.assertEqual(bd.verbos(), ["BEGIN", "marcar", "efeito", "COMMIT"])
+        self.assertEqual(bd.verbos(), ["BEGIN", "tenant", "marcar", "efeito", "COMMIT"])
         self.assertEqual(efeito.clientes, [bd])
 
     def test_sem_ordem_nao_se_le_o_ultimo_seq(self) -> None:
@@ -261,7 +299,7 @@ class TestAplicado(unittest.TestCase):
         self.assertEqual(resultado.ultimo_seq, 5)
         self.assertEqual(maquina.pedidos, [("order", "ORD-1")])
         self.assertEqual(
-            bd.verbos(), ["BEGIN", "marcar", "ultimo_seq", "efeito", "COMMIT"]
+            bd.verbos(), ["BEGIN", "tenant", "marcar", "ultimo_seq", "efeito", "COMMIT"]
         )
         self.assertEqual(metricas.contagens, [(METRICA_CONSUMIDOS, "aplicado", 1)])
 
@@ -418,7 +456,7 @@ class TestRollback(unittest.TestCase):
         metricas = _Metricas()
         with self.assertRaises(ZeroDivisionError):
             consumir(_opcoes(bd, metricas=metricas), _Efeito(ZeroDivisionError("x")))
-        self.assertEqual(bd.verbos(), ["BEGIN", "marcar", "ROLLBACK"])
+        self.assertEqual(bd.verbos(), ["BEGIN", "tenant", "marcar", "ROLLBACK"])
         self.assertNotIn("COMMIT", bd.verbos())
         self.assertEqual(metricas.contagens, [])
 
@@ -426,7 +464,7 @@ class TestRollback(unittest.TestCase):
         bd = _Bd(rollback_falha=True)
         with self.assertRaises(KeyError):
             consumir(_opcoes(bd), _Efeito(KeyError("o erro que interessa")))
-        self.assertEqual(bd.verbos(), ["BEGIN", "marcar", "ROLLBACK"])
+        self.assertEqual(bd.verbos(), ["BEGIN", "tenant", "marcar", "ROLLBACK"])
 
     def test_uma_leitura_que_falha_tambem_desfaz(self) -> None:
         bd = _Bd(falha_na_leitura=True)
@@ -435,7 +473,7 @@ class TestRollback(unittest.TestCase):
                 _opcoes(bd, exige_ordem=True, maquina=_Maquina("aguarda_pagamento")),
                 _Efeito(),
             )
-        self.assertEqual(bd.verbos(), ["BEGIN", "marcar", "ultimo_seq", "ROLLBACK"])
+        self.assertEqual(bd.verbos(), ["BEGIN", "tenant", "marcar", "ultimo_seq", "ROLLBACK"])
 
 
 class TestPreCondicao(unittest.TestCase):
@@ -576,7 +614,7 @@ class TestLerSeq(unittest.TestCase):
                 _opcoes(bd, exige_ordem=True, maquina=_Maquina("aguarda_pagamento")),
                 _Efeito(),
             )
-        self.assertEqual(bd.verbos(), ["BEGIN", "marcar", "ultimo_seq", "ROLLBACK"])
+        self.assertEqual(bd.verbos(), ["BEGIN", "tenant", "marcar", "ultimo_seq", "ROLLBACK"])
 
 
 class TestNaoRegistaNada(unittest.TestCase):
@@ -644,6 +682,23 @@ class TestParidadeDoTypeScript(unittest.TestCase):
         for ficheiro in (CONSUMO_TS, CONSULTAS_TS, METRICAS_TS, REVISAO):
             with self.subTest(ficheiro=ficheiro.name):
                 self.assertTrue(ficheiro.is_file(), ficheiro)
+
+    def test_o_contexto_de_tenant_existe_nos_dois_lados(self) -> None:
+        """O mesmo `set_config`, com o mesmo `is_local`.
+
+        Um lado a por o contexto e o outro a nao o por dava um espelho em que
+        um dos dois nao escrevia nada — e a diferenca so aparecia contra uma
+        base real.
+        """
+        self.assertEqual(
+            self._sql_do_typescript("SQL_DEFINIR_TENANT"), SQL_DEFINIR_TENANT
+        )
+        # E chamado nos dois: o SQL igual e o `SET LOCAL` esquecido num dos
+        # lados davam um espelho em que so um escrevia.
+        self.assertIn("SQL_DEFINIR_TENANT, [envelope.tenant_id, true]", self.consumo)
+
+    def test_o_efeito_recebe_o_envelope_nos_dois_lados(self) -> None:
+        self.assertIn("export type Efeito = (bd: ClienteSql, envelope: Envelope)", self.consumo)
 
     def test_a_escada_e_a_mesma(self) -> None:
         achado = re.search(

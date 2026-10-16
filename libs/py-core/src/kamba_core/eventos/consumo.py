@@ -9,13 +9,14 @@ maquina e o `TestParidadeDoTypeScript` de `tests/test_eventos_consumo.py`.
 ## O que faz, e porque e esta a ordem
 
     BEGIN
+      SET LOCAL app.tenant_id = envelope.tenant_id
       n = INSERT events_consumed ON CONFLICT (consumer, event_id) DO NOTHING
       se n == 0: COMMIT; duplicado — e nao se faz mais nada
       se exige_ordem: ler o ultimo seq do agregado
       se o tipo causa transicao: ler o estado do agregado
                       -> Adiar (pre-condicao por chegar)
                       -> ForaDeOrdem (seq atrasado E transicao invalida)
-      efeito(bd)      <- na MESMA transaccao
+      efeito(bd, envelope)  <- na MESMA transaccao
     COMMIT
 
 A pre-condicao de estado corre **fora** do `exige_ordem`, e isto e uma
@@ -94,6 +95,17 @@ from .estados import ESTADO_PRETENDIDO, MaquinaDeEstados, pode_transitar
 #: **O alvo do conflito esta nomeado**, e nao e detalhe: com `DO NOTHING` sem
 #: alvo, um conflito em *qualquer* indice unico que a tabela venha a ter devolve
 #: zero linhas, e esse zero lia-se «duplicado» — um efeito saltado em silencio.
+#: O contexto de tenant da transaccao: o `app.tenant_id` que a RLS le. O mesmo
+#: SQL do `consultas_consumo.ts`, com o marcador do `psycopg`.
+#:
+#: **Sem isto o consumidor nao escreve nada.** As tres tabelas deste ticket tem
+#: `ENABLE`, `FORCE` e a politica `tenant_iso`, e o consumidor corre como
+#: `kamba_app`, que e `NOBYPASSRLS`: um `INSERT` sem contexto nao viola um
+#: privilegio — viola o `WITH CHECK`.
+SQL_DEFINIR_TENANT = """
+  SELECT set_config('app.tenant_id', %s, %s)
+"""
+
 SQL_MARCAR_CONSUMIDO = """
   INSERT INTO platform.events_consumed
     (consumer, event_id, tenant_id, agregado_tipo, agregado_id, agregado_seq)
@@ -141,19 +153,29 @@ METRICA_CONSUMIDOS = "evt_consumed_total"
 METRICA_RETENTATIVAS = "evt_retry_total"
 
 
-def atraso_da_tentativa_do_consumidor(tentativas: int) -> int:
+def atraso_da_tentativa_do_consumidor(
+    tentativas: int, escada: tuple[int, ...] = ESCADA_DO_CONSUMIDOR
+) -> int:
     """O atraso, em milissegundos, antes da tentativa numero `tentativas + 1`.
 
     `tentativas` e quantas ja falharam. Acima da escada devolve o ultimo degrau,
     em vez de crescer para sempre: a sexta falha nao espera, vai para a DLQ.
+
+    A `escada` e parametro com omissao — a do §6.4 — pela mesma razao que no
+    `consumo.ts`: os «Testes Requeridos» do ticket pedem relogio acelerado, e a
+    suite de integracao esperava 756 s por cada teste que esgota as tentativas.
+    Os valores continuam provados no `TestEscada`; a suite acelerada prova a
+    contagem. Em producao ninguem passa este argumento.
 
     `type(...) is not int` e nao `isinstance`: `True` e um `int`, e uma tentativa
     numero `True` e um erro de chamada, nao a primeira tentativa.
     """
     if type(tentativas) is not int or tentativas < 1:
         raise ValueError(f"tentativas tem de ser um inteiro >= 1: {tentativas!r}")
-    indice = min(tentativas, len(ESCADA_DO_CONSUMIDOR)) - 1
-    return ESCADA_DO_CONSUMIDOR[indice]
+    if not escada:
+        raise ValueError("a escada nao pode estar vazia")
+    indice = min(tentativas, len(escada)) - 1
+    return escada[indice]
 
 
 class Adiar(Exception):
@@ -231,7 +253,10 @@ class Metricas(Protocol):
 
 
 #: O efeito de negocio. Corre **dentro** da transaccao, com o mesmo cliente.
-Efeito = Callable[[ClienteSql], None]
+#:
+#: Recebe o envelope, e nao so a ligacao: um efeito precisa do `payload` para
+#: saber o que aplicar e do `tenant_id` para escrever uma linha que passe a RLS.
+Efeito = Callable[[ClienteSql, Mapping[str, object]], None]
 
 
 @dataclass(frozen=True)
@@ -309,6 +334,12 @@ def consumir(opcoes: OpcoesDoConsumo, efeito: Efeito) -> ResultadoDoConsumo:
 
     bd.executar("BEGIN")
     try:
+        # O contexto de tenant, **dentro** da transaccao e tirado do envelope.
+        # O consumidor e `kamba_app` e as tres tabelas deste ticket tem RLS com
+        # `FORCE`: sem isto, o `INSERT` abaixo viola o `WITH CHECK` da politica
+        # `tenant_iso` e nenhum evento e consumido. Com `is_local`, morre no
+        # `COMMIT` — a ligacao nao fica com o tenant do ultimo evento colado.
+        bd.executar(SQL_DEFINIR_TENANT, (envelope["tenant_id"], True))
         marca = bd.executar(
             SQL_MARCAR_CONSUMIDO,
             (
@@ -386,7 +417,7 @@ def consumir(opcoes: OpcoesDoConsumo, efeito: Efeito) -> ResultadoDoConsumo:
                     f"{estado} -> {pretendido} ainda nao e valido",
                 )
 
-        efeito(bd)
+        efeito(bd, envelope)
         bd.executar("COMMIT")
         _contar(metricas, METRICA_CONSUMIDOS, "aplicado")
         return ResultadoDoConsumo(desfecho="aplicado", ultimo_seq=ultimo_seq)

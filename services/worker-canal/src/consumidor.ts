@@ -7,6 +7,9 @@
  *
  * ## O que faz, por esta ordem
  *
+ * 0. **Liga-se duas vezes, com dois papéis.** O consumo é `kamba_app`, sob
+ *    RLS; o reconciliador e o *gauge* da DLQ são `kamba_batch`, que vê todos os
+ *    tenants. Ver `VARIAVEL_DA_OPERACAO`.
  * 1. **Verifica o arranque** (critério 7): se houver uma subscrição de
  *    `payment.*` com `exige_ordem = false`, **não arranca**. A restrição
  *    `evt_subscricoes_payment_exige_ordem` da revisão 0005 faz a configuração
@@ -55,6 +58,18 @@ const log = instalar(SERVICE);
 export const PORTA_POR_OMISSAO = 3012;
 
 const VARIAVEL_DA_BASE = 'KAMBA_CONSUMIDOR_DB_URL';
+/**
+ * A ligação de **operação**, que é outro papel.
+ *
+ * O consumo corre como `kamba_app`: tem `INSERT` em `events_consumed` e na DLQ,
+ * está sujeito à RLS e vê só o tenant do evento que tem em mão. O
+ * reconciliador e o *gauge* da DLQ são outra coisa — leem `evt_subscricoes`, o
+ * arquivo e a DLQ **de todos os tenants** para descobrir o que se perdeu —, e
+ * isso é trabalho de `kamba_batch`, que tem `BYPASSRLS` e é auditado
+ * (`docs/tecnica/08` §3.3). Dar à ligação do consumo os privilégios da
+ * operação era dar ao caminho do dinheiro a visão de toda a plataforma.
+ */
+const VARIAVEL_DA_OPERACAO = 'KAMBA_CONSUMIDOR_OPS_DB_URL';
 const VARIAVEL_DA_FILA = 'KAMBA_QUEUE_URL';
 const VARIAVEL_DO_CONSUMER = 'KAMBA_CONSUMER';
 const VARIAVEL_DA_PORTA = 'CONSUMIDOR_PORT';
@@ -122,14 +137,23 @@ export function criarApp(): Hono {
 async function principal(): Promise<void> {
   const consumer = exigir(VARIAVEL_DO_CONSUMER);
   const urlDaBase = exigir(VARIAVEL_DA_BASE);
+  const urlDaOperacao = exigir(VARIAVEL_DA_OPERACAO);
   const urlDaFila = exigir(VARIAVEL_DA_FILA);
 
-  const bd = new Client({ connectionString: urlDaBase });
-  await bd.connect();
-  await exigirOrdemNosPagamentos(bd);
+  // A verificação de arranque lê `evt_subscricoes`, que `kamba_app` não vê:
+  // é leitura de operação, e corre na ligação de operação.
+  const operacao = new Client({ connectionString: urlDaOperacao });
+  await operacao.connect();
+  await exigirOrdemNosPagamentos(operacao);
 
-  const trabalhadores = criarTrabalhadores({
-    bd,
+  const consumo = criarTrabalhadores({
+    // Uma ligação por fila, aberta à primeira entrega: a transacção do consumo
+    // é da fila, e dezasseis filas numa sessão intercalavam `BEGIN`/`COMMIT`.
+    ligar: async () => {
+      const cliente = new Client({ connectionString: urlDaBase });
+      await cliente.connect();
+      return cliente;
+    },
     subscricao: { consumer, exigeOrdem: true },
     filas: filasDe(consumer),
     // O efeito do esqueleto: regista e mais nada. Ver a docstring.
@@ -154,9 +178,8 @@ async function principal(): Promise<void> {
   const servidor = serve({ fetch: criarApp().fetch, port: porta() });
 
   // O reconciliador, com o **seu** lock: amarrá-lo ao do publicador fazia uma
-  // réplica em espera para publicar ficar em espera para repor.
-  const operacao = new Client({ connectionString: urlDaBase });
-  await operacao.connect();
+  // réplica em espera para publicar ficar em espera para repor. Corre na
+  // ligação de operação, que já está aberta desde a verificação de arranque.
   try {
     while (!paragem.signal.aborted) {
       const { rows } = await operacao.query(SQL_ELEGER, [LOCK_DO_RECONCILIADOR]);
@@ -168,10 +191,10 @@ async function principal(): Promise<void> {
     }
   } finally {
     await operacao.query(SQL_LARGAR, [LOCK_DO_RECONCILIADOR]).catch(() => {});
-    await Promise.all(trabalhadores.map((t) => t.close()));
+    // `fechar()` fecha os *workers* **e** as ligações que cada fila abriu.
+    await consumo.fechar();
     await filas.fechar();
     await operacao.end().catch(() => {});
-    await bd.end().catch(() => {});
     servidor.close();
   }
 }

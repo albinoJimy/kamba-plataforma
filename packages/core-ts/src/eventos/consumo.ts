@@ -4,13 +4,21 @@
  * ## O que faz, e porque é esta a ordem
  *
  *     BEGIN
+ *       SET LOCAL app.tenant_id = envelope.tenant_id
  *       n = INSERT events_consumed ON CONFLICT DO NOTHING
  *       se n == 0: COMMIT; duplicado — e não se faz mais nada
  *       se exige_ordem: ler o último seq e o estado do agregado
  *                       → Adiar (pré-condição por chegar)
  *                       → ForaDeOrdem (seq atrasado E transição inválida)
- *       efeito(bd)      ← na MESMA transacção
+ *       efeito(bd, envelope)  ← na MESMA transacção
  *     COMMIT
+ *
+ * O `SET LOCAL` é a primeira instrução e não um detalhe de arranque: o
+ * consumidor corre como `kamba_app`, que é `NOBYPASSRLS`, e as três tabelas
+ * deste ticket têm `FORCE ROW LEVEL SECURITY`. Sem contexto, o `INSERT` não
+ * passa o `WITH CHECK` da política `tenant_iso` e **nenhum** evento é
+ * consumido. Vem do envelope — que é o arquivo a dizer de quem o evento é — e
+ * não da fila, que trouxe um ponteiro.
  *
  * A marca e o efeito partilham a transacção, e é isso que o torna
  * exactamente-uma-vez. Em duas transacções haveria dois modos de falha e os
@@ -43,6 +51,7 @@
  */
 
 import {
+  SQL_DEFINIR_TENANT,
   SQL_MARCAR_CONSUMIDO,
   SQL_ULTIMO_SEQ,
 } from './consultas_consumo.ts';
@@ -81,17 +90,28 @@ export const ADIAMENTO_POR_OMISSAO = 5;
  *
  * `tentativas` é quantas já falharam. Acima da escada devolve o último degrau,
  * em vez de crescer para sempre: a sexta falha não espera, vai para a DLQ.
+ *
+ * A `escada` é parâmetro com omissão, e a omissão é a do §6.4. Existe por uma
+ * razão de prova: os «Testes Requeridos» do ticket pedem **relógio acelerado**,
+ * e com a escada fechada dentro da função a suite de integração esperava
+ * 756 s — 1 + 5 + 30 + 120 + 600 — por cada um dos dois testes que esgotam as
+ * tentativas. Os **valores** continuam provados aqui e no espelho em Python
+ * (`TestEscada`); o que a suite acelerada prova é a **contagem**, que é o que o
+ * critério 2 pede. Em produção ninguém passa este argumento.
  */
-export function atrasoDaTentativaDoConsumidor(tentativas: number): number {
+export function atrasoDaTentativaDoConsumidor(
+  tentativas: number,
+  escada: readonly number[] = ESCADA_DO_CONSUMIDOR,
+): number {
   if (!Number.isInteger(tentativas) || tentativas < 1) {
     throw new RangeError(`tentativas tem de ser um inteiro >= 1: ${tentativas}`);
   }
-  const indice = Math.min(tentativas, ESCADA_DO_CONSUMIDOR.length) - 1;
+  if (escada.length === 0) throw new RangeError('a escada não pode estar vazia');
+  const indice = Math.min(tentativas, escada.length) - 1;
   // O indice esta sempre dentro da escada (o `min` garante-o), mas o
   // `noUncheckedIndexedAccess` nao sabe isso — e um `!` calava a unica guarda
-  // que ha. O `??` com o ultimo degrau diz o mesmo e sobrevive a uma escada
-  // vazia, se alguem a esvaziar.
-  return ESCADA_DO_CONSUMIDOR[indice] ?? ESCADA_DO_CONSUMIDOR[ESCADA_DO_CONSUMIDOR.length - 1] ?? 0;
+  // que ha. O `??` com o ultimo degrau diz o mesmo.
+  return escada[indice] ?? escada[escada.length - 1] ?? 0;
 }
 
 /** A pré-condição ainda não se verifica. Tenta-se outra vez. */
@@ -172,8 +192,15 @@ function lerSeq(bruto: unknown): number | null {
   return numero;
 }
 
-/** O efeito de negócio. Corre **dentro** da transacção, com o mesmo cliente. */
-export type Efeito = (bd: ClienteSql) => Promise<void>;
+/**
+ * O efeito de negócio. Corre **dentro** da transacção, com o mesmo cliente.
+ *
+ * Recebe o envelope, e não só a ligação: um efeito precisa do `payload` para
+ * saber o que aplicar e do `tenant_id` para escrever uma linha que passe a RLS.
+ * Sem ele, o único efeito possível era um que não lesse o evento — o que é
+ * aceitável no esqueleto e em nenhuma vertical.
+ */
+export type Efeito = (bd: ClienteSql, envelope: Envelope) => Promise<void>;
 
 export interface OpcoesDoConsumo {
   readonly bd: ClienteSql;
@@ -202,6 +229,12 @@ export async function consumir(
 
   await bd.query('BEGIN');
   try {
+    // O contexto de tenant, **dentro** da transacção e tirado do envelope. O
+    // consumidor é `kamba_app` e as três tabelas deste ticket têm RLS com
+    // `FORCE`: sem isto, o `INSERT` abaixo viola o `WITH CHECK` da política
+    // `tenant_iso` e nenhum evento é consumido. Com `is_local`, morre no
+    // `COMMIT` — a ligação não fica com o tenant do último evento colado.
+    await bd.query(SQL_DEFINIR_TENANT, [envelope.tenant_id, true]);
     const marca = await bd.query(SQL_MARCAR_CONSUMIDO, [
       consumer,
       envelope.id,
@@ -273,7 +306,7 @@ export async function consumir(
       }
     }
 
-    await efeito(bd);
+    await efeito(bd, envelope);
     await bd.query('COMMIT');
     metricas?.contar(METRICA_CONSUMIDOS, 'aplicado');
     return { desfecho: 'aplicado', ultimoSeq };

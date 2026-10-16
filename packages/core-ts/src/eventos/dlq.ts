@@ -22,6 +22,7 @@
 
 import {
   SQL_APROVADORES,
+  SQL_DEFINIR_TENANT,
   SQL_DLQ_ABERTAS,
   SQL_DLQ_POR_ID,
   SQL_FECHAR_DLQ,
@@ -107,19 +108,38 @@ export interface ResultadoDaDlq {
  * Fora de qualquer transacção de efeito: a transacção do consumo já fez
  * `ROLLBACK` quando se chega aqui. Se esta escrita falhar, o evento fica na
  * fila e volta — é melhor voltar do que desaparecer.
+ *
+ * **Abre a sua própria transacção**, e é por causa da RLS: `events_dlq` tem
+ * `FORCE` e a política `tenant_iso`, quem escreve aqui é `kamba_app`
+ * (`NOBYPASSRLS`), e a transacção do consumo — onde o contexto estava — já foi
+ * revertida. Sem o `SET LOCAL` próprio, a entrada não passa o `WITH CHECK` e o
+ * evento que falhou seis vezes desaparecia sem deixar linha.
  */
 export async function paraDlq(opcoes: OpcoesDaDlq): Promise<ResultadoDaDlq> {
   const { bd, consumer, envelope, erro, tentativas } = opcoes;
-  const { rowCount } = await bd.query(SQL_PARA_DLQ, [
-    consumer,
-    envelope.id,
-    envelope.tipo,
-    envelope.versao,
-    envelope.tenant_id,
-    JSON.stringify(envelope),
-    erro,
-    tentativas,
-  ]);
+  let rowCount: number | null = 0;
+  await bd.query('BEGIN');
+  try {
+    await bd.query(SQL_DEFINIR_TENANT, [envelope.tenant_id, true]);
+    ({ rowCount } = await bd.query(SQL_PARA_DLQ, [
+      consumer,
+      envelope.id,
+      envelope.tipo,
+      envelope.versao,
+      envelope.tenant_id,
+      JSON.stringify(envelope),
+      erro,
+      tentativas,
+    ]));
+    await bd.query('COMMIT');
+  } catch (falha) {
+    try {
+      await bd.query('ROLLBACK');
+    } catch {
+      /* a ligação já morreu; o erro de cima é o que explica */
+    }
+    throw falha;
+  }
   // A métrica **não** se actualiza aqui, e são duas razões. A primeira é de
   // privilégio: `evt_dlq_open` lê a tabela, e quem consome tem só `INSERT`
   // nesta tabela (o `id` é sequencial e não pode ser lido por um papel com

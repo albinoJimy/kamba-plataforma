@@ -224,7 +224,15 @@ export class FilasBullmq implements Filas {
           opts: {
             jobId: trabalho.jobId,
             attempts: REPETICAO.tentativas,
-            backoff: { type: "exponential", delay: REPETICAO.atraso },
+            // `custom`, e nao `exponential`: e assim que o BullMQ passa a
+            // decisao do atraso ao `backoffStrategy` do *worker*, onde vive a
+            // escada do §6.4 (1 s, 5 s, 30 s, 2 min, 10 min). Com o
+            // `exponential` que aqui estava, o recuo real era 1 s, 2 s, 4 s,
+            // 8 s, 16 s — a contagem de tentativas certa e os intervalos
+            // errados, que e a pior combinacao porque passa despercebida. O
+            // `REPETICAO.atraso` fica a ser o primeiro degrau da escada, e o
+            // teste `test_o_job_pede_a_escada_do_consumidor` prende os dois.
+            backoff: { type: "custom" },
             removeOnComplete: { count: MANTER_CONCLUIDOS },
             removeOnFail: { count: MANTER_FALHADOS },
           },

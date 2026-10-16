@@ -137,7 +137,15 @@ export async function reporUmaVez(
     trabalhos.push({
       jobId: linha.event_id,
       nome: linha.tipo,
-      dados: { event_id: linha.event_id, consumer: linha.consumer, reposto: true },
+      dados: {
+        event_id: linha.event_id,
+        consumer: linha.consumer,
+        // Sem isto o consumidor não põe o contexto da RLS e o arquivo
+        // responde-lhe zero linhas: um evento reposto ia para a DLQ como
+        // «evento desconhecido». A consulta do §6.5 já traz o `tenant_id`.
+        tenant_id: linha.tenant_id,
+        reposto: true,
+      },
     });
     porFila.set(fila, trabalhos);
   }

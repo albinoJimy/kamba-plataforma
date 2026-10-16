@@ -83,13 +83,19 @@ class BdFalsa {
   accao: { estado: string; resultado: unknown } | null = null;
   aRepor: Record<string, unknown>[] = [];
   particao = 3;
+  /** Quando definido, a instrução cujo prefixo bate lança. */
+  falhaEm: string | null = null;
 
   async query(
     sql: string,
     parametros: readonly unknown[] = [],
   ): Promise<{ rows: Record<string, unknown>[]; rowCount: number | null }> {
-    this.instrucoes.push((sql.trim().split("\n")[0] ?? "").trim());
+    const limpo = (sql.trim().split("\n")[0] ?? "").trim();
+    this.instrucoes.push(limpo);
     this.parametros.push([...parametros]);
+    if (this.falhaEm !== null && limpo.startsWith(this.falhaEm)) {
+      throw new Error(`falha simulada em ${limpo}`);
+    }
     if (sql === SQL_PARA_DLQ) {
       // Sem `RETURNING`: o que conta e a contagem de linhas.
       return { rows: [], rowCount: this.abriuDlq };
@@ -207,10 +213,40 @@ describe("paraDlq()", () => {
     // pela ligação de operação.
     await paraDlq({ bd, consumer: CONSUMER, envelope: envelope(), erro: "x", tentativas: 1 });
     assert.deepEqual(
-      bd.instrucoes.filter((i) => i.startsWith("SELECT")),
+      bd.instrucoes.filter((i) => i.startsWith("SELECT") && !i.includes("set_config")),
       [],
-      "nenhuma leitura: nem RETURNING, nem a contagem das abertas",
+      "nenhuma leitura da tabela: nem RETURNING, nem a contagem das abertas",
     );
+    assert.ok(
+      !bd.instrucoes.some((i) => i.includes("FROM platform.events_dlq")),
+      "nenhuma instrução lê events_dlq",
+    );
+  });
+
+  it("abre a sua própria transacção, com o contexto do envelope", async () => {
+    // A transacção do consumo já foi revertida quando se chega aqui, e com ela
+    // o contexto. Sem um `SET LOCAL` próprio, a entrada não passa o `WITH
+    // CHECK` da política `tenant_iso` e o evento que falhou seis vezes
+    // desaparecia sem deixar linha.
+    const env = envelope();
+    await paraDlq({ bd, consumer: CONSUMER, envelope: env, erro: "x", tentativas: 6 });
+    assert.deepEqual(bd.instrucoes, [
+      "BEGIN",
+      "SELECT set_config('app.tenant_id', $1, $2)",
+      "INSERT INTO platform.events_dlq",
+      "COMMIT",
+    ]);
+    assert.deepEqual(parametros(bd, "SELECT set_config"), [env.tenant_id, true]);
+  });
+
+  it("reverte e propaga quando o INSERT falha: melhor voltar à fila do que fingir", async () => {
+    const falha = new BdFalsa();
+    falha.falhaEm = "INSERT INTO platform.events_dlq";
+    await assert.rejects(
+      paraDlq({ bd: falha, consumer: CONSUMER, envelope: envelope(), erro: "x", tentativas: 6 }),
+      /falha simulada/,
+    );
+    assert.ok(falha.instrucoes.includes("ROLLBACK"), "sem ROLLBACK a ligação fica abortada");
   });
 });
 
@@ -371,6 +407,53 @@ describe("once(): o efeito externo que não se repete", () => {
     });
     assert.ok(!resultado.executou);
     assert.equal(vezes, 0);
+  });
+
+  it("cada passo é uma transacção curta com o contexto do tenant", async () => {
+    // `evt_acoes` tem `FORCE ROW LEVEL SECURITY` e quem a escreve é
+    // `kamba_app`. O contexto não se herda de quem chama: o `once` é chamado de
+    // dentro e de fora da transacção do consumo, e depender de um `SET LOCAL`
+    // alheio fazia a mesma função funcionar num sítio e falhar no outro.
+    await once(opcoes, async () => ({ mensagem: "wamid.X" }));
+    assert.deepEqual(bd.instrucoes, [
+      "BEGIN",
+      "SELECT set_config('app.tenant_id', $1, $2)",
+      "INSERT INTO platform.evt_acoes",
+      "COMMIT",
+      "BEGIN",
+      "SELECT set_config('app.tenant_id', $1, $2)",
+      "UPDATE platform.evt_acoes",
+      "COMMIT",
+    ]);
+    assert.deepEqual(parametros(bd, "SELECT set_config"), [TENANT, true]);
+  });
+
+  it("o efeito externo corre **entre** as duas transacções, nunca dentro", async () => {
+    // Um efeito externo pendurado dentro de uma transacção segurava os *locks*
+    // pelo tempo de uma chamada de rede.
+    const vistas: string[] = [];
+    await once(opcoes, async () => {
+      vistas.push(...bd.instrucoes);
+      return null;
+    });
+    assert.deepEqual(vistas.at(-1), "COMMIT", "a primeira transacção já fechou");
+  });
+
+  it("uma chave que colide e não se vê é erro alto, não um efeito saltado", async () => {
+    // Com RLS, uma chave que colide e não aparece na leitura existe **noutro
+    // tenant**. Repetir o efeito era mandar a mensagem duas vezes; devolver
+    // «já está feito» era nunca a mandar. Diz-se que não se sabe.
+    bd.abriuAccao = 0;
+    bd.accao = null;
+    let vezes = 0;
+    await assert.rejects(
+      once(opcoes, async () => {
+        vezes += 1;
+        return null;
+      }),
+      /colidiu entre tenants/,
+    );
+    assert.equal(vezes, 0, "o efeito não pode correr sobre uma chave que não é nossa");
   });
 
   it("marca falhada e propaga quando o efeito lança", async () => {

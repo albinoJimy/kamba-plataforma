@@ -132,11 +132,16 @@ class MaquinaFalsa implements MaquinaDeEstados {
  * não apareceu, que é o que interessa quando um teste quebra.
  */
 function parametro(bd: BdFalsa, prefixo: string, n: number): unknown {
+  return parametros(bd, prefixo)[n];
+}
+
+/** Todos os parâmetros da instrução cujo prefixo bate, ou falha o teste. */
+function parametros(bd: BdFalsa, prefixo: string): unknown[] {
   const indice = bd.instrucoes.findIndex((i) => i.startsWith(prefixo));
   assert.notEqual(indice, -1, `nenhuma instrução começa por ${prefixo}`);
   const linha = bd.parametros[indice];
   assert.ok(linha !== undefined, `sem parâmetros para ${prefixo}`);
-  return linha[n];
+  return linha;
 }
 
 
@@ -232,6 +237,7 @@ describe("consumir()", () => {
     assert.equal(resultado.desfecho, "aplicado");
     assert.deepEqual(bd.instrucoes, [
       "BEGIN",
+      "SELECT set_config('app.tenant_id', $1, $2)",
       "INSERT INTO platform.events_consumed",
       "COMMIT",
     ]);
@@ -239,15 +245,46 @@ describe("consumir()", () => {
     assert.equal(metricas.ler()[`${METRICA_CONSUMIDOS}:aplicado`], 1);
   });
 
+  it("põe o contexto de tenant dentro da transacção, a partir do envelope", async () => {
+    // Sem isto o consumidor não escreve nada: `events_consumed` tem `FORCE ROW
+    // LEVEL SECURITY` e quem consome é `kamba_app`, que é `NOBYPASSRLS`. O
+    // `INSERT` não falha por privilégio — falha o `WITH CHECK` da política
+    // `tenant_iso`, e a mensagem fala de *row-level security*, não de uma
+    // variável esquecida. Foi o defeito que a suite com base real apanhou.
+    const env = envelope();
+    await consumir(
+      { bd, consumer: CONSUMER, envelope: env, exigeOrdem: false },
+      async () => {},
+    );
+    assert.equal(bd.instrucoes[0], "BEGIN", "o contexto não pode anteceder o BEGIN");
+    assert.deepEqual(parametros(bd, "SELECT set_config('app.tenant_id'"), [
+      env.tenant_id,
+      true,
+    ]);
+    // `true` é o `is_local`: o contexto morre no `COMMIT`. Com `false`, a
+    // ligação ficava com o tenant do último evento colado — e uma ligação serve
+    // uma fila inteira.
+  });
+
+  it("o contexto vem do envelope e não de quem chama", async () => {
+    const outro = "11111111-2222-4333-8444-555555555555";
+    await consumir(
+      { bd, consumer: CONSUMER, envelope: envelope({ tenant_id: outro }), exigeOrdem: false },
+      async () => {},
+    );
+    assert.equal(parametro(bd, "SELECT set_config('app.tenant_id'", 0), outro);
+  });
+
   it("o efeito corre entre a marca e o COMMIT, e não fora da transacção", async () => {
     await consumir(
       { bd, consumer: CONSUMER, envelope: envelope(), exigeOrdem: false },
-      async (cliente) => {
-        await cliente.query("UPDATE platform.orders SET estado = $1", ["paga"]);
+      async (cliente, env) => {
+        await cliente.query("UPDATE platform.orders SET estado = $1", [env.tipo]);
       },
     );
     assert.deepEqual(bd.instrucoes, [
       "BEGIN",
+      "SELECT set_config('app.tenant_id', $1, $2)",
       "INSERT INTO platform.events_consumed",
       "UPDATE platform.orders SET estado = $1",
       "COMMIT",
@@ -267,6 +304,7 @@ describe("consumir()", () => {
     assert.ok(!correu, "o efeito não pode correr num duplicado");
     assert.deepEqual(bd.instrucoes, [
       "BEGIN",
+      "SELECT set_config('app.tenant_id', $1, $2)",
       "INSERT INTO platform.events_consumed",
       "COMMIT",
     ]);
@@ -279,7 +317,7 @@ describe("consumir()", () => {
       { bd, consumer: CONSUMER, envelope: env, exigeOrdem: false },
       async () => {},
     );
-    assert.deepEqual(bd.parametros[1], [
+    assert.deepEqual(parametros(bd, "INSERT INTO platform.events_consumed"), [
       CONSUMER,
       env.id,
       env.tenant_id,
@@ -399,6 +437,7 @@ describe("consumir()", () => {
     );
     assert.deepEqual(bd.instrucoes, [
       "BEGIN",
+      "SELECT set_config('app.tenant_id', $1, $2)",
       "INSERT INTO platform.events_consumed",
       "ROLLBACK",
     ]);

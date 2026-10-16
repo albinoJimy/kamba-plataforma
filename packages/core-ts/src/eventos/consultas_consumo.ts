@@ -11,6 +11,26 @@
  */
 
 /**
+ * O contexto de tenant da transacção: o `app.tenant_id` que a RLS lê.
+ *
+ * **Sem isto o consumidor não escreve nada.** As três tabelas deste ticket têm
+ * `ENABLE`, `FORCE` e a política `tenant_iso` (`db/rls.py`), e o consumidor
+ * corre como `kamba_app`, que é `NOBYPASSRLS`: um `INSERT` em
+ * `events_consumed` sem contexto não viola um privilégio — viola o `WITH
+ * CHECK`, e a mensagem fala de *row-level security*, não de uma variável
+ * esquecida. Era o defeito que a suite de integração apanhou à primeira
+ * execução.
+ *
+ * O valor vem **do envelope** e não da fila: a fila trouxe um ponteiro, e quem
+ * diz de quem é o evento é o arquivo. O `true` do terceiro argumento é o
+ * `is_local` — o contexto morre com a transacção, e não fica agarrado a uma
+ * ligação que serve dezasseis filas.
+ */
+export const SQL_DEFINIR_TENANT = `
+  SELECT set_config('app.tenant_id', $1, $2)
+`;
+
+/**
  * A linha de deduplicação. **É esta consulta que torna a entrega
  * *at-least-once* num efeito exactamente-uma-vez.**
  *
@@ -117,12 +137,17 @@ export const SQL_APROVADORES = `
  * estado e decide. É o `once(key, fn)` do §6.3, e a chave é
  * `consumer:event_id:acção` — o mesmo valor que vai no `Idempotency-Key` do
  * pedido ao terceiro.
+ *
+ * **O alvo do conflito está nomeado**, pela razão do `SQL_MARCAR_CONSUMIDO`:
+ * com `DO NOTHING` sem alvo, um conflito em qualquer índice único que a tabela
+ * venha a ter devolve zero linhas, e esse zero lê-se «já está registada» — um
+ * efeito externo saltado em silêncio.
  */
 export const SQL_ABRIR_ACCAO = `
   INSERT INTO platform.evt_acoes
     (idempotency_key, consumer, event_id, accao, tenant_id)
   VALUES ($1, $2, $3, $4, $5)
-  ON CONFLICT DO NOTHING
+  ON CONFLICT (idempotency_key) DO NOTHING
 `;
 
 /** O estado e o resultado de uma acção externa. */

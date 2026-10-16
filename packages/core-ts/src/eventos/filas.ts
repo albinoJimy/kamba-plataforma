@@ -30,17 +30,20 @@ export interface Trabalho {
 /**
  * Política de repetição **do consumidor**, não do publicador (§6.2).
  *
- * `tentativas` é o `attempts` do BullMQ e `atraso` a base do recuo
- * exponencial. O recuo do **outbox** é outro (`atrasoDaTentativa`), e os dois
- * não se confundem: este é o que o consumidor usa quando o seu tratador falha;
- * o outro é o que o publicador usa quando a fila não aceita.
+ * `tentativas` é o `attempts` do BullMQ. O `atraso` é o **primeiro degrau** da
+ * escada do consumidor (§6.4) — não a base de um recuo exponencial: o recuo é
+ * `custom` e vem do `backoffStrategy` do *worker*, onde a escada inteira vive
+ * (`trabalhador_bullmq.ts`). O recuo do **outbox** é outro
+ * (`atrasoDaTentativa`), e os dois não se confundem: este é o que o consumidor
+ * usa quando o seu tratador falha; o outro é o que o publicador usa quando a
+ * fila não aceita.
  */
 export interface Repeticao {
   readonly tentativas: number;
   readonly atraso: number;
 }
 
-/** 6 tentativas, recuo exponencial de base 1 s (`docs/tecnica/06` §6.2). */
+/** 6 tentativas; o primeiro degrau da escada é 1 s (`docs/tecnica/06` §6.4). */
 export const REPETICAO: Repeticao = { tentativas: 6, atraso: 1000 };
 
 /** O que o publicador precisa de uma fila. */

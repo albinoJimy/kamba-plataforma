@@ -500,6 +500,12 @@ export class Publicador {
         jobId: envelope.id,
         nome: envelope.tipo,
         dados: {
+          // O `tenant_id` fora do envelope, e não só dentro: é o que o
+          // consumidor usa para pôr o contexto da RLS **antes** de ler o
+          // arquivo, e lê-lo de dentro do envelope obrigava-o a conhecer a
+          // forma do envelope para poder começar. O reconciliador põe o mesmo
+          // campo sem envelope nenhum.
+          tenant_id: envelope.tenant_id,
           envelope: this.#conversores.converter(envelope, alvo.versao_max),
           repeticao: REPETICAO,
         },
