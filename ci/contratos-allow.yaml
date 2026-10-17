@@ -1,0 +1,29 @@
+# Nomes de campo de evento com excepcao declarada ao lint de PII (KAM-007).
+#
+# O `docs/tecnica/06` §7.3 diz que o lint «rejeita nomes de campo
+# telefone|msisdn|bsuid|nome|morada|texto|email **fora de uma lista
+# aprovada**» — e nunca enumera essa lista. Nasce aqui, e nasce **vazia**.
+#
+# Vazia de proposito: hoje nenhum dos trinta e oito contratos precisa de
+# excepcao, e uma lista com entradas «por precaucao» e uma lista que ninguem
+# revê. Se um contrato futuro precisar de um destes nomes, a entrada diz qual
+# o campo, porque e que nao e dado pessoal, e quem decidiu.
+#
+# A forma de uma entrada:
+#
+#   aprovados:
+#     - campo: payload.nome_do_servico   # o caminho completo, como o lint o imprime
+#       ticket: KAM-NNN
+#       razao: >-
+#         Porque e que este nome nao e PII. Nao «e so um nome»: o que a pessoa
+#         que ler isto daqui a um ano precisa de saber para concordar.
+#       data: 2026-10-17
+#
+# **O que esta lista nao dispensa.** Um campo aqui continua a passar pelo
+# padrao de telefone das fixtures, pelo gate 3b (que confronta o nome com o
+# dicionario) e pelo `additionalProperties: false` do proprio contrato. A
+# excepcao e ao lint de nomes e a mais nada.
+
+version: 1
+
+aprovados: []

@@ -321,9 +321,9 @@ storage-contrato:
 # Fora de ambito: 10 (SAST), 12-18 (KAM-067, KAM-078, KAM-088).
 
 ## ci: corre todos os gates activos (KAM-002 e o gate 8 do KAM-003)
-ci: ci-1 ci-2 ci-3 ci-3b ci-4 ci-6 ci-8 ci-9 ci-11 ci-waivers
+ci: ci-1 ci-2 ci-3 ci-3b ci-4 ci-6 ci-7 ci-8 ci-9 ci-11 ci-waivers
 	@echo
-	@echo "ci: todos os gates activos estao verdes (1, 2, 3, 3b, 4, 6, 8, 9, 11)."
+	@echo "ci: todos os gates activos estao verdes (1, 2, 3, 3b, 4, 6, 7, 8, 9, 11)."
 
 ## ci-waivers: valida ci/waivers.yaml (prazo, referencia, alcance)
 ci-waivers:
@@ -684,9 +684,11 @@ supply-chain:
 # --- Gates reservados, fail-closed ------------------------------------------
 #
 # Os gates 5 a 8 existem no §4 do Engineering Standards e sao implementados pelos
-# tickets que criam o que eles testam. Ficam aqui a **falhar**, de proposito: um
-# job reservado que passasse em silencio fazia parecer que o pipeline cobre o que
-# nao cobre, e ninguem se lembraria de o ligar.
+# tickets que criam o que eles testam. Os que ainda nao existem ficam aqui a
+# **falhar**, de proposito: um job reservado que passasse em silencio fazia
+# parecer que o pipeline cobre o que nao cobre, e ninguem se lembraria de o
+# ligar. Em Outubro de 2026 so o 5 continua reservado — o 6 e o 8 nasceram com
+# o KAM-004 e o KAM-003, e o 7 com o KAM-007.
 #
 # A valvula e `ci/waivers.yaml`, com prazo de 30 dias e referencia — o que forca
 # a revisitar a decisao em vez de a esquecer.
@@ -718,9 +720,21 @@ ci-6:
 	  exit 1; }
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_isolamento
 
-## ci-7: gate 7 — contratos (reservado; KAM-007 e KAM-024)
+## ci-7: gate 7 — contratos de evento: compatibilidade, PII, exemplos (KAM-007)
 ci-7:
-	$(call GATE_RESERVADO,7,contratos de webhooks e eventos,KAM-007)
+	@echo "==> gate 7: contratos de evento"
+	@# Quatro verificacoes, e a primeira precisa do ramo base: o criterio 3 do
+	@# KAM-007 diz «comparacao com a branch principal», e um contrato nao esta
+	@# errado em absoluto — esta errado em relacao ao que os consumidores ja
+	@# assinaram. Num `checkout` sem `fetch-depth: 0` o `origin/main` nao
+	@# existe, e o gate **recusa** em vez de saltar: uma verificacao que se
+	@# desliga sozinha quando nao encontra a base nunca falha no dia em que
+	@# alguem configura mal o CI.
+	@#
+	@# A parte dos **webhooks** da Meta continua por fazer e e o KAM-024. Este
+	@# alvo cobre os contratos de evento; quando o KAM-024 chegar, acrescenta
+	@# a sua verificacao aqui.
+	@$(VENV_PYTHON) -m contract_diff --root $(ROOT) check
 
 ## ci-8: gate 8 — migracoes: aplicar, reverter e voltar a aplicar (KAM-003)
 ci-8:

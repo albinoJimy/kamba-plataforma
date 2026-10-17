@@ -202,6 +202,28 @@ jobs:
         # uma base que mais alguem use.
         run: make ci-6
 
+  gate-7-contratos:
+    name: "gate 7 — contratos de evento"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # `fetch-depth: 0`, e nao a omissao: o criterio 3 do KAM-007 compara
+          # cada contrato com o do ramo principal, e sem historico o
+          # `origin/main` nao existe. O gate recusa em vez de saltar — ver o
+          # `tools/contract_diff/base.py` —, pelo que sem esta linha o job
+          # falha com uma mensagem a explicar que falta esta linha.
+          fetch-depth: 0
+      - uses: ./.github/actions/preparar
+      - name: buscar o ramo base
+        # O `checkout` de um PR deixa o `origin/main` por buscar mesmo com
+        # historico completo quando o merge e feito noutra referencia.
+        run: git fetch --no-tags origin main:refs/remotes/origin/main || true
+      - name: make ci-7
+        run: make ci-7
+
   gate-8-migracoes:
     name: "gate 8 — migracoes"
     runs-on: ubuntu-latest
@@ -221,17 +243,21 @@ jobs:
   # Gates reservados — falham por desenho
   # ---------------------------------------------------------------------------
   #
-  # Os gates 5 e 7 existem no §4 do Engineering Standards e sao implementados
-  # pelos tickets que criam o que eles testam. Ficam aqui a falhar: um job
-  # reservado que passasse em silencio fazia o pipeline parecer que cobre o que
-  # nao cobre, e nada obrigaria ninguem a liga-lo.
+  # Os gates reservados existem no §4 do Engineering Standards e sao
+  # implementados pelos tickets que criam o que eles testam. Ficam aqui a
+  # falhar: um job reservado que passasse em silencio fazia o pipeline parecer
+  # que cobre o que nao cobre, e nada obrigaria ninguem a liga-lo.
+  #
+  # **Sobra so o 5.** O 7 saiu desta matriz com o KAM-007 e tem job proprio,
+  # sem `continue-on-error` e dentro do `needs` do agregador — que e o que
+  # distingue «ligado» de «ligado a fingir».
   #
   # `continue-on-error: true` para que **nao bloqueiem** o merge hoje — nao estao
   # nos *required checks* — mas aparecam vermelhos em cada PR. A valvula formal e
   # `ci/waivers.yaml`, com prazo de 30 dias.
 
   gates-reservados:
-    name: "gates 5 e 7 — reservados (nao bloqueiam)"
+    name: "gate 5 — reservado (nao bloqueia)"
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions:
@@ -242,8 +268,6 @@ jobs:
         include:
           - gate: 5
             ticket: KAM-003
-          - gate: 7
-            ticket: KAM-007
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -316,6 +340,7 @@ jobs:
       - gate-3b-nomes-canonicos
       - gate-4-unit
       - gate-6-isolamento
+      - gate-7-contratos
       - gate-8-migracoes
       - gate-9-segredos
       - gate-11-supply-chain
