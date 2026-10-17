@@ -298,7 +298,7 @@ o que acabou de ser publicado.
 | Os acoplamentos entre ficheiros | `db/tests/test_consumo_contrato.py` | Texto: o que nenhuma execução distingue de coincidência |
 | A DLQ operada (dois aprovadores, códigos de saída) | `db/tests/test_dlq.py` | PostgreSQL real |
 | O isolamento das três tabelas | `db/tests_isolamento/` | Dois tenants, leitura cruzada, gate 6 |
-| **A transacção, a contagem de tentativas e a reposição** | `db/tests_eventos_consumo/` | PostgreSQL **e fila** reais; 19 testes, 94,8 s |
+| **A transacção, a contagem de tentativas e a reposição** | `db/tests_eventos_consumo/` | PostgreSQL **e fila** reais; 19 testes, ~95 s |
 | A recusa de arranque | `services/worker-canal/tests/consumidor.test.ts` | A função, sem levantar o processo |
 
 ### O relógio acelerado, e porque é honesto
