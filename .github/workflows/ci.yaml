@@ -373,7 +373,10 @@ jobs:
             exit 1
           fi
           contados=$(printf '%s' "$resultados" | grep -c '"result": *"success"')
-          esperados=9
+          # Dez desde o KAM-007, que ligou o gate 7. Este numero e escrito a
+          # mao de proposito: um gate novo que entre no `needs` e nao entre
+          # aqui faz a porta falhar, e quem o acrescentou vem ler porque.
+          esperados=10
           if [ "$contados" -ne "$esperados" ]; then
             echo "::error::esperava $esperados gates e contei $contados"
             echo "Um gate que desapareca do \`needs\` desapareceria tambem desta"

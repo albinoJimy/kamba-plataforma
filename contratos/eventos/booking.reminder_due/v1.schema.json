@@ -62,7 +62,8 @@
       ],
       "properties": {
         "tipo": {
-          "type": "string"
+          "type": "string",
+          "const": "booking"
         },
         "id": {
           "type": "string"
@@ -97,8 +98,7 @@
       "type": "string",
       "enum": [
         "P0",
-        "P1",
-        "P2"
+        "P1"
       ]
     },
     "finalidades": {

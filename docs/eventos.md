@@ -128,13 +128,17 @@ O dicionário §3.5 («Envelope») nomeia **nove** nomes — `id`, `tipo`, `vers
 
 A leitura que este ticket toma, e escreve: a linha «Envelope» do dicionário é
 uma lista de **nomes**, não de aninhamento, e `agregado = {tipo, id, seq}` usa
-os dois nomes. **O que fica por decidir**: se o contrato v1 publicado em
-`contratos/eventos/` (KAM-007) tem nove ou treze campos de topo. A decisão é de
-quem aprova emendas, e é o KAM-007 que a paga: enquanto não estiver tomada,
-qualquer `v1.schema.json` que declare os treze campos **falha o gate 3b**
-(`tools/canon_lint/eventos.py` exige extensão `envelope.<nome>` para campos de
-topo fora da linha do dicionário, e uma extensão que nenhuma superfície usa
-também falha — por isso não se podiam declarar aqui, à frente do KAM-007).
+os dois nomes.
+
+**Isto esteve por decidir e está decidido.** A emenda 1.11 do dicionário
+(KAM-007) fixou o envelope em **catorze** campos de topo, com o `seq` dentro do
+`agregado`, e os trinta e oito `v1.schema.json` declaram exactamente essa
+lista. Não foi preferência: um contrato com `additionalProperties: false` e
+nove campos recusava **todos** os envelopes que o `evt_emitir` constrói. O que
+este parágrafo dizia antes — que um schema com os treze campos falharia o gate
+3b — deixou de ser verdade no dia em que a linha do dicionário cresceu; o gate
+lê a linha, e a linha passou a ter os catorze. Ver a decisão 1 do §11 e a
+emenda 1.11.
 
 ### A guarda de PII, e o que ela não apanha
 

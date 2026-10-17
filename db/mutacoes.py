@@ -130,6 +130,8 @@ CONT_SCAN = "tools/lint_contagens/scan.py"
 CD_DIFF = "tools/contract_diff/diff.py"
 CD_PII = "tools/contract_diff/pii.py"
 CD_GERAR = "tools/contract_diff/gerar.py"
+CD_EXEMPLOS = "tools/contract_diff/exemplos.py"
+CONTRATO_PAY_MANUAL = "contratos/eventos/payment.manual_confirmed/v1.schema.json"
 CONTRATO_ORDER_PAID = "contratos/eventos/order.paid/v1.schema.json"
 KYAML = "tools/kamba_yaml.py"
 #: KAM-005: a revisao do outbox e os modulos de eventos em TypeScript.
@@ -979,7 +981,7 @@ MUTACOES = [
      "        if d - a:",
      "        if False:", CONTRATOS),
     ("contratos: tornar um campo obrigatorio deixa de quebrar", CD_DIFF,
-     "    for nome in sorted((obrig_actual - obrig_base) & set(props_base)):",
+     "    for nome in sorted(obrig_actual - obrig_base):",
      "    for nome in sorted(set()):", CONTRATOS),
     ("contratos: abrir o payload deixa de quebrar", CD_DIFF,
      '    if base.get("additionalProperties") != actual.get("additionalProperties"):',
@@ -993,6 +995,41 @@ MUTACOES = [
     ("contratos: o gerador aceita o que nao sabe traduzir", CD_GERAR,
      "    if desconhecidas:",
      "    if False:", CONTRATOS),
+    # As dez que seguem nasceram da revisao adversarial do KAM-007. Cada uma
+    # desfaz exactamente um achado, e so passa a lista se o teste que o fechou
+    # a apanhar — e a forma de saber que a correccao tem prova e nao so codigo.
+    ("contratos: o lint de PII volta a deixar passar o plural", CD_PII,
+     '        if raiz in partes or raiz + "s" in partes:',
+     "        if raiz in partes:", CONTRATOS),
+    ("contratos: o lint de PII volta a saber so os sete do 7.3", CD_PII,
+     "RAIZES = PROIBIDOS + TAMBEM_PROIBIDOS",
+     "RAIZES = PROIBIDOS", CONTRATOS),
+    ("contratos: o lint de PII deixa de descer pelo que nao conhece", CD_PII,
+     "        for chave, filho in no.items():",
+     "        for chave, filho in {}.items():", CONTRATOS),
+    ("contratos: o classificador volta a rebentar em vez de falhar fechado", CD_DIFF,
+     "    except (TypeError, AttributeError, ValueError, RecursionError) as erro:",
+     "    except KeyboardInterrupt as erro:", CONTRATOS),
+    ("contratos: um required sobre campo nao declarado volta ao silencio", CD_DIFF,
+     '            porque = ("passou a obrigatorio e nao esta em `properties`: o schema e "',
+     '            continue  # mutacao\n            porque = ("", ', CONTRATOS),
+    ("contratos: um exemplo com PII P2 deixa de ser achado", CD_EXEMPLOS,
+     '        if exemplo.get("classe_pii") == "P2":',
+     "        if False:", CONTRATOS),
+    ("contratos: o gerador volta a declarar tudo opcional em Python", CD_GERAR,
+     '                anotacao = f"NotRequired[{anotacao}]"',
+     "                pass", CONTRATOS),
+    ("contratos: o validador Python deixa de ver o campo a mais", CD_GERAR,
+     "    se_sobra = sorted(set(payload) - permitidos)",
+     "    se_sobra = []", CONTRATOS),
+    ("contratos: um contrato volta a admitir PII P2", CONTRATO_PAY_MANUAL,
+     '"classe_pii": {' + chr(10) + '      "type": "string",' + chr(10) + '      "enum": [' + chr(10) + '        "P0"' + chr(10) + '      ]',
+     '"classe_pii": {' + chr(10) + '      "type": "string",' + chr(10) + '      "enum": [' + chr(10) + '        "P0",' + chr(10) + '        "P2"' + chr(10) + '      ]',
+     CONTRATOS),
+    ("contratos: os dois pagamentos voltam a ser indistinguiveis", CONTRATO_PAY_MANUAL,
+     '"enum": [' + chr(10) + '                "manual"' + chr(10) + '              ]',
+     '"enum": [' + chr(10) + '                "manual",' + chr(10) + '                "hmac"' + chr(10) + '              ]',
+     CONTRATOS),
     ("contratos: um payload deixa de ser fechado", CONTRATO_ORDER_PAID,
      '"payload": {' + chr(10) + '      "type": "object",' + chr(10) + '      "additionalProperties": false,',
      '"payload": {' + chr(10) + '      "type": "object",' + chr(10) + '      "additionalProperties": true,',
@@ -1097,6 +1134,14 @@ def _copiar_para_os_contratos(destino: Path, ignorar) -> None:
     shutil.copytree(RAIZ / "contratos", destino / "contratos", ignore=ignorar)
     (destino / "ci").mkdir(parents=True, exist_ok=True)
     shutil.copy(RAIZ / "ci" / "contratos-allow.yaml", destino / "ci" / "contratos-allow.yaml")
+    # E o `docs/tecnica/06`, que e a **fonte** do criterio 1: desde a revisao
+    # adversarial (achado M4) o catalogo e verificado contra a tabela do §5 e
+    # nao contra o numero 38. Sem o documento, essa bateria nem carrega.
+    (destino / "docs" / "tecnica").mkdir(parents=True, exist_ok=True)
+    shutil.copy(
+        RAIZ / "docs" / "tecnica" / "06_Dados_Eventos_Analytics.md",
+        destino / "docs" / "tecnica" / "06_Dados_Eventos_Analytics.md",
+    )
 
 
 def _copiar_para_as_contagens(destino: Path, ignorar) -> None:

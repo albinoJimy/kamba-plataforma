@@ -38,11 +38,44 @@ from pathlib import Path
 
 from contract_diff import catalogo
 
-#: Os sete nomes do §7.3. A comparacao e por **segmento** do nome do campo,
-#: sem distincao de caixa: `nome_do_cliente` e `telefone` batem; `numero_publico`
-#: nao. Procurar por subcadeia apanhava `nome` dentro de `numero_publico` e
-#: fazia o *lint* gritar sobre o que nao e PII.
+#: Os sete nomes do §7.3, que sao a letra da fonte.
 PROIBIDOS = ("telefone", "msisdn", "bsuid", "nome", "morada", "texto", "email")
+
+#: O resto do vocabulario com que o mesmo dado pessoal entra num payload.
+#:
+#: **A primeira versao deste lint tinha so os sete, comparados por segmento
+#: exacto, e isso quase nao apanhava nada**: `nomes`, `telefones`, `emails` e
+#: `moradas` passavam — o plural do proprio nome proibido — e todo o ingles
+#: passava (`phone`, `mail`, `address`, `name`, `full_name`), e as abreviaturas
+#: tambem (`msg`, `wa_id`). Apanhado pela revisao adversarial deste ticket
+#: (achado C1), que demonstrou vinte e tal nomes a passar.
+#:
+#: O §7.3 nomeia sete porque esta a dar o exemplo da regra, nao a lista
+#: fechada; a regra e a do §7.1, «sem PII crua em eventos». Cumprir a letra
+#: dos sete e deixar a regra aberta de par em par, pelo que se acrescentam
+#: estes — e a lista aprovada de `ci/contratos-allow.yaml` existe para o dia
+#: em que um deles for falso positivo.
+TAMBEM_PROIBIDOS = (
+    # ingles, que e como metade dos campos de software se chamam
+    "phone", "telephone", "mobile", "mail", "address", "name", "firstname",
+    "lastname", "fullname", "surname", "username", "birthdate", "dob",
+    # portugues que o §7.3 nao nomeia
+    "endereco", "telemovel", "contacto", "mensagem", "conteudo", "observacao",
+    # O plural de «-cao» e «-coes» e a regra do «s» nao o apanha; escreve-se.
+    "observacoes", "observacao", "descricao", "descricoes",
+    "destinatario", "remetente", "titular", "apelido", "nascimento", "bilhete",
+    # o que o WhatsApp e o canal trazem
+    "msg", "waid",
+)
+
+#: Nomes **inteiros** proibidos, para o que a divisao por segmentos parte em
+#: pedacos inocentes: `wa_id` da `wa` + `id`, e `id` nao se pode proibir.
+PROIBIDOS_INTEIROS = ("wa_id", "wa_ids", "e_mail", "nr_telefone", "no_telefone")
+
+#: Raizes que casam com o plural: `nomes` e `nome`, `emails` e `email`. Nao se
+#: usa `startswith`, que apanhava `nomeacao`; usa-se a raiz e a raiz mais «s»,
+#: que e a flexao que estes nomes tem em portugues e em ingles.
+RAIZES = PROIBIDOS + TAMBEM_PROIBIDOS
 
 #: Os padroes de telefone, iguais aos de `packages/core-ts/src/eventos/pii.ts`
 #: e aos do `platform.evt_emitir`, e pela ordem em que o SQL os avalia.
@@ -72,12 +105,30 @@ def segmentos(nome: str) -> list[str]:
 
 
 def proibido_em(nome: str) -> str | None:
-    """O nome proibido que este nome de campo contem, se contiver algum."""
+    """A raiz proibida que este nome de campo contem, se contiver alguma.
+
+    Compara-se por **segmento** e nao por subcadeia: procurar `nome` dentro de
+    `numero_publico` fazia o lint gritar sobre o que nao e PII, e um lint que
+    grita por tudo e um lint que alguem desliga. E compara-se o segmento com a
+    raiz **e com a raiz mais «s»**, que e o buraco do C1: sem isso, `nomes`
+    passava e `nome` nao.
+    """
+    inteiro = nome.lower()
+    if inteiro in PROIBIDOS_INTEIROS:
+        return inteiro
     partes = set(segmentos(nome))
-    for mau in PROIBIDOS:
-        if mau in partes:
-            return mau
+    # A juncao dos segmentos apanha `full_name` -> `fullname`, que e a forma
+    # como o mesmo campo se escreve nas duas convencoes.
+    partes.add("".join(segmentos(nome)))
+    for raiz in RAIZES:
+        if raiz in partes or raiz + "s" in partes:
+            return raiz
     return None
+
+
+#: As chaves que o percurso le por nome proprio. Todas as outras sao visitadas
+#: na mesma, pelo ramo generico do fim — ver o docstring de `_nomes_de_campo`.
+_LIDAS_POR_NOME = ("properties", "required", "dependentRequired", "propertyNames", "items")
 
 
 def _nomes_de_campo(no, prefixo: str = ""):
@@ -87,6 +138,16 @@ def _nomes_de_campo(no, prefixo: str = ""):
     os quatro sitios onde um nome de campo aparece. Sem o `required`, um campo
     declarado la e **ausente** de `properties` escapava; e um schema mal
     formado, mas escapar em silencio e pior.
+
+    **E depois visita tudo o resto.** A primeira versao visitava so aquelas
+    cinco chaves, e calava-se perante `$defs`, `oneOf`, `allOf`, `anyOf`,
+    `patternProperties` e `additionalProperties`-como-schema: nenhum contrato
+    os usa hoje, e no dia em que um usasse o lint de PII deixava de ver metade
+    do documento **sem dizer nada** (achado m4 da revisao adversarial). Em vez
+    de se enumerar o que falta — que e a forma de voltar a falhar quando o
+    JSON Schema crescer — desce-se por qualquer dicionario ou lista que nao
+    tenha sido ja lido acima. Um nome de campo so sai dos sitios onde um nome
+    de campo vive; o percurso e que passa a ser total.
     """
     if isinstance(no, dict):
         for nome, filho in (no.get("properties") or {}).items():
@@ -104,6 +165,10 @@ def _nomes_de_campo(no, prefixo: str = ""):
                 yield (f"{prefixo}.{nome}" if prefixo else nome), nome
         if "items" in no:
             yield from _nomes_de_campo(no["items"], f"{prefixo}[]")
+        for chave, filho in no.items():
+            if chave in _LIDAS_POR_NOME or not isinstance(filho, (dict, list)):
+                continue
+            yield from _nomes_de_campo(filho, f"{prefixo}/{chave}" if prefixo else chave)
     elif isinstance(no, list):
         for filho in no:
             yield from _nomes_de_campo(filho, prefixo)

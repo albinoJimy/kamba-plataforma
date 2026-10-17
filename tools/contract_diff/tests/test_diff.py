@@ -178,5 +178,105 @@ class TestAninhamento(unittest.TestCase):
         self.assertIn("desapareceu", achado.porque)
 
 
+class TestFalhaFechadaDeVerdade(unittest.TestCase):
+    """O achado m1: o classificador prometia falha fechada e **rebentava**.
+
+    O docstring do modulo diz, desde o primeiro dia, que «uma diferenca que
+    este classificador nao saiba ler e classificada quebrante». Cumpria-o so
+    para as **palavras-chave**: uma forma que ele nao soubesse percorrer
+    levantava `TypeError` e abortava o `check` inteiro, com um traceback que
+    nao nomeia o contrato nem a causa.
+
+    Nenhuma destas formas existe nos trinta e oito contratos de hoje. A que
+    aparecesse no **ramo base** matava o gate para toda a gente — e um gate
+    que morre nao e um gate que bloqueia, e um gate que se desliga.
+    """
+
+    def classificar(self, base: dict, actual: dict) -> list:
+        return diff.comparar_fechado(base, actual)
+
+    def test_items_em_tuplo(self) -> None:
+        (achado,) = self.classificar({"items": [{"type": "string"}]},
+                                     {"items": [{"type": "integer"}]})
+        self.assertEqual(achado.classe, diff.QUEBRANTE)
+        self.assertIn("nao consegue percorrer", achado.porque)
+
+    def test_enum_de_objectos(self) -> None:
+        (achado,) = self.classificar({"enum": [{"a": 1}]}, {"enum": [{"a": 2}]})
+        self.assertEqual(achado.classe, diff.QUEBRANTE)
+
+    def test_subschema_booleano(self) -> None:
+        (achado,) = self.classificar({"properties": {"a": True}},
+                                     {"properties": {"a": False}})
+        self.assertEqual(achado.classe, diff.QUEBRANTE)
+
+    def test_a_mensagem_diz_onde(self) -> None:
+        (achado,) = diff.comparar_fechado({"enum": [{"a": 1}]}, {"enum": [{"a": 2}]},
+                                          "payload.linhas")
+        self.assertEqual(achado.caminho, "payload.linhas")
+
+    def test_o_comparar_directo_continua_a_levantar(self) -> None:
+        """Quem o chama fora do gate quer o erro, e nao um achado."""
+        with self.assertRaises(TypeError):
+            diff.comparar({"enum": [{"a": 1}]}, {"enum": [{"a": 2}]})
+
+
+class TestOUnicoSilencio(unittest.TestCase):
+    """O achado m2: um `required` novo sobre um campo nao declarado.
+
+    O acrescento ao `required` era filtrado por `properties` e a remocao nao,
+    e por isso esta diferenca saia como **lista vazia** — nem quebrante, nem
+    aditivo, diferenca nenhuma. O schema e mal formado (insatisfazivel), mas
+    devolver vazio e pior do que classificar mal: o gate diz «sem
+    diferencas» sobre um documento que mudou.
+    """
+
+    def test_um_required_sobre_um_campo_que_nao_existe(self) -> None:
+        base = {"properties": {"a": {"type": "string"}}, "required": ["a"]}
+        actual = {"properties": {"a": {"type": "string"}}, "required": ["a", "x"]}
+        (achado,) = diff.quebra(diff.comparar(base, actual))
+        self.assertIn("insatisfazivel", achado.porque)
+
+    def test_um_campo_novo_obrigatorio_continua_a_sair_uma_so_vez(self) -> None:
+        """A correccao nao pode duplicar o achado que ja existia."""
+        base = {"properties": {"a": {"type": "string"}}, "required": ["a"]}
+        actual = {"properties": {"a": {"type": "string"}, "x": {"type": "string"}},
+                  "required": ["a", "x"]}
+        achados = diff.quebra(diff.comparar(base, actual))
+        self.assertEqual(len(achados), 1, [a.porque for a in achados])
+        self.assertIn("obrigatorio", achados[0].porque)
+
+
+class TestAsAnotacoesNaoCustamVersao(unittest.TestCase):
+    """O achado m3: `default` e `examples` estavam no plano de `type`.
+
+    Sao anotacao pura, como a `description` que ja estava isenta, e custavam
+    uma versao nova a quem mudasse um valor por omissao. As tres classes de
+    falso quebrante que a revisao mediu estao aqui: as duas primeiras ficam
+    quebrantes de proposito, e o que muda e a **mensagem**, que dizia ao
+    contrario o que tinha acontecido.
+    """
+
+    def test_mudar_um_default_nao_quebra(self) -> None:
+        for palavra in ("default", "examples", "deprecated", "readOnly", "writeOnly"):
+            base = {"type": "string", palavra: "antes"}
+            actual = {"type": "string", palavra: "depois"}
+            with self.subTest(palavra=palavra):
+                self.assertEqual(diff.quebra(diff.comparar(base, actual)), [])
+
+    def test_fechar_um_campo_livre_quebra_pelo_lado_do_produtor(self) -> None:
+        (achado,) = diff.quebra(diff.comparar(
+            {"type": "string"}, {"type": "string", "enum": ["a", "b"]}
+        ))
+        self.assertIn("passou a ter dominio fechado", achado.porque)
+        self.assertIn("produtor", achado.porque)
+
+    def test_abrir_um_campo_fechado_quebra_pelo_lado_do_consumidor(self) -> None:
+        (achado,) = diff.quebra(diff.comparar(
+            {"type": "string", "enum": ["a"]}, {"type": "string"}
+        ))
+        self.assertIn("passou a livre", achado.porque)
+        self.assertIn("consumidor", achado.porque)
+
 if __name__ == "__main__":
     unittest.main()

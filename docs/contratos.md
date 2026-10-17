@@ -117,6 +117,22 @@ domínio é uma promessa nova, e promessas novas levam versão nova.
 Quem quer quebrar escreve `v<N+1>` e deixa o `v<N>` como estava. O `v<N>`
 retira-se ≥ 90 dias depois de o último consumidor migrar.
 
+**Falha fechada, agora de verdade.** Esta secção prometia, desde o primeiro
+dia, que «uma diferença que o classificador não saiba ler é classificada
+quebrante», e isso valia só para as **palavras-chave**: uma forma que ele não
+soubesse percorrer — um `items` em tuplo, um `enum` de objectos, um subschema
+booleano — levantava `TypeError` e abortava o *gate* inteiro (achado m1).
+Nenhuma existe nos trinta e oito contratos de hoje; a que aparecesse no ramo
+base matava o *gate* para toda a gente, e um *gate* que morre não bloqueia
+nada. O `comparar_fechado` é hoje a porta por onde o *gate* chama o
+classificador.
+
+Duas correcções menores da mesma revisão: um `required` novo sobre um campo
+que `properties` não declara era o único silêncio do classificador — devolvia
+lista vazia, nem quebrante nem aditivo (m2) —, e `default`, `examples`,
+`deprecated`, `readOnly` e `writeOnly` custavam uma versão nova, sendo
+anotação tão pura como a `description` que já estava isenta (m3).
+
 ### 4.2 PII
 
 Nenhum nome de campo contém um dos sete do §7.3 — telefone, nome, morada,
@@ -138,6 +154,32 @@ A regra tem **três** implementações independentes: aqui, na bateria do
 uma se desligar, as outras continuam a gritar. E há uma quarta barreira que
 não é um lint — nenhum dos sete nomes é canónico no dicionário, pelo que um
 contrato que os usasse falharia **também** no gate 3b.
+
+**A regra é a do §7.1, e não a lista de sete do §7.3.** A primeira versão deste
+*lint* comparava os sete nomes por segmento exacto, e com isso quase não
+apanhava nada: passavam o plural de cada um — `nomes`, `telefones`, `emails`,
+`moradas` — e passava o inglês todo, que é como metade dos campos de software
+se chamam: `phone`, `mail`, `address`, `full_name`, `msg`, `wa_id`. A revisão
+adversarial demonstrou-o com vinte e cinco nomes (achado C1), e a demonstração
+está hoje no `TestOBuracoDoSegmentoExacto`.
+
+A comparação passou a ser por **raiz**, com o plural, e a lista inclui o
+vocabulário inglês e as abreviaturas. Não se usa `startswith`, que apanhava
+`nomeacao`. O §7.3 nomeia sete porque está a dar o exemplo da regra; a regra é
+a do §7.1, «sem PII crua em eventos», e cumprir a letra dos sete deixava-a
+aberta de par em par.
+
+E o *lint* deixou de se calar perante metade do JSON Schema: percorria cinco
+palavras-chave e ignorava `$defs`, `oneOf`, `patternProperties` e
+`additionalProperties`-como-schema (achado m4). Hoje desce por qualquer
+subdocumento, e os nomes continuam a sair só dos sítios onde um nome de campo
+vive.
+
+**A lista aprovada deixou de estar vazia no mesmo dia**, e é esse o sinal de
+que serve para alguma coisa: o primeiro nome que o *lint* apanhou foi
+`phone_number_id`, que é o identificador do número de WhatsApp do *tenant* e
+não o telefone de ninguém. A entrada está em `ci/contratos-allow.yaml`, com a
+razão por extenso.
 
 ### 4.3 Exemplos
 
@@ -205,9 +247,12 @@ leu o nome da função.
 | 3 | **`tenant.activated` como gatilho do provisioning.** O dicionário diz `tenant.approved` e nomeia os documentos a corrigir; o `docs/00-KAMBA-documento-mestre.md` continua a usar o outro e **não está** na lista | Resíduo documental, registado. O documento mestre é artefacto compilado e não é fonte |
 | 4 | **Os tipos de Fase C e D não têm contrato** — `review.removed`, `placement.impression`, `placement.conversion_proven`, `score.computed`, e os `delivery.*` do `docs/tecnica/07` | Por desenho: o critério 1 pede Fase P. Nascem com os tickets que os emitem |
 | 5 | **A parte dos webhooks do gate 7** (contratos da Meta) continua por fazer | É o KAM-024; o alvo `ci-7` diz onde se acrescenta |
+| 6 | **Quem aprovou uma confirmação manual não vai no evento.** O §5 chama ao `payment.manual_confirmed` «confirmação humana auditada, limite de valor», e o payload não diz quem aprovou nem que limite se aplicou. A revisão adversarial (achado M7) argumenta que devia ir, porque uma referência pseudónima é o que o §7.1 autoriza; a leitura contrária é a do §7.1 também, que classifica uma referência a pessoa como **P1**, e o §5 fixa este evento em P0 — pôr lá o aprovador obriga a reclassificar o evento contra a sua fonte | Devolvida. O que se fez foi o que não tem ambiguidade: os dois eventos deixaram de admitir o mesmo `authn_method`, e passam a ser distinguíveis por mais do que o nome. A auditoria vive no registo de cobranças, com ACL, que é o que o §7.1 manda («vai-se buscar por referência») |
+| 7 | **O `docs/tecnica/03` tem um segundo catálogo de eventos**, com `charge_id` e `paga_via` no payload de `payment.confirmed` e nomes que o §5 não conhece | Resíduo documental na parte dos nomes (`docs/dividas-documentais.md`, linha 37). A parte que é desenho — se o `payment.confirmed` deve levar `charge_id` para o COM reconciliar sem ir à base — calibra-se com o KAM-041, que é quem o emite |
 
 ## 7. Controlo de versões
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão (KAM-007): 38 contratos v1, o classificador de diferenças com falha fechada, o *lint* de PII com a lista aprovada que o §7.3 nomeava e nunca enumerou, os exemplos validados, a `versao_max` das subscrições, os tipos gerados e o gate 7 activo. Fecha as decisões abertas 1 e 6 de `docs/eventos.md` e a dúvida «9 ou 14» da emenda 1.9. | Equipa KAMBÁ |
+| 1.1 | Outubro 2026 | **O que a revisão adversarial mudou (KAM-007).** O *lint* de PII deixou de comparar sete nomes por segmento exacto — passava o plural de cada um e o inglês todo — e a lista aprovada ganhou a sua primeira entrada no mesmo dia (C1, m4); os trinta e oito contratos deixaram de admitir `classe_pii` P2, que o §7.1 proíbe (M1); o `agregado.tipo` passou a `const` e apanhou **vinte e sete exemplos** com o agregado da primeira pasta copiado (M2); `payment.confirmed` e `payment.manual_confirmed` deixaram de admitir o mesmo método de autenticação (M7); o classificador passou a falhar fechado em vez de rebentar (m1, m2, m3); e o lado Python ganhou `NotRequired` e um `validar_payload` (M5). O catálogo passou a ser verificado contra o §5 e não contra uma contagem (M4). | Equipa KAMBÁ |

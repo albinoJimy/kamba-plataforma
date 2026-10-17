@@ -5,90 +5,88 @@ catalogo que o espelho em Python le. O gate 7 (`make ci-7`) falha se este
 ficheiro estiver desactualizado.
 """
 
-from __future__ import annotations
-
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 
-class PayloadBookingCancelled(TypedDict, total=False):
+class PayloadBookingCancelled(TypedDict):
     """Payload de `booking.cancelled` v1."""
     booking_id: str
     motivo: str
 
 
-class PayloadBookingCreated(TypedDict, total=False):
+class PayloadBookingCreated(TypedDict):
     """Payload de `booking.created` v1."""
     booking_id: str
     contact_id: str
     service_id: str
-    resource_id: str  # opcional
+    resource_id: NotRequired[str]
     inicio_at: str
     fim_at: str
 
 
-class PayloadBookingReminderDue(TypedDict, total=False):
+class PayloadBookingReminderDue(TypedDict):
     """Payload de `booking.reminder_due` v1."""
     booking_id: str
     inicio_at: str
 
 
-class PayloadCatalogPriceChanged(TypedDict, total=False):
+class PayloadCatalogPriceChanged(TypedDict):
     """Payload de `catalog.price_changed` v1."""
     sku: str
     preco_tipo: str
-    preco_minor: int | None  # opcional
+    preco_minor: NotRequired[int | None]
     currency: str
 
 
-class PayloadCatalogProductChanged(TypedDict, total=False):
+class PayloadCatalogProductChanged(TypedDict):
     """Payload de `catalog.product_changed` v1."""
     sku: str
     estado: str
 
 
-class PayloadChannelInactivityWarning(TypedDict, total=False):
+class PayloadChannelInactivityWarning(TypedDict):
     """Payload de `channel.inactivity_warning` v1."""
     phone_number_id: str
 
 
-class PayloadChannelUpdated(TypedDict, total=False):
+class PayloadChannelUpdated(TypedDict):
     """Payload de `channel.updated` v1."""
     phone_number_id: str
     motivo: str
 
 
-class PayloadConsentRecorded(TypedDict, total=False):
+class PayloadConsentRecorded(TypedDict):
     """Payload de `consent.recorded` v1."""
     contact_id: str
     finalidade: str
     origem: str
 
 
-class PayloadConsentWithdrawn(TypedDict, total=False):
+class PayloadConsentWithdrawn(TypedDict):
     """Payload de `consent.withdrawn` v1."""
     contact_id: str
     finalidade: str
 
 
-class PayloadContactMerged(TypedDict, total=False):
+class PayloadContactMerged(TypedDict):
     """Payload de `contact.merged` v1."""
     contact_id: str
     merged_into: str
 
 
-class PayloadConversationModeChanged(TypedDict, total=False):
+class PayloadConversationModeChanged(TypedDict):
     """Payload de `conversation.mode_changed` v1."""
     thread_id: str
     channel_mode: str
 
 
-class PayloadOrderCancelled(TypedDict, total=False):
+class PayloadOrderCancelled(TypedDict):
     """Payload de `order.cancelled` v1."""
     order_id: str
     motivo: str
 
 
-class PayloadOrderCreated(TypedDict, total=False):
+class PayloadOrderCreated(TypedDict):
     """Payload de `order.created` v1."""
     order_id: str
     contact_id: str
@@ -97,23 +95,23 @@ class PayloadOrderCreated(TypedDict, total=False):
     total_minor: int
     currency: str
     entrega_modo: str
-    expira_at: str  # opcional
+    expira_at: NotRequired[str]
     linhas: list[object]
 
 
-class PayloadOrderDelivered(TypedDict, total=False):
+class PayloadOrderDelivered(TypedDict):
     """Payload de `order.delivered` v1."""
     order_id: str
     entrega_confirmada_por: str
 
 
-class PayloadOrderExpired(TypedDict, total=False):
+class PayloadOrderExpired(TypedDict):
     """Payload de `order.expired` v1."""
     order_id: str
     expira_at: str
 
 
-class PayloadOrderPaid(TypedDict, total=False):
+class PayloadOrderPaid(TypedDict):
     """Payload de `order.paid` v1."""
     order_id: str
     valor_minor: int
@@ -121,7 +119,7 @@ class PayloadOrderPaid(TypedDict, total=False):
     paga_via: str
 
 
-class PayloadPaymentConfirmed(TypedDict, total=False):
+class PayloadPaymentConfirmed(TypedDict):
     """Payload de `payment.confirmed` v1."""
     order_id: str
     provider: str
@@ -131,7 +129,7 @@ class PayloadPaymentConfirmed(TypedDict, total=False):
     autenticacao: dict[str, object]
 
 
-class PayloadPaymentExpired(TypedDict, total=False):
+class PayloadPaymentExpired(TypedDict):
     """Payload de `payment.expired` v1."""
     order_id: str
     provider: str
@@ -139,15 +137,15 @@ class PayloadPaymentExpired(TypedDict, total=False):
     expira_at: str
 
 
-class PayloadPaymentFailed(TypedDict, total=False):
+class PayloadPaymentFailed(TypedDict):
     """Payload de `payment.failed` v1."""
     order_id: str
     provider: str
-    referencia: str  # opcional
+    referencia: NotRequired[str]
     motivo: str
 
 
-class PayloadPaymentManualConfirmed(TypedDict, total=False):
+class PayloadPaymentManualConfirmed(TypedDict):
     """Payload de `payment.manual_confirmed` v1."""
     order_id: str
     valor_minor: int
@@ -155,7 +153,7 @@ class PayloadPaymentManualConfirmed(TypedDict, total=False):
     autenticacao: dict[str, object]
 
 
-class PayloadPaymentReferenceIssued(TypedDict, total=False):
+class PayloadPaymentReferenceIssued(TypedDict):
     """Payload de `payment.reference_issued` v1."""
     order_id: str
     provider: str
@@ -165,61 +163,61 @@ class PayloadPaymentReferenceIssued(TypedDict, total=False):
     expira_at: str
 
 
-class PayloadPrivacyErasureApplied(TypedDict, total=False):
+class PayloadPrivacyErasureApplied(TypedDict):
     """Payload de `privacy.erasure_applied` v1."""
     contact_id: str
 
 
-class PayloadPrivacyErasureRequested(TypedDict, total=False):
+class PayloadPrivacyErasureRequested(TypedDict):
     """Payload de `privacy.erasure_requested` v1."""
     contact_id: str
 
 
-class PayloadQueryHandoff(TypedDict, total=False):
+class PayloadQueryHandoff(TypedDict):
     """Payload de `query.handoff` v1."""
     thread_id: str
     turn_id: str
     motivo: str
 
 
-class PayloadQueryResolved(TypedDict, total=False):
+class PayloadQueryResolved(TypedDict):
     """Payload de `query.resolved` v1."""
     thread_id: str
     turn_id: str
 
 
-class PayloadQueryUnresolved(TypedDict, total=False):
+class PayloadQueryUnresolved(TypedDict):
     """Payload de `query.unresolved` v1."""
     thread_id: str
     turn_id: str
 
 
-class PayloadReviewCreated(TypedDict, total=False):
+class PayloadReviewCreated(TypedDict):
     """Payload de `review.created` v1."""
     order_id: str
     review_id: str
     nota: int
 
 
-class PayloadReviewRequested(TypedDict, total=False):
+class PayloadReviewRequested(TypedDict):
     """Payload de `review.requested` v1."""
     order_id: str
 
 
-class PayloadStockAdjusted(TypedDict, total=False):
+class PayloadStockAdjusted(TypedDict):
     """Payload de `stock.adjusted` v1."""
     sku: str
     qty: int
     motivo: str
 
 
-class PayloadStockLow(TypedDict, total=False):
+class PayloadStockLow(TypedDict):
     """Payload de `stock.low` v1."""
     sku: str
     qty: int
 
 
-class PayloadStockReleased(TypedDict, total=False):
+class PayloadStockReleased(TypedDict):
     """Payload de `stock.released` v1."""
     sku: str
     order_id: str
@@ -227,7 +225,7 @@ class PayloadStockReleased(TypedDict, total=False):
     motivo: str
 
 
-class PayloadStockReserved(TypedDict, total=False):
+class PayloadStockReserved(TypedDict):
     """Payload de `stock.reserved` v1."""
     sku: str
     order_id: str
@@ -235,33 +233,33 @@ class PayloadStockReserved(TypedDict, total=False):
     expira_at: str
 
 
-class PayloadTenantActivated(TypedDict, total=False):
+class PayloadTenantActivated(TypedDict):
     """Payload de `tenant.activated` v1."""
     # Sem campos: o envelope ja diz tudo o que este evento diz.
 
 
-class PayloadTenantApproved(TypedDict, total=False):
+class PayloadTenantApproved(TypedDict):
     """Payload de `tenant.approved` v1."""
     vertical: str
     plano: str
 
 
-class PayloadTenantClosed(TypedDict, total=False):
+class PayloadTenantClosed(TypedDict):
     """Payload de `tenant.closed` v1."""
     motivo: str
 
 
-class PayloadTenantProvisioned(TypedDict, total=False):
+class PayloadTenantProvisioned(TypedDict):
     """Payload de `tenant.provisioned` v1."""
     vertical: str
 
 
-class PayloadTenantReactivated(TypedDict, total=False):
+class PayloadTenantReactivated(TypedDict):
     """Payload de `tenant.reactivated` v1."""
     # Sem campos: o envelope ja diz tudo o que este evento diz.
 
 
-class PayloadTenantSuspended(TypedDict, total=False):
+class PayloadTenantSuspended(TypedDict):
     """Payload de `tenant.suspended` v1."""
     motivo: str
 
@@ -459,3 +457,55 @@ CATALOGO: dict[str, dict[str, object]] = {
         "permitidos": ['motivo'],
     },
 }
+
+
+class TipoDesconhecidoError(ValueError):
+    """Um tipo de evento que nao tem contrato."""
+
+
+class VersaoDesconhecidaError(ValueError):
+    """Uma versao que nao e a do contrato publicado."""
+
+
+class PayloadInvalidoError(ValueError):
+    """O payload nao bate com o contrato: falta obrigatorio ou sobra campo."""
+
+
+def tipos_com_contrato() -> list[str]:
+    """Os tipos de evento que tem contrato publicado, por ordem."""
+    return sorted(CATALOGO)
+
+
+def validar_payload(tipo: str, versao: int, payload: dict) -> None:
+    """Recusa o que o contrato nao admite, antes de o evento ser emitido.
+
+    O espelho do `validarPayload` de `@kamba/core-ts`, com o **mesmo limite**:
+    verifica o tipo, a versao, os campos obrigatorios e os campos a mais, e
+    **nao** verifica tipos nem formatos — isso e JSON Schema completo em
+    execucao, que e uma dependencia que o lado Python nao tem no caminho de
+    emissao. Os tipos sao do verificador estatico, pelo `Payload*` gerado
+    acima, que desde o KAM-007 distingue obrigatorio de opcional.
+    """
+    entrada = CATALOGO.get(tipo)
+    if entrada is None:
+        raise TipoDesconhecidoError(
+            f"{tipo} nao tem contrato em contratos/eventos/; "
+            f"os que tem: {', '.join(tipos_com_contrato())}"
+        )
+    if versao != entrada["versao"]:
+        raise VersaoDesconhecidaError(
+            f"{tipo} v{versao}: o contrato publicado e a v{entrada['versao']}"
+        )
+    if not isinstance(payload, dict):
+        raise PayloadInvalidoError(f"{tipo}: o payload tem de ser um objecto")
+    obrigatorios = set(entrada["obrigatorios"])
+    permitidos = set(entrada["permitidos"])
+    em_falta = sorted(obrigatorios - set(payload))
+    se_sobra = sorted(set(payload) - permitidos)
+    if em_falta or se_sobra:
+        partes = []
+        if em_falta:
+            partes.append(f"faltam {em_falta}")
+        if se_sobra:
+            partes.append(f"sobram {se_sobra} (o contrato e fechado)")
+        raise PayloadInvalidoError(f"{tipo} v{versao}: " + "; ".join(partes))

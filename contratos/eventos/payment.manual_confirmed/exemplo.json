@@ -23,7 +23,7 @@
     "valor_minor": 24500000,
     "currency": "AOA",
     "autenticacao": {
-      "authn_method": "hmac",
+      "authn_method": "manual",
       "authn_ok": true
     }
   }

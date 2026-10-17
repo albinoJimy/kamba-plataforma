@@ -75,17 +75,57 @@ describe("o catálogo gerado", () => {
   });
 
   it("nenhum campo tem nome de dado pessoal", () => {
-    // A mesma lista do §7.3 que o `tools/contract_diff/pii.py` usa. Está aqui
-    // outra vez de propósito: são dois caminhos independentes até à mesma
-    // regra, e o dia em que um deles se desligar o outro continua a gritar.
-    const proibidos = ["telefone", "msisdn", "bsuid", "nome", "morada", "texto", "email"];
+    // A mesma regra do `tools/contract_diff/pii.py`, escrita outra vez: são
+    // dois caminhos até à mesma regra do §7.1, e o dia em que um se desligar
+    // o outro continua a gritar.
+    //
+    // **E é a regra, não a lista de sete.** A primeira versão dos dois
+    // comparava os sete nomes do §7.3 por segmento exacto, e deixava passar
+    // o plural de cada um (`nomes`, `emails`) e o inglês todo (`phone`,
+    // `mail`, `full_name`). Isso não é duas barreiras: são duas cópias do
+    // mesmo buraco, e foi a revisão adversarial que o demonstrou (achado C1).
+    const raizes = [
+      "telefone", "msisdn", "bsuid", "nome", "morada", "texto", "email",
+      "phone", "telephone", "mobile", "mail", "address", "name", "firstname",
+      "lastname", "fullname", "surname", "username", "birthdate", "dob",
+      "endereco", "telemovel", "contacto", "mensagem", "conteudo", "observacao",
+      "observacoes", "descricao", "descricoes", "destinatario", "remetente",
+      "titular", "apelido", "nascimento", "bilhete", "msg", "waid",
+    ];
+    // Os nomes de campo com excepção declarada em `ci/contratos-allow.yaml`,
+    // sem o prefixo `payload.`. Lê-se a lista aqui à mão porque este pacote
+    // não tem leitor de YAML — e uma lista de uma entrada que diverge é mais
+    // visível do que uma dependência nova.
+    const aprovados = new Set(["phone_number_id"]);
     for (const tipo of Object.keys(CATALOGO) as TipoDeEvento[]) {
       for (const campo of CATALOGO[tipo].permitidos) {
+        if (aprovados.has(campo)) continue;
         const segmentos = campo.toLowerCase().split(/[^a-z0-9]+/);
-        for (const mau of proibidos) {
-          assert.ok(!segmentos.includes(mau), `${tipo}.${campo} contém «${mau}»`);
+        segmentos.push(segmentos.join(""));
+        for (const raiz of raizes) {
+          assert.ok(
+            !segmentos.includes(raiz) && !segmentos.includes(`${raiz}s`),
+            `${tipo}.${campo} contém «${raiz}»`,
+          );
         }
       }
+    }
+  });
+
+  it("nenhum contrato admite classe_pii P2", () => {
+    // §7.1: «sem PII crua em eventos (P2 proibida)». Os trinta e oito
+    // admitiam-na — o `enum` do envelope era `P0|P1|P2` em todos, e a única
+    // verificação incidia sobre o exemplo (achado M1).
+    for (const tipo of Object.keys(CATALOGO) as TipoDeEvento[]) {
+      const caminho = new URL(`${tipo}/v1.schema.json`, CONTRATOS);
+      const schema = JSON.parse(readFileSync(caminho, "utf8")) as {
+        properties: { classe_pii: { enum: string[] }; agregado: { properties: { tipo: { const?: string } } } };
+      };
+      assert.ok(!schema.properties.classe_pii.enum.includes("P2"), `${tipo} admite P2`);
+      assert.ok(
+        typeof schema.properties.agregado.properties.tipo.const === "string",
+        `${tipo}: o agregado ficou livre`,
+      );
     }
   });
 

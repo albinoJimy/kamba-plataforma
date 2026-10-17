@@ -132,8 +132,8 @@ export interface PayloadPaymentConfirmed {
   readonly valor_minor: number;
   readonly currency: "AOA";
   readonly autenticacao: {
-    readonly authn_method: "hmac" | "manual" | "consulta";
-    readonly authn_ok: boolean;
+    readonly authn_method: "hmac" | "consulta";
+    readonly authn_ok: true;
     readonly provider_event_id?: string;
   };
 }
@@ -160,8 +160,8 @@ export interface PayloadPaymentManualConfirmed {
   readonly valor_minor: number;
   readonly currency: "AOA";
   readonly autenticacao: {
-    readonly authn_method: "hmac" | "manual" | "consulta";
-    readonly authn_ok: boolean;
+    readonly authn_method: "manual";
+    readonly authn_ok: true;
     readonly provider_event_id?: string;
   };
 }

@@ -62,7 +62,8 @@
       ],
       "properties": {
         "tipo": {
-          "type": "string"
+          "type": "string",
+          "const": "product"
         },
         "id": {
           "type": "string"
@@ -96,9 +97,7 @@
     "classe_pii": {
       "type": "string",
       "enum": [
-        "P0",
-        "P1",
-        "P2"
+        "P0"
       ]
     },
     "finalidades": {

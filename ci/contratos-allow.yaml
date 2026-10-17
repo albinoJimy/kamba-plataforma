@@ -2,12 +2,20 @@
 #
 # O `docs/tecnica/06` §7.3 diz que o lint «rejeita nomes de campo
 # telefone|msisdn|bsuid|nome|morada|texto|email **fora de uma lista
-# aprovada**» — e nunca enumera essa lista. Nasce aqui, e nasce **vazia**.
+# aprovada**» — e nunca enumera essa lista. Nasce aqui.
 #
-# Vazia de proposito: hoje nenhum dos trinta e oito contratos precisa de
-# excepcao, e uma lista com entradas «por precaucao» e uma lista que ninguem
-# revê. Se um contrato futuro precisar de um destes nomes, a entrada diz qual
-# o campo, porque e que nao e dado pessoal, e quem decidiu.
+# Nasceu vazia e deixou de o ser no mesmo ticket. A primeira versao do
+# lint comparava os sete nomes do §7.3 por segmento exacto, e assim nenhum dos
+# trinta e oito contratos precisava de excepcao — mas tambem nada precisava,
+# porque `nomes`, `phone` e `mail` passavam todos. A revisao adversarial
+# (achado C1) demonstrou-o, o lint passou a comparar por raiz e a incluir o
+# vocabulario ingles, e a primeira coisa que apanhou foi o `phone_number_id`
+# — que **nao** e dado pessoal. E essa a entrada abaixo, e e esse o sinal de
+# que a lista serve para alguma coisa: um lint que nunca precisa de excepcao
+# e um lint que nunca apanha nada.
+#
+# Cada entrada diz qual o campo, porque e que nao e dado pessoal, e quem
+# decidiu.
 #
 # A forma de uma entrada:
 #
@@ -26,4 +34,16 @@
 
 version: 1
 
-aprovados: []
+aprovados:
+  - campo: payload.phone_number_id
+    ticket: KAM-007
+    razao: >-
+      O identificador que a Meta da ao **numero de WhatsApp do tenant**, nao a
+      um telefone de pessoa. E a chave que o CHR resolve para tenant
+      (`docs/tecnica/00` §4) e e coluna canonica de `tenant_channels`
+      (dicionario §3.1): um valor como `109876543210987`, que nao e marcavel
+      nem contactavel. Os eventos que o levam sao `channel.updated` e
+      `channel.inactivity_warning`, cujo agregado **e** o canal — sem ele o
+      consumidor nao sabe de que numero se fala. O padrao de telefone das
+      fixtures continua a correr sobre estes dois ficheiros.
+    data: 2026-10-17

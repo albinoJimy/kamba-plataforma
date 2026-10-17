@@ -65,11 +65,24 @@ def validar(raiz: Path) -> list[Achado]:
 def coerencia(raiz: Path) -> list[Achado]:
     """O exemplo diz o mesmo que o caminho e o catalogo dizem.
 
-    Validar contra o schema **nao** chega: o `tipo` e a `versao` sao `const` no
-    schema, pelo que um exemplo de `order.paid` guardado na pasta do
-    `order.created` falharia — mas um exemplo cujo `agregado.tipo` nao bata com
-    o do catalogo passa, e um cuja `classe_pii` seja mais permissiva do que a
-    do §5 tambem. Estas sao as duas que o schema sozinho nao apanha.
+    **O que esta funcao verifica e o que o schema, por constucao, nao pode.**
+    A primeira versao deste docstring prometia duas verificacoes que o codigo
+    nao fazia — `agregado.tipo` contra o catalogo e `classe_pii` contra o §5 —
+    e a revisao adversarial apanhou-o (achado M2). As duas foram feitas, mas
+    no sitio certo: **no schema**, com `agregado.tipo` fixo em `const` e
+    `classe_pii` limitada por `enum` a classe que o §5 da ao tipo. Um exemplo
+    que as viole falha agora na validacao, que e mais forte do que falhar
+    aqui, porque passa a valer tambem para o produtor.
+
+    Vale a pena dizer o que isso apanhou no dia em que entrou: **vinte e sete
+    dos trinta e oito exemplos** tinham `agregado.tipo: "order"` — o valor da
+    primeira pasta, copiado — e estavam todos «validos» porque nada os lia.
+
+    Fica aqui o que depende do **caminho do ficheiro**, que nenhum schema ve:
+    o `tipo` da pasta e a `versao` do nome. E fica o P2, que o `enum` ja
+    recusa, como segunda barreira com mensagem propria: a regra do §7.1 e a
+    unica deste modulo cuja violacao e um incidente de privacidade, e uma
+    mensagem de `jsonschema` sobre um `enum` nao a explica a ninguem.
     """
     achados: list[Achado] = []
     for contrato in catalogo.todos(raiz):

@@ -182,9 +182,15 @@ def python(contratos: list[catalogo.Contrato]) -> str:
         "ficheiro estiver desactualizado.",
         '"""',
         "",
-        "from __future__ import annotations",
-        "",
-        "from typing import TypedDict",
+        # Sem `from __future__ import annotations`: com ele as anotacoes ficam
+        # texto e o `TypedDict` deixa de reconhecer o `NotRequired` **em
+        # execucao** — o `__required_keys__` passa a dizer que todos os campos
+        # sao obrigatorios, que e o contrario do que o ficheiro declara. O
+        # mypy le-o bem nos dois casos; o que se perde e a verdade em runtime,
+        # e e dela que um teste se serve. Nada aqui precisa do adiamento:
+        # `str`, `int`, `bool`, `list[object]` e `X | None` existem todos no
+        # 3.12, que e o piso do `libs/py-core`.
+        "from typing import NotRequired, TypedDict",
         "",
         "",
     ]
@@ -192,13 +198,22 @@ def python(contratos: list[catalogo.Contrato]) -> str:
         nome = _nome_do_tipo(contrato.tipo)
         obrigatorios = set(contrato.payload.get("required") or [])
         propriedades = contrato.payload.get("properties") or {}
-        partes.append(f'class Payload{nome}(TypedDict, total=False):')
+        # `total=True`, com `NotRequired` nos opcionais. A primeira versao
+        # escrevia `total=False` em todos, e isso fazia do lado Python uma
+        # declaracao sem forca nenhuma: um `PayloadOrderCreated()` vazio
+        # passava o `mypy`, enquanto o lado TypeScript distinguia `x: T` de
+        # `x?: T`. Achado M5 da revisao adversarial, e nao e hipotetico — o
+        # AGR, que e Python, e produtor de `review.created` e dos tres
+        # `query.*`, todos de Fase P.
+        partes.append(f"class Payload{nome}(TypedDict):")
         partes.append(f'    """Payload de `{contrato.tipo}` v{contrato.versao}."""')
         if not propriedades:
             partes.append("    # Sem campos: o envelope ja diz tudo o que este evento diz.")
         for campo, corpo in propriedades.items():
-            marca = "" if campo in obrigatorios else "  # opcional"
-            partes.append(f"    {campo}: {_py(corpo)}{marca}")
+            anotacao = _py(corpo)
+            if campo not in obrigatorios:
+                anotacao = f"NotRequired[{anotacao}]"
+            partes.append(f"    {campo}: {anotacao}")
         partes.append("")
         partes.append("")
 
@@ -214,7 +229,70 @@ def python(contratos: list[catalogo.Contrato]) -> str:
         partes.append("    },")
     partes.append("}")
     partes.append("")
+    partes.append("")
+    partes.extend(_VALIDADOR_PY.splitlines())
+    partes.append("")
     return "\n".join(partes)
+
+
+#: O espelho Python do `validarPayload` de `@kamba/core-ts`.
+#:
+#: Escrito aqui, no gerador, e nao a mao no `libs/py-core`: a forma do
+#: `CATALOGO` e desta funcao sao a mesma coisa, e duas copias que se podem
+#: desalinhar sao o defeito que este gerador existe para nao ter. O lado
+#: TypeScript tem a mesma funcao a mao porque la o catalogo e importado, nao
+#: embebido.
+_VALIDADOR_PY = '''class TipoDesconhecidoError(ValueError):
+    """Um tipo de evento que nao tem contrato."""
+
+
+class VersaoDesconhecidaError(ValueError):
+    """Uma versao que nao e a do contrato publicado."""
+
+
+class PayloadInvalidoError(ValueError):
+    """O payload nao bate com o contrato: falta obrigatorio ou sobra campo."""
+
+
+def tipos_com_contrato() -> list[str]:
+    """Os tipos de evento que tem contrato publicado, por ordem."""
+    return sorted(CATALOGO)
+
+
+def validar_payload(tipo: str, versao: int, payload: dict) -> None:
+    """Recusa o que o contrato nao admite, antes de o evento ser emitido.
+
+    O espelho do `validarPayload` de `@kamba/core-ts`, com o **mesmo limite**:
+    verifica o tipo, a versao, os campos obrigatorios e os campos a mais, e
+    **nao** verifica tipos nem formatos — isso e JSON Schema completo em
+    execucao, que e uma dependencia que o lado Python nao tem no caminho de
+    emissao. Os tipos sao do verificador estatico, pelo `Payload*` gerado
+    acima, que desde o KAM-007 distingue obrigatorio de opcional.
+    """
+    entrada = CATALOGO.get(tipo)
+    if entrada is None:
+        raise TipoDesconhecidoError(
+            f"{tipo} nao tem contrato em contratos/eventos/; "
+            f"os que tem: {', '.join(tipos_com_contrato())}"
+        )
+    if versao != entrada["versao"]:
+        raise VersaoDesconhecidaError(
+            f"{tipo} v{versao}: o contrato publicado e a v{entrada['versao']}"
+        )
+    if not isinstance(payload, dict):
+        raise PayloadInvalidoError(f"{tipo}: o payload tem de ser um objecto")
+    obrigatorios = set(entrada["obrigatorios"])
+    permitidos = set(entrada["permitidos"])
+    em_falta = sorted(obrigatorios - set(payload))
+    se_sobra = sorted(set(payload) - permitidos)
+    if em_falta or se_sobra:
+        partes = []
+        if em_falta:
+            partes.append(f"faltam {em_falta}")
+        if se_sobra:
+            partes.append(f"sobram {se_sobra} (o contrato e fechado)")
+        raise PayloadInvalidoError(f"{tipo} v{versao}: " + "; ".join(partes))
+'''
 
 
 def gerar(raiz: Path) -> dict[Path, str]:

@@ -71,7 +71,9 @@ def correr_diff(raiz: Path, ref: str, sem_base: bool) -> tuple[int, list[str]]:
 
     for chave in sorted(set(actuais) & set(anteriores)):
         tipo, versao = chave
-        diferencas = diff.comparar(anteriores[chave].documento, actuais[chave].documento)
+        diferencas = diff.comparar_fechado(
+            anteriores[chave].documento, actuais[chave].documento
+        )
         for d in diferencas:
             if d.quebra:
                 quebras += 1

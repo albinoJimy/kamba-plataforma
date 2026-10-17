@@ -174,5 +174,114 @@ class TestSobreFicheiros(unittest.TestCase):
         self.assertEqual(pii.nomes(raiz), [])
 
 
+class TestOBuracoDoSegmentoExacto(unittest.TestCase):
+    """O achado C1: a primeira versao do lint quase nao apanhava nada.
+
+    A comparacao era por segmento **exacto** contra os sete nomes do §7.3, e
+    bastava um «s» para passar: `nomes`, `telefones`, `emails` e `moradas`
+    atravessavam o lint inteiro. O ingles atravessava-o todo — `phone`,
+    `mail`, `address`, `full_name` — e as abreviaturas tambem. A revisao
+    adversarial demonstrou-o com vinte e tal nomes; ficam aqui, porque a
+    unica forma de uma correccao destas nao se desfazer e a lista dos casos
+    que a motivaram estar escrita.
+    """
+
+    #: Exactamente os nomes que a revisao demonstrou a passar.
+    PASSAVAM = (
+        "nomes", "telefones", "emails", "moradas", "textos", "msisdns", "bsuids",
+        "phone", "telephone", "mail", "e_mail", "address", "endereco",
+        "mensagem", "msg", "conteudo", "observacoes", "wa_id",
+        "destinatario", "remetente", "titular",
+        "full_name", "fullname", "first_name", "customer_name",
+    )
+
+    def test_nenhum_deles_passa_hoje(self) -> None:
+        for nome in self.PASSAVAM:
+            with self.subTest(nome=nome):
+                self.assertIsNotNone(pii.proibido_em(nome), f"{nome} continua a passar")
+
+    def test_o_plural_de_cada_um_dos_sete_e_apanhado(self) -> None:
+        for mau in pii.PROIBIDOS:
+            with self.subTest(nome=mau):
+                self.assertIsNotNone(pii.proibido_em(mau + "s"))
+                self.assertIsNotNone(pii.proibido_em("do_" + mau + "s"))
+
+    def test_as_duas_convencoes_de_escrita_dao_o_mesmo(self) -> None:
+        """`full_name` e `fullName` sao o mesmo campo em sitios diferentes."""
+        for nome in ("full_name", "fullName", "FullName", "full-name"):
+            with self.subTest(nome=nome):
+                self.assertIsNotNone(pii.proibido_em(nome))
+
+    def test_e_os_que_tem_de_passar_continuam_a_passar(self) -> None:
+        """A correccao nao vale nada se fizer o lint gritar sobre tudo.
+
+        Estes sao campos reais dos trinta e oito contratos: um falso positivo
+        aqui e uma excepcao a declarar em `ci/contratos-allow.yaml`, e uma
+        lista de excepcoes longa e uma lista que ninguem le.
+        """
+        reais = (
+            "numero_publico", "contact_id", "nota", "motivo", "entrega_modo",
+            "paga_via", "order_id", "sku", "qty", "linhas", "currency",
+            "expira_at", "autenticacao", "authn_ok", "provider_event_id",
+            "plano", "review_id", "merged_into", "channel_mode", "thread_id",
+            "turn_id", "booking_id", "service_id", "resource_id", "inicio_at",
+            "finalidade", "origem", "estado", "preco_tipo", "preco_minor",
+            "total_minor", "valor_minor", "referencia", "provider", "vertical",
+        )
+        for nome in reais:
+            with self.subTest(nome=nome):
+                self.assertIsNone(pii.proibido_em(nome), f"{nome} passou a ser falso positivo")
+
+    def test_uma_palavra_que_so_comeca_pela_raiz_nao_conta(self) -> None:
+        """Nao se usa `startswith`: `nomeacao` nao e um nome de pessoa."""
+        for nome in ("nomeacao", "nomeado_por", "textura", "emailing_id"):
+            with self.subTest(nome=nome):
+                self.assertIsNone(pii.proibido_em(nome))
+
+
+class TestOPercursoEhTotal(unittest.TestCase):
+    """O achado m4: o lint calava-se perante metade do JSON Schema.
+
+    Visitava `properties`, `required`, `dependentRequired`, `propertyNames` e
+    `items`, e mais nada: `$defs`, `oneOf`, `allOf`, `anyOf`,
+    `patternProperties` e `additionalProperties`-como-schema passavam sem
+    aviso. Nenhum contrato os usa hoje — e era precisamente por isso que
+    ninguem ia reparar no dia em que um usasse. O contraste era com o
+    `diff.py`, que trata o desconhecido como quebrante, e com o proprio gate
+    3b, que **segue** `$ref` internos.
+    """
+
+    def nomes(self, documento: dict) -> set:
+        return {nome for _caminho, nome in pii._nomes_de_campo(documento)}
+
+    def test_dentro_de_defs(self) -> None:
+        self.assertIn("telefone", self.nomes(
+            {"$defs": {"corpo": {"properties": {"telefone": {"type": "string"}}}}}
+        ))
+
+    def test_dentro_de_one_of_all_of_any_of(self) -> None:
+        for palavra in ("oneOf", "allOf", "anyOf"):
+            with self.subTest(palavra=palavra):
+                self.assertIn("morada", self.nomes(
+                    {palavra: [{"properties": {"morada": {"type": "string"}}}]}
+                ))
+
+    def test_dentro_de_pattern_properties_e_de_additional_properties(self) -> None:
+        self.assertIn("email", self.nomes(
+            {"patternProperties": {"^x_": {"properties": {"email": {}}}}}
+        ))
+        self.assertIn("email", self.nomes(
+            {"additionalProperties": {"properties": {"email": {}}}}
+        ))
+
+    def test_dentro_de_prefix_items(self) -> None:
+        self.assertIn("nome", self.nomes({"prefixItems": [{"properties": {"nome": {}}}]}))
+
+    def test_uma_palavra_chave_que_ainda_nao_existe(self) -> None:
+        """A razao de o percurso ser total e nao uma lista: o JSON Schema cresce."""
+        self.assertIn("bsuid", self.nomes(
+            {"palavraQueAindaNaoFoiInventada": {"properties": {"bsuid": {}}}}
+        ))
+
 if __name__ == "__main__":
     unittest.main()
