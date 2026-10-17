@@ -213,15 +213,21 @@ admite nomes com a gramática `familia.verbo` e tem tecto (`MAXIMO_DE_TIPOS = 64
 — uma métrica que cresce sem fim deixa de ser observabilidade. É um *gauge* da
 realidade e não um contador de chamadas, pelo que quem o publica é o processo,
 pela ligação de operação, com `publicarAbertas()` — e não quem acabou de falhar
-um evento. Quem consome tem `INSERT` na DLQ e o `SELECT` de **uma** coluna, e isso é
-deliberado nas duas pontas. Não lê a tabela — o `id` é sequencial, e um papel
-sujeito a RLS que o lesse media o volume de falhas do vizinho —, e não tem
-`UPDATE` nem `DELETE`, pelo que não pode resolver uma entrada sozinho: a regra
-dos dois aprovadores vale também contra código. A coluna que lê é o `estado`, e
-não é uma escolha: o `ON CONFLICT … WHERE estado = 'aberta'` precisa do
-predicado para o PostgreSQL inferir o índice parcial, e esse predicado é uma
-expressão sobre a tabela — as suas colunas contam como leitura. Sem o `GRANT`,
-o próprio `INSERT` falha.
+um evento. Quem consome tem `INSERT` na DLQ e o `SELECT` de **três colunas**, e não tem
+`UPDATE` nem `DELETE` — pelo que não pode resolver uma entrada sozinho: a regra
+dos dois aprovadores vale também contra código, e não só contra pessoas.
+
+As três colunas não são uma escolha: o `ON CONFLICT (consumer, event_id) WHERE
+estado = 'aberta'` precisa dos dois elementos **e** do predicado para o
+PostgreSQL achar o índice parcial, e as três contam como leitura. **Medido**
+contra o PG 18.6: com `INSERT` sozinho, e com `INSERT` mais `SELECT (estado)`,
+o `INSERT` dá `permission denied for table events_dlq`; com as três, corre.
+
+O que fica fechado é o **`id`**, e é essa a propriedade que importa. A RLS já
+limita este papel às linhas do seu tenant, pelo que o que ele lê é dele; o que
+uma sequência revelaria, pelos saltos, é o volume de falhas do **vizinho** (a
+regra do dicionário §2). `SELECT *`, `SELECT id`, `SELECT envelope` e
+`SELECT erro` continuam todos recusados, e há teste para cada um.
 
 **A regra de alerta não existe.** A severidade está classificada e a métrica
 exposta; o Prometheus e as regras são o KAM-080. Ver §7.

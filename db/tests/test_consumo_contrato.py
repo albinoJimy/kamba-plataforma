@@ -161,7 +161,10 @@ class TestReentradaNaDlq(unittest.TestCase):
             {"INSERT", "SELECT"},
             "o conjunto de privilegios de kamba_app na DLQ mudou: ver o comentario",
         )
-        self.assertIn("GRANT SELECT (estado) ON platform.events_dlq", self.revisao)
+        self.assertIn(
+            "GRANT SELECT (consumer, event_id, estado) ON platform.events_dlq",
+            self.revisao,
+        )
         for proibido in ("UPDATE", "DELETE", "TRUNCATE"):
             self.assertNotIn(proibido, concedidos)
 

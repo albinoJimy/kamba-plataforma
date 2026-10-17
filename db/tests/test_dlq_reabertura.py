@@ -170,21 +170,42 @@ class TestReentrada(ComEntradaNaDlq):
 class TestQuemEscreveNaoLeNemFecha(ComEntradaNaDlq):
     """Os privilegios que fazem a regra dos dois aprovadores valer contra codigo."""
 
-    def test_le_o_estado_e_so_o_estado(self) -> None:
-        """A coluna que o predicado do `ON CONFLICT` obriga a avaliar.
+    def test_le_as_tres_colunas_da_clausula_de_conflito(self) -> None:
+        """As que o `ON CONFLICT` obriga a avaliar, e nenhuma alem delas.
 
-        Sem este `SELECT` por coluna, o proprio `INSERT` falha com `permission
-        denied for table events_dlq`: a cláusula de inferencia e uma expressao
-        sobre a tabela, e as suas colunas contam como leitura. Medido no gate 8.
+        Sem este `SELECT` por coluna o proprio `INSERT` nao corre: os elementos
+        de inferencia (`consumer`, `event_id`) e o predicado (`estado`) sao
+        expressoes sobre a tabela, e as tres contam como leitura. Medido contra
+        o PG 18.6 — com `SELECT (estado)` sozinho, ainda da `permission denied
+        for table events_dlq`.
         """
         self.escrever("falhou")
         self.cursor.execute("SET LOCAL ROLE kamba_app")
         try:
             self.cursor.execute(
-                "SELECT estado FROM platform.events_dlq WHERE consumer = %s",
+                "SELECT consumer, event_id::text, estado FROM platform.events_dlq "
+                " WHERE consumer = %s",
                 (CONSUMER,),
             )
-            self.assertEqual([tuple(l) for l in self.cursor.fetchall()], [("aberta",)])
+            self.assertEqual(
+                [tuple(l) for l in self.cursor.fetchall()],
+                [(CONSUMER, self.event_id, "aberta")],
+            )
+        finally:
+            self.cursor.execute("RESET ROLE")
+
+    def test_nao_le_o_envelope_nem_o_erro(self) -> None:
+        """O que se abriu foi o minimo da clausula, e nao a tabela."""
+        self.escrever("falhou")
+        self.cursor.execute("SET LOCAL ROLE kamba_app")
+        try:
+            for coluna in ("envelope", "erro", "tentativas", "resolvido_por"):
+                with self.subTest(coluna=coluna):
+                    self.assertErroSql(
+                        PRIVILEGIO_INSUFICIENTE,
+                        self.cursor,
+                        f"SELECT {coluna} FROM platform.events_dlq",
+                    )
         finally:
             self.cursor.execute("RESET ROLE")
 

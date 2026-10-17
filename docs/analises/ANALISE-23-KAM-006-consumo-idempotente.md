@@ -127,11 +127,23 @@ fechar uma entrada sozinho, desfazendo do lado do código a regra dos dois
 aprovadores. Prova: `db/tests/test_dlq_reabertura.py`, oito testes, com os
 papéis reais.
 
-O índice parcial trouxe uma consequência que só o gate 8 mostrou: a cláusula de
-inferência do `ON CONFLICT` é uma **expressão sobre a tabela**, e as suas
-colunas contam como leitura — sem `SELECT (estado)`, o próprio `INSERT` falha
-com `permission denied for table events_dlq`. Concedeu-se essa coluna, e só
-essa; o `id` continua fechado e não há `UPDATE` nem `DELETE`.
+O índice parcial trouxe uma consequência que só o gate 8 mostrou, e que custou
+**duas** voltas de CI porque a primeira explicação estava errada: a cláusula de
+inferência do `ON CONFLICT` — os dois elementos **e** o predicado — são
+expressões sobre a tabela, e as três colunas contam como leitura. A primeira
+hipótese foi «é só a coluna do predicado», e não chegava. A segunda mediu-se,
+contra um PG 18.6 descartável e antes de gastar outra volta:
+
+| Privilégios de `kamba_app` | O `INSERT … ON CONFLICT` |
+|---|---|
+| `INSERT` | `permission denied for table` |
+| `INSERT`, `SELECT (estado)` | `permission denied for table` |
+| `INSERT`, `SELECT (consumer, event_id, estado)` | `INSERT 0 1` |
+| … e `SELECT id` com as três | `permission denied for table` |
+
+Concederam-se as três, e o `id` continua fechado — que é a propriedade que
+importa: a RLS já limita o papel às linhas do seu tenant, e o que uma sequência
+revelaria é o volume do vizinho. Não há `UPDATE` nem `DELETE`.
 
 ### M3 — o `trabalhador_bullmq.ts` não tinha teste nenhum — **corrigido**
 

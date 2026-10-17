@@ -192,13 +192,15 @@ COLUNAS_POR_PAPEL = {
     # E a operacao fecha a entrada da DLQ, tambem so o desfecho: o envelope e o
     # erro sao o registo do que aconteceu, e nao se reescrevem.
     ("kamba_batch", "events_dlq", "UPDATE"): {"estado", "resolvido_at", "resolvido_por"},
-    # KAM-006: **uma** coluna, e nao por gosto. O `ON CONFLICT (consumer,
-    # event_id) WHERE estado = 'aberta'` do `paraDlq()` precisa do predicado
-    # para o PostgreSQL inferir o indice parcial, e esse predicado e uma
-    # expressao sobre a tabela — as suas colunas entram na verificacao de
-    # privilegios como leitura. Sem isto o `INSERT` falha com `permission
-    # denied for table events_dlq` (medido no gate 8). O `id` continua fechado.
-    ("kamba_app", "events_dlq", "SELECT"): {"estado"},
+    # KAM-006: tres colunas, e nenhuma por gosto. O `ON CONFLICT (consumer,
+    # event_id) WHERE estado = 'aberta'` do `paraDlq()` precisa dos dois
+    # elementos de inferencia **e** do predicado para o PostgreSQL achar o
+    # indice parcial, e as tres entram na verificacao de privilegios como
+    # leitura — medido contra o PG 18.6, com `SELECT (estado)` sozinho a nao
+    # chegar. O `id` continua fechado, que e a propriedade que importa: a RLS
+    # ja limita este papel as linhas do seu tenant, e o que uma sequencia
+    # revelaria e o volume do vizinho.
+    ("kamba_app", "events_dlq", "SELECT"): {"consumer", "event_id", "estado"},
 }
 PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
 

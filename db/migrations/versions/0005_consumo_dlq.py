@@ -426,26 +426,38 @@ def upgrade() -> None:
     # uma linha de deduplicacao e permitir que o efeito se repita, e isso e da
     # retencao, que corre como `kamba_batch`.
     op.execute("GRANT SELECT, INSERT ON platform.events_consumed TO kamba_app")
-    # `INSERT`, e `SELECT` de **uma coluna**. Nada de `UPDATE` nem `DELETE`:
+    # `INSERT`, e `SELECT` de **tres colunas**. Nada de `UPDATE` nem `DELETE`:
     # quem consome abre a entrada e nunca a fecha nem a apaga, e e isso que faz
     # a regra dos dois aprovadores valer tambem contra codigo — nao so contra
     # pessoas.
     #
-    # Porque e que ha um `SELECT`, e porque e que e so o `estado`: o
-    # `ON CONFLICT (consumer, event_id) WHERE estado = 'aberta'` precisa do
-    # predicado para o PostgreSQL inferir o indice **parcial**
-    # (`events_dlq_aberta_uq`), e esse predicado e uma expressao sobre a tabela:
-    # as suas colunas entram na verificacao de privilegios como leitura. Sem
-    # este `GRANT`, o `INSERT` falha com `permission denied for table
-    # events_dlq` — medido no gate 8, e nao deduzido.
+    # Porque e que ha um `SELECT`, e porque e que sao estas tres: o
+    # `ON CONFLICT (consumer, event_id) WHERE estado = 'aberta'` precisa dos
+    # dois elementos **e** do predicado para o PostgreSQL inferir o indice
+    # parcial (`events_dlq_aberta_uq`), e as tres colunas entram na verificacao
+    # de privilegios como **leitura**. Sem elas o `INSERT` nem corre.
     #
-    # O `id` continua fechado, que e a propriedade que importa: e sequencial, e
-    # um papel sujeito a RLS que o lesse media pela sequencia quantas falhas o
-    # vizinho teve (a regra do dicionario §2). `SELECT *` e `SELECT id`
-    # continuam a ser recusados; o que se abre e a coluna que o proprio
-    # `INSERT` ja tem de avaliar.
+    # **Medido, e nao deduzido** (PostgreSQL 18.6, `pgvector/pgvector:0.8.7-pg18`):
+    #
+    #     so INSERT                                 permission denied for table
+    #     INSERT + SELECT (estado)                  permission denied for table
+    #     INSERT + SELECT (consumer, event_id,
+    #                      estado)                  INSERT 0 1
+    #     ... e `SELECT id` com as tres             permission denied for table
+    #
+    # A primeira hipotese — «e so a coluna do predicado» — custou uma volta de
+    # CI e estava errada: os elementos de inferencia contam tambem.
+    #
+    # O `id` continua fechado, e e essa a propriedade que importa. A RLS ja so
+    # deixa este papel ver as linhas do seu tenant, pelo que o `consumer`, o
+    # `event_id` e o `estado` que ele le sao **dele**; o que uma sequencia
+    # revelaria e o volume de falhas do **vizinho**, pelos saltos (a regra do
+    # dicionario §2). Por isso o comentario de antes — «escreve e nunca le» —
+    # estava a dizer mais do que o desenho precisa: o que nao pode ler e o `id`.
     op.execute("GRANT INSERT ON platform.events_dlq TO kamba_app")
-    op.execute("GRANT SELECT (estado) ON platform.events_dlq TO kamba_app")
+    op.execute(
+        "GRANT SELECT (consumer, event_id, estado) ON platform.events_dlq TO kamba_app"
+    )
     op.execute("GRANT SELECT, INSERT ON platform.evt_acoes TO kamba_app")
     # Do `evt_acoes` muda-se o desfecho de uma accao que ele proprio registou.
     op.execute(
