@@ -12,6 +12,18 @@
 
 import { createRequire } from "node:module";
 
+/**
+ * Os contratos de evento, gerados a partir de `contratos/eventos/`.
+ *
+ * Reexportados daqui e **nao** escritos aqui: o ficheiro
+ * `eventos.gerado.ts` sai do `python -m contract_diff gerar`, e o gate 7
+ * falha se estiver desactualizado. Um tipo de evento escrito a mao e um
+ * schema divergem, e a divergencia so aparece em producao — que e a mesma
+ * razao pela qual este modulo nunca escreveu o `HealthzResponseV1` duas
+ * vezes.
+ */
+export * from "./eventos.gerado.ts";
+
 const require = createRequire(import.meta.url);
 
 /** Serviços do Piloto, conforme `docs/tecnica/09` §3.1. */

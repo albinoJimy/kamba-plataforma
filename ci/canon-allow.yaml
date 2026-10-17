@@ -89,6 +89,38 @@ historicas:
 
 dividas:
   - ficheiro: docs/tecnica/02_Agent_Runtime_Verticais.md
+    variante: expires_at
+    ocorrencias: 1
+    origem: KAM-007
+    criado_em: 2026-10-17
+    expira_em: 2026-11-16
+    razao: "O dicionario §3.3 (emenda 1.12) fixa `expira_at` para o prazo de uma reserva ou de uma referencia. Esta ocorrencia nao estava a ser contada porque a variante nao estava registada: a emenda 1.11 resolveu a divergencia a favor de `expira_at` e nao registou `expires_at`, o que tornava a contradicao invisivel aos dois lados. Apanhado pela revisao adversarial do KAM-007 (achado M3). Emenda proposta: trocar a ocorrencia."
+
+  - ficheiro: docs/tecnica/03_Core_Comercio_Medusa.md
+    variante: expires_at
+    ocorrencias: 8
+    origem: KAM-007
+    criado_em: 2026-10-17
+    expira_em: 2026-11-16
+    razao: "DDL de `platform.stock_reservations` e prosa das transicoes. O dicionario §3.3 (emenda 1.12) fixa `expira_at`. Consequencia concreta de a variante nao estar registada: a migracao que criasse esta tabela falhava o gate 3b por um nome que este documento manda usar, sem variante que o explicasse. Emenda proposta: trocar as oito ocorrencias."
+
+  - ficheiro: docs/tecnica/03_Core_Comercio_Medusa.md
+    variante: preco_modo
+    ocorrencias: 8
+    origem: KAM-007
+    criado_em: 2026-10-17
+    expira_em: 2026-11-16
+    razao: "DDL de `catalog_items` e tabela de eventos. O dicionario §3.3 fixa `preco_tipo` desde a emissao, e a emenda 1.12 poe `preco_modo` na coluna «Substitui», onde devia ter estado. Emenda proposta: trocar as oito ocorrencias."
+
+  - ficheiro: docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md
+    variante: expires_at
+    ocorrencias: 1
+    origem: KAM-007
+    criado_em: 2026-10-17
+    expira_em: 2026-11-16
+    razao: "§5, prazo da referencia de pagamento. O dicionario §3.3 (emenda 1.12) fixa `expira_at`. Emenda proposta: trocar a ocorrencia."
+
+  - ficheiro: docs/tecnica/02_Agent_Runtime_Verticais.md
     variante: valor_max_pedido_kz
     ocorrencias: 3
     origem: KAM-111

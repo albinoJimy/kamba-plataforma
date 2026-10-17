@@ -1,11 +1,14 @@
 {
+  "_comment": "KAM-007 acrescentou `allowImportingTsExtensions` + `rewriteRelativeImportExtensions`, pela mesma razao e com a mesma justificacao que o `packages/core-ts` (ver o comentario de la): o `index.ts` passou a reexportar o `eventos.gerado.ts`, e este e o primeiro import relativo deste pacote. Os testes correm no `node --test` sobre a fonte, onde o Node exige a extensao `.ts` literal; a emissao precisa de `.js` no `dist/`. O par resolve a contradicao desde o TypeScript 5.7. A opcao sozinha e incompativel com emissao, e e isso que a nota de `docs/adr/ADR-L001-toolchain.md` §9 diz.",
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist",
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true
   },
   "include": ["src/**/*.ts"]
 }

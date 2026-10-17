@@ -6,7 +6,7 @@
 | Fonte normativa | [`specs/01_Engineering_Standards_e_Handoff.md`](../specs/01_Engineering_Standards_e_Handoff.md) §4 (os 18 gates) e §4.1 (limiares) |
 | Desenho | [`docs/tecnica/09_Topologia_Operacao_Escala.md`](tecnica/09_Topologia_Operacao_Escala.md) §7, [`docs/tecnica/08_Seguranca_Conformidade.md`](tecnica/08_Seguranca_Conformidade.md) §4.8 |
 | Plataforma | GitHub Actions ([`.github/workflows/ci.yaml`](../.github/workflows/ci.yaml)) |
-| Estado | Gates 1, 2, 3, 3b, 4, 6, 8, 9 e 11 **activos**; 5 e 7 reservados e a falhar; 10 e 12–18 fora de âmbito |
+| Estado | Gates 1, 2, 3, 3b, 4, 6, 7, 8, 9 e 11 **activos**; 5 reservado e a falhar; 10 e 12–18 fora de âmbito |
 
 > **Nada está ratificado.** Os limiares, os donos e a plataforma de CI são
 > *proposta* até o fundador os aprovar. Onde este documento diz «proposta», é
@@ -50,7 +50,7 @@ Cada gate é um alvo `make ci-<n>`. O *workflow* só os orquestra. Três razões
 | 4 | Unit e cobertura | `make ci-4` | Plataforma | **proposta** |
 | 5 | Integração | `make ci-5` *(reservado)* | — | **lacuna**: nenhum ticket o reclama |
 | 6 | Isolamento de tenant (camada SQL: RLS, X-03, X-04, X-05) e *logs* sem identificadores (X-11) | `make ci-6` | Segurança | `docs/tecnica/09` §7 (activo desde o KAM-004; o X-11 entrou com o KAM-068; a suite ponta a ponta é KAM-066) |
-| 7 | Contratos | `make ci-7` *(reservado)* | Plataforma | KAM-007, KAM-024 |
+| 7 | Contratos | `make ci-7` | Plataforma | KAM-007 (eventos); KAM-024 (webhooks da Meta, por fazer) |
 | 8 | Migrações: aplicar, reverter, voltar a aplicar | `make ci-8` | Plataforma | `docs/tecnica/09` §7 (activo desde o KAM-003) |
 | 9 | Segredos (árvore **e** história do PR) | `make ci-9` | Segurança | **proposta** |
 | 10 | SAST | — | — | **lacuna**: sem ticket |
@@ -1028,7 +1028,7 @@ um teste que confere que as duas vias dizem o mesmo.
 
 ---
 
-## 4. Gates reservados (5 e 7)
+## 4. Gates reservados (5)
 
 Existem no §4 e são implementados pelos tickets que criam o que eles testam.
 Ficam a **falhar**, de propósito.
@@ -1040,6 +1040,20 @@ vermelho com o ticket no nome é um lembrete que não se perde.
 No *workflow* estão com `continue-on-error: true` e **fora dos *required
 checks***: aparecem vermelhos em cada PR e não bloqueiam o *merge* hoje. A
 válvula formal é um *waiver* com prazo de 30 dias.
+
+**Sobra um.** O 7 saiu desta lista com o KAM-007, e sair custou três
+alterações e não uma — é o detalhe em que um gate «ligado» fica ligado a
+fingir:
+
+1. o alvo `ci-7` passou a correr o `contract_diff` em vez do
+   `ci_gate_reservado.py`, e entrou no alvo `ci:`;
+2. ganhou **job próprio** no *workflow*, sem `continue-on-error` e com
+   `fetch-depth: 0` — a comparação com o ramo principal precisa de histórico;
+3. entrou no `needs:` do agregador «gates do KAM-002». Sem este terceiro passo,
+   o *job* ficava verde e **ninguém o exigia**.
+
+A parte dos **webhooks** do gate 7 continua por fazer: é o KAM-024, e o alvo
+`ci-7` diz onde se acrescenta.
 
 ---
 
@@ -1427,3 +1441,4 @@ sobrevivem ao PR.
 | 1.23 | Outubro 2026 | KAM-005: as *suites* de eventos correm pela primeira vez num anfitrião Linux ([execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356)) e fecham três caixas do bloco — a da fila parada, que no anfitrião Windows não reproduzia, e a do p95, que lá media 6,0 s e aqui mede **0,195 s**. | Equipa KAMBÁ |
 | 1.24 | Outubro 2026 | KAM-155: o segundo passo do *gate* 3 passa a ler **dois** globos — `specs/EPIC-*.md` e `specs/tickets/*.md` —, porque o EPIC-01 passou a ter um ficheiro por ticket. Com um só, o *gate* ficava verde e deixava 39 blocos sem ser lidos. | Equipa KAMBÁ |
 | 1.25 | Outubro 2026 | KAM-158: o *gate* 3 ganha um **terceiro** passo, `lint_contagens`, que confronta cada contagem escrita em prosa com a fonte que a conta. Fecha por máquina a classe «contagem que não acompanha», que já custou quatro correcções à mão. A dívida 30 fica paga; seis ficam declaradas com dono (KAM-130) e prazo. | Equipa KAMBÁ |
+| 1.26 | Outubro 2026 | **Gate 7 activo** (KAM-007): contratos de evento — compatibilidade contra o ramo principal, *lint* de PII, exemplos validados e `versao_max` das subscrições. Sai da matriz dos reservados, ganha *job* próprio com `fetch-depth: 0` e entra no `needs:` do agregador; `make ci` corre dez. Reservado passa a ser só o 5. A parte dos *webhooks* do gate 7 continua por fazer (KAM-024). | Equipa KAMBÁ |

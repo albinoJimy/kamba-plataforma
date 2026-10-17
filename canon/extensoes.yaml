@@ -28,12 +28,14 @@
 # `db/tests/test_inventario.py`.
 #
 # As do KAM-008 sao o que a revisao `0003` (identidade de contacto) usa e o
-# §3.1 nao enumera: tres colunas de `contact_endpoints` — o dicionario escreve a
-# tabela com reticencias — e os valores dos tres dominios fechados. Os valores
+# §3.1 nao enumera: duas colunas de `contact_endpoints` — o dicionario escreve a
+# tabela com reticencias — e os valores dos tres dominios fechados. Eram tres:
+# o `expira_at` saiu com a emenda 1.11 (KAM-007), que o pos no dicionario como
+# campo de payload, e uma extensao de um nome que o dicionario tem e redundante. Os valores
 # ficam aqui, **qualificados**, e nao no dicionario: um `telefone` ou um `bsuid`
 # na coluna do nome canonico passava a ser aceite em qualquer posicao, incluindo
-# como nome de coluna. `finalidade`, `recolhido_at` e `expira_at` vem de
-# `docs/tecnica/03` §5.3, e os valores de `finalidade` sao os de la (*proposta*:
+# como nome de coluna. `finalidade` e `recolhido_at` vem de `docs/tecnica/03`
+# §5.3, e os valores de `finalidade` sao os de la (*proposta*:
 # os prazos e as finalidades estao por confirmar por parecer). As tabelas
 # `contact_deks` e `hmac_key_versions`, as colunas `hmac_kid`, `erased_at`,
 # `merged_into` e `merged_at` (linha «Estado de um contacto») e o papel
@@ -130,10 +132,6 @@ extensoes:
   # continuam abaixo, qualificados: um `entrega` na coluna do nome canonico
   # passava a ser aceite em qualquer posicao.
   - nome: contact_endpoints.recolhido_at
-    tipo: coluna
-    ticket: KAM-008
-    data: 2026-10-12
-  - nome: contact_endpoints.expira_at
     tipo: coluna
     ticket: KAM-008
     data: 2026-10-12

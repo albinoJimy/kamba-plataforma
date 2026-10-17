@@ -351,7 +351,7 @@ superfície do **KAM-008**, não deste ticket.
 **Porque não está «corrigido»:** não há forma de o evitar com o *lint* como
 está — declarar a extensão **e** nomear o nome no dicionário é o que o *lint*
 recusa. O acoplamento fica registado aqui, no comentário de
-`canon/extensoes.yaml` e em `docs/eventos.md` §10 (decisão 10), para que quem
+`canon/extensoes.yaml` e em `docs/eventos.md` §11 (decisão 10), para que quem
 reverter a emenda saiba que tem de repor a extensão no mesmo passo.
 
 ### 4.4 Achado 7, segunda metade — a métrica do critério 8 não é confrontada

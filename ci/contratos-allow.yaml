@@ -1,0 +1,49 @@
+# Nomes de campo de evento com excepcao declarada ao lint de PII (KAM-007).
+#
+# O `docs/tecnica/06` §7.3 diz que o lint «rejeita nomes de campo
+# telefone|msisdn|bsuid|nome|morada|texto|email **fora de uma lista
+# aprovada**» — e nunca enumera essa lista. Nasce aqui.
+#
+# Nasceu vazia e deixou de o ser no mesmo ticket. A primeira versao do
+# lint comparava os sete nomes do §7.3 por segmento exacto, e assim nenhum dos
+# trinta e oito contratos precisava de excepcao — mas tambem nada precisava,
+# porque `nomes`, `phone` e `mail` passavam todos. A revisao adversarial
+# (achado C1) demonstrou-o, o lint passou a comparar por raiz e a incluir o
+# vocabulario ingles, e a primeira coisa que apanhou foi o `phone_number_id`
+# — que **nao** e dado pessoal. E essa a entrada abaixo, e e esse o sinal de
+# que a lista serve para alguma coisa: um lint que nunca precisa de excepcao
+# e um lint que nunca apanha nada.
+#
+# Cada entrada diz qual o campo, porque e que nao e dado pessoal, e quem
+# decidiu.
+#
+# A forma de uma entrada:
+#
+#   aprovados:
+#     - campo: payload.nome_do_servico   # o caminho completo, como o lint o imprime
+#       ticket: KAM-NNN
+#       razao: >-
+#         Porque e que este nome nao e PII. Nao «e so um nome»: o que a pessoa
+#         que ler isto daqui a um ano precisa de saber para concordar.
+#       data: 2026-10-17
+#
+# **O que esta lista nao dispensa.** Um campo aqui continua a passar pelo
+# padrao de telefone das fixtures, pelo gate 3b (que confronta o nome com o
+# dicionario) e pelo `additionalProperties: false` do proprio contrato. A
+# excepcao e ao lint de nomes e a mais nada.
+
+version: 1
+
+aprovados:
+  - campo: payload.phone_number_id
+    ticket: KAM-007
+    razao: >-
+      O identificador que a Meta da ao **numero de WhatsApp do tenant**, nao a
+      um telefone de pessoa. E a chave que o CHR resolve para tenant
+      (`docs/tecnica/00` §4) e e coluna canonica de `tenant_channels`
+      (dicionario §3.1): um valor como `109876543210987`, que nao e marcavel
+      nem contactavel. Os eventos que o levam sao `channel.updated` e
+      `channel.inactivity_warning`, cujo agregado **e** o canal — sem ele o
+      consumidor nao sabe de que numero se fala. O padrao de telefone das
+      fixtures continua a correr sobre estes dois ficheiros.
+    data: 2026-10-17

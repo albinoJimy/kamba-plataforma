@@ -1,0 +1,25 @@
+{
+  "id": "0192f1c4-7b1e-7d2a-9c3e-5a1f0b6e2d44",
+  "tipo": "booking.cancelled",
+  "versao": 1,
+  "tenant_id": "3f1c2a9e-0d4b-4e55-9a7c-1b2c3d4e5f60",
+  "ocorrido_em": "2026-11-02T14:03:11.482Z",
+  "registado_em": "2026-11-02T14:03:11.610Z",
+  "produtor": "com@0.1.0",
+  "agregado": {
+    "tipo": "booking",
+    "id": "9b2f6c1a-7e3d-4c80-b5a1-2d9e8f7a6b50",
+    "seq": 1
+  },
+  "correlacao_id": "5a6b7c8d-1e2f-4a3b-8c9d-0e1f2a3b4c5d",
+  "causa_id": "0192f1c4-6a10-7a11-8b22-3c33d44e5f66",
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "classe_pii": "P0",
+  "finalidades": [
+    "transacao"
+  ],
+  "payload": {
+    "booking_id": "4a6c8e0b-2d4f-4a6b-8c0d-1e3f5a7b9c1d",
+    "motivo": "ttl"
+  }
+}

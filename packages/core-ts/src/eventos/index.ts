@@ -140,6 +140,14 @@ export {
 } from "./consumo.ts";
 
 export {
+  PayloadInvalidoError,
+  TipoDesconhecidoError,
+  VersaoDesconhecidaError,
+  tiposComContrato,
+  validarPayload,
+} from "./contratos.ts";
+
+export {
   SQL_ABRIR_ACCAO,
   SQL_APROVADORES,
   SQL_APROVAR_DESCARTE,
