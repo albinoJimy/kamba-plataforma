@@ -128,6 +128,15 @@ EV_PARTICAO = "packages/core-ts/src/eventos/particao.ts"
 EV_CONSULTAS = "packages/core-ts/src/eventos/consultas.ts"
 EV_PUBLICADOR = "packages/core-ts/src/eventos/publicador.ts"
 EV_FILAS = "packages/core-ts/src/eventos/filas_bullmq.ts"
+#: KAM-006: a revisao do consumo e da DLQ, e os modulos do consumidor.
+REV5 = "db/migrations/versions/0005_consumo_dlq.py"
+CONSUMO = "tests_eventos_consumo"
+EV_CONSUMO = "packages/core-ts/src/eventos/consumo.ts"
+EV_TRABALHO = "packages/core-ts/src/eventos/trabalho.ts"
+EV_DLQ = "packages/core-ts/src/eventos/dlq.ts"
+EV_RECON = "packages/core-ts/src/eventos/reconciliador.ts"
+EV_TRABALHADOR = "packages/core-ts/src/eventos/trabalhador_bullmq.ts"
+EV_ACCOES = "packages/core-ts/src/eventos/accoes.ts"
 
 MUTACOES = [
     ("estado a mais no CHECK de tenants", REV,
@@ -873,6 +882,74 @@ MUTACOES = [
      "        if epic and epic in fontes.por_epic:\n"
      "            valores.append(fontes.por_epic[epic])\n",
      "", CONTAGENS),
+
+    # ------------------------------------------------------------- KAM-006
+    #
+    # Quinze, e doze delas apontadas a suite com fila: o que so ela ve e a
+    # transaccao unica, a contagem de tentativas, a classificacao do erro e a
+    # reposicao. Cada uma e um defeito que existiu, ou que a revisao do espelho
+    # em Python ou a revisao adversarial encontraram — nenhuma e inventada para
+    # encher a lista.
+    #
+    # As outras tres apontam a suite `tests`, e a razao e sempre a mesma: sao
+    # acoplamentos entre ficheiros, ou guardas, que **nenhuma execucao
+    # distingue de uma coincidencia**. Vivem no
+    # `db/tests/test_consumo_contrato.py` e no `test_dlq_reabertura.py`.
+    ("consumo: a marca de consumo deixa de ser do tenant do envelope", EV_CONSUMO,
+     "    await bd.query(SQL_DEFINIR_TENANT, [envelope.tenant_id, true]);\n",
+     "", CONSUMO),
+    ("consumo: um duplicado volta a aplicar o efeito", EV_CONSUMO,
+     "    if ((marca.rowCount ?? 0) === 0) {",
+     "    if ((marca.rowCount ?? 0) === -1) {", CONSUMO),
+    ("consumo: «atrasado» passa a ser «adiantado»", EV_CONSUMO,
+     "        const atrasado = ultimoSeq !== null && agregado.seq < ultimoSeq;",
+     "        const atrasado = ultimoSeq !== null && agregado.seq > ultimoSeq;",
+     CONSUMO),
+    ("consumo: o agregado que nao existe passa a poder transitar", EV_CONSUMO,
+     "      if (estado === null) {",
+     "      if (estado === undefined) {", CONSUMO),
+    ("trabalho: a ultima tentativa deixa de abrir a DLQ", EV_TRABALHO,
+     "  const ultima = tentativa >= tentativasMaximas;",
+     "  const ultima = tentativa > tentativasMaximas;", CONSUMO),
+    ("trabalho: um fora_de_ordem passa a recuar pela escada", EV_TRABALHO,
+     "    if (erro instanceof ForaDeOrdem) {",
+     "    if (erro instanceof RangeError) {", CONSUMO),
+    ("dlq: a entrada deixa de ter contexto de tenant", EV_DLQ,
+     "    await bd.query(SQL_DEFINIR_TENANT, [tenantId, true]);\n",
+     "", CONSUMO),
+    ("trabalhador: um evento ilegivel deixa de abrir a DLQ", EV_TRABALHADOR,
+     "            await paraDlqSemEnvelope({",
+     "            await Promise.resolve({", CONSUMO),
+    ("trabalhador: o evento que o arquivo nao tem deixa de ser adiado", EV_TRABALHADOR,
+     "            if (!ultima) throw new Adiar(ADIAMENTO_POR_OMISSAO, erro.message);",
+     "", CONSUMO),
+    ("revisao 0005: a unicidade da DLQ deixa de ser parcial", REV5,
+     "        CREATE UNIQUE INDEX events_dlq_aberta_uq\n          ON platform.events_dlq (consumer, event_id)\n          WHERE estado = 'aberta'\n",
+     "        CREATE UNIQUE INDEX events_dlq_aberta_uq\n          ON platform.events_dlq (consumer, event_id)\n"),
+    ("filas: o worker volta a usar a ligacao que desiste", EV_TRABALHADOR,
+     "  const ligacao = new Redis({ ...opcoesDaUrl(url), ...LIGACAO_QUE_ESPERA });",
+     "  const ligacao = new Redis({ ...opcoesDaUrl(url), ...LIGACAO_QUE_FALHA_DEPRESSA });"),
+    ("accoes: o once deixa de recusar a transaccao de quem o chama", EV_ACCOES,
+     "  await exigirForaDeTransaccao(bd, chave);\n",
+     ""),
+    ("reconciliador: o evento reposto perde o tenant", EV_RECON,
+     "        tenant_id: linha.tenant_id,\n",
+     "", CONSUMO),
+    ("revisao 0005: a retencao aceita uma janela menor que a re-entrega", REV5,
+     "          IF p_dias < 7 THEN",
+     "          IF p_dias < 1 THEN", CONSUMO),
+    ("revisao 0005: a retencao da DLQ apaga entradas abertas", REV5,
+     "          DELETE FROM platform.events_dlq\n"
+     "            WHERE estado <> 'aberta'\n",
+     "          DELETE FROM platform.events_dlq\n"
+     "            WHERE true\n", CONSUMO),
+    # Esta e das tres que a suite com fila **nao** apanha, e e por isso que o
+    # `db/tests/test_consumo_contrato.py` existe: com o relogio acelerado a
+    # escada do publicador e a do worker dao tempos parecidos, e com a escada
+    # real o teste custava 756 s. O acoplamento le-se como texto.
+    ("filas: o job deixa de pedir a escada do consumidor", EV_FILAS,
+     'backoff: { type: "custom" },',
+     'backoff: { type: "exponential", delay: REPETICAO.atraso },'),
 ]
 
 

@@ -136,6 +136,27 @@ fora_de_ambito:
       KAM-005: a medicao de carga do criterio 8, em suite propria por custo.
       Pela mesma razao da entrada acima.
 
+  - caminho: "libs/py-core/src/kamba_core/eventos/*"
+    razao: >-
+      KAM-006: o espelho em Python do consumidor idempotente e da maquina de
+      estados. Bate na sentinela `*/eventos/*` pela mesma razao da biblioteca
+      TypeScript: a superficie `eventos` sao os **schemas** de evento
+      (`contratos/eventos/*.schema.json`, KAM-007) e o gate 3b nao le Python. Os
+      nomes que este codigo usa sao contrato onde sao escritos — no DDL da
+      revisao `0005`, que esta na superficie `migracoes` e e lido — e ha um teste
+      de paridade que os prende ao TypeScript, lido como texto.
+
+  - caminho: "libs/py-core/tests/test_eventos_*"
+    razao: >-
+      KAM-006: os testes do espelho em Python, incluindo os de paridade. Pela
+      mesma razao da entrada acima, e sao testes.
+
+  - caminho: "db/tests_eventos_consumo/*"
+    razao: >-
+      KAM-006: a suite que corre o consumidor contra PostgreSQL e fila reais.
+      Bate na sentinela `*/eventos/*`; nao tem DDL nem schemas, e os nomes que
+      usa sao os das revisoes `0004` e `0005`, que o gate le.
+
   - caminho: "db/migrations/env.py"
     razao: >-
       O ambiente do Alembic: abre a ligacao e chama as revisoes. Nao e uma

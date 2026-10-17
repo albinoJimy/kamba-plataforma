@@ -4,7 +4,7 @@
 |---|---|
 | Documento | `docs/eventos.md` |
 | Ticket | KAM-005 — Outbox transaccional, publicador BullMQ e envelope de evento versionado |
-| Estado | Revisão `0004` aplicada; publicador e envelope v1 implementados; gate 8 com as *suites* `tests_eventos` e `tests_eventos_carga` activas. 13 das 16 caixas do ticket marcadas; as três vazias estão nomeadas na secção de verificação. Consumidores, `events_consumed` e DLQ são o KAM-006; o catálogo de *schemas* é o KAM-007 |
+| Estado | Revisão `0004` aplicada; publicador e envelope v1 implementados; gate 8 com as *suites* `tests_eventos` e `tests_eventos_carga` activas. 13 das 16 caixas do ticket marcadas; as três vazias estão nomeadas na secção de verificação. Consumidores, `events_consumed` e DLQ são o KAM-006, e estão em **`docs/consumo.md`**; o catálogo de *schemas* é o KAM-007 |
 | Âmbito | O lado do **produtor**: escrever o evento na transacção do dado e entregá-lo às filas. Nada do lado do consumidor |
 | Fontes | `docs/tecnica/06` §4, §6.1, §6.2, §6.5, §6.6, §7.3; `docs/tecnica/00` §7; ADR-009, ADR-010, ADR-018; `specs/02` §3.5 (emenda 1.9); `docs/tecnica/evidencia/E4` §2.10 |
 
@@ -193,7 +193,7 @@ BEGIN
   linhas = SELECT ... WHERE publicado_at IS NULL AND proxima_tentativa_at <= now()
            ORDER BY id LIMIT 200 FOR UPDATE SKIP LOCKED
   para cada linha, para cada subscrição activa com finalidade ∈ finalidades:
-      fila[consumer][particao].add(jobId = event_id, attempts = 6, backoff exp 1 s)
+      fila[consumer][particao].add(jobId = event_id, attempts = 6, backoff custom)
   INSERT events_log ... ON CONFLICT DO NOTHING
   UPDATE publicado_at
 COMMIT
@@ -234,9 +234,13 @@ publicador falhar fechado em vez de dobrar por módulo.
 
 **Não é a escada do `docs/tecnica/06` §6.4**, e isso é deliberado. A escada do
 §6.4 — 1 s, 5 s, 30 s, 2 min, 10 min, seis tentativas — é a **política da DLQ**:
-o recuo do *job* no consumidor, e vai no `add` como `attempts: 6` com recuo
-exponencial de base 1 s. O recuo do *outbox*, que o §6.2 só nomeia
-(«`proxima_tentativa_at = now() + backoff(tentativas)`»), é outro problema.
+o recuo do *job* no consumidor, e vai no `add` como `attempts: 6` com
+`backoff: { type: 'custom' }`, para que a escada venha do *worker* do consumidor
+(`docs/consumo.md` §4). Até ao KAM-006 ia como recuo **exponencial** de base
+1 s, o que dava 1 s, 2 s, 4 s, 8 s, 16 s e nunca consultava a escada do §6.4 —
+corrigido ali, porque é ali que a escada vive. O recuo do *outbox*, que o §6.2 só
+nomeia («`proxima_tentativa_at = now() + backoff(tentativas)`»), é outro
+problema.
 
 O limite é o critério de aceitação 4: «Redis parado 60 s com 1 000 eventos
 emitidos: após o regresso, 100% publicados em ≤ 60 s». Com a escada do §6.4, 60 s
@@ -511,3 +515,4 @@ aberta.
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão (KAM-005): revisão `0004`, envelope v1, publicador de instância única, roteamento por finalidade, as três métricas, e o que fica por decidir. Registo de que `uuidv7()` é CONFIRMADO no PG 18.6 fixado, de que a política de uma tabela particionada não cobre a partição, e de que a escada do §6.4 é da DLQ e não do *outbox*. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | O atraso medido passa a ser o do CI: **p95 = 0,195 s** a 50 eventos/s em `ubuntu-latest` ([execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356)), cinco vezes abaixo do limiar *proposto*. A explicação que o §6 dava para os 6–15 s medidos em Windows — «o período do lote» — fica corrigida: se fosse o lote, o Linux daria os mesmos 4 s. A ressalva 8 do §10 fecha. | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | Duas correcções vindas do KAM-006, no lado do produtor: o *job* passa a pedir `backoff: { type: 'custom' }` (§4), sem o que a escada do §6.4 nunca era consultada; e os dados do *job* passam a levar `tenant_id` ao lado do envelope, porque o consumidor é `kamba_app` e precisa dele para pôr o contexto da RLS antes de ler o arquivo. O lado do consumidor está em `docs/consumo.md`. | Equipa KAMBÁ |

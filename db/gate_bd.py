@@ -91,10 +91,11 @@ SUITES = (
     "tests_identidade",
     "tests_isolamento",
     "tests_eventos",
+    "tests_eventos_consumo",
     "tests_eventos_carga",
 )
 #: As que precisam tambem de uma fila.
-SUITES_COM_FILA = ("tests_eventos", "tests_eventos_carga")
+SUITES_COM_FILA = ("tests_eventos", "tests_eventos_consumo", "tests_eventos_carga")
 
 
 def _docker(*argumentos: str, ambiente=None) -> subprocess.CompletedProcess:

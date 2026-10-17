@@ -32,7 +32,7 @@ class TestCatalogoReal(ComBase):
         """O criterio diz «inicialmente vazia»; quem a encher muda este teste a ver."""
         self.assertEqual(catalogo.excepcoes_rls(), {})
 
-    def test_a_descoberta_encontra_as_nove_tabelas(self) -> None:
+    def test_a_descoberta_encontra_as_doze_tabelas(self) -> None:
         """Se a descoberta encolher, a suite inteira passa a testar menos."""
         self.assertEqual(
             catalogo.tabelas_isoladas(self.cursor),
@@ -41,8 +41,15 @@ class TestCatalogoReal(ComBase):
                 ("platform", "contact_endpoints", "tenant_id"),
                 ("platform", "contacts", "tenant_id"),
                 ("platform", "entitlements", "tenant_id"),
+                # KAM-006: as tres do consumo. A `evt_dlq_aprovacoes` **nao**
+                # esta aqui, e nao e esquecimento: nao tem `tenant_id`, porque
+                # o isolamento do que se aprova vem da linha da DLQ que ela
+                # referencia.
+                ("platform", "events_consumed", "tenant_id"),
+                ("platform", "events_dlq", "tenant_id"),
                 ("platform", "events_log", "tenant_id"),
                 ("platform", "events_outbox", "tenant_id"),
+                ("platform", "evt_acoes", "tenant_id"),
                 ("platform", "evt_agregado_seq", "tenant_id"),
                 ("platform", "tenant_channels", "tenant_id"),
                 ("platform", "tenants", "id"),
@@ -94,9 +101,12 @@ class TestCatalogoReal(ComBase):
                 ("contact_endpoints", "tenant_iso", "ALL", "{public}"),
                 ("contacts", "tenant_iso", "ALL", "{public}"),
                 ("entitlements", "tenant_iso", "ALL", "{public}"),
+                ("events_consumed", "tenant_iso", "ALL", "{public}"),
+                ("events_dlq", "tenant_iso", "ALL", "{public}"),
                 ("events_log", "tenant_iso", "ALL", "{public}"),
                 ("events_log_default", "tenant_iso", "ALL", "{public}"),
                 ("events_outbox", "tenant_iso", "ALL", "{public}"),
+                ("evt_acoes", "tenant_iso", "ALL", "{public}"),
                 ("evt_agregado_seq", "tenant_iso", "ALL", "{public}"),
                 ("tenant_channels", "resolver_leitura", "SELECT", "{kamba_resolver}"),
                 ("tenant_channels", "tenant_iso", "ALL", "{public}"),
@@ -114,8 +124,10 @@ class TestCatalogoReal(ComBase):
         self.assertEqual(
             [l[0] for l in linhas],
             ["contact_deks", "contact_endpoints", "contacts", "entitlements",
+             # KAM-006: as tres do consumo com `tenant_id`.
+             "events_consumed", "events_dlq",
              "events_log", "events_log_default", "events_outbox",
-             "evt_agregado_seq", "tenant_channels", "tenants"],
+             "evt_acoes", "evt_agregado_seq", "tenant_channels", "tenants"],
         )
         for tabela, comando, permissiva, papeis, qual, com_check in linhas:
             with self.subTest(tabela=tabela):

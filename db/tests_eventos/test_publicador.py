@@ -208,9 +208,17 @@ class TestPublicacao(ComFila):
         self.assertEqual(self.fila.pendentes(self.nome_da_fila(boa)), 1)
 
     def test_uma_particao_fora_de_0_15_nao_vai_a_fila_nenhuma(self) -> None:
-        """Falha fechada, em vez de dobrar por modulo e trocar a ordem."""
+        """Falha fechada, em vez de dobrar por modulo e trocar a ordem.
+
+        A linha boa vai para um agregado que **nao** cai na `p0`, e isso nao e
+        detalhe: 16 dobrado por modulo da `p0`, e a asercao final e que a `p0`
+        nao existe. Com um agregado ao acaso, uma vez em dezasseis a linha boa
+        caia la por direito proprio e o teste ficava vermelho sem nada estar
+        errado — a terceira vez que esta suite paga a mesma classe de defeito
+        (as duas primeiras estao na ANALISE-20 e no `agregado_fora_da_particao`).
+        """
         mau = self._inserir_directo(self._envelope('{"order_id": "x"}'), particao=16)
-        (boa,) = self.emitir(1)
+        (boa,) = self.emitir(1, agregado=self.agregado_fora_da_particao(0))
         self.lancar_publicador()
 
         self.assertTrue(
@@ -222,6 +230,9 @@ class TestPublicacao(ComFila):
             (mau,),
         )
         self.assertTrue(self.cursor.fetchone()[0], "publicou uma particao invalida")
+        self.assertNotEqual(
+            self.particao_de(boa), 0, "o auxiliar devolveu um agregado da p0"
+        )
         self.assertNotIn(
             f"evt.{CONSUMER}.p0", self.fila.filas(), "dobrou a particao por modulo"
         )

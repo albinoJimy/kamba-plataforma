@@ -760,6 +760,15 @@ ci-8:
 	@# e o proprio criterio: o 4 para a fila 60 s, o 8 mede 5 minutos de carga.
 	@echo "==> gate 8: publicador de eventos contra PostgreSQL 18.6 e fila reais"
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_eventos
+	@# A quarta (KAM-006): o **consumidor**, a DLQ e a reposicao. O que so aqui
+	@# se prova e que a marca de consumo e o efeito estao na mesma transaccao,
+	@# que seis tentativas abrem a DLQ e que o que o Redis perdeu volta a fila —
+	@# nada disso se mede com uma base falsa. Corre com o relogio acelerado que
+	@# os «Testes Requeridos» do ticket pedem (a escada e a carencia; os valores
+	@# reais tem prova propria nos testes sem fila), e por isso leva segundos e
+	@# nao os 756 s por teste que a escada do §6.4 custaria.
+	@echo "==> gate 8: consumidor, DLQ e reposicao contra PostgreSQL 18.6 e fila reais"
+	@$(VENV_PYTHON) db/gate_bd.py --suite tests_eventos_consumo
 	@# E a medicao de carga, em suite propria: sao cinco minutos (o numero e do
 	@# criterio 8), e uma suite custa isso **por cada mutacao** que a escolha.
 	@# Separada, as mutacoes do publicador correm em tres minutos e esta corre

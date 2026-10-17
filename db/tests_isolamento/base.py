@@ -72,10 +72,48 @@ class ComDoisTenants(ComBase):
         Quem itera abre o seu `subTest`: assim uma tabela que falhe nao esconde
         as seguintes. A receita diz com que papel a tabela se ataca
         (`receita.papel`): o que a consegue ler.
+
+        **So as que o papel le.** Uma tabela com `leitura_do_papel=False` nao
+        entra aqui: o papel nao tem `SELECT` nela, e uma leitura cruzada que
+        rebenta com `42501` nao prova isolamento nenhum. O que ha a provar
+        nessas esta no `por_tabela_sem_leitura()`, e e mais forte.
         """
         return [
             (schema, tabela, coluna, sementes.RECEITAS[(schema, tabela)])
             for schema, tabela, coluna in self.tabelas
+            if sementes.RECEITAS[(schema, tabela)].leitura_do_papel
+        ]
+
+    def por_tabela_sem_leitura(self):
+        """As tabelas que o papel escreve e **nao** le."""
+        return [
+            (schema, tabela, coluna, sementes.RECEITAS[(schema, tabela)])
+            for schema, tabela, coluna in self.tabelas
+            if not sementes.RECEITAS[(schema, tabela)].leitura_do_papel
+        ]
+
+    def por_tabela_que_escreve(self):
+        """As tabelas em que o papel **insere**, leia-as ou nao.
+
+        Ler e escrever sao duas dimensoes, e os testes de escrita cruzada
+        precisam da segunda. Filtrar a escrita a partir do `por_tabela()` —
+        que ja tira as que o papel nao le — tirava a `events_dlq` do `WITH
+        CHECK` **e** do `SELECT`, deixando a tabela sem teste de isolamento
+        nenhum na escrita. O `INSERT` nao precisa de `SELECT` para ser
+        recusado pela politica, pelo que nao ha razao para as juntar.
+        """
+        return [
+            (schema, tabela, coluna, sementes.RECEITAS[(schema, tabela)])
+            for schema, tabela, coluna in self.tabelas
+            if sementes.RECEITAS[(schema, tabela)].escrita_do_papel
+        ]
+
+    def por_tabela_sem_escrita(self):
+        """As tabelas em que nenhum papel sujeito a RLS insere."""
+        return [
+            (schema, tabela, coluna, sementes.RECEITAS[(schema, tabela)])
+            for schema, tabela, coluna in self.tabelas
+            if not sementes.RECEITAS[(schema, tabela)].escrita_do_papel
         ]
 
     def _inserir_tem_de_falhar(self, cursor, receita, tenant_id: str) -> None:

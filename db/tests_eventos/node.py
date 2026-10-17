@@ -70,9 +70,31 @@ def _ligar_modulos() -> None:
             destino.symlink_to(origem / relativo, target_is_directory=True)
 
 
-def url_da_base(na_rede: bool) -> str:
-    """`postgres://...` para o publicador, que corre como `kamba_batch`."""
-    senha = os.environ["KAMBA_SECRET_DB_BATCH_PASSWORD"]
+#: Papel e variavel da palavra-passe de cada identidade que os programas da
+#: suite usam. Os nomes sao os do `db/ligacao.py`; repetem-se aqui e nao se
+#: importam porque o `ligacao` fala com o `pg8000` e isto constroi uma URL para
+#: o `pg` do Node — o que e comum e o nome do segredo, nao o codigo.
+PAPEIS = {
+    "batch": ("kamba_batch", "KAMBA_SECRET_DB_BATCH_PASSWORD"),
+    "app": ("kamba_app", "KAMBA_SECRET_DB_APP_PASSWORD"),
+}
+
+
+def url_da_base(na_rede: bool, papel: str = "batch") -> str:
+    """`postgres://...` para um programa da suite, com o papel que ele usa.
+
+    `batch` e a omissao porque e o do publicador (`BYPASSRLS`, le o outbox de
+    todos os tenants). O **consumidor** corre como `app`: tem `INSERT` em
+    `events_consumed` e na DLQ, esta sujeito a RLS e ve so o tenant do evento
+    que tem em mao. Correr o consumidor como `batch` nao falhava por RLS —
+    falhava por privilegio, porque `kamba_batch` nao tem `INSERT` nestas
+    tabelas, e foi assim que o defeito apareceu.
+    """
+    try:
+        nome, variavel = PAPEIS[papel]
+    except KeyError:
+        raise ValueError(f"papel desconhecido para a URL da base: {papel!r}") from None
+    senha = os.environ[variavel]
     if na_rede:
         anfitriao, porta = _exigir(VARIAVEL_DO_ANFITRIAO), "5432"
     else:
@@ -81,7 +103,7 @@ def url_da_base(na_rede: bool) -> str:
     base = os.environ["KAMBA_DB_NAME"]
     # A palavra-passe vai na URL porque e assim que o `pg` a aceita; a URL passa
     # pelo **ambiente** do processo, nunca pela linha de comandos.
-    return f"postgres://kamba_batch:{senha}@{anfitriao}:{porta}/{base}"
+    return f"postgres://{nome}:{senha}@{anfitriao}:{porta}/{base}"
 
 
 def url_da_fila(na_rede: bool) -> str:
@@ -218,11 +240,18 @@ def lancar(
     extra: dict[str, str] | None = None,
     rotulo: str = "pub",
     registo: Path | None = None,
+    variavel_do_registo: str = "KAMBA_PUB_REGISTO",
 ) -> Processo:
     """Lanca `node <argumentos>` em `packages/core-ts`. Nao espera por ele.
 
     `registo` e o ficheiro para onde vai tudo o que ele escreve. Sem ele,
     escreve-se ao lado da raiz dos modulos, num nome com o rotulo.
+
+    `variavel_do_registo` e o nome da variavel em que o programa espera esse
+    caminho. Cada programa tem a sua (`KAMBA_PUB_REGISTO`,
+    `KAMBA_CON_REGISTO`, `KAMBA_RECON_REGISTO`), e passar a do publicador a um
+    consumidor deixava-o **mudo**: a suite esperava por uma linha «arrancou»
+    que nunca era escrita, e a falha lia-se «o consumidor nao arrancou».
     """
     import secrets
     import tempfile
@@ -243,7 +272,7 @@ def lancar(
     # («invalid mode: /Users/...», medido neste anfitriao). O teste le o
     # ficheiro pelo caminho do anfitriao; o processo escreve-o pelo de dentro.
     linhas = registo.with_suffix(".jsonl")
-    ambiente["KAMBA_PUB_REGISTO"] = (
+    ambiente[variavel_do_registo] = (
         f"{PASTA_DOS_REGISTOS}/{linhas.name}" if na_rede else str(linhas)
     )
     ambiente.update(extra or {})
@@ -278,7 +307,7 @@ def lancar(
     for nome in (
         "KAMBA_PUBLICADOR_DB_URL",
         "KAMBA_QUEUE_URL",
-        "KAMBA_PUB_REGISTO",
+        variavel_do_registo,
         *(extra or {}),
     ):
         comando += ["--env", nome]

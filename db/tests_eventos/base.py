@@ -112,11 +112,25 @@ class ComFila(unittest.TestCase):
         finalidade: str = "transacao",
         versao_max: int = 1,
         activo: bool = True,
+        exige_ordem: bool | None = None,
     ) -> None:
+        """Semeia uma subscricao. `exige_ordem` por omissao segue o tipo.
+
+        A omissao e `None` e nao `False` por causa da restricao
+        `evt_subscricoes_payment_exige_ordem` da revisao 0005: um
+        `payment.%` com `exige_ordem = false` e **recusado** pela base. Com
+        `None`, uma subscricao de pagamento nasce com ordem — que e a unica
+        forma que a base aceita — e tudo o mais nasce sem, que e a omissao da
+        coluna. Quem quiser a configuracao recusada passa `False` de proposito,
+        e e isso que o teste do criterio 7 faz.
+        """
+        if exige_ordem is None:
+            exige_ordem = tipo.startswith("payment.")
         self.cursor.execute(
             "INSERT INTO platform.evt_subscricoes "
-            "(consumer, tipo, versao_max, finalidade, activo) VALUES (%s, %s, %s, %s, %s)",
-            (consumer, tipo, versao_max, finalidade, activo),
+            "(consumer, tipo, versao_max, finalidade, activo, exige_ordem) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (consumer, tipo, versao_max, finalidade, activo, exige_ordem),
         )
 
     # ---------------------------------------------------------------- eventos
@@ -151,6 +165,7 @@ class ComFila(unittest.TestCase):
         agregado: str | None = None,
         finalidades: tuple[str, ...] = ("transacao",),
         versao: int = 1,
+        tipo: str = TIPO,
     ) -> list[str]:
         """Emite `quantos` eventos e devolve os `event_id`, pela ordem de emissao."""
         identificadores = []
@@ -160,7 +175,7 @@ class ComFila(unittest.TestCase):
                 "SELECT platform.evt_emitir(%s, %s::smallint, %s, 'order', %s, "
                 "%s::jsonb, 'P1', %s::text[])",
                 (
-                    TIPO,
+                    tipo,
                     versao,
                     self.tenant,
                     alvo,
