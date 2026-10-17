@@ -225,6 +225,12 @@ class TestDicionarioReal(unittest.TestCase):
         Emenda 1.8 (KAM-008): entra `lookup_hmac`, o nome que o bloco do KAM-008
         dava ao HMAC de pesquisa e que o dicionario substitui por
         `contact_endpoints.bsuid_hmac` (linha 3 do KAM-141).
+
+        Emenda 1.12 (KAM-007): entram `preco_modo` e `expires_at`. A emenda 1.11
+        tinha resolvido as duas divergencias com o DDL do `docs/tecnica/03` **a
+        favor do dicionario** e deixado as formas antigas por registar; a
+        revisao adversarial mostrou o que isso custava (achado M3), e este teste
+        e o sitio onde se ve que o conjunto cresceu de proposito.
         """
         self.assertEqual(
             sorted((v["nome"], v["tipo"]) for v in self.modelo.variantes),
@@ -235,6 +241,7 @@ class TestDicionarioReal(unittest.TestCase):
                     ("preco_kz", "nome"), ("exato", "valor"), ("total_kz", "nome"),
                     ("valor_kz", "nome"), ("callback_hmac_ok", "nome"), ("sig_ok", "nome"),
                     ("llm_calls", "nome"), ("tenant_isolamento", "nome"),
+                    ("preco_modo", "nome"), ("expires_at", "nome"),
                     ("lookup_hmac", "nome"),
                 ]
             ),
