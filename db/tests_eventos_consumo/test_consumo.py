@@ -232,6 +232,15 @@ class TestEnvelopeIlegivel(ComConsumidor):
     `failed` no Redis — sem linha na DLQ, sem metrica e sem alerta —, e como
     nao ha `events_consumed` nem `events_dlq` o reconciliador voltava a
     enfileira-lo de cinco em cinco minutos durante 24 h. Um ciclo silencioso.
+
+    O que fecha o laco sao **dois** testes, e nenhum deles sozinho: este, que
+    prova que a entrada e aberta, e o
+    `TestReposicao.test_o_que_esta_na_dlq_nao_volta`, que prova que uma entrada
+    na DLQ tira o evento dos candidatos a reposicao. Houve aqui um terceiro, e
+    saiu: afirmava que um evento ilegivel nao era reposto, mas passava porque a
+    linha do arquivo tinha sido apagada e a consulta do §6.5 nem o encontrava —
+    verdadeiro pela razao errada, que e a classe de defeito que esta suite
+    existe para nao ter.
     """
 
     def test_um_evento_que_o_arquivo_nao_tem_acaba_na_dlq(self) -> None:
@@ -265,28 +274,6 @@ class TestEnvelopeIlegivel(ComConsumidor):
         self.assertNotIn("payload", substituto)
         self.assertEqual(self.consumidos(), 0)
         self.assertEqual(self.efeitos(), 0)
-
-    def test_o_que_esta_na_dlq_por_ilegivel_nao_e_reposto(self) -> None:
-        """E a razao de ser do teste acima: fechar o ciclo da reposicao."""
-        self.subscrever()
-        (identificador,) = self.publicar()
-        self.cursor.execute(
-            "DELETE FROM platform.events_log WHERE event_id = %s", (identificador,)
-        )
-        consumidor = self.lancar_consumidor("a")
-        self.assertTrue(self.esperar_arranque(consumidor), self.diagnostico())
-        self.assertTrue(
-            esperar_por(lambda: len(self.na_dlq()) == 1, ESPERA_DA_DLQ),
-            f"o evento ilegivel nao deixou entrada na DLQ{self.diagnostico()}",
-        )
-        # Sem a linha no arquivo a consulta do §6.5 nem o encontra; com ela, e
-        # a entrada na DLQ que o tira dos candidatos. As duas redes.
-        reposicao = self.repor_uma_vez()
-        self.assertTrue(self.esperar_fim(reposicao), self.diagnostico())
-        passagens = [
-            linha for linha in reposicao.linhas() if linha.get("evento") == "passagem"
-        ]
-        self.assertEqual([p.get("encontradas") for p in passagens], [0])
 
 
 class TestReposicao(ComConsumidor):

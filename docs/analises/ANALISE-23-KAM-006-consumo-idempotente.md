@@ -78,7 +78,7 @@ linha de DLQ possível); um evento que o arquivo não tem é **adiado** — pode
 cedo, porque o publicador enfileira antes do `COMMIT` que arquiva — e, esgotadas
 as tentativas, abre uma entrada com `tipo = evt.ilegivel`, o `event_id`, o
 tenant e o motivo. Prova: `db/tests_eventos_consumo/test_consumo.py`,
-`TestEnvelopeIlegivel` (dois testes contra fila real), e
+`TestEnvelopeIlegivel` (fila real), com o `test_o_que_esta_na_dlq_nao_volta` a fechar a outra metade, e
 `packages/core-ts/tests/eventos.trabalhador.test.ts`.
 
 ### C3 — a ligação de cada fila nunca era invalidada — **corrigido**
