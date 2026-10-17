@@ -229,7 +229,7 @@ POST /hooks/pay/{provider}/{webhook_token}        # token opaco por payment_acco
   except AuthError: inbox.mark(receipt,'hmac_invalido'); return 401
   return 200                                        # 2xx rapido (<500 ms); o resto assincrono a partir do inbox
 worker(receipt):
-  for ev in evs (ou consulta(ev)):               # idempotente por provider_event_id (G7)
+  for ev in evs (ou puxar_estado(ev)):           # idempotente por provider_event_id (G7)
      BEGIN
        SELECT ... FROM payment_charges WHERE account_id=:a AND referencia=:r FOR UPDATE   # G3
        append_payment_event('pagamento_recebido', authn_ok=true, ...)

@@ -209,6 +209,40 @@ class TestRegras(unittest.TestCase):
         (dominio,) = modelo.dominios
         self.assertFalse(dominio["so_no_registo"])
 
+    def test_as_quatro_formas_que_enganavam_a_heuristica(self) -> None:
+        """Achado M5 da revisao adversarial, caso a caso.
+
+        A primeira versao procurava «No registo» em **todo** o prefixo da
+        celula e localizava a declaracao pelo nome, nao pela posicao. Os
+        quatro casos abaixo foram construidos pela revisao, e os quatro
+        falhavam em silencio: um dominio marcado a mais faz o gate deixar de
+        o verificar **sem dizer nada**. Ficam aqui porque uma correccao a uma
+        heuristica so se mantem se os casos que a motivaram estiverem
+        escritos.
+        """
+        casos = (
+            ("duas declaracoes, a frase so na primeira",
+             "| Vertical | No registo: `id` ∈ {`vendedor`}. E a coluna `tenants.tipo` ∈ {`pme`} "
+             "| `x_velho` | — |\n",
+             [True, False]),
+            ("o mesmo nome duas vezes, a coluna primeiro",
+             "| Modulo | Na coluna `modulo` ∈ {`a`, `b`}. No registo: `modulo` ∈ {`c`, `d`} "
+             "| `x_velho` | — |\n",
+             [False, True]),
+            ("«no registo e tambem na coluna» diz o contrario",
+             "| Modulo | No registo e tambem na coluna: `modulo` ∈ {`catalogo`, `foto`} "
+             "| `x_velho` | — |\n",
+             [False]),
+            ("«no registo» em prosa inocente antes do nome",
+             "| Tipo | O valor fica no registo de auditoria; a coluna `tenants.tipo` ∈ {`pme`} "
+             "| `x_velho` | — |\n",
+             [False]),
+        )
+        for nome, linha, esperado in casos:
+            with self.subTest(caso=nome):
+                modelo = self.modelo(linha)
+                self.assertEqual([d["so_no_registo"] for d in modelo.dominios], esperado)
+
     def test_conceito_repetido_na_mesma_seccao_e_erro(self) -> None:
         with self.assertRaisesRegex(DicionarioIlegivel, "duas"):
             self.modelo("| A | `a` | `a_velho` | — |\n| A | `b` | — | — |\n")

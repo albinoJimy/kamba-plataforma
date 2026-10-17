@@ -563,10 +563,10 @@ def validate(text: str, facts: list[Fact], policy: Policy) -> Verdict:
     toks = extract(text)      # dinheiro, quantidades, percentagens, SKUs, datas/horas, numeros por extenso (pt)
     errs = []
     for m in toks.money:                                   # tolerancia zero
-        if not any(f.kind in MONEY_KINDS and f.value_kz == m.value_kz for f in facts): errs.append(("money_unbacked", m))
+        if not any(f.kind in MONEY_KINDS and f.value_minor == m.value_minor for f in facts): errs.append(("money_unbacked", m))
     for line in toks.lines():                              # vinculo produto-preco (limitacao classica)
         for sku, price in line.sku_price_pairs():
-            if not any(f.kind == "price" and f.sku == sku and f.value_kz == price for f in facts): errs.append(("sku_price_mismatch", sku, price))
+            if not any(f.kind == "price" and f.sku == sku and f.value_minor == price for f in facts): errs.append(("sku_price_mismatch", sku, price))
         for name in line.product_names():                  # nome sem SKU visivel tambem se resolve via facts.name
             if resolve_sku(name, facts) not in line.skus(): errs.append(("name_sku_mismatch", name))
     for q in toks.quantities:  require_fact(q, kinds={"qty","stock"}) or errs.append(("qty_unbacked", q))
@@ -577,7 +577,7 @@ def validate(text: str, facts: list[Fact], policy: Policy) -> Verdict:
     return Verdict(ok=not errs, errors=errs)
 ```
 
-Normalização monetária (`value_kz`, inteiro): aceita `12500`, `12.500`, `12 500`, `12,500`, `12500 Kz`, `12.500,00 Kz`, `Kz 12.500`, `12,5 mil`, «doze mil e quinhentos»; qualquer moeda diferente de Kz sem fact de moeda é erro. Os totais **nunca** são somados pelo modelo: vêm do backend (`propose_cart`); uma soma correcta mas não-fact também falha.
+Normalização monetária (`value_minor`, inteiro, em **cêntimos de AOA**): aceita `12500`, `12.500`, `12 500`, `12,500`, `12500 Kz`, `12.500,00 Kz`, `Kz 12.500`, `12,5 mil`, «doze mil e quinhentos»; qualquer moeda diferente de Kz sem fact de moeda é erro. **O cliente e o assistente falam em Kz; a comparação faz-se em cêntimos**, e é a normalização que converte — «12.500 Kz» dá `value_minor = 1250000`. Isto não é detalhe: o *fact* vem do `search_catalog` do `05` §6.3, cujo contrato de saída é `preco_minor`, e comparar a fala do cliente em Kz com um *fact* em cêntimos falha **sempre**, por um factor de cem. O nome era `value_kz` e a comparação estava errada desde que o `05` passou a `preco_minor` (KAM-139; apanhado pela revisão adversarial, achado C1). Os totais **nunca** são somados pelo modelo: vêm do backend (`propose_cart`); uma soma correcta mas não-fact também falha.
 
 ### 9.2 Limitações assumidas
 
@@ -948,4 +948,4 @@ Metering por módulo (KAM-124); budgets LiteLLM por tenant incluem o custo de im
 | 1.0 | Outubro 2026 | Emissão inicial: Agent Runtime, AgentRegistry, ToolLayer, grafos Vendedor/Serviços corrigidos, validador, voz, `interrupt()` idempotente, checkpointer, LLM gateway e gate *golden*, revistos com `evidencia/E1` e `E4`. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §6.2–§6.3, D-11 (`confirm:{hold_id}` em Serviços); §13.1, D-07 (gatilho `tenant.approved`). | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-128: As **28** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
-| 1.3 | Outubro 2026 | **KAM-139** (contradições do dicionário): §5.1, §6.1 e §6.2 passam a dizer `valor_max_pedido_minor` (3 ocorrências) e §5.3 passa a dizer `expira_at` (1 ocorrência) — eram variantes vivas das formas canónicas do dicionário §3.2 e §3.3 (emenda 1.12). | Equipa KAMBÁ |
+| 1.3 | Outubro 2026 | **KAM-139** (variantes vivas do dicionário): §5.1, §6.1 e §6.2 passam a dizer `valor_max_pedido_minor` (3 ocorrências) e §5.3 passa a dizer `expira_at` (1 ocorrência) — eram variantes vivas das formas canónicas do dicionário §3.2 e §3.3 (emenda 1.12). | Equipa KAMBÁ |

@@ -186,6 +186,7 @@ class TestMutacoes(ComCopia):
     def test_a_copia_sem_mutacao_passa(self) -> None:
         """A base de todas as outras: se a copia ja falhasse, tudo o resto era vacuo."""
         self.assertEqual([str(a) for a in self.achados()], [])
+        self.assertEqual(cli.main(["--root", str(self.raiz), "check"]), 0)
 
     def test_a_lista_de_dividas_do_repositorio_esta_vazia(self) -> None:
         """O criterio de aceitacao do KAM-139, verificado onde se ve.
@@ -198,7 +199,52 @@ class TestMutacoes(ComCopia):
 
         documento = kamba_yaml.load_file(ROOT / "ci/canon-allow.yaml")
         self.assertEqual(documento.get("dividas") or [], [])
-        self.assertEqual(cli.main(["--root", str(self.raiz), "check"]), 0)
+
+    def test_o_dominio_do_registo_nao_se_aplica_a_coluna_e_o_da_coluna_aplica_se(self) -> None:
+        """A proteccao que a `dominios_so_no_registo` dava, agora sem ela.
+
+        A lista de excepcoes ficou vazia (KAM-141, linhas 6 e 9) e a
+        distincao passou a vir do dicionario. Ficou provado que o exportador
+        marca o campo, e **nao** que o gate se comporta como antes — apanhado
+        pela revisao adversarial (achado m10.2). E o comportamento que
+        importa: `id uuid PRIMARY KEY` numa migracao nao pode ter de ser uma
+        vertical, e um valor fora de um dominio **nao qualificado** — que e a
+        classe que o `so_no_registo` pode desarmar — tem de falhar.
+        """
+        tabela = "\n".join(
+            (
+                "    op.execute(",
+                '        """',
+                "        CREATE TABLE platform.ensaio_do_registo (",
+                "          id uuid PRIMARY KEY,",
+                "          tenant_id uuid NOT NULL,",
+                "          modulo text NOT NULL,",
+                "          preco_tipo text NOT NULL CHECK (preco_tipo IN ({valores}))",
+                "        )",
+                '        """',
+                "    )",
+                "",
+            )
+        )
+        base = (self.raiz / MIGRACAO).read_text(encoding="utf-8")
+        marca = "def upgrade() -> None:\n"
+        self.assertIn(marca, base)
+
+        self.escrever(MIGRACAO, base.replace(
+            marca, marca + tabela.format(valores="'fixo', 'a_partir_de'"), 1))
+        dominios = [a for a in self.achados() if "dominio" in a.mensagem or a.classe == REGRA]
+        self.assertEqual(
+            [a for a in dominios if "id" in a.mensagem or "modulo" in a.mensagem], [],
+            "o `id` e o `modulo` voltaram a ser tratados como dominios de coluna",
+        )
+
+        self.escrever(MIGRACAO, base.replace(
+            marca, marca + tabela.format(valores="'fixo', 'banana'"), 1))
+        achados = [a for a in self.achados() if "banana" in a.mensagem]
+        self.assertEqual(
+            len(achados), 1, "um valor fora do dominio de `preco_tipo` tem de falhar"
+        )
+        self.assertEqual(achados[0].classe, REGRA)
 
     # --- migracoes ---------------------------------------------------------------
     def test_valor_kz_na_migracao(self) -> None:

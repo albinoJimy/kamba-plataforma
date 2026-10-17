@@ -399,19 +399,35 @@ Estão em [`ci/canon-allow.yaml`](../ci/canon-allow.yaml), secção `dividas`, e
 e em todos os PR, se não tiverem sido corrigidas. O prazo é *proposta* (30 dias,
 como os *waivers*).
 
-| Variante | Onde | Ocorrências | Canónico |
-|---|---|---|---|
-| `kamba_ops` | `03` §5.5; `04` §6.2 | 1 + 2 | `kamba_batch` |
-| `valor_max_pedido_kz` | `02` §5.1, §6.1, §6.2 | 3 | `valor_max_pedido_minor` |
-| `preco_kz` | `05` §6.1, §12; `06` §10.2 | 5 + 3 | `preco_minor` (muda a unidade) |
-| `'exato'` | `05` §6.1; `06` §10.2 | 1 + 1 | `'fixo'` |
-| `total_kz` | `06` §6.1, §12 | 2 | `total_minor` |
-| `tenant_isolamento` | `03` §5.5 | 1 | `tenant_iso` |
+**Esta tabela está paga.** Fica como registo do que foi, e das contagens, que
+são citadas de fora.
 
-As duas primeiras são as que o KAM-003 registou na emenda E-01 da Carta. As
-três seguintes são novas: o §3.3 lista-as como variantes e nenhuma das doze do
-ticket as cobre. A última passou a variante com a emenda 1.5 do dicionário
-(KAM-004), que fixa `tenant_iso` e regista esta divergência.
+| Variante | Onde | Ocorrências | Canónico | Estado |
+|---|---|---|---|---|
+| ~~`kamba_ops`~~ | `03` §5.5; `04` §6.2 | 1 + 2 | `kamba_batch` | paga (KAM-139) |
+| ~~`valor_max_pedido_kz`~~ | `02` §5.1, §6.1, §6.2 | 3 | `valor_max_pedido_minor` | paga (KAM-139) |
+| ~~`preco_kz`~~ | `05` §6.1, §12; `06` §10.2 | 5 + 3 | `preco_minor` (muda a unidade) | paga (KAM-139) |
+| ~~`'exato'`~~ | `05` §6.1; `06` §10.2 | 1 + 1 | `'fixo'` | paga (KAM-139) |
+| ~~`total_kz`~~ | `06` §6.1, §12 | 2 | `total_minor` | paga (KAM-139) |
+| ~~`tenant_isolamento`~~ | `03` §5.5 | 1 | `tenant_iso` | paga (KAM-139) |
+
+As duas primeiras eram as que o KAM-003 registou na emenda E-01 da Carta. As
+três seguintes eram novas: o §3.3 lista-as como variantes e nenhuma das doze do
+ticket as cobria. A última passou a variante com a emenda 1.5 do dicionário
+(KAM-004), que fixa `tenant_iso` e registou esta divergência.
+
+**Foram 54 e não 19.** O KAM-007 registou `expires_at` e `preco_modo` como
+variantes (emenda 1.12) e o KAM-141 registou `hmac_sha256`, `status_pull` e
+`humano_auditado` (emenda 1.13), e com isso trinta e cinco ocorrências que o
+*gate* não contava passaram a contar. O KAM-139 pagou as 54 no mesmo PR, em vez
+de declarar dívidas novas para as liquidar a seguir. Onde a troca mudava a
+**unidade** — `preco_kz` para `preco_minor`, `total_kz` para `total_minor` — os
+valores de exemplo foram multiplicados por cem e os tipos SQL passaram de `int`
+a `bigint`; e os nomes derivados que o *gate* não apanha, por não estarem
+registados (`max_preco_kz`, `min_preco_kz`, `alvo_preco_kz`,
+`valor_min_review_kz`, `mediana_kz`, `gmv_pago_kz`, `receita_paga_kz`, e o
+`value_kz` do `02` §9.1 que a revisão adversarial apanhou), seguiram a mesma
+regra.
 
 As 12 ocorrências **históricas** (a variante é citada para dizer que foi
 substituída) não têm prazo e por isso têm **âncora**: o excerto da linha que

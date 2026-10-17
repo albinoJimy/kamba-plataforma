@@ -4,9 +4,11 @@ Toda a revisao que crie uma tabela com `tenant_id` chama `enable_tenant_rls`.
 Quem se esquecer e apanhado pelo teste de catalogo X-05 do gate 6, que falha o
 build se uma tabela com `tenant_id` nao tiver `ENABLE`, `FORCE` e politica.
 
-A politica e a do `docs/tecnica/08` §3.3, com o nome que esse documento e o
-ticket usam (`tenant_iso`; o `docs/tecnica/03` §5.5 chama-lhe
-`tenant_isolamento` — divergencia registada no dicionario §3.2, emenda 1.5):
+A politica e a do `docs/tecnica/08` §3.3, com o nome que esse documento, o
+ticket e o dicionario §3.2 usam: `tenant_iso`. O `docs/tecnica/03` §5.5
+chamava-lhe `tenant_isolamento`, divergencia registada na emenda 1.5 e
+**paga pelo KAM-139** — este docstring era o ultimo sitio do repositorio a
+anuncia-la depois de ela deixar de existir:
 
     USING      (<coluna> = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
     WITH CHECK (<coluna> = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
