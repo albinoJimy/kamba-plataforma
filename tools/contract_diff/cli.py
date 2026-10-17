@@ -5,6 +5,8 @@
     python -m contract_diff --root . pii            so o lint de PII
     python -m contract_diff --root . exemplos       so os exemplos
     python -m contract_diff --root . subscricoes    so a versao_max
+    python -m contract_diff --root . gerados       so os tipos gerados
+    python -m contract_diff --root . gerar         (re)escreve os tipos gerados
     python -m contract_diff --root . canario        prova que as quatro mordem
 
 Codigos de saida, com a distincao que o `db/dlq.py` e o `tools/lint_handoff`
@@ -29,7 +31,7 @@ import sys
 from pathlib import Path
 
 from contract_diff import base as base_mod
-from contract_diff import catalogo, diff, exemplos, pii, subscricoes
+from contract_diff import catalogo, diff, exemplos, gerar as gerar_mod, pii, subscricoes
 
 SAIDA_OK = 0
 SAIDA_ACHADOS = 1
@@ -113,6 +115,19 @@ def correr_exemplos(raiz: Path) -> tuple[int, list[str]]:
     )
     achados = [f"  {a}" for a in (*invalidos, *incoerentes)]
     return (SAIDA_ACHADOS if achados else SAIDA_OK), [cabecalho, *achados]
+
+
+def correr_gerados(raiz: Path) -> tuple[int, list[str]]:
+    """Os tipos TS e os modelos Python batem com os contratos de hoje."""
+    try:
+        fora = gerar_mod.desactualizados(raiz)
+    except gerar_mod.NaoSeiTraduzirError as erro:
+        return SAIDA_ERRO, [f"contract_diff gerados: {erro}"]
+    cabecalho = (
+        f"contract_diff gerados: 2 ficheiro(s) derivado(s) dos contratos; "
+        f"{len(fora)} desactualizado(s)"
+    )
+    return (SAIDA_ACHADOS if fora else SAIDA_OK), [cabecalho, *[f"  {f}" for f in fora]]
 
 
 def correr_subscricoes(raiz: Path) -> tuple[int, list[str]]:
@@ -254,7 +269,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     analisador.add_argument(
         "comando",
-        choices=["check", "diff", "pii", "exemplos", "subscricoes", "canario"],
+        choices=["check", "diff", "pii", "exemplos", "subscricoes", "gerados",
+                 "gerar", "canario"],
         nargs="?", default="check",
     )
     argumentos = analisador.parse_args(argv)
@@ -280,15 +296,25 @@ def main(argv: list[str] | None = None) -> int:
         "pii": lambda: correr_pii(raiz),
         "exemplos": lambda: correr_exemplos(raiz),
         "subscricoes": lambda: correr_subscricoes(raiz),
+        "gerados": lambda: correr_gerados(raiz),
         "canario": lambda: correr_canario(raiz),
     }
+    if argumentos.comando == "gerar":
+        try:
+            escritos = gerar_mod.escrever(raiz)
+        except gerar_mod.NaoSeiTraduzirError as erro:
+            print(f"contract_diff gerar: {erro}", file=sys.stderr)
+            return SAIDA_ERRO
+        for caminho in escritos:
+            print(f"contract_diff gerar: {caminho.as_posix()}")
+        return SAIDA_OK
     if argumentos.comando != "check":
         codigo, linhas = partes[argumentos.comando]()
         _escrever(linhas)
         return codigo
 
     pior = SAIDA_OK
-    for nome in ("diff", "pii", "exemplos", "subscricoes", "canario"):
+    for nome in ("diff", "pii", "exemplos", "subscricoes", "gerados", "canario"):
         codigo, linhas = partes[nome]()
         _escrever(linhas)
         pior = max(pior, codigo)
