@@ -4,7 +4,7 @@
 |---|---|
 | Documento | `docs/consumo.md` |
 | Ticket | KAM-006 — Consumidores idempotentes, `events_consumed` e DLQ |
-| Estado | Revisão `0005` aplicada; *wrapper* de consumo (TypeScript e Python), DLQ, `once()` e reconciliador implementados; gate 8 com a *suite* `tests_eventos_consumo` activa. As caixas marcadas e as vazias estão nomeadas na secção de verificação do bloco do ticket |
+| Estado | Revisão `0005` aplicada; *wrapper* de consumo (TypeScript e Python), DLQ, `once()` e reconciliador implementados; gate 8 com a *suite* `tests_eventos_consumo` activa — **19 testes, OK**. O *wrapper* está no estrato `critico` da cobertura (`consumo.ts` 97%, `trabalho.ts` 100%). As caixas marcadas e as vazias estão nomeadas na secção de verificação do bloco do ticket |
 | Âmbito | O lado do **consumidor**: tornar uma entrega *at-least-once* num efeito exactamente-uma-vez, decidir o que fazer com o que falha, e repor o que a fila perdeu. Nada do lado do produtor — isso é `docs/eventos.md` |
 | Fontes | `docs/tecnica/06` §6.3, §6.4, §6.5; `docs/tecnica/00` §6.1; ADR-009, ADR-013; `specs/02` §3 (emenda 1.10) |
 
@@ -298,7 +298,7 @@ o que acabou de ser publicado.
 | Os acoplamentos entre ficheiros | `db/tests/test_consumo_contrato.py` | Texto: o que nenhuma execução distingue de coincidência |
 | A DLQ operada (dois aprovadores, códigos de saída) | `db/tests/test_dlq.py` | PostgreSQL real |
 | O isolamento das três tabelas | `db/tests_isolamento/` | Dois tenants, leitura cruzada, gate 6 |
-| **A transacção, a contagem de tentativas e a reposição** | `db/tests_eventos_consumo/` | PostgreSQL **e fila** reais |
+| **A transacção, a contagem de tentativas e a reposição** | `db/tests_eventos_consumo/` | PostgreSQL **e fila** reais; 19 testes, 94,8 s |
 | A recusa de arranque | `services/worker-canal/tests/consumidor.test.ts` | A função, sem levantar o processo |
 
 ### O relógio acelerado, e porque é honesto

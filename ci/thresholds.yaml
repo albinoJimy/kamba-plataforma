@@ -83,6 +83,29 @@ estratos:
       # `tenant_guard`. A cobertura do logger sozinho mede-se a parte e esta em
       # `docs/logs.md` §8.
       - "*/logger/*"
+      # O *wrapper* de consumo idempotente (KAM-006, ADR-013). **Dois
+      # ficheiros, e nao o modulo `eventos/` inteiro**, e a diferenca importa:
+      #
+      #   consumo.ts    a transaccao — marca de consumo e efeito, juntos. Se
+      #                 esta se partir, um pagamento confirma-se duas vezes ou
+      #                 nenhuma.
+      #   trabalho.ts   a politica — `Adiar`, `fora_de_ordem`, as seis
+      #                 tentativas, a DLQ. E ela que garante que uma transicao
+      #                 invalida nunca se aplica a forca (ADR-013: o `paga` so
+      #                 se alcanca por evento autenticado).
+      #
+      # Entra pela mesma razao que o logger: o DoD do KAM-006 exige «cobertura
+      # >= 90% no *wrapper*», e este estrato e o unico mecanismo que impoe 90%.
+      # Sem o padrao, os dois ficavam no `restante`, a 75%, e a caixa do DoD
+      # nao tinha gate que a sustentasse. Medido ao acrescentar: 97% e 100%.
+      #
+      # O resto de `eventos/` fica de fora **de proposito**. O
+      # `trabalhador_bullmq.ts` e o `filas_bullmq.ts` sao casca sobre o BullMQ:
+      # quem os exercita de verdade e o gate 8, contra uma fila real, e isso
+      # nao produz cobertura V8. Traze-los para ca punha o estrato a 70% e a
+      # vermelho — e o remedio seria apagar o limiar, nao melhorar o codigo.
+      - "*/eventos/consumo.ts"
+      - "*/eventos/trabalho.ts"
 
   - nome: restante
     minimo_linhas: 75
