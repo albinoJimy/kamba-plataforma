@@ -134,7 +134,7 @@ Selecção por tenant: `payment_accounts.provider` + `entitlements`. Preferênci
 
 ### 3.4 AppyPay e EMIS — estado provisório
 
-AppyPay (`POST /charges`, `merchantTransactionId` 1–15 alfanuméricos; OAuth2 *client credentials*; sandbox `gwy-api-tst`) é **INDÍCIO** (SDKs de terceiros). Contrato interno: o `numero_publico` da encomenda (≤ 8 caracteres) é usado como `merchantTransactionId`. Pendente por escrito (`evidencia/E2` §9, perguntas 11–15): assinatura do *webhook*, *retries*, idempotência, ambiente de testes, modelo *partner/ISV*, esquema de auth. EMIS directo: **não adoptar** enquanto o callback não for assinado nem houver consulta; se imposto por um banco, tratar como `callbackAuth='none'` sem `statusQuery` ⇒ **o adaptador não pode confirmar `paga` sozinho** (só `humano_auditado` com reconciliação por extracto).
+AppyPay (`POST /charges`, `merchantTransactionId` 1–15 alfanuméricos; OAuth2 *client credentials*; sandbox `gwy-api-tst`) é **INDÍCIO** (SDKs de terceiros). Contrato interno: o `numero_publico` da encomenda (≤ 8 caracteres) é usado como `merchantTransactionId`. Pendente por escrito (`evidencia/E2` §9, perguntas 11–15): assinatura do *webhook*, *retries*, idempotência, ambiente de testes, modelo *partner/ISV*, esquema de auth. EMIS directo: **não adoptar** enquanto o callback não for assinado nem houver consulta; se imposto por um banco, tratar como `callbackAuth='none'` sem `statusQuery` ⇒ **o adaptador não pode confirmar `paga` sozinho** (só `manual` com reconciliação por extracto).
 
 ### 3.5 Suite de conformidade (por adaptador, no CI com sandbox)
 
@@ -167,7 +167,7 @@ sequenceDiagram
     P->>D: Escreva o valor que viu na sua app
     D->>P: 12000
     alt valor igual e dentro do limite e sem dupla exigida
-        P->>P: evento pagamento_confirmado (humano_auditado)
+        P->>P: evento pagamento_confirmado (manual)
         P->>K: payment.manual_confirmed
         K->>K: pendente_confirmacao para paga
         A-->>C: Pagamento confirmado pela loja
@@ -190,7 +190,7 @@ sequenceDiagram
 | M-3 | Limite diário e por contacto | `manual_daily_max_minor` por tenant e `manual_max_por_contacto_24h`; excedido ⇒ retém para ops. |
 | M-4 | **Dupla verificação** (a) | Desafio do valor: o dono escreve o valor visto **na sua** app do banco; tem de igualar `amount_minor` (sem tolerância). Evita toques por engano e confirmação induzida. |
 | M-5 | Dupla verificação (b) acima do limiar | `manual_dupla_acima_minor` (proposta **20 000 Kz**): segunda aprovação por outro `payment_confirmer` ou chamada de retorno de ops ao número registado do dono. |
-| M-6 | Auditoria total | Cada fase em `manual_confirmations` (actor, `canal_msg_id`, valor declarado, hora) + evento no ledger com `authn_method='humano_auditado'` e `actor_id` obrigatório. |
+| M-6 | Auditoria total | Cada fase em `manual_confirmations` (actor, `canal_msg_id`, valor declarado, hora) + evento no ledger com `authn_method='manual'` e `actor_id` obrigatório. |
 | M-7 | Evidência ≠ prova | Imagem do cliente guarda-se como `evidencia_ref` com rótulo `nao_prova`; o agente **não** lê o valor da imagem para decidir. |
 | M-8 | Sem retroacção silenciosa | Reverter uma confirmação (engano, fraude descoberta) = evento `confirmacao_manual_revertida` + `refund_cases` + `paga → reembolso_pendente` (03 §6.2); nunca apagar. |
 | M-9 | Avisos fixos | O cliente é informado de que a confirmação é feita pela loja; reviews de pedidos `manual_auditado` têm `peso_ranking=0` (03 §9). |
@@ -217,7 +217,7 @@ sequenceDiagram
 
 **Replay.** O HMAC do ProxyPay cobre apenas o corpo e **não há *timestamp* assinado documentado** (NÃO VERIFICADO); portanto a janela «±5 min» do GWY (doc 00 §4) **não é implementável** nesse adaptador. A defesa contra *replay* é a **idempotência** (G7) mais o ligamento do corpo a `{referencia, valor}`: reentregar um corpo válido só repete um facto já registado. Se um adaptador expuser *timestamp* assinado, aplica-se a janela de ±5 min em cima de G7. Lista de IPs de origem: aplicar quando o facilitador a publicar (NÃO VERIFICADO).
 
-**Facilitadores sem assinatura** (OPG, EMIS, MoMenu): o callback é apenas uma **dica**; o PAY executa `status()` e só então avalia G2–G7 (`authn_method='status_pull'`). Sem `statusQuery` o adaptador não pode confirmar (§3.4).
+**Facilitadores sem assinatura** (OPG, EMIS, MoMenu): o callback é apenas uma **dica**; o PAY executa `status()` e só então avalia G2–G7 (`authn_method='consulta'`). Sem `statusQuery` o adaptador não pode confirmar (§3.4).
 
 ### 5.1 Tratamento do callback (esquema)
 
@@ -229,7 +229,7 @@ POST /hooks/pay/{provider}/{webhook_token}        # token opaco por payment_acco
   except AuthError: inbox.mark(receipt,'hmac_invalido'); return 401
   return 200                                        # 2xx rapido (<500 ms); o resto assincrono a partir do inbox
 worker(receipt):
-  for ev in evs (ou status_pull(ev)):               # idempotente por provider_event_id (G7)
+  for ev in evs (ou consulta(ev)):               # idempotente por provider_event_id (G7)
      BEGIN
        SELECT ... FROM payment_charges WHERE account_id=:a AND referencia=:r FOR UPDATE   # G3
        append_payment_event('pagamento_recebido', authn_ok=true, ...)
@@ -334,7 +334,7 @@ CREATE TABLE platform.payment_events (                               -- LEDGER a
   sequencia        integer NOT NULL CHECK (sequencia >= 1),          -- n-esima ocorrencia deste tipo para esta referencia
   provider_event_id text, valor_minor      bigint NOT NULL CHECK (valor_minor >= 0),
   currency         char(3) NOT NULL DEFAULT 'AOA',
-  authn_method     text NOT NULL CHECK (authn_method IN ('hmac_sha256','status_pull','humano_auditado','sistema')),
+  authn_method     text NOT NULL CHECK (authn_method IN ('hmac','consulta','manual','sistema')),
   authn_ok         boolean NOT NULL, decisao          text NOT NULL CHECK (decisao IN ('aceite','rejeitada','informativo')),
   motivo           text, actor_kind       text NOT NULL CHECK (actor_kind IN ('provider','dono','ops','sistema')),
   actor_id         uuid,
@@ -344,8 +344,8 @@ CREATE TABLE platform.payment_events (                               -- LEDGER a
   CONSTRAINT payment_events_uq UNIQUE (provider, account_id, referencia, tipo_evento, sequencia),
   CONSTRAINT payment_events_um_sujeito CHECK ((order_id IS NULL) <> (billing_cycle_id IS NULL)),
   CONSTRAINT confirmar_exige_autenticacao CHECK (tipo_evento <> 'pagamento_confirmado'
-      OR (authn_ok AND decisao = 'aceite' AND authn_method IN ('hmac_sha256','status_pull','humano_auditado'))),
-  CONSTRAINT humano_exige_actor CHECK (authn_method <> 'humano_auditado' OR actor_id IS NOT NULL)
+      OR (authn_ok AND decisao = 'aceite' AND authn_method IN ('hmac','consulta','manual'))),
+  CONSTRAINT humano_exige_actor CHECK (authn_method <> 'manual' OR actor_id IS NOT NULL)
 );
 CREATE UNIQUE INDEX payment_events_entrega_uq ON platform.payment_events (provider, account_id, provider_event_id)
   WHERE provider_event_id IS NOT NULL AND tipo_evento = 'pagamento_recebido';        -- dedupe de entregas (G7)
@@ -358,10 +358,12 @@ CREATE TRIGGER payment_events_imutavel BEFORE UPDATE OR DELETE ON platform.payme
   FOR EACH ROW EXECUTE FUNCTION platform.deny_mutation();
 CREATE TRIGGER payment_events_sem_truncate BEFORE TRUNCATE ON platform.payment_events
   FOR EACH STATEMENT EXECUTE FUNCTION platform.deny_mutation();
-REVOKE ALL ON platform.payment_events FROM PUBLIC, kamba_app, kamba_ops;
-GRANT SELECT ON platform.payment_events TO kamba_app, kamba_ops;
+REVOKE ALL ON platform.payment_events FROM PUBLIC, kamba_app, kamba_batch;
+GRANT SELECT ON platform.payment_events TO kamba_app, kamba_batch;
 -- platform.append_payment_event(...) SECURITY DEFINER: unico caminho de INSERT; GRANT EXECUTE a kamba_app.
 ```
+
+**Decisão em aberto — o quarto valor de `authn_method` (KAM-053).** O dicionário de dados (§3.4) fixa `authn_method` ∈ {`hmac`, `manual`, `consulta`} — **três** valores. O `CHECK` acima mantém um quarto valor, `sistema`, que **não tem contrapartida no dicionário** e que por isso **não foi traduzido** nesta emenda. A pergunta que falta responder é esta: um pagamento confirmado pela própria plataforma (reconciliação por extracto, `ajuste_reconciliacao`) é `consulta` ou exige um valor novo no dicionário? A decisão pertence a quem escrever o **KAM-053**; até lá o `sistema` fica como está no DDL e não deve ser removido nem reinterpretado por uma correcção de nomenclatura. Note-se que `sistema` não consta da restrição `confirmar_exige_autenticacao`, ou seja, hoje um evento `pagamento_confirmado` **não** pode ser autenticado por `sistema`.
 
 **`append_payment_event` (contrato).** Dentro de uma transacção: (1) `SELECT … FROM payment_charges WHERE id = :charge FOR UPDATE` (serializa); (2) calcula `sequencia = 1 + count(*)` dos eventos do mesmo `(provider, account_id, referencia, tipo_evento)`; (3) recusa `pagamento_confirmado` se `valor_minor ≠ charge.amount_minor`, se `account_id` difere ou se `authn_ok` é falso (cinto-e-suspensórios sobre o CHECK); (4) calcula `row_hash = sha256(prev_hash ‖ campos canónicos)` com `prev_hash` do último evento da cobrança; (5) insere; (6) **projecta** `payment_charges.estado` pela função pura `next_state(estado, tipo_evento, decisao)` (§7); (7) escreve no `events_outbox` (`payment.confirmed`, `payment.mismatch`, …). A cadeia de *hashes* é verificada diariamente e a *cabeça* da cadeia exportada para STO (âncora externa). `rebuild_charge_state(charge_id)` reproduz o estado a partir dos eventos; um *job* nocturno compara-o com a projecção e alerta divergências.
 
@@ -412,7 +414,7 @@ stateDiagram-v2
     aguarda_cliente --> expirada: 30 min OPG
     aguarda_cliente --> falhada: recusa, saldo, limite ou timeout 90 s
     emitida --> falhada: valor ou referencia divergente (requer_humano)
-    falhada --> paga: divergencia aceite por ops (humano_auditado, dupla)
+    falhada --> paga: divergencia aceite por ops (manual, dupla)
     emitida --> cancelada: pedido cancelado
     expirada --> paga: pagamento tardio autenticado
     paga --> reembolso_pendente: disputa
@@ -442,11 +444,11 @@ Correspondência com a encomenda (`03` §6): cobrança `paga` ⇒ `payment.confi
 | F-11 | **OPG: cobrança pendente 30 min** | TTL do OPG | `expirada` | `cobranca_expirada` |
 | F-12 | **Saldo (2001), limite (2003), recusa (3000)** | códigos OPG | mensagens de §3.3; oferecer referência como alternativa | `pagamento_rejeitado_provider` |
 | F-13 | **Facilitador indisponível / 429** | `UNAVAILABLE`/`RATE_LIMIT` | fila com *backoff*; encomenda fica `criada`; cliente informado sem prometer prazo; fallback **só** `ManualProvider` (nunca comprovativo) | `cobranca_criada` falhada |
-| F-14 | **Webhook perdido** | reconciliação (§8) | *job* processa pela mesma via | `pagamento_recebido` (`status_pull`) |
+| F-14 | **Webhook perdido** | reconciliação (§8) | *job* processa pela mesma via | `pagamento_recebido` (`consulta`) |
 | F-15 | **Pagamento numa encomenda `cancelada`** | G6 | `refund_cases` + alerta | `pagamento_recebido` |
 | F-16 | **Rotação de chave / chave errada** | G1 falha em massa | janela de duas chaves; alerta | inbox |
 | F-17 | **Moeda ≠ AOA ou formato de valor** | G4 | divergência; conversão **sempre** de `Minor` para `decimal2`/`inteiro_kz` no adaptador, nunca *floats* | — |
-| F-18 | **Dono rejeita / não responde (Manual)** | TTL da confirmação (omissão 24 h) | `pendente_confirmacao → emitida`; reserva mantém-se até `expires_at` | `confirmacao_manual_rejeitada` |
+| F-18 | **Dono rejeita / não responde (Manual)** | TTL da confirmação (omissão 24 h) | `pendente_confirmacao → emitida`; reserva mantém-se até `expira_at` | `confirmacao_manual_rejeitada` |
 
 ---
 
@@ -457,7 +459,7 @@ Dois mecanismos independentes, ambos a passar por **G1–G8** (a reconciliação
 | Mecanismo | Frequência | Acção |
 |---|---|---|
 | **Fila do facilitador** (ProxyPay RPS) | 5 min por conta activa; *on-demand* antes de expirar uma reserva (03 §6.5) e quando o cliente diz «já paguei» | `GET /payments?n=100` ⇒ processa cada pagamento ⇒ **após o commit no ledger**, `DELETE /payments/{id}` |
-| **Consulta de transacção** (OPG, AppyPay) | em cada cobrança `aguarda_cliente` a cada 30 s nos primeiros 3 min, depois 5 min até ao fim | `status()` ⇒ evento `status_pull` |
+| **Consulta de transacção** (OPG, AppyPay) | em cada cobrança `aguarda_cliente` a cada 30 s nos primeiros 3 min, depois 5 min até ao fim | `status()` ⇒ evento `consulta` |
 | **Extracto bancário** (Piloto: manual; C: API do banco, NÃO VERIFICADO) | diária | CSV do banco da PME comparado com `paga`; diferenças ⇒ `ajuste_reconciliacao` (compensatório) e caso para ops |
 | **Integridade do ledger** | diária | verifica cadeia de *hashes*; `rebuild_charge_state` vs projecção; exporta cabeça da cadeia para STO |
 
@@ -492,7 +494,7 @@ sequenceDiagram
 | Ameaça | Vector | Controlo | Fase |
 |---|---|---|---|
 | **Comprovativo falso** (CONFIRMADO, `evidencia/E2` §4) | Transferência real de montante ínfimo + imagem editada | Imagem nunca é prova (ADR-013); M-1..M-10; desafio do valor; limites; só facilitador autenticado faz `paga` sem humano | P |
-| **Callback forjado** | POST falso ao *webhook* | *Token* opaco por conta, HMAC, estado `status_pull`, G2–G5, alerta a falhas de HMAC | P |
+| **Callback forjado** | POST falso ao *webhook* | *Token* opaco por conta, HMAC, estado `consulta`, G2–G5, alerta a falhas de HMAC | P |
 | **Replay** | Reentrega de corpo válido | Idempotência G7; recibos; (janela de tempo se houver *timestamp* assinado) | P |
 | **Phishing a clientes** (CONFIRMADO, EMIS alerta) | Falsos pedidos, SMS, apps | O bot **nunca** pede PIN, códigos ou números de cartão; mensagens de cobrança com aviso fixo («a aprovação aparece na sua app do banco; nunca partilhe o PIN»); sem links de pagamento; instrução de ignorar links «da EMIS» | P |
 | **Auto-compra** (reviews e histórico) | Dono ou conhecido compra para fabricar prova | `contacts.phone_hmac = dono`, `payer_hmac` = dono/funcionários ⇒ `fraud_signals` + review `retida`; valor mínimo; sem Score no Piloto (03 §9) | P |
@@ -695,7 +697,7 @@ Fluxo: `payment.confirmed` ⇒ (se o tenant tem a vertical activa e obrigação 
 | Risco | Impacto | Mitigação |
 |---|---|---|
 | Sem facilitador a tempo (bancos, EMIS) | Sem camada de pagamento autenticado | `ManualProvider` com limites; contratos na semana 1 (D4); H5 como gatilho de pivô (`../exploracao/14` §6) |
-| Callback não assinado (OPG, EMIS, MoMenu) | Confirmações forjadas | Dica + `status_pull`; adaptador sem consulta não confirma |
+| Callback não assinado (OPG, EMIS, MoMenu) | Confirmações forjadas | Dica + `consulta`; adaptador sem consulta não confirma |
 | Comprovativo falso no `ManualProvider` | Perda por fraude | M-1..M-10; limites baixos; dupla verificação; revisão de limites com dados |
 | Dono incorrecto ou conta WhatsApp sequestrada | Confirmações indevidas | Limiares, chamada de retorno, notificação 2.º canal |
 | Reconhecer (DELETE) pagamentos de outra integração da PME | Perda de pagamentos de terceiros | Chave dedicada; só reconhecer cobranças nossas (§8) |
@@ -759,3 +761,4 @@ Fluxo: `payment.confirmed` ⇒ (se o tenant tem a vertical activa e obrigação 
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: `PaymentProvider` e adaptadores, `ManualProvider`, regra de autenticidade, ledger corrigido, reconciliação, BNA, comissão e billing, anti-fraude, câmbio, e-factura. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §4.1, D-05 (`payment.manual_confirmed`); §6.2, D-04 (`authn_ok`); FK para `contacts(contact_id)`, D-01. | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | **Emendas KAM-139 e KAM-141** (contradições do dicionário): §3.4, §4.1, §4.2, §5, §5.1, §6.2, §7.1, §7.2, §8, §9 e §15 — os valores de `authn_method` passam às formas canónicas `hmac`, `manual` e `consulta` (dicionário §3.4, emenda 1.13; o algoritmo **HMAC-SHA256** mantém o nome); os `REVOKE`/`GRANT` do ledger passam a usar `kamba_batch` (dicionário §3.2); a reserva de F-18 mantém-se até `expira_at` (dicionário §3.3, emenda 1.12); o quarto valor `sistema` do `CHECK` fica assinalado como decisão em aberto para o KAM-053. | Equipa KAMBÁ |

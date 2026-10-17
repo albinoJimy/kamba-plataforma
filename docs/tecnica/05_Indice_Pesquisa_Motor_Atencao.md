@@ -146,7 +146,7 @@ Cada alteração incrementa `idx.norm_versao` global; um *worker* reindexa em se
 normalizar(texto, tenant_id, origem: 'texto' | 'voz'):
   1. NFKC; minúsculas; f_unaccent; remover emojis e pontuação; colapsar espaços
   2. se origem == 'voz': converter números por extenso ("duzentos e cinquenta mil" -> 250000)
-  3. extrair restrições numéricas  -> {max_preco_kz, min_preco_kz, qtd}        (§5.2)  -- NÃO vão ao índice
+  3. extrair restrições numéricas  -> {max_preco_minor, min_preco_minor, qtd}  (§5.2)  -- NÃO vão ao índice
   4. canonizar unidades            ("litros","lt","l" -> l ; "giga","gb" -> gb ; "polegadas","pol",'"' -> pol)
   5. canonizar marcas              (tabela tipo='marca', tenant > global)
   6. corrigir erros comuns         (tabela tipo='erro_comum'), depois typo por vocabulário (§5.3)
@@ -165,13 +165,13 @@ Exemplos de dicionário (**ilustrativos**; o léxico real é curado por *ops* e 
 | erro_comum | `niker`, `naike` | `nike` | |
 
 ### 5.2 Números, moeda e restrições
-O preço que o cliente diz é **restrição**, não texto de índice. É extraído no passo 3 e aplicado sobre a **oferta viva** (§6.3), nunca sobre o índice.
+O preço que o cliente diz é **restrição**, não texto de índice. É extraído no passo 3 e aplicado sobre a **oferta viva** (§6.3), nunca sobre o índice. O cliente fala em Kz; as restrições são guardadas na **unidade menor inteira** (cêntimos de AOA, dicionário §2), daí o factor 100 entre a coluna da esquerda e a da direita.
 
 | Entrada | Saída |
 |---|---|
-| `até 250 mil`, `no máximo 250k`, `menos de 250.000 kz` | `max_preco_kz = 250000` |
-| `entre 100 e 150 mil` | `min=100000, max=150000` |
-| `250 mil` sem verbo de limite | `alvo_preco_kz = 250000` (ordena por proximidade, não filtra) |
+| `até 250 mil`, `no máximo 250k`, `menos de 250.000 kz` | `max_preco_minor = 25000000` |
+| `entre 100 e 150 mil` | `min=10000000, max=15000000` |
+| `250 mil` sem verbo de limite | `alvo_preco_minor = 25000000` (ordena por proximidade, não filtra) |
 | `kz`, `kwanza(s)`, `akz`, `kuanza` | moeda AOA; qualquer outra moeda → pergunta |
 
 ### 5.3 Typos e «não resolvido»
@@ -256,16 +256,16 @@ Notas de execução: (i) o chamador faz `BEGIN; SET LOCAL pg_trgm.word_similarit
 Executada **dentro** da tool `search_products` da TLS (`tenant_id` vem do estado, nunca do texto). `com.v_oferta_viva` é um **contrato de leitura do COM** (nome ilustrativo; depende do spike D3), não DDL deste documento.
 
 ```sql
--- $1 tenant, $2 q_norm, $3 q_or, $4 halfvec|NULL, $5 max_preco_kz|NULL
-SELECT c.o_product_ref, c.o_score, v.sku, v.nome, v.preco_kz, v.preco_tipo, v.stock_disp
+-- $1 tenant, $2 q_norm, $3 q_or, $4 halfvec|NULL, $5 max_preco_minor|NULL
+SELECT c.o_product_ref, c.o_score, v.sku, v.nome, v.preco_minor, v.preco_tipo, v.stock_disp
 FROM idx.candidatos($1, $2, $3, $4) c
 JOIN com.v_oferta_viva v ON v.tenant_id = $1 AND v.product_ref = c.o_product_ref
-WHERE v.publicado AND v.stock_disp > 0 AND ($5::int IS NULL OR v.preco_kz <= $5)
-ORDER BY c.o_score DESC, v.preco_kz ASC
+WHERE v.publicado AND v.stock_disp > 0 AND ($5::bigint IS NULL OR v.preco_minor <= $5)
+ORDER BY c.o_score DESC, v.preco_minor ASC
 LIMIT 3;
 ```
 
-Contrato de saída da tool: `[{sku, product_ref, nome, preco_kz, preco_tipo ('exato'|'a_partir_de'|'sob_consulta'), disponivel, fonte:'registo', lido_em}]`. O validador de citação (doc 02) aceita **só** `sku` e números presentes neste *output*; resposta com `sku` ausente é rejeitada (cobre «produto errado com preço certo», a lacuna que o ADR-007 assinala). Se o filtro vivo deixar < 3 resultados, o AGR oferece os *indisponíveis* marcados «sem stock — avisar quando houver» e, com `max_preco_kz`, o mais próximo acima do limite.
+Contrato de saída da tool: `[{sku, product_ref, nome, preco_minor, preco_tipo ('fixo'|'a_partir_de'|'sob_consulta'), disponivel, fonte:'registo', lido_em}]`. `preco_minor` vem em cêntimos de AOA (dicionário §2), não em Kz inteiros. O validador de citação (doc 02) aceita **só** `sku` e números presentes neste *output*; resposta com `sku` ausente é rejeitada (cobre «produto errado com preço certo», a lacuna que o ADR-007 assinala). Se o filtro vivo deixar < 3 resultados, o AGR oferece os *indisponíveis* marcados «sem stock — avisar quando houver» e, com `max_preco_minor`, o mais próximo acima do limite.
 
 ### 6.4 Teste executável (CI)
 ```sql
@@ -428,7 +428,7 @@ Refresco nocturno + incremental por `review.created`/`review.removed` (doc 06). 
 | R1 Só pedido `entregue` **e** `paga` por evento autenticado (ADR-013). Pagamento por `ManualProvider` pesa ≤ 0,5 | prevenção | `payment_events`, `orders_mirror` |
 | R2 Um review por pedido (já `UNIQUE`); um mesmo `contact_id` > 2 reviews/tenant/90 d → peso 1/n | dissuasão | `reviews` |
 | R3 `contact_id` ∈ `tenant_staff_contact` (dono, funcionários, agente de activação) → inelegível | prevenção | registo de contactos internos do tenant |
-| R4 Valor do pedido < `valor_min_review_kz` (parametrizável) → peso 0,3 | dissuasão (farming barato) | `orders_mirror` |
+| R4 Valor do pedido < `valor_min_review_minor` (parametrizável) → peso 0,3 | dissuasão (farming barato) | `orders_mirror` |
 | R5 Contacto criado há < 24 h com 1.º pedido do tenant e review em < 2 h após entrega → peso 0,5 | detecção | `contacts`, `orders_mirror` |
 | R6 > 40% das reviews do tenant em 7 d de ≤ 3 `contact_id` novos → *flag* para T&S, pesos a 0 até revisão | detecção | `rep.v_reputacao` |
 | R7 Circularidade: tenants A e B com pedidos cruzados entre si em janela curta (contactos de staff de A compram em B e vice-versa) → *flag* T&S | detecção | grafo `(tenant_staff_contact × orders)` |
@@ -462,7 +462,7 @@ O consumidor publica o que procura («portátil i5 até 350 mil, Cazenga») e as
 ```sql
 CREATE TABLE idx.pedido_procura (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(), contact_id uuid NOT NULL,   -- nunca msisdn (ADR-010)
-  texto_norm text NOT NULL, categoria text, zona text, max_preco_kz int,
+  texto_norm text NOT NULL, categoria text, zona text, max_preco_minor bigint,
   estado text NOT NULL DEFAULT 'aberto'
      CHECK (estado IN ('aberto','com_ofertas','fechado','expirado','cancelado','sem_resposta')),
   consentimento_partilha boolean NOT NULL,      -- sem isto não se contacta nenhuma loja
@@ -521,7 +521,7 @@ CREATE TABLE ads.placement (
   placement_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   anunciante_tenant_id uuid NOT NULL REFERENCES tenants(id),
   categoria text NOT NULL, zona text NOT NULL, mes date NOT NULL, slot smallint NOT NULL DEFAULT 1,
-  preco_kz int NOT NULL, estado text NOT NULL DEFAULT 'rascunho'
+  preco_minor bigint NOT NULL, estado text NOT NULL DEFAULT 'rascunho'
      CHECK (estado IN ('rascunho','activo','pausado','terminado')),
   UNIQUE (categoria, zona, mes, slot));
 CREATE TABLE ads.conversao (
@@ -588,7 +588,7 @@ Formato (JSONL), versionado em Git, um ficheiro por *snapshot* de catálogo:
 
 ```json
 {"qid":"q-0042","tenant":"tenant-sintetico-03","origem":"voz","texto":"quero uma geleira de 250 litros",
- "tags":["regionalismo","unidade"],"restricoes":{"max_preco_kz":null},
+ "tags":["regionalismo","unidade"],"restricoes":{"max_preco_minor":null},
  "relevantes":[{"product_ref":"p-118","grau":3},{"product_ref":"p-121","grau":2}],"nao_resolvivel":false}
 ```
 
@@ -675,3 +675,4 @@ Por tenant e por dia (`dat.metricas_pesquisa`, doc 06): consultas, `resultado` (
 | 1.0 | Outubro 2026 | Emissão inicial. Corrige a query híbrida do doc 11 §7; fixa índice por tenant (P) e federado (C); especifica como Diferido o assistente de consumo, «quero comprar» e AdsEngine; remove os grupos de bairro. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §10 e §12, D-02 (`consent_event`). | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-128: As **12** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
+| 1.3 | Outubro 2026 | **KAM-139** (contradições do dicionário): §5.1, §5.2, §6.3, §9.3, §11, §12.3 e §14.1 passam a usar `preco_minor` e `preco_tipo = 'fixo'` (dicionário §3.3), em vez do nome em Kz e do valor antigos. A troca muda a **unidade**, não só o nome: os valores de exemplo são multiplicados por 100 (cêntimos de AOA, dicionário §2) e os tipos SQL passam de `int` a `bigint`. Os derivados em `*_kz` (máximo, mínimo e alvo de preço na normalização; mínimo de valor para rever em §9.3), que o *gate* não apanha por não estarem registados, seguem a mesma regra `*_kz` → `*_minor`. | Equipa KAMBÁ |
