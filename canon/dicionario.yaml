@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.13"
+versao_dicionario: "1.14"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -560,6 +560,114 @@ entradas:
       - "contacts.papel"
       - "entitlements.modulo"
     nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.2"
+    conceito: "Registo de auditoria"
+    canonico: "audit_log(id, criado_at, tenant_id, actor_type, actor_id, action, entity, entity_id, turn_id, payload_hash, prev_hash, row_hash)"
+    literais:
+      - "audit_log(id, criado_at, tenant_id, actor_type, actor_id, action, entity, entity_id, turn_id, payload_hash, prev_hash, row_hash)"
+    nomes:
+      - "audit_log"
+      - "id"
+      - "criado_at"
+      - "tenant_id"
+      - "actor_type"
+      - "actor_id"
+      - "action"
+      - "entity"
+      - "entity_id"
+      - "turn_id"
+      - "payload_hash"
+      - "prev_hash"
+      - "row_hash"
+    nomes_nota:
+      - "criado_at"
+      - "_at"
+      - "tenant_id"
+      - "REVOKE"
+      - "UPDATE"
+      - "DELETE"
+      - "TRUNCATE"
+    variantes_literais: []
+  - seccao: "3.2"
+    conceito: "Ator de uma linha de auditoria"
+    canonico: "actor_type ∈ {contact, owner, staff, agent, system}"
+    literais:
+      - "actor_type"
+      - "contact"
+      - "owner"
+      - "staff"
+      - "agent"
+      - "system"
+    nomes:
+      - "actor_type"
+      - "contact"
+      - "owner"
+      - "staff"
+      - "agent"
+      - "system"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.2"
+    conceito: "Acções auditadas"
+    canonico: "action ∈ {price.update, stock.adjust, payment.manual_confirm, access.conversation, batch.run, breakglass.open, audit.read}"
+    literais:
+      - "action"
+      - "price.update"
+      - "stock.adjust"
+      - "payment.manual_confirm"
+      - "access.conversation"
+      - "batch.run"
+      - "breakglass.open"
+      - "audit.read"
+    nomes:
+      - "action"
+      - "price.update"
+      - "stock.adjust"
+      - "payment.manual_confirm"
+      - "access.conversation"
+      - "batch.run"
+      - "breakglass.open"
+      - "audit.read"
+    nomes_nota:
+      - "audit.read"
+    variantes_literais: []
+  - seccao: "3.2"
+    conceito: "Cabeça da cadeia de auditoria"
+    canonico: "audit_heads(tenant_id, chave, last_hash)"
+    literais:
+      - "audit_heads(tenant_id, chave, last_hash)"
+    nomes:
+      - "audit_heads"
+      - "tenant_id"
+      - "chave"
+      - "last_hash"
+    nomes_nota:
+      - "last_hash"
+      - "row_hash"
+      - "chave"
+      - "coalesce"
+      - "tenant_id"
+      - "zero"
+      - "ON"
+      - "CONFLICT"
+      - "NULL"
+    variantes_literais: []
+  - seccao: "3.2"
+    conceito: "Papel de auditoria"
+    canonico: "kamba_audit — NOBYPASSRLS, sem DDL; único com SELECT em audit_log"
+    literais:
+      - "kamba_audit"
+      - "NOBYPASSRLS"
+      - "SELECT"
+      - "audit_log"
+    nomes:
+      - "kamba_audit"
+      - "NOBYPASSRLS"
+      - "SELECT"
+      - "audit_log"
+    nomes_nota:
+      - "kamba_app"
     variantes_literais: []
   - seccao: "3.3"
     conceito: "Preço"
@@ -1889,6 +1997,35 @@ tabelas:
     assinatura: "tenants(id, tipo, estado)"
     seccao: "3.2"
     conceito: "Papel do resolvedor"
+  - nome: "audit_log"
+    esquema: ""
+    colunas:
+      - "id"
+      - "criado_at"
+      - "tenant_id"
+      - "actor_type"
+      - "actor_id"
+      - "action"
+      - "entity"
+      - "entity_id"
+      - "turn_id"
+      - "payload_hash"
+      - "prev_hash"
+      - "row_hash"
+    aberta: false
+    assinatura: "audit_log(id, criado_at, tenant_id, actor_type, actor_id, action, entity, entity_id, turn_id, payload_hash, prev_hash, row_hash)"
+    seccao: "3.2"
+    conceito: "Registo de auditoria"
+  - nome: "audit_heads"
+    esquema: ""
+    colunas:
+      - "tenant_id"
+      - "chave"
+      - "last_hash"
+    aberta: false
+    assinatura: "audit_heads(tenant_id, chave, last_hash)"
+    seccao: "3.2"
+    conceito: "Cabeça da cadeia de auditoria"
   - nome: "bookings"
     esquema: ""
     colunas:
@@ -2064,6 +2201,28 @@ dominios:
     seccao: "3.2"
     conceito: "Vertical"
     so_no_registo: true
+  - coluna: "actor_type"
+    valores:
+      - "contact"
+      - "owner"
+      - "staff"
+      - "agent"
+      - "system"
+    seccao: "3.2"
+    conceito: "Ator de uma linha de auditoria"
+    so_no_registo: false
+  - coluna: "action"
+    valores:
+      - "price.update"
+      - "stock.adjust"
+      - "payment.manual_confirm"
+      - "access.conversation"
+      - "batch.run"
+      - "breakglass.open"
+      - "audit.read"
+    seccao: "3.2"
+    conceito: "Acções auditadas"
+    so_no_registo: false
   - coluna: "preco_tipo"
     valores:
       - "fixo"
