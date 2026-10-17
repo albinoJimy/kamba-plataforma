@@ -93,6 +93,10 @@ SUITES = (
     "tests_eventos",
     "tests_eventos_consumo",
     "tests_eventos_carga",
+    # KAM-012: as mil insercoes concorrentes do criterio 3. Suite propria pela
+    # mesma razao que a carga de eventos — custa minutos, e uma suite custa
+    # isso por cada mutacao que a escolha.
+    "tests_auditoria_carga",
 )
 #: As que precisam tambem de uma fila.
 SUITES_COM_FILA = ("tests_eventos", "tests_eventos_consumo", "tests_eventos_carga")

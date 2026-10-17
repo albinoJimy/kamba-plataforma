@@ -32,6 +32,7 @@ def main() -> int:
         "tests_eventos",
         "tests_eventos_consumo",
         "tests_eventos_carga",
+        "tests_auditoria_carga",
     ):
         print(f"suite desconhecida: {directorio!r}", file=sys.stderr)
         return 2
