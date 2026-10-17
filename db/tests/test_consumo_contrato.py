@@ -169,6 +169,46 @@ class TestReentradaNaDlq(unittest.TestCase):
             self.assertNotIn(proibido, concedidos)
 
 
+class TestLigacaoDoWorker(unittest.TestCase):
+    """O *worker* espera; o publicador desiste. E tem de ser ao contrario.
+
+    O BullMQ **recusa-se** a criar um `Worker` sobre um cliente com
+    `maxRetriesPerRequest` diferente de `null` — «Your redis options
+    maxRetriesPerRequest must be null» — e tem razao: um *worker* fica
+    bloqueado num `BRPOPLPUSH`, e uma leitura que desiste ao fim de N
+    tentativas transforma uma reconexao numa paragem de consumo.
+
+    O publicador quer o oposto, e tambem por boa razao: com a fila em baixo o
+    `add` tem de **falhar**, para o outbox recuar e tentar outra vez (KAM-005,
+    criterio 4).
+
+    Le-se como texto porque o sintoma e o processo a morrer ao arrancar: a
+    suite com fila da dezanove testes vermelhos com a mesma linha no registo, e
+    nenhum deles aponta para a causa. Este aponta.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.filas = (EVENTOS / "filas_bullmq.ts").read_text(encoding="utf-8")
+        cls.trabalhador = (EVENTOS / "trabalhador_bullmq.ts").read_text(encoding="utf-8")
+
+    def test_o_worker_usa_a_ligacao_que_espera(self) -> None:
+        self.assertIn("...LIGACAO_QUE_ESPERA", self.trabalhador)
+        self.assertNotIn("LIGACAO_QUE_FALHA_DEPRESSA", self.trabalhador)
+
+    def test_a_ligacao_que_espera_tem_maxRetriesPerRequest_nulo(self) -> None:
+        bloco = self.filas[self.filas.index("export const LIGACAO_QUE_ESPERA") :]
+        bloco = bloco[: bloco.index("};")]
+        self.assertIn("maxRetriesPerRequest: null", bloco)
+
+    def test_a_do_publicador_continua_a_desistir(self) -> None:
+        """A correccao do consumidor nao pode desfazer o criterio 4 do KAM-005."""
+        bloco = self.filas[self.filas.index("export const LIGACAO_QUE_FALHA_DEPRESSA") :]
+        bloco = bloco[: bloco.index("};")]
+        self.assertIn("enableOfflineQueue: false", bloco)
+        self.assertIn("maxRetriesPerRequest: 1", bloco)
+
+
 class TestUmaLigacaoPorFila(unittest.TestCase):
     """A ligacao e por fila, e isso nao se ve a correr com uma particao."""
 

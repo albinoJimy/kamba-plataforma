@@ -88,6 +88,35 @@ export const LIGACAO_QUE_FALHA_DEPRESSA = {
 };
 
 /**
+ * A ligação de quem **consome**, que é o oposto da de cima — e tem de ser.
+ *
+ * O BullMQ **recusa-se** a criar um `Worker` sobre uma ligação com
+ * `maxRetriesPerRequest` diferente de `null`: «Your redis options
+ * maxRetriesPerRequest must be null». Não é uma preferência dele; é o que um
+ * *worker* precisa. Ele fica bloqueado num `BRPOPLPUSH` à espera do próximo
+ * *job*, e uma leitura que desiste ao fim de N tentativas transforma uma
+ * reconexão numa paragem de consumo.
+ *
+ * As duas exigências são opostas porque os dois lados querem coisas opostas:
+ *
+ *     publicador   o `add` tem de **falhar** com a fila em baixo, para o
+ *                  outbox recuar e tentar outra vez. O outbox é a verdade, e
+ *                  só o é se a falha chegar até ele (KAM-005, critério 4).
+ *     consumidor   a leitura tem de **esperar**. Não há nada para recuar: o
+ *                  que ele perderia ao desistir não volta por si, e a rede
+ *                  para o que se perde é o reconciliador (§6.5).
+ *
+ * Aprendeu-se à custa de dezanove testes vermelhos no gate 8, todos com a
+ * mesma linha no registo do processo: o consumidor morria ao arrancar.
+ */
+export const LIGACAO_QUE_ESPERA = {
+  // `null`, e não um número: é o que o BullMQ exige de um `Worker`.
+  maxRetriesPerRequest: null,
+  connectTimeout: 5_000,
+  retryStrategy: (tentativas: number) => Math.min(tentativas * 200, 2_000),
+};
+
+/**
  * Quanto tempo um `addLote` pode levar antes de se declarar a fila indisponível.
  *
  * **Isto é o que torna o critério 4 possível, e é a terceira correcção ao mesmo

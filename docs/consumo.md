@@ -112,6 +112,25 @@ vem do *job*: o publicador põe-no nos dados e o reconciliador também. É um
 ponteiro, não uma autoridade: se não for o do evento, a leitura sob RLS não vê
 nada e falha fechada.
 
+### A ligação à fila: o consumidor espera, o publicador desiste
+
+O BullMQ **recusa-se** a criar um `Worker` sobre um cliente com
+`maxRetriesPerRequest` diferente de `null`, e tem razão: um *worker* fica
+bloqueado num `BRPOPLPUSH` à espera do próximo *job*, e uma leitura que desiste
+ao fim de N tentativas transforma uma reconexão numa paragem de consumo.
+
+O publicador quer exactamente o oposto, e também por boa razão: com a fila em
+baixo, o `add` tem de **falhar** para o *outbox* recuar e tentar outra vez
+(`docs/eventos.md` §4, critério 4 do KAM-005). As duas ligações são duas
+constantes — `LIGACAO_QUE_ESPERA` e `LIGACAO_QUE_FALHA_DEPRESSA` — e trocá-las
+é um defeito em qualquer das direcções: num sentido o consumidor morre ao
+arrancar, no outro o *outbox* deixa de saber que a fila caiu. Estão presas por
+`db/tests/test_consumo_contrato.py`, `TestLigacaoDoWorker`.
+
+A assimetria não é acidental: o que o publicador perde ao desistir volta pelo
+*outbox*; o que o consumidor perderia ao desistir não volta por si, e a rede
+para isso é o reconciliador.
+
 ### Uma ligação por fila
 
 `concurrency: 1` limita a **fila**, não o processo: dezasseis filas são

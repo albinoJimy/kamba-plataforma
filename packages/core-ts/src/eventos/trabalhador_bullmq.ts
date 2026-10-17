@@ -70,7 +70,7 @@ import { paraDlqSemEnvelope } from './dlq.ts';
 import type { Envelope } from './envelope.ts';
 import { lerEnvelope } from './envelope.ts';
 import type { MaquinaDeEstados } from './estados.ts';
-import { LIGACAO_QUE_FALHA_DEPRESSA, opcoesDaUrl } from './filas_bullmq.ts';
+import { LIGACAO_QUE_ESPERA, opcoesDaUrl } from './filas_bullmq.ts';
 import type { Metricas } from './metricas.ts';
 import type { ClienteSql } from './publicador.ts';
 import {
@@ -213,7 +213,11 @@ export interface Trabalhadores {
  */
 export function criarTrabalhadores(opcoes: OpcoesDoTrabalhador): Trabalhadores {
   const { ligar, subscricao, filas, efeito, maquina, metricas, url, log, escada } = opcoes;
-  const ligacao = new Redis({ ...opcoesDaUrl(url), ...LIGACAO_QUE_FALHA_DEPRESSA });
+  // `LIGACAO_QUE_ESPERA`, e **não** a do publicador: o BullMQ recusa um
+  // `Worker` cujo cliente tenha `maxRetriesPerRequest` diferente de `null`, e
+  // tem razão — um *worker* fica bloqueado à espera do próximo *job*, e uma
+  // leitura que desiste transforma uma reconexão numa paragem de consumo.
+  const ligacao = new Redis({ ...opcoesDaUrl(url), ...LIGACAO_QUE_ESPERA });
   // Sem isto, um erro de ligação num cliente `ioredis` sem ouvinte de `error`
   // derruba o processo — e derrubar o consumidor quando a fila cai é o oposto
   // do que o critério 8 pede (o reconciliador repõe o que se perdeu).
