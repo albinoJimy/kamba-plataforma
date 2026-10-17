@@ -15,18 +15,20 @@
  * O publicador é o último sítio antes de o envelope sair para fora da base, e
  * **falha fechada**: um envelope que não se reconhece não se publica.
  *
- * ## Os treze campos, e a divergência que está registada
+ * ## Os catorze campos, e a dúvida que ficou fechada
  *
- * O dicionário §3.5 («Envelope») nomeia nove nomes: `id`, `tipo`, `versao`,
+ * O dicionário §3.5 («Envelope») nomeava nove: `id`, `tipo`, `versao`,
  * `tenant_id`, `agregado`, `seq`, `trace_id`, `ocorrido_em`, `payload`. O
- * `jsonb_build_object` de `docs/tecnica/06` §6.1 escreve treze chaves de topo, e
- * põe o `seq` **dentro** de `agregado`. A emenda 1.9 do dicionário acrescentou
- * os seis que faltavam (`registado_em`, `produtor`, `correlacao_id`, `causa_id`,
- * `classe_pii`, `finalidades`) e deixou escrito que a leitura aqui é a de que a
- * linha «Envelope» é uma lista de **nomes** e não de aninhamento: `agregado =
- * {tipo, id, seq}` usa `agregado` e usa `seq`. Se o contrato v1 publicado
- * (KAM-007) tiver nove campos de topo em vez de treze, é aqui e no §6.1 que se
- * mexe — e a decisão é de quem aprova emendas, não deste módulo.
+ * `jsonb_build_object` de `docs/tecnica/06` §6.1 escreve **catorze** chaves de
+ * topo e põe o `seq` **dentro** de `agregado`. A emenda 1.9 acrescentou os seis
+ * que faltavam (`registado_em`, `produtor`, `correlacao_id`, `causa_id`,
+ * `classe_pii`, `finalidades`) e deixou em aberto se o contrato v1 publicado
+ * teria nove ou catorze.
+ *
+ * **A emenda 1.11 (KAM-007) fechou-a em catorze, e não por preferência:** um
+ * `v1.schema.json` com `additionalProperties: false` e nove campos de topo
+ * recusava todos os envelopes reais. Os contratos de `contratos/eventos/` têm
+ * exactamente esta lista.
  *
  * ## Privacidade
  *
@@ -66,7 +68,7 @@ export interface Agregado {
   readonly seq: number;
 }
 
-/** Envelope v1. Os treze campos de topo do `docs/tecnica/06` §6.1. */
+/** Envelope v1. Os **catorze** campos de topo do `docs/tecnica/06` §6.1. */
 export interface Envelope {
   readonly id: string;
   readonly tipo: string;
