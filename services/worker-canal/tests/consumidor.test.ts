@@ -22,15 +22,24 @@ import { SQL_PAYMENT_SEM_ORDEM } from "@kamba/core-ts/eventos";
 
 import { ArranqueRecusadoError, exigirOrdemNosPagamentos } from "../src/consumidor.ts";
 
-/** Base falsa: devolve as linhas que lhe dizem e guarda o que lhe perguntaram. */
+/**
+ * Base falsa: devolve as linhas que lhe dizem e guarda o que lhe perguntaram.
+ *
+ * O campo é declarado e atribuído à mão, e não por propriedade de parâmetro:
+ * o `erasableSyntaxOnly` do `tsconfig.base.json` proíbe-a, porque é sintaxe
+ * que o Node não consegue apagar ao correr TypeScript directamente.
+ */
 class BdFalsa {
   readonly instrucoes: string[] = [];
+  readonly #linhas: Record<string, unknown>[];
 
-  constructor(private readonly linhas: Record<string, unknown>[] = []) {}
+  constructor(linhas: Record<string, unknown>[] = []) {
+    this.#linhas = linhas;
+  }
 
   async query(sql: string): Promise<{ rows: Record<string, unknown>[] }> {
     this.instrucoes.push(sql.trim());
-    return { rows: this.linhas };
+    return { rows: this.#linhas };
   }
 }
 

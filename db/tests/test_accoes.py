@@ -28,13 +28,37 @@ CONSULTAS = RAIZ / "packages" / "core-ts" / "src" / "eventos" / "consultas_consu
 ACCAO = "enviar_whatsapp"
 
 
-def sql_do_typescript(nome: str) -> str:
-    """A constante do `consultas_consumo.ts`, com o marcador do `pg8000`."""
-    texto = CONSULTAS.read_text(encoding="utf-8")
-    achado = re.search(rf"export const {nome} = `(.*?)`;", texto, re.S)
-    if achado is None:
-        raise AssertionError(f"nao se encontrou {nome} em {CONSULTAS.name}")
-    return re.sub(r"\$\d+", "%s", achado.group(1))
+class Consulta:
+    """Uma consulta do TypeScript, pronta para o `pg8000`.
+
+    **O `pg8000` nao tem `$n`: tem `%s`, e liga-os pela ordem em que aparecem
+    no texto.** O `SQL_FECHAR_ACCAO` escreve `SET estado = $2, resultado = $3
+    ... WHERE idempotency_key = $1`, pelo que a troca ingenua de `$n` por `%s`
+    muda o significado dos argumentos — e o PostgreSQL recusou, a primeira
+    execucao desta bateria, um `'feita'` onde esperava `jsonb`. Por isso esta
+    classe guarda a **ordem** em que os marcadores aparecem e reordena o que se
+    lhe passa: quem chama escreve os argumentos pela numeracao do documento
+    (`$1, $2, $3`) e nao pela do texto.
+    """
+
+    def __init__(self, nome: str) -> None:
+        texto = CONSULTAS.read_text(encoding="utf-8")
+        achado = re.search(rf"export const {nome} = `(.*?)`;", texto, re.S)
+        if achado is None:
+            raise AssertionError(f"nao se encontrou {nome} em {CONSULTAS.name}")
+        self.nome = nome
+        self.fonte = achado.group(1)
+        self.ordem = [int(n) for n in re.findall(r"\$(\d+)", self.fonte)]
+        self.sql = re.sub(r"\$\d+", "%s", self.fonte)
+
+    def args(self, *valores: object) -> tuple[object, ...]:
+        """Os `valores` — na numeracao do documento — pela ordem do texto."""
+        if sorted(self.ordem) != list(range(1, len(valores) + 1)):
+            raise AssertionError(
+                f"{self.nome} tem os marcadores {self.ordem} e deram-se "
+                f"{len(valores)} argumentos"
+            )
+        return tuple(valores[n - 1] for n in self.ordem)
 
 
 class ComAccoes(ComBase):
@@ -43,10 +67,10 @@ class ComAccoes(ComBase):
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
-        cls.sql_abrir = sql_do_typescript("SQL_ABRIR_ACCAO")
-        cls.sql_ler = sql_do_typescript("SQL_LER_ACCAO")
-        cls.sql_fechar = sql_do_typescript("SQL_FECHAR_ACCAO")
-        cls.sql_tenant = sql_do_typescript("SQL_DEFINIR_TENANT")
+        cls.abrir_accao = Consulta("SQL_ABRIR_ACCAO")
+        cls.ler_accao = Consulta("SQL_LER_ACCAO")
+        cls.fechar_accao = Consulta("SQL_FECHAR_ACCAO")
+        cls.definir_tenant = Consulta("SQL_DEFINIR_TENANT")
 
     def setUp(self) -> None:
         super().setUp()
@@ -59,13 +83,19 @@ class ComAccoes(ComBase):
 
     def definir(self, tenant: str | None) -> None:
         """O `SET LOCAL app.tenant_id`, pela consulta do modulo."""
-        self.cursor.execute(self.sql_tenant, (tenant or "", True))
+        self.cursor.execute(
+            self.definir_tenant.sql, self.definir_tenant.args(tenant or "", True)
+        )
         self.cursor.fetchone()
+
+    def ler(self):
+        self.cursor.execute(self.ler_accao.sql, self.ler_accao.args(self.chave))
+        return self.cursor.fetchone()
 
     def abrir(self, chave: str | None = None, tenant: str | None = None) -> int:
         self.cursor.execute(
-            self.sql_abrir,
-            (
+            self.abrir_accao.sql,
+            self.abrir_accao.args(
                 chave or self.chave,
                 self.consumer,
                 self.event_id,
@@ -76,15 +106,16 @@ class ComAccoes(ComBase):
         return int(self.cursor.rowcount)
 
     def fechar(self, estado: str, resultado: str | None = None) -> int:
-        self.cursor.execute(self.sql_fechar, (self.chave, estado, resultado))
+        self.cursor.execute(
+            self.fechar_accao.sql, self.fechar_accao.args(self.chave, estado, resultado)
+        )
         return int(self.cursor.rowcount)
 
 
 class TestAbrirUmaVez(ComAccoes):
     def test_a_primeira_abertura_escreve_uma_linha_em_curso(self) -> None:
         self.assertEqual(self.abrir(), 1)
-        self.cursor.execute(self.sql_ler, (self.chave,))
-        estado, resultado = self.cursor.fetchone()
+        estado, resultado = self.ler()
         self.assertEqual(estado, "em_curso")
         self.assertIsNone(resultado)
 
@@ -110,15 +141,14 @@ class TestAbrirUmaVez(ComAccoes):
         ter devolve zero linhas — e esse zero le-se «ja esta registada», que e
         um efeito externo saltado em silencio.
         """
-        self.assertIn("ON CONFLICT (idempotency_key) DO NOTHING", self.sql_abrir)
+        self.assertIn("ON CONFLICT (idempotency_key) DO NOTHING", self.abrir_accao.fonte)
 
 
 class TestFecharUmaVez(ComAccoes):
     def test_fecha_uma_vez_e_guarda_o_resultado(self) -> None:
         self.abrir()
         self.assertEqual(self.fechar("feita", '{"mensagem":"wamid.X"}'), 1)
-        self.cursor.execute(self.sql_ler, (self.chave,))
-        estado, resultado = self.cursor.fetchone()
+        estado, resultado = self.ler()
         self.assertEqual(estado, "feita")
         self.assertEqual(resultado, {"mensagem": "wamid.X"})
 
@@ -131,8 +161,7 @@ class TestFecharUmaVez(ComAccoes):
         self.abrir()
         self.assertEqual(self.fechar("feita", None), 1)
         self.assertEqual(self.fechar("falhada", '{"erro":"500"}'), 0)
-        self.cursor.execute(self.sql_ler, (self.chave,))
-        self.assertEqual(self.cursor.fetchone()[0], "feita")
+        self.assertEqual(self.ler()[0], "feita")
 
     def test_os_tres_estados_do_ddl_e_so_esses(self) -> None:
         self.abrir()
@@ -142,7 +171,10 @@ class TestFecharUmaVez(ComAccoes):
                 self.assertEqual(self.fechar(estado), 1)
                 self.cursor.execute("ROLLBACK TO SAVEPOINT bom")
         self.assertErroSql(
-            VIOLACAO_DE_CHECK, self.cursor, self.sql_fechar, (self.chave, "quase", None)
+            VIOLACAO_DE_CHECK,
+            self.cursor,
+            self.fechar_accao.sql,
+            self.fechar_accao.args(self.chave, "quase", None),
         )
 
 
@@ -169,8 +201,7 @@ class TestIsolamento(ComAccoes):
         """Falha fechada: sem contexto, zero linhas — nunca «todas»."""
         self.abrir()
         self.definir(None)
-        self.cursor.execute(self.sql_ler, (self.chave,))
-        self.assertIsNone(self.cursor.fetchone())
+        self.assertIsNone(self.ler())
 
 
 if __name__ == "__main__":
