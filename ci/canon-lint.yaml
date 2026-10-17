@@ -105,6 +105,20 @@ fora_de_ambito:
       pelo `canon_lint canario` e pelos testes, uma a uma, e nao pelo varrimento
       da arvore — que ficaria vermelho por desenho.
 
+  - caminho: "contratos/eventos/*/exemplo.json"
+    razao: >-
+      KAM-007: o exemplo que acompanha cada contrato. Bate na sentinela
+      `*/eventos/*` e **nao** e um schema — e uma instancia. O `eventos.py`
+      deste gate le `const`, `properties` e `required`, e sobre uma instancia
+      nao leria nada de util: diria que `"order.created"` nao e um nome
+      canonico porque esta num valor e nao numa chave.
+      .
+      Nao fica por verificar. Os nomes de campo que um exemplo pode ter sao
+      exactamente os que o seu schema permite — o `additionalProperties: false`
+      fecha-o e o gate 7 valida cada exemplo contra o seu schema —, e os nomes
+      do schema **sao** lidos por este gate. A cobertura e transitiva, e e o
+      gate 7 que a torna verdadeira.
+
   - caminho: "packages/core-ts/src/eventos/*"
     razao: >-
       KAM-005: a biblioteca TypeScript do envelope e do publicador. Bate na

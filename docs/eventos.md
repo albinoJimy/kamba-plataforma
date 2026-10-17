@@ -4,7 +4,7 @@
 |---|---|
 | Documento | `docs/eventos.md` |
 | Ticket | KAM-005 — Outbox transaccional, publicador BullMQ e envelope de evento versionado |
-| Estado | Revisão `0004` aplicada; publicador e envelope v1 implementados; gate 8 com as *suites* `tests_eventos` e `tests_eventos_carga` activas. 13 das 16 caixas do ticket marcadas; as três vazias estão nomeadas na secção de verificação. Consumidores, `events_consumed` e DLQ são o KAM-006, e estão em **`docs/consumo.md`**; o catálogo de *schemas* é o KAM-007 |
+| Estado | Revisão `0004` aplicada; publicador e envelope v1 implementados; o catálogo de contratos é o KAM-007 (`docs/contratos.md`), e o §10 tem a tabela; gate 8 com as *suites* `tests_eventos` e `tests_eventos_carga` activas. 13 das 16 caixas do ticket marcadas; as três vazias estão nomeadas na secção de verificação. Consumidores, `events_consumed` e DLQ são o KAM-006, e estão em **`docs/consumo.md`**; o catálogo de *schemas* é o KAM-007 |
 | Âmbito | O lado do **produtor**: escrever o evento na transacção do dado e entregá-lo às filas. Nada do lado do consumidor |
 | Fontes | `docs/tecnica/06` §4, §6.1, §6.2, §6.5, §6.6, §7.3; `docs/tecnica/00` §7; ADR-009, ADR-010, ADR-018; `specs/02` §3.5 (emenda 1.9); `docs/tecnica/evidencia/E4` §2.10 |
 
@@ -493,26 +493,92 @@ aberta.
 6. **Subir a `versao`** em qualquer mudança de significado, remoção ou tipo, e
    registar o conversor (§4).
 
-## 10. O que fica por decidir
+## 10. O catálogo, tipo a tipo
+
+A tabela que o DoD do KAM-007 pede. O produtor, os consumidores, o agregado, a
+classe de PII e a fase vêm do `docs/tecnica/06` §5; o **payload** vem dos
+contratos em `contratos/eventos/`, e foi lido deles para que não haja uma
+terceira cópia escrita à mão. Um `?` marca um campo opcional.
+
+Os oito últimos não estão no §5: são os que outros documentos exigem e a
+emenda 1.11 do dicionário acrescentou ao catálogo. Tudo o que está aqui é Fase
+P — Fase C e D não têm contrato, porque um contrato para um evento que ninguém
+emite é especulação.
+
+| Tipo | Produtor | Consumidores | Agregado | PII | Fase | Payload v1 |
+|---|---|---|---|---|---|---|
+| `order.created` | COM | PAY, COM/stock, DAT | order | P1 | P | `order_id`, `contact_id`, `numero_publico`, `origem`, `total_minor`, `currency`, `entrega_modo`, `expira_at`?, `linhas` |
+| `order.paid` | COM | AGR, REP, DAT | order | P1 | P | `order_id`, `valor_minor`, `currency`, `paga_via` |
+| `order.expired` | COM | COM/stock, AGR, DAT | order | P1 | P | `order_id`, `expira_at` |
+| `order.cancelled` | COM | COM/stock, AGR, DAT | order | P1 | P | `order_id`, `motivo` |
+| `order.delivered` | COM | REP, DAT | order | P1 | P | `order_id`, `entrega_confirmada_por` |
+| `payment.reference_issued` | PAY | AGR, COM†, DAT | order | P0 | P | `order_id`, `provider`, `referencia`, `valor_minor`, `currency`, `expira_at` |
+| `payment.confirmed` | PAY | COM†, AGR, REP, DAT | order | P0 | P | `order_id`, `provider`, `referencia`, `valor_minor`, `currency`, `autenticacao` |
+| `payment.manual_confirmed` | PAY | COM†, DAT | order | P0 | P | `order_id`, `valor_minor`, `currency`, `autenticacao` |
+| `payment.failed` | PAY | HND, COM†, DAT | order | P0 | P | `order_id`, `provider`, `referencia`?, `motivo` |
+| `payment.expired` | PAY | HND, COM†, DAT | order | P0 | P | `order_id`, `provider`, `referencia`, `expira_at` |
+| `review.requested` | REP | AGR | order | P1 | P | `order_id` |
+| `review.created` | AGR/REP | REP, IDX, DAT | order | P1 | P | `order_id`, `review_id`, `nota` |
+| `query.resolved` | AGR | DAT, IDX, Ops | conversa | P1 | P | `thread_id`, `turn_id` |
+| `query.unresolved` | AGR | DAT, IDX, Ops | conversa | P1 | P | `thread_id`, `turn_id` |
+| `query.handoff` | AGR | DAT, IDX, Ops | conversa | P1 | P | `thread_id`, `turn_id`, `motivo` |
+| `tenant.approved` | TEN | Provisioning | tenant | P0 | P | `vertical`, `plano` |
+| `tenant.provisioned` | Provisioning | TEN, CHR | tenant | P0 | P | `vertical` |
+| `tenant.activated` | TEN | IDX, CHR, DAT | tenant | P0 | P | — *(o envelope diz tudo)* |
+| `tenant.suspended` | TEN | IDX, CHR, DAT | tenant | P0 | P | `motivo` |
+| `tenant.reactivated` | TEN | IDX, CHR, DAT | tenant | P0 | P | — *(o envelope diz tudo)* |
+| `tenant.closed` | TEN | IDX, CHR, DAT | tenant | P0 | P | `motivo` |
+| `catalog.product_changed` | COM | IDX | product | P0 | P | `sku`, `estado` |
+| `catalog.price_changed` | COM | DAT | product | P0 | P | `sku`, `preco_tipo`, `preco_minor`?, `currency` |
+| `stock.reserved` | COM | DAT | sku | P0 | P | `sku`, `order_id`, `qty`, `expira_at` |
+| `stock.released` | COM | DAT | sku | P0 | P | `sku`, `order_id`, `qty`, `motivo` |
+| `stock.adjusted` | COM | DAT | sku | P0 | P | `sku`, `qty`, `motivo` |
+| `stock.low` | COM | DAT, AGR | sku | P0 | P | `sku`, `qty` |
+| `consent.recorded` | CHR | DAT, IDX | contact | P1 | P | `contact_id`, `finalidade`, `origem` |
+| `consent.withdrawn` | CHR | DAT, IDX | contact | P1 | P | `contact_id`, `finalidade` |
+| `privacy.erasure_requested` | GOV | todos (§7.6) | contact | P1 | P | `contact_id` |
+| `privacy.erasure_applied` | cada consumidor | todos (§7.6) | contact | P1 | P | `contact_id` |
+| `channel.updated` | CHR | CHR (invalida a cache) | tenant | P0 | P | `phone_number_id`, `motivo` |
+| `channel.inactivity_warning` | CHR | AGR, Ops | tenant | P0 | P | `phone_number_id` |
+| `contact.merged` | CHR | AGR, COM, DAT | contact | P1 | P | `contact_id`, `merged_into` |
+| `conversation.mode_changed` | HND | AGR, Ops | conversa | P1 | P | `thread_id`, `channel_mode` |
+| `booking.created` | SRV | AGR, DAT | booking | P1 | P | `booking_id`, `contact_id`, `service_id`, `resource_id`?, `inicio_at`, `fim_at` |
+| `booking.reminder_due` | SRV | AGR | booking | P1 | P | `booking_id`, `inicio_at` |
+| `booking.cancelled` | SRV | AGR, DAT | booking | P1 | P | `booking_id`, `motivo` |
+
+**Nenhum payload leva dado pessoal.** O texto de uma review não entra no
+`review.created`; entra a `nota`. O nome de um produto não entra nas linhas de
+uma encomenda; entram `sku`, `qty` e `preco_minor`. A referência a uma pessoa é
+sempre `contact_id`, que é o pseudónimo que o §7.1 manda usar — e há três
+verificações independentes a impô-lo (`docs/contratos.md` §4).
+
+**Os payloads são mínimos de propósito.** A regra do §6.6 — campo novo opcional
+não custa versão, remover ou mudar custa — faz do mínimo defensável a escolha
+barata e do excesso a escolha cara. Onde o DDL do `docs/tecnica/03` ou do `02`
+dá o nome, é esse; onde nenhum documento especifica nada (o caso de `query.*`),
+fica o que o envelope não traz e mais nada.
+
+## 11. O que fica por decidir
 
 | # | Decisão | Estado |
 |---|---|---|
-| 1 | **O contrato v1 publicado tem nove ou treze campos de topo**, e o `seq` fica no topo ou dentro de `agregado` (§3) | Devolvida — de quem aprova emendas; paga-a o KAM-007 |
+| 1 | **O contrato v1 publicado tem quantos campos de topo**, e o `seq` fica no topo ou dentro de `agregado` | **Fechada pelo KAM-007 em catorze**, com o `seq` dentro do `agregado` (emenda 1.11 do dicionário). Não por preferência: um `v1.schema.json` com `additionalProperties: false` e nove campos recusava todos os envelopes reais, e o `evt_emitir` constrói catorze |
 | 2 | **`evt_agregado_seq` sem `tenant_id`** (§5): quem conheça o `agregado_id` de outro tenant lê-lhe o contador. Fechar obriga a mudar a chave primária, que é desvio ao §6.1 | Devolvida ao fundador |
 | 3 | **Um estado `bloqueado` no `events_outbox`** para o evento sem conversor, que o §6.2 pede e o DDL do §6.1 não tem (§4) | Devolvida — é uma alteração ao DDL do documento |
 | 4 | **O *job* das partições mensais** (`db/eventos_particoes.py`) não existe (§7). Sem ele todo o arquivo cai na `DEFAULT` e a retenção por `DROP` de partição não funciona | Sem ticket; nasce com a retenção (KAM-071) ou com o procedimento de *deploy* (KAM-078) |
 | 5 | **O *job* de retenção do *outbox* publicado** (7 dias, §7.4): o privilégio existe (`DELETE` ao `kamba_batch`), o *job* não | Sem ticket; idem |
-| 6 | **`order.paid` não está no dicionário.** O Contexto do KAM-005 e o catálogo de `docs/tecnica/06` §5 usam-no; o §3.5 do dicionário («Tipos do Piloto») não o tem | Devolvida — paga-a o KAM-007, com o catálogo |
+| 6 | **`order.paid` não está no dicionário.** O Contexto do KAM-005 e o catálogo de `docs/tecnica/06` §5 usam-no; o §3.5 do dicionário não o tinha | **Fechada pelo KAM-007**: a emenda 1.11 pôs os trinta e oito tipos do catálogo no §3.5, e faltavam vinte e não só este |
 | 7 | **`LISTEN evt_novo` sem quem faça `NOTIFY`.** O publicador escuta o canal (§6.2) e o `evt_emitir` não o avisa: o laço acorda pelo intervalo de 200 ms, que é o limite superior do atraso | Sem ticket; o `NOTIFY` entra quando o atraso medido o justificar |
 | 8 | **O limiar de p95 ≤ 1 s** a 50 eventos/s é *proposta* do próprio ticket. **Medido no CI (`ubuntu-latest`): p95 = 0,195 s, máximo = 0,288 s** ([execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356)) — cinco vezes abaixo do limiar, com tudo publicado e nada perdido. No anfitrião Windows deu 6,0 s e 15,0 s, e a explicação que este documento dava para a diferença (o período do lote de 200, §6.2) **não se sustenta**: se fosse o lote, o Linux daria os mesmos 4 s | Fechada com o número do CI (§6). A caixa do critério 8 está **marcada** |
 | 10 | **A emenda 1.9 do dicionário é *proposta*, e este PR apagou a extensão `contact_endpoints.finalidade`** que o KAM-008 tinha em `canon/extensoes.yaml` (ficou redundante com o nome no §3.5). Se a emenda não for ratificada, a extensão tem de ser reposta **no mesmo passo**, ou o gate 3b falha numa superfície do KAM-008 | Registada (ANALISE-20 §4.3) |
 | 11 | **A guarda de PII tem falsos positivos em identificadores opacos.** O `+` de `\+?244 ?9[0-9]{8}` é opcional, pelo que qualquer corrida de doze dígitos começada por `2449` é apanhada — e um identificador hexadecimal de 32 caracteres contém uma dessas de vez em quando (aconteceu na medição de carga, ao evento ~8 000 de 15 000). **A consequência é a transacção de negócio a falhar**, porque `evt_emitir` corre nela. Apertar o padrão — exigir o `+`, ou uma fronteira de palavra — muda o §6.1 | Devolvida. O comportamento está fixado por teste, não corrigido |
 | 9 | **Quem recolhe as métricas.** Existem em memória e em `/metrics`; não há Prometheus (§6) | Sem ticket, como em `docs/isolamento.md` §7 |
 
-## 11. Controlo de versões
+## 12. Controlo de versões
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão (KAM-005): revisão `0004`, envelope v1, publicador de instância única, roteamento por finalidade, as três métricas, e o que fica por decidir. Registo de que `uuidv7()` é CONFIRMADO no PG 18.6 fixado, de que a política de uma tabela particionada não cobre a partição, e de que a escada do §6.4 é da DLQ e não do *outbox*. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | O atraso medido passa a ser o do CI: **p95 = 0,195 s** a 50 eventos/s em `ubuntu-latest` ([execução 38881054356](https://github.com/albinoJimy/kamba-plataforma/actions/runs/38881054356)), cinco vezes abaixo do limiar *proposto*. A explicação que o §6 dava para os 6–15 s medidos em Windows — «o período do lote» — fica corrigida: se fosse o lote, o Linux daria os mesmos 4 s. A ressalva 8 do §10 fecha. | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | Duas correcções vindas do KAM-006, no lado do produtor: o *job* passa a pedir `backoff: { type: 'custom' }` (§4), sem o que a escada do §6.4 nunca era consultada; e os dados do *job* passam a levar `tenant_id` ao lado do envelope, porque o consumidor é `kamba_app` e precisa dele para pôr o contexto da RLS antes de ler o arquivo. O lado do consumidor está em `docs/consumo.md`. | Equipa KAMBÁ |
+| 1.3 | Outubro 2026 | **KAM-007.** O §10 passa a ter o catálogo tipo a tipo — produtor, consumidores, agregado, PII, fase e **payload** —, lido dos contratos de `contratos/eventos/` para não haver uma terceira cópia escrita à mão. As secções 10 e 11 antigas passam a 11 e 12. A decisão aberta 1 («nove ou treze campos de topo») fecha em **catorze**, pela emenda 1.11 do dicionário; a 6 (`order.paid` fora do dicionário) fecha com o catálogo. | Equipa KAMBÁ |
