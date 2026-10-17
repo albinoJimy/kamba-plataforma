@@ -85,6 +85,12 @@ class ComConsumidor(ComFila):
         # ticket e limpam-se aqui, pela ordem das chaves estrangeiras.
         self._limpar_consumo()
         self.addCleanup(self._limpar_consumo)
+        # **Depois** do `_limpar_consumo` na lista, e por isso **antes** dele a
+        # correr: o `addCleanup` corre pela ordem inversa, e um consumidor vivo
+        # escreve enquanto se apagam as tabelas. Mata-se primeiro. (A `ComFila`
+        # ja regista este mesmo metodo; chama-lo duas vezes nao faz nada, que e
+        # o que se quer — ele so mata o que ainda esta vivo.)
+        self.addCleanup(self._parar_processos)
 
     def _limpar_consumo(self) -> None:
         self.cursor.execute(
