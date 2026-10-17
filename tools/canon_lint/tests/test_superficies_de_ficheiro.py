@@ -419,9 +419,28 @@ class TestEventos(unittest.TestCase):
         self.assertEqual([a.classe for a in achados], [FORA] * 4)
 
     def test_campo_de_topo_fora_do_envelope(self) -> None:
-        achados = self.achados(schema(registado_em={"type": "string"}))
+        achados = self.achados(schema(gravado_em={"type": "string"}))
         self.assertEqual([a.classe for a in achados], [FORA])
-        self.assertIn("envelope.registado_em", achados[0].mensagem)
+        self.assertIn("envelope.gravado_em", achados[0].mensagem)
+
+    def test_os_catorze_do_envelope_passam(self) -> None:
+        """A emenda 1.11 (KAM-007) poe no envelope os seis do §6.1.
+
+        Este teste existe porque o anterior usava `registado_em` como exemplo
+        de campo de topo intruso, e deixou de o ser: a lista do dicionario
+        cresceu de nove para catorze nomes. Um exemplo que envelhece em
+        silencio e um teste que passa a provar outra coisa — aqui prova-se a
+        lista inteira, que e o que importa, e o intruso passa a ser um nome
+        que o dicionario nao tem em sitio nenhum.
+        """
+        topo = {
+            nome: {"type": "string"}
+            for nome in ("ocorrido_em", "registado_em", "produtor", "correlacao_id",
+                         "causa_id", "trace_id", "classe_pii", "finalidades")
+        }
+        topo["agregado"] = {"type": "object", "properties": {
+            "tipo": {"type": "string"}, "id": {"type": "string"}, "seq": {"type": "integer"}}}
+        self.assertEqual(self.classes(schema(**topo)), [])
 
     def test_tipo_de_evento_tem_de_ser_um_evento_do_dicionario(self) -> None:
         self.assertEqual(self.classes(schema(tipo={"const": "pagamento.feito"})), [FORA])
