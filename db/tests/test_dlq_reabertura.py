@@ -170,6 +170,24 @@ class TestReentrada(ComEntradaNaDlq):
 class TestQuemEscreveNaoLeNemFecha(ComEntradaNaDlq):
     """Os privilegios que fazem a regra dos dois aprovadores valer contra codigo."""
 
+    def test_le_o_estado_e_so_o_estado(self) -> None:
+        """A coluna que o predicado do `ON CONFLICT` obriga a avaliar.
+
+        Sem este `SELECT` por coluna, o proprio `INSERT` falha com `permission
+        denied for table events_dlq`: a cláusula de inferencia e uma expressao
+        sobre a tabela, e as suas colunas contam como leitura. Medido no gate 8.
+        """
+        self.escrever("falhou")
+        self.cursor.execute("SET LOCAL ROLE kamba_app")
+        try:
+            self.cursor.execute(
+                "SELECT estado FROM platform.events_dlq WHERE consumer = %s",
+                (CONSUMER,),
+            )
+            self.assertEqual([tuple(l) for l in self.cursor.fetchall()], [("aberta",)])
+        finally:
+            self.cursor.execute("RESET ROLE")
+
     def test_nao_le_a_tabela(self) -> None:
         """O `id` e sequencial: le-lo media o volume de falhas do vizinho."""
         self.escrever("falhou")

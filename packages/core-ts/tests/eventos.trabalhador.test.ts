@@ -209,8 +209,11 @@ describe("a entrada na DLQ sem envelope", () => {
   it("usa a mesma instrução que o paraDlq com envelope", () => {
     assert.ok(SQL_PARA_DLQ.includes("INSERT INTO platform.events_dlq"));
     assert.ok(
-      SQL_PARA_DLQ.includes("ON CONFLICT (consumer, event_id) DO UPDATE"),
-      "a reabertura de uma entrada resolvida é o que distingue isto de DO NOTHING",
+      SQL_PARA_DLQ.includes(
+        "ON CONFLICT (consumer, event_id) WHERE estado = 'aberta' DO NOTHING",
+      ),
+      "o predicado é o que faz o PostgreSQL inferir o índice parcial: sem ele, "
+        + "uma entrada já resolvida engolia a falha seguinte",
     );
   });
 });

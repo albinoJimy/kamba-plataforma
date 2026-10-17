@@ -426,18 +426,26 @@ def upgrade() -> None:
     # uma linha de deduplicacao e permitir que o efeito se repita, e isso e da
     # retencao, que corre como `kamba_batch`.
     op.execute("GRANT SELECT, INSERT ON platform.events_consumed TO kamba_app")
-    # So `INSERT`, e nao `SELECT` nem `UPDATE`: `kamba_app` abre a entrada e
-    # nunca a le nem a fecha. E o que mantem o `id` sequencial fora do alcance
-    # de um papel com RLS — sem isso, um tenant media pela sequencia quantas
-    # falhas o vizinho teve (a regra do dicionario §2, e a razao dela) — e e
-    # tambem o que faz a regra dos dois aprovadores valer: quem consome nao
-    # pode resolver uma entrada sozinho, porque nao tem `UPDATE` nenhum aqui.
+    # `INSERT`, e `SELECT` de **uma coluna**. Nada de `UPDATE` nem `DELETE`:
+    # quem consome abre a entrada e nunca a fecha nem a apaga, e e isso que faz
+    # a regra dos dois aprovadores valer tambem contra codigo — nao so contra
+    # pessoas.
     #
-    # A reentrada de um evento que volta a falhar depois de resolvido **nao**
-    # precisa de `UPDATE`: a unicidade e parcial (`events_dlq_aberta_uq`, so
-    # sobre as abertas), pelo que um ciclo novo abre uma entrada nova. Ver o
-    # comentario desse indice.
+    # Porque e que ha um `SELECT`, e porque e que e so o `estado`: o
+    # `ON CONFLICT (consumer, event_id) WHERE estado = 'aberta'` precisa do
+    # predicado para o PostgreSQL inferir o indice **parcial**
+    # (`events_dlq_aberta_uq`), e esse predicado e uma expressao sobre a tabela:
+    # as suas colunas entram na verificacao de privilegios como leitura. Sem
+    # este `GRANT`, o `INSERT` falha com `permission denied for table
+    # events_dlq` — medido no gate 8, e nao deduzido.
+    #
+    # O `id` continua fechado, que e a propriedade que importa: e sequencial, e
+    # um papel sujeito a RLS que o lesse media pela sequencia quantas falhas o
+    # vizinho teve (a regra do dicionario §2). `SELECT *` e `SELECT id`
+    # continuam a ser recusados; o que se abre e a coluna que o proprio
+    # `INSERT` ja tem de avaliar.
     op.execute("GRANT INSERT ON platform.events_dlq TO kamba_app")
+    op.execute("GRANT SELECT (estado) ON platform.events_dlq TO kamba_app")
     op.execute("GRANT SELECT, INSERT ON platform.evt_acoes TO kamba_app")
     # Do `evt_acoes` muda-se o desfecho de uma accao que ele proprio registou.
     op.execute(

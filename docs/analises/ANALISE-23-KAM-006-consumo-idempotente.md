@@ -124,8 +124,14 @@ novo abre a sua, com a anterior guardada. A alternativa óbvia — reabrir a lin
 fechada com um `DO UPDATE` — foi **rejeitada**: obrigava a dar
 `UPDATE (estado, …)` a `kamba_app`, e com isso quem consome passava a poder
 fechar uma entrada sozinho, desfazendo do lado do código a regra dos dois
-aprovadores. Prova: `db/tests/test_dlq_reabertura.py`, sete testes, com os
+aprovadores. Prova: `db/tests/test_dlq_reabertura.py`, oito testes, com os
 papéis reais.
+
+O índice parcial trouxe uma consequência que só o gate 8 mostrou: a cláusula de
+inferência do `ON CONFLICT` é uma **expressão sobre a tabela**, e as suas
+colunas contam como leitura — sem `SELECT (estado)`, o próprio `INSERT` falha
+com `permission denied for table events_dlq`. Concedeu-se essa coluna, e só
+essa; o `id` continua fechado e não há `UPDATE` nem `DELETE`.
 
 ### M3 — o `trabalhador_bullmq.ts` não tinha teste nenhum — **corrigido**
 

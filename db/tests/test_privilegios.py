@@ -132,14 +132,17 @@ ESPERADO_POR_TABELA.update(
             kamba_app={"SELECT", "INSERT"},
             kamba_batch={"SELECT", "DELETE"},
         ),
-        # A DLQ e o unico sitio onde `kamba_app` escreve **sem** poder ler, e e
-        # deliberado por duas razoes: o `id` e sequencial, e um papel sujeito a
-        # RLS que o lesse media pela sequencia quantas falhas o vizinho teve
-        # (dicionario §2); e sem `UPDATE` nenhum, quem consome nao pode
-        # resolver uma entrada sozinho — que e a regra dos dois aprovadores a
-        # valer tambem contra codigo, e nao so contra pessoas. Le e fecha quem
-        # opera, que e `kamba_batch`.
+        # A DLQ e o unico sitio onde `kamba_app` escreve **sem** poder ler a
+        # tabela, e e deliberado por duas razoes: o `id` e sequencial, e um
+        # papel sujeito a RLS que o lesse media pela sequencia quantas falhas o
+        # vizinho teve (dicionario §2); e sem `UPDATE` nem `DELETE`, quem
+        # consome nao pode resolver uma entrada sozinho — que e a regra dos dois
+        # aprovadores a valer tambem contra codigo, e nao so contra pessoas. Le
+        # a tabela e fecha quem opera, que e `kamba_batch`.
         "events_dlq": _eventos(
+            # `INSERT` de tabela; o `SELECT` e de **uma coluna** e esta no
+            # `COLUNAS_POR_PAPEL`, porque declara-lo aqui dizia que `kamba_app`
+            # le o `id` — que e exactamente o que nao pode.
             kamba_app={"INSERT"},
             # Sem `UPDATE` **de tabela**: o que `kamba_batch` tem e `UPDATE` por
             # coluna, e so do desfecho (ver `COLUNAS_POR_PAPEL`). E a mesma
@@ -189,6 +192,13 @@ COLUNAS_POR_PAPEL = {
     # E a operacao fecha a entrada da DLQ, tambem so o desfecho: o envelope e o
     # erro sao o registo do que aconteceu, e nao se reescrevem.
     ("kamba_batch", "events_dlq", "UPDATE"): {"estado", "resolvido_at", "resolvido_por"},
+    # KAM-006: **uma** coluna, e nao por gosto. O `ON CONFLICT (consumer,
+    # event_id) WHERE estado = 'aberta'` do `paraDlq()` precisa do predicado
+    # para o PostgreSQL inferir o indice parcial, e esse predicado e uma
+    # expressao sobre a tabela — as suas colunas entram na verificacao de
+    # privilegios como leitura. Sem isto o `INSERT` falha com `permission
+    # denied for table events_dlq` (medido no gate 8). O `id` continua fechado.
+    ("kamba_app", "events_dlq", "SELECT"): {"estado"},
 }
 PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
 

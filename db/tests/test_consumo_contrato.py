@@ -143,11 +143,13 @@ class TestReentradaNaDlq(unittest.TestCase):
             self.consultas,
         )
 
-    def test_quem_consome_nao_ganhou_update_na_dlq(self) -> None:
+    def test_quem_consome_nao_ganhou_update_nem_delete_na_dlq(self) -> None:
         """A alternativa ao indice parcial era dar `UPDATE` a `kamba_app`.
 
         Com ele, quem consome passava a poder **fechar** uma entrada sozinho —
-        desfazendo, do lado do codigo, a regra dos dois aprovadores.
+        desfazendo, do lado do codigo, a regra dos dois aprovadores. O que ele
+        tem e `INSERT` e o `SELECT` de **uma** coluna, a que o predicado do
+        `ON CONFLICT` obriga a avaliar.
         """
         concedidos = set(
             re.findall(
@@ -156,9 +158,12 @@ class TestReentradaNaDlq(unittest.TestCase):
         )
         self.assertEqual(
             concedidos,
-            {"INSERT"},
-            "quem consome ganhou mais do que INSERT na DLQ: ver o comentario acima",
+            {"INSERT", "SELECT"},
+            "o conjunto de privilegios de kamba_app na DLQ mudou: ver o comentario",
         )
+        self.assertIn("GRANT SELECT (estado) ON platform.events_dlq", self.revisao)
+        for proibido in ("UPDATE", "DELETE", "TRUNCATE"):
+            self.assertNotIn(proibido, concedidos)
 
 
 class TestUmaLigacaoPorFila(unittest.TestCase):
