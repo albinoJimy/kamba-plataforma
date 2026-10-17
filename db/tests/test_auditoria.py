@@ -180,6 +180,45 @@ class TestImutabilidade(ComAuditoria):
         self.cursor.execute("SET session_replication_role = origin")
         self.assertEqual(self.linhas()[0][3], "op-1")
 
+    def test_os_dois_triggers_estao_marcados_ALWAYS_no_catalogo(self) -> None:
+        """A propriedade no catalogo, e nao so no comportamento. Eis porque.
+
+        A prova por mutacao trocou o `ENABLE ALWAYS TRIGGER` por `ENABLE
+        TRIGGER` na revisao, e **o teste de comportamento acima continuou a
+        passar** — ao contrario do que a medicao directa contra a base dizia
+        (M7/M8 da revisao 0006: com um trigger de origem, o
+        `session_replication_role = replica` deixa o `UPDATE` passar). Nao se
+        apurou porque e que nesta suite nao passa; o que se apurou e que o
+        teste de comportamento **nao prende** a diferenca.
+
+        Um teste que nao distingue as duas configuracoes nao prova a mais
+        forte. Este le o catalogo: `tgenabled` e `'A'` (ALWAYS), `'O'`
+        (origem), `'R'` (replica) ou `'D'` (desligado), e a diferenca entre
+        `'A'` e `'O'` e exactamente o que o ticket paga.
+
+        **E este tambem nao apanhou a mutacao, e isso fica dito.** Medido:
+        contra uma base criada de raiz, `ENABLE TRIGGER` deixa `tgenabled` em
+        `'O'` e `ENABLE ALWAYS` poe `'A'` — e com `'O'` o
+        `session_replication_role` passa. Dentro desta *suite*, com a revisao
+        mutada e a alteracao verificada por `assert` antes de correr, **as duas
+        afirmacoes continuam verdadeiras**: o trigger esta `'A'` e o `UPDATE`
+        falha. Nao se apurou porque. O que se sabe esta nos dois lados, e a
+        conclusao prudente e que **a imutabilidade contra
+        `session_replication_role` esta medida mas nao esta presa por esta
+        bateria** — ver a seccao de verificacao do KAM-012.
+        """
+        marcas = dict(
+            self.consultar(
+                "SELECT tgname::text, tgenabled::text FROM pg_trigger "
+                " WHERE tgrelid = 'platform.audit_log'::regclass AND NOT tgisinternal"
+            )
+        )
+        self.assertEqual(
+            marcas,
+            {"audit_log_sem_update_nem_delete": "A", "audit_log_sem_truncate": "A"},
+            "um trigger de origem ('O') e contornado por session_replication_role",
+        )
+
     def _limpar(self) -> None:
         cursor = self.ligar("admin").cursor()
         cursor.execute("ALTER TABLE platform.audit_log DISABLE TRIGGER audit_log_sem_update_nem_delete")
