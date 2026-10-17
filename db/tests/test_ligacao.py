@@ -81,6 +81,7 @@ class TestCredenciais(unittest.TestCase):
                 "KAMBA_SECRET_DB_BATCH_PASSWORD",
                 "KAMBA_SECRET_DB_RESOLVER_PASSWORD",
                 "KAMBA_SECRET_DB_IDENTITY_PASSWORD",
+                "KAMBA_SECRET_DB_AUDIT_PASSWORD",
             },
         )
 

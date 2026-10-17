@@ -506,23 +506,52 @@ def downgrade() -> None:
 
 
 def _copia_logica() -> None:
-    """Escreve as duas tabelas num ficheiro JSON **novo**, antes de as apagar."""
+    """Escreve as duas tabelas num ficheiro JSON **novo**, antes de as apagar.
+
+    **Com as tabelas vazias nao exige nada**, e isso nao e conveniencia: a
+    suite do gate 8 faz `downgrade base` a cada execucao, e um `downgrade` que
+    exige uma variavel para apagar zero linhas torna o gate impossivel de
+    correr sem a definir — e uma variavel definida sempre e uma variavel que
+    ninguem le. Com linhas, recusa. E a forma da 0005.
+    """
+    op.execute("ALTER TABLE platform.audit_log DISABLE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE platform.audit_heads DISABLE ROW LEVEL SECURITY")
+    contagens = _contar()
+    if not any(contagens.values()):
+        return
+
     destino = os.environ.get(VARIAVEL_DA_COPIA)
+    resumo = ", ".join(f"{tabela}: {n}" for tabela, n in contagens.items())
     if not destino:
         raise RuntimeError(
-            f"o downgrade da revisao 0006 apaga o registo de auditoria. Defina "
-            f"{VARIAVEL_DA_COPIA} com o caminho de um ficheiro que **nao** exista, "
-            f"para onde a copia logica e escrita."
+            f"downgrade da 0006 recusado: ha registo de auditoria ({resumo}) e o passo "
+            f"apaga-o. Defina {VARIAVEL_DA_COPIA} com o caminho de um ficheiro que "
+            f"**nao** exista, para onde a copia logica e escrita."
         )
     caminho = Path(destino)
     if caminho.exists():
         raise RuntimeError(f"{VARIAVEL_DA_COPIA} aponta para um ficheiro que ja existe: {caminho}")
-    op.execute("ALTER TABLE platform.audit_log DISABLE ROW LEVEL SECURITY")
-    op.execute("ALTER TABLE platform.audit_heads DISABLE ROW LEVEL SECURITY")
     caminho.parent.mkdir(parents=True, exist_ok=True)
     caminho.write_text(
         json.dumps(_linhas(), indent=2, sort_keys=True, default=str), encoding="utf-8"
     )
+
+
+def _contar() -> dict:
+    """Quantas linhas ha em cada tabela a copiar.
+
+    A forma e a da 0005: o ciclo sobre a constante de modulo, e a *f-string*
+    sobre a variavel do ciclo — e o unico padrao de SQL dinamico que o gate 3b
+    sabe resolver sem correr a revisao.
+    """
+    contagens = {}
+    for tabela_a_contar in TABELAS_COPIADAS:
+        contagens[tabela_a_contar] = (
+            op.get_bind()
+            .exec_driver_sql(f"SELECT count(*) FROM platform.{tabela_a_contar}")
+            .scalar_one()
+        )
+    return contagens
 
 
 def _linhas() -> dict:
@@ -534,16 +563,10 @@ def _linhas() -> dict:
     migracao que o gate nao le e SQL que ninguem verifica. (A 0005 tomou a mesma
     decisao, com a mesma nota.)
     """
-    ligacao = op.get_bind()
     copia: dict = {}
-    for tabela in TABELAS_COPIADAS:
-        if tabela == "audit_log":
-            resultado = ligacao.exec_driver_sql(
-                "SELECT to_jsonb(t) FROM platform.audit_log t ORDER BY t.id"
-            )
-        else:
-            resultado = ligacao.exec_driver_sql(
-                "SELECT to_jsonb(t) FROM platform.audit_heads t ORDER BY t.chave"
-            )
-        copia[tabela] = [linha[0] for linha in resultado.fetchall()]
+    for tabela_a_copiar in TABELAS_COPIADAS:
+        resultado = op.get_bind().exec_driver_sql(
+            f"SELECT to_jsonb(t) FROM platform.{tabela_a_copiar} t ORDER BY 1"
+        )
+        copia[tabela_a_copiar] = [linha[0] for linha in resultado.fetchall()]
     return copia

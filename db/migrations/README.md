@@ -33,9 +33,12 @@ python -m alembic -c migrations/alembic.ini downgrade base
 | `KAMBA_SECRET_DB_BATCH_PASSWORD` | `kamba_batch` — `BYPASSRLS`, auditado |
 | `KAMBA_SECRET_DB_RESOLVER_PASSWORD` | `kamba_resolver` — leitura estreita, antes de haver contexto (KAM-004) |
 | `KAMBA_SECRET_DB_IDENTITY_PASSWORD` | `kamba_identity` — o único que lê `contact_endpoints` e `contact_deks` (KAM-008) |
+| `KAMBA_SECRET_DB_AUDIT_PASSWORD` | `kamba_audit` — o único que lê `audit_log`; o `kamba_app` escreve e não lê (KAM-012) |
 | `KAMBA_DOWNGRADE_0003_COPIA` | Só no `downgrade` da `0003` com linhas de identidade: o ficheiro **novo** onde fica a cópia lógica |
+| `KAMBA_DOWNGRADE_0005_COPIA` | Idem, para a `0005` (consumo e DLQ) |
+| `KAMBA_DOWNGRADE_0006_COPIA` | Idem, para a `0006`: o `downgrade` apaga o registo de auditoria, que é prova |
 
-Os nomes das cinco palavras-passe dos papéis são os que o `EnvProvider` do KAM-010 lê
+Os nomes das seis palavras-passe dos papéis são os que o `EnvProvider` do KAM-010 lê
 (`KAMBA_SECRET_` + `id` do `ops/secrets-inventory.yaml`).
 
 **Os papéis não são uma revisão**, e o `downgrade base` não os remove: são

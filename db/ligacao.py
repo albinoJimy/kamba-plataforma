@@ -9,6 +9,8 @@ Seis identidades, e nenhuma se confunde com outra:
     batch      `kamba_batch` — `BYPASSRLS`, auditado. Jobs nomeados.
     resolver   `kamba_resolver` — le so as colunas que resolvem
                `phone_number_id -> tenant`, antes de haver contexto (KAM-004).
+    audit      `kamba_audit` — o unico que le `audit_log` (KAM-012). O
+               `kamba_app` escreve e nao le.
     identity   `kamba_identity` — o unico que le `contact_endpoints` e
                `contact_deks`. So o modulo de identidade (KAM-008).
 
@@ -34,6 +36,7 @@ PAPEIS = {
     "batch": "kamba_batch",
     "resolver": "kamba_resolver",
     "identity": "kamba_identity",
+    "audit": "kamba_audit",
 }
 
 #: Variavel de ambiente da palavra-passe de cada identidade.
@@ -44,6 +47,7 @@ VARIAVEL_DA_SENHA = {
     "batch": "KAMBA_SECRET_DB_BATCH_PASSWORD",
     "resolver": "KAMBA_SECRET_DB_RESOLVER_PASSWORD",
     "identity": "KAMBA_SECRET_DB_IDENTITY_PASSWORD",
+    "audit": "KAMBA_SECRET_DB_AUDIT_PASSWORD",
 }
 
 

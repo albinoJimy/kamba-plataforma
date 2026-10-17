@@ -118,6 +118,7 @@ def _ambiente_da_suite(host: str, porta: str, senha_admin: str) -> dict[str, str
             "KAMBA_SECRET_DB_BATCH_PASSWORD": secrets.token_urlsafe(24),
             "KAMBA_SECRET_DB_RESOLVER_PASSWORD": secrets.token_urlsafe(24),
             "KAMBA_SECRET_DB_IDENTITY_PASSWORD": secrets.token_urlsafe(24),
+            "KAMBA_SECRET_DB_AUDIT_PASSWORD": secrets.token_urlsafe(24),
         }
     )
     return ambiente
