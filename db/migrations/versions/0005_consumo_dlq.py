@@ -202,7 +202,6 @@ def upgrade() -> None:
           criado_at   timestamptz NOT NULL DEFAULT now(),
           resolvido_at  timestamptz,
           resolvido_por text,
-          CONSTRAINT events_dlq_consumer_event_uq UNIQUE (consumer, event_id),
           CONSTRAINT events_dlq_resolucao_ck
             CHECK ((estado = 'aberta') = (resolvido_at IS NULL))
         )
@@ -216,14 +215,43 @@ def upgrade() -> None:
     )
     op.execute(
         """
-        COMMENT ON CONSTRAINT events_dlq_consumer_event_uq ON platform.events_dlq IS
-          'Reentrada idempotente: o mesmo evento a falhar outra vez no mesmo consumidor nao abre uma segunda entrada.'
+        COMMENT ON CONSTRAINT events_dlq_resolucao_ck ON platform.events_dlq IS
+          'Acrescentado ao §6.4 (KAM-006): uma entrada aberta com resolvido_at, ou resolvida sem ele, e um estado que ninguem sabe ler. A retencao de 30 dias conta de resolvido_at.'
+        """
+    )
+    # A unicidade e **parcial**, e isso e o desenho e nao uma optimizacao.
+    #
+    # Uma unicidade sobre `(consumer, event_id)` inteira dava reentrada
+    # idempotente — e dava, ao mesmo tempo, isto: um evento falha seis vezes e
+    # entra na DLQ; alguem reprocessa-o (`estado = 'reprocessada'`); o
+    # reprocessamento volta a falhar seis vezes; e a segunda falha colide com a
+    # linha **fechada** e nao escreve nada. Ficava uma DLQ com zero entradas
+    # abertas sobre um efeito por aplicar — `evt_dlq_open` a zero, alerta
+    # nenhum, e a retencao de 30 dias a apagar a unica evidencia. Num
+    # `payment.*`, um Sev1 que se apaga a si proprio.
+    #
+    # Com a unicidade so sobre o que esta **aberto**, as duas propriedades
+    # separam-se: duas falhas na mesma execucao continuam a dar uma entrada
+    # (`ON CONFLICT ... WHERE estado = 'aberta' DO NOTHING`), e um ciclo novo
+    # depois de uma resolucao abre uma entrada nova — com a anterior guardada,
+    # que e o que uma auditoria quer ler.
+    #
+    # E e tambem a razao de **nao** se ter escolhido a alternativa: reabrir a
+    # linha fechada com um `DO UPDATE` obrigava a dar `UPDATE (estado, ...)` a
+    # `kamba_app`, e com isso quem consome passava a poder fechar uma entrada
+    # sozinho — exactamente o que a regra dos dois aprovadores existe para
+    # impedir.
+    op.execute(
+        """
+        CREATE UNIQUE INDEX events_dlq_aberta_uq
+          ON platform.events_dlq (consumer, event_id)
+          WHERE estado = 'aberta'
         """
     )
     op.execute(
         """
-        COMMENT ON CONSTRAINT events_dlq_resolucao_ck ON platform.events_dlq IS
-          'Acrescentado ao §6.4 (KAM-006): uma entrada aberta com resolvido_at, ou resolvida sem ele, e um estado que ninguem sabe ler. A retencao de 30 dias conta de resolvido_at.'
+        COMMENT ON INDEX platform.events_dlq_aberta_uq IS
+          'Reentrada idempotente, so entre as abertas: o mesmo evento a falhar outra vez no mesmo consumidor nao abre uma segunda entrada aberta, mas um ciclo novo depois de uma resolucao abre a sua.'
         """
     )
     # O indice que a metrica `evt_dlq_open` e o alerta varrem: parcial, so sobre
@@ -398,10 +426,17 @@ def upgrade() -> None:
     # uma linha de deduplicacao e permitir que o efeito se repita, e isso e da
     # retencao, que corre como `kamba_batch`.
     op.execute("GRANT SELECT, INSERT ON platform.events_consumed TO kamba_app")
-    # So `INSERT`, e nao `SELECT`: `kamba_app` abre a entrada e nunca a le.
-    # E o que mantem o `id` sequencial fora do alcance de um papel com RLS —
-    # sem isso, um tenant media pela sequencia quantas falhas o vizinho teve
-    # (a regra do dicionario §2, e a razao dela).
+    # So `INSERT`, e nao `SELECT` nem `UPDATE`: `kamba_app` abre a entrada e
+    # nunca a le nem a fecha. E o que mantem o `id` sequencial fora do alcance
+    # de um papel com RLS — sem isso, um tenant media pela sequencia quantas
+    # falhas o vizinho teve (a regra do dicionario §2, e a razao dela) — e e
+    # tambem o que faz a regra dos dois aprovadores valer: quem consome nao
+    # pode resolver uma entrada sozinho, porque nao tem `UPDATE` nenhum aqui.
+    #
+    # A reentrada de um evento que volta a falhar depois de resolvido **nao**
+    # precisa de `UPDATE`: a unicidade e parcial (`events_dlq_aberta_uq`, so
+    # sobre as abertas), pelo que um ciclo novo abre uma entrada nova. Ver o
+    # comentario desse indice.
     op.execute("GRANT INSERT ON platform.events_dlq TO kamba_app")
     op.execute("GRANT SELECT, INSERT ON platform.evt_acoes TO kamba_app")
     # Do `evt_acoes` muda-se o desfecho de uma accao que ele proprio registou.
@@ -530,8 +565,9 @@ def downgrade() -> None:
         "DROP CONSTRAINT evt_subscricoes_payment_exige_ordem"
     )
     op.execute("DROP TABLE platform.evt_acoes")
-    # As aprovacoes saem antes da DLQ: a chave estrangeira tem `ON DELETE
-    # CASCADE`, mas apagar pela ordem inversa do `upgrade` e o que se le.
+    # As aprovacoes saem antes da DLQ: a chave estrangeira **nao** tem
+    # `ON DELETE CASCADE` (o gate 8 recusa cascatas, e com razao: uma cascata
+    # esconde perda de dados), pelo que esta ordem nao e so legibilidade.
     op.execute("DROP TABLE platform.evt_dlq_aprovacoes")
     op.execute("DROP TABLE platform.events_dlq")
     op.execute("DROP TABLE platform.events_consumed")

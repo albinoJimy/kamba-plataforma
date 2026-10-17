@@ -37,6 +37,8 @@ import {
   SQL_LER_ACCAO,
   SQL_PARA_DLQ,
   SQL_PARTICAO,
+  SQL_TRANSACCAO_ABERTA,
+  TransaccaoAlheiaError,
   abertas,
   chaveDaAccao,
   eSev1,
@@ -85,6 +87,8 @@ class BdFalsa {
   particao = 3;
   /** Quando definido, a instrução cujo prefixo bate lança. */
   falhaEm: string | null = null;
+  /** O que a guarda do `once()` vê: `true` ⇒ já há transacção aberta. */
+  emTransaccao = false;
 
   async query(
     sql: string,
@@ -106,6 +110,9 @@ class BdFalsa {
       return { rows: this.accao === null ? [] : [{ ...this.accao }], rowCount: 1 };
     }
     if (sql === SQL_FECHAR_ACCAO) return { rows: [], rowCount: 1 };
+    if (sql === SQL_TRANSACCAO_ABERTA) {
+      return { rows: [{ aberta: this.emTransaccao }], rowCount: 1 };
+    }
     if (sql === SQL_A_REPOR) return { rows: this.aRepor, rowCount: this.aRepor.length };
     if (sql === SQL_PARTICAO) {
       return { rows: [{ particao: this.particao }], rowCount: 1 };
@@ -416,6 +423,7 @@ describe("once(): o efeito externo que não se repete", () => {
     // alheio fazia a mesma função funcionar num sítio e falhar no outro.
     await once(opcoes, async () => ({ mensagem: "wamid.X" }));
     assert.deepEqual(bd.instrucoes, [
+      "SELECT now() <> statement_timestamp() AS aberta",
       "BEGIN",
       "SELECT set_config('app.tenant_id', $1, $2)",
       "INSERT INTO platform.evt_acoes",
@@ -437,6 +445,29 @@ describe("once(): o efeito externo que não se repete", () => {
       return null;
     });
     assert.deepEqual(vistas.at(-1), "COMMIT", "a primeira transacção já fechou");
+  });
+
+  it("recusa-se a correr dentro da transacção de quem o chama", async () => {
+    // O PostgreSQL não encadeia transacções: o `COMMIT` do `once()` fecharia a
+    // transacção do consumo, confirmando a marca de `events_consumed` antes de
+    // o efeito existir. A re-entrega seguinte leria «duplicado» e o efeito
+    // nunca mais aconteceria — num `payment.*`, cliente que pagou e nunca é
+    // confirmado. Entre falhar e confirmar o que não está feito, falha-se.
+    bd.emTransaccao = true;
+    let vezes = 0;
+    await assert.rejects(
+      once(opcoes, async () => {
+        vezes += 1;
+        return null;
+      }),
+      TransaccaoAlheiaError,
+    );
+    assert.equal(vezes, 0, "o efeito externo não pode correr");
+    assert.deepEqual(
+      bd.instrucoes,
+      ["SELECT now() <> statement_timestamp() AS aberta"],
+      "a guarda é a primeira instrução, antes de qualquer BEGIN",
+    );
   });
 
   it("uma chave que colide e não se vê é erro alto, não um efeito saltado", async () => {

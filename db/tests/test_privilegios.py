@@ -133,10 +133,12 @@ ESPERADO_POR_TABELA.update(
             kamba_batch={"SELECT", "DELETE"},
         ),
         # A DLQ e o unico sitio onde `kamba_app` escreve **sem** poder ler, e e
-        # deliberado: o `id` e sequencial, e um papel sujeito a RLS que o lesse
-        # media pela sequencia quantas falhas o vizinho teve (dicionario §2). Le
-        # quem opera, que e `kamba_batch` — e e ele que reprocessa, descarta e
-        # purga.
+        # deliberado por duas razoes: o `id` e sequencial, e um papel sujeito a
+        # RLS que o lesse media pela sequencia quantas falhas o vizinho teve
+        # (dicionario §2); e sem `UPDATE` nenhum, quem consome nao pode
+        # resolver uma entrada sozinho — que e a regra dos dois aprovadores a
+        # valer tambem contra codigo, e nao so contra pessoas. Le e fecha quem
+        # opera, que e `kamba_batch`.
         "events_dlq": _eventos(
             kamba_app={"INSERT"},
             # Sem `UPDATE` **de tabela**: o que `kamba_batch` tem e `UPDATE` por

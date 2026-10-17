@@ -31,6 +31,33 @@ export const SQL_DEFINIR_TENANT = `
 `;
 
 /**
+ * Há uma transacção aberta nesta ligação?
+ *
+ * `now()` é o `transaction_timestamp()`. O PostgreSQL documenta que ele e o
+ * `statement_timestamp()` são **iguais durante o primeiro comando de uma
+ * transacção** e podem diferir nos seguintes. Em *autocommit*, cada instrução
+ * é a primeira da sua transacção implícita, pelo que são sempre iguais; dentro
+ * de uma transacção aberta que já correu alguma coisa, o segundo é maior.
+ *
+ * Serve uma guarda, e não uma decisão de negócio: o `once()` abre transacções
+ * próprias, e o PostgreSQL **não tem transacções encadeadas** — um `BEGIN`
+ * dentro de uma transacção aberta é um aviso e mais nada, e o `COMMIT`
+ * seguinte fecha a transacção de fora. Chamar o `once()` de dentro do consumo
+ * confirmava, assim, a marca de `events_consumed` antes de o efeito existir:
+ * uma falha a seguir deixava o evento marcado como consumido e sem efeito,
+ * para sempre, porque toda a re-entrega passa a ler «duplicado».
+ *
+ * **O que esta guarda não apanha:** o caso em que o `once()` é a *primeira*
+ * instrução de uma transacção aberta, onde os dois instantes são iguais por
+ * definição. No laço do consumo isso não acontece — o `SET LOCAL` e o `INSERT`
+ * da marca correm antes —, e uma guarda que apanha o caso alcançável vale mais
+ * do que nenhuma.
+ */
+export const SQL_TRANSACCAO_ABERTA = `
+  SELECT now() <> statement_timestamp() AS aberta
+`;
+
+/**
  * A linha de deduplicação. **É esta consulta que torna a entrega
  * *at-least-once* num efeito exactamente-uma-vez.**
  *
@@ -67,23 +94,43 @@ export const SQL_ULTIMO_SEQ = `
 `;
 
 /**
- * Abre uma entrada na DLQ, ou não faz nada se já estiver aberta.
+ * Abre uma entrada na DLQ: nova, ou **reaberta** se estava resolvida.
  *
- * `ON CONFLICT (consumer, event_id) DO NOTHING`: a reentrada é idempotente por
- * construção (§6.4). Sem isto, um evento que falhasse em duas execuções abria
- * duas entradas e o alerta contava o dobro.
+ * `ON CONFLICT (consumer, event_id)`: a reentrada é idempotente por construção
+ * (§6.4). Sem ela, um evento que falhasse em duas execuções abria duas entradas
+ * e o alerta contava o dobro.
+ *
+ * **Mas uma unicidade sobre o par inteiro não servia**, e o caso é este: um
+ * evento falha seis vezes e entra na DLQ; alguém reprocessa-o
+ * (`estado = 'reprocessada'`); o reprocessamento volta a falhar seis vezes. A
+ * segunda falha colidia com a linha **fechada**, não escrevia nada, e ficava
+ * uma DLQ com zero entradas abertas sobre um efeito que continua por aplicar —
+ * `evt_dlq_open` a zero, alerta nenhum, e a retenção de 30 dias a apagar a
+ * única evidência. Num `payment.*`, um Sev1 que se apaga a si próprio.
+ *
+ * A resposta é a **unicidade parcial** (`events_dlq_aberta_uq`, só sobre as
+ * abertas), e o alvo do conflito nomeia o seu predicado:
+ * `ON CONFLICT (consumer, event_id) WHERE estado = 'aberta' DO NOTHING`. Duas
+ * falhas na mesma execução continuam a dar uma entrada; um ciclo novo depois
+ * de uma resolução abre a sua, com a anterior guardada — que é o que uma
+ * auditoria quer ler.
+ *
+ * A alternativa — reabrir a linha fechada com um `DO UPDATE` — obrigava a dar
+ * `UPDATE (estado, ...)` a `kamba_app`, e com isso quem consome passava a poder
+ * **fechar** uma entrada sozinho. Era desfazer, do lado do código, a regra dos
+ * dois aprovadores.
  *
  * **Sem `RETURNING`**, de propósito: `INSERT ... RETURNING` exige `SELECT` nas
- * colunas devolvidas, e `kamba_app` tem só `INSERT` aqui — é o que mantém o `id`
+ * colunas devolvidas, e `kamba_app` tem só `INSERT` — é o que mantém o `id`
  * sequencial fora do alcance de um papel sujeito a RLS (um tenant mediria pela
- * sequência quantas falhas o vizinho teve). A contagem de linhas basta: distingue
- * «abri» de «já estava aberta».
+ * sequência quantas falhas o vizinho teve). A contagem de linhas basta, e um
+ * `DO NOTHING` sobre um índice parcial não lê nada: nem `SELECT`, nem `UPDATE`.
  */
 export const SQL_PARA_DLQ = `
   INSERT INTO platform.events_dlq
     (consumer, event_id, tipo, versao, tenant_id, envelope, erro, tentativas)
   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-  ON CONFLICT (consumer, event_id) DO NOTHING
+  ON CONFLICT (consumer, event_id) WHERE estado = 'aberta' DO NOTHING
 `;
 
 /** As entradas abertas, por tipo: é o que a métrica `evt_dlq_open` expõe. */

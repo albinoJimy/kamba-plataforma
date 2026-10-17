@@ -63,8 +63,10 @@ const EXIGE_ORDEM = (process.env.KAMBA_CON_EXIGE_ORDEM ?? '1').trim() !== '0';
 function escadaDoAmbiente(): readonly number[] | undefined {
   const bruto = (process.env.KAMBA_CON_ESCADA ?? '').trim();
   if (bruto === '') return undefined;
+  // `split` sobre uma cadeia não vazia devolve sempre pelo menos um elemento,
+  // e o caso vazio já saiu acima: o que falta verificar são os valores.
   const degraus = bruto.split(',').map((parte) => Number(parte.trim()));
-  if (degraus.length === 0 || degraus.some((n) => !Number.isInteger(n) || n < 0)) {
+  if (degraus.some((n) => !Number.isInteger(n) || n < 0)) {
     throw new Error(`KAMBA_CON_ESCADA inválida: ${JSON.stringify(bruto)}`);
   }
   return degraus;
@@ -92,6 +94,9 @@ const urlDaBase = exigir('KAMBA_CONSUMIDOR_DB_URL');
 const consumer = exigir('KAMBA_CONSUMER');
 const escada = escadaDoAmbiente();
 
+/** Quantas vezes o efeito `conta` já correu neste processo. Ver o efeito. */
+let aplicados = 0;
+
 const consumo = criarTrabalhadores({
   // Uma ligação por fila, como o serviço: a transacção do consumo é da fila.
   ligar: async () => {
@@ -115,16 +120,22 @@ const consumo = criarTrabalhadores({
       // consumo: é assim que o critério 1 conta «1 efeito» sem depender de um
       // contador em memória, que uma re-entrega noutro processo não veria.
       //
-      // A chave é a do §6.3 (`consumer:event_id:acção`) e não uma corrida: com
-      // uma chave aleatória, um efeito repetido escrevia **duas** linhas e o
-      // teste do critério 1 contava 2 — mas com a chave real ele rebenta na
-      // unicidade, que é a propriedade que se quer ter. O `tenant_id` vem do
-      // envelope porque a RLS o exige: o contexto da transacção é esse.
+      // A chave leva a do §6.3 (`consumer:event_id:acção`) **e um número de
+      // ordem**, e isso é deliberado: com a chave do §6.3 sozinha, um efeito
+      // repetido não escrevia duas linhas — rebentava na unicidade, e a
+      // asserção `efeitos() == 1` do critério 1 nunca podia observar um 2.
+      // Uma asserção que não pode falhar não prova nada. Com o número de
+      // ordem, duas aplicações do efeito deixam **duas** linhas, e o teste vê
+      // o que diz que vê.
+      //
+      // O `tenant_id` vem do envelope porque a RLS o exige: o contexto da
+      // transacção é esse.
+      aplicados += 1;
       await cliente.query(
         'INSERT INTO platform.evt_acoes (idempotency_key, consumer, event_id, accao, tenant_id) '
           + "VALUES ($1, $2, $3, 'efeito', $4)",
         [
-          chaveDaAccao(consumer, envelope.id, 'efeito'),
+          `${chaveDaAccao(consumer, envelope.id, 'efeito')}:${aplicados}`,
           consumer,
           envelope.id,
           envelope.tenant_id,

@@ -206,6 +206,25 @@ describe("a escada do consumidor", () => {
     assert.equal(REPETICAO.tentativas, TENTATIVAS);
   });
 
+  it("o `atraso` da repetição é o primeiro degrau, como a sua docstring diz", () => {
+    // Depois de o *job* passar a `backoff: {type:'custom'}`, o
+    // `REPETICAO.atraso` deixou de ser lido por código nenhum: ficou um valor
+    // com uma afirmação ao lado. Ou a afirmação é verdadeira e isto prende-a,
+    // ou é decoração — e decoração num ficheiro de política de repetição é
+    // onde nasce a próxima divergência.
+    assert.equal(REPETICAO.atraso, ESCADA_DO_CONSUMIDOR[0]);
+  });
+
+  it("uma escada dada por argumento substitui a do documento, degrau a degrau", () => {
+    // O relógio acelerado das suites. A escada de produção continua a ser a
+    // omissão, e é ela que os testes acima fixam.
+    const acelerada = [10, 20, 30];
+    assert.equal(atrasoDaTentativaDoConsumidor(1, acelerada), 10);
+    assert.equal(atrasoDaTentativaDoConsumidor(3, acelerada), 30);
+    assert.equal(atrasoDaTentativaDoConsumidor(9, acelerada), 30);
+    assert.throws(() => atrasoDaTentativaDoConsumidor(1, []), RangeError);
+  });
+
   it("não cresce acima do último degrau", () => {
     assert.equal(atrasoDaTentativaDoConsumidor(5), 600_000);
     assert.equal(atrasoDaTentativaDoConsumidor(9), 600_000);

@@ -135,6 +135,8 @@ EV_CONSUMO = "packages/core-ts/src/eventos/consumo.ts"
 EV_TRABALHO = "packages/core-ts/src/eventos/trabalho.ts"
 EV_DLQ = "packages/core-ts/src/eventos/dlq.ts"
 EV_RECON = "packages/core-ts/src/eventos/reconciliador.ts"
+EV_TRABALHADOR = "packages/core-ts/src/eventos/trabalhador_bullmq.ts"
+EV_ACCOES = "packages/core-ts/src/eventos/accoes.ts"
 
 MUTACOES = [
     ("estado a mais no CHECK de tenants", REV,
@@ -883,10 +885,16 @@ MUTACOES = [
 
     # ------------------------------------------------------------- KAM-006
     #
-    # O que estas dez mordem e o que **so** a suite com fila ve: a transaccao
-    # unica, a contagem de tentativas, a classificacao do erro e a reposicao.
-    # Cada uma e um defeito que existiu ou que a revisao do espelho em Python
-    # encontrou — nenhuma e inventada para encher a lista.
+    # Quinze, e doze delas apontadas a suite com fila: o que so ela ve e a
+    # transaccao unica, a contagem de tentativas, a classificacao do erro e a
+    # reposicao. Cada uma e um defeito que existiu, ou que a revisao do espelho
+    # em Python ou a revisao adversarial encontraram — nenhuma e inventada para
+    # encher a lista.
+    #
+    # As outras tres apontam a suite `tests`, e a razao e sempre a mesma: sao
+    # acoplamentos entre ficheiros, ou guardas, que **nenhuma execucao
+    # distingue de uma coincidencia**. Vivem no
+    # `db/tests/test_consumo_contrato.py` e no `test_dlq_reabertura.py`.
     ("consumo: a marca de consumo deixa de ser do tenant do envelope", EV_CONSUMO,
      "    await bd.query(SQL_DEFINIR_TENANT, [envelope.tenant_id, true]);\n",
      "", CONSUMO),
@@ -907,8 +915,20 @@ MUTACOES = [
      "    if (erro instanceof ForaDeOrdem) {",
      "    if (erro instanceof RangeError) {", CONSUMO),
     ("dlq: a entrada deixa de ter contexto de tenant", EV_DLQ,
-     "    await bd.query(SQL_DEFINIR_TENANT, [envelope.tenant_id, true]);\n",
+     "    await bd.query(SQL_DEFINIR_TENANT, [tenantId, true]);\n",
      "", CONSUMO),
+    ("trabalhador: um evento ilegivel deixa de abrir a DLQ", EV_TRABALHADOR,
+     "            await paraDlqSemEnvelope({",
+     "            await Promise.resolve({", CONSUMO),
+    ("trabalhador: o evento que o arquivo nao tem deixa de ser adiado", EV_TRABALHADOR,
+     "            if (!ultima) throw new Adiar(ADIAMENTO_POR_OMISSAO, erro.message);",
+     "", CONSUMO),
+    ("revisao 0005: a unicidade da DLQ deixa de ser parcial", REV5,
+     "        CREATE UNIQUE INDEX events_dlq_aberta_uq\n          ON platform.events_dlq (consumer, event_id)\n          WHERE estado = 'aberta'\n",
+     "        CREATE UNIQUE INDEX events_dlq_aberta_uq\n          ON platform.events_dlq (consumer, event_id)\n"),
+    ("accoes: o once deixa de recusar a transaccao de quem o chama", EV_ACCOES,
+     "  await exigirForaDeTransaccao(bd, chave);\n",
+     ""),
     ("reconciliador: o evento reposto perde o tenant", EV_RECON,
      "        tenant_id: linha.tenant_id,\n",
      "", CONSUMO),
@@ -920,9 +940,9 @@ MUTACOES = [
      "            WHERE estado <> 'aberta'\n",
      "          DELETE FROM platform.events_dlq\n"
      "            WHERE true\n", CONSUMO),
-    # Esta e a unica das onze que a suite com fila **nao** apanha, e e por isso
-    # que o `db/tests/test_consumo_contrato.py` existe: com o relogio acelerado
-    # a escada do publicador e a do worker dao tempos parecidos, e com a escada
+    # Esta e das tres que a suite com fila **nao** apanha, e e por isso que o
+    # `db/tests/test_consumo_contrato.py` existe: com o relogio acelerado a
+    # escada do publicador e a do worker dao tempos parecidos, e com a escada
     # real o teste custava 756 s. O acoplamento le-se como texto.
     ("filas: o job deixa de pedir a escada do consumidor", EV_FILAS,
      'backoff: { type: "custom" },',

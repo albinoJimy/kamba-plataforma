@@ -46,6 +46,18 @@ export const TIPOS_SEV1 = ['order.paid'] as const;
 /** Quanto tempo uma entrada que não é Sev1 pode ficar aberta sem alerta (§6.4). */
 export const HORAS_ATE_ALERTAR = 1;
 
+/**
+ * O `tipo` de uma entrada aberta sem envelope.
+ *
+ * Casa a gramática `familia.verbo` que a etiqueta de `evt_dlq_open` exige, e
+ * **não** é um tipo de evento do catálogo: é um sinal de que o arquivo não
+ * respondeu por um `event_id` que a fila trouxe. Ver `paraDlqSemEnvelope`.
+ */
+export const TIPO_ILEGIVEL = 'evt.ilegivel';
+
+/** A `versao` de uma entrada sem envelope: não se sabe, e zero não é versão. */
+export const VERSAO_ILEGIVEL = 0;
+
 export type Severidade = 'sev1' | 'sev2' | 'nenhuma';
 
 export interface EntradaDaDlq {
@@ -97,7 +109,12 @@ export interface OpcoesDaDlq {
 }
 
 export interface ResultadoDaDlq {
-  /** `false` quando já havia uma entrada aberta para este `(consumer, event_id)`. */
+  /**
+   * Ficou uma entrada **aberta** por causa desta chamada?
+   *
+   * `false` quando já havia uma aberta para este `(consumer, event_id)` — e
+   * **não** quando havia uma fechada: essa reabre-se, e aí isto é `true`.
+   */
   readonly abriu: boolean;
   readonly severidade: Severidade;
 }
@@ -117,20 +134,89 @@ export interface ResultadoDaDlq {
  */
 export async function paraDlq(opcoes: OpcoesDaDlq): Promise<ResultadoDaDlq> {
   const { bd, consumer, envelope, erro, tentativas } = opcoes;
+  // A métrica **não** se actualiza aqui, e são duas razões. A primeira é de
+  // privilégio: `evt_dlq_open` lê a tabela, e quem consome não tem `SELECT`
+  // nela (o `id` é sequencial e não pode ser lido por um papel com RLS). A
+  // segunda é de desenho: é um *gauge* da realidade e não um contador de
+  // chamadas, pelo que quem o publica é o processo, pela ligação de operação,
+  // com `publicarAbertas` — e não quem acabou de falhar um evento.
+  return escreverNaDlq(bd, envelope.tenant_id, [
+    consumer,
+    envelope.id,
+    envelope.tipo,
+    envelope.versao,
+    envelope.tenant_id,
+    JSON.stringify(envelope),
+    erro,
+    tentativas,
+  ]);
+}
+
+export interface OpcoesDaDlqSemEnvelope {
+  readonly bd: ClienteSql;
+  readonly consumer: string;
+  readonly eventId: string;
+  readonly tenantId: string;
+  readonly erro: string;
+  readonly tentativas: number;
+}
+
+/**
+ * Abre uma entrada para um evento cujo **envelope não se conseguiu ler**.
+ *
+ * Existe porque sem ela esse evento desaparecia em silêncio: a leitura do
+ * arquivo corre antes do `processar()`, e um erro ali nunca chegava ao
+ * `paraDlq()`. O *job* esgotava as seis tentativas e ficava em `failed` no
+ * Redis — sem linha na DLQ, sem métrica, sem alerta — e, como não há linha em
+ * `events_consumed` nem em `events_dlq`, o reconciliador voltava a
+ * enfileirá-lo de cinco em cinco minutos durante as 24 h da janela. Um ciclo
+ * silencioso, que é a pior forma de perder um evento.
+ *
+ * O que fica guardado no `envelope` é o que se sabe: o `event_id`, o
+ * `consumer` e o motivo. Não é um envelope — e é por isso que o `tipo` é
+ * `evt.ilegivel` e a `versao` é 0, para que ninguém o confunda com um evento
+ * reprocessável sem olhar.
+ */
+export async function paraDlqSemEnvelope(
+  opcoes: OpcoesDaDlqSemEnvelope,
+): Promise<ResultadoDaDlq> {
+  const { bd, consumer, eventId, tenantId, erro, tentativas } = opcoes;
+  const substituto = {
+    id: eventId,
+    consumer,
+    motivo: erro,
+    aviso: 'o arquivo não respondeu por este event_id: isto não é um envelope',
+  };
+  return escreverNaDlq(bd, tenantId, [
+    consumer,
+    eventId,
+    TIPO_ILEGIVEL,
+    VERSAO_ILEGIVEL,
+    tenantId,
+    JSON.stringify(substituto),
+    erro,
+    tentativas,
+  ]);
+}
+
+/**
+ * O `INSERT` na DLQ, na sua transacção e com o contexto posto.
+ *
+ * Um sítio só para as duas entradas (com e sem envelope): são os mesmos oito
+ * parâmetros, a mesma política de RLS e o mesmo `ROLLBACK`, e duas cópias
+ * divergiam na que se esquecesse de uma delas.
+ */
+async function escreverNaDlq(
+  bd: ClienteSql,
+  tenantId: string,
+  parametros: readonly unknown[],
+): Promise<ResultadoDaDlq> {
+  const tipo = String(parametros[2]);
   let rowCount: number | null = 0;
   await bd.query('BEGIN');
   try {
-    await bd.query(SQL_DEFINIR_TENANT, [envelope.tenant_id, true]);
-    ({ rowCount } = await bd.query(SQL_PARA_DLQ, [
-      consumer,
-      envelope.id,
-      envelope.tipo,
-      envelope.versao,
-      envelope.tenant_id,
-      JSON.stringify(envelope),
-      erro,
-      tentativas,
-    ]));
+    await bd.query(SQL_DEFINIR_TENANT, [tenantId, true]);
+    ({ rowCount } = await bd.query(SQL_PARA_DLQ, parametros));
     await bd.query('COMMIT');
   } catch (falha) {
     try {
@@ -140,14 +226,7 @@ export async function paraDlq(opcoes: OpcoesDaDlq): Promise<ResultadoDaDlq> {
     }
     throw falha;
   }
-  // A métrica **não** se actualiza aqui, e são duas razões. A primeira é de
-  // privilégio: `evt_dlq_open` lê a tabela, e quem consome tem só `INSERT`
-  // nesta tabela (o `id` é sequencial e não pode ser lido por um papel com
-  // RLS). A segunda é de desenho: é um *gauge* da realidade e não um contador
-  // de chamadas, pelo que quem o publica é o processo, pela ligação de
-  // operação, com `publicarAbertas` — e não quem acabou de falhar um evento.
-  const abriu = (rowCount ?? 0) > 0;
-  return { abriu, severidade: severidade(envelope.tipo, 0) };
+  return { abriu: (rowCount ?? 0) > 0, severidade: severidade(tipo, 0) };
 }
 
 /** As entradas abertas, agrupadas por tipo. */

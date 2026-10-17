@@ -14,51 +14,20 @@ aqui a mao provava que a copia funciona, nao que o modulo funciona.
 
 from __future__ import annotations
 
-import re
 import unittest
 import uuid
-from pathlib import Path
 
-from tests.base import PRIVILEGIO_INSUFICIENTE, VIOLACAO_DE_CHECK, ComBase, sqlstate
+from tests.base import (
+    PRIVILEGIO_INSUFICIENTE,
+    VIOLACAO_DE_CHECK,
+    ComBase,
+    ConsultaDoTypeScript,
+    sqlstate,
+)
 
-RAIZ = Path(__file__).resolve().parents[2]
-CONSULTAS = RAIZ / "packages" / "core-ts" / "src" / "eventos" / "consultas_consumo.ts"
 
 #: `consumer:event_id:accao`, a forma do §6.3. A accao e um nome curto.
 ACCAO = "enviar_whatsapp"
-
-
-class Consulta:
-    """Uma consulta do TypeScript, pronta para o `pg8000`.
-
-    **O `pg8000` nao tem `$n`: tem `%s`, e liga-os pela ordem em que aparecem
-    no texto.** O `SQL_FECHAR_ACCAO` escreve `SET estado = $2, resultado = $3
-    ... WHERE idempotency_key = $1`, pelo que a troca ingenua de `$n` por `%s`
-    muda o significado dos argumentos — e o PostgreSQL recusou, a primeira
-    execucao desta bateria, um `'feita'` onde esperava `jsonb`. Por isso esta
-    classe guarda a **ordem** em que os marcadores aparecem e reordena o que se
-    lhe passa: quem chama escreve os argumentos pela numeracao do documento
-    (`$1, $2, $3`) e nao pela do texto.
-    """
-
-    def __init__(self, nome: str) -> None:
-        texto = CONSULTAS.read_text(encoding="utf-8")
-        achado = re.search(rf"export const {nome} = `(.*?)`;", texto, re.S)
-        if achado is None:
-            raise AssertionError(f"nao se encontrou {nome} em {CONSULTAS.name}")
-        self.nome = nome
-        self.fonte = achado.group(1)
-        self.ordem = [int(n) for n in re.findall(r"\$(\d+)", self.fonte)]
-        self.sql = re.sub(r"\$\d+", "%s", self.fonte)
-
-    def args(self, *valores: object) -> tuple[object, ...]:
-        """Os `valores` — na numeracao do documento — pela ordem do texto."""
-        if sorted(self.ordem) != list(range(1, len(valores) + 1)):
-            raise AssertionError(
-                f"{self.nome} tem os marcadores {self.ordem} e deram-se "
-                f"{len(valores)} argumentos"
-            )
-        return tuple(valores[n - 1] for n in self.ordem)
 
 
 class ComAccoes(ComBase):
@@ -67,10 +36,10 @@ class ComAccoes(ComBase):
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
-        cls.abrir_accao = Consulta("SQL_ABRIR_ACCAO")
-        cls.ler_accao = Consulta("SQL_LER_ACCAO")
-        cls.fechar_accao = Consulta("SQL_FECHAR_ACCAO")
-        cls.definir_tenant = Consulta("SQL_DEFINIR_TENANT")
+        cls.abrir_accao = ConsultaDoTypeScript("SQL_ABRIR_ACCAO")
+        cls.ler_accao = ConsultaDoTypeScript("SQL_LER_ACCAO")
+        cls.fechar_accao = ConsultaDoTypeScript("SQL_FECHAR_ACCAO")
+        cls.definir_tenant = ConsultaDoTypeScript("SQL_DEFINIR_TENANT")
 
     def setUp(self) -> None:
         super().setUp()

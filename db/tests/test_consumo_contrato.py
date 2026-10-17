@@ -84,6 +84,83 @@ class TestEscadaDoConsumidor(unittest.TestCase):
         self.assertEqual(int(achado.group(1)), 6, "o criterio 2 diz 6 (1 + 5)")
 
 
+class TestOnceForaDaTransaccao(unittest.TestCase):
+    """O `once()` nao pode correr dentro da transacção do consumo.
+
+    O PostgreSQL nao encadeia transaccoes: um `BEGIN` dentro de uma transaccao
+    aberta e um aviso e mais nada, e o `COMMIT` seguinte fecha a de fora.
+    Chamado de dentro do `consumir()`, o `once()` confirmava a marca de
+    `events_consumed` **antes de o efeito existir** — e a re-entrega seguinte
+    lia «duplicado», pelo que o efeito nunca mais acontecia, sem entrada na DLQ
+    e sem o reconciliador o apanhar.
+
+    Le-se como texto porque a guarda e uma linha que se apaga sem nada ficar
+    vermelho: a bateria do `once()` corre com uma base falsa, que nao sabe o
+    que e uma transaccao encadeada.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.accoes = (EVENTOS / "accoes.ts").read_text(encoding="utf-8")
+        cls.consultas = (EVENTOS / "consultas_consumo.ts").read_text(encoding="utf-8")
+
+    def test_a_guarda_existe_e_corre_antes_de_qualquer_begin(self) -> None:
+        self.assertIn("await exigirForaDeTransaccao(bd, chave);", self.accoes)
+        guarda = self.accoes.index("await exigirForaDeTransaccao(bd, chave);")
+        primeiro_begin = self.accoes.index("await bd.query('BEGIN')")
+        self.assertLess(
+            guarda, primeiro_begin, "a guarda tem de vir antes do primeiro BEGIN"
+        )
+
+    def test_a_consulta_da_guarda_compara_os_dois_instantes(self) -> None:
+        """`now()` e o da transaccao; `statement_timestamp()` e o da instrucao."""
+        self.assertIn("now() <> statement_timestamp()", self.consultas)
+
+
+class TestReentradaNaDlq(unittest.TestCase):
+    """A unicidade da DLQ e parcial, e o `ON CONFLICT` nomeia o predicado."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.consultas = (EVENTOS / "consultas_consumo.ts").read_text(encoding="utf-8")
+        cls.revisao = (
+            RAIZ / "db" / "migrations" / "versions" / "0005_consumo_dlq.py"
+        ).read_text(encoding="utf-8")
+
+    def test_o_indice_e_unico_e_parcial(self) -> None:
+        self.assertIn("CREATE UNIQUE INDEX events_dlq_aberta_uq", self.revisao)
+        self.assertIn("WHERE estado = 'aberta'", self.revisao)
+
+    def test_o_on_conflict_nomeia_o_predicado_do_indice(self) -> None:
+        """Sem o predicado, o PostgreSQL nao infere o indice parcial e rebenta.
+
+        E com uma unicidade sobre o par inteiro, uma entrada ja resolvida
+        engolia a falha seguinte: zero entradas abertas sobre um efeito por
+        aplicar, que e um Sev1 a apagar-se a si proprio.
+        """
+        self.assertIn(
+            "ON CONFLICT (consumer, event_id) WHERE estado = 'aberta' DO NOTHING",
+            self.consultas,
+        )
+
+    def test_quem_consome_nao_ganhou_update_na_dlq(self) -> None:
+        """A alternativa ao indice parcial era dar `UPDATE` a `kamba_app`.
+
+        Com ele, quem consome passava a poder **fechar** uma entrada sozinho —
+        desfazendo, do lado do codigo, a regra dos dois aprovadores.
+        """
+        concedidos = set(
+            re.findall(
+                r"GRANT ([A-Z]+)[^\"]*ON platform\.events_dlq TO kamba_app", self.revisao
+            )
+        )
+        self.assertEqual(
+            concedidos,
+            {"INSERT"},
+            "quem consome ganhou mais do que INSERT na DLQ: ver o comentario acima",
+        )
+
+
 class TestUmaLigacaoPorFila(unittest.TestCase):
     """A ligacao e por fila, e isso nao se ve a correr com uma particao."""
 

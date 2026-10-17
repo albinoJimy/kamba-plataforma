@@ -113,11 +113,15 @@ export {
 } from "./metricas.ts";
 
 export {
-  type AccaoInvalidaError,
+  // Classes, e nao tipos: quem apanha um erro precisa do `instanceof`, e um
+  // `export type` sobre uma classe tira-lhe o valor. O `AccaoInvalidaError`
+  // estava assim e ninguem o podia distinguir de outro `Error`.
+  AccaoInvalidaError,
   ESTADOS_DE_ACCAO,
   type EstadoDeAccao,
   type OpcoesDaAccao,
   type ResultadoDaAccao,
+  TransaccaoAlheiaError,
   chaveDaAccao,
   once,
 } from "./accoes.ts";
@@ -149,6 +153,7 @@ export {
   SQL_MARCAR_CONSUMIDO,
   SQL_PARA_DLQ,
   SQL_PAYMENT_SEM_ORDEM,
+  SQL_TRANSACCAO_ABERTA,
   SQL_ULTIMO_SEQ,
 } from "./consultas_consumo.ts";
 

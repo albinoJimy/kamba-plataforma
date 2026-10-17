@@ -335,6 +335,14 @@ class TestInventario(ComBase):
             # alerta e da metrica `evt_dlq_open`: so cobre o que esta aberto, e
             # uma DLQ saudavel tem zero linhas aqui.
             "events_dlq_abertas": False,
+            # KAM-006: parcial e **unico**, e e o unico desta revisao. Impoe a
+            # reentrada idempotente **entre as abertas**: o mesmo evento a
+            # falhar outra vez nao abre uma segunda entrada aberta, mas um
+            # ciclo novo depois de uma resolucao abre a sua. Perder o `UNIQUE`
+            # daqui nao muda plano de consulta nenhum — nao se ve em lado
+            # nenhum — e dava duas entradas abertas sobre o mesmo evento, com o
+            # alerta a contar o dobro.
+            "events_dlq_aberta_uq": True,
         }
         linhas = self.consultar(
             "SELECT indexname::text, indexdef FROM pg_indexes "
@@ -360,7 +368,6 @@ class TestInventario(ComBase):
                 [
                     # ------------------------------------- KAM-006 (0005)
                     "events_consumed_pkey",
-                    "events_dlq_consumer_event_uq",
                     "events_dlq_estado_ck",
                     "events_dlq_pkey",
                     "events_dlq_resolucao_ck",

@@ -185,9 +185,13 @@ class TestX04SemContexto(ComDoisTenants):
                 )
 
     def test_insert_sem_contexto_falha(self) -> None:
-        for schema, tabela, _, receita in self.por_tabela():
-            if not receita.escrita_do_papel:
-                continue  # ver `test_onde_o_papel_nao_escreve_...`
+        """Todas as que o papel escreve — **inclusive as que ele nao le**.
+
+        O `por_tabela()` tira as que o papel nao le, e usa-lo aqui tirava a
+        `events_dlq` do `WITH CHECK`: a unica tabela em que `kamba_app`
+        escreve as cegas ficava sem teste de escrita cruzada nenhum.
+        """
+        for schema, tabela, _, receita in self.por_tabela_que_escreve():
             with self.subTest(tabela=f"{schema}.{tabela}"):
                 cursor = self.cursor_de(receita.papel)
                 self._inserir_tem_de_falhar(cursor, receita, self.a.id)
@@ -200,15 +204,12 @@ class TestX04SemContexto(ComDoisTenants):
         tem sequer o privilegio de `INSERT`, e por isso a politica nunca e a
         unica coisa entre o produtor e o arquivo.
         """
-        cobertas = 0
-        for schema, tabela, _, receita in self.por_tabela():
-            if receita.escrita_do_papel:
-                continue
-            cobertas += 1
+        sem_escrita = self.por_tabela_sem_escrita()
+        self.assertTrue(sem_escrita, "nenhuma tabela e so-leitura para o seu papel")
+        for schema, tabela, _, receita in sem_escrita:
             with self.subTest(tabela=f"{schema}.{tabela}"):
                 cursor = self.cursor_de(receita.papel, self.a.id)
                 self._inserir_sem_privilegio(cursor, receita, self.a.id)
-        self.assertTrue(cobertas, "nenhuma tabela e so-leitura para o seu papel")
 
     def test_um_contexto_que_nao_e_uuid_e_erro_e_nao_linhas(self) -> None:
         """Falha fechada pelo lado ruidoso: o `::uuid` da politica rebenta."""
@@ -234,10 +235,13 @@ class TestEscritaCruzada(ComDoisTenants):
     """Com contexto A, nao se escreve em B."""
 
     def test_insert_com_o_tenant_de_b_sob_contexto_a_falha(self) -> None:
-        """`WITH CHECK`. Para `tenants`, e criar um tenant cujo `id` nao e o do contexto."""
-        for schema, tabela, _, receita in self.por_tabela():
-            if not receita.escrita_do_papel:
-                continue  # ver `test_onde_o_papel_nao_escreve_...`
+        """`WITH CHECK`. Para `tenants`, e criar um tenant cujo `id` nao e o do contexto.
+
+        Itera o `por_tabela_que_escreve()`: uma tabela que o papel escreve sem
+        ler precisa deste teste **mais** do que as outras, porque nela a
+        politica e a unica coisa entre o produtor e a linha do vizinho.
+        """
+        for schema, tabela, _, receita in self.por_tabela_que_escreve():
             with self.subTest(tabela=f"{schema}.{tabela}"):
                 cursor = self.cursor_de(receita.papel, self.a.id)
                 alvo = str(uuid.uuid4()) if tabela == "tenants" else self.b.id

@@ -61,17 +61,23 @@ import { Redis } from 'ioredis';
 import {
   ADIAMENTO_POR_OMISSAO,
   Adiar,
+  TENTATIVAS,
   atrasoDaTentativaDoConsumidor,
 } from './consumo.ts';
 import type { Efeito } from './consumo.ts';
 import { SQL_DEFINIR_TENANT } from './consultas_consumo.ts';
+import { paraDlqSemEnvelope } from './dlq.ts';
 import type { Envelope } from './envelope.ts';
 import { lerEnvelope } from './envelope.ts';
 import type { MaquinaDeEstados } from './estados.ts';
 import { LIGACAO_QUE_FALHA_DEPRESSA, opcoesDaUrl } from './filas_bullmq.ts';
 import type { Metricas } from './metricas.ts';
 import type { ClienteSql } from './publicador.ts';
-import { type DesfechoDoTrabalho, processar } from './trabalho.ts';
+import {
+  type DesfechoDoTrabalho,
+  type ResultadoDoTrabalho,
+  processar,
+} from './trabalho.ts';
 
 /** O que o trabalhador precisa de saber sobre a subscrição que serve. */
 export interface Subscricao {
@@ -229,26 +235,95 @@ export function criarTrabalhadores(opcoes: OpcoesDoTrabalhador): Trabalhadores {
       return minha;
     };
 
+    /**
+     * Larga a ligação desta fila, para a entrega seguinte abrir outra.
+     *
+     * O `pg.Client` **não religa**: depois de uma queda da base ou de um
+     * *failover*, fica em erro permanente e toda a consulta devolve «Client
+     * has encountered a connection error and is not queryable». Com a
+     * promessa memoizada para sempre, a partição morria até ao reinício do
+     * processo — dezasseis sessões a poderem morrer uma a uma, com o
+     * `/healthz` a dizer que está tudo bem.
+     */
+    const largarLigacao = (): void => {
+      const morta = minha;
+      minha = undefined;
+      if (morta !== undefined) {
+        void morta.then((cliente) => cliente.end()).catch(() => {});
+      }
+    };
+
     return new Worker(
       fila,
       async (job) => {
         const bd = await ligacaoDaFila();
         const eventId = job.id ?? String(job.data?.event_id ?? '');
-        const envelope = await envelopeDoEvento(bd, eventId, tenantDoJob(job.data));
+        const tenantId = tenantDoJob(job.data);
         // `attemptsMade` conta as que **já** falharam; esta é a seguinte.
         const tentativa = job.attemptsMade + 1;
-        const resultado = await processar(
-          {
-            bd,
-            consumer: subscricao.consumer,
-            envelope,
-            exigeOrdem: subscricao.exigeOrdem,
-            tentativa,
-            ...(maquina === undefined ? {} : { maquina }),
-            ...(metricas === undefined ? {} : { metricas }),
-          },
-          efeito,
-        );
+        const ultima = tentativa >= TENTATIVAS;
+
+        // A leitura do envelope corre **antes** do `processar()`, e por isso
+        // fora da política dele. Um erro aqui, deixado a subir, esgotava as
+        // seis tentativas e deixava o *job* em `failed` no Redis — sem linha
+        // na DLQ, sem métrica e sem alerta —, e como não há `events_consumed`
+        // nem `events_dlq` o reconciliador voltava a enfileirá-lo de cinco em
+        // cinco minutos durante 24 h. Um ciclo silencioso, que é a pior forma
+        // de perder um evento. Cada classe de erro tem aqui a sua resposta.
+        let envelope: Envelope;
+        try {
+          envelope = await envelopeDoEvento(bd, eventId, tenantId);
+        } catch (erro) {
+          if (erro instanceof TenantEmFaltaError) {
+            // Nenhuma retentativa acrescenta um `tenant_id` ao *job*, e sem
+            // ele não há linha de DLQ possível: a DLQ é isolada por tenant e
+            // quem escreve está sujeito à política. Falha à primeira, para
+            // não gastar seis tentativas no que não muda.
+            log?.({ evento: 'consumo', fila, event_id: eventId, tentativa, desfecho: 'sem_tenant' });
+            throw new UnrecoverableError(erro.message);
+          }
+          if (erro instanceof EventoDesconhecidoError) {
+            // Pode ser cedo: o publicador põe o *job* na fila **antes** do
+            // `COMMIT` que arquiva, pelo que uma entrega muito rápida chega a
+            // um arquivo que ainda não tem a linha. Adia-se; esgotadas as
+            // tentativas, abre-se a entrada com o que se sabe.
+            if (!ultima) throw new Adiar(ADIAMENTO_POR_OMISSAO, erro.message);
+            await paraDlqSemEnvelope({
+              bd,
+              consumer: subscricao.consumer,
+              eventId,
+              tenantId,
+              erro: erro.message,
+              tentativas: tentativa,
+            });
+            log?.({ evento: 'consumo', fila, event_id: eventId, tentativa, desfecho: 'dlq' });
+            throw new UnrecoverableError(`dlq: ${erro.message}`);
+          }
+          // Erro da base ou da ligação. A sessão pode estar morta.
+          largarLigacao();
+          throw erro;
+        }
+
+        let resultado: ResultadoDoTrabalho;
+        try {
+          resultado = await processar(
+            {
+              bd,
+              consumer: subscricao.consumer,
+              envelope,
+              exigeOrdem: subscricao.exigeOrdem,
+              tentativa,
+              ...(maquina === undefined ? {} : { maquina }),
+              ...(metricas === undefined ? {} : { metricas }),
+            },
+            efeito,
+          );
+        } catch (erro) {
+          // O `processar()` devolve desfecho para tudo o que é política e só
+          // relança o que é técnico — e técnico inclui «a base caiu».
+          largarLigacao();
+          throw erro;
+        }
         log?.({
           evento: 'consumo',
           fila,

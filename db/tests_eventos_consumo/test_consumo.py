@@ -224,6 +224,71 @@ class TestOrdem(ComConsumidor):
         self.assertEqual(self.efeitos(), 0)
 
 
+class TestEnvelopeIlegivel(ComConsumidor):
+    """O que acontece quando o arquivo nao responde pelo evento.
+
+    A leitura do envelope corre **antes** da politica, e por isso fora dela. Um
+    erro ali, deixado a subir, esgotava as seis tentativas e deixava o *job* em
+    `failed` no Redis — sem linha na DLQ, sem metrica e sem alerta —, e como
+    nao ha `events_consumed` nem `events_dlq` o reconciliador voltava a
+    enfileira-lo de cinco em cinco minutos durante 24 h. Um ciclo silencioso.
+    """
+
+    def test_um_evento_que_o_arquivo_nao_tem_acaba_na_dlq(self) -> None:
+        self.subscrever()
+        (identificador,) = self.publicar()
+        # O arquivo perde a linha. Na pratica isto acontece ao contrario — o
+        # *job* chega antes do `COMMIT` que arquiva —, e o efeito e o mesmo:
+        # a leitura devolve zero linhas.
+        self.cursor.execute(
+            "DELETE FROM platform.events_log WHERE event_id = %s", (identificador,)
+        )
+
+        consumidor = self.lancar_consumidor("a", KAMBA_CON_EFEITO="conta")
+        self.assertTrue(self.esperar_arranque(consumidor), self.diagnostico())
+        self.assertTrue(
+            esperar_por(lambda: len(self.na_dlq()) == 1, ESPERA_DA_DLQ),
+            f"o evento ilegivel nao deixou entrada na DLQ{self.diagnostico()}",
+        )
+        (entrada,) = self.na_dlq()
+        self.assertEqual(entrada["event_id"], identificador)
+        self.assertEqual(entrada["tipo"], "evt.ilegivel")
+        self.assertEqual(entrada["versao"], 0)
+        self.assertEqual(entrada["tentativas"], 6)
+        self.assertIn("events_log", entrada["erro"])
+        # O que fica no lugar do envelope **diz** que nao e um envelope: sem
+        # isso, alguem le a entrada e tenta reprocessa-la como se fosse um
+        # evento. Guarda o `event_id` e o motivo, e mais nada.
+        substituto = entrada["envelope"]
+        self.assertEqual(substituto["id"], identificador)
+        self.assertIn("aviso", substituto)
+        self.assertNotIn("payload", substituto)
+        self.assertEqual(self.consumidos(), 0)
+        self.assertEqual(self.efeitos(), 0)
+
+    def test_o_que_esta_na_dlq_por_ilegivel_nao_e_reposto(self) -> None:
+        """E a razao de ser do teste acima: fechar o ciclo da reposicao."""
+        self.subscrever()
+        (identificador,) = self.publicar()
+        self.cursor.execute(
+            "DELETE FROM platform.events_log WHERE event_id = %s", (identificador,)
+        )
+        consumidor = self.lancar_consumidor("a")
+        self.assertTrue(self.esperar_arranque(consumidor), self.diagnostico())
+        self.assertTrue(
+            esperar_por(lambda: len(self.na_dlq()) == 1, ESPERA_DA_DLQ),
+            f"o evento ilegivel nao deixou entrada na DLQ{self.diagnostico()}",
+        )
+        # Sem a linha no arquivo a consulta do §6.5 nem o encontra; com ela, e
+        # a entrada na DLQ que o tira dos candidatos. As duas redes.
+        reposicao = self.repor_uma_vez()
+        self.assertTrue(self.esperar_fim(reposicao), self.diagnostico())
+        passagens = [
+            linha for linha in reposicao.linhas() if linha.get("evento") == "passagem"
+        ]
+        self.assertEqual([p.get("encontradas") for p in passagens], [0])
+
+
 class TestReposicao(ComConsumidor):
     """Criterio 8: o que o Redis perdeu volta a fila."""
 
@@ -312,6 +377,35 @@ class TestReposicao(ComConsumidor):
         reposicao = self.repor_uma_vez()
         self.assertTrue(self.esperar_fim(reposicao), self.diagnostico())
         self.assertEqual(self.fila.pendentes(self.nome_da_fila(identificador)), 0)
+
+    def test_com_a_carencia_do_documento_o_que_passou_dos_dez_minutos_volta(self) -> None:
+        """A carencia tambem tem de deixar passar, e nao so travar.
+
+        Os outros testes desta classe correm com carencia zero, e o seguinte
+        prova que a de producao **trava** o que e recente. Sozinhos, os dois
+        passavam com o sinal da comparacao trocado ou com o parametro ignorado:
+        nada provaria que, com os dez minutos do §6.5, um evento mais velho e
+        de facto reposto. E este teste que fecha essa assimetria — e fecha-a
+        sem esperar dez minutos, recuando o `registado_em` do arquivo, que e a
+        coluna que a consulta le.
+        """
+        self.subscrever()
+        (identificador,) = self.publicar()
+        self.cursor.execute(
+            "UPDATE platform.events_log SET registado_em = now() - interval '11 minutes' "
+            " WHERE event_id = %s",
+            (identificador,),
+        )
+        self.fila.limpar()
+
+        reposicao = self.repor_uma_vez(KAMBA_RECON_CARENCIA="600")
+        self.assertTrue(
+            esperar_por(
+                lambda: self.fila.pendentes(self.nome_da_fila(identificador)) == 1, ESPERA
+            ),
+            f"nao repos um evento publicado ha onze minutos{self.diagnostico()}",
+        )
+        self.assertTrue(self.esperar_fim(reposicao), self.diagnostico())
 
     def test_a_carencia_do_documento_protege_o_que_acabou_de_ser_publicado(self) -> None:
         """Com os dez minutos do §6.5, um evento fresco **nao** se repoe.

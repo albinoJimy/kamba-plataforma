@@ -28,6 +28,24 @@
  *
  * É a mesma escolha que o KAM-005 fez na `PROVA INVALIDA` da prova por mutação:
  * entre afirmar o que não se sabe e dizer «não sei», diz-se «não sei».
+ *
+ * ## A ligação **não** pode ser a do consumo
+ *
+ * Isto corre fora da transacção do consumo, e a palavra «fora» é literal: o
+ * PostgreSQL não tem transacções encadeadas, pelo que um `BEGIN` desta função
+ * dentro de uma transacção aberta é um aviso e mais nada — e o `COMMIT`
+ * seguinte fecha a transacção de quem chamou. Chamada de dentro do
+ * `consumir()`, esta função confirmaria a marca de `events_consumed` **antes
+ * de o efeito existir**: uma falha a seguir deixava o evento marcado como
+ * consumido e sem efeito, e toda a re-entrega passava a ler «duplicado». O
+ * efeito nunca mais acontecia, não havia entrada na DLQ e o reconciliador
+ * saltava-o. Num `payment.*`, é cliente que pagou e nunca é confirmado.
+ *
+ * Por isso a primeira coisa que o `once()` faz é **recusar** uma ligação que
+ * já tenha transacção aberta (`TransaccaoAlheiaError`). O lugar certo de um
+ * efeito externo é depois do `COMMIT` do consumo, noutra ligação; hoje o laço
+ * do consumidor não tem esse lugar — o esqueleto não tem efeitos externos — e
+ * isso está registado em `docs/consumo.md` §9.
  */
 
 import {
@@ -35,6 +53,7 @@ import {
   SQL_DEFINIR_TENANT,
   SQL_FECHAR_ACCAO,
   SQL_LER_ACCAO,
+  SQL_TRANSACCAO_ABERTA,
 } from './consultas_consumo.ts';
 import { Adiar } from './consumo.ts';
 import type { ClienteSql } from './publicador.ts';
@@ -54,6 +73,35 @@ export class AccaoInvalidaError extends Error {
     this.name = 'AccaoInvalidaError';
     this.accao = accao;
   }
+}
+
+/**
+ * O `once()` foi chamado numa ligação que já tem transacção aberta.
+ *
+ * É erro, e alto, porque a alternativa é pior do que uma falha: o PostgreSQL
+ * não tem transacções encadeadas, e o `COMMIT` do `once()` confirmaria a
+ * transacção de quem o chamou — a do consumo, com a marca de
+ * `events_consumed` lá dentro e sem o efeito feito.
+ */
+export class TransaccaoAlheiaError extends Error {
+  readonly chave: string;
+
+  constructor(chave: string) {
+    super(
+      `once(${chave}) foi chamado dentro de uma transacção aberta. O PostgreSQL ` +
+        'não encadeia transacções: o COMMIT desta função fecharia a de quem a ' +
+        'chamou, confirmando a marca de consumo sem o efeito. Um efeito externo ' +
+        'corre **depois** do COMMIT do consumo, noutra ligação (docs/consumo.md §8)',
+    );
+    this.name = 'TransaccaoAlheiaError';
+    this.chave = chave;
+  }
+}
+
+/** Recusa, alto, uma ligação que já esteja em transacção. */
+async function exigirForaDeTransaccao(bd: ClienteSql, chave: string): Promise<void> {
+  const { rows } = await bd.query(SQL_TRANSACCAO_ABERTA);
+  if (rows[0]?.aberta === true) throw new TransaccaoAlheiaError(chave);
 }
 
 /**
@@ -109,6 +157,8 @@ export async function once<T>(
 ): Promise<ResultadoDaAccao<T>> {
   const { bd, consumer, eventId, tenantId, accao } = opcoes;
   const chave = chaveDaAccao(consumer, eventId, accao);
+  // Antes de qualquer `BEGIN`: ver `TransaccaoAlheiaError`.
+  await exigirForaDeTransaccao(bd, chave);
 
   const abertura = await comContexto(bd, tenantId, async () => {
     const abriu = await bd.query(SQL_ABRIR_ACCAO, [chave, consumer, eventId, accao, tenantId]);

@@ -14,6 +14,7 @@ desenvolvimento.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import unittest
@@ -262,3 +263,46 @@ class ComBase(unittest.TestCase):
             esperado,
             f"falhou, mas nao pela razao esperada: {capturado.exception}",
         )
+
+
+#: Onde vivem as constantes de SQL do consumidor (KAM-006).
+CONSULTAS_DO_CONSUMIDOR = (
+    Path(__file__).resolve().parents[2]
+    / "packages" / "core-ts" / "src" / "eventos" / "consultas_consumo.ts"
+)
+
+
+class ConsultaDoTypeScript:
+    """Uma constante de SQL do TypeScript, pronta para o `pg8000`.
+
+    Existe para que uma suite de base de dados exercite **o SQL do modulo** e
+    nao uma copia dele: uma copia prova que a copia funciona.
+
+    **O `pg8000` nao tem `$n`: tem `%s`, e liga-os pela ordem em que aparecem
+    no texto.** O `SQL_FECHAR_ACCAO` escreve `SET estado = $2, resultado = $3
+    ... WHERE idempotency_key = $1`, pelo que a troca ingenua de `$n` por `%s`
+    muda o significado dos argumentos — e o PostgreSQL recusou, a primeira
+    execucao desta classe, um `'feita'` onde esperava `jsonb`. Por isso guarda
+    a **ordem** dos marcadores e reordena o que se lhe passa: quem chama
+    escreve os argumentos pela numeracao do documento.
+    """
+
+    def __init__(self, nome: str, ficheiro: Path | None = None) -> None:
+        caminho = CONSULTAS_DO_CONSUMIDOR if ficheiro is None else ficheiro
+        texto = caminho.read_text(encoding="utf-8")
+        achado = re.search(rf"export const {nome} = `(.*?)`;", texto, re.S)
+        if achado is None:
+            raise AssertionError(f"nao se encontrou {nome} em {caminho.name}")
+        self.nome = nome
+        self.fonte = achado.group(1)
+        self.ordem = [int(n) for n in re.findall(r"\$(\d+)", self.fonte)]
+        self.sql = re.sub(r"\$\d+", "%s", self.fonte)
+
+    def args(self, *valores: object) -> tuple[object, ...]:
+        """Os `valores` — na numeracao do documento — pela ordem do texto."""
+        if sorted(self.ordem) != list(range(1, len(valores) + 1)):
+            raise AssertionError(
+                f"{self.nome} tem os marcadores {self.ordem} e deram-se "
+                f"{len(valores)} argumentos"
+            )
+        return tuple(valores[n - 1] for n in self.ordem)

@@ -307,11 +307,16 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ),
     # A DLQ e o unico sitio onde `kamba_app` **escreve sem ler**: o `id` e
     # sequencial e um papel com RLS que o lesse media o volume de falhas do
-    # vizinho. A politica continua a valer na escrita (`WITH CHECK`), e e isso
-    # que o X-04 exercita; a leitura do papel esta fechada por privilegio.
+    # vizinho. Por isso `leitura_do_papel=False` — e **`escrita_do_papel`
+    # fica a `True`**, que e a omissao: a revisao 0005 da `INSERT` a
+    # `kamba_app` nesta tabela, e a politica e a ultima barreira nessa escrita.
+    #
+    # Esteve `False`, e isso tirava a tabela de **todos** os testes de escrita
+    # cruzada ao mesmo tempo que o comentario afirmava que o X-04 os corria.
+    # Duas dimensoes independentes — ler e escrever — tratadas como uma.
     ("platform", "events_dlq"): Receita(
         _entrada_na_dlq, "erro", None, None,
-        semeador="admin", escrita_do_papel=False, leitura_do_papel=False,
+        semeador="admin", leitura_do_papel=False,
     ),
     # As accoes externas: `kamba_app` regista e fecha a sua (o `UPDATE` e por
     # coluna, e o `estado` e uma delas).

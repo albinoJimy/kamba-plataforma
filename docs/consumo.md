@@ -172,12 +172,41 @@ lançar a seguir for um `DelayedError` dele. Com outro erro, o *job* já não es
 activo e o tratamento da falha rebenta a dizer que falta o *lock* — um evento
 adiado ficava preso em vez de ser retentado.
 
+### Quando o envelope não se lê
+
+A leitura do envelope corre **antes** da política, e por isso fora dela. Um
+erro ali, deixado a subir, esgotava as seis tentativas e deixava o *job* em
+`failed` no Redis — sem linha na DLQ, sem métrica e sem alerta —, e como não há
+`events_consumed` nem `events_dlq` o reconciliador voltava a enfileirá-lo de
+cinco em cinco minutos durante 24 h. Um ciclo silencioso, que é a pior forma de
+perder um evento. Cada classe de erro tem a sua resposta:
+
+| Erro | Resposta | Porquê |
+|---|---|---|
+| O *job* não traz `tenant_id` | Falha à primeira, sem DLQ | Nenhuma retentativa acrescenta um tenant a um *job*, e sem tenant não há linha de DLQ possível: a DLQ é isolada por tenant e quem escreve está sujeito à política |
+| O arquivo não tem o evento | `Adiar`; na última tentativa, entrada com `tipo = evt.ilegivel` | Pode ser cedo: o publicador põe o *job* na fila **antes** do `COMMIT` que arquiva. Esgotadas as tentativas, abre-se a entrada com o que se sabe — o `event_id`, o tenant e o motivo — em vez de deixar o evento no ciclo |
+
 ## 5. A DLQ, e quem a fecha
 
 Uma entrada na DLQ não é um erro técnico: é **um efeito de negócio que ninguém
 aplicou**. Um `payment.*` ou um `order.paid` ali é cliente que pagou sem
 confirmação — Sev1, e é por isso que a severidade se decide pelo **tipo** e não
 pela contagem. As restantes alertam depois de uma hora aberta.
+
+### Uma entrada por ciclo, e não uma por evento
+
+A unicidade é **parcial**: `(consumer, event_id)` **entre as abertas**. Duas
+falhas na mesma execução dão uma entrada; um ciclo novo depois de uma
+resolução abre a sua, e a anterior fica.
+
+A alternativa — unicidade sobre o par inteiro — tinha este buraco: um evento
+falha seis vezes e entra na DLQ, alguém reprocessa-o, o reprocessamento volta a
+falhar, e a segunda falha colide com a linha **fechada** e não escreve nada.
+Zero entradas abertas sobre um efeito por aplicar, `evt_dlq_open` a zero, e a
+retenção de 30 dias a apagar a única evidência. Reabrir a linha fechada com um
+`DO UPDATE` resolvia-o, mas obrigava a dar `UPDATE (estado, …)` a `kamba_app` —
+e com isso quem consome passava a poder **fechar** uma entrada sozinho, que é
+desfazer do lado do código a regra dos dois aprovadores.
 
 A métrica é `evt_dlq_open{tipo}`, a primeira de etiqueta aberta do repositório:
 admite nomes com a gramática `familia.verbo` e tem tecto (`MAXIMO_DE_TIPOS = 64`)
@@ -259,15 +288,34 @@ em `test_o_job_pede_a_escada_do_consumidor`. O que a *suite* com fila mede é a
 1. **A subscrição entra em `evt_subscricoes`** — `(consumer, tipo, versao_max,
    finalidade)`. Um `payment.*` sem `exige_ordem` é recusado pela base.
 2. **O efeito recebe `(bd, envelope)`** e corre **dentro** da transacção. Usa
-   essa ligação e nenhuma outra: outra ligação não está na transacção, e o que
-   ela escrever sobrevive a um `ROLLBACK`.
-3. **Efeito externo passa por `once()`**, com a chave
-   `consumer:event_id:acção` — a mesma que vai no `Idempotency-Key` do pedido ao
-   terceiro, para que quem o recebe possa também deduplicar.
-4. **Nada de contadores próprios de tentativas.** O número vem da fila: com duas
+   essa ligação e nenhuma outra para o que é base de dados: outra ligação não
+   está na transacção, e o que ela escrever sobrevive a um `ROLLBACK`.
+3. **Um efeito externo não entra na transacção, e o `once()` também não.** É a
+   regra mais fácil de quebrar deste documento, e a mais cara: o PostgreSQL não
+   encadeia transacções, pelo que um `BEGIN` do `once()` dentro da transacção
+   do consumo é um aviso e mais nada — e o `COMMIT` seguinte **fecha a
+   transacção do consumo**, confirmando a marca de `events_consumed` antes de o
+   efeito existir. Uma falha a seguir deixava o evento marcado como consumido e
+   sem efeito, e toda a re-entrega passava a ler «duplicado»: o efeito nunca
+   mais acontecia, não havia entrada na DLQ e o reconciliador saltava-o. O
+   `once()` **recusa-se** a correr numa ligação com transacção aberta
+   (`TransaccaoAlheiaError`), e é assim que isto falha alto em vez de
+   silenciosamente.
+
+   A chave é `consumer:event_id:acção` — a mesma que vai no `Idempotency-Key`
+   do pedido ao terceiro, para que quem o recebe possa também deduplicar.
+   **Onde corre, hoje, não está decidido:** o esqueleto do `worker-canal` não
+   tem efeitos externos e o laço não tem um gancho depois do `COMMIT`. Ver §9,
+   ressalva 7.
+4. **Um *worker* destas filas tem de definir o `backoffStrategy`.** Os *jobs*
+   são criados com `backoff: {type: 'custom'}`, e um *worker* que não forneça a
+   estratégia obtém atraso indefinido: retenta de imediato e queima as seis
+   tentativas num instante. Quem escrever um consumidor novo usa o
+   `criarTrabalhadores()`, que já a traz.
+5. **Nada de contadores próprios de tentativas.** O número vem da fila: com duas
    réplicas, um contador próprio contava metade cada uma e o evento ia para a
    DLQ ao dobro das tentativas — ou nunca ia.
-5. **Um tipo que causa transição exige máquina de estados.** Sem ela o consumo
+6. **Um tipo que causa transição exige máquina de estados.** Sem ela o consumo
    recusa-se a correr, porque o ADR-013 manda que `paga` só se alcance por
    evento autenticado.
 
@@ -281,9 +329,12 @@ em `test_o_job_pede_a_escada_do_consumidor`. O que a *suite* com fila mede é a
 | 4 | **`evt_acoes` é nome em proposta**, como o próprio ticket diz. Está no dicionário na emenda 1.10, marcado como tal | Devolvida — de quem aprova emendas |
 | 5 | **O consumidor precisa de duas ligações com papéis diferentes** (`KAMBA_CONSUMIDOR_DB_URL` e `KAMBA_CONSUMIDOR_OPS_DB_URL`), e o cofre do KAM-010 ainda não distribui a segunda | Registada. Hoje é configuração de ambiente; o inventário de segredos é o KAM-010 |
 | 6 | **Quem recolhe as métricas.** Existem em memória e em `/metrics`; não há Prometheus | Sem ticket, como em `docs/eventos.md` §10 |
+| 7 | **Onde corre um efeito externo no laço do consumidor.** O `once()` existe e recusa-se a correr dentro da transacção do consumo (§8, ponto 3), mas o laço não tem um gancho depois do `COMMIT` e o esqueleto não tem efeitos externos | Sem ticket; nasce com a primeira vertical que mande uma mensagem (KAM-038) ou com o *core* de comércio (KAM-041) |
+| 8 | **Uma ligação por fila é dezasseis sessões por réplica.** Com duas réplicas são trinta e duas, mais as do publicador, contra um `max_connections` por calibrar | Registada. Uma réplica pode servir um subconjunto das partições (`filas`), e é essa a válvula; o número certo mede-se no KAM-078 |
 
 ## 10. Controlo de versões
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão (KAM-006): revisão `0005`, *wrapper* de consumo nos dois idiomas, DLQ com Sev1 por tipo e descarte a dois aprovadores, `once()`, reconciliador com *lock* próprio, e a *suite* `tests_eventos_consumo` no gate 8. Registo de três defeitos que só a base e a fila reais mostraram: o consumo precisa do contexto de tenant na transacção, cada fila precisa da sua ligação, e o *job* tinha de pedir a escada do consumidor para ela ser consultada. | Equipa KAMBÁ |
+| 1.1 | Outubro 2026 | Três correcções da revisão adversarial (ANALISE-23): o `once()` passa a **recusar-se** a correr dentro da transacção do consumo, onde o seu `COMMIT` confirmava a marca de consumo sem o efeito (§8, ponto 3); a leitura do envelope passa a ter política própria, sem a qual um evento ilegível ficava num ciclo de reposição silencioso (§4); e a unicidade da DLQ passa a ser **parcial**, para que um ciclo novo depois de uma resolução abra a sua entrada sem precisar de dar `UPDATE` a quem consome (§5). | Equipa KAMBÁ |
