@@ -110,14 +110,27 @@ CONTAGENS = "contagens"
 #: outras baterias de `tools/` afirmam coisas sobre o **repositorio** (a arvore
 #: seguida pelo git, a estrutura de pastas) que a copia nao e, e uma linha de
 #: base vermelha nao prova nada.
+#: KAM-007: o gate 7 dos contratos de evento. Corre a bateria **inteira** — ao
+#: contrario das outras tres — porque nenhum dos seus ficheiros afirma coisas
+#: sobre a arvore seguida pelo git: o `test_catalogo_e_cli.py` le
+#: `contratos/eventos/`, que a copia leva.
+CONTRATOS = "contratos"
+
 SUITES_DE_TOOLS = {
     GATE9: ("scan_secrets", "test_historia.py"),
     GATE9_CI: ("lint_arch", "test_ci_gate9.py"),
     CONTAGENS: ("lint_contagens", "test_scan.py"),
+    CONTRATOS: ("contract_diff", "test_*.py"),
 }
 #: O leitor de YAML (KAM-136). As duas suites leem por ele as listas de
 #: excepcoes de `ci/` e o limiar do estrato `critico`.
 CONT_SCAN = "tools/lint_contagens/scan.py"
+#: KAM-007: os modulos do gate 7 e um dos contratos, para as mutacoes morderem
+#: tanto no classificador como no que ele le.
+CD_DIFF = "tools/contract_diff/diff.py"
+CD_PII = "tools/contract_diff/pii.py"
+CD_GERAR = "tools/contract_diff/gerar.py"
+CONTRATO_ORDER_PAID = "contratos/eventos/order.paid/v1.schema.json"
 KYAML = "tools/kamba_yaml.py"
 #: KAM-005: a revisao do outbox e os modulos de eventos em TypeScript.
 REV4 = "db/migrations/versions/0004_outbox_e_eventos.py"
@@ -581,8 +594,14 @@ MUTACOES = [
      '"a passagem da historia nao correu "', GATE9),
     ("KAM-131 cli: o intervalo vazio deixa de ser confrontado", SEC_CLI,
      "        exigir_commits(argumentos.evento, resultado.commits)\n", "", GATE9),
+    # A ancora leva o comentario de cima: o KAM-007 pos um segundo
+    # `fetch-depth: 0` no `ci.yaml` (o do gate 7 compara com o ramo principal),
+    # e a linha sozinha deixou de identificar um sitio so.
     ("KAM-131 ci: o checkout do gate 9 deixa de trazer a historia", CI_YAML,
-     "          fetch-depth: 0", "          fetch-depth: 1", GATE9_CI),
+     "          # nao verde em silencio (`historia.py:_resolver`).\n"
+     "          fetch-depth: 0",
+     "          # nao verde em silencio (`historia.py:_resolver`).\n"
+     "          fetch-depth: 1", GATE9_CI),
     ("KAM-131 ci: a base do PR deixa de chegar ao gate 9", CI_YAML,
      "GATE9_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}",
      'GATE9_BASE: ""', GATE9_CI),
@@ -947,6 +966,37 @@ MUTACOES = [
     # `db/tests/test_consumo_contrato.py` existe: com o relogio acelerado a
     # escada do publicador e a do worker dao tempos parecidos, e com a escada
     # real o teste custava 756 s. O acoplamento le-se como texto.
+    # ------------------------------------------------------------- KAM-007
+    #
+    # O gate 7. As quatro primeiras mordem no classificador de diferencas, que
+    # e o que impede um contrato de partir sem versao nova; as duas seguintes
+    # no lint de PII; a ultima no proprio contrato, para a bateria nao estar a
+    # provar so a logica.
+    ("contratos: o que o classificador nao le passa a ser aprovado", CD_DIFF,
+     "    for chave in sorted(desconhecidas):",
+     "    for chave in sorted(set()):", CONTRATOS),
+    ("contratos: alargar um enum deixa de quebrar", CD_DIFF,
+     "        if d - a:",
+     "        if False:", CONTRATOS),
+    ("contratos: tornar um campo obrigatorio deixa de quebrar", CD_DIFF,
+     "    for nome in sorted((obrig_actual - obrig_base) & set(props_base)):",
+     "    for nome in sorted(set()):", CONTRATOS),
+    ("contratos: abrir o payload deixa de quebrar", CD_DIFF,
+     '    if base.get("additionalProperties") != actual.get("additionalProperties"):',
+     "    if False:", CONTRATOS),
+    ("contratos: o lint de PII perde o nome mais obvio", CD_PII,
+     'PROIBIDOS = ("telefone", "msisdn", "bsuid", "nome", "morada", "texto", "email")',
+     'PROIBIDOS = ("msisdn", "bsuid", "nome", "morada", "texto", "email")', CONTRATOS),
+    ("contratos: o lint de PII volta a procurar por subcadeia", CD_PII,
+     "    partes = set(segmentos(nome))",
+     "    partes = {nome.lower()}", CONTRATOS),
+    ("contratos: o gerador aceita o que nao sabe traduzir", CD_GERAR,
+     "    if desconhecidas:",
+     "    if False:", CONTRATOS),
+    ("contratos: um payload deixa de ser fechado", CONTRATO_ORDER_PAID,
+     '"payload": {' + chr(10) + '      "type": "object",' + chr(10) + '      "additionalProperties": false,',
+     '"payload": {' + chr(10) + '      "type": "object",' + chr(10) + '      "additionalProperties": true,',
+     CONTRATOS),
     ("filas: o job deixa de pedir a escada do consumidor", EV_FILAS,
      'backoff: { type: "custom" },',
      'backoff: { type: "exponential", delay: REPETICAO.atraso },'),
@@ -1031,6 +1081,24 @@ def _copiar_para_o_gate_9(destino: Path, ignorar) -> None:
     )
 
 
+def _copiar_para_os_contratos(destino: Path, ignorar) -> None:
+    """O que as mutacoes do gate 7 precisam, e so isso (KAM-007).
+
+    Leva o pacote, o `tools/kamba_yaml.py` (o `pii` le a lista aprovada por
+    ele), a lista aprovada, e **os contratos**: o `test_catalogo_e_cli.py`
+    corre sobre os trinta e oito ficheiros reais, e nao sobre schemas
+    inventados — uma logica certa com um catalogo que nao carrega nao serve.
+    """
+    shutil.copytree(
+        RAIZ / "tools" / "contract_diff", destino / "tools" / "contract_diff",
+        ignore=ignorar,
+    )
+    shutil.copy(RAIZ / "tools" / "kamba_yaml.py", destino / "tools" / "kamba_yaml.py")
+    shutil.copytree(RAIZ / "contratos", destino / "contratos", ignore=ignorar)
+    (destino / "ci").mkdir(parents=True, exist_ok=True)
+    shutil.copy(RAIZ / "ci" / "contratos-allow.yaml", destino / "ci" / "contratos-allow.yaml")
+
+
 def _copiar_para_as_contagens(destino: Path, ignorar) -> None:
     """O que as mutacoes do `lint_contagens` precisam, e so isso (KAM-158).
 
@@ -1051,6 +1119,7 @@ COPIA_DE_TOOLS = {
     GATE9: _copiar_para_o_gate_9,
     GATE9_CI: _copiar_para_o_gate_9,
     CONTAGENS: _copiar_para_as_contagens,
+    CONTRATOS: _copiar_para_os_contratos,
 }
 
 
