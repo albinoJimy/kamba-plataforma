@@ -93,6 +93,10 @@ SUITES = (
     "tests_eventos",
     "tests_eventos_consumo",
     "tests_eventos_carga",
+    # KAM-012: as mil insercoes concorrentes do criterio 3. Suite propria pela
+    # mesma razao que a carga de eventos — custa minutos, e uma suite custa
+    # isso por cada mutacao que a escolha.
+    "tests_auditoria_carga",
 )
 #: As que precisam tambem de uma fila.
 SUITES_COM_FILA = ("tests_eventos", "tests_eventos_consumo", "tests_eventos_carga")
@@ -118,6 +122,7 @@ def _ambiente_da_suite(host: str, porta: str, senha_admin: str) -> dict[str, str
             "KAMBA_SECRET_DB_BATCH_PASSWORD": secrets.token_urlsafe(24),
             "KAMBA_SECRET_DB_RESOLVER_PASSWORD": secrets.token_urlsafe(24),
             "KAMBA_SECRET_DB_IDENTITY_PASSWORD": secrets.token_urlsafe(24),
+            "KAMBA_SECRET_DB_AUDIT_PASSWORD": secrets.token_urlsafe(24),
         }
     )
     return ambiente

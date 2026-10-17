@@ -68,6 +68,11 @@ ATRIBUTOS = {
     "kamba_batch": "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION BYPASSRLS",
     "kamba_resolver": "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS",
     "kamba_identity": "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS",
+    # O papel de auditoria (KAM-012). `NOBYPASSRLS` de proposito: quem audita
+    # um tenant audita **esse** tenant, e a cadeia de plataforma le-se com o
+    # `kamba_batch`. E o unico com `SELECT` em `audit_log` — o `kamba_app`
+    # escreve e nao le.
+    "kamba_audit": "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS",
 }
 
 

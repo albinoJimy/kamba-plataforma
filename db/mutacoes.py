@@ -152,6 +152,14 @@ EV_DLQ = "packages/core-ts/src/eventos/dlq.ts"
 EV_RECON = "packages/core-ts/src/eventos/reconciliador.ts"
 EV_TRABALHADOR = "packages/core-ts/src/eventos/trabalhador_bullmq.ts"
 EV_ACCOES = "packages/core-ts/src/eventos/accoes.ts"
+#: KAM-012: a revisao do registo de auditoria e o verificador da cadeia.
+#:
+#: As mutacoes da cadeia correm contra a suite `tests`, e **nao** contra a de
+#: carga: as mil insercoes concorrentes custam meio minuto cada, e uma mutacao
+#: que a cadeia partida ja faz falhar em `tests` nao precisa de as pagar. A de
+#: carga existe para provar a concorrencia uma vez, no gate.
+REV6 = "db/migrations/versions/0006_audit_log.py"
+AUDITORIA = "db/auditoria.py"
 
 MUTACOES = [
     ("estado a mais no CHECK de tenants", REV,
@@ -944,6 +952,48 @@ MUTACOES = [
     ("trabalhador: o evento que o arquivo nao tem deixa de ser adiado", EV_TRABALHADOR,
      "            if (!ultima) throw new Adiar(ADIAMENTO_POR_OMISSAO, erro.message);",
      "", CONSUMO),
+    # ------------------------------------------------------------- KAM-012
+    #
+    # Cada uma desfaz uma propriedade que o ticket nomeia, e a que sobreviver
+    # diz que essa propriedade nao tem teste.
+    ("revisao 0006: a cadeia parte da genese errada", REV6,
+     r'GENESE = "\\x0000000000000000000000000000000000000000000000000000000000000000"',
+     r'GENESE = "\\x0000000000000000000000000000000000000000000000000000000000000001"'),
+    ("revisao 0006: o separador do hash desaparece", REV6,
+     '"encode(p_prev_hash, \'hex\') || chr(31) || p_tenant_id || chr(31) || "',
+     '"encode(p_prev_hash, \'hex\') || p_tenant_id || "'),
+    ("revisao 0006: o payload_hash sai do row_hash", REV6,
+     '"encode(p_payload_hash, \'hex\')"',
+     '"\'\'"'),
+    ("revisao 0006: o trigger deixa de ser ALWAYS", REV6,
+     '        "ALTER TABLE platform.audit_log "\n'
+     '        "ENABLE ALWAYS TRIGGER audit_log_sem_update_nem_delete"',
+     '        "ALTER TABLE platform.audit_log "\n'
+     '        "ENABLE TRIGGER audit_log_sem_update_nem_delete"'),
+    ("revisao 0006: o audit_log deixa de ter trigger de UPDATE", REV6,
+     "          BEFORE UPDATE OR DELETE ON platform.audit_log",
+     "          BEFORE DELETE ON platform.audit_log"),
+    ("revisao 0006: a aplicacao passa a ler o registo", REV6,
+     'op.execute("GRANT INSERT ON platform.audit_log TO kamba_app")',
+     'op.execute("GRANT INSERT, SELECT ON platform.audit_log TO kamba_app")'),
+    ("revisao 0006: o dominio de action ganha um valor", REV6,
+     '"\'access.conversation\', \'batch.run\', \'breakglass.open\', \'audit.read\'"',
+     '"\'access.conversation\', \'batch.run\', \'breakglass.open\', \'audit.read\', \'tudo\'"'),
+    ("revisao 0006: o row_hash deixa de ser unico", REV6,
+     "          CONSTRAINT audit_log_row_hash_uq UNIQUE (row_hash),",
+     ""),
+    ("auditoria: o verificador deixa de ver o elo partido", AUDITORIA,
+     "            if prev_hash != anterior:",
+     "            if False:"),
+    ("auditoria: o verificador deixa de recalcular o hash", AUDITORIA,
+     "            if calculado != guardado:",
+     "            if False:"),
+    ("auditoria: o verificador deixa de olhar para a cabeca", AUDITORIA,
+     "        elif declarada != anterior:",
+     "        elif False:"),
+    ("auditoria: a ancora deixa de respeitar o dia", AUDITORIA,
+     '" WHERE a.criado_at < (%s::date + 1) GROUP BY a.tenant_id",',
+     '" GROUP BY a.tenant_id, %s::date",'),
     ("revisao 0005: a unicidade da DLQ deixa de ser parcial", REV5,
      "        CREATE UNIQUE INDEX events_dlq_aberta_uq\n          ON platform.events_dlq (consumer, event_id)\n          WHERE estado = 'aberta'\n",
      "        CREATE UNIQUE INDEX events_dlq_aberta_uq\n          ON platform.events_dlq (consumer, event_id)\n"),
@@ -1076,6 +1126,27 @@ def _copiar(destino: Path, suite: str = "tests") -> None:
         RAIZ / "tools" / "scan_secrets", destino / "tools" / "scan_secrets",
         ignore=ignorar,
     )
+    # **E aconteceu outra vez, duas vezes.** O KAM-158 acrescentou quatro
+    # mutacoes sobre `tools/lint_contagens` e o KAM-007 dezassete sobre
+    # `tools/contract_diff` e `contratos/`, e nenhum dos dois estendeu esta
+    # copia. Resultado: `aplicaveis()` dava **22** nao aplicaveis de dentro da
+    # copia, a linha de base da suite `tests` ficava vermelha, e com ela
+    # **nenhuma mutacao desta suite se podia provar** — a prova dizia «a copia
+    # sem mutacao nao corre verde» e parava. Descoberto ao correr as do
+    # KAM-012.
+    #
+    # A regra, escrita para a proxima vez: **uma mutacao nova sobre um ficheiro
+    # que esta copia nao leva obriga a acrescenta-lo aqui**, mesmo que a suite
+    # dela seja outra.
+    shutil.copytree(
+        RAIZ / "tools" / "lint_contagens", destino / "tools" / "lint_contagens",
+        ignore=ignorar,
+    )
+    shutil.copytree(
+        RAIZ / "tools" / "contract_diff", destino / "tools" / "contract_diff",
+        ignore=ignorar,
+    )
+    shutil.copytree(RAIZ / "contratos", destino / "contratos", ignore=ignorar)
     (destino / ".github" / "workflows").mkdir(parents=True)
     shutil.copy(
         RAIZ / ".github" / "workflows" / "ci.yaml",
