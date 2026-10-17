@@ -48,6 +48,23 @@ _IDENT_SIMPLES = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _IDENT_PONTUADO = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+$")
 _ASSINATURA = re.compile(r"^([a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)?)\((.*)\)$")
 _DOMINIO = re.compile(r"`([^`]+)`\s*∈\s*\{([^}]*)\}")
+
+#: O dominio que a propria celula declara como sendo **so do registo**.
+#:
+#: O §3.2 («Vertical») escreve «No registo (`registry/*.yaml`): `id` ∈ {…}»,
+#: e o §3.7 escreve o mesmo para `modulo`. O exportador ignorava a frase e
+#: dava um dominio de **coluna**, o que fazia de toda a chave primaria
+#: `id uuid` uma vertical — e por isso o gate 3b precisava de uma lista de
+#: excepcoes em `ci/canon-lint.yaml` a desfazer, em configuracao, o que o
+#: dicionario ja dizia em prosa. Com a frase lida, a excepcao deixa de
+#: existir e o dicionario volta a ser a fonte unica (KAM-141, linhas 6 e 9).
+_SO_NO_REGISTO = re.compile(r"[Nn]o registo\b")
+
+
+def _so_no_registo(celula: str, alvo: str) -> bool:
+    """O dominio de `alvo` vale so no registo, por o dizer antes dele."""
+    antes = celula.split(f"`{alvo}`")[0]
+    return bool(_SO_NO_REGISTO.search(antes))
 _ENTRE_PLICAS = re.compile(r"^'([^']*)'$")
 _SO_SEPARADORES = re.compile(r"^[\s,;…]*$")
 
@@ -187,7 +204,8 @@ def construir(texto: str) -> Modelo:
                     "conceito": entrada.conceito,
                 }
             )
-        for alvo, corpo in _DOMINIO.findall(linha.celulas["nome"]):
+        celula = linha.celulas["nome"]
+        for alvo, corpo in _DOMINIO.findall(celula):
             nomes_alvo = _IDENT.findall(alvo)
             if not nomes_alvo:
                 continue
@@ -200,6 +218,7 @@ def construir(texto: str) -> Modelo:
                     "valores": valores,
                     "seccao": entrada.seccao,
                     "conceito": entrada.conceito,
+                    "so_no_registo": _so_no_registo(celula, alvo),
                 }
             )
 

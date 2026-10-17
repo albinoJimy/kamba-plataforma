@@ -183,8 +183,31 @@ class TestRegras(unittest.TestCase):
         modelo = self.modelo("| Tipo | `tenants.tipo` ∈ {`pme`, `courier`} | `x_velho` | — |\n")
         self.assertEqual(
             modelo.dominios,
-            [{"coluna": "tenants.tipo", "valores": ["pme", "courier"], "seccao": "3.1", "conceito": "Tipo"}],
+            [{"coluna": "tenants.tipo", "valores": ["pme", "courier"], "seccao": "3.1",
+              "conceito": "Tipo", "so_no_registo": False}],
         )
+
+    def test_dominio_que_a_celula_declara_como_sendo_so_do_registo(self) -> None:
+        """«No registo» antes do nome tira o dominio as colunas (KAM-141, 6 e 9).
+
+        Era uma lista de excepcoes em `ci/canon-lint.yaml` a desfazer, em
+        configuracao, o que o §3.2 e o §3.7 ja diziam em prosa. Duas fontes
+        para o mesmo facto, e a segunda invisivel a quem le o dicionario.
+        """
+        modelo = self.modelo(
+            "| Vertical | No registo (`registry/*.yaml`): `id` ∈ {`vendedor`, `servicos`} | `x_velho` | — |\n"
+        )
+        (dominio,) = modelo.dominios
+        self.assertEqual(dominio["coluna"], "id")
+        self.assertTrue(dominio["so_no_registo"])
+
+    def test_e_a_frase_tem_de_vir_antes_do_nome(self) -> None:
+        """Senao bastava a palavra «registo» aparecer na nota para desarmar o dominio."""
+        modelo = self.modelo(
+            "| Tipo | `tenants.tipo` ∈ {`pme`, `courier`} | `x_velho` | No registo isto nao se aplica |\n"
+        )
+        (dominio,) = modelo.dominios
+        self.assertFalse(dominio["so_no_registo"])
 
     def test_conceito_repetido_na_mesma_seccao_e_erro(self) -> None:
         with self.assertRaisesRegex(DicionarioIlegivel, "duas"):
@@ -202,6 +225,33 @@ class TestDicionarioReal(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.modelo = construir(TEXTO)
         cls.variantes = {v["nome"] for v in cls.modelo.variantes}
+
+    def test_a_versao_do_cabecalho_e_a_da_ultima_emenda(self) -> None:
+        """O cabecalho ficou em 1.0 durante treze emendas (KAM-141, linha 7).
+
+        Nao e cosmetica: o dicionario e citado por versao em dezenas de sitios
+        («emenda 1.11», «*proposta* (emenda 1.5, KAM-004)»), e um cabecalho que
+        diz 1.0 sobre um documento que vai na 1.13 faz quem o le de fora
+        acreditar que nenhuma dessas emendas existe. A deriva so se desfaz uma
+        vez; o que a impede de voltar e este teste.
+        """
+        import re
+
+        linhas = TEXTO.splitlines()
+        cabecalho = next(l for l in linhas if l.startswith("| Versão |"))
+        do_cabecalho = re.search(r"\|\s*Versão\s*\|\s*([0-9]+\.[0-9]+)", cabecalho)
+        self.assertIsNotNone(do_cabecalho, f"o cabecalho mudou de forma: {cabecalho!r}")
+        emendas = [
+            m.group(1)
+            for m in (re.match(r"\|\s*([0-9]+\.[0-9]+)\s*\|", l) for l in linhas)
+            if m
+        ]
+        self.assertTrue(emendas, "nao se encontrou nenhuma linha de emenda no §6")
+        ultima = max(emendas, key=lambda v: tuple(int(p) for p in v.split(".")))
+        self.assertEqual(
+            do_cabecalho.group(1), ultima,
+            f"o cabecalho diz {do_cabecalho.group(1)} e a ultima emenda do §6 e a {ultima}",
+        )
 
     def test_as_variantes_que_o_criterio_de_aceitacao_nomeia(self) -> None:
         nomeadas = {
@@ -242,6 +292,12 @@ class TestDicionarioReal(unittest.TestCase):
                     ("valor_kz", "nome"), ("callback_hmac_ok", "nome"), ("sig_ok", "nome"),
                     ("llm_calls", "nome"), ("tenant_isolamento", "nome"),
                     ("preco_modo", "nome"), ("expires_at", "nome"),
+                    # Emenda 1.13 (KAM-141, linha 4): as tres formas do
+                    # `docs/tecnica/04` §6.2, sem as quais o DDL do KAM-053,
+                    # copiado do documento como o ticket manda, era recusado
+                    # pelo gate sem explicacao.
+                    ("hmac_sha256", "nome"), ("status_pull", "nome"),
+                    ("humano_auditado", "nome"),
                     ("lookup_hmac", "nome"),
                 ]
             ),
@@ -259,9 +315,24 @@ class TestDicionarioReal(unittest.TestCase):
             self.assertIn(nome, tabelas)
         self.assertEqual(tabelas["tenants"]["esquema"], "platform")
 
-    def test_a_contradicao_do_dicionario_e_reportada_e_nao_escolhida(self) -> None:
-        self.assertEqual([c["nome"] for c in self.modelo.contradicoes], ["manual_max_minor"])
+    def test_o_dicionario_real_nao_tem_contradicoes(self) -> None:
+        """A unica que havia era o `manual_max_minor` (KAM-141, linha 1).
+
+        Estava na coluna do nome canonico **e** na coluna «Substitui» da mesma
+        linha, e o gate avisava-o em cada execucao. Era lapso de transcricao:
+        por simetria com `valor_max_pedido_kz`, a forma antiga seria
+        `manual_max_kz`, que documento nenhum escreve. A emenda 1.13 tirou-o da
+        coluna errada, e nao se registou uma variante sem sujeito.
+
+        O teste que havia exigia que a contradicao **existisse**, o que fazia
+        dele o guarda de um defeito. Este exige que nao haja nenhuma — e o
+        mecanismo que a reportava continua provado pelo
+        `TestRegras`, com um dicionario construido para o efeito.
+        """
+        self.assertEqual(self.modelo.contradicoes, [])
         self.assertNotIn("manual_max_minor", self.variantes)
+        canonicos = {n for e in self.modelo.entradas for n in e.nomes}
+        self.assertIn("manual_max_minor", canonicos)
 
 
 class TestYaml(unittest.TestCase):

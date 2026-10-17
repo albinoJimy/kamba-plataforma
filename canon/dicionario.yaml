@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.12"
+versao_dicionario: "1.13"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -240,9 +240,9 @@ entradas:
       - "valor_max_pedido_minor"
       - "ManualProvider"
       - "manual_max_minor"
+      - "manual_max_kz"
     variantes_literais:
       - "valor_max_pedido_kz"
-      - "manual_max_minor"
   - seccao: "3.2"
     conceito: "Tenant (tabela e chave)"
     canonico: "platform.tenants(id uuid) — a chave primária chama-se id, não tenant_id"
@@ -688,12 +688,18 @@ entradas:
     variantes_literais: []
   - seccao: "3.4"
     conceito: "Valor"
-    canonico: "valor_minor"
+    canonico: "valor_minor + currency ∈ {AOA}"
     literais:
       - "valor_minor"
+      - "currency"
+      - "AOA"
     nomes:
       - "valor_minor"
-    nomes_nota: []
+      - "currency"
+      - "AOA"
+    nomes_nota:
+      - "currency"
+      - "AOA"
     variantes_literais:
       - "valor_kz"
   - seccao: "3.4"
@@ -716,9 +722,15 @@ entradas:
       - "ManualProvider"
       - "authn_method"
       - "manual"
+      - "hmac"
+      - "consulta"
+      - "CHECK"
     variantes_literais:
       - "callback_hmac_ok"
       - "sig_ok"
+      - "hmac_sha256"
+      - "status_pull"
+      - "humano_auditado"
   - seccao: "3.4"
     conceito: "Eventos de pagamento"
     canonico: "payment.confirmed (facilitador autenticado) e payment.manual_confirmed (ManualProvider)"
@@ -1348,7 +1360,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.7"
     conceito: "Entitlements de módulo"
-    canonico: "modulo ∈ {catalogo, foto, social, orcamento} com limites imagens_mes, posts_mes, orcamentos_mes"
+    canonico: "No registo e na configuração: modulo ∈ {catalogo, foto, social, orcamento}, com limites imagens_mes, posts_mes, orcamentos_mes. A coluna entitlements.modulo tem CHECK de forma e não de domínio (§3.2, ADR-012): um módulo novo entra por configuração e não por migração"
     literais:
       - "modulo"
       - "catalogo"
@@ -1358,6 +1370,8 @@ entradas:
       - "imagens_mes"
       - "posts_mes"
       - "orcamentos_mes"
+      - "entitlements.modulo"
+      - "CHECK"
     nomes:
       - "modulo"
       - "catalogo"
@@ -1367,6 +1381,8 @@ entradas:
       - "imagens_mes"
       - "posts_mes"
       - "orcamentos_mes"
+      - "entitlements.modulo"
+      - "CHECK"
     nomes_nota: []
     variantes_literais: []
   - seccao: "3.7"
@@ -2023,18 +2039,21 @@ dominios:
       - "platform"
     seccao: "3.2"
     conceito: "Tipo de tenant"
+    so_no_registo: false
   - coluna: "tenant_channels.origem"
     valores:
       - "pme"
       - "plataforma"
     seccao: "3.2"
     conceito: "Origem do canal"
+    so_no_registo: false
   - coluna: "tenant_channels.channel_mode"
     valores:
       - "coexistencia"
       - "cloud_only"
     seccao: "3.2"
     conceito: "Modo do canal"
+    so_no_registo: false
   - coluna: "id"
     valores:
       - "vendedor"
@@ -2044,6 +2063,7 @@ dominios:
       - "orcamento"
     seccao: "3.2"
     conceito: "Vertical"
+    so_no_registo: true
   - coluna: "preco_tipo"
     valores:
       - "fixo"
@@ -2051,6 +2071,7 @@ dominios:
       - "sob_consulta"
     seccao: "3.3"
     conceito: "Preço"
+    so_no_registo: false
   - coluna: "stock_modo"
     valores:
       - "garantido"
@@ -2058,6 +2079,13 @@ dominios:
       - "confirmar_dono"
     seccao: "3.3"
     conceito: "Stock"
+    so_no_registo: false
+  - coluna: "currency"
+    valores:
+      - "AOA"
+    seccao: "3.4"
+    conceito: "Valor"
+    so_no_registo: false
   - coluna: "authn_method"
     valores:
       - "hmac"
@@ -2065,18 +2093,21 @@ dominios:
       - "consulta"
     seccao: "3.4"
     conceito: "Autenticação do evento"
+    so_no_registo: false
   - coluna: "beneficiary_kind"
     valores:
       - "pme"
       - "plataforma_receita_propria"
     seccao: "3.4"
     conceito: "Beneficiário"
+    so_no_registo: false
   - coluna: "contacts.papel"
     valores:
       - "cliente"
       - "dono"
     seccao: "3.7"
     conceito: "Papel do contacto"
+    so_no_registo: false
   - coluna: "modulo"
     valores:
       - "catalogo"
@@ -2085,6 +2116,7 @@ dominios:
       - "orcamento"
     seccao: "3.7"
     conceito: "Entitlements de módulo"
+    so_no_registo: true
 
 variantes:
   - nome: "lookup_hmac"
@@ -2156,7 +2188,7 @@ variantes:
     tipo: "nome"
     seccao: "3.4"
     conceito: "Valor"
-    canonico: "valor_minor"
+    canonico: "valor_minor + currency ∈ {AOA}"
   - nome: "callback_hmac_ok"
     tipo: "nome"
     seccao: "3.4"
@@ -2167,14 +2199,25 @@ variantes:
     seccao: "3.4"
     conceito: "Autenticação do evento"
     canonico: "payment_events.authn_ok boolean + authn_method ∈ {hmac, manual, consulta}"
+  - nome: "hmac_sha256"
+    tipo: "nome"
+    seccao: "3.4"
+    conceito: "Autenticação do evento"
+    canonico: "payment_events.authn_ok boolean + authn_method ∈ {hmac, manual, consulta}"
+  - nome: "status_pull"
+    tipo: "nome"
+    seccao: "3.4"
+    conceito: "Autenticação do evento"
+    canonico: "payment_events.authn_ok boolean + authn_method ∈ {hmac, manual, consulta}"
+  - nome: "humano_auditado"
+    tipo: "nome"
+    seccao: "3.4"
+    conceito: "Autenticação do evento"
+    canonico: "payment_events.authn_ok boolean + authn_method ∈ {hmac, manual, consulta}"
   - nome: "llm_calls"
     tipo: "nome"
     seccao: "3.6"
     conceito: "Registo de chamadas LLM"
     canonico: "llm_call_log"
 
-contradicoes:
-  - nome: "manual_max_minor"
-    seccao: "3.2"
-    conceito: "Entitlement (chaves)"
-    razao: "esta na coluna do nome canonico e na coluna «Substitui» da mesma linha; tratado como canonico"
+contradicoes: []

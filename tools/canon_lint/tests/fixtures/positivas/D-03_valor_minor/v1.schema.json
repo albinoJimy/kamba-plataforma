@@ -39,8 +39,19 @@
         },
         "valor_minor": {
           "type": "integer"
+        },
+        "currency": {
+          "type": "string",
+          "enum": [
+            "AOA"
+          ]
         }
-      }
+      },
+      "required": [
+        "referencia",
+        "valor_minor",
+        "currency"
+      ]
     }
   }
 }
