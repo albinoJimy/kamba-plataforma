@@ -207,7 +207,7 @@ BEGIN
   RETURN v_id;
 END $$;
 ```
-Uso: `SELECT evt_emitir('order.created', 1::smallint, :tenant, 'order', :order_id, jsonb_build_object('order_id', :order_id, 'total_kz', :total))` **na mesma transacção** que o `INSERT` da encomenda. Por que o *outbox* do doc 11 (`id, tipo, payload, publicado_at, criado_at`) não chega: sem `tenant_id` não há isolamento nem roteamento; sem `agregado_seq` não há ordem causal; sem `tentativas/proxima_tentativa_at` o publicador não recua; sem `event_id` único não há deduplicação no bus. O *seq* sai de um `UPDATE` na mesma transacção: se esta reverte, o `seq` reverte — **sem lacunas** — e duas transacções do mesmo agregado serializam-se (a 2.ª espera pelo `COMMIT` da 1.ª), pelo que a ordem de `seq` coincide com a ordem de *commit*. O guarda de PII só apanha telefones explícitos; a defesa principal é o *schema* fechado e o *lint* do §7.3.
+Uso: `SELECT evt_emitir('order.created', 1::smallint, :tenant, 'order', :order_id, jsonb_build_object('order_id', :order_id, 'total_minor', :total_minor))` **na mesma transacção** que o `INSERT` da encomenda. Por que o *outbox* do doc 11 (`id, tipo, payload, publicado_at, criado_at`) não chega: sem `tenant_id` não há isolamento nem roteamento; sem `agregado_seq` não há ordem causal; sem `tentativas/proxima_tentativa_at` o publicador não recua; sem `event_id` único não há deduplicação no bus. O *seq* sai de um `UPDATE` na mesma transacção: se esta reverte, o `seq` reverte — **sem lacunas** — e duas transacções do mesmo agregado serializam-se (a 2.ª espera pelo `COMMIT` da 1.ª), pelo que a ordem de `seq` coincide com a ordem de *commit*. O guarda de PII só apanha telefones explícitos; a defesa principal é o *schema* fechado e o *lint* do §7.3.
 
 ### 6.2 Publicador (instância única por *advisory lock*)
 ```
@@ -399,7 +399,7 @@ CREATE TABLE dat.agg_tenant_dia (
   conversas int NOT NULL DEFAULT 0, consultas int NOT NULL DEFAULT 0, sem_resultado int NOT NULL DEFAULT 0,
   handoffs int NOT NULL DEFAULT 0, pedidos_criados int NOT NULL DEFAULT 0, pedidos_pagos int NOT NULL DEFAULT 0,
   pedidos_pagos_manual int NOT NULL DEFAULT 0, pedidos_expirados int NOT NULL DEFAULT 0,
-  gmv_pago_kz bigint NOT NULL DEFAULT 0, clientes_distintos int NOT NULL DEFAULT 0,
+  gmv_pago_minor bigint NOT NULL DEFAULT 0, clientes_distintos int NOT NULL DEFAULT 0,
   job_run_id bigint NOT NULL REFERENCES dat.job_run(id), PRIMARY KEY (tenant_id, dia));
 ```
 Os dias fecham no fuso `Africa/Luanda` (UTC+1): `(ocorrido_em AT TIME ZONE 'Africa/Luanda')::date`. *Jobs* BullMQ repetíveis (já no stack); sem `pg_cron`/ferramentas novas.
@@ -440,11 +440,11 @@ Observações de preço da PME (dado comercial, não pessoal) a partir de `catal
 CREATE TABLE dat.preco_obs (
   obs_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, event_id uuid NOT NULL UNIQUE,
   tenant_id uuid NOT NULL, product_ref text NOT NULL, categoria_canon text NOT NULL, zona text,
-  preco_kz int NOT NULL CHECK (preco_kz > 0), preco_tipo text NOT NULL CHECK (preco_tipo = 'exato'),   -- 'a_partir_de' excluído
+  preco_minor bigint NOT NULL CHECK (preco_minor > 0), preco_tipo text NOT NULL CHECK (preco_tipo = 'fixo'),   -- 'a_partir_de' excluído
   origem text NOT NULL CHECK (origem IN ('catalogo','pedido_pago')), observado_at timestamptz NOT NULL);
 CREATE MATERIALIZED VIEW dat.indice_preco_semana AS
 SELECT categoria_canon, zona, date_trunc('week', observado_at)::date AS semana,
-       percentile_cont(0.5) WITHIN GROUP (ORDER BY preco_kz) AS mediana_kz,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY preco_minor) AS mediana_minor,
        count(*) AS n_obs, count(DISTINCT tenant_id) AS n_lojas
 FROM dat.preco_obs GROUP BY 1, 2, 3 HAVING count(DISTINCT tenant_id) >= 3 AND count(*) >= 10;
 ```
@@ -457,7 +457,7 @@ Limites: «categoria» é grosseira — comparar preços exige **produto canóni
 
 | Feature (janela 90 d salvo indicação) | Definição | Fonte | Defesa |
 |---|---|---|---|
-| `receita_paga_kz` | Σ `valor_minor` de `payment.confirmed` | `events_log` | só facilitador autenticado; `manual_confirmed` **excluído** (ADR-013) |
+| `receita_paga_minor` | Σ `valor_minor` de `payment.confirmed` | `events_log` | só facilitador autenticado; `manual_confirmed` **excluído** (ADR-013) |
 | `taxa_pagamento_24h` | `order.paid` ≤ 24 h / `order.created` | idem | — |
 | `taxa_expiracao`, `taxa_cancelamento` | expirados ou cancelados / criados | idem | — |
 | `clientes_distintos` | `count(DISTINCT contact_id)` pagantes (no domínio do Registo) | `orders_mirror` | exclui `tenant_staff_contact` |
@@ -508,7 +508,7 @@ Princípio: **o Registo é a verdade**; qualquer divergência corrige-se a favor
 | Q2 | `events_outbox` pendente com `criado_at` > 60 s | 1 min | 0 | alerta Sev2 |
 | Q3 | Eventos sem consumo nem DLQ (§6.5) | 5 min | 0 | re-enfileirar |
 | Q4 | IDX vs COM: nº de produtos publicados por tenant ≠ nº de `search_doc.visivel` | 15 min | 0 | reindexar o tenant |
-| Q5 | `agg_tenant_dia.gmv_pago_kz` vs soma no `orders_mirror` por dia | diária | **0 Kz** | recalcular janela; Sev2 se persistir |
+| Q5 | `agg_tenant_dia.gmv_pago_minor` vs soma no `orders_mirror` por dia | diária | **0** | recalcular janela; Sev2 se persistir |
 | Q6 | Contratos de evento: mensagens fora do *schema* | contínua | 0 | bloquear e alertar o produtor |
 | Q7 | Partições do mês seguinte e de `assistant_queries` existem | diária | — | criar; Sev2 |
 | Q8 | Linhas sem `tenant_id` ou com `tenant_id` inexistente em tabelas de eventos/agregados | diária | 0 | Sev1 (isolamento) |
@@ -519,11 +519,11 @@ WHERE o.pagamento_estado = 'paga'
   AND NOT EXISTS (SELECT 1 FROM events_log e WHERE e.agregado_tipo = 'order' AND e.agregado_id = o.id::text
                     AND e.tipo IN ('payment.confirmed', 'payment.manual_confirmed'));
 -- Q5
-SELECT a.tenant_id, a.dia, a.gmv_pago_kz, COALESCE(r.gmv, 0) AS gmv_registo
+SELECT a.tenant_id, a.dia, a.gmv_pago_minor, COALESCE(r.gmv, 0) AS gmv_registo
 FROM dat.agg_tenant_dia a
-LEFT JOIN (SELECT tenant_id, (pago_at AT TIME ZONE 'Africa/Luanda')::date AS dia, sum(total_kz) AS gmv
+LEFT JOIN (SELECT tenant_id, (pago_at AT TIME ZONE 'Africa/Luanda')::date AS dia, sum(total_minor) AS gmv
              FROM orders_mirror WHERE pago_at IS NOT NULL GROUP BY 1, 2) r USING (tenant_id, dia)
-WHERE a.gmv_pago_kz <> COALESCE(r.gmv, 0);
+WHERE a.gmv_pago_minor <> COALESCE(r.gmv, 0);
 ```
 **Reconstrução.** Descoberta: `idx rebuild --tenant X` relê o COM (idempotente, ~minutos por tenant). Analytics: `dat rebuild --de D1 --ate D2` reprocessa `events_log` por janelas e faz `UPSERT`. O Registo só se reconstrói das suas cópias de segurança (RPO ≤ 5 min, RTO ≤ 2 h, doc 00 §9). **Teste de reconstrução trimestral:** apagar `search_doc` e `agg_*` num ambiente de teste e reconstruir; os totais de Q4/Q5 têm de fechar a zero.
 
@@ -569,7 +569,7 @@ contrato: indice-preco-semana
 versao: 1.0.0
 produto: dat.indice_preco_semana
 granularidade: [categoria_canon, zona, semana]
-campos: [mediana_kz, n_obs, n_lojas]
+campos: [mediana_minor, n_obs, n_lojas]
 minimos: { n_lojas: 3, n_obs: 10 }          # k-anonimato por célula
 exclusoes: [contact_id, sujeito_ref, tenant_id]
 entrega: api-pull-autenticada               # chave por parceiro; sem push de ficheiros
@@ -654,3 +654,4 @@ O Score tem contrato próprio com consentimento da PME por exportação, versão
 | 1.0 | Outubro 2026 | Emissão inicial: contrato de eventos, *outbox*, privacidade e apagamento, `assistant_queries`, camada analítica, produtos de dados (Diferido), linhagem, reconciliação, SLIs. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §4, D-03 (`valor_minor` + `currency`) e D-04 (`authn_ok`, `authn_method`); §5, D-07; §7.2 e §7.6, D-01; §7.2 e §7.4, D-09 (12 meses, *proposta*); §7.3–§7.4, D-02; §9.2 e §10.3, D-03. | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-128: As **18** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
+| 1.3 | Outubro 2026 | **Emenda KAM-139** (variantes vivas do dicionário): as seis variantes vivas do §6.1, do §10.2 e do §12 passam às formas canónicas do §3.3 — `preco_minor` (3), `total_minor` (2) e `preco_tipo = 'fixo'` (1). Como o §2 fixa dinheiro em unidade menor inteira, `preco_minor` passa de `int` a `bigint`; os três nomes derivados das mesmas colunas (`gmv_pago_*`, `receita_paga_*` e `mediana_*`), que o *gate* não apanha por não serem variantes registadas, seguem a mesma regra e terminam em `_minor`, para não ficarem em Kz ao lado de colunas em cêntimos na mesma secção. As cinco citações históricas do §7.2 e do §8 mantêm-se, e o §4 e a tabela do §5 não foram tocados. | Equipa KAMBÁ |

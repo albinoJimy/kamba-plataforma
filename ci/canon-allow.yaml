@@ -87,107 +87,23 @@ historicas:
       - "Mudanças face ao doc 11 §2"
     razao: "§2 (ADR-010 e «Divergencias deliberadas face ao doc 11»), titulo e ultima alinea do §7.2, e §8 («Mudancas face ao doc 11»). As cinco dizem `msisdn_hash` -> `sujeito_ref`."
 
-dividas:
-  - ficheiro: docs/tecnica/02_Agent_Runtime_Verticais.md
-    variante: expires_at
-    ocorrencias: 1
-    origem: KAM-007
-    criado_em: 2026-10-17
-    expira_em: 2026-11-16
-    razao: "O dicionario §3.3 (emenda 1.12) fixa `expira_at` para o prazo de uma reserva ou de uma referencia. Esta ocorrencia nao estava a ser contada porque a variante nao estava registada: a emenda 1.11 resolveu a divergencia a favor de `expira_at` e nao registou `expires_at`, o que tornava a contradicao invisivel aos dois lados. Apanhado pela revisao adversarial do KAM-007 (achado M3). Emenda proposta: trocar a ocorrencia."
-
-  - ficheiro: docs/tecnica/03_Core_Comercio_Medusa.md
-    variante: expires_at
-    ocorrencias: 8
-    origem: KAM-007
-    criado_em: 2026-10-17
-    expira_em: 2026-11-16
-    razao: "DDL de `platform.stock_reservations` e prosa das transicoes. O dicionario §3.3 (emenda 1.12) fixa `expira_at`. Consequencia concreta de a variante nao estar registada: a migracao que criasse esta tabela falhava o gate 3b por um nome que este documento manda usar, sem variante que o explicasse. Emenda proposta: trocar as oito ocorrencias."
-
-  - ficheiro: docs/tecnica/03_Core_Comercio_Medusa.md
-    variante: preco_modo
-    ocorrencias: 8
-    origem: KAM-007
-    criado_em: 2026-10-17
-    expira_em: 2026-11-16
-    razao: "DDL de `catalog_items` e tabela de eventos. O dicionario §3.3 fixa `preco_tipo` desde a emissao, e a emenda 1.12 poe `preco_modo` na coluna «Substitui», onde devia ter estado. Emenda proposta: trocar as oito ocorrencias."
-
-  - ficheiro: docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md
-    variante: expires_at
-    ocorrencias: 1
-    origem: KAM-007
-    criado_em: 2026-10-17
-    expira_em: 2026-11-16
-    razao: "§5, prazo da referencia de pagamento. O dicionario §3.3 (emenda 1.12) fixa `expira_at`. Emenda proposta: trocar a ocorrencia."
-
-  - ficheiro: docs/tecnica/02_Agent_Runtime_Verticais.md
-    variante: valor_max_pedido_kz
-    ocorrencias: 3
-    origem: KAM-111
-    criado_em: 2026-10-11
-    expira_em: 2026-11-10
-    razao: "§5.1 (`limites` de `registry/vendedor.yaml`) e §6.1-§6.2 (pipeline de `invoke` e `criar_pedido`). O dicionario §3.2 fixa `valor_max_pedido_minor`. Divergencia real, registada na emenda E-01 da Carta e fora das 12 do KAM-111. Emenda proposta: trocar as tres ocorrencias."
-
-  - ficheiro: docs/tecnica/03_Core_Comercio_Medusa.md
-    variante: kamba_ops
-    ocorrencias: 1
-    origem: KAM-111
-    criado_em: 2026-10-11
-    expira_em: 2026-11-10
-    razao: "§5.5, comentario dos papeis: «kamba_ops (BYPASSRLS, auditado)». O dicionario §3.2 (emenda 1.2) resolve a favor de `kamba_batch`, de `docs/tecnica/08` §3.3. Fora das 12 do KAM-111. Emenda proposta: `kamba_batch`."
-
-  - ficheiro: docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md
-    variante: kamba_ops
-    ocorrencias: 2
-    origem: KAM-111
-    criado_em: 2026-10-11
-    expira_em: 2026-11-10
-    razao: "§6.2: `REVOKE ALL … FROM PUBLIC, kamba_app, kamba_ops` e `GRANT SELECT … TO kamba_app, kamba_ops`. O DDL de pagamentos revoga de um papel que nao existe (dicionario §3.2). Tem de estar corrigido antes do KAM-053. Emenda proposta: `kamba_batch`."
-
-  - ficheiro: docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md
-    variante: preco_kz
-    ocorrencias: 5
-    origem: KAM-111
-    criado_em: 2026-10-11
-    expira_em: 2026-11-10
-    razao: "§6.1 (consulta hibrida e contrato de saida da tool) e §12 (`sponsored_placements`). O dicionario §3.3 fixa `preco_minor`. Nao e so nome: muda a unidade (Kz inteiros -> centimos). Fora das 12 do KAM-111. Emenda proposta: `preco_minor` com a unidade revista."
-
-  - ficheiro: docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md
-    variante: exato
-    ocorrencias: 1
-    origem: KAM-111
-    criado_em: 2026-10-11
-    expira_em: 2026-11-10
-    razao: "§6.1, contrato de saida da tool: `preco_tipo ('exato'|'a_partir_de'|'sob_consulta')`. O dicionario §3.3 fixa `fixo`. Fora das 12 do KAM-111. Emenda proposta: `'fixo'`."
-
-  - ficheiro: docs/tecnica/06_Dados_Eventos_Analytics.md
-    variante: preco_kz
-    ocorrencias: 3
-    origem: KAM-111
-    criado_em: 2026-10-11
-    expira_em: 2026-11-10
-    razao: "§10.2, DDL e vista do indice de precos (Diferido): `preco_kz int` e `ORDER BY preco_kz`. O dicionario §3.3 fixa `preco_minor`. Fora das 12 do KAM-111. Emenda proposta: `preco_minor`."
-
-  - ficheiro: docs/tecnica/06_Dados_Eventos_Analytics.md
-    variante: exato
-    ocorrencias: 1
-    origem: KAM-111
-    criado_em: 2026-10-11
-    expira_em: 2026-11-10
-    razao: "§10.2: `CHECK (preco_tipo = 'exato')`. O dicionario §3.3 fixa `fixo`. Fora das 12 do KAM-111. Emenda proposta: `'fixo'`."
-
-  - ficheiro: docs/tecnica/06_Dados_Eventos_Analytics.md
-    variante: total_kz
-    ocorrencias: 2
-    origem: KAM-111
-    criado_em: 2026-10-11
-    expira_em: 2026-11-10
-    razao: "§6.1 (payload de exemplo de `order.created`) e §12 (consulta de reconciliacao do GMV). O dicionario §3.3 fixa `total_minor`. Fora das 12 do KAM-111 (o D-03 so cobre `valor_kz`). Emenda proposta: `total_minor`."
-
-  - ficheiro: docs/tecnica/03_Core_Comercio_Medusa.md
-    variante: tenant_isolamento
-    ocorrencias: 1
-    origem: KAM-111
-    criado_em: 2026-10-11
-    expira_em: 2026-11-10
-    razao: "§5.5: `CREATE POLICY tenant_isolamento`. A emenda 1.5 do dicionario (KAM-004) fixa `tenant_iso`, o nome de `docs/tecnica/08` §3.3 e o que `db/rls.py` cria, e regista esta divergencia. Passou a variante com o merge do KAM-004; fora das 12 do KAM-111. Emenda proposta: `tenant_iso`."
+# ESTA LISTA ESTA VAZIA, e e o criterio de aceitacao do KAM-139.
+#
+# Tinha treze entradas: as nove do KAM-111 (`kamba_ops`, `valor_max_pedido_kz`,
+# `preco_kz`, `exato`, `total_kz`, `tenant_isolamento`) e as quatro que o
+# KAM-007 acrescentou ao registar `expires_at` e `preco_modo` como variantes
+# substituidas. Cinquenta e quatro ocorrencias em cinco documentos tecnicos.
+#
+# Foram pagas, documento a documento, e nao so trocadas: onde a troca mudava a
+# **unidade** — `preco_kz` para `preco_minor`, `total_kz` para `total_minor` —
+# os valores de exemplo foram multiplicados por cem e os tipos SQL passaram de
+# `int` a `bigint`, porque trocar o nome e deixar o numero deixava os exemplos
+# errados por um factor de cem. E os nomes **derivados** que o gate nao apanha,
+# por nao estarem registados (`max_preco_kz`, `alvo_preco_kz`, `mediana_kz`,
+# `gmv_pago_kz`, `receita_paga_kz`, `valor_min_review_kz`, `min_preco_kz`),
+# seguiram a mesma regra: deixar um deles em Kz ao lado de uma coluna em
+# centimos, na mesma seccao, era a contradicao que o ticket existe para fechar.
+#
+# Uma divida nova aqui e uma excepcao com prazo. A lista estar vazia quer dizer
+# que nenhum documento tecnico usa hoje um nome que o dicionario substitui.
+dividas: []

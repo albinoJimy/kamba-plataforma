@@ -155,15 +155,101 @@ class TestMutacoes(ComCopia):
         if ficheiro:
             self.assertEqual(achados[0].ficheiro, ficheiro)
 
+    def com_divida(self, ficheiro: str, variante: str, ocorrencias: int,
+                   expira_em: str = "2026-11-16") -> None:
+        """Declara uma divida na copia, para a testar sem depender do repositorio.
+
+        O `ci/canon-allow.yaml` real tem hoje `dividas: []` — e isso e o
+        **criterio de aceitacao do KAM-139**, que as pagou todas. As quatro
+        baterias que provam o mecanismo das dividas (contagem exacta para
+        cima e para baixo, excepcao que ficou orfa, prazo vencido) dependiam
+        de o repositorio ter divida por pagar: eram testes cujo sujeito
+        desaparecia no dia em que o repositorio ficasse limpo, e a conta e
+        sempre a mesma — ou se desligava o teste, ou se deixava a divida.
+
+        Passam a trazer a sua. O mecanismo e o mesmo; o sujeito e nosso.
+        """
+        texto = (self.raiz / "ci/canon-allow.yaml").read_text(encoding="utf-8")
+        entrada = (
+            "dividas:\n"
+            f"  - ficheiro: {ficheiro}\n"
+            f"    variante: {variante}\n"
+            f"    ocorrencias: {ocorrencias}\n"
+            "    origem: KAM-139\n"
+            "    criado_em: 2026-10-17\n"
+            f"    expira_em: {expira_em}\n"
+            '    razao: "Divida construida pela bateria de testes para exercitar o mecanismo '
+            'das dividas com prazo, que o repositorio real ja nao tem por estarem todas pagas."\n'
+        )
+        self.escrever("ci/canon-allow.yaml", texto.replace("dividas: []\n", entrada))
+
     def test_a_copia_sem_mutacao_passa(self) -> None:
         """A base de todas as outras: se a copia ja falhasse, tudo o resto era vacuo."""
         self.assertEqual([str(a) for a in self.achados()], [])
         self.assertEqual(cli.main(["--root", str(self.raiz), "check"]), 0)
 
+    def test_a_lista_de_dividas_do_repositorio_esta_vazia(self) -> None:
+        """O criterio de aceitacao do KAM-139, verificado onde se ve.
+
+        Nao e so «o gate passa»: passar com dividas declaradas tambem passa.
+        O que se exige e que nenhum documento tecnico use hoje um nome que o
+        dicionario substitui, e a forma de o dizer e a lista estar vazia.
+        """
+        import kamba_yaml
+
+        documento = kamba_yaml.load_file(ROOT / "ci/canon-allow.yaml")
+        self.assertEqual(documento.get("dividas") or [], [])
+
+    def test_o_dominio_do_registo_nao_se_aplica_a_coluna_e_o_da_coluna_aplica_se(self) -> None:
+        """A proteccao que a `dominios_so_no_registo` dava, agora sem ela.
+
+        A lista de excepcoes ficou vazia (KAM-141, linhas 6 e 9) e a
+        distincao passou a vir do dicionario. Ficou provado que o exportador
+        marca o campo, e **nao** que o gate se comporta como antes — apanhado
+        pela revisao adversarial (achado m10.2). E o comportamento que
+        importa: `id uuid PRIMARY KEY` numa migracao nao pode ter de ser uma
+        vertical, e um valor fora de um dominio **nao qualificado** — que e a
+        classe que o `so_no_registo` pode desarmar — tem de falhar.
+        """
+        tabela = "\n".join(
+            (
+                "    op.execute(",
+                '        """',
+                "        CREATE TABLE platform.ensaio_do_registo (",
+                "          id uuid PRIMARY KEY,",
+                "          tenant_id uuid NOT NULL,",
+                "          modulo text NOT NULL,",
+                "          preco_tipo text NOT NULL CHECK (preco_tipo IN ({valores}))",
+                "        )",
+                '        """',
+                "    )",
+                "",
+            )
+        )
+        base = (self.raiz / MIGRACAO).read_text(encoding="utf-8")
+        marca = "def upgrade() -> None:\n"
+        self.assertIn(marca, base)
+
+        self.escrever(MIGRACAO, base.replace(
+            marca, marca + tabela.format(valores="'fixo', 'a_partir_de'"), 1))
+        dominios = [a for a in self.achados() if "dominio" in a.mensagem or a.classe == REGRA]
+        self.assertEqual(
+            [a for a in dominios if "id" in a.mensagem or "modulo" in a.mensagem], [],
+            "o `id` e o `modulo` voltaram a ser tratados como dominios de coluna",
+        )
+
+        self.escrever(MIGRACAO, base.replace(
+            marca, marca + tabela.format(valores="'fixo', 'banana'"), 1))
+        achados = [a for a in self.achados() if "banana" in a.mensagem]
+        self.assertEqual(
+            len(achados), 1, "um valor fora do dominio de `preco_tipo` tem de falhar"
+        )
+        self.assertEqual(achados[0].classe, REGRA)
+
     # --- migracoes ---------------------------------------------------------------
     def test_valor_kz_na_migracao(self) -> None:
         self.trocar(MIGRACAO, "          zona                     text,", "          zona                     text,\n          valor_kz                 integer,")
-        self.unico(VARIANTE, "`valor_kz` → `valor_minor`, dicionário §3.4", MIGRACAO)
+        self.unico(VARIANTE, "`valor_kz` → `valor_minor + currency ∈ {AOA}`, dicionário §3.4", MIGRACAO)
         self.assertEqual(cli.main(["--root", str(self.raiz), "check"]), 1)
 
     def test_coluna_canonica_renomeada_para_nome_inventado(self) -> None:
@@ -354,28 +440,39 @@ class TestMutacoes(ComCopia):
         self.trocar("docs/tecnica/09_Topologia_Operacao_Escala.md", "tabela `llm_call_log` sem conteúdo;", "tabela `llm_calls` sem conteúdo;")
         self.unico(VARIANTE, "`llm_calls` → `llm_call_log`, dicionário §3.6", "docs/tecnica/09_Topologia_Operacao_Escala.md")
 
+    def test_uma_divida_declarada_com_a_contagem_certa_passa(self) -> None:
+        """A base das tres que seguem: sem isto, todas passariam por acidente."""
+        self.trocar(DOC03, "kamba_batch (BYPASSRLS, auditado)", "kamba_ops (BYPASSRLS, auditado)")
+        self.com_divida(DOC03, "kamba_ops", 1)
+        self.assertEqual([str(a) for a in self.achados()], [])
+
     def test_mais_uma_ocorrencia_de_uma_divida_declarada(self) -> None:
         """A excepcao e por contagem: a segunda `kamba_ops` nao entra atras da primeira."""
-        self.trocar(DOC03, "-- papeis: kamba_app (RLS aplicado)", "-- papeis: kamba_ops, kamba_app (RLS aplicado)")
+        self.trocar(DOC03, "kamba_batch (BYPASSRLS, auditado)",
+                    "kamba_ops (BYPASSRLS, auditado), e kamba_ops outra vez")
+        self.com_divida(DOC03, "kamba_ops", 1)
         self.unico(VARIANTE, "2 ocorrencia(s)", DOC03)
 
     def test_menos_ocorrencias_do_que_as_declaradas(self) -> None:
-        """M11: corrigir duas das tres e deixar a excepcao a dizer tres tambem falha."""
-        self.trocar("docs/tecnica/02_Agent_Runtime_Verticais.md", "limites: [msgs_ai_mes, valor_max_pedido_kz]", "limites: [msgs_ai_mes, valor_max_pedido_minor]")
+        """M11: corrigir uma das duas e deixar a excepcao a dizer duas tambem falha."""
+        self.trocar(DOC03, "kamba_batch (BYPASSRLS, auditado)", "kamba_ops (BYPASSRLS, auditado)")
+        self.com_divida(DOC03, "kamba_ops", 2)
         achados = self.achados()
-        self.assertEqual([a.classe for a in achados], [VARIANTE])
-        self.assertIn("2 ocorrencia(s)", achados[0].mensagem)
-        self.assertIn("declara 3", achados[0].mensagem)
+        self.assertEqual([a.classe for a in achados], [VARIANTE], "\n".join(str(a) for a in achados))
+        self.assertIn("1 ocorrencia(s)", achados[0].mensagem)
+        self.assertIn("declara 2", achados[0].mensagem)
 
     def test_divida_corrigida_obriga_a_retirar_a_excepcao(self) -> None:
-        self.trocar(DOC03, "kamba_ops (BYPASSRLS, auditado)", "kamba_batch (BYPASSRLS, auditado)")
+        """Zero ocorrencias com a excepcao de pe falha: a lista nao apodrece."""
+        self.com_divida(DOC03, "kamba_ops", 1)
         self.unico(REGRA, "retire a excepcao", DOC03)
 
     def test_divida_vencida_falha(self) -> None:
-        self.assertEqual(self.achados(datetime.date(2026, 11, 10)), [])
-        vencidas = self.achados(datetime.date(2026, 11, 11))
+        self.trocar(DOC03, "kamba_batch (BYPASSRLS, auditado)", "kamba_ops (BYPASSRLS, auditado)")
+        self.com_divida(DOC03, "kamba_ops", 1, expira_em="2026-11-16")
+        self.assertEqual(self.achados(datetime.date(2026, 11, 16)), [])
+        vencidas = self.achados(datetime.date(2026, 11, 17))
         self.assertEqual({a.classe for a in vencidas}, {REGRA})
-        self.assertEqual(len(vencidas), 9, "as nove dividas declaradas vencem no mesmo dia")
         self.assertIn("venceu", vencidas[0].mensagem)
 
     def test_citacao_historica_trocada_por_uso_vivo(self) -> None:
@@ -433,7 +530,15 @@ class TestConfiguracao(ComCopia):
             ("      - provider\n      - referencia\n", "      - provider\n      - account_id\n", r"UNIQUE\(provider,account_id\)"),
             ('conceito: "Estado do tenant"', 'conceito: "Estado do inquilino"', "Estado do inquilino"),
             ('identificador: "confirm:{hold_id}"', 'identificador: "confirm:{slot_id}"', "slot_id"),
-            ("  - coluna: modulo\n", "  - coluna: estado\n", "nao e um dominio nao qualificado"),
+            # A `dominios_so_no_registo` esta hoje vazia (KAM-141, linhas 6 e 9):
+            # o dicionario passou a dizer «No registo» na propria linha e a
+            # excepcao deixou de ser precisa. A mutacao, que trocava uma entrada,
+            # ficou sem sujeito; passa a **acrescentar** uma invalida, que prova o
+            # mesmo e nao depende de o ficheiro ter excepcoes.
+            ("dominios_so_no_registo: []\n",
+             'dominios_so_no_registo:\n  - coluna: estado\n    razao: "uma razao '
+             'suficientemente longa para passar a verificacao de comprimento"\n',
+             "nao e um dominio nao qualificado"),
             ("  - modulo: rls\n    ficheiro: db/rls.py\n", "  - modulo: rls\n", "modulo. e de .ficheiro"),
             ('papeis:\n  seccao: "3.2"', 'papeis:\n  seccao: "3.9"', "Pap"),
         ):
@@ -472,6 +577,42 @@ class TestConfiguracao(ComCopia):
             with self.subTest(padrao=padrao):
                 self.com("canon/extensoes.yaml", base, novo, padrao)
 
+    #: Uma divida bem formada, para as mutacoes terem o que estragar.
+    #:
+    #: O `ci/canon-allow.yaml` real tem `dividas: []` desde o KAM-139, que as
+    #: pagou todas. Estas seis mutacoes partiam de uma divida **do
+    #: repositorio** e ficaram sem sujeito no dia em que ele ficou limpo — que
+    #: e o dia em que se quer que tudo isto continue a ser verificado.
+    DIVIDA_BOA = (
+        "dividas:\n"
+        "  - ficheiro: docs/tecnica/03_Core_Comercio_Medusa.md\n"
+        "    variante: kamba_ops\n"
+        "    ocorrencias: 1\n"
+        "    origem: KAM-111\n"
+        "    criado_em: 2026-10-11\n"
+        "    expira_em: 2026-11-10\n"
+        '    razao: "Uma divida construida pela bateria para exercitar a validacao da '
+        'forma de uma entrada, que o repositorio real ja nao tem por estarem todas pagas."\n'
+    )
+
+    def com_divida_boa(self, velho: str, novo: str, padrao: str) -> None:
+        """Instala a divida boa, estraga-a como se diz, e exige a mensagem."""
+        caminho = self.raiz / "ci/canon-allow.yaml"
+        original = caminho.read_text(encoding="utf-8")
+        self.escrever("ci/canon-allow.yaml", original.replace("dividas: []\n", self.DIVIDA_BOA))
+        try:
+            self.com("ci/canon-allow.yaml", velho, novo, padrao)
+        finally:
+            self.escrever("ci/canon-allow.yaml", original)
+
+    def test_a_divida_boa_e_mesmo_boa(self) -> None:
+        """Sem isto, as seis que seguem podiam estar a falhar pela razao errada."""
+        caminho = self.raiz / "ci/canon-allow.yaml"
+        original = caminho.read_text(encoding="utf-8")
+        self.escrever("ci/canon-allow.yaml", original.replace("dividas: []\n", self.DIVIDA_BOA))
+        self.trocar(DOC03, "kamba_batch (BYPASSRLS, auditado)", "kamba_ops (BYPASSRLS, auditado)")
+        self.assertEqual([str(a) for a in cli.verificar(self.raiz, hoje=HOJE)[0]], [])
+
     def test_excepcao_de_documento_mal_formada(self) -> None:
         divida = "    variante: kamba_ops\n    ocorrencias: 1\n    origem: KAM-111\n    criado_em: 2026-10-11\n    expira_em: 2026-11-10\n"
         for velho, novo, padrao in (
@@ -481,10 +622,10 @@ class TestConfiguracao(ComCopia):
             (divida, divida.replace("criado_em: 2026-10-11", "criado_em: 2031-01-01").replace("expira_em: 2026-11-10", "expira_em: 2031-01-31"), "futuro"),  # M9
             (divida, divida.replace("    origem: KAM-111\n", ""), "origem"),
             (divida, divida + "    aprovado_por: ninguem\n", "aprovado_por"),  # M40
-            ("version: 1\n", "version: 1\ntoleradas: []\n", "toleradas"),  # M40
         ):
             with self.subTest(padrao=padrao):
-                self.com("ci/canon-allow.yaml", velho, novo, padrao)
+                self.com_divida_boa(velho, novo, padrao)
+        self.com("ci/canon-allow.yaml", "version: 1\n", "version: 1\ntoleradas: []\n", "toleradas")  # M40
 
     def test_historica_sem_ancora_ou_com_ancora_que_nao_prova_nada(self) -> None:
         """M9: uma «historica» nao tem prazo, pelo que tem de provar que e citacao."""

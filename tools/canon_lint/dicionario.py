@@ -182,15 +182,24 @@ class Dicionario:
         """O dominio fechado de uma coluna **de base de dados**.
 
         Primeiro o qualificado (`tenants.tipo`), depois pelo nome so
-        (`authn_method`) — salvo os que a politica declara que so valem no
-        registo (`id`, `modulo`).
+        (`authn_method`) — salvo os que **o proprio dicionario** declara que so
+        valem no registo, escrevendo «No registo» antes do nome.
+
+        Essa ultima parte vinha de `ci/canon-lint.yaml`, numa lista de
+        excepcoes que desfazia em configuracao o que o §3.2 e o §3.7 ja diziam
+        em prosa (KAM-141, linhas 6 e 9). O `so_no_registo` do dicionario
+        continua a ser lido para que uma politica antiga nao rebente, e a
+        politica deixou de precisar de o dizer.
         """
         qualificado = self.dominios.get(f"{tabela}.{coluna}")
         if qualificado:
             return qualificado
         if coluna in self.so_no_registo:
             return None
-        return self.dominios.get(coluna)
+        dominio = self.dominios.get(coluna)
+        if dominio and dominio.get("so_no_registo"):
+            return None
+        return dominio
 
     def dominio_qualificado(self, tabela: str, coluna: str) -> dict | None:
         return self.dominios.get(f"{tabela}.{coluna}")

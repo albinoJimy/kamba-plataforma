@@ -240,20 +240,22 @@ dominios_por_conceito:
 
 # Dominios que o dicionario escreve sem tabela e que NAO se aplicam a colunas de
 # base de dados com o mesmo nome.
-dominios_so_no_registo:
-  - coluna: id
-    razao: >-
-      §3.2, «Vertical»: «No registo (`registry/*.yaml`): `id` ∈ {vendedor, …}».
-      E o `id` de um ficheiro do registo; aplicado ao DDL, toda a chave
-      primaria `id uuid` passava a ter de ser uma vertical.
-  - coluna: modulo
-    razao: >-
-      §3.7 da `modulo` ∈ {catalogo, foto, social, orcamento}, mas o §3.2 diz que
-      `entitlements.modulo` tem `CHECK` de FORMA e nao de dominio (os modulos
-      sao configuracao, ADR-012), e a revisao 0001 implementa-o assim. As duas
-      linhas do dicionario nao concordam; no registo aceitam-se as verticais e
-      estes quatro. Registado como contradicao do canon em
-      `docs/nomes-canonicos.md` §6.
+#
+# ESTA LISTA ESTA VAZIA, e e disso que se trata (KAM-141, linhas 6 e 9).
+#
+# Tinha duas entradas, `id` e `modulo`, e as duas desfaziam **em configuracao**
+# o que o dicionario ja dizia **em prosa**: o §3.2 escreve «No registo
+# (`registry/*.yaml`): `id` ∈ {vendedor, …}» e o §3.7, depois da emenda 1.13,
+# escreve o mesmo de `modulo`. O exportador ignorava a frase e dava um dominio
+# de coluna; a lista desfazia-o a seguir. Duas fontes para o mesmo facto, e a
+# segunda invisivel a quem le o dicionario.
+#
+# Hoje o `dict_export` le a frase e marca o dominio `so_no_registo: true`, e o
+# `canon_lint` le a marca. A lista fica, vazia, porque a politica continua a
+# poder declarar uma excepcao que o dicionario nao saiba exprimir — e o dia em
+# que alguem acrescentar uma entrada aqui tem de dizer porque e que o
+# dicionario nao chega.
+dominios_so_no_registo: []
 
 # ------------------------------------------------ unicidades que o §3 proibe
 #

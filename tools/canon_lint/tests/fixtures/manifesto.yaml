@@ -16,10 +16,13 @@
 # mudar um para `sem_forma_de_nome`, faz o canario FALHAR. E cada negativa tem
 # de dar exactamente um achado, cuja mensagem COMECA pelo `espera`.
 #
-# A positiva do D-03 nao tem `currency`, e isso e um defeito do canon e nao
-# desta fixture: o D-03 do ticket da `valor_minor` + `currency` como forma
-# canonica «(§3.4)», mas o §3 do dicionario nao lista `currency` (so o §2). O
-# lint recusa-o como campo fora do dicionario. Fica registado (KAM-141).
+# A positiva do D-03 **passou a ter** `currency`, e isso mede uma emenda. O
+# D-03 do KAM-111 da `valor_minor` + `currency` como forma canonica «(§3.4)»,
+# e o §3 do dicionario nao listava `currency` — so o §2, que e a seccao dos
+# principios e nao a dos nomes. O lint recusava-o como campo fora do
+# dicionario, e a fixture que devia mostrar a forma certa mostrava meia forma.
+# A emenda 1.13 (KAM-141, linha 2) poe `currency` ∈ {AOA} na linha «Valor» do
+# §3.4, e esta fixture passou a dizer o que o D-03 diz.
 
 version: 1
 
@@ -40,7 +43,7 @@ casos:
     superficie: eventos
     negativa: negativas/D-03_valor_kz/v1.schema.json
     positiva: positivas/D-03_valor_minor/v1.schema.json
-    espera: "`valor_kz` → `valor_minor`, dicionário §3.4"
+    espera: "`valor_kz` → `valor_minor + currency ∈ {AOA}`, dicionário §3.4"
 
   - divergencia: D-04
     superficie: migracoes

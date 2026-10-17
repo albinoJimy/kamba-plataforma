@@ -35,7 +35,7 @@ Engenheiros de comércio e dados, engenheiros de runtime (ToolLayer), engenheiro
 - **Registo:** a implementação por trás da porta: Medusa puro + `merchant_id` (base do spike), Medusa+Mercur (avaliado, não adoptado) ou registo próprio mínimo (fallback 2).
 - **`orders_mirror`:** tabela do schema `platform` que guarda o **ciclo de vida** da encomenda (estados do documento 00 §6.1) e um *snapshot* imutável de linhas e totais. Ver §10 para a matriz de autoridade.
 - **Intenção de encomenda (`intent_key`):** identificador determinístico de «este rascunho de carrinho nesta versão», usado para idempotência (§6.3).
-- **Reserva:** retenção de stock por encomenda com `expires_at`; dura 24–72 h conforme a validade da referência de pagamento.
+- **Reserva:** retenção de stock por encomenda com `expira_at`; dura 24–72 h conforme a validade da referência de pagamento.
 - **Modo de preço:** `fixo`, `a_partir_de` ou `sob_consulta`. **Modo de stock:** `garantido`, `indicativo` ou `confirmar_dono`.
 - **Contacto:** o cliente final de uma PME, identificado por BSUID/HMAC (ADR-010); nunca por telefone em claro.
 - **TLS / CHR / EVT / PAY / IDX / MED / STO / LLM / TEN / GOV:** códigos do documento 00 §4.
@@ -119,7 +119,7 @@ Regras da porta: (1) toda a chamada recebe `ctx`; sem `ctx.tenantId` a implement
 |---|---|---|---|
 | Tenant / vendedor | módulo custom `merchant` + *links* para produto, stock location, sales channel, encomenda | NÃO VERIFICADO | Base do fallback 1 (`merchant_id`); o Medusa não é multi-tenant nativo (`evidencia/E4` §2.1). |
 | Produto e variante | Product Module | INDÍCIO | Preço `fixo` pode viver no Pricing Module; os modos `a_partir_de`/`sob_consulta` vivem em `offer_terms`. |
-| Stock | Inventory Module (itens, níveis por localização, *reservation items*) | INDÍCIO | **Sem TTL nativo assumido**: a expiração é nossa (`stock_reservations.expires_at` + scheduler, §6.5). |
+| Stock | Inventory Module (itens, níveis por localização, *reservation items*) | INDÍCIO | **Sem TTL nativo assumido**: a expiração é nossa (`stock_reservations.expira_at` + scheduler, §6.5). |
 | Encomenda | Order Module + *workflow* com compensação | INDÍCIO | O ciclo de vida de §6.1 é mantido em `orders_mirror`; o `status` do Medusa segue como projecção. |
 | Canal por tenant | Sales Channel + Stock Location por tenant | INDÍCIO | Reforço de âmbito, não substitui o filtro `merchant_id`. |
 | Eventos | *subscribers* do Medusa → *outbox* próprio | INDÍCIO | O bus canónico é o EVT (ADR-009), não o do Medusa. |
@@ -163,7 +163,7 @@ Regras da porta: (1) toda a chamada recebe `ctx`; sem `ctx.tenantId` a implement
 | AC-3 | Sobrevenda em stock `garantido` (1.000 tentativas paralelas, stock 10) | **0** reservas acima do stock | Bloqueante |
 | AC-4 | Idempotência: 50 repetições de `createOrder` com o mesmo `intent_key` (concorrentes) | **1** encomenda | Bloqueante |
 | AC-5 | Falha injectada entre criação no Registo e escrita no `orders_mirror` | reconciliação recupera em ≤ 5 min, sem órfãos | Bloqueante |
-| AC-6 | Expiração: libertação de reserva após `expires_at` | p99 ≤ 60 s | Bloqueante |
+| AC-6 | Expiração: libertação de reserva após `expira_at` | p99 ≤ 60 s | Bloqueante |
 | AC-7 | Nenhum módulo ou *flag* Enterprise (RBAC/SSO/policies) activo | teste de CI verde | Bloqueante |
 | AC-8 | `createOrder` (sem LLM) a 20 pedidos/s | p95 ≤ 800 ms | Alvo (proposta) |
 | AC-9 | Esforço para impor filtro de tenant em todos os repositórios do COM | ≤ 3 dias-pessoa | Alvo |
@@ -340,7 +340,7 @@ CREATE TABLE platform.orders_mirror (
   confirmacao_dono      text NOT NULL DEFAULT 'nao_aplicavel'
                         CHECK (confirmacao_dono IN ('nao_aplicavel','pendente','confirmada','recusada','expirada')),
   total_minor           bigint NOT NULL CHECK (total_minor >= 0), currency              char(3) NOT NULL DEFAULT 'AOA',
-  lines_snapshot        jsonb NOT NULL,             -- [{sku,nome,qty,preco_minor,preco_modo,origem_preco}] IMUTAVEL apos aguarda_pagamento
+  lines_snapshot        jsonb NOT NULL,             -- [{sku,nome,qty,preco_minor,preco_tipo,origem_preco}] IMUTAVEL apos aguarda_pagamento
   entrega_modo          text NOT NULL DEFAULT 'levantamento' CHECK (entrega_modo IN ('levantamento','entrega')),
   expira_at             timestamptz,                -- fim da reserva activa
   paga_at               timestamptz,
@@ -377,14 +377,14 @@ CREATE TABLE platform.stock_reservations (
   order_id                uuid NOT NULL REFERENCES platform.orders_mirror(id), line_no                 smallint NOT NULL,
   sku                     text NOT NULL, qty                     integer NOT NULL CHECK (qty > 0),
   estado                  text NOT NULL DEFAULT 'ativa' CHECK (estado IN ('ativa','consumida','libertada','expirada')),
-  expires_at              timestamptz NOT NULL, medusa_reservation_id   text,
+  expira_at              timestamptz NOT NULL, medusa_reservation_id   text,
   criado_at               timestamptz NOT NULL DEFAULT now(), UNIQUE (order_id, line_no)
 );
-CREATE INDEX stock_reservations_expiry_idx ON platform.stock_reservations (expires_at) WHERE estado = 'ativa';
+CREATE INDEX stock_reservations_expiry_idx ON platform.stock_reservations (expira_at) WHERE estado = 'ativa';
 
 CREATE TABLE platform.offer_terms (                  -- termos comerciais por SKU (preco opaco e stock nao-garantido)
   tenant_id           uuid NOT NULL REFERENCES platform.tenants(id), sku                 text NOT NULL,
-  medusa_variant_id   text, preco_modo          text NOT NULL CHECK (preco_modo IN ('fixo','a_partir_de','sob_consulta')),
+  medusa_variant_id   text, preco_tipo          text NOT NULL CHECK (preco_tipo IN ('fixo','a_partir_de','sob_consulta')),
   preco_minor         bigint CHECK (preco_minor >= 0),    -- fixo: preco; a_partir_de: minimo; sob_consulta: NULL
   currency            char(3) NOT NULL DEFAULT 'AOA', preco_atualizado_at timestamptz, preco_valido_ate timestamptz,
   stock_modo          text NOT NULL DEFAULT 'indicativo' CHECK (stock_modo IN ('garantido','indicativo','confirmar_dono')),
@@ -392,7 +392,7 @@ CREATE TABLE platform.offer_terms (                  -- termos comerciais por SK
   estado              text NOT NULL DEFAULT 'rascunho' CHECK (estado IN ('rascunho','publicado','pausado','arquivado')),
   categoria_restrita  text,                           -- preenchida pelo screening (GOV); bloqueia publicacao
   deleted_at          timestamptz, PRIMARY KEY (tenant_id, sku),
-  CHECK ((preco_modo = 'sob_consulta' AND preco_minor IS NULL) OR (preco_modo <> 'sob_consulta' AND preco_minor IS NOT NULL))
+  CHECK ((preco_tipo = 'sob_consulta' AND preco_minor IS NULL) OR (preco_tipo <> 'sob_consulta' AND preco_minor IS NOT NULL))
 );
 
 CREATE TABLE platform.price_quotes (                 -- preco dado pelo dono para sob_consulta ou negociacao
@@ -409,10 +409,10 @@ CREATE TABLE platform.price_quotes (                 -- preco dado pelo dono par
 ### 5.5 Isolamento por RLS (defesa em profundidade)
 
 ```sql
--- papeis: kamba_app (RLS aplicado), kamba_ops (BYPASSRLS, auditado), kamba_migrator (DDL)
+-- papeis: kamba_app (RLS aplicado), kamba_batch (BYPASSRLS, auditado), kamba_migrator (DDL)
 ALTER TABLE platform.orders_mirror ENABLE ROW LEVEL SECURITY;
 ALTER TABLE platform.orders_mirror FORCE ROW LEVEL SECURITY;
-CREATE POLICY tenant_isolamento ON platform.orders_mirror
+CREATE POLICY tenant_iso ON platform.orders_mirror
   USING      (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)
   WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid);
 -- cada transaccao: SET LOCAL app.tenant_id = '<uuid do ctx>'; sem isto, 0 linhas (falha fechada)
@@ -510,7 +510,7 @@ Propriedades: duplo toque ⇒ mesma chave ⇒ 1 encomenda (também na fronteira 
 | Aspecto | Regra |
 |---|---|
 | Quando reserva | Ao emitir cobrança (`criada → aguarda_pagamento`). Itens `confirmar_dono`: só **depois** de `confirmacao_dono='confirmada'` (§7.3). |
-| Quanto dura | `expires_at = fim_validade_cobranca + folga`, com `fim_validade_cobranca = min(now + ttl_tenant, now + 72 h)`; `ttl_tenant ∈ [24 h, 72 h]` (omissão 48 h). Referência AppyPay tem 72 h por omissão (CONFIRMADO, `evidencia/E2` §1.3); no ProxyPay `end_datetime` é nosso (CONFIRMADO). Express (push) dura minutos: reserva curta (omissão 30 min, correspondente à expiração de 30 min do OPG, `evidencia/E2` §1.2). |
+| Quanto dura | `expira_at = fim_validade_cobranca + folga`, com `fim_validade_cobranca = min(now + ttl_tenant, now + 72 h)`; `ttl_tenant ∈ [24 h, 72 h]` (omissão 48 h). Referência AppyPay tem 72 h por omissão (CONFIRMADO, `evidencia/E2` §1.3); no ProxyPay `end_datetime` é nosso (CONFIRMADO). Express (push) dura minutos: reserva curta (omissão 30 min, correspondente à expiração de 30 min do OPG, `evidencia/E2` §1.2). |
 | Folga | 15 min após o fim da validade no facilitador, para absorver callbacks atrasados antes de libertar stock. |
 | Atomicidade | `reserveStock` é tudo-ou-nada por encomenda; sobrevenda impedida por `UPDATE ... SET reservada = reservada + :q WHERE quantidade - reservada >= :q` (ou *reservation items* do Medusa, a validar em AC-3). |
 | Stock indicativo | Reserva interna existe, mas **não é promessa de exclusividade** perante o dono (§7.3). |
@@ -525,7 +525,7 @@ sequenceDiagram
     participant P as PAY
     participant R as Registo
     participant B as EVT
-    S->>C: varre reservas activas com expires_at vencido (FOR UPDATE SKIP LOCKED)
+    S->>C: varre reservas activas com expira_at vencido (FOR UPDATE SKIP LOCKED)
     C->>P: reconciliar cobranca (consulta final ao facilitador)
     alt pagamento autenticado encontrado
         P-->>C: payment.confirmed
@@ -558,7 +558,7 @@ Possível porque a referência pode ser paga em ATM até ao fim da sua validade 
 
 O preço no comércio informal angolano é frequentemente opaco por desígnio (`../exploracao/07-pontos-cegos-2.md` §1; **INDÍCIO**). O COM modela isso em vez de o ignorar:
 
-| `preco_modo` | Significado | O agente pode… | Checkout |
+| `preco_tipo` | Significado | O agente pode… | Checkout |
 |---|---|---|---|
 | `fixo` | Preço publicado pelo dono | citar o valor; criar pedido | directo |
 | `a_partir_de` | Mínimo publicado; preço final depende de variante/quantidade | citar «a partir de X Kz», nunca como preço final | exige preço final por variante **ou** `price_quote` |
@@ -652,7 +652,7 @@ O dono envia **fotos soltas, notas de voz ou listas de texto**; o Catálogo AI �
 | Campo | Todas | Vestuário/calçado | Alimentar | Electrónica | Serviço |
 |---|---|---|---|---|---|
 | nome, categoria | sim | sim | sim | sim | sim |
-| `preco_modo` (+ preço quando aplicável) | **sim — 1.ª pergunta** | sim | sim | sim | sim |
+| `preco_tipo` (+ preço quando aplicável) | **sim — 1.ª pergunta** | sim | sim | sim | sim |
 | `stock_modo` e quantidade | sim | por variante | validade/lote opcional | garantia | — (agenda, `02`) |
 | variantes (tamanho/cor) | — | sim | sabor/peso | modelo/capacidade | duração |
 | levantamento/entrega | sim | | | | local |
@@ -779,7 +779,7 @@ Envelope único versionado do documento 11 §3 (`id`, `tipo`, `versao`, `tenant_
 | `tenant.approved` | TEN | COM (canal, localização, `merchant_id`), HND, LLM | `tenant_id`, `plano` | P |
 | `product.draft_created` | Catálogo AI | AGR (perguntas), OBS | `ingestion_id`, `sku`, `campos_em_falta` | P |
 | `product.published` / `product.updated` | COM | IDX, AGR | `sku`, `versao`; **sem preço nem stock** (ADR-007) | P |
-| `price.changed` | COM | AGR (revalidar carrinhos), DAT | `sku`, `preco_modo`, `por` (dono/ops) | P |
+| `price.changed` | COM | AGR (revalidar carrinhos), DAT | `sku`, `preco_tipo`, `por` (dono/ops) | P |
 | `stock.changed` / `stock.low` | COM | AGR (aviso ao dono), DAT | `sku`, `nivel` | P |
 | `order.created` | COM | PAY, DAT | `order_id`, `total_minor`, `confirmacao_dono` | P |
 | `order.owner_confirmation_requested` | COM | HND/AGR (mensagem ao dono) | `order_id`, `expira_em` | P |
@@ -810,7 +810,7 @@ Convenção: nomes `dominio.acao` em minúsculas; versões `v1`; campos novos s�
 | Sobrevenda em stock `garantido` | 0 | AC-3 e teste de carga recorrente |
 | Duplicação de encomenda por duplo toque/reenvio | 0 | `intent_key` + `UNIQUE (tenant_id, intent_key)` |
 | Latência `createOrder` (sem LLM) | p95 ≤ 800 ms a 20 pedidos/s | AC-8 (proposta) |
-| Libertação de reserva após `expires_at` | p99 ≤ 60 s | métrica `reservation_release_lag` |
+| Libertação de reserva após `expira_at` | p99 ≤ 60 s | métrica `reservation_release_lag` |
 | Estado de pedido correcto face a PAY | 100% das encomendas `paga` têm evento autenticado ou confirmação manual auditada | consulta de consistência diária |
 | Divergência Registo ↔ espelho | 0 abertas > 5 min | job §10.3 |
 | Foto → rascunho (p95) | ≤ 20 s | métrica de pipeline |
@@ -896,3 +896,4 @@ Convenção: nomes `dominio.acao` em minúsculas; versões `v1`; campos novos s�
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: spike D3, modelo `platform` corrigido, encomendas, reservas, idempotência por intenção, Catálogo AI, reviews, eventos. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §5.1–§5.2, D-08 (`restrito`); §5.3 e FK, D-01 (`contacts(contact_id)` + `contact_endpoints`); §12, D-05 (dois eventos de pagamento), D-07 (`tenant.approved`) e D-12 (versões desconhecidas falham de forma visível, ADR-009). | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | **Emenda KAM-139** (variantes vivas do dicionário): adopção de `expira_at` em §1.4, §3.3, §4.3, §5.4, §6.4, §6.5 e §13 (8 ocorrências) e de `preco_tipo` em §5.4, §7.1, §8.3 e §12 (8 ocorrências), dicionário §3.3 e emenda 1.12; em §5.5, o papel passa a `kamba_batch` (dicionário §3.2) e a política de RLS a `tenant_iso` (emenda 1.5). A citação histórica do DDL do documento 11 em §5.1 fica como está. | Equipa KAMBÁ |

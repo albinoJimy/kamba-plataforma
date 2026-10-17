@@ -247,12 +247,18 @@ para dizer que foi substituída — cada uma com a **âncora** que o prova, porq
 não têm prazo) e 19 **dívidas** — divergências reais que as doze do KAM-111 não
 enumeram.
 
-> **As dívidas vencem a 2026-11-10, e a partir daí o *gate* fica vermelho em
-> `main` e em todos os PR.** É de propósito, e é o risco operacional deste
-> *gate*: nove entradas, seis variantes (`kamba_ops`, `valor_max_pedido_kz`,
-> `preco_kz`, `'exato'`, `total_kz`, `tenant_isolamento`). **O ticket que as paga é o KAM-139.** O
-> prazo de 30 dias é *proposta*, igual ao dos *waivers*, conta-se de
-> `criado_em`, e `criado_em` não pode ser futuro.
+> **A lista de dívidas está hoje vazia, e foi para isso que o prazo existiu.**
+> Eram nove entradas e seis variantes, com prazo a 2026-11-10 — a partir do dia
+> seguinte o *gate* ficava vermelho em `main` e em todos os PR, de propósito.
+> O **KAM-139** pagou-as, e pagou também as nove que entretanto entraram com o
+> KAM-007 e o KAM-141: **54 ocorrências em cinco documentos técnicos**, com os
+> valores convertidos para unidade menor onde a troca mudava a unidade. O
+> `ci/canon-allow.yaml` tem `dividas: []`.
+>
+> O mecanismo fica, e é o que importa aqui: uma dívida nova é uma excepção
+> **com prazo**, o prazo de 30 dias é *proposta* e conta-se de `criado_em`,
+> `criado_em` não pode ser futuro, e a contagem prende a ocorrência nos dois
+> sentidos — mais ocorrências do que as declaradas falha, menos também.
 
 **O *gate* não usa `ci/waivers.yaml`.** Um *waiver* dispensa um *gate*; aqui o
 que se declara é uma ocorrência, com a contagem que a prende. E um *waiver*

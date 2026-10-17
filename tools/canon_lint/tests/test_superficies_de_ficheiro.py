@@ -39,7 +39,7 @@ class TestMigracoes(unittest.TestCase):
     def test_a_mutacao_do_ticket_valor_kz_numa_migracao(self) -> None:
         achados = self.achados(migracao("ALTER TABLE platform.tenants ADD COLUMN valor_kz integer"))
         self.assertEqual([a.classe for a in achados], [VARIANTE])
-        self.assertIn("`valor_kz` → `valor_minor`, dicionário §3.4", achados[0].mensagem)
+        self.assertIn("`valor_kz` → `valor_minor + currency ∈ {AOA}`, dicionário §3.4", achados[0].mensagem)
         self.assertEqual(achados[0].linha, 6, "a linha e a do ficheiro, nao a do bloco SQL")
 
     def test_variante_e_apanhada_em_qualquer_posicao(self) -> None:
@@ -240,7 +240,14 @@ class TestMigracoes(unittest.TestCase):
     def test_valor_dentro_de_expressao_so_tem_de_pertencer_ao_dominio(self) -> None:
         base = "CREATE TABLE platform.payment_events (tipo text, authn_method text, CONSTRAINT c CHECK (tipo <> 'pme' OR authn_method IN ({})))"
         self.assertEqual(self.classes(migracao(base.format("'hmac','manual'"))), [])
-        self.assertEqual(self.classes(migracao(base.format("'hmac','hmac_sha256'"))), [REGRA])
+        # Dois achados e nao um, desde a emenda 1.13 (KAM-141, linha 4): o
+        # `hmac_sha256` passou a ser **variante registada** de `authn_method`,
+        # alem de estar fora do dominio. Os dois dizem coisas diferentes a quem
+        # le — «este nome foi substituido» e «este valor nao pertence ao
+        # dominio» — e perder o primeiro era perder a razao da substituicao.
+        self.assertEqual(
+            self.classes(migracao(base.format("'hmac','hmac_sha256'"))), [VARIANTE, REGRA]
+        )
 
     def test_valor_de_check_sem_dominio(self) -> None:
         """M34: nenhum teste cobria os valores de um CHECK cuja coluna nao tem dominio no §3."""

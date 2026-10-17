@@ -112,11 +112,23 @@ class TestPublicacao(ComFila):
             "  FROM platform.events_outbox WHERE agregado_id = 'agg-envenenado'"
         )
         self.assertEqual(tuple(self.cursor.fetchone()), (True, True))
+        # Conta-se por fila e nao por evento, e a razao e um defeito que este
+        # teste tinha: a particao e `hashtextextended(tenant || agregado) & 15`,
+        # e tres agregados ao acaso caem dois na mesma particao com
+        # probabilidade de cerca de 1 em 6. Quando isso acontecia, a fila
+        # partilhada tinha dois jobs, o `== 1` falhava, e nada estava errado —
+        # e o quarto caso desta familia de instabilidades (ver
+        # `agregado_fora_da_particao` em `base.py`). O que o teste quer dizer e
+        # que **cada evento bom chegou a sua fila**, e isso diz-se contando.
+        esperado: dict[str, int] = {}
         for identificador in boas:
-            with self.subTest(evento=identificador):
-                self.assertEqual(
-                    self.fila.pendentes(self.nome_da_fila(identificador)), 1
-                )
+            esperado[self.nome_da_fila(identificador)] = (
+                esperado.get(self.nome_da_fila(identificador), 0) + 1
+            )
+        for fila, quantos in esperado.items():
+            with self.subTest(fila=fila):
+                self.assertEqual(self.fila.pendentes(fila), quantos)
+        self.assertEqual(sum(esperado.values()), 3, "as tres boas tem de estar contadas")
 
     def test_a_linha_envenenada_arrasta_o_seu_agregado_e_mais_nenhum(self) -> None:
         """A outra metade do achado 1: o corte e por agregado.
