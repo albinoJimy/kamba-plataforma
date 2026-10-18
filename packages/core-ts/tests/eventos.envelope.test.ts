@@ -7,12 +7,14 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import {
   CAMPOS_DO_ENVELOPE,
   EnvelopeInvalidoError,
   FINALIDADES,
+  FINALIDADES_SO_NA_V2,
   lerEnvelope,
 } from "../src/eventos/index.ts";
 
@@ -152,10 +154,41 @@ describe("envelope v1 — o que e opcional e pode ser nulo", () => {
 });
 
 describe("finalidades", () => {
-  it("as oito do doc 06 §7.3, sem repetidas", () => {
-    assert.equal(FINALIDADES.length, 8);
-    assert.equal(new Set(FINALIDADES).size, 8);
-    assert.ok(FINALIDADES.includes("transacao"));
-    assert.ok(FINALIDADES.includes("analytics_agregado"));
+  /** O `enum` das finalidades do envelope, numa versão do contrato. */
+  function doContrato(versao: number): string[] {
+    const caminho = new URL(
+      `../../../contratos/eventos/consent.recorded/v${versao}.schema.json`,
+      import.meta.url,
+    );
+    const schema = JSON.parse(readFileSync(caminho, "utf8")) as {
+      properties: { finalidades: { items: { enum: string[] } } };
+    };
+    return schema.properties.finalidades.items.enum;
+  }
+
+  it("as dez do dicionário §3.1, sem repetidas", () => {
+    assert.equal(FINALIDADES.length, 10);
+    assert.equal(new Set(FINALIDADES).size, 10);
+  });
+
+  it("são exactamente as da `v2` do contrato", () => {
+    // O gate 7 compara o contrato com o dicionário, nos dois sentidos. Falta
+    // o terceiro lado do triângulo, que é esta constante — e a falta não é
+    // teórica: no KAM-159 a lista passou de oito para dez, os 38 contratos
+    // ganharam uma `v2`, e **o teste desta lista continuou a pedir oito**.
+    // Nenhum gate ligava os dois lados; o CI apanhou-o por acaso, porque o
+    // número estava escrito à mão aqui.
+    assert.deepEqual([...FINALIDADES].sort(), [...doContrato(2)].sort());
+  });
+
+  it("as que só a `v2` tem são, por construção, as que a `v1` não tinha", () => {
+    // Derivadas, e não escritas à mão: uma lista fixa divergiria do contrato
+    // no dia em que uma `v3` acrescentasse outra finalidade, e o conversor
+    // passaria a aceitar o que não consegue representar numa `v1`.
+    const naV1 = new Set(doContrato(1));
+    assert.deepEqual(
+      [...FINALIDADES_SO_NA_V2].sort(),
+      FINALIDADES.filter((f) => !naV1.has(f)).sort(),
+    );
   });
 });
