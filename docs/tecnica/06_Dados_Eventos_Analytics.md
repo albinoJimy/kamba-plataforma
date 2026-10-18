@@ -145,7 +145,7 @@ Chave de ordem = `agregado`. Consumidores marcados «†» exigem ordem por agre
 | `order.delivered` | COM (levantamento) / GEO (código de entrega, C) | REP, DAT, `ads` (D) | order | P1 | P |
 | `payment.reference_issued` | PAY | AGR (envia referência), COM† (→ `aguarda_pagamento`), DAT | order | P0 | P |
 | `payment.confirmed` | PAY, **só** por callback autenticado (ADR-013) | COM†, AGR, REP, DAT, Score (D) | order | P0 | P |
-| `payment.manual_confirmed` | PAY (`ManualProvider`; confirmação humana auditada, limite de valor) | COM†, DAT (contado à parte) | order | P0 | P |
+| `payment.manual_confirmed` | PAY (`ManualProvider`; confirmação humana auditada, limite de valor) | COM†, **AGR**, DAT (contado à parte) | order | P0 | P |
 | `payment.failed` / `payment.expired` | PAY (valor ou referência divergente / TTL) | HND (humano), COM†, DAT | order | P0 | P |
 | `review.requested` | REP (`order.delivered` + 2 h) | AGR (envia o pedido) | order | P1 | P |
 | `review.created` | AGR/REP (resposta do cliente) | REP, IDX, DAT | order | P1 | P |
@@ -317,7 +317,7 @@ CREATE VIEW consent_actual AS
   FROM platform.consent_event
   ORDER BY tenant_id, contact_id, purpose, id DESC;
 ```
-As finalidades e o que cada uma exige continuam válidas como desenho, e são as dos contratos publicados; o que o KAM-159 decide é se **são estas** ou as cinco do dicionário §3.1. `transacao` e `atendimento` registam que o **aviso de privacidade foi apresentado**; se a base é contrato ou consentimento é matéria de parecer (`evidencia/E3` req. 1–2). `marketing`, `analytics_agregado`, `sugestoes_patrocinadas`, `partilha_*` exigem `concedido`, específico por finalidade e registado no 1.º contacto ou no momento do uso. **Roteamento por finalidade:** o publicador só entrega a um consumidor se a sua `finalidade` (em `evt_subscricoes`) estiver em `envelope.finalidades`; consumidores de finalidades com consentimento verificam `consent_actual` por `contact_id` no processamento. **Lint de PII (CI):** os *schemas* de evento são fechados; um teste rejeita nomes de campo `telefone|msisdn|bsuid|nome|morada|texto|email` fora de uma lista aprovada, e corre os *fixtures* contra padrões `\+?244\d{9}`.
+As finalidades e o que cada uma exige continuam válidas como desenho, e são as dos contratos publicados; o que o KAM-159 decide é se **são estas** ou as cinco do dicionário §3.1. `transacao` e `atendimento` registam que o **aviso de privacidade foi apresentado**; se a base é contrato ou consentimento é matéria de parecer (`evidencia/E3` req. 1–2). `marketing`, `analytics_agregado`, `sugestoes_patrocinadas`, `partilha_*` exigem `accepted = true`, específico por finalidade e registado no 1.º contacto ou no momento do uso. **Roteamento por finalidade:** o publicador só entrega a um consumidor se a sua `finalidade` (em `evt_subscricoes`) estiver em `envelope.finalidades`; consumidores de finalidades com consentimento verificam `consent_actual` por `contact_id` no processamento. **Lint de PII (CI):** os *schemas* de evento são fechados; um teste rejeita nomes de campo `telefone|msisdn|bsuid|nome|morada|texto|email` fora de uma lista aprovada, e corre os *fixtures* contra padrões `\+?244\d{9}`.
 
 ### 7.4 Retenção por tabela (propostas — a confirmar por parecer; `evidencia/E3` req. 14)
 | Dataset | Classe | Retenção proposta | Mecanismo |

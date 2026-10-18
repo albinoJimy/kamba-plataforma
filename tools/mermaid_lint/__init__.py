@@ -23,9 +23,10 @@ importada por codigo nenhum. Corre num contentor descartavel, com a imagem do
 ja usa pela mesma razao: nao ha Node no *host* Windows.
 
 **O DOM nao e detalhe.** O `mermaid.parse` sanitiza os rotulos com o DOMPurify,
-que precisa de um DOM. Sem ele **nove dos doze** blocos deste conjunto falham
-com «DOMPurify.addHook is not a function» — um erro de ambiente que se le como
-erro de diagrama. Era um falso vermelho a dizer-se verificacao. Dai o `jsdom`.
+que precisa de um DOM. Sem ele falha **tudo o que nao seja `sequenceDiagram`** —
+na primeira medicao, nove de doze blocos — com «DOMPurify.addHook is not a
+function», um erro de ambiente que se le como erro de diagrama. Era um falso
+vermelho a dizer-se verificacao. Dai o `jsdom`.
 
 **O que nao e.** Nao e *gate*. Corre-se com `make mermaid`, e esta registado em
 `docs/ci.md` §7 como lacuna: enquanto nao houver *job*, um diagrama partido

@@ -292,52 +292,78 @@ qualquer ligação entre PMEs (índice federado, Clusters) tem de passar por con
 -- Este e o DDL de referencia das quatro tabelas de identidade (KAM-140). Nao e
 -- proposta: e o que a revisao `0003` (KAM-008) implementou e o
 -- `db/tests/test_inventario.py` congelou. Onde um documento irmao repetia outra
--- forma, passou a remeter para aqui.
+-- forma, passou a remeter para aqui. Os nomes de constraint sao os reais.
 CREATE TABLE platform.hmac_key_versions (          -- rotacao do segredo (§3.9 do dicionario)
-  kid        text PRIMARY KEY,
-  estado     text NOT NULL,                        -- activa | anterior | retirada
+  kid        text PRIMARY KEY CHECK (kid ~ '^[a-z0-9][a-z0-9_.-]{0,62}$'),
+  estado     text NOT NULL CHECK (estado IN ('actual','anterior','retirada')),
   criado_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE TABLE platform.contacts (
   contact_id   uuid PRIMARY KEY DEFAULT gen_random_uuid(),  -- thread_id do AGR usa este id
-  tenant_id    uuid NOT NULL REFERENCES platform.tenants(id),
-  phone_hmac   bytea,                              -- HMAC-SHA256(segredo rodado, E.164); 32 bytes
-  hmac_kid     text REFERENCES platform.hmac_key_versions(kid),   -- qual segredo o calculou
+  tenant_id    uuid NOT NULL REFERENCES platform.tenants (id),
+  phone_hmac   bytea CHECK (octet_length(phone_hmac) = 32),
+  hmac_kid     text REFERENCES platform.hmac_key_versions (kid),   -- qual segredo o calculou
   criado_at    timestamptz NOT NULL DEFAULT now(),
-  erased_at    timestamptz,                        -- apagamento a pedido do titular
-  merged_into  uuid,                               -- fusao de contactos; FK composta com tenant_id
-  merged_at    timestamptz,
-  CONSTRAINT contacts_tenant_contact_uq UNIQUE (tenant_id, contact_id)
+  erased_at    timestamptz,
+  merged_into  uuid, merged_at timestamptz,        -- fusao; FK composta com tenant_id
+  CONSTRAINT contacts_tenant_contact_uq UNIQUE (tenant_id, contact_id),
+  CONSTRAINT contacts_phone_par_ck   CHECK ((phone_hmac IS NULL) = (hmac_kid IS NULL)),
+  CONSTRAINT contacts_merged_par_ck  CHECK ((merged_into IS NULL) = (merged_at IS NULL)),
+  CONSTRAINT contacts_merged_outro_ck CHECK (merged_into <> contact_id),
+  -- Um contacto apagado ou fundido nao guarda telefone.
+  CONSTRAINT contacts_inactivo_sem_phone_ck
+    CHECK ((erased_at IS NULL AND merged_into IS NULL) OR phone_hmac IS NULL)
 );
 CREATE UNIQUE INDEX contacts_phone_hmac_uq
   ON platform.contacts (tenant_id, hmac_kid, phone_hmac) WHERE phone_hmac IS NOT NULL;
 
 CREATE TABLE platform.contact_deks (               -- uma DEK por contacto, embrulhada pela KEK
-  dek_id       uuid PRIMARY KEY,
-  tenant_id    uuid NOT NULL, contact_id uuid NOT NULL,
-  wrapped_dek  bytea NOT NULL, kek_id text NOT NULL,
-  criado_at    timestamptz NOT NULL DEFAULT now(), destroyed_at timestamptz
+  dek_id       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id    uuid NOT NULL REFERENCES platform.tenants (id),
+  contact_id   uuid NOT NULL,
+  wrapped_dek  bytea,                              -- ANULAVEL de proposito: ver o CHECK
+  kek_id       text NOT NULL CHECK (kek_id <> '' AND kek_id = btrim(kek_id)),
+  criado_at    timestamptz NOT NULL DEFAULT now(), destroyed_at timestamptz,
+  CONSTRAINT contact_deks_tenant_dek_uq UNIQUE (tenant_id, dek_id),
+  -- O NULL **e** o apagamento: e o crypto-shredding do `06` §7.6. Com
+  -- `wrapped_dek NOT NULL` nao havia forma de destruir a chave.
+  CONSTRAINT contact_deks_destruida_ck
+    CHECK ((wrapped_dek IS NULL) = (destroyed_at IS NOT NULL))
 );
 CREATE TABLE platform.contact_endpoints (          -- BSUID e telefone so aqui, cifrados com a DEK
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id    uuid NOT NULL,                      -- obrigatorio: e o que torna a tabela elegivel para RLS
+  tenant_id    uuid NOT NULL REFERENCES platform.tenants (id),  -- torna a tabela elegivel para RLS
   contact_id   uuid NOT NULL,
   tipo         text NOT NULL CHECK (tipo IN ('bsuid','telefone')),
-  bsuid_hmac   bytea, hmac_kid text REFERENCES platform.hmac_key_versions(kid),
+  bsuid_hmac   bytea CHECK (octet_length(bsuid_hmac) = 32),
+  hmac_kid     text REFERENCES platform.hmac_key_versions (kid),
   bsuid_enc    bytea, phone_enc bytea, dek_id uuid NOT NULL,
   finalidade   text CHECK (finalidade IN ('pagamento_express','entrega','contacto_pedido')),
   recolhido_at timestamptz NOT NULL DEFAULT now(),
   expira_at    timestamptz,
   CONSTRAINT contact_endpoints_bsuid_uq UNIQUE (tenant_id, hmac_kid, bsuid_hmac),
-  -- A finalidade e o prazo sao do **telefone**. Com os dois `NOT NULL`, uma
-  -- linha de BSUID era obrigada a declarar uma finalidade de telefone.
+  -- As duas formas sao exclusivas, e em **todas** as colunas. A finalidade e o
+  -- prazo sao do telefone: com os dois `NOT NULL`, uma linha de BSUID era
+  -- obrigada a declarar uma finalidade de telefone. E uma linha `bsuid` nao
+  -- guarda `phone_enc` — e o controlo de finalidade do §5.3 e do `08` §8.
   CONSTRAINT contact_endpoints_forma_ck CHECK (
-    (tipo = 'bsuid'    AND finalidade IS NULL)
- OR (tipo = 'telefone' AND finalidade IS NOT NULL AND expira_at IS NOT NULL))
+    (tipo = 'bsuid'
+       AND bsuid_hmac IS NOT NULL AND hmac_kid IS NOT NULL
+       AND bsuid_enc IS NOT NULL AND phone_enc IS NULL AND finalidade IS NULL)
+ OR (tipo = 'telefone'
+       AND phone_enc IS NOT NULL AND bsuid_enc IS NULL
+       AND bsuid_hmac IS NULL AND hmac_kid IS NULL
+       AND finalidade IS NOT NULL AND expira_at IS NOT NULL))
 );
+CREATE UNIQUE INDEX contact_endpoints_telefone_uq
+  ON platform.contact_endpoints (tenant_id, contact_id, finalidade) WHERE tipo = 'telefone';
 -- As FK de `contact_endpoints` e de `contact_deks` para `contacts` e para
 -- `tenants` sao **compostas** em `(tenant_id, ...)`, e a `tenants.owner_contact_id`
 -- tambem: com a FK simples, um tenant podia apontar para o contacto de outro.
+--
+-- Ficam de fora, e cada ausencia tem dono: `username`, `display_name` e a
+-- janela de 24 h (`last_inbound_at`, `window_expires_at`) sao do KAM-014;
+-- `papel` e do KAM-118; `consentimento` e do KAM-022.
 ```
 
 **`consent_event` nao esta aqui, e isso e deliberado.** O conjunto tinha
@@ -360,10 +386,10 @@ documental. Esta registado no KAM-159.
 
 Regras duras: (a) HMAC de MSISDN é reversível por enumeração do espaço de números; o segredo vive no cofre, roda-se e nunca está na base de dados (E3 via ADR-010); (b) `phone_enc` só existe se
 houver necessidade operacional (p.ex. templates de autenticação *one-tap*/*copy-code*, que exigem telefone — E1 Risco 8; ou contacto do dono ao cliente); (c) `thread_id` do runtime = `tenant_id:contact_id`
-(corrige `msisdn_hash+tenant` do documento exploratório `../exploracao/11` §4.1); (d) pedido de apagamento limpa `phone_enc`, `display_name`, mensagens, checkpoints e espelho Chatwoot, preservando o mínimo fiscal/contabilístico (a confirmar por parecer).
+(corrige `msisdn_hash+tenant` do documento exploratório `../exploracao/11` §4.1); (d) pedido de apagamento destrói a DEK do contacto (`contact_deks.wrapped_dek` a `NULL`, que é o *crypto-shredding* do `06` §7.6) e limpa mensagens, checkpoints e espelho Chatwoot, preservando o mínimo fiscal/contabilístico (a confirmar por parecer).
 
 Consentimento no 1.º contacto (ADR-010): o primeiro turno do bot inclui aviso curto («Sou o assistente automático de <Loja>. Guardamos esta conversa para tratar do seu pedido…» + link da política) e regista
-`consent_event` (finalidade `servico`). Marketing exige opt-in separado e opt-out «PARAR» tratado automaticamente (E1 §4; Lei 22/11 Art. 19.º: a confirmar por parecer).
+`consent_event`, com a finalidade de serviço — **que nome tem é o KAM-159**: o `servico` que esta linha dizia não está nem no dicionário §3.1 nem nos contratos publicados, e era uma **terceira** forma. Marketing exige opt-in separado e opt-out «PARAR» tratado automaticamente (E1 §4; Lei 22/11 Art. 19.º: a confirmar por parecer).
 
 ---
 
@@ -425,7 +451,7 @@ stateDiagram-v2
 ```
 
 Notas (CONFIRMADO, E1 §1–2): em coexistência, mensagens enviadas pela app **não** abrem nem afectam janelas nem preço da Cloud API; conversas anteriores ao onboarding só se retomam por template até nova mensagem do utilizador. A janela FEP (anúncios CTWA) é «até 7 dias» na documentação actual
-(não 72 h; confirmar por escrito, pergunta 10 de E1); mensagens FEP são grátis e não contam para volume tiers. Persistimos `window_expires_at` por contacto.
+(não 72 h; confirmar por escrito, pergunta 10 de E1); mensagens FEP são grátis e não contam para volume tiers. A janela persiste-se por contacto; as colunas (`last_inbound_at`, `window_expires_at`) são do **KAM-014** e ainda não existem no §6.2.
 
 ### 8.2 Decisão de envio
 

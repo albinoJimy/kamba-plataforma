@@ -20,6 +20,16 @@ CERCA = "`" * 3
 
 LINGUAGEM = "mermaid"
 
+#: As duas cercas do CommonMark. O `~~~` nao existe hoje no conjunto, e estava a
+#: faltar: um diagrama partido escrito assim passava o gate **sem ser lido** —
+#: um falso verde, que e a pior coisa que um verificador pode produzir.
+CARACTERES_DE_CERCA = ("`", "~")
+
+#: Quatro espacos fazem bloco **literal** em CommonMark, nao cerca. Sem este
+#: limite, uma cerca dentro de um exemplo indentado era lida como diagrama — e,
+#: pior, engolia o diagrama seguinte, que deixava de ser analisado sozinho.
+INDENTACAO_MAXIMA = 3
+
 
 @dataclass(frozen=True)
 class Bloco:
@@ -41,24 +51,63 @@ class BlocoPorFechar(Exception):
     """
 
 
+def _abertura(linha: str) -> tuple[str, int] | None:
+    """A cerca de abertura de uma linha, ou `None`.
+
+    Devolve o caracter da cerca e o seu comprimento. Segue o CommonMark no que
+    aqui importa, e cada regra custou um achado da revisao adversarial:
+
+    * ate **tres** espacos de indentacao; quatro fazem bloco literal;
+    * tres ou mais do **mesmo** caracter, `` ` `` ou `~`;
+    * a linguagem e a **primeira palavra** da *info string*, para que
+      ```` ```mermaid {id=x} ```` conte e ```` ```mermaidjs ```` nao.
+    """
+    sem_indentacao = linha.lstrip(" ")
+    if len(linha) - len(sem_indentacao) > INDENTACAO_MAXIMA:
+        return None
+    for caracter in CARACTERES_DE_CERCA:
+        if not sem_indentacao.startswith(caracter * 3):
+            continue
+        comprimento = len(sem_indentacao) - len(sem_indentacao.lstrip(caracter))
+        resto = sem_indentacao[comprimento:].strip()
+        # Uma cerca de crases nao pode ter crases na *info string*.
+        if caracter == "`" and "`" in resto:
+            return None
+        if resto.split()[:1] == [LINGUAGEM]:
+            return caracter, comprimento
+        return None
+    return None
+
+
+def _e_fecho(linha: str, caracter: str, comprimento: int) -> bool:
+    """Uma cerca de fecho e do **mesmo** caracter, igual ou mais longa, e nua."""
+    sem_indentacao = linha.lstrip(" ")
+    if len(linha) - len(sem_indentacao) > INDENTACAO_MAXIMA:
+        return False
+    if not sem_indentacao.startswith(caracter * comprimento):
+        return False
+    return sem_indentacao.strip(caracter).strip() == ""
+
+
 def blocos_de(texto: str, ficheiro: str) -> list[Bloco]:
     """Os blocos de um documento, por ordem de aparicao.
 
     A deteccao e por linha e nao por expressao regular sobre o texto todo: uma
-    cerca so conta quando esta sozinha na sua linha, que e a regra do
-    CommonMark que importa aqui. `  ```mermaid  ` com espacos a volta conta;
-    `x = "```mermaid"` no meio de uma linha nao.
+    cerca so conta quando esta sozinha na sua linha. `x = "```mermaid"` no meio
+    de uma linha nao abre bloco nenhum.
     """
     linhas = texto.splitlines()
     encontrados: list[Bloco] = []
     i = 0
     while i < len(linhas):
-        if linhas[i].strip() != CERCA + LINGUAGEM:
+        cerca = _abertura(linhas[i])
+        if cerca is None:
             i += 1
             continue
+        caracter, comprimento = cerca
         abertura = i
         fim = abertura + 1
-        while fim < len(linhas) and linhas[fim].strip() != CERCA:
+        while fim < len(linhas) and not _e_fecho(linhas[fim], caracter, comprimento):
             fim += 1
         if fim >= len(linhas):
             raise BlocoPorFechar(

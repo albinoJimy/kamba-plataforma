@@ -86,6 +86,62 @@ class TestBlocosDe(unittest.TestCase):
         self.assertEqual(blocos[0].ficheiro, "docs/tecnica/00.md")
 
 
+class TestOQueARevisaoEncontrou(unittest.TestCase):
+    """Quatro buracos achados pela revisao adversarial do KAM-140.
+
+    Dois deles eram **falsos verdes** — a pior especie num verificador: um
+    diagrama partido escrito com cerca de tis, ou com uma *info string*, passava
+    o `make mermaid` sem sequer ser lido. Nenhum existe hoje no conjunto, e e
+    por isso que estao aqui: a proxima pessoa que escreva um deles nao fica sem
+    rede.
+    """
+
+    def test_cerca_de_tils_e_um_diagrama(self) -> None:
+        """`~~~mermaid` e CommonMark valido, e o GitHub renderiza-o."""
+        texto = documento("~~~mermaid", "flowchart LR", "  A --> B", "~~~")
+        blocos = blocos_de(texto, "d.md")
+        self.assertEqual(len(blocos), 1)
+        self.assertEqual(blocos[0].texto, "flowchart LR\n  A --> B")
+
+    def test_a_cerca_de_fecho_e_do_mesmo_caracter(self) -> None:
+        """Um `~~~` nao fecha um bloco aberto com crases."""
+        texto = documento(cerca(), "flowchart LR", "~~~", "  A --> B", CERCA)
+        self.assertEqual(blocos_de(texto, "d.md")[0].texto, "flowchart LR\n~~~\n  A --> B")
+
+    def test_cerca_com_info_string(self) -> None:
+        """A linguagem e a primeira palavra da *info string*, nao a linha toda."""
+        texto = documento(cerca() + " {id=x}", "flowchart LR", "  A --> B", CERCA)
+        self.assertEqual(len(blocos_de(texto, "d.md")), 1)
+
+    def test_outra_linguagem_com_info_string_nao_conta(self) -> None:
+        self.assertEqual(blocos_de(documento(CERCA + "mermaidjs algo", "x", CERCA), "d.md"), [])
+
+    def test_cerca_indentada_por_quatro_espacos_nao_e_cerca(self) -> None:
+        """Em CommonMark, quatro espacos fazem bloco **literal**. O extractor
+        inventava um diagrama a partir de texto de exemplo."""
+        texto = documento("Exemplo:", "", "    " + cerca(), "    literal", "    " + CERCA)
+        self.assertEqual(blocos_de(texto, "d.md"), [])
+
+    def test_bloco_literal_nao_engole_o_diagrama_seguinte(self) -> None:
+        """O pior dos quatro: o diagrama real nunca era analisado isoladamente."""
+        texto = documento(
+            "    " + cerca(), "    exemplo", "", cerca(), "flowchart LR", "  A --> B", CERCA
+        )
+        self.assertEqual([b.texto for b in blocos_de(texto, "d.md")], ["flowchart LR\n  A --> B"])
+
+    def test_cerca_mais_longa_fecha_so_com_uma_igual_ou_maior(self) -> None:
+        """Quatro crases abrem um bloco que tres nao fecham (CommonMark)."""
+        texto = documento("````mermaid", "flowchart LR", CERCA, "  A --> B", "````")
+        blocos = blocos_de(texto, "d.md")
+        self.assertEqual(len(blocos), 1)
+        self.assertIn("A --> B", blocos[0].texto)
+
+    def test_indentacao_ate_tres_espacos_continua_a_contar(self) -> None:
+        """Tres espacos sao cerca; quatro sao literal. E a fronteira exacta."""
+        texto = documento("   " + cerca(), "   flowchart LR", "   " + CERCA)
+        self.assertEqual(len(blocos_de(texto, "d.md")), 1)
+
+
 class TestSobreFicheiros(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()

@@ -350,7 +350,7 @@ Em princípio cada PME é **responsável pelo tratamento** e a KAMBÁ é **subco
 
 1. Primeira mensagem do consumidor ao número da PME → resposta imediata com **aviso curto versionado**: quem é o responsável (a loja), que é um assistente automático (E3 requisito 15), finalidades, destinatários (inclui fornecedor de LLM e país), direitos, e como falar com um humano (a Messaging Policy exige caminho de escalonamento; E1).
 2. Botões (até 3; E1): «Continuar», «Falar com a loja», «Saber mais».
-3. Registo em `consent_event`: `contact_id` (BSUID/HMAC), `tenant_id`, `purpose`, `text_version`, `timestamp`, `canal`, `evidence_hash` (E3 requisito 1).
+3. Registo em `consent_event`: `tenant_id`, `contact_id` (o **`uuid`** de `contacts`, não o HMAC — o BSUID vive em `contact_endpoints`), `purpose`, `text_version`, `accepted`, `canal`, `evidence_hash` e `ocorrido_em` (E3 requisito 1). São os campos do DDL abaixo, e não uma lista própria.
 4. **Marketing em consentimento separado**, com «PARAR» em cada mensagem e lista de supressão; mensagens iniciadas pelo negócio só por template aprovado (E1; E3 requisito 3).
 5. Teste de aceitação: nenhuma resposta com dados nem evento de marketing sem `consent_event` válido.
 

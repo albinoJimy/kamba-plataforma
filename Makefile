@@ -463,11 +463,18 @@ ci-3b:
 mermaid:
 	@echo "==> diagramas Mermaid"
 	@command -v docker >/dev/null 2>&1 || { echo "    ERRO: este alvo precisa de Docker." >&2; exit 2; }
-	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from mermaid_lint.extrair import main; sys.exit(main(['--root', '$(ROOT)']))" > "$(ROOT)/ci/mermaid-blocos.json"
-	@# O `verificar.mjs` e copiado para junto do `node_modules`: o `NODE_PATH`
+	@# Tudo numa so receita, e o intermedio num temporario e nao em `ci/`: numa
+	@# versao anterior, uma cerca por fechar fazia a extraccao sair com 2 e o
+	@# `rm` da linha seguinte nunca corria — ficava lixo por versionar dentro do
+	@# repositorio. O `trap` so vale dentro da shell que o declara, pelo que as
+	@# duas metades tem de partilhar a mesma.
+	@#
+	@# E o `verificar.mjs` e copiado para junto do `node_modules`: o `NODE_PATH`
 	@# **nao** vale para `import` de ESM, e correr o ficheiro de `/lint` deixa a
 	@# resolucao a subir uma arvore que nao tem os pacotes (`ERR_MODULE_NOT_FOUND`).
-	@docker run --rm -i -v "$(ROOT)/tools/mermaid_lint:/lint:ro" $(IMAGEM_NODE) sh -c 'mkdir -p /tmp/m && cd /tmp/m && npm install --silent --no-audit --no-fund mermaid@$(VERSAO_MERMAID) jsdom@$(VERSAO_JSDOM) >/dev/null 2>&1 && cp /lint/verificar.mjs /tmp/m/ && node /tmp/m/verificar.mjs' < "$(ROOT)/ci/mermaid-blocos.json"; codigo=$$?; rm -f "$(ROOT)/ci/mermaid-blocos.json"; exit $$codigo
+	@blocos="$$(mktemp)"; trap 'rm -f "$$blocos"' EXIT INT TERM; \
+	 $(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from mermaid_lint.extrair import main; sys.exit(main(['--root', '$(ROOT)']))" > "$$blocos" && \
+	 docker run --rm -i -v "$(ROOT)/tools/mermaid_lint:/lint:ro" $(IMAGEM_NODE) sh -c 'mkdir -p /tmp/m && cd /tmp/m && npm install --silent --no-audit --no-fund mermaid@$(VERSAO_MERMAID) jsdom@$(VERSAO_JSDOM) >/dev/null 2>&1 && cp /lint/verificar.mjs /tmp/m/ && node /tmp/m/verificar.mjs' < "$$blocos"
 
 ## canon-lint: o gate 3b pelo nome que o ticket lhe da (igual a ci-3b)
 canon-lint: ci-3b
