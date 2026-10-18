@@ -675,7 +675,7 @@ A densidade de estafetas por zona é a restrição real: a oferta sequencial de 
 |---|---|---|
 | **L-GEO-1** | `00` §6.1 só admite `reembolso_pendente` a partir de `paga`; as disputas pós-entrega exigem `entregue → reembolso_pendente` (e retorno de `em_entrega` por entrega falhada/devolvida) | `00` §6.1 |
 | **L-GEO-2** | `../exploracao/11` §5.2 usa Typebot para ofertas de estafetas; viola ADR-002 (o estafeta é tenant) | biblioteca |
-| **L-GEO-3** | `INDICE.md` cita 12 ADRs e descreve ADR-008 como «JNB/CPT no MVP»; o canon tem 14 ADRs e ADR-008 revisto | `INDICE.md` §5 |
+| **L-GEO-3** | `INDICE.md` descrevia ADR-008 como «JNB/CPT no MVP»; o canon tem o ADR-008 revisto. **A metade da contagem fica fechada pelo KAM-130**: o `INDICE.md` passa a dizer **20 ADRs**, que é o que o doc 00 §8 tem, contado. O que resta desta linha é a descrição desactualizada do ADR-008. | `INDICE.md` §5 |
 
 ---
 
@@ -696,3 +696,4 @@ A densidade de estafetas por zona é a restrição real: a oferta sequencial de 
 | 1.0 | Outubro 2026 | Emissão inicial: endereçamento (pin, texto, Plus Code), Nominatim, zonas e preço, estafeta como tenant, dispatch, COD, disputas, responsabilidade, payouts, privacidade, parcerias, custo e riscos. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | KAM-128: As **29** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-140: §8.1 — os estados do tenant eram quatro e em cadeia linear, e são **cinco** com o `restrito` e com volta atrás (linha 7 do KAM-140; a cadeia linear não estava no ticket e estava igualmente errada). §9.1 e §2 (ADR-009) — o *dispatch* dispara com a encomenda **paga**, pelos dois eventos de pagamento: com `payment.confirmed` só, uma encomenda paga pelo `ManualProvider` nunca entrava em *dispatch*. | Equipa KAMBÁ |
+| 1.3 | Outubro 2026 | KAM-130: a **L-GEO-3** deixa de acusar a contagem de ADRs do `INDICE.md`, que passa a dizer 20. A metade do ADR-008 mantém-se aberta. | Equipa KAMBÁ |
