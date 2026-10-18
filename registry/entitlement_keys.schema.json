@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contratos.kamba.ao/registry/entitlement_keys.schema.json",
+  "title": "Entitlement: chaves de limites (TEN, KAM-009)",
+  "description": "O registo de chaves de `entitlements.limites` (e do mesmo mapa em `registry/plans.yaml`). As dez chaves sao as do dicionario canonico §3.2, linha «Entitlement (chaves)», depois da emenda 1.17. Uma chave desconhecida e REJEITADA NA ESCRITA: `additionalProperties` e `false`, e e isso que o criterio 1 do bloco do KAM-009 pede. A ausencia de uma chave NAO e «sem limite»: `platform.ten_consumir` (revisao 0007) nega quando nenhum entitlement activo a declara, que e a falha fechada do criterio 2.",
+  "type": "object",
+  "additionalProperties": false,
+  "x-kamba-fonte": "specs/02_Dicionario_de_Dados_Canonico.md §3.2, «Entitlement (chaves)» (emenda 1.17, KAM-009). O bloco do ticket lista quatro chaves e esta desactualizado; o dicionario e a fonte.",
+  "x-kamba-categorias": {
+    "contador_por_periodo": "Acumula-se dentro de um periodo e compara-se com o tecto a cada consumo. E o que `platform.ten_consumir` consome: uma linha em `platform.tenant_usage(tenant_id, chave_limite, periodo, valor)`, com `periodo` = primeiro dia do mes em `Africa/Luanda` (revisao 0007, `platform.ten_periodo`). `consumivel: true`.",
+    "tecto_por_pedido": "Nao se acumula: compara-se o valor de UM pedido com o tecto, e o pedido passa ou nao passa. Consumir um destes seria um defeito — somaria os pedidos de um mes inteiro contra um tecto que e por pedido, e ao fim de poucos pedidos nenhum passava. `consumivel: false`.",
+    "tecto_por_janela": "Compara-se um agregado (soma ou contagem) de uma janela com o tecto. A janela NAO e o periodo de `platform.tenant_usage`, que e mensal por `CHECK` (`periodo = date_trunc('month', periodo)`) e nao tem a dimensao do contacto: estes tectos nao tem contador na tabela de uso e o agregado calcula-se de `manual_confirmations` (`docs/tecnica/04` §4.2 M-6). `consumivel: false`."
+  },
+  "x-kamba-nota-de-unidade": "Dinheiro em unidades menores, `bigint`, 1 Kz = 100 centimos (`docs/tecnica/03` §5.1 n.o 2; dicionario §2). As chaves de dinheiro sao as que acabam em `_minor`, e a moeda e `AOA`. `manual_max_por_contacto_24h` NAO acaba em `_minor` e por isso NAO e dinheiro: e uma contagem. O `docs/tecnica/04` §4.2 M-3 nomeia-a ao lado de um valor e nao diz a unidade; a convencao de nomes do conjunto diz, e e a unica fonte que ha.",
+  "$defs": {
+    "bigint_nao_negativo": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9223372036854775807,
+      "$comment": "`bigint` do PostgreSQL. O maximo excede o inteiro seguro de IEEE-754: quem ler este ficheiro em JavaScript com `JSON.parse` perde precisao nesse limite superior (nao nos valores reais, que sao ordens de grandeza menores). Em Python le-se exacto."
+    }
+  },
+  "properties": {
+    "msgs_ai_mes": {
+      "$ref": "#/$defs/bigint_nao_negativo",
+      "description": "Mensagens de IA por mes.",
+      "x-kamba-categoria": "contador_por_periodo",
+      "x-kamba-consumivel": true,
+      "x-kamba-unidade": "contagem",
+      "x-kamba-fonte": "dicionario §3.2, «Entitlement (chaves)»; `docs/tecnica/02` §5.1 usa-a no exemplo do registo."
+    },
+    "marcacoes_mes": {
+      "$ref": "#/$defs/bigint_nao_negativo",
+      "description": "Marcacoes por mes (vertical `servicos`).",
+      "x-kamba-categoria": "contador_por_periodo",
+      "x-kamba-consumivel": true,
+      "x-kamba-unidade": "contagem",
+      "x-kamba-fonte": "dicionario §3.2, «Entitlement (chaves)»."
+    },
+    "imagens_mes": {
+      "$ref": "#/$defs/bigint_nao_negativo",
+      "description": "Imagens tratadas por mes (modulo `foto`).",
+      "x-kamba-categoria": "contador_por_periodo",
+      "x-kamba-consumivel": true,
+      "x-kamba-unidade": "contagem",
+      "x-kamba-fonte": "dicionario §3.2, «Entitlement (chaves)» e §3.7, «Entitlements de modulo»."
+    },
+    "posts_mes": {
+      "$ref": "#/$defs/bigint_nao_negativo",
+      "description": "Publicacoes por mes (modulo `social`).",
+      "x-kamba-categoria": "contador_por_periodo",
+      "x-kamba-consumivel": true,
+      "x-kamba-unidade": "contagem",
+      "x-kamba-fonte": "dicionario §3.2, «Entitlement (chaves)» e §3.7, «Entitlements de modulo»."
+    },
+    "orcamentos_mes": {
+      "$ref": "#/$defs/bigint_nao_negativo",
+      "description": "Orcamentos por mes (modulo `orcamento`).",
+      "x-kamba-categoria": "contador_por_periodo",
+      "x-kamba-consumivel": true,
+      "x-kamba-unidade": "contagem",
+      "x-kamba-fonte": "dicionario §3.2, «Entitlement (chaves)» e §3.7, «Entitlements de modulo»."
+    },
+    "valor_max_pedido_minor": {
+      "$ref": "#/$defs/bigint_nao_negativo",
+      "description": "Valor maximo de UM pedido. E tambem onde vive o tecto de confianca K1/K2 (`specs/EPIC-09`, KAM-096).",
+      "x-kamba-categoria": "tecto_por_pedido",
+      "x-kamba-consumivel": false,
+      "x-kamba-unidade": "minor",
+      "x-kamba-moeda": "AOA",
+      "x-kamba-fonte": "dicionario §3.2, «Entitlement (chaves)»: «limite do plano e do tecto K1/K2». O limite efectivo de um pedido e o MINIMO entre esta chave e, se `ManualProvider`, `manual_max_minor` — escrito na mesma linha do dicionario."
+    },
+    "manual_max_minor": {
+      "$ref": "#/$defs/bigint_nao_negativo",
+      "description": "Valor maximo de UM pedido confirmado pelo `ManualProvider`. Acima disto o `ManualProvider` recusa criar a cobranca.",
+      "x-kamba-categoria": "tecto_por_pedido",
+      "x-kamba-consumivel": false,
+      "x-kamba-unidade": "minor",
+      "x-kamba-moeda": "AOA",
+      "x-kamba-fonte": "dicionario §3.2, «Entitlement (chaves)»: «limite do `ManualProvider`»; `docs/tecnica/04` §4.2 M-2."
+    },
+    "manual_dupla_acima_minor": {
+      "$ref": "#/$defs/bigint_nao_negativo",
+      "description": "Limiar acima do qual UM pedido do `ManualProvider` exige a segunda aprovacao (dupla verificacao (b)).",
+      "x-kamba-categoria": "tecto_por_pedido",
+      "x-kamba-consumivel": false,
+      "x-kamba-unidade": "minor",
+      "x-kamba-moeda": "AOA",
+      "x-kamba-fonte": "dicionario §3.2, «Entitlement (chaves)» (emenda 1.17); `docs/tecnica/04` §4.2 M-5. E um limiar e nao um tecto — acima dele o pedido nao e recusado, passa a exigir segunda aprovacao —, mas compara-se com UM pedido e nunca se acumula, que e o que distingue a categoria.",
+      "x-kamba-nota": "O unico tecto por pedido cuja comparacao NAO nega: `valor > limiar` exige o segundo confirmador."
+    },
+    "manual_daily_max_minor": {
+      "$ref": "#/$defs/bigint_nao_negativo",
+      "description": "Soma maxima, por tenant, dos pedidos confirmados pelo `ManualProvider` num dia. Excedida, retem para ops.",
+      "x-kamba-categoria": "tecto_por_janela",
+      "x-kamba-consumivel": false,
+      "x-kamba-unidade": "minor",
+      "x-kamba-moeda": "AOA",
+      "x-kamba-janela": "dia",
+      "x-kamba-fonte": "dicionario §3.2, «Entitlement (chaves)» (emenda 1.17); `docs/tecnica/04` §4.2 M-3.",
+      "x-kamba-razao-da-categoria": "Acumula, como um contador — mas o contador de `platform.tenant_usage` e MENSAL por construcao: `platform.ten_periodo` e `date_trunc('month', ... AT TIME ZONE 'Africa/Luanda')` e a coluna `periodo` tem `CHECK (periodo = date_trunc('month', periodo))` (revisao 0007). Nao ha nela um periodo diario, e dar-lhe esta chave somaria um mes contra um tecto de um dia. O agregado do dia calcula-se de `manual_confirmations`, que e onde o `docs/tecnica/04` §4.2 M-6 manda registar cada confirmacao com a hora."
+    },
+    "manual_max_por_contacto_24h": {
+      "$ref": "#/$defs/bigint_nao_negativo",
+      "description": "Numero maximo de pedidos confirmados pelo `ManualProvider` para o MESMO contacto em 24 horas. Excedido, retem para ops.",
+      "x-kamba-categoria": "tecto_por_janela",
+      "x-kamba-consumivel": false,
+      "x-kamba-unidade": "contagem",
+      "x-kamba-janela": "24h_por_contacto",
+      "x-kamba-fonte": "dicionario §3.2, «Entitlement (chaves)» (emenda 1.17); `docs/tecnica/04` §4.2 M-3.",
+      "x-kamba-razao-da-categoria": "A chave de `platform.tenant_usage` e `(tenant_id, chave_limite, periodo)` e nao tem a dimensao do contacto: um contador por tenant nao sabe responder «quantos para ESTE contacto». A janela e tambem movel (24 h, nao um dia de calendario). O agregado calcula-se de `manual_confirmations` por `contact_id`.",
+      "x-kamba-nao-verificado": "A unidade. O `docs/tecnica/04` §4.2 M-3 nomeia esta chave ao lado de `manual_daily_max_minor` e nao diz se e uma contagem de pedidos ou uma soma de dinheiro. Le-se como contagem porque o nome NAO acaba em `_minor`, e essa e a convencao do conjunto para dinheiro (`docs/tecnica/03` §5.1 n.o 2). Forma de validar: uma frase em `docs/tecnica/04` §4.2 M-3 que o diga, ou o nome passa a `manual_max_minor_por_contacto_24h`."
+    }
+  }
+}

@@ -201,12 +201,17 @@ enquanto *gate*.
 3. **`canon_lint canario`** — dez *fixtures* negativas têm de dar **exactamente
    um** achado, com a mensagem esperada, e dez positivas têm de passar.
 
-> **O terceiro passo existe por causa das duas superfícies vazias.** Não há
-> hoje nenhum *schema* de evento nem nenhum ficheiro em `registry/`: o passo 2
-> passa nelas **sem ter lido nada**, e di-lo na saída («A SUPERFÍCIE AINDA NÃO
-> EXISTE; nada foi verificado aqui»). Sem o canário, a prova de que essas duas
-> verificações mordem vivia só num `unittest` — o padrão que deixou o *gate* 9
-> sete PRs sem prova (§3, *gate* 9).
+> **O terceiro passo nasceu por causa das duas superfícies vazias, e fica
+> depois de elas se encherem.** Quando uma superfície tem zero ficheiros, o
+> passo 2 passa nela **sem ter lido nada**, e di-lo na saída («A SUPERFÍCIE
+> AINDA NÃO EXISTE; nada foi verificado aqui»). Sem o canário, a prova de que
+> essas verificações mordem vivia só num `unittest` — o padrão que deixou o
+> *gate* 9 sete PRs sem prova (§3, *gate* 9). As duas encheram-se: `eventos`
+> com o KAM-007 (os contratos de `contratos/eventos/`) e `registo` com o
+> KAM-009 (`registry/plans.yaml`), e a frase deixou de aparecer na saída. O
+> canário continua a correr, porque o que ele prova — que cada verificação dá
+> **exactamente um** achado com a mensagem esperada — não é o mesmo que a
+> superfície ter ficheiros limpos.
 >
 > **E o que o canário prova está no código, não no manifesto.** A primeira
 > versão lia do YAML de *fixtures* quantos casos havia: com `casos: []` dava «0
@@ -215,6 +220,16 @@ enquanto *gate*.
 > B1). O conjunto de divergências com *fixture* obrigatória, as duas que podem
 > não a ter e o mínimo de uma negativa por superfície estão agora em
 > `tools/canon_lint/cli.py`.
+
+> **A superfície 3 tem duas formas desde o KAM-009.** Um ficheiro de
+> `registry/` é uma **vertical** (chave de topo `id`, a forma de
+> [`docs/tecnica/02`](tecnica/02_Agent_Runtime_Verticais.md) §5.1) ou os
+> **planos** (chave de topo `plans`, o `registry/plans.yaml`: `plano` →
+> entitlements por omissão). A forma lê-se pela chave de topo e **nunca** pelo
+> nome do ficheiro. As chaves de topo de cada forma são listas fechadas, cada
+> nome de limite é confrontado com as dez chaves do dicionário §3.2, e um
+> ficheiro que não seja **nenhuma** das duas falha — não passa por não ter sido
+> lido.
 
 **Falha fechada**, e cada sítio tem um teste que falha se a regra for retirada
 (prova por mutação: `ANALISE-05` §5):
@@ -1400,9 +1415,11 @@ resposta seria pior do que nomeá-las:
     superfície 3 e 57 nos dois manifestos de `docs/tecnica/02` §5.1, lidos do
     próprio documento — a forma que o EPIC-03 vai escrever, e a prova de que
     nenhuma recusa nova lhe toca.
-    **O que fica dito, e não fechado:** o `registry/` não tem hoje nenhum
-    ficheiro de produção — o conteúdo é do EPIC-03 — pelo que o corpus real do
-    `yamlreg` são quatro *fixtures*; o primeiro manifesto entra na equivalência
+    **O que ficou dito, e não fechado:** à data do KAM-148 o `registry/` não
+    tinha ficheiro de produção nenhum — o conteúdo era do EPIC-03 — pelo que o
+    corpus real do `yamlreg` eram quatro *fixtures*. O KAM-009 pôs lá o
+    primeiro (`registry/plans.yaml`, a forma dos planos), e ele é lido por este
+    leitor em cada execução do *gate*; o primeiro manifesto entra na equivalência
     sem se alterar uma linha, e é por isso que corrigir o leitor **antes** dele
     era o momento mais barato. Os três leitores continuam três: fundi-los, ou
     adoptar uma biblioteca de YAML, contraria a razão de existir dos três (o
@@ -1600,3 +1617,4 @@ sobrevivem ao PR.
 | 1.29 | Outubro 2026 | KAM-157: o §3 (*gate* 9) ganha a *push protection* do GitHub. Existe um `.github/secret_scanning.yml` com uma entrada — a pasta do canário —, por decisão do fundador de 2026-10-18. Não é área cega nova (o `ci/secrets-allow.yaml` já a declarava), não torna o canário invisível ao *gate* 9 (são dois *scanners*), e não pode crescer em silêncio: um teste exige que as duas listas coincidam exactamente. | Equipa KAMBÁ |
 | 1.30 | Outubro 2026 | KAM-135: o §5 passa a descrever o que o validador exige. `criado_em` obrigatório e o prazo contado **dele** — renovar deixa de ser empurrar uma data; a data dentro de `adr_ou_aprovacao` é lida e não pode ser futura; e os gates **14** e **18** passam a aceitar *waiver*, que o KAM-067 e o KAM-078 precisam e o validador recusava. O conjunto de gates deriva agora da tabela do `specs/01` §4: os **dezanove** estão classificados — o `3b` incluído, que a primeira versão do *regex* não via e que o teste cimentava a 18 —, e um gate novo sem posição falha. A aprovação datada tem de ser contemporânea da criação, e o que **não** se verifica (o `ADR-NNN`, o `autor`) fica dito em vez de prometido. | Equipa KAMBÁ |
 | 1.31 | Outubro 2026 | KAM-159: o *gate* 7 ganha a **quinta** verificação — `contract_diff dominios` —, que confronta o `enum` de um contrato com o domínio canónico, nos dois sentidos. Fecha a costura que nenhum dos dois *gates* via: o dicionário e os contratos nomeavam listas de finalidades que se cruzavam numa só, e duas do canon eram impossíveis de emitir. | Equipa KAMBÁ |
+| 1.32 | Outubro 2026 | **KAM-009: a superfície 3 passa a ler duas formas.** Um `registry/*.yaml` é uma **vertical** (chave de topo `id`) ou os **planos** (chave de topo `plans`), e a forma lê-se pela chave e nunca pelo nome do ficheiro; as chaves de topo de cada forma são listas fechadas, cada nome de limite é confrontado com as dez chaves do dicionário §3.2 nas duas, e um ficheiro que não seja **nenhuma** das duas falha. A superfície deixa de estar vazia (`registry/plans.yaml`, com `estado: hipotese_nao_validada` por entrada) e a frase «A SUPERFÍCIE AINDA NÃO EXISTE» deixa de aparecer para ela. Corrigido de passagem: `ManualProvider`, que a linha «Entitlement (chaves)» escreve em prosa e o exportador colhia, era aceite como nome de limite — o lint passa a exigir a forma `^[a-z][a-z0-9_]*$`, a mesma do `CHECK` de `tenant_usage.chave_limite`. | Equipa KAMBÁ |

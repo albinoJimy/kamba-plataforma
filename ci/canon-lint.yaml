@@ -25,10 +25,16 @@ version: 1
 #
 # Padroes `fnmatch` sensiveis a caixa; o `*` ATRAVESSA barras.
 #
-# `eventos` e `registo` estao hoje VAZIAS: `contratos/eventos/` nasce com o
-# KAM-007 e os ficheiros de `registry/` com o EPIC-03. O lint di-lo na saida em
-# vez de as dar por conformes, e as fixtures (`make ci-3b` corre-as) provam que
-# as duas verificacoes mordem enquanto nao houver ficheiros reais.
+# `eventos` e `registo` estiveram VAZIAS e ja nao estao: `contratos/eventos/`
+# encheu-se com o KAM-007 e `registry/` com o KAM-009 (`plans.yaml`); os
+# ficheiros das verticais vem com o EPIC-03. Enquanto uma superficie tem zero
+# ficheiros o lint di-lo na saida em vez de a dar por conforme, e as fixtures
+# (`make ci-3b` corre-as) provam que a verificacao morde — o que continua a
+# valer depois, porque um ficheiro limpo nao prova que o lint morde.
+#
+# A superficie `registo` le DUAS formas (KAM-009), pela chave de topo e nunca
+# pelo nome do ficheiro: a vertical (`id`) e os planos (`plans`). Um ficheiro
+# que nao seja nenhuma das duas falha.
 superficies:
   migracoes:
     - "db/migrations/versions/*.py"
@@ -203,6 +209,24 @@ fora_de_ambito:
     razao: >-
       O README do directorio reservado pelo KAM-001. Nao e um ficheiro do
       AgentRegistry; os ficheiros do registo sao `registry/*.yaml`.
+
+  - caminho: "registry/entitlement_keys.schema.json"
+    razao: >-
+      KAM-009: o registo das dez chaves de `entitlements.limites`, com a
+      categoria de cada uma (contador por periodo, tecto por pedido, tecto por
+      janela). Bate na sentinela `*.schema.json` e NAO e um schema de evento: o
+      `eventos.py` deste gate le o nome do ficheiro, `tipo`, `versao` e os
+      campos do envelope, e sobre este ficheiro nao leria nada de util — diria
+      que `msgs_ai_mes` nao e um campo de envelope e que falta um `tipo`.
+      .
+      Nao fica por verificar, e e por isso que esta entrada nao abre um buraco.
+      As dez chaves que este schema enumera sao exactamente as da linha
+      «Entitlement (chaves)» do dicionario §3.2, e
+      `tools/canon_lint/tests/test_superficies_de_ficheiro.py`
+      (`TestRegistoDeChaves`) compara as duas listas: uma chave a mais, a menos
+      ou mal escrita aqui poe esse teste vermelho. Os mesmos nomes voltam a ser
+      lidos por este gate onde sao usados — em `registry/plans.yaml`, que esta
+      na superficie `registo`.
 
   - caminho: "infra/compose/postgres/initdb/01-bases-e-extensoes.sql"
     razao: >-

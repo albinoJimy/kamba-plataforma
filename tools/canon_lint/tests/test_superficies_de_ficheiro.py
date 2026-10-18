@@ -565,6 +565,13 @@ class TestRegisto(unittest.TestCase):
             [ILEGIVEL],
         )
 
+    def test_o_nome_do_provider_nao_e_uma_chave_de_limite(self) -> None:
+        """O exportador colhe todos os nomes entre crases da linha «Entitlement
+        (chaves)», e ela escreve `ManualProvider` em prosa. Antes do KAM-009
+        isso fazia de `ManualProvider` uma chave de `limites` aceite — e a
+        coluna `tenant_usage.chave_limite` recusa-a pelo `CHECK` de forma."""
+        self.assertEqual(self.classes(SERVICOS.replace("marcacoes_mes]", "ManualProvider]")), [FORA])
+
     def test_id_modulo_e_limite_fora_do_dicionario(self) -> None:
         self.assertEqual(self.classes(SERVICOS.replace("id: servicos", "id: assistente")), [FORA])
         self.assertEqual(self.classes(SERVICOS.replace("modulo: servicos", "modulo: xpto")), [FORA])
@@ -625,6 +632,227 @@ class TestRegisto(unittest.TestCase):
         for fonte in ("id: &a servicos\n", "id: servicos\nnota: |\n  texto\n", "- a\n- b\n", "id: [a, b\n"):
             with self.subTest(fonte=fonte):
                 self.assertEqual(self.classes(fonte), [ILEGIVEL])
+
+
+#: A segunda forma da superficie 3 (KAM-009). O ficheiro real e
+#: `registry/plans.yaml`; esta e a forma minima, para as mutacoes.
+PLANOS = """\
+version: 1.0.0
+plans:
+  free:
+    estado: hipotese_nao_validada
+    nota: "o plano do DEFAULT da coluna"
+    entitlements:
+      - modulo: vendedor
+        ativo: true
+        limites: { msgs_ai_mes: 1000, manual_max_minor: 5000000 }
+"""
+
+
+class TestPlanos(unittest.TestCase):
+    """A forma `plans` — e uma negativa por regra.
+
+    Sem uma negativa por regra, o gate herda o buraco que o `plans.yaml` tinha
+    antes de existir: um ficheiro que nenhuma verificacao lia.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.saber = saber()
+
+    def achados(self, fonte: str, ficheiro: str = "registry/plans.yaml"):
+        return registo.verificar(ficheiro, fonte, self.saber)
+
+    def classes(self, fonte: str) -> list[str]:
+        return [a.classe for a in self.achados(fonte)]
+
+    def unico(self, fonte: str, classe: str, trecho: str):
+        achados = self.achados(fonte)
+        self.assertEqual([a.classe for a in achados], [classe], [str(a) for a in achados])
+        self.assertIn(trecho, achados[0].mensagem)
+        return achados[0]
+
+    # --- o ficheiro real e a forma minima -----------------------------------------
+    def test_o_ficheiro_real_do_repositorio_passa(self) -> None:
+        from .base import ROOT
+
+        fonte = (ROOT / "registry/plans.yaml").read_text(encoding="utf-8")
+        achados = registo.verificar("registry/plans.yaml", fonte, self.saber)
+        self.assertEqual([str(a) for a in achados], [])
+
+    def test_a_forma_minima_passa(self) -> None:
+        self.assertEqual(self.classes(PLANOS), [])
+
+    def test_a_forma_nao_vem_do_nome_do_ficheiro(self) -> None:
+        """O discriminante e a chave `plans`, e nao o nome: o mesmo conteudo
+        passa com qualquer nome, e um `plans.yaml` com forma de vertical e lido
+        como vertical."""
+        self.assertEqual(self.classes(PLANOS), [])
+        self.assertEqual([a.classe for a in registo.verificar("registry/tarifas.yaml", PLANOS, self.saber)], [])
+        self.assertEqual([a.classe for a in registo.verificar("registry/plans.yaml", SERVICOS, self.saber)], [])
+
+    # --- regra: o limite e confrontado com as dez chaves do dicionario -------------
+    def test_limite_que_o_dicionario_nao_tem(self) -> None:
+        """A regra que torna o ficheiro util, e a mesma que `entitlements.limites[]` ja tinha."""
+        self.unico(PLANOS.replace("msgs_ai_mes", "mensagens_mes"), FORA, "`mensagens_mes`")
+        self.unico(PLANOS.replace("msgs_ai_mes", "manual_max_por_contacto"), FORA, "dicionário §3.2")
+
+    def test_limite_que_e_uma_variante_do_dicionario(self) -> None:
+        achados = self.achados(PLANOS.replace("manual_max_minor", "valor_max_pedido_kz"))
+        self.assertEqual([a.classe for a in achados], [VARIANTE], [str(a) for a in achados])
+        self.assertIn("valor_max_pedido_minor", achados[0].mensagem)
+
+    def test_as_dez_chaves_do_dicionario_passam(self) -> None:
+        dez = (
+            "msgs_ai_mes: 1, marcacoes_mes: 1, imagens_mes: 1, posts_mes: 1, orcamentos_mes: 1, "
+            "valor_max_pedido_minor: 1, manual_max_minor: 1, manual_dupla_acima_minor: 1, "
+            "manual_daily_max_minor: 1, manual_max_por_contacto_24h: 1"
+        )
+        fonte = PLANOS.replace("msgs_ai_mes: 1000, manual_max_minor: 5000000", dez)
+        self.assertEqual(self.classes(fonte), [])
+
+    # --- regra: listas fechadas de chaves ------------------------------------------
+    def test_chave_de_topo_desconhecida_falha(self) -> None:
+        self.unico(PLANOS + "precos: {}\n", ILEGIVEL, "desconhecida no topo do ficheiro de planos")
+        self.unico(PLANOS + "tools: [enhance_image]\n", ILEGIVEL, "no topo do ficheiro de planos")
+
+    def test_chave_desconhecida_num_plano_falha(self) -> None:
+        fonte = PLANOS.replace("    estado:", "    preco_mensal_minor: 500000\n    estado:")
+        self.unico(fonte, ILEGIVEL, "desconhecida no plano `free`")
+
+    def test_chave_desconhecida_num_entitlement_falha(self) -> None:
+        fonte = PLANOS.replace("        ativo: true\n", "        ativo: true\n        limits: {}\n")
+        self.unico(fonte, ILEGIVEL, "desconhecida num entitlement no plano `free`")
+
+    # --- regra: `estado` ------------------------------------------------------------
+    def test_estado_em_falta_num_plano(self) -> None:
+        fonte = PLANOS.replace("    estado: hipotese_nao_validada\n", "")
+        self.unico(fonte, REGRA, "nao declara `estado`")
+
+    def test_estado_que_o_canon_nao_escreve(self) -> None:
+        self.unico(PLANOS.replace("hipotese_nao_validada", "validado"), REGRA, "`estado: validado`")
+
+    # --- regra: `modulo` -------------------------------------------------------------
+    def test_modulo_fora_do_dicionario(self) -> None:
+        self.unico(PLANOS.replace("modulo: vendedor", "modulo: xpto"), FORA, "`modulo`")
+        self.assertEqual(self.classes(PLANOS.replace("modulo: vendedor", "modulo: foto")), [])
+
+    def test_entitlement_sem_modulo(self) -> None:
+        fonte = PLANOS.replace("      - modulo: vendedor\n        ativo: true\n", "      - ativo: true\n")
+        self.unico(fonte, REGRA, "sem `modulo`")
+
+    # --- regra: a forma dos valores ---------------------------------------------------
+    def test_valor_de_limite_que_nao_e_inteiro_nao_negativo(self) -> None:
+        for valor in ("'mil'", "-1", "true"):
+            with self.subTest(valor=valor):
+                fonte = PLANOS.replace("msgs_ai_mes: 1000", f"msgs_ai_mes: {valor}")
+                self.unico(fonte, ILEGIVEL, "inteiro nao negativo")
+
+    def test_ativo_que_nao_e_booleano(self) -> None:
+        self.unico(PLANOS.replace("ativo: true", "ativo: sim"), ILEGIVEL, "`ativo`")
+
+    def test_plano_sem_entitlements(self) -> None:
+        fonte = PLANOS.replace(
+            "    entitlements:\n      - modulo: vendedor\n        ativo: true\n"
+            "        limites: { msgs_ai_mes: 1000, manual_max_minor: 5000000 }\n",
+            "",
+        )
+        self.unico(fonte, ILEGIVEL, "lista `entitlements`")
+
+    def test_entitlement_sem_limites(self) -> None:
+        fonte = PLANOS.replace("        limites: { msgs_ai_mes: 1000, manual_max_minor: 5000000 }\n", "")
+        self.unico(fonte, ILEGIVEL, "mapa `chave: valor`")
+
+    def test_plans_que_nao_e_um_mapa_de_planos(self) -> None:
+        self.unico("version: 1.0.0\nplans: []\n", ILEGIVEL, "pelo menos um plano")
+        self.unico("plans:\n  free: nenhum\n", ILEGIVEL, "nao e um mapa")
+
+    # --- regra: nem uma forma nem a outra ---------------------------------------------
+    def test_um_ficheiro_que_nao_e_nenhuma_das_formas_falha(self) -> None:
+        """A regra que fechou o buraco: antes, so a forma da vertical existia."""
+        achado = self.unico('version: 1.0.0\nnota: "tabela de precos"\n', REGRA, "sem `id`")
+        self.assertIn("sem `plans`", achado.mensagem)
+        self.unico("version: 1.0.0\n", REGRA, "nao e nenhuma delas")
+
+    def test_as_duas_formas_no_mesmo_ficheiro_falham(self) -> None:
+        self.unico(PLANOS + "id: vendedor\n", REGRA, "nao se misturam")
+
+    # --- o nivel 1 continua a valer -----------------------------------------------------
+    def test_nivel_1_em_qualquer_chave_ou_texto_de_um_plano(self) -> None:
+        self.assertIn(VARIANTE, self.classes(PLANOS.replace("do DEFAULT da coluna", "le de consent_ledger")))
+        self.assertIn(VARIANTE, self.classes(PLANOS.replace("  free:", "  consent_log:")))
+
+    def test_yaml_que_nao_se_le_falha(self) -> None:
+        self.assertEqual(self.classes("plans: &a\n"), [ILEGIVEL])
+
+
+class TestRegistoDeChaves(unittest.TestCase):
+    """`registry/entitlement_keys.schema.json` contra o dicionario §3.2.
+
+    O ficheiro esta em `fora_de_ambito` (bate na sentinela `*.schema.json` e
+    nao e um schema de evento), e sem este teste as dez chaves nao eram
+    confrontadas com nada — era o buraco que a entrada da politica abria.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from .base import ROOT
+
+        cls.saber = saber()
+        cls.schema = json.loads((ROOT / "registry/entitlement_keys.schema.json").read_text(encoding="utf-8"))
+
+    def test_as_chaves_sao_exactamente_as_do_dicionario(self) -> None:
+        self.assertEqual(
+            sorted(self.schema["properties"]),
+            sorted(registo.chaves_de_limite(self.saber.politica)),
+        )
+        self.assertEqual(len(self.schema["properties"]), 10, "a emenda 1.17 pos as chaves em dez")
+
+    def test_uma_chave_desconhecida_e_rejeitada_na_escrita(self) -> None:
+        """Criterio 1 do bloco do KAM-009, no proprio schema."""
+        self.assertIs(self.schema["additionalProperties"], False)
+
+    def test_cada_chave_declara_o_que_e(self) -> None:
+        categorias = set(self.schema["x-kamba-categorias"])
+        self.assertEqual(
+            categorias, {"contador_por_periodo", "tecto_por_pedido", "tecto_por_janela"}
+        )
+        for nome, chave in self.schema["properties"].items():
+            with self.subTest(chave=nome):
+                self.assertIn(chave["x-kamba-categoria"], categorias)
+                self.assertIn(chave["x-kamba-unidade"], ("minor", "contagem"))
+                self.assertTrue(chave["x-kamba-fonte"])
+
+    def test_so_um_contador_por_periodo_e_consumivel(self) -> None:
+        """Consumir um tecto por pedido seria um defeito: `platform.ten_consumir`
+        acumula contra o periodo, e um tecto por pedido nao acumula."""
+        for nome, chave in self.schema["properties"].items():
+            with self.subTest(chave=nome):
+                self.assertEqual(
+                    chave["x-kamba-consumivel"],
+                    chave["x-kamba-categoria"] == "contador_por_periodo",
+                )
+
+    def test_o_que_e_dinheiro_acaba_em_minor(self) -> None:
+        """`docs/tecnica/03` §5.1 n.o 2 e a convencao de nomes do conjunto."""
+        for nome, chave in self.schema["properties"].items():
+            with self.subTest(chave=nome):
+                self.assertEqual(chave["x-kamba-unidade"] == "minor", nome.endswith("_minor"))
+                if nome.endswith("_minor"):
+                    self.assertEqual(chave["x-kamba-moeda"], "AOA")
+
+    def test_os_limites_do_plans_yaml_sao_chaves_deste_registo(self) -> None:
+        from .base import ROOT
+
+        documento = yamlreg.ler((ROOT / "registry/plans.yaml").read_text(encoding="utf-8"))
+        usados = {
+            chave
+            for plano in documento["plans"].values()
+            for entitlement in plano["entitlements"]
+            for chave in entitlement["limites"]
+        }
+        self.assertTrue(usados)
+        self.assertLessEqual(usados, set(self.schema["properties"]))
 
 
 class TestYamlDoRegisto(unittest.TestCase):

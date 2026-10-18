@@ -36,7 +36,7 @@ db/migrations/versions/0002_x.py:14: [variante] `valor_kz` → `valor_minor`, di
 |---|---|---|
 | migrações | `db/migrations/versions/*.py` | esquemas, tabelas, colunas, valores de `CHECK`, tipos, papéis, unicidades |
 | eventos | `contratos/eventos/**/*.schema.json` | nome do ficheiro, `tipo`, `versao`, campos do envelope e do *payload* |
-| registo | `registry/*.yaml` | chaves, `id`, módulo, limites, subscrições, *tools* e parâmetros |
+| registo | `registry/*.yaml` | **duas formas**: a vertical (`id`, módulo, limites, subscrições, *tools* e parâmetros) e os planos (`plans`, `estado`, módulo e limites) — chaves fechadas nas duas |
 | documentos | `docs/tecnica/**/*.md` | **só** as variantes (nível 1) |
 
 **A quarta não está no critério de aceitação**, que enumera três. Existe porque a
@@ -44,11 +44,23 @@ parte (a) do mesmo ticket tirou as variantes de `docs/tecnica/`, e sem uma
 verificação por máquina a edição seguinte repunha-as — foi exactamente assim que
 dez documentos divergiram.
 
-**`eventos` e `registo` estão hoje vazias.** `contratos/eventos/` nasce com o
-KAM-007 e os ficheiros do registo com o EPIC-03. O `check` di-lo na saída
-(«A SUPERFÍCIE AINDA NÃO EXISTE; nada foi verificado aqui») em vez de as dar por
-conformes, e o passo `canario` do gate corre as *fixtures* para provar que as
-duas verificações mordem enquanto não houver ficheiros reais (§5).
+**`eventos` e `registo` estiveram vazias, e já não estão.** `contratos/eventos/`
+nasceu com o KAM-007 e o primeiro ficheiro do registo com o KAM-009
+(`registry/plans.yaml`); o EPIC-03 traz os das verticais. Enquanto uma
+superfície tem zero ficheiros, o `check` di-lo na saída («A SUPERFÍCIE AINDA NÃO
+EXISTE; nada foi verificado aqui») em vez de a dar por conforme, e o passo
+`canario` do gate corre as *fixtures* para provar que a verificação morde (§5)
+— o que continua a valer depois de haver ficheiros reais, porque um ficheiro
+limpo não prova que o lint morde.
+
+**A superfície `registo` lê duas formas**, distinguidas pela chave de topo e
+nunca pelo nome do ficheiro: a **vertical** (`id`) e os **planos** (`plans`).
+Um ficheiro que não seja nenhuma das duas **falha**. Os nomes de limite são
+confrontados com as dez chaves do dicionário §3.2 nas duas formas — uma lista
+de nomes na vertical, um mapa nome → valor num plano —, e o que cada chave
+**é** (contador por período, tecto por pedido, tecto por janela) está em
+[`registry/entitlement_keys.schema.json`](../registry/entitlement_keys.schema.json),
+que o KAM-009 escreveu.
 
 ### O nível 1 vê variantes em qualquer texto
 
@@ -471,3 +483,4 @@ próprio dicionário a contradizer-se, com o §4 a dizer «estados de
 | 1.2 | Outubro 2026 | KAM-008: a linha 3 do §7 (dicionário contra o bloco do KAM-008) fica decidida, como *proposta*, pela emenda 1.8 do dicionário — a favor do dicionário, com `lookup_hmac` registado como variante. Fica por ratificar no KAM-141. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | **KAM-140 fechado.** A tabela do §7 passa a dizer a disposição de cada uma das oito linhas: sete fechadas, e a do `consent_event` metade fechada (os campos) e metade **devolvida** (as finalidades, KAM-159). Acrescenta-se o que a tabela deixava passar e nenhum *lint* via — seis divergências que só aparecem a ler a implementação ao lado dos documentos, entre elas o `contact_endpoints` sem `tenant_id` e o dicionário a contradizer-se a si próprio sobre os estados de `tenant_channels`. | Equipa KAMBÁ |
 | 1.4 | Outubro 2026 | KAM-159: a linha das finalidades de `consent_event` no §7 passa de «metade fechada, metade devolvida» a **fechada** — a taxonomia ficou fixada em dez valores (emenda 1.16) e o gate 7 ganhou a verificação que compara o `enum` dos contratos com o domínio do canon nos dois sentidos. O que continua em aberto é a base legal, que é o KAM-104. | Equipa KAMBÁ |
+| 1.5 | Outubro 2026 | KAM-009: a superfície `registo` passa a ter **duas formas** — a vertical (`id`) e os planos (`plans`) — distinguidas pela chave de topo e nunca pelo nome do ficheiro; um ficheiro que não seja nenhuma das duas falha. A superfície deixa de estar vazia. O que cada chave de limite **é** fica em `registry/entitlement_keys.schema.json`, e `ManualProvider` deixa de ser aceite como nome de limite (vinha das crases da linha do §3.2 e não tem a forma de uma chave). | Equipa KAMBÁ |
