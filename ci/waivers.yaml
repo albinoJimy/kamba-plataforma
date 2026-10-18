@@ -27,9 +27,15 @@
 #                            `adr_ou_aprovacao: ADR-NNN`: uma aprovacao datada
 #                            nao chega (KAM-067; docs/supply-chain.md §6.4)
 #   adr_ou_aprovacao   `ADR-NNN` que o fundamenta, ou `aprovacao:<quem>@<data>`
-#                      para uma decisao humana registada
+#                      para uma decisao humana registada. **A data e lida**
+#                      desde o KAM-135: tem de ser uma data a serio e nao pode
+#                      ser futura. Um `@9999-99-99` passava, e com ele a
+#                      exigencia de «aprovacao registada» do specs/01 §4 ficava
+#                      satisfeita sem registar nada
 #   autor              quem o escreveu, e a quem se pergunta
 #   razao              porque e aceitavel, numa frase que sobreviva a sair o autor
+#   criado_em          data ISO em que o waiver nasceu. Obrigatoria desde o
+#                      KAM-135, e e dela que o prazo se conta
 #
 # A chave `regra` SAIU, e com ela a leitura errada mais perigosa das sete que o
 # KAM-134 fechou. Uma versao anterior deste cabecalho documentava-a
@@ -45,13 +51,34 @@
 # Desde o KAM-134, uma chave que este ficheiro nao conheca **falha com codigo
 # 2** (erro de configuracao). E por isso que a `regra` saiu tambem do exemplo
 # comentado: descomenta-lo como modelo passaria a dar erro.
-#   expira_em          data ISO, no maximo 30 dias apos a criacao (*proposta* do
-#                      ticket). Um waiver expirado **falha o pipeline** — nao se
-#                      ignora nem avisa
+#   expira_em          data ISO, no maximo 30 dias **apos o `criado_em`**. Um
+#                      waiver expirado **falha o pipeline** — nao se ignora nem
+#                      avisa
 #
 # Um waiver sem referencia, sem data, ou expirado, faz o `make ci-waivers`
 # falhar. Isso e deliberado: a alternativa e uma excepcao que fica para sempre
 # porque ninguem reparou que caducou.
+#
+# **RENOVAR NAO E EMPURRAR UMA DATA** (KAM-135). Ate aqui o prazo contava-se de
+# **hoje**, e nao da criacao: bastava mexer um digito no `expira_em` para a
+# excepcao durar mais trinta dias, e depois mais trinta, para sempre. Era o
+# inverso exacto da propriedade que este ficheiro existe para entregar.
+#
+# Agora prolongar exige um `criado_em` novo — e, na forma `aprovacao:`, uma
+# aprovacao **contemporanea** dele: uma aprovacao com mais de 30 dias do que a
+# criacao e recusada. Renovar e pedir a alguem que volte a aprovar.
+#
+# O que isto NAO verifica, e fica dito em vez de prometido: um `ADR-NNN` nao
+# caduca (e uma decisao de arquitectura, e exigir um ADR novo de trinta em
+# trinta dias seria pedir arquitectura nova), e o `autor` nao se verifica, por
+# nao haver estado da versao anterior. Para a forma `ADR-NNN`, «decisao nova
+# com dono novo» e convencao de revisao, nao propriedade imposta.
+#
+# E os gates que aceitam waiver deixaram de poder divergir do canon em
+# silencio: os **dezanove** do specs/01 §4 — o `3b` tambem — estao classificados em
+# `tools/ci_waivers.py`, ou como «aceita» ou como «nao aceita, e eis porque».
+# Entraram o **14** (imagem, KAM-067) e o **18** (release sem SBOM, KAM-078),
+# que o docs/ci.md §5 diz consumirem este esquema e que o validador recusava.
 
 version: 1
 
@@ -69,6 +96,7 @@ version: 1
 #     razao: >-
 #       A licenca e AGPL-3.0, mas o componente corre como servico separado e nao
 #       e distribuido, o que o ADR-014 cobre. Rever quando a D6 fechar.
+#     criado_em: 2026-10-11
 #     expira_em: 2026-11-10
 
 waivers: []
