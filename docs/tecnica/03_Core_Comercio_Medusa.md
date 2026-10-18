@@ -54,7 +54,7 @@ Engenheiros de comércio e dados, engenheiros de runtime (ToolLayer), engenheiro
 | **ADR-010** | `orders_mirror` e `reviews` apontam para `contact_id`; o telefone nunca é chave nem coluna de pedido (§5.3). |
 | **ADR-011** | `origem = 'plataforma'` e tenants `tipo = 'platform'` existem no DDL mas não entram em produção no Piloto. |
 | **ADR-012** | Verticais (Vendedor, Serviços) usam a mesma porta; Serviços usa reserva de horário em vez de stock (fora deste documento). |
-| **ADR-013** | `paga` só por evento autenticado (PAY) ou confirmação humana auditada (`ManualProvider`); o COM só **consome** `payment.confirmed`. |
+| **ADR-013** | `paga` só por evento autenticado (PAY) ou confirmação humana auditada (`ManualProvider`); o COM **consome os dois eventos** — `payment.confirmed` e `payment.manual_confirmed` — e nunca decide por si. São dois eventos distintos (dicionário §3.4), **um por caminho**: o primeiro fecha `aguarda_pagamento → paga`, o segundo `pendente_confirmacao → paga` (`00` §6.2). |
 | **ADR-014** | Fotos e documentos vão para STO atrás de `StorageProvider`; MinIO excluído. |
 | **ADR-002** | O admin do Medusa e qualquer n8n/Typebot nunca são expostos a tenants; a PME interage por WhatsApp ou painel mínimo próprio. |
 
@@ -102,7 +102,7 @@ interface CommerceRegistry {
   requestOwnerConfirmation(ctx: Ctx, orderId: Uuid): Promise<void>;              // itens confirmar_dono
   reserveStock(ctx: Ctx, orderId: Uuid, ttl: Duration): Promise<Reservation[]>;
   extendReservation(ctx: Ctx, orderId: Uuid, until: Instant): Promise<void>;
-  commitReservation(ctx: Ctx, orderId: Uuid): Promise<void>;                     // chamada pelo consumer de payment.confirmed
+  commitReservation(ctx: Ctx, orderId: Uuid): Promise<void>;                     // chamada pelo consumer dos dois eventos de pagamento
   releaseReservation(ctx: Ctx, orderId: Uuid, motivo: 'expirada'|'cancelada'|'recusada_dono'): Promise<void>;
   transition(ctx: Ctx, orderId: Uuid, to: OrderState, expectedVersion: number, causa: Cause): Promise<OrderRef>;
   // Leitura
@@ -273,17 +273,15 @@ CREATE TABLE platform.tenants (
 );
 CREATE UNIQUE INDEX tenants_nif_uq ON platform.tenants (nif) WHERE nif IS NOT NULL AND deleted_at IS NULL;
 
-CREATE TABLE platform.tenant_channels (            -- usada pelo CHR: phone_number_id -> tenant + persona
-  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id         uuid NOT NULL REFERENCES platform.tenants(id),
-  canal             text NOT NULL DEFAULT 'whatsapp_cloud' CHECK (canal IN ('whatsapp_cloud')),
-  waba_id           text NOT NULL, phone_number_id   text NOT NULL UNIQUE,
-  persona           text NOT NULL DEFAULT 'vendedor',
-  origem            text NOT NULL DEFAULT 'pme' CHECK (origem IN ('pme','plataforma')),   -- 'plataforma' = Diferido (ADR-011)
-  coexistencia      boolean NOT NULL DEFAULT true,
-  estado            text NOT NULL DEFAULT 'ativo' CHECK (estado IN ('ativo','pausado','revogado')),
-  criado_at         timestamptz NOT NULL DEFAULT now()
-);
+-- `platform.tenant_channels`: o DDL de referencia vive em `01` §7.1, e e o que a
+-- revisao `0001` implementou. Este documento deixou de o repetir (KAM-140).
+--
+-- A versao que aqui estava tinha `canal`, `persona` e `coexistencia`, tres
+-- estados (`ativo`, `pausado`, `revogado`) e um `criado_at`, e faltavam-lhe dez
+-- colunas. Duas das ausencias partiam contratos escritos noutro sitio: o
+-- dicionario §3.9 define `tenant_channels.token_ref`, e o §3.2 da ao papel
+-- `kamba_resolver` o `SELECT` em `vertical` e `channel_mode`, que aqui nao
+-- existiam. O dicionario §3.2 ja nomeava esta forma como a substituida.
 
 CREATE TABLE platform.entitlements (
   tenant_id uuid NOT NULL REFERENCES platform.tenants(id), modulo    text NOT NULL,
@@ -297,31 +295,28 @@ CREATE TABLE platform.entitlements (
 O contacto é o **cliente final**. A chave de identidade é o **BSUID** da Meta, pseudonimizado com HMAC (segredo em cofre, versionado). O telefone pode não vir no webhook (ADR-010; `evidencia/E1`); quando vem e é necessário (ex.: pagamento Express), fica numa tabela **separada**, cifrada, com finalidade e prazo.
 
 ```sql
-CREATE TABLE platform.contacts (                   -- forma canonica: dicionario §3.1; DDL final em KAM-008 (proposta)
-  contact_id       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id        uuid NOT NULL REFERENCES platform.tenants(id),
-  phone_hmac       bytea,                           -- HMAC do E.164 quando conhecido: so para anti-fraude/auto-compra
-  consentimento    jsonb NOT NULL DEFAULT '{}',     -- {finalidade: {versao, em}} (Lei 22/11; ver 08)
-  criado_at        timestamptz NOT NULL DEFAULT now(),
-  erased_at        timestamptz                      -- eliminacao/anonimizacao a pedido do titular
-);
-ALTER TABLE platform.tenants ADD CONSTRAINT tenants_owner_fk
-  FOREIGN KEY (owner_contact_id) REFERENCES platform.contacts(contact_id) DEFERRABLE INITIALLY DEFERRED;
-
-CREATE TABLE platform.contact_endpoints (            -- acesso restrito (papel proprio); nunca em joins de pedidos
-  contact_id      uuid NOT NULL REFERENCES platform.contacts(contact_id),
-  tenant_id       uuid NOT NULL REFERENCES platform.tenants(id),
-  tipo            text NOT NULL,                      -- valores de `tipo`: KAM-008
-  bsuid_hmac      bytea,                              -- HMAC-SHA256(segredo_vN, bsuid): so para correspondencia
-  bsuid_enc       bytea, phone_enc bytea,             -- cifrados com DEK por contacto
-  dek_id          uuid NOT NULL,
-  finalidade      text NOT NULL CHECK (finalidade IN ('pagamento_express','entrega','contacto_pedido')),
-  recolhido_at    timestamptz NOT NULL DEFAULT now(),
-  expira_at       timestamptz NOT NULL                -- retencao minima; purga automatica (ver 08)
-);
+-- `platform.contacts`, `platform.contact_endpoints`, `platform.contact_deks` e
+-- `platform.hmac_key_versions`: o DDL de referencia vive em `01` §6.2, e e o que
+-- a revisao `0003` (KAM-008) implementou e o inventario do gate 8 congelou.
+-- Este documento deixou de o repetir (KAM-140).
+--
+-- O que aqui estava divergia da forma implementada em quatro pontos que nao sao
+-- de estilo:
+--   * `consentimento jsonb` era uma quarta forma de guardar consentimento, fora
+--     de `consent_event`. A revisao `0003` recusou-a por escrito e atribuiu-a ao
+--     KAM-022; nenhuma frase deste documento a usava ou explicava.
+--   * nao havia versao da chave do HMAC (`hmac_kid`), pelo que o `phone_hmac`
+--     ficava sem saber com que segredo foi calculado — e a rotacao da §3.9 do
+--     dicionario sem forma de se aplicar.
+--   * `contact_endpoints` nao tinha chave primaria, e a `finalidade` e o
+--     `expira_at` eram `NOT NULL`: uma linha de `tipo = 'bsuid'` era obrigada a
+--     declarar uma finalidade de **telefone** e uma data de expiracao. A `0003`
+--     fecha-o com o `contact_endpoints_forma_ck`.
+--   * a `tenants_owner_fk` era simples. Na `0003` e composta, de proposito: com
+--     a simples, um tenant podia apontar para o contacto de **outro** tenant.
 ```
 
-Notas: (a) o espaço de números angolanos é pequeno e um HMAC simples é reversível por enumeração **se o segredo vazar** (`evidencia/E3`, ADR-010) — o segredo vive em cofre, com rotação (versão da chave: KAM-008); a pesquisa por contacto tenta a versão corrente e a anterior; (b) `phone_hmac` serve para detectar auto-compra e fraude sem guardar o número em claro; (c) o mesmo cliente em dois tenants é **dois contactos** (isolamento; `UNIQUE` inclui `tenant_id`); (d) a eliminação a pedido do titular anula `contact_endpoints`, define `erased_at` e substitui `bsuid_hmac` por um valor aleatório, mantendo as encomendas (retenção fiscal separada, prazo CGT NÃO VERIFICADO, `evidencia/E3` §6).
+Notas: (a) o espaço de números angolanos é pequeno e um HMAC simples é reversível por enumeração **se o segredo vazar** (`evidencia/E3`, ADR-010) — o segredo vive em cofre, com rotação (versão da chave: KAM-008); a pesquisa por contacto tenta a versão corrente e a anterior; (b) `phone_hmac` serve para detectar auto-compra e fraude sem guardar o número em claro; (c) o mesmo cliente em dois tenants é **dois contactos** — o isolamento está no `contacts_tenant_contact_uq` e no `contacts_phone_hmac_uq (tenant_id, hmac_kid, phone_hmac)` da revisão `0003`, e não nesta nota: até ao KAM-140 a nota afirmava uma unicidade que o DDL ao lado não tinha; (d) a eliminação a pedido do titular anula `contact_endpoints`, define `erased_at` e substitui `bsuid_hmac` por um valor aleatório, mantendo as encomendas (retenção fiscal separada, prazo CGT NÃO VERIFICADO, `evidencia/E3` §6).
 
 ### 5.4 Encomendas, intenções, reservas, ofertas
 
@@ -367,7 +362,7 @@ CREATE TABLE platform.order_state_log (              -- append-only
   id          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   tenant_id   uuid NOT NULL, order_id uuid NOT NULL REFERENCES platform.orders_mirror(id),
   de          text NOT NULL, para text NOT NULL,
-  causa       text NOT NULL,                        -- 'payment.confirmed','ttl','dono_confirma','cliente_cancela',...
+  causa       text NOT NULL,                        -- 'payment.confirmed','payment.manual_confirmed','ttl','dono_confirma',...
   evento_id   text, actor_kind text NOT NULL, actor_id text, em          timestamptz NOT NULL DEFAULT now()
 );
 
@@ -404,7 +399,7 @@ CREATE TABLE platform.price_quotes (                 -- preco dado pelo dono par
 );
 ```
 
-`payment_events`, `payment_charges` e as restantes tabelas de dinheiro têm o **DDL canónico em `04_Pagamentos_Liquidacao_AntiFraude.md` §6**; aqui referem-se apenas por `order_id`. A ordem de migração é `tenants → contacts → orders_mirror → payment_charges → payment_events` (§11).
+`payment_events`, `payment_charges` e as restantes tabelas de dinheiro têm o **DDL canónico em `04_Pagamentos_Liquidacao_AntiFraude.md` §6**; aqui referem-se apenas por `order_id`. A ordem de migração está no §11, e começa por `tenants + tenant_channels` (revisão `0001`).
 
 ### 5.5 Isolamento por RLS (defesa em profundidade)
 
@@ -418,7 +413,7 @@ CREATE POLICY tenant_iso ON platform.orders_mirror
 -- cada transaccao: SET LOCAL app.tenant_id = '<uuid do ctx>'; sem isto, 0 linhas (falha fechada)
 ```
 
-Aplica-se a todas as tabelas com `tenant_id` (`contacts`, `contact_endpoints`, `order_intents`, `order_state_log`, `stock_reservations`, `offer_terms`, `price_quotes`, `reviews`). O CHR e o GWY usam um papel estreito para resolver `phone_number_id → tenant` antes de existir contexto. A RLS é a **segunda** barreira; a primeira é a porta `CommerceRegistry` (ISO-39..42).
+Aplica-se a todas as tabelas com `tenant_id` (`contacts`, `contact_endpoints`, `contact_deks`, `order_intents`, `order_state_log`, `stock_reservations`, `offer_terms`, `price_quotes`, `reviews`). O CHR e o GWY usam um papel estreito para resolver `phone_number_id → tenant` antes de existir contexto. A RLS é a **segunda** barreira; a primeira é a porta `CommerceRegistry` (ISO-39..42).
 
 ### 5.6 Soft delete e retenção
 
@@ -435,9 +430,9 @@ stateDiagram-v2
     [*] --> criada
     criada --> aguarda_pagamento: referencia emitida e stock reservado
     criada --> cancelada: cliente desiste ou dono recusa item
-    aguarda_pagamento --> paga: payment.confirmed (autenticado, valor e referencia batem)
+    aguarda_pagamento --> paga: payment.confirmed
     aguarda_pagamento --> pendente_confirmacao: ManualProvider, dono declara recebido
-    pendente_confirmacao --> paga: confirmacao humana auditada e dupla verificacao
+    pendente_confirmacao --> paga: payment.manual_confirmed (dupla verificacao)
     pendente_confirmacao --> aguarda_pagamento: dono rejeita
     aguarda_pagamento --> expirada: TTL da reserva
     expirada --> aguarda_pagamento: nova referencia na mesma encomenda
@@ -464,7 +459,7 @@ As duas transições marcadas «extensão proposta» **não existem** no documen
 | criada | cancelada | cliente desiste / dono recusa | — | libertar reservas (se existirem) | `order.cancelled` |
 | aguarda_pagamento | paga | `payment.confirmed` | PAY garante `authn_ok`, valor, referência (04 §5); `paga_via` definido pelo evento | reservas `consumida`; `paga_at` | `order.paid` |
 | aguarda_pagamento | pendente_confirmacao | dono declara «recebi» (Manual) | `total_minor <= limite_manual` do tenant | cobrança passa a `pendente_confirmacao` (PAY) | `order.manual_confirmation_requested` |
-| pendente_confirmacao | paga | confirmação humana concluída | dupla verificação cumprida (04 §4) | idem `paga`, `paga_via='manual_auditado'` | `order.paid` |
+| pendente_confirmacao | paga | `payment.manual_confirmed` | dupla verificação cumprida (04 §4) | idem `paga`, `paga_via='manual_auditado'` | `order.paid` |
 | pendente_confirmacao | aguarda_pagamento | dono rejeita / TTL da confirmação | — | cobrança volta a `emitida` | `order.manual_confirmation_rejected` |
 | aguarda_pagamento | expirada | TTL | `now() >= expira_at`; **reconciliação final** com PAY feita | reservas `expirada`; stock libertado | `order.expired` |
 | expirada | aguarda_pagamento | nova referência | stock ainda disponível (re-reserva) | nova reserva e nova cobrança (`tentativa+1`) | `order.reserved` |
@@ -543,7 +538,7 @@ Mecanismo duplo: *job* repetível a cada minuto (garantia) + *delayed job* por r
 
 ### 6.6 Pagamento tardio (callback depois da expiração)
 
-Possível porque a referência pode ser paga em ATM até ao fim da sua validade e o callback pode atrasar-se, e porque uma referência anterior continua válida após emitirmos uma nova. Regra: PAY emite `payment.confirmed` autenticado (dinheiro real); o COM aplica:
+Possível porque a referência pode ser paga em ATM até ao fim da sua validade e o callback pode atrasar-se, e porque uma referência anterior continua válida após emitirmos uma nova. Regra: PAY emite o evento de confirmação — `payment.confirmed` no caminho autenticado, `payment.manual_confirmed` no do `ManualProvider`, e em qualquer dos dois é dinheiro real; o COM aplica:
 
 1. Estado `expirada` e stock re-reservável ⇒ re-reservar e `expirada → paga`.
 2. Sem stock ⇒ `expirada → paga` com `excepcao='pagamento_tardio_sem_stock'`; notifica dono e ops; resolução **manual** (entregar mais tarde ou reembolso manual, ADR-004). O cliente nunca fica sem resposta.
@@ -723,7 +718,7 @@ Reviews só mostram «comprador verificado» (`evidencia/E3` req. 23). A lei de 
 | Linhas, preços, totais **no momento da encomenda** | Registo no instante da criação → **copiados** para `lines_snapshot` (imutável) | Medusa mantém as linhas | `lines_snapshot` imutável após `aguarda_pagamento` |
 | Stock disponível | Registo (Medusa Inventory ou `commerce.stock_levels`) | nenhuma | só por reserva/consumo/ajuste do dono |
 | Reservas e expiração | `platform.stock_reservations` | reservas no Medusa | expiração só pelo COM |
-| Estado de pagamento | PAY (`payment_charges`/`payment_events`) | `orders_mirror.paga_*` por consumo de `payment.confirmed` | PAY decide; COM só aplica |
+| Estado de pagamento | PAY (`payment_charges`/`payment_events`) | `orders_mirror.paga_*` por consumo de `payment.confirmed` ou de `payment.manual_confirmed`, um por caminho (`00` §6.2) | PAY decide; COM só aplica |
 | Termos de preço/stock | `platform.offer_terms` | preço `fixo` no Pricing Module do Medusa | alterações auditadas |
 
 O nome «espelho» do documento 11 mantém-se por compatibilidade, mas a tabela é autoridade do **ciclo de vida**; o Registo é autoridade das **linhas e do stock**. Isto evita que o modelo de estados do Medusa (que não conhece `pendente_confirmacao` nem pagamento por referência) restrinja a máquina de estados do documento 00.
@@ -766,7 +761,7 @@ Job a cada 5 min por tenant activo (e imediato após falhas de saga): (1) encome
 | Schema `medusa` | migrações do Medusa (`db:migrate`) | executadas pela mesma *pipeline*, em passo próprio; **nunca** editadas à mão; versão do Medusa fixada |
 | Compatibilidade | *expand → migrate → contract* | colunas novas `NULL`/com omissão; remoção só duas releases depois; sem `RENAME` destrutivo |
 
-Ordem na *pipeline*: (1) `alembic upgrade` (expand), (2) migrações Medusa, (3) deploy de aplicação, (4) *smoke test* ponta a ponta e suite ISO-*, (5) `contract` na release seguinte. **Dependências de FK:** `tenants → contacts → tenant_channels → orders_mirror → order_intents/stock_reservations/order_state_log → reviews`, depois as de PAY (`payment_accounts → payment_charges → payment_events`). Rollback de uma revisão que afecte dados exige *backup lógico da tabela* no passo e ensaio em *staging* com dados sintéticos. `orders_mirror`, `order_state_log`, `payment_events` não têm `downgrade` destrutivo (só aditivo).
+Ordem na *pipeline*: (1) `alembic upgrade` (expand), (2) migrações Medusa, (3) deploy de aplicação, (4) *smoke test* ponta a ponta e suite ISO-*, (5) `contract` na release seguinte. **Dependências de FK:** `tenants + tenant_channels` (revisão `0001`), depois `hmac_key_versions → contacts → contact_deks → contact_endpoints` (revisão `0003`, que é também onde a `tenants_owner_fk` se cria, por `contacts` chegar depois), depois `orders_mirror → order_intents/stock_reservations/order_state_log → reviews`, depois as de PAY (`payment_accounts → payment_charges → payment_events`). Rollback de uma revisão que afecte dados exige *backup lógico da tabela* no passo e ensaio em *staging* com dados sintéticos. `orders_mirror`, `order_state_log`, `payment_events` não têm `downgrade` destrutivo (só aditivo).
 
 ---
 
@@ -897,3 +892,4 @@ Convenção: nomes `dominio.acao` em minúsculas; versões `v1`; campos novos s�
 | 1.0 | Outubro 2026 | Emissão inicial: spike D3, modelo `platform` corrigido, encomendas, reservas, idempotência por intenção, Catálogo AI, reviews, eventos. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §5.1–§5.2, D-08 (`restrito`); §5.3 e FK, D-01 (`contacts(contact_id)` + `contact_endpoints`); §12, D-05 (dois eventos de pagamento), D-07 (`tenant.approved`) e D-12 (versões desconhecidas falham de forma visível, ADR-009). | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | **Emenda KAM-139** (variantes vivas do dicionário): adopção de `expira_at` em §1.4, §3.3, §4.3, §5.4, §6.4, §6.5 e §13 (8 ocorrências) e de `preco_tipo` em §5.4, §7.1, §8.3 e §12 (8 ocorrências), dicionário §3.3 e emenda 1.12; em §5.5, o papel passa a `kamba_batch` (dicionário §3.2) e a política de RLS a `tenant_iso` (emenda 1.5). A citação histórica do DDL do documento 11 em §5.1 fica como está. | Equipa KAMBÁ |
+| 1.3 | Outubro 2026 | KAM-140: §5.2 e §5.3 — **dois DDL inteiros saem** e remetem para `01` §7.1 e §6.2. O de `tenant_channels` era a forma morta completa (omitia dez colunas, duas com contrato escrito noutro sítio); o de `contacts`/`contact_endpoints` divergia da revisão `0003` em quatro pontos, um deles o `consentimento jsonb` que a própria revisão recusou por escrito. §2 (ADR-013), §6.1, §6.2, §6.6 e §10.1 — **um evento de pagamento por caminho**, como o `00` §6.2 manda: o `payment.confirmed` fecha `aguarda_pagamento → paga`, o `payment.manual_confirmed` fecha `pendente_confirmacao → paga`, que estava sem evento nenhum. §5.5 e §11 — o `contact_deks` entra nas tabelas sob RLS, e a ordem de FK passa a ser a que as revisões `0001` e `0003` seguem, que não era a escrita. | Equipa KAMBÁ |

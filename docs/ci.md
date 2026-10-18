@@ -1333,6 +1333,19 @@ resposta seria pior do que nomeá-las:
     frase do caso Node do §3. Não se fecha aí porque nomear o que foi medido é
     mexer no relatório para **todos** os estratos e nas duas linguagens, e é
     decisão do dono do *gate* 4, não cablagem de um alvo.
+27. **Os diagramas Mermaid nao sao verificados por *gate* nenhum.** O KAM-140
+    entregou o `make mermaid`, que corre `mermaid.parse` a serio sobre os **49**
+    blocos de `docs/tecnica/`, `docs/` e `specs/` — e passa. Mas nao ha *job*
+    que o corra: um diagrama partido entra em `main` na mesma. Nao se fechou ai
+    por duas razoes medidas, e nenhuma delas e o tamanho. Primeira: os *jobs* do
+    *gate* 3 e do 3b **nao tem Node**, de proposito (`docs/adr/ADR-L001-toolchain.md`),
+    e e nesses que um lint de documentos cairia. Segunda: o `mermaid` nao e
+    dependencia deste repositorio, e po-lo no `pnpm-lock.yaml` arrasta uma arvore
+    grande de terceiros para o SBOM e para o veredicto de licencas do *gate* 11,
+    para uma ferramenta que nao vai para producao — por isso corre num contentor
+    com a imagem do `.node-version` fixada por *digest*. Pendurar o alvo num
+    *job* que ja tenha `preparar` (o *gate* 2, por exemplo) e a via natural, e e
+    decisao do dono do *gate*. Ate la, corre-se a mao.
 
 > As lacunas 9 a 14 vêm da revisão adversarial, e cada uma está reproduzida com
 > um comando em [`ANALISE-02`](analises/ANALISE-02-KAM-002-pipeline-ci.md).
@@ -1448,3 +1461,4 @@ sobrevivem ao PR.
 | 1.24 | Outubro 2026 | KAM-155: o segundo passo do *gate* 3 passa a ler **dois** globos — `specs/EPIC-*.md` e `specs/tickets/*.md` —, porque o EPIC-01 passou a ter um ficheiro por ticket. Com um só, o *gate* ficava verde e deixava 39 blocos sem ser lidos. | Equipa KAMBÁ |
 | 1.25 | Outubro 2026 | KAM-158: o *gate* 3 ganha um **terceiro** passo, `lint_contagens`, que confronta cada contagem escrita em prosa com a fonte que a conta. Fecha por máquina a classe «contagem que não acompanha», que já custou quatro correcções à mão. A dívida 30 fica paga; seis ficam declaradas com dono (KAM-130) e prazo. | Equipa KAMBÁ |
 | 1.26 | Outubro 2026 | **Gate 7 activo** (KAM-007): contratos de evento — compatibilidade contra o ramo principal, *lint* de PII, exemplos validados e `versao_max` das subscrições. Sai da matriz dos reservados, ganha *job* próprio com `fetch-depth: 0` e entra no `needs:` do agregador; `make ci` corre dez. Reservado passa a ser só o 5. A parte dos *webhooks* do gate 7 continua por fazer (KAM-024). | Equipa KAMBÁ |
+| 1.27 | Outubro 2026 | KAM-140: **lacuna 27** — os diagramas Mermaid passam a ter um verificador (`make mermaid`, 49 blocos, `mermaid.parse` a sério) e **não** a ter *gate*: os *jobs* do 3 e do 3b não têm Node de propósito (ADR-L001), e o `mermaid` não é dependência do repositório para não entrar no SBOM nem no veredicto de licenças do *gate* 11. Pendurá-lo num *job* com `preparar` é a via, e é decisão do dono do *gate*. | Equipa KAMBÁ |

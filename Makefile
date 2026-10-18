@@ -86,7 +86,7 @@ export PYTHONPATH := $(PYTHONPATH_ALL)
         test-ts typecheck up \
         ci-3b canon-lint dict-export \
         supply-chain \
-        log-lint x11 storage-contrato
+        log-lint x11 storage-contrato mermaid
 
 ## help: lista os comandos disponiveis
 help:
@@ -439,6 +439,35 @@ ci-3b:
 	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from dict_export.cli import main; sys.exit(main(['--root', '$(ROOT)', '--check']))"
 	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from canon_lint.cli import main; sys.exit(main(['--root', '$(ROOT)', 'check']))"
 	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from canon_lint.cli import main; sys.exit(main(['--root', '$(ROOT)', 'canario']))"
+
+## mermaid: passa os diagramas Mermaid do conjunto por um parser (KAM-140)
+#
+# Nao e gate: nao ha *job* que o corra, e isso esta registado em docs/ci.md §7.
+# Corre `mermaid.parse` a serio — nao uma heuristica sobre o texto. A regra do
+# conjunto e que «escreve-los sem acentos nos IDs nao prova que compilam», e
+# ate ao KAM-140 o unico parse alguma vez feito foi a mao, num navegador.
+#
+# Precisa de Docker e de rede na primeira execucao. O `mermaid` **nao** e
+# dependencia do repositorio de proposito: traz uma arvore grande de terceiros
+# que iria para o SBOM e para o veredicto de licencas do gate 11, para uma
+# ferramenta que nao vai para producao. Corre num contentor descartavel, com a
+# imagem do `.node-version` fixada por digest — o padrao que o
+# `db/tests_eventos/node.py` ja usa, e pela mesma razao: nao ha Node no *host*.
+mermaid:
+	@echo "==> diagramas Mermaid"
+	@command -v docker >/dev/null 2>&1 || { echo "    ERRO: este alvo precisa de Docker." >&2; exit 2; }
+	@# Tudo numa so receita, e o intermedio num temporario e nao em `ci/`: numa
+	@# versao anterior, uma cerca por fechar fazia a extraccao sair com 2 e o
+	@# `rm` da linha seguinte nunca corria — ficava lixo por versionar dentro do
+	@# repositorio. O `trap` so vale dentro da shell que o declara, pelo que as
+	@# duas metades tem de partilhar a mesma.
+	@#
+	@# E o `verificar.mjs` e copiado para junto do `node_modules`: o `NODE_PATH`
+	@# **nao** vale para `import` de ESM, e correr o ficheiro de `/lint` deixa a
+	@# resolucao a subir uma arvore que nao tem os pacotes (`ERR_MODULE_NOT_FOUND`).
+	@blocos="$$(mktemp)"; trap 'rm -f "$$blocos"' EXIT INT TERM; \
+	 $(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from mermaid_lint.extrair import main; sys.exit(main(['--root', '$(ROOT)']))" > "$$blocos" && \
+	 docker run --rm -i -v "$(ROOT)/tools/mermaid_lint:/lint:ro" node:24.21.0-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66 sh -c 'cp -r /lint /tmp/m && cd /tmp/m && npm ci --silent --no-audit --no-fund --ignore-scripts >/dev/null 2>&1 && node /tmp/m/verificar.mjs' < "$$blocos"
 
 ## canon-lint: o gate 3b pelo nome que o ticket lhe da (igual a ci-3b)
 canon-lint: ci-3b

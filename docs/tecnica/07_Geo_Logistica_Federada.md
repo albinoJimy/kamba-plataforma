@@ -57,7 +57,7 @@ Arquitectos de plataforma, engenheiros de runtime e de comércio (integração c
 | **ADR-004** | Plataforma nunca detém fundos; *payouts* só via PSP e fora do Piloto | Estafetas **não** são pagos pela plataforma a partir de fundos de terceiros (§13). Caução em dinheiro retida pela plataforma é tratada como risco regulatório (§8.3). |
 | **ADR-007** | Preço e stock nunca em prompts; validador de citação | **Taxa de entrega e ETA** são números de tool, nunca do LLM. O validador de citação passa a cobrir `delivery_fee` e `eta_minutes` (§6). |
 | **ADR-008** | Nenhum dado pessoal de produção sai de Angola sem APD | Pin, morada e posição do estafeta são dados pessoais. Nominatim *self-host* no mesmo alojamento do núcleo (D1); **proibido** usar o Nominatim público da OSMF ou APIs de mapas de terceiros com coordenadas de clientes (§5.4). |
-| **ADR-009** | BullMQ/Redis com outbox; consumidores idempotentes | Eventos `delivery.*` (§9.5) saem por outbox; dispatch é consumidor idempotente de `payment.confirmed`/`order.paid`. |
+| **ADR-009** | BullMQ/Redis com outbox; consumidores idempotentes | Eventos `delivery.*` (§9.5) saem por outbox; dispatch é consumidor idempotente de `payment.confirmed`, `payment.manual_confirmed` e `order.paid`. |
 | **ADR-010** | Identidade por BSUID/HMAC; consentimento; minimização | A morada guarda-se por `contact_id` (BSUID/HMAC), nunca por telefone. O estafeta **não** recebe o telefone do consumidor. |
 | **ADR-011** | Fluxo dual como costura; só Fluxo A em produção | O assistente de consumo («perto de mim») e a PME light ficam Diferidos; GEO serve só o Fluxo A. |
 | **ADR-012** | Verticais como configuração; regra de dois | Logística é um módulo fino (`courier` como tenant, eventos, tools) sobre as primitivas; reaproveitamento ≥ 70% a verificar. |
@@ -256,7 +256,7 @@ O estafeta é um tenant (`tipo = 'courier'`), com onboarding próprio (`10` §4.
 | Zona(s), horário, preço | declarado pelo estafeta | matching (§9.1) | duração da relação |
 | Nível de confiança (T0–T3) | calculado | limites de valor (§8.3) | duração da relação |
 
-Estados do tenant seguem `00` §6.2 (`onboarding → ativo → suspenso → encerrado`); o KYC pendente é um passo dentro de `onboarding`, e a verificação presencial é o gate para `ativo`.
+Estados do tenant seguem `00` §6.2: `onboarding`, `ativo`, `restrito`, `suspenso`, `encerrado` — **cinco, e não uma cadeia**. O `restrito` é limitação imposta pela Meta (*quality rating*) e volta a `ativo` com o rating recuperado; de `suspenso` regressa-se a `ativo` por regularização. O KYC pendente é um passo dentro de `onboarding`, e a verificação presencial é o gate para `ativo`.
 
 Tabelas `geo.courier_profile` (`nivel` 0–3, `veiculo`, `kyc_id`, `seguro_ref`, `caucao_ref` — referência no PSP/parceiro, nunca saldo nosso —, `disponivel`, taxas de aceitação/pontualidade, disputas em 90 dias) e `geo.courier_zone` (N:N com `delivery_zone`).
 
@@ -295,7 +295,7 @@ O estafeta declara zonas, preço (fixo ou por km, §7.2) e janelas de disponibil
 
 ### 9.1 Algoritmo de matching (Clusters, sem Valhalla)
 
-1. Gatilho: `payment.confirmed` já aplicado à encomenda **e** modo de entrega = `estafeta`.
+1. Gatilho: a encomenda está `paga` — por `payment.confirmed` **ou** por `payment.manual_confirmed` (dicionário §3.4: são dois eventos distintos, e quem não distingue o caminho consome os dois) — **e** modo de entrega = `estafeta`. Uma encomenda paga pelo `ManualProvider` entra em *dispatch* como qualquer outra; a distinção entre os dois eventos é de autenticação e vale a jusante (comissão, Kambá Score), não aqui.
 2. Reverse geocode do pin → `bairro/zona`.
 3. Candidatos: estafetas `disponivel`, `activo`, com `zona` abrangente, `nivel` com limite ≥ valor da encomenda e carga actual < capacidade.
 4. Ordenação determinística (*proposta*): distância estimada ao ponto de recolha (haversine), depois taxa de aceitação, depois taxa pontual, depois carga actual; desempate estável por `courier_id`.
@@ -695,3 +695,4 @@ A densidade de estafetas por zona é a restrição real: a oferta sequencial de 
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: endereçamento (pin, texto, Plus Code), Nominatim, zonas e preço, estafeta como tenant, dispatch, COD, disputas, responsabilidade, payouts, privacidade, parcerias, custo e riscos. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | KAM-128: As **29** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | KAM-140: §8.1 — os estados do tenant eram quatro e em cadeia linear, e são **cinco** com o `restrito` e com volta atrás (linha 7 do KAM-140; a cadeia linear não estava no ticket e estava igualmente errada). §9.1 e §2 (ADR-009) — o *dispatch* dispara com a encomenda **paga**, pelos dois eventos de pagamento: com `payment.confirmed` só, uma encomenda paga pelo `ManualProvider` nunca entrava em *dispatch*. | Equipa KAMBÁ |

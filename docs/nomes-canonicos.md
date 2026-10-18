@@ -434,18 +434,31 @@ substituída) não têm prazo e por isso têm **âncora**: o excerto da linha qu
 mostra que é citação. Trocar a citação por um uso vivo, com a mesma contagem,
 falha.
 
-### Em `docs/tecnica/` — o que o lint de nomes não apanha — KAM-140
+### Em `docs/tecnica/` — o que o lint de nomes não apanha — KAM-140 (**fechado**)
 
-| Achado | Porque escapa |
-|---|---|
-| O DDL de `tenant_channels` de `03` §5.2 (três estados, coluna `persona`, `canal`, `coexistencia`) contra o de `01` §7.1, que é o implementado na revisão `0001` | os documentos só têm nível 1. **Numa migração** seria recusado — há um teste que o prova |
-| `contacts` e `contact_endpoints` com formas diferentes em `01` §6.2 e `03` §5.3; em `03`, `contact_endpoints` ficou sem chave primária e a nota (c) refere uma unicidade que já não está no DDL | a emenda D-01 pôs os nomes do dicionário; não desenhou o DDL, que é do KAM-008 |
-| `contacts.consentimento jsonb` em `03` §5.3: uma quarta forma de guardar consentimento | não é uma das três tabelas do D-02 |
-| Campos e finalidades de `consent_event` diferentes em `01` §6.2, `06` §7.3 e `08` §8.1, e diferentes dos do dicionário §3.1 | o D-02 é a troca do nome da tabela |
-| `registry/servicos.yaml` em `02` §5.1 subscreve só `payment.confirmed`; o dicionário §3.5 diz que subscreve os dois | o exemplo está num documento, não em `registry/` |
-| `payment.confirmed` como único evento que faz avançar a encomenda em `03` §2 e §6.2 e em `04` §2 e §7 | o D-05 lista `04` §4.1, `06` §5 e `03` §12 |
-| Estados do tenant sem `restrito` em `07` | o D-08 não lista o `07` |
-| A tabela de `10` §15.1 sem linhas próprias para `restrito → ativo` e `restrito → suspenso`; o diagrama Mermaid nunca passou por um *parser* | — |
+As oito linhas desta tabela foram resolvidas pelo KAM-140, **menos uma**, que foi
+devolvida com razão escrita. Ficam aqui porque a razão de cada uma escapar ao
+*lint* continua a valer, e é o que torna a tabela útil ao próximo ticket.
+
+| Achado | Porque escapa | Disposição |
+|---|---|---|
+| O DDL de `tenant_channels` de `03` §5.2 (três estados, coluna `persona`, `canal`, `coexistencia`) contra o de `01` §7.1, que é o implementado na revisão `0001` | os documentos só têm nível 1. **Numa migração** seria recusado — há um teste que o prova | **fechado**: era a forma morta inteira — omitia mais dez colunas, duas delas com contrato escrito noutro sítio. `03` §5.2 remete para `01` §7.1 |
+| `contacts` e `contact_endpoints` com formas diferentes em `01` §6.2 e `03` §5.3; em `03`, `contact_endpoints` ficou sem chave primária e a nota (c) refere uma unicidade que já não está no DDL | a emenda D-01 pôs os nomes do dicionário; não desenhou o DDL, que é do KAM-008 | **fechado**: o KAM-008 já correu. `01` §6.2 passa a ser o DDL de referência e diz o que a revisão `0003` implementou. E `01` §6.2 tinha o defeito maior, que esta linha não nomeava: `contact_endpoints` **sem `tenant_id`**, logo inelegível para a RLS |
+| `contacts.consentimento jsonb` em `03` §5.3: uma quarta forma de guardar consentimento | não é uma das três tabelas do D-02 | **fechado**: saiu. A revisão `0003` já a tinha recusado por escrito, atribuindo-a ao KAM-022 |
+| Campos e finalidades de `consent_event` diferentes em `01` §6.2, `06` §7.3 e `08` §8.1, e diferentes dos do dicionário §3.1 | o D-02 é a troca do nome da tabela | **metade fechada, metade devolvida**. Eram **cinco** formas e não três — faltava `10` §7.2 — e passam a uma, com os campos alinhados. As **finalidades** ficam por fixar: o dicionário e os 38 contratos publicados cruzam-se numa só, e escolher é decidir a taxonomia de consentimento. **KAM-159** |
+| `registry/servicos.yaml` em `02` §5.1 subscreve só `payment.confirmed`; o dicionário §3.5 diz que subscreve os dois | o exemplo está num documento, não em `registry/` | **fechado**, e o `vendedor.yaml` do mesmo §5.1 tinha o mesmo defeito |
+| `payment.confirmed` como único evento que faz avançar a encomenda em `03` §2 e §6.2 e em `04` §2 e §7 | o D-05 lista `04` §4.1, `06` §5 e `03` §12 | **fechado**, em **cinco** sítios e não quatro — faltava `08` §4.2. E dois de substância fora da lista: `07` §9.1, onde uma encomenda paga manualmente nunca entrava em *dispatch*, e `02` §8.2, que dizia o inverso do dicionário §3.5 |
+| Estados do tenant sem `restrito` em `07` | o D-08 não lista o `07` | **fechado**. A mesma linha falhava em duas dimensões: omitia o `restrito` **e** apresentava a máquina como cadeia linear |
+| A tabela de `10` §15.1 sem linhas próprias para `restrito → ativo` e `restrito → suspenso`; o diagrama Mermaid nunca passou por um *parser* | — | **fechado**: oito linhas, uma por aresta. E o *parser* passou a existir — `make mermaid`, 49 blocos, 0 erros. Que não seja *gate* está em `docs/ci.md` §7, lacuna 27 |
+
+**O que esta tabela deixou passar, e que nenhum *lint* via.** Seis divergências
+que só apareceram quando se foi ler a implementação ao lado dos documentos: o
+`contact_endpoints` sem `tenant_id`; a `tenants_owner_fk` simples de `03` §5.3,
+que a revisão `0003` fez **composta** porque com a simples «um tenant podia
+apontar para o contacto de outro»; o *dispatch* de `07` §9.1; o `02` §8.2; a
+quinta forma de `consent_event` em `10` §7.2, com `contact_id bytea`; e o
+próprio dicionário a contradizer-se, com o §4 a dizer «estados de
+`tenant_channels`: por definir» contra o §3.2, que os fixa em seis.
 
 ---
 
@@ -456,3 +469,4 @@ falha.
 | 1.0 | Outubro 2026 | Emissão (KAM-111): mecanismo do gate 3b, regras da exportação, como acrescentar uma extensão, *fixtures*, e o que ficou por corrigir. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | Depois da revisão adversarial ([`ANALISE-05`](analises/ANALISE-05-KAM-111-dicionario-canonico-e-lint.md)): como uma migração é lida (§2, incluindo os auxiliares do KAM-004), domínios fechados, variantes em cadeias, nomes «conhecidos» por tipo com o limite medido, canário fixado no código, âncoras das históricas, e os três tickets `fix` (KAM-139 a KAM-141). | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-008: a linha 3 do §7 (dicionário contra o bloco do KAM-008) fica decidida, como *proposta*, pela emenda 1.8 do dicionário — a favor do dicionário, com `lookup_hmac` registado como variante. Fica por ratificar no KAM-141. | Equipa KAMBÁ |
+| 1.3 | Outubro 2026 | **KAM-140 fechado.** A tabela do §7 passa a dizer a disposição de cada uma das oito linhas: sete fechadas, e a do `consent_event` metade fechada (os campos) e metade **devolvida** (as finalidades, KAM-159). Acrescenta-se o que a tabela deixava passar e nenhum *lint* via — seis divergências que só aparecem a ler a implementação ao lado dos documentos, entre elas o `contact_endpoints` sem `tenant_id` e o dicionário a contradizer-se a si próprio sobre os estados de `tenant_channels`. | Equipa KAMBÁ |

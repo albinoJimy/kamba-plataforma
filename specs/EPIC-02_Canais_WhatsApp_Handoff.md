@@ -49,7 +49,7 @@ Fase mista, por desenho: **Fase 0** para o que o esqueleto andante exige (KAM-01
 | KAM-019 | HND: HandoffProvider e Chatwoot (Agent Bot API, espelho por inbox de tipo API) | feature | L | P0 | KAM-014 |
 | KAM-020 | Mídia: download autenticado, armazenamento e URL interna assinada | feature | M | P0 | KAM-013, KAM-011 |
 | KAM-021 | Quality rating, estado `restrito` e monitorização de limites | feature | M | P0 | KAM-013, KAM-009 |
-| KAM-022 | Consentimento no 1.º contacto (aviso versionado, botões, `consent_event`) | feature | M | P0 | KAM-008, KAM-014, KAM-015 |
+| KAM-022 | Consentimento no 1.º contacto (aviso versionado, botões, `consent_event`) | feature | M | P0 | KAM-008, KAM-014, KAM-015, KAM-159 |
 | KAM-023 | Monitorização do free tier de service messages e do método de pagamento da PME | feature | S | P0 | KAM-015 |
 | KAM-024 | Simulador de webhooks Meta e testes de contrato com número de teste | chore | M | P0 | KAM-013 |
 | KAM-115 | Aviso ao dono por canal alternativo (e-mail ou push) | feature | S | P1 | KAM-017, KAM-021, KAM-023, KAM-116 |
@@ -777,7 +777,7 @@ Testes: sequências de qualidade, duplicados, integração com KAM-015, isolamen
 | Tipo | feature |
 | Prioridade | P0 |
 | Estimativa | M |
-| Dependências | KAM-008, KAM-014, KAM-015 |
+| Dependências | KAM-008, KAM-014, KAM-015, KAM-159 |
 | Bloqueia | KAM-048, KAM-070, KAM-109 |
 | Responsável sugerido | Responsável de Segurança |
 | Documentos de referência | `../docs/tecnica/10_Onboarding_Governanca.md` (§7), `../docs/tecnica/06_Dados_Eventos_Analytics.md` (§7.3), `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§6.3), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` (§4), `../docs/tecnica/evidencia/E3_Regulatorio_Dados.md`, ADR-010 |

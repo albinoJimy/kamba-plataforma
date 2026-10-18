@@ -49,7 +49,7 @@ Engenheiros de pagamentos e de comércio, segurança, produto, e quem trata dos 
 | **ADR-004** | Liquidação directa à PME; a plataforma não detém fundos; `payout()` devolve `NOT_SUPPORTED` e reembolsos são casos manuais (`refund_cases`); guardas técnicas G-1..G-6 (§10.4). |
 | **ADR-013** | `paga` só por evento autenticado; imagem de comprovativo nunca é prova; `ManualProvider` com confirmação humana auditada, limite por pedido e dupla verificação (§4). |
 | **ADR-010** | Pagador identificado por `contact_id`; telefone Express só em `contact_endpoints` (cifrado, com finalidade); `payer_hmac` para anti-fraude. |
-| **ADR-009** | Cada mudança de estado de pagamento grava no *outbox* na mesma transacção; `payment.confirmed` é o único evento que faz avançar a encomenda. |
+| **ADR-009** | Cada mudança de estado de pagamento grava no *outbox* na mesma transacção. A encomenda avança por um dos **dois** eventos de confirmação — `payment.confirmed` (facilitador autenticado) ou `payment.manual_confirmed` (`ManualProvider`) —, e por mais nenhum: nada avança uma encomenda sem evento. |
 | **ADR-007** | Valores, referências e prazos mostrados ao cliente vêm da cobrança, nunca do LLM; mensagens de cobrança são *templates* parametrizados. |
 | **ADR-011** | Pagamentos por Fluxo B / número agregador / PME *light* são Diferido; `origem='plataforma'` existe no DDL mas não corre em produção. |
 | **ADR-005/008** | Custos USD e câmbio (§12); transferência de dados para fora de Angola fora deste documento (`08`). |
@@ -425,7 +425,7 @@ stateDiagram-v2
     reembolsada --> [*]
 ```
 
-Correspondência com a encomenda (`03` §6): cobrança `paga` ⇒ `payment.confirmed` ⇒ `aguarda_pagamento/pendente_confirmacao → paga`; cobrança `expirada` ⇒ COM faz a consulta final e `aguarda_pagamento → expirada`. O estado `falhada` do documento 00 §7 é **estado de cobrança** (com `motivo_falha`), não de encomenda.
+Correspondência com a encomenda (`03` §6): cobrança `paga` ⇒ `payment.confirmed` ⇒ `aguarda_pagamento → paga`, e `payment.manual_confirmed` ⇒ `pendente_confirmacao → paga` — **um evento por caminho**, e não o do facilitador a fechar também o manual; cobrança `expirada` ⇒ COM faz a consulta final e `aguarda_pagamento → expirada`. O estado `falhada` do documento 00 §7 é **estado de cobrança** (com `motivo_falha`), não de encomenda.
 
 ### 7.2 Tabela de falhas e respostas
 
@@ -677,7 +677,7 @@ Fluxo: `payment.confirmed` ⇒ (se o tenant tem a vertical activa e obrigação 
 |---|---|---|
 | Confirmação de pagamento | 100% das `paga` com evento autenticado ou confirmação humana auditada | consulta de consistência diária; CHECK `confirmar_exige_autenticacao` |
 | Acks de *webhook* | resposta 2xx p99 < 500 ms (corpo durável no inbox) | GWY, métrica `callback_ack_ms` |
-| Latência pagamento→encomenda `paga` | p95 ≤ 5 s | `payment.confirmed` → `order.paid` |
+| Latência pagamento→encomenda `paga` | p95 ≤ 5 s | `payment.confirmed` **ou** `payment.manual_confirmed` → `order.paid`; medir só o primeiro deixava o caminho manual sem alvo nenhum |
 | Cliente notificado após pagamento | p95 ≤ 10 s | EVT → AGR → Meta |
 | Pagamentos reconhecidos duas vezes | 0 | G7 + `UNIQUE`; teste de conformidade |
 | Pagamentos aceites com valor ≠ cobrança | 0 | G4; teste de conformidade |
@@ -762,3 +762,4 @@ Fluxo: `payment.confirmed` ⇒ (se o tenant tem a vertical activa e obrigação 
 | 1.0 | Outubro 2026 | Emissão inicial: `PaymentProvider` e adaptadores, `ManualProvider`, regra de autenticidade, ledger corrigido, reconciliação, BNA, comissão e billing, anti-fraude, câmbio, e-factura. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §4.1, D-05 (`payment.manual_confirmed`); §6.2, D-04 (`authn_ok`); FK para `contacts(contact_id)`, D-01. | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | **Emendas KAM-139 e KAM-141** (contradições do dicionário): §3.4, §4.1, §4.2, §5, §5.1, §6.2, §7.1, §7.2, §8, §9 e §15 — os valores de `authn_method` passam às formas canónicas `hmac`, `manual` e `consulta` (dicionário §3.4, emenda 1.13; o algoritmo **HMAC-SHA256** mantém o nome); os `REVOKE`/`GRANT` do ledger passam a usar `kamba_batch` (dicionário §3.2); a reserva de F-18 mantém-se até `expira_at` (dicionário §3.3, emenda 1.12); o quarto valor `sistema` do `CHECK` fica assinalado como decisão em aberto para o KAM-053. | Equipa KAMBÁ |
+| 1.3 | Outubro 2026 | KAM-140: §2 (ADR-009) — «`payment.confirmed` é o **único** evento que faz avançar a encomenda» era a afirmação mais forte do conjunto, e falsa desde que o `ManualProvider` existe. §7.1 — a correspondência encaminhava o estado manual (`pendente_confirmacao`) pelo evento do facilitador; passa a um evento por caminho. §14 — o SLO media só o caminho autenticado, pelo que o manual não tinha alvo nenhum. | Equipa KAMBÁ |
