@@ -163,15 +163,16 @@ caracteres, segredo a cavalo da fronteira, e não-duplicação.
   `--experimental-test-coverage` não. **Nenhuma** quantidade de TypeScript sem
   testes move o número, porque o denominador não cresce. `--test-coverage-include`
   resolve e muda o valor medido, pelo que entra com medição própria.
-- **Sete chaves de configuração que nenhum código lê** (`arredondamento`,
-  `desconhecidas.politica`, `expressoes.and/or/with`, `prazos_conhecidos`,
-  `regra`). Um ficheiro que descreve regras que o código não lê é pior do que não
-  as descrever: alguém vai editá-lo a pensar que alterou a política.
+- ~~**Sete chaves de configuração que nenhum código lê**~~ — **fechado pelo
+  KAM-134**, e eram **oito**: faltava a `desconhecidas.razao`. Todas passaram a
+  comentário, e os catorze leitores de `ci/*.yaml` recusam agora uma chave que
+  não conheçam, com código 2.
 - ***Waivers* que passam e não deviam:** data de aprovação impossível
   (`@9999-99-99`) aceita, prazo de 30 dias contado de hoje e não da criação (não
-  há `criado_em`, pelo que um *waiver* renova-se para sempre), chaves
-  desconhecidas aceitas em silêncio. E `GATES_COM_WAIVER` não inclui os *gates*
-  14 e 18, que a §5 diz que consomem este esquema.
+  há `criado_em`, pelo que um *waiver* renova-se para sempre), ~~chaves
+  desconhecidas aceitas em silêncio~~ (esta fechou-a o KAM-134). E
+  `GATES_COM_WAIVER` não inclui os *gates* 14 e 18, que a §5 diz que consomem
+  este esquema. O resto é KAM-135.
 - **`kamba_yaml` tem dois erros de leitura silenciosos:** um `>-` como primeira
   chave de item de lista engole as chaves seguintes; um item de lista não citado
   com `:` torna-se um mapa. O módulo argumenta que a recusa larga é o que o torna

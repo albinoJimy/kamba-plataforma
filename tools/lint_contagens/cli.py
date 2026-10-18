@@ -33,14 +33,17 @@ from kamba_yaml import YamlSubsetError, exigir_chaves, load_file
 #: a apanhe.
 _CHAVES = {'version', 'excepcoes', 'dividas'}
 
-#: O `criado_em` esta no ficheiro e o leitor **nao o usa** — so o `expira_em`
-#: conta para o prazo. Fica declarado em vez de removido: uma divida sem data
-#: de nascimento nao se audita, e e informacao que o KAM-135 vai precisar
-#: quando passar a medir o prazo a partir da criacao.
+#: As chaves de cada divida. Todas lidas (KAM-134): declarar uma e nao a ler
+#: seria instanciar de novo o defeito que este ticket fecha.
 _CHAVES_DE_DIVIDA = {
     'ficheiro', 'grandeza', 'escrito', 'ocorrencias', 'origem',
     'criado_em', 'expira_em', 'razao',
 }
+
+#: Quanto tempo uma divida de contagem pode viver, contado **da criacao**.
+#: *Proposta*, a calibrar: e o mesmo valor que o `ci/waivers.yaml` usa para as
+#: excepcoes do pipeline, e pela mesma razao.
+PRAZO_MAXIMO = datetime.timedelta(days=31)
 
 from . import fontes as mod_fontes
 from .scan import PADROES, Achado, ficheiros, varrer_arvore, varrer_ficheiro
@@ -70,6 +73,7 @@ class Divida(NamedTuple):
     escrito: int
     ocorrencias: int
     origem: str
+    criado_em: datetime.date
     expira_em: datetime.date
     razao: str
 
@@ -129,7 +133,7 @@ def ler_declaracoes(raiz: Path) -> tuple[tuple[str, ...], tuple[Divida, ...]]:
         onde = f'{ALLOW}: a divida {i}'
         exigir_chaves(d, _CHAVES_DE_DIVIDA, onde, erro=ConfiguracaoInvalida)
         for chave in ('ficheiro', 'grandeza', 'escrito', 'ocorrencias', 'origem',
-                      'expira_em', 'razao'):
+                      'criado_em', 'expira_em', 'razao'):
             if not d.get(chave) and d.get(chave) != 0:
                 raise ConfiguracaoInvalida(f'{onde} nao tem `{chave}`')
         if d['grandeza'] not in PADROES:
@@ -144,10 +148,26 @@ def ler_declaracoes(raiz: Path) -> tuple[tuple[str, ...], tuple[Divida, ...]]:
             quantas = int(d['ocorrencias'])
         except (TypeError, ValueError) as e:
             raise ConfiguracaoInvalida(f'{onde}: `ocorrencias` nao e um numero') from e
+        criado_em = _data(d['criado_em'], f'{onde}: `criado_em`')
+        expira_em = _data(d['expira_em'], f'{onde}: `expira_em`')
+        # O `criado_em` **e lido**, e e isto que o torna util (KAM-134): sem
+        # esta conta, prolongar uma divida era empurrar o `expira_em` e mais
+        # nada — um *diff* de um caractere, sem decisao nova e sem dono novo.
+        # E o mesmo defeito que o KAM-135 vai fechar nos *waivers*.
+        if expira_em < criado_em:
+            raise ConfiguracaoInvalida(
+                f'{onde}: `expira_em` ({expira_em}) e anterior a `criado_em` '
+                f'({criado_em})')
+        if expira_em - criado_em > PRAZO_MAXIMO:
+            raise ConfiguracaoInvalida(
+                f'{onde}: o prazo e de {(expira_em - criado_em).days} dias, e o '
+                f'maximo sao {PRAZO_MAXIMO.days} contados da criacao. Prolongar '
+                'uma divida exige mexer no `criado_em` — ou seja, uma decisao '
+                'nova, que se le no diff.')
         dividas.append(Divida(
             ficheiro=str(d['ficheiro']), grandeza=str(d['grandeza']), escrito=escrito,
             ocorrencias=quantas, origem=str(d['origem']),
-            expira_em=_data(d['expira_em'], onde), razao=str(d['razao']),
+            criado_em=criado_em, expira_em=expira_em, razao=str(d['razao']),
         ))
     return tuple(excepcoes), tuple(dividas)
 

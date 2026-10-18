@@ -53,6 +53,12 @@ class Excepcao:
     ancoras: tuple[str, ...] = ()
 
 
+#: As chaves de `ci/canon-allow.yaml` que este leitor conhece. Constante de
+#: modulo desde o KAM-134, para que um teste a possa confrontar com o que
+#: esta no ficheiro.
+CHAVES_DE_TOPO = {"version", "historicas", "dividas"}
+
+
 class Permitidas:
     def __init__(self, entradas: list[Excepcao]) -> None:
         self.entradas = entradas
@@ -67,7 +73,7 @@ class Permitidas:
             dados = load_file(caminho)
         except YamlSubsetError as excepcao:
             raise ConfiguracaoInvalida(str(excepcao)) from excepcao
-        _exigir_chaves(dados, {"version", "historicas", "dividas"}, PERMITIDAS)
+        _exigir_chaves(dados, CHAVES_DE_TOPO, PERMITIDAS)
         if dados.get("version") != 1:
             raise ConfiguracaoInvalida(f"{PERMITIDAS}: `version` tem de ser 1")
 

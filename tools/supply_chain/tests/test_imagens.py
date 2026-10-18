@@ -403,10 +403,23 @@ class TestInventarioInvalido(ComArvore):
             imagens.verificar(self.raiz)
 
     def test_chave_desconhecida_no_topo_e_na_entrada(self) -> None:
-        self.invalido("version: 1", "version: 1\nexcepcoes: []", "nenhum codigo le")
+        # O fragmento mudou no KAM-134, quando a implementacao local deste
+        # modulo passou a chamar o `kamba_yaml.exigir_chaves` partilhado. Era
+        # `nenhum codigo le`.
+        self.invalido("version: 1", "version: 1\nexcepcoes: []", "chave(s) desconhecida(s)")
 
     def test_chave_desconhecida_na_entrada(self) -> None:
-        self.invalido("    cosign: n/a", "    cosign: n/a\n    ignorar: sim", "nenhum codigo le")
+        self.invalido(
+            "    cosign: n/a", "    cosign: n/a\n    ignorar: sim", "chave(s) desconhecida(s)"
+        )
+
+    def test_a_recusa_diz_o_conjunto_aceite(self) -> None:
+        """O que a mensagem partilhada acrescentou (KAM-134).
+
+        A local dizia so as chaves a mais. Quem acrescentou a chave precisa de
+        saber o que podia ter escrito, e a lista e curta.
+        """
+        self.invalido("version: 1", "version: 1\nexcepcoes: []", "As aceites aqui sao:")
 
     def test_campo_em_falta(self) -> None:
         self.invalido('    lido_de: "teste"\n', "", "campos em falta: lido_de")

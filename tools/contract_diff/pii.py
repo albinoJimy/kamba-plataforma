@@ -174,6 +174,17 @@ def _nomes_de_campo(no, prefixo: str = ""):
             yield from _nomes_de_campo(filho, prefixo)
 
 
+class AllowlistInvalida(ValueError):
+    """`ci/contratos-allow.yaml` esta malformado.
+
+    Excepcao propria, e nao o `YamlSubsetError` por omissao (KAM-134): o
+    `cli.py` tem de a distinguir para devolver `SAIDA_ERRO` (2) e nao
+    `SAIDA_ACHADOS` (1). Com a de omissao, uma chave inventada na *allowlist*
+    saia como *traceback* e o gate 7 ficava indistinguivel de ter encontrado
+    PII.
+    """
+
+
 #: As chaves de `ci/contratos-allow.yaml` que este leitor conhece (KAM-134).
 _CHAVES = {"version", "aprovados"}
 _CHAVES_DE_APROVADO = {"campo", "ticket", "razao", "data"}
@@ -192,11 +203,14 @@ def ler_allowlist(raiz: Path) -> set[str]:
     # esta **vazia** hoje, e um conjunto aceite so com `campo` punha este
     # ficheiro vermelho no dia em que alguem aprovasse o primeiro. Verde por
     # acidente e a unica coisa pior do que vermelho.
-    kamba_yaml.exigir_chaves(documento, _CHAVES, str(caminho))
+    kamba_yaml.exigir_chaves(
+        documento, _CHAVES, str(caminho), erro=AllowlistInvalida
+    )
     aprovados = documento.get("aprovados") or []
     for indice, entrada in enumerate(aprovados, start=1):
         kamba_yaml.exigir_chaves(
-            entrada, _CHAVES_DE_APROVADO, f"{caminho}: aprovado {indice}"
+            entrada, _CHAVES_DE_APROVADO, f"{caminho}: aprovado {indice}",
+            erro=AllowlistInvalida,
         )
     return {str(entrada["campo"]) for entrada in aprovados}
 

@@ -14,8 +14,11 @@
 #      `syft` e `cyclonedx-npm` fazem por omissao) marca o nosso codigo como
 #      licenca nao permitida.
 #
-# Este ficheiro corrige as tres e acrescenta o que a proposta nao tinha:
-# avaliacao de **expressoes** SPDX, politica para `NOASSERTION`, e um terceiro
+# Este ficheiro corrige as tres. A avaliacao de **expressoes** SPDX e a politica
+# para `NOASSERTION` tambem sao do KAM-002, mas **nao vivem aqui**: estao em
+# `tools/sbom/spdx.py` e em `tools/sbom/cli.py`, e as chaves que as prometiam
+# sairam deste ficheiro no KAM-134 — descreviam configuracao que ninguem lia.
+# O que fica aqui e o terceiro
 # estado para o que depende de uma decisao aberta — exigido por
 # `specs/EPIC-07` §(Redis/Valkey): "ate la, a lista de licencas marca-o como
 # pendente de decisao e nao como aprovado".

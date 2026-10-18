@@ -835,6 +835,41 @@ class TestOsCatorzeLeitoresDeclaramOQueLeem(unittest.TestCase):
         ler_inventario(ROOT)
         ler_registo(ROOT)
 
+    #: Para cada `ci/*.yaml`, o conjunto que o seu leitor declara. A chave e o
+    #: caminho relativo a raiz, e e por **descoberta** que se verifica que esta
+    #: completo — ver o teste a seguir. Uma lista a mao nunca apanharia um
+    #: ficheiro novo, que e metade do que o criterio 2 do KAM-134 pede.
+    @staticmethod
+    def conjuntos_por_ficheiro() -> dict[str, set[str]]:
+        import ci_waivers
+        from canon_lint import documentos as canon_documentos
+        from canon_lint.dicionario import CHAVES_DA_POLITICA
+        from contract_diff import pii
+        from coverage_gate import CHAVES as chaves_thresholds
+        from lint_contagens import cli as contagens
+        from lint_handoff import cli as handoff
+        from lint_refs.cli import CHAVES as chaves_refs
+        from sbom.cli import CHAVES_DE_LICENCAS
+        from scan_secrets import scanner
+        from supply_chain import imagens, licencas
+
+        return {
+            "ci/thresholds.yaml": chaves_thresholds,
+            "ci/licenses.yaml": CHAVES_DE_LICENCAS,
+            "ci/refs-allow.yaml": chaves_refs,
+            "ci/waivers.yaml": ci_waivers._CHAVES,
+            "ci/secrets-allow.yaml": scanner._CHAVES,
+            "ci/handoff-allow.yaml": handoff._CHAVES,
+            "ci/contagens-allow.yaml": contagens._CHAVES,
+            "ci/contratos-allow.yaml": pii._CHAVES,
+            "ci/canon-allow.yaml": canon_documentos.CHAVES_DE_TOPO,
+            "ci/canon-lint.yaml": CHAVES_DA_POLITICA,
+            "ci/rls_exceptions.yaml": {"version", "excepcoes"},
+            "ci/secdef_allowlist.yaml": {"version", "funcoes"},
+            "ci/supply-chain/imagens.yaml": imagens._CHAVES_TOPO,
+            "ci/supply-chain/licencas.yaml": licencas._CHAVES_TOPO,
+        }
+
     def test_nenhuma_chave_de_topo_fica_por_declarar(self) -> None:
         """A conta que a *discovery* fez a mao, agora por maquina.
 
@@ -843,30 +878,37 @@ class TestOsCatorzeLeitoresDeclaramOQueLeem(unittest.TestCase):
         `arredondamento` — que esteve dois tickets no ficheiro sem ninguem a
         ler — deixa de poder voltar.
         """
-        import ci_waivers
-        from contract_diff import pii
-        from coverage_gate import CHAVES as chaves_thresholds
-        from lint_contagens import cli as contagens
-        from lint_handoff import cli as handoff
-        from lint_refs.cli import CHAVES as chaves_refs
-        from sbom.cli import CHAVES_DE_LICENCAS
-        from scan_secrets import scanner
-
-        esperado = {
-            "thresholds.yaml": chaves_thresholds,
-            "licenses.yaml": CHAVES_DE_LICENCAS,
-            "refs-allow.yaml": chaves_refs,
-            "waivers.yaml": ci_waivers._CHAVES,
-            "secrets-allow.yaml": scanner._CHAVES,
-            "handoff-allow.yaml": handoff._CHAVES,
-            "contagens-allow.yaml": contagens._CHAVES,
-            "contratos-allow.yaml": pii._CHAVES,
-        }
-        for nome, aceites in esperado.items():
+        conjuntos = self.conjuntos_por_ficheiro()
+        for nome, aceites in conjuntos.items():
             with self.subTest(ficheiro=nome):
-                dados = kamba_yaml.load_file(CI / nome)
+                dados = kamba_yaml.load_file(ROOT / nome)
                 a_mais = sorted(set(dados) - aceites)
-                self.assertEqual(a_mais, [], f"ci/{nome}: chave(s) sem leitor")
+                self.assertEqual(a_mais, [], f"{nome}: chave(s) sem leitor")
+
+    def test_um_ci_yaml_novo_nao_passa_despercebido(self) -> None:
+        """A outra metade do criterio 2, e a que a primeira versao nao tinha.
+
+        «Toda a chave activa nos `ci/*.yaml` depois deste ticket tem um
+        leitor.» Com a lista a mao, um ficheiro **novo** nao tinha nada que o
+        forcasse a ter leitor — a classe que o ticket fecha reabria no proximo
+        ficheiro. O padrao certo ja estava neste ficheiro, no
+        `test_todos_os_ficheiros_reais_se_leem`: descobrir por *glob*.
+        """
+        descobertos = {
+            caminho.relative_to(ROOT).as_posix()
+            for padrao in ("ci/*.yaml", "ci/supply-chain/*.yaml")
+            for caminho in ROOT.glob(padrao)
+        }
+        declarados = set(self.conjuntos_por_ficheiro())
+        sem_leitor = sorted(descobertos - declarados)
+        self.assertEqual(
+            sem_leitor, [],
+            "ficheiro(s) de configuracao sem leitor declarado. Ou ganham um "
+            "leitor, ou nao pertencem a `ci/`.",
+        )
+        # E o inverso: um leitor declarado cujo ficheiro desapareceu e uma
+        # entrada morta que da falsa seguranca a este teste.
+        self.assertEqual(sorted(declarados - descobertos), [])
 
 
 class TestUmaGralhaEhApanhada(unittest.TestCase):

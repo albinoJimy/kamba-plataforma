@@ -200,9 +200,12 @@ class TestRegisto(ComArvore):
     def test_registo_invalido_levanta(self) -> None:
         for antigo, novo, fragmento in (
             ("version: 1", "version: 3", "'version' tem de ser 1"),
-            ("version: 1", "version: 1\nextra: sim", "nenhum codigo le"),
+            # O fragmento mudou no KAM-134: a implementacao local deste modulo
+            # passou a chamar o `kamba_yaml.exigir_chaves` partilhado.
+            ("version: 1", "version: 1\nextra: sim", "chave(s) desconhecida(s)"),
             ('    versao: "18.6"\n', "", "campos em falta: versao"),
-            ("    licenca: PostgreSQL", "    licenca: PostgreSQL\n    aprovado_por: eu", "nenhum codigo le"),
+            ("    licenca: PostgreSQL", "    licenca: PostgreSQL\n    aprovado_por: eu",
+             "chave(s) desconhecida(s)"),
             ("  - componente: postgresql", "  - componente: Postgre SQL", "minusculas"),
             ("  - componente: node", "  - componente: postgresql", "repetido"),
             ('    data_verificacao: "2026-10-08"\n    fonte: "teste"\n    estado_verificacao: CONFIRMADO\n    estado: permitido\n  - componente: node',

@@ -8,7 +8,9 @@ prazo nao passa, e uma varredura que deixou de ver a populacao **nao** diz
 
 from __future__ import annotations
 
+import datetime
 import io
+import tempfile
 import textwrap
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -61,7 +63,11 @@ class TestDeclaracoes(unittest.TestCase):
             cli.ler_declaracoes(self.raiz)
 
     def test_uma_divida_sem_prazo_e_recusada(self) -> None:
-        """Uma divida sem `expira_em` e uma amnistia."""
+        """Uma divida sem `expira_em` e uma amnistia.
+
+        O `criado_em` esta aqui de proposito: sem ele, a recusa vinha por essa
+        chave e o teste deixava de provar o que diz (KAM-134).
+        """
         self._escrever("""
             dividas:
               - ficheiro: docs/x.md
@@ -69,6 +75,7 @@ class TestDeclaracoes(unittest.TestCase):
                 escrito: 143
                 ocorrencias: 1
                 origem: KAM-130
+                criado_em: 2026-10-16
                 razao: "porque"
             """)
         with self.assertRaises(cli.ConfiguracaoInvalida) as e:
@@ -83,6 +90,7 @@ class TestDeclaracoes(unittest.TestCase):
                 escrito: 143
                 ocorrencias: 1
                 origem: KAM-130
+                criado_em: 2026-10-16
                 expira_em: 2026-11-16
                 razao: "porque"
             """)
@@ -185,6 +193,7 @@ class TestCheck(unittest.TestCase):
                 escrito: 143
                 ocorrencias: 1
                 origem: KAM-130
+                criado_em: 2026-10-16
                 expira_em: 2026-11-16
                 razao: "e do KAM-130"
             """)
@@ -203,6 +212,7 @@ class TestCheck(unittest.TestCase):
                 escrito: 143
                 ocorrencias: 1
                 origem: KAM-130
+                criado_em: 2026-10-16
                 expira_em: 2026-11-16
                 razao: "e do KAM-130"
             """)
@@ -221,6 +231,7 @@ class TestCheck(unittest.TestCase):
                 escrito: 143
                 ocorrencias: 1
                 origem: KAM-130
+                criado_em: 2026-10-16
                 expira_em: 2026-11-16
                 razao: "e do KAM-130"
             """)
@@ -239,6 +250,7 @@ class TestCheck(unittest.TestCase):
                 escrito: 143
                 ocorrencias: 1
                 origem: KAM-130
+                criado_em: 2026-10-16
                 expira_em: 2026-11-16
                 razao: "e do KAM-130"
             """)
@@ -267,3 +279,69 @@ class TestRepositorio(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestOCriadoEmELido(unittest.TestCase):
+    """O `criado_em` era chave activa que ninguem lia (KAM-134).
+
+    A escolha que o ticket admite e «passa a ser lida, com teste que prova que
+    alterar o valor altera o comportamento». E o que esta aqui: a mesma data
+    com `expira_em` diferente da dois resultados.
+    """
+
+    def escrever(self, criado: str, expira: str) -> Path:
+        pasta = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (pasta / 'ci').mkdir()
+        (pasta / 'ci' / 'contagens-allow.yaml').write_text(
+            'version: 1\n'
+            'dividas:\n'
+            '  - ficheiro: docs/x.md\n'
+            '    grandeza: ADRs\n'
+            '    escrito: 18\n'
+            '    ocorrencias: 1\n'
+            '    origem: KAM-130\n'
+            f'    criado_em: {criado}\n'
+            f'    expira_em: {expira}\n'
+            '    razao: uma razao com comprimento que sobrevive ao autor\n',
+            encoding='utf-8',
+        )
+        return pasta
+
+    def test_um_prazo_dentro_do_maximo_passa(self) -> None:
+        _, dividas = cli.ler_declaracoes(self.escrever('2026-10-16', '2026-11-16'))
+        self.assertEqual(len(dividas), 1)
+        self.assertEqual(dividas[0].criado_em, datetime.date(2026, 10, 16))
+
+    def test_empurrar_so_o_expira_em_falha(self) -> None:
+        """«Prolongar deixa de ser um diff de um caractere.»
+
+        E a razao de ser da leitura. Com o `criado_em` ignorado, esta mesma
+        divida passava — era so mudar o ano.
+        """
+        with self.assertRaises(cli.ConfiguracaoInvalida) as capturado:
+            cli.ler_declaracoes(self.escrever('2026-10-16', '2027-11-16'))
+        self.assertIn('contados da criacao', str(capturado.exception))
+
+    def test_expira_antes_de_criar_falha(self) -> None:
+        with self.assertRaises(cli.ConfiguracaoInvalida) as capturado:
+            cli.ler_declaracoes(self.escrever('2026-11-16', '2026-10-16'))
+        self.assertIn('anterior a `criado_em`', str(capturado.exception))
+
+    def test_sem_criado_em_falha_e_diz_qual_falta(self) -> None:
+        pasta = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (pasta / 'ci').mkdir()
+        (pasta / 'ci' / 'contagens-allow.yaml').write_text(
+            'version: 1\n'
+            'dividas:\n'
+            '  - ficheiro: docs/x.md\n'
+            '    grandeza: ADRs\n'
+            '    escrito: 18\n'
+            '    ocorrencias: 1\n'
+            '    origem: KAM-130\n'
+            '    expira_em: 2026-11-16\n'
+            '    razao: uma razao com comprimento que sobrevive ao autor\n',
+            encoding='utf-8',
+        )
+        with self.assertRaises(cli.ConfiguracaoInvalida) as capturado:
+            cli.ler_declaracoes(pasta)
+        self.assertIn('criado_em', str(capturado.exception))

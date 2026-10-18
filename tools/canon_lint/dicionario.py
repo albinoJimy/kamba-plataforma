@@ -102,6 +102,16 @@ class ConfiguracaoInvalida(ValueError):
     """Um dos ficheiros do gate 3b falta ou nao tem a forma esperada."""
 
 
+#: As chaves de `ci/canon-lint.yaml` que este leitor conhece. Constante de
+#: modulo desde o KAM-134, pela mesma razao que a de `documentos.py`.
+CHAVES_DA_POLITICA = {
+    "version", "superficies", "fora_de_ambito", "sentinelas",
+    "dominios_por_conceito", "dominios_so_no_registo", "unicidades_proibidas",
+    "confirmacao", "eventos_de_pagamento", "envelope", "limites", "verticais",
+    "papeis", "esquemas", "auxiliares_de_migracao", "eventos_partilhados",
+}
+
+
 def _exigir_chaves(dados: dict, permitidas: set[str], onde: str) -> None:
     """A recusa de chaves desconhecidas, com a excepcao deste pacote.
 
@@ -417,16 +427,7 @@ class Politica:
             dados = load_file(caminho)
         except YamlSubsetError as excepcao:
             raise ConfiguracaoInvalida(str(excepcao)) from excepcao
-        _exigir_chaves(
-            dados,
-            {
-                "version", "superficies", "fora_de_ambito", "sentinelas",
-                "dominios_por_conceito", "dominios_so_no_registo", "unicidades_proibidas",
-                "confirmacao", "eventos_de_pagamento", "envelope", "limites", "verticais",
-                "papeis", "esquemas", "auxiliares_de_migracao", "eventos_partilhados",
-            },
-            POLITICA,
-        )
+        _exigir_chaves(dados, CHAVES_DA_POLITICA, POLITICA)
         if dados.get("version") != 1:
             raise ConfiguracaoInvalida(f"{POLITICA}: `version` tem de ser 1")
 

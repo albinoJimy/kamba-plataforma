@@ -1171,8 +1171,11 @@ resposta seria pior do que nomeá-las:
 13. **O validador de *waivers* aceita o que não devia:** uma data de aprovação
     impossível (`@9999-99-99`), um prazo contado de hoje e não da criação — não
     há `criado_em`, pelo que um *waiver* se renova para sempre com um *diff* de
-    um caractere — e chaves desconhecidas em silêncio. E `GATES_COM_WAIVER` não
-    inclui os *gates* 14 e 18, que a §5 diz que consomem este esquema.
+    um caractere. E `GATES_COM_WAIVER` não inclui os *gates* 14 e 18, que a §5
+    diz que consomem este esquema. **A parte das «chaves desconhecidas em
+    silêncio» saiu daqui: fechou-a o KAM-134**, com o mecanismo partilhado — é
+    o que o Contexto do KAM-134 previa, e é a razão de ele bloquear o KAM-135.
+    O resto é KAM-135.
 14. ~~**O `tools/kamba_yaml.py` tem dois erros de leitura silenciosos:** um `>-`
     como primeira chave de um item de lista engole as chaves seguintes, e um
     item de lista não citado que contenha `:` torna-se um mapa. O módulo
