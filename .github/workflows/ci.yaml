@@ -347,6 +347,16 @@ jobs:
   # Resumo
   # ---------------------------------------------------------------------------
 
+  # O `gate-3c-backlog` (KAM-138) entra nos `needs` abaixo e **nao** nos
+  # `required_status_checks` de `.github/rulesets/main.json`, pela mesma razao do
+  # 3b (lacuna 17 de `docs/ci.md` §7): acrescentar um contexto ao *ruleset* e
+  # alteracao de configuracao do repositorio, que precisa de um *token* com
+  # `administration: write`. Por este caminho o gate bloqueia o merge na mesma,
+  # porque `gates do KAM-002` e que e o *required check*.
+  #
+  # O comentario fica **aqui** e nao dentro da lista: o `needs` tem de ser uma
+  # lista de nomes de job sem nada pelo meio, e ha um teste que o le assim
+  # (`supply_chain/tests/test_revisao_adversarial.py::TestM6OGateCorre`).
   gates-em-ambito:
     name: "gates do KAM-002"
     runs-on: ubuntu-latest
@@ -355,11 +365,6 @@ jobs:
       - gate-2-tipos
       - gate-3-referencias
       - gate-3b-nomes-canonicos
-      # O 3c entra aqui, e nao no `main.json`, pela mesma razao do 3b (lacuna 17
-      # de `docs/ci.md` §7): acrescentar um contexto ao *ruleset* e alteracao de
-      # configuracao do repositorio, que precisa de um *token* com
-      # `administration: write`. Por este caminho o gate **bloqueia na mesma** o
-      # merge, porque `gates do KAM-002` e que e o *required check*.
       - gate-3c-backlog
       - gate-4-unit
       - gate-6-isolamento
