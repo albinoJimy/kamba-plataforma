@@ -52,6 +52,9 @@ class TestExcepcaoEmADR(unittest.TestCase):
                 f"    adr_ou_aprovacao: \"{referencia}\"\n"
                 "    autor: teste\n"
                 "    razao: Uma razao com mais de quarenta caracteres, para o validador a aceitar.\n"
+                # `criado_em` e obrigatorio desde o KAM-135, e e dele que o
+                # prazo se conta.
+                f"    criado_em: \"{datetime.date.today().isoformat()}\"\n"
                 f"    expira_em: \"{self.expira}\"\n"
             )
         (self.raiz / "ci" / "waivers.yaml").write_text(texto, encoding="utf-8")
