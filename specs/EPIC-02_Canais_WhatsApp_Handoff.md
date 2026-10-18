@@ -793,7 +793,7 @@ Implementar a barreira de consentimento anterior ao AGR: aviso curto e versionad
 ### Critérios de Aceitação
 
 - [ ] Primeira mensagem de um contacto sem `consent_event` válido para a versão de texto vigente: exactamente 1 mensagem de saída (o aviso, com 3 botões «Continuar», «Falar com a loja», «Saber mais») e 0 invocações do AGR.
-- [ ] «Continuar» grava 1 linha `consent_event` (`purpose='transaccao'`, `accepted=true`, `text_version`, `canal`, `evidence_hash`) e só então o AGR é invocado; o mesmo botão repetido 2× produz 1 linha.
+- [ ] «Continuar» grava 1 linha `consent_event` (`purpose='transacao'`, `accepted=true`, `text_version`, `canal`, `evidence_hash`) e só então o AGR é invocado; o mesmo botão repetido 2× produz 1 linha.
 - [ ] «Falar com a loja» passa a conversa a `humano` (KAM-018/019) sem tratar dados por IA; «Saber mais» envia o texto completo/ligação à política e repete o aviso; texto livre em vez de botão repete o aviso até 2 vezes e depois encaminha a `humano` (comportamento a confirmar por parecer).
 - [ ] Propriedade: em sequências aleatórias de 1.000 mensagens por 50 contactos, nenhum *job* do AGR é criado sem `consent_event` válido anterior (0 violações).
 - [ ] «PARAR» (insensível a maiúsculas e acentos) em qualquer ponto grava `purpose='marketing'`, `accepted=false`, passa a conversa a `pausada` (gancho de KAM-018) e responde 1 confirmação; *marketing* sem `accepted=true` específico é recusado pelo Outbound (KAM-015).
@@ -804,7 +804,7 @@ Implementar a barreira de consentimento anterior ao AGR: aviso curto e versionad
 
 ### Detalhes Técnicos
 
-- **Componentes:** CHR/canal (`ConsentGate` antes do AGR), Outbound (botões), GOV (texto e versões). DDL de `../docs/tecnica/10` §7.2 com `contact_id uuid` (o doc usa `bytea`, em conflito com ADR-010) e `purpose` ∈ `transaccao, marketing, partilha_estafeta, melhoria`; os propósitos analíticos de `consent_ledger` (06 §7.3) são Diferidos e entram por migração quando existirem.
+- **Componentes:** CHR/canal (`ConsentGate` antes do AGR), Outbound (botões), GOV (texto e versões). DDL de `../docs/tecnica/10` §7.2 com `contact_id uuid` (o doc usa `bytea`, em conflito com ADR-010) e `purpose` com o dominio de dez do dicionario 3.1 (emenda 1.16); os propósitos analíticos de `consent_ledger` (06 §7.3) são Diferidos e entram por migração quando existirem.
 - **Fluxo:** `inbound → ConsentGate → (sem consentimento) aviso | (com consentimento) AGR`. O gate corre no pipeline de canal, porque KAM-025 não depende deste ticket.
 - **Botões:** `button_reply` entrega `reply.id` emitido por nós (o AGR confia no `id`, não no título). Marketing exige consentimento separado com «PARAR» em cada mensagem (E1 §4); no Piloto não há *marketing*.
 - **Fora de âmbito:** consentimento da PME (ToS/DPA, KAM-090), direitos do titular (KAM-070), parecer sobre o texto (KAM-104); o texto final em PT-AO é revisto juridicamente.

@@ -25,8 +25,23 @@ PASTA = Path("contratos") / "eventos"
 #: `v01` seria uma segunda forma de escrever a mesma coisa.
 NOME_DO_FICHEIRO = re.compile(r"^v([1-9][0-9]*)\.schema\.json$")
 
-#: O nome do exemplo que acompanha cada contrato.
+#: O nome do exemplo que acompanha a **v1** de cada contrato.
 NOME_DO_EXEMPLO = "exemplo.json"
+
+#: E o das versoes seguintes: `exemplo.v2.json`, `exemplo.v3.json` (KAM-159).
+#:
+#: Havia **um** exemplo por pasta, validado contra **todos** os contratos dela.
+#: Enquanto so houve `v1` isso bastou; no dia em que nasceu a `v2`, o mesmo
+#: ficheiro tinha de dizer `versao: 1` e `versao: 2` ao mesmo tempo. Nao e um
+#: detalhe de arrumacao: um exemplo e a unica prova executavel de que um
+#: contrato descreve um evento que alguem consegue escrever, e um contrato sem
+#: exemplo proprio nunca foi verificado.
+NOME_DO_EXEMPLO_POR_VERSAO = re.compile(r"^exemplo\.v([1-9][0-9]*)\.json$")
+
+
+def nome_do_exemplo(versao: int) -> str:
+    """O nome do exemplo da versao `n`. A `v1` mantem o nome historico."""
+    return NOME_DO_EXEMPLO if versao == 1 else f"exemplo.v{versao}.json"
 
 #: A gramatica de um tipo de evento. A mesma do `lerEnvelope` e do `canon_lint`.
 TIPO_DE_EVENTO = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
@@ -90,10 +105,16 @@ def todos(raiz: Path) -> list[Contrato]:
         ler(caminho, raiz)
         for caminho in sorted(pasta.glob("*/*.json"))
         if caminho.name != NOME_DO_EXEMPLO
+        and not NOME_DO_EXEMPLO_POR_VERSAO.match(caminho.name)
     ]
     return sorted(contratos, key=lambda c: (c.tipo, c.versao))
 
 
 def exemplo_de(contrato: Contrato) -> Path:
-    """O exemplo que acompanha um contrato. Pode nao existir — quem chama ve."""
-    return contrato.caminho.parent / NOME_DO_EXEMPLO
+    """O exemplo que acompanha um contrato. Pode nao existir — quem chama ve.
+
+    **Por versao** desde o KAM-159: a `v1` fica com o nome historico
+    (`exemplo.json`) e as seguintes levam a versao no nome. Sem isto, o mesmo
+    ficheiro tinha de declarar duas versoes ao mesmo tempo.
+    """
+    return contrato.caminho.parent / nome_do_exemplo(contrato.versao)

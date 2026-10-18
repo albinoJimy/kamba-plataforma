@@ -17,6 +17,7 @@ estar errado.
 from __future__ import annotations
 
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -32,9 +33,34 @@ ESPERADOS = 38
 PROIBIDOS = ("telefone", "msisdn", "bsuid", "nome", "morada", "texto", "email")
 
 
-def payload_de(tipo: str) -> dict:
-    documento = json.loads((CONTRATOS / tipo / "v1.schema.json").read_text(encoding="utf-8"))
-    return documento["properties"]["payload"]
+#: Os contratos: 76 ficheiros em 38 pastas, desde o KAM-159.
+ESPERADOS_CONTRATOS = 76
+
+
+def versoes_de(tipo: str) -> list[int]:
+    """As versoes de um tipo, lidas da pasta.
+
+    Desde o KAM-159 ha mais do que uma, e **tudo o que este ficheiro verifica
+    tem de valer para todas**: um contrato que entrasse como `v2` sem passar
+    por aqui herdava verde de uma `v1` que ja nenhum produtor novo escreve.
+    """
+    numeros = sorted(
+        int(p.name[1:-len(".schema.json")])
+        for p in (CONTRATOS / tipo).iterdir()
+        if re.fullmatch(r"v[1-9][0-9]*\.schema\.json", p.name)
+    )
+    assert numeros, f"{tipo}: pasta sem nenhum v<N>.schema.json"
+    return numeros
+
+
+def nome_do_exemplo(versao: int) -> str:
+    """A `v1` mantem o nome historico; da segunda em diante leva a versao."""
+    return "exemplo.json" if versao == 1 else f"exemplo.v{versao}.json"
+
+
+def payload_de(tipo: str, versao: int = 1) -> dict:
+    caminho = CONTRATOS / tipo / f"v{versao}.schema.json"
+    return json.loads(caminho.read_text(encoding="utf-8"))["properties"]["payload"]
 
 
 class TestCatalogoGerado(unittest.TestCase):
@@ -43,21 +69,44 @@ class TestCatalogoGerado(unittest.TestCase):
         self.assertEqual(len(na_pasta), ESPERADOS)
         self.assertEqual(sorted(CATALOGO), na_pasta)
 
-    def test_cada_entrada_diz_a_versao_do_ficheiro(self) -> None:
+    def test_cada_entrada_diz_as_versoes_dos_ficheiros(self) -> None:
         for tipo, entrada in CATALOGO.items():
             with self.subTest(tipo=tipo):
-                self.assertEqual(entrada["versao"], 1)
+                self.assertEqual(list(entrada["versoes"]), versoes_de(tipo))
 
     def test_os_obrigatorios_e_os_permitidos_sao_os_do_schema(self) -> None:
+        """Em **todas** as versoes.
+
+        Uma entrada so do catalogo para varias versoes e uma afirmacao: a de
+        que o payload tem os mesmos campos em todas. O gerador recusa gerar
+        quando nao tem (`NaoSeiTraduzirError`); aqui verifica-se o resultado,
+        que e onde a afirmacao se pagaria se fosse falsa.
+        """
+        medidos = 0
         for tipo, entrada in CATALOGO.items():
+            for versao in versoes_de(tipo):
+                with self.subTest(tipo=tipo, versao=versao):
+                    payload = payload_de(tipo, versao)
+                    self.assertEqual(
+                        sorted(entrada["obrigatorios"]), sorted(payload.get("required") or [])
+                    )
+                    self.assertEqual(
+                        sorted(entrada["permitidos"]), sorted(payload.get("properties") or {})
+                    )
+                medidos += 1
+        self.assertEqual(medidos, ESPERADOS_CONTRATOS)
+
+    def test_cada_versao_tem_o_seu_exemplo_e_nenhum_sobra(self) -> None:
+        """Um `exemplo.v3.json` numa pasta sem `v3.schema.json` passaria
+        despercebido para sempre: nada o le. E um `v3.schema.json` sem exemplo
+        tirava a versao nova das verificacoes sem falhar nenhuma."""
+        for tipo in CATALOGO:
             with self.subTest(tipo=tipo):
-                payload = payload_de(tipo)
-                self.assertEqual(
-                    sorted(entrada["obrigatorios"]), sorted(payload.get("required") or [])
+                na_pasta = sorted(
+                    p.name for p in (CONTRATOS / tipo).iterdir()
+                    if p.name.startswith("exemplo")
                 )
-                self.assertEqual(
-                    sorted(entrada["permitidos"]), sorted(payload.get("properties") or {})
-                )
+                self.assertEqual(na_pasta, sorted(map(nome_do_exemplo, versoes_de(tipo))))
 
     def test_todo_o_obrigatorio_e_permitido(self) -> None:
         """Um `required` sobre um campo nao declarado e um schema impossivel."""
@@ -94,7 +143,10 @@ class TestTiposGerados(unittest.TestCase):
         from typing import is_typeddict
 
         classes = [n for n in dir(contratos) if is_typeddict(getattr(contratos, n))]
-        self.assertEqual(len(classes), ESPERADOS)
+        # Um por **contrato**, e nao por tipo: desde o KAM-159 sao 76 em 38
+        # pastas. O payload de uma versao nova pode mudar — nos dois
+        # `consent.*` muda — e um TypedDict partilhado escondia-o.
+        self.assertEqual(len(classes), ESPERADOS_CONTRATOS)
         self.assertTrue(all(n.startswith("Payload") for n in classes))
 
     def test_um_deles_tem_os_campos_do_contrato(self) -> None:
@@ -119,15 +171,19 @@ class TestTiposGerados(unittest.TestCase):
 
         with_optional = 0
         for tipo, entrada in CATALOGO.items():
-            classe = getattr(contratos, "Payload" + "".join(
+            base = "Payload" + "".join(
                 p.capitalize() for p in tipo.replace(".", "_").split("_")
-            ))
+            )
             obrigatorios = set(entrada["obrigatorios"])
             opcionais = set(entrada["permitidos"]) - obrigatorios
             with_optional += bool(opcionais)
-            with self.subTest(tipo=tipo):
-                self.assertEqual(set(classe.__required_keys__), obrigatorios)
-                self.assertEqual(set(classe.__optional_keys__), opcionais)
+            for versao in versoes_de(tipo):
+                # A `v1` fica com o nome sem sufixo: renomea-la seria quebrar
+                # quem a importa por causa de uma versao nova de outro tipo.
+                classe = getattr(contratos, base if versao == 1 else f"{base}V{versao}")
+                with self.subTest(tipo=tipo, versao=versao):
+                    self.assertEqual(set(classe.__required_keys__), obrigatorios)
+                    self.assertEqual(set(classe.__optional_keys__), opcionais)
         self.assertGreater(with_optional, 0, "nenhum contrato tem campo opcional: o teste nao prova nada")
 
 
@@ -154,11 +210,33 @@ class TestValidarPayload(unittest.TestCase):
             validar_payload("pagamento.feito", 1, {})
         self.assertIn("order.paid", str(apanhado.exception))
 
+    def test_qualquer_versao_publicada_passa(self) -> None:
+        """Desde o KAM-159 ha duas, e a `v1` nao deixou de valer por isso.
+
+        E o §6.6 por extenso: «quem quer quebrar escreve `v<N+1>` e deixa o
+        `v<N>` como estava». Um validador que so aceitasse a mais recente
+        obrigava todos os produtores a migrar no mesmo dia.
+        """
+        from kamba_core.eventos.contratos import validar_payload
+
+        completo = {
+            "order_id": "9b2f6c1a-7e3d-4c80-b5a1-2d9e8f7a6b50",
+            "valor_minor": 450000, "currency": "AOA", "paga_via": "referencia",
+        }
+        for versao in versoes_de("order.paid"):
+            with self.subTest(versao=versao):
+                validar_payload("order.paid", versao, completo)
+
     def test_uma_versao_que_nao_existe_e_recusada(self) -> None:
         from kamba_core.eventos.contratos import VersaoDesconhecidaError, validar_payload
 
-        with self.assertRaises(VersaoDesconhecidaError):
-            validar_payload("order.paid", 2, {})
+        # Uma a mais do que a ultima publicada, calculada e nao escrita: com o
+        # `2` literal este teste passou a medir outra coisa no dia em que a
+        # `v2` nasceu, e so nao deu verde falso por acaso.
+        inexistente = max(versoes_de("order.paid")) + 1
+        with self.assertRaises(VersaoDesconhecidaError) as apanhado:
+            validar_payload("order.paid", inexistente, {})
+        self.assertIn("v1", str(apanhado.exception))
 
     def test_falta_de_obrigatorio_e_campo_a_mais_saem_na_mesma_mensagem(self) -> None:
         from kamba_core.eventos.contratos import PayloadInvalidoError, validar_payload

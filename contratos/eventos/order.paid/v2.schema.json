@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contratos.kamba.ao/eventos/order.paid/v2.schema.json",
+  "title": "order.paid v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "tipo",
+    "versao",
+    "tenant_id",
+    "ocorrido_em",
+    "registado_em",
+    "produtor",
+    "agregado",
+    "correlacao_id",
+    "causa_id",
+    "trace_id",
+    "classe_pii",
+    "finalidades",
+    "payload"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUIDv7 do evento. Chave global de idempotencia."
+    },
+    "tipo": {
+      "type": "string",
+      "const": "order.paid"
+    },
+    "versao": {
+      "type": "integer",
+      "const": 2
+    },
+    "tenant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "ocorrido_em": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "registado_em": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "produtor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "agregado": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tipo",
+        "id",
+        "seq"
+      ],
+      "properties": {
+        "tipo": {
+          "type": "string",
+          "const": "order"
+        },
+        "id": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "correlacao_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "causa_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "trace_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "classe_pii": {
+      "type": "string",
+      "enum": [
+        "P0",
+        "P1"
+      ]
+    },
+    "finalidades": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "transacao",
+          "atendimento",
+          "marketing",
+          "analytics_agregado",
+          "melhoria_servico",
+          "sugestoes_patrocinadas",
+          "partilha_loja",
+          "partilha_parceiros",
+          "partilha_estafeta",
+          "notificacao_dono"
+        ]
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "order_id",
+        "valor_minor",
+        "currency",
+        "paga_via"
+      ],
+      "properties": {
+        "order_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "valor_minor": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "currency": {
+          "type": "string",
+          "enum": [
+            "AOA"
+          ]
+        },
+        "paga_via": {
+          "type": "string",
+          "enum": [
+            "provider_autenticado",
+            "manual_auditado",
+            "cod_manual"
+          ]
+        }
+      }
+    }
+  }
+}
