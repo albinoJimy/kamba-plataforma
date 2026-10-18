@@ -418,11 +418,23 @@ perder: das dez, **uma** tem fonte directa e CONFIRMADA no `evidencia/E3`.
 | `partilha_estafeta` | **nada no `E3`**. O `07` §14.1 escreve «execução de contrato, Art. 12.º, e consentimento registado para a partilha com terceiro», com dupla ressalva: «a confirmar por parecer» e a pergunta Q-GEO-1 à Meta | — no `E3` |
 | `notificacao_dono` | **nada no `E3`**. O `EPIC-09` descreve-a, e a evidência que aponta é o **E5** §4.2 — política da Meta, não lei angolana | — no `E3` |
 
-**Cinco não têm uma linha no `E3`**, e duas delas — `sugestoes_patrocinadas` e
-`partilha_parceiros` — são as de maior risco: publicidade e partilha com
-terceiros. A base legal de cada uma é o **KAM-104** (pacote de perguntas ao
-parecer jurídico), e está no §4 do dicionário como item por decidir. Nenhuma
-destas linhas foi inventada: onde o `E3` não diz, está escrito «nada».
+**Seis não têm uma linha no `E3`** — conte-se a coluna da direita: `atendimento`,
+`analytics_agregado`, `sugestoes_patrocinadas`, `partilha_loja`,
+`partilha_estafeta` e `notificacao_dono`. As três de maior risco são
+`sugestoes_patrocinadas` (publicidade) e as duas partilhas com terceiros sem
+fonte nenhuma, `partilha_loja` e `partilha_estafeta`.
+
+> **Esta contagem esteve errada, e a correcção é do KAM-159 depois da revisão
+> adversarial.** Dizia «cinco», e nomeava entre as de maior risco a
+> `partilha_parceiros` — que é precisamente a única das partilhas que **tem**
+> fonte, o Art. 23.º, classificado na tabela como INDÍCIO. Numa tabela de base
+> legal de consentimento, contar mal e pôr na lista de risco a finalidade
+> errada não é erro de estilo: é a lista que alguém vai usar para decidir o
+> que pode ligar antes do parecer.
+
+A base legal de cada uma é o **KAM-104** (pacote de perguntas ao parecer
+jurídico), e está no §4 do dicionário como item por decidir. Nenhuma destas
+linhas foi inventada: onde o `E3` não diz, está escrito «nada».
 
 ### 7.3 Histórico sincronizado e treino
 
@@ -820,3 +832,4 @@ Legenda: **R** executa, **A** responde, **C** consultado, **I** informado.
 | 1.3 | Outubro 2026 | KAM-140: §15.1 — a tabela de transições ganha linha própria para `restrito → ativo` e `restrito → suspenso` (estavam dentro da célula de `ativo → restrito`, e por isso não tinham decisor nem efeito próprios), e passa a ter **oito** linhas, uma por aresta do diagrama; o efeito de `onboarding → ativo` passa a nomear os **três** eventos. O diagrama Mermaid passou por `mermaid.parse` — o primeiro deste documento a passar por um *parser* (`make mermaid`). | Equipa KAMBÁ |
 | 1.4 | Outubro 2026 | KAM-140: §7.2 passa a ser **a** forma de referência de `consent_event` — as outras quatro remetem para aqui. O `contact_id` era `bytea`, quando em toda a plataforma é `uuid`, e não juntava com `contacts.contact_id`. O domínio de `purpose` fica **por fixar**: o dicionário e os 38 contratos publicados nomeiam conjuntos que se cruzam numa só finalidade, e escolher entre eles é decidir a taxonomia de consentimento — KAM-159. | Equipa KAMBÁ |
 | 1.5 | Outubro 2026 | KAM-159: §7.2 — o domínio de `purpose` deixa de estar «por fixar» e passa a ter `CHECK` com as **dez** finalidades, que são a união das duas listas que existiam (decisão do fundador, 2026-10-18). Acrescenta-se a tabela da **base legal de cada uma**, com o que o `E3` diz e «nada» onde ele não diz — e não diz nada sobre cinco delas, duas das quais as de maior risco. | Equipa KAMBÁ |
+| 1.6 | Outubro 2026 | KAM-159: §7.2 — a prosa sob a tabela da base legal dizia «**cinco** não têm uma linha no `E3`» e a tabela tem **seis**; e nomeava entre as de maior risco a `partilha_parceiros`, que é a única das partilhas **com** fonte (Art. 23.º, INDÍCIO). Numa tabela de base legal de consentimento, a contagem errada e a finalidade errada na lista de risco não são erro de estilo: é a lista que alguém vai usar para decidir o que pode ligar antes do parecer. Encontrado pela revisão adversarial. | Equipa KAMBÁ |

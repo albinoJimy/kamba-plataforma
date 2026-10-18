@@ -42,7 +42,7 @@
  * §6.6 já manda quando não há conversor nenhum, e a razão é a mesma.
  */
 
-import { FINALIDADES_SO_NA_V2 } from "./envelope.ts";
+import { FINALIDADES_V1 } from "./envelope.ts";
 import type { Envelope } from "./envelope.ts";
 
 /** Transforma um envelope de `de` em `para`. Síncrono: é uma projecção. */
@@ -154,20 +154,45 @@ export class RegistoDeConversores {
 /**
  * Desce um envelope `v2` a `v1`, **ou recusa** (KAM-159).
  *
- * A única diferença entre as duas versões é o domínio de `finalidades`. Se o
- * envelope não usar nenhuma das duas que só a `v2` tem, a conversão é mudar a
- * `versao`. Se usar, lança — ver a nota no topo do ficheiro.
+ * A única diferença entre as duas versões é o domínio de `finalidades`. Se
+ * todas couberem no domínio da `v1`, a conversão é mudar a `versao`. Se
+ * alguma não couber, lança — ver a nota no topo do ficheiro.
+ *
+ * **Compara com o domínio da `v1`, e não com a lista das duas novas.** A
+ * primeira versão fazia o contrário, e a revisão adversarial mostrou o que
+ * isso custava: `finalidades: ["finalidade_que_nao_existe"]` descia a `v1`
+ * sem uma queixa, e produzia um envelope que **nenhum** dos 38
+ * `v1.schema.json` aceita. Uma lista de excepções só conhece as excepções de
+ * que alguém se lembrou; um domínio conhece tudo o que não é ele.
  */
 export function descerFinalidades(envelope: Envelope): Envelope {
-  const soNaV2 = envelope.finalidades.filter((f) =>
-    (FINALIDADES_SO_NA_V2 as readonly string[]).includes(f),
-  );
-  if (soNaV2.length > 0) {
+  if (envelope.versao !== 2) {
+    throw new ConversaoInvalidaError(
+      envelope.tipo,
+      envelope.versao,
+      1,
+      `este conversor desce da v2, e o envelope diz v${envelope.versao}`,
+    );
+  }
+  if (envelope.finalidades.length === 0) {
+    // `minItems: 1` no contrato. Um envelope sem finalidades nao chega a
+    // subscricao nenhuma, e descia a `v1` como se fosse valido.
     throw new ConversaoInvalidaError(
       envelope.tipo,
       2,
       1,
-      `usa ${soNaV2.join(", ")}, que a v1 nao tem no dominio. Deita-las fora ` +
+      "nao tem finalidades, e o contrato exige ao menos uma",
+    );
+  }
+  const fora = envelope.finalidades.filter(
+    (f) => !(FINALIDADES_V1 as readonly string[]).includes(f),
+  );
+  if (fora.length > 0) {
+    throw new ConversaoInvalidaError(
+      envelope.tipo,
+      2,
+      1,
+      `usa ${fora.join(", ")}, que a v1 nao tem no dominio. Deita-las fora ` +
         "mudaria quem recebe o evento: as finalidades sao o que o publicador " +
         "compara com a subscricao",
     );

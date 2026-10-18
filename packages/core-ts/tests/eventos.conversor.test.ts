@@ -147,6 +147,51 @@ describe("descerFinalidades (KAM-159)", () => {
     assert.equal(depois.agregado.seq, antes.agregado.seq);
   });
 
+  it("RECUSA uma finalidade que nao existe em dominio nenhum", () => {
+    // A primeira versao comparava com a lista das **duas novas**, e por isso
+    // deixava passar tudo o resto: uma cadeia inventada descia a `v1` sem uma
+    // queixa e produzia um envelope que nenhum dos 38 `v1.schema.json`
+    // aceita. Uma lista de excepcoes so conhece as excepcoes de que alguem se
+    // lembrou; um dominio conhece tudo o que nao e ele.
+    assert.throws(
+      () => descerFinalidades(comFinalidades(["finalidade_que_nao_existe"])),
+      (erro: unknown) => {
+        assert.ok(erro instanceof ConversaoInvalidaError);
+        assert.match(erro.message, /finalidade_que_nao_existe/);
+        return true;
+      },
+    );
+  });
+
+  it("RECUSA um envelope sem finalidades", () => {
+    // `minItems: 1` no contrato. Um envelope sem finalidades nao chega a
+    // subscricao nenhuma, e descia como se fosse valido.
+    assert.throws(
+      () => descerFinalidades(comFinalidades([])),
+      (erro: unknown) => {
+        assert.ok(erro instanceof ConversaoInvalidaError);
+        assert.match(erro.message, /ao menos uma/);
+        return true;
+      },
+    );
+  });
+
+  it("RECUSA um envelope que nao e v2", () => {
+    // A funcao esta exportada no `index.ts` e nao e so chamada pelo registo:
+    // quem a chamar a mao com uma `v1` recebia uma `v1` de volta, e com uma
+    // `v3` recebia uma `v1` sem ninguem ter traduzido nada.
+    for (const versao of [1, 3]) {
+      assert.throws(
+        () => descerFinalidades({ ...comFinalidades(["transacao"]), versao }),
+        (erro: unknown) => {
+          assert.ok(erro instanceof ConversaoInvalidaError);
+          assert.match(erro.message, /desce da v2/);
+          return true;
+        },
+      );
+    }
+  });
+
   it("RECUSA quando o envelope usa uma finalidade que a v1 nao tem", () => {
     // A tentacao e deita-la fora e entregar o resto. E a coisa errada: as
     // finalidades sao o que o publicador compara com a subscricao, pelo que

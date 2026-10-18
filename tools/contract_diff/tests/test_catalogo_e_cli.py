@@ -554,10 +554,30 @@ class TestCli(unittest.TestCase):
             codigo = cli.main(["--root", str(RAIZ), *argumentos])
         return codigo, saida.getvalue()
 
-    def test_o_canario_prova_que_as_quatro_mordem(self) -> None:
+    def test_o_canario_prova_que_as_cinco_mordem(self) -> None:
         codigo, texto = self.correr("canario")
         self.assertEqual(codigo, cli.SAIDA_OK, texto)
         self.assertIn("0 falha(s)", texto)
+
+    def test_o_canario_cobre_a_quinta_verificacao(self) -> None:
+        """Um `return []` em `dominios.verificar` tem de ser apanhado.
+
+        O KAM-159 acrescentou a quinta verificacao ao gate 7 e **nao** ao
+        canario, que ficou a provar quatro de cinco. Foi a revisao adversarial
+        que o apanhou (achado M5), e o buraco e exactamente o que o canario
+        existe para nao ter: desligar a verificacao nova deixava o CI verde.
+
+        Este teste e o canario do canario, e nao a sua contagem: pinar «11
+        negativas» cimentava o numero de hoje e nao dizia **o que** cada uma
+        morde.
+        """
+        from unittest import mock
+
+        with mock.patch.object(cli.dominios, "verificar", return_value=[]):
+            codigo, texto = self.correr("canario")
+        self.assertEqual(codigo, cli.SAIDA_ACHADOS, texto)
+        self.assertIn("enum com um valor que o canon nao tem", texto)
+        self.assertIn("envelope sem `enum` nenhum", texto)
 
     def test_o_lint_de_pii_esta_conforme(self) -> None:
         codigo, texto = self.correr("pii")

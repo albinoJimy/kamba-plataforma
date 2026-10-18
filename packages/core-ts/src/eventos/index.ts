@@ -37,7 +37,9 @@ export {
   type Envelope,
   EnvelopeInvalidoError,
   FINALIDADES,
+  FINALIDADES_POR_VERSAO,
   FINALIDADES_SO_NA_V2,
+  FINALIDADES_V1,
   type Finalidade,
   lerEnvelope,
 } from "./envelope.ts";

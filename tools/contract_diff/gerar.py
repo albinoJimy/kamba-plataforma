@@ -184,12 +184,25 @@ def _por_tipo(contratos: list) -> dict[str, list]:
     nao compilava: «An object literal cannot have multiple properties with the
     same name».
 
-    **O limite deste gerador, dito e preso por asserção.** A entrada do
-    catalogo guarda uma **forma de payload por tipo**, e nao por versao: hoje
-    isso e verdade — a `v2` do KAM-159 difere da `v1` no dominio de
-    `finalidades`, que vive no **envelope**, e os payloads sao iguais. No dia
-    em que uma versao mudar o payload, isto rebenta aqui, com nome, em vez de
-    gerar um catalogo que valida a versao errada em silencio.
+    **O limite deste gerador, e o limite da guarda que o protege.** A entrada
+    do catalogo guarda os **nomes** de `required` e de `properties` por tipo,
+    e nao por versao. A guarda abaixo compara exactamente isso: os dois
+    conjuntos de nomes. Se divergirem, rebenta com nome.
+
+    **O que a guarda NAO ve, e vale dize-lo porque a primeira versao deste
+    docstring prometia o contrario:** uma versao que mude o **tipo** de um
+    campo — `contact_id` de `string` para `integer` —, ou o seu `format`, ou
+    um `enum` dentro do payload, passa por aqui sem uma queixa. Os nomes sao
+    os mesmos. O catalogo so e usado para «este campo e permitido?» e «este
+    campo e obrigatorio?», pelo que isso nao o torna errado — mas torna-o
+    **mais estreito** do que parece, e um `TypedDict` gerado a partir da `v1`
+    continuaria a dizer `str` onde a `v2` diz `int`.
+
+    E tambem nao e verdade que «os payloads sao iguais» entre as versoes de
+    hoje: os dois `consent.*` tem o dominio das finalidades **dentro** do
+    payload, e o ficheiro gerado tem `PayloadConsentRecorded` com oito valores
+    e `PayloadConsentRecordedV2` com dez. O que e igual sao os nomes dos
+    campos — que e o que esta guarda mede.
     """
     grupos: dict[str, list] = {}
     for contrato in contratos:

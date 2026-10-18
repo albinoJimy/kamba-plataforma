@@ -1,13 +1,14 @@
 """O gate 7, por linha de comando.
 
-    python -m contract_diff --root . check          as quatro verificacoes
+    python -m contract_diff --root . check          as cinco verificacoes
     python -m contract_diff --root . diff           so a compatibilidade
     python -m contract_diff --root . pii            so o lint de PII
     python -m contract_diff --root . exemplos       so os exemplos
     python -m contract_diff --root . subscricoes    so a versao_max
     python -m contract_diff --root . gerados       so os tipos gerados
     python -m contract_diff --root . gerar         (re)escreve os tipos gerados
-    python -m contract_diff --root . canario        prova que as quatro mordem
+    python -m contract_diff --root . dominios       so os dominios contra o canon
+    python -m contract_diff --root . canario        prova que as cinco mordem
 
 Codigos de saida, com a distincao que o `db/dlq.py` e o `tools/lint_handoff`
 ja usam:
@@ -18,16 +19,21 @@ ja usam:
 
 O `canario` e o que impede este gate de ser decorativo: constroi em memoria os
 casos que **tem** de falhar e verifica que falham com a mensagem esperada. Sem
-ele, um `return []` em qualquer das quatro verificacoes passava o CI inteiro a
-verde e ninguem dava por isso.
+ele, um `return []` em qualquer das cinco verificacoes passava o CI inteiro a
+verde e ninguem dava por isso — e esteve a quatro de cinco durante o KAM-159,
+que e precisamente o buraco que um canario existe para nao ter.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import json
+import re
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 from contract_diff import base as base_mod
@@ -38,6 +44,13 @@ from contract_diff import (
 SAIDA_OK = 0
 SAIDA_ACHADOS = 1
 SAIDA_ERRO = 2
+
+#: O nome de um schema de contrato, com a versao.
+_VERSAO_NO_NOME = re.compile(r"v([1-9][0-9]*)\.schema\.json")
+
+#: Onde o canario guarda o original do schema que vai mutar. Fica fora da
+#: pasta dos contratos para que o catalogo nao o leia como contrato.
+PRISTINO = "pristino.json"
 
 
 def _escrever(linhas: list[str]) -> None:
@@ -231,7 +244,99 @@ def _negativas(raiz: Path) -> list[tuple[str, bool, str]]:
          bool(subscricoes.verificar(raiz, inexistente)),
          "nao ha contrato de nao.existe"),
     )
+
+    # A quinta verificacao (KAM-159). Nao estava aqui, e a revisao adversarial
+    # apanhou-o: com cinco verificacoes e um canario de quatro, um `return []`
+    # em `dominios.verificar` passava o CI a verde e o canario calava-se.
+    with _arvore_de_ensaio(raiz) as ensaio:
+        if ensaio is None:
+            casos.append(("dominios: arvore de ensaio", False, "nao se conseguiu copiar"))
+        else:
+            casos.append(
+                ("enum com um valor que o canon nao tem",
+                 bool(dominios.verificar(_mexido(ensaio, _acrescentar_valor))),
+                 "o contrato promete o que o canon nao declara"),
+            )
+            casos.append(
+                ("ultima versao sem um valor do canon",
+                 bool(dominios.verificar(_mexido(ensaio, _tirar_valor))),
+                 "o canon declara o que ninguem consegue emitir"),
+            )
+            casos.append(
+                ("envelope sem `enum` nenhum",
+                 bool(dominios.verificar(_mexido(ensaio, _tirar_enum))),
+                 "um campo aberto nao impoe dominio nenhum"),
+            )
     return casos
+
+
+# --- a arvore de ensaio do canario de `dominios` -----------------------------
+#
+# A `dominios.verificar` le do disco — o dicionario e os contratos —, pelo que
+# o canario dela nao se faz em memoria como o resto. Copia-se o minimo, muta-se
+# a copia, e deita-se fora.
+
+@contextlib.contextmanager
+def _arvore_de_ensaio(raiz: Path):
+    dicionario = raiz / dominios.DICIONARIO
+    pasta_dos_contratos = raiz / catalogo.PASTA
+    if not dicionario.is_file() or not pasta_dos_contratos.is_dir():
+        yield None
+        return
+    tipos = sorted(p for p in pasta_dos_contratos.iterdir() if p.is_dir())
+    if not tipos:
+        yield None
+        return
+    base = Path(tempfile.mkdtemp(prefix="contract_diff_canario_"))
+    try:
+        (base / dominios.DICIONARIO.parent).mkdir(parents=True)
+        shutil.copy(dicionario, base / dominios.DICIONARIO)
+        destino = base / catalogo.PASTA / tipos[0].name
+        destino.mkdir(parents=True)
+        for ficheiro in tipos[0].iterdir():
+            shutil.copy(ficheiro, destino / ficheiro.name)
+        # O original do schema que se vai mutar, guardado fora da pasta dos
+        # contratos. Sem ele os casos mutavam-se uns aos outros e o segundo
+        # passava por causa do primeiro — verde pela razao errada, que e o que
+        # um canario existe para nao deixar acontecer.
+        shutil.copy(_ultimo_schema(base), base / PRISTINO)
+        yield base
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
+def _ultimo_schema(ensaio: Path) -> Path:
+    pasta = next(p for p in (ensaio / catalogo.PASTA).iterdir() if p.is_dir())
+    return max(
+        (p for p in pasta.iterdir() if _VERSAO_NO_NOME.fullmatch(p.name)),
+        key=lambda p: int(_VERSAO_NO_NOME.fullmatch(p.name).group(1)),
+    )
+
+
+def _mexido(ensaio: Path, alteracao) -> Path:
+    """Repoe o ultimo schema, aplica `alteracao`, devolve a raiz de ensaio."""
+    alvo = _ultimo_schema(ensaio)
+    documento = json.loads((ensaio / PRISTINO).read_text(encoding="utf-8"))
+    alteracao(documento)
+    alvo.write_text(json.dumps(documento, indent=2), encoding="utf-8")
+    return ensaio
+
+
+def _items_das_finalidades(documento: dict) -> dict:
+    return documento["properties"]["finalidades"]["items"]
+
+
+def _acrescentar_valor(documento: dict) -> None:
+    _items_das_finalidades(documento).setdefault("enum", []).append("finalidade_inventada")
+
+
+def _tirar_valor(documento: dict) -> None:
+    items = _items_das_finalidades(documento)
+    items["enum"] = sorted(items.get("enum") or [])[1:]
+
+
+def _tirar_enum(documento: dict) -> None:
+    documento["properties"]["finalidades"]["items"] = {"type": "string"}
 
 
 def _positivas(raiz: Path) -> list[tuple[str, bool, str]]:

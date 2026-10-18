@@ -16,7 +16,7 @@
   "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
   "classe_pii": "P0",
   "finalidades": [
-    "transacao"
+    "notificacao_dono"
   ],
   "payload": {
     "sku": "SKU-0001",

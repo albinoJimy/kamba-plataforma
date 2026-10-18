@@ -14,7 +14,9 @@ import {
   CAMPOS_DO_ENVELOPE,
   EnvelopeInvalidoError,
   FINALIDADES,
+  FINALIDADES_POR_VERSAO,
   FINALIDADES_SO_NA_V2,
+  FINALIDADES_V1,
   lerEnvelope,
 } from "../src/eventos/index.ts";
 
@@ -181,6 +183,10 @@ describe("finalidades", () => {
     assert.deepEqual([...FINALIDADES].sort(), [...doContrato(2)].sort());
   });
 
+  it("as da `v1` são exactamente as do `enum` da `v1` do contrato", () => {
+    assert.deepEqual([...FINALIDADES_V1].sort(), [...doContrato(1)].sort());
+  });
+
   it("as que só a `v2` tem são, por construção, as que a `v1` não tinha", () => {
     // Derivadas, e não escritas à mão: uma lista fixa divergiria do contrato
     // no dia em que uma `v3` acrescentasse outra finalidade, e o conversor
@@ -190,5 +196,44 @@ describe("finalidades", () => {
       [...FINALIDADES_SO_NA_V2].sort(),
       FINALIDADES.filter((f) => !naV1.has(f)).sort(),
     );
+  });
+});
+
+describe("o domínio de `finalidades` é imposto pelo leitor, e pela versão", () => {
+  // O docstring de `FINALIDADES` dizia «lista fechada» e **nada a fechava**:
+  // o `lerEnvelope` só verificava que era um array não vazio de cadeias. Um
+  // envelope `versao: 1` com `partilha_estafeta` passava aqui e era recusado
+  // lá à frente pelo `v1.schema.json` — ou seja, a premissa do conversor («a
+  // `v1` não as tem») não tinha guarda nenhuma deste lado.
+
+  it("uma finalidade que não existe em domínio nenhum é recusada", () => {
+    recusa(com({ finalidades: ["finalidade_que_nao_existe"] }), "nao estao no dominio");
+  });
+
+  it("uma finalidade só da `v2` é recusada num envelope `v1`", () => {
+    for (const nova of FINALIDADES_SO_NA_V2) {
+      recusa(com({ versao: 1, finalidades: [nova] }), "dominio da v1");
+    }
+  });
+
+  it("a mesma finalidade passa num envelope `v2`", () => {
+    // O controlo: sem ele, o teste anterior passaria também se o leitor
+    // recusasse a finalidade em **qualquer** versão, que é o oposto do que
+    // o §6.6 quer.
+    for (const nova of FINALIDADES_SO_NA_V2) {
+      const envelope = lerEnvelope(com({ versao: 2, finalidades: [nova] }));
+      assert.deepEqual(envelope.finalidades, [nova]);
+    }
+  });
+
+  it("uma versão sem domínio declarado é recusada, e não aceite em branco", () => {
+    // Fail-closed: uma `v3` do envelope acrescenta a sua linha em
+    // `FINALIDADES_POR_VERSAO`. Aceitá-la sem domínio era aceitar qualquer
+    // finalidade por a versão ser nova.
+    recusa(com({ versao: 3 }), "nao tem dominio de finalidades declarado");
+  });
+
+  it("as duas versões declaradas são as que os contratos têm", () => {
+    assert.deepEqual([...FINALIDADES_POR_VERSAO.keys()].sort(), [1, 2]);
   });
 });

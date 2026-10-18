@@ -65,6 +65,10 @@ class Vigiado:
     caminho: tuple[str, ...]
     #: Para que serve, numa frase que sobreviva ao autor.
     razao: str
+    #: `True` quando **todos** os contratos têm de ter este `enum` — é o caso
+    #: do envelope, que é igual nos 38. `False` quando só alguns tipos o têm;
+    #: nesses, a regra é a da herança (ver `verificar`).
+    universal: bool
 
 
 #: Os pares vigiados. **Um, hoje** — e dizê-lo importa, porque este ficheiro
@@ -79,6 +83,7 @@ DOMINIOS_VIGIADOS = (
             "`finalidade` de cada subscricao; uma que o canon declare e o "
             "contrato nao tenha nunca chega a lado nenhum"
         ),
+        universal=True,
     ),
     Vigiado(
         dominio="consent_event.purpose",
@@ -88,6 +93,7 @@ DOMINIOS_VIGIADOS = (
             "os dois `consent.*` a tem, e os outros 36 nao sao verificados "
             "por este par"
         ),
+        universal=False,
     ),
 )
 
@@ -139,7 +145,25 @@ def _enum_em(documento: dict, caminho: tuple[str, ...]) -> list[str] | None:
 
 
 def verificar(raiz: Path) -> list[Achado]:
-    """Os dois sentidos, para cada par vigiado e cada contrato."""
+    """Os dois sentidos, para cada par vigiado e cada contrato.
+
+    **E, antes dos dois sentidos, a presenca.** Um contrato cujo caminho
+    vigiado nao exista, ou exista sem `enum`, nao tem nada que comparar — e a
+    primeira versao disto fazia `continue` em silencio, o que e a forma mais
+    barata de desligar o gate: um `items: {"type": "string"}` aceita qualquer
+    cadeia como finalidade e dava «0 divergencias». Foi a revisao adversarial
+    que o demonstrou, com 38 `v3` sem `enum` e o gate verde.
+
+    Duas regras de presenca, consoante o par:
+
+    * **universal** — o envelope esta nos 38 contratos, logo **todos** tem de
+      ter o `enum`. Uma versao nova que o perca falha, e um contrato novo que
+      nunca o tenha tido tambem;
+    * **por heranca** — o `payload` so existe nos dois `consent.*`. Exigi-lo a
+      todos seria falso. A regra e: um tipo que o teve **alguma vez** tem de o
+      ter na **ultima** versao. Perde-lo num `v<N+1>` e exactamente como
+      esvaziar o dominio.
+    """
     canonicos = _dominios(raiz)
     achados: list[Achado] = []
     vistos: set[tuple[str, str]] = set()
@@ -164,6 +188,7 @@ def verificar(raiz: Path) -> list[Achado]:
                 )
             )
             continue
+        achados.extend(_presenca(raiz, contratos, ultima_de, vigiado))
         for contrato in contratos:
             valores = _enum_em(contrato.documento, vigiado.caminho)
             if valores is None:
@@ -205,6 +230,75 @@ def verificar(raiz: Path) -> list[Achado]:
                 "nenhum contrato bate em nenhum caminho de "
                 "`DOMINIOS_VIGIADOS`. A verificacao passou sem ler nada — ou o "
                 "catalogo esta vazio, ou a forma dos schemas mudou",
+            )
+        )
+    return achados
+
+
+def _presenca(
+    raiz: Path,
+    contratos: list,
+    ultima_de: dict[str, int],
+    vigiado: Vigiado,
+) -> list[Achado]:
+    """Quem tem de ter o `enum`, e nao tem. Ver o docstring de `verificar`."""
+    achados: list[Achado] = []
+    tem: dict[str, set[int]] = {}
+    for contrato in contratos:
+        if _enum_em(contrato.documento, vigiado.caminho) is not None:
+            tem.setdefault(contrato.tipo, set()).add(contrato.versao)
+
+    if vigiado.universal:
+        # Todos os contratos, de todos os tipos e todas as versoes.
+        for contrato in contratos:
+            if contrato.versao in tem.get(contrato.tipo, set()):
+                continue
+            achados.append(
+                Achado(
+                    contrato.caminho.relative_to(raiz).as_posix(),
+                    ".".join(vigiado.caminho),
+                    "nao existe, ou existe sem `enum`. Este caminho e do "
+                    "envelope e esta em **todos** os contratos: sem o `enum`, "
+                    "o campo aceita qualquer cadeia e o dominio "
+                    f"`{vigiado.dominio}` deixa de ser imposto aqui — sem que "
+                    "nada o diga",
+                )
+            )
+        if not contratos:
+            achados.append(
+                Achado(
+                    "contratos/eventos/",
+                    ".".join(vigiado.caminho),
+                    "e universal e nao ha contrato nenhum para o verificar",
+                )
+            )
+        return achados
+
+    # Por heranca: quem o teve alguma vez tem de o ter na ultima versao.
+    for tipo, versoes in sorted(tem.items()):
+        ultima = ultima_de[tipo]
+        if ultima in versoes:
+            continue
+        achados.append(
+            Achado(
+                f"contratos/eventos/{tipo}/v{ultima}.schema.json",
+                ".".join(vigiado.caminho),
+                f"existia na v{min(versoes)} e a v{ultima} nao o tem. Uma "
+                "versao que perde o `enum` abre o campo a qualquer cadeia, e "
+                "a ultima versao e a que um produtor novo escreve. Perde-lo "
+                "e o mesmo que esvaziar o dominio",
+            )
+        )
+    if not tem:
+        # O par nao bate em contrato nenhum: ou os caminhos mudaram de forma,
+        # ou o par ficou para tras. Estava so num teste; um gate que o diz no
+        # CI e um gate a menos a morrer em silencio (achado m1).
+        achados.append(
+            Achado(
+                "contratos/eventos/",
+                ".".join(vigiado.caminho),
+                f"nao bate em contrato nenhum. O par `{vigiado.dominio}` nao "
+                "verifica nada, e a verificacao continuava verde",
             )
         )
     return achados
