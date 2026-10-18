@@ -183,8 +183,9 @@ esta é a linha a contrariar se o fundador preferir o contrário.
    nomear uma pessoa.
 
 Reverter custa: a App, a chave privada no cofre, e o caminho de escrita no
-módulo — que hoje não existe de propósito, e cuja ausência a guarda de
-`test_guarda_de_escrita.py` sustenta dentro dos padrões que reconhece.
+módulo — que hoje não existe de propósito, e que a guarda de
+`test_guarda_de_escrita.py` recusaria se alguém o escrevesse numa das formas
+que ela reconhece.
 
 **Lacunas declaradas desta decisão, para não serem descobertas tarde:**
 

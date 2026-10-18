@@ -27,12 +27,35 @@ chamada a `os.system`/`os.popen`/`os.exec*`/`os.spawn*`, chamada a `subprocess`
 que nao seja um `run` com lista literal comecada por `gh`, `api`, nem
 `urlopen`/`Request` com corpo.
 
-**Nao garante a ausencia de caminhos de escrita.** E uma lista de padroes, e um
-autor determinado contorna-a — com um nome de funcao construido em tempo de
-execucao, por exemplo. E por isso que a afirmacao nos documentos e «nenhum
-caminho de escrita que estes padroes apanhem» e nao «nao ha caminho de
-escrita». Dizer a segunda seria prometer uma garantia de maquina que nao
-existe, que e pior do que nao a prometer.
+**Os nomes sao resolvidos pelas importacoes, e nao lidos como estao escritos.**
+A segunda versao desta guarda comparava `alvo.startswith("subprocess.")` sobre
+o nome escrito, e tres formas vulgares passavam sem um achado:
+
+    from subprocess import run   ->  run(["gh", "ruleset", "rm", nome])
+    import subprocess as sp      ->  sp.run(["gh", "ruleset", "rm", nome])
+    from os import system        ->  system("curl -d @corpo.json ...")
+
+`from subprocess import run` nao e um autor determinado a contornar nada: e um
+idioma de todos os dias, **e e a forma da injeccao que motivou esta reescrita**.
+Agora constroi-se um mapa `nome local -> nome canonico` a partir dos `import` e
+`from ... import` do modulo, e e o canonico que se compara — que era o que o
+bloco das importacoes ja fazia para os modulos de rede proibidos.
+
+**O que isto continua a NAO garantir, dito com precisao.** Nao e «so um nome de
+funcao construido em tempo de execucao»; a brecha e maior e vale nomea-la:
+
+* qualquer indireccao que o AST nao resolve — `getattr(os, "sys" + "tem")`,
+  `globals()["run"]`, `importlib.import_module`, um despacho por dicionario, um
+  alias criado por atribuicao (`exec_ = subprocess.run`) em vez de por `import`;
+* uma biblioteca de rede que nao esteja na lista `_MODULOS_PROIBIDOS`;
+* um `GET` a um ponto final que escreva do lado do servidor — a guarda olha
+  para o metodo e para o corpo, nao para a semantica da API.
+
+Ou seja: esta guarda apanha o descuido e o idioma vulgar, nao a intencao. **A
+garantia a serio nao vem daqui** — vem de a credencial nao ter permissao de
+escrita, que e o que o `docs/adr/ADR-L003-verificacao-do-ruleset.md` decide.
+Esta guarda e o segundo cinto, e e por isso que a afirmacao nos documentos e
+«nenhum caminho de escrita que estes padroes apanhem».
 """
 
 from __future__ import annotations
@@ -61,12 +84,45 @@ _MODULOS_PROIBIDOS = ("requests", "httpx", "http.client", "aiohttp", "urllib3")
 
 
 def _nome_do_alvo(no: ast.AST) -> str:
-    """`a.b.c(...)` -> `a.b.c`; `f(...)` -> `f`."""
+    """`a.b.c(...)` -> `a.b.c`; `f(...)` -> `f`. O nome **escrito**."""
     if isinstance(no, ast.Name):
         return no.id
     if isinstance(no, ast.Attribute):
         return f"{_nome_do_alvo(no.value)}.{no.attr}"
     return ""
+
+
+def _mapa_de_importacoes(arvore: ast.AST) -> dict[str, str]:
+    """`nome local -> nome canonico`, a partir dos `import` do modulo.
+
+        import subprocess            -> {"subprocess": "subprocess"}
+        import subprocess as sp      -> {"sp": "subprocess"}
+        from subprocess import run   -> {"run": "subprocess.run"}
+        from os import system as s   -> {"s": "os.system"}
+
+    Sem isto, a guarda lia `sp.run` e `run` como nomes desconhecidos e deixava
+    passar a chamada.
+    """
+    mapa: dict[str, str] = {}
+    for no in ast.walk(arvore):
+        if isinstance(no, ast.Import):
+            for alias in no.names:
+                mapa[alias.asname or alias.name.split(".")[0]] = (
+                    alias.name if alias.asname else alias.name.split(".")[0]
+                )
+        elif isinstance(no, ast.ImportFrom) and no.module and not no.level:
+            for alias in no.names:
+                mapa[alias.asname or alias.name] = f"{no.module}.{alias.name}"
+    return mapa
+
+
+def _canonico(alvo: str, mapa: dict[str, str]) -> str:
+    """O nome escrito, com a primeira componente resolvida pelas importacoes."""
+    if not alvo:
+        return alvo
+    primeira, _, resto = alvo.partition(".")
+    raiz = mapa.get(primeira, primeira)
+    return f"{raiz}.{resto}" if resto else raiz
 
 
 def _dobrar(no: ast.AST) -> str | None:
@@ -103,6 +159,7 @@ def achados_de_escrita(texto: str, nome: str = "<memoria>") -> list[str]:
     """Os caminhos de escrita que esta guarda reconhece, cada um com a sua regra."""
     arvore = ast.parse(texto)
     docstrings = _ids_dos_docstrings(arvore)
+    importado = _mapa_de_importacoes(arvore)
     achados: list[str] = []
 
     # --- literais ----------------------------------------------------------
@@ -136,7 +193,10 @@ def achados_de_escrita(texto: str, nome: str = "<memoria>") -> list[str]:
     for no in ast.walk(arvore):
         if not isinstance(no, ast.Call):
             continue
-        alvo = _nome_do_alvo(no.func)
+        # O nome **canonico**, e nao o escrito: `sp.run`, `run` e
+        # `subprocess.run` sao a mesma chamada, e as duas primeiras formas
+        # furaram a versao anterior desta guarda.
+        alvo = _canonico(_nome_do_alvo(no.func), importado)
         linha = no.lineno
         curto = alvo.rsplit(".", 1)[-1]
 
@@ -275,6 +335,52 @@ class TestAGuardaMorde(unittest.TestCase):
     def test_flag_longa_do_gh(self) -> None:
         fonte = 'import subprocess\nsubprocess.run(["gh", "api", p, "--method", "x"])\n'
         self.assertEqual(self.regras(fonte), ["flag-de-metodo"])
+
+    # --- aliasing de importacao: as tres formas que furaram a 2.a versao ----
+    #
+    # Nao sao autores determinados: `from subprocess import run` e um idioma
+    # vulgar, e e a forma da injeccao que motivou a reescrita anterior.
+
+    def test_from_subprocess_import_run(self) -> None:
+        fonte = ('from subprocess import run\n'
+                 'run(["gh", "ruleset", "rm", nome])\n')
+        self.assertEqual(self.regras(fonte), ["subprocesso-fora-de-gh-api"])
+
+    def test_import_subprocess_as_sp(self) -> None:
+        fonte = ('import subprocess as sp\n'
+                 'sp.run(["gh", "ruleset", "rm", nome])\n')
+        self.assertEqual(self.regras(fonte), ["subprocesso-fora-de-gh-api"])
+
+    def test_from_os_import_system(self) -> None:
+        fonte = 'from os import system\nsystem("curl -d @corpo.json https://x")\n'
+        self.assertEqual(self.regras(fonte), ["comando-do-sistema"])
+
+    def test_from_os_import_system_as(self) -> None:
+        self.assertEqual(
+            self.regras('from os import system as s\ns("algo")\n'),
+            ["comando-do-sistema"],
+        )
+
+    def test_from_subprocess_import_popen(self) -> None:
+        fonte = 'from subprocess import Popen\nPopen(["gh", "api", p])\n'
+        self.assertEqual(self.regras(fonte), ["subprocesso-nao-run"])
+
+    def test_from_urllib_request_import_Request(self) -> None:
+        fonte = 'from urllib.request import Request\nRequest(u, data=corpo)\n'
+        self.assertEqual(self.regras(fonte), ["pedido-com-corpo"])
+
+    def test_o_gh_api_importado_sem_prefixo_continua_a_passar(self) -> None:
+        """Controlo positivo do aliasing: resolver nomes nao pode criar falsos."""
+        for fonte in (
+            'from subprocess import run\nrun(["gh", "api", p], capture_output=True)\n',
+            'import subprocess as sp\nsp.run(["gh", "api", p], capture_output=True)\n',
+        ):
+            with self.subTest(fonte=fonte.split("\n")[0]):
+                self.assertEqual(achados_de_escrita(fonte), [])
+
+    def test_um_nome_local_que_calha_chamar_se_run_nao_e_subprocess(self) -> None:
+        """Sem `import subprocess`, um `run(...)` qualquer nao e um subprocesso."""
+        self.assertEqual(achados_de_escrita('run(["gh", "ruleset", "rm"])\n'), [])
 
     def test_o_caminho_legitimo_do_pacote_passa(self) -> None:
         """Controlo positivo: sem ele, uma guarda que recusasse tudo «passava»."""
