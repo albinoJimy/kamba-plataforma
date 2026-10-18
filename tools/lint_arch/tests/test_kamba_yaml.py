@@ -610,6 +610,7 @@ class TestRecusaEhErroDeConfiguracao(unittest.TestCase):
                 "    adr_ou_aprovacao: aprovacao:fundador@2020-01-01\n"
                 "    autor: fundador\n"
                 "    razao: Um waiver que expirou ha muito tempo, com razao longa.\n"
+                "    criado_em: 2020-01-01\n"
                 "    expira_em: 2020-01-02\n",
                 encoding="utf-8",
             )
@@ -1074,6 +1075,7 @@ class TestCodigoDeSaidaDois(unittest.TestCase):
             "    adr_ou_aprovacao: ADR-014\n"
             "    autor: alguem\n"
             "    razao: uma razao suficientemente longa para sobreviver ao autor\n"
+            "    criado_em: 2019-12-20\n"
             "    expira_em: 2020-01-01\n",
         )
         self.assertEqual(ci_waivers.main(["--root", str(raiz)]), 1)

@@ -1102,15 +1102,68 @@ ambos consomem este esquema em vez de inventarem o seu.
 
 | Campo | Obrigatório | Nota |
 |---|---|---|
-| `gate` | sim | os gates 1 e 2 **não** aceitam *waiver*: um build que não compila corrige-se |
+| `gate` | sim | **onze** aceitam: 3, **3b**, 4, 5, 6, 7, 8, 9, 11, **14** e **18**. Os outros oito não, e a recusa diz a razão **desse** gate — ver abaixo |
 | `alvo` | sim | o que exactamente se dispensa; nunca «tudo» |
-| `adr_ou_aprovacao` | sim | `ADR-NNN`, `ADR-LNNN` ou `aprovacao:<quem>@<data>` |
+| `adr_ou_aprovacao` | sim | `ADR-NNN`, `ADR-LNNN` ou `aprovacao:<quem>@<data>`. **A data é lida** (KAM-135): tem de ser real, não futura, e não pode preceder o `criado_em` em mais de 30 dias |
 | `autor` | sim | a quem se pergunta |
 | `razao` | sim | ≥ 40 caracteres: tem de sobreviver à saída do autor |
-| `expira_em` | sim | data ISO, ≤ 30 dias (*proposta* do ticket) |
+| `criado_em` | sim | data ISO, não futura. Obrigatório desde o **KAM-135** |
+| `expira_em` | sim | data ISO, ≤ 30 dias **contados de `criado_em`** (*proposta* do KAM-002) |
+
+Qualquer outra chave é **erro de configuração**, com código 2 (KAM-134).
 
 **Um *waiver* expirado falha o pipeline.** Não avisa, não ignora. A alternativa
 produz excepções que ninguém revisita, porque nada obriga a isso.
+
+### Renovar não é empurrar uma data
+
+Até ao KAM-135 o prazo contava-se de **hoje**, e não havia `criado_em`.
+Consequência: bastava mexer um dígito no `expira_em` para a excepção durar mais
+trinta dias — e depois mais trinta, para sempre. Era **o inverso exacto** da
+propriedade que esta secção diz entregar.
+
+Agora prolongar exige um `criado_em` novo — e, **na forma
+`aprovacao:<quem>@<data>`, uma aprovação contemporânea dele**: uma aprovação
+com mais de 30 dias do que a criação é recusada, pelo que renovar é pedir a
+alguém que volte a aprovar.
+
+**O que isto não verifica, e fica dito em vez de prometido.** Um `ADR-NNN` não
+caduca — é uma decisão de arquitectura, e exigir um ADR novo de trinta em trinta
+dias seria pedir arquitectura nova. E o `autor` não se verifica: não há estado
+da versão anterior. Para a forma `ADR-NNN`, «decisão nova com dono novo» é
+**convenção de revisão**, não propriedade imposta. Quem revê o *diff* é quem a
+impõe.
+
+### Os dezanove gates do canon, e a posição de cada um
+
+Os gates que aceitam *waiver* deixaram de poder divergir do canon em silêncio.
+O conjunto não se escreve à mão: o `tools/ci_waivers.py` **lê a tabela do
+`specs/01` §4** e exige que cada um dos **dezanove** esteja classificado — ou
+aceita, ou «não aceita, e eis porquê». Um gate novo no canon que ninguém
+classificou falha o `make ci-waivers` **no dia em que nasce**, e não no dia em
+que alguém precisar dele.
+
+> **Dezanove, e não dezoito.** A primeira versão desta leitura procurava só
+> dígitos, e com isso o **`3b`** — o lint de nomes canónicos, vivo desde o
+> KAM-111, com *job* próprio — ficava invisível: nem aceitava *waiver* nem dizia
+> porque não, e respondia a quem lho pedisse com a frase dos gates 1 e 2. Pior:
+> o teste que devia detectar a divergência prendia-se a «dezoito», que era o
+> número errado, e **cimentava a cegueira**. Hoje o número deriva da tabela.
+
+| Não aceita | Porquê |
+|---|---|
+| 1, 2 | um *build* que não compila, ou um tipo que não verifica, corrige-se |
+| 10 | SAST não tem ticket nem implementação (§7, lacuna 3): abrir-lhe a porta antes de ele existir é prometer uma excepção a um *gate* que ninguém pode correr |
+| 12 | política de categorias: é lei e Termos da Meta, não qualidade de código |
+| 13 | *eval golden*: o limiar **é** a baseline, e dispensá-la é movê-la sem o dizer |
+| 15 | *smoke* em staging: é a última verificação antes de produção |
+| 16 | aprovação humana — um *waiver* a uma aprovação humana é a aprovação a dispensar-se a si própria |
+| 17 | *deploy* em produção não é uma verificação, é um acto |
+
+**Os gates 14 e 18 entraram** porque o KAM-067 e o KAM-078 consomem este
+esquema, como esta secção sempre disse — e o validador **recusava-os**. O
+KAM-067 ia encontrar o mecanismo fechado, e a tentação de inventar o seu é
+precisamente o que esta secção existe para evitar.
 
 ---
 
@@ -1199,14 +1252,21 @@ resposta seria pior do que nomeá-las:
     `supply_chain/licencas`, e a que o ticket mandava escrever de novo).
     Um teste confronta, por ficheiro, as chaves presentes com as que o leitor
     declara — é o que impede uma chave nova de nascer não lida.
-13. **O validador de *waivers* aceita o que não devia:** uma data de aprovação
-    impossível (`@9999-99-99`), um prazo contado de hoje e não da criação — não
-    há `criado_em`, pelo que um *waiver* se renova para sempre com um *diff* de
-    um caractere. E `GATES_COM_WAIVER` não inclui os *gates* 14 e 18, que a §5
-    diz que consomem este esquema. **A parte das «chaves desconhecidas em
-    silêncio» saiu daqui: fechou-a o KAM-134**, com o mecanismo partilhado — é
-    o que o Contexto do KAM-134 previa, e é a razão de ele bloquear o KAM-135.
-    O resto é KAM-135.
+13. ~~**O validador de *waivers* aceita o que não devia**~~ — **fechada por
+    dois tickets.** As «chaves desconhecidas em silêncio» pelo **KAM-134**, com
+    o mecanismo partilhado, que é o que o Contexto dele previa e a razão de ele
+    bloquear o seguinte. As outras três pelo **KAM-135**: a data dentro de
+    `adr_ou_aprovacao` passou a ser lida (um `@9999-99-99` satisfazia a
+    exigência de «aprovação registada» do `specs/01` §4 sem registar nada); o
+    `criado_em` é obrigatório e o prazo conta-se **dele**, pelo que renovar
+    deixou de ser um *diff* de um caractere; e os *gates* **14** e **18**
+    entraram, que esta secção sempre disse consumirem o esquema e que o
+    validador recusava.
+
+    **E a classe fica fechada, não só os quatro:** o conjunto de *gates*
+    deriva agora da tabela do `specs/01` §4 e exige que os dezanove estejam
+    classificados. Um *gate* novo no canon sem posição falha o
+    `make ci-waivers` no dia em que nasce.
 14. ~~**O `tools/kamba_yaml.py` tem dois erros de leitura silenciosos:** um `>-`
     como primeira chave de um item de lista engole as chaves seguintes, e um
     item de lista não citado que contenha `:` torna-se um mapa. O módulo
@@ -1510,3 +1570,4 @@ sobrevivem ao PR.
 | 1.27 | Outubro 2026 | KAM-140: **lacuna 27** — os diagramas Mermaid passam a ter um verificador (`make mermaid`, 49 blocos, `mermaid.parse` a sério) e **não** a ter *gate*: os *jobs* do 3 e do 3b não têm Node de propósito (ADR-L001), e o `mermaid` não é dependência do repositório para não entrar no SBOM nem no veredicto de licenças do *gate* 11. Pendurá-lo num *job* com `preparar` é a via, e é decisão do dono do *gate*. | Equipa KAMBÁ |
 | 1.28 | Outubro 2026 | KAM-134: a **lacuna 12** fecha. As oito chaves que nenhum código lia passam a comentário — e eram oito e não sete —, e os **catorze** leitores de `ci/*.yaml` passam a recusar uma chave desconhecida com código 2. O mecanismo e um só (`kamba_yaml.exigir_chaves`), onde eram quatro. O `ci_gate_reservado` devolvia **1 para tudo**, e com isso perdia o que o KAM-136 tinha construído. | Equipa KAMBÁ |
 | 1.29 | Outubro 2026 | KAM-157: o §3 (*gate* 9) ganha a *push protection* do GitHub. Existe um `.github/secret_scanning.yml` com uma entrada — a pasta do canário —, por decisão do fundador de 2026-10-18. Não é área cega nova (o `ci/secrets-allow.yaml` já a declarava), não torna o canário invisível ao *gate* 9 (são dois *scanners*), e não pode crescer em silêncio: um teste exige que as duas listas coincidam exactamente. | Equipa KAMBÁ |
+| 1.30 | Outubro 2026 | KAM-135: o §5 passa a descrever o que o validador exige. `criado_em` obrigatório e o prazo contado **dele** — renovar deixa de ser empurrar uma data; a data dentro de `adr_ou_aprovacao` é lida e não pode ser futura; e os gates **14** e **18** passam a aceitar *waiver*, que o KAM-067 e o KAM-078 precisam e o validador recusava. O conjunto de gates deriva agora da tabela do `specs/01` §4: os **dezanove** estão classificados — o `3b` incluído, que a primeira versão do *regex* não via e que o teste cimentava a 18 —, e um gate novo sem posição falha. A aprovação datada tem de ser contemporânea da criação, e o que **não** se verifica (o `ADR-NNN`, o `autor`) fica dito em vez de prometido. | Equipa KAMBÁ |

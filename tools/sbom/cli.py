@@ -22,7 +22,7 @@ import json
 import sys
 from pathlib import Path
 
-from ci_waivers import ConfiguracaoIlegivel
+from ci_waivers import ConfiguracaoIlegivel, WaiverInvalido
 from kamba_yaml import YamlSubsetError, exigir_chaves, load_file
 
 #: As chaves de `ci/licenses.yaml` que este leitor conhece (KAM-134). Sairam
@@ -517,7 +517,16 @@ def main(argv: list[str] | None = None) -> int:
     # gate saia **1**: um `ci/waivers.yaml` malformado passava por achado de
     # licenca. E a mesma classe de defeito que o `ci_gate_reservado` tinha, e
     # que uma correccao num so leitor nao resolveu.
-    except (ConfiguracaoInvalida, ConfiguracaoIlegivel, YamlSubsetError, OSError) as excepcao:
+    # O `WaiverInvalido` tambem, e nao so a sua subclasse `ConfiguracaoIlegivel`
+    # (KAM-135). O KAM-134 nomeou a subclasse e deixou a mae, e com o
+    # `criado_em` obrigatorio isto passou do caso raro ao caso **normal**:
+    # qualquer waiver escrito antes do KAM-135 cai aqui, pelo que o primeiro
+    # contacto de alguem com a mudanca seria um traceback de Python no gate 11.
+    # Para este modulo, um `ci/waivers.yaml` que nao valida e configuracao: 2.
+    except (
+        ConfiguracaoInvalida, ConfiguracaoIlegivel, WaiverInvalido,
+        YamlSubsetError, OSError,
+    ) as excepcao:
         print(f"sbom: erro de configuracao: {excepcao}", file=sys.stderr)
         return 2
 

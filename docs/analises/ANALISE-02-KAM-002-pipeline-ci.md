@@ -167,12 +167,13 @@ caracteres, segredo a cavalo da fronteira, e não-duplicação.
   KAM-134**, e eram **oito**: faltava a `desconhecidas.razao`. Todas passaram a
   comentário, e os catorze leitores de `ci/*.yaml` recusam agora uma chave que
   não conheçam, com código 2.
-- ***Waivers* que passam e não deviam:** data de aprovação impossível
-  (`@9999-99-99`) aceita, prazo de 30 dias contado de hoje e não da criação (não
-  há `criado_em`, pelo que um *waiver* renova-se para sempre), ~~chaves
-  desconhecidas aceitas em silêncio~~ (esta fechou-a o KAM-134). E
-  `GATES_COM_WAIVER` não inclui os *gates* 14 e 18, que a §5 diz que consomem
-  este esquema. O resto é KAM-135.
+- ~~***Waivers* que passam e não deviam**~~ — **fechado por dois tickets**. As
+  chaves desconhecidas pelo **KAM-134**; as outras três pelo **KAM-135**: a data
+  de aprovação é lida e tem de ser contemporânea da criação; o `criado_em` é
+  obrigatório e o prazo conta-se dele, pelo que renovar deixou de ser um *diff*
+  de um caractere; e os *gates* 14 e 18 entraram. O KAM-135 encontrou ainda um
+  quinto que esta análise não nomeia: o **`3b`** era invisível à leitura do
+  canon, pelo que não aceitava *waiver* nem dizia porque não.
 - **`kamba_yaml` tem dois erros de leitura silenciosos:** um `>-` como primeira
   chave de item de lista engole as chaves seguintes; um item de lista não citado
   com `:` torna-se um mapa. O módulo argumenta que a recusa larga é o que o torna

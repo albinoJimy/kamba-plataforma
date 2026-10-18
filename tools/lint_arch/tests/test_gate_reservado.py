@@ -28,7 +28,9 @@ class TestFalhaPorDesenho(unittest.TestCase):
 
 
 class TestWaiverDispensa(unittest.TestCase):
-    def _raiz_com_waiver(self, gate: str, expira: str) -> Path:
+    def _raiz_com_waiver(
+        self, gate: str, expira: str, criado: str | None = None
+    ) -> Path:
         pasta = Path(tempfile.mkdtemp())
         (pasta / "ci").mkdir()
         (pasta / "ci" / "waivers.yaml").write_text(
@@ -41,6 +43,10 @@ class TestWaiverDispensa(unittest.TestCase):
             "    razao: >-\n"
             "      O ticket que implementa este gate ainda nao foi executado; fica\n"
             "      dispensado e e revisto no fim do prazo.\n"
+            # O `criado_em` e obrigatorio desde o KAM-135, e e dele que o prazo
+            # se conta. Por omissao e **hoje**: estas fixtures escrevem waivers
+            # que acabam de nascer.
+            f"    criado_em: {criado or datetime.date.today().isoformat()}\n"
             f"    expira_em: {expira}\n",
             encoding="utf-8",
         )
