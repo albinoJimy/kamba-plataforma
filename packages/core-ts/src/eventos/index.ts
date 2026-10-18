@@ -6,7 +6,7 @@
  *     envelope.ts            forma do envelope v1, leitura e recusa
  *     pii.ts                 guarda de padrão de telefone (espelho do `evt_emitir`)
  *     particao.ts            nomes de fila `evt.<consumer>.p<0..15>`
- *     conversor.ts           gancho de conversão de versão — **vazio**
+ *     conversor.ts           conversão de versão; o registo continua vazio
  *     consultas.ts           o SQL do publicador
  *     filas.ts               a porta das filas, e uma fila em memória para testes
  *     filas_bullmq.ts        a implementação sobre BullMQ
@@ -37,6 +37,7 @@ export {
   type Envelope,
   EnvelopeInvalidoError,
   FINALIDADES,
+  FINALIDADES_SO_NA_V2,
   type Finalidade,
   lerEnvelope,
 } from "./envelope.ts";
@@ -63,6 +64,7 @@ export {
   CONVERSORES,
   ConversaoInvalidaError,
   type Conversor,
+  descerFinalidades,
   RegistoDeConversores,
   SemConversorError,
 } from "./conversor.ts";

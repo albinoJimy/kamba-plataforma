@@ -31,7 +31,9 @@ import sys
 from pathlib import Path
 
 from contract_diff import base as base_mod
-from contract_diff import catalogo, diff, exemplos, gerar as gerar_mod, pii, subscricoes
+from contract_diff import (
+    catalogo, diff, dominios, exemplos, gerar as gerar_mod, pii, subscricoes,
+)
 
 SAIDA_OK = 0
 SAIDA_ACHADOS = 1
@@ -130,6 +132,24 @@ def correr_gerados(raiz: Path) -> tuple[int, list[str]]:
         f"{len(fora)} desactualizado(s)"
     )
     return (SAIDA_ACHADOS if fora else SAIDA_OK), [cabecalho, *[f"  {f}" for f in fora]]
+
+
+def correr_dominios(raiz: Path) -> tuple[int, list[str]]:
+    """Os `enum` dos contratos contra os dominios do dicionario (KAM-159)."""
+    try:
+        achados = dominios.verificar(raiz)
+    except dominios.DicionarioAusente as erro:
+        # Configuracao, nao achado: o dicionario nao se le, logo nao se sabe
+        # se ha divergencia.
+        return SAIDA_ERRO, [f"contract_diff dominios: erro de configuracao: {erro}"]
+    vigiados = len(dominios.DOMINIOS_VIGIADOS)
+    cabecalho = (
+        f"contract_diff dominios: {vigiados} par(es) vigiado(s) entre o "
+        f"dicionario e os contratos; {len(achados)} divergencia(s)"
+    )
+    return (SAIDA_ACHADOS if achados else SAIDA_OK), [
+        cabecalho, *[f"  {a}" for a in achados]
+    ]
 
 
 def correr_subscricoes(raiz: Path) -> tuple[int, list[str]]:
@@ -271,7 +291,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     analisador.add_argument(
         "comando",
-        choices=["check", "diff", "pii", "exemplos", "subscricoes", "gerados",
+        choices=["check", "diff", "pii", "exemplos", "subscricoes", "dominios", "gerados",
                  "gerar", "canario"],
         nargs="?", default="check",
     )
@@ -307,6 +327,7 @@ def main(argv: list[str] | None = None) -> int:
         "pii": lambda: correr_pii(raiz),
         "exemplos": lambda: correr_exemplos(raiz),
         "subscricoes": lambda: correr_subscricoes(raiz),
+        "dominios": lambda: correr_dominios(raiz),
         "gerados": lambda: correr_gerados(raiz),
         "canario": lambda: correr_canario(raiz),
     }
@@ -325,7 +346,7 @@ def main(argv: list[str] | None = None) -> int:
         return codigo
 
     pior = SAIDA_OK
-    for nome in ("diff", "pii", "exemplos", "subscricoes", "gerados", "canario"):
+    for nome in ("diff", "pii", "exemplos", "subscricoes", "dominios", "gerados", "canario"):
         codigo, linhas = partes[nome]()
         _escrever(linhas)
         pior = max(pior, codigo)

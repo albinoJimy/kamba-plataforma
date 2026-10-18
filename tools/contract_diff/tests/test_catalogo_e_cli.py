@@ -17,10 +17,20 @@ from contract_diff import catalogo, cli, exemplos, gerar, pii, subscricoes
 
 RAIZ = Path(__file__).resolve().parents[3]
 
-#: Os trinta e oito do dicionario §3.5, emenda 1.11. Escritos aqui a mao e nao
-#: lidos do dicionario: se alguem apagar um contrato **e** a linha do
+#: Os trinta e oito **tipos** do dicionario §3.5, emenda 1.11. Escritos aqui a
+#: mao e nao lidos do dicionario: se alguem apagar um contrato **e** a linha do
 #: dicionario, uma contagem derivada dos dois continuava a bater.
 ESPERADOS = 38
+
+#: As versoes publicadas de cada tipo. Sao **duas** desde o KAM-159, que
+#: acrescentou a `v2` a todos: a uniao das finalidades de consentimento alarga
+#: o dominio do envelope, e alargar um dominio e quebrante (§6.6).
+VERSOES_POR_TIPO = 2
+
+#: Os **ficheiros** de contrato. E o que o catalogo devolve, e nao o numero de
+#: tipos — distincao que so passou a existir no dia em que nasceu a primeira
+#: segunda versao.
+ESPERADOS_FICHEIROS = ESPERADOS * VERSOES_POR_TIPO
 
 #: Os oito que o `docs/tecnica/06` §5 **nao** tem, e porque e que estao no
 #: catalogo. Esta lista e o complemento exacto do §5: o que nao estiver aqui
@@ -105,11 +115,35 @@ class TestOCatalogoDoRepositorio(unittest.TestCase):
         cls.contratos = catalogo.todos(RAIZ)
 
     def test_sao_trinta_e_oito_e_carregam_todos(self) -> None:
-        self.assertEqual(len(self.contratos), ESPERADOS)
+        self.assertEqual(len(self.contratos), ESPERADOS_FICHEIROS)
+        self.assertEqual(len({c.tipo for c in self.contratos}), ESPERADOS)
 
-    def test_cada_um_e_a_versao_1(self) -> None:
-        """Enquanto nao houver v2, todos sao v1 — e o teste diz quando deixar de ser."""
-        self.assertEqual({c.versao for c in self.contratos}, {1})
+    def test_todos_os_tipos_tem_as_mesmas_versoes(self) -> None:
+        """Ate ao KAM-159 todos eram `v1`, e este teste dizia-o.
+
+        Hoje sao `v1` e `v2`, e o que importa e que **nenhum tipo fique para
+        tras**: a `v2` alargou o dominio das finalidades no envelope, que e
+        comum aos 38, pelo que ou todos a tem ou ha um que o produtor novo nao
+        consegue emitir com a finalidade nova.
+        """
+        esperadas = set(range(1, VERSOES_POR_TIPO + 1))
+        por_tipo: dict[str, set[int]] = {}
+        for contrato in self.contratos:
+            por_tipo.setdefault(contrato.tipo, set()).add(contrato.versao)
+        self.assertEqual(len(por_tipo), ESPERADOS)
+        for tipo, versoes in sorted(por_tipo.items()):
+            with self.subTest(tipo=tipo):
+                self.assertEqual(versoes, esperadas)
+
+    def test_cada_versao_tem_o_seu_exemplo(self) -> None:
+        """Havia **um** exemplo por pasta, validado contra todas as versoes.
+
+        Enquanto so houve `v1` isso bastou; no dia em que nasceu a `v2`, o
+        mesmo ficheiro tinha de dizer `versao: 1` e `versao: 2` ao mesmo tempo.
+        """
+        for contrato in self.contratos:
+            with self.subTest(tipo=contrato.tipo, versao=contrato.versao):
+                self.assertTrue(catalogo.exemplo_de(contrato).is_file())
 
     def test_o_tipo_do_caminho_bate_com_o_const_do_schema(self) -> None:
         for contrato in self.contratos:
@@ -271,9 +305,25 @@ class TestOsDoisPagamentosSaoDistinguiveis(unittest.TestCase):
     reconciliar.
     """
 
-    def autenticacao(self, tipo: str) -> dict:
-        (contrato,) = [c for c in catalogo.todos(RAIZ) if c.tipo == tipo]
+    def autenticacao(self, tipo: str, versao: int = 1) -> dict:
+        # Por versao desde o KAM-159: ha mais do que um contrato por tipo.
+        (contrato,) = [
+            c for c in catalogo.todos(RAIZ) if c.tipo == tipo and c.versao == versao
+        ]
         return contrato.payload["properties"]["autenticacao"]["properties"]
+
+    def test_as_duas_versoes_mantem_a_distincao(self) -> None:
+        """A `v2` nao pode ter fundido os dois dominios por descuido: e a
+        propriedade que o M7 do KAM-007 custou a ganhar."""
+        for versao in range(1, VERSOES_POR_TIPO + 1):
+            with self.subTest(versao=versao):
+                automatico = set(
+                    self.autenticacao("payment.confirmed", versao)["authn_method"]["enum"]
+                )
+                manual = set(
+                    self.autenticacao("payment.manual_confirmed", versao)["authn_method"]["enum"]
+                )
+                self.assertEqual(automatico & manual, set())
 
     def test_os_dominios_nao_se_intersectam(self) -> None:
         automatico = set(self.autenticacao("payment.confirmed")["authn_method"]["enum"])
@@ -326,7 +376,9 @@ class TestAQualquerProfundidade(unittest.TestCase):
                 contados += 1
                 with self.subTest(tipo=contrato.tipo, onde=caminho):
                     self.assertIs(no.get("additionalProperties"), False)
-        self.assertGreater(contados, ESPERADOS, "ha objectos aninhados e o teste nao os ve")
+        self.assertGreater(
+            contados, ESPERADOS_FICHEIROS, "ha objectos aninhados e o teste nao os ve"
+        )
 
     def test_nenhum_dinheiro_e_virgula_flutuante(self) -> None:
         monetarios = 0
@@ -484,7 +536,10 @@ class TestSubscricoesVazias(unittest.TestCase):
         inventada = [subscricoes.Subscricao("(teste)", "ensaio", "order.created", 99)]
         (achado,) = subscricoes.verificar(RAIZ, inventada)
         self.assertIn("versao_max=99", achado.porque)
-        self.assertIn("[1]", achado.porque)
+        # As versoes que existem, e nao um literal: desde o KAM-159 sao duas,
+        # e um numero a mao envelhecia na terceira.
+        esperadas = sorted(range(1, VERSOES_POR_TIPO + 1))
+        self.assertIn(str(esperadas), achado.porque)
 
     def test_e_morde_um_tipo_que_nao_existe(self) -> None:
         inventada = [subscricoes.Subscricao("(teste)", "ensaio", "nao.existe", 1)]
@@ -507,7 +562,7 @@ class TestCli(unittest.TestCase):
     def test_o_lint_de_pii_esta_conforme(self) -> None:
         codigo, texto = self.correr("pii")
         self.assertEqual(codigo, cli.SAIDA_OK, texto)
-        self.assertIn(f"{ESPERADOS} contrato(s)", texto)
+        self.assertIn(f"{ESPERADOS_FICHEIROS} contrato(s)", texto)
 
     def test_os_exemplos_validam(self) -> None:
         codigo, texto = self.correr("exemplos")

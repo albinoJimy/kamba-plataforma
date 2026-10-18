@@ -12,6 +12,8 @@ import {
   CONVERSORES,
   ConversaoInvalidaError,
   type Envelope,
+  FINALIDADES_SO_NA_V2,
+  descerFinalidades,
   RegistoDeConversores,
   SemConversorError,
   lerEnvelope,
@@ -123,5 +125,54 @@ describe("um conversor tem de preservar `id` e `agregado.seq` (§6.6)", () => {
       () => registo.registar("order.created", 1, 2, (e) => e),
       /converte-se para \*\*baixo\*\*/,
     );
+  });
+});
+
+describe("descerFinalidades (KAM-159)", () => {
+  function comFinalidades(finalidades: string[], versao = 2): Envelope {
+    const base = envelope(versao);
+    return { ...base, finalidades: finalidades as Envelope["finalidades"] };
+  }
+
+  it("desce uma v2 que nao usa as duas finalidades novas", () => {
+    const descido = descerFinalidades(comFinalidades(["transacao", "marketing"]));
+    assert.equal(descido.versao, 1);
+    assert.deepEqual(descido.finalidades, ["transacao", "marketing"]);
+  });
+
+  it("preserva o id e o agregado.seq", () => {
+    const antes = comFinalidades(["transacao"]);
+    const depois = descerFinalidades(antes);
+    assert.equal(depois.id, antes.id);
+    assert.equal(depois.agregado.seq, antes.agregado.seq);
+  });
+
+  it("RECUSA quando o envelope usa uma finalidade que a v1 nao tem", () => {
+    // A tentacao e deita-la fora e entregar o resto. E a coisa errada: as
+    // finalidades sao o que o publicador compara com a subscricao, pelo que
+    // apagar uma muda **quem recebe o evento**.
+    for (const nova of FINALIDADES_SO_NA_V2) {
+      assert.throws(
+        () => descerFinalidades(comFinalidades(["transacao", nova])),
+        (erro: unknown) => {
+          assert.ok(erro instanceof ConversaoInvalidaError);
+          assert.match(erro.message, new RegExp(nova));
+          assert.match(erro.message, /mudaria quem recebe o evento/);
+          return true;
+        },
+      );
+    }
+  });
+
+  it("o registo do processo continua vazio: nada emite v2 ainda", () => {
+    assert.equal(CONVERSORES.tamanho, 0);
+    assert.equal(CONVERSORES.tem("order.created", 2, 1), false);
+  });
+
+  it("registado a mao, o salto 2 -> 1 passa a existir", () => {
+    const registo = new RegistoDeConversores();
+    registo.registar("order.created", 2, 1, descerFinalidades);
+    const descido = registo.converter(comFinalidades(["transacao"]), 1);
+    assert.equal(descido.versao, 1);
   });
 });

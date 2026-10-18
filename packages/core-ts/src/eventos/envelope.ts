@@ -43,11 +43,20 @@ export const CLASSES_PII = ["P0", "P1", "P2"] as const;
 export type ClassePii = (typeof CLASSES_PII)[number];
 
 /**
- * Finalidades de uso (`docs/tecnica/06` §7.3, `consent_event.finalidade`).
+ * Finalidades de uso (`consent_event.purpose`, dicionário §3.1, emenda 1.16).
  *
  * Lista fechada: o roteamento do publicador compara a `finalidade` de uma
  * subscrição com estas, e uma finalidade que não esteja aqui nunca recebe
  * nada — o que é o comportamento certo (falha fechada), mas tem de ser dito.
+ *
+ * **São dez desde o KAM-159**, e são a união de duas listas que existiam e se
+ * cruzavam numa só. As duas últimas vêm do dicionário e eram, até aqui,
+ * **impossíveis de emitir**: o `enum` dos contratos era fechado e não as
+ * tinha. Entram com a `v2` dos 38 contratos.
+ *
+ * A ordem é a do dicionário, e isso importa: um gate compara esta lista com o
+ * domínio canónico, e a comparação é de conjuntos — mas quem lê compara à
+ * vista.
  */
 export const FINALIDADES = [
   "transacao",
@@ -58,6 +67,20 @@ export const FINALIDADES = [
   "sugestoes_patrocinadas",
   "partilha_loja",
   "partilha_parceiros",
+  "partilha_estafeta",
+  "notificacao_dono",
+] as const;
+
+/**
+ * As que só a `v2` do envelope aceita (KAM-159).
+ *
+ * Um envelope `v2` que as use **não se consegue representar** numa `v1`: o
+ * `enum` da `v1` não as tem. É o que o conversor de versão usa para recusar
+ * em vez de as deitar fora — ver `conversor.ts`.
+ */
+export const FINALIDADES_SO_NA_V2 = [
+  "partilha_estafeta",
+  "notificacao_dono",
 ] as const;
 export type Finalidade = (typeof FINALIDADES)[number];
 

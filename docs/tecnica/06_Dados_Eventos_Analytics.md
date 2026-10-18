@@ -306,9 +306,11 @@ Campo novo **opcional** ⇒ mesma `versao`; qualquer mudança de significado, re
 -- tri-estado por `accepted` booleano, `texto_versao` por `text_version`,
 -- `prova_hash` por `evidence_hash`, e `registado_at` por `ocorrido_em`.
 --
--- O que **nao** se resolveu aqui, de proposito: as oito finalidades abaixo sao
--- as dos 38 contratos ja publicados em `contratos/eventos/`, e o dicionario §3.1
--- nomeia cinco outras. Os dois conjuntos cruzam-se numa so. Esta em KAM-159.
+-- As finalidades sao **dez** desde o KAM-159, e sao a uniao das duas listas
+-- que existiam: as cinco do dicionario e as oito dos 38 contratos, que se
+-- cruzavam numa so. O dominio canonico esta no §3.1 (emenda 1.16), e o
+-- `contract_diff dominios` (gate 7) confronta-o com o `enum` dos contratos
+-- nos dois sentidos.
 CREATE INDEX consent_event_contacto
   ON platform.consent_event (tenant_id, contact_id, purpose, id DESC);
 CREATE VIEW consent_actual AS
@@ -317,7 +319,7 @@ CREATE VIEW consent_actual AS
   FROM platform.consent_event
   ORDER BY tenant_id, contact_id, purpose, id DESC;
 ```
-As finalidades e o que cada uma exige continuam válidas como desenho, e são as dos contratos publicados; o que o KAM-159 decide é se **são estas** ou as cinco do dicionário §3.1. `transacao` e `atendimento` registam que o **aviso de privacidade foi apresentado**; se a base é contrato ou consentimento é matéria de parecer (`evidencia/E3` req. 1–2). `marketing`, `analytics_agregado`, `sugestoes_patrocinadas`, `partilha_*` exigem `accepted = true`, específico por finalidade e registado no 1.º contacto ou no momento do uso. **Roteamento por finalidade:** o publicador só entrega a um consumidor se a sua `finalidade` (em `evt_subscricoes`) estiver em `envelope.finalidades`; consumidores de finalidades com consentimento verificam `consent_actual` por `contact_id` no processamento. **Lint de PII (CI):** os *schemas* de evento são fechados; um teste rejeita nomes de campo `telefone|msisdn|bsuid|nome|morada|texto|email` fora de uma lista aprovada, e corre os *fixtures* contra padrões `\+?244\d{9}`.
+As finalidades são as **dez** do dicionário §3.1 (emenda 1.16, KAM-159): as oito daqui mais `partilha_estafeta` e `notificacao_dono`, que o canon declarava e que até à `v2` dos contratos eram **impossíveis de emitir**. **A base legal de cada uma não está fixada** — das dez, só `marketing` tem fonte directa e CONFIRMADA no `evidencia/E3`, e cinco não têm nada; a tabela está em [`10`](10_Onboarding_Governanca.md) §7.2, e o parecer é o KAM-104. `transacao` e `atendimento` registam que o **aviso de privacidade foi apresentado**; se a base é contrato ou consentimento é matéria de parecer (`evidencia/E3` req. 1–2). `marketing`, `analytics_agregado`, `sugestoes_patrocinadas`, `partilha_*` exigem `accepted = true`, específico por finalidade e registado no 1.º contacto ou no momento do uso. **Roteamento por finalidade:** o publicador só entrega a um consumidor se a sua `finalidade` (em `evt_subscricoes`) estiver em `envelope.finalidades`; consumidores de finalidades com consentimento verificam `consent_actual` por `contact_id` no processamento. **Lint de PII (CI):** os *schemas* de evento são fechados; um teste rejeita nomes de campo `telefone|msisdn|bsuid|nome|morada|texto|email` fora de uma lista aprovada, e corre os *fixtures* contra padrões `\+?244\d{9}`.
 
 ### 7.4 Retenção por tabela (propostas — a confirmar por parecer; `evidencia/E3` req. 14)
 | Dataset | Classe | Retenção proposta | Mecanismo |
@@ -661,3 +663,4 @@ O Score tem contrato próprio com consentimento da PME por exportação, versão
 | 1.2 | Outubro 2026 | KAM-128: As **18** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | **Emenda KAM-139** (variantes vivas do dicionário): as seis variantes vivas do §6.1, do §10.2 e do §12 passam às formas canónicas do §3.3 — `preco_minor` (3), `total_minor` (2) e `preco_tipo = 'fixo'` (1). Como o §2 fixa dinheiro em unidade menor inteira, `preco_minor` passa de `int` a `bigint`; os três nomes derivados das mesmas colunas (`gmv_pago_*`, `receita_paga_*` e `mediana_*`), que o *gate* não apanha por não serem variantes registadas, seguem a mesma regra e terminam em `_minor`, para não ficarem em Kz ao lado de colunas em cêntimos na mesma secção. As cinco citações históricas do §7.2 e do §8 mantêm-se, e o §4 e a tabela do §5 não foram tocados. | Equipa KAMBÁ |
 | 1.4 | Outubro 2026 | KAM-140: §7.3 — o DDL de `consent_event` sai daqui e remete para `10` §7.2. Eram **cinco** formas da mesma tabela no conjunto, e esta divergia da do dicionário §3.1 em cinco nomes de campo. O índice e a vista ficam, com os nomes da forma de referência. As oito finalidades mantêm-se como desenho; se são estas ou as cinco do dicionário é o **KAM-159**, e não se decide de passagem. | Equipa KAMBÁ |
+| 1.5 | Outubro 2026 | KAM-159: §7.3 — as finalidades passam a ser as dez do dicionário §3.1, e o texto deixa de dizer que a escolha está por fazer. Fica dito que a **base legal** não está fixada, com o apontador para a tabela do `10` §7.2 e para o KAM-104. | Equipa KAMBÁ |
