@@ -36,10 +36,12 @@ O que isto **não** é, dito sem rodeios:
 make ruleset
 ```
 
-Precisa de uma credencial com `administration: read` — no porta-chaves do `gh`
-(`gh auth login`), ou em `KAMBA_RULESET_TOKEN` com `--transporte http`. **Onde
-ela vive, quem a pode usar, como se roda e o que acontece se for comprometida
-está no [`ADR-L003`](../../docs/adr/ADR-L003-verificacao-do-ruleset.md).**
+Precisa de uma credencial com `administration: read` no porta-chaves do `gh`
+(`gh auth login`). Onde não houver `gh` — o contexto fora destas Actions, se
+vier a existir —, `make ruleset TRANSPORTE=http` com `KAMBA_RULESET_TOKEN` no
+ambiente. **Onde ela vive, quem a pode usar, como se roda e o que acontece se
+for comprometida está no
+[`ADR-L003`](../../docs/adr/ADR-L003-verificacao-do-ruleset.md).**
 
 Saída **0** = o GitHub aplica o que o ficheiro diz; **1** = divergem, com cada
 divergência nomeada; **2** = não se conseguiu verificar (sem `gh`, sem

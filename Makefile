@@ -719,14 +719,17 @@ supply-chain:
 # `chave-estatica-no-ci` do gate 11 recusa. A decisao, o que custa, e onde vive
 # a credencial de leitura estao em `docs/adr/ADR-L003-verificacao-do-ruleset.md`.
 #
-# Precisa de `gh auth login` com `administration: read` sobre o repositorio, ou
-# de `--transporte http` com KAMBA_RULESET_TOKEN. Saida 0 = conforme,
-# 1 = diverge, 2 = nao se conseguiu verificar — e 2 nunca e verde.
+# Precisa de `gh auth login` com `administration: read` sobre o repositorio.
+# Onde nao houver `gh`, `make ruleset TRANSPORTE=http` com KAMBA_RULESET_TOKEN
+# no ambiente. Saida 0 = conforme, 1 = diverge, 2 = nao se conseguiu verificar —
+# e 2 nunca e verde.
+
+TRANSPORTE ?= gh
 
 ## ruleset: compara o ruleset de main com .github/rulesets/main.json (KAM-137)
 ruleset:
 	@echo "==> ruleset de main (KAM-137)"
-	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from ruleset_check.cli import main; sys.exit(main(['--root', '$(ROOT)', 'check']))"
+	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from ruleset_check.cli import main; sys.exit(main(['--root', '$(ROOT)', '--transporte', '$(TRANSPORTE)', 'check']))"
 
 # --- Gates reservados, fail-closed ------------------------------------------
 #
