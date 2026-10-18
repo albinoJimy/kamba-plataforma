@@ -26,7 +26,24 @@ import sys
 from pathlib import Path
 from typing import NamedTuple
 
-from kamba_yaml import YamlSubsetError, load_file
+from kamba_yaml import YamlSubsetError, exigir_chaves, load_file
+
+#: As chaves de `ci/contagens-allow.yaml` que este leitor conhece (KAM-134). A
+#: `version` esta no ficheiro e ninguem a le; declara-se para que a recusa nao
+#: a apanhe.
+_CHAVES = {'version', 'excepcoes', 'dividas'}
+
+#: As chaves de cada divida. Todas lidas (KAM-134): declarar uma e nao a ler
+#: seria instanciar de novo o defeito que este ticket fecha.
+_CHAVES_DE_DIVIDA = {
+    'ficheiro', 'grandeza', 'escrito', 'ocorrencias', 'origem',
+    'criado_em', 'expira_em', 'razao',
+}
+
+#: Quanto tempo uma divida de contagem pode viver, contado **da criacao**.
+#: *Proposta*, a calibrar: e o mesmo valor que o `ci/waivers.yaml` usa para as
+#: excepcoes do pipeline, e pela mesma razao.
+PRAZO_MAXIMO = datetime.timedelta(days=31)
 
 from . import fontes as mod_fontes
 from .scan import PADROES, Achado, ficheiros, varrer_arvore, varrer_ficheiro
@@ -56,6 +73,7 @@ class Divida(NamedTuple):
     escrito: int
     ocorrencias: int
     origem: str
+    criado_em: datetime.date
     expira_em: datetime.date
     razao: str
 
@@ -94,13 +112,14 @@ def ler_declaracoes(raiz: Path) -> tuple[tuple[str, ...], tuple[Divida, ...]]:
         dados = load_file(f)
     except (YamlSubsetError, OSError) as e:
         raise ConfiguracaoInvalida(f'{ALLOW}: {e}') from e
-    if not isinstance(dados, dict):
-        raise ConfiguracaoInvalida(f'{ALLOW}: a raiz tem de ser um mapeamento')
+    exigir_chaves(dados, _CHAVES, ALLOW, erro=ConfiguracaoInvalida)
 
     excepcoes: list[str] = []
     for i, e in enumerate(dados.get('excepcoes') or [], 1):
-        if not isinstance(e, dict):
-            raise ConfiguracaoInvalida(f'{ALLOW}: a excepcao {i} nao e um mapeamento')
+        exigir_chaves(
+            e, {'excerto', 'razao'}, f'{ALLOW}: a excepcao {i}',
+            erro=ConfiguracaoInvalida,
+        )
         excerto, razao = e.get('excerto'), e.get('razao')
         if not isinstance(excerto, str) or not excerto.strip():
             raise ConfiguracaoInvalida(f'{ALLOW}: a excepcao {i} nao tem `excerto`')
@@ -112,10 +131,9 @@ def ler_declaracoes(raiz: Path) -> tuple[tuple[str, ...], tuple[Divida, ...]]:
     dividas: list[Divida] = []
     for i, d in enumerate(dados.get('dividas') or [], 1):
         onde = f'{ALLOW}: a divida {i}'
-        if not isinstance(d, dict):
-            raise ConfiguracaoInvalida(f'{onde} nao e um mapeamento')
+        exigir_chaves(d, _CHAVES_DE_DIVIDA, onde, erro=ConfiguracaoInvalida)
         for chave in ('ficheiro', 'grandeza', 'escrito', 'ocorrencias', 'origem',
-                      'expira_em', 'razao'):
+                      'criado_em', 'expira_em', 'razao'):
             if not d.get(chave) and d.get(chave) != 0:
                 raise ConfiguracaoInvalida(f'{onde} nao tem `{chave}`')
         if d['grandeza'] not in PADROES:
@@ -130,10 +148,26 @@ def ler_declaracoes(raiz: Path) -> tuple[tuple[str, ...], tuple[Divida, ...]]:
             quantas = int(d['ocorrencias'])
         except (TypeError, ValueError) as e:
             raise ConfiguracaoInvalida(f'{onde}: `ocorrencias` nao e um numero') from e
+        criado_em = _data(d['criado_em'], f'{onde}: `criado_em`')
+        expira_em = _data(d['expira_em'], f'{onde}: `expira_em`')
+        # O `criado_em` **e lido**, e e isto que o torna util (KAM-134): sem
+        # esta conta, prolongar uma divida era empurrar o `expira_em` e mais
+        # nada — um *diff* de um caractere, sem decisao nova e sem dono novo.
+        # E o mesmo defeito que o KAM-135 vai fechar nos *waivers*.
+        if expira_em < criado_em:
+            raise ConfiguracaoInvalida(
+                f'{onde}: `expira_em` ({expira_em}) e anterior a `criado_em` '
+                f'({criado_em})')
+        if expira_em - criado_em > PRAZO_MAXIMO:
+            raise ConfiguracaoInvalida(
+                f'{onde}: o prazo e de {(expira_em - criado_em).days} dias, e o '
+                f'maximo sao {PRAZO_MAXIMO.days} contados da criacao. Prolongar '
+                'uma divida exige mexer no `criado_em` — ou seja, uma decisao '
+                'nova, que se le no diff.')
         dividas.append(Divida(
             ficheiro=str(d['ficheiro']), grandeza=str(d['grandeza']), escrito=escrito,
             ocorrencias=quantas, origem=str(d['origem']),
-            expira_em=_data(d['expira_em'], onde), razao=str(d['razao']),
+            criado_em=criado_em, expira_em=expira_em, razao=str(d['razao']),
         ))
     return tuple(excepcoes), tuple(dividas)
 

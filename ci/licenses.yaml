@@ -14,8 +14,11 @@
 #      `syft` e `cyclonedx-npm` fazem por omissao) marca o nosso codigo como
 #      licenca nao permitida.
 #
-# Este ficheiro corrige as tres e acrescenta o que a proposta nao tinha:
-# avaliacao de **expressoes** SPDX, politica para `NOASSERTION`, e um terceiro
+# Este ficheiro corrige as tres. A avaliacao de **expressoes** SPDX e a politica
+# para `NOASSERTION` tambem sao do KAM-002, mas **nao vivem aqui**: estao em
+# `tools/sbom/spdx.py` e em `tools/sbom/cli.py`, e as chaves que as prometiam
+# sairam deste ficheiro no KAM-134 — descreviam configuracao que ninguem lia.
+# O que fica aqui e o terceiro
 # estado para o que depende de uma decisao aberta — exigido por
 # `specs/EPIC-07` §(Redis/Valkey): "ate la, a lista de licencas marca-o como
 # pendente de decisao e nao como aprovado".
@@ -144,11 +147,20 @@ pendentes_de_decisao:
 # `NOASSERTION` no SPDX do GitHub, porque o repositorio e MIT **excepto** a
 # Enterprise Edition. "Nao sei" sobre a licenca do componente central do comercio
 # nao pode passar em silencio (E4 §1, linha do Medusa v2).
-desconhecidas:
-  politica: falha
-  razao: >-
-    Uma licenca que o scanner nao consegue determinar e uma licenca nao revista.
-    Fail-closed, com waiver obrigatorio a citar quem a leu e onde.
+# A POLITICA E FALHAR, E NAO E CONFIGURAVEL (KAM-134). Estavam aqui tres chaves
+# — `desconhecidas`, `desconhecidas.politica: falha` e `desconhecidas.razao` —
+# que **nenhum codigo lia**: o `tools/sbom/cli.py` transforma em achado qualquer
+# veredicto que nao seja `permitida`, e nao ha ramo nenhum para `aviso`.
+#
+# Nao se tornou legivel, e a razao nao e preguica. O `ci/waivers.yaml` **ja e** o
+# mecanismo de "avisar em vez de falhar": por alvo, com ADR ou aprovacao, autor
+# e prazo. Um `politica: aviso` dispensaria **todas** as licencas nao
+# determinadas de uma vez, sem nomear nenhuma, sem dono e sem data — e seria a
+# unica forma no repositorio de desligar um veredicto de seguranca sem dizer o
+# que se esta a desligar. E estritamente mais fraco do que o que ja existe.
+#
+# A razao que a chave `razao` dizia fica dita aqui, que e onde a prosa pertence:
+# uma licenca que o scanner nao consegue determinar e uma licenca nao revista.
 
 # --------------------------------------------- pacotes do proprio workspace
 # Os nossos `package.json` declaram `UNLICENSED` (convencao npm, nao SPDX). Nao
@@ -185,7 +197,14 @@ proprios:
 # A assimetria entre AND e OR e deliberada e vale explicacao:
 #   - `AND` significa "cumpre as duas" — logo cumpre a pior, e e a pior que conta.
 #   - `OR` significa "escolhe uma" — e nos escolhemos uma permitida, se houver.
-expressoes:
-  and: todas_tem_de_passar
-  or: basta_uma_passar
-  with: avalia_a_licenca_e_ignora_a_excepcao
+# ISTO E SEMANTICA DE SPDX, NAO CONFIGURACAO (KAM-134). Estavam aqui quatro
+# chaves — `expressoes`, `.and`, `.or`, `.with` — que **nenhum codigo lia**: as
+# tres regras estao em `tools/sbom/spdx.py`, e a sua docstring repetia-as
+# palavra por palavra. Nao se tornaram legiveis porque nao ha nada para
+# configurar: `A AND B` significa "cumpre as duas" em SPDX, aqui e em qualquer
+# lado, e um ficheiro que oferecesse a escolha estaria a prometer que se pode
+# decidir o que uma expressao quer dizer.
+#
+#   and  — todas tem de passar; e a pior que conta
+#   or   — basta uma passar; escolhemos a permitida, se houver
+#   with — avalia a licenca e ignora a excepcao

@@ -31,11 +31,20 @@
 #   autor              quem o escreveu, e a quem se pergunta
 #   razao              porque e aceitavel, numa frase que sobreviva a sair o autor
 #
-# A chave `regra`, que uma versao anterior deste cabecalho documentava
-# (`gate: 11, regra: licenca`), **nao e lida por codigo nenhum**: um waiver de
-# gate 11 dispensa o alvo para qualquer veredicto, e nao so para o que `regra`
-# nomearia. Registado como lacuna 12 em docs/ci.md §7, com as outras chaves de
-# configuracao que prometem politica que o codigo nao le.
+# A chave `regra` SAIU, e com ela a leitura errada mais perigosa das sete que o
+# KAM-134 fechou. Uma versao anterior deste cabecalho documentava-a
+# (`gate: 11, regra: licenca`) e o exemplo abaixo escrevia-a; nenhum codigo a
+# lia. Quem escrevesse `regra: licenca` acreditava ter dispensado so a licenca,
+# e tinha dispensado tambem a vulnerabilidade.
+#
+# O que vale, dito por extenso: **um waiver de gate 11 dispensa o alvo para
+# QUALQUER veredicto** — licenca, vulnerabilidade, SBOM. Se for preciso
+# dispensar um e nao o outro, isso nao existe hoje, e pedir um `regra` que
+# funcione e trabalho de quem o precisar.
+#
+# Desde o KAM-134, uma chave que este ficheiro nao conheca **falha com codigo
+# 2** (erro de configuracao). E por isso que a `regra` saiu tambem do exemplo
+# comentado: descomenta-lo como modelo passaria a dar erro.
 #   expira_em          data ISO, no maximo 30 dias apos a criacao (*proposta* do
 #                      ticket). Um waiver expirado **falha o pipeline** — nao se
 #                      ignora nem avisa
@@ -54,7 +63,6 @@ version: 1
 #
 # waivers:
 #   - gate: 11
-#     regra: licenca
 #     alvo: "pkg:npm/exemplo@1.0.0"
 #     adr_ou_aprovacao: ADR-014
 #     autor: nome.sobrenome

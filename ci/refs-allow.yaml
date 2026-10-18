@@ -57,11 +57,16 @@ placeholders:
 # finge-lo: o gate 3 so apanha um `D#` errado no dia em que o §13.3 encolher.
 # A correccao de fundo e o canon deixar de escrever prazos como `D30` — esta
 # pedida num ticket proprio, nao neste.
-serie_d:
-  prazos_conhecidos:
-    - D0
-    - D30
-    - D60
+# A LISTA NAO EXISTE, E E DE PROPOSITO (KAM-134). Estavam aqui duas chaves —
+# `serie_d` e `serie_d.prazos_conhecidos: [D0, D30, D60]` — que **nenhum codigo
+# lia**: o `tools/lint_refs` decide por **intervalo canonico** (`D1`-`D13`, de
+# `docs/tecnica/00` §13.3) e trata o que cai fora como aviso. O `D30` passa por
+# estar fora do intervalo, e nao por estar numa lista.
+#
+# Nao se tornou legivel porque a lista seria pior do que o intervalo: o
+# intervalo deriva da fonte e acompanha-a sozinho quando nasce uma decisao
+# nova; a lista envelhecia e passava a contradize-la. E a classe de defeito que
+# o KAM-158 fechou por maquina no resto do conjunto.
 
 # ------------------------------------------- areas cujo tema sao referencias
 #

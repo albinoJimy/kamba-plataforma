@@ -22,7 +22,16 @@ import json
 import sys
 from pathlib import Path
 
-from kamba_yaml import YamlSubsetError, load_file
+from ci_waivers import ConfiguracaoIlegivel
+from kamba_yaml import YamlSubsetError, exigir_chaves, load_file
+
+#: As chaves de `ci/licenses.yaml` que este leitor conhece (KAM-134). Sairam
+#: quatro que ninguem lia — `desconhecidas` (com `politica` e `razao`) e
+#: `expressoes` (com `and`, `or`, `with`) —, e a razao de cada uma esta no
+#: proprio ficheiro. A `version` fica, embora so se compare.
+CHAVES_DE_LICENCAS = {
+    "version", "permitidas", "negadas", "pendentes_de_decisao", "proprios",
+}
 
 from . import adr, cyclonedx, spdx, vulns
 from .collect import Componente, declaradas_e_nao_instaladas, recolher
@@ -42,6 +51,7 @@ def ler_politica(raiz: Path) -> tuple[Politica, frozenset[str]]:
         dados = load_file(caminho)
     except YamlSubsetError as excepcao:
         raise ConfiguracaoInvalida(str(excepcao)) from excepcao
+    exigir_chaves(dados, CHAVES_DE_LICENCAS, str(caminho), erro=ConfiguracaoInvalida)
     if dados.get("version") != 1:
         raise ConfiguracaoInvalida(f"{caminho}: 'version' tem de ser 1")
 
@@ -54,6 +64,10 @@ def ler_politica(raiz: Path) -> tuple[Politica, frozenset[str]]:
 
     negadas = []
     for indice, entrada in enumerate(dados.get("negadas") or [], start=1):
+        exigir_chaves(
+            entrada, {"prefixo", "razao"}, f"{caminho}: negada {indice}",
+            erro=ConfiguracaoInvalida,
+        )
         if not entrada.get("prefixo") or not entrada.get("razao"):
             raise ConfiguracaoInvalida(f"{caminho}: negada {indice} sem prefixo ou razao")
         negadas.append((str(entrada["prefixo"]), str(entrada["razao"])))
@@ -61,6 +75,10 @@ def ler_politica(raiz: Path) -> tuple[Politica, frozenset[str]]:
     pendentes = []
     excepcoes_de_nome: list[str] = []
     for indice, entrada in enumerate(dados.get("pendentes_de_decisao") or [], start=1):
+        exigir_chaves(
+            entrada, {"nome", "decisao", "razao", "excepcoes"},
+            f"{caminho}: pendente {indice}", erro=ConfiguracaoInvalida,
+        )
         faltam = [c for c in ("nome", "decisao", "razao") if not entrada.get(c)]
         if faltam:
             raise ConfiguracaoInvalida(
@@ -73,6 +91,11 @@ def ler_politica(raiz: Path) -> tuple[Politica, frozenset[str]]:
         # `razao`: um nome sem razao e uma dispensa por omissao, e e isso que
         # este ficheiro existe para nao ter.
         for ordem, excepcao in enumerate(entrada.get("excepcoes") or [], start=1):
+            exigir_chaves(
+                excepcao, {"nome", "razao"},
+                f"{caminho}: pendente {indice}, excepcao {ordem}",
+                erro=ConfiguracaoInvalida,
+            )
             em_falta = [c for c in ("nome", "razao") if not excepcao.get(c)]
             if em_falta:
                 raise ConfiguracaoInvalida(
@@ -487,7 +510,14 @@ def main(argv: list[str] | None = None) -> int:
                 )
         return 0
 
-    except (ConfiguracaoInvalida, YamlSubsetError, OSError) as excepcao:
+    # O `ConfiguracaoIlegivel` entra aqui porque este modulo le o
+    # `ci/waivers.yaml` pelo `ci_waivers.ler` (KAM-134). Nao e `ConfiguracaoInvalida`
+    # nem `YamlSubsetError` — e subclasse de `WaiverInvalido(RuntimeError)` —,
+    # pelo que sem o nomear escapava, o interpretador imprimia *traceback* e o
+    # gate saia **1**: um `ci/waivers.yaml` malformado passava por achado de
+    # licenca. E a mesma classe de defeito que o `ci_gate_reservado` tinha, e
+    # que uma correccao num so leitor nao resolveu.
+    except (ConfiguracaoInvalida, ConfiguracaoIlegivel, YamlSubsetError, OSError) as excepcao:
         print(f"sbom: erro de configuracao: {excepcao}", file=sys.stderr)
         return 2
 

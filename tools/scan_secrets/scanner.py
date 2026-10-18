@@ -6,7 +6,10 @@ import dataclasses
 import fnmatch
 from pathlib import Path
 
-from kamba_yaml import YamlSubsetError, load_file
+from kamba_yaml import YamlSubsetError, exigir_chaves, load_file
+
+#: As chaves de `ci/secrets-allow.yaml` que este leitor conhece (KAM-134).
+_CHAVES = {"version", "placeholders_literais", "areas"}
 
 from .patterns import CLASSES, PADROES, PADROES_DIGEST, entropia_de_shannon
 
@@ -63,11 +66,19 @@ class Permissoes:
             dados = load_file(caminho)
         except YamlSubsetError as excepcao:
             raise ConfiguracaoInvalida(str(excepcao)) from excepcao
+        # KAM-134: este leitor ja recusava uma **classe** inventada (abaixo) e
+        # ignorava em silencio uma **chave** inventada de topo. Eram o mesmo
+        # defeito visto de dois lados.
+        exigir_chaves(dados, _CHAVES, str(caminho), erro=ConfiguracaoInvalida)
         if dados.get("version") != 1:
             raise ConfiguracaoInvalida(f"{caminho}: 'version' tem de ser 1")
 
         areas = []
         for indice, area in enumerate(dados.get("areas") or [], start=1):
+            exigir_chaves(
+                area, {"caminho", "classes", "razao"}, f"{caminho}: area {indice}",
+                erro=ConfiguracaoInvalida,
+            )
             faltam = [c for c in ("caminho", "classes", "razao") if not area.get(c)]
             if faltam:
                 raise ConfiguracaoInvalida(

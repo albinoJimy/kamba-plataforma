@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from ci_waivers import WaiverInvalido, ler  # noqa: E402
+from ci_waivers import ConfiguracaoIlegivel, WaiverInvalido, ler  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -36,6 +36,14 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         waivers = ler(argumentos.root)
+    except ConfiguracaoIlegivel as excepcao:
+        # Codigo 2, e nao 1 (KAM-134). O `ConfiguracaoIlegivel` e **subclasse**
+        # de `WaiverInvalido`, pelo que o `except` largo abaixo o apanhava
+        # primeiro e devolvia 1 — e com isso o trabalho do KAM-136, que separou
+        # «erro de configuracao» de «achado» precisamente para um ficheiro
+        # ilegivel nao parecer um repositorio limpo, perdia-se neste leitor.
+        print(f"ci_gate_reservado: erro de configuracao: {excepcao}", file=sys.stderr)
+        return 2
     except WaiverInvalido as excepcao:
         print(f"ci_gate_reservado: {excepcao}", file=sys.stderr)
         return 1

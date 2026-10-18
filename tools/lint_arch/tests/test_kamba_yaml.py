@@ -741,3 +741,339 @@ def _mapas(valor, prefixo: str = ""):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestExigirChaves(unittest.TestCase):
+    """A recusa de chaves desconhecidas (KAM-134).
+
+    Vive aqui, com o leitor, porque e dele que os catorze leitores de
+    `ci/*.yaml` a passaram a importar. Os testes por leitor — que o conjunto
+    declarado e o certo, e que uma gralha numa chave existente falha — ficam
+    com cada leitor.
+    """
+
+    def test_um_mapa_conforme_passa(self) -> None:
+        kamba_yaml.exigir_chaves({"version": 1, "areas": []}, {"version", "areas"}, "x.yaml")
+
+    def test_um_mapa_com_menos_chaves_passa(self) -> None:
+        """O conjunto e um tecto, nao uma obrigacao: os campos obrigatorios
+        verificam-se a parte, e com mensagem propria."""
+        kamba_yaml.exigir_chaves({"version": 1}, {"version", "areas"}, "x.yaml")
+
+    def test_chave_desconhecida_levanta(self) -> None:
+        with self.assertRaises(YamlSubsetError) as capturado:
+            kamba_yaml.exigir_chaves({"versao": 1}, {"version"}, "x.yaml")
+        self.assertIn("x.yaml", str(capturado.exception))
+        self.assertIn("versao", str(capturado.exception))
+
+    def test_a_mensagem_diz_o_conjunto_aceite(self) -> None:
+        """O criterio do KAM-134 pede o ficheiro, a chave **e** as aceites.
+
+        A implementacao de que esta saiu — a do `canon_lint`, desde o KAM-111 —
+        dizia so as chaves a mais. Quem acrescentou a chave precisa de saber o
+        que podia ter escrito, e a lista e curta.
+        """
+        with self.assertRaises(YamlSubsetError) as capturado:
+            kamba_yaml.exigir_chaves({"xpto": 1}, {"areas", "version"}, "x.yaml")
+        mensagem = str(capturado.exception)
+        self.assertIn("As aceites aqui sao: areas, version", mensagem)
+
+    def test_varias_chaves_saem_ordenadas(self) -> None:
+        with self.assertRaises(YamlSubsetError) as capturado:
+            kamba_yaml.exigir_chaves({"zeta": 1, "alfa": 2}, set(), "x.yaml")
+        self.assertIn("['alfa', 'zeta']", str(capturado.exception))
+
+    def test_o_erro_e_parametro(self) -> None:
+        """Cada leitor tem a sua taxonomia e o seu mapeamento para codigo de
+        saida. Forcar uma excepcao unica partia os `except` que ja existem."""
+
+        class Proprio(ValueError):
+            pass
+
+        with self.assertRaises(Proprio):
+            kamba_yaml.exigir_chaves({"xpto": 1}, set(), "x.yaml", erro=Proprio)
+
+    def test_o_que_nao_e_mapa_levanta(self) -> None:
+        for valor in ([], "texto", None, 3):
+            with self.subTest(valor=valor):
+                with self.assertRaises(YamlSubsetError) as capturado:
+                    kamba_yaml.exigir_chaves(valor, {"a"}, "x.yaml")
+                self.assertIn("tem de ser um mapa", str(capturado.exception))
+
+
+class TestOsCatorzeLeitoresDeclaramOQueLeem(unittest.TestCase):
+    """Nenhuma chave activa em `ci/*.yaml` fica sem leitor (KAM-134).
+
+    E o inverso do teste de cima: la prova-se que a recusa funciona, aqui que
+    ela esta **ligada** em todo o lado e que os ficheiros reais a passam. Um
+    mecanismo partilhado que ninguem chama nao vale nada.
+    """
+
+    def test_todos_os_ficheiros_de_ci_sao_lidos_por_alguem(self) -> None:
+        import ci_waivers
+        from contract_diff.pii import ler_allowlist
+        from coverage_gate import ler_limiares
+        from lint_contagens.cli import ler_declaracoes as _contagens
+        from lint_handoff.cli import ler_excepcoes as _handoff
+        from lint_refs.cli import Excepcoes
+        from sbom.cli import ler_politica
+        from scan_secrets.scanner import Permissoes
+        from supply_chain.imagens import ler_inventario
+        from supply_chain.licencas import ler_registo
+
+        # Cada um le o ficheiro real e nao levanta. Se uma chave do ficheiro
+        # nao estiver no conjunto declarado, isto fica vermelho — que e
+        # exactamente o que se quer que aconteca a quem acrescentar uma.
+        ler_limiares(ROOT)
+        ler_politica(ROOT)
+        Excepcoes.ler(ROOT)
+        ci_waivers.ler(ROOT)
+        Permissoes.ler(ROOT)
+        _handoff(ROOT)
+        _contagens(ROOT)
+        ler_allowlist(ROOT)
+        ler_inventario(ROOT)
+        ler_registo(ROOT)
+
+    #: Para cada `ci/*.yaml`, o conjunto que o seu leitor declara. A chave e o
+    #: caminho relativo a raiz, e e por **descoberta** que se verifica que esta
+    #: completo — ver o teste a seguir. Uma lista a mao nunca apanharia um
+    #: ficheiro novo, que e metade do que o criterio 2 do KAM-134 pede.
+    @staticmethod
+    def conjuntos_por_ficheiro() -> dict[str, set[str]]:
+        import ci_waivers
+        from canon_lint import documentos as canon_documentos
+        from canon_lint.dicionario import CHAVES_DA_POLITICA
+        from contract_diff import pii
+        from coverage_gate import CHAVES as chaves_thresholds
+        from lint_contagens import cli as contagens
+        from lint_handoff import cli as handoff
+        from lint_refs.cli import CHAVES as chaves_refs
+        from sbom.cli import CHAVES_DE_LICENCAS
+        from scan_secrets import scanner
+        from supply_chain import imagens, licencas
+
+        return {
+            "ci/thresholds.yaml": chaves_thresholds,
+            "ci/licenses.yaml": CHAVES_DE_LICENCAS,
+            "ci/refs-allow.yaml": chaves_refs,
+            "ci/waivers.yaml": ci_waivers._CHAVES,
+            "ci/secrets-allow.yaml": scanner._CHAVES,
+            "ci/handoff-allow.yaml": handoff._CHAVES,
+            "ci/contagens-allow.yaml": contagens._CHAVES,
+            "ci/contratos-allow.yaml": pii._CHAVES,
+            "ci/canon-allow.yaml": canon_documentos.CHAVES_DE_TOPO,
+            "ci/canon-lint.yaml": CHAVES_DA_POLITICA,
+            "ci/rls_exceptions.yaml": {"version", "excepcoes"},
+            "ci/secdef_allowlist.yaml": {"version", "funcoes"},
+            "ci/supply-chain/imagens.yaml": imagens._CHAVES_TOPO,
+            "ci/supply-chain/licencas.yaml": licencas._CHAVES_TOPO,
+        }
+
+    def test_nenhuma_chave_de_topo_fica_por_declarar(self) -> None:
+        """A conta que a *discovery* fez a mao, agora por maquina.
+
+        Para cada `ci/*.yaml`, as chaves de topo do ficheiro tem de estar no
+        conjunto que o seu leitor declara. E assim que uma chave como a
+        `arredondamento` — que esteve dois tickets no ficheiro sem ninguem a
+        ler — deixa de poder voltar.
+        """
+        conjuntos = self.conjuntos_por_ficheiro()
+        for nome, aceites in conjuntos.items():
+            with self.subTest(ficheiro=nome):
+                dados = kamba_yaml.load_file(ROOT / nome)
+                a_mais = sorted(set(dados) - aceites)
+                self.assertEqual(a_mais, [], f"{nome}: chave(s) sem leitor")
+
+    def test_um_ci_yaml_novo_nao_passa_despercebido(self) -> None:
+        """A outra metade do criterio 2, e a que a primeira versao nao tinha.
+
+        «Toda a chave activa nos `ci/*.yaml` depois deste ticket tem um
+        leitor.» Com a lista a mao, um ficheiro **novo** nao tinha nada que o
+        forcasse a ter leitor — a classe que o ticket fecha reabria no proximo
+        ficheiro. O padrao certo ja estava neste ficheiro, no
+        `test_todos_os_ficheiros_reais_se_leem`: descobrir por *glob*.
+        """
+        descobertos = {
+            caminho.relative_to(ROOT).as_posix()
+            for padrao in ("ci/*.yaml", "ci/supply-chain/*.yaml")
+            for caminho in ROOT.glob(padrao)
+        }
+        declarados = set(self.conjuntos_por_ficheiro())
+        sem_leitor = sorted(descobertos - declarados)
+        self.assertEqual(
+            sem_leitor, [],
+            "ficheiro(s) de configuracao sem leitor declarado. Ou ganham um "
+            "leitor, ou nao pertencem a `ci/`.",
+        )
+        # E o inverso: um leitor declarado cujo ficheiro desapareceu e uma
+        # entrada morta que da falsa seguranca a este teste.
+        self.assertEqual(sorted(declarados - descobertos), [])
+
+
+class TestUmaGralhaEhApanhada(unittest.TestCase):
+    """«`padrões` por `padroes`, `permitidos` por `permitidas`» (KAM-134).
+
+    E a forma mais provavel de a classe reaparecer, e por isso tem teste
+    proprio: o ficheiro fica com uma chave que ninguem le, o gate comporta-se
+    como se ela nao existisse, e quem a escreveu conclui que o gate esta
+    avariado.
+    """
+
+    def escrever(self, nome: str, texto: str) -> Path:
+        pasta = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (pasta / "ci").mkdir()
+        (pasta / "ci" / nome).write_text(texto, encoding="utf-8")
+        return pasta
+
+    def test_thresholds_com_padroes_mal_escrito(self) -> None:
+        from coverage_gate import ConfiguracaoInvalida, ler_limiares
+
+        raiz = self.escrever(
+            "thresholds.yaml",
+            "version: 1\n"
+            "estratos:\n"
+            "  - nome: restante\n"
+            "    minimo_linhas: 75\n"
+            "    razao: uma razao com comprimento suficiente para passar\n"
+            "    padrao:\n"
+            "      - 'tools/**'\n",
+        )
+        with self.assertRaises(ConfiguracaoInvalida) as capturado:
+            ler_limiares(raiz)
+        self.assertIn("padrao", str(capturado.exception))
+        self.assertIn("padroes", str(capturado.exception))
+
+    def test_licenses_com_permitidos_em_vez_de_permitidas(self) -> None:
+        from sbom.cli import ConfiguracaoInvalida, ler_politica
+
+        raiz = self.escrever("licenses.yaml", "version: 1\npermitidos:\n  - MIT\n")
+        with self.assertRaises(ConfiguracaoInvalida) as capturado:
+            ler_politica(raiz)
+        self.assertIn("permitidos", str(capturado.exception))
+
+    def test_waivers_com_a_regra_que_ninguem_lia(self) -> None:
+        """A chave mais perigosa das que o KAM-134 fechou.
+
+        Quem escrevia `regra: licenca` acreditava ter dispensado so a licenca,
+        e tinha dispensado tambem a vulnerabilidade. Agora da erro.
+        """
+        import ci_waivers
+
+        raiz = self.escrever(
+            "waivers.yaml",
+            "version: 1\n"
+            "waivers:\n"
+            "  - gate: 11\n"
+            "    regra: licenca\n"
+            "    alvo: 'pkg:npm/x@1.0.0'\n"
+            "    adr_ou_aprovacao: ADR-014\n"
+            "    autor: alguem\n"
+            "    razao: uma razao suficientemente longa para sobreviver ao autor\n"
+            "    expira_em: 2099-01-01\n",
+        )
+        with self.assertRaises(ci_waivers.ConfiguracaoIlegivel) as capturado:
+            ci_waivers.ler(raiz)
+        self.assertIn("regra", str(capturado.exception))
+
+    def test_refs_allow_com_a_serie_d_que_saiu(self) -> None:
+        from lint_refs.cli import Excepcoes, FonteCanonicaAusente
+
+        # O valor nao interessa ao teste, e escrever um prazo real aqui fazia
+        # o proprio `lint_refs` avisar sobre esta *fixture* — a verificacao
+        # cruzada a funcionar, e boa razao para nao o escrever.
+        raiz = self.escrever(
+            "refs-allow.yaml",
+            "version: 1\nserie_d:\n  prazos_conhecidos:\n    - qualquer\n",
+        )
+        with self.assertRaises(FonteCanonicaAusente) as capturado:
+            Excepcoes.ler(raiz)
+        self.assertIn("serie_d", str(capturado.exception))
+
+    def test_secrets_allow_com_chave_de_topo_inventada(self) -> None:
+        """Este leitor ja recusava uma **classe** inventada e ignorava uma
+        **chave** inventada. Eram o mesmo defeito visto de dois lados."""
+        from scan_secrets.scanner import ConfiguracaoInvalida, Permissoes
+
+        raiz = self.escrever(
+            "secrets-allow.yaml", "version: 1\nplaceholders:\n  - xpto\n"
+        )
+        with self.assertRaises(ConfiguracaoInvalida) as capturado:
+            Permissoes.ler(raiz)
+        self.assertIn("placeholders", str(capturado.exception))
+
+    def test_a_gralha_aninhada_tambem(self) -> None:
+        """«A validacao tem de descer»: um validador so do primeiro nivel nao
+        apanhava uma gralha dentro de um estrato nem dentro de um waiver."""
+        from sbom.cli import ConfiguracaoInvalida, ler_politica
+
+        raiz = self.escrever(
+            "licenses.yaml",
+            "version: 1\n"
+            "permitidas:\n  - MIT\n"
+            "negadas:\n  - prefixos: AGPL\n    razao: copyleft forte\n",
+        )
+        with self.assertRaises(ConfiguracaoInvalida) as capturado:
+            ler_politica(raiz)
+        self.assertIn("prefixos", str(capturado.exception))
+        self.assertIn("negada 1", str(capturado.exception))
+
+
+class TestCodigoDeSaidaDois(unittest.TestCase):
+    """«A recusa distingue erro de configuracao de achado» (KAM-134).
+
+    Codigo 2, nao 1. A frase do `lint_arch` que o ticket cita: «um ficheiro de
+    bloqueio malformado nao pode parecer um repositorio limpo». Aqui corre-se
+    o CLI, e nao a funcao de leitura: e o codigo de saida que o `make` ve.
+    """
+
+    def raiz_com(self, nome: str, texto: str) -> Path:
+        pasta = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (pasta / "ci").mkdir()
+        (pasta / "ci" / nome).write_text(texto, encoding="utf-8")
+        return pasta
+
+    def test_coverage_gate(self) -> None:
+        import coverage_gate
+
+        raiz = self.raiz_com("thresholds.yaml", "version: 1\nxpto: 1\n")
+        self.assertEqual(coverage_gate.main(["--root", str(raiz)]), 2)
+
+    def test_ci_waivers(self) -> None:
+        import ci_waivers
+
+        raiz = self.raiz_com("waivers.yaml", "version: 1\nwaivers: []\nxpto: 1\n")
+        self.assertEqual(ci_waivers.main(["--root", str(raiz)]), 2)
+
+    def test_ci_gate_reservado(self) -> None:
+        """Este devolvia **1 para tudo** (KAM-134).
+
+        O `ConfiguracaoIlegivel` e subclasse de `WaiverInvalido`, pelo que o
+        `except` largo o apanhava primeiro — e com isso o trabalho do KAM-136,
+        que separou configuracao de achado, perdia-se neste leitor.
+        """
+        import ci_gate_reservado
+
+        raiz = self.raiz_com("waivers.yaml", "version: 1\nwaivers: []\nxpto: 1\n")
+        codigo = ci_gate_reservado.main(
+            ["--root", str(raiz), "--gate", "5", "--nome", "x", "--ticket", "KAM-003"]
+        )
+        self.assertEqual(codigo, 2)
+
+    def test_um_waiver_expirado_continua_a_ser_achado_e_nao_configuracao(self) -> None:
+        """O inverso, que importa tanto como o resto: a recusa nova nao pode
+        engolir o que ja era achado."""
+        import ci_waivers
+
+        raiz = self.raiz_com(
+            "waivers.yaml",
+            "version: 1\n"
+            "waivers:\n"
+            "  - gate: 11\n"
+            "    alvo: 'pkg:npm/x@1.0.0'\n"
+            "    adr_ou_aprovacao: ADR-014\n"
+            "    autor: alguem\n"
+            "    razao: uma razao suficientemente longa para sobreviver ao autor\n"
+            "    expira_em: 2020-01-01\n",
+        )
+        self.assertEqual(ci_waivers.main(["--root", str(raiz)]), 1)

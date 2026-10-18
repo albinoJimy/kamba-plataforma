@@ -134,11 +134,52 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-__all__ = ["YamlSubsetError", "load", "load_file"]
+__all__ = ["YamlSubsetError", "exigir_chaves", "load", "load_file"]
 
 
 class YamlSubsetError(ValueError):
     """O ficheiro usa YAML fora do subconjunto aceite."""
+
+
+def exigir_chaves(
+    dados: object,
+    permitidas: set[str],
+    onde: str,
+    erro: type[Exception] = YamlSubsetError,
+) -> None:
+    """Recusa uma chave que o leitor nao conhece (KAM-134).
+
+    **Porque e aqui e nao dentro do `load`.** O `load` nao sabe que ficheiro
+    esta a ler nem quem o vai usar; o conjunto de chaves aceites e propriedade
+    do **leitor**, e por isso declara-se ao lado dele, um por nivel. Era assim
+    que o `canon_lint` ja o fazia desde o KAM-111, e e esse mecanismo que este
+    modulo passa a emprestar aos outros catorze leitores de `ci/*.yaml` em vez
+    de cada um reinventar o seu.
+
+    **Porque e aqui e nao num modulo novo.** O `db/mutacoes.py` copia este
+    ficheiro isoladamente para as arvores de mutacao, e o
+    `db/tests_isolamento/catalogo.py` e um dos leitores. Um modulo novo obrigava
+    a mexer nas tres copias.
+
+    **Porque o `erro` e parametro.** Cada leitor tem a sua taxonomia e o seu
+    mapeamento para codigo de saida — `ConfiguracaoInvalida` no
+    `coverage_gate`, `ConfiguracaoIlegivel` no `ci_waivers`, `PoliticaInvalida`
+    no catalogo do gate 8. Forcar uma excepcao unica partia os `except` que ja
+    existem e, com eles, o contrato «1 = achado, 2 = configuracao» que o KAM-136
+    acabou de construir.
+
+    A mensagem diz o conjunto aceite e nao so a chave a mais: quem acrescentou
+    a chave precisa de saber o que podia ter escrito, e a lista e curta.
+    """
+    if not isinstance(dados, dict):
+        raise erro(f"{onde}: tem de ser um mapa")
+    a_mais = sorted(set(dados) - permitidas)
+    if a_mais:
+        raise erro(
+            f"{onde}: chave(s) desconhecida(s) {a_mais}. Nenhum codigo as le; "
+            f"retire-as ou implemente-as. As aceites aqui sao: "
+            f"{', '.join(sorted(permitidas))}."
+        )
 
 
 _PROIBIDOS = {

@@ -292,6 +292,15 @@ def main(argv: list[str] | None = None) -> int:
     except catalogo.ContratoInvalidoError as erro:
         print(f"contract_diff: {erro}", file=sys.stderr)
         return SAIDA_ERRO
+    try:
+        pii.ler_allowlist(raiz)
+    except pii.AllowlistInvalida as erro:
+        # Le-se aqui, antes de despachar, para que o erro de configuracao saia
+        # com codigo 2 e sem *traceback* — em qualquer comando, e nao so no
+        # `pii`. Sem isto, uma chave inventada em `ci/contratos-allow.yaml`
+        # dava 1, que neste CLI significa «encontrei PII» (KAM-134).
+        print(f"contract_diff: erro de configuracao: {erro}", file=sys.stderr)
+        return SAIDA_ERRO
 
     partes = {
         "diff": lambda: correr_diff(raiz, argumentos.base, argumentos.sem_base),

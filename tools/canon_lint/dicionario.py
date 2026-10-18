@@ -40,7 +40,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from kamba_yaml import YamlSubsetError, load_file
+from kamba_yaml import YamlSubsetError, exigir_chaves, load_file
 
 DICIONARIO = "canon/dicionario.yaml"
 EXTENSOES = "canon/extensoes.yaml"
@@ -102,15 +102,26 @@ class ConfiguracaoInvalida(ValueError):
     """Um dos ficheiros do gate 3b falta ou nao tem a forma esperada."""
 
 
+#: As chaves de `ci/canon-lint.yaml` que este leitor conhece. Constante de
+#: modulo desde o KAM-134, pela mesma razao que a de `documentos.py`.
+CHAVES_DA_POLITICA = {
+    "version", "superficies", "fora_de_ambito", "sentinelas",
+    "dominios_por_conceito", "dominios_so_no_registo", "unicidades_proibidas",
+    "confirmacao", "eventos_de_pagamento", "envelope", "limites", "verticais",
+    "papeis", "esquemas", "auxiliares_de_migracao", "eventos_partilhados",
+}
+
+
 def _exigir_chaves(dados: dict, permitidas: set[str], onde: str) -> None:
-    if not isinstance(dados, dict):
-        raise ConfiguracaoInvalida(f"{onde}: tem de ser um mapa")
-    a_mais = sorted(set(dados) - permitidas)
-    if a_mais:
-        raise ConfiguracaoInvalida(
-            f"{onde}: chave(s) desconhecida(s) {a_mais}. Nenhum codigo as le; "
-            "retire-as ou implemente-as."
-        )
+    """A recusa de chaves desconhecidas, com a excepcao deste pacote.
+
+    O corpo mudou-se para `tools/kamba_yaml.py` no KAM-134, para que os outros
+    catorze leitores de `ci/*.yaml` o pudessem usar — era a unica implementacao
+    do genero no repositorio, e estava fechada aqui dentro. Esta funcao fica
+    como a forma local de o chamar: mantem a `ConfiguracaoInvalida`, que e o que
+    o `cli.py` apanha para devolver 2.
+    """
+    exigir_chaves(dados, permitidas, onde, erro=ConfiguracaoInvalida)
 
 
 def _lista(dados: dict, chave: str, onde: str) -> list:
@@ -416,16 +427,7 @@ class Politica:
             dados = load_file(caminho)
         except YamlSubsetError as excepcao:
             raise ConfiguracaoInvalida(str(excepcao)) from excepcao
-        _exigir_chaves(
-            dados,
-            {
-                "version", "superficies", "fora_de_ambito", "sentinelas",
-                "dominios_por_conceito", "dominios_so_no_registo", "unicidades_proibidas",
-                "confirmacao", "eventos_de_pagamento", "envelope", "limites", "verticais",
-                "papeis", "esquemas", "auxiliares_de_migracao", "eventos_partilhados",
-            },
-            POLITICA,
-        )
+        _exigir_chaves(dados, CHAVES_DA_POLITICA, POLITICA)
         if dados.get("version") != 1:
             raise ConfiguracaoInvalida(f"{POLITICA}: `version` tem de ser 1")
 

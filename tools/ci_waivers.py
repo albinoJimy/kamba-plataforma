@@ -29,7 +29,7 @@ import re
 import sys
 from pathlib import Path
 
-from kamba_yaml import YamlSubsetError, load_file
+from kamba_yaml import YamlSubsetError, exigir_chaves, load_file
 
 #: Limite de validade de um waiver, em dias. *Proposta* do ticket KAM-002.
 PRAZO_MAXIMO_DIAS = 30
@@ -43,6 +43,17 @@ _ADR_LOCAL = re.compile(r"^ADR-L[0-9]{3}$")
 _APROVACAO = re.compile(r"^aprovacao:[^@\s]+@\d{4}-\d{2}-\d{2}$")
 
 _CAMPOS = ("gate", "alvo", "adr_ou_aprovacao", "autor", "razao", "expira_em")
+
+#: As chaves de topo que este leitor conhece (KAM-134).
+_CHAVES = {"version", "waivers"}
+
+#: E as de cada waiver. E exactamente `_CAMPOS`, e nao por acaso: um waiver nao
+#: tem campos opcionais. A chave `regra`, que o cabecalho do ficheiro
+#: documentava e o exemplo escrevia, **nunca esteve aqui** — e era essa a
+#: leitura errada mais perigosa das que o KAM-134 fechou: quem escrevesse
+#: `regra: licenca` acreditava ter dispensado so a licenca, e tinha dispensado
+#: tambem a vulnerabilidade. Hoje escrever `regra` da erro de configuracao.
+_CHAVES_DE_WAIVER = set(_CAMPOS)
 
 
 class WaiverInvalido(RuntimeError):
@@ -77,6 +88,7 @@ def ler(raiz: Path, hoje: _datetime.date | None = None) -> list[dict]:
         dados = load_file(caminho)
     except YamlSubsetError as excepcao:
         raise ConfiguracaoIlegivel(str(excepcao)) from excepcao
+    exigir_chaves(dados, _CHAVES, str(caminho), erro=ConfiguracaoIlegivel)
     if dados.get("version") != 1:
         raise WaiverInvalido(f"{caminho}: 'version' tem de ser 1")
 
@@ -95,6 +107,7 @@ def ler(raiz: Path, hoje: _datetime.date | None = None) -> list[dict]:
         onde = f"{caminho}: waiver {indice}"
         if not isinstance(waiver, dict):
             raise WaiverInvalido(f"{onde}: esperava um mapa")
+        exigir_chaves(waiver, _CHAVES_DE_WAIVER, onde, erro=ConfiguracaoIlegivel)
 
         faltam = [c for c in _CAMPOS if not waiver.get(c)]
         if faltam:

@@ -176,4 +176,11 @@ excluidos:
 # Tolerancia zero: descer 1 ponto abaixo do limiar falha o gate. O ticket diz
 # "descer 1 ponto abaixo falha o gate", pelo que nao ha margem nem arredondamento
 # para cima.
-arredondamento: truncar
+#
+# A POLITICA E TRUNCAR, E NAO E CONFIGURAVEL (KAM-134). Havia aqui uma chave
+# `arredondamento: truncar` que **nenhum codigo lia**: o `tools/coverage_gate.py`
+# trunca por codigo (`int(100 * cobertas / max(encontradas, 1))`), e a chave
+# prometia uma escolha que nao existe. Nao se resolveu tornando-a legivel, e a
+# razao esta duas linhas acima: um limiar de cobertura e regra de bloqueio, e
+# arredondar para cima e exactamente a margem que a frase recusa. Uma regra de
+# bloqueio configuravel deixa de ser uma regra.
