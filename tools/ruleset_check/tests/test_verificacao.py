@@ -103,7 +103,27 @@ class TestRepositorioSemProteccao(unittest.TestCase):
     def test_dois_rulesets_com_o_mesmo_nome(self) -> None:
         mapa = {PUBLICO: ([entrada_da_listagem(ruleset_id=3),
                            entrada_da_listagem(ruleset_id=4)], {})}
-        self.assertEqual(regras(correr(ALVO_SEM_ID, mapa)), ["ruleset-ambiguo"])
+        resultado = correr(ALVO_SEM_ID, mapa)
+        self.assertEqual(regras(resultado), ["ruleset-ambiguo"])
+        self.assertIn("2 rulesets com este nome", resultado.divergencias[0].mensagem)
+
+    def test_o_id_declarado_desempata(self) -> None:
+        """A mensagem manda declarar o `ruleset_id`; o codigo tem de o usar.
+
+        Sem isto, a mensagem era uma promessa por cumprir: mandava fazer uma
+        coisa que nao mudava o resultado.
+        """
+        mapa = {PRIVADO: ([entrada_da_listagem(ruleset_id=ID_DO_PRIVADO),
+                           entrada_da_listagem(ruleset_id=999)],
+                          {ID_DO_PRIVADO: resposta_da_api()})}
+        resultado = correr(ALVO, mapa)
+        self.assertTrue(resultado.conforme)
+        self.assertEqual(resultado.ruleset_id, ID_DO_PRIVADO)
+
+    def test_o_id_declarado_que_nao_esta_entre_os_candidatos_nao_desempata(self) -> None:
+        mapa = {PRIVADO: ([entrada_da_listagem(ruleset_id=3),
+                           entrada_da_listagem(ruleset_id=4)], {})}
+        self.assertEqual(regras(correr(ALVO, mapa)), ["ruleset-ambiguo"])
 
 
 class TestIdDeclarado(unittest.TestCase):

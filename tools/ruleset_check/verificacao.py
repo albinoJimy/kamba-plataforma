@@ -84,16 +84,23 @@ def verificar(raiz: Path, alvo: Alvo, transporte: str) -> Resultado:
             contextos, len(existentes),
         )
     if len(candidatos) > 1:
-        return Resultado(
-            alvo, None,
-            [Divergencia(
-                "ruleset-ambiguo", alvo.repositorio, nome,
-                sorted(int(r["id"]) for r in candidatos),
-                "ha mais do que um ruleset com este nome. Nao se escolhe um por "
-                "adivinhacao: declare o `ruleset_id` em ci/ruleset.yaml",
-            )],
-            contextos, len(existentes),
-        )
+        # O `ruleset_id` declarado desempata — e e por isso que a mensagem do
+        # caso sem desempate manda declara-lo: seria uma promessa por cumprir
+        # se o codigo nao o usasse aqui.
+        pelo_id = [r for r in candidatos if int(r["id"]) == alvo.ruleset_id]
+        if len(pelo_id) != 1:
+            return Resultado(
+                alvo, None,
+                [Divergencia(
+                    "ruleset-ambiguo", alvo.repositorio, nome,
+                    sorted(int(r["id"]) for r in candidatos),
+                    f"ha {len(candidatos)} rulesets com este nome. Nao se escolhe um "
+                    "por adivinhacao: declare em ci/ruleset.yaml o `ruleset_id` do que "
+                    "vale",
+                )],
+                contextos, len(existentes),
+            )
+        candidatos = pelo_id
 
     ruleset_id = int(candidatos[0]["id"])
     divergencias: list[Divergencia] = []
