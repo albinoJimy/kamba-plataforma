@@ -990,9 +990,11 @@ dispensa.
 
 #### A segunda metade: identidade de contacto (KAM-008)
 
-O `make ci-8` corre **quatro** *suites*, cada uma com a sua base descartável:
+O `make ci-8` corre **sete** *suites*, cada uma com a sua base descartável:
 `tests` (as migrações, acima), **`tests_identidade`** (esta secção),
-**`tests_eventos`** e **`tests_eventos_carga`** (a secção seguinte, KAM-005).
+**`tests_eventos`** e **`tests_eventos_carga`** (a secção seguinte, KAM-005),
+`tests_eventos_consumo` (KAM-006), `tests_auditoria_carga` (KAM-012) e
+**`tests_ten`** (KAM-009, a última secção).
 A de identidade entrou com o KAM-008. Esta põe o módulo de identidade — TypeScript, em
 `packages/core-ts/src/identity/` — a correr contra o PostgreSQL com o papel
 `kamba_identity` verdadeiro e a RLS ligada. O desenho está em
@@ -1077,6 +1079,46 @@ KAM-008. Agora os testes chamam a mesma classe da linha de comandos
 a base não está na revisão de cabeça. O ciclo `upgrade → downgrade → upgrade`
 do critério 1 do KAM-003 continua a correr o executável, num processo novo, e há
 um teste que confere que as duas vias dizem o mesmo.
+
+#### A sétima: o consumo de limites (KAM-009)
+
+`tests_ten` prova a **função** `platform.ten_consumir` da revisão `0007` — a
+regra única que a biblioteca em TypeScript e o lado Python chamam, em vez de
+cada um ter a sua aritmética de limites. É *suite* própria pela mesma razão
+que a carga de eventos e a da cadeia de auditoria: o critério 3 pede **mil
+chamadas paralelas**, e isso custa — dentro de `tests`, cada mutação da `0007`
+pagava esse custo somado ao da *suite* inteira.
+
+O que só aqui se mede:
+
+- **as mil paralelas, a sério.** Mil chamadas de 1 unidade contra um tecto de
+  100, em 32 ligações concorrentes com `commit`: **100 aceites, 900 negadas,
+  contador final 100**. Um ciclo sequencial dava os mesmos cem e não provava
+  nada da serialização no bloqueio da linha nem da reavaliação do `WHERE` do
+  `ON CONFLICT DO UPDATE` sobre o valor já actualizado;
+- **a chave que uma recusa não pode gastar.** A função regista a chave de
+  idempotência **antes** de contar, e desfá-la com o *rollback* de uma
+  subtransacção — não com um `DELETE`, que obrigaria a dar `DELETE` à
+  aplicação. Os dois caminhos de recusa têm teste, e as 900 negadas acima
+  deixam o livro com **100** linhas e não com mil;
+- **a fronteira do mês com relógio fixo.** O `p_agora` existe na assinatura
+  para isto. Os dois instantes do critério, e — porque os dois passariam com a
+  função escrita em UTC — um instante que cai em **meses diferentes** nos dois
+  fusos (`2026-11-30T23:30:00Z` é Dezembro em `Africa/Luanda`). E a resposta
+  não pode depender do `TimeZone` da sessão;
+- **o isolamento da função, que o *gate* 6 não prova.** O catálogo do *gate* 6
+  descobre `tenant_usage` e `usage_ledger` sozinho e prova-lhes a política
+  `tenant_iso`. Isso prova a política. Uma função SQL contorna a RLS inteira
+  com um `SECURITY DEFINER`, e o isolamento passaria a depender do `p_tenant`
+  que o chamador escolhe — que é o que o ADR-015 recusa. Aqui prova-se o facto
+  estrutural (`prosecdef` falso) **e** o comportamento: com o contexto de B e
+  o `p_tenant` de A, a função não vê o tecto de A, nega, e não escreve nada.
+
+E o que não está no bloco do ticket e é decisão da revisão: o tecto vem de
+`entitlements` e é o **mínimo** entre os módulos activos que declaram a chave;
+sem linha activa que a declare, **nega** — e nega antes de olhar para o
+`p_limite`, porque um argumento não substitui uma linha; o `p_limite` de quem
+chama só **desce**; e uma quantidade que não seja positiva **levanta**.
 
 ---
 
@@ -1618,3 +1660,4 @@ sobrevivem ao PR.
 | 1.30 | Outubro 2026 | KAM-135: o §5 passa a descrever o que o validador exige. `criado_em` obrigatório e o prazo contado **dele** — renovar deixa de ser empurrar uma data; a data dentro de `adr_ou_aprovacao` é lida e não pode ser futura; e os gates **14** e **18** passam a aceitar *waiver*, que o KAM-067 e o KAM-078 precisam e o validador recusava. O conjunto de gates deriva agora da tabela do `specs/01` §4: os **dezanove** estão classificados — o `3b` incluído, que a primeira versão do *regex* não via e que o teste cimentava a 18 —, e um gate novo sem posição falha. A aprovação datada tem de ser contemporânea da criação, e o que **não** se verifica (o `ADR-NNN`, o `autor`) fica dito em vez de prometido. | Equipa KAMBÁ |
 | 1.31 | Outubro 2026 | KAM-159: o *gate* 7 ganha a **quinta** verificação — `contract_diff dominios` —, que confronta o `enum` de um contrato com o domínio canónico, nos dois sentidos. Fecha a costura que nenhum dos dois *gates* via: o dicionário e os contratos nomeavam listas de finalidades que se cruzavam numa só, e duas do canon eram impossíveis de emitir. | Equipa KAMBÁ |
 | 1.32 | Outubro 2026 | **KAM-009: a superfície 3 passa a ler duas formas.** Um `registry/*.yaml` é uma **vertical** (chave de topo `id`) ou os **planos** (chave de topo `plans`), e a forma lê-se pela chave e nunca pelo nome do ficheiro; as chaves de topo de cada forma são listas fechadas, cada nome de limite é confrontado com as dez chaves do dicionário §3.2 nas duas, e um ficheiro que não seja **nenhuma** das duas falha. A superfície deixa de estar vazia (`registry/plans.yaml`, com `estado: hipotese_nao_validada` por entrada) e a frase «A SUPERFÍCIE AINDA NÃO EXISTE» deixa de aparecer para ela. Corrigido de passagem: `ManualProvider`, que a linha «Entitlement (chaves)» escreve em prosa e o exportador colhia, era aceite como nome de limite — o lint passa a exigir a forma `^[a-z][a-z0-9_]*$`, a mesma do `CHECK` de `tenant_usage.chave_limite`. | Equipa KAMBÁ |
+| 1.33 | Outubro 2026 | **KAM-009: o *gate* 8 passa a correr sete *suites*.** A sétima é `tests_ten`, que prova a **função** `platform.ten_consumir` da revisão `0007` e não o esquema: mil chamadas paralelas de 1 unidade contra um tecto de 100 em 32 ligações — **100 aceites, 900 negadas, contador final 100, e o livro de idempotência com 100 linhas e não mil** —, as dez repetições do critério 4 mais o caso que o critério não pede (uma recusa não pode gastar a chave, nos dois caminhos de recusa), a fronteira do mês com relógio fixo nos dois instantes do critério **e** num instante que cai em meses diferentes em UTC e em `Africa/Luanda`, e o isolamento da função — que o *gate* 6 não prova, porque a política de uma tabela não diz o que uma função `SECURITY INVOKER` faz quando quem a chama é outro tenant. O *gate* 6 ganha as receitas de sementes das duas tabelas novas, sem as quais se recusava a correr, e `entitlements` passa a ser uma tabela que `kamba_app` **não altera** (a `0007` revogou-lhe o `UPDATE`). Quinze mutações novas. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |
