@@ -320,6 +320,12 @@ cd tools && python -m lint_handoff --root .. check   # 3: caminhos dos blocos de
 cd tools && python -m lint_contagens --root .. check # 3: contagens em prosa
 ```
 
+**O `lint_contagens` não corre de dentro de um *worktree*** e sai com código 2 a dizer que três
+grandezas não casam nada: o filtro do corpus exclui tudo o que tenha `.claude` no caminho, e os
+*worktrees* vivem em `.claude/worktrees/`. É defeito dele (dono: KAM-158), medido no KAM-138 e
+devolvido; os outros três correm de qualquer sítio. Até estar corrigido, confia no que o CI diz
+desse passo.
+
 O 3c compara a linha do `specs/INDICE.md` §4, o bloco `## KAM-NNN — ` e a tabela-resumo do §3 do
 epic; verifica a reciprocidade `Dependências`↔`Bloqueia` (que o §4 **não** tem coluna para
 denunciar), os ciclos com o caminho completo, as inversões de prioridade e de fase, as contagens
