@@ -97,6 +97,12 @@ SUITES = (
     # mesma razao que a carga de eventos — custa minutos, e uma suite custa
     # isso por cada mutacao que a escolha.
     "tests_auditoria_carga",
+    # KAM-009: a regra de consumo de limites (`platform.ten_consumir`) — as mil
+    # chamadas paralelas do criterio 3, a idempotencia, a fronteira de mes com
+    # relogio fixo e o isolamento da funcao. Suite propria e nao dentro de
+    # `tests` pela mesma razao das duas acima: as mil paralelas custam, e cada
+    # mutacao da revisao 0007 pagaria esse custo somado ao da suite inteira.
+    "tests_ten",
 )
 #: As que precisam tambem de uma fila.
 SUITES_COM_FILA = ("tests_eventos", "tests_eventos_consumo", "tests_eventos_carga")

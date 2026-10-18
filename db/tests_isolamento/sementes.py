@@ -283,11 +283,54 @@ def _accao_externa(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _uso(cursor, tenant_id: str, canario: str) -> None:
+    """Uma linha do contador de uso (KAM-009). O canario vai na `chave_limite`.
+
+    O `canario()` deste modulo devolve `canario_<rotulo>_<hex>`, que e
+    exactamente a forma que o `tenant_usage_chave_limite_ck` exige
+    (`^[a-z][a-z0-9_]*$`): nao ha coluna de texto livre nesta tabela, e esta e
+    a unica que aceita um valor unico por tenant.
+
+    O `periodo` vem da `platform.ten_periodo()` e nao de um literal: a coluna
+    tem `CHECK (periodo = date_trunc('month', periodo)::date)`, e uma data a
+    meio do mes escrita a mao fazia a semente falhar por uma razao que nada
+    tem a ver com isolamento.
+    """
+    cursor.execute(
+        "INSERT INTO platform.tenant_usage "
+        "(tenant_id, chave_limite, periodo, valor) "
+        "VALUES (%s::uuid, %s, platform.ten_periodo(), 0)",
+        (tenant_id, canario),
+    )
+
+
+def _livro_de_uso(cursor, tenant_id: str, canario: str) -> None:
+    """Uma entrada do livro de idempotencia (KAM-009), com o canario na chave.
+
+    A `chave_limite` fica numa chave do registo (`msgs_ai_mes`) e nao no
+    canario: o canario desta tabela e a `idempotency_key`, que e a coluna que
+    o oraculo procura, e manter a chave de limite realista mantem a linha
+    coerente com o que a `ten_consumir` escreveria.
+    """
+    cursor.execute(
+        "INSERT INTO platform.usage_ledger "
+        "(tenant_id, idempotency_key, chave_limite, periodo, quantidade) "
+        "VALUES (%s::uuid, %s, 'msgs_ai_mes', platform.ten_periodo(), 1)",
+        (tenant_id, canario),
+    )
+
+
 #: (schema, tabela) -> receita. A ordem de insercao respeita as FK.
 RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "tenants"): Receita(_tenant, "nome", "nome", "Nome alterado"),
     ("platform", "tenant_channels"): Receita(_canal, "waba_id", "estado", "ativo"),
-    ("platform", "entitlements"): Receita(_entitlement, "modulo", "ativo", False),
+    # Desde a revisao 0007 (KAM-009) `kamba_app` **nao altera** entitlements:
+    # a revisao revogou-lhe o `UPDATE (limites, ativo)`, porque com a politica
+    # `id = app.tenant_id` a linha que um contexto de tenant ve e a dele, e
+    # subir os proprios limites era subir o tecto de dinheiro por pedido. Por
+    # isso `coluna_alteravel=None`: o que se prova nesta tabela passou a ser
+    # que o privilegio **nem existe** — mais forte do que a politica recusar.
+    ("platform", "entitlements"): Receita(_entitlement, "modulo", None, None),
     ("platform", "contacts"): _identidade(
         _contacto, "phone_hmac", "hmac_kid", KID_DE_SEMENTE, _resumo
     ),
@@ -339,6 +382,19 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "evt_acoes"): Receita(
         _accao_externa, "accao", "estado", "falhada", semeador="admin"
     ),
+    # KAM-009. O contador e a unica das duas que `kamba_app` **altera**, e so
+    # em duas colunas (`valor`, `actualizado_at`): e o que a `ten_consumir`
+    # precisa para o `ON CONFLICT DO UPDATE`. Semeia-se com `kamba_batch`, que
+    # tem as quatro operacoes nas duas tabelas desde a revisao 0007.
+    ("platform", "tenant_usage"): Receita(_uso, "chave_limite", "valor", 42),
+    # O livro **nao se altera**: `kamba_app` tem `SELECT` e `INSERT` e mais
+    # nada, e e isso que torna a chave de idempotencia uma marca e nao um
+    # estado. Por isso `coluna_alteravel=None` — o X-04 prova, nesta tabela,
+    # que o privilegio de `UPDATE` nem existe, que e mais forte do que provar
+    # que a politica o recusava.
+    ("platform", "usage_ledger"): Receita(
+        _livro_de_uso, "idempotency_key", None, None
+    ),
 }
 
 #: As duas tabelas da auditoria **nao** entram nas receitas, e nenhuma das
@@ -375,6 +431,9 @@ ORDEM = (
     ("platform", "events_consumed"),
     ("platform", "events_dlq"),
     ("platform", "evt_acoes"),
+    # KAM-009: as duas so tem FK para `tenants`, e por isso ficam no fim.
+    ("platform", "tenant_usage"),
+    ("platform", "usage_ledger"),
 )
 
 #: As identidades com que as receitas semeiam.
