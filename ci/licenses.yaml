@@ -163,6 +163,14 @@ proprios:
   - "@kamba/worker-canal"
   - "@kamba/com"
   - "@kamba/onboarding-web"
+  # O corredor do parser de Mermaid (KAM-140). Nao e pacote do *workspace* — o
+  # `pnpm-lock.yaml` nao o conhece, e e de proposito: o `mermaid` traz 170
+  # terceiros, que nao tem que ver com o que vai para producao. Mas tem
+  # `package.json` proprio, com lockfile e `integrity`, porque o gate da cadeia
+  # de abastecimento recusa uma instalacao que resolva na construcao — e o
+  # `collect` do SBOM le os `package.json` do disco. Entra aqui pela mesma razao
+  # que os outros: e nosso, e a licenca do nosso codigo nao e materia do gate 11.
+  - "@kamba/mermaid-lint"
   - kamba
   - kamba-core
   - kamba-agr
