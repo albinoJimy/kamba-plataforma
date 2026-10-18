@@ -300,19 +300,24 @@ Campo novo **opcional** ⇒ mesma `versao`; qualquer mudança de significado, re
 
 ### 7.3 Consentimento, finalidade e *lint*
 ```sql
-CREATE TABLE consent_event (
-  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, tenant_id uuid NOT NULL, contact_id uuid NOT NULL,
-  finalidade text NOT NULL CHECK (finalidade IN ('transacao','atendimento','marketing','analytics_agregado',
-      'melhoria_servico','sugestoes_patrocinadas','partilha_loja','partilha_parceiros')),
-  estado text NOT NULL CHECK (estado IN ('concedido','retirado','informado')),
-  texto_versao text NOT NULL, canal text NOT NULL, prova_hash bytea NOT NULL,   -- hash do texto mostrado + aceitação
-  registado_at timestamptz NOT NULL DEFAULT now());
-CREATE INDEX consent_event_contacto ON consent_event (tenant_id, contact_id, finalidade, id DESC);
+-- `consent_event`: o DDL de referencia vive em `10` §7.2 (KAM-140). O que aqui
+-- estava era uma de **cinco** formas da mesma tabela no conjunto, e divergia da
+-- do dicionario §3.1 em quatro campos: `finalidade` por `purpose`, `estado`
+-- tri-estado por `accepted` booleano, `texto_versao` por `text_version`,
+-- `prova_hash` por `evidence_hash`, e `registado_at` por `ocorrido_em`.
+--
+-- O que **nao** se resolveu aqui, de proposito: as oito finalidades abaixo sao
+-- as dos 38 contratos ja publicados em `contratos/eventos/`, e o dicionario §3.1
+-- nomeia cinco outras. Os dois conjuntos cruzam-se numa so. Esta em KAM-159.
+CREATE INDEX consent_event_contacto
+  ON platform.consent_event (tenant_id, contact_id, purpose, id DESC);
 CREATE VIEW consent_actual AS
-  SELECT DISTINCT ON (tenant_id, contact_id, finalidade) tenant_id, contact_id, finalidade, estado, registado_at
-  FROM consent_event ORDER BY tenant_id, contact_id, finalidade, id DESC;
+  SELECT DISTINCT ON (tenant_id, contact_id, purpose)
+         tenant_id, contact_id, purpose, accepted, ocorrido_em
+  FROM platform.consent_event
+  ORDER BY tenant_id, contact_id, purpose, id DESC;
 ```
-`transacao` e `atendimento` registam que o **aviso de privacidade foi apresentado** (`informado`); se a base é contrato ou consentimento é matéria de parecer (`evidencia/E3` req. 1–2). `marketing`, `analytics_agregado`, `sugestoes_patrocinadas`, `partilha_*` exigem `concedido`, específico por finalidade e registado no 1.º contacto ou no momento do uso. **Roteamento por finalidade:** o publicador só entrega a um consumidor se a sua `finalidade` (em `evt_subscricoes`) estiver em `envelope.finalidades`; consumidores de finalidades com consentimento verificam `consent_actual` por `contact_id` no processamento. **Lint de PII (CI):** os *schemas* de evento são fechados; um teste rejeita nomes de campo `telefone|msisdn|bsuid|nome|morada|texto|email` fora de uma lista aprovada, e corre os *fixtures* contra padrões `\+?244\d{9}`.
+As finalidades e o que cada uma exige continuam válidas como desenho, e são as dos contratos publicados; o que o KAM-159 decide é se **são estas** ou as cinco do dicionário §3.1. `transacao` e `atendimento` registam que o **aviso de privacidade foi apresentado**; se a base é contrato ou consentimento é matéria de parecer (`evidencia/E3` req. 1–2). `marketing`, `analytics_agregado`, `sugestoes_patrocinadas`, `partilha_*` exigem `concedido`, específico por finalidade e registado no 1.º contacto ou no momento do uso. **Roteamento por finalidade:** o publicador só entrega a um consumidor se a sua `finalidade` (em `evt_subscricoes`) estiver em `envelope.finalidades`; consumidores de finalidades com consentimento verificam `consent_actual` por `contact_id` no processamento. **Lint de PII (CI):** os *schemas* de evento são fechados; um teste rejeita nomes de campo `telefone|msisdn|bsuid|nome|morada|texto|email` fora de uma lista aprovada, e corre os *fixtures* contra padrões `\+?244\d{9}`.
 
 ### 7.4 Retenção por tabela (propostas — a confirmar por parecer; `evidencia/E3` req. 14)
 | Dataset | Classe | Retenção proposta | Mecanismo |
@@ -590,7 +595,7 @@ O Score tem contrato próprio com consentimento da PME por exportação, versão
 |---|---|---|
 | Perda de eventos | **0** (reconciliador Q3) | Q3 |
 | Efeitos duplicados | 0 por reentrega | testes de idempotência (injecção de duplicados) no CI |
-| Latência `payment.confirmed` → notificação ao cliente | p95 ≤ 10 s | traces |
+| Latência `payment.confirmed` ou `payment.manual_confirmed` → notificação ao cliente | p95 ≤ 10 s | traces |
 | Publicação / consumo | p95 ≤ 2 s / ≤ 5 s | §13 |
 | PII em eventos | 0 violações de *lint* e de fixtures | CI + guarda `evt_emitir` |
 | Isolamento | 0 linhas de eventos/agregados sem `tenant_id` válido (Q8); testes cruzados de consumidores | CI |
@@ -655,3 +660,4 @@ O Score tem contrato próprio com consentimento da PME por exportação, versão
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §4, D-03 (`valor_minor` + `currency`) e D-04 (`authn_ok`, `authn_method`); §5, D-07; §7.2 e §7.6, D-01; §7.2 e §7.4, D-09 (12 meses, *proposta*); §7.3–§7.4, D-02; §9.2 e §10.3, D-03. | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-128: As **18** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | **Emenda KAM-139** (variantes vivas do dicionário): as seis variantes vivas do §6.1, do §10.2 e do §12 passam às formas canónicas do §3.3 — `preco_minor` (3), `total_minor` (2) e `preco_tipo = 'fixo'` (1). Como o §2 fixa dinheiro em unidade menor inteira, `preco_minor` passa de `int` a `bigint`; os três nomes derivados das mesmas colunas (`gmv_pago_*`, `receita_paga_*` e `mediana_*`), que o *gate* não apanha por não serem variantes registadas, seguem a mesma regra e terminam em `_minor`, para não ficarem em Kz ao lado de colunas em cêntimos na mesma secção. As cinco citações históricas do §7.2 e do §8 mantêm-se, e o §4 e a tabela do §5 não foram tocados. | Equipa KAMBÁ |
+| 1.4 | Outubro 2026 | KAM-140: §7.3 — o DDL de `consent_event` sai daqui e remete para `10` §7.2. Eram **cinco** formas da mesma tabela no conjunto, e esta divergia da do dicionário §3.1 em cinco nomes de campo. O índice e a vista ficam, com os nomes da forma de referência. As oito finalidades mantêm-se como desenho; se são estas ou as cinco do dicionário é o **KAM-159**, e não se decide de passagem. | Equipa KAMBÁ |

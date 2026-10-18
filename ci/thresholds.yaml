@@ -164,6 +164,14 @@ excluidos:
   # ficheiros de `*/identity/*` (chaves, cifra, SQL) ficam no gate 4, no estrato
   # `critico`.
   - "packages/core-ts/src/identity/contactos.ts"
+  # O corredor do parser de Mermaid (KAM-140). E uma chamada a `mermaid.parse`
+  # dentro de um contentor descartavel, e o `mermaid` **nao** e dependencia
+  # deste repositorio de proposito (ver o alvo `mermaid` do Makefile): o
+  # executor de testes do Node nao o consegue sequer importar. Medi-lo dava-lhe
+  # 0% para sempre. A metade que pode errar em silencio — a extraccao dos
+  # blocos — e Python, esta em `tools/mermaid_lint/extrair.py` e tem bateria
+  # propria, que o gate 4 corre.
+  - "tools/mermaid_lint/verificar.mjs"
 
 # Tolerancia zero: descer 1 ponto abaixo do limiar falha o gate. O ticket diz
 # "descer 1 ponto abaixo falha o gate", pelo que nao ha margem nem arredondamento

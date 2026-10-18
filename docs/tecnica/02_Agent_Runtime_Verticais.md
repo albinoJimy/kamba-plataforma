@@ -149,9 +149,10 @@ entitlements:
   modulo: vendedor
   limites: [msgs_ai_mes, valor_max_pedido_minor]
 subscriptions:                    # eventos do EVT (envelope versionado, ADR-009)
-  - { tipo: payment.confirmed, versao: 1 }
-  - { tipo: order.expired,     versao: 1 }
-  - { tipo: stock.low,         versao: 1 }
+  - { tipo: payment.confirmed,        versao: 1 }
+  - { tipo: payment.manual_confirmed, versao: 1 }   # os dois: dicionario 3.4
+  - { tipo: order.expired,            versao: 1 }
+  - { tipo: stock.low,                versao: 1 }
 models: { router: kamba-router, chat: kamba-chat }
 guardrails: { dominio: comercio_atendimento, handoff_triggers: [pedido_humano, reclamacao_grave, saude] }
 golden: { dataset: "golden/vendedor/v1", gate: "gates/vendedor.yaml" }
@@ -167,9 +168,10 @@ graph: kamba.verticals.servicos:build_graph
 tools: [list_services, get_availability, book_slot, cancel_booking, reschedule_booking, get_store_info]
 entitlements: { modulo: servicos, limites: [msgs_ai_mes, marcacoes_mes] }
 subscriptions:
-  - { tipo: booking.created,       versao: 1 }
-  - { tipo: booking.reminder_due,  versao: 1 }
-  - { tipo: payment.confirmed,     versao: 1 }     # sinal de marcacao, quando existir
+  - { tipo: booking.created,          versao: 1 }
+  - { tipo: booking.reminder_due,     versao: 1 }
+  - { tipo: payment.confirmed,        versao: 1 }   # sinal de marcacao, quando existir
+  - { tipo: payment.manual_confirmed, versao: 1 }   # e o do ManualProvider: dicionario 3.5
 models: { router: kamba-router, chat: kamba-chat }
 golden: { dataset: "golden/servicos/v1", gate: "gates/servicos.yaml" }
 ```
@@ -516,7 +518,7 @@ Nós comuns com o Vendedor: `ingest`, `stt`, `guard_in`, `compose`, `validate`, 
 | Confirmação | Botão `confirm:{hold_id}`; `book_slot` mantém *hold* curto (a definir) e é idempotente por `(contact, slot_id)` |
 | Validador | Estendido a **datas, horas e durações** (§9): cada `datetime` citado tem de existir num fact `datetime` |
 | Lembretes | Evento `booking.created` → scheduler cria `booking.reminder_due` (T−24 h, valor a calibrar) → mensagem livre se a janela está aberta, senão *template utility* (`01` §8.2) |
-| Sinal/depósito | Opcional: usa PAY como no Vendedor; `payment.confirmed` confirma a marcação |
+| Sinal/depósito | Opcional: usa PAY como no Vendedor. A marcação confirma-se com **qualquer um** dos dois eventos de pagamento — e o dicionário §3.5 nomeia precisamente o `payment.manual_confirmed` como o do *gate* da Fase 0 para esta vertical, que é o inverso do que esta linha dizia |
 
 ### 8.3 Lacuna: onde vive a agenda
 
@@ -949,3 +951,4 @@ Metering por módulo (KAM-124); budgets LiteLLM por tenant incluem o custo de im
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §6.2–§6.3, D-11 (`confirm:{hold_id}` em Serviços); §13.1, D-07 (gatilho `tenant.approved`). | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-128: As **28** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | **KAM-139** (variantes vivas do dicionário): §5.1, §6.1 e §6.2 passam a dizer `valor_max_pedido_minor` (3 ocorrências) e §5.3 passa a dizer `expira_at` (1 ocorrência) — eram variantes vivas das formas canónicas do dicionário §3.2 e §3.3 (emenda 1.12). | Equipa KAMBÁ |
+| 1.4 | Outubro 2026 | KAM-140: §5.1 — os dois manifestos de exemplo (`vendedor.yaml` e `servicos.yaml`) passam a subscrever os **dois** eventos de pagamento. O dicionário §3.4 diz que quem não distingue o caminho subscreve ambos, e o *gate* 3b já impõe essa regra em `registry/*.yaml` — o exemplo escapava-lhe só por viver num `.md`, e foi medido no KAM-139. §8.2 — a linha do sinal de marcação dizia que é o `payment.confirmed` que a confirma, quando o §3.5 nomeia o `payment.manual_confirmed` como o do *gate* da Fase 0 desta vertical; era o inverso. O `vendedor.yaml` não estava no ticket e tinha o mesmo defeito. | Equipa KAMBÁ |

@@ -238,7 +238,7 @@ stateDiagram-v2
     criada --> aguarda_pagamento: referencia emitida e stock reservado
     aguarda_pagamento --> paga: payment.confirmed (HMAC ok, valor e referencia batem)
     aguarda_pagamento --> pendente_confirmacao: ManualProvider, dono confirma
-    pendente_confirmacao --> paga: confirmacao humana registada e auditada
+    pendente_confirmacao --> paga: payment.manual_confirmed (confirmacao humana auditada)
     pendente_confirmacao --> aguarda_pagamento: dono rejeita
     aguarda_pagamento --> expirada: TTL (24h a 72h)
     expirada --> aguarda_pagamento: nova referencia na mesma encomenda

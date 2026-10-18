@@ -289,28 +289,66 @@ qualquer ligação entre PMEs (índice federado, Clusters) tem de passar por con
 ### 6.2 Modelo
 
 ```sql
-CREATE TABLE contacts (                     -- forma canonica: dicionario §3.1; DDL final em KAM-008 (proposta)
-  contact_id       uuid PRIMARY KEY DEFAULT gen_random_uuid(),   -- chave interna; thread_id do AGR usa este id
-  tenant_id        uuid NOT NULL REFERENCES tenants,
-  username         text,
-  phone_hmac       bytea,                   -- HMAC-SHA256(segredo rodado, E.164) -- nunca chave primaria
-  phone_hmac_kid   smallint,                -- identificador do segredo (rotacao)
-  display_name     text,
-  criado_at        timestamptz NOT NULL DEFAULT now(),
-  last_inbound_at  timestamptz,
-  window_expires_at timestamptz,            -- last_inbound_at + 24h (ou FEP + 7d)
-  erased_at        timestamptz              -- apagamento a pedido do titular (soft + purga de conteudo)
+-- Este e o DDL de referencia das quatro tabelas de identidade (KAM-140). Nao e
+-- proposta: e o que a revisao `0003` (KAM-008) implementou e o
+-- `db/tests/test_inventario.py` congelou. Onde um documento irmao repetia outra
+-- forma, passou a remeter para aqui.
+CREATE TABLE platform.hmac_key_versions (          -- rotacao do segredo (§3.9 do dicionario)
+  kid        text PRIMARY KEY,
+  estado     text NOT NULL,                        -- activa | anterior | retirada
+  criado_at  timestamptz NOT NULL DEFAULT now()
 );
-CREATE TABLE contact_endpoints (            -- BSUID e telefone so aqui, cifrados com DEK por contacto (dek_id)
-  contact_id uuid NOT NULL REFERENCES contacts, tipo text NOT NULL,          -- valores de `tipo`: KAM-008
-  bsuid_hmac bytea, bsuid_enc bytea, phone_enc bytea, dek_id uuid NOT NULL   -- o HMAC serve so para correspondencia
+CREATE TABLE platform.contacts (
+  contact_id   uuid PRIMARY KEY DEFAULT gen_random_uuid(),  -- thread_id do AGR usa este id
+  tenant_id    uuid NOT NULL REFERENCES platform.tenants(id),
+  phone_hmac   bytea,                              -- HMAC-SHA256(segredo rodado, E.164); 32 bytes
+  hmac_kid     text REFERENCES platform.hmac_key_versions(kid),   -- qual segredo o calculou
+  criado_at    timestamptz NOT NULL DEFAULT now(),
+  erased_at    timestamptz,                        -- apagamento a pedido do titular
+  merged_into  uuid,                               -- fusao de contactos; FK composta com tenant_id
+  merged_at    timestamptz,
+  CONSTRAINT contacts_tenant_contact_uq UNIQUE (tenant_id, contact_id)
 );
-CREATE UNIQUE INDEX contacts_phone_uq ON contacts (tenant_id, phone_hmac_kid, phone_hmac) WHERE phone_hmac IS NOT NULL;
-CREATE TABLE consent_event (
-  contact_id uuid NOT NULL REFERENCES contacts, purpose text NOT NULL CHECK (purpose IN ('servico','marketing')),
-  granted boolean NOT NULL, text_version text NOT NULL, evidence_wamid text, at timestamptz NOT NULL DEFAULT now()
+CREATE UNIQUE INDEX contacts_phone_hmac_uq
+  ON platform.contacts (tenant_id, hmac_kid, phone_hmac) WHERE phone_hmac IS NOT NULL;
+
+CREATE TABLE platform.contact_deks (               -- uma DEK por contacto, embrulhada pela KEK
+  dek_id       uuid PRIMARY KEY,
+  tenant_id    uuid NOT NULL, contact_id uuid NOT NULL,
+  wrapped_dek  bytea NOT NULL, kek_id text NOT NULL,
+  criado_at    timestamptz NOT NULL DEFAULT now(), destroyed_at timestamptz
 );
+CREATE TABLE platform.contact_endpoints (          -- BSUID e telefone so aqui, cifrados com a DEK
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id    uuid NOT NULL,                      -- obrigatorio: e o que torna a tabela elegivel para RLS
+  contact_id   uuid NOT NULL,
+  tipo         text NOT NULL CHECK (tipo IN ('bsuid','telefone')),
+  bsuid_hmac   bytea, hmac_kid text REFERENCES platform.hmac_key_versions(kid),
+  bsuid_enc    bytea, phone_enc bytea, dek_id uuid NOT NULL,
+  finalidade   text CHECK (finalidade IN ('pagamento_express','entrega','contacto_pedido')),
+  recolhido_at timestamptz NOT NULL DEFAULT now(),
+  expira_at    timestamptz,
+  CONSTRAINT contact_endpoints_bsuid_uq UNIQUE (tenant_id, hmac_kid, bsuid_hmac),
+  -- A finalidade e o prazo sao do **telefone**. Com os dois `NOT NULL`, uma
+  -- linha de BSUID era obrigada a declarar uma finalidade de telefone.
+  CONSTRAINT contact_endpoints_forma_ck CHECK (
+    (tipo = 'bsuid'    AND finalidade IS NULL)
+ OR (tipo = 'telefone' AND finalidade IS NOT NULL AND expira_at IS NOT NULL))
+);
+-- As FK de `contact_endpoints` e de `contact_deks` para `contacts` e para
+-- `tenants` sao **compostas** em `(tenant_id, ...)`, e a `tenants.owner_contact_id`
+-- tambem: com a FK simples, um tenant podia apontar para o contacto de outro.
 ```
+
+**`consent_event` nao esta aqui, e isso e deliberado.** O conjunto tinha
+**cinco** formas da mesma tabela — esta, `03` §5.3 (como `contacts.consentimento
+jsonb`), `06` §7.3, `08` §8.1 e `10` §7.2 — que discordavam nos campos **e** nas
+finalidades. A forma de referencia passou a ser a de [`10`](10_Onboarding_Governanca.md)
+§7.2, e as finalidades ficam **por fixar**: o dicionario §3.1 e os contratos de
+evento ja publicados em `contratos/eventos/consent.*` nomeiam conjuntos que se
+intersectam numa so (`marketing`), e escolher entre eles e decidir a taxonomia de
+consentimento da plataforma — materia de Lei 22/11 e de parecer, nao de emenda
+documental. Esta registado no KAM-159.
 
 ### 6.3 Algoritmo de resolução
 
@@ -825,3 +863,4 @@ Correcção face ao documento exploratório: `../exploracao/10` e `../exploracao
 | 1.0 | Outubro 2026 | Emissão inicial: canais WhatsApp, fluxo dual, coexistência, HND e onboarding do número, revistos com `evidencia/E1` e `E4`. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §6.2–§6.3, D-01 (`contacts` + `contact_endpoints`) e D-02 (`consent_event`); §11 e §13.2, D-07 (gatilho `tenant.approved`). | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-128: As **24** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
+| 1.3 | Outubro 2026 | KAM-140: §6.2 passa a ser **o** DDL de referência das quatro tabelas de identidade, e passa a dizer o que a revisão `0003` implementou — `hmac_kid` (era `phone_hmac_kid smallint`, e sem ele o `phone_hmac` não sabe que segredo o calculou), `merged_into`/`merged_at`, as duas tabelas que não tinham documento nenhum (`contact_deks`, `hmac_key_versions`), a chave primária de `contact_endpoints`, o `tenant_id` que lhe faltava **e sem o qual a tabela não é elegível para a RLS**, e o `contact_endpoints_forma_ck`. O `consent_event` sai daqui: eram cinco formas no conjunto, e as finalidades ficam por fixar no KAM-159. | Equipa KAMBÁ |

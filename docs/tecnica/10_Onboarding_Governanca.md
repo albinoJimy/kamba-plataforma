@@ -355,13 +355,39 @@ Em princípio cada PME é **responsável pelo tratamento** e a KAMBÁ é **subco
 5. Teste de aceitação: nenhuma resposta com dados nem evento de marketing sem `consent_event` válido.
 
 ```sql
-CREATE TABLE consent_event (
-  id bigserial PRIMARY KEY, tenant_id uuid NOT NULL, contact_id bytea NOT NULL,
-  purpose text NOT NULL CHECK (purpose IN ('transaccao','marketing','partilha_estafeta','melhoria')),
-  text_version text NOT NULL, accepted boolean NOT NULL,
-  canal text NOT NULL, evidence_hash bytea NOT NULL, ocorrido_em timestamptz DEFAULT now()
-); -- append-only; revogação = novo registo
+-- Forma de referencia de `consent_event` (KAM-140). O conjunto tinha **cinco**
+-- formas desta tabela, em `01` §6.2, `03` §5.3, `06` §7.3, `08` §8.1 e aqui, que
+-- discordavam nos campos e nas finalidades. As outras passaram a remeter para
+-- esta, que era a mais proxima do dicionario §3.1.
+CREATE TABLE platform.consent_event (
+  id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  tenant_id     uuid NOT NULL,
+  contact_id    uuid NOT NULL,              -- `uuid`, como em toda a plataforma.
+                                            -- Esta linha dizia `bytea`, que nao
+                                            -- junta com `contacts.contact_id`.
+  purpose       text NOT NULL,              -- dominio POR FIXAR: ver abaixo
+  text_version  text NOT NULL,
+  accepted      boolean NOT NULL,
+  canal         text NOT NULL,
+  evidence_hash bytea NOT NULL,             -- hash do texto mostrado + aceitacao
+  ocorrido_em   timestamptz NOT NULL DEFAULT now()
+); -- append-only; revogacao = novo registo
 ```
+
+> **O dominio de `purpose` fica por fixar, e a razao nao e indecisao.** O
+> dicionario §3.1 nomeia cinco finalidades (`transaccao`, `marketing`,
+> `partilha_estafeta`, `melhoria`, `notificacao_dono`); os **38** contratos de
+> evento ja publicados em `contratos/eventos/` nomeiam oito (`transacao`,
+> `atendimento`, `marketing`, `analytics_agregado`, `melhoria_servico`,
+> `sugestoes_patrocinadas`, `partilha_loja`, `partilha_parceiros`), em `enum`
+> fechado, e a revisao `0004` emite `transacao` por omissão. Os dois conjuntos
+> intersectam-se **numa só** finalidade: `marketing`. Hoje, `partilha_estafeta`
+> e `notificacao_dono` são **impossíveis de emitir**.
+>
+> Escolher entre as duas listas decide a taxonomia de consentimento da
+> plataforma — matéria de Lei 22/11 e de parecer (`evidencia/E3`), e com um
+> custo de código de um lado (um `v2` de 38 contratos e uma migração à `0004`).
+> O KAM-140 recusou-se a decidi-lo de passagem: está em **KAM-159**.
 
 ### 7.3 Histórico sincronizado e treino
 
@@ -576,8 +602,10 @@ stateDiagram-v2
 
 | Transição | Gatilho | Quem decide | Efeito técnico |
 |---|---|---|---|
-| `onboarding → ativo` | gates cumpridos (§5.1) | GOV (automático + T&S) | `tenant.activated`; CHR encaminha |
-| `ativo → restrito` | `phone_number_quality_update` vermelho (limitação imposta pela Meta) | automático | o bot continua a servir dentro do que a Meta permite (`00` §6.2); `restrito → ativo` com o rating recuperado, `restrito → suspenso` por agravamento |
+| `onboarding → ativo` | gates cumpridos (§5.1) | GOV (automático + T&S) | `tenant.approved`, `tenant.provisioned`, `tenant.activated` — **três**, e não um (`00` §6.2 e `specs/EPIC-09`); CHR encaminha |
+| `ativo → restrito` | `phone_number_quality_update` vermelho (limitação imposta pela Meta) | automático | o bot continua a servir dentro do que a Meta permite (`00` §6.2) |
+| `restrito → ativo` | *quality rating* recuperado | automático | CHR volta ao encaminhamento normal. **Tinha linha própria no diagrama e não na tabela**: estava dentro da célula de `ativo → restrito`, e por isso não tinha decisor |
+| `restrito → suspenso` | agravamento da limitação da Meta | automático / T&S | o mesmo que `ativo → suspenso`: aviso estático, entregas pendentes finalizadas, novas encomendas bloqueadas |
 | `ativo → suspenso` | falta de pagamento (subscrição ou método Meta); violação (T&S) | automático / T&S | CHR responde mensagem de aviso estática; entregas pendentes finalizadas; novas encomendas bloqueadas |
 | `suspenso → ativo` | regularização comprovada | T2 / T&S | CHR reabre |
 | `ativo → encerrado` | pedido do titular (identidade confirmada) | Produto/T2 | off-boarding (§15.2) |
@@ -754,3 +782,5 @@ Legenda: **R** executa, **A** responde, **C** consultado, **I** informado.
 | 1.0 | Outubro 2026 | Emissão inicial: percursos, provisioning por saga, Embedded Signup v4, consentimento, screening e Trust & Safety, KYC e selo, rede de agentes, suporte e golden set, segmentos A/B, ciclo de vida e off-boarding, métricas e RACI. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §6.4 e §15.1, D-08 (estado `restrito`: limitação imposta pela Meta, distinta de `suspenso`). | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-128: As **50** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. É o documento com mais referências cruzadas do conjunto. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
+| 1.3 | Outubro 2026 | KAM-140: §15.1 — a tabela de transições ganha linha própria para `restrito → ativo` e `restrito → suspenso` (estavam dentro da célula de `ativo → restrito`, e por isso não tinham decisor nem efeito próprios), e passa a ter **oito** linhas, uma por aresta do diagrama; o efeito de `onboarding → ativo` passa a nomear os **três** eventos. O diagrama Mermaid passou por `mermaid.parse` — o primeiro deste documento a passar por um *parser* (`make mermaid`). | Equipa KAMBÁ |
+| 1.4 | Outubro 2026 | KAM-140: §7.2 passa a ser **a** forma de referência de `consent_event` — as outras quatro remetem para aqui. O `contact_id` era `bytea`, quando em toda a plataforma é `uuid`, e não juntava com `contacts.contact_id`. O domínio de `purpose` fica **por fixar**: o dicionário e os 38 contratos publicados nomeiam conjuntos que se cruzam numa só finalidade, e escolher entre eles é decidir a taxonomia de consentimento — KAM-159. | Equipa KAMBÁ |

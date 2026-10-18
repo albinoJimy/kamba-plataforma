@@ -49,7 +49,7 @@ Engenheiros de pagamentos e de comércio, segurança, produto, e quem trata dos 
 | **ADR-004** | Liquidação directa à PME; a plataforma não detém fundos; `payout()` devolve `NOT_SUPPORTED` e reembolsos são casos manuais (`refund_cases`); guardas técnicas G-1..G-6 (§10.4). |
 | **ADR-013** | `paga` só por evento autenticado; imagem de comprovativo nunca é prova; `ManualProvider` com confirmação humana auditada, limite por pedido e dupla verificação (§4). |
 | **ADR-010** | Pagador identificado por `contact_id`; telefone Express só em `contact_endpoints` (cifrado, com finalidade); `payer_hmac` para anti-fraude. |
-| **ADR-009** | Cada mudança de estado de pagamento grava no *outbox* na mesma transacção; `payment.confirmed` é o único evento que faz avançar a encomenda. |
+| **ADR-009** | Cada mudança de estado de pagamento grava no *outbox* na mesma transacção. A encomenda avança por um dos **dois** eventos de confirmação — `payment.confirmed` (facilitador autenticado) ou `payment.manual_confirmed` (`ManualProvider`) —, e por mais nenhum: nada avança uma encomenda sem evento. |
 | **ADR-007** | Valores, referências e prazos mostrados ao cliente vêm da cobrança, nunca do LLM; mensagens de cobrança são *templates* parametrizados. |
 | **ADR-011** | Pagamentos por Fluxo B / número agregador / PME *light* são Diferido; `origem='plataforma'` existe no DDL mas não corre em produção. |
 | **ADR-005/008** | Custos USD e câmbio (§12); transferência de dados para fora de Angola fora deste documento (`08`). |
@@ -425,7 +425,7 @@ stateDiagram-v2
     reembolsada --> [*]
 ```
 
-Correspondência com a encomenda (`03` §6): cobrança `paga` ⇒ `payment.confirmed` ⇒ `aguarda_pagamento/pendente_confirmacao → paga`; cobrança `expirada` ⇒ COM faz a consulta final e `aguarda_pagamento → expirada`. O estado `falhada` do documento 00 §7 é **estado de cobrança** (com `motivo_falha`), não de encomenda.
+Correspondência com a encomenda (`03` §6): cobrança `paga` ⇒ `payment.confirmed` ⇒ `aguarda_pagamento → paga`, e `payment.manual_confirmed` ⇒ `pendente_confirmacao → paga` — **um evento por caminho**, e não o do facilitador a fechar também o manual; cobrança `expirada` ⇒ COM faz a consulta final e `aguarda_pagamento → expirada`. O estado `falhada` do documento 00 §7 é **estado de cobrança** (com `motivo_falha`), não de encomenda.
 
 ### 7.2 Tabela de falhas e respostas
 
@@ -677,7 +677,7 @@ Fluxo: `payment.confirmed` ⇒ (se o tenant tem a vertical activa e obrigação 
 |---|---|---|
 | Confirmação de pagamento | 100% das `paga` com evento autenticado ou confirmação humana auditada | consulta de consistência diária; CHECK `confirmar_exige_autenticacao` |
 | Acks de *webhook* | resposta 2xx p99 < 500 ms (corpo durável no inbox) | GWY, métrica `callback_ack_ms` |
-| Latência pagamento→encomenda `paga` | p95 ≤ 5 s | `payment.confirmed` → `order.paid` |
+| Latência pagamento→encomenda `paga` | p95 ≤ 5 s | `payment.confirmed` **ou** `payment.manual_confirmed` → `order.paid`; medir só o primeiro deixava o caminho manual sem alvo nenhum |
 | Cliente notificado após pagamento | p95 ≤ 10 s | EVT → AGR → Meta |
 | Pagamentos reconhecidos duas vezes | 0 | G7 + `UNIQUE`; teste de conformidade |
 | Pagamentos aceites com valor ≠ cobrança | 0 | G4; teste de conformidade |
