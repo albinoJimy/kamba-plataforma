@@ -93,7 +93,8 @@ def main(argv: list[str] | None = None) -> int:
         f"        razao: >-\n"
         f"          O {argumentos.ticket} ainda nao foi executado; o gate fica\n"
         f"          dispensado ate la e e revisto no fim do prazo.\n"
-        f"        expira_em: <AAAA-MM-DD, no maximo 30 dias>\n",
+        f"        criado_em: <AAAA-MM-DD, hoje>\n"
+        f"        expira_em: <AAAA-MM-DD, no maximo 30 dias depois do criado_em>\n",
         file=sys.stderr,
     )
     return 1

@@ -1071,9 +1071,9 @@ ambos consomem este esquema em vez de inventarem o seu.
 
 | Campo | Obrigatório | Nota |
 |---|---|---|
-| `gate` | sim | **dez** aceitam: 3, 4, 5, 6, 7, 8, 9, 11, **14** e **18**. Os outros oito não, e cada um diz porquê — ver abaixo |
+| `gate` | sim | **onze** aceitam: 3, **3b**, 4, 5, 6, 7, 8, 9, 11, **14** e **18**. Os outros oito não, e a recusa diz a razão **desse** gate — ver abaixo |
 | `alvo` | sim | o que exactamente se dispensa; nunca «tudo» |
-| `adr_ou_aprovacao` | sim | `ADR-NNN`, `ADR-LNNN` ou `aprovacao:<quem>@<data>`. **A data é lida** (KAM-135): tem de ser real e não pode ser futura |
+| `adr_ou_aprovacao` | sim | `ADR-NNN`, `ADR-LNNN` ou `aprovacao:<quem>@<data>`. **A data é lida** (KAM-135): tem de ser real, não futura, e não pode preceder o `criado_em` em mais de 30 dias |
 | `autor` | sim | a quem se pergunta |
 | `razao` | sim | ≥ 40 caracteres: tem de sobreviver à saída do autor |
 | `criado_em` | sim | data ISO, não futura. Obrigatório desde o **KAM-135** |
@@ -1091,18 +1091,33 @@ Consequência: bastava mexer um dígito no `expira_em` para a excepção durar m
 trinta dias — e depois mais trinta, para sempre. Era **o inverso exacto** da
 propriedade que esta secção diz entregar.
 
-Agora prolongar exige mexer no `criado_em`, e um `criado_em` novo sem
-`adr_ou_aprovacao` e `autor` novos não é uma renovação, é um disfarce. **A
-diferença lê-se no *diff*, que é onde tem de se ler.**
+Agora prolongar exige um `criado_em` novo — e, **na forma
+`aprovacao:<quem>@<data>`, uma aprovação contemporânea dele**: uma aprovação
+com mais de 30 dias do que a criação é recusada, pelo que renovar é pedir a
+alguém que volte a aprovar.
 
-### Os dezoito gates do canon, e a posição de cada um
+**O que isto não verifica, e fica dito em vez de prometido.** Um `ADR-NNN` não
+caduca — é uma decisão de arquitectura, e exigir um ADR novo de trinta em trinta
+dias seria pedir arquitectura nova. E o `autor` não se verifica: não há estado
+da versão anterior. Para a forma `ADR-NNN`, «decisão nova com dono novo» é
+**convenção de revisão**, não propriedade imposta. Quem revê o *diff* é quem a
+impõe.
+
+### Os dezanove gates do canon, e a posição de cada um
 
 Os gates que aceitam *waiver* deixaram de poder divergir do canon em silêncio.
 O conjunto não se escreve à mão: o `tools/ci_waivers.py` **lê a tabela do
-`specs/01` §4** e exige que cada um dos dezoito esteja classificado — ou aceita,
-ou «não aceita, e eis porquê». Um gate novo no canon que ninguém classificou
-falha o `make ci-waivers` **no dia em que nasce**, e não no dia em que alguém
-precisar dele.
+`specs/01` §4** e exige que cada um dos **dezanove** esteja classificado — ou
+aceita, ou «não aceita, e eis porquê». Um gate novo no canon que ninguém
+classificou falha o `make ci-waivers` **no dia em que nasce**, e não no dia em
+que alguém precisar dele.
+
+> **Dezanove, e não dezoito.** A primeira versão desta leitura procurava só
+> dígitos, e com isso o **`3b`** — o lint de nomes canónicos, vivo desde o
+> KAM-111, com *job* próprio — ficava invisível: nem aceitava *waiver* nem dizia
+> porque não, e respondia a quem lho pedisse com a frase dos gates 1 e 2. Pior:
+> o teste que devia detectar a divergência prendia-se a «dezoito», que era o
+> número errado, e **cimentava a cegueira**. Hoje o número deriva da tabela.
 
 | Não aceita | Porquê |
 |---|---|
@@ -1218,7 +1233,7 @@ resposta seria pior do que nomeá-las:
     validador recusava.
 
     **E a classe fica fechada, não só os quatro:** o conjunto de *gates*
-    deriva agora da tabela do `specs/01` §4 e exige que os dezoito estejam
+    deriva agora da tabela do `specs/01` §4 e exige que os dezanove estejam
     classificados. Um *gate* novo no canon sem posição falha o
     `make ci-waivers` no dia em que nasce.
 14. ~~**O `tools/kamba_yaml.py` tem dois erros de leitura silenciosos:** um `>-`
@@ -1523,4 +1538,4 @@ sobrevivem ao PR.
 | 1.26 | Outubro 2026 | **Gate 7 activo** (KAM-007): contratos de evento — compatibilidade contra o ramo principal, *lint* de PII, exemplos validados e `versao_max` das subscrições. Sai da matriz dos reservados, ganha *job* próprio com `fetch-depth: 0` e entra no `needs:` do agregador; `make ci` corre dez. Reservado passa a ser só o 5. A parte dos *webhooks* do gate 7 continua por fazer (KAM-024). | Equipa KAMBÁ |
 | 1.27 | Outubro 2026 | KAM-140: **lacuna 27** — os diagramas Mermaid passam a ter um verificador (`make mermaid`, 49 blocos, `mermaid.parse` a sério) e **não** a ter *gate*: os *jobs* do 3 e do 3b não têm Node de propósito (ADR-L001), e o `mermaid` não é dependência do repositório para não entrar no SBOM nem no veredicto de licenças do *gate* 11. Pendurá-lo num *job* com `preparar` é a via, e é decisão do dono do *gate*. | Equipa KAMBÁ |
 | 1.28 | Outubro 2026 | KAM-134: a **lacuna 12** fecha. As oito chaves que nenhum código lia passam a comentário — e eram oito e não sete —, e os **catorze** leitores de `ci/*.yaml` passam a recusar uma chave desconhecida com código 2. O mecanismo e um só (`kamba_yaml.exigir_chaves`), onde eram quatro. O `ci_gate_reservado` devolvia **1 para tudo**, e com isso perdia o que o KAM-136 tinha construído. | Equipa KAMBÁ |
-| 1.29 | Outubro 2026 | KAM-135: o §5 passa a descrever o que o validador exige. `criado_em` obrigatório e o prazo contado **dele** — renovar deixa de ser empurrar uma data; a data dentro de `adr_ou_aprovacao` é lida e não pode ser futura; e os gates **14** e **18** passam a aceitar *waiver*, que o KAM-067 e o KAM-078 precisam e o validador recusava. O conjunto de gates deriva agora da tabela do `specs/01` §4: os dezoito estão classificados, e um gate novo sem posição falha. | Equipa KAMBÁ |
+| 1.29 | Outubro 2026 | KAM-135: o §5 passa a descrever o que o validador exige. `criado_em` obrigatório e o prazo contado **dele** — renovar deixa de ser empurrar uma data; a data dentro de `adr_ou_aprovacao` é lida e não pode ser futura; e os gates **14** e **18** passam a aceitar *waiver*, que o KAM-067 e o KAM-078 precisam e o validador recusava. O conjunto de gates deriva agora da tabela do `specs/01` §4: os **dezanove** estão classificados — o `3b` incluído, que a primeira versão do *regex* não via e que o teste cimentava a 18 —, e um gate novo sem posição falha. A aprovação datada tem de ser contemporânea da criação, e o que **não** se verifica (o `ADR-NNN`, o `autor`) fica dito em vez de prometido. | Equipa KAMBÁ |

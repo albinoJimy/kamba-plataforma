@@ -45,7 +45,7 @@ PRAZO_MAXIMO_DIAS = 30
 #: `GATES_SEM_WAIVER_COM_RAZAO`. Um gate novo no canon e um gate que nenhum dos
 #: dois nomeia — e ha um teste que o diz.
 GATES_COM_WAIVER = {
-    "3", "4", "5", "6", "7", "8", "9", "11",
+    "3", "3b", "4", "5", "6", "7", "8", "9", "11",
     # Acrescentados pelo KAM-135. O §5 do `docs/ci.md` diz que o KAM-067 e o
     # KAM-078 consomem **este** esquema em vez de inventarem o seu, e os gates
     # deles sao estes dois (tabela de fronteira do §3). Ate aqui o validador
@@ -84,7 +84,12 @@ GATES_SEM_WAIVER_COM_RAZAO = {
 #: faz as contagens em prosa: derivar da fonte, nunca copiar.
 CANON_DOS_GATES = Path("specs") / "01_Engineering_Standards_e_Handoff.md"
 
-_LINHA_DE_GATE = re.compile(r"^\|\s*(\d{1,2})\s*\|\s*\*\*", re.M)
+#: O identificador de um gate **nao e sempre um numero**: o `3b` esta na tabela
+#: desde o KAM-111. A primeira versao desta expressao exigia so digitos, e com
+#: isso o 3b ficava invisivel — nem aceitava waiver nem dizia porque nao, e
+#: respondia a quem lho pedisse com a frase dos gates 1 e 2. Pior: o teste
+#: prendia-se a «dezoito», que era o numero errado, e cimentava a cegueira.
+_LINHA_DE_GATE = re.compile(r"^\|\s*(\d{1,2}[a-z]?)\s*\|\s*\*\*", re.M)
 
 
 #: A raiz deste repositorio, derivada da posicao deste ficheiro. O canon lê-se
@@ -96,11 +101,25 @@ _LINHA_DE_GATE = re.compile(r"^\|\s*(\d{1,2})\s*\|\s*\*\*", re.M)
 RAIZ_DO_REPOSITORIO = Path(__file__).resolve().parent.parent
 
 
+def _ordem_do_gate(gate: str) -> tuple[int, str]:
+    """Ordena `3b` depois de `3` e antes de `4`, e nao alfabeticamente.
+
+    Nao e cosmetica: as mensagens de recusa listam os gates aceites, e uma
+    lista por ordem alfabetica poe o `11` antes do `3`. Quem a le fica sem
+    saber se o conjunto esta certo.
+    """
+    numero = gate.rstrip("abcdefghijklmnopqrstuvwxyz")
+    return int(numero), gate[len(numero):]
+
+
 def gates_do_canon(raiz: Path | None = None) -> set[str]:
     """Os numeros de gate que a tabela do `specs/01` §4 declara."""
     caminho = (raiz or RAIZ_DO_REPOSITORIO) / CANON_DOS_GATES
     if not caminho.is_file():
-        raise WaiverInvalido(f"ficheiro em falta: {caminho}")
+        # `ConfiguracaoIlegivel` e nao `WaiverInvalido`: o canon em falta e um
+        # erro de configuracao (2), nao um achado (1) — e a linha seguinte ja
+        # usava a excepcao certa para o mesmo tipo de problema.
+        raise ConfiguracaoIlegivel(f"ficheiro em falta: {caminho}")
     try:
         texto = caminho.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as excepcao:
@@ -155,12 +174,30 @@ class ConfiguracaoIlegivel(WaiverInvalido):
     """
 
 
+#: A unica forma de data que este ficheiro aceita. O `date.fromisoformat` do
+#: Python 3.11+ aceita tambem `20261018` e `2026-W42-7`, que normalizam para
+#: datas reais e nao sao explorarveis — mas o `docs/ci.md` §5 e o cabecalho
+#: deste ficheiro dizem «AAAA-MM-DD», e um leitor que aceita mais do que o que
+#: a documentacao promete e a classe de defeito que o KAM-134 acabou de fechar.
+_DATA_ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
 def _data(valor, onde: str) -> _datetime.date:
-    try:
-        return _datetime.date.fromisoformat(str(valor))
-    except (TypeError, ValueError) as excepcao:
+    """Uma data ISO `AAAA-MM-DD`. O `onde` ja traz o nome do campo.
+
+    A mensagem dizia `expira_em` sempre, mesmo a validar o `criado_em` — e com
+    o campo errado na mensagem, quem a le procura no sitio errado.
+    """
+    texto = str(valor)
+    if not _DATA_ISO.match(texto):
         raise WaiverInvalido(
-            f"{onde}: `expira_em` tem de ser uma data ISO (AAAA-MM-DD), lido {valor!r}"
+            f"{onde}: tem de ser uma data ISO (AAAA-MM-DD), lido {valor!r}"
+        )
+    try:
+        return _datetime.date.fromisoformat(texto)
+    except ValueError as excepcao:
+        raise WaiverInvalido(
+            f"{onde}: {texto!r} tem a forma de uma data e nao e uma"
         ) from excepcao
 
 
@@ -179,7 +216,7 @@ def verificar_cobertura_dos_gates(raiz: Path | None = None) -> None:
     descobertos = gates_do_canon(raiz)
     sem_decisao = sorted(
         descobertos - set(GATES_COM_WAIVER) - set(GATES_SEM_WAIVER_COM_RAZAO),
-        key=int,
+        key=_ordem_do_gate,
     )
     if sem_decisao:
         raise ConfiguracaoIlegivel(
@@ -190,7 +227,7 @@ def verificar_cobertura_dos_gates(raiz: Path | None = None) -> None:
         )
     inventados = sorted(
         (set(GATES_COM_WAIVER) | set(GATES_SEM_WAIVER_COM_RAZAO)) - descobertos,
-        key=int,
+        key=_ordem_do_gate,
     )
     if inventados:
         raise ConfiguracaoIlegivel(
@@ -237,14 +274,25 @@ def ler(raiz: Path, hoje: _datetime.date | None = None) -> list[dict]:
 
         gate = str(waiver["gate"])
         if gate not in GATES_COM_WAIVER:
+            # A razao e a **deste** gate, e nao a dos gates 1 e 2. Tinha oito
+            # razoes escritas ao lado do conjunto e nenhuma chegava aqui: quem
+            # tentasse dispensar o gate 16 — a aprovacao humana — era informado
+            # de que «um build que nao compila corrige-se». O criterio pede que
+            # o validador «diga explicitamente porque nao», e dize-lo e isto.
+            razao = GATES_SEM_WAIVER_COM_RAZAO.get(
+                gate,
+                "este gate nao existe na tabela do canon, e por isso nao tem "
+                "posicao escrita",
+            )
+            aceites = ", ".join(sorted(GATES_COM_WAIVER, key=_ordem_do_gate))
             raise WaiverInvalido(
-                f"{onde}: o gate {gate} nao aceita waiver (aceitam: "
-                f"{', '.join(sorted(GATES_COM_WAIVER))}). Um build que nao compila "
-                "ou um tipo que nao verifica corrige-se, nao se dispensa."
+                f"{onde}: o gate {gate} nao aceita waiver — {razao}. "
+                f"Aceitam: {aceites}."
             )
 
         referencia = str(waiver["adr_ou_aprovacao"])
         aprovacao = _APROVACAO.match(referencia)
+        aprovado_em: _datetime.date | None = None
         if not (_ADR.match(referencia) or _ADR_LOCAL.match(referencia) or aprovacao):
             raise WaiverInvalido(
                 f"{onde}: `adr_ou_aprovacao` tem de ser `ADR-NNN`, `ADR-LNNN` ou "
@@ -269,6 +317,7 @@ def ler(raiz: Path, hoje: _datetime.date | None = None) -> list[dict]:
                     f"{onde}: a aprovacao esta datada de {texto} e hoje e "
                     f"{hoje.isoformat()}. Ninguem aprovou isto ainda."
                 )
+            aprovado_em = quando
 
         if len(str(waiver["razao"])) < 40:
             raise WaiverInvalido(
@@ -302,12 +351,29 @@ def ler(raiz: Path, hoje: _datetime.date | None = None) -> list[dict]:
         # a frente renovava a excepcao para sempre, com um diff de um
         # caractere. Agora prolongar exige mexer no `criado_em` — e, com ele,
         # na aprovacao e no autor, porque uma criacao nova e uma decisao nova.
+        # **A aprovacao tem de ser contemporanea da criacao.** Sem isto, uma
+        # aprovacao de 2001 fundava uma excepcao criada hoje, e renovavel para
+        # sempre: o `criado_em` mudava, a aprovacao ficava — e a propriedade
+        # que este ticket promete («prolongar exige uma decisao nova») valia
+        # so para metade do campo. Nao se pode exigir o mesmo a um `ADR-NNN`:
+        # um ADR e uma decisao de arquitectura que nao caduca, e exigir um ADR
+        # novo por cada renovacao seria pedir arquitectura nova de trinta em
+        # trinta dias. Esse limite esta escrito, e nao fingido.
+        if aprovado_em is not None and (criado - aprovado_em).days > PRAZO_MAXIMO_DIAS:
+            raise WaiverInvalido(
+                f"{onde}: a aprovacao e de {aprovado_em.isoformat()} e o waiver "
+                f"foi criado a {criado.isoformat()}, "
+                f"{(criado - aprovado_em).days} dias depois; o maximo sao "
+                f"{PRAZO_MAXIMO_DIAS}. Uma aprovacao antiga nao funda uma "
+                "excepcao nova — renovar e pedir que alguem volte a aprovar."
+            )
         if (expira - criado).days > PRAZO_MAXIMO_DIAS:
             raise WaiverInvalido(
                 f"{onde}: o prazo e de {(expira - criado).days} dias, contados de "
                 f"`criado_em` ({criado.isoformat()}); o maximo e "
-                f"{PRAZO_MAXIMO_DIAS}. Para prolongar, crie-o de novo: "
-                "`criado_em`, `adr_ou_aprovacao` e `autor` novos."
+                f"{PRAZO_MAXIMO_DIAS}. Para prolongar, crie-o de novo: um "
+                "`criado_em` novo e, na forma `aprovacao:`, uma aprovacao "
+                "contemporanea dele."
             )
 
         validados.append({

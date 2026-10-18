@@ -64,12 +64,18 @@
 # excepcao durar mais trinta dias, e depois mais trinta, para sempre. Era o
 # inverso exacto da propriedade que este ficheiro existe para entregar.
 #
-# Agora prolongar exige mexer no `criado_em` — e um `criado_em` novo sem
-# `adr_ou_aprovacao` e `autor` novos nao e uma renovacao, e um disfarce. A
-# diferenca le-se no diff, que e onde tem de se ler.
+# Agora prolongar exige um `criado_em` novo — e, na forma `aprovacao:`, uma
+# aprovacao **contemporanea** dele: uma aprovacao com mais de 30 dias do que a
+# criacao e recusada. Renovar e pedir a alguem que volte a aprovar.
+#
+# O que isto NAO verifica, e fica dito em vez de prometido: um `ADR-NNN` nao
+# caduca (e uma decisao de arquitectura, e exigir um ADR novo de trinta em
+# trinta dias seria pedir arquitectura nova), e o `autor` nao se verifica, por
+# nao haver estado da versao anterior. Para a forma `ADR-NNN`, «decisao nova
+# com dono novo» e convencao de revisao, nao propriedade imposta.
 #
 # E os gates que aceitam waiver deixaram de poder divergir do canon em
-# silencio: os dezoito do specs/01 §4 estao todos classificados em
+# silencio: os **dezanove** do specs/01 §4 — o `3b` tambem — estao classificados em
 # `tools/ci_waivers.py`, ou como «aceita» ou como «nao aceita, e eis porque».
 # Entraram o **14** (imagem, KAM-067) e o **18** (release sem SBOM, KAM-078),
 # que o docs/ci.md §5 diz consumirem este esquema e que o validador recusava.

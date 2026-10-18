@@ -313,7 +313,24 @@ class TestOsGatesQueOCanonNomeia(unittest.TestCase):
         lista a mao envelhecia em silencio."""
         ci_waivers.verificar_cobertura_dos_gates(ROOT)
         descobertos = ci_waivers.gates_do_canon(ROOT)
-        self.assertEqual(len(descobertos), 18)
+        # **Sem numero a mao.** A primeira versao escrevia `18`, que era o
+        # numero errado — o `3b` nao era visto pelo *regex* —, e com isso o
+        # teste que devia detectar a divergencia cimentava-a. Contam-se as
+        # linhas da tabela do canon e compara-se com o que a funcao devolve:
+        # se uma forma nova de identificador aparecer e o *regex* nao a vir,
+        # os dois numeros divergem e isto fica vermelho.
+        linhas = len([
+            l for l in (ROOT / ci_waivers.CANON_DOS_GATES)
+            .read_text(encoding="utf-8").splitlines()
+            if l.startswith("| ") and "| **" in l and l.rstrip().endswith("|")
+            and l.split("|")[1].strip()[:1].isdigit()
+        ])
+        self.assertEqual(
+            len(descobertos), linhas,
+            "o `gates_do_canon` nao ve todas as linhas da tabela do §4 — foi "
+            "assim que o `3b` ficou invisivel",
+        )
+        self.assertIn("3b", descobertos, "o `3b` esta na tabela desde o KAM-111")
         self.assertEqual(
             descobertos,
             set(GATES_COM_WAIVER) | set(ci_waivers.GATES_SEM_WAIVER_COM_RAZAO),
@@ -330,3 +347,99 @@ class TestOsGatesQueOCanonNomeia(unittest.TestCase):
         self.assertEqual(
             set(GATES_COM_WAIVER) & set(ci_waivers.GATES_SEM_WAIVER_COM_RAZAO), set()
         )
+
+
+class TestOQueARevisaoEncontrou(unittest.TestCase):
+    """Os achados da revisao adversarial do KAM-135."""
+
+    def recusa(self, corpo: str, trecho: str) -> None:
+        with self.assertRaises(WaiverInvalido) as capturado:
+            ler(_escrever(corpo), HOJE)
+        self.assertIn(trecho, str(capturado.exception))
+
+    # --- MAIOR 1: o gate 3b era invisivel ao regex
+    def test_o_gate_3b_aceita_waiver(self) -> None:
+        """Esta na tabela do canon desde o KAM-111, com *job* proprio.
+
+        O *regex* exigia digitos, pelo que o `3b` nem aparecia no conjunto
+        descoberto: nao era aceite nem tinha razao escrita, e a recusa
+        respondia-lhe com a frase dos gates 1 e 2.
+        """
+        corpo = base("2026-10-20").replace("gate: 11", "gate: 3b")
+        self.assertEqual(len(ler(_escrever(corpo), HOJE)), 1)
+
+    def test_a_ordem_dos_gates_na_mensagem_e_numerica(self) -> None:
+        """`3b` depois de `3`, e `11` depois de `9`.
+
+        Nao e cosmetica: a mensagem lista os gates aceites, e por ordem
+        alfabetica o `11` vinha primeiro. Quem a le fica sem saber se o
+        conjunto esta certo.
+        """
+        corpo = base("2026-10-20").replace("gate: 11", "gate: 1")
+        with self.assertRaises(WaiverInvalido) as capturado:
+            ler(_escrever(corpo), HOJE)
+        aceites = str(capturado.exception).split("Aceitam: ")[1]
+        self.assertTrue(aceites.startswith("3, 3b, 4,"), aceites)
+
+    # --- MAIOR 2: a razao nunca chegava a quem batia a porta
+    def test_a_recusa_diz_a_razao_daquele_gate(self) -> None:
+        for gate, trecho in (
+            ("16", "aprovacao a dispensar-se a si propria"),
+            ("10", "SAST nao tem ticket"),
+            ("13", "o limiar e a baseline"),
+            ("17", "nao e uma verificacao, e um acto"),
+        ):
+            with self.subTest(gate=gate):
+                corpo = base("2026-10-20").replace("gate: 11", f"gate: {gate}")
+                self.recusa(corpo, trecho)
+
+    # --- MAIOR 3: uma aprovacao antiga fundava uma excepcao nova
+    def test_aprovacao_antiga_nao_funda_um_waiver_novo(self) -> None:
+        """Vinte e quatro renovacoes de trinta dias passavam com a mesma
+        aprovacao de 2001. O `criado_em` mudava, a aprovacao ficava."""
+        corpo = base("2026-10-20").replace("ADR-014", "aprovacao:alguem@2001-01-01")
+        self.recusa(corpo, "Uma aprovacao antiga nao funda uma excepcao nova")
+
+    def test_aprovacao_contemporanea_passa(self) -> None:
+        corpo = base("2026-10-20").replace("ADR-014", "aprovacao:alguem@2026-10-01")
+        self.assertEqual(len(ler(_escrever(corpo), HOJE)), 1)
+
+    def test_um_adr_nao_precisa_de_ser_contemporaneo(self) -> None:
+        """E o limite que fica **dito** e nao fingido: um ADR e uma decisao de
+        arquitectura e nao caduca. Exigir um ADR novo de trinta em trinta dias
+        seria pedir arquitectura nova."""
+        self.assertEqual(len(ler(_escrever(base("2026-10-20")), HOJE)), 1)
+
+    # --- MENOR 3: a mensagem dizia `expira_em` mesmo a validar o `criado_em`
+    def test_a_mensagem_nomeia_o_campo_certo(self) -> None:
+        corpo = base("2026-10-20").replace("criado_em: 2026-10-11", "criado_em: nao-e-data")
+        with self.assertRaises(WaiverInvalido) as capturado:
+            ler(_escrever(corpo), HOJE)
+        mensagem = str(capturado.exception)
+        self.assertIn("`criado_em`", mensagem)
+        self.assertNotIn("`expira_em`", mensagem)
+
+    # --- MENOR 8: a forma aceite era mais larga do que a documentada
+    def test_so_a_forma_aaaa_mm_dd(self) -> None:
+        """O `fromisoformat` do 3.11+ aceita `20261018` e `2026-W42-7`. Nao sao
+        explorarveis, mas a documentacao promete `AAAA-MM-DD` — e um leitor que
+        aceita mais do que o que se promete e a classe que o KAM-134 fechou."""
+        for forma in ("20261018", "2026-W42-7"):
+            with self.subTest(forma=forma):
+                corpo = base("2026-10-20").replace("criado_em: 2026-10-11", f"criado_em: {forma}")
+                self.recusa(corpo, "data ISO (AAAA-MM-DD)")
+
+    # --- MENOR 6: o caso (e) dos Testes Requeridos
+    def test_um_adr_inexistente_nao_e_deste_validador(self) -> None:
+        """«Um `ADR-NNN` fora do conjunto canonico falha» — e falha, **mas noutro
+        gate**. Aqui verifica-se a **forma**; a existencia e do gate 3.
+
+        E isso ficou provado por acidente ao escrever este teste: a primeira
+        versao escrevia o numero inexistente a letra, e o `lint_refs` apanhou-o
+        **neste ficheiro**. O numero monta-se em tempo de execucao para o gate
+        3 nao ter de o ler — o que e, ele proprio, a demonstracao de que o
+        gate 3 le isto.
+        """
+        inexistente = "ADR-" + "9" * 3
+        corpo = base("2026-10-20").replace("ADR-014", inexistente)
+        self.assertEqual(len(ler(_escrever(corpo), HOJE)), 1)
