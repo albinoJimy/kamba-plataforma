@@ -307,6 +307,14 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     "events_dlq",
     "evt_dlq_aprovacoes",
     "evt_acoes",
+    # KAM-012: as duas da auditoria. O `audit_log` **tem** privilegio por
+    # coluna — o `INSERT` e sem `criado_at` nem hashes, e e isso que impede
+    # quem escreve de forjar uma linha encadeada com a data a escolha. O
+    # `audit_heads` entra pela mesma razao das de eventos: um privilegio de
+    # coluna a mais nela seria invisivel na matriz de tabela, e escrever na
+    # cabeca da cadeia e exactamente o que ninguem pode.
+    "audit_log",
+    "audit_heads",
 )
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.
@@ -416,7 +424,11 @@ class TestMatrizDePrivilegios(ComBase):
         # celulas, e uma ida a base por celula levava a suite ao limite de
         # tempo do gate. O `unnest` cruzado devolve a matriz inteira de uma vez;
         # as asercoes sao as mesmas, celula a celula.
-        papeis = ("kamba_app", "kamba_batch", "kamba_resolver", "kamba_identity", "public")
+        # Os papeis vem do `ligacao.PAPEIS` e nao de uma tupla escrita a mao:
+        # o `kamba_audit` (KAM-012) nasceu e esta lista nao o acompanhou, e um
+        # papel que falte aqui e um papel a quem se pode conceder uma coluna
+        # sem ninguem ver. E a mesma licao do `EXECUTE` para `PUBLIC`.
+        papeis = (*sorted(ligacao.PAPEIS.values()), "public")
         cursor = self.ligar("admin").cursor()
         for tabela in TABELAS_COM_MATRIZ_DE_COLUNA:
             cursor.execute(

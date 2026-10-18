@@ -982,9 +982,15 @@ MUTACOES = [
     ("revisao 0006: o row_hash deixa de ser unico", REV6,
      "          CONSTRAINT audit_log_row_hash_uq UNIQUE (tenant_id, row_hash),",
      ""),
-    ("revisao 0006: o chamador volta a escolher o criado_at", REV6,
-     "          NEW.criado_at := now();",
-     "          NEW.criado_at := coalesce(NEW.criado_at, now());"),
+    # Esta substitui uma que **nao mudava comportamento nenhum**: a obvia
+    # sobre o `criado_at` seria `NEW.criado_at := coalesce(NEW.criado_at,
+    # now())`, e a coluna tem `DEFAULT now()`, pelo que o `NEW.criado_at`
+    # nunca chega nulo. Era apanhada por qualquer teste e nao provava nada.
+    # Esta alarga o `GRANT` a um papel que nao tem nada que escrever
+    # auditoria, e e a matriz de privilegios que a tem de apanhar.
+    ("revisao 0006: o resolvedor passa a escrever auditoria", REV6,
+     '"ON platform.audit_log TO kamba_app"',
+     '"ON platform.audit_log TO kamba_app, kamba_resolver"'),
     ("revisao 0006: o chamador volta a escolher os hashes", REV6,
      "          NEW.prev_hash := v_prev;",
      "          NEW.prev_hash := coalesce(NEW.prev_hash, v_prev);"),
