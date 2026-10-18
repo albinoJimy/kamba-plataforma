@@ -52,6 +52,8 @@ inversoes:
     para: KAM-130
     genero: prioridade
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
       O KAM-158 (gate das contagens em prosa) e P1 e depende do KAM-130
       (reconciliacao das contagens herdadas), que e P2. A ordem tecnica esta
@@ -71,6 +73,8 @@ sequencias:
   - ficheiro: specs/EPIC-01_Fundacoes_Dados.md
     falta: "1.13"
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
       Residuo da renumeracao do commit `80ab82b` («integra origin/main (KAM-136)
       e renumera»): dois ramos tomaram o mesmo numero em paralelo e o 1.13 ficou
@@ -92,7 +96,7 @@ sequencias:
 #     `docs/tecnica/`, que nasceram com `| Versao | 1.0 |` numa tabela de campos
 #     e nunca mais tiveram o campo tocado, enquanto o historico foi crescendo;
 #   - o `specs/INDICE.md`, que usa a outra forma (`**Versao do conjunto:**`) e
-#     esta em 1.2 com historico ate 1.22.
+#     esta em 1.2 com historico muito a frente.
 #
 # O KAM-138 declara a correccao fora de ambito: este gate mede-a, e a divida
 # esta registada nas linhas 4 e 21 de `docs/dividas-documentais.md`. Quem
@@ -102,127 +106,175 @@ sequencias:
 cabecalhos:
   - ficheiro: specs/INDICE.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em `**Versao do conjunto:** 1.2` com historico ate 1.22. E a
+      Cabecalho na forma de texto corrido, parado numa versao muito anterior a ultima linha do historico. E a
       linha 4 de `docs/dividas-documentais.md`, e o unico documento do conjunto
       que usa a forma em texto corrido.
 
   - ficheiro: specs/01_Engineering_Standards_e_Handoff.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em `| Versao | 1.0 |` com historico ate 1.2; o campo nunca foi
+      Cabecalho em `| Versao | 1.0 |` com historico muito a frente; o campo nunca foi
       tocado desde a emissao inicial. Mesma familia dos epics.
 
   - ficheiro: specs/EPIC-01_Fundacoes_Dados.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.34 — o maior atraso do conjunto, no
+      Cabecalho em 1.0 com historico muito a frente — o maior atraso do conjunto, no
       epic que mais emendas recebeu. Linha 21 de `docs/dividas-documentais.md`,
       a mesma que regista o buraco do 1.13.
 
   - ficheiro: specs/EPIC-02_Canais_WhatsApp_Handoff.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.1. Mesma familia: o campo nasceu com
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia: o campo nasceu com
       a emissao inicial e as emendas so entraram na tabela.
 
   - ficheiro: specs/EPIC-03_Agent_Runtime_Verticais.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.1. Mesma familia dos restantes epics.
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
 
   - ficheiro: specs/EPIC-04_Core_Comercio.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.1. Mesma familia dos restantes epics.
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
 
   - ficheiro: specs/EPIC-05_Pagamentos_Billing.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.2. Mesma familia dos restantes epics.
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
 
   - ficheiro: specs/EPIC-06_Indice_Pesquisa.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.2. Mesma familia dos restantes epics.
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
 
   - ficheiro: specs/EPIC-07_Seguranca_Conformidade.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.7. Mesma familia dos restantes epics.
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
 
   - ficheiro: specs/EPIC-08_Topologia_Operacao.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.2. Mesma familia dos restantes epics.
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
 
   - ficheiro: specs/EPIC-09_Onboarding_Governanca.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.1. Mesma familia dos restantes epics.
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
 
   - ficheiro: specs/EPIC-10_Spikes_Validacao_Gates.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.4. Mesma familia dos restantes epics.
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
 
   - ficheiro: specs/EPIC-11_Modulos_Entrada.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.3. Mesma familia dos restantes epics.
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
 
   - ficheiro: docs/tecnica/00_Arquitectura_Solucao.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.3. Os onze documentos de
+      Cabecalho em 1.0, parado na emissao inicial. Os onze documentos de
       `docs/tecnica/` partilham a forma e o defeito.
 
   - ficheiro: docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.3. Mesma familia do `docs/tecnica/`.
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
 
   - ficheiro: docs/tecnica/02_Agent_Runtime_Verticais.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.4. Mesma familia do `docs/tecnica/`.
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
 
   - ficheiro: docs/tecnica/03_Core_Comercio_Medusa.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.3. Mesma familia do `docs/tecnica/`.
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
 
   - ficheiro: docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.3. Mesma familia do `docs/tecnica/`.
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
 
   - ficheiro: docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.4. Mesma familia do `docs/tecnica/`.
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
 
   - ficheiro: docs/tecnica/06_Dados_Eventos_Analytics.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.4. Mesma familia do `docs/tecnica/`.
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
 
   - ficheiro: docs/tecnica/07_Geo_Logistica_Federada.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.2. Mesma familia do `docs/tecnica/`.
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
 
   - ficheiro: docs/tecnica/08_Seguranca_Conformidade.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.4. Mesma familia do `docs/tecnica/`.
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
 
   - ficheiro: docs/tecnica/09_Topologia_Operacao_Escala.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.2. Mesma familia do `docs/tecnica/`.
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
 
   - ficheiro: docs/tecnica/10_Onboarding_Governanca.md
     origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
     razao: >-
-      Cabecalho em 1.0 com historico ate 1.4. Mesma familia do `docs/tecnica/`.
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.

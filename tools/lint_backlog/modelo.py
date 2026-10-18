@@ -39,8 +39,18 @@ TITULO_DE_BLOCO = re.compile(r'^## (KAM-\d{3}) — (.+?)\s*$')
 SUBTABELA = re.compile(r'^### (EPIC-\d{2}) — (.+?)\s*$')
 #: Linha de uma tabela de campos: `| Fase | 0 |`.
 CAMPO = re.compile(r'^\|\s*(?P<campo>[^|]+?)\s*\|\s*(?P<valor>.*?)\s*\|\s*$')
-#: Celula de ID da tabela §3, que no EPIC-01 e uma ligacao (KAM-155).
-ID_DA_TABELA = re.compile(r'^\[?(KAM-\d{3})\]?')
+#: Celula de ID da tabela §3, que no EPIC-01 e uma ligacao (KAM-155) e nos
+#: outros dez e o identificador nu.
+#:
+#: **`fullmatch`, e com a ligacao lida.** A primeira versao casava por prefixo
+#: (`^\[?(KAM-\d{3})\]?`) e dava verde a uma celula com **quatro**
+#: digitos, na linha do ticket de tres que lhe serve de prefixo: um
+#: digito a mais passava despercebido. E nao olhava para o destino da
+#: ligacao, pelo que `[KAM-154](tickets/KAM-003.md)` passava nos dois gates: o
+#: 3 ve um `KAM-154` que existe e um caminho que resolve, e o 3c via o ID
+#: certo. Os dois achados sao da revisao adversarial do KAM-138 (m1 e m2).
+ID_DA_TABELA = re.compile(
+    r'(?:\[(?P<ligado>KAM-\d{3})\]\((?P<destino>[^)]*)\)|(?P<nu>KAM-\d{3}))')
 CERCA = re.compile(r'^\s*```')
 
 #: As colunas do §4, por ordem. Escritas, e nao inferidas do cabecalho: se
@@ -168,6 +178,9 @@ class Resumo:
     dependencias: str
     ficheiro: str
     numero: int
+    #: O caminho da ligacao, quando a celula de ID e uma (EPIC-01, KAM-155).
+    #: `None` nos outros dez epics, que escrevem o identificador nu.
+    destino: str | None = None
 
 
 @dataclass(frozen=True)
@@ -406,8 +419,19 @@ def ler_resumos(raiz: Path) -> dict[str, list[Resumo]]:
             if not bruta.startswith('|'):
                 continue
             celulas = _celulas(bruta)
-            achado = ID_DA_TABELA.match(celulas[0])
+            achado = ID_DA_TABELA.fullmatch(celulas[0])
             if not achado:
+                # Uma celula que **nao menciona** um ticket nao e uma linha de
+                # ticket: e o cabecalho, o separador, ou prosa. Uma que o
+                # mencione e nao tenha uma das duas formas aceites e uma linha
+                # que o parser nao sabe ler, e isso diz-se em voz alta — era
+                # assim que uma celula com um digito a mais passava
+                # pelo ticket que lhe serve de prefixo.
+                if 'KAM-' in celulas[0]:
+                    raise BacklogIlegivel(
+                        f'{rel}:{deslocamento + numero}: a celula de ID do §3 e '
+                        f'{celulas[0]!r}, que nao e `KAM-NNN` nem '
+                        '`[KAM-NNN](caminho)`')
                 continue
             if len(celulas) != len(COLUNAS_DA_RESUMO):
                 raise BacklogIlegivel(
@@ -415,9 +439,9 @@ def ler_resumos(raiz: Path) -> dict[str, list[Resumo]]:
                     f'{len(celulas)} celula(s) e esperam-se '
                     f'{len(COLUNAS_DA_RESUMO)} ({", ".join(COLUNAS_DA_RESUMO)})')
             valores = dict(zip(COLUNAS_DA_RESUMO, celulas))
-            valores['id'] = achado.group(1)
-            linhas.append(Resumo(**valores, ficheiro=rel,
-                                 numero=deslocamento + numero))
+            valores['id'] = achado.group('ligado') or achado.group('nu')
+            linhas.append(Resumo(**valores, destino=achado.group('destino'),
+                                 ficheiro=rel, numero=deslocamento + numero))
         if not linhas:
             raise BacklogIlegivel(f'{rel}: §3 sem uma unica linha de ticket')
         resumos[epic] = linhas

@@ -21,10 +21,12 @@ continua a abrir uma porta que ninguem vigia.
 from __future__ import annotations
 
 import argparse
+import datetime
 import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 from kamba_yaml import YamlSubsetError, exigir_chaves, load_file
 
@@ -38,9 +40,23 @@ ALLOW = 'ci/backlog-allow.yaml'
 #: Todas lidas: declarar uma e nao a ler era instanciar de novo o defeito que o
 #: KAM-134 fechou nos outros catorze leitores.
 CHAVES = {'version', 'inversoes', 'sequencias', 'cabecalhos'}
-CHAVES_DE_INVERSAO = {'de', 'para', 'genero', 'origem', 'razao'}
-CHAVES_DE_SEQUENCIA = {'ficheiro', 'falta', 'origem', 'razao'}
-CHAVES_DE_CABECALHO = {'ficheiro', 'origem', 'razao'}
+#: Cada declaracao tem dono (`origem`), razao, e **prazo**. O prazo nao estava
+#: na primeira versao, e a revisao adversarial mostrou o que isso custava: dos
+#: 25 documentos com campo de versao, 24 estavam dispensados e o unico que
+#: passava tem uma so linha de historico — a verificacao nao validava **um
+#: unico** documento com emendas, e sem prazo nunca viria a validar. «Passa a
+#: falha quando a lista esvaziar» so e um compromisso se houver uma data em que
+#: a lista tem de estar vazia.
+_PRAZO = {'criado_em', 'expira_em'}
+CHAVES_DE_INVERSAO = {'de', 'para', 'genero', 'origem', 'razao'} | _PRAZO
+CHAVES_DE_SEQUENCIA = {'ficheiro', 'falta', 'origem', 'razao'} | _PRAZO
+CHAVES_DE_CABECALHO = {'ficheiro', 'origem', 'razao'} | _PRAZO
+
+#: Quanto tempo uma declaracao pode viver, contado **da criacao**. E o mesmo
+#: valor e a mesma conta do `ci/contagens-allow.yaml` (KAM-158), e pela mesma
+#: razao: sem a conta, prolongar uma dispensa era empurrar o `expira_em` e mais
+#: nada — um *diff* de um caractere, sem decisao nova e sem dono novo.
+PRAZO_MAXIMO = datetime.timedelta(days=31)
 
 #: Uma razao mais curta do que isto nao se compreende daqui a seis meses. E o
 #: mesmo limiar do `lint_refs`, e pela mesma razao.
@@ -68,30 +84,46 @@ class ConfiguracaoInvalida(Exception):
 
 
 @dataclass(frozen=True)
-class Inversao:
-    de: str
-    para: str
-    genero: str
+class ComPrazo:
+    """O que as tres declaracoes partilham: dono, razao e data de validade."""
+
     origem: str
     razao: str
+    criado_em: datetime.date
+    expira_em: datetime.date
+
+    def vencida(self, hoje: datetime.date) -> bool:
+        return self.expira_em < hoje
+
+
+@dataclass(frozen=True)
+class Inversao(ComPrazo):
+    de: str = ''
+    para: str = ''
+    genero: str = ''
 
     def cobre(self, de: str, para: str, genero: str) -> bool:
         return (self.de, self.para, self.genero) == (de, para, genero)
 
-
-@dataclass(frozen=True)
-class Sequencia:
-    ficheiro: str
-    falta: str
-    origem: str
-    razao: str
+    def __str__(self) -> str:
+        return f'a inversao {self.de} → {self.para} ({self.genero})'
 
 
 @dataclass(frozen=True)
-class Cabecalho:
-    ficheiro: str
-    origem: str
-    razao: str
+class Sequencia(ComPrazo):
+    ficheiro: str = ''
+    falta: str = ''
+
+    def __str__(self) -> str:
+        return f'o buraco {self.falta} de {self.ficheiro}'
+
+
+@dataclass(frozen=True)
+class Cabecalho(ComPrazo):
+    ficheiro: str = ''
+
+    def __str__(self) -> str:
+        return f'o cabecalho de {self.ficheiro}'
 
 
 @dataclass(frozen=True)
@@ -102,6 +134,9 @@ class Declaracoes:
 
     def __len__(self) -> int:
         return len(self.inversoes) + len(self.sequencias) + len(self.cabecalhos)
+
+    def todas(self) -> tuple[ComPrazo, ...]:
+        return self.inversoes + self.sequencias + self.cabecalhos
 
 
 def _texto(entrada: dict, chave: str, onde: str) -> str:
@@ -118,6 +153,42 @@ def _razao(entrada: dict, onde: str) -> str:
             f'{onde} tem uma razao demasiado curta para alguem a compreender '
             'daqui a seis meses')
     return razao
+
+
+def _data(valor, onde: str) -> datetime.date:
+    if isinstance(valor, datetime.date):
+        return valor
+    if isinstance(valor, str):
+        try:
+            return datetime.date.fromisoformat(valor.strip())
+        except ValueError as excepcao:
+            raise ConfiguracaoInvalida(
+                f'{onde}: data invalida {valor!r}') from excepcao
+    raise ConfiguracaoInvalida(f'{onde}: falta a data')
+
+
+def _com_prazo(entrada: dict, onde: str) -> dict:
+    """Os quatro campos partilhados, ja validados.
+
+    O `criado_em` **e lido**, e e isso que o torna util: sem a conta contra o
+    `PRAZO_MAXIMO`, prolongar uma dispensa era empurrar o `expira_em` e mais
+    nada. E a licao do KAM-134 e do KAM-135, aplicada aqui antes de custar.
+    """
+    criado_em = _data(entrada.get('criado_em'), f'{onde}: `criado_em`')
+    expira_em = _data(entrada.get('expira_em'), f'{onde}: `expira_em`')
+    if expira_em < criado_em:
+        raise ConfiguracaoInvalida(
+            f'{onde}: `expira_em` ({expira_em}) e anterior a `criado_em` '
+            f'({criado_em})')
+    if expira_em - criado_em > PRAZO_MAXIMO:
+        raise ConfiguracaoInvalida(
+            f'{onde}: o prazo e de {(expira_em - criado_em).days} dias, e o '
+            f'maximo sao {PRAZO_MAXIMO.days} contados da criacao. Prolongar uma '
+            'dispensa exige mexer no `criado_em` — ou seja, uma decisao nova, '
+            'que se le no diff.')
+    return {'origem': _texto(entrada, 'origem', onde),
+            'razao': _razao(entrada, onde),
+            'criado_em': criado_em, 'expira_em': expira_em}
 
 
 def ler_declaracoes(raiz: Path) -> Declaracoes:
@@ -150,8 +221,7 @@ def ler_declaracoes(raiz: Path) -> Declaracoes:
                 f'{onde}: `genero` e {genero!r} e so ha dois, `prioridade` e `fase`')
         inversoes.append(Inversao(
             de=_texto(entrada, 'de', onde), para=_texto(entrada, 'para', onde),
-            genero=genero, origem=_texto(entrada, 'origem', onde),
-            razao=_razao(entrada, onde)))
+            genero=genero, **_com_prazo(entrada, onde)))
 
     sequencias: list[Sequencia] = []
     for indice, entrada in enumerate(dados.get('sequencias') or [], 1):
@@ -159,8 +229,7 @@ def ler_declaracoes(raiz: Path) -> Declaracoes:
         exigir_chaves(entrada, CHAVES_DE_SEQUENCIA, onde, erro=ConfiguracaoInvalida)
         sequencias.append(Sequencia(
             ficheiro=_texto(entrada, 'ficheiro', onde),
-            falta=_texto(entrada, 'falta', onde),
-            origem=_texto(entrada, 'origem', onde), razao=_razao(entrada, onde)))
+            falta=_texto(entrada, 'falta', onde), **_com_prazo(entrada, onde)))
 
     cabecalhos: list[Cabecalho] = []
     for indice, entrada in enumerate(dados.get('cabecalhos') or [], 1):
@@ -168,7 +237,7 @@ def ler_declaracoes(raiz: Path) -> Declaracoes:
         exigir_chaves(entrada, CHAVES_DE_CABECALHO, onde, erro=ConfiguracaoInvalida)
         cabecalhos.append(Cabecalho(
             ficheiro=_texto(entrada, 'ficheiro', onde),
-            origem=_texto(entrada, 'origem', onde), razao=_razao(entrada, onde)))
+            **_com_prazo(entrada, onde)))
 
     return Declaracoes(tuple(inversoes), tuple(sequencias), tuple(cabecalhos))
 
@@ -241,6 +310,17 @@ def terceira_superficie(backlog: Backlog) -> list[str]:
                     f'«Tabela Resumo de Tickets» do §3 de {ficheiro}')
                 continue
             linha = backlog.linhas[identificador]
+            # A ligacao tem de apontar ao ticket que a linha nomeia. Sem isto,
+            # `[KAM-154](tickets/KAM-003.md)` passava nos dois gates: o 3 ve um
+            # identificador que existe e um caminho que resolve, e o 3c via o
+            # identificador certo. E o achado m2 da revisao adversarial.
+            if resumo.destino is not None:
+                esperado = f'{identificador}.md'
+                if not resumo.destino.endswith(esperado):
+                    achados.append(
+                        f'{identificador}: a linha do §3 em {resumo.ficheiro}:'
+                        f'{resumo.numero} liga a {resumo.destino!r}, que nao e o '
+                        f'ficheiro deste ticket ({esperado})')
             for campo in CAMPOS_DA_RESUMO:
                 do_indice, do_resumo = getattr(linha, campo), getattr(resumo, campo)
                 iguais = (normalizar_titulo(do_indice) == normalizar_titulo(do_resumo)
@@ -258,12 +338,86 @@ def terceira_superficie(backlog: Backlog) -> list[str]:
     return achados
 
 
-def _alvo_de_dependencia(valor: str) -> tuple[str | None, bool]:
-    """`('KAM-102', True)` para `ext:KAM-102`; `(None, True)` para `ext:D6`."""
+#: Um ticket. **Exactamente** tres digitos: `KAM-19` e `KAM019` nao sao tickets
+#: deste conjunto, sao gralhas.
+_TICKET = re.compile(r'KAM-\d{3}')
+#: Uma decisao aberta do §13.3 da arquitectura, a unica forma externa que nao e
+#: um ticket. Medido sobre `main`: as entradas `ext:` do conjunto sao `ext:D6` e
+#: `ext:KAM-{069,100,101,102,103,104,105}`, e mais nenhuma.
+_DECISAO = re.compile(r'D\d{1,2}')
+
+#: As formas que uma entrada de `Dependencias` ou de `Bloqueia` pode ter. A
+#: lista e fechada, e e isso que a torna util: ver a lista acima.
+FORMAS_ACEITES = '`KAM-NNN`, `ext:KAM-NNN` ou `ext:D#`'
+
+
+class Aresta(NamedTuple):
+    """Uma entrada de `Dependencias` ou de `Bloqueia`, ja classificada.
+
+    Tres estados, e o terceiro e o que faltava: **malformada**. Ate ao KAM-138
+    ter sido revisto, o ramo das dependencias fazia `continue` sobre tudo o que
+    nao reconhecia, enquanto o ramo do `Bloqueia`, vinte linhas abaixo,
+    reportava — a assimetria provava que era lapso e nao decisao.
+
+    **O que o silencio custava, medido.** Escrita coerentemente nas tres
+    superficies, que e como uma gralha viaja (copia-se a celula), qualquer de
+    `KAM-19`, `kam-019`, `KAM019`, `Kam-019`, `ext:kam-019` ou `XPTO-1` dava
+    conforme no 3c **e** conforme no gate 3: uma aresta que existe em prosa,
+    esta coerente em todo o lado, e e invisivel a reciprocidade, aos ciclos e
+    as inversoes. `KAM-19` e a gralha mais provavel que ha neste conjunto, e e
+    a classe G5 / KAM-144 que este gate existe para fechar.
+    """
+
+    bruto: str
+    #: O ticket apontado, ou `None` quando a entrada nao aponta um ticket
+    #: (`ext:D6`) ou nao se reconhece.
+    alvo: str | None
+    #: `True` para as entradas `ext:`, que nao exigem reciprocidade.
+    externo: bool
+    #: `True` quando a entrada nao tem nenhuma das `FORMAS_ACEITES`.
+    malformada: bool
+
+
+def classificar(valor: str) -> Aresta:
+    """`'ext:KAM-102'` -> ticket externo; `'ext:D6'` -> decisao; `'KAM-19'` -> gralha."""
     if valor.startswith('ext:'):
         resto = valor[4:]
-        return (resto if re.fullmatch(r'KAM-\d{3}', resto) else None), True
-    return (valor if re.fullmatch(r'KAM-\d{3}', valor) else None), False
+        if _TICKET.fullmatch(resto):
+            return Aresta(valor, resto, True, False)
+        if _DECISAO.fullmatch(resto):
+            return Aresta(valor, None, True, False)
+        return Aresta(valor, None, True, True)
+    if _TICKET.fullmatch(valor):
+        return Aresta(valor, valor, False, False)
+    return Aresta(valor, None, False, True)
+
+
+def _gralha(identificador: str, onde: str, campo: str, bruto: str) -> str:
+    return (f'{identificador} ({onde}): `{campo}` tem {bruto!r}, que nao e '
+            f'{FORMAS_ACEITES}. Uma gralha de identificador **desaparece do '
+            'grafo**: a aresta existe em prosa, pode estar coerente nas tres '
+            'superficies, e nao existe para a reciprocidade, para os ciclos '
+            'nem para as inversoes.')
+
+
+def malformadas(backlog: Backlog) -> list[str]:
+    """Entradas de `Dependencias` e de `Bloqueia` que nao se sabem ler.
+
+    Reporta-se **aqui**, uma vez por entrada, e nao em cada verificacao que a
+    encontra: os `ciclos` e as `inversoes` saltam-na em silencio de propósito,
+    porque repetir o mesmo achado tres vezes com tres redaccoes diferentes faz
+    parecer que sao tres defeitos.
+    """
+    achados: list[str] = []
+    for identificador in sorted(backlog.blocos):
+        bloco = backlog.blocos[identificador]
+        for campo, entradas in (('Dependências', bloco.deps),
+                                ('Bloqueia', bloco.bloqueia)):
+            for bruto in entradas:
+                if classificar(bruto).malformada:
+                    achados.append(
+                        _gralha(identificador, bloco.onde, campo, bruto))
+    return achados
 
 
 def reciprocidade(backlog: Backlog) -> list[str]:
@@ -289,41 +443,39 @@ def reciprocidade(backlog: Backlog) -> list[str]:
     for identificador in sorted(backlog.blocos):
         bloco = backlog.blocos[identificador]
         for bruto in bloco.deps:
-            alvo, externo = _alvo_de_dependencia(bruto)
-            if alvo is None:
+            aresta = classificar(bruto)
+            # A malformada ja foi reportada por `malformadas`; aqui so se salta.
+            if aresta.malformada or aresta.alvo is None:
                 continue
-            outro = backlog.blocos.get(alvo)
+            outro = backlog.blocos.get(aresta.alvo)
             if outro is None:
                 achados.append(
                     f'{identificador} ({bloco.onde}): declara depender de {bruto} '
-                    f'e {alvo} nao tem bloco nenhum')
+                    f'e {aresta.alvo} nao tem bloco nenhum')
                 continue
-            if externo:
+            if aresta.externo:
                 continue
             if identificador not in outro.bloqueia:
                 achados.append(
-                    f'{identificador} depende de {alvo} e o `Bloqueia` de {alvo} '
-                    f'({outro.onde}) nao o inclui — a aresta esta declarada de um '
-                    'so lado, e o §4 nao tem coluna `Bloqueia` para o denunciar')
-        for alvo in bloco.bloqueia:
-            if alvo.startswith('ext:'):
+                    f'{identificador} depende de {aresta.alvo} e o `Bloqueia` de '
+                    f'{aresta.alvo} ({outro.onde}) nao o inclui — a aresta esta '
+                    'declarada de um so lado, e o §4 nao tem coluna `Bloqueia` '
+                    'para o denunciar')
+        for bruto in bloco.bloqueia:
+            aresta = classificar(bruto)
+            if aresta.malformada or aresta.externo or aresta.alvo is None:
                 continue
-            if not re.fullmatch(r'KAM-\d{3}', alvo):
-                achados.append(
-                    f'{identificador} ({bloco.onde}): `Bloqueia` tem {alvo!r}, '
-                    'que nao e um KAM-NNN nem um `ext:`')
-                continue
-            outro = backlog.blocos.get(alvo)
+            outro = backlog.blocos.get(aresta.alvo)
             if outro is None:
                 achados.append(
-                    f'{identificador} ({bloco.onde}): declara bloquear {alvo}, '
-                    'que nao tem bloco nenhum')
+                    f'{identificador} ({bloco.onde}): declara bloquear '
+                    f'{aresta.alvo}, que nao tem bloco nenhum')
                 continue
-            alvos = {_alvo_de_dependencia(d)[0] for d in outro.deps}
+            alvos = {classificar(d).alvo for d in outro.deps}
             if identificador not in alvos:
                 achados.append(
-                    f'{identificador} bloqueia {alvo} e as `Dependencias` de '
-                    f'{alvo} ({outro.onde}) nao o incluem')
+                    f'{identificador} bloqueia {aresta.alvo} e as `Dependencias` '
+                    f'de {aresta.alvo} ({outro.onde}) nao o incluem')
     return achados
 
 
@@ -342,8 +494,14 @@ def ciclos(backlog: Backlog) -> list[str]:
         caminho.append(no)
         bloco = backlog.blocos[no]
         for bruto in bloco.deps:
-            alvo, externo = _alvo_de_dependencia(bruto)
-            if alvo is None or externo or alvo not in backlog.blocos:
+            # A malformada salta-se **em silencio, e so aqui**: foi reportada
+            # por `malformadas`, e um segundo achado sobre o mesmo token faria
+            # parecer que sao dois defeitos.
+            alvo = classificar(bruto)
+            if alvo.malformada or alvo.externo or alvo.alvo is None:
+                continue
+            alvo = alvo.alvo
+            if alvo not in backlog.blocos:
                 continue
             if cor.get(alvo) == 1:
                 ciclo = caminho[caminho.index(alvo):] + [alvo]
@@ -371,8 +529,12 @@ def inversoes(backlog: Backlog) -> list[tuple[str, str, str, str]]:
     for identificador in sorted(backlog.blocos):
         bloco = backlog.blocos[identificador]
         for bruto in bloco.deps:
-            alvo, externo = _alvo_de_dependencia(bruto)
-            if alvo is None or externo or alvo not in backlog.blocos:
+            # Como nos `ciclos`: a malformada ja tem achado proprio.
+            aresta = classificar(bruto)
+            alvo = aresta.alvo
+            if aresta.malformada or aresta.externo or alvo is None:
+                continue
+            if alvo not in backlog.blocos:
                 continue
             outro = backlog.blocos[alvo]
             minha = bloco.campo('prioridade')
@@ -509,8 +671,10 @@ class Veredicto:
     estatisticas: dict
 
 
-def verificar(raiz: Path, minimo: int = modelo.MINIMO_DE_BLOCOS) -> Veredicto:
+def verificar(raiz: Path, minimo: int = modelo.MINIMO_DE_BLOCOS,
+              hoje: datetime.date | None = None) -> Veredicto:
     """Tudo, numa passagem. Nao imprime e nao decide o codigo de saida."""
+    hoje = hoje or datetime.date.today()
     declaracoes = ler_declaracoes(raiz)
     backlog = modelo.ler(raiz, minimo)
     controlos = versoes.varrer(raiz)
@@ -519,6 +683,7 @@ def verificar(raiz: Path, minimo: int = modelo.MINIMO_DE_BLOCOS) -> Veredicto:
     achados += sincronia(backlog)
     achados += orfaos(backlog)
     achados += terceira_superficie(backlog)
+    achados += malformadas(backlog)
     achados += reciprocidade(backlog)
     achados += ciclos(backlog)
     achados += contagens(backlog)
@@ -612,7 +777,22 @@ def verificar(raiz: Path, minimo: int = modelo.MINIMO_DE_BLOCOS) -> Veredicto:
                 f'{ALLOW}: o cabecalho de {cabecalho.ficheiro} ja esta a dia; a '
                 'divida foi paga e a declaracao ficou')
 
+    # --- prazos. Uma dispensa vencida volta a ser achado, e isso e o que
+    # torna «passa a falha quando a lista esvaziar» um compromisso com data em
+    # vez de uma intencao. Sem isto, a verificacao do cabecalho ficava
+    # dispensada em 24 dos 25 documentos que tem campo de versao — e o unico
+    # que passava tem **uma** linha de historico, pelo que passava
+    # trivialmente: a verificacao nao validava um unico documento com emendas.
+    vencidas = [d for d in declaracoes.todas() if d.vencida(hoje)]
+    for declarada in vencidas:
+        achados.append(
+            f'{ALLOW}: {declarada} esta declarada por {declarada.origem} e a '
+            f'dispensa venceu a {declarada.expira_em.isoformat()}. Corrige o '
+            'que ela cobre, ou renova-a mexendo no `criado_em` — o que e uma '
+            'decisao nova, e le-se no diff.')
+
     sem_campo = [c.ficheiro for c in controlos if c.cabecalho is None]
+    proxima = min((d.expira_em for d in declaracoes.todas()), default=None)
     return Veredicto(
         achados=achados, avisos=avisos, configuracao=configuracao,
         estatisticas={
@@ -621,7 +801,7 @@ def verificar(raiz: Path, minimo: int = modelo.MINIMO_DE_BLOCOS) -> Veredicto:
             'resumos': sum(len(v) for v in backlog.resumos.values()),
             'documentos': len(controlos), 'sem_campo': len(sem_campo),
             'declaracoes': len(declaracoes), 'backlog': backlog,
-            'controlos': controlos,
+            'controlos': controlos, 'proxima_a_vencer': proxima,
         })
 
 
@@ -658,6 +838,8 @@ def main(argv: list[str] | None = None) -> int:
         description='Gate 3c: coerencia do backlog mestre com os blocos dos epics.')
     analisador.add_argument('--root', default='.',
                             help='raiz do repositorio (por omissao, o cwd)')
+    analisador.add_argument('--hoje', default=None, metavar='AAAA-MM-DD',
+                            help='data a usar para os prazos (para testes)')
     sub = analisador.add_subparsers(dest='comando', required=True)
     sub.add_parser('check', help='falha se as superficies discordarem')
     sub.add_parser('censo', help='imprime o que leu, e quanto')
@@ -668,7 +850,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f'lint_backlog: raiz inexistente: {raiz}', file=sys.stderr)
         return 2
     try:
-        veredicto = verificar(raiz)
+        hoje = (datetime.date.fromisoformat(argumentos.hoje)
+                if argumentos.hoje else None)
+        veredicto = verificar(raiz, hoje=hoje)
     except (ConfiguracaoInvalida, BacklogIlegivel, versoes.ControloIlegivel,
             YamlSubsetError, OSError) as excepcao:
         print(f'lint_backlog: erro de configuracao: {excepcao}', file=sys.stderr)
@@ -705,6 +889,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f'  . {linha}')
         print('  Quando a lista esvaziar, estas verificacoes passam a falha sem '
               'ninguem mexer no codigo.')
+        if estatisticas['proxima_a_vencer'] is not None:
+            print(f'  ATENCAO: a primeira dispensa vence a '
+                  f'{estatisticas["proxima_a_vencer"].isoformat()}, e a partir '
+                  'dai o gate falha. A data e o que distingue um prazo de uma '
+                  'amnistia.')
 
     print(f'lint_backlog: conforme — {estatisticas["linhas"]} linha(s) no §4, '
           f'{estatisticas["blocos"]} bloco(s) e {estatisticas["resumos"]} linha(s) '

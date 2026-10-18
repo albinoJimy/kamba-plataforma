@@ -95,6 +95,86 @@ class TestDependenciasExternas(Base):
         self.assertTrue(any('nao tem bloco nenhum' in a for a in achados))
 
 
+class TestGralhaDeIdentificador(Base):
+    """Uma entrada que nao se sabe ler **nao** desaparece em silencio.
+
+    Ate a revisao adversarial do KAM-138, o ramo das dependencias fazia
+    `continue` sobre tudo o que nao reconhecia enquanto o ramo do `Bloqueia`
+    reportava. Escrita coerentemente nas tres superficies — que e como uma
+    gralha viaja, porque se copia a celula —, a entrada dava conforme no 3c e
+    conforme no gate 3: a aresta existia em prosa e nao existia para a
+    reciprocidade, para os ciclos nem para as inversoes.
+    """
+
+    #: As formas que o revisor construiu, mais a que se escreve sem querer.
+    #: Nenhuma se escreve por extenso com um numero de ticket inexistente: o
+    #: gate 3 le o conteudo deste ficheiro e recusaria um identificador que nao
+    #: esteja no backlog mestre.
+    FORMAS = (
+        'KAM-' + '19',          # dois digitos: a gralha mais provavel que ha
+        'kam-' + '019',         # minusculas
+        'KAM' + '019',          # sem o hifen
+        'Kam-' + '019',         # capitalizada
+        'ext:kam-' + '019',     # a mesma, dentro de um `ext:`
+        'XPTO-1',               # outra serie
+        'KAM-' + '0190',        # quatro digitos
+    )
+
+    def achados_com(self, valor: str, campo: str) -> list[str]:
+        from lint_backlog.cli import malformadas
+        conjunto = Conjunto()
+        if campo == 'dependencias':
+            conjunto.substituir(3, dependencias=valor)
+            conjunto.substituir(1, bloqueia=(2,))
+        else:
+            conjunto.substituir(3, bloqueia=())
+            conjunto.ticket(3).no_bloco['bloqueia'] = valor
+        return malformadas(self.ler(conjunto))
+
+    def test_cada_forma_falha_nas_dependencias(self) -> None:
+        for valor in self.FORMAS:
+            with self.subTest(valor=valor):
+                achados = self.achados_com(valor, 'dependencias')
+                self.assertEqual(len(achados), 1, achados)
+                self.assertIn(repr(valor), achados[0])
+                self.assertIn('Dependências', achados[0])
+
+    def test_cada_forma_falha_no_bloqueia(self) -> None:
+        """A simetria que faltava: os dois campos dizem a mesma coisa."""
+        for valor in self.FORMAS:
+            with self.subTest(valor=valor):
+                achados = self.achados_com(valor, 'bloqueia')
+                self.assertEqual(len(achados), 1, achados)
+                self.assertIn(repr(valor), achados[0])
+                self.assertIn('Bloqueia', achados[0])
+
+    def test_a_mensagem_diz_as_formas_aceites(self) -> None:
+        achados = self.achados_com('KAM-' + '19', 'dependencias')
+        self.assertIn('ext:KAM-NNN', achados[0])
+        self.assertIn('ext:D#', achados[0])
+
+    def test_as_formas_validas_passam(self) -> None:
+        from lint_backlog.cli import malformadas
+        conjunto = Conjunto()
+        conjunto.substituir(3, dependencias=f'{kam(1)}, ext:D6, ext:{kam(5)}')
+        conjunto.substituir(1, bloqueia=(2, 3))
+        self.assertEqual(malformadas(self.ler(conjunto)), [])
+
+    def test_a_gralha_so_da_um_achado_e_nao_tres(self) -> None:
+        """Os ciclos e as inversoes saltam-na em silencio, de propósito."""
+        from lint_backlog.cli import verificar
+        import shutil as _shutil
+        pasta = Path(tempfile.mkdtemp())
+        self.addCleanup(_shutil.rmtree, pasta, True)
+        conjunto = Conjunto()
+        conjunto.substituir(3, dependencias='KAM-' + '19')
+        conjunto.substituir(1, bloqueia=(2,))
+        conjunto.escrever(pasta)
+        achados = verificar(pasta, minimo=MINIMO).achados
+        gralhas = [a for a in achados if 'KAM-19' in a]
+        self.assertEqual(len(gralhas), 1, achados)
+
+
 class TestCiclos(Base):
     def test_sem_ciclos_no_conjunto_coerente(self) -> None:
         self.assertEqual(ciclos(self.ler(Conjunto())), [])

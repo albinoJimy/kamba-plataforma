@@ -168,6 +168,8 @@ class TestDeclaracoes(Base):
         'cabecalhos:\n'
         '  - ficheiro: specs/EPIC-02_Canais_WhatsApp_Handoff.md\n'
         '    origem: KAM-138\n'
+        '    criado_em: 2026-10-18\n'
+        '    expira_em: 2026-11-18\n'
         '    razao: >-\n'
         '      Residuo de renumeracao declarado no teste, com razao longa o\n'
         '      suficiente para passar o limiar.\n')
@@ -213,6 +215,8 @@ class TestDeclaracoes(Base):
             '  - ficheiro: specs/nao-existe.md\n'
             '    falta: "1.4"\n'
             '    origem: KAM-138\n'
+            '    criado_em: 2026-10-18\n'
+            '    expira_em: 2026-11-18\n'
             '    razao: >-\n'
             '      Uma razao suficientemente longa para passar o limiar da\n'
             '      verificacao de razoes curtas.\n')
@@ -227,6 +231,8 @@ class TestDeclaracoes(Base):
             'cabecalhos:\n'
             '  - ficheiro: specs/INDICE.md\n'
             '    origem: KAM-138\n'
+            '    criado_em: 2026-10-18\n'
+            '    expira_em: 2026-11-18\n'
             '    razao: curta\n')
         with self.assertRaises(ConfiguracaoInvalida):
             ler_declaracoes(self.escrever(conjunto))
@@ -247,6 +253,63 @@ class TestDeclaracoes(Base):
         with self.assertRaises(ConfiguracaoInvalida):
             ler_declaracoes(self.escrever(conjunto))
 
+    def test_a_dispensa_vencida_volta_a_ser_achado(self) -> None:
+        """Sem prazo, «passa a falha quando a lista esvaziar» nunca acontece.
+
+        Era o maior 2 da revisao adversarial: dos 25 documentos com campo de
+        versao, 24 estavam dispensados e o unico que passava tem **uma** linha
+        de historico — a verificacao nao validava um unico documento com
+        emendas, e sem data nunca viria a validar.
+        """
+        import datetime
+        conjunto = self.conjunto_com_cabecalho_atrasado()
+        conjunto.allow = self.DECLARACAO
+        pasta = self.escrever(conjunto)
+        vespera = datetime.date(2026, 11, 18)
+        self.assertEqual(verificar(pasta, minimo=MINIMO, hoje=vespera).achados, [])
+        dia_seguinte = datetime.date(2026, 11, 19)
+        achados = verificar(pasta, minimo=MINIMO, hoje=dia_seguinte).achados
+        self.assertEqual(len(achados), 1, achados)
+        self.assertIn('venceu a 2026-11-18', achados[0])
+        self.assertIn('EPIC-02', achados[0])
+
+    def test_o_resumo_diz_quando_vence_a_primeira(self) -> None:
+        import datetime
+        conjunto = self.conjunto_com_cabecalho_atrasado()
+        conjunto.allow = self.DECLARACAO
+        veredicto = verificar(self.escrever(conjunto), minimo=MINIMO,
+                              hoje=datetime.date(2026, 10, 20))
+        self.assertEqual(veredicto.estatisticas['proxima_a_vencer'],
+                         datetime.date(2026, 11, 18))
+
+    def test_prazo_maior_do_que_o_maximo_e_recusado(self) -> None:
+        """Prolongar exige mexer no `criado_em`, e isso le-se no diff."""
+        from lint_backlog.cli import ConfiguracaoInvalida, ler_declaracoes
+        conjunto = self.conjunto_com_cabecalho_atrasado()
+        conjunto.allow = self.DECLARACAO.replace('expira_em: 2026-11-18',
+                                                 'expira_em: 2027-11-18')
+        with self.assertRaises(ConfiguracaoInvalida) as capturado:
+            ler_declaracoes(self.escrever(conjunto))
+        self.assertIn('o maximo sao 31 contados da criacao',
+                      str(capturado.exception))
+
+    def test_expira_antes_de_criar_e_recusado(self) -> None:
+        from lint_backlog.cli import ConfiguracaoInvalida, ler_declaracoes
+        conjunto = self.conjunto_com_cabecalho_atrasado()
+        conjunto.allow = self.DECLARACAO.replace('criado_em: 2026-10-18',
+                                                 'criado_em: 2026-12-18')
+        with self.assertRaises(ConfiguracaoInvalida):
+            ler_declaracoes(self.escrever(conjunto))
+
+    def test_declaracao_sem_prazo_e_recusada(self) -> None:
+        from lint_backlog.cli import ConfiguracaoInvalida, ler_declaracoes
+        conjunto = self.conjunto_com_cabecalho_atrasado()
+        conjunto.allow = self.DECLARACAO.replace(
+            '    criado_em: 2026-10-18\n', '')
+        with self.assertRaises(ConfiguracaoInvalida) as capturado:
+            ler_declaracoes(self.escrever(conjunto))
+        self.assertIn('criado_em', str(capturado.exception))
+
     def test_inversao_declarada_baixa_a_aviso_e_tirada_repoe_a_falha(self) -> None:
         conjunto = Conjunto()
         conjunto.substituir(1, prioridade='P1')
@@ -257,6 +320,8 @@ class TestDeclaracoes(Base):
             '    para: KAM-001\n'
             '    genero: prioridade\n'
             '    origem: KAM-138\n'
+            '    criado_em: 2026-10-18\n'
+            '    expira_em: 2026-11-18\n'
             '    razao: >-\n'
             '      Inversao conhecida e deliberada, declarada com uma razao\n'
             '      longa o suficiente para passar o limiar.\n'
@@ -264,6 +329,8 @@ class TestDeclaracoes(Base):
             '    para: KAM-001\n'
             '    genero: prioridade\n'
             '    origem: KAM-138\n'
+            '    criado_em: 2026-10-18\n'
+            '    expira_em: 2026-11-18\n'
             '    razao: >-\n'
             '      A segunda aresta que entra no mesmo ticket; declara-se uma\n'
             '      por aresta, e nao uma por ticket, de proposito.\n')

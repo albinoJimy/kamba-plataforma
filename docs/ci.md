@@ -58,7 +58,7 @@ Cada gate é um alvo `make ci-<n>`. O *workflow* só os orquestra. Três razões
 | 11 | SCA, licenças, vulnerabilidades e SBOM | `make ci-11` | Segurança | `docs/tecnica/09` §7 |
 | 12–18 | Categorias, *eval*, imagem, deploy, aprovação, tag | — | ver KAM-067, KAM-078, KAM-088 | — |
 
-`make ci` corre os dez activos (os seis do KAM-002, o 8 do KAM-003, o 6 do KAM-004, o 3b do KAM-111 e o 3c do KAM-138). `make ci-waivers` valida as excepções.
+`make ci` corre os **onze** activos: os seis do KAM-002 (1, 2, 3, 4, 9 e 11), o 8 do KAM-003, o 6 do KAM-004, o 7 do KAM-007, o 3b do KAM-111 e o 3c do KAM-138. A frase dizia «nove» e depois «dez» — o 7 estava a faltar na conta desde que o KAM-007 o ligou, e o KAM-138 limitou-se a incrementar. `make ci-waivers` valida as excepções.
 
 ---
 
@@ -182,84 +182,6 @@ tem de aparecer pelo menos uma vez (um padrão que deixa de casar nada não
 protege nada, e isso não se vê no total), e a população encontrada tem de ficar
 acima de um mínimo escrito à mão, como o `esperados=N` do resumo.
 
-### Gate 3c — coerência do backlog
-
-Entrou com o KAM-138. O backlog diz as mesmas coisas em **três** sítios, e até
-aqui nada os comparava: a linha do ticket em [`specs/INDICE.md`](../specs/INDICE.md)
-§4 (o «contrato entre epics»), o bloco `## KAM-NNN — ` — em `specs/tickets/` no
-EPIC-01, pela convenção do KAM-155, e dentro do ficheiro nos outros dez — e a
-«Tabela Resumo de Tickets» do §3 de cada epic. Tipo, estimativa, prioridade,
-fase e dependências estão replicados, e a verificação era manual: três tickets
-seguidos (KAM-128, KAM-129, KAM-130) gastaram um critério de aceitação em
-«segunda passagem de verificação dá 0 divergências».
-
-**O que o distingue de uma comparação de tabelas** é a reciprocidade
-`Dependências`↔`Bloqueia`. O §4 **não tem coluna `Bloqueia`**, pelo que comparar
-só os campos que as duas superfícies partilham deixa passar uma aresta declarada
-de um só lado — aconteceu na primeira versão do KAM-129 (a busca G5) e outra vez
-em oito tickets, que o KAM-144 teve de repor à mão, registando por escrito que a
-causa era este *gate* não existir. Na entrega do KAM-138 estavam **seis** arestas
-outra vez por fechar, abertas pelos quatro tickets inscritos depois do KAM-144.
-
-O que verifica, por ordem de execução:
-
-1. **Sincronia linha↔bloco**, nos seis campos que os dois escrevem (título,
-   tipo, estimativa, prioridade, fase, dependências). A mensagem diz o ticket, o
-   campo e **os dois valores**, com ficheiro e linha de cada um.
-2. **Órfãos nos dois sentidos** — linha sem bloco, e bloco sem linha.
-3. **A terceira superfície**: a tabela-resumo do §3, nos cinco campos que tem
-   (não tem coluna `Fase`).
-4. **Reciprocidade do grafo**, nos dois sentidos.
-5. **Ciclos**, reportados com o caminho completo (`A → B → C → A`) e não com o
-   nome de um ticket.
-6. **Inversões de prioridade e de fase.**
-7. **Contagens derivadas**: a contagem e o intervalo de cada epic no §3.1, a
-   soma da coluna contra o TOTAL, o intervalo e o total do TOTAL, e os números
-   do §1. Nenhuma se copia; todas se recalculam do §4.
-8. **«Controlo de versões»** de cada documento de `specs/` e `docs/`: a
-   sequência não salta números, nenhum número aparece duas vezes, e onde o
-   cabeçalho tem campo de versão ele iguala a última linha. O buraco e o número
-   repetido são **a mesma causa vista dos dois lados** — dois ramos tomam o
-   número em paralelo; se um renumera fica o buraco, se nenhum renumerar ficam
-   duas emendas com o mesmo nome. A verificação da sequência sozinha não vê o
-   repetido, porque trabalha sobre o conjunto.
-
-Três decisões que o tornam utilizável:
-
-- **O *gate* não decide qual dos lados está certo.** Reporta os dois valores e
-  falha. O §4 é o contrato e o bloco é a especificação; qual deles se corrige é
-  de quem escreveu o ticket, e um lint que escolhesse por omissão esconderia
-  metade dos defeitos ao «corrigi-los».
-- **Os títulos comparam-se com uma regra de normalização escrita, e uma só:**
-  colapsa-se a subida de directório (`../../docs/` ≡ `../docs/`). Um título pode
-  conter um caminho relativo, e pela convenção do KAM-128 o caminho é relativo
-  ao documento que o escreve — o §4 e um bloco de `specs/tickets/` escrevem-no
-  legitimamente com profundidades diferentes. Três títulos dependem disto hoje
-  (KAM-111, KAM-139, KAM-140). O resto — `código`, *itálico*, travessões —
-  compara-se tal como está escrito.
-- **Duas verificações nascem como aviso, com o estado conhecido declarado em
-  [`ci/backlog-allow.yaml`](../ci/backlog-allow.yaml):** as inversões e o
-  controlo de versões. O estado inicial não é limpo, e a alternativa a declará-lo
-  era não verificar nada. Uma inversão ou um documento que **não** esteja
-  declarado falha desde o primeiro dia; quando as listas esvaziarem, as duas
-  passam a falha sem ninguém mexer no código. Uma declaração que deixe de casar
-  alguma coisa **falha** (código 2), como nos irmãos.
-
-É **fail-closed sobre a própria entrada**: um epic sem §3, um bloco sem tabela de
-campos, um campo obrigatório ausente, dois blocos para o mesmo ticket ou uma
-população abaixo do mínimo escrito à mão dão código 2, não «0 divergências». Um
-lint de coerência que dê verde por não ter conseguido ler nada é o modo de falha
-que ele existe para não ter.
-
-Reutiliza o leitor do §4 do `lint_refs` (`seccao` e `LINHA_BACKLOG`, públicos
-desde este ticket): duas gramáticas para a mesma tabela era a forma garantida de
-o *gate* 3 e o 3c discordarem sobre o que é uma linha de ticket.
-
-Entra nos `needs` de `gates do KAM-002` e **não** no `main.json`, pela mesma
-razão do 3b ([lacuna 17](#7-lacunas-do-canon-que-este-ticket-encontrou)): por
-esse caminho bloqueia o *merge* na mesma, sem precisar de um *token* com
-`administration: write`.
-
 ### Gate 3b — nomes canónicos
 
 Entrou com o KAM-111. Falha se uma migração, um *schema* de evento, um ficheiro
@@ -357,6 +279,93 @@ Medido: o *job* do *gate* 3b leva **7 s** no *runner* (Python 3.12); `make
 ci-3b` num contentor Linux local (Python 3.13), 0,9 s — contra os 60 s do
 critério. 49 instruções (21 da revisão `0001`, 28 da `0002`), 3 tabelas, 38
 colunas e 20 valores de `CHECK`; 17 documentos.
+
+### Gate 3c — coerência do backlog
+
+Entrou com o KAM-138. O backlog diz as mesmas coisas em **três** sítios, e até
+aqui nada os comparava: a linha do ticket em [`specs/INDICE.md`](../specs/INDICE.md)
+§4 (o «contrato entre epics»), o bloco `## KAM-NNN — ` — em `specs/tickets/` no
+EPIC-01, pela convenção do KAM-155, e dentro do ficheiro nos outros dez — e a
+«Tabela Resumo de Tickets» do §3 de cada epic. Tipo, estimativa, prioridade,
+fase e dependências estão replicados, e a verificação era manual: três tickets
+seguidos (KAM-128, KAM-129, KAM-130) gastaram um critério de aceitação em
+«segunda passagem de verificação dá 0 divergências».
+
+**O que o distingue de uma comparação de tabelas** é a reciprocidade
+`Dependências`↔`Bloqueia`. O §4 **não tem coluna `Bloqueia`**, pelo que comparar
+só os campos que as duas superfícies partilham deixa passar uma aresta declarada
+de um só lado — aconteceu na primeira versão do KAM-129 (a busca G5) e outra vez
+em oito tickets, que o KAM-144 teve de repor à mão, registando por escrito que a
+causa era este *gate* não existir. Na entrega do KAM-138 estavam **seis** arestas
+outra vez por fechar, abertas pelos quatro tickets inscritos depois do KAM-144.
+
+O que verifica, por ordem de execução:
+
+1. **Sincronia linha↔bloco**, nos seis campos que os dois escrevem (título,
+   tipo, estimativa, prioridade, fase, dependências). A mensagem diz o ticket, o
+   campo e **os dois valores**, com ficheiro e linha de cada um.
+2. **Órfãos nos dois sentidos** — linha sem bloco, e bloco sem linha.
+3. **A terceira superfície**: a tabela-resumo do §3, nos cinco campos que tem
+   (não tem coluna `Fase`).
+4. **Reciprocidade do grafo**, nos dois sentidos.
+5. **Ciclos**, reportados com o caminho completo (`A → B → C → A`) e não com o
+   nome de um ticket.
+6. **Inversões de prioridade e de fase.**
+7. **Contagens derivadas**: a contagem e o intervalo de cada epic no §3.1, a
+   soma da coluna contra o TOTAL, o intervalo e o total do TOTAL, e os números
+   do §1. Nenhuma se copia; todas se recalculam do §4.
+8. **«Controlo de versões»** de cada documento de `specs/` e `docs/`: a
+   sequência não salta números, nenhum número aparece duas vezes, e onde o
+   cabeçalho tem campo de versão ele iguala a última linha. O buraco e o número
+   repetido são **a mesma causa vista dos dois lados** — dois ramos tomam o
+   número em paralelo; se um renumera fica o buraco, se nenhum renumerar ficam
+   duas emendas com o mesmo nome. A verificação da sequência sozinha não vê o
+   repetido, porque trabalha sobre o conjunto.
+
+   **Uma limitação declarada:** o *gate* lê a tabela, não o *diff*. Vê que a
+   tabela é coerente consigo própria e com o cabeçalho, e **não** vê «este
+   documento mudou e a tabela não acompanhou» — que é a omissão mais comum, e a
+   que o KAM-138 cometeu no `dividas-documentais.md` antes da revisão
+   adversarial a apanhar. Fechá-la exige ler o *diff* do PR, o que torna o
+   *gate* não-determinista (o mesmo *commit* passa ou falha conforme a base),
+   e é a troca que o *gate* 3 já recusou por escrito. Fica para quem tiver
+   melhor ideia.
+
+Três decisões que o tornam utilizável:
+
+- **O *gate* não decide qual dos lados está certo.** Reporta os dois valores e
+  falha. O §4 é o contrato e o bloco é a especificação; qual deles se corrige é
+  de quem escreveu o ticket, e um lint que escolhesse por omissão esconderia
+  metade dos defeitos ao «corrigi-los».
+- **Os títulos comparam-se com uma regra de normalização escrita, e uma só:**
+  colapsa-se a subida de directório (`../../docs/` ≡ `../docs/`). Um título pode
+  conter um caminho relativo, e pela convenção do KAM-128 o caminho é relativo
+  ao documento que o escreve — o §4 e um bloco de `specs/tickets/` escrevem-no
+  legitimamente com profundidades diferentes. Três títulos dependem disto hoje
+  (KAM-111, KAM-139, KAM-140). O resto — `código`, *itálico*, travessões —
+  compara-se tal como está escrito.
+- **Duas verificações nascem como aviso, com o estado conhecido declarado em
+  [`ci/backlog-allow.yaml`](../ci/backlog-allow.yaml):** as inversões e o
+  controlo de versões. O estado inicial não é limpo, e a alternativa a declará-lo
+  era não verificar nada. Uma inversão ou um documento que **não** esteja
+  declarado falha desde o primeiro dia; quando as listas esvaziarem, as duas
+  passam a falha sem ninguém mexer no código. Uma declaração que deixe de casar
+  alguma coisa **falha** (código 2), como nos irmãos.
+
+É **fail-closed sobre a própria entrada**: um epic sem §3, um bloco sem tabela de
+campos, um campo obrigatório ausente, dois blocos para o mesmo ticket ou uma
+população abaixo do mínimo escrito à mão dão código 2, não «0 divergências». Um
+lint de coerência que dê verde por não ter conseguido ler nada é o modo de falha
+que ele existe para não ter.
+
+Reutiliza o leitor do §4 do `lint_refs` (`seccao` e `LINHA_BACKLOG`, públicos
+desde este ticket): duas gramáticas para a mesma tabela era a forma garantida de
+o *gate* 3 e o 3c discordarem sobre o que é uma linha de ticket.
+
+Entra nos `needs` de `gates do KAM-002` e **não** no `main.json`, pela mesma
+razão do 3b ([lacuna 17](#7-lacunas-do-canon-que-este-ticket-encontrou)): por
+esse caminho bloqueia o *merge* na mesma, sem precisar de um *token* com
+`administration: write`.
 
 ### Gate 4 — unit e cobertura
 

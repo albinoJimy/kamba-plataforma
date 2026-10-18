@@ -177,6 +177,38 @@ class TestTerceiraSuperficie(Base):
         self.assertEqual(len(achados), 1)
         self.assertIn('entre o §4 e o §3', achados[0])
 
+    def test_um_digito_a_mais_na_celula_de_id_nao_passa_por_prefixo(self) -> None:
+        """O achado m1: um digito a mais dava verde, por casar o prefixo."""
+        pasta = Path(tempfile.mkdtemp())
+        self.addCleanup(self._apagar, pasta)
+        Conjunto().escrever(pasta)
+        alvo = pasta / 'specs' / 'EPIC-02_Canais_WhatsApp_Handoff.md'
+        texto = alvo.read_text(encoding='utf-8')
+        alvo.write_text(texto.replace(f'| {kam(4)} |', f'| {kam(4)}0 |', 1),
+                        encoding='utf-8')
+        with self.assertRaises(BacklogIlegivel) as capturado:
+            modelo.ler(pasta, minimo=MINIMO)
+        self.assertIn('celula de ID do §3', str(capturado.exception))
+
+    def test_a_ligacao_tem_de_apontar_ao_proprio_ticket(self) -> None:
+        """O achado m2: `[A](tickets/B.md)` passava nos dois gates."""
+        pasta = Path(tempfile.mkdtemp())
+        self.addCleanup(self._apagar, pasta)
+        Conjunto().escrever(pasta)
+        alvo = pasta / 'specs' / 'EPIC-01_Fundacoes_Dados.md'
+        texto = alvo.read_text(encoding='utf-8')
+        alvo.write_text(
+            texto.replace(f'[{kam(2)}](tickets/{kam(2)}.md)',
+                          f'[{kam(2)}](tickets/{kam(3)}.md)', 1),
+            encoding='utf-8')
+        achados = terceira_superficie(modelo.ler(pasta, minimo=MINIMO))
+        self.assertEqual(len(achados), 1, achados)
+        self.assertIn('liga a', achados[0])
+        self.assertIn(kam(3), achados[0])
+
+    def test_a_ligacao_certa_passa(self) -> None:
+        self.assertEqual(terceira_superficie(self.ler(Conjunto())), [])
+
     def test_a_tabela_resumo_nao_tem_coluna_fase(self) -> None:
         """Mudar so a fase nao pode produzir achado na terceira superficie."""
         conjunto = Conjunto()
