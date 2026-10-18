@@ -12,6 +12,7 @@ paga o custo da suite inteira, e mil insercoes custam minutos.
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 import unittest
@@ -53,12 +54,12 @@ TIPOS_DE_ATOR = ("contact", "owner", "staff", "agent", "system")
 #: duplicacao e deliberada: se o hash muda de forma, estes testes tem de
 #: falhar, e nao de acompanhar.
 CAMPOS_DO_ROW_HASH = (
-    "prev_hash", "tenant_id", "actor_type", "actor_id", "action",
+    "prev_hash", "criado_at", "tenant_id", "actor_type", "actor_id", "action",
     "entity", "entity_id", "turn_id", "payload_hash",
 )
 
 
-def row_hash(prev: bytes, tenant, actor_type, actor_id, action, entity,
+def row_hash(prev: bytes, criado_at, tenant, actor_type, actor_id, action, entity,
              entity_id, turn_id, payload_hash: bytes) -> bytes:
     """A formula do elo, reimplementada **em Python**.
 
@@ -68,6 +69,7 @@ def row_hash(prev: bytes, tenant, actor_type, actor_id, action, entity,
     """
     partes = (
         prev.hex(),
+        criado_at.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f"),
         "" if tenant is None else str(tenant),
         actor_type, actor_id, action, entity, entity_id,
         "" if turn_id is None else turn_id,
@@ -94,7 +96,11 @@ class ComAuditoria(ComBase):
             (self._tenant(tenant), actor_type, actor_id,
              action, entity, entity_id, turn_id, payload),
         )
-        return bytes(alvo.fetchone()[0])
+        alvo.fetchall()
+        # A funcao devolve `void`: o recibo e a propria linha. Quem quer o
+        # hash le-o com o papel que le o registo — e e por isso que este
+        # auxiliar o vai buscar com o cursor de admin, e nao ao retorno.
+        return self.cabeca(tenant)
 
     def _tenant(self, pedido):
         """`None` e «o meu»; `PLATAFORMA` e «nenhum»."""
@@ -105,7 +111,7 @@ class ComAuditoria(ComBase):
     def linhas(self, tenant=None) -> list:
         self.cursor.execute(
             "SELECT id, tenant_id, actor_type, actor_id, action, entity, entity_id, "
-            "       turn_id, payload_hash, prev_hash, row_hash "
+            "       turn_id, payload_hash, prev_hash, row_hash, criado_at "
             "  FROM platform.audit_log "
             " WHERE tenant_id IS NOT DISTINCT FROM %s ORDER BY id",
             (self._tenant(tenant),),
@@ -120,6 +126,190 @@ class ComAuditoria(ComBase):
         )
         linha = self.cursor.fetchone()
         return bytes(linha[0]) if linha else None
+
+
+
+def _desligar(cursor) -> None:
+    """Desliga o trigger de imutabilidade, **guardando o que estava**.
+
+    A primeira versao religava-o sempre com `ENABLE ALWAYS`, e isso era um
+    defeito com alcance: e DDL confirmado, pelo que **reparava** na base viva
+    qualquer regressao do esquema e escondia-a de todos os testes que
+    corressem a seguir. Foi assim que a mutacao «o trigger deixa de ser
+    ALWAYS» passou despercebida. Apanhado pela revisao adversarial.
+    """
+    cursor.execute(
+        "SELECT tgenabled::text FROM pg_trigger "
+        " WHERE tgrelid = 'platform.audit_log'::regclass "
+        "   AND tgname = 'audit_log_sem_update_nem_delete'"
+    )
+    _ESTADO_DO_TRIGGER["sem_update_nem_delete"] = cursor.fetchone()[0]
+    cursor.execute(
+        "ALTER TABLE platform.audit_log DISABLE TRIGGER audit_log_sem_update_nem_delete"
+    )
+
+
+def _religar(cursor) -> None:
+    """Repoe o estado lido pelo `_desligar`, e nao o estado que se desejava."""
+    marca = _ESTADO_DO_TRIGGER.get("sem_update_nem_delete", "A")
+    palavra = {"A": "ENABLE ALWAYS", "R": "ENABLE REPLICA", "D": "DISABLE"}.get(
+        marca, "ENABLE"
+    )
+    cursor.execute(
+        f"ALTER TABLE platform.audit_log {palavra} TRIGGER audit_log_sem_update_nem_delete"
+    )
+
+
+#: O que o `_desligar` leu, para o `_religar` repor.
+_ESTADO_DO_TRIGGER: dict = {}
+
+
+class TestOEsquemaAntesDeTudo(ComAuditoria):
+    """As propriedades do esquema, lidas **antes** de qualquer limpeza correr.
+
+    Esta classe comeca por `TestO` para correr cedo na ordem alfabetica do
+    `unittest`, e a razao e a licao da revisao adversarial: um auxiliar de
+    limpeza que repoe DDL repara regressoes na base viva, e tudo o que corre
+    depois dele ve o esquema reparado.
+    """
+
+    def test_os_tres_triggers_estao_marcados_ALWAYS(self) -> None:
+        marcas = dict(
+            self.consultar(
+                "SELECT tgname::text, tgenabled::text FROM pg_trigger "
+                " WHERE tgrelid = 'platform.audit_log'::regclass AND NOT tgisinternal"
+            )
+        )
+        self.assertEqual(
+            marcas,
+            {
+                "audit_log_encadear": "A",
+                "audit_log_sem_update_nem_delete": "A",
+                "audit_log_sem_truncate": "A",
+            },
+            "um trigger de origem ('O') e contornado por session_replication_role",
+        )
+
+
+class TestOChamadorNaoEscolhe(ComAuditoria):
+    """O achado C1: o papel da aplicacao forjava uma linha encadeada.
+
+    Tinha `INSERT` de tabela inteira — incluindo `criado_at` — e
+    `SELECT`/`UPDATE` em `audit_heads`. Com isso lia a cabeca, escrevia uma
+    linha correctamente encadeada com a data que quisesse, avancava a cabeca,
+    e o verificador respondia «cadeia intacta».
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.ligacao.commit()
+        self.addCleanup(self._limpar_tudo)
+        self.cursor_app = self.ligar("app").cursor()
+        self.cursor_app.execute(
+            "SELECT set_config('app.tenant_id', %s, false)", (self.tenant,)
+        )
+
+    def test_a_aplicacao_nao_escreve_o_criado_at(self) -> None:
+        self.assertErroSql(
+            "42501", self.cursor_app,
+            "INSERT INTO platform.audit_log "
+            "(criado_at, tenant_id, actor_type, actor_id, action, entity, entity_id, "
+            " payload_hash) VALUES (timestamptz '2020-01-01', %s, 'staff','f',"
+            "'price.update','p','1', sha256('x'))",
+            (self.tenant,),
+        )
+
+    def test_a_aplicacao_nao_escreve_os_hashes(self) -> None:
+        for coluna in ("prev_hash", "row_hash"):
+            with self.subTest(coluna=coluna):
+                self.assertErroSql(
+                    "42501", self.cursor_app,
+                    f"INSERT INTO platform.audit_log "
+                    f"(tenant_id, actor_type, actor_id, action, entity, entity_id, "
+                    f" payload_hash, {coluna}) VALUES (%s,'staff','f','price.update',"
+                    f"'p','1', sha256('x'), sha256('y'))",
+                    (self.tenant,),
+                )
+
+    def test_a_aplicacao_nao_toca_na_cabeca_da_cadeia(self) -> None:
+        for sql in (
+            "SELECT last_hash FROM platform.audit_heads",
+            "UPDATE platform.audit_heads SET last_hash = sha256('x')",
+            "INSERT INTO platform.audit_heads (tenant_id, last_hash) "
+            "VALUES (NULL, sha256('x'))",
+        ):
+            with self.subTest(sql=sql.split()[0]):
+                self.assertErroSql("42501", self.cursor_app, sql)
+
+    def test_escrever_directamente_na_tabela_da_a_mesma_cadeia(self) -> None:
+        """A consequencia do desenho: o `INSERT` directo deixa de ser um ataque.
+
+        Com o trigger a escrever a cadeia, inserir sem passar pela funcao da
+        exactamente o mesmo resultado — e e por isso que o `audit_append` pode
+        ser `SECURITY INVOKER` sem guardar propriedade nenhuma.
+        """
+        self.escrever(cursor=self.cursor_app)
+        self.cursor_app.execute(
+            "INSERT INTO platform.audit_log "
+            "(tenant_id, actor_type, actor_id, action, entity, entity_id, payload_hash) "
+            "VALUES (%s,'staff','directo','price.update','produto','sku-9', sha256('d'))",
+            (self.tenant,),
+        )
+        self.cursor_app.connection.commit()
+        linhas = self.linhas()
+        self.assertEqual(len(linhas), 2)
+        self.assertEqual(bytes(linhas[1][9]), bytes(linhas[0][10]))
+
+    def test_o_criado_at_e_do_servidor_e_nao_do_chamador(self) -> None:
+        import datetime as _dt
+
+        antes = _dt.datetime.now(_dt.timezone.utc)
+        self.escrever(cursor=self.cursor_app)
+        self.cursor_app.connection.commit()
+        (linha,) = self.linhas()
+        self.assertGreaterEqual(linha[11], antes - _dt.timedelta(seconds=5))
+
+    def _limpar_tudo(self) -> None:
+        cursor = self.ligar("admin").cursor()
+        _desligar(cursor)
+        cursor.execute("DELETE FROM platform.audit_log")
+        _religar(cursor)
+        cursor.execute("DELETE FROM platform.audit_heads")
+        cursor.execute("DELETE FROM platform.tenants WHERE id = %s", (self.tenant,))
+        cursor.connection.commit()
+
+
+class TestTextoNaoCabe(ComAuditoria):
+    """O criterio 7, pela coluna certa.
+
+    O que havia provava que `payload_hash` e `bytea(32)` — mas o `entity_id`
+    era `text` sem limite, e nada impedia que uma mensagem inteira fosse
+    escrita nele. Um tecto nao prova que o conteudo nao e texto; prova que
+    **nao cabe** uma conversa. Apanhado pela revisao adversarial.
+    """
+
+    def test_uma_conversa_nao_cabe_em_nenhuma_coluna_de_texto(self) -> None:
+        conversa = "a" * 257
+        for coluna, valores in (
+            ("actor_id", (self.tenant, "staff", conversa, "price.update", "p", "1", None)),
+            ("entity", (self.tenant, "staff", "o", "price.update", conversa, "1", None)),
+            ("entity_id", (self.tenant, "staff", "o", "price.update", "p", conversa, None)),
+            ("turn_id", (self.tenant, "staff", "o", "price.update", "p", "1", conversa)),
+        ):
+            with self.subTest(coluna=coluna):
+                self.assertErroSql(
+                    "23514", self.cursor,
+                    "SELECT platform.audit_append(%s,%s,%s,%s,%s,%s,%s, sha256('x'))",
+                    valores,
+                )
+
+    def test_o_payload_hash_tem_de_ser_de_32_bytes(self) -> None:
+        self.assertErroSql(
+            "23514", self.cursor,
+            "SELECT platform.audit_append(%s,'staff','o','price.update','p','1',NULL,"
+            "'\\x00'::bytea)",
+            (self.tenant,),
+        )
 
 
 class TestImutabilidade(ComAuditoria):
@@ -180,53 +370,13 @@ class TestImutabilidade(ComAuditoria):
         self.cursor.execute("SET session_replication_role = origin")
         self.assertEqual(self.linhas()[0][3], "op-1")
 
-    def test_os_dois_triggers_estao_marcados_ALWAYS_no_catalogo(self) -> None:
-        """A propriedade no catalogo, e nao so no comportamento. Eis porque.
-
-        A prova por mutacao trocou o `ENABLE ALWAYS TRIGGER` por `ENABLE
-        TRIGGER` na revisao, e **o teste de comportamento acima continuou a
-        passar** — ao contrario do que a medicao directa contra a base dizia
-        (M7/M8 da revisao 0006: com um trigger de origem, o
-        `session_replication_role = replica` deixa o `UPDATE` passar). Nao se
-        apurou porque e que nesta suite nao passa; o que se apurou e que o
-        teste de comportamento **nao prende** a diferenca.
-
-        Um teste que nao distingue as duas configuracoes nao prova a mais
-        forte. Este le o catalogo: `tgenabled` e `'A'` (ALWAYS), `'O'`
-        (origem), `'R'` (replica) ou `'D'` (desligado), e a diferenca entre
-        `'A'` e `'O'` e exactamente o que o ticket paga.
-
-        **E este tambem nao apanhou a mutacao, e isso fica dito.** Medido:
-        contra uma base criada de raiz, `ENABLE TRIGGER` deixa `tgenabled` em
-        `'O'` e `ENABLE ALWAYS` poe `'A'` — e com `'O'` o
-        `session_replication_role` passa. Dentro desta *suite*, com a revisao
-        mutada e a alteracao verificada por `assert` antes de correr, **as duas
-        afirmacoes continuam verdadeiras**: o trigger esta `'A'` e o `UPDATE`
-        falha. Nao se apurou porque. O que se sabe esta nos dois lados, e a
-        conclusao prudente e que **a imutabilidade contra
-        `session_replication_role` esta medida mas nao esta presa por esta
-        bateria** — ver a seccao de verificacao do KAM-012.
-        """
-        marcas = dict(
-            self.consultar(
-                "SELECT tgname::text, tgenabled::text FROM pg_trigger "
-                " WHERE tgrelid = 'platform.audit_log'::regclass AND NOT tgisinternal"
-            )
-        )
-        self.assertEqual(
-            marcas,
-            {"audit_log_sem_update_nem_delete": "A", "audit_log_sem_truncate": "A"},
-            "um trigger de origem ('O') e contornado por session_replication_role",
-        )
-
     def _limpar(self) -> None:
         cursor = self.ligar("admin").cursor()
-        cursor.execute("ALTER TABLE platform.audit_log DISABLE TRIGGER audit_log_sem_update_nem_delete")
+        _desligar(cursor)
         cursor.execute("DELETE FROM platform.audit_log")
-        cursor.execute("ALTER TABLE platform.audit_log ENABLE ALWAYS TRIGGER audit_log_sem_update_nem_delete")
+        _religar(cursor)
         cursor.execute("DELETE FROM platform.audit_heads")
         cursor.connection.commit()
-
 
 class TestCadeia(ComAuditoria):
     """O criterio 2: `payload_hash` sobre o JSON, `row_hash = H(prev || campos)`."""
@@ -252,8 +402,8 @@ class TestCadeia(ComAuditoria):
             with self.subTest(id=linha[0]):
                 self.assertEqual(
                     bytes(linha[10]),
-                    row_hash(bytes(linha[9]), linha[1], linha[2], linha[3], linha[4],
-                             linha[5], linha[6], linha[7], bytes(linha[8])),
+                    row_hash(bytes(linha[9]), linha[11], linha[1], linha[2], linha[3],
+                             linha[4], linha[5], linha[6], linha[7], bytes(linha[8])),
                 )
 
     def test_a_cabeca_e_o_ultimo_elo(self) -> None:
@@ -307,9 +457,9 @@ class TestCadeia(ComAuditoria):
 
     def _limpar_plataforma(self) -> None:
         cursor = self.ligar("admin").cursor()
-        cursor.execute("ALTER TABLE platform.audit_log DISABLE TRIGGER audit_log_sem_update_nem_delete")
+        _desligar(cursor)
         cursor.execute("DELETE FROM platform.audit_log WHERE tenant_id IS NULL")
-        cursor.execute("ALTER TABLE platform.audit_log ENABLE ALWAYS TRIGGER audit_log_sem_update_nem_delete")
+        _religar(cursor)
         cursor.execute("DELETE FROM platform.audit_heads WHERE tenant_id IS NULL")
         cursor.connection.commit()
 
@@ -375,8 +525,13 @@ class TestPrivilegios(ComAuditoria):
         self.ligacao.commit()
         self.addCleanup(self._limpar_tudo)
         cursor = self.ligar("audit").cursor()
+        # `count(*) >= 0` e sempre verdadeiro: o teste anterior passava com as
+        # **zero** linhas que o papel ve sem contexto de tenant, que e o estado
+        # real. Apanhado pela revisao adversarial. Agora exige o numero certo,
+        # e por isso tem de pôr o contexto — que e o que o verificador faz.
+        cursor.execute("SELECT set_config('app.tenant_id', %s, false)", (self.tenant,))
         cursor.execute("SELECT count(*) FROM platform.audit_log")
-        self.assertGreaterEqual(cursor.fetchone()[0], 0)
+        self.assertEqual(int(cursor.fetchone()[0]), 1)
         self.assertErroSql(
             "42501", cursor,
             "SELECT platform.audit_append(%s,'staff','o','audit.read','e','1',NULL,sha256('x'))",
@@ -401,9 +556,9 @@ class TestPrivilegios(ComAuditoria):
 
     def _limpar_tudo(self) -> None:
         cursor = self.ligar("admin").cursor()
-        cursor.execute("ALTER TABLE platform.audit_log DISABLE TRIGGER audit_log_sem_update_nem_delete")
+        _desligar(cursor)
         cursor.execute("DELETE FROM platform.audit_log")
-        cursor.execute("ALTER TABLE platform.audit_log ENABLE ALWAYS TRIGGER audit_log_sem_update_nem_delete")
+        _religar(cursor)
         cursor.execute("DELETE FROM platform.audit_heads")
         cursor.execute("DELETE FROM platform.tenants WHERE id = %s", (self.tenant,))
         cursor.connection.commit()
@@ -422,7 +577,9 @@ class TestIsolamento(ComAuditoria):
         )
 
     def test_escreve_no_seu_tenant(self) -> None:
-        self.assertEqual(len(self.escrever(cursor=self.cursor_app)), 32)
+        self.escrever(cursor=self.cursor_app)
+        self.cursor_app.connection.commit()
+        self.assertEqual(len(self.linhas()), 1)
 
     def test_nao_escreve_no_tenant_de_outro(self) -> None:
         self.assertErroSql(
@@ -444,9 +601,9 @@ class TestIsolamento(ComAuditoria):
 
     def _limpar_tudo(self) -> None:
         cursor = self.ligar("admin").cursor()
-        cursor.execute("ALTER TABLE platform.audit_log DISABLE TRIGGER audit_log_sem_update_nem_delete")
+        _desligar(cursor)
         cursor.execute("DELETE FROM platform.audit_log")
-        cursor.execute("ALTER TABLE platform.audit_log ENABLE ALWAYS TRIGGER audit_log_sem_update_nem_delete")
+        _religar(cursor)
         cursor.execute("DELETE FROM platform.audit_heads")
         cursor.execute("DELETE FROM platform.tenants WHERE id = %s", (self.tenant,))
         cursor.connection.commit()

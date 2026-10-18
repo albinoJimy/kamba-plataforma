@@ -72,6 +72,7 @@ class TestMilInsercoesConcorrentes(ComBase):
                 "NULL, sha256(%s))",
                 (cls.tenant, f"sku-{n}", str(n)),
             )
+            cursor.fetchall()
             conexao.commit()
             return None
         except Exception as erro:  # noqa: BLE001 — queremos a mensagem, seja qual for
@@ -130,10 +131,21 @@ class TestMilInsercoesConcorrentes(ComBase):
         """O verificador, sobre mil elos escritos em paralelo."""
         self.assertEqual(auditoria.verificar(self.cursor, self.tenant), [])
 
-    def test_a_cabeca_aponta_para_o_ultimo(self) -> None:
+    def test_a_cabeca_aponta_para_o_fim_da_cadeia(self) -> None:
+        """O fim da cadeia e a linha que **ninguem aponta**, e nao o maior `id`.
+
+        Medido: o `id` sai da sequencia quando a instrucao comeca e o lugar na
+        cadeia decide-se depois, quando o trigger bloqueia a cabeca. Com mil
+        insercoes concorrentes as duas ordens divergem — este teste comparava
+        a cabeca com `ORDER BY id DESC LIMIT 1` e falhava sem nada estar
+        errado. A cadeia diz a sua propria ordem.
+        """
         self.cursor.execute(
             "SELECT h.last_hash = (SELECT a.row_hash FROM platform.audit_log a "
-            "                       WHERE a.tenant_id = %s ORDER BY a.id DESC LIMIT 1) "
+            "                       WHERE a.tenant_id = %s "
+            "                         AND NOT EXISTS (SELECT 1 FROM platform.audit_log b "
+            "                                          WHERE b.tenant_id = a.tenant_id "
+            "                                            AND b.prev_hash = a.row_hash)) "
             "  FROM platform.audit_heads h WHERE h.tenant_id = %s",
             (self.tenant, self.tenant),
         )

@@ -10,58 +10,74 @@ entra aqui: so hashes e identificadores (§7.1, e o §7.6 do `docs/tecnica/06`
 explica porque e que um registo imutavel so sobrevive ao direito de apagamento
 se nao contiver dado pessoal).
 
-Duas tabelas e uma funcao:
+Duas tabelas e quatro funcoes:
 
-    audit_log     a linha de auditoria. Forma de §6, com as diferencas
-                  declaradas abaixo. `REVOKE` **e** trigger.
-    audit_heads   a cabeca da cadeia por tenant, uma linha cada.
-    audit_append  escreve a linha e avanca a cadeia, numa transaccao.
+    audit_log        a linha de auditoria. Forma de §6, com as diferencas
+                     declaradas abaixo. `REVOKE` **e** triggers.
+    audit_heads      a cabeca da cadeia por tenant, uma linha cada. **Nenhum
+                     papel lhe escreve**: so o trigger.
+    audit_row_hash   a formula de um elo.
+    audit_encadear   o trigger `BEFORE INSERT` que **e** a cadeia.
+    audit_append     a porta documentada, que e um `INSERT` e mais nada.
 
 **Tudo o que segue foi medido contra o PostgreSQL 18.6 fixado por digest**
 (`pgvector/pgvector:0.8.7-pg18`, `ci/supply-chain/imagens.yaml`), numa base
 descartavel, antes de ser escrito. As medicoes estao em `docs/auditoria.md` §5.
 
-## 1. `audit_append` e `SECURITY INVOKER`, e isso nao era obvio
+## 1. A cadeia vive num trigger, e a primeira versao desta revisao estava errada
 
-O bloco do ticket manda-a ser `SECURITY DEFINER` e entrar em
-`ci/secdef_allowlist.yaml`, com a razao «actualiza a cabeca da cadeia». A
-allowlist esta vazia desde que existe, o `docs/tecnica/08` §3.3 proibe
-`SECURITY DEFINER` «excepto lista aprovada», e as duas revisoes anteriores que
-criaram funcoes **recusaram-na por escrito** — a 0004 diz, sobre o
-`evt_emitir`, que «uma `SECURITY DEFINER` aqui seria um buraco de isolamento».
+A primeira versao pos a cadeia dentro de `audit_append`, com
+`SECURITY INVOKER`, e justificou-o assim: o `INSERT ... ON CONFLICT DO UPDATE
+... RETURNING old., new.` do PostgreSQL 18 serializa o tenant sem privilegio
+elevado, logo nao e preciso `SECURITY DEFINER` e a lista de
+`ci/secdef_allowlist.yaml` continua vazia.
 
-A necessidade que a justificaria era ler a cabeca anterior e escrever a nova
-sem deixar duas transaccoes bifurcarem a cadeia. O `evt_emitir` resolveu o
-mesmo problema com `INSERT ... ON CONFLICT DO UPDATE ... RETURNING`, que
-bloqueia a linha ate ao COMMIT e serializa o agregado. **Faltava saber como
-obter o valor anterior**, porque o `RETURNING` de um `DO UPDATE` devolve a
-linha nova.
+**O raciocinio provava a coisa errada.** Serializar e uma propriedade; ser o
+**escritor exclusivo** e outra. Com `SECURITY INVOKER`, para a funcao
+funcionar o chamador tem de ter `INSERT` em `audit_log` e `SELECT`/`UPDATE` em
+`audit_heads` — e quem os tem pode dispensar a funcao. A revisao adversarial
+demonstrou-o: o `kamba_app` lia a cabeca, escrevia directamente uma linha
+**correctamente encadeada**, com `criado_at` a escolha, avancava a cabeca, e o
+verificador respondia «cadeia intacta».
 
-Medido: o PostgreSQL 18 aceita `old.` e `new.` no `RETURNING`, e numa
-insercao o `old` e `NULL`. Uma instrucao da as duas pontas da cadeia:
+Esta versao poe a cadeia onde o chamador nao lhe chega: num trigger
+`BEFORE INSERT` que **recalcula** `criado_at`, `prev_hash` e `row_hash` e
+**ignora** o que o chamador enviar nessas tres colunas. Com isso:
 
-    INSERT INTO platform.audit_heads AS h (tenant_id, last_hash)
-    VALUES (p_tenant, v_novo)
-    ON CONFLICT (chave) DO UPDATE SET last_hash = <f(h.last_hash)>
-    RETURNING coalesce(old.last_hash, GENESE), new.last_hash
+* o `kamba_app` tem `INSERT` **por coluna**, sem `criado_at` e sem os hashes;
+* nenhum papel de aplicacao escreve em `audit_heads`;
+* escrever directamente na tabela deixa de ser um ataque e passa a ser outra
+  forma de chamar a mesma coisa — e e por isso que o `audit_append` pode
+  continuar `SECURITY INVOKER`: ja nao e ele que guarda a propriedade.
 
-Logo: `SECURITY INVOKER` (a omissao), allowlist continua vazia, e o `WITH
-CHECK` da politica `tenant_iso` continua a valer sobre o INSERT.
+A funcao do trigger e que e `SECURITY DEFINER`, com `search_path` fixo, e tem
+entrada em `ci/secdef_allowlist.yaml`. A excepcao e estreita e defensavel: ela
+nao escreve a linha — escreve **a cabeca da cadeia**, que e precisamente o que
+quem escreve a linha nao pode poder fazer.
 
-## 2. O `tenant_id` e nulavel, e a chave primaria e gerada
+## 2. `audit_heads` nao tem RLS, e isso e uma excepcao declarada
 
-As accoes de plataforma (`batch.run`, `breakglass.open`) nao tem tenant, e o
-§2 do dicionario exige `tenant_id uuid NOT NULL` em toda a tabela de negocio.
-E excepcao declarada em `ci/rls_exceptions.yaml`, pela mesma razao que
-`tenants` e `contacts` ja la estao.
+O trigger corre como o dono da tabela. Com `FORCE ROW LEVEL SECURITY` o dono
+**tambem** esta sujeito a politica, e a cadeia de plataforma — a de
+`tenant_id` nulo — ficava invisivel ao predicado `tenant_iso`: as accoes de
+plataforma eram impossiveis de registar.
 
-Medido: `tenant_id uuid PRIMARY KEY` **recusa** a linha de `tenant_id` nulo,
-pelo que a cadeia de plataforma nao caberia na tabela de cabecas. A chave
-passa a ser uma coluna **gerada**, `coalesce(tenant_id, PLATAFORMA)`, e e ela
-o alvo do `ON CONFLICT`. O `tenant_id` continua a dizer a verdade, incluindo
-que nao ha nenhum.
+A tabela nao guarda facto nenhum de negocio: uma linha por cadeia, com um hash
+opaco. A excepcao esta em `ci/rls_exceptions.yaml`, com o ADR que a funda.
+O `audit_log`, esse, tem RLS `FORCE` como todas as outras.
 
-## 3. O trigger e `ALWAYS`, e isso muda o teste de adulteracao
+## 3. O `criado_at` entra no hash
+
+Na primeira versao nao entrava, com o argumento de que a cadeia nao devia
+depender de valores que a base atribui. A revisao adversarial mostrou o preco:
+apagar a ultima linha e reinseri-la com o mesmo conteudo e outra data deixava
+a cadeia «intacta». Para um registo cujo valor probatorio e «quem fez o que
+**e quando**», a cronologia tem de estar no hash.
+
+O `id` continua de fora, e esse argumento mantem-se: um `id` reatribuido numa
+restauracao partia a cadeia inteira sem nada estar errado.
+
+## 4. Imutabilidade: tres camadas, e o que cada uma deixa passar
 
 Medido, por esta ordem:
 
@@ -76,17 +92,15 @@ Medido, por esta ordem:
 
 Escolheu-se `ALWAYS`, que e a proteccao mais forte, e com isso o caminho de
 adulteracao que o ticket nomeia deixa de existir. O teste adultera por
-`ALTER TABLE ... DISABLE TRIGGER`, que exige ser dono e e um acto que nao se
-faz por engano. **Desvio declarado ao criterio 5**, com a medicao que o
-justifica — e o que se ganha e que a adulteracao por
-`session_replication_role` passa de possivel a impossivel.
+`ALTER TABLE ... DISABLE TRIGGER`, que exige ser dono. **Desvio declarado ao
+criterio 5**, com a medicao que o justifica.
 
-## 4. O que esta revisao nao traz
+## 5. O que esta revisao nao traz
 
 A verificacao nocturna da cadeia e a ancora diaria **nao** sao SQL: sao o
-`db/auditoria.py`, que esta revisao nao cria. O WORM e o repositorio de backup
-fora do host sao o KAM-079; a instrumentacao das tools e o KAM-028; a do
-`ManualProvider` e o KAM-054.
+`db/auditoria.py`. O WORM e o repositorio de backup fora do host sao o
+KAM-079; a instrumentacao das tools e o KAM-028; a do `ManualProvider` e o
+KAM-054.
 """
 
 from __future__ import annotations
@@ -109,7 +123,7 @@ TIPOS_DE_ATOR = ("contact", "owner", "staff", "agent", "system")
 
 #: As accoes auditadas. Lista fechada; estende-se por migracao.
 #:
-#: Sao **sete** e nao as seis do bloco do ticket: o ultimo criterio desse mesmo
+#: Sao **sete** e nao as seis do bloco do ticket: o criterio 9 desse mesmo
 #: bloco exige que a leitura do registo seja ela propria registada e chama-lhe
 #: `audit.read`, que a lista nao tinha. Um dominio sem ela tornava o criterio
 #: impossivel de cumprir (emenda 1.14).
@@ -121,6 +135,20 @@ ACCOES = (
     "batch.run",
     "breakglass.open",
     "audit.read",
+)
+
+#: Os mesmos dois dominios, escritos por extenso para o `CHECK`.
+#:
+#: **Nao e duplicacao por descuido.** O gate 3b le esta revisao sem a correr e
+#: so resolve cadeias, constantes de modulo e *f-strings* sobre elas: um
+#: `", ".join(...)` sobre a tupla deixa o SQL ilegivel para ele, e um `CHECK`
+#: que o gate nao consegue ler e um dominio que ele nao verifica. Escrevem-se
+#: as duas formas, e a *suite* do gate 8 confronta-as — um dominio escrito em
+#: dois sitios que ninguem compara e um dominio que vai divergir.
+LITERAIS_DE_ATOR = "'contact', 'owner', 'staff', 'agent', 'system'"
+LITERAIS_DE_ACCAO = (
+    "'price.update', 'stock.adjust', 'payment.manual_confirm', "
+    "'access.conversation', 'batch.run', 'breakglass.open', 'audit.read'"
 )
 
 #: A chave da cadeia de plataforma, para as accoes sem tenant.
@@ -145,12 +173,13 @@ GENESE = "\\x0000000000000000000000000000000000000000000000000000000000000000"
 #: campo que entre no hash sem entrar nesta tupla faz os dois divergirem, que e
 #: exactamente o que se quer que aconteca.
 #:
-#: O `id` e o `criado_at` **nao** entram, e a razao e a verificacao: relê-los
-#: obrigaria a cadeia a depender de valores que a base atribui, e um `id`
-#: reatribuido numa restauracao partia a cadeia inteira. O que os distingue e o
-#: `prev_hash`, que e unico por construcao.
+#: O `criado_at` **entra**, desde a revisao adversarial: sem ele, apagar a
+#: ultima linha e reinseri-la com o mesmo conteudo e outra data deixava a
+#: cadeia intacta. O `id` continua de fora — um `id` reatribuido numa
+#: restauracao partia a cadeia inteira sem nada estar errado.
 CAMPOS_DO_ROW_HASH = (
     "prev_hash",
+    "criado_at",
     "tenant_id",
     "actor_type",
     "actor_id",
@@ -161,28 +190,18 @@ CAMPOS_DO_ROW_HASH = (
     "payload_hash",
 )
 
-#: Os mesmos dois dominios, escritos por extenso para o `CHECK`.
-#:
-#: **Nao e duplicacao por descuido.** O gate 3b le esta revisao sem a correr e
-#: so resolve cadeias, constantes de modulo e *f-strings* sobre elas: um
-#: `", ".join(...)` sobre a tupla deixa o SQL ilegivel para ele, e um `CHECK`
-#: que o gate nao consegue ler e um dominio que ele nao verifica. Escrevem-se
-#: as duas formas, e a *suite* do gate 8 confronta-as — um dominio escrito em
-#: dois sitios que ninguem compara e um dominio que vai divergir.
-LITERAIS_DE_ATOR = "'contact', 'owner', 'staff', 'agent', 'system'"
-LITERAIS_DE_ACCAO = (
-    "'price.update', 'stock.adjust', 'payment.manual_confirm', "
-    "'access.conversation', 'batch.run', 'breakglass.open', 'audit.read'"
-)
-
 #: A expressao SQL que concatena os campos do `row_hash`, pela mesma razao.
 #:
-#: Os dois anulaveis chegam ja normalizados (`coalesce(..., '')` no
-#: `audit_append`); os `*_hash` entram em hexadecimal, para que a concatenacao
-#: seja sempre texto; e o separador e `chr(31)`, sem o qual ('ab','c') e
-#: ('a','bc') dariam o mesmo hash.
+#: Os dois anulaveis chegam ja normalizados; os `*_hash` entram em
+#: hexadecimal, para que a concatenacao seja sempre texto; o `criado_at` entra
+#: em **ISO 8601 UTC com microssegundos**, que e a unica forma de um
+#: `timestamptz` dar sempre o mesmo texto independentemente do fuso da sessao;
+#: e o separador e `chr(31)`, sem o qual ('ab','c') e ('a','bc') dariam o mesmo
+#: hash.
 CONCATENACAO_DO_ROW_HASH = (
-    "encode(p_prev_hash, 'hex') || chr(31) || p_tenant_id || chr(31) || "
+    "encode(p_prev_hash, 'hex') || chr(31) || "
+    "to_char(p_criado_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US') "
+    "|| chr(31) || p_tenant_id || chr(31) || "
     "p_actor_type || chr(31) || p_actor_id || chr(31) || p_action || chr(31) || "
     "p_entity || chr(31) || p_entity_id || chr(31) || p_turn_id || chr(31) || "
     "encode(p_payload_hash, 'hex')"
@@ -192,13 +211,35 @@ CONCATENACAO_DO_ROW_HASH = (
 ARGUMENTOS_DE_AUDIT_APPEND = "uuid, text, text, text, text, text, text, bytea"
 
 #: A assinatura de `audit_row_hash`, idem.
-ARGUMENTOS_DE_ROW_HASH = "bytea, text, text, text, text, text, text, text, bytea"
+ARGUMENTOS_DE_ROW_HASH = (
+    "bytea, timestamptz, text, text, text, text, text, text, text, bytea"
+)
+
+#: As colunas que um papel de aplicacao pode escrever.
+#:
+#: **O `criado_at`, o `prev_hash` e o `row_hash` nao estao aqui**, e e essa a
+#: diferenca entre esta revisao e a primeira versao dela: o trigger escreve-os,
+#: e quem insere nao os escolhe. Sem isto, quem tem `INSERT` forja uma linha
+#: correctamente encadeada com a data que quiser.
+COLUNAS_ESCRITAS_PELO_CHAMADOR = (
+    "tenant_id, actor_type, actor_id, action, entity, entity_id, turn_id, payload_hash"
+)
 
 #: Variavel com o caminho do ficheiro de copia logica que o `downgrade` escreve.
 VARIAVEL_DA_COPIA = "KAMBA_DOWNGRADE_0006_COPIA"
 
 #: O que a copia logica do `downgrade` leva.
 TABELAS_COPIADAS = ("audit_log", "audit_heads")
+
+#: O tecto de comprimento das colunas de texto de `audit_log`.
+#:
+#: O criterio 7 pede que o payload aceite «apenas hashes e identificadores». O
+#: `payload_hash` e `bytea(32)` por `CHECK` e nao cabe la texto — mas o
+#: `entity_id` era `text` sem limite, e nada impedia que uma mensagem inteira
+#: fosse escrita nele. Um tecto nao prova que o conteudo nao e texto; prova que
+#: **nao cabe** uma conversa, que e o risco que o §7.1 nomeia. Apanhado pela
+#: revisao adversarial.
+TECTO_DE_TEXTO = 256
 
 
 def upgrade() -> None:
@@ -222,7 +263,8 @@ def upgrade() -> None:
     op.execute(
         "COMMENT ON TABLE platform.audit_heads IS "
         "'Cabeca da cadeia de `audit_log` por tenant. Uma linha por tenant, mais "
-        "uma de `tenant_id` nulo para as accoes de plataforma (KAM-012).'"
+        "uma de `tenant_id` nulo para as accoes de plataforma. **Nenhum papel de "
+        "aplicacao lhe escreve**: so o trigger `audit_encadear` (KAM-012).'"
     )
 
     # ----------------------------------------------------------------- audit_log
@@ -239,10 +281,10 @@ def upgrade() -> None:
           entity_id     text NOT NULL,
           turn_id       text,
           payload_hash  bytea NOT NULL,
-          prev_hash     bytea NOT NULL,
-          row_hash      bytea NOT NULL,
+          prev_hash     bytea NOT NULL DEFAULT '{GENESE}'::bytea,
+          row_hash      bytea NOT NULL DEFAULT '{GENESE}'::bytea,
           CONSTRAINT audit_log_pkey PRIMARY KEY (id),
-          CONSTRAINT audit_log_row_hash_uq UNIQUE (row_hash),
+          CONSTRAINT audit_log_row_hash_uq UNIQUE (tenant_id, row_hash),
           CONSTRAINT audit_log_actor_type CHECK (actor_type IN ({LITERAIS_DE_ATOR})),
           CONSTRAINT audit_log_action CHECK (action IN ({LITERAIS_DE_ACCAO})),
           CONSTRAINT audit_log_hashes_sha256 CHECK (
@@ -251,15 +293,22 @@ def upgrade() -> None:
             AND octet_length(row_hash) = 32
           ),
           CONSTRAINT audit_log_actor_id_nao_vazio CHECK (actor_id <> ''),
-          CONSTRAINT audit_log_entity_id_nao_vazio CHECK (entity_id <> '')
+          CONSTRAINT audit_log_entity_id_nao_vazio CHECK (entity_id <> ''),
+          CONSTRAINT audit_log_texto_curto CHECK (
+            length(actor_id) <= {TECTO_DE_TEXTO}
+            AND length(entity) <= {TECTO_DE_TEXTO}
+            AND length(entity_id) <= {TECTO_DE_TEXTO}
+            AND length(coalesce(turn_id, '')) <= {TECTO_DE_TEXTO}
+          )
         )
         """
     )
-    # O `UNIQUE (row_hash)` nao e decoracao: duas linhas com o mesmo `row_hash`
-    # sao uma bifurcacao da cadeia, e o criterio 3 do ticket pede que mil
-    # insercoes concorrentes dem uma cadeia **linear**. Com a restricao, a
-    # bifurcacao deixa de ser detectada pelo verificador e passa a ser
-    # impossivel de escrever.
+    # O `UNIQUE (tenant_id, row_hash)` e **por tenant** e nao global, e a razao
+    # e um canal de leitura: um indice unico global nao respeita RLS, pelo que
+    # quem tem `INSERT` e nao tem `SELECT` confirmava palpites sobre linhas que
+    # nao pode ler — incluindo as da cadeia de plataforma, cuja genese e uma
+    # constante conhecida. Com o `tenant_id` na chave, o oraculo fica dentro da
+    # cadeia que o chamador ja pode escrever. Apanhado pela revisao adversarial.
     op.execute(
         "CREATE INDEX audit_log_tenant_id_idx ON platform.audit_log (tenant_id, id)"
     )
@@ -267,13 +316,110 @@ def upgrade() -> None:
         "COMMENT ON TABLE platform.audit_log IS "
         "'Registo append-only de dinheiro, stock, preco, acessos privilegiados e "
         "configuracao de tenant (docs/tecnica/08 §6). Nunca conteudo de conversa: "
-        "so hashes e identificadores (KAM-012).'"
+        "so hashes e identificadores. O `criado_at`, o `prev_hash` e o `row_hash` "
+        "sao escritos pelo trigger `audit_encadear`, nunca por quem insere (KAM-012).'"
     )
 
+    _cadeia()
     _imutabilidade()
-    _funcao_de_escrita()
+    _porta()
     _rls()
     _privilegios()
+
+
+def _cadeia() -> None:
+    """A formula do elo, e o trigger que **e** a cadeia.
+
+    `audit_row_hash` e `IMMUTABLE STRICT`: a mesma entrada da sempre o mesmo
+    hash, e um argumento em falta devolve `NULL` em vez de um hash de uma
+    cadeia mais curta.
+
+    `audit_encadear` e `SECURITY DEFINER` com `search_path` fixo, e e a unica
+    excepcao a regra do `docs/tecnica/08` §3.3 neste ticket. A razao e
+    estreita: ela nao escreve a linha de auditoria — escreve **a cabeca da
+    cadeia**, que e exactamente o que quem escreve a linha nao pode poder
+    fazer. Com `SECURITY INVOKER`, o chamador precisaria de `UPDATE` em
+    `audit_heads`, e com esse privilegio forja uma linha encadeada sem passar
+    por aqui (foi o que a revisao adversarial demonstrou na primeira versao).
+    """
+    op.execute(
+        f"""
+        CREATE FUNCTION platform.audit_row_hash(
+          p_prev_hash bytea, p_criado_at timestamptz, p_tenant_id text,
+          p_actor_type text, p_actor_id text, p_action text, p_entity text,
+          p_entity_id text, p_turn_id text, p_payload_hash bytea)
+        RETURNS bytea LANGUAGE sql IMMUTABLE STRICT AS $$
+          SELECT sha256(convert_to({CONCATENACAO_DO_ROW_HASH}, 'UTF8'))
+        $$
+        """
+    )
+    op.execute(
+        f"COMMENT ON FUNCTION platform.audit_row_hash({ARGUMENTOS_DE_ROW_HASH}) IS "
+        "'A formula de um elo da cadeia: SHA-256 sobre os dez campos, por ordem "
+        "fixa, separados por chr(31). O `criado_at` entra em ISO 8601 UTC, que e a "
+        "unica forma de um timestamptz dar o mesmo texto em qualquer fuso (KAM-012).'"
+    )
+    op.execute(
+        f"""
+        CREATE FUNCTION platform.audit_encadear() RETURNS trigger
+        LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, platform AS $$
+        DECLARE
+          v_tenant text;
+          v_turn   text;
+          v_prev   bytea;
+          v_row    bytea;
+        BEGIN
+          NEW.criado_at := now();
+          v_tenant := coalesce(NEW.tenant_id::text, '');
+          v_turn   := coalesce(NEW.turn_id, '');
+
+          INSERT INTO platform.audit_heads AS h (tenant_id, last_hash)
+          VALUES (
+            NEW.tenant_id,
+            platform.audit_row_hash('{GENESE}'::bytea, NEW.criado_at, v_tenant,
+              NEW.actor_type, NEW.actor_id, NEW.action, NEW.entity, NEW.entity_id,
+              v_turn, NEW.payload_hash)
+          )
+          ON CONFLICT (chave) DO UPDATE SET last_hash =
+            platform.audit_row_hash(h.last_hash, NEW.criado_at, v_tenant,
+              NEW.actor_type, NEW.actor_id, NEW.action, NEW.entity, NEW.entity_id,
+              v_turn, NEW.payload_hash)
+          -- `RETURNING WITH (OLD AS …, NEW AS …)`: dentro de um trigger, o
+          -- `OLD` e o `NEW` da funcao **ensombram** os do RETURNING, e o
+          -- `old.last_hash` resolvia para o registo do trigger — que num
+          -- BEFORE INSERT nao tem campos («record "old" has no field
+          -- last_hash»). Medido; a sintaxe de renomeacao e do PostgreSQL 18.
+          RETURNING WITH (OLD AS anterior, NEW AS actual)
+            coalesce(anterior.last_hash, '{GENESE}'::bytea), actual.last_hash
+          INTO v_prev, v_row;
+
+          NEW.prev_hash := v_prev;
+          NEW.row_hash  := v_row;
+          RETURN NEW;
+        END $$
+        """
+    )
+    op.execute(
+        "COMMENT ON FUNCTION platform.audit_encadear() IS "
+        "'Escreve o `criado_at`, o `prev_hash` e o `row_hash` de uma linha de "
+        "auditoria e avanca a cabeca da cadeia, **ignorando** o que o chamador "
+        "enviou nessas colunas. SECURITY DEFINER porque so ela pode escrever em "
+        "`audit_heads`: com INVOKER, quem insere forjava uma linha encadeada sem "
+        "passar por aqui. A serializacao por tenant vem do bloqueio que o "
+        "ON CONFLICT poe na cabeca (KAM-012).'"
+    )
+    op.execute(
+        """
+        CREATE TRIGGER audit_log_encadear
+          BEFORE INSERT ON platform.audit_log
+          FOR EACH ROW EXECUTE FUNCTION platform.audit_encadear()
+        """
+    )
+    # `ALWAYS` tambem aqui: um `session_replication_role = replica` que saltasse
+    # este trigger escrevia uma linha com a genese e sem avancar a cabeca.
+    op.execute(
+        "ALTER TABLE platform.audit_log ENABLE ALWAYS TRIGGER audit_log_encadear"
+    )
 
 
 def _imutabilidade() -> None:
@@ -324,167 +470,119 @@ def _imutabilidade() -> None:
     op.execute(
         "ALTER TABLE platform.audit_log ENABLE ALWAYS TRIGGER audit_log_sem_truncate"
     )
-    # A cabeca da cadeia **muda**, pelo que nao leva trigger de imutabilidade.
-    # O que a protege e nao haver `UPDATE` directo: so o `audit_append` lhe
-    # toca, e o `kamba_app` nao tem `UPDATE` nela (ver `_privilegios`).
 
 
-def _funcao_de_escrita() -> None:
-    """Duas funcoes: a formula do elo, e a escrita que a usa.
+def _porta() -> None:
+    """`audit_append`: a porta documentada, que hoje e um `INSERT` e mais nada.
 
-    `audit_row_hash` existe por uma razao de correccao e nao de arrumacao. A
-    cadeia avanca numa **unica** instrucao — `INSERT ... ON CONFLICT DO UPDATE
-    ... RETURNING old., new.` —, e essa instrucao tem **dois** ramos: o da
-    primeira linha de uma cadeia, que parte da genese, e o das seguintes, que
-    partem de `h.last_hash`. Os dois precisam da mesma formula. Escrita duas
-    vezes, divergia; numa funcao `IMMUTABLE`, nao pode divergir.
+    Fica `SECURITY INVOKER` — e isso ja nao e uma decisao de seguranca, porque
+    ela nao guarda propriedade nenhuma. Guarda-a o trigger. A funcao existe
+    para que o chamador nao tenha de saber a forma da tabela.
 
-    E a instrucao ser uma so e o que dispensa o `SECURITY DEFINER`: o
-    `ON CONFLICT DO UPDATE` bloqueia a linha da cabeca ate ao COMMIT, o que
-    serializa o tenant sem privilegio elevado, e o `RETURNING old./new.` do
-    PostgreSQL 18 da as duas pontas sem um segundo `SELECT` que podia ver
-    outra coisa. Um `SELECT ... FOR UPDATE` antes nao servia: numa cadeia que
-    ainda nao existe nao ha linha para bloquear, e duas primeiras insercoes
-    concorrentes partiam da genese as duas.
+    **E nao devolve o `row_hash`.** Devolvia, e isso exigia `SELECT` nessa
+    coluna a quem chama — um `RETURNING` le. Com o `kamba_app` a precisar de
+    `SELECT (row_hash)`, o criterio 9 («leitura de `audit_log` por `kamba_app`
+    recusada») passava a ter uma excepcao, e o oraculo do indice unico ganhava
+    um segundo caminho. O recibo de uma escrita de auditoria e a propria
+    linha; quem precisar do hash le-o com o papel que le o registo.
     """
-    op.execute(
-        f"""
-        CREATE FUNCTION platform.audit_row_hash(
-          p_prev_hash bytea, p_tenant_id text, p_actor_type text, p_actor_id text,
-          p_action text, p_entity text, p_entity_id text, p_turn_id text,
-          p_payload_hash bytea)
-        RETURNS bytea LANGUAGE sql IMMUTABLE STRICT AS $$
-          SELECT sha256(convert_to({CONCATENACAO_DO_ROW_HASH}, 'UTF8'))
-        $$
-        """
-    )
-    op.execute(
-        f"COMMENT ON FUNCTION platform.audit_row_hash({ARGUMENTOS_DE_ROW_HASH}) IS "
-        "'A formula de um elo da cadeia: SHA-256 sobre os nove campos, por ordem "
-        "fixa, separados por chr(31). STRICT de proposito — um argumento que falte "
-        "devolve NULL e o NOT NULL da coluna recusa a linha, em vez de a escrever "
-        "com um hash de uma cadeia mais curta (KAM-012).'"
-    )
-    # **O `tenant_id` entra como `text` e nao como `uuid`, e isso foi medido.**
-    # Com `uuid` e `STRICT`, a cadeia de plataforma — a que tem `tenant_id`
-    # nulo — fazia a funcao devolver NULL, e o `last_hash NOT NULL` da cabeca
-    # recusava a linha: `batch.run` e `breakglass.open` eram impossiveis de
-    # registar. O `audit_append` normaliza os dois anulaveis com
-    # `coalesce(..., '')` antes de chamar, e o STRICT continua a valer para o
-    # que falte de verdade.
     op.execute(
         f"""
         CREATE FUNCTION platform.audit_append(
           p_tenant uuid, p_actor_type text, p_actor_id text, p_action text,
           p_entity text, p_entity_id text, p_turn_id text, p_payload_hash bytea)
-        RETURNS bytea LANGUAGE plpgsql AS $$
-        DECLARE
-          v_tenant text := coalesce(p_tenant::text, '');
-          v_turn  text  := coalesce(p_turn_id, '');
-          v_prev  bytea;
-          v_row   bytea;
-        BEGIN
-          INSERT INTO platform.audit_heads AS h (tenant_id, last_hash)
-          VALUES (
-            p_tenant,
-            platform.audit_row_hash('{GENESE}'::bytea, v_tenant, p_actor_type,
-              p_actor_id, p_action, p_entity, p_entity_id, v_turn, p_payload_hash)
-          )
-          ON CONFLICT (chave) DO UPDATE SET last_hash =
-            platform.audit_row_hash(h.last_hash, v_tenant, p_actor_type,
-              p_actor_id, p_action, p_entity, p_entity_id, v_turn, p_payload_hash)
-          RETURNING coalesce(old.last_hash, '{GENESE}'::bytea), new.last_hash
-          INTO v_prev, v_row;
-
-          INSERT INTO platform.audit_log
-            (tenant_id, actor_type, actor_id, action, entity, entity_id,
-             turn_id, payload_hash, prev_hash, row_hash)
+        RETURNS void LANGUAGE sql AS $$
+          INSERT INTO platform.audit_log ({COLUNAS_ESCRITAS_PELO_CHAMADOR})
           VALUES (p_tenant, p_actor_type, p_actor_id, p_action, p_entity,
-                  p_entity_id, p_turn_id, p_payload_hash, v_prev, v_row);
-          RETURN v_row;
-        EXCEPTION WHEN unique_violation THEN
-          -- O `UNIQUE (row_hash)` disparou: a mesma linha, no mesmo elo, duas
-          -- vezes. Nao se esconde — uma escrita de auditoria que se perde em
-          -- silencio e pior do que nao existir.
-          RAISE EXCEPTION
-            'audit_append: row_hash repetido para o tenant %; a cadeia bifurcaria',
-            coalesce(p_tenant::text, '(plataforma)')
-            USING ERRCODE = 'unique_violation';
-        END $$
+                  p_entity_id, p_turn_id, p_payload_hash)
+        $$
         """
     )
     op.execute(
         f"""
         COMMENT ON FUNCTION platform.audit_append({ARGUMENTOS_DE_AUDIT_APPEND}) IS
-        'Escreve uma linha de auditoria e avanca a cadeia do tenant. SECURITY
-         INVOKER: a serializacao vem do bloqueio que o ON CONFLICT poe na cabeca,
-         e nao de privilegio elevado (KAM-012). O p_payload_hash e o hash do
-         antes/depois, nunca o conteudo.'
+        'Escreve uma linha de auditoria. Nao devolve o row_hash: um RETURNING le,
+         e dar SELECT nessa coluna a quem escreve abria uma excepcao ao criterio
+         9. A cadeia e do trigger `audit_encadear`, nao desta funcao: escrever
+         directamente na tabela da o mesmo resultado. **Exige READ COMMITTED**,
+         que e a omissao: sob REPEATABLE READ duas escritas concorrentes na
+         mesma cadeia dao 40001 e a segunda perde-se (KAM-012).'
         """
     )
 
 
 def _rls() -> None:
-    """RLS nas duas, e a de `audit_heads` quase nao entrou.
+    """RLS em `audit_log`; `audit_heads` fica de fora, com excepcao declarada.
 
-    O receio era o `ON CONFLICT`: uma linha invisivel por RLS da erro de chave
-    duplicada em vez de actualizar, e a cadeia partia-se de forma dificil de
-    diagnosticar. Medido, o receio nao se concretiza, e a razao e que a
-    `chave` sai do **mesmo** `p_tenant` que o chamador passa: uma sessao so
-    pode colidir com a sua propria linha. Um chamador que passe outro tenant e
-    recusado pelo `WITH CHECK` do `audit_log`, antes de chegar aqui.
+    O trigger corre como o dono. Com `FORCE`, o dono tambem esta sujeito a
+    politica, e a cadeia de plataforma — `tenant_id` nulo — ficava invisivel ao
+    predicado `tenant_iso`: `batch.run` e `breakglass.open` eram impossiveis de
+    registar.
 
-    E as duas excepcoes a regra ficam declaradas aqui e nao em
-    `ci/rls_exceptions.yaml`, porque **nao sao excepcoes**: as linhas de
-    `tenant_id` nulo — a cadeia das accoes de plataforma — sao invisiveis a
-    politica `tenant_iso` para toda a gente, e quem as escreve e le e o
-    `kamba_batch`, que tem `BYPASSRLS`. Nao e um furo: e a propriedade que se
-    quer. O papel da aplicacao nao consegue escrever uma accao de plataforma
-    nem ve que ela existe.
+    A tabela nao guarda facto nenhum de negocio: uma linha por cadeia, com um
+    hash opaco. E **nenhum papel de aplicacao lhe escreve** — o `GRANT` e so de
+    leitura, e so para quem verifica. A excepcao esta em
+    `ci/rls_exceptions.yaml`.
+
+    No `audit_log` a RLS vale como em todas as outras, e tem uma consequencia
+    que se quer: as linhas de `tenant_id` nulo sao invisiveis a `tenant_iso`
+    para toda a gente, pelo que so o `kamba_batch`, que tem `BYPASSRLS`, as
+    escreve e le. O papel da aplicacao nao consegue escrever uma accao de
+    plataforma nem ve que ela existe.
     """
     rls.enable_tenant_rls("audit_log")
-    rls.enable_tenant_rls("audit_heads")
 
 
 def _privilegios() -> None:
-    """Quem escreve nao le, e quem le fica registado.
+    """Quem escreve nao le, quem insere nao escolhe a data, e ninguem apaga.
 
-    `kamba_app` tem `INSERT` em `audit_log` e **nao tem `SELECT`**: o criterio 8
-    do ticket pede que a leitura seja recusada ao papel da aplicacao. O
-    `audit_append` precisa de ler a cabeca e de a escrever, e por isso o
-    `kamba_app` tem `SELECT` e `UPDATE` em `audit_heads` — que nao e o registo,
-    e so guarda hashes opacos.
+    O `INSERT` e **por coluna**: sem `criado_at`, sem `prev_hash`, sem
+    `row_hash`. Mesmo que o trigger os reescrevesse na mesma, o privilegio nao
+    se da — uma coluna que nenhum chamador pode escrever e uma coluna que
+    nenhum chamador tenta escrever.
     """
-    op.execute("GRANT INSERT ON platform.audit_log TO kamba_app")
-    op.execute("GRANT SELECT, INSERT, UPDATE (last_hash) ON platform.audit_heads TO kamba_app")
     op.execute(
-        f"GRANT EXECUTE ON FUNCTION platform.audit_append({ARGUMENTOS_DE_AUDIT_APPEND}) "
-        "TO kamba_app"
+        f"GRANT INSERT ({COLUNAS_ESCRITAS_PELO_CHAMADOR}) "
+        "ON platform.audit_log TO kamba_app"
     )
-    # O papel de auditoria: le o registo e mais nada. Nao escreve, nao apaga, e
-    # nao tem acesso a `audit_heads` — a cabeca e detalhe de implementacao da
-    # cadeia, e quem audita verifica-a recalculando a partir do `audit_log`.
+    op.execute(
+        f"GRANT INSERT ({COLUNAS_ESCRITAS_PELO_CHAMADOR}) "
+        "ON platform.audit_log TO kamba_batch"
+    )
+    # O `kamba_batch` le a cadeia inteira para a verificar de noite, e e o
+    # unico que escreve a cadeia de plataforma — por ter `BYPASSRLS`, porque
+    # essas linhas tem `tenant_id` nulo.
+    op.execute("GRANT SELECT ON platform.audit_log TO kamba_batch")
+    # O papel de auditoria: le o registo e a cabeca. A cabeca porque **verificar
+    # a cadeia exige-a** — sem ela, apagar as ultimas N linhas deixava-a
+    # consistente consigo propria. A primeira versao negava-lha e com isso
+    # tornava o verificador impossivel de correr com o papel estreito.
     op.execute("GRANT USAGE ON SCHEMA platform TO kamba_audit")
     op.execute("GRANT SELECT ON platform.audit_log TO kamba_audit")
-    # O `kamba_batch` escreve as suas proprias accoes (`batch.run`,
-    # `breakglass.open`) e le a cadeia inteira para a verificar de noite — e e
-    # o unico que consegue escrever a cadeia de plataforma, porque tem
-    # `BYPASSRLS` e essas linhas tem `tenant_id` nulo, invisivel a politica
-    # `tenant_iso`. Medido: sem `INSERT` em `audit_heads` o `audit_append`
-    # falhava-lhe com «permission denied for table audit_heads», e as duas
-    # accoes de plataforma do dominio eram impossiveis de registar.
-    #
-    # **Le o registo e nao o apaga**: a retencao do `audit_log` e
-    # «>= prazo fiscal» (doc 08 §11) e o prazo fiscal esta **NAO VERIFICADO**
-    # (dicionario §4, KAM-071) — uma funcao de limpeza escrita contra um prazo
-    # que ninguem confirmou apaga prova que a lei pode exigir.
-    op.execute("GRANT SELECT, INSERT ON platform.audit_log TO kamba_batch")
+    op.execute("GRANT SELECT ON platform.audit_heads TO kamba_audit")
+    op.execute("GRANT SELECT ON platform.audit_heads TO kamba_batch")
+
+    # **As funcoes nascem com `EXECUTE` para `PUBLIC`**, que e a omissao do
+    # PostgreSQL, e com isso o `kamba_resolver` e o `kamba_identity` podiam
+    # chama-las. Revoga-se e concede-se nominalmente; sem isto, os `GRANT`
+    # abaixo eram decorativos. Apanhado pela revisao adversarial.
     op.execute(
-        "GRANT SELECT, INSERT, UPDATE (last_hash) ON platform.audit_heads TO kamba_batch"
+        f"REVOKE ALL ON FUNCTION platform.audit_append({ARGUMENTOS_DE_AUDIT_APPEND}) "
+        "FROM PUBLIC"
     )
     op.execute(
+        f"REVOKE ALL ON FUNCTION platform.audit_row_hash({ARGUMENTOS_DE_ROW_HASH}) "
+        "FROM PUBLIC"
+    )
+    op.execute("REVOKE ALL ON FUNCTION platform.audit_encadear() FROM PUBLIC")
+    op.execute("REVOKE ALL ON FUNCTION platform.audit_log_imutavel() FROM PUBLIC")
+    op.execute(
         f"GRANT EXECUTE ON FUNCTION platform.audit_append({ARGUMENTOS_DE_AUDIT_APPEND}) "
-        "TO kamba_batch"
+        "TO kamba_app, kamba_batch"
+    )
+    op.execute(
+        f"GRANT EXECUTE ON FUNCTION platform.audit_row_hash({ARGUMENTOS_DE_ROW_HASH}) "
+        "TO kamba_audit, kamba_batch"
     )
 
 
@@ -492,15 +590,14 @@ def downgrade() -> None:
     """Apaga o registo de auditoria, e por isso exige copia logica.
 
     O mesmo guarda da revisao 0005: `audit_log` e prova, e um `DROP TABLE` sem
-    rede e perda de prova. A copia corre **antes** de a RLS ser desligada nao
-    porque a ordem importe para o dono — importa: com `FORCE`, o dono le zero
-    linhas — mas porque e assim que a 0005 o faz e a razao e a mesma.
+    rede e perda de prova.
     """
     _copia_logica()
     op.execute(f"DROP FUNCTION IF EXISTS platform.audit_append({ARGUMENTOS_DE_AUDIT_APPEND})")
-    op.execute(f"DROP FUNCTION IF EXISTS platform.audit_row_hash({ARGUMENTOS_DE_ROW_HASH})")
     op.execute("DROP TABLE IF EXISTS platform.audit_log")
+    op.execute("DROP FUNCTION IF EXISTS platform.audit_encadear()")
     op.execute("DROP FUNCTION IF EXISTS platform.audit_log_imutavel()")
+    op.execute(f"DROP FUNCTION IF EXISTS platform.audit_row_hash({ARGUMENTOS_DE_ROW_HASH})")
     op.execute("DROP TABLE IF EXISTS platform.audit_heads")
     op.execute("REVOKE USAGE ON SCHEMA platform FROM kamba_audit")
 
@@ -515,7 +612,6 @@ def _copia_logica() -> None:
     ninguem le. Com linhas, recusa. E a forma da 0005.
     """
     op.execute("ALTER TABLE platform.audit_log DISABLE ROW LEVEL SECURITY")
-    op.execute("ALTER TABLE platform.audit_heads DISABLE ROW LEVEL SECURITY")
     contagens = _contar()
     if not any(contagens.values()):
         return

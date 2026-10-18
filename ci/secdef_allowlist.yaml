@@ -21,4 +21,16 @@
 
 version: 1
 
-funcoes: []
+funcoes:
+  - funcao: platform.audit_encadear()
+    adr: ADR-015
+    razao: >-
+      Escreve o `criado_at`, o `prev_hash` e o `row_hash` de uma linha de
+      auditoria e avanca a cabeca da cadeia, ignorando o que o chamador enviou
+      nessas colunas (KAM-012). Com `SECURITY INVOKER`, o chamador precisaria
+      de `UPDATE` em `platform.audit_heads` — e com esse privilegio forja uma
+      linha correctamente encadeada, com a data a escolha, sem passar por aqui.
+      Foi demonstrado contra a primeira versao desta revisao. A excepcao e
+      estreita: a funcao nao escreve a linha de auditoria, escreve a cabeca da
+      cadeia, que e precisamente o que quem escreve a linha nao pode poder
+      fazer.

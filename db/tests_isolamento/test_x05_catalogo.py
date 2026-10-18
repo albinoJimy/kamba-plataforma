@@ -28,15 +28,39 @@ class TestCatalogoReal(ComBase):
             catalogo.verificar_rls(self.cursor, catalogo.excepcoes_rls()), []
         )
 
-    def test_a_lista_de_excepcoes_esta_vazia(self) -> None:
-        """O criterio diz «inicialmente vazia»; quem a encher muda este teste a ver."""
-        self.assertEqual(catalogo.excepcoes_rls(), {})
+    def test_a_unica_excepcao_de_rls_e_a_cabeca_da_cadeia(self) -> None:
+        """O criterio dizia «inicialmente vazia»; deixou de estar, e com razao.
 
-    def test_a_descoberta_encontra_as_doze_tabelas(self) -> None:
-        """Se a descoberta encolher, a suite inteira passa a testar menos."""
+        `platform.audit_heads` (KAM-012) tem `tenant_id` e nao tem RLS. Quem
+        lhe escreve e um trigger `SECURITY DEFINER` que corre como o dono, e
+        com `FORCE` o dono tambem esta sujeito a politica — a cadeia das
+        accoes de plataforma, de `tenant_id` nulo, ficava invisivel e essas
+        accoes eram impossiveis de registar. A tabela nao guarda facto nenhum
+        de negocio: uma linha por cadeia, com um hash opaco.
+
+        Este teste muda **a ver**, que e o que o criterio pede: a lista nao
+        cresce sem alguem reescrever esta afirmacao.
+        """
+        self.assertEqual(set(catalogo.excepcoes_rls()), {"platform.audit_heads"})
+
+    def test_a_descoberta_encontra_as_catorze_tabelas(self) -> None:
+        """Se a descoberta encolher, a suite inteira passa a testar menos.
+
+        Catorze desde o KAM-012: entram o `audit_log` e o `audit_heads`. O
+        segundo **nao tem** RLS — a descoberta lista o que **devia** te-la, e
+        e a lista de `ci/rls_exceptions.yaml` que o dispensa, com o ADR. Uma
+        tabela que saia daqui sai de X-03, X-04 e X-05 ao mesmo tempo.
+        """
         self.assertEqual(
             catalogo.tabelas_isoladas(self.cursor),
             [
+                # KAM-012. Nenhuma das duas tem receita de sementes, e as
+                # duas razoes estao em `sementes.SEM_RECEITA_COM_RAZAO`: o
+                # `audit_heads` nao tem politica para provar, e o `audit_log` e
+                # append-only — semea-lo obrigava a desligar o trigger na
+                # limpeza.
+                ("platform", "audit_heads", "tenant_id"),
+                ("platform", "audit_log", "tenant_id"),
                 ("platform", "contact_deks", "tenant_id"),
                 ("platform", "contact_endpoints", "tenant_id"),
                 ("platform", "contacts", "tenant_id"),
@@ -78,8 +102,21 @@ class TestCatalogoReal(ComBase):
     def test_cada_tabela_isolada_tem_receita_de_sementes(self) -> None:
         """Uma tabela que a suite nao sabe semear e uma tabela que nao testa."""
         descobertas = {(s, t) for s, t, _ in catalogo.tabelas_isoladas(self.cursor)}
-        self.assertEqual(descobertas, set(sementes.RECEITAS))
+        self.assertEqual(
+            descobertas - sementes.SEM_RECEITA_COM_RAZAO, set(sementes.RECEITAS)
+        )
         self.assertEqual(set(sementes.ORDEM), set(sementes.RECEITAS))
+        # E o que esta declarado sem receita tem mesmo de existir: uma entrada
+        # em `SEM_RECEITA_COM_RAZAO` que nao corresponda a tabela nenhuma e uma
+        # porta aberta com a chave perdida.
+        todas = {
+            (esquema, tabela)
+            for esquema, tabela in self.consultar(
+                "SELECT schemaname::text, tablename::text FROM pg_tables "
+                " WHERE schemaname = 'platform'"
+            )
+        }
+        self.assertLessEqual(sementes.SEM_RECEITA_COM_RAZAO, todas)
 
     def test_as_politicas_sao_exactamente_as_declaradas(self) -> None:
         """Politicas permissivas somam-se por OU: uma a mais abre o que a `tenant_iso` fecha.
@@ -97,6 +134,9 @@ class TestCatalogoReal(ComBase):
         self.assertEqual(
             linhas,
             [
+                # KAM-012: o `audit_heads` nao aparece — nao tem politica, por
+                # excepcao declarada.
+                ("audit_log", "tenant_iso", "ALL", "{public}"),
                 ("contact_deks", "tenant_iso", "ALL", "{public}"),
                 ("contact_endpoints", "tenant_iso", "ALL", "{public}"),
                 ("contacts", "tenant_iso", "ALL", "{public}"),
@@ -123,7 +163,10 @@ class TestCatalogoReal(ComBase):
         )
         self.assertEqual(
             [l[0] for l in linhas],
-            ["contact_deks", "contact_endpoints", "contacts", "entitlements",
+            [# KAM-012: o registo de auditoria. O `audit_heads` nao esta
+             # aqui, por excepcao declarada em `ci/rls_exceptions.yaml`.
+             "audit_log",
+             "contact_deks", "contact_endpoints", "contacts", "entitlements",
              # KAM-006: as tres do consumo com `tenant_id`.
              "events_consumed", "events_dlq",
              "events_log", "events_log_default", "events_outbox",
@@ -169,7 +212,7 @@ class TestRegressao(ComBase):
         self.cursor.execute(
             "CREATE TABLE platform.esquecida (id uuid PRIMARY KEY, tenant_id uuid NOT NULL)"
         )
-        problemas = catalogo.verificar_rls(self.cursor)
+        problemas = catalogo.verificar_rls(self.cursor, catalogo.excepcoes_rls())
         self.assertEqual(len(problemas), 1, problemas)
         self.assertIn("platform.esquecida", problemas[0])
         self.assertIn("ENABLE ROW LEVEL SECURITY", problemas[0])
@@ -182,7 +225,7 @@ class TestRegressao(ComBase):
             "CREATE TABLE platform.a_meio (id uuid PRIMARY KEY, tenant_id uuid NOT NULL)"
         )
         self.cursor.execute("ALTER TABLE platform.a_meio ENABLE ROW LEVEL SECURITY")
-        problemas = catalogo.verificar_rls(self.cursor)
+        problemas = catalogo.verificar_rls(self.cursor, catalogo.excepcoes_rls())
         self.assertEqual(len(problemas), 1, problemas)
         self.assertNotIn("ENABLE ROW LEVEL SECURITY", problemas[0])
         self.assertIn("FORCE ROW LEVEL SECURITY", problemas[0])
@@ -194,7 +237,7 @@ class TestRegressao(ComBase):
         self.cursor.execute(
             "CREATE TABLE servicos_ensaio.marcacoes (id uuid, tenant_id uuid)"
         )
-        problemas = catalogo.verificar_rls(self.cursor)
+        problemas = catalogo.verificar_rls(self.cursor, catalogo.excepcoes_rls())
         self.assertTrue(any("servicos_ensaio.marcacoes" in p for p in problemas))
 
     def test_em_public_tambem_e_apanhada(self) -> None:
@@ -202,7 +245,7 @@ class TestRegressao(ComBase):
         self.cursor.execute(
             "CREATE TABLE public.encomendas_ensaio (id uuid, tenant_id uuid)"
         )
-        problemas = catalogo.verificar_rls(self.cursor)
+        problemas = catalogo.verificar_rls(self.cursor, catalogo.excepcoes_rls())
         self.assertEqual(len(problemas), 1, problemas)
         self.assertIn("public.encomendas_ensaio", problemas[0])
 
@@ -225,7 +268,7 @@ class TestRegressao(ComBase):
         nao fecha quando as particoes nascem mensalmente de um *job*.
         """
         self._particionada_de_ensaio()
-        problemas = catalogo.verificar_rls(self.cursor)
+        problemas = catalogo.verificar_rls(self.cursor, catalogo.excepcoes_rls())
         self.assertEqual(len(problemas), 1, problemas)
         self.assertIn("platform.eventos_ensaio:", problemas[0])
 
@@ -249,7 +292,9 @@ class TestRegressao(ComBase):
             "USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)"
         )
         # A mae ja esta conforme; a particao continua sem nada.
-        self.assertEqual(catalogo.verificar_rls(self.cursor), [])
+        self.assertEqual(
+            catalogo.verificar_rls(self.cursor, catalogo.excepcoes_rls()), []
+        )
         problemas = catalogo.verificar_particoes(self.cursor)
         self.assertEqual(len(problemas), 1, problemas)
         self.assertIn("platform.eventos_ensaio_1", problemas[0])
@@ -295,7 +340,9 @@ class TestRegressao(ComBase):
         self.cursor.execute("CREATE TABLE platform.dispensada (tenant_id uuid)")
         self.cursor.execute("CREATE TABLE platform.nao_dispensada (tenant_id uuid)")
         problemas = catalogo.verificar_rls(
-            self.cursor, {"platform.dispensada": {"adr": "ADR-015"}}
+            self.cursor,
+            dict(catalogo.excepcoes_rls(),
+                 **{"platform.dispensada": {"adr": "ADR-015"}}),
         )
         self.assertEqual(len(problemas), 1, problemas)
         self.assertIn("platform.nao_dispensada", problemas[0])
@@ -304,10 +351,11 @@ class TestRegressao(ComBase):
         """Uma excepcao para uma tabela que ja tem RLS, ou que nao existe."""
         problemas = catalogo.verificar_rls(
             self.cursor,
-            {
-                "platform.tenant_channels": {"adr": "ADR-015"},
-                "platform.nunca_existiu": {"adr": "ADR-015"},
-            },
+            dict(catalogo.excepcoes_rls(),
+                 **{
+                     "platform.tenant_channels": {"adr": "ADR-015"},
+                     "platform.nunca_existiu": {"adr": "ADR-015"},
+                 }),
         )
         self.assertEqual(len(problemas), 2, problemas)
         self.assertTrue(all("morta" in p for p in problemas))
@@ -317,12 +365,16 @@ class TestRegressao(ComBase):
             "CREATE FUNCTION platform.atalho() RETURNS bigint LANGUAGE sql "
             "SECURITY DEFINER AS 'SELECT count(*) FROM platform.tenants'"
         )
-        problemas = catalogo.verificar_security_definer(self.cursor)
+        problemas = catalogo.verificar_security_definer(
+            self.cursor, catalogo.funcoes_permitidas()
+        )
         self.assertEqual(len(problemas), 1, problemas)
         self.assertIn("platform.atalho()", problemas[0])
         self.assertEqual(
             catalogo.verificar_security_definer(
-                self.cursor, {"platform.atalho()": {"adr": "ADR-015"}}
+                self.cursor,
+                dict(catalogo.funcoes_permitidas(),
+                     **{"platform.atalho()": {"adr": "ADR-015"}}),
             ),
             [],
         )
@@ -333,7 +385,9 @@ class TestRegressao(ComBase):
             "CREATE FUNCTION public.atalho_ensaio() RETURNS bigint LANGUAGE sql "
             "SECURITY DEFINER AS 'SELECT count(*) FROM platform.tenants'"
         )
-        problemas = catalogo.verificar_security_definer(self.cursor)
+        problemas = catalogo.verificar_security_definer(
+            self.cursor, catalogo.funcoes_permitidas()
+        )
         self.assertEqual(len(problemas), 1, problemas)
         self.assertIn("public.atalho_ensaio()", problemas[0])
 
@@ -341,11 +395,18 @@ class TestRegressao(ComBase):
         self.cursor.execute(
             "CREATE FUNCTION platform.normal() RETURNS integer LANGUAGE sql AS 'SELECT 1'"
         )
-        self.assertEqual(catalogo.verificar_security_definer(self.cursor), [])
+        self.assertEqual(
+            catalogo.verificar_security_definer(
+                self.cursor, catalogo.funcoes_permitidas()
+            ),
+            [],
+        )
 
     def test_funcao_permitida_que_nao_existe_falha(self) -> None:
         problemas = catalogo.verificar_security_definer(
-            self.cursor, {"platform.fantasma()": {"adr": "ADR-015"}}
+            self.cursor,
+            dict(catalogo.funcoes_permitidas(),
+                 **{"platform.fantasma()": {"adr": "ADR-015"}}),
         )
         self.assertEqual(len(problemas), 1)
         self.assertIn("nao existe", problemas[0])
@@ -430,9 +491,19 @@ class TestFicheirosDePolitica(unittest.TestCase):
         with self.assertRaises(catalogo.PoliticaInvalida):
             catalogo.funcoes_permitidas(raiz)
 
-    def test_os_ficheiros_reais_leem_se_e_estao_vazios(self) -> None:
-        self.assertEqual(catalogo.excepcoes_rls(), {})
-        self.assertEqual(catalogo.funcoes_permitidas(), {})
+    def test_os_ficheiros_reais_leem_se_e_tem_o_que_esta_declarado(self) -> None:
+        """Os dois nasceram vazios e deixaram de o estar no KAM-012.
+
+        `ci/rls_exceptions.yaml` tem `platform.audit_heads` e
+        `ci/secdef_allowlist.yaml` tem `platform.audit_encadear()` — as duas
+        pelo mesmo desenho: a cabeca da cadeia de hash e escrita por um trigger
+        que corre como o dono, e tem de ser, porque quem escreve a linha de
+        auditoria nao pode poder escrever a cabeca.
+        """
+        self.assertEqual(set(catalogo.excepcoes_rls()), {"platform.audit_heads"})
+        self.assertEqual(
+            set(catalogo.funcoes_permitidas()), {"platform.audit_encadear()"}
+        )
 
 
 if __name__ == "__main__":

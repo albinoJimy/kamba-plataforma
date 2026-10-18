@@ -23,4 +23,17 @@
 
 version: 1
 
-excepcoes: []
+excepcoes:
+  - tabela: platform.audit_heads
+    adr: ADR-015
+    razao: >-
+      A cabeca da cadeia de hash de `audit_log` (KAM-012). Nao guarda facto
+      nenhum de negocio: uma linha por cadeia, com um hash opaco de 32 bytes.
+      A RLS teria de ser desligada na pratica de qualquer forma, porque quem
+      escreve aqui e um trigger `SECURITY DEFINER` que corre como o dono, e
+      com `FORCE` o dono tambem esta sujeito a politica — a cadeia das accoes
+      de plataforma, que tem `tenant_id` nulo, ficava invisivel e essas accoes
+      eram impossiveis de registar. Nenhum papel de aplicacao lhe escreve; o
+      `GRANT` e so de leitura, e so para quem verifica a cadeia. O ADR-015
+      funda-a: o isolamento em profundidade poe a fronteira onde ha dado de
+      tenant, e aqui nao ha.

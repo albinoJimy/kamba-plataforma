@@ -44,7 +44,28 @@ class ComDoisTenants(ComBase):
         sementes.registar_versao_de_chave(cursores["admin"])
         cls.a = sementes.semear_tenant(cursores, "a")
         cls.b = sementes.semear_tenant(cursores, "b")
-        cls.tabelas = catalogo.tabelas_isoladas(cursores["batch"])
+        todas = catalogo.tabelas_isoladas(cursores["batch"])
+        # Uma tabela com `tenant_id` que nao tenha receita e um buraco nesta
+        # bateria, e dava `KeyError` com o nome perdido dentro de um
+        # *traceback*. Agora ou esta declarada em `SEM_RECEITA_COM_RAZAO`, com
+        # a razao escrita, ou a suite recusa-se a correr dizendo qual e.
+        sem_receita = [
+            (esquema, tabela)
+            for esquema, tabela, _ in todas
+            if (esquema, tabela) not in sementes.RECEITAS
+            and (esquema, tabela) not in sementes.SEM_RECEITA_COM_RAZAO
+        ]
+        if sem_receita:
+            raise AssertionError(
+                "tabelas com `tenant_id` sem receita em `sementes.RECEITAS`: "
+                f"{sem_receita}. Acrescente a receita, ou declare-a em "
+                "`sementes.SEM_RECEITA_COM_RAZAO` com a razao por extenso."
+            )
+        cls.tabelas = [
+            (esquema, tabela, coluna)
+            for esquema, tabela, coluna in todas
+            if (esquema, tabela) not in sementes.SEM_RECEITA_COM_RAZAO
+        ]
 
     @classmethod
     def tearDownClass(cls) -> None:

@@ -109,9 +109,14 @@ ESPERADO_POR_TABELA.update(
         # a retencao depende de um prazo fiscal NAO VERIFICADO (dicionario §4,
         # KAM-071), e uma funcao de limpeza contra um prazo por confirmar apaga
         # prova que a lei pode exigir.
+        # O `INSERT` do `kamba_app` e do `kamba_batch` e **por coluna** desde o
+        # redesenho: sem `criado_at`, sem `prev_hash`, sem `row_hash`. Um
+        # privilegio por coluna nao aparece nesta matriz de tabela — aparece em
+        # `COLUNAS_POR_PAPEL`, e e la que se le o que falta. Com `INSERT` de
+        # tabela inteira, quem escreve forjava uma linha encadeada com a data a
+        # escolha (achado C1 da revisao adversarial).
         "audit_log": _auditoria(
-            kamba_app={"INSERT"},
-            kamba_batch={"SELECT", "INSERT"},
+            kamba_batch={"SELECT"},
             kamba_audit={"SELECT"},
         ),
         # A cabeca da cadeia nao e o registo: guarda um hash opaco por tenant,
@@ -120,9 +125,14 @@ ESPERADO_POR_TABELA.update(
         # aparece em `COLUNAS_POR_PAPEL`. O `kamba_audit` **nao** lhe toca: quem
         # audita recalcula a cadeia a partir do `audit_log`, e uma cabeca que o
         # auditor leia e um valor em que ele poderia passar a confiar.
+        # **Nenhum papel de aplicacao lhe escreve.** So o trigger
+        # `audit_encadear`, que e `SECURITY DEFINER` e corre como o dono. O
+        # `kamba_batch` e o `kamba_audit` leem-na porque verificar a cadeia
+        # exige-a: sem a cabeca, apagar as ultimas N linhas deixa-a consistente
+        # consigo propria.
         "audit_heads": _auditoria(
-            kamba_app={"SELECT", "INSERT"},
-            kamba_batch={"SELECT", "INSERT"},
+            kamba_batch={"SELECT"},
+            kamba_audit={"SELECT"},
         ),
     }
 )
@@ -252,8 +262,17 @@ COLUNAS_POR_PAPEL = {
     # KAM-012: a cabeca da cadeia avanca, e so o hash. Mudar o `tenant_id`
     # de uma cabeca era mudar de cadeia a meio; a `chave` e gerada e nem o
     # dono a escreve.
-    ("kamba_app", "audit_heads", "UPDATE"): {"last_hash"},
-    ("kamba_batch", "audit_heads", "UPDATE"): {"last_hash"},
+    # KAM-012: o `INSERT` e por coluna, e as tres que faltam sao a propriedade
+    # — `criado_at`, `prev_hash` e `row_hash` sao do trigger, e quem insere nao
+    # as escolhe.
+    ("kamba_app", "audit_log", "INSERT"): {
+        "tenant_id", "actor_type", "actor_id", "action", "entity", "entity_id",
+        "turn_id", "payload_hash",
+    },
+    ("kamba_batch", "audit_log", "INSERT"): {
+        "tenant_id", "actor_type", "actor_id", "action", "entity", "entity_id",
+        "turn_id", "payload_hash",
+    },
     # KAM-006: tres colunas, e nenhuma por gosto. O `ON CONFLICT (consumer,
     # event_id) WHERE estado = 'aberta'` do `paraDlq()` precisa dos dois
     # elementos de inferencia **e** do predicado para o PostgreSQL achar o

@@ -236,8 +236,20 @@ INVENTARIO = {
             "bytea", NAO, None,
             "**hash** do antes/depois, nunca o conteudo; 32 bytes, por CHECK",
         ),
-        "prev_hash": ("bytea", NAO, None, "nao; hash opaco"),
-        "row_hash": ("bytea", NAO, None, "nao; hash opaco"),
+        # A omissao existe para que o `INSERT` do chamador nao tenha de as
+        # mencionar: quem insere **nao as pode escrever** (o `GRANT` e por
+        # coluna e nao as inclui), e e o trigger `audit_encadear` que lhes poe
+        # o valor verdadeiro antes de a linha existir.
+        "prev_hash": (
+            "bytea", NAO,
+            "'\\x0000000000000000000000000000000000000000000000000000000000000000'::bytea",
+            "nao; hash opaco",
+        ),
+        "row_hash": (
+            "bytea", NAO,
+            "'\\x0000000000000000000000000000000000000000000000000000000000000000'::bytea",
+            "nao; hash opaco",
+        ),
     },
     "audit_heads": {
         "tenant_id": ("uuid", SIM, None, "nao; nulo na cadeia de plataforma"),
@@ -417,6 +429,7 @@ class TestInventario(ComBase):
                     # Uma bifurcacao da cadeia deixa de ser detectada pelo
                     # verificador e passa a ser impossivel de escrever.
                     "audit_log_row_hash_uq",
+                    "audit_log_texto_curto",
                     # ------------------------------------- KAM-006 (0005)
                     "events_consumed_pkey",
                     "events_dlq_estado_ck",

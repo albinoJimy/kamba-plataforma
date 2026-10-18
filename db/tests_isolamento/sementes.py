@@ -88,6 +88,22 @@ class Receita:
     leitura_do_papel: bool = True
 
 
+def _linha_de_auditoria(cursor, tenant_id: str, canario: str) -> None:
+    """Uma linha de `audit_log` com o canario no `entity_id` (KAM-012).
+
+    Escreve-se pelo caminho normal: o trigger `audit_encadear` poe o
+    `criado_at`, o `prev_hash` e o `row_hash`, e avanca a cabeca da cadeia.
+    Semeada pelo administrador, porque o `INSERT` do `kamba_app` esta sob
+    `WITH CHECK` e esta receita nao define contexto.
+    """
+    cursor.execute(
+        "INSERT INTO platform.audit_log "
+        "(tenant_id, actor_type, actor_id, action, entity, entity_id, payload_hash) "
+        "VALUES (%s, 'staff', 'semente', 'price.update', 'produto', %s, sha256('x'))",
+        (tenant_id, canario),
+    )
+
+
 def _tenant(cursor, tenant_id: str, canario: str) -> None:
     cursor.execute(
         "INSERT INTO platform.tenants (id, tipo, nome) VALUES (%s, 'pme', %s)",
@@ -324,6 +340,24 @@ RECEITAS: dict[tuple[str, str], Receita] = {
         _accao_externa, "accao", "estado", "falhada", semeador="admin"
     ),
 }
+
+#: As duas tabelas da auditoria **nao** entram nas receitas, e nenhuma das
+#: razoes e esquecimento (KAM-012).
+#:
+#: `audit_heads` tem `tenant_id` e nao tem RLS — a unica tabela do schema nessa
+#: situacao, declarada em `ci/rls_exceptions.yaml` com o ADR que a funda. Numa
+#: tabela sem politica nao ha politica que provar.
+#:
+#: `audit_log` tem RLS, mas e **append-only**: um trigger `ENABLE ALWAYS`
+#: recusa `DELETE`, e estas receitas semeiam e apagam. Semea-la aqui obrigava
+#: a desligar o trigger na limpeza — que e exactamente o defeito que a revisao
+#: adversarial deste ticket apanhou noutro sitio: DDL confirmado numa limpeza
+#: repara o esquema na base viva e esconde regressoes de tudo o que corre a
+#: seguir. O isolamento desta tabela prova-se em
+#: `db/tests/test_auditoria.py::TestIsolamento`, que faz as mesmas perguntas
+#: do X-04 (escrever no tenant de outro, escrever a cadeia de plataforma) sem
+#: precisar de apagar nada.
+SEM_RECEITA_COM_RAZAO = {("platform", "audit_heads"), ("platform", "audit_log")}
 
 #: `tenants` primeiro: as outras referenciam-na. Depois, pela ordem das FK. As
 #: de eventos nao tem FK para nada (o `agregado_id` e uma referencia logica, por

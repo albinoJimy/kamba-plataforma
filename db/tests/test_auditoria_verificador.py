@@ -46,14 +46,35 @@ class ComCadeia(ComBase):
     def sem_trigger(self, sql: str, parametros: tuple = ()) -> None:
         """Corre uma instrucao com o *trigger* de imutabilidade desligado."""
         self.cursor.execute(
+            "SELECT tgenabled::text FROM pg_trigger "
+            " WHERE tgrelid = 'platform.audit_log'::regclass "
+            "   AND tgname = 'audit_log_sem_update_nem_delete'"
+        )
+        marca = self.cursor.fetchone()[0]
+        self.cursor.execute(
             "ALTER TABLE platform.audit_log DISABLE TRIGGER audit_log_sem_update_nem_delete"
+        )
+        # E o de encadear: sem o desligar, o `INSERT` do caso de adulteracao
+        # era reescrito pelo proprio trigger — que e a propriedade, e por isso
+        # mesmo nao serve para **simular** uma adulteracao.
+        self.cursor.execute(
+            "ALTER TABLE platform.audit_log DISABLE TRIGGER audit_log_encadear"
         )
         try:
             self.cursor.execute(sql, parametros)
         finally:
+            # Repoe **o que leu**, e nao o que se desejava: religar sempre com
+            # `ENABLE ALWAYS` e DDL confirmado que repara a base viva e esconde
+            # regressoes de esquema de tudo o que corre depois.
+            palavra = {"A": "ENABLE ALWAYS", "R": "ENABLE REPLICA", "D": "DISABLE"}.get(
+                marca, "ENABLE"
+            )
             self.cursor.execute(
-                "ALTER TABLE platform.audit_log "
-                "ENABLE ALWAYS TRIGGER audit_log_sem_update_nem_delete"
+                f"ALTER TABLE platform.audit_log {palavra} "
+                "TRIGGER audit_log_sem_update_nem_delete"
+            )
+            self.cursor.execute(
+                "ALTER TABLE platform.audit_log ENABLE ALWAYS TRIGGER audit_log_encadear"
             )
 
     def ids(self) -> list[int]:
@@ -80,16 +101,16 @@ class TestCadeiaIntacta(ComCadeia):
         aqui que o Python chega ao mesmo valor que o SQL guardou.
         """
         self.cursor.execute(
-            "SELECT tenant_id, actor_type, actor_id, action, entity, entity_id, "
-            "       turn_id, payload_hash, prev_hash, row_hash "
+            "SELECT tenant_id, criado_at, actor_type, actor_id, action, entity, "
+            "       entity_id, turn_id, payload_hash, prev_hash, row_hash "
             "  FROM platform.audit_log WHERE tenant_id = %s ORDER BY id LIMIT 1",
             (self.tenant,),
         )
         linha = self.cursor.fetchone()
         self.assertEqual(
-            auditoria.row_hash(bytes(linha[8]), linha[0], linha[1], linha[2], linha[3],
-                               linha[4], linha[5], linha[6], bytes(linha[7])),
-            bytes(linha[9]),
+            auditoria.row_hash(bytes(linha[9]), linha[1], linha[0], linha[2], linha[3],
+                               linha[4], linha[5], linha[6], linha[7], bytes(linha[8])),
+            bytes(linha[10]),
         )
 
 
@@ -105,11 +126,18 @@ class TestAdulteracaoDetectada(ComCadeia):
         self.assertTrue(any("hash errado" in a for a in achados), achados)
         self.assertTrue(any(str(alvo) in a for a in achados), achados)
 
-    def test_apagar_uma_linha_do_meio_parte_o_elo(self) -> None:
+    def test_apagar_uma_linha_do_meio_deixa_as_seguintes_fora_da_cadeia(self) -> None:
+        """A cadeia percorre-se pelo `prev_hash`, nao pelo `id`.
+
+        Medido: o `id` sai da sequencia quando a instrucao comeca e o lugar na
+        cadeia decide-se depois, no trigger — com mil insercoes concorrentes
+        as duas ordens divergem. Apagada uma linha do meio, as seguintes ficam
+        sem ponte ate a genese, e e isso que se deteta.
+        """
         alvo = self.ids()[1]
         self.sem_trigger("DELETE FROM platform.audit_log WHERE id = %s", (alvo,))
         achados = self.achados()
-        self.assertTrue(any("elo partido" in a for a in achados), achados)
+        self.assertTrue(any("nao esta na cadeia" in a for a in achados), achados)
 
     def test_apagar_do_fim_so_a_cabeca_apanha(self) -> None:
         """O caso que justifica o `audit_heads` existir para alem do desempenho.
@@ -125,10 +153,15 @@ class TestAdulteracaoDetectada(ComCadeia):
         )
         achados = self.achados()
         self.assertTrue(any("cabeca errada" in a for a in achados), achados)
-        self.assertFalse(any("elo partido" in a for a in achados), achados)
+        self.assertFalse(any("nao esta na cadeia" in a for a in achados), achados)
 
-    def test_inserir_uma_linha_forjada_parte_o_elo(self) -> None:
-        """Escrever directamente, sem passar pelo `audit_append`."""
+    def test_uma_linha_forjada_e_reescrita_pelo_trigger(self) -> None:
+        """Inserir com hashes a escolha **nao** forja nada: o trigger reescreve.
+
+        Na primeira versao desta revisao isto partia a cadeia, porque os
+        valores do chamador ficavam. Hoje o trigger ignora-os, e o que se
+        verifica e que a cadeia continua intacta — que e a propriedade.
+        """
         self.cursor.execute(
             "INSERT INTO platform.audit_log "
             "(tenant_id, actor_type, actor_id, action, entity, entity_id, "
@@ -137,9 +170,61 @@ class TestAdulteracaoDetectada(ComCadeia):
             "        sha256('g'), sha256('h'))",
             (self.tenant,),
         )
+        self.assertEqual(self.achados(), [])
+        self.cursor.execute(
+            "SELECT prev_hash = sha256('g'), row_hash = sha256('h') "
+            "  FROM platform.audit_log WHERE actor_id = 'forjado'"
+        )
+        self.assertEqual(tuple(self.cursor.fetchone()), (False, False))
+
+    def test_apagar_e_reinserir_com_outra_data_e_detectado(self) -> None:
+        """O `criado_at` entrou no hash (achado M5 da revisao adversarial).
+
+        Sem ele, apagar a ultima linha e reinseri-la com o mesmo conteudo dava
+        outra data e a cadeia ficava «intacta» — a sequencia era a prova de
+        adulteracao e a cronologia nao era de todo.
+        """
+        alvo = self.ids()[-1]
+        self.cursor.execute(
+            "SELECT prev_hash, row_hash FROM platform.audit_log WHERE id = %s", (alvo,)
+        )
+        prev, antigo = (bytes(v) for v in self.cursor.fetchone())
+        self.sem_trigger("DELETE FROM platform.audit_log WHERE id = %s", (alvo,))
+        # Reinsere a mesma linha, com o mesmo encadeamento e outra data. Sem o
+        # `criado_at` no hash, o `row_hash` dava igual e nada se notava.
+        self.sem_trigger(
+            "INSERT INTO platform.audit_log "
+            "(criado_at, tenant_id, actor_type, actor_id, action, entity, entity_id, "
+            " payload_hash, prev_hash, row_hash) "
+            "VALUES (timestamptz '2019-05-05 00:00:00+00', %s,'staff','op',"
+            "'price.update','produto','sku-3', sha256('v3'), %s, %s)",
+            (self.tenant, prev, antigo),
+        )
         achados = self.achados()
-        self.assertTrue(any("elo partido" in a for a in achados), achados)
         self.assertTrue(any("hash errado" in a for a in achados), achados)
+
+    def test_uma_cadeia_que_desaparece_inteira_so_a_ancora_apanha(self) -> None:
+        """O achado M4: o verificador percorre o que existe.
+
+        Apagadas as linhas de um tenant **e** a sua cabeca, nao ha nada para
+        percorrer e nao ha achado. A defesa e a ancora do dia anterior, que
+        sabe que a cadeia existia.
+        """
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as pasta:
+            caminho = auditoria.ancorar(self.cursor, destino=Path(pasta))
+            ancora = json.loads(caminho.read_text(encoding="utf-8"))
+        self.sem_trigger(
+            "DELETE FROM platform.audit_log WHERE tenant_id = %s", (self.tenant,)
+        )
+        self.cursor.execute(
+            "DELETE FROM platform.audit_heads WHERE tenant_id = %s", (self.tenant,)
+        )
+        self.assertEqual(auditoria.verificar(self.cursor, self.tenant), [])
+        achados = auditoria.verificar(self.cursor, self.tenant, ancora)
+        self.assertTrue(any("desapareceu inteira" in a for a in achados), achados)
 
 
 class TestAncora(ComCadeia):
@@ -167,6 +252,22 @@ class TestAncora(ComCadeia):
             primeira = auditoria.ancorar(self.cursor, destino=Path(pasta)).read_bytes()
             segunda = auditoria.ancorar(self.cursor, destino=Path(pasta)).read_bytes()
         self.assertEqual(primeira, segunda)
+
+    def test_a_ancora_nao_depende_do_fuso_da_sessao(self) -> None:
+        """O achado M2: a fronteira do dia usava o `TimeZone` da sessao.
+
+        `criado_at < (date + 1)` promove o `date` com o fuso da sessao, e com
+        `Africa/Luanda` — que e a omissao de `tenants.fuso_horario` — a mesma
+        base no mesmo dia dava outra ancora. A afirmacao «reproduzivel a partir
+        da base» era falsa fora de uma sessao de fuso fixo.
+        """
+        with tempfile.TemporaryDirectory() as pasta:
+            self.cursor.execute("SET TimeZone = 'UTC'")
+            em_utc = auditoria.ancorar(self.cursor, destino=Path(pasta)).read_bytes()
+            self.cursor.execute("SET TimeZone = 'Africa/Luanda'")
+            em_luanda = auditoria.ancorar(self.cursor, destino=Path(pasta)).read_bytes()
+            self.cursor.execute("SET TimeZone = 'UTC'")
+        self.assertEqual(em_utc, em_luanda)
 
     def test_o_dia_fecha_a_ancora(self) -> None:
         """Uma ancora de ontem nao leva as linhas de hoje."""

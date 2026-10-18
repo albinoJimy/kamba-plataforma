@@ -22,8 +22,9 @@ recalcula.
 Tres coisas, e o verificador distingue-as porque a resposta operacional e
 diferente:
 
-    elo partido      o `prev_hash` de uma linha nao e o `row_hash` da anterior.
-                     Alguem **apagou** ou **inseriu** uma linha no meio.
+    fora da cadeia   o `prev_hash` de uma linha nao e o `row_hash` de nenhuma
+                     outra, e ela nao parte da genese. Alguem **apagou** uma
+                     linha do meio, ou **inseriu** uma forjada.
     hash errado      o `row_hash` nao bate com o que as colunas dao. Alguem
                      **alterou** uma coluna.
     cabeca errada    o `audit_heads` nao aponta para o ultimo elo. A cadeia
@@ -72,11 +73,29 @@ ANCORA_POR_OMISSAO = Path("ci") / "ancoras"
 VARIAVEL_DA_ANCORA = "KAMBA_AUDIT_ANCORA_DIR"
 
 
-def row_hash(prev: bytes, tenant, actor_type, actor_id, action, entity,
+def iso_utc(momento) -> str:
+    """A forma canonica de um instante no hash: ISO 8601 em UTC, microssegundos.
+
+    Tem de dar exactamente o mesmo texto que o
+    `to_char(... AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US')` da revisao
+    0006. Um `timestamptz` renderizado no fuso da sessao daria hashes
+    diferentes conforme quem verifica — que e o defeito que a ancora tinha.
+    """
+    return momento.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")
+
+
+def row_hash(prev: bytes, criado_at, tenant, actor_type, actor_id, action, entity,
              entity_id, turn_id, payload_hash: bytes) -> bytes:
-    """A formula de um elo, em Python. Ver o docstring do modulo."""
+    """A formula de um elo, em Python. Ver o docstring do modulo.
+
+    O `criado_at` entra desde a revisao adversarial: sem ele, apagar a ultima
+    linha e reinseri-la com o mesmo conteudo e outra data deixava a cadeia
+    «intacta», e o valor probatorio de um registo e «quem fez o que **e
+    quando**».
+    """
     partes = (
         prev.hex(),
+        iso_utc(criado_at),
         "" if tenant is None else str(tenant),
         actor_type, actor_id, action, entity, entity_id,
         "" if turn_id is None else turn_id,
@@ -85,7 +104,7 @@ def row_hash(prev: bytes, tenant, actor_type, actor_id, action, entity,
     return hashlib.sha256(SEPARADOR.join(partes).encode("utf-8")).digest()
 
 
-def _cursor():
+def _cursor(papel: str | None = None):
     """Uma ligacao de auditoria. Le o registo e mais nada.
 
     `kamba_audit` nao tem `BYPASSRLS`, pelo que ve as cadeias dos tenants a
@@ -94,14 +113,14 @@ def _cursor():
     `--papel` existe para que uma verificacao pontual de um tenant possa
     correr com o papel estreito.
     """
-    return ligacao.ligar(os.environ.get("KAMBA_AUDIT_PAPEL", "batch")).cursor()
+    return ligacao.ligar(papel or os.environ.get("KAMBA_AUDIT_PAPEL", "batch")).cursor()
 
 
 def cadeias(cursor, tenant: str | None = None) -> dict:
     """As linhas de `audit_log` agrupadas por cadeia, por ordem de escrita."""
     sql = (
-        "SELECT tenant_id, id, actor_type, actor_id, action, entity, entity_id, "
-        "       turn_id, payload_hash, prev_hash, row_hash "
+        "SELECT tenant_id, id, criado_at, actor_type, actor_id, action, entity, "
+        "       entity_id, turn_id, payload_hash, prev_hash, row_hash "
         "  FROM platform.audit_log "
     )
     parametros: tuple = ()
@@ -116,24 +135,73 @@ def cadeias(cursor, tenant: str | None = None) -> dict:
     return por_cadeia
 
 
+def _por_ordem_da_cadeia(linhas: list) -> tuple[list, list]:
+    """As linhas pela ordem do **encadeamento**, e as que ficaram de fora.
+
+    **A ordem do `id` nao e a ordem da cadeia**, e isso foi medido: o `id` sai
+    da sequencia quando a instrucao comeca, e o lugar na cadeia decide-se
+    depois, quando o trigger bloqueia a cabeca. Com mil insercoes concorrentes
+    a transaccao que apanha o `id` 5 pode encadear **depois** da que apanhou o
+    6, e um verificador que percorra por `id` ve elos partidos que nao
+    existem. Percorre-se seguindo o `prev_hash`, que e a cadeia a dizer a sua
+    propria ordem.
+
+    O que sobra sao linhas cujo `prev_hash` nao e o `row_hash` de nenhuma
+    outra e que nao partem da genese — e essas **sao** achado: e o que fica
+    quando alguem apaga uma linha do meio ou insere uma forjada.
+    """
+    por_prev: dict = {}
+    for linha in linhas:
+        por_prev.setdefault(bytes(linha[10]), []).append(linha)
+    ordenadas: list = []
+    actual = GENESE
+    vistos: set = set()
+    while actual in por_prev:
+        linha = por_prev[actual].pop(0)
+        if not por_prev[actual]:
+            del por_prev[actual]
+        ordenadas.append(linha)
+        proximo = bytes(linha[11])
+        if proximo in vistos:  # defesa contra um ciclo forjado
+            break
+        vistos.add(proximo)
+        actual = proximo
+    soltas = [linha for restantes in por_prev.values() for linha in restantes]
+    return ordenadas, sorted(soltas, key=lambda linha: linha[1])
+
+
 def cabecas(cursor) -> dict:
     """O `last_hash` declarado de cada cadeia."""
     cursor.execute("SELECT tenant_id, last_hash FROM platform.audit_heads")
     return {linha[0]: bytes(linha[1]) for linha in cursor.fetchall()}
 
 
-def verificar(cursor, tenant: str | None = None) -> list[str]:
-    """Todos os achados. Lista vazia e uma cadeia intacta."""
+def verificar(cursor, tenant: str | None = None, ancora: dict | None = None) -> list[str]:
+    """Todos os achados. Lista vazia e uma cadeia intacta.
+
+    Com `ancora` — o conteudo de um ficheiro escrito por `ancorar` —, compara
+    tambem o **conjunto** de cadeias e o `row_hash` ancorado de cada uma. Sem
+    ela, apagar as linhas de um tenant **e** a sua cabeca nao produzia achado
+    nenhum: o verificador percorre o que existe, e o que deixou de existir nao
+    esta em lado nenhum para ser percorrido. Apanhado pela revisao adversarial.
+    """
     achados: list[str] = []
     por_cadeia = cadeias(cursor, tenant)
     declaradas = cabecas(cursor)
 
-    for dono, linhas in sorted(por_cadeia.items(), key=lambda par: str(par[0])):
+    for dono, linhas_por_id in sorted(por_cadeia.items(), key=lambda par: str(par[0])):
         nome = str(dono) if dono is not None else "(plataforma)"
+        linhas, soltas = _por_ordem_da_cadeia(linhas_por_id)
+        for linha in soltas:
+            achados.append(
+                f"{nome}: a linha {linha[1]} nao esta na cadeia: o seu prev_hash "
+                f"({bytes(linha[10]).hex()[:16]}…) nao e o row_hash de nenhuma outra, "
+                "e ela nao parte da genese"
+            )
         anterior = GENESE
         for linha in linhas:
-            (_, identificador, actor_type, actor_id, action, entity, entity_id,
-             turn_id, payload_hash, prev_hash, guardado) = linha
+            (_, identificador, criado_at, actor_type, actor_id, action, entity,
+             entity_id, turn_id, payload_hash, prev_hash, guardado) = linha
             prev_hash, guardado = bytes(prev_hash), bytes(guardado)
             if prev_hash != anterior:
                 achados.append(
@@ -141,8 +209,9 @@ def verificar(cursor, tenant: str | None = None) -> list[str]:
                     f"{prev_hash.hex()[:16]}… e o elo anterior deu {anterior.hex()[:16]}…; "
                     "alguem apagou ou inseriu uma linha"
                 )
-            calculado = row_hash(prev_hash, dono, actor_type, actor_id, action,
-                                 entity, entity_id, turn_id, bytes(payload_hash))
+            calculado = row_hash(prev_hash, criado_at, dono, actor_type, actor_id,
+                                 action, entity, entity_id, turn_id,
+                                 bytes(payload_hash))
             if calculado != guardado:
                 achados.append(
                     f"{nome}: hash errado na linha {identificador}: guardado "
@@ -164,6 +233,34 @@ def verificar(cursor, tenant: str | None = None) -> list[str]:
             achados.append(
                 f"{str(dono) if dono else '(plataforma)'}: ha cabeca e nao ha linha nenhuma"
             )
+
+    achados.extend(_contra_a_ancora(por_cadeia, ancora))
+    return achados
+
+
+def _contra_a_ancora(por_cadeia: dict, ancora: dict | None) -> list[str]:
+    """O que so a ancora de ontem apanha: uma cadeia que desapareceu inteira."""
+    if not ancora:
+        return []
+    achados: list[str] = []
+    vivas = {("" if dono is None else str(dono)) for dono in por_cadeia}
+    for nome, registo in sorted((ancora.get("cadeias") or {}).items()):
+        legivel = nome or "(plataforma)"
+        if nome not in vivas:
+            achados.append(
+                f"{legivel}: a ancora de {ancora.get('dia')} tem esta cadeia e ela "
+                "desapareceu inteira — linhas e cabeca"
+            )
+            continue
+        dono = None if nome == "" else nome
+        ancorado = registo.get("row_hash")
+        if ancorado and not any(
+            bytes(linha[11]).hex() == ancorado for linha in por_cadeia[dono]
+        ):
+            achados.append(
+                f"{legivel}: o row_hash ancorado em {ancora.get('dia')} "
+                f"({ancorado[:16]}…) ja nao existe na cadeia"
+            )
     return achados
 
 
@@ -176,12 +273,28 @@ def ancorar(cursor, dia: datetime.date | None = None, destino: Path | None = Non
     mudou.
     """
     dia = dia or datetime.datetime.now(datetime.timezone.utc).date()
-    pasta = destino or Path(os.environ.get(VARIAVEL_DA_ANCORA, "")) or ANCORA_POR_OMISSAO
+    # `Path("")` e `WindowsPath('.')` e e **verdadeiro**: a forma anterior
+    # (`destino or Path(os.environ.get(..., "")) or ANCORA_POR_OMISSAO`) nunca
+    # chegava ao ultimo ramo, e sem `--destino` a ancora caia no directorio de
+    # trabalho de quem corre o job. Nenhum teste chamava `ancorar` sem destino,
+    # por isso ninguem o via. Apanhado pela revisao adversarial.
+    if destino is not None:
+        pasta = destino
+    elif os.environ.get(VARIAVEL_DA_ANCORA):
+        pasta = Path(os.environ[VARIAVEL_DA_ANCORA])
+    else:
+        pasta = ANCORA_POR_OMISSAO
     pasta.mkdir(parents=True, exist_ok=True)
 
     cursor.execute(
         "SELECT a.tenant_id, max(a.id) FROM platform.audit_log a "
-        " WHERE a.criado_at < (%s::date + 1) GROUP BY a.tenant_id",
+        # A fronteira do dia em **UTC**, e nao no fuso da sessao: um
+        # `timestamptz < date` promove o `date` com o `TimeZone` da sessao, e
+        # com `Africa/Luanda` a mesma base no mesmo dia dava outra ancora. A
+        # afirmacao «reproduzivel a partir da base» era falsa fora de uma
+        # sessao de fuso fixo. Apanhado pela revisao adversarial.
+        " WHERE a.criado_at < ((%s::date + 1)::timestamp AT TIME ZONE 'UTC') "
+        " GROUP BY a.tenant_id",
         (dia.isoformat(),),
     )
     ultimos = {linha[0]: linha[1] for linha in cursor.fetchall()}
@@ -210,13 +323,30 @@ def main(argv: list[str] | None = None) -> int:
     )
     analisador.add_argument("accao", choices=("verificar", "ancorar"))
     analisador.add_argument("--tenant", default=None, help="so esta cadeia")
+    analisador.add_argument(
+        "--ancora", default=None,
+        help="ficheiro de ancora de um dia anterior; sem ele, uma cadeia que "
+             "desapareca inteira passa despercebida",
+    )
     analisador.add_argument("--dia", default=None, help="AAAA-MM-DD; por omissao, hoje em UTC")
     analisador.add_argument("--destino", default=None, help="pasta da ancora")
+    analisador.add_argument(
+        "--papel", default=None,
+        help="identidade de base de dados: `batch` (omissao, ve tudo) ou `audit`",
+    )
     argumentos = analisador.parse_args(argv)
 
-    cursor = _cursor()
+    cursor = _cursor(argumentos.papel)
+    if argumentos.papel == "audit" and argumentos.tenant:
+        # O `kamba_audit` e `NOBYPASSRLS`: sem contexto ve zero linhas, e o
+        # verificador respondia «cadeia intacta» sobre nada. A primeira versao
+        # prometia este `--papel` no docstring e nao o tinha no `argparse`.
+        cursor.execute("SELECT set_config('app.tenant_id', %s, false)", (argumentos.tenant,))
     if argumentos.accao == "verificar":
-        achados = verificar(cursor, argumentos.tenant)
+        ancora = None
+        if argumentos.ancora:
+            ancora = json.loads(Path(argumentos.ancora).read_text(encoding="utf-8"))
+        achados = verificar(cursor, argumentos.tenant, ancora)
         if achados:
             print(
                 f"SEV1 auditoria: {len(achados)} achado(s) na cadeia de auditoria. "
