@@ -217,8 +217,12 @@ O que verifica, por ordem de execução:
    soma da coluna contra o TOTAL, o intervalo e o total do TOTAL, e os números
    do §1. Nenhuma se copia; todas se recalculam do §4.
 8. **«Controlo de versões»** de cada documento de `specs/` e `docs/`: a
-   sequência não salta números, e onde o cabeçalho tem campo de versão ele
-   iguala a última linha.
+   sequência não salta números, nenhum número aparece duas vezes, e onde o
+   cabeçalho tem campo de versão ele iguala a última linha. O buraco e o número
+   repetido são **a mesma causa vista dos dois lados** — dois ramos tomam o
+   número em paralelo; se um renumera fica o buraco, se nenhum renumerar ficam
+   duas emendas com o mesmo nome. A verificação da sequência sozinha não vê o
+   repetido, porque trabalha sobre o conjunto.
 
 Três decisões que o tornam utilizável:
 
@@ -1167,6 +1171,34 @@ fingir:
 A parte dos **webhooks** do gate 7 continua por fazer: é o KAM-024, e o alvo
 `ci-7` diz onde se acrescenta.
 
+#### A quinta verificação: os `enum` contra o dicionário (KAM-159)
+
+O gate 7 tinha quatro verificações e passou a ter cinco. A nova,
+`contract_diff dominios`, confronta o `enum` de um contrato com o **domínio
+canónico** que lhe corresponde, e nasceu de um defeito que esteve dois tickets
+de pé sem nenhum gate o dizer:
+
+> O dicionário nomeava **cinco** finalidades de consentimento e os 38 contratos
+> nomeavam **oito**. Cruzavam-se **numa só**, e duas que o canon declarava eram
+> **impossíveis de emitir** — o `enum` era fechado e não as tinha.
+
+Cada gate verificava o seu lado e ninguém verificava a costura: o **3b** lê os
+contratos, mas o nível 1 só procura variantes **declaradas** e o nível 2 só
+pergunta «este nome existe algures no §3?»; o `canon_lint/eventos.py` nunca
+compara um `enum` com um domínio; e o gate 7 não consultava o dicionário.
+
+Compara **nos dois sentidos**, e a assimetria é deliberada:
+
+| Sentido | Alcance | Porquê |
+|---|---|---|
+| valor no contrato que o canon não declara | **todas** as versões | congelado não quer dizer dispensado |
+| valor no canon que o contrato não tem | só a **última** versão de cada tipo | uma versão publicada está congelada (§6.6): exigir que uma `v1` cubra um domínio que cresceu depois dela seria exigir que se alterasse um contrato fundido |
+
+Vive no gate 7 e não no 3b porque é aqui que os contratos já estão lidos e
+indexados por tipo e versão. É **fail-closed** nos três sítios onde pode não
+ver nada: sem dicionário, sem domínios, ou com um caminho vigiado que não bate
+em contrato nenhum.
+
 ---
 
 ## 5. Excepções (*waivers*)
@@ -1651,4 +1683,5 @@ sobrevivem ao PR.
 | 1.28 | Outubro 2026 | KAM-134: a **lacuna 12** fecha. As oito chaves que nenhum código lia passam a comentário — e eram oito e não sete —, e os **catorze** leitores de `ci/*.yaml` passam a recusar uma chave desconhecida com código 2. O mecanismo e um só (`kamba_yaml.exigir_chaves`), onde eram quatro. O `ci_gate_reservado` devolvia **1 para tudo**, e com isso perdia o que o KAM-136 tinha construído. | Equipa KAMBÁ |
 | 1.29 | Outubro 2026 | KAM-157: o §3 (*gate* 9) ganha a *push protection* do GitHub. Existe um `.github/secret_scanning.yml` com uma entrada — a pasta do canário —, por decisão do fundador de 2026-10-18. Não é área cega nova (o `ci/secrets-allow.yaml` já a declarava), não torna o canário invisível ao *gate* 9 (são dois *scanners*), e não pode crescer em silêncio: um teste exige que as duas listas coincidam exactamente. | Equipa KAMBÁ |
 | 1.30 | Outubro 2026 | KAM-135: o §5 passa a descrever o que o validador exige. `criado_em` obrigatório e o prazo contado **dele** — renovar deixa de ser empurrar uma data; a data dentro de `adr_ou_aprovacao` é lida e não pode ser futura; e os gates **14** e **18** passam a aceitar *waiver*, que o KAM-067 e o KAM-078 precisam e o validador recusava. O conjunto de gates deriva agora da tabela do `specs/01` §4: os **dezanove** estão classificados — o `3b` incluído, que a primeira versão do *regex* não via e que o teste cimentava a 18 —, e um gate novo sem posição falha. A aprovação datada tem de ser contemporânea da criação, e o que **não** se verifica (o `ADR-NNN`, o `autor`) fica dito em vez de prometido. | Equipa KAMBÁ |
-| 1.31 | Outubro 2026 | KAM-138: entra o *gate* **3c**, coerência do backlog. O §2 ganha a linha com alvo e dono, e o §3 a secção que descreve as oito verificações — sincronia linha↔bloco nos seis campos, órfãos nos dois sentidos, a tabela-resumo do §3 de cada epic como terceira superfície, reciprocidade `Dependências`↔`Bloqueia`, ciclos com o caminho completo, inversões de prioridade e de fase, contagens derivadas do §4 e «Controlo de versões» sem buracos. O que o distingue de uma comparação de tabelas é a reciprocidade: o §4 não tem coluna `Bloqueia`, e na entrega havia **seis** arestas declaradas de um só lado, abertas pelos quatro tickets inscritos depois do KAM-144. A **lacuna 17** passa a nomear também o 3c: entra nos `needs` de `gates do KAM-002` e não no `main.json`, porque escrever no espelho o que o *ruleset* não tem tornava-o falso. | Equipa KAMBÁ |
+| 1.31 | Outubro 2026 | KAM-159: o *gate* 7 ganha a **quinta** verificação — `contract_diff dominios` —, que confronta o `enum` de um contrato com o domínio canónico, nos dois sentidos. Fecha a costura que nenhum dos dois *gates* via: o dicionário e os contratos nomeavam listas de finalidades que se cruzavam numa só, e duas do canon eram impossíveis de emitir. | Equipa KAMBÁ |
+| 1.32 | Outubro 2026 | KAM-138: entra o *gate* **3c**, coerência do backlog. O §2 ganha a linha com alvo e dono, e o §3 a secção que descreve as oito verificações — sincronia linha↔bloco nos seis campos, órfãos nos dois sentidos, a tabela-resumo do §3 de cada epic como terceira superfície, reciprocidade `Dependências`↔`Bloqueia`, ciclos com o caminho completo, inversões de prioridade e de fase, contagens derivadas do §4 e «Controlo de versões» sem buracos. O que o distingue de uma comparação de tabelas é a reciprocidade: o §4 não tem coluna `Bloqueia`, e na entrega havia **seis** arestas declaradas de um só lado, abertas pelos quatro tickets inscritos depois do KAM-144. A **lacuna 17** passa a nomear também o 3c: entra nos `needs` de `gates do KAM-002` e não no `main.json`, porque escrever no espelho o que o *ruleset* não tem tornava-o falso. | Equipa KAMBÁ |

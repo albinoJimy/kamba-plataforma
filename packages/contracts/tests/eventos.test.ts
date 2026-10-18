@@ -25,15 +25,37 @@ const CONTRATOS = new URL("../../../contratos/eventos/", import.meta.url);
 /** Os trinta e oito do dicionário §3.5, emenda 1.11. */
 const ESPERADOS = 38;
 
-function schemaDe(tipo: string): Record<string, unknown> {
-  const caminho = new URL(`${tipo}/v1.schema.json`, CONTRATOS);
+/**
+ * As versões de um tipo, lidas da pasta.
+ *
+ * Desde o KAM-159 há mais do que uma, e **tudo o que este ficheiro verifica
+ * tem de valer para todas**: um contrato novo que entrasse como `v2` sem
+ * passar por aqui herdava verde de uma `v1` que ninguém mais escreve.
+ */
+function versoesDe(tipo: string): number[] {
+  const versoes = readdirSync(new URL(`${tipo}/`, CONTRATOS))
+    .map((nome) => /^v([1-9][0-9]*)\.schema\.json$/.exec(nome)?.[1])
+    .filter((n): n is string => n !== undefined)
+    .map(Number)
+    .sort((a, b) => a - b);
+  assert.ok(versoes.length > 0, `${tipo}: pasta sem nenhum v<N>.schema.json`);
+  return versoes;
+}
+
+function schemaDe(tipo: string, versao = 1): Record<string, unknown> {
+  const caminho = new URL(`${tipo}/v${versao}.schema.json`, CONTRATOS);
   return JSON.parse(readFileSync(caminho, "utf8")) as Record<string, unknown>;
 }
 
-function payloadDe(tipo: string): Record<string, unknown> {
-  const schema = schemaDe(tipo);
+function payloadDe(tipo: string, versao = 1): Record<string, unknown> {
+  const schema = schemaDe(tipo, versao);
   const propriedades = schema.properties as Record<string, Record<string, unknown>>;
   return propriedades.payload as Record<string, unknown>;
+}
+
+/** O nome do exemplo de uma versão. A `v1` mantém o nome histórico. */
+function nomeDoExemplo(versao: number): string {
+  return versao === 1 ? "exemplo.json" : `exemplo.v${versao}.json`;
 }
 
 describe("o catálogo gerado", () => {
@@ -43,21 +65,28 @@ describe("o catálogo gerado", () => {
     assert.deepEqual(Object.keys(CATALOGO).sort(), naPasta);
   });
 
-  it("cada entrada diz a versão que o nome do ficheiro diz", () => {
+  it("cada entrada diz as versões que os nomes dos ficheiros dizem", () => {
     for (const tipo of Object.keys(CATALOGO) as TipoDeEvento[]) {
-      assert.equal(CATALOGO[tipo].versao, 1, tipo);
+      assert.deepEqual([...CATALOGO[tipo].versoes], versoesDe(tipo), tipo);
     }
   });
 
-  it("os obrigatórios e os permitidos são os do schema", () => {
+  it("os obrigatórios e os permitidos são os do schema, em todas as versões", () => {
+    // Uma entrada só do catálogo para várias versões **é uma afirmação**: a
+    // de que o payload tem os mesmos campos em todas. O gerador recusa gerar
+    // quando não tem (`NaoSeiTraduzirError`); aqui verifica-se o resultado,
+    // que é onde a afirmação se pagaria se fosse falsa.
     for (const tipo of Object.keys(CATALOGO) as TipoDeEvento[]) {
-      const payload = payloadDe(tipo);
-      const obrigatorios = [...((payload.required as string[]) ?? [])].sort();
-      const permitidos = Object.keys(
-        (payload.properties as Record<string, unknown>) ?? {},
-      ).sort();
-      assert.deepEqual([...CATALOGO[tipo].obrigatorios].sort(), obrigatorios, tipo);
-      assert.deepEqual([...CATALOGO[tipo].permitidos].sort(), permitidos, tipo);
+      for (const versao of versoesDe(tipo)) {
+        const payload = payloadDe(tipo, versao);
+        const obrigatorios = [...((payload.required as string[]) ?? [])].sort();
+        const permitidos = Object.keys(
+          (payload.properties as Record<string, unknown>) ?? {},
+        ).sort();
+        const onde = `${tipo} v${versao}`;
+        assert.deepEqual([...CATALOGO[tipo].obrigatorios].sort(), obrigatorios, onde);
+        assert.deepEqual([...CATALOGO[tipo].permitidos].sort(), permitidos, onde);
+      }
     }
   });
 
@@ -117,32 +146,50 @@ describe("o catálogo gerado", () => {
     // admitiam-na — o `enum` do envelope era `P0|P1|P2` em todos, e a única
     // verificação incidia sobre o exemplo (achado M1).
     for (const tipo of Object.keys(CATALOGO) as TipoDeEvento[]) {
-      const caminho = new URL(`${tipo}/v1.schema.json`, CONTRATOS);
-      const schema = JSON.parse(readFileSync(caminho, "utf8")) as {
-        properties: { classe_pii: { enum: string[] }; agregado: { properties: { tipo: { const?: string } } } };
-      };
-      assert.ok(!schema.properties.classe_pii.enum.includes("P2"), `${tipo} admite P2`);
-      assert.ok(
-        typeof schema.properties.agregado.properties.tipo.const === "string",
-        `${tipo}: o agregado ficou livre`,
-      );
+      for (const versao of versoesDe(tipo)) {
+        const schema = schemaDe(tipo, versao) as unknown as {
+          properties: { classe_pii: { enum: string[] }; agregado: { properties: { tipo: { const?: string } } } };
+        };
+        const onde = `${tipo} v${versao}`;
+        assert.ok(!schema.properties.classe_pii.enum.includes("P2"), `${onde} admite P2`);
+        assert.ok(
+          typeof schema.properties.agregado.properties.tipo.const === "string",
+          `${onde}: o agregado ficou livre`,
+        );
+      }
     }
   });
 
-  it("o exemplo de cada contrato só usa campos permitidos", () => {
+  it("o exemplo de cada versão só usa campos permitidos", () => {
     for (const tipo of Object.keys(CATALOGO) as TipoDeEvento[]) {
-      const caminho = new URL(`${tipo}/exemplo.json`, CONTRATOS);
-      const exemplo = JSON.parse(readFileSync(caminho, "utf8")) as Record<string, unknown>;
-      const payload = (exemplo.payload ?? {}) as Record<string, unknown>;
-      for (const campo of Object.keys(payload)) {
-        assert.ok(
-          (CATALOGO[tipo].permitidos as readonly string[]).includes(campo),
-          `${tipo}: o exemplo tem «${campo}», que o contrato não permite`,
-        );
+      for (const versao of versoesDe(tipo)) {
+        const caminho = new URL(`${tipo}/${nomeDoExemplo(versao)}`, CONTRATOS);
+        const exemplo = JSON.parse(readFileSync(caminho, "utf8")) as Record<string, unknown>;
+        const onde = `${tipo} v${versao}`;
+        assert.equal(exemplo.versao, versao, `${onde}: o exemplo diz outra versão`);
+        const payload = (exemplo.payload ?? {}) as Record<string, unknown>;
+        for (const campo of Object.keys(payload)) {
+          assert.ok(
+            (CATALOGO[tipo].permitidos as readonly string[]).includes(campo),
+            `${onde}: o exemplo tem «${campo}», que o contrato não permite`,
+          );
+        }
+        for (const campo of CATALOGO[tipo].obrigatorios) {
+          assert.ok(campo in payload, `${onde}: o exemplo não tem «${campo}»`);
+        }
       }
-      for (const campo of CATALOGO[tipo].obrigatorios) {
-        assert.ok(campo in payload, `${tipo}: o exemplo não tem «${campo}»`);
-      }
+    }
+  });
+
+  it("não sobra nenhum exemplo sem versão, nem falta nenhum", () => {
+    // Um `exemplo.v3.json` numa pasta sem `v3.schema.json` passaria
+    // despercebido para sempre: nada o lê. E um `v3.schema.json` sem exemplo
+    // tirava a versão nova de todas as verificações acima sem falhar nenhuma.
+    for (const tipo of Object.keys(CATALOGO) as TipoDeEvento[]) {
+      const naPasta = readdirSync(new URL(`${tipo}/`, CONTRATOS))
+        .filter((nome) => nome.startsWith("exemplo"))
+        .sort();
+      assert.deepEqual(naPasta, versoesDe(tipo).map(nomeDoExemplo).sort(), tipo);
     }
   });
 });

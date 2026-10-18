@@ -99,6 +99,41 @@ class TestSequencia(Base):
         self.assertIn('specs/EPIC-01_Fundacoes_Dados.md', achado)
 
 
+class TestNumeroRepetido(Base):
+    """O buraco visto do outro lado, e com a mesma causa.
+
+    A verificacao da sequencia trabalha sobre o conjunto, pelo que um numero
+    repetido colapsa nele e passa. Aconteceu ao entregar o proprio KAM-138: o
+    KAM-159 fundiu primeiro e levou o `1.31` do `docs/ci.md`.
+    """
+
+    def test_duas_linhas_com_o_mesmo_numero_falham(self) -> None:
+        conjunto = Conjunto()
+        conjunto.versoes['specs/EPIC-02_Canais_WhatsApp_Handoff.md'] = [
+            '1.0', '1.1', '1.1']
+        conjunto.cabecalhos['specs/EPIC-02_Canais_WhatsApp_Handoff.md'] = '1.1'
+        veredicto = verificar(self.escrever(conjunto), minimo=MINIMO)
+        achado = next(a for a in veredicto.achados if 'duas linhas' in a)
+        self.assertIn('1.1', achado)
+        self.assertIn('EPIC-02', achado)
+
+    def test_a_sequencia_sozinha_nao_ve_o_repetido(self) -> None:
+        """A razao de a verificacao existir, medida e nao afirmada."""
+        conjunto = Conjunto()
+        conjunto.versoes['specs/EPIC-02_Canais_WhatsApp_Handoff.md'] = [
+            '1.0', '1.1', '1.1']
+        controlo = self.controlos(conjunto)[
+            'specs/EPIC-02_Canais_WhatsApp_Handoff.md']
+        self.assertEqual(controlo.buracos, ())
+        self.assertEqual(controlo.repetidas, ('1.1',))
+
+    def test_um_repetido_nao_se_declara(self) -> None:
+        """Nao ha lista para isto, e e deliberado: 0 casos em 41 documentos."""
+        from lint_backlog.cli import CHAVES
+        self.assertEqual(CHAVES, {'version', 'inversoes', 'sequencias',
+                                  'cabecalhos'})
+
+
 class TestCabecalho(Base):
     def test_cabecalho_atrasado_na_forma_de_tabela(self) -> None:
         conjunto = Conjunto()

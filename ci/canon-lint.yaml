@@ -105,6 +105,14 @@ fora_de_ambito:
       pelo `canon_lint canario` e pelos testes, uma a uma, e nao pelo varrimento
       da arvore — que ficaria vermelho por desenho.
 
+  - caminho: "contratos/eventos/*/exemplo.v*.json"
+    razao: >-
+      KAM-159: o exemplo das versoes a partir da `v2`. Mesma razao da entrada
+      abaixo, e entrada propria porque o padrao `exemplo.json` nao o cobre —
+      e **nao** se alargou o padrao daquela a `exemplo*.json`, porque um
+      curinga mais largo aceitaria tambem um `exemplo_do_que_quer_que_seja`
+      que ninguem declarou.
+
   - caminho: "contratos/eventos/*/exemplo.json"
     razao: >-
       KAM-007: o exemplo que acompanha cada contrato. Bate na sentinela

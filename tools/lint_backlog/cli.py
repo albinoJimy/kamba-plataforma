@@ -551,6 +551,15 @@ def verificar(raiz: Path, minimo: int = modelo.MINIMO_DE_BLOCOS) -> Veredicto:
     sequencias_usadas: set[Sequencia] = set()
     cabecalhos_usados: set[Cabecalho] = set()
     for controlo in controlos:
+        # O numero repetido **nao** se declara: nao ha estado sujo nenhum para
+        # cobrir (medido: 0 em 41 documentos), e a correccao e trocar um
+        # numero numa linha. Falha desde o primeiro dia.
+        for repetida in controlo.repetidas:
+            achados.append(
+                f'{controlo.ficheiro}: o «Controlo de versões» tem duas linhas '
+                f'com a versão {repetida}. Dois ramos tomaram o mesmo numero e '
+                'nenhum renumerou — a historia passa a ter duas emendas com o '
+                'mesmo nome.')
         for buraco in controlo.buracos:
             declarada = next(
                 (s for s in declaracoes.sequencias

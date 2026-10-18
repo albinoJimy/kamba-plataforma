@@ -24,13 +24,25 @@
  * conversor que não os preserve — verificado no momento da conversão, sobre o
  * resultado real, e não por confiança.
  *
- * ## O que não há aqui
+ * ## O primeiro conversor, e porque é que ele recusa
  *
- * Nenhum conversor. Quando o primeiro `versao = 2` aparecer, é quem o emitir
- * que o registra, no ticket dele, com o teste de ida e volta. O catálogo de
- * schemas e o teste de compatibilidade são o KAM-007.
+ * O KAM-159 trouxe a `v2` dos 38 contratos, e com ela o primeiro conversor:
+ * `descerFinalidades`, registado para os 38 tipos.
+ *
+ * A `v2` difere da `v1` numa coisa só — o domínio de `finalidades` ganhou
+ * `partilha_estafeta` e `notificacao_dono`. Descer um envelope que **não** as
+ * use é trivial e seguro: muda-se a `versao` e mais nada.
+ *
+ * Descer um que as use **não se faz**, e o conversor recusa. A tentação é
+ * deitá-las fora e entregar o resto, e é exactamente a coisa errada: as
+ * `finalidades` são o que o publicador compara com a `finalidade` de cada
+ * subscrição (§7.3), pelo que apagar uma muda **quem recebe o evento**. Um
+ * consumidor que só aceita `v1` deixaria de ver um evento de partilha com o
+ * estafeta, ou vê-lo-ia sem saber que o era. Preferir o bloqueio é o que o
+ * §6.6 já manda quando não há conversor nenhum, e a razão é a mesma.
  */
 
+import { FINALIDADES_V1 } from "./envelope.ts";
 import type { Envelope } from "./envelope.ts";
 
 /** Transforma um envelope de `de` em `para`. Síncrono: é uma projecção. */
@@ -139,5 +151,66 @@ export class RegistoDeConversores {
   }
 }
 
-/** O registo do processo. **Vazio** — ver a nota no topo do ficheiro. */
+/**
+ * Desce um envelope `v2` a `v1`, **ou recusa** (KAM-159).
+ *
+ * A única diferença entre as duas versões é o domínio de `finalidades`. Se
+ * todas couberem no domínio da `v1`, a conversão é mudar a `versao`. Se
+ * alguma não couber, lança — ver a nota no topo do ficheiro.
+ *
+ * **Compara com o domínio da `v1`, e não com a lista das duas novas.** A
+ * primeira versão fazia o contrário, e a revisão adversarial mostrou o que
+ * isso custava: `finalidades: ["finalidade_que_nao_existe"]` descia a `v1`
+ * sem uma queixa, e produzia um envelope que **nenhum** dos 38
+ * `v1.schema.json` aceita. Uma lista de excepções só conhece as excepções de
+ * que alguém se lembrou; um domínio conhece tudo o que não é ele.
+ */
+export function descerFinalidades(envelope: Envelope): Envelope {
+  if (envelope.versao !== 2) {
+    throw new ConversaoInvalidaError(
+      envelope.tipo,
+      envelope.versao,
+      1,
+      `este conversor desce da v2, e o envelope diz v${envelope.versao}`,
+    );
+  }
+  if (envelope.finalidades.length === 0) {
+    // `minItems: 1` no contrato. Um envelope sem finalidades nao chega a
+    // subscricao nenhuma, e descia a `v1` como se fosse valido.
+    throw new ConversaoInvalidaError(
+      envelope.tipo,
+      2,
+      1,
+      "nao tem finalidades, e o contrato exige ao menos uma",
+    );
+  }
+  const fora = envelope.finalidades.filter(
+    (f) => !(FINALIDADES_V1 as readonly string[]).includes(f),
+  );
+  if (fora.length > 0) {
+    throw new ConversaoInvalidaError(
+      envelope.tipo,
+      2,
+      1,
+      `usa ${fora.join(", ")}, que a v1 nao tem no dominio. Deita-las fora ` +
+        "mudaria quem recebe o evento: as finalidades sao o que o publicador " +
+        "compara com a subscricao",
+    );
+  }
+  return { ...envelope, versao: 1 };
+}
+
+/**
+ * O registo do processo. **Continua vazio**, e isso é deliberado.
+ *
+ * O KAM-159 escreveu a `v2` dos 38 contratos e o conversor que lhe serve
+ * (`descerFinalidades`, acima), mas **não o registou**. A razão está na nota
+ * do topo deste ficheiro, escrita pelo KAM-005 e que continua a valer: «quando
+ * o primeiro `versao = 2` aparecer, é quem o emitir que o regista, no ticket
+ * dele». Hoje **nada emite** `v2` — zero produtores, zero subscrições — e um
+ * conversor registado para um salto que ninguém dá é cablagem sem consumidor.
+ *
+ * Quem emitir a primeira `v2` faz uma linha:
+ * `CONVERSORES.registar(tipo, 2, 1, descerFinalidades)`.
+ */
 export const CONVERSORES = new RegistoDeConversores();

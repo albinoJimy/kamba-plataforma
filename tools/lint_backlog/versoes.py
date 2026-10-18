@@ -91,6 +91,26 @@ class Controlo:
         return tuple(falta)
 
     @property
+    def repetidas(self) -> tuple[str, ...]:
+        """Os numeros escritos mais do que uma vez.
+
+        E o buraco visto do outro lado, e a mesma causa: dois ramos tomam o
+        mesmo numero em paralelo. Se um deles renumera, fica o buraco; se
+        nenhum renumerar, ficam duas linhas com o mesmo numero e a historia
+        passa a ter dois 1.31 diferentes. A verificacao da sequencia sozinha
+        **nao ve isto** — trabalha sobre o conjunto, e um numero repetido
+        colapsa nele —, e foi o que quase aconteceu ao entregar o KAM-138: o
+        KAM-159 fundiu primeiro e levou o 1.31 do `docs/ci.md`.
+        """
+        vistas: set[tuple[int, int]] = set()
+        repetidas: list[str] = []
+        for versao in self.versoes:
+            if versao in vistas:
+                repetidas.append(f'{versao[0]}.{versao[1]}')
+            vistas.add(versao)
+        return tuple(dict.fromkeys(repetidas))
+
+    @property
     def atrasado(self) -> bool:
         return self.cabecalho is not None and self.cabecalho != self.ultima
 
