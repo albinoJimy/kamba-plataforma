@@ -43,11 +43,20 @@ export const CLASSES_PII = ["P0", "P1", "P2"] as const;
 export type ClassePii = (typeof CLASSES_PII)[number];
 
 /**
- * Finalidades de uso (`docs/tecnica/06` §7.3, `consent_event.finalidade`).
+ * Finalidades de uso (`consent_event.purpose`, dicionário §3.1, emenda 1.16).
  *
  * Lista fechada: o roteamento do publicador compara a `finalidade` de uma
  * subscrição com estas, e uma finalidade que não esteja aqui nunca recebe
  * nada — o que é o comportamento certo (falha fechada), mas tem de ser dito.
+ *
+ * **São dez desde o KAM-159**, e são a união de duas listas que existiam e se
+ * cruzavam numa só. As duas últimas vêm do dicionário e eram, até aqui,
+ * **impossíveis de emitir**: o `enum` dos contratos era fechado e não as
+ * tinha. Entram com a `v2` dos 38 contratos.
+ *
+ * A ordem é a do dicionário, e isso importa: um gate compara esta lista com o
+ * domínio canónico, e a comparação é de conjuntos — mas quem lê compara à
+ * vista.
  */
 export const FINALIDADES = [
   "transacao",
@@ -58,7 +67,56 @@ export const FINALIDADES = [
   "sugestoes_patrocinadas",
   "partilha_loja",
   "partilha_parceiros",
+  "partilha_estafeta",
+  "notificacao_dono",
 ] as const;
+
+/**
+ * As oito que a `v1` dos 38 contratos aceita.
+ *
+ * **Existe porque uma lista por versão é o que o §6.6 obriga.** A `v1` está
+ * publicada e congelada: o `enum` dela tem estes oito e vai continuar a tê-los
+ * para sempre. Sem esta constante, o código não tinha como dizer «isto não
+ * cabe numa `v1`» a não ser por uma lista das excepções — e uma lista de
+ * excepções só conhece as excepções que alguém se lembrou de lá pôr.
+ */
+export const FINALIDADES_V1 = [
+  "transacao",
+  "atendimento",
+  "marketing",
+  "analytics_agregado",
+  "melhoria_servico",
+  "sugestoes_patrocinadas",
+  "partilha_loja",
+  "partilha_parceiros",
+] as const;
+
+/**
+ * As que só a `v2` do envelope aceita (KAM-159).
+ *
+ * Um envelope `v2` que as use **não se consegue representar** numa `v1`: o
+ * `enum` da `v1` não as tem. É o que o conversor de versão usa para recusar
+ * em vez de as deitar fora — ver `conversor.ts`.
+ *
+ * **Derivada, e não escrita à mão.** Uma lista fixa divergiria do domínio no
+ * dia em que uma `v3` acrescentasse outra finalidade, e o conversor passaria
+ * a aceitar o que não consegue representar.
+ */
+export const FINALIDADES_SO_NA_V2: readonly string[] = FINALIDADES.filter(
+  (f) => !(FINALIDADES_V1 as readonly string[]).includes(f),
+);
+
+/**
+ * O domínio de `finalidades` por versão do envelope.
+ *
+ * `lerEnvelope` lê daqui. Uma versão que não esteja neste mapa é recusada —
+ * fechado, e não «as que conhecemos mais o resto».
+ */
+export const FINALIDADES_POR_VERSAO: ReadonlyMap<number, readonly string[]> = new Map([
+  [1, FINALIDADES_V1 as readonly string[]],
+  [2, FINALIDADES as readonly string[]],
+]);
+
 export type Finalidade = (typeof FINALIDADES)[number];
 
 /** O agregado a que o evento pertence. A ordem causal é o `seq`. */
@@ -211,6 +269,31 @@ export function lerEnvelope(valor: unknown): Envelope {
   }
   const finais = finalidades.map((f, i) => texto(f, `finalidades[${i}]`));
 
+  // O dominio de `finalidades`, **pela versao do envelope**.
+  //
+  // Nao estava aqui, e a falta tinha nome: o docstring de `FINALIDADES` dizia
+  // «lista fechada» e nada a fechava. Um envelope `versao: 1` com
+  // `partilha_estafeta` passava este leitor e era recusado la a frente pelo
+  // `v1.schema.json` — ou seja, a premissa inteira do conversor («a v1 nao as
+  // tem») nao tinha guarda nenhuma deste lado.
+  const versao = inteiro(bruto.versao, "versao", 1);
+  const permitidas = FINALIDADES_POR_VERSAO.get(versao);
+  if (permitidas === undefined) {
+    const conhecidas = [...FINALIDADES_POR_VERSAO.keys()].join(", ");
+    throw new EnvelopeInvalidoError(
+      `\`versao\` ${versao} nao tem dominio de finalidades declarado (ha v${conhecidas}). ` +
+        "Uma versao nova do envelope acrescenta a sua linha em FINALIDADES_POR_VERSAO: " +
+        "aceita-la sem dominio seria aceitar qualquer finalidade",
+    );
+  }
+  const fora = finais.filter((f) => !permitidas.includes(f));
+  if (fora.length > 0) {
+    throw new EnvelopeInvalidoError(
+      `\`finalidades\` ${fora.join(", ")} nao estao no dominio da v${versao} ` +
+        `(dicionario §3.1, ${permitidas.length} valores)`,
+    );
+  }
+
   const tipo = texto(bruto.tipo, "tipo");
   if (!TIPO_DE_EVENTO.test(tipo)) {
     throw new EnvelopeInvalidoError(
@@ -221,7 +304,7 @@ export function lerEnvelope(valor: unknown): Envelope {
   return {
     id: uuid(bruto.id, "id"),
     tipo,
-    versao: inteiro(bruto.versao, "versao", 1),
+    versao,
     tenant_id: uuid(bruto.tenant_id, "tenant_id"),
     ocorrido_em: texto(bruto.ocorrido_em, "ocorrido_em"),
     registado_em: texto(bruto.registado_em, "registado_em"),

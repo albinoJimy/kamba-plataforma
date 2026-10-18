@@ -61,6 +61,24 @@ def _nome_do_tipo(tipo: str) -> str:
     return "".join(parte.title() for parte in tipo.replace(".", "_").split("_"))
 
 
+def _nome_do_payload(tipo: str, versao: int) -> str:
+    """`order.created` v1 -> `PayloadOrderCreated`; v2 -> `...V2` (KAM-159).
+
+    **A `v1` mantem o nome sem sufixo**, e isso nao e preguica: o nome sem
+    sufixo esta escrito em codigo que nao e gerado, e renomea-lo seria uma
+    alteracao quebrante no pacote por causa de uma versao nova de **outro**
+    contrato. A regra e a mesma do `exemplo.json`: a primeira versao fica com
+    o nome historico.
+
+    O sufixo e preciso porque o payload **pode** mudar entre versoes — e muda:
+    o `consent.recorded` e o `consent.withdrawn` tem o dominio das finalidades
+    dentro do proprio payload, pelo que a `v2` deles difere da `v1`. Sem
+    sufixo, o TypeScript funde as duas interfaces com o mesmo nome e recusa
+    («Subsequent property declarations must have the same type»).
+    """
+    return _nome_do_tipo(tipo) + ("" if versao == 1 else f"V{versao}")
+
+
 def _verificar(no: dict, onde: str) -> None:
     desconhecidas = set(no) - PALAVRAS_SUPORTADAS
     if desconhecidas:
@@ -125,25 +143,28 @@ def typescript(contratos: list[catalogo.Contrato]) -> str:
         "",
     ]
     for contrato in contratos:
-        nome = _nome_do_tipo(contrato.tipo)
+        nome = _nome_do_payload(contrato.tipo, contrato.versao)
         partes.append(f"/** Payload de `{contrato.tipo}` v{contrato.versao}. */")
         partes.append(f"export interface Payload{nome} {_ts_objecto(contrato.payload, 2)}")
         partes.append("")
 
     partes.append("/** O que o `validarPayload` precisa de saber de cada contrato. */")
     partes.append("export interface EntradaDoCatalogo {")
-    partes.append("  readonly versao: number;")
+    partes.append("  /** Todas as versoes publicadas deste tipo, por ordem crescente. */")
+    partes.append("  readonly versoes: readonly number[];")
     partes.append("  readonly obrigatorios: readonly string[];")
     partes.append("  readonly permitidos: readonly string[];")
     partes.append("}")
     partes.append("")
     partes.append("/** Todos os contratos, por tipo. A lista e fechada: um tipo fora dela e desconhecido. */")
     partes.append("export const CATALOGO = {")
-    for contrato in contratos:
+    for tipo, versoes in _por_tipo(contratos).items():
+        contrato = versoes[0]
         obrigatorios = sorted(contrato.payload.get("required") or [])
         permitidos = sorted((contrato.payload.get("properties") or {}))
-        partes.append(f'  "{contrato.tipo}": {{')
-        partes.append(f"    versao: {contrato.versao},")
+        numeros = ", ".join(str(c.versao) for c in versoes)
+        partes.append(f'  "{tipo}": {{')
+        partes.append(f"    versoes: [{numeros}],")
         partes.append(f"    obrigatorios: [{', '.join(repr(o).replace(chr(39), chr(34)) for o in obrigatorios)}],")
         partes.append(f"    permitidos: [{', '.join(repr(p).replace(chr(39), chr(34)) for p in permitidos)}],")
         partes.append("  },")
@@ -153,6 +174,57 @@ def typescript(contratos: list[catalogo.Contrato]) -> str:
     partes.append("export type TipoDeEvento = keyof typeof CATALOGO;")
     partes.append("")
     return "\n".join(partes)
+
+
+def _por_tipo(contratos: list) -> dict[str, list]:
+    """Os contratos agrupados por tipo, por versao crescente (KAM-159).
+
+    Ate a primeira `v2` existir, havia **um** contrato por tipo e o catalogo
+    era indexado por tipo. Com duas versoes a chave repetia-se, e o TypeScript
+    nao compilava: «An object literal cannot have multiple properties with the
+    same name».
+
+    **O limite deste gerador, e o limite da guarda que o protege.** A entrada
+    do catalogo guarda os **nomes** de `required` e de `properties` por tipo,
+    e nao por versao. A guarda abaixo compara exactamente isso: os dois
+    conjuntos de nomes. Se divergirem, rebenta com nome.
+
+    **O que a guarda NAO ve, e vale dize-lo porque a primeira versao deste
+    docstring prometia o contrario:** uma versao que mude o **tipo** de um
+    campo — `contact_id` de `string` para `integer` —, ou o seu `format`, ou
+    um `enum` dentro do payload, passa por aqui sem uma queixa. Os nomes sao
+    os mesmos. O catalogo so e usado para «este campo e permitido?» e «este
+    campo e obrigatorio?», pelo que isso nao o torna errado — mas torna-o
+    **mais estreito** do que parece, e um `TypedDict` gerado a partir da `v1`
+    continuaria a dizer `str` onde a `v2` diz `int`.
+
+    E tambem nao e verdade que «os payloads sao iguais» entre as versoes de
+    hoje: os dois `consent.*` tem o dominio das finalidades **dentro** do
+    payload, e o ficheiro gerado tem `PayloadConsentRecorded` com oito valores
+    e `PayloadConsentRecordedV2` com dez. O que e igual sao os nomes dos
+    campos — que e o que esta guarda mede.
+    """
+    grupos: dict[str, list] = {}
+    for contrato in contratos:
+        grupos.setdefault(contrato.tipo, []).append(contrato)
+    for tipo, versoes in grupos.items():
+        versoes.sort(key=lambda c: c.versao)
+        primeira = versoes[0]
+        for outra in versoes[1:]:
+            mesma = (
+                sorted(primeira.payload.get("required") or [])
+                == sorted(outra.payload.get("required") or [])
+                and sorted(primeira.payload.get("properties") or {})
+                == sorted(outra.payload.get("properties") or {})
+            )
+            if not mesma:
+                raise NaoSeiTraduzirError(
+                    f"{tipo}: a v{outra.versao} tem um payload diferente da "
+                    f"v{primeira.versao}, e este gerador guarda **uma** forma "
+                    "de payload por tipo. Passe a entrada do catalogo a ter a "
+                    "forma por versao antes de publicar esta versao."
+                )
+    return dict(sorted(grupos.items()))
 
 
 def _py(no: dict) -> str:
@@ -195,7 +267,7 @@ def python(contratos: list[catalogo.Contrato]) -> str:
         "",
     ]
     for contrato in contratos:
-        nome = _nome_do_tipo(contrato.tipo)
+        nome = _nome_do_payload(contrato.tipo, contrato.versao)
         obrigatorios = set(contrato.payload.get("required") or [])
         propriedades = contrato.payload.get("properties") or {}
         # `total=True`, com `NotRequired` nos opcionais. A primeira versao
@@ -219,11 +291,12 @@ def python(contratos: list[catalogo.Contrato]) -> str:
 
     partes.append("#: Todos os contratos, por tipo. Lista fechada.")
     partes.append("CATALOGO: dict[str, dict[str, object]] = {")
-    for contrato in contratos:
+    for tipo, versoes in _por_tipo(contratos).items():
+        contrato = versoes[0]
         obrigatorios = sorted(contrato.payload.get("required") or [])
         permitidos = sorted((contrato.payload.get("properties") or {}))
-        partes.append(f'    "{contrato.tipo}": {{')
-        partes.append(f'        "versao": {contrato.versao},')
+        partes.append(f'    "{tipo}": {{')
+        partes.append(f'        "versoes": {[c.versao for c in versoes]!r},')
         partes.append(f'        "obrigatorios": {obrigatorios!r},')
         partes.append(f'        "permitidos": {permitidos!r},')
         partes.append("    },")
@@ -275,9 +348,11 @@ def validar_payload(tipo: str, versao: int, payload: dict) -> None:
             f"{tipo} nao tem contrato em contratos/eventos/; "
             f"os que tem: {', '.join(tipos_com_contrato())}"
         )
-    if versao != entrada["versao"]:
+    versoes = entrada["versoes"]
+    if versao not in versoes:
+        publicadas = ", ".join(f"v{v}" for v in versoes)
         raise VersaoDesconhecidaError(
-            f"{tipo} v{versao}: o contrato publicado e a v{entrada['versao']}"
+            f"{tipo} v{versao}: as versoes publicadas sao {publicadas}"
         )
     if not isinstance(payload, dict):
         raise PayloadInvalidoError(f"{tipo}: o payload tem de ser um objecto")

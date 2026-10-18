@@ -1157,6 +1157,34 @@ fingir:
 A parte dos **webhooks** do gate 7 continua por fazer: é o KAM-024, e o alvo
 `ci-7` diz onde se acrescenta.
 
+#### A quinta verificação: os `enum` contra o dicionário (KAM-159)
+
+O gate 7 tinha quatro verificações e passou a ter cinco. A nova,
+`contract_diff dominios`, confronta o `enum` de um contrato com o **domínio
+canónico** que lhe corresponde, e nasceu de um defeito que esteve dois tickets
+de pé sem nenhum gate o dizer:
+
+> O dicionário nomeava **cinco** finalidades de consentimento e os 38 contratos
+> nomeavam **oito**. Cruzavam-se **numa só**, e duas que o canon declarava eram
+> **impossíveis de emitir** — o `enum` era fechado e não as tinha.
+
+Cada gate verificava o seu lado e ninguém verificava a costura: o **3b** lê os
+contratos, mas o nível 1 só procura variantes **declaradas** e o nível 2 só
+pergunta «este nome existe algures no §3?»; o `canon_lint/eventos.py` nunca
+compara um `enum` com um domínio; e o gate 7 não consultava o dicionário.
+
+Compara **nos dois sentidos**, e a assimetria é deliberada:
+
+| Sentido | Alcance | Porquê |
+|---|---|---|
+| valor no contrato que o canon não declara | **todas** as versões | congelado não quer dizer dispensado |
+| valor no canon que o contrato não tem | só a **última** versão de cada tipo | uma versão publicada está congelada (§6.6): exigir que uma `v1` cubra um domínio que cresceu depois dela seria exigir que se alterasse um contrato fundido |
+
+Vive no gate 7 e não no 3b porque é aqui que os contratos já estão lidos e
+indexados por tipo e versão. É **fail-closed** nos três sítios onde pode não
+ver nada: sem dicionário, sem domínios, ou com um caminho vigiado que não bate
+em contrato nenhum.
+
 ---
 
 ## 5. Excepções (*waivers*)
@@ -1652,4 +1680,5 @@ sobrevivem ao PR.
 | 1.28 | Outubro 2026 | KAM-134: a **lacuna 12** fecha. As oito chaves que nenhum código lia passam a comentário — e eram oito e não sete —, e os **catorze** leitores de `ci/*.yaml` passam a recusar uma chave desconhecida com código 2. O mecanismo e um só (`kamba_yaml.exigir_chaves`), onde eram quatro. O `ci_gate_reservado` devolvia **1 para tudo**, e com isso perdia o que o KAM-136 tinha construído. | Equipa KAMBÁ |
 | 1.29 | Outubro 2026 | KAM-157: o §3 (*gate* 9) ganha a *push protection* do GitHub. Existe um `.github/secret_scanning.yml` com uma entrada — a pasta do canário —, por decisão do fundador de 2026-10-18. Não é área cega nova (o `ci/secrets-allow.yaml` já a declarava), não torna o canário invisível ao *gate* 9 (são dois *scanners*), e não pode crescer em silêncio: um teste exige que as duas listas coincidam exactamente. | Equipa KAMBÁ |
 | 1.30 | Outubro 2026 | KAM-135: o §5 passa a descrever o que o validador exige. `criado_em` obrigatório e o prazo contado **dele** — renovar deixa de ser empurrar uma data; a data dentro de `adr_ou_aprovacao` é lida e não pode ser futura; e os gates **14** e **18** passam a aceitar *waiver*, que o KAM-067 e o KAM-078 precisam e o validador recusava. O conjunto de gates deriva agora da tabela do `specs/01` §4: os **dezanove** estão classificados — o `3b` incluído, que a primeira versão do *regex* não via e que o teste cimentava a 18 —, e um gate novo sem posição falha. A aprovação datada tem de ser contemporânea da criação, e o que **não** se verifica (o `ADR-NNN`, o `autor`) fica dito em vez de prometido. | Equipa KAMBÁ |
-| 1.31 | Outubro 2026 | **KAM-133: a lacuna 11 fecha.** O SBOM por serviço do *gate* 11 passa a atravessar as dependências `link:` do *workspace*: o caminho mapeia-se de volta à chave do importador e a travessia continua dali, transitivamente e com visitado-é-visitado. O `services/gwy` passa de **3** para **39** componentes e o conjunto fica nos mesmos **142** — que é a prova de que o fecho completo já estava certo, e a razão por que licenças e vulnerabilidades não mudaram. **Atravessar não é copiar:** de um pacote ligado seguem-se só `dependencies` e `optionalDependencies`, não as `devDependencies`, que são as ferramentas com que ele se constrói. Decisão de desenho escrita no §3: o pacote do *workspace* entra **como componente, com `dependsOn`** (campo `dependencies` do CycloneDX), e não se promovem só os seus terceiros — a outra forma diria *que* o `bullmq` lá está e não *porque*. Eram três formas da mesma ligação e só uma estava no enunciado: juntaram-se o importador escrito `packages/contracts: {}`, que o leitor nem registava, e o lado **Python** (`services/agr` declara `kamba-core` em `[project].dependencies`; instalação editável não existe neste repositório). | Equipa KAMBÁ |
+| 1.31 | Outubro 2026 | KAM-159: o *gate* 7 ganha a **quinta** verificação — `contract_diff dominios` —, que confronta o `enum` de um contrato com o domínio canónico, nos dois sentidos. Fecha a costura que nenhum dos dois *gates* via: o dicionário e os contratos nomeavam listas de finalidades que se cruzavam numa só, e duas do canon eram impossíveis de emitir. | Equipa KAMBÁ |
+| 1.32 | Outubro 2026 | **KAM-133: a lacuna 11 fecha.** O SBOM por serviço do *gate* 11 passa a atravessar as dependências `link:` do *workspace*: o caminho mapeia-se de volta à chave do importador e a travessia continua dali, transitivamente e com visitado-é-visitado. O `services/gwy` passa de **3** para **39** componentes e o conjunto fica nos mesmos **142** — que é a prova de que o fecho completo já estava certo, e a razão por que licenças e vulnerabilidades não mudaram. **Atravessar não é copiar:** de um pacote ligado seguem-se só `dependencies` e `optionalDependencies`, não as `devDependencies`, que são as ferramentas com que ele se constrói. Decisão de desenho escrita no §3: o pacote do *workspace* entra **como componente, com `dependsOn`** (campo `dependencies` do CycloneDX), e não se promovem só os seus terceiros — a outra forma diria *que* o `bullmq` lá está e não *porque*. Eram três formas da mesma ligação e só uma estava no enunciado: juntaram-se o importador escrito `packages/contracts: {}`, que o leitor nem registava, e o lado **Python** (`services/agr` declara `kamba-core` em `[project].dependencies`; instalação editável não existe neste repositório). | Equipa KAMBÁ |

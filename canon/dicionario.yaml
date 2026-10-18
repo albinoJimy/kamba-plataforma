@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.15"
+versao_dicionario: "1.16"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -139,15 +139,43 @@ entradas:
       - "canal"
       - "evidence_hash"
       - "ocorrido_em"
-      - "transaccao"
-      - "marketing"
-      - "partilha_estafeta"
-      - "melhoria"
-      - "notificacao_dono"
     variantes_literais:
       - "consent_log"
       - "consent_ledger"
       - "consents"
+  - seccao: "3.1"
+    conceito: "Finalidade do consentimento"
+    canonico: "consent_event.purpose ∈ {transacao, atendimento, marketing, analytics_agregado, melhoria_servico, sugestoes_patrocinadas, partilha_loja, partilha_parceiros, partilha_estafeta, notificacao_dono}"
+    literais:
+      - "consent_event.purpose"
+      - "transacao"
+      - "atendimento"
+      - "marketing"
+      - "analytics_agregado"
+      - "melhoria_servico"
+      - "sugestoes_patrocinadas"
+      - "partilha_loja"
+      - "partilha_parceiros"
+      - "partilha_estafeta"
+      - "notificacao_dono"
+    nomes:
+      - "consent_event.purpose"
+      - "transacao"
+      - "atendimento"
+      - "marketing"
+      - "analytics_agregado"
+      - "melhoria_servico"
+      - "sugestoes_patrocinadas"
+      - "partilha_loja"
+      - "partilha_parceiros"
+      - "partilha_estafeta"
+      - "notificacao_dono"
+    nomes_nota:
+      - "marketing"
+      - "E3"
+      - "transaccao"
+      - "melhoria"
+    variantes_literais: []
   - seccao: "3.1"
     conceito: "Chave de conversa"
     canonico: "thread_id = {tenant_id}:{contact_id}"
@@ -2167,6 +2195,21 @@ tabelas:
     conceito: "Acções com efeito externo"
 
 dominios:
+  - coluna: "consent_event.purpose"
+    valores:
+      - "transacao"
+      - "atendimento"
+      - "marketing"
+      - "analytics_agregado"
+      - "melhoria_servico"
+      - "sugestoes_patrocinadas"
+      - "partilha_loja"
+      - "partilha_parceiros"
+      - "partilha_estafeta"
+      - "notificacao_dono"
+    seccao: "3.1"
+    conceito: "Finalidade do consentimento"
+    so_no_registo: false
   - coluna: "tenants.tipo"
     valores:
       - "pme"

@@ -436,7 +436,7 @@ Publicar e registar o aceite de ToS, DPA, lista de subprocessadores e aviso de p
 - [ ] Página pública da lista de subprocessadores gerada do inventário de KAM-069 (país, função, `apd_ref`), com histórico de versões e aviso prévio de alterações (E3 req. 4).
 - [ ] Verificação diária `dpa_em_falta`: 0 tenants `ativo` sem aceite vigente; violação gera alerta e `review_case`.
 - [ ] Exportação da prova de aceite (PDF/JSON com *hash*) disponível ao titular e ao KAM-098.
-- [ ] O aceite regista um **opt-in separado do dono** para mensagens de push de propostas e avisos (finalidade `notificacao_dono`, distinta de `transaccao` e `marketing`), revogável, com `consent_event` próprio; sem este opt-in o push ao dono não é enviado e o dono só recebe o que ele próprio pedir (ADR-020, E5 §4.2).
+- [ ] O aceite regista um **opt-in separado do dono** para mensagens de push de propostas e avisos (finalidade `notificacao_dono`, distinta de `transacao` e `marketing`), revogável, com `consent_event` próprio; sem este opt-in o push ao dono não é enviado e o dono só recebe o que ele próprio pedir (ADR-020, E5 §4.2).
 
 ### Detalhes Técnicos
 
