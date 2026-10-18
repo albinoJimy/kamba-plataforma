@@ -300,19 +300,32 @@ independente. Serve para não desperdiçares um reviewer com defeitos que apanha
 O repositório tem **CI desde o KAM-002**: dos 18 gates de
 `specs/01_Engineering_Standards_e_Handoff.md` §4 estão activos os que `docs/ci.md` §3 lista
 (referências cruzadas, nomes canónicos, cobertura, isolamento, migrações, segredos, SBOM), e os
-restantes continuam a ser o **alvo**. O que os gates ainda não cobrem — a sincronia entre o
-backlog mestre e os epics é do KAM-138 — verifica-se por script *ad-hoc* no teu scratchpad, com
-o `git diff` a sustentar a auditoria do changeset. As três que pagam sempre:
+restantes continuam a ser o **alvo**. O que os gates ainda não cobrem verifica-se por script
+*ad-hoc* no teu scratchpad, com o `git diff` a sustentar a auditoria do changeset — mas as três
+que pagam sempre **já não são disso**: desde o KAM-138 corre-as uma ferramenta, e a mão só serve
+para enganar.
 
 ```text
-[ ] CONSISTÊNCIA DO BACKLOG   todo o KAM-NNN citado existe; sem ciclos de dependências;
-                              sem prioridade invertida (P0 a depender de P1);
-                              sem fase invertida (fase 0 a depender de fase 1);
-                              cada ticket com exactamente um bloco "## KAM-NNN — "
-[ ] SINCRONIA MESTRE↔EPICS    tipo, estimativa, prioridade, fase, dependências e Bloqueia
-                              iguais no backlog mestre e no bloco do ticket
-[ ] REFERÊNCIAS               todo o ADR-NNN, D#, H#, E# e caminho de ficheiro citado existe
+[x] CONSISTÊNCIA DO BACKLOG   gate 3 + gate 3c — `make ci-3` e `make ci-3c`
+[x] SINCRONIA MESTRE↔EPICS    gate 3c — `make ci-3c`
+[x] REFERÊNCIAS               gate 3 — `make ci-3`
 ```
+
+Do teu *worktree*, sem `make` no anfitrião:
+
+```text
+cd tools && python -m lint_backlog --root .. check   # 3c: as três superfícies do backlog
+cd tools && python -m lint_refs --root .. check      # 3: identificadores
+cd tools && python -m lint_handoff --root .. check   # 3: caminhos dos blocos de handoff
+cd tools && python -m lint_contagens --root .. check # 3: contagens em prosa
+```
+
+O 3c compara a linha do `specs/INDICE.md` §4, o bloco `## KAM-NNN — ` e a tabela-resumo do §3 do
+epic; verifica a reciprocidade `Dependências`↔`Bloqueia` (que o §4 **não** tem coluna para
+denunciar), os ciclos com o caminho completo, as inversões de prioridade e de fase, as contagens
+derivadas e o «Controlo de versões» de cada documento. **Um ticket novo não precisa de pôr
+«segunda passagem de verificação dá 0 divergências» nos seus critérios: o gate di-lo.** O que
+continua a ser teu é o que o gate não sabe julgar — se o ticket diz a coisa certa.
 
 Diagramas Mermaid passam por um parser antes de se dizer que estão certos — escrevê-los sem
 acentos nos IDs não prova que compilam. SQL e DDL que nunca correram contra um Postgres são

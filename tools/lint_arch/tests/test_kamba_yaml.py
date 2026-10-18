@@ -747,7 +747,7 @@ if __name__ == "__main__":
 class TestExigirChaves(unittest.TestCase):
     """A recusa de chaves desconhecidas (KAM-134).
 
-    Vive aqui, com o leitor, porque e dele que os catorze leitores de
+    Vive aqui, com o leitor, porque e dele que os quinze leitores de
     `ci/*.yaml` a passaram a importar. Os testes por leitor — que o conjunto
     declarado e o certo, e que uma gralha numa chave existente falha — ficam
     com cada leitor.
@@ -802,7 +802,7 @@ class TestExigirChaves(unittest.TestCase):
                 self.assertIn("tem de ser um mapa", str(capturado.exception))
 
 
-class TestOsCatorzeLeitoresDeclaramOQueLeem(unittest.TestCase):
+class TestOsQuinzeLeitoresDeclaramOQueLeem(unittest.TestCase):
     """Nenhuma chave activa em `ci/*.yaml` fica sem leitor (KAM-134).
 
     E o inverso do teste de cima: la prova-se que a recusa funciona, aqui que
@@ -814,6 +814,7 @@ class TestOsCatorzeLeitoresDeclaramOQueLeem(unittest.TestCase):
         import ci_waivers
         from contract_diff.pii import ler_allowlist
         from coverage_gate import ler_limiares
+        from lint_backlog.cli import ler_declaracoes as _backlog
         from lint_contagens.cli import ler_declaracoes as _contagens
         from lint_handoff.cli import ler_excepcoes as _handoff
         from lint_refs.cli import Excepcoes
@@ -832,6 +833,7 @@ class TestOsCatorzeLeitoresDeclaramOQueLeem(unittest.TestCase):
         Permissoes.ler(ROOT)
         _handoff(ROOT)
         _contagens(ROOT)
+        _backlog(ROOT)
         ler_allowlist(ROOT)
         ler_inventario(ROOT)
         ler_registo(ROOT)
@@ -847,6 +849,7 @@ class TestOsCatorzeLeitoresDeclaramOQueLeem(unittest.TestCase):
         from canon_lint.dicionario import CHAVES_DA_POLITICA
         from contract_diff import pii
         from coverage_gate import CHAVES as chaves_thresholds
+        from lint_backlog.cli import CHAVES as chaves_backlog
         from lint_contagens import cli as contagens
         from lint_handoff import cli as handoff
         from lint_refs.cli import CHAVES as chaves_refs
@@ -862,6 +865,7 @@ class TestOsCatorzeLeitoresDeclaramOQueLeem(unittest.TestCase):
             "ci/secrets-allow.yaml": scanner._CHAVES,
             "ci/handoff-allow.yaml": handoff._CHAVES,
             "ci/contagens-allow.yaml": contagens._CHAVES,
+            "ci/backlog-allow.yaml": chaves_backlog,
             "ci/contratos-allow.yaml": pii._CHAVES,
             "ci/canon-allow.yaml": canon_documentos.CHAVES_DE_TOPO,
             "ci/canon-lint.yaml": CHAVES_DA_POLITICA,
