@@ -370,11 +370,15 @@ CREATE UNIQUE INDEX contact_endpoints_telefone_uq
 **cinco** formas da mesma tabela — esta, `03` §5.3 (como `contacts.consentimento
 jsonb`), `06` §7.3, `08` §8.1 e `10` §7.2 — que discordavam nos campos **e** nas
 finalidades. A forma de referencia passou a ser a de [`10`](10_Onboarding_Governanca.md)
-§7.2, e as finalidades ficam **por fixar**: o dicionario §3.1 e os contratos de
-evento ja publicados em `contratos/eventos/consent.*` nomeiam conjuntos que se
-intersectam numa so (`marketing`), e escolher entre eles e decidir a taxonomia de
-consentimento da plataforma — materia de Lei 22/11 e de parecer, nao de emenda
-documental. Esta registado no KAM-159.
+§7.2, e **as finalidades ficaram fixadas pelo KAM-159**: sao **dez**, a uniao
+dos dois conjuntos que existiam — o do dicionario §3.1 e o dos 38 contratos de
+evento ja publicados, que se intersectavam numa so (`marketing`). Decisao do
+fundador, 2026-10-18, e esta na emenda 1.16 do dicionario.
+
+O que **continua por fixar** e outra coisa, e nao se confunda com aquela: a
+**base legal** de cada finalidade. Das dez, so `marketing` tem fonte directa e
+CONFIRMADA no `evidencia/E3`; seis nao tem nenhuma. A tabela esta em
+[`10`](10_Onboarding_Governanca.md) §7.2 e o parecer e o **KAM-104**.
 
 ### 6.3 Algoritmo de resolução
 
@@ -890,3 +894,4 @@ Correcção face ao documento exploratório: `../exploracao/10` e `../exploracao
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §6.2–§6.3, D-01 (`contacts` + `contact_endpoints`) e D-02 (`consent_event`); §11 e §13.2, D-07 (gatilho `tenant.approved`). | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-128: As **24** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | KAM-140: §6.2 passa a ser **o** DDL de referência das quatro tabelas de identidade, e passa a dizer o que a revisão `0003` implementou — `hmac_kid` (era `phone_hmac_kid smallint`, e sem ele o `phone_hmac` não sabe que segredo o calculou), `merged_into`/`merged_at`, as duas tabelas que não tinham documento nenhum (`contact_deks`, `hmac_key_versions`), a chave primária de `contact_endpoints`, o `tenant_id` que lhe faltava **e sem o qual a tabela não é elegível para a RLS**, e o `contact_endpoints_forma_ck`. O `consent_event` sai daqui: eram cinco formas no conjunto, e as finalidades ficam por fixar no KAM-159. | Equipa KAMBÁ |
+| 1.4 | Outubro 2026 | KAM-159: §6.2 deixa de dizer que as finalidades de `consent_event` ficam «por fixar» — ficaram, são as **dez** do dicionário §3.1 (emenda 1.16), por decisão do fundador de 2026-10-18. A passagem era das duas que ainda descreviam o estado anterior, encontrada pela revisão adversarial do KAM-159, e passa a distinguir o que ficou fixado (a taxonomia) do que continua em aberto (a **base legal** de cada uma, KAM-104). | Equipa KAMBÁ |

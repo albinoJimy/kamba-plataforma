@@ -53,9 +53,10 @@ export class VersaoDesconhecidaError extends Error {
   readonly tipo: string;
   readonly versao: number;
 
-  constructor(tipo: string, versao: number, existente: number) {
+  constructor(tipo: string, versao: number, publicadas: readonly number[]) {
     super(
-      `${tipo} v${versao} não existe: o contrato publicado é a v${existente}. ` +
+      `${tipo} v${versao} não existe: as versões publicadas são ` +
+        `${publicadas.map((v) => `v${v}`).join(', ')}. ` +
         'Uma versão nova é um ficheiro v<N+1>.schema.json, e os consumidores ' +
         'migram antes dos produtores (docs/tecnica/06 §6.6)',
     );
@@ -97,11 +98,14 @@ export function tiposComContrato(): readonly string[] {
  * se abrir seja o que for.
  */
 export function validarPayload(tipo: string, versao: number, payload: unknown): void {
-  const entrada = (CATALOGO as Record<string, { versao: number;
+  const entrada = (CATALOGO as Record<string, { versoes: readonly number[];
     obrigatorios: readonly string[]; permitidos: readonly string[] } | undefined>)[tipo];
   if (entrada === undefined) throw new TipoDesconhecidoError(tipo);
-  if (versao !== entrada.versao) {
-    throw new VersaoDesconhecidaError(tipo, versao, entrada.versao);
+  // `versoes` e nao `versao` desde o KAM-159: um tipo pode ter mais do que um
+  // contrato publicado, e a v1 continua valida depois de a v2 nascer — e o que
+  // o §6.6 quer dizer com «o v<N> fica como estava».
+  if (!entrada.versoes.includes(versao)) {
+    throw new VersaoDesconhecidaError(tipo, versao, entrada.versoes);
   }
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
     throw new PayloadInvalidoError(tipo, [], ['(o payload tem de ser um objecto)']);

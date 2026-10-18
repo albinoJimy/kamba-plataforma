@@ -365,7 +365,12 @@ CREATE TABLE platform.consent_event (
   contact_id    uuid NOT NULL,              -- `uuid`, como em toda a plataforma.
                                             -- Esta linha dizia `bytea`, que nao
                                             -- junta com `contacts.contact_id`.
-  purpose       text NOT NULL,              -- dominio POR FIXAR: ver abaixo
+  purpose       text NOT NULL
+                CONSTRAINT consent_event_purpose_ck
+                CHECK (purpose IN (                 -- dicionario §3.1, emenda 1.16
+                  'transacao', 'atendimento', 'marketing', 'analytics_agregado',
+                  'melhoria_servico', 'sugestoes_patrocinadas', 'partilha_loja',
+                  'partilha_parceiros', 'partilha_estafeta', 'notificacao_dono')),
   text_version  text NOT NULL,
   accepted      boolean NOT NULL,
   canal         text NOT NULL,
@@ -374,20 +379,62 @@ CREATE TABLE platform.consent_event (
 ); -- append-only; revogacao = novo registo
 ```
 
-> **O dominio de `purpose` fica por fixar, e a razao nao e indecisao.** O
-> dicionario §3.1 nomeia cinco finalidades (`transaccao`, `marketing`,
-> `partilha_estafeta`, `melhoria`, `notificacao_dono`); os **38** contratos de
-> evento ja publicados em `contratos/eventos/` nomeiam oito (`transacao`,
-> `atendimento`, `marketing`, `analytics_agregado`, `melhoria_servico`,
-> `sugestoes_patrocinadas`, `partilha_loja`, `partilha_parceiros`), em `enum`
-> fechado, e a revisao `0004` emite `transacao` por omissão. Os dois conjuntos
-> intersectam-se **numa só** finalidade: `marketing`. Hoje, `partilha_estafeta`
-> e `notificacao_dono` são **impossíveis de emitir**.
+> **O domínio de `purpose` são estas dez, e é a união de duas listas.**
+> Decisão do fundador, 2026-10-18 (**KAM-159**). O dicionário §3.1 nomeava
+> cinco e os 38 contratos de evento nomeavam oito, em `enum` fechado, e
+> cruzavam-se **numa só**: `marketing`. Duas do canon — `partilha_estafeta` e
+> `notificacao_dono` — eram **impossíveis de emitir**. A união não perde
+> nenhuma, e entrou com a `v2` dos 38 contratos.
 >
-> Escolher entre as duas listas decide a taxonomia de consentimento da
-> plataforma — matéria de Lei 22/11 e de parecer (`evidencia/E3`), e com um
-> custo de código de um lado (um `v2` de 38 contratos e uma migração à `0004`).
-> O KAM-140 recusou-se a decidi-lo de passagem: está em **KAM-159**.
+> Três coisas que a decisão fixou e que não são transcrição: a grafia é
+> `transacao`, com um `c`, porque é a que corre — está em 38 contratos, na
+> revisão `0004` e em onze baterias; o `melhoria` do canon e o
+> `melhoria_servico` dos contratos são o mesmo conceito e fica o segundo; e o
+> domínio passou a estar escrito na forma `∈ {…}` no §3.1, que é a que o
+> exportador lê — em prosa não havia nada que um *gate* pudesse comparar.
+>
+> **E agora há um gate.** O `contract_diff dominios` (gate 7) confronta o
+> domínio canónico com o `enum` dos contratos, **nos dois sentidos**: um valor
+> no contrato que o canon não declara, e um valor no canon que a **última**
+> versão do contrato não tem. Só a última, porque uma versão publicada está
+> congelada pelo §6.6.
+
+#### A base legal de cada finalidade, e as cinco que não têm nenhuma
+
+O domínio fixa **os nomes**. Não fixa que cada finalidade seja legalmente
+utilizável, e é preciso dizê-lo em voz alta porque a diferença é fácil de
+perder: das dez, **uma** tem fonte directa e CONFIRMADA no `evidencia/E3`.
+
+| Finalidade | O que o `E3` diz | Estado |
+|---|---|---|
+| `marketing` | Art. 19.º da Lei 22/11 — consentimento explícito e notificação, com excepções e *opt-out*; e o Instrutivo INACOM 4/20 | **CONFIRMADO** para o artigo, **INDÍCIO** para o Instrutivo. O próprio `E3` pergunta ao advogado (n.º 9) se o artigo se aplica ao WhatsApp Business |
+| `transacao` | nada por este nome. A categoria cabe no Art. 12.º («execução de contrato») | implicação do autor do `E3` sobre linha CONFIRMADA |
+| `melhoria_servico` | idem, e o requisito 8 («sem treino com dados da plataforma») | idem |
+| `partilha_parceiros` | nada por este nome; o Art. 23.º é o vizinho («o subcontratado não pode comunicar dados sem autorização») | **INDÍCIO** |
+| `atendimento` | **nada** | — |
+| `analytics_agregado` | **nada** | — |
+| `sugestoes_patrocinadas` | **nada**. O `05` §12.3 liga-a ao Art. 19.º, mas é documento técnico e não evidência | — |
+| `partilha_loja` | **nada** | — |
+| `partilha_estafeta` | **nada no `E3`**. O `07` §14.1 escreve «execução de contrato, Art. 12.º, e consentimento registado para a partilha com terceiro», com dupla ressalva: «a confirmar por parecer» e a pergunta Q-GEO-1 à Meta | — no `E3` |
+| `notificacao_dono` | **nada no `E3`**. O `EPIC-09` descreve-a, e a evidência que aponta é o **E5** §4.2 — política da Meta, não lei angolana | — no `E3` |
+
+**Seis não têm uma linha no `E3`** — conte-se a coluna da direita: `atendimento`,
+`analytics_agregado`, `sugestoes_patrocinadas`, `partilha_loja`,
+`partilha_estafeta` e `notificacao_dono`. As três de maior risco são
+`sugestoes_patrocinadas` (publicidade) e as duas partilhas com terceiros sem
+fonte nenhuma, `partilha_loja` e `partilha_estafeta`.
+
+> **Esta contagem esteve errada, e a correcção é do KAM-159 depois da revisão
+> adversarial.** Dizia «cinco», e nomeava entre as de maior risco a
+> `partilha_parceiros` — que é precisamente a única das partilhas que **tem**
+> fonte, o Art. 23.º, classificado na tabela como INDÍCIO. Numa tabela de base
+> legal de consentimento, contar mal e pôr na lista de risco a finalidade
+> errada não é erro de estilo: é a lista que alguém vai usar para decidir o
+> que pode ligar antes do parecer.
+
+A base legal de cada uma é o **KAM-104** (pacote de perguntas ao parecer
+jurídico), e está no §4 do dicionário como item por decidir. Nenhuma destas
+linhas foi inventada: onde o `E3` não diz, está escrito «nada».
 
 ### 7.3 Histórico sincronizado e treino
 
@@ -784,3 +831,5 @@ Legenda: **R** executa, **A** responde, **C** consultado, **I** informado.
 | 1.2 | Outubro 2026 | KAM-128: As **50** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. É o documento com mais referências cruzadas do conjunto. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | KAM-140: §15.1 — a tabela de transições ganha linha própria para `restrito → ativo` e `restrito → suspenso` (estavam dentro da célula de `ativo → restrito`, e por isso não tinham decisor nem efeito próprios), e passa a ter **oito** linhas, uma por aresta do diagrama; o efeito de `onboarding → ativo` passa a nomear os **três** eventos. O diagrama Mermaid passou por `mermaid.parse` — o primeiro deste documento a passar por um *parser* (`make mermaid`). | Equipa KAMBÁ |
 | 1.4 | Outubro 2026 | KAM-140: §7.2 passa a ser **a** forma de referência de `consent_event` — as outras quatro remetem para aqui. O `contact_id` era `bytea`, quando em toda a plataforma é `uuid`, e não juntava com `contacts.contact_id`. O domínio de `purpose` fica **por fixar**: o dicionário e os 38 contratos publicados nomeiam conjuntos que se cruzam numa só finalidade, e escolher entre eles é decidir a taxonomia de consentimento — KAM-159. | Equipa KAMBÁ |
+| 1.5 | Outubro 2026 | KAM-159: §7.2 — o domínio de `purpose` deixa de estar «por fixar» e passa a ter `CHECK` com as **dez** finalidades, que são a união das duas listas que existiam (decisão do fundador, 2026-10-18). Acrescenta-se a tabela da **base legal de cada uma**, com o que o `E3` diz e «nada» onde ele não diz — e não diz nada sobre cinco delas, duas das quais as de maior risco. | Equipa KAMBÁ |
+| 1.6 | Outubro 2026 | KAM-159: §7.2 — a prosa sob a tabela da base legal dizia «**cinco** não têm uma linha no `E3`» e a tabela tem **seis**; e nomeava entre as de maior risco a `partilha_parceiros`, que é a única das partilhas **com** fonte (Art. 23.º, INDÍCIO). Numa tabela de base legal de consentimento, a contagem errada e a finalidade errada na lista de risco não são erro de estilo: é a lista que alguém vai usar para decidir o que pode ligar antes do parecer. Encontrado pela revisão adversarial. | Equipa KAMBÁ |
