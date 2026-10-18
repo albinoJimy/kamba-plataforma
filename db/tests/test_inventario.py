@@ -209,6 +209,57 @@ INVENTARIO = {
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
         "concluido_at": ("timestamp with time zone", SIM, None, "nao"),
     },
+    # ------------------------------------------------------- KAM-012 (0006)
+    #
+    # **A resposta a «guarda dados pessoais?» e a razao de ser desta tabela.**
+    # Nenhuma coluna guarda conteudo: o que seria conteudo entra em
+    # `payload_hash`, que e SHA-256 de 32 bytes. O `actor_id` identifica quem
+    # agiu — e esse e o ponto de uma auditoria —, mas e uma referencia e nao um
+    # dado: `contact_id`, utilizador de staff ou nome de job, nunca telefone
+    # nem nome. O `docs/tecnica/06` §7.6 explica porque e que um registo
+    # imutavel so sobrevive ao direito de apagamento se for assim.
+    "audit_log": {
+        "id": ("bigint", NAO, None, "nao"),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "tenant_id": ("uuid", SIM, None, "nao; nulo nas accoes de plataforma"),
+        "actor_type": ("text", NAO, None, "nao"),
+        "actor_id": (
+            "text", NAO, None,
+            "referencia a quem agiu (contact_id, utilizador de staff, nome de job); "
+            "nunca telefone nem nome",
+        ),
+        "action": ("text", NAO, None, "nao"),
+        "entity": ("text", NAO, None, "nao"),
+        "entity_id": ("text", NAO, None, "identificador da entidade auditada; nao de pessoa"),
+        "turn_id": ("text", SIM, None, "identificador do turno de conversa; nao leva conteudo"),
+        "payload_hash": (
+            "bytea", NAO, None,
+            "**hash** do antes/depois, nunca o conteudo; 32 bytes, por CHECK",
+        ),
+        # A omissao existe para que o `INSERT` do chamador nao tenha de as
+        # mencionar: quem insere **nao as pode escrever** (o `GRANT` e por
+        # coluna e nao as inclui), e e o trigger `audit_encadear` que lhes poe
+        # o valor verdadeiro antes de a linha existir.
+        "prev_hash": (
+            "bytea", NAO,
+            "'\\x0000000000000000000000000000000000000000000000000000000000000000'::bytea",
+            "nao; hash opaco",
+        ),
+        "row_hash": (
+            "bytea", NAO,
+            "'\\x0000000000000000000000000000000000000000000000000000000000000000'::bytea",
+            "nao; hash opaco",
+        ),
+    },
+    "audit_heads": {
+        "tenant_id": ("uuid", SIM, None, "nao; nulo na cadeia de plataforma"),
+        "chave": (
+            "uuid", NAO, None,
+            "nao; coluna gerada, `coalesce(tenant_id, zero)`, para a chave primaria "
+            "aceitar a cadeia sem tenant",
+        ),
+        "last_hash": ("bytea", NAO, None, "nao; hash opaco"),
+    },
 }
 
 #: A particao `DEFAULT` tem as colunas do pai, uma a uma. Esta aqui — e nao
@@ -366,6 +417,19 @@ class TestInventario(ComBase):
             sorted(nome for (nome,) in linhas),
             sorted(
                 [
+                    # ------------------------------------- KAM-012 (0006)
+                    "audit_heads_hash_sha256",
+                    "audit_heads_pkey",
+                    "audit_log_action",
+                    "audit_log_actor_id_nao_vazio",
+                    "audit_log_actor_type",
+                    "audit_log_entity_id_nao_vazio",
+                    "audit_log_hashes_sha256",
+                    "audit_log_pkey",
+                    # Uma bifurcacao da cadeia deixa de ser detectada pelo
+                    # verificador e passa a ser impossivel de escrever.
+                    "audit_log_row_hash_uq",
+                    "audit_log_texto_curto",
                     # ------------------------------------- KAM-006 (0005)
                     "events_consumed_pkey",
                     "events_dlq_estado_ck",

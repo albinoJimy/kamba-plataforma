@@ -163,6 +163,9 @@ class Dicionario:
     conhecidos: set[str] = field(default_factory=set)
     eventos: set[str] = field(default_factory=set)
     tools: set[str] = field(default_factory=set)
+    #: Valores de dominio fechado. Sao valores e nao nomes: nao servem de nome
+    #: de tabela nem de coluna, e e por isso que nao entram em `conhecidos`.
+    valores: set[str] = field(default_factory=set)
     papeis: set[str] = field(default_factory=set)
     esquemas: set[str] = field(default_factory=set)
     so_no_registo: set[str] = field(default_factory=set)
@@ -240,11 +243,29 @@ class Dicionario:
             contradicoes=dados["contradicoes"],
         )
 
+        # Os valores de um dominio fechado (`action in {price.update, ...}`) sao
+        # **valores**, nao nomes de dados. Sem isto, o §3.2 do KAM-012 punha
+        # `payment`, `price`, `stock`, `audit`, `batch`, `access`, `breakglass` e
+        # os cinco de `actor_type` no conjunto dos nomes conhecidos, e uma tabela
+        # futura chamada `payment` passava o gate sem ninguem decidir nada. O
+        # caminho dos eventos ja fazia o equivalente, mas so para quem tem
+        # «Evento», «Tipos do Piloto» ou «Gatilho» no conceito.
+        valores_de_dominio: dict[tuple[str, str], set[str]] = {}
+        for dominio in dados["dominios"]:
+            chave = (str(dominio.get("seccao", "")), str(dominio.get("conceito", "")))
+            valores_de_dominio.setdefault(chave, set()).update(
+                str(v) for v in dominio.get("valores", [])
+            )
+
         for entrada in dicionario.entradas:
             inteiros = set(entrada["literais"])
             de_eventos = bool(_LINHA_DE_EVENTOS.search(entrada["conceito"]))
+            so_valores = valores_de_dominio.get((entrada["seccao"], entrada["conceito"]), set())
             for nome in list(entrada["nomes"]) + list(entrada["nomes_nota"]):
                 if not _MINUSCULAS.match(nome):
+                    continue
+                if nome in so_valores:
+                    dicionario.valores.add(nome)
                     continue
                 if "." in nome:
                     primeira = nome.split(".", 1)[0]

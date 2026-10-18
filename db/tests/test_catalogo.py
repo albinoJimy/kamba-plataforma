@@ -124,7 +124,11 @@ class TestConvencoes(ComBase):
         plataforma. Um `id` que uma pessoa escreve numa consola vale mais do que
         um UUID, e e isso que a ferramenta de operacao usa (KAM-006).
         """
-        por_identidade = {"events_outbox", "events_dlq"}
+        # KAM-012: a terceira, e pela mesma razao com mais forca — o
+        # `kamba_app` escreve em `audit_log` e **nao le**, pelo que nenhum
+        # papel sujeito a RLS ve esta coluna; e a ordem de insercao e o que
+        # torna a cadeia de hash verificavel de cima a baixo.
+        por_identidade = {"events_outbox", "events_dlq", "audit_log"}
         linhas = self.consultar(
             "SELECT table_name, data_type, column_default FROM information_schema.columns "
             "WHERE table_schema = 'platform' AND column_name = 'id'"
@@ -142,15 +146,18 @@ class TestConvencoes(ComBase):
                     self.assertEqual(tipo, "uuid")
                     self.assertEqual(omissao, "gen_random_uuid()")
 
-    def test_a_unica_coluna_de_identidade_e_a_do_outbox(self) -> None:
+    def test_as_colunas_de_identidade_sao_as_tres_declaradas(self) -> None:
         """Uma `GENERATED AS IDENTITY` a mais era uma chave sequencial nova.
 
         Chaves sequenciais vazam volume (quantos pedidos tem o vizinho) e por
-        isso o dicionario §2 manda `uuid`. Sao **duas** as excepcoes, e as duas
+        isso o dicionario §2 manda `uuid`. Sao **tres** as excepcoes, e as tres
         tem a mesma propriedade: nenhum papel sujeito a RLS le a coluna. O
         outbox porque a tabela nao e exposta a nenhum tenant e a ordem e o que o
         publicador precisa; a `events_dlq` porque `kamba_app` tem so `INSERT`
-        nela e quem a le e a operacao (KAM-006, §6.4).
+        nela e quem a le e a operacao (KAM-006, §6.4); e a `audit_log`
+        (KAM-012) pela mesma razao com mais forca — o `kamba_app` **escreve e
+        nao le**, e a ordem de insercao e o que torna a cadeia de hash
+        verificavel por quem a le de cima a baixo.
         """
         linhas = self.consultar(
             "SELECT c.relname::text, a.attname::text, a.attidentity "
@@ -159,7 +166,9 @@ class TestConvencoes(ComBase):
             "ORDER BY 1, 2"
         )
         self.assertEqual(
-            linhas, [("events_dlq", "id", "a"), ("events_outbox", "id", "a")]
+            linhas,
+            [("audit_log", "id", "a"), ("events_dlq", "id", "a"),
+             ("events_outbox", "id", "a")],
         )
 
     def test_as_chaves_primarias_sao_as_declaradas(self) -> None:
@@ -192,6 +201,14 @@ class TestConvencoes(ComBase):
         self.assertEqual(
             linhas,
             [
+                # KAM-012: a chave de `audit_heads` e **gerada** e nao `uuid`
+                # aleatoria, porque uma chave primaria recusa NULL e a cadeia
+                # das accoes de plataforma precisa de uma linha com
+                # `tenant_id` nulo (medido contra o PostgreSQL 18.6). A de
+                # `audit_log` e de identidade, como a de `events_dlq`.
+                ("audit_heads", "chave", "uuid",
+                 "COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid)"),
+                ("audit_log", "id", "bigint", None),
                 ("contact_deks", "dek_id", "uuid", "gen_random_uuid()"),
                 ("contact_endpoints", "id", "uuid", "gen_random_uuid()"),
                 ("contacts", "contact_id", "uuid", "gen_random_uuid()"),
@@ -246,6 +263,17 @@ class TestConvencoes(ComBase):
         )
         self.assertEqual(linhas, [])
 
+    #: As unicas tabelas com `tenant_id` **anulavel**, e a razao (KAM-012).
+    #:
+    #: Uma accao de plataforma — `batch.run`, `breakglass.open` — nao tem
+    #: tenant, e inventar-lhe um era pior: punha prova de operacao dentro da
+    #: cadeia de um cliente. O `tenant_id` nulo e invisivel a politica
+    #: `tenant_iso` para toda a gente, e quem escreve e le essas linhas e o
+    #: `kamba_batch`, que tem `BYPASSRLS`. **Nao e um furo no isolamento: e o
+    #: isolamento a funcionar** — o papel da aplicacao nao consegue escrever
+    #: uma accao de plataforma nem ve que ela existe.
+    ANULAVEIS = frozenset({"audit_log", "audit_heads"})
+
     def test_tenant_id_e_not_null_e_vem_primeiro_num_indice(self) -> None:
         """DoD: `tenant_id` presente e indexado, pronto para a RLS do KAM-004.
 
@@ -272,11 +300,18 @@ class TestConvencoes(ComBase):
              # envelope. A `evt_dlq_aprovacoes` **nao** esta aqui: nao tem
              # `tenant_id`, porque o isolamento do que se aprova vem da linha
              # da DLQ que ela referencia.
-             "events_consumed", "events_dlq", "evt_acoes"},
+             "events_consumed", "events_dlq", "evt_acoes",
+             # KAM-012. As duas da auditoria, e sao as **unicas** com
+             # `tenant_id` anulavel em todo o schema — ver `ANULAVEIS` logo
+             # abaixo e a razao que la esta escrita.
+             "audit_log", "audit_heads"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
-                self.assertEqual(anulavel, "NO")
+                self.assertEqual(
+                    anulavel, "YES" if tabela in self.ANULAVEIS else "NO",
+                    "o `tenant_id` anulavel e excepcao e tem de estar em ANULAVEIS",
+                )
                 primeiras = self.consultar(
                     "SELECT a.attname FROM pg_index i "
                     "JOIN pg_attribute a ON a.attrelid = i.indrelid "
@@ -284,7 +319,14 @@ class TestConvencoes(ComBase):
                     "WHERE i.indrelid = %s::regclass",
                     (f"platform.{tabela}",),
                 )
-                self.assertIn(("tenant_id",), primeiras)
+                # `audit_heads` e indexada por `chave`, que **e** o
+                # `tenant_id` — `coalesce(tenant_id, zero)`, coluna gerada e
+                # armazenada. O propósito da regra (o predicado que a RLS
+                # acrescenta ser servido por indice) esta cumprido; a letra,
+                # com outro nome. Um indice em `(tenant_id)` ao lado seria um
+                # indice que nenhuma consulta usa.
+                esperada = ("chave",) if tabela == "audit_heads" else ("tenant_id",)
+                self.assertIn(esperada, primeiras)
 
     def test_nao_ha_colunas_de_dinheiro_nem_saldos(self) -> None:
         """DoD: o DDL nao modela saldos — a plataforma nao detem fundos."""
@@ -319,12 +361,13 @@ class TestPapeis(ComBase):
         )
         return {linha[0]: linha[1:] for linha in linhas}
 
-    def test_existem_os_cinco_e_so_os_cinco(self) -> None:
-        """Os tres do KAM-003, o `kamba_resolver` do KAM-004 e o `kamba_identity` do KAM-008."""
+    def test_existem_os_seis_e_so_os_seis(self) -> None:
+        """Os tres do KAM-003, o `kamba_resolver` do KAM-004, o `kamba_identity`
+        do KAM-008 e o `kamba_audit` do KAM-012."""
         self.assertEqual(
             set(self.atributos()),
             {"kamba_migrator", "kamba_app", "kamba_batch", "kamba_resolver",
-             "kamba_identity"},
+             "kamba_identity", "kamba_audit"},
         )
 
     def test_nenhum_e_superutilizador_nem_cria_bases_ou_papeis(self) -> None:
@@ -348,6 +391,9 @@ class TestPapeis(ComBase):
                 "kamba_batch": True,
                 "kamba_resolver": False,
                 "kamba_identity": False,
+                # KAM-012: quem audita um tenant audita **esse** tenant. A
+                # cadeia de plataforma le-se com o `kamba_batch`.
+                "kamba_audit": False,
             },
         )
 

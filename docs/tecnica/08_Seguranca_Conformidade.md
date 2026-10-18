@@ -327,7 +327,7 @@ Regras: nenhum segredo em imagem, repositório, log ou *trace*; *scanner* de seg
 
 ```sql
 CREATE TABLE audit_log (
-  id bigserial PRIMARY KEY, ts timestamptz NOT NULL DEFAULT now(),
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, criado_at timestamptz NOT NULL DEFAULT now(),
   tenant_id uuid, actor_type text NOT NULL,        -- contact|owner|staff|agent|system
   actor_id text NOT NULL, action text NOT NULL,    -- price.update|stock.adjust|payment.manual_confirm|access.conversation|...
   entity text NOT NULL, entity_id text NOT NULL, turn_id text,
@@ -336,6 +336,8 @@ CREATE TABLE audit_log (
 );
 REVOKE UPDATE, DELETE, TRUNCATE ON audit_log FROM PUBLIC;  -- + trigger BEFORE UPDATE OR DELETE que levanta excepção
 ```
+
+**O que foi entregue difere deste esboço em quatro pontos, e a revisão `0006` é que manda** (KAM-012; o porquê de cada um está em [`docs/auditoria.md`](../auditoria.md)): a coluna de tempo chama-se `criado_at`, que é o nome canónico; o encadeamento vive num *trigger* `BEFORE INSERT` `SECURITY DEFINER` e não na função de escrita, porque quem tem o privilégio em bruto para encadear também o tem para forjar; o `INSERT` do papel da aplicação é **por coluna**, sem `criado_at` nem os dois hashes; e o `criado_at` **entra** no `row_hash`, senão a cadeia prende a sequência e não prende a cronologia.
 
 **Proporcional ao Piloto:** tabela *append-only* (privilégios + trigger), hash-chain por tenant (`row_hash = H(prev_hash || campos)`), verificação nocturna da cadeia, e **âncora diária** do último `row_hash` exportada para o *repo* de backup fora do host. WORM real (retenção bloqueada no objecto) só em Clusters, se o `StorageProvider` o suportar (NÃO VERIFICADO para SeaweedFS). `payment_events` é igualmente *append-only*, com a unicidade de `04` §6.2 (`UNIQUE (provider, account_id, referencia, tipo_evento, sequencia)`).
 
@@ -738,3 +740,4 @@ Não fazem parte do cânone até aprovação.
 | 1.0 | Outubro 2026 | Emissão inicial: isolamento, ameaças, segredos, auditoria, PII, conformidade (Lei 22/11, Meta, AGT, BNA, consumidor), incidentes, retenção, DPIA. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §4.5 e §6, D-06 (idempotência por `(provider, account_id, referencia)`; unicidade de `04` §6.2); §4.5 e §14, D-04; §8.1, §8.4, §8.5 e §8.7, D-02 (`consent_event`). | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-128: As **13** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
+| 1.3 | Outubro 2026 | KAM-012: o esboço de DDL do §6 passa a `criado_at` e a `IDENTITY`, e ganha a nota dos quatro pontos em que a revisão `0006` entregue difere dele. | Equipa KAMBÁ |

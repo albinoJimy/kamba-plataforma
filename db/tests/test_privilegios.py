@@ -34,6 +34,11 @@ _ESPERADO_0001 = {
     "kamba_batch": {"SELECT", "INSERT", "UPDATE", "DELETE"},
     "kamba_resolver": set(),
     "kamba_identity": set(),
+    # O papel de auditoria (KAM-012) le **o registo de auditoria** e mais nada.
+    # Quem audita um preco le a linha de `audit_log`, que ja tem o antes e o
+    # depois em hash; nao precisa da tabela de onde o preco veio, e dar-lha
+    # fazia dele um segundo papel de leitura geral.
+    "kamba_audit": set(),
     "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
     "public": set(),
 }
@@ -52,6 +57,7 @@ def _identidade(*privilegios: str) -> dict[str, set[str]]:
         "kamba_batch": set(),
         "kamba_resolver": set(),
         "kamba_identity": set(privilegios),
+        "kamba_audit": set(),
         "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
         "public": set(),
     }
@@ -72,6 +78,66 @@ ESPERADO_POR_TABELA.update(
 )
 
 
+
+def _auditoria(**por_papel: set[str]) -> dict[str, set[str]]:
+    """Matriz de uma tabela da revisao 0006 (KAM-012).
+
+    O dono tem tudo — **e nem assim altera ou apaga**: o privilegio e de
+    tabela, e o que o impede e o *trigger* `ENABLE ALWAYS`, que esta bateria
+    nao ve. O `test_auditoria.py` e que o prova.
+    """
+    base = {
+        "kamba_app": set(),
+        "kamba_batch": set(),
+        "kamba_resolver": set(),
+        "kamba_identity": set(),
+        "kamba_audit": set(),
+        "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+        "public": set(),
+    }
+    base.update(por_papel)
+    return base
+
+
+ESPERADO_POR_TABELA.update(
+    {
+        # **Quem escreve nao le.** O criterio 8 do KAM-012 pede que a leitura
+        # do registo seja recusada ao papel da aplicacao, e e por isso que o
+        # `kamba_app` tem `INSERT` e nao tem `SELECT`. O `kamba_batch` escreve
+        # as accoes de plataforma e le a cadeia inteira para a verificar de
+        # noite. O `kamba_audit` so le. **Ninguem tem `DELETE` nem `UPDATE`**:
+        # a retencao depende de um prazo fiscal NAO VERIFICADO (dicionario §4,
+        # KAM-071), e uma funcao de limpeza contra um prazo por confirmar apaga
+        # prova que a lei pode exigir.
+        # O `INSERT` do `kamba_app` e do `kamba_batch` e **por coluna** desde o
+        # redesenho: sem `criado_at`, sem `prev_hash`, sem `row_hash`. Um
+        # privilegio por coluna nao aparece nesta matriz de tabela — aparece em
+        # `COLUNAS_POR_PAPEL`, e e la que se le o que falta. Com `INSERT` de
+        # tabela inteira, quem escreve forjava uma linha encadeada com a data a
+        # escolha (achado C1 da revisao adversarial).
+        "audit_log": _auditoria(
+            kamba_batch={"SELECT"},
+            kamba_audit={"SELECT"},
+        ),
+        # A cabeca da cadeia nao e o registo: guarda um hash opaco por tenant,
+        # e quem escreve precisa de a ler e de a avancar. O `UPDATE` e **por
+        # coluna** (`last_hash`), pelo que nao aparece nesta matriz de tabela —
+        # aparece em `COLUNAS_POR_PAPEL`. O `kamba_audit` **nao** lhe toca: quem
+        # audita recalcula a cadeia a partir do `audit_log`, e uma cabeca que o
+        # auditor leia e um valor em que ele poderia passar a confiar.
+        # **Nenhum papel de aplicacao lhe escreve.** So o trigger
+        # `audit_encadear`, que e `SECURITY DEFINER` e corre como o dono. O
+        # `kamba_batch` e o `kamba_audit` leem-na porque verificar a cadeia
+        # exige-a: sem a cabeca, apagar as ultimas N linhas deixa-a consistente
+        # consigo propria.
+        "audit_heads": _auditoria(
+            kamba_batch={"SELECT"},
+            kamba_audit={"SELECT"},
+        ),
+    }
+)
+
+
 def _eventos(**por_papel: set[str]) -> dict[str, set[str]]:
     """Matriz de uma tabela da revisao 0004 (KAM-005).
 
@@ -85,6 +151,7 @@ def _eventos(**por_papel: set[str]) -> dict[str, set[str]]:
         "kamba_batch": set(),
         "kamba_resolver": set(),
         "kamba_identity": set(),
+        "kamba_audit": set(),
         "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
         "public": set(),
     }
@@ -192,6 +259,20 @@ COLUNAS_POR_PAPEL = {
     # E a operacao fecha a entrada da DLQ, tambem so o desfecho: o envelope e o
     # erro sao o registo do que aconteceu, e nao se reescrevem.
     ("kamba_batch", "events_dlq", "UPDATE"): {"estado", "resolvido_at", "resolvido_por"},
+    # KAM-012: a cabeca da cadeia avanca, e so o hash. Mudar o `tenant_id`
+    # de uma cabeca era mudar de cadeia a meio; a `chave` e gerada e nem o
+    # dono a escreve.
+    # KAM-012: o `INSERT` e por coluna, e as tres que faltam sao a propriedade
+    # — `criado_at`, `prev_hash` e `row_hash` sao do trigger, e quem insere nao
+    # as escolhe.
+    ("kamba_app", "audit_log", "INSERT"): {
+        "tenant_id", "actor_type", "actor_id", "action", "entity", "entity_id",
+        "turn_id", "payload_hash",
+    },
+    ("kamba_batch", "audit_log", "INSERT"): {
+        "tenant_id", "actor_type", "actor_id", "action", "entity", "entity_id",
+        "turn_id", "payload_hash",
+    },
     # KAM-006: tres colunas, e nenhuma por gosto. O `ON CONFLICT (consumer,
     # event_id) WHERE estado = 'aberta'` do `paraDlq()` precisa dos dois
     # elementos de inferencia **e** do predicado para o PostgreSQL achar o
@@ -226,6 +307,14 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     "events_dlq",
     "evt_dlq_aprovacoes",
     "evt_acoes",
+    # KAM-012: as duas da auditoria. O `audit_log` **tem** privilegio por
+    # coluna — o `INSERT` e sem `criado_at` nem hashes, e e isso que impede
+    # quem escreve de forjar uma linha encadeada com a data a escolha. O
+    # `audit_heads` entra pela mesma razao das de eventos: um privilegio de
+    # coluna a mais nela seria invisivel na matriz de tabela, e escrever na
+    # cabeca da cadeia e exactamente o que ninguem pode.
+    "audit_log",
+    "audit_heads",
 )
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.
@@ -335,7 +424,11 @@ class TestMatrizDePrivilegios(ComBase):
         # celulas, e uma ida a base por celula levava a suite ao limite de
         # tempo do gate. O `unnest` cruzado devolve a matriz inteira de uma vez;
         # as asercoes sao as mesmas, celula a celula.
-        papeis = ("kamba_app", "kamba_batch", "kamba_resolver", "kamba_identity", "public")
+        # Os papeis vem do `ligacao.PAPEIS` e nao de uma tupla escrita a mao:
+        # o `kamba_audit` (KAM-012) nasceu e esta lista nao o acompanhou, e um
+        # papel que falte aqui e um papel a quem se pode conceder uma coluna
+        # sem ninguem ver. E a mesma licao do `EXECUTE` para `PUBLIC`.
+        papeis = (*sorted(ligacao.PAPEIS.values()), "public")
         cursor = self.ligar("admin").cursor()
         for tabela in TABELAS_COM_MATRIZ_DE_COLUNA:
             cursor.execute(

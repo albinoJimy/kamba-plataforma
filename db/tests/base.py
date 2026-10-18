@@ -55,7 +55,13 @@ TABELAS_0005 = (
 #: Tudo o que existe em `platform` em `head`, por ordem alfabetica. Lista
 #: fechada: uma tabela a mais (encomendas, pagamentos, consumidores) e escopo de
 #: outro ticket, e entra aqui pela mao de quem a criar.
-TABELAS = tuple(sorted(TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005))
+#: O que a revisao 0006 (KAM-012) acrescenta: o registo de auditoria e a
+#: cabeca da cadeia de hash de cada tenant.
+TABELAS_0006 = ("audit_heads", "audit_log")
+
+TABELAS = tuple(
+    sorted(TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005 + TABELAS_0006)
+)
 
 #: O que existe em `platform` quando a base esta na revisao `0004`.
 #:

@@ -789,6 +789,8 @@ ci-8:
 	@# uma vez. Nao e opcional: um p95 acima do limiar falha o build.
 	@echo "==> gate 8: carga de eventos (50/s durante 5 min)"
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_eventos_carga
+	@echo "==> gate 8: concorrencia da cadeia de auditoria (KAM-012)"
+	@$(VENV_PYTHON) db/gate_bd.py --suite tests_auditoria_carga
 
 # -----------------------------------------------------------------------------
 # Limpeza
