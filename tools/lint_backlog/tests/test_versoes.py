@@ -293,6 +293,54 @@ class TestDeclaracoes(Base):
         self.assertIn('o maximo sao 31 contados da criacao',
                       str(capturado.exception))
 
+    def test_criado_em_no_futuro_e_recusado(self) -> None:
+        """Sem isto, o tecto de 31 dias e relativo a uma ancora que ninguem ancora.
+
+        `criado_em: 2027-06-01` com `expira_em: 2027-07-01` respeita a ordem e
+        a diferenca, e dava uma dispensa activa por tempo arbitrario. A
+        primeira versao copiou o molde do `ci/contagens-allow.yaml`
+        **fielmente** e herdou a lacuna com ele; quem a nao tem e o
+        `tools/ci_waivers.py`, desde o KAM-135.
+        """
+        import datetime
+        from lint_backlog.cli import ConfiguracaoInvalida, ler_declaracoes
+        conjunto = self.conjunto_com_cabecalho_atrasado()
+        conjunto.allow = self.DECLARACAO.replace(
+            'criado_em: 2026-10-18', 'criado_em: 2027-06-01').replace(
+            'expira_em: 2026-11-18', 'expira_em: 2027-07-01')
+        pasta = self.escrever(conjunto)
+        with self.assertRaises(ConfiguracaoInvalida) as capturado:
+            ler_declaracoes(pasta, hoje=datetime.date(2026, 10, 20))
+        self.assertIn('nao se cria no futuro', str(capturado.exception))
+
+    def test_criado_em_hoje_passa(self) -> None:
+        """A fronteira: hoje e criar hoje, e isso e legitimo."""
+        import datetime
+        from lint_backlog.cli import ler_declaracoes
+        conjunto = self.conjunto_com_cabecalho_atrasado()
+        conjunto.allow = self.DECLARACAO
+        declaracoes = ler_declaracoes(self.escrever(conjunto),
+                                      hoje=datetime.date(2026, 10, 18))
+        self.assertEqual(len(declaracoes), 1)
+
+    def test_o_check_recusa_a_ancora_no_futuro_com_codigo_2(self) -> None:
+        """O caminho inteiro, e nao so o leitor: codigo 2, nao 0."""
+        import contextlib
+        import io
+        from lint_backlog import cli
+        conjunto = self.conjunto_com_cabecalho_atrasado()
+        conjunto.allow = self.DECLARACAO.replace(
+            'criado_em: 2026-10-18', 'criado_em: 2027-06-01').replace(
+            'expira_em: 2026-11-18', 'expira_em: 2027-07-01')
+        pasta = self.escrever(conjunto)
+        erro = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(erro):
+            codigo = cli.main(['--root', str(pasta), '--hoje', '2026-10-20',
+                               'check'])
+        self.assertEqual(codigo, 2)
+        self.assertIn('nao se cria no futuro', erro.getvalue())
+
     def test_expira_antes_de_criar_e_recusado(self) -> None:
         from lint_backlog.cli import ConfiguracaoInvalida, ler_declaracoes
         conjunto = self.conjunto_com_cabecalho_atrasado()

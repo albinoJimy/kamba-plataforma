@@ -1218,7 +1218,7 @@ ambos consomem este esquema em vez de inventarem o seu.
 
 | Campo | Obrigatório | Nota |
 |---|---|---|
-| `gate` | sim | **onze** aceitam: 3, **3b**, 4, 5, 6, 7, 8, 9, 11, **14** e **18**. Os outros oito não, e a recusa diz a razão **desse** gate — ver abaixo |
+| `gate` | sim | **doze** aceitam: 3, **3b**, **3c**, 4, 5, 6, 7, 8, 9, 11, **14** e **18**. Os outros **oito** não (1, 2, 10, 12, 13, 15, 16 e 17), e a recusa diz a razão **desse** gate — ver abaixo. Os vinte são os dezoito do canon mais o 3b e o 3c |
 | `alvo` | sim | o que exactamente se dispensa; nunca «tudo» |
 | `adr_ou_aprovacao` | sim | `ADR-NNN`, `ADR-LNNN` ou `aprovacao:<quem>@<data>`. **A data é lida** (KAM-135): tem de ser real, não futura, e não pode preceder o `criado_em` em mais de 30 dias |
 | `autor` | sim | a quem se pergunta |

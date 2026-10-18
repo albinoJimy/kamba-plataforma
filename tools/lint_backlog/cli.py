@@ -167,15 +167,28 @@ def _data(valor, onde: str) -> datetime.date:
     raise ConfiguracaoInvalida(f'{onde}: falta a data')
 
 
-def _com_prazo(entrada: dict, onde: str) -> dict:
+def _com_prazo(entrada: dict, onde: str, hoje: datetime.date) -> dict:
     """Os quatro campos partilhados, ja validados.
 
     O `criado_em` **e lido**, e e isso que o torna util: sem a conta contra o
     `PRAZO_MAXIMO`, prolongar uma dispensa era empurrar o `expira_em` e mais
     nada. E a licao do KAM-134 e do KAM-135, aplicada aqui antes de custar.
+
+    **E o `criado_em` nao pode estar no futuro**, senao o tecto de 31 dias e
+    relativo a uma ancora que ninguem ancora: `criado_em: 2027-06-01` com
+    `expira_em: 2027-07-01` respeita a ordem e a diferenca, e da uma dispensa
+    activa por tempo arbitrario. A primeira versao deste modulo copiou o molde
+    do `ci/contagens-allow.yaml` (KAM-158) **fielmente**, e herdou esta lacuna
+    com ele; quem a nao tem e o `tools/ci_waivers.py`, que a fecha desde o
+    KAM-135 e com a razao escrita. A mensagem abaixo e a dele.
     """
     criado_em = _data(entrada.get('criado_em'), f'{onde}: `criado_em`')
     expira_em = _data(entrada.get('expira_em'), f'{onde}: `expira_em`')
+    if criado_em > hoje:
+        raise ConfiguracaoInvalida(
+            f'{onde}: `criado_em` e {criado_em.isoformat()} e hoje e '
+            f'{hoje.isoformat()}. Uma dispensa nao se cria no futuro — e a '
+            'forma mais simples de esticar o prazo sem parecer que se esticou.')
     if expira_em < criado_em:
         raise ConfiguracaoInvalida(
             f'{onde}: `expira_em` ({expira_em}) e anterior a `criado_em` '
@@ -191,7 +204,8 @@ def _com_prazo(entrada: dict, onde: str) -> dict:
             'criado_em': criado_em, 'expira_em': expira_em}
 
 
-def ler_declaracoes(raiz: Path) -> Declaracoes:
+def ler_declaracoes(raiz: Path,
+                    hoje: datetime.date | None = None) -> Declaracoes:
     """As declaracoes de `ci/backlog-allow.yaml`.
 
     A ausencia do ficheiro e legitima e significa «nada declarado» — e nesse
@@ -200,6 +214,7 @@ def ler_declaracoes(raiz: Path) -> Declaracoes:
     legitimo: uma declaracao sem razao escrita e uma declaracao que ninguem
     pode revogar.
     """
+    hoje = hoje or datetime.date.today()
     caminho = raiz / ALLOW
     if not caminho.is_file():
         return Declaracoes()
@@ -221,7 +236,7 @@ def ler_declaracoes(raiz: Path) -> Declaracoes:
                 f'{onde}: `genero` e {genero!r} e so ha dois, `prioridade` e `fase`')
         inversoes.append(Inversao(
             de=_texto(entrada, 'de', onde), para=_texto(entrada, 'para', onde),
-            genero=genero, **_com_prazo(entrada, onde)))
+            genero=genero, **_com_prazo(entrada, onde, hoje)))
 
     sequencias: list[Sequencia] = []
     for indice, entrada in enumerate(dados.get('sequencias') or [], 1):
@@ -229,7 +244,7 @@ def ler_declaracoes(raiz: Path) -> Declaracoes:
         exigir_chaves(entrada, CHAVES_DE_SEQUENCIA, onde, erro=ConfiguracaoInvalida)
         sequencias.append(Sequencia(
             ficheiro=_texto(entrada, 'ficheiro', onde),
-            falta=_texto(entrada, 'falta', onde), **_com_prazo(entrada, onde)))
+            falta=_texto(entrada, 'falta', onde), **_com_prazo(entrada, onde, hoje)))
 
     cabecalhos: list[Cabecalho] = []
     for indice, entrada in enumerate(dados.get('cabecalhos') or [], 1):
@@ -237,7 +252,7 @@ def ler_declaracoes(raiz: Path) -> Declaracoes:
         exigir_chaves(entrada, CHAVES_DE_CABECALHO, onde, erro=ConfiguracaoInvalida)
         cabecalhos.append(Cabecalho(
             ficheiro=_texto(entrada, 'ficheiro', onde),
-            **_com_prazo(entrada, onde)))
+            **_com_prazo(entrada, onde, hoje)))
 
     return Declaracoes(tuple(inversoes), tuple(sequencias), tuple(cabecalhos))
 
@@ -338,8 +353,11 @@ def terceira_superficie(backlog: Backlog) -> list[str]:
     return achados
 
 
-#: Um ticket. **Exactamente** tres digitos: `KAM-19` e `KAM019` nao sao tickets
-#: deste conjunto, sao gralhas.
+#: Um ticket. **Exactamente** tres digitos, e o hifen obrigatorio: dois
+#: digitos, quatro digitos, ou o identificador sem hifen nao sao tickets deste
+#: conjunto, sao gralhas. As formas nao se escrevem aqui por extenso — o gate 3
+#: le este ficheiro, e a lista completa vive nas *fixtures* do
+#: `tests/test_grafo.py`, construida em tempo de execucao.
 _TICKET = re.compile(r'KAM-\d{3}')
 #: Uma decisao aberta do §13.3 da arquitectura, a unica forma externa que nao e
 #: um ticket. Medido sobre `main`: as entradas `ext:` do conjunto sao `ext:D6` e
@@ -360,12 +378,16 @@ class Aresta(NamedTuple):
     reportava — a assimetria provava que era lapso e nao decisao.
 
     **O que o silencio custava, medido.** Escrita coerentemente nas tres
-    superficies, que e como uma gralha viaja (copia-se a celula), qualquer de
-    `KAM-19`, `kam-019`, `KAM019`, `Kam-019`, `ext:kam-019` ou `XPTO-1` dava
-    conforme no 3c **e** conforme no gate 3: uma aresta que existe em prosa,
-    esta coerente em todo o lado, e e invisivel a reciprocidade, aos ciclos e
-    as inversoes. `KAM-19` e a gralha mais provavel que ha neste conjunto, e e
-    a classe G5 / KAM-144 que este gate existe para fechar.
+    superficies, que e como uma gralha viaja (copia-se a celula), davam
+    conforme no 3c **e** conforme no gate 3 sete formas: dois digitos em vez de
+    tres, quatro em vez de tres, tudo em minusculas, capitalizada, sem o hifen,
+    a mesma dentro de um `ext:`, e um prefixo de outra serie. Uma aresta que
+    existe em prosa, esta coerente em todo o lado, e e invisivel a
+    reciprocidade, aos ciclos e as inversoes. A de dois digitos e a gralha mais
+    provavel que ha neste conjunto, e e a classe G5 / KAM-144 que este gate
+    existe para fechar.
+
+    As sete nao se escrevem aqui por extenso, pela razao do `_TICKET` acima.
     """
 
     bruto: str
@@ -414,9 +436,22 @@ def malformadas(backlog: Backlog) -> list[str]:
         for campo, entradas in (('Dependências', bloco.deps),
                                 ('Bloqueia', bloco.bloqueia)):
             for bruto in entradas:
-                if classificar(bruto).malformada:
+                aresta = classificar(bruto)
+                if aresta.malformada:
                     achados.append(
                         _gralha(identificador, bloco.onde, campo, bruto))
+                    continue
+                # Um `ext:D#` bem formado pode apontar uma decisao que nao
+                # existe: a forma aceita D0–D99 e o §13.3 tem D1–D13. O
+                # conjunto valido vem do `lint_refs`, que ja o le de la.
+                if (aresta.externo and aresta.alvo is None
+                        and backlog.decisoes is not None):
+                    decisao = bruto[4:]
+                    if decisao not in backlog.decisoes:
+                        achados.append(
+                            f'{identificador} ({bloco.onde}): `{campo}` tem '
+                            f'{bruto!r}, e a decisao {decisao} nao existe no '
+                            '§13.3 da arquitectura')
     return achados
 
 
@@ -675,7 +710,7 @@ def verificar(raiz: Path, minimo: int = modelo.MINIMO_DE_BLOCOS,
               hoje: datetime.date | None = None) -> Veredicto:
     """Tudo, numa passagem. Nao imprime e nao decide o codigo de saida."""
     hoje = hoje or datetime.date.today()
-    declaracoes = ler_declaracoes(raiz)
+    declaracoes = ler_declaracoes(raiz, hoje)
     backlog = modelo.ler(raiz, minimo)
     controlos = versoes.varrer(raiz)
 

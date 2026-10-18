@@ -153,6 +153,65 @@ class TestGralhaDeIdentificador(Base):
         self.assertIn('ext:KAM-NNN', achados[0])
         self.assertIn('ext:D#', achados[0])
 
+    def test_entrada_vazia_entre_virgulas_nao_passa_calada(self) -> None:
+        """O achado m2 da segunda passagem: `| A, , B |` era filtrado."""
+        from lint_backlog.cli import malformadas
+        conjunto = Conjunto()
+        conjunto.substituir(3, dependencias=f'{kam(1)}, , {kam(2)}')
+        conjunto.substituir(1, bloqueia=(2, 3))
+        conjunto.substituir(2, depende_de=(1,), bloqueia=(3, 4))
+        achados = malformadas(self.ler(conjunto))
+        self.assertEqual(len(achados), 1, achados)
+        self.assertIn("''", achados[0])
+
+    def test_virgula_final_nao_passa_calada(self) -> None:
+        from lint_backlog.cli import malformadas
+        conjunto = Conjunto()
+        conjunto.substituir(3, dependencias=f'{kam(1)},')
+        conjunto.substituir(1, bloqueia=(2, 3))
+        achados = malformadas(self.ler(conjunto))
+        self.assertEqual(len(achados), 1, achados)
+
+    def test_uma_decisao_que_nao_existe_e_achado(self) -> None:
+        """A forma aceita D0–D99; o §13.3 tem D1–D13, e e o canon que manda.
+
+        Nas *fixtures* nao ha `docs/tecnica/`, pelo que o conjunto valido e
+        `None` e so a forma se verifica — por isso o conjunto injecta-se aqui.
+        """
+        import dataclasses
+        from lint_backlog.cli import malformadas
+        conjunto = Conjunto()
+        conjunto.substituir(3, dependencias=f'{kam(1)}, ext:D99')
+        conjunto.substituir(1, bloqueia=(2, 3))
+        backlog = self.ler(conjunto)
+        self.assertIsNone(backlog.decisoes)
+        self.assertEqual(malformadas(backlog), [])
+        com_canon = dataclasses.replace(
+            backlog, decisoes=frozenset({'D1', 'D6', 'D13'}))
+        achados = malformadas(com_canon)
+        self.assertEqual(len(achados), 1, achados)
+        self.assertIn('D99', achados[0])
+        self.assertIn('§13.3', achados[0])
+
+    def test_uma_decisao_que_existe_passa(self) -> None:
+        import dataclasses
+        from lint_backlog.cli import malformadas
+        conjunto = Conjunto()
+        conjunto.substituir(3, dependencias=f'{kam(1)}, ext:D6')
+        conjunto.substituir(1, bloqueia=(2, 3))
+        com_canon = dataclasses.replace(
+            self.ler(conjunto), decisoes=frozenset({'D1', 'D6', 'D13'}))
+        self.assertEqual(malformadas(com_canon), [])
+
+    def test_o_conjunto_real_traz_as_decisoes_do_canon(self) -> None:
+        """E o conjunto real **tem** `docs/tecnica/`, logo nao fica em `None`."""
+        from lint_backlog import modelo
+        raiz = Path(__file__).resolve().parents[3]
+        decisoes = modelo.ler(raiz).decisoes
+        self.assertIsNotNone(decisoes)
+        self.assertIn('D6', decisoes)
+        self.assertNotIn('D99', decisoes)
+
     def test_as_formas_validas_passam(self) -> None:
         from lint_backlog.cli import malformadas
         conjunto = Conjunto()

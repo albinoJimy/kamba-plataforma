@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from lint_refs.sets import FonteCanonicaAusente, LINHA_BACKLOG, seccao
+from lint_refs.sets import ler as ler_conjuntos
 
 #: O backlog mestre, e o §4 de onde se le o contrato entre epics.
 INDICE = 'specs/INDICE.md'
@@ -115,10 +116,18 @@ def normalizar_titulo(titulo: str) -> str:
 
 
 def lista_de_ids(valor: str) -> tuple[str, ...]:
-    """`'KAM-003, ext:D6'` -> `('KAM-003', 'ext:D6')`; `'—'` -> `()`."""
+    """`'KAM-003, ext:D6'` -> `('KAM-003', 'ext:D6')`; `'—'` -> `()`.
+
+    **As entradas vazias nao se deitam fora.** A primeira versao filtrava-as
+    (`if x.strip()`), e com isso `| KAM-013, , KAM-011 |` e uma virgula final
+    passavam caladas. Depois de a lista de formas passar a fechada, uma entrada
+    vazia e entrada que o parser nao deve tolerar: devolve-se a cadeia vazia,
+    que o `classificar` do `cli` reconhece como malformada e reporta como
+    qualquer outra gralha.
+    """
     if valor.strip() in VAZIO:
         return ()
-    return tuple(x.strip() for x in valor.split(',') if x.strip())
+    return tuple(x.strip() for x in valor.split(','))
 
 
 @dataclass(frozen=True)
@@ -196,7 +205,12 @@ class Inventario:
 
 @dataclass(frozen=True)
 class Backlog:
-    """As tres superficies, lidas uma vez."""
+    """As tres superficies, lidas uma vez.
+
+    Traz tambem as **decisoes abertas** do §13.3 da arquitectura, lidas pelo
+    `lint_refs`: um `ext:D#` so e legitimo se a decisao existir. Sem elas, a
+    forma `D\\d{1,2}` aceitava `D0` a `D99` e o canon tem D1–D13.
+    """
 
     linhas: dict[str, Linha]
     blocos: dict[str, Bloco]
@@ -209,6 +223,11 @@ class Backlog:
     epics_no_proposito: int | None
     epics: tuple[str, ...]
     por_epic: dict[str, list[str]] = field(default_factory=dict)
+    #: As decisoes abertas do §13.3, ou `None` quando a arquitectura nao esta
+    #: na arvore — o que so acontece nas *fixtures* dos testes, que tem um
+    #: `specs/` minimo e nenhum `docs/`. Com `None`, de um `ext:D#` so se
+    #: verifica a **forma**; com o conjunto, verifica-se que a decisao existe.
+    decisoes: frozenset[str] | None = None
 
 
 def _recortar(texto: str, inicio: str, fim: str, onde: str) -> str:
@@ -508,7 +527,14 @@ def ler(raiz: Path, minimo: int = MINIMO_DE_BLOCOS) -> Backlog:
     resumos = ler_resumos(raiz)
     inventario, total = ler_inventario(raiz)
     proposito, epics_no_proposito = ler_proposito(raiz)
+    # As decisoes abertas vem do `lint_refs`, que ja as le do §13.3: duas
+    # listas de D# era a mesma classe de defeito que duas gramaticas para o §4.
+    try:
+        decisoes = ler_conjuntos(raiz).d
+    except (FonteCanonicaAusente, OSError):
+        decisoes = None
     return Backlog(linhas=linhas, blocos=blocos, resumos=resumos,
                    inventario=inventario, total=total, proposito=proposito,
                    epics_no_proposito=epics_no_proposito, epics=epics,
+                   decisoes=decisoes,
                    por_epic=por_epic)
