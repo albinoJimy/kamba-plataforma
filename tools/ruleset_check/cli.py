@@ -150,20 +150,17 @@ def _mostrar(raiz: Path, alvos: list[config.Alvo], argumentos) -> int:
     try:
         espelho = comparador.ler_espelho(raiz / alvo.espelho)
         resultado = verificacao.verificar(raiz, alvo, argumentos.transporte)
-        if resultado.ruleset_id is None:
-            print(
-                f"ruleset: {alvo.repositorio} nao tem um ruleset chamado "
-                f"{espelho.get('name')!r}; nao ha o que mostrar",
-                file=sys.stderr,
-            )
-            return 2
-        efectivo = api.obter(
-            alvo.caminho_do_ruleset(resultado.ruleset_id), argumentos.transporte
-        )
     except (comparador.EspelhoInvalido, api.ApiIndisponivel) as erro:
         print(f"ruleset: {alvo.repositorio}: {erro}", file=sys.stderr)
         return 2
-    print(formato_do_espelho(efectivo))
+    if resultado.efectivo is None:
+        print(
+            f"ruleset: {alvo.repositorio} nao tem um ruleset chamado "
+            f"{espelho.get('name')!r}; nao ha o que mostrar",
+            file=sys.stderr,
+        )
+        return 2
+    print(formato_do_espelho(resultado.efectivo))
     return 0
 
 

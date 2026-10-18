@@ -39,6 +39,9 @@ class Resultado:
     contextos_no_espelho: int
     #: Quantos rulesets o repositorio tem, ao todo. So para a mensagem.
     rulesets_no_repositorio: int
+    #: O ruleset efectivo, em bruto, ou `None` se nao se chegou a le-lo. Esta
+    #: aqui para o `mostrar` nao ter de o pedir uma segunda vez a API.
+    efectivo: dict | None = None
 
     @property
     def conforme(self) -> bool:
@@ -114,7 +117,9 @@ def verificar(raiz: Path, alvo: Alvo, transporte: str) -> Resultado:
 
     efectivo = api.obter(alvo.caminho_do_ruleset(ruleset_id), transporte)
     divergencias += comparador.comparar(espelho, efectivo)
-    return Resultado(alvo, ruleset_id, divergencias, contextos, len(existentes))
+    return Resultado(
+        alvo, ruleset_id, divergencias, contextos, len(existentes), efectivo
+    )
 
 
 def _contextos_no_espelho(espelho: dict) -> int:
