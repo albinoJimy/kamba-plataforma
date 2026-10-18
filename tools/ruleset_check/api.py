@@ -1,11 +1,22 @@
 """Obtencao do ruleset efectivo. **So leitura.**
 
-Nao existe neste modulo — nem em nenhum outro do pacote — uma chamada `POST`,
-`PUT`, `PATCH` ou `DELETE`. E deliberado e tem teste
-(`tests/test_api_e_cli.py::TestSemCaminhoDeEscrita`): a decisao do
-`docs/adr/ADR-L003-verificacao-do-ruleset.md` e «so deteccao», e um caminho de
-escrita aqui tornava a credencial de leitura numa credencial de escrita a espera
-de ser trocada.
+Este modulo faz dois pedidos, os dois `GET`: a lista de rulesets de um
+repositorio, e um ruleset pelo `id`. Nao ha caminho de escrita, e a decisao do
+`docs/adr/ADR-L003-verificacao-do-ruleset.md` e «so deteccao» — um caminho de
+escrita aqui tornava a credencial de leitura numa credencial de escrita a
+espera de ser trocada.
+
+**O que a maquina garante, exactamente.** O
+`tests/test_guarda_de_escrita.py` varre **todos** os modulos do pacote e
+reprova: literais de cadeia que contenham `POST`, `PUT`, `PATCH` ou `DELETE`
+sem distincao de maiusculas (com concatenacoes de constantes dobradas antes de
+comparar), `--method` e `-X` em qualquer forma, chamadas a `os.system`,
+`os.popen` e a `subprocess` que nao sejam um `subprocess.run` com uma lista
+literal comecada por `gh`, `api`, e `urlopen`/`Request` com corpo
+(`data=`, ou segundo argumento posicional). **Nao e uma prova de ausencia:** e
+uma lista de padroes, e um autor determinado contorna-a. E por isso que a
+afirmacao escrita nos documentos e «nenhum caminho de escrita que estes padroes
+apanhem», e nao «nao ha caminho de escrita».
 
 Dois transportes, pela razao que o ADR escreve:
 
@@ -71,7 +82,7 @@ def _sem_token(texto: str, token: str) -> str:
     return texto
 
 
-def obter_via_gh(caminho: str) -> dict:
+def _ler_via_gh(caminho: str) -> object:
     """`gh api <caminho>`. O token fica no porta-chaves do `gh`."""
     try:
         resultado = subprocess.run(
@@ -95,17 +106,12 @@ def obter_via_gh(caminho: str) -> dict:
             f"`gh api {caminho}` saiu {resultado.returncode}: {erro_do_gh}"
         )
     try:
-        dados = json.loads(resultado.stdout)
+        return json.loads(resultado.stdout)
     except json.JSONDecodeError as erro:
         raise ApiIndisponivel(f"`gh api {caminho}` nao devolveu JSON: {erro}") from erro
-    if not isinstance(dados, dict):
-        raise ApiIndisponivel(
-            f"`gh api {caminho}` devolveu {type(dados).__name__} e nao um objecto"
-        )
-    return dados
 
 
-def obter_via_http(caminho: str, token: str) -> dict:
+def _ler_via_http(caminho: str, token: str) -> object:
     """`GET https://api.github.com/<caminho>`, com o token do ambiente."""
     if not token:
         raise ApiIndisponivel(
@@ -133,17 +139,50 @@ def obter_via_http(caminho: str, token: str) -> dict:
     except (urllib.error.URLError, TimeoutError, OSError) as erro:
         raise ApiIndisponivel(_sem_token(f"GET {caminho}: {erro}", token)) from erro
     try:
-        dados = json.loads(bruto)
+        return json.loads(bruto)
     except json.JSONDecodeError as erro:
         raise ApiIndisponivel(f"GET {caminho} nao devolveu JSON: {erro}") from erro
-    if not isinstance(dados, dict):
-        raise ApiIndisponivel(f"GET {caminho} devolveu {type(dados).__name__}")
-    return dados
+
+
+def _ler(caminho: str, transporte: str) -> object:
+    if transporte == "gh":
+        return _ler_via_gh(caminho)
+    if transporte == "http":
+        return _ler_via_http(caminho, os.environ.get(NOME_DA_VARIAVEL, ""))
+    raise ValueError(f"transporte desconhecido {transporte!r}; e um de {TRANSPORTES}")
+
+
+def obter_via_gh(caminho: str) -> dict:
+    return _objecto(_ler_via_gh(caminho), caminho)
+
+
+def obter_via_http(caminho: str, token: str) -> dict:
+    return _objecto(_ler_via_http(caminho, token), caminho)
 
 
 def obter(caminho: str, transporte: str = "gh") -> dict:
-    if transporte == "gh":
-        return obter_via_gh(caminho)
-    if transporte == "http":
-        return obter_via_http(caminho, os.environ.get(NOME_DA_VARIAVEL, ""))
-    raise ValueError(f"transporte desconhecido {transporte!r}; e um de {TRANSPORTES}")
+    """Um recurso da API, que tem de ser um objecto JSON."""
+    return _objecto(_ler(caminho, transporte), caminho)
+
+
+def listar(caminho: str, transporte: str = "gh") -> list:
+    """Uma coleccao da API, que tem de ser uma lista JSON.
+
+    Uma lista **vazia** e uma resposta valida e nao um erro: e o repositorio a
+    dizer que nao tem rulesets nenhuns. Quem chama trata isso como divergencia
+    — a politica declarada nao esta aplicada ali —, e nao como «nao verifiquei».
+    """
+    dados = _ler(caminho, transporte)
+    if not isinstance(dados, list):
+        raise ApiIndisponivel(
+            f"{caminho}: esperava uma lista, veio {type(dados).__name__}"
+        )
+    return dados
+
+
+def _objecto(dados: object, caminho: str) -> dict:
+    if not isinstance(dados, dict):
+        raise ApiIndisponivel(
+            f"{caminho}: esperava um objecto, veio {type(dados).__name__}"
+        )
+    return dados

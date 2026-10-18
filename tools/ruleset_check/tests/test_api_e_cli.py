@@ -1,14 +1,16 @@
-"""Fail-closed, ausencia de caminho de escrita, e a configuracao (KAM-137).
+"""Fail-closed, transportes, configuracao e saida da linha de comando (KAM-137).
 
 O caso (e) do criterio 3 — «credencial sem autorizacao ou API em baixo ->
 vermelha, nao verde» — e o criterio 5 inteiro vivem aqui: nenhuma destas
 situacoes pode sair **0**, e nenhuma pode sair **1**, porque 1 e «o ruleset
 diverge» e dizer isso quando nao se leu nada seria outra mentira.
+
+A guarda «so leitura» mudou-se para `test_guarda_de_escrita.py`, que a faz a
+serio: a que vivia aqui lia um ficheiro so e nao apanhava um `POST` implicito.
 """
 
 from __future__ import annotations
 
-import ast
 import contextlib
 import io
 import json
@@ -21,16 +23,25 @@ from unittest import mock
 
 from ruleset_check import api, cli, comparador, config
 
-from .base import ROOT, espelho, resposta_da_api
+from .base import (
+    ID_DO_PRIVADO, PRIVADO, PUBLICO, ROOT, api_falsa, entrada_da_listagem,
+    espelho, resposta_da_api, tudo_conforme,
+)
 
-PACOTE = Path(api.__file__).resolve().parent
 
-
-def correr(argv: list[str]) -> tuple[int, str, str]:
+def correr(argv: list[str], mapa: dict | None = None) -> tuple[int, str, str]:
     saida, erros = io.StringIO(), io.StringIO()
-    with contextlib.redirect_stdout(saida), contextlib.redirect_stderr(erros):
+    contexto = contextlib.ExitStack()
+    if mapa is not None:
+        listar, obter = api_falsa(mapa)
+        contexto.enter_context(mock.patch.object(api, "listar", listar))
+        contexto.enter_context(mock.patch.object(api, "obter", obter))
+    with contexto, contextlib.redirect_stdout(saida), contextlib.redirect_stderr(erros):
         codigo = cli.main(argv)
     return codigo, saida.getvalue(), erros.getvalue()
+
+
+CHECK = ["check", "--root", str(ROOT)]
 
 
 class TestFailClosed(unittest.TestCase):
@@ -38,19 +49,37 @@ class TestFailClosed(unittest.TestCase):
 
     def test_api_em_baixo_sai_2(self) -> None:
         with mock.patch.object(
-            api, "obter", side_effect=api.ApiIndisponivel("GET …: rede inacessivel")
+            api, "listar", side_effect=api.ApiIndisponivel("GET …: rede inacessivel")
         ):
-            codigo, _, erros = correr(["check", "--root", str(ROOT)])
+            codigo, _, erros = correr(CHECK)
         self.assertEqual(codigo, 2)
         self.assertIn("NAO SE CONSEGUIU LER O RULESET EFECTIVO", erros)
 
     def test_credencial_sem_autorizacao_sai_2(self) -> None:
         with mock.patch.object(
-            api, "obter", side_effect=api.ApiIndisponivel("`gh api …` saiu 1: HTTP 403")
+            api, "listar", side_effect=api.ApiIndisponivel("`gh api …` saiu 1: HTTP 403")
         ):
-            codigo, saida, _ = correr(["check", "--root", str(ROOT)])
+            codigo, saida, _ = correr(CHECK)
         self.assertEqual(codigo, 2)
-        self.assertEqual(saida, "", "nada em stdout: ninguem pode ler isto como conforme")
+        self.assertNotIn("conforme", saida)
+
+    def test_uma_falha_no_segundo_alvo_tambem_sai_2(self) -> None:
+        """Nao basta o primeiro alvo correr bem: basta um a falhar para ser 2."""
+        chamadas = {"n": 0}
+
+        def listar(caminho: str, transporte: str = "gh") -> list:
+            chamadas["n"] += 1
+            if chamadas["n"] == 1:
+                return [entrada_da_listagem()]
+            raise api.ApiIndisponivel("HTTP 403 no segundo alvo")
+
+        _, obter = api_falsa(tudo_conforme())
+        with mock.patch.object(api, "listar", listar), \
+                mock.patch.object(api, "obter", obter):
+            codigo, saida, erros = correr(CHECK)
+        self.assertEqual(codigo, 2)
+        self.assertIn("segundo alvo", erros)
+        self.assertNotIn("0 divergencias", saida)
 
     def test_gh_ausente_sai_2(self) -> None:
         with mock.patch("subprocess.run", side_effect=FileNotFoundError):
@@ -71,33 +100,43 @@ class TestFailClosed(unittest.TestCase):
             with self.assertRaises(api.ApiIndisponivel):
                 api.obter_via_gh("repos/x/y/rulesets/1")
 
-    def test_corpo_json_que_nao_e_objecto(self) -> None:
+    def test_um_recurso_que_devia_ser_objecto_e_vem_lista(self) -> None:
         resultado = mock.Mock(returncode=0, stdout="[]", stderr="")
         with mock.patch("subprocess.run", return_value=resultado):
             with self.assertRaises(api.ApiIndisponivel):
                 api.obter_via_gh("repos/x/y/rulesets/1")
 
+    def test_uma_coleccao_que_devia_ser_lista_e_vem_objecto(self) -> None:
+        resultado = mock.Mock(returncode=0, stdout="{}", stderr="")
+        with mock.patch("subprocess.run", return_value=resultado):
+            with self.assertRaises(api.ApiIndisponivel):
+                api.listar("repos/x/y/rulesets")
+
+    def test_uma_coleccao_vazia_NAO_e_erro(self) -> None:
+        """E a resposta que diz «este repositorio nao tem rulesets». Nao e 2."""
+        resultado = mock.Mock(returncode=0, stdout="[]", stderr="")
+        with mock.patch("subprocess.run", return_value=resultado):
+            self.assertEqual(api.listar("repos/x/y/rulesets"), [])
+
     def test_transporte_http_sem_token_sai_2_e_nao_0(self) -> None:
         with mock.patch.dict(os.environ, {api.NOME_DA_VARIAVEL: ""}, clear=False):
-            codigo, saida, erros = correr(
-                ["check", "--root", str(ROOT), "--transporte", "http"]
-            )
+            codigo, saida, erros = correr(CHECK + ["--transporte", "http"])
         self.assertEqual(codigo, 2)
-        self.assertEqual(saida, "")
+        self.assertNotIn("conforme", saida)
         self.assertIn(api.NOME_DA_VARIAVEL, erros)
 
     def test_espelho_ilegivel_sai_2(self) -> None:
         with mock.patch.object(
             comparador, "ler_espelho", side_effect=comparador.EspelhoInvalido("x: nao existe")
         ):
-            codigo, _, _ = correr(["check", "--root", str(ROOT)])
+            codigo, _, _ = correr(CHECK)
         self.assertEqual(codigo, 2)
 
     def test_configuracao_ilegivel_sai_2(self) -> None:
         with mock.patch.object(
             config, "ler", side_effect=config.ConfiguracaoInvalida("ci/ruleset.yaml: x")
         ):
-            codigo, _, _ = correr(["check", "--root", str(ROOT)])
+            codigo, _, _ = correr(CHECK)
         self.assertEqual(codigo, 2)
 
 
@@ -134,116 +173,6 @@ class TestOTokenNaoApareceNaSaida(unittest.TestCase):
         self.assertEqual(corrido.call_args.args[0], ["gh", "api", "repos/x/y/rulesets/1"])
 
 
-class TestSemCaminhoDeEscrita(unittest.TestCase):
-    """A decisao e «so deteccao». Um caminho de escrita aqui desfa-la em silencio."""
-
-    METODOS = ("POST", "PUT", "PATCH", "DELETE")
-
-    def ficheiros(self) -> list[Path]:
-        return sorted(p for p in PACOTE.glob("*.py"))
-
-    @staticmethod
-    def _literais_fora_de_docstring(arvore: ast.AST) -> list[str]:
-        """Todas as cadeias do modulo, menos os docstrings.
-
-        Os docstrings nomeiam os metodos de escrita **para dizer que nao estao
-        la**, e apanha-los seria apanhar a propria garantia.
-        """
-        docstrings = set()
-        for no in ast.walk(arvore):
-            if isinstance(no, (ast.Module, ast.ClassDef, ast.FunctionDef)):
-                corpo = getattr(no, "body", [])
-                if (
-                    corpo
-                    and isinstance(corpo[0], ast.Expr)
-                    and isinstance(corpo[0].value, ast.Constant)
-                    and isinstance(corpo[0].value.value, str)
-                ):
-                    docstrings.add(id(corpo[0].value))
-        return [
-            no.value
-            for no in ast.walk(arvore)
-            if isinstance(no, ast.Constant)
-            and isinstance(no.value, str)
-            and id(no) not in docstrings
-        ]
-
-    def test_nenhum_metodo_de_escrita_no_pacote(self) -> None:
-        for ficheiro in self.ficheiros():
-            literais = self._literais_fora_de_docstring(
-                ast.parse(ficheiro.read_text(encoding="utf-8"))
-            )
-            for metodo in self.METODOS:
-                with self.subTest(ficheiro=ficheiro.name, metodo=metodo):
-                    self.assertEqual(
-                        [v for v in literais if metodo in v], [],
-                        f"{ficheiro.name}: `{metodo}` fora de um docstring",
-                    )
-
-    def test_o_unico_metodo_pedido_e_get(self) -> None:
-        texto = (PACOTE / "api.py").read_text(encoding="utf-8")
-        self.assertIn('method="GET"', texto)
-
-    def test_o_gh_e_chamado_so_com_o_subcomando_api(self) -> None:
-        texto = (PACOTE / "api.py").read_text(encoding="utf-8")
-        chamadas = re.findall(r'\["gh",\s*"([a-z-]+)"', texto)
-        self.assertEqual(set(chamadas), {"api"})
-        self.assertNotIn("--method", texto)
-        self.assertNotIn("-X", texto)
-
-
-class TestConfiguracao(unittest.TestCase):
-    def test_le_o_ficheiro_real(self) -> None:
-        conf = config.ler(ROOT)
-        self.assertEqual(conf.repositorio, "albinoJimy/kamba")
-        self.assertEqual(conf.espelho, ".github/rulesets/main.json")
-        self.assertTrue((ROOT / conf.espelho).is_file())
-
-    def test_o_caminho_da_api_e_de_leitura_de_um_ruleset(self) -> None:
-        conf = config.ler(ROOT)
-        self.assertEqual(
-            conf.caminho_da_api, f"repos/albinoJimy/kamba/rulesets/{conf.ruleset_id}"
-        )
-
-    def test_uma_chave_desconhecida_e_recusada(self) -> None:
-        """KAM-134: uma chave que ninguem le e uma promessa por cumprir."""
-        with mock.patch.object(
-            config, "load_file",
-            return_value={"version": 1, "repositorio": "a/b", "ruleset_id": 1,
-                          "espelho": "x.json", "chave_que_ninguem_le": True},
-        ):
-            with self.assertRaises(config.ConfiguracaoInvalida) as caixa:
-                config.ler(ROOT)
-        self.assertIn("chave_que_ninguem_le", str(caixa.exception))
-
-    def test_um_repositorio_mal_formado_e_recusado(self) -> None:
-        with mock.patch.object(
-            config, "load_file",
-            return_value={"repositorio": "kamba", "ruleset_id": 1, "espelho": "x.json"},
-        ):
-            with self.assertRaises(config.ConfiguracaoInvalida):
-                config.ler(ROOT)
-
-    def test_um_id_que_nao_e_inteiro_positivo_e_recusado(self) -> None:
-        for valor in ("24879081", -1, 0, True):
-            with self.subTest(valor=valor):
-                with mock.patch.object(
-                    config, "load_file",
-                    return_value={"repositorio": "a/b", "ruleset_id": valor,
-                                  "espelho": "x.json"},
-                ):
-                    with self.assertRaises(config.ConfiguracaoInvalida):
-                        config.ler(ROOT)
-
-    def test_o_id_do_ficheiro_e_o_do_comando_de_exportacao_do_readme(self) -> None:
-        """Duas copias do mesmo numero: ou concordam, ou isto fica vermelho."""
-        readme = (ROOT / ".github" / "rulesets" / "README.md").read_text(encoding="utf-8")
-        conf = config.ler(ROOT)
-        encontrados = set(re.findall(r"/rulesets/(\d+)", readme))
-        self.assertEqual(encontrados, {str(conf.ruleset_id)})
-        self.assertIn(f"repos/{conf.repositorio}/rulesets/", readme)
-
-
 class TestTransportes(unittest.TestCase):
     """O caminho feliz dos dois transportes, e a recusa de um terceiro."""
 
@@ -267,16 +196,10 @@ class TestTransportes(unittest.TestCase):
         ) as aberto:
             lido = api.obter_via_http("repos/x/y/rulesets/1", "um-token")
         self.assertEqual(lido["name"], bruto["name"])
-        pedido = aberto.call_args.args[0]
-        self.assertEqual(pedido.get_method(), "GET")
+        self.assertEqual(aberto.call_args.args[0].get_method(), "GET")
 
     def test_http_com_corpo_que_nao_e_json(self) -> None:
         with mock.patch("urllib.request.urlopen", return_value=self._Resposta("<html>")):
-            with self.assertRaises(api.ApiIndisponivel):
-                api.obter_via_http("repos/x/y/rulesets/1", "um-token")
-
-    def test_http_com_corpo_que_nao_e_objecto(self) -> None:
-        with mock.patch("urllib.request.urlopen", return_value=self._Resposta("[1,2]")):
             with self.assertRaises(api.ApiIndisponivel):
                 api.obter_via_http("repos/x/y/rulesets/1", "um-token")
 
@@ -293,10 +216,120 @@ class TestTransportes(unittest.TestCase):
             api.obter("repos/x/y/rulesets/1", "pombo-correio")
 
     def test_obter_encaminha_para_o_http(self) -> None:
-        with mock.patch.object(api, "obter_via_http", return_value={"a": 1}) as via:
+        with mock.patch.object(api, "_ler_via_http", return_value={"a": 1}) as via:
             with mock.patch.dict(os.environ, {api.NOME_DA_VARIAVEL: "t"}, clear=False):
                 self.assertEqual(api.obter("c", "http"), {"a": 1})
         self.assertEqual(via.call_args.args, ("c", "t"))
+
+
+class TestConfiguracao(unittest.TestCase):
+    def test_le_o_ficheiro_real_e_tem_os_dois_repositorios(self) -> None:
+        alvos = config.ler(ROOT)
+        self.assertEqual([a.repositorio for a in alvos], [PRIVADO, PUBLICO])
+        for alvo in alvos:
+            self.assertTrue((ROOT / alvo.espelho).is_file())
+            self.assertTrue(alvo.razao.strip(), f"{alvo.repositorio} sem razao escrita")
+
+    def test_o_repositorio_publico_esta_na_lista(self) -> None:
+        """O bloqueador em uma linha: o repositorio onde os PR vivem e verificado."""
+        self.assertIn(PUBLICO, [a.repositorio for a in config.ler(ROOT)])
+
+    def test_o_caminho_da_api_e_de_leitura(self) -> None:
+        alvo = config.ler(ROOT)[0]
+        self.assertEqual(alvo.caminho_da_lista, f"repos/{PRIVADO}/rulesets")
+        self.assertEqual(alvo.caminho_do_ruleset(7), f"repos/{PRIVADO}/rulesets/7")
+
+    def test_uma_chave_desconhecida_de_topo_e_recusada(self) -> None:
+        with mock.patch.object(
+            config, "load_file",
+            return_value={"version": 1, "alvos": [], "chave_que_ninguem_le": True},
+        ):
+            with self.assertRaises(config.ConfiguracaoInvalida) as caixa:
+                config.ler(ROOT)
+        self.assertIn("chave_que_ninguem_le", str(caixa.exception))
+
+    def test_uma_chave_desconhecida_num_alvo_e_recusada(self) -> None:
+        with mock.patch.object(
+            config, "load_file",
+            return_value={"alvos": [{"repositorio": "a/b", "espelho": "x.json",
+                                     "chave_nova": 1}]},
+        ):
+            with self.assertRaises(config.ConfiguracaoInvalida) as caixa:
+                config.ler(ROOT)
+        self.assertIn("chave_nova", str(caixa.exception))
+
+    def test_lista_de_alvos_vazia_e_recusada(self) -> None:
+        """Uma lista vazia faria a verificacao sair 0 sem verificar nada."""
+        with mock.patch.object(config, "load_file", return_value={"alvos": []}):
+            with self.assertRaises(config.ConfiguracaoInvalida):
+                config.ler(ROOT)
+
+    def test_repositorio_repetido_e_recusado(self) -> None:
+        alvo = {"repositorio": "a/b", "espelho": "x.json"}
+        with mock.patch.object(config, "load_file", return_value={"alvos": [alvo, alvo]}):
+            with self.assertRaises(config.ConfiguracaoInvalida) as caixa:
+                config.ler(ROOT)
+        self.assertIn("repetido", str(caixa.exception))
+
+    def test_um_repositorio_mal_formado_e_recusado(self) -> None:
+        with mock.patch.object(
+            config, "load_file",
+            return_value={"alvos": [{"repositorio": "kamba", "espelho": "x.json"}]},
+        ):
+            with self.assertRaises(config.ConfiguracaoInvalida):
+                config.ler(ROOT)
+
+    def test_chave_obrigatoria_em_falta(self) -> None:
+        with mock.patch.object(config, "load_file", return_value={"alvos": [{"espelho": "x"}]}):
+            with self.assertRaises(config.ConfiguracaoInvalida) as caixa:
+                config.ler(ROOT)
+        self.assertIn("repositorio", str(caixa.exception))
+
+    def test_um_id_que_nao_e_inteiro_positivo_e_recusado(self) -> None:
+        for valor in ("24879081", -1, 0, True):
+            with self.subTest(valor=valor):
+                with mock.patch.object(
+                    config, "load_file",
+                    return_value={"alvos": [{"repositorio": "a/b", "espelho": "x.json",
+                                             "ruleset_id": valor}]},
+                ):
+                    with self.assertRaises(config.ConfiguracaoInvalida):
+                        config.ler(ROOT)
+
+    def test_o_id_pode_ficar_por_declarar(self) -> None:
+        """E o que permite declarar um alvo cujo ruleset ainda nao existe."""
+        with mock.patch.object(
+            config, "load_file",
+            return_value={"alvos": [{"repositorio": "a/b", "espelho": "x.json"}]},
+        ):
+            self.assertIsNone(config.ler(ROOT)[0].ruleset_id)
+
+    def test_ficheiro_que_nao_existe(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as pasta:
+            with self.assertRaises(config.ConfiguracaoInvalida) as caixa:
+                config.ler(Path(pasta))
+        self.assertIn(config.CAMINHO, str(caixa.exception))
+
+    def test_yaml_ilegivel(self) -> None:
+        from kamba_yaml import YamlSubsetError
+
+        with mock.patch.object(config, "load_file", side_effect=YamlSubsetError("linha 2")):
+            with self.assertRaises(config.ConfiguracaoInvalida):
+                config.ler(ROOT)
+
+    def test_cada_id_declarado_esta_no_readme_do_ruleset(self) -> None:
+        """Duas copias do mesmo numero: ou concordam, ou isto fica vermelho."""
+        readme = (ROOT / ".github" / "rulesets" / "README.md").read_text(encoding="utf-8")
+        declarados = {str(a.ruleset_id) for a in config.ler(ROOT) if a.ruleset_id}
+        self.assertEqual(set(re.findall(r"/rulesets/(\d+)", readme)), declarados)
+
+    def test_cada_alvo_esta_nomeado_no_readme_do_ruleset(self) -> None:
+        readme = (ROOT / ".github" / "rulesets" / "README.md").read_text(encoding="utf-8")
+        for alvo in config.ler(ROOT):
+            with self.subTest(repositorio=alvo.repositorio):
+                self.assertIn(alvo.repositorio, readme)
 
 
 class TestLeituraDoEspelho(unittest.TestCase):
@@ -323,68 +356,80 @@ class TestLeituraDoEspelho(unittest.TestCase):
                 comparador.ler_espelho(caminho)
 
 
-class TestConfiguracaoAusente(unittest.TestCase):
-    def test_ficheiro_que_nao_existe(self) -> None:
-        import tempfile
-
-        with tempfile.TemporaryDirectory() as pasta:
-            with self.assertRaises(config.ConfiguracaoInvalida) as caixa:
-                config.ler(Path(pasta))
-        self.assertIn(config.CAMINHO, str(caixa.exception))
-
-    def test_chave_obrigatoria_em_falta(self) -> None:
-        with mock.patch.object(config, "load_file", return_value={"version": 1}):
-            with self.assertRaises(config.ConfiguracaoInvalida) as caixa:
-                config.ler(ROOT)
-        self.assertIn("espelho", str(caixa.exception))
-
-    def test_espelho_que_nao_e_caminho(self) -> None:
-        with mock.patch.object(
-            config, "load_file",
-            return_value={"repositorio": "a/b", "ruleset_id": 1, "espelho": ""},
-        ):
-            with self.assertRaises(config.ConfiguracaoInvalida):
-                config.ler(ROOT)
-
-    def test_yaml_ilegivel(self) -> None:
-        from kamba_yaml import YamlSubsetError
-
-        with mock.patch.object(config, "load_file", side_effect=YamlSubsetError("linha 2")):
-            with self.assertRaises(config.ConfiguracaoInvalida):
-                config.ler(ROOT)
-
-
 class TestSaidaDoCheck(unittest.TestCase):
-    def test_conforme_sai_0_e_diz_os_numeros(self) -> None:
-        with mock.patch.object(api, "obter", return_value=resposta_da_api()):
-            codigo, saida, _ = correr(["check", "--root", str(ROOT)])
+    def test_todos_conformes_sai_0_e_diz_os_numeros(self) -> None:
+        codigo, saida, _ = correr(CHECK, tudo_conforme())
         self.assertEqual(codigo, 0)
-        self.assertIn("conforme", saida)
+        self.assertIn("conforme — 2 alvo(s), 0 divergencias", saida)
         self.assertIn("7 required check(s)", saida)
+        for repositorio in (PRIVADO, PUBLICO):
+            self.assertIn(repositorio, saida)
 
-    def test_divergente_sai_1_e_nomeia_a_regra(self) -> None:
-        bruto = resposta_da_api(enforcement="disabled")
-        with mock.patch.object(api, "obter", return_value=bruto):
-            codigo, saida, erros = correr(["check", "--root", str(ROOT)])
+    def test_um_alvo_divergente_leva_o_conjunto_a_1(self) -> None:
+        mapa = tudo_conforme()
+        mapa[PUBLICO] = ([], {})
+        codigo, saida, erros = correr(CHECK, mapa)
         self.assertEqual(codigo, 1)
-        self.assertEqual(saida, "")
+        self.assertIn("repositorio-sem-ruleset", erros)
+        self.assertNotIn("0 divergencias", saida)
+        self.assertIn(PRIVADO, saida, "o alvo conforme continua a sair nomeado")
+
+    def test_a_razao_do_alvo_sai_no_vermelho(self) -> None:
+        mapa = tudo_conforme()
+        mapa[PUBLICO] = ([], {})
+        _, _, erros = correr(CHECK, mapa)
+        self.assertIn("porque esta na lista:", erros)
+
+    def test_um_id_resolvido_e_nao_declarado_sai_para_ser_escrito(self) -> None:
+        mapa = tudo_conforme()
+        mapa[PUBLICO] = ([entrada_da_listagem(ruleset_id=4242)],
+                         {4242: resposta_da_api(enforcement="evaluate")})
+        _, _, erros = correr(CHECK, mapa)
+        self.assertIn("4242", erros)
+        self.assertIn(config.CAMINHO, erros)
+
+    def test_divergente_aponta_o_procedimento(self) -> None:
+        mapa = tudo_conforme()
+        mapa[PRIVADO] = ([entrada_da_listagem()],
+                         {ID_DO_PRIVADO: resposta_da_api(enforcement="disabled")})
+        codigo, _, erros = correr(CHECK, mapa)
+        self.assertEqual(codigo, 1)
         self.assertIn("campo-divergente", erros)
         self.assertIn(".github/rulesets/README.md", erros)
 
-    def test_mostrar_imprime_o_normalizado_sem_volateis(self) -> None:
-        with mock.patch.object(api, "obter", return_value=resposta_da_api()):
-            codigo, saida, _ = correr(["mostrar", "--root", str(ROOT)])
+
+class TestMostrar(unittest.TestCase):
+    def test_produz_o_formato_exacto_do_espelho(self) -> None:
+        """O criterio do revisor: ou produz o formato, ou a docstring deixa de o sugerir."""
+        codigo, saida, _ = correr(
+            ["mostrar", "--root", str(ROOT), "--repositorio", PRIVADO], tudo_conforme()
+        )
         self.assertEqual(codigo, 0)
+        no_disco = (ROOT / ".github" / "rulesets" / "main.json").read_text(encoding="utf-8")
+        self.assertEqual(saida.replace("\r", ""), no_disco)
+
+    def test_nao_imprime_volateis(self) -> None:
+        _, saida, _ = correr(
+            ["mostrar", "--root", str(ROOT), "--repositorio", PRIVADO], tudo_conforme()
+        )
         impresso = json.loads(saida)
         self.assertEqual(sorted(impresso), sorted(comparador.CAMPOS_DE_TOPO))
         for volatil in comparador.VOLATEIS:
             self.assertNotIn(volatil, impresso)
 
-    def test_o_espelho_real_bate_com_ele_proprio(self) -> None:
-        """Sanidade: o comparador nao inventa divergencias sobre o ficheiro real."""
-        with mock.patch.object(api, "obter", return_value=espelho()):
-            codigo, _, _ = correr(["check", "--root", str(ROOT)])
-        self.assertEqual(codigo, 0)
+    def test_sem_repositorio_sai_2_e_diz_quais_ha(self) -> None:
+        codigo, _, erros = correr(["mostrar", "--root", str(ROOT)], tudo_conforme())
+        self.assertEqual(codigo, 2)
+        self.assertIn(PUBLICO, erros)
+
+    def test_repositorio_sem_o_ruleset_sai_2(self) -> None:
+        mapa = tudo_conforme()
+        mapa[PUBLICO] = ([], {})
+        codigo, saida, _ = correr(
+            ["mostrar", "--root", str(ROOT), "--repositorio", PUBLICO], mapa
+        )
+        self.assertEqual(codigo, 2)
+        self.assertEqual(saida, "")
 
 
 if __name__ == "__main__":  # pragma: no cover

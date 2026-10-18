@@ -10,6 +10,28 @@ quais são os *required checks* tinha de ter acesso de administração e saber o
 `id`. Exportado, lê-se num *diff* como qualquer outra regra de bloqueio — e uma
 alteração feita na interface aparece como divergência face a este ficheiro.
 
+## Esta árvore vive em dois repositórios, e a política tem de valer nos dois
+
+| Repositório | O quê | *Ruleset* |
+|---|---|---|
+| `albinoJimy/kamba` | privado, a origem | existe, `id` **24879081** |
+| `albinoJimy/kamba-plataforma` | **público, e é onde os PR são abertos e o CI corre** | **por criar** — decisão do fundador de 2026-10-18, cópia do privado |
+
+**Isto não é um detalhe de arrumação: foi um defeito a sério.** A primeira
+versão da verificação nomeava um repositório só — o privado. O `main.json`
+viaja na árvore que é empurrada para os dois, e corrida de um clone do
+**público** a verificação ia ler o *ruleset* do **privado**, imprimia
+«conforme» e saía 0, dentro de um repositório sem protecção nenhuma. É a frase
+que está no bloco do ticket, virada do avesso: um ficheiro que parece ser a
+fonte e não é engana melhor do que a ausência dele — e pior ainda com uma
+máquina a dizer que está certo.
+
+Por isso [`ci/ruleset.yaml`](../../ci/ruleset.yaml) tem uma **lista de alvos**,
+e o `make ruleset` corre sobre todos. **Verde só quando todos estão conformes.**
+Enquanto o *ruleset* do `albinoJimy/kamba-plataforma` não existir, a
+verificação é **vermelha de propósito**, com `repositorio-sem-ruleset` — e essa
+é a única forma honesta de o dizer.
+
 **O que a volta fechada faz, e o que continua a não fazer.** O ficheiro continua
 a ser um espelho e não a fonte: editá-lo **não** altera o GitHub, e alterar o
 GitHub **não** o actualiza. O que o KAM-137 acrescentou é a **detecção**: o
@@ -25,8 +47,12 @@ O que isto **não** é, dito sem rodeios:
   `secrets.*` num *workflow* — que é exactamente o que a regra
   `chave-estatica-no-ci` do *gate* 11 recusa;
 - **não repõe nada.** A credencial é de leitura (`administration: read`) e o
-  módulo não tem caminho de escrita, com teste a garanti-lo. A reposição é
-  manual, e está no §«Quando a verificação dá vermelho» abaixo;
+  módulo não tem nenhum caminho de escrita **dos que a guarda de
+  `tools/ruleset_check/tests/test_guarda_de_escrita.py` reconhece** — verbos de
+  escrita em literais, `--method`/`-X`, comandos do sistema, `subprocess` fora
+  de `gh api`, e pedidos com corpo; o que essa guarda garante, e o que não
+  garante, está escrito no topo dela. A reposição é manual, e está no
+  §«Quando a verificação dá vermelho» abaixo;
 - **só corre quando alguém a corre.** Entre execuções, o espelho pode envelhecer.
   É a troca que o ADR assume, e está escrita lá.
 
@@ -43,11 +69,15 @@ ambiente. **Onde ela vive, quem a pode usar, como se roda e o que acontece se
 for comprometida está no
 [`ADR-L003`](../../docs/adr/ADR-L003-verificacao-do-ruleset.md).**
 
-Saída **0** = o GitHub aplica o que o ficheiro diz; **1** = divergem, com cada
-divergência nomeada; **2** = não se conseguiu verificar (sem `gh`, sem
-credencial, `403`, `404`, API em baixo). **O 2 é vermelho e não verde**: um
+Saída **0** = todos os alvos aplicam o que o ficheiro diz; **1** = pelo menos um
+diverge, com cada divergência nomeada; **2** = não se conseguiu verificar (sem
+`gh`, sem credencial, `403`, API em baixo). **O 2 é vermelho e não verde**: um
 verificador que passa quando não consegue verificar é um verificador que mente —
 a mesma regra que o *gate* 11 aplica à OSV.
+
+Um repositório **sem *ruleset* nenhum** não é um 2: a leitura correu, e a
+resposta foi que a política não está aplicada ali. Isso é **1**, com a regra
+`repositorio-sem-ruleset`.
 
 O que se compara está escrito, campo a campo, em
 `tools/ruleset_check/comparador.py`: `enforcement`, `name`, `target`,
@@ -73,6 +103,12 @@ Que *ruleset* se verifica e contra que ficheiro está em
    ficheiro**: `https://github.com/albinoJimy/kamba/rules/24879081`, repor o
    campo que a saída nomeia, e correr `make ruleset` outra vez até sair 0.
    Quem repõe é quem tem administração do repositório; hoje, o fundador.
+3. **`repositorio-sem-ruleset` ou `ruleset-ausente`** — não é nenhum dos dois
+   casos acima: é um repositório onde a política nunca foi aplicada. Cria-se lá
+   o *ruleset*, com o conteúdo do espelho, e escreve-se o `id` que a saída
+   imprime em [`ci/ruleset.yaml`](../../ci/ruleset.yaml). **Nunca se tira o
+   alvo da lista para calar o vermelho** — tirá-lo é decidir que aquele
+   repositório não precisa de protecção, e isso é governação, não manutenção.
 
 Um `bypass_actors` não vazio nunca se resolve actualizando o ficheiro: o
 ficheiro não é autoridade para conceder *bypass*, e a verificação continua
@@ -98,6 +134,18 @@ gh api repos/albinoJimy/kamba/rulesets/24879081 \
   | python -c "import json,sys; print(json.dumps(json.load(sys.stdin), indent=2, ensure_ascii=False, sort_keys=True))" \
   > .github/rulesets/main.json
 ```
+
+A mesma coisa, sem decorar o `id` nem a reformatação — e é esta a forma a usar
+quando o alvo é o `albinoJimy/kamba-plataforma`, cujo `id` ainda não existe:
+
+```bash
+python -m ruleset_check mostrar --root . --repositorio albinoJimy/kamba \
+  > .github/rulesets/main.json
+```
+
+O `mostrar` resolve o *ruleset* pelo `name` do espelho e imprime **o formato
+exacto do ficheiro**; há um teste que confronta a sua saída, byte a byte, com o
+`main.json` no disco.
 
 ## O que o *ruleset* exige hoje
 

@@ -45,6 +45,62 @@ def resposta_da_api(**alteracoes) -> dict:
     return bruto
 
 
+#: Os dois repositorios de `ci/ruleset.yaml`. Lidos do ficheiro real, para uma
+#: alteracao da configuracao nao deixar os testes a falar de alvos que ja nao
+#: existem.
+PRIVADO = "albinoJimy/kamba"
+PUBLICO = "albinoJimy/kamba-plataforma"
+
+#: O `id` do ruleset do privado, como a configuracao o declara.
+ID_DO_PRIVADO = 24879081
+
+
+def entrada_da_listagem(ruleset_id: int = ID_DO_PRIVADO, nome: str | None = None) -> dict:
+    """Uma linha de `GET /repos/{o}/{r}/rulesets`, como a API a devolve.
+
+    A listagem **nao** traz as regras: traz `id`, `name`, `target`,
+    `enforcement` e metadados. E por isso que a verificacao faz dois pedidos.
+    """
+    return {
+        "id": ruleset_id,
+        "name": nome if nome is not None else espelho()["name"],
+        "target": "branch",
+        "source_type": "Repository",
+        "source": PRIVADO,
+        "enforcement": "active",
+        "node_id": "RRS_lACqUmVwb3NpdG9yZQ",
+        "created_at": "2026-10-11T13:13:14.002+01:00",
+        "updated_at": "2026-10-11T19:27:44.348+01:00",
+    }
+
+
+def api_falsa(por_repositorio: dict[str, tuple[list, dict]]):
+    """Devolve `(listar, obter)` para substituir os do modulo `api`.
+
+    `por_repositorio` mapeia `dono/repo` -> (listagem, {id: resposta completa}).
+    Um repositorio que nao esteja no mapa **levanta**, para um teste nao passar
+    por engano contra um alvo que nunca configurou.
+    """
+    def listar(caminho: str, transporte: str = "gh") -> list:
+        repositorio = caminho[len("repos/"):-len("/rulesets")]
+        return por_repositorio[repositorio][0]
+
+    def obter(caminho: str, transporte: str = "gh") -> dict:
+        partes = caminho.split("/")
+        repositorio = f"{partes[1]}/{partes[2]}"
+        return por_repositorio[repositorio][1][int(partes[4])]
+
+    return listar, obter
+
+
+def tudo_conforme() -> dict[str, tuple[list, dict]]:
+    """Os dois alvos com o ruleset aplicado e igual ao espelho."""
+    return {
+        PRIVADO: ([entrada_da_listagem()], {ID_DO_PRIVADO: resposta_da_api()}),
+        PUBLICO: ([entrada_da_listagem(ruleset_id=99)], {99: resposta_da_api()}),
+    }
+
+
 def regra(bruto: dict, tipo: str) -> dict:
     for entrada in bruto["rules"]:
         if entrada.get("type") == tipo:

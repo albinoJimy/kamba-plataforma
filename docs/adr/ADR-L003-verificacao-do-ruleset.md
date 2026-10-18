@@ -52,12 +52,28 @@ Concretamente:
 
 1. A verificação é `tools/ruleset_check`, corrida por `make ruleset`. Lê o
    *ruleset* efectivo da API, normaliza-o, compara-o com o espelho versionado e
-   devolve **1** quando divergem. **Não tem caminho de escrita**: não existe no
-   módulo nenhuma chamada `POST`, `PUT`, `PATCH` ou `DELETE`, e há um teste que o
-   exige.
-2. A verificação **não corre no CI deste repositório** e não é *required check*
+   devolve **1** quando divergem. **Só faz `GET`**, e uma guarda de máquina
+   (`tools/ruleset_check/tests/test_guarda_de_escrita.py`) recusa, em todos os
+   módulos do pacote: verbos de escrita em literais de cadeia (sem distinção de
+   maiúsculas, com as concatenações de constantes dobradas antes de comparar),
+   `--method` e `-X`, `os.system` e companhia, `subprocess` que não seja um
+   `run` com lista literal começada por `gh`, `api`, e `urlopen`/`Request` com
+   corpo. **O que essa guarda garante é isso, e não a ausência de caminhos de
+   escrita**: é uma lista de padrões, e um autor determinado contorna-a. A
+   primeira versão era mais fraca ainda — lia um ficheiro só e não via um
+   `Request(url, data=…)` — e foi a revisão adversarial a demonstrá-lo com
+   cinco injecções. A redacção desta linha é deliberada: prometer uma garantia
+   de máquina que não existe é pior do que não a prometer.
+2. **A verificação corre sobre uma lista de alvos**, um por repositório que tem
+   de aplicar a política ([`../../ci/ruleset.yaml`](../../ci/ruleset.yaml)), e
+   é verde só quando todos estão conformes. Um repositório sem *ruleset* nenhum
+   é **vermelho**, não verde. Isto também foi a revisão adversarial a encontrá-lo:
+   o espelho viaja na árvore que vai para os dois repositórios, e com um alvo só
+   a verificação corrida do público lia o *ruleset* do privado e dizia
+   «conforme» de dentro de um repositório sem protecção nenhuma.
+3. A verificação **não corre no CI deste repositório** e não é *required check*
    de nenhum PR. Corre à mão, ou de um contexto fora destas Actions.
-3. Quando divergem, o alerta é o que se vê na saída, e o que fazer com ele está
+4. Quando divergem, o alerta é o que se vê na saída, e o que fazer com ele está
    escrito em [`../../.github/rulesets/README.md`](../../.github/rulesets/README.md).
    A reposição é **manual**, pelo fundador, na interface do GitHub.
 
@@ -145,6 +161,13 @@ esta é a linha a contrariar se o fundador preferir o contrário.
   de licenças do *gate* 11.
 - O `../ci.md` §6 não muda: continua a não haver chaves estáticas nos
   *workflows*, porque nenhum *workflow* foi tocado.
+- **A verificação nasce vermelha, e isso é a decisão a funcionar.** O
+  `albinoJimy/kamba-plataforma` está na lista de alvos e ainda não tem
+  *ruleset*; até o ter, `make ruleset` sai **1**. Não se tirou o alvo da lista
+  para a deixar verde: tirá-lo seria decidir que o repositório público não
+  precisa de protecção, e isso é governação. **Nada bloqueia por causa disto** —
+  não é *gate* —, o que torna o vermelho barato de manter e caro de ignorar,
+  que é a ordem certa.
 
 ## §6 — Quando reverter, e o que falta
 
@@ -160,7 +183,8 @@ esta é a linha a contrariar se o fundador preferir o contrário.
    nomear uma pessoa.
 
 Reverter custa: a App, a chave privada no cofre, e o caminho de escrita no
-módulo — que hoje não existe de propósito e tem um teste a garanti-lo.
+módulo — que hoje não existe de propósito, e cuja ausência a guarda de
+`test_guarda_de_escrita.py` sustenta dentro dos padrões que reconhece.
 
 **Lacunas declaradas desta decisão, para não serem descobertas tarde:**
 
@@ -168,13 +192,17 @@ módulo — que hoje não existe de propósito e tem um teste a garanti-lo.
   exige um contexto fora destas Actions, que não existe, e inventá-lo aqui seria
   desenho especulativo. É a diferença entre esta decisão e um *gate*, e está
   escrita no §6 do [`README.md`](../../.github/rulesets/README.md).
-- **O `kamba-plataforma` não tem *ruleset* nenhum.** Medido a 2026-10-18:
-  `gh api repos/albinoJimy/kamba-plataforma/rules/branches/main` devolve `[]`,
-  enquanto o mesmo comando no `kamba` devolve as quatro regras. O repositório
-  público, que é onde os PR são abertos hoje, não tem nenhuma das protecções que
-  este ADR existe para vigiar. **Criar lá um *ruleset* é governação e não é deste
-  ticket**; o que este ticket faz é dar o instrumento que o diz em voz alta, e
-  deixar a medição escrita em [`../evidencia/KAM-137.md`](../evidencia/KAM-137.md).
+- **O `kamba-plataforma` não tem *ruleset* nenhum — ainda.** Medido a
+  2026-10-18: `gh api repos/albinoJimy/kamba-plataforma/rules/branches/main`
+  devolve `[]`, enquanto o mesmo comando no `kamba` devolve as quatro regras. O
+  repositório público, que é onde os PR são abertos hoje, não tem nenhuma das
+  protecções que este ADR existe para vigiar. **O fundador decidiu a 2026-10-18
+  criar lá uma cópia do *ruleset* do privado**, e até isso acontecer o alvo está
+  declarado em [`../../ci/ruleset.yaml`](../../ci/ruleset.yaml) e a verificação
+  é vermelha. **Criar o *ruleset* é acto do fundador e continua fora do âmbito
+  deste ticket**; o que este ticket faz é dar o instrumento que o diz em voz
+  alta, e deixar a medição escrita em
+  [`../evidencia/KAM-137.md`](../evidencia/KAM-137.md).
 - **O `GITHUB_TOKEN` não ter `administration`** é a razão medida por que isto não
   é um *gate*, e está **NÃO VERIFICADO** por execução (ver acima como se valida).
 - **A permissão mínima pode não ser mínima.** `Administration: Read-only` dá

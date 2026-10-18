@@ -1353,12 +1353,24 @@ resposta seria pior do que nomeá-las:
     decisão, registada em
     [`adr/ADR-L003-verificacao-do-ruleset.md`](adr/ADR-L003-verificacao-do-ruleset.md):
     só detecção, com um *token* de leitura, que compara e nunca aplica — e o
-    módulo não tem caminho de escrita nenhum, com teste a exigi-lo. O
-    `make ruleset` compara os seis campos de política, com `bypass_actors`
-    vazio e os sete contextos nomeados, e sai **2** quando não consegue ler —
-    `403`, `404`, sem `gh`, API em baixo — pela mesma regra que o *gate* 11
-    aplica à OSV. Os campos voláteis ignorados estão nomeados um a um em
-    `tools/ruleset_check/comparador.py`.
+    módulo só faz `GET`, com uma guarda de máquina que varre todos os seus
+    módulos e recusa verbos de escrita em literais, `--method`/`-X`, comandos
+    do sistema, `subprocess` fora de `gh api` e pedidos com corpo (o que essa
+    guarda **não** garante está escrito nela). O `make ruleset` compara os seis
+    campos de política, com `bypass_actors` vazio e os sete contextos nomeados,
+    e sai **2** quando não consegue ler — `403`, sem `gh`, API em baixo — pela
+    mesma regra que o *gate* 11 aplica à OSV. Os campos voláteis ignorados
+    estão nomeados um a um em `tools/ruleset_check/comparador.py`.
+
+    **Corre sobre uma lista de alvos, e não sobre um repositório.** O espelho
+    viaja na árvore que é empurrada para os **dois** repositórios, e a primeira
+    versão nomeava só o privado: corrida de um clone do público, lia o
+    *ruleset* do privado, imprimia «conforme» e saía 0 de dentro de um
+    repositório sem protecção nenhuma. Agora [`../ci/ruleset.yaml`](../ci/ruleset.yaml)
+    declara um alvo por repositório, resolve o *ruleset* pelo `name` do
+    espelho, e **um repositório sem *ruleset* nenhum é vermelho** — saída 1,
+    `repositorio-sem-ruleset`, porque a leitura correu e a resposta foi que a
+    política não está aplicada ali.
 
     **O que fica por fechar, e é metade:** isto **não é um *gate* de PR** e não
     corre no CI deste repositório. A API dos *rulesets* exige a permissão
@@ -1369,7 +1381,8 @@ resposta seria pior do que nomeá-las:
     quando acontece**, e montar a execução periódica exige um contexto fora
     destas Actions que não existe. Fica como **lacuna 28**. E uma segunda coisa
     ficou por fechar, nomeada ao medir: o `albinoJimy/kamba-plataforma`, onde os
-    PR são abertos hoje, **não tem *ruleset* nenhum** — lacuna 29.
+    PR são abertos hoje, **não tem *ruleset* nenhum** — lacuna 29, agora com
+    alvo declarado e com a verificação a dar vermelho por causa dela.
 16. **Nenhum PR tem revisão humana imposta por máquina.** O *ruleset* exigia uma
     aprovação, e com um só contribuidor a regra não podia ser satisfeita: o
     GitHub não deixa o autor aprovar o próprio PR. O fundador baixou-a para 0
@@ -1534,11 +1547,21 @@ resposta seria pior do que nomeá-las:
     `["pull_request","required_status_checks","deletion","non_fast_forward"]`.
     O repositório **público**, que é onde os PR são abertos hoje, não tem
     nenhuma das protecções que este documento descreve: nem PR obrigatório, nem
-    *required checks*, nem protecção contra apagar ou reescrever `main`. O
-    espelho de `.github/rulesets/main.json` descreve o `kamba` e não este. Criar
-    lá o *ruleset* é **governação** e estava fora do âmbito do KAM-137, que só
-    podia nomear o facto. Precisa de ticket, e é a lacuna desta lista com o
-    maior efeito imediato.
+    *required checks*, nem protecção contra apagar ou reescrever `main`. **O
+    fundador decidiu a 2026-10-18 criar lá uma cópia do *ruleset* do privado**,
+    e criá-lo é acto dele — o KAM-137 estava impedido de alterar *rulesets*.
+    O que o KAM-137 fez foi pôr o repositório na lista de alvos de
+    [`../ci/ruleset.yaml`](../ci/ruleset.yaml): enquanto o *ruleset* não
+    existir, o `make ruleset` sai **1** com `repositorio-sem-ruleset`, e a
+    lacuna deixa de depender de alguém se lembrar dela.
+
+    **Vale registar como esta lacuna quase se tornou pior do que era.** A
+    primeira versão do KAM-137 nomeava um repositório só, e o espelho
+    `.github/rulesets/main.json` descrevia o `kamba` enquanto viajava na árvore
+    do `kamba-plataforma`. Corrida de um clone do público, a verificação dizia
+    «conforme» — uma máquina a certificar a protecção de um repositório que não
+    tinha nenhuma. Foi a revisão adversarial independente a apanhá-lo, e é o
+    caso-tipo do que o §1 deste documento chama um *gate* que mente.
 
 > As lacunas 9 a 14 vêm da revisão adversarial, e cada uma está reproduzida com
 > um comando em [`ANALISE-02`](analises/ANALISE-02-KAM-002-pipeline-ci.md).
@@ -1659,4 +1682,4 @@ sobrevivem ao PR.
 | 1.29 | Outubro 2026 | KAM-157: o §3 (*gate* 9) ganha a *push protection* do GitHub. Existe um `.github/secret_scanning.yml` com uma entrada — a pasta do canário —, por decisão do fundador de 2026-10-18. Não é área cega nova (o `ci/secrets-allow.yaml` já a declarava), não torna o canário invisível ao *gate* 9 (são dois *scanners*), e não pode crescer em silêncio: um teste exige que as duas listas coincidam exactamente. | Equipa KAMBÁ |
 | 1.30 | Outubro 2026 | KAM-135: o §5 passa a descrever o que o validador exige. `criado_em` obrigatório e o prazo contado **dele** — renovar deixa de ser empurrar uma data; a data dentro de `adr_ou_aprovacao` é lida e não pode ser futura; e os gates **14** e **18** passam a aceitar *waiver*, que o KAM-067 e o KAM-078 precisam e o validador recusava. O conjunto de gates deriva agora da tabela do `specs/01` §4: os **dezanove** estão classificados — o `3b` incluído, que a primeira versão do *regex* não via e que o teste cimentava a 18 —, e um gate novo sem posição falha. A aprovação datada tem de ser contemporânea da criação, e o que **não** se verifica (o `ADR-NNN`, o `autor`) fica dito em vez de prometido. | Equipa KAMBÁ |
 | 1.31 | Outubro 2026 | KAM-159: o *gate* 7 ganha a **quinta** verificação — `contract_diff dominios` —, que confronta o `enum` de um contrato com o domínio canónico, nos dois sentidos. Fecha a costura que nenhum dos dois *gates* via: o dicionário e os contratos nomeavam listas de finalidades que se cruzavam numa só, e duas do canon eram impossíveis de emitir. | Equipa KAMBÁ |
-| 1.32 | Outubro 2026 | **KAM-137: a lacuna 15 fecha na metade da detecção**, e fechou-a corrigida — comparar não precisa de `administration: write`, precisa de `read`. Decisão do fundador de 2026-10-18, em [`ADR-L003`](adr/ADR-L003-verificacao-do-ruleset.md): só detecção, com *token* de leitura, que compara e nunca aplica; o módulo `tools/ruleset_check` não tem caminho de escrita e há um teste a exigi-lo. O `make ruleset` compara os seis campos de política (as quatro regras, os sete contextos, `enforcement`, `conditions`, `name`, `target`) com `bypass_actors` **vazio**, ignora oito campos voláteis nomeados um a um, e sai **2** quando não consegue ler — `403`, `404`, sem `gh`, API em baixo —, nunca 0. **Não é *gate* e não entra no `make ci`**: a permissão `administration` não existe no `GITHUB_TOKEN` das Actions e qualquer outro *token* seria a chave estática que o §6 proíbe; nenhum ficheiro de `.github/workflows/` foi tocado. Executados a sério: ficheiro e API iguais (verde), contexto acrescentado só ao ficheiro (vermelho, revertido), credencial inválida e *endpoint* inalcançável (saída 2). Os dois casos que mexem no *ruleset* do GitHub — retirar um *required check* e pôr um `bypass_actor` — ficam por executar: são do fundador, e o procedimento da janela está em [`evidencia/KAM-137.md`](evidencia/KAM-137.md). Lacunas **28** e **29** novas: a verificação não tem agendamento, e o `albinoJimy/kamba-plataforma` — o repositório público, onde os PR são abertos — **não tem *ruleset* nenhum**. | Equipa KAMBÁ |
+| 1.32 | Outubro 2026 | **KAM-137: a lacuna 15 fecha na metade da detecção**, e fecha **corrigida** — comparar não precisa de `administration: write`, precisa de `read`. Decisão do fundador de 2026-10-18, em [`ADR-L003`](adr/ADR-L003-verificacao-do-ruleset.md): só detecção, com *token* de leitura, que compara e nunca aplica. O `make ruleset` (`tools/ruleset_check`) compara os seis campos de política — as quatro regras, os sete contextos, `enforcement`, `conditions`, `name`, `target` — com `bypass_actors` **vazio**, ignora oito campos voláteis nomeados um a um, e sai **2** quando não consegue ler, nunca 0. **Corre sobre uma lista de alvos, e não sobre um repositório:** a primeira versão nomeava só o privado, e como o espelho viaja na árvore dos dois, corrida de um clone do público dizia «conforme» de dentro de um repositório sem protecção nenhuma — foi a revisão adversarial a apanhá-lo, e é o caso-tipo do §1. Agora um repositório sem *ruleset* é **1**, nomeado, e o ramo funde **vermelho** até o `albinoJimy/kamba-plataforma` ter o seu (lacuna 29). **Não é *gate* e não entra no `make ci`**: a permissão `administration` não existe no `GITHUB_TOKEN` das Actions e qualquer outro *token* seria a chave estática que o §6 proíbe; nenhum ficheiro de `.github/workflows/` foi tocado. Executados a sério: contexto acrescentado só ao ficheiro (vermelho, revertido), ficheiro e API iguais no alvo que tem *ruleset* (verde), credencial inválida nos dois transportes, sem credencial e *endpoint* inalcançável (saída 2). Os dois casos que mexem no *ruleset* do GitHub ficam para o fundador, com o procedimento escrito em [`evidencia/KAM-137.md`](evidencia/KAM-137.md) §5. Lacunas **28** e **29** novas. | Equipa KAMBÁ |
