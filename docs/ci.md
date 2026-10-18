@@ -606,6 +606,37 @@ onde ele não pode estar.
 > canário numa *fixture* **falhe** o PR — e não a sua letra: a área permitida
 > existe, e a prova de que o *gate* morde está agora no *gate*.
 
+#### A *push protection* do GitHub, e porque é que ela não é um defeito
+
+Num repositório público há **dois** detectores de segredos a olhar para o
+canário: o do *gate* 9 e o do próprio GitHub. O segundo recusa o `push` com
+`GH013 — Repository rule violations`, e o desbloqueio é manual, por segredo,
+feito por uma pessoa na interface. Foi assim que a cópia pública ficou criada.
+
+**O problema nunca foi o `push` que já passou: era o próximo.** Cada padrão novo
+que o *scanner* aprender traz um valor novo ao canário, e volta a parar o `push`
+de quem o acrescentar — com uma mensagem que não explica que é esperado.
+
+Desde o **KAM-157** existe um [`.github/secret_scanning.yml`](../.github/secret_scanning.yml)
+com um `paths-ignore` de **uma** entrada: a pasta do canário. Decisão do
+fundador, 2026-10-18.
+
+Três coisas que isto **não** é, e que importa dizer:
+
+- **Não é uma área cega nova.** O `ci/secrets-allow.yaml` já declarava essa
+  pasta como a única onde um valor com forma de segredo é permitido, com razão
+  escrita e verificada por máquina. A via alinha o *scanner* do GitHub com uma
+  excepção que já existia.
+- **Não torna o canário invisível ao *gate* 9.** São dois *scanners*, e o nosso
+  continua a varrer a pasta — e o `make ci-9` copia-a para fora da área
+  permitida e exige nove achados ou mais; hoje dá 17.
+- **Não pode crescer em silêncio.** O
+  `tools/scan_secrets/tests/test_push_protection.py` fica vermelho se o
+  `paths-ignore` deixar de coincidir **exactamente** com a área declarada, se
+  ganhar um caminho a mais, ou se o nosso *scanner* alguma vez passar a ler
+  aquele ficheiro. Uma área cega que ninguém declarou é o único modo de falha
+  sério desta via.
+
 ### Gate 11 — SCA, licenças, vulnerabilidades e SBOM
 
 Gera SBOM CycloneDX 1.6 por alvo e confronta as licenças dos componentes
@@ -1538,4 +1569,5 @@ sobrevivem ao PR.
 | 1.26 | Outubro 2026 | **Gate 7 activo** (KAM-007): contratos de evento — compatibilidade contra o ramo principal, *lint* de PII, exemplos validados e `versao_max` das subscrições. Sai da matriz dos reservados, ganha *job* próprio com `fetch-depth: 0` e entra no `needs:` do agregador; `make ci` corre dez. Reservado passa a ser só o 5. A parte dos *webhooks* do gate 7 continua por fazer (KAM-024). | Equipa KAMBÁ |
 | 1.27 | Outubro 2026 | KAM-140: **lacuna 27** — os diagramas Mermaid passam a ter um verificador (`make mermaid`, 49 blocos, `mermaid.parse` a sério) e **não** a ter *gate*: os *jobs* do 3 e do 3b não têm Node de propósito (ADR-L001), e o `mermaid` não é dependência do repositório para não entrar no SBOM nem no veredicto de licenças do *gate* 11. Pendurá-lo num *job* com `preparar` é a via, e é decisão do dono do *gate*. | Equipa KAMBÁ |
 | 1.28 | Outubro 2026 | KAM-134: a **lacuna 12** fecha. As oito chaves que nenhum código lia passam a comentário — e eram oito e não sete —, e os **catorze** leitores de `ci/*.yaml` passam a recusar uma chave desconhecida com código 2. O mecanismo e um só (`kamba_yaml.exigir_chaves`), onde eram quatro. O `ci_gate_reservado` devolvia **1 para tudo**, e com isso perdia o que o KAM-136 tinha construído. | Equipa KAMBÁ |
-| 1.29 | Outubro 2026 | KAM-135: o §5 passa a descrever o que o validador exige. `criado_em` obrigatório e o prazo contado **dele** — renovar deixa de ser empurrar uma data; a data dentro de `adr_ou_aprovacao` é lida e não pode ser futura; e os gates **14** e **18** passam a aceitar *waiver*, que o KAM-067 e o KAM-078 precisam e o validador recusava. O conjunto de gates deriva agora da tabela do `specs/01` §4: os **dezanove** estão classificados — o `3b` incluído, que a primeira versão do *regex* não via e que o teste cimentava a 18 —, e um gate novo sem posição falha. A aprovação datada tem de ser contemporânea da criação, e o que **não** se verifica (o `ADR-NNN`, o `autor`) fica dito em vez de prometido. | Equipa KAMBÁ |
+| 1.29 | Outubro 2026 | KAM-157: o §3 (*gate* 9) ganha a *push protection* do GitHub. Existe um `.github/secret_scanning.yml` com uma entrada — a pasta do canário —, por decisão do fundador de 2026-10-18. Não é área cega nova (o `ci/secrets-allow.yaml` já a declarava), não torna o canário invisível ao *gate* 9 (são dois *scanners*), e não pode crescer em silêncio: um teste exige que as duas listas coincidam exactamente. | Equipa KAMBÁ |
+| 1.30 | Outubro 2026 | KAM-135: o §5 passa a descrever o que o validador exige. `criado_em` obrigatório e o prazo contado **dele** — renovar deixa de ser empurrar uma data; a data dentro de `adr_ou_aprovacao` é lida e não pode ser futura; e os gates **14** e **18** passam a aceitar *waiver*, que o KAM-067 e o KAM-078 precisam e o validador recusava. O conjunto de gates deriva agora da tabela do `specs/01` §4: os **dezanove** estão classificados — o `3b` incluído, que a primeira versão do *regex* não via e que o teste cimentava a 18 —, e um gate novo sem posição falha. A aprovação datada tem de ser contemporânea da criação, e o que **não** se verifica (o `ADR-NNN`, o `autor`) fica dito em vez de prometido. | Equipa KAMBÁ |
