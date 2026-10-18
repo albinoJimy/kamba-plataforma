@@ -232,7 +232,19 @@ class TestConvencoes(ComBase):
                 ("evt_subscricoes", "tipo", "text", None),
                 ("hmac_key_versions", "kid", "text", None),
                 ("tenant_channels", "id", "uuid", "gen_random_uuid()"),
+                # KAM-009: as duas tabelas de uso tem chave **composta e de
+                # negocio**, e nao um `uuid` gerado. E deliberado: a chave de
+                # `tenant_usage` e o que torna «um contador por tenant, chave
+                # e periodo» impossivel de violar, e a de `usage_ledger` e o
+                # que **recusa** a segunda chamada com a mesma chave de
+                # idempotencia. Um `id` gerado ao lado delas seria uma chave
+                # que nao impede nada.
+                ("tenant_usage", "chave_limite", "text", None),
+                ("tenant_usage", "periodo", "date", None),
+                ("tenant_usage", "tenant_id", "uuid", None),
                 ("tenants", "id", "uuid", "gen_random_uuid()"),
+                ("usage_ledger", "idempotency_key", "text", None),
+                ("usage_ledger", "tenant_id", "uuid", None),
             ],
         )
 
@@ -304,7 +316,12 @@ class TestConvencoes(ComBase):
              # KAM-012. As duas da auditoria, e sao as **unicas** com
              # `tenant_id` anulavel em todo o schema — ver `ANULAVEIS` logo
              # abaixo e a razao que la esta escrita.
-             "audit_log", "audit_heads"},
+             "audit_log", "audit_heads",
+             # KAM-009. O `tenant_id` vem em primeiro lugar na chave primaria
+             # das duas, que e o indice que a serve — nao foi preciso indice
+             # proprio para esta regra. O `usage_ledger` tem alem disso
+             # `(tenant_id, periodo)`, que e por onde a retencao le.
+             "tenant_usage", "usage_ledger"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -345,7 +362,9 @@ class TestConvencoes(ComBase):
             "WHERE contype = 'f' AND connamespace = 'platform'::regnamespace"
         )
         # 13 desde o KAM-006: a `evt_dlq_aprovacoes_dlq_fk`.
-        self.assertEqual(len(linhas), 13)
+        # 15 desde o KAM-009: as duas FK de `tenant_usage` e
+        # `usage_ledger` para `tenants(id)`.
+        self.assertEqual(len(linhas), 15)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

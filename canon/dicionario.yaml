@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.16"
+versao_dicionario: "1.17"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -245,7 +245,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Entitlement (chaves)"
-    canonico: "msgs_ai_mes, marcacoes_mes, imagens_mes, posts_mes, orcamentos_mes, valor_max_pedido_minor (limite do plano e do tecto K1/K2), manual_max_minor (limite do ManualProvider)"
+    canonico: "msgs_ai_mes, marcacoes_mes, imagens_mes, posts_mes, orcamentos_mes, valor_max_pedido_minor (limite do plano e do tecto K1/K2), manual_max_minor (limite do ManualProvider), manual_daily_max_minor, manual_max_por_contacto_24h, manual_dupla_acima_minor"
     literais:
       - "msgs_ai_mes"
       - "marcacoes_mes"
@@ -255,6 +255,9 @@ entradas:
       - "valor_max_pedido_minor"
       - "manual_max_minor"
       - "ManualProvider"
+      - "manual_daily_max_minor"
+      - "manual_max_por_contacto_24h"
+      - "manual_dupla_acima_minor"
     nomes:
       - "msgs_ai_mes"
       - "marcacoes_mes"
@@ -264,11 +267,16 @@ entradas:
       - "valor_max_pedido_minor"
       - "manual_max_minor"
       - "ManualProvider"
+      - "manual_daily_max_minor"
+      - "manual_max_por_contacto_24h"
+      - "manual_dupla_acima_minor"
     nomes_nota:
       - "valor_max_pedido_minor"
       - "ManualProvider"
       - "manual_max_minor"
       - "manual_max_kz"
+      - "entitlements"
+      - "limites"
     variantes_literais:
       - "valor_max_pedido_kz"
   - seccao: "3.2"
@@ -441,20 +449,66 @@ entradas:
       - "tenant_channels.tenant_id"
       - "criado_at"
       - "tenants.plano"
+      - "entitlements"
+      - "limites"
+      - "ativo"
+      - "tenants"
+      - "id"
+      - "app.tenant_id"
       - "estado"
       - "verificado_at"
     variantes_literais:
       - "kamba_batch"
   - seccao: "3.2"
+    conceito: "Uso de entitlement (tabelas)"
+    canonico: "tenant_usage(tenant_id, chave_limite, periodo, valor, actualizado_at), chave (tenant_id, chave_limite, periodo); usage_ledger(tenant_id, idempotency_key, chave_limite, periodo, quantidade, criado_at), chave (tenant_id, idempotency_key)"
+    literais:
+      - "tenant_usage(tenant_id, chave_limite, periodo, valor, actualizado_at)"
+      - "(tenant_id, chave_limite, periodo)"
+      - "usage_ledger(tenant_id, idempotency_key, chave_limite, periodo, quantidade, criado_at)"
+      - "(tenant_id, idempotency_key)"
+    nomes:
+      - "tenant_usage"
+      - "tenant_id"
+      - "chave_limite"
+      - "periodo"
+      - "valor"
+      - "actualizado_at"
+      - "usage_ledger"
+      - "idempotency_key"
+      - "quantidade"
+      - "criado_at"
+    nomes_nota:
+      - "entitlements"
+      - "tenant_usage"
+      - "usage_ledger"
+      - "tenant_id"
+      - "key"
+      - "n"
+      - "idempotency_key"
+    variantes_literais: []
+  - seccao: "3.2"
+    conceito: "Período de uso"
+    canonico: "tenant_usage.periodo date — o primeiro dia do mês em Africa/Luanda"
+    literais:
+      - "tenant_usage.periodo date"
+    nomes:
+      - "tenant_usage.periodo"
+      - "date"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.2"
     conceito: "Forma das chaves de configuração em colunas"
-    canonico: "tenant_channels.vertical e entitlements.modulo: ^[a-z][a-z0-9_]$"
+    canonico: "tenant_channels.vertical, entitlements.modulo e tenants.plano: ^[a-z][a-z0-9_]$"
     literais:
       - "tenant_channels.vertical"
       - "entitlements.modulo"
+      - "tenants.plano"
       - "^[a-z][a-z0-9_]*$"
     nomes:
       - "tenant_channels.vertical"
       - "entitlements.modulo"
+      - "tenants.plano"
       - "a"
       - "z"
       - "z0"
@@ -464,6 +518,7 @@ entradas:
       - "snake_case"
       - "Assistente"
       - "assistente"
+      - "tenants.plano"
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Contexto de tenant na base"
@@ -1993,6 +2048,31 @@ tabelas:
     assinatura: "entitlements(tenant_id, modulo, limites jsonb, ativo boolean)"
     seccao: "3.2"
     conceito: "Entitlement (tabela)"
+  - nome: "tenant_usage"
+    esquema: ""
+    colunas:
+      - "tenant_id"
+      - "chave_limite"
+      - "periodo"
+      - "valor"
+      - "actualizado_at"
+    aberta: false
+    assinatura: "tenant_usage(tenant_id, chave_limite, periodo, valor, actualizado_at)"
+    seccao: "3.2"
+    conceito: "Uso de entitlement (tabelas)"
+  - nome: "usage_ledger"
+    esquema: ""
+    colunas:
+      - "tenant_id"
+      - "idempotency_key"
+      - "chave_limite"
+      - "periodo"
+      - "quantidade"
+      - "criado_at"
+    aberta: false
+    assinatura: "usage_ledger(tenant_id, idempotency_key, chave_limite, periodo, quantidade, criado_at)"
+    seccao: "3.2"
+    conceito: "Uso de entitlement (tabelas)"
   - nome: "set_config"
     esquema: ""
     colunas:
@@ -2350,7 +2430,7 @@ variantes:
     tipo: "nome"
     seccao: "3.2"
     conceito: "Entitlement (chaves)"
-    canonico: "msgs_ai_mes, marcacoes_mes, imagens_mes, posts_mes, orcamentos_mes, valor_max_pedido_minor (limite do plano e do tecto K1/K2), manual_max_minor (limite do ManualProvider)"
+    canonico: "msgs_ai_mes, marcacoes_mes, imagens_mes, posts_mes, orcamentos_mes, valor_max_pedido_minor (limite do plano e do tecto K1/K2), manual_max_minor (limite do ManualProvider), manual_daily_max_minor, manual_max_por_contacto_24h, manual_dupla_acima_minor"
   - nome: "kamba_ops"
     tipo: "nome"
     seccao: "3.2"
