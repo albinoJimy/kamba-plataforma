@@ -15,7 +15,13 @@ import collections
 import sys
 from pathlib import Path
 
-from kamba_yaml import YamlSubsetError, load_file
+from kamba_yaml import YamlSubsetError, exigir_chaves, load_file
+
+#: As chaves de `ci/handoff-allow.yaml` que este leitor conhece (KAM-134). A
+#: `version` esta aqui porque **esta no ficheiro** e ninguem a le: sem a
+#: declarar, a recusa fazia o gate vermelho sobre uma chave que toda a gente
+#: considera legitima. E a armadilha que se repete em tres leitores.
+_CHAVES = {'version', 'excepcoes'}
 
 from .scan import (DEFEITOS, PADROES, contar_blocos, ficheiros, varrer_arvore,
                    varrer_ficheiro)
@@ -42,15 +48,16 @@ def ler_excepcoes(raiz: Path) -> tuple[str, ...]:
         dados = load_file(f)
     except (YamlSubsetError, OSError) as e:
         raise ConfiguracaoInvalida(f'{ALLOW}: {e}') from e
-    if not isinstance(dados, dict):
-        raise ConfiguracaoInvalida(f'{ALLOW}: a raiz tem de ser um mapeamento')
+    exigir_chaves(dados, _CHAVES, ALLOW, erro=ConfiguracaoInvalida)
     entradas = dados.get('excepcoes') or []
     if not isinstance(entradas, list):
         raise ConfiguracaoInvalida(f'{ALLOW}: `excepcoes` tem de ser uma lista')
     out: list[str] = []
     for i, e in enumerate(entradas, 1):
-        if not isinstance(e, dict):
-            raise ConfiguracaoInvalida(f'{ALLOW}: a entrada {i} nao e um mapeamento')
+        exigir_chaves(
+            e, {'excerto', 'razao'}, f'{ALLOW}: a entrada {i}',
+            erro=ConfiguracaoInvalida,
+        )
         excerto, razao = e.get('excerto'), e.get('razao')
         if not isinstance(excerto, str) or not excerto.strip():
             raise ConfiguracaoInvalida(f'{ALLOW}: a entrada {i} nao tem `excerto`')

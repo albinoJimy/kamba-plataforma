@@ -25,7 +25,7 @@ import datetime as _datetime
 import re
 from pathlib import Path
 
-from kamba_yaml import YamlSubsetError, load_file
+from kamba_yaml import YamlSubsetError, exigir_chaves, load_file
 
 from . import arvore_yaml, compose as compose_mod, dockerfile
 from .base import Achado, ConfiguracaoInvalida, ler_texto, percorrer, relativo
@@ -147,12 +147,16 @@ _CHAVES_TOPO = {"version", "imagens", "fontes_adicionais"}
 
 
 def _so_chaves(mapa: dict, aceites: set[str], onde: str) -> None:
-    estranhas = sorted(set(mapa) - aceites)
-    if estranhas:
-        raise ConfiguracaoInvalida(
-            f"{onde}: chave(s) que nenhum codigo le: {', '.join(estranhas)}. "
-            "Uma chave ignorada em silencio e politica que alguem julga estar a aplicar."
-        )
+    """A recusa de chaves desconhecidas, com a excepcao deste modulo.
+
+    O corpo era local e passou a chamar o `exigir_chaves` partilhado no
+    KAM-134. Eram **quatro** implementacoes da mesma ideia no repositorio — esta,
+    a do `licencas.py` ao lado, a do `canon_lint` e a que o ticket mandava
+    escrever de novo —, e a diferenca entre elas era a mensagem. A partilhada
+    diz tambem o **conjunto aceite**, que nenhuma das locais dizia e que o
+    criterio do ticket exige.
+    """
+    exigir_chaves(mapa, aceites, onde, erro=ConfiguracaoInvalida)
 
 
 def ler_inventario(raiz: Path, hoje: _datetime.date | None = None) -> Inventario:

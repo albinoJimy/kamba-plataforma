@@ -16,7 +16,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-from kamba_yaml import YamlSubsetError, load_file
+from kamba_yaml import YamlSubsetError, exigir_chaves, load_file
+
+#: As chaves de `ci/refs-allow.yaml` que este leitor conhece (KAM-134). Saiu a
+#: `serie_d`, com a sua `prazos_conhecidos`: o gate decide por intervalo
+#: canonico, e a lista nunca foi lida. A razao esta no proprio ficheiro.
+CHAVES = {"version", "placeholders", "areas", "excepcoes"}
 
 from . import scan
 from .sets import Conjuntos, FonteCanonicaAusente, ler
@@ -97,11 +102,16 @@ class Excepcoes:
         if not caminho.is_file():
             raise FonteCanonicaAusente(f"ficheiro de excepcoes em falta: {caminho}")
         dados = load_file(caminho)
+        exigir_chaves(dados, CHAVES, str(caminho), erro=FonteCanonicaAusente)
         if dados.get("version") != 1:
             raise FonteCanonicaAusente(f"{caminho}: 'version' tem de ser 1")
 
         por_ficheiro: dict[str, set[str]] = {}
         for indice, entrada in enumerate(dados.get("excepcoes") or [], start=1):
+            exigir_chaves(
+                entrada, {"ficheiro", "token", "razao"},
+                f"{caminho}: excepcao {indice}", erro=FonteCanonicaAusente,
+            )
             faltam = [c for c in ("ficheiro", "token", "razao") if not entrada.get(c)]
             if faltam:
                 raise FonteCanonicaAusente(
@@ -117,6 +127,10 @@ class Excepcoes:
             )
         areas: list[str] = []
         for indice, area in enumerate(dados.get("areas") or [], start=1):
+            exigir_chaves(
+                area, {"caminho", "razao"}, f"{caminho}: area {indice}",
+                erro=FonteCanonicaAusente,
+            )
             if not area.get("caminho") or not area.get("razao"):
                 raise FonteCanonicaAusente(
                     f"{caminho}: area {indice} sem caminho ou razao"

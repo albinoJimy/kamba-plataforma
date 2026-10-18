@@ -26,7 +26,21 @@ import sys
 from pathlib import Path
 from typing import NamedTuple
 
-from kamba_yaml import YamlSubsetError, load_file
+from kamba_yaml import YamlSubsetError, exigir_chaves, load_file
+
+#: As chaves de `ci/contagens-allow.yaml` que este leitor conhece (KAM-134). A
+#: `version` esta no ficheiro e ninguem a le; declara-se para que a recusa nao
+#: a apanhe.
+_CHAVES = {'version', 'excepcoes', 'dividas'}
+
+#: O `criado_em` esta no ficheiro e o leitor **nao o usa** — so o `expira_em`
+#: conta para o prazo. Fica declarado em vez de removido: uma divida sem data
+#: de nascimento nao se audita, e e informacao que o KAM-135 vai precisar
+#: quando passar a medir o prazo a partir da criacao.
+_CHAVES_DE_DIVIDA = {
+    'ficheiro', 'grandeza', 'escrito', 'ocorrencias', 'origem',
+    'criado_em', 'expira_em', 'razao',
+}
 
 from . import fontes as mod_fontes
 from .scan import PADROES, Achado, ficheiros, varrer_arvore, varrer_ficheiro
@@ -94,13 +108,14 @@ def ler_declaracoes(raiz: Path) -> tuple[tuple[str, ...], tuple[Divida, ...]]:
         dados = load_file(f)
     except (YamlSubsetError, OSError) as e:
         raise ConfiguracaoInvalida(f'{ALLOW}: {e}') from e
-    if not isinstance(dados, dict):
-        raise ConfiguracaoInvalida(f'{ALLOW}: a raiz tem de ser um mapeamento')
+    exigir_chaves(dados, _CHAVES, ALLOW, erro=ConfiguracaoInvalida)
 
     excepcoes: list[str] = []
     for i, e in enumerate(dados.get('excepcoes') or [], 1):
-        if not isinstance(e, dict):
-            raise ConfiguracaoInvalida(f'{ALLOW}: a excepcao {i} nao e um mapeamento')
+        exigir_chaves(
+            e, {'excerto', 'razao'}, f'{ALLOW}: a excepcao {i}',
+            erro=ConfiguracaoInvalida,
+        )
         excerto, razao = e.get('excerto'), e.get('razao')
         if not isinstance(excerto, str) or not excerto.strip():
             raise ConfiguracaoInvalida(f'{ALLOW}: a excepcao {i} nao tem `excerto`')
@@ -112,8 +127,7 @@ def ler_declaracoes(raiz: Path) -> tuple[tuple[str, ...], tuple[Divida, ...]]:
     dividas: list[Divida] = []
     for i, d in enumerate(dados.get('dividas') or [], 1):
         onde = f'{ALLOW}: a divida {i}'
-        if not isinstance(d, dict):
-            raise ConfiguracaoInvalida(f'{onde} nao e um mapeamento')
+        exigir_chaves(d, _CHAVES_DE_DIVIDA, onde, erro=ConfiguracaoInvalida)
         for chave in ('ficheiro', 'grandeza', 'escrito', 'ocorrencias', 'origem',
                       'expira_em', 'razao'):
             if not d.get(chave) and d.get(chave) != 0:

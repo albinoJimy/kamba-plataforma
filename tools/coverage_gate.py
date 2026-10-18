@@ -60,7 +60,23 @@ import re
 import sys
 from pathlib import Path
 
-from kamba_yaml import YamlSubsetError, load_file
+from kamba_yaml import YamlSubsetError, exigir_chaves, load_file
+
+#: As chaves que este leitor conhece. Uma chave fora daqui e **erro de
+#: configuracao** desde o KAM-134, e nao um aviso: um ficheiro que descreve
+#: politica que ninguem le e pior do que um que a nao descreve, porque quem o
+#: edita acredita ter mudado o comportamento do gate.
+#:
+#: A `version` esta aqui embora o leitor so a compare: sem ela, uma chave que
+#: toda a gente considera legitima fazia o gate vermelho.
+#:
+#: Esteve aqui uma `arredondamento`, que ninguem lia. Saiu, e a razao esta no
+#: proprio `ci/thresholds.yaml`.
+CHAVES = {"version", "estratos", "excluidos"}
+
+#: E por nivel: um validador so do primeiro nao via uma gralha dentro de um
+#: estrato.
+CHAVES_DE_ESTRATO = {"nome", "minimo_linhas", "razao", "padroes"}
 
 #: As extensoes que entram no universo lido do disco: **tudo o que o Node 24
 #: executa**, e nao so `.ts`. A primeira versao deste ficheiro so contava `.ts`,
@@ -146,11 +162,15 @@ def ler_limiares(raiz: Path) -> Limiares:
         dados = load_file(caminho)
     except YamlSubsetError as excepcao:
         raise ConfiguracaoInvalida(str(excepcao)) from excepcao
+    exigir_chaves(dados, CHAVES, str(caminho), erro=ConfiguracaoInvalida)
     if dados.get("version") != 1:
         raise ConfiguracaoInvalida(f"{caminho}: 'version' tem de ser 1")
 
     estratos = []
     for indice, bruto in enumerate(dados.get("estratos") or [], start=1):
+        exigir_chaves(
+            bruto, CHAVES_DE_ESTRATO, f"{caminho}: estrato {indice}", erro=ConfiguracaoInvalida
+        )
         faltam = [c for c in ("nome", "minimo_linhas", "razao", "padroes") if not bruto.get(c)]
         if faltam:
             raise ConfiguracaoInvalida(

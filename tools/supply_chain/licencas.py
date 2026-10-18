@@ -25,7 +25,7 @@ import datetime as _datetime
 import re
 from pathlib import Path
 
-from kamba_yaml import YamlSubsetError, load_file
+from kamba_yaml import YamlSubsetError, exigir_chaves, load_file
 from lint_arch import blocklist as blocklist_mod
 from lint_arch import manifests, names, versions
 from sbom import adr as adr_mod
@@ -106,9 +106,9 @@ def ler_registo(raiz: Path, hoje: _datetime.date | None = None) -> list[Registo]
         dados = load_file(caminho)
     except YamlSubsetError as excepcao:
         raise ConfiguracaoInvalida(str(excepcao)) from excepcao
-    estranhas = sorted(set(dados) - _CHAVES_TOPO)
-    if estranhas:
-        raise ConfiguracaoInvalida(f"{REGISTO}: chave(s) que nenhum codigo le: {', '.join(estranhas)}")
+    # KAM-134: era a quarta implementacao da mesma ideia no repositorio, e a
+    # unica que nem dizia o conjunto aceite.
+    exigir_chaves(dados, _CHAVES_TOPO, REGISTO, erro=ConfiguracaoInvalida)
     if dados.get("version") != 1:
         raise ConfiguracaoInvalida(f"{REGISTO}: 'version' tem de ser 1")
     brutos = dados.get("componentes")
@@ -124,11 +124,7 @@ def ler_registo(raiz: Path, hoje: _datetime.date | None = None) -> list[Registo]
         onde = f"{REGISTO}: componente {indice}"
         if not isinstance(bruto, dict):
             raise ConfiguracaoInvalida(f"{onde}: esperava um mapa")
-        estranhas = sorted(set(bruto) - _CHAVES)
-        if estranhas:
-            raise ConfiguracaoInvalida(
-                f"{onde}: chave(s) que nenhum codigo le: {', '.join(estranhas)}"
-            )
+        exigir_chaves(bruto, _CHAVES, onde, erro=ConfiguracaoInvalida)
         faltam = [c for c in _OBRIGATORIAS if bruto.get(c) in (None, "")]
         if faltam:
             raise ConfiguracaoInvalida(f"{onde}: campos em falta: {', '.join(faltam)}")

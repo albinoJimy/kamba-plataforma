@@ -174,6 +174,11 @@ def _nomes_de_campo(no, prefixo: str = ""):
             yield from _nomes_de_campo(filho, prefixo)
 
 
+#: As chaves de `ci/contratos-allow.yaml` que este leitor conhece (KAM-134).
+_CHAVES = {"version", "aprovados"}
+_CHAVES_DE_APROVADO = {"campo", "ticket", "razao", "data"}
+
+
 def ler_allowlist(raiz: Path) -> set[str]:
     """Os nomes de campo com excepcao declarada. Sem ficheiro, conjunto vazio."""
     caminho = raiz / ALLOWLIST
@@ -182,7 +187,17 @@ def ler_allowlist(raiz: Path) -> set[str]:
     import kamba_yaml
 
     documento = kamba_yaml.load_file(caminho)
+    # KAM-134. O `ticket`, a `razao` e a `data` nunca sao lidos aqui — o gate
+    # so precisa do nome do campo —, mas estao declarados: a lista `aprovados`
+    # esta **vazia** hoje, e um conjunto aceite so com `campo` punha este
+    # ficheiro vermelho no dia em que alguem aprovasse o primeiro. Verde por
+    # acidente e a unica coisa pior do que vermelho.
+    kamba_yaml.exigir_chaves(documento, _CHAVES, str(caminho))
     aprovados = documento.get("aprovados") or []
+    for indice, entrada in enumerate(aprovados, start=1):
+        kamba_yaml.exigir_chaves(
+            entrada, _CHAVES_DE_APROVADO, f"{caminho}: aprovado {indice}"
+        )
     return {str(entrada["campo"]) for entrada in aprovados}
 
 

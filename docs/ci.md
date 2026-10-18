@@ -1150,12 +1150,24 @@ resposta seria pior do que nomeá-las:
     completo (`kamba.cdx.json`) está correcto, pelo que licenças e
     vulnerabilidades são verificadas sobre tudo — o que falta é a atribuição por
     serviço. Ticket próprio.
-12. **Sete chaves de `ci/*.yaml` que nenhum código lê** (`arredondamento`,
-    `desconhecidas.politica`, `expressoes.and/or/with`, `prazos_conhecidos`,
-    `regra`). O objectivo do ticket promete «limiares e excepções em ficheiros
-    versionados»; um ficheiro que descreve regras que o código não lê é pior do
-    que não as descrever, porque alguém vai editá-lo a pensar que alterou a
-    política. Ou se leem, ou passam a comentário.
+12. ~~**Sete chaves de `ci/*.yaml` que nenhum código lê**~~ — **fechada pelo
+    KAM-134**, e eram **oito**: a `desconhecidas.razao` não estava em lista
+    nenhuma. Todas passaram a **comentário**, nenhuma a ser lida, e a escolha é
+    a mesma oito vezes pela mesma razão: todas descrevem ou uma **regra de
+    bloqueio** (o arredondamento da cobertura, a política de licenças não
+    determinadas) ou uma **semântica** (as expressões SPDX, o intervalo da
+    série `D`). Nenhuma é parâmetro de operação, e uma regra de bloqueio
+    configurável deixa de ser uma regra. A razão de cada uma está escrita no
+    `ci/*.yaml` respectivo.
+
+    **E a classe fica fechada, não só as oito:** os **catorze** leitores de
+    `ci/*.yaml` — e não os seis que o ticket nomeava — recusam agora uma chave
+    que não conheçam, com **código 2**, por nível, com o conjunto aceite na
+    mensagem. O mecanismo é um só, `kamba_yaml.exigir_chaves`; eram **quatro**
+    implementações da mesma ideia (`canon_lint`, `supply_chain/imagens`,
+    `supply_chain/licencas`, e a que o ticket mandava escrever de novo).
+    Um teste confronta, por ficheiro, as chaves presentes com as que o leitor
+    declara — é o que impede uma chave nova de nascer não lida.
 13. **O validador de *waivers* aceita o que não devia:** uma data de aprovação
     impossível (`@9999-99-99`), um prazo contado de hoje e não da criação — não
     há `criado_em`, pelo que um *waiver* se renova para sempre com um *diff* de
@@ -1462,3 +1474,4 @@ sobrevivem ao PR.
 | 1.25 | Outubro 2026 | KAM-158: o *gate* 3 ganha um **terceiro** passo, `lint_contagens`, que confronta cada contagem escrita em prosa com a fonte que a conta. Fecha por máquina a classe «contagem que não acompanha», que já custou quatro correcções à mão. A dívida 30 fica paga; seis ficam declaradas com dono (KAM-130) e prazo. | Equipa KAMBÁ |
 | 1.26 | Outubro 2026 | **Gate 7 activo** (KAM-007): contratos de evento — compatibilidade contra o ramo principal, *lint* de PII, exemplos validados e `versao_max` das subscrições. Sai da matriz dos reservados, ganha *job* próprio com `fetch-depth: 0` e entra no `needs:` do agregador; `make ci` corre dez. Reservado passa a ser só o 5. A parte dos *webhooks* do gate 7 continua por fazer (KAM-024). | Equipa KAMBÁ |
 | 1.27 | Outubro 2026 | KAM-140: **lacuna 27** — os diagramas Mermaid passam a ter um verificador (`make mermaid`, 49 blocos, `mermaid.parse` a sério) e **não** a ter *gate*: os *jobs* do 3 e do 3b não têm Node de propósito (ADR-L001), e o `mermaid` não é dependência do repositório para não entrar no SBOM nem no veredicto de licenças do *gate* 11. Pendurá-lo num *job* com `preparar` é a via, e é decisão do dono do *gate*. | Equipa KAMBÁ |
+| 1.28 | Outubro 2026 | KAM-134: a **lacuna 12** fecha. As oito chaves que nenhum código lia passam a comentário — e eram oito e não sete —, e os **catorze** leitores de `ci/*.yaml` passam a recusar uma chave desconhecida com código 2. O mecanismo e um só (`kamba_yaml.exigir_chaves`), onde eram quatro. O `ci_gate_reservado` devolvia **1 para tudo**, e com isso perdia o que o KAM-136 tinha construído. | Equipa KAMBÁ |

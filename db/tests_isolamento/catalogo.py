@@ -17,7 +17,7 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(RAIZ / "tools"))
 
-from kamba_yaml import load_file  # noqa: E402
+from kamba_yaml import exigir_chaves, load_file  # noqa: E402
 
 #: Schemas que **nao** sao aplicacionais. Tudo o resto e — incluindo um schema
 #: novo que alguem crie amanha, que assim entra na verificacao sem ninguem se
@@ -43,10 +43,18 @@ def _ler_lista(caminho: Path, chave: str, identificador: str) -> dict[str, dict]
     if not caminho.is_file():
         raise PoliticaInvalida(f"ficheiro em falta: {caminho}")
     dados = load_file(caminho)
+    # KAM-134: chave desconhecida e erro de configuracao, aqui como nos outros
+    # treze leitores de `ci/*.yaml`. Este corre dentro do gate 8 e levanta em
+    # vez de devolver codigo — o efeito e o mesmo: a suite para e diz porque.
+    exigir_chaves(dados, {"version", chave}, caminho.name, erro=PoliticaInvalida)
     if dados.get("version") != 1:
         raise PoliticaInvalida(f"{caminho.name}: 'version' tem de ser 1")
     entradas: dict[str, dict] = {}
     for indice, entrada in enumerate(dados.get(chave) or [], start=1):
+        exigir_chaves(
+            entrada, {identificador, "adr", "razao"},
+            f"{caminho.name}: entrada {indice}", erro=PoliticaInvalida,
+        )
         faltam = [c for c in (identificador, "adr", "razao") if not entrada.get(c)]
         if faltam:
             raise PoliticaInvalida(
