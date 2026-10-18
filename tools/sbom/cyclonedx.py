@@ -54,6 +54,36 @@ def _licenca_para_cyclonedx(
     return [{"license": {"name": licenca}}]
 
 
+def _componente(componente: Componente, ids_spdx: frozenset[str]) -> dict:
+    """Um componente do documento.
+
+    **O campo `licenses` nao se emite vazio.** No esquema do CycloneDX 1.6 o
+    `licenseChoice` e um `oneOf` de dois ramos que sao ambos um *array* — um de
+    `license`, outro de `expression` —, e um *array* vazio satisfaz **os dois**,
+    pelo que o `oneOf` falha: `"licenses": []` tornaria invalidos os tres
+    documentos onde aparecia (`kamba`, `libs__py-core`, `services__agr`), pelos
+    dois pacotes Python nossos, que nao declaram licenca no `pyproject.toml`.
+    A leitura do `oneOf` esta **NAO VERIFICADA** — este repositorio nao tem o
+    esquema para a confirmar —, mas omitir uma propriedade opcional e seguro
+    nos dois casos e nao perde informacao nenhuma: «sem campo» e exactamente o
+    que ha a dizer. Encontrado pela revisao adversarial do KAM-133.
+    """
+    registo = {
+        "type": "library",
+        "bom-ref": componente.purl,
+        "name": componente.nome,
+        "version": componente.versao,
+        "purl": componente.purl,
+        "properties": [
+            {"name": "kamba:origem-da-licenca", "value": componente.origem}
+        ],
+    }
+    licencas = _licenca_para_cyclonedx(componente.licenca, ids_spdx)
+    if licencas:
+        registo["licenses"] = licencas
+    return registo
+
+
 def construir(
     nome_do_alvo: str,
     versao_do_alvo: str,
@@ -96,20 +126,7 @@ def construir(
             ],
         },
         "components": [
-            {
-                "type": "library",
-                "bom-ref": componente.purl,
-                "name": componente.nome,
-                "version": componente.versao,
-                "purl": componente.purl,
-                "licenses": _licenca_para_cyclonedx(componente.licenca, ids_spdx),
-                "properties": [
-                    {
-                        "name": "kamba:origem-da-licenca",
-                        "value": componente.origem,
-                    }
-                ],
-            }
+            _componente(componente, ids_spdx)
             for componente in sorted(
                 componentes, key=lambda c: (c.ecossistema, c.nome, c.versao)
             )

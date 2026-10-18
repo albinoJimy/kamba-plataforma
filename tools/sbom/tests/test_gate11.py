@@ -67,6 +67,44 @@ class TestRecolha(unittest.TestCase):
             with self.subTest(nome=componente.nome):
                 self.assertTrue(componente.origem)
 
+    def test_um_pyproject_de_terceiros_nao_passa_por_nosso(self) -> None:
+        """A guarda do `node_modules` tem de valer nos dois varrimentos.
+
+        O dos `package.json` tinha-a e o dos `pyproject.toml` nao: um pacote de
+        terceiros com `pyproject.toml` na loja do `pnpm` entrava com
+        `proprio=True`, isto e, com a licenca dispensada por identidade.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            raiz = Path(tmp)
+            intruso = raiz / "node_modules" / ".pnpm" / "x@1" / "node_modules" / "x"
+            intruso.mkdir(parents=True)
+            (intruso / "pyproject.toml").write_text(
+                '[project]\nname = "intruso"\nversion = "1.0.0"\n',
+                encoding="utf-8", newline="\n",
+            )
+            nomes = {c.nome for c in recolher_workspace(raiz)}
+            self.assertNotIn("intruso", nomes, sorted(nomes))
+
+    def test_as_pastas_do_venv_sao_lidas_por_ordem(self) -> None:
+        """Determinista inclui **qual** das arvores do `venv` se leu."""
+        from sbom import collect
+
+        with tempfile.TemporaryDirectory() as tmp:
+            venv = Path(tmp) / ".venv"
+            for versao in ("python3.13", "python3.12"):
+                (venv / "lib" / versao / "site-packages").mkdir(parents=True)
+            pastas = [
+                p
+                for p in (
+                    venv / "Lib" / "site-packages",
+                    *sorted((venv / "lib").glob("python3.*/site-packages")),
+                )
+            ]
+            lidas = [p.parent.name for p in pastas if p.is_dir()]
+            self.assertEqual(lidas, ["python3.12", "python3.13"])
+            # E a funcao real nao rebenta num venv assim.
+            self.assertEqual(collect.recolher_pypi(Path(tmp), venv), [])
+
     def test_le_do_disco_e_nao_da_rede(self) -> None:
         """Sem instalacao nao ha componentes de terceiros, e isso e correcto.
 
@@ -91,17 +129,23 @@ class TestFechoPorAlvo(unittest.TestCase):
     #: decisao e nao um acidente. O `worker-canal` passou de 2 a 19 com o
     #: KAM-005: o publicador leva `pg`, e o `pg` leva dezasseis.
     #:
-    #: O **KAM-133** multiplicou-os por vinte: a travessia passou a atravessar
-    #: o `link:`, e cada servico leva agora o que o `@kamba/core-ts` lhe traz
-    #: (`bullmq`, `ioredis` e os fechos dos dois). Os tres servicos que so
-    #: declaram `hono` ficam iguais entre si, como declaram; o `worker-canal`
-    #: leva mais tres, que sao os seus proprios (`pg`, `@types/pg`, e o
-    #: `@types/node` que o `@types/pg` traz).
+    #: O **KAM-133** multiplicou-os: a travessia passou a atravessar o `link:`,
+    #: e cada servico leva agora o que o `@kamba/core-ts` lhe traz (`bullmq`,
+    #: `ioredis` e os fechos dos dois). Os tres servicos que so declaram `hono`
+    #: ficam iguais entre si, como declaram; o `worker-canal` leva o `pg` e o
+    #: fecho dele, que sao seus, mais o `@types/pg` e o `@types/node`.
+    #:
+    #: **Os tres foram 41 durante uma versao deste ramo, e 41 estava errado.**
+    #: A revisao adversarial mediu 27 contra o proprio `pnpm`: os 14 a mais
+    #: vinham do `pg` resolvido como *peer* opcional no *snapshot* do `bullmq`.
+    #: Estes numeros sao agora confrontados com o oraculo do `pnpm` em
+    #: `test_oraculo_pnpm.py`, que e quem manda; aqui ficam para que uma
+    #: dependencia nova seja uma decisao e nao um acidente.
     DEPENDENCIAS_POR_SERVICO = {
-        "services/gwy": 41,
+        "services/gwy": 27,
         "services/worker-canal": 44,
-        "services/com": 41,
-        "services/onboarding-web": 41,
+        "services/com": 27,
+        "services/onboarding-web": 27,
     }
 
     def test_os_servicos_node_carregam_o_que_declaram(self) -> None:
@@ -357,6 +401,44 @@ class TestSbom(unittest.TestCase):
                 arestas("packages__core-ts.cdx.json")[referencia],
             )
 
+    def test_nenhum_componente_emite_licenses_vazio(self) -> None:
+        """Um *array* vazio satisfaz os dois ramos do `oneOf` e falha-o.
+
+        O `licenseChoice` do CycloneDX 1.6 e um `oneOf` de dois ramos que sao
+        ambos um *array*. `"licenses": []` aparecia em tres documentos, pelos
+        dois pacotes Python nossos, que nao declaram licenca. Omite-se a
+        propriedade: «sem campo» e exactamente o que ha a dizer.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            for caminho, _ in gerar(ROOT, Path(tmp)):
+                documento = json.loads(caminho.read_text(encoding="utf-8"))
+                for componente in documento["components"]:
+                    with self.subTest(sbom=caminho.name, pacote=componente["name"]):
+                        self.assertNotEqual(componente.get("licenses"), [])
+
+    def test_o_grafo_do_lado_python_conta_as_dependencias_todas(self) -> None:
+        """Uma entrada **parcial** mente mais do que nenhuma.
+
+        O `services/agr/pyproject.toml` declara tres (`starlette`, `uvicorn`,
+        `kamba-core`), e a primeira versao emitia so o `kamba-core` — os outros
+        dois estao no mesmo documento, com versao. Com entrada, quem le conclui
+        que o grafo e conhecido.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            gerar(ROOT, Path(tmp))
+            documento = json.loads(
+                (Path(tmp) / "services__agr.cdx.json").read_text(encoding="utf-8")
+            )
+            arestas = {e["ref"]: e["dependsOn"] for e in documento["dependencies"]}
+            self.assertEqual(
+                arestas["pkg:pypi/kamba-agr@0.1.0"],
+                [
+                    "pkg:pypi/kamba-core@0.1.0",
+                    "pkg:pypi/starlette@1.7.0",
+                    "pkg:pypi/uvicorn@0.54.0",
+                ],
+            )
+
     def test_as_expressoes_vao_no_campo_certo(self) -> None:
         """Um `id` e comparavel; uma `expression` tem de ser avaliada."""
         from sbom.cyclonedx import _licenca_para_cyclonedx
@@ -403,7 +485,10 @@ class TestSbom(unittest.TestCase):
         for caminho in caminhos:
             documento = json.loads(caminho.read_text(encoding="utf-8"))
             for componente in documento["components"]:
-                for licenca in componente["licenses"]:
+                # `.get`, e nao `[...]`: desde que o `"licenses": []` deixou de
+                # se emitir (um array vazio falha o `oneOf` do `licenseChoice`),
+                # um componente sem licenca nao tem a propriedade de todo.
+                for licenca in componente.get("licenses", []):
                     identificador = licenca.get("license", {}).get("id")
                     if identificador is None:
                         continue

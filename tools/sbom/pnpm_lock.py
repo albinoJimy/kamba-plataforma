@@ -23,11 +23,32 @@ e a travessia continua dali.
 **Atravessar nao e copiar.** Ao entrar num pacote do workspace seguem-se so os
 grupos que um consumidor herda — `dependencies` e `optionalDependencies` — e nao
 as `devDependencies`, que sao as ferramentas com que esse pacote se constroi e
-nao fazem parte do que o servico carrega. O `@kamba/core-ts` declara o `pg` em
-`devDependencies`; o `pg` aparece na mesma no fecho do `services/gwy`, mas por
-ser `optionalDependencies` do `bullmq` — que e o caminho verdadeiro, e e o que o
-SBOM passa a mostrar. As `devDependencies` do **proprio** alvo continuam a
-contar: sem isso a raiz, que so tem `devDependencies`, ficaria com zero.
+nao fazem parte do que o servico carrega. As `devDependencies` do **proprio**
+alvo continuam a contar: sem isso a raiz, que so tem `devDependencies`, ficaria
+com zero.
+
+**E excluir um grupo um nivel acima nao chega, porque ele volta a entrar um
+nivel abaixo.** Um *peer* opcional ja resolvido aparece, no `snapshots:`, sob
+`optionalDependencies:` — indistinguivel a olho de uma `optionalDependencies`
+verdadeira do pacote. O `bullmq@6.3.11` declara o `pg` em `peerDependencies`
+com `peerDependenciesMeta.pg.optional: true`, e o `pg` so esta resolvido porque
+o `@kamba/core-ts` o declara nas suas `devDependencies`. Seguir essa aresta
+trazia o `pg` e mais treze ao `services/gwy`, ao `com` e ao `onboarding-web`,
+que nao o tem: **14 dos 41 terceiros, por um caminho que a exclusao de um nivel
+acima tinha acabado de fechar.**
+
+Por isso le-se tambem a secçao `packages:`, de onde saem os *peers* opcionais de
+cada pacote, e **nao se segue uma aresta de `optionalDependencies:` cujo nome
+seja um *peer* opcional do pacote**. Nao se perde nada: um *peer* so esta
+resolvido porque alguem na arvore o fornece, e esse alguem declara-o — e o
+`ioredis`, que e *peer* opcional do `bullmq` pela mesma via, continua no fecho
+dos tres servicos porque o `core-ts` o declara em `dependencies`. As
+`optionalDependencies` **verdadeiras** seguem-se na mesma: sao elas que poem os
+seis `@msgpackr-extract/*` no fecho.
+
+O oraculo desta regra nao e um raciocinio: e o proprio `pnpm`. O
+`tools/sbom/tests/test_oraculo_pnpm.py` confronta a travessia, importador a
+importador, com `pnpm --filter <alvo> list --prod --depth Infinity --json`.
 
 Nao se usa o `tools/kamba_yaml.py`: o `pnpm-lock.yaml` esta muito fora do
 subconjunto que ele aceita (chaves com `@` e `/`, aninhamento profundo), e
@@ -80,6 +101,21 @@ _SNAPSHOT_GRUPO = re.compile(
     r"^    (?P<grupo>dependencies|optionalDependencies|transitivePeerDependencies):\s*$"
 )
 
+#: `    peerDependencies:` / `    peerDependenciesMeta:` dentro de `packages:`.
+_PARES_GRUPO = re.compile(r"^    (?P<grupo>peerDependencies|peerDependenciesMeta):\s*$")
+
+#: `      pg: '>=8.0.0'` ou `      bullmq-otel:` — um nome de *peer*.
+_PAR = re.compile(r"^      '?(?P<nome>(?:@[^/\s:']+/)?[^\s:']+)'?:")
+
+#: `        optional: true`, dentro de `peerDependenciesMeta`.
+_PAR_OPCIONAL = re.compile(r"^        optional:\s*true\s*$")
+
+#: Qualquer campo de um pacote (`    resolution:`, `    engines:`, `    cpu:`).
+#: Serve para fechar o grupo anterior: sem isto, um campo a seguir ao
+#: `peerDependenciesMeta:` deixava o leitor a achar que ainda estava dentro
+#: dele, e a ler nomes de *peer* onde nao ha nenhum.
+_CAMPO_DE_PACOTE = re.compile(r"^    [a-zA-Z]")
+
 #: Os grupos que um consumidor **herda** ao ligar-se a um pacote do workspace.
 #: As `devDependencies` ficam de fora de proposito: ver o cabecalho do modulo.
 GRUPOS_HERDADOS = frozenset({"dependencies", "optionalDependencies"})
@@ -112,6 +148,13 @@ class Grafo:
     ligacoes: dict[str, set[tuple[str, str]]]
     #: O mesmo, so dos `GRUPOS_HERDADOS`.
     ligacoes_herdadas: dict[str, set[tuple[str, str]]]
+    #: `nome@versao` -> nomes que o pacote declara como *peer* **opcional**,
+    #: lidos de `packages:`. Nao e informacao decorativa: e o que distingue uma
+    #: `optionalDependencies:` verdadeira de um *peer* opcional ja resolvido,
+    #: que no `snapshots:` se escrevem da mesma maneira (ver o cabecalho).
+    pares_opcionais: dict[str, frozenset[str]] = dataclasses.field(
+        default_factory=dict
+    )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -168,15 +211,21 @@ def ler(caminho: Path) -> Grafo:
     snapshots: dict[str, set[str]] = {}
     ligacoes: dict[str, set[tuple[str, str]]] = {}
     ligacoes_herdadas: dict[str, set[tuple[str, str]]] = {}
+    pares_opcionais: dict[str, set[str]] = {}
 
     seccao = ""
     importador: str | None = None
     grupo: str | None = None
     dep_pendente: str | None = None
     snapshot: str | None = None
+    pacote: str | None = None
+    par_pendente: str | None = None
 
     def recomecar() -> None:
-        for mapa in (directas, directas_herdadas, snapshots, ligacoes, ligacoes_herdadas):
+        for mapa in (
+            directas, directas_herdadas, snapshots, ligacoes, ligacoes_herdadas,
+            pares_opcionais,
+        ):
             mapa.clear()
 
     for linha in caminho.read_text(encoding="utf-8").split("\n"):
@@ -192,6 +241,39 @@ def ler(caminho: Path) -> Grafo:
                 recomecar()
             seccao = nova
             importador = snapshot = dep_pendente = grupo = None
+            pacote = par_pendente = None
+            continue
+
+        if seccao == "packages":
+            # So interessa uma coisa daqui: que *peers* e que cada pacote
+            # declara como opcionais. E o que permite distinguir, mais abaixo,
+            # um *peer* opcional resolvido de uma `optionalDependencies`
+            # verdadeira — que no `snapshots:` se escrevem igual.
+            chave = _SNAPSHOT.match(linha)
+            if chave:
+                pacote = _normalizar_chave(chave.group("chave"))
+                grupo = None
+                par_pendente = None
+                continue
+            cabecalho_de_grupo = _PARES_GRUPO.match(linha)
+            if cabecalho_de_grupo:
+                grupo = cabecalho_de_grupo.group("grupo")
+                par_pendente = None
+                continue
+            if _CAMPO_DE_PACOTE.match(linha):
+                grupo = None
+                par_pendente = None
+                continue
+            if pacote is None or grupo is None:
+                continue
+            if grupo == "peerDependenciesMeta":
+                par = _PAR.match(linha)
+                if par:
+                    par_pendente = par.group("nome")
+                    continue
+                if par_pendente and _PAR_OPCIONAL.match(linha):
+                    pares_opcionais.setdefault(pacote, set()).add(par_pendente)
+                    par_pendente = None
             continue
 
         if seccao == "importers":
@@ -254,12 +336,26 @@ def ler(caminho: Path) -> Grafo:
                 dep = _SNAPSHOT_DEP.match(linha)
                 if dep:
                     limpa = _limpar_versao(dep.group("versao"))
+                    nome = dep.group("nome")
+                    # Um *peer* opcional ja resolvido escreve-se aqui tal e qual
+                    # uma `optionalDependencies` verdadeira, e nao e a mesma
+                    # coisa: o `pg` esta resolvido no `bullmq` porque o
+                    # `@kamba/core-ts` o declara nas suas `devDependencies`, e
+                    # segui-lo trazia-o a tres servicos que nao o tem. Nao se
+                    # perde nada ao nao o seguir — quem fornece um *peer*
+                    # declara-o, e e por essa aresta que ele entra (ver o
+                    # cabecalho do modulo).
+                    if (
+                        grupo == "optionalDependencies"
+                        and nome in pares_opcionais.get(snapshot, ())
+                    ):
+                        continue
                     # Um `link:` dentro de `snapshots:` nao existe no pnpm 9 —
                     # as ligacoes do workspace vivem so em `importers:`. A
                     # guarda fica porque uma resolucao sem versao nao identifica
                     # componente nenhum, venha de onde vier.
                     if limpa and not limpa.startswith("link:"):
-                        snapshots[snapshot].add(f"{dep.group('nome')}@{limpa}")
+                        snapshots[snapshot].add(f"{nome}@{limpa}")
             continue
 
     return Grafo(
@@ -268,10 +364,11 @@ def ler(caminho: Path) -> Grafo:
         snapshots=snapshots,
         ligacoes=ligacoes,
         ligacoes_herdadas=ligacoes_herdadas,
+        pares_opcionais={k: frozenset(v) for k, v in pares_opcionais.items()},
     )
 
 
-def fecho(importador: str, grafo: Grafo) -> Fecho:
+def fecho(importador: str, grafo: Grafo, apenas_runtime: bool = False) -> Fecho:
     """Fecho transitivo das dependencias de um importador, por travessia.
 
     Duas travessias em largura, cada uma com o seu conjunto de visitados:
@@ -284,6 +381,14 @@ def fecho(importador: str, grafo: Grafo) -> Fecho:
     Visitado e visitado nas duas: o grafo tem ciclos — o npm permite
     dependencias mutuas, e dois pacotes do workspace podem declarar-se um ao
     outro — e uma recursao ingenua nao terminaria.
+
+    `apenas_runtime` trata o alvo como se fosse um pacote ligado: so os
+    `GRUPOS_HERDADOS`, tambem a partida. **Nao e o que o SBOM usa** — um alvo
+    carrega as suas proprias `devDependencies` —, existe para o confronto com o
+    `pnpm --filter <alvo> list --prod`, que e o unico oraculo exterior que esta
+    travessia tem (`tools/sbom/tests/test_oraculo_pnpm.py`). Uma opcao so para
+    testes seria um cheiro; esta nao e: e a definicao de «fecho de producao»,
+    e e ela que o KAM-067 vai querer quando comparar com o SBOM por imagem.
     """
     relacoes: dict[str, set[str]] = {}
     alcancados: set[str] = set()
@@ -298,11 +403,12 @@ def fecho(importador: str, grafo: Grafo) -> Fecho:
         visitados_importadores.add(actual)
         # O alvo conta com todos os grupos; quem se alcanca por `link:` so com
         # os herdados.
-        if actual == importador:
+        if actual == importador and not apenas_runtime:
             terceiros_aqui = grafo.directas.get(actual, set())
             ligacoes_aqui = grafo.ligacoes.get(actual, set())
         else:
-            alcancados.add(actual)
+            if actual != importador:
+                alcancados.add(actual)
             terceiros_aqui = grafo.directas_herdadas.get(actual, set())
             ligacoes_aqui = grafo.ligacoes_herdadas.get(actual, set())
         sementes |= terceiros_aqui

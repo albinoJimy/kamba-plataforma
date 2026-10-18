@@ -406,14 +406,28 @@ def relacoes_do_alvo(
             )
 
     # O lado Python: a ligacao esta no `[project].dependencies`, nao no
-    # lockfile. So se registam as arestas entre pacotes **nossos**; os pins de
-    # terceiros nao sao um grafo e nao se fingem um.
-    ligacoes = collect.ligacoes_python(raiz)
+    # lockfile, e **conta-se inteira**. A primeira versao registava so as
+    # arestas entre pacotes nossos, e o `kamba-agr` saia com
+    # `dependsOn: [kamba-core]` quando o `pyproject.toml` declara tres —
+    # `starlette` e `uvicorn` estao no mesmo documento, com versao. Uma entrada
+    # **parcial** e pior do que nenhuma: com entrada, quem le conclui que o
+    # grafo e conhecido, e o grafo mente por omissao.
+    #
+    # Os terceiros `pypi` continuam sem entrada **propria** — nao ha grafo
+    # resolvido deste lado, so pins —, e isso e outra coisa: e nao afirmar o
+    # que nao se sabe. O que nao se pode e apagar uma aresta que o manifesto
+    # declara.
+    declaracoes = collect.declaracoes_python(raiz)
+    por_nome_pypi: dict[str, str] = {
+        collect.normalizar_pypi(c.nome): c.purl
+        for c in componentes
+        if c.ecossistema == collect.PYPI
+    }
     for pasta, referencia in pastas_pypi.items():
         destinos = {
-            pastas_pypi[destino]
-            for destino in ligacoes.get(pasta, set())
-            if destino in pastas_pypi
+            por_nome_pypi[nome]
+            for nome in declaracoes.get(pasta, frozenset())
+            if nome in por_nome_pypi and por_nome_pypi[nome] != referencia
         }
         arestas.setdefault(referencia, set()).update(destinos)
 
