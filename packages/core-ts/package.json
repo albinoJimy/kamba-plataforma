@@ -42,6 +42,10 @@
     "./eventos/trabalhador_bullmq": {
       "types": "./dist/eventos/trabalhador_bullmq.d.ts",
       "default": "./dist/eventos/trabalhador_bullmq.js"
+    },
+    "./ten": {
+      "types": "./dist/ten/index.d.ts",
+      "default": "./dist/ten/index.js"
     }
   },
   "files": [
