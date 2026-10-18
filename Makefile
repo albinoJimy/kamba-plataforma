@@ -58,13 +58,6 @@ PY_LOCKS := services/agr/requirements/runtime.in tools/requirements/tools.in db/
 # receitas que a usam (`exige-suites`), nao a cabeca, para nao matar `make help`.
 # O conjunto minimo esperado esta preso em `tools/lint_arch/tests/test_makefile.py`:
 # uma suite que desapareca do disco falha la, em vez de deixar de correr calada.
-# A imagem e o digest de `.node-version`, os mesmos de `db/tests_eventos/node.py`
-# e de `ci/supply-chain/imagens.yaml`. As duas versoes sao exactas de proposito:
-# um `parse` que muda de resultado conforme o dia em que se corre nao e prova.
-IMAGEM_NODE := node:24.21.0-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66
-VERSAO_MERMAID := 11.12.0
-VERSAO_JSDOM := 27.0.0
-
 SUITES_DE_TOOLS := $(sort $(patsubst $(ROOT)/tools/%/tests/,%,$(dir $(wildcard $(ROOT)/tools/*/tests/test_*.py))))
 
 exige-suites:
@@ -474,7 +467,7 @@ mermaid:
 	@# resolucao a subir uma arvore que nao tem os pacotes (`ERR_MODULE_NOT_FOUND`).
 	@blocos="$$(mktemp)"; trap 'rm -f "$$blocos"' EXIT INT TERM; \
 	 $(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from mermaid_lint.extrair import main; sys.exit(main(['--root', '$(ROOT)']))" > "$$blocos" && \
-	 docker run --rm -i -v "$(ROOT)/tools/mermaid_lint:/lint:ro" $(IMAGEM_NODE) sh -c 'mkdir -p /tmp/m && cd /tmp/m && npm install --silent --no-audit --no-fund mermaid@$(VERSAO_MERMAID) jsdom@$(VERSAO_JSDOM) >/dev/null 2>&1 && cp /lint/verificar.mjs /tmp/m/ && node /tmp/m/verificar.mjs' < "$$blocos"
+	 docker run --rm -i -v "$(ROOT)/tools/mermaid_lint:/lint:ro" node:24.21.0-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66 sh -c 'cp -r /lint /tmp/m && cd /tmp/m && npm ci --silent --no-audit --no-fund --ignore-scripts >/dev/null 2>&1 && node /tmp/m/verificar.mjs' < "$$blocos"
 
 ## canon-lint: o gate 3b pelo nome que o ticket lhe da (igual a ci-3b)
 canon-lint: ci-3b
