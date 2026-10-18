@@ -1,0 +1,21 @@
+# Que ruleset se verifica, e contra que ficheiro — KAM-137
+#
+# Lido por `tools/ruleset_check/config.py`. As quatro chaves de topo sao lidas;
+# uma chave que nao esteja no conjunto declarado e RECUSADA com codigo 2
+# (KAM-134), porque uma chave que ninguem le e uma promessa por cumprir.
+#
+# NAO HA CREDENCIAL NESTE FICHEIRO, e nunca havera. O token de leitura
+# (`administration: read`) vive no porta-chaves do `gh` de quem opera, ou na
+# variavel `KAMBA_RULESET_TOKEN` de um contexto fora destas Actions. Onde vive,
+# que permissoes tem, quem a pode usar, como se roda e o que acontece se for
+# comprometida esta em `docs/adr/ADR-L003-verificacao-do-ruleset.md`.
+#
+# O `ruleset_id` e o numero e nao o nome: o nome altera-se na interface sem
+# aviso, e o `id` e o que a API aceita. E o mesmo numero que o comando de
+# exportacao de `.github/rulesets/README.md` usa — se um mudar, o outro tem de
+# mudar, e ha um teste que o confronta.
+version: 1
+
+repositorio: albinoJimy/kamba
+ruleset_id: 24879081
+espelho: .github/rulesets/main.json
