@@ -59,9 +59,23 @@ def construir(
     versao_do_alvo: str,
     componentes: list[Componente],
     ids_spdx: frozenset[str] = frozenset(),
+    relacoes: dict[str, set[str]] | None = None,
 ) -> dict:
-    """Constroi o documento CycloneDX de um alvo."""
-    return {
+    """Constroi o documento CycloneDX de um alvo.
+
+    `relacoes` e o grafo `bom-ref -> bom-refs de que depende`, e e o que torna
+    o SBOM de um servico legivel depois do KAM-133: sem ele o documento diria
+    **que** o `bullmq` la esta e nao **porque** — e a resposta («o servico
+    carrega o `@kamba/core-ts`, que o declara») e metade do valor de atribuir
+    por servico. Entra no campo `dependencies`, que e onde o CycloneDX o poe.
+
+    **Um componente sem entrada e um componente cujo grafo este gerador nao
+    conhece**; uma entrada com `dependsOn` vazio e um componente que nao depende
+    de nada. A distincao importa: do lado Python ha pins (`requirements/*.in`) e
+    nao um grafo resolvido, pelo que os terceiros `pypi` ficam de fora do campo
+    em vez de entrarem a mentir que nao dependem de nada.
+    """
+    documento = {
         "bomFormat": "CycloneDX",
         "specVersion": VERSAO_SPEC,
         "version": 1,
@@ -101,6 +115,15 @@ def construir(
             )
         ],
     }
+    if relacoes:
+        # Ordenado nas duas dimensoes, como tudo o resto neste ficheiro: um
+        # `dependsOn` por ordem de conjunto mudava entre execucoes e matava o
+        # determinismo que o resto do modulo existe para garantir.
+        documento["dependencies"] = [
+            {"ref": referencia, "dependsOn": sorted(relacoes[referencia])}
+            for referencia in sorted(relacoes)
+        ]
+    return documento
 
 
 def escrever(documento: dict, destino: Path) -> None:

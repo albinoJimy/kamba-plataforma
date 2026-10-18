@@ -261,6 +261,62 @@ def recolher_workspace(raiz: Path) -> list[Componente]:
     return sorted(componentes, key=lambda c: (c.ecossistema, c.nome))
 
 
+#: `dependencies = [ ... ]` de um `[project]` de `pyproject.toml`.
+_DEPENDENCIAS_PYPROJECT = re.compile(r"(?ms)^dependencies\s*=\s*\[(?P<corpo>.*?)\]")
+
+#: `"kamba-core"`, `'starlette>=1.0'` — uma entrada dessa lista.
+_ENTRADA_DE_DEPENDENCIA = re.compile(r"""['"]\s*([^'"]+?)\s*['"]""")
+
+
+def ligacoes_python(raiz: Path) -> dict[str, set[str]]:
+    """Pasta de um pacote Python nosso -> pastas dos nossos que ele declara.
+
+    E o equivalente Python do `link:` do `pnpm`, e o mesmo defeito existia deste
+    lado (KAM-133): o `services/agr/pyproject.toml` declara `kamba-core` em
+    `[project].dependencies`, e o `kamba-core` nao aparecia no SBOM do
+    `services/agr`.
+
+    **Nao e instalacao editavel.** O `make bootstrap` instala os tres
+    `requirements/*.txt` com `--require-hashes --no-deps` e **nao** instala
+    `kamba-core` nem `kamba-agr` em modo nenhum: chegam ao SBOM pelo
+    `pyproject.toml` versionado, que e o que o `recolher_workspace` le. A
+    ligacao esta na declaracao, nao no disco — e e por isso que se le daqui.
+
+    So se resolvem nomes que sejam de pacotes **nossos**: um `starlette` na
+    mesma lista e terceiro, e a atribuicao de terceiros do lado Python vem dos
+    pins de `requirements/*.in`, que e o unico sitio onde ha versoes.
+    """
+    nossos: dict[str, str] = {}
+    manifestos: dict[str, Path] = {}
+    for manifesto in sorted(raiz.glob("*/*/pyproject.toml")) + sorted(
+        raiz.glob("*/pyproject.toml")
+    ):
+        if "node_modules" in manifesto.parts:
+            continue
+        texto = manifesto.read_text(encoding="utf-8", errors="replace")
+        nome = re.search(r'(?m)^name\s*=\s*"([^"]+)"', texto)
+        if not nome:
+            continue
+        pasta = manifesto.parent.relative_to(raiz).as_posix()
+        nossos[nome.group(1).lower().replace("_", "-")] = pasta
+        manifestos[pasta] = manifesto
+
+    ligacoes: dict[str, set[str]] = {pasta: set() for pasta in manifestos}
+    for pasta, manifesto in manifestos.items():
+        texto = manifesto.read_text(encoding="utf-8", errors="replace")
+        bloco = _DEPENDENCIAS_PYPROJECT.search(texto)
+        if not bloco:
+            continue
+        for entrada in _ENTRADA_DE_DEPENDENCIA.findall(bloco.group("corpo")):
+            # `kamba-core>=0.1` -> `kamba-core`. Separa-se no primeiro caracter
+            # que nao pode estar num nome de pacote (PEP 508).
+            bruto = re.split(r"[<>=!~;\[\s]", entrada, maxsplit=1)[0]
+            alvo = nossos.get(bruto.lower().replace("_", "-"))
+            if alvo and alvo != pasta:
+                ligacoes[pasta].add(alvo)
+    return ligacoes
+
+
 def recolher(raiz: Path, venv: Path | None = None) -> list[Componente]:
     return recolher_workspace(raiz) + recolher_npm(raiz) + recolher_pypi(raiz, venv)
 
@@ -302,8 +358,8 @@ def declaradas_e_nao_instaladas(raiz: Path, venv: Path | None = None) -> list[st
 
     lock = raiz / "pnpm-lock.yaml"
     if lock.is_file():
-        directas, _ = pnpm_lock.ler(lock)
-        for pacotes in directas.values():
+        grafo = pnpm_lock.ler(lock)
+        for pacotes in grafo.directas.values():
             for referencia in pacotes:
                 nome, _, _versao = referencia.rpartition("@")
                 chave = (NPM, nome.lower())
