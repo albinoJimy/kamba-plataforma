@@ -236,9 +236,32 @@ class TestCanal(_ComApp):
         )
 
 
-class TestEntitlements(_ComApp):
+class TestEntitlements(ComBase):
+    """As restricoes de `entitlements`, semeadas pelo papel que a escreve.
+
+    **Corria como `kamba_app` e deixou de poder.** A revisao `0007` retirou-lhe
+    o `INSERT` nesta tabela (KAM-009, emenda 1.18 do dicionario): com
+    `WITH CHECK (tenant_id = app.tenant_id)` a politica autorizava a linha —
+    e dele — pelo que um tenant criava o proprio entitlement com o tecto que
+    quisesse. Quem provisiona e o `kamba_batch`.
+
+    O que estes testes medem e um `CHECK`, um `UNIQUE` e uma chave
+    estrangeira, e nao um privilegio: com o papel errado nem chegavam a
+    avalia-los — o `test_entitlement_sem_tenant_falha` esperava `23503` e
+    recebia `42501`, isto e, media a porta em vez da restricao. Passam a
+    correr com `kamba_batch`, que e quem insere. **O privilegio que a
+    aplicacao ja nao tem prova-se noutro sitio**, e em dois:
+    `tests/test_privilegios.py::TestOQueAAppNaoConsegue` e
+    `tests_ten/test_escalada.py::TestNaoCriaOProprioEntitlement`.
+
+    O tenant nasce na **mesma ligacao**: nada aqui confirma, e um tenant
+    escrito noutra transaccao era invisivel a esta.
+    """
+
     def setUp(self) -> None:
         super().setUp()
+        self.conexao = self.ligar("batch")
+        self.cursor = self.conexao.cursor()
         self.tenant = factories.tenant(self.cursor)
 
     def test_um_por_tenant_e_modulo(self) -> None:
@@ -353,25 +376,38 @@ class TestFormas(_ComApp):
         sql, parametros = self.canal_com("free_tier_used", -1)
         self.assertErroSql(VIOLACAO_DE_CHECK, self.cursor, sql, parametros)
 
+    def entitlements_pelo_batch(self):
+        """Cursor de `kamba_batch` com um tenant seu, e porque faz falta.
+
+        A aplicacao deixou de ter `INSERT` em `entitlements` com a revisao
+        `0007` (ver a docstring de `TestEntitlements`), e um `CHECK` medido
+        com o papel errado nao chega a ser avaliado: o `42501` vem primeiro.
+        O tenant nasce na mesma ligacao porque nada aqui confirma.
+        """
+        cursor = self.ligar("batch").cursor()
+        return cursor, factories.tenant(cursor)
+
     def test_limites_tem_de_ser_um_objecto(self) -> None:
+        cursor, tenant = self.entitlements_pelo_batch()
         for limites in ("[]", '"x"', "null", "3"):
             with self.subTest(limites=limites):
                 self.assertErroSql(
                     VIOLACAO_DE_CHECK,
-                    self.cursor,
+                    cursor,
                     "INSERT INTO platform.entitlements (tenant_id, modulo, limites) "
                     "VALUES (%s, 'catalogo', %s::jsonb)",
-                    (self.tenant, limites),
+                    (tenant, limites),
                 )
 
     def test_o_modulo_tem_forma_de_chave(self) -> None:
+        cursor, tenant = self.entitlements_pelo_batch()
         for modulo in ("", "MODULO QUALQUER", "Catalogo", "com-hifen"):
             with self.subTest(modulo=modulo):
                 self.assertErroSql(
                     VIOLACAO_DE_CHECK,
-                    self.cursor,
+                    cursor,
                     "INSERT INTO platform.entitlements (tenant_id, modulo) VALUES (%s, %s)",
-                    (self.tenant, modulo),
+                    (tenant, modulo),
                 )
 
     def test_apagar_um_tenant_com_canais_falha(self) -> None:

@@ -8,9 +8,10 @@ levantam base de dados nenhuma (`SUITES_DE_TOOLS`).
 
 O primeiro argumento e o Python que tem as dependencias das migracoes (por
 omissao, o que corre este ficheiro). O segundo filtra: o nome de uma suite
-(`tests`, `tests_identidade`, `tests_isolamento`, `gate9`, `gate9_ci`), o nome
-exacto de uma mutacao, ou um **excerto** do nome (`guarda:`, `resolvedor`,
-`downgrade da 0002`, `identidade:`, `KAM-131`), sensivel a maiusculas.
+(`tests`, `tests_identidade`, `tests_isolamento`, `tests_eventos_consumo`,
+`tests_ten`, `gate9`, `gate9_ci`), o nome exacto de uma mutacao, ou um
+**excerto** do nome (`guarda:`, `resolvedor`, `downgrade da 0002`,
+`identidade:`, `revisao 0007:`, `KAM-131`), sensivel a maiusculas.
 
 As mutacoes de `tests_identidade` (KAM-008) alteram o modulo TypeScript de
 `packages/core-ts`, que a copia passa a levar. Os `node_modules` **nao** vao na
@@ -160,6 +161,117 @@ EV_ACCOES = "packages/core-ts/src/eventos/accoes.ts"
 #: carga existe para provar a concorrencia uma vez, no gate.
 REV6 = "db/migrations/versions/0006_audit_log.py"
 AUDITORIA = "db/auditoria.py"
+#: KAM-009: a revisao do consumo de limites e a suite que a prova.
+REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
+TEN = "tests_ten"
+
+#: O corpo da subtransaccao da `ten_consumir`, como a revisao 0007 o escreve:
+#: **a chave primeiro, a contagem depois**. A mutacao da ordem precisa do
+#: texto inteiro, incluindo o comentario pelo meio, porque nao ha alteracao
+#: mais curta que leve uma instrucao de um lado do bloco para o outro — e as
+#: posicoes intermedias **nao** sao a mutacao: com o registo da chave entre a
+#: contagem e o `IF v_valor IS NULL`, a repeticao continua a bater na
+#: unicidade antes de bater no tecto, e a funcao responde o mesmo.
+_TEN_ORDEM = """  BEGIN
+    INSERT INTO platform.usage_ledger
+                (tenant_id, idempotency_key, chave_limite, periodo, quantidade)
+         VALUES (p_tenant, p_idempotency_key, p_chave, v_periodo, p_quantidade);
+
+    IF p_quantidade > v_limite THEN
+      RAISE EXCEPTION 'tecto' USING ERRCODE = 'KA001';
+    END IF;
+
+    INSERT INTO platform.tenant_usage
+                (tenant_id, chave_limite, periodo, valor)
+         VALUES (p_tenant, p_chave, v_periodo, p_quantidade)
+    ON CONFLICT (tenant_id, chave_limite, periodo) DO UPDATE
+       SET valor = platform.tenant_usage.valor + p_quantidade,
+           actualizado_at = now()
+     WHERE platform.tenant_usage.valor + p_quantidade <= v_limite
+    RETURNING platform.tenant_usage.valor INTO v_valor;
+
+    -- E aqui que a atomicidade mora: duas transaccoes em conflito na mesma
+    -- chave serializam no lock da linha, e a segunda reavalia o `WHERE`
+    -- sobre o valor **ja actualizado** pela primeira. Sem linha devolvida, o
+    -- tecto recusou.
+    IF v_valor IS NULL THEN
+      RAISE EXCEPTION 'tecto' USING ERRCODE = 'KA001';
+    END IF;
+  EXCEPTION"""
+
+#: O mesmo bloco com as duas insercoes trocadas: contar primeiro, registar a
+#: chave depois. E o que a docstring da revisao diz que esta errado.
+_TEN_ORDEM_TROCADA = """  BEGIN
+    IF p_quantidade > v_limite THEN
+      RAISE EXCEPTION 'tecto' USING ERRCODE = 'KA001';
+    END IF;
+
+    INSERT INTO platform.tenant_usage
+                (tenant_id, chave_limite, periodo, valor)
+         VALUES (p_tenant, p_chave, v_periodo, p_quantidade)
+    ON CONFLICT (tenant_id, chave_limite, periodo) DO UPDATE
+       SET valor = platform.tenant_usage.valor + p_quantidade,
+           actualizado_at = now()
+     WHERE platform.tenant_usage.valor + p_quantidade <= v_limite
+    RETURNING platform.tenant_usage.valor INTO v_valor;
+
+    IF v_valor IS NULL THEN
+      RAISE EXCEPTION 'tecto' USING ERRCODE = 'KA001';
+    END IF;
+
+    INSERT INTO platform.usage_ledger
+                (tenant_id, idempotency_key, chave_limite, periodo, quantidade)
+         VALUES (p_tenant, p_idempotency_key, p_chave, v_periodo, p_quantidade);
+  EXCEPTION"""
+
+#: O registo da chave **fora** da subtransaccao: fica escrito mesmo quando o
+#: tecto recusa, e uma segunda tentativa com a mesma chave le-se como
+#: repeticao de um consumo que nunca aconteceu.
+_TEN_CHAVE_FORA = """  INSERT INTO platform.usage_ledger
+              (tenant_id, idempotency_key, chave_limite, periodo, quantidade)
+       VALUES (p_tenant, p_idempotency_key, p_chave, v_periodo, p_quantidade);
+
+  BEGIN
+    IF p_quantidade > v_limite THEN"""
+
+#: A comparacao da quantidade numa repeticao, que a revisao adversarial
+#: obrigou a acrescentar (C1). Sem ela, repetir a chave de um consumo de 1
+#: autorizava um pedido de 99 999 999: a funcao respondia «repetido» e quem
+#: chama lia «podes».
+_TEN_QUANTIDADE = """    IF v_antes IS DISTINCT FROM p_quantidade THEN
+      RAISE EXCEPTION
+        'ten_consumir: a chave de idempotencia % ja foi usada em % com quantidade % e veio %',
+        p_idempotency_key, p_chave, v_antes, p_quantidade
+        USING ERRCODE = 'KA002';
+    END IF;"""
+
+#: A guarda do relogio (M1): `p_agora` so aponta para outro periodo quando
+#: quem chama e `kamba_batch`.
+_TEN_RELOGIO = """  IF v_periodo <> platform.ten_periodo(now())
+     AND NOT pg_has_role(current_user, 'kamba_batch', 'USAGE') THEN
+    RAISE EXCEPTION
+      'ten_consumir: p_agora aponta para o periodo % e o corrente e %; so o kamba_batch fixa o relogio',
+      v_periodo, platform.ten_periodo(now())
+      USING ERRCODE = 'invalid_parameter_value';
+  END IF;"""
+
+#: A guarda da chave de idempotencia vazia (m4).
+_TEN_CHAVE_VAZIA = """  IF p_idempotency_key IS NULL OR p_idempotency_key ~ '^[[:space:]]*$' THEN
+    RAISE EXCEPTION 'ten_consumir: p_idempotency_key nula ou vazia'
+      USING ERRCODE = 'check_violation';
+  END IF;"""
+
+#: O trigger que torna o contador *append-only* (C3). Em aspas simples
+#: triplas porque o texto que ele procura **tem** aspas duplas triplas: e
+#: uma instrucao de uma migracao, e as migracoes escrevem SQL assim.
+_TEN_TRIGGER = '''    op.execute(
+        """
+        CREATE TRIGGER tenant_usage_so_sobe
+          BEFORE UPDATE ON platform.tenant_usage
+          FOR EACH ROW EXECUTE FUNCTION platform.ten_usage_so_sobe()
+        """
+    )
+'''
 
 MUTACOES = [
     ("estado a mais no CHECK de tenants", REV,
@@ -1108,6 +1220,135 @@ MUTACOES = [
     ("filas: o job deixa de pedir a escada do consumidor", EV_FILAS,
      'backoff: { type: "custom" },',
      'backoff: { type: "exponential", delay: REPETICAO.atraso },'),
+    # ------------------------------------------------------------- KAM-009
+    #
+    # A regra de consumo de limites (`platform.ten_consumir`, revisao 0007).
+    # Quase todas correm contra `tests_ten`, que e a suite que prova a
+    # **funcao**. Uma corre contra `tests_isolamento`: as duas tabelas tem
+    # `tenant_id` e o catalogo do gate 6 descobre-as sozinho, e a mutacao que
+    # tira a RLS a uma delas e a prova de que esse catalogo morde nas tabelas
+    # novas. A gemea — a RLS do contador — fica em `tests_ten`, para que a
+    # suite da funcao tambem a apanhe: ela le o contador de outro tenant.
+    #
+    # Cada uma desfaz uma propriedade que a revisao escreve por extenso na
+    # sua docstring. Uma que sobreviva diz que essa propriedade nao tem teste.
+    #
+    # **As onze ultimas sao da revisao adversarial**, e cada uma repoe
+    # exactamente o defeito que ela mediu. Sao a resposta a pergunta que a
+    # reprovacao deixou: «porque e que 47 testes e 15 mutacoes nao apanharam
+    # tres criticos?» — porque nenhuma mutacao os escrevia.
+    ("revisao 0007: a ordem das duas insercoes trocada", REV7,
+     _TEN_ORDEM, _TEN_ORDEM_TROCADA, TEN),
+    ("revisao 0007: o registo da chave sai da subtransaccao", REV7,
+     "  BEGIN\n"
+     "    INSERT INTO platform.usage_ledger\n"
+     "                (tenant_id, idempotency_key, chave_limite, periodo, quantidade)\n"
+     "         VALUES (p_tenant, p_idempotency_key, p_chave, v_periodo, p_quantidade);\n"
+     "\n"
+     "    IF p_quantidade > v_limite THEN",
+     _TEN_CHAVE_FORA, TEN),
+    ("revisao 0007: o ultimo que cabe no tecto passa a ser recusado", REV7,
+     "     WHERE platform.tenant_usage.valor + p_quantidade <= v_limite",
+     "     WHERE platform.tenant_usage.valor + p_quantidade < v_limite", TEN),
+    ("revisao 0007: o tecto de quem chama passa a subir", REV7,
+     "    v_limite := least(v_limite, p_limite);",
+     "    v_limite := greatest(v_limite, p_limite);", TEN),
+    ("revisao 0007: o tecto passa a ser o maximo entre modulos", REV7,
+     "  SELECT min(CASE WHEN d.legivel THEN d.texto::bigint END),",
+     "  SELECT max(CASE WHEN d.legivel THEN d.texto::bigint END),", TEN),
+    ("revisao 0007: sem entitlement passa a aceitar", REV7,
+     "    RETURN QUERY SELECT false, 0::bigint, false, NULL::bigint;",
+     "    RETURN QUERY SELECT true, 0::bigint, false, NULL::bigint;", TEN),
+    ("revisao 0007: um entitlement inactivo passa a contar", REV7,
+     "         AND e.ativo\n", "", TEN),
+    ("revisao 0007: a quantidade nao positiva deixa de levantar", REV7,
+     "  IF p_quantidade IS NULL OR p_quantidade <= 0 THEN",
+     "  IF false THEN", TEN),
+    ("revisao 0007: o periodo passa a ser em UTC", REV7,
+     "SELECT date_trunc('month', p_agora AT TIME ZONE 'Africa/Luanda')::date",
+     "SELECT date_trunc('month', p_agora AT TIME ZONE 'UTC')::date", TEN),
+    ("revisao 0007: a funcao passa por cima da RLS", REV7,
+     "RETURNS TABLE (aceite boolean, valor bigint, repetido boolean, limite bigint)\n"
+     "LANGUAGE plpgsql\nSECURITY INVOKER",
+     "RETURNS TABLE (aceite boolean, valor bigint, repetido boolean, limite bigint)\n"
+     "LANGUAGE plpgsql\nSECURITY DEFINER", TEN),
+    ("revisao 0007: o contador fica sem RLS", REV7,
+     '    rls.enable_tenant_rls("tenant_usage")\n', "", TEN),
+    ("revisao 0007: o livro fica sem RLS (gate 6)", REV7,
+     '    rls.enable_tenant_rls("usage_ledger")\n', "", ISOLAMENTO),
+    ("revisao 0007: o downgrade nao repoe o UPDATE em entitlements", REV7,
+     '    op.execute("GRANT UPDATE (limites, ativo) ON platform.entitlements TO kamba_app")\n',
+     "", TEN),
+    ("revisao 0007: o downgrade repoe a lista de colunas sem o plano", REV7,
+     "COLUNAS_DA_0001 = (\n"
+     '    "nome, nif, contacto_negocio_enc, owner_contact_id, zona, plus_code, "\n'
+     '    "plano, estado, medusa_sales_channel_id, medusa_merchant_id, "\n',
+     "COLUNAS_DA_0001 = (\n"
+     '    "nome, nif, contacto_negocio_enc, owner_contact_id, zona, plus_code, "\n'
+     '    "estado, medusa_sales_channel_id, medusa_merchant_id, "\n',
+     TEN),
+    # ------------------------------------- KAM-009, revisao adversarial
+    #
+    # C1: a chave de idempotencia solta do pedido que identifica. Duas
+    # mutacoes porque sao duas propriedades independentes — o ambito da chave
+    # e a quantidade — e cada uma sozinha deixava passar metade do ataque.
+    ("revisao 0007: a chave de idempotencia atravessa chaves de limite", REV7,
+     "          PRIMARY KEY (tenant_id, chave_limite, idempotency_key)",
+     "          PRIMARY KEY (tenant_id, idempotency_key)", TEN),
+    ("revisao 0007: a repeticao deixa de comparar a quantidade", REV7,
+     _TEN_QUANTIDADE, "", TEN),
+    ("revisao 0007: a chave de idempotencia passa a ser global", REV7,
+     "          PRIMARY KEY (tenant_id, chave_limite, idempotency_key)\n",
+     "          PRIMARY KEY (chave_limite, idempotency_key)\n", TEN),
+    # C2: `kamba_app` volta a poder criar o proprio entitlement.
+    ("revisao 0007: a aplicacao volta a inserir entitlements", REV7,
+     'op.execute("REVOKE INSERT, UPDATE ON platform.entitlements FROM kamba_app")',
+     'op.execute("REVOKE UPDATE ON platform.entitlements FROM kamba_app")', TEN),
+    # C3: o contador volta a poder descer. Tres caminhos: sem trigger, com o
+    # trigger a nao verificar nada, e com o trigger a nao disparar fora da
+    # sessao normal.
+    ("revisao 0007: o contador deixa de ter trigger", REV7, _TEN_TRIGGER, "", TEN),
+    ("revisao 0007: o contador volta a poder descer", REV7,
+     "  IF NEW.valor < OLD.valor THEN", "  IF false THEN", TEN),
+    ("revisao 0007: o trigger do contador deixa de ser ALWAYS", REV7,
+     '"ALTER TABLE platform.tenant_usage ENABLE ALWAYS TRIGGER tenant_usage_so_sobe"',
+     '"ALTER TABLE platform.tenant_usage ENABLE TRIGGER tenant_usage_so_sobe"', TEN),
+    ("revisao 0007: a chave de uma linha de uso passa a poder mudar", REV7,
+     "  IF NEW.tenant_id IS DISTINCT FROM OLD.tenant_id", "  IF false", TEN),
+    # M1: o relogio nas maos de quem corre como a aplicacao.
+    ("revisao 0007: a aplicacao volta a poder fixar o relogio", REV7,
+     _TEN_RELOGIO, "", TEN),
+    # M6: o tenant volta a poder retirar a condicao do criterio 2.
+    ("revisao 0007: a aplicacao volta a alterar o proprio estado", REV7,
+     '    "medusa_sales_channel_id, medusa_merchant_id, chatwoot_account_id, "\n'
+     '    "litellm_key_id, fuso_horario, verificado_at, deleted_at"\n'
+     ")",
+     '    "estado, medusa_sales_channel_id, medusa_merchant_id, chatwoot_account_id, "\n'
+     '    "litellm_key_id, fuso_horario, verificado_at, deleted_at"\n'
+     ")",
+     TEN),
+    # m1/m2: um tecto que nao se sabe ler, e a soma que transborda.
+    ("revisao 0007: um limite ilegivel volta a abortar a transaccao", REV7,
+     "  SELECT min(CASE WHEN d.legivel THEN d.texto::bigint END),",
+     "  SELECT min(d.texto::bigint),", TEN),
+    ("revisao 0007: o tecto ilegivel deixa de ser nomeado", REV7,
+     "  IF coalesce(v_ilegivel, false) THEN", "  IF false THEN", TEN),
+    # **Esta substitui uma que sobreviveu.** A primeira versao punha a soma
+    # do contador em `numeric` contra o transbordo, e a mutacao que a
+    # devolvia a `bigint` **nao morreu**: com o tecto limitado a dezoito
+    # algarismos, `valor + quantidade` nunca passa de 2 x 10^18 e o `bigint`
+    # vai ate 9,2 x 10^18. O cast era defesa sobre uma porta ja fechada,
+    # saiu, e a mutacao passou a morder na guarda que fecha mesmo: o tecto
+    # de algarismos de um limite.
+    ("revisao 0007: o tecto deixa de ter limite de algarismos", REV7,
+     "              AND length(e.limites ->> p_chave) <= 18) AS legivel",
+     "              AND length(e.limites ->> p_chave) <= 30) AS legivel", TEN),
+    # m3: o aviso da ordem das chaves, que so existe no `COMMENT`.
+    ("revisao 0007: o aviso da ordem das chaves desaparece", REV7,
+     "    op.execute(_COMENTARIO_DA_CONSUMIR)\n", "", TEN),
+    # m4: a chave de idempotencia vazia.
+    ("revisao 0007: a chave de idempotencia vazia deixa de levantar", REV7,
+     _TEN_CHAVE_VAZIA, "", TEN),
 ]
 
 

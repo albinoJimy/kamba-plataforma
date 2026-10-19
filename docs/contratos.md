@@ -197,7 +197,8 @@ Cada subscrição declara a versão que o seu consumidor sabe ler, e essa versã
 tem de existir em contrato.
 
 **Hoje passa sobre zero, e di-lo.** Não há nenhuma subscrição no repositório —
-`registry/` tem um `README.md` e os ficheiros nascem com o KAM-038. A
+`registry/` tem o `plans.yaml` do KAM-009, que é a forma dos **planos** e não
+tem `subscriptions`, e os ficheiros das verticais nascem com o KAM-038. A
 alternativa era passar vacuamente, que é a forma de uma caixa parecer cumprida
 sem nada a sustentar, ou inventar a fonte, que é de outro ticket. Faz-se a
 terceira: lê `registry/*.yaml` se existirem, imprime **sempre** quantas leu, e
@@ -256,3 +257,4 @@ leu o nome da função.
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão (KAM-007): 38 contratos v1, o classificador de diferenças com falha fechada, o *lint* de PII com a lista aprovada que o §7.3 nomeava e nunca enumerou, os exemplos validados, a `versao_max` das subscrições, os tipos gerados e o gate 7 activo. Fecha as decisões abertas 1 e 6 de `docs/eventos.md` e a dúvida «9 ou 14» da emenda 1.9. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **O que a revisão adversarial mudou (KAM-007).** O *lint* de PII deixou de comparar sete nomes por segmento exacto — passava o plural de cada um e o inglês todo — e a lista aprovada ganhou a sua primeira entrada no mesmo dia (C1, m4); os trinta e oito contratos deixaram de admitir `classe_pii` P2, que o §7.1 proíbe (M1); o `agregado.tipo` passou a `const` e apanhou **vinte e sete exemplos** com o agregado da primeira pasta copiado (M2); `payment.confirmed` e `payment.manual_confirmed` deixaram de admitir o mesmo método de autenticação (M7); o classificador passou a falhar fechado em vez de rebentar (m1, m2, m3); e o lado Python ganhou `NotRequired` e um `validar_payload` (M5). O catálogo passou a ser verificado contra o §5 e não contra uma contagem (M4). | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | KAM-009: o §4.4 deixa de dizer que `registry/` só tem um `README.md` — tem o `plans.yaml`, que é a forma dos **planos** e não declara `subscriptions`. O `versao_max` continua a passar sobre zero subscrições, e continua a dizê-lo. | Equipa KAMBÁ |

@@ -16,7 +16,13 @@ from __future__ import annotations
 import bootstrap
 import ligacao
 from tests import factories
-from tests.base import PRIVILEGIO_INSUFICIENTE, TABELAS, TABELAS_0001, ComBase
+from tests.base import (
+    PRIVILEGIO_INSUFICIENTE,
+    TABELAS,
+    TABELAS_0001,
+    VIOLACAO_DE_CHECK,
+    ComBase,
+)
 
 PRIVILEGIOS_DE_TABELA = (
     "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER",
@@ -63,11 +69,26 @@ def _identidade(*privilegios: str) -> dict[str, set[str]]:
     }
 
 
+#: `entitlements` deixou de ser igual as outras duas da `0001` com o KAM-009.
+#:
+#: A revisao `0007` revoga a `kamba_app` o `INSERT` **e** o `UPDATE`, e o
+#: `INSERT` foi um critico da revisao adversarial: a primeira versao revogava
+#: so o `UPDATE`, e com `WITH CHECK (tenant_id = app.tenant_id)` um tenant
+#: **inseria a propria linha** com o tecto que quisesse. Nao e preciso subir o
+#: proprio tecto se se pode criar um — e a regra do minimo entre modulos nao
+#: protege nada quando a linha nova e a unica que declara a chave.
+#:
+#: A aplicacao **le** entitlements (o `checkEntitlement` do criterio 2) e
+#: consome contra eles pela `ten_consumir`. Escrever e de retaguarda: KAM-091
+#: provisiona, KAM-059 cobra.
+_ESPERADO_ENTITLEMENTS = dict(_ESPERADO_0001, kamba_app={"SELECT"})
+
 #: tabela -> papel -> privilegios de tabela. Cobre **todas** as tabelas de
 #: `platform`: uma tabela nova sem linha aqui falha `test_a_matriz_cobre_...`.
 ESPERADO_POR_TABELA = {tabela: _ESPERADO_0001 for tabela in TABELAS_0001}
 ESPERADO_POR_TABELA.update(
     {
+        "entitlements": _ESPERADO_ENTITLEMENTS,
         "contacts": _identidade("SELECT", "INSERT"),
         "contact_deks": _identidade("SELECT", "INSERT"),
         # O unico `DELETE` fora do `kamba_batch`: o apagamento a pedido do
@@ -77,6 +98,33 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+
+
+def _uso(**por_papel: set[str]) -> dict[str, set[str]]:
+    """Matriz de uma tabela da revisao 0007 (KAM-009).
+
+    O dono tem tudo; o `kamba_batch` tambem, porque e quem purga um periodo
+    fechado; `kamba_resolver`, `kamba_identity` e `kamba_audit` **nada** — o
+    resolvedor corre antes de haver contexto, a identidade nao sabe de
+    limites, e quem audita le o `audit_log` e nao os contadores.
+    """
+    base = {
+        "kamba_app": set(),
+        # Os quatro de dados, e nao `PRIVILEGIOS_DE_TABELA` inteiro: o
+        # `TRUNCATE` esvazia uma tabela sem passar por RLS nem por trigger, o
+        # `REFERENCES` deixa criar FK para ela, e o `TRIGGER` deixa pendurar
+        # codigo que corre em cada escrita. Nenhum dos tres e preciso para
+        # purgar um periodo fechado, e o `kamba_batch` tem exactamente estes
+        # quatro em todas as outras tabelas desde a `0001`.
+        "kamba_batch": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+        "kamba_resolver": set(),
+        "kamba_identity": set(),
+        "kamba_audit": set(),
+        "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+        "public": set(),
+    }
+    base.update(por_papel)
+    return base
 
 
 def _auditoria(**por_papel: set[str]) -> dict[str, set[str]]:
@@ -134,6 +182,20 @@ ESPERADO_POR_TABELA.update(
             kamba_batch={"SELECT"},
             kamba_audit={"SELECT"},
         ),
+        # KAM-009. O `UPDATE` de `tenant_usage` e **por coluna** (`valor`,
+        # `actualizado_at`), pelo que nao aparece nesta matriz de tabela —
+        # aparece em `COLUNAS_POR_PAPEL`. O `usage_ledger` **nao tem `UPDATE`
+        # nenhum**: uma linha dele e o facto de uma chamada ter acontecido, e
+        # reescrever um facto nao e corrigir, e apagar.
+        #
+        # E **nenhum dos dois tem `DELETE` para a aplicacao**, nem sequer
+        # para o livro. A primeira versao da funcao desfazia a chave de
+        # idempotencia com um `DELETE` quando o tecto recusava; o desfazer
+        # passou a ser o rollback de uma subtransaccao, e com isso o
+        # privilegio deixou de ser preciso. Quem apaga e o `kamba_batch`, na
+        # retencao.
+        "tenant_usage": _uso(kamba_app={"SELECT", "INSERT"}),
+        "usage_ledger": _uso(kamba_app={"SELECT", "INSERT"}),
     }
 )
 
@@ -318,11 +380,35 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
 )
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.
+#:
+#: **As tres do KAM-009 sao de outra natureza das que ja ca estavam.** As
+#: anteriores sao identidade, chave ou costura: coisas que nao se alteram
+#: porque alterar nao faz sentido. Estas tres nao se alteram porque, se se
+#: alterassem, **um tenant decidia o proprio tecto** — a politica de `tenants`
+#: e por `id = app.tenant_id` (KAM-004), pelo que a linha que um contexto de
+#: tenant ve e a dele. Com `UPDATE (plano)` subia o plano; com
+#: `UPDATE (limites, ativo)` em `entitlements` subia os limites ou desligava o
+#: entitlement. Sao a unica coisa entre um tenant e o tecto de dinheiro por
+#: pedido (ADR-013, ADR-015).
+#:
+#: Estava «por decidir» desde a emenda 1.4 do dicionario e ficou decidido na
+#: 1.17.
+#:
+#: **O `estado` juntou-se-lhes na revisao adversarial, e nao por simetria.** A
+#: primeira versao deixou-o alteravel, escrevendo que retira-lo seria decidir
+#: o KAM-091 de fora dele. A revisao mediu a consequencia que essa razao nao
+#: dizia: `UPDATE platform.tenants SET estado = 'ativo'` com o proprio
+#: contexto passa, e o consumo seguinte e aceite. O criterio 2 manda negar um
+#: tenant `onboarding`, `suspenso` ou `encerrado` — e o sujeito da condicao
+#: nao pode ser quem a retira. O `verificado_at` fica alteravel: nao e entrada
+#: de decisao nenhuma, e volta ao §4 com dono.
 IMUTAVEIS_PARA_A_APP = {
     "tenants": {
         "id",         # identidade
         "tipo",       # costura do Fluxo B: `platform` -> `pme` tirava-o da vista da guarda
         "criado_at",  # registo
+        "plano",      # KAM-009: o plano manda nos entitlements; quem o altera e o batch
+        "estado",     # KAM-009: e a condicao do criterio 2; o sujeito nao a retira
     },
     "tenant_channels": {
         "id",         # identidade
@@ -332,6 +418,29 @@ IMUTAVEIS_PARA_A_APP = {
     "entitlements": {
         "tenant_id",  # chave
         "modulo",     # chave
+        "limites",    # KAM-009: subir o proprio tecto
+        "ativo",      # KAM-009: desligar o proprio entitlement e o fail-closed com ele
+    },
+    # KAM-009. O contador so se altera pelo caminho que o faz cumprir o tecto:
+    # `valor` e `actualizado_at`, e a funcao `platform.ten_consumir`. O resto
+    # e chave.
+    "tenant_usage": {
+        "tenant_id",
+        "chave_limite",
+        "periodo",
+    },
+    # O livro **nao se altera de todo**: uma linha dele e o facto de uma
+    # chamada ter acontecido. Reescrever a `quantidade` depois do facto era
+    # reescrever o consumo; mudar a `chave_limite` era move-lo de contador.
+    # A aplicacao insere e apaga (o desfazer da propria transaccao, quando o
+    # tecto recusa), e nao actualiza.
+    "usage_ledger": {
+        "tenant_id",
+        "idempotency_key",
+        "chave_limite",
+        "periodo",
+        "quantidade",
+        "criado_at",
     },
 }
 
@@ -507,11 +616,38 @@ class TestOQueAAppNaoConsegue(ComBase):
 
     def setUp(self) -> None:
         super().setUp()
+        # **As sementes deixaram de ir pela ligacao da aplicacao.** Desde a
+        # revisao adversarial do KAM-009 ela nao tem `INSERT` em
+        # `entitlements`, e semear com ela era semear com o privilegio que
+        # esta classe existe para provar que nao existe. Vao por uma ligacao
+        # de administrador em `autocommit`, e apagam-se no fim.
+        self._semente = ligacao.ligar("admin")
+        self._semente.autocommit = True
+        semente = self._semente.cursor()
+        self.tenant = factories.tenant(semente)
+        self.canal = factories.canal(semente, self.tenant)
+        factories.entitlement(semente, self.tenant, limites={"msgs_ai_mes": 10})
+        self.addCleanup(self._apagar_a_semente)
+
         self.conexao = self.ligar("app")
         self.cursor = self.conexao.cursor()
-        self.tenant = factories.tenant(self.cursor)
-        self.canal = factories.canal(self.cursor, self.tenant)
-        factories.entitlement(self.cursor, self.tenant)
+        # O contexto vinha da fabrica, que agora corre noutra ligacao.
+        factories.contexto(self.cursor, self.tenant)
+
+    def _apagar_a_semente(self) -> None:
+        cursor = self._semente.cursor()
+        try:
+            for tabela in (
+                "usage_ledger", "tenant_usage", "entitlements", "tenant_channels"
+            ):
+                cursor.execute(
+                    f"DELETE FROM platform.{tabela} WHERE tenant_id = %s", (self.tenant,)
+                )
+            cursor.execute(
+                "DELETE FROM platform.tenants WHERE id = %s", (self.tenant,)
+            )
+        finally:
+            self._semente.close()
 
     def test_nao_apaga_linhas_de_tabela_nenhuma(self) -> None:
         """Dicionario §2: «soft delete: estado, nunca DELETE». Nas sete tabelas."""
@@ -555,9 +691,12 @@ class TestOQueAAppNaoConsegue(ComBase):
 
     def test_continua_a_poder_o_que_deve(self) -> None:
         """A correccao nao pode ter tirado a aplicacao o que ela precisa."""
+        # O `estado` **saiu** desta lista com a revisao adversarial: a
+        # aplicacao continua a alterar o nome e o resto do perfil, e quem
+        # mexe no estado do tenant e o `kamba_batch` (ver
+        # `test_nao_consegue_retirar_a_condicao_do_criterio_2`).
         self.cursor.execute(
-            "UPDATE platform.tenants SET estado = 'ativo', nome = 'Outro nome' "
-            "WHERE id = %s",
+            "UPDATE platform.tenants SET nome = 'Outro nome' WHERE id = %s",
             (self.tenant,),
         )
         self.cursor.execute(
@@ -565,15 +704,109 @@ class TestOQueAAppNaoConsegue(ComBase):
             "quality_rating = 'GREEN' WHERE id = %s",
             (self.canal,),
         )
+        # O `UPDATE` de `entitlements` **saiu daqui com o KAM-009**, e a
+        # substituicao nao e cosmetica: o que a aplicacao precisa de poder
+        # fazer com entitlements e **consumir contra eles**, nao reescreve-los.
+        # Quem os reescreve e o `kamba_batch` — ver `TestOBatch` abaixo.
         self.cursor.execute(
-            "UPDATE platform.entitlements SET ativo = false WHERE tenant_id = %s",
-            (self.tenant,),
+            "SELECT aceite, valor FROM platform.ten_consumir("
+            "  %s, 'msgs_ai_mes', 1, %s)",
+            (self.tenant, f"canario-{self.tenant}"),
         )
+        aceite, valor = self.cursor.fetchone()
+        self.assertTrue(aceite, "a aplicacao tem de conseguir consumir um limite")
+        self.assertEqual(valor, 1)
         self.cursor.execute(
             "SELECT count(*) FROM platform.tenant_channels WHERE tenant_id = %s",
             (self.tenant,),
         )
         self.assertEqual(self.cursor.fetchone()[0], 1)
+
+    def test_nao_consegue_subir_o_proprio_tecto(self) -> None:
+        """A decisao do KAM-009, pelo lado que interessa.
+
+        Nao basta que o `has_column_privilege` diga nao: o que isto mede e o
+        que acontece quando a aplicacao **tenta**, com o seu proprio contexto
+        de tenant, que e o caso real — a politica de `tenants` e por
+        `id = app.tenant_id`, pelo que a linha que ela ve e a dela.
+
+        **O `INSERT` estava em falta, e era um critico.** Esta lista tinha
+        tres `UPDATE`s e nenhum `INSERT`, e a revisao adversarial mediu a
+        porta que isso deixava aberta: com `WITH CHECK (tenant_id =
+        app.tenant_id)`, um tenant **insere a propria linha** de
+        `entitlements` com o tecto que quiser, e um pedido de 500 000 000 que
+        era negado passa a ser aceite. Nao e preciso subir o proprio tecto se
+        se pode criar um. Um teste que so sabe nomear um verbo prova um
+        verbo.
+        """
+        for instrucao, argumentos in (
+            ("UPDATE platform.tenants SET plano = 'ilimitado' WHERE id = %s",
+             (self.tenant,)),
+            ("UPDATE platform.entitlements SET limites = '{\"msgs_ai_mes\": 999999}'::jsonb "
+             "WHERE tenant_id = %s", (self.tenant,)),
+            ("UPDATE platform.entitlements SET ativo = false WHERE tenant_id = %s",
+             (self.tenant,)),
+            # O critico: criar um entitlement em vez de alterar o que ha.
+            ("INSERT INTO platform.entitlements (tenant_id, modulo, limites, ativo) "
+             "VALUES (%s, 'auto', '{\"valor_max_pedido_minor\": 900000000000}'::jsonb, true)",
+             (self.tenant,)),
+            # E a variante que nem precisa de nomear um modulo novo: declarar
+            # uma chave que nenhum modulo activo declarava, onde o minimo de
+            # um conjunto de um elemento e esse elemento.
+            ("INSERT INTO platform.entitlements (tenant_id, modulo, limites) "
+             "VALUES (%s, 'catalogo', '{\"msgs_ai_mes\": 999999}'::jsonb)",
+             (self.tenant,)),
+        ):
+            with self.subTest(instrucao=instrucao.split(" SET ")[0][:48]):
+                self.assertErroSql(
+                    PRIVILEGIO_INSUFICIENTE, self.cursor, instrucao, argumentos
+                )
+
+    def test_nao_consegue_retirar_a_condicao_do_criterio_2(self) -> None:
+        """Um tenant `suspenso` nao se reactiva a si proprio.
+
+        O criterio 2 manda negar `onboarding`, `suspenso` e `encerrado`. A
+        revisao adversarial mediu que a aplicacao fazia
+        `UPDATE platform.tenants SET estado = 'ativo'` com o proprio
+        contexto e o consumo seguinte era aceite: o sujeito da condicao
+        retirava a condicao. O `UPDATE (estado)` saiu da lista da `0007`.
+        """
+        for estado in ("ativo", "onboarding", "encerrado"):
+            with self.subTest(estado=estado):
+                self.assertErroSql(
+                    PRIVILEGIO_INSUFICIENTE,
+                    self.cursor,
+                    "UPDATE platform.tenants SET estado = %s WHERE id = %s",
+                    (estado, self.tenant),
+                )
+
+    def test_nao_consegue_zerar_o_proprio_contador(self) -> None:
+        """O terceiro critico: `UPDATE (valor)` nao diz em que direccao.
+
+        A aplicacao precisa de `UPDATE (valor, actualizado_at)` para o
+        `ON CONFLICT DO UPDATE` da `ten_consumir`; o privilegio nao sabe
+        exprimir «so sobe», e o trigger `tenant_usage_so_sobe` sabe. Sem ele,
+        medido: consumir dez contra um tecto de dez, pôr o contador a zero, e
+        consumir outros dez.
+        """
+        self.cursor.execute(
+            "SELECT aceite FROM platform.ten_consumir(%s, 'msgs_ai_mes', 10, %s)",
+            (self.tenant, f"zerar-{self.tenant}"),
+        )
+        self.assertTrue(self.cursor.fetchone()[0])
+        for instrucao in (
+            "UPDATE platform.tenant_usage SET valor = 0",
+            "UPDATE platform.tenant_usage SET valor = valor - 1",
+        ):
+            with self.subTest(instrucao=instrucao):
+                self.assertErroSql(VIOLACAO_DE_CHECK, self.cursor, instrucao)
+        # E o caminho legitimo continua aberto: subir.
+        self.cursor.execute("UPDATE platform.tenant_usage SET valor = valor")
+        self.cursor.execute(
+            "SELECT valor FROM platform.tenant_usage WHERE tenant_id = %s",
+            (self.tenant,),
+        )
+        self.assertEqual(self.cursor.fetchone()[0], 10)
 
 
 class TestOBatch(ComBase):

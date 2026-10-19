@@ -59,8 +59,15 @@ TABELAS_0005 = (
 #: cabeca da cadeia de hash de cada tenant.
 TABELAS_0006 = ("audit_heads", "audit_log")
 
+#: O que a revisao 0007 (KAM-009) acrescenta: o contador de uso por periodo e
+#: o livro que torna o consumo idempotente.
+TABELAS_0007 = ("tenant_usage", "usage_ledger")
+
 TABELAS = tuple(
-    sorted(TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005 + TABELAS_0006)
+    sorted(
+        TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
+        + TABELAS_0006 + TABELAS_0007
+    )
 )
 
 #: O que existe em `platform` quando a base esta na revisao `0004`.

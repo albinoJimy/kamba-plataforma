@@ -876,6 +876,14 @@ ci-8:
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_eventos_carga
 	@echo "==> gate 8: concorrencia da cadeia de auditoria (KAM-012)"
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_auditoria_carga
+	@# E a regra de consumo de limites (KAM-009): as mil chamadas paralelas do
+	@# criterio 3, a idempotencia (incluindo a chave que uma recusa nao pode
+	@# gastar), a fronteira de mes em `Africa/Luanda` com relogio fixo e o
+	@# isolamento da **funcao** — que o gate 6 nao prova, porque a politica de
+	@# uma tabela nao diz o que uma funcao `SECURITY INVOKER` faz quando quem a
+	@# chama e outro tenant. Suite propria pelo custo das mil paralelas.
+	@echo "==> gate 8: consumo de limites, TEN (KAM-009)"
+	@$(VENV_PYTHON) db/gate_bd.py --suite tests_ten
 
 # -----------------------------------------------------------------------------
 # Limpeza

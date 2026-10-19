@@ -1,0 +1,87 @@
+# registry/plans.yaml — `plano` -> entitlements por omissao (TEN, KAM-009)
+#
+# A SEGUNDA FORMA dos ficheiros de `registry/`. A primeira e a vertical
+# (`docs/tecnica/02` §5.1: `id`, `version`, `phase`, `graph`, `tools`, …); esta
+# distingue-se pela chave de topo `plans`, e nao pelo nome do ficheiro. O gate
+# 3b (`tools/canon_lint/registo.py`) le as duas e RECUSA um ficheiro que nao
+# seja nenhuma delas.
+#
+# ---------------------------------------------------------------------------
+# OS VALORES SAO HIPOTESES, E ISSO ESTA DECIDIDO NO CANON.
+#
+# Dicionario canonico §4, linha «Lista de planos e os seus limites»:
+# «`registry/plans.yaml` nasce com valores **de exemplo**, marcados
+# `estado: hipotese_nao_validada`. Nenhum documento tem a tabela de planos; o
+# `docs/tecnica/10` pressupoe-a em quatro sitios e nao a escreve, e a
+# mensalidade por plano tambem nao esta definida» (dono: KAM-109).
+#
+# Por isso cada entrada leva `estado: hipotese_nao_validada`, que e o padrao
+# que o `specs/EPIC-11` ja fixou para este caso exacto (bloco KAM-124). O gate
+# 3b exige esse `estado` em cada plano: um plano sem ele nao passa.
+#
+# NAO HA PRECOS AQUI. A mensalidade por plano nao esta definida em documento
+# nenhum, e os precos de teste dos modulos de entrada (`preco_teste_minor`)
+# sao do KAM-124, que entra com os cinco planos `entrada_*` do `specs/EPIC-11`
+# (criterio: «`entrada_catalogo`, `entrada_foto`, `entrada_social`,
+# `entrada_orcamento` e `entrada_completo`»). Nao se escrevem aqui por
+# antecipacao: os seus limites e precos sao daquele ticket.
+#
+# ---------------------------------------------------------------------------
+# PORQUE E QUE SO HA UM PLANO.
+#
+# `free` e o unico nome de plano com fonte: e o `DEFAULT` da coluna que o cria,
+# `plano text NOT NULL DEFAULT 'free'` (revisao `0001`, `platform.tenants`).
+# Todos os outros nomes que se escrevessem aqui — `basico`, `pro` — seriam
+# inventados, e um nome inventado passa a ser citado como se fosse decisao.
+# A lista fechada de planos vive neste ficheiro (dicionario §3.2, emenda 1.17:
+# `tenants.plano` tem `CHECK` de FORMA e nao de dominio), pelo que acrescentar
+# um plano e editar este ficheiro — com fonte, ou com o `estado` que diz que
+# ainda nao ha.
+#
+# ---------------------------------------------------------------------------
+# DE ONDE VEM CADA NUMERO.
+#
+# Com fonte (ainda assim *propostas*, nos proprios documentos):
+#   * `manual_max_minor` = 5 000 000 (50 000 Kz) — `docs/tecnica/04` §4.2 M-2,
+#     «omissao **proposta** 50 000 Kz»;
+#   * `manual_dupla_acima_minor` = 2 000 000 (20 000 Kz) — `docs/tecnica/04`
+#     §4.2 M-5, «proposta **20 000 Kz**»;
+#   * `valor_max_pedido_minor` = 5 000 000 (50 000 Kz) — `specs/EPIC-09`,
+#     KAM-096: «**0** = 5.000.000 (50.000 Kz, inicial)», e «o tecto inicial e o
+#     **menor** dos dois: 50.000 Kz». Os niveis seguintes do mesmo criterio —
+#     15 000 000 (150 000 Kz, K1 completo) e 50 000 000 (500 000 Kz, K2/selo,
+#     **nao atribuivel no Piloto**) — NAO se escrevem aqui: sao o tecto de
+#     CONFIANCA, que sobe por historico independente (`trust_level`) e nao por
+#     plano, e `platform.ten_consumir` recebe-o em `p_limite`, que so desce.
+#
+# Sem fonte nenhuma, exemplo a calibrar no Piloto (nao ha medicao, nem
+# documento que os escreva):
+#   * `msgs_ai_mes`, `manual_daily_max_minor`, `manual_max_por_contacto_24h`.
+#
+# Dinheiro em unidades menores, 1 Kz = 100 centimos (`docs/tecnica/03` §5.1
+# n.o 2). O que cada chave E — contador por periodo, tecto por pedido ou tecto
+# por janela — esta em `registry/entitlement_keys.schema.json`, e e la que se
+# le qual delas `platform.ten_consumir` pode consumir.
+
+version: 1.0.0
+
+plans:
+  free:
+    estado: hipotese_nao_validada
+    nota: "O plano do DEFAULT da coluna `tenants.plano` (revisao 0001). Da ao tenant novo so o atendimento do Vendedor: e a esse caminho que os tectos de pagamento do EPIC-09 e do documento 04 se aplicam. Marcacoes, imagens, publicacoes e orcamentos nao entram por omissao — `servicos` e os modulos de entrada activam-se por entitlement proprio (KAM-091 provisiona, KAM-124 traz os planos de entrada)."
+    entitlements:
+      - modulo: vendedor
+        ativo: true
+        limites:
+          # contador por periodo (mes em Africa/Luanda) — sem fonte, exemplo
+          msgs_ai_mes: 1000
+          # tecto por pedido — EPIC-09 KAM-096 nivel 0: 50 000 Kz
+          valor_max_pedido_minor: 5000000
+          # tecto por pedido — docs/tecnica/04 §4.2 M-2: 50 000 Kz
+          manual_max_minor: 5000000
+          # tecto por pedido (limiar de dupla verificacao) — 04 §4.2 M-5: 20 000 Kz
+          manual_dupla_acima_minor: 2000000
+          # tecto por janela (dia) — sem fonte, exemplo: 200 000 Kz
+          manual_daily_max_minor: 20000000
+          # tecto por janela (24 h, por contacto) — sem fonte, exemplo: 2 pedidos
+          manual_max_por_contacto_24h: 2

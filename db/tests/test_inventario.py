@@ -260,6 +260,34 @@ INVENTARIO = {
         ),
         "last_hash": ("bytea", NAO, None, "nao; hash opaco"),
     },
+    # ----------------------------------------------- KAM-009 (0007)
+    #
+    # Nenhuma destas colunas guarda dados pessoais, e nenhuma e de texto
+    # livre: a `chave_limite` e um nome de chave do dicionario §3.2 e a
+    # `idempotency_key` e escolhida por quem chama. **A `idempotency_key` e a
+    # unica que merece a pergunta**, porque e a unica que um chamador escreve
+    # a vontade: se alguem a derivar de um telefone, entra aqui um telefone.
+    # Nao se resolve no schema — resolve-se em quem a gera, e esta dito na
+    # biblioteca.
+    "tenant_usage": {
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "chave_limite": ("text", NAO, None, "nao; nome de chave do dicionario §3.2"),
+        "periodo": ("date", NAO, None, "nao"),
+        "valor": ("bigint", NAO, "0", "nao"),
+        "actualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
+    "usage_ledger": {
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "idempotency_key": (
+            "text", NAO, None,
+            "nao, e e responsabilidade de quem a gera: e o unico texto livre "
+            "destas duas tabelas",
+        ),
+        "chave_limite": ("text", NAO, None, "nao; nome de chave do dicionario §3.2"),
+        "periodo": ("date", NAO, None, "nao"),
+        "quantidade": ("bigint", NAO, None, "nao"),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
 }
 
 #: A particao `DEFAULT` tem as colunas do pai, uma a uma. Esta aqui — e nao
@@ -334,7 +362,12 @@ class TestInventario(ComBase):
                         # extenso (`evt_limpar_dlq`).
                         "evt_dlq_aprovacoes_dlq_fk",
                         "tenant_channels_tenant_fk",
+                        # KAM-009: as duas tabelas de uso. Sem `ON DELETE
+                        # CASCADE`, como todas as outras — apagar um tenant
+                        # nao apaga o registo do que ele consumiu.
+                        "tenant_usage_tenant_fk",
                         "tenants_owner_fk",
+                        "usage_ledger_tenant_fk",
                     ]
                 )
             ],
@@ -417,6 +450,19 @@ class TestInventario(ComBase):
             sorted(nome for (nome,) in linhas),
             sorted(
                 [
+                    # ------------------------------------- KAM-009 (0007)
+                    "tenant_usage_chave_limite_ck",
+                    "tenant_usage_periodo_ck",
+                    "tenant_usage_pkey",
+                    "tenant_usage_valor_ck",
+                    "usage_ledger_chave_limite_ck",
+                    "usage_ledger_idempotency_key_ck",
+                    "usage_ledger_pkey",
+                    "usage_ledger_quantidade_ck",
+                    # A forma de `tenants.plano`, acrescentada pela `0007` a
+                    # uma tabela da `0001`. E de forma e nao de dominio, e a
+                    # razao esta no dicionario §3.2 e na propria revisao.
+                    "tenants_plano_ck",
                     # ------------------------------------- KAM-012 (0006)
                     "audit_heads_hash_sha256",
                     "audit_heads_pkey",

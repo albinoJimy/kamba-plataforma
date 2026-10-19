@@ -330,31 +330,46 @@ class TestMutacoes(ComCopia):
         self.assertEqual(achados[0].linha, 7)
 
     def test_auxiliar_que_deixa_de_se_seguir(self) -> None:
-        """Se o auxiliar real mudar para uma forma que o lint nao segue, as revisoes
-        reais que o chamam — a 0002, a 0003 (KAM-008), a 0004 (KAM-005), a 0005
-        (KAM-006) e a 0006 (KAM-012) — passam a falhar, em vez de ficarem por ler."""
+        """Se o auxiliar real mudar para uma forma que o lint nao segue, **todas**
+        as revisoes que o chamam passam a falhar, em vez de ficarem por ler.
+
+        **A lista das revisoes e derivada, e nao escrita a mao.** A primeira
+        versao nomeava as cinco que existiam, e por isso partia-se a cada
+        revisao nova que usasse a RLS — aconteceu na `0007` (KAM-009), e o
+        que o teste mediu nesse dia nao foi um defeito: foi a sua propria
+        lista a envelhecer.
+
+        A derivacao e **textual** e o lint segue chamadas por AST: sao dois
+        metodos diferentes a chegar ao mesmo conjunto, e e isso que faz deles
+        uma verificacao em vez de uma tautologia. Se divergirem, um dos dois
+        esta errado — e e exactamente o que se quer saber.
+        """
+        import re
+
+        esperadas = {
+            caminho.relative_to(self.raiz).as_posix()
+            for caminho in sorted((self.raiz / "db/migrations/versions").glob("*.py"))
+            if re.search(
+                r"\brls\.(enable|disable)_tenant_rls\b|\b_rls\(",
+                caminho.read_text(encoding="utf-8"),
+            )
+        }
+        self.assertGreaterEqual(len(esperadas), 5, "a derivacao nao achou nada")
+
         self.assertEqual(self.achados(), [])
         self.escrever("db/rls.py", AUXILIAR.replace('alvo = f"{schema}.{tabela}"', "alvo = montar(schema, tabela)"))
         achados = self.achados()
-        self.assertGreaterEqual(len(achados), 6)
+        self.assertGreaterEqual(len(achados), len(esperadas) + 1)
         self.assertEqual({a.classe for a in achados}, {ILEGIVEL})
-        self.assertEqual(
-            {a.ficheiro for a in achados},
-            {
-                "db/migrations/versions/0002_rls_por_tenant.py",
-                "db/migrations/versions/0003_identidade_de_contacto.py",
-                "db/migrations/versions/0004_outbox_e_eventos.py",
-                "db/migrations/versions/0005_consumo_dlq.py",
-                "db/migrations/versions/0006_audit_log.py",
-            },
-        )
-        # Todo o achado diz **por onde** chegou. Quatro revisoes chamam o auxiliar
-        # directamente; a 0006 chama-o por um embrulho local, e o lint segue-o e
-        # atribui-lhe a origem. Exigir `via rls.` em todos prendia a forma do sitio
-        # da chamada, que nao e o que este teste afirma.
+        self.assertEqual({a.ficheiro for a in achados}, esperadas)
+        # Todo o achado diz **por onde** chegou. A maior parte das revisoes
+        # chama o auxiliar directamente; a 0006 chama-o por um embrulho local,
+        # e o lint segue-o e atribui-lhe a origem. Exigir `via rls.` em todos
+        # prendia a forma do sitio da chamada, que nao e o que este teste
+        # afirma.
         self.assertTrue(all("(via " in a.mensagem for a in achados))
         directos = {a.ficheiro for a in achados if "via rls." in a.mensagem}
-        self.assertEqual(len(directos), 4)
+        self.assertEqual(directos, esperadas - {"db/migrations/versions/0006_audit_log.py"})
         self.assertEqual(
             {a.mensagem.split("(via ")[1].split(")")[0]
              for a in achados if a.ficheiro.endswith("0006_audit_log.py")},

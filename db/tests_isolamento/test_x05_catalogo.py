@@ -43,13 +43,19 @@ class TestCatalogoReal(ComBase):
         """
         self.assertEqual(set(catalogo.excepcoes_rls()), {"platform.audit_heads"})
 
-    def test_a_descoberta_encontra_as_catorze_tabelas(self) -> None:
+    def test_a_descoberta_encontra_as_dezasseis_tabelas(self) -> None:
         """Se a descoberta encolher, a suite inteira passa a testar menos.
 
-        Catorze desde o KAM-012: entram o `audit_log` e o `audit_heads`. O
+        Catorze com o KAM-012, que trouxe o `audit_log` e o `audit_heads`. O
         segundo **nao tem** RLS — a descoberta lista o que **devia** te-la, e
         e a lista de `ci/rls_exceptions.yaml` que o dispensa, com o ADR. Uma
         tabela que saia daqui sai de X-03, X-04 e X-05 ao mesmo tempo.
+
+        Dezasseis desde o KAM-009: o contador de uso e o livro de
+        idempotencia. A ordem e a do `sorted()` do Python, que compara por
+        ponto de codigo — e por isso `tenant_usage` vem **antes** de
+        `tenants` (`_` e 0x5F, `s` e 0x73), ao contrario do que uma
+        ordenacao en_US daria.
         """
         self.assertEqual(
             catalogo.tabelas_isoladas(self.cursor),
@@ -76,7 +82,10 @@ class TestCatalogoReal(ComBase):
                 ("platform", "evt_acoes", "tenant_id"),
                 ("platform", "evt_agregado_seq", "tenant_id"),
                 ("platform", "tenant_channels", "tenant_id"),
+                # KAM-009: o contador de uso e o livro de idempotencia.
+                ("platform", "tenant_usage", "tenant_id"),
                 ("platform", "tenants", "id"),
+                ("platform", "usage_ledger", "tenant_id"),
             ],
         )
 
@@ -150,8 +159,15 @@ class TestCatalogoReal(ComBase):
                 ("evt_agregado_seq", "tenant_iso", "ALL", "{public}"),
                 ("tenant_channels", "resolver_leitura", "SELECT", "{kamba_resolver}"),
                 ("tenant_channels", "tenant_iso", "ALL", "{public}"),
+                # KAM-009. A ordem e a da coleccao `C` e nao a da base: o
+                # `pg_policies.tablename` e do tipo `name`, que tem colacao
+                # `C`, e o `::text` do `SELECT` herda-a. Por isso
+                # `tenant_usage` vem antes de `tenants`, ao contrario do que
+                # a colacao `en_US.utf8` da base daria.
+                ("tenant_usage", "tenant_iso", "ALL", "{public}"),
                 ("tenants", "resolver_leitura", "SELECT", "{kamba_resolver}"),
                 ("tenants", "tenant_iso", "ALL", "{public}"),
+                ("usage_ledger", "tenant_iso", "ALL", "{public}"),
             ],
         )
 
@@ -170,7 +186,10 @@ class TestCatalogoReal(ComBase):
              # KAM-006: as tres do consumo com `tenant_id`.
              "events_consumed", "events_dlq",
              "events_log", "events_log_default", "events_outbox",
-             "evt_acoes", "evt_agregado_seq", "tenant_channels", "tenants"],
+             "evt_acoes", "evt_agregado_seq", "tenant_channels",
+             # KAM-009: o contador e o livro. `tenant_usage` antes de
+             # `tenants` pela colacao `C` do tipo `name` (ver o teste acima).
+             "tenant_usage", "tenants", "usage_ledger"],
         )
         for tabela, comando, permissiva, papeis, qual, com_check in linhas:
             with self.subTest(tabela=tabela):

@@ -232,7 +232,26 @@ class TestConvencoes(ComBase):
                 ("evt_subscricoes", "tipo", "text", None),
                 ("hmac_key_versions", "kid", "text", None),
                 ("tenant_channels", "id", "uuid", "gen_random_uuid()"),
+                # KAM-009: as duas tabelas de uso tem chave **composta e de
+                # negocio**, e nao um `uuid` gerado. E deliberado: a chave de
+                # `tenant_usage` e o que torna «um contador por tenant, chave
+                # e periodo» impossivel de violar, e a de `usage_ledger` e o
+                # que **recusa** a segunda chamada com a mesma chave de
+                # idempotencia. Um `id` gerado ao lado delas seria uma chave
+                # que nao impede nada.
+                #
+                # A `chave_limite` entrou na chave do `usage_ledger` com a
+                # revisao adversarial: sem ela, uma chave de idempotencia
+                # valia para **todas** as chaves de limite do tenant, e
+                # repetir a chave de um consumo de uma mensagem autorizava um
+                # pedido contra o tecto de dinheiro.
+                ("tenant_usage", "chave_limite", "text", None),
+                ("tenant_usage", "periodo", "date", None),
+                ("tenant_usage", "tenant_id", "uuid", None),
                 ("tenants", "id", "uuid", "gen_random_uuid()"),
+                ("usage_ledger", "chave_limite", "text", None),
+                ("usage_ledger", "idempotency_key", "text", None),
+                ("usage_ledger", "tenant_id", "uuid", None),
             ],
         )
 
@@ -304,7 +323,12 @@ class TestConvencoes(ComBase):
              # KAM-012. As duas da auditoria, e sao as **unicas** com
              # `tenant_id` anulavel em todo o schema — ver `ANULAVEIS` logo
              # abaixo e a razao que la esta escrita.
-             "audit_log", "audit_heads"},
+             "audit_log", "audit_heads",
+             # KAM-009. O `tenant_id` vem em primeiro lugar na chave primaria
+             # das duas, que e o indice que a serve — nao foi preciso indice
+             # proprio para esta regra. O `usage_ledger` tem alem disso
+             # `(tenant_id, periodo)`, que e por onde a retencao le.
+             "tenant_usage", "usage_ledger"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -345,7 +369,9 @@ class TestConvencoes(ComBase):
             "WHERE contype = 'f' AND connamespace = 'platform'::regnamespace"
         )
         # 13 desde o KAM-006: a `evt_dlq_aprovacoes_dlq_fk`.
-        self.assertEqual(len(linhas), 13)
+        # 15 desde o KAM-009: as duas FK de `tenant_usage` e
+        # `usage_ledger` para `tenants(id)`.
+        self.assertEqual(len(linhas), 15)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)
@@ -427,21 +453,44 @@ class TestPapeis(ComBase):
             "CREATE TABLE platform.nao_devia_existir (x integer)",
         )
 
-    def test_app_e_batch_leem_e_escrevem_as_tres_tabelas(self) -> None:
+    def test_app_e_batch_leem_e_escrevem_o_que_lhes_cabe(self) -> None:
+        """E o que lhes cabe deixou de ser o mesmo nas tres tabelas (KAM-009).
+
+        A revisao `0007` tirou a `kamba_app` o `INSERT` em `entitlements` e o
+        `UPDATE` sobre `tenants.estado`: escrever entitlements e mexer no
+        estado do tenant sao de retaguarda, e a revisao adversarial mostrou o
+        que acontecia enquanto nao eram — um tenant criava o proprio tecto e
+        reactivava-se a si proprio. O que esta aqui passou a ser o que cada
+        papel ainda **faz**; o que nenhum deles faz esta em
+        `tests/test_privilegios.py` e em `tests_ten/test_escalada.py`.
+        """
         for identidade in ("app", "batch"):
             with self.subTest(identidade=identidade):
                 cursor = self.ligar(identidade).cursor()
                 tenant = factories.tenant(cursor)
                 factories.canal(cursor, tenant)
-                factories.entitlement(cursor, tenant)
                 cursor.execute(
-                    "UPDATE platform.tenants SET estado = 'ativo' WHERE id = %s", (tenant,)
+                    "UPDATE platform.tenants SET nome = 'Outro nome' WHERE id = %s",
+                    (tenant,),
                 )
                 cursor.execute(
                     "SELECT count(*) FROM platform.tenant_channels WHERE tenant_id = %s",
                     (tenant,),
                 )
                 self.assertEqual(cursor.fetchone()[0], 1)
+
+    def test_so_o_batch_escreve_entitlements(self) -> None:
+        """A outra metade do teste acima, desde o KAM-009."""
+        cursor = self.ligar("batch").cursor()
+        tenant = factories.tenant(cursor)
+        factories.entitlement(cursor, tenant, limites={"msgs_ai_mes": 10})
+        cursor.execute(
+            "UPDATE platform.tenants SET estado = 'ativo' WHERE id = %s", (tenant,)
+        )
+        cursor.execute(
+            "SELECT count(*) FROM platform.entitlements WHERE tenant_id = %s", (tenant,)
+        )
+        self.assertEqual(cursor.fetchone()[0], 1)
 
     def test_o_migrator_nao_e_dono_de_nada_fora_do_que_criou(self) -> None:
         linhas = self.consultar(

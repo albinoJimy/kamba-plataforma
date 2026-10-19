@@ -33,8 +33,9 @@
 # o estrato `critico` esteve **vazio** ate ao KAM-004, e hoje tem codigo de
 # **isolamento** — os dois helpers de `tenant_guard` e, desde o KAM-011, a porta
 # de armazenamento (`storage/`), em Python e em TypeScript —, desde o KAM-068 o
-# **logger** nas duas linguagens (ver a nota no padrao) e, desde o KAM-008, o de
-# **identidade de contacto** (`*/identity/*`): as chaves, a cifra e o SQL. O
+# **logger** nas duas linguagens (ver a nota no padrao), desde o KAM-008 o de
+# **identidade de contacto** (`*/identity/*`) — as chaves, a cifra e o SQL — e,
+# desde o KAM-009, o **TEN** (`*/ten/*`), tambem nas duas linguagens. O
 # servico que os usa contra a base mede-se noutro sitio (ver `excluidos`).
 # Continua a nao existir codigo de dinheiro nem de validador no repositorio: os
 # padroes desses dois estao escritos para os tickets que os vao criar (KAM-052+
@@ -106,6 +107,29 @@ estratos:
       # vermelho — e o remedio seria apagar o limiar, nao melhorar o codigo.
       - "*/eventos/consumo.ts"
       - "*/eventos/trabalho.ts"
+      # TEN: entitlements e consumo de limites (KAM-009, ADR-013, ADR-015).
+      # **O modulo inteiro, nas duas linguagens.**
+      #
+      # Entra pela mesma razao que o `logger` e o `wrapper` do KAM-006: o DoD
+      # do KAM-009 exige «cobertura >= 90% no consumo de limites», e este
+      # estrato e o unico mecanismo que impoe 90%. Sem o padrao, os ficheiros
+      # caiam no `restante` — `packages/*/src/**` e `libs/*/src/**` apanham-nos
+      # — a 75%, e a caixa do DoD nao tinha gate que a sustentasse.
+      #
+      # E nao e so o consumo: um defeito no `checkEntitlement` deixa um tenant
+      # `suspenso` a usar um modulo, um defeito na cache devolve o entitlement
+      # de outro tenant (o criterio 6 pede teste cruzado), e um defeito no
+      # `tenantGate` responde ao publico por um canal que a Meta removeu. Os
+      # tres sao isolamento de tenant, que e o estrato onde o §4.1 ja os poe.
+      # A aritmetica de dinheiro **nao** esta aqui: vive em
+      # `platform.ten_consumir` (revisao `0007`) e mede-se no gate 8.
+      #
+      # *Proposta*, como os limiares: alterar este ficheiro pede dois
+      # revisores, e esta alteracao **nao** marca essa caixa.
+      #
+      # O limiar e agregado por estrato: este padrao partilha os 90% com o
+      # `tenant_guard`, o `storage`, o `identity` e o `logger`.
+      - "*/ten/*"
 
   - nome: restante
     minimo_linhas: 75

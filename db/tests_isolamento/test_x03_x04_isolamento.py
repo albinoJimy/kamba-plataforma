@@ -310,6 +310,17 @@ class TestEscritaCruzada(ComDoisTenants):
         for schema, tabela, coluna, _ in self.por_tabela():
             if tabela == "tenants":
                 continue  # a chave e a propria identidade: muda-la e outro teste
+            if tabela == "tenant_usage":
+                # KAM-009, revisao adversarial: o contador ganhou um trigger
+                # `BEFORE UPDATE` (`tenant_usage_so_sobe`) que recusa mudar a
+                # chave de uma linha, e ele dispara **antes** da politica.
+                # A propriedade continua provada, por uma regra mais
+                # apertada: a politica recusava mover a linha para B, o
+                # trigger recusa move-la para onde quer que seja. Quem o
+                # prova e `tests_ten/test_escalada.py`,
+                # `test_a_linha_nao_muda_de_conta`; aqui so se regista que o
+                # `42501` deixou de ser alcancavel nesta tabela.
+                continue
             with self.subTest(tabela=f"{schema}.{tabela}"):
                 self.assertErroSql(
                     PRIVILEGIO_INSUFICIENTE,

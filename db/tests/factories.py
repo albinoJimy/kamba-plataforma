@@ -76,11 +76,36 @@ def canal(cursor, tenant_id: str, **campos) -> str:
     return _inserir(cursor, "tenant_channels", valores, devolver="id")
 
 
-def entitlement(cursor, tenant_id: str, modulo: str = "catalogo", **campos) -> None:
+def entitlement(
+    cursor, tenant_id: str, modulo: str = "catalogo", limites: dict | None = None,
+    **campos,
+) -> None:
+    """Um entitlement. `limites` e um `dict`, e vai com `::jsonb` explicito.
+
+    O `limites` tem tratamento proprio e nao entra pelo `**campos` porque uma
+    cadeia enviada como parametro chega ao PostgreSQL com o tipo `text`, e
+    `text` nao se converte sozinho em `jsonb` num `INSERT`. Serializa-se aqui
+    e diz-se o tipo — em vez de obrigar cada teste a importar o adaptador de
+    JSON do `psycopg`, que e uma dependencia a mais num ficheiro de testes
+    que ate aqui so precisava de SQLSTATE.
+    """
+    import json
+
+    contexto(cursor, tenant_id)
     valores = {"tenant_id": tenant_id, "modulo": modulo}
     valores.update(campos)
-    contexto(cursor, tenant_id)
-    _inserir(cursor, "entitlements", valores)
+    nomes = list(valores)
+    marcadores = ["%s"] * len(nomes)
+    argumentos = list(valores.values())
+    if limites is not None:
+        nomes.append("limites")
+        marcadores.append("%s::jsonb")
+        argumentos.append(json.dumps(limites))
+    cursor.execute(
+        f"INSERT INTO platform.entitlements ({', '.join(nomes)}) "
+        f"VALUES ({', '.join(marcadores)})",
+        tuple(argumentos),
+    )
 
 
 # --------------------------------------------------------------------- KAM-008

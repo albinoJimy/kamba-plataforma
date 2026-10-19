@@ -202,12 +202,17 @@ enquanto *gate*.
 3. **`canon_lint canario`** — dez *fixtures* negativas têm de dar **exactamente
    um** achado, com a mensagem esperada, e dez positivas têm de passar.
 
-> **O terceiro passo existe por causa das duas superfícies vazias.** Não há
-> hoje nenhum *schema* de evento nem nenhum ficheiro em `registry/`: o passo 2
-> passa nelas **sem ter lido nada**, e di-lo na saída («A SUPERFÍCIE AINDA NÃO
-> EXISTE; nada foi verificado aqui»). Sem o canário, a prova de que essas duas
-> verificações mordem vivia só num `unittest` — o padrão que deixou o *gate* 9
-> sete PRs sem prova (§3, *gate* 9).
+> **O terceiro passo nasceu por causa das duas superfícies vazias, e fica
+> depois de elas se encherem.** Quando uma superfície tem zero ficheiros, o
+> passo 2 passa nela **sem ter lido nada**, e di-lo na saída («A SUPERFÍCIE
+> AINDA NÃO EXISTE; nada foi verificado aqui»). Sem o canário, a prova de que
+> essas verificações mordem vivia só num `unittest` — o padrão que deixou o
+> *gate* 9 sete PRs sem prova (§3, *gate* 9). As duas encheram-se: `eventos`
+> com o KAM-007 (os contratos de `contratos/eventos/`) e `registo` com o
+> KAM-009 (`registry/plans.yaml`), e a frase deixou de aparecer na saída. O
+> canário continua a correr, porque o que ele prova — que cada verificação dá
+> **exactamente um** achado com a mensagem esperada — não é o mesmo que a
+> superfície ter ficheiros limpos.
 >
 > **E o que o canário prova está no código, não no manifesto.** A primeira
 > versão lia do YAML de *fixtures* quantos casos havia: com `casos: []` dava «0
@@ -216,6 +221,16 @@ enquanto *gate*.
 > B1). O conjunto de divergências com *fixture* obrigatória, as duas que podem
 > não a ter e o mínimo de uma negativa por superfície estão agora em
 > `tools/canon_lint/cli.py`.
+
+> **A superfície 3 tem duas formas desde o KAM-009.** Um ficheiro de
+> `registry/` é uma **vertical** (chave de topo `id`, a forma de
+> [`docs/tecnica/02`](tecnica/02_Agent_Runtime_Verticais.md) §5.1) ou os
+> **planos** (chave de topo `plans`, o `registry/plans.yaml`: `plano` →
+> entitlements por omissão). A forma lê-se pela chave de topo e **nunca** pelo
+> nome do ficheiro. As chaves de topo de cada forma são listas fechadas, cada
+> nome de limite é confrontado com as dez chaves do dicionário §3.2, e um
+> ficheiro que não seja **nenhuma** das duas falha — não passa por não ter sido
+> lido.
 
 **Falha fechada**, e cada sítio tem um teste que falha se a regra for retirada
 (prova por mutação: `ANALISE-05` §5):
@@ -1169,9 +1184,11 @@ dispensa.
 
 #### A segunda metade: identidade de contacto (KAM-008)
 
-O `make ci-8` corre **quatro** *suites*, cada uma com a sua base descartável:
+O `make ci-8` corre **sete** *suites*, cada uma com a sua base descartável:
 `tests` (as migrações, acima), **`tests_identidade`** (esta secção),
-**`tests_eventos`** e **`tests_eventos_carga`** (a secção seguinte, KAM-005).
+**`tests_eventos`** e **`tests_eventos_carga`** (a secção seguinte, KAM-005),
+`tests_eventos_consumo` (KAM-006), `tests_auditoria_carga` (KAM-012) e
+**`tests_ten`** (KAM-009, a última secção).
 A de identidade entrou com o KAM-008. Esta põe o módulo de identidade — TypeScript, em
 `packages/core-ts/src/identity/` — a correr contra o PostgreSQL com o papel
 `kamba_identity` verdadeiro e a RLS ligada. O desenho está em
@@ -1256,6 +1273,46 @@ KAM-008. Agora os testes chamam a mesma classe da linha de comandos
 a base não está na revisão de cabeça. O ciclo `upgrade → downgrade → upgrade`
 do critério 1 do KAM-003 continua a correr o executável, num processo novo, e há
 um teste que confere que as duas vias dizem o mesmo.
+
+#### A sétima: o consumo de limites (KAM-009)
+
+`tests_ten` prova a **função** `platform.ten_consumir` da revisão `0007` — a
+regra única que a biblioteca em TypeScript e o lado Python chamam, em vez de
+cada um ter a sua aritmética de limites. É *suite* própria pela mesma razão
+que a carga de eventos e a da cadeia de auditoria: o critério 3 pede **mil
+chamadas paralelas**, e isso custa — dentro de `tests`, cada mutação da `0007`
+pagava esse custo somado ao da *suite* inteira.
+
+O que só aqui se mede:
+
+- **as mil paralelas, a sério.** Mil chamadas de 1 unidade contra um tecto de
+  100, em 32 ligações concorrentes com `commit`: **100 aceites, 900 negadas,
+  contador final 100**. Um ciclo sequencial dava os mesmos cem e não provava
+  nada da serialização no bloqueio da linha nem da reavaliação do `WHERE` do
+  `ON CONFLICT DO UPDATE` sobre o valor já actualizado;
+- **a chave que uma recusa não pode gastar.** A função regista a chave de
+  idempotência **antes** de contar, e desfá-la com o *rollback* de uma
+  subtransacção — não com um `DELETE`, que obrigaria a dar `DELETE` à
+  aplicação. Os dois caminhos de recusa têm teste, e as 900 negadas acima
+  deixam o livro com **100** linhas e não com mil;
+- **a fronteira do mês com relógio fixo.** O `p_agora` existe na assinatura
+  para isto. Os dois instantes do critério, e — porque os dois passariam com a
+  função escrita em UTC — um instante que cai em **meses diferentes** nos dois
+  fusos (`2026-11-30T23:30:00Z` é Dezembro em `Africa/Luanda`). E a resposta
+  não pode depender do `TimeZone` da sessão;
+- **o isolamento da função, que o *gate* 6 não prova.** O catálogo do *gate* 6
+  descobre `tenant_usage` e `usage_ledger` sozinho e prova-lhes a política
+  `tenant_iso`. Isso prova a política. Uma função SQL contorna a RLS inteira
+  com um `SECURITY DEFINER`, e o isolamento passaria a depender do `p_tenant`
+  que o chamador escolhe — que é o que o ADR-015 recusa. Aqui prova-se o facto
+  estrutural (`prosecdef` falso) **e** o comportamento: com o contexto de B e
+  o `p_tenant` de A, a função não vê o tecto de A, nega, e não escreve nada.
+
+E o que não está no bloco do ticket e é decisão da revisão: o tecto vem de
+`entitlements` e é o **mínimo** entre os módulos activos que declaram a chave;
+sem linha activa que a declare, **nega** — e nega antes de olhar para o
+`p_limite`, porque um argumento não substitui uma linha; o `p_limite` de quem
+chama só **desce**; e uma quantidade que não seja positiva **levanta**.
 
 ---
 
@@ -1674,9 +1731,11 @@ resposta seria pior do que nomeá-las:
     superfície 3 e 57 nos dois manifestos de `docs/tecnica/02` §5.1, lidos do
     próprio documento — a forma que o EPIC-03 vai escrever, e a prova de que
     nenhuma recusa nova lhe toca.
-    **O que fica dito, e não fechado:** o `registry/` não tem hoje nenhum
-    ficheiro de produção — o conteúdo é do EPIC-03 — pelo que o corpus real do
-    `yamlreg` são quatro *fixtures*; o primeiro manifesto entra na equivalência
+    **O que ficou dito, e não fechado:** à data do KAM-148 o `registry/` não
+    tinha ficheiro de produção nenhum — o conteúdo era do EPIC-03 — pelo que o
+    corpus real do `yamlreg` eram quatro *fixtures*. O KAM-009 pôs lá o
+    primeiro (`registry/plans.yaml`, a forma dos planos), e ele é lido por este
+    leitor em cada execução do *gate*; o primeiro manifesto entra na equivalência
     sem se alterar uma linha, e é por isso que corrigir o leitor **antes** dele
     era o momento mais barato. Os três leitores continuam três: fundi-los, ou
     adoptar uma biblioteca de YAML, contraria a razão de existir dos três (o
@@ -1909,3 +1968,6 @@ sobrevivem ao PR.
 | 1.32 | Outubro 2026 | **KAM-133: a lacuna 11 fecha.** O SBOM por serviço do *gate* 11 passa a atravessar as dependências `link:` do *workspace*: o caminho mapeia-se de volta à chave do importador e a travessia continua dali, transitivamente e com visitado-é-visitado. O `services/gwy` passa de **3** para **25** componentes e o conjunto fica nos mesmos **142** — que é a prova de que o fecho completo já estava certo, e a razão por que licenças e vulnerabilidades não mudaram. **Atravessar não é copiar:** de um pacote ligado seguem-se só `dependencies` e `optionalDependencies`, não as `devDependencies`. **E excluir um grupo um nível acima não chega:** um *peer* opcional já resolvido escreve-se em `snapshots:` como uma `optionalDependencies` qualquer, e o `pg` do `bullmq` só está resolvido porque o `core-ts` o declara em `devDependencies` — a primeira versão deste ticket publicou-o, e a mais treze, em três serviços que o não têm. A travessia passou a ler os *peers* opcionais de `packages:`, e tem agora como oráculo o próprio `pnpm` (`pnpm list --prod --depth Infinity` nos sete importadores, com o `sha256` do *lockfile* a datar a medição). Decisão de desenho escrita no §3: o pacote do *workspace* entra **como componente, com `dependsOn`**, e não se promovem só os seus terceiros. Eram três formas da mesma ligação e só uma estava no enunciado: juntaram-se o importador escrito `packages/contracts: {}`, que o leitor nem registava, e o lado **Python** (`services/agr` declara `kamba-core` em `[project].dependencies`; instalação editável não existe neste repositório). | Equipa KAMBÁ |
 | 1.33 | Outubro 2026 | **KAM-137: a lacuna 15 fecha na metade da detecção**, e fecha **corrigida** — comparar não precisa de `administration: write`, precisa de `read`. Decisão do fundador de 2026-10-18, em [`ADR-L003`](adr/ADR-L003-verificacao-do-ruleset.md): só detecção, com *token* de leitura, que compara e nunca aplica. O `make ruleset` (`tools/ruleset_check`) compara os seis campos de política — as quatro regras, os sete contextos, `enforcement`, `conditions`, `name`, `target` — com `bypass_actors` **vazio**, ignora oito campos voláteis nomeados um a um, e sai **2** quando não consegue ler, nunca 0. **Corre sobre uma lista de alvos, e não sobre um repositório:** a primeira versão nomeava só o privado, e como o espelho viaja na árvore dos dois, corrida de um clone do público dizia «conforme» de dentro de um repositório sem protecção nenhuma — foi a revisão adversarial a apanhá-lo, e é o caso-tipo do §1. Agora um repositório sem *ruleset* é **1**, nomeado, e o ramo funde **vermelho** até o `albinoJimy/kamba-plataforma` ter o seu (lacuna 29). **Não é *gate* e não entra no `make ci`**: a permissão `administration` não existe no `GITHUB_TOKEN` das Actions e qualquer outro *token* seria a chave estática que o §6 proíbe; nenhum ficheiro de `.github/workflows/` foi tocado. Executados a sério: contexto acrescentado só ao ficheiro (vermelho, revertido), ficheiro e API iguais no alvo que tem *ruleset* (verde), credencial inválida nos dois transportes, sem credencial e *endpoint* inalcançável (saída 2). Os dois casos que mexem no *ruleset* do GitHub ficam para o fundador, com o procedimento escrito em [`evidencia/KAM-137.md`](evidencia/KAM-137.md) §5. Lacunas **28** e **29** novas. | Equipa KAMBÁ |
 | 1.34 | Outubro 2026 | KAM-138: entra o *gate* **3c**, coerência do backlog. O §2 ganha a linha com alvo e dono, e o §3 a secção que descreve as oito verificações — sincronia linha↔bloco nos seis campos, órfãos nos dois sentidos, a tabela-resumo do §3 de cada epic como terceira superfície, reciprocidade `Dependências`↔`Bloqueia`, ciclos com o caminho completo, inversões de prioridade e de fase, contagens derivadas do §4 e «Controlo de versões» sem buracos. O que o distingue de uma comparação de tabelas é a reciprocidade: o §4 não tem coluna `Bloqueia`, e na entrega havia **seis** arestas declaradas de um só lado, abertas pelos quatro tickets inscritos depois do KAM-144. A **lacuna 17** passa a nomear também o 3c: entra nos `needs` de `gates do KAM-002` e não no `main.json`, porque escrever no espelho o que o *ruleset* não tem tornava-o falso. | Equipa KAMBÁ |
+| 1.35 | Outubro 2026 | **KAM-009: a superfície 3 passa a ler duas formas.** Um `registry/*.yaml` é uma **vertical** (chave de topo `id`) ou os **planos** (chave de topo `plans`), e a forma lê-se pela chave e nunca pelo nome do ficheiro; as chaves de topo de cada forma são listas fechadas, cada nome de limite é confrontado com as dez chaves do dicionário §3.2 nas duas, e um ficheiro que não seja **nenhuma** das duas falha. A superfície deixa de estar vazia (`registry/plans.yaml`, com `estado: hipotese_nao_validada` por entrada) e a frase «A SUPERFÍCIE AINDA NÃO EXISTE» deixa de aparecer para ela. Corrigido de passagem: `ManualProvider`, que a linha «Entitlement (chaves)» escreve em prosa e o exportador colhia, era aceite como nome de limite — o lint passa a exigir a forma `^[a-z][a-z0-9_]*$`, a mesma do `CHECK` de `tenant_usage.chave_limite`. | Equipa KAMBÁ |
+| 1.36 | Outubro 2026 | **KAM-009: o *gate* 8 passa a correr sete *suites*.** A sétima é `tests_ten`, que prova a **função** `platform.ten_consumir` da revisão `0007` e não o esquema: mil chamadas paralelas de 1 unidade contra um tecto de 100 em 32 ligações — **100 aceites, 900 negadas, contador final 100, e o livro de idempotência com 100 linhas e não mil** —, as dez repetições do critério 4 mais o caso que o critério não pede (uma recusa não pode gastar a chave, nos dois caminhos de recusa), a fronteira do mês com relógio fixo nos dois instantes do critério **e** num instante que cai em meses diferentes em UTC e em `Africa/Luanda`, e o isolamento da função — que o *gate* 6 não prova, porque a política de uma tabela não diz o que uma função `SECURITY INVOKER` faz quando quem a chama é outro tenant. O *gate* 6 ganha as receitas de sementes das duas tabelas novas, sem as quais se recusava a correr, e `entitlements` passa a ser uma tabela que `kamba_app` **não altera** (a `0007` revogou-lhe o `UPDATE`). Quinze mutações novas. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |
+| 1.37 | Outubro 2026 | **KAM-009 reprovou na revisão adversarial, e o *gate* 8 passa a morder onde ela mordeu.** Três críticos, nenhum apanhado pelos 47 testes nem pelas 15 mutações que havia: a chave de idempotência valia para **todas** as chaves de limite e não olhava à quantidade (repetir a chave de um consumo de uma mensagem autorizava um pedido de 999 999,99 Kz contra um tecto de 50 000, sem contar); `kamba_app` mantinha `INSERT` em `entitlements`, e com `WITH CHECK (tenant_id = app.tenant_id)` o tenant **criava** o próprio tecto; e `GRANT UPDATE (valor)` em `tenant_usage` deixava-o **zerar** o próprio contador. A revisão `0007` ganha a `chave_limite` na chave do livro, a comparação da quantidade (`KA002`), o `REVOKE INSERT`, e o *trigger* `tenant_usage_so_sobe` — o padrão do `audit_log_imutavel` da `0006`: o que o privilégio por coluna não sabe exprimir, exprime-o um `BEFORE UPDATE`. Mais o `UPDATE (tenants.estado)` revogado (um tenant `suspenso` reactivava-se e retirava a condição do critério 2), o `p_agora` fechado a quem não é `kamba_batch`, e quatro erros que escapavam aos tratadores (`22P02` de um limite não inteiro, `22003` de transbordo, chave de idempotência vazia, aviso de ordem das chaves no `COMMENT`). A *suite* `tests_ten` ganha o `test_escalada.py` — o atacante é o **próprio** tenant, que é o caso que a RLS nunca podia parar — e passa a correr o `SQL_CONSUMIR` e o `SQL_PERIODO` **das bibliotecas** em vez de uma cópia deles, o que destapou um defeito real: o `SQL_PERIODO` não tinha `coalesce` e devolvia `NULL` sem instante. Mutações: 256 → **270**. | Equipa KAMBÁ |
