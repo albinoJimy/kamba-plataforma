@@ -818,6 +818,7 @@ class TestOsQuinzeLeitoresDeclaramOQueLeem(unittest.TestCase):
         from lint_contagens.cli import ler_declaracoes as _contagens
         from lint_handoff.cli import ler_excepcoes as _handoff
         from lint_refs.cli import Excepcoes
+        from ruleset_check.config import ler as _ruleset
         from sbom.cli import ler_politica
         from scan_secrets.scanner import Permissoes
         from supply_chain.imagens import ler_inventario
@@ -837,6 +838,7 @@ class TestOsQuinzeLeitoresDeclaramOQueLeem(unittest.TestCase):
         ler_allowlist(ROOT)
         ler_inventario(ROOT)
         ler_registo(ROOT)
+        _ruleset(ROOT)
 
     #: Para cada `ci/*.yaml`, o conjunto que o seu leitor declara. A chave e o
     #: caminho relativo a raiz, e e por **descoberta** que se verifica que esta
@@ -853,6 +855,7 @@ class TestOsQuinzeLeitoresDeclaramOQueLeem(unittest.TestCase):
         from lint_contagens import cli as contagens
         from lint_handoff import cli as handoff
         from lint_refs.cli import CHAVES as chaves_refs
+        from ruleset_check import config as ruleset_config
         from sbom.cli import CHAVES_DE_LICENCAS
         from scan_secrets import scanner
         from supply_chain import imagens, licencas
@@ -869,6 +872,7 @@ class TestOsQuinzeLeitoresDeclaramOQueLeem(unittest.TestCase):
             "ci/contratos-allow.yaml": pii._CHAVES,
             "ci/canon-allow.yaml": canon_documentos.CHAVES_DE_TOPO,
             "ci/canon-lint.yaml": CHAVES_DA_POLITICA,
+            "ci/ruleset.yaml": ruleset_config.CHAVES,
             "ci/rls_exceptions.yaml": {"version", "excepcoes"},
             "ci/secdef_allowlist.yaml": {"version", "funcoes"},
             "ci/supply-chain/imagens.yaml": imagens._CHAVES_TOPO,

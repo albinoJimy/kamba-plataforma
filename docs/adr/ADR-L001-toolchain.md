@@ -16,7 +16,8 @@ O KAM-001 pede «uma única ferramenta de orquestração de tarefas (`make` como
 *facade*)» e manda registar num ADR local as escolhas de *task runner* de TS e de
 Python. A decisão real é maior do que o *task runner*: o KAM-001 escolhe o
 compilador, o executor de testes, a biblioteca web do AGR e a forma como as
-dependências se fixam. Todas essas escolhas são herdadas por 126 tickets, e
+dependências se fixam. Todas essas escolhas são herdadas por todo o backlog (a contagem vigente
+está em `../../specs/INDICE.md` §1; repeti-la aqui era pô-la a envelhecer), e
 algumas são caras de reverter.
 
 Há um critério que atravessa todas elas, e vem de o KAM-001 ser o primeiro
@@ -271,3 +272,4 @@ erro.
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial (KAM-001). | Equipa KAMBÁ |
+| 1.1 | Outubro 2026 | KAM-130: o número de tickets sai do texto e dá lugar à remissão para `../../specs/INDICE.md` §1. O ADR não precisa do valor para se entender, e repeti-lo era pô-lo a envelhecer — que é o que tinha acontecido (dizia 126). | Equipa KAMBÁ |
