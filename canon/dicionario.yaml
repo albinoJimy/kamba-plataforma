@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.18"
+versao_dicionario: "1.19"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -1973,6 +1973,232 @@ entradas:
       - "storage_secret_access_key"
     nomes_nota: []
     variantes_literais: []
+  - seccao: "3.12"
+    conceito: "Registo de um evento de canal recebido"
+    canonico: "inbound_events(id, kind, event_key, waba_id, phone_number_id, recebido_at, processado_at), com UNIQUE (kind, event_key)"
+    literais:
+      - "inbound_events(id, kind, event_key, waba_id, phone_number_id, recebido_at, processado_at)"
+      - "UNIQUE (kind, event_key)"
+    nomes:
+      - "inbound_events"
+      - "id"
+      - "kind"
+      - "event_key"
+      - "waba_id"
+      - "phone_number_id"
+      - "recebido_at"
+      - "processado_at"
+      - "UNIQUE"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.12"
+    conceito: "Quarentena de um evento que não se conseguiu encaminhar"
+    canonico: "unrouted_events(id, kind, event_key, waba_id, phone_number_id, motivo, payload, recebido_at, processado_at), com UNIQUE (kind, event_key)"
+    literais:
+      - "unrouted_events(id, kind, event_key, waba_id, phone_number_id, motivo, payload, recebido_at, processado_at)"
+      - "UNIQUE (kind, event_key)"
+    nomes:
+      - "unrouted_events"
+      - "id"
+      - "kind"
+      - "event_key"
+      - "waba_id"
+      - "phone_number_id"
+      - "motivo"
+      - "payload"
+      - "recebido_at"
+      - "processado_at"
+      - "UNIQUE"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.12"
+    conceito: "Classe de um evento de canal registado"
+    canonico: "inbound_events.kind ∈ {message, echo, statuses, history, smb_app_state_sync, account_update, phone_number_quality_update, business_capability_update, account_alerts, message_template_status_update, template_category_update, message_template_quality_update}"
+    literais:
+      - "inbound_events.kind"
+      - "message"
+      - "echo"
+      - "statuses"
+      - "history"
+      - "smb_app_state_sync"
+      - "account_update"
+      - "phone_number_quality_update"
+      - "business_capability_update"
+      - "account_alerts"
+      - "message_template_status_update"
+      - "template_category_update"
+      - "message_template_quality_update"
+    nomes:
+      - "inbound_events.kind"
+      - "message"
+      - "echo"
+      - "statuses"
+      - "history"
+      - "smb_app_state_sync"
+      - "account_update"
+      - "phone_number_quality_update"
+      - "business_capability_update"
+      - "account_alerts"
+      - "message_template_status_update"
+      - "template_category_update"
+      - "message_template_quality_update"
+    nomes_nota:
+      - "messages"
+      - "message"
+      - "statuses"
+      - "value"
+    variantes_literais: []
+  - seccao: "3.12"
+    conceito: "Classe de um evento em quarentena"
+    canonico: "unrouted_events.kind ∈ {desconhecido, invalido}"
+    literais:
+      - "unrouted_events.kind"
+      - "desconhecido"
+      - "invalido"
+    nomes:
+      - "unrouted_events.kind"
+      - "desconhecido"
+      - "invalido"
+    nomes_nota:
+      - "kind"
+      - "event_key"
+      - "message"
+      - "invalido"
+    variantes_literais: []
+  - seccao: "3.12"
+    conceito: "Chave de deduplicação semântica de um evento de canal"
+    canonico: "event_key"
+    literais:
+      - "event_key"
+    nomes:
+      - "event_key"
+    nomes_nota:
+      - "wamid"
+      - "message"
+      - "echo"
+      - "estado"
+      - "statuses"
+      - "waba_id"
+      - "campo"
+      - "valor"
+    variantes_literais: []
+  - seccao: "3.12"
+    conceito: "Resumo canónico de um evento sem wamid"
+    canonico: "k_ mais 32 hexadecimais do SHA-256 do JSON com chaves ordenadas"
+    literais:
+      - "k_"
+    nomes:
+      - "wamid"
+      - "k_"
+    nomes_nota:
+      - "account_update"
+      - "id_opaco"
+    variantes_literais: []
+  - seccao: "3.12"
+    conceito: "Razão por que um evento foi para quarentena"
+    canonico: "unrouted_events.motivo ∈ {json_invalido, campo_desconhecido, corpo_sem_entry, change_sem_itens}"
+    literais:
+      - "unrouted_events.motivo"
+      - "json_invalido"
+      - "campo_desconhecido"
+      - "corpo_sem_entry"
+      - "change_sem_itens"
+    nomes:
+      - "unrouted_events.motivo"
+      - "json_invalido"
+      - "campo_desconhecido"
+      - "corpo_sem_entry"
+      - "change_sem_itens"
+    nomes_nota:
+      - "json_invalido"
+      - "change_sem_itens"
+      - "value"
+      - "errors"
+      - "messages"
+    variantes_literais: []
+  - seccao: "3.12"
+    conceito: "Destino de encaminhamento de um kind"
+    canonico: "destino ∈ {chr, outbound, ingestao, gestao_de_canal, quarentena}"
+    literais:
+      - "destino"
+      - "chr"
+      - "outbound"
+      - "ingestao"
+      - "gestao_de_canal"
+      - "quarentena"
+    nomes:
+      - "kind"
+      - "destino"
+      - "chr"
+      - "outbound"
+      - "ingestao"
+      - "gestao_de_canal"
+      - "quarentena"
+    nomes_nota:
+      - "message"
+      - "echo"
+      - "chr"
+      - "statuses"
+      - "outbound"
+      - "history"
+      - "smb_app_state_sync"
+      - "ingestao"
+      - "gestao_de_canal"
+      - "inbound_events.kind"
+      - "unrouted_events.motivo"
+      - "CHECK"
+      - "kind"
+    variantes_literais: []
+  - seccao: "3.12"
+    conceito: "Fila de entrada do webhook"
+    canonico: "wa-inbound, com jobId igual ao SHA-256 do corpo bruto"
+    literais:
+      - "wa-inbound"
+      - "jobId"
+    nomes:
+      - "wa"
+      - "inbound"
+      - "jobId"
+    nomes_nota:
+      - "jobId"
+      - "UNIQUE"
+      - "kind"
+      - "event_key"
+    variantes_literais: []
+  - seccao: "3.12"
+    conceito: "Métricas do GWY"
+    canonico: "gwy_requests_total, gwy_sig_fail, gwy_shed_total, gwy_enqueue_ms, inbound_queue_depth"
+    literais:
+      - "gwy_requests_total"
+      - "gwy_sig_fail"
+      - "gwy_shed_total"
+      - "gwy_enqueue_ms"
+      - "inbound_queue_depth"
+    nomes:
+      - "gwy_requests_total"
+      - "gwy_sig_fail"
+      - "gwy_shed_total"
+      - "gwy_enqueue_ms"
+      - "inbound_queue_depth"
+    nomes_nota:
+      - "gwy_shed_total"
+      - "gwy_enqueue_ms"
+    variantes_literais: []
+  - seccao: "3.12"
+    conceito: "id dos segredos do webhook"
+    canonico: "meta_app_secret (com anel [actual, anterior]), meta_verify_token"
+    literais:
+      - "meta_app_secret"
+      - "[actual, anterior]"
+      - "meta_verify_token"
+    nomes:
+      - "id"
+      - "meta_app_secret"
+      - "actual"
+      - "anterior"
+      - "meta_verify_token"
+    nomes_nota: []
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -2278,6 +2504,36 @@ tabelas:
     assinatura: "evt_acoes(idempotency_key, consumer, event_id, accao, tenant_id, estado, resultado, criado_at, concluido_at)"
     seccao: "3.5"
     conceito: "Acções com efeito externo"
+  - nome: "inbound_events"
+    esquema: ""
+    colunas:
+      - "id"
+      - "kind"
+      - "event_key"
+      - "waba_id"
+      - "phone_number_id"
+      - "recebido_at"
+      - "processado_at"
+    aberta: false
+    assinatura: "inbound_events(id, kind, event_key, waba_id, phone_number_id, recebido_at, processado_at)"
+    seccao: "3.12"
+    conceito: "Registo de um evento de canal recebido"
+  - nome: "unrouted_events"
+    esquema: ""
+    colunas:
+      - "id"
+      - "kind"
+      - "event_key"
+      - "waba_id"
+      - "phone_number_id"
+      - "motivo"
+      - "payload"
+      - "recebido_at"
+      - "processado_at"
+    aberta: false
+    assinatura: "unrouted_events(id, kind, event_key, waba_id, phone_number_id, motivo, payload, recebido_at, processado_at)"
+    seccao: "3.12"
+    conceito: "Quarentena de um evento que não se conseguiu encaminhar"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -2404,6 +2660,49 @@ dominios:
     seccao: "3.7"
     conceito: "Entitlements de módulo"
     so_no_registo: true
+  - coluna: "inbound_events.kind"
+    valores:
+      - "message"
+      - "echo"
+      - "statuses"
+      - "history"
+      - "smb_app_state_sync"
+      - "account_update"
+      - "phone_number_quality_update"
+      - "business_capability_update"
+      - "account_alerts"
+      - "message_template_status_update"
+      - "template_category_update"
+      - "message_template_quality_update"
+    seccao: "3.12"
+    conceito: "Classe de um evento de canal registado"
+    so_no_registo: false
+  - coluna: "unrouted_events.kind"
+    valores:
+      - "desconhecido"
+      - "invalido"
+    seccao: "3.12"
+    conceito: "Classe de um evento em quarentena"
+    so_no_registo: false
+  - coluna: "unrouted_events.motivo"
+    valores:
+      - "json_invalido"
+      - "campo_desconhecido"
+      - "corpo_sem_entry"
+      - "change_sem_itens"
+    seccao: "3.12"
+    conceito: "Razão por que um evento foi para quarentena"
+    so_no_registo: false
+  - coluna: "destino"
+    valores:
+      - "chr"
+      - "outbound"
+      - "ingestao"
+      - "gestao_de_canal"
+      - "quarentena"
+    seccao: "3.12"
+    conceito: "Destino de encaminhamento de um kind"
+    so_no_registo: false
 
 variantes:
   - nome: "lookup_hmac"

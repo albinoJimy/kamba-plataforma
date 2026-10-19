@@ -31,6 +31,10 @@
       "types": "./dist/identity/index.d.ts",
       "default": "./dist/identity/index.js"
     },
+    "./entrada": {
+      "types": "./dist/entrada/index.d.ts",
+      "default": "./dist/entrada/index.js"
+    },
     "./eventos": {
       "types": "./dist/eventos/index.d.ts",
       "default": "./dist/eventos/index.js"

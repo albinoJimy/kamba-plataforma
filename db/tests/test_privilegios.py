@@ -200,6 +200,52 @@ ESPERADO_POR_TABELA.update(
 )
 
 
+def _entrada(**por_papel: set[str]) -> dict[str, set[str]]:
+    """Matriz de uma tabela da revisao 0008 (KAM-013).
+
+    O dono tem tudo; o `kamba_batch` tem os quatro de dados, porque e quem
+    purga a quarentena e quem a tria; `kamba_resolver`, `kamba_identity` e
+    `kamba_audit` **nada** — o resolvedor corre depois desta escrita e nao
+    antes, a identidade nao sabe de webhooks, e quem audita le o `audit_log`.
+    """
+    base = {
+        "kamba_app": set(),
+        "kamba_batch": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+        "kamba_resolver": set(),
+        "kamba_identity": set(),
+        "kamba_audit": set(),
+        "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+        "public": set(),
+    }
+    base.update(por_papel)
+    return base
+
+
+ESPERADO_POR_TABELA.update(
+    {
+        # KAM-013. O `SELECT` do `kamba_app` **e preciso**: o
+        # `INSERT ... ON CONFLICT DO NOTHING RETURNING id` e o que distingue
+        # uma linha nova de um duplicado, e o PostgreSQL exige `SELECT` na
+        # coluna devolvida. A objeccao que levou o `events_dlq` (KAM-006) a nao
+        # ter `SELECT` — «um `id` sequencial mede o volume do vizinho» — nao se
+        # aplica: aqui o `id` e `gen_random_uuid()` e a tabela nao tem dado de
+        # tenant nenhum. O `UPDATE` e **por coluna** (`processado_at`), pelo que
+        # nao aparece nesta matriz de tabela.
+        "inbound_events": _entrada(kamba_app={"SELECT", "INSERT"}),
+        # **Escreve e nao le**, como o `audit_log` — mas aqui por privacidade e
+        # nao por nao-repudio: a coluna `payload` guarda o corpo bruto do
+        # webhook, que pode levar telefone e texto de mensagem, e quem o
+        # escreve nao precisa de o ler. Le quem opera, que e `kamba_batch`.
+        # Sem `SELECT`, o `SQL_QUARENTENA` tambem nao pode usar `RETURNING` — e
+        # nao usa: a quarentena nao tem de distinguir uma entrada nova de um
+        # duplicado, basta nao duplicar.
+        #
+        # **Nem `UPDATE` nenhum**: quem tria uma quarentena e quem opera.
+        "unrouted_events": _entrada(kamba_app={"INSERT"}),
+    }
+)
+
+
 def _eventos(**por_papel: set[str]) -> dict[str, set[str]]:
     """Matriz de uma tabela da revisao 0004 (KAM-005).
 
@@ -344,6 +390,19 @@ COLUNAS_POR_PAPEL = {
     # ja limita este papel as linhas do seu tenant, e o que uma sequencia
     # revelaria e o volume do vizinho.
     ("kamba_app", "events_dlq", "SELECT"): {"consumer", "event_id", "estado"},
+    # KAM-013: uma coluna, e e a unica que o *worker* escreve depois de
+    # inserir. Mudar `kind` ou `event_key` era reescrever a chave de
+    # deduplicacao de um evento que ja passou — isto e, fazer com que ele
+    # volte a passar. E o `processado_at` existe por causa da janela entre
+    # registar e encaminhar: ver `packages/core-ts/src/entrada/registo.ts`.
+    ("kamba_app", "inbound_events", "UPDATE"): {"processado_at"},
+    # KAM-013: duas colunas, e nao e uma concessao — e o que o
+    # `ON CONFLICT (kind, event_key)` do `SQL_QUARENTENA` exige. O PostgreSQL
+    # trata os elementos da clausula de inferencia como leitura, e sem eles a
+    # insercao falha com 42501 (medido: a quarentena ficava a zero). E a mesma
+    # licao do `events_dlq` acima. **O `payload` continua fechado**, que e a
+    # propriedade que importa: e a coluna que pode levar telefone e texto.
+    ("kamba_app", "unrouted_events", "SELECT"): {"kind", "event_key"},
 }
 PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
 
@@ -377,6 +436,12 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # cabeca da cadeia e exactamente o que ninguem pode.
     "audit_log",
     "audit_heads",
+    # KAM-013: as duas da entrada. O `inbound_events` **tem** privilegio por
+    # coluna (o `UPDATE` e so `processado_at`); o `unrouted_events` entra pela
+    # mesma razao das de eventos — um `GRANT SELECT (payload)` ao `kamba_app`
+    # seria invisivel na matriz de tabela, e e exactamente o que ninguem pode.
+    "inbound_events",
+    "unrouted_events",
 )
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.
@@ -441,6 +506,30 @@ IMUTAVEIS_PARA_A_APP = {
         "periodo",
         "quantidade",
         "criado_at",
+    },
+    # KAM-013. So `processado_at` se altera, e e o que fecha a janela entre
+    # registar e encaminhar. Tudo o mais e a identidade do evento: mudar
+    # `kind` ou `event_key` era fazer um evento ja tratado voltar a passar.
+    "inbound_events": {
+        "id",
+        "kind",
+        "event_key",
+        "waba_id",
+        "phone_number_id",
+        "recebido_at",
+    },
+    # A quarentena **nao se altera de todo** pela aplicacao: uma linha dela e
+    # o facto de um corpo nao ter encaixado, e quem a tria e quem opera.
+    "unrouted_events": {
+        "id",
+        "kind",
+        "event_key",
+        "waba_id",
+        "phone_number_id",
+        "motivo",
+        "payload",
+        "recebido_at",
+        "processado_at",
     },
 }
 

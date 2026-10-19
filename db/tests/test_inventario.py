@@ -288,6 +288,61 @@ INVENTARIO = {
         "quantidade": ("bigint", NAO, None, "nao"),
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
     },
+    # ------------------------------------------------------------ KAM-013
+    # Entrada de canal. **Nenhuma das duas tem `tenant_id`**: o GWY e o
+    # endpoint unico da Meta e o tenant so nasce no CHR (KAM-014).
+    #
+    # A pergunta «guarda dados pessoais?» tem aqui a resposta mais
+    # desconfortavel do inventario, e esta escrita por extenso na linha do
+    # `payload`: **sim, pode guardar**. E a unica coluna do schema que guarda
+    # corpo de conversa, e existe porque o criterio 6 do KAM-013 a pede para
+    # se diagnosticar o que nao encaixou.
+    "inbound_events": {
+        "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "kind": ("text", NAO, None, "nao"),
+        "event_key": (
+            "text",
+            NAO,
+            None,
+            "wamid ou wamid:estado; identificador de mensagem da Meta, que leva o "
+            "numero do interlocutor codificado em base64 (INDICIO, docs/logs.md "
+            "§2.1). Nunca sai para um log em claro: la vai `id_opaco`",
+        ),
+        "waba_id": ("text", NAO, None, "identificador da conta na Meta"),
+        "phone_number_id": (
+            "text",
+            SIM,
+            None,
+            "identificador opaco da Meta; nao e um telefone",
+        ),
+        "recebido_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "processado_at": ("timestamp with time zone", SIM, None, "nao"),
+    },
+    "unrouted_events": {
+        "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "kind": ("text", NAO, None, "nao"),
+        "event_key": ("text", NAO, None, "ver `inbound_events.event_key`"),
+        "waba_id": ("text", SIM, None, "identificador da conta na Meta"),
+        "phone_number_id": (
+            "text",
+            SIM,
+            None,
+            "identificador opaco da Meta; nao e um telefone",
+        ),
+        "motivo": ("text", NAO, None, "nao"),
+        "payload": (
+            "text",
+            SIM,
+            None,
+            "SIM — o corpo bruto do webhook em base64. Pode conter telefone e "
+            "texto de mensagem. E a unica coluna do schema que guarda corpo de "
+            "conversa, e esta aqui porque sem ela nao se diagnostica uma "
+            "quarentena. Retencao de 7 dias (*proposta*, KAM-013), a impor em "
+            "KAM-071. `kamba_app` escreve e **nao le** (sem GRANT SELECT)",
+        ),
+        "recebido_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "processado_at": ("timestamp with time zone", SIM, None, "nao"),
+    },
 }
 
 #: A particao `DEFAULT` tem as colunas do pai, uma a uma. Esta aqui — e nao
@@ -450,6 +505,27 @@ class TestInventario(ComBase):
             sorted(nome for (nome,) in linhas),
             sorted(
                 [
+                    # ------------------------------------- KAM-013 (0008)
+                    # Os dois dominios fechados, os tectos de comprimento dos
+                    # tres valores que vem do corpo do webhook, e as duas
+                    # chaves de deduplicacao. O `CHECK` do `payload` e o tecto
+                    # de armazenamento: uma coluna sem limite escrita a partir
+                    # de um corpo externo e armazenamento ilimitado a custa de
+                    # outrem.
+                    "inbound_events_event_key_ck",
+                    "inbound_events_kind_ck",
+                    "inbound_events_kind_event_key_uq",
+                    "inbound_events_phone_number_id_ck",
+                    "inbound_events_pkey",
+                    "inbound_events_waba_id_ck",
+                    "unrouted_events_event_key_ck",
+                    "unrouted_events_kind_ck",
+                    "unrouted_events_kind_event_key_uq",
+                    "unrouted_events_motivo_ck",
+                    "unrouted_events_payload_ck",
+                    "unrouted_events_phone_number_id_ck",
+                    "unrouted_events_pkey",
+                    "unrouted_events_waba_id_ck",
                     # ------------------------------------- KAM-009 (0007)
                     "tenant_usage_chave_limite_ck",
                     "tenant_usage_periodo_ck",

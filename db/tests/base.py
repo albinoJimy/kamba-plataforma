@@ -63,10 +63,20 @@ TABELAS_0006 = ("audit_heads", "audit_log")
 #: o livro que torna o consumo idempotente.
 TABELAS_0007 = ("tenant_usage", "usage_ledger")
 
+#: O que a revisao 0008 (KAM-013) acrescenta: o registo dos webhooks da Meta
+#: que chegaram, e a quarentena dos que nao se conseguiu encaminhar.
+#:
+#: Sao as duas unicas tabelas de `platform` **sem `tenant_id`** fora das de
+#: referencia: o GWY e o endpoint unico da Meta e o tenant so nasce no CHR
+#: (KAM-014). A revisao `0008` escreve a razao, e por isso tambem nao ha
+#: entrada em `ci/rls_exceptions.yaml` — o teste X-05 descobre as tabelas a
+#: isolar **pela coluna `tenant_id`**, que estas nao tem.
+TABELAS_0008 = ("inbound_events", "unrouted_events")
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
-        + TABELAS_0006 + TABELAS_0007
+        + TABELAS_0006 + TABELAS_0007 + TABELAS_0008
     )
 )
 

@@ -112,11 +112,31 @@ class TestServicos(unittest.TestCase):
             with self.subTest(servico=servico):
                 arranque = (ROOT / "services" / servico / "src/server.ts").read_text(encoding="utf-8")
                 self.assertIn("const log = instalar(SERVICE);", arranque)
-                self.assertIn("createApp(log).fetch", arranque)
+                # `createApp(log` e nao `createApp(log).fetch`: o que este teste
+                # prende e que a app e criada **com o logger**, e o resto da
+                # chamada e incidental. O KAM-013 passou a dar dependencias ao
+                # `createApp` do gwy (`createApp(log, { ... }).fetch`) e o teste
+                # ficou vermelho por uma mudanca legitima, a afirmar uma forma
+                # de chamada em vez da propriedade.
+                self.assertIn("createApp(log", arranque)
                 self.assertLess(arranque.index("instalar(SERVICE)"), arranque.index("port(DEFAULT_PORT)"))
                 aplicacao = (ROOT / "services" / servico / "src/app.ts").read_text(encoding="utf-8")
                 self.assertIn("app.onError(", aplicacao)
-                self.assertIn('log?.excepcao(erro, "tratador_falhou")', aplicacao)
+                self.assertIn('excepcao(erro, "tratador_falhou")', aplicacao)
+                # **Cada `new Hono()` tem o seu `onError`.** Isto nasceu de um
+                # defeito real: o KAM-013 separou o `/metrics` do gwy para uma
+                # segunda app, numa porta interna, e essa app ficou **sem**
+                # `onError` — qualquer erro nela saia por `console.error` com a
+                # mensagem e a pilha em claro, que e exactamente o que o
+                # `createApp` existe para fechar. O teste contava uma app e via
+                # um `onError`, e passava.
+                self.assertGreaterEqual(
+                    aplicacao.count("onError("),
+                    aplicacao.count("new Hono("),
+                    f"{servico}/src/app.ts tem {aplicacao.count('new Hono(')} app(s) "
+                    f"e {aplicacao.count('onError(')} tratador(es): uma app sem "
+                    "`onError` manda a mensagem e a pilha para o `stderr` (KAM-068)",
+                )
 
 
 if __name__ == "__main__":

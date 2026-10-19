@@ -165,6 +165,23 @@ fontes_adicionais:
       Para e volta a arrancar o contentor da fila pelo nome, para o criterio 4
       («Redis parado 60 s»). Nao nomeia imagem: o `docker stop` e o
       `docker start` agem sobre um contentor existente.
+  # KAM-013: a suite de entrada corre o **GWY** e o **worker de entrada** — os
+  # processos de producao, nao um programa de ensaio — num contentor Node
+  # quando a maquina nao tem `node`, na rede do gate e com a porta publicada
+  # so em `127.0.0.1`.
+  - ficheiro: db/tests_entrada/node.py
+    constante: IMAGEM_NODE
+  # KAM-013: o criterio 5 **para** a fila e volta a arranca-la, para provar que
+  # o GWY responde 503 e nunca 200 — e que o **mesmo** processo volta a aceitar
+  # sem ser reiniciado. Nao referencia imagem nenhuma, pela mesma razao do
+  # `test_publicador.py` acima: age sobre um contentor que ja existe, pelo nome
+  # que `db/gate_bd.py` lhe poe (`KAMBA_GATE_FILA`).
+  - ficheiro: db/tests_entrada/test_entrada.py
+    sem_imagem: >-
+      Para e volta a arrancar o contentor da fila pelo nome, para o criterio 5
+      («com Redis indisponivel o GWY responde 503 e nunca 200»). Nao nomeia
+      imagem: o `docker stop` e o `docker start` agem sobre um contentor
+      existente, e a imagem e o digest da fila estao em `db/fila_do_gate.py`.
   # KAM-011: a suite TypeScript do contrato de armazenamento e a prova por
   # mutacao correm num contentor Node quando a maquina nao tem `node`.
   - ficheiro: infra/storage/contrato.py

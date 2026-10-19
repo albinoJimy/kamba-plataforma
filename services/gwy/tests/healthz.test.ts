@@ -55,7 +55,12 @@ test("o SHA do commit vem do ambiente quando o CI o injecta", async () => {
 });
 
 test("uma rota desconhecida não responde 200", async () => {
-  for (const path of ["/", "/healthz/", "/metrics", "/admin"]) {
+  // O `/metrics` **continua** nesta lista, e com o KAM-013 passou a ter razão
+  // escrita: as métricas do GWY existem (o DoD pede-as) mas vivem noutra porta,
+  // servidas pelo `criarAppDeMetricas`. Pô-las aqui era pôr a profundidade da
+  // fila ao alcance de quem alcança a Internet, porque esta é a porta do
+  // webhook (achado da revisão adversarial do KAM-013).
+  for (const path of ["/", "/healthz/", "/metrics", "/admin", "/wa/webhook/extra"]) {
     const response = await sonda(path);
     assert.notEqual(response.status, 200, `${path} devia recusar`);
   }
