@@ -33,7 +33,7 @@ CHAVES_DE_LICENCAS = {
     "version", "permitidas", "negadas", "pendentes_de_decisao", "proprios",
 }
 
-from . import adr, cyclonedx, spdx, vulns
+from . import adr, collect, cyclonedx, spdx, vulns
 from .collect import Componente, declaradas_e_nao_instaladas, recolher
 from .spdx import DESCONHECIDA, NEGADA, PENDENTE, PERMITIDA, Politica
 
@@ -146,18 +146,23 @@ def _alvos(raiz: Path) -> list[tuple[str, str, Path]]:
     return alvos
 
 
-def _pins_python(raiz: Path, alvo: str) -> set[str]:
-    """Pacotes Python de um alvo, lidos do seu `requirements/*.in`.
+def _pins_python(raiz: Path, pastas: set[str]) -> set[str]:
+    """Pacotes Python de um conjunto de pastas, lidos dos seus `requirements/*.in`.
 
     O `venv` e unico, como a loja do `pnpm`, pelo que a atribuicao por alvo vem
     dos pins e nao do que esta instalado.
+
+    Recebe **pastas** e nao um alvo porque, desde o KAM-133, o alvo arrasta as
+    pastas dos pacotes Python nossos que declara: se o `libs/py-core` ganhar um
+    `requirements/`, os seus pins contam para o `services/agr`, que o declara.
     """
-    if alvo == "kamba":
-        ficheiros = list(raiz.glob("*/requirements/*.in")) + list(
-            raiz.glob("*/*/requirements/*.in")
-        )
-    else:
-        ficheiros = list((raiz / alvo / "requirements").glob("*.in"))
+    ficheiros: list[Path] = []
+    for pasta in sorted(pastas):
+        if pasta == ".":
+            ficheiros += list(raiz.glob("*/requirements/*.in"))
+            ficheiros += list(raiz.glob("*/*/requirements/*.in"))
+        else:
+            ficheiros += list((raiz / pasta / "requirements").glob("*.in"))
 
     nomes: set[str] = set()
     for ficheiro in ficheiros:
@@ -168,48 +173,110 @@ def _pins_python(raiz: Path, alvo: str) -> set[str]:
     return nomes
 
 
+def _pasta_do_proprio(componente: Componente) -> str:
+    """A pasta a que um pacote nosso pertence, a partir do seu manifesto.
+
+    `services/gwy/package.json` -> `services/gwy`; o `package.json` da raiz ->
+    `.`. E a chave que casa com os importadores do `pnpm-lock.yaml` e com as
+    pastas do `ligacoes_python`, e substitui um `rsplit('/', 2)[-2]` que dava so
+    o ultimo segmento (`gwy`) e por isso nao distinguia `services/gwy` de um
+    `libs/gwy` que viesse a existir.
+    """
+    return componente.origem.rsplit("/", 1)[0] if "/" in componente.origem else "."
+
+
+def pastas_do_alvo(raiz: Path, alvo: str) -> tuple[set[str], "pnpm_lock.Fecho | None"]:
+    """As pastas de pacotes **nossos** que este alvo carrega, e o fecho npm.
+
+    Devolve (pastas, fecho), onde `fecho` e um `pnpm_lock.Fecho` ou `None`
+    quando nao ha lockfile. As pastas incluem a do proprio alvo, as dos pacotes
+    do workspace alcancados por `link:` no lockfile, e as dos pacotes Python
+    nossos declarados em `[project].dependencies` — as tres formas que a mesma
+    ligacao toma neste repositorio.
+    """
+    from . import pnpm_lock
+
+    importador = "." if alvo == "kamba" else alvo
+    lockfile = raiz / "pnpm-lock.yaml"
+    fecho = None
+    pastas = {importador}
+
+    if lockfile.is_file():
+        grafo = pnpm_lock.ler(lockfile)
+        if alvo == "kamba":
+            # O alvo do conjunto carrega a uniao de todos os importadores.
+            terceiros: set[str] = set()
+            relacoes: dict[str, frozenset[str]] = {}
+            for chave in grafo.directas:
+                parcial = pnpm_lock.fecho(chave, grafo)
+                terceiros |= parcial.terceiros
+                for no, destinos in parcial.relacoes.items():
+                    relacoes.setdefault(no, destinos)
+                # O no do proprio importador vale sempre o que **ele** declara,
+                # com todos os grupos. Sem esta linha, o `@kamba/core-ts` no
+                # SBOM do conjunto ficava com a relacao que o `services/com`
+                # dele herda — so `dependencies` —, e o conjunto perdia as
+                # `devDependencies` do `core-ts` (`pg`, `@types/pg`), que estao
+                # na lista de componentes. O grafo contradizia a lista.
+                relacoes[f"{pnpm_lock.PREFIXO_WORKSPACE}{chave}"] = parcial.relacoes[
+                    f"{pnpm_lock.PREFIXO_WORKSPACE}{chave}"
+                ]
+            fecho = pnpm_lock.Fecho(
+                terceiros=frozenset(terceiros),
+                importadores=frozenset(grafo.directas),
+                relacoes=relacoes,
+            )
+        else:
+            fecho = pnpm_lock.fecho(importador, grafo)
+        pastas |= set(fecho.importadores)
+
+    ligacoes = collect.ligacoes_python(raiz)
+    if alvo == "kamba":
+        pastas |= set(ligacoes)
+    else:
+        # Fecho transitivo do lado Python, com visitado-e-visitado: o
+        # `kamba-core` nao declara nada hoje, mas a travessia nao pode depender
+        # disso.
+        por_visitar = [importador]
+        vistos: set[str] = set()
+        while por_visitar:
+            actual = por_visitar.pop()
+            if actual in vistos:
+                continue
+            vistos.add(actual)
+            for destino in ligacoes.get(actual, set()):
+                pastas.add(destino)
+                por_visitar.append(destino)
+
+    return pastas, fecho
+
+
 def componentes_do_alvo(
     raiz: Path, alvo: str, todos: list[Componente]
 ) -> list[Componente]:
     """Os componentes que **este** alvo carrega.
 
     Nao e «o que esta instalado»: o `pnpm` tem uma loja unica e o `venv` e um so,
-    pelo que isso daria o workspace inteiro em todos os ficheiros — nove SBOM com
-    os mesmos 92 componentes, o que satisfaz a letra de «SBOM por servico» e nao
-    a pergunta a que um SBOM existe para responder.
+    pelo que isso daria o workspace inteiro em todos os ficheiros — nove SBOM
+    iguais, o que satisfaz a letra de «SBOM por servico» e nao a pergunta a que
+    um SBOM existe para responder.
 
     Para o lado npm, o fecho vem do `pnpm-lock.yaml`, por travessia a partir das
-    dependencias directas do importador. Para o lado Python, vem dos pins do
-    `requirements/*.in` do alvo. Os pacotes do proprio monorepo entram sempre: o
-    alvo e um deles.
+    dependencias directas do importador — **e atravessa as ligacoes `link:` do
+    workspace** (KAM-133). Para o lado Python, vem dos pins do
+    `requirements/*.in` do alvo e dos pacotes nossos que ele declara. Os pacotes
+    do proprio monorepo entram pela sua pasta: o alvo e um deles.
     """
-    from . import pnpm_lock
-
-    lockfile = raiz / "pnpm-lock.yaml"
-    importador = "." if alvo == "kamba" else alvo
-    fecho_npm: set[str] = set()
-    if lockfile.is_file():
-        directas, snapshots = pnpm_lock.ler(lockfile)
-        if alvo == "kamba":
-            # O alvo do conjunto carrega a uniao de todos os importadores.
-            for chave in directas:
-                fecho_npm |= pnpm_lock.fecho(chave, directas, snapshots)
-        else:
-            fecho_npm = pnpm_lock.fecho(importador, directas, snapshots)
-
-    pins = _pins_python(raiz, alvo)
-    proprios_do_alvo = {"kamba"} if alvo == "kamba" else {alvo.split("/")[-1]}
+    pastas, fecho = pastas_do_alvo(raiz, alvo)
+    fecho_npm: frozenset[str] = fecho.terceiros if fecho is not None else frozenset()
+    pins = _pins_python(raiz, {"."} if alvo == "kamba" else pastas)
 
     seleccionados: list[Componente] = []
     for componente in todos:
         if componente.proprio:
-            # Pacote do proprio monorepo: entra no seu alvo e no do conjunto.
-            dono = (
-                componente.origem.rsplit("/", 2)[-2]
-                if "/" in componente.origem
-                else "kamba"
-            )
-            if alvo == "kamba" or dono in proprios_do_alvo:
+            # Pacote do proprio monorepo: entra no seu alvo, nos alvos que o
+            # declaram, e no do conjunto.
+            if alvo == "kamba" or _pasta_do_proprio(componente) in pastas:
                 seleccionados.append(componente)
             continue
         if componente.ecossistema == "npm":
@@ -295,6 +362,80 @@ def verificar_vulnerabilidades(raiz: Path) -> tuple[list[str], dict]:
     }
 
 
+def relacoes_do_alvo(
+    raiz: Path, alvo: str, componentes: list[Componente]
+) -> dict[str, set[str]]:
+    """O grafo `bom-ref -> bom-refs` do SBOM de um alvo.
+
+    Traduz os nos da travessia (`nome@versao` e `workspace:<pasta>`) para os
+    `bom-ref` do documento, que sao os `purl`. So entram arestas cujas duas
+    pontas sao componentes **deste** SBOM: um `dependsOn` que apontasse para
+    fora deixava uma referencia pendurada, e um `bom-ref` que nao resolve e pior
+    do que nao dizer nada. E o que acontece com o
+    `@msgpackr-extract/...-darwin-arm64`, que esta no lockfile e nao esta
+    instalado num runner Linux.
+    """
+    from . import pnpm_lock
+
+    _pastas, fecho = pastas_do_alvo(raiz, alvo)
+
+    ref_por_no: dict[str, str] = {}
+    pastas_pypi: dict[str, str] = {}
+    proprios_de_partida: set[str] = set()
+    importador = "." if alvo == "kamba" else alvo
+    for componente in componentes:
+        if componente.proprio:
+            pasta = _pasta_do_proprio(componente)
+            if componente.ecossistema == collect.NPM:
+                ref_por_no[f"{pnpm_lock.PREFIXO_WORKSPACE}{pasta}"] = componente.purl
+            else:
+                pastas_pypi[pasta] = componente.purl
+            if alvo == "kamba" or pasta == importador:
+                proprios_de_partida.add(componente.purl)
+        elif componente.ecossistema == collect.NPM:
+            ref_por_no[f"{componente.nome}@{componente.versao}"] = componente.purl
+
+    arestas: dict[str, set[str]] = {}
+    if fecho is not None:
+        for no, destinos in fecho.relacoes.items():
+            referencia = ref_por_no.get(no)
+            if referencia is None:
+                continue
+            arestas.setdefault(referencia, set()).update(
+                ref_por_no[destino] for destino in destinos if destino in ref_por_no
+            )
+
+    # O lado Python: a ligacao esta no `[project].dependencies`, nao no
+    # lockfile, e **conta-se inteira**. A primeira versao registava so as
+    # arestas entre pacotes nossos, e o `kamba-agr` saia com
+    # `dependsOn: [kamba-core]` quando o `pyproject.toml` declara tres —
+    # `starlette` e `uvicorn` estao no mesmo documento, com versao. Uma entrada
+    # **parcial** e pior do que nenhuma: com entrada, quem le conclui que o
+    # grafo e conhecido, e o grafo mente por omissao.
+    #
+    # Os terceiros `pypi` continuam sem entrada **propria** — nao ha grafo
+    # resolvido deste lado, so pins —, e isso e outra coisa: e nao afirmar o
+    # que nao se sabe. O que nao se pode e apagar uma aresta que o manifesto
+    # declara.
+    declaracoes = collect.declaracoes_python(raiz)
+    por_nome_pypi: dict[str, str] = {
+        collect.normalizar_pypi(c.nome): c.purl
+        for c in componentes
+        if c.ecossistema == collect.PYPI
+    }
+    for pasta, referencia in pastas_pypi.items():
+        destinos = {
+            por_nome_pypi[nome]
+            for nome in declaracoes.get(pasta, frozenset())
+            if nome in por_nome_pypi and por_nome_pypi[nome] != referencia
+        }
+        arestas.setdefault(referencia, set()).update(destinos)
+
+    if proprios_de_partida:
+        arestas[f"alvo:{alvo}"] = set(proprios_de_partida)
+    return arestas
+
+
 def gerar(raiz: Path, destino: Path) -> list[tuple[Path, int]]:
     """Gera um SBOM por alvo. Devolve (caminho, numero de componentes)."""
     todos = recolher(raiz)
@@ -302,7 +443,8 @@ def gerar(raiz: Path, destino: Path) -> list[tuple[Path, int]]:
     escritos: list[tuple[Path, int]] = []
     for nome, versao, _ in _alvos(raiz):
         componentes = componentes_do_alvo(raiz, nome, todos)
-        documento = cyclonedx.construir(nome, versao, componentes, ids_spdx)
+        relacoes = relacoes_do_alvo(raiz, nome, componentes)
+        documento = cyclonedx.construir(nome, versao, componentes, ids_spdx, relacoes)
         caminho = destino / f"{nome.replace('/', '__')}.cdx.json"
         cyclonedx.escrever(documento, caminho)
         escritos.append((caminho, len(componentes)))
