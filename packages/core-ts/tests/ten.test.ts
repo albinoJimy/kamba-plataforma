@@ -85,6 +85,7 @@ import {
   maisRestritivo,
   periodo,
   regimeDe,
+  sqlstateDe,
   tenantGate,
 } from "../src/ten/index.ts";
 import { ContextoEmFaltaError, TenantInvalidoError } from "../src/tenant_guard/index.ts";
