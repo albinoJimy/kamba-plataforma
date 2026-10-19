@@ -144,6 +144,32 @@ bordas — e sete deles só existem porque o GWY é o **único endpoint externo*
 plataforma, o que torna «o que um estranho consegue fazer com um pedido» a
 pergunta certa a fazer a este ficheiro e não a outro.
 
+### E um nono, que foi o *gate* 4 a apanhar
+
+A separação de portas do **A2** criou uma segunda app no `services/gwy/src/app.ts`
+— o `criarAppDeMetricas` — e eu deixei-a **sem `app.onError`**. Qualquer erro
+nela saía pelo tratador por omissão do Hono, isto é, `console.error(err)` com a
+mensagem e a pilha em claro no `stderr`: exactamente o que o `createApp` existe
+para fechar (KAM-068). O mesmo no `criarApp` do processo de entrada do
+`worker-canal`.
+
+**E o teste que devia apanhá-lo passava**, porque contava uma app e via um
+`onError`. O que ficou vermelho foi outra asserção do mesmo teste — a que exige
+o texto literal `createApp(log).fetch` no `server.ts`, e que uma mudança
+legítima (dar dependências ao `createApp`) quebrou por afirmar a **forma da
+chamada** em vez da propriedade. Duas correcções, portanto:
+
+- a asserção passa a exigir `createApp(log` — que a app é criada **com** o
+  logger é o que importa;
+- e acrescenta-se uma que **conta**: um `onError` por `new Hono(` em cada
+  `src/app.ts`. Antes da correcção eram duas apps e um tratador, e a asserção
+  nova fica vermelha — foi assim que se confirmou que ela morde.
+
+É o caso mais limpo de «a máquina apanha o que os olhos não apanham» deste
+ticket: a revisão adversarial leu o `app.ts` inteiro e não viu a app sem
+tratador, porque estava a olhar para o que o código **faz** e não para o que lhe
+**falta**.
+
 ### Três defeitos que só a suite de integração apanhou
 
 Nenhum deles era visível nos testes unitários de então, e os três tinham o
@@ -205,6 +231,7 @@ mesmo sintoma: **silêncio**.
 | Gate 3 (referências, *handoff*, contagens) | conforme — 15 578 referências em 970 ficheiros; 630 caminhos de *handoff*; 13 contagens vivas, 0 erradas |
 | Gate 3c (coerência do backlog) | conforme — 159 linhas no §4 e 159 blocos a dizer o mesmo |
 | Gate 2 (`log-lint`, `lint-arch`) | conforme — 0 achados em 78 ficheiros TS/JS e 34 Python |
+| Gate 4, segunda passagem | **apanhou um defeito real** — a app das métricas sem `onError`. Ver a secção acima |
 | Gate 9 (segredos) | **limpo** — 970 ficheiros |
 | Gate 7 (contratos de evento) | conforme — 76 contratos |
 | Gate 11 (SBOM, licenças, cadeia) | conforme — 143 componentes, 0 vulnerabilidades CRITICAL |
