@@ -26,7 +26,10 @@ from __future__ import annotations
 
 import unittest
 
-from tests_ten.base import ComUso
+import pg8000.dbapi
+
+from tests.base import sqlstate
+from tests_ten.base import CHAVE, SQL_PERIODO, ComUso
 
 #: Os dois instantes do criterio, a letra.
 FIM_DE_NOVEMBRO = "2026-11-30T23:59:59+01:00"
@@ -45,21 +48,33 @@ FUSOS_DA_SESSAO = ("UTC", "Africa/Luanda", "Pacific/Kiritimati")
 
 
 class TestPeriodo(ComUso):
-    """`platform.ten_periodo`, sozinha, antes de a usar para consumir."""
+    """`platform.ten_periodo`, sozinha, antes de a usar para consumir.
+
+    **E pelo `SQL_PERIODO` da biblioteca**, e nao por um `SELECT` escrito
+    aqui. Era escrito aqui, e a revisao adversarial mostrou o que isso
+    escondia: o `SQL_PERIODO` nao tinha `coalesce`, pelo que `periodo()` sem
+    instante devolvia `NULL` — `None` em silencio do lado Python, excepcao do
+    lado TypeScript. O texto que a biblioteca envia passa a ser o texto que o
+    gate 8 corre contra uma base.
+    """
 
     def setUp(self) -> None:
         super().setUp()
         self.cursor = self.ligar("app").cursor()
 
-    def periodo(self, instante: str) -> str:
-        self.cursor.execute(
-            "SELECT platform.ten_periodo(%s::timestamptz)::text", (instante,)
-        )
+    def periodo(self, instante: str | None) -> str:
+        self.cursor.execute(SQL_PERIODO, (instante,))
         return str(self.cursor.fetchone()[0])
 
     def test_os_dois_instantes_do_criterio(self) -> None:
         self.assertEqual(self.periodo(FIM_DE_NOVEMBRO), "2026-11-01")
         self.assertEqual(self.periodo(INICIO_DE_DEZEMBRO), "2026-12-01")
+
+    def test_sem_instante_o_periodo_e_o_corrente_e_nao_nulo(self) -> None:
+        """O defeito do `SQL_PERIODO` sem `coalesce`, medido contra a base."""
+        self.cursor.execute("SELECT platform.ten_periodo()::text")
+        corrente = str(self.cursor.fetchone()[0])
+        self.assertEqual(self.periodo(None), corrente)
 
     def test_as_duas_escritas_da_viragem_sao_o_mesmo_instante(self) -> None:
         """Sem isto, o teste seguinte podia estar a comparar duas coisas."""
@@ -109,10 +124,12 @@ class TestConsumoNaFronteira(ComUso):
         tenant = self.tenant_com_limite(100)
 
         antes = self.consumir(
-            tenant, quantidade=7, idempotency_key="nov", agora=FIM_DE_NOVEMBRO
+            tenant, quantidade=7, idempotency_key="nov", agora=FIM_DE_NOVEMBRO,
+            papel="batch",
         )
         depois = self.consumir(
-            tenant, quantidade=3, idempotency_key="dez", agora=INICIO_DE_DEZEMBRO
+            tenant, quantidade=3, idempotency_key="dez", agora=INICIO_DE_DEZEMBRO,
+            papel="batch",
         )
         self.assertEqual((antes.aceite, int(antes.valor)), (True, 7))
         self.assertEqual(
@@ -124,7 +141,8 @@ class TestConsumoNaFronteira(ComUso):
             self.periodos(tenant), [("2026-11-01", 7), ("2026-12-01", 3)]
         )
         self.assertEqual(
-            self.livro(tenant), [("dez", "2026-12-01", 3), ("nov", "2026-11-01", 7)]
+            self.livro(tenant),
+            [("dez", CHAVE, "2026-12-01", 3), ("nov", CHAVE, "2026-11-01", 7)],
         )
 
     def test_o_tecto_e_por_periodo_e_nao_acumulado(self) -> None:
@@ -132,11 +150,13 @@ class TestConsumoNaFronteira(ComUso):
         tenant = self.tenant_com_limite(10)
         self.assertTrue(
             self.consumir(
-                tenant, quantidade=10, idempotency_key="n", agora=FIM_DE_NOVEMBRO
+                tenant, quantidade=10, idempotency_key="n", agora=FIM_DE_NOVEMBRO,
+                papel="batch",
             ).aceite
         )
         de_dezembro = self.consumir(
-            tenant, quantidade=10, idempotency_key="d", agora=INICIO_DE_DEZEMBRO
+            tenant, quantidade=10, idempotency_key="d", agora=INICIO_DE_DEZEMBRO,
+            papel="batch",
         )
         self.assertTrue(de_dezembro.aceite)
         self.assertEqual(int(de_dezembro.valor), 10)
@@ -145,11 +165,90 @@ class TestConsumoNaFronteira(ComUso):
         """O instante que em UTC ainda e Novembro. Com o fuso da sessao em UTC."""
         tenant = self.tenant_com_limite(100)
         consumo = self.consumir(
-            tenant, quantidade=4, idempotency_key="v", agora=VIRAGEM_EM_UTC, fuso="UTC"
+            tenant, quantidade=4, idempotency_key="v", agora=VIRAGEM_EM_UTC,
+            fuso="UTC", papel="batch",
         )
         self.assertTrue(consumo.aceite)
         self.assertEqual(self.periodos(tenant), [("2026-12-01", 4)])
-        self.assertEqual(self.livro(tenant), [("v", "2026-12-01", 4)])
+        self.assertEqual(self.livro(tenant), [("v", CHAVE, "2026-12-01", 4)])
+
+
+class TestORelogioSoSeFixaDeRetaguarda(ComUso):
+    """O `p_agora` nas maos de quem corre como a aplicacao (revisao adversarial).
+
+    O `p_agora` existe para a fronteira de mes se poder provar e para a
+    reconciliacao poder reprocessar um periodo fechado. Nao e alcancavel pelo
+    cliente — as bibliotecas passam `coalesce($6, now())` — mas `kamba_app`
+    tem `EXECUTE` na assinatura de seis argumentos, e isso chegava: medido
+    pelo revisor, `p_agora = '2020-01-15'` com o mes corrente esgotado
+    devolvia `[True, 10, False, 10]` e abria uma linha em `2020-01-01`.
+
+    Um balde novo por cada mes do calendario nao e um limite mensal. A guarda
+    e por papel e nao por janela de tempo: qualquer janela deixava passar os
+    outros onze meses, e so o papel distingue «a aplicacao a consumir» de «a
+    retaguarda a reprocessar».
+    """
+
+    #: Um mes que nao e o corrente, aconteca este teste em que dia acontecer.
+    PASSADO = "2020-01-15T12:00:00+01:00"
+    FUTURO = "2099-06-15T12:00:00+01:00"
+
+    def test_a_aplicacao_e_recusada_num_periodo_que_nao_e_o_corrente(self) -> None:
+        tenant = self.tenant_com_limite(10)
+        for instante in (self.PASSADO, self.FUTURO):
+            with self.subTest(instante=instante):
+                erro = self.assertConsumoLevanta(
+                    "22023",
+                    tenant,
+                    quantidade=1,
+                    idempotency_key=f"fora-{instante}",
+                    agora=instante,
+                )
+                self.assertIn("so o kamba_batch fixa o relogio", str(erro))
+        self.assertEqual(self.periodos(tenant), [], "ficou linha de outro periodo")
+        self.assertEqual(self.livro(tenant), [])
+
+    def test_a_aplicacao_consome_no_periodo_corrente(self) -> None:
+        """O controlo positivo: a guarda nao pode fechar o caminho normal.
+
+        Passa-se o `agora` **explicito** e igual ao instante corrente, que e o
+        caso em que a guarda e exercitada e tem de deixar passar.
+        """
+        tenant = self.tenant_com_limite(10)
+        consumo = self.consumir(
+            tenant, quantidade=1, idempotency_key="agora", agora="now"
+        )
+        self.assertTrue(consumo.aceite)
+
+    def test_a_retaguarda_fixa_o_relogio(self) -> None:
+        tenant = self.tenant_com_limite(10)
+        consumo = self.consumir(
+            tenant, quantidade=1, idempotency_key="passado",
+            agora=self.PASSADO, papel="batch",
+        )
+        self.assertTrue(consumo.aceite)
+        self.assertEqual(self.periodos(tenant), [("2020-01-01", 1)])
+
+    def test_um_p_agora_nulo_levanta_em_vez_de_escrever_um_periodo_nulo(self) -> None:
+        """`coalesce($6, now())` protege as bibliotecas; quem chama a mao, nao.
+
+        Sem esta guarda o `NULL` chegava ao `date_trunc`, o periodo saia nulo
+        e a insercao morria num `NOT NULL` que nao diz nada a quem le o erro.
+        """
+        tenant = self.tenant_com_limite(10)
+        cursor = self.cursor_app(tenant)
+        cursor.execute("SAVEPOINT caso_negativo")
+        try:
+            with self.assertRaises(pg8000.dbapi.DatabaseError) as capturado:
+                cursor.execute(
+                    "SELECT aceite FROM platform.ten_consumir("
+                    "  %s::uuid, %s, 1::bigint, 'nulo', NULL::bigint, NULL::timestamptz)",
+                    (tenant, CHAVE),
+                )
+        finally:
+            cursor.execute("ROLLBACK TO SAVEPOINT caso_negativo")
+        self.assertEqual(sqlstate(capturado.exception), "22023")
+        self.assertIn("p_agora nulo", str(capturado.exception))
 
 
 if __name__ == "__main__":

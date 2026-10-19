@@ -327,10 +327,18 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     # Desde a revisao 0007 (KAM-009) `kamba_app` **nao altera** entitlements:
     # a revisao revogou-lhe o `UPDATE (limites, ativo)`, porque com a politica
     # `id = app.tenant_id` a linha que um contexto de tenant ve e a dele, e
-    # subir os proprios limites era subir o tecto de dinheiro por pedido. Por
-    # isso `coluna_alteravel=None`: o que se prova nesta tabela passou a ser
-    # que o privilegio **nem existe** — mais forte do que a politica recusar.
-    ("platform", "entitlements"): Receita(_entitlement, "modulo", None, None),
+    # subir os proprios limites era subir o tecto de dinheiro por pedido.
+    #
+    # **E depois da revisao adversarial nem insere**: o `INSERT` da `0001`
+    # ficara de pe, e com `WITH CHECK (tenant_id = app.tenant_id)` um tenant
+    # criava a propria linha com o tecto que quisesse — a mesma escalada por
+    # outro verbo. Por isso `coluna_alteravel=None` **e**
+    # `escrita_do_papel=False`: o que se prova nesta tabela passou a ser que
+    # os privilegios nem existem, que e mais forte do que a politica recusar
+    # — nao depende de a politica estar certa. Quem escreve e o `kamba_batch`.
+    ("platform", "entitlements"): Receita(
+        _entitlement, "modulo", None, None, escrita_do_papel=False
+    ),
     ("platform", "contacts"): _identidade(
         _contacto, "phone_hmac", "hmac_kid", KID_DE_SEMENTE, _resumo
     ),

@@ -16,7 +16,13 @@ from __future__ import annotations
 import bootstrap
 import ligacao
 from tests import factories
-from tests.base import PRIVILEGIO_INSUFICIENTE, TABELAS, TABELAS_0001, ComBase
+from tests.base import (
+    PRIVILEGIO_INSUFICIENTE,
+    TABELAS,
+    TABELAS_0001,
+    VIOLACAO_DE_CHECK,
+    ComBase,
+)
 
 PRIVILEGIOS_DE_TABELA = (
     "SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER",
@@ -63,11 +69,26 @@ def _identidade(*privilegios: str) -> dict[str, set[str]]:
     }
 
 
+#: `entitlements` deixou de ser igual as outras duas da `0001` com o KAM-009.
+#:
+#: A revisao `0007` revoga a `kamba_app` o `INSERT` **e** o `UPDATE`, e o
+#: `INSERT` foi um critico da revisao adversarial: a primeira versao revogava
+#: so o `UPDATE`, e com `WITH CHECK (tenant_id = app.tenant_id)` um tenant
+#: **inseria a propria linha** com o tecto que quisesse. Nao e preciso subir o
+#: proprio tecto se se pode criar um — e a regra do minimo entre modulos nao
+#: protege nada quando a linha nova e a unica que declara a chave.
+#:
+#: A aplicacao **le** entitlements (o `checkEntitlement` do criterio 2) e
+#: consome contra eles pela `ten_consumir`. Escrever e de retaguarda: KAM-091
+#: provisiona, KAM-059 cobra.
+_ESPERADO_ENTITLEMENTS = dict(_ESPERADO_0001, kamba_app={"SELECT"})
+
 #: tabela -> papel -> privilegios de tabela. Cobre **todas** as tabelas de
 #: `platform`: uma tabela nova sem linha aqui falha `test_a_matriz_cobre_...`.
 ESPERADO_POR_TABELA = {tabela: _ESPERADO_0001 for tabela in TABELAS_0001}
 ESPERADO_POR_TABELA.update(
     {
+        "entitlements": _ESPERADO_ENTITLEMENTS,
         "contacts": _identidade("SELECT", "INSERT"),
         "contact_deks": _identidade("SELECT", "INSERT"),
         # O unico `DELETE` fora do `kamba_batch`: o apagamento a pedido do
@@ -371,15 +392,23 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
 #: pedido (ADR-013, ADR-015).
 #:
 #: Estava «por decidir» desde a emenda 1.4 do dicionario e ficou decidido na
-#: 1.17. O `estado` e o `verificado_at` de `tenants` **continuam alteraveis**,
-#: e isso tambem e decisao: retira-los sem o fluxo de onboarding escrito seria
-#: decidir o KAM-091 de fora dele. Voltaram ao §4 do dicionario com dono.
+#: 1.17.
+#:
+#: **O `estado` juntou-se-lhes na revisao adversarial, e nao por simetria.** A
+#: primeira versao deixou-o alteravel, escrevendo que retira-lo seria decidir
+#: o KAM-091 de fora dele. A revisao mediu a consequencia que essa razao nao
+#: dizia: `UPDATE platform.tenants SET estado = 'ativo'` com o proprio
+#: contexto passa, e o consumo seguinte e aceite. O criterio 2 manda negar um
+#: tenant `onboarding`, `suspenso` ou `encerrado` — e o sujeito da condicao
+#: nao pode ser quem a retira. O `verificado_at` fica alteravel: nao e entrada
+#: de decisao nenhuma, e volta ao §4 com dono.
 IMUTAVEIS_PARA_A_APP = {
     "tenants": {
         "id",         # identidade
         "tipo",       # costura do Fluxo B: `platform` -> `pme` tirava-o da vista da guarda
         "criado_at",  # registo
         "plano",      # KAM-009: o plano manda nos entitlements; quem o altera e o batch
+        "estado",     # KAM-009: e a condicao do criterio 2; o sujeito nao a retira
     },
     "tenant_channels": {
         "id",         # identidade
@@ -587,13 +616,38 @@ class TestOQueAAppNaoConsegue(ComBase):
 
     def setUp(self) -> None:
         super().setUp()
+        # **As sementes deixaram de ir pela ligacao da aplicacao.** Desde a
+        # revisao adversarial do KAM-009 ela nao tem `INSERT` em
+        # `entitlements`, e semear com ela era semear com o privilegio que
+        # esta classe existe para provar que nao existe. Vao por uma ligacao
+        # de administrador em `autocommit`, e apagam-se no fim.
+        self._semente = ligacao.ligar("admin")
+        self._semente.autocommit = True
+        semente = self._semente.cursor()
+        self.tenant = factories.tenant(semente)
+        self.canal = factories.canal(semente, self.tenant)
+        factories.entitlement(semente, self.tenant, limites={"msgs_ai_mes": 10})
+        self.addCleanup(self._apagar_a_semente)
+
         self.conexao = self.ligar("app")
         self.cursor = self.conexao.cursor()
-        self.tenant = factories.tenant(self.cursor)
-        self.canal = factories.canal(self.cursor, self.tenant)
-        factories.entitlement(
-            self.cursor, self.tenant, limites={"msgs_ai_mes": 10}
-        )
+        # O contexto vinha da fabrica, que agora corre noutra ligacao.
+        factories.contexto(self.cursor, self.tenant)
+
+    def _apagar_a_semente(self) -> None:
+        cursor = self._semente.cursor()
+        try:
+            for tabela in (
+                "usage_ledger", "tenant_usage", "entitlements", "tenant_channels"
+            ):
+                cursor.execute(
+                    f"DELETE FROM platform.{tabela} WHERE tenant_id = %s", (self.tenant,)
+                )
+            cursor.execute(
+                "DELETE FROM platform.tenants WHERE id = %s", (self.tenant,)
+            )
+        finally:
+            self._semente.close()
 
     def test_nao_apaga_linhas_de_tabela_nenhuma(self) -> None:
         """Dicionario §2: «soft delete: estado, nunca DELETE». Nas sete tabelas."""
@@ -637,9 +691,12 @@ class TestOQueAAppNaoConsegue(ComBase):
 
     def test_continua_a_poder_o_que_deve(self) -> None:
         """A correccao nao pode ter tirado a aplicacao o que ela precisa."""
+        # O `estado` **saiu** desta lista com a revisao adversarial: a
+        # aplicacao continua a alterar o nome e o resto do perfil, e quem
+        # mexe no estado do tenant e o `kamba_batch` (ver
+        # `test_nao_consegue_retirar_a_condicao_do_criterio_2`).
         self.cursor.execute(
-            "UPDATE platform.tenants SET estado = 'ativo', nome = 'Outro nome' "
-            "WHERE id = %s",
+            "UPDATE platform.tenants SET nome = 'Outro nome' WHERE id = %s",
             (self.tenant,),
         )
         self.cursor.execute(
@@ -672,6 +729,15 @@ class TestOQueAAppNaoConsegue(ComBase):
         que acontece quando a aplicacao **tenta**, com o seu proprio contexto
         de tenant, que e o caso real — a politica de `tenants` e por
         `id = app.tenant_id`, pelo que a linha que ela ve e a dela.
+
+        **O `INSERT` estava em falta, e era um critico.** Esta lista tinha
+        tres `UPDATE`s e nenhum `INSERT`, e a revisao adversarial mediu a
+        porta que isso deixava aberta: com `WITH CHECK (tenant_id =
+        app.tenant_id)`, um tenant **insere a propria linha** de
+        `entitlements` com o tecto que quiser, e um pedido de 500 000 000 que
+        era negado passa a ser aceite. Nao e preciso subir o proprio tecto se
+        se pode criar um. Um teste que so sabe nomear um verbo prova um
+        verbo.
         """
         for instrucao, argumentos in (
             ("UPDATE platform.tenants SET plano = 'ilimitado' WHERE id = %s",
@@ -680,11 +746,67 @@ class TestOQueAAppNaoConsegue(ComBase):
              "WHERE tenant_id = %s", (self.tenant,)),
             ("UPDATE platform.entitlements SET ativo = false WHERE tenant_id = %s",
              (self.tenant,)),
+            # O critico: criar um entitlement em vez de alterar o que ha.
+            ("INSERT INTO platform.entitlements (tenant_id, modulo, limites, ativo) "
+             "VALUES (%s, 'auto', '{\"valor_max_pedido_minor\": 900000000000}'::jsonb, true)",
+             (self.tenant,)),
+            # E a variante que nem precisa de nomear um modulo novo: declarar
+            # uma chave que nenhum modulo activo declarava, onde o minimo de
+            # um conjunto de um elemento e esse elemento.
+            ("INSERT INTO platform.entitlements (tenant_id, modulo, limites) "
+             "VALUES (%s, 'catalogo', '{\"msgs_ai_mes\": 999999}'::jsonb)",
+             (self.tenant,)),
         ):
-            with self.subTest(instrucao=instrucao.split(" SET ")[0]):
+            with self.subTest(instrucao=instrucao.split(" SET ")[0][:48]):
                 self.assertErroSql(
                     PRIVILEGIO_INSUFICIENTE, self.cursor, instrucao, argumentos
                 )
+
+    def test_nao_consegue_retirar_a_condicao_do_criterio_2(self) -> None:
+        """Um tenant `suspenso` nao se reactiva a si proprio.
+
+        O criterio 2 manda negar `onboarding`, `suspenso` e `encerrado`. A
+        revisao adversarial mediu que a aplicacao fazia
+        `UPDATE platform.tenants SET estado = 'ativo'` com o proprio
+        contexto e o consumo seguinte era aceite: o sujeito da condicao
+        retirava a condicao. O `UPDATE (estado)` saiu da lista da `0007`.
+        """
+        for estado in ("ativo", "onboarding", "encerrado"):
+            with self.subTest(estado=estado):
+                self.assertErroSql(
+                    PRIVILEGIO_INSUFICIENTE,
+                    self.cursor,
+                    "UPDATE platform.tenants SET estado = %s WHERE id = %s",
+                    (estado, self.tenant),
+                )
+
+    def test_nao_consegue_zerar_o_proprio_contador(self) -> None:
+        """O terceiro critico: `UPDATE (valor)` nao diz em que direccao.
+
+        A aplicacao precisa de `UPDATE (valor, actualizado_at)` para o
+        `ON CONFLICT DO UPDATE` da `ten_consumir`; o privilegio nao sabe
+        exprimir «so sobe», e o trigger `tenant_usage_so_sobe` sabe. Sem ele,
+        medido: consumir dez contra um tecto de dez, pôr o contador a zero, e
+        consumir outros dez.
+        """
+        self.cursor.execute(
+            "SELECT aceite FROM platform.ten_consumir(%s, 'msgs_ai_mes', 10, %s)",
+            (self.tenant, f"zerar-{self.tenant}"),
+        )
+        self.assertTrue(self.cursor.fetchone()[0])
+        for instrucao in (
+            "UPDATE platform.tenant_usage SET valor = 0",
+            "UPDATE platform.tenant_usage SET valor = valor - 1",
+        ):
+            with self.subTest(instrucao=instrucao):
+                self.assertErroSql(VIOLACAO_DE_CHECK, self.cursor, instrucao)
+        # E o caminho legitimo continua aberto: subir.
+        self.cursor.execute("UPDATE platform.tenant_usage SET valor = valor")
+        self.cursor.execute(
+            "SELECT valor FROM platform.tenant_usage WHERE tenant_id = %s",
+            (self.tenant,),
+        )
+        self.assertEqual(self.cursor.fetchone()[0], 10)
 
 
 class TestOBatch(ComBase):

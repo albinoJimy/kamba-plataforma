@@ -41,7 +41,8 @@ from __future__ import annotations
 
 import unittest
 
-from tests_ten.base import ComUso
+from tests.base import VIOLACAO_DE_CHECK
+from tests_ten.base import CHAVE, CHAVE_DE_DINHEIRO, ComUso
 
 #: Os dois instantes servem para provar o desfazer no caminho em que a conta
 #: ja esta cheia: o periodo seguinte e a unica forma de abrir espaco sem
@@ -81,15 +82,9 @@ class TestRepeticao(ComUso):
                 self.assertEqual(int(repetida.valor), 1)
 
         self.assertEqual(self.uso(tenant), 1)
-        self.assertEqual(self.livro(tenant), [("k", self.periodos(tenant)[0][0], 1)])
-
-    def test_a_quantidade_da_repeticao_e_ignorada(self) -> None:
-        """A chave e a identidade do pedido; o que vem com ela nao a altera."""
-        tenant = self.tenant_com_limite(100)
-        self.consumir(tenant, quantidade=3, idempotency_key="k")
-        repetida = self.consumir(tenant, quantidade=50, idempotency_key="k")
-        self.assertTrue(repetida.repetido)
-        self.assertEqual(self.uso(tenant), 3)
+        self.assertEqual(
+            self.livro(tenant), [("k", CHAVE, self.periodos(tenant)[0][0], 1)]
+        )
 
     def test_dois_tenants_podem_usar_a_mesma_chave(self) -> None:
         """A chave e por tenant: quem a escolhe e quem chama, e nao se coordena."""
@@ -101,6 +96,114 @@ class TestRepeticao(ComUso):
                     self.consumir(tenant, quantidade=1, idempotency_key="k").aceite
                 )
         self.assertEqual((self.uso(a), self.uso(b)), (1, 1))
+
+
+class TestAChaveIdentificaUmPedido(ComUso):
+    """C1: a chave de idempotencia estava solta do pedido que identifica.
+
+    A sequencia que a revisao adversarial mediu, contra uma base real:
+
+        msgs_ai_mes n=1, chave=IDK                     -> [True, 1, False, 10]
+        +5 identicas                                   -> [True, 1, True,  10]
+        valor_max_pedido_minor n=99 999 999, chave=IDK -> [True, 0, True,  5000000]
+        contador: msgs_ai_mes = 1
+
+    Seis consumos autorizados, **um contado** — e um pedido de 999 999,99 Kz
+    contra um tecto de 50 000 Kz **aceite**, so por reutilizar a chave de um
+    consumo anterior de outra chave de limite. Um cliente que mande um
+    `Idempotency-Key` constante tornava todos os limites ilimitados, e o
+    criterio 3 ficava vacuo.
+
+    Duas correccoes, e sao as duas necessarias:
+
+    * a chave primaria do livro ganhou a `chave_limite`, pelo que a mesma
+      chave em duas chaves de limite sao dois pedidos;
+    * uma repeticao com **outra quantidade** levanta `KA002`. Sem isso,
+      repetir a chave de um consumo de 1 com `n = 99 999 999` continuava a
+      devolver «repetido», e quem chama le «repetido» como «podes».
+
+    Havia aqui um teste — `test_a_quantidade_da_repeticao_e_ignorada` — que
+    **documentava o defeito**: afirmava `repetido` e `uso`, nunca afirmava
+    `aceite`, e escrevia na docstring que «a chave e a identidade do pedido»
+    quando a chave e escolhida por quem chama. Foi substituido por estes.
+    """
+
+    def test_a_mesma_chave_em_duas_chaves_de_limite_sao_dois_pedidos(self) -> None:
+        tenant = self.criar_tenant()
+        self.dar_entitlement(tenant, {CHAVE: 10, CHAVE_DE_DINHEIRO: 5_000_000})
+
+        mensagens = self.consumir(
+            tenant, chave=CHAVE, quantidade=1, idempotency_key="IDK"
+        )
+        self.assertEqual(
+            (mensagens.aceite, int(mensagens.valor), mensagens.repetido),
+            (True, 1, False),
+        )
+
+        dinheiro = self.consumir(
+            tenant, chave=CHAVE_DE_DINHEIRO, quantidade=99_999_999,
+            idempotency_key="IDK",
+        )
+        self.assertFalse(
+            dinheiro.aceite,
+            "a chave de msgs_ai_mes autorizou um pedido contra o tecto de dinheiro",
+        )
+        self.assertFalse(dinheiro.repetido, "foi lido como repeticao de outro pedido")
+        self.assertEqual(int(dinheiro.limite), 5_000_000)
+
+        # E o que cabe no outro tecto, com a mesma chave, consome de verdade.
+        pequeno = self.consumir(
+            tenant, chave=CHAVE_DE_DINHEIRO, quantidade=1_000, idempotency_key="IDK"
+        )
+        self.assertTrue(pequeno.aceite)
+        self.assertEqual(int(pequeno.valor), 1_000)
+        periodo = self.periodos(tenant)[0][0]
+        self.assertEqual(
+            self.livro(tenant),
+            [("IDK", CHAVE, periodo, 1), ("IDK", CHAVE_DE_DINHEIRO, periodo, 1_000)],
+        )
+
+    def test_repetir_a_chave_com_outra_quantidade_levanta(self) -> None:
+        """`KA002`: nao e uma recusa de limite, e um conflito no pedido.
+
+        Devolver «repetido» aqui era dizer a quem chama que os 99 999 999
+        estavam autorizados por um consumo de 1 que ja tinha acontecido.
+        """
+        tenant = self.tenant_com_limite(100)
+        self.assertTrue(self.consumir(tenant, quantidade=1, idempotency_key="k").aceite)
+
+        erro = self.assertConsumoLevanta(
+            "KA002", tenant, quantidade=99_999_999, idempotency_key="k"
+        )
+        self.assertIn("ja foi usada", str(erro))
+        self.assertEqual(self.uso(tenant), 1)
+        self.assertEqual(
+            self.livro(tenant), [("k", CHAVE, self.periodos(tenant)[0][0], 1)]
+        )
+
+        # Uma quantidade **menor** tambem e outro pedido: nao se arredonda
+        # para baixo em silencio.
+        self.assertConsumoLevanta("KA002", tenant, quantidade=2, idempotency_key="k")
+
+    def test_a_repeticao_com_a_mesma_quantidade_continua_a_ser_repeticao(self) -> None:
+        """O controlo positivo: a correccao nao pode partir o criterio 4."""
+        tenant = self.tenant_com_limite(100)
+        self.consumir(tenant, quantidade=7, idempotency_key="k")
+        repetida = self.consumir(tenant, quantidade=7, idempotency_key="k")
+        self.assertTrue(repetida.repetido)
+        self.assertTrue(repetida.aceite)
+        self.assertEqual(self.uso(tenant), 7)
+
+    def test_uma_chave_vazia_ou_nula_levanta_com_o_nome_do_argumento(self) -> None:
+        """A coluna ja recusava; recusava **dentro** do bloco e sem dizer qual."""
+        tenant = self.tenant_com_limite(100)
+        for chave_idem in ("", "   ", "\t", None):
+            with self.subTest(idempotency_key=chave_idem):
+                erro = self.assertConsumoLevanta(
+                    VIOLACAO_DE_CHECK, tenant, quantidade=1, idempotency_key=chave_idem
+                )
+                self.assertIn("p_idempotency_key", str(erro))
+        self.assertEqual(self.livro(tenant), [])
 
 
 class TestNegarNaoGastaAChave(ComUso):
@@ -139,12 +242,13 @@ class TestNegarNaoGastaAChave(ComUso):
         tenant = self.tenant_com_limite(10)
         self.assertTrue(
             self.consumir(
-                tenant, quantidade=10, idempotency_key="cheia", agora=NOVEMBRO
+                tenant, quantidade=10, idempotency_key="cheia", agora=NOVEMBRO,
+                papel="batch",
             ).aceite
         )
 
         negada = self.consumir(
-            tenant, quantidade=1, idempotency_key="k", agora=NOVEMBRO
+            tenant, quantidade=1, idempotency_key="k", agora=NOVEMBRO, papel="batch"
         )
         self.assertFalse(negada.aceite)
         self.assertFalse(negada.repetido)
@@ -152,7 +256,7 @@ class TestNegarNaoGastaAChave(ComUso):
         self.assertFalse(self.no_livro(tenant, "k"))
 
         segunda = self.consumir(
-            tenant, quantidade=1, idempotency_key="k", agora=DEZEMBRO
+            tenant, quantidade=1, idempotency_key="k", agora=DEZEMBRO, papel="batch"
         )
         self.assertTrue(segunda.aceite, "a chave ficou no livro de uma recusa")
         self.assertEqual(
@@ -160,7 +264,7 @@ class TestNegarNaoGastaAChave(ComUso):
         )
         self.assertEqual(
             self.livro(tenant),
-            [("cheia", "2026-11-01", 10), ("k", "2026-12-01", 1)],
+            [("cheia", CHAVE, "2026-11-01", 10), ("k", CHAVE, "2026-12-01", 1)],
         )
 
     def test_repetir_uma_chave_gasta_com_a_conta_cheia_diz_repetido(self) -> None:
@@ -194,7 +298,9 @@ class TestNegarNaoGastaAChave(ComUso):
         )
         self.assertEqual(int(repetida.valor), 10)
         self.assertEqual(self.uso(tenant), 10)
-        self.assertEqual(self.livro(tenant), [("k", self.periodos(tenant)[0][0], 10)])
+        self.assertEqual(
+            self.livro(tenant), [("k", CHAVE, self.periodos(tenant)[0][0], 10)]
+        )
 
 
 if __name__ == "__main__":

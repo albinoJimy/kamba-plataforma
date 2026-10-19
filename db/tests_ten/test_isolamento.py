@@ -133,7 +133,13 @@ class TestSecurityInvoker(ComUso):
                 " WHERE n.nspname = 'platform' AND p.proname LIKE 'ten!_%' ESCAPE '!' "
                 " ORDER BY 1"
             ),
-            [("ten_consumir", False), ("ten_periodo", False)],
+            # A terceira e a do trigger `tenant_usage_so_sobe`, que entrou com
+            # a revisao adversarial. Tambem `INVOKER`, e pela mesma razao do
+            # `audit_log_imutavel` da `0006`: recusar nao precisa de
+            # privilegio nenhum, e um `DEFINER` aqui era mais superficie por
+            # nada.
+            [("ten_consumir", False), ("ten_periodo", False),
+             ("ten_tecto", False), ("ten_usage_so_sobe", False)],
         )
 
 

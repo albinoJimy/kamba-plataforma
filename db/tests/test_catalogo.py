@@ -239,10 +239,17 @@ class TestConvencoes(ComBase):
                 # que **recusa** a segunda chamada com a mesma chave de
                 # idempotencia. Um `id` gerado ao lado delas seria uma chave
                 # que nao impede nada.
+                #
+                # A `chave_limite` entrou na chave do `usage_ledger` com a
+                # revisao adversarial: sem ela, uma chave de idempotencia
+                # valia para **todas** as chaves de limite do tenant, e
+                # repetir a chave de um consumo de uma mensagem autorizava um
+                # pedido contra o tecto de dinheiro.
                 ("tenant_usage", "chave_limite", "text", None),
                 ("tenant_usage", "periodo", "date", None),
                 ("tenant_usage", "tenant_id", "uuid", None),
                 ("tenants", "id", "uuid", "gen_random_uuid()"),
+                ("usage_ledger", "chave_limite", "text", None),
                 ("usage_ledger", "idempotency_key", "text", None),
                 ("usage_ledger", "tenant_id", "uuid", None),
             ],
@@ -446,21 +453,44 @@ class TestPapeis(ComBase):
             "CREATE TABLE platform.nao_devia_existir (x integer)",
         )
 
-    def test_app_e_batch_leem_e_escrevem_as_tres_tabelas(self) -> None:
+    def test_app_e_batch_leem_e_escrevem_o_que_lhes_cabe(self) -> None:
+        """E o que lhes cabe deixou de ser o mesmo nas tres tabelas (KAM-009).
+
+        A revisao `0007` tirou a `kamba_app` o `INSERT` em `entitlements` e o
+        `UPDATE` sobre `tenants.estado`: escrever entitlements e mexer no
+        estado do tenant sao de retaguarda, e a revisao adversarial mostrou o
+        que acontecia enquanto nao eram — um tenant criava o proprio tecto e
+        reactivava-se a si proprio. O que esta aqui passou a ser o que cada
+        papel ainda **faz**; o que nenhum deles faz esta em
+        `tests/test_privilegios.py` e em `tests_ten/test_escalada.py`.
+        """
         for identidade in ("app", "batch"):
             with self.subTest(identidade=identidade):
                 cursor = self.ligar(identidade).cursor()
                 tenant = factories.tenant(cursor)
                 factories.canal(cursor, tenant)
-                factories.entitlement(cursor, tenant)
                 cursor.execute(
-                    "UPDATE platform.tenants SET estado = 'ativo' WHERE id = %s", (tenant,)
+                    "UPDATE platform.tenants SET nome = 'Outro nome' WHERE id = %s",
+                    (tenant,),
                 )
                 cursor.execute(
                     "SELECT count(*) FROM platform.tenant_channels WHERE tenant_id = %s",
                     (tenant,),
                 )
                 self.assertEqual(cursor.fetchone()[0], 1)
+
+    def test_so_o_batch_escreve_entitlements(self) -> None:
+        """A outra metade do teste acima, desde o KAM-009."""
+        cursor = self.ligar("batch").cursor()
+        tenant = factories.tenant(cursor)
+        factories.entitlement(cursor, tenant, limites={"msgs_ai_mes": 10})
+        cursor.execute(
+            "UPDATE platform.tenants SET estado = 'ativo' WHERE id = %s", (tenant,)
+        )
+        cursor.execute(
+            "SELECT count(*) FROM platform.entitlements WHERE tenant_id = %s", (tenant,)
+        )
+        self.assertEqual(cursor.fetchone()[0], 1)
 
     def test_o_migrator_nao_e_dono_de_nada_fora_do_que_criou(self) -> None:
         linhas = self.consultar(

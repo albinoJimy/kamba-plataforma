@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.17"
+versao_dicionario: "1.18"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -455,18 +455,23 @@ entradas:
       - "tenants"
       - "id"
       - "app.tenant_id"
+      - "INSERT"
+      - "tenants.estado"
+      - "WITH"
+      - "CHECK"
+      - "tenant_id"
       - "estado"
       - "verificado_at"
     variantes_literais:
       - "kamba_batch"
   - seccao: "3.2"
     conceito: "Uso de entitlement (tabelas)"
-    canonico: "tenant_usage(tenant_id, chave_limite, periodo, valor, actualizado_at), chave (tenant_id, chave_limite, periodo); usage_ledger(tenant_id, idempotency_key, chave_limite, periodo, quantidade, criado_at), chave (tenant_id, idempotency_key)"
+    canonico: "tenant_usage(tenant_id, chave_limite, periodo, valor, actualizado_at), chave (tenant_id, chave_limite, periodo); usage_ledger(tenant_id, idempotency_key, chave_limite, periodo, quantidade, criado_at), chave (tenant_id, chave_limite, idempotency_key)"
     literais:
       - "tenant_usage(tenant_id, chave_limite, periodo, valor, actualizado_at)"
       - "(tenant_id, chave_limite, periodo)"
       - "usage_ledger(tenant_id, idempotency_key, chave_limite, periodo, quantidade, criado_at)"
-      - "(tenant_id, idempotency_key)"
+      - "(tenant_id, chave_limite, idempotency_key)"
     nomes:
       - "tenant_usage"
       - "tenant_id"

@@ -187,6 +187,120 @@ class TestQuantidadeInvalida(ComUso):
         self.assertEqual(self.livro(tenant), [])
 
 
+class TestUmTectoQueNaoSeSabeLer(ComUso):
+    """Um valor que nao e um inteiro em `limites` (revisao adversarial, m1/m2).
+
+    Era um `22P02` cru — `invalid_text_representation` do `::bigint` —
+    levantado **dentro** do bloco com `EXCEPTION`, que so trata
+    `unique_violation` e `KA001`. Saia da funcao e abortava a transaccao de
+    quem chama, sem dizer que chave nem que tenant.
+
+    Agora e um erro nomeado e **falha fechada**. Nao se ignora a linha
+    ilegivel: ignora-la tirava um modulo do minimo, e o minimo de menos
+    modulos e **maior**. Um tecto que nao se sabe ler nao e um tecto.
+    """
+
+    #: O que o `jsonb` deixa pôr num valor de limite e nao e um inteiro nao
+    #: negativo que caiba num `bigint`. O ultimo e o transbordo.
+    MAUS = (
+        '"dez"',
+        "1.5",
+        "true",
+        "null",
+        "[10]",
+        '{"max": 10}',
+        "-1",
+        "999999999999999999999999999999",
+    )
+
+    def test_cada_valor_ilegivel_levanta_com_nome(self) -> None:
+        for valor in self.MAUS:
+            with self.subTest(valor=valor):
+                tenant = self.criar_tenant()
+                self.semente.execute(
+                    "INSERT INTO platform.entitlements (tenant_id, modulo, limites) "
+                    "VALUES (%s::uuid, 'catalogo', %s::jsonb)",
+                    (tenant, '{"' + CHAVE + '": ' + valor + "}"),
+                )
+                erro = self.assertConsumoLevanta(
+                    "22023", tenant, quantidade=1, idempotency_key="k"
+                )
+                self.assertIn("nao e um inteiro", str(erro))
+                self.assertEqual(self.uso(tenant), 0)
+
+    def test_um_modulo_ilegivel_nao_deixa_passar_pelo_minimo_dos_outros(self) -> None:
+        """Falha fechada: dois modulos, um legivel e apertado, outro ilegivel."""
+        tenant = self.criar_tenant()
+        self.dar_entitlement(tenant, {CHAVE: 10}, modulo="catalogo")
+        self.semente.execute(
+            "INSERT INTO platform.entitlements (tenant_id, modulo, limites) "
+            "VALUES (%s::uuid, 'agenda', %s::jsonb)",
+            (tenant, '{"' + CHAVE + '": "sem limite"}'),
+        )
+        self.assertConsumoLevanta("22023", tenant, quantidade=1, idempotency_key="k")
+
+    def test_um_tecto_enorme_mas_legivel_continua_a_funcionar(self) -> None:
+        """Dezoito algarismos cabem, e a soma do contador nao transborda.
+
+        **E e o tecto de algarismos que o garante, e nao um cast.** A
+        primeira correccao punha a soma do `ON CONFLICT DO UPDATE` em
+        `numeric` contra o `22003`, e a prova por mutacao mostrou que a
+        mutacao que a devolvia a `bigint` **nao morria**: com limites ate
+        10^18, `valor + quantidade` nunca passa de 2 x 10^18 e o `bigint` vai
+        ate 9,2 x 10^18. O cast saiu — era defesa sobre uma porta ja fechada,
+        e uma linha que nenhuma mutacao consegue partir nao esta a defender
+        nada. Quem fecha a porta e o `length <= 18` da `ten_tecto`, e e esse
+        que tem mutacao.
+        """
+        enorme = 999_999_999_999_999_999
+        tenant = self.tenant_com_limite(enorme)
+        primeira = self.consumir(tenant, quantidade=enorme - 1, idempotency_key="a")
+        self.assertTrue(primeira.aceite)
+        self.assertEqual(int(primeira.limite), enorme)
+
+        cabe = self.consumir(tenant, quantidade=1, idempotency_key="b")
+        self.assertTrue(cabe.aceite)
+        self.assertEqual(int(cabe.valor), enorme)
+
+        nao_cabe = self.consumir(tenant, quantidade=1, idempotency_key="c")
+        self.assertFalse(nao_cabe.aceite)
+        self.assertEqual(self.uso(tenant), enorme)
+
+
+class TestOAvisoDaOrdemDasChaves(ComUso):
+    """m3: duas chaves em ordens opostas bloqueiam-se, e nao havia aviso.
+
+    A revisao adversarial mediu um `40P01` entre duas transaccoes que
+    consomem duas chaves de limite na mesma transaccao, por ordens opostas. A
+    funcao **nao pode** impor a ordem: ve uma chave de cada vez. A ordem e de
+    quem chama, e o unico sitio onde isso se diz a quem liga a base e o
+    `COMMENT` da funcao.
+
+    Um aviso que se pode apagar em silencio nao e um aviso: este teste le o
+    comentario do catalogo e falha se ele deixar de nomear a regra.
+    """
+
+    def test_o_comentario_da_funcao_nomeia_a_ordem_e_o_isolamento(self) -> None:
+        self.semente.execute(
+            "SELECT obj_description(p.oid, 'pg_proc') "
+            "  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+            " WHERE n.nspname = 'platform' AND p.proname = 'ten_consumir'"
+        )
+        linha = self.semente.fetchone()
+        self.assertIsNotNone(linha, "a funcao nao tem COMMENT nenhum")
+        comentario = str(linha[0] or "")
+        for esperado in (
+            "ORDEM DAS CHAVES",
+            "chave_limite",
+            "deadlock",
+            "40P01",
+            "READ COMMITTED",
+            "KA002",
+        ):
+            with self.subTest(esperado=esperado):
+                self.assertIn(esperado, comentario)
+
+
 class TestAssinatura(ComUso):
     """Os valores por omissao da assinatura, e quem pode executar a funcao."""
 

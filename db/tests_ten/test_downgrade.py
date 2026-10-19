@@ -34,14 +34,19 @@ from tests.base import alembic_ok, em_head, exigir_base_descartavel
 #: `assertTrue` por linha, para a falha dizer qual.
 RETIRADAS = (
     ("platform.tenants", "plano"),
+    # O `estado` juntou-se-lhes na revisao adversarial: era a condicao do
+    # criterio 2 nas maos do sujeito dela.
+    ("platform.tenants", "estado"),
     ("platform.entitlements", "limites"),
     ("platform.entitlements", "ativo"),
 )
 
-#: O que a 0007 cria e o `downgrade` tem de levar. As duas funcoes contam-se
-#: pelo prefixo `ten_`, que e o que a revisao poe no schema.
+#: O que a 0007 cria e o `downgrade` tem de levar. As funcoes contam-se pelo
+#: prefixo `ten_`, que e o que a revisao poe no schema: `ten_periodo`,
+#: `ten_consumir` e, desde a revisao adversarial, a `ten_tecto` e a do
+#: trigger `ten_usage_so_sobe`.
 TABELAS = ("tenant_usage", "usage_ledger")
-FUNCOES = 2
+FUNCOES = 4
 
 
 class TestDowngradeDa0007(unittest.TestCase):
@@ -123,13 +128,31 @@ class TestDowngradeDa0007(unittest.TestCase):
                     "fica num estado que revisao nenhuma escreveu",
                 )
 
+    def test_o_downgrade_repoe_o_insert_em_entitlements(self) -> None:
+        """O `INSERT` entrou nos revogados com a revisao adversarial.
+
+        Um `downgrade` que repusesse so o `UPDATE` deixava a base num estado
+        que revisao nenhuma escreveu — a `0001` concedia os dois.
+        """
+        self.cursor.execute(
+            "SELECT has_table_privilege('kamba_app', 'platform.entitlements', 'INSERT')"
+        )
+        self.assertFalse(self.cursor.fetchone()[0], "em head a aplicacao nao insere")
+
+        alembic_ok("downgrade", "0006")
+        self.cursor.execute(
+            "SELECT has_table_privilege('kamba_app', 'platform.entitlements', 'INSERT'), "
+            "       has_table_privilege('kamba_app', 'platform.entitlements', 'SELECT')"
+        )
+        self.assertEqual([bool(v) for v in self.cursor.fetchone()], [True, True])
+
     def test_as_outras_colunas_de_tenants_nao_se_perdem_no_caminho(self) -> None:
         """A 0007 revoga o `UPDATE` inteiro e volta a conceder a lista.
 
         Uma lista truncada a meio tirava a aplicacao colunas que nada neste
         ticket queria tirar — e so em `head`, onde ninguem compara com a 0001.
         """
-        for coluna in ("nome", "estado", "verificado_at", "zona", "deleted_at"):
+        for coluna in ("nome", "verificado_at", "zona", "deleted_at"):
             with self.subTest(coluna=coluna):
                 self.assertTrue(self.pode_alterar("platform.tenants", coluna))
 
