@@ -82,6 +82,11 @@ class FilasQueParam implements Filas {
     await new Promise(() => {});
   }
 
+  /** Delega, como o `fechar`: este decorador só intercepta o `addLote`. */
+  async profundidade(nome: string): Promise<number> {
+    return this.#filas.profundidade(nome);
+  }
+
   async fechar(): Promise<void> {
     await this.#filas.fechar();
   }

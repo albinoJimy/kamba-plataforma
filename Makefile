@@ -884,6 +884,21 @@ ci-8:
 	@# chama e outro tenant. Suite propria pelo custo das mil paralelas.
 	@echo "==> gate 8: consumo de limites, TEN (KAM-009)"
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_ten
+	@# E a entrada de canal (KAM-013). O que so aqui se prova: que o 200 sai
+	@# com o *job* **ja** na fila, que a fila parada da 503 e nunca 200 (e que o
+	@# GWY volta a aceitar sem ser reiniciado), que a mesma mensagem em dois
+	@# corpos distintos deixa **uma** linha, e que um corpo ilegivel da 200 e
+	@# quarentena em vez de comecar sete dias de re-entregas. Nada disto se mede
+	@# com uma fila em memoria, e esta suite corre os **processos de producao** —
+	@# `services/gwy/src/server.ts` e `services/worker-canal/src/entrada.ts` —
+	@# com a assinatura calculada em Python, que e uma segunda implementacao.
+	@echo "==> gate 8: entrada de canal contra PostgreSQL 18.6 e fila reais (KAM-013)"
+	@$(VENV_PYTHON) db/gate_bd.py --suite tests_entrada
+	@# E a carga do criterio 7, em suite propria pela mesma razao da de eventos:
+	@# e um minuto de relogio, e uma suite custa isso por cada mutacao que a
+	@# escolha. Nao e opcional: um p99 acima de 500 ms falha o build.
+	@echo "==> gate 8: carga do webhook (200/s durante 60 s, KAM-013)"
+	@$(VENV_PYTHON) db/gate_bd.py --suite tests_entrada_carga
 
 # -----------------------------------------------------------------------------
 # Limpeza

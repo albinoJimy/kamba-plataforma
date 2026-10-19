@@ -62,6 +62,20 @@ export interface Filas {
    * um *kill -9* inofensiva.
    */
   addLote(nome: string, trabalhos: readonly Trabalho[]): Promise<void>;
+  /**
+   * Quantos *jobs* estão por fazer na fila `nome`.
+   *
+   * Acrescentado pelo KAM-013, e não por simetria: o critério 7 manda
+   * descartar estados não facturáveis «sob saturação (fila > 10.000 *jobs*)»,
+   * e quem decide isso é o GWY — que sem este número não sabe se está
+   * saturado. O KAM-005 não precisava dele porque o publicador varre o
+   * *outbox* e a profundidade do que já saiu não muda nada do que ele faz.
+   *
+   * Conta o que **ainda não correu**: à espera, adiado e a correr. Os
+   * concluídos ficam na fila por `removeOnComplete` e contá-los dava um número
+   * que cresce com o tráfego bem tratado — o oposto de um sinal de saturação.
+   */
+  profundidade(nome: string): Promise<number>;
   /** Fecha as ligações. Chamado no encerramento. */
   fechar(): Promise<void>;
 }
@@ -83,6 +97,20 @@ export class FilasEmMemoria implements Filas {
     }
   }
 
+  /**
+   * Em memória não há estados: o que entrou está por fazer.
+   *
+   * Serve os testes do GWY que provam o *shedding* sem Redis — e para isso o
+   * número tem de poder ser **forçado**, porque o que se quer provar é a
+   * decisão a partir de uma profundidade, não a contagem.
+   */
+  async profundidade(nome: string): Promise<number> {
+    return this.profundidadeForcada ?? this.contar(nome);
+  }
+
+  /** Quando definido, é o que `profundidade` devolve. Para provar a saturação. */
+  profundidadeForcada: number | null = null;
+
   async fechar(): Promise<void> {
     /* nada a fechar */
   }
@@ -101,5 +129,6 @@ export class FilasEmMemoria implements Filas {
     this.#jobs.clear();
     this.chamadas = 0;
     this.falha = null;
+    this.profundidadeForcada = null;
   }
 }

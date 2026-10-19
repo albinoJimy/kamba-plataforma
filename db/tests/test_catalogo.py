@@ -22,10 +22,19 @@ from tests.base import PRIVILEGIO_INSUFICIENTE, TABELAS, ComBase
 #: cliente e nao esta em claro em sentido nenhum que o ADR-010 proteja. A
 #: contradicao esta registada na verificacao do ticket e devolvida a quem
 #: escreveu o criterio; a lista continua fechada, e cada entrada tem razao.
+#: As duas do KAM-013 sao o **mesmo** identificador opaco da Meta que a
+#: `tenant_channels` ja tinha, e nao um telefone: o `phone_number_id` e o que o
+#: CHR usa para resolver o canal (KAM-014), e `inbound_events` guarda-o para que
+#: o roteamento saiba de que linha o evento veio. A tabela de entrada **nao**
+#: guarda o telefone do cliente em nenhuma forma — nem em claro, nem em HMAC:
+#: no momento em que ela e escrita, o tenant ainda nao existe e o contacto nao
+#: foi resolvido.
 COLUNAS_DE_TELEFONE_ACEITES = {
     ("contacts", "phone_hmac"),
     ("contact_endpoints", "phone_enc"),
     ("tenant_channels", "phone_number_id"),
+    ("inbound_events", "phone_number_id"),
+    ("unrouted_events", "phone_number_id"),
 }
 FRAGMENTOS_DE_TELEFONE = ("msisdn", "telefone", "phone")
 
@@ -51,11 +60,12 @@ class TestSemTelefoneEmClaro(ComBase):
             "ha colunas de telefone fora da lista fechada",
         )
 
-    def test_as_colunas_com_phone_sao_exactamente_as_tres_da_lista(self) -> None:
+    def test_as_colunas_com_phone_sao_exactamente_as_da_lista(self) -> None:
         """Nos dois sentidos: nem uma a mais, nem uma entrada morta na lista.
 
         Ate ao KAM-008 so existia a da Meta; a revisao 0003 criou as outras
-        duas, e a lista fechada passou a estar toda no catalogo.
+        duas, e a revisao 0008 (KAM-013) acrescentou as duas da entrada de
+        canal — o mesmo `phone_number_id` opaco, noutras duas tabelas.
         """
         suspeitas = {
             (tabela, coluna)
@@ -135,7 +145,20 @@ class TestConvencoes(ComBase):
         )
         self.assertEqual(
             {t for t, _, _ in linhas},
-            {"tenants", "tenant_channels", "contact_endpoints"} | por_identidade,
+            {
+                "tenants",
+                "tenant_channels",
+                "contact_endpoints",
+                # KAM-013: as duas da entrada. `uuid` aleatorio e **nao**
+                # identidade, e isso foi escolha: a razao que dispensa as tres
+                # excepcoes acima — «nenhum papel sujeito a RLS le a coluna» —
+                # nao se aplica, porque `kamba_app` **le** o `inbound_events`
+                # (precisa do `RETURNING id`). Com um `id` sequencial, esse
+                # papel media o volume de webhooks de toda a plataforma.
+                "inbound_events",
+                "unrouted_events",
+            }
+            | por_identidade,
         )
         for tabela, tipo, omissao in linhas:
             with self.subTest(tabela=tabela):
@@ -231,6 +254,10 @@ class TestConvencoes(ComBase):
                 ("evt_subscricoes", "consumer", "text", None),
                 ("evt_subscricoes", "tipo", "text", None),
                 ("hmac_key_versions", "kid", "text", None),
+                # KAM-013: `uuid` aleatorio, pela razao escrita no teste da
+                # coluna de identidade. A chave de deduplicacao **nao** e esta:
+                # e o `UNIQUE (kind, event_key)`, que e uma restricao propria.
+                ("inbound_events", "id", "uuid", "gen_random_uuid()"),
                 ("tenant_channels", "id", "uuid", "gen_random_uuid()"),
                 # KAM-009: as duas tabelas de uso tem chave **composta e de
                 # negocio**, e nao um `uuid` gerado. E deliberado: a chave de
@@ -249,6 +276,7 @@ class TestConvencoes(ComBase):
                 ("tenant_usage", "periodo", "date", None),
                 ("tenant_usage", "tenant_id", "uuid", None),
                 ("tenants", "id", "uuid", "gen_random_uuid()"),
+                ("unrouted_events", "id", "uuid", "gen_random_uuid()"),
                 ("usage_ledger", "chave_limite", "text", None),
                 ("usage_ledger", "idempotency_key", "text", None),
                 ("usage_ledger", "tenant_id", "uuid", None),

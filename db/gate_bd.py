@@ -103,9 +103,26 @@ SUITES = (
     # `tests` pela mesma razao das duas acima: as mil paralelas custam, e cada
     # mutacao da revisao 0007 pagaria esse custo somado ao da suite inteira.
     "tests_ten",
+    # KAM-013: a entrada de canal. Precisa de PostgreSQL **e** de fila, e corre
+    # os processos de producao — `services/gwy/src/server.ts` e
+    # `services/worker-canal/src/entrada.ts` — em vez de um programa de ensaio.
+    # Suite propria e nao dentro de `tests` por duas razoes: levanta e para
+    # processos HTTP, o que `tests` nao faz; e para a fila a meio, o que
+    # deixaria as outras 387 asercoes a correr contra um Redis em baixo.
+    "tests_entrada",
+    # KAM-013: o perfil de carga do criterio 7 — 200 pedidos/s durante 60 s.
+    # Suite propria pela mesma razao da carga de eventos: custa um minuto de
+    # relogio, e cada mutacao que a escolhesse pagaria esse custo.
+    "tests_entrada_carga",
 )
 #: As que precisam tambem de uma fila.
-SUITES_COM_FILA = ("tests_eventos", "tests_eventos_consumo", "tests_eventos_carga")
+SUITES_COM_FILA = (
+    "tests_eventos",
+    "tests_eventos_consumo",
+    "tests_eventos_carga",
+    "tests_entrada",
+    "tests_entrada_carga",
+)
 
 
 def _docker(*argumentos: str, ambiente=None) -> subprocess.CompletedProcess:

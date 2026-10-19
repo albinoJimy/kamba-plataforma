@@ -80,16 +80,156 @@ Implementar o serviço `gwy` (Hono 4.13.x, ≥ 2 réplicas sem estado) que valid
 
 ### Critérios de Aceitação
 
-- [ ] `GET /wa/webhook` com `hub.verify_token` correcto responde 200 com o corpo igual a `hub.challenge`; com `verify_token` errado responde 403 (código em proposta).
-- [ ] `POST` com assinatura ausente ou inválida devolve 401 e incrementa `gwy_sig_fail`; a assinatura é calculada sobre os bytes recebidos antes de `JSON.parse` (um corpo re-serializado com espaços diferentes e a mesma assinatura é rejeitado).
-- [ ] Aceita assinatura feita com o App Secret actual **ou** o anterior (*ring* `[actual, anterior]`); com um terceiro segredo devolve 401. Comparação em tempo constante (`timingSafeEqual`).
-- [ ] Reenviar o mesmo corpo 2× produz 1 *job* (`jobId = sha256(corpo)`); a mesma mensagem (`wamid`) em dois corpos distintos produz 1 linha em `inbound_events` (`UNIQUE (kind, event_key)`); `event_key` de estados é `wamid:estado`.
-- [ ] O 200 só é devolvido depois de o *job* estar enfileirado; com Redis indisponível o GWY responde 503 (a Meta repete) e nunca 200.
+- [x] `GET /wa/webhook` com `hub.verify_token` correcto responde 200 com o corpo igual a `hub.challenge`; com `verify_token` errado responde 403 (código em proposta).
+- [x] `POST` com assinatura ausente ou inválida devolve 401 e incrementa `gwy_sig_fail`; a assinatura é calculada sobre os bytes recebidos antes de `JSON.parse` (um corpo re-serializado com espaços diferentes e a mesma assinatura é rejeitado).
+- [x] Aceita assinatura feita com o App Secret actual **ou** o anterior (*ring* `[actual, anterior]`); com um terceiro segredo devolve 401. Comparação em tempo constante (`timingSafeEqual`).
+- [x] Reenviar o mesmo corpo 2× produz 1 *job* (`jobId = sha256(corpo)`); a mesma mensagem (`wamid`) em dois corpos distintos produz 1 linha em `inbound_events` (`UNIQUE (kind, event_key)`); `event_key` de estados é `wamid:estado`.
+- [x] O 200 só é devolvido depois de o *job* estar enfileirado; com Redis indisponível o GWY responde 503 (a Meta repete) e nunca 200.
 - [ ] JSON inválido com assinatura válida: 200 e quarentena em `unrouted_events` (payload com retenção de 7 dias, proposta) + alerta; nunca 5xx (evita *retry storm*).
 - [ ] Carga de 200 pedidos/s durante 60 s com 3 estados por mensagem (proposta de perfil): p99 < 500 ms, mediana ≤ 250 ms, < 1% acima de 1 s; sob saturação (fila > 10.000 *jobs*, proposta) são descartados estados não facturáveis, nunca `messages`.
-- [ ] Encaminhamento por `kind`: `message`/`echo` → CHR; `statuses` → *stage* de *outbound* (nunca ao AGR); `history`/`smb_app_state_sync` → só ingestão (KAM-017); `account_update`/qualidade/templates → *stage* de gestão de canal.
-- [ ] Logs JSON só com `ts, level, svc, msg_id, wa_type, latency_ms, outcome, error_code`; um linter e um teste sobre os logs de 1 000 pedidos encontram 0 telefones e 0 texto de mensagem.
+- [x] Encaminhamento por `kind`: `message`/`echo` → CHR; `statuses` → *stage* de *outbound* (nunca ao AGR); `history`/`smb_app_state_sync` → só ingestão (KAM-017); `account_update`/qualidade/templates → *stage* de gestão de canal.
+- [x] Logs JSON só com `ts, level, svc, msg_id, wa_type, latency_ms, outcome, error_code`; um linter e um teste sobre os logs de 1 000 pedidos encontram 0 telefones e 0 texto de mensagem.
 
+
+### Verificação dos Critérios de Aceitação
+
+**9 critérios; 7 marcados, 2 vazios. 8 caixas de DoD; 6 marcadas, 2 vazias.** Tudo
+medido contra um PostgreSQL 18.6 e um Valkey a sério, com os **processos de
+produção** a correr — `services/gwy/src/server.ts` e
+`services/worker-canal/src/entrada.ts` —, e não contra uma fila em memória.
+
+**A assinatura verifica-se com duas implementações.** A do repositório é
+TypeScript; a da suite de integração é `hmac`/`hashlib` da biblioteca padrão de
+Python. O que se mede é **interoperabilidade** e não auto-consistência — a
+diferença entre «o nosso código concorda consigo» e «o nosso código concorda com
+quem calcula HMAC-SHA256 por outro caminho».
+
+### Os critérios, um a um
+
+| # | Critério | Evidência |
+|---|---|---|
+| 1 | `GET` de verificação: 200 com o *challenge*, 403 com o token errado | Por HTTP real: o corpo volta **byte a byte** igual ao desafio. 403 para token errado, token truncado, token com um carácter a mais, token em maiúsculas, modo `unsubscribe`, sem `hub.mode` e sem `hub.challenge`. A resposta de recusa **não** devolve o desafio — a asserção procura-o no corpo |
+| 2 | 401 com assinatura ausente ou inválida; `gwy_sig_fail`; assinatura sobre os bytes **antes** do `parse` | O teste que distingue a implementação certa da que assina o `JSON.stringify`: o **mesmo** JSON re-serializado com espaços, com a assinatura do original, dá **401**, e a fila fica com **um** *job* e não dois. Mais nove formas de cabeçalho malformado que recusam **sem lançar** — o `timingSafeEqual` rebenta com comprimentos diferentes, e o comprimento é escolhido por quem chama. `gwy_sig_fail` lido no `/metrics` do processo: delta de **2** em dois pedidos recusados |
+| 3 | Anel `[actual, anterior]`; terceiro segredo → 401; `timingSafeEqual` | Os três casos por HTTP real contra o processo com o anel verdadeiro no cofre de ambiente. E o caso que o critério não pede: um anel vazio, nulo, ou de segredos vazios **recusa tudo** — em particular não valida um HMAC feito com chave vazia, que é um HMAC válido, e aceitá-lo era aceitar qualquer pedido de quem souber que o cofre está vazio |
+| 4 | Dois níveis de deduplicação; `event_key` de estados é `wamid:estado` | **Nível 1, na fila a sério:** o mesmo corpo 2× deixa **um** *job*, e o `jobId` é exactamente `sha256(corpo)` (comparado com o resumo calculado em Python). **Nível 2, na base a sério:** dois corpos com o mesmo `wamid` e `sha256` **diferente** entram como **dois** *jobs* e deixam **uma** linha. **A letra:** três estados do mesmo `wamid` dão `wamid:sent`, `wamid:delivered` e `wamid:read` — três linhas e não uma, que é o que o perfil de carga precisa |
+| 5 | 200 só depois de enfileirar; 503 com Redis em baixo, nunca 200 | **A ordem:** com um `addLote` que só resolve quando o teste manda, a resposta não chega antes — e o teste afirma que não chegou, com uma bandeira lida dentro do `then`. Por HTTP real, a leitura da fila é imediatamente depois da resposta, sem espera nenhuma. **A fila em baixo:** `docker stop --timeout 0` no contentor, cinco pedidos, e o conjunto de códigos é exactamente `{503}`. Nem `ECONNREFUSED`, nem o anfitrião, nem a senha saem na resposta ou no registo. E depois do `start`, o **mesmo** processo volta a aceitar sem ser reiniciado |
+| 6 | JSON inválido: 200 e quarentena com retenção de 7 dias **+ alerta** | **Vazia, e é parcial.** As duas partes que o critério mede estão feitas e provadas: 200 (nunca 5xx, que começaria sete dias de re-entregas) e a linha em `unrouted_events` com `motivo = json_invalido`, `waba_id` nulo, o corpo em base64 e uma `event_key` determinística — a re-entrega do mesmo corpo mau **não** cria segunda linha. Faltam as outras duas, e nenhuma é código deste ticket: **a retenção de 7 dias não é imposta** (esta revisão não cria função de limpeza nem agendador — o agendador nasce com KAM-071, a mesma decisão que a `0004` tomou para as partições mensais), e **não há alerta**, porque não há sistema de alertas no repositório (KAM-079, KAM-080). Marcar a caixa era chamar «cumprido» a metade |
+| 7 | Carga 200 req/s × 60 s; p99 < 500 ms; descarte de estados não facturáveis | **Vazia, e a razão não são os números.** Os números cumprem-se — estão na tabela da carga, abaixo. O que diverge é a **regra do descarte**: o critério diz «estados não facturáveis», e o campo que diz se um estado é facturável está `NÃO VERIFICADO` (o `E1` §5 não documenta a forma do `pricing` dentro de um `statuses[]`). Implementar «`pricing.billable === false`» era desenho sobre um campo que ninguém confirmou. A regra que corre é mais estreita: **um estado que traga `pricing`, de qualquer forma, não se descarta** — e isso é um subconjunto de «não facturáveis», não a letra. **A leitura fica escrita e a decisão volta a quem escreveu o critério.** Também é leitura minha o perfil: «3 estados por mensagem» lê-se como 50 corpos de mensagem + 150 de estado por segundo, pelo `3×` do `E1` §5 |
+| 8 | Encaminhamento por `kind` | Os quatro grupos, com os onze campos de webhook registados com o `kind` certo contra a base real, e `unrouted_events` a **zero** nesse teste. E as duas propriedades **negativas** que importam, como asserções: um `statuses` nunca chega ao `chr` (é por lá que o AGR é alimentado), e `history`/`smb_app_state_sync` vão **só** a `ingestao`. O mapa é total (`Record<Kind, Destino>`): um `kind` novo sem destino é erro de compilação |
+| 9 | Logs só com os oito campos; linter e teste de 1 000 pedidos | **O teste que o critério nomeia:** 1 000 pedidos com dez canários — telefone em quatro formatos, nome de perfil, texto de mensagem, morada, e-mail, cartão e *token* da Meta — um terço assinado, um terço sem assinatura e um terço com assinatura errada. **0 ocorrências** de qualquer canário e **nenhuma chave fora dos oito**. O *logger* corre em **modo estrito** nesse teste: um campo fora da *allowlist* lança em vez de ser retirado em silêncio. De ponta a ponta, o mesmo nos registos dos **dois processos**: o `wamid` nunca sai em claro — sai `idOpaco`, `m_` mais 32 hexadecimais. E `make log-lint`: 0 achados em 78 ficheiros TS/JS e 34 Python |
+
+### Três defeitos que só a suite de integração apanhou
+
+Nenhum deles era visível nos 796 testes unitários, e os três tinham o mesmo
+sintoma: **silêncio**.
+
+| | O defeito, medido | Como ficou |
+|---|---|---|
+| **1** | **O `backoffStrategy` que faltava.** O `addLote` do `filas_bullmq.ts` põe `backoff: { type: "custom" }` em **todos** os *jobs* — é a forma de o BullMQ passar a decisão do atraso ao *worker* —, e um *worker* que o não registe lança `Unknown backoff strategy custom` ao calcular o atraso da segunda tentativa. Pior do que «não recua»: o tratamento da falha rebentava, o *job* ficava em `failed` **sem passar pela quarentena**, e um corpo ilegível desaparecia com a Meta a re-entregar sete dias | `AJUSTES_DO_TRABALHADOR` com a escada do consumidor (`06` §6.4), numa constante exportada **para ter teste sem fila**: cinco asserções que prendem os degraus, o tecto e o `attemptsMade = 0` da primeira falha |
+| **2** | **O `SELECT` que o `ON CONFLICT` exige.** `kamba_app` tinha só `INSERT` em `unrouted_events`, e o PostgreSQL trata os elementos da cláusula de inferência como **leitura**: a inserção falhava com `42501`. A quarentena ficava a zero e parecia que o corpo nunca chegara. **É a mesma lição que a revisão `0005` já escrevera** para o `ON CONFLICT (consumer, event_id)` do `events_dlq`, e eu não a tinha lido | `GRANT SELECT (kind, event_key)`, duas colunas. O `payload`, o `motivo` e os dois identificadores da Meta continuam fechados, e isso está medido coluna a coluna. **E o que as duas colunas dão de lambuja está declarado em vez de escondido:** com privilégio em qualquer coluna o `count(*)` passa — e é aceitável aqui e não era no `events_dlq`, porque esta tabela não tem `tenant_id` e a contagem é da plataforma inteira |
+| **3** | **Um *job* falhado não deixava linha nenhuma.** O BullMQ não escreve nada quando ninguém ouve o acontecimento `failed`, e o *worker* não ouvia. Foi isto que fez o defeito 2 custar duas execuções da suite para ser diagnosticado: o registo mostrava `entrada_registado` para os corpos bons e **nada** para o que falhou | Ouvinte de `failed` **e** de `error` — o segundo para o que não tem *job* associado (a ligação caiu, o Lua do BullMQ recusou) — a sair por `log.excepcao`, com o código e a classe e **nunca** a mensagem: um erro de `pg` pode trazer a instrução com os parâmetros, e os parâmetros deste caminho são o corpo do webhook |
+
+### Quatro coisas que o trabalho encontrou e que o bloco não previa
+
+1. **O *gate* 3b obrigou a estreitar os domínios, e ficou melhor.** O bloco dá um
+   `kind` com catorze valores; o *gate* pede o domínio **por coluna**, e isso
+   revelou que `inbound_events` só vê doze (os campos de webhook) e
+   `unrouted_events` só dois (os caminhos de quarentena). Com um `CHECK` de
+   catorze nas duas, uma `message` podia ser escrita na quarentena e um
+   `invalido` no registo de entrada. Nenhum caminho do código o fazia; agora
+   nenhum o pode fazer, e os tipos em TypeScript dizem o mesmo.
+2. **Um evento sem `wamid` não tinha chave.** Um `account_update` não traz
+   identificador nenhum, e a Meta re-entrega sete dias: sem chave
+   determinística, cada tentativa criava uma linha. Nenhum documento dizia qual
+   era a chave desses eventos. Nasceu o **resumo canónico** `k_` + 32
+   hexadecimais sobre `(waba_id, campo, valor)` com as chaves **ordenadas** — o
+   `JSON.stringify` não serve, porque a ordem das chaves é a de inserção.
+3. **O descarte sem verificar o campo descartava um `account_update`.** A
+   primeira versão de `soEstadosSemPreco` inspeccionava o `value` e não o
+   `field`: um `account_update` cujo `value` trouxesse um array chamado
+   `statuses` era descartado **em silêncio**, e um `account_update` perdido é um
+   canal que mudou de estado sem ninguém saber. Apanhado pelo teste «é falso para
+   tudo o que não seja isso», que é a razão de ele enumerar casos em vez de
+   confirmar o caso bom.
+4. **O nome do array dentro de `smb_message_echoes` continua `NÃO VERIFICADO`.** O
+   `E1` §5 não o diz e nenhuma página primária foi lida nesta execução. Em vez de
+   o inventar, a explosão tem **duas regras**: um evento por item quando há itens
+   com identificador, e um evento por `change` com o resumo canónico quando não
+   há. Se a *proposta* (`message_echoes`) estiver errada, o *echo* cai na segunda
+   regra — `kind` correcto, chave determinística, mais grosso e continua
+   correcto. Fixá-lo é KAM-017, que é quem lê a documentação de coexistência.
+
+### As duas caixas de DoD vazias
+
+| Caixa | Porquê |
+|---|---|
+| «Todos os Critérios satisfeitos» | 7 de 9. Os dois vazios estão nomeados acima, e nenhum deles é código em falta: um pede um agendador e um sistema de alertas que são de outros tickets, o outro pede uma regra que depende de um campo `NÃO VERIFICADO` |
+| «Código revisto por ≥ 1 revisor; testes verdes; cobertura ≥ limiar» | **Testes verdes e cobertura acima do limiar** — os números estão abaixo. **Revisor humano: zero**, pela decisão em vigor (sem revisão humana até produção). Fica registado que este é o ticket do **único endpoint externo da plataforma**: tudo o que a Meta manda entra por aqui, e uma revisão adversarial é evidência, não é um revisor |
+
+### O que correu, e com que números
+
+| Verificação | Resultado |
+|---|---|
+| `pnpm -r run test` | **796 testes, 0 falhas** (eram 711: +85) — `core-ts` 720, `gwy` 39, `worker-canal` 15, `contracts` 12, `com` 5, `onboarding-web` 5 |
+| Gate 8 (`tests`) | **387 testes, OK** — a revisão `0008` aplica, reverte e volta a aplicar |
+| Gate 8 (`tests_entrada`) | **32 testes, OK**, 258 s, com os dois processos de produção, PostgreSQL e Valkey reais |
+| Gate 8 (`tests_entrada_carga`) | **OK** — ver a tabela da carga, a seguir |
+| Gate 4 (cobertura) | **crítico 95%** (mínimo 90%), **restante 89%** (mínimo 75%) |
+| Gate 3b (nomes canónicos) | conforme — dicionário **v1.19**, 8 migrações, 22 tabelas, 68 valores de `CHECK` |
+| Gate 3 (referências, *handoff*, contagens) | conforme — 15 578 referências em 970 ficheiros; 630 caminhos de *handoff*; 13 contagens vivas, 0 erradas |
+| Gate 3c (coerência do backlog) | conforme — 159 linhas no §4 e 159 blocos a dizer o mesmo |
+| Gate 2 (`log-lint`, `lint-arch`) | conforme — 0 achados em 78 ficheiros TS/JS e 34 Python |
+| Gate 9 (segredos) | **limpo** — 970 ficheiros |
+| Gate 7 (contratos de evento) | conforme — 76 contratos |
+| Gate 11 (SBOM, licenças, cadeia) | conforme — 143 componentes, 0 vulnerabilidades CRITICAL |
+| Mutações | `--aplicaveis`: **270 conferidas, 0 não aplicáveis** — a edição de `filas_bullmq.ts` é aditiva e não quebrou nenhuma |
+
+**Nenhuma dependência nova.** O `hono` 4.13.13 e o `@hono/node-server` 2.1.4 já
+estavam no `gwy`; o `bullmq` 6.3.11 e o `ioredis` 5.11.1 chegam por
+`@kamba/core-ts`, e o `pg` já era do `worker-canal`. O `pnpm-lock.yaml` **não
+muda**.
+
+### A carga do critério 7, medida
+
+12 000 pedidos em **60,1 s**, isto é **200/s** exactos, com 50 corpos de
+mensagem e 150 de estado por segundo. Contra o GWY real, com o *worker* a
+consumir, PostgreSQL e Valkey em contentores, e o cliente a medir **do primeiro
+byte enviado ao último recebido** — mais pessimista do que a latência do
+servidor, e de propósito: é a que a Meta veria.
+
+| Grandeza | Medido | Limiar do critério |
+|---|---|---|
+| Respostas | **12 000 × 200**, nenhuma outra | — (um 503 sob carga é um webhook que a Meta repete) |
+| Mediana | **61 ms** | ≤ 250 ms |
+| p99 | **349 ms** | < 500 ms |
+| Acima de 1 s | **0,00%** | < 1% |
+| Máximo | 873 ms | — |
+| Mensagens registadas | **3 000 de 3 000** | nenhuma perdida |
+| `gwy_shed_total` | **0** | nada descartado: todos os estados deste perfil trazem `pricing` |
+
+**O que isto não é:** uma medição de capacidade de produção. Corre em
+contentores descartáveis, na máquina de quem corre o *gate*, com o cliente no
+mesmo anfitrião. O dimensionamento é KAM-084, que depende deste ticket. O que
+esta prova mede é que o **desenho** aguenta o perfil — que o 200 não espera por
+I/O que não devia estar no caminho.
+
+### Dois defeitos de ferramenta que este trabalho encontrou e **não** corrigiu
+
+Nenhum é causado por este ramo, e os dois são de outro ticket:
+
+1. **O `lint_contagens` não corre de dentro de um `git worktree` sob `.claude/`.**
+   O `tools/lint_contagens/scan.py:150` exclui qualquer ficheiro cujo caminho
+   **absoluto** contenha `.claude` nas suas partes, e a raiz deste *worktree* é
+   `…/.claude/worktrees/KAM-013`: a varredura encontra **zero** ficheiros e o
+   *gate* sai com 2 («erro de configuração»). Em CI o *checkout* não está sob
+   `.claude`, pelo que o *gate* passa — e passa de verdade: medido com raiz
+   relativa, **13 contagens vivas, 0 erradas**, acima do mínimo de 10. A
+   correcção é uma linha (`f.relative_to(raiz).parts`), e é código: fica para
+   ticket próprio.
+2. **O `coverage_gate.py` não corre em Python 3.14.** Um `%o` numa cadeia de
+   ajuda que o `argparse` do 3.14 passou a validar («badly formed help string»).
+   O CI usa 3.12 e não vê isto; apareceu ao medir a cobertura dentro de um
+   contentor `node:24.21.0-alpine`, que traz 3.14.
 ### Detalhes Técnicos
 
 - **Componentes:** GWY (e *worker* de canal em `services/worker-canal`). O TLS público termina no proxy (KAM-077); o GWY escuta em HTTP atrás dele.
@@ -115,12 +255,12 @@ app.post('/wa/webhook', async (c) => {
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] Código revisto por ≥ 1 revisor; testes verdes; cobertura ≥ limiar.
-- [ ] Documentação actualizada (`docs/gwy.md`); Conventional Commits; sem TODOs órfãos.
-- [ ] **Idempotência** — dedup em dois níveis com teste de repetição.
-- [ ] **Privacidade** — logs sem conteúdo nem telefone; payload de conversa fora de `inbound_events`.
-- [ ] **Sem segredos** — App Secret só via `SecretProvider`; scan limpo.
-- [ ] **Custo e observabilidade** — `gwy_requests_total`, `gwy_sig_fail`, `gwy_enqueue_ms`, `inbound_queue_depth` desde o código.
-- [ ] **Migrações reversíveis** — `downgrade` das tabelas de entrada testado.
+- [x] Documentação actualizada (`docs/gwy.md`); Conventional Commits; sem TODOs órfãos.
+- [x] **Idempotência** — dedup em dois níveis com teste de repetição.
+- [x] **Privacidade** — logs sem conteúdo nem telefone; payload de conversa fora de `inbound_events`.
+- [x] **Sem segredos** — App Secret só via `SecretProvider`; scan limpo.
+- [x] **Custo e observabilidade** — `gwy_requests_total`, `gwy_sig_fail`, `gwy_enqueue_ms`, `inbound_queue_depth` desde o código.
+- [x] **Migrações reversíveis** — `downgrade` das tabelas de entrada testado.
 
 ### Handoff para Claude Code
 

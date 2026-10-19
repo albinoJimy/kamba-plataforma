@@ -1184,11 +1184,12 @@ dispensa.
 
 #### A segunda metade: identidade de contacto (KAM-008)
 
-O `make ci-8` corre **sete** *suites*, cada uma com a sua base descartável:
+O `make ci-8` corre **nove** *suites*, cada uma com a sua base descartável:
 `tests` (as migrações, acima), **`tests_identidade`** (esta secção),
 **`tests_eventos`** e **`tests_eventos_carga`** (a secção seguinte, KAM-005),
-`tests_eventos_consumo` (KAM-006), `tests_auditoria_carga` (KAM-012) e
-**`tests_ten`** (KAM-009, a última secção).
+`tests_eventos_consumo` (KAM-006), `tests_auditoria_carga` (KAM-012),
+**`tests_ten`** (KAM-009) e **`tests_entrada`** e **`tests_entrada_carga`**
+(KAM-013, a última secção).
 A de identidade entrou com o KAM-008. Esta põe o módulo de identidade — TypeScript, em
 `packages/core-ts/src/identity/` — a correr contra o PostgreSQL com o papel
 `kamba_identity` verdadeiro e a RLS ligada. O desenho está em
@@ -1315,6 +1316,46 @@ sem linha activa que a declare, **nega** — e nega antes de olhar para o
 chama só **desce**; e uma quantidade que não seja positiva **levanta**.
 
 ---
+
+
+#### A nona e a décima: a entrada de canal (KAM-013)
+
+`tests_entrada` e `tests_entrada_carga` são as *suites* do webhook da Meta, e a
+diferença face a todas as outras é **o que elas lançam**: os processos de
+produção. `services/gwy/src/server.ts` e
+`services/worker-canal/src/entrada.ts`, sem uma linha de código de teste pelo
+meio. As outras *suites* lançam programas de ensaio escritos para elas
+(`publicador_runner.ts`); aqui não se pode, porque o que há para provar é o
+comportamento de um servidor HTTP a falar com uma fila a sério:
+
+| O que só aqui se prova | Como |
+|---|---|
+| «o 200 só é devolvido depois de o *job* estar enfileirado» | A leitura da fila é imediatamente depois da resposta, sem espera nenhuma |
+| «com Redis indisponível o GWY responde 503 e nunca 200» | `docker stop --timeout 0` no contentor da fila, cinco pedidos, e o conjunto de códigos tem de ser exactamente `{503}`. Depois `start`, e o **mesmo** processo volta a aceitar sem ser reiniciado |
+| «a mesma mensagem em dois corpos distintos produz 1 linha» | Dois corpos com o mesmo `wamid` e `sha256` diferente: **dois** *jobs* na fila e **uma** linha em `inbound_events` |
+| «JSON inválido: 200 e quarentena; nunca 5xx» | Um corpo que não faz `parse`, e a linha de `unrouted_events` com `motivo = json_invalido` e o corpo em base64 |
+| Os privilégios da revisão `0008` bastam e não sobram | Com o papel `kamba_app` verdadeiro: o `RETURNING id` funciona, o `payload` da quarentena é recusado, `count(*)` é recusado, e nenhuma das duas tabelas aceita `DELETE` |
+
+**A assinatura calcula-se em Python**, com `hmac`/`hashlib` da biblioteca
+padrão, e não com o módulo TypeScript que está a ser testado. É uma segunda
+implementação independente, e por isso o que se mede é **interoperabilidade** e
+não auto-consistência — a diferença entre «o nosso código concorda consigo» e
+«o nosso código concorda com quem calcula HMAC-SHA256 por outro caminho».
+
+**Os domínios comparam-se com três fontes:** o `CHECK` que o PostgreSQL tem, o
+dicionário exportado (`canon/dicionario.yaml`) e a lista do módulo TypeScript,
+lida do ficheiro. Duas fontes a concordar é uma cópia; três é um contrato.
+
+**A carga está em *suite* própria, e é por custo**, como a de eventos: 200
+pedidos/s durante 60 s — 50 corpos de mensagem e 150 de estado por segundo, que
+é a leitura de «3 estados por mensagem» —, com p99 < 500 ms, mediana ≤ 250 ms e
+menos de 1% acima de 1 s. Uma *suite* paga esse minuto por cada mutação que a
+escolha.
+
+**Os processos arrancam por classe de teste e não por método**, e isso é uma
+medição: com um `docker run` por método a *suite* levava 763 s. Os dois
+processos não têm estado próprio — está na base e na fila, que se limpam entre
+testes.
 
 ## 4. Gates reservados (5)
 
@@ -1971,3 +2012,4 @@ sobrevivem ao PR.
 | 1.35 | Outubro 2026 | **KAM-009: a superfície 3 passa a ler duas formas.** Um `registry/*.yaml` é uma **vertical** (chave de topo `id`) ou os **planos** (chave de topo `plans`), e a forma lê-se pela chave e nunca pelo nome do ficheiro; as chaves de topo de cada forma são listas fechadas, cada nome de limite é confrontado com as dez chaves do dicionário §3.2 nas duas, e um ficheiro que não seja **nenhuma** das duas falha. A superfície deixa de estar vazia (`registry/plans.yaml`, com `estado: hipotese_nao_validada` por entrada) e a frase «A SUPERFÍCIE AINDA NÃO EXISTE» deixa de aparecer para ela. Corrigido de passagem: `ManualProvider`, que a linha «Entitlement (chaves)» escreve em prosa e o exportador colhia, era aceite como nome de limite — o lint passa a exigir a forma `^[a-z][a-z0-9_]*$`, a mesma do `CHECK` de `tenant_usage.chave_limite`. | Equipa KAMBÁ |
 | 1.36 | Outubro 2026 | **KAM-009: o *gate* 8 passa a correr sete *suites*.** A sétima é `tests_ten`, que prova a **função** `platform.ten_consumir` da revisão `0007` e não o esquema: mil chamadas paralelas de 1 unidade contra um tecto de 100 em 32 ligações — **100 aceites, 900 negadas, contador final 100, e o livro de idempotência com 100 linhas e não mil** —, as dez repetições do critério 4 mais o caso que o critério não pede (uma recusa não pode gastar a chave, nos dois caminhos de recusa), a fronteira do mês com relógio fixo nos dois instantes do critério **e** num instante que cai em meses diferentes em UTC e em `Africa/Luanda`, e o isolamento da função — que o *gate* 6 não prova, porque a política de uma tabela não diz o que uma função `SECURITY INVOKER` faz quando quem a chama é outro tenant. O *gate* 6 ganha as receitas de sementes das duas tabelas novas, sem as quais se recusava a correr, e `entitlements` passa a ser uma tabela que `kamba_app` **não altera** (a `0007` revogou-lhe o `UPDATE`). Quinze mutações novas. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |
 | 1.37 | Outubro 2026 | **KAM-009 reprovou na revisão adversarial, e o *gate* 8 passa a morder onde ela mordeu.** Três críticos, nenhum apanhado pelos 47 testes nem pelas 15 mutações que havia: a chave de idempotência valia para **todas** as chaves de limite e não olhava à quantidade (repetir a chave de um consumo de uma mensagem autorizava um pedido de 999 999,99 Kz contra um tecto de 50 000, sem contar); `kamba_app` mantinha `INSERT` em `entitlements`, e com `WITH CHECK (tenant_id = app.tenant_id)` o tenant **criava** o próprio tecto; e `GRANT UPDATE (valor)` em `tenant_usage` deixava-o **zerar** o próprio contador. A revisão `0007` ganha a `chave_limite` na chave do livro, a comparação da quantidade (`KA002`), o `REVOKE INSERT`, e o *trigger* `tenant_usage_so_sobe` — o padrão do `audit_log_imutavel` da `0006`: o que o privilégio por coluna não sabe exprimir, exprime-o um `BEFORE UPDATE`. Mais o `UPDATE (tenants.estado)` revogado (um tenant `suspenso` reactivava-se e retirava a condição do critério 2), o `p_agora` fechado a quem não é `kamba_batch`, e quatro erros que escapavam aos tratadores (`22P02` de um limite não inteiro, `22003` de transbordo, chave de idempotência vazia, aviso de ordem das chaves no `COMMENT`). A *suite* `tests_ten` ganha o `test_escalada.py` — o atacante é o **próprio** tenant, que é o caso que a RLS nunca podia parar — e passa a correr o `SQL_CONSUMIR` e o `SQL_PERIODO` **das bibliotecas** em vez de uma cópia deles, o que destapou um defeito real: o `SQL_PERIODO` não tinha `coalesce` e devolvia `NULL` sem instante. Mutações: 256 → **270**. | Equipa KAMBÁ |
+| 1.38 | Outubro 2026 | **KAM-013: o *gate* 8 passa a correr nove *suites*.** As duas novas são `tests_entrada` e `tests_entrada_carga`, e a diferença face a todas as outras é o que elas lançam: os **processos de produção** (`services/gwy/src/server.ts` e `services/worker-canal/src/entrada.ts`), sem programa de ensaio pelo meio — porque o que há para provar é o comportamento de um servidor HTTP com uma fila a sério. O que só aqui se mede: o 200 com o *job* **já** na fila, o 503 com o contentor da fila parado (e o mesmo processo a voltar a aceitar sem reinício), a mesma mensagem em dois corpos a deixar **uma** linha, e um corpo ilegível a dar 200 e quarentena em vez de começar sete dias de re-entregas. **A assinatura calcula-se em Python**, que é uma segunda implementação: mede-se interoperabilidade e não auto-consistência. E os domínios de `kind` e `motivo` comparam-se com **três** fontes — o `CHECK` do PostgreSQL, o dicionário exportado e a lista do módulo TypeScript. A *suite* apanhou **três defeitos que nenhum teste unitário apanhava**: o `backoffStrategy` que faltava no *worker* (todos os *jobs* levam `backoff: custom` do `addLote`, e um *worker* que o não registe lança ao calcular o atraso — o *job* ficava em `failed` sem passar pela quarentena); o `SELECT` por coluna que o `ON CONFLICT (kind, event_key)` exige em `unrouted_events` (a mesma lição que a `0005` já escrevera para o `events_dlq`); e um *job* falhado a não deixar **linha nenhuma** de registo, porque o BullMQ nada escreve quando ninguém ouve o acontecimento `failed`. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |

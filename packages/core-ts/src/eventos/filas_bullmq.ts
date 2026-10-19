@@ -271,6 +271,27 @@ export class FilasBullmq implements Filas {
     );
   }
 
+  /**
+   * Quantos *jobs* estão por fazer: à espera, adiados e a correr.
+   *
+   * `getJobCounts` com os três estados nomeados, e não `count()`: o `count()`
+   * do BullMQ é «à espera mais adiados mais priorizados», uma definição que
+   * mudou entre versões e que não inclui o que está a correr. Os três nomes
+   * ficam escritos aqui, onde se vêem.
+   *
+   * **Com o Redis em baixo isto rejeita**, como o `addLote`: a ligação tem
+   * `enableOfflineQueue: false`. Quem chama decide o que fazer com a falha — e
+   * no GWY a decisão é não descartar nada (`services/gwy/src/webhook.ts`): uma
+   * profundidade que não se consegue ler não é uma fila saturada.
+   */
+  async profundidade(nome: string): Promise<number> {
+    const contas = await comLimite(
+      this.#fila(nome).getJobCounts("wait", "delayed", "active"),
+      nome,
+    );
+    return (contas.wait ?? 0) + (contas.delayed ?? 0) + (contas.active ?? 0);
+  }
+
   async fechar(): Promise<void> {
     const abertas = [...this.#filas.values()];
     this.#filas.clear();
