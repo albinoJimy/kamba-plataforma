@@ -318,6 +318,26 @@ INVENTARIO = {
         "recebido_at": ("timestamp with time zone", NAO, "now()", "nao"),
         "processado_at": ("timestamp with time zone", SIM, None, "nao"),
     },
+    # KAM-014. Oito colunas, e **nenhuma guarda dado pessoal**: o contacto
+    # entra por `contact_id`, que e um UUID aleatorio (ADR-010), e nao ha aqui
+    # texto livre nenhum — nem conteudo de mensagem, nem `display_name`. E a
+    # primeira tabela deste caminho com `tenant_id`, e por isso a primeira com
+    # RLS: as duas de cima nao o tem por desenho.
+    "conversations": {
+        "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "contact_id": (
+            "uuid",
+            NAO,
+            None,
+            "referencia opaca a contacts (ADR-010); nao e telefone nem BSUID",
+        ),
+        "channel_id": ("uuid", NAO, None, "nao"),
+        "mode": ("text", NAO, "'bot'::text", "nao"),
+        "last_inbound_at": ("timestamp with time zone", SIM, None, "nao"),
+        "window_expires_at": ("timestamp with time zone", SIM, None, "nao"),
+        "last_human_activity_at": ("timestamp with time zone", SIM, None, "nao"),
+    },
     "unrouted_events": {
         "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
         "kind": ("text", NAO, None, "nao"),
@@ -423,6 +443,15 @@ class TestInventario(ComBase):
                         "tenant_usage_tenant_fk",
                         "tenants_owner_fk",
                         "usage_ledger_tenant_fk",
+                        # KAM-014: as tres da conversa. Duas sao **compostas
+                        # com o `tenant_id`** — uma conversa nao aponta para um
+                        # contacto nem para um canal de outro tenant, e e a
+                        # base que o diz. A do canal e a razao por que a `0009`
+                        # acrescenta `tenant_channels_tenant_id_uq`: sem ela
+                        # nao havia chave sobre que assentar.
+                        "conversations_channel_fk",
+                        "conversations_contact_fk",
+                        "conversations_tenant_fk",
                     ]
                 )
             ],
@@ -505,6 +534,18 @@ class TestInventario(ComBase):
             sorted(nome for (nome,) in linhas),
             sorted(
                 [
+                    # ------------------------------------- KAM-014 (0009)
+                    # O dominio de `mode`, a coerencia da janela (os dois
+                    # tempos andam juntos e o fim e depois do inicio), a chave
+                    # primaria e a unicidade que torna o `ON CONFLICT` do CHR
+                    # idempotente. E a `UNIQUE (tenant_id, id)` que a `0009`
+                    # acrescenta a `tenant_channels` para a FK composta poder
+                    # assentar nela.
+                    "conversations_janela_ck",
+                    "conversations_mode_ck",
+                    "conversations_pkey",
+                    "conversations_tenant_contact_channel_uq",
+                    "tenant_channels_tenant_id_uq",
                     # ------------------------------------- KAM-013 (0008)
                     # Os dois dominios fechados, os tectos de comprimento dos
                     # tres valores que vem do corpo do webhook, e as duas

@@ -43,7 +43,7 @@ class TestCatalogoReal(ComBase):
         """
         self.assertEqual(set(catalogo.excepcoes_rls()), {"platform.audit_heads"})
 
-    def test_a_descoberta_encontra_as_dezasseis_tabelas(self) -> None:
+    def test_a_descoberta_encontra_as_dezassete_tabelas(self) -> None:
         """Se a descoberta encolher, a suite inteira passa a testar menos.
 
         Catorze com o KAM-012, que trouxe o `audit_log` e o `audit_heads`. O
@@ -56,6 +56,10 @@ class TestCatalogoReal(ComBase):
         ponto de codigo — e por isso `tenant_usage` vem **antes** de
         `tenants` (`_` e 0x5F, `s` e 0x73), ao contrario do que uma
         ordenacao en_US daria.
+
+        Dezassete desde o KAM-014: a `conversations`. E a **primeira** tabela
+        do caminho do webhook a entrar aqui — as duas da `0008` nao tem
+        `tenant_id`, porque o tenant so nasce no CHR, que corre depois delas.
         """
         self.assertEqual(
             catalogo.tabelas_isoladas(self.cursor),
@@ -70,6 +74,8 @@ class TestCatalogoReal(ComBase):
                 ("platform", "contact_deks", "tenant_id"),
                 ("platform", "contact_endpoints", "tenant_id"),
                 ("platform", "contacts", "tenant_id"),
+                # KAM-014: a conversa.
+                ("platform", "conversations", "tenant_id"),
                 ("platform", "entitlements", "tenant_id"),
                 # KAM-006: as tres do consumo. A `evt_dlq_aprovacoes` **nao**
                 # esta aqui, e nao e esquecimento: nao tem `tenant_id`, porque
@@ -149,6 +155,9 @@ class TestCatalogoReal(ComBase):
                 ("contact_deks", "tenant_iso", "ALL", "{public}"),
                 ("contact_endpoints", "tenant_iso", "ALL", "{public}"),
                 ("contacts", "tenant_iso", "ALL", "{public}"),
+                # KAM-014: a primeira tabela do caminho do webhook com
+                # `tenant_id`, e por isso a primeira com politica.
+                ("conversations", "tenant_iso", "ALL", "{public}"),
                 ("entitlements", "tenant_iso", "ALL", "{public}"),
                 ("events_consumed", "tenant_iso", "ALL", "{public}"),
                 ("events_dlq", "tenant_iso", "ALL", "{public}"),
@@ -182,7 +191,9 @@ class TestCatalogoReal(ComBase):
             [# KAM-012: o registo de auditoria. O `audit_heads` nao esta
              # aqui, por excepcao declarada em `ci/rls_exceptions.yaml`.
              "audit_log",
-             "contact_deks", "contact_endpoints", "contacts", "entitlements",
+             "contact_deks", "contact_endpoints", "contacts",
+             # KAM-014: a conversa.
+             "conversations", "entitlements",
              # KAM-006: as tres do consumo com `tenant_id`.
              "events_consumed", "events_dlq",
              "events_log", "events_log_default", "events_outbox",

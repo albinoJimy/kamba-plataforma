@@ -94,6 +94,12 @@ def url_da_base(papel: str = "app") -> str:
     papeis = {
         "app": ("kamba_app", "KAMBA_SECRET_DB_APP_PASSWORD"),
         "batch": ("kamba_batch", "KAMBA_SECRET_DB_BATCH_PASSWORD"),
+        # KAM-014: o *worker* de entrada passou a montar o CHR, que abre tres
+        # ligacoes com tres papeis. O `resolver` responde
+        # `phone_number_id -> tenant` **antes** de haver contexto e corre a
+        # guarda de arranque do ADR-011; a `identity` resolve o contacto.
+        "resolver": ("kamba_resolver", "KAMBA_SECRET_DB_RESOLVER_PASSWORD"),
+        "identity": ("kamba_identity", "KAMBA_SECRET_DB_IDENTITY_PASSWORD"),
     }
     nome, variavel = papeis[papel]
     senha = os.environ[variavel]
@@ -106,6 +112,32 @@ def url_da_base(papel: str = "app") -> str:
     # A palavra-passe vai na URL porque e assim que o `pg` a aceita; a URL passa
     # pelo **ambiente** do processo, nunca pela linha de comandos.
     return f"postgres://{nome}:{senha}@{anfitriao}:{porta}/{base}"
+
+
+def chaves_de_identidade() -> dict[str, str]:
+    """As duas chaves que o `EnvKeyProvider` do KAM-008 le do ambiente.
+
+    O *worker* de entrada arranca o modulo de identidade desde o KAM-014 (o
+    braco `chr` do encaminhador resolve contactos), e `Identidade.arrancar`
+    recusa sem chaves. Nao ha identidade a resolver **nesta** suite — os corpos
+    sao os do KAM-013 e nenhum traz um `phone_number_id` conhecido —, mas o
+    processo tem de arrancar.
+
+    A forma do valor e `<kid>:<base64 de 32 octetos>`, que e a que o
+    `chaves.ts` le. Geram-se nesta execucao: nenhuma chave de ensaio vive em
+    ficheiro, e o nome das variaveis vem do inventario (`ops/secrets-inventory`)
+    pela mesma regra que o provedor usa — `KAMBA_SECRET_` mais a referencia em
+    maiusculas.
+    """
+    import base64
+
+    def chave(kid: str) -> str:
+        return f"{kid}:{base64.b64encode(secrets.token_bytes(32)).decode('ascii')}"
+
+    return {
+        "KAMBA_SECRET_PEPPER_CONTACT_HMAC": chave("k-entrada"),
+        "KAMBA_SECRET_KEK_CONTACT_DEK": chave("kek-entrada"),
+    }
 
 
 def url_da_fila() -> str:

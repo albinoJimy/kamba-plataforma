@@ -73,12 +73,28 @@ TABELAS_0007 = ("tenant_usage", "usage_ledger")
 #: isolar **pela coluna `tenant_id`**, que estas nao tem.
 TABELAS_0008 = ("inbound_events", "unrouted_events")
 
+#: O que a revisao 0009 (KAM-014) acrescenta: a conversa entre um contacto e um
+#: canal.
+#:
+#: E a **primeira** tabela do caminho do webhook com `tenant_id` — o tenant
+#: nasce no CHR, que corre depois da escrita das duas de cima —, e por isso a
+#: primeira que o teste X-05 do gate 6 descobre pela coluna e a primeira com
+#: politica `tenant_iso`.
+TABELAS_0009 = ("conversations",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
-        + TABELAS_0006 + TABELAS_0007 + TABELAS_0008
+        + TABELAS_0006 + TABELAS_0007 + TABELAS_0008 + TABELAS_0009
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0008`.
+#:
+#: Pela mesma razao do `TABELAS_ATE_0003` e do `TABELAS_ATE_0004`: o
+#: `downgrade` da `0009` pode recusar (ha conversas e nao ha copia), e nesse
+#: caso a base fica aqui.
+TABELAS_ATE_0008 = tuple(sorted(set(TABELAS) - set(TABELAS_0009)))
 
 #: O que existe em `platform` quando a base esta na revisao `0004`.
 #:

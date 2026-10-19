@@ -246,6 +246,58 @@ ESPERADO_POR_TABELA.update(
 )
 
 
+def _conversa(**por_papel: set[str]) -> dict[str, set[str]]:
+    """Matriz da tabela da revisao 0009 (KAM-014).
+
+    O dono tem tudo; o `kamba_batch` tem os quatro de dados, porque e quem
+    purga (KAM-071). O `kamba_resolver` **nada**: ele responde a pergunta
+    `phone_number_id -> tenant` antes de haver contexto, e uma conversa so
+    existe depois de o contexto existir. O `kamba_audit` tambem nada.
+    """
+    base = {
+        "kamba_app": set(),
+        "kamba_batch": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+        "kamba_resolver": set(),
+        "kamba_identity": set(),
+        "kamba_audit": set(),
+        "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+        "public": set(),
+    }
+    base.update(por_papel)
+    return base
+
+
+ESPERADO_POR_TABELA.update(
+    {
+        # KAM-014. A primeira tabela do caminho do webhook com `tenant_id`, e
+        # por isso a primeira com RLS: as duas da `0008` nao o tem por desenho,
+        # porque o tenant so nasce no CHR.
+        #
+        # O `kamba_app` le e insere. O `SELECT` **e preciso**: o CHR le o `mode`
+        # da conversa, e e o `mode` que decide se a mensagem vai ao AGR
+        # (`docs/tecnica/01` §10.2) — e o `INSERT ... ON CONFLICT DO UPDATE ...
+        # RETURNING` exige `SELECT` nas colunas devolvidas e nos elementos da
+        # inferencia. O `UPDATE` e **por coluna** (`last_inbound_at`,
+        # `window_expires_at`), pelo que nao aparece nesta matriz — aparece em
+        # `COLUNAS_POR_PAPEL`, e e la que se ve que o `mode` **nao** esta: as
+        # transicoes de modo sao KAM-018, e um `UPDATE (mode)` concedido aqui
+        # era a aplicacao a poder silenciar uma conversa sem o protocolo desse
+        # ticket.
+        #
+        # O `kamba_identity` aparece a vazio nesta matriz **e tem privilegios**:
+        # sao todos por coluna. E o gancho `onContactMerge` do KAM-008 que
+        # reaponta as conversas do contacto absorvido, e corre dentro da
+        # transacao da fusao, com a ligacao e o contexto que o modulo de
+        # identidade abriu — faze-lo por fora quebrava a atomicidade que esse
+        # modulo garante. Nem `INSERT` nem `DELETE`: nao cria conversas, e
+        # quando o contacto que fica ja tem uma conversa no mesmo canal as duas
+        # nao se fundem numa linha (a `UNIQUE` recusa-o) — dobram-se os tempos
+        # na que fica e a outra pendura-se na lapide.
+        "conversations": _conversa(kamba_app={"SELECT", "INSERT"}),
+    }
+)
+
+
 def _eventos(**por_papel: set[str]) -> dict[str, set[str]]:
     """Matriz de uma tabela da revisao 0004 (KAM-005).
 
@@ -403,6 +455,24 @@ COLUNAS_POR_PAPEL = {
     # licao do `events_dlq` acima. **O `payload` continua fechado**, que e a
     # propriedade que importa: e a coluna que pode levar telefone e texto.
     ("kamba_app", "unrouted_events", "SELECT"): {"kind", "event_key"},
+    # KAM-014: duas colunas, e sao as duas que o CHR escreve em cada entrada —
+    # a janela de 24 h abre-se com a mensagem que chega. O `mode` **nao** esta:
+    # as transicoes sao KAM-018, e `last_human_activity_at` e de KAM-018/019.
+    # Um privilegio concedido «para quando for preciso» e um privilegio que
+    # ninguem volta a tirar.
+    ("kamba_app", "conversations", "UPDATE"): {"last_inbound_at", "window_expires_at"},
+    # KAM-014, e e tudo o que o gancho de fusao do KAM-008 precisa: le para
+    # encontrar a colisao (o contacto que fica ja tem conversa neste canal?) e
+    # para dobrar os tempos, e escreve o `contact_id` e os tres tempos. **Sem
+    # `mode`**: uma fusao de contactos nao muda quem tem a palavra numa
+    # conversa.
+    ("kamba_identity", "conversations", "SELECT"): {
+        "id", "tenant_id", "contact_id", "channel_id",
+        "last_inbound_at", "window_expires_at", "last_human_activity_at",
+    },
+    ("kamba_identity", "conversations", "UPDATE"): {
+        "contact_id", "last_inbound_at", "window_expires_at", "last_human_activity_at",
+    },
 }
 PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
 

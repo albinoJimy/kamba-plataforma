@@ -540,6 +540,16 @@ avaliada **na ordem escrita**: o primeiro padrão que bate decide.
 > pedidos —, porque é a assinatura que impede a URL de um objecto de abrir
 > outro. Medido no *run* do PR do KAM-011: estrato `critico` a 100% (2879 de
 > 2879 linhas, 18 ficheiros — os dois `tenant_guard` e os dois `storage/`).
+>
+> **Desde o KAM-014 o estrato tem também `*/chr/*`**: o ChannelResolver, que é
+> **o sítio onde o `tenant_id` nasce** para o estado do grafo
+> (`docs/tecnica/01` §7.2). Um defeito aqui não é um bug: é uma mensagem de um
+> cliente entregue ao assistente de outra loja, ou uma conversa em modo `humano`
+> interrompida pelo bot. A medição que conta é a de `db/tests_chr/`, **por
+> ficheiro**, pela mesma razão do `identity/contactos.ts`: o CHR resolve contra
+> uma base com três papéis diferentes, e sem ela só correm as recusas à entrada.
+> O `chr/fila.ts` fica de fora (`excluidos`): é casca sobre o BullMQ, e quem o
+> exercita é uma fila real.
 
 Trunca-se, não se arredonda: o ticket diz «descer 1 ponto abaixo falha o gate»,
 pelo que 89,9% não é 90%.
@@ -1184,12 +1194,12 @@ dispensa.
 
 #### A segunda metade: identidade de contacto (KAM-008)
 
-O `make ci-8` corre **nove** *suites*, cada uma com a sua base descartável:
+O `make ci-8` corre **dez** *suites*, cada uma com a sua base descartável:
 `tests` (as migrações, acima), **`tests_identidade`** (esta secção),
 **`tests_eventos`** e **`tests_eventos_carga`** (a secção seguinte, KAM-005),
 `tests_eventos_consumo` (KAM-006), `tests_auditoria_carga` (KAM-012),
-**`tests_ten`** (KAM-009) e **`tests_entrada`** e **`tests_entrada_carga`**
-(KAM-013, a última secção).
+**`tests_ten`** (KAM-009), **`tests_entrada`** e **`tests_entrada_carga`**
+(KAM-013) e **`tests_chr`** (KAM-014, a última secção).
 A de identidade entrou com o KAM-008. Esta põe o módulo de identidade — TypeScript, em
 `packages/core-ts/src/identity/` — a correr contra o PostgreSQL com o papel
 `kamba_identity` verdadeiro e a RLS ligada. O desenho está em
@@ -1356,6 +1366,39 @@ escolha.
 medição: com um `docker run` por método a *suite* levava 763 s. Os dois
 processos não têm estado próprio — está na base e na fila, que se limpam entre
 testes.
+
+
+#### A décima primeira: o CHR (KAM-014)
+
+`tests_chr` põe o módulo do CHR — TypeScript, em
+`packages/core-ts/src/chr/` — a correr contra o PostgreSQL com os **três papéis
+verdadeiros**: `kamba_resolver`, `kamba_identity` e `kamba_app`. É a primeira
+*suite* que abre três ligações com três papéis, e isso não é arrumação: a
+resposta à pergunta do CHR **depende do papel**, e é essa a propriedade que só
+aqui se prova. O desenho está em [`chr.md`](chr.md).
+
+| O que só aqui se prova | Como |
+|---|---|
+| «o `phone_number_id` de A nunca devolve o contexto de B» | Dois tenants, dois canais, o resolvedor **sem contexto de tenant**. A propriedade vem da `tenant_channels_phone_number_id_uq` e da política `resolver_leitura`, não do código: não há duas linhas onde escolher |
+| «`kamba_app` não consegue responder à pergunta» | A mesma consulta com os dois papéis: `kamba_app` sem contexto devolve **zero linhas** (que o CHR leria como «canal desconhecido») e `kamba_resolver` devolve uma. É o que torna o papel necessário e não conveniente |
+| «o `plano` está entre as colunas que o resolvedor lê» | Foi a revisão `0009` que lho concedeu; sem ele o `ChannelContext` do critério 1 ficava a sete campos |
+| «uma conversa de B não se vê com o contexto de A» | O CHR abre a conversa de B; com `comTenant(A)`, a contagem é zero. É a RLS `FORCE` da `0009` |
+| a convergência de identidade, e **o seu limite** | A sequência medida: só-telefone cria P, só-BSUID cria A (nada os liga), a primeira que traz os dois funde no mais antigo com `contact.merged` **uma** vez em dez repetições, e daí em diante os dois sentidos devolvem P. O critério 4 não se cumpre à letra, e é esta medição que o mostra |
+| o gancho de fusão, nos dois casos | Sem colisão reaponta; com colisão no mesmo canal dobra os tempos e **não** viola a `UNIQUE`. E se o gancho lançar, a fusão inteira é desfeita — com a fotografia das conversas igual antes e depois |
+| «repetição do mesmo `wamid` não cria 2 conversas» | O mesmo evento duas vezes: **uma** linha em `conversations`, com o mesmo `conversation_id` nos dois *jobs* |
+| a guarda do ADR-011 no arranque | Uma linha de Fluxo B de cada um dos três tipos, e o arranque recusado nas três; com `kamba_app`, a guarda **recusa-se a correr** (`GuardaCega`) em vez de contar zero; com `kamba_batch`, que contorna a RLS, corre |
+| «`kamba_app` não altera o `mode`» | O privilégio **não existe** (revisão `0009`): as transições são KAM-018. Provar pela ausência de privilégio é mais forte do que por política |
+| a latência do critério 8 | p95 de 40 execuções, com e sem *cache*, impresso no registo do *gate*. O que estes números valem está em [`chr.md`](chr.md) §8 |
+
+E a *suite* mede a **cobertura de `src/chr/` por ficheiro**, contra o limiar do
+estrato `critico` lido de `ci/thresholds.yaml` — porque o *gate* 4 não tem base
+de dados e o CHR sem base só corre as recusas à entrada. É a mesma solução do
+`tests_identidade`, e pela mesma razão.
+
+**Não precisa de fila**, ao contrário das do KAM-013: a porta do AGR é uma
+interface, e o que se faz com o *job* é KAM-025. O `chr/fila.ts` — a casca sobre
+o BullMQ — fica por isso fora da medição, declarado nos `excluidos` do
+`ci/thresholds.yaml`.
 
 ## 4. Gates reservados (5)
 
@@ -2013,3 +2056,4 @@ sobrevivem ao PR.
 | 1.36 | Outubro 2026 | **KAM-009: o *gate* 8 passa a correr sete *suites*.** A sétima é `tests_ten`, que prova a **função** `platform.ten_consumir` da revisão `0007` e não o esquema: mil chamadas paralelas de 1 unidade contra um tecto de 100 em 32 ligações — **100 aceites, 900 negadas, contador final 100, e o livro de idempotência com 100 linhas e não mil** —, as dez repetições do critério 4 mais o caso que o critério não pede (uma recusa não pode gastar a chave, nos dois caminhos de recusa), a fronteira do mês com relógio fixo nos dois instantes do critério **e** num instante que cai em meses diferentes em UTC e em `Africa/Luanda`, e o isolamento da função — que o *gate* 6 não prova, porque a política de uma tabela não diz o que uma função `SECURITY INVOKER` faz quando quem a chama é outro tenant. O *gate* 6 ganha as receitas de sementes das duas tabelas novas, sem as quais se recusava a correr, e `entitlements` passa a ser uma tabela que `kamba_app` **não altera** (a `0007` revogou-lhe o `UPDATE`). Quinze mutações novas. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |
 | 1.37 | Outubro 2026 | **KAM-009 reprovou na revisão adversarial, e o *gate* 8 passa a morder onde ela mordeu.** Três críticos, nenhum apanhado pelos 47 testes nem pelas 15 mutações que havia: a chave de idempotência valia para **todas** as chaves de limite e não olhava à quantidade (repetir a chave de um consumo de uma mensagem autorizava um pedido de 999 999,99 Kz contra um tecto de 50 000, sem contar); `kamba_app` mantinha `INSERT` em `entitlements`, e com `WITH CHECK (tenant_id = app.tenant_id)` o tenant **criava** o próprio tecto; e `GRANT UPDATE (valor)` em `tenant_usage` deixava-o **zerar** o próprio contador. A revisão `0007` ganha a `chave_limite` na chave do livro, a comparação da quantidade (`KA002`), o `REVOKE INSERT`, e o *trigger* `tenant_usage_so_sobe` — o padrão do `audit_log_imutavel` da `0006`: o que o privilégio por coluna não sabe exprimir, exprime-o um `BEFORE UPDATE`. Mais o `UPDATE (tenants.estado)` revogado (um tenant `suspenso` reactivava-se e retirava a condição do critério 2), o `p_agora` fechado a quem não é `kamba_batch`, e quatro erros que escapavam aos tratadores (`22P02` de um limite não inteiro, `22003` de transbordo, chave de idempotência vazia, aviso de ordem das chaves no `COMMENT`). A *suite* `tests_ten` ganha o `test_escalada.py` — o atacante é o **próprio** tenant, que é o caso que a RLS nunca podia parar — e passa a correr o `SQL_CONSUMIR` e o `SQL_PERIODO` **das bibliotecas** em vez de uma cópia deles, o que destapou um defeito real: o `SQL_PERIODO` não tinha `coalesce` e devolvia `NULL` sem instante. Mutações: 256 → **270**. | Equipa KAMBÁ |
 | 1.38 | Outubro 2026 | **KAM-013: o *gate* 8 passa a correr nove *suites*.** As duas novas são `tests_entrada` e `tests_entrada_carga`, e a diferença face a todas as outras é o que elas lançam: os **processos de produção** (`services/gwy/src/server.ts` e `services/worker-canal/src/entrada.ts`), sem programa de ensaio pelo meio — porque o que há para provar é o comportamento de um servidor HTTP com uma fila a sério. O que só aqui se mede: o 200 com o *job* **já** na fila, o 503 com o contentor da fila parado (e o mesmo processo a voltar a aceitar sem reinício), a mesma mensagem em dois corpos a deixar **uma** linha, e um corpo ilegível a dar 200 e quarentena em vez de começar sete dias de re-entregas. **A assinatura calcula-se em Python**, que é uma segunda implementação: mede-se interoperabilidade e não auto-consistência. E os domínios de `kind` e `motivo` comparam-se com **três** fontes — o `CHECK` do PostgreSQL, o dicionário exportado e a lista do módulo TypeScript. A *suite* apanhou **três defeitos que nenhum teste unitário apanhava**: o `backoffStrategy` que faltava no *worker* (todos os *jobs* levam `backoff: custom` do `addLote`, e um *worker* que o não registe lança ao calcular o atraso — o *job* ficava em `failed` sem passar pela quarentena); o `SELECT` por coluna que o `ON CONFLICT (kind, event_key)` exige em `unrouted_events` (a mesma lição que a `0005` já escrevera para o `events_dlq`); e um *job* falhado a não deixar **linha nenhuma** de registo, porque o BullMQ nada escreve quando ninguém ouve o acontecimento `failed`. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |
+| 1.39 | Outubro 2026 | **KAM-014: o *gate* 8 passa a correr dez *suites*.** A décima é `tests_chr`, e é a primeira que abre **três ligações com três papéis** — `kamba_resolver`, `kamba_identity` e `kamba_app` —, porque a resposta à pergunta do CHR depende do papel: a mesma consulta devolve **zero linhas** com `kamba_app` sem contexto e uma com o resolvedor, e é isso que torna o papel necessário e não conveniente. O que só aqui se prova está no §3: o `phone_number_id` de A nunca devolve o contexto de B (propriedade da chave única e da política, não do código), a convergência de identidade **e o seu limite**, o gancho de fusão nos dois casos, a guarda do ADR-011 a recusar-se a correr com um papel que não vê tudo, e a ausência de `UPDATE (mode)` para a aplicação. O estrato `critico` ganha `*/chr/*` e o `chr/fila.ts` entra nos `excluidos`. O *gate* 6 ganha a receita de sementes da `conversations` — a primeira tabela isolada **sem coluna de texto livre**, com o canário na chave primária —, e a descoberta do X-05 passa de dezasseis tabelas a **dezassete**. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |

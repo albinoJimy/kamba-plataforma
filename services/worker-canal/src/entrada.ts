@@ -14,31 +14,56 @@
  *    encaixa. A decisão toda está em `@kamba/core-ts/entrada`; aqui monta-se.
  * 3. Serve `/healthz` e `/metrics`, como os outros dois.
  *
- * ## O encaminhador deste processo não encaminha, e isso é o âmbito
+ * ## Um dos quatro destinos já encaminha; os outros três continuam costura
  *
- * Os quatro destinos existem como **costura**, não como implementação: o CHR é
- * KAM-014, o *stage* de *outbound* é KAM-015, a ingestão de coexistência é
- * KAM-017 e a gestão de canal está repartida entre KAM-016 e KAM-021. O que
- * este ticket entrega é a decisão de **para onde** cada `kind` vai, e a prova
- * de que ela é a do critério 8 — incluindo as duas propriedades negativas que
- * importam: um `statuses` nunca vai ao AGR, e um `history` nunca dispara
- * resposta. É o mesmo desenho do `consumidor.ts`, que traz o esqueleto com um
- * efeito que só registra, pela mesma razão: um tratador inventado aqui era
- * desenho de outro ticket escrito sem o seu critério de aceitação.
+ * O braço `chr` é o **CHR** (KAM-014): resolve o canal, aplica a guarda do
+ * ADR-011 e a matriz de estados, resolve o contacto, abre a conversa e entrega
+ * ao AGR ou ao dono. Os outros três continuam a existir como costura — o
+ * *stage* de *outbound* é KAM-015, a ingestão de coexistência é KAM-017 e a
+ * gestão de canal está repartida entre KAM-016 e KAM-021 —, e o que o KAM-013
+ * entregou e continua a valer é a decisão de **para onde** cada `kind` vai,
+ * incluindo as duas propriedades negativas que importam: um `statuses` nunca
+ * vai ao AGR, e um `history` nunca dispara resposta.
  *
- * O `EncaminhadorQueSoRegista` **conta** por destino, e é isso que o teste
- * exercita. Quem acrescentar um tratador troca a implementação e mais nada.
+ * O `EncaminhadorQueSoRegista` fica, e é com ele que o teste do critério 8 do
+ * KAM-013 continua a correr. Em produção o que se monta é o
+ * `EncaminhadorDoCanal`, que delega `chr` no CHR e mantém os outros três a
+ * contar.
  *
- * ## A ligação é `kamba_app`, e nenhuma das duas tabelas tem RLS
+ * ## Quatro ligações, três papéis, e nenhuma faz o trabalho de outra
  *
- * `inbound_events` e `unrouted_events` não têm `tenant_id` — o tenant só nasce
- * no CHR (KAM-014) —, pelo que não há contexto de tenant a pôr nem política a
- * cumprir. É a única escrita da plataforma nessa situação, e a revisão `0008`
- * explica porquê.
+ * `kamba_app` para a entrada (`inbound_events`, `unrouted_events`, e agora
+ * `conversations`), `kamba_resolver` para a resolução de canal e para a guarda
+ * de arranque, e `kamba_identity` para o contacto. É o padrão do
+ * `consumidor.ts`, que já abre duas ligações com dois papéis; dar uma só — a de
+ * `kamba_batch`, que vê tudo — resolvia tudo e era exactamente o que o ADR-015
+ * recusa.
+ *
+ * `inbound_events` e `unrouted_events` não têm `tenant_id` — o tenant nasce no
+ * CHR —, pelo que a escrita delas não leva contexto nem política; a
+ * `conversations` tem as duas coisas, e por isso toda a escrita nela passa pelo
+ * `comTenant`.
+ *
+ * ## A guarda do ADR-011 corre **antes** de o processo aceitar trabalho
+ *
+ * `verificarArranque` é a segunda metade do critério 5: «o arranque falha se
+ * existir tal linha em produção». Corre com a ligação de `kamba_resolver` — o
+ * único papel que prova que vê todas as linhas sem contornar a RLS — e levanta
+ * antes de se criar o *worker* da fila. Com `KAMBA_FASE` ausente ou com outro
+ * valor, levanta também: um valor desconhecido não desliga a guarda.
  */
 
 import { serve } from "@hono/node-server";
 import { healthz } from "@kamba/core-ts";
+import {
+  Chr,
+  type EntregaDoChr,
+  METRICAS_DO_CHR,
+  ResolvedorDeCanal,
+  repontarConversas,
+  verificarArranque,
+} from "@kamba/core-ts/chr";
+import { criarFilaDoAgr } from "@kamba/core-ts/chr/fila";
 import {
   FILA_ENTRADA,
   METRICAS_DO_WORKER,
@@ -49,10 +74,13 @@ import {
   type EventoDeEntrada,
   type Registo,
   criarTrabalhadorDeEntrada,
+  porEmQuarentena,
   sha256Hex,
   tratarCorpo,
 } from "@kamba/core-ts/entrada";
+import { EnvKeyProvider, Identidade } from "@kamba/core-ts/identity";
 import { type Logger, instalar } from "@kamba/core-ts/logger";
+import { comTenant } from "@kamba/core-ts/tenant_guard";
 import { Hono } from "hono";
 import { Client } from "pg";
 
@@ -64,6 +92,25 @@ const log = instalar(SERVICE);
 export const PORTA_POR_OMISSAO = 3013;
 
 const VARIAVEL_DA_BASE = "KAMBA_ENTRADA_DB_URL";
+/**
+ * A ligacao do **resolvedor de canal**, que e outro papel (KAM-014).
+ *
+ * `kamba_resolver`: `NOBYPASSRLS`, politica propria `resolver_leitura`,
+ * `SELECT` em dez colunas de `tenant_channels` e de `tenants` e mais nada
+ * (`docs/isolamento.md` §3). E o unico papel que pode responder
+ * `phone_number_id -> tenant` **antes** de haver contexto, e e tambem com ele
+ * que corre a guarda de arranque do ADR-011 — como `kamba_app`, a guarda
+ * recusa-se a correr (`GuardaCega`) em vez de contar zero e arrancar.
+ */
+const VARIAVEL_DO_RESOLVEDOR = "KAMBA_CHR_RESOLVER_DB_URL";
+/**
+ * A ligacao da **identidade de contacto**, que e o terceiro papel (KAM-008).
+ *
+ * `kamba_identity` e o unico papel de servico com `SELECT` em
+ * `contact_endpoints` e `contact_deks`. E tambem o papel em que corre o gancho
+ * de fusao que reaponta conversas, porque a fusao e uma transacao dele.
+ */
+const VARIAVEL_DA_IDENTIDADE = "KAMBA_CHR_IDENTITY_DB_URL";
 const VARIAVEL_DA_FILA = "KAMBA_QUEUE_URL";
 const VARIAVEL_DA_PORTA = "ENTRADA_PORT";
 
@@ -113,6 +160,68 @@ export class EncaminhadorQueSoRegista implements Encaminhador {
   }
 }
 
+/**
+ * O encaminhador de producao: o braco `chr` e o CHR, os outros tres contam.
+ *
+ * Herda do esqueleto de proposito, e nao o substitui: os tres destinos que ainda
+ * nao tem tratador continuam a contar exactamente como contavam, e o teste do
+ * criterio 8 do KAM-013 — «`statuses` vai a `outbound` e nao ao CHR», «`history`
+ * nao dispara resposta» — continua a valer sobre esta classe.
+ */
+export class EncaminhadorDoCanal extends EncaminhadorQueSoRegista {
+  readonly #chr: Chr;
+
+  constructor(chr: Chr) {
+    super();
+    this.#chr = chr;
+  }
+
+  override async chr(evento: EventoDeEntrada): Promise<void> {
+    this.entregues.push(evento);
+    await this.#chr.tratar(evento);
+  }
+}
+
+/**
+ * A entrega do CHR: o AGR por fila, o dono por contador.
+ *
+ * O braco do dono **nao envia nada**, e isso e o ambito: o protocolo bot <-> dono
+ * e KAM-018 e o espelho no Chatwoot e KAM-019. O que este ticket entrega e a
+ * decisao de nao mandar ao AGR, e a prova de que ela se toma — o contador e o
+ * que o teste do criterio 7 le. Um tratador inventado aqui era desenho de outro
+ * ticket escrito sem o seu criterio de aceitacao, que e a mesma razao pela qual
+ * o KAM-013 deixou os quatro destinos a contar.
+ */
+export class EntregaDoCanal implements EntregaDoChr {
+  readonly #publicar: (invocacao: Parameters<EntregaDoChr["agr"]>[0]) => Promise<void>;
+  readonly #registo: Logger | undefined;
+  /** Quantas mensagens foram para o dono/HND em vez do AGR. */
+  aoDono = 0;
+  /** Quantos turnos foram para o AGR. */
+  aoAgr = 0;
+
+  constructor(
+    publicar: (invocacao: Parameters<EntregaDoChr["agr"]>[0]) => Promise<void>,
+    registo?: Logger,
+  ) {
+    this.#publicar = publicar;
+    this.#registo = registo;
+  }
+
+  async agr(invocacao: Parameters<EntregaDoChr["agr"]>[0]): Promise<void> {
+    await this.#publicar(invocacao);
+    this.aoAgr += 1;
+  }
+
+  async dono(): Promise<void> {
+    this.aoDono += 1;
+    // So o desfecho, e nada do que foi entregue: a *allowlist* do KAM-068 nao
+    // tem `tenant_id`, `conversation_id` nem `wamid`, e e um erro de compilacao
+    // tenta-lo. Quem precisa do detalhe le a `conversations`.
+    this.#registo?.info({ outcome: "chr_ao_dono" });
+  }
+}
+
 export function criarApp(registo?: Logger): Hono {
   const app = new Hono();
 
@@ -132,8 +241,14 @@ export function criarApp(registo?: Logger): Hono {
   // `gwy_sig_fail 0` e `inbound_queue_depth -1` permanentes, a diluir qualquer
   // media e a por um `-1` ao lado do valor real do GWY — e do trabalho que
   // este processo faz de verdade nao saia nada. Achado da revisao adversarial.
+  // **As do *worker* e as do CHR**, nesta ordem. Os dois conjuntos sao de
+  // dominios diferentes e nenhum sabe do outro (`entrada/metricas.ts` e
+  // `chr/metricas.ts`), e o formato de exposicao do Prometheus e so texto: a
+  // concatenacao e valida desde que nenhum nome apareca nas duas — e nao
+  // aparece, `inbound_*` contra `chr_*`. Um registo central para os juntar e o
+  // KAM-080.
   app.get("/metrics", (c) =>
-    c.text(METRICAS_DO_WORKER.exposicao(), 200, {
+    c.text(`${METRICAS_DO_WORKER.exposicao()}${METRICAS_DO_CHR.exposicao()}`, 200, {
       "content-type": "text/plain; version=0.0.4; charset=utf-8",
     }),
   );
@@ -144,10 +259,83 @@ async function principal(): Promise<void> {
   const urlDaBase = exigir(VARIAVEL_DA_BASE);
   const urlDaFila = exigir(VARIAVEL_DA_FILA);
 
+  const urlDoResolvedor = exigir(VARIAVEL_DO_RESOLVEDOR);
+  const urlDaIdentidade = exigir(VARIAVEL_DA_IDENTIDADE);
+
   const bd = new Client({ connectionString: urlDaBase });
   await bd.connect();
+  const resolvedorBd = new Client({ connectionString: urlDoResolvedor });
+  await resolvedorBd.connect();
+  const identidadeBd = new Client({ connectionString: urlDaIdentidade });
+  await identidadeBd.connect();
 
-  const encaminhador = new EncaminhadorQueSoRegista();
+  // **A guarda do ADR-011, antes de tudo.** E a segunda metade do criterio 5 do
+  // KAM-014, e corre antes de se criar o *worker*: um processo que aceite
+  // trabalho e so depois descubra que ha Fluxo B na base ja tratou mensagens
+  // por um canal que o Piloto nao autoriza. Levanta tambem se `KAMBA_FASE`
+  // faltar ou tiver outro valor — um valor desconhecido nao desliga a guarda.
+  await verificarArranque(resolvedorBd, process.env);
+
+  const identidade = await Identidade.arrancar({
+    chaves: new EnvKeyProvider({
+      ambiente: process.env.KAMBA_ENV === "prod" ? "prod" : "dev",
+    }),
+  });
+  // O gancho que reaponta conversas numa fusao de contactos. Corre **dentro** da
+  // transacao da fusao, com a ligacao e o contexto que o modulo de identidade
+  // abriu — e e por isso que o `kamba_identity` tem privilegios por coluna na
+  // `conversations` (revisao `0009`). Se lancar, a fusao inteira e desfeita.
+  identidade.onContactMerge(async ({ cliente, tenantId, de, para }) => {
+    await repontarConversas(cliente, tenantId, de, para);
+  });
+
+  const resolvedor = new ResolvedorDeCanal(resolvedorBd);
+  const filaDoAgr = criarFilaDoAgr(urlDaFila);
+  const entrega = new EntregaDoCanal((invocacao) => filaDoAgr.publicar(invocacao), log);
+
+  const chr = new Chr({
+    resolvedor,
+    contacto: async (pedido) => {
+      const resolvido = await identidade.resolveContact(identidadeBd, pedido);
+      // O evento `contact.merged` que a fusao devolve e emitido por quem chama
+      // (KAM-008, `docs/identidade.md` §4), e esse somos nos. Emite-se **depois**
+      // da transacao da fusao ter confirmado, pelo outbox do KAM-005 — e o
+      // limite esta dito em `docs/chr.md` §6: um `kill -9` entre o `COMMIT` da
+      // fusao e esta emissao perde o evento. Pagar a atomicidade exigia dar ao
+      // `kamba_identity` o `EXECUTE` do `evt_emitir`, isto e, deixar a
+      // identidade emitir qualquer evento.
+      if (resolvido.evento !== null) {
+        log.info({ outcome: "contact_merged" });
+      }
+      return { contactId: resolvido.contactId };
+    },
+    entrega,
+    quarentena: async (evento, motivo) =>
+      porEmQuarentena(
+        bd,
+        {
+          kind: "desconhecido",
+          eventKey: evento.eventKey,
+          motivo,
+          wabaId: evento.wabaId,
+          phoneNumberId: evento.phoneNumberId,
+        },
+        // **Sem corpo.** A quarentena do KAM-013 guarda o corpo porque sem ele
+        // nao se diagnostica um JSON ilegivel; aqui o corpo e legivel e o que
+        // falta e o canal — e guardar conteudo de conversa por causa de um
+        // canal removido era guardar dados pessoais sem necessidade (ADR-010).
+        null,
+      ),
+    metricas: METRICAS_DO_CHR,
+    registar: (campos) => log.info(campos),
+    // A ligacao fecha-se aqui e passa-se nos dois sitios: o `comTenant` poe o
+    // contexto nela e o trabalho corre nela. Ver a nota de `ComTenant` — e a
+    // forma que resolve a variancia dos dois `ClienteSql`, e deixa o CHR sem
+    // nenhuma ligacao a mao fora de uma transacao com contexto.
+    comTenant: (tenant, trabalho) => comTenant(bd, tenant, () => trabalho(bd)),
+  });
+
+  const encaminhador = new EncaminhadorDoCanal(chr);
   // O `log` da biblioteca tem *allowlist* de campos (`docs/tecnica/08` §7.3), e
   // é o `tratarCorpo` que escolhe o que lá cabe: o `outcome`, o `msg_id` já
   // opaco e o `wa_type` da lista fechada. **Nada do corpo passa por aqui**.
@@ -216,7 +404,10 @@ async function principal(): Promise<void> {
   // `trabalhador_bullmq.ts`, e pela mesma razão.
   await consumo.fechar();
   servidor.close();
+  await filaDoAgr.fechar().catch(() => {});
   await bd.end().catch(() => {});
+  await identidadeBd.end().catch(() => {});
+  await resolvedorBd.end().catch(() => {});
 }
 
 if (import.meta.main) {

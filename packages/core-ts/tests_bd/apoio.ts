@@ -31,19 +31,23 @@ import {
 /** A base em que estes testes aceitam correr. O mesmo trinco de `db/tests/base.py`. */
 export const BASE_DESCARTAVEL = "kamba_gate8";
 
-export type Papel = "admin" | "identity" | "app" | "batch";
+export type Papel = "admin" | "identity" | "app" | "batch" | "resolver";
 
 const VARIAVEL_DA_SENHA: Record<Papel, string> = {
   admin: "POSTGRES_PASSWORD",
   identity: "KAMBA_SECRET_DB_IDENTITY_PASSWORD",
   app: "KAMBA_SECRET_DB_APP_PASSWORD",
   batch: "KAMBA_SECRET_DB_BATCH_PASSWORD",
+  // KAM-014: o papel do CHR. E o unico que responde
+  // `phone_number_id -> tenant` antes de haver contexto.
+  resolver: "KAMBA_SECRET_DB_RESOLVER_PASSWORD",
 };
 
 const UTILIZADOR: Record<Exclude<Papel, "admin">, string> = {
   identity: "kamba_identity",
   app: "kamba_app",
   batch: "kamba_batch",
+  resolver: "kamba_resolver",
 };
 
 function exigir(nome: string): string {
@@ -128,9 +132,74 @@ export async function criarTenant(admin: pg.Client, rotulo: string): Promise<str
   return id;
 }
 
+/**
+ * Cria um canal de ensaio e devolve o `id` e o `phone_number_id` (KAM-014).
+ *
+ * O `phone_number_id` e unico em toda a plataforma
+ * (`tenant_channels_phone_number_id_uq`, revisao `0001`), e e isso que torna a
+ * resolucao deterministica: nao ha duas linhas onde escolher.
+ */
+export async function criarCanal(
+  admin: pg.Client,
+  tenant: string,
+  troca: {
+    readonly vertical?: string;
+    readonly origem?: string;
+    readonly estado?: string;
+    readonly channelMode?: string;
+  } = {},
+): Promise<{ readonly id: string; readonly phoneNumberId: string }> {
+  const phoneNumberId = `pnid-${randomUUID()}`;
+  const { rows } = await admin.query(
+    "INSERT INTO platform.tenant_channels " +
+      "(tenant_id, waba_id, phone_number_id, channel_mode, vertical, origem, estado, token_ref) " +
+      "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id::text AS id",
+    [
+      tenant,
+      `waba-${randomUUID().slice(0, 8)}`,
+      phoneNumberId,
+      troca.channelMode ?? "coexistencia",
+      troca.vertical ?? "vendedor",
+      troca.origem ?? "pme",
+      troca.estado ?? "ativo",
+      `ref-opaca/${randomUUID()}`,
+    ],
+  );
+  return { id: (rows[0] as { id: string }).id, phoneNumberId };
+}
+
+/** As conversas de um tenant, vistas pelo administrador. */
+export async function conversasDe(
+  admin: pg.Client,
+  tenant: string,
+): Promise<
+  readonly {
+    readonly id: string;
+    readonly contact_id: string;
+    readonly channel_id: string;
+    readonly mode: string;
+    readonly last_inbound_at: Date | null;
+    readonly window_expires_at: Date | null;
+    readonly last_human_activity_at: Date | null;
+  }[]
+> {
+  const { rows } = await admin.query(
+    "SELECT id::text AS id, contact_id::text AS contact_id, " +
+      "channel_id::text AS channel_id, mode, last_inbound_at, window_expires_at, " +
+      "last_human_activity_at FROM platform.conversations " +
+      "WHERE tenant_id = $1 ORDER BY channel_id, id",
+    [tenant],
+  );
+  return rows as never;
+}
+
 /** Apaga tudo o que um tenant de ensaio tem, pela ordem das FK. */
 export async function apagarTenant(admin: pg.Client, tenant: string): Promise<void> {
   await admin.query("UPDATE platform.tenants SET owner_contact_id = NULL WHERE id = $1", [tenant]);
+  // KAM-014: antes dos contactos e dos canais, que ela referencia.
+  await admin.query("DELETE FROM platform.conversations WHERE tenant_id = $1", [tenant]);
+  await admin.query("DELETE FROM platform.unrouted_events WHERE motivo IN ('canal_desconhecido', 'mensagem_sem_identidade')");
+  await admin.query("DELETE FROM platform.tenant_channels WHERE tenant_id = $1", [tenant]);
   await admin.query("DELETE FROM platform.contact_endpoints WHERE tenant_id = $1", [tenant]);
   await admin.query("DELETE FROM platform.contact_deks WHERE tenant_id = $1", [tenant]);
   await admin.query(

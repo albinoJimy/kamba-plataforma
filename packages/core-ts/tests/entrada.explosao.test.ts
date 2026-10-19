@@ -71,6 +71,10 @@ describe("explosao: mensagens", () => {
         wabaId: WABA,
         phoneNumberId: PNID,
         waType: "text",
+        // KAM-014: o corpo deste caso nao traz `from` nem `from_user_id`, e o
+        // interlocutor sai com os dois a `null` em vez de nao sair — e o que
+        // faz o CHR poder recusar o evento em vez de o resolver as cegas.
+        interlocutor: { bsuid: null, telefone: null },
       },
     ]);
   });
@@ -156,6 +160,7 @@ describe("explosao: estados (criterio 4)", () => {
         wabaId: WABA,
         phoneNumberId: PNID,
         waType: null,
+        interlocutor: null,
       },
     ]);
   });
@@ -456,7 +461,11 @@ describe("roteamento por kind (criterio 8)", () => {
     assert.equal(KINDS_DE_ENTRADA.length, 12);
     assert.equal(KINDS_DE_QUARENTENA.length, 2);
     assert.deepEqual([...KINDS], [...KINDS_DE_ENTRADA, ...KINDS_DE_QUARENTENA]);
-    assert.equal(MOTIVOS.length, 4);
+    // Seis desde o KAM-014: quatro razoes do **corpo** (deste ticket) e duas do
+    // **encaminhamento** (`canal_desconhecido`, `mensagem_sem_identidade`), que
+    // nascem no CHR. A coluna e uma so, e por isso a lista e uma so — o `CHECK`
+    // da `0008` tem os seis, e a suite `db/tests_entrada` prende as tres fontes.
+    assert.equal(MOTIVOS.length, 6);
     assert.equal(DESTINOS.length, 5);
     // Onze campos de webhook: dez no mapa, mais o `messages`, que da dois kinds.
     assert.equal(Object.keys(KIND_POR_CAMPO).length, 10);

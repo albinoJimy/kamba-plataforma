@@ -280,6 +280,20 @@ class ComEntrada(unittest.TestCase):
             "src/entrada.ts",
             {
                 "KAMBA_ENTRADA_DB_URL": node.url_da_base("app"),
+                # KAM-014: as duas ligacoes do CHR, e a fase. Sem elas o
+                # processo **nao arranca** — e nao arranca de proposito: o
+                # braco `chr` do encaminhador e agora o CHR, a guarda do
+                # ADR-011 corre antes de se aceitar trabalho, e `KAMBA_FASE`
+                # ausente ou com outro valor nao a desliga.
+                "KAMBA_CHR_RESOLVER_DB_URL": node.url_da_base("resolver"),
+                "KAMBA_CHR_IDENTITY_DB_URL": node.url_da_base("identity"),
+                "KAMBA_FASE": "piloto",
+                "KAMBA_ENV": "dev",
+                # O `EnvKeyProvider` do KAM-008 le as chaves do ambiente. Nao
+                # ha identidade a resolver nesta suite — os corpos sao do
+                # KAM-013 e nenhum traz um canal conhecido —, mas o processo
+                # arranca o modulo, e arrancar sem chaves levanta.
+                **node.chaves_de_identidade(),
                 "KAMBA_QUEUE_URL": node.url_da_fila(),
                 "ENTRADA_PORT": str(porta),
             },
@@ -696,7 +710,23 @@ class TestRegistoEQuarentena(ComEntrada):
         self.assertEqual(
             {linha[0] for linha in self.cursor.fetchall()}, set(campos.values())
         )
-        self.assertEqual(self.contar("unrouted_events"), 0)
+        # **Uma** linha de quarentena, e e do KAM-014: o `smb_message_echoes` da
+        # um `echo`, o `echo` vai ao CHR (`DESTINO_POR_KIND`), e esta suite nao
+        # semeia canal nenhum — pelo que o CHR nao resolve o `phone_number_id` e
+        # po-e na quarentena com `canal_desconhecido`, que e o criterio 2 desse
+        # ticket. Os outros nove campos vao a `ingestao` e a `gestao_de_canal`,
+        # que continuam a ser costura e nao escrevem nada.
+        #
+        # Antes do KAM-014 esta contagem era **zero**, porque o braco `chr` do
+        # encaminhador tambem era costura. A asercao passa a nomear o motivo em
+        # vez de contar: um zero aqui, depois do CHR ligado, significava que o
+        # `echo` deixou de chegar ao CHR.
+        self.esperar_linhas("unrouted_events", 1)
+        self.cursor.execute("SELECT kind, motivo FROM platform.unrouted_events")
+        self.assertEqual(
+            [tuple(linha) for linha in self.cursor.fetchall()],
+            [("desconhecido", "canal_desconhecido")],
+        )
 
     def test_o_evento_fica_marcado_como_encaminhado(self) -> None:
         """A coluna que fecha a janela entre registar e encaminhar."""

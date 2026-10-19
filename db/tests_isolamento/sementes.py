@@ -47,6 +47,18 @@ def _resumo(canario: str) -> object:
     return hashlib.sha256(canario.encode("ascii")).digest()
 
 
+def _uuid(canario: str) -> object:
+    """O canario numa coluna `uuid`: os primeiros 16 octetos do SHA-256 dele.
+
+    A `conversations` (KAM-014) e a primeira tabela isolada **sem coluna de
+    texto livre**: as oito sao dois UUID de referencia, um UUID de chave, um
+    dominio fechado (`mode`) e tres tempos. O canario vai na chave primaria,
+    que e a unica que aceita um valor arbitrario — e continua unico por tenant
+    e por tabela, que e o que o oraculo precisa.
+    """
+    return uuid.UUID(hashlib.sha256(canario.encode("ascii")).hexdigest()[:32])
+
+
 @dataclasses.dataclass(frozen=True)
 class Receita:
     #: Insere uma linha do tenant com o canario. Nao define contexto.
@@ -169,6 +181,37 @@ def _endpoint(cursor, tenant_id: str, canario: str) -> None:
             tenant_id, tenant_id, tenant_id,
             _resumo(canario + ":bsuid"), KID_DE_SEMENTE, _octetos(canario),
         ),
+    )
+
+
+#: O canal do tenant, para a FK composta da conversa. Mesma forma do
+#: `_UM_CONTACTO`, e pela mesma razao: quando a receita e usada para **atacar**
+#: (inserir uma linha de B com o contexto de A), a subconsulta nao ve o canal de
+#: B, e o que tem de recusar a linha e a politica — que se avalia antes das FK —
+#: e nao um valor nulo.
+_UM_CANAL = (
+    "COALESCE((SELECT id FROM platform.tenant_channels WHERE tenant_id = %s "
+    "ORDER BY phone_number_id LIMIT 1), gen_random_uuid())"
+)
+
+
+def _conversa(cursor, tenant_id: str, canario: str) -> None:
+    """Uma conversa do tenant (KAM-014). O canario vai no `id`.
+
+    A janela nasce aberta — `last_inbound_at` e `window_expires_at` juntos,
+    porque o `conversations_janela_ck` exige os dois ou nenhum — e e isso que
+    deixa a `window_expires_at` ser a coluna alteravel: o teste de escrita
+    cruzada po-la em 2099, que continua depois do inicio.
+
+    Semeia o administrador da instancia, como nas receitas de identidade e de
+    eventos: o `INSERT` do `kamba_app` esta sob `WITH CHECK` e esta receita nao
+    define contexto.
+    """
+    cursor.execute(
+        "INSERT INTO platform.conversations "
+        "(id, tenant_id, contact_id, channel_id, last_inbound_at, window_expires_at) "
+        f"VALUES (%s, %s, {_UM_CONTACTO}, {_UM_CANAL}, now(), now() + interval '24 hours')",
+        (_uuid(canario), tenant_id, tenant_id, tenant_id),
     )
 
 
@@ -348,6 +391,15 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "contact_endpoints"): _identidade(
         _endpoint, "bsuid_enc", "expira_at", "2099-01-01T00:00:00+00:00", _octetos
     ),
+    # KAM-014. A primeira tabela isolada sem coluna de texto livre: o canario
+    # vai na chave primaria (ver `_uuid`). O papel que a le e escreve e o
+    # `kamba_app` — e o CHR —, e a coluna que ele pode alterar e a
+    # `window_expires_at`: o `UPDATE` da revisao `0009` e por coluna e nao
+    # inclui o `mode`, que e de KAM-018.
+    ("platform", "conversations"): Receita(
+        _conversa, "id", "window_expires_at", "2099-01-01T00:00:00+00:00",
+        semeador="admin", guardado=_uuid,
+    ),
     # KAM-005. O produtor (`kamba_app`) insere no outbox sob `WITH CHECK` e le as
     # suas linhas; nao altera nenhuma coluna, e e por isso que a alteravel e
     # `None`. O arquivo e imutavel e so o `kamba_batch` lhe escreve: a politica
@@ -433,6 +485,9 @@ ORDEM = (
     ("platform", "contacts"),
     ("platform", "contact_deks"),
     ("platform", "contact_endpoints"),
+    # KAM-014: depende de `contacts` e de `tenant_channels`, e vem depois das
+    # duas. Na ordem inversa, apaga-se antes delas.
+    ("platform", "conversations"),
     ("platform", "events_outbox"),
     ("platform", "evt_agregado_seq"),
     ("platform", "events_log"),

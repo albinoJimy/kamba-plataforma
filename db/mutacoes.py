@@ -165,6 +165,25 @@ AUDITORIA = "db/auditoria.py"
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
 TEN = "tests_ten"
 
+#: KAM-014: o CHR. A revisao das conversas, os ficheiros do modulo que podem
+#: errar em silencio, e a suite que os prova.
+#:
+#: **A `0008` entra aqui e nao no KAM-013**, que nao deixou mutacao nenhuma: o
+#: dominio de `unrouted_events.motivo` passou a ter os dois motivos do
+#: encaminhamento, e o `CHECK` e o que impede o CHR de escrever um motivo que
+#: ninguem declarou. Retirar um valor da tupla faz a quarentena falhar **na
+#: insercao** — isto e, o evento deixa de deixar linha — e sem mutacao isso so
+#: se via no dia em que acontecesse.
+REV8 = "db/migrations/versions/0008_entrada_de_canal.py"
+REV9 = "db/migrations/versions/0009_conversas.py"
+CHR = "tests_chr"
+CHR_CANAL = "packages/core-ts/src/chr/canal.ts"
+CHR_SQL = "packages/core-ts/src/chr/consultas.ts"
+CHR_FLUXO_B = "packages/core-ts/src/chr/fluxo_b.ts"
+CHR_MODULO = "packages/core-ts/src/chr/chr.ts"
+CHR_CONVERSAS = "packages/core-ts/src/chr/conversas.ts"
+CHR_INVOCACAO = "packages/core-ts/src/chr/invocacao.ts"
+
 #: O corpo da subtransaccao da `ten_consumir`, como a revisao 0007 o escreve:
 #: **a chave primeiro, a contagem depois**. A mutacao da ordem precisa do
 #: texto inteiro, incluindo o comentario pelo meio, porque nao ha alteracao
@@ -1349,6 +1368,94 @@ MUTACOES = [
     # m4: a chave de idempotencia vazia.
     ("revisao 0007: a chave de idempotencia vazia deixa de levantar", REV7,
      _TEN_CHAVE_VAZIA, "", TEN),
+    # ----------------------------------------------------------- KAM-014
+    #
+    # O CHR e o sitio onde o `tenant_id` nasce, e por isso as mutacoes mordem
+    # nas duas metades da pergunta: o que a **base** impede (a RLS, as FK
+    # compostas, os privilegios por coluna, o dominio do motivo, a unicidade da
+    # conversa) e o que o **codigo** impede (a cache que nao serve uma entrada
+    # expirada, o estado que nao se adivinha, a ordem dos passos, o `wamid` que
+    # nao sai em claro).
+    #
+    # Cada uma escolhe a suite mais **estreita** que a apanha: a `tests_chr`
+    # corre o modulo contra os tres papeis e e onde quase todas caem; a
+    # `tests_isolamento` apanha a que tira a politica, porque e o X-05 que
+    # nomeia a tabela; a `tests` apanha as que mexem nas FK e nas restricoes,
+    # que o inventario fechado enumera; a `tests_entrada` apanha o dominio do
+    # motivo, porque e la que as tres fontes se comparam.
+    #
+    # A forma `if (x && false)` em vez de `if (false)`: tem o mesmo efeito e
+    # nao e codigo inalcancavel declarado, que o `tsc` recusaria se alguem
+    # corresse o `typecheck` sobre a copia.
+    ('revisao 0009: a conversa fica sem RLS (gate 6)', REV9,
+     '    rls.enable_tenant_rls("conversations")\n',
+     '', ISOLAMENTO),
+    ('revisao 0009: a FK do canal deixa de levar o tenant', REV9,
+     '                FOREIGN KEY (tenant_id, channel_id)\n                REFERENCES platform.tenant_channels (tenant_id, id),',
+     '                FOREIGN KEY (channel_id)\n                REFERENCES platform.tenant_channels (id),', "tests"),
+    ('revisao 0009: a FK do contacto deixa de levar o tenant', REV9,
+     '                FOREIGN KEY (tenant_id, contact_id)\n                REFERENCES platform.contacts (tenant_id, contact_id),',
+     '                FOREIGN KEY (contact_id)\n                REFERENCES platform.contacts (contact_id),', "tests"),
+    ('revisao 0009: a unicidade da conversa perde o canal', REV9,
+     '                UNIQUE (tenant_id, contact_id, channel_id)',
+     '                UNIQUE (tenant_id, contact_id)', CHR),
+    ('revisao 0009: a aplicacao passa a poder mudar o modo', REV9,
+     'COLUNAS_DA_APLICACAO = ("last_inbound_at", "window_expires_at")',
+     'COLUNAS_DA_APLICACAO = ("last_inbound_at", "window_expires_at", "mode")', CHR),
+    ('revisao 0009: a janela deixa de ter de ser coerente', REV9,
+     '            CONSTRAINT conversations_janela_ck',
+     '            CONSTRAINT conversations_janela_sem_regra_ck', "tests"),
+    ('revisao 0008: o motivo do canal desconhecido sai do dominio', REV8,
+     '    "\'canal_desconhecido\'",\n',
+     '', "tests_entrada"),
+    ('revisao 0008: o motivo da mensagem sem identidade sai do dominio', REV8,
+     '    "\'mensagem_sem_identidade\'",\n',
+     '', "tests_entrada"),
+    ('chr: a entrada expirada fica a servir de resposta', CHR_CANAL,
+     '      // Expirou: sai antes de se ir à base, para que uma falha da base não\n      // deixe uma entrada velha a servir de resposta.\n      this.#esquecer(phoneNumberId);',
+     '      // Expirou.', CHR),
+    ('chr: um estado de canal desconhecido passa a ser aceite', CHR_CANAL,
+     '  if (!ESTADOS_DE_CANAL.includes(estadoCanal)) {\n    throw new CanalIlegivelError("estado_canal");\n  }\n',
+     '', CHR),
+    ('chr: a guarda do Fluxo B deixa de ver a vertical', CHR_FLUXO_B,
+     '  if (!permitidas.includes(contexto.vertical)) {',
+     '  if (permitidas.includes(contexto.vertical)) {', CHR),
+    ('chr: a guarda de arranque deixa de provar que ve tudo', CHR_FLUXO_B,
+     '  const visivel = await cliente.query(SQL_VISIBILIDADE, []);\n  if (visivel.rows[0]?.ve_tudo !== true) throw new GuardaCegaError();\n',
+     '', CHR),
+    ('chr: o Fluxo B deixa de recusar e segue para a matriz', CHR_MODULO,
+     '    if (recusa !== null) {',
+     '    if (recusa === null && false) {', CHR),
+    ('chr: uma conversa fora do modo bot volta a ir ao AGR', CHR_MODULO,
+     '    if (conversa.mode !== MODO_POR_OMISSAO) {',
+     '    if (conversa.mode === MODO_POR_OMISSAO && false) {', CHR),
+    ('chr: a matriz deixa de poder negar o registo da conversa', CHR_MODULO,
+     '    if (!registar.permitido) {',
+     '    if (registar.permitido && false) {', CHR),
+    ('chr: a matriz deixa de poder negar o processamento', CHR_MODULO,
+     '    if (!processar.permitido) {',
+     '    if (processar.permitido && false) {', CHR),
+    ('chr: a mensagem sem identidade volta a fazer o job repetir', CHR_MODULO,
+     '    if (\n      interlocutor === null ||\n      (interlocutor.bsuid === null && interlocutor.telefone === null)\n    ) {',
+     '    if (interlocutor === null) {', CHR),
+    ('chr: o echo volta a poder ir ao AGR', CHR_MODULO,
+     '    if (evento.kind === "echo") {',
+     '    if (evento.kind === "echo" && false) {', CHR),
+    ('chr: o modo desconhecido passa a ser tratado como conhecido', CHR_CONVERSAS,
+     '  if (typeof mode !== "string" || !MODOS_CONHECIDOS.includes(mode)) {',
+     '  if (typeof mode !== "string" && !MODOS_CONHECIDOS.includes(mode)) {', CHR),
+    ('chr: a fusao reaponta sempre, e nunca dobra os tempos', CHR_CONVERSAS,
+     '    if (typeof idPara !== "string") {',
+     '    if (true) {', CHR),
+    ('chr: o jobId passa a levar o wamid em claro', CHR_INVOCACAO,
+     '  return createHash("sha256").update(`${tenantId}:${wamid}`, "utf8").digest("hex");',
+     '  return `${tenantId}:${wamid}`;', CHR),
+    ('chr: o SQL do canal deixa de filtrar pelo phone_number_id', CHR_SQL,
+     '   WHERE c.phone_number_id = $1\n',
+     '   WHERE $1 IS NOT NULL\n', CHR),
+    ('chr: o SQL da conversa deixa de empurrar a janela', CHR_SQL,
+     '     SET last_inbound_at   = EXCLUDED.last_inbound_at,\n         window_expires_at = EXCLUDED.window_expires_at\n',
+     '     SET last_inbound_at   = platform.conversations.last_inbound_at,\n         window_expires_at = platform.conversations.window_expires_at\n', CHR),
 ]
 
 

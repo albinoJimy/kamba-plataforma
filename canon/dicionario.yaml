@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.19"
+versao_dicionario: "1.20"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -2096,25 +2096,39 @@ entradas:
     variantes_literais: []
   - seccao: "3.12"
     conceito: "Razão por que um evento foi para quarentena"
-    canonico: "unrouted_events.motivo ∈ {json_invalido, campo_desconhecido, corpo_sem_entry, change_sem_itens}"
+    canonico: "unrouted_events.motivo ∈ {json_invalido, campo_desconhecido, corpo_sem_entry, change_sem_itens, canal_desconhecido, mensagem_sem_identidade}"
     literais:
       - "unrouted_events.motivo"
       - "json_invalido"
       - "campo_desconhecido"
       - "corpo_sem_entry"
       - "change_sem_itens"
+      - "canal_desconhecido"
+      - "mensagem_sem_identidade"
     nomes:
       - "unrouted_events.motivo"
       - "json_invalido"
       - "campo_desconhecido"
       - "corpo_sem_entry"
       - "change_sem_itens"
+      - "canal_desconhecido"
+      - "mensagem_sem_identidade"
     nomes_nota:
       - "json_invalido"
       - "change_sem_itens"
       - "value"
       - "errors"
       - "messages"
+      - "canal_desconhecido"
+      - "phone_number_id"
+      - "tenant_channels"
+      - "mensagem_sem_identidade"
+      - "message"
+      - "from"
+      - "from_user_id"
+      - "E1"
+      - "campo_desconhecido"
+      - "CHECK"
     variantes_literais: []
   - seccao: "3.12"
     conceito: "Destino de encaminhamento de um kind"
@@ -2197,6 +2211,188 @@ entradas:
       - "actual"
       - "anterior"
       - "meta_verify_token"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.13"
+    conceito: "Conversa entre um contacto e um canal"
+    canonico: "conversations(id, tenant_id, contact_id, channel_id, mode, last_inbound_at, window_expires_at, last_human_activity_at), com UNIQUE (tenant_id, contact_id, channel_id)"
+    literais:
+      - "conversations(id, tenant_id, contact_id, channel_id, mode, last_inbound_at, window_expires_at, last_human_activity_at)"
+      - "UNIQUE (tenant_id, contact_id, channel_id)"
+    nomes:
+      - "conversations"
+      - "id"
+      - "tenant_id"
+      - "contact_id"
+      - "channel_id"
+      - "mode"
+      - "last_inbound_at"
+      - "window_expires_at"
+      - "last_human_activity_at"
+      - "UNIQUE"
+    nomes_nota:
+      - "contacts"
+    variantes_literais: []
+  - seccao: "3.13"
+    conceito: "Modo de uma conversa (quem tem a palavra)"
+    canonico: "conversations.mode ∈ {bot, dono, humano, pausada}"
+    literais:
+      - "conversations.mode"
+      - "bot"
+      - "dono"
+      - "humano"
+      - "pausada"
+    nomes:
+      - "conversations.mode"
+      - "bot"
+      - "dono"
+      - "humano"
+      - "pausada"
+    nomes_nota:
+      - "bot"
+    variantes_literais: []
+  - seccao: "3.13"
+    conceito: "Prazo da janela de serviço de uma conversa"
+    canonico: "conversations.window_expires_at = last_inbound_at + 24 h"
+    literais:
+      - "conversations.window_expires_at"
+      - "last_inbound_at"
+    nomes:
+      - "conversations.window_expires_at"
+      - "last_inbound_at"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.13"
+    conceito: "Contexto que a resolução de canal devolve"
+    canonico: "ChannelContext — tenant_id, channel_id, vertical, plano, estado_tenant, estado_canal, channel_mode, origem"
+    literais:
+      - "ChannelContext"
+      - "tenant_id"
+      - "channel_id"
+      - "vertical"
+      - "plano"
+      - "estado_tenant"
+      - "estado_canal"
+      - "channel_mode"
+      - "origem"
+    nomes:
+      - "ChannelContext"
+      - "tenant_id"
+      - "channel_id"
+      - "vertical"
+      - "plano"
+      - "estado_tenant"
+      - "estado_canal"
+      - "channel_mode"
+      - "origem"
+    nomes_nota:
+      - "StorageProvider"
+      - "ObjectRef"
+      - "persona"
+    variantes_literais: []
+  - seccao: "3.13"
+    conceito: "Contrato do job que o CHR entrega ao AGR"
+    canonico: "agent_invocation — tenant_id, contact_id, conversation_id, channel_id, wamid, type, modo, thread_id, vertical"
+    literais:
+      - "agent_invocation"
+      - "tenant_id"
+      - "contact_id"
+      - "conversation_id"
+      - "channel_id"
+      - "wamid"
+      - "type"
+      - "modo"
+      - "thread_id"
+      - "vertical"
+    nomes:
+      - "agent_invocation"
+      - "tenant_id"
+      - "contact_id"
+      - "conversation_id"
+      - "channel_id"
+      - "wamid"
+      - "type"
+      - "modo"
+      - "thread_id"
+      - "vertical"
+    nomes_nota:
+      - "thread_id"
+      - "tenant_id"
+      - "contact_id"
+      - "vertical"
+      - "display_name"
+    variantes_literais: []
+  - seccao: "3.13"
+    conceito: "Fila de invocação do AGR"
+    canonico: "agr-inbound, com jobId igual ao SHA-256 de {tenant_id}:{wamid}"
+    literais:
+      - "agr-inbound"
+      - "jobId"
+      - "{tenant_id}:{wamid}"
+    nomes:
+      - "agr"
+      - "inbound"
+      - "jobId"
+      - "tenant_id"
+      - "wamid"
+    nomes_nota:
+      - "jobId"
+      - "wamid"
+    variantes_literais: []
+  - seccao: "3.13"
+    conceito: "Razão por que a resolução não encaminhou"
+    canonico: "Dois valores novos na linha «Razão por que um evento foi para quarentena» do §3.12, que passa de quatro a seis: canal_desconhecido e mensagem_sem_identidade"
+    literais:
+      - "canal_desconhecido"
+      - "mensagem_sem_identidade"
+    nomes:
+      - "canal_desconhecido"
+      - "mensagem_sem_identidade"
+    nomes_nota:
+      - "CHECK"
+      - "unrouted_events.motivo"
+    variantes_literais: []
+  - seccao: "3.13"
+    conceito: "Métricas do CHR"
+    canonico: "chr_resolve_ms, chr_unrouted_total, chr_cache_hit_ratio, chr_resolve_total"
+    literais:
+      - "chr_resolve_ms"
+      - "chr_unrouted_total"
+      - "chr_cache_hit_ratio"
+      - "chr_resolve_total"
+    nomes:
+      - "chr_resolve_ms"
+      - "chr_unrouted_total"
+      - "chr_cache_hit_ratio"
+      - "chr_resolve_total"
+    nomes_nota:
+      - "chr_resolve_total"
+      - "wa_type"
+      - "motivo"
+    variantes_literais: []
+  - seccao: "3.13"
+    conceito: "Variáveis de ligação do CHR"
+    canonico: "KAMBA_CHR_RESOLVER_DB_URL, KAMBA_CHR_IDENTITY_DB_URL"
+    literais:
+      - "KAMBA_CHR_RESOLVER_DB_URL"
+      - "KAMBA_CHR_IDENTITY_DB_URL"
+    nomes:
+      - "KAMBA_CHR_RESOLVER_DB_URL"
+      - "KAMBA_CHR_IDENTITY_DB_URL"
+    nomes_nota:
+      - "kamba_app"
+      - "conversations"
+      - "KAMBA_ENTRADA_DB_URL"
+    variantes_literais: []
+  - seccao: "3.13"
+    conceito: "Fase do produto, lida pela guarda do ADR-011"
+    canonico: "KAMBA_FASE ∈ {piloto}"
+    literais:
+      - "KAMBA_FASE"
+      - "piloto"
+    nomes:
+      - "KAMBA_FASE"
+      - "piloto"
     nomes_nota: []
     variantes_literais: []
 
@@ -2534,6 +2730,21 @@ tabelas:
     assinatura: "unrouted_events(id, kind, event_key, waba_id, phone_number_id, motivo, payload, recebido_at, processado_at)"
     seccao: "3.12"
     conceito: "Quarentena de um evento que não se conseguiu encaminhar"
+  - nome: "conversations"
+    esquema: ""
+    colunas:
+      - "id"
+      - "tenant_id"
+      - "contact_id"
+      - "channel_id"
+      - "mode"
+      - "last_inbound_at"
+      - "window_expires_at"
+      - "last_human_activity_at"
+    aberta: false
+    assinatura: "conversations(id, tenant_id, contact_id, channel_id, mode, last_inbound_at, window_expires_at, last_human_activity_at)"
+    seccao: "3.13"
+    conceito: "Conversa entre um contacto e um canal"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -2690,6 +2901,8 @@ dominios:
       - "campo_desconhecido"
       - "corpo_sem_entry"
       - "change_sem_itens"
+      - "canal_desconhecido"
+      - "mensagem_sem_identidade"
     seccao: "3.12"
     conceito: "Razão por que um evento foi para quarentena"
     so_no_registo: false
@@ -2702,6 +2915,21 @@ dominios:
       - "quarentena"
     seccao: "3.12"
     conceito: "Destino de encaminhamento de um kind"
+    so_no_registo: false
+  - coluna: "conversations.mode"
+    valores:
+      - "bot"
+      - "dono"
+      - "humano"
+      - "pausada"
+    seccao: "3.13"
+    conceito: "Modo de uma conversa (quem tem a palavra)"
+    so_no_registo: false
+  - coluna: "KAMBA_FASE"
+    valores:
+      - "piloto"
+    seccao: "3.13"
+    conceito: "Fase do produto, lida pela guarda do ADR-011"
     so_no_registo: false
 
 variantes:
