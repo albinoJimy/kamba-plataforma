@@ -41,11 +41,30 @@ export function createApp(log?: Logger, dependencias?: DependenciasDoWebhook): H
 
   app.get("/healthz", (c) => c.json(healthz(SERVICE, VERSION)));
 
-  // `/metrics` passa a existir no gwy com o KAM-013, e até aqui não existia —
-  // o `publicador.ts` do `worker-canal` registou por escrito que não o
-  // expunha no gwy porque o teste da sonda afirmava que não respondia 200.
-  // O DoD deste ticket pede as métricas do GWY «desde o código», e métricas
-  // que nada expõe não são observabilidade: o teste foi alterado com a rota.
+  if (dependencias !== undefined) montarWebhook(app, dependencias, log);
+
+  return app;
+}
+
+/**
+ * As métricas, **noutra porta**, e a razão é a revisão adversarial.
+ *
+ * O `/metrics` esteve no mesmo `Hono` que o `/wa/webhook`, e isso punha-o na
+ * porta pública: o webhook é por definição alcançável de fora (ADR-001), e
+ * qualquer pessoa que lhe chegasse lia `inbound_queue_depth` — o atraso da
+ * plataforma em tempo real —, `gwy_requests_total` e `gwy_sig_fail`. Com a
+ * profundidade visível, quem quisesse provocar o descarte do critério 7 sabia
+ * exactamente quando a fila passara os 10 000.
+ *
+ * Os outros processos do conjunto servem o `/metrics` em portas internas
+ * (3011, 3012, 3013) e este passa a fazer o mesmo. Não é defesa suficiente por
+ * si — a porta interna também é uma porta —, mas é a diferença entre «exposto
+ * a quem alcança a Internet» e «exposto a quem alcança a rede interna», e é a
+ * que está nas mãos deste ticket. Fechar a rede é KAM-077.
+ */
+export function criarAppDeMetricas(): Hono {
+  const app = new Hono();
+  app.get("/healthz", (c) => c.json(healthz(SERVICE, VERSION)));
   // **Não leva dados de tenant nem identificadores** — as cinco métricas são
   // contadores e *gauges* sem etiquetas (`entrada/metricas.ts`).
   app.get("/metrics", (c) =>
@@ -53,8 +72,5 @@ export function createApp(log?: Logger, dependencias?: DependenciasDoWebhook): H
       "content-type": "text/plain; version=0.0.4; charset=utf-8",
     }),
   );
-
-  if (dependencias !== undefined) montarWebhook(app, dependencias, log);
-
   return app;
 }

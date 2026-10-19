@@ -41,7 +41,12 @@ import {
   SQL_QUARENTENA,
   SQL_REGISTAR,
 } from "./consultas.ts";
-import { type Destino, type TrabalhoDeEntrada, destinoDe } from "./contrato.ts";
+import {
+  type Destino,
+  type Motivo,
+  type TrabalhoDeEntrada,
+  destinoDe,
+} from "./contrato.ts";
 import {
   type EventoDeEntrada,
   type EventoEmQuarentena,
@@ -67,6 +72,31 @@ export interface ClienteSql {
  */
 export const PAYLOAD_MAXIMO = 262_144;
 
+/**
+ * Quantos eventos um só corpo pode gerar antes de se parar de os tratar.
+ *
+ * **Achado da revisão adversarial, e eram dois defeitos no mesmo sítio.** Um
+ * corpo assinado com N `changes` gerava N eventos, sem tecto nenhum: com
+ * 100 000 `statuses` faziam-se 100 000 `INSERT` sequenciais num só *job*, com
+ * `concurrency: 1`, e a partição ficava bloqueada todo esse tempo enquanto a
+ * Meta continuava a entregar. E cada evento de quarentena guardava uma cópia
+ * **inteira** do corpo, pelo que 1 000 `changes` de um campo desconhecido
+ * davam 1 000 linhas de até 256 KiB — 256 MB de um pedido, com a retenção que
+ * os limparia a ser de outro ticket (KAM-071).
+ *
+ * *Proposta*. Um corpo real da Meta tem unidades de itens; o `E1` §5 limita a
+ * **taxa** (3× estados + 1× entrada) e não o tamanho de um corpo, pelo que o
+ * número existe para haver tecto e não porque se saiba qual é o certo.
+ * Calibra-se em KAM-084, e o `tools/meta-sim` do KAM-024 é quem o pode medir
+ * contra corpos verdadeiros.
+ *
+ * O que excede **não se perde em silêncio**: vai à quarentena como um evento
+ * só, com `motivo = corpo_sem_entry` e o corpo guardado uma vez, e deixa linha
+ * de registo. É a mesma escolha do `PAYLOAD_MAXIMO`: degradar em vez de
+ * rebentar, porque rebentar aqui é o *job* a repetir durante sete dias.
+ */
+export const EVENTOS_MAXIMOS_POR_CORPO = 1_000;
+
 /** Para onde cada evento novo vai. Um método por destino do dicionário §3.12. */
 export interface Encaminhador {
   /** `message` e `echo`: resolução de canal, contacto e modo (KAM-014). */
@@ -79,13 +109,25 @@ export interface Encaminhador {
   gestaoDeCanal(evento: EventoDeEntrada): Promise<void>;
 }
 
-/** O que aconteceu a um evento. */
-export type Desfecho = "registado" | "duplicado" | "quarentena";
+/**
+ * O que aconteceu a um evento.
+ *
+ * **`recuperado` é um desfecho e não um `duplicado`**, e isso foi um achado da
+ * revisão adversarial: o evento estava registado e **sem** `processado_at` —
+ * ficou assim porque o processo morreu entre o registo e o encaminhamento — e
+ * nesta entrega é encaminhado pela **primeira** vez. Chamar-lhe duplicado
+ * somava-o ao contador de duplicados sem ter havido duplicado, e escondia
+ * precisamente o acontecimento que um operador precisa de ver: que um evento
+ * esteve perdido e voltou.
+ */
+export type Desfecho = "registado" | "duplicado" | "recuperado" | "quarentena";
 
 /** O resultado de tratar um corpo. */
 export interface Resultado {
   readonly registados: number;
   readonly duplicados: number;
+  /** Estavam registados e sem `processado_at`: encaminhados agora, pela 1.ª vez. */
+  readonly recuperados: number;
   readonly emQuarentena: number;
   /** Os destinos a que se entregou, para o teste do critério 8. */
   readonly destinos: readonly Destino[];
@@ -156,7 +198,8 @@ export async function registarEvento(
     const pendente = await bd.query(SQL_POR_ENCAMINHAR, [evento.kind, evento.eventKey]);
     id = primeiroId(pendente.rows);
     if (id === null) return { desfecho: "duplicado", destino: null };
-    desfecho = "duplicado";
+    // Encontrou-se sem `processado_at`: vai ser encaminhado pela primeira vez.
+    desfecho = "recuperado";
   }
 
   const destino = await encaminhar(evento, encaminhador);
@@ -209,6 +252,8 @@ export async function tratarCorpo(
   encaminhador: Encaminhador,
   resumoDoCorpo: string,
   registar?: Registo,
+  contador?: (desfecho: Desfecho) => void,
+  contadorDeQuarentena?: (motivo: Motivo) => void,
 ): Promise<Resultado> {
   let corpo: unknown = null;
   let invalido = false;
@@ -234,19 +279,49 @@ export async function tratarCorpo(
     };
     await porEmQuarentena(bd, evento, trabalho.corpo);
     registar?.({ outcome: "quarentena", error_code: "json_invalido" });
-    return { registados: 0, duplicados: 0, emQuarentena: 1, destinos: [] };
+    contadorDeQuarentena?.("json_invalido");
+    return {
+      registados: 0,
+      duplicados: 0,
+      recuperados: 0,
+      emQuarentena: 1,
+      destinos: [],
+    };
   }
 
-  const { eventos, quarentena } = explodir(corpo, resumoDoCorpo);
+  const explosao = explodir(corpo, resumoDoCorpo);
+  const total = explosao.eventos.length + explosao.quarentena.length;
+  const { eventos, quarentena } =
+    total <= EVENTOS_MAXIMOS_POR_CORPO
+      ? explosao
+      : {
+          // Acima do tecto, o corpo inteiro vai a uma linha de quarentena e
+          // nada se registra: tratar os primeiros mil e deixar cair os outros
+          // dava um corpo meio processado, que é pior do que um corpo recusado
+          // por inteiro — o `jobId` já não distinguiria os dois casos.
+          eventos: [] as readonly EventoDeEntrada[],
+          quarentena: [
+            {
+              kind: "desconhecido",
+              eventKey: `k_${resumoDoCorpo.slice(0, 32)}`,
+              motivo: "corpo_sem_entry",
+              wabaId: null,
+              phoneNumberId: null,
+            },
+          ] as readonly EventoEmQuarentena[],
+        };
 
   let registados = 0;
   let duplicados = 0;
+  let recuperados = 0;
   const destinos: Destino[] = [];
 
   for (const evento of eventos) {
     const { desfecho, destino } = await registarEvento(bd, evento, encaminhador);
     if (desfecho === "registado") registados += 1;
+    else if (desfecho === "recuperado") recuperados += 1;
     else duplicados += 1;
+    contador?.(desfecho);
     if (destino !== null) destinos.push(destino);
     registar?.({
       outcome: `entrada_${desfecho}`,
@@ -258,14 +333,22 @@ export async function tratarCorpo(
     });
   }
 
+  // O corpo guarda-se **uma vez por corpo**, na primeira linha, e não uma vez
+  // por evento: é a correcção da amplificação de armazenamento que a revisão
+  // adversarial mediu. As linhas seguintes do mesmo corpo têm `payload` nulo e
+  // a mesma informação de diagnóstico — o corpo está na primeira.
+  let primeira = true;
   for (const evento of quarentena) {
-    await porEmQuarentena(bd, evento, trabalho.corpo);
+    await porEmQuarentena(bd, evento, primeira ? trabalho.corpo : null);
+    primeira = false;
     registar?.({ outcome: "quarentena", error_code: evento.motivo });
+    contadorDeQuarentena?.(evento.motivo);
   }
 
   return {
     registados,
     duplicados,
+    recuperados,
     emQuarentena: quarentena.length,
     destinos,
   };

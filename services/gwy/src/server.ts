@@ -41,7 +41,7 @@ import { FilasBullmq } from "@kamba/core-ts/eventos/filas_bullmq";
 import { instalar } from "@kamba/core-ts/logger";
 import { EnvSecretProvider, Secrets, isAmbiente } from "@kamba/core-ts/secrets";
 
-import { createApp } from "./app.ts";
+import { createApp, criarAppDeMetricas } from "./app.ts";
 import { DEFAULT_PORT, SERVICE } from "./meta.ts";
 // Os dois `id` vivem num ficheiro proprio, e a razao esta lá: o *gate* 9
 // apanha, com razao, uma atribuicao com a forma de um segredo embutido, e a
@@ -61,8 +61,30 @@ export const INTERVALO_DO_SEGREDO = 60_000;
 /** De quanto em quanto se lê a profundidade da fila. */
 export const INTERVALO_DA_PROFUNDIDADE = 1_000;
 
+/**
+ * A porta interna do `/metrics` e do `/healthz`.
+ *
+ * **Separada da pública, e a razão é a revisão adversarial.** O `/metrics`
+ * esteve no mesmo servidor que o `/wa/webhook`, e isso punha a profundidade da
+ * fila ao alcance de quem alcança a Internet. Os outros processos do conjunto
+ * usam 3011, 3012 e 3013; esta é a 3010.
+ */
+export const PORTA_DAS_METRICAS = 3010;
+const VARIAVEL_DA_PORTA_DAS_METRICAS = "GWY_METRICS_PORT";
+
 const VARIAVEL_DA_FILA = "KAMBA_QUEUE_URL";
 const VARIAVEL_DO_AMBIENTE = "KAMBA_AMBIENTE";
+
+/** A porta interna das métricas. A mesma validação que o `port()` do núcleo. */
+function portaDasMetricas(): number {
+  const bruto = (process.env[VARIAVEL_DA_PORTA_DAS_METRICAS] ?? "").trim();
+  if (bruto === "") return PORTA_DAS_METRICAS;
+  const valor = Number(bruto);
+  if (!Number.isInteger(valor) || valor < 1 || valor > 65_535) {
+    throw new Error(`${VARIAVEL_DA_PORTA_DAS_METRICAS} inválida`);
+  }
+  return valor;
+}
 
 function exigir(nome: string): string {
   const valor = process.env[nome];
@@ -108,6 +130,13 @@ async function principal(): Promise<void> {
     process.on(sinal, () => paragem.abort());
   }
 
+  // O servidor interno: `/healthz` e `/metrics`, na sua porta e em localhost.
+  const metricas = serve({
+    fetch: criarAppDeMetricas().fetch,
+    hostname: process.env.HOST?.trim() || "127.0.0.1",
+    port: portaDasMetricas(),
+  });
+
   const servidor = serve({
     fetch: createApp(log, {
       anel: () => anel,
@@ -132,17 +161,38 @@ async function principal(): Promise<void> {
     })();
   }, INTERVALO_DO_SEGREDO);
 
+  // **Uma leitura de cada vez, e registo só na transição.** As duas coisas são
+  // achados da revisão adversarial. Sem o trinco, um Redis **lento** (2 s por
+  // comando) fazia começar uma leitura nova a cada segundo sem a anterior ter
+  // acabado, cada uma com o seu temporizador de 5 s do `comLimite`, e
+  // acumulavam-se pedidos pendentes no processo que tem de responder em menos
+  // de 500 ms. Sem a transição, um Redis em baixo escrevia uma linha por
+  // segundo — 86 400 por dia — e a avaria afogava o registo que devia
+  // sinalizá-la, e com ele as linhas de `assinatura_invalida` que importam.
+  let aLer = false;
+  let ilegivel = false;
   const fila = setInterval(() => {
+    if (aLer) return;
+    aLer = true;
     void (async () => {
       try {
         profundidade = await filas.profundidade(FILA_ENTRADA);
         METRICAS.medir(METRICA_PROFUNDIDADE, profundidade);
+        if (ilegivel) {
+          ilegivel = false;
+          log.info({ outcome: "profundidade_legivel" });
+        }
       } catch (erro) {
         // Desconhecida, e **não** saturada: o tratador não descarta nada com
         // `null`. O `-1` no *gauge* distingue «não se leu» de «fila vazia».
         profundidade = null;
         METRICAS.medir(METRICA_PROFUNDIDADE, -1);
-        log.excepcao(erro, "profundidade_ilegivel");
+        if (!ilegivel) {
+          ilegivel = true;
+          log.excepcao(erro, "profundidade_ilegivel");
+        }
+      } finally {
+        aLer = false;
       }
     })();
   }, INTERVALO_DA_PROFUNDIDADE);
@@ -163,6 +213,7 @@ async function principal(): Promise<void> {
   clearInterval(segredos);
   clearInterval(fila);
   servidor.close();
+  metricas.close();
   await filas.fechar();
 }
 

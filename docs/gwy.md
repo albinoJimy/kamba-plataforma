@@ -60,6 +60,13 @@ descobrir o conteúdo byte a byte pelo tempo.
 
 ## 3. O `POST`: a ordem dos passos, e porque é esta
 
+0. **Recusar um corpo grande demais**, antes de o ler. Duas guardas: o
+   `content-length` declarado (que é de quem chama e pode mentir, mas quando diz
+   «grande» não há razão para alocar) e o tamanho do que chegou de facto (um
+   pedido `chunked` não traz `content-length`). Acima de `CORPO_MAXIMO` (1 MiB,
+   *proposta*) responde **413** — e não 401, porque não é um problema de
+   assinatura e um corpo legítimo grande apareceria como `gwy_sig_fail`,
+   mandando procurar no sítio errado.
 1. **Ler os bytes.** `c.req.arrayBuffer()`, nunca `text()` nem `json()`.
 2. **Verificar a assinatura**, antes de qualquer `parse`. Falha → 401 e
    `gwy_sig_fail`.
@@ -69,6 +76,12 @@ descobrir o conteúdo byte a byte pelo tempo.
 
 Nada do corpo é lido, interpretado ou registado antes do passo 2: um corpo não
 assinado não é tráfego da Meta.
+
+**O passo 0 nasceu da revisão adversarial.** Sem ele, o `arrayBuffer()` lia o
+corpo inteiro antes de a assinatura ser verificada e sem tecto nenhum: qualquer
+pessoa, sem segredo, fazia um `POST` de 200 MB e o processo alocava os 200 MB
+antes de responder 401 — no único endpoint público da plataforma, com o *proxy*
+que o protegeria a ser de outro ticket (KAM-077).
 
 ### 3.1 A assinatura
 
@@ -241,6 +254,15 @@ que guarda corpo de conversa. Três consequências, as três deliberadas:
 3. **`kamba_app` escreve e não lê.** O mesmo desenho do `audit_log`, aqui por
    privacidade. Lê quem opera, que é `kamba_batch`.
 
+**E há dois tectos por corpo, os dois da revisão adversarial.** O corpo
+guarda-se **uma vez por corpo** e não uma vez por evento — sem isso, 1 000
+`changes` de um campo desconhecido davam 1 000 linhas com uma cópia inteira do
+corpo, 256 MB de um pedido. E um corpo que gere mais de
+`EVENTOS_MAXIMOS_POR_CORPO` (1 000, *proposta*) vai **inteiro** a uma linha de
+quarentena: sem o tecto, um corpo com 100 000 `statuses` fazia 100 000 `INSERT`
+sequenciais num só *job*, com `concurrency: 1`, e a partição ficava bloqueada
+todo esse tempo enquanto a Meta continuava a entregar.
+
 A retenção de **7 dias** do `payload` é *proposta* do critério 6, e esta revisão
 **não a impõe**: não cria função de limpeza nem agendador. O agendador nasce com
 KAM-071, pela mesma decisão que a `0004` tomou para as partições mensais.
@@ -325,6 +347,52 @@ recua» — o tratamento da falha rebentava e o *job* ficava em `failed` sem pas
 pela quarentena. A escada é a do consumidor (`docs/tecnica/06` §6.4), por ser a
 única do repositório e por o que se retenta aqui ser da mesma natureza: uma
 falha transitória da base.
+
+### 8.2 O `/metrics` vive noutra porta
+
+**Esteve na porta do webhook, e isso era um defeito.** O webhook é por definição
+alcançável de fora (ADR-001): com o `/metrics` ao lado, qualquer pessoa que
+chegasse ao GWY lia `inbound_queue_depth` — o atraso da plataforma em tempo
+real —, `gwy_requests_total` e `gwy_sig_fail`. Com a profundidade visível, quem
+quisesse provocar o descarte do §6 sabia exactamente quando a fila passara os
+10 000.
+
+Hoje são dois servidores: a porta pública leva **só** o `/wa/webhook`, e o
+`/healthz` e o `/metrics` vivem na porta interna (3010, configurável por
+`GWY_METRICS_PORT`), como nos outros processos do conjunto (3011, 3012, 3013).
+Não é defesa suficiente por si — a porta interna também é uma porta —, mas é a
+diferença entre «exposto a quem alcança a Internet» e «exposto a quem alcança a
+rede interna», e é a que está nas mãos deste ticket. Fechar a rede é KAM-077.
+
+**E o `docker-compose.dev.yml` não precisou de mudar**, o que é a confirmação de
+que a separação serve: ele publica `127.0.0.1:${GWY_PORT:-3000}:3000` e mais
+nada, pelo que a porta das métricas deixou de ser alcançável de fora do
+contentor sem uma linha de configuração. Quem a quiser raspar publica-a de
+propósito — e não há colector (ADR-018: observabilidade leve no Piloto; o
+colector é KAM-080).
+
+O `/healthz` **fica na porta pública**, e isso é deliberado: é o contrato do
+KAM-001 (`packages/contracts/schemas/healthz.response.v1.json`), o `make smoke`
+verifica-o em `gwy=3000` e o `healthcheck` do compose chama-o em `:3000`. É a
+sonda de vivacidade do serviço, não observabilidade — não diz nada sobre o
+estado da fila.
+
+### 8.3 O *worker* tem métricas próprias
+
+Serviu as cinco do GWY, e não incrementa nenhuma: saíam `gwy_sig_fail 0` e
+`inbound_queue_depth -1` permanentes — o segundo ao lado do valor real do GWY,
+onde um alerta sobre a profundidade o lê e não dispara — e do trabalho que ele
+faz de verdade não saía nada. Tem três, com etiquetas de lista fechada:
+
+| Métrica | Etiqueta | Nota |
+|---|---|---|
+| `inbound_events_total` | `desfecho` ∈ {`registado`, `duplicado`, `recuperado`} | `recuperado` é o evento que estava sem `processado_at` |
+| `inbound_unrouted_total` | `motivo` (os quatro do §3.12) | Um `json_invalido` aqui é um corpo que não encaixou |
+| `inbound_job_failed_total` | — | *Jobs* que falharam. **Nunca** por conteúdo do corpo: isso vai à quarentena |
+
+Os nomes não estão no DoD — o DoD nomeia os do GWY — e entram como *proposta*,
+pela mesma razão do `gwy_shed_total`: um processo que escreve na base sem uma
+métrica do que escreveu não tem observabilidade nenhuma.
 
 O `/metrics` do `gwy` **passou a existir com este ticket** — até aqui o teste da
 sonda afirmava que não respondia 200, e foi alterado com a rota. Métricas que

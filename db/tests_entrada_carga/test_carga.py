@@ -262,7 +262,7 @@ class TestCarga(ComEntrada):
         import re
 
         with urllib.request.urlopen(
-            f"http://127.0.0.1:{self.gwy.porta}/metrics", timeout=10
+            f"http://127.0.0.1:{self.gwy.porta_das_metricas}/metrics", timeout=10
         ) as resposta:
             texto = resposta.read().decode("utf-8")
         achado = re.search(r"^gwy_shed_total (\d+)$", texto, re.M)

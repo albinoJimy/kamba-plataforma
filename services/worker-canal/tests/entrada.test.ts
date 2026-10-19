@@ -95,12 +95,25 @@ describe("as rotas do processo de entrada", () => {
     assert.equal(corpo.service, SERVICE);
   });
 
-  it("o /metrics expoe as metricas da entrada", async () => {
+  it("o /metrics expoe as metricas DESTE processo, nao as do GWY", async () => {
+    // Achado da revisão adversarial: servia-se aqui o `METRICAS` do GWY, que
+    // este processo não incrementa — saíam `gwy_sig_fail 0` e
+    // `inbound_queue_depth -1` permanentes (o segundo ao lado do valor real do
+    // GWY, onde um alerta o lê e não dispara) e do trabalho que ele faz de
+    // verdade não saía nada.
     const resposta = await criarApp().request("/metrics");
     assert.equal(resposta.status, 200);
     const texto = await resposta.text();
-    assert.match(texto, /^# TYPE gwy_requests_total counter$/m);
-    assert.match(texto, /^# TYPE inbound_queue_depth gauge$/m);
+    for (const nome of [
+      "inbound_events_total",
+      "inbound_unrouted_total",
+      "inbound_job_failed_total",
+    ]) {
+      assert.match(texto, new RegExp(`^# TYPE ${nome} counter$`, "m"), nome);
+    }
+    for (const nome of ["gwy_requests_total", "gwy_sig_fail", "inbound_queue_depth"]) {
+      assert.equal(texto.includes(nome), false, `${nome} nao e deste processo`);
+    }
   });
 
   it("a porta e a quarta do servico, distinta das do publicador e do consumidor", async () => {

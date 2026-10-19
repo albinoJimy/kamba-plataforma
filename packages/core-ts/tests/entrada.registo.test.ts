@@ -28,6 +28,7 @@ import { AJUSTES_DO_TRABALHADOR } from "../src/entrada/trabalhador.ts";
 import type { TrabalhoDeEntrada } from "../src/entrada/contrato.ts";
 import type { EventoDeEntrada } from "../src/entrada/explosao.ts";
 import {
+  EVENTOS_MAXIMOS_POR_CORPO,
   PAYLOAD_MAXIMO,
   type ClienteSql,
   type Encaminhador,
@@ -169,6 +170,7 @@ describe("tratarCorpo: JSON invalido (criterio 6)", () => {
     assert.deepEqual(resultado, {
       registados: 0,
       duplicados: 0,
+      recuperados: 0,
       emQuarentena: 1,
       destinos: [],
     });
@@ -270,7 +272,9 @@ describe("tratarCorpo: a janela entre registar e encaminhar", () => {
 
     const queFunciona = new EncaminhadorEspiao();
     const segundo = await tratarCorpo(bd, trabalho, queFunciona, resumo);
-    assert.equal(segundo.duplicados, 1);
+    // `recuperados` e nao `duplicados`: foi encaminhado pela primeira vez.
+    assert.equal(segundo.recuperados, 1);
+    assert.equal(segundo.duplicados, 0);
     assert.deepEqual(queFunciona.destinos(), ["chr"]);
     assert.equal([...bd.entrada.values()][0]?.processado, true);
     // E a terceira entrega já não encaminha nada.
@@ -449,6 +453,136 @@ describe("tratarCorpo: o que vai para o registo", () => {
       linhas.push(campos),
     );
     assert.equal("wa_type" in (linhas[0] ?? {}), false);
+  });
+});
+
+// --- O que a revisão adversarial mudou --------------------------------------
+
+describe("um evento recuperado nao e um duplicado", () => {
+  it("o desfecho e `recuperado`, e conta-se a parte", async () => {
+    // O achado: o caminho de recuperação devolvia `duplicado` e **depois**
+    // encaminhava, pelo que o contador de duplicados subia sem ter havido
+    // duplicado e a recuperação de um evento perdido não deixava rasto
+    // distinguível — que é precisamente o que um operador precisa de ver.
+    const bd = new BaseFalsa();
+    const { trabalho, resumo } = trabalhoDe(corpoComMensagem("wamid.RECUPERADO"));
+
+    const queFalha = new EncaminhadorEspiao();
+    queFalha.falhaEm = "chr";
+    await assert.rejects(() => tratarCorpo(bd, trabalho, queFalha, resumo));
+
+    const desfechos: string[] = [];
+    const resultado = await tratarCorpo(
+      bd,
+      trabalho,
+      new EncaminhadorEspiao(),
+      resumo,
+      undefined,
+      (desfecho) => {
+        desfechos.push(desfecho);
+      },
+    );
+    assert.deepEqual(desfechos, ["recuperado"]);
+    assert.equal(resultado.recuperados, 1);
+    assert.equal(resultado.duplicados, 0);
+    assert.equal(resultado.registados, 0);
+  });
+
+  it("um duplicado verdadeiro continua `duplicado`", async () => {
+    const bd = new BaseFalsa();
+    const { trabalho, resumo } = trabalhoDe(corpoComMensagem("wamid.DUPLICADO"));
+    const desfechos: string[] = [];
+    const contar = (d: string): void => {
+      desfechos.push(d);
+    };
+    await tratarCorpo(bd, trabalho, new EncaminhadorEspiao(), resumo, undefined, contar);
+    await tratarCorpo(bd, trabalho, new EncaminhadorEspiao(), resumo, undefined, contar);
+    assert.deepEqual(desfechos, ["registado", "duplicado"]);
+  });
+});
+
+describe("o corpo guarda-se uma vez por corpo, nao por evento", () => {
+  it("tres campos desconhecidos dao tres linhas e UMA copia do corpo", async () => {
+    // O achado: cada evento de quarentena guardava uma cópia **inteira** do
+    // corpo, pelo que 1 000 `changes` davam 1 000 linhas de até 256 KiB — 256 MB
+    // de um pedido, com a retenção que os limparia a ser de outro ticket.
+    const bd = new BaseFalsa();
+    const corpo = {
+      entry: [
+        {
+          id: WABA,
+          changes: [
+            { field: "campo_a", value: { metadata: { phone_number_id: PNID } } },
+            { field: "campo_b", value: { metadata: { phone_number_id: PNID } } },
+            { field: "campo_c", value: { metadata: { phone_number_id: PNID } } },
+          ],
+        },
+      ],
+    };
+    const { trabalho, resumo } = trabalhoDe(JSON.stringify(corpo));
+    const motivos: string[] = [];
+    const resultado = await tratarCorpo(
+      bd,
+      trabalho,
+      new EncaminhadorEspiao(),
+      resumo,
+      undefined,
+      undefined,
+      (motivo) => {
+        motivos.push(motivo);
+      },
+    );
+    assert.equal(resultado.emQuarentena, 3);
+    assert.equal(bd.quarentena.size, 3);
+    const comCorpo = [...bd.quarentena.values()].filter((q) => q.payload !== null);
+    assert.equal(comCorpo.length, 1, "o corpo devia estar numa linha so");
+    assert.equal(comCorpo[0]?.payload, trabalho.corpo);
+    assert.deepEqual(motivos, [
+      "campo_desconhecido",
+      "campo_desconhecido",
+      "campo_desconhecido",
+    ]);
+  });
+});
+
+describe("tecto de eventos por corpo", () => {
+  it("um corpo acima do tecto vai inteiro a quarentena e nada se registra", async () => {
+    // Sem tecto, um corpo com 100 000 `statuses` fazia 100 000 `INSERT`
+    // sequenciais num só *job*, com `concurrency: 1`, e a partição ficava
+    // bloqueada todo esse tempo enquanto a Meta continuava a entregar.
+    const bd = new BaseFalsa();
+    const estados = Array.from({ length: EVENTOS_MAXIMOS_POR_CORPO + 1 }, (_, i) => ({
+      id: `wamid.${i}`,
+      status: "sent",
+    }));
+    const { trabalho, resumo } = trabalhoDe(
+      JSON.stringify({
+        entry: [{ id: WABA, changes: [{ field: "messages", value: { statuses: estados } }] }],
+      }),
+    );
+    const resultado = await tratarCorpo(bd, trabalho, new EncaminhadorEspiao(), resumo);
+    assert.equal(resultado.registados, 0);
+    assert.equal(resultado.emQuarentena, 1);
+    assert.equal(bd.entrada.size, 0);
+    // E a chave é determinística: a re-entrega do mesmo corpo não cria segunda
+    // linha.
+    assert.equal([...bd.quarentena.keys()][0], `desconhecido|k_${resumo.slice(0, 32)}`);
+  });
+
+  it("um corpo no tecto exacto trata-se todo", async () => {
+    const bd = new BaseFalsa();
+    const estados = Array.from({ length: EVENTOS_MAXIMOS_POR_CORPO }, (_, i) => ({
+      id: `wamid.${i}`,
+      status: "sent",
+    }));
+    const { trabalho, resumo } = trabalhoDe(
+      JSON.stringify({
+        entry: [{ id: WABA, changes: [{ field: "messages", value: { statuses: estados } }] }],
+      }),
+    );
+    const resultado = await tratarCorpo(bd, trabalho, new EncaminhadorEspiao(), resumo);
+    assert.equal(resultado.registados, EVENTOS_MAXIMOS_POR_CORPO);
+    assert.equal(resultado.emQuarentena, 0);
   });
 });
 

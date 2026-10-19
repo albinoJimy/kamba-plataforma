@@ -64,6 +64,29 @@ export const CAMINHO = "/wa/webhook";
  */
 export const TECTO_DA_FILA = 10_000;
 
+/**
+ * Tamanho máximo de um corpo de webhook, em bytes. **Recusa-se antes de o ler.**
+ *
+ * Achado da revisão adversarial, e é o pior dos que ela encontrou: o
+ * `arrayBuffer()` lia o corpo **inteiro** antes de a assinatura ser verificada,
+ * sem tecto nenhum. Qualquer pessoa, sem segredo, fazia um `POST` de 200 MB e o
+ * processo alocava os 200 MB antes de responder 401 — no único endpoint público
+ * da plataforma, com duas réplicas e nada entre elas e a Internet (o *proxy* é
+ * KAM-077 e não existe).
+ *
+ * 1 MiB é *proposta*, e é duas ordens de magnitude acima do que a Meta manda: um
+ * corpo com uma mensagem tem centenas de bytes e um lote de estados tem
+ * kilobytes. O `E1` §5 limita a **taxa** — 3× estados mais 1× entrada — e não
+ * diz o tamanho máximo de um corpo; o número existe para haver tecto, e
+ * calibra-se onde se mede (KAM-024, com o simulador, e KAM-084).
+ *
+ * Responde **413** e não 401: não é um problema de assinatura, e a Meta não
+ * repete um 4xx indefinidamente. Um corpo legítimo que batesse neste tecto
+ * apareceria como `gwy_sig_fail` se se respondesse 401, e isso mandava procurar
+ * no sítio errado.
+ */
+export const CORPO_MAXIMO = 1_048_576;
+
 /** O que o `GET` de verificação da Meta manda, e o que se responde. */
 export const MODO_DE_SUBSCRICAO = "subscribe";
 
@@ -220,7 +243,22 @@ export function montarWebhook(
     const inicio = agora();
     METRICAS.contar(METRICA_PEDIDOS);
 
+    // **O tecto confere-se antes de ler o corpo.** O `content-length` é de quem
+    // chama e pode mentir, pelo que há duas guardas: esta, que evita alocar o
+    // que já se sabe ser grande demais, e a de baixo, que mede o que chegou de
+    // facto — um pedido com `transfer-encoding: chunked` não traz
+    // `content-length` nenhum, e sem a segunda guarda passava por aqui.
+    const declarado = Number(c.req.header("content-length") ?? "");
+    if (Number.isFinite(declarado) && declarado > CORPO_MAXIMO) {
+      log?.warn({ outcome: "corpo_grande_demais", latency_ms: agora() - inicio });
+      return c.text("payload too large", 413);
+    }
+
     const bruto = new Uint8Array(await c.req.arrayBuffer());
+    if (bruto.byteLength > CORPO_MAXIMO) {
+      log?.warn({ outcome: "corpo_grande_demais", latency_ms: agora() - inicio });
+      return c.text("payload too large", 413);
+    }
     if (!assinaturaValida(bruto, c.req.header(CABECALHO_DA_ASSINATURA), dependencias.anel())) {
       METRICAS.contar(METRICA_ASSINATURA_FALHOU);
       // Nada do corpo entra no registo: não foi assinado, e por isso não se sabe

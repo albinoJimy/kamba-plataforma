@@ -132,11 +132,17 @@ class Processo:
         registo: Path,
         aberto,
         porta: int | None = None,
+        porta_das_metricas: int | None = None,
     ) -> None:
         self.popen = popen
         self.contentor = contentor
         self.registo = registo
         self.porta = porta
+        #: A porta **interna** do `/metrics`. O GWY tem duas desde a revisao
+        #: adversarial do KAM-013: a publica so leva o `/wa/webhook`, porque
+        #: `inbound_queue_depth` nessa porta e o atraso da plataforma ao
+        #: alcance de quem alcanca a Internet.
+        self.porta_das_metricas = porta_das_metricas
         self._aberto = aberto
 
     def vivo(self) -> bool:
@@ -205,6 +211,7 @@ def lancar(
     extra: dict[str, str],
     rotulo: str,
     porta: int | None = None,
+    porta_das_metricas: int | None = None,
 ) -> Processo:
     """Lanca `node <guiao>` em `pasta` (relativa a raiz). Nao espera por ele.
 
@@ -231,6 +238,7 @@ def lancar(
             registo,
             aberto,
             porta,
+            porta_das_metricas,
         )
 
     contentor = f"kamba-{rotulo}-{secrets.token_hex(3)}"
@@ -245,9 +253,11 @@ def lancar(
     if modulos != RAIZ:
         for relativo in ("node_modules", f"{pasta}/node_modules"):
             comando += ["--volume", f"{modulos / relativo}:/repo/{relativo}:ro"]
-    if porta is not None:
+    for publicada in (porta, porta_das_metricas):
+        if publicada is None:
+            continue
         # So em `127.0.0.1`: o gate nao abre portas na rede de quem o corre.
-        comando += ["--publish", f"127.0.0.1:{porta}:{porta}"]
+        comando += ["--publish", f"127.0.0.1:{publicada}:{publicada}"]
         ambiente["HOST"] = "0.0.0.0"
     # **As variaveis de `extra` passam todas, uma a uma, e nao por prefixo.**
     # Isto foi um defeito medido: o filtro era
@@ -278,4 +288,5 @@ def lancar(
         registo,
         aberto,
         porta,
+        porta_das_metricas,
     )

@@ -33,7 +33,7 @@
  * `trabalhador_bullmq.ts` já pagou.
  */
 
-import { Worker } from "bullmq";
+import { UnrecoverableError, Worker } from "bullmq";
 import { Redis } from "ioredis";
 
 import { atrasoDaTentativaDoConsumidor } from "../eventos/consumo.ts";
@@ -155,7 +155,17 @@ export function criarTrabalhadorDeEntrada(
     fila,
     async (job) => {
       const trabalho = lerTrabalho(job.data);
-      if (trabalho === null) throw new TrabalhoInvalidoError(fila);
+      if (trabalho === null) {
+        // `UnrecoverableError` e nao um erro qualquer: nenhuma retentativa
+        // acrescenta um `corpo` a um *job* que nao o traz. Sem isto gastavam-se
+        // as seis tentativas da escada — cerca de treze minutos de particao,
+        // com `concurrency: 1` — num *job* que se sabia irrecuperavel a
+        // primeira leitura. E o precedente do repositorio: o
+        // `eventos/trabalhador_bullmq.ts` faz o mesmo com o
+        // `TenantEmFaltaError`, pela mesma razao escrita. Achado da revisao
+        // adversarial.
+        throw new UnrecoverableError(new TrabalhoInvalidoError(fila).message);
+      }
       await opcoes.tratar(trabalho);
     },
     {

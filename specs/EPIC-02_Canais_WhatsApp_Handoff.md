@@ -118,10 +118,36 @@ quem calcula HMAC-SHA256 por outro caminho».
 | 8 | Encaminhamento por `kind` | Os quatro grupos, com os onze campos de webhook registados com o `kind` certo contra a base real, e `unrouted_events` a **zero** nesse teste. E as duas propriedades **negativas** que importam, como asserções: um `statuses` nunca chega ao `chr` (é por lá que o AGR é alimentado), e `history`/`smb_app_state_sync` vão **só** a `ingestao`. O mapa é total (`Record<Kind, Destino>`): um `kind` novo sem destino é erro de compilação |
 | 9 | Logs só com os oito campos; linter e teste de 1 000 pedidos | **O teste que o critério nomeia:** 1 000 pedidos com dez canários — telefone em quatro formatos, nome de perfil, texto de mensagem, morada, e-mail, cartão e *token* da Meta — um terço assinado, um terço sem assinatura e um terço com assinatura errada. **0 ocorrências** de qualquer canário e **nenhuma chave fora dos oito**. O *logger* corre em **modo estrito** nesse teste: um campo fora da *allowlist* lança em vez de ser retirado em silêncio. De ponta a ponta, o mesmo nos registos dos **dois processos**: o `wamid` nunca sai em claro — sai `idOpaco`, `m_` mais 32 hexadecimais. E `make log-lint`: 0 achados em 78 ficheiros TS/JS e 34 Python |
 
+### A revisão adversarial encontrou oito, e os oito eram sobre o que não se vê
+
+Nenhum foi apanhado pelos 796 testes de então, nem pelas 270 mutações, nem por
+*gate* nenhum — e isso é o padrão: todos eles são sobre **comportamento sob
+condições que nenhum teste criava** (um corpo grande, um Redis lento, um corpo
+com mil itens, um processo que morreu a meio). Os oito estão corrigidos, e cada
+um ficou com teste.
+
+| | O defeito, com o cenário | Como ficou |
+|---|---|---|
+| **A1** | **O corpo era lido inteiro antes de a assinatura ser verificada, e sem tecto.** Qualquer pessoa, sem segredo nenhum, fazia `POST /wa/webhook` com 200 MB e o GWY alocava os 200 MB — mais uma cópia em base64 no caminho bom — antes de responder 401. No **único endpoint público** da plataforma, com duas réplicas e o *proxy* que o protegeria a ser de outro ticket (KAM-077) | `CORPO_MAXIMO` de 1 MiB (*proposta*), com **duas** guardas: o `content-length` declarado, e o tamanho do que chegou de facto — um pedido `chunked` não traz `content-length` e passava pela primeira. Responde **413** e não 401, para um corpo legítimo grande não aparecer como `gwy_sig_fail` e mandar procurar no sítio errado. Cinco testes, mais um na suite de integração contra o processo a correr |
+| **A2** | **O `/metrics` estava na porta do webhook.** O webhook é alcançável de fora (ADR-001): qualquer pessoa que chegasse ao GWY lia `inbound_queue_depth` — o atraso da plataforma em tempo real —, `gwy_requests_total` e `gwy_sig_fail`. Com a profundidade visível, quem quisesse provocar o descarte do critério 7 sabia exactamente quando a fila passara os 10 000 | Dois servidores: a porta pública leva **só** o `/wa/webhook`, e o `/healthz` e o `/metrics` vivem na interna (3010, `GWY_METRICS_PORT`), como nos outros processos. O teste da sonda volta a afirmar que o `/metrics` **não** responde na porta pública, agora com a razão escrita, e a suite de integração mede-o nas duas portas do processo a correr |
+| **A3** | **O amostrador da profundidade escrevia uma linha por segundo com o Redis em baixo** — 86 400 por dia. A avaria afogava o registo que devia sinalizá-la, e com ele as linhas de `assinatura_invalida` que importam. E com o Redis **lento** (2 s por comando) começava uma leitura nova a cada segundo sem a anterior ter acabado, cada uma com o seu temporizador de 5 s, a acumular pedidos pendentes no processo que tem de responder em menos de 500 ms | Trinco de reentrância (uma leitura de cada vez) e registo **só na transição**: uma linha quando deixa de se ler, uma quando volta |
+| **A4** | **Cada evento de quarentena guardava uma cópia inteira do corpo, e não havia tecto de eventos por corpo.** Um corpo assinado com 1 000 `changes` de um campo desconhecido escrevia 1 000 linhas de até 256 KiB — 256 MB de um pedido, com a retenção que os limparia a ser de outro ticket. E um corpo com 100 000 `statuses` fazia 100 000 `INSERT` sequenciais num só *job*, com `concurrency: 1`, a bloquear a partição todo esse tempo | O corpo guarda-se **uma vez por corpo**, na primeira linha. E `EVENTOS_MAXIMOS_POR_CORPO` (1 000, *proposta*): acima do tecto o corpo vai **inteiro** a uma linha de quarentena, com chave determinística, em vez de ser meio processado — um corpo meio processado é pior, porque o `jobId` já não distingue os dois casos |
+| **A5** | **Um *job* malformado gastava as seis tentativas da escada** — cerca de treze minutos de partição, com `concurrency: 1` — num *job* que se sabia irrecuperável à primeira leitura. O `eventos/trabalhador_bullmq.ts` já usava `UnrecoverableError` para esta classe exacta (`TenantEmFaltaError`), com a razão escrita | `UnrecoverableError`, como o precedente |
+| **A6** | **Um evento recuperado era reportado como `duplicado`.** O caminho de recuperação — o evento estava registado e **sem** `processado_at` — devolvia `duplicado` e só depois encaminhava. O contador de duplicados subia sem ter havido duplicado, e a recuperação de um evento que esteve perdido não deixava rasto distinguível do caso banal | Desfecho próprio, `recuperado`, com contador e métrica próprios. Dois testes: o recuperado e o duplicado verdadeiro |
+| **A7** | **O *worker* de entrada escutava em todas as interfaces.** `serve({ fetch, port })` sem `hostname`, pelo que o Node escuta em `::`/`0.0.0.0`: correr o processo à mão numa rede partilhada abria-lhe o `/metrics` e o `/healthz`. O `services/gwy/src/server.ts` defende-se disto e escreve a razão — `specs/01` §6 princípio 7 e o DoD do KAM-001, «nada além de localhost» | `hostname` explícito. **O `publicador.ts` e o `consumidor.ts` têm o mesmo defeito** e são anteriores a este ticket: ficam registados aqui e em `docs/dividas-documentais.md` |
+| **A8** | **O *worker* expunha as cinco métricas do GWY, a zero.** Não incrementa nenhuma: saíam `gwy_sig_fail 0` e `inbound_queue_depth -1` permanentes — o segundo ao lado do valor real do GWY, onde um alerta sobre a profundidade o lê e **não dispara** — e do trabalho que ele faz de verdade não saía nada | Três métricas próprias (`inbound_events_total` por desfecho, `inbound_unrouted_total` por motivo, `inbound_job_failed_total`), com etiquetas de lista fechada. *Proposta*, como o `gwy_shed_total`: o DoD nomeia as do GWY |
+
+**O que a revisão não mudou, e porquê.** Nenhum dos oito é um defeito de
+desenho: os domínios, a deduplicação em dois níveis, o encaminhamento e a
+política de registo passaram intactos. Os oito são sobre o comportamento nas
+bordas — e sete deles só existem porque o GWY é o **único endpoint externo** da
+plataforma, o que torna «o que um estranho consegue fazer com um pedido» a
+pergunta certa a fazer a este ficheiro e não a outro.
+
 ### Três defeitos que só a suite de integração apanhou
 
-Nenhum deles era visível nos 796 testes unitários, e os três tinham o mesmo
-sintoma: **silêncio**.
+Nenhum deles era visível nos testes unitários de então, e os três tinham o
+mesmo sintoma: **silêncio**.
 
 | | O defeito, medido | Como ficou |
 |---|---|---|
@@ -170,11 +196,11 @@ sintoma: **silêncio**.
 
 | Verificação | Resultado |
 |---|---|
-| `pnpm -r run test` | **796 testes, 0 falhas** (eram 711: +85) — `core-ts` 720, `gwy` 39, `worker-canal` 15, `contracts` 12, `com` 5, `onboarding-web` 5 |
+| `pnpm -r run test` | **806 testes, 0 falhas** (eram 711: +95) — `core-ts` 725, `gwy` 44, `worker-canal` 15, `contracts` 12, `com` 5, `onboarding-web` 5 |
 | Gate 8 (`tests`) | **387 testes, OK** — a revisão `0008` aplica, reverte e volta a aplicar |
-| Gate 8 (`tests_entrada`) | **32 testes, OK**, 258 s, com os dois processos de produção, PostgreSQL e Valkey reais |
+| Gate 8 (`tests_entrada`) | **34 testes, OK**, 147 s, com os dois processos de produção, PostgreSQL e Valkey reais |
 | Gate 8 (`tests_entrada_carga`) | **OK** — ver a tabela da carga, a seguir |
-| Gate 4 (cobertura) | **crítico 95%** (mínimo 90%), **restante 89%** (mínimo 75%) |
+| Gate 4 (cobertura) | **crítico 95%** (mínimo 90%), **restante 88%** (mínimo 75%) |
 | Gate 3b (nomes canónicos) | conforme — dicionário **v1.19**, 8 migrações, 22 tabelas, 68 valores de `CHECK` |
 | Gate 3 (referências, *handoff*, contagens) | conforme — 15 578 referências em 970 ficheiros; 630 caminhos de *handoff*; 13 contagens vivas, 0 erradas |
 | Gate 3c (coerência do backlog) | conforme — 159 linhas no §4 e 159 blocos a dizer o mesmo |
@@ -200,10 +226,10 @@ servidor, e de propósito: é a que a Meta veria.
 | Grandeza | Medido | Limiar do critério |
 |---|---|---|
 | Respostas | **12 000 × 200**, nenhuma outra | — (um 503 sob carga é um webhook que a Meta repete) |
-| Mediana | **61 ms** | ≤ 250 ms |
-| p99 | **349 ms** | < 500 ms |
+| Mediana | **39 ms** | ≤ 250 ms |
+| p99 | **199 ms** | < 500 ms |
 | Acima de 1 s | **0,00%** | < 1% |
-| Máximo | 873 ms | — |
+| Máximo | 580 ms | — |
 | Mensagens registadas | **3 000 de 3 000** | nenhuma perdida |
 | `gwy_shed_total` | **0** | nada descartado: todos os estados deste perfil trazem `pricing` |
 
@@ -213,23 +239,28 @@ mesmo anfitrião. O dimensionamento é KAM-084, que depende deste ticket. O que
 esta prova mede é que o **desenho** aguenta o perfil — que o 200 não espera por
 I/O que não devia estar no caminho.
 
-### Dois defeitos de ferramenta que este trabalho encontrou e **não** corrigiu
+### Três defeitos fora do âmbito, que este trabalho **não** corrigiu
 
 Nenhum é causado por este ramo, e os dois são de outro ticket:
 
-1. **O `lint_contagens` não corre de dentro de um `git worktree` sob `.claude/`.**
-   O `tools/lint_contagens/scan.py:150` exclui qualquer ficheiro cujo caminho
-   **absoluto** contenha `.claude` nas suas partes, e a raiz deste *worktree* é
-   `…/.claude/worktrees/KAM-013`: a varredura encontra **zero** ficheiros e o
-   *gate* sai com 2 («erro de configuração»). Em CI o *checkout* não está sob
-   `.claude`, pelo que o *gate* passa — e passa de verdade: medido com raiz
-   relativa, **13 contagens vivas, 0 erradas**, acima do mínimo de 10. A
-   correcção é uma linha (`f.relative_to(raiz).parts`), e é código: fica para
-   ticket próprio.
+1. **O `lint_contagens` não corre de dentro de um `git worktree` sob
+   `.claude/`** — e isto **já estava declarado**: é a linha **44** de
+   `../docs/dividas-documentais.md`, encontrada pelo KAM-133 pela mesma via.
+   Fica aqui porque voltou a morder e porque a medição é nova: com raiz
+   relativa, **13 contagens vivas, 0 erradas**, acima do mínimo de 10. Em CI o
+   *checkout* não está sob `.claude`, pelo que o *gate* passa de verdade e não
+   por acidente. **Nada se acrescenta à lista de dívidas**: uma segunda entrada
+   para o mesmo defeito era a classe de ruído que essa lista existe para evitar.
 2. **O `coverage_gate.py` não corre em Python 3.14.** Um `%o` numa cadeia de
    ajuda que o `argparse` do 3.14 passou a validar («badly formed help string»).
    O CI usa 3.12 e não vê isto; apareceu ao medir a cobertura dentro de um
-   contentor `node:24.21.0-alpine`, que traz 3.14.
+   contentor `node:24.21.0-alpine`, que traz 3.14. Linha **45** da lista de
+   dívidas.
+3. **O `publicador.ts` e o `consumidor.ts` escutam em todas as interfaces.** É
+   o achado A7 aplicado a dois ficheiros anteriores a este ticket: `serve({
+   fetch, port })` sem `hostname`, contra o que o `services/gwy/src/server.ts`
+   fixa citando `specs/01` §6 princípio 7. O `entrada.ts` deste ticket foi
+   corrigido; os outros dois ficam na linha **46**.
 ### Detalhes Técnicos
 
 - **Componentes:** GWY (e *worker* de canal em `services/worker-canal`). O TLS público termina no proxy (KAM-077); o GWY escuta em HTTP atrás dele.

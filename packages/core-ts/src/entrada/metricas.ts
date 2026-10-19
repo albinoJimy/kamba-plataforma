@@ -42,6 +42,8 @@
  * KAM-084. Fica dito aqui para ninguém ler este *gauge* como um p99.
  */
 
+import { MOTIVOS as MOTIVOS_DE_QUARENTENA } from "./contrato.ts";
+
 export const METRICA_PEDIDOS = "gwy_requests_total";
 export const METRICA_ASSINATURA_FALHOU = "gwy_sig_fail";
 export const METRICA_DESCARTADOS = "gwy_shed_total";
@@ -154,5 +156,126 @@ export class MetricasDaEntrada {
   }
 }
 
-/** As métricas do processo. */
+/** As métricas do GWY. */
 export const METRICAS = new MetricasDaEntrada();
+
+// ---------------------------------------------------------------------------
+// As do *worker* de entrada, que são outras
+// ---------------------------------------------------------------------------
+//
+// **Isto nasceu de um achado da revisão adversarial.** O *worker* servia as
+// cinco de cima no seu `/metrics`, e não incrementa nenhuma: saíam
+// `gwy_sig_fail 0` e `inbound_queue_depth -1` permanentes — a diluir qualquer
+// média sobre os alvos do serviço, e a pôr um `-1` ao lado do valor real do
+// GWY, onde um alerta sobre a profundidade da fila o lê e não dispara. E do
+// trabalho que o *worker* faz de verdade não saía nada.
+//
+// Os nomes não estão no DoD do ticket — o DoD nomeia as do GWY — e entram como
+// *proposta*, pela mesma razão do `gwy_shed_total`: um processo que escreve na
+// base sem uma métrica do que escreveu não tem observabilidade nenhuma.
+
+/** Eventos de canal registados, por desfecho. */
+export const METRICA_ENTRADAS = "inbound_events_total";
+/** Eventos postos em quarentena, por motivo. */
+export const METRICA_EM_QUARENTENA = "inbound_unrouted_total";
+/** *Jobs* que falharam e o BullMQ vai repetir. */
+export const METRICA_FALHAS = "inbound_job_failed_total";
+
+/** Desfecho de um registo. Lista fechada: é sufixo de métrica. */
+export const DESFECHOS_DA_ENTRADA = ["registado", "duplicado", "recuperado"] as const;
+export type DesfechoDaEntrada = (typeof DESFECHOS_DA_ENTRADA)[number];
+
+const AJUDA_DO_WORKER: Readonly<Record<string, readonly [string, string]>> = {
+  [METRICA_ENTRADAS]: [
+    "counter",
+    "Eventos de canal registados, por desfecho. recuperado = estava sem processado_at.",
+  ],
+  [METRICA_EM_QUARENTENA]: [
+    "counter",
+    "Eventos postos em quarentena, por motivo. Um json_invalido aqui e um corpo que nao encaixou.",
+  ],
+  [METRICA_FALHAS]: [
+    "counter",
+    "Jobs da fila de entrada que falharam. Nunca por conteudo do corpo: isso vai a quarentena.",
+  ],
+};
+
+/**
+ * Que sufixos cada contador aceita. Listas **fechadas**, como no
+ * `eventos/metricas.ts`: um identificador não entra em etiqueta nenhuma
+ * (`docs/seguranca/ameacas_stride.md`, OBS-I), e os motivos de quarentena são
+ * os quatro do dicionário §3.12 — não crescem com o tráfego.
+ */
+const ETIQUETAS_DO_WORKER: Readonly<
+  Record<string, { readonly nome: string; readonly valores: readonly string[] }>
+> = {
+  [METRICA_ENTRADAS]: { nome: "desfecho", valores: DESFECHOS_DA_ENTRADA },
+  [METRICA_EM_QUARENTENA]: { nome: "motivo", valores: MOTIVOS_DE_QUARENTENA },
+};
+
+/** Um sufixo que não está na lista fechada da sua métrica. */
+export class SufixoInvalidoError extends Error {
+  constructor(metrica: string, sufixo: string) {
+    super(
+      `${metrica}: sufixo ${JSON.stringify(sufixo)} nao esta na lista fechada. ` +
+        "Identificadores (waba_id, phone_number_id, event_key) nao entram em " +
+        "metricas (docs/seguranca/ameacas_stride.md, OBS-I)",
+    );
+    this.name = "SufixoInvalidoError";
+  }
+}
+
+/** Contadores do *worker* de entrada. Só números. */
+export class MetricasDoWorker {
+  readonly #contadores = new Map<string, number>();
+
+  contar(metrica: string, sufixo?: string, quanto = 1): void {
+    if (AJUDA_DO_WORKER[metrica] === undefined) {
+      throw new MetricaDesconhecidaError(metrica);
+    }
+    if (sufixo !== undefined) {
+      const permitidos = ETIQUETAS_DO_WORKER[metrica]?.valores;
+      if (permitidos === undefined || !permitidos.includes(sufixo)) {
+        throw new SufixoInvalidoError(metrica, sufixo);
+      }
+    }
+    const nome = sufixo === undefined ? metrica : `${metrica}:${sufixo}`;
+    this.#contadores.set(nome, (this.#contadores.get(nome) ?? 0) + quanto);
+  }
+
+  ler(): Record<string, number> {
+    return Object.fromEntries(this.#contadores);
+  }
+
+  repor(): void {
+    this.#contadores.clear();
+  }
+
+  /** Formato de exposição do Prometheus. As três aparecem sempre. */
+  exposicao(): string {
+    const linhas: string[] = [];
+    for (const [nome, [tipo, ajuda]] of Object.entries(AJUDA_DO_WORKER)) {
+      linhas.push(`# HELP ${nome} ${ajuda}`);
+      linhas.push(`# TYPE ${nome} ${tipo}`);
+      const series = [...this.#contadores.keys()]
+        .filter((chave) => chave === nome || chave.startsWith(`${nome}:`))
+        .sort();
+      if (series.length === 0) {
+        linhas.push(`${nome} 0`);
+        continue;
+      }
+      const etiqueta = ETIQUETAS_DO_WORKER[nome]?.nome ?? "desfecho";
+      for (const chave of series) {
+        const sufixo = chave.slice(nome.length + 1);
+        const valor = this.#contadores.get(chave) ?? 0;
+        linhas.push(
+          sufixo === "" ? `${nome} ${valor}` : `${nome}{${etiqueta}="${sufixo}"} ${valor}`,
+        );
+      }
+    }
+    return `${linhas.join("\n")}\n`;
+  }
+}
+
+/** As métricas do *worker* de entrada. */
+export const METRICAS_DO_WORKER = new MetricasDoWorker();

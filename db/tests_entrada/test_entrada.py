@@ -245,6 +245,11 @@ class ComEntrada(unittest.TestCase):
     @classmethod
     def _lancar_gwy(cls) -> node.Processo:
         porta = porta_livre()
+        # Duas portas: a publica so leva o `/wa/webhook`, e o `/metrics` vive
+        # na interna. E a correccao de um achado da revisao adversarial —
+        # `inbound_queue_depth` na porta publica e o atraso da plataforma ao
+        # alcance de quem alcanca a Internet.
+        porta_das_metricas = porta_livre()
         processo = node.lancar(
             "services/gwy",
             "src/server.ts",
@@ -255,10 +260,12 @@ class ComEntrada(unittest.TestCase):
                 "KAMBA_SECRET_META_APP_SECRET_ANTERIOR": APP_SECRET_ANTERIOR,
                 "KAMBA_SECRET_META_VERIFY_TOKEN": VERIFY_TOKEN,
                 "PORT": str(porta),
+                "GWY_METRICS_PORT": str(porta_das_metricas),
                 "HOST": "127.0.0.1",
             },
             "gwy",
             porta=porta,
+            porta_das_metricas=porta_das_metricas,
         )
         cls.processos.append(processo)
         if not esperar_por(lambda: _sonda(porta), ARRANQUE):
@@ -417,12 +424,62 @@ class TestAssinatura(ComEntrada):
 
     def _metrica(self, nome: str) -> int:
         with urllib.request.urlopen(
-            f"http://127.0.0.1:{self.gwy.porta}/metrics", timeout=10
+            f"http://127.0.0.1:{self.gwy.porta_das_metricas}/metrics", timeout=10
         ) as resposta:
             texto = resposta.read().decode("utf-8")
         achado = re.search(rf"^{nome} (-?\d+)$", texto, re.M)
         self.assertIsNotNone(achado, f"{nome} nao esta em /metrics: {texto}")
         return int(achado.group(1))
+
+    def test_o_metrics_NAO_esta_na_porta_publica(self) -> None:
+        """Achado da revisao adversarial, medido no processo a correr.
+
+        O webhook e alcancavel de fora (ADR-001). Com o `/metrics` na mesma
+        porta, qualquer pessoa que chegue ao GWY le `inbound_queue_depth` — o
+        atraso da plataforma em tempo real — e sabe quando a fila passou os
+        10 000 do descarte do criterio 7.
+        """
+        # **So o `/metrics`.** O `/healthz` fica na porta publica de proposito:
+        # e o contrato do KAM-001 (`packages/contracts/schemas/healthz.response.v1.json`)
+        # e o `make smoke` verifica-o em `gwy=3000`. E a sonda de vivacidade do
+        # servico, nao observabilidade — nao diz nada sobre o estado da fila.
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{self.gwy.porta}/metrics", timeout=10
+            ) as resposta:
+                codigo = resposta.status
+        except urllib.error.HTTPError as erro:
+            codigo = erro.code
+        self.assertNotEqual(codigo, 200, "/metrics nao devia responder na porta publica")
+
+        # O `/healthz` responde, e tem de responder.
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{self.gwy.porta}/healthz", timeout=10
+        ) as resposta:
+            self.assertEqual(resposta.status, 200)
+
+        # E o `/metrics` responde na interna.
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{self.gwy.porta_das_metricas}/metrics", timeout=10
+        ) as resposta:
+            self.assertEqual(resposta.status, 200)
+            self.assertIn("inbound_queue_depth", resposta.read().decode("utf-8"))
+
+    def test_um_corpo_grande_demais_responde_413_e_nao_enfileira(self) -> None:
+        """Achado da revisao adversarial: o corpo era lido inteiro sem tecto.
+
+        Um pedido **sem assinatura nenhuma** com um corpo acima do tecto nao
+        pode fazer o processo alocar o corpo todo. Aqui mede-se pelo efeito: 413
+        e nada na fila.
+        """
+        grande = b"{" + b" " * (1_048_576 + 1)
+        codigo, _ = self.post(grande, None)
+        self.assertEqual(codigo, 413)
+        self.assertEqual(self.jobs_na_fila(), set())
+        # E com assinatura valida tambem: o tecto e do tamanho, nao da origem.
+        codigo, _ = self.post(grande, assinar(grande, APP_SECRET_ACTUAL))
+        self.assertEqual(codigo, 413)
+        self.assertEqual(self.jobs_na_fila(), set())
 
     def test_o_gwy_conta_as_falhas_de_assinatura(self) -> None:
         # O **delta**, e nao o valor: o processo e partilhado pela classe, e um

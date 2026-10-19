@@ -22,9 +22,14 @@ import {
 import { FilasEmMemoria } from "@kamba/core-ts/eventos";
 import { Logger } from "@kamba/core-ts/logger";
 
-import { createApp } from "../src/app.ts";
+import { createApp, criarAppDeMetricas } from "../src/app.ts";
 import { SERVICE } from "../src/meta.ts";
-import { CAMINHO, TECTO_DA_FILA, soEstadosSemPreco } from "../src/webhook.ts";
+import {
+  CAMINHO,
+  CORPO_MAXIMO,
+  TECTO_DA_FILA,
+  soEstadosSemPreco,
+} from "../src/webhook.ts";
 
 const ACTUAL = "app-secret-actual";
 const ANTERIOR = "app-secret-anterior";
@@ -529,6 +534,67 @@ describe("soEstadosSemPreco", () => {
   });
 });
 
+// --- O tecto do corpo (revisão adversarial) ---------------------------------
+
+describe("tecto do corpo", () => {
+  it("um corpo acima do tecto responde 413 sem ser lido inteiro", async () => {
+    // O achado: o `arrayBuffer()` lia o corpo **inteiro** antes de a assinatura
+    // ser verificada e sem tecto nenhum, no único endpoint público da
+    // plataforma. Um POST de 200 MB sem segredo nenhum alocava 200 MB.
+    const montagem = montar();
+    const grande = new Uint8Array(CORPO_MAXIMO + 1);
+    grande.fill(0x20);
+    const resposta = await enviar(montagem, grande, assinar(grande, ACTUAL));
+    assert.equal(resposta.status, 413);
+    assert.equal(montagem.filas.contar(FILA_ENTRADA), 0);
+  });
+
+  it("recusa pelo `content-length` declarado, sem alocar o corpo", async () => {
+    const montagem = montar();
+    const resposta = await montagem.app.request(CAMINHO, {
+      method: "POST",
+      body: bytes("{}"),
+      headers: {
+        "content-length": String(CORPO_MAXIMO + 1),
+        "x-hub-signature-256": assinar(bytes("{}"), ACTUAL),
+      },
+    });
+    assert.equal(resposta.status, 413);
+  });
+
+  it("um `content-length` mentiroso nao passa: a segunda guarda mede o que chegou", async () => {
+    const montagem = montar();
+    const grande = new Uint8Array(CORPO_MAXIMO + 1);
+    grande.fill(0x20);
+    const resposta = await montagem.app.request(CAMINHO, {
+      method: "POST",
+      body: grande,
+      headers: { "content-length": "2", "x-hub-signature-256": assinar(grande, ACTUAL) },
+    });
+    assert.equal(resposta.status, 413);
+  });
+
+  it("413 e nao 401: nao e um problema de assinatura", async () => {
+    // Se respondesse 401, um corpo legítimo grande aparecia como
+    // `gwy_sig_fail` e mandava procurar no sítio errado.
+    METRICAS.repor();
+    const montagem = montar();
+    const grande = new Uint8Array(CORPO_MAXIMO + 1);
+    await enviar(montagem, grande, assinar(grande, ACTUAL));
+    assert.equal(METRICAS.ler().gwy_sig_fail, undefined);
+    METRICAS.repor();
+  });
+
+  it("um corpo no tecto exacto passa", async () => {
+    const montagem = montar();
+    const enchimento = "a".repeat(CORPO_MAXIMO);
+    const corpo = bytes(`{"x":"${enchimento}"}`.slice(0, CORPO_MAXIMO));
+    assert.equal(corpo.byteLength, CORPO_MAXIMO);
+    const resposta = await enviar(montagem, corpo, assinar(corpo, ACTUAL));
+    assert.equal(resposta.status, 200);
+  });
+});
+
 // --- Critério 9: os logs ----------------------------------------------------
 
 describe("logs do GWY (criterio 9)", () => {
@@ -657,9 +723,16 @@ describe("logs do GWY (criterio 9)", () => {
 // --- /metrics ---------------------------------------------------------------
 
 describe("/metrics do gwy", () => {
-  it("expoe as cinco metricas, sem etiquetas", async () => {
+  it("NAO esta na porta do webhook", async () => {
+    // Achado da revisão adversarial: o webhook é alcançável de fora (ADR-001),
+    // e `inbound_queue_depth` nessa porta é o atraso da plataforma em tempo
+    // real ao alcance de quem quiser cronometrar o descarte do critério 7.
     const { app } = montar();
-    const resposta = await app.request("/metrics");
+    assert.notEqual((await app.request("/metrics")).status, 200);
+  });
+
+  it("expoe as cinco metricas, sem etiquetas, no app interno", async () => {
+    const resposta = await criarAppDeMetricas().request("/metrics");
     assert.equal(resposta.status, 200);
     assert.match(resposta.headers.get("content-type") ?? "", /^text\/plain; version=0\.0\.4/);
     const texto = await resposta.text();
@@ -685,8 +758,10 @@ describe("createApp sem dependencias", () => {
     const app = createApp();
     assert.equal((await app.request(CAMINHO, { method: "POST", body: "{}" })).status, 404);
     assert.equal((await app.request(`${CAMINHO}?hub.mode=subscribe`)).status, 404);
-    // A sonda e as métricas continuam a responder: o processo está vivo.
+    // A sonda continua a responder: o processo está vivo.
     assert.equal((await app.request("/healthz")).status, 200);
-    assert.equal((await app.request("/metrics")).status, 200);
+    // O `/metrics` não: vive no app interno, noutra porta.
+    assert.notEqual((await app.request("/metrics")).status, 200);
+    assert.equal((await criarAppDeMetricas().request("/healthz")).status, 200);
   });
 });

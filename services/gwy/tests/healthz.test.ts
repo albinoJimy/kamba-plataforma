@@ -55,21 +55,15 @@ test("o SHA do commit vem do ambiente quando o CI o injecta", async () => {
 });
 
 test("uma rota desconhecida não responde 200", async () => {
-  // O `/metrics` saiu desta lista com o KAM-013: o DoD desse ticket pede as
-  // métricas do GWY «desde o código», e métricas que nada expõe não são
-  // observabilidade. A rota está em `app.ts` e o que lá sai são cinco
-  // contadores e *gauges* **sem etiquetas** — nenhum identificador
-  // (`docs/seguranca/ameacas_stride.md`, OBS-I). O que ela expõe prova-se em
-  // `tests/webhook.test.ts`; aqui fica só o que continua a recusar.
-  for (const path of ["/", "/healthz/", "/admin", "/wa/webhook/extra"]) {
+  // O `/metrics` **continua** nesta lista, e com o KAM-013 passou a ter razão
+  // escrita: as métricas do GWY existem (o DoD pede-as) mas vivem noutra porta,
+  // servidas pelo `criarAppDeMetricas`. Pô-las aqui era pôr a profundidade da
+  // fila ao alcance de quem alcança a Internet, porque esta é a porta do
+  // webhook (achado da revisão adversarial do KAM-013).
+  for (const path of ["/", "/healthz/", "/metrics", "/admin", "/wa/webhook/extra"]) {
     const response = await sonda(path);
     assert.notEqual(response.status, 200, `${path} devia recusar`);
   }
-});
-
-test("o /metrics responde 200 desde o KAM-013", async () => {
-  const response = await sonda("/metrics");
-  assert.equal(response.status, 200);
 });
 
 // --- KAM-068: o erro de um tratador não sai pela consola ---------------------

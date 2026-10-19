@@ -41,7 +41,10 @@ import { serve } from "@hono/node-server";
 import { healthz } from "@kamba/core-ts";
 import {
   FILA_ENTRADA,
-  METRICAS,
+  METRICAS_DO_WORKER,
+  METRICA_EM_QUARENTENA,
+  METRICA_ENTRADAS,
+  METRICA_FALHAS,
   type Encaminhador,
   type EventoDeEntrada,
   type Registo,
@@ -113,8 +116,13 @@ export class EncaminhadorQueSoRegista implements Encaminhador {
 export function criarApp(): Hono {
   const app = new Hono();
   app.get("/healthz", (c) => c.json(healthz(SERVICE, VERSION)));
+  // **As metricas do *worker*, e nao as do GWY.** Serviam-se antes as cinco
+  // de `entrada/metricas.ts`, que o GWY incrementa e este processo nao: saiam
+  // `gwy_sig_fail 0` e `inbound_queue_depth -1` permanentes, a diluir qualquer
+  // media e a por um `-1` ao lado do valor real do GWY — e do trabalho que
+  // este processo faz de verdade nao saia nada. Achado da revisao adversarial.
   app.get("/metrics", (c) =>
-    c.text(METRICAS.exposicao(), 200, {
+    c.text(METRICAS_DO_WORKER.exposicao(), 200, {
       "content-type": "text/plain; version=0.0.4; charset=utf-8",
     }),
   );
@@ -142,16 +150,46 @@ async function principal(): Promise<void> {
       // corpo sem `entry` utilizável não deve depender de a fila ter
       // preservado o identificador do *job*.
       const resumo = sha256Hex(Buffer.from(trabalho.corpo, "base64"));
-      await tratarCorpo(bd, trabalho, encaminhador, resumo, registar);
+      await tratarCorpo(
+        bd,
+        trabalho,
+        encaminhador,
+        resumo,
+        registar,
+        (desfecho) => {
+          // `quarentena` nao chega aqui: o `tratarCorpo` so chama este contador
+          // para o que passou pelo `registarEvento`.
+          if (desfecho !== "quarentena") {
+            METRICAS_DO_WORKER.contar(METRICA_ENTRADAS, desfecho);
+          }
+        },
+        (motivo) => METRICAS_DO_WORKER.contar(METRICA_EM_QUARENTENA, motivo),
+      );
     },
     // Sai o codigo e a classe do erro, nunca a mensagem: um
     // `permission denied for table unrouted_events` nao leva conteudo, mas um
     // erro de `pg` pode levar a instrucao com os parametros, e os parametros
     // deste caminho sao o corpo do webhook.
-    aoFalhar: (erro) => log.excepcao(erro, "entrada_falhou"),
+    aoFalhar: (erro) => {
+      METRICAS_DO_WORKER.contar(METRICA_FALHAS);
+      log.excepcao(erro, "entrada_falhou");
+    },
   });
 
-  const servidor = serve({ fetch: criarApp().fetch, port: porta() });
+  // `hostname` explicito, e nao a omissao do Node — que e `::`/`0.0.0.0`.
+  // O `services/gwy/src/server.ts` fixa a regra e escreve a razao: `specs/01`
+  // §6 principio 7 e o DoD do KAM-001, «nada alem de localhost». Correr este
+  // processo a mao numa rede partilhada nao pode abrir o `/metrics` a essa
+  // rede; dentro de um contentor e o `Dockerfile` que poe `HOST=0.0.0.0`.
+  //
+  // O `publicador.ts` e o `consumidor.ts` tem o defeito (sao anteriores a este
+  // ticket, e esta na revisao adversarial do KAM-013); aqui segue-se o
+  // `server.ts` e nao o padrao deles.
+  const servidor = serve({
+    fetch: criarApp().fetch,
+    hostname: process.env.HOST?.trim() || "127.0.0.1",
+    port: porta(),
+  });
   log.info({ outcome: "service_started" });
 
   const paragem = new AbortController();

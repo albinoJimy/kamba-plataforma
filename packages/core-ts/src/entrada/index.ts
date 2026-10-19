@@ -69,6 +69,7 @@ export {
 } from "./consultas.ts";
 
 export {
+  EVENTOS_MAXIMOS_POR_CORPO,
   PAYLOAD_MAXIMO,
   encaminhar,
   porEmQuarentena,
@@ -85,8 +86,15 @@ export type {
 
 export {
   CONTADORES,
+  DESFECHOS_DA_ENTRADA,
   GAUGES,
   METRICAS,
+  METRICAS_DO_WORKER,
+  METRICA_EM_QUARENTENA,
+  METRICA_ENTRADAS,
+  METRICA_FALHAS,
+  MetricasDoWorker,
+  SufixoInvalidoError,
   METRICA_ASSINATURA_FALHOU,
   METRICA_DESCARTADOS,
   METRICA_ENFILEIRAMENTO_MS,
@@ -95,7 +103,7 @@ export {
   MetricaDesconhecidaError,
   MetricasDaEntrada,
 } from "./metricas.ts";
-export type { Contador, Gauge } from "./metricas.ts";
+export type { Contador, DesfechoDaEntrada, Gauge } from "./metricas.ts";
 
 export {
   AJUSTES_DO_TRABALHADOR,
