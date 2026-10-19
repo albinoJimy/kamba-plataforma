@@ -182,6 +182,12 @@ fontes_adicionais:
       («com Redis indisponivel o GWY responde 503 e nunca 200»). Nao nomeia
       imagem: o `docker stop` e o `docker start` agem sobre um contentor
       existente, e a imagem e o digest da fila estao em `db/fila_do_gate.py`.
+  # KAM-014: a suite do CHR corre o modulo TypeScript contra a base, com os
+  # tres papeis verdadeiros, num contentor Node quando a maquina nao tem `node`.
+  # Nao levanta fila nenhuma: a porta do AGR e uma interface, e o que se faz com
+  # o *job* e KAM-025.
+  - ficheiro: db/tests_chr/node.py
+    constante: IMAGEM_NODE
   # KAM-011: a suite TypeScript do contrato de armazenamento e a prova por
   # mutacao correm num contentor Node quando a maquina nao tem `node`.
   - ficheiro: infra/storage/contrato.py
