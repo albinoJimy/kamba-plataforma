@@ -776,11 +776,117 @@ sempre o *workspace* inteiro. A primeira versão dava nove ficheiros com os mesm
 que um SBOM existe para responder.
 
 O fecho real vem do `pnpm-lock.yaml`, por travessia a partir das dependências
-directas de cada importador: a raiz leva 91 componentes, cada serviço Node leva 3
-(o seu pacote, `hono` e `@hono/node-server`).
+directas de cada importador.
 
 É determinista — sem *timestamp*, chaves ordenadas. Um SBOM que muda a cada
 execução deixa de se poder comparar, e comparar é metade da utilidade de o ter.
+
+##### A travessia atravessa um `link:` (KAM-133)
+
+Uma dependência de outro pacote do próprio *workspace* resolve-se no *lockfile*
+como `link:../../packages/core-ts` — um caminho relativo ao importador, e não uma
+versão publicada. A primeira versão da travessia descartava essas linhas, e com
+isso o `services/gwy` levava três componentes e não mostrava nem o
+`@kamba/core-ts` que carrega nem o `bullmq` que o `core-ts` lhe traz. **O custo
+não era o de hoje, era o do dia seguinte:** no dia em que um pacote nosso tome
+uma dependência de terceiros, ela não apareceria no SBOM de nenhum dos serviços
+que o carregam, e a pergunta «o que é que este serviço tem dentro» passava a ter
+resposta errada sem ninguém dar por isso.
+
+O caminho mapeia-se de volta à chave do importador (`services/gwy` +
+`../../packages/core-ts` → `packages/core-ts`) e a travessia continua dali,
+transitivamente, com visitado-é-visitado: dois pacotes nossos podem declarar-se
+um ao outro, e uma travessia ingénua não terminaria.
+
+**Atravessar não é copiar.** Ao entrar num pacote do *workspace* seguem-se só os
+grupos que um consumidor herda — `dependencies` e `optionalDependencies` — e não
+as `devDependencies`, que são as ferramentas com que esse pacote se constrói e
+não fazem parte do que o serviço carrega. As `devDependencies` do **próprio**
+alvo continuam a contar: sem isso a raiz, que só tem `devDependencies`, ficava
+com zero componentes.
+
+**E excluir um grupo um nível acima não chega, porque ele volta a entrar um
+nível abaixo.** Um *peer* opcional já resolvido escreve-se, na secção
+`snapshots:`, debaixo de `optionalDependencies:` — indistinguível a olho de uma
+`optionalDependencies` verdadeira. O `bullmq@6.3.11` declara o `pg` em
+`peerDependencies` com `peerDependenciesMeta.pg.optional: true`, e o `pg` só
+está resolvido porque o `@kamba/core-ts` o declara nas suas `devDependencies`.
+Seguir essa aresta punha o `pg` e mais treze no `services/gwy`, no `com` e no
+`onboarding-web`, que não o têm — **14 de 41 componentes, por um caminho que a
+exclusão de um nível acima tinha acabado de fechar.** A primeira versão do
+KAM-133 publicou-os, e a revisão adversarial independente mediu-os.
+
+Por isso lê-se também a secção `packages:`, de onde saem os *peers* opcionais de
+cada pacote, e **não se segue uma aresta de `optionalDependencies:` cujo nome
+seja um *peer* opcional do pacote.** Não se perde nada: um *peer* só está
+resolvido porque alguém na árvore o fornece, e esse alguém declara-o. O
+`ioredis` é *peer* opcional do `bullmq` exactamente pela mesma via e **continua**
+no fecho dos três serviços, porque o `core-ts` o declara em `dependencies`; e as
+`optionalDependencies` verdadeiras continuam a seguir-se — são elas que põem os
+seis `@msgpackr-extract/*` no fecho.
+
+**O oráculo desta regra não é um raciocínio nosso: é o próprio `pnpm`.** A
+travessia é confrontada, importador a importador, com
+`pnpm --filter <alvo> list --prod --depth Infinity --json`, e o oráculo medido
+está guardado em `tools/sbom/tests/oraculo_pnpm.json` com o `sha256` do
+*lockfile* do dia — se o *lockfile* mudar e o oráculo não, o teste diz que está
+velho em vez de abençoar o erro. Era a verificação que faltava: a primeira
+versão foi validada só com *fixtures* escritas por quem escreveu o código, e
+elas passaram todas enquanto o documento publicava 14 componentes a mais.
+
+**O pacote do *workspace* entra como componente, com `dependsOn` — não se
+promovem só os seus terceiros.** É decisão de desenho do documento, e a razão é
+que a outra forma responde pior à pergunta a que o SBOM existe para responder:
+promover o `bullmq` para dentro do `gwy` e deixar o `@kamba/core-ts` de fora diz
+*que* o `bullmq` lá está e não *porque* — e é «porquê» que alguém pergunta no dia
+em que o `bullmq` aparecer num boletim de segurança. Os SBOM passam a ter o campo
+`dependencies` do CycloneDX, ordenado nas duas dimensões como o resto do
+ficheiro. **Um componente sem entrada nesse campo é um componente cujo grafo o
+gerador não conhece; uma entrada com `dependsOn` vazio é um componente que não
+depende de nada** — e a distinção importa, porque do lado Python há *pins* e não
+um grafo resolvido, pelo que os terceiros `pypi` ficam de fora do campo em vez de
+entrarem a mentir que não dependem de nada.
+
+Há um **terceiro** estado, e é o que mente: a **entrada parcial**. O `kamba-agr`
+saía com `dependsOn: [kamba-core]` quando o `pyproject.toml` declara três, e o
+`starlette` e o `uvicorn` estavam no mesmo documento, com versão — com entrada,
+quem lê conclui que o grafo é conhecido. Uma aresta que o manifesto declara e
+cuja outra ponta está no documento **entra sempre**; omitir o nó é não afirmar o
+que não se sabe, apagar a aresta é afirmar o que é falso.
+
+**O lado Python tem a mesma ligação, e tinha o mesmo defeito.** Não por
+instalação editável — o `make bootstrap` instala os três `requirements/*.txt` com
+`--require-hashes --no-deps` e **não** instala `kamba-core` nem `kamba-agr` em
+modo nenhum —, mas por declaração: o `services/agr/pyproject.toml` nomeia
+`kamba-core` em `[project].dependencies`, e o `kamba-core` não aparecia no SBOM
+do `services/agr`. Mesma travessia, mesmo gerador, mesmo ticket. Só se resolvem
+nomes de pacotes **nossos**; a atribuição de terceiros do lado Python continua a
+vir dos *pins* de `requirements/*.in`, que é o único sítio onde há versões.
+
+Contagem de componentes por alvo, antes e depois, medida com
+`python -m sbom --root .. check` sobre um `pnpm install --frozen-lockfile` limpo
+(110 pacotes npm) e os três *locks* de Python instalados:
+
+| Alvo | Antes | Depois |
+|---|---|---|
+| `kamba` (conjunto) | 142 | 142 |
+| `services/gwy` | 3 | 25 |
+| `services/com` | 3 | 25 |
+| `services/onboarding-web` | 3 | 25 |
+| `services/worker-canal` | 20 | 42 |
+| `services/agr` | 8 | 9 |
+| `packages/core-ts` | 38 | 39 |
+| `packages/contracts` | 1 | 1 |
+| `libs/py-core` | 1 | 1 |
+
+O conjunto **não muda**, que é o que se esperava: o fecho completo já estava
+certo, e é sobre ele que correm licenças e vulnerabilidades. E cada serviço
+continua a ser um serviço: 25 não é 142.
+
+> O número de um serviço é menor do que o seu fecho porque o SBOM cruza o fecho
+> com o que está **no disco**: os seis `@msgpackr-extract/*` são binários por
+> plataforma e só um se instala. Em fecho, cada um dos três serviços leva 27
+> terceiros e três pacotes nossos.
 
 #### Fronteira com o KAM-067
 
@@ -1344,12 +1450,38 @@ resposta seria pior do que nomeá-las:
     fazer o relatório ser igual ao âmbito — e nem para isso ficou, porque a
     inclusão retirava do relatório o ficheiro que nenhum estrato classifica. O
     que o `make coverage-node` passa é `--test-coverage-exclude`.
-11. **O SBOM por serviço não atravessa um `link:`.** Omite os pacotes do próprio
-    *workspace* que o serviço carrega: o `services/gwy` declara
-    `@kamba/core-ts`, os testes carregam-no, e não aparece no seu SBOM. O fecho
-    completo (`kamba.cdx.json`) está correcto, pelo que licenças e
-    vulnerabilidades são verificadas sobre tudo — o que falta é a atribuição por
-    serviço. Ticket próprio.
+11. ~~**O SBOM por serviço não atravessa um `link:`.** Omite os pacotes do
+    próprio *workspace* que o serviço carrega: o `services/gwy` declara
+    `@kamba/core-ts`, os testes carregam-no, e não aparece no seu SBOM.~~
+    **Fechada pelo KAM-133** (§3, *gate* 11). A travessia mapeia o caminho do
+    `link:` de volta à chave do importador e continua dali, transitivamente e
+    com visitado-é-visitado. O `services/gwy` passa de **3** para **25**
+    componentes, com `@kamba/contracts`, `@kamba/core-ts` e os 22 terceiros
+    instalados que o `core-ts` traz; o conjunto (`kamba.cdx.json`) fica nos
+    mesmos **142**, que é a prova de que o fecho completo já estava certo — e é
+    por isso que licenças e vulnerabilidades não mudaram.
+
+    **Atravessar não chegava: a primeira versão trazia 14 componentes a mais a
+    três serviços**, e a revisão adversarial independente mediu-os contra o
+    próprio `pnpm`. O `pg` está resolvido como *peer* opcional no *snapshot* do
+    `bullmq` **porque o `core-ts` o declara nas suas `devDependencies`** — o
+    grupo excluído um nível acima a voltar a entrar um nível abaixo. A
+    travessia passou a ler os *peers* opcionais de `packages:` e a não os
+    seguir, e é agora confrontada com
+    `pnpm --filter <alvo> list --prod --depth Infinity` nos sete importadores
+    (`tools/sbom/tests/test_oraculo_pnpm.py`).
+
+    **E a classe fica fechada, não só o caso npm.** Eram três formas da mesma
+    ligação, e só uma estava no enunciado: (a) o `link:` de `importers:`; (b) um
+    importador escrito `packages/contracts: {}`, que o leitor nem registava como
+    importador — o `@kamba/contracts` não entrava no SBOM de nenhum dos quatro
+    serviços que o declaram, e não se via porque, sem travessia de `link:`, nada
+    procurava o destino; e (c) o lado **Python**, onde o
+    `services/agr/pyproject.toml` nomeia `kamba-core` em
+    `[project].dependencies` — não é instalação editável, que não existe neste
+    repositório, mas é a mesma declaração e tinha o mesmo defeito. Varridos os
+    outros leitores de `pnpm-lock.yaml`: o `tools/lint_arch/manifests.py` lê o
+    `specifier` e não faz fecho por alvo, pelo que não tem esta forma.
 12. ~~**Sete chaves de `ci/*.yaml` que nenhum código lê**~~ — **fechada pelo
     KAM-134**, e eram **oito**: a `desconhecidas.razao` não estava em lista
     nenhuma. Todas passaram a **comentário**, nenhuma a ser lida, e a escolha é
@@ -1693,4 +1825,5 @@ sobrevivem ao PR.
 | 1.29 | Outubro 2026 | KAM-157: o §3 (*gate* 9) ganha a *push protection* do GitHub. Existe um `.github/secret_scanning.yml` com uma entrada — a pasta do canário —, por decisão do fundador de 2026-10-18. Não é área cega nova (o `ci/secrets-allow.yaml` já a declarava), não torna o canário invisível ao *gate* 9 (são dois *scanners*), e não pode crescer em silêncio: um teste exige que as duas listas coincidam exactamente. | Equipa KAMBÁ |
 | 1.30 | Outubro 2026 | KAM-135: o §5 passa a descrever o que o validador exige. `criado_em` obrigatório e o prazo contado **dele** — renovar deixa de ser empurrar uma data; a data dentro de `adr_ou_aprovacao` é lida e não pode ser futura; e os gates **14** e **18** passam a aceitar *waiver*, que o KAM-067 e o KAM-078 precisam e o validador recusava. O conjunto de gates deriva agora da tabela do `specs/01` §4: os **dezanove** estão classificados — o `3b` incluído, que a primeira versão do *regex* não via e que o teste cimentava a 18 —, e um gate novo sem posição falha. A aprovação datada tem de ser contemporânea da criação, e o que **não** se verifica (o `ADR-NNN`, o `autor`) fica dito em vez de prometido. | Equipa KAMBÁ |
 | 1.31 | Outubro 2026 | KAM-159: o *gate* 7 ganha a **quinta** verificação — `contract_diff dominios` —, que confronta o `enum` de um contrato com o domínio canónico, nos dois sentidos. Fecha a costura que nenhum dos dois *gates* via: o dicionário e os contratos nomeavam listas de finalidades que se cruzavam numa só, e duas do canon eram impossíveis de emitir. | Equipa KAMBÁ |
-| 1.32 | Outubro 2026 | KAM-138: entra o *gate* **3c**, coerência do backlog. O §2 ganha a linha com alvo e dono, e o §3 a secção que descreve as oito verificações — sincronia linha↔bloco nos seis campos, órfãos nos dois sentidos, a tabela-resumo do §3 de cada epic como terceira superfície, reciprocidade `Dependências`↔`Bloqueia`, ciclos com o caminho completo, inversões de prioridade e de fase, contagens derivadas do §4 e «Controlo de versões» sem buracos. O que o distingue de uma comparação de tabelas é a reciprocidade: o §4 não tem coluna `Bloqueia`, e na entrega havia **seis** arestas declaradas de um só lado, abertas pelos quatro tickets inscritos depois do KAM-144. A **lacuna 17** passa a nomear também o 3c: entra nos `needs` de `gates do KAM-002` e não no `main.json`, porque escrever no espelho o que o *ruleset* não tem tornava-o falso. | Equipa KAMBÁ |
+| 1.32 | Outubro 2026 | **KAM-133: a lacuna 11 fecha.** O SBOM por serviço do *gate* 11 passa a atravessar as dependências `link:` do *workspace*: o caminho mapeia-se de volta à chave do importador e a travessia continua dali, transitivamente e com visitado-é-visitado. O `services/gwy` passa de **3** para **25** componentes e o conjunto fica nos mesmos **142** — que é a prova de que o fecho completo já estava certo, e a razão por que licenças e vulnerabilidades não mudaram. **Atravessar não é copiar:** de um pacote ligado seguem-se só `dependencies` e `optionalDependencies`, não as `devDependencies`. **E excluir um grupo um nível acima não chega:** um *peer* opcional já resolvido escreve-se em `snapshots:` como uma `optionalDependencies` qualquer, e o `pg` do `bullmq` só está resolvido porque o `core-ts` o declara em `devDependencies` — a primeira versão deste ticket publicou-o, e a mais treze, em três serviços que o não têm. A travessia passou a ler os *peers* opcionais de `packages:`, e tem agora como oráculo o próprio `pnpm` (`pnpm list --prod --depth Infinity` nos sete importadores, com o `sha256` do *lockfile* a datar a medição). Decisão de desenho escrita no §3: o pacote do *workspace* entra **como componente, com `dependsOn`**, e não se promovem só os seus terceiros. Eram três formas da mesma ligação e só uma estava no enunciado: juntaram-se o importador escrito `packages/contracts: {}`, que o leitor nem registava, e o lado **Python** (`services/agr` declara `kamba-core` em `[project].dependencies`; instalação editável não existe neste repositório). | Equipa KAMBÁ |
+| 1.33 | Outubro 2026 | KAM-138: entra o *gate* **3c**, coerência do backlog. O §2 ganha a linha com alvo e dono, e o §3 a secção que descreve as oito verificações — sincronia linha↔bloco nos seis campos, órfãos nos dois sentidos, a tabela-resumo do §3 de cada epic como terceira superfície, reciprocidade `Dependências`↔`Bloqueia`, ciclos com o caminho completo, inversões de prioridade e de fase, contagens derivadas do §4 e «Controlo de versões» sem buracos. O que o distingue de uma comparação de tabelas é a reciprocidade: o §4 não tem coluna `Bloqueia`, e na entrega havia **seis** arestas declaradas de um só lado, abertas pelos quatro tickets inscritos depois do KAM-144. A **lacuna 17** passa a nomear também o 3c: entra nos `needs` de `gates do KAM-002` e não no `main.json`, porque escrever no espelho o que o *ruleset* não tem tornava-o falso. | Equipa KAMBÁ |

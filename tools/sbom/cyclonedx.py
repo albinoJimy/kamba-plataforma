@@ -54,14 +54,58 @@ def _licenca_para_cyclonedx(
     return [{"license": {"name": licenca}}]
 
 
+def _componente(componente: Componente, ids_spdx: frozenset[str]) -> dict:
+    """Um componente do documento.
+
+    **O campo `licenses` nao se emite vazio.** No esquema do CycloneDX 1.6 o
+    `licenseChoice` e um `oneOf` de dois ramos que sao ambos um *array* — um de
+    `license`, outro de `expression` —, e um *array* vazio satisfaz **os dois**,
+    pelo que o `oneOf` falha: `"licenses": []` tornaria invalidos os tres
+    documentos onde aparecia (`kamba`, `libs__py-core`, `services__agr`), pelos
+    dois pacotes Python nossos, que nao declaram licenca no `pyproject.toml`.
+    A leitura do `oneOf` esta **NAO VERIFICADA** — este repositorio nao tem o
+    esquema para a confirmar —, mas omitir uma propriedade opcional e seguro
+    nos dois casos e nao perde informacao nenhuma: «sem campo» e exactamente o
+    que ha a dizer. Encontrado pela revisao adversarial do KAM-133.
+    """
+    registo = {
+        "type": "library",
+        "bom-ref": componente.purl,
+        "name": componente.nome,
+        "version": componente.versao,
+        "purl": componente.purl,
+        "properties": [
+            {"name": "kamba:origem-da-licenca", "value": componente.origem}
+        ],
+    }
+    licencas = _licenca_para_cyclonedx(componente.licenca, ids_spdx)
+    if licencas:
+        registo["licenses"] = licencas
+    return registo
+
+
 def construir(
     nome_do_alvo: str,
     versao_do_alvo: str,
     componentes: list[Componente],
     ids_spdx: frozenset[str] = frozenset(),
+    relacoes: dict[str, set[str]] | None = None,
 ) -> dict:
-    """Constroi o documento CycloneDX de um alvo."""
-    return {
+    """Constroi o documento CycloneDX de um alvo.
+
+    `relacoes` e o grafo `bom-ref -> bom-refs de que depende`, e e o que torna
+    o SBOM de um servico legivel depois do KAM-133: sem ele o documento diria
+    **que** o `bullmq` la esta e nao **porque** — e a resposta («o servico
+    carrega o `@kamba/core-ts`, que o declara») e metade do valor de atribuir
+    por servico. Entra no campo `dependencies`, que e onde o CycloneDX o poe.
+
+    **Um componente sem entrada e um componente cujo grafo este gerador nao
+    conhece**; uma entrada com `dependsOn` vazio e um componente que nao depende
+    de nada. A distincao importa: do lado Python ha pins (`requirements/*.in`) e
+    nao um grafo resolvido, pelo que os terceiros `pypi` ficam de fora do campo
+    em vez de entrarem a mentir que nao dependem de nada.
+    """
+    documento = {
         "bomFormat": "CycloneDX",
         "specVersion": VERSAO_SPEC,
         "version": 1,
@@ -82,25 +126,21 @@ def construir(
             ],
         },
         "components": [
-            {
-                "type": "library",
-                "bom-ref": componente.purl,
-                "name": componente.nome,
-                "version": componente.versao,
-                "purl": componente.purl,
-                "licenses": _licenca_para_cyclonedx(componente.licenca, ids_spdx),
-                "properties": [
-                    {
-                        "name": "kamba:origem-da-licenca",
-                        "value": componente.origem,
-                    }
-                ],
-            }
+            _componente(componente, ids_spdx)
             for componente in sorted(
                 componentes, key=lambda c: (c.ecossistema, c.nome, c.versao)
             )
         ],
     }
+    if relacoes:
+        # Ordenado nas duas dimensoes, como tudo o resto neste ficheiro: um
+        # `dependsOn` por ordem de conjunto mudava entre execucoes e matava o
+        # determinismo que o resto do modulo existe para garantir.
+        documento["dependencies"] = [
+            {"ref": referencia, "dependsOn": sorted(relacoes[referencia])}
+            for referencia in sorted(relacoes)
+        ]
+    return documento
 
 
 def escrever(documento: dict, destino: Path) -> None:

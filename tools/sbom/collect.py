@@ -162,7 +162,12 @@ def recolher_pypi(raiz: Path, venv: Path | None = None) -> list[Componente]:
     venv = venv or (raiz / ".venv")
     pastas = [
         venv / "Lib" / "site-packages",            # Windows
-        *(venv / "lib").glob("python3.*/site-packages"),  # POSIX
+        # Ordenado, como todos os outros varrimentos deste ficheiro: um `glob`
+        # devolve pela ordem do sistema de ficheiros, e com dois `python3.*` no
+        # mesmo `venv` — que acontece ao mudar de minor sem recriar — a versao
+        # que ganhava um empate de nome dependia dessa ordem. O SBOM tem de ser
+        # determinista, e determinista inclui qual das duas arvores se leu.
+        *sorted((venv / "lib").glob("python3.*/site-packages")),  # POSIX
     ]
     componentes: dict[str, Componente] = {}
     for pasta in pastas:
@@ -242,6 +247,14 @@ def recolher_workspace(raiz: Path) -> list[Componente]:
     for manifesto in sorted(raiz.glob("*/*/pyproject.toml")) + sorted(
         raiz.glob("*/pyproject.toml")
     ):
+        # A mesma guarda que o varrimento dos `package.json` tem logo acima, e
+        # que faltava aqui: um `pyproject.toml` dentro de `node_modules` e de
+        # terceiros, e entrava marcado `proprio=True` — isto e, com a licenca
+        # dispensada por identidade. Nao ha nenhum hoje; a assimetria e que era
+        # o defeito. Encontrada pela revisao adversarial do KAM-133, ao reparar
+        # que a funcao nova tinha a guarda e a vizinha nao.
+        if "node_modules" in manifesto.parts:
+            continue
         texto = manifesto.read_text(encoding="utf-8", errors="replace")
         nome = re.search(r'(?m)^name\s*=\s*"([^"]+)"', texto)
         versao = re.search(r'(?m)^version\s*=\s*"([^"]+)"', texto)
@@ -259,6 +272,91 @@ def recolher_workspace(raiz: Path) -> list[Componente]:
         )
 
     return sorted(componentes, key=lambda c: (c.ecossistema, c.nome))
+
+
+#: `dependencies = [ ... ]` de um `[project]` de `pyproject.toml`.
+_DEPENDENCIAS_PYPROJECT = re.compile(r"(?ms)^dependencies\s*=\s*\[(?P<corpo>.*?)\]")
+
+#: `"kamba-core"`, `'starlette>=1.0'` — uma entrada dessa lista.
+_ENTRADA_DE_DEPENDENCIA = re.compile(r"""['"]\s*([^'"]+?)\s*['"]""")
+
+
+def normalizar_pypi(nome: str) -> str:
+    """PEP 503: `-`, `_` e `.` sao equivalentes num nome de pacote PyPI."""
+    return nome.strip().lower().replace("_", "-").replace(".", "-")
+
+
+def declaracoes_python(raiz: Path) -> dict[str, frozenset[str]]:
+    """Pasta de um pacote Python nosso -> nomes que o seu `[project]` declara.
+
+    **Todos** os nomes, nossos e de terceiros, normalizados por PEP 503. Quem
+    quiser so os nossos usa o `ligacoes_python`, que se constroi daqui: ha um
+    unico leitor de `pyproject.toml` de proposito, para que as duas vistas nao
+    possam divergir.
+    """
+    declaracoes: dict[str, set[str]] = {}
+    for manifesto in sorted(raiz.glob("*/*/pyproject.toml")) + sorted(
+        raiz.glob("*/pyproject.toml")
+    ):
+        if "node_modules" in manifesto.parts:
+            continue
+        texto = manifesto.read_text(encoding="utf-8", errors="replace")
+        if not re.search(r'(?m)^name\s*=\s*"([^"]+)"', texto):
+            continue
+        pasta = manifesto.parent.relative_to(raiz).as_posix()
+        nomes: set[str] = set()
+        bloco = _DEPENDENCIAS_PYPROJECT.search(texto)
+        if bloco:
+            for entrada in _ENTRADA_DE_DEPENDENCIA.findall(bloco.group("corpo")):
+                # `kamba-core>=0.1` -> `kamba-core`. Separa-se no primeiro
+                # caracter que nao pode estar num nome de pacote (PEP 508).
+                bruto = re.split(r"[<>=!~;\[\s]", entrada, maxsplit=1)[0]
+                nomes.add(normalizar_pypi(bruto))
+        declaracoes[pasta] = nomes
+    return {pasta: frozenset(nomes) for pasta, nomes in declaracoes.items()}
+
+
+def pacotes_python_proprios(raiz: Path) -> dict[str, str]:
+    """Nome normalizado -> pasta, para os pacotes Python do proprio monorepo."""
+    nossos: dict[str, str] = {}
+    for manifesto in sorted(raiz.glob("*/*/pyproject.toml")) + sorted(
+        raiz.glob("*/pyproject.toml")
+    ):
+        if "node_modules" in manifesto.parts:
+            continue
+        texto = manifesto.read_text(encoding="utf-8", errors="replace")
+        nome = re.search(r'(?m)^name\s*=\s*"([^"]+)"', texto)
+        if nome:
+            nossos[normalizar_pypi(nome.group(1))] = (
+                manifesto.parent.relative_to(raiz).as_posix()
+            )
+    return nossos
+
+
+def ligacoes_python(raiz: Path) -> dict[str, set[str]]:
+    """Pasta de um pacote Python nosso -> pastas dos nossos que ele declara.
+
+    E o equivalente Python do `link:` do `pnpm`, e o mesmo defeito existia deste
+    lado (KAM-133): o `services/agr/pyproject.toml` declara `kamba-core` em
+    `[project].dependencies`, e o `kamba-core` nao aparecia no SBOM do
+    `services/agr`.
+
+    **Nao e instalacao editavel.** O `make bootstrap` instala os tres
+    `requirements/*.txt` com `--require-hashes --no-deps` e **nao** instala
+    `kamba-core` nem `kamba-agr` em modo nenhum: chegam ao SBOM pelo
+    `pyproject.toml` versionado, que e o que o `recolher_workspace` le. A
+    ligacao esta na declaracao, nao no disco — e e por isso que se le daqui.
+
+    So devolve os **nossos**, porque e isso que a travessia por pastas precisa;
+    os terceiros declarados saem do `declaracoes_python`, e entram no grafo do
+    documento (um `dependsOn` que nomeasse so os nossos dizia que o `kamba-agr`
+    depende de um pacote quando o `pyproject.toml` declara tres).
+    """
+    nossos = pacotes_python_proprios(raiz)
+    return {
+        pasta: {nossos[n] for n in nomes if n in nossos and nossos[n] != pasta}
+        for pasta, nomes in declaracoes_python(raiz).items()
+    }
 
 
 def recolher(raiz: Path, venv: Path | None = None) -> list[Componente]:
@@ -302,8 +400,8 @@ def declaradas_e_nao_instaladas(raiz: Path, venv: Path | None = None) -> list[st
 
     lock = raiz / "pnpm-lock.yaml"
     if lock.is_file():
-        directas, _ = pnpm_lock.ler(lock)
-        for pacotes in directas.values():
+        grafo = pnpm_lock.ler(lock)
+        for pacotes in grafo.directas.values():
             for referencia in pacotes:
                 nome, _, _versao = referencia.rpartition("@")
                 chave = (NPM, nome.lower())
