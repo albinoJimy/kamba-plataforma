@@ -11,7 +11,7 @@
 | Evidência | `evidencia/E1_Meta_WhatsApp.md`, `evidencia/E2_Pagamentos_Angola.md`, `evidencia/E3_Regulatorio_Dados.md`, `evidencia/E4_Stack_Licencas.md` |
 | Documentos relacionados | `00_Arquitectura_Solucao.md`, `01_Canais_WhatsApp_Fluxo_Dual.md`, `02_Agent_Runtime_Verticais.md`, `03_Core_Comercio_Medusa.md`, `04_Pagamentos_Liquidacao_AntiFraude.md`, `06_Dados_Eventos_Analytics.md`, `08_Seguranca_Conformidade.md`, `09_Topologia_Operacao_Escala.md`, `10_Onboarding_Governanca.md` |
 
-> **Estado das afirmações.** Este documento segue a escala do conjunto: **CONFIRMADO (fonte primária)**, **INDÍCIO (fonte secundária ou inferência)** e **NÃO VERIFICADO**, remetendo para `evidencia/E1`–`E4` (datados de 8 de Outubro de 2026). Valores marcados *«proposta»* são decisões de desenho a calibrar no piloto de logística, não factos. Tudo o que toca Lei 22/11, BNA, Lei 15/03, contratos de transporte e direito laboral é **(a confirmar por parecer)**; este documento não é aconselhamento jurídico.
+> **Estado das afirmações.** Este documento segue a escala do conjunto: **CONFIRMADO (fonte primária)**, **INDÍCIO (fonte secundária ou inferência)** e **NÃO VERIFICADO**, remetendo para `evidencia/E1`–`E5` (os quatro primeiros datados de 8 de Outubro de 2026). Valores marcados *«proposta»* são decisões de desenho a calibrar no piloto de logística, não factos. Tudo o que toca Lei 22/11, BNA, Lei 15/03, contratos de transporte e direito laboral é **(a confirmar por parecer)**; este documento não é aconselhamento jurídico.
 
 ---
 
@@ -675,7 +675,7 @@ A densidade de estafetas por zona é a restrição real: a oferta sequencial de 
 |---|---|---|
 | **L-GEO-1** | `00` §6.1 só admite `reembolso_pendente` a partir de `paga`; as disputas pós-entrega exigem `entregue → reembolso_pendente` (e retorno de `em_entrega` por entrega falhada/devolvida) | `00` §6.1 |
 | **L-GEO-2** | `../exploracao/11` §5.2 usa Typebot para ofertas de estafetas; viola ADR-002 (o estafeta é tenant) | biblioteca |
-| **L-GEO-3** | `INDICE.md` descrevia ADR-008 como «JNB/CPT no MVP»; o canon tem o ADR-008 revisto. **A metade da contagem fica fechada pelo KAM-130**: o `INDICE.md` passa a dizer **20 ADRs**, que é o que o doc 00 §8 tem, contado. O que resta desta linha é a descrição desactualizada do ADR-008. | `INDICE.md` §5 |
+| **L-GEO-3** | `INDICE.md` descreve ADR-008 como «JNB/CPT no MVP»; o canon tem o ADR-008 revisto. **A metade da contagem fica fechada pelo KAM-130**: o `INDICE.md` passa a dizer **20 ADRs**, que é o que o doc 00 §8 tem, contado. O que resta desta linha é a descrição desactualizada do ADR-008. | `INDICE.md` §5 |
 
 ---
 

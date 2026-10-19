@@ -181,6 +181,14 @@ e referenciados por código ao longo de todos os documentos.
 | ADR-010 | PII minimizada (msisdn HMAC); consentimento no 1º contacto (Lei 22/11) | Ratificado | 08 |
 | ADR-011 | Fluxo dual de canais (número da plataforma e/ou da PME) | Ratificado | 01 |
 | ADR-012 | Verticais como configuração sobre o core | Ratificado | 02, 10 |
+| ADR-013 | Pagamento só por evento autenticado do facilitador; `ManualProvider` com confirmação humana auditada e limite por pedido no arranque | Ratificado | 04 |
+| ADR-014 | *Object storage* atrás de `StorageProvider`; MinIO excluído, SeaweedFS ou S3 gerido | Ratificado | 09, 11 |
+| ADR-015 | Isolamento de tenant em profundidade: `tenant_id` do estado **e** RLS `FORCE`; tools `read`/`write`/`money` | Ratificado | 08 |
+| ADR-016 | Sem COD em numerário via estafeta; o estafeta nunca recebe nem transporta fundos de terceiros | Ratificado | 07 |
+| ADR-017 | Comissões só após a 1.ª venda paga por evento autenticado, com *clawback*; no Piloto a receita é a assinatura | Ratificado | 04, 10 |
+| ADR-018 | Observabilidade leve no Piloto: métricas próprias, logs sem conteúdo, custo por tenant via LiteLLM | Ratificado | 09 |
+| ADR-019 | Onboarding da PME self-service e automático no Piloto | Ratificado | 10 |
+| ADR-020 | Módulos de entrada no Piloto, até quatro, *owner-facing* e com o dono no circuito | Ratificado | 02, 11 |
 
 \* **Ratificado com dependência de validação:** ADR-001 depende da elegibilidade da coexistência
 em Angola (V2) e ADR-004 depende do onboarding ProxyPay/banco (V6) — ver §5.1.

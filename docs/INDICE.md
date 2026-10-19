@@ -167,7 +167,7 @@ Nota: o documento 09 (v1) está fora da linha — desatualizado, substituído pe
 
 ## 5. Decisões de arquitectura (ADRs) — síntese
 
-Os **20** ADRs canónicos estão definidos em [`tecnica/00_Arquitectura_Solucao.md`](tecnica/00_Arquitectura_Solucao.md) §8 e referenciados ao longo dos documentos técnicos. O [11-arquitetura-detalhada-engenharia.md](exploracao/11-arquitetura-detalhada-engenharia.md) §12 tem **dez ADRs próprios e históricos**, que não são o canon: a biblioteca exploratória não é fonte de verdade.
+Os **20** ADRs canónicos estão definidos em [`tecnica/00_Arquitectura_Solucao.md`](tecnica/00_Arquitectura_Solucao.md) §8 e referenciados ao longo dos documentos técnicos. O [11-arquitetura-detalhada-engenharia.md](exploracao/11-arquitetura-detalhada-engenharia.md) §12 tem **dez ADRs próprios e históricos**, que não são o canon: a biblioteca exploratória não é fonte de verdade. **A tabela abaixo é a desses dez**, e não a síntese do canon — a do canon está no `tecnica/INDICE.md` §5.
 
 | ADR | Decisão | Doc principal |
 |-----|---------|---------------|

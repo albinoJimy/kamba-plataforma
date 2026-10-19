@@ -27,8 +27,8 @@ Esta Carta é deliberadamente curta. Não repete o *quê/como* (isso é o `00_Sy
 | **Visão** | `../docs/exploracao/13-big-picture-ecossistema.md` e restante biblioteca `../docs/exploracao/01`–`../docs/exploracao/12` | Exploratória; **não** se edita em execução. Em divergência, prevalece o conjunto técnico |
 | **Escopo do Piloto** | `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` | Tese mínima, hipóteses H1–H9, pivôs |
 | **Carta (esta)** | `specs/00_KAMBA_Carta.md` | Forma do produto, registo de decisões, DoD do Piloto, regra de congelamento |
-| **Arquitectura** | `../docs/tecnica/00_Arquitectura_Solucao.md` e `../docs/tecnica/01`–`10` | ADR-001–019, componentes, decisões abertas D1–D13 |
-| **Evidência** | `../docs/tecnica/evidencia/E1`–`E4` | Factos com estado CONFIRMADO/INDÍCIO/NÃO VERIFICADO (2026-10-08) |
+| **Arquitectura** | `../docs/tecnica/00_Arquitectura_Solucao.md` e `../docs/tecnica/01`–`10` | ADR-001–ADR-020, componentes, decisões abertas D1–D13 |
+| **Evidência** | `../docs/tecnica/evidencia/E1`–`E5` | Factos com estado CONFIRMADO/INDÍCIO/NÃO VERIFICADO (2026-10-08) |
 | **Especificação** | `specs/00_System_Spec.md` | Capacidades, domínio, KPIs e SLOs |
 | **Dicionário** | `specs/02_Dicionario_de_Dados_Canonico.md` | Um nome por conceito; prevalece sobre `../docs/tecnica/` até KAM-111 |
 | **Execução** | `specs/EPIC-*.md` → tickets KAM-NNN | Decompõem e medem-se contra o DoD desta Carta |

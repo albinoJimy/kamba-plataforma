@@ -11,7 +11,7 @@
 | Evidência | `evidencia/E1_Meta_WhatsApp.md`, `evidencia/E2_Pagamentos_Angola.md`, `evidencia/E3_Regulatorio_Dados.md`, `evidencia/E4_Stack_Licencas.md` |
 | Documentos relacionados | `00_Arquitectura_Solucao.md`, `01_Canais_WhatsApp_Fluxo_Dual.md`, `02_Agent_Runtime_Verticais.md`, `03_Core_Comercio_Medusa.md`, `04_Pagamentos_Liquidacao_AntiFraude.md`, `06_Dados_Eventos_Analytics.md`, `07_Geo_Logistica_Federada.md`, `08_Seguranca_Conformidade.md`, `09_Topologia_Operacao_Escala.md` |
 
-> **Estado das afirmações.** Escala do conjunto: **CONFIRMADO (fonte primária)**, **INDÍCIO (fonte secundária ou inferência)**, **NÃO VERIFICADO**, segundo `evidencia/E1`–`E4` (8 de Outubro de 2026). Valores marcados *«proposta»* são decisões de desenho a calibrar, não factos. Tudo o que toca Lei 22/11, Lei 15/03, BNA, AGT, contratos e política da Meta é **(a confirmar por parecer)**; este documento não é aconselhamento jurídico. Nota de nomenclatura: as referências a «doc 07 §8» do pedido de origem (M-Pesa/Jumia) apontam para `../exploracao/07-pontos-cegos-2.md` §8, não para `07`.
+> **Estado das afirmações.** Escala do conjunto: **CONFIRMADO (fonte primária)**, **INDÍCIO (fonte secundária ou inferência)**, **NÃO VERIFICADO**, segundo `evidencia/E1`–`E5` (os quatro primeiros de 8 de Outubro de 2026). Valores marcados *«proposta»* são decisões de desenho a calibrar, não factos. Tudo o que toca Lei 22/11, Lei 15/03, BNA, AGT, contratos e política da Meta é **(a confirmar por parecer)**; este documento não é aconselhamento jurídico. Nota de nomenclatura: as referências a «doc 07 §8» do pedido de origem (M-Pesa/Jumia) apontam para `../exploracao/07-pontos-cegos-2.md` §8, não para `07`.
 
 ---
 
@@ -792,7 +792,7 @@ Legenda: **R** executa, **A** responde, **C** consultado, **I** informado.
 
 | Id | Lacuna | Onde |
 |---|---|---|
-| **L-GOV-1** | Os percursos são **seis** (PME full, estafeta, revendedor, PME light, agente, consumidor), mas `INDICE.md` §2 fala em «4+1 percursos», e o ADR-004 e o ADR-008 do índice estão desactualizados. **A metade da contagem fica fechada pelo KAM-130**: o `INDICE.md` passa a dizer **20 ADRs**, que é o que o doc 00 §8 tem, contado. O que resta desta linha é a descrição desactualizada do ADR-008. | `INDICE.md` |
+| **L-GOV-1** | Os percursos são **seis** (PME full, estafeta, revendedor, PME light, agente, consumidor), mas `INDICE.md` §2 fala em «4+1 percursos», e o ADR-004 e o ADR-008 do índice estão desactualizados. **A contagem de ADRs fica fechada pelo KAM-130**: o `INDICE.md` passa a dizer **20**, que é o que o doc 00 §8 tem, contado, e a tabela-síntese do §5 passa a mostrar os vinte. **O resto desta linha fica aberto, e são três coisas e não uma**: os «4+1 percursos» do §2 (são seis), o ADR-004 e o ADR-008. | `INDICE.md` |
 | **L-GOV-2** | `00` §10.5 e §12 indicam «álcool proibido a menores»; a política da Meta bloqueia álcool e tabaco de todo (E1) | `00` |
 | **L-GOV-3** | `00` §6.2 não distingue sub-estados de onboarding nem retenção após `encerrado` | `00` §6.2 |
 | **L-GOV-4** | `../exploracao/11` §3 faz de `tenant.activated` o gatilho do provisioning; contradiz o gate de §6.2 (PA-GOV-1) | biblioteca |
