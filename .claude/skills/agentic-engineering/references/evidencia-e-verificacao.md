@@ -7,6 +7,7 @@ proposta, ou verificar o conjunto por script.
 - [Proposta não é facto](#proposta-não-é-facto)
 - [Onde vive a evidência](#onde-vive-a-evidência)
 - [Verificação por máquina](#verificação-por-máquina)
+- [Como correr a verificação aqui](#como-correr-a-verificação-aqui)
 - [O que ainda não existe](#o-que-ainda-não-existe)
 - [Revalidação](#revalidação)
 
@@ -126,21 +127,70 @@ vez pertence ao repositório — é o que KAM-002 e KAM-111 prometem.
 
 ---
 
+## Como correr a verificação aqui
+
+**O `Makefile` é a fonte do que cada gate faz, e não a forma de o correr.** Ele pressupõe
+`make`, `node` e `pnpm` no `PATH`, e na máquina de desenvolvimento deste projecto **não há
+nenhum dos três** — nem no PowerShell nem no Git Bash, e a única «distro» WSL é a do Docker
+Desktop. Um `make ci-2` responde `make: command not found` e isso **não** significa que o gate
+passa: significa que não correu.
+
+Medido a 2026-10-19, no KAM-013. As quatro vias, por ordem de quanto custam:
+
+| O que verificar | Como se corre |
+|---|---|
+| Linters Python (gates 2, 3, 3b, 3c, 9, 11) | O Python do Windows, directamente: `python -c "import sys; sys.path.insert(0,'tools'); from <modulo> import cli; sys.exit(cli.main(['--root','.','check']))"`. Só biblioteca padrão, segundos |
+| *Build*, tipos e testes Node (gates 1, 2, 4) | Em contentor, com a árvore montada: `docker run --rm -v <arvore>:/w -w /w node:24.21.0-alpine sh -c "corepack enable; pnpm install --frozen-lockfile --ignore-scripts; pnpm run build; pnpm -r run typecheck; pnpm -r run test"`. O `pnpm install` leva ~2 min e só se faz uma vez por árvore |
+| Gates de base de dados (6 e 8) | `.venv/Scripts/python.exe db/gate_bd.py --suite <nome>`. O `gate_bd.py` levanta os seus próprios contentores de PostgreSQL e Valkey e apaga-os no fim |
+| Cobertura (gate 4) | O LCOV produz-se em contentor; o `tools/coverage_gate.py` corre **fora** dele, com o Python do Windows |
+
+Quatro armadilhas que custaram tempo, e todas na forma «passou» quando não passou:
+
+1. **O código de saída tem de ser do comando, não do `tail`.** `python -c "..." 2>&1 | tail -5; echo $?`
+   devolve o estado do `tail`, que é sempre 0. Três lints pareceram conformes assim, e um deles
+   estava a sair com 2. Correr para um ficheiro e ler o `$?` **antes** do pipe.
+2. **O `lint_contagens` não corre de dentro de um *worktree* sob `.claude/`.** Exclui qualquer
+   ficheiro cujo caminho **absoluto** contenha `.claude`, e a árvore de trabalho vive lá: a
+   varredura vê **zero** ficheiros e sai com 2. É a dívida 44 de `docs/dividas-documentais.md`.
+   Mede-se chamando `varrer_arvore` com raiz **relativa**.
+3. **O `coverage_gate.py` não arranca em Python 3.14** (uma cadeia de ajuda com `%o` que o
+   `argparse` passou a validar). O contentor `node:24.21.0-alpine` traz 3.14; o CI usa 3.12 e não
+   vê nada. Dívida 45.
+4. **O `pathlib.write_text` em Windows escreve CRLF.** O `.gitattributes` normaliza no *commit*,
+   mas o `git diff` do teu trabalho mente até lá. Normaliza para LF os ficheiros tocados antes de
+   commitar, ou lês um diff que não é o teu.
+
+E a disciplina que fecha a secção: **o `.venv` e o `node_modules` não existem numa árvore nova.**
+Um *worktree* recém-criado precisa de `python -m venv .venv` com os três `pip install
+--require-hashes` do alvo `$(VENV)/.stamp`, e de um `pnpm install` em contentor. São uns minutos,
+pagam-se uma vez, e sem eles metade dos gates não arranca — o que é diferente de falhar.
+
+---
+
 ## O que ainda não existe
 
-Em 2026-10-10 o repositório passou a estar **sob git** (baseline `036e307`, ramo `main`), mas
-**não tem código nem CI**. Isto tem três consequências que não se devem esconder:
+Esta secção dizia, até 2026-10-19, que o repositório «não tem código nem CI». **Deixou de ser
+verdade e contradizia o `SKILL.md` ao lado**, que já afirmava «CI desde o KAM-002» — é a classe de
+defeito que esta *skill* existe para fechar, e estava dentro dela. Fica corrigida, e fica a nota de
+que estava errada, porque apagar um erro sem o nomear é o mesmo defeito ao contrário.
 
-1. **Os 18 gates de `specs/01_Engineering_Standards_e_Handoff.md` §4 são o alvo, não o presente.**
-   Citá-los como se corressem é afirmar o que não é verdade. Dizem o que será exigido quando
-   KAM-002 existir.
-2. **A auditoria de changeset passou a ser possível — e por isso obrigatória.** `git status` e
-   `git diff --stat` comparam o que mudou com o que era suposto mudar. Uma edição em lote por
-   script sobre dezenas de documentos fecha com a leitura do diff, não com a confiança no script.
-   O `.gitattributes` fixa LF para que um documento não apareça alterado por inteiro sem razão.
-3. **SQL, DDL e código de exemplo nunca correram.** Estão revistos por leitura. Onde aparecem,
-   são propostas de esquema — não desenho validado. O spike do registo de comércio (KAM-041) e o
-   esqueleto andante são o primeiro momento em que deixam de o ser.
+O que é verdade hoje:
+
+1. **O CI existe e bloqueia.** Dos 18 gates de `specs/01_Engineering_Standards_e_Handoff.md` §4
+   correm os que `docs/ci.md` §3 lista, e **onze bloqueiam o merge** pela porta final «gates do
+   KAM-002». Os restantes continuam a ser o alvo. **Dois pormenores que enganam:** o *gate* 5 está
+   **reservado e falha de propósito** — tem `continue-on-error` e não está no `needs` da porta
+   final —, pelo que um PR com o gate 5 vermelho e tudo o mais verde está pronto a fundir; e um
+   gate novo que entre no `needs` tem de entrar também no `esperados=N` escrito à mão dessa porta,
+   senão ela falha.
+2. **A auditoria de changeset é obrigatória.** `git status --short` e `git diff --stat` comparam o
+   que mudou com o que era suposto mudar. Uma edição em lote por script fecha com a leitura do
+   diff, não com a confiança no script. O `.gitattributes` fixa LF para que um documento não
+   apareça alterado por inteiro sem razão.
+3. **O SQL já corre, e o que não corre diz-se.** As revisões de `db/migrations/` são aplicadas,
+   revertidas e reaplicadas contra um PostgreSQL 18.6 descartável pelo *gate* 8, com inventário
+   fechado de colunas e matriz de privilégios. O que continua a ser **proposta de esquema** é o
+   DDL que vive em documento e nunca passou por uma revisão — e isso escreve-se onde aparece.
 
 ---
 

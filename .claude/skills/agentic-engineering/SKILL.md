@@ -300,7 +300,16 @@ independente. Serve para não desperdiçares um reviewer com defeitos que apanha
 O repositório tem **CI desde o KAM-002**: dos 18 gates de
 `specs/01_Engineering_Standards_e_Handoff.md` §4 estão activos os que `docs/ci.md` §3 lista
 (referências cruzadas, nomes canónicos, cobertura, isolamento, migrações, segredos, SBOM), e os
-restantes continuam a ser o **alvo**. O que os gates ainda não cobrem verifica-se por script
+restantes continuam a ser o **alvo**.
+
+> **O `Makefile` diz o que cada gate faz; não é a forma de o correr.** Nesta máquina não há
+> `make`, `node` nem `pnpm` no `PATH`, e um `make ci-2` responde `command not found` — o que não
+> é «o gate passa», é «o gate não correu». As quatro vias que funcionam, com as armadilhas que
+> fazem um lint parecer verde quando saiu com 2, estão em
+> [`references/evidencia-e-verificacao.md`](references/evidencia-e-verificacao.md),
+> «Como correr a verificação aqui». Lê-as **antes** de dizer que verificaste.
+
+O que os gates ainda não cobrem verifica-se por script
 *ad-hoc* no teu scratchpad, com o `git diff` a sustentar a auditoria do changeset — mas as três
 que pagam sempre **já não são disso**: desde o KAM-138 corre-as uma ferramenta, e a mão só serve
 para enganar.
@@ -427,6 +436,14 @@ veredicto — é onde vive a memória das revisões deste conjunto.
 Antes de integrar, audita o que mudou face ao que **era suposto** mudar. O portão de integração
 está em [`references/encerramento.md`](references/encerramento.md).
 
+> **E depois de fundir, não perguntes ao `git` se fundiu.** A `main` funde por *squash* e há dois
+> remotos sem antepassado comum: o `merge-base --is-ancestor` diz «não fundido» para um ramo que
+> acabou de fundir, e para um ramo da outra linha o `merge-base` **falha** — e quem não verificar
+> o código de saída lê o silêncio como «este ramo não tem nada a mais». Custou-me chegar a um
+> passo de apagar sete *worktrees* com 164 a 254 commits cada. A prova é o estado do PR no
+> GitHub; a receita e a limpeza que vem depois estão no mesmo ficheiro, «Como saber que um ramo
+> fundiu» e «Limpeza depois do merge».
+
 Depois corre a verificação que atravessa documentos. Hoje, por script *ad-hoc*; quando KAM-002 e
 KAM-111 existirem, pelos gates. O princípio não muda: **a verificação é por máquina, não por
 leitura**. Nesta sessão, a leitura dos relatórios dos redactores não apanhou nenhuma das ~60
@@ -523,6 +540,6 @@ verdade.
 |---|---|
 | [`references/decomposicao.md`](references/decomposicao.md) | Vais partir a tarefa, modelar dependências, resolver um conflito de fontes ou manter estado de execução |
 | [`references/contratos-de-agente.md`](references/contratos-de-agente.md) | Vais lançar um subagente ou definir o que ele devolve |
-| [`references/evidencia-e-verificacao.md`](references/evidencia-e-verificacao.md) | Vais afirmar um facto, atribuir-lhe estado, ou verificar o conjunto por script |
+| [`references/evidencia-e-verificacao.md`](references/evidencia-e-verificacao.md) | Vais afirmar um facto, atribuir-lhe estado, ou **correr** a verificação (o `make` não corre aqui) |
 | [`references/revisao-adversarial.md`](references/revisao-adversarial.md) | Estás a rever — o teu trabalho ou o de outro agente |
-| [`references/encerramento.md`](references/encerramento.md) | Estás a integrar, auditar completude ou escrever o relatório final |
+| [`references/encerramento.md`](references/encerramento.md) | Estás a integrar, auditar completude, escrever o relatório final, ou a limpar depois de um merge |
