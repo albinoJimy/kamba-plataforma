@@ -62,8 +62,21 @@ export function createApp(log?: Logger, dependencias?: DependenciasDoWebhook): H
  * a quem alcança a Internet» e «exposto a quem alcança a rede interna», e é a
  * que está nas mãos deste ticket. Fechar a rede é KAM-077.
  */
-export function criarAppDeMetricas(): Hono {
+export function criarAppDeMetricas(log?: Logger): Hono {
   const app = new Hono();
+
+  // **O mesmo `onError` da app pública, e não é zelo.** Sem ele, o tratador por
+  // omissão do Hono faz `console.error(err)`: a mensagem e a pilha de qualquer
+  // erro nesta app iam em claro para o `stderr`, sem passar pelo *logger*
+  // (KAM-068, `docs/logs.md` §3.3). Uma app nova sem `onError` é a mesma
+  // omissão que o `createApp` acima existe para fechar — e foi o que eu deixei
+  // aqui quando separei as portas. O `log_policy` passou a contar as duas
+  // coisas (`tools/log_policy/tests/test_cablagem.py`) para que não volte.
+  app.onError((erro, c) => {
+    log?.excepcao(erro, "tratador_falhou");
+    return c.json({ error: "internal" }, 500);
+  });
+
   app.get("/healthz", (c) => c.json(healthz(SERVICE, VERSION)));
   // **Não leva dados de tenant nem identificadores** — as cinco métricas são
   // contadores e *gauges* sem etiquetas (`entrada/metricas.ts`).

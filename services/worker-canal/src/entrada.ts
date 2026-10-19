@@ -52,7 +52,7 @@ import {
   sha256Hex,
   tratarCorpo,
 } from "@kamba/core-ts/entrada";
-import { instalar } from "@kamba/core-ts/logger";
+import { type Logger, instalar } from "@kamba/core-ts/logger";
 import { Hono } from "hono";
 import { Client } from "pg";
 
@@ -113,8 +113,19 @@ export class EncaminhadorQueSoRegista implements Encaminhador {
   }
 }
 
-export function criarApp(): Hono {
+export function criarApp(registo?: Logger): Hono {
   const app = new Hono();
+
+  // Sem isto, o tratador de erro por omissao do Hono faz `console.error(err)`:
+  // a mensagem e a pilha de qualquer erro iam em claro para o `stderr`, sem
+  // passar pelo *logger* (KAM-068, `docs/logs.md` §3.3). O `publicador.ts` e o
+  // `consumidor.ts` **nao** o tem, e sao anteriores a este ticket: ficam na
+  // linha 46 de `docs/dividas-documentais.md`, com a do `hostname`.
+  app.onError((erro, c) => {
+    registo?.excepcao(erro, "tratador_falhou");
+    return c.json({ error: "internal" }, 500);
+  });
+
   app.get("/healthz", (c) => c.json(healthz(SERVICE, VERSION)));
   // **As metricas do *worker*, e nao as do GWY.** Serviam-se antes as cinco
   // de `entrada/metricas.ts`, que o GWY incrementa e este processo nao: saiam
@@ -186,7 +197,7 @@ async function principal(): Promise<void> {
   // ticket, e esta na revisao adversarial do KAM-013); aqui segue-se o
   // `server.ts` e nao o padrao deles.
   const servidor = serve({
-    fetch: criarApp().fetch,
+    fetch: criarApp(log).fetch,
     hostname: process.env.HOST?.trim() || "127.0.0.1",
     port: porta(),
   });

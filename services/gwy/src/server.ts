@@ -132,7 +132,7 @@ async function principal(): Promise<void> {
 
   // O servidor interno: `/healthz` e `/metrics`, na sua porta e em localhost.
   const metricas = serve({
-    fetch: criarAppDeMetricas().fetch,
+    fetch: criarAppDeMetricas(log).fetch,
     hostname: process.env.HOST?.trim() || "127.0.0.1",
     port: portaDasMetricas(),
   });
