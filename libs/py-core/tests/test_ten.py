@@ -33,6 +33,7 @@ real no gate 8. Uma base falsa devolve o que se lhe mandou devolver.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import unittest
@@ -41,6 +42,10 @@ from pathlib import Path
 from kamba_core import ten
 from kamba_core.ten import (
     ACCOES,
+    CATEGORIA_CONTADOR,
+    CATEGORIA_TECTO_POR_JANELA,
+    CATEGORIA_TECTO_POR_PEDIDO,
+    CHAVES_DE_LIMITE,
     CODIGO_ENTITLEMENT_HTTP,
     CODIGO_ENTITLEMENT_TOOL,
     CODIGO_LIMITE,
@@ -49,6 +54,7 @@ from kamba_core.ten import (
     ETIQUETA,
     HTTP_ENTITLEMENT,
     HTTP_LIMITE,
+    HTTP_TECTO,
     MAXIMO_DE_ENTRADAS,
     MAXIMO_DE_SERIES,
     METRICA_ENTITLEMENT_NEGADO,
@@ -61,9 +67,14 @@ from kamba_core.ten import (
     SQL_CONSUMIR,
     SQL_ENTITLEMENT,
     SQL_PERIODO,
+    SQL_TECTO,
+    SQLSTATE_CONFLITO_DE_IDEMPOTENCIA,
     TTL_POR_OMISSAO_MS,
     CacheDeEntitlements,
+    ChaveDeEspecieErrada,
     ChaveDeIdempotenciaInvalida,
+    ChaveDesconhecida,
+    ConflitoDeIdempotencia,
     Entitlement,
     ErroDeTool,
     EstadoDesconhecido,
@@ -74,14 +85,20 @@ from kamba_core.ten import (
     RespostaIlegivel,
     Resultado,
     agora_ms,
+    check_ceiling,
     check_entitlement,
     consume_limit,
+    derivar_chave_de_idempotencia,
+    especie_da_chave,
+    exigir_consumivel,
     exigir_nome,
+    exigir_tecto,
     hook_de_tool,
     inteiro,
     mais_restritivo,
     periodo,
     regime_de,
+    sqlstate_de,
     tenant_gate,
 )
 from kamba_core.tenant_guard import ContextoEmFalta, TenantInvalido
@@ -483,15 +500,335 @@ class TestPeriodo(unittest.TestCase):
         self.assertEqual(bd.chamadas, [(SQL_PERIODO, (quando,))])
 
     def test_sem_instante_passa_none(self) -> None:
+        """M3: e o `coalesce` do SQL que transforma o `None` em `now()`.
+
+        Era aqui que os dois lados divergiam: sem `coalesce`, a funcao recebia
+        `NULL`, devolvia `NULL`, e este lado entregava `None` em silencio
+        enquanto o TypeScript levantava. O `None` continua a ir — o que mudou
+        e que ha um `coalesce` do outro lado para o apanhar.
+        """
         bd = BaseFalsa([{"periodo": "2026-12-01"}])
         self.assertEqual(periodo(bd), "2026-12-01")
         self.assertEqual(bd.chamadas[0][1], (None,))
+        self.assertIn("coalesce(%s, now())", bd.chamadas[0][0])
+
+    def test_os_dois_caminhos_correm_o_mesmo_sql(self) -> None:
+        """Com instante e sem ele: uma consulta so, e nao duas versoes."""
+        com = BaseFalsa([{"periodo": "2026-11-01"}])
+        periodo(com, "2026-11-30T22:59:59+00:00")
+        sem = BaseFalsa([{"periodo": "2026-12-01"}])
+        periodo(sem)
+        self.assertEqual(com.chamadas[0][0], sem.chamadas[0][0])
+        self.assertEqual(com.chamadas[0][0], SQL_PERIODO)
 
     def test_uma_resposta_sem_periodo_levanta(self) -> None:
         with self.assertRaises(RespostaIlegivel):
             periodo(BaseFalsa([{"outra": 1}]))
         with self.assertRaises(RespostaIlegivel):
             periodo(BaseFalsa([]))
+
+
+class TestRegistoDeChaves(unittest.TestCase):
+    """A especie de cada chave e **um facto do registo**, e nao uma convencao.
+
+    O `x-kamba-consumivel` existia no `registry/entitlement_keys.schema.json`
+    e **nada o lia**. A tabela `CHAVES_DE_LIMITE` passa a te-lo por extenso, e
+    este e o teste que a prende ao ficheiro: le o registo e confronta chave a
+    chave. Uma chave acrescentada la e nao acrescentada aqui cai aqui.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        caminho = RAIZ / "registry" / "entitlement_keys.schema.json"
+        cls.registo = json.loads(caminho.read_text(encoding="utf-8"))
+
+    def test_as_dez_chaves_sao_as_mesmas(self) -> None:
+        do_registo = sorted(self.registo["properties"])
+        self.assertEqual(len(do_registo), 10)
+        self.assertEqual(sorted(CHAVES_DE_LIMITE), do_registo)
+
+    def test_a_categoria_e_o_consumivel_vem_do_registo(self) -> None:
+        for nome, propriedade in self.registo["properties"].items():
+            with self.subTest(chave=nome):
+                nossa = CHAVES_DE_LIMITE[nome]
+                self.assertEqual(nossa.nome, nome)
+                self.assertEqual(nossa.categoria, propriedade["x-kamba-categoria"])
+                self.assertEqual(nossa.consumivel, propriedade["x-kamba-consumivel"])
+
+    def test_as_tres_categorias_sao_as_que_o_registo_declara(self) -> None:
+        declaradas = sorted(self.registo["x-kamba-categorias"])
+        self.assertEqual(
+            declaradas,
+            sorted(
+                (CATEGORIA_CONTADOR, CATEGORIA_TECTO_POR_PEDIDO, CATEGORIA_TECTO_POR_JANELA)
+            ),
+        )
+
+    def test_so_os_contadores_sao_consumiveis(self) -> None:
+        for chave in CHAVES_DE_LIMITE.values():
+            with self.subTest(chave=chave.nome):
+                self.assertEqual(
+                    chave.consumivel, chave.categoria == CATEGORIA_CONTADOR
+                )
+
+    def test_cinco_baldes_tres_tectos_por_pedido_dois_por_janela(self) -> None:
+        contagem: dict[str, int] = {}
+        for chave in CHAVES_DE_LIMITE.values():
+            contagem[chave.categoria] = contagem.get(chave.categoria, 0) + 1
+        self.assertEqual(
+            contagem,
+            {
+                CATEGORIA_CONTADOR: 5,
+                CATEGORIA_TECTO_POR_PEDIDO: 3,
+                CATEGORIA_TECTO_POR_JANELA: 2,
+            },
+        )
+
+    def test_uma_chave_fora_do_registo_nao_se_adivinha(self) -> None:
+        with self.assertRaises(ChaveDesconhecida):
+            especie_da_chave("msgs_ai_semana")
+        # E continua a passar pela gramatica primeiro.
+        with self.assertRaises(NomeInvalido):
+            especie_da_chave("Msgs-AI")
+        # Nomes herdados de um prototipo casam a gramatica. Em Python um
+        # `dict` nao os tem, mas o espelho em TypeScript sim — e la a tabela
+        # consulta-se com `Object.hasOwn`. O caso fica coberto dos dois lados.
+        for herdada in ("constructor", "tostring", "valueof"):
+            with self.subTest(chave=herdada), self.assertRaises(ChaveDesconhecida):
+                especie_da_chave(herdada)
+
+
+class TestEspecieDaChave(unittest.TestCase):
+    """Cada funcao recusa a chave da outra especie. Nao se corrige a correr."""
+
+    def test_consumir_um_tecto_por_pedido_levanta_antes_da_base(self) -> None:
+        for chave in (
+            "valor_max_pedido_minor",
+            "manual_max_minor",
+            "manual_dupla_acima_minor",
+            "manual_daily_max_minor",
+            "manual_max_por_contacto_24h",
+        ):
+            bd = BaseFalsa([linha_de_consumo()])
+            with self.subTest(chave=chave), self.assertRaises(ChaveDeEspecieErrada):
+                consume_limit(bd, A, chave, 1, "k")
+            self.assertEqual(bd.chamadas, [], "nao chegou a tocar na base")
+
+    def test_perguntar_cabimento_a_um_balde_levanta(self) -> None:
+        for chave in ("msgs_ai_mes", "marcacoes_mes", "imagens_mes"):
+            bd = BaseFalsa([{"tecto": 1}])
+            with self.subTest(chave=chave), self.assertRaises(ChaveDeEspecieErrada):
+                check_ceiling(bd, A, chave, 1)
+            self.assertEqual(bd.chamadas, [])
+
+    def test_as_duas_chaves_de_janela_nao_tem_caminho_neste_ticket(self) -> None:
+        """E dizem-no a dizer porque, em vez de responderem mal.
+
+        O agregado da janela nao esta em `platform.tenant_usage` — a chave
+        dessa tabela e mensal e nao tem a dimensao do contacto. Vem de
+        `manual_confirmations` (`04` §4.2 M-6), que este ticket nao constroi.
+        """
+        for chave in ("manual_daily_max_minor", "manual_max_por_contacto_24h"):
+            with self.subTest(chave=chave):
+                with self.assertRaises(ChaveDeEspecieErrada) as apanhado:
+                    check_ceiling(BaseFalsa(), A, chave, 1)
+                self.assertIn("manual_confirmations", str(apanhado.exception))
+
+    def test_as_tres_do_tecto_por_pedido_passam(self) -> None:
+        for chave in (
+            "valor_max_pedido_minor",
+            "manual_max_minor",
+            "manual_dupla_acima_minor",
+        ):
+            with self.subTest(chave=chave):
+                self.assertEqual(exigir_tecto(chave), chave)
+
+    def test_os_cinco_baldes_passam_no_consumo(self) -> None:
+        for chave in (
+            "msgs_ai_mes",
+            "marcacoes_mes",
+            "imagens_mes",
+            "posts_mes",
+            "orcamentos_mes",
+        ):
+            with self.subTest(chave=chave):
+                self.assertEqual(exigir_consumivel(chave), chave)
+
+
+class TestCheckCeiling(unittest.TestCase):
+    """«Este valor cabe?» — e **nada** disto escreve."""
+
+    def setUp(self) -> None:
+        self.metricas = MetricasDoTen()
+
+    def test_corre_o_sql_do_tecto_com_o_tenant_e_a_chave(self) -> None:
+        bd = BaseFalsa([{"tecto": 5_000_000}])
+        tecto = check_ceiling(bd, A, "valor_max_pedido_minor", 4_999_999)
+        self.assertEqual(bd.chamadas, [(SQL_TECTO, (A, "valor_max_pedido_minor"))])
+        self.assertTrue(tecto.cabe)
+        self.assertEqual(tecto.tecto, 5_000_000)
+        self.assertEqual(tecto.valor, 4_999_999)
+        self.assertIsNone(tecto.motivo)
+
+    def test_o_valor_igual_ao_tecto_cabe(self) -> None:
+        bd = BaseFalsa([{"tecto": 100}])
+        self.assertTrue(check_ceiling(bd, A, "manual_max_minor", 100).cabe)
+
+    def test_um_acima_do_tecto_nao_cabe_e_conta(self) -> None:
+        bd = BaseFalsa([{"tecto": 100}])
+        tecto = check_ceiling(bd, A, "manual_max_minor", 101, metricas=self.metricas)
+        self.assertFalse(tecto.cabe)
+        self.assertEqual(tecto.motivo, "tecto_excedido")
+        self.assertEqual(
+            self.metricas.ler(), {f"{METRICA_LIMITE_NEGADO}:manual_max_minor": 1}
+        )
+
+    def test_sem_linha_activa_que_declare_a_chave_nega(self) -> None:
+        """Falha fechada, criterio 2: `NULL` nao e «sem limite»."""
+        for resposta in ([{"tecto": None}], [{}], []):
+            with self.subTest(resposta=resposta):
+                tecto = check_ceiling(
+                    BaseFalsa(resposta), A, "manual_max_minor", 1
+                )
+                self.assertFalse(tecto.cabe)
+                self.assertIsNone(tecto.tecto)
+                self.assertEqual(tecto.motivo, "sem_entitlement")
+
+    def test_a_falta_conta_no_contador_do_modulo_quando_lho_dizem(self) -> None:
+        bd = BaseFalsa([{"tecto": None}])
+        check_ceiling(
+            bd, A, "manual_max_minor", 1, modulo="vendedor", metricas=self.metricas
+        )
+        self.assertEqual(
+            self.metricas.ler(), {f"{METRICA_ENTITLEMENT_NEGADO}:vendedor": 1}
+        )
+
+    def test_le_o_bigint_em_texto_como_o_pg_do_typescript(self) -> None:
+        bd = BaseFalsa([{"tecto": "5000000"}])
+        self.assertEqual(check_ceiling(bd, A, "manual_max_minor", 1).tecto, 5_000_000)
+
+    def test_um_tecto_ilegivel_levanta_em_vez_de_adivinhar(self) -> None:
+        with self.assertRaises(RespostaIlegivel):
+            check_ceiling(BaseFalsa([{"tecto": "cinco"}]), A, "manual_max_minor", 1)
+
+    def test_zero_cabe_em_qualquer_tecto_e_negativo_levanta(self) -> None:
+        self.assertTrue(check_ceiling(BaseFalsa([{"tecto": 0}]), A, "manual_max_minor", 0).cabe)
+        for mau in (-1, 1.5, True, None, "10"):
+            with self.subTest(valor=mau), self.assertRaises(QuantidadeInvalida):
+                check_ceiling(BaseFalsa([{"tecto": 10}]), A, "manual_max_minor", mau)
+
+    def test_recusa_um_tenant_que_nao_e_uuid_antes_de_tocar_na_base(self) -> None:
+        bd = BaseFalsa([{"tecto": 1}])
+        with self.assertRaises(TenantInvalido):
+            check_ceiling(bd, "nao-e-uuid", "manual_max_minor", 1)
+        self.assertEqual(bd.chamadas, [])
+
+    def test_o_limiar_da_dupla_verificacao_e_a_mesma_comparacao(self) -> None:
+        """`manual_dupla_acima_minor`: `cabe = False` nao e uma recusa.
+
+        O registo escreve-o — «o unico tecto por pedido cuja comparacao NAO
+        nega». A funcao devolve o facto; quem chama e que decide que acima do
+        limiar o pedido exige o segundo confirmador (`04` §4.2 M-5).
+        """
+        bd = BaseFalsa([{"tecto": 2_000_000}])
+        acima = check_ceiling(bd, A, "manual_dupla_acima_minor", 2_000_001)
+        self.assertFalse(acima.cabe)
+        self.assertEqual(acima.tecto, 2_000_000)
+
+
+class TestDerivacaoDaChaveDeIdempotencia(unittest.TestCase):
+    """C1: o que o cliente manda e **um componente**, nunca a chave."""
+
+    #: Vector fixo, confrontado com o do TypeScript pelo teste de paridade.
+    VECTOR = "aecad9b30b59f9439b80d87246a2a8318a3b5f766e899faef810168f503e3df0"
+
+    def test_o_vector_conhecido(self) -> None:
+        self.assertEqual(
+            derivar_chave_de_idempotencia(
+                "ten.v1", A, "vendedor", "msgs_ai_mes", "req-1"
+            ),
+            self.VECTOR,
+        )
+
+    def test_e_determinista_e_hexadecimal(self) -> None:
+        uma = derivar_chave_de_idempotencia("ten.v1", A, "vendedor", "msgs_ai_mes", "x")
+        outra = derivar_chave_de_idempotencia("ten.v1", A, "vendedor", "msgs_ai_mes", "x")
+        self.assertEqual(uma, outra)
+        self.assertRegex(uma, r"^[0-9a-f]{64}$")
+
+    def test_cada_componente_muda_a_chave(self) -> None:
+        base = ("ten.v1", A, "vendedor", "msgs_ai_mes", "x")
+        vistas = {derivar_chave_de_idempotencia(*base)}
+        for indice, outro in enumerate((B, "servicos", "marcacoes_mes", "y"), start=1):
+            trocado = list(base)
+            trocado[indice] = outro
+            vistas.add(derivar_chave_de_idempotencia(*trocado))
+        self.assertEqual(len(vistas), 5)
+
+    def test_o_separador_impede_a_colisao_por_concatenacao(self) -> None:
+        """`ab` + `c` e `a` + `bc` nao podem dar a mesma chave."""
+        self.assertNotEqual(
+            derivar_chave_de_idempotencia("ab", "c"),
+            derivar_chave_de_idempotencia("a", "bc"),
+        )
+
+    def test_componentes_vazios_ou_que_nao_sao_texto_levantam(self) -> None:
+        for maus in ((), ("",), ("  ",), ("a", None), ("a", 7)):
+            with self.subTest(maus=maus), self.assertRaises(ChaveDeIdempotenciaInvalida):
+                derivar_chave_de_idempotencia(*maus)
+
+
+class TestSqlstateEConflito(unittest.TestCase):
+    """O `KA002` da `0007` e um conflito do pedido, e nao um limite."""
+
+    def test_le_o_sqlstate_das_tres_formas_conhecidas(self) -> None:
+        class ComAtributo(Exception):
+            sqlstate = "KA002"
+
+        class ComCode(Exception):
+            code = "KA002"
+
+        do_pg8000 = Exception({"S": "ERROR", "C": "KA002", "M": "conflito"})
+        for erro in (ComAtributo(), ComCode(), do_pg8000):
+            with self.subTest(erro=type(erro).__name__):
+                self.assertEqual(sqlstate_de(erro), "KA002")
+
+    def test_o_que_nao_e_sqlstate_nao_se_inventa(self) -> None:
+        class Enganador(Exception):
+            code = "nao-e-um-sqlstate"
+
+        self.assertIsNone(sqlstate_de(Enganador()))
+        self.assertIsNone(sqlstate_de(Exception("sem nada")))
+        self.assertIsNone(sqlstate_de(Exception({"C": 404})))
+
+    def test_o_ka002_vira_conflito_de_idempotencia(self) -> None:
+        class BaseQueLevanta:
+            def executar(self, sql, parametros=()):
+                erro = RuntimeError("conflito")
+                erro.sqlstate = "KA002"  # type: ignore[attr-defined]
+                raise erro
+
+        with self.assertRaises(ConflitoDeIdempotencia) as apanhado:
+            consume_limit(BaseQueLevanta(), A, "msgs_ai_mes", 1, "k")
+        self.assertIsInstance(apanhado.exception.__cause__, RuntimeError)
+        # E a mensagem nao repete nem a chave nem a quantidade (`OBS-I`).
+        self.assertNotIn("msgs_ai_mes", str(apanhado.exception))
+
+    def test_o_23514_e_os_outros_sobem_como_vieram(self) -> None:
+        """So se traduz o que se reconhece; o resto nao se disfarca."""
+        for estado in ("23514", "22023", "40001"):
+            class BaseQueLevanta:
+                def executar(self, sql, parametros=(), _e=estado):
+                    erro = RuntimeError("da base")
+                    erro.sqlstate = _e  # type: ignore[attr-defined]
+                    raise erro
+
+            with self.subTest(sqlstate=estado), self.assertRaises(RuntimeError) as a:
+                consume_limit(BaseQueLevanta(), A, "msgs_ai_mes", 1, "k")
+            self.assertNotIsInstance(a.exception, ConflitoDeIdempotencia)
+
+    def test_o_nome_do_sqlstate_e_o_da_0007(self) -> None:
+        self.assertEqual(SQLSTATE_CONFLITO_DE_IDEMPOTENCIA, "KA002")
 
 
 class TestTenantGate(unittest.TestCase):
@@ -574,16 +911,122 @@ class TestTenantGate(unittest.TestCase):
         for regime in REGIMES:
             self.assertEqual(sorted(REGIMES_E_ACCOES[regime]), sorted(ACCOES))
 
+    #: O regime de cada um dos 30 pares, escrito **a mao** a partir da regra
+    #: de precedencia, e nao calculado com ela.
+    #:
+    #: Um teste que corresse `regime_de` para construir o esperado verificava
+    #: que a funcao e igual a si propria. Esta tabela e a leitura humana de
+    #: «`desligado` ganha de tudo; as outras cinco ordenam-se do mais
+    #: restritivo para o menos», linha a linha, e e o que apanha uma troca de
+    #: duas posicoes em `REGIMES`.
+    REGIME_DO_PAR = {
+        ("onboarding", "pendente"): "pendente",
+        ("onboarding", "ativo"): "pendente",
+        ("onboarding", "restrito"): "pendente",
+        ("onboarding", "desligado"): "desligado",
+        ("onboarding", "suspenso"): "suspenso",
+        ("onboarding", "encerrado"): "encerrado",
+        ("ativo", "pendente"): "pendente",
+        ("ativo", "ativo"): "ativo",
+        ("ativo", "restrito"): "restrito",
+        ("ativo", "desligado"): "desligado",
+        ("ativo", "suspenso"): "suspenso",
+        ("ativo", "encerrado"): "encerrado",
+        ("restrito", "pendente"): "pendente",
+        ("restrito", "ativo"): "restrito",
+        ("restrito", "restrito"): "restrito",
+        ("restrito", "desligado"): "desligado",
+        ("restrito", "suspenso"): "suspenso",
+        ("restrito", "encerrado"): "encerrado",
+        ("suspenso", "pendente"): "suspenso",
+        ("suspenso", "ativo"): "suspenso",
+        ("suspenso", "restrito"): "suspenso",
+        ("suspenso", "desligado"): "desligado",
+        ("suspenso", "suspenso"): "suspenso",
+        ("suspenso", "encerrado"): "encerrado",
+        ("encerrado", "pendente"): "encerrado",
+        ("encerrado", "ativo"): "encerrado",
+        ("encerrado", "restrito"): "encerrado",
+        ("encerrado", "desligado"): "desligado",
+        ("encerrado", "suspenso"): "encerrado",
+        ("encerrado", "encerrado"): "encerrado",
+    }
+
     def test_a_ordem_de_precedencia_e_a_proposta(self) -> None:
+        """`desligado` a cabeca: e transporte, e nao politica."""
         self.assertEqual(
             REGIMES,
-            ("encerrado", "suspenso", "desligado", "pendente", "restrito", "ativo"),
+            ("desligado", "encerrado", "suspenso", "pendente", "restrito", "ativo"),
         )
         self.assertEqual(mais_restritivo("ativo", "encerrado"), "encerrado")
         self.assertEqual(mais_restritivo("encerrado", "ativo"), "encerrado")
         self.assertEqual(mais_restritivo("restrito", "pendente"), "pendente")
-        self.assertEqual(mais_restritivo("suspenso", "desligado"), "suspenso")
         self.assertEqual(mais_restritivo("ativo", "ativo"), "ativo")
+        # A correccao: `desligado` ganha a todos os outros cinco, nos dois
+        # sentidos. Antes perdia para `encerrado` e para `suspenso`.
+        for outro in ("encerrado", "suspenso", "pendente", "restrito", "ativo"):
+            with self.subTest(outro=outro):
+                self.assertEqual(mais_restritivo("desligado", outro), "desligado")
+                self.assertEqual(mais_restritivo(outro, "desligado"), "desligado")
+
+    def test_o_caso_que_a_revisao_mediu(self) -> None:
+        """Tenant `suspenso` + canal `desligado` **nao** autoriza enviar.
+
+        Era o defeito: a linha `suspenso` permite a mensagem estatica, e com
+        `suspenso` a ganhar o gate autorizava um envio por um canal que o
+        §7.2 diz removido. Nenhum estado de politica faz reaparecer um
+        transporte que nao existe.
+        """
+        decisao = tenant_gate("suspenso", "desligado", "mensagem_estatica")
+        self.assertEqual(decisao.regime, "desligado")
+        self.assertFalse(decisao.permitido)
+        self.assertEqual(decisao.origem, "canal")
+        # E nenhuma das sete accoes passa, venha o tenant de onde vier.
+        for estado in ESTADOS_DO_TENANT:
+            for accao in ACCOES:
+                with self.subTest(estado_tenant=estado, accao=accao):
+                    self.assertFalse(tenant_gate(estado, "desligado", accao).permitido)
+
+    def test_a_matriz_completa_dos_210_casos(self) -> None:
+        """5 estados de tenant x 6 de canal x 7 accoes, um a um.
+
+        Nao so o par que falhou: a tabela inteira, contra o regime escrito a
+        mao em `REGIME_DO_PAR` e a celula escrita a mao em `ESPERADO`.
+        """
+        casos = 0
+        for estado_tenant in ESTADOS_DO_TENANT:
+            for estado_canal in ESTADOS_DO_CANAL:
+                regime = self.REGIME_DO_PAR[(estado_tenant, estado_canal)]
+                self.assertEqual(regime_de(estado_tenant, estado_canal), regime)
+                for accao in ACCOES:
+                    casos += 1
+                    with self.subTest(
+                        estado_tenant=estado_tenant,
+                        estado_canal=estado_canal,
+                        accao=accao,
+                    ):
+                        self.assertEqual(
+                            tenant_gate(estado_tenant, estado_canal, accao).permitido,
+                            self.ESPERADO[regime][accao],
+                        )
+        self.assertEqual(casos, 5 * 6 * 7)
+
+    def test_nenhum_par_com_canal_desligado_autoriza_saida(self) -> None:
+        """A propriedade que a precedencia passa a garantir, por extenso."""
+        saidas = (
+            "processar_entrada",
+            "responder_sessao",
+            "enviar_template_utilidade",
+            "enviar_template_marketing",
+            "mensagem_estatica",
+            "mensagem_de_teste",
+        )
+        for estado_tenant in ESTADOS_DO_TENANT:
+            for accao in saidas:
+                with self.subTest(estado_tenant=estado_tenant, accao=accao):
+                    self.assertFalse(
+                        tenant_gate(estado_tenant, "desligado", accao).permitido
+                    )
 
     def test_o_par_que_uma_tabela_de_um_parametro_nao_tem(self) -> None:
         decisao = tenant_gate("ativo", "desligado", "registar_entrada")
@@ -781,9 +1224,131 @@ class TestHookDeTool(unittest.TestCase):
                 metricas=self.metricas,
             )
         )
-        self.assertEqual(
-            bd.chamadas[1][1], (A, "msgs_ai_mes", 3, "sha256", 10, quando)
+        # A chave que vai a base e a **derivada**, e nao a que lhe deram.
+        derivada = derivar_chave_de_idempotencia(
+            "ten.v1", A, "vendedor", "msgs_ai_mes", "sha256"
         )
+        self.assertEqual(
+            bd.chamadas[1][1], (A, "msgs_ai_mes", 3, derivada, 10, quando)
+        )
+        self.assertNotEqual(derivada, "sha256")
+
+    def test_a_chave_do_02_63_e_so_um_componente(self) -> None:
+        """C1: a chave de quem chama nao e a chave efectiva.
+
+        A mesma chave do `02` §6.3 em dois modulos, ou em duas chaves de
+        limite, deixa de ser a mesma chave de idempotencia: o ambito da
+        desduplicacao e do servidor e nao de quem chama.
+        """
+        vistas = []
+        for modulo, chave in (
+            ("vendedor", "msgs_ai_mes"),
+            ("servicos", "msgs_ai_mes"),
+            ("vendedor", "marcacoes_mes"),
+        ):
+            bd = BaseFalsa([linha_de_entitlement()], [linha_de_consumo()])
+            hook_de_tool(
+                bd,
+                self.ctx,
+                modulo=modulo,
+                chave=chave,
+                idempotency_key="a-mesma-de-sempre",
+                metricas=self.metricas,
+            )
+            efectiva = bd.chamadas[1][1][3]
+            self.assertNotEqual(efectiva, "a-mesma-de-sempre")
+            self.assertRegex(efectiva, r"^[0-9a-f]{64}$")
+            vistas.append(efectiva)
+        self.assertEqual(len(set(vistas)), 3)
+
+    def test_o_tecto_por_pedido_corre_antes_do_consumo(self) -> None:
+        """M5: um pedido que nao cabe no tecto **nao** gasta o balde.
+
+        Era o defeito medido: com o plano `free`, consumir
+        `valor_max_pedido_minor` pela `ten_consumir` gastava num pedido de
+        50 000 Kz o tecto inteiro. Aqui o tecto le-se (`SQL_TECTO`), nao
+        escreve, e so se consome depois de caber.
+        """
+        bd = BaseFalsa(
+            [linha_de_entitlement()],
+            [{"tecto": 5_000_000}],
+            [linha_de_consumo()],
+        )
+        self.assertIsNone(
+            hook_de_tool(
+                bd,
+                self.ctx,
+                modulo="vendedor",
+                chave="msgs_ai_mes",
+                idempotency_key="k",
+                tecto_chave="valor_max_pedido_minor",
+                tecto_valor=4_000_000,
+                metricas=self.metricas,
+            )
+        )
+        self.assertEqual(
+            [sql for sql, _ in bd.chamadas],
+            [SQL_ENTITLEMENT, SQL_TECTO, SQL_CONSUMIR],
+        )
+
+    def test_o_tecto_que_nao_chega_recusa_sem_consumir(self) -> None:
+        bd = BaseFalsa([linha_de_entitlement()], [{"tecto": 5_000_000}])
+        erro = hook_de_tool(
+            bd,
+            self.ctx,
+            modulo="vendedor",
+            chave="msgs_ai_mes",
+            idempotency_key="k",
+            tecto_chave="valor_max_pedido_minor",
+            tecto_valor=6_000_000,
+            metricas=self.metricas,
+        )
+        self.assertEqual(
+            erro,
+            ErroDeTool(
+                codigo=CODIGO_LIMITE,
+                modulo="vendedor",
+                chave="valor_max_pedido_minor",
+                limite=5_000_000,
+            ),
+        )
+        # Duas chamadas: o entitlement e o tecto. **Nenhum consumo.**
+        self.assertEqual(len(bd.chamadas), 2)
+        self.assertNotIn(SQL_CONSUMIR, [sql for sql, _ in bd.chamadas])
+
+    def test_tecto_sem_entitlement_que_o_declare_e_entitlement_denied(self) -> None:
+        bd = BaseFalsa([linha_de_entitlement()], [{"tecto": None}])
+        erro = hook_de_tool(
+            bd,
+            self.ctx,
+            modulo="vendedor",
+            tecto_chave="manual_max_minor",
+            tecto_valor=1,
+            metricas=self.metricas,
+        )
+        self.assertEqual(
+            erro,
+            ErroDeTool(
+                codigo=CODIGO_ENTITLEMENT_TOOL,
+                modulo="vendedor",
+                chave="manual_max_minor",
+            ),
+        )
+
+    def test_metade_do_tecto_levanta(self) -> None:
+        """A chave sem o valor, ou o valor sem a chave, nao e uma pergunta."""
+        for argumentos in (
+            {"tecto_chave": "manual_max_minor"},
+            {"tecto_valor": 10},
+        ):
+            with self.subTest(**argumentos), self.assertRaises(QuantidadeInvalida):
+                hook_de_tool(
+                    BaseFalsa([linha_de_entitlement()]),
+                    self.ctx,
+                    modulo="vendedor",
+                    metricas=self.metricas,
+                    **argumentos,
+                )
 
     def test_sem_chave_de_idempotencia_levanta(self) -> None:
         bd = BaseFalsa([linha_de_entitlement()])
@@ -916,6 +1481,7 @@ class TestParidadeDoTypeScript(unittest.TestCase):
             ("SQL_PERIODO", SQL_PERIODO),
             ("SQL_ENTITLEMENT", SQL_ENTITLEMENT),
             ("SQL_CONSUMIR", SQL_CONSUMIR),
+            ("SQL_TECTO", SQL_TECTO),
         ):
             with self.subTest(sql=nome):
                 self.assertEqual(self._sql_do_typescript(nome), nosso)
@@ -925,11 +1491,49 @@ class TestParidadeDoTypeScript(unittest.TestCase):
         revisao = REVISAO.read_text(encoding="utf-8")
         self.assertIn("CREATE FUNCTION platform.ten_periodo(", revisao)
         self.assertIn("CREATE FUNCTION platform.ten_consumir(", revisao)
-        self.assertIn("platform.ten_periodo(%s)", SQL_PERIODO)
+        self.assertIn("platform.ten_periodo(coalesce(%s, now()))", SQL_PERIODO)
         self.assertIn(
             "platform.ten_consumir(%s, %s, %s, %s, %s, coalesce(%s, now()))",
             SQL_CONSUMIR,
         )
+
+    def test_os_dois_coalesce_existem_e_pela_mesma_razao(self) -> None:
+        """O `SQL_PERIODO` tinha-o a menos, e os dois lados divergiam nisso.
+
+        Medido pela revisao adversarial: sem instante, o `SQL_PERIODO`
+        mandava `NULL` a funcao, o Python devolvia `None` em silencio e o
+        TypeScript levantava. Um argumento nomeado ausente nao se exprime
+        numa chamada posicional — a razao e a mesma nas duas consultas, e
+        agora o `coalesce` tambem.
+        """
+        for nome, sql in (("SQL_PERIODO", SQL_PERIODO), ("SQL_CONSUMIR", SQL_CONSUMIR)):
+            with self.subTest(sql=nome):
+                self.assertIn("coalesce(%s, now())", sql)
+        # E a razao esta escrita nos dois ficheiros, nao so num.
+        for fonte in (
+            self.consultas,
+            (
+                RAIZ / "libs" / "py-core" / "src" / "kamba_core" / "ten" / "consultas.py"
+            ).read_text(encoding="utf-8"),
+        ):
+            self.assertIn("posicional", fonte)
+
+    def test_o_sql_do_tecto_le_o_mesmo_minimo_que_a_0007(self) -> None:
+        """A regra do tecto e a da revisao, escrita do mesmo modo.
+
+        Nao se compara texto com texto — a `0007` usa `p_chave` e nomes de
+        variaveis —, compara-se **a regra**: `min` sobre `limites ->> chave`,
+        nos entitlements `ativo` do tenant.
+        """
+        revisao = REVISAO.read_text(encoding="utf-8")
+        self.assertIn("min((e.limites ->> p_chave)::bigint)", revisao)
+        self.assertIn("min((limites ->> %s)::bigint)", SQL_TECTO)
+        self.assertIn("platform.entitlements", SQL_TECTO)
+        self.assertIn("AND ativo", SQL_TECTO)
+        # E nao escreve: nem `INSERT`, nem `UPDATE`, nem `ten_consumir`.
+        for proibido in ("INSERT", "UPDATE", "DELETE", "ten_consumir", "tenant_usage"):
+            with self.subTest(proibido=proibido):
+                self.assertNotIn(proibido, SQL_TECTO)
 
     @staticmethod
     def _so_codigo_py(fonte: str) -> str:
@@ -1147,22 +1751,120 @@ class TestParidadeDoTypeScript(unittest.TestCase):
             self.assertIn("TTL", fonte)
 
     def test_a_ordem_do_middleware_e_a_do_hook(self) -> None:
-        """Entitlement primeiro, consumo depois: nos dois lados.
+        """Entitlement, depois tecto, depois consumo: nos dois lados.
 
-        Consumir primeiro gastava o tecto de quem nem sequer podia entrar.
+        Consumir primeiro gastava o tecto de quem nem sequer podia entrar, e
+        consumir antes de verificar o tecto por pedido gastava o balde do mes
+        a descobrir que o pedido nunca ia passar.
         """
         hook = (
             RAIZ / "libs" / "py-core" / "src" / "kamba_core" / "ten" / "hook.py"
         ).read_text(encoding="utf-8")
         for nome, fonte, chamadas in (
-            ("ts", self.middleware, ("checkEntitlement(", "consumeLimit(")),
-            ("py", hook, ("check_entitlement(", "consume_limit(")),
+            ("ts", self.middleware, ("checkEntitlement(", "checkCeiling(", "consumeLimit(")),
+            ("py", hook, ("check_entitlement(", "check_ceiling(", "consume_limit(")),
         ):
             with self.subTest(lado=nome):
                 codigo = fonte.split('"""')[-1] if nome == "py" else fonte
-                primeira = codigo.index(chamadas[0])
-                segunda = codigo.index(chamadas[1])
-                self.assertLess(primeira, segunda)
+                posicoes = [codigo.index(chamada) for chamada in chamadas]
+                self.assertEqual(posicoes, sorted(posicoes), chamadas)
+
+    def test_a_tabela_de_chaves_e_a_mesma_dos_dois_lados(self) -> None:
+        """A especie de cada chave, confrontada caracter a caracter.
+
+        Do lado Python e do lado TypeScript a tabela e escrita por extenso, e
+        cada uma e confrontada com o registo pelo seu teste. Esta e a terceira
+        aresta do triangulo: as duas tabelas tambem tem de ser a mesma.
+        """
+        corpo = re.search(
+            r"export const CHAVES_DE_LIMITE: [^=]+= \{(.*?)^\};",
+            self.entitlements,
+            re.S | re.M,
+        )
+        self.assertIsNotNone(corpo)
+        do_ts = {
+            nome: (categoria, consumivel == "true")
+            for nome, categoria, consumivel in re.findall(
+                r"nome: \"(\w+)\",\s*categoria: CATEGORIA_(\w+),\s*consumivel: (true|false)",
+                corpo.group(1),
+            )
+        }
+        nosso = {
+            chave.nome: (chave.categoria.upper(), chave.consumivel)
+            for chave in CHAVES_DE_LIMITE.values()
+        }
+        # Do lado TypeScript a categoria e a **constante**, e e assim que se
+        # apanha um valor literal escrito a mao num dos lados.
+        self.assertEqual(
+            {nome: (categoria, consumivel) for nome, (categoria, consumivel) in do_ts.items()},
+            {
+                nome: (categoria.replace("CONTADOR_POR_PERIODO", "CONTADOR"), consumivel)
+                for nome, (categoria, consumivel) in nosso.items()
+            },
+        )
+
+    def test_as_tres_categorias_tem_o_mesmo_valor_dos_dois_lados(self) -> None:
+        for nome, nosso in (
+            ("CATEGORIA_CONTADOR", CATEGORIA_CONTADOR),
+            ("CATEGORIA_TECTO_POR_PEDIDO", CATEGORIA_TECTO_POR_PEDIDO),
+            ("CATEGORIA_TECTO_POR_JANELA", CATEGORIA_TECTO_POR_JANELA),
+        ):
+            with self.subTest(categoria=nome):
+                self.assertEqual(
+                    self._const_do_typescript(self.entitlements, nome), nosso
+                )
+
+    def test_o_sqlstate_do_conflito_e_o_mesmo_dos_dois_lados(self) -> None:
+        self.assertEqual(
+            self._const_do_typescript(
+                self.entitlements, "SQLSTATE_CONFLITO_DE_IDEMPOTENCIA"
+            ),
+            SQLSTATE_CONFLITO_DE_IDEMPOTENCIA,
+        )
+
+    def test_o_estado_http_do_tecto_e_o_mesmo_dos_dois_lados(self) -> None:
+        """`403` e nao `429`: um tecto por pedido nao reabre no mes seguinte."""
+        self.assertEqual(
+            self._numero_do_typescript(self.entitlements, "HTTP_TECTO"), HTTP_TECTO
+        )
+        self.assertEqual(HTTP_TECTO, 403)
+        self.assertNotEqual(HTTP_TECTO, HTTP_LIMITE)
+
+    def test_a_derivacao_tem_os_mesmos_componentes_dos_dois_lados(self) -> None:
+        """O mesmo prefixo, a mesma ordem e o mesmo separador.
+
+        O digest nao se pode comparar entre linguagens sem correr as duas; o
+        que se compara e a **forma**: os dois ficheiros derivam com
+        `ten.v1`, tenant, modulo, chave e a do cliente, por essa ordem, e o
+        vector fixo do `TestDerivacaoDaChaveDeIdempotencia` esta escrito
+        tambem no teste do TypeScript.
+        """
+        hook = (
+            RAIZ / "libs" / "py-core" / "src" / "kamba_core" / "ten" / "hook.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            '"ten.v1", normalizar_tenant(tenant), modulo, chave, idempotency_key', hook
+        )
+        self.assertIn('"ten.v1",', self.middleware)
+        for fonte in (self.middleware, hook):
+            # A quantidade **nao** entra na derivacao: e a impressao digital
+            # do `KA002`, e po-la aqui desarmava-o.
+            derivacao = re.search(
+                r"deriva\w*ChaveDeIdempotencia\((.*?)\);|derivar_chave_de_idempotencia\((.*?)\)",
+                fonte,
+                re.S,
+            )
+            self.assertIsNotNone(derivacao)
+            argumentos = derivacao.group(1) or derivacao.group(2)
+            self.assertNotIn("quantidade", argumentos)
+            self.assertNotIn("quantidade", argumentos.lower())
+
+    def test_o_mesmo_vector_de_derivacao_esta_nos_dois_testes(self) -> None:
+        """Um digest igual dos dois lados, sem correr os dois interpretes."""
+        teste_ts = (RAIZ / "packages" / "core-ts" / "tests" / "ten.test.ts").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(TestDerivacaoDaChaveDeIdempotencia.VECTOR, teste_ts)
 
 
 if __name__ == "__main__":  # pragma: no cover

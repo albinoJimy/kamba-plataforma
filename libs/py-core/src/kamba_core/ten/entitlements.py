@@ -1,17 +1,38 @@
 """TEN — entitlements e consumo de limites (KAM-009, criterios 2 a 5 e 7).
 
-Espelho de `packages/core-ts/src/ten/entitlements.ts`. Duas perguntas, e
-nenhuma das duas se responde aqui dentro:
+Espelho de `packages/core-ts/src/ten/entitlements.ts`. **Tres** perguntas, e
+nenhuma das tres se responde aqui dentro:
 
     check_entitlement(bd, tenant, modulo)          pode usar o modulo?
     consume_limit(bd, tenant, chave, n, chave_id)  cabe mais n nesta chave?
+    check_ceiling(bd, tenant, chave, valor)        este valor cabe no tecto?
 
 A primeira responde-se com o `SQL_ENTITLEMENT`, cuja coluna `permitido` ja e a
 conjuncao do criterio 2 escrita em SQL. A segunda responde-se com
-`platform.ten_consumir`, da revisao `0007`. **Nenhuma linha deste ficheiro
-soma, subtrai ou compara um limite**: o bloco do ticket pede «o Python chama a
-mesma regra SQL», e duas implementacoes da mesma aritmetica de limites
-divergem — foi o que a `0002` ja escreveu sobre a RLS.
+`platform.ten_consumir`, da revisao `0007`. A terceira com o `SQL_TECTO`, que
+le o mesmo minimo que a `ten_consumir` leria e **nao escreve nada**.
+**Nenhuma linha deste ficheiro soma, subtrai ou compara um limite**: o bloco
+do ticket pede «o Python chama a mesma regra SQL», e duas implementacoes da
+mesma aritmetica de limites divergem — foi o que a `0002` ja escreveu sobre a
+RLS.
+
+## As duas perguntas nao sao a mesma, e a diferenca esta no registo
+
+As dez chaves de `registry/entitlement_keys.schema.json` nao sao todas da
+mesma especie, e o registo di-lo em `x-kamba-consumivel`:
+
+* **baldes por periodo** (`msgs_ai_mes`, `marcacoes_mes`, …) acumulam-se e
+  consomem-se — `consume_limit`;
+* **tectos por pedido** (`valor_max_pedido_minor`, `manual_max_minor`, …) nao
+  acumulam: compara-se **um** valor com o tecto — `check_ceiling`.
+
+Trocar as duas nao e um pormenor: consumir um tecto por pedido cria linha em
+`platform.tenant_usage` e, com o plano `free`, o primeiro pedido de 50 000 Kz
+gasta o tecto inteiro. Por isso a especie e **um facto do registo** e nao uma
+convencao: `CHAVES_DE_LIMITE` tem-na por extenso, um teste confronta-a com o
+ficheiro do registo, e cada uma das duas funcoes **levanta** se lhe derem uma
+chave da outra especie. Um erro de programacao nao se resolve em tempo de
+execucao escolhendo o outro caminho.
 
 ## Atomico e idempotente porque a funcao o e
 
@@ -56,6 +77,7 @@ transaccao e de outro tenant — que este modulo le como negado.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import threading
 import time
@@ -64,7 +86,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from ..tenant_guard import normalizar_tenant
-from .consultas import SQL_CONSUMIR, SQL_ENTITLEMENT, SQL_PERIODO
+from .consultas import SQL_CONSUMIR, SQL_ENTITLEMENT, SQL_PERIODO, SQL_TECTO
 from .metricas import (
     METRICA_ENTITLEMENT_NEGADO,
     METRICA_LIMITE_NEGADO,
@@ -94,9 +116,90 @@ CODIGO_LIMITE = "LIMIT_EXCEEDED"
 HTTP_ENTITLEMENT = 403
 #: Estado HTTP de cada recusa. **Proposta**: o §6.5 nao associa nenhum.
 HTTP_LIMITE = 429
+#: Um tecto **por pedido** que nao chega. `403` e nao `429`, e tem razao.
+#:
+#: Um `429` diz «tente mais tarde», e um balde mensal reabre mesmo — no
+#: primeiro dia do mes seguinte. Um tecto por pedido nao reabre nunca: o mesmo
+#: pedido, com o mesmo valor, sera recusado em Janeiro como foi em Dezembro, e
+#: convidar a repeti-lo era mentir ao cliente e fazer-lhe gastar tentativas. O
+#: **codigo** continua a ser `LIMIT_EXCEEDED`, porque e um limite e porque
+#: acrescentar um quarto nome ao vocabulario do `02` §6.5 e decisao de quem o
+#: detem; muda o estado, que nenhum documento fixa. **Proposta**, como os
+#: outros dois.
+HTTP_TECTO = 403
 
 #: A gramatica de um modulo e de uma chave de limite (`CHECK` da `0001`/`0007`).
 NOME_CANONICO = re.compile(r"^[a-z][a-z0-9_]{1,62}$")
+
+#: O `SQLSTATE` que a `0007` levanta quando a mesma `(tenant, chave_limite,
+#: idempotency_key)` volta com uma **quantidade diferente** da registada.
+#:
+#: Nao e uma recusa de limite: e um conflito do pedido. Quem repete uma chave
+#: com outra quantidade ou mudou o corpo entre tentativas ou esta a reutilizar
+#: a chave para outra coisa, e as duas sao defeitos de quem chama. Mapeia-se
+#: para `ConflitoDeIdempotencia` e **nao** para o caminho do `429`.
+SQLSTATE_CONFLITO_DE_IDEMPOTENCIA = "KA002"
+
+#: As tres especies de chave do `registry/entitlement_keys.schema.json`.
+CATEGORIA_CONTADOR = "contador_por_periodo"
+CATEGORIA_TECTO_POR_PEDIDO = "tecto_por_pedido"
+CATEGORIA_TECTO_POR_JANELA = "tecto_por_janela"
+
+
+@dataclass(frozen=True)
+class ChaveDeLimite:
+    """A especie de uma chave de limite, **lida do registo**."""
+
+    nome: str
+    #: `contador_por_periodo`, `tecto_por_pedido` ou `tecto_por_janela`.
+    categoria: str
+    #: O `x-kamba-consumivel` do registo. `True` so para os contadores.
+    consumivel: bool
+
+
+#: As dez chaves do registo, com a especie de cada uma.
+#:
+#: ## Porque e que isto existe
+#:
+#: O registo ja dizia, em `x-kamba-consumivel`, quais das dez chaves se
+#: consomem — e **nada lia esse campo**. A consequencia media-se: nada impedia
+#: `consume_limit(tenant, "valor_max_pedido_minor", 5_000_000, ...)`, que cria
+#: linha em `platform.tenant_usage` para um tecto que nao tem contador e, com o
+#: plano `free`, gasta o tecto inteiro no primeiro pedido de 50 000 Kz. Um
+#: tecto por pedido pergunta «este valor cabe?»; um balde pergunta «quanto ja
+#: gastei». Sao duas perguntas, e so uma delas escreve.
+#:
+#: ## Porque e que e uma tabela aqui e nao uma leitura do ficheiro
+#:
+#: Nem este pacote nem o `@kamba/core-ts` fazem IO: nao abrem ficheiros, nao
+#: importam controladores, e o `pyproject.toml` tem `dependencies = []` de
+#: proposito. Uma biblioteca que fosse ler `registry/*.json` em tempo de
+#: execucao passava a depender da arvore do repositorio estar montada ao lado
+#: do processo — e os dois pacotes publicam-se sem ela.
+#:
+#: O que mantem esta tabela honesta nao e uma promessa: e
+#: `TestRegistoDeChaves`, que **le** o `registry/entitlement_keys.schema.json`
+#: e confronta chave a chave o nome, a categoria e o `x-kamba-consumivel`. Uma
+#: chave acrescentada ao registo e nao acrescentada aqui faz o teste cair, e
+#: vice-versa. E o mesmo padrao da matriz do §7.2 e do SQL: escrito por
+#: extenso, confrontado por uma maquina.
+CHAVES_DE_LIMITE: Mapping[str, ChaveDeLimite] = {
+    chave.nome: chave
+    for chave in (
+        ChaveDeLimite("msgs_ai_mes", CATEGORIA_CONTADOR, True),
+        ChaveDeLimite("marcacoes_mes", CATEGORIA_CONTADOR, True),
+        ChaveDeLimite("imagens_mes", CATEGORIA_CONTADOR, True),
+        ChaveDeLimite("posts_mes", CATEGORIA_CONTADOR, True),
+        ChaveDeLimite("orcamentos_mes", CATEGORIA_CONTADOR, True),
+        ChaveDeLimite("valor_max_pedido_minor", CATEGORIA_TECTO_POR_PEDIDO, False),
+        ChaveDeLimite("manual_max_minor", CATEGORIA_TECTO_POR_PEDIDO, False),
+        ChaveDeLimite("manual_dupla_acima_minor", CATEGORIA_TECTO_POR_PEDIDO, False),
+        ChaveDeLimite("manual_daily_max_minor", CATEGORIA_TECTO_POR_JANELA, False),
+        ChaveDeLimite(
+            "manual_max_por_contacto_24h", CATEGORIA_TECTO_POR_JANELA, False
+        ),
+    )
+}
 
 #: TTL da cache, em milissegundos. **Proposta**: o criterio 6 pede «<= 60 s».
 TTL_POR_OMISSAO_MS = 60_000
@@ -147,6 +250,30 @@ class RespostaIlegivel(RuntimeError):
     """A base devolveu uma coluna com uma forma que nao se consegue ler."""
 
 
+class ChaveDesconhecida(ValueError):
+    """A chave nao esta no `registry/entitlement_keys.schema.json`."""
+
+
+class ChaveDeEspecieErrada(ValueError):
+    """Pediu-se a uma chave a pergunta da outra especie.
+
+    Consumir um tecto por pedido, ou perguntar «cabe?» a um balde mensal. Nao
+    se resolve em tempo de execucao escolhendo o outro caminho: quem escreveu
+    a chamada acreditava numa coisa que nao e verdade, e a chamada seguinte
+    acreditaria na mesma.
+    """
+
+
+class ConflitoDeIdempotencia(RuntimeError):
+    """A mesma chave de idempotencia voltou com **outra** quantidade.
+
+    E o `SQLSTATE` `KA002` da revisao `0007`, traduzido. Nao e um `429`: o
+    limite pode ate ter espaco de sobra. E um conflito do pedido — dois corpos
+    diferentes com a mesma chave —, e quem o recebe corrige a chamada em vez
+    de esperar pelo mes seguinte.
+    """
+
+
 def exigir_nome(campo: str, valor: object) -> str:
     if not isinstance(valor, str) or not NOME_CANONICO.match(valor):
         raise NomeInvalido(
@@ -154,6 +281,140 @@ def exigir_nome(campo: str, valor: object) -> str:
             f"{type(valor).__name__} com {len(str(valor))} caracteres)"
         )
     return valor
+
+
+def especie_da_chave(chave: object) -> ChaveDeLimite:
+    """A especie de uma chave de limite, ou `ChaveDesconhecida`.
+
+    Uma chave que nao esta no registo nao se trata como a mais parecida nem se
+    deixa passar «porque casa a gramatica»: o registo tem
+    `additionalProperties: false`, logo uma chave fora dele nunca podera estar
+    em `entitlements.limites` — e um consumo contra ela criava linha de uso
+    para um tecto que nao pode existir. Falha fechada, e com o erro no sitio
+    onde se escreveu o nome.
+    """
+    nome = exigir_nome("chave", chave)
+    especie = CHAVES_DE_LIMITE.get(nome)
+    if especie is None:
+        raise ChaveDesconhecida(
+            f"a chave {nome!r} nao esta no registo de chaves de limite "
+            "(`registry/entitlement_keys.schema.json`, dez chaves). O registo "
+            "recusa chaves desconhecidas na escrita; esta recusa-as na leitura."
+        )
+    return especie
+
+
+def exigir_consumivel(chave: object) -> str:
+    """A chave tem de ser um balde por periodo. Senao, levanta."""
+    especie = especie_da_chave(chave)
+    if not especie.consumivel:
+        raise ChaveDeEspecieErrada(
+            f"{especie.nome} e {especie.categoria} e **nao** se consome: o "
+            "registo marca-a `x-kamba-consumivel: false`. Consumi-la criava "
+            "linha em `platform.tenant_usage` e gastava num pedido um tecto "
+            "que e por pedido. A pergunta certa e `check_ceiling`."
+        )
+    return especie.nome
+
+
+def exigir_tecto(chave: object) -> str:
+    """A chave tem de ser um tecto por pedido. Senao, levanta.
+
+    `tecto_por_janela` tambem levanta, e nao por descuido: a pergunta dessas
+    duas chaves e «a soma (ou a contagem) da janela mais este valor cabe?», e
+    o agregado da janela **nao esta em `platform.tenant_usage`** — a chave
+    dessa tabela e `(tenant_id, chave_limite, periodo)` com `periodo` mensal
+    por `CHECK`, sem dimensao de contacto e sem janela movel. Calcula-se de
+    `manual_confirmations` (`docs/tecnica/04` §4.2 M-6), que este ticket nao
+    constroi. Comparar um valor solto com um tecto diario daria «cabe» a cada
+    pedido ate ao fim do dia: e a mesma classe de defeito que o
+    `x-kamba-consumivel` existe para fechar, e por isso recusa-se em vez de se
+    inventar um caminho.
+    """
+    especie = especie_da_chave(chave)
+    if especie.categoria == CATEGORIA_TECTO_POR_PEDIDO:
+        return especie.nome
+    if especie.categoria == CATEGORIA_TECTO_POR_JANELA:
+        raise ChaveDeEspecieErrada(
+            f"{especie.nome} e {especie.categoria}: o tecto compara-se com o "
+            "agregado da janela, que vive em `manual_confirmations` "
+            "(`docs/tecnica/04` §4.2 M-6) e nao em `platform.tenant_usage`. "
+            "Nao ha caminho de aplicacao para esta chave no KAM-009."
+        )
+    raise ChaveDeEspecieErrada(
+        f"{especie.nome} e {especie.categoria}: acumula-se dentro do periodo e "
+        "a pergunta e «quanto ja gastei», nao «este valor cabe». A pergunta "
+        "certa e `consume_limit`, que chama `platform.ten_consumir`."
+    )
+
+
+def sqlstate_de(erro: BaseException) -> str | None:
+    """O `SQLSTATE` de um erro de controlador, se o conseguir ler.
+
+    Cada controlador o guarda a sua maneira — `sqlstate` no `psycopg`, `code`
+    no `pg`, e o `pg8000` entrega o dicionario de campos do servidor, em que o
+    `SQLSTATE` e o `C`. Este pacote **nao importa controlador nenhum**
+    (`dependencies = []`), logo nao pode apanhar a classe de excepcao de cada
+    um: le os sitios conhecidos e, se nao reconhecer nada, devolve `None` e o
+    erro original sobe inalterado. Reconhecer de menos relanca o erro certo;
+    inventar um `SQLSTATE` era que seria grave.
+    """
+    for atributo in ("sqlstate", "pgcode", "code"):
+        valor = getattr(erro, atributo, None)
+        if isinstance(valor, str) and re.match(r"^[0-9A-Z]{5}$", valor):
+            return valor
+    for argumento in getattr(erro, "args", ()):
+        if isinstance(argumento, Mapping):
+            for campo in ("C", "sqlstate", "code"):
+                valor = argumento.get(campo)
+                if isinstance(valor, str) and re.match(r"^[0-9A-Z]{5}$", valor):
+                    return valor
+    return None
+
+
+def derivar_chave_de_idempotencia(*componentes: object) -> str:
+    """A chave efectiva: `sha256` dos componentes, separados por `\\0`.
+
+    ## Porque e que a do cliente nao pode ser a chave inteira
+
+    A chave de idempotencia decide o **ambito da desduplicacao**, e esse ambito
+    e do servidor. Tomada tal como vem do cabecalho `Idempotency-Key`, quem
+    escolhe o ambito e quem manda o cabecalho — e e o cliente que ganha o
+    direito de dizer que dois pedidos diferentes sao o mesmo. Aqui o que o
+    cliente manda entra como **um** componente, atras do tenant, do modulo e
+    da chave de limite, que vem todos do contexto do servidor: duas chamadas
+    de modulos diferentes com o mesmo cabecalho deixam de ser a mesma chave, e
+    um cliente deixa de poder construir a chave de outro.
+
+    ## A quantidade **nao** entra, e isso e deliberado
+
+    Parece o contrario do que se quer, e nao e. A revisao `0007` levanta
+    `KA002` quando a mesma `(tenant, chave_limite, idempotency_key)` volta com
+    uma quantidade diferente: e a impressao digital que apanha o cliente que
+    repete uma chave com outro corpo. Pondo a quantidade **dentro** da chave,
+    o mesmo cabecalho com outra quantidade passava a ser outra chave — um
+    consumo novo, aceite em silencio — e o `KA002` nunca disparava para quem
+    usa esta derivacao. Dos dois mecanismos so um **denuncia** o defeito; esse
+    fica, e a quantidade fica de fora para o deixar trabalhar.
+
+    O separador e `\\0`, que nem um UUID nem um nome canonico podem conter — o
+    mesmo argumento da chave da cache.
+    """
+    partes: list[str] = []
+    for componente in componentes:
+        if not isinstance(componente, str) or componente.strip() == "":
+            raise ChaveDeIdempotenciaInvalida(
+                "cada componente da chave derivada tem de ser texto nao vazio "
+                f"(veio {type(componente).__name__}). A mensagem nao repete o "
+                "valor."
+            )
+        partes.append(componente)
+    if not partes:
+        raise ChaveDeIdempotenciaInvalida(
+            "uma chave derivada de zero componentes era a mesma chave para "
+            "toda a gente."
+        )
+    return hashlib.sha256("\0".join(partes).encode("utf-8")).hexdigest()
 
 
 def inteiro(coluna: str, valor: object) -> int:
@@ -468,13 +729,21 @@ def consume_limit(
     `2026-12-01T00:00:00+01:00` para Dezembro. Quem decide isso e
     `platform.ten_periodo`, em `Africa/Luanda`; aqui so se passa o instante.
 
+    **So consome chaves consumiveis.** `exigir_consumivel` levanta para um
+    tecto por pedido ou por janela, antes de tocar na base: o registo diz a
+    especie de cada chave e esta funcao e so a dos baldes. Era por aqui que
+    `valor_max_pedido_minor` entrava e gastava o tecto do mes num pedido.
+
     Conta `ten_limit_denied_total{key}` quando o tecto recusa. Uma recusa por
     **falta** de entitlement conta em `ten_entitlement_denied_total{modulo}`
     apenas se quem chama passar o `modulo`: a funcao SQL nao o sabe, porque o
     tecto e o minimo entre os modulos que declaram a chave.
+
+    Um `KA002` da `0007` — a mesma chave de idempotencia com outra quantidade
+    — sobe como `ConflitoDeIdempotencia`, e nao como recusa de limite.
     """
     canonico = normalizar_tenant(tenant)
-    nome = exigir_nome("chave", chave)
+    nome = exigir_consumivel(chave)
     if (
         not isinstance(quantidade, int)
         or isinstance(quantidade, bool)
@@ -499,10 +768,20 @@ def consume_limit(
         )
     contador = METRICAS if metricas is None else metricas
 
-    resultado = bd.executar(
-        SQL_CONSUMIR,
-        (canonico, nome, quantidade, idempotency_key, limite, agora),
-    )
+    try:
+        resultado = bd.executar(
+            SQL_CONSUMIR,
+            (canonico, nome, quantidade, idempotency_key, limite, agora),
+        )
+    except Exception as erro:  # noqa: BLE001 — relanca o que nao reconhecer
+        if sqlstate_de(erro) == SQLSTATE_CONFLITO_DE_IDEMPOTENCIA:
+            raise ConflitoDeIdempotencia(
+                "a mesma chave de idempotencia ja foi usada nesta chave de "
+                "limite com outra quantidade (`KA002`, revisao `0007`). Nao e "
+                "o tecto: e o mesmo pedido a dizer duas coisas. A mensagem nao "
+                "repete a chave nem a quantidade."
+            ) from erro
+        raise
     linhas = list(resultado.linhas)
     if not linhas:
         # `ten_consumir` devolve sempre uma linha. Zero linhas significa que a
@@ -534,6 +813,99 @@ def consume_limit(
     elif motivo == "sem_entitlement" and modulo is not None:
         contador.contar(METRICA_ENTITLEMENT_NEGADO, exigir_nome("modulo", modulo))
     return consumo
+
+
+@dataclass(frozen=True)
+class Tecto:
+    """O desfecho de um `check_ceiling`. **Nada disto escreveu nada.**"""
+
+    #: A chave de limite perguntada.
+    chave: str
+    #: O valor cabe no tecto?
+    cabe: bool
+    #: O valor que se perguntou, tal como veio.
+    valor: int
+    #: O tecto efectivo, o minimo entre os modulos activos que declaram a
+    #: chave. **`None` quando nenhum a declara** — e `None` nega.
+    tecto: int | None
+    #: `None` quando cabe. Senao, `sem_entitlement` ou `tecto_excedido`.
+    motivo: str | None
+
+
+def check_ceiling(
+    bd: ClienteSql,
+    tenant: object,
+    chave: object,
+    valor: object,
+    *,
+    modulo: str | None = None,
+    metricas: Metricas | None = None,
+) -> Tecto:
+    """«Este valor cabe no tecto?» — **sem escrever nada** (criterio 2).
+
+    A outra pergunta do TEN, e a que faltava. Um tecto por pedido
+    (`valor_max_pedido_minor`, `manual_max_minor`,
+    `manual_dupla_acima_minor`) nao tem contador e nao tem periodo: compara-se
+    o valor de **um** pedido com o tecto, e o pedido passa ou nao passa. Nao ha
+    linha em `platform.tenant_usage`, nao ha `usage_ledger`, nao ha chave de
+    idempotencia — nao ha nada para repetir, porque nada mudou.
+
+    **O tecto e o mesmo que a `ten_consumir` usaria**: o minimo entre os
+    entitlements activos do tenant que declaram a chave, calculado no
+    `SQL_TECTO` com o mesmo `min(...)` da `0007`. Nao ha aqui um minimo em
+    Python.
+
+    **Sem linha activa que declare a chave, nega** — falha fechada, criterio
+    2, e exactamente como a `0007` faz com `limite = NULL`: «sem tecto» nao
+    quer dizer «sem limite». A RLS poe o mesmo a acontecer quando o contexto
+    da transaccao e de outro tenant, e zero linhas le-se como negado e nao
+    como «nao sei».
+
+    **So serve tectos por pedido.** Um balde (`msgs_ai_mes`) levanta: a
+    pergunta dele e «quanto ja gastei», e responde-se com `consume_limit`. As
+    duas chaves de janela tambem levantam — ver `exigir_tecto`.
+
+    `manual_dupla_acima_minor` e o unico caso em que `cabe = False` **nao e
+    uma recusa**: o registo escreve-o por extenso («o unico tecto por pedido
+    cuja comparacao NAO nega»), e acima do limiar o pedido exige o segundo
+    confirmador (`docs/tecnica/04` §4.2 M-5). A comparacao e a mesma; o que
+    quem chama faz com ela e que nao e. Esta funcao devolve o facto.
+
+    Conta `ten_limit_denied_total{key}` quando o tecto nao chega, pela mesma
+    razao que o consumo o faz: o painel mostra acessos negados.
+    """
+    canonico = normalizar_tenant(tenant)
+    nome = exigir_tecto(chave)
+    if not isinstance(valor, int) or isinstance(valor, bool) or valor < 0:
+        raise QuantidadeInvalida(
+            f"o valor a comparar com o tecto tem de ser um inteiro >= 0, veio "
+            f"{valor!r}. Zero e legitimo (um pedido de zero cabe em qualquer "
+            "tecto); negativo nao e um valor de pedido."
+        )
+    contador = METRICAS if metricas is None else metricas
+
+    resultado = bd.executar(SQL_TECTO, (canonico, nome))
+    linhas = list(resultado.linhas)
+    # O `SQL_TECTO` e um agregado sem `GROUP BY`: devolve **sempre** uma
+    # linha, e o `min` de um conjunto vazio vem `NULL`. Zero linhas quer dizer
+    # que a chamada nao chegou a base — e a leitura fechada disso e a mesma do
+    # `SQL_ENTITLEMENT`: nega-se. Ao contrario do consumo, aqui nao ha nada
+    # escrito por saber, logo negar chega e nao ha que levantar.
+    bruto = linhas[0].get("tecto") if linhas else None
+    tecto = None if bruto is None else inteiro("tecto", bruto)
+
+    if tecto is None:
+        if modulo is not None:
+            contador.contar(METRICA_ENTITLEMENT_NEGADO, exigir_nome("modulo", modulo))
+        return Tecto(
+            chave=nome, cabe=False, valor=valor, tecto=None, motivo="sem_entitlement"
+        )
+    if valor <= tecto:
+        return Tecto(chave=nome, cabe=True, valor=valor, tecto=tecto, motivo=None)
+    contador.contar(METRICA_LIMITE_NEGADO, nome)
+    return Tecto(
+        chave=nome, cabe=False, valor=valor, tecto=tecto, motivo="tecto_excedido"
+    )
 
 
 def periodo(bd: ClienteSql, agora: object | None = None) -> object:

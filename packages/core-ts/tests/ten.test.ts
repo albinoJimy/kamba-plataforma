@@ -27,12 +27,19 @@ import { beforeEach, describe, it } from "node:test";
 import {
   ACCOES,
   CABECALHO_DE_IDEMPOTENCIA,
+  CATEGORIA_CONTADOR,
+  CATEGORIA_TECTO_POR_JANELA,
+  CATEGORIA_TECTO_POR_PEDIDO,
+  CHAVES_DE_LIMITE,
   CODIGO_ENTITLEMENT_HTTP,
   CODIGO_ENTITLEMENT_TOOL,
   CODIGO_LIMITE,
   CacheDeEntitlements,
+  ChaveDeEspecieErradaError,
   ChaveDeIdempotenciaInvalidaError,
+  ChaveDesconhecidaError,
   type ClienteSql,
+  ConflitoDeIdempotenciaError,
   ESTADOS_DO_CANAL,
   ESTADOS_DO_TENANT,
   EstadoDesconhecidoError,
@@ -40,6 +47,7 @@ import {
   EtiquetaInvalidaError,
   HTTP_ENTITLEMENT,
   HTTP_LIMITE,
+  HTTP_TECTO,
   MAXIMO_DE_SERIES,
   METRICA_ENTITLEMENT_NEGADO,
   METRICA_LIMITE_NEGADO,
@@ -53,14 +61,21 @@ import {
   REGIME_DO_CANAL,
   REGIME_DO_TENANT,
   RespostaIlegivelError,
+  SQLSTATE_CONFLITO_DE_IDEMPOTENCIA,
   SQL_CONSUMIR,
   SQL_ENTITLEMENT,
   SQL_PERIODO,
+  SQL_TECTO,
   TTL_POR_OMISSAO_MS,
   agoraMs,
+  checkCeiling,
   checkEntitlement,
   consumeLimit,
+  derivarChaveDeIdempotencia,
+  especieDaChave,
+  exigirConsumivel,
   exigirNome,
+  exigirTecto,
   guardaHttp,
   inteiro,
   maisRestritivo,
@@ -520,6 +535,21 @@ describe("periodo — pergunta-se a base, nao se calcula", () => {
     assert.deepEqual(bd.chamadas[0]?.parametros, [null]);
   });
 
+  it("sem instante corre o **mesmo** SQL, e o `coalesce` trata do `null`", async () => {
+    // M3: era aqui que os dois lados divergiam. Sem `coalesce`, a funcao
+    // recebia `NULL` e devolvia `NULL` — e um `null` em `rows[0].periodo`
+    // levantava `RespostaIlegivelError` deste lado enquanto o Python
+    // devolvia `None` em silencio. O `null` continua a ir; o que mudou e que
+    // o SQL o converte em `now()` antes de chamar a funcao.
+    const com = new BaseFalsa().responder([{ periodo: "2026-11-01" }]);
+    await periodo(com, new Date("2026-11-30T22:59:59.000Z"));
+    const sem = new BaseFalsa().responder([{ periodo: "2026-12-01" }]);
+    await periodo(sem);
+    assert.equal(com.chamadas[0]?.sql, sem.chamadas[0]?.sql);
+    assert.equal(com.chamadas[0]?.sql, SQL_PERIODO);
+    assert.match(SQL_PERIODO, /coalesce\(\$1, now\(\)\)/);
+  });
+
   it("uma resposta que nao e data levanta", async () => {
     const bd = new BaseFalsa().responder([{ periodo: 7 }]);
     await assert.rejects(() => periodo(bd), RespostaIlegivelError);
@@ -530,23 +560,52 @@ describe("o SQL — a regra vive na `0007`, e nao aqui", () => {
   const fonte = readFileSync(new URL("../src/ten/consultas.ts", import.meta.url), "utf8");
 
   it("chama as duas funcoes da revisao `0007` pelo nome", () => {
-    assert.match(SQL_PERIODO, /platform\.ten_periodo\(\$1\)/);
+    assert.match(SQL_PERIODO, /platform\.ten_periodo\(coalesce\(\$1, now\(\)\)\)/);
     assert.match(SQL_CONSUMIR, /platform\.ten_consumir\(\$1, \$2, \$3, \$4, \$5,/);
   });
 
+  it("os dois `coalesce` existem, e pela mesma razao", () => {
+    // Era o M3: o `SQL_PERIODO` nao o tinha, `periodo()` sem instante mandava
+    // `NULL` a funcao, e os dois lados tratavam o `NULL` de volta de maneira
+    // diferente — `None` em silencio no Python, uma excepcao aqui.
+    for (const sql of [SQL_PERIODO, SQL_CONSUMIR]) {
+      assert.match(sql, /coalesce\(\$\d+, now\(\)\)/);
+    }
+    assert.match(fonte, /posicional/);
+  });
+
   it("os marcadores aparecem por ordem ascendente — o espelho e posicional", () => {
-    for (const sql of [SQL_PERIODO, SQL_ENTITLEMENT, SQL_CONSUMIR]) {
+    for (const sql of [SQL_PERIODO, SQL_ENTITLEMENT, SQL_CONSUMIR, SQL_TECTO]) {
       const ordem = [...sql.matchAll(/\$(\d+)/g)].map((m) => Number(m[1]));
       assert.deepEqual(ordem, [...ordem].sort((a, b) => a - b), sql);
     }
   });
 
-  it("nenhuma consulta soma, subtrai ou compara um limite", () => {
-    for (const sql of [SQL_PERIODO, SQL_ENTITLEMENT, SQL_CONSUMIR]) {
+  it("cada marcador aparece uma unica vez — a DB-API e posicional", () => {
+    // Um `$2` repetido aqui vira dois `%s` do lado Python, e o espelho
+    // passaria a precisar de mais um argumento para dizer o mesmo.
+    for (const sql of [SQL_PERIODO, SQL_ENTITLEMENT, SQL_CONSUMIR, SQL_TECTO]) {
+      const marcadores = [...sql.matchAll(/\$(\d+)/g)].map((m) => m[1]);
+      assert.equal(new Set(marcadores).size, marcadores.length, sql);
+    }
+  });
+
+  it("nenhuma consulta soma, subtrai ou acumula um contador", () => {
+    for (const sql of [SQL_PERIODO, SQL_ENTITLEMENT, SQL_CONSUMIR, SQL_TECTO]) {
       assert.doesNotMatch(sql, /\bvalor\s*[+-]/);
       assert.doesNotMatch(sql, /date_trunc/);
       assert.doesNotMatch(sql, /Africa\/Luanda/);
     }
+  });
+
+  it("o `SQL_TECTO` le, e **nunca** escreve", () => {
+    for (const proibido of [/INSERT/, /UPDATE/, /DELETE/, /ten_consumir/, /tenant_usage/]) {
+      assert.doesNotMatch(SQL_TECTO, proibido);
+    }
+    // E e o mesmo minimo da `0007`: `min` sobre `limites ->> chave`, nos
+    // entitlements activos do tenant.
+    assert.match(SQL_TECTO, /min\(\(limites ->> \$2\)::bigint\)/);
+    assert.match(SQL_TECTO, /AND ativo/);
   });
 
   it("a lista dos tres estados que negam existe no SQL, e so la", () => {
@@ -563,6 +622,311 @@ describe("o SQL — a regra vive na `0007`, e nao aqui", () => {
 
   it("tudo parametrizado: nenhuma consulta interpola", () => {
     assert.doesNotMatch(fonte, /\$\{/);
+  });
+});
+
+describe("o registo de chaves — a especie e um facto, e nao uma convencao", () => {
+  // Le-se o registo **do ficheiro**: era o `x-kamba-consumivel` que nada lia.
+  const registo = JSON.parse(
+    readFileSync(
+      new URL("../../../registry/entitlement_keys.schema.json", import.meta.url),
+      "utf8",
+    ),
+  ) as {
+    properties: Record<string, { "x-kamba-categoria": string; "x-kamba-consumivel": boolean }>;
+    "x-kamba-categorias": Record<string, string>;
+  };
+
+  it("as dez chaves sao as mesmas do registo", () => {
+    const doRegisto = Object.keys(registo.properties).sort();
+    assert.equal(doRegisto.length, 10);
+    assert.deepEqual(Object.keys(CHAVES_DE_LIMITE).sort(), doRegisto);
+  });
+
+  it("a categoria e o `x-kamba-consumivel` vem do registo, chave a chave", () => {
+    for (const [nome, propriedade] of Object.entries(registo.properties)) {
+      const nossa = CHAVES_DE_LIMITE[nome];
+      assert.equal(nossa?.nome, nome);
+      assert.equal(nossa?.categoria, propriedade["x-kamba-categoria"], nome);
+      assert.equal(nossa?.consumivel, propriedade["x-kamba-consumivel"], nome);
+    }
+  });
+
+  it("as tres categorias sao as que o registo declara", () => {
+    assert.deepEqual(Object.keys(registo["x-kamba-categorias"]).sort(), [
+      CATEGORIA_CONTADOR,
+      CATEGORIA_TECTO_POR_JANELA,
+      CATEGORIA_TECTO_POR_PEDIDO,
+    ].sort());
+  });
+
+  it("so os contadores sao consumiveis — cinco, tres e dois", () => {
+    const contagem: Record<string, number> = {};
+    for (const chave of Object.values(CHAVES_DE_LIMITE)) {
+      assert.equal(chave.consumivel, chave.categoria === CATEGORIA_CONTADOR, chave.nome);
+      contagem[chave.categoria] = (contagem[chave.categoria] ?? 0) + 1;
+    }
+    assert.deepEqual(contagem, {
+      [CATEGORIA_CONTADOR]: 5,
+      [CATEGORIA_TECTO_POR_PEDIDO]: 3,
+      [CATEGORIA_TECTO_POR_JANELA]: 2,
+    });
+  });
+
+  it("uma chave fora do registo nao se adivinha", () => {
+    assert.throws(() => especieDaChave("msgs_ai_semana"), ChaveDesconhecidaError);
+    assert.throws(() => especieDaChave("Msgs-AI"), NomeInvalidoError);
+    // `constructor` e `tostring` casam a gramatica `^[a-z][a-z0-9_]{1,62}$` e
+    // estao no **prototipo** de qualquer objecto: sem `Object.hasOwn`, a
+    // consulta devolvia uma funcao e a chave passava por conhecida.
+    for (const herdada of ["constructor", "tostring", "valueof"]) {
+      assert.throws(() => especieDaChave(herdada), ChaveDesconhecidaError, herdada);
+    }
+  });
+});
+
+describe("a especie da chave — cada funcao recusa a pergunta da outra", () => {
+  it("consumir um tecto levanta, e **sem tocar na base**", async () => {
+    for (const chave of [
+      "valor_max_pedido_minor",
+      "manual_max_minor",
+      "manual_dupla_acima_minor",
+      "manual_daily_max_minor",
+      "manual_max_por_contacto_24h",
+    ]) {
+      const bd = new BaseFalsa().responder([linhaDeConsumo()]);
+      await assert.rejects(
+        () => consumeLimit(bd, A, chave, 1, "k"),
+        ChaveDeEspecieErradaError,
+        chave,
+      );
+      assert.equal(bd.chamadas.length, 0, chave);
+    }
+  });
+
+  it("perguntar «cabe?» a um balde levanta, e **sem tocar na base**", async () => {
+    for (const chave of ["msgs_ai_mes", "marcacoes_mes", "imagens_mes"]) {
+      const bd = new BaseFalsa().responder([{ tecto: "1" }]);
+      await assert.rejects(
+        () => checkCeiling(bd, A, chave, 1),
+        ChaveDeEspecieErradaError,
+        chave,
+      );
+      assert.equal(bd.chamadas.length, 0, chave);
+    }
+  });
+
+  it("as duas chaves de janela nao tem caminho neste ticket, e dizem porque", async () => {
+    // O agregado da janela vem de `manual_confirmations` (`04` §4.2 M-6),
+    // que este ticket nao constroi. Recusa-se em vez de responder mal.
+    for (const chave of ["manual_daily_max_minor", "manual_max_por_contacto_24h"]) {
+      await assert.rejects(() => checkCeiling(new BaseFalsa(), A, chave, 1), (erro: unknown) => {
+        assert.equal(erro instanceof ChaveDeEspecieErradaError, true);
+        assert.match((erro as Error).message, /manual_confirmations/);
+        return true;
+      });
+    }
+  });
+
+  it("as tres do tecto por pedido e os cinco baldes passam no seu caminho", () => {
+    for (const chave of [
+      "valor_max_pedido_minor",
+      "manual_max_minor",
+      "manual_dupla_acima_minor",
+    ]) {
+      assert.equal(exigirTecto(chave), chave);
+    }
+    for (const chave of [
+      "msgs_ai_mes",
+      "marcacoes_mes",
+      "imagens_mes",
+      "posts_mes",
+      "orcamentos_mes",
+    ]) {
+      assert.equal(exigirConsumivel(chave), chave);
+    }
+  });
+});
+
+describe("checkCeiling — «este valor cabe?», e **nada** disto escreve", () => {
+  it("corre o `SQL_TECTO` com o tenant e a chave, e nada mais", async () => {
+    const bd = new BaseFalsa().responder([{ tecto: "5000000" }]);
+    const tecto = await checkCeiling(bd, A, "valor_max_pedido_minor", 4_999_999);
+    assert.deepEqual(bd.chamadas, [
+      { sql: SQL_TECTO, parametros: [A, "valor_max_pedido_minor"] },
+    ]);
+    assert.deepEqual(tecto, {
+      chave: "valor_max_pedido_minor",
+      cabe: true,
+      valor: 4_999_999,
+      tecto: 5_000_000,
+      motivo: null,
+    });
+  });
+
+  it("o valor igual ao tecto cabe; um acima nao, e conta", async () => {
+    assert.equal(
+      (await checkCeiling(new BaseFalsa().responder([{ tecto: "100" }]), A, "manual_max_minor", 100))
+        .cabe,
+      true,
+    );
+    const bd = new BaseFalsa().responder([{ tecto: "100" }]);
+    const tecto = await checkCeiling(bd, A, "manual_max_minor", 101, { metricas });
+    assert.equal(tecto.cabe, false);
+    assert.equal(tecto.motivo, "tecto_excedido");
+    assert.deepEqual(metricas.ler(), { [`${METRICA_LIMITE_NEGADO}:manual_max_minor`]: 1 });
+  });
+
+  it("sem linha activa que declare a chave **nega** — falha fechada", async () => {
+    const respostas: Record<string, unknown>[][] = [[{ tecto: null }], [{}], []];
+    for (const resposta of respostas) {
+      const tecto = await checkCeiling(
+        new BaseFalsa().responder(resposta),
+        A,
+        "manual_max_minor",
+        1,
+      );
+      assert.equal(tecto.cabe, false);
+      assert.equal(tecto.tecto, null);
+      assert.equal(tecto.motivo, "sem_entitlement");
+    }
+  });
+
+  it("a falta conta no contador do modulo quando lho dizem", async () => {
+    const bd = new BaseFalsa().responder([{ tecto: null }]);
+    await checkCeiling(bd, A, "manual_max_minor", 1, { modulo: "vendedor", metricas });
+    assert.deepEqual(metricas.ler(), { [`${METRICA_ENTITLEMENT_NEGADO}:vendedor`]: 1 });
+  });
+
+  it("um tecto ilegivel levanta em vez de adivinhar", async () => {
+    await assert.rejects(
+      () => checkCeiling(new BaseFalsa().responder([{ tecto: "cinco" }]), A, "manual_max_minor", 1),
+      RespostaIlegivelError,
+    );
+  });
+
+  it("zero cabe em qualquer tecto; negativo e fraccionario levantam", async () => {
+    assert.equal(
+      (await checkCeiling(new BaseFalsa().responder([{ tecto: "0" }]), A, "manual_max_minor", 0))
+        .cabe,
+      true,
+    );
+    for (const mau of [-1, 1.5, "10", null, undefined, true]) {
+      await assert.rejects(
+        () => checkCeiling(new BaseFalsa().responder([{ tecto: "10" }]), A, "manual_max_minor", mau),
+        QuantidadeInvalidaError,
+      );
+    }
+  });
+
+  it("recusa um tenant que nao e UUID canonico, antes de tocar na base", async () => {
+    const bd = new BaseFalsa().responder([{ tecto: "1" }]);
+    await assert.rejects(
+      () => checkCeiling(bd, "nao-e-uuid", "manual_max_minor", 1),
+      TenantInvalidoError,
+    );
+    assert.equal(bd.chamadas.length, 0);
+  });
+
+  it("`manual_dupla_acima_minor`: `cabe = false` nao e uma recusa", () => {
+    // O registo escreve-o: «o unico tecto por pedido cuja comparacao NAO
+    // nega». Acima do limiar o pedido exige o segundo confirmador (`04` §4.2
+    // M-5). A funcao devolve o facto; quem chama e que decide.
+    assert.equal(CHAVES_DE_LIMITE.manual_dupla_acima_minor?.categoria, CATEGORIA_TECTO_POR_PEDIDO);
+  });
+});
+
+describe("a chave de idempotencia derivada (C1)", () => {
+  // O mesmo vector esta no `TestDerivacaoDaChaveDeIdempotencia` do Python, e
+  // ha um teste de paridade que o confirma: e assim que os dois digests se
+  // comparam sem correr os dois interpretes no mesmo processo.
+  const VECTOR = "aecad9b30b59f9439b80d87246a2a8318a3b5f766e899faef810168f503e3df0";
+
+  it("o vector conhecido", () => {
+    assert.equal(
+      derivarChaveDeIdempotencia("ten.v1", A, "vendedor", "msgs_ai_mes", "req-1"),
+      VECTOR,
+    );
+  });
+
+  it("e determinista, hexadecimal, e cada componente muda-a", () => {
+    const base: string[] = ["ten.v1", A, "vendedor", "msgs_ai_mes", "x"];
+    assert.equal(derivarChaveDeIdempotencia(...base), derivarChaveDeIdempotencia(...base));
+    assert.match(derivarChaveDeIdempotencia(...base), /^[0-9a-f]{64}$/);
+    const vistas = new Set([derivarChaveDeIdempotencia(...base)]);
+    const trocas: string[] = [B, "servicos", "marcacoes_mes", "y"];
+    for (const [indice, outro] of trocas.entries()) {
+      const mudado = [...base];
+      mudado[indice + 1] = outro;
+      vistas.add(derivarChaveDeIdempotencia(...mudado));
+    }
+    assert.equal(vistas.size, 5);
+  });
+
+  it("o separador impede a colisao por concatenacao", () => {
+    assert.notEqual(
+      derivarChaveDeIdempotencia("ab", "c"),
+      derivarChaveDeIdempotencia("a", "bc"),
+    );
+  });
+
+  it("componentes vazios ou que nao sao texto levantam", () => {
+    for (const maus of [[], [""], ["  "], ["a", null], ["a", 7]]) {
+      assert.throws(
+        () => derivarChaveDeIdempotencia(...maus),
+        ChaveDeIdempotenciaInvalidaError,
+      );
+    }
+  });
+});
+
+describe("o `KA002` da `0007` — um conflito do pedido, e nao um limite", () => {
+  it("le o SQLSTATE das formas conhecidas, e nao inventa nenhuma", () => {
+    assert.equal(sqlstateDe({ code: "KA002" }), "KA002");
+    assert.equal(sqlstateDe({ sqlstate: "KA002" }), "KA002");
+    assert.equal(sqlstateDe({ code: "nao-e-um-sqlstate" }), null);
+    assert.equal(sqlstateDe(new Error("sem nada")), null);
+    assert.equal(sqlstateDe(null), null);
+    assert.equal(SQLSTATE_CONFLITO_DE_IDEMPOTENCIA, "KA002");
+  });
+
+  it("o `KA002` vira `ConflitoDeIdempotenciaError`", async () => {
+    const bd: ClienteSql = {
+      async query() {
+        const erro = new Error("conflito") as Error & { code: string };
+        erro.code = "KA002";
+        throw erro;
+      },
+    };
+    await assert.rejects(
+      () => consumeLimit(bd, A, "msgs_ai_mes", 1, "k"),
+      (erro: unknown) => {
+        assert.equal(erro instanceof ConflitoDeIdempotenciaError, true);
+        // A mensagem nao repete a chave nem a quantidade (`OBS-I`).
+        assert.doesNotMatch((erro as Error).message, /msgs_ai_mes/);
+        return true;
+      },
+    );
+  });
+
+  it("os outros SQLSTATE sobem como vieram — so se traduz o que se reconhece", async () => {
+    for (const estado of ["23514", "22023", "40001"]) {
+      const bd: ClienteSql = {
+        async query() {
+          const erro = new Error("da base") as Error & { code: string };
+          erro.code = estado;
+          throw erro;
+        },
+      };
+      await assert.rejects(
+        () => consumeLimit(bd, A, "msgs_ai_mes", 1, "k"),
+        (erro: unknown) => {
+          assert.equal(erro instanceof ConflitoDeIdempotenciaError, false, estado);
+          assert.equal((erro as Error).message, "da base");
+          return true;
+        },
+      );
+    }
   });
 });
 
@@ -590,15 +954,39 @@ describe("tenantGate — a matriz do §7.2 com os dois estados (criterio 6)", ()
   });
 
   it("a ordem de precedencia e a proposta, e `maisRestritivo` segue-a", () => {
+    // `desligado` a cabeca: e transporte, e nao politica.
     assert.deepEqual(
       [...REGIMES],
-      ["encerrado", "suspenso", "desligado", "pendente", "restrito", "ativo"],
+      ["desligado", "encerrado", "suspenso", "pendente", "restrito", "ativo"],
     );
     assert.equal(maisRestritivo("ativo", "encerrado"), "encerrado");
     assert.equal(maisRestritivo("encerrado", "ativo"), "encerrado");
     assert.equal(maisRestritivo("restrito", "pendente"), "pendente");
-    assert.equal(maisRestritivo("suspenso", "desligado"), "suspenso");
     assert.equal(maisRestritivo("ativo", "ativo"), "ativo");
+    // A correccao: `desligado` ganha aos outros cinco, nos dois sentidos.
+    for (const outro of ["encerrado", "suspenso", "pendente", "restrito", "ativo"] as const) {
+      assert.equal(maisRestritivo("desligado", outro), "desligado", outro);
+      assert.equal(maisRestritivo(outro, "desligado"), "desligado", outro);
+    }
+  });
+
+  it("o caso que a revisao mediu: `suspenso` + `desligado` nao envia", () => {
+    // Era o defeito: a linha `suspenso` permite a mensagem estatica, e com
+    // `suspenso` a ganhar o gate autorizava um envio por um canal que o §7.2
+    // diz removido.
+    const decisao = tenantGate("suspenso", "desligado", "mensagem_estatica");
+    assert.equal(decisao.regime, "desligado");
+    assert.equal(decisao.permitido, false);
+    assert.equal(decisao.origem, "canal");
+    for (const estado of ESTADOS_DO_TENANT) {
+      for (const accao of ACCOES) {
+        assert.equal(
+          tenantGate(estado, "desligado", accao).permitido,
+          false,
+          `${estado}/desligado × ${accao}`,
+        );
+      }
+    }
   });
 
   it("o caso que a tabela de um parametro nao tem: tenant `ativo`, canal `desligado`", () => {
@@ -716,6 +1104,73 @@ describe("tenantGate — a matriz do §7.2 com os dois estados (criterio 6)", ()
       }
     }
     assert.equal(pares, 30);
+  });
+
+  it("a matriz completa: 5 tenants × 6 canais × 7 accoes, um a um", () => {
+    // O regime de cada par, escrito **a mao** a partir da regra — e nao
+    // calculado com ela. Um teste que corresse `regimeDe` para construir o
+    // esperado verificava que a funcao e igual a si propria.
+    const regimeDoPar: Record<string, string> = {
+      "onboarding/pendente": "pendente",
+      "onboarding/ativo": "pendente",
+      "onboarding/restrito": "pendente",
+      "onboarding/desligado": "desligado",
+      "onboarding/suspenso": "suspenso",
+      "onboarding/encerrado": "encerrado",
+      "ativo/pendente": "pendente",
+      "ativo/ativo": "ativo",
+      "ativo/restrito": "restrito",
+      "ativo/desligado": "desligado",
+      "ativo/suspenso": "suspenso",
+      "ativo/encerrado": "encerrado",
+      "restrito/pendente": "pendente",
+      "restrito/ativo": "restrito",
+      "restrito/restrito": "restrito",
+      "restrito/desligado": "desligado",
+      "restrito/suspenso": "suspenso",
+      "restrito/encerrado": "encerrado",
+      "suspenso/pendente": "suspenso",
+      "suspenso/ativo": "suspenso",
+      "suspenso/restrito": "suspenso",
+      "suspenso/desligado": "desligado",
+      "suspenso/suspenso": "suspenso",
+      "suspenso/encerrado": "encerrado",
+      "encerrado/pendente": "encerrado",
+      "encerrado/ativo": "encerrado",
+      "encerrado/restrito": "encerrado",
+      "encerrado/desligado": "desligado",
+      "encerrado/suspenso": "encerrado",
+      "encerrado/encerrado": "encerrado",
+    };
+    const matriz = REGIMES_E_ACCOES as unknown as Record<
+      string,
+      Record<string, boolean>
+    >;
+    let casos = 0;
+    for (const t of ESTADOS_DO_TENANT) {
+      for (const c of ESTADOS_DO_CANAL) {
+        const regime = regimeDoPar[`${t}/${c}`] ?? "sem-par-escrito";
+        assert.equal(regimeDe(t, c), regime, `${t}/${c}`);
+        for (const accao of ACCOES) {
+          casos += 1;
+          assert.equal(
+            tenantGate(t, c, accao).permitido,
+            matriz[regime]?.[accao],
+            `${t}/${c} × ${accao}`,
+          );
+        }
+      }
+    }
+    assert.equal(casos, 5 * 6 * 7);
+  });
+
+  it("nenhum par com o canal `desligado` autoriza uma saida", () => {
+    const saidas = ACCOES.filter((a) => a !== "registar_entrada");
+    for (const t of ESTADOS_DO_TENANT) {
+      for (const accao of saidas) {
+        assert.equal(tenantGate(t, "desligado", accao).permitido, false, `${t} × ${accao}`);
+      }
+    }
   });
 
   it("um estado ou uma accao fora da lista levanta — nao se adivinha", () => {
@@ -875,7 +1330,11 @@ describe("o middleware HTTP — 403 e 429 (criterios 2, 3 e 7)", () => {
       chave: "msgs_ai_mes",
       metricas,
     });
-    assert.equal(bd.chamadas[1]?.parametros[3], "req-1");
+    // O que chega a base e a chave **derivada**, com o cabecalho dentro.
+    assert.equal(
+      bd.chamadas[1]?.parametros[3],
+      derivarChaveDeIdempotencia("ten.v1", A, "vendedor", "msgs_ai_mes", "req-1"),
+    );
     assert.equal(CABECALHO_DE_IDEMPOTENCIA, "idempotency-key");
 
     const outro = new BaseFalsa()
@@ -892,7 +1351,37 @@ describe("o middleware HTTP — 403 e 429 (criterios 2, 3 e 7)", () => {
         metricas,
       },
     );
-    assert.equal(outro.chamadas[1]?.parametros[3], "abc");
+    assert.equal(
+      outro.chamadas[1]?.parametros[3],
+      derivarChaveDeIdempotencia("ten.v1", A, "vendedor", "msgs_ai_mes", "abc"),
+    );
+  });
+
+  it("**a chave do cliente nunca e a chave efectiva** (C1)", async () => {
+    // Um cliente que mande sempre a mesma constante deixa de poder escolher o
+    // ambito da desduplicacao: o tenant, o modulo e a chave de limite sao do
+    // servidor, e so o ultimo componente e dele.
+    const vistas: unknown[] = [];
+    for (const [modulo, chave] of [
+      ["vendedor", "msgs_ai_mes"],
+      ["servicos", "msgs_ai_mes"],
+      ["vendedor", "marcacoes_mes"],
+    ] as const) {
+      const bd = new BaseFalsa()
+        .responder([linhaDeEntitlement()])
+        .responder([linhaDeConsumo()]);
+      await guardaHttp(
+        bd,
+        { ...pedido, cabecalhos: { "idempotency-key": "a-mesma-de-sempre" } },
+        contexto,
+        { modulo, chave, metricas },
+      );
+      const efectiva = bd.chamadas[1]?.parametros[3];
+      assert.notEqual(efectiva, "a-mesma-de-sempre");
+      assert.match(String(efectiva), /^[0-9a-f]{64}$/);
+      vistas.push(efectiva);
+    }
+    assert.equal(new Set(vistas).size, 3);
   });
 
   it("a chave dada em opcoes ganha ao cabecalho (`02` §6.3)", async () => {
@@ -905,7 +1394,16 @@ describe("o middleware HTTP — 403 e 429 (criterios 2, 3 e 7)", () => {
       idempotencyKey: "sha256-derivada",
       metricas,
     });
-    assert.equal(bd.chamadas[1]?.parametros[3], "sha256-derivada");
+    assert.equal(
+      bd.chamadas[1]?.parametros[3],
+      derivarChaveDeIdempotencia(
+        "ten.v1",
+        A,
+        "vendedor",
+        "msgs_ai_mes",
+        "sha256-derivada",
+      ),
+    );
   });
 
   it("sem chave de idempotencia nenhuma levanta — nao inventa um terceiro codigo", async () => {
@@ -938,10 +1436,76 @@ describe("o middleware HTTP — 403 e 429 (criterios 2, 3 e 7)", () => {
       A,
       "msgs_ai_mes",
       3,
-      "req-1",
+      derivarChaveDeIdempotencia("ten.v1", A, "vendedor", "msgs_ai_mes", "req-1"),
       10,
       quando,
     ]);
+  });
+
+  it("o tecto por pedido corre **antes** do consumo, e nao escreve", async () => {
+    // M5: era o defeito medido. Com o plano `free`, consumir
+    // `valor_max_pedido_minor` pela `ten_consumir` gastava num pedido de
+    // 50 000 Kz o tecto inteiro. Aqui o tecto le-se, e so se consome depois.
+    const bd = new BaseFalsa()
+      .responder([linhaDeEntitlement()])
+      .responder([{ tecto: "5000000" }])
+      .responder([linhaDeConsumo()]);
+    assert.equal(
+      await guardaHttp(bd, pedido, contexto, {
+        modulo: "vendedor",
+        chave: "msgs_ai_mes",
+        tecto: { chave: "valor_max_pedido_minor", valor: 4_000_000 },
+        metricas,
+      }),
+      null,
+    );
+    assert.deepEqual(
+      bd.chamadas.map((c) => c.sql),
+      [SQL_ENTITLEMENT, SQL_TECTO, SQL_CONSUMIR],
+    );
+  });
+
+  it("403 LIMIT_EXCEEDED quando o tecto por pedido nao chega — e sem consumir", async () => {
+    const bd = new BaseFalsa()
+      .responder([linhaDeEntitlement()])
+      .responder([{ tecto: "5000000" }]);
+    const recusa = await guardaHttp(bd, pedido, contexto, {
+      modulo: "vendedor",
+      chave: "msgs_ai_mes",
+      tecto: { chave: "valor_max_pedido_minor", valor: 6_000_000 },
+      metricas,
+    });
+    assert.deepEqual(recusa, {
+      // `403` e nao `429`: um tecto por pedido nao reabre no mes seguinte.
+      estado: HTTP_TECTO,
+      corpo: { error: CODIGO_LIMITE, key: "valor_max_pedido_minor" },
+      cabecalhos: {},
+    });
+    assert.equal(bd.chamadas.length, 2);
+    assert.equal(
+      bd.chamadas.some((c) => c.sql === SQL_CONSUMIR),
+      false,
+    );
+  });
+
+  it("um tecto sem entitlement que o declare da 403 ENTITLEMENT_DISABLED", async () => {
+    const bd = new BaseFalsa()
+      .responder([linhaDeEntitlement()])
+      .responder([{ tecto: null }]);
+    const recusa = await guardaHttp(bd, pedido, contexto, {
+      modulo: "vendedor",
+      tecto: { chave: "manual_max_minor", valor: 1 },
+      metricas,
+    });
+    assert.deepEqual(recusa, {
+      estado: HTTP_ENTITLEMENT,
+      corpo: {
+        error: CODIGO_ENTITLEMENT_HTTP,
+        modulo: "vendedor",
+        key: "manual_max_minor",
+      },
+      cabecalhos: {},
+    });
   });
 
   it("usa a cache que lhe derem", async () => {

@@ -27,25 +27,51 @@
  * Este modulo recebe os dois estados e reduz-os a um **regime**, que e a linha
  * da tabela do §7.2 que se aplica: decide o mais restritivo dos dois.
  *
- *     encerrado > suspenso > desligado > pendente > restrito > ativo
+ *     desligado > encerrado > suspenso > pendente > restrito > ativo
+ *
+ * A regra por extenso, em duas frases que decidem a ordem toda:
+ *
+ * 1. **`desligado` ganha de tudo, porque nao e um estado de politica: e uma
+ *    afirmacao sobre o TRANSPORTE.** As outras cinco linhas dizem o que a
+ *    plataforma *autoriza*; esta diz que o caminho tecnico ate ao publico
+ *    **nao existe** — «Nenhuma entrada chega (coexistencia removida)», saida
+ *    «Nenhuma». Nenhum estado de politica faz reaparecer um transporte que foi
+ *    removido, e por isso nenhum lhe pode passar a frente. Autorizar um envio
+ *    por um canal `desligado` nao e uma decisao arriscada: e uma decisao sobre
+ *    uma coisa que nao esta la.
+ * 2. **As outras cinco ordenam-se do mais restritivo para o menos**, que e a
+ *    leitura directa da tabela.
  *
  * O fundamento de cada degrau, porque a ordem nao vem de lado nenhum:
  *
- * * `encerrado` primeiro — e o unico terminal nas duas maquinas de estado, e a
+ * * `desligado` primeiro — ver (1). **Foi aqui que a primeira versao deste
+ *   modulo errou**, e a revisao adversarial mediu-o: com a ordem antiga
+ *   (`encerrado > suspenso > desligado > …`), o par tenant `suspenso` + canal
+ *   `desligado` caia no regime `suspenso` e o gate **autorizava** a
+ *   `mensagem_estatica` — um envio por um canal que o §7.2 diz removido. O
+ *   argumento de entao («`suspenso` e causa externa, nao se lhe passa a
+ *   frente») estava a comparar duas coisas que nao se comparam: `suspenso`
+ *   responde «a plataforma deixa?» e `desligado` responde «ha por onde?».
+ * * `encerrado` a seguir — e o unico terminal nas duas maquinas de estado, e a
  *   linha da tabela e «Registar e descartar». Um estado do qual nao se sai nao
  *   pode ser ultrapassado por nenhum do qual se saia.
- * * `suspenso` a seguir — a nota da tabela e «Decisao T&S ou falta de
- *   pagamento». E a unica linha cuja causa e externa a plataforma, e passar-lhe
- *   a frente por o outro dominio estar `ativo` seria continuar a servir quem a
- *   Meta ou a cobranca mandaram parar.
- * * `desligado` antes de `pendente` — a linha diz «Nenhuma entrada chega
- *   (coexistencia removida)». Nao ha caminho tecnico para o publico; um tenant
- *   `ativo` sobre um canal `desligado` nao fica a meio, fica sem canal.
+ * * `suspenso` depois — a nota da tabela e «Decisao T&S ou falta de
+ *   pagamento». E a unica das linhas de politica cuja causa e externa a
+ *   plataforma, e passar-lhe a frente por o outro dominio estar `ativo` seria
+ *   continuar a servir quem a Meta ou a cobranca mandaram parar.
  * * `pendente`/`onboarding` antes de `restrito` — `pendente` permite registar e
  *   a mensagem de teste, e mais nada («nao responder ao publico»); `restrito`
  *   permite conversar dentro da janela. `pendente` e o mais apertado dos dois.
  * * `restrito` antes de `ativo` — e o proprio sentido da palavra, e a unica
  *   relacao de ordem que a tabela torna obvia.
+ *
+ * **Uma consequencia que se aceita de olhos abertos:** com `desligado` a
+ * cabeca, um tenant `encerrado` sobre um canal `desligado` tambem **nao**
+ * regista a entrada, embora a linha `encerrado` diga «Registar e descartar». E
+ * o certo pela mesma frase (1): se o canal esta removido, nao chega entrada
+ * nenhuma que houvesse para registar; e se chegar alguma, chegou por um
+ * caminho que ja nao devia existir — a linha `desligado` ja negava
+ * `registar_entrada` sozinha, e e essa a celula que vale.
  *
  * **Esta ordem e uma proposta deste ticket e a decisao devolve-se ao dono do
  * `docs/tecnica/01`.** Nao ha documento que a escreva, nem sequer que admita
@@ -97,12 +123,15 @@ export type EstadoDoCanal = (typeof ESTADOS_DO_CANAL)[number];
  * **A ordem do vector e a regra de precedencia**, e nao uma lista alfabetica: o
  * indice de cada regime e a sua posicao na ordem, e `maisRestritivo` compara
  * indices. Escrever a ordem como dado em vez de como cadeia de `if` e o que
- * permite ao teste de paridade confronta-la com a do Python como texto.
+ * permite ao teste de paridade confronta-la com a do Python como texto — e e
+ * tambem o que faz da correccao da revisao adversarial **uma linha**:
+ * `desligado` subiu ao topo porque e transporte e nao politica (cabecalho do
+ * modulo, ponto 1).
  */
 export const REGIMES = [
+  "desligado",
   "encerrado",
   "suspenso",
-  "desligado",
   "pendente",
   "restrito",
   "ativo",
@@ -213,6 +242,11 @@ export const REGIMES_E_ACCOES: Readonly<Record<Regime, Readonly<Record<Accao, bo
   // um **facto** — nao chega entrada — e nao uma permissao; se mesmo assim
   // chegar uma, chegou por um caminho que ja nao devia existir, e aceita-la
   // seria escrever numa conversa de um canal que a Meta removeu.
+  //
+  // E a linha toda a `false` e tambem a razao por que este regime esta a
+  // cabeca de `REGIMES`: uma linha que nao autoriza nada so pode perder para
+  // outra autorizando alguma coisa, e nao ha estado de politica que faca
+  // reaparecer o transporte.
   desligado: {
     registar_entrada: false,
     processar_entrada: false,

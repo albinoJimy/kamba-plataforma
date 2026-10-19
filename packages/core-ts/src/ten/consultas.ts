@@ -9,7 +9,7 @@
  *
  * ## A aritmetica nao esta aqui, e isso e o ponto
  *
- * Nenhuma destas consultas soma, subtrai ou compara um limite. A regra —
+ * Nenhuma destas consultas soma, subtrai ou acumula um contador. A regra —
  * «quanto ja gastou, qual e o tecto, cabe mais?» — vive **inteira** na funcao
  * `platform.ten_consumir` da revisao `0007`, e as duas bibliotecas chamam-na.
  * Duas implementacoes da mesma aritmetica de limites divergem; o bloco do
@@ -20,6 +20,22 @@
  * `date_trunc` reescrito em JavaScript. O fuso `Africa/Luanda` existe **num**
  * sitio (o comentario da `0007` di-lo por extenso), e uma terceira copia dele
  * em TypeScript era a quarta a divergir no dia em que uma mudasse.
+ *
+ * A excepcao declarada e o `SQL_TECTO`, e esta anotada no proprio sitio: a
+ * leitura do tecto e **SQL**, com o mesmo `min(...)` da `0007`, e nao um
+ * minimo recalculado em JavaScript sobre linhas trazidas para a memoria.
+ *
+ * ## O `coalesce(..., now())` nao e enfeite
+ *
+ * As duas funcoes da `0007` tem um argumento de instante com `DEFAULT now()`,
+ * e **um argumento nomeado ausente nao se exprime numa chamada posicional**:
+ * uma chamada posicional ou passa o argumento ou nao passa nenhum dos
+ * seguintes. Como aqui se passa sempre a lista completa, passar `NULL` a secas
+ * punha o periodo a `NULL` — no `ten_consumir`, o `CHECK` de `tenant_usage` a
+ * recusar tudo; no `ten_periodo`, um `NULL` devolvido em silencio. E e por
+ * isso que o `coalesce` esta nos **dois**, e nao so no `SQL_CONSUMIR`: a
+ * revisao adversarial mediu exactamente essa divergencia — o `periodo()` sem
+ * instante devolvia `None` no Python e **levantava** no TypeScript.
  *
  * ## A ordem dos parametros segue o texto, e isso e uma restricao real
  *
@@ -44,9 +60,14 @@
  * mesma funcao la dentro. Existe para quem precisa de **mostrar** o periodo
  * (um painel, uma mensagem ao dono) e para os testes de fronteira de mes
  * poderem perguntar a base o que ela conta, com o relogio fixo do criterio 5.
+ *
+ * `coalesce($1, now())` pela razao do cabecalho, que e a mesma do `$6` do
+ * `SQL_CONSUMIR`: sem ele, `periodo(bd)` sem instante mandava `NULL` a funcao
+ * e recebia `NULL` de volta — e `NULL` nao e um periodo, e um buraco que cada
+ * lado tapava a sua maneira.
  */
 export const SQL_PERIODO = `
-  SELECT platform.ten_periodo($1) AS periodo
+  SELECT platform.ten_periodo(coalesce($1, now())) AS periodo
 `;
 
 /**
@@ -106,8 +127,61 @@ export const SQL_ENTITLEMENT = `
  * argumento nomeado ausente nao se exprime numa chamada posicional, e passar
  * `NULL` a secas poria o periodo a `NULL` e o `CHECK` de `tenant_usage` a
  * recusar tudo.
+ *
+ * **So se chama com chaves consumiveis** (`x-kamba-consumivel: true` no
+ * `registry/entitlement_keys.schema.json`). Um tecto por pedido que passe por
+ * aqui cria linha em `tenant_usage` e gasta o balde — ver `SQL_TECTO`.
  */
 export const SQL_CONSUMIR = `
   SELECT aceite, valor, repetido, limite
     FROM platform.ten_consumir($1, $2, $3, $4, $5, coalesce($6, now()))
+`;
+
+/**
+ * O tecto de uma chave, **sem consumir nada**.
+ *
+ * A pergunta de um tecto por pedido e «este valor cabe?», e nao «quanto ja
+ * gastei»: nao ha contador, nao ha periodo e nao se escreve linha nenhuma. E
+ * por isso que esta e uma consulta separada e nao uma chamada a `ten_consumir`
+ * com quantidade zero — a `0007` recusa quantidade nao positiva, e com
+ * quantidade positiva escreveria.
+ *
+ * **A regra do minimo e a da `0007`, escrita do mesmo modo.** O tecto e
+ * `min((e.limites ->> chave)::bigint)` sobre os entitlements **activos** do
+ * tenant que **declaram** a chave: e a regra que o dicionario §3.2 escreve
+ * para o par `valor_max_pedido_minor`/`manual_max_minor`, aplicada ao caso
+ * geral. Esta e a unica aritmetica deste ficheiro, e esta em SQL de proposito:
+ * trazer as linhas para a memoria e fazer o minimo em JavaScript era a segunda
+ * implementacao da regra, que e o que este modulo inteiro existe para evitar.
+ *
+ * **Zero linhas que declarem a chave da `tecto = NULL`, e `NULL` nega.** O
+ * agregado devolve sempre uma linha, e o `min` de um conjunto vazio e `NULL`:
+ * e a mesma falha fechada do criterio 2 e da `0007`, «sem tecto» nao quer
+ * dizer «sem limite». A RLS de `platform.entitlements` faz o mesmo acontecer
+ * quando o contexto da transaccao e de outro tenant.
+ *
+ * O `WITH` nao e estilo: com o `min(...)` no `SELECT` de topo, o `$2` aparecia
+ * no texto **antes** do `$1`, e o espelho em Python e posicional. Filtrar o
+ * tenant primeiro e o que mantem os numeros ascendentes na ordem de leitura —
+ * o mesmo motivo da subconsulta do `SQL_ENTITLEMENT`.
+ *
+ * **Sem o `WHERE limites ? chave` da `0007`, e de proposito.** Uma linha que
+ * nao declare a chave da `limites ->> chave` igual a `NULL`, e o `min` ignora
+ * `NULL`: o resultado e o mesmo com filtro e sem ele. Sem ele, cada marcador
+ * aparece **uma** vez — e a repeticao de um `$2` em PostgreSQL vira duas
+ * ocorrencias de `%s` na DB-API, que e posicional: o espelho em Python
+ * passaria a precisar de tres argumentos para dizer a mesma coisa, e o par de
+ * consultas deixava de ter a mesma lista.
+ *
+ * Parametros: `$1` o tenant, `$2` a chave de limite.
+ */
+export const SQL_TECTO = `
+  WITH activos AS (
+    SELECT limites
+      FROM platform.entitlements
+     WHERE tenant_id = $1
+       AND ativo
+  )
+  SELECT min((limites ->> $2)::bigint) AS tecto
+    FROM activos
 `;

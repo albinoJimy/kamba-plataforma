@@ -8,9 +8,12 @@
  *
  *     checkEntitlement   falha fechada: sem linha, inactivo, ou tenant
  *                        `onboarding`/`suspenso`/`encerrado` -> negado
- *     consumeLimit       atomico e idempotente, porque chama `ten_consumir`
+ *     consumeLimit       atomico e idempotente, porque chama `ten_consumir`.
+ *                        **So baldes por periodo** (`x-kamba-consumivel`)
+ *     checkCeiling       «este valor cabe no tecto?». **So tectos por
+ *                        pedido**, e nao escreve nada
  *     tenantGate         a matriz do §7.2, com os **dois** estados
- *     guardaHttp         403 ENTITLEMENT_DISABLED / 429 LIMIT_EXCEEDED
+ *     guardaHttp         403 ENTITLEMENT_DISABLED / 403 e 429 LIMIT_EXCEEDED
  *     CacheDeEntitlements  TTL; a alteracao fica visivel em <= 60 s
  *     MetricasDoTen      ten_limit_denied_total / ten_entitlement_denied_total
  *
@@ -28,32 +31,51 @@ export {
   SQL_CONSUMIR,
   SQL_ENTITLEMENT,
   SQL_PERIODO,
+  SQL_TECTO,
 } from "./consultas.ts";
 
 export {
+  CATEGORIA_CONTADOR,
+  CATEGORIA_TECTO_POR_JANELA,
+  CATEGORIA_TECTO_POR_PEDIDO,
+  CHAVES_DE_LIMITE,
   CODIGO_ENTITLEMENT_HTTP,
   CODIGO_ENTITLEMENT_TOOL,
   CODIGO_LIMITE,
   CacheDeEntitlements,
+  ChaveDeEspecieErradaError,
   ChaveDeIdempotenciaInvalidaError,
+  ChaveDesconhecidaError,
+  ConflitoDeIdempotenciaError,
   HTTP_ENTITLEMENT,
   HTTP_LIMITE,
+  HTTP_TECTO,
   MAXIMO_DE_ENTRADAS,
   NOME_CANONICO,
   NomeInvalidoError,
   QuantidadeInvalidaError,
   RespostaIlegivelError,
+  SQLSTATE_CONFLITO_DE_IDEMPOTENCIA,
   TTL_POR_OMISSAO_MS,
   agoraMs,
+  checkCeiling,
   checkEntitlement,
   consumeLimit,
+  derivarChaveDeIdempotencia,
+  especieDaChave,
+  exigirConsumivel,
   exigirNome,
+  exigirTecto,
   inteiro,
   periodo,
+  sqlstateDe,
+  type CategoriaDaChave,
+  type ChaveDeLimite,
   type ClienteSql,
   type Consumo,
   type Entitlement,
   type MotivoDaRecusa,
+  type Tecto,
 } from "./entitlements.ts";
 
 export {

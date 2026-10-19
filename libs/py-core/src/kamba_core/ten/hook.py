@@ -18,6 +18,20 @@ e uma convencao: e a assinatura. Um argumento produzido pelo modelo nao tem por
 onde chegar aqui, e o teste `test_o_hook_nao_le_args_nenhuns` le a fonte deste
 ficheiro para o confirmar.
 
+## A chave de idempotencia e **derivada**, e nao a que lhe derem
+
+O `02` §6.3 manda derivar `sha256(tenant_id | contact_id | tool | cart_id)`, e
+e isso que quem chama traz. Esse valor entra aqui como **um componente** de
+`derivar_chave_de_idempotencia`, atras do tenant, do modulo e da chave de
+limite — nunca como a chave inteira: a chave de idempotencia decide o ambito
+da desduplicacao, e esse ambito e do servidor.
+
+**A quantidade nao entra**, e a razao esta por extenso na
+`derivar_chave_de_idempotencia`: e ela a impressao digital que faz a `0007`
+levantar `KA002` quando a mesma chave volta com outro corpo, e po-la dentro da
+chave desarmava o unico mecanismo que **denuncia** esse defeito em vez de o
+aceitar em silencio.
+
 ## O codigo de erro e o do §6.5, e nao o do criterio 2
 
 A ToolLayer tem vocabulario proprio, escrito em documento tecnico:
@@ -38,6 +52,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+from ..tenant_guard import normalizar_tenant
 from .entitlements import (
     CODIGO_ENTITLEMENT_TOOL,
     CODIGO_LIMITE,
@@ -45,8 +60,11 @@ from .entitlements import (
     ChaveDeIdempotenciaInvalida,
     ClienteSql,
     Metricas,
+    QuantidadeInvalida,
+    check_ceiling,
     check_entitlement,
     consume_limit,
+    derivar_chave_de_idempotencia,
 )
 
 
@@ -84,16 +102,29 @@ def hook_de_tool(
     chave: str | None = None,
     quantidade: int = 1,
     idempotency_key: str | None = None,
+    tecto_chave: str | None = None,
+    tecto_valor: int | None = None,
     limite: int | None = None,
     agora: object | None = None,
     cache: CacheDeEntitlements | None = None,
     metricas: Metricas | None = None,
 ) -> ErroDeTool | None:
-    """Verifica o entitlement e, se houver chave, consome o limite.
+    """Verifica o entitlement, depois o tecto do pedido, depois consome.
 
-    Pela ordem, e a ordem importa: uma tool de um modulo que o tenant nao tem
-    e recusada **sem** consumir nada. Consumir primeiro gastava o tecto de quem
-    nem sequer podia entrar.
+    **A ordem e a decisao.** Tres passos, e cada um protege o seguinte:
+
+    1. `check_entitlement` — uma tool de um modulo que o tenant nao tem e
+       recusada **sem** consumir nada. Consumir primeiro gastava o tecto de
+       quem nem sequer podia entrar.
+    2. `check_ceiling` — um valor que nao cabe no tecto por pedido e recusado
+       e **tambem** nao consome nada. A verificacao do tecto nao escreve, e
+       descobrir que um pedido de 50 000 Kz nao passa depois de ja ter gasto o
+       balde mensal e pagar duas vezes pelo mesmo erro.
+    3. `consume_limit` — so aqui se escreve, e so para baldes por periodo.
+
+    O par `tecto_chave`/`tecto_valor` e o passo 2: a chave de tecto por pedido
+    (`valor_max_pedido_minor`, `manual_max_minor`, …) e o valor **deste**
+    pedido. Ou se dao os dois, ou nenhum.
 
     Devolve `None` quando a tool pode correr.
 
@@ -101,6 +132,8 @@ def hook_de_tool(
     traga chave de idempotencia e um defeito de quem chama — o `02` §6.3 diz
     como a derivar, `sha256(tenant_id | contact_id | tool | cart_id)` — e
     levanta `ChaveDeIdempotenciaInvalida` em vez de virar um erro de negocio.
+    Um `KA002` da `0007` sobe como `ConflitoDeIdempotencia`, pela mesma razao:
+    e um defeito da chamada e nao uma resposta de negocio.
     """
     tenant = contexto.tenant_id
 
@@ -110,6 +143,31 @@ def hook_de_tool(
     if not entitlement.permitido:
         return ErroDeTool(codigo=CODIGO_ENTITLEMENT_TOOL, modulo=modulo)
 
+    if (tecto_chave is None) != (tecto_valor is None):
+        raise QuantidadeInvalida(
+            "o tecto por pedido precisa da chave **e** do valor: dar so um "
+            "dos dois era pedir uma comparacao com metade dos termos."
+        )
+    if tecto_chave is not None and tecto_valor is not None:
+        cabimento = check_ceiling(
+            bd, tenant, tecto_chave, tecto_valor, modulo=modulo, metricas=metricas
+        )
+        if not cabimento.cabe:
+            # Sem tecto declarado e falta de entitlement, como no consumo: o
+            # `SQL_TECTO` diz o mesmo que a `0007` diz com `limite = NULL`, e o
+            # §6.5 manda o grafo **nunca** repetir um `ENTITLEMENT_DENIED` —
+            # que e o tratamento certo para um entitlement em falta.
+            if cabimento.motivo == "sem_entitlement":
+                return ErroDeTool(
+                    codigo=CODIGO_ENTITLEMENT_TOOL, modulo=modulo, chave=cabimento.chave
+                )
+            return ErroDeTool(
+                codigo=CODIGO_LIMITE,
+                modulo=modulo,
+                chave=cabimento.chave,
+                limite=cabimento.tecto,
+            )
+
     if chave is None:
         return None
     if not isinstance(idempotency_key, str) or idempotency_key.strip() == "":
@@ -118,12 +176,19 @@ def hook_de_tool(
             "(`docs/tecnica/02` §6.3). A mensagem nao repete o valor."
         )
 
+    # **A chave que vai a base e derivada, e nao a que lhe deram.** A do `02`
+    # §6.3 e o ultimo componente; os tres primeiros sao do contexto do
+    # servidor. A quantidade nao entra — ver `derivar_chave_de_idempotencia`.
+    chave_efectiva = derivar_chave_de_idempotencia(
+        "ten.v1", normalizar_tenant(tenant), modulo, chave, idempotency_key
+    )
+
     consumo = consume_limit(
         bd,
         tenant,
         chave,
         quantidade,
-        idempotency_key,
+        chave_efectiva,
         limite=limite,
         agora=agora,
         modulo=modulo,
