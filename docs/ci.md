@@ -47,6 +47,7 @@ Cada gate é um alvo `make ci-<n>`. O *workflow* só os orquestra. Três razões
 | 2 | Lint, formato e tipos — e, desde o KAM-068, nenhum serviço a escrever fora do *logger* | `make ci-2` | Plataforma | **proposta** |
 | 3 | Referências cruzadas (`KAM`, `ADR`, `D#`) e caminhos dentro dos blocos de *handoff* | `make ci-3` | Plataforma | **proposta** |
 | 3b | Nomes canónicos | `make ci-3b` | Arquitecto de Plataforma | KAM-111 (activo desde o KAM-111) |
+| 3c | Coerência do backlog: o §4 do `specs/INDICE.md`, o bloco de cada ticket e a tabela-resumo do §3 de cada epic | `make ci-3c` | Arquitecto de Plataforma | KAM-138 (activo desde o KAM-138) |
 | 4 | Unit e cobertura | `make ci-4` | Plataforma | **proposta** |
 | 5 | Integração | `make ci-5` *(reservado)* | — | **lacuna**: nenhum ticket o reclama |
 | 6 | Isolamento de tenant (camada SQL: RLS, X-03, X-04, X-05) e *logs* sem identificadores (X-11) | `make ci-6` | Segurança | `docs/tecnica/09` §7 (activo desde o KAM-004; o X-11 entrou com o KAM-068; a suite ponta a ponta é KAM-066) |
@@ -57,7 +58,7 @@ Cada gate é um alvo `make ci-<n>`. O *workflow* só os orquestra. Três razões
 | 11 | SCA, licenças, vulnerabilidades e SBOM | `make ci-11` | Segurança | `docs/tecnica/09` §7 |
 | 12–18 | Categorias, *eval*, imagem, deploy, aprovação, tag | — | ver KAM-067, KAM-078, KAM-088 | — |
 
-`make ci` corre os nove activos (os seis do KAM-002, o 8 do KAM-003, o 6 do KAM-004 e o 3b do KAM-111). `make ci-waivers` valida as excepções.
+`make ci` corre os **onze** activos: os seis do KAM-002 (1, 2, 3, 4, 9 e 11), o 8 do KAM-003, o 6 do KAM-004, o 7 do KAM-007, o 3b do KAM-111 e o 3c do KAM-138. A frase dizia «nove» e depois «dez» — o 7 estava a faltar na conta desde que o KAM-007 o ligou, e o KAM-138 limitou-se a incrementar. `make ci-waivers` valida as excepções.
 
 ---
 
@@ -278,6 +279,93 @@ Medido: o *job* do *gate* 3b leva **7 s** no *runner* (Python 3.12); `make
 ci-3b` num contentor Linux local (Python 3.13), 0,9 s — contra os 60 s do
 critério. 49 instruções (21 da revisão `0001`, 28 da `0002`), 3 tabelas, 38
 colunas e 20 valores de `CHECK`; 17 documentos.
+
+### Gate 3c — coerência do backlog
+
+Entrou com o KAM-138. O backlog diz as mesmas coisas em **três** sítios, e até
+aqui nada os comparava: a linha do ticket em [`specs/INDICE.md`](../specs/INDICE.md)
+§4 (o «contrato entre epics»), o bloco `## KAM-NNN — ` — em `specs/tickets/` no
+EPIC-01, pela convenção do KAM-155, e dentro do ficheiro nos outros dez — e a
+«Tabela Resumo de Tickets» do §3 de cada epic. Tipo, estimativa, prioridade,
+fase e dependências estão replicados, e a verificação era manual: três tickets
+seguidos (KAM-128, KAM-129, KAM-130) gastaram um critério de aceitação em
+«segunda passagem de verificação dá 0 divergências».
+
+**O que o distingue de uma comparação de tabelas** é a reciprocidade
+`Dependências`↔`Bloqueia`. O §4 **não tem coluna `Bloqueia`**, pelo que comparar
+só os campos que as duas superfícies partilham deixa passar uma aresta declarada
+de um só lado — aconteceu na primeira versão do KAM-129 (a busca G5) e outra vez
+em oito tickets, que o KAM-144 teve de repor à mão, registando por escrito que a
+causa era este *gate* não existir. Na entrega do KAM-138 estavam **seis** arestas
+outra vez por fechar, abertas pelos quatro tickets inscritos depois do KAM-144.
+
+O que verifica, por ordem de execução:
+
+1. **Sincronia linha↔bloco**, nos seis campos que os dois escrevem (título,
+   tipo, estimativa, prioridade, fase, dependências). A mensagem diz o ticket, o
+   campo e **os dois valores**, com ficheiro e linha de cada um.
+2. **Órfãos nos dois sentidos** — linha sem bloco, e bloco sem linha.
+3. **A terceira superfície**: a tabela-resumo do §3, nos cinco campos que tem
+   (não tem coluna `Fase`).
+4. **Reciprocidade do grafo**, nos dois sentidos.
+5. **Ciclos**, reportados com o caminho completo (`A → B → C → A`) e não com o
+   nome de um ticket.
+6. **Inversões de prioridade e de fase.**
+7. **Contagens derivadas**: a contagem e o intervalo de cada epic no §3.1, a
+   soma da coluna contra o TOTAL, o intervalo e o total do TOTAL, e os números
+   do §1. Nenhuma se copia; todas se recalculam do §4.
+8. **«Controlo de versões»** de cada documento de `specs/` e `docs/`: a
+   sequência não salta números, nenhum número aparece duas vezes, e onde o
+   cabeçalho tem campo de versão ele iguala a última linha. O buraco e o número
+   repetido são **a mesma causa vista dos dois lados** — dois ramos tomam o
+   número em paralelo; se um renumera fica o buraco, se nenhum renumerar ficam
+   duas emendas com o mesmo nome. A verificação da sequência sozinha não vê o
+   repetido, porque trabalha sobre o conjunto.
+
+   **Uma limitação declarada:** o *gate* lê a tabela, não o *diff*. Vê que a
+   tabela é coerente consigo própria e com o cabeçalho, e **não** vê «este
+   documento mudou e a tabela não acompanhou» — que é a omissão mais comum, e a
+   que o KAM-138 cometeu no `dividas-documentais.md` antes da revisão
+   adversarial a apanhar. Fechá-la exige ler o *diff* do PR, o que torna o
+   *gate* não-determinista (o mesmo *commit* passa ou falha conforme a base),
+   e é a troca que o *gate* 3 já recusou por escrito. Fica para quem tiver
+   melhor ideia.
+
+Três decisões que o tornam utilizável:
+
+- **O *gate* não decide qual dos lados está certo.** Reporta os dois valores e
+  falha. O §4 é o contrato e o bloco é a especificação; qual deles se corrige é
+  de quem escreveu o ticket, e um lint que escolhesse por omissão esconderia
+  metade dos defeitos ao «corrigi-los».
+- **Os títulos comparam-se com uma regra de normalização escrita, e uma só:**
+  colapsa-se a subida de directório (`../../docs/` ≡ `../docs/`). Um título pode
+  conter um caminho relativo, e pela convenção do KAM-128 o caminho é relativo
+  ao documento que o escreve — o §4 e um bloco de `specs/tickets/` escrevem-no
+  legitimamente com profundidades diferentes. Três títulos dependem disto hoje
+  (KAM-111, KAM-139, KAM-140). O resto — `código`, *itálico*, travessões —
+  compara-se tal como está escrito.
+- **Duas verificações nascem como aviso, com o estado conhecido declarado em
+  [`ci/backlog-allow.yaml`](../ci/backlog-allow.yaml):** as inversões e o
+  controlo de versões. O estado inicial não é limpo, e a alternativa a declará-lo
+  era não verificar nada. Uma inversão ou um documento que **não** esteja
+  declarado falha desde o primeiro dia; quando as listas esvaziarem, as duas
+  passam a falha sem ninguém mexer no código. Uma declaração que deixe de casar
+  alguma coisa **falha** (código 2), como nos irmãos.
+
+É **fail-closed sobre a própria entrada**: um epic sem §3, um bloco sem tabela de
+campos, um campo obrigatório ausente, dois blocos para o mesmo ticket ou uma
+população abaixo do mínimo escrito à mão dão código 2, não «0 divergências». Um
+lint de coerência que dê verde por não ter conseguido ler nada é o modo de falha
+que ele existe para não ter.
+
+Reutiliza o leitor do §4 do `lint_refs` (`seccao` e `LINHA_BACKLOG`, públicos
+desde este ticket): duas gramáticas para a mesma tabela era a forma garantida de
+o *gate* 3 e o 3c discordarem sobre o que é uma linha de ticket.
+
+Entra nos `needs` de `gates do KAM-002` e **não** no `main.json`, pela mesma
+razão do 3b ([lacuna 17](#7-lacunas-do-canon-que-este-ticket-encontrou)): por
+esse caminho bloqueia o *merge* na mesma, sem precisar de um *token* com
+`administration: write`.
 
 ### Gate 4 — unit e cobertura
 
@@ -1236,7 +1324,7 @@ ambos consomem este esquema em vez de inventarem o seu.
 
 | Campo | Obrigatório | Nota |
 |---|---|---|
-| `gate` | sim | **onze** aceitam: 3, **3b**, 4, 5, 6, 7, 8, 9, 11, **14** e **18**. Os outros oito não, e a recusa diz a razão **desse** gate — ver abaixo |
+| `gate` | sim | **doze** aceitam: 3, **3b**, **3c**, 4, 5, 6, 7, 8, 9, 11, **14** e **18**. Os outros **oito** não (1, 2, 10, 12, 13, 15, 16 e 17), e a recusa diz a razão **desse** gate — ver abaixo. Os vinte são os dezoito do canon mais o 3b e o 3c |
 | `alvo` | sim | o que exactamente se dispensa; nunca «tudo» |
 | `adr_ou_aprovacao` | sim | `ADR-NNN`, `ADR-LNNN` ou `aprovacao:<quem>@<data>`. **A data é lida** (KAM-135): tem de ser real, não futura, e não pode preceder o `criado_em` em mais de 30 dias |
 | `autor` | sim | a quem se pergunta |
@@ -1530,6 +1618,10 @@ resposta seria pior do que nomeá-las:
     ficheiro põe o `make ruleset` vermelho com `contexto-so-no-ficheiro`, e foi
     assim que o caso (b) desse ticket se demonstrou —, mas visível não é
     aplicado: continua a ser o fundador a acrescentá-lo no GitHub, se o quiser.
+    **O *gate* 3c (KAM-138) entrou pelo mesmo caminho e pela mesma razão**,
+    embora o seu DoD peça o contexto próprio: escrevê-lo no `main.json` sem o
+    aplicar tornaria o espelho **falso**, que é pior do que a lacuna. A caixa
+    fica por marcar nesse ticket.
 18. **Duas das doze divergências do KAM-111 não têm forma de nome** (D-07, o
     gatilho do *provisioning*; D-09, a retenção de `assistant_queries`) e o
     *gate* 3b não as vê. O critério de aceitação pede doze *fixtures*; há dez.
@@ -1816,3 +1908,4 @@ sobrevivem ao PR.
 | 1.31 | Outubro 2026 | KAM-159: o *gate* 7 ganha a **quinta** verificação — `contract_diff dominios` —, que confronta o `enum` de um contrato com o domínio canónico, nos dois sentidos. Fecha a costura que nenhum dos dois *gates* via: o dicionário e os contratos nomeavam listas de finalidades que se cruzavam numa só, e duas do canon eram impossíveis de emitir. | Equipa KAMBÁ |
 | 1.32 | Outubro 2026 | **KAM-133: a lacuna 11 fecha.** O SBOM por serviço do *gate* 11 passa a atravessar as dependências `link:` do *workspace*: o caminho mapeia-se de volta à chave do importador e a travessia continua dali, transitivamente e com visitado-é-visitado. O `services/gwy` passa de **3** para **25** componentes e o conjunto fica nos mesmos **142** — que é a prova de que o fecho completo já estava certo, e a razão por que licenças e vulnerabilidades não mudaram. **Atravessar não é copiar:** de um pacote ligado seguem-se só `dependencies` e `optionalDependencies`, não as `devDependencies`. **E excluir um grupo um nível acima não chega:** um *peer* opcional já resolvido escreve-se em `snapshots:` como uma `optionalDependencies` qualquer, e o `pg` do `bullmq` só está resolvido porque o `core-ts` o declara em `devDependencies` — a primeira versão deste ticket publicou-o, e a mais treze, em três serviços que o não têm. A travessia passou a ler os *peers* opcionais de `packages:`, e tem agora como oráculo o próprio `pnpm` (`pnpm list --prod --depth Infinity` nos sete importadores, com o `sha256` do *lockfile* a datar a medição). Decisão de desenho escrita no §3: o pacote do *workspace* entra **como componente, com `dependsOn`**, e não se promovem só os seus terceiros. Eram três formas da mesma ligação e só uma estava no enunciado: juntaram-se o importador escrito `packages/contracts: {}`, que o leitor nem registava, e o lado **Python** (`services/agr` declara `kamba-core` em `[project].dependencies`; instalação editável não existe neste repositório). | Equipa KAMBÁ |
 | 1.33 | Outubro 2026 | **KAM-137: a lacuna 15 fecha na metade da detecção**, e fecha **corrigida** — comparar não precisa de `administration: write`, precisa de `read`. Decisão do fundador de 2026-10-18, em [`ADR-L003`](adr/ADR-L003-verificacao-do-ruleset.md): só detecção, com *token* de leitura, que compara e nunca aplica. O `make ruleset` (`tools/ruleset_check`) compara os seis campos de política — as quatro regras, os sete contextos, `enforcement`, `conditions`, `name`, `target` — com `bypass_actors` **vazio**, ignora oito campos voláteis nomeados um a um, e sai **2** quando não consegue ler, nunca 0. **Corre sobre uma lista de alvos, e não sobre um repositório:** a primeira versão nomeava só o privado, e como o espelho viaja na árvore dos dois, corrida de um clone do público dizia «conforme» de dentro de um repositório sem protecção nenhuma — foi a revisão adversarial a apanhá-lo, e é o caso-tipo do §1. Agora um repositório sem *ruleset* é **1**, nomeado, e o ramo funde **vermelho** até o `albinoJimy/kamba-plataforma` ter o seu (lacuna 29). **Não é *gate* e não entra no `make ci`**: a permissão `administration` não existe no `GITHUB_TOKEN` das Actions e qualquer outro *token* seria a chave estática que o §6 proíbe; nenhum ficheiro de `.github/workflows/` foi tocado. Executados a sério: contexto acrescentado só ao ficheiro (vermelho, revertido), ficheiro e API iguais no alvo que tem *ruleset* (verde), credencial inválida nos dois transportes, sem credencial e *endpoint* inalcançável (saída 2). Os dois casos que mexem no *ruleset* do GitHub ficam para o fundador, com o procedimento escrito em [`evidencia/KAM-137.md`](evidencia/KAM-137.md) §5. Lacunas **28** e **29** novas. | Equipa KAMBÁ |
+| 1.34 | Outubro 2026 | KAM-138: entra o *gate* **3c**, coerência do backlog. O §2 ganha a linha com alvo e dono, e o §3 a secção que descreve as oito verificações — sincronia linha↔bloco nos seis campos, órfãos nos dois sentidos, a tabela-resumo do §3 de cada epic como terceira superfície, reciprocidade `Dependências`↔`Bloqueia`, ciclos com o caminho completo, inversões de prioridade e de fase, contagens derivadas do §4 e «Controlo de versões» sem buracos. O que o distingue de uma comparação de tabelas é a reciprocidade: o §4 não tem coluna `Bloqueia`, e na entrega havia **seis** arestas declaradas de um só lado, abertas pelos quatro tickets inscritos depois do KAM-144. A **lacuna 17** passa a nomear também o 3c: entra nos `needs` de `gates do KAM-002` e não no `main.json`, porque escrever no espelho o que o *ruleset* não tem tornava-o falso. | Equipa KAMBÁ |

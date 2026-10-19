@@ -12,7 +12,11 @@ import re
 from pathlib import Path
 
 #: Linha do backlog mestre: `| KAM-003 | Schema platform… |`
-_LINHA_BACKLOG = re.compile(r"^\|\s*(?P<id>KAM-[0-9]{3})\s*\|")
+#:
+#: Publico desde o KAM-138: o *gate* 3c (`tools/lint_backlog/`) le a **mesma**
+#: tabela, e duas gramaticas para o mesmo §4 era a forma garantida de os dois
+#: gates discordarem sobre o que e uma linha de ticket.
+LINHA_BACKLOG = re.compile(r"^\|\s*(?P<id>KAM-[0-9]{3})\s*\|")
 
 #: Linha da tabela de ADRs do §8, que pode ter o ID em negrito: `| **ADR-013** |`
 _LINHA_ADR = re.compile(r"^\|\s*\*{0,2}(?P<id>ADR-[0-9]{3})\*{0,2}\s*\|")
@@ -64,8 +68,12 @@ def _intervalo_d(conjunto: frozenset[str]) -> str:
     return f"D{numeros[0]}–D{numeros[-1]}"
 
 
-def _secao(texto: str, inicio: str, fim: str | None = None) -> str:
-    """Extrai uma seccao pelo cabecalho, ate ao cabecalho seguinte do mesmo nivel."""
+def seccao(texto: str, inicio: str, fim: str | None = None) -> str:
+    """Extrai uma seccao pelo cabecalho, ate ao cabecalho seguinte do mesmo nivel.
+
+    Publica desde o KAM-138, pela razao da `LINHA_BACKLOG`: o *gate* 3c recorta
+    o §4 do mesmo sitio e da mesma maneira.
+    """
     indice = texto.find(inicio)
     if indice < 0:
         raise FonteCanonicaAusente(f"seccao {inicio!r} nao encontrada")
@@ -88,18 +96,18 @@ def ler(raiz: Path) -> Conjuntos:
 
     # --- KAM: §4, backlog mestre.
     texto_backlog = backlog.read_text(encoding="utf-8")
-    secao_backlog = _secao(texto_backlog, "## 4. Backlog mestre", "\n## 5.")
+    secao_backlog = seccao(texto_backlog, "## 4. Backlog mestre", "\n## 5.")
     kam = frozenset(
         m.group("id")
         for linha in secao_backlog.split("\n")
-        if (m := _LINHA_BACKLOG.match(linha))
+        if (m := LINHA_BACKLOG.match(linha))
     )
     if not kam:
         raise FonteCanonicaAusente(f"{backlog}: §4 sem linhas de ticket")
 
     # --- ADR: §8 da arquitectura.
     texto_arq = arquitectura.read_text(encoding="utf-8")
-    secao_adr = _secao(texto_arq, "## 8. Decisões de arquitectura", "\n## 9.")
+    secao_adr = seccao(texto_arq, "## 8. Decisões de arquitectura", "\n## 9.")
     adr = frozenset(
         m.group("id") for linha in secao_adr.split("\n") if (m := _LINHA_ADR.match(linha))
     )
@@ -107,7 +115,7 @@ def ler(raiz: Path) -> Conjuntos:
         raise FonteCanonicaAusente(f"{arquitectura}: §8 sem linhas de ADR")
 
     # --- D: §13.3 da arquitectura.
-    secao_d = _secao(texto_arq, "### 13.3", "\n## 14.")
+    secao_d = seccao(texto_arq, "### 13.3", "\n## 14.")
     d = frozenset(
         m.group("id") for linha in secao_d.split("\n") if (m := _LINHA_D.match(linha))
     )

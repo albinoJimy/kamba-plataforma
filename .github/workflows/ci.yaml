@@ -112,6 +112,23 @@ jobs:
       - name: make ci-3b
         run: make ci-3b
 
+  # Gate 3c (KAM-138). Bloco proprio, pela mesma razao do 3b: compara o backlog
+  # mestre (`specs/INDICE.md` §4) com os blocos dos epics e com a tabela resumo
+  # do §3 de cada um. Como o 3 e o 3b, so biblioteca padrao do Python — nao
+  # precisa de instalacao nenhuma.
+  gate-3c-backlog:
+    name: "gate 3c — coerencia do backlog"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: make ci-3c
+        run: make ci-3c
+
   gate-4-unit:
     name: "gate 4 — unit e cobertura"
     runs-on: ubuntu-latest
@@ -330,6 +347,16 @@ jobs:
   # Resumo
   # ---------------------------------------------------------------------------
 
+  # O `gate-3c-backlog` (KAM-138) entra nos `needs` abaixo e **nao** nos
+  # `required_status_checks` de `.github/rulesets/main.json`, pela mesma razao do
+  # 3b (lacuna 17 de `docs/ci.md` §7): acrescentar um contexto ao *ruleset* e
+  # alteracao de configuracao do repositorio, que precisa de um *token* com
+  # `administration: write`. Por este caminho o gate bloqueia o merge na mesma,
+  # porque `gates do KAM-002` e que e o *required check*.
+  #
+  # O comentario fica **aqui** e nao dentro da lista: o `needs` tem de ser uma
+  # lista de nomes de job sem nada pelo meio, e ha um teste que o le assim
+  # (`supply_chain/tests/test_revisao_adversarial.py::TestM6OGateCorre`).
   gates-em-ambito:
     name: "gates do KAM-002"
     runs-on: ubuntu-latest
@@ -338,6 +365,7 @@ jobs:
       - gate-2-tipos
       - gate-3-referencias
       - gate-3b-nomes-canonicos
+      - gate-3c-backlog
       - gate-4-unit
       - gate-6-isolamento
       - gate-7-contratos
@@ -373,10 +401,11 @@ jobs:
             exit 1
           fi
           contados=$(printf '%s' "$resultados" | grep -c '"result": *"success"')
-          # Dez desde o KAM-007, que ligou o gate 7. Este numero e escrito a
-          # mao de proposito: um gate novo que entre no `needs` e nao entre
-          # aqui faz a porta falhar, e quem o acrescentou vem ler porque.
-          esperados=10
+          # Onze desde o KAM-138, que acrescentou o gate 3c; eram dez desde o
+          # KAM-007, que ligou o gate 7. Este numero e escrito a mao de
+          # proposito: um gate novo que entre no `needs` e nao entre aqui faz a
+          # porta falhar, e quem o acrescentou vem ler porque.
+          esperados=11
           if [ "$contados" -ne "$esperados" ]; then
             echo "::error::esperava $esperados gates e contei $contados"
             echo "Um gate que desapareca do \`needs\` desapareceria tambem desta"

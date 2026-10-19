@@ -80,6 +80,7 @@ O *pipeline* é **fail-closed**: qualquer gate vermelho bloqueia a progressão.
 | 2 | **Lint / format / tipos** | Estilo, imports, tipos estáticos | Merge |
 | 3 | **Lint de referências cruzadas** | Todo `KAM-NNN` citado existe no backlog; todo `ADR-NNN` e `D#` citado existe em `../docs/tecnica/00` | Merge |
 | 3b | **Lint de nomes canónicos** (KAM-111) | DDL, schemas de eventos e contratos de tools usam os nomes do dicionário | Merge |
+| 3c | **Lint de coerência do backlog** (KAM-138) | A linha do ticket em `INDICE.md` §4, o bloco `## KAM-NNN — ` e a tabela-resumo do §3 do epic dizem o mesmo; reciprocidade `Dependências`↔`Bloqueia`, sem ciclos, contagens derivadas e «Controlo de versões» sem buracos | Merge |
 | 4 | **Unit** | Testes unitários; cobertura ≥ limiar (§4.1) | Merge |
 | 5 | **Integração** | Serviços contra Postgres e Redis reais (containers) | Merge |
 | 6 | **Isolamento de tenant e contacto** | Suite cruzada: tenant A não lê B; contacto X não lê encomendas de Y; todas as tools e endpoints | Merge |
