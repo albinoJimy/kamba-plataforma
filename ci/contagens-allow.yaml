@@ -26,30 +26,25 @@ excepcoes:
       seus dez ADRs proprios e historicos. Nao e uma contagem dos ADRs
       canonicos, que vivem no §8 do `docs/tecnica/00`.
 
-  - excerto: "ainda descreve ADR-004 como «ProxyPay» e 12 ADRs"
+  - excerto: "Levanta a árvore que os 126 tickets seguintes"
     razao: >-
-      Nota de inconsistencia do `docs/tecnica/04`: cita o numero **errado** que
-      outro documento tem, para o nomear. O defeito que esta frase aponta e o do
-      `docs/tecnica/INDICE.md`, declarado abaixo como divida do KAM-130.
+      O `docs/PR-KAM-001.md` diz de si mesmo, no cabecalho, que e «a copia
+      versionada; o PR aberto tem o mesmo texto». E o registo do que aquele
+      corpo de PR afirmou, e o 126 era verdade no dia em que foi escrito.
+      Reescreve-lo para 159 falsificava o registo — que e a mesma classe de
+      defeito ao contrario: um numero de hoje num documento de ontem.
+      Decidido no KAM-130, contra a letra do seu proprio criterio C4, que
+      mandava corrigi-lo ou remete-lo; o `docs/adr/ADR-L001-toolchain.md`,
+      que **nao** e datado, passou mesmo a remeter.
 
-  - excerto: "o doc 00 (14 ADRs, facilitador por decidir) prevalece"
-    razao: >-
-      A mesma nota, a citar quantos ADRs o doc 00 tinha quando foi escrita. E uma
-      medicao datada dentro de uma nota de inconsistencia.
-
-  - excerto: "`INDICE.md` cita 12 ADRs e descreve ADR-008"
-    razao: >-
-      Nota de inconsistencia do `docs/tecnica/07`, a citar o numero errado de
-      outro documento para o nomear.
-
-  - excerto: "§5 ainda mostra 12 ADRs e o ADR-008 antigo"
-    razao: >-
-      Nota de inconsistencia do `docs/tecnica/09`, idem.
-
-  - excerto: "cita 12 ADRs (o canon tem 14"
-    razao: >-
-      Nota de inconsistencia do `docs/tecnica/10`, idem — e que registra o canon
-      de entao (14), hoje 20. As duas sao medicoes datadas.
+  # As cinco excepcoes que aqui estavam — as notas de inconsistencia do
+  # `docs/tecnica/04`, `07`, `09` e `10` que citavam «12 ADRs» e «14 ADRs»
+  # para os nomear — sairam com o **KAM-130**. Nao sairam por decisao de
+  # politica: sairam porque o defeito que elas apontavam foi pago, o
+  # `docs/tecnica/INDICE.md` passou a dizer 20, e as notas deixaram de
+  # acusar o que ja nao existe. O gate apanhou-as mortas e exigiu-o, que e
+  # o que torna esta lista auto-limpante: «uma excepcao esquecida continua
+  # a abrir uma porta que ninguem vigia».
 
   - excerto: "O backlog tinha 144 blocos quando esta linha foi escrita"
     razao: >-
@@ -113,75 +108,10 @@ excepcoes:
       depois de a documentacao ser escrita — o que e, em si, a prova de que le o
       conjunto todo.
 
-dividas:
-  - ficheiro: docs/INDICE.md
-    grandeza: ADRs
-    escrito: 18
-    ocorrencias: 1
-    origem: KAM-130
-    criado_em: 2026-10-16
-    expira_em: 2026-11-16
-    razao: >-
-      O aviso do §2 descreve o conjunto formal com «11 documentos, 18 ADRs». Sao
-      20 desde a promocao dos ADR-019 e ADR-020. E a classe C1 do KAM-130
-      (contagens herdadas), que decide tambem se o numero fica ou se passa a
-      remeter para a fonte.
-
-  - ficheiro: docs/INDICE.md
-    grandeza: ADRs
-    escrito: 10
-    ocorrencias: 1
-    origem: KAM-130
-    criado_em: 2026-10-16
-    expira_em: 2026-11-16
-    razao: >-
-      «Os 10 ADRs canonicos estao definidos em exploracao/11» — errado duas
-      vezes: sao 20 e vivem no §8 do `docs/tecnica/00`, nao na biblioteca
-      exploratoria. Classe C1 do KAM-130.
-
-  - ficheiro: docs/tecnica/INDICE.md
-    grandeza: ADRs
-    escrito: 12
-    ocorrencias: 2
-    origem: KAM-130
-    criado_em: 2026-10-16
-    expira_em: 2026-11-16
-    razao: >-
-      O §4 (descricao do doc 00) e o §5 («Os 12 ADRs canonicos estao definidos
-      no 00_Arquitectura_Solucao.md §8») ficaram nos 12 de Outubro. Sao as duas
-      ocorrencias que as notas de inconsistencia dos docs 04, 07, 09 e 10
-      apontam. Classe C2 do KAM-130.
-
-  - ficheiro: specs/00_System_Spec.md
-    grandeza: ADRs
-    escrito: 19
-    ocorrencias: 1
-    origem: KAM-130
-    criado_em: 2026-10-16
-    expira_em: 2026-11-16
-    razao: >-
-      «Os 19 ADRs canonicos (ADR-001 a ADR-019)» — contagem **e** intervalo, que
-      e exactamente o par que o KAM-130 trata. Hoje sao 20, ADR-001 a ADR-020.
-
-  - ficheiro: docs/adr/ADR-L001-toolchain.md
-    grandeza: tickets
-    escrito: 126
-    ocorrencias: 1
-    origem: KAM-130
-    criado_em: 2026-10-16
-    expira_em: 2026-11-16
-    razao: >-
-      «herdadas por 126 tickets». E a classe C4 do KAM-130, nomeada no seu
-      criterio de aceitacao, que decide entre actualizar o numero ou remeter para
-      o §1 do `specs/INDICE.md` para nao voltar a envelhecer.
-
-  - ficheiro: docs/PR-KAM-001.md
-    grandeza: tickets
-    escrito: 126
-    ocorrencias: 1
-    origem: KAM-130
-    criado_em: 2026-10-16
-    expira_em: 2026-11-16
-    razao: >-
-      «os 126 tickets seguintes». A outra metade da classe C4 do KAM-130, no
-      mesmo criterio.
+# **Zero dividas.** As seis que aqui estavam eram todas do KAM-130 — as
+# contagens de ADR herdadas no `docs/INDICE.md`, no `docs/tecnica/INDICE.md`
+# e no `specs/00_System_Spec.md` — e o KAM-130 pagou-as. Uma lista vazia aqui
+# nao e um ficheiro por preencher: e o estado em que este gate quer viver, e
+# o `lint_contagens` recusa uma divida que ja nao cobre nada precisamente
+# para a lista nao ficar a descrever um passado.
+dividas: []

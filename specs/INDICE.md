@@ -16,7 +16,7 @@ Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (F
 
 O que **não** está aqui: a Fase 2 (Clusters) e a Fase 3 (Escala). Esses epics (geo e logística, estafetas, analytics e Score, índice federado, AdsEngine, vitrine SEO, API pública, Fluxo B) só se escrevem quando o **Gate do Piloto (KAM-110)** for verde. Está declarado em §6.
 
-O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a execução. Onde um ticket depende de um facto **NÃO VERIFICADO** ou de uma **decisão aberta** (D1–D12 em `../docs/tecnica/00_Arquitectura_Solucao.md` §13.3), o ticket di-lo e tem critério de saída para essa dependência.
+O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a execução. Onde um ticket depende de um facto **NÃO VERIFICADO** ou de uma **decisão aberta** (D1–D13 em `../docs/tecnica/00_Arquitectura_Solucao.md` §13.3), o ticket di-lo e tem critério de saída para essa dependência.
 
 ---
 
@@ -331,8 +331,8 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | Versão | Data | Descrição | Autor |
 |--------|------|-----------|-------|
 | 1.0 | Outubro 2026 | Emissão inicial: 110 tickets (KAM-001 a KAM-110) em 10 epics, Fases 0 e 1. | Equipa KAMBÁ |
-| 1.2 | Outubro 2026 | ADR-020 (decisão do fundador): módulos de entrada no Piloto; EPIC-11 com KAM-118 a KAM-127; hipóteses H10–H12; D13. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | Consolidação após redacção dos epics: dependências em falta (≈ 60), prioridades e fases corrigidas, sem ciclos nem inversões; +7 tickets (KAM-111 a KAM-117); dicionário de dados canónico. | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | ADR-020 (decisão do fundador): módulos de entrada no Piloto; EPIC-11 com KAM-118 a KAM-127; hipóteses H10–H12; D13. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | KAM-128 (reorganização do conjunto documental sob `docs/`): regulariza em ticket os commits `d2dbb14` e `53189a2`, feitos sem ticket; total passa a 128 tickets em 11 epics. | Equipa KAMBÁ |
 | 1.4 | Outubro 2026 | KAM-129 (prefixo das referências a evidência em `specs/`) e KAM-130 (contagens e intervalos herdados): dois `fix` para defeitos documentais pré-existentes, identificados na varredura do KAM-128 e declarados fora do seu âmbito; total passa a 130 tickets em 11 epics. | Equipa KAMBÁ |
 | 1.5 | Outubro 2026 | KAM-131 a KAM-137: as lacunas 9 a 15 de `../docs/ci.md` §7, registadas pela revisão adversarial do KAM-002 como trabalho com medição própria, passam a tickets do EPIC-01 (seis `fix`, um `chore`). O KAM-131 (gate 9 sobre a história do PR) é o único P1 e o único de Fase 0; o KAM-134 bloqueia o KAM-135. Total passa a 137 tickets em 11 epics. | Equipa KAMBÁ |
@@ -353,3 +353,4 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.20 | Outubro 2026 | KAM-156, KAM-157 e KAM-158 acrescentados: a cópia pública do repositório (entregue, e sem ticket até agora), o canário do *gate* 9 contra a protecção de *push* do GitHub (decisão do fundador em aberto) e o *gate* das contagens declaradas em prosa, que fecha a classe de defeito das dívidas ~~19~~, 26 e 30. Total: 158 tickets. | Equipa KAMBÁ |
 | 1.21 | Outubro 2026 | KAM-158 entregue: o *gate* 3 ganha o terceiro passo, `lint_contagens`. A classe «contagem em prosa que não acompanha» passa a ser recusada por máquina; a dívida 30 fica paga e o `specs/EPIC-03`, que dizia 16 tickets e tem 17, foi apanhado pelo próprio *gate*. | Equipa KAMBÁ |
 | 1.22 | Outubro 2026 | **KAM-159** acrescentado pelo KAM-140, cujo critério 1 manda devolver o que for do dicionário em vez de o decidir de passagem: o `specs/02` §3.1 e os **38** contratos de evento já fundidos em `main` nomeiam taxonomias de finalidade de consentimento que se cruzam numa só — `marketing` —, e duas finalidades do canon (`partilha_estafeta`, `notificacao_dono`) são hoje **impossíveis de emitir**, porque o `enum` dos contratos é fechado. Nenhum gate compara as duas superfícies, e o ticket fecha isso. Total: 159 tickets. | Equipa KAMBÁ |
+| 1.23 | Outubro 2026 | KAM-130: decisões abertas `D1–D13`; e a tabela de versões passa a estar por ordem crescente — tinha a 1.2 antes da 1.1 desde que a 1.2 foi escrita. | Equipa KAMBÁ |

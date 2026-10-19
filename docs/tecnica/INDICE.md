@@ -39,7 +39,7 @@ arquitectural e de conformidade (APD/BNA/AGT).
 
 | Nº | Documento | Foco | Fontes de exploração | Ficheiro |
 |----|-----------|------|----------------------|----------|
-| 00 | **Arquitectura da Solução** | Âncora: camadas; fluxo dual; catálogo de componentes; 12 ADRs; NFRs; vista de qualidade; maturidade | 13, 10, 11, 12, 01–03 (contexto) | [00_Arquitectura_Solucao.md](00_Arquitectura_Solucao.md) |
+| 00 | **Arquitectura da Solução** | Âncora: camadas; fluxo dual; catálogo de componentes; 20 ADRs; NFRs; vista de qualidade; maturidade | 13, 10, 11, 12, 01–03 (contexto) | [00_Arquitectura_Solucao.md](00_Arquitectura_Solucao.md) |
 | 01 | **Canais WhatsApp e Fluxo Dual** | Cloud API + coexistência; WABA plataforma vs PME; ChannelResolver; Chatwoot HITL; Typebot; quality rating | 05, 08, 12, 07 (ponto 3) | [01_Canais_WhatsApp_Fluxo_Dual.md](01_Canais_WhatsApp_Fluxo_Dual.md) |
 | 02 | **Agent Runtime e Verticais** | LangGraph como serviço; AgentRegistry; grafos por módulo; guardrails; validador de citação; handoff; pipeline de voz | 08, 10, 11, 02 (módulos) | [02_Agent_Runtime_Verticais.md](02_Agent_Runtime_Verticais.md) |
 | 03 | **Core de Comércio (Medusa)** | Medusa v2+Mercur; encomendas; reserva de inventário 72h; pipeline Catálogo AI; reviews por order_id | 05, 08, 11, 06 (reputação) | [03_Core_Comercio_Medusa.md](03_Core_Comercio_Medusa.md) |
@@ -164,7 +164,7 @@ supersessão explícito. O documento `../exploracao/09` (arquitectura v1) está 
 
 ## 5. Decisões de arquitectura (ADRs) — síntese
 
-Os 12 ADRs canónicos estão definidos no [00_Arquitectura_Solucao.md](00_Arquitectura_Solucao.md) §8
+Os 20 ADRs canónicos estão definidos no [00_Arquitectura_Solucao.md](00_Arquitectura_Solucao.md) §8
 e referenciados por código ao longo de todos os documentos.
 
 | ADR | Decisão | Estado | Doc principal |
@@ -181,6 +181,14 @@ e referenciados por código ao longo de todos os documentos.
 | ADR-010 | PII minimizada (msisdn HMAC); consentimento no 1º contacto (Lei 22/11) | Ratificado | 08 |
 | ADR-011 | Fluxo dual de canais (número da plataforma e/ou da PME) | Ratificado | 01 |
 | ADR-012 | Verticais como configuração sobre o core | Ratificado | 02, 10 |
+| ADR-013 | Pagamento só por evento autenticado do facilitador; `ManualProvider` com confirmação humana auditada e limite por pedido no arranque | Ratificado | 04 |
+| ADR-014 | *Object storage* atrás de `StorageProvider`; MinIO excluído, SeaweedFS ou S3 gerido | Ratificado | 09, 11 |
+| ADR-015 | Isolamento de tenant em profundidade: `tenant_id` do estado **e** RLS `FORCE`; tools `read`/`write`/`money` | Ratificado | 08 |
+| ADR-016 | Sem COD em numerário via estafeta; o estafeta nunca recebe nem transporta fundos de terceiros | Ratificado | 07 |
+| ADR-017 | Comissões só após a 1.ª venda paga por evento autenticado, com *clawback*; no Piloto a receita é a assinatura | Ratificado | 04, 10 |
+| ADR-018 | Observabilidade leve no Piloto: métricas próprias, logs sem conteúdo, custo por tenant via LiteLLM | Ratificado | 09 |
+| ADR-019 | Onboarding da PME self-service e automático no Piloto | Ratificado | 10 |
+| ADR-020 | Módulos de entrada no Piloto, até quatro, *owner-facing* e com o dono no circuito | Ratificado | 02, 11 |
 
 \* **Ratificado com dependência de validação:** ADR-001 depende da elegibilidade da coexistência
 em Angola (V2) e ADR-004 depende do onboarding ProxyPay/banco (V6) — ver §5.1.
@@ -231,6 +239,7 @@ prevê ranking sem preço).
 | 1.1 | Outubro 2026 | Análise adversarial aplicada: fonte alargada a todo o conjunto de exploração (matriz §2.1); estados de ratificação V1–V8 (§5.1); regra de precedência; remediação P1 planeada (Contratos, Conformidade, RTM); nome de marca marcado como provisório. | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | **Validação adversarial das specs** (`../analises/ANALISE-01-validacao-adversarial-specs.md`): 24 achados (6 P0, 9 P1, 9 P2). Gate: nenhum ticket `specs/` antes da remediação dos 6 P0. Estados ADR-001/004/005 reclassificados como dependentes de validação. | Auditoria interna |
 | 1.3 | Outubro 2026 | KAM-128: conjunto movido para `docs/tecnica/`; referências a irmãos passam a nuas (`NN_…`), as da biblioteca a `../exploracao/NN-…`; `specs/` deixa de constar como «a criar» (§6). | Equipa KAMBÁ |
+| 1.4 | Outubro 2026 | KAM-130: **20** ADRs canónicos nas duas afirmações do documento (§ do catálogo e §5). Diziam doze, de quando eram doze. | Equipa KAMBÁ |
 
 ---
 

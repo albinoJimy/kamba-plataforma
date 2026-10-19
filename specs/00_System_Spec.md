@@ -174,7 +174,7 @@ Maturidade técnica (`../docs/tecnica/00` §13.1): K0 demo → K1 esqueleto anda
 
 ## 11. ADRs em vigor
 
-Os 19 ADRs canónicos (ADR-001 a ADR-019) estão em `../docs/tecnica/00_Arquitectura_Solucao.md` §8; o seu estado (FIXA, CONDICIONAL) está em `00_KAMBA_Carta.md` §4.1. As decisões abertas D1–D12 estão em `../docs/tecnica/00` §13.3 e `00_KAMBA_Carta.md` §4.2.
+Os 20 ADRs canónicos (ADR-001 a ADR-020) estão em `../docs/tecnica/00_Arquitectura_Solucao.md` §8; o seu estado (FIXA, CONDICIONAL) está em `00_KAMBA_Carta.md` §4.1. As decisões abertas D1–D13 estão em `../docs/tecnica/00` §13.3 e `00_KAMBA_Carta.md` §4.2.
 
 ## 12. Riscos top-level
 
@@ -235,3 +235,4 @@ Os 19 ADRs canónicos (ADR-001 a ADR-019) estão em `../docs/tecnica/00_Arquitec
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial | Equipa KAMBÁ |
+| 1.1 | Outubro 2026 | KAM-130: **20** ADRs canónicos (ADR-001 a ADR-020) e decisões abertas `D1–D13`. A mesma linha afirmava dezanove e doze; os dois números foram contados na fonte (`../docs/tecnica/00` §8 e §13.3) e não copiados de outro índice, que é como o defeito se propagou. | Equipa KAMBÁ |
