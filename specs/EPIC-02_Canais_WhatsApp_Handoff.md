@@ -372,7 +372,7 @@ Implementar o CHR: `resolve(phone_number_id) → ChannelContext`, a tabela de es
 
 ### Verificação dos Critérios de Aceitação
 
-Entregue no PR `albinoJimy/kamba-plataforma#PR`, ramo
+Entregue no PR `albinoJimy/kamba-plataforma#30`, ramo
 `feature/KAM-014-chr-channelresolver`.
 **Onze caixas marcadas, cinco vazias** (16 = 11 + 5) — cada uma com uma linha
 aqui. Os números são os do *run* do CI e reproduzem-se com `make ci-3b`,
