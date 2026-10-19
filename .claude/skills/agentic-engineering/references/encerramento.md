@@ -1,10 +1,12 @@
 # Integração, auditoria e relatório final
 
-Lê este ficheiro quando estiveres a integrar, a auditar completude, ou a escrever o relatório
-final.
+Lê este ficheiro quando estiveres a integrar, a auditar completude, a escrever o relatório
+final, ou a limpar depois de um merge.
 
 - [Auditoria do changeset](#auditoria-do-changeset)
 - [Portão de integração](#portão-de-integração)
+- [Como saber que um ramo fundiu](#como-saber-que-um-ramo-fundiu)
+- [Limpeza depois do merge](#limpeza-depois-do-merge)
 - [Auditoria de completude](#auditoria-de-completude)
 - [Quality gate](#quality-gate)
 - [Auditoria final](#auditoria-final)
@@ -73,6 +75,81 @@ Limitação conhecida é para o que se decidiu não fazer; não é destino para 
 E **uma caixa marcada sem evidência não passa este portão tão-pouco**. É o inverso do mesmo
 defeito: em vez de declarar como falha o que foi decisão, declara como feito o que não foi
 medido. Os dois acabam no mesmo sítio — um DoD em que ninguém confia.
+
+---
+
+## Como saber que um ramo fundiu
+
+Esta secção existe porque o `git` **não** responde a esta pergunta neste repositório, e responde
+com confiança a coisa errada. Medido a 2026-10-19, no encerramento do KAM-013.
+
+**Duas propriedades do repositório tornam o `git` enganador aqui:**
+
+1. **A `main` funde por *squash*.** O título é `KAM-NNN — <título> (#N)`. Logo
+   `git merge-base --is-ancestor <ramo> publico/main` responde **«não fundido» sempre**, mesmo
+   para um ramo que acabou de fundir — os commits individuais não são antepassados do *squash*. O
+   meu ramo do KAM-013, minutos depois de fundir, mostrava quatro commits «fora da `main`».
+2. **Há dois remotos, e as histórias deles não têm antepassado comum.** `publico`
+   (`albinoJimy/kamba-plataforma`) é o activo; `origin` (`albinoJimy/kamba`) é a linha antiga, com
+   numeração de PR própria e uma `main` divergente. Para um ramo da linha do `origin`,
+   `git merge-base <ramo> publico/main` **falha** — código 1, sem saída.
+
+**E é a segunda que arma a ratoeira.** Um comando que capture a saída do `merge-base` sem
+verificar o código de saída fica com a variável vazia, e um `git diff --name-only "" <ramo>`
+devolve **zero linhas** — que se lê como «este ramo não tem nada que a `main` não tenha». Foi
+exactamente o que eu li, para sete *worktrees*, e cada um guardava entre 164 e 254 commits que a
+`publico/main` não contém. A um passo de os apagar.
+
+**A prova é o estado do PR, e vem do GitHub:**
+
+```bash
+gh pr list --repo albinoJimy/kamba-plataforma --head <ramo> --state all   --json number,state,mergedAt
+```
+
+| Resposta | Leitura |
+|---|---|
+| `MERGED` com `mergedAt` | **O trabalho está na `main`.** O ramo local e o *worktree* podem ir |
+| `CLOSED` | **Não fundiu.** Fechado sem merge — e um ticket fechado com o mesmo número não é prova de que *este* ramo aterrou |
+| `OPEN` | É a cópia de trabalho de um PR vivo. **Não se toca** |
+| `[]` | Não há PR nesse repositório. **Pergunta ao outro remoto** antes de concluir |
+
+Duas confirmações baratas que acompanham a resposta `MERGED`: o ramo remoto deixou de existir
+(`git ls-remote --heads publico <ramo>` devolve vazio, porque o merge apaga-o) e o conteúdo é
+igual (`git diff --stat HEAD publico/main` vazio, quando o ramo está em dia com a `main`).
+
+---
+
+## Limpeza depois do merge
+
+Pela ordem, e com a razão de cada passo:
+
+```text
+[ ] PR fundido, confirmado pelo GitHub (acima) e não pelo `git`
+[ ] Ramo remoto apagado (o `gh pr merge --delete-branch` fá-lo)
+[ ] `main` do checkout principal em dia: `git pull --ff-only publico main`
+[ ] Ramo local apagado
+[ ] Worktree removido
+[ ] Contentores e redes órfãos removidos
+[ ] Registos temporários da sessão apagados
+```
+
+Quatro coisas que esta limpeza ensinou:
+
+- **O `git worktree remove` falha em Windows** com «Function not implemented», pelas ligações
+  simbólicas dentro do `node_modules`. O registo é limpo e a pasta fica: remove-se com
+  `Remove-Item -Recurse -Force` e, se isso falhar num caminho longo, com `rmdir /s /q`. Confirma
+  com `Test-Path` — não assumas pelo código de saída.
+- **Os contentores de uma suite que abortou no `setUpClass` ficam vivos.** Encontrei um
+  `kamba-gwy-*` de pé há duas horas, e uma rede `kamba-eventos-*` órfã. Procura-os por
+  `docker ps -a --filter "name=kamba"` e `docker network ls --filter "name=kamba"`.
+- **Apaga só o que esta sessão criou.** O `%TEMP%` tinha 5 658 pastas `kamba-*` de outras
+  sessões, de outros dias, ao lado dos 63 ficheiros de registo meus. Filtra por data **e** por
+  padrão, e não por prefixo.
+- **Um *worktree* de outra sessão não é teu para apagar.** Um `locked` foi bloqueado por alguém
+  com uma razão que tu não vês, e um ramo com PR **aberto** é a cópia de trabalho de alguém. A
+  ferramenta da app (`clean_up_worktrees`) respeita isso, mas a janela mínima dela é **30 dias de
+  inactividade**: para o trabalho desta semana ela não faz nada, e dizê-lo é melhor do que a
+  chamar e parecer que fez.
 
 ---
 
