@@ -55,6 +55,7 @@ from kamba_core.ten import (
     HTTP_ENTITLEMENT,
     HTTP_LIMITE,
     HTTP_TECTO,
+    MARCA_DO_TECTO_ILEGIVEL,
     MAXIMO_DE_ENTRADAS,
     MAXIMO_DE_SERIES,
     METRICA_ENTITLEMENT_NEGADO,
@@ -69,6 +70,7 @@ from kamba_core.ten import (
     SQL_PERIODO,
     SQL_TECTO,
     SQLSTATE_CONFLITO_DE_IDEMPOTENCIA,
+    SQLSTATE_LIMITE_ILEGIVEL,
     TTL_POR_OMISSAO_MS,
     CacheDeEntitlements,
     ChaveDeEspecieErrada,
@@ -79,6 +81,7 @@ from kamba_core.ten import (
     ErroDeTool,
     EstadoDesconhecido,
     EtiquetaInvalida,
+    LimiteIlegivel,
     MetricasDoTen,
     NomeInvalido,
     QuantidadeInvalida,
@@ -829,6 +832,112 @@ class TestSqlstateEConflito(unittest.TestCase):
 
     def test_o_nome_do_sqlstate_e_o_da_0007(self) -> None:
         self.assertEqual(SQLSTATE_CONFLITO_DE_IDEMPOTENCIA, "KA002")
+        self.assertEqual(SQLSTATE_LIMITE_ILEGIVEL, "22023")
+
+
+def _base_que_levanta(estado: str, mensagem: str = "da base"):
+    """Uma base que levanta um erro de controlador com um `SQLSTATE`."""
+
+    class BaseQueLevanta:
+        def executar(self, sql, parametros=()):
+            erro = RuntimeError(mensagem)
+            erro.sqlstate = estado  # type: ignore[attr-defined]
+            raise erro
+
+    return BaseQueLevanta()
+
+
+class TestLimiteIlegivel(unittest.TestCase):
+    """O `22023` da `ten_tecto`: um dado corrompido nao e «nao cabe».
+
+    A `platform.ten_tecto` recusa-se a adivinhar um `limites` que nao seja um
+    inteiro nao negativo, e levanta em vez de ignorar a linha — ignora-la
+    tirava um modulo do minimo, e o minimo de menos modulos e **maior**.
+    Deste lado, le-lo como recusa de tecto diria ao tenant que o pedido dele e
+    grande demais quando o que ha e um dado por corrigir.
+    """
+
+    MENSAGEM = (
+        "ten_tecto: a chave manual_max_minor tem um limite que nao e um "
+        "inteiro em entitlements"
+    )
+
+    def test_o_22023_no_tecto_vira_limite_ilegivel(self) -> None:
+        with self.assertRaises(LimiteIlegivel) as apanhado:
+            check_ceiling(
+                _base_que_levanta("22023", self.MENSAGEM), A, "manual_max_minor", 1
+            )
+        self.assertIsInstance(apanhado.exception.__cause__, RuntimeError)
+
+    def test_nao_e_recusa_e_nao_conta_como_limite_negado(self) -> None:
+        """Um limite ilegivel **nao** e um `ten_limit_denied_total`."""
+        metricas = MetricasDoTen()
+        with self.assertRaises(LimiteIlegivel):
+            check_ceiling(
+                _base_que_levanta("22023", self.MENSAGEM),
+                A,
+                "manual_max_minor",
+                1,
+                modulo="vendedor",
+                metricas=metricas,
+            )
+        self.assertEqual(metricas.ler(), {})
+
+    def test_no_tecto_traduz_sem_olhar_para_a_mensagem(self) -> None:
+        """O `SQL_TECTO` nao passa instante: o `22023` so pode ser este."""
+        with self.assertRaises(LimiteIlegivel):
+            check_ceiling(
+                _base_que_levanta("22023", "outra mensagem qualquer"),
+                A,
+                "manual_max_minor",
+                1,
+            )
+
+    def test_no_consumo_traduz_so_o_que_a_mensagem_nomeia(self) -> None:
+        """A `ten_consumir` usa o mesmo `22023` na guarda de `p_agora`.
+
+        Um instante absurdo **nao** e um limite ilegivel, e dizer que e seria
+        inventar uma causa. Distingue-se pela mensagem, que e o unico sinal
+        que ha; e quando nao se reconhece, o erro original sobe inalterado.
+        """
+        with self.assertRaises(LimiteIlegivel):
+            consume_limit(
+                _base_que_levanta("22023", self.MENSAGEM), A, "msgs_ai_mes", 1, "k"
+            )
+        with self.assertRaises(RuntimeError) as apanhado:
+            consume_limit(
+                _base_que_levanta("22023", "ten_consumir: instante fora da janela"),
+                A,
+                "msgs_ai_mes",
+                1,
+                "k",
+            )
+        self.assertNotIsInstance(apanhado.exception, LimiteIlegivel)
+
+    def test_no_tecto_o_que_nao_e_22023_sobe_como_veio(self) -> None:
+        """Traduzir de mais era disfarcar um erro que nao se percebeu."""
+        for estado in ("23514", "KA002", "40001"):
+            with self.subTest(sqlstate=estado), self.assertRaises(RuntimeError) as a:
+                check_ceiling(
+                    _base_que_levanta(estado), A, "manual_max_minor", 1
+                )
+            self.assertNotIsInstance(a.exception, LimiteIlegivel)
+            self.assertEqual(str(a.exception), "da base")
+
+    def test_a_mensagem_nao_repete_o_valor_guardado(self) -> None:
+        """`OBS-I`: um limite e um numero de negocio e nao vai para o registo."""
+        with self.assertRaises(LimiteIlegivel) as apanhado:
+            check_ceiling(
+                _base_que_levanta("22023", self.MENSAGEM), A, "manual_max_minor", 1
+            )
+        texto = str(apanhado.exception)
+        self.assertNotIn("manual_max_minor", texto)
+        self.assertIn("22023", texto)
+
+    def test_nao_e_uma_resposta_ilegivel(self) -> None:
+        """Formas diferentes, erros diferentes: um e a resposta, outro o dado."""
+        self.assertFalse(issubclass(LimiteIlegivel, RespostaIlegivel))
+        self.assertFalse(issubclass(RespostaIlegivel, LimiteIlegivel))
 
 
 class TestTenantGate(unittest.TestCase):
@@ -1518,22 +1627,48 @@ class TestParidadeDoTypeScript(unittest.TestCase):
         ):
             self.assertIn("posicional", fonte)
 
-    def test_o_sql_do_tecto_le_o_mesmo_minimo_que_a_0007(self) -> None:
-        """A regra do tecto e a da revisao, escrita do mesmo modo.
+    def test_o_sql_do_tecto_e_so_uma_chamada(self) -> None:
+        """A regra do tecto **nao** esta aqui: esta na `platform.ten_tecto`.
 
-        Nao se compara texto com texto — a `0007` usa `p_chave` e nomes de
-        variaveis —, compara-se **a regra**: `min` sobre `limites ->> chave`,
-        nos entitlements `ativo` do tenant.
+        A primeira versao desta constante trazia o `min((limites ->>
+        chave)::bigint)` para a biblioteca, e era a unica consulta do ficheiro
+        a infringir o argumento da docstring — duas copias da mesma regra, e a
+        segunda a divergir no dia em que a primeira mudasse. Hoje a regra e
+        uma funcao da revisao, que a `ten_consumir` tambem chama.
         """
-        revisao = REVISAO.read_text(encoding="utf-8")
-        self.assertIn("min((e.limites ->> p_chave)::bigint)", revisao)
-        self.assertIn("min((limites ->> %s)::bigint)", SQL_TECTO)
-        self.assertIn("platform.entitlements", SQL_TECTO)
-        self.assertIn("AND ativo", SQL_TECTO)
+        self.assertIn("platform.ten_tecto(%s, %s)", SQL_TECTO)
+        # Nem o minimo, nem a tabela, nem o filtro: nada disso e desta
+        # biblioteca.
+        for fora in ("min(", "limites", "platform.entitlements", "ativo"):
+            with self.subTest(fora=fora):
+                self.assertNotIn(fora, SQL_TECTO)
         # E nao escreve: nem `INSERT`, nem `UPDATE`, nem `ten_consumir`.
         for proibido in ("INSERT", "UPDATE", "DELETE", "ten_consumir", "tenant_usage"):
             with self.subTest(proibido=proibido):
                 self.assertNotIn(proibido, SQL_TECTO)
+
+    def test_a_funcao_do_tecto_existe_na_revisao(self) -> None:
+        """A `ten_tecto` tem de estar na `0007`, como as outras duas.
+
+        **Este teste arma-se sozinho.** A funcao nasce na metade da revisao
+        desta mesma correccao; enquanto o ramo nao a tiver, salta com a razao
+        escrita, e passa a correr a serio no instante em que as duas metades
+        se juntarem. Um `skip` que diz o que falta e preferivel a uma
+        asserciao que falha por uma razao que nao e um defeito.
+        """
+        revisao = REVISAO.read_text(encoding="utf-8")
+        if "ten_tecto" not in revisao:
+            self.skipTest(
+                "a `platform.ten_tecto` ainda nao esta na revisao `0007` deste "
+                "ramo: vem na metade da revisao. O `SQL_TECTO` ja a chama, e "
+                "este teste confronta-a assim que ela chegar."
+            )
+        self.assertIn("CREATE FUNCTION platform.ten_tecto(", revisao)
+        # E a `ten_consumir` passou a chama-la, que e o que faz da regra uma
+        # so. Se alguem voltar a escrever o `min` dentro da `ten_consumir`,
+        # ha outra vez duas copias e isto cai.
+        self.assertIn("platform.ten_tecto(p_tenant, p_chave)", revisao)
+        self.assertNotIn("min((e.limites ->> p_chave)::bigint)", revisao)
 
     @staticmethod
     def _so_codigo_py(fonte: str) -> str:
@@ -1821,6 +1956,37 @@ class TestParidadeDoTypeScript(unittest.TestCase):
             ),
             SQLSTATE_CONFLITO_DE_IDEMPOTENCIA,
         )
+
+    def test_o_sqlstate_do_tecto_e_a_marca_sao_os_mesmos(self) -> None:
+        """O `22023` e a palavra que o distingue da guarda de `p_agora`.
+
+        Se um dos lados mudar a marca e o outro nao, um deles passa a
+        traduzir o que o outro relanca — e o mesmo defeito de dados dava erros
+        diferentes consoante a linguagem.
+        """
+        self.assertEqual(
+            self._const_do_typescript(self.entitlements, "SQLSTATE_LIMITE_ILEGIVEL"),
+            SQLSTATE_LIMITE_ILEGIVEL,
+        )
+        self.assertEqual(
+            self._const_do_typescript(self.entitlements, "MARCA_DO_TECTO_ILEGIVEL"),
+            MARCA_DO_TECTO_ILEGIVEL,
+        )
+        # E a marca e o nome da funcao da revisao, e nao uma palavra solta: e
+        # o que liga esta traducao ao contrato da `0007`.
+        self.assertEqual(MARCA_DO_TECTO_ILEGIVEL, "ten_tecto")
+        self.assertIn(MARCA_DO_TECTO_ILEGIVEL, SQL_TECTO)
+
+    def test_os_dois_lados_traduzem_os_mesmos_dois_estados(self) -> None:
+        """E so esses dois: o resto sobe inalterado, dos dois lados."""
+        py = (
+            RAIZ / "libs" / "py-core" / "src" / "kamba_core" / "ten" / "entitlements.py"
+        ).read_text(encoding="utf-8")
+        for nome, fonte in (("ts", self.entitlements), ("py", py)):
+            with self.subTest(lado=nome):
+                self.assertIn("MARCA_DO_TECTO_ILEGIVEL", fonte)
+                self.assertIn("SQLSTATE_LIMITE_ILEGIVEL", fonte)
+                self.assertIn("SQLSTATE_CONFLITO_DE_IDEMPOTENCIA", fonte)
 
     def test_o_estado_http_do_tecto_e_o_mesmo_dos_dois_lados(self) -> None:
         """`403` e nao `429`: um tecto por pedido nao reabre no mes seguinte."""

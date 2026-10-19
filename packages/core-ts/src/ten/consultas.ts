@@ -21,9 +21,10 @@
  * sitio (o comentario da `0007` di-lo por extenso), e uma terceira copia dele
  * em TypeScript era a quarta a divergir no dia em que uma mudasse.
  *
- * A excepcao declarada e o `SQL_TECTO`, e esta anotada no proprio sitio: a
- * leitura do tecto e **SQL**, com o mesmo `min(...)` da `0007`, e nao um
- * minimo recalculado em JavaScript sobre linhas trazidas para a memoria.
+ * **Sem excepcoes, e ja esteve com uma.** A primeira versao do `SQL_TECTO`
+ * escrevia aqui o `min(...)` sobre `limites`, e era a segunda copia de uma
+ * regra que a `ten_consumir` ja tinha. Hoje o minimo e `platform.ten_tecto`
+ * da revisao `0007`, chamada pelos dois.
  *
  * ## O `coalesce(..., now())` nao e enfeite
  *
@@ -45,7 +46,9 @@
  * Python, em silencio. Por isso os numeros aqui sao sempre ascendentes na
  * ordem de leitura — e e por isso que o `SQL_ENTITLEMENT` filtra o tenant numa
  * subconsulta em vez de o filtrar no `WHERE` final, que o poria depois do
- * `modulo` do `JOIN`.
+ * `modulo` do `JOIN`. Pela mesma razao, **cada marcador aparece uma unica
+ * vez**: um `$2` repetido vira duas ocorrencias de `%s` na DB-API, e o espelho
+ * passaria a precisar de mais um argumento para dizer o mesmo.
  *
  * **Tudo parametrizado.** A biblioteca corre como `kamba_app`, sujeita a RLS,
  * mas a ToolLayer tambem a pode chamar de um processo de retaguarda; uma
@@ -142,46 +145,38 @@ export const SQL_CONSUMIR = `
  *
  * A pergunta de um tecto por pedido e «este valor cabe?», e nao «quanto ja
  * gastei»: nao ha contador, nao ha periodo e nao se escreve linha nenhuma. E
- * por isso que esta e uma consulta separada e nao uma chamada a `ten_consumir`
+ * por isso que ha uma funcao so para isto, e nao uma chamada a `ten_consumir`
  * com quantidade zero — a `0007` recusa quantidade nao positiva, e com
  * quantidade positiva escreveria.
  *
- * **A regra do minimo e a da `0007`, escrita do mesmo modo.** O tecto e
- * `min((e.limites ->> chave)::bigint)` sobre os entitlements **activos** do
- * tenant que **declaram** a chave: e a regra que o dicionario §3.2 escreve
- * para o par `valor_max_pedido_minor`/`manual_max_minor`, aplicada ao caso
- * geral. Esta e a unica aritmetica deste ficheiro, e esta em SQL de proposito:
- * trazer as linhas para a memoria e fazer o minimo em JavaScript era a segunda
- * implementacao da regra, que e o que este modulo inteiro existe para evitar.
+ * **A regra do minimo vive na revisao, como todas as outras.** A primeira
+ * versao desta constante trazia o `min((limites ->> chave)::bigint)` para
+ * aqui, e era a unica consulta deste ficheiro a infringir o argumento do
+ * cabecalho: duas copias da mesma regra, e a segunda a divergir no dia em que
+ * a primeira mudasse. A `0007` passou a ter `platform.ten_tecto(p_tenant,
+ * p_chave)`, que a propria `ten_consumir` chama, e esta consulta e so a
+ * chamada. **A frase «a aritmetica nao esta aqui» deixou de ter excepcoes.**
  *
- * **Zero linhas que declarem a chave da `tecto = NULL`, e `NULL` nega.** O
- * agregado devolve sempre uma linha, e o `min` de um conjunto vazio e `NULL`:
- * e a mesma falha fechada do criterio 2 e da `0007`, «sem tecto» nao quer
- * dizer «sem limite». A RLS de `platform.entitlements` faz o mesmo acontecer
- * quando o contexto da transaccao e de outro tenant.
+ * O contrato da funcao, que e o que esta consulta herda:
  *
- * O `WITH` nao e estilo: com o `min(...)` no `SELECT` de topo, o `$2` aparecia
- * no texto **antes** do `$1`, e o espelho em Python e posicional. Filtrar o
- * tenant primeiro e o que mantem os numeros ascendentes na ordem de leitura —
- * o mesmo motivo da subconsulta do `SQL_ENTITLEMENT`.
+ * * devolve o **minimo** entre os modulos activos que declaram a chave — a
+ *   regra que o dicionario §3.2 escreve para o par
+ *   `valor_max_pedido_minor`/`manual_max_minor`, aplicada ao caso geral;
+ * * devolve **`NULL`** quando nenhum modulo activo a declara, e `NULL`
+ *   **nega** (falha fechada do criterio 2: «sem tecto» nao quer dizer «sem
+ *   limite»). A RLS poe o mesmo a acontecer quando o contexto da transaccao e
+ *   de outro tenant — vazio, e nao erro;
+ * * **levanta `22023`** quando um modulo activo declara a chave com um valor
+ *   que nao e um inteiro nao negativo. Nao ignora a linha ilegivel, e a razao
+ *   e aritmetica: ignora-la tirava um modulo do minimo, e o minimo de menos
+ *   modulos e **maior** — um dado corrompido alargava o tecto. Quem le esta
+ *   consulta traduz esse `22023`; ver `checkCeiling`.
  *
- * **Sem o `WHERE limites ? chave` da `0007`, e de proposito.** Uma linha que
- * nao declare a chave da `limites ->> chave` igual a `NULL`, e o `min` ignora
- * `NULL`: o resultado e o mesmo com filtro e sem ele. Sem ele, cada marcador
- * aparece **uma** vez — e a repeticao de um `$2` em PostgreSQL vira duas
- * ocorrencias de `%s` na DB-API, que e posicional: o espelho em Python
- * passaria a precisar de tres argumentos para dizer a mesma coisa, e o par de
- * consultas deixava de ter a mesma lista.
+ * E `SECURITY INVOKER`, como as outras duas: a RLS de `platform.entitlements`
+ * continua a aplicar-se a quem chama.
  *
  * Parametros: `$1` o tenant, `$2` a chave de limite.
  */
 export const SQL_TECTO = `
-  WITH activos AS (
-    SELECT limites
-      FROM platform.entitlements
-     WHERE tenant_id = $1
-       AND ativo
-  )
-  SELECT min((limites ->> $2)::bigint) AS tecto
-    FROM activos
+  SELECT platform.ten_tecto($1, $2) AS tecto
 `;

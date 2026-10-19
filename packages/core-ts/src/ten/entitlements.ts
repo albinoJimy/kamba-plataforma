@@ -148,6 +148,30 @@ export const NOME_CANONICO = /^[a-z][a-z0-9_]{1,62}$/;
  */
 export const SQLSTATE_CONFLITO_DE_IDEMPOTENCIA = "KA002";
 
+/**
+ * O `SQLSTATE` da `platform.ten_tecto` quando um modulo **activo** declara a
+ * chave com um valor que nao e um inteiro nao negativo.
+ *
+ * `22023` e `invalid_parameter_value`, e **nao e so desta causa**: a `0007`
+ * usa o mesmo estado na guarda de `p_agora` da `ten_consumir`. E por isso que
+ * a traducao nao pode ser igual nos dois caminhos — ver `conflitoOuTecto`.
+ */
+export const SQLSTATE_LIMITE_ILEGIVEL = "22023";
+
+/**
+ * O que distingue as duas causas do `22023`: a mensagem da `ten_tecto` comeca
+ * por `ten_tecto: a chave % tem um limite que nao e um inteiro em
+ * entitlements`, e a da guarda do instante nao a nomeia.
+ *
+ * Ler a mensagem e fragil e sabe-se — mas a alternativa era pior: ou nao
+ * traduzir nada no caminho do consumo (e entao a mesma linha corrompida dava
+ * erros diferentes consoante a funcao que a encontrasse), ou traduzir tudo (e
+ * entao um `p_agora` absurdo saia como «limite ilegivel», que e falso). O
+ * reconhecimento falha **para o lado seguro**: se a mensagem mudar, o erro
+ * original sobe inalterado e ninguem fica a saber menos do que sabia.
+ */
+export const MARCA_DO_TECTO_ILEGIVEL = "ten_tecto";
+
 /** As tres especies de chave do `registry/entitlement_keys.schema.json`. */
 export const CATEGORIA_CONTADOR = "contador_por_periodo";
 /** As tres especies de chave do `registry/entitlement_keys.schema.json`. */
@@ -346,6 +370,63 @@ export class ConflitoDeIdempotenciaError extends Error {
     );
     this.name = "ConflitoDeIdempotenciaError";
   }
+}
+
+/**
+ * Um modulo activo declara a chave com um limite que nao e um inteiro.
+ *
+ * E o `22023` da `platform.ten_tecto`, traduzido. **Nao e «nao cabe».** Uma
+ * recusa de tecto diz ao tenant que o pedido dele e grande demais, e manda-o
+ * mudar de plano; isto diz que o `entitlements.limites` tem um valor
+ * corrompido, e manda corrigir o provisionamento (KAM-091). Responder
+ * «negado» a um dado ilegivel era transformar um defeito de dados numa
+ * resposta de negocio, e a resposta estaria errada.
+ *
+ * Levantar tambem **nao** afrouxa a falha fechada: nada passa. O que muda e
+ * quem recebe a conta.
+ *
+ * Nao estende `RespostaIlegivelError` de proposito: aquela e sobre a **forma**
+ * do que o controlador devolveu, esta e sobre o **conteudo** do que esta
+ * guardado. Quem apanha uma nao quer necessariamente apanhar a outra.
+ */
+export class LimiteIlegivelError extends Error {
+  constructor() {
+    // A mensagem **nao** repete o valor guardado: um limite e um numero de
+    // negocio e nao tem de aparecer em nada que possa ser registado
+    // (`OBS-I`). Quem precisa dele le a causa, que vai em `cause`.
+    super(
+      "um modulo activo declara esta chave com um limite que nao e um inteiro " +
+        "nao negativo (`22023`, `platform.ten_tecto`). Nao e «nao cabe»: e " +
+        "`entitlements.limites` com um valor que nao se le, e o caminho e o " +
+        "provisionamento (KAM-091) e nao o plano do tenant.",
+    );
+    this.name = "LimiteIlegivelError";
+  }
+}
+
+/**
+ * O erro desta biblioteca para um erro de controlador, ou `null`.
+ *
+ * `null` quer dizer «nao reconheco», e quem chama relanca o original. Os dois
+ * estados que se traduzem sao o `KA002` (conflito de idempotencia) e o `22023`
+ * **da `ten_tecto`** — este ultimo so quando a mensagem o nomeia, porque a
+ * `0007` usa o mesmo `22023` na guarda de `p_agora` e essa nao e a mesma coisa
+ * nem de longe.
+ */
+export function conflitoOuTecto(erro: unknown): Error | null {
+  const estado = sqlstateDe(erro);
+  if (estado === SQLSTATE_CONFLITO_DE_IDEMPOTENCIA) {
+    return new ConflitoDeIdempotenciaError();
+  }
+  if (
+    estado === SQLSTATE_LIMITE_ILEGIVEL &&
+    String((erro as { message?: unknown } | null)?.message ?? "").includes(
+      MARCA_DO_TECTO_ILEGIVEL,
+    )
+  ) {
+    return new LimiteIlegivelError();
+  }
+  return null;
 }
 
 export function exigirNome(campo: string, valor: unknown): string {
@@ -674,9 +755,8 @@ export async function consumeLimit(
       opcoes.agora ?? null,
     ]));
   } catch (erro) {
-    if (sqlstateDe(erro) === SQLSTATE_CONFLITO_DE_IDEMPOTENCIA) {
-      throw new ConflitoDeIdempotenciaError();
-    }
+    const traduzido = conflitoOuTecto(erro);
+    if (traduzido !== null) throw traduzido;
     throw erro;
   }
   const linha = rows[0];
@@ -732,16 +812,24 @@ export interface Tecto {
  * `platform.tenant_usage`, nao ha `usage_ledger`, nao ha chave de idempotencia
  * — nao ha nada para repetir, porque nada mudou.
  *
- * **O tecto e o mesmo que a `ten_consumir` usaria**: o minimo entre os
- * entitlements activos do tenant que declaram a chave, calculado no
- * `SQL_TECTO` com o mesmo `min(...)` da `0007`. Nao ha aqui um minimo em
- * JavaScript.
+ * **O tecto e o mesmo que a `ten_consumir` usaria — a mesma funcao, e nao a
+ * mesma regra copiada**: o `SQL_TECTO` chama `platform.ten_tecto`, que e quem
+ * a `ten_consumir` tambem chama. Nao ha aqui um minimo em JavaScript nem um
+ * `min(...)` repetido numa consulta.
  *
  * **Sem linha activa que declare a chave, nega** — falha fechada, criterio 2,
  * e exactamente como a `0007` faz com `limite = NULL`: «sem tecto» nao quer
  * dizer «sem limite». A RLS poe o mesmo a acontecer quando o contexto da
  * transaccao e de outro tenant, e zero linhas le-se como negado e nao como
  * «nao sei».
+ *
+ * **Um limite ilegivel levanta `LimiteIlegivelError`, e nao devolve «nao
+ * cabe».** A `ten_tecto` recusa-se a adivinhar um `limites` que nao seja um
+ * inteiro nao negativo, e levanta `22023` em vez de ignorar a linha —
+ * ignora-la tirava um modulo do minimo, e o minimo de menos modulos e maior.
+ * Deste lado, traduzir isso em `cabe = false` seria dizer ao tenant que o
+ * pedido dele e grande demais quando o que ha e um dado corrompido: quem
+ * recebe este erro corrige o provisionamento (KAM-091), nao o plano.
  *
  * **So serve tectos por pedido.** Um balde (`msgs_ai_mes`) levanta: a pergunta
  * dele e «quanto ja gastei», e responde-se com `consumeLimit`. As duas chaves
@@ -770,12 +858,24 @@ export async function checkCeiling(
   }
   const metricas = opcoes.metricas ?? METRICAS;
 
-  const { rows } = await bd.query(SQL_TECTO, [canonico, nome]);
-  // O `SQL_TECTO` e um agregado sem `GROUP BY`: devolve **sempre** uma linha, e
-  // o `min` de um conjunto vazio vem `NULL`. Zero linhas quer dizer que a
-  // chamada nao chegou a base — e a leitura fechada disso e a mesma do
-  // `SQL_ENTITLEMENT`: nega-se. Ao contrario do consumo, aqui nao ha nada
-  // escrito por saber, logo negar chega e nao ha que levantar.
+  let rows: Record<string, unknown>[] = [];
+  try {
+    ({ rows } = await bd.query(SQL_TECTO, [canonico, nome]));
+  } catch (erro) {
+    // Aqui o `22023` **so** pode vir da `ten_tecto`: esta consulta nao passa
+    // instante nenhum, logo a guarda de `p_agora` nao existe neste caminho.
+    // Traduz-se sem olhar para a mensagem, e um limite ilegivel nunca se le
+    // como «nao cabe».
+    if (sqlstateDe(erro) === SQLSTATE_LIMITE_ILEGIVEL) {
+      throw new LimiteIlegivelError();
+    }
+    throw erro;
+  }
+  // O `SQL_TECTO` e um `SELECT` de uma funcao: devolve **sempre** uma linha, e
+  // a `ten_tecto` devolve `NULL` quando ninguem declara a chave. Zero linhas
+  // quer dizer que a chamada nao chegou a base — e a leitura fechada disso e a
+  // mesma do `SQL_ENTITLEMENT`: nega-se. Ao contrario do consumo, aqui nao ha
+  // nada escrito por saber, logo negar chega e nao ha que levantar.
   const bruto = rows[0]?.tecto;
   const tecto = bruto === null || bruto === undefined ? null : inteiro("tecto", bruto);
 

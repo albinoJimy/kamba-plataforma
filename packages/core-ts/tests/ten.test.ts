@@ -48,6 +48,8 @@ import {
   HTTP_ENTITLEMENT,
   HTTP_LIMITE,
   HTTP_TECTO,
+  LimiteIlegivelError,
+  MARCA_DO_TECTO_ILEGIVEL,
   MAXIMO_DE_SERIES,
   METRICA_ENTITLEMENT_NEGADO,
   METRICA_LIMITE_NEGADO,
@@ -62,6 +64,7 @@ import {
   REGIME_DO_TENANT,
   RespostaIlegivelError,
   SQLSTATE_CONFLITO_DE_IDEMPOTENCIA,
+  SQLSTATE_LIMITE_ILEGIVEL,
   SQL_CONSUMIR,
   SQL_ENTITLEMENT,
   SQL_PERIODO,
@@ -70,6 +73,7 @@ import {
   agoraMs,
   checkCeiling,
   checkEntitlement,
+  conflitoOuTecto,
   consumeLimit,
   derivarChaveDeIdempotencia,
   especieDaChave,
@@ -598,14 +602,18 @@ describe("o SQL — a regra vive na `0007`, e nao aqui", () => {
     }
   });
 
-  it("o `SQL_TECTO` le, e **nunca** escreve", () => {
+  it("o `SQL_TECTO` e so uma chamada, e **nunca** escreve", () => {
     for (const proibido of [/INSERT/, /UPDATE/, /DELETE/, /ten_consumir/, /tenant_usage/]) {
       assert.doesNotMatch(SQL_TECTO, proibido);
     }
-    // E e o mesmo minimo da `0007`: `min` sobre `limites ->> chave`, nos
-    // entitlements activos do tenant.
-    assert.match(SQL_TECTO, /min\(\(limites ->> \$2\)::bigint\)/);
-    assert.match(SQL_TECTO, /AND ativo/);
+    // A regra do minimo **nao** esta aqui: esta na `platform.ten_tecto` da
+    // revisao, que a `ten_consumir` tambem chama. A primeira versao desta
+    // constante trazia o `min(...)` para a biblioteca, e era a unica consulta
+    // do ficheiro a infringir o argumento do cabecalho.
+    assert.match(SQL_TECTO, /platform\.ten_tecto\(\$1, \$2\)/);
+    for (const fora of [/min\(/, /limites/, /platform\.entitlements/, /ativo/]) {
+      assert.doesNotMatch(SQL_TECTO, fora);
+    }
   });
 
   it("a lista dos tres estados que negam existe no SQL, e so la", () => {
@@ -888,6 +896,7 @@ describe("o `KA002` da `0007` — um conflito do pedido, e nao um limite", () =>
     assert.equal(sqlstateDe(new Error("sem nada")), null);
     assert.equal(sqlstateDe(null), null);
     assert.equal(SQLSTATE_CONFLITO_DE_IDEMPOTENCIA, "KA002");
+    assert.equal(SQLSTATE_LIMITE_ILEGIVEL, "22023");
   });
 
   it("o `KA002` vira `ConflitoDeIdempotenciaError`", async () => {
@@ -910,6 +919,9 @@ describe("o `KA002` da `0007` — um conflito do pedido, e nao um limite", () =>
   });
 
   it("os outros SQLSTATE sobem como vieram — so se traduz o que se reconhece", async () => {
+    // O `22023` esta aqui de proposito: com uma mensagem que **nao** nomeia a
+    // `ten_tecto` e a guarda de `p_agora` da `ten_consumir`, e essa nao e um
+    // limite ilegivel. Ver o teste do `LimiteIlegivelError`.
     for (const estado of ["23514", "22023", "40001"]) {
       const bd: ClienteSql = {
         async query() {
@@ -927,6 +939,111 @@ describe("o `KA002` da `0007` — um conflito do pedido, e nao um limite", () =>
         },
       );
     }
+  });
+});
+
+describe("o `22023` da `ten_tecto` — um dado corrompido nao e «nao cabe»", () => {
+  // A `platform.ten_tecto` recusa-se a adivinhar um `limites` que nao seja um
+  // inteiro nao negativo, e levanta em vez de ignorar a linha — ignora-la
+  // tirava um modulo do minimo, e o minimo de menos modulos e **maior**.
+  const MENSAGEM =
+    "ten_tecto: a chave manual_max_minor tem um limite que nao e um inteiro em entitlements";
+
+  function baseQueLevanta(estado: string, mensagem = "da base"): ClienteSql {
+    return {
+      async query() {
+        const erro = new Error(mensagem) as Error & { code: string };
+        erro.code = estado;
+        throw erro;
+      },
+    };
+  }
+
+  it("o `22023` no tecto vira `LimiteIlegivelError`", async () => {
+    await assert.rejects(
+      () => checkCeiling(baseQueLevanta("22023", MENSAGEM), A, "manual_max_minor", 1),
+      LimiteIlegivelError,
+    );
+  });
+
+  it("nao e recusa: nao conta `ten_limit_denied_total`", async () => {
+    await assert.rejects(
+      () =>
+        checkCeiling(baseQueLevanta("22023", MENSAGEM), A, "manual_max_minor", 1, {
+          modulo: "vendedor",
+          metricas,
+        }),
+      LimiteIlegivelError,
+    );
+    assert.deepEqual(metricas.ler(), {});
+  });
+
+  it("no tecto traduz sem olhar para a mensagem", async () => {
+    // O `SQL_TECTO` nao passa instante nenhum: o `22023` so pode ser este.
+    await assert.rejects(
+      () => checkCeiling(baseQueLevanta("22023", "outra qualquer"), A, "manual_max_minor", 1),
+      LimiteIlegivelError,
+    );
+  });
+
+  it("no consumo traduz so o que a mensagem nomeia", async () => {
+    // A `ten_consumir` usa o mesmo `22023` na guarda de `p_agora`, e um
+    // instante absurdo nao e um limite ilegivel.
+    await assert.rejects(
+      () => consumeLimit(baseQueLevanta("22023", MENSAGEM), A, "msgs_ai_mes", 1, "k"),
+      LimiteIlegivelError,
+    );
+    await assert.rejects(
+      () =>
+        consumeLimit(
+          baseQueLevanta("22023", "ten_consumir: instante fora da janela"),
+          A,
+          "msgs_ai_mes",
+          1,
+          "k",
+        ),
+      (erro: unknown) => {
+        assert.equal(erro instanceof LimiteIlegivelError, false);
+        return true;
+      },
+    );
+  });
+
+  it("no tecto, o que nao e `22023` sobe como veio", async () => {
+    // Traduzir de mais era disfarcar um erro que nao se percebeu.
+    for (const estado of ["23514", "KA002", "40001"]) {
+      await assert.rejects(
+        () => checkCeiling(baseQueLevanta(estado), A, "manual_max_minor", 1),
+        (erro: unknown) => {
+          assert.equal(erro instanceof LimiteIlegivelError, false, estado);
+          assert.equal((erro as Error).message, "da base");
+          return true;
+        },
+      );
+    }
+  });
+
+  it("a mensagem nao repete o valor guardado (`OBS-I`)", async () => {
+    await assert.rejects(
+      () => checkCeiling(baseQueLevanta("22023", MENSAGEM), A, "manual_max_minor", 1),
+      (erro: unknown) => {
+        assert.doesNotMatch((erro as Error).message, /manual_max_minor/);
+        assert.match((erro as Error).message, /22023/);
+        return true;
+      },
+    );
+  });
+
+  it("`conflitoOuTecto` distingue os dois estados e nao inventa um terceiro", () => {
+    assert.equal(conflitoOuTecto({ code: "KA002" }) instanceof ConflitoDeIdempotenciaError, true);
+    assert.equal(
+      conflitoOuTecto({ code: "22023", message: MENSAGEM }) instanceof LimiteIlegivelError,
+      true,
+    );
+    assert.equal(conflitoOuTecto({ code: "22023", message: "p_agora" }), null);
+    assert.equal(conflitoOuTecto({ code: "40001" }), null);
+    assert.equal(conflitoOuTecto(null), null);
+    assert.equal(MARCA_DO_TECTO_ILEGIVEL, "ten_tecto");
   });
 });
 

@@ -31,7 +31,7 @@ aparece quando o dinheiro já está errado.
 ```
 checkEntitlement ──► SQL_ENTITLEMENT         coluna `permitido`, calculada na base
 consumeLimit     ──► platform.ten_consumir   atómico e idempotente por construção
-checkCeiling     ──► SQL_TECTO               «este valor cabe?» — e não escreve nada
+checkCeiling     ──► platform.ten_tecto      «este valor cabe?» — e não escreve nada
 periodo          ──► platform.ten_periodo    o mês fecha em Africa/Luanda, num sítio só
 tenantGate       ──► tabela, em memória      a matriz do `01` §7.2 (ver §4: tem um problema)
 ```
@@ -49,11 +49,17 @@ está na sua secção.
 | C1 | O *middleware* aceitava a `Idempotency-Key` do cabeçalho **tal como vinha**: era o cliente a escolher o âmbito da desduplicação | §7.3 |
 | m6 | Este documento dizia «não verificado» sobre critérios que a *suite* do gate 8 verifica | §11 |
 
+E uma sexta, que saiu da primeira volta da correcção: o `SQL_TECTO` nasceu com
+o `min(...)` escrito na biblioteca, o que era uma segunda cópia da regra da
+`ten_consumir`. A revisão ganhou `platform.ten_tecto` e as duas passaram a
+chamá-la — e a função fecha, de caminho, um defeito que a duplicação escondia
+(§5.3.1).
+
 ## 2. O que existe, e onde
 
 | Ficheiro | O quê |
 |---|---|
-| `packages/core-ts/src/ten/consultas.ts` | As **quatro** consultas. O SQL, sem o código à volta |
+| `packages/core-ts/src/ten/consultas.ts` | As **quatro** consultas, que são quatro chamadas: `ten_periodo`, `ten_consumir`, `ten_tecto` e a do entitlement. O SQL, sem o código à volta |
 | `packages/core-ts/src/ten/entitlements.ts` | `checkEntitlement`, `consumeLimit`, `checkCeiling`, `periodo`, `CacheDeEntitlements`, a tabela de espécies das chaves, a derivação da chave de idempotência, os códigos de erro |
 | `packages/core-ts/src/ten/estados.ts` | `tenantGate`, os regimes e a matriz |
 | `packages/core-ts/src/ten/metricas.ts` | `ten_limit_denied_total{key}`, `ten_entitlement_denied_total{modulo}` |
@@ -226,7 +232,7 @@ Três leituras do resultado que não são óbvias:
 
 | Resposta da `0007` | Significado | O que a biblioteca faz |
 |---|---|---|
-| `aceite = true, repetido = true` | Repetição de um consumo já aceite | Aceita. Não consome, não conta |
+| `aceite = true, repetido = true` | Repetição de um consumo já aceite | Aceita. Não consome, não conta. **Os dois vêm `true` em conjunto, e não é óbvio:** quem repete um pedido teve o consumo aplicado da primeira vez e deve receber o resultado que já tinha — nunca um `429` |
 | `aceite = false, limite` não nulo | O tecto não chega | Nega. `ten_limit_denied_total{key}` |
 | `aceite = false, limite = NULL` | **Nenhum entitlement activo declara a chave** | Nega como *entitlement*, não como limite: `403`, não `429` — não há mês nenhum que crie o entitlement em falta |
 
@@ -297,24 +303,49 @@ O que mudou:
 
 ```
 checkCeiling(bd, tenant, chave, valor, {modulo?, metricas?})
-  → WITH activos AS (SELECT limites FROM platform.entitlements
-                      WHERE tenant_id = $1 AND ativo)
-    SELECT min((limites ->> $2)::bigint) AS tecto FROM activos
+  → SELECT platform.ten_tecto($1, $2) AS tecto
 ```
+
+**A regra do mínimo vive na revisão, e não aqui.** A primeira versão desta
+consulta trazia o `min((limites ->> chave)::bigint)` para a biblioteca, e era
+a única das quatro a infringir a tese do §1: duas cópias da mesma regra, e a
+segunda a divergir no dia em que a primeira mudasse. A `0007` ganhou
+`platform.ten_tecto(p_tenant, p_chave)`, que a própria `ten_consumir` passou a
+chamar, e o `SQL_TECTO` é só a chamada. **A frase «a aritmética não está aqui»
+deixou de ter excepções.**
 
 | | |
 |---|---|
-| Tecto efectivo | O **mínimo** entre os entitlements activos que declaram a chave — a mesma regra que a `ten_consumir` usa, escrita do mesmo modo. Não há um `min()` em Python nem em JavaScript |
+| Tecto efectivo | O **mínimo** entre os entitlements activos que declaram a chave. É a mesma **função** que a `ten_consumir` usa, e não a mesma regra copiada |
 | Escreve | **Nada.** Sem `tenant_usage`, sem `usage_ledger`, sem chave de idempotência: não há nada para repetir porque nada muda |
-| Sem linha activa que declare a chave | **Nega** (critério 2). O `min` de um conjunto vazio é `NULL`, e `NULL` não quer dizer «sem limite». A RLS de outro tenant dá o mesmo vazio, e lê-se como negado |
+| Sem linha activa que declare a chave | **Nega** (critério 2). A `ten_tecto` devolve `NULL`, e `NULL` não quer dizer «sem limite». É `SECURITY INVOKER`, pelo que a RLS de outro tenant dá o mesmo `NULL` — e lê-se como negado |
+| Limite ilegível em `entitlements.limites` | **Levanta** `LimiteIlegivel` / `LimiteIlegivelError` — ver §5.3.1 |
 | `manual_dupla_acima_minor` | O único em que `cabe = false` **não** é uma recusa: o registo escreve-o, e acima do limiar o pedido exige o segundo confirmador (`04` §4.2 M-5). A função devolve o facto; quem chama decide |
 
-O `WITH` não é estilo: com o `min(...)` no `SELECT` de topo o `$2` aparecia no
-texto antes do `$1`, e o espelho em Python é posicional. E o `WHERE limites ?
-$2` da `0007` não está cá de propósito — `min` ignora `NULL`, o resultado é o
-mesmo, e sem ele cada marcador aparece **uma** vez (um `$2` repetido viraria
-dois `%s` na DB-API, e as duas consultas deixariam de ter a mesma lista de
-argumentos).
+#### 5.3.1 Um limite ilegível não é «não cabe»
+
+A `ten_tecto` **levanta `22023`** quando um módulo activo declara a chave com
+um valor que não é um inteiro não negativo, em vez de ignorar a linha. A razão
+é aritmética: ignorá-la tirava um módulo do mínimo, e o mínimo de menos módulos
+é **maior** — um dado corrompido alargava o tecto.
+
+Deste lado, esse `22023` **não** se lê como `cabe = false`. Uma recusa de tecto
+diz ao tenant que o pedido dele é grande demais e manda-o mudar de plano; o que
+há é um valor por corrigir em `entitlements.limites`, e o caminho é o
+provisionamento (KAM-091). Levantar também **não** afrouxa a falha fechada —
+nada passa; o que muda é quem recebe a conta. E a recusa **não** conta em
+`ten_limit_denied_total`, porque não foi um limite a negar.
+
+> **O `22023` tem duas causas, e só uma é esta.** A `0007` usa o mesmo estado
+> na guarda de `p_agora` da `ten_consumir`. No `checkCeiling` não há
+> ambiguidade — a consulta não passa instante nenhum —, e traduz-se sem mais.
+> No `consumeLimit` traduz-se **apenas** quando a mensagem nomeia a
+> `ten_tecto`; qualquer outro `22023` sobe inalterado. Ler a mensagem é frágil
+> e sabe-se: a alternativa era ou não traduzir nada no caminho do consumo — e
+> então a mesma linha corrompida dava erros diferentes consoante a função que a
+> encontrasse — ou traduzir tudo, e então um instante absurdo saía como «limite
+> ilegível», que é falso. O reconhecimento falha para o lado seguro: se a
+> mensagem mudar, o erro original sobe inalterado.
 
 ### 5.4 As duas chaves que ficam sem caminho de aplicação, e porquê
 
@@ -504,7 +535,7 @@ na ordem escrita. O precedente explicado é o `*/logger/*` do KAM-068.
 | Padrão | `*/ten/*` — forma `*/<pasta>/*`, que é a que funciona com `fnmatch` (o `*` atravessa barras) |
 | Ficheiros que traz | 6 em TypeScript, 6 em Python |
 | Medido (emissão 1.0) | **100% de linhas em todos os doze** (1 703/1 703) |
-| Medido (1.1, só Python) | **100% de linhas e 100% de ramos** nos seis ficheiros de `kamba_core/ten/` — 389 instruções, 138 ramos, 0 por cobrir (`coverage run --branch`, suite completa do `py-core`) |
+| Medido (1.2, só Python) | **100% de linhas e 100% de ramos** nos seis ficheiros de `kamba_core/ten/` — 407 instruções, 144 ramos, 0 por cobrir (`coverage run --branch`, suite completa do `py-core`) |
 | Efeito no estrato | `critico` sobe de **95%** para **96%** — o padrão traz cobertura, não a baixa |
 | Dois revisores | O cabeçalho do `ci/thresholds.yaml` exige-os para qualquer alteração ao ficheiro. **A caixa não está marcada** |
 
@@ -530,7 +561,7 @@ na ordem escrita. O precedente explicado é o `*/logger/*` do KAM-068.
 | 7 | **Quem recolhe as métricas.** Existem em memória; não há Prometheus no repositório | Sem ticket próprio: é o KAM-080, como em `docs/eventos.md` §11 |
 | 8 | **O limiar de 60 s do TTL** é proposta, como todos os limiares do conjunto | A calibrar no Piloto |
 | 9 | **Quem altera `tenants.plano`** — a decisão herdada do KAM-003/KAM-004 | Resolvida na revisão `0007`, que retira o `UPDATE (plano)` e o `UPDATE (limites, ativo)` à `kamba_app`. Não é desta parte do ticket |
-| 10 | **A regra do mínimo do tecto está escrita em dois sítios**: na `ten_consumir` (`min((e.limites ->> p_chave)::bigint)`) e no `SQL_TECTO` das bibliotecas | **Proposta ao dono da revisão**: uma função `platform.ten_tecto(p_tenant, p_chave)` na `0007`, chamada pela `ten_consumir` e pelo `SQL_TECTO`, punha a regra num sítio só — que é o princípio de todo este módulo. Não se fez aqui porque a `0007` é da outra metade desta correcção |
+| 10 | **A regra do mínimo do tecto estava escrita em dois sítios**: na `ten_consumir` e no `SQL_TECTO` das bibliotecas | **Resolvida.** A `0007` ganhou `platform.ten_tecto(p_tenant, p_chave)`, que a `ten_consumir` chama e que o `SQL_TECTO` passou a ser. A regra está num sítio só, e a função fecha de caminho um defeito que a duplicação escondia: um limite não inteiro em `entitlements.limites` levanta `22023` em vez de alargar o tecto (§5.3.1) |
 | 11 | **`manual_daily_max_minor` e `manual_max_por_contacto_24h` não têm caminho de aplicação** (§5.4) | Registada. Nascem com `manual_confirmations` (`docs/tecnica/04` §4.2 M-6), que não é deste ticket. Até lá as bibliotecas **levantam** em vez de responder mal |
 | 12 | **O estado `403` para um tecto por pedido excedido** (§7.2) | Proposta desta correcção, registada. O código não muda (`LIMIT_EXCEEDED`); só o estado |
 
@@ -567,7 +598,8 @@ Também tem medição, e é desta metade:
 | O SQL das quatro consultas é o mesmo nos dois idiomas | Carácter a carácter, depois de reescrever `$n` → `%s` (`TestParidadeDoTypeScript`) |
 | A espécie das dez chaves é a do registo | Um teste em cada idioma lê `registry/entitlement_keys.schema.json`; um terceiro confronta as duas tabelas entre si |
 | A derivação da chave de idempotência é a mesma nos dois | Vector fixo escrito nos dois ficheiros de teste, confrontado por um teste de paridade |
-| A tradução do `KA002` | Testada nos dois idiomas sem base de dados: o que se verifica é a leitura do `SQLSTATE` e o erro que sai |
+| A tradução do `KA002` e do `22023` | Testada nos dois idiomas sem base de dados: o que se verifica é a leitura do `SQLSTATE`, o erro que sai, e — no `22023` — que a causa da guarda de `p_agora` **não** é traduzida |
+| O SQL das constantes contra uma base real | A *suite* `db/tests_ten/` importa o `SQL_CONSUMIR` e o `SQL_PERIODO` de `kamba_core.ten.consultas` em vez de os reescrever, e corre contra **PostgreSQL 18.6** com o `pg8000`. Mede duas coisas desta metade: que `periodo(None)` devolve o período corrente — e não `None`, que era o M3 — e que as constantes não precisam de *casts* explícitos para o controlador as ligar |
 | Cobertura do lado Python | 100% de linhas **e de ramos** nos seis ficheiros (§9) |
 
 ### 11.2 O que **continua NÃO VERIFICADO**
@@ -575,7 +607,7 @@ Também tem medição, e é desta metade:
 | # | Afirmação | Porquê, e como se validava |
 |---|---|---|
 | 1 | **Os critérios 3, 4 e 5 sobre a `0007` corrigida** | Ver a ressalva de §11.1. **Forma de validar:** correr `db/tests_ten/` no gate 8 contra a revisão depois da correcção, e repor aqui os números novos |
-| 2 | **O lado TypeScript desta correcção** — `pnpm test` e `pnpm typecheck` | Não há `node` nem `pnpm` no ambiente em que foi escrita. O Python corre (133 testes de `test_ten.py`, 527 na suite do `py-core`) e os testes de paridade lêem a **fonte** do TypeScript, o que apanha divergências de texto mas **não** erros de tipos nem de execução. **Forma de validar:** `pnpm --filter @kamba/core-ts test` e `typecheck` no CI |
+| 2 | **O lado TypeScript desta correcção** — `pnpm test` e `pnpm typecheck` | Não há `node` nem `pnpm` no ambiente em que foi escrita. O Python corre (143 testes de `test_ten.py`, 537 na suite do `py-core`) e os testes de paridade lêem a **fonte** do TypeScript, o que apanha divergências de texto mas **não** erros de tipos nem de execução. **Forma de validar:** `pnpm --filter @kamba/core-ts test` e `typecheck` no CI |
 | 3 | «Não existe evento `entitlement.*` no catálogo» | Verificado por leitura do catálogo e das subscrições de `registry/*.yaml` em `docs/tecnica/02` §5.1. Não há *gate* que o imponha: se alguém acrescentar o evento, nada aqui dá por isso. **Forma de validar:** uma regra no gate 3b sobre o catálogo |
 | 4 | O comportamento da RLS perante um contexto de outro tenant | A biblioteca trata zero linhas como negado; **que a RLS devolva zero linhas** é da `0002`. **Forma de validar:** gate 8, `db/tests_isolamento/` |
 | 5 | O `critico` agregado a 96% | Medido com dois relatórios LCOV, não com a corrida completa do `make ci-4`, e o lado TypeScript mudou desde então. **Forma de validar:** `make ci-4` completo |
@@ -594,4 +626,5 @@ Também tem medição, e é desta metade:
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão parcial (KAM-009): as duas bibliotecas sobre a revisão `0007`. Regista o achado de §4 — a matriz do `01` §7.2 funde dois domínios de estado e não tem célula para um tenant `ativo` sobre um canal `desligado` —, a regra de precedência proposta, e as quatro decisões devolvidas aos donos do `01` e do `02`. | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | O `SQL_TECTO` passa a chamar `platform.ten_tecto`, criada na metade da revisão: a regra do mínimo deixa de estar escrita em dois sítios (decisão 10, resolvida), e o `22023` que a função levanta sobre um limite não inteiro ganha erro próprio nas duas linguagens — um dado corrompido não se lê como «não cabe» (§5.3.1). | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | Correcção da revisão adversarial, metade das bibliotecas (§1.1). **M3:** `coalesce` no `SQL_PERIODO`, e os dois caminhos testados nos dois idiomas (§5.1). **M4:** `desligado` passa a ganhar de tudo na precedência — é transporte e não política —, e a matriz passa a estar coberta inteira, 210 casos por idioma (§4.1). **M5:** a espécie de cada chave passa a ser lida do registo, nasce o `checkCeiling` sobre o `SQL_TECTO`, e cada função recusa a chave da outra espécie; duas das dez chaves ficam declaradamente sem caminho de aplicação (§5.2 a §5.4). **C1:** a chave de idempotência passa a ser derivada, com a do cliente como um componente, e o `KA002` ganha erro próprio (§7.3). **m6:** §11 passa a separar o que tem medição — com os números de `92eb2f4` — do que continua por verificar, e a dizer contra que revisão cada número foi medido. | Equipa KAMBÁ |
