@@ -417,7 +417,7 @@ via zero linhas, pelo que apagava tudo em silêncio. O desenho está em
 | *gate* 8 (migrações) | `db/gate_bd.py --suite tests` | **393 testes, OK** — seis deles novos: as FK da conversa coluna a coluna e os três casos do `downgrade` |
 | *gate* 8 (entrada de canal, KAM-013) | `db/gate_bd.py --suite tests_entrada` | **34 testes, OK** — o *worker* de produção monta agora o CHR |
 | *gate* 8 (CHR) | `db/gate_bd.py --suite tests_chr` | **6 asserções Python sobre 7 ficheiros de teste Node, OK**; p95 `0,805 ms` / `0,0135 ms` e invalidação `0,722 ms` numa máquina livre; `3,329 ms` / `0,0697 ms` e `1,912 ms` com carga ao lado |
-| prova por mutação | `db/mutacoes.py --aplicaveis` e os filtros `chr:` e `revisao 0009` | **294 mutações, 0 não aplicáveis**; **24 novas**. Corridas e apanhadas: filtro `chr:` **15 de 15**; filtro `revisao 0009` **6 de 6** na volta anterior à sétima (a da contagem cega), que corre com as duas do `motivo` na volta a seguir. A lista inteira corre de noite (KAM-143), e é lá que as três últimas ficam provadas se não chegarem a este PR |
+| prova por mutação | `db/mutacoes.py --aplicaveis` e os filtros `chr:` e `revisao 0009` | **294 mutações, 0 não aplicáveis**; **24 novas, as 24 corridas e as 24 apanhadas** — filtro `chr:` 15, filtro `revisao 0009` 7, filtro `revisao 0008: o motivo` 2, com a linha de base verde confirmada em cada suite antes de cada volta. **Duas delas só são apanhadas pelo teste certo depois de uma correcção da revisão adversarial**: as que tiram o `tenant_id` das FK da conversa eram apanhadas por um teste da própria lista de mutações, e agora caem no `TestFkCompostas`. A lista inteira corre de noite (KAM-143) |
 
 #### Decisões tomadas neste ticket
 
