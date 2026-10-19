@@ -554,7 +554,7 @@ Total ≈ **3–4 pessoas ≈ 1,6–3,6 M Kz/mês (≈ $1,75–3,9 mil)**: acima
 
 ## 20. Divergências, lacunas e propostas de ADR
 
-**Divergências com o doc 00 / outros documentos (não corrigidas aqui):** (1) doc 00 §4 inclui «Langfuse» em OBS na fase P, mas o v4 exige 4 serviços de estado — §9.3 propõe métricas leves; (2) `INDICE.md` §5 ainda mostra 12 ADRs e o ADR-008 antigo («JNB/CPT no MVP»); (3) doc 11 usa Node 20, Postgres 16, MinIO, Langfuse v3, Typebot/n8n como serviços; (4) doc 00 §9 fixa RPO/RTO mas não diz **onde** ficam os backups face ao ADR-008; (5) o DDL do doc 11 (`orders_mirror.cliente_msisdn NOT NULL`) contradiz o ADR-010 (telefone não é chave); (6) o doc 00 não tem decisão aberta para papel perante a Lei 22/11, para o CDN como subprocessador, para quem paga os custos em USD (`E2` §8.6) nem para a licença do Redis.
+**Divergências com o doc 00 / outros documentos (não corrigidas aqui):** (1) doc 00 §4 inclui «Langfuse» em OBS na fase P, mas o v4 exige 4 serviços de estado — §9.3 propõe métricas leves; (2) `INDICE.md` §5 ainda mostra o ADR-008 antigo («JNB/CPT no MVP») — a contagem de ADRs que esta linha também acusava ficou corrigida pelo KAM-130, e são **20**; (3) doc 11 usa Node 20, Postgres 16, MinIO, Langfuse v3, Typebot/n8n como serviços; (4) doc 00 §9 fixa RPO/RTO mas não diz **onde** ficam os backups face ao ADR-008; (5) o DDL do doc 11 (`orders_mirror.cliente_msisdn NOT NULL`) contradiz o ADR-010 (telefone não é chave); (6) o doc 00 não tem decisão aberta para papel perante a Lei 22/11, para o CDN como subprocessador, para quem paga os custos em USD (`E2` §8.6) nem para a licença do Redis.
 
 **Propostas de ADR** (fora do cânone até aprovação):
 
@@ -618,3 +618,4 @@ Isto soma-se ao custo técnico do doc 09 §9; com 10 PMEs são ~13 a ~45 USD/mê
 | 1.0 | Outubro 2026 | Emissão inicial: topologia revista, dimensionamento verificado, alojamento, CI/CD, backups, SLOs, runbooks, custos por estágio. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §9.3 e §20, D-10 (`llm_call_log`). | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-128: As **23** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
+| 1.3 | Outubro 2026 | KAM-130: a divergência (2) deixa de acusar a contagem de ADRs do `INDICE.md`. A metade do ADR-008 mantém-se aberta. | Equipa KAMBÁ |

@@ -80,6 +80,7 @@ O *pipeline* é **fail-closed**: qualquer gate vermelho bloqueia a progressão.
 | 2 | **Lint / format / tipos** | Estilo, imports, tipos estáticos | Merge |
 | 3 | **Lint de referências cruzadas** | Todo `KAM-NNN` citado existe no backlog; todo `ADR-NNN` e `D#` citado existe em `../docs/tecnica/00` | Merge |
 | 3b | **Lint de nomes canónicos** (KAM-111) | DDL, schemas de eventos e contratos de tools usam os nomes do dicionário | Merge |
+| 3c | **Lint de coerência do backlog** (KAM-138) | A linha do ticket em `INDICE.md` §4, o bloco `## KAM-NNN — ` e a tabela-resumo do §3 do epic dizem o mesmo; reciprocidade `Dependências`↔`Bloqueia`, sem ciclos, contagens derivadas e «Controlo de versões» sem buracos | Merge |
 | 4 | **Unit** | Testes unitários; cobertura ≥ limiar (§4.1) | Merge |
 | 5 | **Integração** | Serviços contra Postgres e Redis reais (containers) | Merge |
 | 6 | **Isolamento de tenant e contacto** | Suite cruzada: tenant A não lê B; contacto X não lê encomendas de Y; todas as tools e endpoints | Merge |
@@ -179,7 +180,7 @@ Regra transversal: nenhum gate pode ser marcado *skip* sem ADR ou aprovação re
 conversacional para Angola). Identifica o ID (KAM-NNN) e lê, por esta ordem:
 
 1. specs/tickets/KAM-NNN.md (EPIC-01) ou specs/EPIC-XX_*.md (os outros dez), o bloco do ticket: Contexto, Objectivo, Critérios, Detalhes, Testes, DoD.
-2. docs/tecnica/00_Arquitectura_Solucao.md (ADRs e decisões abertas D1–D12) e o documento
+2. docs/tecnica/00_Arquitectura_Solucao.md (ADRs e decisões abertas D1–D13) e o documento
    docs/tecnica/NN_*.md indicado nas referências do ticket.
 3. specs/01_Engineering_Standards_e_Handoff.md (DoR, DoD, convenções, template de PR).
 4. docs/tecnica/evidencia/ quando o ticket depender de facto sobre Meta, pagamentos, lei ou licenças.
@@ -219,3 +220,4 @@ template da §7. Conventional Commits: tipo(KAM-NNN): descrição.
 | 1.0 | Outubro 2026 | Emissão inicial | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | §6, princípio 1: excepção para resíduos textuais, que vão para `../docs/dividas-documentais.md` (KAM-142). *Proposta*, como o resto do documento, até ratificação. | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-145: o §5 passa a declarar que o executor de um bloco de *handoff* corre na raiz do repositório e que os caminhos dentro desse bloco são relativos à raiz, deixando explícito que a regra de referência entre documentos (KAM-128) continua a valer fora deles. Os **três** caminhos `../docs/…` do próprio §8 passam à forma nova. Sem alteração de nenhum gate, DoR ou DoD. | Equipa KAMBÁ |
+| 1.3 | Outubro 2026 | KAM-130: decisões abertas `D1–D13`. | Equipa KAMBÁ |

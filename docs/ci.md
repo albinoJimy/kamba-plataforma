@@ -47,6 +47,7 @@ Cada gate é um alvo `make ci-<n>`. O *workflow* só os orquestra. Três razões
 | 2 | Lint, formato e tipos — e, desde o KAM-068, nenhum serviço a escrever fora do *logger* | `make ci-2` | Plataforma | **proposta** |
 | 3 | Referências cruzadas (`KAM`, `ADR`, `D#`) e caminhos dentro dos blocos de *handoff* | `make ci-3` | Plataforma | **proposta** |
 | 3b | Nomes canónicos | `make ci-3b` | Arquitecto de Plataforma | KAM-111 (activo desde o KAM-111) |
+| 3c | Coerência do backlog: o §4 do `specs/INDICE.md`, o bloco de cada ticket e a tabela-resumo do §3 de cada epic | `make ci-3c` | Arquitecto de Plataforma | KAM-138 (activo desde o KAM-138) |
 | 4 | Unit e cobertura | `make ci-4` | Plataforma | **proposta** |
 | 5 | Integração | `make ci-5` *(reservado)* | — | **lacuna**: nenhum ticket o reclama |
 | 6 | Isolamento de tenant (camada SQL: RLS, X-03, X-04, X-05) e *logs* sem identificadores (X-11) | `make ci-6` | Segurança | `docs/tecnica/09` §7 (activo desde o KAM-004; o X-11 entrou com o KAM-068; a suite ponta a ponta é KAM-066) |
@@ -57,7 +58,7 @@ Cada gate é um alvo `make ci-<n>`. O *workflow* só os orquestra. Três razões
 | 11 | SCA, licenças, vulnerabilidades e SBOM | `make ci-11` | Segurança | `docs/tecnica/09` §7 |
 | 12–18 | Categorias, *eval*, imagem, deploy, aprovação, tag | — | ver KAM-067, KAM-078, KAM-088 | — |
 
-`make ci` corre os nove activos (os seis do KAM-002, o 8 do KAM-003, o 6 do KAM-004 e o 3b do KAM-111). `make ci-waivers` valida as excepções.
+`make ci` corre os **onze** activos: os seis do KAM-002 (1, 2, 3, 4, 9 e 11), o 8 do KAM-003, o 6 do KAM-004, o 7 do KAM-007, o 3b do KAM-111 e o 3c do KAM-138. A frase dizia «nove» e depois «dez» — o 7 estava a faltar na conta desde que o KAM-007 o ligou, e o KAM-138 limitou-se a incrementar. `make ci-waivers` valida as excepções.
 
 ---
 
@@ -293,6 +294,93 @@ Medido: o *job* do *gate* 3b leva **7 s** no *runner* (Python 3.12); `make
 ci-3b` num contentor Linux local (Python 3.13), 0,9 s — contra os 60 s do
 critério. 49 instruções (21 da revisão `0001`, 28 da `0002`), 3 tabelas, 38
 colunas e 20 valores de `CHECK`; 17 documentos.
+
+### Gate 3c — coerência do backlog
+
+Entrou com o KAM-138. O backlog diz as mesmas coisas em **três** sítios, e até
+aqui nada os comparava: a linha do ticket em [`specs/INDICE.md`](../specs/INDICE.md)
+§4 (o «contrato entre epics»), o bloco `## KAM-NNN — ` — em `specs/tickets/` no
+EPIC-01, pela convenção do KAM-155, e dentro do ficheiro nos outros dez — e a
+«Tabela Resumo de Tickets» do §3 de cada epic. Tipo, estimativa, prioridade,
+fase e dependências estão replicados, e a verificação era manual: três tickets
+seguidos (KAM-128, KAM-129, KAM-130) gastaram um critério de aceitação em
+«segunda passagem de verificação dá 0 divergências».
+
+**O que o distingue de uma comparação de tabelas** é a reciprocidade
+`Dependências`↔`Bloqueia`. O §4 **não tem coluna `Bloqueia`**, pelo que comparar
+só os campos que as duas superfícies partilham deixa passar uma aresta declarada
+de um só lado — aconteceu na primeira versão do KAM-129 (a busca G5) e outra vez
+em oito tickets, que o KAM-144 teve de repor à mão, registando por escrito que a
+causa era este *gate* não existir. Na entrega do KAM-138 estavam **seis** arestas
+outra vez por fechar, abertas pelos quatro tickets inscritos depois do KAM-144.
+
+O que verifica, por ordem de execução:
+
+1. **Sincronia linha↔bloco**, nos seis campos que os dois escrevem (título,
+   tipo, estimativa, prioridade, fase, dependências). A mensagem diz o ticket, o
+   campo e **os dois valores**, com ficheiro e linha de cada um.
+2. **Órfãos nos dois sentidos** — linha sem bloco, e bloco sem linha.
+3. **A terceira superfície**: a tabela-resumo do §3, nos cinco campos que tem
+   (não tem coluna `Fase`).
+4. **Reciprocidade do grafo**, nos dois sentidos.
+5. **Ciclos**, reportados com o caminho completo (`A → B → C → A`) e não com o
+   nome de um ticket.
+6. **Inversões de prioridade e de fase.**
+7. **Contagens derivadas**: a contagem e o intervalo de cada epic no §3.1, a
+   soma da coluna contra o TOTAL, o intervalo e o total do TOTAL, e os números
+   do §1. Nenhuma se copia; todas se recalculam do §4.
+8. **«Controlo de versões»** de cada documento de `specs/` e `docs/`: a
+   sequência não salta números, nenhum número aparece duas vezes, e onde o
+   cabeçalho tem campo de versão ele iguala a última linha. O buraco e o número
+   repetido são **a mesma causa vista dos dois lados** — dois ramos tomam o
+   número em paralelo; se um renumera fica o buraco, se nenhum renumerar ficam
+   duas emendas com o mesmo nome. A verificação da sequência sozinha não vê o
+   repetido, porque trabalha sobre o conjunto.
+
+   **Uma limitação declarada:** o *gate* lê a tabela, não o *diff*. Vê que a
+   tabela é coerente consigo própria e com o cabeçalho, e **não** vê «este
+   documento mudou e a tabela não acompanhou» — que é a omissão mais comum, e a
+   que o KAM-138 cometeu no `dividas-documentais.md` antes da revisão
+   adversarial a apanhar. Fechá-la exige ler o *diff* do PR, o que torna o
+   *gate* não-determinista (o mesmo *commit* passa ou falha conforme a base),
+   e é a troca que o *gate* 3 já recusou por escrito. Fica para quem tiver
+   melhor ideia.
+
+Três decisões que o tornam utilizável:
+
+- **O *gate* não decide qual dos lados está certo.** Reporta os dois valores e
+  falha. O §4 é o contrato e o bloco é a especificação; qual deles se corrige é
+  de quem escreveu o ticket, e um lint que escolhesse por omissão esconderia
+  metade dos defeitos ao «corrigi-los».
+- **Os títulos comparam-se com uma regra de normalização escrita, e uma só:**
+  colapsa-se a subida de directório (`../../docs/` ≡ `../docs/`). Um título pode
+  conter um caminho relativo, e pela convenção do KAM-128 o caminho é relativo
+  ao documento que o escreve — o §4 e um bloco de `specs/tickets/` escrevem-no
+  legitimamente com profundidades diferentes. Três títulos dependem disto hoje
+  (KAM-111, KAM-139, KAM-140). O resto — `código`, *itálico*, travessões —
+  compara-se tal como está escrito.
+- **Duas verificações nascem como aviso, com o estado conhecido declarado em
+  [`ci/backlog-allow.yaml`](../ci/backlog-allow.yaml):** as inversões e o
+  controlo de versões. O estado inicial não é limpo, e a alternativa a declará-lo
+  era não verificar nada. Uma inversão ou um documento que **não** esteja
+  declarado falha desde o primeiro dia; quando as listas esvaziarem, as duas
+  passam a falha sem ninguém mexer no código. Uma declaração que deixe de casar
+  alguma coisa **falha** (código 2), como nos irmãos.
+
+É **fail-closed sobre a própria entrada**: um epic sem §3, um bloco sem tabela de
+campos, um campo obrigatório ausente, dois blocos para o mesmo ticket ou uma
+população abaixo do mínimo escrito à mão dão código 2, não «0 divergências». Um
+lint de coerência que dê verde por não ter conseguido ler nada é o modo de falha
+que ele existe para não ter.
+
+Reutiliza o leitor do §4 do `lint_refs` (`seccao` e `LINHA_BACKLOG`, públicos
+desde este ticket): duas gramáticas para a mesma tabela era a forma garantida de
+o *gate* 3 e o 3c discordarem sobre o que é uma linha de ticket.
+
+Entra nos `needs` de `gates do KAM-002` e **não** no `main.json`, pela mesma
+razão do 3b ([lacuna 17](#7-lacunas-do-canon-que-este-ticket-encontrou)): por
+esse caminho bloqueia o *merge* na mesma, sem precisar de um *token* com
+`administration: write`.
 
 ### Gate 4 — unit e cobertura
 
@@ -703,11 +791,117 @@ sempre o *workspace* inteiro. A primeira versão dava nove ficheiros com os mesm
 que um SBOM existe para responder.
 
 O fecho real vem do `pnpm-lock.yaml`, por travessia a partir das dependências
-directas de cada importador: a raiz leva 91 componentes, cada serviço Node leva 3
-(o seu pacote, `hono` e `@hono/node-server`).
+directas de cada importador.
 
 É determinista — sem *timestamp*, chaves ordenadas. Um SBOM que muda a cada
 execução deixa de se poder comparar, e comparar é metade da utilidade de o ter.
+
+##### A travessia atravessa um `link:` (KAM-133)
+
+Uma dependência de outro pacote do próprio *workspace* resolve-se no *lockfile*
+como `link:../../packages/core-ts` — um caminho relativo ao importador, e não uma
+versão publicada. A primeira versão da travessia descartava essas linhas, e com
+isso o `services/gwy` levava três componentes e não mostrava nem o
+`@kamba/core-ts` que carrega nem o `bullmq` que o `core-ts` lhe traz. **O custo
+não era o de hoje, era o do dia seguinte:** no dia em que um pacote nosso tome
+uma dependência de terceiros, ela não apareceria no SBOM de nenhum dos serviços
+que o carregam, e a pergunta «o que é que este serviço tem dentro» passava a ter
+resposta errada sem ninguém dar por isso.
+
+O caminho mapeia-se de volta à chave do importador (`services/gwy` +
+`../../packages/core-ts` → `packages/core-ts`) e a travessia continua dali,
+transitivamente, com visitado-é-visitado: dois pacotes nossos podem declarar-se
+um ao outro, e uma travessia ingénua não terminaria.
+
+**Atravessar não é copiar.** Ao entrar num pacote do *workspace* seguem-se só os
+grupos que um consumidor herda — `dependencies` e `optionalDependencies` — e não
+as `devDependencies`, que são as ferramentas com que esse pacote se constrói e
+não fazem parte do que o serviço carrega. As `devDependencies` do **próprio**
+alvo continuam a contar: sem isso a raiz, que só tem `devDependencies`, ficava
+com zero componentes.
+
+**E excluir um grupo um nível acima não chega, porque ele volta a entrar um
+nível abaixo.** Um *peer* opcional já resolvido escreve-se, na secção
+`snapshots:`, debaixo de `optionalDependencies:` — indistinguível a olho de uma
+`optionalDependencies` verdadeira. O `bullmq@6.3.11` declara o `pg` em
+`peerDependencies` com `peerDependenciesMeta.pg.optional: true`, e o `pg` só
+está resolvido porque o `@kamba/core-ts` o declara nas suas `devDependencies`.
+Seguir essa aresta punha o `pg` e mais treze no `services/gwy`, no `com` e no
+`onboarding-web`, que não o têm — **14 de 41 componentes, por um caminho que a
+exclusão de um nível acima tinha acabado de fechar.** A primeira versão do
+KAM-133 publicou-os, e a revisão adversarial independente mediu-os.
+
+Por isso lê-se também a secção `packages:`, de onde saem os *peers* opcionais de
+cada pacote, e **não se segue uma aresta de `optionalDependencies:` cujo nome
+seja um *peer* opcional do pacote.** Não se perde nada: um *peer* só está
+resolvido porque alguém na árvore o fornece, e esse alguém declara-o. O
+`ioredis` é *peer* opcional do `bullmq` exactamente pela mesma via e **continua**
+no fecho dos três serviços, porque o `core-ts` o declara em `dependencies`; e as
+`optionalDependencies` verdadeiras continuam a seguir-se — são elas que põem os
+seis `@msgpackr-extract/*` no fecho.
+
+**O oráculo desta regra não é um raciocínio nosso: é o próprio `pnpm`.** A
+travessia é confrontada, importador a importador, com
+`pnpm --filter <alvo> list --prod --depth Infinity --json`, e o oráculo medido
+está guardado em `tools/sbom/tests/oraculo_pnpm.json` com o `sha256` do
+*lockfile* do dia — se o *lockfile* mudar e o oráculo não, o teste diz que está
+velho em vez de abençoar o erro. Era a verificação que faltava: a primeira
+versão foi validada só com *fixtures* escritas por quem escreveu o código, e
+elas passaram todas enquanto o documento publicava 14 componentes a mais.
+
+**O pacote do *workspace* entra como componente, com `dependsOn` — não se
+promovem só os seus terceiros.** É decisão de desenho do documento, e a razão é
+que a outra forma responde pior à pergunta a que o SBOM existe para responder:
+promover o `bullmq` para dentro do `gwy` e deixar o `@kamba/core-ts` de fora diz
+*que* o `bullmq` lá está e não *porque* — e é «porquê» que alguém pergunta no dia
+em que o `bullmq` aparecer num boletim de segurança. Os SBOM passam a ter o campo
+`dependencies` do CycloneDX, ordenado nas duas dimensões como o resto do
+ficheiro. **Um componente sem entrada nesse campo é um componente cujo grafo o
+gerador não conhece; uma entrada com `dependsOn` vazio é um componente que não
+depende de nada** — e a distinção importa, porque do lado Python há *pins* e não
+um grafo resolvido, pelo que os terceiros `pypi` ficam de fora do campo em vez de
+entrarem a mentir que não dependem de nada.
+
+Há um **terceiro** estado, e é o que mente: a **entrada parcial**. O `kamba-agr`
+saía com `dependsOn: [kamba-core]` quando o `pyproject.toml` declara três, e o
+`starlette` e o `uvicorn` estavam no mesmo documento, com versão — com entrada,
+quem lê conclui que o grafo é conhecido. Uma aresta que o manifesto declara e
+cuja outra ponta está no documento **entra sempre**; omitir o nó é não afirmar o
+que não se sabe, apagar a aresta é afirmar o que é falso.
+
+**O lado Python tem a mesma ligação, e tinha o mesmo defeito.** Não por
+instalação editável — o `make bootstrap` instala os três `requirements/*.txt` com
+`--require-hashes --no-deps` e **não** instala `kamba-core` nem `kamba-agr` em
+modo nenhum —, mas por declaração: o `services/agr/pyproject.toml` nomeia
+`kamba-core` em `[project].dependencies`, e o `kamba-core` não aparecia no SBOM
+do `services/agr`. Mesma travessia, mesmo gerador, mesmo ticket. Só se resolvem
+nomes de pacotes **nossos**; a atribuição de terceiros do lado Python continua a
+vir dos *pins* de `requirements/*.in`, que é o único sítio onde há versões.
+
+Contagem de componentes por alvo, antes e depois, medida com
+`python -m sbom --root .. check` sobre um `pnpm install --frozen-lockfile` limpo
+(110 pacotes npm) e os três *locks* de Python instalados:
+
+| Alvo | Antes | Depois |
+|---|---|---|
+| `kamba` (conjunto) | 142 | 142 |
+| `services/gwy` | 3 | 25 |
+| `services/com` | 3 | 25 |
+| `services/onboarding-web` | 3 | 25 |
+| `services/worker-canal` | 20 | 42 |
+| `services/agr` | 8 | 9 |
+| `packages/core-ts` | 38 | 39 |
+| `packages/contracts` | 1 | 1 |
+| `libs/py-core` | 1 | 1 |
+
+O conjunto **não muda**, que é o que se esperava: o fecho completo já estava
+certo, e é sobre ele que correm licenças e vulnerabilidades. E cada serviço
+continua a ser um serviço: 25 não é 142.
+
+> O número de um serviço é menor do que o seu fecho porque o SBOM cruza o fecho
+> com o que está **no disco**: os seis `@msgpackr-extract/*` são binários por
+> plataforma e só um se instala. Em fecho, cada um dos três serviços leva 27
+> terceiros e três pacotes nossos.
 
 #### Fronteira com o KAM-067
 
@@ -1187,7 +1381,7 @@ ambos consomem este esquema em vez de inventarem o seu.
 
 | Campo | Obrigatório | Nota |
 |---|---|---|
-| `gate` | sim | **onze** aceitam: 3, **3b**, 4, 5, 6, 7, 8, 9, 11, **14** e **18**. Os outros oito não, e a recusa diz a razão **desse** gate — ver abaixo |
+| `gate` | sim | **doze** aceitam: 3, **3b**, **3c**, 4, 5, 6, 7, 8, 9, 11, **14** e **18**. Os outros **oito** não (1, 2, 10, 12, 13, 15, 16 e 17), e a recusa diz a razão **desse** gate — ver abaixo. Os vinte são os dezoito do canon mais o 3b e o 3c |
 | `alvo` | sim | o que exactamente se dispensa; nunca «tudo» |
 | `adr_ou_aprovacao` | sim | `ADR-NNN`, `ADR-LNNN` ou `aprovacao:<quem>@<data>`. **A data é lida** (KAM-135): tem de ser real, não futura, e não pode preceder o `criado_em` em mais de 30 dias |
 | `autor` | sim | a quem se pergunta |
@@ -1262,6 +1456,18 @@ Desde o KAM-067 esse `grep` deixou de ser uma frase deste documento: é a regra
 
 O `permissions` de topo é `contents: read` e cada *job* pede o mínimo que precisa.
 
+**A verificação do *ruleset* (KAM-137) não está aqui, e é por causa desta
+secção.** Comparar o *ruleset* efectivo com
+[`.github/rulesets/main.json`](../.github/rulesets/main.json) exige a permissão
+`administration` do GitHub, que o `GITHUB_TOKEN` das Actions não oferece; trazer
+outro *token* obrigava a uma referência `secrets.*` num *workflow*, que é o que
+a regra `chave-estatica-no-ci` recusa. Por isso a verificação é `make ruleset`,
+corre fora deste CI, e a credencial é de **leitura**
+(`administration: read`) — ver
+[`adr/ADR-L003-verificacao-do-ruleset.md`](adr/ADR-L003-verificacao-do-ruleset.md).
+**Nenhum ficheiro de `.github/workflows/` foi tocado por esse ticket**, e é essa
+a razão pela qual o `grep` acima continua a devolver zero.
+
 ---
 
 ## 7. Lacunas do canon que este ticket encontrou
@@ -1313,12 +1519,38 @@ resposta seria pior do que nomeá-las:
     fazer o relatório ser igual ao âmbito — e nem para isso ficou, porque a
     inclusão retirava do relatório o ficheiro que nenhum estrato classifica. O
     que o `make coverage-node` passa é `--test-coverage-exclude`.
-11. **O SBOM por serviço não atravessa um `link:`.** Omite os pacotes do próprio
-    *workspace* que o serviço carrega: o `services/gwy` declara
-    `@kamba/core-ts`, os testes carregam-no, e não aparece no seu SBOM. O fecho
-    completo (`kamba.cdx.json`) está correcto, pelo que licenças e
-    vulnerabilidades são verificadas sobre tudo — o que falta é a atribuição por
-    serviço. Ticket próprio.
+11. ~~**O SBOM por serviço não atravessa um `link:`.** Omite os pacotes do
+    próprio *workspace* que o serviço carrega: o `services/gwy` declara
+    `@kamba/core-ts`, os testes carregam-no, e não aparece no seu SBOM.~~
+    **Fechada pelo KAM-133** (§3, *gate* 11). A travessia mapeia o caminho do
+    `link:` de volta à chave do importador e continua dali, transitivamente e
+    com visitado-é-visitado. O `services/gwy` passa de **3** para **25**
+    componentes, com `@kamba/contracts`, `@kamba/core-ts` e os 22 terceiros
+    instalados que o `core-ts` traz; o conjunto (`kamba.cdx.json`) fica nos
+    mesmos **142**, que é a prova de que o fecho completo já estava certo — e é
+    por isso que licenças e vulnerabilidades não mudaram.
+
+    **Atravessar não chegava: a primeira versão trazia 14 componentes a mais a
+    três serviços**, e a revisão adversarial independente mediu-os contra o
+    próprio `pnpm`. O `pg` está resolvido como *peer* opcional no *snapshot* do
+    `bullmq` **porque o `core-ts` o declara nas suas `devDependencies`** — o
+    grupo excluído um nível acima a voltar a entrar um nível abaixo. A
+    travessia passou a ler os *peers* opcionais de `packages:` e a não os
+    seguir, e é agora confrontada com
+    `pnpm --filter <alvo> list --prod --depth Infinity` nos sete importadores
+    (`tools/sbom/tests/test_oraculo_pnpm.py`).
+
+    **E a classe fica fechada, não só o caso npm.** Eram três formas da mesma
+    ligação, e só uma estava no enunciado: (a) o `link:` de `importers:`; (b) um
+    importador escrito `packages/contracts: {}`, que o leitor nem registava como
+    importador — o `@kamba/contracts` não entrava no SBOM de nenhum dos quatro
+    serviços que o declaram, e não se via porque, sem travessia de `link:`, nada
+    procurava o destino; e (c) o lado **Python**, onde o
+    `services/agr/pyproject.toml` nomeia `kamba-core` em
+    `[project].dependencies` — não é instalação editável, que não existe neste
+    repositório, mas é a mesma declaração e tinha o mesmo defeito. Varridos os
+    outros leitores de `pnpm-lock.yaml`: o `tools/lint_arch/manifests.py` lê o
+    `specifier` e não faz fecho por alvo, pelo que não tem esta forma.
 12. ~~**Sete chaves de `ci/*.yaml` que nenhum código lê**~~ — **fechada pelo
     KAM-134**, e eram **oito**: a `desconhecidas.razao` não estava em lista
     nenhuma. Todas passaram a **comentário**, nenhuma a ser lida, e a escolha é
@@ -1388,11 +1620,46 @@ resposta seria pior do que nomeá-las:
     YAML — este, `tools/canon_lint/yamlreg.py` e
     `tools/secrets_inventory/yamlsubset.py` — e só o primeiro foi varrido
     (lacuna 22).
-15. **O *ruleset* não tem quem o verifique.** Está espelhado em
+15. ~~**O *ruleset* não tem quem o verifique.** Está espelhado em
     [`.github/rulesets/main.json`](../.github/rulesets/main.json), e o espelho
     não é aplicado por nada: fechar a volta precisa de um *token* com
     `administration: write`, que o CA deste ticket proíbe («sem chaves
-    estáticas»).
+    estáticas»).~~ **Fechada pelo KAM-137 na metade que se podia fechar — a
+    detecção —, e a lacuna estava errada numa coisa: comparar não precisa de
+    `administration: write`, precisa de `administration: read`.** É essa a
+    decisão, registada em
+    [`adr/ADR-L003-verificacao-do-ruleset.md`](adr/ADR-L003-verificacao-do-ruleset.md):
+    só detecção, com um *token* de leitura, que compara e nunca aplica — e o
+    módulo só faz `GET`, com uma guarda de máquina que varre todos os seus
+    módulos e recusa verbos de escrita em literais, `--method`/`-X`, comandos
+    do sistema, `subprocess` fora de `gh api` e pedidos com corpo (o que essa
+    guarda **não** garante está escrito nela). O `make ruleset` compara os seis
+    campos de política, com `bypass_actors` vazio e os sete contextos nomeados,
+    e sai **2** quando não consegue ler — `403`, sem `gh`, API em baixo — pela
+    mesma regra que o *gate* 11 aplica à OSV. Os campos voláteis ignorados
+    estão nomeados um a um em `tools/ruleset_check/comparador.py`.
+
+    **Corre sobre uma lista de alvos, e não sobre um repositório.** O espelho
+    viaja na árvore que é empurrada para os **dois** repositórios, e a primeira
+    versão nomeava só o privado: corrida de um clone do público, lia o
+    *ruleset* do privado, imprimia «conforme» e saía 0 de dentro de um
+    repositório sem protecção nenhuma. Agora [`../ci/ruleset.yaml`](../ci/ruleset.yaml)
+    declara um alvo por repositório, resolve o *ruleset* pelo `name` do
+    espelho, e **um repositório sem *ruleset* nenhum é vermelho** — saída 1,
+    `repositorio-sem-ruleset`, porque a leitura correu e a resposta foi que a
+    política não está aplicada ali.
+
+    **O que fica por fechar, e é metade:** isto **não é um *gate* de PR** e não
+    corre no CI deste repositório. A API dos *rulesets* exige a permissão
+    `administration`, que o `GITHUB_TOKEN` das Actions não tem, e qualquer outro
+    *token* obrigaria a uma referência `secrets.*` num *workflow* — que é
+    exactamente o que a regra `chave-estatica-no-ci` deste documento recusa
+    (§6). **A divergência é detectada quando alguém corre a verificação, e não
+    quando acontece**, e montar a execução periódica exige um contexto fora
+    destas Actions que não existe. Fica como **lacuna 28**. E uma segunda coisa
+    ficou por fechar, nomeada ao medir: o `albinoJimy/kamba-plataforma`, onde os
+    PR são abertos hoje, **não tem *ruleset* nenhum** — lacuna 29, agora com
+    alvo declarado e com a verificação a dar vermelho por causa dela.
 16. **Nenhum PR tem revisão humana imposta por máquina.** O *ruleset* exigia uma
     aprovação, e com um só contribuidor a regra não podia ser satisfeita: o
     GitHub não deixa o autor aprovar o próprio PR. O fundador baixou-a para 0
@@ -1403,8 +1670,15 @@ resposta seria pior do que nomeá-las:
     nos `needs` de `gates do KAM-002`, que é *required check*; o contexto
     `gate 3b — nomes canonicos` **não** foi acrescentado ao *ruleset*, porque
     isso é uma alteração de configuração do repositório que este ticket não
-    fez (lacuna 15: o espelho não é aplicado por nada). O efeito é o mesmo do
-    *gate* 8, que também só bloqueia pelo resumo.
+    fez. O efeito é o mesmo do *gate* 8, que também só bloqueia pelo resumo.
+    Desde o KAM-137 o estado é **visível** — acrescentar o contexto só ao
+    ficheiro põe o `make ruleset` vermelho com `contexto-so-no-ficheiro`, e foi
+    assim que o caso (b) desse ticket se demonstrou —, mas visível não é
+    aplicado: continua a ser o fundador a acrescentá-lo no GitHub, se o quiser.
+    **O *gate* 3c (KAM-138) entrou pelo mesmo caminho e pela mesma razão**,
+    embora o seu DoD peça o contexto próprio: escrevê-lo no `main.json` sem o
+    aplicar tornaria o espelho **falso**, que é pior do que a lacuna. A caixa
+    fica por marcar nesse ticket.
 18. **Duas das doze divergências do KAM-111 não têm forma de nome** (D-07, o
     gatilho do *provisioning*; D-09, a retenção de `assistant_queries`) e o
     *gate* 3b não as vê. O critério de aceitação pede doze *fixtures*; há dez.
@@ -1539,6 +1813,38 @@ resposta seria pior do que nomeá-las:
     com a imagem do `.node-version` fixada por *digest*. Pendurar o alvo num
     *job* que ja tenha `preparar` (o *gate* 2, por exemplo) e a via natural, e e
     decisao do dono do *gate*. Ate la, corre-se a mao.
+28. **A verificação do *ruleset* não é um *gate* e não tem agendamento.** O
+    KAM-137 entregou a detecção (`make ruleset`) e deixou-a a correr à mão: uma
+    divergência aparece quando alguém olha, e não quando acontece. As duas
+    razões estão medidas na lacuna 15 e em
+    [`adr/ADR-L003-verificacao-do-ruleset.md`](adr/ADR-L003-verificacao-do-ruleset.md)
+    — a permissão `administration` não existe no `GITHUB_TOKEN` das Actions, e
+    trazer outro *token* para um *workflow* é a chave estática que o §6 proíbe.
+    Fechá-la exige um contexto de execução fora destas Actions, que hoje não
+    existe. É também a razão por que a **subida a uma GitHub App com escrita**
+    continua escrita como caminho de evolução e não como rejeição: o §6 do ADR
+    tem os três gatilhos. Precisa de ticket.
+29. **O `albinoJimy/kamba-plataforma` não tem *ruleset* nenhum.** Medido a
+    2026-10-18: `gh api repos/albinoJimy/kamba-plataforma/rules/branches/main`
+    devolve `[]`, e o mesmo comando no `albinoJimy/kamba` devolve
+    `["pull_request","required_status_checks","deletion","non_fast_forward"]`.
+    O repositório **público**, que é onde os PR são abertos hoje, não tem
+    nenhuma das protecções que este documento descreve: nem PR obrigatório, nem
+    *required checks*, nem protecção contra apagar ou reescrever `main`. **O
+    fundador decidiu a 2026-10-18 criar lá uma cópia do *ruleset* do privado**,
+    e criá-lo é acto dele — o KAM-137 estava impedido de alterar *rulesets*.
+    O que o KAM-137 fez foi pôr o repositório na lista de alvos de
+    [`../ci/ruleset.yaml`](../ci/ruleset.yaml): enquanto o *ruleset* não
+    existir, o `make ruleset` sai **1** com `repositorio-sem-ruleset`, e a
+    lacuna deixa de depender de alguém se lembrar dela.
+
+    **Vale registar como esta lacuna quase se tornou pior do que era.** A
+    primeira versão do KAM-137 nomeava um repositório só, e o espelho
+    `.github/rulesets/main.json` descrevia o `kamba` enquanto viajava na árvore
+    do `kamba-plataforma`. Corrida de um clone do público, a verificação dizia
+    «conforme» — uma máquina a certificar a protecção de um repositório que não
+    tinha nenhuma. Foi a revisão adversarial independente a apanhá-lo, e é o
+    caso-tipo do que o §1 deste documento chama um *gate* que mente.
 
 > As lacunas 9 a 14 vêm da revisão adversarial, e cada uma está reproduzida com
 > um comando em [`ANALISE-02`](analises/ANALISE-02-KAM-002-pipeline-ci.md).
@@ -1659,6 +1965,9 @@ sobrevivem ao PR.
 | 1.29 | Outubro 2026 | KAM-157: o §3 (*gate* 9) ganha a *push protection* do GitHub. Existe um `.github/secret_scanning.yml` com uma entrada — a pasta do canário —, por decisão do fundador de 2026-10-18. Não é área cega nova (o `ci/secrets-allow.yaml` já a declarava), não torna o canário invisível ao *gate* 9 (são dois *scanners*), e não pode crescer em silêncio: um teste exige que as duas listas coincidam exactamente. | Equipa KAMBÁ |
 | 1.30 | Outubro 2026 | KAM-135: o §5 passa a descrever o que o validador exige. `criado_em` obrigatório e o prazo contado **dele** — renovar deixa de ser empurrar uma data; a data dentro de `adr_ou_aprovacao` é lida e não pode ser futura; e os gates **14** e **18** passam a aceitar *waiver*, que o KAM-067 e o KAM-078 precisam e o validador recusava. O conjunto de gates deriva agora da tabela do `specs/01` §4: os **dezanove** estão classificados — o `3b` incluído, que a primeira versão do *regex* não via e que o teste cimentava a 18 —, e um gate novo sem posição falha. A aprovação datada tem de ser contemporânea da criação, e o que **não** se verifica (o `ADR-NNN`, o `autor`) fica dito em vez de prometido. | Equipa KAMBÁ |
 | 1.31 | Outubro 2026 | KAM-159: o *gate* 7 ganha a **quinta** verificação — `contract_diff dominios` —, que confronta o `enum` de um contrato com o domínio canónico, nos dois sentidos. Fecha a costura que nenhum dos dois *gates* via: o dicionário e os contratos nomeavam listas de finalidades que se cruzavam numa só, e duas do canon eram impossíveis de emitir. | Equipa KAMBÁ |
-| 1.32 | Outubro 2026 | **KAM-009: a superfície 3 passa a ler duas formas.** Um `registry/*.yaml` é uma **vertical** (chave de topo `id`) ou os **planos** (chave de topo `plans`), e a forma lê-se pela chave e nunca pelo nome do ficheiro; as chaves de topo de cada forma são listas fechadas, cada nome de limite é confrontado com as dez chaves do dicionário §3.2 nas duas, e um ficheiro que não seja **nenhuma** das duas falha. A superfície deixa de estar vazia (`registry/plans.yaml`, com `estado: hipotese_nao_validada` por entrada) e a frase «A SUPERFÍCIE AINDA NÃO EXISTE» deixa de aparecer para ela. Corrigido de passagem: `ManualProvider`, que a linha «Entitlement (chaves)» escreve em prosa e o exportador colhia, era aceite como nome de limite — o lint passa a exigir a forma `^[a-z][a-z0-9_]*$`, a mesma do `CHECK` de `tenant_usage.chave_limite`. | Equipa KAMBÁ |
-| 1.33 | Outubro 2026 | **KAM-009: o *gate* 8 passa a correr sete *suites*.** A sétima é `tests_ten`, que prova a **função** `platform.ten_consumir` da revisão `0007` e não o esquema: mil chamadas paralelas de 1 unidade contra um tecto de 100 em 32 ligações — **100 aceites, 900 negadas, contador final 100, e o livro de idempotência com 100 linhas e não mil** —, as dez repetições do critério 4 mais o caso que o critério não pede (uma recusa não pode gastar a chave, nos dois caminhos de recusa), a fronteira do mês com relógio fixo nos dois instantes do critério **e** num instante que cai em meses diferentes em UTC e em `Africa/Luanda`, e o isolamento da função — que o *gate* 6 não prova, porque a política de uma tabela não diz o que uma função `SECURITY INVOKER` faz quando quem a chama é outro tenant. O *gate* 6 ganha as receitas de sementes das duas tabelas novas, sem as quais se recusava a correr, e `entitlements` passa a ser uma tabela que `kamba_app` **não altera** (a `0007` revogou-lhe o `UPDATE`). Quinze mutações novas. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |
-| 1.34 | Outubro 2026 | **KAM-009 reprovou na revisão adversarial, e o *gate* 8 passa a morder onde ela mordeu.** Três críticos, nenhum apanhado pelos 47 testes nem pelas 15 mutações que havia: a chave de idempotência valia para **todas** as chaves de limite e não olhava à quantidade (repetir a chave de um consumo de uma mensagem autorizava um pedido de 999 999,99 Kz contra um tecto de 50 000, sem contar); `kamba_app` mantinha `INSERT` em `entitlements`, e com `WITH CHECK (tenant_id = app.tenant_id)` o tenant **criava** o próprio tecto; e `GRANT UPDATE (valor)` em `tenant_usage` deixava-o **zerar** o próprio contador. A revisão `0007` ganha a `chave_limite` na chave do livro, a comparação da quantidade (`KA002`), o `REVOKE INSERT`, e o *trigger* `tenant_usage_so_sobe` — o padrão do `audit_log_imutavel` da `0006`: o que o privilégio por coluna não sabe exprimir, exprime-o um `BEFORE UPDATE`. Mais o `UPDATE (tenants.estado)` revogado (um tenant `suspenso` reactivava-se e retirava a condição do critério 2), o `p_agora` fechado a quem não é `kamba_batch`, e quatro erros que escapavam aos tratadores (`22P02` de um limite não inteiro, `22003` de transbordo, chave de idempotência vazia, aviso de ordem das chaves no `COMMENT`). A *suite* `tests_ten` ganha o `test_escalada.py` — o atacante é o **próprio** tenant, que é o caso que a RLS nunca podia parar — e passa a correr o `SQL_CONSUMIR` e o `SQL_PERIODO` **das bibliotecas** em vez de uma cópia deles, o que destapou um defeito real: o `SQL_PERIODO` não tinha `coalesce` e devolvia `NULL` sem instante. Mutações: 256 → **270**. | Equipa KAMBÁ |
+| 1.32 | Outubro 2026 | **KAM-133: a lacuna 11 fecha.** O SBOM por serviço do *gate* 11 passa a atravessar as dependências `link:` do *workspace*: o caminho mapeia-se de volta à chave do importador e a travessia continua dali, transitivamente e com visitado-é-visitado. O `services/gwy` passa de **3** para **25** componentes e o conjunto fica nos mesmos **142** — que é a prova de que o fecho completo já estava certo, e a razão por que licenças e vulnerabilidades não mudaram. **Atravessar não é copiar:** de um pacote ligado seguem-se só `dependencies` e `optionalDependencies`, não as `devDependencies`. **E excluir um grupo um nível acima não chega:** um *peer* opcional já resolvido escreve-se em `snapshots:` como uma `optionalDependencies` qualquer, e o `pg` do `bullmq` só está resolvido porque o `core-ts` o declara em `devDependencies` — a primeira versão deste ticket publicou-o, e a mais treze, em três serviços que o não têm. A travessia passou a ler os *peers* opcionais de `packages:`, e tem agora como oráculo o próprio `pnpm` (`pnpm list --prod --depth Infinity` nos sete importadores, com o `sha256` do *lockfile* a datar a medição). Decisão de desenho escrita no §3: o pacote do *workspace* entra **como componente, com `dependsOn`**, e não se promovem só os seus terceiros. Eram três formas da mesma ligação e só uma estava no enunciado: juntaram-se o importador escrito `packages/contracts: {}`, que o leitor nem registava, e o lado **Python** (`services/agr` declara `kamba-core` em `[project].dependencies`; instalação editável não existe neste repositório). | Equipa KAMBÁ |
+| 1.33 | Outubro 2026 | **KAM-137: a lacuna 15 fecha na metade da detecção**, e fecha **corrigida** — comparar não precisa de `administration: write`, precisa de `read`. Decisão do fundador de 2026-10-18, em [`ADR-L003`](adr/ADR-L003-verificacao-do-ruleset.md): só detecção, com *token* de leitura, que compara e nunca aplica. O `make ruleset` (`tools/ruleset_check`) compara os seis campos de política — as quatro regras, os sete contextos, `enforcement`, `conditions`, `name`, `target` — com `bypass_actors` **vazio**, ignora oito campos voláteis nomeados um a um, e sai **2** quando não consegue ler, nunca 0. **Corre sobre uma lista de alvos, e não sobre um repositório:** a primeira versão nomeava só o privado, e como o espelho viaja na árvore dos dois, corrida de um clone do público dizia «conforme» de dentro de um repositório sem protecção nenhuma — foi a revisão adversarial a apanhá-lo, e é o caso-tipo do §1. Agora um repositório sem *ruleset* é **1**, nomeado, e o ramo funde **vermelho** até o `albinoJimy/kamba-plataforma` ter o seu (lacuna 29). **Não é *gate* e não entra no `make ci`**: a permissão `administration` não existe no `GITHUB_TOKEN` das Actions e qualquer outro *token* seria a chave estática que o §6 proíbe; nenhum ficheiro de `.github/workflows/` foi tocado. Executados a sério: contexto acrescentado só ao ficheiro (vermelho, revertido), ficheiro e API iguais no alvo que tem *ruleset* (verde), credencial inválida nos dois transportes, sem credencial e *endpoint* inalcançável (saída 2). Os dois casos que mexem no *ruleset* do GitHub ficam para o fundador, com o procedimento escrito em [`evidencia/KAM-137.md`](evidencia/KAM-137.md) §5. Lacunas **28** e **29** novas. | Equipa KAMBÁ |
+| 1.34 | Outubro 2026 | KAM-138: entra o *gate* **3c**, coerência do backlog. O §2 ganha a linha com alvo e dono, e o §3 a secção que descreve as oito verificações — sincronia linha↔bloco nos seis campos, órfãos nos dois sentidos, a tabela-resumo do §3 de cada epic como terceira superfície, reciprocidade `Dependências`↔`Bloqueia`, ciclos com o caminho completo, inversões de prioridade e de fase, contagens derivadas do §4 e «Controlo de versões» sem buracos. O que o distingue de uma comparação de tabelas é a reciprocidade: o §4 não tem coluna `Bloqueia`, e na entrega havia **seis** arestas declaradas de um só lado, abertas pelos quatro tickets inscritos depois do KAM-144. A **lacuna 17** passa a nomear também o 3c: entra nos `needs` de `gates do KAM-002` e não no `main.json`, porque escrever no espelho o que o *ruleset* não tem tornava-o falso. | Equipa KAMBÁ |
+| 1.35 | Outubro 2026 | **KAM-009: a superfície 3 passa a ler duas formas.** Um `registry/*.yaml` é uma **vertical** (chave de topo `id`) ou os **planos** (chave de topo `plans`), e a forma lê-se pela chave e nunca pelo nome do ficheiro; as chaves de topo de cada forma são listas fechadas, cada nome de limite é confrontado com as dez chaves do dicionário §3.2 nas duas, e um ficheiro que não seja **nenhuma** das duas falha. A superfície deixa de estar vazia (`registry/plans.yaml`, com `estado: hipotese_nao_validada` por entrada) e a frase «A SUPERFÍCIE AINDA NÃO EXISTE» deixa de aparecer para ela. Corrigido de passagem: `ManualProvider`, que a linha «Entitlement (chaves)» escreve em prosa e o exportador colhia, era aceite como nome de limite — o lint passa a exigir a forma `^[a-z][a-z0-9_]*$`, a mesma do `CHECK` de `tenant_usage.chave_limite`. | Equipa KAMBÁ |
+| 1.36 | Outubro 2026 | **KAM-009: o *gate* 8 passa a correr sete *suites*.** A sétima é `tests_ten`, que prova a **função** `platform.ten_consumir` da revisão `0007` e não o esquema: mil chamadas paralelas de 1 unidade contra um tecto de 100 em 32 ligações — **100 aceites, 900 negadas, contador final 100, e o livro de idempotência com 100 linhas e não mil** —, as dez repetições do critério 4 mais o caso que o critério não pede (uma recusa não pode gastar a chave, nos dois caminhos de recusa), a fronteira do mês com relógio fixo nos dois instantes do critério **e** num instante que cai em meses diferentes em UTC e em `Africa/Luanda`, e o isolamento da função — que o *gate* 6 não prova, porque a política de uma tabela não diz o que uma função `SECURITY INVOKER` faz quando quem a chama é outro tenant. O *gate* 6 ganha as receitas de sementes das duas tabelas novas, sem as quais se recusava a correr, e `entitlements` passa a ser uma tabela que `kamba_app` **não altera** (a `0007` revogou-lhe o `UPDATE`). Quinze mutações novas. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |
+| 1.37 | Outubro 2026 | **KAM-009 reprovou na revisão adversarial, e o *gate* 8 passa a morder onde ela mordeu.** Três críticos, nenhum apanhado pelos 47 testes nem pelas 15 mutações que havia: a chave de idempotência valia para **todas** as chaves de limite e não olhava à quantidade (repetir a chave de um consumo de uma mensagem autorizava um pedido de 999 999,99 Kz contra um tecto de 50 000, sem contar); `kamba_app` mantinha `INSERT` em `entitlements`, e com `WITH CHECK (tenant_id = app.tenant_id)` o tenant **criava** o próprio tecto; e `GRANT UPDATE (valor)` em `tenant_usage` deixava-o **zerar** o próprio contador. A revisão `0007` ganha a `chave_limite` na chave do livro, a comparação da quantidade (`KA002`), o `REVOKE INSERT`, e o *trigger* `tenant_usage_so_sobe` — o padrão do `audit_log_imutavel` da `0006`: o que o privilégio por coluna não sabe exprimir, exprime-o um `BEFORE UPDATE`. Mais o `UPDATE (tenants.estado)` revogado (um tenant `suspenso` reactivava-se e retirava a condição do critério 2), o `p_agora` fechado a quem não é `kamba_batch`, e quatro erros que escapavam aos tratadores (`22P02` de um limite não inteiro, `22003` de transbordo, chave de idempotência vazia, aviso de ordem das chaves no `COMMENT`). A *suite* `tests_ten` ganha o `test_escalada.py` — o atacante é o **próprio** tenant, que é o caso que a RLS nunca podia parar — e passa a correr o `SQL_CONSUMIR` e o `SQL_PERIODO` **das bibliotecas** em vez de uma cópia deles, o que destapou um defeito real: o `SQL_PERIODO` não tinha `coalesce` e devolvia `NULL` sem instante. Mutações: 256 → **270**. | Equipa KAMBÁ |

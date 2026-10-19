@@ -67,6 +67,44 @@ class TestRecolha(unittest.TestCase):
             with self.subTest(nome=componente.nome):
                 self.assertTrue(componente.origem)
 
+    def test_um_pyproject_de_terceiros_nao_passa_por_nosso(self) -> None:
+        """A guarda do `node_modules` tem de valer nos dois varrimentos.
+
+        O dos `package.json` tinha-a e o dos `pyproject.toml` nao: um pacote de
+        terceiros com `pyproject.toml` na loja do `pnpm` entrava com
+        `proprio=True`, isto e, com a licenca dispensada por identidade.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            raiz = Path(tmp)
+            intruso = raiz / "node_modules" / ".pnpm" / "x@1" / "node_modules" / "x"
+            intruso.mkdir(parents=True)
+            (intruso / "pyproject.toml").write_text(
+                '[project]\nname = "intruso"\nversion = "1.0.0"\n',
+                encoding="utf-8", newline="\n",
+            )
+            nomes = {c.nome for c in recolher_workspace(raiz)}
+            self.assertNotIn("intruso", nomes, sorted(nomes))
+
+    def test_as_pastas_do_venv_sao_lidas_por_ordem(self) -> None:
+        """Determinista inclui **qual** das arvores do `venv` se leu."""
+        from sbom import collect
+
+        with tempfile.TemporaryDirectory() as tmp:
+            venv = Path(tmp) / ".venv"
+            for versao in ("python3.13", "python3.12"):
+                (venv / "lib" / versao / "site-packages").mkdir(parents=True)
+            pastas = [
+                p
+                for p in (
+                    venv / "Lib" / "site-packages",
+                    *sorted((venv / "lib").glob("python3.*/site-packages")),
+                )
+            ]
+            lidas = [p.parent.name for p in pastas if p.is_dir()]
+            self.assertEqual(lidas, ["python3.12", "python3.13"])
+            # E a funcao real nao rebenta num venv assim.
+            self.assertEqual(collect.recolher_pypi(Path(tmp), venv), [])
+
     def test_le_do_disco_e_nao_da_rede(self) -> None:
         """Sem instalacao nao ha componentes de terceiros, e isso e correcto.
 
@@ -83,80 +121,132 @@ class TestFechoPorAlvo(unittest.TestCase):
     """O SBOM de um servico lista o que **ele** carrega, nao o workspace."""
 
     def setUp(self) -> None:
-        self.directas, self.snapshots = pnpm_lock.ler(ROOT / "pnpm-lock.yaml")
+        self.grafo = pnpm_lock.ler(ROOT / "pnpm-lock.yaml")
 
-    #: Quantas dependencias cada servico Node carrega, pelo fecho do lockfile.
-    #: Lista fechada: um servico que ganhe uma dependencia muda o seu numero
-    #: aqui, e e isso que faz a entrada de uma dependencia nova ser uma decisao
-    #: e nao um acidente. O `worker-canal` passou de 2 a 19 com o KAM-005: o
-    #: publicador leva `pg`, e o `pg` leva dezasseis.
+    #: Quantos pacotes de terceiros cada servico Node carrega, pelo fecho do
+    #: lockfile. Lista fechada: um servico que ganhe uma dependencia muda o seu
+    #: numero aqui, e e isso que faz a entrada de uma dependencia nova ser uma
+    #: decisao e nao um acidente. O `worker-canal` passou de 2 a 19 com o
+    #: KAM-005: o publicador leva `pg`, e o `pg` leva dezasseis.
+    #:
+    #: O **KAM-133** multiplicou-os: a travessia passou a atravessar o `link:`,
+    #: e cada servico leva agora o que o `@kamba/core-ts` lhe traz (`bullmq`,
+    #: `ioredis` e os fechos dos dois). Os tres servicos que so declaram `hono`
+    #: ficam iguais entre si, como declaram; o `worker-canal` leva o `pg` e o
+    #: fecho dele, que sao seus, mais o `@types/pg` e o `@types/node`.
+    #:
+    #: **Os tres foram 41 durante uma versao deste ramo, e 41 estava errado.**
+    #: A revisao adversarial mediu 27 contra o proprio `pnpm`: os 14 a mais
+    #: vinham do `pg` resolvido como *peer* opcional no *snapshot* do `bullmq`.
+    #: Estes numeros sao agora confrontados com o oraculo do `pnpm` em
+    #: `test_oraculo_pnpm.py`, que e quem manda; aqui ficam para que uma
+    #: dependencia nova seja uma decisao e nao um acidente.
     DEPENDENCIAS_POR_SERVICO = {
-        "services/gwy": 2,
-        "services/worker-canal": 19,
-        "services/com": 2,
-        "services/onboarding-web": 2,
+        "services/gwy": 27,
+        "services/worker-canal": 44,
+        "services/com": 27,
+        "services/onboarding-web": 27,
     }
 
     def test_os_servicos_node_carregam_o_que_declaram(self) -> None:
         for servico, quantas in self.DEPENDENCIAS_POR_SERVICO.items():
             with self.subTest(servico=servico):
-                fecho = pnpm_lock.fecho(servico, self.directas, self.snapshots)
+                fecho = pnpm_lock.fecho(servico, self.grafo)
+                self.assertIn("hono@4.13.13", fecho.terceiros)
                 self.assertEqual(
-                    {x.split("@")[0] or "@" + x.split("@")[1] for x in fecho} & {"hono"},
-                    {"hono"},
+                    len(fecho.terceiros), quantas, sorted(fecho.terceiros)
                 )
-                self.assertEqual(len(fecho), quantas, sorted(fecho))
 
-    def test_o_fecho_do_publicador_nao_atravessa_o_workspace(self) -> None:
+    def test_o_fecho_do_publicador_atravessa_o_workspace(self) -> None:
         """KAM-005 encontrou a lacuna do KAM-133 pelo lado de dentro.
 
         O publicador vive em `services/worker-canal` e usa `bullmq` e `ioredis`,
         que sao dependencias de `@kamba/core-ts` — e `@kamba/core-ts` entra por
-        `workspace:*`. O fecho **nao atravessa** essa ligacao, pelo que o SBOM
-        do servico nao mostra nem o `bullmq` nem o `ioredis`: mostra o `pg`, que
-        e dependencia directa dele.
-
-        Isto nao e um defeito deste teste — e a lacuna que o **KAM-133** paga
-        («SBOM por servico a atravessar as dependencias `link:` do
-        *workspace*»). Fica fixado aqui para que, no dia em que o KAM-133 a
-        fechar, este teste **falhe** e alguem actualize as contagens em vez de
-        o SBOM mudar em silencio.
+        `workspace:*`. Ate ao KAM-133 o fecho **nao atravessava** essa ligacao,
+        pelo que o SBOM do servico nao mostrava nem o `bullmq` nem o `ioredis`:
+        mostrava o `pg`, que e dependencia directa dele. A versao anterior deste
+        teste fixava essa omissao, para que o dia em que ela fosse paga nao
+        mudasse o SBOM em silencio. E o dia foi este.
         """
-        fecho = pnpm_lock.fecho(
-            "services/worker-canal", self.directas, self.snapshots
-        )
-        nomes = {x.rsplit("@", 1)[0] for x in fecho}
-        self.assertIn("pg", nomes, sorted(nomes))
-        for pacote in ("bullmq", "ioredis"):
+        fecho = pnpm_lock.fecho("services/worker-canal", self.grafo)
+        nomes = {x.rsplit("@", 1)[0] for x in fecho.terceiros}
+        for pacote in ("pg", "bullmq", "ioredis"):
             with self.subTest(pacote=pacote):
-                self.assertNotIn(pacote, nomes, "o KAM-133 fechou: actualize as contagens")
-
-        # E aparecem no fecho do pacote que os declara.
-        do_core = {
-            x.rsplit("@", 1)[0]
-            for x in pnpm_lock.fecho("packages/core-ts", self.directas, self.snapshots)
-        }
-        for pacote in ("bullmq", "ioredis"):
-            with self.subTest(pacote=pacote, alvo="packages/core-ts"):
-                self.assertIn(pacote, do_core, sorted(do_core))
+                self.assertIn(pacote, nomes, sorted(nomes))
+        self.assertIn("packages/core-ts", fecho.importadores)
 
     def test_a_raiz_carrega_o_fecho_das_devdependencies(self) -> None:
         """O `@commitlint/cli` tem tres pares; sem normalizar as chaves, o fecho
         parava nele e dava 12 em vez de ~74."""
-        fecho = pnpm_lock.fecho(".", self.directas, self.snapshots)
-        self.assertGreater(len(fecho), 60, sorted(fecho)[:5])
+        fecho = pnpm_lock.fecho(".", self.grafo)
+        self.assertGreater(len(fecho.terceiros), 60, sorted(fecho.terceiros)[:5])
 
     def test_o_alvo_do_conjunto_cobre_mais_do_que_um_servico(self) -> None:
         todos = recolher(ROOT)
         conjunto = componentes_do_alvo(ROOT, "kamba", todos)
         servico = componentes_do_alvo(ROOT, "services/gwy", todos)
-        self.assertGreater(len(conjunto), len(servico) * 5)
+        self.assertGreater(len(conjunto), len(servico))
+
+    def test_nao_e_o_fecho_completo_repetido(self) -> None:
+        """Atravessar o `link:` nao pode virar «nove copias da raiz».
+
+        E o modo de falha oposto ao que o KAM-133 fecha, e o criterio que o
+        ticket escreve: a contagem sobe dos 3 de cada servico e **nao** iguala a
+        do conjunto. Um servico que carregasse tudo tornaria a atribuicao por
+        servico inutil outra vez, pelo outro lado.
+        """
+        todos = recolher(ROOT)
+        conjunto = componentes_do_alvo(ROOT, "kamba", todos)
+        for alvo in ("services/gwy", "services/com", "services/onboarding-web"):
+            with self.subTest(alvo=alvo):
+                servico = componentes_do_alvo(ROOT, alvo, todos)
+                self.assertLess(len(servico), len(conjunto) // 2, alvo)
+                nomes = {c.nome for c in servico}
+                # O `typescript` e `@commitlint/*` sao da raiz e de mais ninguem.
+                self.assertNotIn("typescript", nomes)
 
     def test_um_servico_inclui_o_seu_proprio_pacote(self) -> None:
         todos = recolher(ROOT)
         nomes = {c.nome for c in componentes_do_alvo(ROOT, "services/gwy", todos)}
         self.assertIn("@kamba/gwy", nomes)
         self.assertNotIn("@kamba/com", nomes, "o SBOM do gwy nao leva o com")
+
+    def test_o_caso_de_aceitacao_do_kam133(self) -> None:
+        """«`@kamba/core-ts` aparece no SBOM do `services/gwy`.»
+
+        O caso medido na revisao adversarial ([`ANALISE-02`] M7) e o teste de
+        aceitacao minimo do ticket. Com ele vem o `@kamba/contracts`, que o
+        `gwy` tambem declara, e o `bullmq` — terceiro que nenhum dos quatro
+        servicos declara e todos carregam, pelo `core-ts`.
+        """
+        todos = recolher(ROOT)
+        for alvo in (
+            "services/gwy",
+            "services/com",
+            "services/onboarding-web",
+            "services/worker-canal",
+        ):
+            with self.subTest(alvo=alvo):
+                nomes = {c.nome for c in componentes_do_alvo(ROOT, alvo, todos)}
+                self.assertIn("@kamba/core-ts", nomes)
+                self.assertIn("@kamba/contracts", nomes)
+                self.assertIn("bullmq", nomes)
+
+    def test_o_lado_python_tem_a_mesma_ligacao(self) -> None:
+        """`services/agr` declara `kamba-core` e nao o mostrava.
+
+        Nao e `link:` nem instalacao editavel — o `make bootstrap` nao instala
+        nenhum dos dois pacotes Python nossos —, e a ligacao esta na mesma
+        declarada: `[project].dependencies` do `services/agr/pyproject.toml`.
+        Mesmo defeito, mesmo gerador, e por isso entrou no mesmo ticket.
+        """
+        todos = recolher(ROOT)
+        nomes = {c.nome for c in componentes_do_alvo(ROOT, "services/agr", todos)}
+        self.assertIn("kamba-agr", nomes)
+        self.assertIn("kamba-core", nomes)
+        # E nao ao contrario: o nucleo nao carrega o servico que o usa.
+        do_nucleo = {c.nome for c in componentes_do_alvo(ROOT, "libs/py-core", todos)}
+        self.assertNotIn("kamba-agr", do_nucleo, sorted(do_nucleo))
 
 
 class TestExcepcoesDeNome(unittest.TestCase):
@@ -246,6 +336,109 @@ class TestSbom(unittest.TestCase):
                         (Path(b) / ficheiro.name).read_bytes(),
                     )
 
+    def test_o_grafo_de_dependencias_nao_tem_referencias_penduradas(self) -> None:
+        """Um `bom-ref` que nao resolve e pior do que nao dizer nada.
+
+        O `@msgpackr-extract/...-darwin-arm64` esta no lockfile e nao esta
+        instalado num runner Linux: e o caso real que obriga a filtrar o
+        `dependsOn` pelos componentes deste SBOM, e nao pelo fecho do lockfile.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            for caminho, _ in gerar(ROOT, Path(tmp)):
+                documento = json.loads(caminho.read_text(encoding="utf-8"))
+                referencias = {c["bom-ref"] for c in documento["components"]}
+                referencias.add(documento["metadata"]["component"]["bom-ref"])
+                for entrada in documento.get("dependencies", []):
+                    with self.subTest(sbom=caminho.name, ref=entrada["ref"]):
+                        self.assertIn(entrada["ref"], referencias)
+                        for destino in entrada["dependsOn"]:
+                            self.assertIn(destino, referencias)
+
+    def test_o_grafo_diz_porque_e_que_o_bullmq_esta_no_gwy(self) -> None:
+        """Metade do valor de atribuir por servico e a resposta a «porque».
+
+        Sem o campo `dependencies`, o SBOM do `gwy` diria que leva `bullmq` e
+        nao diria que o leva por carregar o `@kamba/core-ts` — e e essa a
+        pergunta que alguem faz quando o `bullmq` aparecer num boletim.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            gerar(ROOT, Path(tmp))
+            documento = json.loads(
+                (Path(tmp) / "services__gwy.cdx.json").read_text(encoding="utf-8")
+            )
+            arestas = {e["ref"]: e["dependsOn"] for e in documento["dependencies"]}
+            self.assertIn(
+                "pkg:npm/@kamba/core-ts@0.1.0", arestas["pkg:npm/@kamba/gwy@0.1.0"]
+            )
+            self.assertIn(
+                "pkg:npm/bullmq@6.3.11", arestas["pkg:npm/@kamba/core-ts@0.1.0"]
+            )
+            self.assertNotIn(
+                "pkg:npm/bullmq@6.3.11", arestas["pkg:npm/@kamba/gwy@0.1.0"]
+            )
+
+    def test_no_conjunto_um_pacote_nosso_declara_o_que_ele_declara(self) -> None:
+        """O grafo do conjunto nao pode contradizer a lista de componentes.
+
+        O alvo `kamba` e a uniao dos importadores, e o `@kamba/core-ts` aparece
+        la por dois caminhos: como importador (com todos os grupos) e como
+        pacote herdado pelos quatro servicos (so `dependencies`). A primeira
+        versao deixava ganhar quem viesse por ultimo, e o conjunto ficava a
+        dizer que o `core-ts` nao depende do `pg` **enquanto o `pg` estava na
+        sua lista de componentes**.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            gerar(ROOT, Path(tmp))
+            def arestas(ficheiro: str) -> dict[str, list[str]]:
+                documento = json.loads(
+                    (Path(tmp) / ficheiro).read_text(encoding="utf-8")
+                )
+                return {e["ref"]: e["dependsOn"] for e in documento["dependencies"]}
+
+            referencia = "pkg:npm/@kamba/core-ts@0.1.0"
+            self.assertEqual(
+                arestas("kamba.cdx.json")[referencia],
+                arestas("packages__core-ts.cdx.json")[referencia],
+            )
+
+    def test_nenhum_componente_emite_licenses_vazio(self) -> None:
+        """Um *array* vazio satisfaz os dois ramos do `oneOf` e falha-o.
+
+        O `licenseChoice` do CycloneDX 1.6 e um `oneOf` de dois ramos que sao
+        ambos um *array*. `"licenses": []` aparecia em tres documentos, pelos
+        dois pacotes Python nossos, que nao declaram licenca. Omite-se a
+        propriedade: «sem campo» e exactamente o que ha a dizer.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            for caminho, _ in gerar(ROOT, Path(tmp)):
+                documento = json.loads(caminho.read_text(encoding="utf-8"))
+                for componente in documento["components"]:
+                    with self.subTest(sbom=caminho.name, pacote=componente["name"]):
+                        self.assertNotEqual(componente.get("licenses"), [])
+
+    def test_o_grafo_do_lado_python_conta_as_dependencias_todas(self) -> None:
+        """Uma entrada **parcial** mente mais do que nenhuma.
+
+        O `services/agr/pyproject.toml` declara tres (`starlette`, `uvicorn`,
+        `kamba-core`), e a primeira versao emitia so o `kamba-core` — os outros
+        dois estao no mesmo documento, com versao. Com entrada, quem le conclui
+        que o grafo e conhecido.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            gerar(ROOT, Path(tmp))
+            documento = json.loads(
+                (Path(tmp) / "services__agr.cdx.json").read_text(encoding="utf-8")
+            )
+            arestas = {e["ref"]: e["dependsOn"] for e in documento["dependencies"]}
+            self.assertEqual(
+                arestas["pkg:pypi/kamba-agr@0.1.0"],
+                [
+                    "pkg:pypi/kamba-core@0.1.0",
+                    "pkg:pypi/starlette@1.7.0",
+                    "pkg:pypi/uvicorn@0.54.0",
+                ],
+            )
+
     def test_as_expressoes_vao_no_campo_certo(self) -> None:
         """Um `id` e comparavel; uma `expression` tem de ser avaliada."""
         from sbom.cyclonedx import _licenca_para_cyclonedx
@@ -292,7 +485,10 @@ class TestSbom(unittest.TestCase):
         for caminho in caminhos:
             documento = json.loads(caminho.read_text(encoding="utf-8"))
             for componente in documento["components"]:
-                for licenca in componente["licenses"]:
+                # `.get`, e nao `[...]`: desde que o `"licenses": []` deixou de
+                # se emitir (um array vazio falha o `oneOf` do `licenseChoice`),
+                # um componente sem licenca nao tem a propriedade de todo.
+                for licenca in componente.get("licenses", []):
                     identificador = licenca.get("license", {}).get("id")
                     if identificador is None:
                         continue

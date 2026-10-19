@@ -1,0 +1,58 @@
+# Que rulesets se verificam, e contra que ficheiro — KAM-137
+#
+# Lido por `tools/ruleset_check/config.py`. Todas as chaves sao lidas; uma
+# chave que nao esteja no conjunto declarado e RECUSADA com codigo 2
+# (KAM-134), porque uma chave que ninguem le e uma promessa por cumprir.
+#
+# ## Porque e uma LISTA e nao um repositorio so
+#
+# A primeira versao deste ficheiro nomeava um repositorio: o `albinoJimy/kamba`.
+# E o espelho `.github/rulesets/main.json` viaja na arvore que tambem e
+# empurrada para o `albinoJimy/kamba-plataforma` — onde os PR vivem e onde o CI
+# corre. Corrida de um clone do publico, a verificacao lia o ruleset do
+# **privado**, dizia «conforme» e saia 0, dentro de um repositorio que nao
+# tinha ruleset nenhum. O proprio bloco do ticket tem a frase: «um ficheiro que
+# parece ser a fonte e nao e engana melhor do que a ausencia dele» — e com um
+# alvo so passava a haver uma maquina a dizer que estava certo.
+#
+# Por isso: um alvo por repositorio que tem de aplicar a politica, e o `check`
+# corre sobre todos. Verde so quando TODOS estao conformes.
+#
+# ## Como se resolve o ruleset
+#
+# Pelo **nome**, que e o campo `name` do espelho. O `ruleset_id` e opcional e
+# serve para duas coisas: estar ao lado do comando de exportacao no
+# `.github/rulesets/README.md`, e apanhar uma recriacao — um ruleset apagado e
+# feito de novo tem nome igual e `id` diferente, e isso e uma divergencia que
+# vale a pena ver. Sem `ruleset_id`, a verificacao resolve na mesma e imprime o
+# `id` que encontrou, para ser escrito aqui.
+#
+# Um repositorio sem nenhum ruleset, ou sem nenhum com o nome do espelho, da
+# **vermelho**. Nao da 0, nao da «nao verifiquei»: da uma divergencia que diz
+# que a politica declarada nao esta aplicada ali.
+#
+# NAO HA CREDENCIAL NESTE FICHEIRO, e nunca havera. O token de leitura
+# (`administration: read`) vive no porta-chaves do `gh` de quem opera, ou na
+# variavel `KAMBA_RULESET_TOKEN` de um contexto fora destas Actions. Onde vive,
+# que permissoes tem, quem a pode usar, como se roda e o que acontece se for
+# comprometida esta em `docs/adr/ADR-L003-verificacao-do-ruleset.md`.
+version: 1
+
+alvos:
+  - repositorio: albinoJimy/kamba
+    espelho: .github/rulesets/main.json
+    ruleset_id: 24879081
+    razao: >-
+      O repositorio de origem, privado. E o ruleset que o KAM-002 criou e
+      exportou, e o `id` esta ao lado do comando de exportacao do
+      `.github/rulesets/README.md`.
+
+  - repositorio: albinoJimy/kamba-plataforma
+    espelho: .github/rulesets/main.json
+    razao: >-
+      O repositorio publico, onde os PR sao abertos e onde o CI corre. O mesmo
+      espelho, porque a politica e a mesma: o fundador decidiu a 2026-10-18
+      criar aqui uma copia do ruleset do privado. Sem `ruleset_id` porque ele
+      ainda nao existe — ate existir, a verificacao deste alvo e VERMELHA, de
+      proposito, e e essa a unica forma honesta de o dizer. Quando for criado,
+      a saida imprime o `id` para ser escrito aqui.

@@ -66,9 +66,9 @@ specs/                           backlog executável (KAM-NNN), na raiz do repos
 | 14 | **Tese Mínima e Plano de Validação** | Escopo do Piloto (PMEs formais; Rececionista + Loja no número da PME); 9 hipóteses com critério; caminho build-first com esqueleto andante e regra de dois; pivôs e paragem | [14-tese-minima-e-plano-de-validacao.md](exploracao/14-tese-minima-e-plano-de-validacao.md) | — |
 | 09 | ~~Arquitetura Técnica v1~~ | **Desatualizada** — substituída pela v2 (doc 08); mantida apenas para histórico | [09-arquitetura-tecnica-v1-DESATUALIZADO.md](exploracao/09-arquitetura-tecnica-v1-DESATUALIZADO.md) | 226 |
 
-**Total: 14 documentos ativos de estratégia/exploração (01–08, 10–14, mais o 00 compilado) e 1 histórico (09).**
+**Total: 14 documentos activos de estratégia/exploração (01–08, 10–14, mais o 00 compilado) e 1 histórico (09).**
 
-> ⚠️ **Os documentos 08, 10, 11, 12 e 13 são exploratórios e estão parcialmente desactualizados.** A pesquisa de Outubro de 2026 corrigiu vários pontos (custos Meta, grupos, MinIO, licenças, alojamento, identidade, pagamentos). A fonte de verdade técnica é agora o **conjunto formal em [`tecnica/`](tecnica/INDICE.md)** (11 documentos, 18 ADRs, evidência em `tecnica/evidencia/`), que prevalece em caso de divergência. O documento mestre (00) é gerado por `compilar-mestre.sh` e **já inclui o 14**, mas herda o estado exploratório dos documentos que compila: não decida com ele.
+> ⚠️ **Os documentos 08, 10, 11, 12 e 13 são exploratórios e estão parcialmente desactualizados.** A pesquisa de Outubro de 2026 corrigiu vários pontos (custos Meta, grupos, MinIO, licenças, alojamento, identidade, pagamentos). A fonte de verdade técnica é agora o **conjunto formal em [`tecnica/`](tecnica/INDICE.md)** (11 documentos, 20 ADRs, evidência em `tecnica/evidencia/`), que prevalece em caso de divergência. O documento mestre (00) é gerado por `compilar-mestre.sh` e **já inclui o 14**, mas herda o estado exploratório dos documentos que compila: não decida com ele.
 
 > Os documentos 04 e 07 são os stress-tests adversariais que corrigiram o rumo (índice, opacidade
 > de preços, segmento de PMEs, unit economics). O documento 05 introduziu a inversão mais
@@ -167,7 +167,7 @@ Nota: o documento 09 (v1) está fora da linha — desatualizado, substituído pe
 
 ## 5. Decisões de arquitectura (ADRs) — síntese
 
-Os 10 ADRs canónicos estão definidos em [11-arquitetura-detalhada-engenharia.md](exploracao/11-arquitetura-detalhada-engenharia.md) §12 e referenciados ao longo dos documentos técnicos.
+Os **20** ADRs canónicos estão definidos em [`tecnica/00_Arquitectura_Solucao.md`](tecnica/00_Arquitectura_Solucao.md) §8 e referenciados ao longo dos documentos técnicos. O [11-arquitetura-detalhada-engenharia.md](exploracao/11-arquitetura-detalhada-engenharia.md) §12 tem **dez ADRs próprios e históricos**, que não são o canon: a biblioteca exploratória não é fonte de verdade. **A tabela abaixo é a desses dez**, e não a síntese do canon — a do canon está no `tecnica/INDICE.md` §5.
 
 | ADR | Decisão | Doc principal |
 |-----|---------|---------------|
@@ -220,6 +220,7 @@ core** (doc 10 §3, 13 §3).
 | 1.6 | Outubro 2026 | Big picture do ecossistema (13) incluindo governação, mapa de dinheiro e motor de atenção; índice formal (este documento). Total: 13 documentos activos. | Equipa KAMBÁ |
 | 1.7 | Outubro 2026 | KAM-128: conjunto reorganizado sob `docs/` (biblioteca em `exploracao/`, conjunto formal em `tecnica/`, análises em `analises/`); árvore registada no §2; `specs/` deixa de constar como «a criar» (§6); mestre passa a gerado por `compilar-mestre.sh` e a incluir o 14. | Equipa KAMBÁ |
 | 1.8 | Outubro 2026 | KAM-155: a árvore do §2 passa a mostrar `specs/tickets/`, onde vivem os 40 ficheiros de ticket do EPIC-01. | Equipa KAMBÁ |
+| 1.9 | Outubro 2026 | KAM-130: **20** ADRs (eram dezoito) e a grafia `activos` na norma do conjunto. **A base de contagem fica declarada e são duas:** o §2 conta **14** documentos *incluindo* o 00 compilado, e a linha 1.6 contou **13** *sem* ele. Os dois números estão certos para bases diferentes, e o defeito era o conjunto afirmar ambos sem dizer qual. A linha 1.6 **não** se reescreve: é o registo do que a 1.6 disse, e emendar um registo datado para caber no presente é a mesma classe de defeito ao contrário. | Equipa KAMBÁ |
 
 ---
 

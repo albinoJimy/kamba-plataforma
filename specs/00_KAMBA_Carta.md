@@ -15,7 +15,7 @@
 A biblioteca exploratória (`../docs/exploracao/01`–`../docs/exploracao/13`) deixou três coisas por fixar, e o conjunto técnico (`../docs/tecnica/`) tornou-as visíveis:
 
 1. **A forma do produto no Piloto** oscilava entre «marketplace de três lados estilo Google» e «ferramenta de loja no WhatsApp». A análise adversarial e o `../docs/exploracao/14` reduziram-na, mas não a congelaram.
-2. **As decisões estão espalhadas** (ADRs, D1–D12, hipóteses H1–H9) e há factos centrais NÃO VERIFICADOS (coexistência em +244, política da Meta sobre agregador, onboarding bancário por PME).
+2. **As decisões estão espalhadas** (ADRs, D1–D13, hipóteses H1–H9) e há factos centrais NÃO VERIFICADOS (coexistência em +244, política da Meta sobre agregador, onboarding bancário por PME).
 3. **O risco dominante é paralisia analítica:** o `../docs/exploracao/07` §14 já o dizia — zero clientes pagantes e documentos a mais. Sem um *done* medível, o programa pode produzir documentação indefinidamente.
 
 Esta Carta é deliberadamente curta. Não repete o *quê/como* (isso é o `00_System_Spec.md` e o `../docs/tecnica/`); fixa o **enquadramento**, o **registo de decisões** e o **critério de saída do Piloto**.
@@ -27,8 +27,8 @@ Esta Carta é deliberadamente curta. Não repete o *quê/como* (isso é o `00_Sy
 | **Visão** | `../docs/exploracao/13-big-picture-ecossistema.md` e restante biblioteca `../docs/exploracao/01`–`../docs/exploracao/12` | Exploratória; **não** se edita em execução. Em divergência, prevalece o conjunto técnico |
 | **Escopo do Piloto** | `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` | Tese mínima, hipóteses H1–H9, pivôs |
 | **Carta (esta)** | `specs/00_KAMBA_Carta.md` | Forma do produto, registo de decisões, DoD do Piloto, regra de congelamento |
-| **Arquitectura** | `../docs/tecnica/00_Arquitectura_Solucao.md` e `../docs/tecnica/01`–`10` | ADR-001–019, componentes, decisões abertas D1–D12 |
-| **Evidência** | `../docs/tecnica/evidencia/E1`–`E4` | Factos com estado CONFIRMADO/INDÍCIO/NÃO VERIFICADO (2026-10-08) |
+| **Arquitectura** | `../docs/tecnica/00_Arquitectura_Solucao.md` e `../docs/tecnica/01`–`10` | ADR-001–ADR-020, componentes, decisões abertas D1–D13 |
+| **Evidência** | `../docs/tecnica/evidencia/E1`–`E5` | Factos com estado CONFIRMADO/INDÍCIO/NÃO VERIFICADO (2026-10-08) |
 | **Especificação** | `specs/00_System_Spec.md` | Capacidades, domínio, KPIs e SLOs |
 | **Dicionário** | `specs/02_Dicionario_de_Dados_Canonico.md` | Um nome por conceito; prevalece sobre `../docs/tecnica/` até KAM-111 |
 | **Execução** | `specs/EPIC-*.md` → tickets KAM-NNN | Decompõem e medem-se contra o DoD desta Carta |
@@ -162,6 +162,7 @@ O **Piloto** está *feito* quando **todos** os seguintes forem verdes. Nenhum it
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão da Carta como **proposta**: forma do produto, registo de decisões e DoD do Piloto. Aguarda ratificação do fundador. | Pendente |
 | 1.1 | Outubro 2026 | **Emenda E-01 — dispensa da dependência `KAM-003 ← KAM-111`.** *O quê:* o KAM-003 (schema `platform`) passa a poder executar sem o KAM-111 (dicionário canónico e lint de nomes) estar `Done`; a dependência sai do backlog mestre e do epic, dos dois lados. *Porquê:* o KAM-111 é um ticket `M` que reconcilia dez documentos, e o caminho crítico do Piloto atravessa o KAM-003 (bloqueia onze tickets). A dívida que a dispensa cria está mitigada e não escondida: os oito nomes de `platform` que faltavam ao dicionário foram escritos nele **antes** do DDL (emenda 1.2 do dicionário, §3.2), com a razão de cada escolha. *O que fica em dívida:* o lint de nomes (gate 3b) continua a ser do KAM-111 e não existe, pelo que nada por máquina impede o próximo DDL de divergir; e duas divergências de `../docs/tecnica/` ficam por corrigir (`kamba_ops`/`kamba_batch`, `valor_max_pedido_kz`), nenhuma das quais consta das 12 que o KAM-111 enumera. *Quem aprovou:* o fundador, nesta sessão, depois de lhe ser apresentado o bloqueio e as três alternativas. **Confirmação escrita do árbitro (§6 ponto 5 — Arquitecto de Plataforma e Responsável de Segurança) fica pendente.** | Fundador (árbitro pendente) |
+| 1.2 | Outubro 2026 | KAM-130: as decisões abertas passam a `D1–D13` nas duas ocorrências. Eram treze desde o ADR-020 e o intervalo ficara em doze. | Equipa KAMBÁ |
 
 *Emendas futuras: uma linha datada com o quê, porquê e quem aprovou.*
 

@@ -59,14 +59,14 @@ Cada afirmação relevante precisa de evidência nomeada.
 ```text
 AFIRMAÇÃO: "O backlog está consistente."
 EVIDÊNCIA:
-- script de consistência sobre specs/INDICE.md §4 → 127 tickets, 0 erros (ciclos,
+- script de consistência sobre specs/INDICE.md §4 → 159 tickets, 0 erros (ciclos,
   prioridade invertida, fase invertida, dependências inexistentes);
-- 127 blocos únicos `## KAM-NNN — ` nos 11 epics, 0 duplicados, 0 em falta;
+- 159 blocos únicos `## KAM-NNN — ` nos 11 epics, 0 duplicados, 0 em falta;
 - segunda passagem da sincronia mestre↔epics → 0 divergências.
 ```
 
 Cita a verificação **pelo que ela faz e pelo resultado**, não pelo nome. «Corri o script de
-verificação» não é evidência; «127 tickets, 0 erros de consistência» é.
+verificação» não é evidência; «159 tickets, 0 erros de consistência» é.
 
 E separa o que verificaste do que não verificaste. Nesta sessão, o conjunto de specs foi
 verificado na estrutura (referências, grafo, unicidade, sincronia) e **não** foi lido linha a
@@ -141,7 +141,7 @@ a licença e os termos antes de desenhar sobre a ferramenta.
 passa sempre. Antídoto: modo de verificação primeiro, escrita depois, e segunda passagem a dar
 zero.
 
-**Contagem desactualizada.** «12 ADRs» quando são 20, «13 documentos activos» quando são 12,
+**Contagem desactualizada.** «12 ADRs» quando são 20, «13 documentos activos» quando são 14 com o 00 compilado,
 totais por epic que não somam. É a assinatura típica de uma alteração feita a meio — e o sinal
 mais fácil de procurar.
 

@@ -45,7 +45,7 @@ PRAZO_MAXIMO_DIAS = 30
 #: `GATES_SEM_WAIVER_COM_RAZAO`. Um gate novo no canon e um gate que nenhum dos
 #: dois nomeia — e ha um teste que o diz.
 GATES_COM_WAIVER = {
-    "3", "3b", "4", "5", "6", "7", "8", "9", "11",
+    "3", "3b", "3c", "4", "5", "6", "7", "8", "9", "11",
     # Acrescentados pelo KAM-135. O §5 do `docs/ci.md` diz que o KAM-067 e o
     # KAM-078 consomem **este** esquema em vez de inventarem o seu, e os gates
     # deles sao estes dois (tabela de fronteira do §3). Ate aqui o validador
@@ -53,6 +53,12 @@ GATES_COM_WAIVER = {
     # tentacao de inventar o seu e precisamente o que o §5 existe para evitar.
     "14",  # imagem: vulnerabilidades, digest, cosign (KAM-067)
     "18",  # release sem SBOM (KAM-078)
+    # O `3c` (KAM-138) entra com os irmaos `3` e `3b`, e pela mesma razao: uma
+    # divergencia do backlog pode pertencer a outro ticket, e nesse caso o que
+    # falta e prazo e dono, nao uma correccao a martelo no PR errado. As duas
+    # classes de estado sujo que o proprio gate ja conhece — inversoes e
+    # controlo de versoes — tem lista propria em `ci/backlog-allow.yaml`; o
+    # waiver e para o que nenhuma das duas cobre.
 }
 
 #: Os gates que **nao** aceitam waiver, com a razao escrita ao lado. Estar nesta

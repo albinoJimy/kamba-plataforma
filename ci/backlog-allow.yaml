@@ -1,0 +1,304 @@
+# Declaracoes do lint_backlog (gate 3c) — KAM-138
+#
+# Tres listas, e as tres existem pela mesma razao: duas das verificacoes deste
+# gate nascem com o conjunto **sujo**, e a alternativa a declarar o estado
+# conhecido era nao as verificar de todo.
+#
+#   inversoes    Um ticket que depende de outro de prioridade mais baixa, ou de
+#                fase mais tardia. O estado inicial nao e limpo e a escolha esta
+#                escrita: cada inversao conhecida fica aqui com razao e dono, e
+#                passa a AVISO; uma inversao que nao esteja aqui FALHA desde o
+#                primeiro dia.
+#
+#   sequencias   Um numero saltado no «Controlo de versoes» de um documento.
+#                Nasce de dois ramos tomarem o mesmo numero em paralelo, e a
+#                emenda ficar sem linha.
+#
+#   cabecalhos   Um documento cujo campo de versao no cabecalho esta atras da
+#                ultima linha do seu «Controlo de versoes».
+#
+# **Uma declaracao que deixe de casar alguma coisa FALHA o gate (codigo 2).** E
+# a regra dos irmaos (`lint_refs`, `lint_contagens`) e e o que torna estas
+# listas auto-limpantes: corrigir um cabecalho obriga a apagar a sua linha
+# daqui, no mesmo PR. Quando as listas esvaziarem, as duas verificacoes passam
+# a falha sem ninguem mexer no codigo.
+#
+# **Toda a entrada tem prazo**, como as `dividas` do `ci/contagens-allow.yaml`:
+# `criado_em`, `expira_em`, e no maximo **31 dias** entre os dois, contados da
+# criacao. Passada a data, a dispensa volta a ser achado e o gate falha.
+#
+# A primeira versao deste ficheiro **nao tinha prazo**, e dizia por escrito que
+# a ausencia era deliberada. Estava errada, e a revisao adversarial do KAM-138
+# mostrou porque: das 25 entradas com campo de versao, 24 ficavam dispensadas e
+# a unica que passava tem **uma** linha de historico — a verificacao do
+# cabecalho nao validava um unico documento com emendas, e sem data nunca
+# viria a validar. «Passa a falha quando a lista esvaziar» so e um compromisso
+# se houver um dia em que a lista tem de estar vazia.
+#
+# **O `criado_em` nao pode estar no futuro.** Sem isso o tecto de 31 dias e
+# relativo a uma ancora que ninguem ancora, e `criado_em` daqui a um ano da
+# uma dispensa activa por tempo arbitrario. E a regra do `tools/ci_waivers.py`
+# desde o KAM-135, e a razao dele serve aqui: «nao se cria no futuro — e a
+# forma mais simples de esticar o prazo sem parecer que se esticou».
+#
+# **As datas estao escalonadas de proposito.** Se vencessem todas no mesmo dia,
+# o gate ficava vermelho com 26 achados de uma vez e a saida pratica era
+# renovar as 26 num so commit — o carimbo automatico que o prazo existe para
+# impedir. Escalonadas, sao uma fila: cada grupo chega a sua vez, e renovar um
+# grupo e uma decisao pequena que se le no diff.
+#
+# **O que esta aqui continua a ser trabalho de outro ticket.** Sao residuos de
+# renumeracao registados em `docs/dividas-documentais.md` (linhas 4 e 21), cuja
+# correccao o KAM-138 declara fora de ambito: aqui so se passa a medi-los. O
+# prazo nao lhes atribui dono — **nenhum ticket os reclama hoje**, e e isso que
+# o KAM-138 devolve no PR. O que o prazo faz e obrigar a pergunta a ser feita
+# numa data em vez de nunca.
+version: 1
+
+# ---------------------------------------------------------------------------
+# Inversoes de prioridade e de fase
+# ---------------------------------------------------------------------------
+#
+# Medido a 2026-10-18 sobre `publico/main`, com `python -m lint_backlog check`:
+# **1** inversao de prioridade e **0** de fase, em 159 blocos.
+#
+# NOTA SOBRE O R11, porque o DoD do KAM-138 manda remeter para ele e a medicao
+# nao lhe da razao. O risco R11 do `specs/EPIC-01_Fundacoes_Dados.md` diz que
+# «KAM-012 e KAM-010 sao P1 mas bloqueiam/servem tickets P0». Hoje os dois sao
+# **P0** no §4 e nos seus blocos, e nenhum aparece nesta lista: o R11 descreve
+# um estado que ja nao existe. A linha do risco nao se altera aqui — reescrever
+# o registo de riscos de um epic a partir de uma medicao de passagem e
+# precisamente o gesto que este gate existe para tornar desnecessario —, e a
+# divergencia fica dita no PR do KAM-138 e devolvida a quem mantem o epic.
+
+inversoes:
+  - de: KAM-158
+    para: KAM-130
+    genero: prioridade
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-10-28
+    razao: >-
+      O KAM-158 (gate das contagens em prosa) e P1 e depende do KAM-130
+      (reconciliacao das contagens herdadas), que e P2. A ordem tecnica esta
+      certa e a inversao e real: o gate so pode nascer verde depois de as
+      contagens herdadas estarem pagas, e foi assim que o KAM-158 entregou. O
+      que o numero diz e que a prioridade do KAM-130 esta por rever, nao que a
+      aresta esteja errada — e rever a prioridade de um ticket de outro autor e
+      decisao de produto, devolvida no PR do KAM-138.
+
+# ---------------------------------------------------------------------------
+# Buracos na sequencia do «Controlo de versoes»
+# ---------------------------------------------------------------------------
+#
+# Medido a 2026-10-18: **1** buraco em 41 documentos com tabela.
+
+sequencias:
+  - ficheiro: specs/EPIC-01_Fundacoes_Dados.md
+    falta: "1.13"
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-10-28
+    razao: >-
+      Residuo da renumeracao do commit `80ab82b` («integra origin/main (KAM-136)
+      e renumera»): dois ramos tomaram o mesmo numero em paralelo e o 1.13 ficou
+      sem linha. Nada o cita, pelo que e residuo textual e nao defeito — esta na
+      linha 21 de `docs/dividas-documentais.md`, e corrigi-lo esta declarado
+      fora do ambito do KAM-138, que aqui so passa a medi-lo.
+
+# ---------------------------------------------------------------------------
+# Cabecalhos de versao atrasados
+# ---------------------------------------------------------------------------
+#
+# Medido a 2026-10-18: **24** cabecalhos atrasados em 41 documentos com tabela
+# (16 dos 41 nao tem campo de versao nenhum, e para esses so vale a verificacao
+# da sequencia — a ausencia do campo nao e defeito e o gate nao a inventa).
+#
+# Sao duas familias, e as duas tem a mesma causa:
+#
+#   - os **onze epics**, o `specs/01` e os **onze** documentos de
+#     `docs/tecnica/`, que nasceram com `| Versao | 1.0 |` numa tabela de campos
+#     e nunca mais tiveram o campo tocado, enquanto o historico foi crescendo;
+#   - o `specs/INDICE.md`, que usa a outra forma (`**Versao do conjunto:**`) e
+#     esta em 1.2 com historico muito a frente.
+#
+# O KAM-138 declara a correccao fora de ambito: este gate mede-a, e a divida
+# esta registada nas linhas 4 e 21 de `docs/dividas-documentais.md`. Quem
+# corrigir um destes cabecalhos apaga a sua linha daqui no mesmo PR — se nao o
+# fizer, o gate falha com codigo 2 por declaracao que ja nao casa nada.
+
+cabecalhos:
+  - ficheiro: specs/INDICE.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-04
+    razao: >-
+      Cabecalho na forma de texto corrido, parado numa versao muito anterior a ultima linha do historico. E a
+      linha 4 de `docs/dividas-documentais.md`, e o unico documento do conjunto
+      que usa a forma em texto corrido.
+
+  - ficheiro: specs/01_Engineering_Standards_e_Handoff.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-04
+    razao: >-
+      Cabecalho em `| Versao | 1.0 |` com historico muito a frente; o campo nunca foi
+      tocado desde a emissao inicial. Mesma familia dos epics.
+
+  - ficheiro: specs/EPIC-01_Fundacoes_Dados.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-11
+    razao: >-
+      Cabecalho em 1.0 com historico muito a frente — o maior atraso do conjunto, no
+      epic que mais emendas recebeu. Linha 21 de `docs/dividas-documentais.md`,
+      a mesma que regista o buraco do 1.13.
+
+  - ficheiro: specs/EPIC-02_Canais_WhatsApp_Handoff.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-11
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia: o campo nasceu com
+      a emissao inicial e as emendas so entraram na tabela.
+
+  - ficheiro: specs/EPIC-03_Agent_Runtime_Verticais.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-11
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
+
+  - ficheiro: specs/EPIC-04_Core_Comercio.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-11
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
+
+  - ficheiro: specs/EPIC-05_Pagamentos_Billing.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-11
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
+
+  - ficheiro: specs/EPIC-06_Indice_Pesquisa.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-11
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
+
+  - ficheiro: specs/EPIC-07_Seguranca_Conformidade.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-11
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
+
+  - ficheiro: specs/EPIC-08_Topologia_Operacao.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-11
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
+
+  - ficheiro: specs/EPIC-09_Onboarding_Governanca.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-11
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
+
+  - ficheiro: specs/EPIC-10_Spikes_Validacao_Gates.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-11
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
+
+  - ficheiro: specs/EPIC-11_Modulos_Entrada.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-11
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
+
+  - ficheiro: docs/tecnica/00_Arquitectura_Solucao.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Os onze documentos de
+      `docs/tecnica/` partilham a forma e o defeito.
+
+  - ficheiro: docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
+
+  - ficheiro: docs/tecnica/02_Agent_Runtime_Verticais.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
+
+  - ficheiro: docs/tecnica/03_Core_Comercio_Medusa.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
+
+  - ficheiro: docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
+
+  - ficheiro: docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
+
+  - ficheiro: docs/tecnica/06_Dados_Eventos_Analytics.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
+
+  - ficheiro: docs/tecnica/07_Geo_Logistica_Federada.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
+
+  - ficheiro: docs/tecnica/08_Seguranca_Conformidade.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
+
+  - ficheiro: docs/tecnica/09_Topologia_Operacao_Escala.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
+
+  - ficheiro: docs/tecnica/10_Onboarding_Governanca.md
+    origem: KAM-138
+    criado_em: 2026-10-18
+    expira_em: 2026-11-18
+    razao: >-
+      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.

@@ -369,7 +369,7 @@ class TestOQueARevisaoEncontrou(unittest.TestCase):
         self.assertEqual(len(ler(_escrever(corpo), HOJE)), 1)
 
     def test_a_ordem_dos_gates_na_mensagem_e_numerica(self) -> None:
-        """`3b` depois de `3`, e `11` depois de `9`.
+        """`3b` e `3c` depois de `3`, e `11` depois de `9`.
 
         Nao e cosmetica: a mensagem lista os gates aceites, e por ordem
         alfabetica o `11` vinha primeiro. Quem a le fica sem saber se o
@@ -379,7 +379,7 @@ class TestOQueARevisaoEncontrou(unittest.TestCase):
         with self.assertRaises(WaiverInvalido) as capturado:
             ler(_escrever(corpo), HOJE)
         aceites = str(capturado.exception).split("Aceitam: ")[1]
-        self.assertTrue(aceites.startswith("3, 3b, 4,"), aceites)
+        self.assertTrue(aceites.startswith("3, 3b, 3c, 4,"), aceites)
 
     # --- MAIOR 2: a razao nunca chegava a quem batia a porta
     def test_a_recusa_diz_a_razao_daquele_gate(self) -> None:

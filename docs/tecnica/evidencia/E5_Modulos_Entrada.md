@@ -8,7 +8,7 @@ Legenda:
 - **INDÍCIO** = fonte secundária (imprensa, blogs, agregadores), inferência minha a partir de factos confirmados, ou resumo automático sem leitura do texto integral.
 - **NÃO VERIFICADO** = sem fonte; não presumir.
 
-Contexto lido: `../00_Arquitectura_Solucao.md` (§1, ADR-005/007/008/011/018/019, §13.3 D1-D12), `E1_Meta_WhatsApp.md`, `E3_Regulatorio_Dados.md`, `../../exploracao/01-modelo-negocios-angola-ai-first.md` (negócios Nº 3, 4, 5, 8). Câmbio de referência do projecto: ~913 AOA/USD (arquitectura §11). Esta pesquisa **não é parecer jurídico**.
+Contexto lido: `../00_Arquitectura_Solucao.md` (§1, ADR-005/007/008/011/018/019, §13.3 D1-D13), `E1_Meta_WhatsApp.md`, `E3_Regulatorio_Dados.md`, `../../exploracao/01-modelo-negocios-angola-ai-first.md` (negócios Nº 3, 4, 5, 8). Câmbio de referência do projecto: ~913 AOA/USD (arquitectura §11). Esta pesquisa **não é parecer jurídico**.
 
 ---
 

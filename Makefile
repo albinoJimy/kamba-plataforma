@@ -84,8 +84,7 @@ export PYTHONPATH := $(PYTHONPATH_ALL)
         hooks lint-arch lint-branch lock lock-check lock-verify logs \
         nuke ps psql queue-cli smoke test test-py \
         test-ts typecheck up \
-        ci-3b canon-lint dict-export \
-        supply-chain \
+        ci-3b ci-3c canon-lint dict-export supply-chain ruleset \
         log-lint x11 storage-contrato mermaid
 
 ## help: lista os comandos disponiveis
@@ -321,9 +320,9 @@ storage-contrato:
 # Fora de ambito: 10 (SAST), 12-18 (KAM-067, KAM-078, KAM-088).
 
 ## ci: corre todos os gates activos (KAM-002 e o gate 8 do KAM-003)
-ci: ci-1 ci-2 ci-3 ci-3b ci-4 ci-6 ci-7 ci-8 ci-9 ci-11 ci-waivers
+ci: ci-1 ci-2 ci-3 ci-3b ci-3c ci-4 ci-6 ci-7 ci-8 ci-9 ci-11 ci-waivers
 	@echo
-	@echo "ci: todos os gates activos estao verdes (1, 2, 3, 3b, 4, 6, 7, 8, 9, 11)."
+	@echo "ci: todos os gates activos estao verdes (1, 2, 3, 3b, 3c, 4, 6, 7, 8, 9, 11)."
 
 ## ci-waivers: valida ci/waivers.yaml (prazo, referencia, alcance)
 ci-waivers:
@@ -468,6 +467,35 @@ mermaid:
 	@blocos="$$(mktemp)"; trap 'rm -f "$$blocos"' EXIT INT TERM; \
 	 $(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from mermaid_lint.extrair import main; sys.exit(main(['--root', '$(ROOT)']))" > "$$blocos" && \
 	 docker run --rm -i -v "$(ROOT)/tools/mermaid_lint:/lint:ro" node:24.21.0-trixie-slim@sha256:173f125896c3b47ddf056734c7ea789d04595a6a08769a8f78e0df642781fb66 sh -c 'cp -r /lint /tmp/m && cd /tmp/m && npm ci --silent --no-audit --no-fund --ignore-scripts >/dev/null 2>&1 && node /tmp/m/verificar.mjs' < "$$blocos"
+
+# --- Gate 3c: coerencia do backlog mestre com os epics (KAM-138) -------------
+#
+# Um passo so, e le tres superficies do mesmo backlog: a linha do ticket no
+# `specs/INDICE.md` §4, o bloco `## KAM-NNN — ` (em `specs/tickets/` no EPIC-01,
+# dentro do ficheiro nos outros dez), e a «Tabela Resumo de Tickets» do §3 de
+# cada epic. Compara os campos, os orfaos nos dois sentidos, a reciprocidade
+# `Dependencias`<->`Bloqueia`, os ciclos, as inversoes de prioridade e de fase,
+# as contagens derivadas e o «Controlo de versoes» de cada documento.
+#
+# **Porque e gate novo e nao um quarto passo do `ci-3`**, ao contrario do que o
+# `lint_handoff` e o `lint_contagens` fizeram. A razao e a mesma que separou o
+# 3b do 3: o `ci-3` varre a arvore toda a procura de **citacoes**, e este le as
+# **tabelas** de `specs/`. Juntos, a mensagem de falha deixava de dizer qual dos
+# dois gates falhou.
+#
+# O *job* entra nos `needs` de `gates do KAM-002` e **nao** nos
+# `required_status_checks` de `.github/rulesets/main.json`, pela mesma razao do
+# 3b (lacuna 17 de `docs/ci.md` §7): esse ficheiro e um espelho do que a API do
+# GitHub tem e nao e aplicado por nada, pelo que escrever la um contexto que o
+# *ruleset* nao tem torna-o falso. Por este caminho o gate bloqueia o merge na
+# mesma, porque `gates do KAM-002` e que e o *required check*.
+#
+# So biblioteca padrao: corre antes de qualquer instalacao, como o 3 e o 3b.
+
+## ci-3c: gate 3c — coerencia do backlog (mestre <-> epics; KAM-138)
+ci-3c:
+	@echo "==> gate 3c: coerencia do backlog"
+	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from lint_backlog.cli import main; sys.exit(main(['--root', '$(ROOT)', 'check']))"
 
 ## canon-lint: o gate 3b pelo nome que o ticket lhe da (igual a ci-3b)
 canon-lint: ci-3b
@@ -709,6 +737,34 @@ supply-chain:
 	@echo "==> cadeia de abastecimento (KAM-067)"
 	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from supply_chain.cli import main; sys.exit(main(['--root', '$(ROOT)', 'check']))"
 	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from supply_chain.cli import main; sys.exit(main(['--root', '$(ROOT)', 'canario']))"
+
+# --- Ruleset de main: o espelho contra o que o GitHub aplica (KAM-137) -------
+#
+# Corre sobre **todos** os alvos de `ci/ruleset.yaml` — hoje dois: o
+# `albinoJimy/kamba` (privado) e o `albinoJimy/kamba-plataforma` (publico, onde
+# os PR vivem). Verde so quando todos estao conformes; um repositorio sem
+# ruleset nenhum e VERMELHO. Com um alvo so, correr isto de um clone do publico
+# lia o ruleset do privado e dizia «conforme» de dentro de um repositorio sem
+# proteccao nenhuma.
+#
+# NAO esta no `ci:` e nao e required check de nenhum PR, e e deliberado.
+# A API dos rulesets exige a permissao `administration`, que o `GITHUB_TOKEN`
+# das Actions nao tem; qualquer outro token obrigava a uma referencia
+# `secrets.*` num workflow, que e exactamente o que a regra
+# `chave-estatica-no-ci` do gate 11 recusa. A decisao, o que custa, e onde vive
+# a credencial de leitura estao em `docs/adr/ADR-L003-verificacao-do-ruleset.md`.
+#
+# Precisa de `gh auth login` com `administration: read` sobre o repositorio.
+# Onde nao houver `gh`, `make ruleset TRANSPORTE=http` com KAMBA_RULESET_TOKEN
+# no ambiente. Saida 0 = conforme, 1 = diverge, 2 = nao se conseguiu verificar —
+# e 2 nunca e verde.
+
+TRANSPORTE ?= gh
+
+## ruleset: compara o ruleset de main com .github/rulesets/main.json (KAM-137)
+ruleset:
+	@echo "==> ruleset de main (KAM-137)"
+	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from ruleset_check.cli import main; sys.exit(main(['--root', '$(ROOT)', '--transporte', '$(TRANSPORTE)', 'check']))"
 
 # --- Gates reservados, fail-closed ------------------------------------------
 #
