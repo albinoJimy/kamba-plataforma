@@ -85,7 +85,7 @@ export PYTHONPATH := $(PYTHONPATH_ALL)
         nuke ps psql queue-cli smoke test test-py \
         test-ts typecheck up \
         ci-3b canon-lint dict-export \
-        supply-chain \
+        supply-chain ruleset \
         log-lint x11 storage-contrato mermaid
 
 ## help: lista os comandos disponiveis
@@ -709,6 +709,34 @@ supply-chain:
 	@echo "==> cadeia de abastecimento (KAM-067)"
 	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from supply_chain.cli import main; sys.exit(main(['--root', '$(ROOT)', 'check']))"
 	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from supply_chain.cli import main; sys.exit(main(['--root', '$(ROOT)', 'canario']))"
+
+# --- Ruleset de main: o espelho contra o que o GitHub aplica (KAM-137) -------
+#
+# Corre sobre **todos** os alvos de `ci/ruleset.yaml` — hoje dois: o
+# `albinoJimy/kamba` (privado) e o `albinoJimy/kamba-plataforma` (publico, onde
+# os PR vivem). Verde so quando todos estao conformes; um repositorio sem
+# ruleset nenhum e VERMELHO. Com um alvo so, correr isto de um clone do publico
+# lia o ruleset do privado e dizia «conforme» de dentro de um repositorio sem
+# proteccao nenhuma.
+#
+# NAO esta no `ci:` e nao e required check de nenhum PR, e e deliberado.
+# A API dos rulesets exige a permissao `administration`, que o `GITHUB_TOKEN`
+# das Actions nao tem; qualquer outro token obrigava a uma referencia
+# `secrets.*` num workflow, que e exactamente o que a regra
+# `chave-estatica-no-ci` do gate 11 recusa. A decisao, o que custa, e onde vive
+# a credencial de leitura estao em `docs/adr/ADR-L003-verificacao-do-ruleset.md`.
+#
+# Precisa de `gh auth login` com `administration: read` sobre o repositorio.
+# Onde nao houver `gh`, `make ruleset TRANSPORTE=http` com KAMBA_RULESET_TOKEN
+# no ambiente. Saida 0 = conforme, 1 = diverge, 2 = nao se conseguiu verificar —
+# e 2 nunca e verde.
+
+TRANSPORTE ?= gh
+
+## ruleset: compara o ruleset de main com .github/rulesets/main.json (KAM-137)
+ruleset:
+	@echo "==> ruleset de main (KAM-137)"
+	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from ruleset_check.cli import main; sys.exit(main(['--root', '$(ROOT)', '--transporte', '$(TRANSPORTE)', 'check']))"
 
 # --- Gates reservados, fail-closed ------------------------------------------
 #
