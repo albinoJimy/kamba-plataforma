@@ -39,7 +39,6 @@ export {
   SQL_CONVERSAS_A_FUNDIR,
   SQL_DOBRAR_CONVERSA,
   SQL_GUARDA_FLUXO_B,
-  SQL_LER_CONVERSA,
   SQL_REPONTAR_CONVERSA,
   SQL_VISIBILIDADE,
 } from "./consultas.ts";
@@ -73,7 +72,6 @@ export type {
 export {
   ConversaIlegivelError,
   abrirConversa,
-  lerConversa,
   repontarConversas,
 } from "./conversas.ts";
 export type { Conversa, ResultadoDaFusao } from "./conversas.ts";
@@ -87,6 +85,16 @@ export {
   verificarArranque,
 } from "./fluxo_b.ts";
 export type { ContagemDoFluxoB } from "./fluxo_b.ts";
+
+export {
+  AGREGADO_CONTACT_MERGED,
+  SQL_EMITIR_CONTACT_MERGED,
+  TIPO_CONTACT_MERGED,
+  VERSAO_CONTACT_MERGED,
+  emitirContactMerged,
+  payloadDaFusao,
+} from "./eventos.ts";
+export type { EventoDeFusao } from "./eventos.ts";
 
 export { InvocacaoIncompletaError, jobIdDe, montarInvocacao } from "./invocacao.ts";
 

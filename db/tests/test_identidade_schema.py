@@ -864,9 +864,17 @@ class TestDowngradeDa0003(unittest.TestCase):
         em_head = _estado_da_0003(self.cursor)
         self.assertEqual(em_head["tabelas"], TABELAS)
         self.assertEqual(em_head["fk_do_dono"], 1)
-        # USAGE; quatro tabelas x (SELECT, INSERT) + DELETE; 17 colunas de UPDATE;
-        # seis colunas de SELECT de `kamba_app` em `contacts`.
-        self.assertEqual(em_head["identidade"], (True, 9, 17, 6))
+        # USAGE; quatro tabelas x (SELECT, INSERT) + DELETE; 24 colunas com ACL
+        # por coluna; seis colunas de SELECT de `kamba_app` em `contacts`.
+        #
+        # **24 e nao 17 desde o KAM-014.** A revisao `0009` da ao
+        # `kamba_identity` privilegios por coluna na `conversations` — `SELECT`
+        # em sete e `UPDATE` em quatro delas —, e a contagem e de **colunas com
+        # ACL** e nao de concessoes: as sete da conversa somam-se as dezassete
+        # da identidade. E para o gancho de fusao reapontar conversas **dentro**
+        # da transacao da fusao, que e a unica forma de a atomicidade do KAM-008
+        # continuar verdadeira (`docs/chr.md` §5).
+        self.assertEqual(em_head["identidade"], (True, 9, 24, 6))
         self.assertEqual(
             em_head["politicas"],
             [

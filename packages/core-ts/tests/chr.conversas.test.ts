@@ -19,10 +19,8 @@ import {
   SQL_ABRIR_CONVERSA,
   SQL_CONVERSAS_A_FUNDIR,
   SQL_DOBRAR_CONVERSA,
-  SQL_LER_CONVERSA,
   SQL_REPONTAR_CONVERSA,
   abrirConversa,
-  lerConversa,
   repontarConversas,
 } from "../src/chr/index.ts";
 import { BaseFalsa } from "./apoio/chr-base-falsa.ts";
@@ -107,22 +105,6 @@ describe("abrirConversa", () => {
       () => abrirConversa(bd, ALVO, AGORA),
       /modo desconhecido "silenciada"/,
     );
-  });
-});
-
-describe("lerConversa", () => {
-  it("devolve `null` quando nao existe", async () => {
-    const bd = new BaseFalsa().responde("SELECT id::text", { rows: [] });
-    assert.equal(await lerConversa(bd, ALVO), null);
-    assert.equal(bd.instrucoes[0]?.sql, SQL_LER_CONVERSA);
-  });
-
-  it("nao escreve nada", async () => {
-    const bd = new BaseFalsa().responde("SELECT id::text", {
-      rows: [{ id: CONVERSA, mode: "humano" }],
-    });
-    await lerConversa(bd, ALVO);
-    assert.deepEqual(bd.instrucoes.map((i) => i.sql.includes("UPDATE")), [false]);
   });
 });
 

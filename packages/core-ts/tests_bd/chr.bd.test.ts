@@ -47,6 +47,8 @@ import {
   ResolvedorDeCanal,
   SQL_CANAL,
   VARIAVEL_DA_FASE,
+  emitirContactMerged,
+  payloadDaFusao,
   repontarConversas,
   verificarArranque,
 } from "../src/chr/index.ts";
@@ -128,7 +130,14 @@ function montar(agora?: () => Date): Montado {
     resolvedor,
     contacto: async (pedido) => {
       const resolvido = await identidade.resolveContact(identityBd, pedido);
-      if (resolvido.evento !== null) fundidos.push(1);
+      if (resolvido.evento !== null) {
+        // É o que o `entrada.ts` faz em produção: quem chama é quem emite.
+        const fusao = resolvido.evento;
+        await comTenantReal(appBd, fusao.tenant_id, () =>
+          emitirContactMerged(appBd, fusao),
+        );
+        fundidos.push(1);
+      }
       return { contactId: resolvido.contactId };
     },
     entrega,
@@ -181,6 +190,18 @@ async function tenantComChave(rotulo: string): Promise<string> {
   await admin.query("UPDATE platform.tenants SET estado = 'ativo' WHERE id = $1", [id]);
   await identidade.iniciarRotacao(identityBd, KID).catch(() => {});
   return id;
+}
+
+/** Os eventos `contact.merged` de um tenant no outbox, pela ordem de emissão. */
+async function fusoesNoOutbox(
+  tenant: string,
+): Promise<readonly { readonly contact_id: string; readonly merged_into: string }[]> {
+  const { rows } = await admin.query(
+    "SELECT envelope -> 'payload' AS payload FROM platform.events_outbox " +
+      "WHERE tenant_id = $1 AND tipo = 'contact.merged' ORDER BY agregado_seq, event_id",
+    [tenant],
+  );
+  return rows.map((linha) => (linha as { payload: never }).payload);
 }
 
 async function contarQuarentena(motivo: string, eventKey: string): Promise<number> {
@@ -318,6 +339,19 @@ describe("critério 4 — BSUID e telefone convergem no mesmo contact_id", () =>
         depois.push(String(r.contactId));
       }
       assert.equal(m.fundidos.length, 1, "contact.merged exactamente uma vez em dez");
+
+      // **E o evento está no outbox, uma vez, com os nomes do contrato
+      // publicado.** O KAM-008 devolve `{contact_id: o que fica,
+      // merged_contact_id: o absorvido}` e o contrato exige
+      // `{contact_id: o absorvido, merged_into: o que fica}`: trocar os dois
+      // publicava «B foi fundido em A» onde aconteceu o contrário, e nenhum
+      // esquema o apanhava — os dois são UUID.
+      const fusoes = await fusoesNoOutbox(tenant);
+      assert.equal(fusoes.length, 1, "uma linha no outbox, e so uma");
+      assert.deepEqual(fusoes[0], {
+        contact_id: soBsuid.contactId,
+        merged_into: soTelefone.contactId,
+      });
       assert.equal(new Set(depois).size, 1, "as dez devolvem o mesmo contacto");
       // Fica o **mais antigo**, que é o que nasceu do telefone.
       assert.equal(depois[0], soTelefone.contactId);
@@ -349,6 +383,19 @@ describe("critério 4 — BSUID e telefone convergem no mesmo contact_id", () =>
     } finally {
       await apagarTenant(admin, tenant);
     }
+  });
+
+  it("`payloadDaFusao` inverte os dois campos, e e isso que o contrato pede", () => {
+    // Funcao pura, provada aqui ao lado do caso de base de dados: e o unico
+    // sitio onde a inversao se ve, e um teste que a repetisse mais longe nao
+    // dizia que o que vai para o outbox e o que o contrato exige.
+    assert.deepEqual(
+      payloadDaFusao({
+        tenant_id: "11111111-1111-4111-8111-111111111111",
+        payload: { contact_id: "o-que-fica", merged_contact_id: "o-absorvido" },
+      }),
+      { contact_id: "o-absorvido", merged_into: "o-que-fica" },
+    );
   });
 
   it("o mesmo BSUID em dois tenants dá dois contactos e duas conversas", async () => {
@@ -763,7 +810,7 @@ describe("critério 7 — uma conversa que não está em `bot` não vai ao AGR",
 });
 
 describe("critério 8 — latência de `resolve`", () => {
-  it("p95 de 40 resoluções: sem cache ≤ 50 ms, com cache ≤ 5 ms", async () => {
+  it("p95 de 40 resoluções: sem cache ≤ 50 ms, com cache ≤ 5 ms", async (t) => {
     // Os dois limiares são *proposta* do próprio critério. A medição é mediana
     // e p95 de 40 execuções, que é o que o `docs/isolamento.md` §5 já faz para
     // o custo da política — e vale para o mesmo: detectar uma resolução que
@@ -789,9 +836,15 @@ describe("critério 8 — latência de `resolve`", () => {
       const p95 = (valores: number[]) =>
         [...valores].sort((a, b) => a - b)[Math.ceil(valores.length * 0.95) - 1] ?? 0;
       const medido = { semCache: p95(semCache), comCache: p95(comCache) };
-      // O número sai no registo do teste, para a secção de verificação do
-      // ticket o poder citar.
-      console.log(`[KAM-014] p95 resolve: sem cache ${medido.semCache.toFixed(3)} ms, com cache ${medido.comCache.toFixed(4)} ms`);
+      // O número sai no TAP, para a secção de verificação do ticket o poder
+      // citar. **`t.diagnostic` e não `console.log`**: o `log_policy` do KAM-068
+      // recusa `console` em qualquer ficheiro TS deste repositório — e tem
+      // razão —, e o `diagnostic` escreve um comentário TAP, que é o canal
+      // próprio para isto.
+      t.diagnostic(
+        `[KAM-014] p95 resolve: sem cache ${medido.semCache.toFixed(3)} ms, ` +
+          `com cache ${medido.comCache.toFixed(4)} ms`,
+      );
       assert.ok(medido.semCache <= 50, `p95 sem cache: ${medido.semCache} ms`);
       assert.ok(medido.comCache <= 5, `p95 com cache: ${medido.comCache} ms`);
     } finally {
@@ -799,7 +852,7 @@ describe("critério 8 — latência de `resolve`", () => {
     }
   });
 
-  it("a invalidação por `channel_id` faz a resolução seguinte ver o estado novo", async () => {
+  it("a invalidação por `channel_id` faz a resolução seguinte ver o estado novo", async (t) => {
     // É a metade do critério 1 que este ticket entrega: o caminho de
     // invalidação, com o `channel_id` que um `channel.updated` traria. **O
     // consumidor do evento não existe** — é KAM-016/KAM-021 que o emitem —, e
@@ -829,7 +882,7 @@ describe("critério 8 — latência de `resolve`", () => {
       const ms = Number(process.hrtime.bigint() - inicio) / 1e6;
 
       assert.equal(depois.resolvido?.contexto.estado_canal, "suspenso");
-      console.log(`[KAM-014] invalidacao + releitura: ${ms.toFixed(3)} ms`);
+      t.diagnostic(`[KAM-014] invalidacao + releitura: ${ms.toFixed(3)} ms`);
       assert.ok(ms <= 1_000, `invalidacao: ${ms} ms`);
     } finally {
       await apagarTenant(admin, tenant);

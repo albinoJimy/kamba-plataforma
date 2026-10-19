@@ -21,6 +21,17 @@
  * listagem de Redis. O resumo é determinístico e opaco, e o `tenant_id` entra
  * nele para que dois tenants não possam adivinhar a chave um do outro.
  *
+ * ## Um *job* em `failed` bloqueia o mesmo `wamid`, e isso fica dito
+ *
+ * O BullMQ recusa um `add` com um `jobId` que já exista — **incluindo em
+ * `failed`**. Se o AGR esgotar as tentativas de um turno, qualquer re-entrega
+ * do mesmo `wamid` é descartada em silêncio até o `removeOnFail` o limpar. Na
+ * prática o `inbound_events.processado_at` já fecha a outra ponta (o CHR não
+ * re-encaminha um evento marcado), pelo que o caminho está fechado nos dois
+ * lados — e é isso que torna o caso difícil de ver no dia em que acontecer.
+ * Reabrir um turno falhado é operação, não re-entrega: KAM-025 e KAM-084.
+ * Achado da revisão adversarial.
+ *
  * ## `removeOnComplete` e a janela da idempotência, dita em vez de assumida
  *
  * O `jobId` só deduplica enquanto o *job* existir. Com `removeOnComplete` a

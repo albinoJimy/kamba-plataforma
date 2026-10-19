@@ -1387,6 +1387,17 @@ MUTACOES = [
     # A forma `if (x && false)` em vez de `if (false)`: tem o mesmo efeito e
     # nao e codigo inalcancavel declarado, que o `tsc` recusaria se alguem
     # corresse o `typecheck` sobre a copia.
+    #
+    # **A primeira e a mutacao de um defeito que existiu.** Com a politica de
+    # pe, o dono da tabela conta zero linhas sobre uma tabela cheia, e o
+    # `downgrade` apaga as conversas em silencio em vez de pedir a copia logica.
+    # Era o que a primeira versao da revisao fazia, e foi o
+    # `test_conversas_schema.py` que o apanhou — a mesma armadilha que o
+    # `docs/isolamento.md` §6 escreve para a validacao de uma FK nova.
+    ('revisao 0009: o downgrade conta as conversas com a politica de pe', REV9,
+     '    rls.disable_tenant_rls("conversations")\n    quantas = _contar()',
+     '    quantas = _contar()\n    rls.disable_tenant_rls("conversations")',
+     "tests"),
     ('revisao 0009: a conversa fica sem RLS (gate 6)', REV9,
      '    rls.enable_tenant_rls("conversations")\n',
      '', ISOLAMENTO),
@@ -1405,12 +1416,20 @@ MUTACOES = [
     ('revisao 0009: a janela deixa de ter de ser coerente', REV9,
      '            CONSTRAINT conversations_janela_ck',
      '            CONSTRAINT conversations_janela_sem_regra_ck', "tests"),
+    # Os dois motivos do encaminhamento escolhem a `tests_chr` e **nao** a
+    # `tests_entrada`, que seria o sitio onde as tres fontes do dominio se
+    # comparam: a suite de entrada lanca os processos de producao do GWY e do
+    # *worker*, e a copia da prova por mutacao nao leva `services/` nem o
+    # `package.json` da raiz — nenhuma mutacao a pode escolher hoje (divida
+    # registada). A `tests_chr` apanha-as de forma mais directa: sem o valor no
+    # `CHECK`, a insercao da quarentena do CHR falha e o criterio 2 fica
+    # vermelho contra o `CHECK` verdadeiro.
     ('revisao 0008: o motivo do canal desconhecido sai do dominio', REV8,
      '    "\'canal_desconhecido\'",\n',
-     '', "tests_entrada"),
+     '', CHR),
     ('revisao 0008: o motivo da mensagem sem identidade sai do dominio', REV8,
      '    "\'mensagem_sem_identidade\'",\n',
-     '', "tests_entrada"),
+     '', CHR),
     ('chr: a entrada expirada fica a servir de resposta', CHR_CANAL,
      '      // Expirou: sai antes de se ir à base, para que uma falha da base não\n      // deixe uma entrada velha a servir de resposta.\n      this.#esquecer(phoneNumberId);',
      '      // Expirou.', CHR),
@@ -1484,6 +1503,24 @@ def _copiar(destino: Path, suite: str = "tests") -> None:
         RAIZ / "packages" / "core-ts", destino / "packages" / "core-ts",
         ignore=shutil.ignore_patterns("node_modules", "dist"),
     )
+    # **E o `packages/contracts`, com o `dist` (KAM-014).** Os `node_modules`
+    # chegam por `--volume` da arvore real, e a ligacao de *workspace* do pnpm e
+    # relativa: `packages/core-ts/node_modules/@kamba/contracts` aponta para
+    # `../../contracts`, que se resolve **dentro da copia**. Sem esta pasta,
+    # qualquer teste que importe `@kamba/contracts` rebenta com
+    # `ERR_MODULE_NOT_FOUND` — e e isso que a linha de base da suite `tests_chr`
+    # dizia, porque o `chr/eventos.ts` valida o payload pelo catalogo de
+    # contratos antes de o emitir.
+    #
+    # Leva o `dist` e nao so a fonte: e importado como **pacote**, pelo
+    # `exports` do seu `package.json`, e nao por caminho relativo.
+    shutil.copytree(
+        RAIZ / "packages" / "contracts", destino / "packages" / "contracts",
+        ignore=shutil.ignore_patterns("node_modules"),
+    )
+    # O dicionario exportado: a suite de entrada compara o dominio de `kind` e
+    # de `motivo` com **tres** fontes, e uma delas e este ficheiro.
+    shutil.copytree(RAIZ / "canon", destino / "canon", ignore=ignorar)
     # E o que a **lista inteira** precisa de encontrar, mesmo que esta suite nao
     # o corra: o `tests/test_mutacoes.py` corre `--aplicaveis` sobre a lista real
     # **de dentro da copia**, e um ficheiro que falte conta como mutacao nao

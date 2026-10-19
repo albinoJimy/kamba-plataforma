@@ -60,6 +60,7 @@ import {
   type EntregaDoChr,
   METRICAS_DO_CHR,
   ResolvedorDeCanal,
+  emitirContactMerged,
   repontarConversas,
   verificarArranque,
 } from "@kamba/core-ts/chr";
@@ -194,18 +195,13 @@ export class EncaminhadorDoCanal extends EncaminhadorQueSoRegista {
  */
 export class EntregaDoCanal implements EntregaDoChr {
   readonly #publicar: (invocacao: Parameters<EntregaDoChr["agr"]>[0]) => Promise<void>;
-  readonly #registo: Logger | undefined;
   /** Quantas mensagens foram para o dono/HND em vez do AGR. */
   aoDono = 0;
   /** Quantos turnos foram para o AGR. */
   aoAgr = 0;
 
-  constructor(
-    publicar: (invocacao: Parameters<EntregaDoChr["agr"]>[0]) => Promise<void>,
-    registo?: Logger,
-  ) {
+  constructor(publicar: (invocacao: Parameters<EntregaDoChr["agr"]>[0]) => Promise<void>) {
     this.#publicar = publicar;
-    this.#registo = registo;
   }
 
   async agr(invocacao: Parameters<EntregaDoChr["agr"]>[0]): Promise<void> {
@@ -213,12 +209,16 @@ export class EntregaDoCanal implements EntregaDoChr {
     this.aoAgr += 1;
   }
 
+  /**
+   * Conta, e **nao registra**: quem registra e o CHR.
+   *
+   * Escreveu aqui uma linha `chr_ao_dono` enquanto o CHR escrevia
+   * `chr_entregue_ao_dono` para o mesmo acontecimento — duas linhas por
+   * entrega, com `outcome` diferentes, e um painel que conte por `outcome` a
+   * contar a mesma entrega duas vezes. Achado da revisao adversarial.
+   */
   async dono(): Promise<void> {
     this.aoDono += 1;
-    // So o desfecho, e nada do que foi entregue: a *allowlist* do KAM-068 nao
-    // tem `tenant_id`, `conversation_id` nem `wamid`, e e um erro de compilacao
-    // tenta-lo. Quem precisa do detalhe le a `conversations`.
-    this.#registo?.info({ outcome: "chr_ao_dono" });
   }
 }
 
@@ -291,20 +291,26 @@ async function principal(): Promise<void> {
 
   const resolvedor = new ResolvedorDeCanal(resolvedorBd);
   const filaDoAgr = criarFilaDoAgr(urlDaFila);
-  const entrega = new EntregaDoCanal((invocacao) => filaDoAgr.publicar(invocacao), log);
+  const entrega = new EntregaDoCanal((invocacao) => filaDoAgr.publicar(invocacao));
 
   const chr = new Chr({
     resolvedor,
     contacto: async (pedido) => {
       const resolvido = await identidade.resolveContact(identidadeBd, pedido);
-      // O evento `contact.merged` que a fusao devolve e emitido por quem chama
-      // (KAM-008, `docs/identidade.md` §4), e esse somos nos. Emite-se **depois**
-      // da transacao da fusao ter confirmado, pelo outbox do KAM-005 — e o
-      // limite esta dito em `docs/chr.md` §6: um `kill -9` entre o `COMMIT` da
-      // fusao e esta emissao perde o evento. Pagar a atomicidade exigia dar ao
+      // O evento `contact.merged` que a fusao devolve e emitido por **quem
+      // chama** (KAM-008, `docs/identidade.md` §4), e esse somos nos. Vai para
+      // o outbox do KAM-005 com o papel `kamba_app` e contexto de tenant, e o
+      // payload e mapeado para o contrato publicado — os nomes divergem, e o
+      // `chr/eventos.ts` escreve porque.
+      //
+      // Emite-se **depois** da transacao da fusao ter confirmado, e o limite
+      // esta dito em `docs/chr.md` §5: um `kill -9` entre o `COMMIT` da fusao e
+      // esta emissao perde o evento. Pagar a atomicidade exigia dar ao
       // `kamba_identity` o `EXECUTE` do `evt_emitir`, isto e, deixar a
       // identidade emitir qualquer evento.
       if (resolvido.evento !== null) {
+        const fusao = resolvido.evento;
+        await comTenant(bd, fusao.tenant_id, () => emitirContactMerged(bd, fusao));
         log.info({ outcome: "contact_merged" });
       }
       return { contactId: resolvido.contactId };

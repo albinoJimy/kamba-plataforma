@@ -154,18 +154,6 @@ export const SQL_ABRIR_CONVERSA = `
 `;
 
 /**
- * A conversa de um (tenant, contacto, canal), sem a tocar. Como `kamba_app`.
- *
- * Serve o caso em que não há entrada a registar — a matriz de estados nega
- * `registar_entrada` — e ainda assim se precisa de saber o modo.
- */
-export const SQL_LER_CONVERSA = `
-  SELECT id::text AS id, mode, last_inbound_at
-    FROM platform.conversations
-   WHERE tenant_id = $1 AND contact_id = $2 AND channel_id = $3
-`;
-
-/**
  * As conversas do contacto absorvido numa fusão. Como `kamba_identity`, dentro
  * da transacção da fusão.
  *

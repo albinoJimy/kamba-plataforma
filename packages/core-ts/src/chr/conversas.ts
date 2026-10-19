@@ -42,7 +42,6 @@ import {
   SQL_ABRIR_CONVERSA,
   SQL_CONVERSAS_A_FUNDIR,
   SQL_DOBRAR_CONVERSA,
-  SQL_LER_CONVERSA,
   SQL_REPONTAR_CONVERSA,
 } from "./consultas.ts";
 import { type ClienteDoChr, JANELA_MS, type Modo, MODOS } from "./contrato.ts";
@@ -52,7 +51,7 @@ export class ConversaIlegivelError extends Error {
   constructor(motivo: string) {
     super(
       `platform.conversations nao respondeu na forma esperada: ${motivo}. ` +
-        "A consulta e `SQL_ABRIR_CONVERSA` ou `SQL_LER_CONVERSA`.",
+        "A consulta e `SQL_ABRIR_CONVERSA`.",
     );
     this.name = "ConversaIlegivelError";
   }
@@ -115,29 +114,6 @@ export async function abrirConversa(
     agora,
     fim,
   ]);
-  return conversaDaLinha(resultado.rows[0]);
-}
-
-/**
- * A conversa, sem a tocar. `null` se não existir. Precisa de contexto de tenant.
- *
- * Serve o caso em que a matriz de estados nega `registar_entrada` — um canal
- * `desligado` — e ainda assim se quer saber se havia conversa.
- */
-export async function lerConversa(
-  cliente: ClienteDoChr,
-  alvo: {
-    readonly tenantId: string;
-    readonly contactId: string;
-    readonly channelId: string;
-  },
-): Promise<Conversa | null> {
-  const resultado = await cliente.query(SQL_LER_CONVERSA, [
-    alvo.tenantId,
-    alvo.contactId,
-    alvo.channelId,
-  ]);
-  if (resultado.rows[0] === undefined) return null;
   return conversaDaLinha(resultado.rows[0]);
 }
 

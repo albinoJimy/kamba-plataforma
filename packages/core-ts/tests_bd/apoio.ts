@@ -198,6 +198,12 @@ export async function apagarTenant(admin: pg.Client, tenant: string): Promise<vo
   await admin.query("UPDATE platform.tenants SET owner_contact_id = NULL WHERE id = $1", [tenant]);
   // KAM-014: antes dos contactos e dos canais, que ela referencia.
   await admin.query("DELETE FROM platform.conversations WHERE tenant_id = $1", [tenant]);
+  // E o que a emissao de `contact.merged` deixou no outbox (KAM-005). O
+  // `events_outbox` nao tem FK para `contacts` — o `agregado_id` e uma
+  // referencia logica, por desenho —, mas um tenant de ensaio que deixe
+  // eventos para tras suja a contagem do ensaio seguinte.
+  await admin.query("DELETE FROM platform.events_outbox WHERE tenant_id = $1", [tenant]);
+  await admin.query("DELETE FROM platform.evt_agregado_seq WHERE tenant_id = $1", [tenant]);
   await admin.query("DELETE FROM platform.unrouted_events WHERE motivo IN ('canal_desconhecido', 'mensagem_sem_identidade')");
   await admin.query("DELETE FROM platform.tenant_channels WHERE tenant_id = $1", [tenant]);
   await admin.query("DELETE FROM platform.contact_endpoints WHERE tenant_id = $1", [tenant]);

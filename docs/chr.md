@@ -273,11 +273,16 @@ da base, já escrita antes do CHR correr.
 Contra o PostgreSQL 18.6 descartável do *gate* 8, em `tmpfs`
 (`db/gate_bd.py --suite tests_chr`):
 
-| Medida | Limiar (critério 8, *proposta*) | Medido |
-|---|---|---|
-| p95 de `resolve` **sem** *cache*, 40 execuções | ≤ 50 ms | **0,626 ms** |
-| p95 de `resolve` **com** *cache*, 40 execuções | ≤ 5 ms | **0,0106 ms** |
-| `invalidarCanal` + releitura | ≤ 1 s (critério 1) | **0,672 ms** |
+| Medida | Limiar (critério 8, *proposta*) | Máquina livre | Com carga ao lado |
+|---|---|---|---|
+| p95 de `resolve` **sem** *cache*, 40 execuções | ≤ 50 ms | **0,805 ms** | **3,329 ms** |
+| p95 de `resolve` **com** *cache*, 40 execuções | ≤ 5 ms | **0,0135 ms** | **0,0697 ms** |
+| `invalidarCanal` + releitura | ≤ 1 s (critério 1) | **0,722 ms** | **1,912 ms** |
+
+A coluna da direita é a mesma medição com a prova por mutação a correr no mesmo
+anfitrião — oito PostgreSQL ao mesmo tempo. Está aqui porque um número medido
+numa máquina livre não diz nada sobre a variação, e esta diz: quatro vezes mais
+lento, e ainda a uma ordem de grandeza do limiar.
 
 **O que estes números valem:** um PostgreSQL no mesmo anfitrião, em `tmpfs`, sem
 tráfego concorrente. Servem para detectar uma resolução que passou a ser de outra

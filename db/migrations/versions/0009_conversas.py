@@ -335,7 +335,24 @@ def downgrade() -> None:
     caminho de um ficheiro onde a tabela e escrita antes de cair — a mesma
     forma que a `0003` usa para a identidade (`db/migrations/README.md`). Sem a
     variavel, o `downgrade` **recusa**: nao ha perda em silencio.
+
+    **A politica sai ANTES de se contar, e isso foi um defeito medido.** Com
+    `FORCE ROW LEVEL SECURITY`, o dono da tabela esta sujeito a politica — e uma
+    migracao corre **sem** contexto de tenant. A primeira versao deste
+    `downgrade` contava `count(*)` como `kamba_migrator` e via **zero linhas**
+    sobre uma tabela cheia: nao pedia copia nenhuma e apagava as conversas em
+    silencio, que e exactamente o contrario do que estas trinta linhas existem
+    para impedir. E a mesma armadilha que o `docs/isolamento.md` §6 escreve para
+    a validacao de uma FK nova — «a validacao passa sem ter olhado para nada» —,
+    aqui a contar em vez de validar. Apanhada por
+    `db/tests/test_conversas_schema.py`.
+
+    O `disable_tenant_rls` e a primeira instrucao, e por isso a recusa tambem a
+    desfaz: o Alembic corre **uma transacao por revisao**
+    (`transaction_per_migration=True`), pelo que levantar aqui deixa a tabela
+    com a politica intacta e a base em `0009`.
     """
+    rls.disable_tenant_rls("conversations")
     quantas = _contar()
     if quantas:
         destino = os.environ.get(VARIAVEL_DA_COPIA, "").strip()
@@ -358,7 +375,9 @@ def downgrade() -> None:
         "ON platform.tenants FROM kamba_resolver"
     )
 
-    rls.disable_tenant_rls("conversations")
+    # A politica ja saiu, na primeira instrucao desta funcao (ver o docstring):
+    # sem isso, a contagem de cima via zero linhas.
+    #
     # Sem `CASCADE`: se houver um objecto pendurado que esta revisao nao criou,
     # o `downgrade` falha em vez de o apagar em silencio.
     op.execute("DROP TABLE platform.conversations")

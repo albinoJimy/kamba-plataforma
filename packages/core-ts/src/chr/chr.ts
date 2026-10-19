@@ -129,7 +129,18 @@ export interface ResultadoDoChr {
   readonly desfecho: Desfecho;
   /** O contexto resolvido, ou `null` se o canal é desconhecido. */
   readonly contexto: ChannelContext | null;
-  /** A decisão da matriz sobre `processar_entrada`, ou `null` se não se chegou lá. */
+  /**
+   * A decisão da matriz que **decidiu este desfecho**, ou `null` se não se
+   * chegou lá.
+   *
+   * Não é sempre a mesma pergunta, e dizer «a de `processar_entrada`» era
+   * mentir num caso: num canal `desligado` é a de `registar_entrada`, porque é
+   * essa que nega primeiro. Hoje as duas coincidem em `permitido`, e num regime
+   * futuro em que `registar_entrada` seja falso e `processar_entrada` verdadeiro
+   * deixariam de coincidir. Quem precisa de saber **qual** das duas lê o
+   * `desfecho`: `estado_recusou` sem `conversationId` é a primeira, com
+   * `conversationId` é a segunda. Achado da revisão adversarial.
+   */
   readonly decisao: DecisaoDoGate | null;
   /**
    * A saída automática que a matriz autoriza, ou `null`.
