@@ -12,7 +12,7 @@
 
 ## 1. Propósito
 
-Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **159 tickets atómicos (KAM-001 a KAM-159)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
+Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **160 tickets atómicos (KAM-001 a KAM-160)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
 
 O que **não** está aqui: a Fase 2 (Clusters) e a Fase 3 (Escala). Esses epics (geo e logística, estafetas, analytics e Score, índice federado, AdsEngine, vitrine SEO, API pública, Fluxo B) só se escrevem quando o **Gate do Piloto (KAM-110)** for verde. Está declarado em §6.
 
@@ -49,7 +49,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 
 | Epic | Range | N.º tickets | Fase |
 |------|-------|-------------|------|
-| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-159 | 44 | 0–1 |
+| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-160 | 45 | 0–1 |
 | EPIC-02 Canais WhatsApp e Handoff | KAM-013 – KAM-024, KAM-115 | 13 | 0–1 |
 | EPIC-03 Agent Runtime e Verticais | KAM-025 – KAM-040, KAM-114 | 17 | 0–1 |
 | EPIC-04 Core de Comércio | KAM-041 – KAM-051 | 11 | 0–1 |
@@ -60,7 +60,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117 | 16 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
 | EPIC-11 Módulos de Entrada | KAM-118 – KAM-127 | 10 | 1 |
-| **TOTAL** | **KAM-001 – KAM-159** | **159** | — |
+| **TOTAL** | **KAM-001 – KAM-160** | **160** | — |
 
 ### 3.2 Fases
 
@@ -127,6 +127,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-157 | O canário do *gate* 9 contra a protecção de *push* do GitHub | chore | S | P1 | 0 | KAM-131, KAM-156 |
 | KAM-158 | *Gate* das contagens declaradas em prosa, derivadas da sua fonte | feature | M | P1 | 0 | KAM-002, KAM-130 |
 | KAM-159 | Taxonomia de finalidades de consentimento: o dicionário contra os contratos publicados | fix | M | P0 | 0 | KAM-007 |
+| KAM-160 | O `pending_reply` que o `01` §14 manda registar e que não existe em superfície nenhuma | fix | S | P1 | 0 | — |
 
 ### EPIC-02 — Canais WhatsApp e Handoff
 
@@ -162,7 +163,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-034 | Handoff idempotente em dois nós e retoma por compare-and-set | feature | M | P0 | 1 | KAM-019, KAM-026, KAM-031, KAM-018 |
 | KAM-035 | Grafo de Serviços: slots, disponibilidade e `book_slot` | feature | L | P0 | 0 | KAM-027, KAM-028, KAM-047 |
 | KAM-036 | Pipeline de voz: STT com confiança, eco e fallback a humano | feature | L | P1 | 1 | KAM-020, KAM-030, KAM-107, KAM-069 |
-| KAM-037 | Modo determinístico sem LLM e degradação | feature | M | P1 | 1 | KAM-031 |
+| KAM-037 | Modo determinístico sem LLM e degradação | feature | M | P1 | 1 | KAM-031, KAM-160 |
 | KAM-038 | Subscrição de eventos: as verticais acordam por evento | feature | M | P0 | 0 | KAM-006, KAM-027, KAM-007 |
 | KAM-039 | Prova da regra de dois: teste de contrato e métrica de reaproveitamento | feature | M | P0 | 0 | KAM-031, KAM-035, KAM-038, KAM-046 |
 | KAM-040 | Dataset golden PT-AO sintético e eval harness como gate | feature | L | P0 | 1 | KAM-031, KAM-035, KAM-033, KAM-034 |
@@ -356,3 +357,4 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.23 | Outubro 2026 | KAM-130: decisões abertas `D1–D13`; e a tabela de versões passa a estar por ordem crescente — tinha a 1.2 antes da 1.1 desde que a 1.2 foi escrita. | Equipa KAMBÁ |
 | 1.24 | Outubro 2026 | KAM-138 entregue: o *gate* **3c** (`tools/lint_backlog`) passa a confrontar o §4 com o bloco de cada ticket e com a tabela-resumo do §3 do epic, e a derivar do §4 as contagens do §1 e do §3.1 — que deixam de poder ser copiadas. Nenhum número deste documento mudou: foram medidos e batem (159 linhas, 159 blocos, 159 linhas de §3, 0 órfãos). O cabeçalho continua em «Versão do conjunto: 1.2» com histórico até aqui, agora **medido** e declarado em `../ci/backlog-allow.yaml` — corrigi-lo está fora do âmbito do KAM-138 e continua a ser a linha 4 de `../docs/dividas-documentais.md`. | Equipa KAMBÁ |
 | 1.25 | Outubro 2026 | **KAM-024: a aresta que o grafo não tinha.** O critério 5 desse ticket diz, por escrito, que o servidor Graph falso é «usado por KAM-015, 016, 017 e 020», e nenhum dos quatro o declarava nas dependências nem ele os declarava no `Bloqueia`. Consequência medida: o `vagas.py` dava o **KAM-015 como pronto** antes de existir o servidor falso que os seus «Testes Requeridos» nomeiam — isto é, a ordem de execução estava errada e nada o dizia. É a mesma classe da dívida 2 e da 26 (reciprocidade declarada de um só lado), e agora o *gate* 3c prova as quatro arestas nos dois sentidos. Para o KAM-017 a aresta é **transitiva** por KAM-016 e declara-se de qualquer forma, porque é o critério que a nomeia. | Equipa KAMBÁ |
+| 1.26 | Outubro 2026 | **KAM-160** acrescentado: o `pending_reply` que o `../docs/tecnica/01` §14 manda registar existe **numa única linha do repositório inteiro** — a dele. Zero no dicionário canónico (§3.13 e §3.14, onde um campo de conversa ou de saída de canal teria de viver), zero como coluna nas dez revisões de `db/migrations/versions/`, zero em código. Obriga a escolher entre fazer a coluna existir e o §14 deixar de a mandar, e por isso é defeito e não resíduo textual (`specs/01` §6). O ticket **escolhe**: não se cria coluna, porque as duas tabelas de degradação (`01` §14 e `02` §14) já dão mecanismo a cada falha e o estado durável de «resposta em dívida» já vive no *job* da fila e em `outbound_messages.state` — um terceiro sítio seria uma terceira verdade. A frase do princípio é, palavra por palavra, uma segunda redacção da coluna «Recuperação» da linha 1 da sua própria tabela. Entra no EPIC-01, onde vive a série de defeitos documentais, pelos análogos KAM-139, KAM-140 e KAM-141; bloqueia o **KAM-037**, que é quem implementa a degradação e não deve partir de um canon que ordena um registo sem casa. Total: 160 tickets. | Equipa KAMBÁ |
