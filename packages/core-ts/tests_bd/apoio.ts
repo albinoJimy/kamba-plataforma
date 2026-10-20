@@ -196,6 +196,14 @@ export async function conversasDe(
 /** Apaga tudo o que um tenant de ensaio tem, pela ordem das FK. */
 export async function apagarTenant(admin: pg.Client, tenant: string): Promise<void> {
   await admin.query("UPDATE platform.tenants SET owner_contact_id = NULL WHERE id = $1", [tenant]);
+  // KAM-019: **antes** das conversas, que a `handoffs` referencia por FK
+  // composta — e pela mesma razao que as duas da saida, logo abaixo: sem
+  // estas linhas, o `DELETE` das conversas rebenta com `23503` no `after` do
+  // ensaio, **depois** de os testes passarem, o que faz a suite ficar vermelha
+  // sem nenhuma assercao ter falhado. E a terceira vez que esta funcao aprende
+  // isto: `conversations` (KAM-014), saida (KAM-015), handoff (KAM-019).
+  await admin.query("DELETE FROM platform.handoffs WHERE tenant_id = $1", [tenant]);
+  await admin.query("DELETE FROM platform.handoff_accounts WHERE tenant_id = $1", [tenant]);
   // KAM-015: **antes** das conversas, que a `outbound_messages` referencia por
   // FK composta. Sem estas duas linhas, o `DELETE` das conversas rebenta com
   // `23503` no `after` do ensaio — e rebenta **depois** de os testes passarem,

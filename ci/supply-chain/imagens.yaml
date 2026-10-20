@@ -102,6 +102,25 @@ imagens:
       Compensacao em vigor: digest fixado. Em falta: SBOM por imagem e
       varrimento das camadas, incluindo os pacotes Debian da base (KAM-078).
 
+  - nome: chatwoot/chatwoot
+    etiqueta: v4.18.0
+    digest: "sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1"
+    lido_em: "2026-10-20"
+    lido_de: "docker buildx imagetools inspect docker.io/chatwoot/chatwoot:v4.18.0 (indice OCI)"
+    componentes:
+      - chatwoot
+    cosign: por_apurar
+    cosign_razao: >-
+      Nao se apurou se a imagem do Chatwoot tem assinatura cosign publicada.
+      Compensacao em vigor: digest fixado, e a imagem so e levantada **em
+      desenvolvimento e no spike do KAM-019**, com dados sinteticos e sem rota
+      para a Meta. O alojamento de uma instancia com dados reais e a decisao
+      aberta D1 (residencia, ADR-008) e nao se decide aqui. Em falta: SBOM por
+      imagem e varrimento das camadas (KAM-078), que neste caso importa mais do
+      que nas outras — a imagem traz Rails, Node e uma arvore de gemas que
+      nenhum `licencas.yaml` nosso enumera, e o que esta declarado la e o
+      **Chatwoot** e nao as suas dependencias.
+
   - nome: python
     etiqueta: 3.12-slim-trixie
     digest: "sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1"
@@ -194,6 +213,12 @@ fontes_adicionais:
   # de duas, porque o ensaio importa o `@kamba/meta-sim`. Nao levanta fila
   # nenhuma.
   - ficheiro: db/tests_outbound/node.py
+    constante: IMAGEM_NODE
+  # KAM-019: a suite do handoff corre o modulo TypeScript contra a base, num
+  # contentor Node quando a maquina nao tem `node`. Leva **duas** pastas de
+  # `node_modules` e nao tres, ao contrario da saida: o handoff nao fala com a
+  # Meta e nao precisa do simulador. Nao levanta fila nenhuma.
+  - ficheiro: db/tests_handoff/node.py
     constante: IMAGEM_NODE
   # KAM-011: a suite TypeScript do contrato de armazenamento e a prova por
   # mutacao correm num contentor Node quando a maquina nao tem `node`.

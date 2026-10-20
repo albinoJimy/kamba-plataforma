@@ -43,6 +43,8 @@ def main() -> int:
         "tests_chr",
         # KAM-015: a saida de canal.
         "tests_outbound",
+        # KAM-019: a passagem a humano.
+        "tests_handoff",
     ):
         print(f"suite desconhecida: {directorio!r}", file=sys.stderr)
         return 2

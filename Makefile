@@ -949,6 +949,17 @@ ci-8:
 	@# KAM-024, que e quem conta as chamadas HTTP.
 	@echo "==> gate 8: saida de canal contra PostgreSQL 18.6 (KAM-015)"
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_outbound
+	@# E a passagem a humano (KAM-019). O que so aqui se prova: que cinco
+	@# `openHandoff` concorrentes em **duas ligacoes** deixam uma linha e fazem
+	@# uma chamada ao provedor (a idempotencia e da chave primaria derivada),
+	@# que a mesma conta do provedor em dois tenants e recusada pela
+	@# `handoff_accounts_conta_uq` — o furo que o X-10 procura —, que dois
+	@# `close` em paralelo escrevem uma vez so, e que a RLS esconde a passagem
+	@# de A do contexto de B. Nao corre contra simulador nenhum: nao ha
+	@# simulador de Chatwoot, e o que responde pelo criterio 8 e o spike contra
+	@# um Chatwoot real.
+	@echo "==> gate 8: passagem a humano contra PostgreSQL 18.6 (KAM-019)"
+	@$(VENV_PYTHON) db/gate_bd.py --suite tests_handoff
 
 # -----------------------------------------------------------------------------
 # Limpeza

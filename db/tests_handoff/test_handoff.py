@@ -1,0 +1,245 @@
+"""O handoff (TypeScript) contra o PostgreSQL do gate — KAM-019.
+
+O codigo vive em `packages/core-ts/src/hnd/` e os seus testes de base de dados
+em `packages/core-ts/tests_bd/handoff.bd.test.ts`. Esta suite e o que os poe a
+correr contra a base descartavel, com as migracoes em `head`, e e ela que le o
+que eles deixam: a saida, os numeros que eles medem e a cobertura de `src/hnd/`.
+
+Porque e suite propria, e nao mais um ficheiro em `tests`: e **TypeScript**
+contra a base, como a de identidade, a de eventos, a do CHR e a da saida, e
+nenhuma das baterias de `db/tests/` corre Node.
+
+**O que esta suite nao mede**, e onde se mede: a traducao entre os dois
+vocabularios de estado, a autenticacao dos *callbacks*, a leitura do corpo, a
+ordem dos passos e o cliente do Chatwoot vivem nas baterias do gate 4, em
+`packages/core-ts/tests/hnd.*.test.ts` — sao funcoes puras e portas, e uma base
+real nao acrescenta nada a prova. O que **so** aqui se prova esta na docstring
+do ficheiro TypeScript, e e disso que os `GRUPOS` abaixo sao a lista.
+
+**E o que nenhuma das duas mede**: se o token do *agent bot* consegue passar
+`pending -> open` no Chatwoot a serio. E o L7, NAO VERIFICADO
+(`docs/tecnica/01` §18), e o criterio 8 pede um spike com evidencia escrita —
+`docs/evidencia/KAM-019-bot-open.md`. Nenhuma porta falsa responde a essa
+pergunta, e e por isso que ela nao esta aqui.
+"""
+
+from __future__ import annotations
+
+import re
+import shutil
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+from tests.base import ComBase
+from tests_handoff import node
+
+sys.path.insert(0, str(node.RAIZ / "tools"))
+
+from kamba_yaml import load_file  # noqa: E402
+
+#: Os ficheiros de teste, pela ordem em que correm. Os de cima nao precisam de
+#: base (correm tambem no gate 4) e estao aqui pela cobertura: sem eles, a
+#: medida de `src/hnd/` nao incluiria o que eles exercitam, e o limiar nao se
+#: podia aplicar por ficheiro.
+FICHEIROS = (
+    "tests/hnd.estados.test.ts",
+    "tests/hnd.callbacks.test.ts",
+    "tests/hnd.chatwoot.test.ts",
+    "tests/hnd.provedor.test.ts",
+    "tests_bd/handoff.bd.test.ts",
+)
+
+#: Os grupos que **tem** de aparecer na saida, um por propriedade que a suite
+#: prova. Se um desaparecer, a suite deixa de provar essa propriedade — e isso
+#: tem de falhar aqui, nao passar por haver menos testes.
+#:
+#: Os cinco primeiros sao das baterias do gate 4 (funcoes puras e portas); os
+#: quatro ultimos sao do ensaio de base e sao os que **so** um PostgreSQL prova.
+GRUPOS = (
+    "os dois vocabularios",
+    "o segredo do bot",
+    "a leitura do corpo",
+    "o provisionamento (criterio 1 e 2)",
+    "o setBotMuted levanta (criterio 8)",
+    "idempotencia (criterio 4)",
+    "o fecho sob concorrencia (criterio 7)",
+    "isolamento (Testes Requeridos: X-03 sobre handoffs)",
+    "o SLA de retoma (docs/tecnica/02 §11)",
+)
+
+#: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
+#: que dao a letra de cada criterio.
+TESTES_OBRIGATORIOS = (
+    "**cinco aberturas concorrentes: 1 linha e 1 chamada ao provedor**",
+    "**a conta de atendimento: 1 chamada ao provedor e 1 linha**",
+    "**a mesma conta do provedor em dois tenants e recusada pela base**",
+    "**dois close em paralelo: um escreve e o outro nao casa**",
+    "com o contexto de A, as passagens de B nao aparecem",
+    "com o contexto de A, uma escrita na passagem de B nao acontece",
+    "o SQL_FORA_DO_SLA so ve as do proprio tenant",
+    "**uma passagem degradada conta no SLA**",
+    "**o account_id do bot nunca vai nulo**",
+    "**o inbox e de tipo api e nao de WhatsApp** (criterio 2)",
+    "**levanta SemPrivilegioError, e a mensagem diz de quem e o privilegio**",
+    "**um segredo esperado vazio recusa tudo**, e e a falha fechada",
+    "**um incoming nao e resposta de agente**: e o eco do nosso espelho",
+)
+
+#: Os ficheiros do modulo. A cobertura mede-se em **cada um**.
+#:
+#: O `chatwoot.ts` **esta** aqui, ao contrario do que a suite da saida fez com o
+#: `cliente.ts`, e a diferenca e que este tem bateria propria com o `fetch` por
+#: porta: o `hnd.chatwoot.test.ts` exercita os caminhos que podem errar em
+#: silencio — o `account_id` do bot, o tipo do *inbox*, a troca dos dois tokens
+#: e a diferenca entre 4xx e 5xx. Medi-lo aqui nao lhe da uma cobertura que
+#: diga so que o ensaio nao abre socket.
+FICHEIROS_DO_MODULO = (
+    "assinatura.ts",
+    "chatwoot.ts",
+    "consultas.ts",
+    "contrato.ts",
+    "estados.ts",
+    "eventos.ts",
+    "metricas.ts",
+    "provedor.ts",
+    "index.ts",
+)
+
+
+def _cobertura(lcov: str) -> dict[str, tuple[int, int]]:
+    """ficheiro de `src/hnd/` -> (linhas cobertas, linhas encontradas)."""
+    medidas: dict[str, tuple[int, int]] = {}
+    actual = None
+    cobertas = encontradas = 0
+    for linha in lcov.splitlines():
+        if linha.startswith("SF:"):
+            actual = linha[3:].replace("\\", "/")
+            cobertas = encontradas = 0
+        elif linha.startswith("DA:") and actual is not None:
+            _, execucoes = linha[3:].split(",")[:2]
+            encontradas += 1
+            cobertas += int(execucoes) > 0
+        elif linha == "end_of_record" and actual is not None:
+            if "/src/hnd/" in f"/{actual}":
+                medidas[actual.rsplit("/", 1)[-1]] = (cobertas, encontradas)
+            actual = None
+    return medidas
+
+
+class TestModuloDoHandoff(ComBase):
+    """Corre os testes em Node **uma vez**, e depois olha para o que ficou."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls.saida = Path(tempfile.mkdtemp(prefix="kamba-handoff-"))
+        cls.execucao = node.correr(
+            [
+                "--test",
+                # Um ficheiro de cada vez: o ensaio de base conta linhas de
+                # `handoffs` do tenant inteiro e o provedor falso conta chamadas
+                # num contador unico — dois ficheiros em paralelo veriam as
+                # contagens um do outro.
+                "--test-concurrency=1",
+                "--experimental-test-coverage",
+                "--test-reporter=tap",
+                "--test-reporter-destination=stdout",
+                "--test-reporter=lcov",
+                "--test-reporter-destination={saida}",
+                *FICHEIROS,
+            ],
+            cls.saida / "handoff.lcov",
+        )
+        cls.tap = cls.execucao.stdout
+        cls.escrito = cls.execucao.stdout + cls.execucao.stderr
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        shutil.rmtree(cls.saida, ignore_errors=True)
+        super().tearDownClass()
+
+    @classmethod
+    def _falhas_do_tap(cls) -> str:
+        """As linhas `not ok` e o que vem com cada uma, so.
+
+        A mesma funcao do `tests_chr` e do `tests_outbound`, e pela mesma razao
+        medida la: o relatorio de cobertura ocupa milhares de linhas no fim da
+        saida, e um `escrito[-6000:]` na mensagem de falha mostrava **so** isso.
+        """
+        linhas = cls.escrito.splitlines()
+        partes: list[str] = []
+        for indice, linha in enumerate(linhas):
+            if re.match(r"^\s*not ok \d+ - ", linha):
+                partes.append("\n".join(linhas[indice : indice + 30]))
+        resumo = [l for l in linhas if re.match(r"^# (tests|pass|fail) \d+$", l)]
+        return "\n\n".join([*partes, " | ".join(resumo)]) or cls.escrito[-4000:]
+
+    def test_os_testes_do_handoff_passam(self) -> None:
+        """As falhas do TAP entram na mensagem: e o que se vai ler."""
+        self.assertEqual(
+            self.execucao.returncode,
+            0,
+            f"node --test saiu com {self.execucao.returncode}:\n"
+            f"{self._falhas_do_tap()}",
+        )
+
+    def test_nenhum_teste_foi_saltado(self) -> None:
+        """Num gate, saltar e falhar — a mesma regra do `correr_suite.py`."""
+        saltados = re.findall(r"^# skip (\d+)$", self.tap, re.M)
+        self.assertEqual(
+            [int(n) for n in saltados] or [0], [0], f"TAP:\n{self.tap[-3000:]}"
+        )
+
+    def test_os_grupos_correram_todos(self) -> None:
+        """Um grupo que desapareca e uma propriedade que deixou de se provar."""
+        for grupo in GRUPOS:
+            with self.subTest(grupo=grupo):
+                self.assertIn(grupo, self.tap)
+
+    def test_os_testes_obrigatorios_passaram(self) -> None:
+        """Pelo nome, e com `ok` a frente: a letra de cada criterio."""
+        for nome in TESTES_OBRIGATORIOS:
+            with self.subTest(teste=nome):
+                self.assertRegex(self.tap, rf"(?m)^\s*ok \d+ - {re.escape(nome)}$")
+
+    def test_a_cobertura_do_modulo_e_pelo_menos_a_do_estrato(self) -> None:
+        """O gate 4 nao tem base de dados; a cobertura de `src/hnd/` mede-se aqui.
+
+        O limiar e **lido** de `ci/thresholds.yaml`, do estrato `restante`, e
+        nao escrito aqui: dois numeros em dois sitios divergem.
+
+        **E `restante` e nao `critico`, pela mesma decisao escrita que a saida
+        tomou.** Os padroes que entraram no estrato `critico` entraram porque o
+        DoD do ticket respectivo exigia >= 90%; o DoD do KAM-019 diz «cobertura
+        >= limiar», sem numero, e alterar `ci/thresholds.yaml` pede **dois
+        revisores** (o proprio ficheiro o diz). Nao se alarga um ficheiro de
+        limiares para marcar uma caixa que nao pede o numero.
+        """
+        lcov = self.saida / "handoff.lcov"
+        self.assertTrue(lcov.is_file(), f"nao houve LCOV:\n{self.escrito[-3000:]}")
+        medidas = _cobertura(lcov.read_text(encoding="utf-8"))
+        limiares = load_file(node.RAIZ / "ci" / "thresholds.yaml")
+        minimo = next(
+            int(e["minimo_linhas"])
+            for e in limiares["estratos"]
+            if e["nome"] == "restante"
+        )
+        em_falta = [f for f in FICHEIROS_DO_MODULO if f not in medidas]
+        self.assertEqual(
+            em_falta, [], f"sem medida: {em_falta}; medidos: {sorted(medidas)}"
+        )
+        for ficheiro in FICHEIROS_DO_MODULO:
+            cobertas, encontradas = medidas[ficheiro]
+            with self.subTest(ficheiro=ficheiro):
+                if encontradas == 0:
+                    continue
+                percentagem = cobertas * 100 // encontradas
+                print(f"    cobertura {ficheiro}: {percentagem}% ({cobertas}/{encontradas})")
+                self.assertGreaterEqual(
+                    percentagem,
+                    minimo,
+                    f"{ficheiro}: {percentagem}% < {minimo}% "
+                    f"({cobertas}/{encontradas} linhas)",
+                )
