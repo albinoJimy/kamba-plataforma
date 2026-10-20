@@ -556,7 +556,8 @@ Implementar o `ChannelAdapter` de saída: decisão de envio por estado da janela
 
 ### Verificação dos Critérios de Aceitação
 
-Entregue no ramo `feature/KAM-015-outbound-envio`.
+Entregue no PR `albinoJimy/kamba-plataforma#32`, ramo
+`feature/KAM-015-outbound-envio`.
 **Doze caixas marcadas, seis vazias** (18 = 12 + 6) — cada uma com uma linha
 aqui. Os números reproduzem-se com `make ci-3b`, `make ci-4`, `make ci-6` e
 `make ci-8`; o desenho está em [`../docs/outbound.md`](../docs/outbound.md).
