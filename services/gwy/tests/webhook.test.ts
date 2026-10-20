@@ -102,11 +102,11 @@ const CORPO_DE_MENSAGEM = JSON.stringify({
           field: "messages",
           value: {
             messaging_product: "whatsapp",
-            metadata: { display_phone_number: "244923111222", phone_number_id: PNID },
-            contacts: [{ profile: { name: "Maria Kiala" }, wa_id: "244923456789" }],
+            metadata: { display_phone_number: "999100000001", phone_number_id: PNID },
+            contacts: [{ profile: { name: "Maria Kiala" }, wa_id: "999100000002" }],
             messages: [
               {
-                from: "244923456789",
+                from: "999100000002",
                 id: "wamid.HBgMMjQ0OTIzNDU2Nzg5FQIAEhgU",
                 timestamp: "1700000000",
                 type: "text",

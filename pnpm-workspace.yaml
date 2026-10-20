@@ -4,3 +4,14 @@ packages:
   - "services/com"
   - "services/onboarding-web"
   - "packages/*"
+  # KAM-024: o simulador de webhooks da Meta e o servidor Graph falso.
+  #
+  # **Entra no workspace, ao contrario do `tools/mermaid_lint`**, e a razao e
+  # a diferenca entre os dois: o `mermaid_lint` ficou fora porque o `mermaid`
+  # traz uma arvore grande de terceiros que iria para o SBOM e para o
+  # veredicto de licencas do gate 11, para uma ferramenta que nao vai para
+  # producao. O `meta-sim` **nao acrescenta dependencia nenhuma**: usa o
+  # `node:crypto` da biblioteca padrao e o vocabulario de `@kamba/core-ts`.
+  # Dentro do workspace, o `pnpm -r run typecheck` e o `pnpm -r run test` dos
+  # gates 2 e 4 passam a cobri-lo sem alvo novo; fora dele, nada o corria.
+  - "tools/meta-sim"
