@@ -272,7 +272,7 @@ importers:
         version: 8.23.1
 
   tools/meta-sim:
-    dependencies:
+    devDependencies:
       '@kamba/core-ts':
         specifier: workspace:*
         version: link:../../packages/core-ts

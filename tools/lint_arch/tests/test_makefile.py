@@ -470,15 +470,54 @@ class TestSuitesDeTools(unittest.TestCase):
                 self.assertTrue((ROOT / "tools" / suite / "tests" / "__init__.py").is_file())
 
     def test_nao_ha_pasta_de_testes_que_a_descoberta_nao_veja(self) -> None:
-        """Um `tests/` sem `test_*.py`, ou com outro nome, ficava por correr."""
+        """Um `tests/` sem `test_*.py`, ou com outro nome, ficava por correr.
+
+        **A pergunta e «quem corre esta pasta?» e nao «esta na descoberta do
+        unittest?»**, e a diferenca passou a importar com o KAM-024: o
+        `tools/meta-sim/tests/` tem `*.test.ts` e corre-se por `node --test`,
+        pelo que a descoberta do `unittest` nao o ve — e esta certa em nao o
+        ver. O que **nao** se pode e deixar passar uma pasta que nenhum dos dois
+        corre, que e o defeito original.
+
+        Por isso uma pasta de testes vale por **uma** de duas vias, e nao por
+        isencao nomeada: ou esta na descoberta do `unittest`, ou o pacote tem um
+        `package.json` com `scripts.test` **e** esta em `PACOTES_NODE` do
+        `Makefile`. A segunda e verificavel e automantida: um pacote de Python
+        nunca tem `package.json`, e um pacote de Node que saia do `PACOTES_NODE`
+        volta a falhar aqui.
+        """
+        import json
+
         for pasta in sorted((ROOT / "tools").iterdir()):
             if not pasta.is_dir() or pasta.name.startswith((".", "__")):
                 continue
             for sub in sorted(pasta.iterdir()):
-                if sub.is_dir() and sub.name.startswith("test"):
-                    with self.subTest(pasta=f"{pasta.name}/{sub.name}"):
-                        self.assertEqual(sub.name, "tests")
-                        self.assertIn(pasta.name, self.descobertas)
+                if not (sub.is_dir() and sub.name.startswith("test")):
+                    continue
+                with self.subTest(pasta=f"{pasta.name}/{sub.name}"):
+                    self.assertEqual(sub.name, "tests")
+                    if pasta.name in self.descobertas:
+                        continue
+                    manifesto = pasta / "package.json"
+                    self.assertTrue(
+                        manifesto.is_file(),
+                        f"{pasta.name}/tests nao tem test_*.py nem package.json: "
+                        "ninguem a corre",
+                    )
+                    dados = json.loads(manifesto.read_text(encoding="utf-8"))
+                    self.assertIn(
+                        "test",
+                        dados.get("scripts", {}),
+                        f"{pasta.name} nao tem `scripts.test`: o `pnpm -r run test` "
+                        "salta-o em silencio",
+                    )
+                    self.assertIn(
+                        f"tools/{pasta.name}",
+                        self.texto,
+                        f"tools/{pasta.name} nao esta no Makefile (PACOTES_NODE): "
+                        "o gate 4 nao mede a cobertura dele, e o coverage_gate "
+                        "injecta os ficheiros a 0%",
+                    )
 
     def test_os_dois_alvos_iteram_a_descoberta_e_exigem_na(self) -> None:
         self.assertEqual(self.texto.count("for suite in $(SUITES_DE_TOOLS); do"), 2)
