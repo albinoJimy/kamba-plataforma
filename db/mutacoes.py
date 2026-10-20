@@ -1053,6 +1053,13 @@ MUTACOES = [
      "        if epic and epic in fontes.por_epic:\n"
      "            valores.append(fontes.por_epic[epic])\n",
      "", CONTAGENS),
+    # A exclusao do corpus volta ao caminho absoluto, que e o defeito que o
+    # KAM-158 tinha: uma arvore dentro de uma pasta `.claude` — qualquer
+    # worktree do Claude Code — ficava com o corpus vazio, e o gate media
+    # zero contagens numa arvore cheia delas.
+    ("KAM-158 contagens: a exclusao do corpus volta ao caminho absoluto", CONT_SCAN,
+     "            if '.claude' in rel.parts or 'node_modules' in rel.parts:",
+     "            if '.claude' in f.parts or 'node_modules' in f.parts:", CONTAGENS),
 
     # ------------------------------------------------------------- KAM-006
     #
