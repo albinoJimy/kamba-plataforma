@@ -47,7 +47,7 @@ import {
   wabaId,
   wamid,
 } from "./identificadores.ts";
-import { exigirFicticios, telefonesReais, type Ocorrencia } from "./numeros.ts";
+import { eFicticio, exigirFicticios, telefonesReais, type Ocorrencia } from "./numeros.ts";
 import { Gerador } from "./semente.ts";
 
 /**
@@ -66,6 +66,56 @@ const CHAVES_DE_TELEFONE = new Set([
   "to",
 ]);
 
+/**
+ * Uma chave que leva um telefone **dentro** de uma estrutura que o `id` nomeia.
+ *
+ * O `history[].threads[].id` é um telefone escrito numa chave chamada `id`, e o
+ * próprio simulador o produz (`campos.ts`). A revisão adversarial mostrou o
+ * caminho inteiro: a chave não estava em `CHAVES_DE_TELEFONE`, o ramo do
+ * `wamid` ignorava-a por não começar por `wamid.`, e um `+351` real atravessava
+ * o saneamento **e** a verificação final, porque os dois padrões do `numeros.ts`
+ * não apanham um E.164 estrangeiro sem `+`.
+ *
+ * Trata-se por **forma** e não por nome: um `id` cujo valor seja só algarismos e
+ * tenha comprimento de telefone é um telefone. É deliberadamente generoso — um
+ * `waba_id` de quinze algarismos também casa —, e isso não faz mal nenhum: o
+ * destino é um valor fictício dos dois lados.
+ */
+const FORMA_DE_TELEFONE = /^[0-9]{8,15}$/;
+
+/**
+ * As chaves cujo valor é numérico e **não** é um telefone.
+ *
+ * A verificação por forma não consegue distinguir um telefone de um instante
+ * Unix — os dois são dígitos —, e sem esta lista recusava todas as capturas:
+ * um `timestamp` tem dez algarismos. Medido, com os onze testes de saneamento
+ * a ficarem vermelhos de uma vez.
+ *
+ * É uma lista curta e cada entrada é verificável contra `campos.ts`, que é
+ * quem produz estes corpos. Uma chave numérica nova que não esteja aqui faz a
+ * captura ser **recusada** com a chave nomeada, que é o lado certo para falhar:
+ * quem a acrescentar decide o que ela é.
+ */
+const CHAVES_NUMERICAS_QUE_NAO_SAO_TELEFONE = new Set([
+  "timestamp",
+  "time",
+  "file_size",
+  "phase",
+  "chunk_order",
+  "progress",
+  "quantity",
+  "item_price",
+  "code",
+  "error_subcode",
+  "max_daily_conversations_per_phone_number",
+  "max_phone_numbers_per_business",
+  "current_limit",
+  "version",
+  "expires_at",
+  "created_at",
+  "updated_at",
+]);
+
 /** As chaves cujo valor é um BSUID. */
 const CHAVES_DE_BSUID = new Set(["user_id", "from_user_id", "recipient_user_id"]);
 
@@ -75,8 +125,31 @@ const CHAVES_DE_WAMID = new Set(["id", "message_id", "context_id"]);
 /** As chaves cujo valor é um identificador de canal. */
 const CHAVES_DE_CANAL = new Set(["phone_number_id"]);
 
-/** As chaves cujo valor é texto livre escrito por uma pessoa. */
-const CHAVES_DE_TEXTO_LIVRE = new Set(["body", "caption", "filename", "full_name", "name"]);
+/**
+ * As chaves cujo valor é texto livre escrito por uma pessoa.
+ *
+ * A lista cresceu com a revisão adversarial, que enumerou o que faltava: a
+ * morada que o utilizador partilha num `location`, o texto livre de uma
+ * encomenda, os títulos e descrições de um `interactive`, o `payload` de um
+ * botão (que o negócio escolhe mas o cliente devolve), e os campos de um
+ * `referral` — que levam o texto do anúncio por onde a conversa entrou.
+ */
+const CHAVES_DE_TEXTO_LIVRE = new Set([
+  "body",
+  "caption",
+  "filename",
+  "full_name",
+  "name",
+  "address",
+  "text",
+  "title",
+  "description",
+  "payload",
+  "headline",
+  "source_url",
+  "source_id",
+  "alert_description",
+]);
 
 /**
  * As chaves cujo valor é um resumo ou um identificador opaco que não é pessoal
@@ -107,13 +180,25 @@ export interface Saneamento {
 /** A captura foi recusada. */
 export class CapturaRecusadaError extends Error {
   readonly ocorrencias: readonly Ocorrencia[];
+  /** As chaves que levantaram suspeita só pela **forma** do valor. */
+  readonly chavesComFormaDeTelefone: readonly string[];
 
-  constructor(ocorrencias: readonly Ocorrencia[], chaves: readonly string[]) {
+  constructor(
+    ocorrencias: readonly Ocorrencia[],
+    chaves: readonly string[],
+    forma: readonly string[] = [],
+  ) {
     super(
       // Sem o número, pela mesma razão que o `NumeroRealError` o não leva.
-      `a captura foi recusada: ${ocorrencias.length} telefone(s) sobreviveram ao ` +
-        `saneamento. Primeiro no indice ${ocorrencias[0]?.indice ?? -1} ` +
-        `(padrao ${ocorrencias[0]?.padrao ?? "?"}). ` +
+      (ocorrencias.length > 0
+        ? `a captura foi recusada: ${ocorrencias.length} telefone(s) sobreviveram ` +
+          `ao saneamento. Primeiro no indice ${ocorrencias[0]?.indice ?? -1} ` +
+          `(padrao ${ocorrencias[0]?.padrao ?? "?"}). `
+        : "a captura foi recusada: um valor com forma de telefone que nao e do " +
+          `intervalo ficticio sobreviveu ao saneamento, em ${forma.length} chave(s) ` +
+          `que o saneador nao conhece: ${forma.join(", ")}. Nenhum padrao de ` +
+          "numero real o apanha — um E.164 estrangeiro escrito sem `+` nao casa " +
+          "nenhum —, e e por isso que esta verificacao e uma lista BRANCA. ") +
         (chaves.length > 0
           ? `Chaves de texto que o saneador nao conhece: ${chaves.join(", ")}. `
           : "") +
@@ -122,8 +207,10 @@ export class CapturaRecusadaError extends Error {
     );
     this.name = "CapturaRecusadaError";
     this.ocorrencias = ocorrencias;
+    this.chavesComFormaDeTelefone = forma;
   }
 }
+
 
 /** O estado de uma captura: o gerador e os mapas de substituição. */
 class Mapas {
@@ -132,6 +219,8 @@ class Mapas {
   readonly contagens = new Map<string, number>();
   /** As chaves de texto que levaram um valor com telefone e não foram saneadas. */
   readonly chavesSuspeitas = new Set<string>();
+  /** As que só levantam suspeita pela **forma** — um E.164 que os padrões não vêem. */
+  readonly suspeitasDeForma = new Set<string>();
 
   constructor(g: Gerador) {
     this.#g = g;
@@ -166,6 +255,13 @@ function sanearValor(chave: string, valor: string, mapas: Mapas): string {
     return comMais ? `+${novo}` : novo;
   }
   if (CHAVES_DE_BSUID.has(chave)) return mapas.traduzir("bsuid", valor, bsuid);
+  if (CHAVES_DE_WAMID.has(chave) && FORMA_DE_TELEFONE.test(valor)) {
+    // Um `id` que seja só algarismos com comprimento de telefone **é** um
+    // telefone: e o `history[].threads[].id` é exactamente isso. Ver
+    // `FORMA_DE_TELEFONE`. Passa pelo mesmo mapa que as outras chaves de
+    // telefone, para que a thread do mesmo contacto continue a ser a mesma.
+    return mapas.traduzir("telefone", valor, telefone);
+  }
   if (CHAVES_DE_WAMID.has(chave) && valor.startsWith("wamid.")) {
     // O `wamid` novo tem de levar o telefone **novo** lá dentro: um `wamid`
     // fictício construído com o número real deixava o número na *fixture*,
@@ -185,9 +281,28 @@ function sanearValor(chave: string, valor: string, mapas: Mapas): string {
   if (CHAVES_OPACAS.has(chave)) {
     return mapas.traduzir(chave, valor, (g) => g.texto(valor.length <= 64 ? valor.length : 64, "0123456789abcdef"));
   }
-  // Um valor de texto numa chave que o saneador não conhece: se tiver um
-  // telefone, fica registado como suspeita e a verificação final recusa.
+  // Um valor de texto numa chave que o saneador não conhece.
+  //
+  // **Duas perguntas e não uma**, e a segunda é a que a revisão adversarial
+  // comprou: a primeira é se o valor casa os padrões de telefone **real**, que
+  // só apanham Angola e E.164 com `+`; a segunda é se tem **forma** de telefone
+  // sem o ser fictício — que apanha o `+351912345678` escrito sem `+`, e
+  // qualquer outro E.164 estrangeiro. Sem a segunda, um webhook real do número
+  // de teste da Meta (tipicamente `+1`) era gravado com o número intacto, e nem
+  // o `exigirFicticios` nem o *scan* o viam.
+  //
+  // Uma suspeita **não** substitui nada: faz a captura ser recusada, com a
+  // chave nomeada, para que alguém decida o que ela é. Substituir às cegas uma
+  // chave desconhecida era adivinhar.
   if (telefonesReais(valor).length > 0) mapas.chavesSuspeitas.add(chave);
+  else if (
+    FORMA_DE_TELEFONE.test(valor) &&
+    !eFicticio(valor) &&
+    !CHAVES_NUMERICAS_QUE_NAO_SAO_TELEFONE.has(chave)
+  ) {
+    mapas.chavesSuspeitas.add(chave);
+    mapas.suspeitasDeForma.add(chave);
+  }
   return valor;
 }
 
@@ -201,8 +316,29 @@ function sanearValor(chave: string, valor: string, mapas: Mapas): string {
  * corpo inteiro para a quarentena por uma razão que não existe no tráfego real.
  * O contexto entra por aqui e por mais sítio nenhum.
  */
+/** As chaves cujo valor é um número que localiza uma pessoa. */
+const CHAVES_DE_COORDENADA = new Set(["latitude", "longitude"]);
+
+/**
+ * Arredonda uma coordenada à **zona**, que é o que o §3.6 do dicionário manda:
+ * exactas só no pedido de entrega, e isso é Clusters.
+ *
+ * Duas casas decimais dão cerca de um quilómetro — bastante para a *fixture*
+ * descrever «uma localização em Luanda» e insuficiente para descrever uma casa.
+ * A docstring do módulo afirmava que as coordenadas eram substituídas e **não
+ * eram**: são números, e o `percorrer` devolvia-as intactas. Achado da revisão
+ * adversarial.
+ */
+function arredondarCoordenada(valor: number): number {
+  return Math.round(valor * 100) / 100;
+}
+
 function percorrer(no: unknown, chave: string, mapas: Mapas, eUmaEntry = false): unknown {
   if (typeof no === "string") return sanearValor(chave, no, mapas);
+  if (typeof no === "number" && CHAVES_DE_COORDENADA.has(chave)) {
+    mapas.contar("coordenada");
+    return arredondarCoordenada(no);
+  }
   if (Array.isArray(no)) {
     // O sinalizador atravessa o array: `entry` **é** um array, e é cada um dos
     // seus elementos que é uma `entry`.
@@ -252,6 +388,25 @@ export function sanear(bruto: unknown, semente: string): Saneamento {
   // mesmo predicado não é redundância: esta é a que lança o erro do `numeros.ts`
   // e é a que um teste de mutação apanha se alguém remover a de cima.
   exigirFicticios(texto);
+
+  // **Terceira, e é a que o critério 7 pede à letra.** As duas de cima são
+  // listas **negras** — «recusa se casar um padrão de número real» — e o
+  // critério diz o contrário: «recusa gravar se detectar um número que **não
+  // pertença** à lista de números fictícios». A diferença não é de estilo: um
+  // `+351912345678` escrito sem `+` não casa padrão nenhum, e atravessava as
+  // duas (medido pela revisão adversarial, com a chave `history[].threads[].id`
+  // que o próprio simulador produz).
+  //
+  // A lista branca aplica-se às chaves que o saneador **não** reconhece, e não
+  // a toda a árvore: aplicá-la a tudo recusava todas as capturas, porque um
+  // `waba_id` fictício tem quinze algarismos e um `timestamp` tem dez. As
+  // chaves conhecidas já foram substituídas por valores fictícios acima; o que
+  // sobra é o que ninguém classificou, e é aí que um número estrangeiro vive.
+  if (mapas.suspeitasDeForma.size > 0) {
+    throw new CapturaRecusadaError([], [...mapas.chavesSuspeitas], [
+      ...mapas.suspeitasDeForma,
+    ]);
+  }
 
   return {
     arvore,

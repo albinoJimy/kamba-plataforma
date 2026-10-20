@@ -24,7 +24,12 @@
  * o que o tráfego é — em vez de vinte e sete negócios a trocar uma mensagem cada.
  */
 
-import { CAMPOS, type Campo, type Opcoes as OpcoesDeCampo } from "./campos.ts";
+import {
+  CAMPOS,
+  type Campo,
+  type MotivoDeRemocao,
+  type Opcoes as OpcoesDeCampo,
+} from "./campos.ts";
 import { assinar } from "./assinatura.ts";
 import { corpo, serializar, type Corpo } from "./corpo.ts";
 import { ESTADOS, type Estado } from "./estados.ts";
@@ -97,6 +102,25 @@ function pedidoDoTipo(nome: string, cenario: Cenario): { campo: Campo; opcoes: O
   return { campo: "messages", opcoes: { canal, quem, tipos: [nome as Tipo] } };
 }
 
+/**
+ * As opções de campo que cobrem um item da dimensão «motivo».
+ *
+ * Um `account_update` por cada um dos seis motivos de `PARTNER_REMOVED`. O
+ * critério 2 escreve «`account_update` (6 motivos)», e a primeira versão deste
+ * ficheiro gerava **um** — com `PRIMARY_INACTIVITY` fixo —, pelo que quatro dos
+ * seis não tinham *fixture* nem teste e o ramo `g.escolher(MOTIVOS_DE_REMOCAO)`
+ * do `campos.ts` nunca era exercitado. Achado da revisão adversarial.
+ *
+ * Cada motivo é uma razão **diferente** por que o canal deixou de chegar, e é o
+ * `account_update` que leva o estado do canal a `desligado` (KAM-021): um
+ * `CHANGE_NUMBER` e um `USER_RE_REGISTERED` pedem acções diferentes ao dono, e
+ * sem *fixture* para cada um o KAM-021 não tem como as distinguir.
+ */
+function pedidoDoMotivo(nome: string, cenario: Cenario): { campo: Campo; opcoes: OpcoesDeCampo } {
+  const { canal, quem } = cenario;
+  return { campo: "account_update", opcoes: { canal, quem, motivo: nome as MotivoDeRemocao } };
+}
+
 /** As opções de campo que cobrem um item da dimensão «campo». */
 function pedidoDoCampo(campo: Campo, cenario: Cenario): { campo: Campo; opcoes: OpcoesDeCampo } {
   const { canal, quem } = cenario;
@@ -119,7 +143,9 @@ export function fixtureDe(item: Item, semente: string, segredo: string): Fixture
   const pedido =
     item.dimensao === "tipo"
       ? pedidoDoTipo(item.nome, cenario)
-      : pedidoDoCampo(item.nome as Campo, cenario);
+      : item.dimensao === "motivo"
+        ? pedidoDoMotivo(item.nome, cenario)
+        : pedidoDoCampo(item.nome as Campo, cenario);
   if (pedido === null) return null;
 
   const g = new Gerador(`${semente}/${item.marca}`);

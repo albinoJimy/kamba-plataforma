@@ -18,8 +18,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { CAMPOS, kindsDe } from "../src/campos.ts";
-import { ESTADOS } from "../src/estados.ts";
+import { CAMPOS, MOTIVOS_DE_REMOCAO, kindsDe } from "../src/campos.ts";
+import { CATEGORIAS, ESTADOS, PRECO_USD, estado } from "../src/estados.ts";
+import { Gerador } from "../src/semente.ts";
 import { ITENS, emMarkdown, marcasEm, relatorio } from "../src/cobertura.ts";
 import { contagemPorItem, fixtureDe, todasAsFixtures } from "../src/fixtures.ts";
 import { segredoDeEnsaio } from "../src/assinatura.ts";
@@ -235,13 +236,6 @@ describe("cobertura: os onze campos", () => {
     assert.equal(sincronias[0]?.action, "add");
   });
 
-  it("[cobertura:campo:account_update] o motivo esta entre os seis confirmados", () => {
-    const valor = daMarca("campo:account_update");
-    assert.equal(valor.event, "PARTNER_REMOVED");
-    const info = valor.partner_removed_info as Record<string, unknown>;
-    assert.equal(info.reason, "PRIMARY_INACTIVITY");
-  });
-
   it("[cobertura:campo:phone_number_quality_update] a nota e GREEN, YELLOW ou RED", () => {
     const valor = daMarca("campo:phone_number_quality_update");
     assert.ok(["GREEN", "YELLOW", "RED"].includes(valor.quality_score as string));
@@ -284,6 +278,131 @@ describe("cobertura: os onze campos", () => {
   });
 });
 
+describe("cobertura: os seis motivos de PARTNER_REMOVED", () => {
+  // Um `it` por motivo, com a marca literal. A revisão adversarial mostrou que
+  // quatro dos seis só existiam na declaração do `enum`: não havia *fixture*
+  // nem teste, e o critério 2 escreve «`account_update` (6 motivos)».
+  function motivoDe(nome: string): string {
+    const valor = daMarca(`motivo:${nome.toLowerCase()}`);
+    assert.equal(valor.event, "PARTNER_REMOVED");
+    const info = valor.partner_removed_info as Record<string, unknown>;
+    return info.reason as string;
+  }
+
+  it("[cobertura:motivo:primary_inactivity] o canal principal ficou inactivo", () => {
+    assert.equal(motivoDe("PRIMARY_INACTIVITY"), "PRIMARY_INACTIVITY");
+  });
+
+  it("[cobertura:motivo:companion_inactivity] o companheiro ficou inactivo", () => {
+    assert.equal(motivoDe("COMPANION_INACTIVITY"), "COMPANION_INACTIVITY");
+  });
+
+  it("[cobertura:motivo:business_downgrade] o negocio baixou de plano", () => {
+    assert.equal(motivoDe("BUSINESS_DOWNGRADE"), "BUSINESS_DOWNGRADE");
+  });
+
+  it("[cobertura:motivo:change_number] o dono mudou de numero", () => {
+    // É o motivo que pede uma acção diferente de todos os outros: o canal não
+    // volta sozinho, e o KAM-021 tem de pedir ao dono que repita o ES.
+    assert.equal(motivoDe("CHANGE_NUMBER"), "CHANGE_NUMBER");
+  });
+
+  it("[cobertura:motivo:user_re_registered] o utilizador registou-se outra vez", () => {
+    assert.equal(motivoDe("USER_RE_REGISTERED"), "USER_RE_REGISTERED");
+  });
+
+  it("[cobertura:motivo:account_disconnected] a conta foi desligada", () => {
+    assert.equal(motivoDe("ACCOUNT_DISCONNECTED"), "ACCOUNT_DISCONNECTED");
+  });
+
+  it("[cobertura:campo:account_update] o campo tem fixture propria, com um dos seis", () => {
+    const valor = daMarca("campo:account_update");
+    assert.equal(valor.event, "PARTNER_REMOVED");
+    const info = valor.partner_removed_info as Record<string, unknown>;
+    assert.ok(MOTIVOS_DE_REMOCAO.includes(info.reason as never), `motivo ${String(info.reason)}`);
+  });
+
+  it("as seis fixtures de motivo tem bytes diferentes entre si", () => {
+    // Seis *fixtures* com os mesmos bytes seriam seis linhas na tabela a dizer
+    // a mesma coisa, que é o 100% sem nada por baixo.
+    const vistas = new Set(
+      MOTIVOS_DE_REMOCAO.map((m) => {
+        const f = FIXTURES.find((x) => x.item.marca === `motivo:${m.toLowerCase()}`);
+        assert.ok(f !== undefined, m);
+        return Buffer.from(f.bytes).toString("hex");
+      }),
+    );
+    assert.equal(vistas.size, 6);
+  });
+});
+
+describe("o pricing dos estados (revisao adversarial)", () => {
+  it("um failed com comPricing explicito leva pricing", () => {
+    // **A opcao era engolida em silencio.** O critério 1 escreve «`statuses`
+    // (…, `failed`, com `pricing`)», e sem forma de gerar o caso nao havia como
+    // o KAM-015 provar que o recusa. A omissao continua a ser «sem `pricing`»,
+    // porque nao se cobra uma mensagem que nao foi entregue; o que mudou e que
+    // um `true` explicito e honrado. Quem decide se o caso e legitimo e o
+    // KAM-015, nao o gerador.
+    const semPreco = estado(new Gerador("e"), {
+      wamid: "wamid.X",
+      estado: "failed",
+      recipienteId: "999100000001",
+    });
+    assert.equal(semPreco.pricing, undefined, "a omissao");
+    assert.ok(Array.isArray(semPreco.errors));
+
+    const comPreco = estado(new Gerador("e"), {
+      wamid: "wamid.X",
+      estado: "failed",
+      recipienteId: "999100000001",
+      comPricing: true,
+    });
+    const preco = comPreco.pricing as Record<string, unknown>;
+    assert.equal(preco.pricing_model, "CBP");
+    // E continua a levar `errors[]`: um `failed` com preco e um `failed`.
+    assert.ok(Array.isArray(comPreco.errors));
+  });
+
+  it("um sent com comPricing false NAO leva pricing", () => {
+    // E o caso que o descarte sob saturacao do GWY pode deitar fora, e tem de
+    // existir como *fixture* para que o criterio 7 do KAM-013 distinga os dois.
+    const item = estado(new Gerador("e"), {
+      wamid: "wamid.X",
+      estado: "sent",
+      recipienteId: "999100000001",
+      comPricing: false,
+    });
+    assert.equal(item.pricing, undefined);
+  });
+
+  it("as quatro categorias dao o preco de Rest of Africa", () => {
+    // `PRECO_USD` nao era lido em sitio nenhum do repositorio e nenhum teste o
+    // afirmava: um valor errado ali passava. Sao CONFIRMADO no `E1` §1.
+    assert.equal(CATEGORIAS.length, 4);
+    assert.equal(PRECO_USD.service, 0.004);
+    assert.equal(PRECO_USD.utility, 0.004);
+    assert.equal(PRECO_USD.authentication, 0.004);
+    assert.equal(PRECO_USD.marketing, 0.0225);
+    // O `marketing` e cerca de 5,6x o `utility`, que e o numero que o
+    // `../docs/tecnica/01` §4.5 cita.
+    assert.ok(Math.abs(PRECO_USD.marketing / PRECO_USD.utility - 5.6) < 0.1);
+  });
+
+  it("uma categoria diferente de service aparece no pricing", () => {
+    const item = estado(new Gerador("e"), {
+      wamid: "wamid.X",
+      estado: "delivered",
+      recipienteId: "999100000001",
+      categoria: "marketing",
+    });
+    const preco = item.pricing as Record<string, unknown>;
+    assert.equal(preco.category, "marketing");
+    // O `type` e `regular` para tudo o que nao e `service`.
+    assert.equal(preco.type, "regular");
+  });
+});
+
 describe("o relatorio de cobertura", () => {
   const FICHEIROS = [
     "cobertura.test.ts",
@@ -314,18 +433,36 @@ describe("o relatorio de cobertura", () => {
     assert.deepEqual(r.marcasDesconhecidas, []);
   });
 
-  it("tem 27 itens: 16 tipos e 11 campos", () => {
+  it("tem 33 itens: 16 tipos, 11 campos e 6 motivos", () => {
     assert.equal(ITENS.filter((i) => i.dimensao === "tipo").length, 16);
     assert.equal(ITENS.filter((i) => i.dimensao === "campo").length, 11);
-    assert.equal(ITENS.length, 27);
+    assert.equal(ITENS.filter((i) => i.dimensao === "motivo").length, 6);
+    assert.equal(ITENS.length, 33);
     assert.equal(CAMPOS.length, 11);
+    assert.equal(MOTIVOS_DE_REMOCAO.length, 6);
+  });
+
+  it("uma marca escrita so num comentario NAO conta", () => {
+    // É o achado da revisão adversarial: a primeira versão contava qualquer
+    // ocorrência textual, e por isso 27 marcas em comentários davam 100% sem
+    // existir teste nenhum. Comentar um `it` inteiro mantinha o verde.
+    const soComentarios = ITENS.map((i) => `// [cobertura:${i.marca}] nenhum teste aqui`).join("\n");
+    const r = relatorio(contagemPorItem(FIXTURES), [soComentarios]);
+    assert.equal(r.faltas.length, ITENS.length);
+    assert.equal(r.percentagem, 0);
+  });
+
+  it("a marca conta quando esta no nome de um it(", () => {
+    const comIt = ITENS.map((i) => `it("[cobertura:${i.marca}] x", () => {});`).join("\n");
+    const r = relatorio(contagemPorItem(FIXTURES), [comIt]);
+    assert.deepEqual(r.faltas, []);
   });
 
   it("falha quando um item perde o teste", () => {
     // O relatório tem de poder falhar: um relatório que dá 100% com uma lista de
     // fontes vazia não prova nada, e esta é a asserção que o distingue.
     const r = relatorio(contagemPorItem(FIXTURES), []);
-    assert.equal(r.faltas.length, 27);
+    assert.equal(r.faltas.length, 33);
     assert.equal(r.percentagem, 0);
   });
 

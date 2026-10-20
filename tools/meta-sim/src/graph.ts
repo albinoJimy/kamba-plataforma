@@ -87,7 +87,27 @@ export interface Plano {
    * KAM-015 («Resposta 130429 do servidor falso 3× seguida de 200»). `vezes`
    * ausente significa **sempre**, que é o que o cenário «Meta em baixo» precisa.
    */
-  readonly envio?: { readonly cenario: CenarioDeEnvio; readonly vezes?: number };
+  readonly envio?: {
+    readonly cenario: CenarioDeEnvio;
+    readonly vezes?: number;
+    /**
+     * O estado HTTP do `debito_excedido`. **NÃO VERIFICADO**, e por isso é
+     * parâmetro.
+     *
+     * Nenhuma fonte deste repositório dá o estado HTTP do `130429`: o
+     * `../docs/tecnica/01` §16 e o `E1` §5 dão o **código** e mais nada. O
+     * servidor responde `429` por omissão porque é o que a semântica do código
+     * sugere, mas há relato de a Cloud API devolver `400` com
+     * `error.code: 130429` no corpo — e a diferença não é académica: um cliente
+     * que ramifique por `status === 429` passa os testes e **nunca repete em
+     * produção**.
+     *
+     * A regra para o KAM-015 está escrita aqui e não num comentário distante:
+     * **ramifica pelo `error.code`, não pelo estado HTTP.** Este parâmetro
+     * existe para que o teste dele possa provar que o faz, programando os dois.
+     */
+    readonly estadoHttp?: number;
+  };
   /** O estado com que um template submetido fica. Por omissão, `PENDING`. */
   readonly template?: { readonly estado: string; readonly categoria?: string };
   /** `invalido` faz a troca de *code* falhar. */
@@ -142,9 +162,24 @@ export class GraphFalso {
     this.#base = plano.base ?? "http://graph-de-ensaio.localhost";
   }
 
-  /** Substitui o plano. Não mexe no estado acumulado nem no registo. */
+  /**
+   * Substitui o plano, e **volta a contagem de envios a zero**.
+   *
+   * O zero é uma correcção da revisão adversarial. O `vezes` do cenário conta
+   * envios, e a primeira versão contava-os desde sempre: um servidor que já
+   * tivesse atendido um envio de aquecimento — ou que fosse reutilizado entre
+   * casos, que é para isso que o `reiniciarContagens` existe — dava `429, 429,
+   * 200` a um `{ debito_excedido, vezes: 3 }` em vez de `429, 429, 429, 200`.
+   * O teste do *backoff* do KAM-015 passava a afirmar duas tentativas em vez de
+   * três e ficava verde a medir outra coisa.
+   *
+   * `programar` significa «começa este cenário agora», e é o que faz o `vezes`
+   * querer dizer o que o seu JSDoc diz. O registo e as subscrições **não** se
+   * limpam: esses são história do servidor, não do cenário.
+   */
   programar(plano: Plano): void {
     this.#plano = plano;
+    this.#envios = 0;
     if (plano.base !== undefined) this.#base = plano.base;
   }
 
@@ -242,7 +277,8 @@ export class GraphFalso {
 
     if (cenario === "debito_excedido") {
       return {
-        estado: 429,
+        // 429 por omissão, e configurável: ver `Plano.envio.estadoHttp`.
+        estado: plano?.estadoHttp ?? 429,
         corpo: erroDoGraph(
           CODIGOS_CONFIRMADOS.debitoExcedido,
           "Rate limit hit",

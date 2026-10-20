@@ -88,6 +88,51 @@ describe("envio (cenarios 200, 130429 N vezes, 131049, 5xx)", () => {
     assert.equal(enviar(g).estado, 429);
   });
 
+  it("programar() volta a contagem a zero — o vezes conta desde o cenario", () => {
+    // **Achado da revisao adversarial.** O `vezes` contava envios desde sempre,
+    // e por isso um envio de aquecimento antes de programar o cenario tirava uma
+    // falha: `{ debito_excedido, vezes: 3 }` dava `429, 429, 200` em vez de
+    // `429, 429, 429, 200`. O teste do backoff do KAM-015 passava a afirmar
+    // duas tentativas em vez de tres e ficava verde a medir outra coisa.
+    const g = servidor();
+    assert.equal(enviar(g).estado, 200, "o envio de aquecimento");
+    g.programar({ envio: { cenario: "debito_excedido", vezes: 3 } });
+    const estados: number[] = [];
+    for (let i = 0; i < 4; i += 1) estados.push(enviar(g).estado);
+    assert.deepEqual(estados, [429, 429, 429, 200]);
+  });
+
+  it("programar() nao apaga o registo nem as subscricoes", () => {
+    // O cenario reinicia-se; a historia do servidor nao. Sao coisas diferentes,
+    // e quem le o registo depois de programar quer o registo todo.
+    const g = servidor();
+    enviar(g);
+    const antes = g.registo.length;
+    g.programar({ envio: { cenario: "indisponivel" } });
+    assert.equal(g.registo.length, antes);
+    assert.equal(g.envios, 0, "a contagem do cenario e que volta a zero");
+  });
+
+  it("o estado HTTP do 130429 e parametro, porque e NAO VERIFICADO", () => {
+    // Nenhuma fonte deste repositorio da o estado HTTP do 130429 — o `01` §16 e
+    // o `E1` §5 dao o codigo e mais nada —, e ha relato de a Cloud API devolver
+    // 400 com o codigo no corpo. A diferenca nao e academica: um cliente que
+    // ramifique por `status === 429` passa os testes e **nunca repete em
+    // producao**. A regra para o KAM-015 e ramificar pelo `error.code`, e este
+    // parametro existe para que o teste dele possa provar que o faz.
+    const comum = servidor({ envio: { cenario: "debito_excedido" } });
+    const resposta = enviar(comum);
+    assert.equal(resposta.estado, 429, "a omissao");
+    assert.equal(erroDe(resposta).code, CODIGOS_CONFIRMADOS.debitoExcedido);
+
+    const outro = servidor({ envio: { cenario: "debito_excedido", estadoHttp: 400 } });
+    const quatrocentos = enviar(outro);
+    assert.equal(quatrocentos.estado, 400);
+    // **O codigo e o mesmo nos dois.** E por isso que ramificar pelo codigo
+    // funciona nas duas hipoteses e ramificar pelo estado HTTP so numa.
+    assert.equal(erroDe(quatrocentos).code, CODIGOS_CONFIRMADOS.debitoExcedido);
+  });
+
   it("os cinco cenarios estao nomeados", () => {
     assert.equal(CENARIOS_DE_ENVIO.length, 5);
   });

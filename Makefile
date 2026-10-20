@@ -839,7 +839,11 @@ ci-7-meta:
 	@# `tools/meta-sim/src/inventario.ts`: um numero de forma real num ficheiro
 	@# sem entrada falha, e um a **mais** num ficheiro ja declarado tambem.
 	@# `docs/meta-sim.md` secao 6 diz porque e um raquete e nao uma isencao.
-	@pnpm --filter @kamba/meta-sim exec node src/cli.ts varrer $(ROOT)
+	@# Sem argumento: a raiz vem do `pnpm-workspace.yaml` e nao do `cwd`, que
+	@# aqui e `tools/meta-sim` (o `pnpm --filter exec` poe-no la). Passar
+	@# `$(ROOT)` tambem funciona; nao se passa para que o comando do gate seja
+	@# **o mesmo** que o `docs/meta-sim.md` documenta.
+	@pnpm --filter @kamba/meta-sim exec node src/cli.ts varrer
 	@pnpm --filter @kamba/meta-sim exec node src/cli.ts cobertura
 	@pnpm --filter @kamba/meta-sim run test
 	@# A ida e volta vive no GWY porque quem e posto a prova e o consumidor.

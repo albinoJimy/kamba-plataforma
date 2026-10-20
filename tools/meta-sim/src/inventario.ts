@@ -309,7 +309,13 @@ export function confrontar(
     }
   }
 
-  return divergencias.sort((a, b) => a.ficheiro.localeCompare(b.ficheiro) || a.tipo.localeCompare(b.tipo));
+  // Comparação de cadeias e **não** `localeCompare`: o `localeCompare` depende
+  // do locale e do ICU do *runner*, e a ordem desta lista vai para a evidência.
+  // Um diff que mude de máquina para máquina é um diff que ninguém lê.
+  const antes = (x: string, y: string): number => (x < y ? -1 : x > y ? 1 : 0);
+  return divergencias.sort(
+    (a, b) => antes(a.ficheiro, b.ficheiro) || antes(a.tipo, b.tipo),
+  );
 }
 
 /** O total declarado. Para o relatório, e para ver se sobe. */

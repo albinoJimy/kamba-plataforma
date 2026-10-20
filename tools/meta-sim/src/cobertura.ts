@@ -35,15 +35,31 @@
  * não olhava para o `list_reply`.
  */
 
-import { CAMPOS, type Campo } from "./campos.ts";
+import { CAMPOS, MOTIVOS_DE_REMOCAO, type Campo } from "./campos.ts";
 import { ESTADOS } from "./estados.ts";
 import { TIPOS, VARIANTES_INTERACTIVAS } from "./mensagens.ts";
 
 /** O prefixo da marca que um teste põe no nome. */
 export const MARCA = "cobertura:";
 
-/** A expressão que encontra as marcas num ficheiro de teste. */
-const PADRAO_DA_MARCA = /\[cobertura:([a-z0-9_:]+)\]/g;
+/**
+ * A expressão que encontra as marcas num ficheiro de teste.
+ *
+ * **Exige que a marca esteja no nome de um `it(`**, e isso é uma correcção da
+ * revisão adversarial: a primeira versão contava qualquer ocorrência textual, e
+ * por isso vinte e sete marcas escritas só em **comentários** davam 100% sem
+ * existir teste nenhum. Medido. Pior do que inútil: comentar um `it` inteiro
+ * mantinha o relatório verde.
+ *
+ * Isto não prova que o teste asserte alguma coisa — nada que leia texto o pode
+ * provar —, mas prova que existe um `it` com aquele nome, que é a diferença
+ * entre uma marca e um comentário. O que garante que o `it` mede algo é a
+ * revisão, e é por isso que cada um deles afirma o que distingue o seu item.
+ *
+ * O `\b` a cabeca nao e enfeite: sem ele,
+ * um `exit(` ou um `await it(` casavam o `it(` por acidente.
+ */
+const PADRAO_DA_MARCA = /\bit\(\s*[`'"]\[cobertura:([a-z0-9_:]+)\]/g;
 
 /**
  * Os dezasseis itens da dimensão «tipo», pela ordem do critério.
@@ -61,8 +77,19 @@ export const TIPOS_COBERTOS: readonly string[] = [
 /** Os onze itens da dimensão «campo». */
 export const CAMPOS_COBERTOS: readonly Campo[] = CAMPOS;
 
-/** As duas dimensões. */
-export const DIMENSOES = ["tipo", "campo"] as const;
+/**
+ * Os seis motivos de `PARTNER_REMOVED`, como itens de cobertura próprios.
+ *
+ * O critério 2 escreve «`account_update` (6 motivos)», e a primeira versão
+ * tratava o campo como **um** item — com o que quatro dos seis motivos não
+ * tinham *fixture* nem teste, e existiam só na declaração do `enum`. É a mesma
+ * leitura à letra que faz o `interactive` contar duas vezes e o `statuses`
+ * quatro; contá-los como um era cumprir em espírito.
+ */
+export const MOTIVOS_COBERTOS: readonly string[] = MOTIVOS_DE_REMOCAO;
+
+/** As três dimensões. */
+export const DIMENSOES = ["tipo", "campo", "motivo"] as const;
 export type Dimensao = (typeof DIMENSOES)[number];
 
 /** Um item de cobertura: a sua dimensão e o seu nome. */
@@ -77,6 +104,13 @@ export interface Item {
 export const ITENS: readonly Item[] = [
   ...TIPOS_COBERTOS.map((nome) => ({ dimensao: "tipo" as const, nome, marca: `tipo:${nome}` })),
   ...CAMPOS_COBERTOS.map((nome) => ({ dimensao: "campo" as const, nome, marca: `campo:${nome}` })),
+  ...MOTIVOS_COBERTOS.map((nome) => ({
+    dimensao: "motivo" as const,
+    nome,
+    // Em minúsculas porque o `PADRAO_DA_MARCA` só aceita minúsculas, e uma
+    // marca que o padrão não casasse era um item descoberto em silêncio.
+    marca: `motivo:${nome.toLowerCase()}`,
+  })),
 ];
 
 /** A linha do relatório para um item. */

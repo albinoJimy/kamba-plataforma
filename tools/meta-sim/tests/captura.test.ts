@@ -222,6 +222,195 @@ describe("saneamento (criterio 7)", () => {
   });
 });
 
+describe("a lista branca do criterio 7 (revisao adversarial)", () => {
+  /** Uma captura com um valor numa chave que o saneador nao conhece. */
+  function comCampoNovo(valor: unknown): unknown {
+    return {
+      object: "whatsapp_business_account",
+      entry: [
+        {
+          id: "109876543210987",
+          changes: [
+            {
+              field: "messages",
+              value: {
+                metadata: { phone_number_id: "119876543210987" },
+                campo_que_ninguem_previu: valor,
+              },
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  // Estes sao os casos que as duas primeiras verificacoes — as listas **negras**
+  // — nao apanhavam. Um `+351912345678` escrito sem `+` nao casa o padrao
+  // angolano nem o padrao de E.164 entre aspas, e por isso atravessava o
+  // saneamento, o `exigirFicticios` e o *scan*. O critério diz o contrario:
+  // «recusa gravar se detectar um numero que **nao pertenca** a lista de
+  // numeros ficticios».
+  for (const [nome, valor] of [
+    ["um E.164 portugues sem +", "351912345678"],
+    ["o numero de teste da Meta (+1)", "15550123456"],
+    ["um numero brasileiro", "5511987654321"],
+    ["um numero mocambicano", "258841234567"],
+  ] as const) {
+    it(`recusa ${nome}`, () => {
+      try {
+        sanear(comCampoNovo(valor), "semente-de-ensaio");
+        assert.fail("devia ter recusado");
+      } catch (erro) {
+        assert.ok(erro instanceof CapturaRecusadaError);
+        assert.deepEqual(erro.chavesComFormaDeTelefone, ["campo_que_ninguem_previu"]);
+        // A mensagem diz **qual** chave acrescentar, e nao leva o numero.
+        assert.match(erro.message, /campo_que_ninguem_previu/);
+        assert.ok(!erro.message.includes(valor), erro.message);
+      }
+    });
+  }
+
+  it("aceita um numero do intervalo ficticio na mesma chave", () => {
+    assert.doesNotThrow(() => sanear(comCampoNovo("999100000001"), "semente-de-ensaio"));
+  });
+
+  it("aceita texto e identificadores opacos na mesma chave", () => {
+    for (const valor of ["Bom dia, tem disponivel?", "AQBx9f2kLm", "pnid-1", ""]) {
+      assert.doesNotThrow(() => sanear(comCampoNovo(valor), "semente-de-ensaio"), valor);
+    }
+  });
+
+  it("um timestamp NAO e tratado como telefone", () => {
+    // Dez algarismos tem forma de telefone, e sem a lista de chaves numericas
+    // a verificacao recusava **todas** as capturas: medido, com os onze testes
+    // de saneamento a ficarem vermelhos de uma vez.
+    assert.doesNotThrow(() =>
+      sanear(
+        {
+          object: "x",
+          entry: [
+            {
+              id: "109876543210987",
+              time: 1_790_900_000,
+              changes: [
+                {
+                  field: "messages",
+                  value: {
+                    metadata: { phone_number_id: "119876543210987" },
+                    messages: [{ timestamp: "1790900000", type: "text" }],
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        "semente-de-ensaio",
+      ),
+    );
+  });
+
+  it("o history[].threads[].id e saneado, e e um telefone numa chave chamada id", () => {
+    // O caminho inteiro que a revisao adversarial mostrou: a chave nao estava
+    // em `CHAVES_DE_TELEFONE`, o ramo do `wamid` ignorava-a por nao comecar por
+    // `wamid.`, e o numero sobrevivia. O proprio simulador produz esta chave.
+    const captura = {
+      object: "whatsapp_business_account",
+      entry: [
+        {
+          id: "109876543210987",
+          changes: [
+            {
+              field: "history",
+              value: {
+                metadata: { phone_number_id: "119876543210987" },
+                history: [{ threads: [{ id: "351912345678", messages: [] }] }],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const { arvore } = sanear(captura, "semente-de-ensaio");
+    const texto = JSON.stringify(arvore);
+    assert.ok(!texto.includes("351912345678"), "o numero real sobreviveu");
+    const corpo = arvore as {
+      entry: { changes: { value: { history: { threads: { id: string }[] }[] } }[] }[];
+    };
+    assert.ok(eFicticio(corpo.entry[0]?.changes[0]?.value.history[0]?.threads[0]?.id ?? ""));
+  });
+});
+
+describe("as coordenadas e o texto livre que faltavam (revisao adversarial)", () => {
+  function comLocalizacao(): unknown {
+    return {
+      object: "whatsapp_business_account",
+      entry: [
+        {
+          id: "109876543210987",
+          changes: [
+            {
+              field: "messages",
+              value: {
+                metadata: { phone_number_id: "119876543210987" },
+                messages: [
+                  {
+                    from: "999100000001",
+                    type: "location",
+                    location: {
+                      latitude: -8.838333,
+                      longitude: 13.234444,
+                      address: "Rua Direita 42, Ingombota, Luanda",
+                      name: "Casa da Maria",
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it("as coordenadas sao arredondadas a zona", () => {
+    // Sao **numeros**, e o `percorrer` devolvia-os intactos: a docstring do
+    // modulo afirmava que as coordenadas exactas eram substituidas e nao eram.
+    // Duas casas decimais dao cerca de um quilometro — bastante para descrever
+    // «uma localizacao em Luanda» e insuficiente para descrever uma casa.
+    const { arvore } = sanear(comLocalizacao(), "semente-de-ensaio");
+    const corpo = arvore as {
+      entry: {
+        changes: { value: { messages: { location: { latitude: number; longitude: number } }[] } }[];
+      }[];
+    };
+    const sitio = corpo.entry[0]?.changes[0]?.value.messages[0]?.location;
+    assert.equal(sitio?.latitude, -8.84);
+    assert.equal(sitio?.longitude, 13.23);
+  });
+
+  it("a morada e substituida, e o nome do sitio tambem", () => {
+    const { arvore } = sanear(comLocalizacao(), "semente-de-ensaio");
+    const texto = JSON.stringify(arvore);
+    assert.ok(!texto.includes("Rua Direita"), "a morada sobreviveu");
+    assert.ok(!texto.includes("Casa da Maria"), "o nome do sitio sobreviveu");
+  });
+
+  it("as oito chaves de texto livre novas sao todas substituidas", () => {
+    // A lista cresceu com a revisao adversarial, que enumerou o que faltava.
+    const chaves = ["address", "text", "title", "description", "payload", "headline", "source_url", "alert_description"];
+    const valor: Record<string, unknown> = { metadata: { phone_number_id: "119876543210987" } };
+    for (const chave of chaves) valor[chave] = `SEGREDO-${chave}`;
+    const { arvore } = sanear(
+      { object: "x", entry: [{ id: "109876543210987", changes: [{ field: "messages", value: valor }] }] },
+      "semente-de-ensaio",
+    );
+    const texto = JSON.stringify(arvore);
+    for (const chave of chaves) {
+      assert.ok(!texto.includes(`SEGREDO-${chave}`), `a chave ${chave} nao foi saneada`);
+    }
+  });
+});
+
 describe("o scan (criterio 7)", () => {
   it("da a linha e a coluna de cada achado", () => {
     const texto = ['{"a":1}', '{"wa_id":"+244923456789"}', "nada aqui"].join("\n");
@@ -235,12 +424,30 @@ describe("o scan (criterio 7)", () => {
     assert.deepEqual(varrer('{"wa_id":"999100000001","from":"+999100000002"}'), []);
   });
 
-  it("ordena por linha e coluna", () => {
+  it("ordena por linha E por coluna, com os valores afirmados", () => {
+    // **A primeira versao deste teste era vacua**: comparava
+    // `achados.map(a => a.linha)` com uma copia ordenada **de si mesmo**, nao
+    // olhava para as colunas, e nao afirmava o comprimento — pelo que passava
+    // com um array vazio e passava sem o `.sort()` do `varrer`. Achado da
+    // revisao adversarial.
+    //
+    // Agora afirma os pares exactos. A linha 1 tem **duas** ocorrencias (os
+    // dois padroes casam a mesma cadeia, em colunas diferentes), e e ai que o
+    // `sort` tem algo para fazer: sem ele vem na ordem dos padroes.
     const texto = ['"+244923456789"', "", '"+351912345678"'].join("\n");
     const achados = varrer(texto);
+    assert.equal(achados.length, 3);
     assert.deepEqual(
-      achados.map((a) => a.linha),
-      [...achados.map((a) => a.linha)].sort((x, y) => x - y),
+      achados.map((a) => [a.linha, a.coluna]),
+      [
+        [1, 1],
+        [1, 2],
+        [3, 1],
+      ],
+    );
+    assert.deepEqual(
+      achados.map((a) => a.padrao),
+      ["e164_entre_aspas", "telefone_ao", "e164_entre_aspas"],
     );
   });
 });

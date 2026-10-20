@@ -29,8 +29,8 @@
  * critério 7 o quer tirar. Quem corrige abre o ficheiro na linha indicada.
  */
 
-import { readdirSync, readFileSync, mkdirSync, statSync, writeFileSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+import { existsSync, readdirSync, readFileSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve, sep } from "node:path";
 
 import { assinar, exigirSegredoDeEnsaio, segredoDeEnsaio } from "./assinatura.ts";
 import { sanear, varrer } from "./captura.ts";
@@ -59,28 +59,51 @@ const IGNORADOS = new Set([
   "coverage",
 ]);
 
-/** As extensões que o varrimento lê. Tudo o que não é texto fica de fora. */
-const EXTENSOES = new Set([
-  ".ts",
-  ".js",
-  ".mjs",
-  ".cjs",
-  ".json",
-  ".py",
-  ".md",
-  ".yaml",
-  ".yml",
-  ".sql",
-  ".toml",
-  ".sh",
-  ".txt",
-  ".env",
-  ".example",
+/**
+ * O que o varrimento **não** abre, por extensão.
+ *
+ * É uma lista de **exclusão** e não de inclusão, e isso é uma correcção da
+ * revisão adversarial: a primeira versão tinha quinze extensões permitidas, e
+ * por isso um `.har`, um `.jsonl`, um `.csv`, um `Dockerfile` (sem extensão) ou
+ * um `.env.local` eram **invisíveis**. Medido: seis ficheiros com o mesmo número
+ * de forma real, e o *scan* leu **um**.
+ *
+ * O `.har` e o `.jsonl` são precisamente os formatos em que uma captura real sai
+ * de um navegador ou de um registo — isto é, o artefacto do fluxo que o critério
+ * 7 manda construir. E um ficheiro não lido **não** aparece como «não
+ * declarado»: o `confrontar` só vê ficheiros medidos, pelo que a omissão era
+ * silêncio e não falha.
+ *
+ * Com uma lista de exclusão o defeito inverte-se: um formato novo é lido por
+ * omissão, e o pior que acontece é o *scan* abrir um ficheiro binário — que o
+ * `pareceBinario` apanha.
+ */
+const EXTENSOES_BINARIAS = new Set([
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp", ".tiff", ".avif",
+  ".pdf", ".zip", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".tar", ".rar",
+  ".mp3", ".mp4", ".ogg", ".opus", ".wav", ".webm", ".mov", ".avi",
+  ".woff", ".woff2", ".ttf", ".otf", ".eot",
+  ".so", ".dll", ".dylib", ".exe", ".bin", ".o", ".a", ".class", ".pyc",
+  ".db", ".sqlite", ".lcov", ".wasm", ".node",
 ]);
 
 function extensaoDe(nome: string): string {
   const ponto = nome.lastIndexOf(".");
-  return ponto < 0 ? "" : nome.slice(ponto);
+  return ponto < 0 ? "" : nome.slice(ponto).toLowerCase();
+}
+
+/** Quantos bytes bastam para decidir se um ficheiro é binário. */
+const AMOSTRA = 8192;
+
+/**
+ * Um byte `NUL` nos primeiros 8 KiB é o critério de «binário» que o `git` usa, e
+ * basta: um ficheiro de texto não tem nenhum, e qualquer formato binário que
+ * escape à lista de extensões tem quase sempre um à cabeça.
+ */
+function pareceBinario(bytes: Uint8Array): boolean {
+  const limite = Math.min(bytes.length, AMOSTRA);
+  for (let i = 0; i < limite; i += 1) if (bytes[i] === 0) return true;
+  return false;
 }
 
 function* ficheiros(raiz: string): Generator<string> {
@@ -91,9 +114,43 @@ function* ficheiros(raiz: string): Generator<string> {
       yield* ficheiros(caminho);
       continue;
     }
+    // `isFile()` e não `!isDirectory()`: uma ligação simbólica que aponte para
+    // fora da árvore não se segue, senão o varrimento saía do repositório.
     if (!entrada.isFile()) continue;
-    if (!EXTENSOES.has(extensaoDe(entrada.name))) continue;
+    if (EXTENSOES_BINARIAS.has(extensaoDe(entrada.name))) continue;
     yield caminho;
+  }
+}
+
+/**
+ * A raiz do repositório, descoberta a subir até ao `pnpm-workspace.yaml`.
+ *
+ * **Isto é a correcção do achado mais grave da revisão adversarial.** O
+ * `varrer` relativizava cada medição contra `resolve(".")`, isto é, contra o
+ * `cwd`. O `ci-7-meta` corre-o por `pnpm --filter @kamba/meta-sim exec`, que
+ * define `cwd` = `tools/meta-sim`; os caminhos saíam como
+ * `../../packages/core-ts/...` e **nenhum** casava com o inventário, que é
+ * relativo à raiz. Medido: `91 ocorrencias, 86 declaradas, 47 divergencias`,
+ * `exit 2` — o gate 7 falhava em **todos** os PRs. E o comando documentado em
+ * `docs/meta-sim.md` tinha o mesmo defeito pela outra via: `varrer .` com
+ * `cwd` = `tools/meta-sim` varria só o pacote.
+ *
+ * A raiz deixa de depender de onde o comando é chamado. Um inventário cujo
+ * significado muda com o `cwd` não é um inventário.
+ */
+function raizDoRepositorio(partida: string): string {
+  let actual = resolve(partida);
+  for (;;) {
+    if (existsSync(join(actual, "pnpm-workspace.yaml"))) return actual;
+    const acima = dirname(actual);
+    if (acima === actual) {
+      throw new Error(
+        "nao encontrei a raiz do repositorio (o pnpm-workspace.yaml) a subir de " +
+          `${resolve(partida)}. O varrer precisa dela para que os caminhos do ` +
+          "inventario queiram dizer o mesmo de qualquer cwd.",
+      );
+    }
+    actual = acima;
   }
 }
 
@@ -148,23 +205,37 @@ function comandoCobertura(argv: readonly string[]): number {
  * ser um raquete e não uma isenção.
  */
 function comandoVarrer(argv: readonly string[]): number {
-  const raizes = argv.filter((a) => !a.startsWith("--"));
-  const alvos = raizes.length > 0 ? raizes : ["."];
+  const pedidos = argv.filter((a) => !a.startsWith("--"));
   // `--cru` imprime os achados sem confrontar, que é como se mede a contagem de
   // uma entrada nova do inventário.
   const cru = argv.includes("--cru");
-  const raiz = resolve(".");
+
+  // A raiz vem do `pnpm-workspace.yaml` e **não** do `cwd`: ver
+  // `raizDoRepositorio`. Sem alvos, varre-se o repositório inteiro — que é o
+  // que o gate quer, e deixa de depender de onde foi chamado.
+  const raiz = raizDoRepositorio(pedidos[0] ?? ".");
+  const alvos = pedidos.length > 0 ? pedidos.map((a) => resolve(a)) : [raiz];
+  // Confronta-se com o inventário só quando o varrimento é do repositório
+  // inteiro. Varrer uma pasta e comparar com um inventário de 22 ficheiros dava
+  // 22 «entradas mortas» e um `exit 2` que não quer dizer nada.
+  const completo = alvos.length === 1 && alvos[0] === raiz;
+
   const medicoes: Medicao[] = [];
   let total = 0;
   let lidos = 0;
+  let binarios = 0;
 
   for (const alvo of alvos) {
-    const caminho = resolve(alvo);
-    const info = statSync(caminho);
-    const lista = info.isDirectory() ? [...ficheiros(caminho)] : [caminho];
+    const info = statSync(alvo);
+    const lista = info.isDirectory() ? [...ficheiros(alvo)] : [alvo];
     for (const ficheiro of lista) {
+      const bytes = new Uint8Array(readFileSync(ficheiro));
+      if (pareceBinario(bytes)) {
+        binarios += 1;
+        continue;
+      }
       lidos += 1;
-      const achados = varrer(readFileSync(ficheiro, "utf8"));
+      const achados = varrer(Buffer.from(bytes).toString("utf8"));
       if (achados.length === 0) continue;
       total += achados.length;
       // O caminho vai sempre com `/`, para que o inventário seja o mesmo em
@@ -190,19 +261,24 @@ function comandoVarrer(argv: readonly string[]): number {
     return 1;
   }
 
-  if (cru) {
+  if (cru || !completo) {
     process.stdout.write(
-      `[KAM-024] varrer --cru: ${lidos} ficheiros, ${total} ocorrencias em ` +
+      `[KAM-024] varrer${cru ? " --cru" : " (parcial)"}: ${lidos} ficheiros, ` +
+        `${binarios} binarios saltados, ${total} ocorrencias em ` +
         `${medicoes.length} ficheiros\n`,
     );
+    // Um varrimento parcial não confronta o inventário e por isso não pode dizer
+    // «conforme». Devolve 0 porque não mediu nada contra que falhar, e o texto
+    // diz «parcial» para que ninguém o leia como o do gate.
     return 0;
   }
 
   const divergencias = confrontar(medicoes);
   for (const d of divergencias) process.stdout.write(`${frase(d)}\n`);
   process.stdout.write(
-    `[KAM-024] varrer: ${lidos} ficheiros, ${total} ocorrencias de forma real, ` +
-      `${totalDeclarado()} declaradas no inventario, ${divergencias.length} divergencias\n`,
+    `[KAM-024] varrer: ${lidos} ficheiros, ${binarios} binarios saltados, ` +
+      `${total} ocorrencias de forma real, ${totalDeclarado()} declaradas no ` +
+      `inventario, ${divergencias.length} divergencias\n`,
   );
   return divergencias.length === 0 ? 0 : 2;
 }
@@ -227,8 +303,15 @@ function comandoSanear(argv: readonly string[]): number {
   const categorias = Object.entries(saneamento.substituicoes)
     .map(([nome, quantos]) => `${nome}=${quantos}`)
     .join(" ");
+  // **A semente vai no registo.** A nao-reprodutibilidade entre capturas e
+  // deliberada — um mapa estavel entre execucoes e um mapa que se pode
+  // inverter —, mas sem a semente no registo um saneamento nao se pode repetir
+  // nem auditar, e a *fixture* gravada fica sem proveniencia. Achado da
+  // revisao adversarial. A semente **nao** e segredo: o que torna o mapa
+  // nao-invertivel e ela ser diferente de cada vez, nao ser desconhecida.
   process.stderr.write(
-    `[KAM-024] saneado: ${saneamento.numerosNaEntrada} telefone(s) na entrada, ` +
+    `[KAM-024] saneado com a semente ${JSON.stringify(semente)}: ` +
+      `${saneamento.numerosNaEntrada} telefone(s) de forma real na entrada, ` +
       `substituicoes ${categorias}\n`,
   );
   return 0;

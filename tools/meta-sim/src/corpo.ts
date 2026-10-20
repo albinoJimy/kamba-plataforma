@@ -140,10 +140,13 @@ export function serializar(valor: unknown, modo: Modo = "compacto"): Uint8Array 
  * Os mesmos bytes com **um** alterado, sem mudar o comprimento.
  *
  * Serve o caso negativo do critério 4 pelo lado do corpo (o `assinarMal` serve-o
- * pelo lado da assinatura, e os dois têm de dar 401 pela mesma razão). Troca-se
- * um algarismo dentro de um `timestamp`, que é um sítio onde a troca mantém o
- * JSON válido: o que se quer provar é que o GWY recusa um corpo **bem formado**
- * que não bate com a assinatura, e não que recusa lixo.
+ * pelo lado da assinatura, e os dois têm de dar 401 pela mesma razão).
+ *
+ * Troca-se o **primeiro** algarismo do corpo — que nestes corpos é o primeiro
+ * dígito do `entry.id` —, e não um dentro de um `timestamp` como a primeira
+ * versão desta nota dizia. O efeito pretendido é o mesmo e é o que importa: o
+ * JSON continua válido e a assinatura deixa de bater, pelo que o que se prova é
+ * que o GWY recusa um corpo **bem formado** que não bate, e não que recusa lixo.
  */
 export function mudarUmByte(bytes: Uint8Array): Uint8Array {
   const copia = new Uint8Array(bytes);

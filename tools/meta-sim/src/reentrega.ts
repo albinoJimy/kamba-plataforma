@@ -49,8 +49,20 @@
  * O calendário **proposto** de repetições, em segundos desde a primeira entrega.
  *
  * Exponencial de base 60 s e factor 4, truncado em 24 h, até passar os sete
- * dias. Dá doze tentativas: 0, 1 min, 5 min, 21 min, 1 h 25, 5 h 41, 24 h, e
- * depois de 24 em 24 h até 7 dias. É **proposta** — ver a nota do módulo.
+ * dias. Dá **catorze** instantes, medidos e não descritos de cabeça:
+ *
+ * ```
+ * 0, 60, 300, 1260, 5100, 20460, 81900, 168300, 254700,
+ * 341100, 427500, 513900, 600300, 604800
+ * ```
+ *
+ * O sétimo é 81 900 s (22 h 45) e não 86 400: o truncamento em 24 h aplica-se
+ * ao **atraso** e não ao instante, pelo que o primeiro instante depois do tecto
+ * cai antes das 24 h. A primeira versão desta nota dizia «doze tentativas» e
+ * nomeava um 24 h que não existe — achado da revisão adversarial, e a razão por
+ * que os valores aqui são os que o teste afirma um a um.
+ *
+ * É **proposta** — ver a nota do módulo.
  */
 export const CALENDARIO_PROPOSTO: readonly number[] = (() => {
   const SETE_DIAS = 7 * 24 * 60 * 60;

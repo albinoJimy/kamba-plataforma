@@ -35,7 +35,7 @@ bytes assinados**: o ficheiro não é reescrito com indentação, porque a
 assinatura é sobre o corpo bruto e um par corpo-bonito/assinatura-do-compacto
 não é aceite por nenhum GWY.
 
-Vinte e seis *fixtures*, uma por item: dezasseis da dimensão «tipo» (os dez de
+Trinta e duas *fixtures*, uma por item: dezasseis da dimensão «tipo» (os dez de
 `messages[]`, as duas variantes de `interactive`, os quatro `statuses` e o
 `history`) e onze da dimensão «campo». O `history` conta nas duas e tem uma
 *fixture* só.
@@ -222,9 +222,21 @@ fechar.
 ### O *scan*
 
 ```bash
-pnpm --filter @kamba/meta-sim exec node src/cli.ts varrer .        # confronta o inventario
-pnpm --filter @kamba/meta-sim exec node src/cli.ts varrer . --cru  # lista, sem confrontar
+pnpm --filter @kamba/meta-sim exec node src/cli.ts varrer          # o repositorio, contra o inventario
+pnpm --filter @kamba/meta-sim exec node src/cli.ts varrer --cru    # lista, sem confrontar
+pnpm --filter @kamba/meta-sim exec node src/cli.ts varrer ../../db # uma pasta so (parcial)
 ```
+
+**Sem argumento varre o repositório**, e a raiz vem do `pnpm-workspace.yaml` e
+não do `cwd`. Isso não é detalhe: o `pnpm --filter … exec` corre com `cwd` =
+`tools/meta-sim`, e a primeira versão relativizava os caminhos contra o `cwd` —
+saíam como `../../packages/…`, nenhum casava com o inventário, e o gate 7 dava
+`47 divergencias` e `exit 2` em **todos** os PRs. Um inventário cujo significado
+muda com o `cwd` não é um inventário.
+
+Um alvo que não seja a raiz é um varrimento **parcial**: imprime o que achou, não
+confronta o inventário e devolve 0. Confrontar 22 entradas com uma pasta dava 22
+«entradas mortas» e um `exit 2` que não queria dizer nada.
 
 O *scan* percorre o repositório e conta números de **forma** real. O que decide
 se isso é tolerável é o inventário de

@@ -23,6 +23,7 @@ import {
   razoesDeFalha,
   reentregar,
 } from "../src/reentrega.ts";
+import { escada } from "../src/estados.ts";
 import { exigirFicticios } from "../src/numeros.ts";
 import { Gerador } from "../src/semente.ts";
 
@@ -146,6 +147,51 @@ describe("os oito casos adversos (criterio 3)", () => {
     assert.equal(new Set(estados.map((e) => e.id)).size, 1);
   });
 
+  it("ordem_trocada: os instantes tambem estao trocados, e nao ao acaso", () => {
+    // **Os dois eixos têm de dizer a mesma coisa.** A primeira versão deixava
+    // cada degrau da escada tirar o seu `timestamp` do gerador, e em cinco de
+    // seis sementes os instantes saíam fora de ordem entre si: o `read` podia
+    // levar um instante **anterior** ao do `sent`. O caso declara que «o estado
+    // final fica read e nao sent»; uma implementação do KAM-015 que resolva a
+    // monotonia pelo `timestamp` — a leitura natural de «os estados chegam sem
+    // ordem garantida» — ficava a ser medida contra uma *fixture* que diz o
+    // contrário dos seus próprios dados, com o veredicto a mudar com a semente.
+    // Achado da revisão adversarial.
+    const caso = casos().find((c) => c.nome === "ordem_trocada");
+    assert.ok(caso !== undefined);
+    const corpo = JSON.parse(Buffer.from(caso.pedidos[0]?.bytes ?? []).toString("utf8")) as {
+      entry: { changes: { value: { statuses: { status: string; timestamp: string }[] } }[] }[];
+    };
+    const estados = corpo.entry[0]?.changes[0]?.value.statuses ?? [];
+    const instantes = estados.map((e) => Number(e.timestamp));
+    // Chegaram na ordem `read, delivered, sent`, pelo que os instantes vêm a
+    // **decrescer**: o `read` é o mais recente dos três.
+    for (let i = 1; i < instantes.length; i += 1) {
+      assert.ok(
+        (instantes[i] ?? 0) < (instantes[i - 1] ?? 0),
+        `o instante ${i} (${String(instantes[i])}) nao e anterior ao ${i - 1} (${String(instantes[i - 1])})`,
+      );
+    }
+    // E o estado mais recente **é** o `read`, pelos dois eixos ao mesmo tempo.
+    const maisRecente = estados.reduce((a, b) => (Number(b.timestamp) > Number(a.timestamp) ? b : a));
+    assert.equal(maisRecente.status, "read");
+  });
+
+  it("escada: cinco sementes diferentes, instantes sempre crescentes", () => {
+    // Cinco e não uma: o defeito aparecia em cinco de seis sementes, e um teste
+    // com uma semente só tinha uma em seis de o apanhar.
+    for (const rotulo of ["a", "b", "c", "d", "e"]) {
+      const degraus = escada(new Gerador(rotulo), { wamid: "wamid.X", recipienteId: "999100000001" });
+      const instantes = degraus.map((d) => Number(d.timestamp));
+      for (let i = 1; i < instantes.length; i += 1) {
+        assert.ok(
+          (instantes[i] ?? 0) > (instantes[i - 1] ?? 0),
+          `semente ${rotulo}: ${instantes.join(" ")}`,
+        );
+      }
+    }
+  });
+
   it("lote_de_entries: tres entries, dois WABAs", () => {
     const caso = casos().find((c) => c.nome === "lote_de_entries");
     assert.ok(caso !== undefined);
@@ -198,10 +244,21 @@ describe("os oito casos adversos (criterio 3)", () => {
 });
 
 describe("re-entrega (criterio 6)", () => {
-  it("o calendario proposto cobre os sete dias", () => {
-    assert.ok(CALENDARIO_PROPOSTO.length >= 2);
-    assert.equal(CALENDARIO_PROPOSTO[0], 0);
+  it("o calendario proposto e estes catorze instantes, um a um", () => {
+    // Afirmados **um a um** e não só o primeiro, o último e a monotonia. A
+    // revisão adversarial mostrou porquê: a docstring dizia «doze tentativas»
+    // e nomeava um instante de 24 h que não existe, e nada o apanhava. Uma
+    // *fixture* de calendário cujos valores ninguém afirma é um calendário que
+    // a próxima pessoa descreve de cabeça outra vez.
+    assert.deepEqual(
+      [...CALENDARIO_PROPOSTO],
+      [0, 60, 300, 1260, 5100, 20460, 81900, 168300, 254700, 341100, 427500, 513900, 600300, 604800],
+    );
+    assert.equal(CALENDARIO_PROPOSTO.length, 14);
     assert.equal(CALENDARIO_PROPOSTO[CALENDARIO_PROPOSTO.length - 1], SETE_DIAS_S);
+    // O sétimo e 81 900 s (22 h 45) e **nao** 86 400: o tecto de 24 h aplica-se
+    // ao atraso e nao ao instante.
+    assert.equal(CALENDARIO_PROPOSTO[6], 81_900);
   });
 
   it("o calendario e monotono crescente", () => {
@@ -213,17 +270,28 @@ describe("re-entrega (criterio 6)", () => {
     }
   });
 
-  it("sete dias simulados em menos de um minuto real, com o MESMO corpo", () => {
-    const bytes = serializar({ object: "whatsapp_business_account", entry: [{ id: "100123" }] });
-    const vistos = new Set<string>();
+  it("sete dias simulados em menos de um minuto real", () => {
+    // **Este teste não prova idempotência, e a primeira versão dizia que
+    // provava.** Tinha um `Set` onde metia, N vezes, a mesma constante que ele
+    // próprio construíra, e afirmava que o `Set` tinha um elemento — verdadeiro
+    // por construção, sem nenhuma mutação de `reentrega.ts` que o fizesse
+    // falhar. O `reentregar` **nunca vê o corpo**: a sua assinatura é
+    // `(tentativa, instanteSimulado) => Promise<number>`. Achado da revisão
+    // adversarial.
+    //
+    // O que este teste mede é o que o `reentregar` faz de facto: percorre o
+    // calendário todo, chama o destino uma vez por instante, e cabe no minuto.
+    // A **idempotência** está medida onde se pode medir — contra o GWY, a
+    // contar *jobs* na fila: `services/gwy/tests/kam024.ida-e-volta.test.ts`.
+    const instantes: number[] = [];
+    const numeros: number[] = [];
     return reentregar(async (numero, instante) => {
-      // O corpo é o mesmo em todas as tentativas: é isso que faz o teste medir
-      // idempotência e não «N corpos diferentes dão N efeitos».
-      vistos.add(Buffer.from(bytes).toString("hex"));
-      assert.ok(numero >= 1 && instante >= 0);
+      numeros.push(numero);
+      instantes.push(instante);
       return 200;
     }).then((relatorio) => {
-      assert.equal(vistos.size, 1, "o corpo mudou entre tentativas");
+      assert.deepEqual(instantes, [...CALENDARIO_PROPOSTO], "chamou todos os instantes, pela ordem");
+      assert.deepEqual(numeros, CALENDARIO_PROPOSTO.map((_, i) => i + 1), "numerou de 1 a N");
       assert.equal(relatorio.aceites, relatorio.tentativas.length);
       assert.equal(relatorio.horizonteSimuladoS, SETE_DIAS_S);
       assert.ok(relatorio.duracaoRealMs < MINUTO_MS, `${relatorio.duracaoRealMs}ms`);
