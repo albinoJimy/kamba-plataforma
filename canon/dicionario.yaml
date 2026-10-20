@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.21"
+versao_dicionario: "1.22"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -2528,11 +2528,6 @@ entradas:
       - "bloqueado_em"
       - "updated_at"
     nomes_nota:
-      - "PRIMARY"
-      - "KEY"
-      - "tenant_id"
-      - "name"
-      - "lang"
       - "bloqueado_em"
       - "marketing"
     variantes_literais: []
@@ -2694,6 +2689,294 @@ entradas:
       - "contact_endpoints"
       - "kamba_identity"
       - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.15"
+    conceito: "Passagem de uma conversa a um humano"
+    canonico: "platform.handoffs — handoff_id, tenant_id, conversation_id, status, motivo, external_id, opened_at, resumed_at, resolver"
+    literais:
+      - "platform.handoffs"
+      - "handoff_id"
+      - "tenant_id"
+      - "conversation_id"
+      - "status"
+      - "motivo"
+      - "external_id"
+      - "opened_at"
+      - "resumed_at"
+      - "resolver"
+    nomes:
+      - "platform.handoffs"
+      - "handoff_id"
+      - "tenant_id"
+      - "conversation_id"
+      - "status"
+      - "motivo"
+      - "external_id"
+      - "opened_at"
+      - "resumed_at"
+      - "resolver"
+    nomes_nota:
+      - "motivo"
+      - "openHandoff"
+      - "external_id"
+      - "conversations"
+    variantes_literais: []
+  - seccao: "3.15"
+    conceito: "Identificador de uma passagem"
+    canonico: "handoffs.handoff_id = hash(thread_id, ordinal_do_handoff)"
+    literais:
+      - "handoffs.handoff_id"
+      - "hash(thread_id, ordinal_do_handoff)"
+    nomes:
+      - "handoffs.handoff_id"
+      - "hash"
+      - "thread_id"
+      - "ordinal_do_handoff"
+    nomes_nota:
+      - "interrupt"
+      - "openHandoff"
+    variantes_literais: []
+  - seccao: "3.15"
+    conceito: "Estado de uma passagem"
+    canonico: "handoffs.status ∈ {waiting, resumed, timeout, cancelled, degraded}"
+    literais:
+      - "handoffs.status"
+      - "waiting"
+      - "resumed"
+      - "timeout"
+      - "cancelled"
+      - "degraded"
+    nomes:
+      - "handoffs.status"
+      - "waiting"
+      - "resumed"
+      - "timeout"
+      - "cancelled"
+      - "degraded"
+    nomes_nota:
+      - "degraded"
+    variantes_literais: []
+  - seccao: "3.15"
+    conceito: "Desfecho de um close"
+    canonico: "resolved, timeout, cancelled"
+    literais:
+      - "resolved"
+      - "timeout"
+      - "cancelled"
+    nomes:
+      - "close"
+      - "resolved"
+      - "timeout"
+      - "cancelled"
+    nomes_nota:
+      - "status"
+      - "resolved"
+      - "resumed"
+      - "timeout"
+      - "cancelled"
+      - "waiting"
+      - "degraded"
+      - "close"
+    variantes_literais: []
+  - seccao: "3.15"
+    conceito: "Quem retomou uma passagem"
+    canonico: "handoffs.resolver"
+    literais:
+      - "handoffs.resolver"
+    nomes:
+      - "handoffs.resolver"
+    nomes_nota:
+      - "contact_id"
+      - "pessoal"
+      - "sim"
+    variantes_literais: []
+  - seccao: "3.15"
+    conceito: "Conta de atendimento de um tenant"
+    canonico: "platform.handoff_accounts — tenant_id, provedor, account_id, inbox_id, bot_id, token_ref, criado_at, updated_at"
+    literais:
+      - "platform.handoff_accounts"
+      - "tenant_id"
+      - "provedor"
+      - "account_id"
+      - "inbox_id"
+      - "bot_id"
+      - "token_ref"
+      - "criado_at"
+      - "updated_at"
+    nomes:
+      - "platform.handoff_accounts"
+      - "tenant_id"
+      - "provedor"
+      - "account_id"
+      - "inbox_id"
+      - "bot_id"
+      - "token_ref"
+      - "criado_at"
+      - "updated_at"
+    nomes_nota:
+      - "ensureAccount"
+      - "tenant_channels.token_ref"
+    variantes_literais: []
+  - seccao: "3.15"
+    conceito: "Provedor de atendimento"
+    canonico: "handoff_accounts.provedor ∈ {chatwoot}"
+    literais:
+      - "handoff_accounts.provedor"
+      - "chatwoot"
+    nomes:
+      - "handoff_accounts.provedor"
+      - "chatwoot"
+    nomes_nota:
+      - "HandoffProvider"
+      - "tenant_chatwoot"
+    variantes_literais: []
+  - seccao: "3.15"
+    conceito: "Referência ao token do bot"
+    canonico: "handoff_accounts.token_ref"
+    literais:
+      - "handoff_accounts.token_ref"
+    nomes:
+      - "handoff_accounts.token_ref"
+    nomes_nota:
+      - "SecretRef"
+      - "tenant_channels.token_ref"
+      - "chatwoot_bot_token"
+      - "instancias"
+      - "conta"
+      - "chatwoot_platform_token"
+      - "nenhuma"
+    variantes_literais: []
+  - seccao: "3.15"
+    conceito: "Porta do provedor de atendimento"
+    canonico: "HandoffProvider"
+    literais:
+      - "HandoffProvider"
+    nomes:
+      - "HandoffProvider"
+    nomes_nota:
+      - "ensureAccount"
+      - "mirrorMessage"
+      - "openHandoff"
+      - "setBotMuted"
+      - "onHumanEvent"
+      - "close"
+    variantes_literais: []
+  - seccao: "3.15"
+    conceito: "Mensagem espelhada no provedor"
+    canonico: "MirrorMessage — wamid, MirrorMessage.direccao, wa_type, texto, criado_at"
+    literais:
+      - "MirrorMessage"
+      - "wamid"
+      - "MirrorMessage.direccao"
+      - "wa_type"
+      - "texto"
+      - "criado_at"
+    nomes:
+      - "MirrorMessage"
+      - "wamid"
+      - "MirrorMessage.direccao"
+      - "wa_type"
+      - "texto"
+      - "criado_at"
+    nomes_nota:
+      - "contact_id"
+      - "ensureAccount"
+      - "texto"
+    variantes_literais: []
+  - seccao: "3.15"
+    conceito: "Acontecimento humano recebido do provedor"
+    canonico: "HumanEvent — HumanEvent.acontecimento, external_id, handoff_id, texto, estado, resolver"
+    literais:
+      - "HumanEvent"
+      - "HumanEvent.acontecimento"
+      - "external_id"
+      - "handoff_id"
+      - "texto"
+      - "estado"
+      - "resolver"
+    nomes:
+      - "HumanEvent"
+      - "HumanEvent.acontecimento"
+      - "external_id"
+      - "handoff_id"
+      - "texto"
+      - "estado"
+      - "resolver"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.15"
+    conceito: "Sentido de uma mensagem espelhada"
+    canonico: "MirrorMessage.direccao ∈ {entrada, saida}"
+    literais:
+      - "MirrorMessage.direccao"
+      - "entrada"
+      - "saida"
+    nomes:
+      - "MirrorMessage.direccao"
+      - "entrada"
+      - "saida"
+    nomes_nota:
+      - "tipo"
+      - "estado"
+      - "CHECK"
+      - "evt_subscricoes.tipo"
+      - "contact_endpoints.tipo"
+      - "HumanEvent"
+      - "acontecimento"
+    variantes_literais: []
+  - seccao: "3.15"
+    conceito: "Tipo de acontecimento humano"
+    canonico: "HumanEvent.acontecimento ∈ {mensagem_de_agente, estado_mudou}"
+    literais:
+      - "HumanEvent.acontecimento"
+      - "mensagem_de_agente"
+      - "estado_mudou"
+    nomes:
+      - "HumanEvent.acontecimento"
+      - "mensagem_de_agente"
+      - "estado_mudou"
+    nomes_nota:
+      - "message_created"
+      - "conversation_status_changed"
+      - "acontecimento"
+      - "tipo"
+    variantes_literais: []
+  - seccao: "3.15"
+    conceito: "Métricas do handoff"
+    canonico: "hnd_handoff_total, hnd_callback_rejeitado_total, hnd_mirror_pendentes"
+    literais:
+      - "hnd_handoff_total"
+      - "hnd_callback_rejeitado_total"
+      - "hnd_mirror_pendentes"
+    nomes:
+      - "hnd_handoff_total"
+      - "hnd_callback_rejeitado_total"
+      - "hnd_mirror_pendentes"
+    nomes_nota:
+      - "hnd_callback_rejeitado_total"
+      - "motivo"
+      - "sem_secret"
+      - "secret_errado"
+      - "tipo_desconhecido"
+      - "conta_desconhecida"
+      - "hnd_handoff_total"
+      - "desfecho"
+      - "status"
+      - "hnd_mirror_pendentes"
+      - "tenant_id"
+      - "OBS"
+      - "I"
+    variantes_literais: []
+  - seccao: "3.15"
+    conceito: "Fila de espelho e de abertura"
+    canonico: "nenhum nome novo"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "wamid"
+      - "jobId"
+      - "failed"
+      - "removeOnComplete"
     variantes_literais: []
 
 tabelas:
@@ -3045,6 +3328,15 @@ tabelas:
     assinatura: "conversations(id, tenant_id, contact_id, channel_id, mode, last_inbound_at, window_expires_at, last_human_activity_at)"
     seccao: "3.13"
     conceito: "Conversa entre um contacto e um canal"
+  - nome: "hash"
+    esquema: ""
+    colunas:
+      - "thread_id"
+      - "ordinal_do_handoff"
+    aberta: false
+    assinatura: "hash(thread_id, ordinal_do_handoff)"
+    seccao: "3.15"
+    conceito: "Identificador de uma passagem"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -3276,6 +3568,36 @@ dominios:
       - "red"
     seccao: "3.14"
     conceito: "Nota de qualidade de um template"
+    so_no_registo: false
+  - coluna: "handoffs.status"
+    valores:
+      - "waiting"
+      - "resumed"
+      - "timeout"
+      - "cancelled"
+      - "degraded"
+    seccao: "3.15"
+    conceito: "Estado de uma passagem"
+    so_no_registo: false
+  - coluna: "handoff_accounts.provedor"
+    valores:
+      - "chatwoot"
+    seccao: "3.15"
+    conceito: "Provedor de atendimento"
+    so_no_registo: false
+  - coluna: "MirrorMessage.direccao"
+    valores:
+      - "entrada"
+      - "saida"
+    seccao: "3.15"
+    conceito: "Sentido de uma mensagem espelhada"
+    so_no_registo: false
+  - coluna: "HumanEvent.acontecimento"
+    valores:
+      - "mensagem_de_agente"
+      - "estado_mudou"
+    seccao: "3.15"
+    conceito: "Tipo de acontecimento humano"
     so_no_registo: false
 
 variantes:
