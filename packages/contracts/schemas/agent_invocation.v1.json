@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.kamba.ao/agent_invocation.v1.json",
+  "title": "Invocacao do Agent Runtime",
+  "description": "O job que o CHR entrega ao AGR por cada turno de conversa (KAM-014, criterio 6; consumido em KAM-025). Nove campos e nenhum mais: `additionalProperties` e `false` porque o que este contrato garante e tanto o que esta la como o que NAO esta la — sem telefone, sem BSUID e sem display_name (ADR-010). O contacto entra por `contact_id`, que e um uuid aleatorio. O caminho deste ficheiro NAO e o do criterio, que escreve `packages/contracts/agent_invocation.schema.json`: os esquemas deste pacote vivem em `schemas/` com a versao no nome (specs/01 §5), e um ficheiro `*.schema.json` bate numa sentinela do gate 3b que o exige dentro de `contratos/eventos/` — e isto nao e um contrato de evento. A caixa desse criterio fica por marcar, com esta razao.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "tenant_id",
+    "contact_id",
+    "conversation_id",
+    "channel_id",
+    "wamid",
+    "type",
+    "modo",
+    "thread_id",
+    "vertical"
+  ],
+  "properties": {
+    "tenant_id": {
+      "description": "O tenant resolvido pelo CHR. E o unico sitio onde nasce para o estado do grafo (docs/tecnica/01 §7.2): a ToolLayer so aceita o que vier do estado.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "contact_id": {
+      "description": "O contacto, por referencia opaca (ADR-010). Nao e telefone nem BSUID, e nao se deriva de nenhum dos dois.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "conversation_id": {
+      "description": "A conversa (platform.conversations, revisao 0009). Uma por (tenant, contacto, canal).",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "channel_id": {
+      "description": "O canal (platform.tenant_channels.id). NAO o phone_number_id: o identificador da Meta nao sai do CHR.",
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "wamid": {
+      "description": "O identificador da mensagem na Meta, que e o `event_key` do evento de entrada. Leva o numero do interlocutor codificado em base64 (INDICIO, docs/logs.md §2.1): por isso nao sai para log nenhum nem serve de chave da fila (o jobId e um resumo de tenant_id:wamid). O segundo padrao aceito e o resumo canonico `k_...` do KAM-013, para o caso em que o corpo da Meta nao trouxe `id` — quarentenar uma mensagem real por falta de um identificador que nao controlamos era pior.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^(?:wamid\\.[A-Za-z0-9_=-]+|k_[0-9a-f]{32}|[A-Za-z0-9._=-]+)$"
+    },
+    "type": {
+      "description": "O tipo de mensagem do WhatsApp (docs/tecnica/01 §5.4). Lista fechada, com `outro` para o que o codigo nao reconhece: um `type` inventado por quem consiga assinar um corpo nao entra no grafo com a forma de um tipo conhecido.",
+      "enum": [
+        "text",
+        "audio",
+        "image",
+        "document",
+        "location",
+        "interactive",
+        "order",
+        "reaction",
+        "sticker",
+        "unsupported",
+        "outro"
+      ]
+    },
+    "modo": {
+      "description": "O modo da conversa no momento da entrega. So `bot` chega ao AGR — os outros tres vao ao dono ou ao Chatwoot (KAM-018, KAM-019) —, e o campo vai de qualquer forma para que o consumidor possa recusar o que nao devia ter recebido em vez de confiar em quem lhe enviou.",
+      "enum": ["bot", "dono", "humano", "pausada"]
+    },
+    "thread_id": {
+      "description": "`{tenant_id}:{contact_id}` (dicionario §3.1). E a chave de serializacao de turnos do AGR (KAM-025) e corrige o `msisdn_hash+tenant` do documento exploratorio: nenhuma chave de conversa deriva de um telefone.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "vertical": {
+      "description": "A vertical de atendimento do canal, que e a chave do AgentRegistry (ADR-012). Em producao do Piloto so `vendedor` e `servicos` passam a guarda do ADR-011; a forma e a do dicionario §3.2 (`^[a-z][a-z0-9_]*$`) e nao uma lista fechada, porque as verticais sao configuracao.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    }
+  }
+}

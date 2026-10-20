@@ -157,6 +157,10 @@ class TestConvencoes(ComBase):
                 # papel media o volume de webhooks de toda a plataforma.
                 "inbound_events",
                 "unrouted_events",
+                # KAM-014: a conversa. `uuid` aleatorio pela mesma razao: o
+                # `kamba_app` le-a (precisa do `mode` e do `RETURNING`), e com
+                # um `id` sequencial media quantas conversas tem a plataforma.
+                "conversations",
             }
             | por_identidade,
         )
@@ -235,6 +239,14 @@ class TestConvencoes(ComBase):
                 ("contact_deks", "dek_id", "uuid", "gen_random_uuid()"),
                 ("contact_endpoints", "id", "uuid", "gen_random_uuid()"),
                 ("contacts", "contact_id", "uuid", "gen_random_uuid()"),
+                # KAM-014: a chave da conversa e um `uuid` gerado, e a
+                # unicidade de negocio — uma conversa por (tenant, contacto,
+                # canal) — e uma `UNIQUE` ao lado. A chave composta era a
+                # alternativa, e nao se escolheu: sete tickets vao referir uma
+                # conversa por `conversation_id`, a comecar pelo contrato
+                # `agent_invocation` deste, e uma chave de tres colunas
+                # obrigava cada um a carregar as tres.
+                ("conversations", "id", "uuid", "gen_random_uuid()"),
                 ("entitlements", "modulo", "text", None),
                 ("entitlements", "tenant_id", "uuid", None),
                 ("events_consumed", "consumer", "text", None),
@@ -335,6 +347,10 @@ class TestConvencoes(ComBase):
             {t for t, _ in com_tenant},
             {"tenant_channels", "entitlements", "contacts", "contact_deks",
              "contact_endpoints",
+             # KAM-014. A conversa tem `(tenant_id, contact_id, channel_id)`,
+             # que e a `UNIQUE` de negocio **e** o indice que a RLS precisa:
+             # `tenant_id` em primeiro lugar, sem indice extra.
+             "conversations",
              # KAM-005. O `events_log` tem o indice `(tenant_id, ocorrido_em)` e
              # a particao herda-o (o indice de uma particionada propaga-se);
              # o `events_outbox` tem `(tenant_id, criado_at)`, acrescentado ao
@@ -399,7 +415,11 @@ class TestConvencoes(ComBase):
         # 13 desde o KAM-006: a `evt_dlq_aprovacoes_dlq_fk`.
         # 15 desde o KAM-009: as duas FK de `tenant_usage` e
         # `usage_ledger` para `tenants(id)`.
-        self.assertEqual(len(linhas), 15)
+        # 18 desde o KAM-014: as tres da `conversations`. Duas sao **compostas
+        # com o `tenant_id`** (para `contacts` e para `tenant_channels`), que e
+        # o padrao que a `0003` fixou: uma conversa nao aponta para um contacto
+        # nem para um canal de outro tenant, e e a base que o recusa.
+        self.assertEqual(len(linhas), 18)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

@@ -59,7 +59,12 @@ export {
   explodir,
   resumoCanonico,
 } from "./explosao.ts";
-export type { EventoDeEntrada, EventoEmQuarentena, Explosao } from "./explosao.ts";
+export type {
+  EventoDeEntrada,
+  EventoEmQuarentena,
+  Explosao,
+  Interlocutor,
+} from "./explosao.ts";
 
 export {
   SQL_MARCAR_ENCAMINHADO,

@@ -361,14 +361,114 @@ Implementar o CHR: `resolve(phone_number_id) → ChannelContext`, a tabela de es
 
 ### Critérios de Aceitação
 
-- [ ] `resolve` devolve `{tenant_id, channel_id, vertical, plano, estado_tenant, estado_canal, channel_mode, origem}` com cache de 60 s, invalidada por `channel.updated` em ≤ 1 s quando o consumidor existir; até lá vale o TTL.
-- [ ] `phone_number_id` desconhecido: 0 *jobs* para o AGR, 1 linha em `unrouted_events`, alerta; a resposta ao GWY já foi 200.
+- [x] `resolve` devolve `{tenant_id, channel_id, vertical, plano, estado_tenant, estado_canal, channel_mode, origem}` com cache de 60 s, invalidada por `channel.updated` em ≤ 1 s quando o consumidor existir; até lá vale o TTL.
+- [x] `phone_number_id` desconhecido: 0 *jobs* para o AGR, 1 linha em `unrouted_events`, alerta; a resposta ao GWY já foi 200.
 - [ ] Matriz de estados (de `../docs/tecnica/01` §7.2), testada por linha: `onboarding`/`pendente` regista e não responde; `ativo` normal; `restrito` só responde dentro da janela e sem *marketing*; `desligado` nada; `suspenso` regista e responde 1 vez por contacto/24 h com mensagem estática; `encerrado` regista e descarta.
 - [ ] Mensagem com apenas `wa_id` e mensagem com apenas BSUID do mesmo cliente convergem no mesmo `contact_id`; a fusão emite `contact.merged` exactamente 1 vez em 10 repetições.
-- [ ] Com `KAMBA_FASE=piloto` um canal `origem='plataforma'` ou `vertical='assistente'` é recusado (0 *jobs*, alerta) e o arranque falha se existir tal linha em produção.
+- [x] Com `KAMBA_FASE=piloto` um canal `origem='plataforma'` ou `vertical='assistente'` é recusado (0 *jobs*, alerta) e o arranque falha se existir tal linha em produção.
 - [ ] O *job* entregue ao AGR cumpre `packages/contracts/agent_invocation.schema.json` (`tenant_id`, `contact_id`, `conversation_id`, `channel_id`, `wamid`, `type`, `modo`) e não contém telefone, BSUID nem `display_name`; `thread_id = tenant_id:contact_id`.
-- [ ] Mensagens com `conversations.mode` ≠ `bot` não vão ao AGR; vão ao dono/HND (KAM-018/019).
-- [ ] Isolamento: o `phone_number_id` de A nunca devolve contexto de B; o papel `kamba_resolver` não lê outras tabelas; `resolve` em cache p95 ≤ 5 ms e sem cache ≤ 50 ms (proposta).
+- [x] Mensagens com `conversations.mode` ≠ `bot` não vão ao AGR; vão ao dono/HND (KAM-018/019).
+- [x] Isolamento: o `phone_number_id` de A nunca devolve contexto de B; o papel `kamba_resolver` não lê outras tabelas; `resolve` em cache p95 ≤ 5 ms e sem cache ≤ 50 ms (proposta).
+
+### Verificação dos Critérios de Aceitação
+
+Entregue no PR `albinoJimy/kamba-plataforma#30`, ramo
+`feature/KAM-014-chr-channelresolver`.
+**Onze caixas marcadas, cinco vazias** (16 = 11 + 5) — cada uma com uma linha
+aqui. Os números são os do *run* do CI e reproduzem-se com `make ci-3b`,
+`make ci-4`, `make ci-6` e `make ci-8`. A revisão adversarial
+([`ANALISE-27`](../docs/analises/ANALISE-27-KAM-014-chr-channelresolver.md))
+**não aprovou** a primeira versão: dez achados, **sete corrigidos**, e o que
+justifica o veredicto era o critério 4 a não estar cumprido de verdade — o
+evento `contact.merged` estava a ser **registado em log e nunca emitido**. O
+segundo mais grave foi apanhado pela bateria que o próprio DoD exigia: o
+`downgrade` da `0009` contava as conversas como dono de uma tabela com `FORCE` e
+via zero linhas, pelo que apagava tudo em silêncio. O desenho está em
+[`../docs/chr.md`](../docs/chr.md).
+
+| CA | Estado | Evidência |
+|---|---|---|
+| 1 — `resolve` devolve os oito campos, com *cache* de 60 s e invalidação por `channel.updated` em ≤ 1 s «quando o consumidor existir; até lá vale o TTL» | **satisfeito** | Os oito campos saem de `canalDaLinha`, conferidos um a um contra o `ChannelContext` e com a afirmação explícita de que o `persona` do `../docs/tecnica/01` §7.2 **não** está lá (ver «O que fica por decidir»). O TTL é um limite e não uma margem: aos 60 s **exactos** a entrada expirou (teste próprio); uma falha da base não deixa a entrada velha a servir de resposta; e um `phone_number_id` desconhecido **não** entra na *cache*. A invalidação entra por `channel_id` — que é o que o evento traz —, e mediu-se **0,722 ms** do pedido à releitura com o estado novo (1,912 ms com a máquina carregada), contra o limiar de 1 s. A segunda metade da condição é a que vale: **não há consumidor de `channel.updated`** (quem o emite é KAM-016/KAM-021), e o critério admite-o por escrito |
+| 2 — `phone_number_id` desconhecido: 0 *jobs*, 1 linha em `unrouted_events`, alerta; o 200 já foi dado | **satisfeito** | Contra a base: **uma** linha com `motivo = canal_desconhecido`, e a re-entrega do mesmo evento **não** deixa uma segunda (o `ON CONFLICT (kind, event_key)` da `0008`, que é o que a Meta obriga com sete dias de re-entrega). 0 *jobs* ao AGR e 0 ao dono; o alerta é `chr_unrouted_total{motivo}` mais a linha de registo. Um evento **sem** `phone_number_id` segue o mesmo caminho, e um erro da base **não** segue: lança, e o *job* volta à fila sem `processado_at`. O 200 é do GWY e é anterior a este ticket (provado em `tests_entrada`, KAM-013) |
+| 3 — matriz de estados testada **por linha** | **parcial — caixa vazia** | **As seis linhas estão testadas, e as 30 combinações de `(5 estados de tenant × 6 de canal)` também**: cada uma tem resposta, nenhuma lança, e só `(ativo\|restrito) × (ativo\|restrito)` chega ao AGR. Contra a base: `desligado` não abre conversa e não resolve contacto; `ativo` abre e entrega; `suspenso` abre a conversa, manda 0 *jobs* e devolve `mensagem_estatica` como saída autorizada. **O que não se cumpre à letra:** «`suspenso` … responde **1 vez por contacto/24 h**». O CHR responde «pode», não «quantas vezes» — a contagem por contacto é de quem envia (`../docs/tecnica/01` §8, e a docstring do `ten/estados.ts` do KAM-009 já o escreve), o envio é KAM-015, e a coluna que contaria esse limite não existe no DDL deste ticket. A caixa fica vazia |
+| 4 — `wa_id` e BSUID convergem no mesmo `contact_id`; a fusão emite `contact.merged` 1 vez em 10 repetições | **parcial — caixa vazia** | **A segunda metade cumpre-se e está provada contra a base**: dez mensagens com os dois identificadores dão **uma** fusão, uma linha em `events_outbox` e o mesmo `contact_id` nas dez. **A primeira não é satisfazível** pelo algoritmo de `../docs/tecnica/01` §6.3, que é o que o KAM-008 implementa: uma mensagem só com BSUID procura por BSUID, não acha, não tem telefone por onde procurar — e **cria**. Medido: só-telefone cria P, só-BSUID cria A, e nada os liga. A convergência existe a partir da primeira mensagem que traz os dois, é verdadeira nos dois sentidos daí em diante, e quem tenha o `contact_id` antigo chega ao novo pela lápide (`merged_into`). A caixa fica vazia e a decisão devolve-se a quem escreveu o critério (`../docs/dividas-documentais.md`, linha 49) |
+| 5 — `KAMBA_FASE=piloto`: canal `plataforma` ou `assistente` recusado (0 *jobs*, alerta) **e** o arranque falha se existir tal linha | **satisfeito** | **As duas metades.** Em execução: as três formas de Fluxo B — `tenants.tipo = 'platform'`, `tenant_channels.origem = 'plataforma'`, e vertical fora de `{vendedor, servicos}` — dão 0 *jobs*, 0 entregas ao dono, nenhuma conversa aberta e `chr_resolve_total{desfecho="fluxo_b_recusado"}`; a recusa é **antes** da matriz, pelo que um canal `ativo` não a dispensa. A verificação da vertical é **mais larga** do que a letra: lista de permitidas, pelo que `assistente_v2` também não passa. No arranque: `verificarArranque` com uma linha de cada um dos três tipos recusa nos três, com a contagem na mensagem; com `kamba_app` **recusa-se a correr** (`GuardaCega`) em vez de contar zero sobre uma base que não vê; com `kamba_batch` corre (a primeira das três vias de visibilidade); e sem `KAMBA_FASE` levanta **antes** de tocar na base. É espelho do `fluxo_piloto.py` do KAM-004, com teste de paridade que lê o ficheiro Python e compara as constantes **e** o SQL de visibilidade |
+| 6 — o *job* cumpre `packages/contracts/agent_invocation.schema.json`, sem telefone/BSUID/`display_name`, `thread_id = tenant_id:contact_id` | **parcial — caixa vazia** | **A substância cumpre-se, o caminho não.** O contrato está publicado, com `additionalProperties: false`, e é comparado com o código **nos dois sentidos**: os campos que o esquema exige são exactamente os que a função escreve. Os sete do critério estão lá pelo nome, mais o `thread_id` (padrão `{uuid}:{uuid}`, que recusa um telefone) e o `vertical` do contexto do KAM-025. Sem telefone, sem BSUID, sem `display_name` — e não por disciplina: os argumentos não têm por onde os passar. Confirmado contra a base com um BSUID e um telefone canário. **O caminho é `packages/contracts/schemas/agent_invocation.v1.json` e não o da letra**, por duas razões medidas: os esquemas deste pacote vivem em `schemas/` com a versão no nome (`specs/01` §5), e um ficheiro `*.schema.json` bate numa sentinela do *gate* 3b que o exige dentro de `contratos/eventos/` — e isto não é um contrato de evento. A caixa fica vazia (`../docs/dividas-documentais.md`, linha 48) |
+| 7 — `conversations.mode` ≠ `bot` não vai ao AGR | **satisfeito** | Os três modos (`dono`, `humano`, `pausada`) dão 0 *jobs* e uma entrega ao dono; a verificação é **antes** da matriz, pelo que um modo `humano` num tenant `ativo` continua a não ir ao AGR. Um `echo` vai **sempre** ao dono e nunca ao AGR, sem abrir conversa nem resolver contacto. Um modo que o código não conhece **para** o caminho em vez de o tratar como o mais parecido. Contra a base: o modo posto a `humano` pelo `kamba_batch` muda o destino da mensagem seguinte, e `kamba_app` **não consegue** alterá-lo — o privilégio não existe (`permission denied`), porque as transições são KAM-018 |
+| 8 — isolamento: o `phone_number_id` de A nunca devolve B; `kamba_resolver` não lê outras tabelas; p95 ≤ 5 ms em *cache* e ≤ 50 ms sem | **satisfeito** | Contra a base, com os papéis verdadeiros: dois tenants, dois canais, e cada `phone_number_id` devolve o seu — a propriedade vem da `tenant_channels_phone_number_id_uq` e da política `resolver_leitura`, **não** do código. `kamba_app` sem contexto devolve **zero linhas** à mesma consulta (que o CHR leria como «canal desconhecido»): é o que torna o papel necessário e não conveniente. O resolvedor continua a não ler `token_ref`, `waba_id`, `nome`, `nif`, `contacto_negocio_enc`, `entitlements` nem — acrescentado aqui — `conversations`, coisa a coisa; as colunas legíveis são **exactamente** as concedidas (dez, com o `plano` que a `0009` acrescentou). E uma conversa de B não se vê com o contexto de A. Latência, p95 de 40 execuções: **0,805 ms** sem *cache* (limiar 50) e **0,0135 ms** com (limiar 5) numa máquina livre, e **3,329 ms** / **0,0697 ms** com a prova por mutação a correr ao lado — os dois lados do limiar em duas ordens de grandeza de folga. O que estes números valem está em [`../docs/chr.md`](../docs/chr.md) §8: detectam uma resolução que passou a ser de outra ordem de grandeza, e não orçamentam produção (KAM-085) |
+| DoD — todos os CA satisfeitos e demonstráveis | **não satisfeito — caixa vazia** | Cinco de oito à letra; 3, 4 e 6 parciais, pelas razões acima. Os três desvios são do **critério** e não da implementação, e os três estão devolvidos a quem os escreveu |
+| DoD — 2 revisores (isolamento de tenant, dados pessoais); testes verdes; cobertura ≥ limiar | **não satisfeito — caixa vazia** | **Zero revisores humanos**: uma revisão adversarial é evidência, não é um revisor. Testes verdes: 913 asserções Node (`contracts` 12, `core-ts` 832, `gwy` 44, `worker-canal` 15, `com` 5, `onboarding-web` 5) e as *suites* de base de dados abaixo. Cobertura de `src/chr/` medida **por ficheiro** em `db/tests_chr/`, contra o limiar do estrato `critico` lido de `ci/thresholds.yaml` (90%) — e esse limiar é novo para `*/chr/*`, o que faz desta uma alteração a um **ficheiro de limiares**, que pede dois revisores e por isso não marca esta caixa |
+| DoD — documentação actualizada; Conventional Commits | **satisfeito** | [`../docs/chr.md`](../docs/chr.md) (novo), `../docs/ci.md` v1.39 (a *suite* nova e o estrato), dicionário §3.12 e §3.13 (emenda 1.20), `../docs/dividas-documentais.md` linhas 47 a 50. Conventional Commits imposto pelo `tools/githooks/commit-msg`, que recusou a primeira tentativa |
+| DoD — isolamento de tenant: `tenant_id` só nasce aqui; RLS em `conversations`; teste cruzado do novo caminho | **satisfeito** | O `tenant_id` nasce no passo 1 e nenhum passo seguinte o recebe de fora: vem sempre do `ChannelContext`. `conversations` tem `ENABLE`, `FORCE` e `tenant_iso`, e a descoberta do X-05 passa de dezasseis tabelas a **dezassete** — com receita de sementes própria, a primeira tabela isolada **sem coluna de texto livre** (o canário vai na chave primária). Teste cruzado do caminho novo: o CHR abre a conversa de B e, com o contexto de A, a contagem é zero. E duas das três FK são **compostas com o `tenant_id`**, o que obrigou a acrescentar `UNIQUE (tenant_id, id)` a `tenant_channels`: sem ela, uma conversa de A podia apontar para um canal de B e nenhum dos dois *gates* o via |
+| DoD — idempotência: repetição do mesmo `wamid` não cria 2 conversas nem 2 *jobs*; teste incluído | **satisfeito** | Contra a base: o mesmo evento duas vezes deixa **uma** linha em `conversations`, com o mesmo `conversation_id` nos dois *jobs* — é o `ON CONFLICT (tenant_id, contact_id, channel_id) DO UPDATE` sobre a `UNIQUE` de negócio. A segunda entrada empurra a janela e **não** cria linha nova nem muda o modo. Os dois *jobs* têm o mesmo `wamid`, logo o mesmo `jobId` — que é determinístico por `(tenant_id, wamid)` — e o BullMQ recusa o segundo; o limite dessa janela (`removeOnComplete`, e um *job* em `failed` a bloquear o mesmo `wamid`) está escrito no módulo, achado da revisão adversarial |
+| DoD — privacidade: contacto por `contact_id`; sem telefone em *jobs*, logs ou eventos | **satisfeito** | Com um BSUID e um telefone canário: nenhum dos dois aparece no *job* nem na linha de `conversations`, procurados por valor. A `conversations` não tem coluna de texto livre nenhuma — oito colunas, declaradas no inventário fechado, todas `nao` na coluna «pessoal». Os *logs* levam só `outcome`, `error_code` da lista fechada do módulo e `wa_type`; a *allowlist* do KAM-068 recusa `tenant_id`, `conversation_id` e `wamid` por **erro de compilação**. O evento `contact.merged` leva dois `contact_id` e mais nada. **Uma ressalva, dita e não escondida:** o `wamid` vai no *job* porque o critério 6 o exige pelo nome, e o `wamid` leva o número do interlocutor codificado em base64 (INDÍCIO, `../docs/logs.md` §2.1). Por isso não sai para *log* nenhum, não é etiqueta de métrica, e **não** é a chave da fila — o `jobId` é um resumo |
+| DoD — custo e observabilidade: `chr_resolve_ms`, `chr_unrouted_total`, `chr_cache_hit_ratio` | **satisfeito** | As três, mais uma quarta: `chr_resolve_total` com etiqueta de desfecho (cinco valores, lista fechada). É o único sítio onde duas recusas ficam visíveis — a do Fluxo B, que o critério 5 manda alertar **sem** quarentena, e a da matriz de estados —, e recusar sem contar é recusar em silêncio. Nenhuma métrica leva identificador (`../docs/seguranca/ameacas_stride.md`, OBS-I): as duas etiquetas são listas fechadas de cinco e dois valores. O `/metrics` do processo serve os dois conjuntos (`inbound_*` e `chr_*`), sem nome repetido |
+| DoD — migrações reversíveis: `downgrade` de `conversations` testado | **satisfeito** | Bateria própria (`db/tests/test_conversas_schema.py`), três casos. Com a tabela vazia, desce e sobe — e a `UNIQUE` acrescentada a `tenant_channels` sai, o `FORCE` fica reposto e o `plano` volta a estar fora do alcance do resolvedor. **Com conversas e sem `KAMBA_DOWNGRADE_0009_COPIA`, recusa**, com a contagem na mensagem, e a base fica em `head` sem ter tocado em nada. Com a variável, escreve a cópia lógica das oito colunas de cada conversa — incluindo o modo `humano` e a janela aberta, que é o que torna reverter destrutivo — e desce. O ciclo `upgrade → downgrade → upgrade` completo corre em `test_migracao.py`. **Não há ferramenta de reposição**: a cópia é um `INSERT` por linha, como a `0003` já declarou |
+
+**Como se correu, e o que saiu.** Nesta máquina não há `make`, `node` nem
+`pnpm` no `PATH` (`.claude/skills/agentic-engineering/references/evidencia-e-verificacao.md`,
+«Como correr a verificação aqui»):
+
+| Verificação | Comando | Resultado |
+|---|---|---|
+| *gate* 3b (nomes canónicos) | `dict_export --check` e `canon_lint check`, com o Python do Windows | `conforme` — dicionário v1.20, 127 entradas, 9 migrações, 379 instruções, **74** valores de `CHECK` |
+| *gate* 1, 2 e 4 (*build*, tipos, testes) | `pnpm run build`, `pnpm -r run typecheck`, `pnpm -r run test` em contentor `node:24.21.0-trixie-slim` | tudo verde; **913** asserções, 0 falhas |
+| *gate* 6 (isolamento) | `db/gate_bd.py --suite tests_isolamento` | **78 testes, OK** — com a `conversations` descoberta pelo catálogo e semeada |
+| *gate* 8 (migrações) | `db/gate_bd.py --suite tests` | **393 testes, OK** — seis deles novos: as FK da conversa coluna a coluna e os três casos do `downgrade` |
+| *gate* 8 (entrada de canal, KAM-013) | `db/gate_bd.py --suite tests_entrada` | **34 testes, OK** — o *worker* de produção monta agora o CHR |
+| *gate* 8 (CHR) | `db/gate_bd.py --suite tests_chr` | **6 asserções Python sobre 7 ficheiros de teste Node, OK**; p95 `0,805 ms` / `0,0135 ms` e invalidação `0,722 ms` numa máquina livre; `3,329 ms` / `0,0697 ms` e `1,912 ms` com carga ao lado |
+| prova por mutação | `db/mutacoes.py --aplicaveis` e os filtros `chr:` e `revisao 0009` | **294 mutações, 0 não aplicáveis**; **24 novas, as 24 corridas e as 24 apanhadas** — filtro `chr:` 15, filtro `revisao 0009` 7, filtro `revisao 0008: o motivo` 2, com a linha de base verde confirmada em cada suite antes de cada volta. **Duas delas só são apanhadas pelo teste certo depois de uma correcção da revisão adversarial**: as que tiram o `tenant_id` das FK da conversa eram apanhadas por um teste da própria lista de mutações, e agora caem no `TestFkCompostas`. A lista inteira corre de noite (KAM-143) |
+
+#### Decisões tomadas neste ticket
+
+- **O `tenant_id` nasce no passo 1 e nenhum passo seguinte o recebe de fora.**
+  É o que torna a frase do `../docs/tecnica/01` §7.2 verificável e não uma
+  intenção.
+- **Três ligações, três papéis.** `kamba_resolver` para a resolução e para a
+  guarda de arranque, `kamba_identity` para o contacto, `kamba_app` para a
+  conversa. Uma ligação de `kamba_batch` resolvia os três passos e era o que o
+  ADR-015 recusa.
+- **A janela de 24 h vive em `conversations`**, e não em `contacts` como o
+  `../docs/tecnica/01` §6.2 escreve: a janela da Meta é por par (número do
+  negócio, número do cliente), e uma janela por contacto não distingue dois
+  canais do mesmo tenant.
+- **Dois valores novos entraram na revisão `0008` e não na `0009`.** O *gate* 3b
+  lê o AST de cada revisão isoladamente: alargar um domínio numa revisão
+  posterior deixa a que cria o `CHECK` vermelha. O custo é uma base já na `0008`
+  não ganhar os valores sem voltar a aplicar as migrações.
+- **A recusa do Fluxo B não deixa linha de quarentena**, porque o critério pede
+  «0 *jobs*, alerta». O alerta é a métrica e o registo.
+- **Um `echo` vai ao dono sem contacto nem conversa**: o campo que traz o
+  destinatário é NÃO VERIFICADO (`../docs/tecnica/evidencia/E1` §5).
+- **A verificação do modo é antes da matriz de estados.** Uma conversa em modo
+  `humano` não vai ao AGR mesmo num tenant `ativo`.
+- **O `jobId` da fila do AGR é um resumo e não o `wamid`**, que leva o número do
+  interlocutor em base64.
+- **O `contact.merged` é emitido por quem chama**, depois do `COMMIT` da fusão, e
+  com o payload mapeado para o contrato publicado — que usa outros nomes e a
+  leitura invertida.
+
+#### O que fica por decidir
+
+Quatro decisões que este ticket tomou para poder avançar e que **não são dele**.
+Estão implementadas como *proposta*; inverter qualquer uma é uma revisão nova.
+Estão todas em [`../docs/chr.md`](../docs/chr.md) §10, e as quatro divergências
+documentais que as sustentam em `../docs/dividas-documentais.md`, linhas 47 a 50.
+
+1. **O `persona` sai do `ChannelContext`**, porque `contacts.papel` — de onde
+   viria — **não existe** em revisão nenhuma.
+2. **O caminho do contrato `agent_invocation`**, que o *gate* 3b não deixa ser o
+   da letra do critério 6.
+3. **A convergência de identidade**, que o algoritmo do §6.3 só faz com uma
+   mensagem que traga os dois identificadores (critério 4).
+4. **O «uma vez por contacto/24 h» da mensagem estática**, que é de quem envia
+   (KAM-015) e cuja coluna de contagem não existe neste DDL.
+
+E uma consequência de arranque que não é decisão deste ticket mas passa a
+afectá-lo: o `worker-canal` **deixa de arrancar em `KAMBA_ENV=prod`**, porque o
+CHR monta o módulo de identidade e o KAM-008 recusa um `KeyProvider` de ambiente
+em `prod` enquanto não houver um de cofre — que nenhum ticket constrói
+(decisão 2 do KAM-008).
 
 ### Detalhes Técnicos
 
@@ -396,12 +496,12 @@ CREATE TABLE platform.conversations (
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] Código revisto por 2 revisores (isolamento de tenant, dados pessoais); testes verdes; cobertura ≥ limiar.
-- [ ] Documentação actualizada; Conventional Commits.
-- [ ] **Isolamento de tenant** — `tenant_id` só nasce aqui; RLS em `conversations`; teste cruzado do novo caminho.
-- [ ] **Idempotência** — repetição do mesmo `wamid` não cria 2 conversas nem 2 *jobs*; teste incluído.
-- [ ] **Privacidade** — contacto por `contact_id`; sem telefone em *jobs*, logs ou eventos.
-- [ ] **Custo e observabilidade** — `chr_resolve_ms`, `chr_unrouted_total`, `chr_cache_hit_ratio`.
-- [ ] **Migrações reversíveis** — `downgrade` de `conversations` testado.
+- [x] Documentação actualizada; Conventional Commits.
+- [x] **Isolamento de tenant** — `tenant_id` só nasce aqui; RLS em `conversations`; teste cruzado do novo caminho.
+- [x] **Idempotência** — repetição do mesmo `wamid` não cria 2 conversas nem 2 *jobs*; teste incluído.
+- [x] **Privacidade** — contacto por `contact_id`; sem telefone em *jobs*, logs ou eventos.
+- [x] **Custo e observabilidade** — `chr_resolve_ms`, `chr_unrouted_total`, `chr_cache_hit_ratio`.
+- [x] **Migrações reversíveis** — `downgrade` de `conversations` testado.
 
 ### Handoff para Claude Code
 
@@ -1414,5 +1514,6 @@ Testes: idempotência, limites, bounce, isolamento, X-11. Abre PR com o template
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: KAM-013 a KAM-024 (GWY, CHR, outbound, Embedded Signup v4, coexistência, handoff, mídia, qualidade, consentimento, simulador); KAM-115 (aviso ao dono por canal alternativo) acrescentado na consolidação. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | KAM-145: os **24** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
-| 1.2 | Outubro 2026 | **A aresta KAM-024 → KAM-015, KAM-016, KAM-017 e KAM-020**, que o critério 5 do KAM-024 afirma e o grafo não declarava, nas três superfícies que o *gate* 3c compara. Sem ela, a ordem de execução do epic estava errada: o servidor Graph falso que os «Testes Requeridos» de quatro tickets nomeiam só nasce no KAM-024. | Equipa KAMBÁ |
-| 1.3 | Outubro 2026 | **KAM-024 entregue.** Dez caixas marcadas com evidencia nomeada e seis vazias, na seccao «Verificação dos Critérios de Aceitação» do bloco. Tres das vazias nao sao satisfazeis por este ticket: o «usado por KAM-015, 016, 017 e 020» do critério 5 nao se pode medir antes de esses tickets existirem, e a *suite* online dos critérios 8 e 9 depende de `ext:KAM-102` e do número de teste da app Meta de *staging*. A quarta é o critério 7, que fica vazio por escolha: o *scan* mede 86 ocorrências de forma real no repositório, todas *fixtures* de redacção de PII, e a letra diz «0» — quem decide se o inventário basta é quem escreveu o critério. | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | **KAM-014 entregue.** Secção de verificação no bloco, com onze caixas marcadas e **cinco vazias**: três critérios que não se cumprem à letra — o caminho do contrato `agent_invocation`, que uma sentinela do *gate* 3b não deixa existir; a convergência de identidade sem uma mensagem que traga os dois identificadores, que o algoritmo de `../docs/tecnica/01` §6.3 não faz; e o «uma vez por contacto/24 h» da mensagem estática, que é de quem envia — e as duas do DoD que delas dependem. As quatro divergências documentais que sustentam essas leituras estão em `../docs/dividas-documentais.md`, linhas 47 a 50. A revisão adversarial está em `../docs/analises/ANALISE-27-KAM-014-chr-channelresolver.md`. | Equipa KAMBÁ |
+| 1.3 | Outubro 2026 | **A aresta KAM-024 → KAM-015, KAM-016, KAM-017 e KAM-020**, que o critério 5 do KAM-024 afirma e o grafo não declarava, nas três superfícies que o *gate* 3c compara. Sem ela, a ordem de execução do epic estava errada: o servidor Graph falso que os «Testes Requeridos» de quatro tickets nomeiam só nasce no KAM-024. | Equipa KAMBÁ |
+| 1.4 | Outubro 2026 | **KAM-024 entregue.** Dez caixas marcadas com evidencia nomeada e seis vazias, na seccao «Verificação dos Critérios de Aceitação» do bloco. Tres das vazias nao sao satisfazeis por este ticket: o «usado por KAM-015, 016, 017 e 020» do critério 5 nao se pode medir antes de esses tickets existirem, e a *suite* online dos critérios 8 e 9 depende de `ext:KAM-102` e do número de teste da app Meta de *staging*. A quarta é o critério 7, que fica vazio por escolha: o *scan* mede 86 ocorrências de forma real no repositório, todas *fixtures* de redacção de PII, e a letra diz «0» — quem decide se o inventário basta é quem escreveu o critério. | Equipa KAMBÁ |

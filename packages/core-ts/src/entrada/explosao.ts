@@ -72,6 +72,33 @@ export const PREFIXO_DO_RESUMO = "k_";
 /** O array de *echoes* dentro do `value` — ***proposta***, NÃO VERIFICADO. */
 export const ARRAY_DOS_ECHOES = "message_echoes";
 
+/**
+ * Quem está do outro lado de uma mensagem, como a Meta o identifica.
+ *
+ * **Não é persistido por este módulo, e é por isso que existe.** O
+ * `inbound_events` guarda o mínimo para dizer «este evento já passou por aqui»
+ * e **não** guarda identidade nenhuma (revisão `0008`): no momento em que é
+ * escrito, o tenant ainda não existe. Mas o CHR (KAM-014) tem de resolver o
+ * contacto, e para isso precisa do BSUID e do telefone que vieram **neste**
+ * corpo — relê-los implicava guardar o corpo ou voltar a pedi-lo à Meta.
+ *
+ * Os dois campos são os de `docs/tecnica/01` §6.1 (CONFIRMADO, `E1` §3): em
+ * `messages[]`, o BSUID é `from_user_id` e o telefone é `from`. **Qualquer um
+ * dos dois pode faltar** — o `wa_id`/`from` é omitido quando o utilizador
+ * adoptou *username* e não há contacto recente —, e é essa a razão de ser do
+ * BSUID. Vêm de uma fonte autenticada (o corpo cuja assinatura o GWY
+ * conferiu), que é o que o `resolveContact` do KAM-008 exige.
+ *
+ * O `parent_user_id` **não** entra: o KAM-008 não o recebe e o limite está
+ * escrito em `docs/identidade.md` §4.
+ */
+export interface Interlocutor {
+  /** `from_user_id` numa mensagem (`user_id` em `contacts[]`). */
+  readonly bsuid: string | null;
+  /** `from` numa mensagem (`wa_id` em `contacts[]`), em E.164. */
+  readonly telefone: string | null;
+}
+
 /** Um evento de canal a registar em `inbound_events`. */
 export interface EventoDeEntrada {
   /** Um dos doze campos de webhook. O tipo recusa `desconhecido` e `invalido`. */
@@ -81,6 +108,18 @@ export interface EventoDeEntrada {
   readonly phoneNumberId: string | null;
   /** Só para `message` e `echo`; `null` nos outros. É o que vai a `wa_type`. */
   readonly waType: WaType | null;
+  /**
+   * Só para `message`; `null` nos outros, **incluindo no `echo`**.
+   *
+   * Num `echo` quem escreveu foi o dono, e o nome do campo que traz o
+   * destinatário dentro de `smb_message_echoes` é **NÃO VERIFICADO** (`E1` §5
+   * não o diz) — o mesmo limite que já põe `ARRAY_DOS_ECHOES` como *proposta*.
+   * Inventar aqui um `to` que talvez não exista era pôr o CHR a resolver
+   * contactos a partir de um campo que ninguém leu; o `echo` vai ao dono
+   * (KAM-018), que não precisa de identidade resolvida, e fixar o campo é
+   * KAM-017.
+   */
+  readonly interlocutor: Interlocutor | null;
 }
 
 /** Um evento que não se conseguiu encaminhar, a registar em `unrouted_events`. */
@@ -277,6 +316,9 @@ export function explodir(corpo: unknown, resumoDoCorpo: string): Explosao {
           wabaId,
           phoneNumberId,
           waType: waType(dentro.type),
+          // Ver a nota de `EventoDeEntrada.interlocutor`: o destinatario de um
+          // `echo` esta num campo NAO VERIFICADO, e o `echo` vai ao dono.
+          interlocutor: null,
         });
         emitidos += 1;
       }
@@ -287,6 +329,7 @@ export function explodir(corpo: unknown, resumoDoCorpo: string): Explosao {
           wabaId,
           phoneNumberId,
           waType: null,
+          interlocutor: null,
         });
       }
     }
@@ -314,6 +357,14 @@ function explodirMensagens(
       wabaId,
       phoneNumberId,
       waType: waType(mensagem.type),
+      // **O unico sitio onde o interlocutor sai.** `from_user_id` e o BSUID e
+      // `from` e o telefone (`docs/tecnica/01` §6.1, CONFIRMADO); qualquer um
+      // dos dois pode faltar, e os tectos sao os dos identificadores da Meta —
+      // um valor absurdamente longo vindo do corpo nao passa para o CHR.
+      interlocutor: {
+        bsuid: texto(mensagem.from_user_id, ID_META_MAXIMO),
+        telefone: texto(mensagem.from, ID_META_MAXIMO),
+      },
     });
     quantos += 1;
   }
@@ -337,6 +388,9 @@ function explodirMensagens(
       wabaId,
       phoneNumberId,
       waType: null,
+      // Um `statuses` vai ao *stage* de *outbound* (KAM-015) e nunca ao CHR:
+      // nao ha contacto a resolver.
+      interlocutor: null,
     });
     quantos += 1;
   }

@@ -130,6 +130,28 @@ estratos:
       # O limiar e agregado por estrato: este padrao partilha os 90% com o
       # `tenant_guard`, o `storage`, o `identity` e o `logger`.
       - "*/ten/*"
+      # CHR: o ChannelResolver (KAM-014, ADR-011, ADR-015). **O modulo
+      # inteiro.**
+      #
+      # Entra pela mesma razao que o `logger`, o `wrapper` do KAM-006 e o
+      # `ten`: e **o sitio onde o `tenant_id` nasce** para o estado do grafo
+      # (`docs/tecnica/01` §7.2), e `specs/01` §4.1 poe o isolamento de tenant
+      # neste estrato. Um defeito aqui nao e um bug: e uma mensagem de um
+      # cliente entregue ao assistente de outra loja, ou uma conversa em modo
+      # `humano` interrompida pelo bot. O DoD do ticket exige «cobertura >=
+      # limiar», e sem este padrao os ficheiros caiam no `restante`
+      # (`packages/*/src/**` apanha-os) a 75%.
+      #
+      # **A medicao nao e a do gate 4, e isso fica dito**: o CHR resolve
+      # contra uma base de dados com tres papeis diferentes, e sem ela so
+      # correm as recusas a entrada. Quem o mede por ficheiro, a 90%, e
+      # `db/tests_chr/`, que le este limiar deste ficheiro. O que o gate 4 mede
+      # e o que estes padroes apanham **e** tem relatorio — e o `fila.ts` sai
+      # da medicao pelos `excluidos`, por ser casca sobre o BullMQ.
+      #
+      # *Proposta*, como os limiares: alterar este ficheiro pede dois
+      # revisores, e esta alteracao **nao** marca essa caixa.
+      - "*/chr/*"
 
   - nome: restante
     minimo_linhas: 75
@@ -188,6 +210,15 @@ excluidos:
   # ficheiros de `*/identity/*` (chaves, cifra, SQL) ficam no gate 4, no estrato
   # `critico`.
   - "packages/core-ts/src/identity/contactos.ts"
+  # KAM-014, e e a mesma situacao por duas vias. O `chr/fila.ts` e casca sobre
+  # o BullMQ — uma `Queue` e um `add` com `jobId` — e quem o exercita de
+  # verdade e uma fila real, que nao produz cobertura V8; o precedente e o
+  # `eventos/trabalhador_bullmq.ts`, que fica fora do estrato pela mesma razao.
+  # A parte que pode errar em silencio — a forma do `jobId`, que nao pode levar
+  # o `wamid` em claro — e o `chr/invocacao.ts`, e tem bateria propria no gate
+  # 4. Os restantes ficheiros de `*/chr/*` ficam medidos: no gate 4 pelo que os
+  # testes sem base carregam, e por ficheiro em `db/tests_chr/`.
+  - "packages/core-ts/src/chr/fila.ts"
   # O corredor do parser de Mermaid (KAM-140). E uma chamada a `mermaid.parse`
   # dentro de um contentor descartavel, e o `mermaid` **nao** e dependencia
   # deste repositorio de proposito (ver o alvo `mermaid` do Makefile): o
