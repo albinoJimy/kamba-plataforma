@@ -348,11 +348,11 @@ describe("criterio 6 — o job entregue ao AGR", () => {
   it("nao leva telefone, BSUID nem `display_name`", async () => {
     const m = montar();
     await m.chr.tratar(
-      mensagemDe({ interlocutor: { bsuid: "BSUID-SECRETO", telefone: "244923111222" } }),
+      mensagemDe({ interlocutor: { bsuid: "BSUID-SECRETO", telefone: "999100000002" } }),
     );
     const texto = JSON.stringify(m.entrega.aoAgr[0]);
     assert.ok(!texto.includes("BSUID-SECRETO"));
-    assert.ok(!texto.includes("244923111222"));
+    assert.ok(!texto.includes("999100000002"));
     assert.ok(!texto.includes("display_name"));
   });
 
@@ -440,7 +440,7 @@ describe("uma mensagem sem identidade", () => {
   it("so o BSUID basta, e so o telefone tambem", async () => {
     for (const interlocutor of [
       { bsuid: "bsuid-1", telefone: null },
-      { bsuid: null, telefone: "244923000000" },
+      { bsuid: null, telefone: "999100000001" },
     ]) {
       const m = montar();
       const resultado = await m.chr.tratar(mensagemDe({ interlocutor }));

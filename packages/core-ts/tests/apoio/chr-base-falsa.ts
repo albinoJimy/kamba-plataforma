@@ -94,7 +94,7 @@ export function mensagemDe(troca: Readonly<Record<string, unknown>> = {}): {
     wabaId: "waba-1",
     phoneNumberId: "pnid-1",
     waType: "text",
-    interlocutor: { bsuid: "bsuid-1", telefone: "244923000000" },
+    interlocutor: { bsuid: "bsuid-1", telefone: "999100000001" },
     ...troca,
   } as never;
 }

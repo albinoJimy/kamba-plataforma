@@ -1446,7 +1446,7 @@ O *scan* confronta o repositório com o inventário de
 `tools/meta-sim/src/inventario.ts`, e esse ficheiro explica porque é um
 **raquete** e não uma isenção: isentar `tests/` deixava passar um número novo
 dentro de um ficheiro já tolerado, que é exactamente o caso que importa. Medido
-hoje: **993 ficheiros, 86 ocorrências de forma real, 86 declaradas, 0
+hoje: **1021 ficheiros, 86 ocorrências de forma real, 86 declaradas, 0
 divergências**.
 
 Tempo das duas suites: **20,7 s**, contra os ≤ 5 min que o critério 8 do KAM-024
