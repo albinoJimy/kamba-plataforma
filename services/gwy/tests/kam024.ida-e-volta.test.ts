@@ -79,14 +79,16 @@ function montar(): Montagem {
   return { app, filas };
 }
 
-function enviar(
+// `async` e nao `Promise<Response>` com `return`: o `app.request` do Hono
+// devolve `Response | Promise<Response>`, e e o `await` que normaliza os dois.
+async function enviar(
   montagem: Montagem,
   corpo: Uint8Array,
   assinatura: string | undefined,
 ): Promise<Response> {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (assinatura !== undefined) headers[CABECALHO] = assinatura;
-  return montagem.app.request(CAMINHO, { method: "POST", body: corpo, headers });
+  return await montagem.app.request(CAMINHO, { method: "POST", body: corpo, headers });
 }
 
 /** Quantos *jobs* estao na fila de entrada. */

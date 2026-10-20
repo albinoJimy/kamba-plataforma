@@ -73,8 +73,13 @@ HEALTHZ_TARGETS := gwy=3000 worker-canal=3001 com=3002 onboarding-web=3003 agr=8
 # Pacotes Node com testes, para a medicao de cobertura por pacote. Enumerados e
 # nao descobertos: um pacote novo tem de entrar aqui **e** em ci/thresholds.yaml,
 # e e melhor que isso seja uma alteracao visivel do que uma deteccao silenciosa.
+# O `tools/meta-sim` (KAM-024) entra aqui e nao e opcional: `tools/**` esta nos
+# `padroes` do estrato `restante` de ci/thresholds.yaml, e o `coverage_gate`
+# injecta a 0% o que nenhum relatorio mediu. Fora desta lista, os seus ficheiros
+# entravam no denominador com zero e afundavam o estrato.
 PACOTES_NODE := packages/contracts packages/core-ts services/gwy \
-                services/worker-canal services/com services/onboarding-web
+                services/worker-canal services/com services/onboarding-web \
+                tools/meta-sim
 
 export PYTHONPATH := $(PYTHONPATH_ALL)
 

@@ -201,19 +201,29 @@ function sanearValor(chave: string, valor: string, mapas: Mapas): string {
  * corpo inteiro para a quarentena por uma razão que não existe no tráfego real.
  * O contexto entra por aqui e por mais sítio nenhum.
  */
-function percorrer(no: unknown, chave: string, mapas: Mapas, dentroDeEntry = false): unknown {
-  if (typeof no === "string") {
-    if (dentroDeEntry && chave === "id") return mapas.traduzir("waba", no, wabaId);
-    return sanearValor(chave, no, mapas);
-  }
+function percorrer(no: unknown, chave: string, mapas: Mapas, eUmaEntry = false): unknown {
+  if (typeof no === "string") return sanearValor(chave, no, mapas);
   if (Array.isArray(no)) {
-    return no.map((item) => percorrer(item, chave, mapas, dentroDeEntry));
+    // O sinalizador atravessa o array: `entry` **é** um array, e é cada um dos
+    // seus elementos que é uma `entry`.
+    return no.map((item) => percorrer(item, chave, mapas, eUmaEntry));
   }
   if (typeof no === "object" && no !== null) {
     const saida: Record<string, unknown> = {};
     for (const [nome, valor] of Object.entries(no as Record<string, unknown>)) {
-      // Só o nível imediato de `entry` conta: um `changes[].value.id` já não é
-      // um WABA, e por isso o contexto **não** se propaga para dentro.
+      // O `id` de uma `entry` trata-se **aqui**, no pai que sabe que é uma
+      // `entry`, e não no filho. Tentei passar o sinalizador ao filho e o
+      // `entry.id` ficou sem substituição nenhuma: o laço recalculava-o de
+      // `nome === "entry"`, e para a chave `id` isso dá `false`. O teste
+      // `o entry.id e tratado como waba_id e nao como wamid` apanhou-o.
+      //
+      // Decidir no pai tem a segunda propriedade que importa: o sinalizador
+      // **não** se propaga para dentro de `changes`, e por isso um
+      // `changes[].value.messages[].id` continua a ser um `wamid`.
+      if (eUmaEntry && nome === "id" && typeof valor === "string") {
+        saida[nome] = mapas.traduzir("waba", valor, wabaId);
+        continue;
+      }
       saida[nome] = percorrer(valor, nome, mapas, nome === "entry");
     }
     return saida;

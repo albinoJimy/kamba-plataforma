@@ -91,7 +91,10 @@ describe("cobertura: os dezasseis tipos", () => {
   });
 
   it("[cobertura:tipo:location] as coordenadas sao da zona de Luanda", () => {
-    const sitio = primeiraMensagem("tipo:location").location as Record<string, number>;
+    const sitio = primeiraMensagem("tipo:location").location as {
+      latitude: number;
+      longitude: number;
+    };
     assert.ok(sitio.latitude < -8.7 && sitio.latitude > -9.1, `latitude ${sitio.latitude}`);
     assert.ok(sitio.longitude > 13.1 && sitio.longitude < 13.5, `longitude ${sitio.longitude}`);
   });
@@ -145,23 +148,47 @@ describe("cobertura: os dezasseis tipos", () => {
     assert.equal(typeof erros[0]?.code, "number");
   });
 
-  for (const estado of ESTADOS) {
-    it(`[cobertura:tipo:statuses:${estado}] o estado ${estado} tem a forma certa`, () => {
-      const item = primeiroEstado(`tipo:statuses:${estado}`);
-      assert.equal(item.status, estado);
-      assert.match(item.id as string, /^wamid\./);
-      if (estado === "failed") {
-        // **Sem `pricing`**: não se cobra uma mensagem que não foi entregue.
-        assert.equal(item.pricing, undefined);
-        assert.ok(Array.isArray(item.errors));
-      } else {
-        const preco = item.pricing as Record<string, unknown>;
-        assert.equal(preco.pricing_model, "CBP");
-        assert.equal(preco.billable, true);
-        assert.equal(preco.category, "service");
-      }
-    });
+  // Os quatro escritos um a um, e **não** num `for` com o nome interpolado.
+  // Tentei o `for` primeiro, e o relatório de cobertura recusou-o: ele lê as
+  // marcas do **texto** do ficheiro, e o que lá estava era `${estado}` e não
+  // `sent`. Está certo em recusar — uma marca que só existe em execução não
+  // prova que alguém escreveu um teste para aquele item — e a lição é que a
+  // marca tem de ser literal. Quatro `it` custam oito linhas.
+  function comPrecoDeServico(item: Record<string, unknown>): void {
+    const preco = item.pricing as Record<string, unknown>;
+    assert.equal(preco.pricing_model, "CBP");
+    assert.equal(preco.billable, true);
+    assert.equal(preco.category, "service");
   }
+
+  it("[cobertura:tipo:statuses:sent] o sent traz pricing", () => {
+    const item = primeiroEstado("tipo:statuses:sent");
+    assert.equal(item.status, "sent");
+    assert.match(item.id as string, /^wamid\./);
+    comPrecoDeServico(item);
+  });
+
+  it("[cobertura:tipo:statuses:delivered] o delivered traz pricing", () => {
+    const item = primeiroEstado("tipo:statuses:delivered");
+    assert.equal(item.status, "delivered");
+    comPrecoDeServico(item);
+  });
+
+  it("[cobertura:tipo:statuses:read] o read traz pricing", () => {
+    const item = primeiroEstado("tipo:statuses:read");
+    assert.equal(item.status, "read");
+    comPrecoDeServico(item);
+  });
+
+  it("[cobertura:tipo:statuses:failed] o failed traz errors[] e NAO traz pricing", () => {
+    const item = primeiroEstado("tipo:statuses:failed");
+    assert.equal(item.status, "failed");
+    // Não se cobra uma mensagem que não foi entregue (`E1` §1: cobrança por
+    // mensagem **entregue**). É a asserção que sustenta o critério 4 do KAM-015.
+    assert.equal(item.pricing, undefined);
+    assert.ok(Array.isArray(item.errors));
+    assert.equal(ESTADOS.length, 4);
+  });
 
   it("[cobertura:tipo:history] a fixture do tipo history e a do campo", () => {
     // O `history` é o único item nas duas dimensões, e a sua *fixture* é uma só
