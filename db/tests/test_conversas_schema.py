@@ -33,6 +33,7 @@ from tests.base import (
     ComBase,
     TABELAS,
     TABELAS_ATE_0008,
+    TABELAS_ATE_0009,
     alembic,
     alembic_ok,
     em_head,
@@ -254,8 +255,14 @@ class TestDowngradeDa0009(unittest.TestCase):
         saida = resultado.stdout + resultado.stderr
         self.assertIn("2 conversa(s)", saida)
         self.assertIn(VARIAVEL_DA_COPIA, saida)
-        # A base ficou **em head**: a revisao levantou antes de tocar em nada.
-        self.assertEqual(_tabelas(self.cursor), TABELAS)
+        # A base ficou **em `0009`**, e nao em head, desde que o KAM-015
+        # acrescentou a `0010`. Nao e regressao: o Alembic corre **uma
+        # transaccao por revisao** (`transaction_per_migration=True`), pelo que
+        # o `downgrade` da `0010` — que nao tem envios nem templates para
+        # perder — desce e **compromete** antes de a `0009` levantar. O que
+        # esta linha tem de afirmar e a propriedade que importa: a revisao que
+        # recusa nao toca em nada do que e dela, e as conversas ficam.
+        self.assertEqual(_tabelas(self.cursor), TABELAS_ATE_0009)
         self.cursor.execute("SELECT count(*) FROM platform.conversations")
         self.assertEqual(self.cursor.fetchone()[0], 2)
 

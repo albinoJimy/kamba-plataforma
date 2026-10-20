@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.20"
+versao_dicionario: "1.21"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -2397,6 +2397,304 @@ entradas:
       - "piloto"
     nomes_nota: []
     variantes_literais: []
+  - seccao: "3.14"
+    conceito: "Mensagem que a plataforma envia"
+    canonico: "platform.outbound_messages — id, tenant_id, channel_id, contact_id, conversation_id, idempotency_key, wamid, kind, template_name, state, pricing, error_code, created_at, delivered_at"
+    literais:
+      - "platform.outbound_messages"
+      - "id"
+      - "tenant_id"
+      - "channel_id"
+      - "contact_id"
+      - "conversation_id"
+      - "idempotency_key"
+      - "wamid"
+      - "kind"
+      - "template_name"
+      - "state"
+      - "pricing"
+      - "error_code"
+      - "created_at"
+      - "delivered_at"
+    nomes:
+      - "platform.outbound_messages"
+      - "id"
+      - "tenant_id"
+      - "channel_id"
+      - "contact_id"
+      - "conversation_id"
+      - "idempotency_key"
+      - "wamid"
+      - "kind"
+      - "template_name"
+      - "state"
+      - "pricing"
+      - "error_code"
+      - "created_at"
+      - "delivered_at"
+    nomes_nota:
+      - "conversation_id"
+      - "platform"
+    variantes_literais: []
+  - seccao: "3.14"
+    conceito: "Estado de uma mensagem de saída"
+    canonico: "outbound_messages.state ∈ {queued, sent, delivered, read, failed, suppressed_by_human}"
+    literais:
+      - "outbound_messages.state"
+      - "queued"
+      - "sent"
+      - "delivered"
+      - "read"
+      - "failed"
+      - "suppressed_by_human"
+    nomes:
+      - "outbound_messages.state"
+      - "queued"
+      - "sent"
+      - "delivered"
+      - "read"
+      - "failed"
+      - "suppressed_by_human"
+    nomes_nota:
+      - "CHECK"
+      - "unrouted_events.motivo"
+    variantes_literais: []
+  - seccao: "3.14"
+    conceito: "Categoria de uma mensagem de saída"
+    canonico: "outbound_messages.kind ∈ {service, utility, marketing, authentication}"
+    literais:
+      - "outbound_messages.kind"
+      - "service"
+      - "utility"
+      - "marketing"
+      - "authentication"
+    nomes:
+      - "outbound_messages.kind"
+      - "service"
+      - "utility"
+      - "marketing"
+      - "authentication"
+    nomes_nota:
+      - "kind"
+      - "inbound_events"
+    variantes_literais: []
+  - seccao: "3.14"
+    conceito: "Preço que a Meta cobrou por uma mensagem"
+    canonico: "outbound_messages.pricing (jsonb) — chaves billable, pricing_model, type, category"
+    literais:
+      - "outbound_messages.pricing"
+      - "jsonb"
+      - "billable"
+      - "pricing_model"
+      - "type"
+      - "category"
+    nomes:
+      - "outbound_messages.pricing"
+      - "jsonb"
+      - "billable"
+      - "pricing_model"
+      - "type"
+      - "category"
+    nomes_nota:
+      - "pricing"
+      - "statuses"
+      - "E1"
+    variantes_literais: []
+  - seccao: "3.14"
+    conceito: "Template registado de um tenant"
+    canonico: "platform.message_templates — tenant_id, name, lang, category, status, quality, meta_template_id, body_hash, bloqueado_em, updated_at"
+    literais:
+      - "platform.message_templates"
+      - "tenant_id"
+      - "name"
+      - "lang"
+      - "category"
+      - "status"
+      - "quality"
+      - "meta_template_id"
+      - "body_hash"
+      - "bloqueado_em"
+      - "updated_at"
+    nomes:
+      - "platform.message_templates"
+      - "tenant_id"
+      - "name"
+      - "lang"
+      - "category"
+      - "status"
+      - "quality"
+      - "meta_template_id"
+      - "body_hash"
+      - "bloqueado_em"
+      - "updated_at"
+    nomes_nota:
+      - "PRIMARY"
+      - "KEY"
+      - "tenant_id"
+      - "name"
+      - "lang"
+      - "bloqueado_em"
+      - "marketing"
+    variantes_literais: []
+  - seccao: "3.14"
+    conceito: "Estado de aprovação de um template"
+    canonico: "message_templates.status ∈ {pending, approved, rejected, paused, disabled}"
+    literais:
+      - "message_templates.status"
+      - "pending"
+      - "approved"
+      - "rejected"
+      - "paused"
+      - "disabled"
+    nomes:
+      - "message_templates.status"
+      - "pending"
+      - "approved"
+      - "rejected"
+      - "paused"
+      - "disabled"
+    nomes_nota:
+      - "snake_case"
+      - "wa_type"
+    variantes_literais: []
+  - seccao: "3.14"
+    conceito: "Categoria de um template"
+    canonico: "message_templates.category ∈ {utility, marketing, authentication}"
+    literais:
+      - "message_templates.category"
+      - "utility"
+      - "marketing"
+      - "authentication"
+    nomes:
+      - "message_templates.category"
+      - "utility"
+      - "marketing"
+      - "authentication"
+    nomes_nota:
+      - "marketing"
+    variantes_literais: []
+  - seccao: "3.14"
+    conceito: "Nota de qualidade de um template"
+    canonico: "message_templates.quality ∈ {green, yellow, red}"
+    literais:
+      - "message_templates.quality"
+      - "green"
+      - "yellow"
+      - "red"
+    nomes:
+      - "message_templates.quality"
+      - "green"
+      - "yellow"
+      - "red"
+    nomes_nota:
+      - "status"
+    variantes_literais: []
+  - seccao: "3.14"
+    conceito: "Recusa de envio com a janela fechada"
+    canonico: "WINDOW_CLOSED"
+    literais:
+      - "WINDOW_CLOSED"
+    nomes:
+      - "WINDOW_CLOSED"
+    nomes_nota:
+      - "ChannelAdapter"
+      - "ChannelContext"
+    variantes_literais: []
+  - seccao: "3.14"
+    conceito: "Gancho chamado antes de cada envio do bot"
+    canonico: "PreSendGuard"
+    literais:
+      - "PreSendGuard"
+    nomes:
+      - "PreSendGuard"
+    nomes_nota:
+      - "PreSendGuard"
+      - "KAMBA_ENV"
+      - "ci"
+    variantes_literais: []
+  - seccao: "3.14"
+    conceito: "Chave de idempotência de um envio"
+    canonico: "outbound_messages.idempotency_key, única por (tenant_id, idempotency_key)"
+    literais:
+      - "outbound_messages.idempotency_key"
+      - "(tenant_id, idempotency_key)"
+    nomes:
+      - "outbound_messages.idempotency_key"
+      - "tenant_id"
+      - "idempotency_key"
+    nomes_nota:
+      - "UNIQUE"
+      - "usage_ledger"
+      - "INSERT"
+      - "wamid"
+    variantes_literais: []
+  - seccao: "3.14"
+    conceito: "Tarifas da Meta por categoria"
+    canonico: "config/meta_rates.yaml"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "E1"
+      - "service"
+      - "utility"
+      - "authentication"
+      - "marketing"
+      - "float64"
+    variantes_literais: []
+  - seccao: "3.14"
+    conceito: "Métricas da saída"
+    canonico: "outbound_sent_total, outbound_latency_ms, outbound_window_closed_total, outbound_rate_limited_total, meta_cost_usd_total"
+    literais:
+      - "outbound_sent_total"
+      - "outbound_latency_ms"
+      - "outbound_window_closed_total"
+      - "outbound_rate_limited_total"
+      - "meta_cost_usd_total"
+    nomes:
+      - "outbound_sent_total"
+      - "outbound_latency_ms"
+      - "outbound_window_closed_total"
+      - "outbound_rate_limited_total"
+      - "meta_cost_usd_total"
+    nomes_nota:
+      - "outbound_rate_limited_total"
+      - "outbound_sent_total"
+      - "kind"
+      - "meta_cost_usd_total"
+    variantes_literais: []
+  - seccao: "3.14"
+    conceito: "Débito de saída por canal"
+    canonico: "token bucket por phone_number_id, capacidade 15 mps em coexistência"
+    literais:
+      - "phone_number_id"
+    nomes:
+      - "phone_number_id"
+    nomes_nota:
+      - "E1"
+      - "cloud_only"
+    variantes_literais: []
+  - seccao: "3.14"
+    conceito: "Débito de saída por par"
+    canonico: "token bucket por (tenant_id, contact_id), 1 mensagem/s e 30/min"
+    literais:
+      - "(tenant_id, contact_id)"
+    nomes:
+      - "tenant_id"
+      - "contact_id"
+    nomes_nota:
+      - "E1"
+    variantes_literais: []
+  - seccao: "3.14"
+    conceito: "Variável de ligação do destinatário"
+    canonico: "—"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "ChannelAdapter"
+      - "contact_endpoints"
+      - "kamba_identity"
+      - "kamba_app"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -2932,6 +3230,52 @@ dominios:
       - "piloto"
     seccao: "3.13"
     conceito: "Fase do produto, lida pela guarda do ADR-011"
+    so_no_registo: false
+  - coluna: "outbound_messages.state"
+    valores:
+      - "queued"
+      - "sent"
+      - "delivered"
+      - "read"
+      - "failed"
+      - "suppressed_by_human"
+    seccao: "3.14"
+    conceito: "Estado de uma mensagem de saída"
+    so_no_registo: false
+  - coluna: "outbound_messages.kind"
+    valores:
+      - "service"
+      - "utility"
+      - "marketing"
+      - "authentication"
+    seccao: "3.14"
+    conceito: "Categoria de uma mensagem de saída"
+    so_no_registo: false
+  - coluna: "message_templates.status"
+    valores:
+      - "pending"
+      - "approved"
+      - "rejected"
+      - "paused"
+      - "disabled"
+    seccao: "3.14"
+    conceito: "Estado de aprovação de um template"
+    so_no_registo: false
+  - coluna: "message_templates.category"
+    valores:
+      - "utility"
+      - "marketing"
+      - "authentication"
+    seccao: "3.14"
+    conceito: "Categoria de um template"
+    so_no_registo: false
+  - coluna: "message_templates.quality"
+    valores:
+      - "green"
+      - "yellow"
+      - "red"
+    seccao: "3.14"
+    conceito: "Nota de qualidade de um template"
     so_no_registo: false
 
 variantes:

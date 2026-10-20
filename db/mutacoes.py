@@ -176,6 +176,17 @@ TEN = "tests_ten"
 #: se via no dia em que acontecesse.
 REV8 = "db/migrations/versions/0008_entrada_de_canal.py"
 REV9 = "db/migrations/versions/0009_conversas.py"
+REV10 = "db/migrations/versions/0010_saida_de_canal.py"
+#: A suite da saida (KAM-015). E a mais **estreita** que apanha o que a `0010` e
+#: o modulo `src/outbound/` prometem: a unicidade por tenant, a monotonia contra
+#: concorrencia e o custo que sai do `pricing`.
+SAIDA = "tests_outbound"
+SAIDA_SQL = "packages/core-ts/src/outbound/consultas.ts"
+SAIDA_ESTADOS = "packages/core-ts/src/outbound/estados.ts"
+SAIDA_LIMITES = "packages/core-ts/src/outbound/limites.ts"
+SAIDA_TARIFAS = "packages/core-ts/src/outbound/tarifas.ts"
+SAIDA_DECISAO = "packages/core-ts/src/outbound/decisao.ts"
+SAIDA_ADAPTER = "packages/core-ts/src/outbound/adapter.ts"
 CHR = "tests_chr"
 CHR_CANAL = "packages/core-ts/src/chr/canal.ts"
 CHR_SQL = "packages/core-ts/src/chr/consultas.ts"
@@ -1394,6 +1405,122 @@ MUTACOES = [
     # Era o que a primeira versao da revisao fazia, e foi o
     # `test_conversas_schema.py` que o apanhou — a mesma armadilha que o
     # `docs/isolamento.md` §6 escreve para a validacao de uma FK nova.
+    # ------------------------------------------------- KAM-015, revisao 0010
+    #
+    # Cada uma nomeia a propriedade que se perde. As quatro primeiras sao as
+    # divergencias que a emenda 1.21 assumiu: se uma mutacao que as desfaz
+    # sobrevive, a divergencia estava escrita e nao estava protegida.
+    ('revisao 0010: a chave de idempotencia passa a ser global', REV10,
+     '            CONSTRAINT outbound_messages_idempotency_uq\n                UNIQUE (tenant_id, idempotency_key),',
+     '            CONSTRAINT outbound_messages_idempotency_uq\n                UNIQUE (idempotency_key),', SAIDA),
+    ('revisao 0010: a FK da conversa deixa de levar o tenant', REV10,
+     '            CONSTRAINT outbound_messages_conversation_fk\n                FOREIGN KEY (tenant_id, conversation_id)\n                REFERENCES platform.conversations (tenant_id, id),',
+     '            CONSTRAINT outbound_messages_conversation_fk\n                FOREIGN KEY (conversation_id)\n                REFERENCES platform.conversations (id),', "tests"),
+    ('revisao 0010: a FK do canal deixa de levar o tenant', REV10,
+     '            CONSTRAINT outbound_messages_channel_fk\n                FOREIGN KEY (tenant_id, channel_id)\n                REFERENCES platform.tenant_channels (tenant_id, id),',
+     '            CONSTRAINT outbound_messages_channel_fk\n                FOREIGN KEY (channel_id)\n                REFERENCES platform.tenant_channels (id),', "tests"),
+    ('revisao 0010: a mensagem de saida fica sem RLS (gate 6)', REV10,
+     '    rls.enable_tenant_rls("outbound_messages")\n',
+     '', ISOLAMENTO),
+    ('revisao 0010: o template fica sem RLS (gate 6)', REV10,
+     '    rls.enable_tenant_rls("message_templates")\n',
+     '', ISOLAMENTO),
+    # O defeito que a `0009` pagou, repetido aqui de proposito: com `FORCE`, o
+    # dono esta sujeito a politica e uma migracao corre sem contexto, logo
+    # contar antes de desligar ve zero linhas e apaga em silencio.
+    ('revisao 0010: o downgrade conta os envios com a politica de pe', REV10,
+     '    rls.disable_tenant_rls("outbound_messages")\n    rls.disable_tenant_rls("message_templates")\n\n    envios = _contar_envios()',
+     '    envios = _contar_envios()\n    rls.disable_tenant_rls("outbound_messages")\n    rls.disable_tenant_rls("message_templates")\n', "tests"),
+    # **Suite `tests` e nao `tests_outbound`**, e a diferenca foi medida: quem
+    # apanha um privilegio de coluna a mais e a matriz do `test_privilegios.py`,
+    # que vive na suite das migracoes. Declarada na suite da saida, esta mutacao
+    # **sobreviveu** — corria os testes do modulo, que nao olham para `GRANT`
+    # nenhum, e a prova dizia «nao apanhada» sem que faltasse teste nenhum.
+    ('revisao 0010: a aplicacao passa a poder reescrever a chave de idempotencia', REV10,
+     'COLUNAS_DA_APLICACAO = (\n    "state",',
+     'COLUNAS_DA_APLICACAO = (\n    "idempotency_key",\n    "state",', "tests"),
+    ('revisao 0010: a aplicacao passa a poder inserir templates', REV10,
+     'op.execute("GRANT SELECT ON platform.message_templates TO kamba_app")',
+     'op.execute("GRANT SELECT, INSERT ON platform.message_templates TO kamba_app")', ISOLAMENTO),
+    ('revisao 0010: o estado de saida perde o suppressed_by_human', REV10,
+     '    "\'failed\'",\n    "\'suppressed_by_human\'",\n)',
+     '    "\'failed\'",\n)', "tests"),
+    ('revisao 0010: um instante de entrega passa a caber em qualquer estado', REV10,
+     '            CONSTRAINT outbound_messages_entrega_ck',
+     '            CONSTRAINT outbound_messages_entrega_sem_regra_ck', "tests"),
+    ('revisao 0010: uma utility passa a poder ir sem template', REV10,
+     '            CONSTRAINT outbound_messages_template_ck',
+     '            CONSTRAINT outbound_messages_template_sem_regra_ck', "tests"),
+    ('revisao 0010: a conversa perde a unicidade que a FK precisa', REV10,
+     '        "ADD CONSTRAINT conversations_tenant_id_uq UNIQUE (tenant_id, id)"',
+     '        "ADD CONSTRAINT conversations_tenant_id_uq UNIQUE (id)"', "tests"),
+    # ------------------------------------------- KAM-015, o modulo de saida
+    ('saida: a monotonia deixa de proteger os terminais', SAIDA_ESTADOS,
+     '  if (terminal(actual)) {\n    return { estado: actual, avancou: false, entregou: false };\n  }',
+     '  if (false) {\n    return { estado: actual, avancou: false, entregou: false };\n  }', SAIDA),
+    ('saida: a entrega passa a contar-se ao chegar e nao ao atravessar', SAIDA_ESTADOS,
+     '  const entregou = de < ordemDoDelivered && para >= ordemDoDelivered;',
+     '  const entregou = para === ordemDoDelivered;', SAIDA),
+    ('saida: o ON CONFLICT da idempotencia desaparece', SAIDA_SQL,
+     '      ON CONFLICT (tenant_id, idempotency_key) DO NOTHING',
+     '', SAIDA),
+    ('saida: o avanco de estado deixa de ter a monotonia no predicado', SAIDA_SQL,
+     '     AND antes.state = ANY($4::text[])',
+     '', SAIDA),
+    ('saida: o bloqueio de template deixa de preservar o primeiro instante', SAIDA_SQL,
+     '   WHERE tenant_id = $1 AND name = $2 AND lang = $3 AND bloqueado_em IS NULL',
+     '   WHERE tenant_id = $1 AND name = $2 AND lang = $3', SAIDA),
+    ('saida: o balde do canal volta a nascer cheio', SAIDA_LIMITES,
+     'const canal = this.#balde(this.#porCanal, phoneNumberId, this.#mps, agoraMs, false);',
+     'const canal = this.#balde(this.#porCanal, phoneNumberId, this.#mps, agoraMs, true);',
+     SAIDA),
+    ('saida: o 131049 passa a repetir-se', SAIDA_LIMITES,
+     'export const CODIGOS_QUE_SE_REPETEM: readonly number[] = [',
+     'export const CODIGOS_QUE_SE_REPETEM: readonly number[] = [\n  131049,',
+     SAIDA),
+    ('saida: o jitter passa a poder dar zero', SAIDA_LIMITES,
+     '  return Math.round(base / 2 + (base / 2) * aleatorio);',
+     '  return Math.round(base * aleatorio);', SAIDA),
+    ('saida: a tarifa de marketing passa a ser a de utility', SAIDA_TARIFAS,
+     '  marketing: 22_500,',
+     '  marketing: 4_000,', SAIDA),
+    ('saida: uma categoria desconhecida passa a custar o de service', SAIDA_TARIFAS,
+     '  return tarifa === undefined ? 0 : tarifa;',
+     '  return tarifa === undefined ? 4_000 : tarifa;', SAIDA),
+    ('saida: a forma deixa de se verificar antes da janela', SAIDA_DECISAO,
+     '  const forma = formaInvalida(corpo);\n  if (forma !== null) return { enviar: false, motivo: forma };',
+     '', SAIDA),
+    ('saida: um template bloqueado passa a poder ser usado', SAIDA_DECISAO,
+     '  if (template.bloqueadoEm !== null) return { enviar: false, motivo: "TEMPLATE_BLOCKED" };',
+     '', SAIDA),
+    # As tres abaixo sao das correccoes que o ensaio do adapter (gate 4) e o do
+    # esquema (suite `tests`) apanharam: cada uma volta o codigo ao defeito
+    # medido, para que deixar de o apanhar seja uma sobrevivente e nao silencio.
+    ('saida: o token bucket deixa de pedir em ciclo', SAIDA_ADAPTER,
+     '      if (espera === 0) break;',
+     '      if (espera === 0) break;\n      if (true) { await this.#dormir(espera); break; }', SAIDA),
+    ('saida: as repeticoes do 130429 passam a ser duas', SAIDA_LIMITES,
+     'export const REPETICOES = 3;', 'export const REPETICOES = 2;', SAIDA),
+    ('revisao 0010: o instante de entrega deixa de caber nos terminais', REV10,
+     "                       OR state IN ('delivered', 'read', 'failed',\n                                    'suppressed_by_human')),",
+     "                       OR state IN ('delivered', 'read')),", "tests"),
+    # As quatro abaixo sao da revisao adversarial do ticket, e cada uma volta o
+    # codigo ao defeito que ela apanhou. As duas primeiras sao dinheiro.
+    ('saida: o custo volta a sair da leitura previa e nao da base', SAIDA_ADAPTER,
+     '    const anterior = linhas.rows[0]?.estado_antes as Estado | undefined;',
+     '    const anterior = actual.state as Estado | undefined;', SAIDA),
+    ('saida: o paraMostrar volta a perder o transporte', SAIDA_TARIFAS,
+     '  const centavos = Math.round(microUsd / 10_000);\n  const dolares = Math.floor(centavos / 100);\n  return `${dolares}.${String(centavos % 100).padStart(2, "0")}`;',
+     '  const dolares = Math.trunc(microUsd / MICRO_USD_POR_USD);\n  const resto = microUsd % MICRO_USD_POR_USD;\n  return `${dolares}.${String(Math.round(resto / 10_000)).padStart(2, "0")}`;', SAIDA),
+    ('saida: o error_code volta a levar o sinal para o registo', SAIDA_ADAPTER,
+     '  return Number.isInteger(codigo) && codigo >= 0 ? String(codigo) : SEM_CODIGO_NO_REGISTO;',
+     '  return String(codigo);', SAIDA),
+    ('saida: uma espera longa volta a ser dormida em vez de recusada', SAIDA_ADAPTER,
+     '      if (espera > ESPERA_MAXIMA_DE_DEBITO_MS) {',
+     '      if (false) {', SAIDA),
+    ('saida: a janela fechada deixa de recusar o envio livre', SAIDA_DECISAO,
+     '      return { enviar: false, motivo: WINDOW_CLOSED };',
+     '      return { enviar: true, kind: "service", templateName: null };', SAIDA),
     ('revisao 0009: o downgrade conta as conversas com a politica de pe', REV9,
      '    rls.disable_tenant_rls("conversations")\n    quantas = _contar()',
      '    quantas = _contar()\n    rls.disable_tenant_rls("conversations")',
@@ -1480,6 +1607,38 @@ MUTACOES = [
 
 #: O que a copia leva. `tools/kamba_yaml.py` e `ci/` nao sao codigo de `db/`,
 #: mas a suite de isolamento le deles as listas de excepcoes.
+def _recusar_importacao_por_pacote() -> None:
+    """Recusa se um teste de `core-ts` importar o pacote por especificador.
+
+    A copia leva o `dist` do `core-ts` (sem ele, o `meta-sim` nao carrega), e um
+    `dist` na copia e uma segunda fonte do mesmo codigo: um teste que importasse
+    `@kamba/core-ts/<modulo>` lia a construcao e nao a fonte mutada, e a prova
+    dava «apanhada» sem nada ter sido apanhado. Esta guarda e o que torna a
+    razao escrita em `_copiar` verificavel em vez de uma intencao.
+
+    A convencao da casa ja e importar por caminho relativo nos testes, e e esta
+    a razao — a mesma que fez a cobertura de `src/outbound/` cair em `dist/` na
+    primeira versao do KAM-015.
+    """
+    achados: list[str] = []
+    for pasta in ("tests", "tests_bd"):
+        raiz = RAIZ / "packages" / "core-ts" / pasta
+        if not raiz.is_dir():
+            continue
+        for ficheiro in sorted(raiz.rglob("*.ts")):
+            texto = ficheiro.read_text(encoding="utf-8")
+            if '"@kamba/core-ts' in texto or "'@kamba/core-ts" in texto:
+                achados.append(str(ficheiro.relative_to(RAIZ)).replace("\\", "/"))
+    if achados:
+        raise SystemExit(
+            "a prova por mutacao nao pode correr: estes testes importam "
+            "`@kamba/core-ts` por especificador, e a copia leva o `dist` — a "
+            "mutacao aplicar-se-ia a fonte e o teste leria a construcao:\n  "
+            + "\n  ".join(achados)
+            + "\nImporte por caminho relativo (`../src/<modulo>/index.ts`)."
+        )
+
+
 def _copiar(destino: Path, suite: str = "tests") -> None:
     ignorar = shutil.ignore_patterns("__pycache__")
     if suite in SUITES_DE_TOOLS:
@@ -1521,6 +1680,49 @@ def _copiar(destino: Path, suite: str = "tests") -> None:
     # O dicionario exportado: a suite de entrada compara o dominio de `kind` e
     # de `motivo` com **tres** fontes, e uma delas e este ficheiro.
     shutil.copytree(RAIZ / "canon", destino / "canon", ignore=ignorar)
+    # **O `tools/meta-sim` e o `config/` (KAM-015)**, e os dois pela regra
+    # escrita mais abaixo: uma mutacao nova sobre uma suite que os abre obriga a
+    # acrescenta-los aqui.
+    #
+    # O simulador vai sem `dist`, ao contrario do `packages/contracts`: o seu
+    # `exports` aponta para `./src/index.ts` e nao para uma pasta construida. Os
+    # `node_modules` chegam por `--volume` da arvore real, como os dos outros.
+    # Sem esta pasta, o `import { GraphFalso } from "@kamba/meta-sim"` do ensaio
+    # da saida rebenta com `ERR_MODULE_NOT_FOUND` — a ligacao de *workspace* e
+    # relativa e resolve-se **dentro da copia**.
+    #
+    # O `config/meta_rates.yaml` e a outra fonte das tarifas, e a suite
+    # `tests_outbound` compara-a com as constantes de `tarifas.ts`: sem ele, o
+    # `setUpClass` do `TestTarifas` levanta e a linha de base fica vermelha —
+    # isto e, nenhuma mutacao da suite se pode provar. Medido ao correr a
+    # primeira.
+    shutil.copytree(
+        RAIZ / "tools" / "meta-sim", destino / "tools" / "meta-sim",
+        ignore=shutil.ignore_patterns("node_modules", "dist", "__pycache__"),
+    )
+    # **E o `dist/entrada` do `core-ts`, e so ele.** O `meta-sim` importa
+    # `@kamba/core-ts/entrada` como **pacote** (tres ficheiros seus leem de la os
+    # nomes de campo e os `wa_type`, em vez de os reescrever), e o `exports` do
+    # `core-ts` aponta esse subcaminho para `dist/entrada/index.js`. Sem esta
+    # pasta, o `import { GraphFalso }` morre com `ERR_MODULE_NOT_FOUND` —
+    # medido, e e o que a linha de base da suite `tests_outbound` dizia.
+    #
+    # **O `dist` inteiro e nao so o `dist/entrada`**: o `dist/entrada/registo.js`
+    # importa o `dist/logger/index.js`, e uma construcao e um grafo — recortar
+    # uma pasta dele da `ERR_MODULE_NOT_FOUND` na seguinte (medido, nesta ordem).
+    #
+    # **E um `dist` na copia podia mascarar uma mutacao**: se um teste importasse
+    # `@kamba/core-ts/<modulo>` em vez de `../src/<modulo>/index.ts`, a mutacao
+    # aplicava-se a fonte, o teste lia a construcao antiga, e a prova dizia
+    # «apanhada» sem nada ter sido apanhado. Por isso **confere-se**, em vez de
+    # se confiar: a guarda abaixo recusa a copia se algum teste de `core-ts`
+    # importar o pacote por especificador. Hoje nenhum o faz — todos importam
+    # por caminho relativo, que e a convencao da casa precisamente por isto.
+    _recusar_importacao_por_pacote()
+    dist = RAIZ / "packages" / "core-ts" / "dist"
+    if dist.is_dir():
+        shutil.copytree(dist, destino / "packages" / "core-ts" / "dist")
+    shutil.copytree(RAIZ / "config", destino / "config", ignore=ignorar)
     # E o que a **lista inteira** precisa de encontrar, mesmo que esta suite nao
     # o corra: o `tests/test_mutacoes.py` corre `--aplicaveis` sobre a lista real
     # **de dentro da copia**, e um ficheiro que falte conta como mutacao nao

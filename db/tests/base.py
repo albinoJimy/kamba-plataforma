@@ -82,19 +82,33 @@ TABELAS_0008 = ("inbound_events", "unrouted_events")
 #: politica `tenant_iso`.
 TABELAS_0009 = ("conversations",)
 
+#: O que a revisao 0010 (KAM-015) acrescenta: a saida de canal.
+#:
+#: Duas, e a ordem de criacao importa — a `outbound_messages` referencia a
+#: `conversations` da `0009` e a `message_templates` nao referencia nenhuma das
+#: duas. No `downgrade` cai a de envios primeiro, por isso.
+TABELAS_0010 = ("message_templates", "outbound_messages")
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
         + TABELAS_0006 + TABELAS_0007 + TABELAS_0008 + TABELAS_0009
+        + TABELAS_0010
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0009`.
+#:
+#: Pela mesma razao das outras: o `downgrade` da `0010` pode recusar (ha envios
+#: ou templates e nao ha copia), e nesse caso a base fica aqui.
+TABELAS_ATE_0009 = tuple(sorted(set(TABELAS) - set(TABELAS_0010)))
 
 #: O que existe em `platform` quando a base esta na revisao `0008`.
 #:
 #: Pela mesma razao do `TABELAS_ATE_0003` e do `TABELAS_ATE_0004`: o
 #: `downgrade` da `0009` pode recusar (ha conversas e nao ha copia), e nesse
 #: caso a base fica aqui.
-TABELAS_ATE_0008 = tuple(sorted(set(TABELAS) - set(TABELAS_0009)))
+TABELAS_ATE_0008 = tuple(sorted(set(TABELAS_ATE_0009) - set(TABELAS_0009)))
 
 #: O que existe em `platform` quando a base esta na revisao `0004`.
 #:

@@ -1,0 +1,121 @@
+# Tarifas da Meta por categoria de mensagem — KAM-015, critério 4
+#
+# O critério 4 nomeia este ficheiro: «taxas em `config/meta_rates.yaml`,
+# efectivas 2026-10-01, com data de revisão trimestral». A pasta `config/` nasce
+# com ele — nada a referenciava antes, e o `grep` em `specs/` e `docs/` dá
+# quatro ocorrências, todas em blocos de ticket (o critério 4 deste e três do
+# KAM-023, que é quem monitoriza o *free tier*).
+#
+# NOTA DE FORMA: este ficheiro é lido pelo `tools/kamba_yaml.py`, que **não
+# aceita listas de fluxo com conteúdo** (`[a, b]`). As listas escrevem-se em
+# bloco.
+#
+# **O que o código usa são as constantes de `packages/core-ts/src/outbound/
+# tarifas.ts`, e há um teste que compara os dois como texto.** A razão é a mesma
+# que o `tools/meta-sim/fake_numbers.yaml` escreveu para o intervalo fictício:
+# não há leitor de YAML em `packages/core-ts` e acrescentar um era acrescentar
+# uma dependência de terceiros ao caminho de produção para ler quatro números
+# que mudam uma vez por trimestre. Um teste de paridade custa dez linhas e não
+# acrescenta leitor nenhum.
+#
+# Porque é que o ficheiro existe, então: porque é o que uma pessoa lê e o que o
+# KAM-023 vai ler em Python, e porque uma tarifa é um facto sobre o mundo — tem
+# de ter fonte, data e estado de verificação ao lado, e isso não cabe numa
+# constante de TypeScript sem a transformar num documento.
+
+version: 1
+
+# As tarifas, em dólares por mensagem **entregue**.
+#
+# CONFIRMADO em fonte primária: `docs/tecnica/evidencia/E1_Meta_WhatsApp.md` §1,
+# zona de preço *Rest of Africa*, efectivas **2026-10-01** — a data em que as
+# *service messages* passaram a ser pagas acima do *free tier* e as *utility*
+# dentro da janela passaram de `free_customer_service` a `regular`.
+#
+# A cobrança é **na entrega e não no envio** (CONFIRMADO, `E1` §1): é por isso
+# que o custo se conta a partir do `pricing` dos `statuses` e não do momento em
+# que o `send` devolve.
+zona: rest_of_africa
+efectivas_em: "2026-10-01"
+estado_das_tarifas: CONFIRMADO
+moeda: USD
+
+# **As tarifas vao em micro-dolares inteiros, e isso nao e capricho do leitor.**
+#
+# O §2 do dicionario manda «dinheiro em unidade menor inteira (`*_minor`) com
+# moeda explicita; **nunca virgula flutuante**». A primeira versao deste ficheiro
+# escrevia `0.004`, e o `tools/kamba_yaml.py` recusou-a — so converte inteiros —,
+# o que foi apanhar o defeito no sitio certo: 0,004 nao e representavel em
+# binario, e somar mil vezes em `float64` nao da exactamente 4,00. Num
+# acumulador de custo isso e deriva que ninguem consegue reconciliar contra uma
+# factura.
+#
+# O centavo nao serve de unidade menor aqui: 0,004 USD sao **0,4** centavos. A
+# unidade e o **micro-dolar** (1e-6 USD), que torna as quatro tarifas inteiras
+# exactas: 4 000 e 22 500. Quem quiser dolares divide no fim, uma vez, para
+# apresentar — nunca no meio da soma.
+unidade: micro_usd
+micro_usd_por_usd: 1000000
+
+tarifas:
+  # Grátis até 1.000 por número e por mês; a partir da 1.001.ª, este valor.
+  # Quem conta as mil é o KAM-023, não este ticket.
+  - categoria: service
+    usd_micro: 4000
+    nota: >-
+      Mensagem livre dentro da janela de 24 h. Gratis ate 1.000 por numero e
+      por mes (CONFIRMADO, E1 §1); o contador vive em
+      tenant_channels.free_tier_used e quem o mantem e o KAM-023.
+  - categoria: utility
+    usd_micro: 4000
+    nota: >-
+      Template utility. Desde 2026-10-01 e paga **tambem dentro da janela**: o
+      pricing.type passou de free_customer_service a regular. Era por isso que
+      o §8.2 do doc 01 manda notificar com mensagem livre quando a janela esta
+      aberta — evita esta tarifa.
+  - categoria: authentication
+    usd_micro: 4000
+    nota: >-
+      Template de autenticacao. Exige telefone (nao se enderecça por BSUID), e
+      por isso nao e usada no Piloto.
+  - categoria: marketing
+    usd_micro: 22500
+    nota: >-
+      Cerca de 5,6x a utility. **Desligada no Piloto** (criterio 7: o envio em
+      marketing e recusado). Esta aqui porque a Meta **recategoriza** um
+      template para marketing a qualquer momento, e nesse caso o custo que ela
+      cobra e este — a tabela tem de poder registar o que ela diz.
+
+# A cadência de revisão é **proposta**, e não CONFIRMADO. A distinção importa.
+#
+# O `docs/tecnica/01` §8.4 escreve «1 Jan, 1 Abr, 1 Jul, 1 Out» e diz de si
+# mesmo «calendário a confirmar»; o `E1` §1 é mais explícito e diz que o «só 4
+# vezes por ano, 1.º dia do trimestre» **vem de resumo de pesquisa** e não da
+# página da Meta. Logo: as tarifas acima são CONFIRMADO, e a frequência com que
+# mudam não é.
+#
+# A consequência prática, e é a razão de isto estar escrito: ninguém deve
+# programar um aviso para 1 de Janeiro e dormir descansado. O que protege é o
+# `pricing` que chega em cada `statuses` — esse é o que a Meta cobrou, e se
+# divergir deste ficheiro é este ficheiro que está velho.
+revisao:
+  cadencia: trimestral
+  estado: proposta
+  datas_propostas:
+    - "2027-01-01"
+    - "2027-04-01"
+    - "2027-07-01"
+    - "2027-10-01"
+  nota: >-
+    Proposta e nao CONFIRMADO: o E1 §1 diz que a cadencia vem de resumo de
+    pesquisa, nao da pagina. O que protege de uma tarifa velha nao e esta lista
+    — e o pricing que chega em cada statuses, que e o que a Meta cobrou.
+
+# O que **não** vive aqui, e tem dono:
+#
+# * o contador do *free tier* e o método de pagamento da PME — KAM-023;
+# * a taxa de câmbio USD/AOA (o `docs/tecnica/01` §8.4 cita ~913 AOA/USD a
+#   08-10-2026, e o §2 do dicionário manda dinheiro em unidade menor inteira) —
+#   não é deste ficheiro nem deste ticket;
+# * os limites de débito (80 mps, 20 mps em coexistência) — `E1` §5, e o *token
+#   bucket* que os respeita é código, não configuração de tarifa.

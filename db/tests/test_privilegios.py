@@ -298,6 +298,54 @@ ESPERADO_POR_TABELA.update(
 )
 
 
+def _saida(**por_papel: set[str]) -> dict[str, set[str]]:
+    """Matriz das duas tabelas da revisao 0010 (KAM-015).
+
+    A mesma forma da `_conversa`, e pela mesma razao em cada papel: o dono tem
+    tudo, o `kamba_batch` tem os quatro de dados porque e quem purga (KAM-071),
+    e o `kamba_resolver`, o `kamba_identity` e o `kamba_audit` **nada** — o
+    resolvedor responde antes de haver contexto, a identidade nao sabe de
+    envios, e quem audita le o `audit_log`.
+    """
+    base = {
+        "kamba_app": set(),
+        "kamba_batch": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+        "kamba_resolver": set(),
+        "kamba_identity": set(),
+        "kamba_audit": set(),
+        "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+        "public": set(),
+    }
+    base.update(por_papel)
+    return base
+
+
+ESPERADO_POR_TABELA.update(
+    {
+        # KAM-015. O `kamba_app` le e insere. O `SELECT` **e preciso**: o
+        # adapter le a linha para saber se a chave ja passou (idempotencia) e
+        # para recusar um estado que ande para tras (monotonia), e o
+        # `INSERT ... ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+        # RETURNING` exige `SELECT` nos elementos da inferencia — a licao que a
+        # `0008` escreveu para o `SQL_QUARENTENA`.
+        #
+        # O `UPDATE` e **por coluna** e por isso nao aparece aqui: esta em
+        # `COLUNAS_POR_PAPEL`, e e la que se ve o que **nao** esta — a
+        # `idempotency_key`, o `kind` e os quatro identificadores. Reescrever a
+        # chave de uma linha que passou e faze-la voltar a passar.
+        "outbound_messages": _saida(kamba_app={"SELECT", "INSERT"}),
+        # KAM-015. **`SELECT` sem `INSERT`**, e e a diferenca que importa nesta
+        # revisao: o adapter **le** os templates para decidir com a janela
+        # fechada e **bloqueia** um que seja recategorizado, mas nao cria
+        # nenhum. Quem submete o conjunto padrao por tenant e o onboarding
+        # (KAM-091), e e esse ticket que pede o `INSERT`. Um `INSERT` concedido
+        # aqui era a aplicacao a poder inventar um template aprovado que a Meta
+        # nunca viu.
+        "message_templates": _saida(kamba_app={"SELECT"}),
+    }
+)
+
+
 def _eventos(**por_papel: set[str]) -> dict[str, set[str]]:
     """Matriz de uma tabela da revisao 0004 (KAM-005).
 
@@ -461,6 +509,35 @@ COLUNAS_POR_PAPEL = {
     # Um privilegio concedido «para quando for preciso» e um privilegio que
     # ninguem volta a tirar.
     ("kamba_app", "conversations", "UPDATE"): {"last_inbound_at", "window_expires_at"},
+    # KAM-015. Cinco colunas, e sao as que o ciclo de vida muda depois de a
+    # linha existir. **O que nao esta aqui e o que importa**: `tenant_id`,
+    # `channel_id`, `contact_id`, `conversation_id`, `idempotency_key`, `kind`,
+    # `template_name` e `created_at`. Reescrever a `idempotency_key` de uma
+    # linha que passou e faze-la voltar a passar — a mesma frase que a `0008`
+    # escreveu para o `kind`/`event_key` — e mudar o `kind` depois do envio e
+    # reescrever quanto a mensagem custou.
+    ("kamba_app", "outbound_messages", "UPDATE"): {
+        "state",
+        "wamid",
+        "pricing",
+        "error_code",
+        "delivered_at",
+    },
+    # KAM-015. Seis, e todas vem de **fora**: os tres webhooks de template
+    # escrevem `status`, `category` e `quality`; o `meta_template_id` chega na
+    # submissao; o `bloqueado_em` e a regra de bloqueio do criterio 9; e o
+    # `updated_at` acompanha os outros. **Sem `tenant_id`, `name`, `lang` nem
+    # `body_hash`**: os tres primeiros sao a chave primaria — altera-los e fazer
+    # o template ser outro — e o `body_hash` e o que permite dizer «o corpo
+    # aprovado nao e o corpo que estamos a enviar».
+    ("kamba_app", "message_templates", "UPDATE"): {
+        "status",
+        "category",
+        "quality",
+        "meta_template_id",
+        "bloqueado_em",
+        "updated_at",
+    },
     # KAM-014, e e tudo o que o gancho de fusao do KAM-008 precisa: le para
     # encontrar a colisao (o contacto que fica ja tem conversa neste canal?) e
     # para dobrar os tempos, e escreve o `contact_id` e os tres tempos. **Sem
@@ -512,6 +589,17 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # seria invisivel na matriz de tabela, e e exactamente o que ninguem pode.
     "inbound_events",
     "unrouted_events",
+    # KAM-015: as duas da saida, e entram por uma razao **medida**. A mutacao
+    # «a aplicacao passa a poder reescrever a chave de idempotencia» —
+    # acrescentar `idempotency_key` as colunas de `UPDATE` de `kamba_app` —
+    # **sobreviveu** a primeira volta da prova: a matriz de tabela nao ve um
+    # privilegio de coluna a mais, e a verificacao por coluna que havia
+    # confirmava que as cinco declaradas estavam concedidas sem exigir que nao
+    # houvesse uma sexta. Reescrever a `idempotency_key` de uma linha que passou
+    # e faze-la voltar a passar — a idempotencia deste ticket inteiro cai por
+    # um `GRANT` de uma palavra.
+    "outbound_messages",
+    "message_templates",
 )
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.

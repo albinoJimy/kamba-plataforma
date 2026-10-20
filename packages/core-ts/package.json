@@ -55,6 +55,10 @@
       "types": "./dist/chr/index.d.ts",
       "default": "./dist/chr/index.js"
     },
+    "./outbound": {
+      "types": "./dist/outbound/index.d.ts",
+      "default": "./dist/outbound/index.js"
+    },
     "./chr/fila": {
       "types": "./dist/chr/fila.d.ts",
       "default": "./dist/chr/fila.js"
@@ -74,6 +78,7 @@
     "ioredis": "5.11.1"
   },
   "devDependencies": {
+    "@kamba/meta-sim": "workspace:*",
     "@types/pg": "8.23.1",
     "pg": "8.23.1"
   },

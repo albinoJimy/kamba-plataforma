@@ -196,6 +196,12 @@ export async function conversasDe(
 /** Apaga tudo o que um tenant de ensaio tem, pela ordem das FK. */
 export async function apagarTenant(admin: pg.Client, tenant: string): Promise<void> {
   await admin.query("UPDATE platform.tenants SET owner_contact_id = NULL WHERE id = $1", [tenant]);
+  // KAM-015: **antes** das conversas, que a `outbound_messages` referencia por
+  // FK composta. Sem estas duas linhas, o `DELETE` das conversas rebenta com
+  // `23503` no `after` do ensaio — e rebenta **depois** de os testes passarem,
+  // o que faz a suite ficar vermelha sem nenhuma assercao ter falhado.
+  await admin.query("DELETE FROM platform.outbound_messages WHERE tenant_id = $1", [tenant]);
+  await admin.query("DELETE FROM platform.message_templates WHERE tenant_id = $1", [tenant]);
   // KAM-014: antes dos contactos e dos canais, que ela referencia.
   await admin.query("DELETE FROM platform.conversations WHERE tenant_id = $1", [tenant]);
   // E o que a emissao de `contact.merged` deixou no outbox (KAM-005). O

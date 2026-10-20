@@ -161,6 +161,13 @@ class TestConvencoes(ComBase):
                 # `kamba_app` le-a (precisa do `mode` e do `RETURNING`), e com
                 # um `id` sequencial media quantas conversas tem a plataforma.
                 "conversations",
+                # KAM-015: a mensagem de saida, `uuid` aleatorio pela mesma
+                # razao — o `kamba_app` le-a (precisa do `RETURNING id` do
+                # `ON CONFLICT` que faz a idempotencia), e com um `id`
+                # sequencial media quantas mensagens a plataforma envia. A
+                # `message_templates` **nao** esta aqui: nao tem coluna `id`,
+                # porque a sua chave e natural (`tenant_id`, `name`, `lang`).
+                "outbound_messages",
             }
             | por_identidade,
         )
@@ -270,6 +277,27 @@ class TestConvencoes(ComBase):
                 # coluna de identidade. A chave de deduplicacao **nao** e esta:
                 # e o `UNIQUE (kind, event_key)`, que e uma restricao propria.
                 ("inbound_events", "id", "uuid", "gen_random_uuid()"),
+                # KAM-015: a chave do template e **natural e de texto**
+                # — `(tenant_id, name, lang)`, como o `docs/tecnica/01` §8.3 —
+                # porque um template e identificado pelo que a Meta conhece, e
+                # nao por um identificador nosso. O §2 pede `uuid` para a
+                # coluna que **referencia**, e nada referencia esta tabela por
+                # chave estrangeira: a `outbound_messages.template_name` e um
+                # `text` solto, e uma FK pediria `(tenant_id, template_name,
+                # lang)` — e a `outbound_messages` nao tem coluna `lang`.
+                #
+                # A posicao nesta lista nao e indiferente: a consulta e
+                # `ORDER BY 1, 2` e a comparacao e de listas ordenadas. Pus
+                # estas quatro linhas depois de `entitlements` na primeira
+                # versao e o teste falhou — com razao.
+                ("message_templates", "lang", "text", None),
+                ("message_templates", "name", "text", None),
+                ("message_templates", "tenant_id", "uuid", None),
+                # KAM-015: um `uuid` gerado, como a conversa, e pela mesma
+                # razao — a unicidade de negocio (a chave de idempotencia) e
+                # uma `UNIQUE` ao lado, e varios tickets a jusante vao referir
+                # uma mensagem enviada por um identificador so.
+                ("outbound_messages", "id", "uuid", "gen_random_uuid()"),
                 ("tenant_channels", "id", "uuid", "gen_random_uuid()"),
                 # KAM-009: as duas tabelas de uso tem chave **composta e de
                 # negocio**, e nao um `uuid` gerado. E deliberado: a chave de
@@ -372,7 +400,17 @@ class TestConvencoes(ComBase):
              # das duas, que e o indice que a serve — nao foi preciso indice
              # proprio para esta regra. O `usage_ledger` tem alem disso
              # `(tenant_id, periodo)`, que e por onde a retencao le.
-             "tenant_usage", "usage_ledger"},
+             "tenant_usage", "usage_ledger",
+             # KAM-015. As duas da saida. A `outbound_messages` tem
+             # `(tenant_id, idempotency_key)`, que e a `UNIQUE` da idempotencia
+             # **e** o indice que a RLS precisa; a `UNIQUE (wamid)` e global e
+             # nao comeca por `tenant_id`, e nao tem de comecar — a asserçao
+             # pede que **algum** indice o faca, e a razao da assimetria esta no
+             # §3.14 (o `wamid` e da Meta e globalmente unico por construcao).
+             # A `message_templates` tem o `tenant_id` em primeiro lugar na
+             # chave primaria `(tenant_id, name, lang)`, que e o indice que a
+             # serve — nao foi preciso indice proprio.
+             "outbound_messages", "message_templates"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -419,7 +457,15 @@ class TestConvencoes(ComBase):
         # com o `tenant_id`** (para `contacts` e para `tenant_channels`), que e
         # o padrao que a `0003` fixou: uma conversa nao aponta para um contacto
         # nem para um canal de outro tenant, e e a base que o recusa.
-        self.assertEqual(len(linhas), 18)
+        # 23 desde o KAM-015: a `message_templates_tenant_fk` e as **quatro**
+        # da `outbound_messages` — cinco, portanto. Nao sao seis: o
+        # `template_name` **nao** tem
+        # FK para `message_templates`: ela pediria `(tenant_id, template_name,
+        # lang)` e a `outbound_messages` nao tem coluna `lang`. Tres das quatro
+        # sao compostas com o `tenant_id`, pela mesma razao da `0009`: uma
+        # mensagem de A nao aponta para um canal, uma conversa ou um contacto
+        # de B, e nem o gate 6 nem o 3b o veriam.
+        self.assertEqual(len(linhas), 23)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

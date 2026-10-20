@@ -15,3 +15,24 @@ packages:
   # Dentro do workspace, o `pnpm -r run typecheck` e o `pnpm -r run test` dos
   # gates 2 e 4 passam a cobri-lo sem alvo novo; fora dele, nada o corria.
   - "tools/meta-sim"
+
+# KAM-015: o ciclo `@kamba/core-ts` <-> `@kamba/meta-sim` e **deliberado**, e
+# sem esta linha o `pnpm -r run typecheck` do gate 2 recusa-se a correr com
+# `ERR_PNPM_TASK_CYCLE`.
+#
+# As duas arestas sao de desenvolvimento e as duas tem razao escrita: o
+# `meta-sim` importa `@kamba/core-ts/entrada` para ler os nomes de campo e os
+# `wa_type` em vez de os reescrever (KAM-024, e reescreve-los era garantir que
+# divergiam), e o `core-ts` importa `@kamba/meta-sim` para os testes da saida
+# contarem as chamadas HTTP com o `GraphFalso` — que e metade do criterio 2 do
+# KAM-015 («1 chamada a API, servidor falso conta»), e nenhuma base de dados a
+# consegue provar.
+#
+# **O que isto nao afrouxa**, porque a pergunta certa e essa: o fecho de
+# **producao** dos dois pacotes continua a ser zero, e isso e medido — o
+# oraculo de `pnpm list --prod` do gate 11 tem o `tools/meta-sim` a zero
+# dependencias e o `sbom check` confere-o a cada PR. O que esta linha troca e
+# a **ordem** das tarefas, que passa a ser arbitraria em vez de topologica; e
+# nenhuma das duas tarefas de `typecheck` precisa da outra, so do `dist/` do
+# `core-ts`, que o gate 1 (`build`) produz antes do gate 2.
+ignoreWorkspaceCycles: true

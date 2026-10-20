@@ -41,6 +41,8 @@ def main() -> int:
         "tests_entrada",
         "tests_entrada_carga",
         "tests_chr",
+        # KAM-015: a saida de canal.
+        "tests_outbound",
     ):
         print(f"suite desconhecida: {directorio!r}", file=sys.stderr)
         return 2
