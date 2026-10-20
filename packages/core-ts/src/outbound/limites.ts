@@ -64,13 +64,28 @@ export class Balde {
   #tokens: number;
   #ultimo: number;
 
-  constructor(capacidade: number, porSegundo: number, agoraMs: number) {
+  constructor(capacidade: number, porSegundo: number, agoraMs: number, cheio = false) {
     this.#capacidade = capacidade;
     this.#porSegundo = porSegundo;
-    // Nasce **cheio**: um canal que não enviou nada no último segundo pode
-    // enviar a sua rajada. Nascer vazio fazia o primeiro envio de cada canal
-    // esperar por nada.
-    this.#tokens = capacidade;
+    // **Nasce vazio, e isso foi uma correccao medida.**
+    //
+    // A primeira versao nascia cheia, com a razao «um canal parado pode enviar
+    // a sua rajada». O teste do criterio 5 recusou-a, e com razao: com quinze
+    // fichas a partida saem quinze mensagens em `t=0`, a primeira ficha nova
+    // chega a `t=67ms`, e a janela deslizante que termina em 67 ms ve
+    // **dezasseis**. O criterio diz «nunca excedem 15/s em **nenhuma** janela
+    // de 1 s», e uma janela que apanhe a rajada mais o primeiro
+    // reabastecimento excede.
+    //
+    // E a aritmetica do proprio criterio diz qual das duas leituras e a
+    // pretendida: «drenam em >= 6,6 s» sao 100/15 = 6,67 s, que so se obtem com
+    // o balde **vazio** a partida. Com ele cheio seriam 85/15 = 5,67 s. O
+    // numero do criterio e a prova de que nao ha rajada de graca.
+    //
+    // O custo e real e fica dito: o primeiro envio de cada canal espera 67 ms.
+    // Contra um terceiro que conta — e que responde `130429` — e o lado certo
+    // para errar.
+    this.#tokens = cheio ? capacidade : 0;
     this.#ultimo = agoraMs;
   }
 
@@ -153,9 +168,9 @@ export class Limites {
    * ninguém usou, e com 15/s isso é 6,7% do débito por cada recusa de par.
    */
   pedir(phoneNumberId: string, tenantId: string, contactId: string, agoraMs: number): number {
-    const canal = this.#balde(this.#porCanal, phoneNumberId, this.#mps, agoraMs);
+    const canal = this.#balde(this.#porCanal, phoneNumberId, this.#mps, agoraMs, false);
     const chaveDoPar = `${tenantId}:${contactId}`;
-    const par = this.#balde(this.#porPar, chaveDoPar, MPS_POR_PAR, agoraMs);
+    const par = this.#balde(this.#porPar, chaveDoPar, MPS_POR_PAR, agoraMs, true);
     let minuto = this.#porParMinuto.get(chaveDoPar);
     if (minuto === undefined) {
       minuto = new Janela(POR_MINUTO_POR_PAR, 60_000);
@@ -187,10 +202,32 @@ export class Limites {
     return this.#porPar.size;
   }
 
-  #balde(mapa: Map<string, Balde>, chave: string, mps: number, agoraMs: number): Balde {
+  /**
+   * O balde de uma chave, criado na primeira vez que se vê.
+   *
+   * **`cheio` difere entre os dois tectos, e e o que cada um protege que o
+   * decide.**
+   *
+   * O do **canal** nasce vazio: protege o debito da Meta, que conta numa janela
+   * deslizante, e uma rajada inicial fazia a janela que a apanha exceder os 15
+   * (medido — ver a nota do `Balde`).
+   *
+   * O do **par** nasce cheio: protege uma pessoa de uma rajada, e a primeira
+   * mensagem a alguem nao e rajada nenhuma. Com capacidade 1 e vazio a
+   * partida, **toda** a primeira mensagem a cada contacto esperava um segundo —
+   * medido, e deu 100 s para 100 contactos diferentes num teste que devia dar
+   * 6,7 s. Era transformar um tecto contra inundacao num atraso universal.
+   */
+  #balde(
+    mapa: Map<string, Balde>,
+    chave: string,
+    mps: number,
+    agoraMs: number,
+    cheio: boolean,
+  ): Balde {
     let balde = mapa.get(chave);
     if (balde === undefined) {
-      balde = new Balde(mps, mps, agoraMs);
+      balde = new Balde(mps, mps, agoraMs, cheio);
       mapa.set(chave, balde);
     }
     return balde;
