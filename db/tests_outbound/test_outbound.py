@@ -1,0 +1,309 @@
+"""A saida de canal (TypeScript) contra o PostgreSQL do gate — KAM-015.
+
+O codigo vive em `packages/core-ts/src/outbound/` e os seus testes de base de
+dados em `packages/core-ts/tests_bd/outbound.bd.test.ts`. Esta suite e o que os
+poe a correr contra a base descartavel, com as migracoes em `head`, e e ela que
+le o que eles deixam: a saida, os numeros que eles medem e a cobertura de
+`src/outbound/`.
+
+Porque e suite propria, e nao mais um ficheiro em `tests`: e **TypeScript**
+contra a base, como a de identidade, a de eventos e a do CHR, e nenhuma das
+baterias de `db/tests/` corre Node. E porque metade do criterio 2 — «1 chamada a
+API (servidor falso conta)» — exige o `GraphFalso` do KAM-024 a contar as
+chamadas, que nenhuma base consegue fazer.
+
+**O que esta suite nao mede**, e onde se mede: a matriz de decisao, a monotonia
+celula a celula, a aritmetica do custo, os tectos do *token bucket* e o cliente
+HTTP vivem nas baterias do gate 4, em
+`packages/core-ts/tests/outbound.*.test.ts` — sao funcoes puras, e uma base real
+nao acrescenta nada a prova. O que **so** aqui se prova esta na docstring do
+ficheiro TypeScript, e e disso que os `GRUPOS` abaixo sao a lista.
+"""
+
+from __future__ import annotations
+
+import re
+import shutil
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+from tests.base import ComBase
+from tests_outbound import node
+
+sys.path.insert(0, str(node.RAIZ / "tools"))
+
+from kamba_yaml import load_file  # noqa: E402
+
+#: Os ficheiros de teste, pela ordem em que correm. Os de cima nao precisam de
+#: base (correm tambem no gate 4) e estao aqui pela cobertura: sem eles, a
+#: medida de `src/outbound/` nao incluiria o que eles exercitam, e o limiar nao
+#: se podia aplicar por ficheiro.
+FICHEIROS = (
+    "tests/outbound.decisao.test.ts",
+    "tests/outbound.estados.test.ts",
+    "tests/outbound.limites.test.ts",
+    "tests_bd/outbound.bd.test.ts",
+)
+
+#: Os grupos de `tests_bd/outbound.bd.test.ts`: um por propriedade que **so** se
+#: prova contra a base. Se um desaparecer, a suite deixa de provar essa
+#: propriedade — e isso tem de falhar aqui, nao passar por haver menos testes.
+GRUPOS = (
+    "idempotencia (criterio 2)",
+    "monotonia contra concorrencia (criterio 3)",
+    "isolamento (Testes Requeridos: X-03 sobre outbound_messages)",
+    "o custo por tenant sai da tabela (DoD «Custo e observabilidade»)",
+    "o bloqueio de template (criterio 9)",
+)
+
+#: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
+#: que dao a letra de cada criterio.
+TESTES_OBRIGATORIOS = (
+    "**duas chamadas com a mesma chave: 1 linha e 1 chamada HTTP**",
+    "**a mesma chave em dois tenants da duas linhas**",
+    "dois statuses em paralelo: o estado final e o maior, e o custo conta uma vez",
+    "um failed depois de delivered fica failed, e nao conta custo",
+    "com o contexto de A, as linhas de B nao aparecem",
+    "com o contexto de A, uma escrita na linha de B nao acontece",
+    "os templates de A nao se veem com o contexto de B",
+    "o SQL_CUSTO_DO_TENANT soma o pricing das entregues",
+    "o custo de A nao inclui o de B — a RLS tambem protege a consulta",
+    "recategorizar para marketing bloqueia, e e idempotente",
+)
+
+#: Os ficheiros do modulo. A cobertura mede-se em **cada um**.
+#:
+#: O `cliente.ts` **nao** esta aqui, e nao e esquecimento: a parte dele que
+#: pode errar em silencio — a forma do corpo, a leitura do `error.code`, o
+#: `Retry-After` — tem bateria propria no gate 4, com o `fetch` por porta; o que
+#: resta e a chamada de rede em si, e esta suite usa o `GraphFalso` por porta e
+#: nao passa por ela. Medi-lo aqui dava-lhe uma cobertura que diria so que o
+#: ensaio nao abre socket. E o mesmo caso do `chr/fila.ts` (KAM-014).
+FICHEIROS_DO_MODULO = (
+    "adapter.ts",
+    "consultas.ts",
+    "contrato.ts",
+    "decisao.ts",
+    "estados.ts",
+    "limites.ts",
+    "metricas.ts",
+    "tarifas.ts",
+    "index.ts",
+)
+
+#: As quatro tarifas, em micro-dolares, como `config/meta_rates.yaml` as declara.
+#:
+#: Esta suite compara o YAML com as constantes de `src/outbound/tarifas.ts`
+#: **como texto**, e e o unico sitio onde as duas fontes se confrontam. A razao
+#: de serem duas esta no modulo: o YAML e o que uma pessoa le e o que o KAM-023
+#: vai ler em Python, e nao ha leitor de YAML em `packages/core-ts`.
+TARIFAS_ESPERADAS = {
+    "service": 4000,
+    "utility": 4000,
+    "authentication": 4000,
+    "marketing": 22500,
+}
+
+
+def _cobertura(lcov: str) -> dict[str, tuple[int, int]]:
+    """ficheiro de `src/outbound/` -> (linhas cobertas, linhas encontradas)."""
+    medidas: dict[str, tuple[int, int]] = {}
+    actual = None
+    cobertas = encontradas = 0
+    for linha in lcov.splitlines():
+        if linha.startswith("SF:"):
+            actual = linha[3:].replace("\\", "/")
+            cobertas = encontradas = 0
+        elif linha.startswith("DA:") and actual is not None:
+            _, execucoes = linha[3:].split(",")[:2]
+            encontradas += 1
+            cobertas += int(execucoes) > 0
+        elif linha == "end_of_record" and actual is not None:
+            if "/src/outbound/" in f"/{actual}":
+                medidas[actual.rsplit("/", 1)[-1]] = (cobertas, encontradas)
+            actual = None
+    return medidas
+
+
+class TestTarifas(unittest.TestCase):
+    """O `config/meta_rates.yaml` e as constantes dizem o mesmo.
+
+    Nao precisa de base. Esta aqui e nao no gate 4 porque o ficheiro de tarifas
+    e YAML e o unico leitor de YAML do repositorio e Python — e a paridade entre
+    as duas fontes e exactamente o que impede que divirjam em silencio.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.yaml = load_file(node.RAIZ / "config" / "meta_rates.yaml")
+        cls.ts = (
+            node.RAIZ / "packages" / "core-ts" / "src" / "outbound" / "tarifas.ts"
+        ).read_text(encoding="utf-8")
+
+    def test_o_yaml_declara_as_quatro_tarifas_em_micro_dolares_inteiros(self) -> None:
+        por_categoria = {t["categoria"]: t["usd_micro"] for t in self.yaml["tarifas"]}
+        self.assertEqual(por_categoria, TARIFAS_ESPERADAS)
+        for categoria, valor in por_categoria.items():
+            with self.subTest(categoria=categoria):
+                self.assertIsInstance(valor, int, "o §2 proibe virgula flutuante")
+
+    def test_as_constantes_de_typescript_dizem_o_mesmo(self) -> None:
+        """Compara como **texto**: e o que um teste de paridade pode afirmar.
+
+        Sem isto, as duas fontes divergiam na primeira vez que a Meta mudasse
+        uma tarifa e alguem tocasse so numa.
+        """
+        for categoria, valor in TARIFAS_ESPERADAS.items():
+            with self.subTest(categoria=categoria):
+                # `4_000` com separador, que e como o TypeScript as escreve.
+                esperado = f"{categoria}: {valor:_}".replace("_", "_")
+                self.assertIn(
+                    esperado,
+                    self.ts,
+                    f"{categoria} nao aparece como {esperado} em tarifas.ts",
+                )
+
+    def test_a_zona_e_a_data_batem(self) -> None:
+        self.assertEqual(self.yaml["zona"], "rest_of_africa")
+        self.assertIn('ZONA = "rest_of_africa"', self.ts)
+        self.assertEqual(self.yaml["efectivas_em"], "2026-10-01")
+        self.assertIn('EFECTIVAS_EM = "2026-10-01"', self.ts)
+
+    def test_a_cadencia_de_revisao_e_declarada_como_proposta(self) -> None:
+        """E **proposta** e nao CONFIRMADO, e o ficheiro tem de o dizer.
+
+        O `docs/tecnica/01` §8.4 diz de si mesmo «calendario a confirmar» e o
+        `E1` §1 diz que o «1.o dia do trimestre» vem de resumo de pesquisa. As
+        tarifas sao CONFIRMADO; a frequencia com que mudam nao e, e marcar as
+        duas da mesma maneira era promover um INDICIO a facto — o defeito mais
+        comum deste repositorio.
+        """
+        self.assertEqual(self.yaml["estado_das_tarifas"], "CONFIRMADO")
+        self.assertEqual(self.yaml["revisao"]["estado"], "proposta")
+
+    def test_a_unidade_esta_declarada_e_o_factor_e_um_milhao(self) -> None:
+        self.assertEqual(self.yaml["unidade"], "micro_usd")
+        self.assertEqual(self.yaml["micro_usd_por_usd"], 1_000_000)
+        self.assertIn("MICRO_USD_POR_USD = 1_000_000", self.ts)
+
+
+class TestModuloDaSaida(ComBase):
+    """Corre os testes em Node **uma vez**, e depois olha para o que ficou."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        cls.saida = Path(tempfile.mkdtemp(prefix="kamba-outbound-"))
+        cls.execucao = node.correr(
+            [
+                "--test",
+                # Um ficheiro de cada vez: o ensaio de base conta linhas de
+                # `outbound_messages` do tenant inteiro e o `GraphFalso` conta
+                # chamadas num contador unico — dois ficheiros em paralelo
+                # veriam as contagens um do outro.
+                "--test-concurrency=1",
+                "--experimental-test-coverage",
+                "--test-reporter=tap",
+                "--test-reporter-destination=stdout",
+                "--test-reporter=lcov",
+                "--test-reporter-destination={saida}",
+                *FICHEIROS,
+            ],
+            cls.saida / "outbound.lcov",
+        )
+        cls.tap = cls.execucao.stdout
+        cls.escrito = cls.execucao.stdout + cls.execucao.stderr
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        shutil.rmtree(cls.saida, ignore_errors=True)
+        super().tearDownClass()
+
+    @classmethod
+    def _falhas_do_tap(cls) -> str:
+        """As linhas `not ok` e o que vem com cada uma, so.
+
+        A mesma funcao do `tests_chr`, e pela mesma razao medida la: o relatorio
+        de cobertura ocupa milhares de linhas no fim da saida, e um
+        `escrito[-6000:]` na mensagem de falha mostrava **so** isso — o
+        diagnostico ficava de fora.
+        """
+        linhas = cls.escrito.splitlines()
+        partes: list[str] = []
+        for indice, linha in enumerate(linhas):
+            if re.match(r"^\s*not ok \d+ - ", linha):
+                partes.append("\n".join(linhas[indice : indice + 30]))
+        resumo = [l for l in linhas if re.match(r"^# (tests|pass|fail) \d+$", l)]
+        return "\n\n".join([*partes, " | ".join(resumo)]) or cls.escrito[-4000:]
+
+    def test_os_testes_da_saida_passam(self) -> None:
+        """As falhas do TAP entram na mensagem: e o que se vai ler."""
+        self.assertEqual(
+            self.execucao.returncode,
+            0,
+            f"node --test saiu com {self.execucao.returncode}:\n"
+            f"{self._falhas_do_tap()}",
+        )
+
+    def test_nenhum_teste_foi_saltado(self) -> None:
+        """Num gate, saltar e falhar — a mesma regra do `correr_suite.py`."""
+        saltados = re.findall(r"^# skip (\d+)$", self.tap, re.M)
+        self.assertEqual(
+            [int(n) for n in saltados] or [0], [0], f"TAP:\n{self.tap[-3000:]}"
+        )
+
+    def test_os_grupos_de_base_de_dados_correram_todos(self) -> None:
+        """Um grupo que desapareca e uma propriedade que deixou de se provar."""
+        for grupo in GRUPOS:
+            with self.subTest(grupo=grupo):
+                self.assertIn(grupo, self.tap)
+
+    def test_os_testes_obrigatorios_passaram(self) -> None:
+        """Pelo nome, e com `ok` a frente: a letra de cada criterio."""
+        for nome in TESTES_OBRIGATORIOS:
+            with self.subTest(teste=nome):
+                self.assertRegex(self.tap, rf"(?m)^\s*ok \d+ - {re.escape(nome)}$")
+
+    def test_a_cobertura_do_modulo_e_pelo_menos_a_do_estrato(self) -> None:
+        """O gate 4 nao tem base de dados; a cobertura de `src/outbound/` mede-se aqui.
+
+        O limiar e **lido** de `ci/thresholds.yaml`, do estrato `restante`, e
+        nao escrito aqui: dois numeros em dois sitios divergem.
+
+        **E `restante` e nao `critico`, e isso e uma decisao escrita.** Os quatro
+        padroes que entraram no estrato `critico` (`logger`, `eventos/consumo`,
+        `ten`, `chr`) entraram porque o DoD do ticket respectivo exigia >= 90% e
+        aquele estrato e o unico mecanismo que o impoe. O DoD do KAM-015 diz
+        «cobertura >= limiar», sem numero — e alterar `ci/thresholds.yaml` pede
+        **dois revisores** (o proprio ficheiro o diz, e o DoD do KAM-002
+        tambem). Nao se alarga um ficheiro de limiares para marcar uma caixa que
+        nao pede o numero.
+        """
+        lcov = self.saida / "outbound.lcov"
+        self.assertTrue(lcov.is_file(), f"nao houve LCOV:\n{self.escrito[-3000:]}")
+        medidas = _cobertura(lcov.read_text(encoding="utf-8"))
+        limiares = load_file(node.RAIZ / "ci" / "thresholds.yaml")
+        minimo = next(
+            int(e["minimo_linhas"])
+            for e in limiares["estratos"]
+            if e["nome"] == "restante"
+        )
+        em_falta = [f for f in FICHEIROS_DO_MODULO if f not in medidas]
+        self.assertEqual(
+            em_falta, [], f"sem medida: {em_falta}; medidos: {sorted(medidas)}"
+        )
+        for ficheiro in FICHEIROS_DO_MODULO:
+            cobertas, encontradas = medidas[ficheiro]
+            with self.subTest(ficheiro=ficheiro):
+                if encontradas == 0:
+                    continue
+                percentagem = cobertas * 100 // encontradas
+                print(f"    cobertura {ficheiro}: {percentagem}% ({cobertas}/{encontradas})")
+                self.assertGreaterEqual(
+                    percentagem,
+                    minimo,
+                    f"{ficheiro}: {percentagem}% < {minimo}% "
+                    f"({cobertas}/{encontradas} linhas)",
+                )

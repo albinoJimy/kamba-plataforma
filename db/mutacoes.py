@@ -176,6 +176,16 @@ TEN = "tests_ten"
 #: se via no dia em que acontecesse.
 REV8 = "db/migrations/versions/0008_entrada_de_canal.py"
 REV9 = "db/migrations/versions/0009_conversas.py"
+REV10 = "db/migrations/versions/0010_saida_de_canal.py"
+#: A suite da saida (KAM-015). E a mais **estreita** que apanha o que a `0010` e
+#: o modulo `src/outbound/` prometem: a unicidade por tenant, a monotonia contra
+#: concorrencia e o custo que sai do `pricing`.
+SAIDA = "tests_outbound"
+SAIDA_SQL = "packages/core-ts/src/outbound/consultas.ts"
+SAIDA_ESTADOS = "packages/core-ts/src/outbound/estados.ts"
+SAIDA_LIMITES = "packages/core-ts/src/outbound/limites.ts"
+SAIDA_TARIFAS = "packages/core-ts/src/outbound/tarifas.ts"
+SAIDA_DECISAO = "packages/core-ts/src/outbound/decisao.ts"
 CHR = "tests_chr"
 CHR_CANAL = "packages/core-ts/src/chr/canal.ts"
 CHR_SQL = "packages/core-ts/src/chr/consultas.ts"
@@ -1394,6 +1404,92 @@ MUTACOES = [
     # Era o que a primeira versao da revisao fazia, e foi o
     # `test_conversas_schema.py` que o apanhou — a mesma armadilha que o
     # `docs/isolamento.md` §6 escreve para a validacao de uma FK nova.
+    # ------------------------------------------------- KAM-015, revisao 0010
+    #
+    # Cada uma nomeia a propriedade que se perde. As quatro primeiras sao as
+    # divergencias que a emenda 1.21 assumiu: se uma mutacao que as desfaz
+    # sobrevive, a divergencia estava escrita e nao estava protegida.
+    ('revisao 0010: a chave de idempotencia passa a ser global', REV10,
+     '            CONSTRAINT outbound_messages_idempotency_uq\n                UNIQUE (tenant_id, idempotency_key),',
+     '            CONSTRAINT outbound_messages_idempotency_uq\n                UNIQUE (idempotency_key),', SAIDA),
+    ('revisao 0010: a FK da conversa deixa de levar o tenant', REV10,
+     '            CONSTRAINT outbound_messages_conversation_fk\n                FOREIGN KEY (tenant_id, conversation_id)\n                REFERENCES platform.conversations (tenant_id, id),',
+     '            CONSTRAINT outbound_messages_conversation_fk\n                FOREIGN KEY (conversation_id)\n                REFERENCES platform.conversations (id),', "tests"),
+    ('revisao 0010: a FK do canal deixa de levar o tenant', REV10,
+     '            CONSTRAINT outbound_messages_channel_fk\n                FOREIGN KEY (tenant_id, channel_id)\n                REFERENCES platform.tenant_channels (tenant_id, id),',
+     '            CONSTRAINT outbound_messages_channel_fk\n                FOREIGN KEY (channel_id)\n                REFERENCES platform.tenant_channels (id),', "tests"),
+    ('revisao 0010: a mensagem de saida fica sem RLS (gate 6)', REV10,
+     '    rls.enable_tenant_rls("outbound_messages")\n',
+     '', ISOLAMENTO),
+    ('revisao 0010: o template fica sem RLS (gate 6)', REV10,
+     '    rls.enable_tenant_rls("message_templates")\n',
+     '', ISOLAMENTO),
+    # O defeito que a `0009` pagou, repetido aqui de proposito: com `FORCE`, o
+    # dono esta sujeito a politica e uma migracao corre sem contexto, logo
+    # contar antes de desligar ve zero linhas e apaga em silencio.
+    ('revisao 0010: o downgrade conta os envios com a politica de pe', REV10,
+     '    rls.disable_tenant_rls("outbound_messages")\n    rls.disable_tenant_rls("message_templates")\n\n    envios = _contar_envios()',
+     '    envios = _contar_envios()\n    rls.disable_tenant_rls("outbound_messages")\n    rls.disable_tenant_rls("message_templates")\n', "tests"),
+    ('revisao 0010: a aplicacao passa a poder reescrever a chave de idempotencia', REV10,
+     'COLUNAS_DA_APLICACAO = (\n    "state",',
+     'COLUNAS_DA_APLICACAO = (\n    "idempotency_key",\n    "state",', SAIDA),
+    ('revisao 0010: a aplicacao passa a poder inserir templates', REV10,
+     'op.execute("GRANT SELECT ON platform.message_templates TO kamba_app")',
+     'op.execute("GRANT SELECT, INSERT ON platform.message_templates TO kamba_app")', ISOLAMENTO),
+    ('revisao 0010: o estado de saida perde o suppressed_by_human', REV10,
+     '    "\'failed\'",\n    "\'suppressed_by_human\'",\n)',
+     '    "\'failed\'",\n)', "tests"),
+    ('revisao 0010: um instante de entrega passa a caber em qualquer estado', REV10,
+     '            CONSTRAINT outbound_messages_entrega_ck',
+     '            CONSTRAINT outbound_messages_entrega_sem_regra_ck', "tests"),
+    ('revisao 0010: uma utility passa a poder ir sem template', REV10,
+     '            CONSTRAINT outbound_messages_template_ck',
+     '            CONSTRAINT outbound_messages_template_sem_regra_ck', "tests"),
+    ('revisao 0010: a conversa perde a unicidade que a FK precisa', REV10,
+     '        "ADD CONSTRAINT conversations_tenant_id_uq UNIQUE (tenant_id, id)"',
+     '        "ADD CONSTRAINT conversations_tenant_id_uq UNIQUE (id)"', "tests"),
+    # ------------------------------------------- KAM-015, o modulo de saida
+    ('saida: a monotonia deixa de proteger os terminais', SAIDA_ESTADOS,
+     '  if (terminal(actual)) {\n    return { estado: actual, avancou: false, entregou: false };\n  }',
+     '  if (false) {\n    return { estado: actual, avancou: false, entregou: false };\n  }', SAIDA),
+    ('saida: a entrega passa a contar-se ao chegar e nao ao atravessar', SAIDA_ESTADOS,
+     '  const entregou = de < ordemDoDelivered && para >= ordemDoDelivered;',
+     '  const entregou = para === ordemDoDelivered;', SAIDA),
+    ('saida: o ON CONFLICT da idempotencia desaparece', SAIDA_SQL,
+     '      ON CONFLICT (tenant_id, idempotency_key) DO NOTHING',
+     '', SAIDA),
+    ('saida: o avanco de estado deixa de ter a monotonia no predicado', SAIDA_SQL,
+     '     AND state = ANY($4::text[])',
+     '', SAIDA),
+    ('saida: o bloqueio de template deixa de preservar o primeiro instante', SAIDA_SQL,
+     '   WHERE tenant_id = $1 AND name = $2 AND lang = $3 AND bloqueado_em IS NULL',
+     '   WHERE tenant_id = $1 AND name = $2 AND lang = $3', SAIDA),
+    ('saida: o balde do canal volta a nascer cheio', SAIDA_LIMITES,
+     'const canal = this.#balde(this.#porCanal, phoneNumberId, this.#mps, agoraMs, false);',
+     'const canal = this.#balde(this.#porCanal, phoneNumberId, this.#mps, agoraMs, true);',
+     SAIDA),
+    ('saida: o 131049 passa a repetir-se', SAIDA_LIMITES,
+     'export const CODIGOS_QUE_SE_REPETEM: readonly number[] = [',
+     'export const CODIGOS_QUE_SE_REPETEM: readonly number[] = [\n  131049,',
+     SAIDA),
+    ('saida: o jitter passa a poder dar zero', SAIDA_LIMITES,
+     '  return Math.round(base / 2 + (base / 2) * aleatorio);',
+     '  return Math.round(base * aleatorio);', SAIDA),
+    ('saida: a tarifa de marketing passa a ser a de utility', SAIDA_TARIFAS,
+     '  marketing: 22_500,',
+     '  marketing: 4_000,', SAIDA),
+    ('saida: uma categoria desconhecida passa a custar o de service', SAIDA_TARIFAS,
+     '  return tarifa === undefined ? 0 : tarifa;',
+     '  return tarifa === undefined ? 4_000 : tarifa;', SAIDA),
+    ('saida: a forma deixa de se verificar antes da janela', SAIDA_DECISAO,
+     '  const forma = formaInvalida(corpo);\n  if (forma !== null) return { enviar: false, motivo: forma };',
+     '', SAIDA),
+    ('saida: um template bloqueado passa a poder ser usado', SAIDA_DECISAO,
+     '  if (template.bloqueadoEm !== null) return { enviar: false, motivo: "TEMPLATE_BLOCKED" };',
+     '', SAIDA),
+    ('saida: a janela fechada deixa de recusar o envio livre', SAIDA_DECISAO,
+     '      return { enviar: false, motivo: WINDOW_CLOSED };',
+     '      return { enviar: true, kind: "service", templateName: null };', SAIDA),
     ('revisao 0009: o downgrade conta as conversas com a politica de pe', REV9,
      '    rls.disable_tenant_rls("conversations")\n    quantas = _contar()',
      '    quantas = _contar()\n    rls.disable_tenant_rls("conversations")',
