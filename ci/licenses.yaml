@@ -9,7 +9,7 @@
 #      `uvicorn`, `click`, `idna` e `fast-uri`, que ja estao nos locks.
 #   2. `typing-extensions==4.16.0` e `PSF-2.0`, e esta fixado nos **dois**
 #      ficheiros `.in`. Nao e MIT, nem Apache, nem BSD, nem ISC.
-#   3. Os sete `package.json` do proprio monorepo declaram `UNLICENSED` — que e
+#   3. Os oito `package.json` do proprio monorepo declaram `UNLICENSED` — que e
 #      convencao do npm e nao SPDX. Um scanner que inclua o workspace (o que
 #      `syft` e `cyclonedx-npm` fazem por omissao) marca o nosso codigo como
 #      licenca nao permitida.
@@ -37,8 +37,9 @@ version: 1
 # real a exige, e com a razao escrita.
 #
 # `MIT-0`, `Unlicense` e `CC0-1.0` estiveram aqui e sairam: nao constavam da
-# proposta do ticket, nenhuma dependencia da arvore as usa (medido: MIT 70,
-# ISC 9, UNLICENSED 7, Python-2.0 1, BSD-3-Clause 1, Apache-2.0 1, PSF-2.0 1),
+# proposta do ticket, nenhuma dependencia da arvore as usa (medido no KAM-002:
+# MIT 70, ISC 9, UNLICENSED 7, Python-2.0 1, BSD-3-Clause 1, Apache-2.0 1,
+# PSF-2.0 1; o `UNLICENSED` passou a 8 com o `@kamba/meta-sim` do KAM-024),
 # e nenhuma tinha razao escrita. A `CC0-1.0` nao e sequer uma licenca — e uma
 # renuncia de dominio publico, com efeito diferente nas jurisdicoes que a nao
 # reconhecem. Se alguma passar a ser necessaria, o gate diz qual e o pacote.
@@ -175,6 +176,14 @@ proprios:
   - "@kamba/worker-canal"
   - "@kamba/com"
   - "@kamba/onboarding-web"
+  # O simulador de webhooks da Meta (KAM-024). Este **esta** no `pnpm-workspace`
+  # — ao contrario do `mermaid-lint` — porque nao acrescenta dependencia
+  # nenhuma: usa o `node:crypto` e o `node:http` da biblioteca padrao. Entra
+  # aqui porque o `services/gwy` o declara como `devDependency` (o teste de ida
+  # e volta do criterio 4 vive no GWY, que e quem e posto a prova), e com isso
+  # passou a aparecer no SBOM. Medido: o gate 11 recusou-o com «npm:@kamba/
+  # meta-sim@0.1.0: licenca nao determinada (UNLICENSED)».
+  - "@kamba/meta-sim"
   # O corredor do parser de Mermaid (KAM-140). Nao e pacote do *workspace* — o
   # `pnpm-lock.yaml` nao o conhece, e e de proposito: o `mermaid` traz 170
   # terceiros, que nao tem que ver com o que vai para producao. Mas tem
