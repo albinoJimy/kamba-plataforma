@@ -53,7 +53,7 @@ Concretiza ADR-002, ADR-005, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-0
 | KAM-034 | Handoff idempotente em dois nós e retoma por compare-and-set | feature | M | P0 | KAM-019, KAM-026, KAM-031, KAM-018 |
 | KAM-035 | Grafo de Serviços: slots, disponibilidade e `book_slot` | feature | L | P0 | KAM-027, KAM-028, KAM-047 |
 | KAM-036 | Pipeline de voz: STT com confiança, eco e fallback a humano | feature | L | P1 | KAM-020, KAM-030, KAM-107, KAM-069 |
-| KAM-037 | Modo determinístico sem LLM e degradação | feature | M | P1 | KAM-031 |
+| KAM-037 | Modo determinístico sem LLM e degradação | feature | M | P1 | KAM-031, KAM-160 |
 | KAM-038 | Subscrição de eventos: as verticais acordam por evento | feature | M | P0 | KAM-006, KAM-027, KAM-007 |
 | KAM-039 | Prova da regra de dois: teste de contrato e métrica de reaproveitamento | feature | M | P0 | KAM-031, KAM-035, KAM-038, KAM-046 |
 | KAM-040 | Dataset golden PT-AO sintético e eval harness como gate | feature | L | P0 | KAM-031, KAM-035, KAM-033, KAM-034 |
@@ -994,7 +994,7 @@ Testes: unit, integração, isolamento, golden de voz. PR com o template §7. Co
 | Tipo | feature |
 | Prioridade | P1 |
 | Estimativa | M |
-| Dependências | KAM-031 |
+| Dependências | KAM-031, KAM-160 |
 | Bloqueia | — |
 | Responsável sugerido | Engenheiro de Runtime/IA |
 | Documentos de referência | `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§14, §13.3), `../docs/tecnica/00_Arquitectura_Solucao.md` (princípio 12, §7), ADR-002, ADR-007 |
@@ -1390,3 +1390,4 @@ Não expandas escopo: sem aprovação automática, sem UI própria. Testes: esta
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: 16 tickets (KAM-025 a KAM-040) do Agent Runtime e Verticais; KAM-114 (modo concierge) acrescentado na consolidação. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | KAM-145: os **26** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | **KAM-160** entra no `Dependências` do KAM-037, nas três superfícies, por reciprocidade: o `01` §14 manda registar um `pending_reply` que não existe em superfície nenhuma, e o KAM-037 é quem implementa a degradação. O `02` §14 deste epic é a prova de que não falta coluna — fecha com a mesma regra de recuperação («Ao recuperar, não se reenviam respostas antigas fora da janela») sem nome novo, e o critério 1 do KAM-037 já mede «0 turnos sem resposta em 100 execuções». Nada do bloco do KAM-037 muda além dessa linha. | Equipa KAMBÁ |
