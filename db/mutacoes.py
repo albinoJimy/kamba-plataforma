@@ -1053,6 +1053,13 @@ MUTACOES = [
      "        if epic and epic in fontes.por_epic:\n"
      "            valores.append(fontes.por_epic[epic])\n",
      "", CONTAGENS),
+    # A exclusao do corpus volta ao caminho absoluto, que e o defeito que o
+    # KAM-158 tinha: uma arvore dentro de uma pasta `.claude` — qualquer
+    # worktree do Claude Code — ficava com o corpus vazio, e o gate media
+    # zero contagens numa arvore cheia delas.
+    ("KAM-158 contagens: a exclusao do corpus volta ao caminho absoluto", CONT_SCAN,
+     "            if '.claude' in rel.parts or 'node_modules' in rel.parts:",
+     "            if '.claude' in f.parts or 'node_modules' in f.parts:", CONTAGENS),
 
     # ------------------------------------------------------------- KAM-006
     #
@@ -1804,6 +1811,8 @@ def _copiar_para_os_contratos(destino: Path, ignorar) -> None:
     ele), a lista aprovada, e **os contratos**: o `test_catalogo_e_cli.py`
     corre sobre os trinta e oito ficheiros reais, e nao sobre schemas
     inventados — uma logica certa com um catalogo que nao carrega nao serve.
+    Leva tambem o `docs/tecnica/06` e o `canon/dicionario.yaml`, que sao as
+    duas fontes contra as quais o catalogo e os `enum` se verificam.
     """
     shutil.copytree(
         RAIZ / "tools" / "contract_diff", destino / "tools" / "contract_diff",
@@ -1821,6 +1830,18 @@ def _copiar_para_os_contratos(destino: Path, ignorar) -> None:
         RAIZ / "docs" / "tecnica" / "06_Dados_Eventos_Analytics.md",
         destino / "docs" / "tecnica" / "06_Dados_Eventos_Analytics.md",
     )
+    # **E o `canon/dicionario.yaml`** — a quarta vez que a copia fica atras do
+    # que a suite abre. O KAM-159 acrescentou o `dominios.py`, que compara os
+    # `enum` dos contratos com os dominios do dicionario: o `test_dominios.py`
+    # copia-o da raiz real e o canario do `cli.py` (a quinta verificacao) faz o
+    # mesmo. A copia do KAM-007 nao o levava, e por isso a linha de base desta
+    # suite corria vermelha — em 116 testes, doze `ERROR:` no `test_dominios.py`
+    # (nove a copiar o dicionario que nao esta la, tres com `DicionarioAusente`)
+    # e os dois `FAIL:` do canario. Com a linha de base vermelha, **nenhuma das
+    # dezoito mutacoes de `contratos` se podia provar**: o corredor parava antes
+    # de aplicar a primeira. Encontrado ao correr um filtro largo no KAM-015.
+    (destino / "canon").mkdir(parents=True, exist_ok=True)
+    shutil.copy(RAIZ / "canon" / "dicionario.yaml", destino / "canon" / "dicionario.yaml")
 
 
 def _copiar_para_as_contagens(destino: Path, ignorar) -> None:

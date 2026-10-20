@@ -147,9 +147,18 @@ def ficheiros(raiz: Path, padroes=PADROES_DE_FICHEIRO) -> list[Path]:
     vistos: dict[Path, None] = {}
     for padrao in padroes:
         for f in raiz.glob(padrao):
-            if '.claude' in f.parts or 'node_modules' in f.parts:
+            # **Relativo a raiz, e nao `f.parts`.** A exclusao e do `.claude/`
+            # *do repositorio*; sobre o caminho absoluto, ela apagava o corpus
+            # inteiro de qualquer arvore que viva **dentro** de uma pasta com
+            # esse nome — e e exactamente onde os worktrees do Claude Code
+            # vivem (`.claude/worktrees/<nome>`). O gate corria sobre zero
+            # ficheiros, dava zero contagens vivas, e so nao passou por verde
+            # porque a guarda das grandezas sem ocorrencia o apanhou. No CI
+            # nunca se via: o caminho do runner nao tem `.claude`.
+            rel = f.relative_to(raiz)
+            if '.claude' in rel.parts or 'node_modules' in rel.parts:
                 continue
-            if f.relative_to(raiz).as_posix().startswith(PASTAS_DE_REGISTO):
+            if rel.as_posix().startswith(PASTAS_DE_REGISTO):
                 continue
             vistos[f] = None
     return sorted(vistos, key=lambda f: f.as_posix())
