@@ -249,6 +249,22 @@ class TestConvencoes(ComBase):
                 ("conversations", "id", "uuid", "gen_random_uuid()"),
                 ("entitlements", "modulo", "text", None),
                 ("entitlements", "tenant_id", "uuid", None),
+                # KAM-015: a chave do template e **natural e de texto**
+                # — `(tenant_id, name, lang)`, como o `docs/tecnica/01` §8.3 —
+                # porque um template e identificado pelo que a Meta conhece, e
+                # nao por um identificador nosso. O §2 pede `uuid` para a
+                # coluna que **referencia**, e nada referencia esta tabela por
+                # chave estrangeira: a `outbound_messages.template_name` e um
+                # `text` solto, e uma FK pediria `(tenant_id, template_name,
+                # lang)` — e a `outbound_messages` nao tem coluna `lang`.
+                ("message_templates", "lang", "text", None),
+                ("message_templates", "name", "text", None),
+                ("message_templates", "tenant_id", "uuid", None),
+                # KAM-015: um `uuid` gerado, como a conversa, e pela mesma
+                # razao — a unicidade de negocio (a chave de idempotencia) e
+                # uma `UNIQUE` ao lado, e varios tickets a jusante vao referir
+                # uma mensagem enviada por um identificador so.
+                ("outbound_messages", "id", "uuid", "gen_random_uuid()"),
                 ("events_consumed", "consumer", "text", None),
                 ("events_consumed", "event_id", "uuid", None),
                 ("events_dlq", "id", "bigint", None),
@@ -372,7 +388,17 @@ class TestConvencoes(ComBase):
              # das duas, que e o indice que a serve — nao foi preciso indice
              # proprio para esta regra. O `usage_ledger` tem alem disso
              # `(tenant_id, periodo)`, que e por onde a retencao le.
-             "tenant_usage", "usage_ledger"},
+             "tenant_usage", "usage_ledger",
+             # KAM-015. As duas da saida. A `outbound_messages` tem
+             # `(tenant_id, idempotency_key)`, que e a `UNIQUE` da idempotencia
+             # **e** o indice que a RLS precisa; a `UNIQUE (wamid)` e global e
+             # nao comeca por `tenant_id`, e nao tem de comecar — a asserçao
+             # pede que **algum** indice o faca, e a razao da assimetria esta no
+             # §3.14 (o `wamid` e da Meta e globalmente unico por construcao).
+             # A `message_templates` tem o `tenant_id` em primeiro lugar na
+             # chave primaria `(tenant_id, name, lang)`, que e o indice que a
+             # serve — nao foi preciso indice proprio.
+             "outbound_messages", "message_templates"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):

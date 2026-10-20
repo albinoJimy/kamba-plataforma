@@ -338,6 +338,91 @@ INVENTARIO = {
         "window_expires_at": ("timestamp with time zone", SIM, None, "nao"),
         "last_human_activity_at": ("timestamp with time zone", SIM, None, "nao"),
     },
+    # KAM-015. As duas tabelas da saida de canal.
+    #
+    # **Tres colunas pedem uma frase cada**, e sao as unicas desta revisao que
+    # tocam em dados pessoais ou em identificadores externos: o `wamid`, pela
+    # mesma razao do `inbound_events.event_key`; o `template_name`, que e nome
+    # de artefacto e nao de pessoa, mas que viaja para a Meta; e o `pricing`,
+    # que nao e dado pessoal mas e **dado financeiro** e o unico registo do que
+    # a Meta cobrou. O destinatario entra por `contact_id`, que e um UUID
+    # aleatorio (ADR-010): nao ha telefone nem BSUID nesta tabela.
+    "outbound_messages": {
+        "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "channel_id": ("uuid", NAO, None, "nao"),
+        "contact_id": (
+            "uuid",
+            NAO,
+            None,
+            "referencia opaca a contacts (ADR-010); nao e telefone nem BSUID",
+        ),
+        "conversation_id": ("uuid", NAO, None, "nao"),
+        "idempotency_key": (
+            "text",
+            NAO,
+            None,
+            "chave nossa, gerada por quem envia; unica por (tenant_id, "
+            "idempotency_key) e nao global, para que um tenant nao suprima "
+            "mensagens de outro adivinhando-a (emenda 1.21, divergencia 2)",
+        ),
+        "wamid": (
+            "text",
+            SIM,
+            None,
+            "identificador de mensagem da Meta, que leva o numero do "
+            "interlocutor codificado em base64 (INDICIO, docs/logs.md §2.1). "
+            "Nunca sai para um log em claro: la vai `id_opaco`",
+        ),
+        "kind": ("text", NAO, None, "nao"),
+        "template_name": (
+            "text",
+            SIM,
+            None,
+            "nome de artefacto e nao de pessoa, mas viaja para a Meta e "
+            "identifica o tenant junto dela; NULL para `service`, obrigatorio "
+            "nas outras tres (outbound_messages_template_ck)",
+        ),
+        "state": ("text", NAO, "'queued'::text", "nao"),
+        "pricing": (
+            "jsonb",
+            SIM,
+            None,
+            "nao e dado pessoal, e **e** dado financeiro: o pricing que chegou "
+            "nos statuses e o unico registo do que a Meta cobrou, e e dele que "
+            "sai o custo por tenant (docs/tecnica/01 §16)",
+        ),
+        "error_code": ("integer", SIM, None, "nao"),
+        "created_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "delivered_at": ("timestamp with time zone", SIM, None, "nao"),
+    },
+    # KAM-015. **Nenhuma coluna guarda dado pessoal**: um template e um
+    # artefacto do tenant, nao de um contacto. O `body_hash` e o que permite
+    # dizer «o corpo aprovado nao e o corpo que estamos a enviar», e e resumo e
+    # nao corpo — de propósito, para que o texto aprovado nao viva aqui.
+    "message_templates": {
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "name": ("text", NAO, None, "nome do template junto da Meta"),
+        "lang": ("text", NAO, None, "nao"),
+        "category": ("text", NAO, None, "nao"),
+        "status": ("text", NAO, "'pending'::text", "nao"),
+        "quality": ("text", SIM, None, "nao"),
+        "meta_template_id": (
+            "text",
+            SIM,
+            None,
+            "identificador opaco da Meta; so existe depois de ela aceitar",
+        ),
+        "body_hash": (
+            "text",
+            NAO,
+            None,
+            "resumo do corpo aprovado, e nao o corpo: o texto aprovado nao vive "
+            "nesta tabela",
+        ),
+        "bloqueado_em": ("timestamp with time zone", SIM, None, "nao"),
+        "updated_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
     "unrouted_events": {
         "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
         "kind": ("text", NAO, None, "nao"),
@@ -421,6 +506,17 @@ class TestInventario(ComBase):
                 (nome, "a", "a")
                 for nome in sorted(
                     [
+                        # KAM-015: as quatro da saida. Tres sao compostas
+                        # com o `tenant_id` — contacto, canal e conversa —
+                        # porque sem elas uma mensagem do tenant A podia
+                        # apontar para um objecto de B, e nem o gate 6 nem o 3b
+                        # o veriam. Sem `ON DELETE CASCADE`, como todas: o §2
+                        # manda soft delete, e quem purga e o `kamba_batch`.
+                        "message_templates_tenant_fk",
+                        "outbound_messages_channel_fk",
+                        "outbound_messages_contact_fk",
+                        "outbound_messages_conversation_fk",
+                        "outbound_messages_tenant_fk",
                         "contact_deks_contact_fk",
                         "contact_deks_tenant_fk",
                         "contact_endpoints_contact_fk",
@@ -534,6 +630,34 @@ class TestInventario(ComBase):
             sorted(nome for (nome,) in linhas),
             sorted(
                 [
+                    # ------------------------------------- KAM-015 (0010)
+                    # Os dois dominios da `outbound_messages`, as duas
+                    # unicidades (a da chave de idempotencia e **por tenant**;
+                    # a do `wamid` e global, e a assimetria esta no §3.14), e as
+                    # tres coerencias: template obrigatorio fora de `service`,
+                    # instante de entrega so em `delivered`/`read`, codigo de
+                    # erro so em `failed`.
+                    #
+                    # Nos templates: as tres listas fechadas — e a de `quality`
+                    # permite nulos sem o dizer, porque em SQL um `CHECK` que
+                    # avalie a NULL passa.
+                    #
+                    # E a `UNIQUE (tenant_id, id)` que esta revisao acrescenta a
+                    # `conversations` para a FK composta poder assentar nela,
+                    # como a `0009` fez a `tenant_channels`.
+                    "conversations_tenant_id_uq",
+                    "message_templates_category_ck",
+                    "message_templates_pkey",
+                    "message_templates_quality_ck",
+                    "message_templates_status_ck",
+                    "outbound_messages_entrega_ck",
+                    "outbound_messages_erro_ck",
+                    "outbound_messages_idempotency_uq",
+                    "outbound_messages_kind_ck",
+                    "outbound_messages_pkey",
+                    "outbound_messages_state_ck",
+                    "outbound_messages_template_ck",
+                    "outbound_messages_wamid_uq",
                     # ------------------------------------- KAM-014 (0009)
                     # O dominio de `mode`, a coerencia da janela (os dois
                     # tempos andam juntos e o fim e depois do inicio), a chave

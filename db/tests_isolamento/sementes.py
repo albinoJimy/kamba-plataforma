@@ -215,6 +215,63 @@ def _conversa(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+#: A conversa do tenant, para a FK composta da mensagem de saida. Mesma forma do
+#: `_UM_CONTACTO` e do `_UM_CANAL`, e pela mesma razao: quando a receita e usada
+#: para **atacar**, a subconsulta nao ve a conversa do outro tenant, e o que tem
+#: de recusar a linha e a politica — que se avalia antes das FK — e nao um valor
+#: nulo.
+_UMA_CONVERSA = (
+    "COALESCE((SELECT id FROM platform.conversations WHERE tenant_id = %s "
+    "ORDER BY id LIMIT 1), gen_random_uuid())"
+)
+
+
+def _envio(cursor, tenant_id: str, canario: str) -> None:
+    """Uma mensagem de saida do tenant (KAM-015). O canario vai na chave.
+
+    O canario vai na `idempotency_key` e nao no `id`: a `id` e um `uuid` e a
+    chave e `text`, pelo que o canario cabe la **tal e qual**, sem passar por
+    `_uuid`. E e a coluna certa — a unicidade e `(tenant_id, idempotency_key)`,
+    logo dois tenants podem semear o mesmo canario, que e exactamente o que o
+    X-03 precisa para provar que cada um so ve o seu.
+
+    `kind` fica em `service`, que e o unico valor que dispensa `template_name`
+    (`outbound_messages_template_ck`), e o estado fica na omissao (`queued`) —
+    sem `delivered_at` nem `error_code`, que as outras duas coerencias proibem
+    fora dos seus estados.
+
+    Semeia o administrador da instancia, como a receita da conversa: o `INSERT`
+    do `kamba_app` esta sob `WITH CHECK` e esta receita nao define contexto.
+    """
+    cursor.execute(
+        "INSERT INTO platform.outbound_messages "
+        "(tenant_id, channel_id, contact_id, conversation_id, "
+        " idempotency_key, kind) "
+        f"VALUES (%s, {_UM_CANAL}, {_UM_CONTACTO}, {_UMA_CONVERSA}, %s, 'service')",
+        (tenant_id, tenant_id, tenant_id, tenant_id, canario),
+    )
+
+
+def _template(cursor, tenant_id: str, canario: str) -> None:
+    """Um template do tenant (KAM-015). O canario vai no `name`.
+
+    O `name` e parte da chave primaria `(tenant_id, name, lang)` e e `text`:
+    o canario cabe la tal e qual. Dois tenants podem ter um template com o
+    mesmo nome — e e isso que o X-03 precisa.
+
+    A `category` fica em `utility`, que e a do conjunto padrao do Piloto, e o
+    `status` na omissao (`pending`). O `body_hash` e obrigatorio e aqui e um
+    resumo do canario: nao e o corpo, e de proposito — o texto aprovado nao vive
+    nesta tabela.
+    """
+    cursor.execute(
+        "INSERT INTO platform.message_templates "
+        "(tenant_id, name, lang, category, body_hash) "
+        "VALUES (%s, %s, 'pt_PT', 'utility', %s)",
+        (tenant_id, canario, _resumo(canario + ":corpo")),
+    )
+
+
 def _identidade(inserir, coluna, alteravel, valor, guardado) -> Receita:
     return Receita(
         inserir, coluna, alteravel, valor,
@@ -405,6 +462,29 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     # `None`. O arquivo e imutavel e so o `kamba_batch` lhe escreve: a politica
     # protege a leitura do produtor, e a escrita esta protegida pela falta de
     # privilegio (`escrita_do_papel=False`).
+    # KAM-015. O canario vai na `idempotency_key`, que e `text` e parte da
+    # unicidade por tenant — dois tenants podem semear o mesmo canario, que e o
+    # que o X-03 precisa. O papel que a le e escreve e o `kamba_app` (e o
+    # adapter), e a coluna que ele pode alterar e o `state`: o `UPDATE` da
+    # revisao `0010` e por coluna e nao inclui a chave nem o `kind`.
+    #
+    # O valor alteravel e `failed` e nao `sent`, e isso nao e indiferente: um
+    # `delivered` ou um `read` pediam `delivered_at`, e um `failed` nao pede
+    # `error_code` (a coerencia e so num sentido — o codigo exige o estado, nao
+    # o contrario).
+    ("platform", "outbound_messages"): Receita(
+        _envio, "idempotency_key", "state", "failed", semeador="admin",
+    ),
+    # KAM-015. O canario vai no `name`, parte da chave primaria. O `kamba_app`
+    # **le e nao insere** — quem submete templates e o onboarding (KAM-091) —,
+    # e por isso `escrita_do_papel=False`: o que protege a escrita e a falta de
+    # privilegio, e nao a politica, que e mais forte. A coluna alteravel e o
+    # `status`, que e uma das seis que o `UPDATE` por coluna da revisao `0010`
+    # concede, porque os webhooks de template escrevem-na.
+    ("platform", "message_templates"): Receita(
+        _template, "name", "status", "approved",
+        semeador="admin", escrita_do_papel=False,
+    ),
     ("platform", "events_outbox"): Receita(
         _evento_no_outbox, "agregado_id", None, None, semeador="admin"
     ),
@@ -488,6 +568,11 @@ ORDEM = (
     # KAM-014: depende de `contacts` e de `tenant_channels`, e vem depois das
     # duas. Na ordem inversa, apaga-se antes delas.
     ("platform", "conversations"),
+    # KAM-015: a mensagem de saida depende de `conversations`, de `contacts` e
+    # de `tenant_channels`, e vem depois das tres. Na ordem inversa, apaga-se
+    # antes delas. O template so depende de `tenants`.
+    ("platform", "outbound_messages"),
+    ("platform", "message_templates"),
     ("platform", "events_outbox"),
     ("platform", "evt_agregado_seq"),
     ("platform", "events_log"),

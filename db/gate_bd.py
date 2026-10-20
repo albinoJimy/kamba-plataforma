@@ -4,6 +4,7 @@
     python db/gate_bd.py --suite tests_identidade    # gate 8, segunda metade
     python db/gate_bd.py --suite tests_isolamento    # gate 6
     python db/gate_bd.py --suite tests_chr           # gate 8, o CHR (KAM-014)
+    python db/gate_bd.py --suite tests_outbound      # gate 8, a saida (KAM-015)
     python db/gate_bd.py --suite tests --bd-existente
 
 Os dois gates precisam do mesmo: um PostgreSQL real, vazio e descartavel. Este
@@ -122,6 +123,16 @@ SUITES = (
     # sozinho nao responde a pergunta. Nao precisa de fila: a porta do AGR e
     # uma interface, e o que ela faz com o *job* e KAM-025.
     "tests_chr",
+    # KAM-015: a saida de canal. Corre o modulo TypeScript
+    # (`packages/core-ts/src/outbound/`) contra a base **e** contra o servidor
+    # Graph falso do KAM-024, que e a unica forma de provar as tres coisas que
+    # nao se simulam: que duas chamadas com a mesma chave dao **uma** linha (a
+    # unicidade e da base, nao do codigo), que um `delivered` seguido de um
+    # `sent` fica `delivered` (a monotonia tem de sobreviver a concorrencia
+    # real), e que o `pricing` de um estado fica guardado por mensagem. Nao
+    # precisa de fila: a ordem por conversa prova-se com o registo do servidor
+    # falso, e a fila de saida e do proprio adapter.
+    "tests_outbound",
 )
 #: As que precisam tambem de uma fila.
 SUITES_COM_FILA = (

@@ -2639,6 +2639,7 @@ entradas:
       - "utility"
       - "authentication"
       - "marketing"
+      - "float64"
     variantes_literais: []
   - seccao: "3.14"
     conceito: "Métricas da saída"

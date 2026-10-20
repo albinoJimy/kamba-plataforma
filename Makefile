@@ -939,6 +939,16 @@ ci-8:
 	@# nao precisa de fila, porque a porta do AGR e uma interface (KAM-025).
 	@echo "==> gate 8: CHR contra PostgreSQL 18.6 (KAM-014)"
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_chr
+	@# E a saida de canal (KAM-015). O que so aqui se prova, e nao se simula:
+	@# que duas chamadas com a mesma `idempotency_key` deixam **uma** linha (a
+	@# unicidade e da base e nao do codigo, e e por tenant — dois tenants com a
+	@# mesma chave ficam com duas linhas), que um `delivered` seguido de um
+	@# `sent` fica `delivered` contra concorrencia real, que o `pricing` de cada
+	@# estado fica guardado por mensagem, e que a RLS recusa a mensagem de A
+	@# escrita com o contexto de B. Corre contra o servidor Graph falso do
+	@# KAM-024, que e quem conta as chamadas HTTP.
+	@echo "==> gate 8: saida de canal contra PostgreSQL 18.6 (KAM-015)"
+	@$(VENV_PYTHON) db/gate_bd.py --suite tests_outbound
 
 # -----------------------------------------------------------------------------
 # Limpeza
