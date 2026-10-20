@@ -494,8 +494,14 @@ privilégio; a porta fica na interface e levanta, com teste a prová-lo, e a cai
 do critério fica vazia. Também não decide: onde o provedor é alojado (**D1**, e
 o provedor trata dados pessoais), o nó de grafo `handoff_prepare`/`handoff_wait`
 e a retoma (KAM-034), o provisionamento orquestrado (KAM-091), o aviso ao dono
-por um segundo número (NÃO VERIFICADO, fora do bloco), e o `pending_reply` que o
-§14 manda registar e que não existe em dicionário, coluna nem código.
+por um segundo número (NÃO VERIFICADO, fora do bloco). **O `pending_reply`
+deixou de ser um problema desta secção enquanto ela se escrevia:** a *discovery*
+deste ticket encontrou-o numa única linha do repositório inteiro — o fecho do
+`../docs/tecnica/01` §14, a mandar registá-lo, sem dicionário, coluna nem
+código — e o **KAM-160** resolveu-o pelo outro lado, fazendo o §14 deixar de o
+mandar. Fica aqui a nota porque era defeito e não resíduo (obrigava a escolher
+entre criar a coluna ou emendar o documento), e porque é o género de lacuna que
+só aparece a quem for implementar: dois tickets antes, ninguém a tinha visto.
 
 ---
 
