@@ -140,6 +140,30 @@ class TestCorpus(unittest.TestCase):
             nomes = [f.relative_to(raiz).as_posix() for f in ficheiros(raiz)]
             self.assertEqual(nomes, ['docs/ci.md', 'specs/INDICE.md'])
 
+    def test_o_claude_do_repositorio_fica_de_fora(self) -> None:
+        with TemporaryDirectory() as d:
+            raiz = Path(d)
+            for rel in ('specs/INDICE.md', '.claude/skills/x.md'):
+                (raiz / rel).parent.mkdir(parents=True, exist_ok=True)
+                (raiz / rel).write_text('143 tickets', encoding='utf-8')
+            nomes = [f.relative_to(raiz).as_posix()
+                     for f in ficheiros(raiz, ('specs/*.md', '.claude/**/*.md'))]
+            self.assertEqual(nomes, ['specs/INDICE.md'])
+
+    def test_uma_raiz_dentro_de_um_claude_continua_a_ser_varrida(self) -> None:
+        """A exclusao e do `.claude/` da arvore, nao do caminho ate ela.
+
+        Os worktrees do Claude Code vivem em `.claude/worktrees/<nome>`: com a
+        exclusao sobre o caminho absoluto, o corpus ficava **vazio** em todos
+        eles, e o gate media zero contagens numa arvore cheia delas.
+        """
+        with TemporaryDirectory() as d:
+            raiz = Path(d) / '.claude' / 'worktrees' / 'abc'
+            (raiz / 'specs').mkdir(parents=True)
+            (raiz / 'specs' / 'INDICE.md').write_text('143 tickets', encoding='utf-8')
+            nomes = [f.relative_to(raiz).as_posix() for f in ficheiros(raiz)]
+            self.assertEqual(nomes, ['specs/INDICE.md'])
+
     def test_sem_repetidos_quando_os_padroes_se_sobrepoem(self) -> None:
         with TemporaryDirectory() as d:
             raiz = Path(d)
