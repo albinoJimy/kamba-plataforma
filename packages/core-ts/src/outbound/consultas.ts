@@ -103,7 +103,7 @@ export const SQL_MARCAR_FALHADA = `
 `;
 
 /**
- * Avança o estado de uma mensagem, com a monotonia **no predicado**.
+ * Avança o estado de uma mensagem, e **devolve o estado que substituiu**.
  *
  * O `$4` é a lista dos estados de que se pode sair para o `$3`, e vem do
  * `estados.ts`: é o mesmo cálculo, mas aplicado pela base, que é quem serializa
@@ -111,21 +111,49 @@ export const SQL_MARCAR_FALHADA = `
  * novo o permite (`outbound_messages_entrega_ck`), e é o `CASE` que o garante
  * em vez de duas consultas.
  *
- * `RETURNING state` vazio significa «não avançou», e é isso que o chamador lê
- * para não contar custo duas vezes.
+ * ## O `estado_antes`, e porque é que ele é o centro desta consulta
+ *
+ * **Quem decide o custo é a transição que de facto aconteceu, e só a base a
+ * sabe.** A primeira versão desta consulta devolvia só o estado novo, e quem
+ * chamava calculava o custo a partir de uma leitura feita **antes** — com dois
+ * `statuses` concorrentes, os dois liam `sent`, os dois concluíam «houve
+ * entrega» e os dois somavam 4 000. O guarda «zero linhas» não os apanhava,
+ * porque ambos os `UPDATE` casavam: `delivered` aceita sair de `sent` e `read`
+ * aceita sair de `sent` **e** de `delivered`.
+ *
+ * O par que o produz é exactamente o que a Meta produz: ela não garante ordem
+ * nos `statuses` (`E1` §5), logo `delivered` e `read` chegam juntos a dois
+ * processos. Oito mil micro-dólares para uma mensagem entregue uma vez, e o
+ * `SQL_CUSTO_DO_TENANT` — que soma por linha — a dizer quatro mil. A
+ * reconciliação em que o DoD «Custo e observabilidade» se apoia deixava de
+ * fechar, e o painel mentia **por cima**.
+ *
+ * O `FOR UPDATE` da subconsulta é o que torna o `estado_antes` fiável: o
+ * segundo processo **bloqueia** ali, e quando passa relê a versão comprometida
+ * pelo primeiro. Não é uma leitura optimista com esperança — é a serialização
+ * que o ADR-015 já exige para a RLS, usada aqui para o dinheiro.
+ *
+ * `RETURNING` vazio significa «não avançou», e continua a ser isso que o
+ * chamador lê para não contar duas vezes um estado que não mexeu em nada.
  */
 export const SQL_AVANCAR_ESTADO = `
-  UPDATE platform.outbound_messages
+  UPDATE platform.outbound_messages AS m
      SET state = $3,
-         pricing = COALESCE($5::jsonb, pricing),
+         pricing = COALESCE($5::jsonb, m.pricing),
          delivered_at = CASE
-             WHEN $3 IN ('delivered', 'read') THEN COALESCE(delivered_at, now())
-             ELSE delivered_at
+             WHEN $3 IN ('delivered', 'read') THEN COALESCE(m.delivered_at, now())
+             ELSE m.delivered_at
          END
-   WHERE tenant_id = $1
-     AND wamid = $2
-     AND state = ANY($4::text[])
-   RETURNING id, state, kind
+    FROM (
+      SELECT id, state
+        FROM platform.outbound_messages
+       WHERE tenant_id = $1 AND wamid = $2
+         FOR UPDATE
+    ) AS antes
+   WHERE m.tenant_id = $1
+     AND m.id = antes.id
+     AND antes.state = ANY($4::text[])
+   RETURNING m.id, antes.state AS estado_antes, m.state, m.kind
 `;
 
 /** A mensagem a que um `wamid` pertence. */

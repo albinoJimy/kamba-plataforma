@@ -70,6 +70,8 @@ export { avancar, ingerir, terminal, type FreeTier, type Ingestao, type Transica
 export {
   BASE_DO_BACKOFF_MS,
   Balde,
+  ESPERA_MAXIMA_DE_DEBITO_MS,
+  MAXIMO_DE_PARES,
   CODIGOS_QUE_SE_REPETEM,
   Janela as JanelaDeContagem,
   Limites,
@@ -122,4 +124,11 @@ export {
   SQL_TEMPLATE,
 } from "./consultas.ts";
 
-export { Saida, SemGuardaError, VARIAVEL_DO_AMBIENTE, type Dependencias } from "./adapter.ts";
+export {
+  Saida,
+  SEM_CODIGO_NO_REGISTO,
+  SemGuardaError,
+  VARIAVEL_DO_AMBIENTE,
+  codigoParaRegisto,
+  type Dependencias,
+} from "./adapter.ts";

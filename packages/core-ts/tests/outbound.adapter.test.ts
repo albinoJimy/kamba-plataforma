@@ -40,7 +40,10 @@ import { GraphFalso, Gerador as GeradorDeFixtures } from "@kamba/meta-sim";
 import { Logger, idOpaco } from "../src/logger/index.ts";
 import {
   BASE_DO_BACKOFF_MS,
+  Limites,
   MPS_POR_CANAL,
+  SEM_CODIGO_NO_REGISTO,
+  codigoParaRegisto,
   METRICA_CUSTO,
   METRICA_ENVIADAS,
   METRICA_JANELA_FECHADA,
@@ -118,6 +121,15 @@ class BaseFalsa {
   readonly linhas = new Map<string, Linha>();
   /** `window_expires_at` da conversa. `null` é «a janela nunca abriu». */
   janela: Date | null = new Date(T0 + 60 * 60 * 1000);
+  /**
+   * Força o `estado_antes` que o `avancar_estado` devolve.
+   *
+   * Existe para um teste só, e é o teste que prova que o custo sai da palavra
+   * da base e não de uma leitura anterior. Em série as duas fontes concordam
+   * sempre, pelo que sem esta divergência forçada não há como distinguir as
+   * duas implementações.
+   */
+  estadoAntesForcado: Estado | null = null;
   template: Template | null = null;
   #proximo = 0;
 
@@ -214,9 +226,14 @@ class BaseFalsa {
       // `statuses` concorrentes, e a porta imita-o para que o adapter veja o
       // mesmo «zero linhas» que a base lhe daria se perdesse a corrida.
       if (linha === undefined || !permitidos.includes(linha.state)) return linhas([]);
+      // **Devolve o estado que substituiu**, que é o que a consulta real
+      // devolve (`antes.state AS estado_antes`, sob `FOR UPDATE`) e é de onde
+      // sai o custo. Devolver só o estado novo era o defeito que duplicava
+      // dinheiro.
+      const antes = this.estadoAntesForcado ?? linha.state;
       linha.state = String(valores[2]) as Estado;
       if (valores[4] !== null) linha.pricing = JSON.parse(String(valores[4])) as Pricing;
-      return linhas([{ state: linha.state }]);
+      return linhas([{ estado_antes: antes, state: linha.state }]);
     }
     if (nome === "bloquear_template") {
       if (this.template === null || this.template.bloqueadoEm !== null) return linhas([]);
@@ -283,6 +300,7 @@ interface Opcoes {
   readonly aleatorio?: number;
   readonly ambiente?: Record<string, string | undefined>;
   readonly freeTier?: { readonly usadas: number; readonly tecto: number } | null;
+  readonly limites?: Limites;
 }
 
 function montar(opcoes: Opcoes = {}): Montagem {
@@ -326,6 +344,7 @@ function montar(opcoes: Opcoes = {}): Montagem {
       agora += 100;
       return new Date(agora);
     },
+    ...(opcoes.limites === undefined ? {} : { limites: opcoes.limites }),
     aleatorio: () => opcoes.aleatorio ?? 0,
     dormir: async (ms: number) => {
       dormiu.push(ms);
@@ -573,6 +592,30 @@ describe("o debito de 100 envios, medido no servidor falso (criterio 5)", () => 
     assert.ok(drenagem < 7_200, `drenou em ${drenagem}ms, demasiado`);
   });
 
+  it("**uma espera acima do tecto da RATE_LIMITED, sem chamada**", async () => {
+    // O `RATE_LIMITED` estava na lista fechada de dez motivos e **nada o
+    // devolvia** — um valor morto numa lista fechada, e por isso tambem um
+    // valor morto na etiqueta `motivo` da metrica. Achado da revisao
+    // adversarial.
+    //
+    // E a razao de existir e melhor do que a simetria: o tecto por minuto do
+    // par pode pedir 60 s, e dormir um minuto dentro de uma chamada de envio
+    // prende o chamador, o *job* e a ligacao a base por causa de um tecto
+    // nosso. Com um canal de 0,1 mps a primeira ficha so chega aos 10 s.
+    const { saida, bd, meta } = montar({ limites: new Limites(0.1) });
+    const resultado = await saida.enviar(pedido());
+
+    assert.equal(resultado.ok, false);
+    assert.equal(resultado.ok === false ? resultado.motivo : "", "RATE_LIMITED");
+    assert.equal(meta.chamadas, 0, "recusar e nao chamar e o ponto");
+    // A linha fica `failed`: um envio recusado nao pode ficar `queued` para
+    // sempre, que e o que faz um painel acreditar que ha coisas em voo.
+    assert.equal(bd.linhas.get("chave-1")?.state, "failed");
+    const lido = saida.metricas.ler();
+    assert.equal(lido[`${METRICA_JANELA_FECHADA}:RATE_LIMITED`], 1);
+    assert.equal(lido[`${METRICA_TRAVADAS}:bucket`], 1);
+  });
+
   it("contactos diferentes nao se travam uns aos outros pelo tecto do par", async () => {
     // O tecto do par (1 mps) nasce **cheio**, e é o que faz a primeira
     // mensagem a cada contacto não esperar um segundo. Sem isso, os cem envios
@@ -743,6 +786,36 @@ describe("o registo nao leva o wamid em claro (DoD «Privacidade»)", () => {
     assert.equal(recusada?.["error_code"], "131049");
     assert.equal(typeof recusada?.["error_code"], "string");
   });
+
+  it("**um -1 do cliente nao faz o logger estrito levantar**", async () => {
+    // O `CODIGO_SEM_CODIGO` do `cliente.ts` e `-1`, e e o que ele devolve num
+    // *timeout*, numa falha de rede e num `200` sem `wamid`. A gramatica de
+    // `error_code` na *allowlist* nao aceita o sinal `-`: um `"-1"` fazia o
+    // `Logger` **levantar** em modo estrito — que e o do CI —, e um *timeout*
+    // da Meta passava a excepcao nao tratada no caminho de envio em vez de uma
+    // recusa com codigo.
+    const semCodigo: RespostaDaMeta = {
+      ok: false,
+      codigo: -1,
+      estadoHttp: 0,
+      esperar: null,
+    };
+    const { saida, registo } = montar({ guiao: [semCodigo] });
+    const resultado = await saida.enviar(pedido());
+
+    assert.equal(resultado.ok, false);
+    assert.equal(resultado.ok === false ? resultado.codigo : 0, -1, "o codigo chega a quem chama");
+    const recusada = registo.find((linha) => linha["outcome"] === "envio_recusado");
+    assert.equal(recusada?.["error_code"], SEM_CODIGO_NO_REGISTO);
+  });
+
+  it("o codigoParaRegisto so deixa passar inteiros nao negativos", async () => {
+    assert.equal(codigoParaRegisto(130429), "130429");
+    assert.equal(codigoParaRegisto(0), "0");
+    assert.equal(codigoParaRegisto(-1), SEM_CODIGO_NO_REGISTO);
+    assert.equal(codigoParaRegisto(-130429), SEM_CODIGO_NO_REGISTO);
+    assert.equal(codigoParaRegisto(Number.NaN), SEM_CODIGO_NO_REGISTO);
+  });
 });
 
 describe("a ingestao de statuses pelo adapter", () => {
@@ -804,10 +877,73 @@ describe("a ingestao de statuses pelo adapter", () => {
     assert.equal(saida.metricas.ler()[METRICA_CUSTO], 4000);
   });
 
-  it("um wamid que nao existe nao faz nada", async () => {
-    const { saida } = await comEnvioFeito();
+  it("um wamid que nao existe nao faz nada, mas **faz barulho**", async () => {
+    // O caso real nao e um `wamid` inventado: e a nossa escrita do `wamid`
+    // ainda nao ter comprometido quando o `delivered` chega noutro processo.
+    // Em silencio, a linha ficava em `sent` para sempre e o custo nunca era
+    // contado — e o `SQL_CUSTO_DO_TENANT` tambem nao a ve, porque filtra por
+    // `pricing IS NOT NULL`.
+    const { saida, registo } = await comEnvioFeito();
     const resultado = await saida.ingerir(TENANT, "wamid.NAO_EXISTE", "delivered", null, PNID);
     assert.deepEqual(resultado, { avancou: false, microUsd: 0 });
+    const aviso = registo.find((linha) => linha["outcome"] === "status_sem_mensagem");
+    assert.ok(aviso !== undefined, "um status perdido nao pode passar em silencio");
+    // E o `wamid` vai opaco, como em todo o resto.
+    assert.match(String(aviso["msg_id"]), /^m_[0-9a-f]{32}$/);
+  });
+
+  it("**o custo sai do estado_antes da base, e nao da leitura previa**", async () => {
+    // A assercao que prende a correccao sem precisar de concorrencia
+    // verdadeira: a base diz que substituiu um `delivered`, a leitura previa
+    // tinha visto `sent`, e as duas transicoes dao custos **diferentes** —
+    // `sent -> read` atravessa a entrega e custa 4 000, `delivered -> read`
+    // nao atravessa nada e custa 0.
+    //
+    // Com o custo calculado a partir da leitura previa, isto somava 4 000, que
+    // e exactamente a dupla contagem que a corrida produzia. Em serie as duas
+    // fontes concordam sempre, e e por isso que um ensaio sequencial sem esta
+    // divergencia forcada passaria com o defeito de pe.
+    const montagem = montar();
+    await montagem.saida.enviar(pedido());
+    const linha = montagem.bd.linhas.get("chave-1");
+    assert.ok(linha !== undefined);
+    // A base vai dizer «substitui um delivered» embora a linha esteja em `sent`.
+    montagem.bd.estadoAntesForcado = "delivered";
+    const resultado = await montagem.saida.ingerir(TENANT, WAMID, "read", pricing(), PNID);
+
+    assert.equal(resultado.avancou, true);
+    assert.equal(resultado.microUsd, 0, "a base disse que a entrega ja tinha acontecido");
+    assert.equal(montagem.saida.metricas.ler()[METRICA_CUSTO], undefined);
+  });
+
+  it("dois statuses que ambos avancam contam o custo uma vez", async () => {
+    // A corrida que duplicava dinheiro. Partindo de `sent`, o `delivered` e o
+    // `read` **ambos** avancam e ambos atravessam a entrega: com o custo
+    // calculado a partir de uma leitura feita antes do `UPDATE`, os dois
+    // contavam 4 000. A base falsa imita a consulta real e devolve o
+    // `estado_antes`, que e de onde o custo passa a sair.
+    //
+    // E o par importa: `delivered` + `sent` — que era o do ensaio de base —
+    // nao podia duplicar com defeito nenhum, porque um `sent` depois de `sent`
+    // e *no-op* por construcao.
+    const { saida } = await comEnvioFeito();
+    const primeiro = await saida.ingerir(TENANT, WAMID, "delivered", pricing(), PNID);
+    const segundo = await saida.ingerir(TENANT, WAMID, "read", pricing(), PNID);
+
+    assert.equal(primeiro.microUsd, 4000);
+    assert.equal(segundo.avancou, true, "o read avanca o estado");
+    assert.equal(segundo.microUsd, 0, "mas a entrega ja tinha contado");
+    assert.equal(saida.metricas.ler()[METRICA_CUSTO], 4000);
+  });
+
+  it("e pela ordem contraria tambem: read primeiro, delivered depois", async () => {
+    const { saida } = await comEnvioFeito();
+    const primeiro = await saida.ingerir(TENANT, WAMID, "read", pricing(), PNID);
+    const segundo = await saida.ingerir(TENANT, WAMID, "delivered", pricing(), PNID);
+
+    assert.equal(primeiro.microUsd, 4000);
+    assert.equal(segundo.avancou, false, "de read nao se volta a delivered");
+    assert.equal(saida.metricas.ler()[METRICA_CUSTO], 4000);
   });
 
   it("dentro do free tier um service nao custa", async () => {

@@ -195,6 +195,23 @@ describe("as tarifas (criterio 4)", () => {
     assert.equal(paraMostrar(4_000), "0.00");
     assert.equal(paraMostrar(22_500), "0.02");
   });
+
+  it("**e o transporte faz-se**: 249 entregas dao 1.00 e nao 0.100", () => {
+    // 249 x 4 000 = 996 000 micro-dolares. A primeira versao separava os
+    // dolares com uma divisao inteira e arredondava o resto em separado:
+    // `Math.round(99,6) = 100`, e o `padStart(2, "0")` nao trunca — saia
+    // `"0.100"`, com tres digitos e sem o dolar incrementado. Um numero errado
+    // num painel de custo e pior do que nenhum, porque ninguem o questiona.
+    assert.equal(paraMostrar(996_000), "1.00");
+    assert.equal(paraMostrar(2_996_000), "3.00");
+    assert.equal(paraMostrar(999_999), "1.00");
+    // E nenhuma saida tem mais de duas casas decimais, para nenhum valor que
+    // uma soma de tarifas possa dar.
+    for (let i = 0; i < 2_000; i += 1) {
+      const texto = paraMostrar(i * 4_000);
+      assert.match(texto, /^\d+\.\d{2}$/, `${i * 4000} deu ${texto}`);
+    }
+  });
 });
 
 describe("ingestao com free tier (criterio 4)", () => {

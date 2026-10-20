@@ -589,6 +589,17 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # seria invisivel na matriz de tabela, e e exactamente o que ninguem pode.
     "inbound_events",
     "unrouted_events",
+    # KAM-015: as duas da saida, e entram por uma razao **medida**. A mutacao
+    # «a aplicacao passa a poder reescrever a chave de idempotencia» —
+    # acrescentar `idempotency_key` as colunas de `UPDATE` de `kamba_app` —
+    # **sobreviveu** a primeira volta da prova: a matriz de tabela nao ve um
+    # privilegio de coluna a mais, e a verificacao por coluna que havia
+    # confirmava que as cinco declaradas estavam concedidas sem exigir que nao
+    # houvesse uma sexta. Reescrever a `idempotency_key` de uma linha que passou
+    # e faze-la voltar a passar — a idempotencia deste ticket inteiro cai por
+    # um `GRANT` de uma palavra.
+    "outbound_messages",
+    "message_templates",
 )
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.

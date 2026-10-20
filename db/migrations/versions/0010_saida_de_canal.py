@@ -17,9 +17,14 @@ templates o tenant tem aprovados (para decidir com a janela fechada).
 A fonte de cada coisa:
 
 * `outbound_messages` e as suas catorze colunas — dicionario §3.14, emenda 1.21
-  (KAM-015). O DDL de `docs/tecnica/01` §8.4 tem doze; a decima terceira e
-  `conversation_id`, sem a qual nao ha ordem por conversa (criterio 6), e a
-  decima quarta e `created_at`, que ele ja tinha.
+  (KAM-015). O DDL de `docs/tecnica/01` §8.4 tem **treze** (contadas uma a uma:
+  `id`, `tenant_id`, `channel_id`, `contact_id`, `idempotency_key`, `wamid`,
+  `kind`, `template_name`, `state`, `pricing`, `error_code`, `created_at`,
+  `delivered_at`); a catorze e `conversation_id`, sem a qual nao ha ordem por
+  conversa (criterio 6), e nao se acrescenta mais nada. A primeira versao desta
+  nota dizia «doze» e contava o `created_at` como acrescento — uma coluna que o
+  documento ja tem nao pode ser um acrescento, e 12 + 1 nao da 14. Apanhado pela
+  revisao adversarial.
 * `message_templates` e as suas dez colunas — dicionario §3.14. O DDL do §8.3
   tem nove; a decima e `bloqueado_em`, que o criterio 9 pede por implicacao: a
   recategorizacao para `marketing` bloqueia o uso, e um bloqueio sem instante

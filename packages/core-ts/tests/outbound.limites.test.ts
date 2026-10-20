@@ -20,6 +20,7 @@ import { describe, it } from "node:test";
 
 import {
   BASE_DO_BACKOFF_MS,
+  ESPERA_MAXIMA_DE_DEBITO_MS,
   Balde,
   CODIGOS_QUE_SE_REPETEM,
   CODIGO_SEM_CODIGO,
@@ -47,7 +48,7 @@ describe("o balde", () => {
     assert.equal(balde.tirar(67), 0, "aos 67ms chega a primeira ficha");
   });
 
-  it("cheio a partida e opcional, e nenhum tecto o usa", () => {
+  it("cheio a partida da a capacidade toda de uma vez — e e o tecto do par", () => {
     const balde = new Balde(15, 15, 0, true);
     for (let i = 0; i < 15; i += 1) assert.equal(balde.tirar(0), 0, `ficha ${i}`);
     assert.ok(balde.tirar(0) > 0, "a decima sexta espera");
@@ -180,6 +181,39 @@ describe("os tres tectos (criterio 5)", () => {
     for (let i = 0; i < 15; i += 1) limites.pedir("pnid-1", "t", `c${i}`, 1000);
     assert.ok(limites.pedir("pnid-1", "t", "x", 1000) > 0, "o primeiro canal esta cheio");
     assert.equal(limites.pedir("pnid-2", "t", "y", 1000), 0, "o segundo nao");
+  });
+
+  it("**o mapa por par tem tecto, e o mais antigo sai primeiro**", () => {
+    // O `esquecer` existia e **nunca era chamado em producao**: um worker de
+    // longa duracao acumulava um balde e uma janela por cada par que vira. Era
+    // uma limitacao declarada na nota da classe e que nada impunha — um
+    // vazamento com documentacao, e foi a revisao adversarial que o apanhou.
+    const limites = new Limites(MPS_POR_CANAL, 2);
+    for (const contacto of ["a", "b", "c"]) {
+      limites.pedir("pnid-1", "t", contacto, 0);
+    }
+    assert.equal(limites.paresEmMemoria, 2, "o tecto tem de morder");
+
+    // E quem saiu foi o primeiro a entrar: o `a` volta a nascer, o que o faz
+    // nascer **cheio** outra vez — e e o que um contacto que nao fala ha muito
+    // merece.
+    //
+    // A `1000` e nao a `0`, e a diferenca importa: a `0` o balde do **canal**
+    // ainda nao tem ficha nenhuma (nasce vazio) e e ele que recusa primeiro, o
+    // que nao diz nada sobre o par. Um segundo depois o canal tem as quinze e o
+    // que decide e mesmo o par.
+    assert.equal(limites.pedir("pnid-1", "t", "a", 1000), 0, "o `a` renasceu cheio");
+    assert.equal(limites.paresEmMemoria, 2, "e o tecto continua a morder");
+  });
+
+  it("uma espera acima do tecto e para ser recusada, nao dormida", () => {
+    // O numero que o adapter usa para decidir entre dormir e recusar. Com um
+    // canal de 0,1 mps, a primeira ficha so chega aos 10 s — muito acima dos
+    // 5 s —, e e esse o caso que o `RATE_LIMITED` existe para cobrir.
+    const limites = new Limites(0.1);
+    const espera = limites.pedir("pnid-1", "t", "a", 0);
+    assert.ok(espera > ESPERA_MAXIMA_DE_DEBITO_MS, `esperou ${espera}ms`);
+    assert.equal(espera, 10_000);
   });
 
   it("esquecer liberta a memoria de um par", () => {

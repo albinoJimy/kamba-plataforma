@@ -27,7 +27,9 @@
  * dependência de terceiros ao caminho de produção para ler quatro números que
  * mudam uma vez por trimestre.
  *
- * As duas fontes não divergem por acidente: `tarifas.bd.test.ts` compara-as.
+ * As duas fontes não divergem por acidente: o `TestTarifas` de
+ * `db/tests_outbound/test_outbound.py` compara-as **como texto**, e é em Python
+ * porque é lá que há leitor de YAML.
  * É o mesmo desenho que o `tools/meta-sim/fake_numbers.yaml` usa para o
  * intervalo fictício, e pela mesma razão escrita lá.
  *
@@ -108,7 +110,13 @@ export function categoriaDesconhecida(pricing: Pricing | null): boolean {
  * de um relatório. O nome diz `paraMostrar` por isso.
  */
 export function paraMostrar(microUsd: number): string {
-  const dolares = Math.trunc(microUsd / MICRO_USD_POR_USD);
-  const resto = microUsd % MICRO_USD_POR_USD;
-  return `${dolares}.${String(Math.round(resto / 10_000)).padStart(2, "0")}`;
+  // **Arredonda primeiro, divide depois**, e a ordem é a correcção de um
+  // defeito medido: a primeira versão separava os dólares com uma divisão
+  // inteira e arredondava o resto em separado, pelo que um resto de 996 000
+  // (249 mensagens entregues) dava `Math.round(99,6) = 100` — saía `"0.100"`,
+  // com um terceiro dígito e sem o dólar incrementado. Com os centavos
+  // calculados primeiro, o transporte faz-se sozinho.
+  const centavos = Math.round(microUsd / 10_000);
+  const dolares = Math.floor(centavos / 100);
+  return `${dolares}.${String(centavos % 100).padStart(2, "0")}`;
 }

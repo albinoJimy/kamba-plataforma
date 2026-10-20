@@ -26,8 +26,10 @@
  *
  * O `enviar` recebe um `Destinatario` que pode ter telefone, e **não o escreve
  * em sítio nenhum**: não há `log` neste módulo, de propósito. Quem registra é o
- * adapter, e registra o `contactId` (um UUID) e o `id_opaco` do `wamid`. É o
- * DoD «Privacidade» e o X-11 do gate 6.
+ * adapter, e registra o `tenant_id` e o `msg_id` — que é o `idOpaco` do `wamid`,
+ * o `m_` mais 32 hexadecimais do §3.10 do dicionário. **E só esses dois**: a
+ * *allowlist* do `logger/politica.ts` não tem `contact_id` nem `id_opaco`, e
+ * tentá-los é erro de compilação. É o DoD «Privacidade» e o X-11 do gate 6.
  */
 
 import type {

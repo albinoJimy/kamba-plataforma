@@ -188,6 +188,13 @@ fontes_adicionais:
   # o *job* e KAM-025.
   - ficheiro: db/tests_chr/node.py
     constante: IMAGEM_NODE
+  # KAM-015: a suite da saida corre o modulo TypeScript contra a base **e**
+  # contra o servidor Graph falso do KAM-024, num contentor Node quando a
+  # maquina nao tem `node`. Leva tres pastas de `node_modules` montadas em vez
+  # de duas, porque o ensaio importa o `@kamba/meta-sim`. Nao levanta fila
+  # nenhuma.
+  - ficheiro: db/tests_outbound/node.py
+    constante: IMAGEM_NODE
   # KAM-011: a suite TypeScript do contrato de armazenamento e a prova por
   # mutacao correm num contentor Node quando a maquina nao tem `node`.
   - ficheiro: infra/storage/contrato.py

@@ -291,12 +291,24 @@ describe("a saida de canal contra a base", () => {
       const wamid = resultado.ok ? (resultado.wamid ?? "") : "";
       assert.notEqual(wamid, "");
 
-      // `delivered` e `sent` **ao mesmo tempo, em duas ligações**. Só a base
-      // os serializa: com uma ligação, os dois `UPDATE` saem em série e o
-      // teste provava que o JavaScript é sequencial.
+      // **`delivered` e `read` ao mesmo tempo, em duas ligações**, e o par é o
+      // ponto.
+      //
+      // A primeira versão deste teste usava `delivered` e `sent`, e isso não
+      // provava nada sobre o custo: partindo de `sent`, um `sent` é *no-op*
+      // (`para <= de`), logo custa zero **por construção** — o par não podia
+      // duplicar com defeito nenhum. Foi a revisão adversarial que o apanhou, e
+      // o defeito que estava por baixo era real: os dois `statuses` liam
+      // `sent`, os dois concluíam «houve entrega» e os dois somavam 4 000.
+      //
+      // `delivered` e `read` são o par que a Meta produz — ela não garante
+      // ordem nos `statuses` (`E1` §5) — e **ambos avançam** a partir de
+      // `sent`, e ambos atravessam a entrega. Só a base os serializa: com uma
+      // ligação, os dois `UPDATE` saem em série e o teste provava que o
+      // JavaScript é sequencial.
       const ingestoes = await Promise.all([
         adapterDe(tenantA, app).ingerir(tenantA, wamid, "delivered", pricing(), pnidA),
-        adapterDe(tenantA, app2).ingerir(tenantA, wamid, "sent", pricing(), pnidA),
+        adapterDe(tenantA, app2).ingerir(tenantA, wamid, "read", pricing(), pnidA),
       ]);
 
       await definirContexto(app, tenantA);
@@ -304,10 +316,20 @@ describe("a saida de canal contra a base", () => {
         "SELECT state, pricing FROM platform.outbound_messages WHERE wamid = $1",
         [wamid],
       );
-      assert.equal(linha.rows[0]?.state, "delivered", "o `sent` nao fez recuar");
-      // **O custo conta uma vez**: a soma das duas ingestoes e de uma entrega.
+      // O maior dos dois ganha a ordem, qualquer que seja a de chegada.
+      assert.equal(linha.rows[0]?.state, "read", "o `delivered` nao fez recuar o `read`");
+      // **O custo conta uma vez**, e e aqui que a dupla contagem aparecia: a
+      // soma das duas ingestoes tem de ser de **uma** entrega, nao de duas.
       const somado = ingestoes.reduce((total, uma) => total + uma.microUsd, 0);
-      assert.equal(somado, 4000, `somou ${somado} micro-USD`);
+      assert.equal(somado, 4000, `somou ${somado} micro-USD: a entrega contou duas vezes`);
+      // E as duas avancaram — nenhuma foi recusada pela base. Se uma tivesse
+      // sido, o `4000` sairia de uma so e o teste passava sem ter havido
+      // corrida nenhuma.
+      assert.deepEqual(
+        ingestoes.map((uma) => uma.avancou),
+        [true, true],
+        "as duas tinham de avancar, senao nao houve corrida",
+      );
       // E o `pricing` ficou guardado por mensagem (criterio 4).
       assert.equal(linha.rows[0]?.pricing?.category, "service");
     });
@@ -423,14 +445,37 @@ describe("a saida de canal contra a base", () => {
     });
 
     it("o custo de A nao inclui o de B — a RLS tambem protege a consulta", async () => {
+      // **Com o contexto de B, pede-se o custo de A.** A primeira versão deste
+      // teste pedia o custo de **B** com o contexto de B e exigia zero — e esse
+      // zero vinha do `WHERE tenant_id = $1` do próprio SQL e do facto de B
+      // nunca ter ingerido um `delivered`, não de política nenhuma: o resultado
+      // era idêntico com a RLS ligada ou desligada. Foi a revisão adversarial
+      // que o apanhou.
+      //
+      // Assim a asserção só pode vir da RLS: o `$1` **é** o tenant de A, há
+      // linhas de A entregues com `pricing`, e o que as esconde é a política
+      // `tenant_iso` sobre a sessão de B.
+      const DESDE = new Date("2026-01-01T00:00:00Z");
+      const ATE = new Date("2099-01-01T00:00:00Z");
       await definirContexto(app, tenantB);
-      const deB = await app.query<{ entregues: string }>(SQL_CUSTO_DO_TENANT, [
-        tenantB,
-        new Date("2026-01-01T00:00:00Z"),
-        new Date("2099-01-01T00:00:00Z"),
-      ]);
-      // B enviou uma e nao a entregou: zero entregues, e **nao** as de A.
-      assert.equal(deB.rows[0]?.entregues, "0");
+      const deA = await app.query<{ micro_usd: string; entregues: string }>(
+        SQL_CUSTO_DO_TENANT,
+        [tenantA, DESDE, ATE],
+      );
+      assert.equal(deA.rows[0]?.entregues, "0", "a RLS tem de esconder as linhas de A");
+      assert.equal(deA.rows[0]?.micro_usd, "0");
+
+      // E com o contexto de A a mesma consulta **ve** as linhas de A: sem este
+      // lado, um `0` podia ser uma consulta que nao funciona.
+      await definirContexto(app, tenantA);
+      const comA = await app.query<{ micro_usd: string; entregues: string }>(
+        SQL_CUSTO_DO_TENANT,
+        [tenantA, DESDE, ATE],
+      );
+      assert.ok(
+        Number(comA.rows[0]?.entregues ?? "0") > 0,
+        "com o contexto de A tem de haver entregas, senao o zero acima nao diz nada",
+      );
     });
   });
 

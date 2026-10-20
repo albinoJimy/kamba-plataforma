@@ -69,6 +69,39 @@ export const TENTATIVAS = REPETICOES + 1;
 export const BASE_DO_BACKOFF_MS = 250;
 
 /**
+ * Quantos pares `(tenant, contacto)` cabem em memória.
+ *
+ * O mapa por par cresce com o tráfego: um *worker* de longa duração acumula um
+ * `Balde` **e** uma `Janela` por cada par que já viu. O `esquecer` existe para
+ * isso e **nunca é chamado em produção** — era a limitação que a nota da classe
+ * declarava e ninguém fechava (achado da revisão adversarial), e uma limitação
+ * declarada que nada impõe é um vazamento com documentação.
+ *
+ * Dez mil é o mesmo tecto que o `chr/canal.ts` usa para a sua *cache*, e a
+ * política de despejo é a mesma: **o mais antigo a entrar**, que é o primeiro da
+ * ordem de iteração de um `Map`. Não é LRU, e a diferença não se mede — um par
+ * despejado volta a nascer cheio, que é o que um contacto que não fala há muito
+ * merece.
+ */
+export const MAXIMO_DE_PARES = 10_000;
+
+/**
+ * A espera máxima que um envio aguenta antes de ser recusado, em ms.
+ *
+ * **Esperar não é sempre melhor do que recusar.** O tecto por minuto do par
+ * (30/min) pode pedir até 60 s, e dormir um minuto dentro de uma chamada de
+ * envio prende o chamador, o *job* e a ligação à base por causa de um tecto
+ * nosso. Acima disto devolve-se `RATE_LIMITED`, que é o motivo que o
+ * `MOTIVOS_DE_RECUSA` já declarava e que **nada devolvia** — um valor morto numa
+ * lista fechada, que a revisão adversarial apanhou.
+ *
+ * Cinco segundos: mais do que qualquer espera do balde por segundo (67 ms no
+ * canal, 1 s no par) e menos do que a do tecto por minuto. É *proposta*, e
+ * calibra-se com o primeiro painel de débito real.
+ */
+export const ESPERA_MAXIMA_DE_DEBITO_MS = 5_000;
+
+/**
  * Um *token bucket* que enche a uma taxa fixa.
  *
  * O estado é mutável por desenho — é um balde —, e o relógio entra em cada
@@ -172,9 +205,11 @@ export class Limites {
   readonly #porPar = new Map<string, Balde>();
   readonly #porParMinuto = new Map<string, Janela>();
   readonly #mps: number;
+  readonly #maximoDePares: number;
 
-  constructor(mpsPorCanal: number = MPS_POR_CANAL) {
+  constructor(mpsPorCanal: number = MPS_POR_CANAL, maximoDePares: number = MAXIMO_DE_PARES) {
     this.#mps = mpsPorCanal;
+    this.#maximoDePares = maximoDePares;
   }
 
   /**
@@ -193,6 +228,7 @@ export class Limites {
     if (minuto === undefined) {
       minuto = new Janela(POR_MINUTO_POR_PAR, 60_000);
       this.#porParMinuto.set(chaveDoPar, minuto);
+      this.#despejarPares();
     }
 
     // Verifica sem consumir.
@@ -213,6 +249,22 @@ export class Limites {
     const chave = `${tenantId}:${contactId}`;
     this.#porPar.delete(chave);
     this.#porParMinuto.delete(chave);
+  }
+
+  /**
+   * Despeja pares até caber no tecto. O mais antigo a entrar sai primeiro.
+   *
+   * Chamado quando um par novo nasce, que é o único momento em que o mapa
+   * cresce. Despeja os **dois** mapas pela mesma chave: deixar a `Janela` de um
+   * par cujo `Balde` já saiu era trocar um vazamento por outro mais pequeno.
+   */
+  #despejarPares(): void {
+    while (this.#porPar.size > this.#maximoDePares) {
+      const primeira = this.#porPar.keys().next();
+      if (primeira.done) return;
+      this.#porPar.delete(primeira.value);
+      this.#porParMinuto.delete(primeira.value);
+    }
   }
 
   /** Quantos pares estão em memória. Para a métrica e para os testes. */

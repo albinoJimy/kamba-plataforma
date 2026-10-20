@@ -8,26 +8,33 @@
  * 1. **Forma** (`decisao.formaInvalida`) — antes de tudo, sem tocar na base nem
  *    na rede. É o critério 7: «4 botões ou 11 linhas falham antes de qualquer
  *    chamada».
- * 2. **Categoria do Piloto** — o `marketing` é recusado aqui, e não depois.
- * 3. **Janela e template** (`decisao.decidir`) — uma leitura da base. Com
- *    janela fechada e conteúdo livre, devolve `WINDOW_CLOSED` **sem chamada
- *    HTTP** (critério 1).
- * 4. **O guarda do KAM-018** (`PreSendGuard`) — só para o bot, e **falha
+ * 2. **Janela, template e categoria do Piloto** (`decisao.decidir`) — uma
+ *    leitura da base, duas quando o corpo é um template. Com janela fechada e
+ *    conteúdo livre, devolve `WINDOW_CLOSED` **sem chamada HTTP** (critério 1);
+ *    o `marketing` é recusado aqui dentro, pela lista de categorias do Piloto,
+ *    e não num passo próprio.
+ * 3. **O guarda do KAM-018** (`PreSendGuard`) — só para o bot, e **falha
  *    fechada**: sem guarda instalada, levanta em CI (critério 8).
- * 5. **A linha, antes da rede** (`SQL_ENFILEIRAR`) — e é isto que faz a
+ * 4. **A linha, antes da rede** (`SQL_ENFILEIRAR`) — e é isto que faz a
  *    idempotência. O `ON CONFLICT ... DO NOTHING RETURNING` vazio significa «a
  *    chave já passou», e nesse caso **não há chamada HTTP nenhuma** (critério
  *    2). Enfileirar depois de enviar dava uma mensagem entregue sem linha, que
  *    é pior do que uma linha sem mensagem.
- * 6. **O destinatário** (`ObterDestinatario`) — por BSUID quando existe. Só
+ * 5. **O destinatário** (`ObterDestinatario`) — por BSUID quando existe. Só
  *    agora, porque é a única coisa que precisa do módulo de identidade e não
  *    vale pedi-la para um envio que vai ser recusado.
- * 7. **O *token bucket*** (`limites.pedir`) — depois da linha e antes da rede.
- *    Travar antes de enfileirar fazia a chave ser recusada e o chamador repetir
- *    com uma chave nova, que é perder a idempotência para poupar uma linha.
- * 8. **A rede, com *backoff*** — três **repetições** (quatro chamadas, ver
+ * 6. **O *token bucket*** (`limites.pedir`, em ciclo) — depois da linha e antes
+ *    da rede. Travar antes de enfileirar fazia a chave ser recusada e o
+ *    chamador repetir com uma chave nova, que é perder a idempotência para
+ *    poupar uma linha.
+ * 7. **A rede, com *backoff*** — três **repetições** (quatro chamadas, ver
  *    `REPETICOES` em `limites.ts`), `130429` e 5xx repetem, `131049` não
  *    (critério 6).
+ *
+ * São **sete** e a primeira versão desta lista tinha oito, com uma «categoria
+ * do Piloto» como passo próprio que o corpo nunca teve — a numeração da lista
+ * e a dos comentários do corpo divergiam a partir do segundo. Uma lista de
+ * passos que não casa com os passos é pior do que nenhuma.
  *
  * ## O que este adapter não faz
  *
@@ -70,7 +77,12 @@ import {
 } from "./consultas.ts";
 import { categoriaDe, decidir, formaInvalida, type Janela } from "./decisao.ts";
 import { avancar, ingerir, terminal } from "./estados.ts";
-import { Limites, atrasoMs, vaiRepetir } from "./limites.ts";
+import {
+  ESPERA_MAXIMA_DE_DEBITO_MS,
+  Limites,
+  atrasoMs,
+  vaiRepetir,
+} from "./limites.ts";
 import {
   METRICA_CUSTO,
   METRICA_DURACAO,
@@ -82,6 +94,28 @@ import {
 
 /** A variável que diz em que ambiente o processo corre. */
 export const VARIAVEL_DO_AMBIENTE = "KAMBA_ENV";
+
+/** O que vai no `error_code` quando não houve código da Meta nenhum. */
+export const SEM_CODIGO_NO_REGISTO = "sem_codigo";
+
+/**
+ * O `error_code` do registo, a partir do código da Meta.
+ *
+ * **A gramática do campo não aceita o sinal `-`** (`logger/politica.ts`: um
+ * segmento é letras ou um a seis dígitos), e o `CODIGO_SEM_CODIGO` do
+ * `cliente.ts` é `-1` — o que ele devolve num *timeout*, numa falha de rede e
+ * num `200` sem `wamid`. Em modo estrito, que é o do CI, um `"-1"` fazia o
+ * `Logger` **levantar**, e um *timeout* da Meta passava a excepção não tratada
+ * no caminho de envio em vez de uma recusa com código. Fora do estrito o campo
+ * era descartado — perder o código precisamente na linha em que ele é útil.
+ *
+ * Qualquer negativo vira `sem_codigo` e não só o `-1`: um código negativo nunca
+ * é da Meta, e inventar-lhe um nome por cada valor era pior do que dizer «não
+ * houve código».
+ */
+export function codigoParaRegisto(codigo: number): string {
+  return Number.isInteger(codigo) && codigo >= 0 ? String(codigo) : SEM_CODIGO_NO_REGISTO;
+}
 
 /** Falta o `PreSendGuard` do KAM-018 e o ambiente não o perdoa. */
 export class SemGuardaError extends Error {
@@ -115,6 +149,14 @@ export interface Dependencias {
   /** Como esperar. Porta para o teste não dormir de verdade. */
   readonly dormir?: (ms: number) => Promise<void>;
   readonly ambiente?: Readonly<Record<string, string | undefined>>;
+  /**
+   * Os tectos de débito. Por omissão, os do módulo.
+   *
+   * Entra por parâmetro para que um teste possa dar-lhe um tecto absurdo e
+   * medir o que acontece a uma espera longa — ver `ESPERA_MAXIMA_DE_DEBITO_MS`.
+   * Em produção ninguém o passa.
+   */
+  readonly limites?: Limites;
 }
 
 /** O `ChannelAdapter` de saída. */
@@ -130,7 +172,7 @@ export class Saida {
   readonly #aleatorio: () => number;
   readonly #dormir: (ms: number) => Promise<void>;
   readonly #ambiente: Readonly<Record<string, string | undefined>>;
-  readonly #limites = new Limites();
+  readonly #limites: Limites;
 
   constructor(dependencias: Dependencias) {
     this.#bd = dependencias.bd;
@@ -146,6 +188,7 @@ export class Saida {
       dependencias.dormir ??
       ((ms) => new Promise<void>((resolver) => setTimeout(resolver, ms)));
     this.#ambiente = dependencias.ambiente ?? process.env;
+    this.#limites = dependencias.limites ?? new Limites();
   }
 
   get metricas(): MetricasDaSaida {
@@ -238,6 +281,16 @@ export class Saida {
         this.#agora().getTime(),
       );
       if (espera === 0) break;
+      // **Uma espera longa é uma recusa, não um sono.** O tecto por minuto do
+      // par pode pedir até 60 s, e dormir um minuto aqui prende o chamador, o
+      // *job* e a ligação à base por causa de um tecto nosso. O
+      // `RATE_LIMITED` é o motivo que o `MOTIVOS_DE_RECUSA` já declarava e que
+      // nada devolvia — um valor morto numa lista fechada de dez.
+      if (espera > ESPERA_MAXIMA_DE_DEBITO_MS) {
+        this.#metricas.contar(METRICA_TRAVADAS, "bucket");
+        await this.#falhar(pedido.tenantId, enfileirada, null);
+        return this.#recusar(pedido, "RATE_LIMITED");
+      }
       // `bucket`: foi o **nosso** tecto que travou. A outra origem é o
       // `130429` da Meta, mais abaixo, e as duas não se somam — ver
       // `metricas.ts`.
@@ -282,8 +335,9 @@ export class Saida {
           tenant_id: pedido.tenantId,
           // `error_code` e **texto** na *allowlist* do logger, nao numero: e
           // um codigo de dominio e nao uma grandeza, e somar codigos de erro
-          // nao quer dizer nada.
-          error_code: String(resposta.codigo),
+          // nao quer dizer nada. E passa pelo `codigoParaRegisto`, porque o
+          // sinal `-` nao cabe na gramatica do campo — ver a funcao.
+          error_code: codigoParaRegisto(resposta.codigo),
         });
         return { ok: false, motivo: "SEND_FAILED", codigo: resposta.codigo };
       }
@@ -299,10 +353,15 @@ export class Saida {
   /**
    * Ingere um `statuses` da Meta: avança o estado e conta o custo.
    *
-   * A monotonia é imposta **pela base** (o `state = ANY($4)` do
+   * A monotonia é imposta **pela base** (o `antes.state = ANY($4)` do
    * `SQL_AVANCAR_ESTADO`) e não por este código: dois `statuses` concorrentes da
-   * mesma mensagem chegam em dois processos, e só a base os serializa. O que o
-   * `estados.ts` decide é se **houve entrega**, que é o que decide o custo.
+   * mesma mensagem chegam em dois processos, e só a base os serializa.
+   *
+   * **E o custo calcula-se a partir do `estado_antes` que a base devolve**, não
+   * da leitura prévia. A leitura prévia serve para duas coisas e nenhuma delas
+   * é o dinheiro: saber que a linha existe, e saber se o `pricing` traz uma
+   * categoria que não conhecemos. Calcular o custo a partir dela duplicava-o
+   * quando dois `statuses` chegavam juntos — ver a nota do `SQL_AVANCAR_ESTADO`.
    */
   async ingerir(
     tenantId: string,
@@ -312,7 +371,24 @@ export class Saida {
     phoneNumberId: string,
   ): Promise<{ readonly avancou: boolean; readonly microUsd: number }> {
     const actual = await this.#porWamid(tenantId, wamid);
-    if (actual === null) return { avancou: false, microUsd: 0 };
+    if (actual === null) {
+      // **Um `statuses` para uma mensagem que não existe, e isso faz barulho.**
+      //
+      // O caso real não é um `wamid` inventado: é a nossa própria escrita do
+      // `wamid` (o `SQL_MARCAR_ENVIADA`) ainda não ter comprometido quando o
+      // *webhook* `delivered` chega noutro processo. Devolver `avancou: false`
+      // em silêncio deixava a linha em `sent` para sempre e o custo nunca
+      // contado — e o `SQL_CUSTO_DO_TENANT` também não a vê, porque filtra por
+      // `pricing IS NOT NULL`. Não há aqui fila nem reconciliação que a
+      // recupere (é o KAM-022 que liga o envio ao turno), pelo que o mínimo
+      // honesto é não perder o acontecimento em silêncio.
+      this.#log?.warn({
+        outcome: "status_sem_mensagem",
+        tenant_id: tenantId,
+        msg_id: idOpaco(wamid),
+      });
+      return { avancou: false, microUsd: 0 };
+    }
 
     const freeTier =
       this.#freeTier === null
@@ -322,14 +398,18 @@ export class Saida {
             tecto: estadoDoTier.tecto,
           }));
 
-    const resultado = ingerir(actual.state, estado, pricing, freeTier);
-    if (!resultado.avancou) return { avancou: false, microUsd: 0 };
+    // A leitura prévia só serve para desistir cedo: se nem com o estado que
+    // acabámos de ler isto avança, não vale uma escrita. **Não é daqui que sai
+    // o custo** — ver a nota do método e a do `SQL_AVANCAR_ESTADO`.
+    if (!ingerir(actual.state, estado, pricing, freeTier).avancou) {
+      return { avancou: false, microUsd: 0 };
+    }
 
     // Os estados de que se pode sair para este, calculados aqui e aplicados
     // pela base. É a mesma regra do `estados.ts`, e a duplicação é deliberada:
-    // aqui para saber o custo, lá para ganhar a corrida.
+    // aqui para a conhecer, lá para ganhar a corrida.
     const permitidos = this.#deOndeSePodeSair(estado);
-    const linhas = await this.#bd.query<{ state: string }>(SQL_AVANCAR_ESTADO, [
+    const linhas = await this.#bd.query<{ estado_antes: string }>(SQL_AVANCAR_ESTADO, [
       tenantId,
       wamid,
       estado,
@@ -339,6 +419,27 @@ export class Saida {
     // O `UPDATE` não mexeu em nada: outro processo ganhou a corrida. **Não se
     // conta custo**, e é por isso que a contagem está depois e não antes.
     if (linhas.rows.length === 0) return { avancou: false, microUsd: 0 };
+
+    // **O custo sai da transição que de facto aconteceu.** O `estado_antes` é o
+    // estado que este `UPDATE` substituiu, lido pela base sob `FOR UPDATE`: com
+    // dois `statuses` concorrentes, o segundo vê o estado que o primeiro
+    // escreveu e não o que ambos tinham lido. Era exactamente aqui que o custo
+    // duplicava.
+    // **Sem recurso à leitura prévia.** Um `?? actual.state` aqui tornava o
+    // defeito invisível outra vez: em série a leitura prévia é o estado
+    // anterior correcto, e o recurso fazia o código passar os testes
+    // sequenciais sem nunca usar a palavra da base. Se a consulta devolveu uma
+    // linha, ela traz o `estado_antes`; se não trouxesse, a forma da linha
+    // estaria errada, e calar isso era esconder um defeito.
+    const anterior = linhas.rows[0]?.estado_antes as Estado | undefined;
+    if (anterior === undefined) {
+      throw new Error(
+        "SQL_AVANCAR_ESTADO devolveu uma linha sem `estado_antes`: e de la que " +
+          "sai o custo, e adivinha-lo a partir de uma leitura anterior duplica-o " +
+          "quando dois statuses chegam juntos",
+      );
+    }
+    const resultado = ingerir(anterior, estado, pricing, freeTier);
 
     if (resultado.microUsd > 0) this.#metricas.somarCusto(resultado.microUsd);
     if (resultado.categoriaDesconhecida) {

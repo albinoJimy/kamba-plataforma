@@ -180,6 +180,34 @@ re-identifica ninguém.
 
 ---
 
+### O custo sai do estado que a base substituiu
+
+**Quem decide o custo é a transição que de facto aconteceu, e só a base a sabe.**
+O `SQL_AVANCAR_ESTADO` devolve `antes.state AS estado_antes`, lido sob
+`FOR UPDATE`, e é dele que o `ingerir` calcula a entrega — nunca de uma leitura
+feita antes do `UPDATE`.
+
+A primeira versão calculava-o da leitura prévia, e duplicava dinheiro. Com
+`delivered` e `read` a chegarem juntos em dois processos — que é o que a Meta
+produz, porque não garante ordem nos `statuses` (`E1` §5) —, os dois liam `sent`,
+os dois concluíam «houve entrega» e os dois somavam 4 000. O guarda «zero linhas»
+não os apanhava: ambos os `UPDATE` casavam, porque `delivered` aceita sair de
+`sent` e `read` aceita sair de `sent` **e** de `delivered`. Oito mil
+micro-dólares para uma mensagem entregue uma vez, com o `SQL_CUSTO_DO_TENANT` a
+dizer quatro mil.
+
+E **não há recurso** a essa leitura prévia quando o `estado_antes` falta: em
+série as duas fontes concordam sempre, e um recurso fazia o código passar os
+testes sequenciais sem nunca usar a palavra da base. Era assim que o defeito
+voltava a ficar invisível.
+
+Um `statuses` cujo `wamid` não existe na tabela **faz barulho** em vez de
+desaparecer. O caso real não é um `wamid` inventado: é a nossa própria escrita
+do `wamid` ainda não ter comprometido quando o *webhook* chega noutro processo.
+Em silêncio, a linha ficava em `sent` para sempre e o custo nunca era contado.
+
+---
+
 ## 6. Débito: dois tectos, e nascem diferentes
 
 | Tecto | Valor | Estado |
@@ -202,6 +230,21 @@ O do **par** protege uma pessoa de uma rajada, e a primeira mensagem a alguém
 não é rajada nenhuma. Com capacidade 1 e vazio à partida, **toda** a primeira
 mensagem a cada contacto esperava um segundo — medido: 100 s para 100 contactos
 diferentes, num caso que devia dar 6,7 s.
+
+**O mapa por par tem tecto**: dez mil, com despejo do mais antigo a entrar, que
+é o mesmo número e a mesma política da *cache* do CHR. Sem ele, um processo de
+longa duração acumulava um balde **e** uma janela por cada par que já vira, e o
+`esquecer` que existia para isso nunca era chamado em produção — uma limitação
+declarada que nada impunha é um vazamento com documentação. Um par despejado
+volta a nascer cheio, que é o que um contacto que não fala há muito merece.
+
+**E uma espera acima de 5 s é recusada, não dormida.** O tecto por minuto do par
+(30/min) pode pedir até 60 s, e dormir um minuto dentro de uma chamada de envio
+prende o chamador, o *job* e a ligação à base por causa de um tecto nosso. Nesse
+caso devolve-se `RATE_LIMITED` e marca-se a linha `failed` — o motivo já estava
+na lista fechada de dez e **nada o devolvia**. Os 5 s são *proposta*: mais do que
+qualquer espera do balde por segundo (67 ms no canal, 1 s no par) e menos do que
+a do tecto por minuto.
 
 ### `130429`: ramifica pelo `error.code`, nunca pelo estado HTTP
 

@@ -1431,9 +1431,14 @@ MUTACOES = [
     ('revisao 0010: o downgrade conta os envios com a politica de pe', REV10,
      '    rls.disable_tenant_rls("outbound_messages")\n    rls.disable_tenant_rls("message_templates")\n\n    envios = _contar_envios()',
      '    envios = _contar_envios()\n    rls.disable_tenant_rls("outbound_messages")\n    rls.disable_tenant_rls("message_templates")\n', "tests"),
+    # **Suite `tests` e nao `tests_outbound`**, e a diferenca foi medida: quem
+    # apanha um privilegio de coluna a mais e a matriz do `test_privilegios.py`,
+    # que vive na suite das migracoes. Declarada na suite da saida, esta mutacao
+    # **sobreviveu** — corria os testes do modulo, que nao olham para `GRANT`
+    # nenhum, e a prova dizia «nao apanhada» sem que faltasse teste nenhum.
     ('revisao 0010: a aplicacao passa a poder reescrever a chave de idempotencia', REV10,
      'COLUNAS_DA_APLICACAO = (\n    "state",',
-     'COLUNAS_DA_APLICACAO = (\n    "idempotency_key",\n    "state",', SAIDA),
+     'COLUNAS_DA_APLICACAO = (\n    "idempotency_key",\n    "state",', "tests"),
     ('revisao 0010: a aplicacao passa a poder inserir templates', REV10,
      'op.execute("GRANT SELECT ON platform.message_templates TO kamba_app")',
      'op.execute("GRANT SELECT, INSERT ON platform.message_templates TO kamba_app")', ISOLAMENTO),
@@ -1460,7 +1465,7 @@ MUTACOES = [
      '      ON CONFLICT (tenant_id, idempotency_key) DO NOTHING',
      '', SAIDA),
     ('saida: o avanco de estado deixa de ter a monotonia no predicado', SAIDA_SQL,
-     '     AND state = ANY($4::text[])',
+     '     AND antes.state = ANY($4::text[])',
      '', SAIDA),
     ('saida: o bloqueio de template deixa de preservar o primeiro instante', SAIDA_SQL,
      '   WHERE tenant_id = $1 AND name = $2 AND lang = $3 AND bloqueado_em IS NULL',
@@ -1499,6 +1504,20 @@ MUTACOES = [
     ('revisao 0010: o instante de entrega deixa de caber nos terminais', REV10,
      "                       OR state IN ('delivered', 'read', 'failed',\n                                    'suppressed_by_human')),",
      "                       OR state IN ('delivered', 'read')),", "tests"),
+    # As quatro abaixo sao da revisao adversarial do ticket, e cada uma volta o
+    # codigo ao defeito que ela apanhou. As duas primeiras sao dinheiro.
+    ('saida: o custo volta a sair da leitura previa e nao da base', SAIDA_ADAPTER,
+     '    const anterior = linhas.rows[0]?.estado_antes as Estado | undefined;',
+     '    const anterior = actual.state as Estado | undefined;', SAIDA),
+    ('saida: o paraMostrar volta a perder o transporte', SAIDA_TARIFAS,
+     '  const centavos = Math.round(microUsd / 10_000);\n  const dolares = Math.floor(centavos / 100);\n  return `${dolares}.${String(centavos % 100).padStart(2, "0")}`;',
+     '  const dolares = Math.trunc(microUsd / MICRO_USD_POR_USD);\n  const resto = microUsd % MICRO_USD_POR_USD;\n  return `${dolares}.${String(Math.round(resto / 10_000)).padStart(2, "0")}`;', SAIDA),
+    ('saida: o error_code volta a levar o sinal para o registo', SAIDA_ADAPTER,
+     '  return Number.isInteger(codigo) && codigo >= 0 ? String(codigo) : SEM_CODIGO_NO_REGISTO;',
+     '  return String(codigo);', SAIDA),
+    ('saida: uma espera longa volta a ser dormida em vez de recusada', SAIDA_ADAPTER,
+     '      if (espera > ESPERA_MAXIMA_DE_DEBITO_MS) {',
+     '      if (false) {', SAIDA),
     ('saida: a janela fechada deixa de recusar o envio livre', SAIDA_DECISAO,
      '      return { enviar: false, motivo: WINDOW_CLOSED };',
      '      return { enviar: true, kind: "service", templateName: null };', SAIDA),
