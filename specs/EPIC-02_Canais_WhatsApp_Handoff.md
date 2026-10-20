@@ -532,7 +532,7 @@ Testes: matriz de estados, fusão idempotente, Fluxo B, isolamento. Abre PR com 
 | Dependências | KAM-013, KAM-014, KAM-004, KAM-024 |
 | Bloqueia | KAM-022, KAM-023, KAM-031, KAM-048, KAM-054, KAM-058, KAM-084, KAM-118, KAM-122, KAM-123 |
 | Responsável sugerido | Engenheiro de Canais |
-| Documentos de referência | `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§8, §14), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` (§1, §5, §7), `../docs/tecnica/08_Seguranca_Conformidade.md` (§7.3), ADR-009, ADR-013 |
+| Documentos de referência | `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§8, §14), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` (§1, §5, §7), `../docs/tecnica/08_Seguranca_Conformidade.md` (§7.3), ADR-007, ADR-009, ADR-013 |
 
 ### Contexto
 

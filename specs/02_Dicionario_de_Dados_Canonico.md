@@ -428,9 +428,9 @@ esta secção é a primeira vez que se diz o que são.
 |---|---|---|
 | Passagem de uma conversa a um humano | `platform.handoffs` — `handoff_id`, `tenant_id`, `conversation_id`, `status`, `motivo`, `external_id`, `opened_at`, `resumed_at`, `resolver` | **Nove colunas, e o bloco do KAM-019 escreve sete.** As duas que se acrescentam são o `motivo` (o `openHandoff` recebe-o e sem ele a linha não diz porque é que alguém foi chamado) e o `external_id` (o identificador da conversa no provedor, que o `openHandoff` **devolve** e que não tinha onde ficar — sem ele, a segunda chamada não encontra o que a primeira criou fora da nossa base). «PRIMARY KEY (handoff_id)» e FK composta «(tenant_id, conversation_id)» para `conversations` «(tenant_id, id)», pela razão da `0009`: sem a composta, um handoff do *tenant* A podia apontar para uma conversa de B |
 | Identificador de uma passagem | `handoffs.handoff_id` = `hash(thread_id, ordinal_do_handoff)` | É a chave de idempotência, e o `../docs/tecnica/01` §11.1 fixa a fórmula. **Não é um UUID gerado por nós**: é derivado, para que duas chamadas concorrentes com a mesma conversa e o mesmo ordinal cheguem ao mesmo valor sem se falarem. O `../docs/tecnica/02` §12 diz porquê em uma frase: o `interrupt()` do LangGraph **re-executa o nó**, logo o `openHandoff` é chamado mais de uma vez por desenho |
-| Estado de uma passagem | `handoffs.status` ∈ {`waiting`, `resumed`, `timeout`, `cancelled`, `degraded`} | Cinco, e o `degraded` **só existe no bloco do KAM-019** — nenhum documento técnico o nomeia. Fica, e passa a ter significado escrito: é o estado de uma passagem aberta com o provedor em baixo, isto é, enfileirada e ainda não criada lá (critério 9). Sem ele, uma passagem degradada era indistinguível de uma à espera de humano, e o painel não saberia a quem ligar |
+| Estado de uma passagem | `handoffs.status` ∈ {`waiting`, `resumed`, `timeout`, `cancelled`, `degraded`} | Cinco, e são **exactamente** os do `../docs/tecnica/02` §12: «Estados de `handoffs`: `waiting → resumed \| timeout \| cancelled \| degraded`, com `opened_at`, `resumed_at`, `resolver` (humano), para o SLA < 15 min por *tenant*». A primeira versão desta linha dizia que o `degraded` «só existe no bloco do KAM-019» e isso era **falso** — o documento que o define não estava na lista que a *discovery* leu, e foi uma segunda leitura, de origem, que o encontrou. O gatilho está na tabela de degradação do mesmo documento: «HND/Chatwoot indisponível → `degraded` → mensagem ao cliente, conversa `pausada`, notificação ao dono por canal alternativo». Sem este estado, uma passagem degradada era indistinguível de uma à espera de humano |
 | Desfecho de um `close` | `resolved`, `timeout`, `cancelled` | **Três, contra os cinco do `status`, e a correspondência tem de estar escrita** porque a assinatura do §11.1 usa um vocabulário e a tabela usa outro: `resolved` → `status = resumed`, `timeout` → `timeout`, `cancelled` → `cancelled`. O `waiting` e o `degraded` não são desfechos (são estados de abertura) e o `resumed` não é desfecho de `close` (é o que o `resolved` escreve). Sem este mapeamento, o `close('resolved')` não sabia o que gravar |
-| Quem retomou uma passagem | `handoffs.resolver` | Anulável; **só o identificador opaco do agente no provedor**, nunca nome, e-mail ou telefone. O bloco do KAM-019 nomeia a coluna e **não a define** — nenhuma fonte diz quem é —, e esta linha é a definição, *proposta*. Não é um `contact_id` da KAMBÁ: um agente de atendimento não é um contacto, não passa pelo módulo de identidade e não tem BSUID. É dado pessoal de um trabalhador da PME, pelo que a coluna é `pessoal: sim` no inventário e não vai a registo nenhum |
+| Quem retomou uma passagem | `handoffs.resolver` | Anulável. O `../docs/tecnica/02` §12 define-o em uma palavra — «`resolver` (humano)» —, e o que esta linha acrescenta é a **forma**: só o identificador opaco do agente no provedor, nunca nome, e-mail ou telefone. (A primeira versão desta linha dizia que nenhuma fonte o definia, e era falso.) Não é um `contact_id` da KAMBÁ: um agente de atendimento não é um contacto, não passa pelo módulo de identidade e não tem BSUID. É dado pessoal de um trabalhador da PME, pelo que a coluna é «pessoal: sim» no inventário e não vai a registo nenhum |
 | Conta de atendimento de um tenant | `platform.handoff_accounts` — `tenant_id`, `provedor`, `account_id`, `inbox_id`, `bot_id`, `token_ref`, `criado_at`, `updated_at` | **Tabela nova que o bloco do KAM-019 não nomeia e de que o critério 1 depende**: «`ensureAccount` chamado 2× não duplica» exige onde guardar o que a primeira chamada criou, e não havia candidata — a `tenant_channels.token_ref` é do canal Meta. «PRIMARY KEY (tenant_id, provedor)», que é o que torna «uma conta por PME» uma propriedade da base e não do código |
 | Provedor de atendimento | `handoff_accounts.provedor` ∈ {`chatwoot`} | **Um valor, e a coluna existe por causa do ADR-012**, que fixa a costura `HandoffProvider` e diz que o Chatwoot é substituível. Uma tabela chamada `tenant_chatwoot` tornava a substituição uma migração; uma coluna de domínio torna-a uma linha |
 | Referência ao *token* do bot | `handoff_accounts.token_ref` | Uma `SecretRef` (§3.9), texto **opaco**, nunca o *token*. É o mesmo desenho da `tenant_channels.token_ref` da `0001` e a instância já está declarada: `chatwoot_bot_token` com `instancias: conta` em `ops/secrets-inventory.yaml`. O `chatwoot_platform_token` **não** entra em tabela nenhuma: tem `instancias: nenhuma` e vive só no módulo de provisionamento, como o `../docs/tecnica/08` §3.6 manda |
@@ -446,21 +446,35 @@ esta secção é a primeira vez que se diz o que são.
 diz outra coisa, e as duas devolvidas a quem escreveu o documento
 (`../docs/dividas-documentais.md`):
 
-1. **O *compare-and-set* `waiting → resumed` fica fora deste ticket**, contra o
-   `../docs/tecnica/01` §11.5 e o `../docs/tecnica/02` §12, que o põem no HND e
-   autenticado pelo `secret` do bot. O critério 7 do KAM-019 manda o contrário —
-   «o `resolved` duplicado não altera nada (a retoma por *compare-and-set* é
-   KAM-034)» — e é o bloco do ticket que prevalece sobre `../docs/tecnica/`
-   (`specs/01` §5, ordem das fontes). A consequência fica escrita: **a coluna
+1. **O *compare-and-set* `waiting → resumed` fica fora deste ticket, e há três
+   posições na casa — não duas.** A tabela de erros do `../docs/tecnica/01` §11.5
+   põe-o no HND («Webhook duplicado `resolved` | Compare-and-set em
+   `handoffs.status` (`waiting → resumed`); segundo é *no-op*»); a regra (3) do
+   `../docs/tecnica/02` §12 põe o **ponto de entrada** no AGR e a autenticação no
+   HND («retoma por `POST /internal/resume {thread_id, handoff_id, outcome}`:
+   *compare-and-set* em `handoffs(status: waiting → resumed)` … autenticação da
+   origem pelo `secret` do *agent bot* (HND); a invocação `Command(resume=…)`
+   corre sob o *lock* da conversa»); e o critério 7 do KAM-019 manda que «o
+   `resolved` duplicado não altera nada (a retoma por *compare-and-set* é
+   KAM-034)». Segue-se o bloco do ticket, que é a afirmação mais específica sobre
+   o âmbito de um ticket (`specs/01` §5). A consequência fica escrita: **a coluna
    `resumed_at` nasce e ninguém a escreve neste ticket**, e isso é melhor do que
    uma coluna que o KAM-034 teria de acrescentar depois a uma tabela com linhas.
-2. **Os *callbacks* do provedor são verificados pelo HND**, contra o
-   `../docs/tecnica/08` §3.6, que diz «webhooks de saída do Chatwoot assinados e
-   verificados **pelo GWY**». O critério 5 põe-nos no HND, e há uma razão de
-   desenho a favor dele que o §3.6 não considerou: o `secret` é **por bot**, logo
-   por *tenant*, e o GWY é o único ponto que **não** tem contexto de *tenant*
-   antes de resolver o canal — era o CHR ao contrário. O GWY continua a ser o
-   único ponto de entrada dos *webhooks* **da Meta**, que é o que o ADR-001 fixa.
+   A terceira posição é a que mais interessa a quem fizer o KAM-034: o `02` §12
+   diz **onde** o endpoint vive e sob que *lock* corre, e nenhum dos outros dois
+   diz isso.
+2. **Os *callbacks* do provedor são verificados pelo HND**, e isto é uma
+   contradicção entre **dois documentos do mesmo nível**, que é o que a torna
+   decisão e não arrumação: o `../docs/tecnica/02` §12, regra (3), diz
+   «autenticação da origem pelo `secret` do *agent bot* (HND)» e está do lado do
+   critério 5; o `../docs/tecnica/08` §3.6 diz «webhooks de saída do Chatwoot
+   assinados e verificados **pelo GWY**». Os dois são `../docs/tecnica/01`–`10`,
+   pelo que a ordem de fontes **não desempata**. O que desempata é uma razão de
+   desenho que o §3.6 não considerou: o `secret` é **por bot**, logo por
+   *tenant*, e o GWY é o único ponto que não tem contexto de *tenant* antes de
+   resolver o canal — era o CHR ao contrário. **E o ADR-001 não resolve isto**:
+   diz «GWY como único endpoint de webhook **da Meta**», com o Chatwoot nomeado
+   como espelho, pelo que o *callback* do Chatwoot está fora do seu âmbito.
 
 **O que esta secção NÃO decide.** O `setBotMuted` **não é executável** e a secção
 di-lo em vez de o esconder: `kamba_app` não tem `UPDATE (mode)` em
