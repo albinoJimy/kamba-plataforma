@@ -1381,8 +1381,38 @@ fingir:
 3. entrou no `needs:` do agregador «gates do KAM-002». Sem este terceiro passo,
    o *job* ficava verde e **ninguém o exigia**.
 
-A parte dos **webhooks** do gate 7 continua por fazer: é o KAM-024, e o alvo
-`ci-7` diz onde se acrescenta.
+#### A parte dos webhooks da Meta (KAM-024)
+
+O alvo `ci-7-meta`, que o `ci-7` chama. Três verificações, e a ordem não é
+arbitrária: o *scan* primeiro, porque é o que protege um dado pessoal, e um PR
+que o quebre não precisa de esperar pelos testes para o saber.
+
+| Passo | Comando | Falha quando |
+|---|---|---|
+| *scan* de telefones | `meta-sim varrer $(ROOT)` | um número de forma real está num ficheiro sem entrada no inventário, **ou um a mais num ficheiro já declarado** |
+| cobertura | `meta-sim cobertura` | algum dos 27 itens (16 tipos, 11 campos) tem 0 *fixtures* ou 0 testes, ou há uma marca desconhecida |
+| *suite* offline | `pnpm --filter @kamba/meta-sim run test` e a ida e volta no GWY | qualquer teste vermelho |
+
+**Os códigos de saída são três e não dois**: `0` conforme, `2` há achados, `1` a
+ferramenta não conseguiu correr. O terceiro existe de propósito — «0 ficheiros
+lidos» **não** é «0 achados», e devolver `0` aí transformava o gate num enfeite.
+É a mesma armadilha que o `lint_contagens` sob `.claude/` já mordeu uma vez
+(`docs/dividas-documentais.md`, linha 44).
+
+O *scan* confronta o repositório com o inventário de
+`tools/meta-sim/src/inventario.ts`, e esse ficheiro explica porque é um
+**raquete** e não uma isenção: isentar `tests/` deixava passar um número novo
+dentro de um ficheiro já tolerado, que é exactamente o caso que importa. Medido
+hoje: **993 ficheiros, 86 ocorrências de forma real, 86 declaradas, 0
+divergências**.
+
+Tempo das duas suites: **20,7 s**, contra os ≤ 5 min que o critério 8 do KAM-024
+põe como *proposta*.
+
+A *suite* **online** — a nocturna contra o número de teste de *staging* — não
+existe e não bloqueia este gate: depende de `ext:KAM-102` e do número de teste da
+app Meta de *staging*. Quando existir, é de *release* (gate 15, KAM-078) e não de
+PR, e uma falha da Meta ou das credenciais gera **alerta e não falso verde**.
 
 #### A quinta verificação: os `enum` contra o dicionário (KAM-159)
 
@@ -2013,3 +2043,4 @@ sobrevivem ao PR.
 | 1.36 | Outubro 2026 | **KAM-009: o *gate* 8 passa a correr sete *suites*.** A sétima é `tests_ten`, que prova a **função** `platform.ten_consumir` da revisão `0007` e não o esquema: mil chamadas paralelas de 1 unidade contra um tecto de 100 em 32 ligações — **100 aceites, 900 negadas, contador final 100, e o livro de idempotência com 100 linhas e não mil** —, as dez repetições do critério 4 mais o caso que o critério não pede (uma recusa não pode gastar a chave, nos dois caminhos de recusa), a fronteira do mês com relógio fixo nos dois instantes do critério **e** num instante que cai em meses diferentes em UTC e em `Africa/Luanda`, e o isolamento da função — que o *gate* 6 não prova, porque a política de uma tabela não diz o que uma função `SECURITY INVOKER` faz quando quem a chama é outro tenant. O *gate* 6 ganha as receitas de sementes das duas tabelas novas, sem as quais se recusava a correr, e `entitlements` passa a ser uma tabela que `kamba_app` **não altera** (a `0007` revogou-lhe o `UPDATE`). Quinze mutações novas. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |
 | 1.37 | Outubro 2026 | **KAM-009 reprovou na revisão adversarial, e o *gate* 8 passa a morder onde ela mordeu.** Três críticos, nenhum apanhado pelos 47 testes nem pelas 15 mutações que havia: a chave de idempotência valia para **todas** as chaves de limite e não olhava à quantidade (repetir a chave de um consumo de uma mensagem autorizava um pedido de 999 999,99 Kz contra um tecto de 50 000, sem contar); `kamba_app` mantinha `INSERT` em `entitlements`, e com `WITH CHECK (tenant_id = app.tenant_id)` o tenant **criava** o próprio tecto; e `GRANT UPDATE (valor)` em `tenant_usage` deixava-o **zerar** o próprio contador. A revisão `0007` ganha a `chave_limite` na chave do livro, a comparação da quantidade (`KA002`), o `REVOKE INSERT`, e o *trigger* `tenant_usage_so_sobe` — o padrão do `audit_log_imutavel` da `0006`: o que o privilégio por coluna não sabe exprimir, exprime-o um `BEFORE UPDATE`. Mais o `UPDATE (tenants.estado)` revogado (um tenant `suspenso` reactivava-se e retirava a condição do critério 2), o `p_agora` fechado a quem não é `kamba_batch`, e quatro erros que escapavam aos tratadores (`22P02` de um limite não inteiro, `22003` de transbordo, chave de idempotência vazia, aviso de ordem das chaves no `COMMENT`). A *suite* `tests_ten` ganha o `test_escalada.py` — o atacante é o **próprio** tenant, que é o caso que a RLS nunca podia parar — e passa a correr o `SQL_CONSUMIR` e o `SQL_PERIODO` **das bibliotecas** em vez de uma cópia deles, o que destapou um defeito real: o `SQL_PERIODO` não tinha `coalesce` e devolvia `NULL` sem instante. Mutações: 256 → **270**. | Equipa KAMBÁ |
 | 1.38 | Outubro 2026 | **KAM-013: o *gate* 8 passa a correr nove *suites*.** As duas novas são `tests_entrada` e `tests_entrada_carga`, e a diferença face a todas as outras é o que elas lançam: os **processos de produção** (`services/gwy/src/server.ts` e `services/worker-canal/src/entrada.ts`), sem programa de ensaio pelo meio — porque o que há para provar é o comportamento de um servidor HTTP com uma fila a sério. O que só aqui se mede: o 200 com o *job* **já** na fila, o 503 com o contentor da fila parado (e o mesmo processo a voltar a aceitar sem reinício), a mesma mensagem em dois corpos a deixar **uma** linha, e um corpo ilegível a dar 200 e quarentena em vez de começar sete dias de re-entregas. **A assinatura calcula-se em Python**, que é uma segunda implementação: mede-se interoperabilidade e não auto-consistência. E os domínios de `kind` e `motivo` comparam-se com **três** fontes — o `CHECK` do PostgreSQL, o dicionário exportado e a lista do módulo TypeScript. A *suite* apanhou **três defeitos que nenhum teste unitário apanhava**: o `backoffStrategy` que faltava no *worker* (todos os *jobs* levam `backoff: custom` do `addLote`, e um *worker* que o não registe lança ao calcular o atraso — o *job* ficava em `failed` sem passar pela quarentena); o `SELECT` por coluna que o `ON CONFLICT (kind, event_key)` exige em `unrouted_events` (a mesma lição que a `0005` já escrevera para o `events_dlq`); e um *job* falhado a não deixar **linha nenhuma** de registo, porque o BullMQ nada escreve quando ninguém ouve o acontecimento `failed`. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |
+| 1.39 | Outubro 2026 | **KAM-024: a parte dos *webhooks* do *gate* 7 passa a existir.** O alvo `ci-7-meta` corre o *scan* de telefones, o relatório de cobertura dos 27 itens (16 tipos e 11 campos) e a *suite* offline, incluindo a ida e volta das 26 *fixtures* assinadas contra o GWY do KAM-013. **20,7 s**, contra os ≤ 5 min da *proposta*. Três coisas que não são transcrição: os códigos de saída são **três** e não dois, porque «0 ficheiros lidos» não é «0 achados» — a armadilha que o `lint_contagens` já mordeu; o *scan* confronta o repositório com um **inventário** por ficheiro, com contagem exacta e razão, e não com uma pasta isenta, porque uma pasta isenta deixava passar um número novo dentro de um ficheiro já tolerado; e o `tools/meta-sim` entra em `PACOTES_NODE`, sem o que o `coverage_gate` injectava os seus dezasseis ficheiros a 0% — e o `base_do_nome` ganha a família `tools`, sem a qual os mesmos dezasseis saíam como «medidos e não classificados», que é o estado em que um ficheiro escapa ao limiar em silêncio. A *suite* **online** continua por fazer e depende de `ext:KAM-102`. | Equipa KAMBÁ |
