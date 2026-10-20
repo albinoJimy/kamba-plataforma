@@ -28,6 +28,7 @@ import {
   MPS_POR_CANAL,
   MPS_POR_PAR,
   POR_MINUTO_POR_PAR,
+  REPETICOES,
   TENTATIVAS,
   VERSAO_DA_GRAPH,
   atrasoMs,
@@ -226,12 +227,19 @@ describe("o backoff (criterio 6)", () => {
     assert.equal(atrasoMs(2, -1, 1), BASE_DO_BACKOFF_MS * 2);
   });
 
-  it("repete tres vezes, e o 130429 esta na lista", () => {
-    assert.equal(TENTATIVAS, 3);
+  it("**repete tres vezes, o que sao quatro chamadas**", () => {
+    // A letra do criterio 6: «130429 3x seguida de 200 ... 3 tentativas». Com
+    // tres chamadas no total, os tres 429 esgotam-nas e o 200 nunca chega — a
+    // frase contradiz-se. Tres **repeticoes** depois da primeira chamada dao
+    // quatro chamadas, e a sequencia encaixa. Entre duas leituras de um
+    // criterio, a que o torna cumprivel e a pretendida.
+    assert.equal(REPETICOES, 3);
+    assert.equal(TENTATIVAS, 4);
     assert.ok(CODIGOS_QUE_SE_REPETEM.includes(130429));
     assert.ok(vaiRepetir(130429, 1));
     assert.ok(vaiRepetir(130429, 2));
-    assert.ok(!vaiRepetir(130429, 3), "a terceira e a ultima");
+    assert.ok(vaiRepetir(130429, 3), "a terceira repeticao e a que traz o 200");
+    assert.ok(!vaiRepetir(130429, 4), "a quarta chamada e a ultima");
   });
 
   it("**o 131049 nao se repete**, e isso e deliberado", () => {

@@ -76,6 +76,7 @@ export {
   MPS_POR_CANAL,
   MPS_POR_PAR,
   POR_MINUTO_POR_PAR,
+  REPETICOES,
   TENTATIVAS,
   atrasoMs,
   vaiRepetir,

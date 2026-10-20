@@ -25,8 +25,9 @@
  * 7. **O *token bucket*** (`limites.pedir`) — depois da linha e antes da rede.
  *    Travar antes de enfileirar fazia a chave ser recusada e o chamador repetir
  *    com uma chave nova, que é perder a idempotência para poupar uma linha.
- * 8. **A rede, com *backoff*** — três tentativas, `130429` e 5xx repetem,
- *    `131049` não (critério 6).
+ * 8. **A rede, com *backoff*** — três **repetições** (quatro chamadas, ver
+ *    `REPETICOES` em `limites.ts`), `130429` e 5xx repetem, `131049` não
+ *    (critério 6).
  *
  * ## O que este adapter não faz
  *
@@ -220,13 +221,23 @@ export class Saida {
     }
 
     // 6. O *token bucket*, depois da linha e antes da rede.
-    const espera = this.#limites.pedir(
-      pedido.phoneNumberId,
-      pedido.tenantId,
-      pedido.contactId,
-      this.#agora().getTime(),
-    );
-    if (espera > 0) {
+    //
+    // **Em ciclo, e não uma espera só.** O `pedir` devolve os milissegundos a
+    // esperar e **não consome** quando algum tecto não tem vaga — logo, quem
+    // dorme uma vez e envia está a enviar sem ficha. A primeira versão fazia
+    // isso, e o efeito mediu-se ao montar o critério 5 na porta da Meta: os
+    // dois primeiros envios de um canal saíam no mesmo instante e a janela de
+    // 1 s que os apanha via **dezasseis**. O ciclo é o que faz o adapter
+    // obedecer à mesma regra que a bateria de `limites.ts` já afirmava —
+    // provar a regra numa função pura não prova que quem a chama a respeita.
+    for (;;) {
+      const espera = this.#limites.pedir(
+        pedido.phoneNumberId,
+        pedido.tenantId,
+        pedido.contactId,
+        this.#agora().getTime(),
+      );
+      if (espera === 0) break;
       // `bucket`: foi o **nosso** tecto que travou. A outra origem é o
       // `130429` da Meta, mais abaixo, e as duas não se somam — ver
       // `metricas.ts`.

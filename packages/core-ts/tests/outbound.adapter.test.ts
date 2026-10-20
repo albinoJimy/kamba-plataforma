@@ -35,9 +35,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
+import { GraphFalso, Gerador as GeradorDeFixtures } from "@kamba/meta-sim";
+
 import { Logger, idOpaco } from "../src/logger/index.ts";
 import {
   BASE_DO_BACKOFF_MS,
+  MPS_POR_CANAL,
   METRICA_CUSTO,
   METRICA_ENVIADAS,
   METRICA_JANELA_FECHADA,
@@ -347,6 +350,34 @@ function pedido(troca: Partial<Pedido> = {}): Pedido {
 }
 
 describe("o backoff do 130429, de ponta a ponta (criterio 6)", () => {
+  it("**tres 130429 e depois um 200: 1 entregue, 0 duplicados** — a letra", async () => {
+    // A sequência do critério, exactamente como ele a escreve: «Resposta
+    // 130429 do servidor falso 3× seguida de 200: backoff exponencial com
+    // jitter, 3 tentativas, 1 mensagem entregue, 0 duplicados».
+    //
+    // São quatro chamadas, e é isso que fixa a leitura de «3 tentativas» como
+    // três **repetições** — ver `REPETICOES` em `limites.ts`. Com três
+    // chamadas no total, os três `429` esgotavam-nas e o `200` nunca chegava.
+    const { saida, bd, meta, dormiu } = montar({
+      guiao: [debito(), debito(), debito(), OK],
+    });
+    const resultado = await saida.enviar(pedido());
+
+    assert.equal(resultado.ok, true, "1 mensagem entregue");
+    assert.equal(resultado.ok === true ? resultado.wamid : "", WAMID);
+    assert.equal(meta.chamadas, 4, "tres repeticoes depois da primeira chamada");
+    assert.equal(dormiu.slice(1).length, 3, "tres esperas de backoff");
+    // «0 duplicados»: **uma** linha, e o estado dela é `sent` e não `failed`.
+    assert.equal(bd.linhas.size, 1);
+    assert.equal(bd.linhas.get("chave-1")?.state, "sent");
+    // E as esperas crescem: 125, 250, 500 com `aleatorio = 0`.
+    assert.deepEqual(dormiu.slice(1), [
+      BASE_DO_BACKOFF_MS / 2,
+      BASE_DO_BACKOFF_MS,
+      BASE_DO_BACKOFF_MS * 2,
+    ]);
+  });
+
   it("dois 130429 e depois um 200: envia, com tres chamadas e duas esperas", async () => {
     // A letra do critério: «*backoff* exponencial com *jitter*, 3 tentativas».
     // Três chamadas e **duas** esperas, porque não se espera depois da que
@@ -383,7 +414,7 @@ describe("o backoff do 130429, de ponta a ponta (criterio 6)", () => {
     assert.deepEqual(dormiu.slice(1), [BASE_DO_BACKOFF_MS, BASE_DO_BACKOFF_MS * 2]);
   });
 
-  it("tres 130429 desistem: tres chamadas, nunca quatro", async () => {
+  it("o 130429 sem fim desiste: quatro chamadas, nunca cinco", async () => {
     const { saida, bd, meta, dormiu } = montar({ guiao: [debito()] });
     const resultado = await saida.enviar(pedido());
 
@@ -446,6 +477,110 @@ describe("o backoff do 130429, de ponta a ponta (criterio 6)", () => {
     const lido = saida.metricas.ler();
     assert.equal(lido[`${METRICA_TRAVADAS}:bucket`], 1);
     assert.equal(lido[`${METRICA_TRAVADAS}:meta`], undefined);
+  });
+});
+
+describe("o debito de 100 envios, medido no servidor falso (criterio 5)", () => {
+  /**
+   * Cem envios a cem contactos diferentes, com o relógio a avançar **pelo que
+   * se dormiu**, e os instantes registados **no `GraphFalso`**.
+   *
+   * ## Porque é que isto não é o teste de `limites.ts` outra vez
+   *
+   * A bateria de `limites.ts` já afirma a regra — «100 `pedir` nunca passam de
+   * 15 em nenhuma janela de 1 s» — chamando `pedir` em ciclo até dar `0`. O que
+   * ela **não** pode afirmar é que quem chama a respeita. E o critério 5 não
+   * pede a regra: pede «100 envios em fila nunca excedem 15/s em nenhuma janela
+   * de 1 s **medida no servidor falso**».
+   *
+   * Montar isso apanhou um defeito real: o adapter dormia **uma vez** e
+   * enviava. O `pedir` devolve a espera e **não consome** quando um tecto está
+   * cheio, pelo que o envio seguinte saía sem ficha — os dois primeiros de cada
+   * canal no mesmo instante, e a janela de 1 s que os apanha via **dezasseis**.
+   * Provar a regra numa função pura não prova que quem a chama obedece.
+   *
+   * O relógio avança pelo `dormir` e não pelo `setTimeout` da máquina: com o
+   * tempo real, isto levava 6,7 segundos e media o escalonador do Node.
+   */
+  it("**nunca mais de 15 numa janela de 1 s, e drenam em >= 6,6 s**", async () => {
+    const graph = new GraphFalso(new GeradorDeFixtures("outbound-debito"));
+    const bd = new BaseFalsa();
+    const instantes: number[] = [];
+    let agora = T0;
+    const saida = new Saida({
+      bd,
+      meta: {
+        enviar: async (phoneNumberId, para, corpo) => {
+          // O instante **à entrada do servidor falso**, que é onde o critério
+          // manda medir.
+          instantes.push(agora);
+          const resposta = graph.responder({
+            metodo: "POST",
+            caminho: `/v23.0/${phoneNumberId}/messages`,
+            consulta: {},
+            corpo: { to: para.bsuid ?? "", tipo: corpo.tipo },
+            cabecalhos: {},
+          });
+          if (resposta.estado !== 200 || resposta.corpo instanceof Uint8Array) {
+            return { ok: false, codigo: 130429, estadoHttp: resposta.estado, esperar: null };
+          }
+          const mensagens = resposta.corpo.messages as { id: string }[];
+          return { ok: true, wamid: mensagens[0]?.id ?? "" };
+        },
+      },
+      destinatario: async () => ({ bsuid: "AO.ENSAIOENSAIOENSAIO0001", telefone: null }),
+      guarda: async () => true,
+      freeTier: null,
+      // O relógio **não** avança na leitura: quem o move é o `dormir`. Com ele
+      // a avançar por leitura, o balde enchia por fora do que se esperou e a
+      // medição deixava de ser do tecto.
+      agora: () => new Date(agora),
+      aleatorio: () => 0,
+      dormir: async (ms: number) => {
+        agora += ms;
+      },
+      ambiente: {},
+    });
+
+    for (let i = 0; i < 100; i += 1) {
+      const resultado = await saida.enviar(
+        pedido({ contactId: `contacto-${i}`, idempotencyKey: `chave-${i}` }),
+      );
+      assert.equal(resultado.ok, true, `envio ${i}`);
+    }
+
+    // Cem chamadas atendidas pelo servidor falso, e cem linhas: nenhum envio se
+    // perdeu nem se duplicou pelo caminho.
+    assert.equal(instantes.length, 100);
+    assert.equal(graph.envios, 100);
+    assert.equal(bd.linhas.size, 100);
+
+    // A asserção do critério, sobre **todas** as janelas de 1 s e não só as
+    // alinhadas ao segundo: para cada envio, quantos couberam nos 1000 ms
+    // anteriores.
+    for (const fim of instantes) {
+      const naJanela = instantes.filter((t) => t > fim - 1000 && t <= fim).length;
+      assert.ok(
+        naJanela <= MPS_POR_CANAL,
+        `a janela a terminar em ${fim}ms teve ${naJanela} envios`,
+      );
+    }
+
+    // «drenam em >= 6,6 s»: 100/15 = 6,67 s, que é o número do próprio
+    // critério — e só se obtém com o balde do canal a nascer **vazio**.
+    const drenagem = (instantes[99] ?? 0) - T0;
+    assert.ok(drenagem >= 6_600, `drenou em ${drenagem}ms, menos do que o criterio pede`);
+    assert.ok(drenagem < 7_200, `drenou em ${drenagem}ms, demasiado`);
+  });
+
+  it("contactos diferentes nao se travam uns aos outros pelo tecto do par", async () => {
+    // O tecto do par (1 mps) nasce **cheio**, e é o que faz a primeira
+    // mensagem a cada contacto não esperar um segundo. Sem isso, os cem envios
+    // acima levavam 100 s em vez de 6,7 — medido.
+    const { saida } = montar();
+    await saida.enviar(pedido({ contactId: "a", idempotencyKey: "ka" }));
+    await saida.enviar(pedido({ contactId: "b", idempotencyKey: "kb" }));
+    assert.equal(saida.limites.paresEmMemoria, 2);
   });
 });
 

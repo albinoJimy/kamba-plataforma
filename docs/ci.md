@@ -1194,12 +1194,13 @@ dispensa.
 
 #### A segunda metade: identidade de contacto (KAM-008)
 
-O `make ci-8` corre **dez** *suites*, cada uma com a sua base descartável:
+O `make ci-8` corre **onze** *suites*, cada uma com a sua base descartável:
 `tests` (as migrações, acima), **`tests_identidade`** (esta secção),
 **`tests_eventos`** e **`tests_eventos_carga`** (a secção seguinte, KAM-005),
 `tests_eventos_consumo` (KAM-006), `tests_auditoria_carga` (KAM-012),
 **`tests_ten`** (KAM-009), **`tests_entrada`** e **`tests_entrada_carga`**
-(KAM-013) e **`tests_chr`** (KAM-014, a última secção).
+(KAM-013), **`tests_chr`** (KAM-014) e **`tests_outbound`** (KAM-015, a última
+secção).
 A de identidade entrou com o KAM-008. Esta põe o módulo de identidade — TypeScript, em
 `packages/core-ts/src/identity/` — a correr contra o PostgreSQL com o papel
 `kamba_identity` verdadeiro e a RLS ligada. O desenho está em
@@ -1399,6 +1400,46 @@ de dados e o CHR sem base só corre as recusas à entrada. É a mesma solução 
 interface, e o que se faz com o *job* é KAM-025. O `chr/fila.ts` — a casca sobre
 o BullMQ — fica por isso fora da medição, declarado nos `excluidos` do
 `ci/thresholds.yaml`.
+
+#### A décima segunda: a saída de canal (KAM-015)
+
+`tests_outbound` põe o módulo de saída — TypeScript, em
+`packages/core-ts/src/outbound/` — a correr contra o PostgreSQL **e** contra o
+servidor Graph falso do KAM-024. É a primeira *suite* que junta os dois, e a
+razão é a letra do critério 2: «2 chamadas com a mesma `idempotency_key`
+produzem **1 chamada à API** (servidor falso conta) e **1 linha** em
+`outbound_messages`». Uma base prova a linha e não a chamada; um servidor falso
+prova a chamada e não a linha. O desenho está em [`outbound.md`](outbound.md).
+
+| O que só aqui se prova | Como |
+|---|---|
+| «1 chamada à API e 1 linha» | A mesma chave duas vezes, com o `GraphFalso` a contar: **uma** chamada e **uma** linha. O `ON CONFLICT (tenant_id, idempotency_key) DO NOTHING RETURNING` devolve vazio na segunda, e é disso — e não de uma verificação prévia — que o adapter conclui «não chamar» |
+| «a unicidade é **por tenant**» | A mesma chave em dois *tenants* dá **duas** linhas. É a primeira divergência da emenda 1.21 face ao `../docs/tecnica/01` §8.4: com unicidade global, o segundo *tenant* era deduplicado em silêncio |
+| «estados monótonos» sob concorrência | Dois `statuses` da mesma mensagem em **duas ligações**, em paralelo: o estado final é o maior dos dois e o custo conta **uma** vez. A monotonia está no predicado (`state = ANY($4)`), e é a base que serializa — com uma ligação só, o teste provava que o JavaScript é sequencial |
+| a RLS sobre as duas tabelas novas | Com o contexto de A, as linhas de B não aparecem **e** uma escrita na linha de B não acontece. É o X-03 dos *Testes Requeridos*, e com `FORCE` vale até para o dono |
+| o custo por *tenant* sai da **tabela** | O `SQL_CUSTO_DO_TENANT` soma o `pricing` das entregues, e o de A não inclui o de B. É isto que substitui a etiqueta `{tenant}` que as bibliotecas de métricas recusam — ver [`outbound.md`](outbound.md) §5 |
+| o bloqueio de template recategorizado | Recategorizar para `marketing` bloqueia e é **idempotente** (a Meta reenvia o *webhook*), preservando o primeiro instante |
+| o `downgrade` da `0010` | Em `db/tests/test_saida_schema.py`, na *suite* `tests`: vazio desce e sobe; com linhas e sem `KAMBA_DOWNGRADE_0010_COPIA` **recusa** e deixa o `FORCE` intacto; com a variável escreve a cópia das catorze colunas de cada envio e das dez de cada template, **com o `pricing`** |
+
+E a *suite* mede a **cobertura de `src/outbound/` por ficheiro**, contra o
+limiar do estrato `restante` lido de `ci/thresholds.yaml` — e **não** o do
+`critico`, por uma razão escrita na própria *suite*: o DoD do KAM-015 diz
+«cobertura ≥ limiar» sem número, e alterar `ci/thresholds.yaml` pede dois
+revisores. Não se alarga um ficheiro de limiares para marcar uma caixa que não
+pede o número.
+
+**Leva o `tools/meta-sim` montado**, que é a diferença face ao `tests_chr`: sem
+a pasta de módulos do simulador o `import` do `GraphFalso` falha com
+`ERR_MODULE_NOT_FOUND`. O `@kamba/meta-sim` é por isso uma `devDependency` do
+`@kamba/core-ts`, o que fecha um **ciclo** — aceitável porque é de
+desenvolvimento nos dois sentidos, e o oráculo do `pnpm list --prod` prova que
+o fecho de produção de ambos é zero.
+
+**O `cliente.ts` fica fora da medição**, como o `chr/fila.ts`: a parte dele que
+pode errar em silêncio — a forma do corpo, a leitura do `error.code`, o
+`Retry-After` — tem bateria própria no *gate* 4 com o `fetch` por porta, e esta
+*suite* usa o `GraphFalso` por porta e não passa pela chamada de rede. Medi-lo
+aqui dava-lhe uma cobertura que diria só que o ensaio não abre socket.
 
 ## 4. Gates reservados (5)
 
@@ -2088,3 +2129,4 @@ sobrevivem ao PR.
 | 1.38 | Outubro 2026 | **KAM-013: o *gate* 8 passa a correr nove *suites*.** As duas novas são `tests_entrada` e `tests_entrada_carga`, e a diferença face a todas as outras é o que elas lançam: os **processos de produção** (`services/gwy/src/server.ts` e `services/worker-canal/src/entrada.ts`), sem programa de ensaio pelo meio — porque o que há para provar é o comportamento de um servidor HTTP com uma fila a sério. O que só aqui se mede: o 200 com o *job* **já** na fila, o 503 com o contentor da fila parado (e o mesmo processo a voltar a aceitar sem reinício), a mesma mensagem em dois corpos a deixar **uma** linha, e um corpo ilegível a dar 200 e quarentena em vez de começar sete dias de re-entregas. **A assinatura calcula-se em Python**, que é uma segunda implementação: mede-se interoperabilidade e não auto-consistência. E os domínios de `kind` e `motivo` comparam-se com **três** fontes — o `CHECK` do PostgreSQL, o dicionário exportado e a lista do módulo TypeScript. A *suite* apanhou **três defeitos que nenhum teste unitário apanhava**: o `backoffStrategy` que faltava no *worker* (todos os *jobs* levam `backoff: custom` do `addLote`, e um *worker* que o não registe lança ao calcular o atraso — o *job* ficava em `failed` sem passar pela quarentena); o `SELECT` por coluna que o `ON CONFLICT (kind, event_key)` exige em `unrouted_events` (a mesma lição que a `0005` já escrevera para o `events_dlq`); e um *job* falhado a não deixar **linha nenhuma** de registo, porque o BullMQ nada escreve quando ninguém ouve o acontecimento `failed`. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |
 | 1.39 | Outubro 2026 | **KAM-014: o *gate* 8 passa a correr dez *suites*.** A décima é `tests_chr`, e é a primeira que abre **três ligações com três papéis** — `kamba_resolver`, `kamba_identity` e `kamba_app` —, porque a resposta à pergunta do CHR depende do papel: a mesma consulta devolve **zero linhas** com `kamba_app` sem contexto e uma com o resolvedor, e é isso que torna o papel necessário e não conveniente. O que só aqui se prova está no §3: o `phone_number_id` de A nunca devolve o contexto de B (propriedade da chave única e da política, não do código), a convergência de identidade **e o seu limite**, o gancho de fusão nos dois casos, a guarda do ADR-011 a recusar-se a correr com um papel que não vê tudo, e a ausência de `UPDATE (mode)` para a aplicação. O estrato `critico` ganha `*/chr/*` e o `chr/fila.ts` entra nos `excluidos`. O *gate* 6 ganha a receita de sementes da `conversations` — a primeira tabela isolada **sem coluna de texto livre**, com o canário na chave primária —, e a descoberta do X-05 passa de dezasseis tabelas a **dezassete**. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |
 | 1.40 | Outubro 2026 | **KAM-024: a parte dos *webhooks* do *gate* 7 passa a existir.** O alvo `ci-7-meta` corre o *scan* de telefones, o relatório de cobertura dos 33 itens (16 tipos, 11 campos e 6 motivos) e a *suite* offline, incluindo a ida e volta das 32 *fixtures* assinadas contra o GWY do KAM-013. **24 s**, contra os ≤ 5 min da *proposta*. Três coisas que não são transcrição: os códigos de saída são **três** e não dois, porque «0 ficheiros lidos» não é «0 achados» — a armadilha que o `lint_contagens` já mordeu; o *scan* confronta o repositório com um **inventário** por ficheiro, com contagem exacta e razão, e não com uma pasta isenta, porque uma pasta isenta deixava passar um número novo dentro de um ficheiro já tolerado; e o `tools/meta-sim` entra em `PACOTES_NODE`, sem o que o `coverage_gate` injectava os seus dezasseis ficheiros a 0% — e o `base_do_nome` ganha a família `tools`, sem a qual os mesmos dezasseis saíam como «medidos e não classificados», que é o estado em que um ficheiro escapa ao limiar em silêncio. A *suite* **online** continua por fazer e depende de `ext:KAM-102`. | Equipa KAMBÁ |
+| 1.41 | Outubro 2026 | **KAM-015: o *gate* 8 passa a correr onze *suites*.** A décima primeira é `tests_outbound`, e é a primeira que junta o PostgreSQL ao servidor Graph falso do KAM-024 — porque o critério 2 pede «1 chamada à API (servidor falso conta) **e** 1 linha em `outbound_messages`», e nenhum dos dois prova a metade do outro. O que só aqui se prova está no §3: a idempotência (é da base, pelo `ON CONFLICT ... RETURNING` vazio), a unicidade **por tenant** da chave, a monotonia sob concorrência **real** (duas ligações, que é o que torna a corrida verdadeira), o X-03 sobre as duas tabelas novas e o custo por *tenant* a sair da tabela em vez de uma etiqueta de métrica. A cobertura de `src/outbound/` mede-se aqui, contra o estrato **`restante`** e não o `critico`: o DoD não dá número e alterar `ci/thresholds.yaml` pede dois revisores. O *gate* 6 ganha as receitas de sementes da `outbound_messages` e da `message_templates`, e a descoberta do X-05 passa de dezassete tabelas a **dezanove**. Quatro defeitos que só uma máquina apanhou: o `set_config(..., true)` solto — «local à transacção», pelo que o contexto morria antes da instrução seguinte e o `kamba_app` com `FORCE` via zero linhas (a *suite* caiu de 421 s para 33 s); a `outbound_messages_entrega_ck` a matar um `failed` depois de um `delivered`; a limpeza do ensaio a apagar conversas antes das mensagens que lhes apontam; e a `outbound_rate_limited_total` a somar a nossa travagem com a da Meta sob uma ajuda escrita que dizia só a primeira. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |

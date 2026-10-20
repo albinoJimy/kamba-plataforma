@@ -28,9 +28,11 @@
  *
  * ## O *backoff* leva *jitter*, e o `Retry-After` manda
  *
- * O critério 6 pede «*backoff* exponencial com *jitter*, 3 tentativas». O
- * *jitter* não é enfeite: sem ele, N processos que apanhem o mesmo `130429`
- * voltam todos no mesmo instante e o segundo `130429` é garantido. E quando a
+ * O critério 6 pede «*backoff* exponencial com *jitter*, 3 tentativas» — três
+ * **repetições**, quatro chamadas, pela razão escrita na constante
+ * `REPETICOES`. O *jitter* não é enfeite: sem ele, N processos que apanhem o
+ * mesmo `130429` voltam todos no mesmo instante e o segundo `130429` é
+ * garantido. E quando a
  * Meta manda `Retry-After`, é esse que vale — o §16 do doc 01 manda respeitá-lo
  * e um *backoff* que o ignore está a adivinhar contra quem sabe.
  */
@@ -44,8 +46,24 @@ export const MPS_POR_PAR = 1;
 /** Tecto por par, em mensagens por minuto. */
 export const POR_MINUTO_POR_PAR = 30;
 
-/** Tentativas de um envio que apanha `130429` ou 5xx. Três, como o critério 6. */
-export const TENTATIVAS = 3;
+/**
+ * **Repetições** de um envio que apanha `130429` ou 5xx. Três, como o critério 6.
+ *
+ * Três *repetições* e não três *chamadas*, e a diferença é o que torna o
+ * critério cumprível à letra. Ele diz «`130429` do servidor falso **3× seguida
+ * de 200** ... **3 tentativas**»: com três chamadas no total, os três `130429`
+ * esgotam-nas e o `200` nunca chega — a frase contradiz-se. Com três
+ * repetições depois da primeira chamada são quatro chamadas e a sequência
+ * encaixa: 429, 429, 429, 200.
+ *
+ * Entre duas leituras de um critério, a que o torna possível de cumprir é a
+ * pretendida. A primeira versão deste módulo tinha três chamadas, e isso
+ * deixava a caixa por marcar com o código a dizer que estava feita.
+ */
+export const REPETICOES = 3;
+
+/** Chamadas no total: a primeira, mais as `REPETICOES`. */
+export const TENTATIVAS = REPETICOES + 1;
 
 /** O atraso base do *backoff*, em milissegundos. */
 export const BASE_DO_BACKOFF_MS = 250;

@@ -186,6 +186,7 @@ SAIDA_ESTADOS = "packages/core-ts/src/outbound/estados.ts"
 SAIDA_LIMITES = "packages/core-ts/src/outbound/limites.ts"
 SAIDA_TARIFAS = "packages/core-ts/src/outbound/tarifas.ts"
 SAIDA_DECISAO = "packages/core-ts/src/outbound/decisao.ts"
+SAIDA_ADAPTER = "packages/core-ts/src/outbound/adapter.ts"
 CHR = "tests_chr"
 CHR_CANAL = "packages/core-ts/src/chr/canal.ts"
 CHR_SQL = "packages/core-ts/src/chr/consultas.ts"
@@ -1487,6 +1488,17 @@ MUTACOES = [
     ('saida: um template bloqueado passa a poder ser usado', SAIDA_DECISAO,
      '  if (template.bloqueadoEm !== null) return { enviar: false, motivo: "TEMPLATE_BLOCKED" };',
      '', SAIDA),
+    # As tres abaixo sao das correccoes que o ensaio do adapter (gate 4) e o do
+    # esquema (suite `tests`) apanharam: cada uma volta o codigo ao defeito
+    # medido, para que deixar de o apanhar seja uma sobrevivente e nao silencio.
+    ('saida: o token bucket deixa de pedir em ciclo', SAIDA_ADAPTER,
+     '      if (espera === 0) break;',
+     '      if (espera === 0) break;\n      if (true) { await this.#dormir(espera); break; }', SAIDA),
+    ('saida: as repeticoes do 130429 passam a ser duas', SAIDA_LIMITES,
+     'export const REPETICOES = 3;', 'export const REPETICOES = 2;', SAIDA),
+    ('revisao 0010: o instante de entrega deixa de caber nos terminais', REV10,
+     "                       OR state IN ('delivered', 'read', 'failed',\n                                    'suppressed_by_human')),",
+     "                       OR state IN ('delivered', 'read')),", "tests"),
     ('saida: a janela fechada deixa de recusar o envio livre', SAIDA_DECISAO,
      '      return { enviar: false, motivo: WINDOW_CLOSED };',
      '      return { enviar: true, kind: "service", templateName: null };', SAIDA),
@@ -1576,6 +1588,38 @@ MUTACOES = [
 
 #: O que a copia leva. `tools/kamba_yaml.py` e `ci/` nao sao codigo de `db/`,
 #: mas a suite de isolamento le deles as listas de excepcoes.
+def _recusar_importacao_por_pacote() -> None:
+    """Recusa se um teste de `core-ts` importar o pacote por especificador.
+
+    A copia leva o `dist` do `core-ts` (sem ele, o `meta-sim` nao carrega), e um
+    `dist` na copia e uma segunda fonte do mesmo codigo: um teste que importasse
+    `@kamba/core-ts/<modulo>` lia a construcao e nao a fonte mutada, e a prova
+    dava «apanhada» sem nada ter sido apanhado. Esta guarda e o que torna a
+    razao escrita em `_copiar` verificavel em vez de uma intencao.
+
+    A convencao da casa ja e importar por caminho relativo nos testes, e e esta
+    a razao — a mesma que fez a cobertura de `src/outbound/` cair em `dist/` na
+    primeira versao do KAM-015.
+    """
+    achados: list[str] = []
+    for pasta in ("tests", "tests_bd"):
+        raiz = RAIZ / "packages" / "core-ts" / pasta
+        if not raiz.is_dir():
+            continue
+        for ficheiro in sorted(raiz.rglob("*.ts")):
+            texto = ficheiro.read_text(encoding="utf-8")
+            if '"@kamba/core-ts' in texto or "'@kamba/core-ts" in texto:
+                achados.append(str(ficheiro.relative_to(RAIZ)).replace("\\", "/"))
+    if achados:
+        raise SystemExit(
+            "a prova por mutacao nao pode correr: estes testes importam "
+            "`@kamba/core-ts` por especificador, e a copia leva o `dist` — a "
+            "mutacao aplicar-se-ia a fonte e o teste leria a construcao:\n  "
+            + "\n  ".join(achados)
+            + "\nImporte por caminho relativo (`../src/<modulo>/index.ts`)."
+        )
+
+
 def _copiar(destino: Path, suite: str = "tests") -> None:
     ignorar = shutil.ignore_patterns("__pycache__")
     if suite in SUITES_DE_TOOLS:
@@ -1617,6 +1661,49 @@ def _copiar(destino: Path, suite: str = "tests") -> None:
     # O dicionario exportado: a suite de entrada compara o dominio de `kind` e
     # de `motivo` com **tres** fontes, e uma delas e este ficheiro.
     shutil.copytree(RAIZ / "canon", destino / "canon", ignore=ignorar)
+    # **O `tools/meta-sim` e o `config/` (KAM-015)**, e os dois pela regra
+    # escrita mais abaixo: uma mutacao nova sobre uma suite que os abre obriga a
+    # acrescenta-los aqui.
+    #
+    # O simulador vai sem `dist`, ao contrario do `packages/contracts`: o seu
+    # `exports` aponta para `./src/index.ts` e nao para uma pasta construida. Os
+    # `node_modules` chegam por `--volume` da arvore real, como os dos outros.
+    # Sem esta pasta, o `import { GraphFalso } from "@kamba/meta-sim"` do ensaio
+    # da saida rebenta com `ERR_MODULE_NOT_FOUND` — a ligacao de *workspace* e
+    # relativa e resolve-se **dentro da copia**.
+    #
+    # O `config/meta_rates.yaml` e a outra fonte das tarifas, e a suite
+    # `tests_outbound` compara-a com as constantes de `tarifas.ts`: sem ele, o
+    # `setUpClass` do `TestTarifas` levanta e a linha de base fica vermelha —
+    # isto e, nenhuma mutacao da suite se pode provar. Medido ao correr a
+    # primeira.
+    shutil.copytree(
+        RAIZ / "tools" / "meta-sim", destino / "tools" / "meta-sim",
+        ignore=shutil.ignore_patterns("node_modules", "dist", "__pycache__"),
+    )
+    # **E o `dist/entrada` do `core-ts`, e so ele.** O `meta-sim` importa
+    # `@kamba/core-ts/entrada` como **pacote** (tres ficheiros seus leem de la os
+    # nomes de campo e os `wa_type`, em vez de os reescrever), e o `exports` do
+    # `core-ts` aponta esse subcaminho para `dist/entrada/index.js`. Sem esta
+    # pasta, o `import { GraphFalso }` morre com `ERR_MODULE_NOT_FOUND` —
+    # medido, e e o que a linha de base da suite `tests_outbound` dizia.
+    #
+    # **O `dist` inteiro e nao so o `dist/entrada`**: o `dist/entrada/registo.js`
+    # importa o `dist/logger/index.js`, e uma construcao e um grafo — recortar
+    # uma pasta dele da `ERR_MODULE_NOT_FOUND` na seguinte (medido, nesta ordem).
+    #
+    # **E um `dist` na copia podia mascarar uma mutacao**: se um teste importasse
+    # `@kamba/core-ts/<modulo>` em vez de `../src/<modulo>/index.ts`, a mutacao
+    # aplicava-se a fonte, o teste lia a construcao antiga, e a prova dizia
+    # «apanhada» sem nada ter sido apanhado. Por isso **confere-se**, em vez de
+    # se confiar: a guarda abaixo recusa a copia se algum teste de `core-ts`
+    # importar o pacote por especificador. Hoje nenhum o faz — todos importam
+    # por caminho relativo, que e a convencao da casa precisamente por isto.
+    _recusar_importacao_por_pacote()
+    dist = RAIZ / "packages" / "core-ts" / "dist"
+    if dist.is_dir():
+        shutil.copytree(dist, destino / "packages" / "core-ts" / "dist")
+    shutil.copytree(RAIZ / "config", destino / "config", ignore=ignorar)
     # E o que a **lista inteira** precisa de encontrar, mesmo que esta suite nao
     # o corra: o `tests/test_mutacoes.py` corre `--aplicaveis` sobre a lista real
     # **de dentro da copia**, e um ficheiro que falte conta como mutacao nao

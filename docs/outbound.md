@@ -48,7 +48,7 @@ mensagem, um envio duplicado ou um dado pessoal.
 | 4 | **A linha, antes da rede** | É isto que faz a idempotência — ver §3 |
 | 5 | **O destinatário** | Por porta. Só agora, porque não vale pedi-lo para um envio que vai ser recusado |
 | 6 | **O *token bucket*** | Depois da linha: travar antes fazia o chamador repetir com chave nova e perder a idempotência |
-| 7 | **A rede, com *backoff*** | Três tentativas; `130429` e 5xx repetem, `131049` não |
+| 7 | **A rede, com *backoff*** | Três **repetições** (quatro chamadas); `130429` e 5xx repetem, `131049` não |
 
 A tabela de decisão é a do `docs/tecnica/01` §8.2:
 
@@ -215,6 +215,22 @@ O *backoff* é exponencial com *jitter* em `[base/2, base]` — e não `[0, base
 porque um atraso que possa ser zero não é atraso e o `130429` voltava no mesmo
 instante. O `Retry-After` **manda** quando existe (`01` §16).
 
+**«3 tentativas» são três *repetições*, logo quatro chamadas**, e a leitura não
+é de gosto. O critério escreve «`130429` do servidor falso **3× seguida de
+200** ... **3 tentativas**»: com três chamadas no total, os três `130429`
+esgotam-nas e o `200` nunca chega — a frase contradiz-se. Com três repetições
+depois da primeira chamada são quatro, e a sequência encaixa: 429, 429, 429,
+200. Entre duas leituras de um critério, a que o torna possível de cumprir é a
+pretendida. A primeira versão deste módulo tinha três chamadas, e isso deixava
+a caixa por marcar com o código a dizer que estava feita.
+
+**As duas travagens contam-se separadas.** A `outbound_rate_limited_total` leva
+a etiqueta `origem`, de dois valores: `bucket` quando foi o nosso balde a travar
+e `meta` quando foi um `130429` que o *backoff* repetiu. Somá-las num número só
+era perder a única decisão que o contador informa — a primeira diz «o nosso
+tecto está apertado, pode subir», a segunda diz «o tecto dela está à frente do
+nosso, baixa».
+
 O **`131049`** (limite de frequência por utilizador) **não se repete**: a Meta
 não entregou de propósito, e insistir é gastar débito para ser recusado outra
 vez.
@@ -272,8 +288,8 @@ a Meta nunca viu. Quem **consome** os três webhooks de template é o
 ## 9. Como correr
 
 ```bash
-# Os testes unitários (gate 4): decisão, estados, custo, tectos, cliente
-pnpm --filter @kamba/core-ts exec node --test tests/outbound.decisao.test.ts tests/outbound.estados.test.ts tests/outbound.limites.test.ts
+# Os testes unitários (gate 4): decisão, estados, custo, tectos, cliente, adapter
+pnpm --filter @kamba/core-ts exec node --test tests/outbound.decisao.test.ts tests/outbound.estados.test.ts tests/outbound.limites.test.ts tests/outbound.adapter.test.ts
 
 # A suite contra PostgreSQL e contra o servidor Graph falso (gate 8)
 python db/gate_bd.py --suite tests_outbound
@@ -285,6 +301,13 @@ tectos: uma base real não acrescenta nada à prova. Na suite de base de dados f
 o que **não se simula**: a idempotência (é da base), a monotonia sob concorrência
 real (só a base serializa duas sessões), o isolamento, e a contagem de chamadas
 HTTP pelo `GraphFalso`.
+
+O `tests/outbound.adapter.test.ts` é o terceiro caso, e não cabe em nenhum dos
+dois: mede a **ordem** dos passos, com a base, a Meta, o relógio, o aleatório e
+o `dormir` por porta. É ali que o critério 6 se prova por extenso — contra a
+base as respostas vêm do `GraphFalso` e dizem `200`, logo o `130429` nunca
+acontece — e é ali que os quatro «**sem** chamada à API» dos critérios 1, 2, 7 e
+8 se afirmam com um contador a zero.
 
 ---
 

@@ -77,8 +77,8 @@ GRUPOS = (
 #: provado so ao nivel das funcoes `vaiRepetir` e `atrasoMs` — isto e, provado
 #: que a regra existe, nao que o adapter a usa.
 TESTES_OBRIGATORIOS = (
-    "dois 130429 e depois um 200: envia, com tres chamadas e duas esperas",
-    "tres 130429 desistem: tres chamadas, nunca quatro",
+    "**tres 130429 e depois um 200: 1 entregue, 0 duplicados** — a letra",
+    "o 130429 sem fim desiste: quatro chamadas, nunca cinco",
     "**o 131049 nao repete: uma chamada e so uma**",
     "o Retry-After manda sobre o backoff calculado",
     "**sem guarda, em CI, levanta** — e nao envia",
