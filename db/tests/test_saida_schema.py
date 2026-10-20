@@ -45,6 +45,7 @@ from tests.base import (
     ComBase,
     TABELAS,
     TABELAS_ATE_0009,
+    TABELAS_ATE_0010,
     alembic,
     alembic_ok,
     em_head,
@@ -496,10 +497,14 @@ class TestDowngradeDa0010(unittest.TestCase):
         self.assertIn("2 mensagem(ns) de saida", saida)
         self.assertIn("2 template(s)", saida)
         self.assertIn(VARIAVEL_DA_COPIA, saida)
-        # A base ficou em `head`: o `downgrade` levanta na propria revisao, e o
-        # Alembic corre uma transaccao por revisao — logo as politicas que a
-        # funcao desligou voltam atras com ela.
-        self.assertEqual(_tabelas(self.cursor), TABELAS)
+        # A base ficou em **`0010`** e nao em `head`, desde que o KAM-019
+        # acrescentou a `0011`. Nao e regressao: o Alembic corre **uma
+        # transaccao por revisao**, pelo que o `downgrade` da `0011` — que nao
+        # tem passagens nem contas para perder — desce e **compromete** antes de
+        # a `0010` levantar. E a mesma correccao que o KAM-015 teve de fazer ao
+        # teste da `0009`, e e a terceira vez que esta lista muda por uma
+        # revisao nova descer a frente.
+        self.assertEqual(_tabelas(self.cursor), TABELAS_ATE_0010)
         self.cursor.execute("SELECT count(*) FROM platform.outbound_messages")
         self.assertEqual(self.cursor.fetchone()[0], 2)
         # E o `FORCE` das duas tabelas ficou **intacto**: a recusa nao pode

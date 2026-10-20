@@ -272,6 +272,24 @@ class TestConvencoes(ComBase):
                 ("evt_dlq_aprovacoes", "dlq_id", "bigint", None),
                 ("evt_subscricoes", "consumer", "text", None),
                 ("evt_subscricoes", "tipo", "text", None),
+                # KAM-019: a chave da conta de atendimento e **natural**,
+                # `(tenant_id, provedor)`, e e isso que torna «uma conta por
+                # PME» (criterio 1) uma propriedade da base e nao do codigo —
+                # um `ensureAccount` concorrente bate na chave. A do
+                # `provedor` vem primeiro nesta lista porque a consulta e
+                # `ORDER BY 1, 2`.
+                ("handoff_accounts", "provedor", "text", None),
+                ("handoff_accounts", "tenant_id", "uuid", None),
+                # KAM-019: a chave da passagem e **texto e derivada** —
+                # `hash(thread_id, ordinal_do_handoff)`, `docs/tecnica/01`
+                # §11.1 — e nao um `uuid` gerado. E a excepcao com a razao mais
+                # forte desta lista: um identificador **derivado** e o que faz
+                # cinco chamadas concorrentes chegarem ao mesmo valor sem se
+                # falarem, que e o criterio 4, e que nenhum `gen_random_uuid()`
+                # consegue. Um `uuid` aqui obrigava a uma segunda coluna com o
+                # resumo e a unicidade nela — a mesma coisa com um nivel de
+                # indireccao a mais.
+                ("handoffs", "handoff_id", "text", None),
                 ("hmac_key_versions", "kid", "text", None),
                 # KAM-013: `uuid` aleatorio, pela razao escrita no teste da
                 # coluna de identidade. A chave de deduplicacao **nao** e esta:
@@ -410,7 +428,17 @@ class TestConvencoes(ComBase):
              # A `message_templates` tem o `tenant_id` em primeiro lugar na
              # chave primaria `(tenant_id, name, lang)`, que e o indice que a
              # serve — nao foi preciso indice proprio.
-             "outbound_messages", "message_templates"},
+             "outbound_messages", "message_templates",
+             # KAM-019. As duas do handoff, e a `handoffs` e a **primeira
+             # tabela desta classe que nao satisfaz a convencao de graca**: a
+             # sua chave primaria e o `handoff_id` derivado, que nao leva
+             # `tenant_id`. Levou por isso um indice proprio,
+             # `(tenant_id, opened_at DESC)` — e o teste recusou a primeira
+             # versao da revisao, que nao o tinha. A segunda coluna e a
+             # consulta do SLA que a escolhe («passagens a espera ha mais de
+             # 15 min, por tenant»). A `handoff_accounts` tem o `tenant_id` em
+             # primeiro lugar na chave primaria `(tenant_id, provedor)`.
+             "handoffs", "handoff_accounts"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -457,6 +485,13 @@ class TestConvencoes(ComBase):
         # com o `tenant_id`** (para `contacts` e para `tenant_channels`), que e
         # o padrao que a `0003` fixou: uma conversa nao aponta para um contacto
         # nem para um canal de outro tenant, e e a base que o recusa.
+        # 26 desde o KAM-019: as **tres** da `0011` — a `handoffs_tenant_fk`,
+        # a `handoffs_conversation_fk` (composta, e assenta na
+        # `conversations_tenant_id_uq` que a `0010` acrescentou) e a
+        # `handoff_accounts_tenant_fk`. A `handoff_accounts` **nao** referencia
+        # a `handoffs`: uma conta de atendimento existe antes de haver passagem
+        # nenhuma.
+        #
         # 23 desde o KAM-015: a `message_templates_tenant_fk` e as **quatro**
         # da `outbound_messages` — cinco, portanto. Nao sao seis: o
         # `template_name` **nao** tem
@@ -465,7 +500,7 @@ class TestConvencoes(ComBase):
         # sao compostas com o `tenant_id`, pela mesma razao da `0009`: uma
         # mensagem de A nao aponta para um canal, uma conversa ou um contacto
         # de B, e nem o gate 6 nem o 3b o veriam.
-        self.assertEqual(len(linhas), 23)
+        self.assertEqual(len(linhas), 26)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

@@ -346,6 +346,49 @@ ESPERADO_POR_TABELA.update(
 )
 
 
+def _handoff(**por_papel: set[str]) -> dict[str, set[str]]:
+    """Matriz das duas tabelas da revisao 0011 (KAM-019).
+
+    A mesma forma da `_saida`, e pela mesma razao em cada papel: o dono tem
+    tudo, o `kamba_batch` tem os quatro de dados porque e quem purga (KAM-071),
+    e o `kamba_resolver`, o `kamba_identity` e o `kamba_audit` **nada** — o
+    resolvedor responde antes de haver contexto, a identidade nao sabe de
+    passagens, e quem audita le o `audit_log`.
+    """
+    base = {
+        "kamba_app": set(),
+        "kamba_batch": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+        "kamba_resolver": set(),
+        "kamba_identity": set(),
+        "kamba_audit": set(),
+        "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+        "public": set(),
+    }
+    base.update(por_papel)
+    return base
+
+
+ESPERADO_POR_TABELA.update(
+    {
+        # KAM-019. O `kamba_app` le e insere nas duas, e o `UPDATE` e **por
+        # coluna** (ver `COLUNAS_POR_PAPEL`).
+        #
+        # O `SELECT` de tabela e preciso nas duas e nao e generoso: o
+        # `openHandoff` le a linha para saber se a passagem ja abriu
+        # (idempotencia) e o `INSERT ... ON CONFLICT (handoff_id) DO NOTHING
+        # RETURNING` exige `SELECT` na coluna de inferencia — a licao que a
+        # `0008` escreveu para o `SQL_QUARENTENA`.
+        "handoffs": _handoff(kamba_app={"SELECT", "INSERT"}),
+        # **`INSERT` tambem aqui, ao contrario dos `message_templates` da
+        # `0010`.** A diferenca e quem cria: um template e submetido pelo
+        # onboarding (KAM-091), mas uma conta de atendimento e criada pelo
+        # proprio `ensureAccount`, que corre no HND. Negar-lhe o `INSERT` era
+        # entregar um criterio que nao pode passar.
+        "handoff_accounts": _handoff(kamba_app={"SELECT", "INSERT"}),
+    }
+)
+
+
 def _eventos(**por_papel: set[str]) -> dict[str, set[str]]:
     """Matriz de uma tabela da revisao 0004 (KAM-005).
 
@@ -538,6 +581,29 @@ COLUNAS_POR_PAPEL = {
         "bloqueado_em",
         "updated_at",
     },
+    # KAM-019. Quatro colunas na passagem, e sao as que o ciclo de vida muda
+    # depois de a linha existir. **O que nao esta aqui e o que importa**: o
+    # `handoff_id` (reescrever a chave de idempotencia de uma passagem que
+    # abriu e faze-la voltar a abrir), o `tenant_id`, o `conversation_id`, o
+    # `motivo` — mudar o motivo depois de alguem ter sido chamado e reescrever
+    # porque e que foi — e o `opened_at`.
+    ("kamba_app", "handoffs", "UPDATE"): {
+        "status",
+        "external_id",
+        "resumed_at",
+        "resolver",
+    },
+    # KAM-019. Quatro na conta de atendimento. O `account_id` **nao** esta: uma
+    # conta no provedor nao muda de identidade, e se mudar e uma conta nova. O
+    # `tenant_id` e o `provedor` sao a chave primaria. O `inbox_id` e o `bot_id`
+    # podem ser repostos (o `ensureAccount` «repoe» uma conta em falta) e o
+    # `token_ref` muda na rotacao do segredo.
+    ("kamba_app", "handoff_accounts", "UPDATE"): {
+        "inbox_id",
+        "bot_id",
+        "token_ref",
+        "updated_at",
+    },
     # KAM-014, e e tudo o que o gancho de fusao do KAM-008 precisa: le para
     # encontrar a colisao (o contacto que fica ja tem conversa neste canal?) e
     # para dobrar os tempos, e escreve o `contact_id` e os tres tempos. **Sem
@@ -600,6 +666,11 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # um `GRANT` de uma palavra.
     "outbound_messages",
     "message_templates",
+    # KAM-019: as duas do handoff, pela mesma razao medida no KAM-015 — a
+    # matriz de tabela nao ve um privilegio de coluna a mais, e uma mutacao que
+    # acrescente uma coluna ao `GRANT UPDATE` sobrevive sem isto.
+    "handoffs",
+    "handoff_accounts",
 )
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.
@@ -814,14 +885,33 @@ class TestMatrizDePrivilegios(ComBase):
                             )
 
     def test_ninguem_pode_passar_privilegios_adiante(self) -> None:
-        for papel in ("kamba_app", "kamba_batch", "kamba_resolver", "kamba_identity"):
-            for tabela in TABELAS:
-                with self.subTest(papel=papel, tabela=tabela):
-                    tem = self.consultar(
-                        "SELECT has_table_privilege(%s, %s, 'SELECT WITH GRANT OPTION')",
-                        (papel, f"platform.{tabela}"),
-                    )[0][0]
-                    self.assertFalse(tem)
+        """Nenhum papel pode re-conceder o que tem: `WITH GRANT OPTION` a zero.
+
+        **Uma consulta, e nao uma por celula**, e isto foi medido. A primeira
+        versao abria uma ligacao por `(papel, tabela)` — o `consultar` abre uma
+        e so a fecha no `tearDown` — e com as duas tabelas da `0011` as quatro
+        vezes vinte e sete passaram do `max_connections` da base descartavel:
+        oito celulas morriam com `53300 sorry, too many clients already`, que
+        nao e um privilegio a mais nem a menos, e a suite ficava vermelha sobre
+        **nada**. Era um defeito latente a espera de uma tabela nova, e e a
+        mesma licao que o `test_privilegios_por_coluna_nas_tabelas_com_matriz`
+        ja tinha escrito para a matriz de colunas.
+
+        A asserçao e sobre a **lista** dos que teem a opcao, e nao celula a
+        celula com `subTest`: a mensagem de falha passa a nomear todos os
+        infractores de uma vez, em vez de um por linha de relatorio.
+        """
+        papeis = ("kamba_app", "kamba_batch", "kamba_resolver", "kamba_identity")
+        linhas = self.consultar(
+            "SELECT r.papel, t.tabela, "
+            "       has_table_privilege(r.papel, 'platform.' || t.tabela, "
+            "                           'SELECT WITH GRANT OPTION') "
+            "  FROM unnest(%s::text[]) AS r(papel) "
+            " CROSS JOIN unnest(%s::text[]) AS t(tabela)",
+            (list(papeis), list(TABELAS)),
+        )
+        self.assertEqual(len(linhas), len(papeis) * len(TABELAS))
+        self.assertEqual([(p, t) for p, t, tem in linhas if tem], [])
 
     def test_update_por_coluna_da_app(self) -> None:
         """Todas as colunas menos as imutaveis — e a lista confere-se nos dois sentidos."""

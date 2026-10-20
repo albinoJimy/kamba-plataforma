@@ -272,6 +272,66 @@ def _template(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _handoff(cursor, tenant_id: str, canario: str) -> None:
+    """Uma passagem a humano do tenant (KAM-019). O canario vai no `motivo`.
+
+    **E no `motivo` e nao no `handoff_id`, e a razao e uma propriedade da
+    tabela.** A chave primaria e o `handoff_id` derivado de
+    `(thread_id, ordinal)` e **nao** leva `tenant_id`, logo e unica em toda a
+    base: dois tenants nao podem semear a mesma cadeia la. E o X-03 precisa
+    exactamente disso — semeia o **mesmo** canario nos dois tenants e exige que
+    cada um veja so o seu.
+
+    A primeira versao desta receita punha o canario no `handoff_id` com o
+    `tenant_id` concatenado para nao colidir, e o X-03 recusou-a com razao: a
+    consulta que procura o canario por valor deixava de o encontrar **nem no
+    proprio tenant**, porque o que estava guardado nao era o canario. Guardar
+    uma coisa diferente da que se procura e nao testar nada.
+
+    O `motivo` e a unica coluna de texto livre desta tabela, e a `handoffs_motivo_ck`
+    exige-a nao vazia — um canario serve-a. O `handoff_id` passa a derivar do
+    `tenant_id`, que e o que a chave global obriga, e o `status` fica na omissao
+    (`waiting`), sem `resumed_at` nem `resolver`: e o estado em que uma passagem
+    nasce.
+
+    Semeia o administrador da instancia, como a receita da conversa e a do
+    envio: o `INSERT` do `kamba_app` esta sob `WITH CHECK` e esta receita nao
+    define contexto.
+    """
+    cursor.execute(
+        "INSERT INTO platform.handoffs "
+        "(handoff_id, tenant_id, conversation_id, motivo) "
+        f"VALUES (md5(%s || %s), %s, {_UMA_CONVERSA}, %s)",
+        (canario, tenant_id, tenant_id, tenant_id, canario),
+    )
+
+
+def _conta_de_handoff(cursor, tenant_id: str, canario: str) -> None:
+    """A conta de atendimento do tenant (KAM-019). O canario vai no `token_ref`.
+
+    **Nao ha coluna de texto livre onde o canario caiba melhor**, e a escolha
+    diz algo sobre a tabela: o `provedor` e de lista fechada, os tres
+    identificadores sao `bigint`, e o `token_ref` e a unica coluna `text` que
+    aceita uma cadeia arbitraria — e aceita-a sem mentir sobre o que guarda,
+    porque e **referencia opaca** a um segredo e nao o segredo.
+
+    Os tres identificadores do provedor derivam do `tenant_id` para nao
+    colidirem na `handoff_accounts_conta_uq`, que e a unicidade que impede a
+    mesma conta em dois tenants — e que este X-03 nao pode violar por acidente,
+    senao o que falha e a semeadura e nao a politica.
+    """
+    cursor.execute(
+        "INSERT INTO platform.handoff_accounts "
+        "(tenant_id, provedor, account_id, inbox_id, bot_id, token_ref) "
+        "VALUES (%s, 'chatwoot', "
+        "        ('x' || substr(md5(%s), 1, 8))::bit(32)::bigint, "
+        "        ('x' || substr(md5(%s || ':inbox'), 1, 8))::bit(32)::bigint, "
+        "        ('x' || substr(md5(%s || ':bot'), 1, 8))::bit(32)::bigint, "
+        "        %s)",
+        (tenant_id, tenant_id, tenant_id, tenant_id, canario),
+    )
+
+
 def _identidade(inserir, coluna, alteravel, valor, guardado) -> Receita:
     return Receita(
         inserir, coluna, alteravel, valor,
@@ -485,6 +545,18 @@ RECEITAS: dict[tuple[str, str], Receita] = {
         _template, "name", "status", "approved",
         semeador="admin", escrita_do_papel=False,
     ),
+    # KAM-019. As duas do handoff. Na passagem, a coluna alteravel e o
+    # `status`, que e uma das quatro que o `UPDATE` por coluna da revisao `0011`
+    # concede — e e a que o ciclo de vida muda. Na conta, e o `token_ref`, que
+    # muda na rotacao do segredo; e **a mesma coluna onde vai o canario**, o que
+    # aqui nao e problema: o teste de escrita cruzada escreve um valor novo e o
+    # que se afirma e que a escrita **nao acontece** na linha do outro tenant.
+    ("platform", "handoffs"): Receita(
+        _handoff, "motivo", "status", "cancelled", semeador="admin",
+    ),
+    ("platform", "handoff_accounts"): Receita(
+        _conta_de_handoff, "token_ref", "token_ref", "ref/rodada", semeador="admin",
+    ),
     ("platform", "events_outbox"): Receita(
         _evento_no_outbox, "agregado_id", None, None, semeador="admin"
     ),
@@ -573,6 +645,10 @@ ORDEM = (
     # antes delas. O template so depende de `tenants`.
     ("platform", "outbound_messages"),
     ("platform", "message_templates"),
+    # KAM-019: a passagem depende de `conversations` e vem depois dela. Na ordem
+    # inversa, apaga-se antes. A conta de atendimento so depende de `tenants`.
+    ("platform", "handoffs"),
+    ("platform", "handoff_accounts"),
     ("platform", "events_outbox"),
     ("platform", "evt_agregado_seq"),
     ("platform", "events_log"),

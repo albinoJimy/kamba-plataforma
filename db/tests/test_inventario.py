@@ -448,6 +448,73 @@ INVENTARIO = {
         "recebido_at": ("timestamp with time zone", NAO, "now()", "nao"),
         "processado_at": ("timestamp with time zone", SIM, None, "nao"),
     },
+    # KAM-019. As duas tabelas da passagem a humano.
+    #
+    # **Duas colunas pedem uma frase cada, e sao de classes diferentes de dado
+    # pessoal.** O `resolver` e o **primeiro dado pessoal de um trabalhador da
+    # PME** a entrar no schema: todas as outras colunas pessoais deste
+    # inventario sao de clientes finais, e esta e de quem atende. E o `motivo`
+    # e texto livre que uma pessoa pode ter escrito — nao e o corpo da
+    # conversa, mas tambem nao e um valor de lista fechada, e por isso nao se
+    # declara `nao`.
+    #
+    # O `external_id` e o `account_id`/`inbox_id`/`bot_id` sao identificadores
+    # opacos de um terceiro, pela mesma logica do `meta_template_id`: nao
+    # identificam uma pessoa, identificam um recurso que o provedor criou.
+    "handoffs": {
+        "handoff_id": (
+            "text",
+            NAO,
+            None,
+            "resumo de `(thread_id, ordinal)`; nao e identificador de pessoa",
+        ),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "conversation_id": ("uuid", NAO, None, "nao"),
+        "status": ("text", NAO, "'waiting'::text", "nao"),
+        "motivo": (
+            "text",
+            NAO,
+            None,
+            "texto livre com a razao da passagem; pode ter sido escrito por "
+            "uma pessoa, e por isso nao se declara `nao`. Nao e o corpo da "
+            "conversa, que vive no provedor e nao aqui",
+        ),
+        "external_id": (
+            "text",
+            SIM,
+            None,
+            "identificador opaco da conversa no provedor; so existe depois de "
+            "ela ser criada la",
+        ),
+        "opened_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "resumed_at": ("timestamp with time zone", SIM, None, "nao"),
+        "resolver": (
+            "text",
+            SIM,
+            None,
+            "SIM — identificador opaco do agente humano no provedor "
+            "(`docs/tecnica/02` §11, «resolver (humano)»). E o **primeiro dado "
+            "pessoal de um trabalhador da PME** neste schema; todas as outras "
+            "colunas pessoais aqui sao de clientes finais. Nunca nome, e-mail "
+            "nem telefone, e nao e um `contact_id` da KAMBA",
+        ),
+    },
+    "handoff_accounts": {
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "provedor": ("text", NAO, None, "nao"),
+        "account_id": ("bigint", NAO, None, "identificador opaco da conta no provedor"),
+        "inbox_id": ("bigint", NAO, None, "identificador opaco da caixa no provedor"),
+        "bot_id": ("bigint", NAO, None, "identificador opaco do bot no provedor"),
+        "token_ref": (
+            "text",
+            NAO,
+            None,
+            "referencia opaca ao segredo; nunca o token (ver "
+            "`tenant_channels.token_ref`)",
+        ),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "updated_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
 }
 
 #: A particao `DEFAULT` tem as colunas do pai, uma a uma. Esta aqui — e nao
@@ -506,6 +573,14 @@ class TestInventario(ComBase):
                 (nome, "a", "a")
                 for nome in sorted(
                     [
+                        # KAM-019: as tres do handoff. A da conversa e
+                        # **composta** com o `tenant_id`, pela mesma razao das
+                        # da saida; a `handoff_accounts` nao referencia a
+                        # `handoffs`, porque uma conta de atendimento existe
+                        # antes de haver passagem nenhuma.
+                        "handoffs_tenant_fk",
+                        "handoffs_conversation_fk",
+                        "handoff_accounts_tenant_fk",
                         # KAM-015: as quatro da saida. Tres sao compostas
                         # com o `tenant_id` — contacto, canal e conversa —
                         # porque sem elas uma mensagem do tenant A podia
@@ -647,6 +722,29 @@ class TestInventario(ComBase):
                     # E a `UNIQUE (tenant_id, id)` que esta revisao acrescenta a
                     # `conversations` para a FK composta poder assentar nela,
                     # como a `0009` fez a `tenant_channels`.
+                    # ------------------------------------- KAM-019 (0011)
+                    # A chave derivada da passagem, o dominio do seu estado, a
+                    # coerencia do motivo nao vazio, e as quatro da conta de
+                    # atendimento: a chave natural `(tenant_id, provedor)`, a
+                    # **unicidade da conta no provedor** — que e o que impede a
+                    # mesma conta em dois tenants, o furo que o X-10 procura e
+                    # que a chave primaria sozinha nao fecha —, o dominio do
+                    # provedor e a referencia a segredo nao vazia.
+                    #
+                    # **O que nao esta aqui e deliberado**: nao ha `CHECK`
+                    # sobre o `resumed_at` nem sobre o `resolver`. Era o que
+                    # apetecia, e e o defeito que a `outbound_messages_entrega_ck`
+                    # da `0010` pagou — uma restricao que recusa um estado que a
+                    # propria maquina produz. Aqui e pior, porque ninguem
+                    # escreve essas duas colunas neste ticket: o
+                    # compare-and-set e do KAM-034.
+                    "handoff_accounts_conta_uq",
+                    "handoff_accounts_pkey",
+                    "handoff_accounts_provedor_ck",
+                    "handoff_accounts_token_ck",
+                    "handoffs_motivo_ck",
+                    "handoffs_pkey",
+                    "handoffs_status_ck",
                     "conversations_tenant_id_uq",
                     "message_templates_category_ck",
                     "message_templates_pkey",
