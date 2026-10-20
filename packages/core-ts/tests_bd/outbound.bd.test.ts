@@ -119,7 +119,15 @@ describe("a saida de canal contra a base", () => {
   function adapterDe(tenant: string, cliente: pg.Client = app): Saida {
     return new Saida({
       bd: {
-        query: async (texto, valores) => {
+        // **Generica e com a conversao a vista.** O `ClienteSql` promete
+        // `Promise<{ rows: readonly T[] }>` e o `pg` devolve
+        // `QueryResult<QueryResultRow>`: sem o parametro de tipo e sem a
+        // conversao, o `tsc` recusa — «T could be instantiated with an
+        // arbitrary type» —, e era o segundo defeito que o gate 2 tinha para
+        // dizer e que o ciclo de tarefas do `pnpm` abortava antes de chegar a
+        // ele. A conversao e honesta num ensaio: quem escreve o SQL e quem
+        // escreve o parametro de tipo e a mesma linha de teste.
+        query: async <T,>(texto: string, valores?: readonly unknown[]) => {
           // `false` e **nao** `true`: o terceiro argumento do `set_config` e
           // «local a transaccao», e fora de um `BEGIN` explicito cada
           // instrucao e a sua propria transaccao — a definicao desaparecia
@@ -130,7 +138,11 @@ describe("a saida de canal contra a base", () => {
           // dedicada a um tenant — e no teste de concorrencia e melhor do que
           // uma transaccao, porque as duas ligacoes disputam de verdade.
           await definirContexto(cliente, tenant);
-          return cliente.query(texto, valores === undefined ? [] : [...valores]);
+          const resultado = await cliente.query(
+            texto,
+            valores === undefined ? [] : [...valores],
+          );
+          return { rows: resultado.rows as readonly T[] };
         },
       },
       meta: {
