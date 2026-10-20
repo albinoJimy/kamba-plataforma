@@ -85,3 +85,13 @@ export {
 } from "./consultas.ts";
 
 export { Handoff, type Dependencias, type FilaDoEspelho } from "./provedor.ts";
+
+export {
+  BASE_POR_OMISSAO,
+  ClienteDoChatwoot,
+  ESPERA_MAXIMA_MS,
+  RespostaInesperadaError,
+  TIPO_DE_BOT,
+  TIPO_DE_INBOX,
+  type Configuracao,
+} from "./chatwoot.ts";
