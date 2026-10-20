@@ -229,6 +229,10 @@ importers:
       hono:
         specifier: 4.13.13
         version: 4.13.13
+    devDependencies:
+      '@kamba/meta-sim':
+        specifier: workspace:*
+        version: link:../../tools/meta-sim
 
   services/onboarding-web:
     dependencies:
@@ -266,6 +270,12 @@ importers:
       '@types/pg':
         specifier: 8.23.1
         version: 8.23.1
+
+  tools/meta-sim:
+    devDependencies:
+      '@kamba/core-ts':
+        specifier: workspace:*
+        version: link:../../packages/core-ts
 
 packages:
 

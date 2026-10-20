@@ -1,0 +1,62 @@
+# Numeros ficticios do simulador de webhooks Meta — KAM-024, criterio 7
+#
+# O criterio 7 pede uma ferramenta de captura que «recusa gravar se detectar um
+# numero que nao pertenca a lista de numeros ficticios», e que o repositorio
+# fique com **0 telefones reais**. Este ficheiro e a declaracao legivel desse
+# intervalo.
+#
+# **O que o codigo usa e a constante de `src/numeros.ts`**, e ha um teste que
+# compara os dois como texto. Ler YAML em TypeScript obrigava a um quarto leitor
+# de YAML neste repositorio — ha tres em Python, e a
+# `docs/dividas-documentais.md` ja registou o que essa familia custou. Um teste
+# de paridade custa dez linhas e nao acrescenta leitor nenhum.
+#
+# NOTA DE FORMA: este ficheiro e lido pelo `tools/kamba_yaml.py`, que NAO aceita
+# listas de fluxo com conteudo (`[a, b]`). As listas escrevem-se em bloco.
+
+version: 1
+
+# O indicativo de pais que a UIT **nao atribui a nenhum pais**. E a convencao
+# que o repositorio ja usava antes deste ticket:
+#
+#   packages/core-ts/tests_bd/apoio.ts  `telefoneDeEnsaio()`
+#   db/tests_entrada/test_entrada.py    `TELEFONE = "999123456789"`
+#
+# Herda-se em vez de se inventar uma quarta.
+indicativo: "999"
+
+# Quantos algarismos vem depois do indicativo. Nove, que e o comprimento de um
+# movel angolano — para que uma fixture ficticia tenha a **forma** de um numero
+# real sem ser um.
+algarismos: 9
+
+# Os extremos do intervalo, em E.164 sem `+`.
+primeiro: "999100000000"
+ultimo: "999999999999"
+
+# Os padroes que reconhecem um telefone **real**. Sao os dois de
+# `tools/contract_diff/pii.py` e de `packages/core-ts/src/eventos/pii.ts`, que
+# sao tambem os do guarda de `platform.evt_emitir`: a mesma pergunta em tres
+# sitios, e aqui num quarto. Nao se reescrevem com outra forma de proposito.
+padroes_de_telefone_real:
+  - nome: telefone_ao
+    # Escalar entre apostrofos e nao entre aspas: em YAML as aspas processam
+    # escapes, e `\+` nao e um escape valido. Entre apostrofos o texto passa
+    # como esta, que e o que um padrao precisa.
+    expressao: '\+?244 ?9[0-9]{8}'
+    razao: >-
+      O movel angolano, com ou sem `+` e com ou sem espaco. E o padrao que a
+      Lei 22/11 torna um dado pessoal e que o §7.3 de `docs/tecnica/08` manda
+      nunca escrever em claro.
+  - nome: e164_entre_aspas
+    expressao: '"\+[0-9]{9,15}"'
+    razao: >-
+      Qualquer E.164 entre aspas, que e a forma em que um telefone aparece num
+      JSON — e os corpos da Meta sao JSON.
+
+# O que **nao** e ocorrencia, e porque: um numero do intervalo ficticio casa o
+# segundo padrao quando escrito com `+`, e sem esta exclusao a ferramenta
+# recusava gravar as suas proprias fixtures.
+excluidos:
+  - razao: >-
+      Numeros do proprio intervalo ficticio, reconhecidos por `eFicticio`.

@@ -73,8 +73,13 @@ HEALTHZ_TARGETS := gwy=3000 worker-canal=3001 com=3002 onboarding-web=3003 agr=8
 # Pacotes Node com testes, para a medicao de cobertura por pacote. Enumerados e
 # nao descobertos: um pacote novo tem de entrar aqui **e** em ci/thresholds.yaml,
 # e e melhor que isso seja uma alteracao visivel do que uma deteccao silenciosa.
+# O `tools/meta-sim` (KAM-024) entra aqui e nao e opcional: `tools/**` esta nos
+# `padroes` do estrato `restante` de ci/thresholds.yaml, e o `coverage_gate`
+# injecta a 0% o que nenhum relatorio mediu. Fora desta lista, os seus ficheiros
+# entravam no denominador com zero e afundavam o estrato.
 PACOTES_NODE := packages/contracts packages/core-ts services/gwy \
-                services/worker-canal services/com services/onboarding-web
+                services/worker-canal services/com services/onboarding-web \
+                tools/meta-sim
 
 export PYTHONPATH := $(PYTHONPATH_ALL)
 
@@ -816,10 +821,33 @@ ci-7:
 	@# desliga sozinha quando nao encontra a base nunca falha no dia em que
 	@# alguem configura mal o CI.
 	@#
-	@# A parte dos **webhooks** da Meta continua por fazer e e o KAM-024. Este
-	@# alvo cobre os contratos de evento; quando o KAM-024 chegar, acrescenta
-	@# a sua verificacao aqui.
+	@# A parte dos **webhooks** da Meta e o KAM-024, e entra aqui — no gate que
+	@# o ticket nomeia — e nao num job proprio: sao contratos, e um gate por
+	@# ticket e como se perde a conta aos gates.
 	@$(VENV_PYTHON) -m contract_diff --root $(ROOT) check
+	@$(MAKE) ci-7-meta
+
+## ci-7-meta: a parte do gate 7 que e dos webhooks da Meta (KAM-024)
+ci-7-meta:
+	@echo "==> gate 7: webhooks Meta (KAM-024)"
+	@# Tres verificacoes, e a ordem importa: o **scan** primeiro, porque e o que
+	@# protege um dado pessoal, e um PR que o quebre nao precisa de esperar
+	@# pelos testes para saber. Depois a cobertura, que e uma afirmacao sobre o
+	@# conjunto. Por fim a suite, que inclui a ida e volta contra o GWY.
+	@#
+	@# O `varrer` confronta o repositorio com o inventario de
+	@# `tools/meta-sim/src/inventario.ts`: um numero de forma real num ficheiro
+	@# sem entrada falha, e um a **mais** num ficheiro ja declarado tambem.
+	@# `docs/meta-sim.md` secao 6 diz porque e um raquete e nao uma isencao.
+	@# Sem argumento: a raiz vem do `pnpm-workspace.yaml` e nao do `cwd`, que
+	@# aqui e `tools/meta-sim` (o `pnpm --filter exec` poe-no la). Passar
+	@# `$(ROOT)` tambem funciona; nao se passa para que o comando do gate seja
+	@# **o mesmo** que o `docs/meta-sim.md` documenta.
+	@pnpm --filter @kamba/meta-sim exec node src/cli.ts varrer
+	@pnpm --filter @kamba/meta-sim exec node src/cli.ts cobertura
+	@pnpm --filter @kamba/meta-sim run test
+	@# A ida e volta vive no GWY porque quem e posto a prova e o consumidor.
+	@pnpm --filter @kamba/gwy exec node --test tests/kam024.ida-e-volta.test.ts
 
 ## ci-8: gate 8 — migracoes: aplicar, reverter e voltar a aplicar (KAM-003)
 ci-8:

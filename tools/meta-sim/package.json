@@ -1,0 +1,21 @@
+{
+  "name": "@kamba/meta-sim",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Simulador de webhooks Meta e servidor Graph falso (KAM-024)",
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "meta-sim": "./src/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test tests/*.test.ts"
+  },
+  "devDependencies": {
+    "@kamba/core-ts": "workspace:*"
+  }
+}

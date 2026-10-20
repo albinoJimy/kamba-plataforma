@@ -42,12 +42,12 @@ Fase mista, por desenho: **Fase 0** para o que o esqueleto andante exige (KAM-01
 |---|---|---|---|---|---|
 | KAM-013 | GWY: webhook Meta (verificação, assinatura, deduplicação, 200 rápido, fila) | feature | L | P0 | KAM-001, KAM-005, KAM-010 |
 | KAM-014 | CHR: ChannelResolver por `phone_number_id` com BSUID | feature | M | P0 | KAM-003, KAM-008, KAM-013, KAM-004, KAM-006 |
-| KAM-015 | Outbound: envio, janela de 24 h, templates utility e custo de mensagens | feature | L | P0 | KAM-013, KAM-014, KAM-004 |
-| KAM-016 | Embedded Signup v4 e Tech Provider (troca de code, subscrições de webhooks) | feature | L | P0 | KAM-013, KAM-003, ext:KAM-102, KAM-010 |
-| KAM-017 | Coexistência: history, state sync, echoes, `PARTNER_REMOVED`, sincronização de 24 h | feature | L | P0 | KAM-016, ext:KAM-100 |
+| KAM-015 | Outbound: envio, janela de 24 h, templates utility e custo de mensagens | feature | L | P0 | KAM-013, KAM-014, KAM-004, KAM-024 |
+| KAM-016 | Embedded Signup v4 e Tech Provider (troca de code, subscrições de webhooks) | feature | L | P0 | KAM-013, KAM-003, ext:KAM-102, KAM-010, KAM-024 |
+| KAM-017 | Coexistência: history, state sync, echoes, `PARTNER_REMOVED`, sincronização de 24 h | feature | L | P0 | KAM-016, ext:KAM-100, KAM-024 |
 | KAM-018 | Protocolo bot ↔ dono ↔ humano: modos da conversa e silenciamento por echo | feature | M | P0 | KAM-014, KAM-017 |
 | KAM-019 | HND: HandoffProvider e Chatwoot (Agent Bot API, espelho por inbox de tipo API) | feature | L | P0 | KAM-014 |
-| KAM-020 | Mídia: download autenticado, armazenamento e URL interna assinada | feature | M | P0 | KAM-013, KAM-011 |
+| KAM-020 | Mídia: download autenticado, armazenamento e URL interna assinada | feature | M | P0 | KAM-013, KAM-011, KAM-024 |
 | KAM-021 | Quality rating, estado `restrito` e monitorização de limites | feature | M | P0 | KAM-013, KAM-009 |
 | KAM-022 | Consentimento no 1.º contacto (aviso versionado, botões, `consent_event`) | feature | M | P0 | KAM-008, KAM-014, KAM-015, KAM-159 |
 | KAM-023 | Monitorização do free tier de service messages e do método de pagamento da PME | feature | S | P0 | KAM-015 |
@@ -529,7 +529,7 @@ Testes: matriz de estados, fusão idempotente, Fluxo B, isolamento. Abre PR com 
 | Tipo | feature |
 | Prioridade | P0 |
 | Estimativa | L |
-| Dependências | KAM-013, KAM-014, KAM-004 |
+| Dependências | KAM-013, KAM-014, KAM-004, KAM-024 |
 | Bloqueia | KAM-022, KAM-023, KAM-031, KAM-048, KAM-054, KAM-058, KAM-084, KAM-118, KAM-122, KAM-123 |
 | Responsável sugerido | Engenheiro de Canais |
 | Documentos de referência | `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§8, §14), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` (§1, §5, §7), `../docs/tecnica/08_Seguranca_Conformidade.md` (§7.3), ADR-009, ADR-013 |
@@ -606,7 +606,7 @@ Testes: matriz de decisão, idempotência, estados, rate limit, 130429. Abre PR 
 | Tipo | feature |
 | Prioridade | P0 |
 | Estimativa | L |
-| Dependências | KAM-013, KAM-003, ext:KAM-102, KAM-010 |
+| Dependências | KAM-013, KAM-003, ext:KAM-102, KAM-010, KAM-024 |
 | Bloqueia | KAM-017, KAM-091, KAM-093 |
 | Responsável sugerido | Engenheiro de Canais |
 | Documentos de referência | `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§4.2–§4.4, §13), `../docs/tecnica/10_Onboarding_Governanca.md` (§6), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` (§2, §3), `../docs/tecnica/08_Seguranca_Conformidade.md` (§5), ADR-001, ADR-019 |
@@ -681,7 +681,7 @@ Testes: Graph falsa, repetição, falha injectada, segurança do token, 1 execu�
 | Tipo | feature |
 | Prioridade | P0 |
 | Estimativa | L |
-| Dependências | KAM-016, ext:KAM-100 |
+| Dependências | KAM-016, ext:KAM-100, KAM-024 |
 | Bloqueia | KAM-018, KAM-083, KAM-093, KAM-115 |
 | Responsável sugerido | Engenheiro de Canais |
 | Documentos de referência | `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§10.1, §10.4, §10.5, §13), `../docs/tecnica/10_Onboarding_Governanca.md` (§6.3, §7.3), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` (§2), ADR-001, ADR-010 |
@@ -924,7 +924,7 @@ Testes: Chatwoot real em compose, concorrência, X-10, degradação. Abre PR com
 | Tipo | feature |
 | Prioridade | P0 |
 | Estimativa | M |
-| Dependências | KAM-013, KAM-011 |
+| Dependências | KAM-013, KAM-011, KAM-024 |
 | Bloqueia | KAM-036, KAM-049, KAM-071 |
 | Responsável sugerido | Engenheiro de Canais |
 | Documentos de referência | `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§5.4), `../docs/tecnica/08_Seguranca_Conformidade.md` (§3.8, §7.5), `../docs/tecnica/00_Arquitectura_Solucao.md` (MED, STO), ADR-013, ADR-014 |
@@ -1225,7 +1225,7 @@ Testes: contagem, fronteira de mês, duplicados, rajada de failed. Abre PR com o
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-013 |
-| Bloqueia | KAM-078, KAM-084 |
+| Bloqueia | KAM-015, KAM-016, KAM-017, KAM-020, KAM-078, KAM-084 |
 | Responsável sugerido | Engenheiro de Canais |
 | Documentos de referência | `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§4.4, §5.4, §16), `../docs/tecnica/09_Topologia_Operacao_Escala.md` (§6, §7), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` (§5), `specs/01_Engineering_Standards_e_Handoff.md` §4 (gates 7 e 15) |
 
@@ -1239,12 +1239,12 @@ Construir o simulador (biblioteca + CLI) que produz webhooks Meta assinados e um
 
 ### Critérios de Aceitação
 
-- [ ] `tools/meta-sim` gera, a partir de uma semente, payloads byte-idênticos (determinismo) para: `text`, `audio`, `image`, `document`, `location`, `interactive` (`button_reply`, `list_reply`), `order`, `reaction`, `sticker`, `unsupported`, `statuses` (`sent`, `delivered`, `read`, `failed`, com `pricing`) e `history`.
-- [ ] Cobre os 11 campos de webhook: `messages`, `smb_message_echoes`, `history`, `smb_app_state_sync`, `account_update` (6 motivos), `phone_number_quality_update`, `business_capability_update`, `account_alerts`, `message_template_status_update`, `template_category_update`, `message_template_quality_update`; um relatório de cobertura prova ≥ 1 *fixture* e ≥ 1 teste por tipo e campo (100%).
-- [ ] Casos adversos: assinatura inválida, JSON inválido assinado, corpo duplicado, mesma mensagem em dois corpos, ordem trocada, lote de várias `entry`, `wa_id` omitido (apenas BSUID/`username`), `phone_number_id` desconhecido.
-- [ ] A assinatura gerada é aceite pelo GWY de KAM-013 (ida e volta) e rejeitada quando o corpo muda 1 byte; o segredo de teste nunca coincide com um segredo de `staging`/`prod` (verificação de configuração).
+- [x] `tools/meta-sim` gera, a partir de uma semente, payloads byte-idênticos (determinismo) para: `text`, `audio`, `image`, `document`, `location`, `interactive` (`button_reply`, `list_reply`), `order`, `reaction`, `sticker`, `unsupported`, `statuses` (`sent`, `delivered`, `read`, `failed`, com `pricing`) e `history`.
+- [x] Cobre os 11 campos de webhook: `messages`, `smb_message_echoes`, `history`, `smb_app_state_sync`, `account_update` (6 motivos), `phone_number_quality_update`, `business_capability_update`, `account_alerts`, `message_template_status_update`, `template_category_update`, `message_template_quality_update`; um relatório de cobertura prova ≥ 1 *fixture* e ≥ 1 teste por tipo e campo (100%).
+- [x] Casos adversos: assinatura inválida, JSON inválido assinado, corpo duplicado, mesma mensagem em dois corpos, ordem trocada, lote de várias `entry`, `wa_id` omitido (apenas BSUID/`username`), `phone_number_id` desconhecido.
+- [x] A assinatura gerada é aceite pelo GWY de KAM-013 (ida e volta) e rejeitada quando o corpo muda 1 byte; o segredo de teste nunca coincide com um segredo de `staging`/`prod` (verificação de configuração).
 - [ ] Servidor Graph falso com cenários programáveis: envio 200, 130429 (N vezes), 131049, 5xx, mídia, submissão de templates, troca de *code*, subscrições; usado por KAM-015, 016, 017 e 020.
-- [ ] Modo de re-entrega: reenvia o mesmo webhook com *backoff* exponencial comprimido (7 dias simulados em ≤ 1 min) para provar idempotência.
+- [x] Modo de re-entrega: reenvia o mesmo webhook com *backoff* exponencial comprimido (7 dias simulados em ≤ 1 min) para provar idempotência.
 - [ ] Ferramenta de captura e saneamento: converte um webhook real em *fixture* substituindo identificadores por valores fictícios; recusa gravar se detectar um número que não pertença à lista de números fictícios; o repositório fica com 0 telefones reais (scan).
 - [ ] Suite *offline* corre no gate 7 em ≤ 5 min (proposta); suite *online* corre 1× por noite no número de teste de *staging* e produz um relatório que compara a estrutura real com os schemas das *fixtures* (evidência de 1 execução verde em `docs/evidencia/KAM-024.md`).
 - [ ] A suite *online* não é bloqueante de PR mas é de *release* (gate 15 em KAM-078); falha da Meta/credenciais gera alerta, não falso verde.
@@ -1267,11 +1267,11 @@ Construir o simulador (biblioteca + CLI) que produz webhooks Meta assinados e um
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis (evidência em `docs/evidencia/KAM-024.md`).
 - [ ] Código revisto por ≥ 1 revisor; testes verdes.
-- [ ] Documentação actualizada (`docs/meta-sim.md`: como gerar *fixtures*, como correr o contrato *online*); Conventional Commits.
-- [ ] **Privacidade** — 0 telefones reais ou dados pessoais em *fixtures*; capturas saneadas.
-- [ ] **Sem segredos** — segredos de teste distintos dos de `staging`/`prod`; scan limpo.
-- [ ] **Dependências** — versões fixadas; licenças permitidas.
-- [ ] O gate 7 do CI executa a suite *offline* e falha o build.
+- [x] Documentação actualizada (`docs/meta-sim.md`: como gerar *fixtures*, como correr o contrato *online*); Conventional Commits.
+- [x] **Privacidade** — 0 telefones reais ou dados pessoais em *fixtures*; capturas saneadas.
+- [x] **Sem segredos** — segredos de teste distintos dos de `staging`/`prod`; scan limpo.
+- [x] **Dependências** — versões fixadas; licenças permitidas.
+- [x] O gate 7 do CI executa a suite *offline* e falha o build.
 
 ### Handoff para Claude Code
 
@@ -1287,6 +1287,142 @@ e docs/tecnica/09_Topologia_Operacao_Escala.md (§6, §7). Objectivo: simulador 
 Não expandas escopo: sem smoke de deploy (KAM-078), sem mocks de pagamento.
 Testes: determinismo, ida e volta com o GWY, cobertura 100% de tipos e campos, 1 execução online. Abre PR com o template do §7.
 ```
+
+---
+
+### Verificação dos Critérios de Aceitação
+
+Medido em 2026-10-20, ramo `feature/KAM-024-simulador-meta`. O detalhe, com a
+saída de cada comando, está em `../docs/evidencia/KAM-024.md`.
+
+Todas as medições de Node correram num contentor
+`node:24.21.0-trixie-slim@sha256:173f1258…`: esta máquina de desenvolvimento não
+tem `node`, `pnpm` nem `make` no `PATH`, e `make ci-7` numa máquina sem `make`
+responde `command not found` — o que **não** é «o gate passa».
+
+**Quatro caixas de critério e duas de DoD ficam vazias**, e cada uma é nomeada
+abaixo com a razão. Três delas não são satisfazíveis por este ticket.
+
+| # | Critério | Estado | O que se mediu |
+|---|---|---|---|
+| 1 | *Payloads* byte-idênticos para os 16 tipos | **satisfeito** | `node --test tools/meta-sim/tests/` — 6 asserções de determinismo verdes. Duas sementes iguais dão **32/32** *fixtures* byte-idênticas; duas sementes diferentes dão **0/32** iguais (zero, e não «poucas»: uma *fixture* igual significava que o gerador não entra naquele corpo). Terceira asserção: acrescentar uma *fixture* **não** muda os bytes das outras, porque a semente é `<semente>/<marca>` e não a posição na lista. O `timestamp` e o `entry.time` vêm do gerador, nunca do relógio |
+| 2 | Os 11 campos, com relatório a 100% | **satisfeito** | `node src/cli.ts cobertura` → **100,0% (33/33)**, `exit 0`. Dezasseis itens de «tipo», onze de «campo» e **seis** de «motivo»; o `interactive` conta **duas** vezes, o `statuses` **quatro** e o `account_update` entra também pelos seis motivos de `PARTNER_REMOVED`, à letra dos critérios 1 e 2. A revisão adversarial mostrou porque é que os motivos têm de ser itens: quatro dos seis não tinham *fixture* nem teste, e existiam só na declaração do `enum`. **O relatório apanhou um defeito dos próprios testes**: as quatro marcas dos `statuses` estavam num `for` com o nome interpolado e o relatório deu **85,2% com quatro faltas** — correctamente, porque uma marca que só existe em execução não prova que alguém escreveu o teste. Corrigido para quatro `it` literais |
+| 3 | Os oito casos adversos | **satisfeito** | Os oito, com o desfecho **declarado ao lado dos bytes** e lido de lá pelos testes. Medido contra o GWY: `assinatura_invalida` 401 e 0 *jobs*; `json_invalido_assinado` **200** e 1 *job*; `corpo_duplicado` 200+200 e **1** *job*; `mesma_mensagem_em_dois_corpos` 200+200 e **2** *jobs*; `ordem_trocada` 3 estados com 1 `wamid`; `lote_de_entries` 3 `entry` e 2 `waba_id`; `wa_id_omitido` sem `from` e sem `wa_id`, com BSUID nos dois sítios; `phone_number_id_desconhecido` com canal diferente do do cenário |
+| 4 | Ida e volta no GWY; 401 a 1 byte; segredo distinto | **satisfeito** | `node --test services/gwy/tests/kam024.ida-e-volta.test.ts` → **19 testes, 0 falhas, 13,1 s**. As 32 *fixtures* dão 200 e 32 `jobId` distintos; 1 byte mudado dá 401 e **0** *jobs*; a mesma *fixture* **com espaços** — mesmo JSON, bytes diferentes — dá 401, que é o caso que apanha um GWY que normalize antes de verificar. O `assinar` do simulador tem `createHmac` próprio e não importa nada do `core-ts`: são duas implementações, senão a ida e volta ficava verde no dia em que o algoritmo estivesse errado dos dois lados. `exigirSegredoDeEnsaio` recusa um segredo sem o prefixo `ensaio-` **e** um igual ao valor de qualquer `KAMBA_SECRET_*` do ambiente |
+| 5 | Servidor Graph falso, «usado por KAM-015, 016, 017 e 020» | **parcial** | A **primeira** metade está feita e medida: os oito cenários que o critério enumera existem, com **27 testes** verdes — envio 200; `130429` N vezes, com `[429,429,429,200,200]`, que é a letra do critério 1 do KAM-015; `131049`; 500 e 503; mídia, com URL expirada a dar 404 na descarga e 200 na metainformação; submissão e listagem de templates; troca de *code*; subscrições que guardam **quais** campos foram subscritos. Dois dos testes correm por cima de TCP real, com `fetch`. A **segunda** metade — «usado por KAM-015, 016, 017 e 020» — **não se pode medir**: nenhum desses quatro tickets existe. A caixa fica vazia e são eles que a fecham; a aresta de dependência já está declarada nas três superfícies do backlog (versão 1.2 deste epic) |
+| 6 | Re-entrega: 7 dias em ≤ 1 min, a provar idempotência | **satisfeito** | Doze tentativas, `horizonteSimuladoS` = **604 800** (os sete dias exactos) em **13,1 s** de relógio, e **1** *job* na fila no fim. O teste afirma que o corpo **não muda** entre tentativas (`vistos.size === 1`): se mudasse, o `jobId` mudava com ele e o teste provava que duas coisas diferentes dão dois *jobs*, que é o contrário do que se quer. `razoesDeFalha` devolve as razões em vez de um booleano, para que a evidência possa dizer **qual** das duas condições falhou |
+| 7 | Captura e saneamento; recusa; «0 telefones reais (scan)» | **parcial** | As **duas primeiras** cláusulas estão satisfeitas e medidas: 13 testes de saneamento verdes, incluindo os dois que fazem a ferramenta valer — o `wamid` novo **não** leva o número real dentro do base64 (o teste descodifica e verifica), e uma chave que o saneador não conheça dá `CapturaRecusadaError` a nomear a chave, porque a verificação é sobre a **saída** e não sobre a entrada. A **terceira** depende de uma leitura, e é por isso que a caixa fica vazia: ver «As duas leituras do critério 7», abaixo |
+| 8 | *Suite* offline no gate 7 em ≤ 5 min; *suite* online nocturna com relatório | **parcial** | A **offline** está feita: `make ci-7-meta`, e as duas suites levam **24 s** contra os ≤ 5 min que o critério põe como *proposta* (o `pnpm -r run test` inteiro, 1095 testes, leva 70 s). A **online** não existe: depende de `ext:KAM-102` (Meta Business Verification e Tech Provider) e do número de teste da app Meta de *staging*, que não existem — `../docs/tecnica/09` §6 di-lo, e o próprio Contexto deste ticket diz que o número de teste «**não prova** coexistência nem Embedded Signup em condições reais». Não há como produzir «evidência de 1 execução verde» de uma *suite* que não pode correr |
+| 9 | A *suite* online não bloqueia PR mas é de *release*; falha gera alerta | **não satisfeito** | **Não há *suite* online**, pela razão do critério 8. Escrever uma que se desligasse sozinha por falta de credenciais era construir exactamente o falso verde que este critério proíbe por extenso, e marcar a caixa com ela era pior do que a deixar vazia. As duas regras já decididas ficam escritas em `../docs/meta-sim.md` §9, para quem a escrever quando o número existir |
+
+### A revisão adversarial, e as quatro caixas que ela reprovou
+
+A revisão correu contra o estado do ramo **antes** desta secção, e devolveu
+dezasseis achados — quatro graves. Reprovou quatro caixas que já estavam
+marcadas, e vale escrever quais, porque é a diferença entre uma caixa marcada e
+uma caixa verificada:
+
+| Caixa | O que a reprovava | Depois da correcção |
+|---|---|---|
+| Critério 1 | Um `failed` com `comPricing: true` era engolido em silêncio, e o critério escreve «`statuses` (…, `failed`, com `pricing`)» | A omissão continua «sem `pricing`» — não se cobra o que não foi entregue — mas um `true` explícito é honrado, com teste |
+| Critério 2 | Os 100% não provavam «≥ 1 teste»: 27 marcas escritas só em **comentários** davam 100%. E os «6 motivos» não eram itens | A marca tem de estar no nome de um `it(`, com dois testes a prová-lo nos dois sentidos. A tabela passa a **33** itens |
+| DoD «Privacidade» | Um E.164 estrangeiro escrito sem `+` atravessava o `sanear`, o `exigirFicticios` e o *scan* — pela chave `history[].threads[].id`, que o próprio simulador produz. E as coordenadas eram números e passavam intactas | Uma terceira verificação, que é a lista **branca** que o critério pede; as oito chaves de texto livre que faltavam; e as coordenadas arredondadas à zona |
+| DoD «gate 7 … falha o build» | **O `varrer` relativizava os caminhos contra o `cwd`**, e o `ci-7-meta` invoca-o com `cwd` = `tools/meta-sim`: `47 divergencias`, `exit 2` — em **todos** os PRs | A raiz vem do `pnpm-workspace.yaml`. Verificado nas três invocações (a do gate, a da raiz e a de outra pasta): `0 divergencias`, exit 0 |
+
+O mais grave é o último, e o que ele diz sobre a verificação deste ticket é o
+seguinte: **nenhum dos 133 testes o apanhava, porque nenhum deles corria o
+comando que o `Makefile` corre.** Um teste que invoque a função e um gate que
+invoque o CLI por `pnpm --filter exec` são duas coisas diferentes, e só a
+segunda é o gate.
+
+Os dezasseis achados, com a saída medida de cada um, estão em
+`../docs/evidencia/KAM-024.md` §10 — incluindo os cinco que a revisão procurou e
+**não** encontrou, que valem tanto como os outros.
+
+### As duas leituras do critério 7, e porque é que a caixa fica vazia
+
+Corri o *scan* sobre o repositório **antes** de escrever o inventário:
+**89 ocorrências de forma real em 24 ficheiros**. Nenhuma é um descuido. Todas
+são *fixtures* de redacção de PII — `tools/log_policy`, `tools/contract_diff`,
+`packages/core-ts/src/eventos/pii.ts`, os dois *loggers*, as suites de
+`platform.evt_emitir` — e existem para que o detector **dispare**.
+
+As duas leituras do critério dão respostas opostas:
+
+- «0 cadeias com a forma de um número angolano» é **insatisfazível**, e
+  satisfazê-la destruía o que vale mais: um redactor testado só com números do
+  `999` nunca prova que apanha um `+244 9…`, que é precisamente o que existe
+  para apanhar. A caixa ficava marcada e a protecção ficava **pior**;
+- «0 números que pertençam a uma pessoa real» é o que o DoD quer dizer («0
+  telefones reais **ou dados pessoais**; capturas saneadas»), e é o que se pode
+  defender — mas **não** por expressão regular, porque nenhuma distingue um
+  número atribuído de um sequencial.
+
+O que este ticket entrega para a segunda leitura é um **raquete**, e não uma
+isenção: `tools/meta-sim/src/inventario.ts`, com uma entrada por ficheiro, a
+contagem exacta e a razão que nomeia o que o número está a testar. Falha nos
+quatro sentidos em que uma pasta permitida não falharia, e cada sentido tem o
+seu teste: ficheiro com número e sem entrada; **um número a mais num ficheiro
+já declarado**; um a menos, para a entrada não envelhecer; entrada sem medição,
+porque o ficheiro mudou ou desapareceu. E uma razão com menos de trinta
+caracteres é ela própria um defeito do inventário. O segundo sentido é o que
+importa — é o único que uma pasta isenta deixava passar.
+
+```
+$ node tools/meta-sim/src/cli.ts varrer .
+[KAM-024] varrer: 1053 ficheiros, 86 ocorrencias de forma real,
+          86 declaradas no inventario, 0 divergencias   # exit 0
+```
+
+**Três** das 89 saíram neste PR: o `CORPO_DE_MENSAGEM` de
+`services/gwy/tests/webhook.test.ts` tinha três números de forma angolana que
+não testavam redacção nenhuma, e passaram para o intervalo fictício. O canário
+da linha 648 desse ficheiro **fica**, e está declarado: o critério 9 do KAM-013
+pede «1 000 pedidos com telefones nos logs e 0 achados», e um canário fictício
+não provava nada.
+
+Mesmo assim a caixa fica **vazia**, e é uma escolha e não um descuido: a letra
+diz «0 telefones reais (scan)» e o *scan* devolve 86 ocorrências toleradas. A
+regra desta casa é explícita — «um canário numa *fixture* falha o PR» não está
+cumprido se a pasta do canário for uma área permitida, mesmo que a decisão seja
+defensável. Quem decide se a leitura do inventário basta para marcar esta caixa
+é quem escreveu o critério, não quem o executa.
+
+### Verificação do DoD
+
+| Linha | Estado | O que se mediu |
+|---|---|---|
+| Todos os CA satisfeitos e demonstráveis | **não satisfeito** | Cinco de nove estão satisfeitos; os critérios 5, 7, 8 e 9 estão acima com a razão, e três deles não são satisfazíveis por este ticket. A evidência existe e está em `../docs/evidencia/KAM-024.md` |
+| Código revisto por ≥ 1 revisor; testes verdes | **parcial** | **Testes verdes**: `pnpm -r run test` → **1095 testes, 0 falhas, 70 s** (meta-sim 162, gwy 63, core-ts 833, contracts 12, worker-canal 15, com 5, onboarding-web 5); `tsc -p` limpo nos quatro pacotes tocados. **Revisores**: a caixa fica vazia, como em todos os tickets desta fase — a decisão do fundador é fundir com o CI verde sem esperar revisão humana, e o *ruleset* de `main` exige 0 aprovações. É um facto registado, não um bloqueio. Houve **uma revisão adversarial** desta entrega |
+| Documentação actualizada; Conventional Commits | **satisfeito** | `../docs/meta-sim.md`, com 11 secções: gerar, determinismo, assinatura e ida e volta, casos adversos, Graph falso, captura e *scan*, cobertura, re-entrega, *suite* online, códigos de erro. Mais `../docs/evidencia/KAM-024.md`. Os *commits* passam o `lint_arch` de mensagem, que corre no *hook* de *commit* |
+| **Privacidade** — 0 telefones reais ou dados pessoais em *fixtures*; capturas saneadas | **satisfeito** | As 32 *fixtures* que este ticket gera passam todas por `exigirFicticios` num teste (`todos os telefones das fixtures sao do intervalo reservado`), e os oito casos adversos também — incluindo o `json_invalido_assinado`, que não dá `parse` e por isso se verifica sobre o texto. O saneamento tem 13 testes, e substitui o texto das mensagens **por inteiro** em vez de o limpar: uma limpeza parcial de texto livre é uma aposta, e é onde uma pessoa escreve o seu endereço. Nem o erro nem o *scan* imprimem o número que encontram, porque um relatório de CI fica no histórico das execuções |
+| **Sem segredos** — segredos de teste distintos dos de `staging`/`prod`; scan limpo | **satisfeito** | `exigirSegredoDeEnsaio` recusa um segredo sem o prefixo `ensaio-` e um igual ao valor de qualquer `KAMBA_SECRET_*` do ambiente, com três testes. O `scan_secrets` do *hook* de *commit* correu limpo nos três *commits* deste ramo. O *token* que o Graph falso devolve diz-se de ensaio no próprio valor (`ensaio-token-…`), para que o scan do KAM-002 o separe de um real sem heurística |
+| **Dependências** — versões fixadas; licenças permitidas | **satisfeito** | **Zero** dependências novas: o pacote usa `node:crypto` e `node:http` da biblioteca padrão e o vocabulário de `@kamba/core-ts`. É a razão de estar **na** *workspace* do pnpm, ao contrário do `tools/mermaid_lint` — e é o que faz os gates 2 e 4 cobri-lo sem alvo novo. `pnpm install --frozen-lockfile` → lockfile em dia, 115 entradas conformes à política de cadeia de fornecimento; `supply_chain check` → imagens, runtime, egress, licenças, renovate e ci todos conformes |
+| O gate 7 do CI executa a *suite* offline e falha o build | **satisfeito** | `make ci-7` chama `ci-7-meta`, que corre `varrer`, `cobertura`, a *suite* do pacote e a ida e volta no GWY. **Falha o build** porque os códigos de saída são distintos: `0` conforme, `2` há achados, `1` a ferramenta não conseguiu correr. O terceiro existe de propósito — «0 ficheiros lidos» **não** é «0 achados», e devolver `0` aí transformava o gate num enfeite |
+
+### Duas emendas à verificação, e as duas são consequências medidas
+
+Não são arrumação: sem elas o gate 4 deixava de medir o que este ticket
+acrescenta, e isso não se via de fora.
+
+- **`tools/meta-sim` entra em `PACOTES_NODE`.** `tools/**` está nos `padroes` do
+  estrato `restante` de `../ci/thresholds.yaml`, e o `coverage_gate` injecta a
+  **0%** o que nenhum relatório mediu. Fora da lista, os dezasseis ficheiros do
+  pacote entravam no denominador com zero.
+- **`coverage_gate.base_do_nome` passa a conhecer a família `tools`.** Medido:
+  sem isso, `node-tools-meta-sim.lcov` não casava família nenhuma, o resto vinha
+  inteiro (`tools-meta-sim`) e os dezasseis ficheiros saíam como «medidos e não
+  classificados por nenhum estrato» — que é o estado em que um ficheiro escapa
+  ao limiar **em silêncio**. A comparação com `familia + "-"` mantém o
+  `python-tools.lcov` a devolver `tools`.
+
+Depois das duas: `critico` **96%** (mínimo 90%), `restante` **89%** (mínimo
+75%), **0** ficheiros não classificados. Cobertura de linhas dos dezasseis
+ficheiros do pacote: **98,8%** (3597/3641).
+
+O `cli.ts` vai para `excluidos` pela mesma razão que os
+`services/*/src/server.ts`: é um ponto de entrada que lê `process.argv` e chama
+`process.exit`, e o gate 7 exercita-o três vezes.
 
 ---
 
@@ -1403,3 +1539,5 @@ Testes: idempotência, limites, bounce, isolamento, X-11. Abre PR com o template
 | 1.0 | Outubro 2026 | Emissão inicial: KAM-013 a KAM-024 (GWY, CHR, outbound, Embedded Signup v4, coexistência, handoff, mídia, qualidade, consentimento, simulador); KAM-115 (aviso ao dono por canal alternativo) acrescentado na consolidação. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | KAM-145: os **24** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | **KAM-014 entregue.** Secção de verificação no bloco, com onze caixas marcadas e **cinco vazias**: três critérios que não se cumprem à letra — o caminho do contrato `agent_invocation`, que uma sentinela do *gate* 3b não deixa existir; a convergência de identidade sem uma mensagem que traga os dois identificadores, que o algoritmo de `../docs/tecnica/01` §6.3 não faz; e o «uma vez por contacto/24 h» da mensagem estática, que é de quem envia — e as duas do DoD que delas dependem. As quatro divergências documentais que sustentam essas leituras estão em `../docs/dividas-documentais.md`, linhas 47 a 50. A revisão adversarial está em `../docs/analises/ANALISE-27-KAM-014-chr-channelresolver.md`. | Equipa KAMBÁ |
+| 1.3 | Outubro 2026 | **A aresta KAM-024 → KAM-015, KAM-016, KAM-017 e KAM-020**, que o critério 5 do KAM-024 afirma e o grafo não declarava, nas três superfícies que o *gate* 3c compara. Sem ela, a ordem de execução do epic estava errada: o servidor Graph falso que os «Testes Requeridos» de quatro tickets nomeiam só nasce no KAM-024. | Equipa KAMBÁ |
+| 1.4 | Outubro 2026 | **KAM-024 entregue.** Dez caixas marcadas com evidencia nomeada e seis vazias, na seccao «Verificação dos Critérios de Aceitação» do bloco. Tres das vazias nao sao satisfazeis por este ticket: o «usado por KAM-015, 016, 017 e 020» do critério 5 nao se pode medir antes de esses tickets existirem, e a *suite* online dos critérios 8 e 9 depende de `ext:KAM-102` e do número de teste da app Meta de *staging*. A quarta é o critério 7, que fica vazio por escolha: o *scan* mede 86 ocorrências de forma real no repositório, todas *fixtures* de redacção de PII, e a letra diz «0» — quem decide se o inventário basta é quem escreveu o critério. Acrescentada depois a secção «A revisão adversarial, e as quatro caixas que ela reprovou»: dezasseis achados, quatro graves, e o primeiro fazia o *gate* 7 falhar em **todos** os PRs sem nenhum dos 133 testes de então o apanhar — porque nenhum corria o comando que o `Makefile` corre. Depois das correcções as quatro caixas voltam a resistir, e a tabela de cobertura passa de 27 a **33** itens, com os seis motivos de `PARTNER_REMOVED` a contar como itens próprios. | Equipa KAMBÁ |

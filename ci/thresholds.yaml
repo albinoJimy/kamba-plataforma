@@ -227,6 +227,12 @@ excluidos:
   # blocos — e Python, esta em `tools/mermaid_lint/extrair.py` e tem bateria
   # propria, que o gate 4 corre.
   - "tools/mermaid_lint/verificar.mjs"
+  # O CLI do simulador (KAM-024). E um ponto de entrada como os
+  # `services/*/src/server.ts`: le `process.argv`, escreve em `stdout` e chama
+  # `process.exit`. O que ele faz esta todo nas funcoes que importa, e essas tem
+  # bateria propria; o gate 7 exercita-o por inteiro, tres vezes, pelo alvo
+  # `ci-7-meta`. Medi-lo por unidade dava-lhe 0% e nao dizia nada.
+  - "tools/meta-sim/src/cli.ts"
 
 # Tolerancia zero: descer 1 ponto abaixo do limiar falha o gate. O ticket diz
 # "descer 1 ponto abaixo falha o gate", pelo que nao ha margem nem arredondamento

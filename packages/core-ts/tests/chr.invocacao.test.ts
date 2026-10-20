@@ -97,7 +97,7 @@ describe("o contrato agent_invocation", () => {
   it("o padrao do `thread_id` e `{uuid}:{uuid}` e recusa um telefone", () => {
     const padrao = new RegExp(esquema.properties.thread_id.pattern);
     assert.ok(padrao.test(`${TENANT}:${CONTACTO}`));
-    assert.ok(!padrao.test(`${TENANT}:244923000000`));
+    assert.ok(!padrao.test(`${TENANT}:999100000001`));
     assert.ok(!padrao.test(TENANT));
   });
 

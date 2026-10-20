@@ -395,7 +395,16 @@ def base_do_nome(caminho: Path) -> str:
             break
     else:
         return ""
-    for familia in ("services", "packages", "libs"):
+    # `tools` entrou com o KAM-024, que poe `tools/meta-sim` em `PACOTES_NODE`.
+    # Sem ele, `node-tools-meta-sim` nao casava familia nenhuma, o `resto` vinha
+    # inteiro (`tools-meta-sim`), e os dezasseis ficheiros do pacote saiam como
+    # «medidos e nao classificados por nenhum estrato» — que e o estado em que um
+    # ficheiro escapa ao limiar em silencio. Medido antes da correccao.
+    #
+    # A comparacao e com `familia + "-"` e nao com `familia`, e e o que mantem o
+    # `python-tools.lcov` a devolver `tools`: esse `resto` e exactamente `tools`
+    # e nao comeca por `tools-`.
+    for familia in ("services", "packages", "libs", "tools"):
         if resto.startswith(familia + "-"):
             return f"{familia}/{resto[len(familia) + 1:]}"
     # `python-tools.lcov` -> `tools`: o `coverage` corre de dentro de `tools/`,

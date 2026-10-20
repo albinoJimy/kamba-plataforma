@@ -16,5 +16,8 @@
     "@kamba/contracts": "workspace:*",
     "@kamba/core-ts": "workspace:*",
     "hono": "4.13.13"
+  },
+  "devDependencies": {
+    "@kamba/meta-sim": "workspace:*"
   }
 }
