@@ -50,6 +50,14 @@
     "./ten": {
       "types": "./dist/ten/index.d.ts",
       "default": "./dist/ten/index.js"
+    },
+    "./chr": {
+      "types": "./dist/chr/index.d.ts",
+      "default": "./dist/chr/index.js"
+    },
+    "./chr/fila": {
+      "types": "./dist/chr/fila.d.ts",
+      "default": "./dist/chr/fila.js"
     }
   },
   "files": [

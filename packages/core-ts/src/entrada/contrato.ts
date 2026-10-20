@@ -76,12 +76,24 @@ export type KindDeQuarentena = (typeof KINDS_DE_QUARENTENA)[number];
 export const KINDS = [...KINDS_DE_ENTRADA, ...KINDS_DE_QUARENTENA] as const;
 export type Kind = KindDeEntrada | KindDeQuarentena;
 
-/** Porque é que um evento foi para a quarentena. Dicionário §3.12. */
+/**
+ * Porque é que um evento foi para a quarentena. Dicionário §3.12.
+ *
+ * **Seis, e os dois últimos são do KAM-014.** Os quatro primeiros são razões do
+ * **corpo** e nascem na explosão; `canal_desconhecido` e
+ * `mensagem_sem_identidade` são razões do **encaminhamento** e nascem no CHR
+ * (`chr/contrato.ts`, `MOTIVOS_DO_CHR`). A lista é uma só porque a coluna é uma
+ * só: o `CHECK` de `unrouted_events.motivo` tem os seis, e a suite
+ * `db/tests_entrada` prende esta lista à do PostgreSQL **e** à do dicionário —
+ * três fontes, e nenhuma pode divergir.
+ */
 export const MOTIVOS = [
   "json_invalido",
   "campo_desconhecido",
   "corpo_sem_entry",
   "change_sem_itens",
+  "canal_desconhecido",
+  "mensagem_sem_identidade",
 ] as const;
 export type Motivo = (typeof MOTIVOS)[number];
 

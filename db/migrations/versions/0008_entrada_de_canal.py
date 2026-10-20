@@ -150,11 +150,37 @@ KINDS_DE_QUARENTENA = ("'desconhecido'", "'invalido'")
 #: Meta poe `errors` em vez de `messages` ou `statuses`. Tem motivo proprio
 #: para que o alerta diga a verdade — nao e campo desconhecido nem corpo
 #: malformado.
+#:
+#: **Os dois ultimos sao do KAM-014, e estao aqui de proposito.** Os quatro
+#: primeiros sao razoes do **corpo**; estes dois sao do **encaminhamento**, que
+#: corre depois (o CHR):
+#:
+#: * `canal_desconhecido` e o criterio 2 desse ticket — «`phone_number_id`
+#:   desconhecido: 0 *jobs* para o AGR, 1 linha em `unrouted_events`, alerta» —,
+#:   isto e, um `phone_number_id` que nao esta em `tenant_channels` (ou um
+#:   evento que nao trouxe nenhum);
+#: * `mensagem_sem_identidade` e uma `message` sem `from` **e** sem
+#:   `from_user_id`. O `evidencia/E1` §3 confirma que o BSUID e obrigatorio,
+#:   pelo que nao devia acontecer — e se acontecer nao ha contacto a resolver.
+#:   Sem este motivo, o caminho do CHR lancava, o *job* falhava e o BullMQ
+#:   repetia-o durante sete dias sobre um corpo que nunca vai melhorar: e o
+#:   mesmo defeito que o criterio 6 fecha para o JSON invalido, por outra porta.
+#:
+#: Porque e que os valores entram na revisao que cria o `CHECK`, e nao numa
+#: `0009`: o *gate* 3b le o AST de **cada** revisao isoladamente e compara cada
+#: `CHECK` fechado com o dominio do dicionario. Um `DROP CONSTRAINT` +
+#: `ADD CONSTRAINT` numa revisao posterior deixava esta linha com quatro valores
+#: contra seis no dicionario — achado, e medido. O custo e o que o DoD do
+#: KAM-014 declara: uma base que ja esteja na `0008` nao ganha os valores sem
+#: voltar a aplicar as migracoes; nao ha nada em producao, e o *gate* 8 aplica
+#: sempre de `base`.
 MOTIVOS = (
     "'json_invalido'",
     "'campo_desconhecido'",
     "'corpo_sem_entry'",
     "'change_sem_itens'",
+    "'canal_desconhecido'",
+    "'mensagem_sem_identidade'",
 )
 
 #: Tecto do `payload` da quarentena, em caracteres de base64 — 256 KiB, que sao

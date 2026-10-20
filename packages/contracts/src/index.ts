@@ -58,3 +58,23 @@ export interface HealthzResponseV1 {
 export const HEALTHZ_RESPONSE_V1_PATH = require.resolve(
   "../schemas/healthz.response.v1.json",
 );
+
+/**
+ * Caminho do esquema do *job* que o CHR entrega ao AGR (KAM-014, criterio 6).
+ *
+ * **Nao ha interface escrita a mao a acompanha-lo neste pacote**, ao contrario
+ * do `HealthzResponseV1`, e isso e deliberado: o tipo vive em
+ * `@kamba/core-ts/chr` (`AgentInvocation`), que e quem monta a mensagem, e um
+ * tipo escrito duas vezes divergia — a mesma razao que o cabecalho deste modulo
+ * ja da para o `eventos.gerado.ts`. O que este pacote publica e o **esquema**,
+ * que e o artefacto que o AGR (Python) tambem le.
+ *
+ * O caminho do ficheiro **nao** e o que o criterio 6 do KAM-014 escreve
+ * (`packages/contracts/agent_invocation.schema.json`): os esquemas vivem em
+ * `schemas/` com a versao no nome, e um `*.schema.json` bate numa sentinela do
+ * gate 3b que o exige dentro de `contratos/eventos/`. Esta registado na secao
+ * de verificacao do ticket, com a caixa por marcar.
+ */
+export const AGENT_INVOCATION_V1_PATH = require.resolve(
+  "../schemas/agent_invocation.v1.json",
+);

@@ -4,7 +4,8 @@
                             |tests_eventos_consumo|tests_eventos_carga
                             |tests_auditoria_carga|tests_ten
                             |tests_entrada
-                            |tests_entrada_carga>
+                            |tests_entrada_carga
+                            |tests_chr>
 
 O `python -m unittest` sai com 0 quando todos os testes sao **saltados**. E o
 trinco da suite (`tests/base.py`) levanta `SkipTest` quando a base nao se chama
@@ -39,6 +40,7 @@ def main() -> int:
         "tests_ten",
         "tests_entrada",
         "tests_entrada_carga",
+        "tests_chr",
     ):
         print(f"suite desconhecida: {directorio!r}", file=sys.stderr)
         return 2

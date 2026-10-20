@@ -14,14 +14,21 @@ from __future__ import annotations
 from tests.base import PRIVILEGIO_INSUFICIENTE
 from tests_isolamento.base import ComDoisTenants, definir_contexto
 
-#: O que a revisao 0002 concede. O teste confere-o nos dois sentidos, coluna a
-#: coluna, contra o catalogo.
+#: O que a revisao 0002 concede, mais o `plano` que a `0009` acrescentou. O
+#: teste confere-o nos dois sentidos, coluna a coluna, contra o catalogo.
+#:
+#: O `plano` entrou com o KAM-014: o criterio 1 desse ticket poe-o no
+#: `ChannelContext`, e o `ChannelContext` responde-se **antes** de haver
+#: contexto de tenant — nao ha outro papel que possa ler a coluna nesse
+#: momento. E exactamente o caminho que o comentario da `0002` antecipava («o
+#: CHR nasce no KAM-014 e pode pedir mais uma — o que se faz acrescentando-a
+#: aqui numa revisao, e nao dando-lhe a tabela inteira»).
 COLUNAS_LEGIVEIS = {
     "tenant_channels": {
         "id", "tenant_id", "phone_number_id", "vertical", "origem", "estado",
         "channel_mode",
     },
-    "tenants": {"id", "tipo", "estado"},
+    "tenants": {"id", "tipo", "estado", "plano"},
 }
 
 
@@ -88,6 +95,12 @@ class TestResolver(ComDoisTenants):
             "SELECT * FROM platform.entitlements",
             "SELECT count(*) FROM platform.entitlements",
             "SELECT tenant_id FROM platform.entitlements",
+            # KAM-014: o resolvedor responde `phone_number_id -> tenant` antes
+            # de haver contexto; uma conversa so existe depois. Le-la seria ver
+            # com quem cada tenant fala, sem contexto nenhum.
+            "SELECT * FROM platform.conversations",
+            "SELECT count(*) FROM platform.conversations",
+            "SELECT contact_id FROM platform.conversations",
             "SELECT * FROM public.alembic_version",
         ):
             with self.subTest(consulta=consulta):

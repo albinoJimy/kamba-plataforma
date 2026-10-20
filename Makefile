@@ -899,6 +899,18 @@ ci-8:
 	@# escolha. Nao e opcional: um p99 acima de 500 ms falha o build.
 	@echo "==> gate 8: carga do webhook (200/s durante 60 s, KAM-013)"
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_entrada_carga
+	@# E o CHR (KAM-014). O que so aqui se prova: que o `phone_number_id` de A
+	@# nao devolve o contexto de B — a propriedade vem da chave unica e da
+	@# politica `resolver_leitura`, nao do codigo —, que `kamba_app` **sem
+	@# contexto** nao consegue responder a pergunta (zero linhas, que o CHR
+	@# leria como «canal desconhecido»), que o mesmo cliente visto so por
+	@# telefone e so por BSUID converge num `contact_id`, que o gancho de fusao
+	@# reaponta conversas dentro da transacao da fusao, e que a guarda do
+	@# ADR-011 recusa o arranque com uma linha de Fluxo B e **recusa-se a
+	@# correr** com um papel que nao ve tudo. Corre os tres papeis verdadeiros;
+	@# nao precisa de fila, porque a porta do AGR e uma interface (KAM-025).
+	@echo "==> gate 8: CHR contra PostgreSQL 18.6 (KAM-014)"
+	@$(VENV_PYTHON) db/gate_bd.py --suite tests_chr
 
 # -----------------------------------------------------------------------------
 # Limpeza

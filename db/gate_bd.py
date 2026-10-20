@@ -3,6 +3,7 @@
     python db/gate_bd.py --suite tests               # gate 8
     python db/gate_bd.py --suite tests_identidade    # gate 8, segunda metade
     python db/gate_bd.py --suite tests_isolamento    # gate 6
+    python db/gate_bd.py --suite tests_chr           # gate 8, o CHR (KAM-014)
     python db/gate_bd.py --suite tests --bd-existente
 
 Os dois gates precisam do mesmo: um PostgreSQL real, vazio e descartavel. Este
@@ -114,6 +115,13 @@ SUITES = (
     # Suite propria pela mesma razao da carga de eventos: custa um minuto de
     # relogio, e cada mutacao que a escolhesse pagaria esse custo.
     "tests_entrada_carga",
+    # KAM-014: o CHR. Corre o modulo TypeScript (`packages/core-ts/src/chr/`)
+    # contra a base, com os **tres papeis verdadeiros** — `kamba_resolver`,
+    # `kamba_identity` e `kamba_app` —, que e a unica forma de provar que o
+    # `phone_number_id` de A nao devolve o contexto de B e que `kamba_app`
+    # sozinho nao responde a pergunta. Nao precisa de fila: a porta do AGR e
+    # uma interface, e o que ela faz com o *job* e KAM-025.
+    "tests_chr",
 )
 #: As que precisam tambem de uma fila.
 SUITES_COM_FILA = (
