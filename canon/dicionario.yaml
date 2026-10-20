@@ -2288,7 +2288,9 @@ entradas:
     nomes_nota:
       - "StorageProvider"
       - "ObjectRef"
-      - "persona"
+      - "dict_export"
+      - "test_o_ddl_de_tenant_channels_do_doc_03_seria_recusado"
+      - "canon_lint"
     variantes_literais: []
   - seccao: "3.13"
     conceito: "Contrato do job que o CHR entrega ao AGR"
