@@ -227,7 +227,10 @@ export class Saida {
       this.#agora().getTime(),
     );
     if (espera > 0) {
-      this.#metricas.contar(METRICA_TRAVADAS);
+      // `bucket`: foi o **nosso** tecto que travou. A outra origem é o
+      // `130429` da Meta, mais abaixo, e as duas não se somam — ver
+      // `metricas.ts`.
+      this.#metricas.contar(METRICA_TRAVADAS, "bucket");
       await this.#dormir(espera);
     }
 
@@ -274,7 +277,10 @@ export class Saida {
         return { ok: false, motivo: "SEND_FAILED", codigo: resposta.codigo };
       }
 
-      this.#metricas.contar(METRICA_TRAVADAS);
+      // `meta`: foi o tecto **dela** que travou, e isso é uma leitura
+      // diferente da do nosso balde — um painel que as some não sabe qual dos
+      // dois subir ou baixar.
+      this.#metricas.contar(METRICA_TRAVADAS, "meta");
       await this.#dormir(atrasoMs(tentativa, resposta.esperar, this.#aleatorio()));
     }
   }

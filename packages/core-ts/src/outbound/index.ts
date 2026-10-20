@@ -102,6 +102,8 @@ export {
   METRICA_TRAVADAS,
   MetricaDesconhecidaError,
   MetricasDaSaida,
+  ORIGENS_DA_TRAVAGEM,
+  type OrigemDaTravagem,
   SufixoInvalidoError,
 } from "./metricas.ts";
 

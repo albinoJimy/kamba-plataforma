@@ -3,7 +3,7 @@
  *
  *     outbound_sent_total            counter  envios, por categoria
  *     outbound_window_closed_total   counter  recusas, por motivo
- *     outbound_rate_limited_total    counter  envios travados pelo token bucket
+ *     outbound_rate_limited_total    counter  envios travados, por origem
  *     meta_cost_usd_total            counter  custo acumulado, em MICRO-dolares
  *     outbound_latency_ms            gauge    duracao do ultimo envio, em ms
  *
@@ -18,10 +18,19 @@
  *
  * A **`outbound_rate_limited_total`** está aqui pela razão do `gwy_shed_total`
  * da emenda 1.19 e da `chr_resolve_total` da 1.20: **recusar sem contar é
- * recusar em silêncio**. É o único sítio onde um envio travado pelo *token
- * bucket* fica visível, e sem ela um painel não distingue «ninguém enviou» de
- * «foi tudo travado» — que é exactamente a diferença entre um dia calmo e um
- * incidente de débito.
+ * recusar em silêncio**. É o único sítio onde um envio travado por débito fica
+ * visível, e sem ela um painel não distingue «ninguém enviou» de «foi tudo
+ * travado» — que é exactamente a diferença entre um dia calmo e um incidente de
+ * débito.
+ *
+ * Leva a etiqueta «origem», de dois valores, e **a etiqueta é o ponto**: um
+ * envio pode esperar porque o *nosso* balde não tinha ficha («bucket») ou
+ * porque a *Meta* respondeu `130429` e o *backoff* repetiu («meta»). Somar as
+ * duas num número só era perder a única decisão que este contador informa — a
+ * primeira diz «o nosso tecto está apertado, pode subir», a segunda diz «o
+ * tecto dela está à frente do nosso, baixa». A primeira versão contava as duas
+ * juntas com a ajuda escrita a dizer só a primeira, e isso é um contador que
+ * mente por omissão.
  *
  * A **`outbound_sent_total`**, com etiqueta `kind`, é o que torna o custo
  * auditável: o `meta_cost_usd_total` é uma soma e não se consegue verificar
@@ -55,6 +64,16 @@
 
 import { CATEGORIAS, MOTIVOS_DE_RECUSA } from "./contrato.ts";
 
+/**
+ * As duas origens de uma travagem, em lista fechada.
+ *
+ * `bucket` é o nosso *token bucket*; `meta` é um `130429` que o *backoff*
+ * repetiu. Ver a nota do módulo: a razão de serem duas e não uma.
+ */
+export const ORIGENS_DA_TRAVAGEM = ["bucket", "meta"] as const;
+
+export type OrigemDaTravagem = (typeof ORIGENS_DA_TRAVAGEM)[number];
+
 export const METRICA_ENVIADAS = "outbound_sent_total";
 export const METRICA_JANELA_FECHADA = "outbound_window_closed_total";
 export const METRICA_TRAVADAS = "outbound_rate_limited_total";
@@ -79,7 +98,7 @@ const NOMES_DE_GAUGE: readonly string[] = GAUGES;
  * As etiquetas, por métrica, com a lista fechada de valores.
  *
  * **Nenhuma cresce com o tráfego**, e é isso que as torna admissíveis: o `kind`
- * tem quatro valores e o `motivo` tem dez. Nenhuma leva `tenant_id`,
+ * tem quatro valores, o `motivo` tem dez e a «origem» tem dois. Nenhuma leva `tenant_id`,
  * `contact_id`, `channel_id`, `phone_number_id` nem `wamid`.
  */
 const ETIQUETAS: Readonly<
@@ -87,6 +106,7 @@ const ETIQUETAS: Readonly<
 > = {
   [METRICA_ENVIADAS]: { nome: "kind", valores: CATEGORIAS },
   [METRICA_JANELA_FECHADA]: { nome: "motivo", valores: MOTIVOS_DE_RECUSA },
+  [METRICA_TRAVADAS]: { nome: "origem", valores: ORIGENS_DA_TRAVAGEM },
 };
 
 const AJUDA: Readonly<Record<string, readonly [string, string]>> = {
@@ -97,7 +117,7 @@ const AJUDA: Readonly<Record<string, readonly [string, string]>> = {
   ],
   [METRICA_TRAVADAS]: [
     "counter",
-    "Envios travados pelo token bucket (por canal ou por par). Recusar sem contar e recusar em silencio.",
+    "Envios que esperaram por debito, por origem: bucket (o nosso token bucket, por canal ou por par) ou meta (um 130429 que o backoff repetiu). Separadas porque a primeira diz que o nosso tecto esta apertado e a segunda que o dela esta a frente.",
   ],
   [METRICA_CUSTO]: [
     "counter",

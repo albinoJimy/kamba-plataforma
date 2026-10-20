@@ -340,12 +340,23 @@ def upgrade() -> None:
             CONSTRAINT outbound_messages_template_ck
                 CHECK ((kind = 'service' AND template_name IS NULL)
                        OR (kind <> 'service' AND template_name IS NOT NULL)),
-            -- Um instante de entrega so existe em `delivered` ou `read`: a
+            -- Um instante de entrega nao existe antes de haver entrega: a
             -- cobranca e na entrega, e um `delivered_at` num `queued` tornava o
             -- custo impossivel de reconciliar.
+            --
+            -- **Os dois terminais estao na lista, e a primeira versao nao os
+            -- tinha.** Uma mensagem entregue pode passar a `failed` depois (a
+            -- Meta nao garante ordem nos `statuses`, e o `estados.ts` deixa
+            -- sair de qualquer nao-terminal para um terminal), e o
+            -- `delivered_at` **nao se apaga** nesse caso: a entrega aconteceu,
+            -- o custo ja foi contado, e apagar o instante era destruir a linha
+            -- de auditoria que reconcilia a factura. Sem `failed` e
+            -- `suppressed_by_human` aqui, esse `UPDATE` morria com 23514 —
+            -- medido no ensaio de base, nao previsto.
             CONSTRAINT outbound_messages_entrega_ck
                 CHECK (delivered_at IS NULL
-                       OR state IN ('delivered', 'read')),
+                       OR state IN ('delivered', 'read', 'failed',
+                                    'suppressed_by_human')),
             -- Um codigo de erro so existe num `failed`.
             CONSTRAINT outbound_messages_erro_ck
                 CHECK (error_code IS NULL OR state = 'failed')

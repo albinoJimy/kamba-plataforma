@@ -43,7 +43,7 @@ class TestCatalogoReal(ComBase):
         """
         self.assertEqual(set(catalogo.excepcoes_rls()), {"platform.audit_heads"})
 
-    def test_a_descoberta_encontra_as_dezassete_tabelas(self) -> None:
+    def test_a_descoberta_encontra_as_dezanove_tabelas(self) -> None:
         """Se a descoberta encolher, a suite inteira passa a testar menos.
 
         Catorze com o KAM-012, que trouxe o `audit_log` e o `audit_heads`. O
@@ -60,6 +60,11 @@ class TestCatalogoReal(ComBase):
         Dezassete desde o KAM-014: a `conversations`. E a **primeira** tabela
         do caminho do webhook a entrar aqui — as duas da `0008` nao tem
         `tenant_id`, porque o tenant so nasce no CHR, que corre depois delas.
+
+        Dezanove desde o KAM-015: a `message_templates` e a `outbound_messages`.
+        Nao ha entrada em `ci/rls_exceptions.yaml` para nenhuma das duas — tem
+        `tenant_id`, logo levam RLS `FORCE` e a politica `tenant_iso`, e e a
+        coluna que as faz entrar aqui sozinhas.
         """
         self.assertEqual(
             catalogo.tabelas_isoladas(self.cursor),
@@ -87,6 +92,10 @@ class TestCatalogoReal(ComBase):
                 ("platform", "events_outbox", "tenant_id"),
                 ("platform", "evt_acoes", "tenant_id"),
                 ("platform", "evt_agregado_seq", "tenant_id"),
+                # KAM-015: as duas da saida de canal. A ordem e a do
+                # `sorted()`, que compara por ponto de codigo.
+                ("platform", "message_templates", "tenant_id"),
+                ("platform", "outbound_messages", "tenant_id"),
                 ("platform", "tenant_channels", "tenant_id"),
                 # KAM-009: o contador de uso e o livro de idempotencia.
                 ("platform", "tenant_usage", "tenant_id"),
@@ -166,6 +175,9 @@ class TestCatalogoReal(ComBase):
                 ("events_outbox", "tenant_iso", "ALL", "{public}"),
                 ("evt_acoes", "tenant_iso", "ALL", "{public}"),
                 ("evt_agregado_seq", "tenant_iso", "ALL", "{public}"),
+                # KAM-015: as duas da saida de canal.
+                ("message_templates", "tenant_iso", "ALL", "{public}"),
+                ("outbound_messages", "tenant_iso", "ALL", "{public}"),
                 ("tenant_channels", "resolver_leitura", "SELECT", "{kamba_resolver}"),
                 ("tenant_channels", "tenant_iso", "ALL", "{public}"),
                 # KAM-009. A ordem e a da coleccao `C` e nao a da base: o
@@ -197,7 +209,9 @@ class TestCatalogoReal(ComBase):
              # KAM-006: as tres do consumo com `tenant_id`.
              "events_consumed", "events_dlq",
              "events_log", "events_log_default", "events_outbox",
-             "evt_acoes", "evt_agregado_seq", "tenant_channels",
+             "evt_acoes", "evt_agregado_seq",
+             # KAM-015: as duas da saida de canal.
+             "message_templates", "outbound_messages", "tenant_channels",
              # KAM-009: o contador e o livro. `tenant_usage` antes de
              # `tenants` pela colacao `C` do tipo `name` (ver o teste acima).
              "tenant_usage", "tenants", "usage_ledger"],

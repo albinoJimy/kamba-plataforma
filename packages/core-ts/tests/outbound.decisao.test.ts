@@ -32,7 +32,7 @@ import {
   janelaAberta,
   type Corpo,
   type Template,
-} from "@kamba/core-ts/outbound";
+} from "../src/outbound/index.ts";
 
 const AGORA = new Date("2026-10-20T12:00:00.000Z");
 const ABERTA = { expiraEm: new Date("2026-10-20T13:00:00.000Z") };

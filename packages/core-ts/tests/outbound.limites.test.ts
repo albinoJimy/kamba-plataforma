@@ -34,7 +34,7 @@ import {
   corpoDaMeta,
   vaiRepetir,
   type Corpo,
-} from "@kamba/core-ts/outbound";
+} from "../src/outbound/index.ts";
 
 describe("o balde", () => {
   it("**nasce vazio**, e o primeiro envio espera uma ficha", () => {

@@ -78,6 +78,7 @@
     "ioredis": "5.11.1"
   },
   "devDependencies": {
+    "@kamba/meta-sim": "workspace:*",
     "@types/pg": "8.23.1",
     "pg": "8.23.1"
   },

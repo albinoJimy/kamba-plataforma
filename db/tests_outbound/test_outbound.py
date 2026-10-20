@@ -44,13 +44,22 @@ FICHEIROS = (
     "tests/outbound.decisao.test.ts",
     "tests/outbound.estados.test.ts",
     "tests/outbound.limites.test.ts",
+    "tests/outbound.adapter.test.ts",
     "tests_bd/outbound.bd.test.ts",
 )
 
-#: Os grupos de `tests_bd/outbound.bd.test.ts`: um por propriedade que **so** se
-#: prova contra a base. Se um desaparecer, a suite deixa de provar essa
-#: propriedade — e isso tem de falhar aqui, nao passar por haver menos testes.
+#: Os grupos que **tem** de aparecer na saida, um por propriedade que a suite
+#: prova. Se um desaparecer, a suite deixa de provar essa propriedade — e isso
+#: tem de falhar aqui, nao passar por haver menos testes.
+#:
+#: Os quatro primeiros sao do `tests/outbound.adapter.test.ts` (sem base: a
+#: ordem dos passos, o backoff e o registo); os cinco ultimos sao do
+#: `tests_bd/outbound.bd.test.ts` e sao os que **so** uma base real prova.
 GRUPOS = (
+    "o backoff do 130429, de ponta a ponta (criterio 6)",
+    "a ordem dos passos: onde nao ha chamada HTTP",
+    "o guarda do KAM-018 falha fechada (criterio 8)",
+    "o registo nao leva o wamid em claro (DoD «Privacidade»)",
     "idempotencia (criterio 2)",
     "monotonia contra concorrencia (criterio 3)",
     "isolamento (Testes Requeridos: X-03 sobre outbound_messages)",
@@ -60,7 +69,20 @@ GRUPOS = (
 
 #: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
 #: que dao a letra de cada criterio.
+#:
+#: Os primeiros quatro sao do `tests/outbound.adapter.test.ts`, que corre sem
+#: base: o criterio 6 («backoff exponencial com jitter, 3 tentativas; o 130429
+#: repete, o 131049 nao») **nao se prova contra a base**, porque la as respostas
+#: vem do `GraphFalso` e dizem 200. Sem estas quatro linhas, o criterio 6 estava
+#: provado so ao nivel das funcoes `vaiRepetir` e `atrasoMs` — isto e, provado
+#: que a regra existe, nao que o adapter a usa.
 TESTES_OBRIGATORIOS = (
+    "dois 130429 e depois um 200: envia, com tres chamadas e duas esperas",
+    "tres 130429 desistem: tres chamadas, nunca quatro",
+    "**o 131049 nao repete: uma chamada e so uma**",
+    "o Retry-After manda sobre o backoff calculado",
+    "**sem guarda, em CI, levanta** — e nao envia",
+    "o msg_id e o idOpaco do §3.10, e o wamid nao aparece em sitio nenhum",
     "**duas chamadas com a mesma chave: 1 linha e 1 chamada HTTP**",
     "**a mesma chave em dois tenants da duas linhas**",
     "dois statuses em paralelo: o estado final e o maior, e o custo conta uma vez",

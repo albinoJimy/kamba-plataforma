@@ -635,8 +635,10 @@ class TestInventario(ComBase):
                     # unicidades (a da chave de idempotencia e **por tenant**;
                     # a do `wamid` e global, e a assimetria esta no §3.14), e as
                     # tres coerencias: template obrigatorio fora de `service`,
-                    # instante de entrega so em `delivered`/`read`, codigo de
-                    # erro so em `failed`.
+                    # instante de entrega so onde houve entrega — `delivered`,
+                    # `read` e os **dois terminais**, porque uma mensagem
+                    # entregue pode passar a `failed` depois e o instante nao
+                    # se apaga —, codigo de erro so em `failed`.
                     #
                     # Nos templates: as tres listas fechadas — e a de `quality`
                     # permite nulos sem o dizer, porque em SQL um `CHECK` que

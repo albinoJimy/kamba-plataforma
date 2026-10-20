@@ -34,7 +34,7 @@ import {
   terminal,
   type Estado,
   type Pricing,
-} from "@kamba/core-ts/outbound";
+} from "../src/outbound/index.ts";
 
 /** Um `pricing` de serviço facturável, como a Meta o manda. */
 function pricing(troca: Partial<Pricing> = {}): Pricing {

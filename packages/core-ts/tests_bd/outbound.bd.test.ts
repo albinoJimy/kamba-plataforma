@@ -53,6 +53,17 @@ import {
   ligar,
 } from "./apoio.ts";
 
+/**
+ * Põe o contexto de *tenant* na ligação, **de sessão**.
+ *
+ * `set_config(..., false)` e não `true`: ver a nota no `bd.query` do
+ * `adapterDe`. Uma função e não a cadeia repetida, porque a diferença entre os
+ * dois terceiros argumentos é invisível e custa um teste inteiro a descobrir.
+ */
+async function definirContexto(cliente: pg.Client, tenant: string): Promise<void> {
+  await cliente.query("SELECT set_config('app.tenant_id', $1, false)", [tenant]);
+}
+
 /** O `pricing` que a Meta manda num `delivered` de serviço facturável. */
 function pricing(troca: Partial<Pricing> = {}): Pricing {
   return {
@@ -109,7 +120,16 @@ describe("a saida de canal contra a base", () => {
     return new Saida({
       bd: {
         query: async (texto, valores) => {
-          await cliente.query("SELECT set_config('app.tenant_id', $1, true)", [tenant]);
+          // `false` e **nao** `true`: o terceiro argumento do `set_config` e
+          // «local a transaccao», e fora de um `BEGIN` explicito cada
+          // instrucao e a sua propria transaccao — a definicao desaparecia
+          // antes da instrucao seguinte, e com RLS `FORCE` o `kamba_app`
+          // ficava sem contexto e via zero linhas. O
+          // `identity.bd.test.ts` usa `true` **dentro** de `BEGIN`/`ROLLBACK`;
+          // aqui a definicao e de sessao, que e o que serve uma ligacao
+          // dedicada a um tenant — e no teste de concorrencia e melhor do que
+          // uma transaccao, porque as duas ligacoes disputam de verdade.
+          await definirContexto(cliente, tenant);
           return cliente.query(texto, valores === undefined ? [] : [...valores]);
         },
       },
@@ -218,7 +238,7 @@ describe("a saida de canal contra a base", () => {
       // criterio que uma base falsa nao consegue provar.
       assert.equal(graph.envios - antes, 1, "a segunda nao chamou a Meta");
 
-      await app.query("SELECT set_config('app.tenant_id', $1, true)", [tenantA]);
+      await definirContexto(app, tenantA);
       const linhas = await app.query<{ n: string }>(
         "SELECT count(*) AS n FROM platform.outbound_messages WHERE idempotency_key = $1",
         ["chave-idem-1"],
@@ -279,7 +299,7 @@ describe("a saida de canal contra a base", () => {
         adapterDe(tenantA, app2).ingerir(tenantA, wamid, "sent", pricing(), pnidA),
       ]);
 
-      await app.query("SELECT set_config('app.tenant_id', $1, true)", [tenantA]);
+      await definirContexto(app, tenantA);
       const linha = await app.query<{ state: string; pricing: Pricing | null }>(
         "SELECT state, pricing FROM platform.outbound_messages WHERE wamid = $1",
         [wamid],
@@ -307,12 +327,23 @@ describe("a saida de canal contra a base", () => {
       const falha = await adapter.ingerir(tenantA, wamid, "failed", null, pnidA);
       assert.equal(falha.microUsd, 0, "um failed nao custa");
 
-      await app.query("SELECT set_config('app.tenant_id', $1, true)", [tenantA]);
-      const linha = await app.query<{ state: string }>(
-        "SELECT state FROM platform.outbound_messages WHERE wamid = $1",
+      await definirContexto(app, tenantA);
+      const linha = await app.query<{ state: string; delivered_at: Date | null }>(
+        "SELECT state, delivered_at FROM platform.outbound_messages WHERE wamid = $1",
         [wamid],
       );
       assert.equal(linha.rows[0]?.state, "failed");
+      // **O `delivered_at` sobrevive ao `failed`**, e e esta assercao que
+      // prende a correccao da `outbound_messages_entrega_ck`: a primeira
+      // versao da constraint so admitia `delivered` e `read`, e este `UPDATE`
+      // morria com `23514`. A entrega aconteceu, o custo ja foi contado, e
+      // apagar o instante era destruir a linha de auditoria que reconcilia a
+      // factura.
+      assert.notEqual(
+        linha.rows[0]?.delivered_at ?? null,
+        null,
+        "a entrega aconteceu: o instante nao se apaga porque falhou depois",
+      );
 
       // E de `failed` nao se sai.
       const depois = await adapter.ingerir(tenantA, wamid, "read", pricing(), pnidA);
@@ -322,7 +353,7 @@ describe("a saida de canal contra a base", () => {
 
   describe("isolamento (Testes Requeridos: X-03 sobre outbound_messages)", () => {
     it("com o contexto de A, as linhas de B nao aparecem", async () => {
-      await app.query("SELECT set_config('app.tenant_id', $1, true)", [tenantA]);
+      await definirContexto(app, tenantA);
       const vistas = await app.query<{ tenant_id: string }>(
         "SELECT DISTINCT tenant_id FROM platform.outbound_messages",
       );
@@ -342,7 +373,7 @@ describe("a saida de canal contra a base", () => {
       const id = deB.rows[0]?.id ?? "";
       assert.notEqual(id, "", "B tem pelo menos uma linha");
 
-      await app.query("SELECT set_config('app.tenant_id', $1, true)", [tenantA]);
+      await definirContexto(app, tenantA);
       const mexeu = await app.query(
         "UPDATE platform.outbound_messages SET state = 'failed' WHERE id = $1 RETURNING id",
         [id],
@@ -364,7 +395,7 @@ describe("a saida de canal contra a base", () => {
           "VALUES ($1, 'so_de_a', 'pt_PT', 'utility', 'approved', 'resumo')",
         [tenantA],
       );
-      await app.query("SELECT set_config('app.tenant_id', $1, true)", [tenantB]);
+      await definirContexto(app, tenantB);
       const vistos = await app.query(
         "SELECT name FROM platform.message_templates WHERE name = 'so_de_a'",
       );
@@ -378,7 +409,7 @@ describe("a saida de canal contra a base", () => {
       // bibliotecas recusam por gramatica uma etiqueta que nao case
       // `^[a-z][a-z0-9_]{1,62}$`, e um `tenant_id` e um UUID com hifenes. O §16
       // do doc 01 ja apontava este caminho.
-      await app.query("SELECT set_config('app.tenant_id', $1, true)", [tenantA]);
+      await definirContexto(app, tenantA);
       const custo = await app.query<{ micro_usd: string; entregues: string }>(
         SQL_CUSTO_DO_TENANT,
         [tenantA, new Date("2026-01-01T00:00:00Z"), new Date("2099-01-01T00:00:00Z")],
@@ -392,7 +423,7 @@ describe("a saida de canal contra a base", () => {
     });
 
     it("o custo de A nao inclui o de B — a RLS tambem protege a consulta", async () => {
-      await app.query("SELECT set_config('app.tenant_id', $1, true)", [tenantB]);
+      await definirContexto(app, tenantB);
       const deB = await app.query<{ entregues: string }>(SQL_CUSTO_DO_TENANT, [
         tenantB,
         new Date("2026-01-01T00:00:00Z"),
@@ -414,7 +445,7 @@ describe("a saida de canal contra a base", () => {
       const adapter = adapterDe(tenantA);
       assert.equal(await adapter.bloquearTemplate(tenantA, "a_bloquear", "pt_PT", "marketing"), true);
 
-      await app.query("SELECT set_config('app.tenant_id', $1, true)", [tenantA]);
+      await definirContexto(app, tenantA);
       const linha = await app.query<{ category: string; bloqueado_em: Date | null }>(
         "SELECT category, bloqueado_em FROM platform.message_templates " +
           "WHERE name = 'a_bloquear' AND lang = 'pt_PT'",
