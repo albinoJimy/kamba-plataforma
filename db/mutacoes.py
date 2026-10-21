@@ -187,6 +187,17 @@ SAIDA_LIMITES = "packages/core-ts/src/outbound/limites.ts"
 SAIDA_TARIFAS = "packages/core-ts/src/outbound/tarifas.ts"
 SAIDA_DECISAO = "packages/core-ts/src/outbound/decisao.ts"
 SAIDA_ADAPTER = "packages/core-ts/src/outbound/adapter.ts"
+#: A suite do handoff (KAM-019). E a mais **estreita** que apanha o que a
+#: `0011` e o modulo `src/hnd/` prometem: a idempotencia da chave derivada, a
+#: unicidade da conta no provedor e a RLS das duas tabelas.
+HANDOFF = "tests_handoff"
+REV11 = "db/migrations/versions/0011_handoff.py"
+HND_ASSINATURA = "packages/core-ts/src/hnd/assinatura.ts"
+HND_EVENTOS = "packages/core-ts/src/hnd/eventos.ts"
+HND_ESTADOS = "packages/core-ts/src/hnd/estados.ts"
+HND_SQL = "packages/core-ts/src/hnd/consultas.ts"
+HND_CHATWOOT = "packages/core-ts/src/hnd/chatwoot.ts"
+HND_RESPOSTA = "packages/core-ts/src/hnd/resposta.ts"
 CHR = "tests_chr"
 CHR_CANAL = "packages/core-ts/src/chr/canal.ts"
 CHR_SQL = "packages/core-ts/src/chr/consultas.ts"
@@ -1525,6 +1536,88 @@ MUTACOES = [
     ('saida: uma espera longa volta a ser dormida em vez de recusada', SAIDA_ADAPTER,
      '      if (espera > ESPERA_MAXIMA_DE_DEBITO_MS) {',
      '      if (false) {', SAIDA),
+    # ------------------------------------------------- KAM-019 (0011 e hnd)
+    ('revisao 0011: a passagem perde um estado do dominio', REV11,
+     'ESTADOS_DE_HANDOFF = (\n    "\'waiting\'",\n    "\'resumed\'",',
+     'ESTADOS_DE_HANDOFF = (\n    "\'waiting\'",', "tests"),
+    ('revisao 0011: a FK da conversa deixa de levar o tenant', REV11,
+     '                FOREIGN KEY (tenant_id, conversation_id)\n                REFERENCES platform.conversations (tenant_id, id),',
+     '                FOREIGN KEY (conversation_id)\n                REFERENCES platform.conversations (id),', "tests"),
+    ('revisao 0011: a passagem fica sem RLS (gate 6)', REV11,
+     '    rls.enable_tenant_rls("handoffs")',
+     '    pass  # rls.enable_tenant_rls("handoffs")', "tests_isolamento"),
+    ('revisao 0011: a conta de atendimento fica sem RLS (gate 6)', REV11,
+     '    rls.enable_tenant_rls("handoff_accounts")',
+     '    pass  # rls.enable_tenant_rls("handoff_accounts")', "tests_isolamento"),
+    ('revisao 0011: a conta do provedor deixa de ser unica', REV11,
+     '            CONSTRAINT handoff_accounts_conta_uq UNIQUE (provedor, account_id),',
+     '', HANDOFF),
+    ('revisao 0011: o downgrade conta as passagens com a politica de pe', REV11,
+     '    rls.disable_tenant_rls("handoffs")\n    rls.disable_tenant_rls("handoff_accounts")',
+     '    pass  # as politicas ficam de pe', "tests"),
+    ('revisao 0011: a aplicacao passa a poder reescrever o handoff_id', REV11,
+     'COLUNAS_DA_APLICACAO = (\n    "status",',
+     'COLUNAS_DA_APLICACAO = (\n    "handoff_id",\n    "status",', "tests"),
+    ('revisao 0011: a aplicacao passa a poder mudar a conta do provedor', REV11,
+     'COLUNAS_DA_CONTA_NA_APLICACAO = (\n    "inbox_id",',
+     'COLUNAS_DA_CONTA_NA_APLICACAO = (\n    "account_id",\n    "inbox_id",', "tests"),
+    ('handoff: um segredo esperado vazio deixa de recusar tudo', HND_ASSINATURA,
+     '  if (esperado.length === 0) return false;',
+     '', HANDOFF),
+    ('handoff: a comparacao do segredo volta a sair no primeiro caracter', HND_ASSINATURA,
+     '  return timingSafeEqual(a, b);',
+     '  return recebido === esperado;', HANDOFF),
+    ('handoff: a conta desconhecida deixa de recusar o callback', HND_ASSINATURA,
+     '  if (!contaConhecida) {',
+     '  if (false) {', HANDOFF),
+    ('handoff: o eco do proprio espelho volta a contar como resposta', HND_EVENTOS,
+     '    if (texto(corpo["message_type"]) !== "outgoing") return null;',
+     '', HANDOFF),
+    ('handoff: o nome do agente passa a entrar no resolver', HND_EVENTOS,
+     '  const id = remetente["id"];',
+     '  const id = remetente["name"] ?? remetente["id"];', HANDOFF),
+    ('handoff: o resolved deixa de dar resumed', HND_ESTADOS,
+     '  resolved: "resumed",',
+     '  resolved: "timeout",', HANDOFF),
+    ('handoff: o snoozed do provedor passa a fechar a passagem', HND_ESTADOS,
+     '  return estado === "resolved" ? "resolved" : null;',
+     '  return "resolved";', HANDOFF),
+    ('handoff: o ON CONFLICT da abertura desaparece', HND_SQL,
+     '      ON CONFLICT (handoff_id) DO NOTHING',
+     '', HANDOFF),
+    ('handoff: o ON CONFLICT da conta desaparece', HND_SQL,
+     '      ON CONFLICT (tenant_id, provedor) DO NOTHING',
+     '', HANDOFF),
+    ('handoff: o fecho deixa de ter a monotonia no predicado', HND_SQL,
+     '     AND status = ANY($3::text[])',
+     '', HANDOFF),
+    ('handoff: o fecho deixa de ler o tenant da sessao', HND_SQL,
+     "   WHERE tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid",
+     '   WHERE true', HANDOFF),
+    ('handoff: o account_id do bot volta a poder ir nulo', HND_CHATWOOT,
+     '        account_id: conta.id,',
+     '        account_id: null,', HANDOFF),
+    ('handoff: o inbox volta a poder ser de WhatsApp', HND_CHATWOOT,
+     'export const TIPO_DE_INBOX = "api";',
+     'export const TIPO_DE_INBOX = "whatsapp";', HANDOFF),
+    ('handoff: um 4xx volta a degradar como se fosse 5xx', HND_CHATWOOT,
+     '      if (resposta.status >= 500) {',
+     '      if (!resposta.ok) {', HANDOFF),
+    # O `resposta.ts` nasceu depois deste bloco e ficou sem nenhuma mutacao,
+    # que e a mesma classe de esquecimento que deixou a bateria dele fora da
+    # lista do gate. Sao quatro, uma por decisao que o criterio 6 pede.
+    ('handoff: a chave de idempotencia passa a derivar do texto', HND_RESPOSTA,
+     'idempotencyKey: `hnd:${acontecimento.handoffId}:${acontecimento.mensagemId}`,',
+     'idempotencyKey: `hnd:${acontecimento.handoffId}:${texto}`,', HANDOFF),
+    ('handoff: a resposta humana passa a pedir licenca ao guarda', HND_RESPOSTA,
+     '    doBot: false,',
+     '    doBot: true,', HANDOFF),
+    ('handoff: envia-se sem identificador do provedor', HND_RESPOSTA,
+     '  if (acontecimento.mensagemId === null) {',
+     '  if (false) {', HANDOFF),
+    ('handoff: a janela fechada deixa de avisar o painel', HND_RESPOSTA,
+     '    await avisarPainel({',
+     '    await Promise.resolve({', HANDOFF),
     ('saida: a janela fechada deixa de recusar o envio livre', SAIDA_DECISAO,
      '      return { enviar: false, motivo: WINDOW_CLOSED };',
      '      return { enviar: true, kind: "service", templateName: null };', SAIDA),

@@ -119,6 +119,15 @@ export interface HumanEvent {
   readonly handoffId: string;
   /** Presente no `mensagem_de_agente`. */
   readonly texto: string | null;
+  /**
+   * O identificador da **mensagem** no provedor. `null` no `estado_mudou`.
+   *
+   * Existe por uma razão só, e é de idempotência: e dele que a chave do envio
+   * da resposta humana deriva (`resposta.ts`). Derivá-la do texto fazia duas
+   * mensagens iguais do agente («ok») serem uma só, que é pior do que o
+   * problema que resolvia.
+   */
+  readonly mensagemId: string | null;
   /** Presente no `estado_mudou`: o estado do provedor, em cru. */
   readonly estado: string | null;
   /** Identificador opaco do agente. Nunca nome, e-mail ou telefone. */

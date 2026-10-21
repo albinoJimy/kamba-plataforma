@@ -95,6 +95,10 @@ export function lerAcontecimento(corpo: Corpo): HumanEvent | null {
       externalId,
       handoffId,
       texto: texto(corpo["content"]),
+      // O identificador da mensagem no provedor: e dele que a chave de
+      // idempotencia do envio da resposta deriva. O provedor manda-o como
+      // numero.
+      mensagemId: texto(corpo["id"]) ?? (typeof corpo["id"] === "number" ? String(corpo["id"]) : null),
       estado: null,
       resolver: identificadorDoAgente(corpo),
     };
@@ -105,6 +109,8 @@ export function lerAcontecimento(corpo: Corpo): HumanEvent | null {
     externalId,
     handoffId,
     texto: null,
+    // Um `estado_mudou` nao e uma mensagem: nao tem identificador de mensagem.
+    mensagemId: null,
     estado: texto(conversa["status"]) ?? texto(corpo["status"]),
     resolver: identificadorDoAgente(corpo),
   };

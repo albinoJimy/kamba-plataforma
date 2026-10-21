@@ -48,6 +48,7 @@ FICHEIROS = (
     "tests/hnd.callbacks.test.ts",
     "tests/hnd.chatwoot.test.ts",
     "tests/hnd.provedor.test.ts",
+    "tests/hnd.resposta.test.ts",
     "tests_bd/handoff.bd.test.ts",
 )
 
@@ -55,7 +56,7 @@ FICHEIROS = (
 #: prova. Se um desaparecer, a suite deixa de provar essa propriedade — e isso
 #: tem de falhar aqui, nao passar por haver menos testes.
 #:
-#: Os cinco primeiros sao das baterias do gate 4 (funcoes puras e portas); os
+#: Os sete primeiros sao das baterias do gate 4 (funcoes puras e portas); os
 #: quatro ultimos sao do ensaio de base e sao os que **so** um PostgreSQL prova.
 GRUPOS = (
     "os dois vocabularios",
@@ -63,6 +64,8 @@ GRUPOS = (
     "a leitura do corpo",
     "o provisionamento (criterio 1 e 2)",
     "o setBotMuted levanta (criterio 8)",
+    "a resposta humana sai pelo Outbound (criterio 6)",
+    "com a janela fechada avisa-se e propoe-se (criterio 6)",
     "idempotencia (criterio 4)",
     "o fecho sob concorrencia (criterio 7)",
     "isolamento (Testes Requeridos: X-03 sobre handoffs)",
@@ -85,6 +88,10 @@ TESTES_OBRIGATORIOS = (
     "**levanta SemPrivilegioError, e a mensagem diz de quem e o privilegio**",
     "**um segredo esperado vazio recusa tudo**, e e a falha fechada",
     "**um incoming nao e resposta de agente**: e o eco do nosso espelho",
+    "**o guarda recusa sempre e a resposta sai**: `doBot: false`",
+    "**o mesmo callback duas vezes da uma mensagem**",
+    "**sem identificador de mensagem nao se envia**",
+    "**nao se envia, e o painel recebe o aviso com o template proposto**",
 )
 
 #: Os ficheiros do modulo. A cobertura mede-se em **cada um**.
@@ -95,6 +102,10 @@ TESTES_OBRIGATORIOS = (
 #: silencio — o `account_id` do bot, o tipo do *inbox*, a troca dos dois tokens
 #: e a diferenca entre 4xx e 5xx. Medi-lo aqui nao lhe da uma cobertura que
 #: diga so que o ensaio nao abre socket.
+#: O `resposta.ts` entrou **depois** de a suite ter passado sem ele, e a
+#: licao vale mais do que o ficheiro: uma bateria que o gate nao corre e uma
+#: bateria que apodrece em silencio. Os 89 testes do `node --test` incluiam-na
+#: pelo glob `tests/hnd.*.test.ts`; esta lista, que e o que o CI usa, nao.
 FICHEIROS_DO_MODULO = (
     "assinatura.ts",
     "chatwoot.ts",
@@ -104,6 +115,7 @@ FICHEIROS_DO_MODULO = (
     "eventos.ts",
     "metricas.ts",
     "provedor.ts",
+    "resposta.ts",
     "index.ts",
 )
 

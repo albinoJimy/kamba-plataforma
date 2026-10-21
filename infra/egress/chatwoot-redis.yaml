@@ -1,0 +1,18 @@
+# Lista de saidas de `chatwoot-redis` — KAM-067, criterio 9.
+#
+# Negado por omissao: o que nao esta em `destinos` nao sai. Este ficheiro e o
+# contrato; **a aplicacao na rede e do KAM-076** (proxy de saida com allowlist
+# de FQDN). `make supply-chain` falha se o ficheiro faltar, se `por_omissao`
+# deixar de ser `negar`, ou se um destino nao tiver nome (`*`, IP, CIDR).
+#
+# A fila do painel, **separada da nossa** (BullMQ sobre Valkey). Nao tem rota
+# de saida e nao precisa de nenhuma.
+#
+# Cada destino: `fqdn`, `porta`, `protocolo`, `razao` e `ticket` (KAM-NNN).
+# Ligacoes a outros servicos da pilha (base de dados, fila) nao sao saidas: sao
+# redes do compose.
+
+version: 1
+servico: chatwoot-redis
+por_omissao: negar
+destinos: []

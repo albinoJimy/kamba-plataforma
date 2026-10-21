@@ -87,6 +87,15 @@ export {
 export { Handoff, type Dependencias, type FilaDoEspelho } from "./provedor.ts";
 
 export {
+  TEMPLATE_PROPOSTO,
+  responderAoCliente,
+  type AvisarPainel,
+  type AvisoDeJanelaFechada,
+  type DesfechoDaResposta,
+  type DestinoDaResposta,
+} from "./resposta.ts";
+
+export {
   BASE_POR_OMISSAO,
   ClienteDoChatwoot,
   ESPERA_MAXIMA_MS,

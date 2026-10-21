@@ -89,7 +89,7 @@ export PYTHONPATH := $(PYTHONPATH_ALL)
         hooks lint-arch lint-branch lock lock-check lock-verify logs \
         nuke ps psql queue-cli smoke test test-py \
         test-ts typecheck up \
-        ci-3b ci-3c canon-lint dict-export supply-chain ruleset \
+        ci-3b ci-3c canon-lint chatwoot-spike dict-export supply-chain ruleset \
         log-lint x11 storage-contrato mermaid
 
 ## help: lista os comandos disponiveis
@@ -501,6 +501,20 @@ mermaid:
 ci-3c:
 	@echo "==> gate 3c: coerencia do backlog"
 	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from lint_backlog.cli import main; sys.exit(main(['--root', '$(ROOT)', 'check']))"
+
+## chatwoot-spike: o spike do L7 (KAM-019) contra um Chatwoot 4.18 real
+chatwoot-spike:
+	@echo "==> spike do L7: o token do agent bot passa pending -> open?"
+	@# Nao e um gate e nao esta no `ci`: e uma **medicao** que o criterio 8 do
+	@# KAM-019 pede por escrito, com o resultado em
+	@# `docs/evidencia/KAM-019-bot-open.md`. Levanta um Chatwoot descartavel com
+	@# dados sinteticos, fixado por digest, mede, escreve e apaga tudo.
+	@#
+	@# O primeiro arranque corre as migracoes do Rails e leva minutos. O script
+	@# sai com 0 mesmo quando nao conclui: quem decide se a caixa do criterio se
+	@# marca e quem le a evidencia, nao o codigo de saida.
+	@command -v docker >/dev/null 2>&1 || { 	  echo "    ERRO: o spike precisa do Docker." >&2; exit 1; }
+	@if [ -x "$(VENV_PYTHON)" ]; then PY="$(VENV_PYTHON)"; else PY="$(PYTHON)"; fi; 	  "$$PY" infra/chatwoot/spike.py
 
 ## canon-lint: o gate 3b pelo nome que o ticket lhe da (igual a ci-3b)
 canon-lint: ci-3b

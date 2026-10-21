@@ -1,0 +1,146 @@
+# Chatwoot 4.18 para o spike do KAM-019, e **so** para isso.
+#
+# O criterio 8 do KAM-019 pede um spike de um dia com o resultado escrito: o
+# token do *agent bot* consegue passar `pending -> open`? E o **L7**, NAO
+# VERIFICADO (`docs/tecnica/01` §18), e nenhuma porta falsa responde — por isso
+# este ficheiro existe. O que ele **nao** e: nao e o alojamento do Chatwoot, que
+# e a decisao aberta **D1** (residencia de dados pessoais, ADR-008) e nao se
+# decide aqui.
+#
+# Tres coisas que este compose faz de proposito, e cada uma e um criterio:
+#
+# 1. **Nao configura credenciais da Meta.** Nem `WHATSAPP_APP_ID`, nem
+#    `WHATSAPP_CONFIGURATION_ID`, nem `WHATSAPP_APP_SECRET` — criterio 2. O GWY
+#    e o unico ponto que fala com a Meta (ADR-001) e o Chatwoot e espelho; com
+#    estas tres variaveis postas, ele ganhava um caminho proprio para o mesmo
+#    numero. O `infra/chatwoot/spike.py` confere a ausencia delas no contentor a
+#    correr, e nao so neste ficheiro.
+# 2. **So escuta em `127.0.0.1`.** Nao e zelo: a imagem traz Rails com uma
+#    interface de administracao, e publica-la em todas as interfaces numa
+#    maquina de desenvolvimento e o genero de coisa que fica ligada.
+# 3. **Reutiliza os digests ja fixados** para o PostgreSQL e o Valkey, em vez de
+#    trazer imagens novas. Sao os mesmos do `docker-compose.dev.yml`, e por isso
+#    nao acrescentam linha nenhuma ao `ci/supply-chain/imagens.yaml` — so o
+#    Chatwoot acrescenta.
+#
+# Como correr: `make chatwoot-spike`. Levanta, espera, corre o spike, escreve
+# `docs/evidencia/KAM-019-bot-open.md` e **apaga tudo**, incluindo os volumes.
+# O primeiro arranque corre as migracoes do Rails e leva minutos.
+
+name: kamba-chatwoot-spike
+
+services:
+  chatwoot-db:
+    image: pgvector/pgvector:0.8.7-pg18@sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11
+    environment:
+      POSTGRES_DB: chatwoot_spike
+      POSTGRES_USER: chatwoot
+      # Placeholder declarado em `ci/secrets-allow.yaml`. A base e descartavel,
+      # nao escuta fora da rede do compose, e e apagada com os volumes no fim.
+      POSTGRES_PASSWORD: mude-me-localmente
+    # So de leitura (KAM-067, criterio 9). O PostgreSQL escreve em tres sitios e
+    # os tres estao declarados — aqui todos em `tmpfs`, porque esta base nasce e
+    # morre com o spike e **nao deve** deixar volume atras de si.
+    read_only: true
+    tmpfs:
+      # ATENCAO: o ponto de montagem e `/var/lib/postgresql`, **nao**
+      # `/var/lib/postgresql/data`. No PostgreSQL 18 a imagem poe os dados numa
+      # subpasta, e um `tmpfs` sobre a subpasta faz o arranque recusar com
+      # «incompatible data directory» e sair com 1. O aviso esta por escrito no
+      # `docker-compose.dev.yml` desde o KAM-001; aqui custou um spike.
+      - /var/lib/postgresql:size=512m
+      - /var/run/postgresql:mode=0775,uid=999,gid=999
+      - /tmp:size=64m,mode=1777
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatwoot -d chatwoot_spike"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  chatwoot-redis:
+    image: valkey/valkey:9.1.2-trixie@sha256:418652cfb58ef879d4978c33553735d7147016032d5aefaa14c828e611eb9dfd
+    # So de leitura (KAM-067, criterio 9): o unico sitio onde a fila escreve e
+    # `/data`, e aqui e `tmpfs` e nao volume pela razao da base, acima. Sem AOF:
+    # ao contrario da nossa fila, perder um trabalho deste painel num reinicio
+    # nao custa nada — o spike dura minutos.
+    read_only: true
+    tmpfs:
+      - /data:size=64m
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  chatwoot:
+    image: chatwoot/chatwoot:v4.18.0@sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1
+    depends_on:
+      chatwoot-db:
+        condition: service_healthy
+      chatwoot-redis:
+        condition: service_healthy
+    # O `db:chatwoot_prepare` e idempotente e e o que a documentacao deles manda
+    # correr no primeiro arranque. Leva minutos.
+    command: ["sh", "-c", "bundle exec rails db:chatwoot_prepare && bundle exec rails s -b 0.0.0.0 -p 3000"]
+    # So de leitura (KAM-067, criterio 9). Um Rails em producao escreve em tres
+    # sitios dentro de `/app`, e os tres sao `tmpfs`: `tmp/` (pids, cache e
+    # sockets), `log/` e `storage/` (ActiveStorage). Nenhum deles deve
+    # sobreviver ao spike — e o `storage/` e o que mais importa que nao
+    # sobreviva, porque e onde aterrariam anexos de uma conversa espelhada.
+    read_only: true
+    tmpfs:
+      - /app/tmp:size=256m
+      - /app/log:size=64m
+      - /app/storage:size=64m
+      - /tmp:size=64m,mode=1777
+    environment:
+      RAILS_ENV: production
+      NODE_ENV: production
+      # Placeholder declarado em `ci/secrets-allow.yaml`. Uma instancia
+      # descartavel com dados sinteticos: a chave nao protege nada.
+      SECRET_KEY_BASE: mude-me-localmente
+      FRONTEND_URL: http://127.0.0.1:3000
+      POSTGRES_HOST: chatwoot-db
+      POSTGRES_DATABASE: chatwoot_spike
+      POSTGRES_USERNAME: chatwoot
+      POSTGRES_PASSWORD: mude-me-localmente
+      REDIS_URL: redis://chatwoot-redis:6379
+      # Sem envio de e-mail: o spike nao precisa, e um SMTP configurado numa
+      # instancia de ensaio e um caminho para fora que ninguem pediu.
+      MAILER_SENDER_EMAIL: spike@chatwoot.localhost
+      ENABLE_ACCOUNT_SIGNUP: "false"
+      # **As tres credenciais da Meta ficam por configurar** — criterio 2. Ver a
+      # nota no topo: nao e omissao, e a asserçao.
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+
+  chatwoot-worker:
+    image: chatwoot/chatwoot:v4.18.0@sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1
+    depends_on:
+      chatwoot:
+        condition: service_started
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+    # So de leitura (KAM-067, criterio 9). Um Rails em producao escreve em tres
+    # sitios dentro de `/app`, e os tres sao `tmpfs`: `tmp/` (pids, cache e
+    # sockets), `log/` e `storage/` (ActiveStorage). Nenhum deles deve
+    # sobreviver ao spike — e o `storage/` e o que mais importa que nao
+    # sobreviva, porque e onde aterrariam anexos de uma conversa espelhada.
+    read_only: true
+    tmpfs:
+      - /app/tmp:size=256m
+      - /app/log:size=64m
+      - /app/storage:size=64m
+      - /tmp:size=64m,mode=1777
+    environment:
+      RAILS_ENV: production
+      SECRET_KEY_BASE: mude-me-localmente
+      POSTGRES_HOST: chatwoot-db
+      POSTGRES_DATABASE: chatwoot_spike
+      POSTGRES_USERNAME: chatwoot
+      POSTGRES_PASSWORD: mude-me-localmente
+      REDIS_URL: redis://chatwoot-redis:6379

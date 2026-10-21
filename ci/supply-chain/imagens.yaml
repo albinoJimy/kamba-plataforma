@@ -226,3 +226,14 @@ fontes_adicionais:
     constante: IMAGEM_NODE
   - ficheiro: infra/storage/mutacoes.py
     constante: IMAGEM_NODE
+  # KAM-019: o spike do criterio 8 levanta o Chatwoot verdadeiro e mede se o
+  # token do *agent bot* consegue passar `pending -> open` (o L7, NAO
+  # VERIFICADO). Nao nomeia imagem nenhuma, pela mesma razao do
+  # `test_publicador.py`: chama `docker compose -f <ficheiro>`, e as quatro
+  # imagens e os quatro digests estao nesse ficheiro, onde o passo `imagens`
+  # deste gate os ve e confere.
+  - ficheiro: infra/chatwoot/spike.py
+    sem_imagem: >-
+      Chama `docker compose -f infra/compose/docker-compose.chatwoot.yml`, que e
+      onde as quatro imagens e os quatro digests estao declarados. O spike nao
+      constroi nem puxa nada por conta propria.

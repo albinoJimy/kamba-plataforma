@@ -43,6 +43,9 @@ function doAgente(troca: Partial<Record<string, unknown>> = {}): Corpo {
   return {
     event: "message_created",
     message_type: "outgoing",
+    // O identificador da **mensagem** no provedor. E dele que a chave de
+    // idempotencia do envio da resposta humana deriva (`resposta.ts`).
+    id: 555,
     content: "Bom dia, eu respondo",
     sender: { id: 42, name: "Ana", email: "ana@loja.ao" },
     conversation: {
@@ -139,6 +142,7 @@ describe("a leitura do corpo", () => {
       externalId: "9001",
       handoffId: "h_abc",
       texto: "Bom dia, eu respondo",
+      mensagemId: "555",
       estado: null,
       resolver: "42",
     });
@@ -171,6 +175,9 @@ describe("a leitura do corpo", () => {
     assert.equal(acontecimento?.estado, "resolved");
     assert.equal(acontecimento?.resolver, "7");
     assert.equal(acontecimento?.texto, null);
+    // **Um `estado_mudou` nao e uma mensagem**: nao tem identificador de
+    // mensagem, e por isso nao ha resposta humana a enviar a partir dele.
+    assert.equal(acontecimento?.mensagemId, null);
   });
 
   it("**os tres tipos que nao tratamos devolvem null**", () => {
