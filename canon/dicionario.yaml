@@ -2893,13 +2893,14 @@ entradas:
     variantes_literais: []
   - seccao: "3.15"
     conceito: "Acontecimento humano recebido do provedor"
-    canonico: "HumanEvent — HumanEvent.acontecimento, external_id, handoff_id, texto, estado, resolver"
+    canonico: "HumanEvent — HumanEvent.acontecimento, external_id, handoff_id, texto, mensagemId, estado, resolver"
     literais:
       - "HumanEvent"
       - "HumanEvent.acontecimento"
       - "external_id"
       - "handoff_id"
       - "texto"
+      - "mensagemId"
       - "estado"
       - "resolver"
     nomes:
@@ -2908,9 +2909,12 @@ entradas:
       - "external_id"
       - "handoff_id"
       - "texto"
+      - "mensagemId"
       - "estado"
       - "resolver"
-    nomes_nota: []
+    nomes_nota:
+      - "mensagemId"
+      - "ChannelAdapter"
     variantes_literais: []
   - seccao: "3.15"
     conceito: "Sentido de uma mensagem espelhada"
