@@ -1290,14 +1290,14 @@ Implementar o pipeline MED de recepção: descarga autenticada, validação, arm
 ### Critérios de Aceitação
 
 - [ ] Uma mensagem `image|audio|document` com `media_id` resulta em 1 objecto em `t/{tenant_id}/media/{classe}/{aaaa}/{mm}/{uuid}` e 1 linha em `media_assets` (`tenant_id, contact_id, conversation_id, wamid, classe, content_type, size, sha256, storage_ref, estado, retain_until`).
-- [ ] Idempotência: a mesma `(tenant_id, wamid, media_id)` processada 3× produz 1 objecto e 1 linha (`UNIQUE`).
-- [ ] Nenhum URL da Meta é persistido (BD, logs, eventos): teste que percorre as tabelas e logs de uma execução por padrões do domínio da Meta.
-- [ ] Validação por *allowlist* de `content_type` (proposta: JPEG, PNG, WebP, OGG/Opus, PDF) e tamanho máximo por classe configurável (valores a calibrar contra os limites da Meta, NÃO VERIFICADOS); tipo ou tamanho inválido → `estado='rejeitado'` e resposta determinística pedindo outro formato.
-- [ ] URL interna assinada com TTL ≤ 300 s para consumidores autorizados; com `ctx` de outro tenant é recusada (X-08); depois do TTL devolve 403.
-- [ ] Falha de descarga: 3 tentativas com *backoff*; depois `estado='falhou'` e sinal ao AGR para pedir ao cliente que reenvie.
-- [ ] Áudio: `retain_until = criação + 24 h` (alvo de `../docs/tecnica/08` §7.5; limite de erro 72 h) e gancho `onTranscribed(asset)` que agenda a eliminação do blob; a purga em si é KAM-071.
-- [ ] O MED não importa módulos de PAY nem de COM (teste de arquitectura): 0 caminhos de código que alterem estado de pagamento a partir de uma imagem.
-- [ ] Métricas `media_bytes_total{classe}`, `media_download_ms`, `media_rejected_total{motivo}` sem conteúdo nos logs.
+- [x] Idempotência: a mesma `(tenant_id, wamid, media_id)` processada 3× produz 1 objecto e 1 linha (`UNIQUE`).
+- [x] Nenhum URL da Meta é persistido (BD, logs, eventos): teste que percorre as tabelas e logs de uma execução por padrões do domínio da Meta.
+- [x] Validação por *allowlist* de `content_type` (proposta: JPEG, PNG, WebP, OGG/Opus, PDF) e tamanho máximo por classe configurável (valores a calibrar contra os limites da Meta, NÃO VERIFICADOS); tipo ou tamanho inválido → `estado='rejeitado'` e resposta determinística pedindo outro formato.
+- [x] URL interna assinada com TTL ≤ 300 s para consumidores autorizados; com `ctx` de outro tenant é recusada (X-08); depois do TTL devolve 403.
+- [x] Falha de descarga: 3 tentativas com *backoff*; depois `estado='falhou'` e sinal ao AGR para pedir ao cliente que reenvie.
+- [x] Áudio: `retain_until = criação + 24 h` (alvo de `../docs/tecnica/08` §7.5; limite de erro 72 h) e gancho `onTranscribed(asset)` que agenda a eliminação do blob; a purga em si é KAM-071.
+- [x] O MED não importa módulos de PAY nem de COM (teste de arquitectura): 0 caminhos de código que alterem estado de pagamento a partir de uma imagem.
+- [x] Métricas `media_bytes_total{classe}`, `media_download_ms`, `media_rejected_total{motivo}` sem conteúdo nos logs.
 
 ### Detalhes Técnicos
 
@@ -1317,13 +1317,128 @@ Implementar o pipeline MED de recepção: descarga autenticada, validação, arm
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] Código revisto por 2 revisores (dados pessoais, isolamento); testes verdes; cobertura ≥ limiar.
-- [ ] Documentação actualizada (`docs/media.md`); Conventional Commits.
-- [ ] **Isolamento de tenant** — prefixo por tenant, RLS em `media_assets`, teste cruzado X-08.
-- [ ] **Idempotência** — `UNIQUE` e teste de repetição.
-- [ ] **Pagamento só por evento autenticado** — nenhuma imagem altera estado de pagamento (teste de arquitectura).
-- [ ] **Privacidade** — áudio com retenção curta; sem URLs da Meta nem conteúdo em logs.
-- [ ] **Custo e observabilidade** — métricas de bytes, latência e rejeição desde o código.
-- [ ] **Migrações reversíveis** — `downgrade` de `media_assets` testado.
+- [x] Documentação actualizada (`docs/media.md`); Conventional Commits.
+- [x] **Isolamento de tenant** — prefixo por tenant, RLS em `media_assets`, teste cruzado X-08.
+- [x] **Idempotência** — `UNIQUE` e teste de repetição.
+- [x] **Pagamento só por evento autenticado** — nenhuma imagem altera estado de pagamento (teste de arquitectura).
+- [x] **Privacidade** — áudio com retenção curta; sem URLs da Meta nem conteúdo em logs.
+- [x] **Custo e observabilidade** — métricas de bytes, latência e rejeição desde o código.
+- [x] **Migrações reversíveis** — `downgrade` de `media_assets` testado.
+
+### Verificação dos Critérios de Aceitação
+
+Entregue no ramo `feature/KAM-020-med-midia`.
+**Quinze caixas marcadas, três vazias** (18 = 15 + 3) — cada uma com uma linha
+aqui. Os números reproduzem-se com `make ci-3b`, `make ci-4`, `make ci-6` e
+`make ci-8`; o desenho está em [`../docs/media.md`](../docs/media.md).
+
+**O bloqueio de origem deste ticket não é código: é que a API de mídia da Meta
+não tem evidência nenhuma.** O `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md`
+não tem a página de referência e **nem a lista como omissão** — não há limite de
+tamanho por tipo, nem tempo de expiração do URL, nem o fluxo de duas etapas
+confirmado, nem os códigos de erro. O próprio bloco o diz («as páginas de
+referência da API de mídia não foram lidas em E1 (limitação declarada)»), e a
+consequência é que **tudo o que este módulo supõe sobre ela é *proposta***, com
+o sítio onde calibra dito em cada constante: o primeiro contacto com a API real,
+que é `ext:KAM-101` e `ext:KAM-102`. É por isso também que o `ClienteDeMidia`
+entra por **porta** e que não há simulador: um simulador de uma API que não
+conhecemos seria uma invenção a fingir medição.
+
+**E a lição do KAM-019 moldou esta entrega desde o início.** Lá, as baterias
+estavam todas verdes e metade do provisionamento recebia 401 de um Chatwoot
+verdadeiro:
+
+> **Um duplo prova que o nosso código chama o que pretendíamos chamar. Não prova
+> que o terceiro aceita a chamada.**
+
+Daí duas decisões: o `StorageProvider` entra nas baterias **de verdade** (é o
+duplo do KAM-011, que é a porta a sério — com as validações de chave, o
+`signUrl` e a expiração pelo relógio), e o módulo tem um **ensaio de base**
+contra PostgreSQL, porque uma base falsa nunca lê o texto do SQL e por isso
+qualquer mutação dele sobreviveria.
+
+| CA | Estado | Evidência |
+|---|---|---|
+| 1 — uma mensagem `image\|audio\|document` com `media_id` resulta em 1 objecto em `t/{tenant_id}/media/{classe}/{aaaa}/{mm}/{uuid}` e 1 linha em `media_assets` (onze colunas) | **parcial — caixa vazia** | **A linha e o objecto cumprem-se; o caminho da chave não, e a divergência já estava registada antes deste ticket.** Um áudio dá **um** objecto e **uma** linha, com o `content_type` real, o `size`, o `sha256` que o `put` devolveu e o `storage_ref` — e as onze colunas que o critério lista existem todas, mais três (ver a emenda 1.24). **Mas a chave não é a do critério:** ele escreve `t/{tenant_id}/media/{classe}/…`, com um segmento `media/` a mais que a porta do KAM-011 **recusa** hoje — o `validarClasse` dela aceita `[a-z][a-z0-9_]{1,31}` num segmento só, e o §3.11 do dicionário já tinha registado esta divergência sem a resolver (dívida 8). Resolveu-se **pela classe e não pela porta**: os valores levam o prefixo `media_`, a chave fica `t/{tenant_id}/media_audio/{aaaa}/{mm}/{uuid}`, e o KAM-011 não se toca — ele está feito nas duas linguagens, testado, e tem o X-08 na sua bateria de contrato contra três alvos. **A caixa fica vazia porque à letra o caminho é outro**, e marcá-la era chamar «cumprido» a uma divergência resolvida de maneira diferente da escrita |
+| 2 — idempotência: a mesma `(tenant_id, wamid, media_id)` processada 3× produz 1 objecto e 1 linha (`UNIQUE`) | **satisfeito** | Três chamadas deixam **um** objecto e **uma** linha, e a segunda e a terceira **não falam com a Meta** — uma resolução e uma descarga, com asserção sobre cada contador. Quem o garante é a `media_assets_origem_uq`, e **são três colunas e não uma**: o `wamid` sozinho não chega, porque uma mensagem pode trazer mais do que um objecto (há teste com dois `media_id` na mesma mensagem); o `media_id` sozinho também não, porque é do lado da Meta. **E a linha escreve-se ANTES da descarga**, que é a decisão central: os três valores vêm todos da mensagem, pelo que o segundo chamador perde o `ON CONFLICT` e não descarrega — com asserção a exigir que a reserva seja a **primeira** instrução. É o contrário do `ensureAccount` do KAM-019, que não podia escrever primeiro e por isso deixa recurso órfão numa corrida; aqui não há órfão possível. **Provado contra a base e em duas ligações:** duas chamadas concorrentes dão uma linha, o mesmo `assetId`, e **uma** só delas armazena |
+| 3 — nenhum URL da Meta é persistido (BD, logs, eventos): teste que percorre as tabelas e logs de uma execução por padrões do domínio da Meta | **satisfeito** | **Não há coluna onde ele caiba**, e é isso que o faz passar por construção e não por disciplina: o que se guarda é o `media_id` (um identificador) e o `storage_ref` (a chave do nosso objecto). Dois testes, e cada um varre uma superfície diferente. O do *gate* 4 põe um canário com a forma de um URL de CDN da Meta e varre **tudo** o que o módulo escreveu — as linhas, o registo, os avisos ao AGR, as métricas e a exposição delas —, e repete-o no **caminho de falha**, que é onde um URL escapa mais facilmente (uma mensagem de erro que cite a URL completa). O do ensaio de base lê a tabela **inteira convertida a texto** (`media_assets::text`), linha a linha, e exige que não haja lá `http` nenhum — com a asserção de controlo de que **houve** linhas, porque um ciclo sobre zero linhas passa sempre |
+| 4 — validação por *allowlist* de `content_type` e tamanho máximo por classe configurável; tipo ou tamanho inválido → `estado='rejeitado'` e resposta determinística | **satisfeito** | A *allowlist* é a do bloco (JPEG, PNG, WebP, OGG/Opus, PDF) e corre **no tipo da resposta e não no anunciado** — confiar no anúncio era aceitar que ele mente, e há teste para o caso em que o anúncio passa e a resposta não. O anúncio serve só para recusar cedo e poupar a descarga, com asserção a exigir **zero** descargas nesse caminho. Os limites são **injectáveis** e vão em configuração, pela razão que o KAM-015 escreveu para a versão da Graph; os valores são *proposta*, que é o que o próprio critério manda («valores a calibrar … NÃO VERIFICADOS»). **No limite passa e um byte acima não**, com teste para cada uma das três classes — é o erro de fronteira mais fácil de escrever. **Só PDF em documentos**, e a estreiteza é a defesa: a análise de malware «não consta de `../docs/tecnica/`» e fica para o KAM-065. A resposta é determinística e **não ecoa o que o cliente mandou**: há teste a procurar um `/` ou um dígito em cada frase, porque os textos ao cliente são decisão de produto a partir do KAM-025 |
+| 5 — URL interna assinada com TTL ≤ 300 s; com `ctx` de outro tenant é recusada (X-08); depois do TTL devolve 403 | **satisfeito** | As três partes estão medidas. O TTL **não é escrito no MED**: lê-se do `TTL_MAXIMO_S` da porta, que é 300 — o mesmo número que o critério pede e que o `../docs/tecnica/08` §3.8 fixa, e lê-lo de lá faz mudar o limite ser um sítio e não dois. **O X-08 não é uma verificação nossa:** a chave leva o *tenant* no primeiro segmento e é a porta que levanta `ChaveForaDoTenantError`, e isso é mais forte do que um `if` nosso porque ela tem bateria de contrato própria — com dois casos chamados X-08 — que corre contra três alvos, incluindo um SeaweedFS real. São **duas fechaduras e as duas têm teste**: a RLS não deixa ler a linha de outro *tenant* (ensaio de base) e a porta não a assinaria (bateria do *gate* 4). E o **403 depois do TTL** mede-se com o relógio do armazenamento partilhado com o do MED: dentro do prazo serve 200 (o controlo, sem o qual um 403 podia vir de a URL estar mal formada), e um segundo depois do TTL dá 403. **O que fica por fazer e não é desta caixa:** a inscrição do caso no registo `registerCase` do `EPIC-07` — o `grep` dá zero em código e o dono é KAM-066, com o mesmo precedente que o KAM-011 e o KAM-019 escreveram |
+| 6 — falha de descarga: 3 tentativas com *backoff*; depois `estado='falhou'` e sinal ao AGR | **satisfeito** | **Três tentativas e não quatro**, e lê-se à letra — não se repete a releitura que o critério 6 do KAM-015 obrigou, porque lá o texto contradizia-se na própria aritmética e aqui não há contradição que force outra leitura. **E há dois testes e não um**, porque a primeira versão tinha um defeito instrutivo: com a Meta em baixo é o `resolver` que estoura, pelo que se contavam três **resoluções** e zero descargas — o teste que contava descargas media zero. O par que ficou prende que o *retry* envolve **as duas** chamadas: um conta as resoluções com o `resolver` em baixo, o outro conta as descargas com o `resolver` a responder. Entre três tentativas há **duas** esperas e não três, e a segunda é maior que a primeira. O AGR é avisado com o *tenant*, a conversa, o `wamid` e a classe, e o aviso vem **depois** de a linha ficar `falhou`: se ele falhar, o estado está gravado e alguém o vê — ao contrário, o AGR pedia o reenvio de algo que a nossa base ainda dizia estar a caminho |
+| 7 — áudio: `retain_until = criação + 24 h` e gancho `onTranscribed(asset)` que agenda a eliminação do blob | **satisfeito** | **Conta da criação, e é a única leitura auto-consistente.** O `../docs/tecnica/08` §7.5 diz «apagar o blob após sucesso (alvo ≤ 24 h; limite de erro 72 h)» e o critério diz «criação + 24 h»; contar da transcrição faz o prazo **nunca chegar** quando a transcrição nunca tem sucesso, que é precisamente o caso em que o áudio não devia ficar. Medido: o prazo gravado é exactamente `T0 + 24 h`. **E uma imagem não leva prazo curto**, com teste: «fotos de produto vivem enquanto o catálogo viver», diz o bloco, e inventar aqui um prazo era apagá-las sem ninguém decidir — a política por classe é do KAM-071. O gancho corre com a **chave do objecto**, porque sem ela quem purga não sabe o que apagar, e não corre para um `assetId` que não existe. **A purga em si é KAM-071**, que é o que o próprio critério diz |
+| 8 — o MED não importa módulos de PAY nem de COM (teste de arquitectura): 0 caminhos de código que alterem estado de pagamento a partir de uma imagem | **satisfeito** | **O teste lê a fonte e não corre código**, porque o critério pede «0 caminhos» e um teste de comportamento prova só que os caminhos que ele exercita não fazem aquilo — o que prova zero é a **ausência da importação**. E está escrito **ao contrário**: enumera as importações que o MED tem e exige que cada uma esteja numa lista de permissão **com razão escrita**. Uma lista de bloqueio passaria hoje por o `pay/` ainda não existir em `packages/core-ts/src/`, e isso não é uma garantia — é um acaso com data de validade. Três cintos: a lista de permissão, a menção (que apanha um `import()` dinâmico que a expressão do primeiro não vê) e os nomes de tabela de pagamento. **Provado não-vacuoso:** com uma importação de `../pay/index.ts` acrescentada à mão, **dois dos cinco** testes caem. E há um controlo a exigir que **haja ficheiros para ler**, porque um `readdirSync` sobre a pasta errada devolve lista vazia e um ciclo sobre lista vazia passa sempre. **O `lint_arch` não cobre isto**, e fica dito no ficheiro: a ferramenta tem `blocklist.py` (dependências de npm), `structure.py`, `names.py` e `conventions.py`, e nenhum olha para importações **entre módulos** de `src/` |
+| 9 — métricas `media_bytes_total{classe}`, `media_download_ms`, `media_rejected_total{motivo}` sem conteúdo nos logs | **satisfeito** | As três existem, com lista **fechada** em cada etiqueta — um valor livre é cardinalidade aberta, e é a mesma regra dos quatro motivos do HND. **Nenhuma leva identificadores**, e há teste a varrer a exposição à procura do *tenant*, do contacto, da conversa, do `wamid` e do `media_id`: a gramática de uma etiqueta é `^[a-z][a-z0-9_]{1,62}$`, mas a razão é a cardinalidade (`OBS-I`). A `media_bytes_total` leva a **classe** e não o `content_type`: três valores contra uma lista que cresce sempre que a *allowlist* cresce. **E a `media_download_ms` é um *gauge* e não um histograma**, pela mesma razão que o `gwy_enqueue_ms` escreveu (ADR-018, observabilidade leve no Piloto) — o sufixo `_ms` do nome que o ticket fixa convida a ler isto como uma distribuição, e fica dito no módulo que não é. **Mede-se mesmo quando a descarga falha**, de propósito: uma descarga que demora e falha é o sinal mais útil que esta métrica dá, e medir só os sucessos fazia um painel verde num dia em que nada chegou. As três aparecem sempre na exposição, os contadores a zero e o *gauge* a `-1`: um painel que mostre «sem dados» não distingue «nenhuma mídia» de «o processo não arrancou» |
+| DoD — todos os CA satisfeitos e demonstráveis | **não satisfeito — caixa vazia** | Oito de nove. O que falta é o caminho da chave do critério 1, e o que o impede é uma divergência entre dois blocos que já estava registada (dívida 8): a forma que o KAM-020 escreve tem um segmento a mais do que a porta do KAM-011 aceita |
+| DoD — 2 revisores (dados pessoais, isolamento); testes verdes; cobertura ≥ limiar | **não satisfeito — caixa vazia** | **Zero revisores humanos**: uma revisão adversarial é evidência, não é um revisor. Testes verdes e cobertura: ver a tabela de execução |
+| DoD — documentação actualizada (`docs/media.md`); Conventional Commits | **satisfeito** | [`../docs/media.md`](../docs/media.md) (novo, doze secções), dicionário §3.16 (emenda 1.24), `../docs/ci.md` (treze *suites*) e `../docs/dividas-documentais.md`. Conventional Commits imposto pelo `tools/githooks/commit-msg` |
+| DoD — isolamento de *tenant*: prefixo por tenant, RLS em `media_assets`, teste cruzado X-08 | **satisfeito** | As três partes, e duas herdam-se por usar a porta em vez de a reinventar. **O prefixo é da porta** (`novaChave` põe o *tenant* no primeiro segmento, e o `validarClasse` recusa o que não casa), e há asserção sobre a forma da chave gravada. **A RLS é da revisão** e está provada em dois sítios: o X-03 do *gate* 6 com a receita de sementes nova (canário no `media_id`, porque a `origem_uq` leva o *tenant* e os dois podem semear o mesmo valor — ao contrário da `handoffs`, cuja chave é global), e o ensaio de base, com o controlo positivo e a escrita cruzada que não acontece nem como dono (`FORCE`). **O X-08 existe e corre**, e isso foi medido e não suposto: o rótulo está no `../docs/tecnica/08` §3.7 e a bateria de contrato do KAM-011 tem **dois** casos com ele no título, sobre três alvos. O que o KAM-020 acrescenta é o lado novo — o URL interno do MED e a `media_assets` —, e está nos testes acima. O que **não** existe é o registo enumerável que o hospedaria (`registerCase`, KAM-066) |
+| DoD — idempotência: `UNIQUE` e teste de repetição | **satisfeito** | Ver o CA 2. Três chamadas sequenciais dão uma linha e uma descarga; **duas concorrentes em duas ligações** dão uma linha e uma só armazena, que é a única forma de exercitar o `ON CONFLICT` — em série a segunda nem chega ao `INSERT`, e foi esse o buraco que a prova por mutação encontrou no `ensureAccount` do KAM-019 |
+| DoD — pagamento só por evento autenticado: nenhuma imagem altera estado de pagamento (teste de arquitectura) | **satisfeito** | Ver o CA 8. E vale repetir o porquê, porque é o ADR-013 e não uma preferência: um cliente manda a fotografia de um depósito e o pagamento só muda de estado por um evento autenticado do banco ou do facilitador — **nunca** por alguém, ou algum modelo, ter olhado para a imagem |
+| DoD — privacidade: áudio com retenção curta; sem URLs da Meta nem conteúdo em logs | **satisfeito** | O áudio leva 24 h contadas da criação (CA 7) e nenhum URL da Meta é persistido em sítio nenhum (CA 3). **E o registo não leva conteúdo**: a lista branca do *logger* tem nove campos e nenhum é texto de mensagem — o `log_policy` lê 119 ficheiros e dá **0 achados**. Os `outcome` que o MED escreve são todos de forma `media_*`, sem tipo, sem tamanho e sem identificador de objecto: o que o painel precisa de saber está na métrica |
+| DoD — custo e observabilidade: métricas de bytes, latência e rejeição desde o código | **satisfeito** | Ver o CA 9. «Desde o código» é literal: as três estão no módulo e expostas pelo `exposicao()`, não são um painel por configurar — e a de bytes é a que sustenta o custo de armazenamento por PME, que é a razão de levar a classe (um catálogo de fotos e um mês de notas de voz têm políticas de retenção opostas) |
+| DoD — migrações reversíveis: `downgrade` de `media_assets` testado | **satisfeito** | Bateria própria (`db/tests/test_media_schema.py`), **dezoito casos**. Com a tabela vazia desce e sobe sem perguntar; **com linhas e sem `KAMBA_DOWNGRADE_0012_COPIA` recusa**, com a contagem na mensagem, e deixa o `FORCE` **intacto** — a recusa não pode trocar uma perda de dados por um furo de isolamento. Com a variável, escreve a cópia das catorze colunas. **E o que se perde aqui é diferente das outras revisões, e pior:** as linhas vão e os **objectos ficam**. Um blob sem linha que o aponte é lixo que ninguém sabe que existe — nenhum consumidor o encontra, a purga do KAM-071 não o vê porque ela lê esta tabela, e continua a custar armazenamento e a guardar dados pessoais de um cliente final para sempre. A cópia é a única forma de alguém os reencontrar, e é o `storage_ref` de cada linha que o permite: há asserção a exigir que ele lá esteja. **A política sai antes de se contar**, pela lição medida na `0009` e confirmada na `0010` e na `0011` |
+
+**Como se correu, e o que saiu.** Nesta máquina não há `make`, `node` nem
+`pnpm` no `PATH`, e tudo o que se segue correu em Docker ou no `.venv`:
+
+| Verificação | Comando | Resultado |
+|---|---|---|
+| *gate* 3 (referências, *handoff*, backlog) | `lint_refs`, `lint_handoff`, `lint_backlog` | `conforme`, **código 0** |
+| *gate* 3b (nomes canónicos) | `dict_export --check`, `canon_lint check` e `canario` | `conforme`, **código 0** — dicionário v1.24, **12 migrações, 28 tabelas, 242 colunas, 116 valores de `CHECK`** |
+| *gate* 2 (tipos e arquitectura) | `tsc --noEmit` sobre `src` e `tests`, `lint_arch all`, `log_policy lint` | limpo; `conforme`; **0 achados** em 119 ficheiros TS/JS |
+| *gate* 4 (baterias da mídia) | `node --test` sobre os três `tests/med.*.test.ts` | **59 testes, 59 passam** |
+| *gate* 6 (isolamento) | `db/gate_bd.py --suite tests_isolamento` | **78 testes, OK** — com a `media_assets` descoberta pelo catálogo e semeada, e o X-05 de vinte e uma para **vinte e duas** tabelas |
+| *gate* 8 (migrações) | `db/gate_bd.py --suite tests` | **433 testes, OK** — eram 415; a bateria do esquema trouxe dezoito |
+| *gate* 8 (mídia) | `db/gate_bd.py --suite tests_media` | **5 asserções Python sobre 4 ficheiros de teste Node, OK**; cobertura de `src/med/` entre **89%** (`pipeline.ts`) e **100%** em seis módulos, contra o limiar de 75% do estrato `restante` |
+| *gate* 11 (cadeia de abastecimento) | `supply_chain check` | `conforme`, **código 0** — 24 referências a 6 imagens, todas por digest |
+| prova por mutação | `db/mutacoes.py --aplicaveis` e as 27 novas por filtro | **389 mutações, 0 não aplicáveis** — **27 novas** deste ticket. As **17 do módulo e as 10 da revisão** correram, e três sobreviveram à primeira; depois das correcções, **27 corridas, 0 não apanhadas** |
+
+#### O que a prova por mutação encontrou, e era a armadilha que eu queria evitar
+
+As dezassete mutações do módulo correram e sobreviveram três. **Duas eram o
+mesmo defeito, e o defeito era meu:**
+
+**O meu teste da monotonia fazia o `UPDATE` à mão.** Ele escrevia
+`AND estado = 'pendente'` no próprio teste e verificava que não casava — o que
+prova que o PostgreSQL sabe comparar duas cadeias, e **não prova nada sobre o
+SQL do módulo**. As duas mutações que isso devia matar — tirar o predicado do
+`SQL_MARCAR_ARMAZENADO`, e descartar o resultado dele — sobreviveram as duas. É
+exactamente a classe de defeito que esta bateria existe para evitar, e escrevi-a
+assim de qualquer maneira.
+
+O que as mata é passar pelo **caminho do código**, e a única forma é mexer na
+linha **durante** a descarga — a janela em que o módulo já reservou e ainda não
+marcou. O gancho `antesDeDescarregar` do ensaio faz isso: outro processo rejeita
+a linha, e depois exige-se que a marcação **não** tenha casado (a base continua
+a dizer `rejeitado`, sem `storage_ref`) e que o módulo **não** tenha dito
+`armazenado` a quem chamou. Um teste, duas mutações mortas.
+
+A terceira foi uma **`PROVA INVALIDA`** — a *suite* a falhar por carga e não uma
+mutação apanhada, que a *skill* manda contar como sobrevivente e tratar baixando
+o paralelismo. Com `KAMBA_MUTACOES_PARALELO=2`: **17 corridas, 0 não apanhadas**.
+
+#### Decisões tomadas neste ticket
+
+- **A emenda ao dicionário veio antes do código**, e tinha de vir: a tabela e
+  cinco das suas colunas não existiam em sítio nenhum, e a palavra «media» não
+  ocorria uma única vez no `../canon/dicionario.yaml`.
+- **Os dois domínios são qualificados** (`media_assets.classe` e
+  `media_assets.estado`) pela regra da emenda 1.14, e aqui não é cautela: há
+  **cinco** colunas `estado` com `CHECK` nas revisões `0001`, `0003` e `0005`, e
+  um domínio nu tornaria as cinco vermelhas e mataria uma extensão declarada.
+- **O prefixo `media_` nas classes resolve a dívida 8 sem mexer no KAM-011.**
+- **O `pendente` não está no ticket**, e é a linha que torna a idempotência
+  verdadeira: é ele que permite escrever a linha antes da descarga.
+- **Não há `CHECK` sobre o `retain_until`**, e a ausência tem teste: uma
+  restrição que o obrigasse a ser futuro impedia o KAM-071 de marcar um objecto
+  para eliminação imediata — a lição que a `outbound_messages_entrega_ck` da
+  `0010` pagou.
+- **O `GRANT UPDATE` por coluna tem chamador**, ao contrário do que a `0011`
+  tentou: a linha nasce em `pendente` e só depois da descarga se sabe o resto.
+- **A `media_download_ms` é um *gauge*** e a limitação fica dita, em vez de o
+  nome sugerir um histograma que esta biblioteca não implementa.
+- **O `sticker` é imagem**: uma quarta classe multiplicava a política de
+  retenção do KAM-071 sem mudar nada.
 
 ### Handoff para Claude Code
 

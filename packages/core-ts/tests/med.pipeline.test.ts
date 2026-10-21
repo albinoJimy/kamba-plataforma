@@ -190,8 +190,12 @@ interface Montagem {
 function montar(): Montagem {
   const bd = new BaseFalsa();
   const meta = new MetaFalsa();
-  // **O duplo do KAM-011, que é a porta a sério.** Ver a nota do módulo.
-  const storage = criarStorageFake();
+  let instanteDoRelogio = T0;
+  // **O duplo do KAM-011, e com o MESMO relogio que o MED.** Sem isso, a URL
+  // assinada expirava pelo relogio da maquina e o teste do 403 media o tempo
+  // real — que e o defeito que a bateria do criterio 6 do KAM-019 pagou com
+  // dezasseis minutos a 99% de CPU.
+  const storage = criarStorageFake({ agora: () => new Date(instanteDoRelogio) });
   const avisos: unknown[] = [];
   const transcritos: unknown[] = [];
   const esperas: number[] = [];
@@ -200,6 +204,7 @@ function montar(): Montagem {
   let instante = T0;
   const avancar = (ms: number): void => {
     instante += ms;
+    instanteDoRelogio = instante;
   };
   meta.avancarRelogio = avancar;
   const med = new Med({
@@ -474,6 +479,30 @@ describe("o URL interno assinado (criterio 5)", () => {
       tenant_id: OUTRO_TENANT,
     });
     await assert.rejects(() => med.urlInterna(OUTRO_TENANT, "asset-forjado"));
+  });
+
+  it("**depois do TTL o URL devolve 403**", async () => {
+    // A segunda metade do criterio 5 («depois do TTL devolve 403»), e e o duplo
+    // do KAM-011 que a responde: ele **expira URLs pelo relogio** e devolve 403
+    // tanto para um prazo passado como para uma assinatura adulterada — «os dois
+    // casos dao a mesma resposta», diz a nota dele, e e de proposito: distingui-los
+    // dizia a quem tenta qual dos dois errou.
+    //
+    // O relogio do armazenamento e **o mesmo** do MED nesta montagem, pelo que
+    // avancar o tempo nao espera tempo real.
+    const { med, storage, avancar } = montar();
+    const resultado = await med.receber(pedido());
+    assert.ok(resultado.estado === "armazenado");
+    const url = await med.urlInterna(TENANT, resultado.assetId);
+    assert.ok(url !== null);
+
+    // **Dentro do prazo: 200.** E o controlo, e sem ele um 403 podia vir de a
+    // URL estar mal formada desde o inicio.
+    assert.equal((await storage.buscar(url)).estado, 200, "dentro do prazo tem de servir");
+
+    // Um segundo depois do TTL: 403.
+    avancar((TTL_DA_URL_INTERNA_S + 1) * 1000);
+    assert.equal((await storage.buscar(url)).estado, 403, "o prazo nao expirou");
   });
 
   it("um asset que nao existe da `null` e nao levanta", async () => {

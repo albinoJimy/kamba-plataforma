@@ -220,6 +220,13 @@ fontes_adicionais:
   # Meta e nao precisa do simulador. Nao levanta fila nenhuma.
   - ficheiro: db/tests_handoff/node.py
     constante: IMAGEM_NODE
+  # KAM-020: a suite da midia corre as tres baterias do gate 4 **e** o ensaio de
+  # base num contentor Node quando a maquina nao tem `node`. Leva **duas** pastas
+  # de `node_modules`, como o handoff e ao contrario da saida: a midia fala com
+  # a Meta mas por porta, e o cliente falso vive no proprio ensaio — nao ha
+  # simulador de midia, porque a API dela nao tem evidencia nenhuma no `E1`.
+  - ficheiro: db/tests_media/node.py
+    constante: IMAGEM_NODE
   # KAM-011: a suite TypeScript do contrato de armazenamento e a prova por
   # mutacao correm num contentor Node quando a maquina nao tem `node`.
   - ficheiro: infra/storage/contrato.py

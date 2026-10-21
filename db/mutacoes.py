@@ -199,6 +199,11 @@ HND_SQL = "packages/core-ts/src/hnd/consultas.ts"
 HND_CHATWOOT = "packages/core-ts/src/hnd/chatwoot.ts"
 HND_RESPOSTA = "packages/core-ts/src/hnd/resposta.ts"
 HND_PROVEDOR = "packages/core-ts/src/hnd/provedor.ts"
+MEDIA = "tests_media"
+REV12 = "db/migrations/versions/0012_media.py"
+MED_CLASSES = "packages/core-ts/src/med/classes.ts"
+MED_SQL = "packages/core-ts/src/med/consultas.ts"
+MED_PIPELINE = "packages/core-ts/src/med/pipeline.ts"
 CHR = "tests_chr"
 CHR_CANAL = "packages/core-ts/src/chr/canal.ts"
 CHR_SQL = "packages/core-ts/src/chr/consultas.ts"
@@ -1685,6 +1690,117 @@ MUTACOES = [
     ('handoff: o callback sem segredo volta a consultar primeiro', HND_PROVEDOR,
      '    if (segredoRecebido === null || segredoRecebido.length === 0) {',
      '    if (false) {', HANDOFF),
+    # ------------------------------------------- KAM-020 (0012 e med)
+    #
+    # A divisao por suite nao e arbitraria: o que a base impoe vai a `tests`
+    # (que corre a `test_media_schema`), o que a RLS impoe vai a
+    # `tests_isolamento`, e o que o modulo decide vai a `tests_media` — que e a
+    # unica que **le o texto do SQL**, porque corre contra um PostgreSQL. Uma
+    # mutacao de SQL declarada numa suite com base falsa e imortal, e foi o que
+    # o KAM-019 pagou.
+    ('revisao 0012: a midia perde um estado do dominio', REV12,
+     'ESTADOS_DE_MIDIA = (\n    "\'pendente\'",',
+     'ESTADOS_DE_MIDIA = (', "tests"),
+    ('revisao 0012: a midia perde uma classe do dominio', REV12,
+     'CLASSES_DE_MIDIA = ("\'media_audio\'", "\'media_imagem\'", "\'media_documento\'")',
+     'CLASSES_DE_MIDIA = ("\'media_audio\'", "\'media_imagem\'")', "tests"),
+    ('revisao 0012: a origem deixa de ser unica', REV12,
+     '            CONSTRAINT media_assets_origem_uq UNIQUE (tenant_id, wamid, media_id),',
+     '', "tests"),
+    ('revisao 0012: a unicidade da origem perde o tenant', REV12,
+     'media_assets_origem_uq UNIQUE (tenant_id, wamid, media_id)',
+     'media_assets_origem_uq UNIQUE (wamid, media_id)', MEDIA),
+    ('revisao 0012: o armazenado deixa de exigir a chave', REV12,
+     '                        storage_ref IS NOT NULL\n',
+     '', "tests"),
+    ('revisao 0012: a FK do contacto deixa de levar o tenant', REV12,
+     '                FOREIGN KEY (tenant_id, contact_id)\n                REFERENCES platform.contacts (tenant_id, contact_id),',
+     '                FOREIGN KEY (contact_id)\n                REFERENCES platform.contacts (contact_id),',
+     "tests"),
+    ('revisao 0012: a midia fica sem RLS (gate 6)', REV12,
+     '    rls.enable_tenant_rls("media_assets")',
+     '    pass  # rls.enable_tenant_rls("media_assets")', "tests_isolamento"),
+    ('revisao 0012: o downgrade conta a midia com a politica de pe', REV12,
+     '    rls.disable_tenant_rls("media_assets")',
+     '    pass  # a politica fica de pe', "tests"),
+    ('revisao 0012: a aplicacao passa a poder reescrever o wamid', REV12,
+     'COLUNAS_DA_APLICACAO = (\n    "classe",',
+     'COLUNAS_DA_APLICACAO = (\n    "wamid",\n    "classe",', "tests"),
+    ('revisao 0012: o sha256 deixa de ter forma', REV12,
+     "                CHECK (sha256 IS NULL OR sha256 ~ '^[0-9a-f]{{64}}$')",
+     '                CHECK (sha256 IS NULL)', "tests"),
+    # O modulo: o que ele decide, e cada uma morre numa bateria do gate 4 ou no
+    # ensaio de base.
+    ('media: o sticker deixa de ser imagem', MED_CLASSES,
+     '  sticker: "media_imagem",',
+     '', MEDIA),
+    ('media: a allowlist de documentos abre-se', MED_CLASSES,
+     '    tipos: ["application/pdf"],',
+     '    tipos: ["application/pdf", "application/zip"],', MEDIA),
+    ('media: o tamanho passa a ser verificado antes do tipo', MED_CLASSES,
+     '  if (!permitido) return "tipo_nao_permitido";\n  if (tamanho > limite.bytesMaximos) return "tamanho_excedido";',
+     '  if (tamanho > limite.bytesMaximos) return "tamanho_excedido";\n  if (!permitido) return "tipo_nao_permitido";',
+     MEDIA),
+    ('media: o limite de tamanho passa a recusar no limite', MED_CLASSES,
+     '  if (tamanho > limite.bytesMaximos) return "tamanho_excedido";',
+     '  if (tamanho >= limite.bytesMaximos) return "tamanho_excedido";', MEDIA),
+    ('media: a resposta ao cliente passa a citar o tipo', MED_CLASSES,
+     '    "Esse ficheiro e grande demais para mim. Pode enviar um mais pequeno?",',
+     '    "Esse ficheiro e grande demais (mais de 5242880 bytes).",', MEDIA),
+    ('media: o ON CONFLICT da reserva desaparece', MED_SQL,
+     '      ON CONFLICT (tenant_id, wamid, media_id) DO NOTHING',
+     '', MEDIA),
+    ('media: a marcacao deixa de ter a monotonia no predicado', MED_SQL,
+     "     AND estado = 'pendente'\n   RETURNING asset_id, estado\n`;\n\n/**\n * Marca a linha como rejeitada ou falhada.",
+     "   RETURNING asset_id, estado\n`;\n\n/**\n * Marca a linha como rejeitada ou falhada.",
+     MEDIA),
+    # A ancora leva o `SELECT` inteiro porque o predicado sozinho aparece
+    # tres vezes neste ficheiro: o `SQL_POR_ASSET` e o unico que o
+    # `urlInterna` usa, e e nele que tirar o tenant abre o X-08.
+    ('media: a leitura por asset deixa de filtrar o tenant', MED_SQL,
+     'export const SQL_POR_ASSET = `\n  SELECT asset_id, estado, classe, storage_ref, sha256\n    FROM platform.media_assets\n   WHERE tenant_id = $1 AND asset_id = $2',
+     'export const SQL_POR_ASSET = `\n  SELECT asset_id, estado, classe, storage_ref, sha256\n    FROM platform.media_assets\n   WHERE asset_id = $2', MEDIA),
+    ('media: a allowlist volta a correr no tipo anunciado', MED_PIPELINE,
+     '    const motivo = recusar(classe, contentType, bytes.byteLength, this.#limites);',
+     '    const motivo = recusar(classe, pedido.contentTypeAnunciado ?? contentType, bytes.byteLength, this.#limites);',
+     MEDIA),
+    # **A ordem dos passos nao se muta por troca de linhas** — isso daria um
+    # ficheiro que nem compila, e a prova por mutacao mediria o `tsc` e nao os
+    # testes. O que se muta e o **efeito** da reserva vir primeiro: faz-se a
+    # leitura antes dela, que e o que um codigo que a puxasse para depois da
+    # descarga faria. A idempotencia deixa de ser da base e passa a ser de uma
+    # verificacao que duas chamadas concorrentes atravessam as duas.
+    # **A ordem dos passos nao se muta por troca de linhas** — isso daria um
+    # ficheiro que nem compila, e a prova mediria o `tsc` e nao os testes. O
+    # que se muta e o **efeito** de a reserva vir primeiro: faz-se a leitura
+    # antes dela, que e o que um codigo que a puxasse para depois da descarga
+    # faria. A idempotencia deixa de ser da base e passa a ser de uma
+    # verificacao que duas chamadas concorrentes atravessam as duas — e e o
+    # ensaio de base, com duas ligacoes, que o apanha.
+    ('media: a reserva passa a ser precedida de uma leitura', MED_PIPELINE,
+     '    // **Passo 2: a reserva, e é aqui que a idempotência acontece.**\n    const reserva = await this.#bd.query<{ asset_id: string }>(SQL_RESERVAR, [',
+     '    const antes = await this.#bd.query<{ asset_id: string }>(SQL_POR_ORIGEM, [\n      pedido.tenantId,\n      pedido.wamid,\n      pedido.mediaId,\n    ]);\n    if (antes.rows.length > 0) return this.#comoEsta(pedido, classe);\n    const reserva = await this.#bd.query<{ asset_id: string }>(SQL_RESERVAR, [', MEDIA),
+    ('media: as tentativas passam de tres para uma', MED_PIPELINE,
+     'export const TENTATIVAS = 3;',
+     'export const TENTATIVAS = 1;', MEDIA),
+    ('media: o AGR deixa de ser avisado', MED_PIPELINE,
+     '    await this.#avisarAgr({',
+     '    await Promise.resolve({', MEDIA),
+    ('media: a retencao do audio passa a valer para tudo', MED_PIPELINE,
+     '      classe === "media_audio"\n        ? new Date(agora.getTime() + RETENCAO_DE_AUDIO_MS)\n        : null;',
+     '      new Date(agora.getTime() + RETENCAO_DE_AUDIO_MS);', MEDIA),
+    ('media: a retencao do audio deixa de existir', MED_PIPELINE,
+     'export const RETENCAO_DE_AUDIO_MS = 24 * 60 * 60 * 1000;',
+     'export const RETENCAO_DE_AUDIO_MS = 100 * 365 * 24 * 60 * 60 * 1000;', MEDIA),
+    ('media: o TTL da url interna passa a ser escrito a mao', MED_PIPELINE,
+     'export const TTL_DA_URL_INTERNA_S = TTL_MAXIMO_S;',
+     'export const TTL_DA_URL_INTERNA_S = 600;', MEDIA),
+    ('media: o resultado da marcacao volta a ser descartado', MED_PIPELINE,
+     '    if (marcada.rows.length === 0) {',
+     '    if (false) {', MEDIA),
+    ('media: um wa_type desconhecido passa a reservar linha', MED_PIPELINE,
+     '    if (classe === null) {',
+     '    if (false as boolean) {', MEDIA),
     ('handoff: a chave de idempotencia passa a derivar do texto', HND_RESPOSTA,
      'idempotencyKey: `hnd:${acontecimento.handoffId}:${acontecimento.mensagemId}`,',
      'idempotencyKey: `hnd:${acontecimento.handoffId}:${texto}`,', HANDOFF),

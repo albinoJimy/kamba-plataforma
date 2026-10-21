@@ -1194,13 +1194,14 @@ dispensa.
 
 #### A segunda metade: identidade de contacto (KAM-008)
 
-O `make ci-8` corre **doze** *suites*, cada uma com a sua base descartável:
+O `make ci-8` corre **treze** *suites*, cada uma com a sua base descartável:
 `tests` (as migrações, acima), **`tests_identidade`** (esta secção),
 **`tests_eventos`** e **`tests_eventos_carga`** (a secção seguinte, KAM-005),
 `tests_eventos_consumo` (KAM-006), `tests_auditoria_carga` (KAM-012),
 **`tests_ten`** (KAM-009), **`tests_entrada`** e **`tests_entrada_carga`**
-(KAM-013), **`tests_chr`** (KAM-014), **`tests_outbound`** (KAM-015) e
-**`tests_handoff`** (KAM-019, a última secção).
+(KAM-013), **`tests_chr`** (KAM-014), **`tests_outbound`** (KAM-015),
+**`tests_handoff`** (KAM-019) e **`tests_media`** (KAM-020, a última
+secção).
 A de identidade entrou com o KAM-008. Esta põe o módulo de identidade — TypeScript, em
 `packages/core-ts/src/identity/` — a correr contra o PostgreSQL com o papel
 `kamba_identity` verdadeiro e a RLS ligada. O desenho está em
@@ -1488,6 +1489,54 @@ isso aconteceu neste ticket: o `hnd.resposta.test.ts` nasceu, passou, e a
 tinha. O `resposta.ts` também não estava na lista de módulos medidos, pelo que
 nem a cobertura o denunciou. É por isso que as duas listas são explícitas e não
 um *glob*: um *glob* nunca falha por esquecimento, e é isso que o torna pior.
+
+#### A décima quarta: a mídia recebida (KAM-020)
+
+`tests_media` põe o módulo da mídia — TypeScript, em
+`packages/core-ts/src/med/` — a correr contra o PostgreSQL com a RLS ligada. O
+desenho está em [`media.md`](media.md). Pelos ordinais destes títulos é a
+décima quarta; **pela lista é a décima terceira**, e o desvio é o que a dívida
+62 declara.
+
+É da mesma classe do `tests_outbound` e do `tests_handoff` — não corre os
+testes, corre a **saída** deles —, e a razão de haver um ensaio de base é a
+lição mais cara do KAM-019:
+
+> **Uma base falsa nunca lê o texto do SQL.** Ela despacha por identidade da
+> constante e responde o que o ensaio quiser, pelo que **qualquer mutação do SQL
+> sobrevive** — e uma mutação que nenhum teste pode matar conta como prova de
+> uma garantia que não temos.
+
+**O que só esta *suite* prova**, porque pede um PostgreSQL verdadeiro:
+
+- **O `ON CONFLICT` da reserva sob concorrência.** Duas chamadas em **duas
+  ligações**, e é a única forma de o provocar: em série a segunda nem chega ao
+  `INSERT` — encontra a linha na leitura e sai pelo caminho rápido. Foi
+  exactamente este o buraco que a prova por mutação encontrou no `ensureAccount`
+  do KAM-019.
+- **A monotonia do `WHERE estado = 'pendente'`.** Sem ele, uma segunda passagem
+  reescrevia um `armazenado` já feito — com o `content_type`, o `size` e o
+  `sha256` de outro objecto — ou ressuscitava um `rejeitado`.
+- **A `media_assets_armazenado_ck` a recusar pelo caminho do código**, e não por
+  um `INSERT` escrito à mão no teste.
+- **O X-03 sobre a `media_assets`**, com o controlo positivo: com o contexto de
+  A vê-se a de A, e as de B não aparecem; e uma escrita na linha de B não
+  acontece, com `FORCE`, nem como dono.
+- **Que nenhum URL da Meta chega à base**, percorrendo a tabela inteira
+  convertida a texto, coluna a coluna (critério 3).
+
+A cobertura de `src/med/` mede-se aqui, contra o estrato **`restante`** e não o
+`critico`, pela mesma decisão escrita que a saída e o *handoff* tomaram: o DoD
+do ticket diz «cobertura ≥ limiar», sem número, e alterar `ci/thresholds.yaml`
+pede dois revisores.
+
+**Não corre contra simulador nenhum, e isso é decisão e não falta.** A API de
+mídia da Meta **não tem evidência nenhuma** no `E1` — nem tamanhos, nem
+expiração do URL, nem o fluxo de duas etapas, nem códigos de erro —, pelo que o
+`ClienteDeMidia` entra por porta e o cliente falso vive no próprio ensaio. Um
+simulador dela seria uma invenção a fingir medição; e o simulador do KAM-024 não
+a cobre, porque o `id` que ele põe no webhook não é servível pelos *endpoints*
+de mídia.
 
 ## 4. Gates reservados (5)
 
@@ -2180,3 +2229,4 @@ sobrevivem ao PR.
 | 1.41 | Outubro 2026 | **KAM-015: o *gate* 8 passa a correr onze *suites*.** A décima primeira é `tests_outbound`, e é a primeira que junta o PostgreSQL ao servidor Graph falso do KAM-024 — porque o critério 2 pede «1 chamada à API (servidor falso conta) **e** 1 linha em `outbound_messages`», e nenhum dos dois prova a metade do outro. O que só aqui se prova está no §3: a idempotência (é da base, pelo `ON CONFLICT ... RETURNING` vazio), a unicidade **por tenant** da chave, a monotonia sob concorrência **real** (duas ligações, que é o que torna a corrida verdadeira), o X-03 sobre as duas tabelas novas e o custo por *tenant* a sair da tabela em vez de uma etiqueta de métrica. A cobertura de `src/outbound/` mede-se aqui, contra o estrato **`restante`** e não o `critico`: o DoD não dá número e alterar `ci/thresholds.yaml` pede dois revisores. O *gate* 6 ganha as receitas de sementes da `outbound_messages` e da `message_templates`, e a descoberta do X-05 passa de dezassete tabelas a **dezanove**. **E o `pnpm-workspace.yaml` ganha `ignoreWorkspaceCycles: true`**, sem o que o `pnpm -r run typecheck` do *gate* 2 recusa correr: o `@kamba/core-ts` e o `@kamba/meta-sim` dependem um do outro em desenvolvimento — o simulador lê o vocabulário de campos do `core-ts` em vez de o reescrever, e os testes da saída usam o `GraphFalso` para contar as chamadas HTTP, que é metade do critério 2. O que a declaração troca é a **ordem** das tarefas, não uma garantia: o fecho de produção dos dois é zero e o oráculo do `pnpm list --prod` mede-o a cada PR. E o erro de ciclo abortava o passo **antes** do `tsc`, pelo que escondia um segundo defeito — um `bd.query` de ensaio sem parâmetro de tipo. Quatro defeitos que só uma máquina apanhou: o `set_config(..., true)` solto — «local à transacção», pelo que o contexto morria antes da instrução seguinte e o `kamba_app` com `FORCE` via zero linhas (a *suite* caiu de 421 s para 33 s); a `outbound_messages_entrega_ck` a matar um `failed` depois de um `delivered`; a limpeza do ensaio a apagar conversas antes das mensagens que lhes apontam; e a `outbound_rate_limited_total` a somar a nossa travagem com a da Meta sob uma ajuda escrita que dizia só a primeira. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |
 | 1.42 | Outubro 2026 | **KAM-019: o *gate* 8 passa a correr doze *suites*.** A nova é `tests_handoff`, e é da mesma classe do `tests_outbound` — não corre os testes, corre a **saída** deles: as cinco baterias do *gate* 4 e o ensaio de base produzem TAP, e cinco asserções Python confirmam que cada grupo apareceu, que cada teste obrigatório passou **pelo nome**, e que a cobertura de cada um dos dez ficheiros de `src/hnd/` está acima do limiar, porque um *gate* que conte testes não nota que um desapareceu. O que só aqui se prova está no §3: a idempotência é da **chave primária** com o `handoff_id` derivado de `hash(thread_id, ordinal)` — cinco aberturas concorrentes em duas ligações, uma linha e uma chamada ao provedor; a `handoff_accounts_conta_uq` a recusar com `23505` a mesma conta do provedor em dois *tenants*, que é o lado do isolamento que nenhuma verificação em código apanha; o `close` duplicado como *no-op* da base, com as métricas dos dois a somar **uma** passagem fechada; o X-03 sobre as duas tabelas novas, escrita incluída, que com `FORCE` falha mesmo como dono; e uma passagem `degraded` a contar no SLA. O *gate* 6 ganha as receitas de sementes das duas tabelas, e a descoberta do X-05 passa de dezanove para **vinte e uma**. **Dois defeitos que só uma máquina apanhou, e o segundo é deste *gate*:** a bateria do critério 6 **pendurou** — dezasseis minutos a 99% de CPU, que nenhum relatório de testes mostrou porque nenhum chegou a sair, e que um `docker top` mostrou — porque montava o `Saida` verdadeiro com o relógio congelado e um `dormir` que não fazia nada, e o *token bucket* do KAM-015 espera pelo primeiro token comparando `agora()` com o instante em que começou, pelo que nem a espera nem a recusa por `ESPERA_MAXIMA_DE_DEBITO_MS` terminavam; e a *suite* ficou verde com essa bateria **sem a correr**, porque o `node --test` apanhava-a pelo *glob* e a lista de ficheiros que o CI usa não a tinha — o `resposta.ts` também não estava nos módulos medidos, pelo que nem a cobertura o denunciou. As duas listas continuam explícitas e não um *glob*: um *glob* nunca falha por esquecimento, e é isso que o torna pior. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |
 | 1.43 | Outubro 2026 | **KAM-019: a `tests_handoff` ganha quatro grupos e quatro testes obrigatorios, e a razao e que o spike correu.** O veredicto foi `O TOKEN DO BOT CHEGA`, e no caminho ate la o spike mediu quatro coisas que a implementacao fazia de outra maneira — pelo que as baterias cresceram de 89 para **108** testes e a *suite* passa a exigir pelo nome, entre outros, «o inbox e criado com o token do UTILIZADOR e nao da plataforma» e «o set_agent_bot existe, e sem ele nada funciona». O `resposta.ts` entra nos modulos medidos (dez agora). **E a prova por mutacao do modulo correu pela primeira vez, com quatro sobreviventes que nao eram testes em falta:** duas mutacoes eram **imortais** (uma apagava uma linha redundante, outra trocava `timingSafeEqual` por `===` num ponto onde as duas dao o mesmo resultado — essa foi retirada, e a limitacao de tempo constante fica **dita** em vez de fingida); o `ON CONFLICT` da conta **nao era exercitado** por caminho nenhum, porque duas chamadas sequenciais usam o caminho rapido; e uma das duas unicidades passava por causa da outra, com a assercao a aceitar qualquer «duplicate key». Depois das correccoes: **26 corridas, 0 nao apanhadas**. O `supply_chain` pediu `read_only: true` nos quatro servicos do compose do spike e as quatro listas de saidas, todas **vazias** com `por_omissao: negar`. Sem *job* novo. | Equipa KAMBÁ |
+| 1.44 | Outubro 2026 | **KAM-020: o *gate* 8 passa a correr treze *suites*.** A nova é `tests_media`, e é da classe do `tests_outbound` e do `tests_handoff` — não corre os testes, corre a **saída** deles: três baterias do *gate* 4 e um ensaio de base produzem TAP, e cinco asserções Python confirmam treze grupos, vinte e dois testes obrigatórios **pelo nome**, e a cobertura de seis ficheiros de `src/med/` (89% a 100%, contra o limiar de 75% do estrato `restante`). **O ensaio de base existe pela lição do KAM-019:** uma base falsa nunca lê o texto do SQL, pelo que qualquer mutação dele sobrevive — e o que só aqui se prova é o `ON CONFLICT` da reserva **sob concorrência** (em série a segunda chamada nem chega ao `INSERT`), a monotonia do `WHERE estado = 'pendente'`, a `media_assets_armazenado_ck` a recusar pelo caminho do código, o X-03 sobre a tabela nova, e que nenhum URL da Meta chega à base. O *gate* 6 ganha a receita de sementes da `media_assets`, e a descoberta do X-05 passa de vinte e uma para **vinte e duas** tabelas. **Não corre contra simulador nenhum, e é decisão:** a API de mídia da Meta não tem evidência nenhuma no `E1`, e um simulador dela fingiria medição. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |

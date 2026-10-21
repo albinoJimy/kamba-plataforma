@@ -202,6 +202,13 @@ export async function apagarTenant(admin: pg.Client, tenant: string): Promise<vo
   // ensaio, **depois** de os testes passarem, o que faz a suite ficar vermelha
   // sem nenhuma assercao ter falhado. E a terceira vez que esta funcao aprende
   // isto: `conversations` (KAM-014), saida (KAM-015), handoff (KAM-019).
+  // **A quarta vez que esta funcao aprende uma tabela nova**, e a quarta pela
+  // mesma razao: a `media_assets` do KAM-020 tem FK compostas para
+  // `conversations` e `contacts`, pelo que apagar o tenant sem a apagar antes
+  // levanta `23503`. Vem **primeiro** porque nada aponta para ela.
+  await admin.query("DELETE FROM platform.media_assets WHERE tenant_id = $1", [
+    tenant,
+  ]);
   await admin.query("DELETE FROM platform.handoffs WHERE tenant_id = $1", [tenant]);
   await admin.query("DELETE FROM platform.handoff_accounts WHERE tenant_id = $1", [tenant]);
   // KAM-015: **antes** das conversas, que a `outbound_messages` referencia por

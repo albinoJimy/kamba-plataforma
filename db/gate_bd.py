@@ -6,6 +6,7 @@
     python db/gate_bd.py --suite tests_chr           # gate 8, o CHR (KAM-014)
     python db/gate_bd.py --suite tests_outbound      # gate 8, a saida (KAM-015)
     python db/gate_bd.py --suite tests_handoff       # gate 8, o handoff (KAM-019)
+    python db/gate_bd.py --suite tests_media         # gate 8, a midia (KAM-020)
     python db/gate_bd.py --suite tests --bd-existente
 
 Os dois gates precisam do mesmo: um PostgreSQL real, vazio e descartavel. Este
@@ -143,6 +144,18 @@ SUITES = (
     # A do contexto de B. **Nao leva o `tools/meta-sim`** e nao precisa de fila:
     # o handoff nao fala com a Meta, e o provedor de atendimento entra por porta.
     "tests_handoff",
+    # KAM-020: a midia recebida. O que so aqui se prova e o que a base falsa das
+    # baterias do gate 4 **nunca** poderia provar, porque ela nao le o texto do
+    # SQL: que o `ON CONFLICT` da reserva funciona sob concorrencia (duas
+    # chamadas em duas ligacoes, que e a unica forma de o provocar — em serie a
+    # segunda nem chega ao `INSERT`), que o `WHERE estado = 'pendente'` impede
+    # uma segunda marcacao de reescrever um `armazenado`, que a
+    # `media_assets_armazenado_ck` recusa quando o caminho e o do codigo, e o
+    # X-03 sobre a tabela nova. **Nao leva o `tools/meta-sim`** e nao precisa de
+    # fila: a midia fala com a Meta por **porta**, e a razao de ser porta e que
+    # a API de midia dela nao tem evidencia nenhuma no `E1` — um simulador
+    # seria uma invencao a fingir medicao.
+    "tests_media",
 )
 #: As que precisam tambem de uma fila.
 SUITES_COM_FILA = (
