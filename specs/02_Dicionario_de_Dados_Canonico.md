@@ -537,6 +537,65 @@ só aparece a quem for implementar: dois tickets antes, ninguém a tinha visto.
 
 ---
 
+### 3.16 Monitorização do free tier de service messages (KAM-023)
+
+*Emenda 1.24, **proposta**.* Entra **sem DDL**, e isso é o que a distingue das três
+secções anteriores: as duas colunas que o ticket mantém existem desde a revisão
+`0001` e já estão em «canon/extensoes.yaml» (emenda do KAM-003). O que entra aqui
+são **nomes de métrica** e um domínio de nível de alerta, pelo precedente que o
+§3.10 abriu para as métricas do *logger* — «entram aqui porque todos os serviços
+os escrevem», e estas entram porque o painel de custos (KAM-081) as consome.
+
+| Conceito | Nome canónico | Notas |
+|---|---|---|
+| Fracção do *free tier* consumida, no canal mais perto do tecto (*gauge*) | `meta_free_tier_used_ratio` | O critério 4 escreve-a com etiqueta de *tenant*. **Não leva nenhuma** — ver «As duas divergências», abaixo. Sem etiqueta, um *gauge* teria de ser o valor do último canal observado, que não é o de nenhum; é por isso o **máximo** sobre os canais, que é a pergunta que um alerta de 80% faz. A média respondia-a mal: um canal a 100% entre dez a zero dá 10%. Vale `-1` antes da primeira observação, como os *gauges* do §3.14 |
+| Custo estimado acima do *free tier*, em micro-dólares inteiros, somado sobre os canais (*gauge*) | `meta_cost_usd_estimate` | `max(0, n − 1000) × 4 000` micro-dólares. **Não é a `meta_cost_usd_total` do §3.14 com outro nome, e a diferença é o ticket inteiro:** aquela é o que a Meta disse ter cobrado, somado do *pricing* de cada *status*; esta é o que nós estimamos a partir do nosso contador. São duas grandezas e a **diferença entre elas é o que o critério 7 manda reconciliar** — com uma só, não havia contra o que reconciliar. O nome diz `usd` e a unidade é o micro-dólar, pela razão do §2 e do §3.14 |
+| Avisos de *free tier* emitidos (contador) | `meta_free_tier_alert_total` | Leva a etiqueta «nivel», de dois valores. Não está no critério 4 e está aqui pela razão da `outbound_rate_limited_total` (emenda 1.21) e do `gwy_shed_total` (1.19): **avisar sem contar é avisar em silêncio**. O critério 3 afirma «1 aviso aos 800 e 1 aos 1.000, sem repetição no mesmo mês», e sem este contador não há como verificar, depois do facto, que saiu um e não zero nem duzentos |
+| Nível de um aviso de *free tier* | `aviso`, `esgotado` | Lista fechada. `aviso` é a travessia de 80% do tecto (800 com o tecto de 1.000 do `E1` §1); `esgotado` é a travessia do tecto. Minúsculas e sem acentos porque entram como etiqueta e o §2 manda-o — e porque um sufixo que não case `^[a-z][a-z0-9_]{1,62}$` é recusado por gramática. **O 800 é derivado do tecto e não escrito:** se a Meta mudar o tecto, o aviso acompanha-o |
+| Suspeitas de método de pagamento ausente ou inválido (contador) | `meta_payment_suspect_total` | Mesma razão do anterior, e vale mais: a detecção do critério 5 é uma heurística de limiares **propostos** (20% de falhas em 20 mensagens, depois do tecto esgotado), e sem a contar não há como os calibrar. O código de erro concreto com que a Meta recusa por falta de pagamento é **NÃO VERIFICADO** — o `E1` nomeia três códigos e nenhum é de pagamento —, e é por isso que a detecção é sobre a taxa e não sobre um código |
+
+**O que esta secção não declara, e é escopo e não esquecimento.** Os critérios 5
+e 6 pedem uma coluna de motivo de restrição no canal e um sítio para guardar os
+códigos de erro vistos. Nenhum dos dois existe, os dois são DDL, e a revisão que
+os cria descende da `0012` do KAM-020 — as revisões de base entram em série.
+**Não se pré-declaram aqui:** «canon/extensoes.yaml» diz que «uma extensão que
+nenhuma superfície usa falha o gate», e o mesmo argumento vale para um nome do
+dicionário sem DDL que o use. Entram com a revisão, na emenda seguinte.
+
+**As duas divergências assumidas**, cada uma contra um documento que diz outra
+coisa:
+
+1. **As métricas ficam sem etiqueta de *tenant*, contra o critério 4** — que
+   escreve `meta_free_tier_used_ratio{tenant}` e `meta_cost_usd_estimate{tenant}`.
+   A decisão **não é nova**: é a que a emenda 1.21 já tomou para a
+   `meta_cost_usd_total{tenant}` do KAM-015, e decidir ao contrário a dois
+   módulos de distância era pôr o conjunto a contradizer-se. As bibliotecas de
+   métricas deste repositório recusam por gramática uma etiqueta que não case
+   `^[a-z][a-z0-9_]{1,62}$`, e um `tenant_id` é um UUID com hífenes que muitas
+   vezes começa por dígito — **a chamada levanta**. A razão de fundo é o `OBS-I`
+   de `../docs/seguranca/ameacas_stride.md` e o X-11 do *gate* 6. O por-*tenant*
+   e o por-canal saem de consulta, que é o caminho que o `../docs/tecnica/01`
+   §16 já aponta. **As caixas do critério 4 ficam, por isso, parcialmente
+   satisfeitas**, com esta razão escrita na secção de verificação do ticket.
+2. **O mês reinicia no fuso do *tenant*, e o critério 3 diz «do canal».** O
+   critério escreve «reinício à meia-noite do fuso configurado do canal
+   (`Africa/Luanda` por omissão)». Não há coluna de fuso em «tenant_channels» —
+   a única do esquema é «tenants.fuso_horario», que é por *tenant*, pelo que um
+   *tenant* com dois números não pode hoje ter dois fusos. O que se usa é a
+   função «platform.ten_periodo» da revisão `0007`, que é onde o fuso vive **num
+   sítio** por decisão escrita do KAM-009; reimplementar a fronteira em
+   TypeScript era a quarta cópia a divergir. Configurá-lo por canal é DDL e fica
+   com a mesma revisão dos critérios 5 e 6.
+
+**E uma divergência de atribuição, que não muda nenhum número.** O bloco do
+ticket escreve «Alvo do doc 00: alertas aos 80% (800)». O `../docs/tecnica/00`
+§9 não dá limiar nenhum — diz só «*service messages* > 1.000/mês a 0,004 USD». O
+80% vem do `../docs/tecnica/08` §3.7 e do `../docs/tecnica/09` §9 (RB-K05). O
+valor é unânime em dez afirmações do conjunto; só a atribuição está errada, e
+está registada em `../docs/dividas-documentais.md`.
+
+---
+
 ## 4. Itens que continuam por decidir
 
 | Item | Estado | Ticket |
@@ -581,3 +640,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.21 | Outubro 2026 | **Emenda (*proposta*), KAM-015.** §3.14: as tabelas `outbound_messages` (catorze colunas) e `message_templates` (dez), os domínios de `state` (**seis** valores), `kind`, `category`, `status` e `quality`, o `pricing`, o `WINDOW_CLOSED`, a porta `PreSendGuard`, a chave de idempotência, as tarifas em `config/meta_rates.yaml` e as **cinco** métricas da saída (a `outbound_rate_limited_total` com a etiqueta «origem», de dois valores). **Três divergências assumidas, cada uma contra um documento que diz outra coisa:** as tabelas vivem em `platform.` e levam FK compostas, contra a forma dos DDL de `../docs/tecnica/01` §8.3–§8.4 e contra o «exactamente como o doc 01» do bloco do ticket — sem a FK composta, uma mensagem do *tenant* A podia apontar para um canal de B, que é o furo que a `0009` já nomeou; o `status` e o `quality` dos templates ficam em **minúsculas**, contra o §8.3, porque o §2 manda minúsculas e a base é nossa (o vocabulário da Meta traduz-se na fronteira, como o `wa_type` do §3.12); e a `meta_cost_usd_total` fica **sem etiqueta de tenant**, contra o DoD do ticket, porque as quatro bibliotecas de métricas recusam por gramática uma etiqueta que não case `^[a-z][a-z0-9_]{1,62}$` e um `tenant_id` é um UUID com hífenes — **a chamada levanta**; o custo por *tenant* sai de `outbound_messages.pricing` por consulta, que é o que o §16 do doc 01 já aponta, e a caixa do DoD fica vazia com esta razão. O sexto valor de `state`, `suppressed_by_human`, **nasce nesta revisão** embora seja do KAM-018, pela mecânica do *gate* 3b que a emenda 1.20 já pagou. **Corrige o §3.13**, que atribuía o FEP de 7 dias ao KAM-015 quando os *Detalhes Técnicos* do próprio KAM-015 o atribuem a Clusters. **O que não decide:** o contador do *free tier* (KAM-023), o consumidor dos webhooks de template (KAM-016/021), o aviso ao dono (KAM-115) e o evento de barramento, que nenhum critério pede. | Equipa KAMBÁ |
 | 1.22 | Outubro 2026 | **Emenda (*proposta*), KAM-019.** §3.15: a tabela `handoffs` (**nove** colunas, contra as sete do bloco do ticket — acrescentam-se o `motivo`, que o `openHandoff` recebe, e o `external_id`, que ele devolve e que não tinha onde ficar), a tabela `handoff_accounts` (que o bloco não nomeia e de que o critério 1 depende, porque «`ensureAccount` 2× não duplica» exige onde guardar o que a primeira chamada criou), o domínio de `status` (**cinco** valores, com o `degraded` **não** nasce no bloco — o `docs/tecnica/02` §11 define-o, e a primeira versão desta entrada dizia o contrário), a correspondência entre os três `outcome` do `close` e os cinco `status`, a definição de `resolver` (que nenhuma fonte dava), as portas `HandoffProvider`, `MirrorMessage` e `HumanEvent` — **os dois últimos nunca definidos em sítio nenhum, só nomeados na assinatura do §11.1** — e as três métricas do HND. **Doze nomes entram que não existiam nem aqui, nem em código, nem nos contratos de evento.** **Duas divergências assumidas:** o *compare-and-set* `waiting → resumed` fica fora do ticket, contra o `../docs/tecnica/01` §11.5 e o `02` §11 que o põem no HND (prevalece o bloco, `specs/01` §5), com a consequência escrita — a coluna `resumed_at` nasce e ninguém a escreve aqui; e os *callbacks* são verificados pelo **HND** e não pelo GWY, contra o `../docs/tecnica/08` §3.6, porque o `secret` é por bot e logo por *tenant*, e o GWY é o único ponto sem contexto de *tenant*. **Não há tabela de fila de espelho**, e é decisão: o §14 pede uma fila que reconcilie por `wamid`, e isso é uma fila BullMQ com `jobId` derivado dele. **O `setBotMuted` não é executável** — `kamba_app` não tem `UPDATE (mode)` (revisão `0009`) e as transições são do KAM-018 —, a revisão `0011` **não** concede o privilégio, e a caixa do critério fica vazia. **Duas correcções que o próprio *gate* 3b apanhou ao conferir esta emenda:** dar domínio ao nome **nu** `tipo` (no `HumanEvent`) fez o *gate* recusar o `CHECK` de `evt_subscricoes.tipo` da revisão `0005` e declarar mortas duas extensões de `contact_endpoints.tipo` — os dois domínios desta secção passam a ser **qualificados** (`MirrorMessage.direccao`, `HumanEvent.acontecimento`), que é a regra que a emenda 1.14 escreveu para nomes genéricos e que esta emenda quase repetiu; e o `PRIMARY KEY` entre acentos graves do §3.14 estava a colher «PRIMARY» e «KEY» para os nomes conhecidos do *gate* — a classe da «persona» do KAM-014 —, pelo que passa a guilhemés. O `tenant_channels.token_ref` **sai** de `canon/extensoes.yaml` (26 extensões, eram 27): o `token_ref` é agora nome do §3.15 e o lint recusa uma extensão que o dicionário já cobre. | Equipa KAMBÁ |
 | 1.23 | Outubro 2026 | **Emenda (*proposta*), KAM-019, e esta vem de medição.** §3.15: a `handoff_accounts` passa de oito para **dez** colunas, com o `provider_user_id` e o `user_token_ref`, e o preâmbulo ganha os sete factos que o spike do critério 8 mediu contra um Chatwoot v4.18.0. O que os obriga é o terceiro ator que nenhuma leitura tinha visto: o *token* da Platform API responde 401 nos *endpoints* da conta e o do bot responde 401 a criar contactos, pelo que existe um **utilizador da conta** cujo `access_token` é preciso em tempo de execução. `provider_user_id` e não `user_id` pela regra da 1.14: a KAMBÁ vai ter utilizadores seus e um nome genérico arrastaria o domínio para eles. A entrada 1.22 dizia que o `degraded` «só existe no bloco» e isso ficou corrigido na própria 1.22. | Equipa KAMBÁ |
+| 1.24 | Outubro 2026 | **Emenda (*proposta*), KAM-023, e entra sem DDL.** §3.16: as quatro métricas do *free tier* (`meta_free_tier_used_ratio` e `meta_cost_usd_estimate`, que o critério 4 nomeia, e `meta_free_tier_alert_total` com a etiqueta «nivel» e `meta_payment_suspect_total`, que ele não nomeia e que estão lá pela razão da `outbound_rate_limited_total` da emenda 1.21 — avisar sem contar é avisar em silêncio) e o domínio de dois valores do nível de aviso. **As duas colunas que o ticket mantém não entram:** existem desde a `0001` e já estão nas extensões do KAM-003, e o `docstring` da `0010` entrega-lhes a manutenção a este ticket por extenso. **Duas divergências assumidas:** as métricas ficam **sem etiqueta de tenant**, contra o critério 4, pela mesma razão e com o mesmo precedente da `meta_cost_usd_total` da emenda 1.21 — as bibliotecas da casa recusam por gramática uma etiqueta que não case `^[a-z][a-z0-9_]{1,62}$` e um UUID com hífenes **levanta** —, pelo que um *gauge* sem etiqueta passa a ser um agregado explícito (máximo para o rácio, soma para a estimativa) e as caixas do critério 4 ficam parcialmente satisfeitas; e o mês reinicia no fuso do *tenant* e não «do canal», porque não há coluna de fuso por canal e o fuso vive num sítio só, a função de período da `0007`. **O que não decide:** o motivo de restrição do canal e os códigos de erro vistos (critérios 5 e 6), que são DDL e esperam a revisão que descende da `0012` do KAM-020 — não se pré-declaram, pela regra das extensões de que um nome sem superfície falha o *gate*. | Equipa KAMBÁ |

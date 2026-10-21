@@ -46,6 +46,26 @@ FICHEIROS = (
     "tests/outbound.limites.test.ts",
     "tests/outbound.adapter.test.ts",
     "tests_bd/outbound.bd.test.ts",
+    # KAM-023. O contador do *free tier* vive em `src/metering/`, mas escreve
+    # `tenant_channels` e le `outbound_messages`, e as tres propriedades que
+    # so uma base prova — a fronteira de mes no fuso de `Africa/Luanda` (que
+    # vive dentro de `platform.ten_periodo`), o flanco do aviso sob
+    # concorrencia, e o isolamento — nao tem onde correr fora desta suite.
+    # Entra aqui e nao numa suite nova porque usa as mesmas tabelas, o mesmo
+    # `apoio.ts` e os mesmos papeis; uma suite propria custava um ficheiro de
+    # arranque, um alvo no Makefile e uma entrada em `db/gate_bd.py` para
+    # levantar o mesmo PostgreSQL.
+    #
+    # A metade de unidade entra **pela prova por mutacao**, que e a mesma razao
+    # pela qual os quatro ficheiros de unidade do KAM-015 tambem estao nesta
+    # lista. O `db/mutacoes.py` corre uma suite inteira contra a copia mutada e
+    # exige que ela falhe; uma mutacao em `custo.ts` ou em `metricas.ts` — o
+    # racio limitado a 1, o guarda do denominador zero, a etiqueta de tenant
+    # aceite — so e apanhada pelo ficheiro de unidade. Deixa-lo de fora dava
+    # mutacoes que **nenhum teste pode matar**, e uma mutacao sobrevivente por
+    # desenho e pior do que nenhuma: conta como prova. Custa cerca de 1 s.
+    "tests/metering.test.ts",
+    "tests_bd/metering.bd.test.ts",
 )
 
 #: Os grupos que **tem** de aparecer na saida, um por propriedade que a suite
@@ -65,6 +85,13 @@ GRUPOS = (
     "isolamento (Testes Requeridos: X-03 sobre outbound_messages)",
     "o custo por tenant sai da tabela (DoD «Custo e observabilidade»)",
     "o bloqueio de template (criterio 9)",
+    # KAM-023, do `tests_bd/metering.bd.test.ts`.
+    "a contagem (criterio 1)",
+    "a fronteira de mes e a de Africa/Luanda (criterio 3)",
+    "o flanco do aviso sob concorrencia (criterio 3)",
+    "idempotencia por wamid (criterio 2)",
+    "isolamento (Testes Requeridos: contadores de A nao afectam B)",
+    "a janela de falhas e a reconciliacao (criterios 5 e 7)",
 )
 
 #: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
@@ -93,6 +120,23 @@ TESTES_OBRIGATORIOS = (
     "o SQL_CUSTO_DO_TENANT soma o pricing das entregues",
     "o custo de A nao inclui o de B — a RLS tambem protege a consulta",
     "recategorizar para marketing bloqueia, e e idempotente",
+    # KAM-023. Cada uma da a letra de um criterio, e as duas primeiras sao as
+    # que **so** uma base prova: o fuso vive dentro de `platform.ten_periodo` e
+    # o flanco depende do `FOR UPDATE`.
+    "**00:30 em Luanda ja e Novembro, e o contador reinicia**",
+    "**o mes vem em texto e nao num `Date`** — e isto foi um defeito medido",
+    "**com o mes a `NULL` e o contador em 500, o reinicio repoe e nao soma**",
+    "**o `reiniciou` normaliza mesmo quando o salto e grande**",
+    "**a reconciliacao desiste, e nao reporta o tecto como medicao**",
+    "**dois incrementos em paralelo na travessia: +2 e UM aviso**",
+    "**1.200 entregas dao contador 1.200** — contra a coluna, nao contra um Map",
+    "**tres `delivered` do mesmo wamid: contador +1**",
+    "**o mes virado le `0` sem escrever nada** — o defeito que custava dinheiro",
+    "**com o contexto de A, o contador de B nao se le**",
+    "**com o contexto de A, o contador de B nao se escreve**",
+    "**a janela ignora o que ainda nao tem destino**",
+    "**a reconciliacao le o `pricing` jsonb e mede as duas divergencias**",
+    "**uma entrega de outro mes nao entra, e a fronteira e a de Luanda**",
 )
 
 #: Os ficheiros do modulo. A cobertura mede-se em **cada um**.

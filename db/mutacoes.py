@@ -206,6 +206,14 @@ CHR_FLUXO_B = "packages/core-ts/src/chr/fluxo_b.ts"
 CHR_MODULO = "packages/core-ts/src/chr/chr.ts"
 CHR_CONVERSAS = "packages/core-ts/src/chr/conversas.ts"
 CHR_INVOCACAO = "packages/core-ts/src/chr/invocacao.ts"
+# -------------------------------------------------------------- KAM-023
+#: O contador do *free tier*. A suite e a `tests_outbound`: o modulo escreve
+#: `tenant_channels`, le `outbound_messages` e depende de
+#: `platform.ten_periodo`, e as tres coisas vivem na base que ela levanta.
+MED_SQL = "packages/core-ts/src/metering/consultas.ts"
+MED_CUSTO = "packages/core-ts/src/metering/custo.ts"
+MED_METRICAS = "packages/core-ts/src/metering/metricas.ts"
+MED_MODULO = "packages/core-ts/src/metering/metering.ts"
 
 #: O corpo da subtransaccao da `ten_consumir`, como a revisao 0007 o escreve:
 #: **a chave primeiro, a contagem depois**. A mutacao da ordem precisa do
@@ -1781,6 +1789,62 @@ MUTACOES = [
     ('chr: o SQL da conversa deixa de empurrar a janela', CHR_SQL,
      '     SET last_inbound_at   = EXCLUDED.last_inbound_at,\n         window_expires_at = EXCLUDED.window_expires_at\n',
      '     SET last_inbound_at   = platform.conversations.last_inbound_at,\n         window_expires_at = platform.conversations.window_expires_at\n', CHR),
+    # ----------------------------------------------- KAM-023 (free tier)
+    #
+    # Cada uma volta o codigo a um defeito **real**, e a maior parte a um
+    # defeito que custa dinheiro a uma PME ou um aviso a quem opera.
+    #
+    # **Nenhuma toca no predicado `tenant_id` das consultas**, e isso e
+    # deliberado: com a RLS ligada, tirar o predicado explicito nao muda nada
+    # — a politica `tenant_iso` filtra igual —, pelo que seria uma mutacao que
+    # nenhum teste pode matar. Uma sobrevivente por desenho e pior do que
+    # nenhuma, porque conta como prova. Essa defesa em profundidade fica dita
+    # na seccao de verificacao do ticket, como o que e.
+    ('free tier: o mes volta a sair como `date` e nao em texto', MED_SQL,
+     "to_char(c.free_tier_month, 'YYYY-MM-DD') AS mes",
+     "c.free_tier_month AS mes", SAIDA),
+    ('free tier: a leitura ignora o mes guardado e devolve o contador velho', MED_SQL,
+     "  SELECT CASE\n             WHEN c.free_tier_month\n                  IS DISTINCT FROM platform.ten_periodo(coalesce($3, now()))\n             THEN 0\n             ELSE c.free_tier_used\n         END AS usadas,",
+     "  SELECT c.free_tier_used AS usadas,", SAIDA),
+    ('free tier: o reinicio volta a ser `<>` e o NULL deixa de contar', MED_SQL,
+     "             WHEN antes.free_tier_month\n                  IS DISTINCT FROM platform.ten_periodo(coalesce($3, now()))",
+     "             WHEN antes.free_tier_month\n                  <> platform.ten_periodo(coalesce($3, now()))", SAIDA),
+    ('free tier: o mes novo comeca em 0 e perde a primeira entrega', MED_SQL,
+     "             THEN 1\n             ELSE antes.free_tier_used + 1",
+     "             THEN 0\n             ELSE antes.free_tier_used + 1", SAIDA),
+    ('free tier: o incremento perde o FOR UPDATE e o `antes` deixa de valer', MED_SQL,
+     "       WHERE tenant_id = $1 AND phone_number_id = $2\n         FOR UPDATE\n    ) AS antes",
+     "       WHERE tenant_id = $1 AND phone_number_id = $2\n    ) AS antes", SAIDA),
+    ('free tier: a janela de falhas passa a contar o que nao tem destino', MED_SQL,
+     "         AND m.state IN ('delivered', 'read', 'failed')",
+     "         AND m.state IN ('queued', 'sent', 'delivered', 'read', 'failed')", SAIDA),
+    ('free tier: o aviso volta a ser o valor e nao a travessia', MED_CUSTO,
+     "  if (de < AVISO_EM && para >= AVISO_EM) return \"aviso\";",
+     "  if (para >= AVISO_EM) return \"aviso\";", SAIDA),
+    ('free tier: o reinicio deixa de normalizar o `antes`', MED_CUSTO,
+     "  const de = reiniciou ? 0 : Math.trunc(antes);",
+     "  const de = Math.trunc(antes);", SAIDA),
+    ('free tier: o racio volta a ser limitado a 1', MED_CUSTO,
+     "  return Math.trunc(usadas) / FREE_TIER_DE_SERVICE;",
+     "  return Math.min(1, Math.trunc(usadas) / FREE_TIER_DE_SERVICE);", SAIDA),
+    ('free tier: a estimativa perde o `max(0, ...)` e fica negativa', MED_CUSTO,
+     "  const acima = Math.max(0, Math.trunc(usadas) - FREE_TIER_DE_SERVICE);",
+     "  const acima = Math.trunc(usadas) - FREE_TIER_DE_SERVICE;", SAIDA),
+    ('free tier: a suspeita deixa de exigir o tecto esgotado', MED_CUSTO,
+     "  if (Math.trunc(usadas) < FREE_TIER_DE_SERVICE) return false;\n  if (janela.total < JANELA_DE_FALHAS) return false;",
+     "  if (janela.total < JANELA_DE_FALHAS) return false;", SAIDA),
+    ('free tier: a divergencia perde o guarda do denominador zero', MED_CUSTO,
+     "  if (medido === 0) return null;",
+     "  if (false) return null;", SAIDA),
+    ('free tier: a metrica volta a aceitar um tenant_id como etiqueta', MED_METRICAS,
+     "        throw new SufixoInvalidoError(metrica, sufixo);",
+     "        void sufixo;", SAIDA),
+    ('free tier: a reconciliacao volta a comparar meses em UTC', MED_SQL,
+     "     AND platform.ten_periodo(m.delivered_at)\n         = platform.ten_periodo(coalesce($3, now()))",
+     "     AND m.delivered_at >= platform.ten_periodo(coalesce($3, now()))", SAIDA),
+    ('free tier: um canal desconhecido volta a ganhar mil mensagens gratis', MED_MODULO,
+     "const DESCONHECIDO = {\n  usadas: FREE_TIER_DE_SERVICE,",
+     "const DESCONHECIDO = {\n  usadas: 0,", SAIDA),
 ]
 
 

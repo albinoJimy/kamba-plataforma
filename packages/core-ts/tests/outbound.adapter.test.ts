@@ -885,7 +885,10 @@ describe("a ingestao de statuses pelo adapter", () => {
     // `pricing IS NOT NULL`.
     const { saida, registo } = await comEnvioFeito();
     const resultado = await saida.ingerir(TENANT, "wamid.NAO_EXISTE", "delivered", null, PNID);
-    assert.deepEqual(resultado, { avancou: false, microUsd: 0 });
+    // O `entregou` é do KAM-023, que o precisa para accionar o contador do
+    // *free tier* a partir da transição que a base serializou. Aqui é `false`
+    // pela razão mais forte que há: não houve transição nenhuma.
+    assert.deepEqual(resultado, { avancou: false, microUsd: 0, entregou: false });
     const aviso = registo.find((linha) => linha["outcome"] === "status_sem_mensagem");
     assert.ok(aviso !== undefined, "um status perdido nao pode passar em silencio");
     // E o `wamid` vai opaco, como em todo o resto.
@@ -959,6 +962,43 @@ describe("a ingestao de statuses pelo adapter", () => {
     const { saida } = await comEnvioFeito({ freeTier: { usadas: 1000, tecto: 1000 } });
     const resultado = await saida.ingerir(TENANT, WAMID, "delivered", pricing(), PNID);
     assert.equal(resultado.microUsd, 4000);
+  });
+
+  it("**o `entregou` e a costura do KAM-023**, e vale dentro do free tier", async () => {
+    // O contador do *free tier* conta **todas** as *service* entregues, e não
+    // só as que custam: são as entregas que o consomem. Logo o sinal que o
+    // acciona não pode ser o custo — uma mensagem dentro do *free tier* custa
+    // `0` e tem de contar na mesma. Era este o defeito que um
+    // `if (microUsd > 0)` do lado do KAM-023 teria, e é por isso que o adapter
+    // diz `entregou` em vez de deixar quem chama inferi-lo do dinheiro.
+    const { saida } = await comEnvioFeito({ freeTier: { usadas: 10, tecto: 1000 } });
+    const resultado = await saida.ingerir(TENANT, WAMID, "delivered", pricing(), PNID);
+    assert.equal(resultado.microUsd, 0);
+    assert.equal(resultado.entregou, true);
+  });
+
+  it("um delivered repetido nao volta a dizer `entregou`", async () => {
+    // É daqui que sai a idempotência do critério 2 do KAM-023: três
+    // repetições do mesmo `delivered` produzem **uma** transição, logo um
+    // `entregou`, logo `+1` no contador. A segunda chegada não avança nada, e
+    // é a base que o decide.
+    const { saida } = await comEnvioFeito({ freeTier: { usadas: 10, tecto: 1000 } });
+    const primeira = await saida.ingerir(TENANT, WAMID, "delivered", pricing(), PNID);
+    assert.equal(primeira.entregou, true);
+    for (let n = 0; n < 2; n += 1) {
+      const repetida = await saida.ingerir(TENANT, WAMID, "delivered", pricing(), PNID);
+      assert.equal(repetida.avancou, false);
+      assert.equal(repetida.entregou, false);
+    }
+  });
+
+  it("um failed avanca mas **nao entrega**: nao consome free tier", async () => {
+    // Um `failed` é o contrário de uma entrega, e contá-lo no *free tier* dava
+    // à PME um tecto menor do que o que a Meta lhe dá.
+    const { saida } = await comEnvioFeito({ freeTier: { usadas: 10, tecto: 1000 } });
+    const resultado = await saida.ingerir(TENANT, WAMID, "failed", pricing(), PNID);
+    assert.equal(resultado.avancou, true);
+    assert.equal(resultado.entregou, false);
   });
 
   it("uma categoria de pricing desconhecida avanca, nao cobra e **avisa**", async () => {

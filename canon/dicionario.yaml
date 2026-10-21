@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.23"
+versao_dicionario: "1.24"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -3024,6 +3024,67 @@ entradas:
       - "jobId"
       - "failed"
       - "removeOnComplete"
+    variantes_literais: []
+  - seccao: "3.16"
+    conceito: "Fracção do free tier consumida, no canal mais perto do tecto (gauge)"
+    canonico: "meta_free_tier_used_ratio"
+    literais:
+      - "meta_free_tier_used_ratio"
+    nomes:
+      - "meta_free_tier_used_ratio"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.16"
+    conceito: "Custo estimado acima do free tier, em micro-dólares inteiros, somado sobre os canais (gauge)"
+    canonico: "meta_cost_usd_estimate"
+    literais:
+      - "meta_cost_usd_estimate"
+    nomes:
+      - "meta_cost_usd_estimate"
+    nomes_nota:
+      - "max"
+      - "n"
+      - "meta_cost_usd_total"
+      - "usd"
+    variantes_literais: []
+  - seccao: "3.16"
+    conceito: "Avisos de free tier emitidos (contador)"
+    canonico: "meta_free_tier_alert_total"
+    literais:
+      - "meta_free_tier_alert_total"
+    nomes:
+      - "meta_free_tier_alert_total"
+    nomes_nota:
+      - "outbound_rate_limited_total"
+      - "gwy_shed_total"
+    variantes_literais: []
+  - seccao: "3.16"
+    conceito: "Nível de um aviso de free tier"
+    canonico: "aviso, esgotado"
+    literais:
+      - "aviso"
+      - "esgotado"
+    nomes:
+      - "aviso"
+      - "esgotado"
+    nomes_nota:
+      - "aviso"
+      - "E1"
+      - "esgotado"
+      - "a"
+      - "z"
+      - "z0"
+      - "_"
+    variantes_literais: []
+  - seccao: "3.16"
+    conceito: "Suspeitas de método de pagamento ausente ou inválido (contador)"
+    canonico: "meta_payment_suspect_total"
+    literais:
+      - "meta_payment_suspect_total"
+    nomes:
+      - "meta_payment_suspect_total"
+    nomes_nota:
+      - "E1"
     variantes_literais: []
 
 tabelas:
