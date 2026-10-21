@@ -1710,9 +1710,16 @@ MUTACOES = [
     ('revisao 0012: a unicidade da origem perde o tenant', REV12,
      'media_assets_origem_uq UNIQUE (tenant_id, wamid, media_id)',
      'media_assets_origem_uq UNIQUE (wamid, media_id)', MEDIA),
+    # **A ancora leva o inicio da restricao inteira**, e nao uma linha dentro
+    # dela. A primeira versao ancorava em `storage_ref IS NOT NULL` e apaga-la
+    # deixava `OR (` seguido de `AND ...` — **SQL que nao analisa**: o `alembic
+    # upgrade` falhava, a suite inteira ficava vermelha, e a mutacao contava
+    # como apanhada sem nunca ter criado a tabela. Uma mutacao que morre por
+    # sintaxe mede o PostgreSQL e nao o teste. Apanhada pela revisao
+    # adversarial.
     ('revisao 0012: o armazenado deixa de exigir a chave', REV12,
-     '                        storage_ref IS NOT NULL\n',
-     '', "tests"),
+     "            CONSTRAINT media_assets_armazenado_ck\n                CHECK (\n                    estado <> 'armazenado'",
+     "            CONSTRAINT media_assets_armazenado_ck\n                CHECK (\n                    estado = estado\n                    OR estado <> 'armazenado'", "tests"),
     ('revisao 0012: a FK do contacto deixa de levar o tenant', REV12,
      '                FOREIGN KEY (tenant_id, contact_id)\n                REFERENCES platform.contacts (tenant_id, contact_id),',
      '                FOREIGN KEY (contact_id)\n                REFERENCES platform.contacts (contact_id),',
@@ -1724,8 +1731,15 @@ MUTACOES = [
      '    rls.disable_tenant_rls("media_assets")',
      '    pass  # a politica fica de pe', "tests"),
     ('revisao 0012: a aplicacao passa a poder reescrever o wamid', REV12,
-     'COLUNAS_DA_APLICACAO = (\n    "classe",',
-     'COLUNAS_DA_APLICACAO = (\n    "wamid",\n    "classe",', "tests"),
+     'COLUNAS_DA_APLICACAO = (\n    "content_type",',
+     'COLUNAS_DA_APLICACAO = (\n    "wamid",\n    "content_type",', "tests"),
+    # **E a `classe`, que a revisao adversarial tirou da lista.** Reconceder-a
+    # permite reclassificar um objecto, que muda a coluna de que depende a
+    # politica de retencao do KAM-071 — um audio reclassificado como imagem
+    # deixa de ter prazo e fica para sempre.
+    ('revisao 0012: a aplicacao volta a poder reclassificar', REV12,
+     'COLUNAS_DA_APLICACAO = (\n    "content_type",',
+     'COLUNAS_DA_APLICACAO = (\n    "classe",\n    "content_type",', "tests"),
     ('revisao 0012: o sha256 deixa de ter forma', REV12,
      "                CHECK (sha256 IS NULL OR sha256 ~ '^[0-9a-f]{{64}}$')",
      '                CHECK (sha256 IS NULL)', "tests"),
@@ -1754,12 +1768,20 @@ MUTACOES = [
      "     AND estado = 'pendente'\n   RETURNING asset_id, estado\n`;\n\n/**\n * Marca a linha como rejeitada ou falhada.",
      "   RETURNING asset_id, estado\n`;\n\n/**\n * Marca a linha como rejeitada ou falhada.",
      MEDIA),
-    # A ancora leva o `SELECT` inteiro porque o predicado sozinho aparece
-    # tres vezes neste ficheiro: o `SQL_POR_ASSET` e o unico que o
-    # `urlInterna` usa, e e nele que tirar o tenant abre o X-08.
-    ('media: a leitura por asset deixa de filtrar o tenant', MED_SQL,
-     'export const SQL_POR_ASSET = `\n  SELECT asset_id, estado, classe, storage_ref, sha256\n    FROM platform.media_assets\n   WHERE tenant_id = $1 AND asset_id = $2',
-     'export const SQL_POR_ASSET = `\n  SELECT asset_id, estado, classe, storage_ref, sha256\n    FROM platform.media_assets\n   WHERE asset_id = $2', MEDIA),
+    # **Aqui estava a mutacao do `SQL_POR_ASSET`, e sai sem substituta.**
+    #
+    # Ela tirava o `tenant_id = $1` do predicado, e a revisao adversarial
+    # mostrou que morria **por acidente**: a base falsa despacha por
+    # `texto.includes("AND asset_id = $2")`, e sem o predicado o texto deixava
+    # de casar o despacho — o `urlInterna` passava a devolver sempre `null` e
+    # os testes caiam por isso, nao pela propriedade.
+    #
+    # **E pela propriedade ela e inobservavel:** na base verdadeira a RLS
+    # esconde a linha do outro tenant, e na base falsa o `#porAsset` impoe o
+    # tenant em JavaScript. Uma mutacao que nenhum teste pode matar pela razao
+    # certa conta como prova de uma garantia que nao temos — e o que sustenta o
+    # isolamento aqui e a politica `tenant_iso`, cuja mutacao esta declarada em
+    # `tests_isolamento` e essa morre.
     ('media: a allowlist volta a correr no tipo anunciado', MED_PIPELINE,
      '    const motivo = recusar(classe, contentType, bytes.byteLength, this.#limites);',
      '    const motivo = recusar(classe, pedido.contentTypeAnunciado ?? contentType, bytes.byteLength, this.#limites);',
@@ -1795,9 +1817,20 @@ MUTACOES = [
     ('media: o TTL da url interna passa a ser escrito a mao', MED_PIPELINE,
      'export const TTL_DA_URL_INTERNA_S = TTL_MAXIMO_S;',
      'export const TTL_DA_URL_INTERNA_S = 600;', MEDIA),
+    # A ancora leva a linha de cima porque ha agora **tres** verificacoes de
+    # `rows.length === 0` no ficheiro: a revisao adversarial apanhou que os
+    # dois caminhos de desfecho descartavam o resultado, e eles passaram a
+    # le-lo. Esta e a do `armazenado`.
     ('media: o resultado da marcacao volta a ser descartado', MED_PIPELINE,
-     '    if (marcada.rows.length === 0) {',
-     '    if (false) {', MEDIA),
+     '      retainUntil,\n    ]);\n    if (marcada.rows.length === 0) {',
+     '      retainUntil,\n    ]);\n    if (false) {', MEDIA),
+    # E as duas que a correccao criou, uma por caminho de desfecho.
+    ('media: a rejeicao volta a descartar o resultado', MED_PIPELINE,
+     '      "rejeitado",\n    ]);\n    if (marcada.rows.length === 0) {',
+     '      "rejeitado",\n    ]);\n    if (false) {', MEDIA),
+    ('media: a falha volta a descartar o resultado', MED_PIPELINE,
+     '      "falhou",\n    ]);\n    if (marcada.rows.length === 0) {',
+     '      "falhou",\n    ]);\n    if (false) {', MEDIA),
     ('media: um wa_type desconhecido passa a reservar linha', MED_PIPELINE,
      '    if (classe === null) {',
      '    if (false as boolean) {', MEDIA),

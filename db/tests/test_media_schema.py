@@ -4,8 +4,9 @@ O DoD do ticket pede **pelo nome** «`downgrade` de `media_assets` testado», e
 esta bateria e isso. Mas tem mais casos, e cada um existe por uma razao que a
 revisao escreveu e que nenhum outro teste confere:
 
-1. **As tres FK, coluna a coluna.** E a tabela com mais FK do esquema, e duas
-   sao **compostas** com o `tenant_id`. A contagem global (`test_catalogo`) ve
+1. **As tres FK, coluna a coluna.** Tem tres FK e duas sao **compostas**
+   com o `tenant_id` (a `outbound_messages` da `0010` tem quatro, pelo que
+   esta nao e a que tem mais — a primeira versao desta nota dizia que era). A contagem global (`test_catalogo`) ve
    que sao 29; o que ela nao ve e **para onde cada uma aponta** — e uma FK que
    aponta para `contacts (contact_id)` em vez de `(tenant_id, contact_id)`
    passaria a contagem e abria o furo que a `0009` fechou.
@@ -174,7 +175,7 @@ class TestEsquemaDaMidia(ComBase):
     """O que a `0012` cria, e o que ela **nao** cria."""
 
     def test_as_tres_fk_sao_as_declaradas_coluna_a_coluna(self) -> None:
-        """E a tabela com mais FK do esquema, e duas levam o `tenant_id`.
+        """Tres FK, e duas levam o `tenant_id`.
 
         A contagem global ve que sao tres; o que ela nao ve e para onde cada uma
         aponta. Uma FK para `contacts (contact_id)` em vez de
@@ -242,6 +243,38 @@ class TestEsquemaDaMidia(ComBase):
         self.assertEqual(len(linhas), 1, "o indice por tenant nao existe")
         self.assertIn("tenant_id", linhas[0][0])
         self.assertIn("criado_at DESC", linhas[0][0])
+
+    def test_os_dois_dominios_tem_os_valores_declarados(self) -> None:
+        """**Os valores e nao so os nomes**, e a diferenca apanhou uma mutacao.
+
+        A primeira versao desta bateria afirmava a lista de **nomes** de `CHECK`
+        e nunca o `pg_get_constraintdef` de nenhum deles. A revisao adversarial
+        mostrou o que isso deixava passar: a mutacao que tira `'media_documento'`
+        do dominio da classe nao muda nome nenhum, e a cadeia nao existe em
+        `db/` fora da propria revisao — nenhum teste desta suite a inseria nem a
+        afirmava. Ela sobrevivia, e o relatorio dizia «0 nao apanhadas».
+
+        Quem a apanharia era o gate 3b (que compara o dominio do dicionario com
+        o DDL), e o corredor de mutacoes nao corre o 3b: corre a suite declarada
+        e exige que **ela** falhe. Logo a assercao tem de viver aqui.
+        """
+        definicoes = dict(
+            self.consultar(
+                "SELECT conname::text, pg_get_constraintdef(oid) FROM pg_constraint "
+                "WHERE conrelid = 'platform.media_assets'::regclass "
+                "AND conname IN ('media_assets_classe_ck', 'media_assets_estado_ck')"
+            )
+        )
+        for valor in ("media_audio", "media_imagem", "media_documento"):
+            with self.subTest(classe=valor):
+                self.assertIn(valor, definicoes["media_assets_classe_ck"])
+        for valor in ("pendente", "armazenado", "rejeitado", "falhou"):
+            with self.subTest(estado=valor):
+                self.assertIn(valor, definicoes["media_assets_estado_ck"])
+        # **E so esses**: um valor a mais no dominio e tao defeito como um a
+        # menos, e o `falhado` e a grafia vizinha que o conjunto usa noutras
+        # tabelas.
+        self.assertNotIn("falhado", definicoes["media_assets_estado_ck"])
 
     def test_nao_ha_check_sobre_o_retain_until(self) -> None:
         """**A ausencia e a assercao**, e tem razao escrita na revisao.

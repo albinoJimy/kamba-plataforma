@@ -3108,7 +3108,6 @@ entradas:
     nomes_nota:
       - "classe"
       - "estado"
-      - "media_"
       - "validarClasse"
       - "a"
       - "z"
@@ -3133,8 +3132,6 @@ entradas:
     nomes_nota:
       - "estado"
       - "CHECK"
-      - "PRIMARY"
-      - "KEY"
       - "tipo"
       - "pendente"
       - "wamid"

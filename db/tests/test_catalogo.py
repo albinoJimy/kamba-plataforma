@@ -523,7 +523,8 @@ class TestConvencoes(ComBase):
         #
         # 29 desde o KAM-020: as **tres** da `media_assets` — para `tenants`,
         # e para `contacts` e `conversations` as duas **compostas** com o
-        # `tenant_id`. E a tabela com mais FK do esquema, e a razao esta na
+        # `tenant_id`. **Nao e a tabela com mais FK do esquema** (a
+        # `outbound_messages` tem quatro), e a razao de serem tres esta na
         # forma do que ela guarda: uma linha dela so faz sentido dentro de uma
         # conversa de um contacto de uma PME, e as tres FK sao as tres
         # perguntas «de quem?» que ela tem de responder.

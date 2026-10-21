@@ -117,8 +117,20 @@ VARIAVEL_DA_COPIA = "KAMBA_DOWNGRADE_0012_COPIA"
 #: identidade da linha, e uma identidade que se reescreve nao e identidade. O
 #: `contact_id` e o `conversation_id` tambem nao: a mensagem veio de uma
 #: conversa e nao muda de conversa.
+#:
+#: **E a `classe` tambem nao, e a primeira versao desta lista concedia-a.** A
+#: revisao adversarial apanhou-o: sao **seis** e nao sete, porque o modulo
+#: **nunca** escreve a `classe` — ela e derivada do `wa_type` no momento da
+#: reserva e nao muda. Era um privilegio de escrita sem chamador, que e
+#: exactamente o critério pelo qual a `0011` deixou esta lista **vazia**, e que
+#: esta revisao cita tres linhas acima.
+#:
+#: O que ele permitia nao e academico: reclassificar um objecto
+#: (`media_audio` -> `media_imagem`) muda a coluna de que **depende a politica
+#: de retencao do KAM-071**, e o segmento da chave ja escrita passa a nao casar
+#: a classe da linha. Um audio reclassificado como imagem deixa de ter prazo e
+#: fica para sempre.
 COLUNAS_DA_APLICACAO = (
-    "classe",
     "content_type",
     "size",
     "sha256",

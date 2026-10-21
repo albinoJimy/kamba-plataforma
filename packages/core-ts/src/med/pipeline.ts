@@ -218,7 +218,7 @@ export class Med {
     const linha = reserva.rows[0];
     if (linha === undefined) {
       // Já existia: **sem chamada à Meta e sem `put`**. Devolve o que está.
-      return this.#comoEsta(pedido, classe);
+      return await this.#comoEsta(pedido);
     }
     const assetId = linha.asset_id;
 
@@ -293,11 +293,19 @@ export class Med {
       // ele está lá e o resumo di-lo; o que se faz é devolver o que está, e
       // deixar rasto para que o objecto a mais apareça antes de alguém o
       // descobrir na factura.
+      // **Os bytes contam-se mesmo assim**, e a primeira versão não os contava:
+      // o `return` acontecia antes do `contar`, pelo que os bytes que ficaram no
+      // armazenamento nunca entravam na `media_bytes_total` — a métrica cuja
+      // ajuda escrita diz, no `metricas.ts`, que «é o que sustenta o custo de
+      // armazenamento por PME». O objecto **está** lá e vai aparecer na
+      // factura; não o contar fazia a factura ser o primeiro sítio onde ele
+      // aparecia.
+      this.#metricas.contar(METRICA_BYTES, classe, ref.tamanho);
       this.#log?.warn({
-        outcome: "media_marcacao_sem_efeito",
+        outcome: "media_objecto_orfao",
         tenant_id: pedido.tenantId,
       });
-      return this.#comoEsta(pedido, classe);
+      return await this.#comoEsta(pedido);
     }
 
     this.#metricas.contar(METRICA_BYTES, classe, ref.tamanho);
@@ -365,9 +373,18 @@ export class Med {
     let espera = ESPERA_INICIAL_MS;
     let ultima: unknown;
     for (let tentativa = 1; tentativa <= TENTATIVAS; tentativa += 1) {
-      const comeco = this.#agora().getTime();
+      let comeco = this.#agora().getTime();
       try {
         const resolvida = await this.#midia.resolver(pedido.tenantId, pedido.mediaId);
+        // **O relógio da métrica arranca aqui e não antes da resolução**, e é a
+        // correcção de uma contradição: a nota do `contrato.ts` justifica a
+        // porta ter duas operações dizendo que «separá-las permite medir a
+        // latência da descarga **sem a resolução**, que é o que a
+        // `media_download_ms` mede» — e a primeira versão media as duas. No
+        // caminho em que o `resolver` estoura, o que ficava gravado sob o nome
+        // `download_ms` era a latência de uma resolução que nunca descarregou
+        // nada.
+        comeco = this.#agora().getTime();
         const descarregada = await this.#midia.descarregar(pedido.tenantId, resolvida);
         this.#metricas.medir(METRICA_DESCARGA_MS, this.#agora().getTime() - comeco);
         return descarregada;
@@ -391,7 +408,7 @@ export class Med {
   }
 
   /** O que está na base, para quando a reserva perdeu o conflito. */
-  async #comoEsta(pedido: PedidoDeMidia, classe: Classe): Promise<ResultadoDeMidia> {
+  async #comoEsta(pedido: PedidoDeMidia): Promise<ResultadoDeMidia> {
     const linhas = await this.#bd.query<LinhaDeMidia>(SQL_POR_ORIGEM, [
       pedido.tenantId,
       pedido.wamid,
@@ -434,11 +451,17 @@ export class Med {
     if (linha.estado === "falhou") {
       return { estado: "falhou", assetId: linha.asset_id, tentativas: TENTATIVAS };
     }
-    // `pendente`: outro está a tratar, ou ficou a meio. Não se refaz o trabalho
-    // dele — devolver `falhou` era mentir, e repetir a descarga era o que a
-    // reserva existe para evitar.
-    void classe;
-    return { estado: "falhou", assetId: linha.asset_id, tentativas: 0 };
+    // `pendente`: **outro está a tratar**, ou ficou a meio. Não se refaz o
+    // trabalho dele — repetir a descarga era o que a reserva existe para
+    // evitar.
+    //
+    // **E devolve-se `pendente` e não `falhou`**, que era o defeito: o
+    // comentário desta linha dizia «devolver `falhou` era mentir» e a linha
+    // seguinte devolvia `falhou` com `tentativas: 0`. Quem chama ramifica em
+    // `falhou` — é o que o critério 6 manda — e pedia ao cliente que reenviasse
+    // enquanto a descarga do outro *worker* corria. Ver a nota da variante no
+    // `contrato.ts`.
+    return { estado: "pendente", assetId: linha.asset_id };
   }
 
   async #rejeitar(
@@ -446,7 +469,24 @@ export class Med {
     assetId: string,
     motivo: "tipo_nao_permitido" | "tamanho_excedido",
   ): Promise<ResultadoDeMidia> {
-    await this.#bd.query(SQL_MARCAR_DESFECHO, [pedido.tenantId, assetId, "rejeitado"]);
+    // **O resultado lê-se, e a primeira versão descartava-o nos dois caminhos
+    // de desfecho** — que é palavra por palavra o defeito que este módulo diz
+    // ter corrigido no caminho do `armazenado`. O `SQL_MARCAR_DESFECHO` leva
+    // `AND estado = 'pendente'`: se a linha já não o estiver, o `UPDATE` não
+    // casa, e devolver `rejeitado` a quem chamou era afirmar sobre a base o
+    // contrário do que ela diz.
+    const marcada = await this.#bd.query<{ asset_id: string }>(SQL_MARCAR_DESFECHO, [
+      pedido.tenantId,
+      assetId,
+      "rejeitado",
+    ]);
+    if (marcada.rows.length === 0) {
+      this.#log?.warn({
+        outcome: "media_rejeicao_sem_efeito",
+        tenant_id: pedido.tenantId,
+      });
+      return await this.#comoEsta(pedido);
+    }
     this.#metricas.contar(METRICA_REJEICOES, motivo);
     // **Sem o tipo nem o tamanho no registo**: a lista branca do *logger* não
     // os tem, e o que o painel precisa de saber está na métrica.
@@ -462,7 +502,22 @@ export class Med {
     assetId: string,
     classe: Classe,
   ): Promise<ResultadoDeMidia> {
-    await this.#bd.query(SQL_MARCAR_DESFECHO, [pedido.tenantId, assetId, "falhou"]);
+    const marcada = await this.#bd.query<{ asset_id: string }>(SQL_MARCAR_DESFECHO, [
+      pedido.tenantId,
+      assetId,
+      "falhou",
+    ]);
+    if (marcada.rows.length === 0) {
+      // **E aqui é mais grave do que na rejeição**: sem ler o resultado, o
+      // módulo avisava o AGR a pedir reenvio com base num `UPDATE` que não fez
+      // nada — o cliente recebia um pedido de reenvio por causa de uma falha
+      // que a base não registou.
+      this.#log?.warn({
+        outcome: "media_falha_sem_efeito",
+        tenant_id: pedido.tenantId,
+      });
+      return await this.#comoEsta(pedido);
+    }
     // **O sinal ao AGR é o critério 6**, e vem depois de a linha ficar
     // `falhou`: se o aviso falhar, o estado está gravado e alguém o vê; ao
     // contrário, o AGR pedia o reenvio de algo que a nossa base ainda dizia

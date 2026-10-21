@@ -354,9 +354,22 @@ def _midia(cursor, tenant_id: str, canario: str) -> None:
     que a `media_assets_armazenado_ck` nao morde — ela so exige quando o estado
     e `armazenado`.
 
-    A coluna alteravel e o `estado`: e o que o `kamba_app` faz de verdade depois
-    da descarga, e e por isso que o `UPDATE` da revisao `0012` o inclui. Semeia
-    o administrador da instancia, como a receita da conversa e a da passagem.
+**Nao ha coluna alteravel**, e a razao e uma restricao e nao uma escolha.
+    O que o `kamba_app` faz de verdade e um `UPDATE` que escreve
+    `estado='armazenado'` **com** `storage_ref`, `size` e `sha256` na mesma
+    instrucao, porque a `media_assets_armazenado_ck` nao deixa de outra maneira.
+    Um `SET estado='armazenado'` sozinho sobre esta linha semeada — que tem as
+    quatro colunas nulas — da `23514`.
+
+    A primeira versao declarava o `estado` como alteravel com o valor
+    `armazenado`, e **nao rebentava por sorte de forma**: o teste da escrita
+    cruzada nao casa linha nenhuma (a RLS), pelo que o `CHECK` nunca era
+    avaliado, e o da escrita propria faz `SET estado = estado`. Qualquer teste
+    futuro que aplicasse o valor a linha do proprio tenant recebia uma violacao
+    de `CHECK` onde esperava uma contagem. Encontrado pela revisao adversarial.
+
+    Semeia o administrador da instancia, como a receita da conversa e a da
+    passagem.
     """
     cursor.execute(
         "INSERT INTO platform.media_assets "
@@ -599,10 +612,10 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     # KAM-020. O canario vai no `media_id` (ver `_midia`): a
     # `media_assets_origem_uq` leva o `tenant_id`, pelo que os dois tenants
     # podem semear o mesmo valor — ao contrario da `handoffs`, cuja chave
-    # primaria e global. A alteravel e o `estado`, que e o que o `kamba_app`
-    # escreve depois da descarga.
+    # primaria e global. **Sem coluna alteravel**, e a razao e uma restricao e
+    # nao uma escolha: ver a nota do `_midia`.
     ("platform", "media_assets"): Receita(
-        _midia, "media_id", "estado", "armazenado", semeador="admin",
+        _midia, "media_id", None, None, semeador="admin",
     ),
     ("platform", "events_outbox"): Receita(
         _evento_no_outbox, "agregado_id", None, None, semeador="admin"

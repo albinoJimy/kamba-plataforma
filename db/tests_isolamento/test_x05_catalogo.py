@@ -66,9 +66,9 @@ class TestCatalogoReal(ComBase):
         `tenant_id`, logo levam RLS `FORCE` e a politica `tenant_iso`, e e a
         coluna que as faz entrar aqui sozinhas.
 
-        Vinte e duas desde o KAM-020: a `media_assets`. E a tabela com mais
-        FK do esquema (tres: `tenants`, e `contacts` e `conversations` as duas
-        compostas com o `tenant_id`), e entra aqui pela coluna como todas as
+        Vinte e duas desde o KAM-020: a `media_assets`. Tem tres FK (`tenants`, e
+        `contacts` e `conversations` as duas compostas com o `tenant_id` — nao e a
+        que tem mais: a `outbound_messages` tem quatro), e entra aqui pela coluna como todas as
         outras — a chave primaria dela e o `asset_id`, que **nao** leva
         `tenant_id`, pelo que leva indice proprio `(tenant_id, criado_at DESC)`
         pela mesma razao da `handoffs`.

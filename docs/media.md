@@ -37,7 +37,7 @@ tratado, e quando deve desaparecer.
 | Coluna | O que é |
 |---|---|
 | `asset_id` | A chave, `uuid` gerado. É o que vai em `media://{assetId}` |
-| `tenant_id`, `contact_id`, `conversation_id` | De quem, e de que conversa. As duas últimas por FK **composta** |
+| `tenant_id`, `contact_id`, `conversation_id` | De quem, e de que conversa. As duas últimas por FK **composta** com o `tenant_id` |
 | `wamid`, `media_id` | A origem: a mensagem e o objecto do lado da Meta |
 | `classe` | `media_audio`, `media_imagem` ou `media_documento` |
 | `content_type`, `size`, `sha256` | O que a **descarga** descobriu. Anuláveis até ela acontecer |
@@ -247,13 +247,18 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W):/repo" -w /repo/packages/core-t
 | **A purga do blob**, e a política de retenção por classe | KAM-071 |
 | O *crypto-shredding* por DEK de contacto | KAM-070/071 |
 | A análise de malware e de conteúdo activo | KAM-065 (modelo de ameaças) |
-| A remoção de EXIF/GPS | **sem dono**: o `tecnica/03` §8.2 atribui-a ao MED, o bloco do KAM-020 não a menciona, e o KAM-049 repete-a. Registado nas dívidas |
+| A remoção de EXIF/GPS | **Atribuída ao MED pelo `tecnica/03` §8.2**, e nenhum critério deste bloco a pede; o KAM-049 repete-a. Não se fez, e a decisão de onde vive é de quem aprova emendas — dívida **64** |
 | O consumidor da fila que entrega ao Chatwoot | KAM-025 |
 | O registo `X-08` em código (`registerCase`) | KAM-066 |
 | **Os números da *allowlist*** | `ext:KAM-101` e `ext:KAM-102` — a API da Meta |
+| A **deduplicação por conteúdo** (`sha256` por *tenant*), e a contagem que a acompanha | **ninguém**: os *Detalhes Técnicos* pedem-na como «opcional» e não está feita. Não há índice por `sha256` nem consulta que o procure |
+| O **antivírus** e os *parsers* sem privilégios | **em dívida**: o `tecnica/08` §4.2 exige-os para o MED por escrito, e este ticket só entrega a estreiteza da *allowlist* |
+| O limite de tamanho **antes** de materializar os bytes, quando a Meta não anuncia o tamanho | `ext:KAM-101` — saber se ela o anuncia |
+| Uma coluna de **motivo** da rejeição, para a repetição responder a frase certa | ninguém: o critério 4 não a pede |
 
 ## 12. Controlo de versões
 
 | Versão | Data | Alteração |
 |---|---|---|
 | 1.0 | 2026-10-21 | Criado pelo KAM-020. |
+| 1.1 | 2026-10-21 | **Depois da revisão adversarial, que trouxe vinte e nove achados.** O que esta versão corrige em prosa: «a análise de malware não consta de `tecnica/`» era **falso** (o `08` §4.2 tem antivírus e *parsers* sem privilégios para o MED); «a remoção de EXIF/GPS … registado nas dívidas» apontava para uma linha que não existia, e agora é a 64; e o §11 ganha quatro linhas do que **não** está feito e não estava declarado — a dedup por conteúdo, o antivírus, o limite antes de materializar, e a coluna de motivo. |

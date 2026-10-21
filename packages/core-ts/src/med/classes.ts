@@ -61,10 +61,18 @@ export const LIMITES_POR_OMISSAO: Readonly<Record<Classe, LimiteDaClasse>> = {
     tipos: ["image/jpeg", "image/png", "image/webp"],
     bytesMaximos: 5 * 1024 * 1024,
   },
-  // **Só PDF**, e a restrição é deliberada: o bloco do ticket diz que a análise
-  // de malware e de conteúdo activo «não consta de `docs/tecnica/`» e fica para
-  // o modelo de ameaças (KAM-065). Até lá, a defesa é a estreiteza da lista —
-  // aceitar `.docx` ou `.xlsx` era aceitar macros sem ter quem as inspeccione.
+  // **Só PDF**, e a restrição é deliberada — mas a razão que o bloco do ticket
+  // dá para ela é **falsa**, e a revisão adversarial apanhou-o. Ele diz que a
+  // análise de malware e de conteúdo activo «não consta de `docs/tecnica/`», e
+  // consta: o `../docs/tecnica/08` §4.2 tem, na linha do MED da matriz STRIDE,
+  // «Ficheiro malicioso → tipo/tamanho/**antivírus**, nunca executar» e
+  // «Parsers (imagem/PDF) → processo sem privilégios, sem rede».
+  //
+  // O que o KAM-065 deve é o **modelo de ameaças**, não a primeira menção do
+  // controlo. Nem o antivírus nem o processo sem privilégios estão feitos neste
+  // ticket, e isso é uma exigência documental em dívida e não uma lacuna do
+  // canon. Até lá, a defesa é a estreiteza da lista — aceitar `.docx` ou
+  // `.xlsx` era aceitar macros sem ter quem as inspeccione.
   // 20 MiB é *proposta*.
   media_documento: {
     tipos: ["application/pdf"],

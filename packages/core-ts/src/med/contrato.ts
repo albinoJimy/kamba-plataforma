@@ -110,6 +110,26 @@ export type ResultadoDeMidia =
       readonly assetId: string;
       /** Quantas tentativas se fizeram antes de desistir. */
       readonly tentativas: number;
+    }
+  | {
+      /**
+       * **Outro está a tratar isto**, e esta variante existe por causa de um
+       * defeito que a revisão adversarial apanhou.
+       *
+       * A primeira versão não a tinha, e o caminho em que ela aparece é o mais
+       * normal que há: duas chamadas concorrentes com a mesma origem — a
+       * perdedora do `ON CONFLICT` lia a linha em `pendente` (a vencedora ainda
+       * estava a descarregar) e devolvia `falhou` com `tentativas: 0`. O
+       * comentário desse caminho dizia, por escrito, «devolver `falhou` era
+       * mentir», e a linha seguinte devolvia `falhou`.
+       *
+       * **O que isso custava:** quem chama ramifica em `falhou` — é o que o
+       * critério 6 manda — e pede ao cliente que reenvie, enquanto a descarga
+       * do outro *worker* está a correr. O tipo não conseguia exprimir a
+       * verdade, e por isso o código não a podia dizer.
+       */
+      readonly estado: "pendente";
+      readonly assetId: string;
     };
 
 /** O que a Meta devolve ao resolver um `media_id`. */
@@ -124,7 +144,20 @@ export interface MidiaResolvida {
   readonly url: string;
   /** O tipo que a Meta declara. Também não é o que vale: ver o `descarregar`. */
   readonly contentType: string;
-  /** O tamanho que ela declara, se o declarar. */
+  /**
+   * O tamanho que ela declara, se o declarar.
+   *
+   * **É lido, e recusa antes de descarregar.** A primeira versão tinha este
+   * campo e ninguém o usava: a *allowlist* corria em `bytes.byteLength`, isto
+   * é, **depois** de os bytes todos estarem em memória — um objecto de 2 GB era
+   * descarregado e materializado inteiro antes de ser recusado por exceder 20
+   * MiB. O `../docs/tecnica/08` §4.2 nomeia «Upload gigante → limites» como o
+   * controlo de negação de serviço **do MED**, e cumprir só o veredicto não é
+   * cumprir a protecção.
+   *
+   * Continua a ser **o da resposta** que decide o veredicto final: este é um
+   * anúncio, e um anúncio pode mentir para baixo.
+   */
   readonly tamanho?: number;
 }
 

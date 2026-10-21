@@ -34,7 +34,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { criarStorageFake, TTL_MAXIMO_S } from "../src/storage/index.ts";
+import {
+  ChaveForaDoTenantError,
+  criarStorageFake,
+  TTL_MAXIMO_S,
+} from "../src/storage/index.ts";
 import {
   Med,
   METRICA_BYTES,
@@ -149,11 +153,15 @@ class MetaFalsa implements ClienteDeMidia {
   duracaoMs = 0;
   avancarRelogio: ((ms: number) => void) | null = null;
 
+  /** Corre **antes** de resolver: deixa um teste gastar tempo na resolucao. */
+  antesDeResolver: (() => void) | null = null;
+
   readonly resolver = async (
     _tenantId: string,
     _mediaId: string,
   ): Promise<MidiaResolvida> => {
     this.resolucoes += 1;
+    this.antesDeResolver?.();
     if (this.emBaixo) throw new MidiaIndisponivelError("resolver: sem resposta");
     return { url: URL_DA_META, contentType: this.contentType };
   };
@@ -382,19 +390,19 @@ describe("nenhum URL da Meta e persistido (criterio 3)", () => {
 
 describe("a allowlist em execucao (criterio 4)", () => {
   it("**um tipo que nao passa vira `rejeitado`, com resposta**", async () => {
-    const { med, bd, storage } = montar();
-    const meta = montar();
-    void meta;
-    const montagem = montar();
-    montagem.meta.contentType = "application/zip";
-    const resultado = await montagem.med.receber(montagem.bd === bd ? pedido() : pedido());
+    // A primeira versao deste teste montava **tres** montagens, descartava duas,
+    // e tinha uma assercao tautologica — `storage.total() === 0` sobre a
+    // montagem onde nunca se recebeu nada, verdadeira por construcao. A revisao
+    // adversarial apanhou-a: parecia uma assercao e nao era.
+    const { med, bd, meta, storage } = montar();
+    meta.contentType = "application/zip";
+    const resultado = await med.receber(pedido());
 
     assert.ok(resultado.estado === "rejeitado");
     assert.equal(resultado.motivo, "tipo_nao_permitido");
     assert.ok(resultado.resposta.length > 0);
-    assert.equal(storage.total(), 0, "nada foi armazenado nesta montagem");
-    assert.equal(montagem.storage.total(), 0, "**nada foi armazenado**");
-    const linha = [...montagem.bd.linhas.values()][0];
+    assert.equal(storage.total(), 0, "**nada foi armazenado**");
+    const linha = [...bd.linhas.values()][0];
     assert.equal(linha?.["estado"], "rejeitado");
   });
 
@@ -478,7 +486,16 @@ describe("o URL interno assinado (criterio 5)", () => {
       asset_id: "asset-forjado",
       tenant_id: OUTRO_TENANT,
     });
-    await assert.rejects(() => med.urlInterna(OUTRO_TENANT, "asset-forjado"));
+    // **Com a classe do erro**, e nao um `assert.rejects` nu: a revisao
+    // adversarial apanhou que ele passava com **qualquer** excepcao, e o
+    // `signUrl` da guarda levanta por duas razoes distintas — chave fora do
+    // tenant e TTL invalido. Se o `TTL_DA_URL_INTERNA_S` fosse 0 ou 301, toda a
+    // chamada levantava `TtlInvalidoError` e este teste continuava verde a
+    // dizer «a porta recusa (X-08)».
+    await assert.rejects(
+      () => med.urlInterna(OUTRO_TENANT, "asset-forjado"),
+      ChaveForaDoTenantError,
+    );
   });
 
   it("**depois do TTL o URL devolve 403**", async () => {
@@ -674,14 +691,49 @@ describe("as metricas (criterio 9)", () => {
     assert.equal(metricas.ler()[`${METRICA_BYTES}:media_audio`], meta.bytes.byteLength);
   });
 
-  it("**a duracao mede-se mesmo quando falha**", async () => {
+  it("**o valor da duracao e o da descarga, e nao o da resolucao**", async () => {
+    // A primeira versao deste teste afirmava `METRICA_DESCARGA_MS in
+    // metricas.ler()` — a **presenca da chave** e nao o valor —, e a revisao
+    // adversarial mostrou o que isso escondia: o aparato que mediria o valor
+    // (`duracaoMs`, `avancarRelogio`) era morto, porque `duracaoMs` so era
+    // posto a **zero** e o avanco acontecia dentro do `descarregar`, que com
+    // `emBaixo` nunca era chamado. Em toda a bateria o *gauge* so podia valer
+    // 0, e uma implementacao que escrevesse `medir(..., 0)` constante passava.
+    const { med, meta, metricas } = montar();
+    meta.duracaoMs = 700;
+    await med.receber(pedido());
+    assert.equal(
+      metricas.ler()[METRICA_DESCARGA_MS],
+      700,
+      "o gauge nao leva a duracao da descarga",
+    );
+  });
+
+  it("**a duracao mede-se mesmo quando a descarga falha**", async () => {
     // Uma descarga que demora e falha e o sinal mais util que esta metrica da,
     // e medir so os sucessos fazia um painel verde num dia em que nada chegou.
+    // **E e a descarga que falha e nao o `resolver`**: com o `resolver` em baixo
+    // nao ha descarga nenhuma para medir.
     const { med, meta, metricas } = montar();
-    meta.emBaixo = true;
-    meta.duracaoMs = 0;
+    meta.falhasAntesDeAcertar = TENTATIVAS + 5;
+    meta.duracaoMs = 300;
     await med.receber(pedido());
-    assert.ok(METRICA_DESCARGA_MS in metricas.ler());
+    assert.equal(metricas.ler()[METRICA_DESCARGA_MS], 300);
+  });
+
+  it("**a resolucao nao entra na duracao da descarga**", async () => {
+    // E a propriedade que a nota do `contrato.ts` promete («separa-las permite
+    // medir a latencia da descarga **sem** a resolucao») e que a primeira versao
+    // do pipeline nao cumpria: o relogio arrancava antes do `resolver`.
+    const { med, meta, metricas, avancar } = montar();
+    meta.duracaoMs = 100;
+    meta.antesDeResolver = () => avancar(5_000);
+    await med.receber(pedido());
+    assert.equal(
+      metricas.ler()[METRICA_DESCARGA_MS],
+      100,
+      "os 5 s da resolucao entraram na duracao da descarga",
+    );
   });
 
   it("**nenhuma metrica leva identificadores**", async () => {

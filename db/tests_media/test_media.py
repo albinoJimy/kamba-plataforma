@@ -53,34 +53,56 @@ FICHEIROS = (
 #: prova. Se um desaparecer, a suite deixa de provar essa propriedade — e isso
 #: tem de falhar aqui, nao passar por haver menos testes.
 #:
-#: Os oito primeiros sao das baterias do gate 4 (funcoes puras, a fonte e as
-#: portas); os cinco ultimos sao do ensaio de base e sao os que **so** um
-#: PostgreSQL prova.
+#: **Onze do gate 4 e quatro do ensaio de base**, e a divisao esta certa agora
+#: porque a primeira versao a tinha errada: dizia «os cinco ultimos sao do
+#: ensaio de base e sao os que **so** um PostgreSQL prova», e tres desses cinco
+#: eram grupos do `med.pipeline.test.ts`, que corre sem base nenhuma. Pior,
+#: **tres grupos nao estavam na lista** — dois deles do unico ficheiro que fala
+#: com o PostgreSQL —, pelo que podiam desaparecer sem este gate notar, que e
+#: exactamente o que o cabecalho deste modulo diz que ele existe para impedir.
+#: Apanhado pela revisao adversarial.
+#:
+#: O `idempotencia (criterio 2)` existe nos **dois** ficheiros com o mesmo nome,
+#: e por isso conta-se uma vez.
 GRUPOS = (
+    # As tres baterias do gate 4.
     "a traducao de wa_type em classe",
     "a allowlist (criterio 4)",
     "as respostas ao cliente sao deterministicas (criterio 4)",
     "o MED nao importa PAY nem COM (criterio 8)",
     "a recepcao de midia (criterio 1)",
+    "idempotencia (criterio 2)",
     "nenhum URL da Meta e persistido (criterio 3)",
+    "a allowlist em execucao (criterio 4)",
     "o URL interno assinado (criterio 5)",
     "a descarga que falha (criterio 6)",
     "a retencao do audio (criterio 7)",
     "as metricas (criterio 9)",
-    "idempotencia (criterio 2)",
+    # O ensaio de base, e estes sao os que **so** um PostgreSQL prova.
     "a monotonia do estado",
+    "os dois caminhos de desfecho tambem leem o resultado",
+    "as restricoes mordem atraves do modulo",
     "isolamento (Testes Requeridos: X-03 sobre media_assets)",
+    "nenhum URL da Meta chega a base (criterio 3)",
 )
 
 #: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
 #: que dao a letra de cada criterio e com os que so a base prova.
+#:
+#: **Dois sairam desta lista**, e a razao e da revisao adversarial: «uma segunda
+#: marcacao nao reescreve um `armazenado`» e «um `armazenado` sem `storage_ref`
+#: e recusado pela base» fazem o `UPDATE` **a mao no teste**, com o predicado
+#: escrito nele — provam que o PostgreSQL compara cadeias, nao provam nada sobre
+#: o SQL do modulo. Exigi-los pelo nome dava a impressao de que a propriedade
+#: estava presa. Quem a prende e «a marcacao do modulo nao casa quando o estado
+#: mudou», que passa pelo caminho do codigo, e esse esta na lista.
 TESTES_OBRIGATORIOS = (
     # O que so um PostgreSQL prova.
     "**duas chamadas concorrentes: o `ON CONFLICT` da reserva**",
     "**tres chamadas sequenciais: 1 linha e 1 descarga**",
     "**a marcacao do modulo nao casa quando o estado mudou**",
-    "**uma segunda marcacao nao reescreve um `armazenado`**",
-    "**um `armazenado` sem `storage_ref` e recusado pela base**",
+    "**a rejeicao que nao casa nao mente a quem chamou**",
+    "**a falha que nao casa nao avisa o AGR**",
     "com o contexto de A, as midias de B nao aparecem",
     "com o contexto de A, uma escrita na midia de B nao acontece",
     "**o `urlInterna` de outro tenant nao devolve nada**",

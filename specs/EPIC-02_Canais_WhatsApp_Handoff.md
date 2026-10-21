@@ -419,6 +419,136 @@ via zero linhas, pelo que apagava tudo em silêncio. O desenho está em
 | *gate* 8 (CHR) | `db/gate_bd.py --suite tests_chr` | **6 asserções Python sobre 7 ficheiros de teste Node, OK**; p95 `0,805 ms` / `0,0135 ms` e invalidação `0,722 ms` numa máquina livre; `3,329 ms` / `0,0697 ms` e `1,912 ms` com carga ao lado |
 | prova por mutação | `db/mutacoes.py --aplicaveis` e os filtros `chr:` e `revisao 0009` | **294 mutações, 0 não aplicáveis**; **24 novas, as 24 corridas e as 24 apanhadas** — filtro `chr:` 15, filtro `revisao 0009` 7, filtro `revisao 0008: o motivo` 2, com a linha de base verde confirmada em cada suite antes de cada volta. **Duas delas só são apanhadas pelo teste certo depois de uma correcção da revisão adversarial**: as que tiram o `tenant_id` das FK da conversa eram apanhadas por um teste da própria lista de mutações, e agora caem no `TestFkCompostas`. A lista inteira corre de noite (KAM-143) |
 
+#### O que a revisão adversarial encontrou, e os sete defeitos que fechou
+
+Vinte e nove achados. **Sete eram defeitos de código ou de teste e estão
+corrigidos; o resto eram afirmações minhas mais confiantes do que a evidência
+sustentava.** Por gravidade, e cada um com o que custava:
+
+1. **A perdedora de uma corrida recebia `falhou`.** Duas chamadas concorrentes
+   com a mesma origem: a perdedora do `ON CONFLICT` lia a linha em `pendente` —
+   a vencedora ainda estava a descarregar — e o módulo devolvia-lhe `falhou` com
+   `tentativas: 0`. Quem chama ramifica em `falhou`, que é o que o critério 6
+   manda, e **pedia ao cliente que reenviasse enquanto a descarga do outro
+   *worker* corria**. O comentário dessa linha dizia, por escrito, «devolver
+   `falhou` era mentir», e a linha seguinte devolvia `falhou`: o tipo não tinha
+   variante que dissesse «outro está a tratar», pelo que o código não podia
+   dizer a verdade. **E o teste da concorrência não o via** — ele afirmava que
+   as duas davam o mesmo `assetId` e que uma só armazenava, e as duas asserções
+   passam com a outra a reportar uma falha que não houve. O `ResultadoDeMidia`
+   ganhou a variante `pendente`, e o teste ganhou a asserção de que **nenhuma**
+   das duas pode dizer `falhou`.
+2. **Os dois caminhos de desfecho descartavam o resultado do `UPDATE`** — que é
+   palavra por palavra o defeito que esta entrega diz ter corrigido no caminho
+   do `armazenado`. O `SQL_MARCAR_DESFECHO` leva `AND estado = 'pendente'`: se a
+   linha já não o estivesse, o `UPDATE` não casava e o módulo devolvia
+   `rejeitado`/`falhou` sobre uma linha que a base diz outra coisa — e no caso
+   da falha **avisava o AGR** a pedir reenvio com base num `UPDATE` que não fez
+   nada. A assimetria não estava declarada, não tinha teste, e a mutação
+   equivalente **não existia**. Agora os dois lêem o resultado, e há uma mutação
+   por caminho.
+3. **O objecto órfão não era contado.** Quando o `put` tem sucesso e a marcação
+   não casa, o comentário prometia «deixar rasto para que o objecto a mais
+   apareça antes de alguém o descobrir na factura» — e o `return` acontecia
+   **antes** do `contar(media_bytes_total)`. Os bytes que ficaram no
+   armazenamento nunca entravam na métrica cuja ajuda escrita diz que «é o que
+   sustenta o custo de armazenamento por PME». A factura era, literalmente, o
+   primeiro sítio onde ele aparecia.
+4. **A `media_download_ms` media a resolução mais a descarga**, e a nota do
+   `contrato.ts` justificava a porta ter duas operações dizendo o contrário («só
+   a segunda move bytes: separá-las permite medir a latência da descarga **sem a
+   resolução**»). No caminho em que o `resolver` estoura, o que ficava gravado
+   sob o nome `download_ms` era a latência de uma resolução que nunca
+   descarregou nada. **E o teste não o podia ver:** ele afirmava a *presença da
+   chave* e não o valor, e o aparato que mediria o valor era morto — a duração
+   só era posta a zero, e o avanço do relógio acontecia dentro do `descarregar`,
+   que com a Meta em baixo nunca é chamado. Em toda a bateria o *gauge* só podia
+   valer 0, e uma implementação que escrevesse zero constante passava. Três
+   testes novos, um deles a exigir que os cinco segundos de uma resolução lenta
+   **não** entrem na duração.
+5. **O `GRANT UPDATE` concedia a `classe` sem chamador** — o critério exacto
+   pelo qual a `0011` deixou a sua lista vazia, e que esta revisão cita três
+   linhas acima. O módulo nunca escreve a `classe`: ela deriva do `wa_type` na
+   reserva. O que o privilégio permitia não é académico: reclassificar um
+   objecto muda a coluna de que **depende a política de retenção do KAM-071**, e
+   um áudio reclassificado como imagem deixa de ter prazo e fica para sempre.
+   São **seis** colunas e não sete.
+6. **Duas mutações morriam por acidente, e uma era imortal quanto à propriedade
+   que dizia medir.** A do `armazenado_ck` ancorava numa linha *dentro* do
+   `CHECK`, e apagá-la deixava SQL que não analisa: o `alembic upgrade` falhava,
+   a *suite* ficava vermelha, e ela contava como apanhada **sem nunca ter criado
+   a tabela** — media o PostgreSQL e não o teste. A do `SQL_POR_ASSET` morria
+   porque a base falsa despacha por `includes` de cadeias e o texto mutado
+   deixava de casar o despacho; pela propriedade era inobservável, porque a RLS
+   esconde a linha na base verdadeira e a base falsa impõe o *tenant* em
+   JavaScript. A primeira ganhou âncora nova; a segunda **saiu**, com a razão
+   escrita.
+7. **A semente do X-03 declarava um valor que a base recusaria.** A coluna
+   alterável era o `estado` com o valor `armazenado`, e um
+   `SET estado='armazenado'` sozinho sobre a linha semeada dá `23514` — a
+   `media_assets_armazenado_ck` exige a chave, o tamanho e o resumo na mesma
+   instrução. Hoje não rebentava **por sorte de forma**: o teste cruzado não
+   casa linha nenhuma (a RLS) e o próprio faz `SET estado = estado`. Qualquer
+   teste futuro que o aplicasse recebia uma violação de `CHECK` onde esperava
+   uma contagem.
+
+**E a lista de grupos do *gate* 8 tinha três em falta**, dois deles do único
+ficheiro que fala com o PostgreSQL — podiam desaparecer sem o *gate* notar, que
+é exactamente o que o cabeçalho dele diz existir para impedir. A divisão
+declarada («os cinco últimos são do ensaio de base») também estava errada: três
+desses cinco são do ficheiro que corre sem base nenhuma.
+
+**Dois testes saíram da lista de obrigatórios**, e é a mesma classe de defeito
+que esta entrega já tinha reconhecido uma vez: fazem o `UPDATE` **à mão no
+teste**, com o predicado escrito nele. Um deles dizia no comentário «aqui a
+tentativa vem de uma instrução com a forma da que o módulo emite» — e a forma
+não é nenhuma das que o módulo emite. Exigi-los pelo nome dava a impressão de
+que a propriedade estava presa; quem a prende é o teste da janela.
+
+#### As afirmações minhas que eram falsas
+
+Ficam ditas em vez de corrigidas em silêncio, porque é o que esta *skill* pede:
+
+- **«É a tabela com mais FK do esquema»** — falso, e afirmado em **cinco**
+  sítios. A `outbound_messages` da `0010` tem quatro; esta tem três. Num deles a
+  frase estava imediatamente acima do comentário que a contradizia.
+- **«A análise de malware e de conteúdo activo não consta de
+  `../docs/tecnica/`»** — falso: o `08` §4.2 tem, na linha do MED da matriz
+  STRIDE, «Ficheiro malicioso → tipo/tamanho/**antivírus**, nunca executar» e
+  «Parsers (imagem/PDF) → processo sem privilégios, sem rede». O que o KAM-065
+  deve é o modelo de ameaças, não a primeira menção do controlo. A frase vem dos
+  *Detalhes Técnicos* do ticket e eu propaguei-a como facto em três sítios
+  novos.
+- **«Dez destes nomes não existiam em sítio nenhum — nem em código»** — a
+  enumeração tinha **doze** itens, e dois deles (`classe` e `sha256`) existem em
+  código desde o KAM-011, o que a própria secção diz três parágrafos abaixo. Era
+  verdade sobre o canon e falso sobre o código.
+- **«Cobertura entre 89% e 100% em seis módulos»** — aritmeticamente impossível
+  (ver a tabela de execução).
+- **«Uma escrita na linha de B não acontece, nem como dono»** — o ensaio corre
+  como `kamba_app`, que não é dono. O `FORCE` está provado, pela bateria do
+  esquema.
+- **«Registado nas dívidas»**, sobre o EXIF/GPS — não estava; estava só no
+  dicionário. Agora é a dívida **64**, e os dois documentos deixaram de
+  discordar sobre o número de donos.
+- **E o `PRIMARY KEY` voltou a entrar em *backticks*** — na frase que narra a
+  lição de o ter feito. O `dict_export` colhe os identificadores entre crases
+  das notas, pelo que a menção repunha `PRIMARY` e `KEY` no conjunto de nomes
+  conhecidos; e dois outros *spans* da mesma secção colhiam `a`, `z`, `z0`, `_`
+  e `media_`. É a terceira vez que esta armadilha morde neste projecto.
+
+#### O que o ticket pede e não está feito, e agora está declarado
+
+Cinco divergências novas no §3.16 (7 a 11) e quatro linhas novas no §11 do
+`../docs/media.md`: o `sticker` tratado como mídia contra o `01` §5.4, que manda
+**ignorá-lo**; o limite de tamanho que só morde depois de materializar os bytes
+quando a Meta não anuncia o tamanho; a repetição de um rejeitado a responder
+sempre a frase do tipo errado; a **deduplicação por conteúdo**, que é opcional,
+não está feita e não estava mencionada em sítio nenhum — e o
+`test_media_schema.py` argumentava a partir dela como se existisse; e o «Teste
+Requerido» de integração com a Graph falsa, que não se cumpre por decisão
+escrita em quatro sítios mas que não estava na tabela de verificação.
+
 #### Decisões tomadas neste ticket
 
 - **O `tenant_id` nasce no passo 1 e nenhum passo seguinte o recebe de fora.**
@@ -1371,7 +1501,7 @@ qualquer mutação dele sobreviveria.
 | DoD — todos os CA satisfeitos e demonstráveis | **não satisfeito — caixa vazia** | Oito de nove. O que falta é o caminho da chave do critério 1, e o que o impede é uma divergência entre dois blocos que já estava registada (dívida 8): a forma que o KAM-020 escreve tem um segmento a mais do que a porta do KAM-011 aceita |
 | DoD — 2 revisores (dados pessoais, isolamento); testes verdes; cobertura ≥ limiar | **não satisfeito — caixa vazia** | **Zero revisores humanos**: uma revisão adversarial é evidência, não é um revisor. Testes verdes e cobertura: ver a tabela de execução |
 | DoD — documentação actualizada (`docs/media.md`); Conventional Commits | **satisfeito** | [`../docs/media.md`](../docs/media.md) (novo, doze secções), dicionário §3.16 (emenda 1.24), `../docs/ci.md` (treze *suites*) e `../docs/dividas-documentais.md`. Conventional Commits imposto pelo `tools/githooks/commit-msg` |
-| DoD — isolamento de *tenant*: prefixo por tenant, RLS em `media_assets`, teste cruzado X-08 | **satisfeito** | As três partes, e duas herdam-se por usar a porta em vez de a reinventar. **O prefixo é da porta** (`novaChave` põe o *tenant* no primeiro segmento, e o `validarClasse` recusa o que não casa), e há asserção sobre a forma da chave gravada. **A RLS é da revisão** e está provada em dois sítios: o X-03 do *gate* 6 com a receita de sementes nova (canário no `media_id`, porque a `origem_uq` leva o *tenant* e os dois podem semear o mesmo valor — ao contrário da `handoffs`, cuja chave é global), e o ensaio de base, com o controlo positivo e a escrita cruzada que não acontece nem como dono (`FORCE`). **O X-08 existe e corre**, e isso foi medido e não suposto: o rótulo está no `../docs/tecnica/08` §3.7 e a bateria de contrato do KAM-011 tem **dois** casos com ele no título, sobre três alvos. O que o KAM-020 acrescenta é o lado novo — o URL interno do MED e a `media_assets` —, e está nos testes acima. O que **não** existe é o registo enumerável que o hospedaria (`registerCase`, KAM-066) |
+| DoD — isolamento de *tenant*: prefixo por tenant, RLS em `media_assets`, teste cruzado X-08 | **satisfeito** | As três partes, e duas herdam-se por usar a porta em vez de a reinventar. **O prefixo é da porta** (`novaChave` põe o *tenant* no primeiro segmento, e o `validarClasse` recusa o que não casa), e há asserção sobre a forma da chave gravada. **Três FK, e não as mais do esquema** — a `outbound_messages` da `0010` tem quatro, e cinco sítios desta entrega diziam que esta era a que tinha mais, num deles imediatamente acima do comentário que o contradizia. **A RLS é da revisão** e está provada em dois sítios: o X-03 do *gate* 6 com a receita de sementes nova (canário no `media_id`, porque a `origem_uq` leva o *tenant* e os dois podem semear o mesmo valor — ao contrário da `handoffs`, cuja chave é global), e o ensaio de base, com o controlo positivo e a escrita cruzada que não acontece. **O «nem como dono» sai desta frase**, e foi a revisão adversarial que o apanhou: o ensaio corre como `kamba_app`, que não é dono da tabela, pelo que um `ENABLE` sem `FORCE` dava o mesmo resultado ali. O `FORCE` **está** provado — mas noutro sítio, pela bateria do esquema, que lê o `relforcerowsecurity` do `pg_class`. **O X-08 existe e corre**, e isso foi medido e não suposto: o rótulo está no `../docs/tecnica/08` §3.7 e a bateria de contrato do KAM-011 tem **dois** casos com ele no título, sobre três alvos. O que o KAM-020 acrescenta é o lado novo — o URL interno do MED e a `media_assets` —, e está nos testes acima. O que **não** existe é o registo enumerável que o hospedaria (`registerCase`, KAM-066) |
 | DoD — idempotência: `UNIQUE` e teste de repetição | **satisfeito** | Ver o CA 2. Três chamadas sequenciais dão uma linha e uma descarga; **duas concorrentes em duas ligações** dão uma linha e uma só armazena, que é a única forma de exercitar o `ON CONFLICT` — em série a segunda nem chega ao `INSERT`, e foi esse o buraco que a prova por mutação encontrou no `ensureAccount` do KAM-019 |
 | DoD — pagamento só por evento autenticado: nenhuma imagem altera estado de pagamento (teste de arquitectura) | **satisfeito** | Ver o CA 8. E vale repetir o porquê, porque é o ADR-013 e não uma preferência: um cliente manda a fotografia de um depósito e o pagamento só muda de estado por um evento autenticado do banco ou do facilitador — **nunca** por alguém, ou algum modelo, ter olhado para a imagem |
 | DoD — privacidade: áudio com retenção curta; sem URLs da Meta nem conteúdo em logs | **satisfeito** | O áudio leva 24 h contadas da criação (CA 7) e nenhum URL da Meta é persistido em sítio nenhum (CA 3). **E o registo não leva conteúdo**: a lista branca do *logger* tem nove campos e nenhum é texto de mensagem — o `log_policy` lê 119 ficheiros e dá **0 achados**. Os `outcome` que o MED escreve são todos de forma `media_*`, sem tipo, sem tamanho e sem identificador de objecto: o que o painel precisa de saber está na métrica |
@@ -1389,9 +1519,9 @@ qualquer mutação dele sobreviveria.
 | *gate* 4 (baterias da mídia) | `node --test` sobre os três `tests/med.*.test.ts` | **59 testes, 59 passam** |
 | *gate* 6 (isolamento) | `db/gate_bd.py --suite tests_isolamento` | **78 testes, OK** — com a `media_assets` descoberta pelo catálogo e semeada, e o X-05 de vinte e uma para **vinte e duas** tabelas |
 | *gate* 8 (migrações) | `db/gate_bd.py --suite tests` | **433 testes, OK** — eram 415; a bateria do esquema trouxe dezoito |
-| *gate* 8 (mídia) | `db/gate_bd.py --suite tests_media` | **5 asserções Python sobre 4 ficheiros de teste Node, OK**; cobertura de `src/med/` entre **89%** (`pipeline.ts`) e **100%** em seis módulos, contra o limiar de 75% do estrato `restante` |
+| *gate* 8 (mídia) | `db/gate_bd.py --suite tests_media` | **5 asserções Python sobre 4 ficheiros de teste Node, OK**; cobertura de `src/med/` em **seis** módulos: `pipeline.ts` a **89%** e os outros cinco entre 95% e 100%, contra o limiar de 75% do estrato `restante`. (A primeira versão desta linha dizia «entre 89% e 100% em seis módulos», que é aritmeticamente impossível — se um dos seis está a 89%, só cinco podem estar a 100%. O `../docs/ci.md` dizia a coisa certa, pelo que os dois documentos da mesma entrega discordavam.) |
 | *gate* 11 (cadeia de abastecimento) | `supply_chain check` | `conforme`, **código 0** — 24 referências a 6 imagens, todas por digest |
-| prova por mutação | `db/mutacoes.py --aplicaveis` e as 27 novas por filtro | **389 mutações, 0 não aplicáveis** — **27 novas** deste ticket. As **17 do módulo e as 10 da revisão** correram, e três sobreviveram à primeira; depois das correcções, **27 corridas, 0 não apanhadas** |
+| prova por mutação | `db/mutacoes.py --aplicaveis` e as 27 novas por filtro | **389 mutações, 0 não aplicáveis** — **27 novas** deste ticket. As do módulo e as da revisão correram **duas vezes**, e a segunda é a que conta: à primeira sobreviveram três, e depois das correcções da revisão adversarial sobreviveram **outras duas** — as duas que eu próprio acabara de acrescentar para os caminhos de desfecho, e que eu corrigira no código sem escrever o teste. A terceira volta dá **0 não apanhadas** em tudo. **É a segunda vez neste ticket que a prova por mutação me apanha a corrigir o código e a esquecer o teste**, e a primeira está narrada abaixo |
 
 #### O que a prova por mutação encontrou, e era a armadilha que eu queria evitar
 

@@ -101,8 +101,10 @@ TABELAS_0011 = ("handoff_accounts", "handoffs")
 #:
 #: Uma so, e referencia **tres** tabelas por FK: a `tenants` da `0001`, e a
 #: `contacts` da `0003` e a `conversations` da `0009`, as duas por FK composta
-#: com o `tenant_id`. E a tabela com mais FK do esquema, e a razao e que uma
-#: linha dela so faz sentido dentro de uma conversa de um contacto de uma PME.
+#: com o `tenant_id`. **Nao e a tabela com mais FK do esquema** — a
+#: `outbound_messages` da `0010` tem quatro —, e a primeira versao desta nota
+#: dizia que era. A razao de serem tres e que uma linha dela so faz sentido
+#: dentro de uma conversa de um contacto de uma PME.
 TABELAS_0012 = ("media_assets",)
 
 TABELAS = tuple(

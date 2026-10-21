@@ -645,8 +645,7 @@ class TestInventario(ComBase):
                         "handoffs_tenant_fk",
                         "handoffs_conversation_fk",
                         "handoff_accounts_tenant_fk",
-                        # KAM-020: as **tres** da midia, e e a tabela com mais
-                        # FK do esquema. Duas sao compostas com o `tenant_id`
+                        # KAM-020: as **tres** da midia. Duas sao compostas com o `tenant_id`
                         # (contacto e conversa), pela razao de sempre; e as tres
                         # existem porque uma linha desta tabela so faz sentido
                         # dentro de uma conversa de um contacto de uma PME.

@@ -615,7 +615,12 @@ COLUNAS_POR_PAPEL = {
     # inexistente, que e o que a `0009` recusou por escrito. O conjunto vazio
     # afirma a ausencia: se alguem voltar a conceder, este teste falha.
     ("kamba_app", "handoff_accounts", "UPDATE"): set(),
-    # KAM-020: sete na midia, e todas sao o que a descarga descobre. O
+    # KAM-020: **seis** na midia, e a primeira versao tinha sete. A revisao
+    # adversarial apanhou a setima: a `classe` **nao** e escrita pelo modulo —
+    # ela deriva do `wa_type` na reserva e nao muda —, e conceder `UPDATE` sobre
+    # ela permitia reclassificar um objecto, que muda a coluna de que depende a
+    # politica de retencao do KAM-071. Era um privilegio sem chamador, o critério
+    # pelo qual a `0011` deixou a sua lista vazia. O
     # `asset_id`, o `tenant_id`, o `wamid` e o `media_id` **nao** estao: sao a
     # identidade da linha, e uma identidade que se reescreve nao e identidade —
     # alem de que reescrever o `wamid` ou o `media_id` furava a
@@ -625,7 +630,6 @@ COLUNAS_POR_PAPEL = {
     # objecto de midia para outra conversa do **mesmo** tenant, que a FK nao
     # impede e que ninguem precisa.
     ("kamba_app", "media_assets", "UPDATE"): {
-        "classe",
         "content_type",
         "size",
         "sha256",

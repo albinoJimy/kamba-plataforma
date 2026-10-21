@@ -72,8 +72,12 @@ class MetaFalsa implements ClienteDeMidia {
   /** Corre **durante** a descarga: a janela em que outro pode escrever. */
   antesDeDescarregar: (() => Promise<void>) | null = null;
 
+  /** Corre **durante** a resolução: a janela do caminho da falha. */
+  antesDeResolver: (() => Promise<void>) | null = null;
+
   readonly resolver = async (): Promise<MidiaResolvida> => {
     this.resolucoes += 1;
+    await this.antesDeResolver?.();
     if (this.emBaixo) throw new MidiaIndisponivelError("resolver: sem resposta");
     return { url: URL_DA_META, contentType: this.contentType };
   };
@@ -244,6 +248,31 @@ describe("o MED contra a base (KAM-020)", () => {
         (r) => r.estado === "armazenado" && !r.repetido,
       );
       assert.equal(armazenadas.length, 1, "as duas armazenaram");
+
+      // **E nenhuma das duas pode dizer `falhou`**, que era o defeito que a
+      // revisao adversarial apanhou e que estas duas assercoes nao tinham. A
+      // perdedora do `ON CONFLICT` le a linha em `pendente` — a vencedora ainda
+      // esta a descarregar — e a primeira versao devolvia-lhe `falhou` com
+      // `tentativas: 0`. Quem chama ramifica em `falhou` (e o que o criterio 6
+      // manda) e pedia ao cliente que reenviasse enquanto a descarga do outro
+      // *worker* corria. As duas assercoes acima passavam com isso.
+      for (const resultado of [primeira, segunda]) {
+        assert.notEqual(
+          resultado.estado,
+          "falhou",
+          "uma corrida ganha nao e uma falha: o cliente seria mandado reenviar",
+        );
+      }
+      // A perdedora diz `pendente` ou `armazenado` — as duas sao verdade,
+      // porque depende de a vencedora ter acabado antes de ela ler.
+      const perdedora = [primeira, segunda].find(
+        (r) => !(r.estado === "armazenado" && !r.repetido),
+      );
+      assert.ok(perdedora !== undefined);
+      assert.ok(
+        perdedora.estado === "pendente" || perdedora.estado === "armazenado",
+        `a perdedora disse ${perdedora.estado}`,
+      );
     });
   });
 
@@ -307,7 +336,14 @@ describe("o MED contra a base (KAM-020)", () => {
     });
 
 
-    it("**uma segunda marcacao nao reescreve um `armazenado`**", async () => {
+    it("uma segunda marcacao a mao nao reescreve um `armazenado`", async () => {
+      // **Este teste nao prova o SQL do modulo**, e o nome di-lo agora: ele
+      // escreve o `AND estado = 'pendente'` no proprio teste, pelo que prova
+      // que o PostgreSQL compara duas cadeias. Fica porque confirma a forma da
+      // instrucao contra a base, e **saiu da lista de obrigatorios** do gate: o
+      // que prende a propriedade e «a marcacao do modulo nao casa quando o
+      // estado mudou», acima, que passa pelo caminho do codigo. A revisao
+      // adversarial apanhou a confusao entre os dois.
       // O `WHERE estado = 'pendente'` do `SQL_MARCAR_ARMAZENADO`. Sem ele, uma
       // segunda passagem reescrevia o que ja estava — e o `content_type`, o
       // `size` e o `sha256` da segunda podiam ser de outro objecto.
@@ -360,11 +396,120 @@ describe("o MED contra a base (KAM-020)", () => {
     });
   });
 
+  describe("os dois caminhos de desfecho tambem leem o resultado", () => {
+    it("**a rejeicao que nao casa nao mente a quem chamou**", async () => {
+      // O par do teste da janela, para o caminho da **rejeicao**. A prova por
+      // mutacao pediu-o: eu corrigi o codigo (os dois caminhos de desfecho
+      // passaram a ler o resultado do `UPDATE`) e **nao escrevi o teste**, pelo
+      // que as duas mutacoes que o desfazem sobreviveram as duas. E a mesma
+      // falha, duas vezes no mesmo ticket.
+      //
+      // A janela e a mesma: outro processo marca a linha **durante** a descarga,
+      // e quando o modulo a tenta marcar `rejeitado` o `AND estado = 'pendente'`
+      // nao casa. Sem ler o resultado, ele dizia `rejeitado` a quem chamou sobre
+      // uma linha que a base diz estar `armazenado`.
+      const [tenant, conversa, contacto] = await tenantNovo("media-rej-janela");
+      const meta = new MetaFalsa();
+      meta.contentType = "application/zip";
+      const med = medDe(tenant, meta);
+      const base = pedido(tenant, conversa, contacto);
+
+      meta.antesDeDescarregar = async () => {
+        await admin.query(
+          "UPDATE platform.media_assets " +
+            "SET estado = 'armazenado', content_type = 'audio/ogg', size = 1, " +
+            "    sha256 = $4, storage_ref = 't/x/media_audio/2026/10/abc' " +
+            "WHERE tenant_id = $1 AND wamid = $2 AND media_id = $3",
+          [tenant, base.wamid, base.mediaId, "a".repeat(64)],
+        );
+      };
+
+      const resultado = await med.receber(base);
+
+      assert.equal(
+        resultado.estado,
+        "armazenado",
+        "o modulo disse `rejeitado` sobre uma linha que a base diz estar armazenada",
+      );
+      await definirContexto(app, tenant);
+      const linha = await app.query<{ estado: string }>(
+        "SELECT estado FROM platform.media_assets WHERE tenant_id = $1 AND wamid = $2",
+        [tenant, base.wamid],
+      );
+      assert.equal(linha.rows[0]?.estado, "armazenado", "a rejeicao reescreveu o estado");
+    });
+
+    it("**a falha que nao casa nao avisa o AGR**", async () => {
+      // E aqui e mais grave do que na rejeicao: sem ler o resultado, o modulo
+      // avisava o AGR a pedir reenvio com base num `UPDATE` que nao fez nada —
+      // o cliente recebia um pedido de reenvio por causa de uma falha que a base
+      // nao registou.
+      //
+      // A janela e a da **resolucao**, porque com a Meta em baixo e o `resolver`
+      // que estoura e o `descarregar` nunca corre.
+      const [tenant, conversa, contacto] = await tenantNovo("media-falha-janela");
+      const meta = new MetaFalsa();
+      meta.emBaixo = true;
+      const avisos: unknown[] = [];
+      const base = pedido(tenant, conversa, contacto);
+      const med = new Med({
+        bd: {
+          query: async <T,>(texto: string, valores?: readonly unknown[]) => {
+            await definirContexto(app, tenant);
+            const resultado = await app.query(
+              texto,
+              valores === undefined ? [] : [...valores],
+            );
+            return { rows: resultado.rows as readonly T[] };
+          },
+        },
+        armazenamento: criarStorageFake().storage,
+        midia: meta,
+        avisarAgr: async (aviso) => {
+          avisos.push(aviso);
+        },
+      });
+
+      let primeira = true;
+      meta.antesDeResolver = async () => {
+        // So na primeira tentativa: outro processo rejeitou a linha.
+        if (!primeira) return;
+        primeira = false;
+        await admin.query(
+          "UPDATE platform.media_assets SET estado = 'rejeitado' " +
+            "WHERE tenant_id = $1 AND wamid = $2 AND media_id = $3",
+          [tenant, base.wamid, base.mediaId],
+        );
+      };
+
+      const resultado = await med.receber(base);
+
+      assert.equal(
+        resultado.estado,
+        "rejeitado",
+        "o modulo disse `falhou` sobre uma linha que a base diz estar rejeitada",
+      );
+      assert.deepEqual(
+        avisos,
+        [],
+        "**o AGR foi avisado** com base num UPDATE que nao fez nada: o cliente " +
+          "seria mandado reenviar por uma falha que a base nao registou",
+      );
+    });
+  });
+
   describe("as restricoes mordem atraves do modulo", () => {
-    it("**um `armazenado` sem `storage_ref` e recusado pela base**", async () => {
-      // E a `media_assets_armazenado_ck`, e o que este teste acrescenta ao do
-      // esquema e o **caminho**: aqui a tentativa vem de uma instrucao com a
-      // forma da que o modulo emite, e nao de um `INSERT` escrito a mao.
+    it("um `armazenado` sem `storage_ref` e recusado pela base", async () => {
+      // **O comentario anterior era falso**, e a revisao adversarial apanhou-o:
+      // ele dizia «aqui a tentativa vem de uma instrucao com a forma da que o
+      // modulo emite», e a instrucao deste teste e um `UPDATE SET
+      // estado='armazenado'` **sem** `storage_ref` e **sem** `AND estado =
+      // 'pendente'` — uma forma que o modulo nunca emite, porque o
+      // `SQL_MARCAR_ARMAZENADO` escreve sempre a chave e exige sempre
+      // `pendente`. Fica como confirmacao da restricao contra a base, e **saiu
+      // da lista de obrigatorios**: quem a prova pelo caminho do codigo e o
+      // teste da janela, e quem a prova pelo esquema e o
+      // `test_armazenado_sem_storage_ref_e_recusado`.
       const [tenant, conversa, contacto] = await tenantNovo("media-ck");
       const meta = new MetaFalsa();
       const med = medDe(tenant, meta);
