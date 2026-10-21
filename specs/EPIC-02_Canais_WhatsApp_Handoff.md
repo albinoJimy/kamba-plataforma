@@ -1000,14 +1000,14 @@ Implementar a interface `HandoffProvider` e a sua implementação Chatwoot: prov
 
 ### Critérios de Aceitação
 
-- [x] `ensureAccount(tenantId)` cria (ou devolve) 1 conta Chatwoot por PME, 1 *agent bot* com `account_id` da conta e 1 *inbox* de tipo API; chamado 2× não duplica; um *agent bot* com `account_id` nulo é impossível por construção (teste).
-- [ ] O Chatwoot não tem credenciais Meta: `WHATSAPP_APP_ID`, `WHATSAPP_CONFIGURATION_ID` e `WHATSAPP_APP_SECRET` não estão configurados e nenhum *inbox* é do tipo WhatsApp (teste de configuração).
-- [x] `mirrorMessage` é idempotente por `wamid`: 3 chamadas produzem 1 mensagem no Chatwoot.
+- [ ] `ensureAccount(tenantId)` cria (ou devolve) 1 conta Chatwoot por PME, 1 *agent bot* com `account_id` da conta e 1 *inbox* de tipo API; chamado 2× não duplica; um *agent bot* com `account_id` nulo é impossível por construção (teste).
+- [x] O Chatwoot não tem credenciais Meta: `WHATSAPP_APP_ID`, `WHATSAPP_CONFIGURATION_ID` e `WHATSAPP_APP_SECRET` não estão configurados e nenhum *inbox* é do tipo WhatsApp (teste de configuração).
+- [ ] `mirrorMessage` é idempotente por `wamid`: 3 chamadas produzem 1 mensagem no Chatwoot.
 - [ ] `openHandoff` é idempotente por `handoffId = hash(thread_id, ordinal)`: procura a conversa por atributo `handoffId`, senão cria; 5 chamadas concorrentes produzem 1 conversa, passada a `open`, atribuída à equipa, com nota privada com o resumo.
 - [x] Os *callbacks* do Chatwoot (`message_created` de agente, `conversation_status_changed`) só são aceites com o `secret` do bot; ausente ou errado devolve 401 e incrementa uma métrica.
-- [x] A resposta humana é enviada ao cliente pelo Outbound (janela, template se fechada, custo registado); com janela fechada o painel recebe aviso e proposta de template *utility*.
+- [ ] A resposta humana é enviada ao cliente pelo Outbound (janela, template se fechada, custo registado); com janela fechada o painel recebe aviso e proposta de template *utility*.
 - [x] Tabela `handoffs(handoff_id PK, tenant_id, conversation_id, status ∈ waiting|resumed|timeout|cancelled|degraded, opened_at, resumed_at, resolver)` criada com RLS; o `resolved` duplicado não altera nada (a retoma por *compare-and-set* é KAM-034).
-- [ ] Spike de 1 dia concluído: o resultado de `pending → open` com o token do *agent bot* está em `docs/evidencia/KAM-019-bot-open.md` e a implementação usa a opção que funciona (bot ou utilizador-serviço).
+- [x] Spike de 1 dia concluído: o resultado de `pending → open` com o token do *agent bot* está em `docs/evidencia/KAM-019-bot-open.md` e a implementação usa a opção que funciona (bot ou utilizador-serviço).
 - [ ] Chatwoot indisponível: `openHandoff` falha para uma fila com *retry*, o espelho acumula e reconcilia por `wamid`; healthcheck alerta.
 - [ ] Teste X-10: o agente da conta A não lê conversas da conta B (API); tokens de bot cifrados por tenant; o token da Platform API só existe no módulo de provisioning.
 
@@ -1040,119 +1040,152 @@ interface HandoffProvider {
 - [ ] Código revisto por 2 revisores (isolamento entre contas, segredos); testes verdes; cobertura ≥ limiar.
 - [x] Documentação actualizada (`docs/hnd.md`, resultado do spike); Conventional Commits.
 - [x] **Isolamento de tenant** — 1 conta por PME, tokens por conta, RLS em `handoffs`; teste cruzado.
-- [x] **Idempotência** — `openHandoff` e `mirrorMessage` com teste de repetição.
-- [x] **Privacidade** — o Chatwoot só recebe dados da conversa necessários; dados sintéticos fora de `prod`; alojamento sujeito a D1.
+- [ ] **Idempotência** — `openHandoff` e `mirrorMessage` com teste de repetição.
+- [ ] **Privacidade** — o Chatwoot só recebe dados da conversa necessários; dados sintéticos fora de `prod`; alojamento sujeito a D1.
 - [ ] **Sem segredos** — tokens no cofre; **Dependências** — imagem por digest, sem `enterprise/`.
 - [x] **Migrações reversíveis** — `downgrade` de `handoffs` testado.
 
 ### Verificação dos Critérios de Aceitação
 
 Entregue no ramo `feature/KAM-019-hnd-chatwoot`.
-**Dez caixas marcadas, oito vazias** (18 = 10 + 8) — cada uma com uma linha
+**Sete caixas marcadas, onze vazias** (18 = 7 + 11) — cada uma com uma linha
 aqui. Os números reproduzem-se com `make ci-3b`, `make ci-4`, `make ci-6`,
 `make ci-8` e `make chatwoot-spike`; o desenho está em
 [`../docs/hnd.md`](../docs/hnd.md).
 
-**Três das oito caixas vazias não são trabalho em falta: são o ticket a pedir
-coisas que nenhuma fonte deste repositório define.** Vale dizê-lo antes da
-tabela, porque é o achado mais caro deste ticket — e o quarto ponto abaixo
-não é uma caixa, é o contexto dos outros:
+**O spike do critério 8 concluiu, e foi ele que baixou a contagem.** Esta
+secção teve uma versão anterior com dez caixas marcadas, escrita quando a
+máquina não conseguia puxar a imagem do Chatwoot. Quando conseguiu, o spike
+respondeu a pergunta do L7 — **o *token* do bot chega** — e no caminho até lá
+mediu **quatro coisas que a implementação faz de outra maneira**. Três caixas
+que estavam marcadas contra portas falsas desmarcaram-se, e vale dizer porquê
+antes da tabela, porque é a lição deste ticket:
 
-1. **O critério 4 manda atribuir a conversa «à equipa», e não existe equipa
-   nenhuma.** A palavra aparece **só** no diagrama do `../docs/tecnica/01` §11.4
-   («atribui equipa») e como rótulo de participante. Não há `team_id` em
-   documento, em dicionário ou em código; a Platform API confirmada no `E4` §2.2
-   tem `accounts`, `users`, `account_users` e `agent_bots` — **teams não está na
-   lista**. Não se inventou uma.
-2. **O critério 10 pede o teste X-10, que não existe em sítio nenhum.** `grep`
-   por `X-10` em `db`, `tools`, `ci` e `Makefile` dá **zero**. O *gate* 6 cobre
-   X-03, X-04 e X-05 e o `x11` cobre registos; o próprio comentário do `ci-6`
-   diz que «a suite ponta a ponta é o KAM-066». O isolamento cruzado **está**
-   provado, pelos testes X-03 desta *suite*; o que não existe é o X-10 como
-   mecanismo.
-3. **O critério 8 pede um spike contra um Chatwoot real, e a máquina não o
-   consegue puxar.** O *daemon* do Docker aqui não resolve o CDN das camadas
-   (`lookup production.cloudfront.docker.com: no such host`), em quatro
-   tentativas. A infra-estrutura do spike está feita e fixada por digest; a
-   medição **não** aconteceu, e o veredicto escrito é `NÃO CONCLUÍDO`.
-4. **O `setBotMuted` não é executável**, e isso é do desenho e não do ticket:
-   `kamba_app` não tem `UPDATE (mode)` (a revisão `0009` recusou-o por escrito)
-   e as transições de modo são do KAM-018 — que o próprio critério 8 nomeia.
+> **Um duplo prova que o nosso código chama o que pretendíamos chamar. Não
+> prova que o terceiro aceita a chamada.** As baterias do *gate* 4 estão certas
+> e continuam verdes; o que elas nunca podiam dizer é que o Chatwoot responde
+> 401 a metade delas.
 
-**E o padrão de sempre, que aqui custou dezasseis minutos.** A bateria do
-critério 6 passava à mão e **pendurou** quando uma máquina a correu: um ciclo
-a 99% de CPU que nenhum relatório de testes mostrou, porque nenhum chegou a
-sair. A causa era minha e é instrutiva — montei o `Saida` **verdadeiro** com um
-relógio congelado e um `dormir` que não fazia nada, e o *token bucket* do
-KAM-015 espera pelo primeiro token comparando `agora()` com o instante em que
-começou: com o tempo parado, a espera não termina nunca, e a própria recusa
-por `ESPERA_MAXIMA_DE_DEBITO_MS` também não dispara. Quem o mostrou foi um
-`docker top`, não um teste. O relógio passou a avançar pelo `dormir`, como a
-bateria do Outbound já fazia. **E o segundo defeito foi pior**: a suite do
-*gate* 8 passou com a bateria nova **sem a correr** — o `node --test`
-apanhava-a pelo *glob* `tests/hnd.*.test.ts`, mas a lista de ficheiros que o
-CI usa não a tinha. Uma bateria que o *gate* não corre é uma bateria que
-apodrece em silencio, e durante uma hora o critério 6 esteve nesse estado.
+O que o spike mediu, todo CONFIRMADO contra um Chatwoot v4.18.0 fixado por
+digest, com o registo passo a passo em
+[`../docs/evidencia/KAM-019-bot-open.md`](../docs/evidencia/KAM-019-bot-open.md):
+
+1. **`pending → open` com o *token* do *agent bot* funciona** — 200, com
+   `current_status: "open"` no corpo. É a pergunta que o critério 8 manda
+   responder, e a resposta dispensa o plano B: **nenhum utilizador-serviço é
+   preciso para o estado**.
+2. **O *token* da Platform API é recusado nos *endpoints* da conta** — 401,
+   «Access to this endpoint is not authorized for bots». O caminho medido é
+   criar um **utilizador** pela Platform API, ligá-lo à conta por
+   `account_users`, e usar o `access_token` **dele**. O `criarConta` deste ramo
+   usa o da plataforma, e um teste **exige** que o use: os dois mudam.
+3. **O bot tem de ser ligado ao *inbox*** (`set_agent_bot`), e isso não existe
+   em `src/` nem no `docs/hnd.md`. Sem a ligação, o `POST /conversations` dá
+   404 — e o bot não recebe os *callbacks* do *inbox*, que é o critério 5.
+4. **A conversa precisa de um contacto que exista**: o `source_id` tem de ser o
+   `contact_inboxes[0].source_id` devolvido pela criação do contacto, e um valor
+   inventado dá 404. O `abrirConversa` manda lá o **nosso** `contact_id`, o que
+   é as duas coisas de uma vez — não funciona, e é um identificador nosso a sair
+   para fora, contra o ADR-010.
+5. **O *token* do bot não cria contactos** — 401. Logo o *token* do utilizador
+   da conta é preciso **em tempo de execução** e não só no provisionamento, e
+   isso põe um segundo `token_ref` na `handoff_accounts`: a tabela tem um e
+   precisa de dois.
+
+**E três afirmações da versão anterior desta secção eram falsas.** A revisão
+adversarial encontrou-as, e ficam ditas aqui porque uma correcção escondida vale
+menos do que o erro:
+
+- **«O X-10 não existe em sítio nenhum» é falso.** Existe: `../docs/tecnica/08`
+  §3.7 tem a linha `X-10 Medusa/Chatwoot | Cross-seller e cross-account | COM,
+  HND`, e o `EPIC-07` atribui a sua inscrição a **este ticket**. O `grep` que
+  sustentava a frase olhou para `db`, `tools`, `ci` e o `Makefile` e a conclusão
+  foi generalizada para «o repositório» — que é exactamente a classe de erro que
+  esta *skill* existe para apanhar. O que **não** existe é o `registerCase` que
+  o hospedaria (`grep` dá zero; é KAM-066).
+- **«Um pedido sem segredo nunca faz uma consulta» é falso.** O `receber` vai ao
+  cofre **e** faz um `SELECT` na `handoff_accounts` antes de avaliar o segredo.
+  A prova que a frase citava — a ordem dos motivos — é sobre uma função pura
+  que recebe `contaConhecida` já calculado, e ordenar motivos não diz nada sobre
+  consultas feitas.
+- **«O predicado explícito protege se alguém desligar o `FORCE`» é falso.** O
+  predicado do `SQL_FECHAR` é byte a byte o que a política `tenant_iso` gera, e
+  o `FORCE` só vincula o **dono** da tabela — o `kamba_app`, que corre a
+  consulta, está sujeito à política com `ENABLE` simples.
 
 | CA | Estado | Evidência |
 |---|---|---|
-| 1 — `ensureAccount` cria (ou devolve) 1 conta, 1 *agent bot* com `account_id` da conta e 1 *inbox* de tipo API; 2× não duplica; bot com `account_id` nulo impossível por construção | **satisfeito** | A idempotência é da **chave primária** `(tenant_id, provedor)` e não do código: provado contra a base (uma chamada ao provedor, uma linha) e com a linha já gravada são **zero** chamadas. O `account_id` do bot vai sempre preenchido, e há teste a exigir que o campo esteja **presente** e não nulo no corpo do pedido — a razão está confirmada no código do Chatwoot (`E4` §2.2): um bot com `account_id` nulo é **global e acessível a todas as contas**, isto é, o bot de uma PME a poder ler as conversas de todas as outras. O *inbox* é de tipo `api`. **E a base fecha o outro lado**, que o critério não pede e que é o furo que o X-10 procura: a `handoff_accounts_conta_uq UNIQUE (provedor, account_id)` recusa a mesma conta do provedor em dois *tenants* — provado contra a base, com `23505` |
-| 2 — o Chatwoot não tem credenciais Meta: as três variáveis não estão configuradas e nenhum *inbox* é do tipo WhatsApp (teste de configuração) | **parcial — caixa vazia** | **A segunda metade cumpre-se e está provada:** o `TIPO_DE_INBOX` é `api`, há teste a afirmá-lo e a afirmar que **não** é `whatsapp`, e a razão está escrita — o GWY é o único ponto que fala com a Meta (ADR-001) e o Chatwoot é espelho; um *inbox* de WhatsApp aqui era um segundo caminho para o mesmo número, com as credenciais dela do lado dele. **A primeira não se demonstrou:** o compose não configura as três variáveis, e o `infra/chatwoot/spike.py` tem o passo que as confere **no `env` do contentor a correr** — que é a única forma de a asserção valer, porque uma variável pode entrar por `.env`, por herança ou embutida na imagem, e nenhuma dessas aparece no YAML. Esse passo nunca correu: a imagem não se puxou. Um ficheiro de compose que não as menciona é configuração, não é teste |
-| 3 — `mirrorMessage` é idempotente por `wamid`: 3 chamadas produzem 1 mensagem | **satisfeito** | Três chamadas com o mesmo `wamid` deixam **uma** entrada na fila, e a de-duplicação é o `jobId` — que **é** o `wamid`. Não há tabela de fila, e isso é decisão escrita: o §14 pede uma fila que «reconcilia por `wamid`», e isso é exactamente o que uma fila BullMQ com `jobId` derivado dele faz; uma tabela ao lado de uma fila era um segundo sítio para a mesma verdade. O limite fica dito, e é o do `chr/fila.ts`: um *job* em `failed` **bloqueia** o mesmo `wamid` até sair, pelo que a janela de `removeOnComplete` decide quanto tempo a de-duplicação dura. E a carga **não leva `contact_id`** — só o `tenant_id`, que é o que a fila precisa |
-| 4 — `openHandoff` idempotente por `handoffId = hash(thread_id, ordinal)`: procura por atributo, senão cria; 5 chamadas concorrentes produzem 1 conversa, passada a `open`, **atribuída à equipa**, com nota privada com o resumo | **parcial — caixa vazia** | **Três das quatro partes cumprem-se.** As cinco chamadas concorrentes, contra a base e em **duas ligações**, deixam **uma** linha e fazem **uma** chamada ao provedor; a idempotência é da chave primária, e o `handoff_id` é **derivado** (`hash(thread_id, ordinal)`) — é isso que faz cinco processos chegarem ao mesmo valor sem se falarem, o que nenhum `gen_random_uuid()` consegue. O `handoffId` vai nos `custom_attributes`, que é o atributo por onde se procura. A nota privada vai com o resumo, e **depois** da conversa: se ela falhar, alguém atende sem o resumo — o contrário não serve a ninguém. **O que não se cumpre:** «atribuída à equipa» — **não existe equipa** em documento, dicionário ou código (ver o ponto 1 acima), e inventar um `team_id` era criar vocabulário que o dicionário teria de ratificar sem fonte. E «passada a `open`» pede-se (`status: "open"` no corpo, com teste) mas **não se provou**: se o *token* do bot o consegue é o L7, e é o spike que não correu |
-| 5 — os *callbacks* só são aceites com o `secret` do bot; ausente ou errado devolve 401 e incrementa uma métrica | **satisfeito** | Os quatro motivos da lista fechada dão **401** e cada um conta na sua etiqueta: `sem_secret`, `secret_errado`, `tipo_desconhecido`, `conta_desconhecida`. Três decisões com teste próprio: **um segredo esperado vazio recusa tudo** — se o cofre não devolveu nada, nenhum *callback* passa, e sem essa linha uma configuração em falta tornava-se porta aberta (e passaria todos os outros testes do ficheiro); a comparação é de **tempo constante**, porque `===` sobre cadeias sai no primeiro carácter diferente e com pedidos repetidos o tempo diz quantos caracteres estão certos; e a ordem dos testes é a do **custo** — um pedido sem segredo nunca faz uma consulta, o que impede o uso do *endpoint* como gerador de carga (afirmado pela ordem dos motivos: sem segredo **e** sem conta dá `sem_secret`). Os três tipos que não tratamos são **recusados** e não ignorados: com um 200 silencioso o provedor pára de reenviar e nós nunca sabemos |
-| 6 — a resposta humana é enviada ao cliente pelo Outbound (janela, template se fechada, custo registado); com janela fechada o painel recebe aviso e proposta de template *utility* | **satisfeito** | A costura é o `src/hnd/resposta.ts`, e os testes montam um `Saida` **verdadeiro** com a base e a Meta por porta — um duplo devolveria o que lhe mandássemos. `doBot: false`, e é isso que a faz **não** passar pelo `PreSendGuard`: o guarda desta montagem recusa **sempre**, e a resposta sai — recusar a resposta da pessoa que o modo humano existe para servir era o contrário do que ele protege. A chave de idempotência deriva do **identificador da mensagem no provedor**: dois *callbacks* do mesmo `message_created` dão **uma** mensagem ao cliente, e duas mensagens iguais do agente («ok») com ids diferentes saem **as duas** — é por isso que a chave não deriva do texto. **Sem esse identificador não se envia**, porque uma chave inventada tirava ao Outbound a única coisa que o torna idempotente. Com a janela fechada **não se envia**, não se gasta chamada à Meta, e o painel recebe o aviso com o texto que não saiu e o template proposto: **propõe-se e não se envia**, porque um template fora da janela é pago (`E1` §1) e a decisão de gastar é da PME. O custo registado é o do próprio Outbound (KAM-015). Esta é a bateria que pendurou e que o *gate* não corria — ver o parágrafo antes da tabela |
-| 7 — tabela `handoffs(...)` criada com RLS; o `resolved` duplicado não altera nada | **satisfeito** | A tabela tem `ENABLE`, `FORCE` e a política `tenant_iso`, e a descoberta do X-05 passa de dezanove a **vinte e uma** tabelas. **Nove colunas e não sete**: acrescentam-se o `motivo` (o `openHandoff` recebe-o, e sem ele a linha não diz porque é que alguém foi chamado) e o `external_id` (ele **devolve-o** e não tinha onde ficar — sem ele a segunda chamada não encontra o que a primeira criou fora da nossa base). O `resolved` duplicado é *no-op* **pela base**: o `WHERE status = ANY($3)` faz o segundo `UPDATE` não casar, provado com **dois `close` em paralelo em duas ligações** — as métricas dos dois somadas contam **uma** passagem fechada e não duas. E de um estado concluído não se fecha outra vez: um `cancelled` não se torna `resumed` |
-| 8 — spike de 1 dia concluído: o resultado de `pending → open` com o *token* do *agent bot* está em `docs/evidencia/KAM-019-bot-open.md` e a implementação usa a opção que funciona | **não satisfeito — caixa vazia** | **A infra-estrutura está feita e a medição não aconteceu.** O `infra/compose/docker-compose.chatwoot.yml` fixa o Chatwoot v4.18.0 **por digest** (lido com `docker buildx imagetools inspect`, registado em `ci/supply-chain/imagens.yaml`), reutiliza os digests já fixados do PostgreSQL e do Valkey, escuta só em `127.0.0.1` e **não** configura credenciais da Meta. O `infra/chatwoot/spike.py` tem os nove passos, incluindo o que decide, e escreve a evidência com o que aconteceu passo a passo. **O que falhou foi a rede do Docker desta máquina:** o *daemon* não resolve `production.cloudfront.docker.com` (quatro tentativas, `no such host`), e a imagem não se puxou. O ficheiro de evidência existe e diz `NÃO CONCLUÍDO`, com o passo em que parou. **A caixa fica vazia**: um spike que escrevesse «funciona» sem ter chegado ao passo que decide fechava uma pergunta aberta com uma resposta inventada, que é o modo de falha que esta *skill* existe para impedir. O plano B já está escrito e localizado — se o *token* do bot não chegar, **só o `abrirConversa` muda** |
-| 9 — Chatwoot indisponível: `openHandoff` falha para uma fila com *retry*, o espelho acumula e reconcilia por `wamid`; *healthcheck* alerta | **parcial — caixa vazia** | **Tudo menos o alerta.** Com o provedor em baixo a passagem fica `degraded`, a abertura vai para a fila, **a linha fica** — e é isso que faz o painel ver o atraso em vez de a passagem desaparecer — e a métrica conta. O espelho acumula na fila e reconcilia por `wamid`, que é o `jobId`. E `degraded` **conta no SLA**, provado contra a base: uma passagem que nem chegou ao provedor está tão longe de ser atendida como uma à espera, e esconder-lhe o atraso era mostrar um painel verde no pior caso. A recuperação é do `SQL_MARCAR_ABERTA`, que aceita sair de `degraded`. **O que não existe:** o *healthcheck* que **alerta**. A grandeza que ele leria está medida — `hnd_mirror_pendentes`, *gauge*, e é a única que distingue «ninguém falou» de «ninguém conseguiu espelhar» —, mas nada a lê e nada alerta: não há painel nem regra de alerta neste repositório (é KAM-084/085). Expor a métrica não é alertar |
-| 10 — teste X-10: o agente da conta A não lê conversas da conta B (API); *tokens* de bot cifrados por *tenant*; o *token* da Platform API só existe no módulo de *provisioning* | **parcial — caixa vazia** | **As três partes têm resposta, e nenhuma é a que o critério escreve.** O **isolamento cruzado está provado**, mas como **X-03** e não X-10: com o contexto de A as passagens de B não aparecem, uma escrita na linha de B não acontece (com `FORCE`, nem como dono) e as contas de A não se vêem com o contexto de B. O **X-10 não existe em sítio nenhum** do repositório (ver o ponto 2 acima), pelo que não há onde pôr este teste com esse nome. Os *tokens* **não são «cifrados por tenant»**: são `SecretRef` opacas em `handoff_accounts.token_ref`, que é o desenho que o KAM-010 fixou e o que a `tenant_channels.token_ref` já usava desde a `0001` — o segredo vive no cofre e a base guarda uma referência que quem a lê não interpreta. É **mais** forte do que cifrar na aplicação (não há chave nossa a proteger) e é **diferente** do que o critério diz, pelo que a caixa não se marca. O *token* da Platform API **só existe no provisionamento**: é um parâmetro distinto do do bot no cliente, e há dois testes a afirmar que não se trocam — o poderoso cria contas, o fraco fala dentro de uma |
-| DoD — todos os CA satisfeitos e demonstráveis | **não satisfeito — caixa vazia** | Cinco de dez à letra. Dos cinco que faltam, **três pedem coisas que nenhuma fonte define** (a equipa do 4, o X-10 do 10, o mecanismo de licenças EE), um parou por rede (8) e um pede um alerta que não tem onde viver (9) |
-| DoD — 2 revisores (isolamento entre contas, segredos); testes verdes; cobertura ≥ limiar | **não satisfeito — caixa vazia** | **Zero revisores humanos**: uma revisão adversarial é evidência, não é um revisor. Testes verdes e cobertura: ver a tabela de execução |
-| DoD — documentação actualizada (`docs/hnd.md`, resultado do spike); Conventional Commits | **satisfeito** | [`../docs/hnd.md`](../docs/hnd.md) (novo, onze secções), `docs/evidencia/KAM-019-bot-open.md` com o resultado do spike **tal como ele saiu**, dicionário §3.15 (emenda 1.22) e `../docs/dividas-documentais.md`. Conventional Commits imposto pelo `tools/githooks/commit-msg` |
-| DoD — isolamento de *tenant*: 1 conta por PME, *tokens* por conta, RLS em `handoffs`; teste cruzado | **satisfeito** | «Uma conta por PME» é a chave primária `(tenant_id, provedor)` e não uma verificação em código; os *tokens* são por conta (`chatwoot_bot_token` com `instancias: conta`, já declarado em `ops/secrets-inventory.yaml`); as duas tabelas têm `FORCE` e `tenant_iso`; e o teste cruzado está no X-03 desta *suite*. A FK da conversa é **composta** com o `tenant_id`, pela razão da `0009`: sem ela, uma passagem de A podia apontar para uma conversa de B e nem o *gate* 6 nem o 3b o veriam |
-| DoD — idempotência: `openHandoff` e `mirrorMessage` com teste de repetição | **satisfeito** | Ver os CA 3 e 4: cinco aberturas concorrentes contra a base dão uma linha e uma chamada; três espelhos com o mesmo `wamid` dão uma entrada na fila |
-| DoD — privacidade: o Chatwoot só recebe dados da conversa necessários; dados sintéticos fora de `prod`; alojamento sujeito a D1 | **satisfeito** | O `MirrorMessage` tem **cinco campos** e o que não está neles é o ponto: sem telefone, sem BSUID, sem `contact_id` — o provedor identifica a pessoa pela conta de contacto dele, e o ADR-010 proíbe mandar os nossos identificadores para fora. Há teste a procurar o `contact_id` na carga da fila. Do agente lê-se **só o `id`**, com o `name` e o `email` a chegarem no mesmo objecto, e há teste a procurá-los em tudo o que foi escrito. O `handoffs.resolver` é o **primeiro dado pessoal de um trabalhador da PME** no esquema — todas as outras colunas pessoais são de clientes finais — e está declarado como tal no inventário. O compose usa **dados sintéticos** e escuta só em `127.0.0.1`; o alojamento de uma instância com dados reais é **D1** e está dito em três sítios |
-| DoD — sem segredos (*tokens* no cofre); dependências (imagem por digest, sem `enterprise/`) | **parcial — caixa vazia** | **Duas das três medidas.** Os *tokens* estão no cofre: o que a base guarda é uma `SecretRef` opaca, e o `scan_secrets` está limpo — **recusou este trabalho duas vezes** e a segunda foi instrutiva (ver a tabela de execução). A imagem está **fixada por digest**, lido da fonte e registado. **O «sem `enterprise/`» não está medido**, e o que o mediria não existe: o ticket cita um «gate de licenças EE (`../docs/tecnica/09` §7)» que **não é um gate** — o §7 é «CI/CD» e tem uma linha de tabela, e em código o único mecanismo é o campo `ee` de `ci/supply-chain/licencas.yaml`, que é texto. Não usamos funcionalidades `enterprise/` e **nada o verifica**; registado em [`../docs/dividas-documentais.md`](../docs/dividas-documentais.md) |
-| DoD — migrações reversíveis: `downgrade` de `handoffs` testado | **satisfeito** | Bateria própria (`db/tests/test_handoff_schema.py`), **oito casos**: quatro do esquema, três do `downgrade` e uma asserção de ausência. Com as duas tabelas vazias desce e sobe; **com linhas e sem `KAMBA_DOWNGRADE_0011_COPIA` recusa**, com as duas contagens na mensagem, e deixa o `FORCE` das duas **intacto** — a recusa não pode trocar uma perda de dados por um furo de isolamento. Com a variável, escreve a cópia das **nove** colunas de cada passagem e das **oito** de cada conta, **com o `resumed_at`, o `resolver` e os identificadores da conta no provedor** — e é esse último o motivo mais forte da recusa: eles ficam a existir **lá fora**, e sem a linha que os aponta o `ensureAccount` seguinte cria uma segunda conta para a mesma PME, que é o que o critério 1 proíbe e que nenhuma migração nossa pode desfazer. **As políticas saem antes de se contar**, pela lição da `0009` e da `0010`. E a bateria afirma uma **ausência**: não há `CHECK` sobre o `resumed_at` nem sobre o `resolver`, para que acrescentar um passe por ali e não em silêncio |
+| 1 — `ensureAccount` cria 1 conta, 1 *agent bot* com `account_id` e 1 *inbox* de tipo API; 2× não duplica; bot com `account_id` nulo impossível | **não satisfeito — caixa vazia** | **A idempotência cumpre-se; o provisionamento não.** O que está provado contra a base: uma chamada ao provedor e uma linha, e com a linha gravada **zero** chamadas — e quem o garante é a chave primária `(tenant_id, provedor)`, não o código. A `handoff_accounts_conta_uq UNIQUE (provedor, account_id)` recusa a mesma conta do provedor em dois *tenants*, com `23505`. O `account_id` do bot vai sempre preenchido, com teste a exigi-lo **presente** e não nulo, e a razão é do `E4` §2.2: um bot com `account_id` nulo é global e acessível a todas as contas. **O que o spike mediu e que não funciona:** o *inbox* é criado com o *token* da plataforma, que dá 401; falta o utilizador da conta e a ligação `account_users`; e falta o `set_agent_bot`, sem o qual o bot não vê o *inbox* nem recebe os *callbacks* dele. Contra um Chatwoot real, `ensureAccount` levanta `RespostaInesperadaError` no segundo pedido |
+| 2 — o Chatwoot não tem credenciais Meta: as três variáveis não estão configuradas e nenhum *inbox* é do tipo WhatsApp | **satisfeito** | **As duas metades estão medidas, e a primeira só agora.** O spike confere as três variáveis **no `env` do contentor a correr** e as três estão ausentes — que é a única forma de a asserção valer, porque uma variável pode entrar por `.env`, por herança ou embutida na imagem, e nenhuma dessas aparece no YAML. Um ficheiro de compose que não as menciona é configuração, não é teste; isto é o teste. A segunda metade: o `TIPO_DE_INBOX` é `api`, o *inbox* criado veio `Channel::Api` do próprio Chatwoot, e há teste a afirmar que **não** é `whatsapp`. A razão está escrita — o GWY é o único ponto que fala com a Meta (ADR-001) e o Chatwoot é espelho; um *inbox* de WhatsApp aqui era um segundo caminho para o mesmo número, com as credenciais da PME do lado dele |
+| 3 — `mirrorMessage` é idempotente por `wamid`: 3 chamadas produzem 1 mensagem **no Chatwoot** | **parcial — caixa vazia** | **Três chamadas deixam uma entrada na fila, e nenhuma mensagem chega ao Chatwoot.** A de-duplicação está provada e é o `jobId`, que **é** o `wamid`; o limite fica dito e é o do `chr/fila.ts` — um *job* em `failed` bloqueia o mesmo `wamid` até sair, pelo que a janela de `removeOnComplete` decide quanto tempo a de-duplicação dura. E a carga **não leva `contact_id`**, com teste a procurá-lo. Não há tabela de fila, e isso é decisão escrita: o §14 pede uma fila que «reconcilia por `wamid`», e uma tabela ao lado de uma fila era um segundo sítio para a mesma verdade. **Mas o critério diz «no Chatwoot», e lá não chega nada:** não há consumidor da fila neste ticket, e o `espelhar` — que é quem entregaria — põe o `wamid` no lugar do identificador da **conversa** no URL, pelo que qualquer chamada real dá 404. O teste do espelho afirma o corpo e nunca o `url`, e é por isso que o defeito passou |
+| 4 — `openHandoff` idempotente por `handoffId = hash(thread_id, ordinal)`: procura por atributo, senão cria; 5 chamadas concorrentes produzem 1 conversa, passada a `open`, atribuída à equipa, com nota privada | **não satisfeito — caixa vazia** | **A concorrência cumpre-se; o resto não.** Cinco chamadas concorrentes, contra a base e em **duas ligações**, deixam **uma** linha e fazem **uma** chamada ao provedor, e isso é da chave primária com o `handoff_id` **derivado** — é o que faz cinco processos chegarem ao mesmo valor sem se falarem, o que nenhum `gen_random_uuid()` consegue. A nota privada vai com o resumo e **depois** da conversa: se falhar, alguém atende sem o resumo, e o contrário não serve a ninguém. **O que não se cumpre, por quatro razões:** «procura a conversa por atributo `handoffId`, senão cria» — o `handoffId` é **escrito** nos `custom_attributes` e nada o **procura**, porque o `ClienteDoProvedor` não tem operação de leitura; o `source_id` é o nosso `contact_id`, que o spike mediu dar 404 e que o ADR-010 proíbe mandar para fora; «passada a `open`» pede-se no corpo mas o spike mostrou que a conversa precisa primeiro de um contacto; e «atribuída à equipa» — **não existe equipa** em documento, dicionário ou código (ver a dívida 60) |
+| 5 — os *callbacks* só são aceites com o `secret` do bot; ausente ou errado devolve 401 e incrementa uma métrica | **satisfeito** | Os quatro motivos da lista fechada dão **401** e cada um conta na sua etiqueta: `sem_secret`, `secret_errado`, `tipo_desconhecido`, `conta_desconhecida`. Duas decisões com teste próprio: **um segredo esperado vazio recusa tudo** — se o cofre não devolveu nada, nenhum *callback* passa, e sem essa linha uma configuração em falta tornava-se porta aberta, e passaria todos os outros testes do ficheiro; e a comparação é de **tempo constante**, porque `===` sobre cadeias sai no primeiro carácter diferente e com pedidos repetidos o tempo diz quantos caracteres estão certos. Os três tipos que não tratamos são **recusados** e não ignorados: com um 200 silencioso o provedor pára de reenviar e nós nunca sabemos. **O que esta caixa não inclui, e que a versão anterior afirmava:** a ordem **não** poupa trabalho — um pedido sem segredo faz uma ida ao cofre e um `SELECT` antes de ser recusado, pelo que o *endpoint* **é** utilizável como amplificador. A recusa está certa; a economia era falsa, e corrige-se onde está escrita |
+| 6 — a resposta humana é enviada ao cliente pelo Outbound (janela, template se fechada, custo registado); com janela fechada o painel recebe aviso e proposta de template *utility* | **parcial — caixa vazia** | **A costura está feita e duas partes do critério não estão medidas.** O que está: os testes montam um `Saida` **verdadeiro** com a base e a Meta por porta, e `doBot: false` — o guarda desta montagem recusa **sempre** e a resposta sai, porque recusar a resposta da pessoa que o modo humano existe para servir era o contrário do que ele protege. A chave de idempotência deriva do **identificador da mensagem no provedor**: dois *callbacks* do mesmo `message_created` dão **uma** mensagem, e duas mensagens iguais do agente («ok») com ids diferentes saem **as duas**. Sem esse identificador **não se envia**. Com a janela fechada não se envia, não se gasta chamada à Meta, e o painel recebe o aviso com o texto que não saiu e o template proposto. **O que não está:** «custo registado» não tem asserção nenhuma — delega-se no Outbound por escrito, e a base falsa deste ficheiro não modela o `pricing`, pelo que nem o `Saida` verdadeiro tem por onde o provar; e «template se fechada» **propõe-se e não se envia**, que é decisão defensável e escrita (é pago, e a decisão de gastar é da PME) mas é metade do critério à letra |
+| 7 — tabela `handoffs(...)` criada com RLS; o `resolved` duplicado não altera nada | **satisfeito** | A tabela tem `ENABLE`, `FORCE` e a política `tenant_iso`, e a descoberta do X-05 passa de dezanove a **vinte e uma** tabelas. **Nove colunas e não sete**: acrescentam-se o `motivo` (o `openHandoff` recebe-o, e sem ele a linha não diz porque é que alguém foi chamado) e o `external_id` (ele devolve-o e não tinha onde ficar). O `resolved` duplicado é *no-op* **pela base**: o `WHERE status = ANY($3)` faz o segundo `UPDATE` não casar, provado com **dois `close` em paralelo em duas ligações** — as métricas dos dois somadas contam **uma** passagem fechada. E de um estado concluído não se fecha outra vez: um `cancelled` não se torna `resumed`. **Uma ressalva que fica escrita:** o `close` lê o *tenant* de `current_setting('app.tenant_id', true)` porque a assinatura não o traz, e sem esse contexto a instrução não casa linha nenhuma **em silêncio** — zero linhas, nenhuma métrica, e 200 ao provedor. A caixa marca-se porque a propriedade que o critério pede está provada; o *no-op* silencioso é defeito próprio e está na lista de trabalho |
+| 8 — spike de 1 dia concluído: o resultado de `pending → open` com o *token* do *agent bot* está em `docs/evidencia/KAM-019-bot-open.md` e a implementação usa a opção que funciona | **satisfeito** | **Concluído, com veredicto `O TOKEN DO BOT CHEGA`.** Nove passos contra um Chatwoot v4.18.0 fixado por digest, em compose local com dados sintéticos, sem credenciais da Meta e a escutar só em `127.0.0.1`. O passo que decide: `POST .../conversations/{id}/toggle_status` com `{status: "open"}` e o *token* do bot responde **200**, com `"current_status":"open"`. **A implementação usa essa opção** — o `abrirConversa` já chama com o *token* do bot, e o plano B (utilizador-serviço com *token* da Application API) **não é preciso para o estado** e fica arquivado. A caixa marca-se por isto e só por isto; as outras quatro coisas que o spike mediu são os critérios 1, 3 e 4, e estão lá. O caminho até ao veredicto custou cinco corridas e cinco defeitos meus, todos no ficheiro de evidência: a montagem do PostgreSQL 18 (`/var/lib/postgresql`, não `/data`), o corpo truncado a 400 caracteres **antes** do `json.loads`, uma excepção a escapar depois do `finally`, a política de palavra-passe do Chatwoot, e `payload` onde era `payload.contact` |
+| 9 — Chatwoot indisponível: `openHandoff` falha para uma fila com *retry*, o espelho acumula e reconcilia por `wamid`; *healthcheck* alerta | **parcial — caixa vazia** | **Tudo menos o alerta.** Com o provedor em baixo a passagem fica `degraded`, a abertura vai para a fila, **a linha fica** — e é isso que faz o painel ver o atraso em vez de a passagem desaparecer — e a métrica conta. O espelho acumula na fila e reconcilia por `wamid`. E `degraded` **conta no SLA**, provado contra a base: uma passagem que nem chegou ao provedor está tão longe de ser atendida como uma à espera, e esconder-lhe o atraso era mostrar um painel verde no pior caso. **O que não existe:** o *healthcheck* que **alerta**. A grandeza está medida — `hnd_mirror_pendentes`, *gauge*, a única que distingue «ninguém falou» de «ninguém conseguiu espelhar» — e nada a lê: não há painel nem regra de alerta neste repositório (é KAM-084/085). Expor a métrica não é alertar. **E a recuperação tem um buraco que o spike tornou visível:** sem a busca por atributo (critério 4), uma conversa criada no provedor que a nossa base não conhece não tem como ser reencontrada |
+| 10 — teste X-10: o agente da conta A não lê conversas da conta B (API); *tokens* de bot cifrados por *tenant*; o *token* da Platform API só existe no módulo de *provisioning* | **não satisfeito — caixa vazia** | **O isolamento está provado; as três formas que o critério pede, não.** O cruzado está provado como **X-03**: com o contexto de A as passagens de B não aparecem, uma escrita na linha de B não acontece (com `FORCE`, nem como dono), e a `handoff_accounts_conta_uq` recusa a mesma conta do provedor em dois *tenants*. **O X-10 existe** — `../docs/tecnica/08` §3.7, e o `EPIC-07` atribui a sua inscrição a este ticket — e o que falta é o registo que o hospedaria: o `registerCase({id, camada, enumeravel, fn})` do `EPIC-07` §.. não existe em código (`grep` dá zero; é KAM-066), pelo que a caixa fica vazia por **dependência**. Os *tokens* **não são «cifrados por tenant»**: são `SecretRef` opacas, que é o desenho do KAM-010, mais forte (não há chave nossa a proteger) e **diferente** do que o critério diz. E o *token* da Platform API **não** está confinado: é campo obrigatório da `Configuracao` do mesmo cliente que faz as operações de execução, pelo que qualquer processo que abra uma conversa tem de o ter em memória — contra o `08` §3.6, que o quer «só no serviço de *provisioning*». Separar os dois clientes é trabalho que falta |
+| DoD — todos os CA satisfeitos e demonstráveis | **não satisfeito — caixa vazia** | Quatro de dez. O spike foi o que fez a contagem descer, e é o resultado mais valioso do ticket: respondeu à pergunta que ninguém podia responder por leitura, e mostrou que três caixas estavam marcadas contra portas falsas |
+| DoD — 2 revisores (isolamento entre contas, segredos); testes verdes; cobertura ≥ limiar | **não satisfeito — caixa vazia** | **Zero revisores humanos**: uma revisão adversarial é evidência, não é um revisor — ainda que esta tenha trazido vinte achados e corrigido três afirmações falsas minhas. Testes verdes e cobertura: ver a tabela de execução |
+| DoD — documentação actualizada (`docs/hnd.md`, resultado do spike); Conventional Commits | **satisfeito** | [`../docs/hnd.md`](../docs/hnd.md) (novo, onze secções), `docs/evidencia/KAM-019-bot-open.md` com o resultado do spike **tal como ele saiu**, dicionário §3.15 (emenda 1.22) e `../docs/dividas-documentais.md`. Conventional Commits imposto pelo `tools/githooks/commit-msg`. O `docs/hnd.md` **não** tem ainda o `set_agent_bot` nem a sequência que o spike mediu, e isso está na lista de trabalho |
+| DoD — isolamento de *tenant*: 1 conta por PME, *tokens* por conta, RLS em `handoffs`; teste cruzado | **satisfeito** | «Uma conta por PME» é a chave primária `(tenant_id, provedor)` e não uma verificação em código; os *tokens* são por conta (`chatwoot_bot_token` com `instancias: conta`, em `ops/secrets-inventory.yaml`); as duas tabelas têm `FORCE` e `tenant_iso`; o teste cruzado está no X-03. A FK da conversa é **composta** com o `tenant_id`, pela razão da `0009`: sem ela, uma passagem de A podia apontar para uma conversa de B e nem o *gate* 6 nem o 3b o veriam |
+| DoD — idempotência: `openHandoff` e `mirrorMessage` com teste de repetição | **parcial — caixa vazia** | **A idempotência da nossa base está provada; a do provedor não.** Cinco aberturas concorrentes dão uma linha e uma chamada; três espelhos com o mesmo `wamid` dão uma entrada na fila. Mas as duas são sobre o **nosso** lado: sem a busca por atributo `handoffId`, duas aberturas que a nossa base não correlacione criam **duas conversas** no Chatwoot, e é isso que o critério 4 pedia para evitar |
+| DoD — privacidade: o Chatwoot só recebe dados da conversa necessários; dados sintéticos fora de `prod`; alojamento sujeito a D1 | **não satisfeito — caixa vazia** | **O espelho cumpre e a abertura não.** O `MirrorMessage` tem **cinco campos** e o que não está neles é o ponto: sem telefone, sem BSUID, sem `contact_id`, com teste a procurá-lo na carga da fila. Do agente lê-se **só o `id`**, com o `name` e o `email` a chegarem no mesmo objecto, e há teste a procurá-los em tudo o que foi escrito. O compose usa dados sintéticos, escuta só em `127.0.0.1`, e as quatro listas de saídas estão **vazias** com `por_omissao: negar` — um Chatwoot sem rota de saída não pode levar conversa de clientes para fora por SMTP nem por telemetria. O alojamento com dados reais é **D1**, dito em três sítios. **Mas o `abrirConversa` manda o nosso `contact_id` como `source_id`**, que é um identificador nosso a sair para fora contra o ADR-010, no mesmo ticket que afirma o contrário em quatro sítios. Os quatro testes do `abrirConversa` inspeccionam o atributo, o *inbox*, o estado e o *token*, e **nenhum** procura o `contactId` no corpo: a asserção de privacidade cobria o caminho que não o manda e deixou fora o único que o manda |
+| DoD — sem segredos (*tokens* no cofre); dependências (imagem por digest, sem `enterprise/`) | **parcial — caixa vazia** | **Duas das três medidas.** Os *tokens* estão no cofre: o que a base guarda é uma `SecretRef` opaca, e o `scan_secrets` está limpo. As imagens estão **fixadas por digest** — **três** imagens distintas e três digests, não quatro: o `chatwoot` e o `chatwoot-worker` partilham a mesma. **O «sem `enterprise/`» não está medido**, e o que o mediria não existe: o ticket cita um «gate de licenças EE (`../docs/tecnica/09` §7)» que **não é um gate** — o §7 é «CI/CD» e tem uma linha de tabela, e em código o único mecanismo é o campo `ee` de `ci/supply-chain/licencas.yaml`, que é texto. Não usamos funcionalidades `enterprise/` e nada o verifica; registado em [`../docs/dividas-documentais.md`](../docs/dividas-documentais.md) |
+| DoD — migrações reversíveis: `downgrade` de `handoffs` testado | **satisfeito** | Bateria própria (`db/tests/test_handoff_schema.py`), **oito casos**: quatro do esquema, três do `downgrade` e uma asserção de ausência. Com as duas tabelas vazias desce e sobe; **com linhas e sem `KAMBA_DOWNGRADE_0011_COPIA` recusa**, com as duas contagens na mensagem, e deixa o `FORCE` das duas **intacto** — a recusa não pode trocar uma perda de dados por um furo de isolamento. Com a variável, escreve a cópia das nove colunas de cada passagem e das oito de cada conta, **com os identificadores da conta no provedor** — e é esse o motivo mais forte da recusa: eles ficam a existir **lá fora**, e sem a linha que os aponta o `ensureAccount` seguinte cria uma segunda conta para a mesma PME, que é o que o critério 1 proíbe e que nenhuma migração nossa pode desfazer. **As políticas saem antes de se contar**, pela lição da `0009` e da `0010`. E a bateria afirma uma **ausência**: não há `CHECK` sobre o `resumed_at` nem sobre o `resolver` |
 
 **Como se correu, e o que saiu.** Nesta máquina não há `make`, `node` nem
-`pnpm` no `PATH`
-(`.claude/skills/agentic-engineering/references/evidencia-e-verificacao.md`):
+`pnpm` no `PATH`, e tudo o que se segue correu em Docker ou no `.venv`:
 
 | Verificação | Comando | Resultado |
 |---|---|---|
-| *gate* 3 (referências, *handoff*, backlog) | `lint_refs`, `lint_handoff`, `lint_backlog` | `conforme` |
-| *gate* 3b (nomes canónicos) | `dict_export --check`, `canon_lint check` e `canario` | `conforme` — dicionário v1.22, **158** entradas (eram 143), 26 extensões, 11 migrações, 27 tabelas |
-| *gate* 2 (tipos e arquitectura) | `tsc --noEmit -p tsconfig.tests.json`, `lint_arch all`, `log_policy lint` | limpo sobre `src` **e** `tests`; `conforme`; **0 achados** |
+| *gate* 3 (referências, *handoff*, backlog) | `lint_refs`, `lint_handoff`, `lint_backlog` | `conforme` — 16831 referências em 1092 ficheiros; 636 caminhos em 160 blocos; as três superfícies do backlog a dizer o mesmo |
+| *gate* 3b (nomes canónicos) | `dict_export --check`, `canon_lint check` e `canario` | `conforme` — dicionário v1.22, 26 extensões, 11 migrações, 27 tabelas; o canário dá 10 negativas vermelhas e 10 positivas verdes |
+| *gate* 2 (tipos e arquitectura) | `tsc --noEmit -p tsconfig.tests.json`, `lint_arch all`, `log_policy lint` | limpo sobre `src` **e** `tests`; `conforme`; **0 achados** em 113 ficheiros TS/JS e 34 Python |
 | *gate* 4 (baterias da passagem) | `node --test` sobre os cinco `tests/hnd.*.test.ts` | **89 testes, 89 passam** |
 | *gate* 6 (isolamento) | `db/gate_bd.py --suite tests_isolamento` | **78 testes, OK** — com as duas tabelas novas descobertas pelo catálogo e semeadas, e o X-05 de dezanove para **vinte e uma** |
 | *gate* 8 (migrações) | `db/gate_bd.py --suite tests` | **415 testes, OK**, em 93 s — eram 407 antes da bateria do esquema |
 | *gate* 8 (passagem a humano) | `db/gate_bd.py --suite tests_handoff` | **5 asserções Python sobre 6 ficheiros de teste Node, OK**, em 5 s; cobertura de `src/hnd/` entre **90%** (`metricas.ts`) e **100%** em dez módulos, contra o limiar de 75% do estrato `restante` |
-| prova por mutação | `db/mutacoes.py --aplicaveis` | **349 mutações, 0 não aplicáveis** — **22 novas** deste ticket |
-| spike do L7 | `make chatwoot-spike` | **NÃO CONCLUÍDO** — o *daemon* do Docker não resolve `production.cloudfront.docker.com` (quatro tentativas). A evidência diz em que passo parou |
+| *gate* 11 (cadeia de abastecimento) | `supply_chain check` | `conforme`, **código 0** — pediu `read_only: true` nos quatro serviços do compose e as quatro listas de saídas, que ficaram escritas; 23 referências a 6 imagens, todas por digest |
+| prova por mutação | `db/mutacoes.py --aplicaveis` | **353 mutações, 0 não aplicáveis** — **26 novas** deste ticket. **Uma delas é imortal e está na lista de trabalho:** «o fecho deixa de ler o tenant da sessao» não pode ser morta, porque a base falsa impõe o *tenant* em JavaScript e sob RLS o predicado é redundante para o `kamba_app` |
+| spike do L7 | `make chatwoot-spike` | **`O TOKEN DO BOT CHEGA`** — nove passos, veredicto conclusivo, à quinta corrida |
+
+#### O que fica por fazer, e porque é que não se marcou
+
+O spike e a revisão adversarial deixaram uma lista, e ela está em
+[`../docs/dividas-documentais.md`](../docs/dividas-documentais.md) e no corpo
+das caixas acima. Por gravidade: o provisionamento medido (utilizador da conta,
+`account_users`, `set_agent_bot`, e o segundo `token_ref` na
+`handoff_accounts`); o contacto antes da conversa, que tira o nosso
+`contact_id` de dentro do `source_id`; o URL do espelho, que hoje põe o `wamid`
+onde vai o identificador da conversa; a busca da conversa por atributo; o
+`close` que não casa em silêncio sem contexto de sessão; o resultado do
+`SQL_MARCAR_ABERTA` que é descartado; o `#pedir` que trata um 200 sem JSON como
+indisponibilidade; o `resolver` que nunca é escrito; e o `SQL_REPOR_CONTA` sem
+chamador, com o `GRANT` que a `0011` lhe concedeu.
 
 #### Decisões tomadas neste ticket
 
-- **A emenda ao dicionário veio antes do código**, e não por formalidade: dois
-  dos tipos da interface — `MirrorMessage` e `HumanEvent` — estavam **só
-  nomeados** na assinatura do §11.1, sem campos definidos em documento nenhum.
+- **A emenda ao dicionário veio antes do código**: dois dos tipos da interface —
+  `MirrorMessage` e `HumanEvent` — estavam **só nomeados** na assinatura do
+  §11.1, sem campos definidos em documento nenhum.
 - **A chave da passagem é texto e derivada**, contra o hábito do §2: é
   `hash(thread_id, ordinal)`, e é isso que faz cinco processos concorrentes
   chegarem ao mesmo valor sem se falarem.
 - **Não há tabela de fila de espelho**: o §14 pede uma fila que reconcilie por
   `wamid`, e isso é uma fila com `jobId` derivado dele.
 - **Não há `CHECK` sobre o `resumed_at` nem o `resolver`**, e a ausência tem
-  teste: ninguém escreve essas colunas neste ticket, e uma restrição sobre
-  colunas que nenhum código toca seria descoberta pelo KAM-034 contra linhas que
-  já existem. É a lição que a `outbound_messages_entrega_ck` custou.
-- **Os *callbacks* verificam-se no HND e não no GWY**, e é decisão e não
-  dedução: dois documentos do mesmo nível discordam, a ordem de fontes não
-  desempata, e o ADR-001 não resolve. O que desempata é o `secret` ser por bot,
-  logo por *tenant*, e o GWY ser o único ponto sem contexto de *tenant*.
-- **A conta órfã da corrida do `ensureAccount` conta-se e registra-se**, em vez
-  de se esconder: a linha precisa dos identificadores que só a criação devolve,
-  pelo que não se pode escrever primeiro, e a assinatura não permite pedir um
-  *lock*.
+  teste: uma restrição sobre colunas que nenhum código toca seria descoberta
+  pelo KAM-034 contra linhas que já existem. É a lição que a
+  `outbound_messages_entrega_ck` custou.
+- **Os *callbacks* verificam-se no HND e não no GWY**: dois documentos do mesmo
+  nível discordam e a ordem de fontes não desempata. O que desempata é o
+  `secret` ser por bot, logo por *tenant*, e o GWY ser o único ponto sem
+  contexto de *tenant*.
+- **O plano B do L7 fica arquivado e não apagado.** O spike mostrou que o
+  *token* do bot chega para o estado, mas mostrou também que ele **não** chega
+  para contactos — pelo que a ideia de um utilizador-serviço não morreu: mudou
+  de sítio, e é agora o utilizador da conta do critério 1.
 
 ### Handoff para Claude Code
 

@@ -8,7 +8,7 @@
 | Imagem | `chatwoot/chatwoot:v4.18.0`, fixada por digest em `ci/supply-chain/imagens.yaml` |
 | Dados | **sintéticos**. Nenhum dado de pessoa real entrou nesta instância |
 | Como se reproduz | `make chatwoot-spike` |
-| Veredicto | **NAO CONCLUIDO** |
+| Veredicto | **O TOKEN DO BOT CHEGA** |
 
 ## O que aconteceu, passo a passo
 
@@ -17,6 +17,16 @@
 | arranque | OK | /api respondeu 200 |
 | sem credenciais da Meta | OK | as tres ausentes no `env` do contentor a correr |
 | token da Platform API | OK | 24 caracteres |
+| conta | OK | id 1 |
+| agent bot | OK | id 1, account_id 1 |
+| utilizador da conta | OK | id 1, com access_token |
+| ligacao utilizador-conta | OK | administrator |
+| inbox api | OK | id 1, tipo Channel::Api |
+| bot ligado ao inbox | OK | bot 1 no inbox 1 |
+| contacto | OK | id 1, com source_id |
+| conversa (pending) com o token do bot | OK | id 1, estado pending |
+| **pending -> open com o token do bot** | OK | 200: {"payload":{"success":null,"conversation_id":1,"current_status":"open","snoozed_until":null}} |
+| **o token do bot cria contactos** | RECUSADO | 401: {"error":"Access to this endpoint is not authorized for bots"} — o token do utilizador e preciso em tempo de execucao, e isso poe uma coluna na revisao 0011 |
 
 ## O que este resultado decide
 

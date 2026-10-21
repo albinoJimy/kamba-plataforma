@@ -230,10 +230,59 @@ def _provisionar(registo: Registo, plataforma: str) -> dict | None:
         )
         return None
 
+    # **O token da Platform API nao serve os endpoints da conta.** Medido: um
+    # `POST /api/v1/accounts/{id}/inboxes` com ele devolve 401 «Access to this
+    # endpoint is not authorized for bots». O caminho e criar um utilizador pela
+    # Platform API, liga-lo a conta, e usar o `access_token` **dele** nos
+    # endpoints `/api/v1/accounts/...`. E o que este passo mede.
+    estado, corpo = _pedir(
+        "POST",
+        "/platform/api/v1/users",
+        plataforma,
+        {
+            "name": "KAMBA provisioner",
+            "email": "provisioner@chatwoot.localhost",
+            # Valor sintetico de uma instancia descartavel em `127.0.0.1`: o
+            # mesmo placeholder do resto do compose, com a maiuscula e o digito
+            # que a politica do Chatwoot exige (medido: sem eles devolve 422
+            # «Password must contain at least 1 uppercase character»). Nao
+            # protege nada e a instancia e apagada no fim.
+            "password": "Mude-Me-Localmente1",
+        },
+    )
+    if estado not in (200, 201):
+        registo.append(("utilizador da conta", "FALHOU", f"{estado}: {_curto(corpo)}"))
+        return None
+    utilizador = json.loads(corpo)
+    token_do_utilizador = utilizador.get("access_token")
+    if not token_do_utilizador:
+        registo.append(
+            (
+                "utilizador da conta",
+                "FALHOU",
+                "criado sem `access_token` no corpo — sem ele nao ha token de conta",
+            )
+        )
+        return None
+    registo.append(
+        ("utilizador da conta", "OK", f"id {utilizador['id']}, com access_token")
+    )
+
+    estado, corpo = _pedir(
+        "POST",
+        f"/platform/api/v1/accounts/{conta}/account_users",
+        plataforma,
+        {"user_id": utilizador["id"], "role": "administrator"},
+    )
+    if estado not in (200, 201):
+        registo.append(("ligacao utilizador-conta", "FALHOU", f"{estado}: {_curto(corpo)}"))
+        return None
+    registo.append(("ligacao utilizador-conta", "OK", "administrator"))
+
     estado, corpo = _pedir(
         "POST",
         f"/api/v1/accounts/{conta}/inboxes",
-        plataforma,
+        token_do_utilizador,
         {
             "name": "KAMBA api",
             "channel": {"type": "api", "webhook_url": "http://hnd.localhost/callbacks"},
@@ -244,9 +293,62 @@ def _provisionar(registo: Registo, plataforma: str) -> dict | None:
         return None
     caixa = json.loads(corpo)
     registo.append(("inbox api", "OK", f"id {caixa['id']}, tipo {caixa.get('channel_type')}"))
+
+    # **O bot tem de ser ligado ao inbox**, e isto faltava em todo o lado — no
+    # spike, no `chatwoot.ts` e no `docs/hnd.md`. Sem a ligacao, o bot nao recebe
+    # os `callbacks` do inbox (criterio 5) e nao ve as conversas dele: foi o 404
+    # «Resource could not be found» que o passo que decide devolveu. Endpoint da
+    # conta, logo com o token do utilizador e nao o da plataforma.
+    estado, corpo = _pedir(
+        "POST",
+        f"/api/v1/accounts/{conta}/inboxes/{caixa['id']}/set_agent_bot",
+        token_do_utilizador,
+        {"agent_bot": bot["id"]},
+    )
+    if estado not in (200, 201):
+        registo.append(("bot ligado ao inbox", "FALHOU", f"{estado}: {_curto(corpo)}"))
+        return None
+    registo.append(("bot ligado ao inbox", "OK", f"bot {bot['id']} no inbox {caixa['id']}"))
+
+    # O contacto, e o `source_id` que ele devolve. Dados **sinteticos**: o
+    # `identifier` e um rotulo do spike e nao um numero de telefone — o que a
+    # plataforma manda para o provedor nao leva identificadores nossos
+    # (ADR-010), e uma instancia de ensaio nao e excepcao.
+    estado, corpo = _pedir(
+        "POST",
+        f"/api/v1/accounts/{conta}/contacts",
+        token_do_utilizador,
+        {
+            "inbox_id": caixa["id"],
+            "name": "Contacto do spike",
+            "identifier": "spike-contacto-1",
+        },
+    )
+    if estado not in (200, 201):
+        registo.append(("contacto", "FALHOU", f"{estado}: {_curto(corpo)}"))
+        return None
+    # Medido: a forma e `payload.contact`, com `contact_inboxes[0].source_id`
+    # la dentro. Ler `payload` directamente da um dicionario sem `source_id`, e
+    # o spike parava a dizer que o Chatwoot nao o devolveu — quando devolvia.
+    contacto = json.loads(corpo).get("payload", {}).get("contact", {})
+    caixas_do_contacto = contacto.get("contact_inboxes") or []
+    origem = caixas_do_contacto[0].get("source_id") if caixas_do_contacto else None
+    if not origem:
+        registo.append(
+            (
+                "contacto",
+                "FALHOU",
+                "criado sem `contact_inboxes[0].source_id` — e esse que a "
+                f"conversa aponta. Corpo: {_curto(corpo)}",
+            )
+        )
+        return None
+    registo.append(("contacto", "OK", f"id {contacto.get('id')}, com source_id"))
     return {
         "conta": conta,
         "bot": bot["id"],
+        "token_do_utilizador": token_do_utilizador,
+        "origem": origem,
         "token_do_bot": bot.get("access_token", {}).get("token")
         if isinstance(bot.get("access_token"), dict)
         else bot.get("access_token"),
@@ -272,7 +374,10 @@ def _o_passo_que_decide(registo: Registo, ids: dict) -> str:
         token,
         {
             "inbox_id": ids["inbox"],
-            "source_id": "spike-contacto-1",
+            # O `source_id` do `contact_inbox` que o passo do contacto criou. Um
+            # valor inventado aqui da 404, e o 404 nao e uma resposta sobre o
+            # estado: e o Chatwoot a dizer que o contacto nao existe.
+            "source_id": ids["origem"],
             "status": "pending",
             "custom_attributes": {"handoffId": "h_spike"},
         },
@@ -304,6 +409,48 @@ def _o_passo_que_decide(registo: Registo, ids: dict) -> str:
         ("**pending -> open com o token do bot**", "RECUSADO", f"{estado}: {corpo[:200]}")
     )
     return "O TOKEN DO BOT NAO CHEGA"
+
+
+def _o_bot_cria_contactos(registo: Registo, ids: dict) -> None:
+    """Mede se o token do bot cria um contacto, e decide se o esquema muda.
+
+    O `abrirConversa` precisa do `source_id` de um `contact_inbox` que exista —
+    medido: um valor inventado da 404. Se o token do **bot** criar contactos,
+    o utilizador da conta e so um passo de provisionamento e o token dele morre
+    ali; se nao criar, ele e preciso em tempo de execucao e tem de ser guardado
+    por conta, o que poe uma coluna na revisao `0011`.
+    """
+    token = ids.get("token_do_bot")
+    if not token:
+        return
+    estado, corpo = _pedir(
+        "POST",
+        f"/api/v1/accounts/{ids['conta']}/contacts",
+        token,
+        {
+            "inbox_id": ids["inbox"],
+            "name": "Contacto do bot",
+            "identifier": "spike-contacto-2",
+        },
+    )
+    if estado in (200, 201):
+        registo.append(
+            (
+                "**o token do bot cria contactos**",
+                "OK",
+                f"{estado}: o utilizador da conta e so provisionamento, e o "
+                "token dele nao precisa de ser guardado",
+            )
+        )
+        return
+    registo.append(
+        (
+            "**o token do bot cria contactos**",
+            "RECUSADO",
+            f"{estado}: {_curto(corpo)} — o token do utilizador e preciso em "
+            "tempo de execucao, e isso poe uma coluna na revisao 0011",
+        )
+    )
 
 
 def _escrever_evidencia(registo: Registo, veredicto: str) -> None:
@@ -385,6 +532,7 @@ def main(argv: list[str] | None = None) -> int:
                 ids = _provisionar(registo, plataforma)
                 if ids is not None:
                     veredicto = _o_passo_que_decide(registo, ids)
+                    _o_bot_cria_contactos(registo, ids)
     except Exception as erro:  # noqa: BLE001
         # **Um defeito do script tambem e um desfecho**, e tem de ir para a
         # evidencia com o nome. Sem este bloco o `finally` escrevia a evidencia
