@@ -24,13 +24,6 @@
  *
  * ## O que este módulo **não** faz, e é escopo e não esquecimento
  *
- * * **Não marca o canal nem emite `channel.updated`** (critério 6). O
- *   `motivo_restricao` não existe em `tenant_channels` e criá-lo é DDL; a
- *   revisão que o faz é a `0013`, que descende da `0012` do KAM-020 e entra
- *   quando ela fundir. O que está aqui é a **detecção** (`suspeita`), que é a
- *   decisão; a marca e o evento são a acção, e a acção precisa da coluna.
- * * **Não guarda os códigos de erro vistos** (critério 5,
- *   `meta_error_codes_seen`). Mesma razão, mesma revisão.
  * * **Não avisa o dono.** O canal alternativo é o KAM-115, que nomeia este
  *   ticket como emissor. Aqui conta-se e registra-se; quem notifica é ele.
  * * **Não lê `config/meta_rates.yaml`.** O critério 4 manda ler dali, e lê-se —
@@ -45,16 +38,26 @@
 import type { Logger } from "../logger/index.ts";
 import { FREE_TIER_DE_SERVICE } from "../outbound/index.ts";
 
+import { validarPayload } from "../eventos/contratos.ts";
+
 import {
+  AGREGADO_CHANNEL_UPDATED,
   JANELA_DE_FALHAS,
+  TIPO_CHANNEL_UPDATED,
+  VERSAO_CHANNEL_UPDATED,
   type ClienteSql,
   type Contagem,
+  type MotivoDeRestricao,
   type Reconciliacao,
+  type Restricao,
 } from "./contrato.ts";
 import {
   SQL_CONTAR,
+  SQL_EMITIR_CHANNEL_UPDATED,
   SQL_ESTADO,
   SQL_FALHAS_RECENTES,
+  SQL_LEVANTAR_RESTRICAO,
+  SQL_MARCAR_RESTRICAO,
   SQL_RECONCILIAR,
 } from "./consultas.ts";
 import {
@@ -260,6 +263,141 @@ export class Metering {
     this.#metricas.contar(METRICA_SUSPEITAS);
     this.#log?.warn({ outcome: "meta_pagamento_suspeito", tenant_id: tenantId });
     return true;
+  }
+
+  /**
+   * Marca o canal com um motivo de restrição e emite `channel.updated`
+   * (critério 6; revisão `0013`).
+   *
+   * Guarda também o código de erro que a Meta devolveu, se houver (critério 5).
+   * As duas coisas numa instrução: separar deixava uma janela em que o canal
+   * está marcado e o código que o justificou não está guardado, e é essa a
+   * janela que interessa a quem for calibrar a heurística.
+   *
+   * **O evento sai uma vez por restrição, e não uma por mensagem falhada.** A
+   * Meta reenvia os `statuses` e a heurística volta a disparar enquanto a taxa
+   * se mantiver; quem decide é o `marcado` que a base devolve do `antes`, sob
+   * `FOR UPDATE`. Sob concorrência, um dos processos vê `NULL` e só esse emite.
+   *
+   * **O `payload` valida-se contra o contrato antes de qualquer escrita.** É a
+   * regra do KAM-007, e a razão é a do `chr/eventos.ts`: um campo a mais dá um
+   * `check_violation` do `evt_emitir` ou, pior, um evento publicado com um
+   * campo que nenhum consumidor conhece. O contrato de `channel.updated` pede
+   * exactamente `phone_number_id` e `motivo` — e **nenhum dos dois é PII**: o
+   * `phone_number_id` é um identificador opaco da Meta e não um telefone, como
+   * o inventário da `0001` diz por extenso.
+   *
+   * Devolve `null` para um canal que não existe: não há nada a marcar, e
+   * inventar uma marca era pior do que não a fazer.
+   */
+  async marcarRestricao(
+    tenantId: string,
+    phoneNumberId: string,
+    motivo: MotivoDeRestricao,
+    codigo: number | null,
+  ): Promise<Restricao | null> {
+    const linhas = await this.#bd.query<{
+      id: string;
+      marcado: boolean;
+      codigos: readonly number[] | null;
+    }>(SQL_MARCAR_RESTRICAO, [
+      tenantId,
+      phoneNumberId,
+      motivo,
+      codigo === null || !Number.isInteger(codigo) ? null : codigo,
+    ]);
+    const linha = linhas.rows[0];
+    if (linha === undefined) {
+      this.#log?.warn({ outcome: "free_tier_canal_desconhecido", tenant_id: tenantId });
+      return null;
+    }
+
+    const codigos = linha.codigos ?? [];
+    if (!linha.marcado) {
+      // Já estava marcado. O conjunto de códigos pode ter crescido — e é por
+      // isso que isto não é um `return null` —, mas não há restrição nova para
+      // anunciar.
+      return { marcou: false, codigos, eventoId: null };
+    }
+
+    const eventoId = await this.#emitirCanalActualizado(tenantId, linha.id, phoneNumberId, motivo);
+    this.#log?.warn({ outcome: `canal_restrito_${motivo}`, tenant_id: tenantId });
+    return { marcou: true, codigos, eventoId };
+  }
+
+  /**
+   * Levanta a restrição de um canal, e emite `channel.updated` (critério 6).
+   *
+   * O critério diz «remover o motivo exige estado `delivered` posterior ou
+   * limpeza manual registada». Este é o primeiro caminho: quem chama é quem viu
+   * uma entrega **nova**, e uma entrega é a única coisa que desmente a
+   * suspeita — a Meta voltou a entregar.
+   *
+   * **Levanta só o motivo que lhe dão.** Um canal restrito por qualidade
+   * (KAM-021) continua a entregar mensagens, pelo que uma entrega não é prova
+   * de que a qualidade melhorou; limpar a marca de outro ticket ao passar era
+   * apagar uma decisão que não é nossa.
+   *
+   * Devolve `false` quando não havia esta marca para levantar, e nesse caso
+   * **não emite nada**: um `channel.updated` por cada entrega de um canal
+   * saudável era um evento por mensagem.
+   */
+  async levantarRestricao(
+    tenantId: string,
+    phoneNumberId: string,
+    motivo: MotivoDeRestricao,
+  ): Promise<boolean> {
+    const linhas = await this.#bd.query<{ id: string }>(SQL_LEVANTAR_RESTRICAO, [
+      tenantId,
+      phoneNumberId,
+      motivo,
+    ]);
+    const linha = linhas.rows[0];
+    if (linha === undefined) return false;
+
+    await this.#emitirCanalActualizado(tenantId, linha.id, phoneNumberId, motivo);
+    this.#log?.warn({ outcome: `canal_liberto_${motivo}`, tenant_id: tenantId });
+    return true;
+  }
+
+  /**
+   * Emite o `channel.updated` e devolve o `event_id`.
+   *
+   * Numa função e não na cadeia repetida duas vezes, porque a parte que importa
+   * é a recusa: **o `event_id` ausente não se cala.** O `evt_emitir` devolve-o,
+   * e a sua ausência significa que o evento pode não ter chegado ao
+   * `events_outbox` — com o canal **já marcado**, isso é uma marca sem ninguém
+   * avisado. É a mesma recusa do `emitirContactMerged` do KAM-014, e a razão de
+   * ela ser um `throw` e não um registo é que quem chama tem de poder repetir.
+   */
+  async #emitirCanalActualizado(
+    tenantId: string,
+    channelId: string,
+    phoneNumberId: string,
+    motivo: MotivoDeRestricao,
+  ): Promise<string> {
+    const payload = { phone_number_id: phoneNumberId, motivo };
+    validarPayload(TIPO_CHANNEL_UPDATED, VERSAO_CHANNEL_UPDATED, payload);
+    const emissao = await this.#bd.query<{ event_id: string }>(
+      SQL_EMITIR_CHANNEL_UPDATED,
+      [
+        TIPO_CHANNEL_UPDATED,
+        VERSAO_CHANNEL_UPDATED,
+        tenantId,
+        AGREGADO_CHANNEL_UPDATED,
+        channelId,
+        JSON.stringify(payload),
+      ],
+    );
+    const eventoId = emissao.rows[0]?.event_id;
+    if (typeof eventoId !== "string") {
+      throw new Error(
+        "platform.evt_emitir nao devolveu um event_id: o channel.updated pode " +
+          "nao ter sido escrito no outbox, e a marca do canal ficaria sem " +
+          "ninguem avisado",
+      );
+    }
+    return eventoId;
   }
 
   /**

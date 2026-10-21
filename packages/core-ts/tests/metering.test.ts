@@ -43,6 +43,11 @@ import { FREE_TIER_DE_SERVICE } from "../src/outbound/index.ts";
 import {
   AVISO_EM,
   JANELA_DE_FALHAS,
+  MOTIVOS_DE_RESTRICAO,
+  SQL_EMITIR_CHANNEL_UPDATED,
+  SQL_LEVANTAR_RESTRICAO,
+  SQL_MARCAR_RESTRICAO,
+  VERSAO_CHANNEL_UPDATED,
   METRICA_ALERTAS,
   METRICA_ESTIMATIVA,
   METRICA_RACIO,
@@ -67,6 +72,8 @@ const TENANT = "11111111-1111-4111-8111-111111111111";
 const OUTRO_TENANT = "99999999-9999-4999-8999-999999999999";
 const PNID = "109876543210987";
 const T0 = new Date("2026-10-20T12:00:00.000Z");
+const CANAL = "22222222-2222-4222-8222-222222222222";
+const EVENTO = "01931f3e-0000-7000-8000-000000000001";
 
 /** O micro-dólar da tarifa de `service`, para as contas abaixo não o esconderem. */
 const TARIFA_SERVICE = 4_000;
@@ -381,6 +388,12 @@ class BaseFalsa {
   janela: { total: number; falhas: number } | null = { total: 0, falhas: 0 };
   /** O que o `SQL_RECONCILIAR` devolve. `null` = zero linhas. */
   reconciliacao: { entregues: number; facturaveis: number } | null = null;
+  /** O que o `SQL_MARCAR_RESTRICAO` devolve. `null` = zero linhas. */
+  marca: { id: string; marcado: boolean; codigos: readonly number[] } | null = null;
+  /** `true` quando o `SQL_LEVANTAR_RESTRICAO` encontra a marca. */
+  levantou = true;
+  /** O `event_id` que o `evt_emitir` devolve. `null` finge a ausencia. */
+  eventoId: string | null = EVENTO;
 
   semear(tenant: string, pnid: string, usadas: number, mes: string | null): void {
     this.canais.set(`${tenant}|${pnid}`, { usadas, mes });
@@ -419,6 +432,20 @@ class BaseFalsa {
     }
     if (texto === SQL_FALHAS_RECENTES) {
       return { rows: this.janela === null ? [] : [this.janela as unknown as T] };
+    }
+    if (texto === SQL_MARCAR_RESTRICAO) {
+      return { rows: this.marca === null ? [] : [this.marca as unknown as T] };
+    }
+    if (texto === SQL_LEVANTAR_RESTRICAO) {
+      return { rows: this.levantou ? [{ id: CANAL } as unknown as T] : [] };
+    }
+    if (texto === SQL_EMITIR_CHANNEL_UPDATED) {
+      return {
+        rows:
+          this.eventoId === null
+            ? [{} as unknown as T]
+            : [{ event_id: this.eventoId } as unknown as T],
+      };
     }
     if (texto === SQL_RECONCILIAR) {
       return {
@@ -706,5 +733,101 @@ describe("a reconciliacao, pela porta (criterio 7)", () => {
     // adversarial mostrou que um intervalo por parametro deixava pedir um mes
     // de que o contador — que e uma coluna, nao uma serie — nao sabe falar.
     assert.deepEqual(bd.parametros[1], [TENANT, PNID, T0.toISOString()]);
+  });
+});
+
+describe("a marca de restricao, pela porta (criterios 5 e 6)", () => {
+  it("**o `event_id` ausente nao se cala**", async () => {
+    // O `evt_emitir` devolve o `event_id`, e a sua ausencia significa que o
+    // evento pode nao ter chegado ao `events_outbox` — com o canal **ja
+    // marcado**, isso e uma marca sem ninguem avisado. E a mesma recusa do
+    // `emitirContactMerged` do KAM-014, e e um `throw` e nao um registo porque
+    // quem chama tem de poder repetir.
+    const { bd, metering } = montar();
+    bd.semear(TENANT, PNID, 0, MES);
+    bd.marca = { id: CANAL, marcado: true, codigos: [] };
+    bd.eventoId = null;
+    await assert.rejects(
+      () => metering.marcarRestricao(TENANT, PNID, "payment_method", 131049),
+      /evt_emitir nao devolveu um event_id/,
+    );
+  });
+
+  it("marca, emite **uma** vez, e devolve o `event_id`", async () => {
+    const { bd, metering } = montar();
+    bd.semear(TENANT, PNID, 0, MES);
+    bd.marca = { id: CANAL, marcado: true, codigos: [131049] };
+    const r = await metering.marcarRestricao(TENANT, PNID, "payment_method", 131049);
+    assert.equal(r?.marcou, true);
+    assert.deepEqual([...(r?.codigos ?? [])], [131049]);
+    assert.equal(r?.eventoId, EVENTO);
+    assert.deepEqual(bd.pedidos, [SQL_MARCAR_RESTRICAO, SQL_EMITIR_CHANNEL_UPDATED]);
+    assert.deepEqual(bd.parametros[0], [TENANT, PNID, "payment_method", 131049]);
+  });
+
+  it("**um canal ja marcado nao volta a emitir**", async () => {
+    // Um evento por mensagem falhada e o contrario de um alerta. O `marcado`
+    // vem do `antes` da base, e aqui o fake di-lo `false`.
+    const { bd, metering } = montar();
+    bd.semear(TENANT, PNID, 0, MES);
+    bd.marca = { id: CANAL, marcado: false, codigos: [131049, 130429] };
+    const r = await metering.marcarRestricao(TENANT, PNID, "payment_method", 130429);
+    assert.equal(r?.marcou, false);
+    assert.equal(r?.eventoId, null);
+    // E o conjunto de codigos **ainda** volta, porque pode ter crescido: e isso
+    // que o criterio 5 quer, e e por isso que isto nao e um `null`.
+    assert.deepEqual([...(r?.codigos ?? [])], [131049, 130429]);
+    assert.deepEqual(bd.pedidos, [SQL_MARCAR_RESTRICAO]);
+  });
+
+  it("o payload do evento tem **exactamente** o que o contrato pede", async () => {
+    const { bd, metering } = montar();
+    bd.semear(TENANT, PNID, 0, MES);
+    bd.marca = { id: CANAL, marcado: true, codigos: [] };
+    await metering.marcarRestricao(TENANT, PNID, "payment_method", null);
+    const payload = JSON.parse(String(bd.parametros[1]?.[5])) as Record<string, unknown>;
+    // `phone_number_id` e `motivo`, e mais nada. Um campo a mais da um
+    // `check_violation` do `evt_emitir` ou, pior, um evento publicado com um
+    // campo que nenhum consumidor conhece (KAM-007).
+    assert.deepEqual(Object.keys(payload).sort(), ["motivo", "phone_number_id"]);
+    assert.equal(payload.motivo, "payment_method");
+    // **E nenhum dos dois e PII**: o `phone_number_id` e um identificador opaco
+    // da Meta e nao um telefone, como o inventario da `0001` diz por extenso.
+    assert.equal(payload.phone_number_id, PNID);
+    assert.equal(bd.parametros[1]?.[1], VERSAO_CHANNEL_UPDATED);
+  });
+
+  it("um codigo que nao e inteiro vai `null` e nao suja o conjunto", async () => {
+    const { bd, metering } = montar();
+    bd.semear(TENANT, PNID, 0, MES);
+    bd.marca = { id: CANAL, marcado: true, codigos: [] };
+    await metering.marcarRestricao(TENANT, PNID, "payment_method", 1.5);
+    assert.equal(bd.parametros[0]?.[3], null);
+  });
+
+  it("um canal que nao existe nao se marca", async () => {
+    const { metering } = montar();
+    assert.equal(
+      await metering.marcarRestricao(TENANT, PNID, "payment_method", null),
+      null,
+    );
+  });
+
+  it("levantar um motivo que nao esta posto nao emite nada", async () => {
+    const { bd, metering } = montar();
+    bd.semear(TENANT, PNID, 0, MES);
+    bd.levantou = false;
+    assert.equal(await metering.levantarRestricao(TENANT, PNID, "quality"), false);
+    assert.deepEqual(bd.pedidos, [SQL_LEVANTAR_RESTRICAO]);
+  });
+
+  it("os tres motivos do dominio sao a lista fechada", () => {
+    // O `CHECK` da revisao e a ultima barreira e esta lista e a primeira. A
+    // `0008` e a `0009` pagaram a licao de as deixar divergir.
+    assert.deepEqual([...MOTIVOS_DE_RESTRICAO], [
+      "payment_method",
+      "quality",
+      "policy",
+    ]);
   });
 });

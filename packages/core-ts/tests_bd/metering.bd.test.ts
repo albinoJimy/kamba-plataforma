@@ -706,4 +706,199 @@ describe("o contador do free tier contra a base", () => {
       assert.equal(r?.divergenciaDoFacturavel, null);
     });
   });
+
+  // --------------------- a marca de restricao (criterios 5 e 6, revisao 0013)
+
+  describe("a marca de restricao (criterios 5 e 6)", () => {
+    /** O motivo e o conjunto de codigos, lidos pelo administrador. */
+    async function marcaCrua(
+      canal: string,
+    ): Promise<{ motivo: string | null; codigos: readonly number[] }> {
+      const { rows } = await admin.query<{
+        motivo: string | null;
+        codigos: readonly number[] | null;
+      }>(
+        "SELECT motivo_restricao AS motivo, meta_error_codes_seen AS codigos " +
+          "FROM platform.tenant_channels WHERE id = $1",
+        [canal],
+      );
+      const linha = rows[0];
+      return { motivo: linha?.motivo ?? null, codigos: linha?.codigos ?? [] };
+    }
+
+    /** Quantos `channel.updated` estao no outbox deste tenant. */
+    async function eventosDe(tenant: string): Promise<number> {
+      const { rows } = await admin.query<{ n: string }>(
+        "SELECT count(*)::text AS n FROM platform.events_outbox " +
+          "WHERE tenant_id = $1 AND tipo = 'channel.updated'",
+        [tenant],
+      );
+      return Number(rows[0]?.n ?? -1);
+    }
+
+    async function limparMarca(canal: string): Promise<void> {
+      await admin.query(
+        "UPDATE platform.tenant_channels SET motivo_restricao = NULL, " +
+          "meta_error_codes_seen = '{}' WHERE id = $1",
+        [canal],
+      );
+    }
+
+    async function limparEventos(tenant: string): Promise<void> {
+      await admin.query("DELETE FROM platform.events_outbox WHERE tenant_id = $1", [
+        tenant,
+      ]);
+      await admin.query("DELETE FROM platform.evt_agregado_seq WHERE tenant_id = $1", [
+        tenant,
+      ]);
+    }
+
+    it("**marca, guarda o codigo, e o `channel.updated` cai no outbox**", async () => {
+      await limparMarca(canalA);
+      await limparEventos(tenantA);
+      const { metering } = meteringDe(tenantA, ANTES_DA_MEIA_NOITE);
+      const r = await metering.marcarRestricao(tenantA, pnidA, "payment_method", 131049);
+      assert.equal(r?.marcou, true);
+      assert.ok(r?.eventoId !== null && r?.eventoId !== undefined);
+
+      const cru = await marcaCrua(canalA);
+      assert.equal(cru.motivo, "payment_method");
+      assert.deepEqual([...cru.codigos], [131049]);
+      // O envelope constroi-se em SQL, dentro do `evt_emitir`: isto afirma que
+      // ele **chegou** ao outbox, que e o que o publicador le.
+      assert.equal(await eventosDe(tenantA), 1);
+    });
+
+    it("**uma segunda marca nao emite outro evento**", async () => {
+      await limparMarca(canalA);
+      await limparEventos(tenantA);
+      const { metering } = meteringDe(tenantA, ANTES_DA_MEIA_NOITE);
+      await metering.marcarRestricao(tenantA, pnidA, "payment_method", 131049);
+      const segunda = await metering.marcarRestricao(
+        tenantA,
+        pnidA,
+        "payment_method",
+        130429,
+      );
+      // Um evento por mensagem falhada e o contrario de um alerta.
+      assert.equal(segunda?.marcou, false);
+      assert.equal(segunda?.eventoId, null);
+      assert.equal(await eventosDe(tenantA), 1);
+      // Mas o conjunto **cresceu**: a marca nao muda, os codigos acumulam-se, e
+      // e isso que o criterio 5 quer para calibrar a heuristica.
+      assert.deepEqual([...(await marcaCrua(canalA)).codigos], [131049, 130429]);
+    });
+
+    it("**um motivo diferente nao sobrepoe o primeiro**", async () => {
+      await limparMarca(canalA);
+      await limparEventos(tenantA);
+      const { metering } = meteringDe(tenantA, ANTES_DA_MEIA_NOITE);
+      await metering.marcarRestricao(tenantA, pnidA, "payment_method", null);
+      const outra = await metering.marcarRestricao(tenantA, pnidA, "quality", null);
+      // O `COALESCE` e o que faz a **primeira** marca ser a que fica. Sem ele, a
+      // qualidade apagava a suspeita de pagamento e o dono recebia o aviso
+      // errado.
+      assert.equal(outra?.marcou, false);
+      assert.equal((await marcaCrua(canalA)).motivo, "payment_method");
+    });
+
+    it("o mesmo codigo duas vezes entra **uma**", async () => {
+      await limparMarca(canalA);
+      await limparEventos(tenantA);
+      const { metering } = meteringDe(tenantA, ANTES_DA_MEIA_NOITE);
+      await metering.marcarRestricao(tenantA, pnidA, "payment_method", 131049);
+      await metering.marcarRestricao(tenantA, pnidA, "payment_method", 131049);
+      // E um conjunto, nao uma lista: sem o `<> ALL`, o mesmo codigo entrava uma
+      // vez por mensagem e batia no tecto de trinta e dois.
+      assert.deepEqual([...(await marcaCrua(canalA)).codigos], [131049]);
+    });
+
+    it("**um statuses sem codigo nao mete `NULL` no conjunto**", async () => {
+      await limparMarca(canalA);
+      await limparEventos(tenantA);
+      const { metering } = meteringDe(tenantA, ANTES_DA_MEIA_NOITE);
+      await metering.marcarRestricao(tenantA, pnidA, "payment_method", null);
+      // `array_append(a, NULL)` acrescenta um `NULL` — nao e um `no-op`. Sem o
+      // `CASE`, o conjunto enchia-se de `NULL` ate o `CHECK` recusar a escrita.
+      assert.deepEqual([...(await marcaCrua(canalA)).codigos], []);
+    });
+
+    it("**duas marcas em paralelo: um evento e nao dois**", async () => {
+      await limparMarca(canalA);
+      await limparEventos(tenantA);
+      const um = meteringDe(tenantA, ANTES_DA_MEIA_NOITE, app);
+      const dois = meteringDe(tenantA, ANTES_DA_MEIA_NOITE, app2);
+      const [a, b] = await Promise.all([
+        um.metering.marcarRestricao(tenantA, pnidA, "payment_method", 131049),
+        dois.metering.marcarRestricao(tenantA, pnidA, "payment_method", 130429),
+      ]);
+      // E o `FOR UPDATE` da subconsulta que faz o segundo processo reler o que o
+      // primeiro escreveu: so um ve `NULL` no `antes`, e so esse emite.
+      assert.equal([a?.marcou, b?.marcou].filter(Boolean).length, 1);
+      assert.equal(await eventosDe(tenantA), 1);
+    });
+
+    it("**levantar exige o motivo certo**, e emite", async () => {
+      await limparMarca(canalA);
+      await limparEventos(tenantA);
+      const { metering } = meteringDe(tenantA, ANTES_DA_MEIA_NOITE);
+      await metering.marcarRestricao(tenantA, pnidA, "payment_method", null);
+
+      // Um canal restrito por qualidade continua a entregar mensagens: uma
+      // entrega nao e prova de que a qualidade melhorou, e limpar a marca de
+      // outro ticket ao passar era apagar uma decisao que nao e nossa.
+      assert.equal(await metering.levantarRestricao(tenantA, pnidA, "quality"), false);
+      assert.equal((await marcaCrua(canalA)).motivo, "payment_method");
+      assert.equal(await eventosDe(tenantA), 1);
+
+      assert.equal(
+        await metering.levantarRestricao(tenantA, pnidA, "payment_method"),
+        true,
+      );
+      assert.equal((await marcaCrua(canalA)).motivo, null);
+      assert.equal(await eventosDe(tenantA), 2);
+      // Os codigos **ficam**: sao diagnostico, nao parte da restricao.
+      assert.deepEqual([...(await marcaCrua(canalA)).codigos], []);
+    });
+
+    it("levantar um canal sem marca nao emite nada", async () => {
+      await limparMarca(canalA);
+      await limparEventos(tenantA);
+      const { metering } = meteringDe(tenantA, ANTES_DA_MEIA_NOITE);
+      assert.equal(
+        await metering.levantarRestricao(tenantA, pnidA, "payment_method"),
+        false,
+      );
+      assert.equal(await eventosDe(tenantA), 0);
+    });
+
+    it("**com o contexto de A, o canal de B nao se marca** (X-03)", async () => {
+      await limparMarca(canalB);
+      const { metering } = meteringDe(tenantA, ANTES_DA_MEIA_NOITE);
+      // Zero linhas: a politica `tenant_iso` esconde a linha de B do contexto
+      // de A, e o `UPDATE` nao encontra nada para marcar.
+      assert.equal(
+        await metering.marcarRestricao(tenantA, pnidB, "payment_method", 131049),
+        null,
+      );
+      const cru = await marcaCrua(canalB);
+      assert.equal(cru.motivo, null);
+      assert.deepEqual([...cru.codigos], []);
+    });
+
+    it("e os codigos de A nao se veem com o contexto de B (X-03)", async () => {
+      await limparMarca(canalA);
+      await limparEventos(tenantA);
+      const deA = meteringDe(tenantA, ANTES_DA_MEIA_NOITE);
+      await deA.metering.marcarRestricao(tenantA, pnidA, "payment_method", 2593109);
+      // A metade positiva primeiro, pela regra do `docs/isolamento.md`.
+      assert.deepEqual([...(await marcaCrua(canalA)).codigos], [2593109]);
+      // E agora com o contexto de B, pelo numero de A: nada.
+      const deB = meteringDe(tenantB, ANTES_DA_MEIA_NOITE);
+      assert.equal(await deB.metering.marcarRestricao(tenantB, pnidA, "quality", 1), null);
+      assert.equal((await marcaCrua(canalA)).motivo, "payment_method");
+      assert.deepEqual([...(await marcaCrua(canalA)).codigos], [2593109]);
+    });
+  });
+
 });

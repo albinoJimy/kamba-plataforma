@@ -197,3 +197,43 @@ export interface Reconciliacao {
   /** Micro-dólares que a nossa estimativa dá para o contador do período. */
   readonly microUsdEstimado: number;
 }
+
+/**
+ * Os motivos pelos quais um canal fica restrito (revisão `0013`).
+ *
+ * Lista fechada, igual ao `CHECK` da revisão — e um teste compara as duas, pela
+ * razão que o `contrato.ts` do KAM-015 escreveu: o `CHECK` é a última barreira
+ * e esta lista é a primeira, e a `0008` e a `0009` pagaram a lição de as deixar
+ * divergir.
+ *
+ * Só o `payment_method` é deste ticket. O `quality` é do KAM-021 e o `policy`
+ * do KAM-017, e nascem na mesma revisão pela mecânica do *gate* 3b, que lê o
+ * `CHECK` de cada revisão isoladamente.
+ */
+export const MOTIVOS_DE_RESTRICAO = ["payment_method", "quality", "policy"] as const;
+export type MotivoDeRestricao = (typeof MOTIVOS_DE_RESTRICAO)[number];
+
+/** Quantos códigos distintos cabem no conjunto de um canal (`CHECK` da `0013`). */
+export const TECTO_DE_CODIGOS = 32;
+
+/** O tipo e a versão do evento que a marca dispara. */
+export const TIPO_CHANNEL_UPDATED = "channel.updated";
+export const VERSAO_CHANNEL_UPDATED = 2;
+/** O agregado do evento: o canal. */
+export const AGREGADO_CHANNEL_UPDATED = "channel";
+
+/** O que a marca de restrição produziu. */
+export interface Restricao {
+  /** `true` quando foi **esta** chamada que marcou o canal. */
+  readonly marcou: boolean;
+  /** O conjunto de códigos depois desta chamada. */
+  readonly codigos: readonly number[];
+  /**
+   * O `event_id` do `channel.updated`, quando houve um.
+   *
+   * `null` quando o canal já estava marcado: o evento sai **uma** vez por
+   * restrição e não uma por mensagem falhada, que é o contrário de um alerta.
+   */
+  readonly eventoId: string | null;
+}
+

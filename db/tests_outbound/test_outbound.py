@@ -92,6 +92,7 @@ GRUPOS = (
     "idempotencia por wamid (criterio 2)",
     "isolamento (Testes Requeridos: contadores de A nao afectam B)",
     "a janela de falhas e a reconciliacao (criterios 5 e 7)",
+    "a marca de restricao (criterios 5 e 6)",
 )
 
 #: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
@@ -128,6 +129,15 @@ TESTES_OBRIGATORIOS = (
     "**com o mes a `NULL` e o contador em 500, o reinicio repoe e nao soma**",
     "**o `reiniciou` normaliza mesmo quando o salto e grande**",
     "**a reconciliacao desiste, e nao reporta o tecto como medicao**",
+    # KAM-023, revisao 0013: a marca, o evento e o isolamento.
+    "**marca, guarda o codigo, e o `channel.updated` cai no outbox**",
+    "**uma segunda marca nao emite outro evento**",
+    "**um motivo diferente nao sobrepoe o primeiro**",
+    "**um statuses sem codigo nao mete `NULL` no conjunto**",
+    "**duas marcas em paralelo: um evento e nao dois**",
+    "**levantar exige o motivo certo**, e emite",
+    "**com o contexto de A, o canal de B nao se marca** (X-03)",
+    "**o `event_id` ausente nao se cala**",
     "**dois incrementos em paralelo na travessia: +2 e UM aviso**",
     "**1.200 entregas dao contador 1.200** — contra a coluna, nao contra um Map",
     "**tres `delivered` do mesmo wamid: contador +1**",

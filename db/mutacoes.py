@@ -226,6 +226,7 @@ FT_SQL = "packages/core-ts/src/metering/consultas.ts"
 FT_CUSTO = "packages/core-ts/src/metering/custo.ts"
 FT_METRICAS = "packages/core-ts/src/metering/metricas.ts"
 FT_MODULO = "packages/core-ts/src/metering/metering.ts"
+REV13 = "db/migrations/versions/0013_restricao_de_canal.py"
 
 #: O corpo da subtransaccao da `ten_consumir`, como a revisao 0007 o escreve:
 #: **a chave primeiro, a contagem depois**. A mutacao da ordem precisa do
@@ -1969,8 +1970,8 @@ MUTACOES = [
      "             THEN 1\n             ELSE antes.free_tier_used + 1",
      "             THEN 0\n             ELSE antes.free_tier_used + 1", SAIDA),
     ('free tier: o incremento perde o FOR UPDATE e o `antes` deixa de valer', FT_SQL,
-     "       WHERE tenant_id = $1 AND phone_number_id = $2\n         FOR UPDATE\n    ) AS antes",
-     "       WHERE tenant_id = $1 AND phone_number_id = $2\n    ) AS antes", SAIDA),
+     "      SELECT id, free_tier_used, free_tier_month\n        FROM platform.tenant_channels\n       WHERE tenant_id = $1 AND phone_number_id = $2\n         FOR UPDATE",
+     "      SELECT id, free_tier_used, free_tier_month\n        FROM platform.tenant_channels\n       WHERE tenant_id = $1 AND phone_number_id = $2", SAIDA),
     ('free tier: a janela de falhas passa a contar o que nao tem destino', FT_SQL,
      "         AND m.state IN ('delivered', 'read', 'failed')",
      "         AND m.state IN ('queued', 'sent', 'delivered', 'read', 'failed')", SAIDA),
@@ -1998,6 +1999,50 @@ MUTACOES = [
     ('free tier: a reconciliacao volta a comparar meses em UTC', FT_SQL,
      "     AND platform.ten_periodo(m.delivered_at)\n         = platform.ten_periodo(coalesce($3, now()))",
      "     AND m.delivered_at >= platform.ten_periodo(coalesce($3, now()))", SAIDA),
+    # ------------------------------------- KAM-023, revisao 0013 (restricao)
+    #
+    # As quatro primeiras sao da revisao e correm na suite `tests`; as sete
+    # seguintes sao do codigo e correm na `tests_outbound`.
+    #
+    # **Uma foi descartada, e vale dizer qual:** apagar o `REVOKE`/`GRANT`
+    # que o `downgrade` fazia antes do `DROP COLUMN`. Nenhum teste a podia
+    # matar — o PostgreSQL remove a concessao com a coluna, pelo que os
+    # grants da `0001` sobrevivem ao `DROP` por si sos e o resultado e o
+    # mesmo. Uma mutacao imortal nao e um teste em falta, e um sinal de que
+    # o codigo nao faz nada: aquelas duas instrucoes sairam da revisao.
+    ('restricao 0013: o dominio do motivo perde um valor', REV13,
+     "MOTIVOS_DE_RESTRICAO = (\"'payment_method'\", \"'quality'\", \"'policy'\")",
+     "MOTIVOS_DE_RESTRICAO = (\"'payment_method'\", \"'quality'\")", "tests"),
+    ('restricao 0013: o conjunto de codigos perde o tecto', REV13,
+     "OR array_length(meta_error_codes_seen, 1) <= {TECTO_DE_CODIGOS}",
+     "OR true", "tests"),
+    ('restricao 0013: a app deixa de poder escrever o motivo', REV13,
+     "                      last_account_update_at, motivo_restricao,",
+     "                      last_account_update_at,", "tests"),
+    ('restricao 0013: o conjunto de codigos passa a ser anulavel', REV13,
+     "ADD COLUMN meta_error_codes_seen integer[] NOT NULL DEFAULT '{{}}'",
+     "ADD COLUMN meta_error_codes_seen integer[] DEFAULT '{{}}'", "tests"),
+    ('restricao: a marca deixa de preservar a primeira', FT_SQL,
+     "     SET motivo_restricao = COALESCE(antes.motivo_restricao, $3),",
+     "     SET motivo_restricao = $3,", SAIDA),
+    ('restricao: o `marcado` volta a sair do valor novo', FT_SQL,
+     "             (antes.motivo_restricao IS NULL) AS marcado,",
+     "             (c.motivo_restricao IS NOT NULL) AS marcado,", SAIDA),
+    ('restricao: a marca perde o FOR UPDATE e o evento sai duas vezes', FT_SQL,
+     "      SELECT id, motivo_restricao, meta_error_codes_seen\n        FROM platform.tenant_channels\n       WHERE tenant_id = $1 AND phone_number_id = $2\n         FOR UPDATE",
+     "      SELECT id, motivo_restricao, meta_error_codes_seen\n        FROM platform.tenant_channels\n       WHERE tenant_id = $1 AND phone_number_id = $2", SAIDA),
+    ('restricao: o conjunto de codigos passa a aceitar repetidos', FT_SQL,
+     "             WHEN $4::integer = ANY(antes.meta_error_codes_seen)\n                  THEN antes.meta_error_codes_seen",
+     "             WHEN false THEN antes.meta_error_codes_seen", SAIDA),
+    ('restricao: um statuses sem codigo passa a guardar NULL no conjunto', FT_SQL,
+     "             WHEN $4::integer IS NULL THEN antes.meta_error_codes_seen",
+     "             WHEN false THEN antes.meta_error_codes_seen", SAIDA),
+    ('restricao: levantar deixa de olhar para o motivo que lhe dao', FT_SQL,
+     "     AND c.motivo_restricao = $3\n   RETURNING c.id",
+     "     AND c.motivo_restricao IS NOT NULL\n   RETURNING c.id", SAIDA),
+    ('restricao: o event_id ausente passa a ser calado', FT_MODULO,
+     "    if (typeof eventoId !== \"string\") {",
+     "    if (false) {", SAIDA),
     ('free tier: um canal desconhecido volta a ganhar mil mensagens gratis', FT_MODULO,
      "const DESCONHECIDO = {\n  usadas: FREE_TIER_DE_SERVICE,",
      "const DESCONHECIDO = {\n  usadas: 0,", SAIDA),

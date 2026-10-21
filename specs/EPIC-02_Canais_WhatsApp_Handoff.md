@@ -1763,8 +1763,8 @@ Contar mensagens *service* entregues por canal e mês, alertar aos 800 e aos 1.0
 - [x] Idempotência: estados duplicados do mesmo `wamid` não contam duas vezes (3 repetições, contador +1).
 - [ ] Alertas: 1 aviso ao atingir 800 (80%) e 1 aos 1.000, sem repetição no mesmo mês; reinício do contador à meia-noite do fuso configurado do canal (`Africa/Luanda` por omissão; reconfirmar contra a primeira factura da Meta).
 - [ ] Estimativa de custo `max(0, n − 1000) × 0,004 USD` lida de `config/meta_rates.yaml`: 1.200 mensagens → 0,80 USD; exposta como `meta_free_tier_used_ratio{tenant}` e `meta_cost_usd_estimate{tenant}`.
-- [ ] Detecção: depois de ≥ 1.000 entregues no mês, uma taxa de estados `failed` acima do limiar (proposta: 20% em 20 mensagens) gera alerta «possível método de pagamento ausente ou inválido» ao dono e a operações; cada código de erro visto é guardado em `meta_error_codes_seen` (para identificar o código concreto, NÃO VERIFICADO).
-- [ ] O alerta marca o canal com `motivo_restricao='payment_method'` e dispara `channel.updated`; remover o motivo exige estado `delivered` posterior ou limpeza manual registada.
+- [x] Detecção: depois de ≥ 1.000 entregues no mês, uma taxa de estados `failed` acima do limiar (proposta: 20% em 20 mensagens) gera alerta «possível método de pagamento ausente ou inválido» ao dono e a operações; cada código de erro visto é guardado em `meta_error_codes_seen` (para identificar o código concreto, NÃO VERIFICADO).
+- [x] O alerta marca o canal com `motivo_restricao='payment_method'` e dispara `channel.updated`; remover o motivo exige estado `delivered` posterior ou limpeza manual registada.
 - [ ] Reconciliação (critério de saída): ao fim de 1 mês real, o contador interno vs `pricing.billable` agregado diverge ≤ 2% (proposta) e o resultado é registado no ticket; discrepâncias sobem a KAM-101.
 - [x] Os valores alimentam KAM-081 sem recalcular: métricas por tenant e canal, sem conteúdo.
 
@@ -1791,37 +1791,45 @@ Contar mensagens *service* entregues por canal e mês, alertar aos 800 e aos 1.0
 - [x] **Idempotência** — contagem por `wamid` com teste de repetição.
 - [x] **Privacidade** — métricas e alertas sem telefone nem conteúdo.
 - [x] **Custo e observabilidade** — as métricas acima nascem com o código (ADR-018).
-- [ ] **Migrações reversíveis** — `downgrade` testado.
+- [x] **Migrações reversíveis** — `downgrade` testado.
 
 ### Verificação dos Critérios de Aceitação
 
-Entregue no ramo `feature/KAM-023-free-tier-e-metodo-de-pagamento`, **sem DDL**.
-**Oito caixas marcadas, oito vazias** (16 = 8 + 8) — cada uma com uma linha
+Entregue no ramo `feature/KAM-023-free-tier-e-metodo-de-pagamento`, em **duas
+metades**: a de código, sem DDL, e a revisão `0013`, que entrou quando a `0012`
+do KAM-020 chegou a `main`.
+**Onze caixas marcadas, cinco vazias** (16 = 11 + 5) — cada uma com uma linha
 aqui. Os números reproduzem-se com os comandos do `Makefile` dos *gates* 2, 3,
-3b, 4, 8, 9 e 11, e com `python db/mutacoes.py <python> "free tier:"`.
+3b, 4, 8, 9 e 11, e com `python db/mutacoes.py <python> "free tier:"` e
+`"restricao"`.
 
-**A tabela abaixo tem mais linhas do que há caixas, de propósito.** Quatro dos
+**A tabela abaixo tem mais linhas do que há caixas, de propósito.** Três dos
 critérios pedem duas coisas numa frase só, e uma delas cumpre-se e a outra não
 — o 3 pede os alertas **e** o fuso «do canal», o 4 pede a conta **e** a etiqueta
-de *tenant*, o 5 pede a heurística **e** a persistência dos códigos, o 7 pede o
-instrumento **e** um mês real. Dividi-as para a evidência ser atribuível, mas
-**a caixa é uma só e fica vazia quando qualquer das metades falha**: cumprir à
-letra e não em espírito. Das oito caixas de Critérios de Aceitação ficam
-marcadas **três** (1, 2 e 8); das oito do DoD, **cinco**.
+de *tenant*, o 7 pede o instrumento **e** um mês real. Dividi-as para a
+evidência ser atribuível, mas **a caixa é uma só e fica vazia quando qualquer
+das metades falha**: cumprir à letra e não em espírito. Das oito caixas de
+Critérios de Aceitação ficam marcadas **cinco** (1, 2, 5, 6 e 8); das oito do
+DoD, **seis**.
 
-> **Este ticket entra a meio, e a razão é de ordenação e não de dificuldade.**
+> **Este ticket entregou-se em duas metades, e a razão da ordem é mecânica.**
 > Os critérios 5 e 6 pedem `tenant_channels.motivo_restricao` e
-> `meta_error_codes_seen`, e **nenhum dos dois existe** — nem em `db/`, nem no
-> dicionário, nem nas extensões, nem em código. São DDL, e a revisão que os cria
-> descende da `0012` do KAM-020: as revisões de base encaixam uma na anterior e
-> entram **em série**. Está entregue tudo o que não toca em DDL, incluindo a
-> *decisão* do critério 5 (a heurística); falta a *acção* sobre ela — a marca, o
-> evento e a persistência dos códigos.
+> `meta_error_codes_seen`, e **nenhum dos dois existia** — nem em `db/`, nem no
+> dicionário, nem nas extensões, nem em código. São DDL, e uma revisão de base
+> encaixa na anterior pelo `down_revision`: a `0012` estava num ramo do KAM-020,
+> e duas revisões a reclamar o mesmo pai não são uma colisão mecânica — o
+> Alembic recusa.
+>
+> Por isso a metade de código entrou **primeiro e sem esperar** (contagem,
+> alertas, custo, métricas, e a *decisão* do critério 5), e a revisão `0013`
+> entrou quando o KAM-020 fundiu, no mesmo PR. O que ficou de fora não é
+> trabalho em falta: são as quatro caixas abaixo, cada uma com a sua razão.
 >
 > **A premissa de que «este ticket não precisa de migração nenhuma» era
 > verdadeira só para as duas colunas do contador**, que existem desde a `0001` e
 > já estão no `GRANT UPDATE` de `kamba_app`. O `docstring` da `0010` entrega-lhes
-> a manutenção a este ticket por extenso.
+> a manutenção a este ticket por extenso; as outras duas precisavam de DDL, e é
+> a diferença entre as duas metades.
 
 **O contador não decide sozinho quando conta, e isso é o desenho.** Quem sabe se
 uma chegada de `statuses` foi **a** que entregou a mensagem é o
@@ -1838,9 +1846,10 @@ corrida que o KAM-015 fechou, desta vez no contador em vez de no custo.
 | 3b | …«do fuso configurado **do canal**» | **não satisfeito** | **Não há fuso por canal.** A única coluna de fuso do esquema é a de `tenants`, por *tenant*; um *tenant* com dois números não pode hoje ter dois fusos. Usa-se o do *tenant*, que é onde o fuso vive **num** sítio por decisão escrita do KAM-009. Criá-la por canal é DDL. Dívida 64, emenda 1.24 |
 | 4 | Custo `max(0, n−1000) × 0,004 USD`; 1.200 → 0,80 USD | **satisfeito** | `tests/metering.test.ts`, «**1.200 mensagens dao 0,80 USD**» → 800 000 micro-dólares. Inteiros, pela razão do §2 do dicionário e do `tarifas.ts`. O limiar de aviso é **derivado** do tecto e não escrito: «**o aviso e 800, e e derivado do tecto**», para não poder divergir dele |
 | 4b | …«exposta como `meta_free_tier_used_ratio{tenant}` e `meta_cost_usd_estimate{tenant}`» | **parcial** | As duas métricas existem; **a etiqueta de *tenant* não**. Não é implementável, e **a decisão não é nova**: é a que a emenda 1.21 já tomou para a `meta_cost_usd_total{tenant}` do KAM-015 — decidir ao contrário a dois módulos de distância punha o conjunto a contradizer-se. As bibliotecas da casa recusam por gramática uma etiqueta fora de `^[a-z][a-z0-9_]{1,62}$`, e um UUID com hífenes **levanta**: provado em «**um `tenant_id` como sufixo levanta**». Razão de fundo: `OBS-I` de `../docs/seguranca/ameacas_stride.md` e o X-11 do *gate* 6. Sem etiqueta, os *gauges* passam a agregados explícitos (máximo para o rácio, soma para a estimativa), porque «o último canal observado» não é o valor de nenhum. O por-canal sai de consulta |
-| 5 | Heurística de falta de pagamento (20% em 20, depois de 1.000 entregues) | **parcial** | A **decisão** está entregue e provada: `tests_bd/metering.bd.test.ts`, «**a janela ignora o que ainda nao tem destino**» — 4 falhas em 20 resolvidas dão suspeita, e mais vinte em `queued` não a diluem —, com quatro casos de fronteira em `tests/metering.test.ts`. Os limiares são **proposta**, e a palavra é do próprio critério; a `meta_payment_suspect_total` existe para os calibrar. O código de erro concreto da Meta continua **NÃO VERIFICADO**: o `E1` nomeia três códigos e nenhum é de pagamento |
-| 5b | …«cada código de erro visto é guardado em `meta_error_codes_seen`» | **não satisfeito** | A coluna/tabela **não existe**. É DDL, e espera a revisão que descende da `0012`. Não se pré-declarou no dicionário pela regra das extensões: um nome sem superfície falha o *gate* |
-| 6 | Marca `motivo_restricao='payment_method'` e dispara `channel.updated` | **não satisfeito** | `motivo_restricao` **não existe** em `tenant_channels`. É DDL, mesma revisão. E a coluna nova obriga também a alargar o `GRANT UPDATE` da `0001`, que enumera treze colunas por nome — mais DDL |
+| 5 | Heurística de falta de pagamento (20% em 20, depois de 1.000 entregues) | **satisfeito** | A decisão está entregue e provada: `tests_bd/metering.bd.test.ts`, «**a janela ignora o que ainda nao tem destino**» — 4 falhas em 20 resolvidas dão suspeita, e mais vinte em `queued` não a diluem —, com quatro casos de fronteira em `tests/metering.test.ts`. Os limiares são **proposta**, e a palavra é do próprio critério; a `meta_payment_suspect_total` existe para os calibrar. O código de erro concreto da Meta continua **NÃO VERIFICADO**: o `E1` nomeia três códigos e nenhum é de pagamento |
+| 5b | …«cada código de erro visto é guardado em `meta_error_codes_seen`» | **satisfeito** | Revisão `0013`: `integer[]`, `NOT NULL DEFAULT '{}'`, com tecto de 32 por `CHECK`. É **coluna e não tabela** por três razões, e a primeira é o próprio X-03 que os *Testes Requeridos* pedem: passa a ser o de `tenant_channels`, que já corre — uma tabela nova com `tenant_id` que a *suite* não saiba semear **falha o *gate* 6**. Provas: «o mesmo codigo duas vezes entra **uma**» (é um conjunto), «**um statuses sem codigo nao mete `NULL` no conjunto**» (o `array_append(a, NULL)` não é um `no-op` e enchia o conjunto até o `CHECK` recusar), e «e os codigos de A nao se veem com o contexto de B (X-03)» |
+| 6 | Marca `motivo_restricao='payment_method'` e dispara `channel.updated` | **satisfeito** | Revisão `0013`, com domínio fechado de três valores (o `quality` do KAM-021 e o `policy` do KAM-017 nascem lá pela mecânica do *gate* 3b). O evento vai pelo `platform.evt_emitir`, na transacção de quem chama, e o envelope constrói-se **em SQL** — a regra do KAM-005 e do ADR-009. Provas: «**marca, guarda o codigo, e o `channel.updated` cai no outbox**», «**uma segunda marca nao emite outro evento**» (um evento por mensagem falhada é o contrário de um alerta), «**um motivo diferente nao sobrepoe o primeiro**», «**duas marcas em paralelo: um evento e nao dois**» (o `FOR UPDATE`, em duas ligações), e «**com o contexto de A, o canal de B nao se marca** (X-03)». A segunda metade do critério — «remover o motivo exige estado `delivered` posterior» — é a `levantarRestricao`: «**levantar exige o motivo certo**, e emite» |
+| 6b | …e o canal passa a `restrito`? | **decisão escrita, não tomada** | O critério **não o pede**, e este ticket **não o faz**: marca o motivo e emite o evento. Passar uma loja a `restrito` por uma heurística de limiares *propostos* (20% em 20) era cortar-lhe o atendimento por uma suspeita; quem restringe de facto é o KAM-021 (qualidade RED) e o KAM-094 (gate de activação). Está escrito no `docstring` da revisão e na emenda 1.26 |
 | 7 | Reconciliação ao fim de **1 mês real**, divergência ≤ 2% | **não satisfeito** | **É critério de saída e não de PR**: pede um mês de Piloto, e um mês real não cabe num PR. O instrumento está entregue e provado contra `jsonb` real — «**a reconciliacao le o `pricing` jsonb e mede as duas divergencias**». Marcá-la com um ensaio sintético era marcar um critério de saída com dados que não são do mundo |
 | 7b | …«o contador interno vs `pricing.billable` agregado» | **devolvido a quem escreveu o critério** | A frase compara **duas grandezas diferentes**: o contador conta todas as *service* entregues (1.200), o `billable` só marca as que estão acima do tecto (200) — dariam 83% de divergência num canal onde tudo está certo, e o limiar de 2% nunca fecharia. Medem-se **as duas** leituras que a frase admite (contagem contra contagem, facturável contra facturável) e a escolha devolve-se. Dívida 65 |
 | 8 | Alimenta o KAM-081 sem recalcular; por tenant e canal, sem conteúdo | **satisfeito** | As funções puras (`microUsdEstimado`, `racioDoFreeTier`) e a `reconciliar` são exportadas em `src/metering/index.ts` para o consumidor não repetir a aritmética. Sem conteúdo nem telefone: «a exposicao tem as quatro, com tipo e ajuda, e sem etiqueta de tenant» afirma que nem o *tenant* nem o `phone_number_id` aparecem no ficheiro de exposição |
@@ -1849,31 +1858,56 @@ corrida que o KAM-015 fechou, desta vez no contador em vez de no custo.
 
 | Caixa | Estado | Evidência |
 |---|---|---|
-| Todos os CA satisfeitos e demonstráveis | **vazia** | Seis dos dezasseis não se satisfazem: três por DDL que espera a `0012`, um por um critério de saída que pede um mês real, um por uma etiqueta que as bibliotecas recusam por gramática, e um devolvido por comparar grandezas diferentes |
-| Revisto por ≥ 1 revisor; testes verdes; cobertura ≥ limiar | **vazia** | Testes verdes e cobertura **medidos**: **1 129** testes de unidade, 1 128 a passar, **0 a falhar** (o saltado é pré-existente, nos segredos), dos quais **51** novos em `tests/metering.test.ts` e **12** em `tests_bd/metering.bd.test.ts`; `src/metering/` entre **98% e 100%** por ficheiro, contra os 75% do estrato `restante` de `ci/thresholds.yaml`. **Zero revisores humanos** — é decisão do fundador, e a caixa fica vazia como facto registado |
+| Todos os CA satisfeitos e demonstráveis | **vazia** | Três dos oito não se satisfazem **à letra**: o 3 pede um fuso por canal que o esquema não tem, o 4 pede uma etiqueta de métrica que as bibliotecas recusam por gramática, e o 7 é um critério de **saída** que pede um mês real de Piloto. Nenhum é trabalho em falta neste ramo, e os três estão nas dívidas 65 a 68 ou devolvidos a quem escreveu o critério |
+| Revisto por ≥ 1 revisor; testes verdes; cobertura ≥ limiar | **vazia** | Testes verdes e cobertura **medidos**: **1 198** testes de unidade, 1 197 a passar, **0 a falhar** (o saltado é pré-existente, nos segredos), dos quais **59** novos em `tests/metering.test.ts` e **22** em `tests_bd/metering.bd.test.ts`; as duas suites do *gate* 8 verdes (`tests` 441, `tests_outbound` 10), e a do `tests` inclui o `downgrade` da `0013`; `src/metering/` entre **98% e 100%** por ficheiro, contra os 75% do estrato `restante` de `ci/thresholds.yaml`. **Zero revisores humanos** — é decisão do fundador, e a caixa fica vazia como facto registado |
 | Documentação actualizada; tarifas com data de leitura; Conventional Commits | **marcada** | Desenho em [`../docs/metering.md`](../docs/metering.md), com a forma que o `outbound.md` e o `hnd.md` usam. Emenda **1.24** ao dicionário (§3.16) e `canon/dicionario.yaml` regenerado — `canon_lint` conforme, v1.24, 165 entradas, 26 extensões. O `../docs/ci.md` §3 ganha as cinco propriedades novas da *suite* `tests_outbound` e a linha de versão 1.43; `lint_contagens` conforme e `lint_refs` conforme (17 032 referências, 1 111 ficheiros). As tarifas mantêm a data de leitura do `E1` (2026-10-08) e a vigência `2026-10-01` em `config/meta_rates.yaml`, que este ticket **não altera**. Quatro dívidas novas (63 a 66) em `../docs/dividas-documentais.md` |
 | **Isolamento de tenant** — contadores por canal/tenant com RLS e teste cruzado | **marcada** | `tests_bd/metering.bd.test.ts`: «**com o contexto de A, o contador de B nao se le**» (com a metade positiva primeiro, pela regra do `../docs/isolamento.md`), «**…nao se escreve**», e «e e simetrico». Uma política que só funcionasse num sentido passava acima |
 | **Idempotência** — contagem por `wamid` com teste de repetição | **marcada** | Critério 2, acima |
 | **Privacidade** — métricas e alertas sem telefone nem conteúdo | **marcada** | O aviso usa o `Logger` **real em modo estrito** e passa a lista branca de nove campos: «**o aviso passa a lista branca de nove campos** — e nao leva o canal». Não há campo para `phone_number_id`, e o alerta não o leva; quem avisa o dono com os detalhes é o KAM-115 |
 | **Custo e observabilidade** — as métricas nascem com o código (ADR-018) | **marcada** | Quatro métricas, duas do critério 4 e duas acrescentadas pela razão da emenda 1.21 («avisar sem contar é avisar em silêncio»), com `# HELP`/`# TYPE` e lista fechada de etiquetas. Declaradas no §3.16 do dicionário |
-| **Migrações reversíveis** — `downgrade` testado | **vazia** | **Este ticket não tem migração.** As duas colunas que mantém nascem na `0001`. A caixa fica vazia porque não há `downgrade` que testar, e não porque não se testou — e a distinção importa para quem ler isto depois de a `0013` existir |
+| **Migrações reversíveis** — `downgrade` testado | **marcada** | Revisão `0013`, e o `downgrade` é testado pelo **efeito** em `db/tests/test_restricao_schema.py`: «desce com linhas marcadas e sobe outra vez» — as duas colunas desaparecem, **a linha do canal fica**, o privilégio volta a ser exactamente o da `0001`, e o `upgrade` repõe tudo. Ao contrário do da `0010`, este **não recusa com linhas**, e a razão está escrita na revisão: o que se perde é o motivo de uma restrição e um conjunto de códigos de diagnóstico, que se reconstroem do próximo `statuses`; nenhum é prova de nada perante terceiros |
 
 #### O que a prova por mutação diz, e o que ela não pôde dizer
 
-Quinze mutações novas, todas na suite `tests_outbound`, cada uma a reverter um
-defeito **real**: o mês a sair como `date`, a leitura a ignorar o mês guardado,
+**Vinte e seis** mutações novas — quinze da metade de código e onze da revisão
+`0013` —, cada uma a reverter um defeito **real**: o mês a sair como `date`, a
+leitura a ignorar o mês guardado,
 o `IS DISTINCT FROM` a voltar a `<>`, o reinício a começar em zero, o
 `FOR UPDATE` a desaparecer, a janela de falhas a contar o que ainda não tem
 destino, o aviso a voltar a ser o valor em vez da travessia, o rácio limitado a
 1, a estimativa sem o `max(0, …)`, a suspeita sem o tecto, a divergência sem o
 guarda do denominador zero, a etiqueta de *tenant* aceite, um canal
-desconhecido a ganhar mil mensagens grátis, e a reconciliação a voltar a
-comparar meses em UTC.
+desconhecido a ganhar mil mensagens grátis, a reconciliação a voltar a comparar
+meses em UTC, o domínio do motivo a perder um valor, o conjunto de códigos a
+perder o tecto e a aceitar repetidos, a marca a sobrepor-se à primeira, o
+`marcado` a voltar a sair do valor novo, a marca a perder o `FOR UPDATE` (e o
+evento a sair duas vezes), o `levantar` a deixar de olhar para o motivo que lhe
+dão, e o `event_id` ausente a ser calado.
 
-`python db/mutacoes.py --aplicaveis` → **377 conferidas, 0 não aplicáveis**:
-nenhuma mutação anterior deixou de se aplicar por causa deste diff. A prova
-destas: **15 corridas, 15 apanhadas** — mas só à segunda, e o que ficou pelo
-caminho vale mais do que o resultado.
+**Uma décima segunda foi escrita e descartada, e o que ela ensinou está no
+código.** Apagava o `REVOKE`/`GRANT` que o `downgrade` da `0013` fazia antes do
+`DROP COLUMN`. **Nenhum teste a podia matar:** o PostgreSQL remove a concessão
+**com** a coluna, pelo que os treze grants da `0001` sobrevivem ao `DROP` por si
+sós e o resultado é idêntico. Uma mutação imortal não é um teste em falta — é um
+sinal de que o código não faz nada, e aquelas duas instruções saíram da revisão.
+A asserção do teste do `downgrade` continua a valer; o que mudou é que a
+propriedade passou a ser garantida pela base em vez de por uma instrução nossa a
+dizer o mesmo duas vezes.
+
+`python db/mutacoes.py --aplicaveis` → **417 conferidas, 0 não aplicáveis**.
+
+**E foi ele que apanhou um defeito que o `git merge` produziu sem conflito
+nenhum.** O KAM-020 e este ticket escolheram ambos a constante `MED_SQL` em
+`db/mutacoes.py` — ele para `src/med/consultas.ts`, este para
+`src/metering/consultas.ts`. O `git` juntou as duas listas sem reclamar e a
+minha, por vir depois, **sombreou** a dele: duas mutações da mídia passaram a
+apontar para o ficheiro do *free tier*. Nenhum teste o via. O `--aplicaveis`
+disse-o em segundos, que é exactamente para isso que corre em cada PR, e as
+minhas passaram a `FT_*`. É a lição dos nomes em paralelo, aplicada a um
+ficheiro de registo em vez de a um dicionário.
+
+A prova destas: **26 corridas, 26 apanhadas** — mas as primeiras quinze só à
+segunda, e o que ficou pelo caminho vale mais do que o resultado.
 
 **À primeira, duas sobreviveram, e nenhuma delas era um teste em falta no
 sentido habitual.**

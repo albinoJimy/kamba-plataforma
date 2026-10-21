@@ -7,28 +7,40 @@
  * recalcular** (critério 8), o `nivelAtingido` é o flanco do critério 3, e o
  * `suspeitaDePagamento` é a heurística que o KAM-101 vai calibrar.
  *
- * **Metade deste ticket não está aqui.** Os critérios 5 e 6 pedem
- * `meta_error_codes_seen` e `motivo_restricao`, que não existem em
- * `tenant_channels` e são DDL; a revisão `0013` descende da `0012` do KAM-020 e
- * entra quando ela fundir. A detecção está entregue (`Metering.suspeita`); o
- * que falta é a marca, o evento e a persistência dos códigos.
+ * **O ticket entregou-se em duas metades, e a segunda esperou por uma
+ * revisão.** Os critérios 5 e 6 pedem `motivo_restricao` e
+ * `meta_error_codes_seen`, que não existiam: são DDL, e a revisão `0013`
+ * descende da `0012` do KAM-020 — as revisões de base encaixam uma na anterior
+ * e vão em série. A metade de código entrou primeiro, sem esperar; a
+ * `marcarRestricao` e a `levantarRestricao` entraram quando a `0012` chegou a
+ * `main`.
  */
 
 export {
+  AGREGADO_CHANNEL_UPDATED,
   FALHAS_PARA_SUSPEITA,
   FRACCAO_DE_AVISO,
   JANELA_DE_FALHAS,
+  MOTIVOS_DE_RESTRICAO,
   NIVEIS,
+  TECTO_DE_CODIGOS,
+  TIPO_CHANNEL_UPDATED,
+  VERSAO_CHANNEL_UPDATED,
   type ClienteSql,
   type Contagem,
+  type MotivoDeRestricao,
   type Nivel,
   type Reconciliacao,
+  type Restricao,
 } from "./contrato.ts";
 
 export {
   SQL_CONTAR,
+  SQL_EMITIR_CHANNEL_UPDATED,
   SQL_ESTADO,
   SQL_FALHAS_RECENTES,
+  SQL_LEVANTAR_RESTRICAO,
+  SQL_MARCAR_RESTRICAO,
   SQL_RECONCILIAR,
 } from "./consultas.ts";
 

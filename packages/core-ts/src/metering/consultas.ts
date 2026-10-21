@@ -274,3 +274,119 @@ export const SQL_RECONCILIAR = `
      AND m.pricing IS NOT NULL
      AND (m.pricing->>'category') = 'service'
 `;
+
+/**
+ * Marca o canal com um motivo de restrição e guarda o código de erro visto
+ * (critérios 5 e 6; revisão `0013`).
+ *
+ * Parâmetros: `$1` o *tenant*, `$2` o `phone_number_id`, `$3` o motivo, `$4` o
+ * código de erro (`NULL` quando não houve nenhum).
+ *
+ * ## Uma instrução e não duas, e a razão é a do `SQL_BLOQUEAR_TEMPLATE`
+ *
+ * Separar a marca da recolha do código deixava uma janela em que o canal está
+ * marcado e o código que o justificou não está guardado — e é exactamente essa
+ * janela que interessa a quem for calibrar a heurística depois. Numa instrução,
+ * ou acontecem as duas ou não acontece nenhuma.
+ *
+ * ## O `marcado` vem do `antes`, e **não** do valor novo
+ *
+ * É idempotente — a Meta reenvia os `statuses` e a heurística volta a disparar
+ * enquanto a taxa de falhas se mantiver —, e o `COALESCE` é o que faz **a
+ * primeira marca ser a que fica**. Mas quem chama precisa de saber se foi
+ * **esta** chamada que marcou, porque é isso que decide se sai um
+ * `channel.updated`: um evento por mensagem falhada é o contrário de um alerta.
+ *
+ * Num `UPDATE ... RETURNING`, uma referência à coluna devolve o valor **novo**.
+ * A primeira versão desta consulta calculava o `marcado` assim e não
+ * distinguia «marquei agora» de «já estava marcado com o mesmo motivo» — os
+ * dois davam `true`, e o evento saía a cada chegada. O `antes` da subconsulta
+ * `FOR UPDATE` é o que resolve, e é o mesmo padrão e a mesma razão do
+ * `SQL_CONTAR` e do `SQL_AVANCAR_ESTADO` do KAM-015: sob concorrência, o
+ * segundo processo bloqueia e relê o que o primeiro escreveu, pelo que
+ * **um** dos dois vê `NULL` e só esse emite.
+ *
+ * O código, porém, acumula-se **sempre** — e é por isso que ele está fora do
+ * `COALESCE`. Um canal já marcado que comece a devolver um código novo é
+ * precisamente a informação que o critério 5 quer: a marca não muda, o conjunto
+ * cresce.
+ *
+ * ## O `array_append` é condicional, e tem de ser
+ *
+ * `array_append(a, NULL)` acrescenta um `NULL` ao array — não é um `no-op`. Com
+ * um `statuses` sem `error_code` (que é o caso normal), o conjunto enchia-se de
+ * `NULL` até bater no tecto de trinta e dois e a escrita passar a falhar com
+ * `check_violation`. O `CASE` é o que o impede, e a condição do
+ * `<> ALL` é o que torna o conjunto um **conjunto**: sem ela, o mesmo código
+ * entrava uma vez por mensagem.
+ */
+export const SQL_MARCAR_RESTRICAO = `
+  UPDATE platform.tenant_channels AS c
+     SET motivo_restricao = COALESCE(antes.motivo_restricao, $3),
+         meta_error_codes_seen = CASE
+             WHEN $4::integer IS NULL THEN antes.meta_error_codes_seen
+             WHEN $4::integer = ANY(antes.meta_error_codes_seen)
+                  THEN antes.meta_error_codes_seen
+             ELSE array_append(antes.meta_error_codes_seen, $4::integer)
+         END
+    FROM (
+      SELECT id, motivo_restricao, meta_error_codes_seen
+        FROM platform.tenant_channels
+       WHERE tenant_id = $1 AND phone_number_id = $2
+         FOR UPDATE
+    ) AS antes
+   WHERE c.tenant_id = $1
+     AND c.id = antes.id
+   RETURNING c.id,
+             (antes.motivo_restricao IS NULL) AS marcado,
+             c.meta_error_codes_seen AS codigos
+`;
+
+/**
+ * Levanta a restrição de um canal (critério 6, segunda metade).
+ *
+ * Parâmetros: `$1` o *tenant*, `$2` o `phone_number_id`, `$3` o motivo a
+ * levantar.
+ *
+ * O critério diz «remover o motivo exige estado `delivered` posterior ou
+ * limpeza manual registada». Esta consulta é o primeiro caminho: quem a chama é
+ * o adaptador, ao ver uma entrega **nova** — e uma entrega é a prova de que a
+ * Meta voltou a entregar, que é a única coisa que desmente a suspeita.
+ *
+ * **Só levanta o motivo que lhe dão**, e é por isso que o `$3` existe em vez de
+ * um `SET motivo_restricao = NULL` directo. Um canal restrito por qualidade
+ * (KAM-021) continua a entregar mensagens: uma entrega não é prova de que a
+ * qualidade melhorou, e limpar a marca de outro ticket ao passar era apagar uma
+ * decisão que não é nossa.
+ *
+ * O `RETURNING` vazio significa «não havia esta marca para levantar», e quem lê
+ * trata-o como tal: não emite evento nenhum.
+ */
+export const SQL_LEVANTAR_RESTRICAO = `
+  UPDATE platform.tenant_channels AS c
+     SET motivo_restricao = NULL
+   WHERE c.tenant_id = $1
+     AND c.phone_number_id = $2
+     AND c.motivo_restricao = $3
+   RETURNING c.id
+`;
+
+/**
+ * Emite o `channel.updated` na transacção de quem chama.
+ *
+ * Parâmetros: `$1` o tipo, `$2` a versão, `$3` o *tenant*, `$4` o tipo de
+ * agregado, `$5` o id do agregado, `$6` o `payload`.
+ *
+ * O envelope **constrói-se em SQL**, dentro de `platform.evt_emitir`, e este
+ * módulo não o constrói — a regra é do KAM-005 e do ADR-009, e a razão está no
+ * `eventos/envelope.ts`: duas fontes para a mesma forma divergem no primeiro
+ * campo novo. A forma desta consulta é a do `SQL_EMITIR_CONTACT_MERGED` do
+ * KAM-014, e os marcadores são `$n` contíguos a partir de 1 para a
+ * `ConsultaDoTypeScript` da *suite* Python os poder reordenar.
+ */
+export const SQL_EMITIR_CHANNEL_UPDATED = `
+  SELECT platform.evt_emitir(
+    $1, $2::smallint, $3::uuid, $4, $5, $6::jsonb
+  ) AS event_id
+`;
+

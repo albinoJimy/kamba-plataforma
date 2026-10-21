@@ -6,7 +6,7 @@
 | Módulo | `packages/core-ts/src/metering/` |
 | Depende de | KAM-015 (saída de canal), KAM-009 (`platform.ten_periodo`) |
 | Consumido por | KAM-081 (painel de custos), KAM-115 (aviso ao dono), KAM-094 (gate de activação) |
-| Estado | **Metade entregue.** Ver «O que falta, e porquê». |
+| Estado | **Entregue em duas metades**, a de código e a revisão `0013`. Ver §6. |
 
 ## 1. O que o módulo faz
 
@@ -144,24 +144,59 @@ point*, mensagens de grupo a consumir várias unidades do mesmo contador,
 ONG/governo isentos até 2027 — **não estão modeladas**. O tamanho disso é o que
 um mês de Piloto vai dizer; discrepâncias sobem ao KAM-101.
 
-## 6. O que falta, e porquê
+## 6. A marca de restrição e os códigos vistos
 
-Dois critérios **não estão entregues**, e a razão é de ordenação:
+A revisão `0013` acrescenta duas colunas a `tenant_channels`:
 
-| Critério | O que falta | Porquê |
+| Coluna | Tipo | O que guarda |
 |---|---|---|
-| 5 | Guardar cada código de erro visto | A coluna/tabela não existe. É DDL |
-| 6 | Marcar o canal e emitir `channel.updated` | `tenant_channels` não tem coluna de motivo de restrição. É DDL, e a coluna nova obriga também a alargar o `GRANT UPDATE` da `0001`, que enumera treze colunas por nome |
+| `motivo_restricao` | `text`, anulável, domínio de três valores | Porque é que o canal está restrito. `NULL` é o estado normal |
+| `meta_error_codes_seen` | `integer[]`, `NOT NULL DEFAULT '{}'`, tecto de 32 | Os códigos de erro que a Meta já devolveu neste canal |
 
-A revisão que os cria descende da `0012` do KAM-020, e **as revisões de base de
-dados entram em série** — cada uma encaixa na anterior pelo `down_revision`.
-Entregue aqui está a **decisão** do critério 5 (a heurística, em
-`Metering.suspeita`); falta a **acção** sobre ela.
+**O evento sai uma vez por restrição, e não uma por mensagem falhada.** A Meta
+reenvia os `statuses` e a heurística volta a disparar enquanto a taxa de falhas
+se mantiver. Quem decide é o `marcado` que a base devolve do `antes`, sob
+`FOR UPDATE`: um `COALESCE` faz a **primeira** marca ser a que fica, e sob
+concorrência só um dos processos vê `NULL`. Um evento por mensagem falhada é o
+contrário de um alerta.
 
-Fica também vazio, por outra razão, o fuso **por canal** que o critério 3 pede:
-a única coluna de fuso do esquema é a de `tenants`, por *tenant*. Usa-se essa.
+O `channel.updated` vai por `platform.evt_emitir`, na transacção de quem chama,
+e o envelope **constrói-se em SQL** — a regra é do KAM-005 e do ADR-009, e a
+razão está no `eventos/envelope.ts`: duas fontes para a mesma forma divergem no
+primeiro campo novo. O `payload` valida-se contra o contrato **antes** de
+qualquer escrita (KAM-007), e tem exactamente `phone_number_id` e `motivo` —
+nenhum dos dois é PII, porque o `phone_number_id` é um identificador opaco da
+Meta e não um telefone, como o inventário da `0001` diz por extenso.
+
+**O que o ticket decidiu não fazer, e está escrito:** o canal **não** passa a
+`restrito`. O critério não o pede, e passar uma loja a `restrito` por uma
+heurística de limiares *propostos* era cortar-lhe o atendimento por uma
+suspeita. Quem restringe de facto é o KAM-021 (qualidade RED) e o KAM-094 (gate
+de activação). O `tenant_channels.estado` já tem `restrito` desde a `0001`.
+
+Levantar a marca exige o motivo certo: um canal restrito por qualidade continua
+a entregar mensagens, pelo que uma entrega **não** é prova de que a qualidade
+melhorou, e limpar a marca de outro ticket ao passar era apagar uma decisão que
+não é nossa.
+
+**Três valores no domínio, e só um é deste ticket.** O `quality` (KAM-021) e o
+`policy` (KAM-017) nascem na mesma revisão pela mecânica que a emenda 1.20 já
+pagou e a `0010` repetiu para o `suppressed_by_human`: o *gate* 3b lê o `CHECK`
+de cada revisão **isoladamente**, pelo que alargar o domínio numa revisão
+posterior deixava a `0013` vermelha por lhe «faltar» um valor.
+
+### O que continua de fora
+
+| O quê | Porquê |
+|---|---|
+| O fuso **por canal** (critério 3) | A única coluna de fuso do esquema é a de `tenants`, por *tenant*. Criá-la por canal era decidir, de fora deste ticket, que um *tenant* pode ter dois fusos — e nenhum critério o pede. Dívida 66 |
+| A etiqueta `{tenant}` nas métricas (critério 4) | As bibliotecas da casa recusam-na por gramática; ver §2. Mesmo precedente da emenda 1.21 |
+| A reconciliação de um mês real (critério 7) | É critério de **saída**: pede um mês de Piloto. O instrumento está entregue |
+| O aviso ao dono | É o **KAM-115**, que nomeia este ticket como emissor de `motivo_restricao='payment_method'` |
+| A verificação do método de pagamento no Billing Hub | É o **KAM-093**. Aqui só a detecção em *runtime* |
+
 As quatro divergências entre o bloco do ticket e o que o esquema tem estão em
-[`dividas-documentais.md`](dividas-documentais.md), linhas 63 a 66.
+[`dividas-documentais.md`](dividas-documentais.md), linhas 65 a 68.
 
 ## 7. Como se prova
 
@@ -169,11 +204,13 @@ As quatro divergências entre o bloco do ticket e o que o esquema tem estão em
 # unidade (gate 4): as contas, o flanco, a heuristica, as metricas
 pnpm --filter @kamba/core-ts run test
 
-# contra um PostgreSQL real (gate 8): o fuso, a concorrencia, o isolamento
+# contra um PostgreSQL real (gate 8): o fuso, a concorrencia, o isolamento,
+# a revisao 0013 e o seu downgrade
 make ci-8
 
-# a prova por mutacao destas quinze
+# a prova por mutacao das vinte e seis
 python db/mutacoes.py <python> "free tier:"
+python db/mutacoes.py <python> "restricao"
 ```
 
 A divisão entre as duas baterias é a que o `outbound.md` já usa, e a razão é a
@@ -194,3 +231,4 @@ revisão adversarial.
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Primeira versão, KAM-023. O módulo entra sem DDL; os critérios 5 e 6 esperam a revisão que descende da `0012` do KAM-020. | Equipa KAMBÁ |
+| 1.1 | Outubro 2026 | **A segunda metade, com a revisão `0013`.** O KAM-020 fundiu e a revisão deixou de estar bloqueada: §6 passa a descrever a marca de restrição, o conjunto de códigos vistos e o `channel.updated`, e a lista do «que falta» encurta para o que **não é** trabalho em falta — o fuso por canal que o esquema não tem, a etiqueta de métrica que as bibliotecas recusam, e o critério de saída que pede um mês real. | Equipa KAMBÁ |
