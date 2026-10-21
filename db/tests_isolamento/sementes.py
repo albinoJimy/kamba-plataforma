@@ -335,6 +335,52 @@ def _conta_de_handoff(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _midia(cursor, tenant_id: str, canario: str) -> None:
+    """Um objecto de midia do tenant (KAM-020). O canario vai no `media_id`.
+
+    **E no `media_id` e nao no `wamid`, e a escolha diz algo sobre a tabela.**
+    As duas sao `text` livre e as duas tem `CHECK` de nao-vazio, pelo que as
+    duas serviam; o que decide e a `media_assets_origem_uq`, que e
+    `(tenant_id, wamid, media_id)` e **leva o tenant**. Ao contrario da
+    `handoffs`, cuja chave primaria e global e obrigou a receita a derivar o
+    `handoff_id` do `tenant_id`, aqui os dois tenants podem semear o **mesmo**
+    canario sem colidir — que e exactamente o que o X-03 precisa: semeia o mesmo
+    valor nos dois e exige que cada um veja so o seu.
+
+    O `asset_id` fica na omissao (`gen_random_uuid()`), e o `estado` nasce em
+    `pendente`, que e o estado em que uma linha desta tabela nasce de verdade:
+    antes da descarga. As quatro colunas que a descarga descobre
+    (`content_type`, `size`, `sha256`, `storage_ref`) ficam nulas, e e por isso
+    que a `media_assets_armazenado_ck` nao morde — ela so exige quando o estado
+    e `armazenado`.
+
+**Nao ha coluna alteravel**, e a razao e uma restricao e nao uma escolha.
+    O que o `kamba_app` faz de verdade e um `UPDATE` que escreve
+    `estado='armazenado'` **com** `storage_ref`, `size` e `sha256` na mesma
+    instrucao, porque a `media_assets_armazenado_ck` nao deixa de outra maneira.
+    Um `SET estado='armazenado'` sozinho sobre esta linha semeada — que tem as
+    quatro colunas nulas — da `23514`.
+
+    A primeira versao declarava o `estado` como alteravel com o valor
+    `armazenado`, e **nao rebentava por sorte de forma**: o teste da escrita
+    cruzada nao casa linha nenhuma (a RLS), pelo que o `CHECK` nunca era
+    avaliado, e o da escrita propria faz `SET estado = estado`. Qualquer teste
+    futuro que aplicasse o valor a linha do proprio tenant recebia uma violacao
+    de `CHECK` onde esperava uma contagem. Encontrado pela revisao adversarial.
+
+    Semeia o administrador da instancia, como a receita da conversa e a da
+    passagem.
+    """
+    cursor.execute(
+        "INSERT INTO platform.media_assets "
+        "(tenant_id, contact_id, conversation_id, wamid, media_id, classe, estado) "
+        f"VALUES (%s, {_UM_CONTACTO}, {_UMA_CONVERSA}, "
+        "        'wamid.semente.' || substr(md5(%s), 1, 12), %s, "
+        "        'media_audio', 'pendente')",
+        (tenant_id, tenant_id, tenant_id, tenant_id, canario),
+    )
+
+
 def _identidade(inserir, coluna, alteravel, valor, guardado) -> Receita:
     return Receita(
         inserir, coluna, alteravel, valor,
@@ -563,6 +609,14 @@ RECEITAS: dict[tuple[str, str], Receita] = {
         # caminho que o justificava (a reposicao do `01` §11.5) nao existe.
         _conta_de_handoff, "token_ref", None, None, semeador="admin",
     ),
+    # KAM-020. O canario vai no `media_id` (ver `_midia`): a
+    # `media_assets_origem_uq` leva o `tenant_id`, pelo que os dois tenants
+    # podem semear o mesmo valor — ao contrario da `handoffs`, cuja chave
+    # primaria e global. **Sem coluna alteravel**, e a razao e uma restricao e
+    # nao uma escolha: ver a nota do `_midia`.
+    ("platform", "media_assets"): Receita(
+        _midia, "media_id", None, None, semeador="admin",
+    ),
     ("platform", "events_outbox"): Receita(
         _evento_no_outbox, "agregado_id", None, None, semeador="admin"
     ),
@@ -661,6 +715,11 @@ ORDEM = (
     ("platform", "events_consumed"),
     ("platform", "events_dlq"),
     ("platform", "evt_acoes"),
+    # KAM-020: **a ultima das que tem FK**, e tem tres (`tenants`, `contacts` e
+    # `conversations`). Vem depois da conversa e do contacto, que e o que as
+    # duas FK compostas exigem; e vem antes das duas do KAM-009, que nao
+    # dependem de nada senao do tenant.
+    ("platform", "media_assets"),
     # KAM-009: as duas so tem FK para `tenants`, e por isso ficam no fim.
     ("platform", "tenant_usage"),
     ("platform", "usage_ledger"),

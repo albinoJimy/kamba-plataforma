@@ -199,6 +199,11 @@ HND_SQL = "packages/core-ts/src/hnd/consultas.ts"
 HND_CHATWOOT = "packages/core-ts/src/hnd/chatwoot.ts"
 HND_RESPOSTA = "packages/core-ts/src/hnd/resposta.ts"
 HND_PROVEDOR = "packages/core-ts/src/hnd/provedor.ts"
+MEDIA = "tests_media"
+REV12 = "db/migrations/versions/0012_media.py"
+MED_CLASSES = "packages/core-ts/src/med/classes.ts"
+MED_SQL = "packages/core-ts/src/med/consultas.ts"
+MED_PIPELINE = "packages/core-ts/src/med/pipeline.ts"
 CHR = "tests_chr"
 CHR_CANAL = "packages/core-ts/src/chr/canal.ts"
 CHR_SQL = "packages/core-ts/src/chr/consultas.ts"
@@ -207,13 +212,20 @@ CHR_MODULO = "packages/core-ts/src/chr/chr.ts"
 CHR_CONVERSAS = "packages/core-ts/src/chr/conversas.ts"
 CHR_INVOCACAO = "packages/core-ts/src/chr/invocacao.ts"
 # -------------------------------------------------------------- KAM-023
+#: **`FT_` e nao `MED_`, e a razao e um defeito que o merge produziu.** A
+#: primeira versao destas constantes chamava-se `MED_*`, e o KAM-020 — que
+#: fundiu entretanto — ja tinha `MED_SQL` para `src/med/consultas.ts`. O
+#: `git merge` juntou as duas listas sem conflito e a minha, por vir depois,
+#: **sombreou** a dele: duas mutacoes da midia passaram a apontar para o
+#: ficheiro do free tier. Nenhum teste o via; o `--aplicaveis` apanhou-o em
+#: segundos, que e exactamente para isso que ele corre em cada PR.
 #: O contador do *free tier*. A suite e a `tests_outbound`: o modulo escreve
 #: `tenant_channels`, le `outbound_messages` e depende de
 #: `platform.ten_periodo`, e as tres coisas vivem na base que ela levanta.
-MED_SQL = "packages/core-ts/src/metering/consultas.ts"
-MED_CUSTO = "packages/core-ts/src/metering/custo.ts"
-MED_METRICAS = "packages/core-ts/src/metering/metricas.ts"
-MED_MODULO = "packages/core-ts/src/metering/metering.ts"
+FT_SQL = "packages/core-ts/src/metering/consultas.ts"
+FT_CUSTO = "packages/core-ts/src/metering/custo.ts"
+FT_METRICAS = "packages/core-ts/src/metering/metricas.ts"
+FT_MODULO = "packages/core-ts/src/metering/metering.ts"
 
 #: O corpo da subtransaccao da `ten_consumir`, como a revisao 0007 o escreve:
 #: **a chave primeiro, a contagem depois**. A mutacao da ordem precisa do
@@ -1693,6 +1705,150 @@ MUTACOES = [
     ('handoff: o callback sem segredo volta a consultar primeiro', HND_PROVEDOR,
      '    if (segredoRecebido === null || segredoRecebido.length === 0) {',
      '    if (false) {', HANDOFF),
+    # ------------------------------------------- KAM-020 (0012 e med)
+    #
+    # A divisao por suite nao e arbitraria: o que a base impoe vai a `tests`
+    # (que corre a `test_media_schema`), o que a RLS impoe vai a
+    # `tests_isolamento`, e o que o modulo decide vai a `tests_media` — que e a
+    # unica que **le o texto do SQL**, porque corre contra um PostgreSQL. Uma
+    # mutacao de SQL declarada numa suite com base falsa e imortal, e foi o que
+    # o KAM-019 pagou.
+    ('revisao 0012: a midia perde um estado do dominio', REV12,
+     'ESTADOS_DE_MIDIA = (\n    "\'pendente\'",',
+     'ESTADOS_DE_MIDIA = (', "tests"),
+    ('revisao 0012: a midia perde uma classe do dominio', REV12,
+     'CLASSES_DE_MIDIA = ("\'media_audio\'", "\'media_imagem\'", "\'media_documento\'")',
+     'CLASSES_DE_MIDIA = ("\'media_audio\'", "\'media_imagem\'")', "tests"),
+    ('revisao 0012: a origem deixa de ser unica', REV12,
+     '            CONSTRAINT media_assets_origem_uq UNIQUE (tenant_id, wamid, media_id),',
+     '', "tests"),
+    ('revisao 0012: a unicidade da origem perde o tenant', REV12,
+     'media_assets_origem_uq UNIQUE (tenant_id, wamid, media_id)',
+     'media_assets_origem_uq UNIQUE (wamid, media_id)', MEDIA),
+    # **A ancora leva o inicio da restricao inteira**, e nao uma linha dentro
+    # dela. A primeira versao ancorava em `storage_ref IS NOT NULL` e apaga-la
+    # deixava `OR (` seguido de `AND ...` — **SQL que nao analisa**: o `alembic
+    # upgrade` falhava, a suite inteira ficava vermelha, e a mutacao contava
+    # como apanhada sem nunca ter criado a tabela. Uma mutacao que morre por
+    # sintaxe mede o PostgreSQL e nao o teste. Apanhada pela revisao
+    # adversarial.
+    ('revisao 0012: o armazenado deixa de exigir a chave', REV12,
+     "            CONSTRAINT media_assets_armazenado_ck\n                CHECK (\n                    estado <> 'armazenado'",
+     "            CONSTRAINT media_assets_armazenado_ck\n                CHECK (\n                    estado = estado\n                    OR estado <> 'armazenado'", "tests"),
+    ('revisao 0012: a FK do contacto deixa de levar o tenant', REV12,
+     '                FOREIGN KEY (tenant_id, contact_id)\n                REFERENCES platform.contacts (tenant_id, contact_id),',
+     '                FOREIGN KEY (contact_id)\n                REFERENCES platform.contacts (contact_id),',
+     "tests"),
+    ('revisao 0012: a midia fica sem RLS (gate 6)', REV12,
+     '    rls.enable_tenant_rls("media_assets")',
+     '    pass  # rls.enable_tenant_rls("media_assets")', "tests_isolamento"),
+    ('revisao 0012: o downgrade conta a midia com a politica de pe', REV12,
+     '    rls.disable_tenant_rls("media_assets")',
+     '    pass  # a politica fica de pe', "tests"),
+    ('revisao 0012: a aplicacao passa a poder reescrever o wamid', REV12,
+     'COLUNAS_DA_APLICACAO = (\n    "content_type",',
+     'COLUNAS_DA_APLICACAO = (\n    "wamid",\n    "content_type",', "tests"),
+    # **E a `classe`, que a revisao adversarial tirou da lista.** Reconceder-a
+    # permite reclassificar um objecto, que muda a coluna de que depende a
+    # politica de retencao do KAM-071 — um audio reclassificado como imagem
+    # deixa de ter prazo e fica para sempre.
+    ('revisao 0012: a aplicacao volta a poder reclassificar', REV12,
+     'COLUNAS_DA_APLICACAO = (\n    "content_type",',
+     'COLUNAS_DA_APLICACAO = (\n    "classe",\n    "content_type",', "tests"),
+    ('revisao 0012: o sha256 deixa de ter forma', REV12,
+     "                CHECK (sha256 IS NULL OR sha256 ~ '^[0-9a-f]{{64}}$')",
+     '                CHECK (sha256 IS NULL)', "tests"),
+    # O modulo: o que ele decide, e cada uma morre numa bateria do gate 4 ou no
+    # ensaio de base.
+    ('media: o sticker deixa de ser imagem', MED_CLASSES,
+     '  sticker: "media_imagem",',
+     '', MEDIA),
+    ('media: a allowlist de documentos abre-se', MED_CLASSES,
+     '    tipos: ["application/pdf"],',
+     '    tipos: ["application/pdf", "application/zip"],', MEDIA),
+    ('media: o tamanho passa a ser verificado antes do tipo', MED_CLASSES,
+     '  if (!permitido) return "tipo_nao_permitido";\n  if (tamanho > limite.bytesMaximos) return "tamanho_excedido";',
+     '  if (tamanho > limite.bytesMaximos) return "tamanho_excedido";\n  if (!permitido) return "tipo_nao_permitido";',
+     MEDIA),
+    ('media: o limite de tamanho passa a recusar no limite', MED_CLASSES,
+     '  if (tamanho > limite.bytesMaximos) return "tamanho_excedido";',
+     '  if (tamanho >= limite.bytesMaximos) return "tamanho_excedido";', MEDIA),
+    ('media: a resposta ao cliente passa a citar o tipo', MED_CLASSES,
+     '    "Esse ficheiro e grande demais para mim. Pode enviar um mais pequeno?",',
+     '    "Esse ficheiro e grande demais (mais de 5242880 bytes).",', MEDIA),
+    ('media: o ON CONFLICT da reserva desaparece', MED_SQL,
+     '      ON CONFLICT (tenant_id, wamid, media_id) DO NOTHING',
+     '', MEDIA),
+    ('media: a marcacao deixa de ter a monotonia no predicado', MED_SQL,
+     "     AND estado = 'pendente'\n   RETURNING asset_id, estado\n`;\n\n/**\n * Marca a linha como rejeitada ou falhada.",
+     "   RETURNING asset_id, estado\n`;\n\n/**\n * Marca a linha como rejeitada ou falhada.",
+     MEDIA),
+    # **Aqui estava a mutacao do `SQL_POR_ASSET`, e sai sem substituta.**
+    #
+    # Ela tirava o `tenant_id = $1` do predicado, e a revisao adversarial
+    # mostrou que morria **por acidente**: a base falsa despacha por
+    # `texto.includes("AND asset_id = $2")`, e sem o predicado o texto deixava
+    # de casar o despacho — o `urlInterna` passava a devolver sempre `null` e
+    # os testes caiam por isso, nao pela propriedade.
+    #
+    # **E pela propriedade ela e inobservavel:** na base verdadeira a RLS
+    # esconde a linha do outro tenant, e na base falsa o `#porAsset` impoe o
+    # tenant em JavaScript. Uma mutacao que nenhum teste pode matar pela razao
+    # certa conta como prova de uma garantia que nao temos — e o que sustenta o
+    # isolamento aqui e a politica `tenant_iso`, cuja mutacao esta declarada em
+    # `tests_isolamento` e essa morre.
+    ('media: a allowlist volta a correr no tipo anunciado', MED_PIPELINE,
+     '    const motivo = recusar(classe, contentType, bytes.byteLength, this.#limites);',
+     '    const motivo = recusar(classe, pedido.contentTypeAnunciado ?? contentType, bytes.byteLength, this.#limites);',
+     MEDIA),
+    # **A ordem dos passos nao se muta por troca de linhas** — isso daria um
+    # ficheiro que nem compila, e a prova por mutacao mediria o `tsc` e nao os
+    # testes. O que se muta e o **efeito** da reserva vir primeiro: faz-se a
+    # leitura antes dela, que e o que um codigo que a puxasse para depois da
+    # descarga faria. A idempotencia deixa de ser da base e passa a ser de uma
+    # verificacao que duas chamadas concorrentes atravessam as duas.
+    # **A ordem dos passos nao se muta por troca de linhas** — isso daria um
+    # ficheiro que nem compila, e a prova mediria o `tsc` e nao os testes. O
+    # que se muta e o **efeito** de a reserva vir primeiro: faz-se a leitura
+    # antes dela, que e o que um codigo que a puxasse para depois da descarga
+    # faria. A idempotencia deixa de ser da base e passa a ser de uma
+    # verificacao que duas chamadas concorrentes atravessam as duas — e e o
+    # ensaio de base, com duas ligacoes, que o apanha.
+    ('media: a reserva passa a ser precedida de uma leitura', MED_PIPELINE,
+     '    // **Passo 2: a reserva, e é aqui que a idempotência acontece.**\n    const reserva = await this.#bd.query<{ asset_id: string }>(SQL_RESERVAR, [',
+     '    const antes = await this.#bd.query<{ asset_id: string }>(SQL_POR_ORIGEM, [\n      pedido.tenantId,\n      pedido.wamid,\n      pedido.mediaId,\n    ]);\n    if (antes.rows.length > 0) return this.#comoEsta(pedido, classe);\n    const reserva = await this.#bd.query<{ asset_id: string }>(SQL_RESERVAR, [', MEDIA),
+    ('media: as tentativas passam de tres para uma', MED_PIPELINE,
+     'export const TENTATIVAS = 3;',
+     'export const TENTATIVAS = 1;', MEDIA),
+    ('media: o AGR deixa de ser avisado', MED_PIPELINE,
+     '    await this.#avisarAgr({',
+     '    await Promise.resolve({', MEDIA),
+    ('media: a retencao do audio passa a valer para tudo', MED_PIPELINE,
+     '      classe === "media_audio"\n        ? new Date(agora.getTime() + RETENCAO_DE_AUDIO_MS)\n        : null;',
+     '      new Date(agora.getTime() + RETENCAO_DE_AUDIO_MS);', MEDIA),
+    ('media: a retencao do audio deixa de existir', MED_PIPELINE,
+     'export const RETENCAO_DE_AUDIO_MS = 24 * 60 * 60 * 1000;',
+     'export const RETENCAO_DE_AUDIO_MS = 100 * 365 * 24 * 60 * 60 * 1000;', MEDIA),
+    ('media: o TTL da url interna passa a ser escrito a mao', MED_PIPELINE,
+     'export const TTL_DA_URL_INTERNA_S = TTL_MAXIMO_S;',
+     'export const TTL_DA_URL_INTERNA_S = 600;', MEDIA),
+    # A ancora leva a linha de cima porque ha agora **tres** verificacoes de
+    # `rows.length === 0` no ficheiro: a revisao adversarial apanhou que os
+    # dois caminhos de desfecho descartavam o resultado, e eles passaram a
+    # le-lo. Esta e a do `armazenado`.
+    ('media: o resultado da marcacao volta a ser descartado', MED_PIPELINE,
+     '      retainUntil,\n    ]);\n    if (marcada.rows.length === 0) {',
+     '      retainUntil,\n    ]);\n    if (false) {', MEDIA),
+    # E as duas que a correccao criou, uma por caminho de desfecho.
+    ('media: a rejeicao volta a descartar o resultado', MED_PIPELINE,
+     '      "rejeitado",\n    ]);\n    if (marcada.rows.length === 0) {',
+     '      "rejeitado",\n    ]);\n    if (false) {', MEDIA),
+    ('media: a falha volta a descartar o resultado', MED_PIPELINE,
+     '      "falhou",\n    ]);\n    if (marcada.rows.length === 0) {',
+     '      "falhou",\n    ]);\n    if (false) {', MEDIA),
+    ('media: um wa_type desconhecido passa a reservar linha', MED_PIPELINE,
+     '    if (classe === null) {',
+     '    if (false as boolean) {', MEDIA),
     ('handoff: a chave de idempotencia passa a derivar do texto', HND_RESPOSTA,
      'idempotencyKey: `hnd:${acontecimento.handoffId}:${acontecimento.mensagemId}`,',
      'idempotencyKey: `hnd:${acontecimento.handoffId}:${texto}`,', HANDOFF),
@@ -1800,49 +1956,49 @@ MUTACOES = [
     # nenhum teste pode matar. Uma sobrevivente por desenho e pior do que
     # nenhuma, porque conta como prova. Essa defesa em profundidade fica dita
     # na seccao de verificacao do ticket, como o que e.
-    ('free tier: o mes volta a sair como `date` e nao em texto', MED_SQL,
+    ('free tier: o mes volta a sair como `date` e nao em texto', FT_SQL,
      "to_char(c.free_tier_month, 'YYYY-MM-DD') AS mes",
      "c.free_tier_month AS mes", SAIDA),
-    ('free tier: a leitura ignora o mes guardado e devolve o contador velho', MED_SQL,
+    ('free tier: a leitura ignora o mes guardado e devolve o contador velho', FT_SQL,
      "  SELECT CASE\n             WHEN c.free_tier_month\n                  IS DISTINCT FROM platform.ten_periodo(coalesce($3, now()))\n             THEN 0\n             ELSE c.free_tier_used\n         END AS usadas,",
      "  SELECT c.free_tier_used AS usadas,", SAIDA),
-    ('free tier: o reinicio volta a ser `<>` e o NULL deixa de contar', MED_SQL,
+    ('free tier: o reinicio volta a ser `<>` e o NULL deixa de contar', FT_SQL,
      "             WHEN antes.free_tier_month\n                  IS DISTINCT FROM platform.ten_periodo(coalesce($3, now()))",
      "             WHEN antes.free_tier_month\n                  <> platform.ten_periodo(coalesce($3, now()))", SAIDA),
-    ('free tier: o mes novo comeca em 0 e perde a primeira entrega', MED_SQL,
+    ('free tier: o mes novo comeca em 0 e perde a primeira entrega', FT_SQL,
      "             THEN 1\n             ELSE antes.free_tier_used + 1",
      "             THEN 0\n             ELSE antes.free_tier_used + 1", SAIDA),
-    ('free tier: o incremento perde o FOR UPDATE e o `antes` deixa de valer', MED_SQL,
+    ('free tier: o incremento perde o FOR UPDATE e o `antes` deixa de valer', FT_SQL,
      "       WHERE tenant_id = $1 AND phone_number_id = $2\n         FOR UPDATE\n    ) AS antes",
      "       WHERE tenant_id = $1 AND phone_number_id = $2\n    ) AS antes", SAIDA),
-    ('free tier: a janela de falhas passa a contar o que nao tem destino', MED_SQL,
+    ('free tier: a janela de falhas passa a contar o que nao tem destino', FT_SQL,
      "         AND m.state IN ('delivered', 'read', 'failed')",
      "         AND m.state IN ('queued', 'sent', 'delivered', 'read', 'failed')", SAIDA),
-    ('free tier: o aviso volta a ser o valor e nao a travessia', MED_CUSTO,
+    ('free tier: o aviso volta a ser o valor e nao a travessia', FT_CUSTO,
      "  if (de < AVISO_EM && para >= AVISO_EM) return \"aviso\";",
      "  if (para >= AVISO_EM) return \"aviso\";", SAIDA),
-    ('free tier: o reinicio deixa de normalizar o `antes`', MED_CUSTO,
+    ('free tier: o reinicio deixa de normalizar o `antes`', FT_CUSTO,
      "  const de = reiniciou ? 0 : Math.trunc(antes);",
      "  const de = Math.trunc(antes);", SAIDA),
-    ('free tier: o racio volta a ser limitado a 1', MED_CUSTO,
+    ('free tier: o racio volta a ser limitado a 1', FT_CUSTO,
      "  return Math.trunc(usadas) / FREE_TIER_DE_SERVICE;",
      "  return Math.min(1, Math.trunc(usadas) / FREE_TIER_DE_SERVICE);", SAIDA),
-    ('free tier: a estimativa perde o `max(0, ...)` e fica negativa', MED_CUSTO,
+    ('free tier: a estimativa perde o `max(0, ...)` e fica negativa', FT_CUSTO,
      "  const acima = Math.max(0, Math.trunc(usadas) - FREE_TIER_DE_SERVICE);",
      "  const acima = Math.trunc(usadas) - FREE_TIER_DE_SERVICE;", SAIDA),
-    ('free tier: a suspeita deixa de exigir o tecto esgotado', MED_CUSTO,
+    ('free tier: a suspeita deixa de exigir o tecto esgotado', FT_CUSTO,
      "  if (Math.trunc(usadas) < FREE_TIER_DE_SERVICE) return false;\n  if (janela.total < JANELA_DE_FALHAS) return false;",
      "  if (janela.total < JANELA_DE_FALHAS) return false;", SAIDA),
-    ('free tier: a divergencia perde o guarda do denominador zero', MED_CUSTO,
+    ('free tier: a divergencia perde o guarda do denominador zero', FT_CUSTO,
      "  if (medido === 0) return null;",
      "  if (false) return null;", SAIDA),
-    ('free tier: a metrica volta a aceitar um tenant_id como etiqueta', MED_METRICAS,
+    ('free tier: a metrica volta a aceitar um tenant_id como etiqueta', FT_METRICAS,
      "        throw new SufixoInvalidoError(metrica, sufixo);",
      "        void sufixo;", SAIDA),
-    ('free tier: a reconciliacao volta a comparar meses em UTC', MED_SQL,
+    ('free tier: a reconciliacao volta a comparar meses em UTC', FT_SQL,
      "     AND platform.ten_periodo(m.delivered_at)\n         = platform.ten_periodo(coalesce($3, now()))",
      "     AND m.delivered_at >= platform.ten_periodo(coalesce($3, now()))", SAIDA),
-    ('free tier: um canal desconhecido volta a ganhar mil mensagens gratis', MED_MODULO,
+    ('free tier: um canal desconhecido volta a ganhar mil mensagens gratis', FT_MODULO,
      "const DESCONHECIDO = {\n  usadas: FREE_TIER_DE_SERVICE,",
      "const DESCONHECIDO = {\n  usadas: 0,", SAIDA),
 ]
