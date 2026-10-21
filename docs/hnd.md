@@ -40,7 +40,83 @@ nossos identificadores para fora.
 
 ---
 
-## 3. A idempotência é da base, e é de dois tipos
+## 3. O que o spike mediu, e que nenhuma leitura dava
+
+O critério 8 pedia um spike de um dia contra um Chatwoot real, e ele correu:
+v4.18.0 fixado por digest, em compose local com dados sintéticos, sem
+credenciais da Meta, a escutar só em `127.0.0.1`. O registo passo a passo está
+em [`evidencia/KAM-019-bot-open.md`](evidencia/KAM-019-bot-open.md) e o veredicto
+é **`O TOKEN DO BOT CHEGA`**.
+
+**Mas o valor dele não foi a resposta: foi o caminho até lá.** A implementação
+estava escrita e as baterias estavam verdes, e o spike mostrou que metade das
+chamadas do provisionamento recebia 401. A lição vale mais do que o ticket:
+
+> **Um duplo prova que o nosso código chama o que pretendíamos chamar. Não prova
+> que o terceiro aceita a chamada.**
+
+Os sete factos, todos **CONFIRMADO**:
+
+| O que se perguntou | O que o Chatwoot respondeu |
+|---|---|
+| `pending → open` com o *token* do *agent bot* | **200**, com `"current_status":"open"`. É o **L7** do `tecnica/01` §18, que estava NÃO VERIFICADO. O plano B — um utilizador-serviço com *token* da Application API — **não é preciso para o estado** |
+| As três variáveis da Meta no `env` do contentor | **ausentes**. É a prova que o critério 2 pedia, e não se consegue de um ficheiro de compose: uma variável pode entrar por `.env`, por herança ou embutida na imagem |
+| *Token* da Platform API em `/api/v1/accounts/…` | **401**, «Access to this endpoint is not authorized for bots». Ele cria contas, utilizadores e bots, e mais nada |
+| Quem pode criar o *inbox* | Um **utilizador** criado por `/platform/api/v1/users` e ligado à conta por `account_users`, com o `access_token` dele |
+| Ligar o bot ao *inbox* | **Obrigatório** (`set_agent_bot`). Sem isso, `POST /conversations` dá **404** e o bot não recebe os *callbacks* do *inbox* |
+| `source_id` inventado na conversa | **404**. Tem de ser o `contact_inboxes[0].source_id` que a criação do contacto devolveu |
+| *Token* do bot a criar contactos | **401**. Logo o do utilizador é preciso **em tempo de execução**, e não só no provisionamento |
+
+### A sequência do provisionamento, pela ordem medida
+
+```text
+1. POST /platform/api/v1/accounts                         [plataforma]  -> account_id
+2. POST /platform/api/v1/users                            [plataforma]  -> user_id + access_token
+3. POST /platform/api/v1/accounts/{conta}/account_users    [plataforma]  (role: administrator)
+4. POST /api/v1/accounts/{conta}/inboxes                   [utilizador] -> inbox_id
+5. POST /platform/api/v1/agent_bots                        [plataforma]  -> bot_id + access_token
+6. POST /api/v1/accounts/{conta}/inboxes/{inbox}/set_agent_bot [utilizador]
+```
+
+Cada passo depende do anterior, e **é por isso que a ordem não é arbitrária**: o
+utilizador precisa da conta para se lhe ligar, o *inbox* precisa do *token* do
+utilizador, o `set_agent_bot` precisa dos dois identificadores. Se isto falhar a
+meio fica o que já foi criado — não há transacção do lado do provedor e não a
+podemos inventar. O que se escolheu é a ordem que deixa o destroço mais
+inofensivo: um bot ligado a nada não recebe nada, e um *inbox* sem bot não
+encaminha nada. O que **não** se pode deixar é a linha na nossa base sem os
+identificadores, e é por isso que ela só se escreve depois disto devolver.
+
+### Três segredos, e dois objectos
+
+| Segredo | O que faz | Onde vive |
+|---|---|---|
+| `chatwoot_platform_token` | cria contas, utilizadores e bots | **só** no `ProvisionadorDoChatwoot` |
+| `chatwoot_user_token` | cria *inboxes* e **contactos** | por conta, no cofre; a referência em `handoff_accounts.user_token_ref` |
+| `chatwoot_bot_token` | abre, fecha e escreve em conversas | por conta, no cofre; a referência em `handoff_accounts.token_ref` |
+
+**São dois objectos e não um**, e isso é o `tecnica/08` §3.6 à letra: «o *token*
+da Platform API (poderoso) só existe no serviço de *provisioning*, nunca no
+AGR». A primeira versão deste módulo tinha uma classe só, com o *token* da
+plataforma como campo **obrigatório** do mesmo objecto que abre conversas:
+qualquer processo que precisasse de abrir uma conversa tinha de o ter em
+memória. Um parâmetro distinto não é um processo distinto, e era só isso que
+estava garantido.
+
+### A chave do contacto é opaca, e nunca o nosso `contact_id`
+
+A conversa precisa de um contacto, e o contacto precisa de um `identifier`. A
+primeira versão punha lá o nosso `contact_id` — o que era uma fuga de
+identificador nosso para fora, contra o ADR-010, **no mesmo módulo** que diz, na
+nota do `MirrorMessage`, que isso não se faz; e que de qualquer modo dava 404,
+porque o provedor quer um `source_id` que ele próprio emitiu.
+
+O que entra agora é uma `chaveDoContacto`: opaca, estável, derivada **por quem
+chama**, que é quem tem o contexto para a derivar (o `contact_hmac_prefix` do
+*logger* é a mesma família de ideia). O HND não recebe o identificador, e por
+isso não o pode deixar escapar.
+
+## 4. A idempotência é da base, e é de dois tipos
 
 | O que | O mecanismo | Porque não em código |
 |---|---|---|
@@ -67,7 +143,7 @@ ninguém ver. As duas são precisas, e nenhuma substitui a outra.
 
 ---
 
-## 4. Os dois vocabulários de estado, e a ponte
+## 5. Os dois vocabulários de estado, e a ponte
 
 A assinatura do `close` usa `outcome ∈ {resolved, timeout, cancelled}`; a tabela
 usa `status ∈ {waiting, resumed, timeout, cancelled, degraded}`. **Duas das três
@@ -93,7 +169,7 @@ passagem como atendida.
 
 ---
 
-## 5. A degradação: o provedor em baixo não falha, degrada
+## 6. A degradação: o provedor em baixo não falha, degrada
 
 Com o `abrirConversa` a levantar `ProvedorIndisponivelError`:
 
@@ -115,7 +191,7 @@ uma fila que o repetisse nunca drenava: o defeito ficava escondido atrás dela.
 
 ---
 
-## 6. Os *callbacks*: autenticação por `secret` de bot
+## 7. Os *callbacks*: autenticação por `secret` de bot
 
 O critério 5 pede «só são aceites com o `secret` do bot; ausente ou errado
 devolve 401 e incrementa uma métrica». Quatro motivos, lista fechada porque é
@@ -159,7 +235,7 @@ só `outgoing` é do agente.
 
 ---
 
-## 7. Privacidade: o `resolver` é o primeiro dado pessoal de quem atende
+## 8. Privacidade: o `resolver` é o primeiro dado pessoal de quem atende
 
 Todas as outras colunas pessoais do esquema são de **clientes finais**. O
 `handoffs.resolver` é de **quem atende** — um trabalhador da PME —, e o que se
@@ -178,7 +254,7 @@ escreveu. O por-*tenant* sai do `SQL_FORA_DO_SLA`, por consulta.
 
 ---
 
-## 8. O que não é executável, e porquê
+## 9. O que não é executável, e porquê
 
 O **`setBotMuted`** está na interface e **levanta** `SemPrivilegioError`.
 
@@ -201,7 +277,7 @@ primeiro, e a assinatura não permite pedir um *lock*. Conta-se e registra-se
 
 ---
 
-## 9. Como correr
+## 10. Como correr
 
 ```bash
 # Os testes unitários e de porta (gate 4): estados, callbacks, Chatwoot, provedor
@@ -226,7 +302,7 @@ pede, e o que ela responde está em
 
 ---
 
-## 10. O que não está aqui, e tem dono
+## 11. O que não está aqui, e tem dono
 
 | O que | Ticket |
 |---|---|
@@ -239,8 +315,9 @@ pede, e o que ela responde está em
 
 ---
 
-## 11. Controlo de versões
+## 12. Controlo de versões
 
 | Versão | Data | Alteração |
 |---|---|---|
 | 1.0 | 2026-10-20 | Criado pelo KAM-019. |
+| 1.1 | 2026-10-21 | **O spike correu, e a §3 é o que ele mediu.** O veredicto é `O TOKEN DO BOT CHEGA` — o `pending → open` com o *token* do *agent bot* responde 200 e o plano B não é preciso para o estado. O que mudou o desenho foram as outras cinco medições: o *token* da Platform API dá 401 nos *endpoints* da conta, o *inbox* precisa de um utilizador ligado por `account_users`, o `set_agent_bot` é obrigatório, a conversa precisa de um contacto que exista, e o *token* do bot não cria contactos — pelo que o do utilizador é preciso em execução e a `handoff_accounts` passa a ter duas `SecretRef` e o `provider_user_id` (emenda 1.23). O cliente separou-se em dois objectos, pelo `tecnica/08` §3.6. E a chave do contacto passou a ser **opaca**: a primeira versão mandava o nosso `contact_id` para fora, contra o ADR-010. |

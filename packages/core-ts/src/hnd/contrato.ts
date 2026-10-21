@@ -84,11 +84,46 @@ export const ACONTECIMENTOS = ["mensagem_de_agente", "estado_mudou"] as const;
 
 export type Acontecimento = (typeof ACONTECIMENTOS)[number];
 
-/** Uma conta de atendimento, como o `ensureAccount` a devolve (§11.1). */
+/**
+ * Uma conta de atendimento, como o `ensureAccount` a devolve (§11.1).
+ *
+ * **Quatro identificadores e não três** (emenda 1.23), e o quarto vem de
+ * medição: o spike do critério 8 mediu que os *endpoints* `/api/v1/accounts/…`
+ * recusam o *token* da Platform API com 401 («not authorized for bots»), e que
+ * o do *agent bot* recusa criar contactos com o mesmo 401. Existe um terceiro
+ * ator — um **utilizador** criado pela Platform API e ligado à conta por
+ * `account_users` — e é o `access_token` dele que abre *inboxes* e contactos.
+ *
+ * `providerUserId` e não `userId`: a KAMBÁ vai ter utilizadores seus (o painel,
+ * KAM-091), e um nome genérico cai na regra da emenda 1.14 do dicionário. O
+ * `accountId`, o `inboxId` e o `botId` são vocabulário do Chatwoot e não
+ * colidem com nada nosso.
+ */
 export interface ContaDeAtendimento {
   readonly accountId: number;
   readonly inboxId: number;
   readonly botId: number;
+  readonly providerUserId: number;
+}
+
+/**
+ * O que a criação de uma conta devolve: os identificadores **e os dois
+ * segredos**.
+ *
+ * Os *tokens* vêm em claro porque é a **única** vez que o provedor os mostra —
+ * o `access_token` de um utilizador e de um bot saem no corpo da criação e não
+ * se voltam a ler. Quem recebe isto guarda-os no cofre e **não** os deixa
+ * passar para mais nenhum sítio: não vão para a base (lá ficam as `SecretRef`),
+ * não vão para registo, e não vão numa mensagem de erro.
+ *
+ * A primeira versão deste módulo não os devolvia, e era um buraco silencioso:
+ * o provedor gerava dois segredos e nada os capturava, pelo que nenhuma
+ * operação posterior os podia usar.
+ */
+export interface ContaCriada {
+  readonly conta: ContaDeAtendimento;
+  readonly tokenDoBot: string;
+  readonly tokenDoUtilizador: string;
 }
 
 /**
@@ -137,7 +172,22 @@ export interface HumanEvent {
 /** O que o `openHandoff` recebe (§11.1). */
 export interface PedidoDeHandoff {
   readonly tenantId: string;
-  readonly contactId: string;
+  /**
+   * Uma chave **opaca e estável** do contacto, derivada por quem chama.
+   *
+   * **Nunca o nosso `contact_id`**, e isto é a correcção de um defeito que
+   * sobreviveu a quatro testes: a primeira versão trazia `contactId` e punha-o
+   * no `source_id` da conversa, isto é, mandava um identificador nosso para
+   * fora, contra o ADR-010 — no mesmo módulo que diz, na nota do
+   * `MirrorMessage`, que isso não se faz. E o spike mostrou que nem funcionava:
+   * o Chatwoot quer o `source_id` de um `contact_inbox` **que exista**, e um
+   * valor que ele não emitiu responde 404.
+   *
+   * Quem deriva é o chamador, que tem o contexto para o fazer (o
+   * `contact_hmac_prefix` do *logger* é a mesma família de ideia). O HND não
+   * recebe o identificador e por isso não o pode deixar escapar.
+   */
+  readonly chaveDoContacto: string;
   readonly conversationId: string;
   /** `hash(thread_id, ordinal_do_handoff)`. Derivado, não gerado. */
   readonly handoffId: string;
@@ -207,7 +257,8 @@ export interface ClienteSql {
 export interface AberturaNoProvedor {
   readonly conta: ContaDeAtendimento;
   readonly handoffId: string;
-  readonly contactId: string;
+  /** A chave opaca do contacto. Ver a nota do `PedidoDeHandoff`. */
+  readonly chaveDoContacto: string;
   readonly resumo: string;
 }
 
@@ -221,14 +272,46 @@ export interface AberturaNoProvedor {
  * `ClienteDaMeta`.
  */
 export interface ClienteDoProvedor {
-  /** Cria (ou devolve) conta, *inbox* e bot do *tenant*. */
-  criarConta(tenantId: string): Promise<ContaDeAtendimento>;
-  /** Cria a conversa e devolve o seu identificador no provedor. */
+  /**
+   * Cria a conversa e devolve o seu identificador no provedor.
+   *
+   * Cria também, antes dela, o **contacto** — o provedor quer o `source_id` de
+   * um `contact_inbox` que ele próprio emitiu, e isso só se sabe depois de o
+   * criar (medido: um valor inventado responde 404).
+   */
   abrirConversa(abertura: AberturaNoProvedor): Promise<string>;
-  /** Espelha uma mensagem. Idempotente por `wamid` do lado do provedor. */
-  espelhar(conta: ContaDeAtendimento, m: MirrorMessage): Promise<void>;
+  /**
+   * Espelha uma mensagem numa conversa que já existe.
+   *
+   * **O `externalId` é um argumento e não vem no `MirrorMessage`**, e é a
+   * correcção de um defeito: a primeira versão punha o `wamid` no lugar do
+   * identificador da conversa no URL, pelo que qualquer chamada real daria 404
+   * — e o teste afirmava o corpo e nunca o `url`, o que é a razão de ter
+   * passado. O `wamid` continua a ir no corpo, em `source_id`, que é onde o
+   * provedor de-duplica.
+   */
+  espelhar(
+    conta: ContaDeAtendimento,
+    externalId: string,
+    m: MirrorMessage,
+  ): Promise<void>;
   /** Fecha a conversa no provedor. */
   fecharConversa(conta: ContaDeAtendimento, externalId: string): Promise<void>;
+}
+
+/**
+ * A porta do **provisionamento**, separada da de execução.
+ *
+ * Separada porque o `../docs/tecnica/08` §3.6 exige que «o *token* da Platform
+ * API (poderoso) só exista no serviço de *provisioning*, nunca no AGR», e a
+ * primeira versão deste módulo punha-o como campo obrigatório do **mesmo**
+ * objecto que abre conversas e espelha mensagens: qualquer processo que
+ * precisasse de abrir uma conversa tinha de o ter em memória. Um parâmetro
+ * distinto não é um processo distinto, e era só isso que estava garantido.
+ */
+export interface ProvisionadorDoProvedor {
+  /** Cria conta, utilizador, *inbox* e bot do *tenant*, e devolve os segredos. */
+  criarConta(tenantId: string): Promise<ContaCriada>;
 }
 
 /** Falta o privilégio que a operação exige. Ver a nota do módulo. */

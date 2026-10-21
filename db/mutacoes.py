@@ -198,6 +198,7 @@ HND_ESTADOS = "packages/core-ts/src/hnd/estados.ts"
 HND_SQL = "packages/core-ts/src/hnd/consultas.ts"
 HND_CHATWOOT = "packages/core-ts/src/hnd/chatwoot.ts"
 HND_RESPOSTA = "packages/core-ts/src/hnd/resposta.ts"
+HND_PROVEDOR = "packages/core-ts/src/hnd/provedor.ts"
 CHR = "tests_chr"
 CHR_CANAL = "packages/core-ts/src/chr/canal.ts"
 CHR_SQL = "packages/core-ts/src/chr/consultas.ts"
@@ -1549,24 +1550,59 @@ MUTACOES = [
     ('revisao 0011: a conta de atendimento fica sem RLS (gate 6)', REV11,
      '    rls.enable_tenant_rls("handoff_accounts")',
      '    pass  # rls.enable_tenant_rls("handoff_accounts")', "tests_isolamento"),
+    # **Declarada em `tests` e nao em `tests_handoff`**, e a prova por mutacao foi
+    # o que o mostrou. Em `tests_handoff` ela sobrevivia: apagada a restricao, a
+    # `handoff_accounts_utilizador_uq` apanhava o mesmo caso e a assercao do
+    # ensaio de base aceitava qualquer «duplicate key». O teste do ensaio foi
+    # apertado (assercao pelo **nome** da restricao, e o utilizador deliberadamente
+    # diferente), e a mutacao passou para a suite onde a `test_handoff_schema`
+    # afirma as tres restricoes uma a uma. Uma mutacao na suite errada e pior do
+    # que nenhuma.
     ('revisao 0011: a conta do provedor deixa de ser unica', REV11,
      '            CONSTRAINT handoff_accounts_conta_uq UNIQUE (provedor, account_id),',
-     '', HANDOFF),
+     '', "tests"),
     ('revisao 0011: o downgrade conta as passagens com a politica de pe', REV11,
      '    rls.disable_tenant_rls("handoffs")\n    rls.disable_tenant_rls("handoff_accounts")',
      '    pass  # as politicas ficam de pe', "tests"),
     ('revisao 0011: a aplicacao passa a poder reescrever o handoff_id', REV11,
      'COLUNAS_DA_APLICACAO = (\n    "status",',
      'COLUNAS_DA_APLICACAO = (\n    "handoff_id",\n    "status",', "tests"),
-    ('revisao 0011: a aplicacao passa a poder mudar a conta do provedor', REV11,
-     'COLUNAS_DA_CONTA_NA_APLICACAO = (\n    "inbox_id",',
-     'COLUNAS_DA_CONTA_NA_APLICACAO = (\n    "account_id",\n    "inbox_id",', "tests"),
-    ('handoff: um segredo esperado vazio deixa de recusar tudo', HND_ASSINATURA,
+    # **A inversa da anterior**: a primeira versao desta mutacao punha o
+    # `account_id` na lista de colunas alteraveis, e a lista deixou de
+    # existir — a `0011` ja nao concede `UPDATE` em `handoff_accounts`. O que
+    # se vigia agora e o caminho de volta: alguem a reconceder.
+    ('revisao 0011: a aplicacao volta a poder escrever na conta', REV11,
+     '    # Sem `GRANT UPDATE` em `handoff_accounts`. Ver a nota de',
+     '    op.execute("GRANT UPDATE (token_ref) ON platform.handoff_accounts "\n               "TO kamba_app")\n    # Sem `GRANT UPDATE` em `handoff_accounts`. Ver a nota de',
+     "tests"),
+    ('revisao 0011: o utilizador do provedor deixa de ser unico', REV11,
+     '            CONSTRAINT handoff_accounts_utilizador_uq\n                UNIQUE (provedor, provider_user_id),',
+     '', "tests"),
+    # **Esta era imortal por redundancia**, e a prova por mutacao foi o que o
+    # mostrou: apagar o `if (esperado.length === 0) return false;` nao muda
+    # comportamento nenhum, porque a verificacao de comprimento tres linhas
+    # abaixo ja recusa um esperado vazio (os comprimentos diferem, salvo se o
+    # recebido tambem for vazio — e esse cai na linha do meio). A linha fica,
+    # porque diz a intencao; o que muda e a mutacao, que passa a inverter o
+    # **sentido** em vez de apagar a linha. Essa morre.
+    ('handoff: um segredo esperado vazio passa a aceitar tudo', HND_ASSINATURA,
      '  if (esperado.length === 0) return false;',
+     '  if (esperado.length === 0) return true;', HANDOFF),
+    # **E aqui estava a segunda imortal, e sai sem substituta.** A mutacao
+    # trocava `timingSafeEqual(a, b)` por `recebido === esperado`, e nesse ponto
+    # do codigo os dois buffers ja tem o mesmo comprimento: as duas expressoes
+    # dao **o mesmo resultado** para toda a entrada. A diferenca e o tempo, e o
+    # tempo nao e observavel num teste unitario — medi-lo pediria uma bateria
+    # estatistica que esta maquina nao consegue correr sem falsos vermelhos.
+    #
+    # Fica dito em vez de fingido: **a propriedade de tempo constante nao tem
+    # teste**. O que a sustenta e a leitura, e e por isso que a razao esta
+    # escrita no `assinatura.ts` e no `docs/hnd.md`. Uma mutacao que nenhum
+    # teste pode matar contaria como prova de uma garantia que nao temos, que e
+    # pior do que nao a ter.
+    ('handoff: o comprimento deixa de ser tratado antes de comparar', HND_ASSINATURA,
+     '  if (a.length !== b.length) return false;',
      '', HANDOFF),
-    ('handoff: a comparacao do segredo volta a sair no primeiro caracter', HND_ASSINATURA,
-     '  return timingSafeEqual(a, b);',
-     '  return recebido === esperado;', HANDOFF),
     ('handoff: a conta desconhecida deixa de recusar o callback', HND_ASSINATURA,
      '  if (!contaConhecida) {',
      '  if (false) {', HANDOFF),
@@ -1591,9 +1627,21 @@ MUTACOES = [
     ('handoff: o fecho deixa de ter a monotonia no predicado', HND_SQL,
      '     AND status = ANY($3::text[])',
      '', HANDOFF),
-    ('handoff: o fecho deixa de ler o tenant da sessao', HND_SQL,
-     "   WHERE tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid",
-     '   WHERE true', HANDOFF),
+    # **Esta era imortal e agora nao e.** A primeira versao trocava o
+    # `WHERE tenant_id = ...` por `WHERE true`, e nenhum teste a podia
+    # matar: a base falsa impoe o tenant em JavaScript, pelo que o texto do
+    # SQL nunca e lido, e sob RLS, para `kamba_app`, `WHERE true` e
+    # semanticamente **igual** ao predicado. Uma mutacao que nenhum teste
+    # pode matar e pior do que nenhuma, porque conta como prova.
+    #
+    # O que se vigia agora e o que **se ve**: a forma estrita do
+    # `current_setting`. Com o segundo argumento ele devolve NULL em vez de
+    # levantar, e um `close` sem contexto de sessao volta a nao casar nada em
+    # silencio. O ensaio de base tem um teste que o chama sem contexto e
+    # exige a excepcao.
+    ('handoff: o fecho volta a aceitar a falta de contexto', HND_SQL,
+     "current_setting('app.tenant_id')",
+     "current_setting('app.tenant_id', true)", HANDOFF),
     ('handoff: o account_id do bot volta a poder ir nulo', HND_CHATWOOT,
      '        account_id: conta.id,',
      '        account_id: null,', HANDOFF),
@@ -1606,6 +1654,37 @@ MUTACOES = [
     # O `resposta.ts` nasceu depois deste bloco e ficou sem nenhuma mutacao,
     # que e a mesma classe de esquecimento que deixou a bateria dele fora da
     # lista do gate. Sao quatro, uma por decisao que o criterio 6 pede.
+    # As oito que prendem o que o spike mediu e a revisao adversarial apanhou.
+    # Cada uma e um defeito que **estava** no codigo e passou por baterias
+    # verdes: sao o registo de que a correccao nao se desfaz sem alguem notar.
+    ('handoff: o inbox volta a ser criado com o token da plataforma', HND_CHATWOOT,
+     '      `/api/v1/accounts/${conta.id}/inboxes`,\n      utilizador.access_token,',
+     '      `/api/v1/accounts/${conta.id}/inboxes`,\n      this.#tokenDaPlataforma,',
+     HANDOFF),
+    ('handoff: o bot deixa de ser ligado ao inbox', HND_CHATWOOT,
+     '    await this.#chamador.vazio(\n      "POST",\n      `/api/v1/accounts/${conta.id}/inboxes/${caixa.id}/set_agent_bot`,',
+     '    await Promise.resolve(\n      "POST",\n      `/api/v1/accounts/${conta.id}/inboxes/${caixa.id}/set_agent_bot`,',
+     HANDOFF),
+    ('handoff: a conversa volta a levar a chave do contacto no source_id', HND_CHATWOOT,
+     '        source_id: origem,',
+     '        source_id: abertura.chaveDoContacto,', HANDOFF),
+    ('handoff: o contacto le payload em vez de payload.contact', HND_CHATWOOT,
+     'const origem = contacto.payload?.contact?.contact_inboxes?.[0]?.source_id;',
+     'const origem = (contacto.payload as { contact_inboxes?: { source_id?: string }[] })?.contact_inboxes?.[0]?.source_id;',
+     HANDOFF),
+    ('handoff: o espelho volta a por o wamid no URL', HND_CHATWOOT,
+     '`/api/v1/accounts/${conta.accountId}/conversations/${externalId}/messages`',
+     '`/api/v1/accounts/${conta.accountId}/conversations/${m.wamid}/messages`',
+     HANDOFF),
+    ('handoff: o resolver do callback volta a ser perdido', HND_PROVEDOR,
+     'await this.#fechar(acontecimento.handoffId, outcome, acontecimento.resolver);',
+     'await this.#fechar(acontecimento.handoffId, outcome, null);', HANDOFF),
+    ('handoff: o marcar_aberta volta a descartar o resultado', HND_PROVEDOR,
+     '    if (marcada.rows.length === 0) {',
+     '    if (false) {', HANDOFF),
+    ('handoff: o callback sem segredo volta a consultar primeiro', HND_PROVEDOR,
+     '    if (segredoRecebido === null || segredoRecebido.length === 0) {',
+     '    if (false) {', HANDOFF),
     ('handoff: a chave de idempotencia passa a derivar do texto', HND_RESPOSTA,
      'idempotencyKey: `hnd:${acontecimento.handoffId}:${acontecimento.mensagemId}`,',
      'idempotencyKey: `hnd:${acontecimento.handoffId}:${texto}`,', HANDOFF),

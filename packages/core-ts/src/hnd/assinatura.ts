@@ -65,6 +65,14 @@ export function segredoConfere(recebido: string | null, esperado: string): boole
   const b = Buffer.from(esperado, "utf8");
   // O comprimento vaza, e e o unico facto que vaza. Trata-se antes de
   // comparar, porque o `timingSafeEqual` **levanta** com tamanhos diferentes.
+  //
+  // **E fica dito: a propriedade de tempo constante nao tem teste.** Chegados
+  // aqui os dois buffers tem o mesmo comprimento, pelo que `timingSafeEqual(a,
+  // b)` e `recebido === esperado` dao o **mesmo resultado** para toda a
+  // entrada — a diferenca e o tempo, e o tempo nao e observavel num teste
+  // unitario. A prova por mutacao mostrou-o: a mutacao que trocava os dois
+  // sobrevivia a tudo, e foi retirada em vez de ficar a contar como prova de
+  // uma garantia que nao temos. O que a sustenta e esta nota e a revisao.
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
 }

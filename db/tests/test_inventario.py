@@ -505,6 +505,27 @@ INVENTARIO = {
         "account_id": ("bigint", NAO, None, "identificador opaco da conta no provedor"),
         "inbox_id": ("bigint", NAO, None, "identificador opaco da caixa no provedor"),
         "bot_id": ("bigint", NAO, None, "identificador opaco do bot no provedor"),
+        # As duas da emenda 1.23, que vieram do spike. O `provider_user_id` e o
+        # identificador do **utilizador** da conta no provedor, e a pergunta
+        # «guarda dados pessoais?» tem aqui a resposta menos obvia da tabela:
+        # **nao**, e e por desenho. O utilizador nao e uma pessoa da PME — e um
+        # utilizador de servico que a plataforma cria para provisionar e criar
+        # contactos, com um `email` de dominio `.invalid`. As pessoas da PME
+        # entram pelo painel com contas proprias, que sao do KAM-091, e essas
+        # sim guardam dados pessoais. O unico dado pessoal de um trabalhador
+        # neste esquema continua a ser o `handoffs.resolver`.
+        "provider_user_id": (
+            "bigint",
+            NAO,
+            None,
+            "identificador opaco do utilizador de servico no provedor",
+        ),
+        "user_token_ref": (
+            "text",
+            NAO,
+            None,
+            "referencia opaca ao segredo do utilizador da conta; nunca o token",
+        ),
         "token_ref": (
             "text",
             NAO,
@@ -742,6 +763,13 @@ class TestInventario(ComBase):
                     "handoff_accounts_pkey",
                     "handoff_accounts_provedor_ck",
                     "handoff_accounts_token_ck",
+                    # As duas da emenda 1.23, que vem do spike: o utilizador da
+                    # conta fecha o mesmo furo que o `conta_uq` fecha para a
+                    # conta, e a referencia dele nao pode ser vazia pela mesma
+                    # razao que a do bot — uma referencia vazia e um segredo
+                    # que ninguem vai buscar.
+                    "handoff_accounts_user_token_ck",
+                    "handoff_accounts_utilizador_uq",
                     "handoffs_motivo_ck",
                     "handoffs_pkey",
                     "handoffs_status_ck",

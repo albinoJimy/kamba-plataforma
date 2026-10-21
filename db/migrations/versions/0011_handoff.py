@@ -121,17 +121,24 @@ COLUNAS_DA_APLICACAO = (
 
 #: As colunas de uma conta de atendimento que o `kamba_app` pode alterar.
 #:
-#: Quatro. O `account_id` **nao** esta: uma conta no provedor nao muda de
-#: identidade, e se mudar e uma conta nova. O `tenant_id` e o `provedor` sao a
-#: chave primaria. O `inbox_id` e o `bot_id` podem ser repostos — o
-#: `ensureAccount` «repoe» uma conta em falta (`docs/tecnica/01` §11.5) — e o
-#: `token_ref` muda na rotacao do segredo (182 dias, `ops/secrets-inventory.yaml`).
-COLUNAS_DA_CONTA_NA_APLICACAO = (
-    "inbox_id",
-    "bot_id",
-    "token_ref",
-    "updated_at",
-)
+#: **Nenhuma, e a lista vazia e a decisao.**
+#:
+#: A primeira versao desta revisao concedia `UPDATE (inbox_id, bot_id,
+#: token_ref, updated_at)` a `kamba_app`, justificado por o `ensureAccount`
+#: «repor» uma conta em falta (`docs/tecnica/01` §11.5). A revisao adversarial
+#: mediu que **esse caminho nao existe**: o `ensureAccount` faz `SELECT`,
+#: `criarConta` e `INSERT`, e a instrucao de reposicao nao tem chamador nenhum.
+#:
+#: Era um privilegio de escrita concedido para um caminho inexistente, que e
+#: exactamente o que a `0009` recusou por escrito: «um privilegio concedido para
+#: quando for preciso e um privilegio que ninguem volta a tirar». Tira-se agora,
+#: que e mais barato do que daqui a tres revisoes.
+#:
+#: A consequencia fica dita: **a reposicao do `01` §11.5 nao esta implementada
+#: no KAM-019**, e quem a fizer tem de acrescentar o `GRANT` com o chamador no
+#: mesmo diff. A rotacao dos dois segredos nao passa por aqui — e do `0011` para
+#: baixo uma tarefa de operacao, nao da aplicacao.
+COLUNAS_DA_CONTA_NA_APLICACAO: tuple[str, ...] = ()
 
 #: As colunas da copia logica de `handoffs`, pela ordem do `SELECT`.
 COLUNAS_DA_COPIA_DE_HANDOFFS = (
@@ -153,7 +160,9 @@ COLUNAS_DA_COPIA_DE_CONTAS = (
     "account_id",
     "inbox_id",
     "bot_id",
+    "provider_user_id",
     "token_ref",
+    "user_token_ref",
     "criado_at",
     "updated_at",
 )
@@ -258,7 +267,14 @@ def upgrade() -> None:
             account_id bigint      NOT NULL,
             inbox_id   bigint      NOT NULL,
             bot_id     bigint      NOT NULL,
+            -- O utilizador da conta, e as duas colunas vem de **medicao** e nao
+            -- de leitura (emenda 1.23). O spike do criterio 8 mediu que o token
+            -- da Platform API responde 401 em `/api/v1/accounts/...` e que o do
+            -- bot responde 401 a criar contactos — pelo que ha um terceiro ator
+            -- cujo access_token e preciso em tempo de execucao.
+            provider_user_id bigint NOT NULL,
             token_ref  text        NOT NULL,
+            user_token_ref text    NOT NULL,
             criado_at  timestamptz NOT NULL DEFAULT now(),
             updated_at timestamptz NOT NULL DEFAULT now(),
             -- `(tenant_id, provedor)` e nao um UUID: e isto que torna «uma
@@ -273,11 +289,19 @@ def upgrade() -> None:
             -- que o X-10 procura. Sem ela, um `ensureAccount` que devolvesse
             -- por erro a conta de outra PME ficava gravado sem ninguem ver.
             CONSTRAINT handoff_accounts_conta_uq UNIQUE (provedor, account_id),
+            -- E o mesmo para o utilizador, pela mesma razao: o mesmo utilizador
+            -- do provedor em dois tenants dava a um agente de uma PME um
+            -- access_token que ve as conversas da outra. A conta fechada sem o
+            -- utilizador fechado era meia fechadura.
+            CONSTRAINT handoff_accounts_utilizador_uq
+                UNIQUE (provedor, provider_user_id),
             CONSTRAINT handoff_accounts_provedor_ck
                 CHECK (provedor IN ({', '.join(PROVEDORES)})),
             -- Uma referencia a segredo vazia e um segredo que ninguem vai
             -- buscar. A mesma forma do `token_ref` da `0001`.
-            CONSTRAINT handoff_accounts_token_ck CHECK (btrim(token_ref) <> '')
+            CONSTRAINT handoff_accounts_token_ck CHECK (btrim(token_ref) <> ''),
+            CONSTRAINT handoff_accounts_user_token_ck
+                CHECK (btrim(user_token_ref) <> '')
         )
         """
     )
@@ -287,6 +311,19 @@ def upgrade() -> None:
         "(chatwoot_bot_token, instancias: conta). Nunca o token. O "
         "chatwoot_platform_token nao entra em tabela nenhuma: tem instancias "
         "nenhuma e vive so no modulo de provisionamento (docs/tecnica/08 §3.6).'"
+    )
+    op.execute(
+        "COMMENT ON COLUMN platform.handoff_accounts.user_token_ref IS "
+        "'SecretRef opaca do access_token do utilizador desta conta "
+        "(chatwoot_user_token, instancias: conta). Nunca o token. Existe porque "
+        "o token do bot responde 401 a criar contactos e a conversa precisa de "
+        "um contacto que exista — medido no spike do criterio 8.'"
+    )
+    op.execute(
+        "COMMENT ON COLUMN platform.handoff_accounts.provider_user_id IS "
+        "'Identificador do utilizador da conta no provedor. provider_user_id e "
+        "nao user_id: a KAMBA vai ter utilizadores seus (KAM-091) e um nome "
+        "generico arrastaria o dominio para eles (emenda 1.14).'"
     )
     op.execute(
         "COMMENT ON COLUMN platform.handoff_accounts.provedor IS "
@@ -319,10 +356,8 @@ def upgrade() -> None:
     # `ensureAccount`, que corre no HND. Negar-lhe o `INSERT` era entregar um
     # criterio que nao pode passar.
     op.execute("GRANT SELECT, INSERT ON platform.handoff_accounts TO kamba_app")
-    op.execute(
-        f"GRANT UPDATE ({', '.join(COLUNAS_DA_CONTA_NA_APLICACAO)}) "
-        "ON platform.handoff_accounts TO kamba_app"
-    )
+    # Sem `GRANT UPDATE` em `handoff_accounts`. Ver a nota de
+    # COLUNAS_DA_CONTA_NA_APLICACAO: a aplicacao le e insere, e mais nada.
 
     # O `kamba_batch` tem os quatro verbos nas duas, que e o que tem em todas as
     # outras desde a `0001`, porque e quem purga (KAM-071).
@@ -368,7 +403,8 @@ def _handoffs() -> list[dict]:
 def _contas() -> list[dict]:
     """As contas de atendimento em JSON."""
     resultado = op.get_bind().exec_driver_sql(
-        "SELECT tenant_id, provedor, account_id, inbox_id, bot_id, token_ref, "
+        "SELECT tenant_id, provedor, account_id, inbox_id, bot_id, "
+        "       provider_user_id, token_ref, user_token_ref, "
         "       criado_at, updated_at "
         "  FROM platform.handoff_accounts ORDER BY tenant_id, provedor"
     )

@@ -593,17 +593,15 @@ COLUNAS_POR_PAPEL = {
         "resumed_at",
         "resolver",
     },
-    # KAM-019. Quatro na conta de atendimento. O `account_id` **nao** esta: uma
-    # conta no provedor nao muda de identidade, e se mudar e uma conta nova. O
-    # `tenant_id` e o `provedor` sao a chave primaria. O `inbox_id` e o `bot_id`
-    # podem ser repostos (o `ensureAccount` «repoe» uma conta em falta) e o
-    # `token_ref` muda na rotacao do segredo.
-    ("kamba_app", "handoff_accounts", "UPDATE"): {
-        "inbox_id",
-        "bot_id",
-        "token_ref",
-        "updated_at",
-    },
+    # KAM-019: **nenhuma**, e a entrada fica aqui a dizer isso em vez de
+    # desaparecer. A primeira versao da `0011` concedia `UPDATE (inbox_id,
+    # bot_id, token_ref, updated_at)`, justificado por o `ensureAccount` «repor»
+    # uma conta em falta (`docs/tecnica/01` §11.5) — e a revisao adversarial
+    # mediu que esse caminho **nao existe**: o `ensureAccount` faz SELECT,
+    # criarConta e INSERT. Era um privilegio de escrita aberto para um caminho
+    # inexistente, que e o que a `0009` recusou por escrito. O conjunto vazio
+    # afirma a ausencia: se alguem voltar a conceder, este teste falha.
+    ("kamba_app", "handoff_accounts", "UPDATE"): set(),
     # KAM-014, e e tudo o que o gancho de fusao do KAM-008 precisa: le para
     # encontrar a colisao (o contacto que fica ja tem conversa neste canal?) e
     # para dobrar os tempos, e escreve o `contact_id` e os tres tempos. **Sem

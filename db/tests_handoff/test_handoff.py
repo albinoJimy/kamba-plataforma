@@ -64,6 +64,8 @@ GRUPOS = (
     "a leitura do corpo",
     "o provisionamento (criterio 1 e 2)",
     "o setBotMuted levanta (criterio 8)",
+    "o que o spike e a revisao fecharam",
+    "o fecho sem contexto de sessao (o no-op silencioso)",
     "a resposta humana sai pelo Outbound (criterio 6)",
     "com a janela fechada avisa-se e propoe-se (criterio 6)",
     "idempotencia (criterio 4)",
@@ -92,6 +94,20 @@ TESTES_OBRIGATORIOS = (
     "**o mesmo callback duas vezes da uma mensagem**",
     "**sem identificador de mensagem nao se envia**",
     "**nao se envia, e o painel recebe o aviso com o template proposto**",
+    # O que o spike mediu, e que nenhum duplo podia dizer.
+    "**sao seis pedidos, pela ordem que o spike mediu**",
+    "**o inbox e criado com o token do UTILIZADOR e nao da plataforma**",
+    "**o set_agent_bot existe, e sem ele nada funciona**",
+    "**o contacto vem antes da conversa, e com o token do utilizador**",
+    "**a chave opaca nao e o nosso contact_id, e nada nosso sai**",
+    "**o espelho usa o externalId no URL e o wamid no corpo**",
+    "**o cliente de execucao nao conhece o token da plataforma**",
+    "**um callback sem segredo nao consulta nada**",
+    "**o resolver do callback e escrito, e nao perdido**",
+    "**marcar_aberta sem casar devolve o estado verdadeiro**",
+    "**sem `app.tenant_id` o fecho levanta, e nao devolve zero linhas**",
+    "**duas chamadas concorrentes: o ON CONFLICT da conta**",
+    "**o mesmo utilizador do provedor em dois tenants e recusado**",
 )
 
 #: Os ficheiros do modulo. A cobertura mede-se em **cada um**.

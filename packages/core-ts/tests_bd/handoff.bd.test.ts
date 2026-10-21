@@ -38,6 +38,7 @@ import {
   SQL_FORA_DO_SLA,
   ProvedorIndisponivelError,
   type AberturaNoProvedor,
+  type ContaCriada,
   type ContaDeAtendimento,
   type FilaDoEspelho,
   type PedidoDeHandoff,
@@ -96,16 +97,26 @@ class ProvedorFalso {
   /** Força o `criarConta` a devolver uma conta fixa, para a colisão da `UNIQUE`. */
   proximaConta: ContaDeAtendimento | null = null;
 
-  readonly criarConta = async (): Promise<ContaDeAtendimento> => {
+  readonly criarConta = async (): Promise<ContaCriada> => {
     this.contasCriadas += 1;
-    if (this.proximaConta !== null) return this.proximaConta;
+    if (this.proximaConta !== null) return this.#criada(this.proximaConta);
     proximoIdDeConta += 1;
-    return {
+    return this.#criada({
       accountId: proximoIdDeConta,
       inboxId: proximoIdDeConta + 10_000,
       botId: proximoIdDeConta + 20_000,
-    };
+      providerUserId: proximoIdDeConta + 30_000,
+    });
   };
+
+  // Os dois `access_token` em claro, que o provedor so mostra na criacao.
+  #criada(conta: ContaDeAtendimento): ContaCriada {
+    return {
+      conta,
+      tokenDoBot: `bot-${conta.accountId}`,
+      tokenDoUtilizador: `utilizador-${conta.accountId}`,
+    };
+  }
   readonly abrirConversa = async (abertura: AberturaNoProvedor): Promise<string> => {
     this.conversasAbertas += 1;
     if (this.emBaixo) throw new ProvedorIndisponivelError("sem resposta");
@@ -188,13 +199,17 @@ describe("o handoff contra a base", () => {
         },
       },
       provedor: {
-        criarConta: provedor.criarConta,
         abrirConversa: provedor.abrirConversa,
         espelhar: provedor.espelhar,
         fecharConversa: provedor.fecharConversa,
       },
+      provisionador: { criarConta: provedor.criarConta },
       fila,
-      refDoToken: (tenantId) => `chatwoot_bot_token/${tenantId}`,
+      refDoTokenDoBot: (tenantId) => `chatwoot_bot_token/${tenantId}`,
+      refDoTokenDoUtilizador: (tenantId) => `chatwoot_user_token/${tenantId}`,
+      // O cofre nao existe nesta suite: o que importa aqui e que as duas
+      // `SecretRef` vao para a base, e isso le-se das colunas.
+      guardarSegredo: async () => undefined,
       segredoDoBot: async () => "cccc-segredo",
     });
   }
@@ -233,7 +248,7 @@ describe("o handoff contra a base", () => {
   function pedido(tenant: string, conversa: string, id: string): PedidoDeHandoff {
     return {
       tenantId: tenant,
-      contactId: contactoA,
+      chaveDoContacto: contactoA,
       conversationId: conversa,
       handoffId: id,
       motivo: "o cliente pediu uma pessoa",
@@ -276,7 +291,12 @@ describe("o handoff contra a base", () => {
       // conta por dentro do `openHandoff`. Ver a nota do `tenantNovo`.
       const [tenant] = await tenantNovo("handoff-conta");
       const provedor = new ProvedorFalso();
-      provedor.proximaConta = { accountId: 100, inboxId: 200, botId: 300 };
+      provedor.proximaConta = {
+        accountId: 100,
+        inboxId: 200,
+        botId: 300,
+        providerUserId: 400,
+      };
       const hnd = hndDe(tenant, provedor, new FilaFalsa());
       const primeira = await hnd.ensureAccount(tenant);
       const segunda = await hnd.ensureAccount(tenant);
@@ -291,6 +311,39 @@ describe("o handoff contra a base", () => {
       assert.equal(linhas.rows[0]?.n, "1");
     });
 
+    it("**duas chamadas concorrentes: o ON CONFLICT da conta**", async () => {
+      // **O `ON CONFLICT (tenant_id, provedor) DO NOTHING` nao era exercitado
+      // por teste nenhum**, e foi a prova por mutacao que o mostrou: apaga-lo
+      // deixava a suite verde. A razao e o caminho rapido — duas chamadas
+      // **sequenciais** encontram a linha na leitura e nunca chegam ao
+      // `INSERT`, pelo que o conflito nunca acontece. Esta e a unica forma de o
+      // provocar: duas chamadas que passam **ambas** a leitura, em duas
+      // ligacoes, e que por isso tentam ambas inserir.
+      //
+      // Sem o `ON CONFLICT`, a segunda levanta `23505` e o `ensureAccount`
+      // propaga — a passagem que dependesse dela falhava em vez de reutilizar a
+      // conta que a primeira criou.
+      const [tenant] = await tenantNovo("handoff-conflito");
+      const provedor = new ProvedorFalso();
+      const outro = new ProvedorFalso();
+      const [uma, segunda] = await Promise.all([
+        hndDe(tenant, provedor, new FilaFalsa(), app).ensureAccount(tenant),
+        hndDe(tenant, outro, new FilaFalsa(), app2).ensureAccount(tenant),
+      ]);
+
+      // As duas devolvem **a mesma** conta: a que ficou gravada.
+      assert.deepEqual(uma, segunda);
+      await definirContexto(app, tenant);
+      const linhas = await app.query<{ n: string }>(
+        "SELECT count(*)::text AS n FROM platform.handoff_accounts WHERE tenant_id = $1",
+        [tenant],
+      );
+      assert.equal(linhas.rows[0]?.n, "1", "uma linha, e a outra conta ficou orfa");
+      // E as duas falaram com o provedor: e o custo conhecido desta corrida, e
+      // esta contado e registado (ver a nota do `ensureAccount`).
+      assert.equal(provedor.contasCriadas + outro.contasCriadas, 2);
+    });
+
     it("**a mesma conta do provedor em dois tenants e recusada pela base**", async () => {
       // A `handoff_accounts_conta_uq`, e e o furo que o X-10 procura: um
       // `ensureAccount` que devolvesse por erro a conta de outra PME ficava
@@ -298,17 +351,138 @@ describe("o handoff contra a base", () => {
       // fecha este lado — fecha o outro.
       // **Dois tenants limpos**, pela mesma razao do teste de cima: o principal
       // ja tem conta, e o que se mede aqui e a colisao do `account_id`.
+      //
+      // **Só o `account_id` colide**, e o `provider_user_id` e deliberadamente
+      // diferente: a prova por mutacao mostrou que a versao anterior deste
+      // teste sobrevivia a apagar a `conta_uq`, porque a `utilizador_uq`
+      // apanhava o mesmo caso e a assercao aceitava qualquer «duplicate key».
+      // Um teste que passa por causa de outra fechadura nao prova a que diz
+      // provar — e e por isso que a assercao e agora pelo **nome** da
+      // restricao.
       const [um] = await tenantNovo("handoff-uq-1");
       const [outro] = await tenantNovo("handoff-uq-2");
-      const provedor = new ProvedorFalso();
-      provedor.proximaConta = { accountId: 777, inboxId: 778, botId: 779 };
-      await hndDe(um, provedor, new FilaFalsa()).ensureAccount(um);
+      const primeiro = new ProvedorFalso();
+      primeiro.proximaConta = {
+        accountId: 777,
+        inboxId: 778,
+        botId: 779,
+        providerUserId: 780,
+      };
+      await hndDe(um, primeiro, new FilaFalsa()).ensureAccount(um);
 
-      // O mesmo `account_id` para o segundo: a base recusa.
+      const segundo = new ProvedorFalso();
+      segundo.proximaConta = {
+        accountId: 777,
+        inboxId: 1778,
+        botId: 1779,
+        // **Diferente**, para que so a `conta_uq` possa recusar.
+        providerUserId: 1780,
+      };
       await assert.rejects(
-        () => hndDe(outro, provedor, new FilaFalsa(), app2).ensureAccount(outro),
-        /handoff_accounts_conta_uq|duplicate key/,
+        () => hndDe(outro, segundo, new FilaFalsa(), app2).ensureAccount(outro),
+        /handoff_accounts_conta_uq/,
       );
+    });
+
+    it("**o mesmo utilizador do provedor em dois tenants e recusado**", async () => {
+      // A `handoff_accounts_utilizador_uq`, que a emenda 1.23 acrescentou pela
+      // mesma razao da conta: o mesmo utilizador em dois tenants dava a um
+      // agente de uma PME um `access_token` que ve as conversas da outra. A
+      // conta fechada sem o utilizador fechado era meia fechadura.
+      //
+      // **Só o `provider_user_id` colide**: o `account_id` e diferente, para
+      // que a `conta_uq` nao possa recusar em vez dela.
+      const [um] = await tenantNovo("handoff-uq-user-1");
+      const [outro] = await tenantNovo("handoff-uq-user-2");
+      const primeiro = new ProvedorFalso();
+      primeiro.proximaConta = {
+        accountId: 877,
+        inboxId: 878,
+        botId: 879,
+        providerUserId: 880,
+      };
+      await hndDe(um, primeiro, new FilaFalsa()).ensureAccount(um);
+
+      const segundo = new ProvedorFalso();
+      segundo.proximaConta = {
+        accountId: 1877,
+        inboxId: 1878,
+        botId: 1879,
+        providerUserId: 880,
+      };
+      await assert.rejects(
+        () => hndDe(outro, segundo, new FilaFalsa(), app2).ensureAccount(outro),
+        /handoff_accounts_utilizador_uq/,
+      );
+    });
+  });
+
+  describe("o fecho sem contexto de sessao (o no-op silencioso)", () => {
+    it("**sem `app.tenant_id` o fecho levanta, e nao devolve zero linhas**", async () => {
+      // Era o defeito mais caro deste modulo e nao se via de lado nenhum. O
+      // `close(handoffId, outcome)` do §11.1 nao tem `tenantId`, pelo que o
+      // `SQL_FECHAR` le o tenant do contexto da sessao. Com
+      // `current_setting('app.tenant_id', true)` — a forma **lenient** — uma
+      // variavel nao definida devolve NULL, `tenant_id = NULL` nao e verdadeiro
+      // para linha nenhuma, e o `close` nao casava nada **em silencio**: zero
+      // linhas, nenhuma metrica, nenhum registo, e um 200 ao provedor, que para
+      // de reenviar. A passagem ficava em `waiting` para sempre e aparecia no
+      // painel do SLA como atrasada, sem um unico sinal.
+      //
+      // A forma **estrita** levanta `42704`. Este teste e o que torna essa
+      // escolha verificavel — e e o que mata a mutacao que a desfaz, porque
+      // nenhum duplo o consegue: uma base falsa impoe o tenant em JavaScript e
+      // nunca le o texto do SQL.
+      const [tenant, conversa] = await tenantNovo("handoff-sem-contexto");
+      const hnd = hndDe(tenant, new ProvedorFalso(), new FilaFalsa());
+      await hnd.openHandoff(pedido(tenant, conversa, "h_sem_contexto"));
+
+      // Uma ligacao **sem** contexto, de proposito: e o unico sitio desta suite
+      // onde o `definirContexto` nao corre antes da consulta.
+      const cru = await ligar("app");
+      try {
+        const semContexto = new Handoff({
+          bd: {
+            query: async <T,>(texto: string, valores?: readonly unknown[]) => {
+              const resultado = await cru.query(
+                texto,
+                valores === undefined ? [] : [...valores],
+              );
+              return { rows: resultado.rows as readonly T[] };
+            },
+          },
+          provedor: {
+            abrirConversa: async () => "x",
+            espelhar: async () => undefined,
+            fecharConversa: async () => undefined,
+          },
+          provisionador: {
+            criarConta: async () => {
+              throw new Error("este teste nao provisiona nada");
+            },
+          },
+          fila: new FilaFalsa(),
+          refDoTokenDoBot: (id) => `chatwoot_bot_token/${id}`,
+          refDoTokenDoUtilizador: (id) => `chatwoot_user_token/${id}`,
+          guardarSegredo: async () => undefined,
+          segredoDoBot: async () => "cccc-segredo",
+        });
+        await assert.rejects(
+          () => semContexto.close("h_sem_contexto", "resolved"),
+          /app\.tenant_id|unrecognized configuration parameter/,
+          "sem contexto tem de levantar, nao devolver zero linhas",
+        );
+      } finally {
+        await cru.end();
+      }
+
+      // E a passagem **nao** mudou: a excepcao nao escreveu nada.
+      await definirContexto(app, tenant);
+      const linha = await app.query<{ status: string }>(
+        "SELECT status FROM platform.handoffs WHERE handoff_id = $1",
+        ["h_sem_contexto"],
+      );
+      assert.equal(linha.rows[0]?.status, "waiting");
     });
   });
 

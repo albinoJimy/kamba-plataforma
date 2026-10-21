@@ -315,20 +315,23 @@ def _conta_de_handoff(cursor, tenant_id: str, canario: str) -> None:
     aceita uma cadeia arbitraria — e aceita-a sem mentir sobre o que guarda,
     porque e **referencia opaca** a um segredo e nao o segredo.
 
-    Os tres identificadores do provedor derivam do `tenant_id` para nao
-    colidirem na `handoff_accounts_conta_uq`, que e a unicidade que impede a
-    mesma conta em dois tenants — e que este X-03 nao pode violar por acidente,
+    Os **quatro** identificadores do provedor derivam do `tenant_id` para nao
+    colidirem na `handoff_accounts_conta_uq` nem na
+    `handoff_accounts_utilizador_uq`, que sao as unicidades que impedem a mesma
+    conta — e o mesmo utilizador — em dois tenants — e que este X-03 nao pode violar por acidente,
     senao o que falha e a semeadura e nao a politica.
     """
     cursor.execute(
         "INSERT INTO platform.handoff_accounts "
-        "(tenant_id, provedor, account_id, inbox_id, bot_id, token_ref) "
+        "(tenant_id, provedor, account_id, inbox_id, bot_id, "
+        " provider_user_id, token_ref, user_token_ref) "
         "VALUES (%s, 'chatwoot', "
         "        ('x' || substr(md5(%s), 1, 8))::bit(32)::bigint, "
         "        ('x' || substr(md5(%s || ':inbox'), 1, 8))::bit(32)::bigint, "
         "        ('x' || substr(md5(%s || ':bot'), 1, 8))::bit(32)::bigint, "
-        "        %s)",
-        (tenant_id, tenant_id, tenant_id, tenant_id, canario),
+        "        ('x' || substr(md5(%s || ':user'), 1, 8))::bit(32)::bigint, "
+        "        %s, 'ref/do-utilizador')",
+        (tenant_id, tenant_id, tenant_id, tenant_id, tenant_id, canario),
     )
 
 
@@ -555,7 +558,10 @@ RECEITAS: dict[tuple[str, str], Receita] = {
         _handoff, "motivo", "status", "cancelled", semeador="admin",
     ),
     ("platform", "handoff_accounts"): Receita(
-        _conta_de_handoff, "token_ref", "token_ref", "ref/rodada", semeador="admin",
+        # **Sem coluna alteravel**, como a `events_outbox`: a `0011` deixou de
+        # conceder `UPDATE` em `handoff_accounts` a `kamba_app`, porque o unico
+        # caminho que o justificava (a reposicao do `01` §11.5) nao existe.
+        _conta_de_handoff, "token_ref", None, None, semeador="admin",
     ),
     ("platform", "events_outbox"): Receita(
         _evento_no_outbox, "agregado_id", None, None, semeador="admin"

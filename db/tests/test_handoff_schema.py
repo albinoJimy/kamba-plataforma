@@ -66,14 +66,20 @@ COLUNAS_DA_COPIA_DE_HANDOFFS = (
     "resolver",
 )
 
-#: As oito das contas de atendimento, idem.
+#: As **dez** das contas de atendimento, idem. Eram oito; o `provider_user_id`
+#: e o `user_token_ref` entraram pela emenda 1.23, que veio do spike: os
+#: endpoints da conta recusam o token da plataforma e o do bot nao cria
+#: contactos, pelo que ha um utilizador da conta e os identificadores dele
+#: existem **la fora** — nao os copiar era perde-los para sempre.
 COLUNAS_DA_COPIA_DE_CONTAS = (
     "tenant_id",
     "provedor",
     "account_id",
     "inbox_id",
     "bot_id",
+    "provider_user_id",
     "token_ref",
+    "user_token_ref",
     "criado_at",
     "updated_at",
 )
@@ -129,12 +135,16 @@ class TestFkEUnicidadeDoHandoff(ComBase):
         )
         self.assertEqual(linhas, [(1,)])
 
-    def test_as_duas_unicidades_da_conta_dizem_coisas_diferentes(self) -> None:
-        """A chave primaria fecha um lado; a `UNIQUE` fecha o outro.
+    def test_as_tres_unicidades_da_conta_dizem_coisas_diferentes(self) -> None:
+        """A chave primaria fecha um lado; as duas `UNIQUE` fecham o outro.
 
         A primaria impede dois registos para o mesmo tenant. A
         `handoff_accounts_conta_uq` impede a **mesma conta do provedor em dois
-        tenants**, que e o furo que o X-10 procura e que a primaria nao ve.
+        tenants**, que e o furo que o X-10 procura e que a primaria nao ve. E a
+        `handoff_accounts_utilizador_uq` fecha o mesmo furo do lado do
+        utilizador: o mesmo utilizador do provedor em dois tenants dava a um
+        agente de uma PME um `access_token` que ve as conversas da outra. A
+        conta fechada sem o utilizador fechado era meia fechadura.
         """
         linhas = dict(
             self.consultar(
@@ -149,6 +159,9 @@ class TestFkEUnicidadeDoHandoff(ComBase):
             {
                 "handoff_accounts_pkey": "PRIMARY KEY (tenant_id, provedor)",
                 "handoff_accounts_conta_uq": "UNIQUE (provedor, account_id)",
+                "handoff_accounts_utilizador_uq": (
+                    "UNIQUE (provedor, provider_user_id)"
+                ),
             },
         )
 
@@ -282,9 +295,18 @@ class TestDowngradeDa0011(unittest.TestCase):
             passagens.append(identificador)
             self.cursor.execute(
                 "INSERT INTO platform.handoff_accounts "
-                "(tenant_id, provedor, account_id, inbox_id, bot_id, token_ref) "
-                "VALUES (%s, 'chatwoot', %s, %s, %s, %s)",
-                (tenant, 900 + indice, 910 + indice, 920 + indice, f"ref/{indice}"),
+                "(tenant_id, provedor, account_id, inbox_id, bot_id, "
+                " provider_user_id, token_ref, user_token_ref) "
+                "VALUES (%s, 'chatwoot', %s, %s, %s, %s, %s, %s)",
+                (
+                    tenant,
+                    900 + indice,
+                    910 + indice,
+                    920 + indice,
+                    930 + indice,
+                    f"ref/bot/{indice}",
+                    f"ref/user/{indice}",
+                ),
             )
         return {"passagens": passagens, "tenants": list(self.tenants)}
 

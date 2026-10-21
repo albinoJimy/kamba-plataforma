@@ -29,12 +29,18 @@
 
 import { Logger } from "../logger/index.ts";
 import type { ChannelContext } from "../chr/index.ts";
-import { avaliar, type MotivoDeRecusa, type Veredicto } from "./assinatura.ts";
+import {
+  ESTADO_DE_RECUSA,
+  avaliar,
+  type MotivoDeRecusa,
+  type Veredicto,
+} from "./assinatura.ts";
 import {
   PROVEDORES,
   ProvedorIndisponivelError,
   SemPrivilegioError,
   type ClienteDoProvedor,
+  type ProvisionadorDoProvedor,
   type ClienteSql,
   type ContaDeAtendimento,
   type EstadoDeHandoff,
@@ -84,9 +90,35 @@ export interface FilaDoEspelho {
 export interface Dependencias {
   readonly bd: ClienteSql;
   readonly provedor: ClienteDoProvedor;
+  /**
+   * O provisionamento, **separado** do cliente de execução.
+   *
+   * Duas portas e não uma porque o `../docs/tecnica/08` §3.6 exige que o
+   * *token* da Platform API só exista no serviço de *provisioning*: um objecto
+   * que atenda conversas não pode ter o poder de criar contas.
+   */
+  readonly provisionador: ProvisionadorDoProvedor;
   readonly fila: FilaDoEspelho;
   /** A `SecretRef` do *token* do bot, por *tenant*. Nunca o *token*. */
-  readonly refDoToken: (tenantId: string) => string;
+  readonly refDoTokenDoBot: (tenantId: string) => string;
+  /**
+   * A `SecretRef` do *token* do utilizador da conta, por *tenant*.
+   *
+   * Duas referências porque são dois alcances: o do bot abre e fecha conversas,
+   * o do utilizador cria *inboxes* e **contactos** — e o spike mediu que o do
+   * bot responde 401 a criar um contacto, que é o que a conversa precisa.
+   */
+  readonly refDoTokenDoUtilizador: (tenantId: string) => string;
+  /**
+   * Guarda um segredo no cofre, pela sua referência.
+   *
+   * **Existe porque sem ele os dois *tokens* perdiam-se.** O provedor mostra o
+   * `access_token` de um utilizador e de um bot **uma única vez**, no corpo da
+   * criação; a primeira versão deste módulo não os capturava, pelo que nenhuma
+   * operação posterior os podia usar. Esta porta é a que os leva ao cofre, e é
+   * o único sítio deste ficheiro por onde um *token* em claro passa.
+   */
+  readonly guardarSegredo: (ref: string, segredo: string) => Promise<void>;
   /** O `secret` do bot de um *tenant*, para verificar os *callbacks*. */
   readonly segredoDoBot: (tenantId: string) => Promise<string>;
   readonly log?: Logger;
@@ -99,8 +131,11 @@ export interface Dependencias {
 export class Handoff implements HandoffProvider {
   readonly #bd: ClienteSql;
   readonly #provedor: ClienteDoProvedor;
+  readonly #provisionador: ProvisionadorDoProvedor;
   readonly #fila: FilaDoEspelho;
-  readonly #refDoToken: (tenantId: string) => string;
+  readonly #refDoTokenDoBot: (tenantId: string) => string;
+  readonly #refDoTokenDoUtilizador: (tenantId: string) => string;
+  readonly #guardarSegredo: (ref: string, segredo: string) => Promise<void>;
   readonly #segredoDoBot: (tenantId: string) => Promise<string>;
   readonly #log: Logger | undefined;
   readonly #metricas: MetricasDoHnd;
@@ -110,8 +145,11 @@ export class Handoff implements HandoffProvider {
   constructor(dependencias: Dependencias) {
     this.#bd = dependencias.bd;
     this.#provedor = dependencias.provedor;
+    this.#provisionador = dependencias.provisionador;
     this.#fila = dependencias.fila;
-    this.#refDoToken = dependencias.refDoToken;
+    this.#refDoTokenDoBot = dependencias.refDoTokenDoBot;
+    this.#refDoTokenDoUtilizador = dependencias.refDoTokenDoUtilizador;
+    this.#guardarSegredo = dependencias.guardarSegredo;
     this.#segredoDoBot = dependencias.segredoDoBot;
     this.#log = dependencias.log;
     this.#metricas = dependencias.metricas ?? new MetricasDoHnd();
@@ -145,14 +183,27 @@ export class Handoff implements HandoffProvider {
     const existente = await this.#conta(tenantId);
     if (existente !== null) return existente;
 
-    const criada = await this.#provedor.criarConta(tenantId);
+    const criada = await this.#provisionador.criarConta(tenantId);
+    // **Os segredos vão para o cofre antes de a linha existir.** A ordem é
+    // deliberada: se isto falhar, não há linha e a conta fica órfã no provedor
+    // — que é mau, mas visível e já contado abaixo. Ao contrário, uma linha
+    // cujas `SecretRef` não têm nada atrás fazia **todas** as operações
+    // seguintes falharem sem dizer porquê, e a passagem seguinte degradava
+    // para uma fila que nunca drenaria.
+    const refDoBot = this.#refDoTokenDoBot(tenantId);
+    const refDoUtilizador = this.#refDoTokenDoUtilizador(tenantId);
+    await this.#guardarSegredo(refDoBot, criada.tokenDoBot);
+    await this.#guardarSegredo(refDoUtilizador, criada.tokenDoUtilizador);
+
     const linhas = await this.#bd.query<{ account_id: string }>(SQL_GUARDAR_CONTA, [
       tenantId,
       this.#qual,
-      criada.accountId,
-      criada.inboxId,
-      criada.botId,
-      this.#refDoToken(tenantId),
+      criada.conta.accountId,
+      criada.conta.inboxId,
+      criada.conta.botId,
+      criada.conta.providerUserId,
+      refDoBot,
+      refDoUtilizador,
     ]);
     if (linhas.rows.length === 0) {
       // Outra chamada ganhou. A conta que acabámos de criar no provedor fica
@@ -169,7 +220,7 @@ export class Handoff implements HandoffProvider {
       }
       return vencedora;
     }
-    return criada;
+    return criada.conta;
   }
 
   /**
@@ -235,7 +286,7 @@ export class Handoff implements HandoffProvider {
       externalId = await this.#provedor.abrirConversa({
         conta,
         handoffId: pedido.handoffId,
-        contactId: pedido.contactId,
+        chaveDoContacto: pedido.chaveDoContacto,
         resumo: pedido.resumo,
       });
     } catch (erro) {
@@ -244,7 +295,10 @@ export class Handoff implements HandoffProvider {
       await this.#fila.enfileirar(`abertura:${pedido.handoffId}`, {
         tenant_id: pedido.tenantId,
         handoff_id: pedido.handoffId,
-        contact_id: pedido.contactId,
+        // A chave **opaca** e nunca o nosso `contact_id`. Ver a nota do
+        // `PedidoDeHandoff`: a carga de uma fila e um sitio de onde um
+        // identificador sai mais facilmente do que entrou.
+        chave_do_contacto: pedido.chaveDoContacto,
         resumo: pedido.resumo,
       });
       this.#metricas.contar(METRICA_HANDOFFS, "degraded");
@@ -252,12 +306,36 @@ export class Handoff implements HandoffProvider {
       return { externalId: "", repetido: false, estado: "degraded" };
     }
 
-    await this.#bd.query(SQL_MARCAR_ABERTA, [
+    // **O resultado le-se, e a primeira versao descartava-o.** O
+    // `SQL_MARCAR_ABERTA` tem `AND status = ANY($4)`: se um
+    // `conversation_status_changed` com `resolved` chegou entre a escrita da
+    // linha e a volta do `abrirConversa` — e a janela e uma chamada HTTP a um
+    // terceiro, com 10 s de tecto —, o `UPDATE` nao casa. Descartar as linhas
+    // fazia tres coisas erradas de uma vez: dizia ao chamador que a passagem
+    // estava `waiting` quando ela estava `resumed`, contava uma passagem
+    // aberta que ja tinha fechado, e deixava a conversa criada no provedor
+    // **sem nada a aponta-la**, sem um unico aviso.
+    const marcada = await this.#bd.query<{ status: string }>(SQL_MARCAR_ABERTA, [
       pedido.tenantId,
       pedido.handoffId,
       externalId,
       ["waiting", "degraded"],
     ]);
+    if (marcada.rows.length === 0) {
+      // A passagem saiu de `waiting`/`degraded` enquanto o provedor respondia.
+      // Devolve-se o `externalId` — ele existe e e o que correlaciona com a
+      // conversa la fora — e o estado **verdadeiro**, lido da base.
+      const linha = await this.#porId(pedido.tenantId, pedido.handoffId);
+      this.#log?.warn({
+        outcome: "handoff_aberto_fora_de_tempo",
+        tenant_id: pedido.tenantId,
+      });
+      return {
+        externalId,
+        repetido: false,
+        estado: (linha?.status as EstadoDeHandoff | undefined) ?? "waiting",
+      };
+    }
     this.#metricas.contar(METRICA_HANDOFFS, "waiting");
     this.#log?.info({ outcome: "handoff_aberto", tenant_id: pedido.tenantId });
     return { externalId, repetido: false, estado: "waiting" };
@@ -282,14 +360,29 @@ export class Handoff implements HandoffProvider {
    *
    * É o ponto de entrada que o critério 5 descreve, e a ordem é a do custo: o
    * segredo decide-se sem tocar na base, a conta precisa de uma leitura. Um
-   * pedido sem segredo nunca chega a consultar nada, que é o que impede o uso
-   * do *endpoint* como gerador de carga.
+   * pedido **sem** segredo é recusado antes de qualquer I/O, que é o que
+   * impede o uso do *endpoint* como gerador de carga. Um pedido **com** segredo
+   * errado custa uma ida ao cofre e um `SELECT`, e isso é inevitável: para
+   * saber que está errado é preciso saber qual era o certo.
    */
   async receber(
     tenantId: string,
     segredoRecebido: string | null,
     corpo: Corpo,
   ): Promise<Veredicto> {
+    // **Sem segredo recusa-se aqui, antes de qualquer I/O**, e isto e a
+    // correccao de um defeito. A nota desta funcao dizia que «um pedido sem
+    // segredo nunca chega a consultar nada» e era falso: ia ao cofre **e**
+    // fazia um `SELECT` antes de avaliar, pelo que o *endpoint* era utilizavel
+    // como amplificador — um pedido vazio custava-nos duas idas a servicos.
+    // Agora e verdade, e ha teste a afirmar que nada foi consultado.
+    if (segredoRecebido === null || segredoRecebido.length === 0) {
+      return this.#recusar(tenantId, "sem_secret", {
+        aceite: false,
+        motivo: "sem_secret",
+        estado: ESTADO_DE_RECUSA,
+      });
+    }
     const esperado = await this.#segredoDoBot(tenantId);
     const conta = await this.#conta(tenantId);
     const veredicto = avaliar(segredoRecebido, esperado, conta !== null);
@@ -306,7 +399,14 @@ export class Handoff implements HandoffProvider {
 
     if (acontecimento.acontecimento === "estado_mudou" && acontecimento.estado !== null) {
       const outcome = outcomeDoProvedor(acontecimento.estado);
-      if (outcome !== null) await this.close(acontecimento.handoffId, outcome);
+      // **O `resolver` vai, e a primeira versao perdia-o.** O identificador do
+      // agente era lido do *callback*, posto no `HumanEvent` e descartado: o
+      // `close` passava `null` em `$4` sempre, pelo que o `COALESCE` era um
+      // *no-op* e a coluna `resolver` nunca era escrita por caminho nenhum. A
+      // cablagem estava feita de ponta a ponta menos um fio.
+      if (outcome !== null) {
+        await this.#fechar(acontecimento.handoffId, outcome, acontecimento.resolver);
+      }
     }
     if (this.#handler !== null) await this.#handler(acontecimento);
     return { aceite: true };
@@ -330,14 +430,41 @@ export class Handoff implements HandoffProvider {
    * nota do `SQL_FECHAR`.
    */
   async close(handoffId: string, outcome: Outcome): Promise<void> {
+    await this.#fechar(handoffId, outcome, null);
+  }
+
+  /**
+   * O fecho propriamente dito, com o `resolver` quando se sabe quem foi.
+   *
+   * **Privado e com um terceiro argumento** para não alterar a costura que o
+   * ADR-012 fixa: o `close(handoffId, outcome)` do `../docs/tecnica/01` §11.1
+   * continua a ser o que a porta expõe, e o `receber` — que é o único sítio
+   * onde o identificador do agente existe — chama esta.
+   *
+   * **Zero linhas deixou de ser silêncio.** A primeira versão fazia `return`
+   * sem contar nem registar nada, e nesse caminho cabiam duas coisas muito
+   * diferentes: o `resolved` duplicado, que é o critério 7 e é benigno, e um
+   * fecho que não casou por outra razão — que deixava a passagem em `waiting`
+   * para sempre, no painel do SLA como atrasada, e respondia 200 ao provedor,
+   * que pára de reenviar. Agora regista-se; a consulta é a mesma, o que muda é
+   * ficar rasto.
+   */
+  async #fechar(
+    handoffId: string,
+    outcome: Outcome,
+    resolver: string | null,
+  ): Promise<void> {
     const estado = estadoDe(outcome);
     const linhas = await this.#bd.query<{ status: string }>(SQL_FECHAR, [
       handoffId,
       estado,
       [...ESTADOS_QUE_FECHAM],
-      null,
+      resolver,
     ]);
-    if (linhas.rows.length === 0) return;
+    if (linhas.rows.length === 0) {
+      this.#log?.info({ outcome: "handoff_fecho_sem_efeito" });
+      return;
+    }
     this.#metricas.contar(METRICA_HANDOFFS, estado);
   }
 
@@ -352,6 +479,7 @@ export class Handoff implements HandoffProvider {
       account_id: string;
       inbox_id: string;
       bot_id: string;
+      provider_user_id: string;
     }>(SQL_CONTA, [tenantId, this.#qual]);
     const linha = linhas.rows[0];
     return linha === undefined
@@ -360,6 +488,7 @@ export class Handoff implements HandoffProvider {
           accountId: Number(linha.account_id),
           inboxId: Number(linha.inbox_id),
           botId: Number(linha.bot_id),
+          providerUserId: Number(linha.provider_user_id),
         };
   }
 

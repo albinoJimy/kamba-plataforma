@@ -46,6 +46,7 @@ import {
   SQL_MARCAR_DEGRADADA,
   SemPrivilegioError,
   type AberturaNoProvedor,
+  type ContaCriada,
   type ContaDeAtendimento,
   type Corpo,
   type FilaDoEspelho,
@@ -179,6 +180,7 @@ class BaseFalsa {
             accountId: 999,
             inboxId: 998,
             botId: 997,
+            providerUserId: 996,
             token_ref: "ref/do-vencedor",
           });
         }
@@ -188,7 +190,8 @@ class BaseFalsa {
         accountId: Number(valores[2]),
         inboxId: Number(valores[3]),
         botId: Number(valores[4]),
-        token_ref: String(valores[5]),
+        providerUserId: Number(valores[5]),
+        token_ref: String(valores[6]),
       });
       return linhas([{ tenant_id: String(valores[0]) }]);
     }
@@ -202,6 +205,7 @@ class BaseFalsa {
                 account_id: String(conta.accountId),
                 inbox_id: String(conta.inboxId),
                 bot_id: String(conta.botId),
+                provider_user_id: String(conta.providerUserId),
                 token_ref: conta.token_ref,
               },
             ],
@@ -220,13 +224,40 @@ class ProvedorFalso {
   emBaixo = false;
   readonly aberturas: AberturaNoProvedor[] = [];
 
-  readonly criarConta = async (_tenantId: string): Promise<ContaDeAtendimento> => {
+  readonly criarConta = async (_tenantId: string): Promise<ContaCriada> => {
     this.contasCriadas += 1;
     if (this.emBaixo) throw new ProvedorIndisponivelError("criarConta: sem resposta");
-    return { accountId: 10 + this.contasCriadas, inboxId: 20, botId: 30 };
+    return {
+      conta: {
+        accountId: 10 + this.contasCriadas,
+        inboxId: 20,
+        botId: 30,
+        providerUserId: 40,
+      },
+      // Os dois `access_token`, que o provedor so mostra uma vez. O duplo
+      // devolve-os para que o `ensureAccount` tenha o que guardar no cofre.
+      // Frases com espacos, de proposito: o `scan_secrets` recusou os
+      // valores anteriores («atribuicao a um nome que significa segredo,
+      // com entropia suficiente para nao ser uma palavra») e tinha razao.
+      // Um valor de ensaio que parece uma chave a serio e um valor que
+      // alguem um dia copia para um ambiente.
+      tokenDoBot: "o do bot",
+      tokenDoUtilizador: "o do utilizador",
+    };
   };
 
+  /**
+   * Corre **durante** a chamada ao provedor.
+   *
+   * E a unica forma de simular o que acontece de verdade: a abertura e uma
+   * chamada HTTP a um terceiro, com 10 s de tecto, e nessa janela cabe um
+   * `conversation_status_changed`. Sem este gancho nao se consegue escrever o
+   * teste do `marcar_aberta` que nao casa.
+   */
+  antesDeAbrir: (() => void) | null = null;
+
   readonly abrirConversa = async (abertura: AberturaNoProvedor): Promise<string> => {
+    this.antesDeAbrir?.();
     this.conversasAbertas += 1;
     if (this.emBaixo) throw new ProvedorIndisponivelError("abrirConversa: sem resposta");
     this.aberturas.push(abertura);
@@ -263,6 +294,8 @@ interface Montagem {
   readonly provedor: ProvedorFalso;
   readonly fila: FilaFalsa;
   readonly registo: Record<string, unknown>[];
+  readonly cofre: { ref: string; segredo: string }[];
+  readonly cofreConsultado: string[];
 }
 
 function montar(): Montagem {
@@ -282,26 +315,37 @@ function montar(): Montagem {
       },
     },
   });
+  // O cofre falso: o `ensureAccount` guarda la os dois `access_token` que o
+  // provedor so mostra uma vez, e ha teste a afirmar que os dois entram.
+  const cofre: { ref: string; segredo: string }[] = [];
+  const cofreConsultado: string[] = [];
   const hnd = new Handoff({
     bd,
     provedor: {
-      criarConta: provedor.criarConta,
       abrirConversa: provedor.abrirConversa,
       espelhar: provedor.espelhar,
       fecharConversa: provedor.fecharConversa,
     },
+    provisionador: { criarConta: provedor.criarConta },
     fila,
-    refDoToken: (tenantId) => `chatwoot_bot_token/${tenantId}`,
-    segredoDoBot: async () => SEGREDO,
+    refDoTokenDoBot: (tenantId) => `chatwoot_bot_token/${tenantId}`,
+    refDoTokenDoUtilizador: (tenantId) => `chatwoot_user_token/${tenantId}`,
+    guardarSegredo: async (ref, segredo) => {
+      cofre.push({ ref, segredo });
+    },
+    segredoDoBot: async (tenantId) => {
+      cofreConsultado.push(tenantId);
+      return SEGREDO;
+    },
     log,
   });
-  return { hnd, bd, provedor, fila, registo };
+  return { hnd, bd, provedor, fila, registo, cofre, cofreConsultado };
 }
 
 function pedido(troca: Partial<PedidoDeHandoff> = {}): PedidoDeHandoff {
   return {
     tenantId: TENANT,
-    contactId: CONTACTO,
+    chaveDoContacto: CONTACTO,
     conversationId: CONVERSA,
     handoffId: "h_abc",
     motivo: "o cliente pediu uma pessoa",
@@ -663,5 +707,114 @@ describe("as metricas do HND", () => {
   it("o gauge esta a -1 antes da primeira medicao", () => {
     const { hnd } = montar();
     assert.ok(hnd.metricas.exposicao().includes(`${METRICA_PENDENTES} -1`));
+  });
+});
+
+describe("o que o spike e a revisao fecharam", () => {
+  it("**os dois access_token vao para o cofre, e so eles**", async () => {
+    // O provedor mostra-os **uma vez**, no corpo da criacao. A primeira versao
+    // nao os capturava: dois segredos gerados e nada a guarda-los, pelo que
+    // nenhuma operacao posterior os podia usar.
+    const { hnd, cofre } = montar();
+    await hnd.ensureAccount(TENANT);
+    assert.deepEqual(
+      cofre.map((e) => e.ref).sort(),
+      [`chatwoot_bot_token/${TENANT}`, `chatwoot_user_token/${TENANT}`],
+    );
+    assert.deepEqual(
+      cofre.map((e) => e.segredo).sort(),
+      ["o do bot", "o do utilizador"],
+    );
+  });
+
+  it("**as duas SecretRef vao para a base, e nao os tokens**", async () => {
+    const { hnd, bd } = montar();
+    await hnd.ensureAccount(TENANT);
+    const gravado = JSON.stringify([...bd.contas.values()]);
+    assert.ok(gravado.includes(`chatwoot_bot_token/${TENANT}`));
+    assert.ok(!gravado.includes("o do bot"), "o token nao vai a base");
+    assert.ok(!gravado.includes("o do utilizador"));
+  });
+
+  it("**um callback sem segredo nao consulta nada**", async () => {
+    // A nota do `receber` dizia que «um pedido sem segredo nunca chega a
+    // consultar nada» e era falso: ia ao cofre **e** fazia um `SELECT` antes de
+    // avaliar, pelo que o endpoint era utilizavel como amplificador. Agora e
+    // verdade, e e esta assercao que o prende.
+    const { hnd, bd, cofreConsultado } = montar();
+    bd.pedidos.length = 0;
+    cofreConsultado.length = 0;
+    const veredicto = await hnd.receber(TENANT, null, {});
+    assert.equal(veredicto.aceite, false);
+    assert.deepEqual(bd.pedidos, [], "nenhuma consulta");
+    assert.deepEqual(cofreConsultado, [], "nenhuma ida ao cofre");
+  });
+
+  it("um callback com segredo **vazio** tambem nao consulta", async () => {
+    const { hnd, bd, cofreConsultado } = montar();
+    bd.pedidos.length = 0;
+    cofreConsultado.length = 0;
+    await hnd.receber(TENANT, "", {});
+    assert.deepEqual(bd.pedidos, []);
+    assert.deepEqual(cofreConsultado, []);
+  });
+
+  it("**um segredo errado ja consulta, e isso e inevitavel**", async () => {
+    // Para saber que esta errado e preciso saber qual era o certo. O que se
+    // fecha e o caso **sem** segredo, que e o que um atacante manda em volume.
+    const { hnd, bd } = montar();
+    bd.pedidos.length = 0;
+    await hnd.receber(TENANT, "errado", {});
+    assert.ok(bd.pedidos.includes("conta"));
+  });
+
+  it("**o resolver do callback e escrito, e nao perdido**", async () => {
+    // A cablagem estava feita de ponta a ponta menos um fio: o `close` passava
+    // `null` em `$4` sempre, pelo que o `COALESCE` era um no-op e a coluna
+    // nunca era escrita por caminho nenhum.
+    const { hnd, bd } = montar();
+    await hnd.openHandoff(pedido());
+    await hnd.receber(TENANT, SEGREDO, {
+      event: "conversation_status_changed",
+      conversation: {
+        id: "cw-1",
+        status: "resolved",
+        custom_attributes: { handoffId: "h_abc" },
+      },
+      assignee: { id: 77 },
+    });
+    assert.equal(bd.handoffs.get("h_abc")?.resolver, "77");
+  });
+
+  it("**o close pela porta nao inventa um resolver**", async () => {
+    const { hnd, bd } = montar();
+    await hnd.openHandoff(pedido());
+    await hnd.close("h_abc", "resolved");
+    assert.equal(bd.handoffs.get("h_abc")?.resolver ?? null, null);
+  });
+
+  it("**marcar_aberta sem casar devolve o estado verdadeiro**", async () => {
+    // A janela e uma chamada HTTP a um terceiro: se um `resolved` chegar nela,
+    // o `UPDATE` nao casa. Descartar as linhas dizia `waiting` a quem chamava,
+    // contava uma passagem aberta que ja fechara, e deixava a conversa do
+    // provedor sem nada a aponta-la.
+    const { hnd, bd, provedor, registo } = montar();
+    provedor.antesDeAbrir = () => {
+      const linha = bd.handoffs.get("h_abc");
+      if (linha !== undefined) linha.status = "resumed";
+    };
+    const aberto = await hnd.openHandoff(pedido());
+    assert.equal(aberto.estado, "resumed", "o estado e o da base e nao `waiting`");
+    assert.ok(aberto.externalId.length > 0, "o externalId existe e correlaciona");
+    assert.ok(
+      registo.some((l) => l.outcome === "handoff_aberto_fora_de_tempo"),
+      "e fica rasto",
+    );
+  });
+
+  it("**um fecho que nao casa deixa rasto, e nao silencio**", async () => {
+    const { hnd, registo } = montar();
+    await hnd.close("h_que_nao_existe", "resolved");
+    assert.ok(registo.some((l) => l.outcome === "handoff_fecho_sem_efeito"));
   });
 });

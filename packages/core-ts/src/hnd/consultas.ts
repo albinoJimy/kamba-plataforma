@@ -103,16 +103,32 @@ export const SQL_MARCAR_DEGRADADA = `
  * um terceiro argumento era alterar a costura que o ADR-012 fixa. Quando um
  * `close` corre, o contexto já está posto — ele vem de um *callback* cuja
  * conta foi resolvida —, e o `current_setting` é exactamente o que a política
- * `tenant_iso` já lê. O predicado explícito é redundante com a RLS de
- * propósito: se alguém desligar o `FORCE` por engano, esta consulta continua a
- * não atravessar *tenants*.
+ * `tenant_iso` já lê.
+ *
+ * **O `current_setting` é a forma estrita, sem o segundo argumento, e isso é a
+ * correcção de um defeito.** A primeira versão usava
+ * `current_setting('app.tenant_id', true)`, que devolve `NULL` quando a
+ * variável não está definida: `tenant_id = NULL` não é verdadeiro para linha
+ * nenhuma, pelo que um `close` sem contexto de sessão não casava nada **em
+ * silêncio** — zero linhas, nenhuma métrica, nenhum registo, e um 200 ao
+ * provedor, que pára de reenviar. A passagem ficava em `waiting` para sempre e
+ * aparecia no painel do SLA como atrasada, sem um único sinal de que o fecho se
+ * tinha perdido. A forma estrita **levanta** `42704`, e uma excepção é o que se
+ * quer: ou o contexto está posto, ou isto não corre.
+ *
+ * **E o que a primeira versão dizia sobre o `FORCE` era falso**, pelo que sai:
+ * o predicado é byte a byte o que a política `tenant_iso` gera, e o `FORCE` só
+ * vincula o **dono** da tabela — o `kamba_app`, que corre esta consulta, está
+ * sujeito à política com `ENABLE` simples. O predicado explícito não acrescenta
+ * uma segunda fechadura; o que ele acrescenta é a **mensagem de erro**, que
+ * aponta para o contexto em falta em vez de devolver um zero.
  */
 export const SQL_FECHAR = `
   UPDATE platform.handoffs
      SET status = $2,
          resumed_at = CASE WHEN $2 = 'resumed' THEN now() ELSE resumed_at END,
          resolver = COALESCE($4, resolver)
-   WHERE tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
+   WHERE tenant_id = NULLIF(current_setting('app.tenant_id'), '')::uuid
      AND handoff_id = $1
      AND status = ANY($3::text[])
    RETURNING handoff_id, status
@@ -127,33 +143,43 @@ export const SQL_FECHAR = `
  */
 export const SQL_GUARDAR_CONTA = `
   INSERT INTO platform.handoff_accounts
-         (tenant_id, provedor, account_id, inbox_id, bot_id, token_ref)
-  VALUES ($1, $2, $3, $4, $5, $6)
+         (tenant_id, provedor, account_id, inbox_id, bot_id,
+          provider_user_id, token_ref, user_token_ref)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       ON CONFLICT (tenant_id, provedor) DO NOTHING
-   RETURNING tenant_id, account_id, inbox_id, bot_id
+   RETURNING tenant_id, account_id, inbox_id, bot_id, provider_user_id
 `;
 
-/** A conta de atendimento de um *tenant*. */
+/**
+ * A conta de atendimento de um *tenant*.
+ *
+ * **As duas referências de segredo saem no `SELECT` e o `provider_user_id`
+ * entra**, pela emenda 1.23: os *endpoints* da conta querem o *token* do
+ * utilizador e os da conversa o do bot, e quem chama precisa de saber por qual
+ * pedir ao cofre. As colunas são `SecretRef` opacas — o que sai daqui não é um
+ * *token*, é a referência por onde se vai buscar um.
+ */
 export const SQL_CONTA = `
-  SELECT tenant_id, provedor, account_id, inbox_id, bot_id, token_ref
+  SELECT tenant_id, provedor, account_id, inbox_id, bot_id,
+         provider_user_id, token_ref, user_token_ref
     FROM platform.handoff_accounts
    WHERE tenant_id = $1 AND provedor = $2
 `;
 
-/**
- * Repõe os identificadores de uma conta que o provedor recriou.
+/*
+ * **Aqui estava o `SQL_REPOR_CONTA`, e sai porque não tinha chamador.**
  *
- * O `ensureAccount` «repõe» uma conta em falta (`docs/tecnica/01` §11.5), e é
- * esta instrução que o grava. **Não** toca no `account_id`: uma conta no
- * provedor não muda de identidade, e se mudar é uma conta nova — que bate na
- * `handoff_accounts_conta_uq` em vez de sobrescrever a antiga em silêncio.
+ * O docstring dizia «o `ensureAccount` «repõe» uma conta em falta
+ * (`docs/tecnica/01` §11.5), e é esta instrução que o grava» — e o
+ * `ensureAccount` faz `SELECT`, `criarConta` e `INSERT`, e mais nada. Uma
+ * instrução sem chamador é código morto; o que a tornava pior é que a revisão
+ * `0011` concedia `GRANT UPDATE` em `handoff_accounts` a `kamba_app` **para
+ * ela**, o que é um privilégio de escrita aberto para um caminho inexistente —
+ * exactamente o que a `0009` recusou por escrito.
+ *
+ * A reposição do `01` §11.5 **não está implementada no KAM-019**, e fica dito.
+ * Quem a fizer acrescenta a instrução, o `GRANT` e o chamador no mesmo diff.
  */
-export const SQL_REPOR_CONTA = `
-  UPDATE platform.handoff_accounts
-     SET inbox_id = $3, bot_id = $4, token_ref = $5, updated_at = now()
-   WHERE tenant_id = $1 AND provedor = $2
-   RETURNING tenant_id, account_id, inbox_id, bot_id
-`;
 
 /**
  * As passagens que passaram do SLA de retoma, por *tenant*.

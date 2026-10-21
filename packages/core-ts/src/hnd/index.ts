@@ -20,6 +20,8 @@ export {
   type Acontecimento,
   type AberturaNoProvedor,
   type ClienteDoProvedor,
+  type ContaCriada,
+  type ProvisionadorDoProvedor,
   type ClienteSql,
   type ContaDeAtendimento,
   type Direccao,
@@ -81,7 +83,6 @@ export {
   SQL_HANDOFF_POR_ID,
   SQL_MARCAR_ABERTA,
   SQL_MARCAR_DEGRADADA,
-  SQL_REPOR_CONTA,
 } from "./consultas.ts";
 
 export { Handoff, type Dependencias, type FilaDoEspelho } from "./provedor.ts";
@@ -98,9 +99,13 @@ export {
 export {
   BASE_POR_OMISSAO,
   ClienteDoChatwoot,
+  ProvisionadorDoChatwoot,
+  PAPEL_DO_UTILIZADOR,
   ESPERA_MAXIMA_MS,
   RespostaInesperadaError,
   TIPO_DE_BOT,
   TIPO_DE_INBOX,
   type Configuracao,
+  type ConfiguracaoDoProvisionamento,
+  type Transporte,
 } from "./chatwoot.ts";

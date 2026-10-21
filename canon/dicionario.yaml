@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.22"
+versao_dicionario: "1.23"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -2800,7 +2800,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.15"
     conceito: "Conta de atendimento de um tenant"
-    canonico: "platform.handoff_accounts — tenant_id, provedor, account_id, inbox_id, bot_id, token_ref, criado_at, updated_at"
+    canonico: "platform.handoff_accounts — tenant_id, provedor, account_id, inbox_id, bot_id, provider_user_id, token_ref, user_token_ref, criado_at, updated_at"
     literais:
       - "platform.handoff_accounts"
       - "tenant_id"
@@ -2808,7 +2808,9 @@ entradas:
       - "account_id"
       - "inbox_id"
       - "bot_id"
+      - "provider_user_id"
       - "token_ref"
+      - "user_token_ref"
       - "criado_at"
       - "updated_at"
     nomes:
@@ -2818,12 +2820,16 @@ entradas:
       - "account_id"
       - "inbox_id"
       - "bot_id"
+      - "provider_user_id"
       - "token_ref"
+      - "user_token_ref"
       - "criado_at"
       - "updated_at"
     nomes_nota:
       - "ensureAccount"
       - "tenant_channels.token_ref"
+      - "provider_user_id"
+      - "user_token_ref"
     variantes_literais: []
   - seccao: "3.15"
     conceito: "Provedor de atendimento"
@@ -2853,6 +2859,35 @@ entradas:
       - "conta"
       - "chatwoot_platform_token"
       - "nenhuma"
+    variantes_literais: []
+  - seccao: "3.15"
+    conceito: "Identificador do utilizador da conta no provedor"
+    canonico: "handoff_accounts.provider_user_id"
+    literais:
+      - "handoff_accounts.provider_user_id"
+    nomes:
+      - "handoff_accounts.provider_user_id"
+    nomes_nota:
+      - "provider_user_id"
+      - "user_id"
+      - "account_id"
+      - "inbox_id"
+      - "bot_id"
+      - "account_users"
+    variantes_literais: []
+  - seccao: "3.15"
+    conceito: "Referência ao token do utilizador da conta"
+    canonico: "handoff_accounts.user_token_ref"
+    literais:
+      - "handoff_accounts.user_token_ref"
+    nomes:
+      - "handoff_accounts.user_token_ref"
+    nomes_nota:
+      - "SecretRef"
+      - "chatwoot_user_token"
+      - "instancias"
+      - "conta"
+      - "chatwoot_platform_token"
     variantes_literais: []
   - seccao: "3.15"
     conceito: "Porta do provedor de atendimento"
