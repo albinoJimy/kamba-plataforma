@@ -45,6 +45,7 @@ from tests.base import (
     ComBase,
     TABELAS,
     TABELAS_ATE_0010,
+    TABELAS_ATE_0011,
     alembic,
     alembic_ok,
     em_head,
@@ -340,9 +341,14 @@ class TestDowngradeDa0011(unittest.TestCase):
         self.assertIn("2 passagem(ns)", saida)
         self.assertIn("2 conta(s)", saida)
         self.assertIn(VARIAVEL_DA_COPIA, saida)
-        # A base ficou em `head`: o `downgrade` levanta na propria revisao, e o
-        # Alembic corre uma transaccao por revisao.
-        self.assertEqual(_tabelas(self.cursor), TABELAS)
+        # **A base ficou em `0011` e nao em `head`, e desde a `0012` a diferenca
+        # existe.** O `downgrade` levanta na propria revisao e o Alembic corre
+        # uma transaccao por revisao (`transaction_per_migration=True`), pelo
+        # que descer de `head` para `0010` passa primeiro pela `0012`, que desce
+        # e **compromete**, e so depois a `0011` recusa. A `media_assets` ja
+        # caiu quando esta linha corre — e e a mesma nota que a propria `0011`
+        # escreveu para o `TABELAS_ATE_0009`.
+        self.assertEqual(_tabelas(self.cursor), TABELAS_ATE_0011)
         self.cursor.execute("SELECT count(*) FROM platform.handoffs")
         self.assertEqual(self.cursor.fetchone()[0], 2)
         # E o `FORCE` das duas ficou **intacto**: a recusa nao pode trocar uma

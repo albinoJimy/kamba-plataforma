@@ -974,6 +974,17 @@ ci-8:
 	@# um Chatwoot real.
 	@echo "==> gate 8: passagem a humano contra PostgreSQL 18.6 (KAM-019)"
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_handoff
+	@#
+	@# KAM-020: a midia recebida. Corre as tres baterias do gate 4 **e** o
+	@# ensaio de base, e le a saida delas: o que so aqui se prova e o que uma
+	@# base falsa nunca poderia provar, porque ela nao le o texto do SQL — o
+	@# `ON CONFLICT` da reserva sob concorrencia (em serie a segunda chamada nem
+	@# chega ao `INSERT`), a monotonia do `WHERE estado = 'pendente'`, a
+	@# `media_assets_armazenado_ck` a recusar pelo caminho do codigo, e o X-03
+	@# sobre a tabela nova. Nao corre contra simulador nenhum: a API de midia da
+	@# Meta nao tem evidencia no `E1`, e um simulador dela fingiria medicao.
+	@echo "==> gate 8: midia recebida contra PostgreSQL 18.6 (KAM-020)"
+	@$(VENV_PYTHON) db/gate_bd.py --suite tests_media
 
 # -----------------------------------------------------------------------------
 # Limpeza

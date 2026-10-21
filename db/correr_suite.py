@@ -45,6 +45,8 @@ def main() -> int:
         "tests_outbound",
         # KAM-019: a passagem a humano.
         "tests_handoff",
+        # KAM-020: a midia recebida.
+        "tests_media",
     ):
         print(f"suite desconhecida: {directorio!r}", file=sys.stderr)
         return 2

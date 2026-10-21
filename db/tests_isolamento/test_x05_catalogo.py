@@ -66,6 +66,13 @@ class TestCatalogoReal(ComBase):
         `tenant_id`, logo levam RLS `FORCE` e a politica `tenant_iso`, e e a
         coluna que as faz entrar aqui sozinhas.
 
+        Vinte e duas desde o KAM-020: a `media_assets`. Tem tres FK (`tenants`, e
+        `contacts` e `conversations` as duas compostas com o `tenant_id` — nao e a
+        que tem mais: a `outbound_messages` tem quatro), e entra aqui pela coluna como todas as
+        outras — a chave primaria dela e o `asset_id`, que **nao** leva
+        `tenant_id`, pelo que leva indice proprio `(tenant_id, criado_at DESC)`
+        pela mesma razao da `handoffs`.
+
         Vinte e uma desde o KAM-019: a `handoff_accounts` e a `handoffs`. A
         segunda e a **primeira tabela desta lista cuja chave primaria nao leva
         `tenant_id`** — e o `handoff_id` derivado —, e por isso levou um indice
@@ -107,6 +114,10 @@ class TestCatalogoReal(ComBase):
                 # as duas depois de `entitlements` e o teste recusou.
                 ("platform", "handoff_accounts", "tenant_id"),
                 ("platform", "handoffs", "tenant_id"),
+                # KAM-020: a midia, e a posicao e entre `handoffs` e
+                # `message_templates` — «ha» < «me», e contra
+                # `message_templates` decide o terceiro caracter («d» < «s»).
+                ("platform", "media_assets", "tenant_id"),
                 # KAM-015: as duas da saida de canal. A ordem e a do
                 # `sorted()`, que compara por ponto de codigo.
                 ("platform", "message_templates", "tenant_id"),
@@ -193,6 +204,8 @@ class TestCatalogoReal(ComBase):
                 # KAM-019: as duas do handoff, pela ordem da coleccao `C`.
                 ("handoff_accounts", "tenant_iso", "ALL", "{public}"),
                 ("handoffs", "tenant_iso", "ALL", "{public}"),
+                # KAM-020: a midia, pela mesma ordem.
+                ("media_assets", "tenant_iso", "ALL", "{public}"),
                 # KAM-015: as duas da saida de canal.
                 ("message_templates", "tenant_iso", "ALL", "{public}"),
                 ("outbound_messages", "tenant_iso", "ALL", "{public}"),
@@ -233,6 +246,11 @@ class TestCatalogoReal(ComBase):
              # falhou — a descoberta, as politicas por nome, e esta, que confere
              # o `USING` e o `WITH CHECK` de cada uma.
              "handoff_accounts", "handoffs",
+             # KAM-020: a midia. **Quarta lista deste ficheiro a precisar de
+             # uma tabela nova**, e a nota do KAM-019 ja avisava que eram tres:
+             # a descoberta, as politicas por nome, e esta. Conta-se aqui para
+             # que o proximo nao as descubra uma a uma.
+             "media_assets",
              # KAM-015: as duas da saida de canal.
              "message_templates", "outbound_messages", "tenant_channels",
              # KAM-009: o contador e o livro. `tenant_usage` antes de

@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.23"
+versao_dicionario: "1.24"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -3025,6 +3025,203 @@ entradas:
       - "failed"
       - "removeOnComplete"
     variantes_literais: []
+  - seccao: "3.16"
+    conceito: "Objecto de mídia recebido"
+    canonico: "platform.media_assets — asset_id, tenant_id, contact_id, conversation_id, wamid, media_id, classe, content_type, size, sha256, storage_ref, estado, retain_until, criado_at"
+    literais:
+      - "platform.media_assets"
+      - "asset_id"
+      - "tenant_id"
+      - "contact_id"
+      - "conversation_id"
+      - "wamid"
+      - "media_id"
+      - "classe"
+      - "content_type"
+      - "size"
+      - "sha256"
+      - "storage_ref"
+      - "estado"
+      - "retain_until"
+      - "criado_at"
+    nomes:
+      - "platform.media_assets"
+      - "asset_id"
+      - "tenant_id"
+      - "contact_id"
+      - "conversation_id"
+      - "wamid"
+      - "media_id"
+      - "classe"
+      - "content_type"
+      - "size"
+      - "sha256"
+      - "storage_ref"
+      - "estado"
+      - "retain_until"
+      - "criado_at"
+    nomes_nota:
+      - "media_id"
+      - "tenant_id"
+      - "wamid"
+      - "asset_id"
+      - "criado_at"
+    variantes_literais: []
+  - seccao: "3.16"
+    conceito: "Identificador de um objecto de mídia"
+    canonico: "media_assets.asset_id"
+    literais:
+      - "media_assets.asset_id"
+    nomes:
+      - "media_assets.asset_id"
+    nomes_nota:
+      - "uuid"
+      - "handoffs.handoff_id"
+      - "UNIQUE"
+      - "tenant_id"
+      - "wamid"
+      - "media_id"
+    variantes_literais: []
+  - seccao: "3.16"
+    conceito: "Referência interna a mídia"
+    canonico: "media://{asset_id}"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "asset_id"
+      - "signUrl"
+      - "TTL_MAXIMO_S"
+    variantes_literais: []
+  - seccao: "3.16"
+    conceito: "Classe de um objecto de mídia"
+    canonico: "media_assets.classe ∈ {media_audio, media_imagem, media_documento}"
+    literais:
+      - "media_assets.classe"
+      - "media_audio"
+      - "media_imagem"
+      - "media_documento"
+    nomes:
+      - "media_assets.classe"
+      - "media_audio"
+      - "media_imagem"
+      - "media_documento"
+    nomes_nota:
+      - "classe"
+      - "estado"
+      - "validarClasse"
+      - "a"
+      - "z"
+      - "z0"
+      - "_"
+    variantes_literais: []
+  - seccao: "3.16"
+    conceito: "Estado de um objecto de mídia"
+    canonico: "media_assets.estado ∈ {pendente, armazenado, rejeitado, falhou}"
+    literais:
+      - "media_assets.estado"
+      - "pendente"
+      - "armazenado"
+      - "rejeitado"
+      - "falhou"
+    nomes:
+      - "media_assets.estado"
+      - "pendente"
+      - "armazenado"
+      - "rejeitado"
+      - "falhou"
+    nomes_nota:
+      - "estado"
+      - "CHECK"
+      - "tipo"
+      - "pendente"
+      - "wamid"
+      - "media_id"
+      - "ON"
+      - "CONFLICT"
+      - "ensureAccount"
+    variantes_literais: []
+  - seccao: "3.16"
+    conceito: "Desfecho de uma descarga que não deu"
+    canonico: "rejeitado (tipo ou tamanho fora da allowlist) e falhou (três tentativas sem sucesso)"
+    literais:
+      - "rejeitado"
+      - "falhou"
+    nomes:
+      - "rejeitado"
+      - "falhou"
+    nomes_nota:
+      - "rejeitado"
+      - "falhou"
+      - "falhado"
+      - "image_jobs"
+      - "falhada"
+      - "evt_acoes"
+    variantes_literais: []
+  - seccao: "3.16"
+    conceito: "Tipo de conteúdo aceite"
+    canonico: "media_assets.content_type, com allowlist"
+    literais:
+      - "media_assets.content_type"
+    nomes:
+      - "media_assets.content_type"
+    nomes_nota:
+      - "E1"
+    variantes_literais: []
+  - seccao: "3.16"
+    conceito: "Retenção de um objecto"
+    canonico: "media_assets.retain_until"
+    literais:
+      - "media_assets.retain_until"
+    nomes:
+      - "media_assets.retain_until"
+    nomes_nota:
+      - "retain_until"
+    variantes_literais: []
+  - seccao: "3.16"
+    conceito: "Gancho de transcrição"
+    canonico: "onTranscribed(asset)"
+    literais:
+      - "onTranscribed(asset)"
+    nomes:
+      - "onTranscribed"
+      - "asset"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.16"
+    conceito: "Bytes armazenados"
+    canonico: "media_bytes_total, etiqueta classe"
+    literais:
+      - "media_bytes_total"
+      - "classe"
+    nomes:
+      - "media_bytes_total"
+      - "classe"
+    nomes_nota:
+      - "content_type"
+      - "OBS"
+      - "I"
+    variantes_literais: []
+  - seccao: "3.16"
+    conceito: "Latência da descarga"
+    canonico: "media_download_ms"
+    literais:
+      - "media_download_ms"
+    nomes:
+      - "media_download_ms"
+    nomes_nota:
+      - "tenant_id"
+    variantes_literais: []
+  - seccao: "3.16"
+    conceito: "Rejeições"
+    canonico: "media_rejected_total, etiqueta motivo"
+    literais:
+      - "media_rejected_total"
+      - "motivo"
+    nomes:
+      - "media_rejected_total"
+      - "motivo"
+    nomes_nota: []
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -3645,6 +3842,23 @@ dominios:
       - "estado_mudou"
     seccao: "3.15"
     conceito: "Tipo de acontecimento humano"
+    so_no_registo: false
+  - coluna: "media_assets.classe"
+    valores:
+      - "media_audio"
+      - "media_imagem"
+      - "media_documento"
+    seccao: "3.16"
+    conceito: "Classe de um objecto de mídia"
+    so_no_registo: false
+  - coluna: "media_assets.estado"
+    valores:
+      - "pendente"
+      - "armazenado"
+      - "rejeitado"
+      - "falhou"
+    seccao: "3.16"
+    conceito: "Estado de um objecto de mídia"
     so_no_registo: false
 
 variantes:

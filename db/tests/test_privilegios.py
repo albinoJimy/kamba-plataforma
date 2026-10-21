@@ -385,6 +385,19 @@ ESPERADO_POR_TABELA.update(
         # proprio `ensureAccount`, que corre no HND. Negar-lhe o `INSERT` era
         # entregar um criterio que nao pode passar.
         "handoff_accounts": _handoff(kamba_app={"SELECT", "INSERT"}),
+        # KAM-020: a mesma forma, e o `kamba_app` tem **tres** verbos e nao
+        # dois. O `UPDATE` tem chamador, ao contrario do que a `0011` tentou: a
+        # linha nasce em `pendente` com o que a mensagem traz, e so depois da
+        # descarga e do `put` e que se sabe o `content_type` real, o `size`, o
+        # `sha256` e o `storage_ref`. Sao duas instrucoes **de proposito** — e e
+        # isso que faz a idempotencia ser da base e nao do codigo.
+        # **`UPDATE` nao entra aqui**, e a razao e a forma do teste: a matriz
+        # de tabela le `information_schema.table_privileges`, e um `GRANT
+        # UPDATE (coluna)` **nao** aparece la — aparece na matriz de coluna,
+        # que esta mais abaixo. Declara-lo aqui fazia o teste exigir um
+        # privilegio de tabela que a revisao nao concede, e foi o que a
+        # primeira versao fez: treze falhas, sete delas so por isto.
+        "media_assets": _handoff(kamba_app={"SELECT", "INSERT"}),
     }
 )
 
@@ -602,6 +615,28 @@ COLUNAS_POR_PAPEL = {
     # inexistente, que e o que a `0009` recusou por escrito. O conjunto vazio
     # afirma a ausencia: se alguem voltar a conceder, este teste falha.
     ("kamba_app", "handoff_accounts", "UPDATE"): set(),
+    # KAM-020: **seis** na midia, e a primeira versao tinha sete. A revisao
+    # adversarial apanhou a setima: a `classe` **nao** e escrita pelo modulo —
+    # ela deriva do `wa_type` na reserva e nao muda —, e conceder `UPDATE` sobre
+    # ela permitia reclassificar um objecto, que muda a coluna de que depende a
+    # politica de retencao do KAM-071. Era um privilegio sem chamador, o critério
+    # pelo qual a `0011` deixou a sua lista vazia. O
+    # `asset_id`, o `tenant_id`, o `wamid` e o `media_id` **nao** estao: sao a
+    # identidade da linha, e uma identidade que se reescreve nao e identidade —
+    # alem de que reescrever o `wamid` ou o `media_id` furava a
+    # `media_assets_origem_uq`, que e a idempotencia do criterio 2. O
+    # `contact_id` e o `conversation_id` tambem nao: a mensagem veio de uma
+    # conversa e nao muda de conversa, e deixa-los alteraveis permitia mover um
+    # objecto de midia para outra conversa do **mesmo** tenant, que a FK nao
+    # impede e que ninguem precisa.
+    ("kamba_app", "media_assets", "UPDATE"): {
+        "content_type",
+        "size",
+        "sha256",
+        "storage_ref",
+        "estado",
+        "retain_until",
+    },
     # KAM-014, e e tudo o que o gancho de fusao do KAM-008 precisa: le para
     # encontrar a colisao (o contacto que fica ja tem conversa neste canal?) e
     # para dobrar os tempos, e escreve o `contact_id` e os tres tempos. **Sem
@@ -669,6 +704,7 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # acrescente uma coluna ao `GRANT UPDATE` sobrevive sem isto.
     "handoffs",
     "handoff_accounts",
+    "media_assets",
 )
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.
