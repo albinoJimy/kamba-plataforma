@@ -34,17 +34,29 @@ class TestRepositorioReal(unittest.TestCase):
         # `.env.example` e a constante de `db/gate_bd.py`; desde o KAM-011, a
         # imagem de teste do SeaweedFS (compose de armazenamento) e as duas
         # constantes de `infra/storage/`.
+        #
+        # **KAM-019: a sexta imagem e o Chatwoot**, do compose do spike do
+        # criterio 8. As referencias sobem mais do que as imagens porque esse
+        # compose tem quatro servicos e so tres imagens distintas: o `chatwoot`
+        # e o `chatwoot-worker` partilham a mesma, e reutiliza os digests do
+        # pgvector e do Valkey que ja ca estavam.
         self.assertGreaterEqual(resumo["referencias"], 12)
-        self.assertEqual(resumo["imagens"], 5)
+        self.assertEqual(resumo["imagens"], 6)
         self.assertEqual(resumo["cosign"]["verificar"], 0)
-        self.assertEqual(resumo["cosign"]["por_apurar"], 5)
+        self.assertEqual(resumo["cosign"]["por_apurar"], 6)
 
         _, resumo = runtime.verificar(ROOT)
         self.assertEqual(resumo["dockerfiles"], 5)
-        self.assertEqual(resumo["servicos"], 8)
+        # KAM-019: oito mais os quatro do compose do spike, todos `read_only`.
+        self.assertEqual(resumo["servicos"], 12)
 
         _, resumo = egress.verificar(ROOT)
-        self.assertEqual(resumo["servicos"], 8)
+        # Idem: as quatro listas de saidas sao **vazias** com `por_omissao:
+        # negar`, e a lista vazia e a afirmacao — o Chatwoot e espelho e nao
+        # canal, pelo que uma rota de saida dali so serviria um inbox de
+        # WhatsApp a falar com a Graph, o correio de notificacao a levar
+        # conversa de clientes para fora, ou telemetria.
+        self.assertEqual(resumo["servicos"], 12)
 
         _, resumo = licencas.verificar(ROOT)
         self.assertEqual(resumo["estados"]["pendente_de_decisao"], 2)  # redis e valkey: D12

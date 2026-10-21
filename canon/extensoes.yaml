@@ -27,6 +27,12 @@
 # `docs/tecnica/01` §7.1 (`tenant_channels`), e estao no inventario fechado de
 # `db/tests/test_inventario.py`.
 #
+# O `tenant_channels.token_ref` saiu desta lista com a emenda 1.22 (KAM-019): o
+# `token_ref` passou a ser nome do §3.15, como coluna de `handoff_accounts`, e o
+# lint recusa uma extensao que o dicionario ja cobre. Nao e perda de rigor — a
+# extensao e qualificada e o nome canonico nao, mas ambos descrevem a mesma
+# coisa (uma `SecretRef` opaca), e era isso que a extensao estava a dizer.
+#
 # As do KAM-008 sao o que a revisao `0003` (identidade de contacto) usa e o
 # §3.1 nao enumera: duas colunas de `contact_endpoints` — o dicionario escreve a
 # tabela com reticencias — e os valores dos tres dominios fechados. Eram tres:
@@ -93,10 +99,6 @@ extensoes:
     ticket: KAM-003
     data: 2026-10-11
   - nome: tenant_channels.waac_id
-    tipo: coluna
-    ticket: KAM-003
-    data: 2026-10-11
-  - nome: tenant_channels.token_ref
     tipo: coluna
     ticket: KAM-003
     data: 2026-10-11

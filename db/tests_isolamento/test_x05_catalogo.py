@@ -43,7 +43,7 @@ class TestCatalogoReal(ComBase):
         """
         self.assertEqual(set(catalogo.excepcoes_rls()), {"platform.audit_heads"})
 
-    def test_a_descoberta_encontra_as_dezanove_tabelas(self) -> None:
+    def test_a_descoberta_encontra_as_vinte_e_uma_tabelas(self) -> None:
         """Se a descoberta encolher, a suite inteira passa a testar menos.
 
         Catorze com o KAM-012, que trouxe o `audit_log` e o `audit_heads`. O
@@ -65,6 +65,13 @@ class TestCatalogoReal(ComBase):
         Nao ha entrada em `ci/rls_exceptions.yaml` para nenhuma das duas — tem
         `tenant_id`, logo levam RLS `FORCE` e a politica `tenant_iso`, e e a
         coluna que as faz entrar aqui sozinhas.
+
+        Vinte e uma desde o KAM-019: a `handoff_accounts` e a `handoffs`. A
+        segunda e a **primeira tabela desta lista cuja chave primaria nao leva
+        `tenant_id`** — e o `handoff_id` derivado —, e por isso levou um indice
+        proprio `(tenant_id, opened_at DESC)` para cumprir a convencao que o
+        `test_tenant_id_e_not_null_e_vem_primeiro_num_indice` impoe. Na
+        descoberta isso nao se ve: aqui entra pela coluna, como as outras.
         """
         self.assertEqual(
             catalogo.tabelas_isoladas(self.cursor),
@@ -92,6 +99,14 @@ class TestCatalogoReal(ComBase):
                 ("platform", "events_outbox", "tenant_id"),
                 ("platform", "evt_acoes", "tenant_id"),
                 ("platform", "evt_agregado_seq", "tenant_id"),
+                # KAM-019: as duas do handoff, e a posicao nao e indiferente —
+                # `handoff*` vem **depois** de `evt_*` («e» < «h») e antes de
+                # `message_templates`. Entre as duas, `handoff_accounts` vem
+                # primeiro (`_` e 0x5F, `s` e 0x73), a mesma armadilha do
+                # `tenant_usage`/`tenants` desta lista. A primeira versao pos
+                # as duas depois de `entitlements` e o teste recusou.
+                ("platform", "handoff_accounts", "tenant_id"),
+                ("platform", "handoffs", "tenant_id"),
                 # KAM-015: as duas da saida de canal. A ordem e a do
                 # `sorted()`, que compara por ponto de codigo.
                 ("platform", "message_templates", "tenant_id"),
@@ -175,6 +190,9 @@ class TestCatalogoReal(ComBase):
                 ("events_outbox", "tenant_iso", "ALL", "{public}"),
                 ("evt_acoes", "tenant_iso", "ALL", "{public}"),
                 ("evt_agregado_seq", "tenant_iso", "ALL", "{public}"),
+                # KAM-019: as duas do handoff, pela ordem da coleccao `C`.
+                ("handoff_accounts", "tenant_iso", "ALL", "{public}"),
+                ("handoffs", "tenant_iso", "ALL", "{public}"),
                 # KAM-015: as duas da saida de canal.
                 ("message_templates", "tenant_iso", "ALL", "{public}"),
                 ("outbound_messages", "tenant_iso", "ALL", "{public}"),
@@ -210,6 +228,11 @@ class TestCatalogoReal(ComBase):
              "events_consumed", "events_dlq",
              "events_log", "events_log_default", "events_outbox",
              "evt_acoes", "evt_agregado_seq",
+             # KAM-019: as duas do handoff. **Terceira lista deste ficheiro a
+             # precisar delas**, e as outras duas ja estavam feitas quando esta
+             # falhou — a descoberta, as politicas por nome, e esta, que confere
+             # o `USING` e o `WITH CHECK` de cada uma.
+             "handoff_accounts", "handoffs",
              # KAM-015: as duas da saida de canal.
              "message_templates", "outbound_messages", "tenant_channels",
              # KAM-009: o contador e o livro. `tenant_usage` antes de

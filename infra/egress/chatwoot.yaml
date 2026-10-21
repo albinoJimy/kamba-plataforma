@@ -1,0 +1,26 @@
+# Lista de saidas de `chatwoot` — KAM-067, criterio 9.
+#
+# Negado por omissao: o que nao esta em `destinos` nao sai. Este ficheiro e o
+# contrato; **a aplicacao na rede e do KAM-076** (proxy de saida com allowlist
+# de FQDN). `make supply-chain` falha se o ficheiro faltar, se `por_omissao`
+# deixar de ser `negar`, ou se um destino nao tiver nome (`*`, IP, CIDR).
+#
+# Painel de atendimento humano (KAM-019, Desenho I), em `compose` de
+# desenvolvimento com dados sinteticos. **Zero destinos, e a lista vazia e a
+# afirmacao e nao uma omissao:** o Chatwoot e **espelho** e nao canal — o GWY
+# e o unico ponto que fala com a Meta (ADR-001) —, pelo que uma rota de saida
+# daqui so poderia servir tres coisas que nao queremos. Um `inbox` de WhatsApp
+# a falar com a Graph API, que era um segundo caminho para o mesmo numero da
+# PME com as credenciais dela deste lado; o correio de notificacao aos agentes,
+# que levaria conteudo de conversa de clientes para fora por SMTP; e a
+# telemetria do proprio produto. O que entra (`callbacks` para o HND) nao e
+# saida deste servico: e o HND a escutar.
+#
+# Cada destino: `fqdn`, `porta`, `protocolo`, `razao` e `ticket` (KAM-NNN).
+# Ligacoes a outros servicos da pilha (base de dados, fila) nao sao saidas: sao
+# redes do compose.
+
+version: 1
+servico: chatwoot
+por_omissao: negar
+destinos: []

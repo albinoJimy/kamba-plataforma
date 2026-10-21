@@ -1194,13 +1194,13 @@ dispensa.
 
 #### A segunda metade: identidade de contacto (KAM-008)
 
-O `make ci-8` corre **onze** *suites*, cada uma com a sua base descartável:
+O `make ci-8` corre **doze** *suites*, cada uma com a sua base descartável:
 `tests` (as migrações, acima), **`tests_identidade`** (esta secção),
 **`tests_eventos`** e **`tests_eventos_carga`** (a secção seguinte, KAM-005),
 `tests_eventos_consumo` (KAM-006), `tests_auditoria_carga` (KAM-012),
 **`tests_ten`** (KAM-009), **`tests_entrada`** e **`tests_entrada_carga`**
-(KAM-013), **`tests_chr`** (KAM-014) e **`tests_outbound`** (KAM-015, a última
-secção).
+(KAM-013), **`tests_chr`** (KAM-014), **`tests_outbound`** (KAM-015) e
+**`tests_handoff`** (KAM-019, a última secção).
 A de identidade entrou com o KAM-008. Esta põe o módulo de identidade — TypeScript, em
 `packages/core-ts/src/identity/` — a correr contra o PostgreSQL com o papel
 `kamba_identity` verdadeiro e a RLS ligada. O desenho está em
@@ -1440,6 +1440,54 @@ pode errar em silêncio — a forma do corpo, a leitura do `error.code`, o
 `Retry-After` — tem bateria própria no *gate* 4 com o `fetch` por porta, e esta
 *suite* usa o `GraphFalso` por porta e não passa pela chamada de rede. Medi-lo
 aqui dava-lhe uma cobertura que diria só que o ensaio não abre socket.
+
+#### A décima terceira: a passagem a humano (KAM-019)
+
+`tests_handoff` põe o módulo da passagem — TypeScript, em
+`packages/core-ts/src/hnd/` — a correr contra o PostgreSQL com a RLS ligada. O
+desenho está em [`hnd.md`](hnd.md). **Os ordinais destes títulos correm um à
+frente da lista desde o `tests_entrada`**, e esta secção segue a sequência deles
+em vez de a corrigir a meio de outro ticket: pela lista, é a **décima segunda**.
+O desvio está declarado em
+[`dividas-documentais.md`](dividas-documentais.md).
+
+A *suite* é de uma classe diferente das onze anteriores, e vale dizer qual: ela
+**não corre os testes, corre a saída deles**. As cinco baterias do *gate* 4 e o
+ensaio de base produzem TAP, e as cinco asserções Python lêem esse TAP —
+confirmam que cada grupo apareceu, que cada teste obrigatório passou pelo nome,
+e que a cobertura de cada um dos **dez** ficheiros de `src/hnd/` está acima do
+limiar. É a mesma forma do `tests_outbound`, e a razão é a mesma: um *gate* que
+conte testes não nota que um desapareceu.
+
+**O que só esta *suite* prova**, porque pede um PostgreSQL verdadeiro:
+
+- **A idempotência é da base e não do código.** Cinco `openHandoff`
+  concorrentes, em **duas ligações**, deixam uma linha e fazem uma chamada ao
+  provedor — e quem o garante é a chave primária `(handoff_id)` com o
+  `handoff_id` **derivado** de `hash(thread_id, ordinal)`. O mesmo para a conta:
+  `(tenant_id, provedor)`.
+- **A mesma conta do provedor em dois *tenants* é recusada.** A
+  `handoff_accounts_conta_uq UNIQUE (provedor, account_id)` devolve `23505`, e é
+  o lado do isolamento que nenhuma verificação em código apanharia.
+- **O `close` duplicado é *no-op* pela base.** Dois `close` em paralelo em duas
+  ligações: o `WHERE status = ANY($3)` faz o segundo não casar, e as métricas
+  dos dois somadas contam **uma** passagem fechada.
+- **O X-03 sobre as duas tabelas novas**, incluindo a escrita: com `FORCE`, nem
+  como dono da tabela se escreve na linha de outro *tenant*.
+- **Uma passagem `degraded` conta no SLA.** Está tão longe de ser atendida como
+  uma à espera, e esconder-lhe o atraso era mostrar um painel verde no pior caso.
+
+A cobertura de `src/hnd/` mede-se aqui, contra o estrato **`restante`** e não o
+`critico`, pela mesma razão do KAM-015: o DoD não dá número e alterar
+`ci/thresholds.yaml` pede dois revisores.
+
+**Uma bateria que o *gate* não corre é uma bateria que apodrece em silêncio**, e
+isso aconteceu neste ticket: o `hnd.resposta.test.ts` nasceu, passou, e a
+*suite* ficou verde **sem o correr** — o `node --test` apanhava-o pelo *glob*
+`tests/hnd.*.test.ts`, e a lista de ficheiros que o CI usa, que é esta, não o
+tinha. O `resposta.ts` também não estava na lista de módulos medidos, pelo que
+nem a cobertura o denunciou. É por isso que as duas listas são explícitas e não
+um *glob*: um *glob* nunca falha por esquecimento, e é isso que o torna pior.
 
 ## 4. Gates reservados (5)
 
@@ -2130,3 +2178,5 @@ sobrevivem ao PR.
 | 1.39 | Outubro 2026 | **KAM-014: o *gate* 8 passa a correr dez *suites*.** A décima é `tests_chr`, e é a primeira que abre **três ligações com três papéis** — `kamba_resolver`, `kamba_identity` e `kamba_app` —, porque a resposta à pergunta do CHR depende do papel: a mesma consulta devolve **zero linhas** com `kamba_app` sem contexto e uma com o resolvedor, e é isso que torna o papel necessário e não conveniente. O que só aqui se prova está no §3: o `phone_number_id` de A nunca devolve o contexto de B (propriedade da chave única e da política, não do código), a convergência de identidade **e o seu limite**, o gancho de fusão nos dois casos, a guarda do ADR-011 a recusar-se a correr com um papel que não vê tudo, e a ausência de `UPDATE (mode)` para a aplicação. O estrato `critico` ganha `*/chr/*` e o `chr/fila.ts` entra nos `excluidos`. O *gate* 6 ganha a receita de sementes da `conversations` — a primeira tabela isolada **sem coluna de texto livre**, com o canário na chave primária —, e a descoberta do X-05 passa de dezasseis tabelas a **dezassete**. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |
 | 1.40 | Outubro 2026 | **KAM-024: a parte dos *webhooks* do *gate* 7 passa a existir.** O alvo `ci-7-meta` corre o *scan* de telefones, o relatório de cobertura dos 33 itens (16 tipos, 11 campos e 6 motivos) e a *suite* offline, incluindo a ida e volta das 32 *fixtures* assinadas contra o GWY do KAM-013. **24 s**, contra os ≤ 5 min da *proposta*. Três coisas que não são transcrição: os códigos de saída são **três** e não dois, porque «0 ficheiros lidos» não é «0 achados» — a armadilha que o `lint_contagens` já mordeu; o *scan* confronta o repositório com um **inventário** por ficheiro, com contagem exacta e razão, e não com uma pasta isenta, porque uma pasta isenta deixava passar um número novo dentro de um ficheiro já tolerado; e o `tools/meta-sim` entra em `PACOTES_NODE`, sem o que o `coverage_gate` injectava os seus dezasseis ficheiros a 0% — e o `base_do_nome` ganha a família `tools`, sem a qual os mesmos dezasseis saíam como «medidos e não classificados», que é o estado em que um ficheiro escapa ao limiar em silêncio. A *suite* **online** continua por fazer e depende de `ext:KAM-102`. | Equipa KAMBÁ |
 | 1.41 | Outubro 2026 | **KAM-015: o *gate* 8 passa a correr onze *suites*.** A décima primeira é `tests_outbound`, e é a primeira que junta o PostgreSQL ao servidor Graph falso do KAM-024 — porque o critério 2 pede «1 chamada à API (servidor falso conta) **e** 1 linha em `outbound_messages`», e nenhum dos dois prova a metade do outro. O que só aqui se prova está no §3: a idempotência (é da base, pelo `ON CONFLICT ... RETURNING` vazio), a unicidade **por tenant** da chave, a monotonia sob concorrência **real** (duas ligações, que é o que torna a corrida verdadeira), o X-03 sobre as duas tabelas novas e o custo por *tenant* a sair da tabela em vez de uma etiqueta de métrica. A cobertura de `src/outbound/` mede-se aqui, contra o estrato **`restante`** e não o `critico`: o DoD não dá número e alterar `ci/thresholds.yaml` pede dois revisores. O *gate* 6 ganha as receitas de sementes da `outbound_messages` e da `message_templates`, e a descoberta do X-05 passa de dezassete tabelas a **dezanove**. **E o `pnpm-workspace.yaml` ganha `ignoreWorkspaceCycles: true`**, sem o que o `pnpm -r run typecheck` do *gate* 2 recusa correr: o `@kamba/core-ts` e o `@kamba/meta-sim` dependem um do outro em desenvolvimento — o simulador lê o vocabulário de campos do `core-ts` em vez de o reescrever, e os testes da saída usam o `GraphFalso` para contar as chamadas HTTP, que é metade do critério 2. O que a declaração troca é a **ordem** das tarefas, não uma garantia: o fecho de produção dos dois é zero e o oráculo do `pnpm list --prod` mede-o a cada PR. E o erro de ciclo abortava o passo **antes** do `tsc`, pelo que escondia um segundo defeito — um `bd.query` de ensaio sem parâmetro de tipo. Quatro defeitos que só uma máquina apanhou: o `set_config(..., true)` solto — «local à transacção», pelo que o contexto morria antes da instrução seguinte e o `kamba_app` com `FORCE` via zero linhas (a *suite* caiu de 421 s para 33 s); a `outbound_messages_entrega_ck` a matar um `failed` depois de um `delivered`; a limpeza do ensaio a apagar conversas antes das mensagens que lhes apontam; e a `outbound_rate_limited_total` a somar a nossa travagem com a da Meta sob uma ajuda escrita que dizia só a primeira. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |
+| 1.42 | Outubro 2026 | **KAM-019: o *gate* 8 passa a correr doze *suites*.** A nova é `tests_handoff`, e é da mesma classe do `tests_outbound` — não corre os testes, corre a **saída** deles: as cinco baterias do *gate* 4 e o ensaio de base produzem TAP, e cinco asserções Python confirmam que cada grupo apareceu, que cada teste obrigatório passou **pelo nome**, e que a cobertura de cada um dos dez ficheiros de `src/hnd/` está acima do limiar, porque um *gate* que conte testes não nota que um desapareceu. O que só aqui se prova está no §3: a idempotência é da **chave primária** com o `handoff_id` derivado de `hash(thread_id, ordinal)` — cinco aberturas concorrentes em duas ligações, uma linha e uma chamada ao provedor; a `handoff_accounts_conta_uq` a recusar com `23505` a mesma conta do provedor em dois *tenants*, que é o lado do isolamento que nenhuma verificação em código apanha; o `close` duplicado como *no-op* da base, com as métricas dos dois a somar **uma** passagem fechada; o X-03 sobre as duas tabelas novas, escrita incluída, que com `FORCE` falha mesmo como dono; e uma passagem `degraded` a contar no SLA. O *gate* 6 ganha as receitas de sementes das duas tabelas, e a descoberta do X-05 passa de dezanove para **vinte e uma**. **Dois defeitos que só uma máquina apanhou, e o segundo é deste *gate*:** a bateria do critério 6 **pendurou** — dezasseis minutos a 99% de CPU, que nenhum relatório de testes mostrou porque nenhum chegou a sair, e que um `docker top` mostrou — porque montava o `Saida` verdadeiro com o relógio congelado e um `dormir` que não fazia nada, e o *token bucket* do KAM-015 espera pelo primeiro token comparando `agora()` com o instante em que começou, pelo que nem a espera nem a recusa por `ESPERA_MAXIMA_DE_DEBITO_MS` terminavam; e a *suite* ficou verde com essa bateria **sem a correr**, porque o `node --test` apanhava-a pelo *glob* e a lista de ficheiros que o CI usa não a tinha — o `resposta.ts` também não estava nos módulos medidos, pelo que nem a cobertura o denunciou. As duas listas continuam explícitas e não um *glob*: um *glob* nunca falha por esquecimento, e é isso que o torna pior. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |
+| 1.43 | Outubro 2026 | **KAM-019: a `tests_handoff` ganha quatro grupos e quatro testes obrigatorios, e a razao e que o spike correu.** O veredicto foi `O TOKEN DO BOT CHEGA`, e no caminho ate la o spike mediu quatro coisas que a implementacao fazia de outra maneira — pelo que as baterias cresceram de 89 para **108** testes e a *suite* passa a exigir pelo nome, entre outros, «o inbox e criado com o token do UTILIZADOR e nao da plataforma» e «o set_agent_bot existe, e sem ele nada funciona». O `resposta.ts` entra nos modulos medidos (dez agora). **E a prova por mutacao do modulo correu pela primeira vez, com quatro sobreviventes que nao eram testes em falta:** duas mutacoes eram **imortais** (uma apagava uma linha redundante, outra trocava `timingSafeEqual` por `===` num ponto onde as duas dao o mesmo resultado — essa foi retirada, e a limitacao de tempo constante fica **dita** em vez de fingida); o `ON CONFLICT` da conta **nao era exercitado** por caminho nenhum, porque duas chamadas sequenciais usam o caminho rapido; e uma das duas unicidades passava por causa da outra, com a assercao a aceitar qualquer «duplicate key». Depois das correccoes: **26 corridas, 0 nao apanhadas**. O `supply_chain` pediu `read_only: true` nos quatro servicos do compose do spike e as quatro listas de saidas, todas **vazias** com `por_omissao: negar`. Sem *job* novo. | Equipa KAMBÁ |

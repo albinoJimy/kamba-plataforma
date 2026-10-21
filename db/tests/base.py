@@ -89,19 +89,36 @@ TABELAS_0009 = ("conversations",)
 #: duas. No `downgrade` cai a de envios primeiro, por isso.
 TABELAS_0010 = ("message_templates", "outbound_messages")
 
+#: O que a revisao 0011 (KAM-019) acrescenta: a passagem a humano.
+#:
+#: Duas, e a ordem de criacao importa — a `handoffs` referencia a
+#: `conversations` da `0009` por FK composta, e a `handoff_accounts` nao
+#: referencia nenhuma das duas. No `downgrade` caem pela ordem inversa da
+#: criacao.
+TABELAS_0011 = ("handoff_accounts", "handoffs")
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
         + TABELAS_0006 + TABELAS_0007 + TABELAS_0008 + TABELAS_0009
-        + TABELAS_0010
+        + TABELAS_0010 + TABELAS_0011
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0010`.
+#:
+#: Pela mesma razao das outras: o `downgrade` da `0011` pode recusar (ha
+#: passagens ou contas de atendimento e nao ha copia), e nesse caso a base fica
+#: aqui.
+TABELAS_ATE_0010 = tuple(sorted(set(TABELAS) - set(TABELAS_0011)))
 
 #: O que existe em `platform` quando a base esta na revisao `0009`.
 #:
 #: Pela mesma razao das outras: o `downgrade` da `0010` pode recusar (ha envios
-#: ou templates e nao ha copia), e nesse caso a base fica aqui.
-TABELAS_ATE_0009 = tuple(sorted(set(TABELAS) - set(TABELAS_0010)))
+#: ou templates e nao ha copia), e nesse caso a base fica aqui. **Desde a
+#: `0011`, chegar aqui passa primeiro pela `0011`**, que desce e **compromete**
+#: antes de a `0010` levantar — uma transaccao por revisao.
+TABELAS_ATE_0009 = tuple(sorted(set(TABELAS_ATE_0010) - set(TABELAS_0010)))
 
 #: O que existe em `platform` quando a base esta na revisao `0008`.
 #:

@@ -5,6 +5,7 @@
     python db/gate_bd.py --suite tests_isolamento    # gate 6
     python db/gate_bd.py --suite tests_chr           # gate 8, o CHR (KAM-014)
     python db/gate_bd.py --suite tests_outbound      # gate 8, a saida (KAM-015)
+    python db/gate_bd.py --suite tests_handoff       # gate 8, o handoff (KAM-019)
     python db/gate_bd.py --suite tests --bd-existente
 
 Os dois gates precisam do mesmo: um PostgreSQL real, vazio e descartavel. Este
@@ -133,6 +134,15 @@ SUITES = (
     # precisa de fila: a ordem por conversa prova-se com o registo do servidor
     # falso, e a fila de saida e do proprio adapter.
     "tests_outbound",
+    # KAM-019: a passagem a humano. O que so aqui se prova, e nao se simula
+    # contra uma base falsa: que cinco aberturas concorrentes deixam **uma**
+    # linha (a idempotencia e da chave primaria derivada, nao do codigo), que a
+    # mesma conta do provedor em dois tenants e **recusada pela base** (o furo
+    # que o X-10 procura, e que a chave primaria sozinha nao fecha), que dois
+    # `close` em paralelo escrevem uma vez so, e que a RLS esconde a passagem de
+    # A do contexto de B. **Nao leva o `tools/meta-sim`** e nao precisa de fila:
+    # o handoff nao fala com a Meta, e o provedor de atendimento entra por porta.
+    "tests_handoff",
 )
 #: As que precisam tambem de uma fila.
 SUITES_COM_FILA = (
