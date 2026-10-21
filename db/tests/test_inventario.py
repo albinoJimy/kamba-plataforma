@@ -536,6 +536,49 @@ INVENTARIO = {
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
         "updated_at": ("timestamp with time zone", NAO, "now()", "nao"),
     },
+    # KAM-020. **A pergunta «guarda dados pessoais?» e aqui a mais delicada do
+    # esquema**, e a resposta e: a tabela nao, o que ela aponta sim.
+    #
+    # Nenhuma coluna desta tabela contem dados de uma pessoa. O `contact_id` e
+    # uma referencia (como em toda a parte), o `wamid` e o `media_id` sao
+    # identificadores de terceiro, e o `storage_ref` e uma chave de objecto. Mas
+    # o **objecto** que o `storage_ref` aponta e a voz, a cara ou o documento de
+    # um cliente final, e e por isso que esta tabela tem `retain_until` e que o
+    # `docs/tecnica/08` §7.5 lhe poe um prazo. A politica de privacidade desta
+    # tabela nao se le nas colunas: le-se no que elas localizam.
+    "media_assets": {
+        "asset_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "contact_id": ("uuid", NAO, None, "nao"),
+        "conversation_id": ("uuid", NAO, None, "nao"),
+        "wamid": ("text", NAO, None, "identificador da mensagem no WhatsApp"),
+        # **Nao e um URL.** O URL temporario que ele resolve nunca e
+        # persistido, aqui nem em sitio nenhum (criterio 3 do KAM-020).
+        "media_id": ("text", NAO, None, "identificador opaco do objecto na Meta"),
+        "classe": ("text", NAO, None, "nao"),
+        # Anulaveis ate a descarga: a linha nasce em `pendente` e o
+        # `content_type` **real** so se sabe da resposta — confiar no que o
+        # webhook anuncia era aceitar que ele mente.
+        "content_type": ("text", SIM, None, "nao"),
+        "size": ("bigint", SIM, None, "nao"),
+        "sha256": (
+            "text",
+            SIM,
+            None,
+            "resumo do conteudo; **nao** e identificador de pessoa, mas dois "
+            "iguais dizem que o conteudo e o mesmo",
+        ),
+        "storage_ref": (
+            "text",
+            SIM,
+            None,
+            "chave do objecto nosso; o objecto que ela aponta pode ser a voz "
+            "ou a cara de um cliente final",
+        ),
+        "estado": ("text", NAO, None, "nao"),
+        "retain_until": ("timestamp with time zone", SIM, None, "nao"),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
 }
 
 #: A particao `DEFAULT` tem as colunas do pai, uma a uma. Esta aqui — e nao
@@ -602,7 +645,20 @@ class TestInventario(ComBase):
                         "handoffs_tenant_fk",
                         "handoffs_conversation_fk",
                         "handoff_accounts_tenant_fk",
-                        # KAM-015: as quatro da saida. Tres sao compostas
+                        # KAM-020: as **tres** da midia, e e a tabela com mais
+                        # FK do esquema. Duas sao compostas com o `tenant_id`
+                        # (contacto e conversa), pela razao de sempre; e as tres
+                        # existem porque uma linha desta tabela so faz sentido
+                        # dentro de uma conversa de um contacto de uma PME.
+                        # Sem `ON DELETE CASCADE`, como todas — e aqui a razao
+                        # e mais forte: apagar uma conversa em cascata levaria
+                        # o registo do objecto e **deixaria o blob** no
+                        # armazenamento, lixo que a purga do KAM-071 nao ve
+                        # porque ela le esta tabela.
+                        "media_assets_tenant_fk",
+                        "media_assets_contact_fk",
+                        "media_assets_conversation_fk",
+                                    # KAM-015: as quatro da saida. Tres sao compostas
                         # com o `tenant_id` — contacto, canal e conversa —
                         # porque sem elas uma mensagem do tenant A podia
                         # apontar para um objecto de B, e nem o gate 6 nem o 3b
@@ -773,6 +829,27 @@ class TestInventario(ComBase):
                     "handoffs_motivo_ck",
                     "handoffs_pkey",
                     "handoffs_status_ck",
+                    # KAM-020: nove na `media_assets`. **As tres FK nao
+                    # entram aqui** — esta lista e de `p`, `u` e `c`, e as FK
+                    # tem o seu proprio teste (o da cascata). A primeira versao
+                    # pos as tres aqui e a lista ficou com tres elementos a
+                    # mais. A `armazenado_ck` e a
+                    # unica do esquema que liga **duas** colunas por estado: um
+                    # `armazenado` sem `storage_ref` e uma linha que diz que o
+                    # objecto esta la e nao diz onde. **E nao ha `CHECK` sobre
+                    # o `retain_until`**, de proposito: uma restricao que o
+                    # obrigasse a ser futuro impedia o KAM-071 de marcar um
+                    # objecto para eliminacao imediata — a licao que a
+                    # `outbound_messages_entrega_ck` da `0010` pagou.
+                    "media_assets_armazenado_ck",
+                    "media_assets_classe_ck",
+                    "media_assets_estado_ck",
+                    "media_assets_media_id_ck",
+                    "media_assets_origem_uq",
+                    "media_assets_pkey",
+                    "media_assets_sha256_ck",
+                    "media_assets_size_ck",
+                    "media_assets_wamid_ck",
                     "conversations_tenant_id_uq",
                     "message_templates_category_ck",
                     "message_templates_pkey",

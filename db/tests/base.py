@@ -97,20 +97,35 @@ TABELAS_0010 = ("message_templates", "outbound_messages")
 #: criacao.
 TABELAS_0011 = ("handoff_accounts", "handoffs")
 
+#: O que a revisao 0012 (KAM-020) acrescenta: a midia recebida.
+#:
+#: Uma so, e referencia **tres** tabelas por FK: a `tenants` da `0001`, e a
+#: `contacts` da `0003` e a `conversations` da `0009`, as duas por FK composta
+#: com o `tenant_id`. E a tabela com mais FK do esquema, e a razao e que uma
+#: linha dela so faz sentido dentro de uma conversa de um contacto de uma PME.
+TABELAS_0012 = ("media_assets",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
         + TABELAS_0006 + TABELAS_0007 + TABELAS_0008 + TABELAS_0009
-        + TABELAS_0010 + TABELAS_0011
+        + TABELAS_0010 + TABELAS_0011 + TABELAS_0012
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0011`.
+#:
+#: Pela mesma razao das outras: o `downgrade` da `0012` pode recusar (ha
+#: objectos de midia e nao ha copia), e nesse caso a base fica aqui.
+TABELAS_ATE_0011 = tuple(sorted(set(TABELAS) - set(TABELAS_0012)))
 
 #: O que existe em `platform` quando a base esta na revisao `0010`.
 #:
 #: Pela mesma razao das outras: o `downgrade` da `0011` pode recusar (ha
 #: passagens ou contas de atendimento e nao ha copia), e nesse caso a base fica
-#: aqui.
-TABELAS_ATE_0010 = tuple(sorted(set(TABELAS) - set(TABELAS_0011)))
+#: aqui. **Desde a `0012`, chegar aqui passa primeiro pela `0012`**, que desce e
+#: **compromete** antes de a `0011` levantar — uma transaccao por revisao.
+TABELAS_ATE_0010 = tuple(sorted(set(TABELAS_ATE_0011) - set(TABELAS_0011)))
 
 #: O que existe em `platform` quando a base esta na revisao `0009`.
 #:

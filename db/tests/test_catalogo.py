@@ -295,6 +295,16 @@ class TestConvencoes(ComBase):
                 # coluna de identidade. A chave de deduplicacao **nao** e esta:
                 # e o `UNIQUE (kind, event_key)`, que e uma restricao propria.
                 ("inbound_events", "id", "uuid", "gen_random_uuid()"),
+                # KAM-020: `uuid` aleatorio, e aqui a escolha e o **contrario**
+                # da `handoffs` quatro linhas acima, de proposito. A
+                # idempotencia desta tabela nao e a chave primaria: e a
+                # `media_assets_origem_uq (tenant_id, wamid, media_id)`, que ja
+                # e derivada do que a mensagem traz. Uma chave primaria
+                # derivada seria o mesmo facto duas vezes, e o `asset_id`
+                # existe para outra coisa — e o que o criterio 5 poe em
+                # `media://{asset_id}`, e tem de ser estavel quando a chave do
+                # objecto mudar de molde.
+                ("media_assets", "asset_id", "uuid", "gen_random_uuid()"),
                 # KAM-015: a chave do template e **natural e de texto**
                 # — `(tenant_id, name, lang)`, como o `docs/tecnica/01` §8.3 —
                 # porque um template e identificado pelo que a Meta conhece, e
@@ -438,7 +448,17 @@ class TestConvencoes(ComBase):
              # consulta do SLA que a escolhe («passagens a espera ha mais de
              # 15 min, por tenant»). A `handoff_accounts` tem o `tenant_id` em
              # primeiro lugar na chave primaria `(tenant_id, provedor)`.
-             "handoffs", "handoff_accounts"},
+             "handoffs", "handoff_accounts",
+             # KAM-020. A `media_assets` e a **segunda** desta classe a nao
+             # satisfazer a convencao de graca, pela mesma razao: a chave
+             # primaria e o `asset_id` aleatorio. Levou indice proprio,
+             # `(tenant_id, criado_at DESC)`, e a segunda coluna e o que o
+             # painel ordena. **O que ela nao levou foi um indice por
+             # `retain_until`**, que e por onde a purga vai ler: essa consulta
+             # e do KAM-071 e corre como `kamba_batch` (BYPASSRLS), pelo que o
+             # indice que ela precisa nao e este nem tem de comecar por
+             # `tenant_id` — cria-o quem a escrever, com a medida dela.
+             "media_assets"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -500,7 +520,14 @@ class TestConvencoes(ComBase):
         # sao compostas com o `tenant_id`, pela mesma razao da `0009`: uma
         # mensagem de A nao aponta para um canal, uma conversa ou um contacto
         # de B, e nem o gate 6 nem o 3b o veriam.
-        self.assertEqual(len(linhas), 26)
+        #
+        # 29 desde o KAM-020: as **tres** da `media_assets` — para `tenants`,
+        # e para `contacts` e `conversations` as duas **compostas** com o
+        # `tenant_id`. E a tabela com mais FK do esquema, e a razao esta na
+        # forma do que ela guarda: uma linha dela so faz sentido dentro de uma
+        # conversa de um contacto de uma PME, e as tres FK sao as tres
+        # perguntas «de quem?» que ela tem de responder.
+        self.assertEqual(len(linhas), 29)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

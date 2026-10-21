@@ -335,6 +335,39 @@ def _conta_de_handoff(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _midia(cursor, tenant_id: str, canario: str) -> None:
+    """Um objecto de midia do tenant (KAM-020). O canario vai no `media_id`.
+
+    **E no `media_id` e nao no `wamid`, e a escolha diz algo sobre a tabela.**
+    As duas sao `text` livre e as duas tem `CHECK` de nao-vazio, pelo que as
+    duas serviam; o que decide e a `media_assets_origem_uq`, que e
+    `(tenant_id, wamid, media_id)` e **leva o tenant**. Ao contrario da
+    `handoffs`, cuja chave primaria e global e obrigou a receita a derivar o
+    `handoff_id` do `tenant_id`, aqui os dois tenants podem semear o **mesmo**
+    canario sem colidir — que e exactamente o que o X-03 precisa: semeia o mesmo
+    valor nos dois e exige que cada um veja so o seu.
+
+    O `asset_id` fica na omissao (`gen_random_uuid()`), e o `estado` nasce em
+    `pendente`, que e o estado em que uma linha desta tabela nasce de verdade:
+    antes da descarga. As quatro colunas que a descarga descobre
+    (`content_type`, `size`, `sha256`, `storage_ref`) ficam nulas, e e por isso
+    que a `media_assets_armazenado_ck` nao morde — ela so exige quando o estado
+    e `armazenado`.
+
+    A coluna alteravel e o `estado`: e o que o `kamba_app` faz de verdade depois
+    da descarga, e e por isso que o `UPDATE` da revisao `0012` o inclui. Semeia
+    o administrador da instancia, como a receita da conversa e a da passagem.
+    """
+    cursor.execute(
+        "INSERT INTO platform.media_assets "
+        "(tenant_id, contact_id, conversation_id, wamid, media_id, classe, estado) "
+        f"VALUES (%s, {_UM_CONTACTO}, {_UMA_CONVERSA}, "
+        "        'wamid.semente.' || substr(md5(%s), 1, 12), %s, "
+        "        'media_audio', 'pendente')",
+        (tenant_id, tenant_id, tenant_id, tenant_id, canario),
+    )
+
+
 def _identidade(inserir, coluna, alteravel, valor, guardado) -> Receita:
     return Receita(
         inserir, coluna, alteravel, valor,
@@ -563,6 +596,14 @@ RECEITAS: dict[tuple[str, str], Receita] = {
         # caminho que o justificava (a reposicao do `01` §11.5) nao existe.
         _conta_de_handoff, "token_ref", None, None, semeador="admin",
     ),
+    # KAM-020. O canario vai no `media_id` (ver `_midia`): a
+    # `media_assets_origem_uq` leva o `tenant_id`, pelo que os dois tenants
+    # podem semear o mesmo valor — ao contrario da `handoffs`, cuja chave
+    # primaria e global. A alteravel e o `estado`, que e o que o `kamba_app`
+    # escreve depois da descarga.
+    ("platform", "media_assets"): Receita(
+        _midia, "media_id", "estado", "armazenado", semeador="admin",
+    ),
     ("platform", "events_outbox"): Receita(
         _evento_no_outbox, "agregado_id", None, None, semeador="admin"
     ),
@@ -661,6 +702,11 @@ ORDEM = (
     ("platform", "events_consumed"),
     ("platform", "events_dlq"),
     ("platform", "evt_acoes"),
+    # KAM-020: **a ultima das que tem FK**, e tem tres (`tenants`, `contacts` e
+    # `conversations`). Vem depois da conversa e do contacto, que e o que as
+    # duas FK compostas exigem; e vem antes das duas do KAM-009, que nao
+    # dependem de nada senao do tenant.
+    ("platform", "media_assets"),
     # KAM-009: as duas so tem FK para `tenants`, e por isso ficam no fim.
     ("platform", "tenant_usage"),
     ("platform", "usage_ledger"),
