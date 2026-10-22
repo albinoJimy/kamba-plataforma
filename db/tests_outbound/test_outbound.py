@@ -113,6 +113,32 @@ FICHEIROS = (
     # na deteccao do «PARAR» e no `evidence_hash` so por ela sao apanhadas.
     "tests/consentimento.test.ts",
     "tests_bd/consentimento.bd.test.ts",
+    # KAM-016. O onboarding de canal vive em `src/onboarding/`, e entra nesta
+    # suite por **duas** razoes, e a segunda e a que nao tinha alternativa.
+    #
+    # A primeira e a dos tres tickets acima: escreve `tenant_channels` — o
+    # criterio 4 e a `tenant_channels_phone_number_id_uq` **global** a morder, e
+    # a compensacao do criterio 7 **apaga** a linha que o passo anterior criou —,
+    # usa o mesmo `apoio.ts` e os mesmos papeis, e a `0016` vive na mesma base.
+    #
+    # A segunda e o `GraphFalso` do KAM-024, e **esta continua a ser a unica
+    # suite do gate 8 que monta o `tools/meta-sim`** (ver as `PASTAS_DE_MODULOS`
+    # do `node.py`). O criterio 5 pede «a leitura de confirmacao devolve esse
+    # conjunto (igualdade de conjuntos)» e o criterio 7 pede uma falha injectada
+    # no passo 4 **com 0 recursos orfaos** — e «0 subscricoes no WABA» le-se no
+    # servidor falso e em mais sitio nenhum. Uma suite propria custava um
+    # ficheiro de arranque, um alvo no Makefile, uma entrada em `db/gate_bd.py` e
+    # uma quarta pasta de modulos, para levantar o mesmo PostgreSQL e montar o
+    # mesmo simulador.
+    #
+    # Os dois ficheiros de unidade entram pela **prova por mutacao**, pela razao
+    # escrita acima para o `metering.test.ts`: as mutacoes na matriz de
+    # dezesseis arestas, na forma de v4, na cifra do token e na comparacao de
+    # conjuntos so por eles sao apanhadas, e uma mutacao que nenhum teste pode
+    # matar conta como prova.
+    "tests/onboarding.test.ts",
+    "tests/onboarding.graph.test.ts",
+    "tests_bd/onboarding.bd.test.ts",
 )
 
 #: Os grupos que **tem** de aparecer na saida, um por propriedade que a suite
@@ -164,6 +190,25 @@ GRUPOS = (
     "a versao vigente do texto (criterio 7)",
     "isolamento (Testes Requeridos: X-03 sobre consent_event)",
     "o append-only: o privilegio nem existe (criterio 6)",
+    # KAM-016, dos tres ficheiros do onboarding. Os cinco primeiros sao de
+    # unidade (a forma de v4, a matriz nos 81 pares, os onze campos, a cifra e a
+    # saga); os restantes sao os que **so** uma base real prova, e o do cliente
+    # da Graph e o unico que abre socket.
+    "a forma de v4, e so v4 (criterio 1)",
+    "a matriz de transicoes: os 81 pares ordenados (criterio 6)",
+    "os onze campos e a igualdade de conjuntos (criterio 5)",
+    "a cifra do token: AES-256-GCM, DEK por tenant, kid versionado (criterio 3)",
+    "a saga: ordem dos passos e idempotencia (criterios 2, 4, 7, 8)",
+    "as metricas do onboarding",
+    "o cliente da Graph contra o servidor falso do KAM-024",
+    "a porta de escrita no cofre (ADR-L002 §6, a lacuna que este ticket fecha)",
+    "idempotencia (criterio 2)",
+    "o 409 do phone_number_id (criterio 4)",
+    "a maquina de estados contra a base (criterio 6)",
+    "a compensacao: 0 recursos orfaos (criterio 7)",
+    "o token e o PIN: o dump grep nao os encontra (criterio 3)",
+    "o contador es_onboardings_7d (criterio 8)",
+    "isolamento (Testes Requeridos: X-03 sobre channel_onboarding)",
 )
 
 #: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
@@ -283,6 +328,27 @@ TESTES_OBRIGATORIOS = (
     "**as oito variantes dos Testes Requeridos**",
     "**duas accoes das seis, e so duas**",
     "**o separador impede a colisao por deslocamento**",
+    # KAM-016. Cada uma da a letra de um criterio, e as cinco primeiras sao as
+    # que **so** uma base prova: a corrida pelas duas chaves unicas, a reversao
+    # da transaccao do 409, os 81 pares contra o `CHECK` do dominio, os tres
+    # sitios onde se leem os «0 recursos orfaos», e a contagem a atravessar
+    # tenants.
+    "duas abertas concorrentes do mesmo par dao 1 linha",
+    "a unicidade global morde, e a transaccao nao deixa nada atras",
+    "os dezesseis pares escrevem, e um compare-and-set desactualizado nao",
+    "a falha injectada no passo 4 nao deixa canal, token nem subscricao",
+    "atravessa tenants, que e o que o limite da Meta mede",
+    "o token em claro nao esta em coluna nenhuma da base",
+    "o kamba_app nao insere nem altera: o privilegio nem existe",
+    "sem conclusao no prazo passa a abandonado, e so o iniciado passa",
+    # E as de unidade que dao a letra do criterio 1 e do 6: a procura de v2/v3
+    # no proprio codigo, e a matriz inteira.
+    "o codigo nao referencia v2 nem v3 do Embedded Signup",
+    "exactamente dezesseis pares passam, e os outros 65 nao",
+    "um criptograma copiado para outro tenant nao abre",
+    "a rotacao da KEK nao perde os tokens antigos",
+    # E a do cliente da Graph que fixa a exposicao declarada do `graph.ts`.
+    "o code e o client_secret vao na consulta, como a Meta documenta",
 )
 
 #: Os ficheiros do modulo. A cobertura mede-se em **cada um**.

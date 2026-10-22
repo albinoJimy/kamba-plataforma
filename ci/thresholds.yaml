@@ -107,6 +107,30 @@ estratos:
       # vermelho — e o remedio seria apagar o limiar, nao melhorar o codigo.
       - "*/eventos/consumo.ts"
       - "*/eventos/trabalho.ts"
+      # A cifra do *token* de cliente do Embedded Signup (KAM-016). **Um
+      # ficheiro, e nao o modulo `onboarding/` inteiro**, e a diferenca e a
+      # mesma que separa o `consumo.ts` do resto de `eventos/`:
+      #
+      #   cifra.ts   AES-256-GCM, DEK derivada por tenant, KEK no cofre e `kid`
+      #              versionado. Um defeito aqui nao e um bug: e o *token* de
+      #              acesso a conta WhatsApp de uma PME legivel por quem leia o
+      #              cofre, ou um criptograma que abre com o `tenant_id` de
+      #              outra loja. E o mesmo tipo de codigo que poe o
+      #              `identity/cripto.ts` neste estrato desde o KAM-008, e
+      #              `specs/01` §4.1 poe o isolamento de tenant aqui.
+      #
+      # O resto de `onboarding/` fica no `restante` **de proposito**, como o
+      # `qualidade/` do KAM-021 e o `consentimento/` do KAM-022: a saga, o
+      # cliente HTTP e as metricas sao codigo de orquestracao, e o que os
+      # exercita de verdade e o gate 8 contra uma base real — o que nao produz
+      # cobertura V8. Medido ao acrescentar: **94,8%** no `cifra.ts` (254/268),
+      # e o estrato inteiro fica em 97%.
+      #
+      # *Proposta*, como os limiares: alterar este ficheiro pede dois
+      # revisores, e esta alteracao **nao** marca essa caixa — nesta fase nao ha
+      # revisores humanos, por decisao escrita do fundador, e a caixa fica vazia
+      # como facto registado e nao como passo cumprido.
+      - "*/onboarding/cifra.ts"
       # TEN: entitlements e consumo de limites (KAM-009, ADR-013, ADR-015).
       # **O modulo inteiro, nas duas linguagens.**
       #

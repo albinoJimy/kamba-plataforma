@@ -413,6 +413,15 @@ ESPERADO_POR_TABELA.update(
         # que o `kamba_batch` tem os quatro. Dar `INSERT` a aplicacao deixava o
         # caminho que serve clientes publicar um texto juridico.
         "consent_texts": _handoff(kamba_app={"SELECT"}),
+        # KAM-016: a tentativa de onboarding. **`SELECT` e mais nada**, e e a
+        # primeira tabela deste esquema em que `kamba_app` **le e nao escreve**:
+        # a `message_templates` le e altera, a `events_dlq` escreve e nao le,
+        # esta so le. A razao e que o onboarding de um canal e
+        # **provisionamento**, e o dicionario §3.2 ja lho atribuiu — «quem os
+        # altera e o kamba_batch — provisionamento (KAM-091) e cobranca
+        # (KAM-059) sao de retaguarda e ja la correm». O `SELECT` existe porque
+        # o painel da loja le em que fase esta o seu canal (KAM-093).
+        "channel_onboarding": _handoff(kamba_app={"SELECT"}),
     }
 )
 
@@ -658,6 +667,15 @@ COLUNAS_POR_PAPEL = {
     # linha existe exactamente para se poder dizer que isso nao aconteceu.
     ("kamba_app", "consent_event", "UPDATE"): set(),
     ("kamba_app", "consent_texts", "UPDATE"): set(),
+    # KAM-016. **Conjunto vazio, e e o desenho do ticket em privilegios:** a
+    # `0016` nao concede `UPDATE` nenhum a `kamba_app`. Quem escreve esta tabela
+    # e o `kamba_batch`, e nao e precaucao — sao tres consequencias medidas: o
+    # contador `es_onboardings_7d` **atravessa tenants** e so corre com
+    # `BYPASSRLS`; a compensacao do criterio 7 **apaga** a linha de
+    # `tenant_channels` que o passo anterior criou, e `kamba_app` nao tem
+    # `DELETE` em tabela nenhuma desde a `0001`; e o que protege a escrita passa
+    # a ser a falta de privilegio, que e mais forte do que a politica recusar.
+    ("kamba_app", "channel_onboarding", "UPDATE"): set(),
     ("kamba_app", "media_assets", "UPDATE"): {
         "content_type",
         "size",
@@ -740,6 +758,10 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # KAM-022: as duas, pela mesma razao.
     "consent_event",
     "consent_texts",
+    # KAM-016: pela mesma razao, e aqui o que se prende e a **ausencia** de
+    # qualquer `UPDATE` — uma mutacao que acrescente um `GRANT UPDATE (fase)` a
+    # `kamba_app` sobrevive sem esta linha, e com ela morre.
+    "channel_onboarding",
 )
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.

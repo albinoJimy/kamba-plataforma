@@ -88,10 +88,26 @@ class TestCatalogoReal(ComBase):
         de transicoes nao se corrige, e por isso a receita de sementes nao tem
         coluna alteravel e o que se prova e que o privilegio nem existe.
 
-        **O nome deste teste diz «vinte e uma» e a lista tem vinte e tres.** O
-        KAM-020 deixou-o a dizer vinte e uma ao fazer vinte e duas; nao se
-        renomeia aqui, porque renomear o teste de outro ticket a meio deste e
-        ruido no diff. Fica em `docs/dividas-documentais.md`.
+        Vinte e quatro desde o KAM-022: a `consent_event`. A `consent_texts`
+        **nao** entra, e nao e esquecimento: nao tem `tenant_id`, porque um aviso
+        de privacidade e um texto juridico de plataforma.
+
+        Vinte e cinco desde o KAM-016: a `channel_onboarding`. Tem duas FK (a do
+        `tenants` e a composta para `tenant_channels`) e chave primaria `id` que
+        **nao** leva `tenant_id` — logo indice proprio `(tenant_id, fase)`, pela
+        razao da `handoffs`, da `media_assets` e da `channel_quality_log`. E a
+        **primeira** desta lista em que `kamba_app` **le e nao escreve nada**: a
+        `channel_quality_log` le e insere, a `events_dlq` insere e nao le, esta
+        so le. A razao e que o onboarding de um canal e provisionamento, e quem
+        provisiona e o `kamba_batch` (dicionario §3.2) — pelo que a receita de
+        sementes tem `escrita_do_papel=False` e `coluna_alteravel=None`, e o que
+        se prova e que os privilegios de escrita nem existem.
+
+        **O nome deste teste diz «vinte e uma» e a lista tem vinte e cinco.** O
+        KAM-020 deixou-o a dizer vinte e uma ao fazer vinte e duas, e tres
+        tickets passaram por aqui depois sem o renomear; nao se renomeia agora,
+        pela mesma razao — renomear o teste de outro ticket a meio deste e ruido
+        no diff. Fica em `docs/dividas-documentais.md`.
 
         Vinte e uma desde o KAM-019: a `handoff_accounts` e a `handoffs`. A
         segunda e a **primeira tabela desta lista cuja chave primaria nao leva
@@ -114,6 +130,10 @@ class TestCatalogoReal(ComBase):
                 # e **depois** das duas `audit_*` e **antes** das
                 # `contact_*`: no `sorted()` por ponto de codigo, «ch»
                 # vence «co» porque 'h' < 'o', e perde contra «au».
+                # KAM-016: a tentativa de onboarding. A posicao e **antes** da
+                # `channel_quality_log`: no `sorted()` por ponto de codigo,
+                # «channel_o» vence «channel_q» porque 'o' < 'q'.
+                ("platform", "channel_onboarding", "tenant_id"),
                 ("platform", "channel_quality_log", "tenant_id"),
                 # KAM-022: a prova de consentimento. A `consent_texts`
                 # **nao** esta aqui e nao e esquecimento: nao tem
@@ -221,6 +241,9 @@ class TestCatalogoReal(ComBase):
                 # KAM-012: o `audit_heads` nao aparece — nao tem politica, por
                 # excepcao declarada.
                 ("audit_log", "tenant_iso", "ALL", "{public}"),
+                # KAM-016: a tentativa de onboarding, antes da de qualidade
+                # («channel_o» < «channel_q»).
+                ("channel_onboarding", "tenant_iso", "ALL", "{public}"),
                 # KAM-021: o registo das transicoes de qualidade.
                 ("channel_quality_log", "tenant_iso", "ALL", "{public}"),
                 # KAM-022: a prova de consentimento.
@@ -272,6 +295,10 @@ class TestCatalogoReal(ComBase):
             [# KAM-012: o registo de auditoria. O `audit_heads` nao esta
              # aqui, por excepcao declarada em `ci/rls_exceptions.yaml`.
              "audit_log",
+             # KAM-016: a tentativa de onboarding. **Quarta lista deste
+             # ficheiro a precisar dela**, e a licao e a mesma que o KAM-019
+             # escreveu: as tres primeiras ja estavam feitas quando esta falhou.
+             "channel_onboarding",
              # KAM-021: o registo das transicoes de qualidade.
              "channel_quality_log",
              # KAM-022: a prova de consentimento.

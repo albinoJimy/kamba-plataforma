@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.28"
+versao_dicionario: "1.29"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -3807,6 +3807,345 @@ entradas:
     nomes_nota:
       - "accao"
     variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Tentativa de ligar um número"
+    canonico: "platform.channel_onboarding — id, «tenant_id», channel_id, «waba_id», «waac_id», «phone_number_id», code_hash, fase, recursos_criados, pin_ref, motivo, «criado_at», actualizado_at"
+    literais:
+      - "platform.channel_onboarding"
+      - "id"
+      - "channel_id"
+      - "code_hash"
+      - "fase"
+      - "recursos_criados"
+      - "pin_ref"
+      - "motivo"
+      - "actualizado_at"
+    nomes:
+      - "platform.channel_onboarding"
+      - "id"
+      - "channel_id"
+      - "code_hash"
+      - "fase"
+      - "recursos_criados"
+      - "pin_ref"
+      - "motivo"
+      - "actualizado_at"
+    nomes_nota:
+      - "channel_id"
+      - "fase"
+      - "recursos_criados"
+      - "jsonb"
+      - "actualizado_at"
+      - "id"
+      - "uuid"
+      - "tenant_id"
+      - "code_hash"
+      - "waac_id"
+      - "pin_ref"
+      - "motivo"
+      - "criado_at"
+      - "platform"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Fase de um onboarding"
+    canonico: "channel_onboarding.fase ∈ {iniciado, es_concluido, subscrito, a_sincronizar, verificado, pronto, ativo, falhado, abandonado}"
+    literais:
+      - "channel_onboarding.fase"
+      - "iniciado"
+      - "es_concluido"
+      - "subscrito"
+      - "a_sincronizar"
+      - "verificado"
+      - "pronto"
+      - "ativo"
+      - "falhado"
+      - "abandonado"
+    nomes:
+      - "channel_onboarding.fase"
+      - "iniciado"
+      - "es_concluido"
+      - "subscrito"
+      - "a_sincronizar"
+      - "verificado"
+      - "pronto"
+      - "ativo"
+      - "falhado"
+      - "abandonado"
+    nomes_nota:
+      - "ativo"
+      - "iniciado"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Transições legais de uma fase"
+    canonico: "TRANSICOES — dezesseis arestas"
+    literais:
+      - "TRANSICOES"
+    nomes:
+      - "TRANSICOES"
+    nomes_nota:
+      - "falhado"
+      - "es_concluido"
+      - "abandonado"
+      - "iniciado"
+      - "WHERE"
+      - "fase"
+      - "esperada"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Idempotência de um onboarding"
+    canonico: "channel_onboarding com UNIQUE (tenant_id, code_hash) e UNIQUE (tenant_id, waba_id)"
+    literais:
+      - "channel_onboarding"
+      - "UNIQUE (tenant_id, code_hash)"
+      - "UNIQUE (tenant_id, waba_id)"
+    nomes:
+      - "channel_onboarding"
+      - "UNIQUE"
+      - "tenant_id"
+      - "code_hash"
+      - "waba_id"
+    nomes_nota:
+      - "channel_id"
+      - "tenant_id"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Resumo do code do Embedded Signup"
+    canonico: "channel_onboarding.code_hash = «sha256(code)», 32 octetos"
+    literais:
+      - "channel_onboarding.code_hash"
+    nomes:
+      - "channel_onboarding.code_hash"
+    nomes_nota:
+      - "pepper_contact_hmac"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Recursos que um passo criou"
+    canonico: "channel_onboarding.recursos_criados (jsonb array de «{recurso, ref}»)"
+    literais:
+      - "channel_onboarding.recursos_criados"
+      - "jsonb"
+    nomes:
+      - "channel_onboarding.recursos_criados"
+      - "jsonb"
+    nomes_nota:
+      - "CHECK"
+      - "SecretRef"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Tipo de recurso de uma saga"
+    canonico: "RecursoCriado.recurso ∈ {token, pin, canal, subscricao}"
+    literais:
+      - "RecursoCriado.recurso"
+      - "token"
+      - "pin"
+      - "canal"
+      - "subscricao"
+    nomes:
+      - "RecursoCriado.recurso"
+      - "token"
+      - "pin"
+      - "canal"
+      - "subscricao"
+    nomes_nota:
+      - "dict_export"
+      - "CHECK"
+      - "recursos_criados"
+      - "IN"
+      - "jsonb"
+      - "jsonb_typeof"
+      - "array"
+      - "RECURSOS"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Referência ao PIN 2FA do número"
+    canonico: "channel_onboarding.pin_ref"
+    literais:
+      - "channel_onboarding.pin_ref"
+    nomes:
+      - "channel_onboarding.pin_ref"
+    nomes_nota:
+      - "SecretRef"
+      - "meta_pin_2fa"
+      - "cloud_only"
+      - "GRANT"
+      - "UPDATE"
+      - "kamba_app"
+      - "CHECK"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Razão por que um onboarding falhou"
+    canonico: "channel_onboarding.motivo"
+    literais:
+      - "channel_onboarding.motivo"
+    nomes:
+      - "channel_onboarding.motivo"
+    nomes_nota:
+      - "NULL"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Registo de auditoria de um onboarding recusado"
+    canonico: "uma linha de channel_onboarding em «fase = 'falhado'», com motivo e «recursos_criados = '[]'»"
+    literais:
+      - "channel_onboarding"
+      - "motivo"
+    nomes:
+      - "channel_onboarding"
+      - "motivo"
+    nomes_nota:
+      - "CHECK"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Configuração do popup de coexistência"
+    canonico: '«extras.featureType» = whatsapp_business_app_onboarding, «sessionInfoVersion» = "3"'
+    literais:
+      - "whatsapp_business_app_onboarding"
+      - '"3"'
+    nomes:
+      - "whatsapp_business_app_onboarding"
+    nomes_nota:
+      - "E1"
+      - "cloud_only"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Evento com que o popup fecha em coexistência"
+    canonico: "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING"
+    literais:
+      - "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING"
+    nomes:
+      - "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING"
+    nomes_nota:
+      - "E1"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Campos de webhook que um canal subscreve"
+    canonico: "messages, smb_message_echoes, history, smb_app_state_sync, account_update, phone_number_quality_update, business_capability_update, account_alerts, message_template_status_update, template_category_update, message_template_quality_update"
+    literais:
+      - "messages"
+      - "smb_message_echoes"
+      - "history"
+      - "smb_app_state_sync"
+      - "account_update"
+      - "phone_number_quality_update"
+      - "business_capability_update"
+      - "account_alerts"
+      - "message_template_status_update"
+      - "template_category_update"
+      - "message_template_quality_update"
+    nomes:
+      - "messages"
+      - "smb_message_echoes"
+      - "history"
+      - "smb_app_state_sync"
+      - "account_update"
+      - "phone_number_quality_update"
+      - "business_capability_update"
+      - "account_alerts"
+      - "message_template_status_update"
+      - "template_category_update"
+      - "message_template_quality_update"
+    nomes_nota:
+      - "E1"
+      - "smb_message_echoes"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Versão da Graph API"
+    canonico: "KAMBA_META_GRAPH_VERSION, na forma «v<maior>.<menor>»"
+    literais:
+      - "KAMBA_META_GRAPH_VERSION"
+    nomes:
+      - "KAMBA_META_GRAPH_VERSION"
+    nomes_nota:
+      - "GraphFalso"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Porta de escrita no cofre"
+    canonico: "SecretWriter — «cunhar(familia, valor)», «revogar(ref)»"
+    literais:
+      - "SecretWriter"
+    nomes:
+      - "SecretWriter"
+    nomes_nota:
+      - "ADR"
+      - "L002"
+      - "SecretProvider"
+      - "EnvSecretProvider"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Sufixo de uma referência cunhada"
+    canonico: "16 octetos aleatórios em hexadecimal"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "tenant_id"
+      - "kamba_app"
+      - "GRANT"
+      - "UPDATE"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Cifra do token de cliente"
+    canonico: "AES-256-GCM, DEK derivada por tenant, KEK kek_token_cliente no cofre, «kid» versionado dentro do criptograma"
+    literais:
+      - "kek_token_cliente"
+    nomes:
+      - "kek_token_cliente"
+    nomes_nota:
+      - "kek_token_cliente"
+      - "meta_client_token"
+      - "tenant_id"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Tecto de clientes novos"
+    canonico: "es_onboardings_7d < 10 em 7 dias"
+    literais:
+      - "es_onboardings_7d"
+    nomes:
+      - "es_onboardings_7d"
+    nomes_nota:
+      - "E1"
+      - "BYPASSRLS"
+      - "tenant_iso"
+      - "kamba_app"
+      - "abandonado"
+      - "falhado"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Tentativas por fase (gauge)"
+    canonico: "es_onboarding_fase"
+    literais:
+      - "es_onboarding_fase"
+    nomes:
+      - "es_onboarding_fase"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Compensações corridas (contador)"
+    canonico: "es_onboarding_compensado_total"
+    literais:
+      - "es_onboarding_compensado_total"
+    nomes:
+      - "es_onboarding_compensado_total"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Onboardings recusados (contador)"
+    canonico: "es_onboarding_recusado_total"
+    literais:
+      - "es_onboarding_recusado_total"
+    nomes:
+      - "es_onboarding_recusado_total"
+    nomes_nota:
+      - "es_nao_e_v4"
+      - "numero_de_outro_tenant"
+      - "limite_7d"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Rota interna de criação de canal"
+    canonico: "POST /internal/channels"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "tenant_id"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -4497,6 +4836,29 @@ dominios:
       - "whatsapp"
     seccao: "3.19"
     conceito: "Transporte por onde o consentimento foi dado"
+    so_no_registo: false
+  - coluna: "channel_onboarding.fase"
+    valores:
+      - "iniciado"
+      - "es_concluido"
+      - "subscrito"
+      - "a_sincronizar"
+      - "verificado"
+      - "pronto"
+      - "ativo"
+      - "falhado"
+      - "abandonado"
+    seccao: "3.20"
+    conceito: "Fase de um onboarding"
+    so_no_registo: false
+  - coluna: "RecursoCriado.recurso"
+    valores:
+      - "token"
+      - "pin"
+      - "canal"
+      - "subscricao"
+    seccao: "3.20"
+    conceito: "Tipo de recurso de uma saga"
     so_no_registo: false
 
 variantes:

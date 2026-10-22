@@ -14,6 +14,7 @@ import { healthz } from "@kamba/core-ts";
 import { METRICAS } from "@kamba/core-ts/entrada";
 import type { Logger } from "@kamba/core-ts/logger";
 
+import { type DependenciasDosCanais, montarCanais } from "./canais.ts";
 import { SERVICE, VERSION } from "./meta.ts";
 import { type DependenciasDoWebhook, montarWebhook } from "./webhook.ts";
 
@@ -62,7 +63,10 @@ export function createApp(log?: Logger, dependencias?: DependenciasDoWebhook): H
  * a quem alcança a Internet» e «exposto a quem alcança a rede interna», e é a
  * que está nas mãos deste ticket. Fechar a rede é KAM-077.
  */
-export function criarAppDeMetricas(log?: Logger): Hono {
+export function criarAppDeMetricas(
+  log?: Logger,
+  canais?: DependenciasDosCanais,
+): Hono {
   const app = new Hono();
 
   // **O mesmo `onError` da app pública, e não é zelo.** Sem ele, o tratador por
@@ -85,5 +89,22 @@ export function criarAppDeMetricas(log?: Logger): Hono {
       "content-type": "text/plain; version=0.0.4; charset=utf-8",
     }),
   );
+
+  // **O `POST /internal/channels` do KAM-016, e vai aqui e não na app publica.**
+  //
+  // Esta rota cria canais, e o `tenant_id` vem no corpo (criterio 1). Na porta
+  // publica, quem lhe chegasse podia ligar um numero ao tenant que quisesse — e
+  // a porta publica e, por desenho, alcancavel da Internet (ADR-001). E a mesma
+  // razao que tirou o `/metrics` de la na revisao adversarial do KAM-013, com
+  // mais em jogo: ali lia-se a profundidade da fila, aqui escrevia-se no
+  // esquema. O `canais.ts` escreve o raciocinio por extenso.
+  //
+  // `canais` e opcional pela mesma razao que as `dependencias` do `createApp`
+  // sao: os testes da sonda e das metricas nao precisam de base de dados nem de
+  // Meta falsa, e exigir-lhas obrigava-os a montar um onboarding inteiro para
+  // provar que o `/metrics` responde. **Sem elas a rota nao existe, e isso e
+  // visivel** — responde 404, nao 200.
+  if (canais !== undefined) montarCanais(app, canais, log);
+
   return app;
 }

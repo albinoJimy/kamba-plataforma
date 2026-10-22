@@ -128,6 +128,16 @@ TABELAS_0014 = ("channel_quality_log",)
 #: coluna. Entra nesta tupla porque existe em `platform`.
 TABELAS_0015 = ("consent_event", "consent_texts")
 
+#: KAM-016: a tentativa de onboarding de canal pelo Embedded Signup v4.
+#:
+#: Uma so, e **nao acrescenta coluna nenhuma a `tenant_channels`** — os tres
+#: identificadores que o criterio 8 manda guardar (`waba_id`, `waac_id`,
+#: `phone_number_id`) existem desde a `0001`, com o `token_ref`. Referencia duas
+#: tabelas por FK: a `tenants` da `0001` e a propria `tenant_channels`, esta por
+#: FK composta com o `tenant_id` — que assenta na `tenant_channels_tenant_id_uq`
+#: que a `0009` acrescentou precisamente para isto.
+TABELAS_0016 = ("channel_onboarding",)
+
 #: A unica vista do esquema (KAM-022). Separada das tabelas porque a descoberta
 #: do catalogo tambem as separa, e porque o `verificar_vistas` do
 #: `db/tests_isolamento/catalogo.py` — que existe desde o KAM-004 — passa a ter
@@ -139,15 +149,21 @@ TABELAS = tuple(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
         + TABELAS_0006 + TABELAS_0007 + TABELAS_0008 + TABELAS_0009
         + TABELAS_0010 + TABELAS_0011 + TABELAS_0012 + TABELAS_0013
-        + TABELAS_0014 + TABELAS_0015
+        + TABELAS_0014 + TABELAS_0015 + TABELAS_0016
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0015`.
+#:
+#: Pela mesma razao das outras: o `downgrade` da `0016` leva a base para aqui, e
+#: o teste do ciclo compara o conjunto com esta tupla.
+TABELAS_ATE_0015 = tuple(sorted(set(TABELAS) - set(TABELAS_0016)))
 
 #: O que existe em `platform` quando a base esta na revisao `0014`.
 #:
 #: Pela mesma razao das outras: o `downgrade` da `0015` leva a base para aqui, e
 #: o teste do ciclo compara o conjunto com esta tupla.
-TABELAS_ATE_0014 = tuple(sorted(set(TABELAS) - set(TABELAS_0015)))
+TABELAS_ATE_0014 = tuple(sorted(set(TABELAS_ATE_0015) - set(TABELAS_0015)))
 
 #: O que existe em `platform` quando a base esta na revisao `0013`.
 #:

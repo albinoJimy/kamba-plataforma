@@ -405,6 +405,56 @@ def _prova_de_consentimento(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _tentativa_de_onboarding(cursor, tenant_id: str, canario: str) -> None:
+    """Uma tentativa de onboarding de canal do tenant (KAM-016).
+
+    **O canario vai no `waba_id`.** Das treze colunas, duas sao UUID de
+    referencia, uma e um dominio fechado (`fase`), uma e um `jsonb` com `CHECK`
+    de ser um *array*, duas sao tempos, o `code_hash` so aceita 32 octetos e o
+    `pin_ref` tem `CHECK` de forma de `SecretRef`. Sobram o `waba_id`, o
+    `waac_id`, o `phone_number_id` e o `motivo` — e escolhe-se o `waba_id`
+    porque e ele que esta na `channel_onboarding_tenant_waba_uq`, que **leva o
+    `tenant_id`**: os dois tenants podem semear o **mesmo** canario sem colidir,
+    que e exactamente o que o X-03 precisa — semeia o mesmo valor nos dois e
+    exige que cada um veja so o seu. E a mesma razao que escolheu o `media_id`
+    no `_midia` e o `event_key` no `_transicao_de_qualidade`.
+
+    O `phone_number_id` **nao** podia ser o canario, e vale dizer porque: a
+    unicidade dele em `tenant_channels` e **global** (e e isso que da o 409 do
+    criterio 4), pelo que semear o mesmo valor nos dois tenants colidia — nao
+    aqui, que nao tem unicidade sobre ele, mas a semente ficava a dizer uma
+    coisa que a tabela ao lado recusa. Deriva-se do `tenant_id`, como o
+    `_handoff` faz com o `handoff_id`.
+
+    O `code_hash` **deriva do canario**, pelo `sha256`: continua unico por tenant
+    e satisfaz a `channel_onboarding_code_uq`. Nao e **ele** o canario porque o
+    oraculo procura texto, e um resumo de 32 octetos nao aparece numa procura de
+    texto — a mesma razao do `evidence_hash` no `_prova_de_consentimento`.
+
+    A fase fica na omissao (`iniciado`), e isso nao e indiferente: o
+    `channel_onboarding_canal_ck` exige `channel_id` nas seis fases do meio, e a
+    receita nao cria canal.
+
+    **Sem coluna alteravel, e e um privilegio e nao uma escolha.** A `0016` da a
+    `kamba_app` `SELECT` e mais nada — o onboarding e provisionamento, e quem
+    provisiona e o `kamba_batch` (dicionario §3.2). O que se prova nesta tabela e
+    que os privilegios de escrita **nem existem**, que e mais forte do que a
+    politica recusar porque nao depende de a politica estar certa.
+
+    Semeia o `kamba_batch`, que e quem escreve esta tabela em producao — ao
+    contrario da conversa, da passagem, da midia, da transicao de qualidade e da
+    prova de consentimento, que semeiam o administrador da instancia porque la o
+    `kamba_batch` nao tem privilegios ou o `INSERT` esta sob `WITH CHECK`. Aqui
+    tem os quatro verbos, e `BYPASSRLS`.
+    """
+    cursor.execute(
+        "INSERT INTO platform.channel_onboarding "
+        "(tenant_id, waba_id, phone_number_id, code_hash) "
+        "VALUES (%s, %s, 'pnid-' || %s, sha256(convert_to(%s, 'UTF8')))",
+        (tenant_id, canario, tenant_id, canario),
+    )
+
+
 def _midia(cursor, tenant_id: str, canario: str) -> None:
     """Um objecto de midia do tenant (KAM-020). O canario vai no `media_id`.
 
@@ -709,6 +759,18 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "consent_event"): Receita(
         _prova_de_consentimento, "text_version", None, None, semeador="admin",
     ),
+    # KAM-016. O canario vai no `waba_id`, que esta na
+    # `channel_onboarding_tenant_waba_uq` e **leva o `tenant_id`**: os dois
+    # tenants podem semear o mesmo valor, que e o que o X-03 precisa. **Sem
+    # coluna alteravel e sem escrita do papel**, e as duas sao privilegios: a
+    # `0016` da a `kamba_app` `SELECT` e mais nada, porque o onboarding e
+    # provisionamento e quem provisiona e o `kamba_batch` (dicionario §3.2). E a
+    # primeira tabela deste esquema em que o `kamba_app` **le e nao escreve
+    # nada** — a `message_templates` le e altera, a `events_dlq` escreve e nao
+    # le; esta so le.
+    ("platform", "channel_onboarding"): Receita(
+        _tentativa_de_onboarding, "waba_id", None, None, escrita_do_papel=False,
+    ),
     ("platform", "events_outbox"): Receita(
         _evento_no_outbox, "agregado_id", None, None, semeador="admin"
     ),
@@ -822,6 +884,11 @@ ORDEM = (
     # porque a ordem inversa e a de apagar e esta tabela nao e apontada por
     # nenhuma.
     ("platform", "consent_event"),
+    # KAM-016: tem duas FK (`tenants` e a composta para `tenant_channels`), pelo
+    # que vem depois do canal — que o proprio `ComDoisTenants` semeia antes de
+    # qualquer receita. Fica aqui, a seguir a prova de consentimento, porque a
+    # ordem inversa e a de apagar e esta tabela nao e apontada por nenhuma.
+    ("platform", "channel_onboarding"),
     # KAM-009: as duas so tem FK para `tenants`, e por isso ficam no fim.
     ("platform", "tenant_usage"),
     ("platform", "usage_ledger"),

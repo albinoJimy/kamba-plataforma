@@ -75,6 +75,10 @@
       "types": "./dist/qualidade/index.d.ts",
       "default": "./dist/qualidade/index.js"
     },
+    "./onboarding": {
+      "types": "./dist/onboarding/index.d.ts",
+      "default": "./dist/onboarding/index.js"
+    },
     "./chr/fila": {
       "types": "./dist/chr/fila.d.ts",
       "default": "./dist/chr/fila.js"

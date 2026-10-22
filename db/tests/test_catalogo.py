@@ -40,6 +40,16 @@ COLUNAS_DE_TELEFONE_ACEITES = {
     # A garantia e mais forte do que a do `phone_number_id`, que e `text`: num
     # `integer` nao cabe um E.164. O nome e o da Meta, e manteve-se por isso.
     ("tenant_channels", "max_phone_numbers_per_business"),
+    # KAM-016, revisao `0016`. **E o mesmo identificador opaco da Meta** que a
+    # `tenant_channels`, a `inbound_events` e a `unrouted_events` ja tinham, e
+    # nao um telefone: o `COMMENT` da coluna da `0001` di-lo por extenso — «Nao
+    # e um telefone: e uma chave opaca da Cloud API». Esta aqui porque a
+    # tentativa de onboarding tem de o guardar antes de haver canal: e ele que
+    # vai bater na unicidade **global** e dar o 409 do criterio 4. **Quinta
+    # entrada com este nome**, e a repeticao diz o que ha a dizer: o nome vem da
+    # Meta e nao se traduz, e a lista fechada e o que impede que um telefone de
+    # cliente entre num dia com este nome.
+    ("channel_onboarding", "phone_number_id"),
 }
 FRAGMENTOS_DE_TELEFONE = ("msisdn", "telefone", "phone")
 
@@ -192,6 +202,14 @@ class TestConvencoes(ComBase):
                 # `consent_actual` precisava vem do `ocorrido_em`, e o empate
                 # dentro do trio e impossivel pela `consent_event_prova_uq`.
                 "consent_event",
+                # KAM-016: a tentativa de onboarding. `uuid` aleatorio, e aqui a
+                # razao e a mesma por outro caminho: o `kamba_app` **le** esta
+                # tabela — o painel da loja ve em que fase esta o canal dela —, e
+                # com um `id` sequencial esse papel media **quantos clientes
+                # novos a plataforma esta a ligar**, que e exactamente o numero
+                # que o tecto de dez em sete dias mede. Um concorrente com uma
+                # loja na plataforma lia a rampa de lancamento dela.
+                "channel_onboarding",
             }
             | por_identidade,
         )
@@ -271,6 +289,17 @@ class TestConvencoes(ComBase):
                 # tabela esta ao lado, na `event_key_uq` composta com o
                 # `tenant_id`. Uma chave primaria derivada do evento era o
                 # mesmo facto duas vezes.
+                # KAM-016: a chave e um `uuid` gerado, e a chave de negocio
+                # esta ao lado em **duas** unicidades — `(tenant_id, code_hash)`
+                # e `(tenant_id, waba_id)` —, que e a idempotencia do criterio 2.
+                # Uma chave primaria composta por `(tenant_id, waba_id)` era a
+                # alternativa, e nao se escolheu: a compensacao e a transicao
+                # referem uma tentativa pelo `id`, e uma chave de duas colunas
+                # obrigava cada caminho a carregar as duas. **A posicao e antes
+                # da de qualidade**: a lista esta ordenada e «channel_o» vence
+                # «channel_q» porque 'o' < 'q' — a primeira versao poe-a antes
+                # da `consent_event` e o gate 8 recusou-a por isso.
+                ("channel_onboarding", "id", "uuid", "gen_random_uuid()"),
                 ("channel_quality_log", "id", "uuid", "gen_random_uuid()"),
                 # KAM-022: a chave da prova e um `uuid` gerado, e a
                 # idempotencia do criterio 2 esta ao lado, na
@@ -455,6 +484,14 @@ class TestConvencoes(ComBase):
             {t for t, _ in com_tenant},
             {"tenant_channels", "entitlements", "contacts", "contact_deks",
              "contact_endpoints",
+             # KAM-016. A tentativa de onboarding tem chave primaria `id`, que
+             # **nao** leva `tenant_id` — logo indice proprio `(tenant_id,
+             # fase)`, pela razao da `handoffs`, da `media_assets` e da
+             # `channel_quality_log`. Os outros dois indices da tabela **nao**
+             # comecam pelo `tenant_id`, e e decisao: as perguntas que
+             # respondem — a janela de sete dias e a varredura dos 30 minutos —
+             # nao filtram por tenant, e quem as faz tem `BYPASSRLS`.
+             "channel_onboarding",
              # KAM-014. A conversa tem `(tenant_id, contact_id, channel_id)`,
              # que e a `UNIQUE` de negocio **e** o indice que a RLS precisa:
              # `tenant_id` em primeiro lugar, sem indice extra.
@@ -604,7 +641,12 @@ class TestConvencoes(ComBase):
         # vale para o titular, nao para o fio em que ele o deu. A
         # `consent_texts` nao tem FK nenhuma: nao tem `tenant_id` e a
         # finalidade e um dominio e nao uma tabela.
-        self.assertEqual(len(linhas), 33)
+        # 35 desde o KAM-016: as **duas** da `channel_onboarding` — para
+        # `tenants` e a composta para `tenant_channels`. Duas e nao tres, pela
+        # razao das duas entradas acima: uma tentativa de onboarding e do canal
+        # e nao de um contacto nem de uma conversa — no momento em que ela se
+        # abre nao ha cliente nenhum na historia.
+        self.assertEqual(len(linhas), 35)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)
