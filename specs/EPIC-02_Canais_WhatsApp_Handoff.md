@@ -1336,6 +1336,14 @@ métrica aceita um identificador, que todas as consultas levam `tenant_id` além
 da RLS — excepto as três varreduras, que o declaram —, e que o `downgrade` é
 reversível com linhas.
 
+**E um oitavo, que nenhum gate local apanhou porque o *gate* 7 não corre
+offline:** as baterias deste ticket usavam telefones de forma **angolana real**
+(`+244 9…`), 38 deles, e o `varrer` do KAM-024 recusa-os — o critério 7 daquele
+ticket pede «0 telefones reais no repositório». Passaram ao `999`, o indicativo
+que a UIT não atribui a país nenhum e que o `INDICATIVO_FICTICIO` reserva. Não
+se declarou excepção no inventário: um número de ensaio não precisa de forma
+angolana para provar nada, e a convenção já existia em três sítios.
+
 **Uma alínea do critério 1 fica por demonstrar com *fixture* do simulador.** Ele
 pede «*fixture* com 6 meses de histórico»; a do KAM-024 traz **uma** *thread*, e
 o caminho de seis meses exercita-se com uma contagem sintética (1 240 mensagens)
