@@ -25,6 +25,7 @@
  * separada de `SecretAusenteError`.
  */
 
+import { cunharRef, type SecretWriter } from "./escrita.ts";
 import {
   type Ambiente,
   CofreInacessivelError,
@@ -47,8 +48,15 @@ export interface OpenBaoFakeOpcoes {
   readonly selado?: boolean;
 }
 
-/** *Fake* de OpenBao com semântica de versões do KV v2. */
-export class OpenBaoFakeProvider implements SecretProvider {
+/**
+ * *Fake* de OpenBao com semântica de versões do KV v2.
+ *
+ * **Implementa também a `SecretWriter`** (KAM-016), e é a única das três
+ * implementações que o faz: um OpenBao escreve, e um `EnvSecretProvider` não —
+ * um processo não escreve no seu próprio ambiente de forma que outro veja. A
+ * razão de a porta de escrita ser separada está no `escrita.ts`.
+ */
+export class OpenBaoFakeProvider implements SecretProvider, SecretWriter {
   readonly nome = "openbao-fake";
   readonly ambiente: Ambiente;
   #selado: boolean;
@@ -91,6 +99,35 @@ export class OpenBaoFakeProvider implements SecretProvider {
     if (this.#selado) {
       throw new CofreInacessivelError(this.nome, "cofre selado");
     }
+  }
+
+  /**
+   * `SecretWriter.cunhar`: uma instância nova da família, com sufixo aleatório.
+   *
+   * Passa pelo `health()` como as leituras: um cofre selado **responde** e não
+   * serve segredos, e escrever num cofre selado é a mesma classe de falha que
+   * ler de um — `CofreInacessivelError`, que se tolera durante uma janela, e não
+   * `SecretAusenteError`, que nunca se tolera.
+   */
+  async cunhar(familia: string, valor: string): Promise<SecretRef> {
+    await this.health();
+    const ref = cunharRef(familia);
+    this.#dados.set(ref, [valor]);
+    return ref;
+  }
+
+  /**
+   * `SecretWriter.revogar`: apaga a referência. **Idempotente**, por contrato.
+   *
+   * Revogar o que já não existe resolve e não lança — a compensação de uma saga
+   * pode correr duas vezes, e uma compensação que falha na segunda passagem
+   * deixa a saga sem forma de acabar. A forma da referência valida-se na mesma:
+   * uma referência mal formada não é «já não existe», é um defeito de quem
+   * chama.
+   */
+  async revogar(ref: SecretRef): Promise<void> {
+    await this.health();
+    this.#dados.delete(validarRef(ref));
   }
 
   async get(ref: SecretRef): Promise<string> {

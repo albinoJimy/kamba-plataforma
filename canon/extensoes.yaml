@@ -33,6 +33,16 @@
 # extensao e qualificada e o nome canonico nao, mas ambos descrevem a mesma
 # coisa (uma `SecretRef` opaca), e era isso que a extensao estava a dizer.
 #
+# O `tenant_channels.waac_id` saiu **pela mesma razao**, com a emenda 1.29
+# (KAM-016): o `waac_id` passou a ser nome do §3.20, como coluna de
+# `channel_onboarding`, porque o criterio 8 desse ticket manda guardar os dois
+# identificadores (`waba_id` hoje, `waac_id` na Fase 3 do novo modelo de contas,
+# H1 2028). O lint recusou a extensao na primeira execucao do *gate* 3b, com a
+# mensagem que a entrada do `token_ref` ja tinha produzido uma vez — e a
+# repeticao e o sinal de que a regra funciona: um nome que um ticket poe no
+# dicionario deixa de precisar de extensao, e a extensao que fica vira
+# duplicado.
+#
 # As do KAM-008 sao o que a revisao `0003` (identidade de contacto) usa e o
 # §3.1 nao enumera: duas colunas de `contact_endpoints` — o dicionario escreve a
 # tabela com reticencias — e os valores dos tres dominios fechados. Eram tres:
@@ -95,10 +105,6 @@ extensoes:
     ticket: KAM-003
     data: 2026-10-11
   - nome: tenants.deleted_at
-    tipo: coluna
-    ticket: KAM-003
-    data: 2026-10-11
-  - nome: tenant_channels.waac_id
     tipo: coluna
     ticket: KAM-003
     data: 2026-10-11
