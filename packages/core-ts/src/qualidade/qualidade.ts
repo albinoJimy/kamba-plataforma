@@ -29,6 +29,13 @@
  * `statuses` da Meta não é garantida (CONFIRMADO, `E1` §5). Com o registo à
  * frente, o segundo evento morre na unicidade antes de tocar em nada.
  *
+ * **E os cinco passos têm de correr numa transacção, que é de quem chama.** O
+ * passo 2 consome a `event_key`; um processo que caia entre ele e o passo 4
+ * perde a transição **para sempre**, porque a Meta reenvia e o `ON CONFLICT`
+ * deduplica contra a linha que ficou. O `ClienteSql` é por isso a ligação
+ * **dentro** da transacção de quem chama — ver a nota da porta 1 no
+ * `contrato.ts` —, e é o que o `comConsumo` do KAM-006 dá por desenho.
+ *
  * ## O que este módulo **não** faz, e é escopo e não esquecimento
  *
  * * **Não escreve `tenants.estado`** (critério 3). A revisão `0007` retirou o

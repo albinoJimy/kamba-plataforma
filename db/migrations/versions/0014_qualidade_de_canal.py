@@ -146,10 +146,21 @@ def upgrade() -> None:
             tenant_id      uuid        NOT NULL,
             channel_id     uuid        NOT NULL,
             evento         text        NOT NULL,
-            -- Anulavel, e o `NULL` tem significado: e a **primeira** linha de
-            -- um canal, onde nao havia valor anterior. Um `''` ou um
-            -- `'desconhecido'` punham uma leitura a decidir se o canal nasceu
-            -- assim ou se alguem nao soube ler.
+            -- Anulavel, e o `NULL` significa «nao havia valor anterior
+            -- comparavel». Um `''` ou um `'desconhecido'` punham uma leitura a
+            -- decidir se o canal nasceu assim ou se alguem nao soube ler.
+            --
+            -- **E `NULL` em dois casos diferentes, e a primeira versao deste
+            -- comentario so dizia um.** Num
+            -- `phone_number_quality_update` ou num `business_capability_update`
+            -- e a **primeira** linha daquele canal, porque dali para a frente o
+            -- anterior sai da coluna correspondente de `tenant_channels`. Num
+            -- `account_alerts` e num `message_template_quality_update` e
+            -- **sempre** `NULL`, e nao e omissao: o alerta e um texto que nao
+            -- substitui valor nenhum, e a qualidade de um template vive noutra
+            -- tabela (`message_templates.quality`), pelo que po-la aqui era
+            -- duplicar um estado que o `SQL_PAUSAR_TEMPLATE` ja escreve.
+            -- Apanhado pela revisao adversarial.
             valor_anterior text,
             valor_novo     text        NOT NULL,
             -- A hora que a Meta diz, nao a nossa: e por ela que a sequencia se

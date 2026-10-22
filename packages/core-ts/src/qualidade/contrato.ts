@@ -34,9 +34,23 @@
  * O tratador não abre ligação nenhuma que não precise e não implementa nada que
  * seja de outro ticket. O que ele recebe:
  *
- * 1. **`ClienteSql`** — a ligação de `kamba_app`, **com contexto de tenant**. É
- *    o papel que a `0014` autoriza a escrever `channel_quality_log` (`SELECT` e
- *    `INSERT`, sem `UPDATE`) e `tenant_channels`.
+ * 1. **`ClienteSql`** — a ligação de `kamba_app`, **com contexto de tenant e
+ *    dentro da transacção de quem chama**. É o papel que a `0014` autoriza a
+ *    escrever `channel_quality_log` (`SELECT` e `INSERT`, sem `UPDATE`) e
+ *    `tenant_channels`.
+ *
+ *    **A transacção não é detalhe, e a primeira versão desta lista não a
+ *    exigia.** Os passos de `qualidadeDoNumero` são cinco instruções — registar,
+ *    escrever a qualidade, marcar templates, mudar o estado, emitir — e o
+ *    registo é o que consome a `event_key`. Com cada instrução na sua própria
+ *    transacção, um processo que caia depois do registo e antes da mudança de
+ *    estado **perde a transição para sempre**: a Meta reenvia, o `ON CONFLICT`
+ *    deduplica, e o canal fica `ativo` com a qualidade `red` escrita. Quem
+ *    chama envolve-os, e é o que o `comConsumo` do KAM-006 faz por desenho
+ *    (ADR-013: marca de consumo e efeito na mesma transacção) — é o mesmo
+ *    argumento que obriga a `Emitir` a correr na transacção de quem chama, e
+ *    vale para o conjunto e não só para ela. Apanhado pela revisão
+ *    adversarial.
  * 2. **`Emitir`** — quem publica o `channel.updated`. Porta e não chamada
  *    directa porque a emissão é `platform.evt_emitir` na transacção de quem
  *    chama, e quem a liga é o serviço (a regra do KAM-005 e do ADR-009).

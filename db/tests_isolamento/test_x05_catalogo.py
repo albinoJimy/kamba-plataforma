@@ -43,8 +43,15 @@ class TestCatalogoReal(ComBase):
         """
         self.assertEqual(set(catalogo.excepcoes_rls()), {"platform.audit_heads"})
 
-    def test_a_descoberta_encontra_as_vinte_e_uma_tabelas(self) -> None:
+    def test_a_descoberta_encontra_as_tabelas_todas(self) -> None:
         """Se a descoberta encolher, a suite inteira passa a testar menos.
+
+        **O nome nao leva o numero, e deixou de o levar no KAM-021.** Chamava-se
+        `..._as_vinte_e_uma_tabelas` e a assercao ja ia em vinte e tres: o numero
+        no nome ficou para tras duas vezes — no KAM-020 e aqui — porque quem
+        acrescenta uma tabela mexe na lista e nao no nome do metodo, e um nome que
+        diz um numero errado e pior do que um que nao diz nenhum. O numero que
+        conta esta na lista abaixo, que e o que falha.
 
         Catorze com o KAM-012, que trouxe o `audit_log` e o `audit_heads`. O
         segundo **nao tem** RLS — a descoberta lista o que **devia** te-la, e

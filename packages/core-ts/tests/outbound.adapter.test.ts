@@ -64,6 +64,7 @@ import {
   WINDOW_CLOSED,
   type Corpo,
   type Estado,
+  type EstadoParaEnvio,
   type Pedido,
   type Pricing,
   type RespostaDaMeta,
@@ -301,6 +302,12 @@ interface Opcoes {
   readonly ambiente?: Record<string, string | undefined>;
   readonly freeTier?: { readonly usadas: number; readonly tecto: number } | null;
   readonly limites?: Limites;
+  /**
+   * A porta 5 do KAM-021, critério 9. **`undefined` não a liga** — que é o
+   * comportamento de qualquer `adapter` escrito antes daquele ticket —, e
+   * `null` liga-a a responder `null`, que é o canal que não se encontra.
+   */
+  readonly estado?: EstadoParaEnvio | null;
 }
 
 function montar(opcoes: Opcoes = {}): Montagem {
@@ -345,6 +352,9 @@ function montar(opcoes: Opcoes = {}): Montagem {
       return new Date(agora);
     },
     ...(opcoes.limites === undefined ? {} : { limites: opcoes.limites }),
+    ...("estado" in opcoes
+      ? { estado: async () => opcoes.estado ?? null }
+      : {}),
     aleatorio: () => opcoes.aleatorio ?? 0,
     dormir: async (ms: number) => {
       dormiu.push(ms);
@@ -710,6 +720,53 @@ describe("a ordem dos passos: onde nao ha chamada HTTP", () => {
 
     assert.equal(resultado.ok === false ? resultado.motivo : "", "MARKETING_NOT_ALLOWED");
     assert.equal(meta.chamadas, 0);
+  });
+});
+
+describe("a porta de estado do KAM-021 (criterio 9)", () => {
+  it("**um canal que a porta nao encontra nao envia**, e nao chama nada", async () => {
+    // **A mutação que apagou esta recusa sobreviveu à primeira prova**, porque
+    // nenhum teste ligava a porta a responder `null`. É a recusa mais
+    // importante das três: um canal que não se consegue resolver não é «sem
+    // opinião», é um canal que não existe neste contexto — e enviar por ele era
+    // o contrário do que o critério 9 pede.
+    const { saida, bd, meta } = montar({ estado: null });
+    const resultado = await saida.enviar(pedido());
+
+    assert.equal(resultado.ok === false ? resultado.motivo : "", "STATE_REFUSED");
+    assert.equal(meta.chamadas, 0, "recusar e nao chamar e o ponto");
+    // Leu a janela e parou: a porta corre **depois** da janela e **antes** de
+    // enfileirar, pelo que nada ficou escrito.
+    assert.deepEqual(bd.pedidos, ["janela"]);
+  });
+
+  it("**sem a porta ligada, envia como antes do KAM-021**", async () => {
+    // A metade positiva, e sem ela a de cima não vale: a porta é **opcional**,
+    // e um `adapter` escrito antes daquele ticket comporta-se exactamente como
+    // se comportava. É a mesma escolha que o `freeTier: null` do KAM-015 fez.
+    const { saida, meta } = montar();
+    assert.equal((await saida.enviar(pedido())).ok, true);
+    assert.equal(meta.chamadas, 1);
+  });
+
+  it("**um par de estados que a matriz recusa nao envia**", async () => {
+    // Pelo regime e não por um `if`: `onboarding` sobre um canal `ativo` recusa
+    // `responder_sessao` na matriz do KAM-009, e é ela que decide.
+    const { saida, meta } = montar({
+      estado: { estadoTenant: "onboarding", estadoCanal: "ativo" },
+    });
+    const resultado = await saida.enviar(pedido());
+
+    assert.equal(resultado.ok === false ? resultado.motivo : "", "STATE_REFUSED");
+    assert.equal(meta.chamadas, 0);
+  });
+
+  it("**um par que a matriz permite envia**, e e o controlo do anterior", async () => {
+    const { saida, meta } = montar({
+      estado: { estadoTenant: "ativo", estadoCanal: "ativo" },
+    });
+    assert.equal((await saida.enviar(pedido())).ok, true);
+    assert.equal(meta.chamadas, 1);
   });
 });
 

@@ -227,6 +227,16 @@ export const SQL_PAUSAR_TEMPLATE = `
  * **Só os aprovados**, e isso é escopo: um template `rejected` ou `disabled` não
  * tem revisão que fazer, e um `pending` ainda está com a Meta. O
  * `RETURNING count` sai por linha, e quem chama conta.
+ *
+ * **Marca os templates do *tenant* inteiro e não só os do canal, e isso é o
+ * esquema e não uma escolha.** A `message_templates` tem chave primária
+ * `(tenant_id, name, lang)` e **não tem coluna de canal** (revisão `0010`): um
+ * template é da conta e não do número. Um *tenant* com dois números vê os
+ * templates marcados por um `yellow` no outro, e a alternativa — marcar só
+ * alguns — exigia saber quais foram enviados por qual número, que é informação
+ * de `outbound_messages` e não da tabela dos templates. Marcar é barato e
+ * reversível (quem revê lê a `quality`); pausar seria o que não se podia fazer
+ * assim, e é por isso que o `yellow` **marca** e não pausa.
  */
 export const SQL_MARCAR_TEMPLATES = `
   UPDATE platform.message_templates

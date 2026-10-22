@@ -21,6 +21,8 @@ da base, e `ComBase` assume `head`.
 
 from __future__ import annotations
 
+import pathlib
+import re
 import unittest
 
 import bootstrap
@@ -418,6 +420,119 @@ class TestDowngradeDa0014(unittest.TestCase):
             (canal,),
         )
         self.assertIsNone(self.cursor.fetchone()[0])
+
+
+class TestParidadeDosDominios(unittest.TestCase):
+    """As listas de TypeScript e os dominios do DDL dizem o mesmo.
+
+    **Esta classe existe porque o `docstring` do modulo prometia um teste que
+    nao havia.** O `qualidade/contrato.ts` diz «ha um teste que compara as tres
+    listas» — o `DESTINO_POR_KIND` do KAM-013, o `CHECK` da `0014` e o
+    `EVENTOS_DE_CANAL` do modulo —, e o que existia comparava **duas**: as duas
+    de TypeScript. A terceira, que e o `CHECK`, nao era confrontada com
+    nenhuma. Apanhado pela revisao adversarial do proprio ticket, e e a classe
+    de defeito mais barata de deixar passar: a prosa afirma a garantia e
+    ninguem vai ver.
+
+    Compara como **texto**, que e a unica coisa que um teste em Python pode
+    afirmar sobre uma constante de TypeScript. E a forma do `TestTarifas` do
+    `db/tests_outbound/test_outbound.py`, e a razao de haver duas fontes e a
+    mesma: nao ha leitor de TypeScript em Python e nao ha leitor de YAML em
+    `packages/core-ts`.
+
+    **Os dominios leem-se das revisoes e nao se copiam para aqui**, pela mesma
+    razao que o `TestTarifas` le o YAML em vez de o transcrever: um valor
+    copiado faz a comparacao passar por construcao no dia em que a revisao
+    mudar. Le-se o ficheiro da revisao como **texto**, que e o que o
+    `test_eventos_schema.py` ja faz.
+
+    **O que uma divergencia custava, por lista:**
+
+    * `evento` — o `CHECK` recusava com `23514` um evento que o modulo manda
+      registar, e o *webhook* passava a falhar para sempre (a Meta reenvia);
+    * `motivo` — o `contar` do `metricas.ts` **levanta** `SufixoInvalidoError`
+      num sufixo fora da lista. Um motivo novo no `CHECK` da `0013` sem entrada
+      no `MOTIVOS` fazia o caminho da restricao **rebentar**, e o que se perdia
+      nao era a metrica: era a restricao;
+    * `rating` — o `quality_rating` aceitaria um valor que a metrica recusa, e a
+      serie do *gauge* ficava sem a linha dele.
+    """
+
+    #: `NOME = ("'a'", "'b'")` numa revisao -> `["a", "b"]`.
+    PADRAO = r"^{nome} = \(([^)]*)\)"
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        raiz = pathlib.Path(__file__).resolve().parents[2]
+        versoes = raiz / "db" / "migrations" / "versions"
+        cls.rev = {
+            "0010": (versoes / "0010_saida_de_canal.py").read_text(encoding="utf-8"),
+            "0013": (versoes / "0013_restricao_de_canal.py").read_text(
+                encoding="utf-8"
+            ),
+            "0014": (versoes / "0014_qualidade_de_canal.py").read_text(
+                encoding="utf-8"
+            ),
+        }
+        qualidade = raiz / "packages" / "core-ts" / "src" / "qualidade"
+        cls.ts_contrato = (qualidade / "contrato.ts").read_text(encoding="utf-8")
+        cls.ts_metricas = (qualidade / "metricas.ts").read_text(encoding="utf-8")
+
+    def _dominio(self, revisao: str, nome: str) -> list[str]:
+        """O dominio que uma revisao declara, sem as plicas do SQL."""
+        achado = re.search(
+            self.PADRAO.format(nome=nome), self.rev[revisao], re.M | re.S
+        )
+        self.assertIsNotNone(achado, f"{nome} nao esta na revisao {revisao}")
+        assert achado is not None  # para o verificador de tipos
+        bruto = achado.group(1)
+        return [
+            parte.strip().strip(",").strip().strip("'\"").strip("'")
+            for parte in bruto.replace("\n", " ").split(",")
+            if parte.strip()
+        ]
+
+    def test_os_quatro_eventos_do_check_estao_no_modulo(self) -> None:
+        esperados = self._dominio("0014", "EVENTOS_DE_QUALIDADE")
+        self.assertEqual(len(esperados), 4, esperados)
+        # Compara-se o **bloco inteiro** e nao cada valor, para que um quinto na
+        # lista de TypeScript tambem falhe: uma lista que cresce de um lado so e
+        # tao divergente como uma que encolhe.
+        bloco = "export const EVENTOS_DE_CANAL = [\n" + "".join(
+            f'  "{e}",\n' for e in esperados
+        )
+        self.assertIn(
+            bloco,
+            self.ts_contrato,
+            "o EVENTOS_DE_CANAL nao e exactamente o dominio do "
+            "channel_quality_log_evento_ck",
+        )
+
+    def test_os_tres_motivos_do_check_da_0013_estao_na_etiqueta(self) -> None:
+        motivos = self._dominio("0013", "MOTIVOS_DE_RESTRICAO")
+        self.assertEqual(len(motivos), 3, motivos)
+        esperado = (
+            "export const MOTIVOS = ["
+            + ", ".join(f'"{m}"' for m in motivos)
+            + "] as const;"
+        )
+        self.assertIn(
+            esperado,
+            self.ts_metricas,
+            "o MOTIVOS da etiqueta nao e o dominio de "
+            "tenant_channels.motivo_restricao: um motivo em falta faz o "
+            "`contar` levantar, e o que se perde e a restricao",
+        )
+
+    def test_as_tres_qualidades_do_check_da_0010_estao_no_modulo(self) -> None:
+        qualidades = self._dominio("0010", "QUALIDADES")
+        self.assertEqual(len(qualidades), 3, qualidades)
+        esperado = (
+            "export const QUALIDADES = ["
+            + ", ".join(f'"{q}"' for q in qualidades)
+            + "] as const;"
+        )
+        self.assertIn(esperado, self.ts_contrato)
 
 
 if __name__ == "__main__":

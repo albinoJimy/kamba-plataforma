@@ -119,6 +119,30 @@ describe("o que a qualidade manda fazer ao canal (criterio 2)", () => {
     assert.equal(estadoDepois("restringir"), ESTADO_RESTRITO);
   });
 
+  it("**o SQL escreve o estado que o `estadoDepois` diz**, e e a unica ponte", () => {
+    // **Sem esta assercao o `estadoDepois` era uma funcao que so existia para
+    // ser testada.** Ela e o unico sitio onde o mapa accao -> estado esta
+    // escrito para se ler; o SQL escreve o literal, porque uma constante
+    // interpolada numa cadeia de SQL e uma segunda fonte do mesmo valor e abria
+    // a porta a interpolacao. Esta assercao e a ponte entre os dois: se um
+    // mudar sem o outro, falha aqui.
+    //
+    // Apanhado pela revisao adversarial, que perguntou o que e que esta funcao
+    // prende — a licao do KAM-019, onde uma mutacao imortal mostrou codigo que
+    // nao fazia nada.
+    assert.ok(
+      SQL_RESTRINGIR.includes(`estado = '${estadoDepois("restringir") ?? ""}'`),
+      "o SQL_RESTRINGIR nao escreve o estado que o estadoDepois diz",
+    );
+    assert.ok(
+      SQL_REPOR.includes(`estado = '${estadoDepois("repor") ?? ""}'`),
+      "o SQL_REPOR nao escreve o estado que o estadoDepois diz",
+    );
+    // E o predicado de cada um e o estado **de partida**, que e o inverso.
+    assert.ok(SQL_RESTRINGIR.includes(`estado <> '${ESTADO_RESTRITO}'`));
+    assert.ok(SQL_REPOR.includes(`estado = '${ESTADO_RESTRITO}'`));
+  });
+
   it("**`red` num canal ja restrito nao e transicao nova**", () => {
     // O criterio pede «1 transicao», e um `red` repetido nao e uma.
     assert.equal(accaoDaQualidade("red", ESTADO_RESTRITO), "nada");
@@ -143,9 +167,13 @@ describe("o que a qualidade manda fazer ao canal (criterio 2)", () => {
 
   it("**nunca produz `suspenso`, com 50 eventos aleatorios** — a letra do criterio", () => {
     // O criterio 2: «nunca ha transicao automatica para `suspenso` (teste com
-    // 50 eventos aleatorios)». O `suspenso` e de T&S (KAM-089/097), e a
-    // divergencia com o `docs/tecnica/10` §6.4 — que diz RED → `suspenso` —
-    // esta registada.
+    // 50 eventos aleatorios)». O `suspenso` e de T&S (KAM-089/097).
+    //
+    // **A divergencia que o bloco atribui ao `docs/tecnica/10` §6.4 nao
+    // existe:** o documento diz «vermelho → `restrito`», e o controlo de
+    // versoes dele registra a emenda KAM-111 que o corrigiu. Quem ainda diz
+    // `suspenso` e o `docs/tecnica/00` §6.2, e isso o `01` §9 ja registra.
+    // Divida 74.
     //
     // O aleatorio e **determinista**: uma semente fixa, para o caso que falhar
     // se poder repetir. Um `Math.random()` aqui dava um teste que falha uma vez

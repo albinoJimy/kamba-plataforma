@@ -39,8 +39,21 @@ export type Accao = "restringir" | "repor" | "nada";
  *   não se compreende era pior do que não o mudar;
  * * **nunca `suspenso`.** Não há caminho nenhum nesta função que o produza, e é
  *   isso que o teste dos 50 eventos aleatórios afirma. O `suspenso` é de T&S
- *   (KAM-089/097), e a divergência com o `docs/tecnica/10` §6.4 — que diz RED →
- *   `suspenso` — está registada.
+ *   (KAM-089/097).
+ *
+ * **A divergência que o DoD manda registar não existe, e isso mediu-se.** O
+ * bloco do ticket diz, por extenso, que «`../docs/tecnica/10` §6.4 diz RED →
+ * `suspenso`», e o DoD pede essa divergência «registada para correcção». O
+ * documento diz o contrário: a linha do §6.4 é «`phone_number_quality_update`
+ * vermelho → `restrito` (§15); T&S analisa», o §15.1 tem `ativo → restrito` com
+ * decisor automático, e o controlo de versões dele registra a emenda que o
+ * corrigiu — «1.1, Emenda KAM-111 […] §6.4 e §15.1, D-08 (estado `restrito`:
+ * limitação imposta pela Meta, distinta de `suspenso`)». Quem ainda diz
+ * `suspenso` é o `docs/tecnica/00` §6.2, e o `docs/tecnica/01` §9 já registra
+ * essa divergência com a razão (a Meta deixou de reduzir o limite por
+ * qualidade a 2025-10-07; o estado *Flagged* foi eliminado — CONFIRMADO). A
+ * dívida que se abre é a do **bloco do ticket**, que cita um documento
+ * desactualizado: `docs/dividas-documentais.md`, linha 74.
  */
 export function accaoDaQualidade(
   qualidade: Qualidade | null,

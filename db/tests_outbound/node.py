@@ -44,12 +44,19 @@ IMAGEM_NODE = (
 
 #: Segundos. Folga para um runner lento, nao alvo.
 #:
-#: Os tres ficheiros de unidade levam **0,8 s** medidos; o que leva tempo e o
-#: ensaio de base, que abre tres ligacoes ao PostgreSQL e faz um punhado de
-#: envios. 900 e o dobro do que o `tests_chr` usa, e a razao de nao ser 420 e
-#: que a primeira execucao desta suite bateu nos 421 s — e um tecto que corta
-#: no limite nao distingue «o ensaio esta lento» de «o ensaio esta pendurado».
-TEMPO_MAXIMO = 900
+#: Os ficheiros de unidade levam **0,8 s** medidos; o que leva tempo e o ensaio
+#: de base, que abre tres ligacoes ao PostgreSQL e faz um punhado de envios. 900
+#: era o dobro do que o `tests_chr` usa, e a razao de nao ser 420 e que a
+#: primeira execucao desta suite bateu nos 421 s — e um tecto que corta no
+#: limite nao distingue «o ensaio esta lento» de «o ensaio esta pendurado».
+#:
+#: **Subiu para 1 200 no KAM-021**, e o motivo e aritmetica e nao receio: a
+#: suite ganhou dois ficheiros no KAM-023 (um deles com um ciclo de 1 200
+#: incrementos) e dois no KAM-021 (um deles com 200 contactos e 200 linhas de
+#: saida para a letra do criterio 7), e corre com `--test-concurrency=1`, pelo
+#: que os tempos somam. Com 900, a margem sobre a medicao inicial deixou de ser
+#: o dobro.
+TEMPO_MAXIMO = 1200
 
 #: Onde vivem os `node_modules`, quando nao e na raiz do codigo que se testa (a
 #: prova por mutacao corre sobre uma copia que nao os leva).
