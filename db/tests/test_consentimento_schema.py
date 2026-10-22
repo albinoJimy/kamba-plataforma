@@ -324,19 +324,33 @@ class TestProvaDeConsentimento(ComBase):
         `clock_timestamp()` e a omissao.
         """
         instante = "2026-11-02T14:03:11+00:00"
+        # **Os `id` escrevem-se a mao, e e isso que torna este teste um oraculo
+        # e nao uma moeda ao ar.** A primeira versao deixava-os na omissao
+        # (`gen_random_uuid()`): sem o `registado_em` na ordem, o desempate e o
+        # `id DESC` de dois valores aleatorios, pelo que o teste passava **metade
+        # das vezes** — e a prova por mutacao mostrou-o, porque a mutacao que
+        # tira o `registado_em` da ordem foi apanhada por outra coisa e nao por
+        # ele.
+        #
+        # Com o `id` da **primeira** linha mais alto que o da segunda, as duas
+        # ordens discordam de propriedade: `id DESC` escolhe a `v1` e
+        # `registado_em DESC` escolhe a `v2`. O teste exige a `v2`, e por isso
+        # falha **sempre** se o critario do meio desaparecer.
+        alto = "ffffffff-ffff-4fff-8fff-ffffffffffff"
+        baixo = "00000000-0000-4000-8000-000000000001"
         self.cursor.execute(
             "INSERT INTO platform.consent_event "
-            "(tenant_id, contact_id, purpose, text_version, accepted, canal, "
+            "(id, tenant_id, contact_id, purpose, text_version, accepted, canal, "
             " evidence_hash, ocorrido_em) "
-            "VALUES (%s, %s, 'transacao', 'v1', true, 'whatsapp', %s, %s)",
-            (self.tenant, self.contacto, PROVA, instante),
+            "VALUES (%s, %s, %s, 'transacao', 'v1', true, 'whatsapp', %s, %s)",
+            (alto, self.tenant, self.contacto, PROVA, instante),
         )
         self.cursor.execute(
             "INSERT INTO platform.consent_event "
-            "(tenant_id, contact_id, purpose, text_version, accepted, canal, "
+            "(id, tenant_id, contact_id, purpose, text_version, accepted, canal, "
             " evidence_hash, ocorrido_em) "
-            "VALUES (%s, %s, 'transacao', 'v2', true, 'whatsapp', %s, %s)",
-            (self.tenant, self.contacto, bytes([153]) + PROVA[1:], instante),
+            "VALUES (%s, %s, %s, 'transacao', 'v2', true, 'whatsapp', %s, %s)",
+            (baixo, self.tenant, self.contacto, bytes([153]) + PROVA[1:], instante),
         )
         # As duas partilham o instante: e isso que faz deste teste uma prova do
         # desempate e nao do `ocorrido_em`.
@@ -354,7 +368,12 @@ class TestProvaDeConsentimento(ComBase):
         )
         linhas = self.cursor.fetchall()
         self.assertEqual(len(linhas), 1)
-        self.assertEqual(linhas[0][0], "v2", "a vista devia dar a escrita depois")
+        self.assertEqual(
+            linhas[0][0],
+            "v2",
+            "a vista devia dar a escrita depois; a `v1` significa que a ordem "
+            "caiu no `id DESC` e o `registado_em` saiu dela",
+        )
 
     def test_a_vista_nao_mostra_a_prova_nem_o_canal(self) -> None:
         """Quem pergunta «aceitou?» precisa da resposta e nao da prova.
