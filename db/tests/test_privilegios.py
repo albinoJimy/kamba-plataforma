@@ -574,12 +574,24 @@ COLUNAS_POR_PAPEL = {
     # licao do `events_dlq` acima. **O `payload` continua fechado**, que e a
     # propriedade que importa: e a coluna que pode levar telefone e texto.
     ("kamba_app", "unrouted_events", "SELECT"): {"kind", "event_key"},
-    # KAM-014: duas colunas, e sao as duas que o CHR escreve em cada entrada —
-    # a janela de 24 h abre-se com a mensagem que chega. O `mode` **nao** esta:
-    # as transicoes sao KAM-018, e `last_human_activity_at` e de KAM-018/019.
-    # Um privilegio concedido «para quando for preciso» e um privilegio que
-    # ninguem volta a tirar.
-    ("kamba_app", "conversations", "UPDATE"): {"last_inbound_at", "window_expires_at"},
+    # KAM-014 e KAM-018: **quatro** colunas, e eram duas. As duas da `0009` sao
+    # as que o CHR escreve em cada entrada — a janela de 24 h abre-se com a
+    # mensagem que chega. As outras duas chegam com a revisao `0016`, e sao as
+    # que a maquina de modos escreve: a `0009` deixou-as de fora de proposito
+    # («as transicoes sao KAM-018, e e esse ticket que pede o privilegio»), e o
+    # protocolo que ela exigia existe agora (`docs/modos-conversa.md`).
+    #
+    # **As quatro que continuam fora sao o que importa**: `id`, `tenant_id`,
+    # `contact_id` e `channel_id`. Alterar qualquer uma por esta via e
+    # reescrever a identidade da conversa — mover uma conversa de contacto e de
+    # canal —, e quem a reaponta numa fusao e o `kamba_identity`, dentro da
+    # transaccao da fusao.
+    ("kamba_app", "conversations", "UPDATE"): {
+        "mode",
+        "last_human_activity_at",
+        "last_inbound_at",
+        "window_expires_at",
+    },
     # KAM-015. Cinco colunas, e sao as que o ciclo de vida muda depois de a
     # linha existir. **O que nao esta aqui e o que importa**: `tenant_id`,
     # `channel_id`, `contact_id`, `conversation_id`, `idempotency_key`, `kind`,

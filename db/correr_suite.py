@@ -47,6 +47,8 @@ def main() -> int:
         "tests_handoff",
         # KAM-020: a midia recebida.
         "tests_media",
+        # KAM-018: os modos da conversa e o silenciamento do bot.
+        "tests_modos",
     ):
         print(f"suite desconhecida: {directorio!r}", file=sys.stderr)
         return 2

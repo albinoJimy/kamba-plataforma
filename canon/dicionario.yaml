@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.28"
+versao_dicionario: "1.29"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -3807,6 +3807,171 @@ entradas:
     nomes_nota:
       - "accao"
     variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Gatilho de uma transição de modo"
+    canonico: "conv_mode_transitions_total.gatilho ∈ {echo_do_dono, cliente_escreveu, comando_bot, handoff_pedido, handoff_resolvido, opt_out, sem_humano_24h, cliente_reactivou}"
+    literais:
+      - "conv_mode_transitions_total.gatilho"
+      - "echo_do_dono"
+      - "cliente_escreveu"
+      - "comando_bot"
+      - "handoff_pedido"
+      - "handoff_resolvido"
+      - "opt_out"
+      - "sem_humano_24h"
+      - "cliente_reactivou"
+    nomes:
+      - "conv_mode_transitions_total.gatilho"
+      - "echo_do_dono"
+      - "cliente_escreveu"
+      - "comando_bot"
+      - "handoff_pedido"
+      - "handoff_resolvido"
+      - "opt_out"
+      - "sem_humano_24h"
+      - "cliente_reactivou"
+    nomes_nota:
+      - "DESFECHOS"
+      - "tipo"
+      - "echo_do_dono"
+      - "smb_message_echoes"
+      - "wamid"
+      - "outbound_messages"
+      - "comando_bot"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "O que a tabela de transições responde"
+    canonico: "«transita», «sem efeito», «rejeitada»"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "bot"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Silêncio do dono que devolve a palavra ao bot"
+    canonico: "silencio_dono_min = 30 minutos"
+    literais:
+      - "silencio_dono_min"
+    nomes:
+      - "silencio_dono_min"
+    nomes_nota:
+      - "dono"
+      - "cliente_escreveu"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Tempo em atendimento humano sem humano que pausa a conversa"
+    canonico: "24 h"
+    literais: []
+    nomes: []
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Instante a partir do qual as 24 h contam"
+    canonico: "conversations.last_human_activity_at, e handoffs.opened_at quando ela é nula"
+    literais:
+      - "conversations.last_human_activity_at"
+      - "handoffs.opened_at"
+    nomes:
+      - "conversations.last_human_activity_at"
+      - "handoffs.opened_at"
+    nomes_nota:
+      - "humano"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Chave do lock da conversa"
+    canonico: "pg_advisory_xact_lock(hashtextextended(tenant_id ‖ ':' ‖ contact_id, 0))"
+    literais:
+      - "pg_advisory_xact_lock(hashtextextended(tenant_id ‖ ':' ‖ contact_id, 0))"
+    nomes:
+      - "pg_advisory_xact_lock"
+      - "hashtextextended"
+      - "tenant_id"
+      - "contact_id"
+    nomes_nota:
+      - "onOptOut"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Instante em que o turno do AGR começou"
+    canonico: "Pedido.turnoIniciadoEm"
+    literais:
+      - "Pedido.turnoIniciadoEm"
+    nomes:
+      - "Pedido.turnoIniciadoEm"
+    nomes_nota:
+      - "Pedido"
+      - "last_human_activity_at"
+      - "doBot"
+      - "sem_turno"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Métricas dos modos da conversa"
+    canonico: "conv_mode_transitions_total, reply_suppressed_total, conv_mode_rejected_total"
+    literais:
+      - "conv_mode_transitions_total"
+      - "reply_suppressed_total"
+      - "conv_mode_rejected_total"
+    nomes:
+      - "conv_mode_transitions_total"
+      - "reply_suppressed_total"
+      - "conv_mode_rejected_total"
+    nomes_nota:
+      - "chr_resolve_total"
+      - "gwy_shed_total"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "A métrica que o DoD nomeia e que não entra"
+    canonico: "echo_latency_ms"
+    literais:
+      - "echo_latency_ms"
+    nomes:
+      - "echo_latency_ms"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Porque é que um envio do bot foi descartado"
+    canonico: "reply_suppressed_total.motivo ∈ {modo, actividade_humana, sem_turno}"
+    literais:
+      - "reply_suppressed_total.motivo"
+      - "modo"
+      - "actividade_humana"
+      - "sem_turno"
+    nomes:
+      - "reply_suppressed_total.motivo"
+      - "modo"
+      - "actividade_humana"
+      - "sem_turno"
+    nomes_nota:
+      - "modo"
+      - "actividade_humana"
+      - "sem_turno"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Estado de um envio descartado pelo guarda"
+    canonico: "outbound_messages.state = suppressed_by_human"
+    literais:
+      - "outbound_messages.state"
+      - "suppressed_by_human"
+    nomes:
+      - "outbound_messages.state"
+      - "suppressed_by_human"
+    nomes_nota:
+      - "ChannelAdapter"
+      - "SQL_ENFILEIRAR"
+    variantes_literais: []
+  - seccao: "3.20"
+    conceito: "Porta que muda o modo de uma conversa"
+    canonico: "MudarModo"
+    literais:
+      - "MudarModo"
+    nomes:
+      - "MudarModo"
+    nomes_nota:
+      - "ConsentGate"
+      - "humano"
+      - "handoff_pedido"
+      - "pausada"
+      - "opt_out"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -4181,6 +4346,14 @@ tabelas:
     assinatura: "sha256(texto_mostrado ‖ contact_id ‖ wamid ‖ hora)"
     seccao: "3.19"
     conceito: "Prova de que um aviso foi mostrado e aceite"
+  - nome: "pg_advisory_xact_lock"
+    esquema: ""
+    colunas:
+      - "hashtextextended"
+    aberta: false
+    assinatura: "pg_advisory_xact_lock(hashtextextended(tenant_id ‖ ':' ‖ contact_id, 0))"
+    seccao: "3.20"
+    conceito: "Chave do lock da conversa"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -4497,6 +4670,27 @@ dominios:
       - "whatsapp"
     seccao: "3.19"
     conceito: "Transporte por onde o consentimento foi dado"
+    so_no_registo: false
+  - coluna: "conv_mode_transitions_total.gatilho"
+    valores:
+      - "echo_do_dono"
+      - "cliente_escreveu"
+      - "comando_bot"
+      - "handoff_pedido"
+      - "handoff_resolvido"
+      - "opt_out"
+      - "sem_humano_24h"
+      - "cliente_reactivou"
+    seccao: "3.20"
+    conceito: "Gatilho de uma transição de modo"
+    so_no_registo: false
+  - coluna: "reply_suppressed_total.motivo"
+    valores:
+      - "modo"
+      - "actividade_humana"
+      - "sem_turno"
+    seccao: "3.20"
+    conceito: "Porque é que um envio do bot foi descartado"
     so_no_registo: false
 
 variantes:

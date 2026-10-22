@@ -798,14 +798,32 @@ describe("critério 7 — uma conversa que não está em `bot` não vai ao AGR",
     }
   });
 
-  it("`kamba_app` não consegue alterar o `mode`: o privilégio não existe", async () => {
-    await assert.rejects(
-      () =>
-        comTenantReal(appBd, randomUUID(), async () =>
-          appBd.query("UPDATE platform.conversations SET mode = 'bot'"),
-        ),
-      /permission denied/,
-    );
+  it("`kamba_app` não consegue reescrever a identidade da conversa", async () => {
+    // **Este teste mudou de objecto com o KAM-018, e a razão fica escrita.**
+    //
+    // Até à revisão `0016` ele afirmava que `kamba_app` **não** conseguia
+    // alterar o `mode`, e era verdade: a `0009` concedia `UPDATE` em duas
+    // colunas e deixava o `mode` de fora de propósito, porque «as transições são
+    // KAM-018, e é esse ticket que pede o privilégio». O KAM-018 existe, pediu-o
+    // e recebeu-o — a `0016` dá `UPDATE (mode, last_human_activity_at)` —, pelo
+    // que a afirmação antiga passou a ser falsa. Reescrevê-la para continuar a
+    // «passar» seria afirmar uma propriedade que a base já não tem.
+    //
+    // O que **continua** verdadeiro, e é a propriedade que este teste existe
+    // para guardar, são as quatro colunas que nenhuma revisão concede: alterar
+    // qualquer uma por esta via é reescrever a identidade da conversa, e quem a
+    // reaponta numa fusão é o `kamba_identity`, dentro da transacção da fusão. O
+    // privilégio novo é afirmado onde nasce, em `tests_bd/modos.bd.test.ts`.
+    for (const coluna of ["contact_id", "channel_id", "tenant_id", "id"]) {
+      await assert.rejects(
+        () =>
+          comTenantReal(appBd, randomUUID(), async () =>
+            appBd.query(`UPDATE platform.conversations SET ${coluna} = gen_random_uuid()`),
+          ),
+        /permission denied/,
+        coluna,
+      );
+    }
   });
 });
 

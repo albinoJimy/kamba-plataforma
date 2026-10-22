@@ -78,7 +78,13 @@ TESTES_OBRIGATORIOS = (
     "o mesmo evento duas vezes deixa uma conversa e dois jobs com o mesmo jobId",
     "uma linha, com o motivo `canal_desconhecido`, e a re-entrega não deixa outra",
     "com `kamba_app`, a guarda **recusa-se a correr** em vez de contar zero",
-    "`kamba_app` não consegue alterar o `mode`: o privilégio não existe",
+    # **Mudou de objecto com o KAM-018**, e a razao esta no proprio teste: a
+    # revisao `0016` concede `UPDATE (mode, last_human_activity_at)` a
+    # `kamba_app` — o privilegio que a `0009` deixou de fora a dizer «e esse
+    # ticket que o pede» —, pelo que a afirmacao antiga passou a ser falsa. O
+    # que este teste guarda agora sao as quatro colunas da identidade da
+    # conversa, que nenhuma revisao concede.
+    "`kamba_app` não consegue reescrever a identidade da conversa",
     "p95 de 40 resoluções: sem cache ≤ 50 ms, com cache ≤ 5 ms",
     "o BSUID e o telefone não aparecem no job, nem na linha de `conversations`",
 )

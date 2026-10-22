@@ -985,6 +985,22 @@ ci-8:
 	@# Meta nao tem evidencia no `E1`, e um simulador dela fingiria medicao.
 	@echo "==> gate 8: midia recebida contra PostgreSQL 18.6 (KAM-020)"
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_media
+	@#
+	@# KAM-018: os modos da conversa. O que so aqui se prova e o que o objecto
+	@# da prova obriga — o servidor: que o
+	@# `pg_advisory_xact_lock(hash(tenant_id, contact_id))` e exclusao mutua a
+	@# serio (a guarda **bloqueia** a porta de uma transicao em curso, em duas
+	@# ligacoes, e nao ha forma de o medir com uma), que duas transicoes
+	@# concorrentes deixam **uma** transicao e **um** evento pelo predicado
+	@# `mode = ANY(...)` e nao por quem leu primeiro, que as 100 intercalacoes do
+	@# criterio 3 — com semente fixa, e corridas duas vezes para o provar — dao 0
+	@# mensagens do bot depois de o *echo* estar registado, que o relogio das 24 h
+	@# conta do `handoffs.opened_at` quando nao houve actividade humana, e que o
+	@# `GRANT UPDATE (mode, last_human_activity_at)` da revisao `0016` existe e e
+	@# por coluna. Nao corre contra simulador nenhum: a guarda recusa **antes** de
+	@# haver chamada a Meta.
+	@echo "==> gate 8: modos da conversa contra PostgreSQL 18.6 (KAM-018)"
+	@$(VENV_PYTHON) db/gate_bd.py --suite tests_modos
 
 # -----------------------------------------------------------------------------
 # Limpeza
