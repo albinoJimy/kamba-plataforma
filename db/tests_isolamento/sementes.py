@@ -435,7 +435,7 @@ def _tentativa_de_onboarding(cursor, tenant_id: str, canario: str) -> None:
     `channel_onboarding_canal_ck` exige `channel_id` nas seis fases do meio, e a
     receita nao cria canal.
 
-    **Sem coluna alteravel, e e um privilegio e nao uma escolha.** A `0016` da a
+    **Sem coluna alteravel, e e um privilegio e nao uma escolha.** A `0017` da a
     `kamba_app` `SELECT` e mais nada — o onboarding e provisionamento, e quem
     provisiona e o `kamba_batch` (dicionario §3.2). O que se prova nesta tabela e
     que os privilegios de escrita **nem existem**, que e mais forte do que a
@@ -763,7 +763,7 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     # `channel_onboarding_tenant_waba_uq` e **leva o `tenant_id`**: os dois
     # tenants podem semear o mesmo valor, que e o que o X-03 precisa. **Sem
     # coluna alteravel e sem escrita do papel**, e as duas sao privilegios: a
-    # `0016` da a `kamba_app` `SELECT` e mais nada, porque o onboarding e
+    # `0017` da a `kamba_app` `SELECT` e mais nada, porque o onboarding e
     # provisionamento e quem provisiona e o `kamba_batch` (dicionario §3.2). E a
     # primeira tabela deste esquema em que o `kamba_app` **le e nao escreve
     # nada** — a `message_templates` le e altera, a `events_dlq` escreve e nao

@@ -63,7 +63,7 @@ export interface ClienteSql {
  * mistura as duas máquinas de estados num desenho; o critério deste ticket
  * enumera nove e desfaz a mistura.
  *
- * É o mesmo domínio que o `channel_onboarding_fase_ck` da revisão `0016` impõe,
+ * É o mesmo domínio que o `channel_onboarding_fase_ck` da revisão `0017` impõe,
  * e **há um teste que compara as duas listas**: duas cópias de um domínio
  * divergem no dia em que uma delas mudar.
  */

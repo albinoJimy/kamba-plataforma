@@ -284,7 +284,7 @@ ON_GRAPH = "packages/core-ts/src/onboarding/graph.ts"
 ON_MODULO = "packages/core-ts/src/onboarding/onboarding.ts"
 ON_METRICAS = "packages/core-ts/src/onboarding/metricas.ts"
 ON_ESCRITA = "packages/core-ts/src/secrets/escrita.ts"
-REV16 = "db/migrations/versions/0016_onboarding_de_canal.py"
+REV17 = "db/migrations/versions/0017_onboarding_de_canal.py"
 
 #: O corpo da subtransaccao da `ten_consumir`, como a revisao 0007 o escreve:
 #: **a chave primeiro, a contagem depois**. A mutacao da ordem precisa do
@@ -2371,21 +2371,21 @@ MUTACOES = [
     # Vinte e seis mutacoes, e cada uma tira uma afirmacao de um criterio. As
     # cinco primeiras sao da revisao e correm na suite que exercita a base; as
     # restantes sao de codigo e correm na `tests_outbound`.
-    ('onboarding 0016: a unicidade do code desaparece', REV16,
+    ('onboarding 0017: a unicidade do code desaparece', REV17,
      "            CONSTRAINT channel_onboarding_code_uq UNIQUE (tenant_id, code_hash),\n",
      "\n", "tests"),
-    ('onboarding 0016: a unicidade do par (tenant, waba) desaparece', REV16,
+    ('onboarding 0017: a unicidade do par (tenant, waba) desaparece', REV17,
      "            CONSTRAINT channel_onboarding_tenant_waba_uq UNIQUE (tenant_id, waba_id),\n",
      "\n", "tests"),
-    ('onboarding 0016: a FK do canal deixa de levar o tenant', REV16,
+    ('onboarding 0017: a FK do canal deixa de levar o tenant', REV17,
      "                FOREIGN KEY (tenant_id, channel_id)\n                REFERENCES platform.tenant_channels (tenant_id, id),",
      "                FOREIGN KEY (channel_id)\n                REFERENCES platform.tenant_channels (id),",
      "tests"),
-    ('onboarding 0016: a app ganha UPDATE na tentativa', REV16,
+    ('onboarding 0017: a app ganha UPDATE na tentativa', REV17,
      '    op.execute("GRANT SELECT ON platform.channel_onboarding TO kamba_app")',
      '    op.execute("GRANT SELECT, UPDATE ON platform.channel_onboarding TO kamba_app")',
      "tests"),
-    ('onboarding 0016: a tentativa nasce sem politica de tenant', REV16,
+    ('onboarding 0017: a tentativa nasce sem politica de tenant', REV17,
      '    rls.enable_tenant_rls("channel_onboarding")',
      '    pass  # rls.enable_tenant_rls("channel_onboarding")', "tests_isolamento"),
     # A idempotencia do criterio 2, do lado do SQL.

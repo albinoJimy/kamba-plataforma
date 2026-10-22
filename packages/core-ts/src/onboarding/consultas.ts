@@ -18,7 +18,7 @@
  * como `kamba_batch`. O onboarding de um canal é **provisionamento**, e o
  * dicionário §3.2 já lho atribuiu: «quem os altera é o `kamba_batch` —
  * provisionamento (KAM-091) e cobrança (KAM-059) são de retaguarda e já lá
- * correm». As três consequências estão no `docstring` da revisão `0016`; a que
+ * correm». As três consequências estão no `docstring` da revisão `0017`; a que
  * se vê aqui é a `SQL_CONTAR_JANELA`, que **atravessa tenants** e por isso só
  * pode correr com `BYPASSRLS`.
  *
@@ -99,7 +99,7 @@ export const SQL_TENTATIVA = `
  * três idas à base deixa a decisão velha quando a escrita chega.
  *
  * **Quem decide se o par é legal é o `TRANSICOES` do contrato**, e não esta
- * consulta: ver o `docstring` da revisão `0016` para porque não é um gatilho. O
+ * consulta: ver o `docstring` da revisão `0017` para porque não é um gatilho. O
  * que a base impõe é o domínio das nove (`channel_onboarding_fase_ck`), e a
  * suite do *gate* 8 percorre os 81 pares ordenados contra um PostgreSQL real.
  *
@@ -129,7 +129,7 @@ export const SQL_TRANSITAR = `
  * compensação, e é precisamente o que o critério 7 mede.
  *
  * O `jsonb ||` sobre dois *arrays* concatena-os, e é por isso que a coluna é um
- * *array* e não um objecto (ver o `COMMENT` da coluna na `0016`).
+ * *array* e não um objecto (ver o `COMMENT` da coluna na `0017`).
  */
 export const SQL_REGISTAR_RECURSO = `
   UPDATE platform.channel_onboarding
@@ -286,7 +286,7 @@ export const SQL_LIGAR_CANAL = `
  * Guarda a referência do PIN 2FA. Só em `cloud_only`.
  *
  * Coluna própria e não uma entrada do `recursos_criados` sozinha, pela razão do
- * `COMMENT` da `0016`: a compensação não deve depender de interpretar um `jsonb`
+ * `COMMENT` da `0017`: a compensação não deve depender de interpretar um `jsonb`
  * para saber que segredo revogar, e o `CHECK` de forma de `SecretRef` só se pode
  * impor sobre uma coluna.
  */
@@ -384,7 +384,7 @@ export const SQL_ABANDONAR = `
  * auditoria».
  *
  * **Não é o `platform.audit_log`**, e a razão é mecânica: ver o `docstring` da
- * revisão `0016`. O domínio de `audit_log.action` tem sete valores, o `CHECK`
+ * revisão `0017`. O domínio de `audit_log.action` tem sete valores, o `CHECK`
  * está na `0006` (fundida), e o *gate* 3b compara-o com o dicionário nos dois
  * sentidos — um oitavo valor deixava a `0006` vermelha.
  *

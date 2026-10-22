@@ -40,7 +40,7 @@ COLUNAS_DE_TELEFONE_ACEITES = {
     # A garantia e mais forte do que a do `phone_number_id`, que e `text`: num
     # `integer` nao cabe um E.164. O nome e o da Meta, e manteve-se por isso.
     ("tenant_channels", "max_phone_numbers_per_business"),
-    # KAM-016, revisao `0016`. **E o mesmo identificador opaco da Meta** que a
+    # KAM-016, revisao `0017`. **E o mesmo identificador opaco da Meta** que a
     # `tenant_channels`, a `inbound_events` e a `unrouted_events` ja tinham, e
     # nao um telefone: o `COMMENT` da coluna da `0001` di-lo por extenso — «Nao
     # e um telefone: e uma chave opaca da Cloud API». Esta aqui porque a

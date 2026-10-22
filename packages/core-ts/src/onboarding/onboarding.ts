@@ -32,7 +32,7 @@
  * pelo mesmo caminho que uma falha na subscrição, e há um teste só para isso.
  *
  * A alternativa era um `SELECT` em `tenant_channels` antes do passo 4. Não se
- * faz, e a razão está no `docstring` da revisão `0016`: seria uma segunda verdade
+ * faz, e a razão está no `docstring` da revisão `0017`: seria uma segunda verdade
  * a reconciliar com a unicidade, e perderia a corrida — entre o `SELECT` e o
  * `INSERT` cabe outro processo. O briefing deste ticket di-lo do mesmo modo: o
  * 409 é «a unicidade global a morder, não uma verificação em código».
@@ -153,7 +153,7 @@ export interface Resultado {
 /**
  * O resumo do *code*, para a coluna `code_hash`.
  *
- * `sha256` sem sal e sem HMAC, e a razão está no `COMMENT` da coluna na `0016`: o
+ * `sha256` sem sal e sem HMAC, e a razão está no `COMMENT` da coluna na `0017`: o
  * *code* tem entropia de segredo, pelo que o resumo dele não é enumerável — ao
  * contrário de um telefone, que é o que obriga o `pepper_contact_hmac` da `0003`
  * a existir.
@@ -346,7 +346,7 @@ export class Onboarding {
       if (erro instanceof NumeroJaUsadoError) {
         // O registo de auditoria do critério 4 vive numa transacção própria,
         // porque a que levantou o `23505` **reverte** — ver o `docstring` da
-        // `0016`. Quem chama corre o `registarRecusa` fora da transacção; aqui
+        // `0017`. Quem chama corre o `registarRecusa` fora da transacção; aqui
         // conta-se, que é o que esta camada pode fazer sem abrir ligação.
         this.#recusar("numero_de_outro_tenant");
       }
@@ -640,7 +640,7 @@ export class Onboarding {
    *
    * Corre **depois** de a transacção do 409 reverter, e por isso tem de ser
    * chamado por quem controla a transacção — o `ligar()` não o faz, porque a
-   * ligação que ele tem é a que acabou de abortar. Ver o `docstring` da `0016`
+   * ligação que ele tem é a que acabou de abortar. Ver o `docstring` da `0017`
    * para porque este registo não é o `platform.audit_log`.
    */
   async registarRecusa(entrada: ResultadoDoEs, motivo: string): Promise<void> {

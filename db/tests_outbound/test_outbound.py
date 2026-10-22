@@ -119,7 +119,7 @@ FICHEIROS = (
     # A primeira e a dos tres tickets acima: escreve `tenant_channels` — o
     # criterio 4 e a `tenant_channels_phone_number_id_uq` **global** a morder, e
     # a compensacao do criterio 7 **apaga** a linha que o passo anterior criou —,
-    # usa o mesmo `apoio.ts` e os mesmos papeis, e a `0016` vive na mesma base.
+    # usa o mesmo `apoio.ts` e os mesmos papeis, e a `0017` vive na mesma base.
     #
     # A segunda e o `GraphFalso` do KAM-024, e **esta continua a ser a unica
     # suite do gate 8 que monta o `tools/meta-sim`** (ver as `PASTAS_DE_MODULOS`

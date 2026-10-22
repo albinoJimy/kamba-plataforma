@@ -11,6 +11,27 @@ Uma tabela:
     channel_onboarding   a tentativa de ligar um numero, fase a fase, com os
                          recursos que cada passo criou (`01` §13.1 e §13.2)
 
+## Era a `0017` e passou a `0017`, e a razao fica escrita
+
+O KAM-018 reclamou a `0017` e o ramo dele chegou ao remoto **depois** de eu ter
+verificado que nao existia (`git branch -r --list 'publico/feature/KAM-018*'`
+devolveu vazio). **Dois `down_revision` iguais sao recusados pelo Alembic**, e
+nao e colisao mecanica: as revisoes de base encaixam uma na anterior e entram em
+serie.
+
+Renumerou-se esta e nao a dele, e a escolha tem razao: a `0017` do KAM-018 **nao
+cria objecto nenhum** — sao dois `GRANT UPDATE` por coluna (`mode` e
+`last_human_activity_at` em `conversations`) a `kamba_app` —, pelo que nada lhe
+aponta. Esta cria uma tabela, e a tabela tem receita de sementes, entrada no
+inventario, matriz de privilegios e lugar na descoberta do X-05: renumera-la
+custa o `down_revision`, o nome do ficheiro e as referencias; renumerar a dele
+custava o mesmo e mais o trabalho de a desfazer num ramo que ja tinha PR.
+
+**Consequencia para quem corre o *gate* 8:** esta revisao so aplica com a `0017`
+na base. Enquanto o ramo do KAM-018 nao fundir no `main`, o `alembic upgrade
+head` neste ramo nao resolve o `down_revision` — e isso nao e um defeito desta
+revisao, e a ordem em que as duas entram.
+
 ## O que esta revisao **nao** acrescenta, e isso e o achado principal
 
 **Nada em `tenant_channels`.** Os tres identificadores que o criterio 8 manda
@@ -232,8 +253,8 @@ from alembic import op
 
 import rls
 
-revision = "0016"
-down_revision = "0015"
+revision = "0017"
+down_revision = "0016"
 branch_labels = None
 depends_on = None
 

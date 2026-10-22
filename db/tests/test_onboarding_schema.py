@@ -1,4 +1,7 @@
-"""A revisao 0016 contra a base: a tentativa de onboarding de canal (KAM-016).
+"""A revisao 0017 contra a base: a tentativa de onboarding de canal (KAM-016).
+
+E a `0017` e nao a `0016`: o KAM-018 reclamou aquele numero e a revisao dele
+chegou primeiro ao remoto. A razao esta no docstring da propria revisao.
 
 Cinco coisas, e quatro delas sao criterios do bloco pela letra:
 
@@ -46,7 +49,7 @@ from tests import factories
 from tests.base import (
     PRIVILEGIO_INSUFICIENTE,
     TABELAS,
-    TABELAS_ATE_0015,
+    TABELAS_ATE_0016,
     VIOLACAO_DE_CHECK,
     VIOLACAO_DE_FK,
     VIOLACAO_DE_UNICIDADE,
@@ -109,7 +112,7 @@ def _tabelas(cursor) -> tuple[str, ...]:
 
 
 class TestTentativaDeOnboarding(ComBase):
-    """O que o DDL da `0016` promete.
+    """O que o DDL da `0017` promete.
 
     `ComBase` da uma ligacao que **nunca confirma**: cada teste desfaz o que
     escreveu, e e por isso que o tenant e o canal se semeiam em cada um.
@@ -529,7 +532,7 @@ class TestTentativaDeOnboarding(ComBase):
         self.assertIn("(fase, actualizado_at)", indices["channel_onboarding_espera_idx"])
 
 
-class TestDowngradeDa0016(unittest.TestCase):
+class TestDowngradeDa0017(unittest.TestCase):
     """Desce com linhas e sobe outra vez, e **nao recusa**.
 
     A razao esta na revisao, e nao e a da `0015`: o que se perde e o registo de
@@ -581,9 +584,9 @@ class TestDowngradeDa0016(unittest.TestCase):
         )
         self.assertEqual(_tabelas(self.cursor), TABELAS)
 
-        alembic_ok("downgrade", "0015")
+        alembic_ok("downgrade", "0016")
         # A tabela desapareceu, e **o canal ficou**: ele e da `0001`.
-        self.assertEqual(_tabelas(self.cursor), TABELAS_ATE_0015)
+        self.assertEqual(_tabelas(self.cursor), TABELAS_ATE_0016)
         self.cursor.execute(
             "SELECT count(*) FROM platform.tenant_channels WHERE id = %s", (canal,)
         )
@@ -605,7 +608,7 @@ class TestDowngradeDa0016(unittest.TestCase):
         RLS** — e o gate 6 so a veria no proximo `make ci-6`, contra uma base
         levantada de `base` e nao de um ciclo.
         """
-        alembic_ok("downgrade", "0015")
+        alembic_ok("downgrade", "0016")
         self.cursor.execute(
             "SELECT count(*) FROM pg_policies "
             "WHERE schemaname = 'platform' AND tablename = 'channel_onboarding'"

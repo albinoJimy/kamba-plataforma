@@ -668,7 +668,7 @@ INVENTARIO = {
             "nao",
         ),
     },
-    # ------------------------------------------------- KAM-016 (0016)
+    # ------------------------------------------------- KAM-016 (0017)
     #
     # A tentativa de ligar um numero pelo Embedded Signup v4. Treze colunas, e o
     # bloco do ticket nomeia quatro: as nove restantes tem cada uma o criterio
@@ -1031,7 +1031,7 @@ class TestInventario(ComBase):
                     "consent_texts_texto_ck",
                     "consent_texts_version_ck",
                     "consent_texts_hash_ck",
-                    # ------------------------------------- KAM-016 (0016)
+                    # ------------------------------------- KAM-016 (0017)
                     # A chave, as **duas** unicidades que dao a idempotencia do
                     # criterio 2 (e as duas levam o `tenant_id`, pela razao da
                     # emenda 1.21), o dominio das nove fases, e seis `CHECK` de

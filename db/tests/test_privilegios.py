@@ -668,7 +668,7 @@ COLUNAS_POR_PAPEL = {
     ("kamba_app", "consent_event", "UPDATE"): set(),
     ("kamba_app", "consent_texts", "UPDATE"): set(),
     # KAM-016. **Conjunto vazio, e e o desenho do ticket em privilegios:** a
-    # `0016` nao concede `UPDATE` nenhum a `kamba_app`. Quem escreve esta tabela
+    # `0017` nao concede `UPDATE` nenhum a `kamba_app`. Quem escreve esta tabela
     # e o `kamba_batch`, e nao e precaucao — sao tres consequencias medidas: o
     # contador `es_onboardings_7d` **atravessa tenants** e so corre com
     # `BYPASSRLS`; a compensacao do criterio 7 **apaga** a linha de

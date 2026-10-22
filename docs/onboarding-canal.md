@@ -5,7 +5,7 @@
 | Ticket | KAM-016 |
 | Módulo | `packages/core-ts/src/onboarding/` |
 | Rota | `POST /internal/channels`, na app **interna** do GWY (`services/gwy/src/canais.ts`) |
-| Revisão | `0016_onboarding_de_canal` (descende da `0015`) |
+| Revisão | `0017_onboarding_de_canal` (descende da `0016` do KAM-018) |
 | Depende de | KAM-013 (GWY), KAM-003 (`tenant_channels`), KAM-010 (cofre), KAM-024 (Graph falsa), `ext:KAM-102` (Business Verification, App Review, Tech Provider) |
 | Bloqueia | KAM-017, KAM-091, KAM-093 |
 | Fonte do desenho | [`tecnica/01_Canais_WhatsApp_Fluxo_Dual.md`](tecnica/01_Canais_WhatsApp_Fluxo_Dual.md) §4.2–§4.4 e §13, [`tecnica/evidencia/E1_Meta_WhatsApp.md`](tecnica/evidencia/E1_Meta_WhatsApp.md) §3, [`tecnica/08_Seguranca_Conformidade.md`](tecnica/08_Seguranca_Conformidade.md) §5, ADR-001, ADR-019 |
