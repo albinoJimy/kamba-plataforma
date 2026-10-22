@@ -528,12 +528,20 @@ describe("o consentimento contra a base", () => {
       assert.equal(segunda.registou, true, "a segunda prova e de outra versao");
 
       // **Duas linhas na tabela, uma na vista, e a da vista e a `v2`.**
-      const cru = await admin.query<{ n: string }>(
-        "SELECT count(*)::text AS n FROM platform.consent_event " +
+      const cru = await admin.query<{ n: string; instantes: string }>(
+        "SELECT count(*)::text AS n, count(DISTINCT ocorrido_em)::text AS instantes " +
+          "FROM platform.consent_event " +
           "WHERE contact_id = $1 AND purpose = 'transacao'",
         [contacto],
       );
       assert.equal(cru.rows[0]?.n, "2");
+      // **As duas partilham o `ocorrido_em`, e e isso que torna este teste uma
+      // prova do desempate.** O relogio do ensaio e fixo, e na realidade a hora
+      // que a Meta manda tem resolucao de **segundos**: dois cliques no mesmo
+      // segundo empatam. Foi este empate que fez a primeira versao da vista
+      // escolher pelo `uuid` — a `v2` na minha maquina e a `v1` no CI, com os
+      // mesmos dados —, e e o `registado_em` que o resolve.
+      assert.equal(cru.rows[0]?.instantes, "1", "o ensaio devia empatar no instante");
       const vista = await admin.query<{ text_version: string }>(
         "SELECT text_version FROM platform.consent_actual " +
           "WHERE contact_id = $1 AND purpose = 'transacao'",

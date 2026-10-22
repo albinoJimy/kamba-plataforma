@@ -54,6 +54,21 @@ correr como quem a consulta, que é o que a política pressupõe. O
 vista, sem lista de excepções, e existe desde o KAM-004 — esta revisão foi a
 primeira a dar-lhe algo para ver.
 
+**E a ordem dela é de três critérios, porque dois não bastavam.** O
+`DISTINCT ON (tenant_id, contact_id, purpose)` resolve «o último estado» por
+`ORDER BY ocorrido_em DESC, registado_em DESC, id DESC`, e o do meio entrou por
+um defeito: a primeira versão usava só `ocorrido_em DESC, id DESC` e afirmava —
+na revisão **e** no dicionário — que um empate no instante dentro do trio era
+impossível «pela unicidade da prova». **É falso.** A unicidade é sobre o
+`evidence_hash`, e **a hora que a Meta manda tem resolução de segundos**: dois
+cliques no mesmo segundo dão o mesmo instante com `wamid` diferentes, entram as
+duas linhas, e a vista desempatava pelo `uuid` aleatório — determinística para os
+mesmos dados, e **arbitrária** em relação à cronologia. O `registado_em` é a hora
+em que **nós** escrevemos, com `clock_timestamp()` (e não `now()`, que é o início
+da transacção e empatava também): é a única coluna do esquema que o usa, e o par
+`ocorrido_em`/`registado_em` é o mesmo que o envelope de evento do `06` §6.1 já
+tinha.
+
 **A contagem de avisos não acrescentou DDL.** «Repete o aviso até 2 vezes e
 depois encaminha a `humano`» precisa de saber quantos avisos já saíram, e não há
 coluna para isso em sítio nenhum do esquema. Em vez de criar uma — em
@@ -172,6 +187,15 @@ A divisão entre as duas baterias é a que o `outbound.md`, o `metering.md` e o
 chama o que pretendíamos chamar, não que o PostgreSQL faz o que pensamos.** O
 `ON CONFLICT`, o `security_invoker`, o `LIKE` com prefixo sobre um índice e o
 `42501` de um privilégio que não existe não existem numa base falsa.
+
+**O terceiro defeito foi o CI a apanhar uma afirmação que eu tinha escrito
+duas vezes.** O ensaio «duas provas do mesmo trio: o estado é o da última»
+passava na minha máquina e **falhava no CI**, com os mesmos dados: as duas provas
+partilham o `ocorrido_em` (o relógio do ensaio é fixo, e na realidade a hora da
+Meta tem resolução de segundos) e a vista escolhia pelo `uuid`. A correcção é o
+`registado_em`, acima; e a asserção que o prende verifica primeiro que as duas
+linhas **empatam** no instante — senão o teste provaria o relógio e não o
+desempate.
 
 **E a revisão adversarial do próprio ticket encontrou dois defeitos que
 nenhuma máquina podia dizer.** O primeiro é de custo: o nome da loja lia-se em

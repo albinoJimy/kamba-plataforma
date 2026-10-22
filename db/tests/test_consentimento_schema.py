@@ -305,6 +305,57 @@ class TestProvaDeConsentimento(ComBase):
         self.assertEqual(len(linhas), 1, "a vista devia dar uma linha")
         self.assertEqual(linhas[0][0], False, "e devia ser a ultima")
 
+    def test_a_vista_desempata_duas_provas_do_mesmo_instante(self) -> None:
+        """**O defeito que o CI apanhou, e a asserção que o fecha.**
+
+        A primeira versao desta revisao ordenava a vista por
+        `(ocorrido_em DESC, id DESC)` e afirmava que um empate no `ocorrido_em`
+        era impossivel dentro do trio «porque a `consent_event_prova_uq` o
+        impede». **E falso:** a unicidade e sobre o `evidence_hash`, e duas
+        provas do mesmo trio com resumos diferentes entram as duas — e podem
+        partilhar o instante, porque a hora que a Meta manda tem resolucao de
+        **segundos**. Com o empate, a vista desempatava pelo `uuid` aleatorio: o
+        ensaio contra a base escolhia a `v2` numa maquina e a `v1` no CI, com os
+        mesmos dados.
+
+        Aqui escrevem-se duas provas com o **mesmo** `ocorrido_em` e verifica-se
+        que a vista devolve a que foi **escrita depois** — que e o que o
+        `registado_em` resolve, e o unico sitio do esquema onde
+        `clock_timestamp()` e a omissao.
+        """
+        instante = "2026-11-02T14:03:11+00:00"
+        self.cursor.execute(
+            "INSERT INTO platform.consent_event "
+            "(tenant_id, contact_id, purpose, text_version, accepted, canal, "
+            " evidence_hash, ocorrido_em) "
+            "VALUES (%s, %s, 'transacao', 'v1', true, 'whatsapp', %s, %s)",
+            (self.tenant, self.contacto, PROVA, instante),
+        )
+        self.cursor.execute(
+            "INSERT INTO platform.consent_event "
+            "(tenant_id, contact_id, purpose, text_version, accepted, canal, "
+            " evidence_hash, ocorrido_em) "
+            "VALUES (%s, %s, 'transacao', 'v2', true, 'whatsapp', %s, %s)",
+            (self.tenant, self.contacto, bytes([153]) + PROVA[1:], instante),
+        )
+        # As duas partilham o instante: e isso que faz deste teste uma prova do
+        # desempate e nao do `ocorrido_em`.
+        self.cursor.execute(
+            "SELECT count(DISTINCT ocorrido_em) FROM platform.consent_event "
+            "WHERE contact_id = %s",
+            (self.contacto,),
+        )
+        self.assertEqual(self.cursor.fetchone()[0], 1, "o ensaio devia empatar")
+
+        self.cursor.execute(
+            "SELECT text_version FROM platform.consent_actual "
+            "WHERE contact_id = %s AND purpose = 'transacao'",
+            (self.contacto,),
+        )
+        linhas = self.cursor.fetchall()
+        self.assertEqual(len(linhas), 1)
+        self.assertEqual(linhas[0][0], "v2", "a vista devia dar a escrita depois")
+
     def test_a_vista_nao_mostra_a_prova_nem_o_canal(self) -> None:
         """Quem pergunta «aceitou?» precisa da resposta e nao da prova.
 

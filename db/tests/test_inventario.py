@@ -658,6 +658,15 @@ INVENTARIO = {
             "texto e carregou no mesmo botao — e e isso que o torna prova",
         ),
         "ocorrido_em": ("timestamp with time zone", NAO, "now()", "nao"),
+        # A hora em que **nos** escrevemos, e e o desempate da vista. A unica
+        # coluna deste esquema com `clock_timestamp()` por omissao, e a razao
+        # esta na revisao: o `now()` e o inicio da transaccao e empatava.
+        "registado_em": (
+            "timestamp with time zone",
+            NAO,
+            "clock_timestamp()",
+            "nao",
+        ),
     },
 }
 
@@ -682,7 +691,10 @@ INVENTARIO = {
 #:   canal          e o transporte por onde o consentimento foi dado, e nao faz
 #:                  parte da resposta: o consentimento vale para o titular, nao
 #:                  para o transporte em que ele o deu.
-EXCLUIDAS_DA_VISTA = ("id", "evidence_hash", "canal")
+#:   registado_em   e a chave de ordem da propria vista, e nao uma resposta:
+#:                  quem pergunta «aceitou?» quer saber **quando aconteceu** (o
+#:                  `ocorrido_em`), nao quando nos escrevemos a linha.
+EXCLUIDAS_DA_VISTA = ("id", "evidence_hash", "canal", "registado_em")
 
 INVENTARIO["consent_actual"] = {
     coluna: (tipo, SIM, None, pessoal)

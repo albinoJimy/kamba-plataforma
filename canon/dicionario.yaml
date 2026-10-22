@@ -3586,6 +3586,25 @@ entradas:
       - "evidence_hash"
     variantes_literais: []
   - seccao: "3.19"
+    conceito: "Hora em que a plataforma escreveu a prova"
+    canonico: "consent_event.registado_em (clock_timestamp())"
+    literais:
+      - "consent_event.registado_em"
+      - "clock_timestamp()"
+    nomes:
+      - "consent_event.registado_em"
+      - "clock_timestamp"
+    nomes_nota:
+      - "evidence_hash"
+      - "wamid"
+      - "uuid"
+      - "v2"
+      - "v1"
+      - "registado_em"
+      - "clock_timestamp"
+      - "now"
+    variantes_literais: []
+  - seccao: "3.19"
     conceito: "Estado corrente do consentimento"
     canonico: "platform.consent_actual (vista) — «tenant_id», «contact_id», «purpose», accepted, «text_version», «ocorrido_em»"
     literais:
@@ -3604,6 +3623,7 @@ entradas:
       - "BY"
       - "ocorrido_em"
       - "DESC"
+      - "registado_em"
       - "id"
       - "security_invoker"
       - "true"
@@ -4146,6 +4166,13 @@ tabelas:
     assinatura: "hash(thread_id, ordinal_do_handoff)"
     seccao: "3.15"
     conceito: "Identificador de uma passagem"
+  - nome: "clock_timestamp"
+    esquema: ""
+    colunas: []
+    aberta: false
+    assinatura: "clock_timestamp()"
+    seccao: "3.19"
+    conceito: "Hora em que a plataforma escreveu a prova"
   - nome: "sha256"
     esquema: ""
     colunas:

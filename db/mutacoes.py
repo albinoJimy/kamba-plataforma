@@ -2231,6 +2231,14 @@ MUTACOES = [
     ('consentimento 0015: a vista deixa de correr como quem a consulta', REV15,
      "          WITH (security_invoker = true) AS",
      "          AS", "tests_isolamento"),
+    # **A mutacao de um defeito que o CI apanhou e eu tinha afirmado como
+    # impossivel duas vezes** (na revisao e no dicionario): sem o
+    # `registado_em` na ordem, duas provas do mesmo trio com o mesmo
+    # `ocorrido_em` — a hora da Meta tem resolucao de segundos — faziam a vista
+    # escolher pelo `uuid`, arbitrariamente.
+    ('consentimento 0015: a vista perde o desempate do registado_em', REV15,
+     "                  ocorrido_em DESC, registado_em DESC, id DESC",
+     "                  ocorrido_em DESC, id DESC", "tests"),
     ('consentimento 0015: a prova perde a unicidade que da a idempotencia', REV15,
      "            CONSTRAINT consent_event_prova_uq\n                UNIQUE (tenant_id, contact_id, purpose, evidence_hash),",
      "", "tests"),

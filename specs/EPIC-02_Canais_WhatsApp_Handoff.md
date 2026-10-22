@@ -1930,6 +1930,7 @@ sítio onde a medir.
 | 5 | «PARAR» (insensível a maiúsculas e acentos) em qualquer ponto grava `purpose='marketing'`, `accepted=false`, passa a conversa a `pausada` e responde 1 confirmação | **satisfeito** | «**grava a revogacao de marketing, pausa e confirma**»: `accepted = false`, modo `pausada`, **uma** mensagem, e `consent.withdrawn`. As oito variantes dos Testes Requeridos: «**as oito variantes dos Testes Requeridos**» (caixa, acentos, espaços, pontuação e os três sinónimos). Contra a base, «**grava a revogacao de marketing e pausa, sem tocar na transacao**» mostra as **duas** finalidades na vista: um «PARAR» cala o *marketing* e **não** a loja. E «**nunca escreve `marketing` com `accepted = true`**»: o opt-in de *marketing* é separado e específico, e inventá-lo aqui era inventar um consentimento que ninguém deu |
 | 5b | …«*marketing* sem `accepted=true` específico é recusado pelo Outbound (KAM-015)» | **já satisfeito, e por outro caminho** | O `decidir` do KAM-015 **já** recusa `marketing` no Piloto com `MARKETING_NOT_ALLOWED`, antes de qualquer consentimento: o `CATEGORIAS_DO_PILOTO` não o inclui. A verificação por `consent_actual` é para quando houver *marketing*, e **não tem caminho** porque o envio não tem. Acrescentá-la agora era escrever um ramo que nenhum teste pode exercitar |
 | 6 | `consent_event` é *append-only* (`UPDATE/DELETE` recusados para `kamba_app`); revogação = nova linha; a vista `consent_actual` devolve o último estado por `(tenant, contact, purpose)` | **satisfeito** | **É um privilégio e não uma política**, e é a forma mais forte de prova que esta bateria tem: `tests_bd/consentimento.bd.test.ts` afirma o **`42501`** num `UPDATE` e num `DELETE` — e num `INSERT` em `consent_texts`, porque quem publica uma versão do texto é operação e não o caminho que serve clientes. Com a metade positiva: «**o SELECT e o INSERT na prova, esses, existem**», sem a qual as negativas passavam por uma concessão em falta por inteiro. A revogação é uma linha nova: `db/tests/test_consentimento_schema.py`, «a revogacao e uma linha nova e nao uma correccao». E a vista: «**a vista devolve a ultima linha do trio**», com `DISTINCT ON` e `ORDER BY ocorrido_em DESC, id DESC` |
+| 6c | …e a ordem da vista | **satisfeito depois de o CI apanhar um defeito meu** | A ordem é `(ocorrido_em DESC, registado_em DESC, id DESC)`, e o do meio entrou por uma afirmação **falsa** que eu escrevi duas vezes — na revisão e no dicionário: que um empate no instante dentro do trio era impossível «pela unicidade da prova». A unicidade é sobre o `evidence_hash`, e **a hora que a Meta manda tem resolução de segundos**: dois cliques no mesmo segundo dão o mesmo instante com `wamid` diferentes, entram as duas linhas, e a vista desempatava pelo `uuid` aleatório. O ensaio «**duas provas do mesmo trio: o estado e o da ultima**» passava na minha máquina e **falhava no CI**, com os mesmos dados. O `registado_em` é a hora em que **nós** escrevemos, com `clock_timestamp()` — e não `now()`, que é o início da transacção e empatava também —, e é a única coluna do esquema que o usa; o par `ocorrido_em`/`registado_em` é o mesmo do envelope de evento do §3.5. A asserção verifica primeiro que as duas linhas **empatam** no instante, senão provaria o relógio e não o desempate; e há uma mutação que lhe tira o critério do meio |
 | 6b | …a vista e a RLS | **satisfeito, e é o achado desta revisão** | **A `consent_actual` é a primeira vista do esquema**, e leva `security_invoker = true`. Sem a opção, uma vista corre com os privilégios do **dono** e o isolamento passa a depender do `FORCE` — numa relação onde ninguém iria procurar. O `verificar_vistas` de `db/tests_isolamento/catalogo.py` exige-o a **qualquer** vista, **sem lista de excepções**, e existe desde o KAM-004 sem nunca ter tido nada para ver: esta revisão foi a primeira a dar-lhe algo. Prova-se duas vezes — a opção está na relação, e «**a vista nao mostra o estado de B com o contexto de A**» mede-a pelo caminho do módulo |
 | 7 | `consent_texts(version, purpose, texto, hash, vigente_desde)` versiona o aviso; subir a versão exige re-aviso apenas a quem não tem consentimento da nova; `evidence_hash = sha256(...)` é reprodutível | **satisfeito** | A tabela é a do critério, com `criado_em` a mais (quando a linha entrou, que não é quando ela passa a valer) e **sem `tenant_id`**, pela razão da dívida 77. «**uma versao com data futura nao vigora**» e «**subir a versao obriga a re-avisar quem ja tinha consentido**» — o estado passa a `desactualizado` e o aviso volta a sair. A reprodutibilidade mede-se **recalculando**: «**a prova guardada e a que se recalcula**» refaz o resumo a partir da linha e da versão do texto, como quem audita faria, e compara octeto a octeto. E «**o separador impede a colisao por deslocamento**»: sem separador, `sha256("ab" ‖ "c")` e `sha256("a" ‖ "bc")` são o mesmo valor |
 | 8 | Eventos `consent.recorded` e `consent.withdrawn` emitidos pelo outbox com `contact_id` (sem texto nem telefone) | **satisfeito** | Os dois contratos **já existiam** (`contratos/eventos/consent.recorded/`, v1 e v2, do KAM-159/KAM-007) e a carga deles é `{contact_id, finalidade, origem}` — sem texto e sem telefone **por construção do esquema**, que tem `additionalProperties: false`. A emissão é **porta**, pela regra do KAM-005 e do ADR-009: o envelope constrói-se em SQL, na transacção de quem chama. Provas: `consent.recorded:transacao` no «Continuar», `consent.recorded:atendimento` no «Falar com a loja», `consent.withdrawn:marketing` no «PARAR», e **um** evento e não dois na corrida |
@@ -1979,7 +1980,7 @@ Nenhum estava previsto, e os quatro são da mesma família: código que dizia
 
 #### O que a prova por mutação diz
 
-**Trinta e cinco** mutações novas — **oito** da revisão `0015` e **vinte e
+**Trinta e seis** mutações novas — **nove** da revisão `0015` e **vinte e
 sete** do código. A mais importante não é de lógica: **tira o
 `security_invoker = true` da vista**, e o que a mata é o `verificar_vistas` do
 catálogo, que existia desde o KAM-004 e nunca tinha tido nada para matar.
@@ -2053,7 +2054,7 @@ Depois das correcções: **35 corridas, 0 não apanhadas**.
    juridicamente é um, e dividi-lo é decisão de quem o escreve (KAM-104). Dívida
    **78**.
 
-#### Os três defeitos que uma máquina apanhou, e dois são do ensaio
+#### Os quatro defeitos que uma máquina apanhou, e o quarto é o mais sério
 
 Nenhum estava no esquema nem no módulo, e os dois são da mesma classe: a bateria
 a afirmar sobre o **ensaio** em vez de sobre o que o ensaio devia medir.
@@ -2069,7 +2070,13 @@ a afirmar sobre o **ensaio** em vez de sobre o que o ensaio devia medir.
    o privilégio chegar a ser avaliado. Passou a afirmar o **privilégio**, que é o
    que o critério 6 pede, e quem exercita a escrita de verdade é o ensaio em Node
    contra dados confirmados.
-3. **O CI apanhou o que eu não corri, e é a lição do próprio ciclo.** Declarar
+3. **O CI apanhou uma afirmação que eu tinha escrito duas vezes, e esta é a
+   mais séria das quatro.** O ensaio «duas provas do mesmo trio» passava
+   localmente e falhava no *gate* 8 do CI **com os mesmos dados**, porque a ordem
+   da vista não era total: ver o critério 6c. Não é um teste instável — é um
+   defeito de desenho que só uma segunda máquina podia mostrar, porque o
+   resultado dependia da ordem física das linhas.
+4. **O CI apanhou também o que eu não corri, e é a lição do próprio ciclo.** Declarar
    `consent_event.canal ∈ {whatsapp}` no dicionário fez o *gate* 3b passar a
    **exigir** um `CHECK` fechado nessa coluna em qualquer revisão que a crie — e a
    *fixture* **positiva** `D-02_consent_event.py` do canário do `canon_lint`

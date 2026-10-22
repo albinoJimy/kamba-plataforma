@@ -29,16 +29,40 @@ quantos clientes novos ela ve por dia. E a mesma razao que poe o
 `0010` e o `channel_quality_log` da `0014` em `uuid` aleatorio.
 
 **E a vista paga por isso, e o preco esta medido.** Um `uuid` de versao 4 nao
-ordena por nada, pelo que o `DISTINCT ON` ordena por `ocorrido_em DESC` e usa o
-`id DESC` **so como desempate deterministico** — nao cronologico. Duas
-consequencias, e as duas ficam ditas:
+ordena por nada, pelo que o `DISTINCT ON` precisa de uma ordem que venha das
+colunas. A primeira versao desta revisao usou `ocorrido_em DESC, id DESC` e
+afirmou que «um empate no `ocorrido_em` e impossivel dentro do trio, porque a
+`consent_event_prova_uq` o impede». **Era falso, e o gate 8 do CI apanhou-o.**
 
-* o `ocorrido_em` nao e um `DEFAULT` na pratica. O modulo **escreve-o sempre**,
-  porque o `evidence_hash` cobre a hora e os dois tem de concordar; o `DEFAULT
-  now()` fica para quem insira a mao e para a semente do *gate* 6;
-* e um empate nele e **impossivel** dentro do trio, porque a
-  `consent_event_prova_uq` o impede — ver a nota seguinte. Sem essa unicidade, o
-  desempate pelo `uuid` seria deterministico e podia estar errado.
+A unicidade e sobre o `evidence_hash` e nao sobre o instante: duas provas do
+mesmo trio com resumos diferentes entram as duas, e podem muito bem partilhar o
+`ocorrido_em` — **a hora que a Meta manda tem resolucao de segundos**, pelo que
+dois cliques no mesmo segundo dao o mesmo instante com `wamid` diferentes. Com o
+empate, a vista desempatava pelo `uuid` aleatorio: deterministico para os mesmos
+dados, **e arbitrario** em relacao a cronologia. O ensaio contra a base escolheu
+a `v2` na minha maquina e a `v1` no CI, com os mesmos dados.
+
+Por isso a tabela tem **duas** horas, e o par e o mesmo que o envelope de evento
+do `06` §6.1 ja usa — `ocorrido_em` e `registado_em`:
+
+    ocorrido_em    a hora que a Meta diz. E a que entra no `evidence_hash`, e e
+                   por isso que ela sozinha nao serve de ordem: nao e nossa e
+                   nao e estritamente crescente.
+    registado_em   a hora em que **nos** escrevemos a linha, com
+                   `clock_timestamp()`. A ordem da vista e
+                   `(ocorrido_em DESC, registado_em DESC, id DESC)`.
+
+**`clock_timestamp()` e nao `now()`, e e a unica coluna deste esquema que o
+usa.** O `now()` e o **inicio da transaccao**: duas linhas escritas na mesma
+transaccao partilham-no, e era precisamente o empate que se quer quebrar. O
+`clock_timestamp()` avanca a cada chamada e tem resolucao de microsegundos. O
+`id DESC` fica como terceiro critario — nao porque se espere empatar no
+microsegundo, mas para que a vista **nunca** devolva uma linha diferente para os
+mesmos dados.
+
+O `ocorrido_em` tambem nao e um `DEFAULT` na pratica: o modulo escreve-o sempre,
+porque o `evidence_hash` cobre a hora e os dois tem de concordar. O `DEFAULT
+now()` fica para quem insira a mao e para a semente do *gate* 6.
 
 ## A idempotencia do criterio 2 e da base, e sai do proprio `evidence_hash`
 
@@ -57,6 +81,11 @@ criterio pede **uma** linha e nao «quase sempre uma». E a mesma forma do
 **Composta com o `tenant_id`**, pela razao da emenda 1.21: com unicidade global,
 uma prova do *tenant* B que calhasse no mesmo resumo era deduplicada em silencio
 contra uma linha de A — e aqui o que se perdia era prova juridica.
+
+**E o que ela NAO garante:** duas provas do mesmo trio com resumos **diferentes**
+entram as duas, e e isso que torna a revogacao uma linha nova. Uma leitura
+anterior deste ficheiro dizia que ela impedia um empate no `ocorrido_em`, e nao
+impede — ver a nota do `id` e da ordem, acima.
 
 ## A vista leva `security_invoker = true`, e sem isso era uma porta
 
@@ -232,6 +261,10 @@ def upgrade() -> None:
             canal          text        NOT NULL,
             evidence_hash  bytea       NOT NULL,
             ocorrido_em    timestamptz NOT NULL DEFAULT now(),
+            -- A hora em que **nos** escrevemos, e e o desempate da vista. Ver a
+            -- nota do modulo: `clock_timestamp()` e nao `now()`, porque o
+            -- `now()` e o inicio da transaccao e empata entre linhas dela.
+            registado_em   timestamptz NOT NULL DEFAULT clock_timestamp(),
             CONSTRAINT consent_event_pkey PRIMARY KEY (id),
             -- **A idempotencia do criterio 2, e e da base.** Ver a nota do
             -- modulo: o resumo leva o `wamid` e a hora **da Meta**, pelo que
@@ -277,6 +310,15 @@ def upgrade() -> None:
         "mostrado. Reprodutivel a partir da linha e da versao do texto.'"
     )
     op.execute(
+        "COMMENT ON COLUMN platform.consent_event.registado_em IS "
+        "'A hora em que a plataforma escreveu a linha, com clock_timestamp(). E "
+        "o desempate da vista consent_actual: o ocorrido_em e a hora da Meta e "
+        "tem resolucao de segundos, pelo que dois cliques no mesmo segundo o "
+        "partilham. clock_timestamp() e nao now() porque now() e o inicio da "
+        "transaccao e empatava tambem. O par ocorrido_em/registado_em e o mesmo "
+        "do envelope de evento do 06 §6.1.'"
+    )
+    op.execute(
         "COMMENT ON COLUMN platform.consent_event.canal IS "
         "'Por onde o consentimento foi dado. Dominio fechado de um valor "
         "(whatsapp): o segundo transporte entra por migracao e nao por "
@@ -312,18 +354,20 @@ def upgrade() -> None:
                tenant_id, contact_id, purpose, accepted, text_version,
                ocorrido_em
           FROM platform.consent_event
-         ORDER BY tenant_id, contact_id, purpose, ocorrido_em DESC, id DESC
+         ORDER BY tenant_id, contact_id, purpose,
+                  ocorrido_em DESC, registado_em DESC, id DESC
         """
     )
     op.execute(
         "COMMENT ON VIEW platform.consent_actual IS "
         "'O ultimo estado por (tenant, contacto, finalidade), do `06` §7.3. "
-        "Ordena por ocorrido_em DESC com o id como desempate deterministico: o "
-        "id e uuid e nao identidade, porque kamba_app le esta tabela e uma "
-        "chave sequencial media quantos consentimentos tem a plataforma. Um "
-        "empate no instante dentro do trio e impossivel pela "
-        "consent_event_prova_uq. Leva security_invoker = true: sem ele a vista "
-        "corria como o dono e a RLS dependia do FORCE.'"
+        "Ordena por (ocorrido_em DESC, registado_em DESC, id DESC). O id e uuid "
+        "e nao identidade, porque kamba_app le esta tabela e uma chave "
+        "sequencial media quantos consentimentos tem a plataforma; e o "
+        "ocorrido_em sozinho nao basta, porque e a hora da Meta e tem resolucao "
+        "de segundos — dois cliques no mesmo segundo empatavam e a vista "
+        "escolhia pelo uuid, arbitrariamente. Leva security_invoker = true: sem "
+        "ele a vista corria como o dono e a RLS dependia do FORCE.'"
     )
 
     # ------------------------------------------------------------ privilegios
