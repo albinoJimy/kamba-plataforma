@@ -369,6 +369,42 @@ def _transicao_de_qualidade(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _prova_de_consentimento(cursor, tenant_id: str, canario: str) -> None:
+    """Uma prova de consentimento do contacto do tenant (KAM-022).
+
+    **O canario vai no `text_version`, e e a unica coluna onde cabe.** Das nove,
+    duas sao UUID de referencia, duas sao dominios fechados (`purpose` e
+    `canal`), uma e booleana, uma e um tempo, o `id` e a chave e o
+    `evidence_hash` so aceita 32 octetos. Fica a versao do texto, que e `text`
+    com `CHECK` de nao vazio — e e aceitavel que o canario la va porque uma
+    versao e uma cadeia que nos escolhemos, nao um valor que a Meta manda.
+
+    O `evidence_hash` **deriva do canario**, pelo `sha256`: continua unico por
+    tenant e por tabela, que e o que o oraculo precisa, e satisfaz a
+    `consent_event_prova_uq`. Nao e **ele** o canario porque o oraculo procura
+    texto, e um resumo de 32 octetos nao aparece numa procura de texto — e e
+    isso que o torna seguro como prova e inutil como canario. E a mesma razao
+    que poe o canario da `contacts` no `phone_hmac` pela mao do `_resumo` e nao
+    ao contrario.
+
+    **Sem coluna alteravel, e e um privilegio e nao uma escolha.** A `0015` da a
+    `kamba_app` `SELECT` e `INSERT` e mais nada, e aqui isso e **criterio** —
+    «*append-only*, `UPDATE/DELETE` recusados para `kamba_app`». O que se prova
+    e mais forte do que a politica: o privilegio nem existe.
+
+    Semeia o administrador da instancia, como a receita da conversa, a da
+    passagem, a da midia e a da transicao de qualidade.
+    """
+    cursor.execute(
+        "INSERT INTO platform.consent_event "
+        "(tenant_id, contact_id, purpose, text_version, accepted, canal, "
+        " evidence_hash) "
+        f"VALUES (%s, {_UM_CONTACTO}, 'transacao', %s, true, 'whatsapp', "
+        "        sha256(convert_to(%s, 'UTF8')))",
+        (tenant_id, tenant_id, canario, canario),
+    )
+
+
 def _midia(cursor, tenant_id: str, canario: str) -> None:
     """Um objecto de midia do tenant (KAM-020). O canario vai no `media_id`.
 
@@ -659,6 +695,20 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "channel_quality_log"): Receita(
         _transicao_de_qualidade, "event_key", None, None, semeador="admin",
     ),
+    # KAM-022. O canario vai no `text_version` (ver o `_prova_de_consentimento`):
+    # e a unica das nove colunas que aceita um valor arbitrario, e a
+    # `consent_event_prova_uq` leva o `tenant_id`, pelo que os dois tenants
+    # podem semear o mesmo valor. **Sem coluna alteravel**, e aqui e o
+    # **criterio 6** e nao uma consequencia: a `0015` nao concede `UPDATE` nem
+    # `DELETE` a `kamba_app`, porque uma prova que se possa corrigir nao e
+    # prova.
+    #
+    # A `consent_texts` **nao tem receita e nao a devia ter**: nao tem
+    # `tenant_id`, pelo que a descoberta do X-05 nao a encontra — o gate 6
+    # pergunta por RLS as tabelas que tem a coluna.
+    ("platform", "consent_event"): Receita(
+        _prova_de_consentimento, "text_version", None, None, semeador="admin",
+    ),
     ("platform", "events_outbox"): Receita(
         _evento_no_outbox, "agregado_id", None, None, semeador="admin"
     ),
@@ -767,6 +817,11 @@ ORDEM = (
     # logo basta vir depois do tenant. Fica aqui, a seguir a midia, porque a
     # ordem inversa e a de apagar e esta tabela nao e apontada por nenhuma.
     ("platform", "channel_quality_log"),
+    # KAM-022: tem duas FK (`tenants` e a composta para `contacts`), pelo que
+    # vem depois do contacto. Fica aqui, a seguir a transicao de qualidade,
+    # porque a ordem inversa e a de apagar e esta tabela nao e apontada por
+    # nenhuma.
+    ("platform", "consent_event"),
     # KAM-009: as duas so tem FK para `tenants`, e por isso ficam no fim.
     ("platform", "tenant_usage"),
     ("platform", "usage_ledger"),

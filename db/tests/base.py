@@ -115,20 +115,45 @@ TABELAS_0013: tuple[str, ...] = ()
 #: KAM-021: o registo das transicoes de qualidade do canal.
 TABELAS_0014 = ("channel_quality_log",)
 
+#: KAM-022: a prova de consentimento e o texto do aviso.
+#:
+#: **Duas tabelas e uma vista**, e a vista **nao** entra aqui: a descoberta do
+#: catalogo le `pg_class` com `relkind IN ('r', 'p')` e uma vista e `'v'`. Fica
+#: dito porque e a primeira vista do esquema e porque quem conte as relacoes de
+#: `platform` passa a encontrar uma a mais do que as tabelas desta tupla.
+#:
+#: A `consent_texts` nao tem `tenant_id` — e um texto juridico de plataforma e
+#: nao dado de tenant —, pelo que **nao** entra no X-05 nem no
+#: `ci/rls_exceptions.yaml`: o gate 6 pergunta por RLS as tabelas que tem a
+#: coluna. Entra nesta tupla porque existe em `platform`.
+TABELAS_0015 = ("consent_event", "consent_texts")
+
+#: A unica vista do esquema (KAM-022). Separada das tabelas porque a descoberta
+#: do catalogo tambem as separa, e porque o `verificar_vistas` do
+#: `db/tests_isolamento/catalogo.py` — que existe desde o KAM-004 — passa a ter
+#: a primeira coisa para ver: `security_invoker = true`.
+VISTAS = ("consent_actual",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
         + TABELAS_0006 + TABELAS_0007 + TABELAS_0008 + TABELAS_0009
         + TABELAS_0010 + TABELAS_0011 + TABELAS_0012 + TABELAS_0013
-        + TABELAS_0014
+        + TABELAS_0014 + TABELAS_0015
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0014`.
+#:
+#: Pela mesma razao das outras: o `downgrade` da `0015` leva a base para aqui, e
+#: o teste do ciclo compara o conjunto com esta tupla.
+TABELAS_ATE_0014 = tuple(sorted(set(TABELAS) - set(TABELAS_0015)))
 
 #: O que existe em `platform` quando a base esta na revisao `0013`.
 #:
 #: Pela mesma razao das outras: o `downgrade` da `0014` leva a base para aqui, e
 #: o teste do ciclo compara o conjunto com esta tupla.
-TABELAS_ATE_0013 = tuple(sorted(set(TABELAS) - set(TABELAS_0014)))
+TABELAS_ATE_0013 = tuple(sorted(set(TABELAS_ATE_0014) - set(TABELAS_0014)))
 
 #: O que existe em `platform` quando a base esta na revisao `0011`.
 #:

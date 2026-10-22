@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Canais WhatsApp e Handoff |
-| Versão | 1.7 |
+| Versão | 1.8 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md`, `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md`, `../docs/tecnica/06_Dados_Eventos_Analytics.md`, `../docs/tecnica/08_Seguranca_Conformidade.md`, `../docs/tecnica/10_Onboarding_Governanca.md` (§6–§7), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` |
@@ -1908,6 +1908,187 @@ Não expandas escopo: ToS/DPA da PME (KAM-090), direitos do titular (KAM-070).
 Testes: máquina de estados, propriedade 0 AGR sem consentimento, PARAR, append-only. Abre PR com o template do §7.
 ```
 
+### Verificação dos Critérios de Aceitação
+
+**Entregue em `feature/KAM-022-consentimento-no-primeiro-contacto`:** a revisão
+`0015` (descende da `0014`) — duas tabelas e **a primeira vista do esquema** — e
+o módulo `packages/core-ts/src/consentimento/`, que é a barreira anterior ao
+AGR. Desenho em [`../docs/consentimento.md`](../docs/consentimento.md).
+
+**A decisão é a única porta, e é por isso que ela é um valor.** O `tratar`
+devolve um `invocaAgr: boolean` e nunca chama o AGR; quem monta o *job* é o
+encaminhador do KAM-013/KAM-014. A propriedade do critério 4 só é demonstrável
+assim — com a autorização a deduzir-se da acção em cada chamador, não havia um
+sítio onde a medir.
+
+| # | Critério | Estado | Evidência |
+|---|---|---|---|
+| 1 | Primeira mensagem sem `consent_event` válido para a versão vigente: exactamente **1** mensagem de saída (o aviso, com 3 botões) e **0** invocações do AGR | **satisfeito** | `tests/consentimento.test.ts`, «**exactamente 1 mensagem de saida e 0 invocacoes do AGR**» — `mensagens: 1`, `invocaAgr: false`, e os **três** botões pelos `id` que nós emitimos. Contra a base: `tests_bd/consentimento.bd.test.ts`, «**sem consentimento: 1 aviso, 0 AGR, e a linha fica em outbound_messages**», que verifica também que **nenhuma prova** foi escrita — o aviso não é um consentimento. O texto sai **preenchido**, com o nome da loja no lugar do marcador: a `consent_texts` é de plataforma e não tem `tenant_id` |
+| 2 | «Continuar» grava 1 linha (`purpose='transacao'`, `accepted=true`, `text_version`, `canal`, `evidence_hash`) e **só então** o AGR é invocado; o mesmo botão 2× produz 1 linha | **satisfeito** | A ordem é literal: o `SQL_REGISTAR` corre **antes** de a decisão autorizar, e «**grava a prova, autoriza o AGR, e a mensagem seguinte segue sem escrever**» prova o ciclo inteiro contra a base — a segunda mensagem lê `valido` **da vista** e segue sem escrever nada. A idempotência é **da base**: «**o mesmo botao duas vezes: uma linha**» e «**dois cliques em paralelo: uma linha e um evento**», em **duas ligações**. O que a torna suficiente é a composição do resumo — o `wamid` e a hora são **da Meta**, pelo que uma reentrega do mesmo *webhook* dá o mesmo valor; com a **nossa** hora, duas entregas davam duas linhas e o critério dizia o contrário |
+| 3 | «Falar com a loja» passa a `humano` sem tratar dados por IA; «Saber mais» envia o texto e repete o aviso; texto livre repete o aviso até 2 vezes e depois encaminha a `humano` | **satisfeito** | As três, na matriz e contra a base. «**«Falar com a loja» passa a humano e nao invoca o AGR**» (e **vale também com consentimento válido**, porque a Messaging Policy exige um caminho para uma pessoa em qualquer ponto — `E1` §4). «**«Saber mais» envia o texto e repete o aviso**», sem autorizar: quem pede para saber mais não consentiu — e **com os três botões**, que é como as duas metades deste critério se cumprem numa mensagem só (ver a dívida 78 e o achado 2 da revisão adversarial). E o tecto: «**ao terceiro, passa a uma pessoa e nao envia aviso**», com a contagem a vir do **prefixo da chave de idempotência** — «**a contagem de avisos vem da base, pelo prefixo da chave**». O «comportamento a confirmar por parecer» que o próprio critério admite está numa **constante** (`AVISOS_ANTES_DO_HUMANO`) e não no meio de um `if`: quando o parecer chegar, muda-se um número |
+| 4 | Propriedade: em 1.000 mensagens por 50 contactos, **nenhum** *job* do AGR sem `consent_event` válido anterior (0 violações) | **satisfeito** | `tests/consentimento.test.ts`, «**0 invocacoes do AGR sem consentimento valido anterior**»: mil mensagens, cinquenta contactos, seis entradas sorteadas, **0 violações** — e com a asserção de que **houve** invocações, sem a qual o teste não provava nada. O aleatório é **determinista**, com semente fixa: um `Math.random()` dava um teste que falha uma vez por mês e nunca se reproduz. E a leitura exaustiva que a sustenta: «**nenhuma celula autoriza o AGR sem consentimento valido**» percorre as dezoito células e verifica que só o estado `valido` ou o botão `continuar` autorizam |
+| 5 | «PARAR» (insensível a maiúsculas e acentos) em qualquer ponto grava `purpose='marketing'`, `accepted=false`, passa a conversa a `pausada` e responde 1 confirmação | **satisfeito** | «**grava a revogacao de marketing, pausa e confirma**»: `accepted = false`, modo `pausada`, **uma** mensagem, e `consent.withdrawn`. As oito variantes dos Testes Requeridos: «**as oito variantes dos Testes Requeridos**» (caixa, acentos, espaços, pontuação e os três sinónimos). Contra a base, «**grava a revogacao de marketing e pausa, sem tocar na transacao**» mostra as **duas** finalidades na vista: um «PARAR» cala o *marketing* e **não** a loja. E «**nunca escreve `marketing` com `accepted = true`**»: o opt-in de *marketing* é separado e específico, e inventá-lo aqui era inventar um consentimento que ninguém deu |
+| 5b | …«*marketing* sem `accepted=true` específico é recusado pelo Outbound (KAM-015)» | **já satisfeito, e por outro caminho** | O `decidir` do KAM-015 **já** recusa `marketing` no Piloto com `MARKETING_NOT_ALLOWED`, antes de qualquer consentimento: o `CATEGORIAS_DO_PILOTO` não o inclui. A verificação por `consent_actual` é para quando houver *marketing*, e **não tem caminho** porque o envio não tem. Acrescentá-la agora era escrever um ramo que nenhum teste pode exercitar |
+| 6 | `consent_event` é *append-only* (`UPDATE/DELETE` recusados para `kamba_app`); revogação = nova linha; a vista `consent_actual` devolve o último estado por `(tenant, contact, purpose)` | **satisfeito** | **É um privilégio e não uma política**, e é a forma mais forte de prova que esta bateria tem: `tests_bd/consentimento.bd.test.ts` afirma o **`42501`** num `UPDATE` e num `DELETE` — e num `INSERT` em `consent_texts`, porque quem publica uma versão do texto é operação e não o caminho que serve clientes. Com a metade positiva: «**o SELECT e o INSERT na prova, esses, existem**», sem a qual as negativas passavam por uma concessão em falta por inteiro. A revogação é uma linha nova: `db/tests/test_consentimento_schema.py`, «a revogacao e uma linha nova e nao uma correccao». E a vista: «**a vista devolve a ultima linha do trio**», com `DISTINCT ON` e `ORDER BY ocorrido_em DESC, id DESC` |
+| 6c | …e a ordem da vista | **satisfeito depois de o CI apanhar um defeito meu** | A ordem é `(ocorrido_em DESC, registado_em DESC, id DESC)`, e o do meio entrou por uma afirmação **falsa** que eu escrevi duas vezes — na revisão e no dicionário: que um empate no instante dentro do trio era impossível «pela unicidade da prova». A unicidade é sobre o `evidence_hash`, e **a hora que a Meta manda tem resolução de segundos**: dois cliques no mesmo segundo dão o mesmo instante com `wamid` diferentes, entram as duas linhas, e a vista desempatava pelo `uuid` aleatório. O ensaio «**duas provas do mesmo trio: o estado e o da ultima**» passava na minha máquina e **falhava no CI**, com os mesmos dados. O `registado_em` é a hora em que **nós** escrevemos, com `clock_timestamp()` — e não `now()`, que é o início da transacção e empatava também —, e é a única coluna do esquema que o usa; o par `ocorrido_em`/`registado_em` é o mesmo do envelope de evento do §3.5. A asserção verifica primeiro que as duas linhas **empatam** no instante, senão provaria o relógio e não o desempate; e há uma mutação que lhe tira o critério do meio |
+| 6b | …a vista e a RLS | **satisfeito, e é o achado desta revisão** | **A `consent_actual` é a primeira vista do esquema**, e leva `security_invoker = true`. Sem a opção, uma vista corre com os privilégios do **dono** e o isolamento passa a depender do `FORCE` — numa relação onde ninguém iria procurar. O `verificar_vistas` de `db/tests_isolamento/catalogo.py` exige-o a **qualquer** vista, **sem lista de excepções**, e existe desde o KAM-004 sem nunca ter tido nada para ver: esta revisão foi a primeira a dar-lhe algo. Prova-se duas vezes — a opção está na relação, e «**a vista nao mostra o estado de B com o contexto de A**» mede-a pelo caminho do módulo |
+| 7 | `consent_texts(version, purpose, texto, hash, vigente_desde)` versiona o aviso; subir a versão exige re-aviso apenas a quem não tem consentimento da nova; `evidence_hash = sha256(...)` é reprodutível | **satisfeito** | A tabela é a do critério, com `criado_em` a mais (quando a linha entrou, que não é quando ela passa a valer) e **sem `tenant_id`**, pela razão da dívida 77. «**uma versao com data futura nao vigora**» e «**subir a versao obriga a re-avisar quem ja tinha consentido**» — o estado passa a `desactualizado` e o aviso volta a sair. A reprodutibilidade mede-se **recalculando**: «**a prova guardada e a que se recalcula**» refaz o resumo a partir da linha e da versão do texto, como quem audita faria, e compara octeto a octeto. E «**o separador impede a colisao por deslocamento**»: sem separador, `sha256("ab" ‖ "c")` e `sha256("a" ‖ "bc")` são o mesmo valor |
+| 8 | Eventos `consent.recorded` e `consent.withdrawn` emitidos pelo outbox com `contact_id` (sem texto nem telefone) | **satisfeito** | Os dois contratos **já existiam** (`contratos/eventos/consent.recorded/`, v1 e v2, do KAM-159/KAM-007) e a carga deles é `{contact_id, finalidade, origem}` — sem texto e sem telefone **por construção do esquema**, que tem `additionalProperties: false`. A emissão é **porta**, pela regra do KAM-005 e do ADR-009: o envelope constrói-se em SQL, na transacção de quem chama. Provas: `consent.recorded:transacao` no «Continuar», `consent.recorded:atendimento` no «Falar com a loja», `consent.withdrawn:marketing` no «PARAR», e **um** evento e não dois na corrida |
+| 9 | Contactos vindos da sincronização de histórico (KAM-017) recebem o aviso na primeira mensagem **depois** do onboarding; o aviso é uma única mensagem em PT-AO | **satisfeito pelo que existe, e o resto não é deste ramo** | A segunda metade é literal: **uma** mensagem, e o texto é um só (`consent_texts.texto`). A primeira é o comportamento por omissão e não um caso especial — o gate não distingue de onde o contacto veio: um contacto sem `consent_event` válido recebe o aviso na primeira mensagem que mandar, e recebe-o **uma** vez pela chave de idempotência. **O KAM-017 não existe ainda**, pelo que não há sincronização de histórico que se possa exercitar de ponta a ponta; o que se pode afirmar está afirmado. O custo de *service message* que o critério manda considerar fica dito no desenho: é **uma** por contacto e por versão do texto |
+| 9b | …e o gate está ligado ao caminho de canal? | **não, e são duas coisas que faltam, nomeadas** | O módulo está entregue e provado; **o `ConsentGate` não está construído em `services/worker-canal/src/entrada.ts`**, e isso fica dito em vez de implícito. Não é um passo esquecido: ligá-lo precisa de **duas** coisas que aquele processo não tem. A primeira é um caminho de **envio** — o `Saida` do KAM-015 não está construído ali (o *worker* tem três ligações à base e uma fila, e nenhum cliente da Meta), e sem ele o gate barrava o AGR **e não conseguia mandar o aviso**: uma loja muda sem sequer avisar porquê, que é o pior dos desfechos possíveis. A segunda é uma **versão do texto publicada** (KAM-104). A ordem de activação é: parecer → publicar a versão → construir o `Saida` no *worker* → ligar o gate. O que este ramo entrega é o que não depende de nenhuma das duas |
+
+#### Definition of Done
+
+| Caixa | Estado | Evidência |
+|---|---|---|
+| Todos os CA satisfeitos e demonstráveis | **marcada** | Os nove, com a nota do 9: a metade que depende do KAM-017 não tem como ser exercitada e o comportamento que ela pede é o por omissão deste gate. Nenhum critério pede aqui o que o esquema não tem — ao contrário do KAM-021 — e as quatro divergências que se registaram (dívidas 75 a 78) são **do bloco contra documentos que outro ticket já corrigiu**, pedidos que não têm objecto, ou **dois critérios do mesmo bloco a pressupor dois textos quando um terceiro especifica a tabela com um** |
+| Código revisto por **2 revisores** (dados pessoais); testes verdes; cobertura ≥ limiar | **vazia** | Testes verdes e cobertura **medidos**: **1 324** testes de unidade, **1 323** a passar, **0 a falhar** (o saltado é pré-existente, nos segredos), dos quais **55** novos em `tests/consentimento.test.ts` e **18** em `tests_bd/consentimento.bd.test.ts`; as três *suites* do *gate* 8 verdes (`tests` **486**, que inclui os **25** da revisão e o `downgrade`; `tests_outbound` 10; `tests_isolamento` **78**); `src/consentimento/` entre **98% e 100%** por ficheiro, contra os 75% do estrato `restante` de `ci/thresholds.yaml`. **Zero revisores humanos** — é decisão do fundador, e a caixa fica vazia como facto registado. **Esta é a única caixa deste epic que pede dois**, por serem dados pessoais, e é por isso que fica vazia e não meia |
+| Documentação actualizada; reconciliação dos três desenhos registada; Conventional Commits | **marcada, e a reconciliação já estava feita** | Desenho em [`../docs/consentimento.md`](../docs/consentimento.md). Emenda **1.28** ao dicionário (§3.19) e `canon/dicionario.yaml` regenerado — `dict_export --check` e `canon_lint` conformes, v1.28, 207 entradas. O `../docs/ci.md` §3 ganha as cinco propriedades novas e a linha de versão **1.48**. **A reconciliação dos três desenhos é do KAM-140**, e mede-se: o `../docs/tecnica/06` §7.3 diz por extenso «o DDL de referência vive em `10` §7.2 (KAM-140)» e enumera os quatro campos que divergiam; os nomes `consent_log` e `consent_ledger` não aparecem hoje em documento técnico nenhum, só na coluna de variantes do dicionário §3.1 — que é onde pertencem. O que fica é o resíduo do `EPIC-07` §559, na dívida **75** |
+| **Isolamento de tenant** — RLS em `consent_event`/`consent_texts`; teste cruzado | **marcada, com a razão da segunda escrita** | `rls.enable_tenant_rls("consent_event")` na `0015`, com `FORCE` e a política `tenant_iso` (ADR-015); a descoberta do X-05 passa de vinte e três para **vinte e quatro** tabelas e a tabela ganhou receita de sementes no *gate* 6. Teste cruzado nos dois sentidos, com a metade positiva primeiro, **e através da vista** — que é o caminho por onde um defeito passaria sem ninguém olhar. **A `consent_texts` não tem RLS porque não tem dados de *tenant* para isolar**, e o *gate* 6 não lhe pergunta: a descoberta do X-05 é pela coluna `tenant_id`. Não é uma excepção declarada — o `../ci/rls_exceptions.yaml` continua com **uma** entrada. Dívida **77** |
+| **Idempotência** — botão repetido não duplica registo; teste incluído | **marcada** | Critério 2, acima, em **dois** níveis: o mesmo botão duas vezes (sequencial) e dois cliques em paralelo em **duas ligações** (o índice único a serializar). E a chave não é inventada: é o próprio `evidence_hash`, que leva o `wamid` e a hora da Meta |
+| **Privacidade** — `contact_id` (nunca telefone); texto e prova versionados; base legal «a confirmar por parecer» | **marcada** | O módulo nunca vê um telefone: as portas falam em `contact_id`, `conversation_id` e `phone_number_id` (que é o número **da loja**, não do cliente). «**nenhum `outcome` leva o texto do cliente nem o wamid**» usa o `Logger` real em modo estrito e passa a lista branca de nove campos — e nenhuma das cinco métricas leva identificadores. O texto da Meta e o do cliente **não** entram no registo de linha. A base legal está escrita como por fixar no dicionário §3.19, no desenho e no módulo: das dez finalidades, só a `marketing` tem fonte directa e CONFIRMADA no `E3`, e **seis não têm nada** |
+| **Custo e observabilidade** — `consent_notice_sent_total`, `consent_accepted_ratio`, `consent_optout_total` | **marcada** | As três, pelos nomes do DoD, e duas a mais: o `consent_accepted_total` (o numerador do rácio, exposto para que ele se possa **verificar**) e a `consent_blocked_total{accao}`, que não está no DoD e entra porque *barrar sem contar é barrar em silêncio* — sem ela, um painel não distingue «os clientes estão todos a consentir» de «não há texto vigente e o gate está a barrar tudo», e o segundo é uma loja muda. O rácio vale `-1` antes do primeiro aviso e **não se limita a 1**. Declaradas no §3.19 |
+| **Migrações reversíveis** — `downgrade` testado (`consent_event` é aditivo) | **marcada** | `TestDowngradeDa0015`: desce **com linhas** e sobe outra vez; as duas tabelas **e a vista** desaparecem, o contacto fica, e o `upgrade` repõe tudo. **Não recusa com linhas**, e a razão está na revisão e não é que a prova valha pouco — é que uma cópia para ficheiro, que é o que a `0010` e a `0012` fazem, era guardar prova jurídica fora do esquema, sem RLS e sem retenção. **A vista cai primeiro**, e isso não é cerimónia: sem `CASCADE`, o `DROP TABLE` **falha** enquanto ela existir |
+
+#### A primeira vista do esquema, e os quatro sítios que ela sacudiu
+
+Nenhum estava previsto, e os quatro são da mesma família: código que dizia
+«tabelas» e media **relações**.
+
+1. **O `test_tenant_id_e_not_null_e_vem_primeiro_num_indice`** descobria pelo
+   `information_schema.columns`, que inclui as colunas das **vistas** — e a
+   `consent_actual` tem `tenant_id`. Uma vista não tem índice nem `NOT NULL`,
+   pelo que as duas asserções não se lhe aplicam. Passou a filtrar
+   `table_type = 'BASE TABLE'`, e a divisão de trabalho ficou dita: tabelas ali,
+   vistas no `verificar_vistas`.
+2. **O `_tabelas` do `test_media_schema.py`** era o único dos três ajudantes com
+   o mesmo nome que **não** filtrava (os do `test_conversas_schema.py` e do
+   `test_handoff_schema.py` leem o `pg_tables`, que já só tem as de base), e
+   passou a devolver uma relação a mais do que a tupla `TABELAS`.
+3. **O inventário** ganhou a vista como entrada, e **derivada** da tabela em vez
+   de copiada: as três colunas que ela não mostra estão declaradas numa
+   constante com a razão de cada uma, e a razão da derivação é a do
+   `events_log_default` — uma cópia envelhece e ninguém nota.
+4. **O domínio de `consent_texts.purpose`** precisou de ser declarado **outra
+   vez** no dicionário. Os domínios dele são qualificados pela coluna (a decisão
+   é da emenda 1.14), pelo que o *gate* 3b não reconhece em `consent_texts` os
+   dez valores declarados em `consent_event`: **nove achados**
+   `fora-do-dicionario` à primeira volta, um por cada valor que não é o
+   `marketing`. O que **não** se fez foi declará-los em `../canon/extensoes.yaml`,
+   que é o que a mensagem do gate sugere — uma extensão é para um nome que o
+   dicionário não tem, e estes tem.
+
+#### O que a prova por mutação diz
+
+**Trinta e seis** mutações novas — **nove** da revisão `0015` e **vinte e
+sete** do código. A mais importante não é de lógica: **tira o
+`security_invoker = true` da vista**, e o que a mata é o `verificar_vistas` do
+catálogo, que existia desde o KAM-004 e nunca tinha tido nada para matar.
+
+As outras revertem defeitos reais: a unicidade da prova a desaparecer e a passar
+a global, o resumo a aceitar qualquer tamanho, a aplicação a ganhar `UPDATE` na
+prova e `INSERT` no texto jurídico, a tabela a nascer sem política, a versão
+vigente a incluir as futuras e a ser a mais antiga, o estado a ler a tabela em
+vez da vista, o registo a reescrever a prova, a contagem de avisos a contar a
+conversa toda e a deixar de a filtrar, o «PARAR» a disparar dentro de uma frase,
+a normalização a deixar de tirar acentos e caixa, o texto livre a autorizar o
+agente, uma versão desactualizada a valer, uma recusa a contar como
+consentimento, o `enviar_politica` a autorizar, o aviso a repetir-se para
+sempre, o «PARAR» a deixar de ser lido primeiro, um botão desconhecido a passar
+por «Continuar», o separador da prova a desaparecer, a prova a deixar de cobrir
+a hora, o texto a sair com o marcador em claro, o rácio sem aviso a dizer que
+ninguém aceitou, a prova a escrever-se **depois** de autorizar, e a falha
+fechada a deixar de o ser.
+
+**Duas foram escritas e descartadas, e vale dizer quais.** A primeira trocava o
+`DISTINCT ON` da vista por um `GROUP BY`: não há forma de o escrever que devolva
+as mesmas colunas, pelo que a migração **não corre** — e uma mutação que rebenta
+na criação é apanhada por qualquer teste, o que não prova nada sobre a vista. A
+segunda apagava o `DROP VIEW` do `downgrade`: sem `CASCADE` o `DROP TABLE`
+**falha** enquanto a vista existir, pelo que o que o teste apanha é «o Alembic
+falhou» e não uma propriedade da ordem.
+
+**E uma sobreviveu, e era um teste em falta no caminho mais normal que
+existe.** Trocar o `consent_actual` pela `consent_event` no `SQL_ESTADO` **passou**
+a prova inteira, porque com **uma** linha por `(tenant, contacto, finalidade)` as
+duas consultas dão o mesmo: o `DISTINCT ON` da vista só se distingue de um
+`SELECT` sobre a tabela quando há **duas**. E duas há — o contacto aceita a `v1`,
+o texto sobe para a `v2`, ele aceita outra vez —, e sem a ordem da vista a tabela
+devolve as duas linhas **sem ordem garantida**: com a `v1` à frente, o estado
+ficava `desactualizado` para sempre e o aviso repetia-se para sempre. Entrou
+«**duas provas do mesmo trio: o estado e o da ultima**», que escreve as duas
+linhas pelo caminho do módulo e verifica que a tabela tem duas, a vista tem uma, e
+a vista é a `v2`.
+
+**E uma mutação nova entrou depois da corrida**, porque ela é de um defeito que
+eu próprio escrevi a corrigir outro: ver o achado 1 da revisão adversarial.
+
+Depois das correcções: **35 corridas, 0 não apanhadas**.
+
+`python db/mutacoes.py --aplicaveis` → **486 conferidas, 0 não aplicáveis**.
+
+#### A revisão adversarial, e os dois achados que nenhuma máquina daria
+
+1. **O nome da loja lia-se em todas as mensagens.** A primeira versão calculava
+   o texto preenchido antes de saber o que ia fazer com ele — uma consulta ao
+   `tenants.nome` por **cada** mensagem de cada conversa da plataforma, para um
+   valor que o caminho comum (`seguir`) não usa. Passou a ler-se só quando alguma
+   coisa o vai usar.
+
+   **E a correcção teve o seu próprio defeito, que vale mais do que o achado.** A
+   condição era `enviaMensagem(accao) || accao === "passar_a_humano"`, e o
+   `registar_e_seguir` — que é o «Continuar», o caminho mais importante do
+   ticket — **não envia mensagem**. Caiu fora, e a prova do consentimento passava
+   a ser calculada sobre uma cadeia **vazia**. Quem a apanhava era «**a prova
+   guardada e a que se recalcula**» do ensaio contra a base; o `enviaMensagem`
+   sozinho não sabia dizer isto. As duas listas estão agora **nomeadas** —
+   `enviaMensagem` e `registaProva` —, com um teste que afirma as duas e a
+   intersecção delas, e uma mutação que prende a segunda.
+2. **O «Saber mais» enviava o texto sem botões**, e deixava o cliente sem acção
+   nenhuma — pior do que qualquer das duas leituras do critério 3. O critério
+   pede «o texto completo **e** repete o aviso», que lido como duas mensagens
+   contradiz o «exactamente 1 mensagem de saída» do critério 1; e a
+   `consent_texts` que o critério 7 especifica tem **um** texto por versão.
+   Cumprem-se as duas metades em **uma** mensagem: o texto vai com os três
+   botões. **Não se acrescentou coluna** — o texto que vai ser revisto
+   juridicamente é um, e dividi-lo é decisão de quem o escreve (KAM-104). Dívida
+   **78**.
+
+#### Os quatro defeitos que uma máquina apanhou, e o quarto é o mais sério
+
+Nenhum estava no esquema nem no módulo, e os dois são da mesma classe: a bateria
+a afirmar sobre o **ensaio** em vez de sobre o que o ensaio devia medir.
+
+1. **O `excepcao.sqlstate` não existe.** A primeira versão da bateria de esquema
+   inventou-o; o `pg8000` põe o código no campo `C` do dicionário da mensagem do
+   servidor, e o `db/tests/base.py` **já tinha** o ajudante `sqlstate()` e os
+   nomes dos SQLSTATE. **Dezasseis erros** à primeira volta do *gate* 8.
+2. **A metade positiva do *append-only* contava linhas que a aplicação não podia
+   ver.** A ligação que o `ComBase` dá nunca confirma, pelo que a sessão do
+   `kamba_app` — que é outra — não vê o que o administrador acabou de escrever: o
+   `SELECT` media `0` e o `INSERT` batia na FK composta com `23503` **antes** de
+   o privilégio chegar a ser avaliado. Passou a afirmar o **privilégio**, que é o
+   que o critério 6 pede, e quem exercita a escrita de verdade é o ensaio em Node
+   contra dados confirmados.
+3. **O CI apanhou uma afirmação que eu tinha escrito duas vezes, e esta é a
+   mais séria das quatro.** O ensaio «duas provas do mesmo trio» passava
+   localmente e falhava no *gate* 8 do CI **com os mesmos dados**, porque a ordem
+   da vista não era total: ver o critério 6c. Não é um teste instável — é um
+   defeito de desenho que só uma segunda máquina podia mostrar, porque o
+   resultado dependia da ordem física das linhas.
+4. **O CI apanhou também o que eu não corri, e é a lição do próprio ciclo.** Declarar
+   `consent_event.canal ∈ {whatsapp}` no dicionário fez o *gate* 3b passar a
+   **exigir** um `CHECK` fechado nessa coluna em qualquer revisão que a crie — e a
+   *fixture* **positiva** `D-02_consent_event.py` do canário do `canon_lint`
+   criava-a sem ele. Eu tinha corrido o `dict_export --check` e o
+   `canon_lint check`, que são as duas primeiras linhas do alvo `ci-3b`; a
+   terceira é o `canon_lint canario`, e foi ela que falhou — **e com ela o
+   *gate* 4**, porque o `test_o_canario_esta_verde` corre o canário dentro dos
+   testes de unidade. A *fixture* ganhou o `CHECK`, com a razão escrita no
+   `docstring` dela: ela encarna o que o gate deve **aceitar**, e por isso tem de
+   acompanhar o canon. O `docstring` já contava esta história uma vez — para o
+   `purpose`, no KAM-159 — e agora conta-a duas.
+
 ---
 
 ## KAM-023 — Monitorização do free tier de service messages e do método de pagamento da PME
@@ -2531,3 +2712,4 @@ Testes: idempotência, limites, bounce, isolamento, X-11. Abre PR com o template
 | 1.5 | Outubro 2026 | **KAM-015 entregue.** Secção de verificação no bloco, com **doze** caixas marcadas com evidência nomeada e **seis vazias**. Três das vazias são critérios que não se cumprem à letra, e as três estão em `../docs/dividas-documentais.md` (53 a 55): o critério 6 contradiz-se na própria aritmética («130429 3× seguida de 200» com «3 tentativas»), o critério 4 e o DoD de observabilidade pedem uma etiqueta `{tenant}` que as bibliotecas de métricas recusam por gramática, e o critério 8 pressupõe um *lock* de conversa que pertence ao KAM-018. As outras três são a fila e o aviso ao dono da segunda frase do critério 6 (KAM-115), o DoD «todos os CA satisfeitos» e os dois revisores. **Nove defeitos apanhados por máquina**, todos em coisas que eu tinha verificado à mão: o leitor de YAML, o *gate* 3b, o meu próprio teste do critério 5 (duas vezes), a *allowlist* do registo, o varredor de segredos, o `set_config` local à transacção, a `outbound_messages_entrega_ck` e o *token bucket* a enviar sem ficha. **E a revisão adversarial não aprovou a primeira versão**: nove achados, os nove corrigidos, com o custo a **duplicar sob concorrência** (o `delivered` e o `read` a chegarem juntos somavam 4 000 cada) e o teste que afirmava a propriedade a escolher o par que não podia apanhá-lo. | Equipa KAMBÁ |
 | 1.6 | Outubro 2026 | **KAM-023 entregue, em duas metades.** Secção de verificação no bloco, com **onze** caixas marcadas e **cinco** vazias, cada uma com a razão escrita. A metade de código entrou sem DDL (contagem do *free tier*, alertas aos 800 e 1.000 por **flanco** e não por valor, custo estimado em micro-dólares inteiros, quatro métricas) e a revisão `0013` entrou quando a `0012` do KAM-020 fundiu — as revisões de base encaixam uma na anterior, e duas a reclamar o mesmo pai não são colisão mecânica. As cinco vazias: o fuso **por canal** que o esquema não tem (só há por *tenant*, e o fuso vive na `platform.ten_periodo` da `0007`), a etiqueta `{tenant}` que as bibliotecas de métricas recusam **por gramática** (mesmo precedente da emenda 1.21 do dicionário), o critério 7 que é de **saída** e pede um mês real de Piloto, a dos revisores (zero humanos, decisão do fundador) e a que depende das outras. Quatro dívidas novas (65 a 68), todas critérios que pedem o que o esquema não tem. **Esta linha fecha uma deriva:** o KAM-019 e o KAM-020 não acrescentaram a sua, pelo que a tabela saltou da 1.5 para aqui — fica registado em `../docs/dividas-documentais.md`. | Equipa KAMBÁ |
 | 1.7 | Outubro 2026 | **KAM-021 entregue.** Secção de verificação no bloco, com **catorze** caixas marcadas e **três** vazias, cada uma com a razão escrita. Entrou a revisão `0014` (`channel_quality_log` com unicidade `(tenant_id, event_key)` e `tenant_channels.max_phone_numbers_per_business`) e o módulo `packages/core-ts/src/qualidade/`, que preenche o braço `gestao_de_canal` que o KAM-013 deixou a registar e mais nada. **A caixa do critério 3 fica vazia por segurança, e a decisão é do fundador:** ele quer que o `tenants.estado` projecte `restrito`, e a revisão `0007` retirou o `UPDATE (estado)` a `kamba_app` **de propósito** — «o sujeito da condição não pode ser quem a retira» —, com um teste a prendê-la; devolver o privilégio reabria a escalada que a revisão adversarial do KAM-009 fechou. As outras duas vazias são a dos revisores (zero humanos, decisão do fundador) e a que depende da primeira. Duas caixas entregam-se «pelo que o repositório tem» — o *ticket* de T&S dos critérios 4 e 8 não existe como mecanismo, e o que existe (contador e registo) é o que se usa, como o KAM-023 fez — e duas trazem divergências registadas: **dois critérios do mesmo bloco não dizem o mesmo** (o 2 nomeia só a `marketing` e a matriz do §3.7 recusa também a `utility`, e segue-se a matriz porque é o que o critério 9 pede), e o nome do escalão do critério 5 (`TIER_2000` contra o `TIER_2K` que o gerador do KAM-024 produz). Cinco dívidas novas (70 a 74). **A prova por mutação encontrou um teste em falta que nenhuma leitura viu:** apagar o `WHERE estado <> 'restrito'` do `SQL_RESTRINGIR` passava a prova inteira, porque no caminho sequencial o predicado é redundante — quem o torna necessário é a concorrência com chaves **diferentes**, e o teste da corrida que existia usava a mesma chave. **E o grupo do critério 9 passava pela razão errada:** o `tenants.estado` nasce `onboarding`, que é mais restritivo do que `restrito`, pelo que as três asserções de `STATE_REFUSED` teriam passado com o canal `ativo`. **A divergência que o DoD manda registar já estava fechada pelo KAM-111:** o `../docs/tecnica/10` §6.4 diz hoje «vermelho → `restrito`», e quem ainda diz `suspenso` é o `00` §6.2, que o `01` §9 já registra. | Equipa KAMBÁ |
+| 1.8 | Outubro 2026 | **KAM-022 entregue.** Secção de verificação no bloco, com **quinze** caixas marcadas e **uma** vazia — a dos revisores, que neste ticket pede **dois** por serem dados pessoais e por isso fica vazia e não meia. Entrou a revisão `0015` (a `consent_event` *append-only*, a `consent_texts` **sem `tenant_id`** e **a primeira vista do esquema**, a `consent_actual`) e o módulo `packages/core-ts/src/consentimento/`, que é a barreira anterior ao AGR. **Três coisas que não são transcrição:** a decisão é **um valor** (`invocaAgr`) e o módulo nunca chama o AGR, porque a propriedade do critério 4 — «0 *jobs* sem consentimento válido anterior» — só é demonstrável se houver um sítio onde a medir; a idempotência do critério 2 sai do **próprio `evidence_hash`**, que leva o `wamid` e a hora **da Meta**, pelo que uma reentrega do mesmo *webhook* bate na unicidade (com a nossa hora, duas entregas davam duas linhas); e a contagem de avisos do critério 3 **não acrescentou DDL** — a chave `aviso:{conversation_id}:{n}` que impede o aviso de sair duas vezes é a que diz quantas vezes saiu. **A `consent_actual` é a primeira vista do esquema e leva `security_invoker = true`:** o `verificar_vistas` do catálogo do X-05 exige-o desde o KAM-004 e nunca tinha tido nada para ver — sem a opção, uma vista corre com os privilégios do dono e a RLS passa a depender do `FORCE`, numa relação onde ninguém iria procurar. Ela sacudiu **quatro** sítios que diziam «tabelas» e mediam relações, todos listados na secção. **A `consent_texts` nasce vazia e o gate falha fechada**, pelo que a loja fica muda até o texto existir: é o lado certo, porque a alternativa era tratar dados sem ter mostrado o aviso (ADR-010, `E3` req. 15). Quatro dívidas novas (75 a 78), e as duas primeiras são da classe da 74 — o bloco manda registar o que o **KAM-140** já fechou. **Dois defeitos que só uma máquina apanhou, os dois do ensaio:** um `excepcao.sqlstate` que o `pg8000` não tem (dezasseis erros), e a metade positiva do *append-only* a contar linhas que a sessão da aplicação não podia ver. | Equipa KAMBÁ |

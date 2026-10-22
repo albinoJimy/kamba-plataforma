@@ -93,6 +93,26 @@ FICHEIROS = (
     # unidade, e uma mutacao que nenhum teste pode matar conta como prova.
     "tests/qualidade.test.ts",
     "tests_bd/qualidade.bd.test.ts",
+    # KAM-022. A barreira de consentimento vive em `src/consentimento/`, e
+    # entra nesta suite por **uma** razao que nao e a das outras duas: a
+    # contagem de avisos do criterio 3 sai do prefixo da `idempotency_key` de
+    # `outbound_messages`, que e a tabela deste ticket. Nao ha coluna de
+    # contagem em sitio nenhum do esquema, e a chave que impede o aviso de sair
+    # duas vezes e a que diz quantas vezes saiu — o que a liga a esta suite nao
+    # e conveniencia, e a tabela.
+    #
+    # O resto do que **so** a base prova — a unicidade da prova sob
+    # concorrencia, a vista `consent_actual` a respeitar a RLS de quem a
+    # consulta (a primeira vista do esquema, com `security_invoker = true`), a
+    # FK composta, e o `42501` de um `UPDATE` que nao existe — podia correr numa
+    # suite propria; o que a juntaria a esta de qualquer forma e que a `0015`
+    # vive na mesma base e nao precisa de fila nem de Meta falsa.
+    #
+    # A metade de unidade entra pela **prova por mutacao**, pela razao escrita
+    # acima para o `metering.test.ts`: as mutacoes na matriz de dezoito celulas,
+    # na deteccao do «PARAR» e no `evidence_hash` so por ela sao apanhadas.
+    "tests/consentimento.test.ts",
+    "tests_bd/consentimento.bd.test.ts",
 )
 
 #: Os grupos que **tem** de aparecer na saida, um por propriedade que a suite
@@ -132,6 +152,18 @@ GRUPOS = (
     "o criterio 9 de ponta a ponta: a saida honra o restrito",
     # KAM-021, de `tests/outbound.adapter.test.ts` (sem base): a porta 5.
     "a porta de estado do KAM-021 (criterio 9)",
+    # KAM-022, do `tests_bd/consentimento.bd.test.ts` e do
+    # `tests/consentimento.test.ts`.
+    "a matriz do aviso: 6 entradas x 3 estados",
+    "a deteccao do PARAR (criterio 5)",
+    "a prova reproduzivel (criterio 7)",
+    "a propriedade: 1.000 mensagens x 50 contactos (criterio 4)",
+    "o primeiro contacto (criterio 1)",
+    "o «Continuar» e o ciclo inteiro (criterio 2)",
+    "o «PARAR» (criterio 5)",
+    "a versao vigente do texto (criterio 7)",
+    "isolamento (Testes Requeridos: X-03 sobre consent_event)",
+    "o append-only: o privilegio nem existe (criterio 6)",
 )
 
 #: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
@@ -222,6 +254,35 @@ TESTES_OBRIGATORIOS = (
     "**um canal que a porta nao encontra nao envia**, e nao chama nada",
     "**sem a porta ligada, envia como antes do KAM-021**",
     "**um par de estados que a matriz recusa nao envia**",
+    # KAM-022. As que **so** uma base prova: a corrida pela unicidade da prova,
+    # a vista a respeitar a RLS de quem a consulta, a FK composta, e o `42501`
+    # de um `UPDATE` que nao existe — com a metade positiva, sem a qual as
+    # negativas passavam por uma concessao em falta por inteiro.
+    "**sem consentimento: 1 aviso, 0 AGR, e a linha fica em outbound_messages**",
+    "**a contagem de avisos vem da base, pelo prefixo da chave**",
+    "**ao terceiro, passa a uma pessoa e nao envia aviso** (criterio 3)",
+    "**grava a prova, autoriza o AGR, e a mensagem seguinte segue sem escrever**",
+    "**o mesmo botao duas vezes: uma linha** (a prova e a mesma)",
+    "**dois cliques em paralelo: uma linha e um evento**",
+    "**a prova guardada e a que se recalcula**: reprodutivel (criterio 7)",
+    "**grava a revogacao de marketing e pausa, sem tocar na transacao**",
+    "**uma versao com data futura nao vigora**",
+    "**subir a versao obriga a re-avisar quem ja tinha consentido**",
+    "**duas provas do mesmo trio: o estado e o da ultima**",
+    "**sem versao vigente nao envia nada e nao autoriza**",
+    "**a vista nao mostra o estado de B com o contexto de A**",
+    "**uma prova de A nao pode apontar para um contacto de B** (FK composta)",
+    "**o kamba_app nao tem UPDATE em consent_event**",
+    "**nem DELETE**, e e a mesma razao",
+    "**nem escreve o texto do aviso**: quem publica uma versao e operacao",
+    "**o SELECT e o INSERT na prova, esses, existem**",
+    # KAM-022, de `tests/consentimento.test.ts` (sem base): a matriz e a
+    # propriedade do criterio 4, que e a asserção central do ticket.
+    "**0 invocacoes do AGR sem consentimento valido anterior**",
+    "**as dezoito celulas**, uma a uma",
+    "**as oito variantes dos Testes Requeridos**",
+    "**duas accoes das seis, e so duas**",
+    "**o separador impede a colisao por deslocamento**",
 )
 
 #: Os ficheiros do modulo. A cobertura mede-se em **cada um**.

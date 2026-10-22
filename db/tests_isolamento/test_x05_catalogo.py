@@ -115,6 +115,15 @@ class TestCatalogoReal(ComBase):
                 # `contact_*`: no `sorted()` por ponto de codigo, «ch»
                 # vence «co» porque 'h' < 'o', e perde contra «au».
                 ("platform", "channel_quality_log", "tenant_id"),
+                # KAM-022: a prova de consentimento. A `consent_texts`
+                # **nao** esta aqui e nao e esquecimento: nao tem
+                # `tenant_id`, porque um aviso de privacidade e um texto
+                # juridico de plataforma e nao dado de tenant — e a
+                # descoberta pergunta pela coluna. No `sorted()`,
+                # «consent_event» vem depois de «channel_quality_log»
+                # («ch» < «co») e antes de «contact_deks» («consent_» <
+                # «contact_», porque 's' < 't').
+                ("platform", "consent_event", "tenant_id"),
                 ("platform", "contact_deks", "tenant_id"),
                 ("platform", "contact_endpoints", "tenant_id"),
                 ("platform", "contacts", "tenant_id"),
@@ -214,6 +223,8 @@ class TestCatalogoReal(ComBase):
                 ("audit_log", "tenant_iso", "ALL", "{public}"),
                 # KAM-021: o registo das transicoes de qualidade.
                 ("channel_quality_log", "tenant_iso", "ALL", "{public}"),
+                # KAM-022: a prova de consentimento.
+                ("consent_event", "tenant_iso", "ALL", "{public}"),
                 ("contact_deks", "tenant_iso", "ALL", "{public}"),
                 ("contact_endpoints", "tenant_iso", "ALL", "{public}"),
                 ("contacts", "tenant_iso", "ALL", "{public}"),
@@ -263,6 +274,8 @@ class TestCatalogoReal(ComBase):
              "audit_log",
              # KAM-021: o registo das transicoes de qualidade.
              "channel_quality_log",
+             # KAM-022: a prova de consentimento.
+             "consent_event",
              "contact_deks", "contact_endpoints", "contacts",
              # KAM-014: a conversa.
              "conversations", "entitlements",

@@ -240,6 +240,20 @@ export async function apagarTenant(admin: pg.Client, tenant: string): Promise<vo
   await admin.query("DELETE FROM platform.tenant_channels WHERE tenant_id = $1", [tenant]);
   await admin.query("DELETE FROM platform.contact_endpoints WHERE tenant_id = $1", [tenant]);
   await admin.query("DELETE FROM platform.contact_deks WHERE tenant_id = $1", [tenant]);
+  // KAM-022: **antes** dos contactos, que a `consent_event` referencia por FK
+  // composta. E a **sexta** vez que esta funcao aprende uma tabela nova, e a
+  // sexta pela mesma razao — a repeticao e o sinal, e esta ja estava escrita
+  // aqui pelo KAM-021: cada tabela nova com FK para `contacts`, `conversations`,
+  // `tenant_channels` ou `tenants` precisa de uma linha nesta funcao, e quem a
+  // esquece ve a suite ficar vermelha no `after`, **depois** de os testes
+  // passarem.
+  //
+  // O **texto** do aviso nao se apaga por tenant e nao pode: a
+  // `consent_texts` nao tem `tenant_id`, porque e um texto juridico de
+  // plataforma. Quem o semeia apaga-o no proprio ensaio.
+  await admin.query("DELETE FROM platform.consent_event WHERE tenant_id = $1", [
+    tenant,
+  ]);
   await admin.query(
     "UPDATE platform.contacts SET merged_into = NULL, merged_at = NULL WHERE tenant_id = $1",
     [tenant],

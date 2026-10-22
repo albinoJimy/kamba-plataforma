@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.27"
+versao_dicionario: "1.28"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -3506,6 +3506,307 @@ entradas:
       - "evento"
       - "outbound_rate_limited_total"
     variantes_literais: []
+  - seccao: "3.19"
+    conceito: "Texto do aviso, versionado"
+    canonico: "platform.consent_texts — version, purpose, texto, hash, vigente_desde, criado_em"
+    literais:
+      - "platform.consent_texts"
+      - "version"
+      - "purpose"
+      - "texto"
+      - "hash"
+      - "vigente_desde"
+      - "criado_em"
+    nomes:
+      - "platform.consent_texts"
+      - "version"
+      - "purpose"
+      - "texto"
+      - "hash"
+      - "vigente_desde"
+      - "criado_em"
+    nomes_nota:
+      - "tenant_id"
+      - "vigente_desde"
+    variantes_literais: []
+  - seccao: "3.19"
+    conceito: "Finalidade que um aviso descreve"
+    canonico: "consent_texts.purpose ∈ {transacao, atendimento, marketing, analytics_agregado, melhoria_servico, sugestoes_patrocinadas, partilha_loja, partilha_parceiros, partilha_estafeta, notificacao_dono}"
+    literais:
+      - "consent_texts.purpose"
+      - "transacao"
+      - "atendimento"
+      - "marketing"
+      - "analytics_agregado"
+      - "melhoria_servico"
+      - "sugestoes_patrocinadas"
+      - "partilha_loja"
+      - "partilha_parceiros"
+      - "partilha_estafeta"
+      - "notificacao_dono"
+    nomes:
+      - "consent_texts.purpose"
+      - "transacao"
+      - "atendimento"
+      - "marketing"
+      - "analytics_agregado"
+      - "melhoria_servico"
+      - "sugestoes_patrocinadas"
+      - "partilha_loja"
+      - "partilha_parceiros"
+      - "partilha_estafeta"
+      - "notificacao_dono"
+    nomes_nota:
+      - "consent_texts.purpose"
+      - "fora"
+      - "do"
+      - "dicionario"
+      - "marketing"
+    variantes_literais: []
+  - seccao: "3.19"
+    conceito: "Versão vigente de um aviso"
+    canonico: "a linha de consent_texts com vigente_desde mais alto que já passou"
+    literais:
+      - "consent_texts"
+      - "vigente_desde"
+    nomes:
+      - "consent_texts"
+      - "vigente_desde"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.19"
+    conceito: "Marcador do nome da loja no texto"
+    canonico: "{loja}"
+    literais:
+      - "{loja}"
+    nomes:
+      - "loja"
+    nomes_nota:
+      - "E3"
+      - "evidence_hash"
+    variantes_literais: []
+  - seccao: "3.19"
+    conceito: "Hora em que a plataforma escreveu a prova"
+    canonico: "consent_event.registado_em (clock_timestamp())"
+    literais:
+      - "consent_event.registado_em"
+      - "clock_timestamp()"
+    nomes:
+      - "consent_event.registado_em"
+      - "clock_timestamp"
+    nomes_nota:
+      - "evidence_hash"
+      - "wamid"
+      - "uuid"
+      - "v2"
+      - "v1"
+      - "registado_em"
+      - "clock_timestamp"
+      - "now"
+    variantes_literais: []
+  - seccao: "3.19"
+    conceito: "Estado corrente do consentimento"
+    canonico: "platform.consent_actual (vista) — «tenant_id», «contact_id», «purpose», accepted, «text_version», «ocorrido_em»"
+    literais:
+      - "platform.consent_actual"
+      - "accepted"
+    nomes:
+      - "platform.consent_actual"
+      - "accepted"
+    nomes_nota:
+      - "DISTINCT"
+      - "ON"
+      - "tenant_id"
+      - "contact_id"
+      - "purpose"
+      - "ORDER"
+      - "BY"
+      - "ocorrido_em"
+      - "DESC"
+      - "registado_em"
+      - "id"
+      - "security_invoker"
+      - "true"
+      - "FORCE"
+      - "verificar_vistas"
+      - "evidence_hash"
+    variantes_literais: []
+  - seccao: "3.19"
+    conceito: "Chave da prova, e a sua idempotência"
+    canonico: "consent_event com UNIQUE (tenant_id, contact_id, purpose, evidence_hash)"
+    literais:
+      - "consent_event"
+      - "UNIQUE (tenant_id, contact_id, purpose, evidence_hash)"
+    nomes:
+      - "consent_event"
+      - "UNIQUE"
+      - "tenant_id"
+      - "contact_id"
+      - "purpose"
+      - "evidence_hash"
+    nomes_nota:
+      - "wamid"
+      - "tenant_id"
+    variantes_literais: []
+  - seccao: "3.19"
+    conceito: "Prova de que um aviso foi mostrado e aceite"
+    canonico: "consent_event.evidence_hash = sha256(texto_mostrado ‖ contact_id ‖ wamid ‖ hora), 32 octetos"
+    literais:
+      - "consent_event.evidence_hash"
+      - "sha256(texto_mostrado ‖ contact_id ‖ wamid ‖ hora)"
+    nomes:
+      - "consent_event.evidence_hash"
+      - "sha256"
+      - "texto_mostrado"
+      - "contact_id"
+      - "wamid"
+      - "hora"
+    nomes_nota:
+      - "u0000"
+      - "wamid"
+      - "sha256"
+      - "ab"
+      - "c"
+      - "a"
+      - "bc"
+      - "CHECK"
+    variantes_literais: []
+  - seccao: "3.19"
+    conceito: "Transporte por onde o consentimento foi dado"
+    canonico: "consent_event.canal ∈ {whatsapp}"
+    literais:
+      - "consent_event.canal"
+      - "whatsapp"
+    nomes:
+      - "consent_event.canal"
+      - "whatsapp"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.19"
+    conceito: "Barreira anterior ao agente"
+    canonico: "ConsentGate"
+    literais:
+      - "ConsentGate"
+    nomes:
+      - "ConsentGate"
+    nomes_nota:
+      - "invocaAgr"
+    variantes_literais: []
+  - seccao: "3.19"
+    conceito: "Botões do aviso"
+    canonico: "continuar, falar_com_a_loja, saber_mais"
+    literais:
+      - "continuar"
+      - "falar_com_a_loja"
+      - "saber_mais"
+    nomes:
+      - "continuar"
+      - "falar_com_a_loja"
+      - "saber_mais"
+    nomes_nota:
+      - "id"
+      - "snake_case"
+      - "button_reply"
+      - "reply.id"
+      - "switch"
+      - "E1"
+      - "interactive"
+    variantes_literais: []
+  - seccao: "3.19"
+    conceito: "Acções do aviso"
+    canonico: "enviar_aviso, registar_e_seguir, seguir, passar_a_humano, enviar_politica, registar_revogacao"
+    literais:
+      - "enviar_aviso"
+      - "registar_e_seguir"
+      - "seguir"
+      - "passar_a_humano"
+      - "enviar_politica"
+      - "registar_revogacao"
+    nomes:
+      - "enviar_aviso"
+      - "registar_e_seguir"
+      - "seguir"
+      - "passar_a_humano"
+      - "enviar_politica"
+      - "registar_revogacao"
+    nomes_nota:
+      - "ausente"
+      - "desactualizado"
+      - "valido"
+      - "continuar"
+    variantes_literais: []
+  - seccao: "3.19"
+    conceito: "Palavras que valem como opt-out"
+    canonico: "parar, stop, sair, cancelar (insensível a maiúsculas e acentos)"
+    literais:
+      - "parar"
+      - "stop"
+      - "sair"
+      - "cancelar"
+    nomes:
+      - "parar"
+      - "stop"
+      - "sair"
+      - "cancelar"
+    nomes_nota:
+      - "E1"
+    variantes_literais: []
+  - seccao: "3.19"
+    conceito: "Avisos enviados numa conversa"
+    canonico: "outbound_messages.idempotency_key com o prefixo aviso:"
+    literais:
+      - "outbound_messages.idempotency_key"
+      - "aviso:"
+    nomes:
+      - "outbound_messages.idempotency_key"
+      - "aviso"
+    nomes_nota:
+      - "humano"
+      - "aviso"
+      - "conversation_id"
+      - "n"
+      - "count"
+      - "tenant_id"
+      - "idempotency_key"
+    variantes_literais: []
+  - seccao: "3.19"
+    conceito: "Avisos enviados (contador)"
+    canonico: "consent_notice_sent_total"
+    literais:
+      - "consent_notice_sent_total"
+    nomes:
+      - "consent_notice_sent_total"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.19"
+    conceito: "Revogações de marketing (contador)"
+    canonico: "consent_optout_total"
+    literais:
+      - "consent_optout_total"
+    nomes:
+      - "consent_optout_total"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.19"
+    conceito: "Fracção de aceitação (gauge)"
+    canonico: "consent_accepted_ratio"
+    literais:
+      - "consent_accepted_ratio"
+    nomes:
+      - "consent_accepted_ratio"
+    nomes_nota:
+      - "consent_accepted_total"
+    variantes_literais: []
+  - seccao: "3.19"
+    conceito: "Mensagens barradas antes do agente (contador)"
+    canonico: "consent_blocked_total"
+    literais:
+      - "consent_blocked_total"
+    nomes:
+      - "consent_blocked_total"
+    nomes_nota:
+      - "accao"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -3865,6 +4166,21 @@ tabelas:
     assinatura: "hash(thread_id, ordinal_do_handoff)"
     seccao: "3.15"
     conceito: "Identificador de uma passagem"
+  - nome: "clock_timestamp"
+    esquema: ""
+    colunas: []
+    aberta: false
+    assinatura: "clock_timestamp()"
+    seccao: "3.19"
+    conceito: "Hora em que a plataforma escreveu a prova"
+  - nome: "sha256"
+    esquema: ""
+    colunas:
+      - "texto_mostrado"
+    aberta: false
+    assinatura: "sha256(texto_mostrado ‖ contact_id ‖ wamid ‖ hora)"
+    seccao: "3.19"
+    conceito: "Prova de que um aviso foi mostrado e aceite"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -4160,6 +4476,27 @@ dominios:
       - "message_template_quality_update"
     seccao: "3.18"
     conceito: "Webhook de gestão de canal"
+    so_no_registo: false
+  - coluna: "consent_texts.purpose"
+    valores:
+      - "transacao"
+      - "atendimento"
+      - "marketing"
+      - "analytics_agregado"
+      - "melhoria_servico"
+      - "sugestoes_patrocinadas"
+      - "partilha_loja"
+      - "partilha_parceiros"
+      - "partilha_estafeta"
+      - "notificacao_dono"
+    seccao: "3.19"
+    conceito: "Finalidade que um aviso descreve"
+    so_no_registo: false
+  - coluna: "consent_event.canal"
+    valores:
+      - "whatsapp"
+    seccao: "3.19"
+    conceito: "Transporte por onde o consentimento foi dado"
     so_no_registo: false
 
 variantes:

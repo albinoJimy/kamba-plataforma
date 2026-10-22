@@ -612,6 +612,94 @@ INVENTARIO = {
         "retain_until": ("timestamp with time zone", SIM, None, "nao"),
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
     },
+    # ------------------------------------------------- KAM-022 (0015)
+    #
+    # O texto do aviso, versionado. **Sem `tenant_id`**, e nao e esquecimento: e
+    # um texto juridico revisto uma vez e mostrado por todas as lojas, pelo que
+    # nao e dado de tenant. Consequencia directa — nao entra no X-05 nem no
+    # `ci/rls_exceptions.yaml`, porque o gate 6 pergunta por RLS as tabelas que
+    # **tem** a coluna.
+    "consent_texts": {
+        "version": ("text", NAO, None, "nao"),
+        "purpose": ("text", NAO, None, "nao"),
+        "texto": (
+            "text",
+            NAO,
+            None,
+            "nao — e o aviso que se mostra ao cliente, texto juridico de "
+            "plataforma, com um marcador no lugar do nome da loja",
+        ),
+        "hash": ("bytea", NAO, None, "nao"),
+        "vigente_desde": ("timestamp with time zone", NAO, None, "nao"),
+        "criado_em": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
+    # A prova, append-only.
+    "consent_event": {
+        "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "contact_id": (
+            "uuid",
+            NAO,
+            None,
+            "referencia opaca a contacts (ADR-010): e o uuid e nunca o "
+            "telefone, e e isso que o DoD de privacidade deste ticket pede",
+        ),
+        "purpose": ("text", NAO, None, "nao"),
+        "text_version": ("text", NAO, None, "nao"),
+        "accepted": ("boolean", NAO, None, "nao"),
+        "canal": ("text", NAO, None, "nao — e o transporte, nao o interlocutor"),
+        "evidence_hash": (
+            "bytea",
+            NAO,
+            None,
+            "resumo de 32 bytes do texto mostrado, do contact_id, do wamid do "
+            "botao e da hora. **Nao e reversivel e nao e identificador de "
+            "pessoa**, mas dois iguais dizem que a mesma pessoa viu o mesmo "
+            "texto e carregou no mesmo botao — e e isso que o torna prova",
+        ),
+        "ocorrido_em": ("timestamp with time zone", NAO, "now()", "nao"),
+        # A hora em que **nos** escrevemos, e e o desempate da vista. A unica
+        # coluna deste esquema com `clock_timestamp()` por omissao, e a razao
+        # esta na revisao: o `now()` e o inicio da transaccao e empatava.
+        "registado_em": (
+            "timestamp with time zone",
+            NAO,
+            "clock_timestamp()",
+            "nao",
+        ),
+    },
+}
+
+#: **A primeira vista do esquema** (KAM-022), e esta no inventario e nao fora
+#: dele: uma vista sobre dados pessoais tem a mesma pergunta a responder que uma
+#: tabela, e a descoberta do `information_schema.columns` apanha-a de qualquer
+#: forma. O que muda sao as duas colunas de forma — numa vista o PostgreSQL nao
+#: prova `NOT NULL` nem guarda omissao —, e por isso declara-se `SIM` e `None`
+#: em todas.
+#:
+#: Escreve-se **derivada** da tabela, e nao a mao, pela razao do
+#: `events_log_default` logo abaixo: uma copia das colunas envelhece e ninguem
+#: nota. O que a vista mostra e um subconjunto proprio de `consent_event`, e as
+#: tres que ficam de fora ficam de fora por uma razao cada:
+#:
+#:   id             e a chave da linha, e a vista responde por trio e nao por
+#:                  linha. Expo-la convidava a guarda-la como referencia a uma
+#:                  linha que a vista pode deixar de escolher amanha.
+#:   evidence_hash  e a **prova**, e quem pergunta «este contacto aceitou?» nao
+#:                  precisa dela — precisa da resposta. Quem a precisa le a
+#:                  tabela, e nao e o mesmo caminho.
+#:   canal          e o transporte por onde o consentimento foi dado, e nao faz
+#:                  parte da resposta: o consentimento vale para o titular, nao
+#:                  para o transporte em que ele o deu.
+#:   registado_em   e a chave de ordem da propria vista, e nao uma resposta:
+#:                  quem pergunta «aceitou?» quer saber **quando aconteceu** (o
+#:                  `ocorrido_em`), nao quando nos escrevemos a linha.
+EXCLUIDAS_DA_VISTA = ("id", "evidence_hash", "canal", "registado_em")
+
+INVENTARIO["consent_actual"] = {
+    coluna: (tipo, SIM, None, pessoal)
+    for coluna, (tipo, _, _, pessoal) in INVENTARIO["consent_event"].items()
+    if coluna not in EXCLUIDAS_DA_VISTA
 }
 
 #: A particao `DEFAULT` tem as colunas do pai, uma a uma. Esta aqui — e nao
@@ -675,6 +763,16 @@ class TestInventario(ComBase):
                         # da saida; a `handoff_accounts` nao referencia a
                         # `handoffs`, porque uma conta de atendimento existe
                         # antes de haver passagem nenhuma.
+                        # KAM-022: as duas da prova de consentimento. A do
+                        # contacto e **composta** com o `tenant_id`, pela mesma
+                        # razao das da saida e da midia. Nenhuma apaga em
+                        # cascata, e aqui isso vale duas vezes: apagar um
+                        # contacto nao pode apagar a prova de que ele foi
+                        # informado — o direito ao apagamento e o KAM-070 e
+                        # tem de decidir isto com um parecer, nao com um
+                        # `ON DELETE CASCADE` escrito de passagem.
+                        "consent_event_tenant_fk",
+                        "consent_event_contact_fk",
                         "handoffs_tenant_fk",
                         "handoffs_conversation_fk",
                         "handoff_accounts_tenant_fk",
@@ -820,6 +918,27 @@ class TestInventario(ComBase):
             sorted(nome for (nome,) in linhas),
             sorted(
                 [
+                    # ------------------------------------- KAM-022 (0015)
+                    # A prova: a chave, a unicidade que da a idempotencia do
+                    # criterio 2, os dois dominios e os dois `CHECK` de forma.
+                    # O `evidence_ck` exige **32 bytes**, nem mais nem menos:
+                    # um resumo de outro tamanho nao e um sha256, e uma prova
+                    # que nao se sabe reproduzir nao e prova.
+                    "consent_event_pkey",
+                    "consent_event_prova_uq",
+                    "consent_event_purpose_ck",
+                    "consent_event_canal_ck",
+                    "consent_event_text_version_ck",
+                    "consent_event_evidence_ck",
+                    # O texto: chave natural `(version, purpose)`, o dominio
+                    # das dez finalidades, e tres `CHECK` de forma. Um aviso
+                    # vazio e pior do que nenhum: ele e a prova de que se
+                    # informou.
+                    "consent_texts_pkey",
+                    "consent_texts_purpose_ck",
+                    "consent_texts_texto_ck",
+                    "consent_texts_version_ck",
+                    "consent_texts_hash_ck",
                     # ------------------------------------- KAM-015 (0010)
                     # Os dois dominios da `outbound_messages`, as duas
                     # unicidades (a da chave de idempotencia e **por tenant**;
