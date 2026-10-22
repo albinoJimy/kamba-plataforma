@@ -67,6 +67,10 @@
       "types": "./dist/metering/index.d.ts",
       "default": "./dist/metering/index.js"
     },
+    "./qualidade": {
+      "types": "./dist/qualidade/index.d.ts",
+      "default": "./dist/qualidade/index.js"
+    },
     "./chr/fila": {
       "types": "./dist/chr/fila.d.ts",
       "default": "./dist/chr/fila.js"

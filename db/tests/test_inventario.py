@@ -75,6 +75,9 @@ INVENTARIO = {
             "'{}'::integer[]",
             "codigos de erro da Meta; nao e um identificador de pessoa",
         ),
+        # KAM-021, revisao 0014. Atributo do **portfolio** e nao do canal:
+        # guarda-se por canal porque nao ha tabela de WABA neste esquema.
+        "max_phone_numbers_per_business": ("integer", SIM, None, "nao"),
     },
     "entitlements": {
         "tenant_id": ("uuid", NAO, None, "nao"),
@@ -555,6 +558,27 @@ INVENTARIO = {
     # um cliente final, e e por isso que esta tabela tem `retain_until` e que o
     # `docs/tecnica/08` §7.5 lhe poe um prazo. A politica de privacidade desta
     # tabela nao se le nas colunas: le-se no que elas localizam.
+    # KAM-021, revisao 0014. O registo das transicoes de qualidade do canal.
+    "channel_quality_log": {
+        "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "channel_id": ("uuid", NAO, None, "nao"),
+        "evento": ("text", NAO, None, "nao"),
+        # Anulavel, e o `NULL` tem significado: e a **primeira** linha de um
+        # canal, onde nao havia valor anterior.
+        "valor_anterior": ("text", SIM, None, "nao"),
+        # Guarda o que a Meta anunciou **tal e qual**, mesmo quando nao e um dos
+        # tres que conhecemos: o criterio 1 manda registar um valor desconhecido
+        # sem falhar.
+        "valor_novo": ("text", NAO, None, "nao"),
+        "ocorrido_em": ("timestamp with time zone", NAO, "now()", "nao"),
+        "event_key": (
+            "text",
+            NAO,
+            None,
+            "resumo de phone_number_id, tipo, valor e hora da Meta; nao e PII",
+        ),
+    },
     "media_assets": {
         "asset_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
         "tenant_id": ("uuid", NAO, None, "nao"),
@@ -663,6 +687,12 @@ class TestInventario(ComBase):
                         # o registo do objecto e **deixaria o blob** no
                         # armazenamento, lixo que a purga do KAM-071 nao ve
                         # porque ela le esta tabela.
+                        # KAM-021: as duas da qualidade. A do canal e
+                        # **composta com o `tenant_id`**, pela razao que a
+                        # `0009` fixou: sem ele, uma transicao de A podia
+                        # apontar para um canal de B.
+                        "channel_quality_log_tenant_fk",
+                        "channel_quality_log_channel_fk",
                         "media_assets_tenant_fk",
                         "media_assets_contact_fk",
                         "media_assets_conversation_fk",
@@ -849,6 +879,20 @@ class TestInventario(ComBase):
                     # obrigasse a ser futuro impedia o KAM-071 de marcar um
                     # objecto para eliminacao imediata — a licao que a
                     # `outbound_messages_entrega_ck` da `0010` pagou.
+                    # KAM-021: seis na `channel_quality_log`. **As duas FK
+                    # nao entram aqui** — esta lista e de `p`, `u` e `c`, e
+                    # as FK tem o seu proprio teste (o da cascata). A
+                    # `event_key_uq` e composta com o `tenant_id`: com
+                    # unicidade global, um evento de B que calhasse na
+                    # mesma chave era deduplicado em silencio contra uma
+                    # linha de A, que e a divergencia que a emenda 1.21 do
+                    # dicionario registou para a `idempotency_key`.
+                    "channel_quality_log_event_key_ck",
+                    "channel_quality_log_event_key_uq",
+                    "channel_quality_log_evento_ck",
+                    "channel_quality_log_pkey",
+                    "channel_quality_log_valor_anterior_ck",
+                    "channel_quality_log_valor_novo_ck",
                     "media_assets_armazenado_ck",
                     "media_assets_classe_ck",
                     "media_assets_estado_ck",
@@ -981,6 +1025,8 @@ class TestInventario(ComBase):
                     "tenant_channels_estado_ck",
                     "tenant_channels_free_tier_used_ck",
                     # KAM-023, revisao 0013.
+                    # KAM-021, revisao 0014.
+                    "tenant_channels_max_phone_numbers_ck",
                     "tenant_channels_meta_error_codes_seen_ck",
                     "tenant_channels_motivo_restricao_ck",
                     "tenant_channels_origem_ck",

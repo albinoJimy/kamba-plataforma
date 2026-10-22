@@ -21,6 +21,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  MOTIVOS_DE_RECUSA,
   CATEGORIAS_DO_PILOTO,
   ESTADOS_DE_TEMPLATE,
   MAXIMO_DE_BOTOES,
@@ -261,5 +262,99 @@ describe("a categoria de um corpo", () => {
     // funcao devolve, nao o que se envia.
     const corpo: Corpo = { tipo: "template", nome: "x", idioma: "pt_PT", parametros: [] };
     assert.equal(categoriaDe(corpo, null), "utility");
+  });
+});
+
+// ------------------------------------------- o estado do canal (KAM-021, CA 9)
+
+describe("a matriz do KAM-009 e a ultima barreira (KAM-021, criterio 9)", () => {
+  const ACTIVO = { estadoTenant: "ativo", estadoCanal: "ativo" };
+  const RESTRITO = { estadoTenant: "ativo", estadoCanal: "restrito" };
+
+  it("**sem estado, a decisao e exactamente a de antes do KAM-021**", () => {
+    // A porta e opcional: nenhum adapter ligado antes dele passa a recusar por
+    // causa disto. E a mesma escolha que o `freeTier: null` do KAM-015 fez.
+    assert.deepEqual(decidir(TEXTO, ABERTA, AGORA, null), {
+      enviar: true,
+      kind: "service",
+      templateName: null,
+    });
+    assert.deepEqual(decidir(TEXTO, ABERTA, AGORA, null, null), {
+      enviar: true,
+      kind: "service",
+      templateName: null,
+    });
+  });
+
+  it("**um canal restrito continua a responder dentro da janela**", () => {
+    // E a linha `restrito` da matriz: `responder_sessao: true`. O criterio 2
+    // escreve-o por extenso — «mantem respostas dentro da janela».
+    assert.deepEqual(decidir(TEXTO, ABERTA, AGORA, null, RESTRITO), {
+      enviar: true,
+      kind: "service",
+      templateName: null,
+    });
+  });
+
+  it("**um canal restrito nao envia template nenhum**", () => {
+    // A matriz tem `enviar_template_marketing: false` e
+    // `enviar_template_utilidade: false` na linha `restrito`. O criterio 2 so
+    // nomeia o `marketing`; a matriz e mais restritiva, que e o lado seguro, e
+    // a divergencia esta registada.
+    const corpo: Corpo = { tipo: "template", nome: "x", idioma: "pt_PT", parametros: [] };
+    for (const categoria of ["utility", "authentication"] as const) {
+      assert.deepEqual(
+        decidir(corpo, FECHADA, AGORA, template({ category: categoria }), RESTRITO),
+        { enviar: false, motivo: "STATE_REFUSED" },
+        categoria,
+      );
+    }
+  });
+
+  it("**num canal activo o template passa**, e e isso que torna o teste acima uma asserção", () => {
+    const corpo: Corpo = { tipo: "template", nome: "x", idioma: "pt_PT", parametros: [] };
+    const aprovado = template();
+    assert.deepEqual(decidir(corpo, FECHADA, AGORA, aprovado, ACTIVO), {
+      enviar: true,
+      kind: "utility",
+      templateName: aprovado.name,
+    });
+  });
+
+  it("**o `MARKETING_NOT_ALLOWED` vence o estado**, e a ordem e deliberada", () => {
+    // Um template recategorizado para `marketing` tem de dar
+    // `MARKETING_NOT_ALLOWED` mesmo num canal restrito, porque e esse o motivo
+    // que sustenta o bloqueio do criterio 9 do KAM-015. Trocar a ordem fazia o
+    // alerta de recategorizacao desaparecer atras do estado.
+    const corpo: Corpo = { tipo: "template", nome: "x", idioma: "pt_PT", parametros: [] };
+    assert.deepEqual(
+      decidir(corpo, FECHADA, AGORA, template({ category: "marketing" }), RESTRITO),
+      { enviar: false, motivo: "MARKETING_NOT_ALLOWED" },
+    );
+  });
+
+  it("**a janela fechada vence o estado**, pela mesma razao", () => {
+    // O `WINDOW_CLOSED` e a recusa que nao gasta chamada HTTP e que diz a quem
+    // chama «decide template ou desiste». O estado nao a substitui.
+    assert.deepEqual(decidir(TEXTO, FECHADA, AGORA, null, RESTRITO), {
+      enviar: false,
+      motivo: WINDOW_CLOSED,
+    });
+  });
+
+  it("**um tenant suspenso nao envia nada**, nem dentro da janela", () => {
+    // A matriz decide pelo **mais restritivo** dos dois estados: um canal
+    // `ativo` de um tenant `suspenso` nao envia. E por isso que a porta devolve
+    // o par e nao so o estado do canal.
+    const suspenso = { estadoTenant: "suspenso", estadoCanal: "ativo" };
+    assert.deepEqual(decidir(TEXTO, ABERTA, AGORA, null, suspenso), {
+      enviar: false,
+      motivo: "STATE_REFUSED",
+    });
+  });
+
+  it("o `STATE_REFUSED` esta na lista fechada dos motivos", () => {
+    // E lista fechada **e** etiqueta de metrica, pelo que entra no dicionario.
+    assert.ok(MOTIVOS_DE_RECUSA.includes("STATE_REFUSED"));
   });
 });

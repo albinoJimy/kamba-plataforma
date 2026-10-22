@@ -199,6 +199,22 @@ export const MOTIVOS_DE_RECUSA = [
   "GUARD_REFUSED",
   "RATE_LIMITED",
   "SEND_FAILED",
+  /**
+   * A matriz de estados do KAM-009 recusou (KAM-021, critério 9).
+   *
+   * **Um motivo e não um por estado**, e a escolha é deliberada: o que recusa é
+   * a matriz, e ela decide por um **regime** que sai do par
+   * (estado do *tenant*, estado do canal) — `restrito` por qualidade,
+   * `suspenso` por T&S, `desligado` por `PARTNER_REMOVED`, `pendente` antes de
+   * activar. Um motivo por estado dava seis etiquetas de métrica para uma
+   * única causa, e quem lesse o painel não ficava a saber mais: o que ele
+   * precisa de saber é que **o estado recusou**, e qual era o estado está no
+   * canal, não na etiqueta.
+   *
+   * O nome segue o `estado_recusou` dos `DESFECHOS` do `chr/contrato.ts`, que é
+   * a mesma decisão do outro lado do caminho.
+   */
+  "STATE_REFUSED",
 ] as const;
 export type MotivoDeRecusa = (typeof MOTIVOS_DE_RECUSA)[number];
 
@@ -266,6 +282,34 @@ export type ObterDestinatario = (
  * `exigirGuarda`.
  */
 export type PreSendGuard = (pedido: Pedido) => Promise<boolean>;
+
+/**
+ * O par de estados que a matriz do KAM-009 lê.
+ *
+ * Os dois e não só o do canal: a matriz decide pelo **mais restritivo** dos
+ * dois (`maisRestritivo` do `ten/estados.ts`), e um canal `ativo` de um
+ * *tenant* `suspenso` não envia nada.
+ */
+export interface EstadoParaEnvio {
+  readonly estadoTenant: string;
+  readonly estadoCanal: string;
+}
+
+/**
+ * Porta 5: de onde vem o par de estados (KAM-021, critério 9).
+ *
+ * `null` quando o canal não se encontra — e quem lê trata-o como recusa, não
+ * como «sem opinião»: um canal que não existe não envia.
+ *
+ * É porta e não consulta própria porque o **CHR** é a autoridade sobre o
+ * contexto do canal: ele já resolve o par em `ChannelContext` e tem a *cache*
+ * com o TTL. Uma segunda leitura aqui era uma segunda fonte para o mesmo facto,
+ * e divergiam no primeiro segundo em que a *cache* e a base discordassem.
+ */
+export type ObterEstado = (
+  tenantId: string,
+  phoneNumberId: string,
+) => Promise<EstadoParaEnvio | null>;
 
 /** Porta 3: o contador do *free tier*. Quem o mantém é o KAM-023. */
 export type EstadoDoFreeTier = (

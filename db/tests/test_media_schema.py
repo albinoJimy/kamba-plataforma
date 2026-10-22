@@ -55,6 +55,7 @@ from tests.base import (
     ComBase,
     TABELAS,
     TABELAS_ATE_0011,
+    TABELAS_ATE_0013,
     VIOLACAO_DE_CHECK,
     VIOLACAO_DE_UNICIDADE,
     alembic,
@@ -602,9 +603,15 @@ class TestDowngradeDa0012(unittest.TestCase):
         # **A razao da recusa esta na mensagem**, e nao e so a contagem: o que a
         # distingue das outras revisoes e que os blobs ficam.
         self.assertIn("deixa os blobs", saida)
-        # A base ficou em `head`: o `downgrade` levanta na propria revisao, e o
-        # Alembic corre uma transaccao por revisao.
-        self.assertEqual(_tabelas(self.cursor), TABELAS)
+        # **A base ficou em `0012` e nao em `head`, e desde a `0014` a
+        # diferenca existe.** O `downgrade` levanta na propria revisao e o
+        # Alembic corre uma transaccao por revisao
+        # (`transaction_per_migration=True`), pelo que descer de `head` para
+        # `0011` passa primeiro pela `0014`, que desce e **compromete**, e so
+        # depois a `0012` recusa. A `channel_quality_log` ja caiu quando esta
+        # linha corre — e e a mesma nota que a `0011` escreveu para o
+        # `TABELAS_ATE_0009` e a `0012` para o `TABELAS_ATE_0011`.
+        self.assertEqual(_tabelas(self.cursor), TABELAS_ATE_0013)
         self.cursor.execute("SELECT count(*) FROM platform.media_assets")
         self.assertEqual(self.cursor.fetchone()[0], 2)
         # E o `FORCE` ficou **intacto**: a recusa nao pode trocar uma perda de

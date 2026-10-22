@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.26"
+versao_dicionario: "1.27"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -2592,6 +2592,8 @@ entradas:
     nomes:
       - "WINDOW_CLOSED"
     nomes_nota:
+      - "MOTIVOS_DE_RECUSA"
+      - "STATE_REFUSED"
       - "ChannelAdapter"
       - "ChannelContext"
     variantes_literais: []
@@ -3329,6 +3331,181 @@ entradas:
     nomes_nota:
       - "E1"
     variantes_literais: []
+  - seccao: "3.18"
+    conceito: "Transição de qualidade de um canal"
+    canonico: "platform.channel_quality_log — id, tenant_id, channel_id, evento, valor_anterior, valor_novo, ocorrido_em, event_key"
+    literais:
+      - "platform.channel_quality_log"
+      - "id"
+      - "tenant_id"
+      - "channel_id"
+      - "evento"
+      - "valor_anterior"
+      - "valor_novo"
+      - "ocorrido_em"
+      - "event_key"
+    nomes:
+      - "platform.channel_quality_log"
+      - "id"
+      - "tenant_id"
+      - "channel_id"
+      - "evento"
+      - "valor_anterior"
+      - "valor_novo"
+      - "ocorrido_em"
+      - "event_key"
+    nomes_nota:
+      - "id"
+      - "event_key"
+      - "uuid"
+      - "platform"
+      - "tenant_id"
+      - "SELECT"
+      - "INSERT"
+      - "UPDATE"
+      - "usage_ledger"
+    variantes_literais: []
+  - seccao: "3.18"
+    conceito: "Chave de idempotência de uma transição"
+    canonico: "channel_quality_log.event_key, com UNIQUE (tenant_id, event_key)"
+    literais:
+      - "channel_quality_log.event_key"
+      - "UNIQUE (tenant_id, event_key)"
+    nomes:
+      - "channel_quality_log.event_key"
+      - "UNIQUE"
+      - "tenant_id"
+      - "event_key"
+    nomes_nota:
+      - "phone_number_id"
+      - "tenant_id"
+      - "inbound_events"
+      - "kind"
+      - "event_key"
+    variantes_literais: []
+  - seccao: "3.18"
+    conceito: "Webhook de gestão de canal"
+    canonico: "channel_quality_log.evento ∈ {phone_number_quality_update, business_capability_update, account_alerts, message_template_quality_update}"
+    literais:
+      - "channel_quality_log.evento"
+      - "phone_number_quality_update"
+      - "business_capability_update"
+      - "account_alerts"
+      - "message_template_quality_update"
+    nomes:
+      - "channel_quality_log.evento"
+      - "phone_number_quality_update"
+      - "business_capability_update"
+      - "account_alerts"
+      - "message_template_quality_update"
+    nomes_nota:
+      - "kind"
+      - "gestao_de_canal"
+      - "KIND_POR_CAMPO"
+      - "CHECK"
+    variantes_literais: []
+  - seccao: "3.18"
+    conceito: "Valor que a Meta anunciou, tal e qual"
+    canonico: "channel_quality_log.valor_novo"
+    literais:
+      - "channel_quality_log.valor_novo"
+    nomes:
+      - "channel_quality_log.valor_novo"
+    nomes_nota:
+      - "E1"
+      - "wa_type"
+    variantes_literais: []
+  - seccao: "3.18"
+    conceito: "Tecto de números do portfólio"
+    canonico: "tenant_channels.max_phone_numbers_per_business (integer, anulável)"
+    literais:
+      - "tenant_channels.max_phone_numbers_per_business"
+      - "integer"
+    nomes:
+      - "tenant_channels.max_phone_numbers_per_business"
+      - "integer"
+    nomes_nota:
+      - "business_capability_update"
+      - "COLUNAS_DE_TELEFONE_ACEITES"
+      - "test_catalogo.py"
+      - "integer"
+      - "phone_number_id"
+      - "text"
+    variantes_literais: []
+  - seccao: "3.18"
+    conceito: "Motivo de restrição por qualidade"
+    canonico: "tenant_channels.motivo_restricao = 'quality'"
+    literais:
+      - "tenant_channels.motivo_restricao = 'quality'"
+    nomes:
+      - "tenant_channels.motivo_restricao"
+      - "quality"
+    nomes_nota:
+      - "SQL_REPOR"
+      - "motivo_restricao"
+      - "quality"
+    variantes_literais: []
+  - seccao: "3.18"
+    conceito: "Recusa de envio pelo estado"
+    canonico: "STATE_REFUSED"
+    literais:
+      - "STATE_REFUSED"
+    nomes:
+      - "STATE_REFUSED"
+    nomes_nota:
+      - "MOTIVOS_DE_RECUSA"
+      - "estado_recusou"
+      - "DESFECHOS"
+    variantes_literais: []
+  - seccao: "3.18"
+    conceito: "Canais em cada qualidade (gauge)"
+    canonico: "channel_quality"
+    literais:
+      - "channel_quality"
+    nomes:
+      - "channel_quality"
+    nomes_nota:
+      - "rating"
+      - "OBS"
+      - "I"
+      - "_total"
+    variantes_literais: []
+  - seccao: "3.18"
+    conceito: "Fracção do escalão consumida (gauge)"
+    canonico: "messaging_limit_usage_ratio"
+    literais:
+      - "messaging_limit_usage_ratio"
+    nomes:
+      - "messaging_limit_usage_ratio"
+    nomes_nota:
+      - "E1"
+      - "platform.ten_periodo"
+    variantes_literais: []
+  - seccao: "3.18"
+    conceito: "Transições para restrito (contador)"
+    canonico: "channel_restricted_total"
+    literais:
+      - "channel_restricted_total"
+    nomes:
+      - "restrito"
+      - "channel_restricted_total"
+    nomes_nota:
+      - "motivo"
+      - "motivo_restricao"
+      - "quality"
+      - "_total"
+    variantes_literais: []
+  - seccao: "3.18"
+    conceito: "Webhooks de canal tratados (contador)"
+    canonico: "channel_quality_event_total"
+    literais:
+      - "channel_quality_event_total"
+    nomes:
+      - "channel_quality_event_total"
+    nomes_nota:
+      - "evento"
+      - "outbound_rate_limited_total"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -3974,6 +4151,15 @@ dominios:
       - "policy"
     seccao: "3.17"
     conceito: "Porque é que um canal está restrito"
+    so_no_registo: false
+  - coluna: "channel_quality_log.evento"
+    valores:
+      - "phone_number_quality_update"
+      - "business_capability_update"
+      - "account_alerts"
+      - "message_template_quality_update"
+    seccao: "3.18"
+    conceito: "Webhook de gestão de canal"
     so_no_registo: false
 
 variantes:

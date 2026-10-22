@@ -107,19 +107,34 @@ TABELAS_0011 = ("handoff_accounts", "handoffs")
 #: dentro de uma conversa de um contacto de uma PME.
 TABELAS_0012 = ("media_assets",)
 
+#: A `0013` nao criou tabela nenhuma: acrescentou duas colunas a
+#: `tenant_channels`. Fica declarada vazia e nao omitida, para que quem contar
+#: as revisoes aqui nao conclua que uma se perdeu.
+TABELAS_0013: tuple[str, ...] = ()
+
+#: KAM-021: o registo das transicoes de qualidade do canal.
+TABELAS_0014 = ("channel_quality_log",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
         + TABELAS_0006 + TABELAS_0007 + TABELAS_0008 + TABELAS_0009
-        + TABELAS_0010 + TABELAS_0011 + TABELAS_0012
+        + TABELAS_0010 + TABELAS_0011 + TABELAS_0012 + TABELAS_0013
+        + TABELAS_0014
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0013`.
+#:
+#: Pela mesma razao das outras: o `downgrade` da `0014` leva a base para aqui, e
+#: o teste do ciclo compara o conjunto com esta tupla.
+TABELAS_ATE_0013 = tuple(sorted(set(TABELAS) - set(TABELAS_0014)))
 
 #: O que existe em `platform` quando a base esta na revisao `0011`.
 #:
 #: Pela mesma razao das outras: o `downgrade` da `0012` pode recusar (ha
 #: objectos de midia e nao ha copia), e nesse caso a base fica aqui.
-TABELAS_ATE_0011 = tuple(sorted(set(TABELAS) - set(TABELAS_0012)))
+TABELAS_ATE_0011 = tuple(sorted(set(TABELAS_ATE_0013) - set(TABELAS_0012)))
 
 #: O que existe em `platform` quando a base esta na revisao `0010`.
 #:
