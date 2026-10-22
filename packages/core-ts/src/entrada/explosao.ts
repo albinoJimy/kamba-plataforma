@@ -73,6 +73,18 @@ export const PREFIXO_DO_RESUMO = "k_";
 export const ARRAY_DOS_ECHOES = "message_echoes";
 
 /**
+ * O campo que, dentro de um *echo*, traz o destinatário — ***proposta***, NÃO
+ * VERIFICADO.
+ *
+ * **Fixado pelo KAM-017**, que é o que a nota abaixo lhe atribuía. Vive aqui e
+ * não no `coexistencia/contrato.ts` pela razão que o `ARRAY_DOS_ECHOES` já
+ * tinha: é a explosão que lê o corpo, e o simulador do KAM-024 importa estes
+ * dois nomes **deste** módulo para que o dia em que a Meta os desminta mude um
+ * sítio e não três.
+ */
+export const CAMPO_DO_DESTINATARIO = "to";
+
+/**
  * Quem está do outro lado de uma mensagem, como a Meta o identifica.
  *
  * **Não é persistido por este módulo, e é por isso que existe.** O
@@ -109,7 +121,15 @@ export interface EventoDeEntrada {
   /** Só para `message` e `echo`; `null` nos outros. É o que vai a `wa_type`. */
   readonly waType: WaType | null;
   /**
-   * Só para `message`; `null` nos outros, **incluindo no `echo`**.
+   * Para `message` e para `echo`; `null` nos outros.
+   *
+   * **Até ao KAM-017 era `null` também no `echo`**, e a nota dizia que fixar o
+   * campo era trabalho dele. Está fixado: num `echo` o interlocutor é o
+   * **destinatário** (`CAMPO_DO_DESTINATARIO`), porque quem escreveu foi o
+   * dono — e sem ele um *echo* não tem contacto, logo não tem conversa, logo a
+   * célula `bot→dono` que o KAM-018 pôs na tabela ficava sem detector. O que
+   * se segue é a nota original, que continua a valer para o que **não** se
+   * fixou (o `bsuid`, que num `echo` seria o do dono e não o do interlocutor):
    *
    * Num `echo` quem escreveu foi o dono, e o nome do campo que traz o
    * destinatário dentro de `smb_message_echoes` é **NÃO VERIFICADO** (`E1` §5
@@ -316,9 +336,23 @@ export function explodir(corpo: unknown, resumoDoCorpo: string): Explosao {
           wabaId,
           phoneNumberId,
           waType: waType(dentro.type),
-          // Ver a nota de `EventoDeEntrada.interlocutor`: o destinatario de um
-          // `echo` esta num campo NAO VERIFICADO, e o `echo` vai ao dono.
-          interlocutor: null,
+          // **KAM-017 fixou o campo**, que era o que a nota de
+          // `EventoDeEntrada.interlocutor` lhe atribuia. Num `echo` quem
+          // escreveu foi o dono, pelo que o interlocutor e o **destinatario** —
+          // o `to` —, e nao o `from` de uma `message`. Continua ***proposta*,
+          // NAO VERIFICADO**: o `E1` §5 nao descreve a forma de
+          // `smb_message_echoes`, e o nome e o que o simulador do KAM-024 ja
+          // emite, para que os dois lados da proposta digam o mesmo.
+          //
+          // **Nao ha `bsuid` num `echo`**, e nao se inventa um: o `from_user_id`
+          // identifica quem *envia*, e quem envia um `echo` e o dono. Um BSUID
+          // do dono posto no lugar do interlocutor fazia o KAM-008 resolver o
+          // contacto errado — e so se descobria no dia em que a conversa do
+          // dono consigo proprio aparecesse no painel de um cliente.
+          interlocutor: {
+            bsuid: null,
+            telefone: texto(dentro[CAMPO_DO_DESTINATARIO], ID_META_MAXIMO),
+          },
         });
         emitidos += 1;
       }

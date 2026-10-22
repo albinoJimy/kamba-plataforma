@@ -124,14 +124,13 @@ extensoes:
     tipo: coluna
     ticket: KAM-003
     data: 2026-10-11
-  - nome: tenant_channels.coexistence_synced_at
-    tipo: coluna
-    ticket: KAM-003
-    data: 2026-10-11
-  - nome: tenant_channels.last_account_update_at
-    tipo: coluna
-    ticket: KAM-003
-    data: 2026-10-11
+  # `tenant_channels.coexistence_synced_at` e `tenant_channels.last_account_update_at`
+  # estiveram aqui, do KAM-003. Sairam com a emenda 1.31 (KAM-017): as duas
+  # colunas existem desde a `0001` e nunca tiveram escritor, e este e o ticket
+  # que lhes da uso — o criterio 1 nomeia a primeira. Uma coluna que um ticket
+  # passa a usar por extenso deixa de ser nome sem conceito, e o §3.22 passou a
+  # nomear as duas. O lint recusa extensoes redundantes, e e esse o percurso que
+  # o `token_ref` fez na 1.22 e o `waac_id` na 1.30.
   # `contact_endpoints.finalidade` esteve aqui, do KAM-008. Saiu com a emenda
   # 1.9 (KAM-005): o §3.5 passou a nomear `evt_subscricoes(… finalidade …)`, e o
   # §3 e uma lista de nomes por conceito — um nome do dicionario vale em

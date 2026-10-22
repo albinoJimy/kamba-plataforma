@@ -247,6 +247,16 @@ export async function apagarTenant(admin: pg.Client, tenant: string): Promise<vo
   await admin.query("DELETE FROM platform.channel_onboarding WHERE tenant_id = $1", [
     tenant,
   ]);
+  // KAM-017: **antes** dos canais, que a `channel_coexistence` referencia por FK
+  // composta. E a **oitava**, e a nota acima previu-a por extenso — «quem
+  // acrescentar a oitava descobre-a la, e nao aqui». Descobriu-se la: o
+  // `db/tests_isolamento/catalogo.py` exige receita de sementes para uma tabela
+  // nova com `tenant_id`, e e por ai que o gate 6 apanha quem esquecer esta
+  // linha. Fica escrita na mesma, porque o gate 6 diz **que** falta e esta
+  // funcao e **onde**.
+  await admin.query("DELETE FROM platform.channel_coexistence WHERE tenant_id = $1", [
+    tenant,
+  ]);
   await admin.query("DELETE FROM platform.tenant_channels WHERE tenant_id = $1", [tenant]);
   await admin.query("DELETE FROM platform.contact_endpoints WHERE tenant_id = $1", [tenant]);
   await admin.query("DELETE FROM platform.contact_deks WHERE tenant_id = $1", [tenant]);

@@ -142,6 +142,16 @@ TABELAS_0015 = ("consent_event", "consent_texts")
 #: que a `0009` acrescentou precisamente para isto.
 TABELAS_0017 = ("channel_onboarding",)
 
+#: KAM-017: o estado de coexistencia de um canal (revisao `0018`).
+#:
+#: Uma so, e **nao acrescenta coluna nenhuma a `tenant_channels`** — o
+#: `coexistence_synced_at` e o `last_account_update_at` existem desde a `0001` e
+#: nunca tiveram escritor; este ticket e o primeiro, e isso custa codigo e nao
+#: DDL. Referencia duas tabelas por FK: a `tenants` da `0001` e a propria
+#: `tenant_channels`, esta por FK composta com o `tenant_id` — que assenta na
+#: `tenant_channels_tenant_id_uq` que a `0009` acrescentou para isto.
+TABELAS_0018 = ("channel_coexistence",)
+
 #: A unica vista do esquema (KAM-022). Separada das tabelas porque a descoberta
 #: do catalogo tambem as separa, e porque o `verificar_vistas` do
 #: `db/tests_isolamento/catalogo.py` — que existe desde o KAM-004 — passa a ter
@@ -153,9 +163,15 @@ TABELAS = tuple(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
         + TABELAS_0006 + TABELAS_0007 + TABELAS_0008 + TABELAS_0009
         + TABELAS_0010 + TABELAS_0011 + TABELAS_0012 + TABELAS_0013
-        + TABELAS_0014 + TABELAS_0015 + TABELAS_0017
+        + TABELAS_0014 + TABELAS_0015 + TABELAS_0017 + TABELAS_0018
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0017`.
+#:
+#: Pela mesma razao das outras: o `downgrade` da `0018` leva a base para aqui, e
+#: o teste do ciclo compara o conjunto com esta tupla.
+TABELAS_ATE_0017 = tuple(sorted(set(TABELAS) - set(TABELAS_0018)))
 
 #: O que existe em `platform` quando a base esta na revisao `0016`.
 #:
@@ -163,7 +179,7 @@ TABELAS = tuple(
 #: o teste do ciclo compara o conjunto com esta tupla. **A `0016` e do KAM-018 e
 #: nao cria tabela nenhuma** — sao dois `GRANT UPDATE` por coluna —, pelo que o
 #: conjunto de tabelas da `0016` e o da `0015`.
-TABELAS_ATE_0016 = tuple(sorted(set(TABELAS) - set(TABELAS_0017)))
+TABELAS_ATE_0016 = tuple(sorted(set(TABELAS_ATE_0017) - set(TABELAS_0017)))
 
 #: O que existe em `platform` quando a base esta na revisao `0014`.
 #:

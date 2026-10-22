@@ -455,6 +455,52 @@ def _tentativa_de_onboarding(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+
+def _coexistencia_do_canal(cursor, tenant_id: str, canario: str) -> None:
+    """O estado de coexistencia de um canal do tenant (KAM-017).
+
+    **O canario vai no `id`**, como na `_conversa` do KAM-014 e pela mesma
+    razao: esta e a segunda tabela isolada **sem coluna de texto livre**. Das
+    dezoito, duas sao UUID de referencia, o `estado` e o `motivo_desligamento`
+    sao dominios fechados, os `passos_feitos` tem `CHECK` de conteudo, seis sao
+    tempos e tres sao inteiros com `CHECK` de nao-negativo. Nao sobra nenhuma —
+    e isso **nao e acidente**: a tabela foi desenhada sem coluna de texto para
+    conteudo, porque o criterio 2 do ticket proibe persistir corpos de
+    mensagens, e a forma de garantir a regra e nao haver onde. A chave primaria
+    e a unica coluna que aceita um valor arbitrario, e o `_uuid` continua unico
+    por tenant e por tabela, que e o que o oraculo precisa.
+
+    **Usa o canal que o `ComDoisTenants` ja semeou**, pelo `_UM_CANAL`, e nao
+    cria um seu. A primeira versao criava: o resultado foi **doze falhas e um
+    erro** no *gate* 6, porque metade da bateria conta linhas de
+    `tenant_channels` e assume **um** canal por tenant — o `test_resolver`, o
+    `test_update_sem_where_so_toca_nas_linhas_de_a` e as cinquenta transaccoes
+    alternadas, todos. Uma receita de sementes semeia a **sua** tabela; semear
+    a de outro ticket por conveniencia e mudar o cenario de toda a gente.
+
+    O `_UM_CANAL` e um `COALESCE` com subconsulta pela razao que ele proprio
+    escreve: quando a receita e usada para **atacar** (inserir uma linha de B
+    com o contexto de A), a subconsulta nao ve o canal de B, e o que tem de
+    recusar a linha e a politica — que se avalia antes das FK — e nao um valor
+    nulo.
+
+    **A coluna alteravel e o `estado`**, e ao contrario da `channel_onboarding`
+    aqui ha uma: a `0018` da a `kamba_app` `SELECT`, `INSERT` e `UPDATE`, porque
+    a coexistencia corre no **caminho de um webhook** e nao de retaguarda. O
+    `estado` e a coluna que o tratador altera de verdade.
+
+    Semeia o administrador da instancia, como a `_conversa` e as receitas de
+    identidade e de eventos: o `kamba_batch` **nao tem `INSERT`** nesta tabela,
+    de proposito — nao ha caminho de retaguarda que abra uma sincronizacao.
+    """
+    cursor.execute(
+        "INSERT INTO platform.channel_coexistence "
+        f"(id, tenant_id, channel_id, prazo_em) "
+        f"VALUES (%s, %s, {_UM_CANAL}, now() + interval '24 hours')",
+        (_uuid(canario), tenant_id, tenant_id),
+    )
+
+
 def _midia(cursor, tenant_id: str, canario: str) -> None:
     """Um objecto de midia do tenant (KAM-020). O canario vai no `media_id`.
 
@@ -768,6 +814,20 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     # primeira tabela deste esquema em que o `kamba_app` **le e nao escreve
     # nada** — a `message_templates` le e altera, a `events_dlq` escreve e nao
     # le; esta so le.
+    # KAM-017. O canario vai no `id`, como na `conversations`: e a **segunda**
+    # tabela isolada sem coluna de texto livre, e isso nao e acidente — o
+    # criterio 2 do ticket proibe persistir corpos de mensagens, e a forma de
+    # garantir a regra e nao haver onde. Usa o canal que o `ComDoisTenants` ja
+    # semeou e **nao cria um seu**: a primeira versao criava, e o gate 6
+    # devolveu doze falhas, porque metade da bateria assume um canal por tenant.
+    # Ao contrario da `channel_onboarding`, aqui `kamba_app` **escreve** — a
+    # coexistencia corre no caminho de um webhook —, e por isso ha coluna
+    # alteravel. Semeia o administrador porque o `kamba_batch` tem `SELECT` e
+    # `DELETE` e **nao** `INSERT`.
+    ("platform", "channel_coexistence"): Receita(
+        _coexistencia_do_canal, "id", "estado", "sincronizado",
+        semeador="admin", guardado=_uuid,
+    ),
     ("platform", "channel_onboarding"): Receita(
         _tentativa_de_onboarding, "waba_id", None, None, escrita_do_papel=False,
     ),
@@ -888,6 +948,12 @@ ORDEM = (
     # que vem depois do canal — que o proprio `ComDoisTenants` semeia antes de
     # qualquer receita. Fica aqui, a seguir a prova de consentimento, porque a
     # ordem inversa e a de apagar e esta tabela nao e apontada por nenhuma.
+    # KAM-017: tem duas FK (`tenants` e a composta para `tenant_channels`), e a
+    # receita cria o **seu** canal — pelo que ela vem **antes** da
+    # `channel_onboarding` na ordem de apagar nao por causa das FK (nenhuma
+    # aponta para a outra) mas para manter a lista legivel pela ordem em que os
+    # tickets entraram.
+    ("platform", "channel_coexistence"),
     ("platform", "channel_onboarding"),
     # KAM-009: as duas so tem FK para `tenants`, e por isso ficam no fim.
     ("platform", "tenant_usage"),

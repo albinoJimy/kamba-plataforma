@@ -305,6 +305,27 @@ ON_METRICAS = "packages/core-ts/src/onboarding/metricas.ts"
 ON_ESCRITA = "packages/core-ts/src/secrets/escrita.ts"
 REV17 = "db/migrations/versions/0017_onboarding_de_canal.py"
 
+# -------------------------------------------------------------- KAM-017
+#: A coexistencia. A suite e a `tests_outbound`, e a razao que so vale para
+#: este ticket esta no `FICHEIROS` dela: a regra do criterio 7 — «um echo cujo
+#: wamid consta de `outbound_messages` e ignorado» — le a tabela **daquela**
+#: suite, e nao ha onde provar isso sem as duas tabelas na mesma base.
+#:
+#: **`CX_` e nao `CO_` nem `C_`**, e o prefixo escolheu-se depois de procurar:
+#: nenhuma outra constante deste ficheiro comeca por `CX_` (o `CS_` do
+#: consentimento e o mais parecido, e um `CO_` confundia-se com ele a olho). E a
+#: licao que o `MED_SQL`/`FT_SQL` deixou e que as notas do `CS_SQL`, do `MO_SQL`
+#: e do `ON_SQL` repetiram — um prefixo que colida com o de outro ticket
+#: **sombreia** entradas sem conflito de merge, e nenhum teste o ve. Quem
+#: integrar o `main` depois disto corre `python db/mutacoes.py --aplicaveis`,
+#: que e o unico que apanha.
+CX_SQL = "packages/core-ts/src/coexistencia/consultas.ts"
+CX_CONTRATO = "packages/core-ts/src/coexistencia/contrato.ts"
+CX_MODULO = "packages/core-ts/src/coexistencia/coexistencia.ts"
+CX_METRICAS = "packages/core-ts/src/coexistencia/metricas.ts"
+CX_EXPLOSAO = "packages/core-ts/src/entrada/explosao.ts"
+REV18 = "db/migrations/versions/0018_coexistencia.py"
+
 #: O corpo da subtransaccao da `ten_consumir`, como a revisao 0007 o escreve:
 #: **a chave primeiro, a contagem depois**. A mutacao da ordem precisa do
 #: texto inteiro, incluindo o comentario pelo meio, porque nao ha alteracao
@@ -1587,9 +1608,15 @@ MUTACOES = [
     ('saida: o bloqueio de template deixa de preservar o primeiro instante', SAIDA_SQL,
      '   WHERE tenant_id = $1 AND name = $2 AND lang = $3 AND bloqueado_em IS NULL',
      '   WHERE tenant_id = $1 AND name = $2 AND lang = $3', SAIDA),
+    # KAM-017 tocou nesta linha: o `this.#mps` passou a `debito`, que e o
+    # `mpsDoModo(modo)` quando o modo vem, e o `#mps` do construtor quando nao
+    # vem. **A mutacao e a mesma** — o balde a nascer cheio — e so o texto
+    # mudou; reescreve-se em vez de se apagar, porque o que ela mata continua a
+    # fazer falta (um balde cheio a nascer deixa passar uma rajada no primeiro
+    # instante, e e o criterio 5 do KAM-015 que isso quebra).
     ('saida: o balde do canal volta a nascer cheio', SAIDA_LIMITES,
-     'const canal = this.#balde(this.#porCanal, phoneNumberId, this.#mps, agoraMs, false);',
-     'const canal = this.#balde(this.#porCanal, phoneNumberId, this.#mps, agoraMs, true);',
+     'const canal = this.#balde(this.#porCanal, phoneNumberId, debito, agoraMs, false);',
+     'const canal = this.#balde(this.#porCanal, phoneNumberId, debito, agoraMs, true);',
      SAIDA),
     ('saida: o 131049 passa a repetir-se', SAIDA_LIMITES,
      'export const CODIGOS_QUE_SE_REPETEM: readonly number[] = [',
@@ -2784,6 +2811,128 @@ MUTACOES = [
      "    return this.#valores.get(chave) ?? 0;", SAIDA),
     ('onboarding: a etiqueta deixa de ser conferida', ON_METRICAS,
      "    if (!definicao.valores.includes(etiqueta)) {",
+     "    if (false) {", SAIDA),
+    # ------------------------------- KAM-017, revisao 0018 (coexistencia)
+    #
+    # Quatro da revisao, que correm na suite `tests` — e onde vive o
+    # `test_coexistencia_schema.py`. As restantes sao de codigo e correm na
+    # `tests_outbound`, pela razao que o `FICHEIROS` dela escreve.
+    ('coexistencia 0018: a unicidade por canal desaparece', REV18,
+     "            CONSTRAINT channel_coexistence_canal_uq UNIQUE (tenant_id, channel_id),\n",
+     "\n", "tests"),
+    ('coexistencia 0018: o desligamento passa a implicacao', REV18,
+     "CHECK ((motivo_desligamento IS NULL) = (desligado_em IS NULL))",
+     "CHECK (motivo_desligamento IS NULL OR desligado_em IS NOT NULL)", "tests"),
+    ('coexistencia 0018: o prazo passa a poder nascer vencido', REV18,
+     "                CHECK (prazo_em > iniciado_em),",
+     "                CHECK (prazo_em IS NOT NULL),", "tests"),
+    ('coexistencia 0018: o kamba_app ganha DELETE', REV18,
+     '"GRANT SELECT, INSERT, UPDATE ON platform.channel_coexistence TO kamba_app"',
+     '"GRANT SELECT, INSERT, UPDATE, DELETE ON platform.channel_coexistence TO kamba_app"',
+     "tests"),
+
+    # O passo que corre uma vez (criterio 3).
+    ('coexistencia: o passo deixa de filtrar por ja ter corrido', CX_SQL,
+     "     AND NOT ($3::text = ANY (passos_feitos))",
+     "     AND TRUE", SAIDA),
+    ('coexistencia: o passo passa a aceitar uma sincronizacao falhada', CX_SQL,
+     "     AND estado = 'a_sincronizar'\n     AND NOT ($3::text = ANY (passos_feitos))",
+     "     AND NOT ($3::text = ANY (passos_feitos))", SAIDA),
+    ('coexistencia: concluir deixa de exigir os dois passos', CX_SQL,
+     "     AND passos_feitos @> ARRAY['contactos','historico']::text[]",
+     "     AND TRUE", SAIDA),
+
+    # O alerta e o prazo (criterio 3).
+    ('coexistencia: o alerta das 12 h deixa de ser idempotente', CX_SQL,
+     "     AND alertado_em IS NULL\n     AND iniciado_em <= $1",
+     "     AND iniciado_em <= $1", SAIDA),
+    ('coexistencia: o prazo passa a ler o arranque e nao a coluna', CX_SQL,
+     "     AND prazo_em <= $1",
+     "     AND iniciado_em <= $1", SAIDA),
+    ('coexistencia: o prazo das 24 h passa a 12 h', CX_CONTRATO,
+     "export const PRAZO_DE_SINCRONIZACAO_MS = 24 * 60 * 60 * 1_000;",
+     "export const PRAZO_DE_SINCRONIZACAO_MS = 12 * 60 * 60 * 1_000;", SAIDA),
+    ('coexistencia: o alerta das 12 h passa a 24 h', CX_CONTRATO,
+     "export const ALERTA_DE_SINCRONIZACAO_MS = 12 * 60 * 60 * 1_000;",
+     "export const ALERTA_DE_SINCRONIZACAO_MS = 24 * 60 * 60 * 1_000;", SAIDA),
+
+    # O 2593109 (criterio 4).
+    ('coexistencia: o 2593109 passa a ser tratado como falha', CX_MODULO,
+     "    if (lote.erros.includes(CODIGO_SEM_HISTORICO)) {",
+     "    if (false) {", SAIDA),
+    ('coexistencia: o codigo sem historico muda de numero', CX_CONTRATO,
+     "export const CODIGO_SEM_HISTORICO = 2_593_109;",
+     "export const CODIGO_SEM_HISTORICO = 2_593_110;", SAIDA),
+    ('coexistencia: o sem historico passa a fechar como sincronizado', CX_SQL,
+     "     SET estado          = 'sincronizado_sem_historico',",
+     "     SET estado          = 'sincronizado',", SAIDA),
+
+    # Os seis motivos (criterio 5).
+    ('coexistencia: a traducao do motivo passa a toLowerCase', CX_CONTRATO,
+     "  return CANONICO_DA_META[bruto] ?? null;",
+     "  return bruto.toLowerCase() as MotivoDeDesligamento;", SAIDA),
+    ('coexistencia: o desligamento deixa de ser idempotente', CX_SQL,
+     "     AND desligado_em IS NULL\n  RETURNING id::text AS id",
+     "  RETURNING id::text AS id", SAIDA),
+    ('coexistencia: um canal desligado volta a poder desligar-se', CX_SQL,
+     "     AND estado IN ('pendente', 'ativo', 'restrito')",
+     "     AND estado IS NOT NULL", SAIDA),
+
+    # O aviso dos 10 dias (criterio 6).
+    ('coexistencia: o aviso deixa de ser idempotente', CX_SQL,
+     "     AND avisado_em IS NULL\n     AND COALESCE(ultimo_echo_em, iniciado_em) <= $1",
+     "     AND COALESCE(ultimo_echo_em, iniciado_em) <= $1", SAIDA),
+    ('coexistencia: o canal que nunca teve echo deixa de ser avisado', CX_SQL,
+     "     AND COALESCE(ultimo_echo_em, iniciado_em) <= $1",
+     "     AND ultimo_echo_em <= $1", SAIDA),
+    ('coexistencia: o echo do dono deixa de reabrir a janela do aviso', CX_SQL,
+     "         avisado_em     = NULL,\n         actualizado_at = now()\n   WHERE tenant_id = $1 AND channel_id = $2",
+     "         actualizado_at = now()\n   WHERE tenant_id = $1 AND channel_id = $2", SAIDA),
+    ('coexistencia: o aviso passa a apanhar canais a sincronizar', CX_SQL,
+     "   WHERE estado IN ('sincronizado', 'sincronizado_sem_historico')",
+     "   WHERE estado IS NOT NULL", SAIDA),
+    ('coexistencia: os 10 dias passam a 14', CX_CONTRATO,
+     "export const INACTIVIDADE_DO_DONO_MS = 10 * 24 * 60 * 60 * 1_000;",
+     "export const INACTIVIDADE_DO_DONO_MS = 14 * 24 * 60 * 60 * 1_000;", SAIDA),
+
+    # O echo (criterio 7).
+    ('coexistencia: o echo nosso passa a contar como actividade humana', CX_MODULO,
+     "    if (rows.length > 0) {",
+     "    if (false) {", SAIDA),
+    ('coexistencia: o GREATEST do relogio do echo desaparece', CX_SQL,
+     "     SET ultimo_echo_em = GREATEST(COALESCE(ultimo_echo_em, $3), $3),",
+     "     SET ultimo_echo_em = $3,", SAIDA),
+    ('coexistencia: o echo sem destinatario passa a resolver contacto', CX_MODULO,
+     "    if (echo.destinatario.bsuid === null && echo.destinatario.telefone === null) {",
+     "    if (false) {", SAIDA),
+    ('coexistencia: o destinatario de um echo deixa de ser lido', CX_EXPLOSAO,
+     "            telefone: texto(dentro[CAMPO_DO_DESTINATARIO], ID_META_MAXIMO),",
+     "            telefone: null,", SAIDA),
+
+    # O modo do canal (criterio 8).
+    ('coexistencia: o debito da coexistencia passa a 80 mps', SAIDA_LIMITES,
+     "export const MPS_POR_MODO: Readonly<Record<string, number>> = {\n  coexistencia: 15,",
+     "export const MPS_POR_MODO: Readonly<Record<string, number>> = {\n  coexistencia: 80,",
+     SAIDA),
+    ('coexistencia: o modo desconhecido passa a levantar em vez de degradar', SAIDA_LIMITES,
+     "  if (typeof modo !== \"string\") return MPS_POR_CANAL;\n  return MPS_POR_MODO[modo] ?? MPS_POR_CANAL;",
+     "  if (typeof modo !== \"string\") return MPS_POR_CANAL;\n  return MPS_POR_MODO[modo] ?? 0;",
+     SAIDA),
+
+    # A reconexao (criterio 9).
+    ('coexistencia: a reconexao deixa de limpar os passos', CX_SQL,
+     "         passos_feitos       = '{}'::text[],",
+     "         passos_feitos       = channel_coexistence.passos_feitos,", SAIDA),
+    ('coexistencia: a reconexao deixa de limpar o desligamento', CX_SQL,
+     "         motivo_desligamento = NULL,\n         desligado_em        = NULL,",
+     "         alertado_em         = NULL,", SAIDA),
+
+    # As metricas.
+    ('coexistencia: a etiqueta deixa de ser conferida', CX_METRICAS,
+     "      if (permitidos === undefined || !permitidos.includes(sufixo)) {",
+     "      if (false) {", SAIDA),
+    ('coexistencia: uma duracao negativa passa a entrar no histograma', CX_METRICAS,
+     "    if (!Number.isFinite(segundos) || segundos < 0) {",
      "    if (false) {", SAIDA),
 ]
 

@@ -103,8 +103,17 @@ class TestCatalogoReal(ComBase):
         sementes tem `escrita_do_papel=False` e `coluna_alteravel=None`, e o que
         se prova e que os privilegios de escrita nem existem.
 
-        **O nome deste teste diz «vinte e uma» e a lista tem vinte e cinco.** O
-        KAM-020 deixou-o a dizer vinte e uma ao fazer vinte e duas, e tres
+        Vinte e seis desde o KAM-017: a `channel_coexistence`. Tem as mesmas
+        duas FK e a mesma chave primaria `id` sem `tenant_id` — logo indice
+        proprio `(tenant_id, estado)`. Ao contrario da `channel_onboarding`,
+        `kamba_app` **escreve** nesta: a coexistencia corre no caminho de um
+        *webhook* e nao de retaguarda, pelo que a receita de sementes tem coluna
+        alteravel (`estado`). O `kamba_batch` tem `SELECT` e `DELETE` e **nao**
+        `INSERT`, de proposito — nao ha caminho de retaguarda que abra uma
+        sincronizacao —, e por isso a receita semeia o administrador.
+
+        **O nome deste teste diz «vinte e uma» e a lista tem vinte e seis.** O
+        KAM-020 deixou-o a dizer vinte e uma ao fazer vinte e duas, e quatro
         tickets passaram por aqui depois sem o renomear; nao se renomeia agora,
         pela mesma razao — renomear o teste de outro ticket a meio deste e ruido
         no diff. Fica em `docs/dividas-documentais.md`.
@@ -130,6 +139,10 @@ class TestCatalogoReal(ComBase):
                 # e **depois** das duas `audit_*` e **antes** das
                 # `contact_*`: no `sorted()` por ponto de codigo, «ch»
                 # vence «co» porque 'h' < 'o', e perde contra «au».
+                # KAM-017: o estado de coexistencia. A posicao e **antes** da
+                # `channel_onboarding`: no `sorted()` por ponto de codigo,
+                # «channel_c» vence «channel_o» porque 'c' < 'o'.
+                ("platform", "channel_coexistence", "tenant_id"),
                 # KAM-016: a tentativa de onboarding. A posicao e **antes** da
                 # `channel_quality_log`: no `sorted()` por ponto de codigo,
                 # «channel_o» vence «channel_q» porque 'o' < 'q'.
@@ -241,6 +254,9 @@ class TestCatalogoReal(ComBase):
                 # KAM-012: o `audit_heads` nao aparece — nao tem politica, por
                 # excepcao declarada.
                 ("audit_log", "tenant_iso", "ALL", "{public}"),
+                # KAM-017: o estado de coexistencia, antes da de onboarding
+                # («channel_c» < «channel_o»).
+                ("channel_coexistence", "tenant_iso", "ALL", "{public}"),
                 # KAM-016: a tentativa de onboarding, antes da de qualidade
                 # («channel_o» < «channel_q»).
                 ("channel_onboarding", "tenant_iso", "ALL", "{public}"),
@@ -295,6 +311,14 @@ class TestCatalogoReal(ComBase):
             [# KAM-012: o registo de auditoria. O `audit_heads` nao esta
              # aqui, por excepcao declarada em `ci/rls_exceptions.yaml`.
              "audit_log",
+             # KAM-017: o estado de coexistencia. **Quinta e sexta listas
+             # deste ficheiro a precisarem da tabela nova** (esta e a de
+             # `test_as_politicas_sao_exactamente_as_declaradas`), e a licao
+             # repete-se: o KAM-016 escreveu que as tres primeiras ja estavam
+             # feitas quando a quarta falhou, e aqui foram as quatro primeiras
+             # que passaram antes de estas duas caírem. Quem acrescentar uma
+             # tabela isolada corre o *gate* 6 **inteiro** e nao so o X-03.
+             "channel_coexistence",
              # KAM-016: a tentativa de onboarding. **Quarta lista deste
              # ficheiro a precisar dela**, e a licao e a mesma que o KAM-019
              # escreveu: as tres primeiras ja estavam feitas quando esta falhou.

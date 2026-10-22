@@ -40,6 +40,42 @@
 /** Capacidade do *token bucket* por canal, em mensagens por segundo. */
 export const MPS_POR_CANAL = 15;
 
+/**
+ * O débito por **modo de canal** (KAM-017, critério 8).
+ *
+ * O critério daquele ticket pede «15 mps em `coexistencia`», que é o que o
+ * `MPS_POR_CANAL` acima já valia — para **todos** os canais, sem olhar ao modo.
+ * O que este mapa acrescenta é tornar o 15 uma **escolha por modo** e não uma
+ * coincidência: o dia em que um dos dois subir, sobe só um.
+ *
+ * **Os dois valores são hoje iguais, e isso é deliberado.** A nota do módulo
+ * acima di-lo por extenso: o `E1` §5 confirma 20 mps em coexistência e a Meta
+ * dá 80 em `cloud_only`, mas **nenhum documento deste repositório fixa o número
+ * do `cloud_only`**. Pôr 80 aqui por dedução era inventar o que o critério não
+ * diz e arriscar o `130429` que o balde existe para evitar.
+ *
+ * Vive **neste** módulo e não no `coexistencia/contrato.ts` por duas razões: é
+ * aqui que estão os outros tectos, e pô-lo lá fazia o `outbound` importar do
+ * `coexistencia` que já importa do `outbound`.
+ */
+export const MPS_POR_MODO: Readonly<Record<string, number>> = {
+  coexistencia: 15,
+  cloud_only: 15,
+};
+
+/**
+ * O débito de um canal, pelo seu `channel_mode`.
+ *
+ * Um modo que não se reconhece devolve o `MPS_POR_CANAL`, e não levanta: o
+ * domínio da coluna tem dois valores e a base impõe-nos, pelo que chegar aqui
+ * um terceiro significa que a coluna mudou sem este mapa mudar — e nesse dia
+ * enviar ao débito conservador é melhor do que não enviar nada.
+ */
+export function mpsDoModo(modo: string | null | undefined): number {
+  if (typeof modo !== "string") return MPS_POR_CANAL;
+  return MPS_POR_MODO[modo] ?? MPS_POR_CANAL;
+}
+
 /** Tecto por par, em mensagens por segundo. */
 export const MPS_POR_PAR = 1;
 
@@ -220,8 +256,21 @@ export class Limites {
    * e descobrir depois que o par está cheio gastava um *token* de canal que
    * ninguém usou, e com 15/s isso é 6,7% do débito por cada recusa de par.
    */
-  pedir(phoneNumberId: string, tenantId: string, contactId: string, agoraMs: number): number {
-    const canal = this.#balde(this.#porCanal, phoneNumberId, this.#mps, agoraMs, false);
+  pedir(
+    phoneNumberId: string,
+    tenantId: string,
+    contactId: string,
+    agoraMs: number,
+    modo?: string,
+  ): number {
+    // **O modo decide o debito do balde deste canal** (KAM-017, criterio 8), e
+    // o `#mps` do construtor fica como omissao para quem nao o souber. O modo
+    // so e lido quando o balde **nasce**: um balde que mudasse de capacidade a
+    // meio perdia a conta do que ja tirou, e o `channel_mode` de um canal nao
+    // muda sem passar por um onboarding novo — que cria balde novo de qualquer
+    // forma, porque o `phone_number_id` do `cloud_only` e outro.
+    const debito = modo === undefined ? this.#mps : mpsDoModo(modo);
+    const canal = this.#balde(this.#porCanal, phoneNumberId, debito, agoraMs, false);
     const chaveDoPar = `${tenantId}:${contactId}`;
     const par = this.#balde(this.#porPar, chaveDoPar, MPS_POR_PAR, agoraMs, true);
     let minuto = this.#porParMinuto.get(chaveDoPar);
