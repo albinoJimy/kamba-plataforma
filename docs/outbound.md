@@ -358,7 +358,7 @@ acontece — e é ali que os quatro «**sem** chamada à API» dos critérios 1,
 
 | O que | Ticket |
 |---|---|
-| O corpo do `PreSendGuard` e quem tem a palavra (`conversations.mode`) | KAM-018 |
+| O corpo do `PreSendGuard` e quem tem a palavra (`conversations.mode`) | KAM-018, **entregue**: o corpo está em `packages/core-ts/src/modos/guarda.ts` e corre sob `pg_advisory_xact_lock(hash(tenant_id, contact_id))`, que é a metade do critério 8 deste ticket que ficou por cumprir. Ver [`modos-conversa.md`](modos-conversa.md) §5 |
 | O contador do *free tier* e o método de pagamento da PME | KAM-023 |
 | Os consumidores dos três webhooks de template | KAM-016 / KAM-021 |
 | O aviso ao dono quando uma mensagem expira | KAM-115 |
@@ -373,3 +373,4 @@ acontece — e é ali que os quatro «**sem** chamada à API» dos critérios 1,
 | Versão | Data | Alteração |
 |---|---|---|
 | 1.0 | 2026-10-20 | Criado pelo KAM-015. |
+| 1.1 | 2026-10-22 | **KAM-018: o passo 3 passa a ter corpo.** O `PreSendGuard` que este ticket deixou como porta e a falhar fechada tem agora implementação, em `packages/core-ts/src/modos/guarda.ts`, e corre sob `pg_advisory_xact_lock(hash(tenant_id, contact_id))` — a metade do critério 8 que ficou por cumprir («**não há *lock***»). O `Pedido` ganha um campo opcional, o `turnoIniciadoEm`, que é o `turn.started_at` do pseudocódigo do KAM-018: um envio do bot que o não traga é **recusado**. Nada mais deste módulo muda — a ordem dos sete passos é a mesma, e a linha `suppressed_by_human` é escrita pelo guarda e não pelo adapter, porque o guarda é o passo 3 e o `SQL_ENFILEIRAR` é o 4. |

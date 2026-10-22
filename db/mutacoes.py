@@ -266,6 +266,26 @@ CS_METRICAS = "packages/core-ts/src/consentimento/metricas.ts"
 CS_MODULO = "packages/core-ts/src/consentimento/consentimento.ts"
 REV15 = "db/migrations/versions/0015_consentimento.py"
 
+# -------------------------------------------------------------- KAM-018
+#: Os modos da conversa. A suite e a `tests_modos`, e e **suite propria** e nao a
+#: `tests_outbound` dos tres tickets anteriores: a prova destas mutacoes esta no
+#: *lock*, na tabela de transicoes e no privilegio da revisao `0016`, e quem as
+#: exercita e `db/tests_modos/`, que mede a cobertura de `src/modos/` e tem a
+#: lista de testes obrigatorios deste ticket.
+#:
+#: **`MO_` e nao `M_` nem `MD_`**, e o prefixo escolheu-se depois de procurar:
+#: nenhuma outra constante deste ficheiro comeca por `MO_` (o `MED_` da midia e
+#: o mais parecido). E a licao que o `MED_SQL`/`FT_SQL` deixou — um prefixo que
+#: colida com o de outro ticket sombreia entradas sem conflito de merge, e
+#: nenhum teste o ve.
+MO_SQL = "packages/core-ts/src/modos/consultas.ts"
+MO_TRANSICOES = "packages/core-ts/src/modos/transicoes.ts"
+MO_CONTRATO = "packages/core-ts/src/modos/contrato.ts"
+MO_GUARDA = "packages/core-ts/src/modos/guarda.ts"
+MO_EVENTOS = "packages/core-ts/src/modos/eventos.ts"
+MO_MODULO = "packages/core-ts/src/modos/modos.ts"
+REV16 = "db/migrations/versions/0016_modos_de_conversa.py"
+
 #: O corpo da subtransaccao da `ten_consumir`, como a revisao 0007 o escreve:
 #: **a chave primeiro, a contagem depois**. A mutacao da ordem precisa do
 #: texto inteiro, incluindo o comentario pelo meio, porque nao ha alteracao
@@ -2346,6 +2366,235 @@ MUTACOES = [
     ('consentimento: a contagem de avisos deixa de se ler', CS_MODULO,
      "    const precisaDaContagem =\n      (linha === \"texto\" || linha === \"outro\") && estado !== \"valido\";",
      "    const precisaDaContagem = false;", SAIDA),
+    # ------------------------------- KAM-018, revisao 0016 (modos da conversa)
+    #
+    # Duas da revisao, que correm na suite `tests` — e onde vive o
+    # `test_privilegios.py`, que e quem ve um `GRANT` desaparecer ou crescer. As
+    # restantes sao do codigo e correm na `tests_modos`.
+    #
+    # **A mutacao mais importante desta lista e a do `FOR UPDATE`**, e ela nao e
+    # de logica: tira duas palavras de uma subconsulta. Sem elas, o par
+    # «verificar o predicado, escrever» deixa de ser atomico ao nivel da linha e
+    # a exclusao mutua passa a depender **so** do *advisory lock* — o que
+    # continua a funcionar para quem passa pela maquina e deixa de funcionar
+    # para quem corra a consulta sem o *lock*. Quem a mata e o ensaio das duas
+    # transicoes concorrentes.
+    #
+    # **Duas foram escritas e descartadas.** A primeira apagava o
+    # `pg_advisory_xact_lock` do `SQL_TRANCAR_CONVERSA`: a consulta deixa de
+    # devolver coluna nenhuma, o `pg` levanta, e **todos** os testes rebentam —
+    # uma mutacao que mata a suite inteira nao diz nada sobre o *lock*. A
+    # segunda trocava `hashtextextended` por `hashtext`: o PostgreSQL recusa o
+    # `pg_advisory_xact_lock(integer)` com um argumento so, pelo que a mutacao
+    # nao corre.
+    ('modos 0016: a app perde o UPDATE do mode', REV16,
+     'COLUNAS_NOVAS = ("mode", "last_human_activity_at")',
+     'COLUNAS_NOVAS = ("last_human_activity_at",)', "tests"),
+    ('modos 0016: o downgrade revoga tambem a janela da 0009', REV16,
+     "        f\"REVOKE UPDATE ({', '.join(COLUNAS_NOVAS)}) \"",
+     "        f\"REVOKE UPDATE ({', '.join(COLUNAS_DA_APLICACAO)}) \"", "tests"),
+    # ---------------------------------------------------------------- o SQL
+    ('modos: a transicao deixa de ser atomica ao nivel da linha', MO_SQL,
+     "       WHERE tenant_id = $1 AND id = $2\n         FOR UPDATE",
+     "       WHERE tenant_id = $1 AND id = $2", "tests_modos"),
+    ('modos: o UPDATE do modo perde o predicado da tabela', MO_SQL,
+     "     AND antes.mode = ANY($4::text[])\n",
+     "", "tests_modos"),
+    ('modos: a actividade humana deixa de ser monotona no UPDATE', MO_SQL,
+     "         last_human_activity_at = GREATEST(c.last_human_activity_at, $5)",
+     "         last_human_activity_at = $5", "tests_modos"),
+    ('modos: a actividade humana deixa de ser monotona no registo', MO_SQL,
+     "     SET last_human_activity_at = GREATEST(last_human_activity_at, $3)",
+     "     SET last_human_activity_at = $3", "tests_modos"),
+    ('modos: o lock deixa de separar o tenant do contacto', MO_SQL,
+     "hashtextextended($1::text || ':' || $2::text, 0)",
+     "hashtextextended($1::text || $2::text, 0)", "tests_modos"),
+    ('modos: o job das 24 h deixa de olhar para o handoff', MO_SQL,
+     "           c.last_human_activity_at,\n           (SELECT max(h.opened_at) FROM platform.handoffs AS h\n             WHERE h.tenant_id = c.tenant_id AND h.conversation_id = c.id)\n         ) < $2",
+     "           c.last_human_activity_at,\n           NULL::timestamptz\n         ) < $2", "tests_modos"),
+    ('modos: o job das 24 h conta do handoff mais antigo', MO_SQL,
+     "(SELECT max(h.opened_at) FROM platform.handoffs AS h",
+     "(SELECT min(h.opened_at) FROM platform.handoffs AS h", "tests_modos"),
+    ('modos: o job das 24 h pausa qualquer modo', MO_SQL,
+     "     AND c.mode = ANY($3::text[])\n",
+     "", "tests_modos"),
+    ('modos: a supressao passa a nascer em queued', MO_SQL,
+     "  VALUES ($1, $2, $3, $4, $5, $6, $7, 'suppressed_by_human')",
+     "  VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued')", "tests_modos"),
+    ('modos: a supressao repetida passa a reescrever a linha', MO_SQL,
+     "      ON CONFLICT (tenant_id, idempotency_key) DO NOTHING",
+     "      ON CONFLICT (tenant_id, idempotency_key) DO UPDATE\n            SET state = 'suppressed_by_human'", "tests_modos"),
+    ('modos: a leitura do modo deixa de filtrar o tenant', MO_SQL,
+     "  SELECT mode, last_human_activity_at\n    FROM platform.conversations\n   WHERE tenant_id = $1 AND id = $2",
+     "  SELECT mode, last_human_activity_at\n    FROM platform.conversations\n   WHERE id = $2 AND $1 IS NOT NULL", "tests_modos"),
+    # --------------------------------------------------- a tabela de transicoes
+    # O `comando_bot` aparece como celula rejeitada em **dois** modos (`humano` e
+    # `pausada`) com exactamente o mesmo texto, pelo que a ancora leva a linha
+    # seguinte: e o `handoff_resolvido` que separa os dois sitios.
+    ('modos: o comando /bot passa a funcionar em modo humano', MO_TRANSICOES,
+     '    comando_bot: { para: null, rejeitada: true, fonte: "invariante" },\n'
+     '    // Já está em atendimento humano. Pedir outra vez não é defeito.',
+     '    comando_bot: { para: "bot", rejeitada: false, fonte: "invariante" },\n'
+     '    // Já está em atendimento humano. Pedir outra vez não é defeito.',
+     "tests_modos"),
+    ('modos: o silencio do dono deixa de ser condicao', MO_TRANSICOES,
+     '  if (celula.condicao === "silencio_do_dono" && !silencioExpirou(estado, agora)) {',
+     "  if (false) {", "tests_modos"),
+    ('modos: as origens do predicado passam a ser todos os modos', MO_TRANSICOES,
+     "  return MODOS.filter((de) => TABELA[de][gatilho].para === para);",
+     "  return [...MODOS].filter((de) => de !== para);", "tests_modos"),
+    ('modos: o silencio sem actividade registada passa a nao expirar', MO_TRANSICOES,
+     "  if (estado.ultimaActividadeHumana === null) return true;",
+     "  if (estado.ultimaActividadeHumana === null) return false;", "tests_modos"),
+    ('modos: o limite do silencio deixa de ser inclusivo', MO_TRANSICOES,
+     "  return agora.getTime() - estado.ultimaActividadeHumana.getTime() >= SILENCIO_DO_DONO_MS;",
+     "  return agora.getTime() - estado.ultimaActividadeHumana.getTime() > SILENCIO_DO_DONO_MS;",
+     "tests_modos"),
+    ('modos: um gatilho rejeitado passa a ser sem efeito', MO_TRANSICOES,
+     '  if (celula.rejeitada) return { tipo: "rejeitada" };',
+     '  if (false) return { tipo: "rejeitada" };', "tests_modos"),
+    # ----------------------------------------------------------- o vocabulario
+    ('modos: o silencio do dono passa de 30 minutos a 30 segundos', MO_CONTRATO,
+     "export const SILENCIO_DO_DONO_MS = 30 * 60 * 1_000;",
+     "export const SILENCIO_DO_DONO_MS = 30 * 1_000;", "tests_modos"),
+    ('modos: as 24 h sem humano passam a 24 minutos', MO_CONTRATO,
+     "export const SEM_HUMANO_MS = 24 * 60 * 60 * 1_000;",
+     "export const SEM_HUMANO_MS = 24 * 60 * 1_000;", "tests_modos"),
+    ('modos: o modo `dono` passa a sair como desligado no evento', MO_CONTRATO,
+     '  dono: "humano",\n  humano: "humano",',
+     '  dono: "desligado",\n  humano: "humano",', "tests_modos"),
+    # **Tres mutacoes foram escritas, corridas e removidas, e as tres sobreviveram
+    # pela mesma razao: o que elas apagam nao e alcancavel.**
+    #
+    # As duas primeiras tiravam guardas do `transicoes.ts` — o
+    # `if (celula.para === estado.mode)` do `transitar` e o `de !== para` do
+    # `origensDe` — e sobreviveram porque **nenhuma celula da tabela aponta para
+    # o proprio modo**: o «nao acontece nada» escreve-se `para: null`. A resposta
+    # nao foi inventar um teste para codigo morto: foi **apagar as duas guardas**
+    # e afirmar o invariante em `tests/modos.transicoes.test.ts` («nenhuma celula
+    # aponta para o proprio modo»), que e o teste que impede uma celula assim de
+    # entrar. Uma guarda inalcancavel da a ilusao de proteger e nao protege nada.
+    #
+    # A terceira apagava o `validarPayload` do `emitirModoMudado`. Sobreviveu
+    # porque o `payloadDoModo` e tipado e nao consegue produzir um payload
+    # invalido **hoje** — o que a validacao protege e uma divergencia futura
+    # entre o que montamos e o que o contrato exige, e essa mede-se comparando as
+    # duas listas (o teste «o payload que se monta e exactamente o que o contrato
+    # exige, nos dois sentidos»). A chamada **fica**, porque e a regra do KAM-007
+    # («validar depois e descobrir o defeito com o evento ja publicado») e custa
+    # uma linha; a mutacao sai, porque mata-la exigia inventar um caminho que
+    # nenhum codigo percorre, e inventa-lo era pior do que declarar o limite.
+    # ------------------------------------------------------------------ a guarda
+    ('modos: a guarda deixa de olhar para o modo', MO_GUARDA,
+     "    if (modo !== MODO_POR_OMISSAO) {",
+     "    if (false) {", "tests_modos"),
+    ('modos: a guarda deixa de olhar para a actividade humana', MO_GUARDA,
+     "    if (instante !== null && instante.getTime() > pedido.turnoIniciadoEm.getTime()) {",
+     "    if (false) {", "tests_modos"),
+    ('modos: a guarda passa a deixar passar um envio sem turno', MO_GUARDA,
+     "    if (pedido.turnoIniciadoEm === undefined) {",
+     "    if (false) {", "tests_modos"),
+    ('modos: a guarda passa a suprimir no mesmo instante do turno', MO_GUARDA,
+     "instante.getTime() > pedido.turnoIniciadoEm.getTime()",
+     "instante.getTime() >= pedido.turnoIniciadoEm.getTime()", "tests_modos"),
+    ('modos: a guarda passa a ler antes de trancar', MO_GUARDA,
+     "    await cliente.query(SQL_TRANCAR_CONVERSA, [pedido.tenantId, pedido.contactId]);\n    const lido = await cliente.query(SQL_CONVERSA_PARA_MODO, [",
+     "    const lido = await cliente.query(SQL_CONVERSA_PARA_MODO, [", "tests_modos"),
+    # **Esta e a mutacao de um fail-open de um caracter**, e a revisao
+    # adversarial deste PR foi quem o apanhou: um `new Date("lixo")` da um `Date`
+    # cujo `getTime()` e `NaN`, e **qualquer** comparacao com `NaN` e falsa — um
+    # `last_human_activity_at` ilegivel deixava passar o envio em vez de o
+    # suprimir. Quem a mata e «um instante ilegivel suprime».
+    ('modos: um instante ilegivel passa a deixar passar o envio', MO_GUARDA,
+     "  if (typeof valor === \"string\") {\n"
+     "    const data = new Date(valor);\n"
+     "    return Number.isNaN(data.getTime()) ? ILEGIVEL : data;\n"
+     "  }\n"
+     "  return ILEGIVEL;",
+     "  if (typeof valor === \"string\") return new Date(valor);\n"
+     "  return null;", "tests_modos"),
+    ('modos: um template suprimido passa a registar-se como service', MO_GUARDA,
+     '  if (pedido.corpo.tipo !== "template") return { kind: "service", templateName: null };\n  return { kind: "utility", templateName: pedido.corpo.nome };',
+     '  return { kind: "service", templateName: null };', "tests_modos"),
+    # ------------------------------------------------------------------ o evento
+    ('modos: o evento passa a sair com a versao 1 do contrato', MO_CONTRATO,
+     "export const VERSAO_MODE_CHANGED = 2;",
+     "export const VERSAO_MODE_CHANGED = 1;", "tests_modos"),
+    # ------------------------------------------------------------------ a maquina
+    ('modos: a maquina decide com a leitura de antes do lock', MO_MODULO,
+     "      await this.#trancar(cliente, alvo.tenantId, contactId);",
+     "      void contactId;", "tests_modos"),
+    # **Duas mutacoes de dois achados da revisao adversarial deste PR**, e as
+    # duas sao de uma linha fora do lugar.
+    #
+    # A primeira poe o gatilho de volta no `outcome`. Um dos oito —
+    # `sem_humano_24h` — nao cabe na gramatica do campo (um segmento e letras com
+    # ate tres digitos **no fim**, ou um numero, e `24h` nao e nenhum dos dois),
+    # pelo que em modo estrito, que e o do CI, o `Logger` **levanta** — e uma
+    # transicao rejeitada, que e um resultado normal, passava a excepcao nao
+    # tratada no caminho de um *webhook*. Quem a mata e «um gatilho rejeitado em
+    # modo ESTRITO nao levanta».
+    #
+    # A segunda devolve a contagem para antes da emissao. As duas escritas vivem
+    # na mesma transaccao: com a emissao a levantar, o `UPDATE` e desfeito e um
+    # contador em memoria **nao** e desfeito com ele. Quem a mata e «se a emissao
+    # levantar, `conv_mode_transitions_total` nao sobe».
+    ('modos: o gatilho volta ao outcome do registo', MO_MODULO,
+     '      this.#log?.warn({ outcome: "modo_rejeitado", tenant_id: tenantId });',
+     "      this.#log?.warn({ outcome: `modo_rejeitado_${gatilho}`, tenant_id: tenantId });",
+     "tests_modos"),
+    ('modos: a transicao conta-se antes de a emissao suceder', MO_MODULO,
+     "    const eventoId = await this.#emitirSeHouverPorta(\n"
+     "      cliente,\n"
+     "      tenantId,\n"
+     "      conversationId,\n"
+     "      contactId,\n"
+     "      modoDepois,\n"
+     "    );",
+     "    this.#metricas.contar(METRICA_TRANSICOES, gatilho);\n"
+     "    const eventoId = await this.#emitirSeHouverPorta(\n"
+     "      cliente,\n"
+     "      tenantId,\n"
+     "      conversationId,\n"
+     "      contactId,\n"
+     "      modoDepois,\n"
+     "    );",
+     "tests_modos"),
+    ('modos: a porta do ConsentGate deixa subir a conversa que nao existe', MO_MODULO,
+     "        if (!(erro instanceof ConversaDesconhecidaError)) throw erro;",
+     "        throw erro;", "tests_modos"),
+    ('modos: uma corrida perdida passa a contar como transicao', MO_MODULO,
+     "    const linha = escrito.rows[0];\n    if (linha === undefined) {",
+     "    const linha = escrito.rows[0];\n    if (false) {", "tests_modos"),
+    ('modos: o handoff pedido passa a contar como actividade humana', MO_MODULO,
+     '  "echo_do_dono",\n  "comando_bot",\n  "handoff_resolvido",\n];',
+     '  "echo_do_dono",\n  "comando_bot",\n  "handoff_resolvido",\n  "handoff_pedido",\n];',
+     "tests_modos"),
+    ('modos: o echo deixa de contar como actividade humana', MO_MODULO,
+     '  "echo_do_dono",\n  "comando_bot",\n  "handoff_resolvido",\n];',
+     '  "comando_bot",\n  "handoff_resolvido",\n];', "tests_modos"),
+    ('modos: um gatilho rejeitado passa a escrever actividade humana', MO_MODULO,
+     "      return this.#semMudanca(resposta, estado.mode);\n    }\n\n    if (resposta.tipo === \"sem_efeito\") {",
+     "      return this.#aplicar(cliente, tenantId, conversationId, contactId, estado, \"echo_do_dono\");\n    }\n\n    if (resposta.tipo === \"sem_efeito\") {",
+     "tests_modos"),
+    # O ciclo sobre `resultado.rows` aparece **duas** vezes no modulo — no
+    # `onOptOut` e no *job* das 24 h —, pelo que a ancora leva a linha anterior:
+    # e a declaracao do acumulador que separa os dois.
+    ('modos: o opt-out passa a tratar so a primeira conversa do contacto', MO_MODULO,
+     "      const saida: ResultadoDaMudanca[] = [];\n"
+     "      for (const linha of resultado.rows) {",
+     "      const saida: ResultadoDaMudanca[] = [];\n"
+     "      for (const linha of resultado.rows.slice(0, 1)) {", "tests_modos"),
+    ('modos: a porta do ConsentGate troca os dois gatilhos', MO_MODULO,
+     'const gatilho: Gatilho = modo === "humano" ? "handoff_pedido" : "opt_out";',
+     'const gatilho: Gatilho = modo === "humano" ? "opt_out" : "handoff_pedido";',
+     "tests_modos"),
+    ('modos: o job das 24 h deixa de emitir evento', MO_MODULO,
+     "        const eventoId = await this.#emitirSeHouverPorta(\n          cliente,\n          tenantId,\n          id,\n          contactId,\n          \"pausada\",\n        );",
+     "        const eventoId: string | null = null;", "tests_modos"),
+    ('modos: o limite das 24 h passa a ser o instante actual', MO_MODULO,
+     "    const limite = new Date(this.#agora().getTime() - SEM_HUMANO_MS);",
+     "    const limite = this.#agora();", "tests_modos"),
 ]
 
 

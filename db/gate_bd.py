@@ -7,6 +7,7 @@
     python db/gate_bd.py --suite tests_outbound      # gate 8, a saida (KAM-015)
     python db/gate_bd.py --suite tests_handoff       # gate 8, o handoff (KAM-019)
     python db/gate_bd.py --suite tests_media         # gate 8, a midia (KAM-020)
+    python db/gate_bd.py --suite tests_modos         # gate 8, os modos (KAM-018)
     python db/gate_bd.py --suite tests --bd-existente
 
 Os dois gates precisam do mesmo: um PostgreSQL real, vazio e descartavel. Este
@@ -156,6 +157,22 @@ SUITES = (
     # a API de midia dela nao tem evidencia nenhuma no `E1` — um simulador
     # seria uma invencao a fingir medicao.
     "tests_media",
+    # KAM-018: os modos da conversa e o silenciamento do bot. O que so aqui se
+    # prova e o que **nenhuma** base falsa pode provar, porque o objecto da prova
+    # e o servidor: que o `pg_advisory_xact_lock(hash(tenant_id, contact_id))` e
+    # exclusao mutua a serio — a guarda **bloqueia** a porta de uma transicao em
+    # curso e, quando entra, ve o modo mudado —, que duas transicoes concorrentes
+    # em duas ligacoes deixam **uma** transicao e **um** evento (o predicado
+    # `mode = ANY(...)` e quem decide, nao quem leu primeiro), que as 100
+    # intercalacoes do criterio 3 dao 0 mensagens do bot depois de o *echo* estar
+    # registado, que o relogio das 24 h conta do `handoffs.opened_at` quando nao
+    # houve actividade humana (um `COALESCE` com subconsulta e um `max`, que so
+    # um planeador resolve), e que o `GRANT UPDATE (mode, last_human_activity_at)`
+    # da revisao `0016` existe — e e **por coluna**, com as quatro da identidade
+    # da conversa ainda vedadas. **Nao leva o `tools/meta-sim`** e nao precisa de
+    # fila: a guarda recusa o envio **antes** de haver chamada a Meta, e a porta
+    # do AGR e uma interface (KAM-025).
+    "tests_modos",
 )
 #: As que precisam tambem de uma fila.
 SUITES_COM_FILA = (

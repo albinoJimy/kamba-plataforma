@@ -185,6 +185,22 @@ export interface Pedido {
    * guarda: o guarda existe para impedir o bot de interromper uma pessoa.
    */
   readonly doBot: boolean;
+  /**
+   * Quando começou o turno do AGR que produziu este envio. **KAM-018.**
+   *
+   * É o `turn.started_at` do pseudocódigo do critério 2 do KAM-018
+   * (`guard(conv, turn)`), e é com ele que o `PreSendGuard` compara o
+   * `conversations.last_human_activity_at`: se uma pessoa falou **depois** de o
+   * turno começar, a resposta do bot é descartada (`docs/tecnica/01` §10.3).
+   *
+   * **Opcional, e o guarda do KAM-018 recusa um envio do bot que o não traga.**
+   * Opcional porque este campo nasce depois do `Pedido` e porque um envio com
+   * `doBot: false` — o `hnd/resposta.ts`, por exemplo — não tem turno nenhum nem
+   * passa pelo guarda. Recusado porque a alternativa era desligar metade do
+   * critério 2 em silêncio: ver `modos/guarda.ts` e o motivo `sem_turno` de
+   * `reply_suppressed_total`.
+   */
+  readonly turnoIniciadoEm?: Date;
 }
 
 /** Porque é que um envio não saiu. */

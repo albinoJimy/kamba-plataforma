@@ -25,7 +25,7 @@ Fase mista, por desenho: **Fase 0** para o que o esqueleto andante exige (KAM-01
 ## 2. Critérios de Saída do Epic
 
 - [ ] Reenviar o mesmo webhook 2× produz 1 *job*; a mesma mensagem em dois envelopes distintos produz 1 `inbound_events`; assinatura inválida devolve 401; o GWY responde 200 com p99 < 500 ms a 3× de tráfego de estados (alvo de `../docs/tecnica/01` §16).
-- [ ] 0 mensagens enviadas com janela fechada (`WINDOW_CLOSED`) e 0 respostas do bot depois de um *echo* do dono em 100 intercalações aleatórias de corrida (KAM-015, KAM-018).
+- [x] 0 mensagens enviadas com janela fechada (`WINDOW_CLOSED`) e 0 respostas do bot depois de um *echo* do dono em 100 intercalações aleatórias de corrida (KAM-015, KAM-018).
 - [ ] Um onboarding Embedded Signup v4 completo numa conta de teste da Meta, com evidência em `docs/evidencia/KAM-016.md`; a coexistência está validada com ≥ 1 número +244 real **ou** o modo `cloud_only` está documentado como predefinido, conforme o relatório de KAM-100 (KAM-016, KAM-017).
 - [ ] A sincronização de coexistência alerta aos 12 h e marca `falhado` às 24 h; `history` nunca gera resposta do bot (KAM-017).
 - [ ] O Chatwoot não tem credenciais Meta; o agente da conta A não lê conversas da conta B; `openHandoff` repetido com o mesmo `handoffId` cria 1 conversa (KAM-019).
@@ -394,7 +394,7 @@ via zero linhas, pelo que apagava tudo em silêncio. O desenho está em
 | 4 — `wa_id` e BSUID convergem no mesmo `contact_id`; a fusão emite `contact.merged` 1 vez em 10 repetições | **parcial — caixa vazia** | **A segunda metade cumpre-se e está provada contra a base**: dez mensagens com os dois identificadores dão **uma** fusão, uma linha em `events_outbox` e o mesmo `contact_id` nas dez. **A primeira não é satisfazível** pelo algoritmo de `../docs/tecnica/01` §6.3, que é o que o KAM-008 implementa: uma mensagem só com BSUID procura por BSUID, não acha, não tem telefone por onde procurar — e **cria**. Medido: só-telefone cria P, só-BSUID cria A, e nada os liga. A convergência existe a partir da primeira mensagem que traz os dois, é verdadeira nos dois sentidos daí em diante, e quem tenha o `contact_id` antigo chega ao novo pela lápide (`merged_into`). A caixa fica vazia e a decisão devolve-se a quem escreveu o critério (`../docs/dividas-documentais.md`, linha 49) |
 | 5 — `KAMBA_FASE=piloto`: canal `plataforma` ou `assistente` recusado (0 *jobs*, alerta) **e** o arranque falha se existir tal linha | **satisfeito** | **As duas metades.** Em execução: as três formas de Fluxo B — `tenants.tipo = 'platform'`, `tenant_channels.origem = 'plataforma'`, e vertical fora de `{vendedor, servicos}` — dão 0 *jobs*, 0 entregas ao dono, nenhuma conversa aberta e `chr_resolve_total{desfecho="fluxo_b_recusado"}`; a recusa é **antes** da matriz, pelo que um canal `ativo` não a dispensa. A verificação da vertical é **mais larga** do que a letra: lista de permitidas, pelo que `assistente_v2` também não passa. No arranque: `verificarArranque` com uma linha de cada um dos três tipos recusa nos três, com a contagem na mensagem; com `kamba_app` **recusa-se a correr** (`GuardaCega`) em vez de contar zero sobre uma base que não vê; com `kamba_batch` corre (a primeira das três vias de visibilidade); e sem `KAMBA_FASE` levanta **antes** de tocar na base. É espelho do `fluxo_piloto.py` do KAM-004, com teste de paridade que lê o ficheiro Python e compara as constantes **e** o SQL de visibilidade |
 | 6 — o *job* cumpre `packages/contracts/agent_invocation.schema.json`, sem telefone/BSUID/`display_name`, `thread_id = tenant_id:contact_id` | **parcial — caixa vazia** | **A substância cumpre-se, o caminho não.** O contrato está publicado, com `additionalProperties: false`, e é comparado com o código **nos dois sentidos**: os campos que o esquema exige são exactamente os que a função escreve. Os sete do critério estão lá pelo nome, mais o `thread_id` (padrão `{uuid}:{uuid}`, que recusa um telefone) e o `vertical` do contexto do KAM-025. Sem telefone, sem BSUID, sem `display_name` — e não por disciplina: os argumentos não têm por onde os passar. Confirmado contra a base com um BSUID e um telefone canário. **O caminho é `packages/contracts/schemas/agent_invocation.v1.json` e não o da letra**, por duas razões medidas: os esquemas deste pacote vivem em `schemas/` com a versão no nome (`specs/01` §5), e um ficheiro `*.schema.json` bate numa sentinela do *gate* 3b que o exige dentro de `contratos/eventos/` — e isto não é um contrato de evento. A caixa fica vazia (`../docs/dividas-documentais.md`, linha 48) |
-| 7 — `conversations.mode` ≠ `bot` não vai ao AGR | **satisfeito** | Os três modos (`dono`, `humano`, `pausada`) dão 0 *jobs* e uma entrega ao dono; a verificação é **antes** da matriz, pelo que um modo `humano` num tenant `ativo` continua a não ir ao AGR. Um `echo` vai **sempre** ao dono e nunca ao AGR, sem abrir conversa nem resolver contacto. Um modo que o código não conhece **para** o caminho em vez de o tratar como o mais parecido. Contra a base: o modo posto a `humano` pelo `kamba_batch` muda o destino da mensagem seguinte, e `kamba_app` **não consegue** alterá-lo — o privilégio não existe (`permission denied`), porque as transições são KAM-018 |
+| 7 — `conversations.mode` ≠ `bot` não vai ao AGR | **satisfeito** | Os três modos (`dono`, `humano`, `pausada`) dão 0 *jobs* e uma entrega ao dono; a verificação é **antes** da matriz, pelo que um modo `humano` num tenant `ativo` continua a não ir ao AGR. Um `echo` vai **sempre** ao dono e nunca ao AGR, sem abrir conversa nem resolver contacto. Um modo que o código não conhece **para** o caminho em vez de o tratar como o mais parecido. Contra a base: o modo posto a `humano` pelo `kamba_batch` muda o destino da mensagem seguinte, e `kamba_app` **não consegue** alterá-lo — o privilégio não existe (`permission denied`), porque as transições são KAM-018. **Esta última metade deixou de ser verdade com o KAM-018**, que pediu o privilégio que a `0009` lhe reservou: a revisão `0016` concede `UPDATE (mode, last_human_activity_at)` a `kamba_app`, e o teste de base deste critério passou a afirmar o que continua vedado — as quatro colunas da identidade da conversa. A primeira metade (0 *jobs* fora do modo `bot`) mantém-se, e o KAM-018 volta a medi-la com a máquina de modos a escrever o valor |
 | 8 — isolamento: o `phone_number_id` de A nunca devolve B; `kamba_resolver` não lê outras tabelas; p95 ≤ 5 ms em *cache* e ≤ 50 ms sem | **satisfeito** | Contra a base, com os papéis verdadeiros: dois tenants, dois canais, e cada `phone_number_id` devolve o seu — a propriedade vem da `tenant_channels_phone_number_id_uq` e da política `resolver_leitura`, **não** do código. `kamba_app` sem contexto devolve **zero linhas** à mesma consulta (que o CHR leria como «canal desconhecido»): é o que torna o papel necessário e não conveniente. O resolvedor continua a não ler `token_ref`, `waba_id`, `nome`, `nif`, `contacto_negocio_enc`, `entitlements` nem — acrescentado aqui — `conversations`, coisa a coisa; as colunas legíveis são **exactamente** as concedidas (dez, com o `plano` que a `0009` acrescentou). E uma conversa de B não se vê com o contexto de A. Latência, p95 de 40 execuções: **0,805 ms** sem *cache* (limiar 50) e **0,0135 ms** com (limiar 5) numa máquina livre, e **3,329 ms** / **0,0697 ms** com a prova por mutação a correr ao lado — os dois lados do limiar em duas ordens de grandeza de folga. O que estes números valem está em [`../docs/chr.md`](../docs/chr.md) §8: detectam uma resolução que passou a ser de outra ordem de grandeza, e não orçamentam produção (KAM-085) |
 | DoD — todos os CA satisfeitos e demonstráveis | **não satisfeito — caixa vazia** | Cinco de oito à letra; 3, 4 e 6 parciais, pelas razões acima. Os três desvios são do **critério** e não da implementação, e os três estão devolvidos a quem os escreveu |
 | DoD — 2 revisores (isolamento de tenant, dados pessoais); testes verdes; cobertura ≥ limiar | **não satisfeito — caixa vazia** | **Zero revisores humanos**: uma revisão adversarial é evidência, não é um revisor. Testes verdes: 913 asserções Node (`contracts` 12, `core-ts` 832, `gwy` 44, `worker-canal` 15, `com` 5, `onboarding-web` 5) e as *suites* de base de dados abaixo. Cobertura de `src/chr/` medida **por ficheiro** em `db/tests_chr/`, contra o limiar do estrato `critico` lido de `ci/thresholds.yaml` (90%) — e esse limiar é novo para `*/chr/*`, o que faz desta uma alteração a um **ficheiro de limiares**, que pede dois revisores e por isso não marca esta caixa |
@@ -1051,12 +1051,12 @@ Implementar a máquina de estados do modo da conversa, o tratador de *echoes*, o
 ### Critérios de Aceitação
 
 - [ ] Transições (tabela de `../docs/tecnica/01` §10.2): `bot→dono` por *echo* com `wamid` ausente de `outbound_messages`; `dono→bot` quando o cliente escreve depois de `silencio_dono_min` (predefinido 30, a calibrar) sem actividade do dono, ou por comando `/bot` do dono; `bot→humano` por pedido do grafo ou do cliente; `humano→bot` por `conversation_status_changed=resolved`; qualquer→`pausada` por opt-out ou 24 h sem humano após handoff; `pausada→bot` quando o cliente volta a escrever após aviso. Qualquer outra transição é rejeitada (teste exaustivo da tabela).
-- [ ] `PreSendGuard`, sob `pg_advisory_xact_lock(hash(tenant_id, contact_id))`, descarta o envio se `mode ≠ bot` ou `last_human_activity_at > início_do_turno`, regista `suppressed_by_human` e devolve ao AGR o sinal de cancelamento.
-- [ ] Teste de corrida: turno inicia em t0, *echo* chega em t0+1 s, resposta pronta em t0+2 s → 0 mensagens enviadas e 1 registo suprimido; em 100 intercalações aleatórias, 0 mensagens do bot são enviadas depois de o *echo* estar registado.
-- [ ] O silenciamento é por conversa: duas conversas no mesmo canal, A em `dono` e B em `bot`, respondem independentemente.
-- [ ] Mensagens do cliente em modo `dono`/`humano` são entregues ao dono/HND e **não** ao AGR (0 *jobs* AGR nesse modo).
+- [x] `PreSendGuard`, sob `pg_advisory_xact_lock(hash(tenant_id, contact_id))`, descarta o envio se `mode ≠ bot` ou `last_human_activity_at > início_do_turno`, regista `suppressed_by_human` e devolve ao AGR o sinal de cancelamento.
+- [x] Teste de corrida: turno inicia em t0, *echo* chega em t0+1 s, resposta pronta em t0+2 s → 0 mensagens enviadas e 1 registo suprimido; em 100 intercalações aleatórias, 0 mensagens do bot são enviadas depois de o *echo* estar registado.
+- [x] O silenciamento é por conversa: duas conversas no mesmo canal, A em `dono` e B em `bot`, respondem independentemente.
+- [x] Mensagens do cliente em modo `dono`/`humano` são entregues ao dono/HND e **não** ao AGR (0 *jobs* AGR nesse modo).
 - [ ] Cada mudança emite `conversation.mode_changed` (tipo acrescentado ao catálogo, KAM-007) e actualiza o estado visível em HND (KAM-019) em ≤ 5 s (proposta).
-- [ ] Um tratador `onOptOut(contact)` coloca `pausada` (a detecção de «PARAR» é de KAM-022); o *timeout* de 24 h corre como *job* idempotente.
+- [x] Um tratador `onOptOut(contact)` coloca `pausada` (a detecção de «PARAR» é de KAM-022); o *timeout* de 24 h corre como *job* idempotente.
 - [ ] Métrica `echo_latency_ms` (diferença entre o carimbo da Meta e a recepção) com p50/p95 de ≥ 30 *echoes* reais em *staging* anexados como evidência (critério de saída de L6); sem limiar bloqueante.
 
 ### Detalhes Técnicos
@@ -1082,12 +1082,152 @@ guard(conv, turn): lock(conv)
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] Código revisto por 2 revisores (corrida, número de uma PME); testes verdes; cobertura ≥ limiar.
-- [ ] Documentação actualizada (`docs/modos-conversa.md`); Conventional Commits.
-- [ ] **Isolamento de tenant** — o *lock* e o modo usam `tenant_id` do contexto; teste cruzado do novo caminho.
-- [ ] **Idempotência** — o mesmo *echo* repetido 2× produz 1 transição; teste incluído.
-- [ ] **Privacidade** — sem conteúdo nem telefone em `conversation.mode_changed` nem em logs.
+- [x] Documentação actualizada (`docs/modos-conversa.md`); Conventional Commits.
+- [x] **Isolamento de tenant** — o *lock* e o modo usam `tenant_id` do contexto; teste cruzado do novo caminho.
+- [x] **Idempotência** — o mesmo *echo* repetido 2× produz 1 transição; teste incluído.
+- [x] **Privacidade** — sem conteúdo nem telefone em `conversation.mode_changed` nem em logs.
 - [ ] **Custo e observabilidade** — `conv_mode_transitions_total`, `echo_latency_ms`, `reply_suppressed_total`.
-- [ ] **Migrações reversíveis** — `downgrade` testado.
+- [x] **Migrações reversíveis** — `downgrade` testado.
+
+
+### Verificação dos Critérios de Aceitação
+
+**O que este PR entrega é a parte do ticket que não depende de coexistência**, e
+as duas coisas que ficam de fora ficam de fora com a razão escrita: a transição
+`bot→dono` por *echo* precisa de `smb_message_echoes` (KAM-017, atrás de
+`ext:KAM-100`) e a métrica `echo_latency_ms` pede ≥ 30 *echoes* reais em
+*staging* com números +244 (critério de saída do risco **L6/R6**, KAM-100). As
+caixas dos critérios **1**, **6** e **8** ficam **vazias** por isso; as outras
+cinco estão marcadas com a evidência abaixo.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1 — a tabela de transições do `../docs/tecnica/01` §10.2, e qualquer outra transição rejeitada (teste exaustivo) | **parcial — caixa vazia** | **A tabela e a rejeição exaustiva cumprem-se; o detector do *echo* não.** As **32** células — quatro modos × oito gatilhos — são afirmadas **uma a uma** em `tests/modos.transicoes.test.ts`, contra uma tabela escrita à mão nesse ficheiro e **não** derivada da implementação; `db/tests_modos/` conta os 32 testes que passaram e falha com qualquer número menor, porque uma lista de nomes obrigatórios eram 32 linhas a repetir o que o ficheiro já enumera. O «qualquer outra é rejeitada» prova-se pelo complemento: nenhuma célula fica sem decisão escrita (os dois `Record` são completos sobre `Modo` e `Gatilho`, pelo que uma em falta é erro de compilação) e as doze que transitam são exactamente as esperadas, cada uma com a sua **fonte** — dez da tabela do §10.2, uma do diagrama e uma do `E1` §4. **O que não se cumpre:** a primeira cláusula do critério, «`bot→dono` por *echo* com `wamid` ausente de `outbound_messages`». A **célula** está na tabela e tem teste; a **detecção** precisa de `smb_message_echoes`, que é KAM-017. Nas baterias o gatilho `echo_do_dono` é **disparado** pelo ensaio, que é o que a máquina expõe. Idem para o `comando_bot`, que chega pela mesma via. A caixa fica vazia e a decisão sobre o critério devolve-se a quem o escreveu |
+| 2 — `PreSendGuard` sob `pg_advisory_xact_lock(hash(tenant_id, contact_id))`, descarta se `mode ≠ bot` ou `last_human_activity_at > início_do_turno`, regista `suppressed_by_human`, devolve o cancelamento | **satisfeito** | **O *lock* serializa de verdade, e é a parte que só uma base real prova.** Em `tests_bd/modos.bd.test.ts`, com uma transição a reter o *lock* numa ligação, a guarda noutra **não resolve** depois de 150 ms — e quando o `COMMIT` sai, entra e vê `dono`. É a metade do critério 8 do KAM-015 que esse ticket teve de deixar por cumprir («**Não há *lock***»). As duas condições têm teste separado: `mode ≠ bot` nos três modos, e `last_human_activity_at` posterior ao turno **com o modo em `bot`**, que é a corrida da §10.3. O `suppressed_by_human` é escrito pelo **guarda** e não pelo adapter, porque na ordem dos sete passos do `ChannelAdapter` o guarda é o 3 e o `SQL_ENFILEIRAR` é o 4 — quando o guarda recusa não há linha para marcar —, e a escrita vai na mesma transacção do *lock*, idempotente por `idempotency_key`. O sinal de cancelamento é o `false` que o adapter converte em `GUARD_REFUSED`. **Duas coisas que o ensaio obrigou a corrigir:** uma conversa que a RLS não vê recusa **sem** escrever linha (a FK composta de `outbound_messages` mataria o `INSERT` com `23503`, e um `throw` no passo 3 deixava o turno sem resposta **e** sem registo), e um envio do bot sem `turnoIniciadoEm` é **recusado** com o motivo `sem_turno` — deixar passar desligava metade deste critério em silêncio |
+| 3 — t0 / *echo* em t0+1 s / resposta em t0+2 s → 0 enviadas e 1 suprimido; 100 intercalações → 0 mensagens depois de o *echo* estar registado | **satisfeito** | **Os dois, contra PostgreSQL 18.6.** O primeiro com o relógio injectado: a transição corre com `agora = t0+1 s`, a guarda com `turnoIniciadoEm = t0`, e o que fica na base é **0** linhas em `queued` e **1** em `suppressed_by_human`. O segundo com **semente fixa** (`0x4b414d18`, escrita no ficheiro) e medido: `[KAM-018] 100 intercalacoes (semente 0x4b414d18): 54 passaram, 46 suprimidas; echo primeiro 46 (0 enviadas), guarda primeiro 54`. A propriedade afirmada é a do critério — nas **46** voltas em que o *echo* foi ordenado primeiro, **0** mensagens do bot saíram —, e nas outras 54 o envio é correcto: o *echo* ainda não estava registado quando a guarda leu, que é a janela residual que a §10.3 declara. **E há um segundo teste que corre as 100 duas vezes e compara as sequências**: é ele que impede um `Math.random()` de voltar, porque com um aleatório do sistema as duas divergiam. O número aparece no registo do *gate* por um `print` da *suite*, pela lição que a `tests_chr` escreveu — sem ele, o número existia e ninguém o via. **O *echo* é disparado e não detectado** (KAM-017); o que a corrida mede é o que o critério descreve |
+| 4 — o silenciamento é por conversa: duas conversas no mesmo canal, A em `dono` e B em `bot`, respondem independentemente | **satisfeito** | Duas conversas com `channel_id` **igual** — afirmado por `count(DISTINCT channel_id) = 1` antes de medir, senão o teste passava sobre dois canais sem ninguém notar. A transição em A não move o modo de B, a guarda recusa em A e **passa** em B, e no fim A tem uma linha `suppressed_by_human` e B não tem nenhuma. E a outra direcção: o `onOptOut` de um contacto com conversa em **dois** canais pausa as duas e deixa a de outro contacto em `bot` |
+| 5 — mensagens em `dono`/`humano` vão ao dono/HND e **não** ao AGR (0 *jobs*) | **satisfeito** | Com o `Chr` do KAM-014 e o `ResolvedorDeCanal` **verdadeiros** sobre a base, e **com controlo positivo**: em `bot` sai **1** *job* para o AGR; nos três modos que não são `bot` o desfecho é `entregue_ao_dono` e o contador de *jobs* não se move — 0 em `dono`, 0 em `humano`, 0 em `pausada`, e três entregas ao dono. Sem o controlo positivo, o zero dos outros não dizia nada. **E a costura entre os dois módulos tem teste próprio:** o `abrirConversa` do CHR devolve o modo que esta máquina escreveu, o que prova que uma entrada que chega **não desfaz** o silenciamento — o `SET` do `SQL_ABRIR_CONVERSA` não toca no `mode`, e agora que `kamba_app` tem o privilégio isso deixou de ser garantido pela ausência dele. O critério 7 do KAM-014 já afirmava a mesma propriedade; aqui ela é medida com a máquina a escrever o valor em vez do `kamba_batch` |
+| 6 — cada mudança emite `conversation.mode_changed` (tipo acrescentado ao catálogo, KAM-007) e actualiza o estado visível em HND em ≤ 5 s | **parcial — caixa vazia** | **A emissão cumpre-se; o espelho no HND não, e o tipo não é deste ticket.** Cada transição deixa **uma** linha em `platform.events_outbox` com `tipo = conversation.mode_changed`, `versao = 2` e `classe_pii = P0`, na **mesma transacção** da escrita do modo — há teste que faz a porta de emissão levantar e verifica que a transição foi desfeita, que é a propriedade que o `chr/eventos.ts` **não** tem para o `contact.merged`. Uma corrida perdida **não** emite. **Três coisas que não se cumprem.** (a) O critério diz «tipo acrescentado ao catálogo, KAM-007» e o tipo **já lá estava**: `contratos/eventos/conversation.mode_changed/` tem `v1` e `v2`, nenhuma deste ticket — dívida **80**. (b) A carga publicada é `{thread_id, channel_mode}` com `channel_mode` de **três** valores e `additionalProperties: false`, e os modos são **quatro**: `dono` e `humano` saem os dois como «humano» e um consumidor do barramento não os distingue. Uma `v3` é quebra de contrato com compatibilidade a provar no *gate* 7 e o catálogo é do KAM-007 — inventá-la aqui era decidir por outro ticket. (c) O «≤ 5 s em HND» **não se mede**: o `setBotMuted` do `HandoffProvider` levanta `SemPrivilegioError` (KAM-019) e não há simulador de Chatwoot. O privilégio que o impedia existe agora, mas ligá-lo é alterar o provedor desse ticket. A caixa fica vazia |
+| 7 — `onOptOut(contact)` coloca `pausada`; o *timeout* de 24 h corre como *job* idempotente | **satisfeito** | **O `onOptOut` é por contacto e não por conversa**, que é o que o critério escreve: uma transacção, **um** *lock* (a chave é `hash(tenant_id, contact_id)`, e é por isso que ela é por contacto), e todas as conversas do contacto pausadas de uma vez — com uma chave por conversa havia uma janela entre cada par. Repetir o «PARAR» devolve `mudou: false` em todas e **não escreve nada** nem emite evento: a idempotência é da célula `pausada + opt_out`, que é «sem efeito», e não de uma chave. O *job* das 24 h é idempotente **pelo predicado** — correr duas vezes seguidas pausa N e depois 0 — e por isso a revisão `0016` não cria coluna de controlo nenhuma. **E o relógio tem duas origens, o que o critério implica sem dizer:** uma conversa que passou a `humano` e onde **ninguém** respondeu tem `last_human_activity_at` vazio por definição, pelo que o `COALESCE` conta do `max(handoffs.opened_at)` (KAM-019) — testado com duas conversas, uma com um *handoff* de há 30 h (pausada) e outra com dois, o mais recente de há 2 h (não pausada). Com os dois vazios a conversa **não** é pausada e fica em `humano`: é o lado seguro, porque `humano` mantém o bot calado. É uma **função** e não um *job* agendado, pela decisão que a `0005` escreveu para a retenção — o agendador é KAM-071/KAM-078 |
+| 8 — métrica `echo_latency_ms` com p50/p95 de ≥ 30 *echoes* reais em *staging* | **não satisfeito — caixa vazia** | **Não se entrega, e não é esquecimento.** A métrica mede a diferença entre o carimbo da Meta e a recepção de um *echo*, e um *echo* só existe em coexistência: a `smb_message_echoes` é KAM-017 e os ≥ 30 *echoes* reais são números +244 em *staging* — é o critério de saída do risco **L6/R6**, cuja mitigação a tabela de riscos deste epic já atribui a KAM-100 («evidência de ≥ 30 *echoes* reais (KAM-018)»). Declará-la e deixá-la a zero era pior: um painel que a mostre a zero diz «a latência do *echo* é nula» quando o que se passa é que ninguém a mede. Nasce com o ticket que a consiga medir, e a decisão fica registada na emenda 1.29 do dicionário |
+
+### Verificação do Definition of Done
+
+| Item | Estado | Evidência |
+|---|---|---|
+| Todos os CA satisfeitos e demonstráveis | **não satisfeito — caixa vazia** | Cinco dos oito. Os critérios **1**, **6** e **8** ficam parciais ou não satisfeitos, com a razão na tabela acima: os três dependem de coexistência (KAM-017/KAM-100) ou do catálogo de contratos (KAM-007) |
+| Código revisto por 2 revisores; testes verdes; cobertura ≥ limiar | **parcial — caixa vazia** | **Os testes e a cobertura cumprem-se; os revisores não.** `db/gate_bd.py --suite tests_modos` sai com **0** — 7 asserções da *suite*, 108 testes em Node, 0 saltados —, e a cobertura de cada um dos **oito** ficheiros de `src/modos/` está acima do limiar do estrato `critico` lido de `ci/thresholds.yaml` (o número de cada ficheiro é impresso no registo do *gate*). **A caixa dos revisores fica vazia como facto registado**: nesta fase não há revisores humanos, é decisão escrita do fundador, e uma revisão adversarial é evidência e não um revisor. E este PR **altera `ci/thresholds.yaml`** — acrescenta `*/modos/*` ao estrato `critico` —, que é precisamente um ficheiro cuja alteração pede dois revisores: fica dito aqui, em `docs/ci.md` §3 e no próprio comentário do ficheiro |
+| Documentação actualizada (`docs/modos-conversa.md`); Conventional Commits | **satisfeito** | `docs/modos-conversa.md` nasce com oito secções, e as §3 e §7 são as que respondem às perguntas que este ticket deixa abertas — as três divergências da §10.2 e o que fica de fora. `docs/ci.md` §3 ganha a secção da *suite* nova e a contagem passa de treze a **catorze**. Os *commits* passam pelo *hook* de `tools/githooks` |
+| **Isolamento de tenant** — o *lock* e o modo usam o `tenant_id` do contexto; teste cruzado | **satisfeito** | Nada neste módulo abre ligação: o `ComTenant` não entrega cliente nenhum fora de uma transacção com `set_config('app.tenant_id', …, true)`, pelo que **não há como** escrever o modo nem tomar o *lock* sem contexto. Teste cruzado (X-03): com o contexto de A, a leitura do modo de B devolve **zero linhas** e a máquina levanta `ConversaDesconhecidaError` **sem escrever** — o modo de B fica como estava. E a guarda de A sobre uma conversa de B **recusa** o envio em vez de o deixar passar, sem escrever linha nenhuma |
+| **Idempotência** — o mesmo *echo* repetido 2× produz 1 transição; teste incluído | **satisfeito** | Nas duas formas, e a segunda é mais forte do que o critério pede. Em série: a primeira transita, a segunda é «sem efeito» (a célula `dono + echo_do_dono`) e escreve só a actividade humana — **um** evento no outbox. Em paralelo, **duas ligações** a disputar a mesma conversa: exactamente **uma** ganha, e quem perde não emite. Quem decide é o predicado `AND antes.mode = ANY($4)` sob `FOR UPDATE`, não quem leu primeiro — e há uma mutação que lhe tira o `FOR UPDATE` |
+| **Privacidade** — sem conteúdo nem telefone em `conversation.mode_changed` nem em logs | **satisfeito** | A carga do evento tem **dois** campos, afirmados por `Object.keys(...).sort()`: o `thread_id` (`{tenant_id}:{contact_id}`, dois UUID nossos — o `contact_id` é a referência opaca do KAM-008) e o `channel_mode`. O `conversation_id` vai no `agregado_id` do envelope, que é onde se audita. Um telefone sintético semeado na conversa **não** aparece na carga, procurado na tabela convertida a texto. Nos registos vai o `outcome` e o `tenant_id`, e mais nada: a *allowlist* do `logger/politica.ts` não tem `conversation_id`, `contact_id` nem `motivo`, e o motivo **é** o desfecho. Nas métricas, nenhuma etiqueta aceita identificador — um UUID com hífenes levanta `SufixoInvalidoError`, e há teste com um `tenant_id` a sério |
+| **Custo e observabilidade** — `conv_mode_transitions_total`, `echo_latency_ms`, `reply_suppressed_total` | **parcial — caixa vazia** | **Duas das três, e a terceira não entra com o critério 8.** A `conv_mode_transitions_total` (etiqueta `gatilho`, oito valores) e a `reply_suppressed_total` (etiqueta `motivo`, três valores) existem e têm bateria própria. A `echo_latency_ms` **não**, pela razão do critério 8. E entra uma **quarta** que o DoD não nomeia, a `conv_mode_rejected_total`: é o único sítio onde «qualquer outra transição é rejeitada» fica visível em produção — sem ela, um gatilho mal ligado parece-se com «não houve gatilho nenhum», que é a razão do `chr_resolve_total` da emenda 1.20. A caixa fica vazia enquanto a `echo_latency_ms` não existir |
+| **Migrações reversíveis** — `downgrade` testado | **satisfeito** | A revisão `0016` não cria tabela, coluna nem `CHECK` — são dois `GRANT UPDATE` por coluna —, pelo que o `downgrade` não perde dado nenhum e não exige cópia lógica (ao contrário da `0009`, que exige `KAMBA_DOWNGRADE_0009_COPIA`). O ciclo `upgrade`/`downgrade`/`upgrade` corre no *gate* 8 pela *suite* `tests`, e o `test_privilegios.py` passa a esperar **quatro** colunas em `(kamba_app, conversations, UPDATE)` em vez de duas: é ele que vê um `GRANT` desaparecer ou crescer. O `downgrade` revoga **só** as duas desta revisão, e há mutação que o troca pelas quatro — revogar as da `0009` deixava a base pior do que a encontrou, com o CHR sem conseguir empurrar a janela de 24 h |
+
+### O que este ticket desbloqueia, e o que deixa como estava
+
+**Desbloqueia e liga:** a porta `MudarModo` do `ConsentGate` (KAM-022), que a
+revisão `0015` deixou por ligar com a razão escrita — «quem a ligar é quem tiver
+o privilégio, e este módulo não o tem». Está ligada pelo `portaDoConsentGate`,
+que traduz o modo que a porta pede no gatilho da tabela (`humano` por
+`handoff_pedido`, `pausada` por `opt_out`), e tem teste nos dois sentidos.
+
+**Fecha a metade que faltava** do critério 8 do KAM-015: a guarda passa a ser
+chamada **sob o *lock* da conversa**, que é o que esse ticket deu por não
+cumprido. A caixa dele **não** se marca aqui — é dele —, e fica registado que a
+razão da sua recusa deixou de existir.
+
+**Deixa como estava:** o `setBotMuted` do `HandoffProvider` (KAM-019) continua a
+levantar `SemPrivilegioError`. O privilégio que o impedia existe agora, mas
+ligá-lo é alterar o provedor desse ticket, e isso é alargar escopo em silêncio. A
+caixa do critério dele fica como está, com a razão já escrita na emenda 1.22.
+
+**Torna falsa uma afirmação do KAM-014**, e corrige-a nos dois sítios: a
+verificação do critério 7 desse ticket diz que «`kamba_app` **não consegue**
+alterar o `mode` — o privilégio não existe», e a revisão `0016` concede-o. A
+frase ganha a nota do que mudou, e o teste de base que a afirmava passou a
+afirmar o que continua vedado: as quatro colunas da identidade da conversa.
+
+### O que a revisão adversarial e a prova por mutação mudaram
+
+**A revisão adversarial deu quatro achados, e os quatro eram defeitos reais no
+código deste PR.** Os quatro têm correcção, bateria e mutação própria — uma
+correcção sem mutação é uma correcção que nada impede de ser desfeita.
+
+1. **O `outcome` do registo levantava com um dos oito gatilhos.** A primeira
+   versão escrevia `outcome: modo_rejeitado_<gatilho>`, e o `sem_humano_24h` não
+   cabe na gramática do campo: um segmento é letras com até três dígitos **no
+   fim**, ou um número, e o `24h` não é nenhum dos dois
+   (`logger/politica.ts`). Em modo estrito — o do CI — o `Logger` **levanta**, e
+   uma transição rejeitada, que é um resultado normal, passava a excepção não
+   tratada no caminho de um *webhook*. É a mesma armadilha que o
+   `codigoParaRegisto` do KAM-015 pagou com o `-1`. O gatilho saiu do `outcome`
+   (está na etiqueta de `conv_mode_rejected_total`, que é onde a lista é
+   fechada) e há bateria que corre **os oito** com um `Logger` estrito.
+2. **A métrica contava transições que a transacção desfazia.** O
+   `conv_mode_transitions_total` era incrementado **antes** da emissão do evento,
+   e as duas escritas vivem na mesma transacção: com a emissão a levantar, o
+   `UPDATE` é desfeito e um contador em memória não é desfeito com ele — o painel
+   mentia por cima. Passou para depois da emissão, nos dois sítios (`#aplicar` e
+   o *job* das 24 h), com bateria em cada um.
+3. **A porta do `ConsentGate` prometia não lançar, e lançava.** O `disparar`
+   lança `ConversaDesconhecidaError` quando a conversa não é deste *tenant* ou já
+   não existe — a retenção do KAM-071 pode tê-la purgado —, e o gate chama a porta
+   **depois** de escrever a prova *append-only* e de enviar o aviso: a excepção
+   fazia o `tratar` falhar com os dois já escritos, e o *job* repetia-se sobre um
+   estado que nunca vai melhorar. A porta apanha **essa** e só essa; qualquer
+   outro erro sobe.
+4. **Um *fail-open* de um caracter na guarda.** O `last_human_activity_at`
+   era convertido com `new Date(valor)` e comparado directamente: um valor
+   ilegível dá um `Date` cujo `getTime()` é `NaN`, e **qualquer** comparação
+   com `NaN` é falsa — o envio **passava** por causa de um valor que ninguém
+   percebeu, que é o contrário do que o guarda existe para fazer. A leitura
+   passou a ter três respostas (`Date`, «não houve», «ilegível») e a terceira
+   **suprime**.
+
+**A prova por mutação deixou seis sobreviventes na primeira passagem, e as seis
+valeram o custo.** Três eram lacunas de teste e viraram testes: o `FOR UPDATE` da
+transição (que só se mata correndo o SQL **sem** o *advisory lock*, porque a
+máquina toma-o sempre e esconde a diferença) e as duas escritas monótonas de
+`last_human_activity_at` (que só se matam com um *echo* fora de ordem — o caso
+real, porque a Meta não garante ordem nos *webhooks*). As outras três apagavam
+código que nenhum caminho alcança: duas guardas do `transicoes.ts` que **nenhuma
+célula da tabela podia accionar**, e a resposta foi **apagar as guardas** e
+afirmar o invariante num teste («nenhuma celula aponta para o proprio modo»),
+porque uma guarda inalcançável dá a ilusão de proteger e não protege nada; e o
+`validarPayload` do evento, cuja precondição nenhum código viola hoje — a chamada
+fica, porque é a regra do KAM-007, e o que a protege é um teste de paridade entre
+as chaves que se montam e as que o catálogo exige. As três mutações saíram, com a
+razão escrita em `db/mutacoes.py`.
+
+No fim: **42 mutações corridas, 0 não apanhadas**
+(`python db/mutacoes.py <python> modos`), e `python db/mutacoes.py --aplicaveis`
+dá **529 conferidas, 0 não aplicáveis**.
+
+### Quatro divergências registadas
+
+As quatro estão em `../docs/dividas-documentais.md`, linhas **79** a **82**, e
+três delas são do bloco deste ticket:
+
+1. **a §10.2 do `../docs/tecnica/01` contradiz-se**, e em duas arestas: o
+   diagrama tem `dono → humano` e a tabela não; a tabela tem
+   `qualquer → pausada` e o diagrama só tem duas das três arestas. As leituras
+   tomadas estão em `../docs/modos-conversa.md` §3 e têm teste;
+2. **o critério 6 manda acrescentar ao catálogo um tipo que já lá está**, e não
+   nomeia o que de facto falta (o domínio de três valores);
+3. **os *Detalhes Técnicos* mandam adicionar o
+   `outbound_messages.state='suppressed_by_human'`**, que existe desde a revisão
+   `0010`;
+4. **o critério 1 escreve «qualquer→`pausada`» para dois gatilhos** e o
+   «qualquer» só vale para o opt-out — as 24 h contam-se sobre um *handoff*, e em
+   `bot` e em `dono` não há nenhum.
+
+E **uma célula vem de fora da §10.2**, declarada: `pausada + handoff_pedido →
+humano`. Nem o diagrama nem a tabela a têm, e o critério 1 não a nomeia — mas o
+**Contexto do próprio ticket** cita o `E1` §4 como CONFIRMADO («a Messaging
+Policy exige caminho de escalonamento a humano em **todas** as conversas»), e uma
+conversa `pausada` é de um cliente que disse «PARAR»: recusar-lhe uma pessoa
+quando ele a pede era negar o caminho que a política exige.
 
 ### Handoff para Claude Code
 
