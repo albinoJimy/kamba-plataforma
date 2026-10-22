@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.30"
+versao_dicionario: "1.31"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -4311,6 +4311,307 @@ entradas:
     nomes_nota:
       - "tenant_id"
     variantes_literais: []
+  - seccao: "3.22"
+    conceito: "Quando a coexistência de um canal sincronizou"
+    canonico: "tenant_channels.coexistence_synced_at"
+    literais:
+      - "tenant_channels.coexistence_synced_at"
+    nomes:
+      - "tenant_channels.coexistence_synced_at"
+    nomes_nota:
+      - "token_ref"
+      - "waac_id"
+      - "history"
+    variantes_literais: []
+  - seccao: "3.22"
+    conceito: "Quando chegou o último account_update"
+    canonico: "tenant_channels.last_account_update_at"
+    literais:
+      - "tenant_channels.last_account_update_at"
+    nomes:
+      - "account_update"
+      - "tenant_channels.last_account_update_at"
+    nomes_nota:
+      - "account_update"
+      - "inbound_events_kind_event_key_uq"
+    variantes_literais: []
+  - seccao: "3.22"
+    conceito: "Estado de coexistência de um canal"
+    canonico: "platform.channel_coexistence — id, tenant_id, channel_id, estado, passos_feitos, iniciado_em, prazo_em, alertado_em, concluido_em, contactos_vistos, mensagens_vistas, meta_error_code, ultimo_echo_em, avisado_em, motivo_desligamento, desligado_em, criado_at, actualizado_at"
+    literais:
+      - "platform.channel_coexistence"
+      - "id"
+      - "tenant_id"
+      - "channel_id"
+      - "estado"
+      - "passos_feitos"
+      - "iniciado_em"
+      - "prazo_em"
+      - "alertado_em"
+      - "concluido_em"
+      - "contactos_vistos"
+      - "mensagens_vistas"
+      - "meta_error_code"
+      - "ultimo_echo_em"
+      - "avisado_em"
+      - "motivo_desligamento"
+      - "desligado_em"
+      - "criado_at"
+      - "actualizado_at"
+    nomes:
+      - "platform.channel_coexistence"
+      - "id"
+      - "tenant_id"
+      - "channel_id"
+      - "estado"
+      - "passos_feitos"
+      - "iniciado_em"
+      - "prazo_em"
+      - "alertado_em"
+      - "concluido_em"
+      - "contactos_vistos"
+      - "mensagens_vistas"
+      - "meta_error_code"
+      - "ultimo_echo_em"
+      - "avisado_em"
+      - "motivo_desligamento"
+      - "desligado_em"
+      - "criado_at"
+      - "actualizado_at"
+    nomes_nota:
+      - "coexistence_synced_at"
+      - "tenant_channels"
+      - "tenant_id"
+      - "channel_id"
+      - "platform"
+    variantes_literais: []
+  - seccao: "3.22"
+    conceito: "Estado de uma sincronização"
+    canonico: "channel_coexistence.estado ∈ {a_sincronizar, sincronizado, sincronizado_sem_historico, falhado}"
+    literais:
+      - "channel_coexistence.estado"
+      - "a_sincronizar"
+      - "sincronizado"
+      - "sincronizado_sem_historico"
+      - "falhado"
+    nomes:
+      - "channel_coexistence.estado"
+      - "a_sincronizar"
+      - "sincronizado"
+      - "sincronizado_sem_historico"
+      - "falhado"
+    nomes_nota:
+      - "falhado"
+      - "tenant_channels.estado"
+    variantes_literais: []
+  - seccao: "3.22"
+    conceito: "Passos da sincronização"
+    canonico: "channel_coexistence.passos_feitos (text[]) ⊆ {contactos, historico}"
+    literais:
+      - "channel_coexistence.passos_feitos"
+      - "text[]"
+      - "contactos"
+      - "historico"
+    nomes:
+      - "channel_coexistence.passos_feitos"
+      - "text"
+      - "contactos"
+      - "historico"
+    nomes_nota:
+      - "E1"
+      - "if"
+      - "UPDATE"
+      - "SET"
+      - "passos_feitos"
+      - "n"
+      - "WHERE"
+      - "NOT"
+      - "ANY"
+      - "CHECK"
+      - "ARRAY"
+      - "array_length"
+    variantes_literais: []
+  - seccao: "3.22"
+    conceito: "Motivo de desligamento de um canal"
+    canonico: "channel_coexistence.motivo_desligamento ∈ {primary_inactivity, companion_inactivity, business_downgrade, change_number, user_re_registered, account_disconnected}"
+    literais:
+      - "channel_coexistence.motivo_desligamento"
+      - "primary_inactivity"
+      - "companion_inactivity"
+      - "business_downgrade"
+      - "change_number"
+      - "user_re_registered"
+      - "account_disconnected"
+    nomes:
+      - "channel_coexistence.motivo_desligamento"
+      - "primary_inactivity"
+      - "companion_inactivity"
+      - "business_downgrade"
+      - "change_number"
+      - "user_re_registered"
+      - "account_disconnected"
+    nomes_nota:
+      - "PARTNER_REMOVED"
+      - "E1"
+      - "outcome"
+      - "IDENTIFICADOR"
+      - "Logger"
+      - "sem_humano_24h"
+      - "MAIUSCULA"
+      - "MOTIVO_POR_EVENTO_META"
+    variantes_literais: []
+  - seccao: "3.22"
+    conceito: "O código que diz «sem histórico»"
+    canonico: "channel_coexistence.meta_error_code = 2593109"
+    literais:
+      - "channel_coexistence.meta_error_code"
+      - "2593109"
+    nomes:
+      - "channel_coexistence.meta_error_code"
+    nomes_nota:
+      - "integer"
+      - "text"
+      - "DIGITOS_MAXIMOS"
+      - "outcome"
+      - "error_code"
+      - "validar"
+      - "None"
+      - "sincronizado_sem_historico"
+      - "tenant_channels.meta_error_codes_seen"
+    variantes_literais: []
+  - seccao: "3.22"
+    conceito: "Contagens do histórico"
+    canonico: "channel_coexistence.contactos_vistos, channel_coexistence.mensagens_vistas"
+    literais:
+      - "channel_coexistence.contactos_vistos"
+      - "channel_coexistence.mensagens_vistas"
+    nomes:
+      - "channel_coexistence.contactos_vistos"
+      - "channel_coexistence.mensagens_vistas"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.22"
+    conceito: "Relógio do último echo"
+    canonico: "channel_coexistence.ultimo_echo_em"
+    literais:
+      - "channel_coexistence.ultimo_echo_em"
+    nomes:
+      - "channel_coexistence.ultimo_echo_em"
+    nomes_nota:
+      - "wamid"
+      - "outbound_messages"
+    variantes_literais: []
+  - seccao: "3.22"
+    conceito: "Aviso de inactividade já enviado"
+    canonico: "channel_coexistence.avisado_em"
+    literais:
+      - "channel_coexistence.avisado_em"
+    nomes:
+      - "channel_coexistence.avisado_em"
+    nomes_nota:
+      - "avisado_em"
+      - "IS"
+      - "NULL"
+    variantes_literais: []
+  - seccao: "3.22"
+    conceito: "Prazos da coexistência"
+    canonico: "PRAZO_DE_SINCRONIZACAO_MS = 24 h, ALERTA_DE_SINCRONIZACAO_MS = 12 h, INACTIVIDADE_DO_DONO_MS = 10 dias"
+    literais:
+      - "PRAZO_DE_SINCRONIZACAO_MS"
+      - "ALERTA_DE_SINCRONIZACAO_MS"
+      - "INACTIVIDADE_DO_DONO_MS"
+    nomes:
+      - "PRAZO_DE_SINCRONIZACAO_MS"
+      - "ALERTA_DE_SINCRONIZACAO_MS"
+      - "INACTIVIDADE_DO_DONO_MS"
+    nomes_nota:
+      - "E1"
+      - "prazo_em"
+      - "now"
+    variantes_literais: []
+  - seccao: "3.22"
+    conceito: "Débito do token bucket por modo"
+    canonico: "MPS_POR_MODO — coexistencia → 15, cloud_only → 15"
+    literais:
+      - "MPS_POR_MODO"
+      - "coexistencia"
+      - "cloud_only"
+    nomes:
+      - "MPS_POR_MODO"
+      - "coexistencia"
+      - "cloud_only"
+    nomes_nota:
+      - "coexistencia"
+      - "MPS_POR_CANAL"
+      - "E1"
+      - "cloud_only"
+    variantes_literais: []
+  - seccao: "3.22"
+    conceito: "Motivo de um channel.updated"
+    canonico: "PayloadChannelUpdated.motivo ∈ os seis de motivo_desligamento"
+    literais:
+      - "PayloadChannelUpdated.motivo"
+      - "motivo_desligamento"
+    nomes:
+      - "channel.updated"
+      - "PayloadChannelUpdated.motivo"
+      - "motivo_desligamento"
+    nomes_nota:
+      - "RecursoCriado.recurso"
+      - "motivo"
+      - "CHECK"
+      - "v2.schema.json"
+      - "string"
+    variantes_literais: []
+  - seccao: "3.22"
+    conceito: "Destinatário de um echo"
+    canonico: "message_echoes[].to"
+    literais:
+      - "message_echoes[].to"
+    nomes:
+      - "message_echoes"
+      - "to"
+    nomes_nota:
+      - "E1"
+      - "smb_message_echoes"
+      - "ARRAY_DOS_ECHOES"
+      - "explosao.ts"
+      - "bot"
+      - "dono"
+    variantes_literais: []
+  - seccao: "3.22"
+    conceito: "Métricas da coexistência"
+    canonico: "coex_sync_duration_s, coex_sync_failed_total{motivo}, channel_disconnected_total{motivo}, coex_echo_total{desfecho}"
+    literais:
+      - "coex_sync_duration_s"
+      - "coex_sync_failed_total{motivo}"
+      - "channel_disconnected_total{motivo}"
+      - "coex_echo_total{desfecho}"
+    nomes:
+      - "coex_sync_duration_s"
+      - "coex_sync_failed_total"
+      - "motivo"
+      - "channel_disconnected_total"
+      - "coex_echo_total"
+      - "desfecho"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.22"
+    conceito: "Desfecho de um echo"
+    canonico: "coex_echo_total.desfecho ∈ {do_dono, nosso, sem_conversa}"
+    literais:
+      - "coex_echo_total.desfecho"
+      - "do_dono"
+      - "nosso"
+      - "sem_conversa"
+    nomes:
+      - "coex_echo_total.desfecho"
+      - "do_dono"
+      - "nosso"
+      - "sem_conversa"
+    nomes_nota:
+      - "to"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -5053,6 +5354,34 @@ dominios:
       - "subscricao"
     seccao: "3.21"
     conceito: "Tipo de recurso de uma saga"
+    so_no_registo: false
+  - coluna: "channel_coexistence.estado"
+    valores:
+      - "a_sincronizar"
+      - "sincronizado"
+      - "sincronizado_sem_historico"
+      - "falhado"
+    seccao: "3.22"
+    conceito: "Estado de uma sincronização"
+    so_no_registo: false
+  - coluna: "channel_coexistence.motivo_desligamento"
+    valores:
+      - "primary_inactivity"
+      - "companion_inactivity"
+      - "business_downgrade"
+      - "change_number"
+      - "user_re_registered"
+      - "account_disconnected"
+    seccao: "3.22"
+    conceito: "Motivo de desligamento de um canal"
+    so_no_registo: false
+  - coluna: "coex_echo_total.desfecho"
+    valores:
+      - "do_dono"
+      - "nosso"
+      - "sem_conversa"
+    seccao: "3.22"
+    conceito: "Desfecho de um echo"
     so_no_registo: false
 
 variantes:

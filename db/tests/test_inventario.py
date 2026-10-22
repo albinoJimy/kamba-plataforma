@@ -672,7 +672,7 @@ INVENTARIO = {
     #
     # A tentativa de ligar um numero pelo Embedded Signup v4. Treze colunas, e o
     # bloco do ticket nomeia quatro: as nove restantes tem cada uma o criterio
-    # que a obriga (dicionario §3.21).
+    # que a obriga (dicionario §3.20).
     #
     # **Nenhuma coluna desta tabela e dado pessoal de cliente final**, e isso nao
     # e sorte: o onboarding e entre a plataforma e o **dono** da PME, e o DoD do
@@ -744,6 +744,84 @@ INVENTARIO = {
             "nao — e texto nosso a dizer porque e que o onboarding nao acabou, "
             "lido por uma pessoa",
         ),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "actualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
+    # ------------------------------------------------- KAM-017 (0018)
+    #
+    # O estado de coexistencia de um canal. Dezoito colunas, e o bloco do ticket
+    # **nao nomeia nenhuma** — o que ele nomeia e o `coexistence_synced_at`, que
+    # e de `tenant_channels` e existe desde a `0001` (dicionario §3.22).
+    #
+    # **Nenhuma coluna desta tabela guarda conteudo de mensagem, e isso nao e
+    # sorte:** o criterio 2 proibe persistir ou indexar o corpo das mensagens de
+    # historico no Piloto, e a forma de garantir a regra e **nao haver onde**.
+    # Das dezoito, nao ha uma unica coluna de texto livre: as quatro de texto sao
+    # dominios fechados (`estado`, `motivo_desligamento`) ou um *array* com
+    # `CHECK` de conteudo (`passos_feitos`). O que o historico deixa aqui sao
+    # **contagens**.
+    #
+    # Nenhuma e dado pessoal de cliente final pela mesma razao da tabela acima:
+    # os contactos que o historico traz sao resolvidos pela porta do KAM-008 e
+    # vivem em `contacts`, por `contact_id` — o telefone nunca e chave (ADR-010).
+    "channel_coexistence": {
+        "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "channel_id": ("uuid", NAO, None, "nao"),
+        "estado": ("text", NAO, "'a_sincronizar'::text", "nao"),
+        "passos_feitos": (
+            "ARRAY",
+            NAO,
+            "'{}'::text[]",
+            "nao — os dois passos que o E1 §2 nomeia, com CHECK de conteudo. "
+            "E o conjunto que faz o «2.a execucao = no-op» do criterio 3 ser "
+            "do PostgreSQL e nao de um if",
+        ),
+        "iniciado_em": ("timestamp with time zone", NAO, "now()", "nao"),
+        "prazo_em": (
+            "timestamp with time zone",
+            NAO,
+            None,
+            "nao — **coluna e nao calculo**, e e isso que torna o relogio "
+            "acelerado do criterio 3 possivel sem mexer no servidor",
+        ),
+        "alertado_em": ("timestamp with time zone", SIM, None, "nao"),
+        "concluido_em": ("timestamp with time zone", SIM, None, "nao"),
+        "contactos_vistos": ("integer", NAO, "0", "nao"),
+        "mensagens_vistas": (
+            "integer",
+            NAO,
+            "0",
+            "nao — **uma contagem, nunca um corpo**: o criterio 2 proibe "
+            "persistir o conteudo das mensagens de historico no Piloto, e a "
+            "base legal para o usar e parecer por dar (KAM-104)",
+        ),
+        "meta_error_code": (
+            "integer",
+            SIM,
+            None,
+            "nao — hoje so o 2593109. E integer e nao text porque **nao pode "
+            "ser registado**: tem sete digitos, e a politica de logs recusa "
+            "mais de seis em qualquer campo de texto (DIGITOS_MAXIMOS), nos "
+            "dois campos onde caberia (outcome e error_code)",
+        ),
+        "ultimo_echo_em": (
+            "timestamp with time zone",
+            SIM,
+            None,
+            "nao — quando chegou o ultimo echo que nao foi nosso. E um "
+            "instante, nao o conteudo nem o autor",
+        ),
+        "avisado_em": ("timestamp with time zone", SIM, None, "nao"),
+        "motivo_desligamento": (
+            "text",
+            SIM,
+            None,
+            "nao — um dos seis motivos de PARTNER_REMOVED (E1 §2), em "
+            "minusculas porque sao tambem outcome de registo e a gramatica "
+            "desse campo so aceita minusculas",
+        ),
+        "desligado_em": ("timestamp with time zone", SIM, None, "nao"),
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
         "actualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
     },
@@ -865,6 +943,14 @@ class TestInventario(ComBase):
                         # `SQL_LIMPAR_RECURSOS` faz.
                         "channel_onboarding_tenant_fk",
                         "channel_onboarding_channel_fk",
+                        # KAM-017: as **duas** da coexistencia, e a do canal e
+                        # composta com o `tenant_id` pela mesma razao da linha
+                        # acima. Sem `ON DELETE CASCADE`, como todas: apagar um
+                        # canal nao pode apagar em silencio o estado da
+                        # sincronizacao dele — que e o unico sitio onde se le
+                        # porque e que ele se desligou.
+                        "channel_coexistence_tenant_fk",
+                        "channel_coexistence_channel_fk",
                         "handoffs_tenant_fk",
                         "handoffs_conversation_fk",
                         "handoff_accounts_tenant_fk",
@@ -1052,6 +1138,24 @@ class TestInventario(ComBase):
                     "channel_onboarding_recursos_ck",
                     "channel_onboarding_pin_ref_ck",
                     "channel_onboarding_motivo_ck",
+                    # ------------------------------------- KAM-017 (0018)
+                    # A chave, a unicidade por canal (que e o criterio 9 pela
+                    # base: a reconexao repoe em vez de duplicar), os **dois**
+                    # dominios fechados — o `estado` com quatro valores e o
+                    # `motivo_desligamento` com os seis do `E1` §2 —, o `CHECK`
+                    # de **conteudo** dos passos (`<@ ARRAY[...]`, e nao de
+                    # cardinalidade), o prazo depois do arranque, as contagens
+                    # nao negativas, e o `desligamento_ck`, que e uma
+                    # **igualdade e nao uma implicacao**: um desligamento tem as
+                    # duas metades ou nenhuma.
+                    "channel_coexistence_pkey",
+                    "channel_coexistence_canal_uq",
+                    "channel_coexistence_estado_ck",
+                    "channel_coexistence_passos_ck",
+                    "channel_coexistence_motivo_ck",
+                    "channel_coexistence_prazo_ck",
+                    "channel_coexistence_contagens_ck",
+                    "channel_coexistence_desligamento_ck",
                     # ------------------------------------- KAM-015 (0010)
                     # Os dois dominios da `outbound_messages`, as duas
                     # unicidades (a da chave de idempotencia e **por tenant**;

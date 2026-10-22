@@ -210,6 +210,13 @@ class TestConvencoes(ComBase):
                 # que o tecto de dez em sete dias mede. Um concorrente com uma
                 # loja na plataforma lia a rampa de lancamento dela.
                 "channel_onboarding",
+                # KAM-017: o estado de coexistencia. `uuid` aleatorio, e a
+                # razao e a mesma da linha acima por outro caminho: o
+                # `kamba_app` **le e escreve** esta tabela, e com um `id`
+                # sequencial o papel que trata um webhook media **quantos
+                # canais a plataforma tem em coexistencia** — que e a mesma
+                # rampa de lancamento que o `channel_onboarding` protege.
+                "channel_coexistence",
             }
             | por_identidade,
         )
@@ -299,6 +306,13 @@ class TestConvencoes(ComBase):
                 # da de qualidade**: a lista esta ordenada e «channel_o» vence
                 # «channel_q» porque 'o' < 'q' — a primeira versao poe-a antes
                 # da `consent_event` e o gate 8 recusou-a por isso.
+                # KAM-017: a chave e um `uuid` gerado, e a chave de negocio
+                # esta ao lado na `channel_coexistence_canal_uq`
+                # `(tenant_id, channel_id)` — que e o que faz o «sem criar
+                # canal duplicado» do criterio 9 ser propriedade da base. **A
+                # posicao e antes da de onboarding**: a lista esta ordenada e
+                # «channel_c» vence «channel_o» porque 'c' < 'o'.
+                ("channel_coexistence", "id", "uuid", "gen_random_uuid()"),
                 ("channel_onboarding", "id", "uuid", "gen_random_uuid()"),
                 ("channel_quality_log", "id", "uuid", "gen_random_uuid()"),
                 # KAM-022: a chave da prova e um `uuid` gerado, e a
@@ -492,6 +506,12 @@ class TestConvencoes(ComBase):
              # respondem — a janela de sete dias e a varredura dos 30 minutos —
              # nao filtram por tenant, e quem as faz tem `BYPASSRLS`.
              "channel_onboarding",
+             # KAM-017. A mesma forma: chave primaria `id` sem `tenant_id`, logo
+             # indice proprio `(tenant_id, estado)`. O outro indice da tabela —
+             # `(estado, prazo_em)` — **nao** comeca pelo `tenant_id`, e e
+             # decisao: a pergunta que responde e a varredura dos prazos, que
+             # nao filtra por tenant e corre com `BYPASSRLS`.
+             "channel_coexistence",
              # KAM-014. A conversa tem `(tenant_id, contact_id, channel_id)`,
              # que e a `UNIQUE` de negocio **e** o indice que a RLS precisa:
              # `tenant_id` em primeiro lugar, sem indice extra.
@@ -646,7 +666,11 @@ class TestConvencoes(ComBase):
         # razao das duas entradas acima: uma tentativa de onboarding e do canal
         # e nao de um contacto nem de uma conversa — no momento em que ela se
         # abre nao ha cliente nenhum na historia.
-        self.assertEqual(len(linhas), 35)
+        # 37 desde o KAM-017: as **duas** da `channel_coexistence` — para
+        # `tenants` e a composta para `tenant_channels`, pela razao que a
+        # `0009` fixou. Duas e nao tres, pela razao das entradas acima: a
+        # coexistencia e do canal e nao de um contacto nem de uma conversa.
+        self.assertEqual(len(linhas), 37)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

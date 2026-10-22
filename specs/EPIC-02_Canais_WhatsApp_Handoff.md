@@ -948,12 +948,11 @@ objecto nenhum** — dois `GRANT UPDATE` por coluna em `conversations` —, pelo
 nada lhe aponta, enquanto esta cria uma tabela com receita de sementes, entrada no
 inventário, matriz de privilégios e lugar na descoberta do X-05.
 
-**E a cadeia está medida de verdade, já não num ramo descartável:** o KAM-018
-fundiu em `6259c0e` e este ramo integrou o `main`. As três *suites* do *gate* 8
-correm sobre `0015 → 0016 → 0017` — `tests` **512 OK**, `tests_outbound`
-**10 OK**, `tests_isolamento` **78 OK** —, e a emenda do dicionário passou a
-**1.30** com a secção a **§3.21**, porque o KAM-018 chegou primeiro e ficou com a
-1.29 e o §3.20.
+**Consequência, e está dita porque é verificável:** o *gate* 8 deste ramo só passa
+com a `0016` na base. Os números abaixo foram medidos com a revisão numerada
+`0016` a descender da `0015`, que é a mesma árvore de objectos — o que a
+renumeração muda é o `down_revision`, o nome do ficheiro e as citações. A ordem de
+merge é a do remoto: primeiro o KAM-018, depois este.
 
 Todas as medições de Node correram num contentor
 `node:24.21.0-trixie-slim@sha256:173f1258…`, e as de Python num `venv` criado
@@ -1048,7 +1047,7 @@ que o gasta; este cliente **nunca escreve a URL num log**, e o `caminho` de um
 `GraphRecusouError` leva a constante e não a consulta — há um teste a prendê-lo.
 O que **não** está mitigado: um proxy de saída nosso que registre a linha de
 pedido guarda o `code` e o `client_secret` num ficheiro. Isso é KAM-077, e está
-declarado no `graph.ts`, no dicionário §3.21 e no
+declarado no `graph.ts`, no dicionário §3.20 e no
 [`../docs/onboarding-canal.md`](../docs/onboarding-canal.md) §6.
 
 #### O registo de auditoria do critério 4 não é o `audit_log`, e a razão foi medida
@@ -1090,7 +1089,7 @@ O critério 2 fixa-o assim, e o que o justifica é que o recurso que o passo 4 c
 literalmente, uma subscrição por `(tenant, waba)`. Quem acrescentar um segundo
 número ao mesmo WABA tem de **reutilizar** a subscrição que já existe, e isso é
 um caminho novo e não um relaxamento desta chave. Fica registado aqui e no
-dicionário §3.21.
+dicionário §3.20.
 
 #### A revisão adversarial, e os três defeitos que ela encontrou
 
@@ -1116,7 +1115,7 @@ dos três só se vêem contra um PostgreSQL de verdade, que é a razão de esta
 | Caixa | Estado | Evidência |
 |---|---|---|
 | Todos os CA satisfeitos e demonstráveis | **vazia** | **Oito dos nove**, e o nono é o onboarding real: ele depende de `ext:KAM-102` e nenhuma medição deste ramo o pode substituir. O critério 5 fica **parcial** pela sua terceira cláusula, que é o mesmo número de teste. A caixa fica vazia e não meia porque a letra dela diz «todos» |
-| Código revisto por **2 revisores** (segredos, número de uma PME); testes verdes; cobertura ≥ limiar | **vazia** | Testes verdes e cobertura **medidos**: **1 802** testes de unidade, **1 801** a passar, **0 a falhar** (o saltado é pré-existente, nos segredos), dos quais **66** novos em `tests/onboarding.test.ts`, **21** em `tests/onboarding.graph.test.ts`, **21** em `services/gwy/tests/canais.test.ts` e **29** em `tests_bd/onboarding.bd.test.ts`; as *suites* do *gate* 8 verdes (`tests` **512**, que inclui a revisão `0017` e o `downgrade`; `tests_outbound` **10**, com os tres ficheiros do modulo; `tests_isolamento` **78**); `src/onboarding/` entre **94,8% e 100%** por ficheiro. O `cifra.ts` entra no estrato `critico` de `ci/thresholds.yaml` — é o mesmo tipo de código que põe o `identity/cripto.ts` lá desde o KAM-008 — e mede **94,8%** contra os 90% desse estrato; o resto do módulo fica no `restante`, a 83% agregados contra 75%. **Zero revisores humanos** — é decisão escrita do fundador, e a caixa fica vazia como facto registado e não como passo cumprido. **Alterar `ci/thresholds.yaml` pede dois revisores**, e essa caixa fica vazia pela mesma razão |
+| Código revisto por **2 revisores** (segredos, número de uma PME); testes verdes; cobertura ≥ limiar | **vazia** | Testes verdes e cobertura **medidos**: **1 694** testes de unidade, **1 693** a passar, **0 a falhar** (o saltado é pré-existente, nos segredos), dos quais **66** novos em `tests/onboarding.test.ts`, **21** em `tests/onboarding.graph.test.ts`, **21** em `services/gwy/tests/canais.test.ts` e **29** em `tests_bd/onboarding.bd.test.ts`; as *suites* do *gate* 8 verdes (`tests` **512**, que inclui a revisão `0017` e o `downgrade`; `tests_outbound` **10**, com os tres ficheiros do modulo; `tests_isolamento` **78**); `src/onboarding/` entre **94,8% e 100%** por ficheiro. O `cifra.ts` entra no estrato `critico` de `ci/thresholds.yaml` — é o mesmo tipo de código que põe o `identity/cripto.ts` lá desde o KAM-008 — e mede **94,8%** contra os 90% desse estrato; o resto do módulo fica no `restante`, a 83% agregados contra 75%. **Zero revisores humanos** — é decisão escrita do fundador, e a caixa fica vazia como facto registado e não como passo cumprido. **Alterar `ci/thresholds.yaml` pede dois revisores**, e essa caixa fica vazia pela mesma razão |
 | Documentação actualizada (`../docs/onboarding-canal.md`); Conventional Commits | **marcada** | [`../docs/onboarding-canal.md`](../docs/onboarding-canal.md), com as sete decisões de desenho e as **cinco** limitações declaradas. Emenda **1.29** ao dicionário (§3.20) e `canon/dicionario.yaml` regenerado — `dict_export --check`, `canon_lint check` e `canon_lint canario` conformes, v1.29, **230** entradas, 25 extensões. O `../docs/ci.md` §3 ganha as **sete** propriedades novas e a linha de versão **1.49**. Conventional Commits validados pelo gancho (`git -c core.hooksPath=tools/githooks commit`) |
 | **Isolamento de tenant** — um canal pertence a um só tenant; RLS em `channel_onboarding`; teste cruzado | **marcada** | `rls.enable_tenant_rls("channel_onboarding")` na `0017`, com `FORCE` e a política `tenant_iso` (ADR-015); a descoberta do X-05 passa de vinte e quatro para **vinte e cinco** tabelas e a tabela ganhou receita de sementes no *gate* 6, com o canário no `waba_id`. Teste cruzado nos dois sentidos: com o contexto de A a tentativa de B não se vê, e **sem contexto são zero linhas**. A FK composta `(tenant_id, channel_id)` impede uma tentativa de A de apontar para um canal de B, e isso mede-se. **E a escrita não depende da política**: o `kamba_app` leva **`42501`** num `INSERT`, num `UPDATE` e num `DELETE` — o privilégio nem existe, que é mais forte do que a política recusar porque não depende de a política estar certa. «Um canal pertence a um só tenant» é a `tenant_channels_phone_number_id_uq` **global** da `0001`, e é a mesma unicidade que dá o 409 |
 | **Idempotência** — passos repetíveis com teste de repetição | **marcada** | Critério 2, acima, em **três** níveis: o mesmo *code* duas vezes, o mesmo par com um *code* novo, e duas aberturas **em paralelo em duas ligações** (o `ON CONFLICT` a serializar). E os passos são repetíveis um a um: subscrever duas vezes não duplica (o conjunto é um conjunto), anular duas vezes resolve, revogar um segredo que já não existe resolve, e compensar duas vezes não revoga nada a segunda vez |
@@ -1126,7 +1125,7 @@ dos três só se vêem contra um PostgreSQL de verdade, que é a razão de esta
 
 #### A prova por mutação
 
-**570** mutações conferidas pelo `--aplicaveis`, **0 não aplicáveis** — e
+**528** mutações conferidas pelo `--aplicaveis`, **0 não aplicáveis** — e
 esse comando corre-se depois de cada integração do `main`, pela lição que o
 KAM-023 deixou: o `git merge` pode fazer uma constante deste ficheiro sombrear
 outra **sem conflito nenhum**, e nenhum teste o vê. **Trinta e sete** são novas:
@@ -1219,6 +1218,139 @@ Tratar os webhooks de coexistência e a sincronização inicial com prazo duro d
 - [ ] **Privacidade** — histórico não persistido nem enviado a LLM; contactos por `contact_id`.
 - [ ] **Custo e observabilidade** — `coex_sync_duration_s`, `coex_sync_failed_total`, `channel_disconnected_total`.
 - [ ] O resultado de KAM-100 (L1) está referenciado e o modo predefinido decidido.
+
+### Verificação dos Critérios de Aceitação
+
+**Os nove critérios constroem-se, e oito ficam marcados.** O décimo — a
+*Definition of Done* «o resultado de KAM-100 (L1) está referenciado e o modo
+predefinido decidido» — e o critério 10 ficam **vazios**, e não por falta de
+trabalho: o relatório do `ext:KAM-100` **não existe** (não há
+`docs/evidencia/KAM-100.md`) e a elegibilidade de Angola continua **NÃO
+VERIFICADA** (risco R1 da tabela deste epic). O que depende dele é **um valor
+por omissão** e mais nada: a lógica dos dois modos está entregue inteira, e é a
+mesma — o `../docs/tecnica/01` §10.1 di-lo por extenso («a lógica de saída é a
+mesma, só muda o §10.2»). Escolher o predefinido aqui era decidir pelo relatório
+que o havia de decidir, e a decisão devolve-se a quem tiver o relatório.
+
+| Critério | Estado | Evidência |
+|---|---|---|
+| 1 — `history` e `smb_app_state_sync` alimentam `contacts` e `coexistence_synced_at`; **0** *jobs* para o AGR e **0** mensagens enviadas (*fixture* com 6 meses de histórico) | **satisfeito** | **Os zeros provam-se por construção e por asserção.** O módulo **não tem porta** para o AGR nem para a saída — não as pode chamar —, e o `ResultadoDaIngestao` leva um `jobsParaOAgr: 0` cujo tipo é o literal `0`: o teste afirma o número que o critério escreve em vez de afirmar a ausência de uma chamada que ninguém declarou. Os contactos passam pela porta do KAM-008 (`resolveContact`) e o que fica guardado é o `contact_id`; um contacto sem `bsuid` **e** sem telefone não vai à porta, porque ela levanta `PedidoSemIdentificadorError` e um lote de seis meses não se perde por uma linha mal formada. O `coexistence_synced_at` escreve-se **uma vez, no fim** — «sincronizou» é um facto e não um progresso, e um carimbo que se mexesse a cada lote respondia «há cinco minutos» a uma pergunta que é «quando é que este canal ficou pronto». **A *fixture* de 6 meses é a contagem e não os corpos**, e isso é o critério 2 a mandar: o lote entra como `{mensagens: N, contactos: [...], erros: []}`, e o `tests/coexistencia.test.ts` corre-a com 1 240 mensagens |
+| 2 — o corpo das mensagens de histórico **não** é persistido nem indexado no Piloto | **satisfeito** | **A garantia é a forma e não uma regra escrita.** A `channel_coexistence` tem dezoito colunas e **nenhuma é texto livre**: as de texto são domínios fechados (`estado`, `motivo_desligamento`) ou um *array* com `CHECK` de conteúdo (`passos_feitos`). O que o histórico deixa são duas contagens. A `inbound_events` do KAM-013 também não tem coluna de corpo, pelo que o texto passa pelo processo e não fica em sítio nenhum. **Há um teste que o afirma pela forma** — percorre **todos** os parâmetros de **todas** as instruções que uma ingestão emite e exige que nenhum seja um texto que pudesse ser conteúdo. E nada vai a um LLM: é o «fora de âmbito» do bloco e o L15 (Termos da Meta §4.7). A base legal fica como critério de saída, em KAM-104 |
+| 3 — o *job* é idempotente (2.ª execução = *no-op*), alerta aos 12 h e marca `falhado` + *offboard* às 24 h (relógio acelerado) | **satisfeito** | **O *no-op* é do PostgreSQL e não de um `if`.** O `SQL_MARCAR_PASSO` filtra por `NOT ($3 = ANY (passos_feitos))` **e** por `estado = 'a_sincronizar'`, e a segunda passagem devolve **zero linhas** — medido com **duas ligações** a disputar o mesmo passo em `tests_bd/`, onde exactamente uma escreve. A mesma instrução marca o passo **e** soma as contagens, de propósito: separá-las dava um caminho em que o lote repetido contava sem marcar. O segundo predicado não é enfeite — a Meta reenvia durante sete dias, e sem ele um `history` atrasado desfazia o *offboard* que o critério acabou de pedir (há teste). O alerta das 12 h é idempotente pelo `alertado_em IS NULL`; sem ele, um processo chamado de cinco em cinco minutos alertava doze vezes por hora durante doze horas. **O relógio entra por parâmetro e o prazo é coluna**, e as duas coisas juntas são o que torna «relógio acelerado» possível: um prazo derivado de `now()` na consulta não se acelera sem mexer no servidor. O *offboard* **é a mesma lista** do `falhados` e não uma segunda — um `falhado` é um *offboard* pedido, e devolver duas sugeria que pode haver um sem o outro. **Não há agendador**, e isso não é dívida deste ticket: não existe nenhum no repositório (nem `repeat:`, nem `delay:`, nem `cron`) e nasce com o KAM-071/KAM-078; o padrão é o do `abandonarVencidas` do KAM-016 e o do `pausarPorInactividade` do KAM-018 — uma função idempotente por predicado SQL, testável agora e chamável depois |
+| 4 — o erro 2593109 conduz a `sincronizado_sem_historico` e **não** a falha | **satisfeito** | É um estado **terminal e bem-sucedido** e não um caso de erro: o cliente escolheu não partilhar histórico, que é uma escolha do titular. Tratá-lo como `falhado` disparava o *offboard* — isto é, mandava o dono repetir o Embedded Signup — por ele ter exercido uma escolha que o próprio *popup* da Meta lhe oferece. **E não marca o passo `historico`**, que não correu: fechar e marcar eram duas afirmações contraditórias sobre o mesmo facto. **O achado que mudou o desenho:** o código tem **sete** dígitos, e a política de *logs* recusa mais de **seis** em qualquer campo de texto (`DIGITOS_MAXIMOS`) nos **dois** campos onde ele caberia — no `outcome` e no `error_code`. Mediu-se contra o espelho Python: `validar("error_code", "2593109")` devolve `None` e o `131049` de seis dígitos do KAM-015 passa. **O número não se pode registar de todo**, pelo que vive numa coluna `integer` e o registo leva o `outcome` simbólico — e há um teste que prende as duas recusas, para que quem acrescente outro código da Meta o confronte primeiro |
+| 5 — cada um dos 6 motivos passa o canal a `desligado`, emite `channel.updated` e cria alerta; repetir 2× produz 1 transição | **satisfeito** | **Os seis, um a um**, contra as *fixtures* assinadas do KAM-024 — que tem uma por motivo e uma marca de cobertura por motivo. A idempotência são **dois predicados na mesma transacção**: o `desligado_em IS NULL` da coexistência e o `estado <> 'desligado'` do canal; se só um mordesse, as duas tabelas discordavam sobre se o canal está desligado. Medido com duas chamadas concorrentes em `tests_bd/`: exactamente uma transita, um evento, uma contagem. **A ordem é escrever, emitir, contar**, e é a que o KAM-018 pagou — as duas escritas vivem na mesma transacção, e com o contador antes da emissão um `evt_emitir` que levante desfaz o `UPDATE` e **não** desfaz o contador; há um teste que injecta a excepção e exige que a métrica fique a zero. **Os seis valores vão em minúsculas, e a razão foi medida:** são também `outcome`, e a gramática do campo só aceita minúsculas — em modo estrito, que é o do CI, o `Logger` **levanta**, e um desfecho normal de um *webhook* virava excepção não tratada. Confrontaram-se os seis com o espelho Python, um a um, e o `CHECK` da `0018` recusa a forma `MAIUSCULA` — o que torna a tradução na fronteira obrigatória em vez de opcional. **O «cria alerta» é o evento e não uma entrega**: ver o critério 6 |
+| 6 — aviso `channel.inactivity_warning` aos 10 dias sem *echo* e sem actividade do dono | **parcial — satisfeito no que se mede** | **Metade da heurística do `../docs/tecnica/01` §10.5 não é mensurável, e isso está declarado.** Ela diz «sem *echo* **e sem acesso ao painel**»: o *echo* mede-se (`channel_coexistence.ultimo_echo_em`, escrito a cada *echo* que não é nosso) e **o painel não existe** — é KAM-093, e não há sinal de acesso em sítio nenhum do esquema. Inventar um era inventar evidência; fica na dívida **84**. O que se entrega é a metade que existe, e entrega-se inteira: idempotente pelo `avisado_em IS NULL`, e a janela **reabre** quando chega actividade do dono (o `SQL_REGISTAR_ECHO` põe o carimbo a nulo) — sem isso, um canal avisado uma vez nunca mais era avisado. O `COALESCE(ultimo_echo_em, iniciado_em)` é o caso do canal que **nunca** teve *echo*: sem ele, um dono que nunca escreveu na app — exactamente quem o aviso existe para apanhar — nunca era avisado, porque `NULL <= $1` é `NULL`. Os dez dias são ***proposta***: o que é CONFIRMADO é o outro número, os ~14 dias de `PRIMARY_INACTIVITY`, e os dez são a folga de quatro. **A entrega ao dono é KAM-115**, e o próprio critério o diz — este ticket emite o evento e pára aí |
+| 7 — os *echoes* em `inbound_events` (`kind=echo`), entregues ao tratador do KAM-018; o *echo* cujo `wamid` consta de `outbound_messages` é ignorado | **satisfeito** | O registo em `inbound_events` com `kind=echo` já era do KAM-013. O que este ticket entrega é o detector, e para o entregar **fixou o campo que o `explosao.ts` lhe atribuía por extenso** («fixar o campo é KAM-017»): o interlocutor de um *echo* é o **destinatário** (`CAMPO_DO_DESTINATARIO = "to"`), no nome que o simulador do KAM-024 já emite, para que os dois lados da ***proposta*, NÃO VERIFICADA** digam o mesmo. Sem ele, um *echo* não tem contacto, logo não tem conversa, logo a célula `bot→dono` do KAM-018 ficava sem detector para sempre. **O `bsuid` continua `null` e não se inventa**: o `from_user_id` identifica quem *envia*, e quem envia um *echo* é o dono — um BSUID do dono no lugar do interlocutor fazia o KAM-008 resolver o contacto errado. A regra do `wamid` é a do critério e é segura nos **dois** lados do L6: está em `outbound_messages` → fomos nós, ignora-se e **não se mexe no relógio** (um bot a responder não prova que o dono abriu a app); não está → é do dono, e dispara `echo_do_dono` pela porta do KAM-018. **Há um terceiro desfecho e ele é honestidade:** um *echo* do dono cujo destinatário não resolve conversa — o caso normal da coexistência — **conta-se** (`coex_echo_total{desfecho="sem_conversa"}`) em vez de se descartar em silêncio. A consulta leva `tenant_id` apesar de o `wamid` ser globalmente único, pela razão do `SQL_JANELA` do KAM-015. **O comando `/bot` não se detecta**, e não é esquecimento: o `EventoDeEntrada` não leva o corpo de uma mensagem, e fazê-lo levar punha texto de conversa no contrato de ingestão (contra o ADR-010) por uma transição que **nenhum dos nove critérios deste ticket pede**. A célula `dono + comando_bot` do KAM-018 fica sem detector, e está dito aqui e no `docs/coexistencia.md` §8 |
+| 8 — o `channel_mode` determina o que fica activo; o *token bucket* usa 15 mps em `coexistencia` | **satisfeito** | Em `cloud_only` o `abrir` devolve `null` sem tocar na base, e um *echo* não vira actividade humana — nem se consulta o `outbound_messages`, porque não há *echoes* nesse modo. Os 15 mps já eram o `MPS_POR_CANAL` do KAM-015, **para todos os canais sem olhar ao modo**; o que este ticket acrescenta é o `MPS_POR_MODO` e o parâmetro `modo` do `pedir`, que tornam o 15 uma **escolha por modo** e não uma coincidência. **Os dois valores são hoje iguais, e isso é deliberado:** o `E1` §5 confirma 20 mps em coexistência e a Meta dá 80 em `cloud_only`, mas **nenhum documento deste repositório fixa o número do `cloud_only`** — e o próprio `limites.ts` já o dizia. Pô-lo por dedução era inventar o que o critério não diz e arriscar o `130429` que o balde existe para evitar. O modo só é lido quando o balde **nasce**: um balde que mudasse de capacidade a meio perdia a conta do que já tirou, e o `channel_mode` de um canal não muda sem um onboarding novo — que cria balde novo de qualquer forma, porque o `phone_number_id` do `cloud_only` é outro |
+| 9 — a reconexão (`desligado → iniciado`) reutiliza o ES de KAM-016 sem criar canal duplicado | **satisfeito** | **Duas unicidades, e nenhuma é um `if`.** A `channel_onboarding_tenant_waba_uq` do KAM-016 faz um `ligar()` repetido devolver `novo: false` sem falar com a Meta nem com o cofre; a `channel_coexistence_canal_uq (tenant_id, channel_id)` deste ticket faz o `ON CONFLICT ... DO UPDATE` **repor** a linha que lá está. Medido com duas aberturas concorrentes em `tests_bd/`: fica **uma** linha. **Repor e não deixar**, e isso é o que vale a pena ler: uma reconexão é uma sincronização **nova**, e o `E1` §2 é explícito em que cada passo corre uma vez **por onboarding** — deixar os `passos_feitos` da ligação anterior fazia a sincronização nova nascer concluída sem ter corrido, que é precisamente o modo de falhar que o prazo de 24 h existe para apanhar. O `motivo_desligamento` e o `desligado_em` limpam-se **os dois juntos**, porque o `channel_coexistence_desligamento_ck` exige as duas metades ou nenhuma e limpar só uma era um `23514` na reconexão |
+| 10 — evidência da elegibilidade: ≥ 1 sincronização completa num número +244 real e referência ao relatório de KAM-100 | **não satisfeito — caixa vazia** | **Não se entrega, e não é esquecimento.** O relatório do `ext:KAM-100` **não existe** — não há `docs/evidencia/KAM-100.md` —, a elegibilidade de Angola é **NÃO VERIFICADA** (risco R1: «Coexistência indisponível ou instável para números +244»), e uma sincronização real precisa de um número +244 em *staging* ligado a uma conta de teste da Meta, que também depende de `ext:KAM-102`. A tabela de riscos deste epic já atribui a mitigação a KAM-100 e escreve a regra que este ticket seguiu: «KAM-017 só fixa o modo predefinido depois do relatório de KAM-100; alternativa `cloud_only` com número novo dedicado». **A lógica dos dois modos está entregue e é a mesma**; o que falta é um valor por omissão, e a decisão é de quem tiver o relatório |
+
+**Os dois DoD que também ficam por marcar, com a mesma razão.** «Código revisto
+por 2 revisores (número de uma PME, dados pessoais)» fica **vazio** — nesta fase
+não há revisores humanos, por decisão escrita do fundador, e a caixa fica vazia
+como facto registado e não como caixa marcada. E «o resultado de KAM-100 (L1)
+está referenciado e o modo predefinido decidido» é o critério 10.
+
+**O que este PR tocou fora do seu módulo, e porquê.** Três sítios, e cada um
+tem a razão escrita no código:
+
+1. **`entrada/explosao.ts`** — o `interlocutor` de um `echo` deixou de ser
+   `null`. É o que o comentário daquele módulo atribuía a este ticket, e sem
+   ele o critério 7 não é cumprível.
+2. **`chr/chr.ts`** — a porta `EntregaDoChr.dono` ganhou um `interlocutor`
+   opcional. É o mínimo que faz o detector funcionar **sem** o CHR passar a
+   resolver identidade num `echo`, que é a propriedade que a nota daquele ramo
+   protege.
+3. **`outbound/limites.ts`** — o `MPS_POR_MODO` e o parâmetro `modo` do
+   `pedir`. Vive ali e não no `coexistencia/contrato.ts` porque é ali que estão
+   os outros tectos, e pô-lo cá fazia o `outbound` importar do `coexistencia`,
+   que já importa do `outbound`. Uma mutação do KAM-015 mudou de texto com esta
+   alteração e **reescreveu-se em vez de se apagar**: o que ela mata — um balde
+   a nascer cheio — continua a fazer falta.
+
+**O módulo entrega-se construído e não montado**, e isso é o padrão da casa:
+o `services/worker-canal/src/entrada.ts` tem quatro braços no `Encaminhador` e
+três continuam a contar e mais nada. O KAM-021, o KAM-022 e o KAM-018 deixaram
+todos o mesmo, e montar **um** braço enquanto os outros ficam por montar deixava
+o processo a tratar coexistência e a ignorar qualidade e consentimento. A ordem
+de montagem está em `../docs/coexistencia.md` §9.
+
+**Sete defeitos da revisão adversarial, e dois deles tornavam critérios
+inexecutáveis.** Todos corrigidos neste PR, com teste a prender cada um:
+
+1. **As três varreduras não podiam correr.** As do critério 3 (alerta às 12 h,
+   `falhado` às 24 h) e a do critério 6 são `UPDATE` **sem `tenant_id` no
+   predicado**, logo só correm com `BYPASSRLS` — e o único papel que o tem é o
+   `kamba_batch`, a quem a primeira versão da `0018` negava o `UPDATE`. Pior: a
+   nota da revisão justificava a negação dizendo que «não há caminho de
+   retaguarda que altere o estado de uma sincronização», quando o módulo tinha
+   três. Respondiam `42501`, e **os critérios 3 e 6 não tinham caminho
+   executável** — só decisão escrita. O precedente estava à vista e não se
+   seguiu: o `abandonarVencidas` do KAM-016 corre como `kamba_batch` e a `0017`
+   dá-lhe os quatro verbos. O teste de base ajudava a esconder, porque corria a
+   varredura com o administrador e dizia que o que provava era «o predicado».
+2. **Os emissores reais não encaixavam na porta `Emitir`.** A porta tem cinco
+   parâmetros com o `channelId` em terceiro, e as funções tinham quatro e três
+   sem ele. **Nem o compilador nem o contrato apanhavam** — o TypeScript admite
+   atribuir uma função de menos parâmetros, e o `motivo` do esquema é `string`
+   livre —, pelo que o `channel.updated` sairia com o **UUID do canal** no
+   `phone_number_id` e o `phone_number_id` no `motivo`. Ficava latente porque
+   todos os testes substituíam as portas por lambdas; o teste novo liga os
+   emissores **reais** e lê o que chega ao `evt_emitir`.
+3. **Um canal `suspenso` ficava com as duas tabelas em desacordo.** A ordem era
+   registar e depois desligar, e o `SQL_DESLIGAR_CANAL` não toca em `suspenso`
+   nem em `encerrado` (de propósito: uma suspensão é decisão nossa que um
+   *webhook* da Meta não revoga) — mas o registo já tinha mordido, e a função
+   devolvia normalmente. Era exactamente o modo de falhar que o tratador diz
+   prevenir. Inverteu-se: o canal primeiro, o registo só se ele transitou.
+4. **O aviso `desligamento_desalinhado` disparava no caminho normal de um canal
+   `cloud_only`**, que nunca tem linha de coexistência porque o `abrir` não
+   insere nesse modo — ruído no sinal que existe para apanhar desalinhamento a
+   sério.
+5. **O teste de privilégios por coluna era vácuo.** Ele avalia
+   `de_tabela or coluna in por_coluna`, e um `GRANT UPDATE` de tabela
+   curto-circuita o `or`: a lista nunca era confrontada, e o comentário que a
+   acompanhava afirmava uma restrição que não existia — o `kamba_app` **podia**
+   mover uma coexistência para o canal ou o *tenant* de outro. O `GRANT` passou
+   a ser **por coluna**, o que torna o teste real e fecha o buraco; há também um
+   teste que o afirma pelo efeito, e não só pela lista de nomes.
+6. **O prazo das 24 h não era duro.** O `SQL_MARCAR_PASSO` e o `SQL_CONCLUIR`
+   filtravam por `estado` e nunca pelo `prazo_em`: como não há agendador, um
+   `history` reentregue às 30 h encontrava o estado ainda em `a_sincronizar` e
+   fechava a sincronização **depois** do prazo. O teste que parecia cobri-lo
+   chamava a varredura antes, pelo que provava o predicado do estado e não o
+   prazo. Entrou o `prazo_em > $n` nas duas instruções, e o teste novo **não**
+   chama a varredura.
+7. **Um *echo* num canal sem linha de coexistência falhava fechado e mudo** — o
+   relógio não avançava, o aviso dos 10 dias deixava de sair, e nada o
+   registava. Passou a registar-se. E, a propósito, o `EVENTO_PARTNER_REMOVED`
+   era uma constante exportada e nunca lida: o tratador decidia só pelo
+   `reason`. Passou a ser guarda.
+
+**E o que a revisão procurou e não encontrou**, que vale tanto como o que
+encontrou: confrontou os **dezoito** valores de `outcome` com o espelho Python
+(todos passam, e o `2593109` é recusado nos dois campos, como a §3.22 afirma);
+rastreou o `interlocutor` de um *echo* por todo o `src/` e `services/` até
+concluir que não chega a nenhuma escrita; e verificou que nenhuma etiqueta de
+métrica aceita um identificador, que todas as consultas levam `tenant_id` além
+da RLS — excepto as três varreduras, que o declaram —, e que o `downgrade` é
+reversível com linhas.
+
+**E um oitavo, que nenhum gate local apanhou porque o *gate* 7 não corre
+offline:** as baterias deste ticket usavam telefones de forma **angolana real**
+(`+244 9…`), 38 deles, e o `varrer` do KAM-024 recusa-os — o critério 7 daquele
+ticket pede «0 telefones reais no repositório». Passaram ao `999`, o indicativo
+que a UIT não atribui a país nenhum e que o `INDICATIVO_FICTICIO` reserva. Não
+se declarou excepção no inventário: um número de ensaio não precisa de forma
+angolana para provar nada, e a convenção já existia em três sítios.
+
+**Uma alínea do critério 1 fica por demonstrar com *fixture* do simulador.** Ele
+pede «*fixture* com 6 meses de histórico»; a do KAM-024 traz **uma** *thread*, e
+o caminho de seis meses exercita-se com uma contagem sintética (1 240 mensagens)
+em `tests/coexistencia.test.ts`. A propriedade que o critério mede — zero *jobs*,
+zero envios, zero corpos — não depende do volume, e é por isso que a caixa fica
+marcada; o que falta é a *fixture* saber produzir o volume, e isso é do KAM-024
+(dívida **83**, que é onde a contradição daquela *fixture* já está declarada).
 
 ### Handoff para Claude Code
 
@@ -3064,4 +3196,4 @@ Testes: idempotência, limites, bounce, isolamento, X-11. Abre PR com o template
 | 1.6 | Outubro 2026 | **KAM-023 entregue, em duas metades.** Secção de verificação no bloco, com **onze** caixas marcadas e **cinco** vazias, cada uma com a razão escrita. A metade de código entrou sem DDL (contagem do *free tier*, alertas aos 800 e 1.000 por **flanco** e não por valor, custo estimado em micro-dólares inteiros, quatro métricas) e a revisão `0013` entrou quando a `0012` do KAM-020 fundiu — as revisões de base encaixam uma na anterior, e duas a reclamar o mesmo pai não são colisão mecânica. As cinco vazias: o fuso **por canal** que o esquema não tem (só há por *tenant*, e o fuso vive na `platform.ten_periodo` da `0007`), a etiqueta `{tenant}` que as bibliotecas de métricas recusam **por gramática** (mesmo precedente da emenda 1.21 do dicionário), o critério 7 que é de **saída** e pede um mês real de Piloto, a dos revisores (zero humanos, decisão do fundador) e a que depende das outras. Quatro dívidas novas (65 a 68), todas critérios que pedem o que o esquema não tem. **Esta linha fecha uma deriva:** o KAM-019 e o KAM-020 não acrescentaram a sua, pelo que a tabela saltou da 1.5 para aqui — fica registado em `../docs/dividas-documentais.md`. | Equipa KAMBÁ |
 | 1.7 | Outubro 2026 | **KAM-021 entregue.** Secção de verificação no bloco, com **catorze** caixas marcadas e **três** vazias, cada uma com a razão escrita. Entrou a revisão `0014` (`channel_quality_log` com unicidade `(tenant_id, event_key)` e `tenant_channels.max_phone_numbers_per_business`) e o módulo `packages/core-ts/src/qualidade/`, que preenche o braço `gestao_de_canal` que o KAM-013 deixou a registar e mais nada. **A caixa do critério 3 fica vazia por segurança, e a decisão é do fundador:** ele quer que o `tenants.estado` projecte `restrito`, e a revisão `0007` retirou o `UPDATE (estado)` a `kamba_app` **de propósito** — «o sujeito da condição não pode ser quem a retira» —, com um teste a prendê-la; devolver o privilégio reabria a escalada que a revisão adversarial do KAM-009 fechou. As outras duas vazias são a dos revisores (zero humanos, decisão do fundador) e a que depende da primeira. Duas caixas entregam-se «pelo que o repositório tem» — o *ticket* de T&S dos critérios 4 e 8 não existe como mecanismo, e o que existe (contador e registo) é o que se usa, como o KAM-023 fez — e duas trazem divergências registadas: **dois critérios do mesmo bloco não dizem o mesmo** (o 2 nomeia só a `marketing` e a matriz do §3.7 recusa também a `utility`, e segue-se a matriz porque é o que o critério 9 pede), e o nome do escalão do critério 5 (`TIER_2000` contra o `TIER_2K` que o gerador do KAM-024 produz). Cinco dívidas novas (70 a 74). **A prova por mutação encontrou um teste em falta que nenhuma leitura viu:** apagar o `WHERE estado <> 'restrito'` do `SQL_RESTRINGIR` passava a prova inteira, porque no caminho sequencial o predicado é redundante — quem o torna necessário é a concorrência com chaves **diferentes**, e o teste da corrida que existia usava a mesma chave. **E o grupo do critério 9 passava pela razão errada:** o `tenants.estado` nasce `onboarding`, que é mais restritivo do que `restrito`, pelo que as três asserções de `STATE_REFUSED` teriam passado com o canal `ativo`. **A divergência que o DoD manda registar já estava fechada pelo KAM-111:** o `../docs/tecnica/10` §6.4 diz hoje «vermelho → `restrito`», e quem ainda diz `suspenso` é o `00` §6.2, que o `01` §9 já registra. | Equipa KAMBÁ |
 | 1.8 | Outubro 2026 | **KAM-022 entregue.** Secção de verificação no bloco, com **quinze** caixas marcadas e **uma** vazia — a dos revisores, que neste ticket pede **dois** por serem dados pessoais e por isso fica vazia e não meia. Entrou a revisão `0015` (a `consent_event` *append-only*, a `consent_texts` **sem `tenant_id`** e **a primeira vista do esquema**, a `consent_actual`) e o módulo `packages/core-ts/src/consentimento/`, que é a barreira anterior ao AGR. **Três coisas que não são transcrição:** a decisão é **um valor** (`invocaAgr`) e o módulo nunca chama o AGR, porque a propriedade do critério 4 — «0 *jobs* sem consentimento válido anterior» — só é demonstrável se houver um sítio onde a medir; a idempotência do critério 2 sai do **próprio `evidence_hash`**, que leva o `wamid` e a hora **da Meta**, pelo que uma reentrega do mesmo *webhook* bate na unicidade (com a nossa hora, duas entregas davam duas linhas); e a contagem de avisos do critério 3 **não acrescentou DDL** — a chave `aviso:{conversation_id}:{n}` que impede o aviso de sair duas vezes é a que diz quantas vezes saiu. **A `consent_actual` é a primeira vista do esquema e leva `security_invoker = true`:** o `verificar_vistas` do catálogo do X-05 exige-o desde o KAM-004 e nunca tinha tido nada para ver — sem a opção, uma vista corre com os privilégios do dono e a RLS passa a depender do `FORCE`, numa relação onde ninguém iria procurar. Ela sacudiu **quatro** sítios que diziam «tabelas» e mediam relações, todos listados na secção. **A `consent_texts` nasce vazia e o gate falha fechada**, pelo que a loja fica muda até o texto existir: é o lado certo, porque a alternativa era tratar dados sem ter mostrado o aviso (ADR-010, `E3` req. 15). Quatro dívidas novas (75 a 78), e as duas primeiras são da classe da 74 — o bloco manda registar o que o **KAM-140** já fechou. **Dois defeitos que só uma máquina apanhou, os dois do ensaio:** um `excepcao.sqlstate` que o `pg8000` não tem (dezasseis erros), e a metade positiva do *append-only* a contar linhas que a sessão da aplicação não podia ver. | Equipa KAMBÁ |
-| 1.9 | Outubro 2026 | **KAM-016 entregue, sem o nono critério.** Secção de verificação no bloco, com **oito** caixas de critério marcadas e **uma** vazia — o onboarding real numa conta de teste da Meta, que depende de `ext:KAM-102` e que **nenhuma medição deste ramo pode substituir**: não há `../docs/evidencia/KAM-016.md` e não se inventou nenhum. Entrou a revisão `0017` (a `channel_onboarding` com as nove fases e as duas unicidades), o módulo `packages/core-ts/src/onboarding/`, a rota `POST /internal/channels` na app **interna** do GWY, e a porta de escrita no cofre que o `ADR-L002` §6 declarou em falta para este dia. **Três leituras que mudaram o desenho:** o 409 do critério 4 é a `tenant_channels_phone_number_id_uq` **global** da `0001` a morder e não uma verificação em código; esta revisão **não acrescenta coluna nenhuma a `tenant_channels`**, porque os três identificadores do critério 8 existem desde a `0001`; e o registo de auditoria da recusa **não é o `audit_log`**, porque o domínio de `action` tem sete valores no `CHECK` da `0006`, fundida, e o *gate* 3b compara-o com o dicionário nos dois sentidos — um oitavo valor deixava essa revisão vermelha. **E quatro defeitos da revisão adversarial, os quatro sobre a fronteira transaccional, e o primeiro estava verde em todos os testes:** um `23505` aborta a transacção, pelo que a compensação que revoga o *token* respondia `25P02` — e o cofre **não é transaccional**, logo o `ROLLBACK` apagava a linha do canal e deixava o segredo lá (corrigido com um `SAVEPOINT`, e o duplo da base passou a modelar o `25P02`); a compensação apagava o canal **antes** de a linha o largar, e a FK sem `ON DELETE CASCADE` levantava `23503` — o que o comentário de `db/tests/test_inventario.py` já tinha previsto por escrito antes de o código existir; a limpeza corria antes da transição e o `channel_onboarding_canal_ck` levantava `23514`; e um comentário dizia o contrário do código, sendo o comentário o que estava errado. **A própria bateria esgotava o seu tecto**, e isso é o critério 8 a funcionar: o `es_onboardings_7d` atravessa *tenants*, pelo que as linhas de um teste contam na janela do seguinte. Emenda **1.30** ao dicionário (§3.21); a descoberta do X-05 passa de vinte e quatro para **vinte e cinco** tabelas; **570** mutações, 0 não aplicáveis. | Equipa KAMBÁ |
+| 1.9 | Outubro 2026 | **KAM-016 entregue, sem o nono critério.** Secção de verificação no bloco, com **oito** caixas de critério marcadas e **uma** vazia — o onboarding real numa conta de teste da Meta, que depende de `ext:KAM-102` e que **nenhuma medição deste ramo pode substituir**: não há `../docs/evidencia/KAM-016.md` e não se inventou nenhum. Entrou a revisão `0017` (a `channel_onboarding` com as nove fases e as duas unicidades), o módulo `packages/core-ts/src/onboarding/`, a rota `POST /internal/channels` na app **interna** do GWY, e a porta de escrita no cofre que o `ADR-L002` §6 declarou em falta para este dia. **Três leituras que mudaram o desenho:** o 409 do critério 4 é a `tenant_channels_phone_number_id_uq` **global** da `0001` a morder e não uma verificação em código; esta revisão **não acrescenta coluna nenhuma a `tenant_channels`**, porque os três identificadores do critério 8 existem desde a `0001`; e o registo de auditoria da recusa **não é o `audit_log`**, porque o domínio de `action` tem sete valores no `CHECK` da `0006`, fundida, e o *gate* 3b compara-o com o dicionário nos dois sentidos — um oitavo valor deixava essa revisão vermelha. **E quatro defeitos da revisão adversarial, os quatro sobre a fronteira transaccional, e o primeiro estava verde em todos os testes:** um `23505` aborta a transacção, pelo que a compensação que revoga o *token* respondia `25P02` — e o cofre **não é transaccional**, logo o `ROLLBACK` apagava a linha do canal e deixava o segredo lá (corrigido com um `SAVEPOINT`, e o duplo da base passou a modelar o `25P02`); a compensação apagava o canal **antes** de a linha o largar, e a FK sem `ON DELETE CASCADE` levantava `23503` — o que o comentário de `db/tests/test_inventario.py` já tinha previsto por escrito antes de o código existir; a limpeza corria antes da transição e o `channel_onboarding_canal_ck` levantava `23514`; e um comentário dizia o contrário do código, sendo o comentário o que estava errado. **A própria bateria esgotava o seu tecto**, e isso é o critério 8 a funcionar: o `es_onboardings_7d` atravessa *tenants*, pelo que as linhas de um teste contam na janela do seguinte. Emenda **1.29** ao dicionário (§3.20); a descoberta do X-05 passa de vinte e quatro para **vinte e cinco** tabelas; **528** mutações, 0 não aplicáveis. | Equipa KAMBÁ |

@@ -422,6 +422,29 @@ ESPERADO_POR_TABELA.update(
         # (KAM-059) sao de retaguarda e ja la correm». O `SELECT` existe porque
         # o painel da loja le em que fase esta o seu canal (KAM-093).
         "channel_onboarding": _handoff(kamba_app={"SELECT"}),
+        # KAM-017: o estado de coexistencia. **`kamba_app` escreve**, e e a
+        # diferenca face a linha acima: o onboarding e provisionamento e corre
+        # de retaguarda, mas a coexistencia corre no **caminho de um webhook** —
+        # um `echo` chega, um `history` chega —, e quem trata webhooks e o
+        # `worker-canal` com o papel `kamba_app` sob RLS `FORCE`. Dar isto ao
+        # `kamba_batch` obrigava o tratador de um webhook a mudar de papel a
+        # meio. **Sem `DELETE`**, pela regra da `0001`: «soft delete: estado,
+        # nunca DELETE».
+        "channel_coexistence": _handoff(
+            # **Sem `UPDATE` de tabela**, e e isso que torna a matriz de coluna
+            # abaixo significativa: o `test_privilegios_por_coluna_nas_tabelas_
+            # com_matriz` compara `de_tabela or coluna in por_coluna`, e um
+            # `UPDATE` de tabela curto-circuita o `or` — a lista nunca era
+            # confrontada. Achado da revisao adversarial, e e o mesmo que a
+            # `channel_onboarding` evita por `kamba_app` nao ter `UPDATE` de
+            # todo.
+            kamba_app={"SELECT", "INSERT"},
+            # **Com `UPDATE`**, e e indispensavel: as tres varreduras do
+            # criterio 3 e do 6 sao `UPDATE` **sem `tenant_id` no predicado**,
+            # pelo que so correm com `BYPASSRLS` — e o `kamba_batch` e o unico
+            # papel que o tem (`db/bootstrap.py`). Sem isto respondiam `42501`.
+            kamba_batch={"SELECT", "UPDATE", "DELETE"},
+        ),
     }
 )
 
@@ -688,6 +711,28 @@ COLUNAS_POR_PAPEL = {
     # `DELETE` em tabela nenhuma desde a `0001`; e o que protege a escrita passa
     # a ser a falta de privilegio, que e mais forte do que a politica recusar.
     ("kamba_app", "channel_onboarding", "UPDATE"): set(),
+    # KAM-017. **Todas as colunas de estado, e nenhuma das tres chaves.** O
+    # `id`, o `tenant_id` e o `channel_id` ficam de fora pela razao de sempre:
+    # mover uma coexistencia de canal ou de tenant era entregar o estado de
+    # sincronizacao de um negocio a outro, e a unicidade
+    # `(tenant_id, channel_id)` deixava de significar o que significa. O
+    # `criado_at` tambem: e registo.
+    ("kamba_app", "channel_coexistence", "UPDATE"): {
+        "estado",
+        "passos_feitos",
+        "iniciado_em",
+        "prazo_em",
+        "alertado_em",
+        "concluido_em",
+        "contactos_vistos",
+        "mensagens_vistas",
+        "meta_error_code",
+        "ultimo_echo_em",
+        "avisado_em",
+        "motivo_desligamento",
+        "desligado_em",
+        "actualizado_at",
+    },
     ("kamba_app", "media_assets", "UPDATE"): {
         "content_type",
         "size",
@@ -774,6 +819,10 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # qualquer `UPDATE` — uma mutacao que acrescente um `GRANT UPDATE (fase)` a
     # `kamba_app` sobrevive sem esta linha, e com ela morre.
     "channel_onboarding",
+    # KAM-017: pela mesma razao, e aqui o que se prende e a **presenca** da
+    # lista exacta — uma mutacao que acrescente o `channel_id` ao `GRANT UPDATE`
+    # sobrevive sem esta linha, e com ela morre.
+    "channel_coexistence",
 )
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.

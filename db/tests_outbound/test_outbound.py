@@ -139,6 +139,28 @@ FICHEIROS = (
     "tests/onboarding.test.ts",
     "tests/onboarding.graph.test.ts",
     "tests_bd/onboarding.bd.test.ts",
+    # KAM-017. A coexistencia vive em `src/coexistencia/` e entra nesta suite
+    # pelas razoes das quatro acima, mais uma que e so dela: ela **le**
+    # `outbound_messages`, que e a tabela desta suite, e e dessa leitura que sai
+    # a regra do criterio 7 — «um echo cujo wamid consta de outbound_messages e
+    # ignorado como actividade humana». Nao ha onde provar isso sem as duas
+    # tabelas na mesma base. Escreve `tenant_channels` e usa o mesmo `apoio.ts`
+    # e os mesmos papeis, e a `0018` vive na mesma base.
+    #
+    # **Nao precisa do `tools/meta-sim`**, ao contrario do KAM-016: as fixtures
+    # assinadas dos quatro campos de coexistencia consomem-se no
+    # `tests/coexistencia.fixtures.test.ts`, que corre sem base — o que esta
+    # suite prova e o predicado sob concorrencia, nao a forma do corpo. Monta-o
+    # na mesma por estar nesta suite, e isso nao custa nada.
+    #
+    # O ficheiro de unidade entra pela **prova por mutacao**, pela razao escrita
+    # acima para o `metering.test.ts`: as mutacoes na traducao dos seis motivos,
+    # na decisao do 2593109, nos tres desfechos do echo e no `COALESCE` do aviso
+    # so por ele sao apanhadas, e uma mutacao que nenhum teste pode matar conta
+    # como prova.
+    "tests/coexistencia.test.ts",
+    "tests/coexistencia.fixtures.test.ts",
+    "tests_bd/coexistencia.bd.test.ts",
 )
 
 #: Os grupos que **tem** de aparecer na saida, um por propriedade que a suite
@@ -213,6 +235,21 @@ GRUPOS = (
     "o token e o PIN: o dump grep nao os encontra (criterio 3)",
     "o contador es_onboardings_7d (criterio 8)",
     "isolamento (Testes Requeridos: X-03 sobre channel_onboarding)",
+    # KAM-017, dos tres ficheiros da coexistencia. Os primeiros sao de unidade
+    # (os dominios, a decisao de cada criterio, as fixtures do simulador); os
+    # ultimos sao os que **so** uma base real prova.
+    "coexistencia: os dominios batem com a revisao 0018",
+    "coexistencia: criterio 8 — o `channel_mode` manda",
+    "coexistencia: criterios 1 e 2 — ingestao sem AGR, sem envio, sem corpos",
+    "coexistencia: criterio 3 — o passo corre uma vez",
+    "coexistencia: criterio 4 — o 2593109 e sucesso e nao falha",
+    "coexistencia: criterio 5 — os seis motivos desligam, uma vez",
+    "coexistencia: criterio 6 — o aviso aos 10 dias",
+    "coexistencia: criterio 7 — o echo e o `wamid`",
+    "coexistencia: criterio 9 — a reconexao nao duplica",
+    "coexistencia: isolamento de tenant",
+    "as fixtures do KAM-024 contra o tratador da coexistencia",
+    "a coexistencia contra a base",
 )
 
 #: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
@@ -225,6 +262,31 @@ GRUPOS = (
 #: provado so ao nivel das funcoes `vaiRepetir` e `atrasoMs` — isto e, provado
 #: que a regra existe, nao que o adapter a usa.
 TESTES_OBRIGATORIOS = (
+    # KAM-017. Cada um da a letra de um criterio, e os dois primeiros sao os que
+    # **nenhum outro ticket pode repor**: a gramatica do `outcome` e do
+    # `error_code` e a razao de o 2593109 nao poder ser registado.
+    "os seis motivos passam a gramatica de `outcome` do logger",
+    "o 2593109 e recusado pelo `outcome` **e** pelo `error_code`",
+    "um lote de historico alimenta contactos e contagens, e zero jobs",
+    "nenhuma instrucao escreve corpo de mensagem: a tabela nao tem onde",
+    "o mesmo lote duas vezes nao soma nem remarca",
+    "falha e pede offboard as 24 h, com o relogio acelerado",
+    "o erro fecha em `sincronizado_sem_historico` e guarda o codigo",
+    "repetir o mesmo evento 2x produz 1 transicao, 1 evento e 1 contagem",
+    "actividade do dono **reabre** a janela do aviso",
+    "um echo cujo wamid consta de `outbound_messages` e ignorado",
+    "abrir duas vezes repoe a linha e nao cria segunda",
+    "[bd] duas ligacoes a marcar o mesmo passo: uma escreve, a outra zero",
+    # Da revisao adversarial: as duas que prendem os dois defeitos que tornavam
+    # criterios inexecutaveis — o prazo que nao mordia na instrucao, e a
+    # varredura que respondia `42501` por o `kamba_batch` nao ter `UPDATE`.
+    "[bd] um lote depois do prazo nao entra, e e a instrucao que o recusa",
+    "[bd] a varredura dos prazos corre como kamba_batch, e nao como admin",
+    "[bd] duas aberturas concorrentes deixam **uma** linha",
+    "[bd] dois `account_update` concorrentes deixam **uma** transicao",
+    "[bd] com o contexto de A, a coexistencia de B nao se altera",
+    "[bd] o 2593109 fica numa coluna integer e nao passa por falhado",
+    "os seis motivos de PARTNER_REMOVED chegam ao tratador pela fixture",
     "**tres 130429 e depois um 200: 1 entregue, 0 duplicados** — a letra",
     "o 130429 sem fim desiste: quatro chamadas, nunca cinco",
     "**o 131049 nao repete: uma chamada e so uma**",

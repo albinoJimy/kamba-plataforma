@@ -55,7 +55,7 @@
  * autoriza (`saida`) para quem enviar a usar.
  */
 
-import type { EventoDeEntrada } from "../entrada/explosao.ts";
+import type { EventoDeEntrada, Interlocutor } from "../entrada/explosao.ts";
 import { type Accao, type DecisaoDoGate, tenantGate } from "../ten/estados.ts";
 import type { ResolvedorDeCanal } from "./canal.ts";
 import { abrirConversa, type Conversa } from "./conversas.ts";
@@ -96,6 +96,17 @@ export interface EntregaDoChr {
     readonly contactId: string | null;
     readonly wamid: string;
     readonly modo: Modo | null;
+    /**
+     * Quem está do outro lado, **só nos `echo`** e `null` numa `message`.
+     *
+     * Acrescentado pelo KAM-017, e é o mínimo que o faz funcionar. Numa
+     * `message` o contacto já vem resolvido no `contactId`; num `echo` o CHR
+     * **não** o resolve de propósito — ver a nota do ramo do `echo` em
+     * `tratar` —, e o tratador da coexistência precisa do destinatário para
+     * saber que conversa transitar. Passá-lo aqui mantém o CHR sem resolver
+     * identidade num `echo`, que é a propriedade que aquela nota protege.
+     */
+    readonly interlocutor?: Interlocutor | null;
   }): Promise<void>;
 }
 
@@ -315,10 +326,13 @@ export class Chr {
 
     // --------------------------------- 4. e 5. contacto e conversa
     //
-    // Um `echo` não tem interlocutor resolúvel — o nome do campo que traz o
-    // destinatário é NÃO VERIFICADO — e nunca vai ao AGR: entrega-se ao dono
-    // sem contacto nem conversa. É o caminho mais estreito que não inventa
-    // identidade, e o modo transita-se em KAM-018.
+    // Um `echo` nunca vai ao AGR: entrega-se ao dono sem contacto nem conversa
+    // resolvidos aqui. E o caminho mais estreito que nao inventa identidade — o
+    // CHR continua a **nao** resolver contacto num `echo`, e isso e deliberado:
+    // o destinatario vem de um campo ***proposta*, NAO VERIFICADO**
+    // (`CAMPO_DO_DESTINATARIO`, fixado pelo KAM-017), e quem decide o que fazer
+    // com um destinatario que nao resolve e a coexistencia, que o conta em vez
+    // de o descartar. O modo transita-se em KAM-018.
     if (evento.kind === "echo") {
       await this.#entrega.dono({
         contexto,
@@ -326,6 +340,12 @@ export class Chr {
         contactId: null,
         wamid: evento.eventKey,
         modo: null,
+        // **O KAM-017 fixou o campo do destinatario**, e passa-se aqui em vez
+        // de o resolver: a propriedade que esta nota protege — o CHR nao
+        // resolve identidade num `echo` — fica intacta, e quem precisa do
+        // contacto (a coexistencia) resolve-o do seu lado, onde ja tem a porta
+        // do KAM-008 e sabe o que fazer com um destinatario que nao resolve.
+        interlocutor: evento.interlocutor,
       });
       return this.#entregue(evento, contexto, { conversationId: null, contactId: null });
     }

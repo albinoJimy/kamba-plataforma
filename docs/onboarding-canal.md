@@ -265,7 +265,7 @@ está na secção de verificação do bloco do ticket.
 ## 8. Como correr
 
 ```bash
-make ci-3b                                  # nomes canónicos (dicionário §3.21)
+make ci-3b                                  # nomes canónicos (dicionário §3.20)
 make ci-4                                   # unidade e cobertura
 python db/gate_bd.py --suite tests          # esquema, inventário, privilégios
 python db/gate_bd.py --suite tests_isolamento   # gate 6: X-03/X-04 e catálogo
