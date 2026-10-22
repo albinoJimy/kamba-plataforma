@@ -228,6 +228,24 @@ FT_METRICAS = "packages/core-ts/src/metering/metricas.ts"
 FT_MODULO = "packages/core-ts/src/metering/metering.ts"
 REV13 = "db/migrations/versions/0013_restricao_de_canal.py"
 
+# -------------------------------------------------------------- KAM-021
+#: A gestao de canal. A suite e a `tests_outbound` pela mesma razao que o
+#: contador do KAM-023 — escreve `tenant_channels`, le `outbound_messages` — e
+#: por uma quarta que so vale para ela: o criterio 9 prova-se de ponta a ponta,
+#: com a `Saida` do KAM-015 a recusar um template num canal que a bateria da
+#: qualidade acabou de restringir, e isso precisa do `GraphFalso`.
+#:
+#: **`QL_` e nao `MED_` nem `FT_`**, e o prefixo escolheu-se depois de procurar:
+#: nenhuma outra constante deste ficheiro comeca por `QL_`. A razao e a licao
+#: que o `MED_SQL`/`FT_SQL` deixou — um prefixo que colida com o de outro ticket
+#: sombreia entradas sem conflito de merge, e nenhum teste o ve.
+QL_SQL = "packages/core-ts/src/qualidade/consultas.ts"
+QL_DECISAO = "packages/core-ts/src/qualidade/decisao.ts"
+QL_CONTRATO = "packages/core-ts/src/qualidade/contrato.ts"
+QL_METRICAS = "packages/core-ts/src/qualidade/metricas.ts"
+QL_MODULO = "packages/core-ts/src/qualidade/qualidade.ts"
+REV14 = "db/migrations/versions/0014_qualidade_de_canal.py"
+
 #: O corpo da subtransaccao da `ten_consumir`, como a revisao 0007 o escreve:
 #: **a chave primeiro, a contagem depois**. A mutacao da ordem precisa do
 #: texto inteiro, incluindo o comentario pelo meio, porque nao ha alteracao
@@ -2046,6 +2064,126 @@ MUTACOES = [
     ('free tier: um canal desconhecido volta a ganhar mil mensagens gratis', FT_MODULO,
      "const DESCONHECIDO = {\n  usadas: FREE_TIER_DE_SERVICE,",
      "const DESCONHECIDO = {\n  usadas: 0,", SAIDA),
+    # ------------------------------------ KAM-021, revisao 0014 (qualidade)
+    #
+    # As sete primeiras sao da revisao: seis correm na suite `tests`, onde vive
+    # o `test_qualidade_schema.py`, e uma na `tests_isolamento`, porque quem ve
+    # a politica desaparecer e o X-05. As dezoito seguintes sao do codigo e
+    # correm na `tests_outbound`.
+    #
+    # **Duas foram descartadas, e vale dizer quais e porque.** A primeira era
+    # trocar a FK composta do canal por uma simples (`REFERENCES
+    # tenant_channels (id)`): a `tenant_channels` nao tem unicidade em `id`
+    # sozinho, pelo que a migracao **nao corre** — e uma mutacao que rebenta na
+    # criacao e apanhada por qualquer teste, o que nao prova nada sobre a FK. A
+    # segunda era retirar o `ocorrido_em` do `ORDER BY` do registo: a ordem das
+    # linhas nao e afirmada por teste nenhum — e nao devia ser, porque os
+    # webhooks chegam fora de ordem —, pelo que a mutacao seria imortal.
+    ('qualidade 0014: o dominio dos eventos perde o do template', REV14,
+     "    \"'account_alerts'\",\n    \"'message_template_quality_update'\",",
+     "    \"'account_alerts'\",", "tests"),
+    ('qualidade 0014: a chave passa a ser unica globalmente', REV14,
+     "                UNIQUE (tenant_id, event_key),",
+     "                UNIQUE (event_key),", "tests"),
+    ('qualidade 0014: a primeira linha de um canal deixa de caber', REV14,
+     "            valor_anterior text,",
+     "            valor_anterior text NOT NULL,", "tests"),
+    ('qualidade 0014: um valor vazio passa a ser um valor', REV14,
+     "                CHECK (btrim(valor_novo) <> ''),",
+     "                CHECK (true),", "tests"),
+    ('qualidade 0014: o tecto de numeros passa a aceitar zero', REV14,
+     "                OR max_phone_numbers_per_business > 0",
+     "                OR max_phone_numbers_per_business >= 0", "tests"),
+    ('qualidade 0014: a app ganha UPDATE no registo que nao se corrige', REV14,
+     "\"GRANT SELECT, INSERT ON platform.channel_quality_log TO kamba_app\"",
+     "\"GRANT SELECT, INSERT, UPDATE ON platform.channel_quality_log TO kamba_app\"",
+     "tests"),
+    ('qualidade 0014: o registo nasce sem politica de tenant', REV14,
+     '    rls.enable_tenant_rls("channel_quality_log")',
+     '    pass  # rls.enable_tenant_rls("channel_quality_log")', "tests_isolamento"),
+    ('qualidade: o registo passa a reescrever a linha que ja existia', QL_SQL,
+     "      ON CONFLICT (tenant_id, event_key) DO NOTHING",
+     "      ON CONFLICT (tenant_id, event_key) DO UPDATE\n            SET valor_novo = EXCLUDED.valor_novo",
+     SAIDA),
+    ('qualidade: restringir deixa de exigir que haja transicao', QL_SQL,
+     "     AND estado <> 'restrito'\n   RETURNING id",
+     "   RETURNING id", SAIDA),
+    ('qualidade: restringir passa a sobrepor a marca de outro ticket', QL_SQL,
+     "         motivo_restricao = COALESCE(motivo_restricao, 'quality')",
+     "         motivo_restricao = 'quality'", SAIDA),
+    ('qualidade: repor deixa de olhar para o motivo que la esta', QL_SQL,
+     "     AND motivo_restricao = 'quality'\n   RETURNING id",
+     "   RETURNING id", SAIDA),
+    ('qualidade: a medicao passa a contar envios e nao pessoas', QL_SQL,
+     "  SELECT count(DISTINCT m.contact_id)::bigint AS unicos",
+     "  SELECT count(m.contact_id)::bigint AS unicos", SAIDA),
+    ('qualidade: a resposta dentro da janela passa a consumir escalao', QL_SQL,
+     "     AND m.kind <> 'service'",
+     "     AND m.kind IS NOT NULL", SAIDA),
+    ('qualidade: o que a fila ainda tem em mao passa a contar', QL_SQL,
+     "     AND m.state <> 'queued'",
+     "     AND m.state IS NOT NULL", SAIDA),
+    ('qualidade: a janela movel passa a ser de 48 h', QL_SQL,
+     "     AND m.created_at >= coalesce($3, now()) - interval '24 hours'",
+     "     AND m.created_at >= coalesce($3, now()) - interval '48 hours'", SAIDA),
+    ('qualidade: a pausa do template passa a casar por prefixo de idioma', QL_SQL,
+     "   WHERE tenant_id = $1 AND name = $2 AND lang = $3\n   RETURNING name, status, quality",
+     "   WHERE tenant_id = $1 AND name = $2 AND lang LIKE left($3, 2) || '%'\n   RETURNING name, status, quality",
+     SAIDA),
+    ('qualidade: a marca de revisao passa a mexer nos nao aprovados', QL_SQL,
+     "     AND status = 'approved'\n   RETURNING name",
+     "   RETURNING name", SAIDA),
+    ('qualidade: um corpo sem tecto passa a apagar o tecto que se sabia', QL_SQL,
+     "         max_phone_numbers_per_business =\n             COALESCE($4::integer, max_phone_numbers_per_business)",
+     "         max_phone_numbers_per_business = $4::integer", SAIDA),
+    ('qualidade: o aviso de amarelo volta a sair em cada webhook', QL_DECISAO,
+     '  return qualidade === "yellow" && anterior !== "yellow";',
+     '  return qualidade === "yellow";', SAIDA),
+    ('qualidade: o aviso do escalao passa a exigir ultrapassar os 80%', QL_DECISAO,
+     "  return { unicos, escalao, racio, avisa: racio >= FRACCAO_DE_AVISO };",
+     "  return { unicos, escalao, racio, avisa: racio > FRACCAO_DE_AVISO };", SAIDA),
+    ('qualidade: um valor desconhecido passa a decidir o estado', QL_DECISAO,
+     '  if (qualidade === null) return "nada";',
+     '  if (false) return "nada";', SAIDA),
+    ('qualidade: o estado de reposicao deixa de ser o activo', QL_DECISAO,
+     '  if (accao === "repor") return ESTADO_ACTIVO;',
+     '  if (accao === "repor") return ESTADO_RESTRITO;', SAIDA),
+    ('qualidade: um red repetido volta a ser uma transicao', QL_DECISAO,
+     '    return estado === ESTADO_RESTRITO ? "nada" : "restringir";',
+     '    return "restringir";', SAIDA),
+    ('qualidade: o tecto do primeiro escalao passa a ser dez vezes maior', QL_CONTRATO,
+     "  TIER_250: 250,",
+     "  TIER_250: 2_500,", SAIDA),
+    ('qualidade: a traducao volta a aceitar qualquer cadeia', QL_CONTRATO,
+     "  return CANONICO_DA_META[bruto] ?? null;",
+     "  return CANONICO_DA_META[bruto] ?? (bruto.toLowerCase() as Qualidade);", SAIDA),
+    ('qualidade: a fraccao de aviso deixa de ser a do free tier', QL_CONTRATO,
+     "export const FRACCAO_DE_AVISO = 0.8;",
+     "export const FRACCAO_DE_AVISO = 0.95;", SAIDA),
+    ('qualidade: o racio sem observacao passa a dizer que esta folgado', QL_METRICAS,
+     "    if (this.#racioPorCanal.size === 0) return -1;",
+     "    if (this.#racioPorCanal.size === 0) return 0;", SAIDA),
+    ('qualidade: um evento repetido volta a escrever e a restringir', QL_MODULO,
+     "    if (!registou) {\n      // Evento repetido: nada mudou e nada se anuncia.",
+     "    if (false) {\n      // Evento repetido: nada mudou e nada se anuncia.", SAIDA),
+    ('qualidade: o channel.updated passa a sair sem transicao', QL_MODULO,
+     "    if (restringiu || reposto) {",
+     "    if (true) {", SAIDA),
+    ('qualidade: um valor desconhecido passa a apagar a qualidade do canal', QL_MODULO,
+     "    if (qualidade === null) {",
+     "    if (false && qualidade === null) {", SAIDA),
+    ('qualidade: o evento passa a sair depois de a cache esquecer', QL_MODULO,
+     "      await this.#emitir?.(\n        canal.tenantId,\n        canal.channelId,\n        canal.phoneNumberId,\n        MOTIVO_DE_QUALIDADE,\n      );\n      this.#invalidar?.(canal.channelId);",
+     "      this.#invalidar?.(canal.channelId);\n      await this.#emitir?.(\n        canal.tenantId,\n        canal.channelId,\n        canal.phoneNumberId,\n        MOTIVO_DE_QUALIDADE,\n      );", SAIDA),
+    ('criterio 9: a matriz deixa de ser consultada quando ha par de estados', SAIDA_DECISAO,
+     "  if (estado === null) return true;\n  return tenantGate(",
+     "  if (estado === null || true) return true;\n  return tenantGate(", SAIDA),
+    ('criterio 9: a mensagem de sessao passa a pedir a accao de template', SAIDA_DECISAO,
+     '  service: "responder_sessao",',
+     '  service: "enviar_template_utilidade",', SAIDA),
+    ('criterio 9: um canal que a porta nao encontra volta a enviar', SAIDA_ADAPTER,
+     '      if (estado === null) return this.#recusar(pedido, "STATE_REFUSED");',
+     '      if (false) return this.#recusar(pedido, "STATE_REFUSED");', SAIDA),
 ]
 
 

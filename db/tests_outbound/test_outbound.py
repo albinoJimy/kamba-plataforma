@@ -12,6 +12,15 @@ baterias de `db/tests/` corre Node. E porque metade do criterio 2 — «1 chamad
 API (servidor falso conta)» — exige o `GraphFalso` do KAM-024 a contar as
 chamadas, que nenhuma base consegue fazer.
 
+Desde o KAM-023 ela corre tambem o contador do *free tier* (`src/metering/`) e,
+desde o KAM-021, a gestao de canal (`src/qualidade/`). As razoes de cada um
+estarem aqui e nao em suite propria estao nos comentarios do `FICHEIROS`; a que
+vale para os dois e que usam as mesmas tabelas, o mesmo `apoio.ts` e os mesmos
+papeis, e a que vale so para o KAM-021 e que o criterio 9 dele se prova **de
+ponta a ponta** — a `Saida` deste ticket a recusar um template num canal que a
+bateria da qualidade acabou de restringir — e isso precisa do `GraphFalso`, que
+so esta suite monta.
+
 **O que esta suite nao mede**, e onde se mede: a matriz de decisao, a monotonia
 celula a celula, a aritmetica do custo, os tectos do *token bucket* e o cliente
 HTTP vivem nas baterias do gate 4, em
@@ -66,6 +75,24 @@ FICHEIROS = (
     # desenho e pior do que nenhuma: conta como prova. Custa cerca de 1 s.
     "tests/metering.test.ts",
     "tests_bd/metering.bd.test.ts",
+    # KAM-021. A gestao de canal vive em `src/qualidade/`, e entra nesta suite
+    # pelas mesmas tres razoes que o contador do KAM-023: escreve
+    # `tenant_channels`, le `outbound_messages` e usa o mesmo `apoio.ts` e os
+    # mesmos papeis. Mas ha uma quarta que so vale para ela, e e decisiva: o
+    # criterio 9 prova-se de ponta a ponta — a `Saida` do KAM-015, com a porta
+    # de estado ligada a uma consulta real, recusa um template num canal que a
+    # propria bateria acabou de restringir. Isso precisa do `GraphFalso` do
+    # KAM-024, e **esta e a unica suite do gate 8 que monta o `tools/meta-sim`**
+    # (ver as `PASTAS_DE_MODULOS` do `node.py`, e a nota do `tests_media/node.py`
+    # que explica porque la sao duas e aqui tres).
+    #
+    # A metade de unidade entra pela **prova por mutacao**, pela razao escrita
+    # acima para o `metering.test.ts`: uma mutacao em `qualidade/decisao.ts` ou
+    # em `qualidade/metricas.ts` — a fraccao de aviso, o tecto do escalao, o
+    # guarda do `NaN`, a etiqueta recusada — so e apanhada pelo ficheiro de
+    # unidade, e uma mutacao que nenhum teste pode matar conta como prova.
+    "tests/qualidade.test.ts",
+    "tests_bd/qualidade.bd.test.ts",
 )
 
 #: Os grupos que **tem** de aparecer na saida, um por propriedade que a suite
@@ -93,6 +120,18 @@ GRUPOS = (
     "isolamento (Testes Requeridos: contadores de A nao afectam B)",
     "a janela de falhas e a reconciliacao (criterios 5 e 7)",
     "a marca de restricao (criterios 5 e 6)",
+    # KAM-021, do `tests_bd/qualidade.bd.test.ts`.
+    "o registo da transicao (criterio 1)",
+    "idempotencia da transicao (criterio 6)",
+    "a restricao e a reposicao (criterio 2)",
+    "o registo nao se corrige: o privilegio nem existe",
+    "o dominio e as chaves mordem atraves do modulo",
+    "isolamento (Testes Requeridos: X-03 sobre channel_quality_log)",
+    "a medicao do escalao (criterio 7)",
+    "os limites e os templates (criterios 5 e 8)",
+    "o criterio 9 de ponta a ponta: a saida honra o restrito",
+    # KAM-021, de `tests/outbound.adapter.test.ts` (sem base): a porta 5.
+    "a porta de estado do KAM-021 (criterio 9)",
 )
 
 #: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
@@ -147,6 +186,42 @@ TESTES_OBRIGATORIOS = (
     "**a janela ignora o que ainda nao tem destino**",
     "**a reconciliacao le o `pricing` jsonb e mede as duas divergencias**",
     "**uma entrega de outro mes nao entra, e a fronteira e a de Luanda**",
+    # KAM-021. As duas primeiras sao as que **so** uma base prova — a corrida
+    # pela chave unica e a unicidade composta com o `tenant_id` —, e as duas do
+    # privilegio sao a forma mais forte de prova que esta suite tem: nao
+    # afirmam o que o codigo faz, afirmam o que nenhum codigo pode fazer.
+    "**dois eventos iguais em paralelo: uma linha e um evento**",
+    "**a mesma chave em dois tenants da duas linhas**",
+    "**o kamba_app nao tem UPDATE em channel_quality_log**",
+    "**nem DELETE**, e e a mesma razao",
+    "**o SELECT e o INSERT, esses, existem**",
+    "**um canal restrito por payment_method nao se repoe com GREEN**",
+    "**o bruto fica no registo e o canonico no canal**",
+    "**um valor que a Meta inventar fica registado e nao falha**",
+    "**o RED restringe e escreve o motivo na mesma instrucao**",
+    "**um RED repetido com chave nova nao e uma transicao nova**",
+    "**o YELLOW nao restringe, e marca os templates aprovados**",
+    "**um evento fora dos quatro e recusado pela base**",
+    "**um channel_id que nao e do tenant nao casa a FK composta**",
+    "com o contexto de A, as transicoes de B nao aparecem",
+    "com o contexto de A, o canal de B nao se restringe",
+    "**as 24 h sao moveis e nao a meia-noite de Luanda**",
+    "**uma queued nao conta**: a nossa fila ainda a tem em mao",
+    "**200 unicos com TIER_250 dao 0,8 e avisam** — a letra do criterio",
+    "**o tecto de numeros tem de ser positivo, e a base morde**",
+    "**o template pausa pelo idioma exacto, e nao por prefixo**",
+    "**um account_alerts registra o texto e nao muda o estado**",
+    "**dois RED com chaves diferentes em paralelo: uma transicao e um evento**",
+    "**um canal ativo ja marcado por payment_method mantem a marca ao restringir**",
+    "**com o tenant e o canal ativos, o template sai**: o controlo",
+    "**com o canal restrito por qualidade, um template recusa com STATE_REFUSED**",
+    "**e uma service dentro da janela continua a sair**: a matriz nao e um corte",
+    # KAM-021, a porta 5 do adapter. A primeira entrou porque a prova por
+    # mutacao mostrou que **nenhum** teste ligava a porta a responder `null`: a
+    # recusa estava escrita e nada a prendia.
+    "**um canal que a porta nao encontra nao envia**, e nao chama nada",
+    "**sem a porta ligada, envia como antes do KAM-021**",
+    "**um par de estados que a matriz recusa nao envia**",
 )
 
 #: Os ficheiros do modulo. A cobertura mede-se em **cada um**.

@@ -335,6 +335,40 @@ def _conta_de_handoff(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _transicao_de_qualidade(cursor, tenant_id: str, canario: str) -> None:
+    """Uma transicao de qualidade do canal do tenant (KAM-021).
+
+    O canario vai no `event_key`, e a escolha segue a do `_midia`: a
+    `channel_quality_log_event_key_uq` e `(tenant_id, event_key)` e **leva o
+    tenant**, pelo que os dois tenants podem semear o **mesmo** canario sem
+    colidir — que e exactamente o que o X-03 precisa, porque semeia o mesmo
+    valor nos dois e exige que cada um veja so o seu. Ao contrario da
+    `handoffs`, cuja chave primaria e global e obrigou a receita a derivar o
+    identificador do `tenant_id`.
+
+    **Nao ha coluna alteravel, e e um privilegio e nao uma escolha.** A `0014`
+    da a `kamba_app` `SELECT` e `INSERT` e mais nada: uma linha deste registo e
+    o facto de a Meta ter dito uma coisa a uma hora, e um facto nao se corrige.
+    E a mesma forma da `handoff_accounts` e da `events_outbox`, e o que se prova
+    nessas tabelas e mais forte do que a politica — prova-se que o privilegio
+    **nem existe**.
+
+    O `valor_anterior` fica nulo de proposito: e o caso real da **primeira**
+    linha de um canal, onde nao havia valor anterior, e e o unico valor que o
+    `channel_quality_log_valor_anterior_ck` aceita para alem de texto nao vazio.
+
+    Semeia o administrador da instancia, como a receita da conversa, a da
+    passagem e a da midia.
+    """
+    cursor.execute(
+        "INSERT INTO platform.channel_quality_log "
+        "(tenant_id, channel_id, evento, valor_anterior, valor_novo, event_key) "
+        f"VALUES (%s, {_UM_CANAL}, 'phone_number_quality_update', "
+        "        NULL, 'GREEN', %s)",
+        (tenant_id, tenant_id, canario),
+    )
+
+
 def _midia(cursor, tenant_id: str, canario: str) -> None:
     """Um objecto de midia do tenant (KAM-020). O canario vai no `media_id`.
 
@@ -617,6 +651,14 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "media_assets"): Receita(
         _midia, "media_id", None, None, semeador="admin",
     ),
+    # KAM-021. O canario vai no `event_key`, pela razao do `_midia`: a
+    # `channel_quality_log_event_key_uq` leva o `tenant_id`, pelo que os dois
+    # tenants podem semear o mesmo valor. **Sem coluna alteravel**, e aqui e um
+    # privilegio e nao uma restricao: a `0014` nao concede `UPDATE` a
+    # `kamba_app` — um registo de transicoes nao se corrige.
+    ("platform", "channel_quality_log"): Receita(
+        _transicao_de_qualidade, "event_key", None, None, semeador="admin",
+    ),
     ("platform", "events_outbox"): Receita(
         _evento_no_outbox, "agregado_id", None, None, semeador="admin"
     ),
@@ -720,6 +762,11 @@ ORDEM = (
     # duas FK compostas exigem; e vem antes das duas do KAM-009, que nao
     # dependem de nada senao do tenant.
     ("platform", "media_assets"),
+    # KAM-021: tem duas FK (`tenants` e a composta para `tenant_channels`), e o
+    # canal e semeado pelo proprio `ComDoisTenants` antes de qualquer receita —
+    # logo basta vir depois do tenant. Fica aqui, a seguir a midia, porque a
+    # ordem inversa e a de apagar e esta tabela nao e apontada por nenhuma.
+    ("platform", "channel_quality_log"),
     # KAM-009: as duas so tem FK para `tenants`, e por isso ficam no fim.
     ("platform", "tenant_usage"),
     ("platform", "usage_ledger"),

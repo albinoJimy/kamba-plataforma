@@ -56,6 +56,8 @@ import {
   type ClienteSql,
   type Estado,
   type EstadoDoFreeTier,
+  type EstadoParaEnvio,
+  type ObterEstado,
   type MotivoDeRecusa,
   type ObterDestinatario,
   type Pedido,
@@ -140,6 +142,14 @@ export interface Dependencias {
   readonly guarda: PreSendGuard | null;
   /** `null` até o KAM-023 o manter. Nesse caso conta-se tudo. */
   readonly freeTier: EstadoDoFreeTier | null;
+  /**
+   * Porta 5: o par de estados que a matriz do KAM-009 lê (KAM-021, critério 9).
+   *
+   * `null` deixa a decisão exactamente como era antes do KAM-021 — nenhum
+   * adapter ligado antes dele passa a recusar por causa disto. Ligada, um canal
+   * que ela não encontre é recusa.
+   */
+  readonly estado?: ObterEstado | null;
   readonly log?: Logger;
   readonly metricas?: MetricasDaSaida;
   /** O relógio, por parâmetro. Ver a nota de `limites.ts`. */
@@ -166,6 +176,7 @@ export class Saida {
   readonly #destinatario: ObterDestinatario;
   readonly #guarda: PreSendGuard | null;
   readonly #freeTier: EstadoDoFreeTier | null;
+  readonly #estado: ObterEstado | null;
   readonly #log: Logger | undefined;
   readonly #metricas: MetricasDaSaida;
   readonly #agora: () => Date;
@@ -180,6 +191,7 @@ export class Saida {
     this.#destinatario = dependencias.destinatario;
     this.#guarda = dependencias.guarda;
     this.#freeTier = dependencias.freeTier;
+    this.#estado = dependencias.estado ?? null;
     this.#log = dependencias.log;
     this.#metricas = dependencias.metricas ?? new MetricasDaSaida();
     this.#agora = dependencias.agora ?? (() => new Date());
@@ -221,7 +233,21 @@ export class Saida {
         ? await this.#template(pedido.tenantId, pedido.corpo.nome, pedido.corpo.idioma)
         : null;
 
-    const decisao = decidir(pedido.corpo, janela, this.#agora(), template);
+    // **O par de estados, quando a porta está ligada** (KAM-021, critério 9).
+    // Lê-se aqui e não dentro do `decidir` porque o `decidir` é puro: ele
+    // aplica a matriz do KAM-009, não vai à base buscar o que ela precisa.
+    //
+    // Um canal que a porta não encontra é **recusa e não «sem opinião»**: a
+    // alternativa era enviar por um canal que não se consegue resolver, e isso
+    // é o contrário do que o critério 9 pede. `STATE_REFUSED` é o mesmo motivo,
+    // porque a causa é a mesma — o estado do canal não autoriza este envio.
+    let estado: EstadoParaEnvio | null = null;
+    if (this.#estado !== null) {
+      estado = await this.#estado(pedido.tenantId, pedido.phoneNumberId);
+      if (estado === null) return this.#recusar(pedido, "STATE_REFUSED");
+    }
+
+    const decisao = decidir(pedido.corpo, janela, this.#agora(), template, estado);
     if (!decisao.enviar) return this.#recusar(pedido, decisao.motivo);
 
     // 3. O guarda do KAM-018, só para o bot, e falha fechada.

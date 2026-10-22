@@ -35,6 +35,11 @@ COLUNAS_DE_TELEFONE_ACEITES = {
     ("tenant_channels", "phone_number_id"),
     ("inbound_events", "phone_number_id"),
     ("unrouted_events", "phone_number_id"),
+    # KAM-021, revisao `0014`. **Nao e um telefone, e e um `integer`** — o
+    # tecto de numeros do portfolio que o `business_capability_update` anuncia.
+    # A garantia e mais forte do que a do `phone_number_id`, que e `text`: num
+    # `integer` nao cabe um E.164. O nome e o da Meta, e manteve-se por isso.
+    ("tenant_channels", "max_phone_numbers_per_business"),
 }
 FRAGMENTOS_DE_TELEFONE = ("msisdn", "telefone", "phone")
 
@@ -168,6 +173,14 @@ class TestConvencoes(ComBase):
                 # `message_templates` **nao** esta aqui: nao tem coluna `id`,
                 # porque a sua chave e natural (`tenant_id`, `name`, `lang`).
                 "outbound_messages",
+                # KAM-021: o registo das transicoes de qualidade. `uuid`
+                # aleatorio pela mesma razao das tres acima, e aqui ela e
+                # directa: o `kamba_app` **le** esta tabela (precisa do
+                # `SELECT` que o `ON CONFLICT (tenant_id, event_key)` exige nas
+                # colunas de inferencia), e com um `id` sequencial esse papel
+                # media quantas transicoes de qualidade tem a plataforma — isto
+                # e, quantos canais dela estao a degradar-se.
+                "channel_quality_log",
             }
             | por_identidade,
         )
@@ -243,6 +256,11 @@ class TestConvencoes(ComBase):
                 ("audit_heads", "chave", "uuid",
                  "COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid)"),
                 ("audit_log", "id", "bigint", None),
+                # KAM-021: a chave e um `uuid` gerado, e a idempotencia da
+                # tabela esta ao lado, na `event_key_uq` composta com o
+                # `tenant_id`. Uma chave primaria derivada do evento era o
+                # mesmo facto duas vezes.
+                ("channel_quality_log", "id", "uuid", "gen_random_uuid()"),
                 ("contact_deks", "dek_id", "uuid", "gen_random_uuid()"),
                 ("contact_endpoints", "id", "uuid", "gen_random_uuid()"),
                 ("contacts", "contact_id", "uuid", "gen_random_uuid()"),
@@ -458,7 +476,12 @@ class TestConvencoes(ComBase):
              # e do KAM-071 e corre como `kamba_batch` (BYPASSRLS), pelo que o
              # indice que ela precisa nao e este nem tem de comecar por
              # `tenant_id` — cria-o quem a escrever, com a medida dela.
-             "media_assets"},
+             "media_assets",
+             # KAM-021. A **terceira** desta classe, e pela mesma razao: a
+             # chave primaria e o `id` aleatorio. Levou indice proprio,
+             # `(tenant_id, ocorrido_em DESC)`, e a segunda coluna e por onde
+             # se le um historico.
+             "channel_quality_log"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -528,7 +551,11 @@ class TestConvencoes(ComBase):
         # forma do que ela guarda: uma linha dela so faz sentido dentro de uma
         # conversa de um contacto de uma PME, e as tres FK sao as tres
         # perguntas «de quem?» que ela tem de responder.
-        self.assertEqual(len(linhas), 29)
+        # 31 desde o KAM-021: as **duas** da `channel_quality_log` — para
+        # `tenants` e a composta para `tenant_channels`. Duas e nao tres,
+        # porque uma transicao de qualidade e do canal e nao de uma conversa:
+        # nao ha contacto nem conversa a que responder «de quem?».
+        self.assertEqual(len(linhas), 31)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

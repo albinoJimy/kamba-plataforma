@@ -34,6 +34,8 @@
  * não conta o *free tier*: quem o mantém é o KAM-023.
  */
 
+import { tenantGate, type Accao } from "../ten/estados.ts";
+
 import {
   CATEGORIAS_DO_PILOTO,
   MAXIMO_DE_BOTOES,
@@ -41,6 +43,7 @@ import {
   WINDOW_CLOSED,
   type Categoria,
   type Corpo,
+  type EstadoParaEnvio,
   type MotivoDeRecusa,
   type Template,
 } from "./contrato.ts";
@@ -91,16 +94,67 @@ export function categoriaDe(corpo: Corpo, template: Template | null): Categoria 
 }
 
 /**
+ * A acção da matriz do KAM-009 que corresponde a cada categoria.
+ *
+ * O `authentication` mapeia para `enviar_template_utilidade`, e isso é uma
+ * leitura e não uma equivalência: a matriz não tem acção própria para ele, e as
+ * duas são templates que saem fora da janela. A escolha é conservadora — herda
+ * a linha mais restritiva das duas que existem — e o `authentication` não é
+ * usado no Piloto de todo (exige telefone, não se endereça por BSUID). Fica
+ * registado como divergência.
+ */
+const ACCAO_POR_CATEGORIA: Readonly<Record<Categoria, Accao>> = {
+  service: "responder_sessao",
+  utility: "enviar_template_utilidade",
+  authentication: "enviar_template_utilidade",
+  marketing: "enviar_template_marketing",
+};
+
+/**
+ * `true` quando a matriz do KAM-009 permite esta categoria neste par de estados
+ * (KAM-021, critério 9).
+ *
+ * **Sem `estado` devolve `true`, e é compatibilidade e não descuido.** A porta
+ * `ObterEstado` é opcional: antes do KAM-021 ninguém a ligava, e um adapter sem
+ * ela comporta-se exactamente como antes — a mesma escolha que o `freeTier: null`
+ * do KAM-015 fez. O que **não** é permissivo é o canal que não se encontra: a
+ * porta devolve `null` e quem a chama trata isso como recusa, antes de chegar
+ * aqui.
+ *
+ * A decisão vem da matriz e **não** de um `if (estado === "restrito")`: ela é do
+ * KAM-009, tem espelho em Python e paridade imposta pelo X-11, e uma segunda
+ * cópia da regra divergia no dia em que uma delas mudasse. É também o que o
+ * critério 9 pede por extenso — «o CHR usa a matriz de KAM-009».
+ *
+ * E é por isso que a `restrito` recusa também a `utility`, e não só a
+ * `marketing` como o critério 2 do KAM-021 descreve: a linha `restrito` da
+ * matriz tem `enviar_template_utilidade: false`. A matriz é mais restritiva do
+ * que a frase, que é o lado seguro, e a divergência está registada.
+ */
+function permiteEstado(estado: EstadoParaEnvio | null, categoria: Categoria): boolean {
+  if (estado === null) return true;
+  return tenantGate(
+    estado.estadoTenant,
+    estado.estadoCanal,
+    ACCAO_POR_CATEGORIA[categoria],
+  ).permitido;
+}
+
+/**
  * A decisão inteira, pela ordem do §8.2.
  *
  * `template` é a linha de `message_templates` quando o corpo é um template, e
  * `null` quando não é — quem a lê é o adapter, que tem a ligação.
+ *
+ * `estado` é o par que a matriz do KAM-009 lê, e é **opcional**: `null` deixa a
+ * decisão exactamente como era antes do KAM-021.
  */
 export function decidir(
   corpo: Corpo,
   janela: Janela,
   agora: Date,
   template: Template | null,
+  estado: EstadoParaEnvio | null = null,
 ): Decisao {
   // 1. A forma, antes de tudo (critério 7).
   const forma = formaInvalida(corpo);
@@ -118,6 +172,9 @@ export function decidir(
     // §8.2 que diz «Notificação com janela aberta: mensagem livre, não
     // template», e a razão é custo: a `utility` dentro da janela passou a ser
     // paga desde 2026-10-01 (`E1` §1).
+    if (!permiteEstado(estado, "service")) {
+      return { enviar: false, motivo: "STATE_REFUSED" };
+    }
     return { enviar: true, kind: "service", templateName: null };
   }
 
@@ -135,6 +192,15 @@ export function decidir(
     return { enviar: false, motivo: "MARKETING_NOT_ALLOWED" };
   }
 
+  // **O estado é a última barreira, e é a do KAM-009** (critério 9 do
+  // KAM-021). Vem **depois** do template e não antes, de propósito: um template
+  // recategorizado para `marketing` tem de dar `MARKETING_NOT_ALLOWED` mesmo
+  // num canal restrito, porque é esse o motivo que sustenta o bloqueio do
+  // critério 9 do KAM-015. A ordem das recusas é a ordem das causas, e trocá-la
+  // fazia o alerta de recategorização desaparecer atrás do estado.
+  if (!permiteEstado(estado, template.category)) {
+    return { enviar: false, motivo: "STATE_REFUSED" };
+  }
   // Um template sai com a janela aberta ou fechada — é para isso que existe.
   return { enviar: true, kind: template.category, templateName: template.name };
 }

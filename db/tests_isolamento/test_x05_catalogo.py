@@ -43,8 +43,15 @@ class TestCatalogoReal(ComBase):
         """
         self.assertEqual(set(catalogo.excepcoes_rls()), {"platform.audit_heads"})
 
-    def test_a_descoberta_encontra_as_vinte_e_uma_tabelas(self) -> None:
+    def test_a_descoberta_encontra_as_tabelas_todas(self) -> None:
         """Se a descoberta encolher, a suite inteira passa a testar menos.
+
+        **O nome nao leva o numero, e deixou de o levar no KAM-021.** Chamava-se
+        `..._as_vinte_e_uma_tabelas` e a assercao ja ia em vinte e tres: o numero
+        no nome ficou para tras duas vezes — no KAM-020 e aqui — porque quem
+        acrescenta uma tabela mexe na lista e nao no nome do metodo, e um nome que
+        diz um numero errado e pior do que um que nao diz nenhum. O numero que
+        conta esta na lista abaixo, que e o que falha.
 
         Catorze com o KAM-012, que trouxe o `audit_log` e o `audit_heads`. O
         segundo **nao tem** RLS — a descoberta lista o que **devia** te-la, e
@@ -73,6 +80,19 @@ class TestCatalogoReal(ComBase):
         `tenant_id`, pelo que leva indice proprio `(tenant_id, criado_at DESC)`
         pela mesma razao da `handoffs`.
 
+        Vinte e tres desde o KAM-021: a `channel_quality_log`. Tem duas FK (a do
+        `tenants` e a composta para `tenant_channels`), chave primaria `id` que
+        **nao** leva `tenant_id` — logo indice proprio `(tenant_id,
+        ocorrido_em DESC)`, pela razao da `handoffs` e da `media_assets` — e e a
+        **primeira** desta lista a que `kamba_app` nao tem `UPDATE`: um registo
+        de transicoes nao se corrige, e por isso a receita de sementes nao tem
+        coluna alteravel e o que se prova e que o privilegio nem existe.
+
+        **O nome deste teste diz «vinte e uma» e a lista tem vinte e tres.** O
+        KAM-020 deixou-o a dizer vinte e uma ao fazer vinte e duas; nao se
+        renomeia aqui, porque renomear o teste de outro ticket a meio deste e
+        ruido no diff. Fica em `docs/dividas-documentais.md`.
+
         Vinte e uma desde o KAM-019: a `handoff_accounts` e a `handoffs`. A
         segunda e a **primeira tabela desta lista cuja chave primaria nao leva
         `tenant_id`** — e o `handoff_id` derivado —, e por isso levou um indice
@@ -90,6 +110,11 @@ class TestCatalogoReal(ComBase):
                 # limpeza.
                 ("platform", "audit_heads", "tenant_id"),
                 ("platform", "audit_log", "tenant_id"),
+                # KAM-021: o registo das transicoes de qualidade. A posicao
+                # e **depois** das duas `audit_*` e **antes** das
+                # `contact_*`: no `sorted()` por ponto de codigo, «ch»
+                # vence «co» porque 'h' < 'o', e perde contra «au».
+                ("platform", "channel_quality_log", "tenant_id"),
                 ("platform", "contact_deks", "tenant_id"),
                 ("platform", "contact_endpoints", "tenant_id"),
                 ("platform", "contacts", "tenant_id"),
@@ -187,6 +212,8 @@ class TestCatalogoReal(ComBase):
                 # KAM-012: o `audit_heads` nao aparece — nao tem politica, por
                 # excepcao declarada.
                 ("audit_log", "tenant_iso", "ALL", "{public}"),
+                # KAM-021: o registo das transicoes de qualidade.
+                ("channel_quality_log", "tenant_iso", "ALL", "{public}"),
                 ("contact_deks", "tenant_iso", "ALL", "{public}"),
                 ("contact_endpoints", "tenant_iso", "ALL", "{public}"),
                 ("contacts", "tenant_iso", "ALL", "{public}"),
@@ -234,6 +261,8 @@ class TestCatalogoReal(ComBase):
             [# KAM-012: o registo de auditoria. O `audit_heads` nao esta
              # aqui, por excepcao declarada em `ci/rls_exceptions.yaml`.
              "audit_log",
+             # KAM-021: o registo das transicoes de qualidade.
+             "channel_quality_log",
              "contact_deks", "contact_endpoints", "contacts",
              # KAM-014: a conversa.
              "conversations", "entitlements",

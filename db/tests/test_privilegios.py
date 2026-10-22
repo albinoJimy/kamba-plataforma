@@ -397,6 +397,11 @@ ESPERADO_POR_TABELA.update(
         # que esta mais abaixo. Declara-lo aqui fazia o teste exigir um
         # privilegio de tabela que a revisao nao concede, e foi o que a
         # primeira versao fez: treze falhas, sete delas so por isto.
+        # KAM-021: o registo das transicoes. `SELECT` e `INSERT` e mais nada,
+        # como a `media_assets` — e aqui o `UPDATE` **nao existe de todo**,
+        # nem de tabela nem de coluna: uma linha deste registo e o facto de a
+        # Meta ter dito uma coisa a uma hora, e um facto nao se corrige.
+        "channel_quality_log": _handoff(kamba_app={"SELECT", "INSERT"}),
         "media_assets": _handoff(kamba_app={"SELECT", "INSERT"}),
     }
 )
@@ -629,6 +634,12 @@ COLUNAS_POR_PAPEL = {
     # conversa e nao muda de conversa, e deixa-los alteraveis permitia mover um
     # objecto de midia para outra conversa do **mesmo** tenant, que a FK nao
     # impede e que ninguem precisa.
+    # KAM-021. **Conjunto vazio, e e uma afirmacao e nao uma omissao:** a
+    # `0014` nao concede `UPDATE` nenhum em `channel_quality_log` a
+    # `kamba_app`. E a mesma forma que a `0011` usou para a
+    # `handoff_accounts`, e o que ela prova e mais forte do que uma politica:
+    # o privilegio **nem existe**, pelo que nao depende de a RLS estar certa.
+    ("kamba_app", "channel_quality_log", "UPDATE"): set(),
     ("kamba_app", "media_assets", "UPDATE"): {
         "content_type",
         "size",
@@ -705,6 +716,9 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     "handoffs",
     "handoff_accounts",
     "media_assets",
+    # KAM-021: pela mesma razao — a matriz de tabela nao ve um privilegio de
+    # coluna a mais, nem a **ausencia** de um.
+    "channel_quality_log",
 )
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.

@@ -226,6 +226,17 @@ export async function apagarTenant(admin: pg.Client, tenant: string): Promise<vo
   await admin.query("DELETE FROM platform.events_outbox WHERE tenant_id = $1", [tenant]);
   await admin.query("DELETE FROM platform.evt_agregado_seq WHERE tenant_id = $1", [tenant]);
   await admin.query("DELETE FROM platform.unrouted_events WHERE motivo IN ('canal_desconhecido', 'mensagem_sem_identidade')");
+  // KAM-021: **antes** dos canais, que a `channel_quality_log` referencia por
+  // FK composta. **E a quinta vez que esta funcao aprende uma tabela nova**, e
+  // a quinta pela mesma razao — `conversations` (KAM-014), saida (KAM-015),
+  // handoff (KAM-019), midia (KAM-020) e agora o registo de qualidade. A
+  // repeticao e o sinal: cada tabela nova com FK para `tenant_channels` ou
+  // `tenants` precisa de uma linha aqui, e quem a esquece ve a suite ficar
+  // vermelha no `after`, **depois** de os testes passarem, sem nenhuma
+  // assercao ter falhado.
+  await admin.query("DELETE FROM platform.channel_quality_log WHERE tenant_id = $1", [
+    tenant,
+  ]);
   await admin.query("DELETE FROM platform.tenant_channels WHERE tenant_id = $1", [tenant]);
   await admin.query("DELETE FROM platform.contact_endpoints WHERE tenant_id = $1", [tenant]);
   await admin.query("DELETE FROM platform.contact_deks WHERE tenant_id = $1", [tenant]);

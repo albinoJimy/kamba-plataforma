@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Canais WhatsApp e Handoff |
-| Versão | 1.6 |
+| Versão | 1.7 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md`, `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md`, `../docs/tecnica/06_Dados_Eventos_Analytics.md`, `../docs/tecnica/08_Seguranca_Conformidade.md`, `../docs/tecnica/10_Onboarding_Governanca.md` (§6–§7), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` |
@@ -1659,6 +1659,181 @@ Não expandas escopo: suspensão é T&S (KAM-089/097); runbooks são KAM-083.
 Testes: sequências de qualidade, duplicados, integração com KAM-015, isolamento. Abre PR com o template do §7.
 ```
 
+### Verificação dos Critérios de Aceitação
+
+**Entregue em `feature/KAM-021-qualidade-e-limites`:** a revisão `0014`
+(descende da `0013`) e o módulo `packages/core-ts/src/qualidade/`, que preenche o
+braço `gestao_de_canal` do `Encaminhador` que o KAM-013 declarou e deixou a
+registar e mais nada. Desenho em [`../docs/qualidade.md`](../docs/qualidade.md).
+
+**Uma caixa fica vazia por segurança, e é a do critério 3.** Ele quer que o
+`tenants.estado` projecte `restrito`, e a revisão `0007` retirou o
+`UPDATE (estado)` a `kamba_app` **de propósito**, com a razão escrita lá — «o
+sujeito da condição não pode ser quem a retira» — e um teste a prendê-la.
+Devolver o privilégio reabria exactamente a escalada que a revisão adversarial
+do KAM-009 fechou. Decisão do fundador nesta sessão: **caixa vazia com a razão
+escrita**.
+
+| # | Critério | Estado | Evidência |
+|---|---|---|---|
+| 1 | `phone_number_quality_update` actualiza `quality_rating` e acrescenta linha a `channel_quality_log`; GREEN/YELLOW/RED aceites, outro valor registado como desconhecido sem falhar | **satisfeito** | **As duas colunas guardam coisas diferentes, e é isso que o critério pede.** `tests_bd/qualidade.bd.test.ts`, «**o bruto fica no registo e o canonico no canal**»: o `valor_novo` fica `GREEN` e o `quality_rating` fica `green`, pela regra do §2 do dicionário. O valor desconhecido: «**um valor que a Meta inventar fica registado e nao falha**» — um `PURPLE` entra no registo, o `quality_rating` **não se toca** (mudar o estado corrente para um valor que não se compreende era pior do que não o mudar), e a linha fica lá para se descobrir o que a Meta passou a mandar. Um domínio fechado na coluna do registo transformava a próxima mudança de vocabulário numa falha de inserção, e ela **já mudou uma vez** (o «Flagged» foi eliminado a 2025-10-07, CONFIRMADO `E1` §5). As quatro colunas que o critério nomeia — anterior, novo, evento, hora — estão todas, e o `valor_anterior` sai da coluna: «**o valor anterior do registo e o que estava na coluna**» |
+| 2 | RED → `restrito` em ≤ 5 s, emite `channel.updated`, bloqueia templates *marketing* e iniciar conversas, mantém respostas na janela; GREEN/YELLOW repõe `ativo`; nunca `suspenso` automático (50 eventos aleatórios) | **satisfeito** | `tests_bd/qualidade.bd.test.ts`: «**o RED restringe e escreve o motivo na mesma instrucao**» (as duas colunas juntas, porque separá-las deixava uma janela em que o canal está `restrito` e não diz porquê), «**o GREEN repoe o canal, e emite**», e «**um RED repetido com chave nova nao e uma transicao nova**» — o critério pede «1 transição» e um `red` repetido não é uma. O ≤ 5 s é **síncrono**: a escrita está na mesma transacção do tratamento, e não há fila pelo meio. Os 50 eventos aleatórios: `tests/qualidade.test.ts`, «**nunca produz `suspenso`, com 50 eventos aleatorios**», com semente **fixa** — um `Math.random()` dava um teste que falha uma vez por mês e nunca se reproduz. O bloqueio de *marketing* é o critério 9, abaixo |
+| 2b | …e a matriz recusa **mais** do que a frase | **divergência registada** | A linha `restrito` do §3.7 do dicionário tem `enviar_template_utilidade: **false**`, pelo que a `utility` também é recusada — e o critério só nomeia a `marketing`. **Usa-se a matriz, porque é o que o critério 9 do mesmo bloco pede por extenso** («o CHR usa a matriz de KAM-009»), e ela é **mais restritiva** do que a frase, que é o lado seguro. Mudá-la era mexer numa decisão do KAM-009 que tem espelho em Python e paridade imposta pelo X-11. Dois critérios do mesmo bloco não dizem o mesmo: dívida **71** |
+| 3 | No Piloto, `tenants.estado` projecta `restrito` enquanto o canal único estiver restrito, e volta a `ativo` com ele | | **Não se faz, e a razão é de segurança.** A revisão `0007` (KAM-009) retirou o `UPDATE (estado)` em `platform.tenants` a `kamba_app`, com a razão escrita na própria revisão — «`UPDATE platform.tenants SET estado = 'ativo'` com o próprio contexto **passa** […] o sujeito da condição não pode ser quem a retira» — e o `db/tests/test_privilegios.py` prende-o (`("kamba_app", "tenants", "UPDATE (estado)"): set()`). Nenhum dos papéis que o *worker* de canal tem pode escrever ali; só o `kamba_batch`. Devolver o privilégio reabria a escalada que a revisão adversarial do KAM-009 fechou, e o que se ganhava era uma coluna derivada de outra que já está escrita. **A caixa fica vazia** e a decisão devolve-se a quem escreveu o critério: dívida **70**. O que está entregue é o estado do **canal**, que é onde a qualidade vive, e é esse que a matriz lê |
+| 4 | YELLOW gera 1 alerta a T&S por transição (sem repetição em eventos idênticos) e marca os templates para revisão | **satisfeito pelo que o repositório tem** | A segunda metade é literal: `tests_bd/qualidade.bd.test.ts`, «**o YELLOW nao restringe, e marca os templates aprovados**» — a `quality` passa a `yellow` nos `approved` e **não** nos `pending`, porque um template que ainda está com a Meta não tem revisão que fazer. E o canal fica `ativo`: um aviso não corta a loja. O «sem repetição em eventos idênticos» é da unicidade `(tenant_id, event_key)` e do `avisaDeAmarelo`, que avisa quando a qualidade **passou a ser** `yellow`: «avisa na transicao para amarelo, e nao num amarelo que ja era». **O «alerta a T&S» entrega-se como contador e registo**, porque não existe mecanismo de *ticket* neste repositório — dívida **73**, e quem notifica é o KAM-115 |
+| 5 | `business_capability_update` persiste `messaging_limit` e `max_phone_numbers_per_business`; `message_template_quality_update` pausa localmente o template afectado | **satisfeito** | «**o escalao e o tecto persistem, e um null nao apaga**»: a Meta manda **o que mudou**, e um corpo sem o tecto não apaga o tecto que já se sabia — sem os dois `COALESCE`, apagava. O tecto é `integer` com `CHECK (> 0)`, e a base morde: «**o tecto de numeros tem de ser positivo, e a base morde**» (`23514`). A pausa: «**o template pausa pelo idioma exacto, e nao por prefixo**» — `pt_PT` e `pt_BR` são templates diferentes com corpos diferentes, e um `LIKE 'pt%'` pausava um pelo outro. O `status` passa a `paused`, valor que o `message_templates_status_ck` da `0010` já aceita, e é o `decidir` do KAM-015 que lhe dá efeito. **Usa o `whatsapp_business_manager_messaging_limit`** e não o `messaging_limit_tier`, que está deprecado (CONFIRMADO, `E1` §5) |
+| 5b | …o exemplo `TIER_250 → TIER_2000` | **divergência registada** | O gerador do KAM-024 (`tools/meta-sim/src/campos.ts`) produz `TIER_2K`, e usa-se o do gerador: é a única fonte deste repositório que **corre**. Não se inventa um sinónimo — um escalão fora do mapa é desconhecido e o rácio fica `null`, porque «não sei» não é «está folgado»: «**um escalao que nao se reconhece da racio nulo, e nao zero**». A escada de valores é a mesma nos dois (250 → 2.000 → 10.000 → 100.000 → ilimitado); o que divergem são os **nomes**. Dívida **72** |
+| 6 | Duplicados: o mesmo evento 2× gera 1 transição; a chave é o *hash* de `phone_number_id` + tipo + valor + marca temporal da Meta | **satisfeito** | **É da base, e o `RETURNING` vazio é o sinal.** `ON CONFLICT (tenant_id, event_key) DO NOTHING RETURNING id`, sem `SELECT` antes do `INSERT` — entre os dois cabe outro processo, e o critério pede **uma** transição, não «quase sempre uma». Provas: «**o mesmo event_key duas vezes: uma linha e uma transicao**» (e **um** evento contado, porque um painel que conte dois mente sobre quantos *webhooks* a Meta mandou) e «**dois eventos iguais em paralelo: uma linha e um evento**», em **duas ligações**. A chave é **composta com o `tenant_id`**: «**a mesma chave em dois tenants da duas linhas**», pela razão da emenda 1.21 — com unicidade global, um evento de B que calhasse na mesma chave era deduplicado em silêncio contra uma linha de A. É o **segundo** nível; o primeiro é o `inbound_events (kind, event_key)` da `0008`, e existe porque esse dedupe o **corpo** e não o encaminhamento (`registo.ts` do KAM-013: «registar e encaminhar não são atómicos») |
+| 7 | `messaging_limit_usage_ratio` = utilizadores únicos contactados por template nas últimas 24 h ÷ limite do escalão; 200 distintos com `TIER_250` dá 0,8 e dispara alerta; resposta dentro da janela não consome | **satisfeito** | A letra: «**200 unicos com TIER_250 dao 0,8 e avisam**», contra PostgreSQL, com duzentos contactos e duzentas linhas de saída. «Por template» lê-se como «iniciadas por template», que é o que o limite da Meta mede (CONFIRMADO, `E1` §5: o limite é sobre **iniciar** conversas fora da janela), e traduz-se em `kind <> 'service'`: «**uma service nao consome e uma utility consome**». As 24 h são **móveis**: «**as 24 h sao moveis e nao a meia-noite de Luanda**» — uma mensagem de há 25 h cai fora, hora a hora, e **é por isso que esta consulta não chama a `platform.ten_periodo`**, ao contrário do contador do KAM-023. E é `count(DISTINCT)` e não `count`: «**o mesmo contacto duas vezes conta uma**». A fracção de aviso é `0,8` escrita como **fracção** e não como número por escalão, para não poder divergir do tecto |
+| 8 | `account_alerts` cria *ticket* para T&S com o texto da Meta (sem dados pessoais) e o canal não muda de estado | **satisfeito pelo que o repositório tem** | A segunda metade é literal e provada contra a coluna: «**um account_alerts registra o texto e nao muda o estado**» — nem `estado` nem `motivo_restricao` se tocam. A primeira entrega-se como o que existe: o alerta **conta** em `channel_quality_event_total{evento="account_alerts"}` e o texto da Meta vai para o `channel_quality_log.valor_novo`, que é `text`. **O texto vai para a base e não para o registo de linha**, e a diferença é a política: a lista branca de nove campos do `logger/politica.ts` não tem campo de texto livre, e o `outcome` é um identificador — um alerta da Meta pode trazer qualquer coisa escrita, a base aceita-o e uma linha de *log* não. Não existe mecanismo de *ticket* neste repositório, e criar um a partir de um critério de um ticket de canais era alargar o escopo em silêncio: dívida **73**, e quem notifica é o KAM-115 |
+| 9 | O KAM-015 honra `restrito` (recusa *marketing*/iniciar conversa) e o CHR usa a matriz de KAM-009 (teste de integração entre os três) | **satisfeito** | **Pela matriz e não por um `if`.** O `decidir` do KAM-015 ganha um parâmetro opcional com o par (estado do *tenant*, estado do canal) e chama o `tenantGate`; um `STATE_REFUSED` novo entra nos `MOTIVOS_DE_RECUSA`, que passam de dez a **onze**. Um motivo e não um por estado: o que recusa é a matriz, que decide por um **regime** saído do par, e um motivo por estado dava seis etiquetas de métrica para uma causa só. O teste de integração entre os três está em `tests_bd/qualidade.bd.test.ts`, no grupo «o criterio 9 de ponta a ponta»: «**com o canal restrito por qualidade, um template recusa com STATE_REFUSED**» — e **a restrição vem deste ticket, pelo caminho do módulo**, não escrita à mão. Com o controlo: «**com o tenant e o canal ativos, o template sai**», sem o qual uma recusa não se distinguia de um envio que nunca podia sair. E «**e uma service dentro da janela continua a sair**», porque a linha `restrito` da matriz tem `responder_sessao: true` e um `if (estado === "restrito")` cortava-a. A porta é **opcional**, pelo que nenhum `adapter` ligado antes disto passa a recusar; o que **não** é permissivo é o canal que não se encontra — a porta devolve `null` e o `adapter` recusa, porque um canal que não se resolve não envia |
+| 9b | …o CHR em si | **não alterado, e é correcto** | O CHR **já** carrega o par: o `ChannelContext` do `../docs/tecnica/01` §7.2 tem `estado_tenant` e `estado_canal`, e o KAM-014 entregou-os. A porta `ObterEstado` existe para que seja ele a responder — é ele a autoridade sobre o contexto do canal e tem a *cache* —, e é por isso que este ticket **invalida** essa *cache* em vez de a contornar. Acrescentar uma consulta própria no `outbound/` criava uma segunda fonte do mesmo facto |
+
+#### Definition of Done
+
+| Caixa | Estado | Evidência |
+|---|---|---|
+| Todos os CA satisfeitos e demonstráveis | **vazia** | **Um dos nove não se satisfaz, e a razão é de segurança:** o 3 pede escrita numa coluna que a revisão `0007` retirou à aplicação de propósito, com um teste a prendê-la. Dos outros oito, dois entregam-se «pelo que o repositório tem» (o *ticket* de T&S dos critérios 4 e 8, que não existe como mecanismo) e dois trazem divergências registadas (a matriz mais restritiva do que a frase do critério 2, e o nome do escalão do critério 5). Nenhum é trabalho em falta neste ramo: os quatro estão nas dívidas **70** a **73** |
+| Revisto por ≥ 1 revisor; testes verdes; cobertura ≥ limiar | **vazia** | Testes verdes e cobertura **medidos**: **1 269** testes de unidade, **1 268** a passar, **0 a falhar** (o saltado é pré-existente, nos segredos), dos quais **59** novos em `tests/qualidade.test.ts`, **8** no bloco do critério 9 de `tests/outbound.decisao.test.ts`, **4** no grupo da porta de estado de `tests/outbound.adapter.test.ts` e **36** em `tests_bd/qualidade.bd.test.ts`; as três *suites* do *gate* 8 verdes (`tests` **461**, que inclui os **20** da revisão — dezassete do esquema e três de paridade — e o `downgrade`; `tests_outbound` 10; `tests_isolamento` **78**); `src/qualidade/` entre **98% e 100%** por ficheiro, contra os 75% do estrato `restante` de `ci/thresholds.yaml`. **Zero revisores humanos** — é decisão do fundador, e a caixa fica vazia como facto registado |
+| Documentação actualizada; divergência com `../docs/tecnica/10` §6.4 registada; Conventional Commits | **marcada, e a divergência não existe** | Desenho em [`../docs/qualidade.md`](../docs/qualidade.md). Emenda **1.27** ao dicionário (§3.18) e `canon/dicionario.yaml` regenerado — `dict_export --check` e `canon_lint` conformes, v1.27. O `../docs/ci.md` §3 ganha as cinco propriedades novas da *suite* `tests_outbound` e a linha de versão **1.47**; `lint_refs` conforme (17 605 referências em 1 139 ficheiros), `lint_contagens` conforme, `lint_backlog` conforme, `lint_arch` conforme, `scan_secrets` limpo, `log_policy lint` com 0 achados. **A divergência que esta caixa manda registar já estava fechada, e mediu-se:** o Contexto do bloco diz que o `../docs/tecnica/10` §6.4 põe RED → `suspenso`, e aquele §6.4 diz «`phone_number_quality_update` vermelho → `restrito` (§15); T&S analisa»; o §15.1 do mesmo documento tem `ativo → restrito` com decisor **automático**; e o controlo de versões dele registra a emenda que o corrigiu — «1.1 […] **Emenda KAM-111** […] §6.4 e §15.1, D-08». Quem **ainda** diz `suspenso` é o `../docs/tecnica/00` §6.2, e essa divergência o `../docs/tecnica/01` §9 já registra com a razão. Registar uma divergência inexistente era escrever uma dívida falsa: o que se registra é **isto**, na dívida **74** |
+| **Isolamento de tenant** — resolução por `phone_number_id`; RLS em `channel_quality_log`; teste cruzado | **marcada** | `rls.enable_tenant_rls("channel_quality_log")` na `0014`, com `FORCE` e a política `tenant_iso` (ADR-015), e a tabela entra no catálogo do X-05 — a descoberta passa de vinte e duas para **vinte e três** tabelas, e ganhou receita de sementes no *gate* 6. Teste cruzado nos dois sentidos, com a metade positiva primeiro pela regra do `../docs/isolamento.md`: «com o contexto de A, as transicoes de B nao aparecem» (e o administrador vê-as: o que falta a A é a política, não a linha) e «com o contexto de A, o canal de B nao se restringe». **E a integridade, que a RLS não dá:** «**um channel_id que nao e do tenant nao casa a FK composta**» (`23503`) — a FK leva o `tenant_id` nos dois lados, pela razão que a `0009` fixou |
+| **Idempotência** — chave por evento e teste de repetição | **marcada** | Critério 6, acima. E em **dois** níveis de prova: a mesma chave duas vezes (o índice único) e **duas chaves diferentes em paralelo** (o `WHERE estado <> 'restrito'` do `UPDATE`). As duas são precisas e uma não substitui a outra — foi a prova por mutação que o disse, e está logo abaixo |
+| **Privacidade** — alertas e *tickets* sem conteúdo nem telefone | **marcada** | Os seis `outcome` que este módulo escreve são identificadores (`canal_restrito_quality`, `qualidade_desconhecida`, `alerta_da_conta`, …) e passam a lista branca de nove campos do `logger/politica.ts`, que **não tem campo de texto livre**. O texto da Meta vai para a base e não para o *log*, e nenhuma das quatro métricas leva `tenant_id` nem `phone_number_id`: as etiquetas têm de casar `^[a-z][a-z0-9_]{1,62}$` e um UUID com hífenes **levanta** (`OBS-I` de `../docs/seguranca/ameacas_stride.md`) |
+| **Custo e observabilidade** — `channel_quality{rating}`, `messaging_limit_usage_ratio`, `channel_restricted_total` | **marcada** | As três, e uma quarta: a `channel_quality_event_total{evento}`, que **não está no DoD** e entra pela razão da emenda 1.21 — *tratar sem contar é tratar em silêncio*, e sem a etiqueta um painel não distingue «a Meta não mandou nada» de «mandámos tudo para o braço errado». A `channel_quality` é *gauge* e **sem `_total`**, porque um canal que melhora sai de uma série e entra na outra: um `_total` que desce é um contador que mente. A `channel_restricted_total` leva o domínio **inteiro** do `motivo_restricao` e não só o `quality`: a métrica é do canal e não deste ticket. Declaradas no §3.18 do dicionário |
+| **Migrações reversíveis** — `downgrade` testado | **marcada** | Revisão `0014`, e o `downgrade` é testado pelo **efeito** em `db/tests/test_qualidade_schema.py`, `TestDowngradeDa0014`: «desce com linhas e sobe outra vez» — a tabela e a coluna desaparecem, a linha do canal **fica**, e o `upgrade` repõe tudo. O que se perde é o histórico de anúncios da Meta e um tecto que o próximo `business_capability_update` repõe; nenhum é prova de nada perante terceiros |
+
+#### O que a prova por mutação diz, e o teste que ela encontrou em falta
+
+**Trinta e quatro** mutações novas — **sete** da revisão `0014` e **vinte e sete** do código —,
+cada uma a reverter um defeito **real**: o domínio dos eventos a perder um valor,
+a chave a ser única globalmente, a primeira linha de um canal a deixar de caber,
+um valor vazio a passar a ser um valor, o tecto de números a aceitar zero, a
+aplicação a ganhar `UPDATE` no registo que não se corrige, a tabela a nascer sem
+política de *tenant*, o registo a reescrever a linha que já existia, o
+`restringir` a sobrepor a marca de outro ticket, o `repor` a deixar de olhar para
+o motivo que lá está, a medição a contar envios e não pessoas, a resposta dentro
+da janela a consumir escalão, o que a fila ainda tem em mão a contar, a janela
+móvel a passar a 48 h, a pausa do template a casar por prefixo de idioma, a marca
+de revisão a mexer nos não aprovados, um corpo sem tecto a apagar o tecto que se
+sabia, o aviso de amarelo a sair em cada *webhook*, o aviso do escalão a exigir
+ultrapassar os 80%, um valor desconhecido a decidir o estado, o tecto do primeiro
+escalão dez vezes maior, a tradução a aceitar qualquer cadeia, o rácio sem
+observação a dizer «está folgado», um evento repetido a escrever e a restringir,
+o `channel.updated` a sair sem transição, a *cache* a esquecer antes de o evento
+sair, a matriz a deixar de ser consultada, a mensagem de sessão a pedir a acção
+de template, e um canal que a porta não encontra a voltar a enviar.
+
+**Duas foram escritas e descartadas, e vale dizer quais.** A primeira trocava a
+FK composta do canal por uma simples: a `tenant_channels` não tem unicidade em
+`id` sozinho, pelo que a migração **não corre** — e uma mutação que rebenta na
+criação é apanhada por qualquer teste, o que não prova nada sobre a FK. A segunda
+retirava o `ocorrido_em` do `ORDER BY` do registo: a ordem das linhas não é
+afirmada por teste nenhum, e **não devia ser**, porque os *webhooks* chegam fora
+de ordem — a mutação seria imortal.
+
+**E duas sobreviveram, e as duas eram testes em falta — não código a mais.** É
+a melhor lição deste ticket, porque nenhuma estava visível por leitura: o código
+estava escrito, o comentário dele explicava-o, e o que faltava era a prova de que
+morde.
+
+A primeira: apagar o `WHERE estado <> 'restrito'` do `SQL_RESTRINGIR` **passou** a
+prova inteira, porque no caminho sequencial o predicado é redundante — o
+`accaoDaQualidade` já devolve `"nada"` quando o canal está `restrito`, pelo que o
+`UPDATE` nunca corre sobre um canal restrito. Quem o torna necessário é a
+**concorrência** com chaves **diferentes**: as duas passam pelo registo, as duas
+leem `ativo`, e as duas decidem restringir; sem o predicado, as duas escrevem e
+as duas emitem `channel.updated`. O teste da corrida que já existia usa a
+**mesma** chave, pelo que prova o índice único e não o `UPDATE` — as duas provas
+são precisas e uma não substitui a outra. Entrou «**dois RED com chaves
+diferentes em paralelo: uma transicao e um evento**».
+
+A segunda: apagar a recusa do canal que a porta 5 não encontra também passou,
+porque **nenhum teste ligava a porta a responder `null`**. É a mais importante
+das três recusas do critério 9 — um canal que não se consegue resolver não é «sem
+opinião», é um canal que não existe neste contexto —, e estava escrita sem nada a
+prendê-la. Entrou o grupo «a porta de estado do KAM-021 (criterio 9)» em
+`tests/outbound.adapter.test.ts`, com quatro testes, e **a metade positiva entre
+eles**: «**sem a porta ligada, envia como antes do KAM-021**», que é o que torna
+a negativa legível e prova que a porta é de facto opcional.
+
+Depois das correcções: **34 corridas, 0 não apanhadas**.
+
+`python db/mutacoes.py --aplicaveis` → **451 conferidas, 0 não aplicáveis**.
+
+#### A revisão adversarial, e os defeitos que ela e os *gates* apanharam
+
+Nenhum dos cinco foi previsto por leitura. Os dois que a prova por mutação
+encontrou estão na secção acima; estes são os dos *gates* e da leitura.
+
+1. **O grupo do critério 9 passava pela razão errada.** O `tenants.estado` nasce
+   `onboarding` (revisão `0001`) e a matriz do KAM-009 decide por um **regime**
+   saído do par: `onboarding` é mais restritivo do que `restrito` e recusa tudo
+   menos registar e a mensagem de teste. As três asserções de `STATE_REFUSED`
+   teriam passado com o canal `ativo`, e o grupo não provava nada sobre o
+   critério 9. Ganhou um `before` que põe o *tenant* `ativo` — escrito pelo
+   **administrador**, porque o `kamba_app` não tem esse privilégio, que é a
+   mesma retirada que deixa a caixa do critério 3 vazia — e um teste de
+   **controlo**.
+2. **O `COALESCE(motivo_restricao, 'quality')` parecia código morto e não é.**
+   Um canal `restrito` nunca passa pelo `UPDATE`, que tem `estado <> 'restrito'`
+   — mas a `marcarRestricao` do KAM-023 escreve o `motivo_restricao` **sem**
+   mexer no `estado`, pelo que um canal `ativo` com a marca de falta de pagamento
+   é um estado que existe. Sem o teste novo, a linha era código morto e uma
+   mutação nela seria imortal.
+3. **O `outbound_messages_template_ck` recusou a receita de sementes do medidor.**
+   A `0010` exige `template_name` em tudo o que não é `service`; o ajudante do
+   teste inseria `utility` sem ele e levantava `23514`. Apanhado pelo *gate* 8 à
+   primeira execução.
+4. **O nome `max_phone_numbers_per_business` contém «phone».** Dispara a lista
+   fechada de colunas de telefone do `test_catalogo.py` — declarou-se, com a
+   razão de que num `integer` não cabe um E.164, garantia **mais forte** do que a
+   do `phone_number_id`, que é `text`. E descer de `head` para a `0011` passa
+   agora pela `0014`, que compromete **antes** de a `0012` recusar, pelo que a
+   asserção do `downgrade` da mídia mudou de `TABELAS` para `TABELAS_ATE_0013`.
+5. **O `quality_rating` entre crases numa nota do dicionário** tornou a extensão
+   do KAM-003 redundante e o *gate* 3b recusou: passou a «guillemets». E o nome
+   do teste do X-05 dizia «vinte e uma tabelas» sobre uma asserção que já ia em
+   vinte e três — o número saiu do nome, porque um nome que diz um número errado
+   é pior do que um que não diz nenhum.
+
+E a leitura adversarial encontrou **três** coisas que nenhuma máquina podia
+dizer.
+
+A primeira é a mais barata de deixar passar, porque é a prosa a prometer o que o
+código não tem: o `qualidade/contrato.ts` afirmava que «há um teste que compara
+as três listas» do domínio dos eventos, e o que existia comparava **duas** — as
+duas de TypeScript. A terceira, que é o `CHECK` da revisão, não era confrontada
+com nenhuma. Entrou o `TestParidadeDosDominios` em
+`db/tests/test_qualidade_schema.py`, que lê as revisões `0010`, `0013` e `0014`
+como **texto** — a forma do `TestTarifas`, e os domínios leem-se das revisões em
+vez de se copiarem, para que a comparação não passe por construção — e confronta
+os três domínios com as constantes do módulo. O que uma divergência custava não é
+a métrica: um motivo novo no `CHECK` da `0013` sem entrada no `MOTIVOS` fazia o
+`contar` **levantar**, e o que se perdia era a **restrição**.
+
+A segunda é que os cinco passos **não são atómicos por si**. O passo que registra
+consome a `event_key`; um processo que caia entre ele e a mudança de estado perde
+a transição **para sempre**, porque a Meta reenvia e o `ON CONFLICT` deduplica
+contra a linha que ficou. Está agora escrito que o `ClienteSql` é a ligação
+**dentro** da transacção de quem chama — o que a `Emitir` já exigia por si, e o
+argumento vale para o conjunto e não só para ela —, e é o que o `comConsumo` do
+KAM-006 dá por desenho (ADR-013).
+
+A terceira é que o `estadoDepois` era uma função que **só existia para ser
+testada**: o mapa acção → estado estava lá e o SQL escrevia os literais, sem
+ninguém confrontar os dois. É a classe de achado que o KAM-019 nomeou — uma
+mutação imortal é sinal de que o código não faz nada. Entrou a asserção que os
+liga («**o SQL escreve o estado que o `estadoDepois` diz**»), e com ela uma
+mutação que a prende.
+
+E a mesma revisão confirmou, pelo caminho, que a divergência que o DoD manda
+registar **já estava fechada pelo KAM-111** (dívida 74): o documento que o bloco
+cita diz hoje o contrário do que ele lhe atribui. Também corrigiu o que o
+`valor_anterior` a `NULL` significa — a primeira versão do comentário da revisão
+dizia só «a primeira linha de um canal», e em dois dos quatro eventos é
+**sempre** `NULL`, porque um alerta não substitui valor nenhum e a qualidade de um
+template vive noutra tabela.
+
 ---
 
 ## KAM-022 — Consentimento no 1.º contacto (aviso versionado, botões, `consent_event`)
@@ -2355,3 +2530,4 @@ Testes: idempotência, limites, bounce, isolamento, X-11. Abre PR com o template
 | 1.4 | Outubro 2026 | **KAM-024 entregue.** Dez caixas marcadas com evidencia nomeada e seis vazias, na seccao «Verificação dos Critérios de Aceitação» do bloco. Tres das vazias nao sao satisfazeis por este ticket: o «usado por KAM-015, 016, 017 e 020» do critério 5 nao se pode medir antes de esses tickets existirem, e a *suite* online dos critérios 8 e 9 depende de `ext:KAM-102` e do número de teste da app Meta de *staging*. A quarta é o critério 7, que fica vazio por escolha: o *scan* mede 86 ocorrências de forma real no repositório, todas *fixtures* de redacção de PII, e a letra diz «0» — quem decide se o inventário basta é quem escreveu o critério. Acrescentada depois a secção «A revisão adversarial, e as quatro caixas que ela reprovou»: dezasseis achados, quatro graves, e o primeiro fazia o *gate* 7 falhar em **todos** os PRs sem nenhum dos 133 testes de então o apanhar — porque nenhum corria o comando que o `Makefile` corre. Depois das correcções as quatro caixas voltam a resistir, e a tabela de cobertura passa de 27 a **33** itens, com os seis motivos de `PARTNER_REMOVED` a contar como itens próprios. | Equipa KAMBÁ |
 | 1.5 | Outubro 2026 | **KAM-015 entregue.** Secção de verificação no bloco, com **doze** caixas marcadas com evidência nomeada e **seis vazias**. Três das vazias são critérios que não se cumprem à letra, e as três estão em `../docs/dividas-documentais.md` (53 a 55): o critério 6 contradiz-se na própria aritmética («130429 3× seguida de 200» com «3 tentativas»), o critério 4 e o DoD de observabilidade pedem uma etiqueta `{tenant}` que as bibliotecas de métricas recusam por gramática, e o critério 8 pressupõe um *lock* de conversa que pertence ao KAM-018. As outras três são a fila e o aviso ao dono da segunda frase do critério 6 (KAM-115), o DoD «todos os CA satisfeitos» e os dois revisores. **Nove defeitos apanhados por máquina**, todos em coisas que eu tinha verificado à mão: o leitor de YAML, o *gate* 3b, o meu próprio teste do critério 5 (duas vezes), a *allowlist* do registo, o varredor de segredos, o `set_config` local à transacção, a `outbound_messages_entrega_ck` e o *token bucket* a enviar sem ficha. **E a revisão adversarial não aprovou a primeira versão**: nove achados, os nove corrigidos, com o custo a **duplicar sob concorrência** (o `delivered` e o `read` a chegarem juntos somavam 4 000 cada) e o teste que afirmava a propriedade a escolher o par que não podia apanhá-lo. | Equipa KAMBÁ |
 | 1.6 | Outubro 2026 | **KAM-023 entregue, em duas metades.** Secção de verificação no bloco, com **onze** caixas marcadas e **cinco** vazias, cada uma com a razão escrita. A metade de código entrou sem DDL (contagem do *free tier*, alertas aos 800 e 1.000 por **flanco** e não por valor, custo estimado em micro-dólares inteiros, quatro métricas) e a revisão `0013` entrou quando a `0012` do KAM-020 fundiu — as revisões de base encaixam uma na anterior, e duas a reclamar o mesmo pai não são colisão mecânica. As cinco vazias: o fuso **por canal** que o esquema não tem (só há por *tenant*, e o fuso vive na `platform.ten_periodo` da `0007`), a etiqueta `{tenant}` que as bibliotecas de métricas recusam **por gramática** (mesmo precedente da emenda 1.21 do dicionário), o critério 7 que é de **saída** e pede um mês real de Piloto, a dos revisores (zero humanos, decisão do fundador) e a que depende das outras. Quatro dívidas novas (65 a 68), todas critérios que pedem o que o esquema não tem. **Esta linha fecha uma deriva:** o KAM-019 e o KAM-020 não acrescentaram a sua, pelo que a tabela saltou da 1.5 para aqui — fica registado em `../docs/dividas-documentais.md`. | Equipa KAMBÁ |
+| 1.7 | Outubro 2026 | **KAM-021 entregue.** Secção de verificação no bloco, com **catorze** caixas marcadas e **três** vazias, cada uma com a razão escrita. Entrou a revisão `0014` (`channel_quality_log` com unicidade `(tenant_id, event_key)` e `tenant_channels.max_phone_numbers_per_business`) e o módulo `packages/core-ts/src/qualidade/`, que preenche o braço `gestao_de_canal` que o KAM-013 deixou a registar e mais nada. **A caixa do critério 3 fica vazia por segurança, e a decisão é do fundador:** ele quer que o `tenants.estado` projecte `restrito`, e a revisão `0007` retirou o `UPDATE (estado)` a `kamba_app` **de propósito** — «o sujeito da condição não pode ser quem a retira» —, com um teste a prendê-la; devolver o privilégio reabria a escalada que a revisão adversarial do KAM-009 fechou. As outras duas vazias são a dos revisores (zero humanos, decisão do fundador) e a que depende da primeira. Duas caixas entregam-se «pelo que o repositório tem» — o *ticket* de T&S dos critérios 4 e 8 não existe como mecanismo, e o que existe (contador e registo) é o que se usa, como o KAM-023 fez — e duas trazem divergências registadas: **dois critérios do mesmo bloco não dizem o mesmo** (o 2 nomeia só a `marketing` e a matriz do §3.7 recusa também a `utility`, e segue-se a matriz porque é o que o critério 9 pede), e o nome do escalão do critério 5 (`TIER_2000` contra o `TIER_2K` que o gerador do KAM-024 produz). Cinco dívidas novas (70 a 74). **A prova por mutação encontrou um teste em falta que nenhuma leitura viu:** apagar o `WHERE estado <> 'restrito'` do `SQL_RESTRINGIR` passava a prova inteira, porque no caminho sequencial o predicado é redundante — quem o torna necessário é a concorrência com chaves **diferentes**, e o teste da corrida que existia usava a mesma chave. **E o grupo do critério 9 passava pela razão errada:** o `tenants.estado` nasce `onboarding`, que é mais restritivo do que `restrito`, pelo que as três asserções de `STATE_REFUSED` teriam passado com o canal `ativo`. **A divergência que o DoD manda registar já estava fechada pelo KAM-111:** o `../docs/tecnica/10` §6.4 diz hoje «vermelho → `restrito`», e quem ainda diz `suspenso` é o `00` §6.2, que o `01` §9 já registra. | Equipa KAMBÁ |

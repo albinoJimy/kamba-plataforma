@@ -58,6 +58,8 @@ COLUNAS_DA_APP = (
     "free_tier_month",
     "free_tier_used",
     "last_account_update_at",
+    # KAM-021, revisao 0014: o tecto de numeros do portfolio.
+    "max_phone_numbers_per_business",
     "messaging_limit",
     "meta_error_codes_seen",
     "motivo_restricao",
@@ -71,7 +73,16 @@ COLUNAS_DA_APP = (
 
 #: As da `0001`, para o `downgrade` as repor.
 COLUNAS_DA_0001 = tuple(
-    c for c in COLUNAS_DA_APP if c not in ("motivo_restricao", "meta_error_codes_seen")
+    c
+    for c in COLUNAS_DA_APP
+    if c
+    not in (
+        "motivo_restricao",
+        "meta_error_codes_seen",
+        # A da `0014`: o `downgrade` da `0013` corre com a `0014` ja descida,
+        # pelo que esta coluna tambem ja nao existe.
+        "max_phone_numbers_per_business",
+    )
 )
 
 
