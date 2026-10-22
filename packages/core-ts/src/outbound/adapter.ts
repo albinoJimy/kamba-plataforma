@@ -369,7 +369,25 @@ export class Saida {
     estado: Estado,
     pricing: Pricing | null,
     phoneNumberId: string,
-  ): Promise<{ readonly avancou: boolean; readonly microUsd: number }> {
+  ): Promise<{
+    readonly avancou: boolean;
+    readonly microUsd: number;
+    /**
+     * `true` quando **esta** chegada foi a que entregou a mensagem.
+     *
+     * Acrescentado pelo KAM-023, e é o único sítio de onde o contador do *free
+     * tier* pode ser accionado sem reabrir a corrida que o
+     * `SQL_AVANCAR_ESTADO` fecha: sai da transição que a base serializou sob
+     * `FOR UPDATE`, não de uma leitura prévia. É a mesma palavra que decide o
+     * custo, e é por isso que não é um cálculo novo — é o `resultado.entregou`
+     * que já existia aqui, agora dito a quem chama.
+     *
+     * Quem conta precisa também de saber se a mensagem era `service`, e isso
+     * não vem aqui: quem chama passou o `pricing` e já o sabe. Devolvê-lo era
+     * duplicar um dado que o chamador tem na mão.
+     */
+    readonly entregou: boolean;
+  }> {
     const actual = await this.#porWamid(tenantId, wamid);
     if (actual === null) {
       // **Um `statuses` para uma mensagem que não existe, e isso faz barulho.**
@@ -387,7 +405,7 @@ export class Saida {
         tenant_id: tenantId,
         msg_id: idOpaco(wamid),
       });
-      return { avancou: false, microUsd: 0 };
+      return { avancou: false, microUsd: 0, entregou: false };
     }
 
     const freeTier =
@@ -402,7 +420,7 @@ export class Saida {
     // acabámos de ler isto avança, não vale uma escrita. **Não é daqui que sai
     // o custo** — ver a nota do método e a do `SQL_AVANCAR_ESTADO`.
     if (!ingerir(actual.state, estado, pricing, freeTier).avancou) {
-      return { avancou: false, microUsd: 0 };
+      return { avancou: false, microUsd: 0, entregou: false };
     }
 
     // Os estados de que se pode sair para este, calculados aqui e aplicados
@@ -418,7 +436,9 @@ export class Saida {
     ]);
     // O `UPDATE` não mexeu em nada: outro processo ganhou a corrida. **Não se
     // conta custo**, e é por isso que a contagem está depois e não antes.
-    if (linhas.rows.length === 0) return { avancou: false, microUsd: 0 };
+    if (linhas.rows.length === 0) {
+      return { avancou: false, microUsd: 0, entregou: false };
+    }
 
     // **O custo sai da transição que de facto aconteceu.** O `estado_antes` é o
     // estado que este `UPDATE` substituiu, lido pela base sob `FOR UPDATE`: com
@@ -449,7 +469,11 @@ export class Saida {
         msg_id: idOpaco(wamid),
       });
     }
-    return { avancou: true, microUsd: resultado.microUsd };
+    return {
+      avancou: true,
+      microUsd: resultado.microUsd,
+      entregou: resultado.entregou,
+    };
   }
 
   /**

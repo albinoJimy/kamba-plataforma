@@ -66,6 +66,15 @@ INVENTARIO = {
         "free_tier_month": ("date", SIM, None, "nao"),
         "coexistence_synced_at": ("timestamp with time zone", SIM, None, "nao"),
         "last_account_update_at": ("timestamp with time zone", SIM, None, "nao"),
+        # KAM-023, revisao 0013. O `motivo_restricao` e anulavel e o `NULL` e o
+        # estado normal: «este canal nao esta restrito».
+        "motivo_restricao": ("text", SIM, None, "nao"),
+        "meta_error_codes_seen": (
+            "ARRAY",
+            NAO,
+            "'{}'::integer[]",
+            "codigos de erro da Meta; nao e um identificador de pessoa",
+        ),
     },
     "entitlements": {
         "tenant_id": ("uuid", NAO, None, "nao"),
@@ -971,6 +980,9 @@ class TestInventario(ComBase):
                     "tenant_channels_channel_mode_ck",
                     "tenant_channels_estado_ck",
                     "tenant_channels_free_tier_used_ck",
+                    # KAM-023, revisao 0013.
+                    "tenant_channels_meta_error_codes_seen_ck",
+                    "tenant_channels_motivo_restricao_ck",
                     "tenant_channels_origem_ck",
                     "tenant_channels_phone_number_id_ck",
                     "tenant_channels_phone_number_id_uq",

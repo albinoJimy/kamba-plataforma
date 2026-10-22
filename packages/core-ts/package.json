@@ -63,6 +63,10 @@
       "types": "./dist/outbound/index.d.ts",
       "default": "./dist/outbound/index.js"
     },
+    "./metering": {
+      "types": "./dist/metering/index.d.ts",
+      "default": "./dist/metering/index.js"
+    },
     "./chr/fila": {
       "types": "./dist/chr/fila.d.ts",
       "default": "./dist/chr/fila.js"

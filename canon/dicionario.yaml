@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.24"
+versao_dicionario: "1.26"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -3222,6 +3222,113 @@ entradas:
       - "motivo"
     nomes_nota: []
     variantes_literais: []
+  - seccao: "3.17"
+    conceito: "Fracção do free tier consumida, no canal mais perto do tecto (gauge)"
+    canonico: "meta_free_tier_used_ratio"
+    literais:
+      - "meta_free_tier_used_ratio"
+    nomes:
+      - "meta_free_tier_used_ratio"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.17"
+    conceito: "Custo estimado acima do free tier, em micro-dólares inteiros, somado sobre os canais (gauge)"
+    canonico: "meta_cost_usd_estimate"
+    literais:
+      - "meta_cost_usd_estimate"
+    nomes:
+      - "meta_cost_usd_estimate"
+    nomes_nota:
+      - "max"
+      - "n"
+      - "meta_cost_usd_total"
+      - "usd"
+    variantes_literais: []
+  - seccao: "3.17"
+    conceito: "Avisos de free tier emitidos (contador)"
+    canonico: "meta_free_tier_alert_total"
+    literais:
+      - "meta_free_tier_alert_total"
+    nomes:
+      - "meta_free_tier_alert_total"
+    nomes_nota:
+      - "outbound_rate_limited_total"
+      - "gwy_shed_total"
+    variantes_literais: []
+  - seccao: "3.17"
+    conceito: "Nível de um aviso de free tier"
+    canonico: "aviso, esgotado"
+    literais:
+      - "aviso"
+      - "esgotado"
+    nomes:
+      - "aviso"
+      - "esgotado"
+    nomes_nota:
+      - "aviso"
+      - "E1"
+      - "esgotado"
+      - "a"
+      - "z"
+      - "z0"
+      - "_"
+    variantes_literais: []
+  - seccao: "3.17"
+    conceito: "Porque é que um canal está restrito"
+    canonico: "tenant_channels.motivo_restricao ∈ {payment_method, quality, policy}"
+    literais:
+      - "tenant_channels.motivo_restricao"
+      - "payment_method"
+      - "quality"
+      - "policy"
+    nomes:
+      - "tenant_channels.motivo_restricao"
+      - "payment_method"
+      - "quality"
+      - "policy"
+    nomes_nota:
+      - "NULL"
+      - "NOT"
+      - "DEFAULT"
+      - "nenhum"
+      - "payment_method"
+      - "quality"
+      - "policy"
+      - "suppressed_by_human"
+      - "CHECK"
+      - "tenant_channels_motivo_restricao_ck"
+      - "estado"
+      - "restrito"
+    variantes_literais: []
+  - seccao: "3.17"
+    conceito: "Códigos de erro que a Meta já devolveu num canal"
+    canonico: "tenant_channels.meta_error_codes_seen (integer[])"
+    literais:
+      - "tenant_channels.meta_error_codes_seen"
+      - "integer[]"
+    nomes:
+      - "tenant_channels.meta_error_codes_seen"
+      - "integer"
+    nomes_nota:
+      - "NOT"
+      - "NULL"
+      - "DEFAULT"
+      - "CHECK"
+      - "E1"
+      - "tenant_channels"
+      - "tenant_id"
+      - "jsonb"
+    variantes_literais: []
+  - seccao: "3.17"
+    conceito: "Suspeitas de método de pagamento ausente ou inválido (contador)"
+    canonico: "meta_payment_suspect_total"
+    literais:
+      - "meta_payment_suspect_total"
+    nomes:
+      - "meta_payment_suspect_total"
+    nomes_nota:
+      - "E1"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -3859,6 +3966,14 @@ dominios:
       - "falhou"
     seccao: "3.16"
     conceito: "Estado de um objecto de mídia"
+    so_no_registo: false
+  - coluna: "tenant_channels.motivo_restricao"
+    valores:
+      - "payment_method"
+      - "quality"
+      - "policy"
+    seccao: "3.17"
+    conceito: "Porque é que um canal está restrito"
     so_no_registo: false
 
 variantes:
