@@ -474,7 +474,7 @@ describe("os modos da conversa contra a base", () => {
       assert.deepEqual(await saidasDe(outra.id), {});
     });
 
-    it(`as ${INTERCALACOES} intercalacoes: 0 mensagens depois de o echo estar registado`, async () => {
+    it(`as ${INTERCALACOES} intercalacoes: 0 mensagens depois de o echo estar registado`, async (t) => {
       const resultado = await correrIntercalacoes(SEMENTE);
       // Cada intercalação acaba com **exactamente um** desfecho: ou a guarda
       // passou (e não há linha suprimida), ou suprimiu (e não há envio).
@@ -496,7 +496,12 @@ describe("os modos da conversa contra a base", () => {
       // ter exercitado nada.
       assert.ok(resultado.echoPrimeiro >= 20, `echo primeiro: ${resultado.echoPrimeiro}`);
       assert.ok(resultado.guardaPrimeiro >= 20, `guarda primeiro: ${resultado.guardaPrimeiro}`);
-      console.log(
+      // **`t.diagnostic` e nao `console.log`**, e a diferenca e um gate: o
+      // `log_policy lint` (gate 2) proibe o `console` em TypeScript de servico
+      // — escreve-se pelo logger —, e um ensaio nao tem logger. O
+      // `t.diagnostic` do `node:test` escreve um comentario TAP, que e onde a
+      // suite em Python ja le o resto, e passa o lint. Apanhado pelo CI.
+      t.diagnostic(
         `[KAM-018] ${INTERCALACOES} intercalacoes (semente 0x${SEMENTE.toString(16)}): ` +
           `${resultado.passou} passaram, ${resultado.suprimiu} suprimidas; ` +
           `echo primeiro ${resultado.echoPrimeiro} (0 enviadas), ` +
