@@ -672,7 +672,7 @@ INVENTARIO = {
     #
     # A tentativa de ligar um numero pelo Embedded Signup v4. Treze colunas, e o
     # bloco do ticket nomeia quatro: as nove restantes tem cada uma o criterio
-    # que a obriga (dicionario §3.20).
+    # que a obriga (dicionario §3.21).
     #
     # **Nenhuma coluna desta tabela e dado pessoal de cliente final**, e isso nao
     # e sorte: o onboarding e entre a plataforma e o **dono** da PME, e o DoD do

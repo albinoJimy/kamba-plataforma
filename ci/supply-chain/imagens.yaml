@@ -171,6 +171,13 @@ fontes_adicionais:
     constante: IMAGEM
   - ficheiro: db/tests_identidade/node.py
     constante: IMAGEM_NODE
+  # KAM-018: a suite dos modos da conversa corre TypeScript contra a base, e
+  # chama o Docker pela mesma razao que as outras — sem `node` no PATH, a
+  # imagem oficial corre na rede do contentor do PostgreSQL. Entrou aqui porque
+  # o gate 11 a recusou: um ficheiro que chama o Docker e nao esta declarado e
+  # uma imagem que ninguem fixou nem inventariou.
+  - ficheiro: db/tests_modos/node.py
+    constante: IMAGEM_NODE
   # KAM-005: o publicador e TypeScript e corre num contentor Node quando a
   # maquina nao tem `node`, na rede do gate.
   - ficheiro: db/tests_eventos/node.py

@@ -59,8 +59,8 @@ from tests.base import (
     sqlstate,
 )
 
-#: As nove fases, como a revisao as declara e como o dicionario §3.20 as fixa
-#: (emenda 1.29). **O `desligado` nao esta aqui**: e estado de
+#: As nove fases, como a revisao as declara e como o dicionario §3.21 as fixa
+#: (emenda 1.30). **O `desligado` nao esta aqui**: e estado de
 #: `tenant_channels` e nao fase de onboarding, e quem o escreve e o KAM-017.
 FASES = (
     "iniciado",

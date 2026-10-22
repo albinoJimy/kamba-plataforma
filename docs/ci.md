@@ -1194,14 +1194,14 @@ dispensa.
 
 #### A segunda metade: identidade de contacto (KAM-008)
 
-O `make ci-8` corre **treze** *suites*, cada uma com a sua base descartável:
+O `make ci-8` corre **catorze** *suites*, cada uma com a sua base descartável:
 `tests` (as migrações, acima), **`tests_identidade`** (esta secção),
 **`tests_eventos`** e **`tests_eventos_carga`** (a secção seguinte, KAM-005),
 `tests_eventos_consumo` (KAM-006), `tests_auditoria_carga` (KAM-012),
 **`tests_ten`** (KAM-009), **`tests_entrada`** e **`tests_entrada_carga`**
 (KAM-013), **`tests_chr`** (KAM-014), **`tests_outbound`** (KAM-015),
-**`tests_handoff`** (KAM-019) e **`tests_media`** (KAM-020, a última
-secção).
+**`tests_handoff`** (KAM-019), **`tests_media`** (KAM-020) e **`tests_modos`**
+(KAM-018, a última secção).
 A de identidade entrou com o KAM-008. Esta põe o módulo de identidade — TypeScript, em
 `packages/core-ts/src/identity/` — a correr contra o PostgreSQL com o papel
 `kamba_identity` verdadeiro e a RLS ligada. O desenho está em
@@ -1569,6 +1569,83 @@ expiração do URL, nem o fluxo de duas etapas, nem códigos de erro —, pelo q
 simulador dela seria uma invenção a fingir medição; e o simulador do KAM-024 não
 a cobre, porque o `id` que ele põe no webhook não é servível pelos *endpoints*
 de mídia.
+
+#### A décima quinta: os modos da conversa (KAM-018)
+
+`tests_modos` põe o módulo dos modos — TypeScript, em
+`packages/core-ts/src/modos/` — a correr contra o PostgreSQL com a RLS ligada e
+**cinco ligações**: três de `kamba_app`, uma de `kamba_resolver` e a do
+administrador. O desenho está em [`modos-conversa.md`](modos-conversa.md). Pelos
+ordinais destes títulos é a décima quinta; **pela lista é a décima quarta**, e o
+desvio é o que a dívida 62 declara.
+
+**As três ligações de `kamba_app` não são luxo**, e são a razão pela qual esta
+*suite* existe: um `pg_advisory_xact_lock` só é exclusão mútua entre **sessões
+diferentes**, e o `comTenant` do `tenant_guard` recusa dois usos concorrentes da
+mesma ligação (`LigacaoEmUsoError`). Com uma, as duas transacções sairiam em
+série pela mesma conexão e o ensaio provava que o JavaScript é sequencial.
+
+**O que só esta *suite* prova**, porque o objecto da prova é o servidor:
+
+- **O *lock* serializa de verdade.** A guarda pré-envio **bloqueia** à porta de
+  uma transição em curso — mede-se que ela não resolveu depois de 150 ms com a
+  transacção aberta — e, quando entra, vê o modo já mudado. É a metade do
+  critério 8 do KAM-015 que esse ticket teve de deixar por cumprir («**Não há
+  *lock***»), e é este ticket que a fecha.
+- **Duas transições concorrentes deixam uma transição e um evento.** Quem decide
+  é o predicado `AND antes.mode = ANY($4)` do `SQL_MUDAR_MODO` sob `FOR UPDATE`,
+  não quem leu primeiro — e quem perde a corrida **não emite evento**, que é o
+  que impede duas mudanças publicadas para uma transição. Em série, as duas
+  chamadas davam o mesmo resultado pela razão errada.
+- **As 100 intercalações do critério 3, com semente fixa e reproduzíveis.** A
+  ordem de cada volta sai de um `mulberry32` com a semente escrita no ficheiro, e
+  o ensaio corre as 100 **duas vezes** e compara as sequências: é essa segunda
+  passagem que impede um `Math.random()` de voltar. Em todas as voltas em que o
+  *echo* foi ordenado primeiro, **0 mensagens do bot saíram**.
+- **O silenciamento é por conversa e não por canal.** Duas conversas do **mesmo**
+  canal, uma em `dono` e outra em `bot`: a primeira suprime, a segunda passa. Com
+  uma base falsa isto não prova nada; aqui prova que nada no caminho do envio
+  olha para o canal.
+- **0 invocações do AGR fora do modo `bot`**, com o `Chr` do KAM-014 e o
+  `ResolvedorDeCanal` **verdadeiros** a ler o modo que esta bateria acabou de
+  escrever, e com o controlo positivo primeiro: sem o *job* que sai em `bot`, o
+  zero dos outros três não dizia nada.
+- **O relógio das 24 h conta do `handoffs.opened_at` quando não houve actividade
+  humana nenhuma.** É um `COALESCE` com subconsulta e um `max` sobre a tabela do
+  KAM-019, e nada disso se prova sem planeador. E o caso de fronteira fica
+  afirmado: sem actividade **e** sem *handoff*, a conversa **não** é pausada.
+- **O privilégio da revisão `0016` existe e é por coluna.** O oposto de um teste
+  de política: não se afirma que o código não escreve o modo por fora, afirma-se
+  o que cada papel **consegue** — `kamba_app` escreve `mode` e
+  `last_human_activity_at`, continua a não poder reescrever as quatro colunas da
+  identidade da conversa, e o `kamba_resolver` não lê nem escreve conversas.
+- **O X-03 sobre a `conversations`, pelo caminho deste módulo.** Com o contexto
+  de A, o modo de B não se lê nem se muda — e a guarda de A sobre uma conversa de
+  B **recusa** o envio em vez de o deixar passar, que é o lado seguro.
+- **Que a emissão e a escrita confirmam juntas.** Com uma porta de emissão que
+  levanta, a transição é desfeita: é a propriedade que o `chr/eventos.ts` **não**
+  tem para o `contact.merged` e que aqui se tem, porque quem escreve o modo e
+  quem emite são o mesmo papel na mesma transacção.
+
+A cobertura de `src/modos/` mede-se aqui, contra o estrato **`critico`** e não o
+`restante`, e a decisão diverge da que a saída, o *handoff* e a mídia tomaram: é
+o único código que escreve `conversations.mode`, e um defeito nele não é um bug —
+é o assistente a interromper uma pessoa (`docs/tecnica/01` §10.2) ou a responder
+a um cliente que pediu para parar. `ci/thresholds.yaml` ganha `*/modos/*` no
+`critico`, e **isso pede dois revisores que esta alteração não tem**: fica dito
+aqui e na secção de verificação do ticket.
+
+**Não corre contra simulador nenhum, e isso é desenho e não falta.** A guarda
+recusa o envio **antes** de haver chamada à Meta — é o passo 3 dos sete do
+`outbound/adapter.ts`, e o `SQL_ENFILEIRAR` é o passo 4 —, pelo que não há
+chamada HTTP nenhuma a contar. A porta do AGR é uma interface (KAM-025) e não uma
+fila.
+
+**E o que esta *suite* não mede, por não existir:** a transição `bot→dono` por
+*echo* real precisa de `smb_message_echoes`, que é coexistência (KAM-017), e a
+métrica `echo_latency_ms` pede ≥ 30 *echoes* de *staging* com números +244
+(R6/L6, KAM-100). Nesta bateria o gatilho `echo_do_dono` é **disparado** pelo
+ensaio, que é o que a máquina expõe.
 
 ## 4. Gates reservados (5)
 
@@ -2267,4 +2344,5 @@ sobrevivem ao PR.
 | 1.46 | Outubro 2026 | **KAM-023, a segunda metade: a `tests_outbound` ganha a sexta propriedade e a suite `tests` ganha o `downgrade` da `0013`.** A revisao deixou de estar bloqueada quando o KAM-020 fundiu a `0012` — as revisoes de base encaixam uma na anterior pelo `down_revision`, e duas a reclamar o mesmo pai nao sao colisao mecanica: o Alembic recusa. O que entra: a marca de `motivo_restricao`, o conjunto `meta_error_codes_seen`, e o `channel.updated` a cair no `events_outbox` por `platform.evt_emitir` (o envelope constroi-se em SQL, regra do KAM-005 e do ADR-009). **Uma mutacao foi escrita e descartada por ser imortal:** apagava o `REVOKE`/`GRANT` que o `downgrade` fazia antes do `DROP COLUMN`, e nenhum teste a podia matar — o PostgreSQL remove a concessao **com** a coluna. As duas instrucoes sairam da revisao, e o teste do `downgrade` continua a provar a propriedade. **E o `--aplicaveis` apanhou um defeito que o `git merge` produziu sem conflito nenhum:** o KAM-020 e este ticket escolheram ambos a constante `MED_SQL` em `db/mutacoes.py`, e a minha, por vir depois, sombreou a dele — duas mutacoes da midia passaram a apontar para o ficheiro do free tier, sem nenhum teste o ver. As minhas passaram a `FT_*`. Sem *job* novo: o `esperados` do resumo nao muda. | Equipa KAMBA |
 | 1.47 | Outubro 2026 | **KAM-021: o *gate* 8 nao ganha *suite* nova, ganha cinco propriedades na `tests_outbound` e a revisao `0014` na `tests`.** A gestao de canal vive em `packages/core-ts/src/qualidade/` e entra nesta *suite* pelas mesmas razoes que o contador do KAM-023 — escreve `tenant_channels`, le `outbound_messages`, usa o mesmo `apoio.ts` — e por uma quarta que so vale para ela: **o criterio 9 prova-se de ponta a ponta**, com a `Saida` do KAM-015 a recusar um template num canal que a bateria da qualidade acabou de restringir, e isso precisa do `GraphFalso` do KAM-024, que **so esta *suite* monta**. O que so aqui se prova esta no §3: a idempotencia da transicao sob concorrencia real (o indice unico e que decide, e a chave e composta com o `tenant_id`), o **`42501`** de um `UPDATE` que nao existe na tabela nova — com a metade positiva a provar que o `SELECT` e o `INSERT` funcionam, sem a qual uma concessao em falta por inteiro passava as duas negativas —, a regra de que cada ticket levanta so o motivo que poe (nos **dois** sentidos, o `SQL_REPOR` e o `COALESCE` do `SQL_RESTRINGIR`), a medicao do escalao com `count(DISTINCT)` e 24 h **moveis**, e o criterio 9 de ponta a ponta. O *gate* 6 ganha a receita de sementes da `channel_quality_log`, e a descoberta do X-05 passa de vinte e duas para **vinte e tres** tabelas. **Dois defeitos que so uma maquina apanhou, e o segundo e do proprio teste:** o nome `max_phone_numbers_per_business` contem «phone» e dispara a lista fechada de colunas de telefone do `test_catalogo.py` (declarou-se, com a razao de que num `integer` nao cabe um E.164 — garantia mais forte do que a do `phone_number_id`, que e `text`), e descer de `head` para a `0011` passa agora pela `0014`, que compromete **antes** de a `0012` recusar, pelo que a assercao do `downgrade` da midia mudou de `TABELAS` para `TABELAS_ATE_0013`; e o grupo do criterio 9 passava **pela razao errada** — o `tenants.estado` nasce `onboarding`, que e mais restritivo do que `restrito`, pelo que as tres asserções de `STATE_REFUSED` teriam passado com o canal `ativo`. Ganhou um `before` que poe o *tenant* `ativo` e um teste de **controlo**. O `TEMPO_MAXIMO` da *suite* sobe de 900 para 1 200 s: ela ganhou quatro ficheiros em dois tickets e corre com `--test-concurrency=1`, pelo que os tempos somam. Sem *job* novo: o `esperados` do resumo nao muda. | Equipa KAMBA |
 | 1.48 | Outubro 2026 | **KAM-022: o *gate* 6 ganha a primeira vista do esquema e a `tests_outbound` ganha cinco propriedades.** A revisao `0015` cria duas tabelas — a `consent_event` (prova *append-only*) e a `consent_texts` (o texto do aviso, **sem `tenant_id`**: e um texto juridico de plataforma e nao dado de *tenant*, pelo que nao entra no X-05 nem no `../ci/rls_exceptions.yaml`, que continua com uma entrada so) — e **a `consent_actual`, a primeira vista**. O `verificar_vistas` do catalogo do X-05 existe desde o KAM-004 a exigir `security_invoker = true` sem lista de excepcoes, e **nunca tinha tido nada para ver**: sem a opcao, uma vista corre com os privilegios do dono e a RLS passa a depender do `FORCE`. A descoberta do X-05 passa de vinte e tres para **vinte e quatro** tabelas e ganha receita de sementes para a prova. O que so a `tests_outbound` prova esta no §3: a idempotencia pela **propria prova** sob concorrencia real, a vista a respeitar a RLS pelo caminho do modulo, o **`42501`** de um `UPDATE` que nao existe (com a metade positiva), a contagem de avisos pelo prefixo da chave de idempotencia — que nao acrescentou DDL —, e a versao vigente a excluir as futuras. **Quatro ripples que a primeira vista do esquema produziu, e nenhum estava previsto:** o `test_tenant_id_e_not_null_e_vem_primeiro_num_indice` descobria pelo `information_schema.columns`, que inclui as colunas das vistas, e uma vista nao tem indice nem `NOT NULL` (passou a filtrar `table_type = 'BASE TABLE'`); o `_tabelas` do `test_media_schema.py` era o unico dos tres que nao filtrava e passou a devolver uma relacao a mais; o inventario ganhou a vista como entrada **derivada** da tabela, com as tres colunas que ela nao mostra declaradas e com a razao de cada uma; e o dominio de `consent_texts.purpose` precisou de ser declarado **outra vez** no dicionario, porque os dominios dele sao qualificados pela coluna (emenda 1.14) — nove achados `fora-do-dicionario` a primeira volta. **E dois defeitos que so uma maquina apanhou, os dois do ensaio e nao do esquema:** a bateria inventou um `excepcao.sqlstate` que o `pg8000` nao tem (o codigo vem no campo `C` da mensagem do servidor, e o `db/tests/base.py` ja tinha o ajudante e os nomes) — dezasseis erros —, e a metade positiva do *append-only* contava linhas que a sessao da aplicacao nao podia ver, porque a ligacao do `ComBase` nunca confirma. **E um terceiro que o CI apanhou e eu nao, e e a licao deste documento:** declarar `consent_event.canal ∈ {whatsapp}` no dicionario fez o *gate* 3b passar a **exigir** um `CHECK` fechado nessa coluna em qualquer revisao que a crie, e a *fixture* **positiva** do canario do `canon_lint` criava-a sem ele. Eu corri as duas primeiras linhas do alvo `ci-3b` — o `dict_export --check` e o `canon_lint check` — e nao a terceira, o `canon_lint canario`; e ela derruba tambem o *gate* 4, porque o `test_o_canario_esta_verde` corre o canario dentro dos testes de unidade. **Correr a funcao de um gate nao e correr os testes dele**, e e a terceira vez que este conjunto paga essa licao. Sem *job* novo: o `esperados` do resumo nao muda. | Equipa KAMBA |
-| 1.49 | Outubro 2026 | **KAM-016: o *gate* 8 ganha sete propriedades na `tests_outbound` e a revisao `0017` na `tests`.** A revisao e a **`0017`** e nao a `0016` porque o KAM-018 reclamou aquele numero e chegou primeiro ao remoto — e a dele **nao cria tabela nenhuma**, pelo que o `TABELAS_ATE_0016` do `db/tests/base.py` tem as mesmas tabelas que o `TABELAS_ATE_0015` teria. O onboarding de canal vive em `packages/core-ts/src/onboarding/` e entra nesta *suite* pelas razoes dos tres tickets anteriores — escreve `tenant_channels`, usa o mesmo `apoio.ts` e os mesmos papeis — e por uma que nao tinha alternativa: **«0 subscricoes no WABA» le-se no `GraphFalso` do KAM-024, e esta e a unica *suite* do *gate* 8 que o monta.** A descoberta do X-05 passa de vinte e quatro para **vinte e cinco** tabelas e ganha receita de sementes para a tentativa de onboarding, com o canario no `waba_id` (a unicidade dele leva o `tenant_id`, pelo que os dois *tenants* podem semear o mesmo valor; o `phone_number_id` nao servia, porque a unicidade **dele** e global). **Tres defeitos que a maquina apanhou e eu nao, e os tres antes de a base entrar:** o cliente da Graph mandava o *code* e o `client_secret` no corpo `form-urlencoded`, pela RFC 6749 §4.1.3, e o `#trocarCode` do `GraphFalso` le `pedido.consulta.code` e responde `400` a quem nao o ponha la — alargar o simulador era passar a provar o cliente contra uma superficie alargada para lhe servir, pelo que se seguiu o simulador e a exposicao ficou **declarada** no `graph.ts`, no dicionario §3.20 e no `onboarding-canal.md` §6; a procura por «v2/v3» do criterio 1 estava escrita como `["']?[^3"']` e dava achado em `sessionInfoVersion: "3"` — o `["']?` casava vazio e o `[^3"']` casava a propria aspa —, pelo que o teste media a ortografia do canon e nao o codigo; e um `graph.ouvir()` a mais num teste ficou sem `fechar()` e o `node --test` **nunca terminou**, porque o processo tinha um socket a escuta. **E dois que o *gate* 3b apanhou, os dois da emenda:** declarar o dominio como `channel_onboarding.recursos_criados[].recurso` fez o `dict_export` colhe-lo como dominio da **coluna** `jsonb` e o gate exigiu-lhe um `CHECK (recursos_criados IN (…))` que ela nao pode ter — passou a `RecursoCriado.recurso`, qualificado pelo tipo, que e a correccao que a emenda 1.22 ja fez duas vezes; e o `waac_id` passou a ser nome do §3.20 e a extensao `tenant_channels.waac_id` ficou **redundante**, como o `token_ref` na emenda 1.22 (25 extensoes, eram 26). O `ci/thresholds.yaml` ganha **um** padrao — `*/onboarding/cifra.ts` no estrato `critico`, medido a 94,8% —, e o resto do modulo fica no `restante`, como o `qualidade/` e o `consentimento/`. Sem *job* novo: o `esperados` do resumo nao muda. | Equipa KAMBA |
+| 1.49 | Outubro 2026 | **KAM-018: o *gate* 8 passa a correr catorze *suites*.** A nova é `tests_modos`, e é a primeira que abre **três** ligações do **mesmo** papel: um `pg_advisory_xact_lock` só é exclusão mútua entre sessões diferentes, e o `comTenant` do `tenant_guard` recusa dois usos concorrentes da mesma ligação — com uma, as duas transacções sairiam em série e o ensaio provava que o JavaScript é sequencial. O que só aqui se prova está no §3: a guarda a **bloquear** à porta de uma transição em curso (medido: não resolve depois de 150 ms com a transacção aberta); duas transições concorrentes a deixarem **uma** transição e **um** evento pelo predicado `antes.mode = ANY(...)` sob `FOR UPDATE`, e não por quem leu primeiro; as 100 intercalações do critério 3 com semente **fixa** e corridas **duas vezes** para o provar (46 com o *echo* primeiro, 0 enviadas); o relógio das 24 h a contar do `handoffs.opened_at` quando não houve actividade humana, que é um `COALESCE` com subconsulta e um `max` sobre a tabela do KAM-019; e o `GRANT UPDATE (mode, last_human_activity_at)` da revisão `0016` a existir e a ser **por coluna**, com as quatro da identidade da conversa ainda vedadas. O estrato `critico` ganha `*/modos/*` — **e isso pede dois revisores que esta alteração não tem**, o que fica dito aqui, no comentário do `ci/thresholds.yaml` e na verificação do ticket. **Três mutações foram escritas, corridas e removidas**, as três por apagarem código inalcançável: duas guardas do `transicoes.ts` que nenhuma célula da tabela podia accionar — e a resposta foi **apagar as guardas** e afirmar o invariante num teste, porque uma guarda inalcançável dá a ilusão de proteger — e o `validarPayload` do evento, cuja precondição nenhum caminho alcança hoje; a chamada fica (é a regra do KAM-007) e o que a protege é um teste de paridade entre o que se monta e o que o contrato exige. **E três mutações sobreviveram e viraram testes:** o `FOR UPDATE` da transição, que só se mata correndo o SQL **sem** o *advisory lock*, e as duas escritas monótonas de `last_human_activity_at`, que só se matam com um *echo* fora de ordem — o caso real, porque a Meta não garante ordem nos *webhooks*. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |
+| 1.50 | Outubro 2026 | **KAM-016: o *gate* 8 ganha sete propriedades na `tests_outbound` e a revisao `0017` na `tests`.** A revisao e a **`0017`** e nao a `0016` porque o KAM-018 reclamou aquele numero e chegou primeiro ao remoto — e a dele **nao cria tabela nenhuma**, pelo que o `TABELAS_ATE_0016` do `db/tests/base.py` tem as mesmas tabelas que o `TABELAS_ATE_0015` teria. O onboarding de canal vive em `packages/core-ts/src/onboarding/` e entra nesta *suite* pelas razoes dos tres tickets anteriores — escreve `tenant_channels`, usa o mesmo `apoio.ts` e os mesmos papeis — e por uma que nao tinha alternativa: **«0 subscricoes no WABA» le-se no `GraphFalso` do KAM-024, e esta e a unica *suite* do *gate* 8 que o monta.** A descoberta do X-05 passa de vinte e quatro para **vinte e cinco** tabelas e ganha receita de sementes para a tentativa de onboarding, com o canario no `waba_id` (a unicidade dele leva o `tenant_id`, pelo que os dois *tenants* podem semear o mesmo valor; o `phone_number_id` nao servia, porque a unicidade **dele** e global). **Tres defeitos que a maquina apanhou e eu nao, e os tres antes de a base entrar:** o cliente da Graph mandava o *code* e o `client_secret` no corpo `form-urlencoded`, pela RFC 6749 §4.1.3, e o `#trocarCode` do `GraphFalso` le `pedido.consulta.code` e responde `400` a quem nao o ponha la — alargar o simulador era passar a provar o cliente contra uma superficie alargada para lhe servir, pelo que se seguiu o simulador e a exposicao ficou **declarada** no `graph.ts`, no dicionario §3.21 e no `onboarding-canal.md` §6; a procura por «v2/v3» do criterio 1 estava escrita como `["']?[^3"']` e dava achado em `sessionInfoVersion: "3"` — o `["']?` casava vazio e o `[^3"']` casava a propria aspa —, pelo que o teste media a ortografia do canon e nao o codigo; e um `graph.ouvir()` a mais num teste ficou sem `fechar()` e o `node --test` **nunca terminou**, porque o processo tinha um socket a escuta. **E dois que o *gate* 3b apanhou, os dois da emenda:** declarar o dominio como `channel_onboarding.recursos_criados[].recurso` fez o `dict_export` colhe-lo como dominio da **coluna** `jsonb` e o gate exigiu-lhe um `CHECK (recursos_criados IN (…))` que ela nao pode ter — passou a `RecursoCriado.recurso`, qualificado pelo tipo, que e a correccao que a emenda 1.22 ja fez duas vezes; e o `waac_id` passou a ser nome do §3.21 e a extensao `tenant_channels.waac_id` ficou **redundante**, como o `token_ref` na emenda 1.22 (25 extensoes, eram 26). O `ci/thresholds.yaml` ganha **um** padrao — `*/onboarding/cifra.ts` no estrato `critico`, medido a 94,8% —, e o resto do modulo fica no `restante`, como o `qualidade/` e o `consentimento/`. Sem *job* novo: o `esperados` do resumo nao muda. | Equipa KAMBA |

@@ -176,6 +176,26 @@ estratos:
       # *Proposta*, como os limiares: alterar este ficheiro pede dois
       # revisores, e esta alteracao **nao** marca essa caixa.
       - "*/chr/*"
+      # Modos da conversa: quem tem a palavra, e o silenciamento do bot
+      # (KAM-018, ADR-015). **O modulo inteiro.**
+      #
+      # Entra pela mesma razao que o `chr` — e a decisao que usa o `tenant_id`
+      # do contexto, e `specs/01` §4.1 poe o isolamento de tenant neste
+      # estrato — e por uma segunda que e so deste modulo: e o **unico** codigo
+      # que escreve `conversations.mode`, e um defeito aqui nao e um bug, e o
+      # assistente a interromper uma pessoa (`docs/tecnica/01` §10.2) ou a
+      # responder a um cliente que pediu para parar. O DoD do ticket exige
+      # «cobertura >= limiar», e sem este padrao os ficheiros caiam no
+      # `restante` (`packages/*/src/**` apanha-os) a 75%.
+      #
+      # **A medicao nao e a do gate 4, e isso fica dito**: a guarda e as
+      # transicoes correm sob um *advisory lock* contra uma base real, e sem ela
+      # so corre a tabela de transicoes (que e pura). Quem as mede por ficheiro,
+      # a 90%, e `db/tests_modos/`, que le este limiar deste ficheiro.
+      #
+      # *Proposta*, como os limiares: alterar este ficheiro pede dois
+      # revisores, e esta alteracao **nao** marca essa caixa.
+      - "*/modos/*"
 
   - nome: restante
     minimo_linhas: 75

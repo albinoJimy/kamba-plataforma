@@ -75,6 +75,10 @@
       "types": "./dist/qualidade/index.d.ts",
       "default": "./dist/qualidade/index.js"
     },
+    "./modos": {
+      "types": "./dist/modos/index.d.ts",
+      "default": "./dist/modos/index.js"
+    },
     "./onboarding": {
       "types": "./dist/onboarding/index.d.ts",
       "default": "./dist/onboarding/index.js"

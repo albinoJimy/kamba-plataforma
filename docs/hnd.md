@@ -268,6 +268,16 @@ A porta fica, com o tipo certo, para que o KAM-018 a ligue sem alterar a
 interface. Omiti-la era esconder hoje o que vai ter de aparecer — e a caixa do
 critério fica **vazia**, com isto escrito.
 
+> **Actualização (KAM-018).** O privilégio existe: a revisão `0016` concede
+> `UPDATE (mode, last_human_activity_at)` a `kamba_app`, que é o que a `0009`
+> reservou para este ticket. O `setBotMuted` **continua** a levantar, e a razão
+> mudou: já não é «não há privilégio», é que ligá-lo é alterar o provedor deste
+> ticket, e o KAM-018 não o faz para não alargar escopo em silêncio. A caixa
+> fica vazia, agora por esta razão. Quem a quiser marcar liga a porta ao
+> `MaquinaDeModos.disparar` com os gatilhos `handoff_pedido` e
+> `handoff_resolvido` — o desenho está em
+> [`modos-conversa.md`](modos-conversa.md).
+
 Na mesma classe, e também com a caixa vazia: duas chamadas **concorrentes** a
 `ensureAccount` podem deixar uma conta **órfã** no provedor. A linha precisa dos
 identificadores que só a criação devolve, pelo que não se pode escrever
@@ -321,3 +331,4 @@ pede, e o que ela responde está em
 |---|---|---|
 | 1.0 | 2026-10-20 | Criado pelo KAM-019. |
 | 1.1 | 2026-10-21 | **O spike correu, e a §3 é o que ele mediu.** O veredicto é `O TOKEN DO BOT CHEGA` — o `pending → open` com o *token* do *agent bot* responde 200 e o plano B não é preciso para o estado. O que mudou o desenho foram as outras cinco medições: o *token* da Platform API dá 401 nos *endpoints* da conta, o *inbox* precisa de um utilizador ligado por `account_users`, o `set_agent_bot` é obrigatório, a conversa precisa de um contacto que exista, e o *token* do bot não cria contactos — pelo que o do utilizador é preciso em execução e a `handoff_accounts` passa a ter duas `SecretRef` e o `provider_user_id` (emenda 1.23). O cliente separou-se em dois objectos, pelo `tecnica/08` §3.6. E a chave do contacto passou a ser **opaca**: a primeira versão mandava o nosso `contact_id` para fora, contra o ADR-010. |
+| 1.2 | 2026-10-22 | **KAM-018: a razão pela qual o `setBotMuted` não é executável mudou, e a §9 di-lo.** O privilégio existe — a revisão `0016` concede `UPDATE (mode, last_human_activity_at)` a `kamba_app` —, pelo que a frase «`kamba_app` não tem `UPDATE (mode)`» deixou de ser verdade. O `setBotMuted` continua a levantar porque ligá-lo é alterar este provedor, e o KAM-018 não o faz para não alargar escopo em silêncio. A caixa do critério fica vazia, agora por esta razão, e a §9 diz como se liga. |
