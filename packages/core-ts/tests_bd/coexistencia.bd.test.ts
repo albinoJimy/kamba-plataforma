@@ -139,8 +139,8 @@ describe("a coexistencia contra a base", () => {
     await abrir(app, canalA);
     // As duas pela mesma ordem, em paralelo. O que decide e o predicado.
     const resultados = await Promise.all([
-      app.query(SQL_MARCAR_PASSO, [tenantA, canalA, "historico", 1, 100]),
-      app2.query(SQL_MARCAR_PASSO, [tenantA, canalA, "historico", 1, 100]),
+      app.query(SQL_MARCAR_PASSO, [tenantA, canalA, "historico", 1, 100, T0]),
+      app2.query(SQL_MARCAR_PASSO, [tenantA, canalA, "historico", 1, 100, T0]),
     ]);
     const escreveram = resultados.filter((r) => r.rowCount === 1).length;
     assert.equal(escreveram, 1, "o predicado nao serializou: as duas escreveram");
@@ -163,8 +163,8 @@ describe("a coexistencia contra a base", () => {
     await limpar();
     await abrir(app, canalA);
     await Promise.all([
-      app.query(SQL_MARCAR_PASSO, [tenantA, canalA, "contactos", 2, 0]),
-      app2.query(SQL_MARCAR_PASSO, [tenantA, canalA, "historico", 0, 50]),
+      app.query(SQL_MARCAR_PASSO, [tenantA, canalA, "contactos", 2, 0, T0]),
+      app2.query(SQL_MARCAR_PASSO, [tenantA, canalA, "historico", 0, 50, T0]),
     ]);
     const { rows } = await admin.query<{ passos_feitos: string[] }>(
       "SELECT passos_feitos FROM platform.channel_coexistence " +
@@ -175,6 +175,50 @@ describe("a coexistencia contra a base", () => {
       "contactos",
       "historico",
     ]);
+  });
+
+  it("[bd] um lote depois do prazo nao entra, e e a instrucao que o recusa", async () => {
+    // **Sem chamar a varredura.** O `prazo_em > $6` e o que torna as 24 h
+    // duras pela base e nao pelo calendario de quem varre — e, como nao ha
+    // agendador, essa diferenca e a unica coisa entre «o prazo e duro» e «o
+    // prazo e duro a partir do momento em que alguem se lembrar».
+    await limpar();
+    await abrir(app, canalA);
+    const depois = new Date(T0.getTime() + PRAZO_DE_SINCRONIZACAO_MS + 1_000);
+    const r = await app.query(SQL_MARCAR_PASSO, [
+      tenantA,
+      canalA,
+      "historico",
+      1,
+      10,
+      depois,
+    ]);
+    assert.equal(r.rowCount, 0);
+    const { rows } = await admin.query<{ passos_feitos: string[]; estado: string }>(
+      "SELECT passos_feitos, estado FROM platform.channel_coexistence " +
+        "WHERE tenant_id = $1 AND channel_id = $2",
+      [tenantA, canalA],
+    );
+    assert.deepEqual(rows[0]?.passos_feitos, []);
+    assert.equal(rows[0]?.estado, "a_sincronizar");
+  });
+
+  it("[bd] a varredura dos prazos corre como kamba_batch, e nao como admin", async () => {
+    // **O teste que teria apanhado o defeito da primeira versao.** As tres
+    // varreduras sao `UPDATE` sem `tenant_id`, logo so correm com `BYPASSRLS`
+    // — e a `0018` negava o `UPDATE` ao unico papel que o tem. Respondiam
+    // `42501`, e os criterios 3 e 6 nao tinham caminho executavel.
+    await limpar();
+    await abrir(app, canalA);
+    const batch = await ligar("batch");
+    try {
+      const depois = new Date(T0.getTime() + PRAZO_DE_SINCRONIZACAO_MS + 1_000);
+      const { coex } = montar(() => depois);
+      const r = await coex.varrerPrazos(batch);
+      assert.deepEqual(r.falhados, [canalA]);
+    } finally {
+      await batch.end();
+    }
   });
 
   it("[bd] o relogio acelerado fecha as 24 h, e a segunda varredura nao faz nada", async () => {
@@ -214,8 +258,8 @@ describe("a coexistencia contra a base", () => {
     const canal = await coex.canal(app, tenantA, pnidA);
     assert.ok(canal !== null);
     await coex.abrir(app, tenantA, canal);
-    await app.query(SQL_MARCAR_PASSO, [tenantA, canalA, "contactos", 5, 0]);
-    await app.query(SQL_MARCAR_PASSO, [tenantA, canalA, "historico", 0, 900]);
+    await app.query(SQL_MARCAR_PASSO, [tenantA, canalA, "contactos", 5, 0, T0]);
+    await app.query(SQL_MARCAR_PASSO, [tenantA, canalA, "historico", 0, 900, T0]);
     const maisTarde = new Date(T0.getTime() + 30 * 24 * 60 * 60 * 1_000);
     const { coex: outra } = montar(() => maisTarde);
     await outra.abrir(app, tenantA, canal);

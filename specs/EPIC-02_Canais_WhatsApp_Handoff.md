@@ -1275,6 +1275,75 @@ todos o mesmo, e montar **um** braço enquanto os outros ficam por montar deixav
 o processo a tratar coexistência e a ignorar qualidade e consentimento. A ordem
 de montagem está em `../docs/coexistencia.md` §9.
 
+**Sete defeitos da revisão adversarial, e dois deles tornavam critérios
+inexecutáveis.** Todos corrigidos neste PR, com teste a prender cada um:
+
+1. **As três varreduras não podiam correr.** As do critério 3 (alerta às 12 h,
+   `falhado` às 24 h) e a do critério 6 são `UPDATE` **sem `tenant_id` no
+   predicado**, logo só correm com `BYPASSRLS` — e o único papel que o tem é o
+   `kamba_batch`, a quem a primeira versão da `0018` negava o `UPDATE`. Pior: a
+   nota da revisão justificava a negação dizendo que «não há caminho de
+   retaguarda que altere o estado de uma sincronização», quando o módulo tinha
+   três. Respondiam `42501`, e **os critérios 3 e 6 não tinham caminho
+   executável** — só decisão escrita. O precedente estava à vista e não se
+   seguiu: o `abandonarVencidas` do KAM-016 corre como `kamba_batch` e a `0017`
+   dá-lhe os quatro verbos. O teste de base ajudava a esconder, porque corria a
+   varredura com o administrador e dizia que o que provava era «o predicado».
+2. **Os emissores reais não encaixavam na porta `Emitir`.** A porta tem cinco
+   parâmetros com o `channelId` em terceiro, e as funções tinham quatro e três
+   sem ele. **Nem o compilador nem o contrato apanhavam** — o TypeScript admite
+   atribuir uma função de menos parâmetros, e o `motivo` do esquema é `string`
+   livre —, pelo que o `channel.updated` sairia com o **UUID do canal** no
+   `phone_number_id` e o `phone_number_id` no `motivo`. Ficava latente porque
+   todos os testes substituíam as portas por lambdas; o teste novo liga os
+   emissores **reais** e lê o que chega ao `evt_emitir`.
+3. **Um canal `suspenso` ficava com as duas tabelas em desacordo.** A ordem era
+   registar e depois desligar, e o `SQL_DESLIGAR_CANAL` não toca em `suspenso`
+   nem em `encerrado` (de propósito: uma suspensão é decisão nossa que um
+   *webhook* da Meta não revoga) — mas o registo já tinha mordido, e a função
+   devolvia normalmente. Era exactamente o modo de falhar que o tratador diz
+   prevenir. Inverteu-se: o canal primeiro, o registo só se ele transitou.
+4. **O aviso `desligamento_desalinhado` disparava no caminho normal de um canal
+   `cloud_only`**, que nunca tem linha de coexistência porque o `abrir` não
+   insere nesse modo — ruído no sinal que existe para apanhar desalinhamento a
+   sério.
+5. **O teste de privilégios por coluna era vácuo.** Ele avalia
+   `de_tabela or coluna in por_coluna`, e um `GRANT UPDATE` de tabela
+   curto-circuita o `or`: a lista nunca era confrontada, e o comentário que a
+   acompanhava afirmava uma restrição que não existia — o `kamba_app` **podia**
+   mover uma coexistência para o canal ou o *tenant* de outro. O `GRANT` passou
+   a ser **por coluna**, o que torna o teste real e fecha o buraco; há também um
+   teste que o afirma pelo efeito, e não só pela lista de nomes.
+6. **O prazo das 24 h não era duro.** O `SQL_MARCAR_PASSO` e o `SQL_CONCLUIR`
+   filtravam por `estado` e nunca pelo `prazo_em`: como não há agendador, um
+   `history` reentregue às 30 h encontrava o estado ainda em `a_sincronizar` e
+   fechava a sincronização **depois** do prazo. O teste que parecia cobri-lo
+   chamava a varredura antes, pelo que provava o predicado do estado e não o
+   prazo. Entrou o `prazo_em > $n` nas duas instruções, e o teste novo **não**
+   chama a varredura.
+7. **Um *echo* num canal sem linha de coexistência falhava fechado e mudo** — o
+   relógio não avançava, o aviso dos 10 dias deixava de sair, e nada o
+   registava. Passou a registar-se. E, a propósito, o `EVENTO_PARTNER_REMOVED`
+   era uma constante exportada e nunca lida: o tratador decidia só pelo
+   `reason`. Passou a ser guarda.
+
+**E o que a revisão procurou e não encontrou**, que vale tanto como o que
+encontrou: confrontou os **dezoito** valores de `outcome` com o espelho Python
+(todos passam, e o `2593109` é recusado nos dois campos, como a §3.22 afirma);
+rastreou o `interlocutor` de um *echo* por todo o `src/` e `services/` até
+concluir que não chega a nenhuma escrita; e verificou que nenhuma etiqueta de
+métrica aceita um identificador, que todas as consultas levam `tenant_id` além
+da RLS — excepto as três varreduras, que o declaram —, e que o `downgrade` é
+reversível com linhas.
+
+**Uma alínea do critério 1 fica por demonstrar com *fixture* do simulador.** Ele
+pede «*fixture* com 6 meses de histórico»; a do KAM-024 traz **uma** *thread*, e
+o caminho de seis meses exercita-se com uma contagem sintética (1 240 mensagens)
+em `tests/coexistencia.test.ts`. A propriedade que o critério mede — zero *jobs*,
+zero envios, zero corpos — não depende do volume, e é por isso que a caixa fica
+marcada; o que falta é a *fixture* saber produzir o volume, e isso é do KAM-024
+(dívida **83**, que é onde a contradição daquela *fixture* já está declarada).
+
 ### Handoff para Claude Code
 
 ```text

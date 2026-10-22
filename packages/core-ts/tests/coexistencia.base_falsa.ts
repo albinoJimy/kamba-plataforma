@@ -214,13 +214,17 @@ export class BaseFalsa {
     }
 
     if (sql === SQL_MARCAR_PASSO) {
-      const [tenantId, channelId, passo, contactos, mensagens] = parametros;
+      const [tenantId, channelId, passo, contactos, mensagens, agora] = parametros;
       const linha = this.linhas.get(chave(tenantId, channelId));
-      // **Os dois predicados da `0018`**, e sem eles este duplo media o codigo
-      // a falar consigo: o estado e o passo ja feito.
+      // **Os tres predicados da instrucao**, e sem eles este duplo media o
+      // codigo a falar consigo: o estado, o prazo e o passo ja feito. O do
+      // prazo entrou com a revisao adversarial — sem ele, um lote atrasado
+      // fechava a sincronizacao depois das 24 h enquanto a varredura nao
+      // corresse.
       if (
         linha === undefined ||
         linha.estado !== "a_sincronizar" ||
+        linha.prazo_em <= (agora as Date) ||
         linha.passos_feitos.includes(passo as Passo)
       ) {
         return { rows: [] };
@@ -237,6 +241,7 @@ export class BaseFalsa {
       if (
         linha === undefined ||
         linha.estado !== "a_sincronizar" ||
+        linha.prazo_em <= (agora as Date) ||
         !linha.passos_feitos.includes("contactos") ||
         !linha.passos_feitos.includes("historico")
       ) {

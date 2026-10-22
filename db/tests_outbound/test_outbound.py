@@ -277,6 +277,11 @@ TESTES_OBRIGATORIOS = (
     "um echo cujo wamid consta de `outbound_messages` e ignorado",
     "abrir duas vezes repoe a linha e nao cria segunda",
     "[bd] duas ligacoes a marcar o mesmo passo: uma escreve, a outra zero",
+    # Da revisao adversarial: as duas que prendem os dois defeitos que tornavam
+    # criterios inexecutaveis — o prazo que nao mordia na instrucao, e a
+    # varredura que respondia `42501` por o `kamba_batch` nao ter `UPDATE`.
+    "[bd] um lote depois do prazo nao entra, e e a instrucao que o recusa",
+    "[bd] a varredura dos prazos corre como kamba_batch, e nao como admin",
     "[bd] duas aberturas concorrentes deixam **uma** linha",
     "[bd] dois `account_update` concorrentes deixam **uma** transicao",
     "[bd] com o contexto de A, a coexistencia de B nao se altera",

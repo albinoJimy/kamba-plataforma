@@ -193,6 +193,25 @@ MOTIVOS_DE_DESLIGAMENTO = (
 )
 
 
+#: As colunas que `kamba_app` pode alterar, na forma que o `GRANT UPDATE` quer.
+#:
+#: **Todas as de estado, e nenhuma das tres chaves.** O `id`, o `tenant_id` e o
+#: `channel_id` ficam de fora pela razao de sempre: mover uma coexistencia de
+#: canal ou de *tenant* era entregar o estado de sincronizacao de um negocio a
+#: outro, e a unicidade `(tenant_id, channel_id)` deixava de significar o que
+#: significa. O `criado_at` tambem fica: e registo.
+#:
+#: Numa constante de modulo e nao inline, pela razao que a `0013` escreveu e a
+#: `0014` repetiu: quem vem aqui ver o que a aplicacao pode fazer le uma lista,
+#: e o *gate* 3b le o **texto** das instrucoes sem as executar.
+COLUNAS_QUE_A_APP_ALTERA = (
+    "estado, passos_feitos, iniciado_em, prazo_em, alertado_em,\n"
+    "                 concluido_em, contactos_vistos, mensagens_vistas,\n"
+    "                 meta_error_code, ultimo_echo_em, avisado_em,\n"
+    "                 motivo_desligamento, desligado_em, actualizado_at"
+)
+
+
 def upgrade() -> None:
     op.execute(
         f"""
@@ -375,14 +394,39 @@ def upgrade() -> None:
     # corre no caminho de um webhook, e quem trata webhooks e o `worker-canal`
     # sob RLS `FORCE`. Sem `DELETE`, pela regra da `0001`: «soft delete: estado,
     # nunca DELETE».
+    #
+    # **E o `UPDATE` e por coluna**, como o da `0001` em `tenant_channels`. A
+    # primeira versao desta revisao dava-o ao nivel da tabela, e a revisao
+    # adversarial mediu o que isso custava **duas** vezes: o `kamba_app` podia
+    # mover uma coexistencia para o canal — ou para o *tenant* — de outro, o que
+    # e exactamente o que a FK composta existe para impedir pelo outro lado; e o
+    # `test_privilegios_por_coluna_nas_tabelas_com_matriz` ficava **vacuo**,
+    # porque ele compara `de_tabela or coluna in por_coluna` e um `UPDATE` de
+    # tabela curto-circuita o `or` — a lista de colunas nunca chegava a ser
+    # confrontada, e o comentario que a acompanhava afirmava uma restricao que
+    # nao existia. Com a lista aqui, as duas coisas ficam verdadeiras.
+    op.execute("GRANT SELECT, INSERT ON platform.channel_coexistence TO kamba_app")
     op.execute(
-        "GRANT SELECT, INSERT, UPDATE ON platform.channel_coexistence TO kamba_app"
+        f"""
+        GRANT UPDATE ({COLUNAS_QUE_A_APP_ALTERA})
+          ON platform.channel_coexistence TO kamba_app
+        """
     )
-    # Le para o relatorio e apaga na purga (KAM-071). **Sem `UPDATE`**: nao ha
-    # caminho de retaguarda que altere o estado de uma sincronizacao, e dar-lhe
-    # o verbo era abrir um que ninguem pediu.
+    # Le para o relatorio, **varre os prazos** e apaga na purga (KAM-071).
+    #
+    # **O `UPDATE` e indispensavel, e a primeira versao desta revisao negava-o
+    # com uma razao que o proprio codigo contrariava.** Dizia «nao ha caminho de
+    # retaguarda que altere o estado de uma sincronizacao»; ha tres — o alerta
+    # das 12 h, a falha das 24 h e o aviso dos 10 dias —, e as tres sao `UPDATE`
+    # **sem `tenant_id` no predicado**, porque um prazo que caiu nao e problema
+    # de uma loja. Um `UPDATE` sem contexto so corre com `BYPASSRLS`, e o unico
+    # papel que o tem e este (`db/bootstrap.py`). Sem esta concessao as tres
+    # varreduras respondiam `42501`, e **os criterios 3 e 6 nao tinham caminho
+    # executavel** — so decisao escrita. Achado da revisao adversarial; o
+    # precedente estava a vista e nao se seguiu: o `abandonarVencidas` do
+    # KAM-016 corre como `kamba_batch` e a `0017` concede-lhe os quatro verbos.
     op.execute(
-        "GRANT SELECT, DELETE ON platform.channel_coexistence TO kamba_batch"
+        "GRANT SELECT, UPDATE, DELETE ON platform.channel_coexistence TO kamba_batch"
     )
 
 

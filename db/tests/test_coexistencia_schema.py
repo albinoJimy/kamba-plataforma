@@ -501,22 +501,74 @@ class TestCoexistenciaDoCanal(ComBase):
 
     # -------------------------------------------------------- privilegios
 
-    def test_o_kamba_app_le_insere_e_altera(self) -> None:
+    def test_o_kamba_app_le_insere_e_altera_por_coluna(self) -> None:
         """A diferenca face a `channel_onboarding`, e tem razao.
 
         O onboarding e provisionamento e corre de retaguarda; a coexistencia
         corre no **caminho de um webhook**, e quem trata webhooks e o
         `worker-canal` com o papel `kamba_app` sob RLS `FORCE`.
+
+        **Mas o `UPDATE` e por coluna e nao de tabela**, pelo que nao aparece no
+        `table_privileges`: as tres chaves (`id`, `tenant_id`, `channel_id`) e o
+        `criado_at` ficam de fora. Mover uma coexistencia para o canal — ou para
+        o *tenant* — de outro era entregar o estado de sincronizacao de um
+        negocio a outro, que e o que a FK composta impede pelo outro lado.
         """
         self.cursor.execute(
             "SELECT privilege_type FROM information_schema.table_privileges "
             "WHERE table_schema = 'platform' AND table_name = 'channel_coexistence' "
             "  AND grantee = 'kamba_app' ORDER BY 1"
         )
+        self.assertEqual([l[0] for l in self.cursor.fetchall()], ["INSERT", "SELECT"])
+
+    def test_o_kamba_app_altera_as_colunas_de_estado_e_nenhuma_chave(self) -> None:
+        self.cursor.execute(
+            "SELECT column_name FROM information_schema.column_privileges "
+            "WHERE table_schema = 'platform' AND table_name = 'channel_coexistence' "
+            "  AND grantee = 'kamba_app' AND privilege_type = 'UPDATE' ORDER BY 1"
+        )
         self.assertEqual(
             [l[0] for l in self.cursor.fetchall()],
-            ["INSERT", "SELECT", "UPDATE"],
+            [
+                "actualizado_at",
+                "alertado_em",
+                "avisado_em",
+                "concluido_em",
+                "contactos_vistos",
+                "desligado_em",
+                "estado",
+                "iniciado_em",
+                "mensagens_vistas",
+                "meta_error_code",
+                "motivo_desligamento",
+                "passos_feitos",
+                "prazo_em",
+                "ultimo_echo_em",
+            ],
         )
+
+    def test_o_kamba_app_nao_pode_mover_uma_coexistencia_de_canal(self) -> None:
+        """O que a lista de colunas protege, afirmado pelo efeito.
+
+        Uma lista de nomes prova que o `GRANT` tem aquela forma; isto prova o
+        que ela impede. Sem o `UPDATE` por coluna, esta instrucao passava.
+        """
+        import pg8000.dbapi
+
+        self._inserir()
+        outro = factories.canal(self.cursor, self.tenant)
+        self.cursor.execute("SET LOCAL ROLE kamba_app")
+        self.cursor.execute("SAVEPOINT mover")
+        try:
+            with self.assertRaises(pg8000.dbapi.DatabaseError) as capturado:
+                self.cursor.execute(
+                    "UPDATE platform.channel_coexistence SET channel_id = %s",
+                    (outro,),
+                )
+        finally:
+            self.cursor.execute("ROLLBACK TO SAVEPOINT mover")
+            self.cursor.execute("RESET ROLE")
+        self.assertEqual(sqlstate(capturado.exception), PRIVILEGIO_INSUFICIENTE)
 
     def test_o_kamba_app_nao_tem_delete(self) -> None:
         """A regra da `0001`: «soft delete: estado, nunca DELETE»."""
@@ -526,19 +578,46 @@ class TestCoexistenciaDoCanal(ComBase):
         )
         self.assertFalse(self.cursor.fetchone()[0])
 
-    def test_o_kamba_batch_le_e_apaga_e_nao_escreve(self) -> None:
-        """**Sem `UPDATE` e sem `INSERT`**, e isso e desenho e nao omissao.
+    def test_o_kamba_batch_le_altera_e_apaga_e_nao_insere(self) -> None:
+        """**Com `UPDATE` e sem `INSERT`**, e as duas metades tem razao.
 
-        Nao ha caminho de retaguarda que abra nem altere uma sincronizacao —
-        quem a abre e o tratador do `subscrito -> a_sincronizar`, que corre como
-        `kamba_app`. Dar-lhe os verbos era abrir um caminho que ninguem pediu.
+        O `UPDATE` e indispensavel: as tres varreduras — o alerta das 12 h, a
+        falha das 24 h e o aviso dos 10 dias — sao `UPDATE` **sem `tenant_id` no
+        predicado**, porque um prazo que caiu nao e problema de uma loja, e um
+        `UPDATE` sem contexto so corre com `BYPASSRLS`. O `kamba_batch` e o
+        unico papel que o tem. **A primeira versao desta revisao negava-lho**,
+        com uma razao que o proprio codigo contrariava, e as tres varreduras
+        respondiam `42501`: os criterios 3 e 6 nao tinham caminho executavel.
+
+        O `INSERT` continua negado: quem abre uma sincronizacao e o tratador do
+        `subscrito -> a_sincronizar`, que corre como `kamba_app`.
         """
         self.cursor.execute(
             "SELECT privilege_type FROM information_schema.table_privileges "
             "WHERE table_schema = 'platform' AND table_name = 'channel_coexistence' "
             "  AND grantee = 'kamba_batch' ORDER BY 1"
         )
-        self.assertEqual([l[0] for l in self.cursor.fetchall()], ["DELETE", "SELECT"])
+        self.assertEqual(
+            [l[0] for l in self.cursor.fetchall()], ["DELETE", "SELECT", "UPDATE"]
+        )
+
+    def test_a_varredura_dos_prazos_corre_como_kamba_batch(self) -> None:
+        """O que o teste acima promete, afirmado pelo efeito.
+
+        Uma lista de privilegios prova que o `GRANT` existe; isto prova que a
+        varredura **corre**. E o teste que teria apanhado o defeito.
+        """
+        self._inserir()
+        self.cursor.execute("SET LOCAL ROLE kamba_batch")
+        try:
+            self.cursor.execute(
+                "UPDATE platform.channel_coexistence SET estado = 'falhado', "
+                "actualizado_at = now() WHERE estado = 'a_sincronizar' "
+                "AND prazo_em <= now() + interval '48 hours' RETURNING id::text"
+            )
+            self.assertEqual(len(self.cursor.fetchall()), 1)
+        finally:
+            self.cursor.execute("RESET ROLE")
 
     def test_os_papeis_de_leitura_nao_veem_a_tabela(self) -> None:
         for papel in ("kamba_resolver", "kamba_identity", "kamba_audit"):

@@ -36,6 +36,26 @@
  * envelope e **não** valida o payload contra o contrato. Validar depois é
  * descobrir o defeito com o evento já publicado.
  *
+ * ## As assinaturas sao **as da porta `Emitir`**, e isso custou um achado
+ *
+ * As duas funcoes levam um `_channelId` que nao usam e um `motivo` que, no
+ * aviso, e sempre `null`. Nao e desleixo: e o que as torna atribuiveis a porta
+ * `Emitir` do `contrato.ts`, que tem **cinco** parametros com o `channelId` em
+ * terceiro.
+ *
+ * A primeira versao tinha quatro e tres parametros, sem o `channelId`, e **nem
+ * o compilador nem o contrato apanhavam**: o TypeScript admite atribuir uma
+ * funcao de menos parametros a um tipo de mais, e o `motivo` do
+ * `channel.updated/v2.schema.json` e `string` livre. O resultado, medido pela
+ * revisao adversarial, era um `channel.updated` publicado com o **UUID do
+ * canal** no `phone_number_id` e o `phone_number_id` no `motivo` — e o
+ * consumidor do KAM-115 a procurar um numero onde estava um UUID. Ficava
+ * latente porque todos os testes substituiam as portas por lambdas.
+ *
+ * O `motivo` e `string | null` pela mesma razao — e a porta que o declara —, e
+ * um `null` no `channel.updated` **levanta** em vez de publicar um payload que
+ * o `required` do esquema recusa.
+ *
  * ## Privacidade
  *
  * Os dois payloads levam o `phone_number_id`, que é o identificador **da
@@ -133,9 +153,16 @@ async function emitir(
 export async function emitirCanalActualizado(
   cliente: ClienteSql,
   tenantId: string,
+  _channelId: string,
   phoneNumberId: string,
-  motivo: string,
+  motivo: string | null,
 ): Promise<string> {
+  if (motivo === null) {
+    throw new TypeError(
+      "channel.updated exige um motivo: o v2.schema.json tem-no em `required`, " +
+        "e um payload sem ele e recusado pelo validarPayload",
+    );
+  }
   return emitir(
     cliente,
     TIPO_CHANNEL_UPDATED,
@@ -156,7 +183,9 @@ export async function emitirCanalActualizado(
 export async function emitirAvisoDeInactividade(
   cliente: ClienteSql,
   tenantId: string,
+  _channelId: string,
   phoneNumberId: string,
+  _motivo: string | null = null,
 ): Promise<string> {
   return emitir(
     cliente,

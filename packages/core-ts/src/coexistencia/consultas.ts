@@ -111,6 +111,21 @@ export const SQL_POR_CANAL = `
  * prazo das 24 h ter caído não ressuscita uma sincronização `falhada`. A Meta
  * reenvia durante sete dias, e sem este predicado um `history` atrasado
  * desfazia o *offboard* que o critério 3 acabou de pedir.
+ *
+ * ## E o prazo está aqui, e não só na varredura
+ *
+ * O `prazo_em > $6` é o que torna as 24 h **duras** em vez de «duras a partir
+ * do momento em que alguém chamar a varredura». A primeira versão não o tinha,
+ * e a revisão adversarial mediu o que faltava: como não há agendador (nasce com
+ * o KAM-071/KAM-078), um `history` que chegasse às 30 h encontrava o estado
+ * ainda em `a_sincronizar` — ninguém o tinha marcado `falhado` — e a
+ * sincronização fechava em `sincronizado`, **depois do prazo**.
+ *
+ * Com ele, a regra passa a ser propriedade da base e não do calendário de quem
+ * varre, que é o argumento que o resto deste módulo usa em todo o lado. A
+ * varredura continua a fazer falta: é ela que escreve o `falhado` e pede o
+ * *offboard*. O que muda é que o lote atrasado já não entra enquanto ela não
+ * corre.
  */
 export const SQL_MARCAR_PASSO = `
   UPDATE platform.channel_coexistence
@@ -121,6 +136,7 @@ export const SQL_MARCAR_PASSO = `
    WHERE tenant_id = $1
      AND channel_id = $2
      AND estado = 'a_sincronizar'
+     AND prazo_em > $6
      AND NOT ($3::text = ANY (passos_feitos))
   RETURNING passos_feitos AS passos_feitos
 `;
@@ -142,6 +158,7 @@ export const SQL_CONCLUIR = `
    WHERE tenant_id = $1
      AND channel_id = $2
      AND estado = 'a_sincronizar'
+     AND prazo_em > $3
      AND passos_feitos @> ARRAY['contactos','historico']::text[]
   RETURNING id::text AS id
 `;

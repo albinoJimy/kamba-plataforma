@@ -40,6 +40,8 @@ interface Montado {
   readonly transicoes: string[];
   readonly emitidos: { tipo: string; motivo: string | null }[];
   readonly contactados: ContactoDoSync[];
+  /** Os `outcome` que o registo levou, para os testes que os afirmam. */
+  readonly avisos: string[];
   relogio: Date;
   conversaDe: (contactId: string) => string | null;
 }
@@ -57,6 +59,7 @@ function montar(opcoes: { modo?: string } = {}): Montado {
     transicoes: [],
     emitidos: [],
     contactados: [],
+    avisos: [],
     relogio: T0,
     conversaDe: (contactId) => `conv-${contactId}`,
   };
@@ -81,6 +84,20 @@ function montar(opcoes: { modo?: string } = {}): Montado {
       estado.transicoes.push(conversationId);
     },
     metricas: estado.metricas,
+    // Um duplo de `Logger` que so guarda o `outcome`: e o minimo que deixa um
+    // teste afirmar que um caminho **nao ficou mudo**, sem montar o logger a
+    // serio (que em modo estrito levanta, e e isso que outros testes medem).
+    log: {
+      info: (campos?: { outcome?: string }) => {
+        if (campos?.outcome !== undefined) estado.avisos.push(campos.outcome);
+      },
+      warn: (campos?: { outcome?: string }) => {
+        if (campos?.outcome !== undefined) estado.avisos.push(campos.outcome);
+      },
+      error: (campos?: { outcome?: string }) => {
+        if (campos?.outcome !== undefined) estado.avisos.push(campos.outcome);
+      },
+    } as never,
     agora: () => estado.relogio,
   });
   return Object.assign(estado, { coex });
@@ -692,6 +709,137 @@ describe("coexistencia: criterio 9 — a reconexao nao duplica", () => {
     const linha = m.bd.ver(TENANT, CANAL);
     assert.equal(linha?.motivo_desligamento, null);
     assert.equal(linha?.desligado_em, null);
+  });
+});
+
+describe("coexistencia: os defeitos que a revisao adversarial encontrou", () => {
+  it("os emissores reais encaixam na porta `Emitir`", async () => {
+    // **O teste que apanharia o defeito, e o unico que o pode apanhar.** O
+    // compilador aceita atribuir uma funcao de menos parametros a um tipo de
+    // mais, e o `motivo` do `channel.updated/v2.schema.json` e `string` livre:
+    // com as assinaturas desalinhadas, o evento saia com o **UUID do canal** no
+    // `phone_number_id` e o `phone_number_id` no `motivo`, e nada ficava
+    // vermelho. Aqui ligam-se os emissores **reais** e le-se o que chega ao
+    // `evt_emitir`.
+    const { emitirAvisoDeInactividade, emitirCanalActualizado } = await import(
+      "../src/coexistencia/eventos.ts"
+    );
+    const vistos: { sql: string; parametros: readonly unknown[] }[] = [];
+    const cliente = {
+      async query<T = Record<string, unknown>>(
+        sql: string,
+        parametros: readonly unknown[] = [],
+      ): Promise<{ readonly rows: readonly T[] }> {
+        vistos.push({ sql, parametros });
+        return { rows: [{ event_id: "evt-1" } as T] };
+      },
+    };
+    const m = montar();
+    const canal = await canalDe(m);
+    const coex = new Coexistente({
+      emitirCanalActualizado,
+      emitirAviso: emitirAvisoDeInactividade,
+      contacto: async () => ({ contactId: "c" }),
+      conversa: async () => null,
+      transitar: async () => {},
+      agora: () => T0,
+    });
+    await coex.abrir(m.bd, TENANT, canal);
+    // O `cliente` falso so serve a emissao; a escrita vai a base falsa.
+    await m.coex.abrir(m.bd, TENANT, canal);
+    await coex.avisar(cliente, TENANT, CANAL, `pnid-${CANAL}`);
+    const payload = JSON.parse(String(vistos[0]?.parametros[5]));
+    assert.deepEqual(payload, { phone_number_id: `pnid-${CANAL}` });
+    // E o `phone_number_id` **nao** e o UUID do canal, que era o defeito.
+    assert.notEqual(payload.phone_number_id, CANAL);
+  });
+
+  it("um canal `suspenso` nao fica com as duas tabelas em desacordo", async () => {
+    // A ordem antiga — registar e depois desligar — deixava o registo escrito e
+    // o canal intacto, e a funcao devolvia normalmente: a transaccao de quem
+    // chama confirmava um desligamento que o canal nao tem.
+    const m = montar();
+    const canal = await canalDe(m);
+    await m.coex.abrir(m.bd, TENANT, canal);
+    const linhaDoCanal = m.bd.canais.get(`${TENANT}|${CANAL}`);
+    assert.ok(linhaDoCanal !== undefined);
+    linhaDoCanal.estado = "suspenso";
+    const r = await m.coex.tratarAccountUpdate(m.bd, TENANT, canal, {
+      evento: "PARTNER_REMOVED",
+      motivo: "PRIMARY_INACTIVITY",
+    });
+    assert.equal(r.desligou, false);
+    assert.equal(linhaDoCanal.estado, "suspenso");
+    // **E a coexistencia nao ficou marcada**, que e o ponto.
+    assert.equal(m.bd.ver(TENANT, CANAL)?.desligado_em, null);
+    assert.equal(m.bd.ver(TENANT, CANAL)?.motivo_desligamento, null);
+    assert.equal(m.emitidos.length, 0);
+  });
+
+  it("um canal `cloud_only` desliga sem avisar de desalinhamento", async () => {
+    // Em `cloud_only` o `abrir` nao insere (criterio 8), pelo que nao ha linha
+    // de coexistencia — e isso e o caminho **normal**, nao um desalinhamento.
+    const m = montar({ modo: "cloud_only" });
+    const canal = await canalDe(m);
+    await m.coex.abrir(m.bd, TENANT, canal);
+    assert.equal(m.bd.linhas.size, 0);
+    const r = await m.coex.tratarAccountUpdate(m.bd, TENANT, canal, {
+      evento: "PARTNER_REMOVED",
+      motivo: "CHANGE_NUMBER",
+    });
+    assert.equal(r.desligou, true);
+    assert.equal(m.bd.canais.get(`${TENANT}|${CANAL}`)?.estado, "desligado");
+  });
+
+  it("um `account_update` que nao e PARTNER_REMOVED nao desliga", async () => {
+    const m = montar();
+    const canal = await canalDe(m);
+    await m.coex.abrir(m.bd, TENANT, canal);
+    const r = await m.coex.tratarAccountUpdate(m.bd, TENANT, canal, {
+      evento: "PHONE_NUMBER_QUALITY_UPDATE",
+      motivo: "CHANGE_NUMBER",
+    });
+    assert.equal(r.desligou, false);
+    assert.equal(r.motivo, null);
+    assert.equal(m.bd.canais.get(`${TENANT}|${CANAL}`)?.estado, "ativo");
+  });
+
+  it("um lote que chegue depois do prazo nao entra, mesmo sem varredura", async () => {
+    // **O prazo e duro pela base e nao pelo calendario de quem varre.** Sem o
+    // `prazo_em > $6` no `SQL_MARCAR_PASSO`, um `history` reentregue as 30 h
+    // encontrava o estado ainda em `a_sincronizar` — ninguem o tinha marcado
+    // `falhado`, porque nao ha agendador — e fechava a sincronizacao **depois**
+    // do prazo. Repare-se que **nao se chama `varrerPrazos`** neste teste.
+    const m = montar();
+    const canal = await canalDe(m);
+    await m.coex.abrir(m.bd, TENANT, canal);
+    m.relogio = new Date(T0.getTime() + PRAZO_DE_SINCRONIZACAO_MS + 6 * 60 * 60 * 1_000);
+    const r = await m.coex.ingerirHistorico(m.bd, TENANT, CANAL, {
+      mensagens: 9,
+      contactos: [],
+      erros: [],
+    });
+    assert.equal(r.passoConcluido, false);
+    assert.equal(m.bd.ver(TENANT, CANAL)?.estado, "a_sincronizar");
+    assert.deepEqual(m.bd.ver(TENANT, CANAL)?.passos_feitos, []);
+  });
+
+  it("um echo num canal sem linha de coexistencia nao fica mudo", async () => {
+    // A falha era fechada **e muda**: o relogio nao avanca, o aviso dos 10 dias
+    // deixa de sair, e nada o regista.
+    const m = montar();
+    const canal = await canalDe(m);
+    // **Sem `abrir`**: nao ha linha.
+    assert.equal(m.bd.linhas.size, 0);
+    const r = await m.coex.tratarEcho(m.bd, TENANT, canal, {
+      wamid: "wamid.Orfao",
+      destinatario: { bsuid: null, telefone: "+244900000001" },
+    });
+    assert.equal(r.desfecho, "do_dono");
+    assert.ok(
+      m.avisos.includes("echo_sem_coexistencia"),
+      `o registo nao avisou: ${JSON.stringify(m.avisos)}`,
+    );
   });
 });
 

@@ -2826,9 +2826,22 @@ MUTACOES = [
     ('coexistencia 0018: o prazo passa a poder nascer vencido', REV18,
      "                CHECK (prazo_em > iniciado_em),",
      "                CHECK (prazo_em IS NOT NULL),", "tests"),
+    # Da revisao adversarial, e sao tres onde era uma. O `GRANT` do `kamba_app`
+    # passou a ser **por coluna** (sem isso o teste de matriz era vacuo, porque
+    # um `UPDATE` de tabela curto-circuita o `or` que ele avalia), e o
+    # `kamba_batch` ganhou o `UPDATE` sem o qual as tres varreduras respondiam
+    # `42501`.
     ('coexistencia 0018: o kamba_app ganha DELETE', REV18,
-     '"GRANT SELECT, INSERT, UPDATE ON platform.channel_coexistence TO kamba_app"',
-     '"GRANT SELECT, INSERT, UPDATE, DELETE ON platform.channel_coexistence TO kamba_app"',
+     '"GRANT SELECT, INSERT ON platform.channel_coexistence TO kamba_app"',
+     '"GRANT SELECT, INSERT, DELETE ON platform.channel_coexistence TO kamba_app"',
+     "tests"),
+    ('coexistencia 0018: o kamba_app passa a poder mover a coexistencia de canal', REV18,
+     '    "estado, passos_feitos, iniciado_em, prazo_em, alertado_em,\\n"',
+     '    "channel_id, estado, passos_feitos, iniciado_em, prazo_em, alertado_em,\\n"',
+     "tests"),
+    ('coexistencia 0018: o kamba_batch perde o UPDATE das varreduras', REV18,
+     '"GRANT SELECT, UPDATE, DELETE ON platform.channel_coexistence TO kamba_batch"',
+     '"GRANT SELECT, DELETE ON platform.channel_coexistence TO kamba_batch"',
      "tests"),
 
     # O passo que corre uma vez (criterio 3).
@@ -2836,8 +2849,18 @@ MUTACOES = [
      "     AND NOT ($3::text = ANY (passos_feitos))",
      "     AND TRUE", SAIDA),
     ('coexistencia: o passo passa a aceitar uma sincronizacao falhada', CX_SQL,
-     "     AND estado = 'a_sincronizar'\n     AND NOT ($3::text = ANY (passos_feitos))",
-     "     AND NOT ($3::text = ANY (passos_feitos))", SAIDA),
+     "     AND estado = 'a_sincronizar'\n     AND prazo_em > $6",
+     "     AND prazo_em > $6", SAIDA),
+    # Da revisao adversarial: o prazo passou a estar **na instrucao** e nao so
+    # na varredura, e esta mutacao e a que o prende. Sem ela, um `history`
+    # reentregue as 30 h fechava a sincronizacao depois do prazo enquanto
+    # ninguem chamasse o `varrerPrazos` — e nao ha agendador.
+    ('coexistencia: o prazo deixa de morder na marcacao do passo', CX_SQL,
+     "     AND estado = 'a_sincronizar'\n     AND prazo_em > $6\n",
+     "     AND estado = 'a_sincronizar'\n", SAIDA),
+    ('coexistencia: o prazo deixa de morder ao concluir', CX_SQL,
+     "     AND estado = 'a_sincronizar'\n     AND prazo_em > $3\n",
+     "     AND estado = 'a_sincronizar'\n", SAIDA),
     ('coexistencia: concluir deixa de exigir os dois passos', CX_SQL,
      "     AND passos_feitos @> ARRAY['contactos','historico']::text[]",
      "     AND TRUE", SAIDA),
@@ -2926,6 +2949,24 @@ MUTACOES = [
     ('coexistencia: a reconexao deixa de limpar o desligamento', CX_SQL,
      "         motivo_desligamento = NULL,\n         desligado_em        = NULL,",
      "         alertado_em         = NULL,", SAIDA),
+
+    # Da revisao adversarial: a ordem do desligamento, a guarda de modo, a
+    # guarda do evento e o echo que nao fica mudo.
+    ('coexistencia: o desligamento volta a registar antes de transitar', CX_MODULO,
+     "    const { rows } = await cliente.query<{ phone_number_id?: unknown }>(\n"
+     "      SQL_DESLIGAR_CANAL,\n      [tenantId, canal.channelId, agora],\n    );",
+     "    const { rows } = await cliente.query<{ phone_number_id?: unknown }>(\n"
+     "      SQL_DESLIGAR_CANAL,\n      [tenantId, canal.channelId, new Date(0)],\n    );",
+     SAIDA),
+    ('coexistencia: o aviso de desalinhamento volta a disparar em cloud_only', CX_MODULO,
+     '    if (registo.rows.length === 0 && canal.channelMode === "coexistencia") {',
+     "    if (registo.rows.length === 0) {", SAIDA),
+    ('coexistencia: o evento do account_update deixa de ser conferido', CX_MODULO,
+     "    if (bruto.evento !== EVENTO_PARTNER_REMOVED) {",
+     "    if (false) {", SAIDA),
+    ('coexistencia: o echo sem linha de coexistencia volta a ficar mudo', CX_MODULO,
+     "    if (relogio.rows.length === 0) {",
+     "    if (false) {", SAIDA),
 
     # As metricas.
     ('coexistencia: a etiqueta deixa de ser conferida', CX_METRICAS,

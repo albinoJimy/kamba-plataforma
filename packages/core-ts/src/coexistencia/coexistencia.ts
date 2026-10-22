@@ -63,6 +63,7 @@ import {
   type Emitir,
   ESTADO_DESLIGADO,
   type Estado,
+  EVENTO_PARTNER_REMOVED,
   INACTIVIDADE_DO_DONO_MS,
   type ModoDoCanal,
   type MotivoDeDesligamento,
@@ -409,7 +410,21 @@ export class Coexistente {
     // Foi o dono. O relogio do criterio 6 move-se **antes** de haver conversa,
     // e de proposito: o dono escreveu na app, e isso e actividade dele mesmo
     // que o destinatario nao resolva uma conversa nossa.
-    await cliente.query(SQL_REGISTAR_ECHO, [tenantId, canal.channelId, this.#agora()]);
+    //
+    // **O resultado le-se, e nao se descarta.** Se nao houver linha de
+    // coexistencia — um canal cuja sincronizacao nunca abriu, ou cuja linha a
+    // purga do KAM-071 ja apagou — o relogio nunca avanca, o
+    // `SQL_AVISAR_INACTIVOS` nao tem onde o ler, e o aviso dos 10 dias deixa de
+    // sair **em silencio**. Era uma falha fechada e muda; agora e fechada e
+    // dita. Achado da revisao adversarial.
+    const relogio = await cliente.query(SQL_REGISTAR_ECHO, [
+      tenantId,
+      canal.channelId,
+      this.#agora(),
+    ]);
+    if (relogio.rows.length === 0) {
+      this.#log?.warn({ outcome: "echo_sem_coexistencia", tenant_id: tenantId });
+    }
 
     if (echo.destinatario.bsuid === null && echo.destinatario.telefone === null) {
       this.#log?.warn({ outcome: "echo_sem_destinatario", tenant_id: tenantId });
@@ -454,34 +469,61 @@ export class Coexistente {
     canal: CanalResolvido,
     bruto: { readonly evento: unknown; readonly motivo: unknown },
   ): Promise<ResultadoDoDesligamento> {
+    // **O `event` confere-se, e nao so o `reason`.** A constante existia e nao
+    // era lida: um `account_update` de outro acontecimento que trouxesse um
+    // `reason` reconhecivel desligava o canal. Achado da revisao adversarial —
+    // o risco pratico e baixo (o `reason` so vem dentro de
+    // `partner_removed_info`), mas uma constante exportada sem consumidor e um
+    // nome sem superficie, que e o que o *gate* 3b recusa pelo outro lado.
+    if (bruto.evento !== EVENTO_PARTNER_REMOVED) {
+      this.#log?.info({ outcome: "evento_ignorado", tenant_id: tenantId });
+      return { motivo: null, desligou: false, eventoId: null };
+    }
     const motivo = traduzirMotivo(bruto.motivo);
     if (motivo === null) {
       this.#log?.warn({ outcome: "motivo_desconhecido", tenant_id: tenantId });
       return { motivo: null, desligou: false, eventoId: null };
     }
     const agora = this.#agora();
-    const registo = await cliente.query<{ id?: unknown }>(SQL_REGISTAR_DESLIGAMENTO, [
-      tenantId,
-      canal.channelId,
-      motivo,
-      agora,
-    ]);
+
+    // **O canal primeiro, e o registo so se ele transitou.** A ordem inversa —
+    // registar e depois desligar — tinha um buraco que a revisao adversarial
+    // mediu: um canal em `suspenso` ou `encerrado` nao e tocado pelo
+    // `SQL_DESLIGAR_CANAL` (e de proposito: uma suspensao e decisao nossa que
+    // um *webhook* da Meta nao revoga), mas o registo **ja tinha mordido** — e
+    // a funcao devolvia normalmente, pelo que a transacao de quem chama
+    // confirmava e ficavam as duas tabelas a discordar sobre se o canal esta
+    // desligado. Era precisamente o modo de falhar que este tratador diz
+    // prevenir.
     const { rows } = await cliente.query<{ phone_number_id?: unknown }>(
       SQL_DESLIGAR_CANAL,
       [tenantId, canal.channelId, agora],
     );
     const numero = rows[0]?.phone_number_id;
     if (typeof numero !== "string") {
-      // Ja estava `desligado` (ou `encerrado`/`suspenso`, que este caminho nao
-      // mexe). A **segunda** passagem do criterio 5 acaba aqui: sem transicao,
-      // sem evento, sem contagem.
+      // Ja estava `desligado`, ou esta `encerrado`/`suspenso`. A **segunda**
+      // passagem do criterio 5 acaba aqui: sem transicao, sem registo, sem
+      // evento, sem contagem.
       this.#log?.info({ outcome: "desligamento_repetido", tenant_id: tenantId });
       return { motivo, desligou: false, eventoId: null };
     }
-    if (registo.rows.length === 0) {
-      // O canal transitou mas a coexistencia ja estava marcada. Nao e normal, e
-      // nao se cala: significa que as duas tabelas discordavam antes deste
-      // evento.
+    const registo = await cliente.query<{ id?: unknown }>(SQL_REGISTAR_DESLIGAMENTO, [
+      tenantId,
+      canal.channelId,
+      motivo,
+      agora,
+    ]);
+    if (registo.rows.length === 0 && canal.channelMode === "coexistencia") {
+      // O canal transitou e a coexistencia nao tinha onde registar. Em
+      // `coexistencia` isso **nao e normal** e nao se cala: ou a linha ja
+      // estava marcada, ou nunca foi aberta.
+      //
+      // **Em `cloud_only` e o caminho normal** e nao se avisa: o `abrir`
+      // devolve `null` sem inserir nesse modo (criterio 8), pelo que o canal
+      // nunca tem linha. A primeira versao nao distinguia, e dava um `warn` por
+      // cada `PARTNER_REMOVED` de cada canal `cloud_only` — ruido no sinal que
+      // existe para apanhar desalinhamento a serio. Achado da revisao
+      // adversarial.
       this.#log?.warn({ outcome: "desligamento_desalinhado", tenant_id: tenantId });
     }
     // Escrever, emitir, contar — nesta ordem. Ver a nota do modulo.
@@ -637,6 +679,10 @@ export class Coexistente {
       passo,
       contagens.contactos,
       contagens.mensagens,
+      // O relogio, para o `prazo_em > $6`. Entra por parametro como tudo o
+      // resto neste modulo: e o que torna o prazo mensurivel com o relogio
+      // acelerado que o criterio 3 pede.
+      this.#agora(),
     ]);
     if (rows.length === 0) {
       // Ou o passo ja tinha corrido (o *no-op* do criterio 3), ou a

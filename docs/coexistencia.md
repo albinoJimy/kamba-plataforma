@@ -43,10 +43,16 @@ aviso de onboarding (o texto é KAM-093):
 | Catálogo, pedidos, saudação, ausência, respostas rápidas, etiquetas, perfil, *Channels* | «Não suportados na Cloud API» |
 | Dispositivos associados | Ficam **todos desligados** no onboarding; o WhatsApp for Windows e o WearOS não voltam |
 
-E duas que mudam sem se perder: o débito fica fixo em **20 mps** (nunca os 80 do
-`cloud_only` nem os 1.000), e a janela de atendimento só abre quando o cliente
-escreve **depois** do onboarding — uma conversa anterior só se responde por
-template.
+E duas que mudam sem se perder: **a Meta dá 20 mps fixos** a um número em
+coexistência (nunca os 80 do `cloud_only` nem os 1.000), e a janela de
+atendimento só abre quando o cliente escreve **depois** do onboarding — uma
+conversa anterior só se responde por template.
+
+**Os 20 mps são o tecto dela, e o nosso é 15.** O `MPS_POR_MODO` tem os dois
+modos a 15, que é o que o critério 8 pede e o que o `MPS_POR_CANAL` do KAM-015
+já valia — a folga de cinco é escolha nossa, e está escrita no `limites.ts`
+desde aquele ticket. Onde este documento disser «20 mps» está a falar do que a
+Meta impõe; onde disser «15» está a falar do que nós enviamos.
 
 ## 3. O corpo do histórico **não** se guarda, e a forma garante-o
 
@@ -241,7 +247,8 @@ Quando se montar, a ordem é esta:
 | `transitar` | `MaquinaDeModos.disparar(..., "echo_do_dono")` do KAM-018 |
 | `contacto` | `Identidade.resolveContact` do KAM-008, o mesmo que o CHR já liga |
 | `conversa` | uma consulta por `(tenant_id, contact_id, channel_id)` em `conversations` — a `UNIQUE` de negócio do KAM-014 |
-| as varreduras | o agendador do KAM-071/KAM-078, quando existir |
+| `emitirCanalActualizado` e `emitirAviso` | as duas funções de `coexistencia/eventos.ts`, **com as cinco posições da porta `Emitir`** — a primeira versão desta tabela omitia-as, que eram exactamente as que não encaixavam |
+| as varreduras | o agendador do KAM-071/KAM-078, quando existir, **com a ligação de `kamba_batch`**: as três são `UPDATE` sem `tenant_id` e só correm com `BYPASSRLS` |
 
 ## 10. Como se prova
 

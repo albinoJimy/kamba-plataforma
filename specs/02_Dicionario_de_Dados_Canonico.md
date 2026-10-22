@@ -928,8 +928,11 @@ linha de pedido, e isso é KAM-077.
 *Emenda 1.31, **proposta**.* O que entra aqui é o que a revisão `0018` cria e o
 vocabulário da coexistência. A fonte do desenho é `../docs/tecnica/01` §10.1,
 §10.4 e §10.5, e a evidência é o `../docs/tecnica/evidencia/E1` §2 — **CONFIRMADO
-pela fonte primária** para os prazos, os seis motivos, os 6 meses, o 2593109 e os
-20 mps, e **NÃO VERIFICADO** para a elegibilidade de Angola (risco R1).
+pela fonte primária** para os prazos, os seis motivos, os 6 meses, o 2593109 e o
+tecto de 20 mps **da Meta**, e **NÃO VERIFICADO** para a elegibilidade de Angola
+(risco R1). Os 20 mps são o tecto dela; o `MPS_POR_MODO` abaixo é o **nosso**
+débito, e são 15 nos dois modos pela razão que o `limites.ts` escreve desde o
+KAM-015 — os dois números não se contradizem, medem lados diferentes.
 
 **A revisão não acrescenta coluna nenhuma a `tenant_channels`**, e isto repete o
 achado da `0017` pela mesma razão: o `coexistence_synced_at` e o

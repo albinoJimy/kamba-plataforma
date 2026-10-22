@@ -431,8 +431,19 @@ ESPERADO_POR_TABELA.update(
         # meio. **Sem `DELETE`**, pela regra da `0001`: «soft delete: estado,
         # nunca DELETE».
         "channel_coexistence": _handoff(
-            kamba_app={"SELECT", "INSERT", "UPDATE"},
-            kamba_batch={"SELECT", "DELETE"},
+            # **Sem `UPDATE` de tabela**, e e isso que torna a matriz de coluna
+            # abaixo significativa: o `test_privilegios_por_coluna_nas_tabelas_
+            # com_matriz` compara `de_tabela or coluna in por_coluna`, e um
+            # `UPDATE` de tabela curto-circuita o `or` — a lista nunca era
+            # confrontada. Achado da revisao adversarial, e e o mesmo que a
+            # `channel_onboarding` evita por `kamba_app` nao ter `UPDATE` de
+            # todo.
+            kamba_app={"SELECT", "INSERT"},
+            # **Com `UPDATE`**, e e indispensavel: as tres varreduras do
+            # criterio 3 e do 6 sao `UPDATE` **sem `tenant_id` no predicado**,
+            # pelo que so correm com `BYPASSRLS` — e o `kamba_batch` e o unico
+            # papel que o tem (`db/bootstrap.py`). Sem isto respondiam `42501`.
+            kamba_batch={"SELECT", "UPDATE", "DELETE"},
         ),
     }
 )
