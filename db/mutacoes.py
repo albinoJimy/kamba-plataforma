@@ -2319,6 +2319,13 @@ MUTACOES = [
     ('consentimento: o racio sem aviso passa a dizer que ninguem aceitou', CS_METRICAS,
      "    if (avisos === 0) return -1;",
      "    if (avisos === 0) return 0;", SAIDA),
+    # **Esta e a mutacao de um defeito que eu proprio escrevi**, e o que a mata
+    # e o ensaio contra a base: o `registar_e_seguir` nao envia mensagem, pelo
+    # que uma condicao feita so com o `enviaMensagem` deixava a prova do
+    # «Continuar» ser calculada sobre uma cadeia **vazia**.
+    ('consentimento: o texto deixa de entrar na prova do continuar', CS_DECISAO,
+     '    accao === "registar_e_seguir" ||\n    accao === "registar_revogacao" ||',
+     '    accao === "registar_revogacao" ||', SAIDA),
     ('consentimento: a prova passa a escrever-se depois de autorizar', CS_MODULO,
      '    if (accao === "registar_e_seguir") {',
      "    if (false) {", SAIDA),

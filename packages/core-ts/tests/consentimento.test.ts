@@ -53,6 +53,7 @@ import {
   normalizar,
   preencher,
   provaDeConsentimento,
+  registaProva,
   resumoDoTexto,
   type Accao,
   type CorpoDoAviso,
@@ -377,6 +378,23 @@ describe("o que autoriza o AGR (criterio 4)", () => {
     assert.equal(autorizaAgr("enviar_politica"), false);
   });
 
+  it("**tres accoes registam prova, e sao outras tres**", () => {
+    // **As duas listas sao diferentes e tem de ser nomeadas as duas.** O
+    // `registar_e_seguir` registra prova e **nao** envia mensagem; o
+    // `enviar_aviso` envia e **nao** registra. Foi por nao haver esta funcao
+    // que a correccao do «ler o texto tarde» calculou a prova do «Continuar»
+    // sobre uma cadeia vazia — ver a nota no `consentimento.ts`.
+    const registam = ACCOES.filter((a) => registaProva(a));
+    assert.deepEqual(
+      [...registam].sort(),
+      ["passar_a_humano", "registar_e_seguir", "registar_revogacao"],
+    );
+    // E a interseccao com as que enviam e **uma** so: o «PARAR», que registra a
+    // revogacao e responde a confirmacao.
+    const ambas = ACCOES.filter((a) => registaProva(a) && enviaMensagem(a));
+    assert.deepEqual([...ambas], ["registar_revogacao"]);
+  });
+
   it("**tres accoes produzem mensagem, e nunca mais do que uma**", () => {
     const enviam = ACCOES.filter((a) => enviaMensagem(a));
     assert.deepEqual(
@@ -637,6 +655,17 @@ describe("o gate: «Falar com a loja» e «Saber mais» (criterio 3)", () => {
     assert.equal(r.invocaAgr, false);
     assert.equal(r.mensagens, 1);
     assert.equal(enviadas.length, 1);
+    // **Com os tres botoes**, e e assim que as duas metades do criterio 3 —
+    // «envia o texto completo» **e** «repete o aviso» — se cumprem numa
+    // mensagem so, que e o que o criterio 1 promete. A primeira versao enviava
+    // o texto **sem** botoes e deixava o cliente sem accao nenhuma.
+    assert.deepEqual([...(enviadas[0]?.corpo.botoes ?? [])], [...BOTOES]);
+  });
+
+  it("**a confirmacao do PARAR e a unica sem botoes**: ela responde e nao pergunta", async () => {
+    const { gate, enviadas } = montar();
+    await gate.tratar(mensagem(PARAR));
+    assert.deepEqual([...(enviadas[0]?.corpo.botoes ?? [])], []);
   });
 
   it("**texto livre tres vezes acaba numa pessoa**", async () => {

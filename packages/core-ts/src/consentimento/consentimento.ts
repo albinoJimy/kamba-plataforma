@@ -88,6 +88,7 @@ import {
   enviaMensagem,
   estadoDoConsentimento,
   linhaDaEntrada,
+  registaProva,
 } from "./decisao.ts";
 import {
   METRICAS_DO_CONSENTIMENTO,
@@ -272,7 +273,28 @@ export class ConsentGate {
       : 0;
 
     const accao = accaoDoAviso(mensagem.entrada, estado, avisos);
-    const textoMostrado = preencher(vigente.texto, await this.#loja(mensagem.tenantId));
+
+    // **O texto preenchido lê-se tarde, e isso foi um defeito medido — duas
+    // vezes.** A primeira versão calculava-o aqui, sempre, incluindo no caso
+    // comum (`seguir`): uma consulta ao nome da loja por **cada** mensagem de
+    // cada conversa da plataforma, para um valor que aquele caminho não usa.
+    //
+    // E a **correcção** teve o seu próprio defeito, que vale mais do que o
+    // primeiro: a condição era `enviaMensagem(accao) || accao ===
+    // "passar_a_humano"`, e o `registar_e_seguir` — que é o «Continuar», o
+    // caminho mais importante do ticket — **não envia mensagem**. Caiu fora, e a
+    // prova do consentimento passava a ser calculada sobre uma cadeia vazia.
+    // Quem a apanhava era «**a prova guardada e a que se recalcula**» do ensaio
+    // contra a base, que recalcula o resumo e compara octeto a octeto; o
+    // `enviaMensagem` sozinho não sabia dizer isto.
+    //
+    // As duas listas estão agora **nomeadas** em `decisao.ts` — quem envia e
+    // quem registra prova —, e é isso que impede uma acção nova de cair em
+    // silêncio por nenhuma das duas.
+    const precisaDoTexto = enviaMensagem(accao) || registaProva(accao);
+    const textoMostrado = precisaDoTexto
+      ? preencher(vigente.texto, await this.#loja(mensagem.tenantId))
+      : "";
 
     let registou = false;
     if (accao === "registar_e_seguir") {
@@ -348,10 +370,23 @@ export class ConsentGate {
         phoneNumberId: mensagem.phoneNumberId,
         idempotencyKey: chave,
       };
+      // **Os botões vão também no «Saber mais», e isso é o critério 3 a ser
+      // cumprido em UMA mensagem.** Ele pede «envia o texto completo/ligação à
+      // política **e repete o aviso**», que são duas coisas — e o critério 1
+      // promete «exactamente 1 mensagem de saída». A primeira versão enviava o
+      // texto **sem** botões e deixava o cliente sem acção nenhuma, que é pior
+      // do que qualquer das duas leituras.
+      //
+      // O texto é **um** por versão e finalidade: a `consent_texts` não tem
+      // «aviso curto» e «texto completo», e a distinção que o critério
+      // pressupõe pedia uma coluna a mais ou uma segunda linha — uma decisão
+      // para o parecer, porque o texto que foi revisto é este. Fica na dívida
+      // 78. A confirmação do «PARAR» é a única sem botões: ela responde e não
+      // pergunta.
       const corpo: CorpoDoAviso =
-        accao === "enviar_aviso"
-          ? { texto: textoMostrado, botoes: [...BOTOES] }
-          : { texto: textoMostrado, botoes: [] };
+        accao === "registar_revogacao"
+          ? { texto: textoMostrado, botoes: [] }
+          : { texto: textoMostrado, botoes: [...BOTOES] };
       const wamid = await this.#enviar(destino, corpo);
       if (wamid === null) {
         // **Não é falha silenciosa.** Uma mensagem que não saiu é uma loja que

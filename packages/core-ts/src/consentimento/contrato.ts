@@ -176,7 +176,15 @@ export interface Decisao {
   readonly passaAHumano: boolean;
   /** `true` quando o gate quer a conversa `pausada` (gancho do KAM-018). */
   readonly pausaAConversa: boolean;
-  /** Quantas mensagens de saída esta decisão produz. **Zero ou uma.** */
+  /**
+   * Quantas mensagens de saída esta decisão produz. **Zero ou uma, nunca duas.**
+   *
+   * O critério 1 promete «exactamente 1 mensagem de saída», e o 3 pede que o
+   * «Saber mais» envie o texto **e repita o aviso** — que lidas como duas
+   * mensagens se contradizem. Cumprem-se em **uma**: o texto vai com os três
+   * botões, que é ao mesmo tempo o texto e o aviso repetido. Ver a nota do
+   * `corpo` em `consentimento.ts`.
+   */
   readonly mensagens: number;
 }
 

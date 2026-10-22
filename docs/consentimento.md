@@ -143,12 +143,13 @@ painel.
 | **O texto em PT-AO** | A tabela nasce vazia, de propósito. Uma migração que o escrevesse punha no esquema uma afirmação legal que ninguém reviu |
 | **`conversations.mode`** | O `UPDATE` que a `0009` concede a `kamba_app` é por coluna e **não inclui o `mode`**, por decisão do KAM-014: ele é de **KAM-018**. O gate diz que a conversa deve passar (`passaAHumano`, `pausaAConversa`) e chama a porta `MudarModo` quando ela está ligada |
 | **A recusa de *marketing* no Outbound** | «*marketing* sem `accepted = true` específico é recusado pelo Outbound (KAM-015)»: o `decidir` do KAM-015 **já** recusa `marketing` no Piloto (`MARKETING_NOT_ALLOWED`), antes de qualquer consentimento. A verificação por `consent_actual` é para quando houver *marketing*, e aqui ela não tem caminho porque o envio não tem |
+| **O «aviso curto» e o «texto completo»** | Os critérios 1 e 3 pressupõem **dois** textos e o critério 7 especifica a tabela com **um**. As duas metades do critério 3 — «envia o texto completo» e «repete o aviso» — cumprem-se numa mensagem: o texto vai com os três botões, que é ao mesmo tempo o texto e o aviso repetido, e é o que mantém verdadeiro o «exactamente 1 mensagem de saída» do critério 1. **Não se acrescentou coluna**: o texto que vai ser revisto juridicamente é um, e dividi-lo em dois é decisão de quem o escreve (KAM-104). Dívida **78** |
 | **As outras sete finalidades** | Existem no domínio e não têm caminho aqui: `analytics_agregado`, `sugestoes_patrocinadas` e as três `partilha_*` exigem consentimento específico no momento do uso (`06` §7.3), e quem o pede é quem usa |
 | **Os direitos do titular** e o **ToS/DPA da PME** | KAM-070 e KAM-090 |
 | **Contactos da sincronização de histórico** (critério 9) | O KAM-017 não existe ainda. O gate trata-os como qualquer outro contacto sem consentimento: o aviso sai na primeira mensagem **depois** do onboarding, que é o que o critério pede — e sai **uma** vez, pela chave de idempotência |
 
 As divergências entre o bloco do ticket e o que o esquema tem estão em
-[`dividas-documentais.md`](dividas-documentais.md), linhas 75 a 77.
+[`dividas-documentais.md`](dividas-documentais.md), linhas 75 a 78.
 
 ## 8. Como se prova
 
@@ -161,7 +162,7 @@ pnpm --filter @kamba/core-ts run test
 # e o 42501 de um UPDATE que nao existe
 make ci-8
 
-# a prova por mutacao das trinta e quatro
+# a prova por mutacao das trinta e cinco
 python db/mutacoes.py <python> "consentimento"
 ```
 
@@ -170,6 +171,15 @@ A divisão entre as duas baterias é a que o `outbound.md`, o `metering.md` e o
 chama o que pretendíamos chamar, não que o PostgreSQL faz o que pensamos.** O
 `ON CONFLICT`, o `security_invoker`, o `LIKE` com prefixo sobre um índice e o
 `42501` de um privilégio que não existe não existem numa base falsa.
+
+**E a revisão adversarial do próprio ticket encontrou dois defeitos que
+nenhuma máquina podia dizer.** O primeiro é de custo: o nome da loja lia-se em
+**todas** as mensagens, incluindo as que seguem sem aviso — uma consulta por cada
+mensagem de cada conversa da plataforma, para um valor que o caminho comum
+(`seguir`) não usa. Passou a ler-se só quando alguma coisa o vai usar. O segundo é
+de comportamento, e era pior do que qualquer das leituras possíveis do critério:
+o «Saber mais» enviava o texto **sem botões** e deixava o cliente sem acção
+nenhuma. Passou a levar os três — ver a dívida 78.
 
 **Dois defeitos deste ticket foram apanhados por máquina e nenhum por leitura**,
 e os dois são do mesmo tipo — a bateria a afirmar sobre o **ensaio** em vez de

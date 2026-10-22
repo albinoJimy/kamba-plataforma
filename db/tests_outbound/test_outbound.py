@@ -268,6 +268,7 @@ TESTES_OBRIGATORIOS = (
     "**grava a revogacao de marketing e pausa, sem tocar na transacao**",
     "**uma versao com data futura nao vigora**",
     "**subir a versao obriga a re-avisar quem ja tinha consentido**",
+    "**duas provas do mesmo trio: o estado e o da ultima**",
     "**sem versao vigente nao envia nada e nao autoriza**",
     "**a vista nao mostra o estado de B com o contexto de A**",
     "**uma prova de A nao pode apontar para um contacto de B** (FK composta)",

@@ -177,6 +177,25 @@ export function autorizaAgr(accao: Accao): boolean {
   return accao === "seguir" || accao === "registar_e_seguir";
 }
 
+/**
+ * `true` quando a acção escreve uma linha de prova.
+ *
+ * **Três**, e a lista existe porque o `evidence_hash` cobre o **texto
+ * mostrado**: quem registra prova precisa do texto preenchido, mesmo quando não
+ * envia mensagem nenhuma. Foi por não haver esta função que a primeira versão
+ * do «ler o texto tarde» calculou a prova do «Continuar» sobre uma cadeia
+ * **vazia** — o `registar_e_seguir` não envia mensagem e caiu fora da condição.
+ * Com as duas listas nomeadas, uma acção nova não cai em silêncio por nenhuma
+ * das duas.
+ */
+export function registaProva(accao: Accao): boolean {
+  return (
+    accao === "registar_e_seguir" ||
+    accao === "registar_revogacao" ||
+    accao === "passar_a_humano"
+  );
+}
+
 /** `true` quando a acção produz uma mensagem de saída. Zero ou uma, nunca duas. */
 export function enviaMensagem(accao: Accao): boolean {
   return (

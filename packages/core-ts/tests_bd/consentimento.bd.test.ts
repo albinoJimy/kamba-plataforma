@@ -500,6 +500,57 @@ describe("o consentimento contra a base", () => {
       await admin.query("DELETE FROM platform.consent_texts WHERE version = 'v2'");
     });
 
+    it("**duas provas do mesmo trio: o estado e o da ultima**", async () => {
+      // **Esta e a asserção que prende a leitura pela vista, e nao havia
+      // nenhuma.** A mutacao que trocou o `consent_actual` pela
+      // `consent_event` no `SQL_ESTADO` **sobreviveu** a primeira passagem da
+      // prova, e a razao e que com **uma** linha por trio as duas consultas
+      // dao o mesmo: o `DISTINCT ON` da vista so se distingue de um `SELECT`
+      // sobre a tabela quando ha duas.
+      //
+      // E duas ha, e no caminho mais normal que existe: o contacto aceita a
+      // `v1`, o texto sobe para a `v2`, ele aceita outra vez. Sem a ordem da
+      // vista, a tabela devolve as duas linhas **sem ordem garantida** e o
+      // `rows[0]` pode ser a `v1` — o estado ficava `desactualizado` para
+      // sempre e o aviso repetia-se para sempre.
+      const contacto = await criarContacto(tenantA);
+      const conversa = await abrirConversa(tenantA, canalA, contacto);
+      const quem = { tenant: tenantA, contacto, conversa, canal: canalA, pnid: pnidA };
+
+      await gateDe(tenantA).gate.tratar(
+        mensagem({ tipo: "botao", id: "continuar" }, quem, "D1"),
+      );
+      await publicarTexto("v2", `${MARCADOR} tem texto novo`, "2026-10-01T00:00:00Z");
+      const segunda = await gateDe(tenantA).gate.tratar(
+        mensagem({ tipo: "botao", id: "continuar" }, quem, "D2"),
+      );
+      assert.equal(segunda.versao, "v2");
+      assert.equal(segunda.registou, true, "a segunda prova e de outra versao");
+
+      // **Duas linhas na tabela, uma na vista, e a da vista e a `v2`.**
+      const cru = await admin.query<{ n: string }>(
+        "SELECT count(*)::text AS n FROM platform.consent_event " +
+          "WHERE contact_id = $1 AND purpose = 'transacao'",
+        [contacto],
+      );
+      assert.equal(cru.rows[0]?.n, "2");
+      const vista = await admin.query<{ text_version: string }>(
+        "SELECT text_version FROM platform.consent_actual " +
+          "WHERE contact_id = $1 AND purpose = 'transacao'",
+        [contacto],
+      );
+      assert.equal(vista.rows.length, 1);
+      assert.equal(vista.rows[0]?.text_version, "v2");
+
+      // E o estado que o gate le e `valido`, pelo que a mensagem seguinte segue.
+      const terceira = await gateDe(tenantA).gate.tratar(
+        mensagem({ tipo: "texto", texto: "quanto custa?" }, quem, "D3"),
+      );
+      assert.equal(terceira.estado, "valido");
+      assert.equal(terceira.invocaAgr, true);
+      await admin.query("DELETE FROM platform.consent_texts WHERE version = 'v2'");
+    });
+
     it("**sem versao vigente nao envia nada e nao autoriza**", async () => {
       // A `0015` cria a tabela **vazia**: o texto esta a confirmar por parecer.
       await admin.query("DELETE FROM platform.consent_texts");

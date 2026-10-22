@@ -55,6 +55,7 @@ export {
   enviaMensagem,
   estadoDoConsentimento,
   linhaDaEntrada,
+  registaProva,
   type Linha,
 } from "./decisao.ts";
 
