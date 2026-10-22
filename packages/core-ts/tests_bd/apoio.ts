@@ -237,6 +237,16 @@ export async function apagarTenant(admin: pg.Client, tenant: string): Promise<vo
   await admin.query("DELETE FROM platform.channel_quality_log WHERE tenant_id = $1", [
     tenant,
   ]);
+  // KAM-016: **antes** dos canais, que a `channel_onboarding` referencia por FK
+  // composta. E a **setima** vez que esta funcao aprende uma tabela nova, e a
+  // setima pela mesma razao. A repeticao esta a dizer alguma coisa: as seis
+  // notas acima descrevem o mesmo defeito seis vezes, e **o que o apanha ja nao
+  // e a memoria de quem escreve** — e o `db/tests_isolamento/catalogo.py`, que
+  // falha o gate 6 quando uma tabela com `tenant_id` nao esta na receita das
+  // sementes. Quem acrescentar a oitava descobre-a la, e nao aqui.
+  await admin.query("DELETE FROM platform.channel_onboarding WHERE tenant_id = $1", [
+    tenant,
+  ]);
   await admin.query("DELETE FROM platform.tenant_channels WHERE tenant_id = $1", [tenant]);
   await admin.query("DELETE FROM platform.contact_endpoints WHERE tenant_id = $1", [tenant]);
   await admin.query("DELETE FROM platform.contact_deks WHERE tenant_id = $1", [tenant]);

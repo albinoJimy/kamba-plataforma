@@ -285,6 +285,25 @@ MO_GUARDA = "packages/core-ts/src/modos/guarda.ts"
 MO_EVENTOS = "packages/core-ts/src/modos/eventos.ts"
 MO_MODULO = "packages/core-ts/src/modos/modos.ts"
 REV16 = "db/migrations/versions/0016_modos_de_conversa.py"
+# -------------------------------------------------------------- KAM-016
+#: O onboarding de canal (Embedded Signup v4). A suite e a `tests_outbound`,
+#: pela razao que o `FICHEIROS` dela escreve: e a unica do *gate* 8 que monta o
+#: `tools/meta-sim`, e tres criterios deste ticket leem-se no servidor falso.
+#:
+#: **`ON_` e nao `O_`**, e o prefixo escolheu-se depois de procurar: nenhuma
+#: outra constante deste ficheiro comeca por `ON_`. E a licao que o
+#: `MED_SQL`/`FT_SQL` deixou e que a nota do `CS_SQL` repetiu — um prefixo que
+#: colida com o de outro ticket **sombreia** entradas sem conflito de merge, e
+#: nenhum teste o ve. Quem integrar o `main` depois disto corre
+#: `python db/mutacoes.py --aplicaveis`, que e o unico que apanha.
+ON_SQL = "packages/core-ts/src/onboarding/consultas.ts"
+ON_CONTRATO = "packages/core-ts/src/onboarding/contrato.ts"
+ON_CIFRA = "packages/core-ts/src/onboarding/cifra.ts"
+ON_GRAPH = "packages/core-ts/src/onboarding/graph.ts"
+ON_MODULO = "packages/core-ts/src/onboarding/onboarding.ts"
+ON_METRICAS = "packages/core-ts/src/onboarding/metricas.ts"
+ON_ESCRITA = "packages/core-ts/src/secrets/escrita.ts"
+REV17 = "db/migrations/versions/0017_onboarding_de_canal.py"
 
 #: O corpo da subtransaccao da `ten_consumir`, como a revisao 0007 o escreve:
 #: **a chave primeiro, a contagem depois**. A mutacao da ordem precisa do
@@ -2595,6 +2614,177 @@ MUTACOES = [
     ('modos: o limite das 24 h passa a ser o instante actual', MO_MODULO,
      "    const limite = new Date(this.#agora().getTime() - SEM_HUMANO_MS);",
      "    const limite = this.#agora();", "tests_modos"),
+    # ------------------------------------------------------------- KAM-016
+    #
+    # Vinte e seis mutacoes, e cada uma tira uma afirmacao de um criterio. As
+    # cinco primeiras sao da revisao e correm na suite que exercita a base; as
+    # restantes sao de codigo e correm na `tests_outbound`.
+    ('onboarding 0017: a unicidade do code desaparece', REV17,
+     "            CONSTRAINT channel_onboarding_code_uq UNIQUE (tenant_id, code_hash),\n",
+     "\n", "tests"),
+    ('onboarding 0017: a unicidade do par (tenant, waba) desaparece', REV17,
+     "            CONSTRAINT channel_onboarding_tenant_waba_uq UNIQUE (tenant_id, waba_id),\n",
+     "\n", "tests"),
+    ('onboarding 0017: a FK do canal deixa de levar o tenant', REV17,
+     "                FOREIGN KEY (tenant_id, channel_id)\n                REFERENCES platform.tenant_channels (tenant_id, id),",
+     "                FOREIGN KEY (channel_id)\n                REFERENCES platform.tenant_channels (id),",
+     "tests"),
+    ('onboarding 0017: a app ganha UPDATE na tentativa', REV17,
+     '    op.execute("GRANT SELECT ON platform.channel_onboarding TO kamba_app")',
+     '    op.execute("GRANT SELECT, UPDATE ON platform.channel_onboarding TO kamba_app")',
+     "tests"),
+    ('onboarding 0017: a tentativa nasce sem politica de tenant', REV17,
+     '    rls.enable_tenant_rls("channel_onboarding")',
+     '    pass  # rls.enable_tenant_rls("channel_onboarding")', "tests_isolamento"),
+    # A idempotencia do criterio 2, do lado do SQL.
+    ('onboarding: o ON CONFLICT passa a nomear uma chave so', ON_SQL,
+     "  ON CONFLICT DO NOTHING\n    RETURNING id::text            AS id,",
+     "  ON CONFLICT (tenant_id, waba_id) DO NOTHING\n    RETURNING id::text            AS id,",
+     SAIDA),
+    ('onboarding: a abertura passa a reescrever a tentativa que ja existia', ON_SQL,
+     "  ON CONFLICT DO NOTHING\n    RETURNING id::text            AS id,",
+     "  ON CONFLICT (tenant_id, waba_id) DO UPDATE SET fase = 'iniciado'\n    RETURNING id::text            AS id,",
+     SAIDA),
+    # A transicao do criterio 6: sem o compare-and-set, duas transicoes
+    # concorrentes ganham as duas.
+    ('onboarding: a transicao deixa de olhar para a fase de partida', ON_SQL,
+     "     AND fase = $3\n     RETURNING fase, actualizado_at",
+     "     RETURNING fase, actualizado_at", SAIDA),
+    ('onboarding: a transicao deixa de filtrar o tenant', ON_SQL,
+     "   WHERE id = $1::uuid\n     AND tenant_id = $2::uuid\n     AND fase = $3",
+     "   WHERE id = $1::uuid\n     AND fase = $3", SAIDA),
+    # O registo de recursos: um `SET` em vez do `||` perde o que outro passo
+    # escreveu, e um recurso perdido da lista e um recurso orfao.
+    ('onboarding: o registo de recurso passa a reescrever a lista', ON_SQL,
+     "     SET recursos_criados = recursos_criados || $3::jsonb,",
+     "     SET recursos_criados = $3::jsonb,", SAIDA),
+    # A varredura dos 30 minutos.
+    ('onboarding: o abandono passa a apanhar qualquer fase', ON_SQL,
+     "   WHERE fase = 'iniciado'\n     AND actualizado_at < now()",
+     "   WHERE actualizado_at < now()", SAIDA),
+    ('onboarding: o abandono deixa de olhar para o prazo', ON_SQL,
+     "     AND actualizado_at < now() - ($1::integer * interval '1 minute')",
+     "     AND actualizado_at IS NOT NULL", SAIDA),
+    # O contador do criterio 8.
+    ('onboarding: a contagem passa a filtrar por tenant', ON_SQL,
+     "   WHERE criado_at > now() - ($1::integer * interval '1 day')",
+     "   WHERE criado_at > now() - ($1::integer * interval '1 day')\n     AND tenant_id = tenant_id",
+     SAIDA),
+    ('onboarding: a contagem passa a ignorar o abandonado', ON_SQL,
+     "   WHERE criado_at > now() - ($1::integer * interval '1 day')",
+     "   WHERE criado_at > now() - ($1::integer * interval '1 day')\n     AND fase <> 'abandonado'",
+     SAIDA),
+    # A compensacao: apagar um canal activo era apagar um canal a funcionar.
+    ('onboarding: a compensacao passa a apagar canais activos', ON_SQL,
+     "          AND estado = 'pendente'\n      RETURNING id::text AS id",
+     "      RETURNING id::text AS id", SAIDA),
+    # A instrucao que larga o canal: sem ela, a FK recusa o `DELETE`. **Esta
+    # mutacao substituiu a que tirava o `channel_id = NULL` do
+    # `SQL_LIMPAR_RECURSOS`**, que deixou de ser aplicavel quando a revisao
+    # adversarial separou as duas instrucoes — e o `--aplicaveis` apanhou-a.
+    ('onboarding: largar o canal deixa de largar o canal', ON_SQL,
+     "     SET channel_id = NULL,\n         pin_ref = NULL,",
+     "     SET pin_ref = NULL,", SAIDA),
+    # A matriz do criterio 6.
+    ('onboarding: a matriz ganha a aresta que o ativo nao tem', ON_CONTRATO,
+     "  ativo: [],", '  ativo: ["iniciado"],', SAIDA),
+    ('onboarding: o abandonado passa a sair de qualquer fase', ON_CONTRATO,
+     '  es_concluido: ["subscrito", "falhado"],',
+     '  es_concluido: ["subscrito", "falhado", "abandonado"],', SAIDA),
+    ('onboarding: a aresta que o criterio 7 precisa desaparece', ON_CONTRATO,
+     '  es_concluido: ["subscrito", "falhado"],',
+     '  es_concluido: ["subscrito"],', SAIDA),
+    ('onboarding: a transicao passa a aceitar uma fase para si mesma', ON_CONTRATO,
+     "  return TRANSICOES[de].includes(para);",
+     "  return de === para || TRANSICOES[de].includes(para);", SAIDA),
+    # Os onze campos do criterio 5.
+    ('onboarding: a subscricao perde o smb_message_echoes', ON_CONTRATO,
+     '  "smb_message_echoes",\n  "history",', '  "history",', SAIDA),
+    ('onboarding: a versao da Graph passa a cair para a omissao', ON_CONTRATO,
+     "  if (!VERSAO.test(bruto)) throw new VersaoDaGraphInvalidaError(bruto);",
+     "  if (!VERSAO.test(bruto)) return VERSAO_DA_GRAPH_POR_OMISSAO;", SAIDA),
+    # A forma de v4 do criterio 1.
+    ('onboarding: o sessionInfoVersion deixa de ser verificado', ON_MODULO,
+     "  if (normalizada !== SESSION_INFO_VERSION) {",
+     "  if (false) {", SAIDA),
+    ('onboarding: a ausencia do featureType passa a ser coexistencia', ON_MODULO,
+     '  if (featureType === undefined) {',
+     '  if (false) {', SAIDA),
+    # A ordem dos passos: o tecto antes de abrir, e a repeticao sem Meta.
+    ('onboarding: o tecto passa a admitir o decimo primeiro cliente', ON_MODULO,
+     "    if (janela >= LIMITE_DE_ONBOARDINGS) {",
+     "    if (janela > LIMITE_DE_ONBOARDINGS) {", SAIDA),
+    # **A mutacao da revisao adversarial**, e a mais importante das trinta e
+    # oito: sem o ponto de salvaguarda, o `23505` aborta a transaccao e a
+    # compensacao nao consegue revogar o *token* — o cofre nao e transaccional,
+    # pelo que o `ROLLBACK` da rota apaga a linha do canal e **deixa o segredo
+    # la**. Quem a mata e a assercao de que o cofre fica vazio depois do 409.
+    # **As duas da cadeia de tres restricoes da base**, que foi o quarto achado
+    # da revisao adversarial. A FK nao tem `ON DELETE CASCADE`: apagar o canal
+    # com a linha a aponta-lo levanta `23503`, e largar o `channel_id` exige a
+    # fase em `falhado` pelo `channel_onboarding_canal_ck`.
+    ('onboarding: a compensacao passa a apagar o canal sem o largar', ON_MODULO,
+     '      await this.#d.sql.query(SQL_SOLTAR_CANAL, [id, tenantId]);',
+     '      // sem largar o canal', SAIDA),
+    ('onboarding: a compensacao larga o canal sem transitar primeiro', ON_MODULO,
+     '      await this.#transitarParaFalhado(id, tenantId, motivo);\n'
+     '      await this.#d.sql.query(SQL_SOLTAR_CANAL, [id, tenantId]);',
+     '      await this.#d.sql.query(SQL_SOLTAR_CANAL, [id, tenantId]);', SAIDA),
+    ('onboarding: o conflito do numero passa a abortar a transaccao', ON_MODULO,
+     "    await this.#d.sql.query(SQL_PONTO_DE_SALVAGUARDA);",
+     "    // sem ponto de salvaguarda", SAIDA),
+    # A ordem da compensacao: a fase vai a `falhado` **antes** de o
+    # `channel_id` ir a `NULL`, porque o `channel_onboarding_canal_ck` o recusa
+    # nas seis fases do meio. A mutacao troca as duas, e quem a mata e o teste
+    # que afirma a ordem no registo de chamadas.
+    # A ordem do fim da compensacao: a fase vai a `falhado` antes de a lista se
+    # esvaziar. A mutacao tira a transicao final, e a tentativa fica com a
+    # lista vazia e a fase do passo onde falhou — um estado que diz que nao
+    # ha nada pendurado e que a saga ainda esta a correr.
+    ('onboarding: a compensacao deixa de transitar no fim', ON_MODULO,
+     '    await this.#transitarParaFalhado(id, tenantId, motivo);\n'
+     '    await this.#d.sql.query(SQL_LIMPAR_RECURSOS, [id, tenantId]);\n  }',
+     '    await this.#d.sql.query(SQL_LIMPAR_RECURSOS, [id, tenantId]);\n  }', SAIDA),
+    ('onboarding: o 409 passa a ser qualquer violacao de unicidade', ON_MODULO,
+     "        restricaoDoErro(erro) === RESTRICAO_DO_NUMERO\n      ) {",
+     "        true\n      ) {", SAIDA),
+    # A igualdade de conjuntos do criterio 5.
+    ('onboarding: a confirmacao passa a aceitar campos em falta', ON_GRAPH,
+     "    falta: pedidos.filter((c) => !temObtido.has(c)),",
+     "    falta: [],", SAIDA),
+    ('onboarding: a confirmacao passa a comparar so o tamanho', ON_MODULO,
+     "    if (falta.length > 0 || aMais.length > 0) {",
+     "    if (obtidos.length !== CAMPOS_DE_WEBHOOK.length) {", SAIDA),
+    # A cifra do criterio 3.
+    ('onboarding: a DEK deixa de levar o tenant', ON_CIFRA,
+     '  const info = Buffer.from(`${DOMINIO_DA_DEK}\\0${tenant}`, "utf8");',
+     '  const info = Buffer.from(DOMINIO_DA_DEK, "utf8");', SAIDA),
+    ('onboarding: o contexto autenticado deixa de levar o tenant', ON_CIFRA,
+     '  return Buffer.from(`${DOMINIO_DA_CIFRA}\\0${exigirTenant(tenantId)}\\0${kid}`, "utf8");',
+     '  return Buffer.from(`${DOMINIO_DA_CIFRA}\\0${kid}`, "utf8");', SAIDA),
+    ('onboarding: o kid sai do criptograma', ON_CIFRA,
+     "    Buffer.from([VERSAO_DO_FORMATO, octetosDoKid.byteLength]),\n    octetosDoKid,",
+     "    Buffer.from([VERSAO_DO_FORMATO, 0]),", SAIDA),
+    ('onboarding: a KEK deixa de ter o tamanho conferido', ON_CIFRA,
+     "  if (octetos.byteLength !== OCTETOS_DE_CHAVE) {",
+     "  if (false) {", SAIDA),
+    ('onboarding: o IV passa a ser fixo', ON_CIFRA,
+     "  const iv = randomBytes(OCTETOS_DE_IV);",
+     "  const iv = Buffer.alloc(OCTETOS_DE_IV);", SAIDA),
+    # A porta de escrita no cofre.
+    ('onboarding: o sufixo da referencia passa a ser previsivel', ON_ESCRITA,
+     '  const sufixo = randomBytes(OCTETOS_DO_SUFIXO).toString("hex");',
+     '  const sufixo = "0".repeat(OCTETOS_DO_SUFIXO * 2);', SAIDA),
+    ('onboarding: a familia deixa de ter a forma conferida', ON_ESCRITA,
+     "  if (typeof familia !== \"string\" || !FAMILIA.test(familia)) {",
+     "  if (false) {", SAIDA),
+    # As metricas.
+    ('onboarding: o gauge da janela passa a dizer zero antes de medir', ON_METRICAS,
+     "    return this.#valores.get(chave) ?? -1;",
+     "    return this.#valores.get(chave) ?? 0;", SAIDA),
+    ('onboarding: a etiqueta deixa de ser conferida', ON_METRICAS,
+     "    if (!definicao.valores.includes(etiqueta)) {",
+     "    if (false) {", SAIDA),
 ]
 
 

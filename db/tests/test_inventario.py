@@ -668,6 +668,85 @@ INVENTARIO = {
             "nao",
         ),
     },
+    # ------------------------------------------------- KAM-016 (0017)
+    #
+    # A tentativa de ligar um numero pelo Embedded Signup v4. Treze colunas, e o
+    # bloco do ticket nomeia quatro: as nove restantes tem cada uma o criterio
+    # que a obriga (dicionario §3.21).
+    #
+    # **Nenhuma coluna desta tabela e dado pessoal de cliente final**, e isso nao
+    # e sorte: o onboarding e entre a plataforma e o **dono** da PME, e o DoD do
+    # ticket di-lo — «Privacidade — nenhum dado de cliente final tratado». Os
+    # identificadores que ca estao sao chaves opacas da Meta (o `waba_id`, o
+    # `waac_id`, o `phone_number_id`) e referencias nossas.
+    "channel_onboarding": {
+        "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "channel_id": (
+            "uuid",
+            SIM,
+            None,
+            "nao — e nulo ate a troca do code criar a linha de tenant_channels, "
+            "e nulo outra vez depois de a compensacao a apagar",
+        ),
+        "waba_id": (
+            "text",
+            NAO,
+            None,
+            "nao — e a chave opaca que a Meta da a conta de negocio, nao um "
+            "identificador de pessoa",
+        ),
+        "waac_id": (
+            "text",
+            SIM,
+            None,
+            "nao — **nulo hoje** e de proposito: a Fase 3 do novo modelo de "
+            "contas (H1 2028, CONFIRMADO em E1 §3) passa a exigi-lo nos "
+            "caminhos da API, e guardar os dois identificadores hoje e o "
+            "criterio 8",
+        ),
+        "phone_number_id": (
+            "text",
+            NAO,
+            None,
+            "nao — **nao e um telefone**: e uma chave opaca da Cloud API, como "
+            "o COMMENT da coluna homonima de tenant_channels diz desde a 0001",
+        ),
+        "code_hash": (
+            "bytea",
+            NAO,
+            None,
+            "nao — e o sha256 do code do Embedded Signup, **nunca o code**. O "
+            "code e trocavel por um token de cliente, logo e um segredo com o "
+            "valor do token; o resumo serve para a igualdade que a idempotencia "
+            "precisa e nao serve para trocar",
+        ),
+        "fase": ("text", NAO, "'iniciado'::text", "nao"),
+        "recursos_criados": (
+            "jsonb",
+            NAO,
+            "'[]'::jsonb",
+            "nao — a lista dos recursos que cada passo criou, e o `ref` de cada "
+            "um e uma referencia opaca (SecretRef, channel_id, waba_id) e nunca "
+            "um valor de segredo",
+        ),
+        "pin_ref": (
+            "text",
+            SIM,
+            None,
+            "nao — e a referencia opaca ao PIN 2FA no cofre (meta_pin_2fa), "
+            "nunca o PIN",
+        ),
+        "motivo": (
+            "text",
+            SIM,
+            None,
+            "nao — e texto nosso a dizer porque e que o onboarding nao acabou, "
+            "lido por uma pessoa",
+        ),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "actualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
 }
 
 #: **A primeira vista do esquema** (KAM-022), e esta no inventario e nao fora
@@ -773,6 +852,19 @@ class TestInventario(ComBase):
                         # `ON DELETE CASCADE` escrito de passagem.
                         "consent_event_tenant_fk",
                         "consent_event_contact_fk",
+                        # KAM-016: as duas da tentativa de onboarding. A do
+                        # canal e **composta** com o `tenant_id`, pela razao que
+                        # a `0009` fixou e as cinco revisoes seguintes
+                        # repetiram, e assenta na `tenant_channels_tenant_id_uq`
+                        # que aquela revisao acrescentou precisamente para isto.
+                        # Sem `ON DELETE CASCADE`, como todas: apagar um canal
+                        # nao pode apagar o registo das tentativas que o
+                        # criaram — e a compensacao do criterio 7 **apaga** o
+                        # canal, o que faz a FK recusar e obriga a por o
+                        # `channel_id` a `NULL` primeiro, que e o que o
+                        # `SQL_LIMPAR_RECURSOS` faz.
+                        "channel_onboarding_tenant_fk",
+                        "channel_onboarding_channel_fk",
                         "handoffs_tenant_fk",
                         "handoffs_conversation_fk",
                         "handoff_accounts_tenant_fk",
@@ -939,6 +1031,27 @@ class TestInventario(ComBase):
                     "consent_texts_texto_ck",
                     "consent_texts_version_ck",
                     "consent_texts_hash_ck",
+                    # ------------------------------------- KAM-016 (0017)
+                    # A chave, as **duas** unicidades que dao a idempotencia do
+                    # criterio 2 (e as duas levam o `tenant_id`, pela razao da
+                    # emenda 1.21), o dominio das nove fases, e seis `CHECK` de
+                    # forma. O `canal_ck` e uma **implicacao e nao uma
+                    # igualdade**: nas seis fases do meio ha canal, e nas tres
+                    # de fora pode nao haver — o `falhado` **pode** ter canal
+                    # enquanto a compensacao nao correu, e um `CHECK` sobre as
+                    # seis recusava esse estado legitimo.
+                    "channel_onboarding_pkey",
+                    "channel_onboarding_code_uq",
+                    "channel_onboarding_tenant_waba_uq",
+                    "channel_onboarding_fase_ck",
+                    "channel_onboarding_canal_ck",
+                    "channel_onboarding_waba_id_ck",
+                    "channel_onboarding_waac_id_ck",
+                    "channel_onboarding_phone_number_id_ck",
+                    "channel_onboarding_code_hash_ck",
+                    "channel_onboarding_recursos_ck",
+                    "channel_onboarding_pin_ref_ck",
+                    "channel_onboarding_motivo_ck",
                     # ------------------------------------- KAM-015 (0010)
                     # Os dois dominios da `outbound_messages`, as duas
                     # unicidades (a da chave de idempotencia e **por tenant**;

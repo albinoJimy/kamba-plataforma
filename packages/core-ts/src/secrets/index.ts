@@ -50,6 +50,15 @@ export { OpenBaoFakeProvider } from "./openbao-fake.ts";
 export type { OpenBaoFakeOpcoes } from "./openbao-fake.ts";
 
 export {
+  FamiliaInvalidaError,
+  OCTETOS_DO_SUFIXO,
+  SemEscritaError,
+  cunharRef,
+  validarFamilia,
+} from "./escrita.ts";
+export type { SecretWriter } from "./escrita.ts";
+
+export {
   A_CONFIRMAR,
   DopplerSecretProvider,
   interpretarDescargaPlana,

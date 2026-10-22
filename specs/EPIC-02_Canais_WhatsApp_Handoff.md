@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Canais WhatsApp e Handoff |
-| Versão | 1.8 |
+| Versão | 1.9 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md`, `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md`, `../docs/tecnica/06_Dados_Eventos_Analytics.md`, `../docs/tecnica/08_Seguranca_Conformidade.md`, `../docs/tecnica/10_Onboarding_Governanca.md` (§6–§7), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` |
@@ -931,6 +931,217 @@ Implementar o lado servidor do onboarding de canal: receber o resultado do ES v4
 - [ ] **Privacidade** — nenhum dado de cliente final tratado; token e PIN nunca em logs.
 - [ ] **Sem segredos** — token/PIN só no cofre; scan limpo.
 - [ ] **Migrações reversíveis** — `downgrade` testado.
+
+### Verificação dos Critérios de Aceitação
+
+Medido em 2026-10-22, ramo `feature/KAM-016-embedded-signup-v4-tech-provider`,
+sobre `publico/main` (`5f7dfeb`, KAM-022). Desenho em
+[`../docs/onboarding-canal.md`](../docs/onboarding-canal.md).
+
+**A revisão é a `0017` e não a `0016`, e isso mudou depois de as medições estarem
+feitas.** Verifiquei o remoto antes de escolher o número — `git branch -r --list
+'publico/feature/KAM-018*'` devolveu vazio — e o ramo do KAM-018 chegou depois,
+com uma `0016` a descender da mesma `0015`. **Dois `down_revision` iguais são
+recusados pelo Alembic**, e não é colisão mecânica: as revisões de base encaixam
+uma na anterior e entram em série. Renumerou-se esta porque a dele **não cria
+objecto nenhum** — dois `GRANT UPDATE` por coluna em `conversations` —, pelo que
+nada lhe aponta, enquanto esta cria uma tabela com receita de sementes, entrada no
+inventário, matriz de privilégios e lugar na descoberta do X-05.
+
+**E a cadeia está medida de verdade, já não num ramo descartável:** o KAM-018
+fundiu em `6259c0e` e este ramo integrou o `main`. As três *suites* do *gate* 8
+correm sobre `0015 → 0016 → 0017` — `tests` **512 OK**, `tests_outbound`
+**10 OK**, `tests_isolamento` **78 OK** —, e a emenda do dicionário passou a
+**1.30** com a secção a **§3.21**, porque o KAM-018 chegou primeiro e ficou com a
+1.29 e o §3.20.
+
+Todas as medições de Node correram num contentor
+`node:24.21.0-trixie-slim@sha256:173f1258…`, e as de Python num `venv` criado
+**fora** do repositório: esta máquina de desenvolvimento não tem `node`, `pnpm`
+nem `make` no `PATH`, e dentro do repositório o `supply_chain check` varre o
+`site-packages` e falha. `make ci-8` numa máquina sem `make` responde
+`command not found` — o que **não** é «o gate passa».
+
+**Oito caixas de critério marcadas e uma vazia**, e a vazia é o nono: pede um
+onboarding real numa conta de teste da Meta, depois de `ext:KAM-102`. Das oito do
+DoD, **duas** ficam vazias e as duas são nomeadas abaixo com a razão.
+
+| # | Critério | Estado | O que se mediu |
+|---|---|---|---|
+| 1 | `POST /internal/channels` com os cinco campos; ES v4 (`featureType`, `sessionInfoVersion: "3"`); o código não referencia v2/v3 | **satisfeito** | A rota existe e os cinco campos são validados antes de se abrir transacção nenhuma: **21** testes em `services/gwy/tests/canais.test.ts`, com os cinco campos em falta, um a um, a dar **400 sem abrir transacção**. A forma de v4 verifica-se **antes de falar com a Meta** — a asserção é que a única chamada à base foi a contagem da janela e que a Graph recebeu zero. O `sessionInfoVersion` aceita `"3"` e o número `3`, e recusa `"2"`, `"3 "`, `"03"`, `""`, `null` e a ausência; o `extras.featureType` é exigido **sem tolerância**, porque é ele que distingue a coexistência do `cloud_only` e adivinhá-lo pela ausência era decidir o modo do canal por omissão. **A terceira cláusula mede-se no texto dos ficheiros**, e é a única asserção desta bateria que o faz: varre `src/onboarding/*.ts` à procura de um `sessionInfoVersion` com valor diferente de `"3"` e de um ramo por versão do ES (`es_v2`, `esV3`). Não há variável de ambiente para a versão do ES — só para a da **Graph**, que é outra coisa e que os *Detalhes Técnicos* mandam fixar em configuração. **A rota vive na app interna do GWY**: a pública responde **404**, e há três asserções a prendê-lo |
+| 2 | Idempotência: o mesmo `code` ou o mesmo `(tenant_id, waba_id)` 2× produz 1 canal, 1 *token*, 0 subscrições duplicadas | **satisfeito, e é da base** | Duas unicidades em `channel_onboarding` — `(tenant_id, code_hash)` e `(tenant_id, waba_id)` — e o `INSERT ... ON CONFLICT DO NOTHING RETURNING` **sem alvo**: com um alvo nomeado, a repetição do mesmo *code* noutro WABA levantava `23505` em vez de devolver a linha que lá estava. Medido contra a base: o mesmo *code* 2× dá **1** tentativa e **1** canal; o mesmo par com um *code* novo dá **1** canal (contado antes e depois); e **em paralelo, em duas ligações**, as duas chamadas ao `SQL_ABRIR` devolvem `[0, 1]` linhas e a tabela fica com **1**. «1 canal» não é propriedade do código: o canal cria-se na **mesma transacção** que escreve o `channel_id` nessa linha. E as duas chaves levam o `tenant_id` — o mesmo *code* em dois *tenants* abre **duas** tentativas, pela razão da emenda 1.21. A repetição **não fala com a Meta nem com o cofre**: trocar o *code* outra vez criava um segundo *token* antes de descobrir que havia um, e a asserção conta as chamadas das duas |
+| 3 | *Token* cifrado (AES-256-GCM, DEK por *tenant*, KEK no cofre, `kid` versionado) com `token_ref`; *dump grep* da BD e dos logs não o encontra; PIN 2FA no cofre com acesso mínimo | **satisfeito** | **O *dump grep* é literal**: a bateria junta `tenant_channels` e `channel_onboarding` em texto (`c.*::text`) e procura o *token*, o *code* e o PIN — nenhum está lá. O que está é `meta_client_token/<32 hex>`, uma referência opaca. **E o que está no cofre é o criptograma**, não o *token*: a cifra é nossa, e a bateria decifra-o com a KEK para provar que é o mesmo valor. Doze asserções sobre a cifra: a DEK de dois *tenants* nunca coincide e é determinística no mesmo par; duas cifras do mesmo *token* dão criptogramas diferentes (IV novo); **um criptograma copiado para outro *tenant* não abre** — e isso não é zelo, porque o `token_ref` é uma coluna que o `GRANT UPDATE` da `0001` concede a `kamba_app`, pelo que mover a referência de A para a linha de B é uma escrita que a base aceita; o `kid` lê-se sem abrir e **a rotação da KEK não perde os *tokens* antigos**; um `kid` que saiu do anel diz **qual** falta; um octeto alterado não abre (GCM autentica); uma KEK de 16 octetos é recusada e não truncada; e nenhum erro repete o *token* que recusou. O PIN é de **seis** dígitos, vai para `meta_pin_2fa` («acesso minimo: so o provisionamento o le», `ops/secrets-inventory.yaml`) e a coluna guarda a referência com `CHECK` **de forma** de `SecretRef` — quatro cadeias mal formadas são recusadas pela base. **E a porta de escrita no cofre é nova**: fecha a lacuna que o `ADR-L002` §6 declarou para este dia |
+| 4 | `phone_number_id` de outro *tenant* devolve 409, não altera nada, deixa registo de auditoria | **satisfeito** | As três metades resolvem-se com a **forma da transacção** e não com três mecanismos. O **409** é a `tenant_channels_phone_number_id_uq` da `0001` a levantar `23505`, e ramifica-se pelo **nome da restrição** e não pelo código sozinho — há um teste com um `23505` de outra restrição a provar que ele **não** se disfarça de 409. O **«não altera nada»** mede-se na base **depois do `ROLLBACK`**: o número de canais é o mesmo antes e depois, a linha do dono continua com o `tenant_id` de A, e a tentativa de B não existe. O **registo** escreve-se a seguir, numa transacção **própria** — e a asserção que o prende é a contagem de transacções da rota: **duas**. A resposta **não diz de quem é o número**: nomear o dono era um canal de leitura entre *tenants* por mensagem de erro, e há duas asserções sobre isso. **O registo não é o `audit_log`**, e a razão é mecânica e foi medida — ver a nota abaixo |
+| 5 | Subscrição dos **onze** campos exactos; leitura de confirmação por igualdade de conjuntos; evento de teste chega ao GWY | **satisfeito contra o simulador** | As **três** cláusulas, e a terceira é a que obrigou a sair do módulo. As duas primeiras medem-se contra o `GraphFalso` do KAM-024 levantado em `node:http`: os onze campos subscrevem-se, o servidor guarda **quais**, e a leitura de confirmação devolve o mesmo conjunto. A comparação é de **conjuntos** — a ordem invertida passa, um campo a menos aparece em `falta` e só ele, um a mais aparece em `aMais` e não como falta, e duplicados na resposta não contam como campo a mais; subscrever duas vezes não duplica. **E o domínio compara-se com o do simulador**, que é a terceira cópia dele (a primeira é o critério, a segunda o `../docs/tecnica/01` §4.4): `CAMPOS_DE_WEBHOOK` e o `CAMPOS` do `@kamba/meta-sim` são o mesmo conjunto de onze, com teste — duas cópias de um domínio divergem no dia em que uma delas mudar. A **terceira** cláusula mede-se no GWY e campo a campo: uma *fixture* **assinada** de cada um dos onze entra pelo `POST /wa/webhook`, responde **200** e deixa **um** *job* na fila. É a prova de que subscrever estes onze nomes não é um gesto vazio — há um caminho de entrada para cada um. A assinatura vem do `assinar` do simulador, que tem `createHmac` próprio e não importa nada do `core-ts`: são duas implementações, e é isso que faz a ida e volta medir alguma coisa. **O que isto não é:** o evento de teste do passo 10 do `01` §13.2, que é uma mensagem real enviada e recebida no número do cliente. Esse é o nono critério |
+| 6 | `channel_onboarding` com as nove fases; transições inválidas rejeitadas; `abandonado` aos 30 min | **satisfeito** | As nove, e **o `desligado` do diagrama do `01` §13.1 não é uma delas** — é valor de `tenant_channels.estado` desde a `0001`, e quem o escreve é o KAM-017; o `CHECK` da base recusa-o, junto com `pendente`, `INICIADO` e `""`. A matriz tem **dezesseis** arestas contra as onze do diagrama, e a diferença é uma regra: de qualquer fase não terminal vai-se a `falhado` — sem ela, o caminho que o critério 7 manda exercitar (uma falha no passo 4, que corre em `es_concluido`) não era representável. Os **81** pares ordenados medem-se um a um: exactamente dezesseis passam, uma fase para si mesma **não** é transição, o `ativo` é terminal, e o `abandonado` só sai de `iniciado` — como o diagrama o desenha. Contra a base, os dezesseis escrevem e a **segunda** passagem devolve **zero linhas**, que é o `WHERE fase = <esperada>` a serializar. Um par inválido **levanta antes de tocar na base**, e a asserção é que nenhuma consulta correu. Os **30 min**: um `iniciado` parado há 31 minutos passa a `abandonado`, um `falhado` ao lado **não é tocado**, e um `iniciado` dentro do prazo fica. E o domínio do contrato confronta-se com o `pg_get_constraintdef` da revisão, nos dois sentidos |
+| 7 | Cada passo registra o recurso e tem compensação; falha injectada no passo 4 deixa 0 recursos órfãos | **satisfeito** | Os **quatro** recursos são os quatro passos com efeito fora da transacção (`token`, `pin`, `canal`, `subscricao`), e a lista é a coluna `recursos_criados`, pela ordem. A falha injectada no passo 4 — a subscrição, o que o critério nomeia — mede-se em **três** sítios e não na coluna: `0` linhas a mais em `tenant_channels` (contadas antes e depois), `0` segredos no cofre, e `0` subscrições **no WABA**, lido no `GraphFalso`. A coluna fica `[]`, o `channel_id` volta a `NULL` e a fase fica `falhado`. **A ordem é inversa e isso não é arbitrário**: anular a subscrição exige o *token* em claro, pelo que revogar o *token* primeiro deixava a subscrição sem forma de ser desfeita. Há três asserções que valem mais do que o caminho feliz: uma **compensação que falha não esvazia a lista nem desfaz o resto** (quem retomar tem de saber o que falta — e deixar o canal para trás porque a Meta não respondeu ao `DELETE` era trocar um órfão por dois); **compensar duas vezes resolve** (a `SecretWriter` exige `revogar` idempotente, e um `DELETE` de um canal que já não lá está devolve zero linhas); e a confirmação incompleta compensa **também** a subscrição. E o `jsonb ||` não perde um recurso que outro passo registou: duas escrituras concorrentes em duas ligações deixam **dois** na lista — numa base falsa isso era verdade por construção |
+| 8 | Guarda `waba_id`, `waac_id` (nulo) e `phone_number_id`; `es_onboardings_7d` exposto para o limite de 10/7 dias | **satisfeito, e os três identificadores já existiam** | **Esta revisão não acrescenta coluna nenhuma a `tenant_channels`**: o `waba_id`, o `waac_id` e o `phone_number_id` existem desde a `0001`, com os `CHECK` de forma e o `GRANT UPDATE` por coluna a cobri-los, e o `token_ref` também. A bateria lê a linha criada e afirma os três, com o `waac_id` a `NULL` — nulo **de propósito**: a Fase 3 do novo modelo de contas (H1 2028, CONFIRMADO em `E1` §3) passa a exigir o ID do WAAC nos caminhos da API, e guardar os dois hoje é o que torna essa fase uma alteração de caminho e não de esquema. O contador **atravessa *tenants***, porque o tecto de dez em sete dias é da nossa app perante a Meta e não de uma loja: dois *tenants* diferentes dão `+2`, e com a política `tenant_iso` o `kamba_app` nunca o poderia contar — é por isso que corre como `kamba_batch`. A fronteira mede-se: oito dias atrás não conta, sete dias menos um minuto conta. Com nove na janela ainda passa e com dez recusa (**429**, não 403: é «ainda não», não «nunca»). **Conta tudo o que entrou na janela**, incluindo o `abandonado` e o `falhado` — o lado conservador, porque se um *popup* fechado consome um lugar na contagem **deles** é NÃO VERIFICADO, e contar de menos custa um cliente. A lista de espera é KAM-095, e o critério di-lo |
+| 9 | 1 onboarding ES v4 real numa conta de teste da Meta, depois de KAM-102, com evidência em `../docs/evidencia/KAM-016.md` | **não satisfeito** | **Não há conta de teste da Meta, nem app aprovada, nem Tech Provider.** O critério depende de `ext:KAM-102` — Business Verification da nossa empresa, App Review com Advanced access a `whatsapp_business_messaging` e `whatsapp_business_management`, e o estatuto de Tech Provider —, e esse é trabalho do fundador, não deste ramo. **`../docs/evidencia/KAM-016.md` não existe e não se criou**: um ficheiro de evidência com capturas inventadas ou com a prosa de um onboarding que não aconteceu é pior do que a sua ausência, porque uma caixa marcada deixa de se poder distinguir de uma caixa verificada. O que está provado, e contra o quê, está na nota abaixo |
+
+#### O que está provado contra o simulador, e o que só o primeiro contacto real pode dizer
+
+A distinção não é académica: ela é a diferença entre este ticket estar feito e o
+canal funcionar.
+
+**Provado contra o `GraphFalso` do KAM-024, e vale como prova do nosso lado:**
+que o cliente compõe o caminho com o segmento de versão e o registra lá; que o
+*code* se troca e o *token* volta; que os onze campos se subscrevem e a leitura
+de confirmação devolve o mesmo conjunto; que a anulação esvazia o WABA e repetir
+resolve; que um `400` da Graph vem com o `error.code` e que a nossa mensagem não
+repete o *code*. Tudo isto é sobre **o nosso cliente**, e um servidor falso é
+suficiente para o afirmar.
+
+**Não provado, e nenhum teste deste ramo o pode afirmar:**
+
+1. **Que os três caminhos são os da Meta.** Os *Detalhes Técnicos* do bloco
+   dizem-no por extenso — «Os pontos finais e parâmetros exactos da Graph API
+   **não** constam de E1 (páginas de referência de API não lidas)» —, e não há
+   rede nesta sessão. Os três vivem em constantes exportadas
+   (`CAMINHO_DA_TROCA`, `caminhoDasSubscricoes`) para que o dia em que alguém
+   leia a documentação vigente seja uma alteração de três linhas com um teste a
+   afirmá-las.
+2. **Que a Graph aceita a troca do *code* como a enviamos.** Ver «A primeira
+   versão do cliente ficou vermelha», abaixo.
+3. **Que a Meta aceita os onze campos de uma vez.** O simulador aceita tudo o
+   que lhe mandem; a Graph real pode recusar um campo que a app não tenha
+   permissão para subscrever, e é precisamente para isso que a leitura de
+   confirmação existe — mas o que ela vai dizer no primeiro contacto é
+   desconhecido.
+4. **Que a versão `v21.0` existe.** É a omissão, e é ***proposta***: o próprio
+   `GraphFalso` diz porquê — «inventar uma ("v23.0") era afirmar o que não se
+   sabe». O que um teste afirma é que o cliente usa **a que a configuração diz**.
+5. **Que o *popup* devolve um `session_info` com esta forma.** O `E1` §3 confirma
+   os dois campos que o critério nomeia e nada mais; o resto do objecto entra
+   **inteiro e opaco**, porque inventar-lhe campos era afirmar o que não se sabe.
+6. **Que o PIN de seis dígitos é aceite no registo do número.** O passo 5′ do
+   `01` §13.2 é KAM-093, e a entrega de SMS pela Unitel e pela Africell é NÃO
+   VERIFICADA; este ticket guarda o PIN que esse passo vai usar.
+7. **Que um *popup* abandonado não consome um lugar na contagem da Meta.** Por
+   isso se conta pelo lado conservador.
+
+#### A primeira versão do cliente ficou vermelha, e a correcção é uma exposição declarada
+
+A troca do *code* ia em `POST` com `client_id`, `client_secret` e `code` no corpo
+`application/x-www-form-urlencoded` — o que a RFC 6749 §4.1.3 exige do ponto
+final de *token* de OAuth 2.0, e exige-o **precisamente** porque um segredo numa
+URL aparece em registos de proxy, em registos de acesso e no `Referer`.
+
+O `#trocarCode` do `GraphFalso` lê `pedido.consulta.code` e responde `400` a quem
+não o ponha lá. **Três testes vermelhos na primeira execução.** Não é um defeito
+do simulador: é ele a modelar a `GET /oauth/access_token` que a Meta documenta, e
+o autor do KAM-024 sabia da outra forma — o comentário do `ouvir()` dele diz «o
+Graph aceita `form-urlencoded` em algumas rotas».
+
+Havia duas saídas:
+
+* **alargar o simulador** para ler também o corpo, e passar a provar o cliente
+  contra uma superfície que eu próprio tinha alargado para lhe servir. Se a Graph
+  real só aceitar a consulta, o primeiro onboarding real falha **com os testes
+  verdes** — que é exactamente o desfecho que o «não inventes caminhos de API» do
+  bloco existe para evitar;
+* **seguir o simulador**, que é a superfície de referência deste epic, e escrever
+  a exposição.
+
+Escolheu-se a segunda. O que está mitigado: o pedido sai em TLS, pelo que a
+consulta não aparece em claro no fio; o *code* é de uso único e é esta chamada
+que o gasta; este cliente **nunca escreve a URL num log**, e o `caminho` de um
+`GraphRecusouError` leva a constante e não a consulta — há um teste a prendê-lo.
+O que **não** está mitigado: um proxy de saída nosso que registre a linha de
+pedido guarda o `code` e o `client_secret` num ficheiro. Isso é KAM-077, e está
+declarado no `graph.ts`, no dicionário §3.21 e no
+[`../docs/onboarding-canal.md`](../docs/onboarding-canal.md) §6.
+
+#### O registo de auditoria do critério 4 não é o `audit_log`, e a razão foi medida
+
+«Devolve 409, não altera nada e **deixa registo de auditoria**.» O registo é uma
+linha de `channel_onboarding` em `falhado`, com o `motivo` escrito e
+`recursos_criados = '[]'`.
+
+O sítio onde se iria procurar é o `platform.audit_log` da revisão `0006`. Não é
+lá, e a razão é mecânica: o domínio de `audit_log.action` tem **sete** valores e
+o `CHECK` está nessa revisão, **fundida**. O *gate* 3b lê o `CHECK` de **cada
+revisão isoladamente** e compara-o com o dicionário **nos dois sentidos** —
+`tools/canon_lint/ddl.py` reporta `falta:` —, pelo que acrescentar um oitavo
+valor ao dicionário deixava a `0006` vermelha. É a mesma mecânica que a emenda
+1.20 pagou para o `unrouted_events.motivo` e a 1.26 para o `motivo_restricao`,
+pelo outro lado: ali os valores entraram na revisão que cria o `CHECK`, e aqui
+essa revisão não se reescreve.
+
+E nenhum dos sete descreve isto — `price.update`, `stock.adjust`,
+`payment.manual_confirm`, `access.conversation`, `batch.run`, `breakglass.open`,
+`audit.read`. Enfiar a recusa em `access.conversation` era mentir num registo que
+existe para não mentir.
+
+**E o «não altera nada» continua literalmente verdadeiro**, porque o 409 vem de
+uma transacção que **reverte**: o `INSERT` em `tenant_channels` levanta `23505`,
+a transacção cai, e nem a linha do canal nem a actualização da tentativa
+sobrevivem. A linha de `falhado` escreve-se **depois**, numa transacção própria —
+e é por isso que a rota a escreve e o `ligar()` não: a ligação que ele tem é a
+que acabou de abortar. Se a linha de auditoria contasse como «alterar», o
+critério contradizia-se a si próprio na mesma frase.
+
+#### O que a `(tenant_id, waba_id)` custa, e porque se aceitou
+
+Um *tenant* não pode ter dois números no **mesmo** WABA por este caminho. Um WABA
+aceita vários números, pelo que o caso é real.
+
+O critério 2 fixa-o assim, e o que o justifica é que o recurso que o passo 4 cria
+— a subscrição — é **do WABA** e não do número: «0 subscrições duplicadas» é,
+literalmente, uma subscrição por `(tenant, waba)`. Quem acrescentar um segundo
+número ao mesmo WABA tem de **reutilizar** a subscrição que já existe, e isso é
+um caminho novo e não um relaxamento desta chave. Fica registado aqui e no
+dicionário §3.21.
+
+#### A revisão adversarial, e os três defeitos que ela encontrou
+
+A revisão correu contra o estado do ramo **depois** de as oito caixas estarem
+marcadas e de os quatro gates estarem verdes. Devolveu três defeitos, e o
+primeiro é o que faz a diferença entre uma caixa marcada e uma caixa verificada:
+**ele estava verde em todos os testes.**
+
+| # | O que estava errado | Como se vê, e o que mudou |
+|---|---|---|
+| 1 | **O 409 deixava o *token* no cofre.** Um `23505` **aborta a transacção inteira** no PostgreSQL: todas as instruções seguintes respondem `25P02`, e entre elas estão as da compensação — que é quem revoga o *token* que o passo anterior cunhou. O `ROLLBACK` da rota apaga a linha do canal e a da tentativa, mas **o cofre não é transaccional**: o *token* ficava lá, sem nada a apontar para ele e sem ninguém a saber que existe. E o critério 4 diz «não altera nada» | Estava verde em **todos** os testes, e a razão é a que o `docstring` da bateria de unidade avisa por extenso: **a base falsa não modela o aborto da transacção.** A bateria de base verificava `tenant_channels` e a tabela nova — as duas limpas pelo `ROLLBACK` — e não o cofre. A correcção é um `SAVEPOINT` em volta do `INSERT` do canal: o conflito desfaz-se só até ali, a ligação continua utilizável, e a compensação corre. **O duplo da base passou a responder `25P02` depois de um `23505`**, que é o que torna isto medido e não corrigido às cegas — e há uma mutação própria que o tira |
+| 2 | **A compensação rebentava no último passo.** O `SQL_LIMPAR_RECURSOS` põe o `channel_id` a `NULL`, e o `channel_onboarding_canal_ck` recusa-o nas seis fases do meio. A ordem era «limpa, depois transita», pelo que a limpeza corria com a fase ainda em `es_concluido` e levantava `23514` — **depois** de ter desfeito tudo o que havia a desfazer, que é o pior momento possível para rebentar | A ordem passou a «transita, depois limpa»: o `falhado` é uma das três fases que dispensam canal. É um `CHECK` que eu próprio escrevi a recusar uma instrução que eu próprio escrevi, e nenhum dos dois estava errado — o que estava errado era a ordem. Há um teste que afirma a ordem no registo de chamadas, e uma mutação que a troca |
+| 3 | **Um comentário dizia o contrário do código.** «Uma compensação que falha **não para as outras**», escrevia o `catch` — e o código `return`a na primeira falha. O teste afirmava o `return` | Era o **comentário** que estava errado, e a razão é a ordem inversa: o `token` é o último a ser desfeito, pelo que revogá-lo depois de a anulação da subscrição falhar deixava um recurso órfão **impossível de desfazer** em vez de um que fica à espera da próxima passagem. O comentário passou a dizer isso. Um comentário que mente é pior do que nenhum: o próximo leitor acredita nele |
+
+**O que os três têm em comum** é que nenhum é uma falha de lógica: são os três
+sobre a **fronteira transaccional** — o que a base faz a seguir a um erro, o que
+um `CHECK` vê a meio de uma sequência, e o que a ordem de uma lista obriga. E dois
+dos três só se vêem contra um PostgreSQL de verdade, que é a razão de esta
+*suite* existir.
+
+#### Definition of Done
+
+| Caixa | Estado | Evidência |
+|---|---|---|
+| Todos os CA satisfeitos e demonstráveis | **vazia** | **Oito dos nove**, e o nono é o onboarding real: ele depende de `ext:KAM-102` e nenhuma medição deste ramo o pode substituir. O critério 5 fica **parcial** pela sua terceira cláusula, que é o mesmo número de teste. A caixa fica vazia e não meia porque a letra dela diz «todos» |
+| Código revisto por **2 revisores** (segredos, número de uma PME); testes verdes; cobertura ≥ limiar | **vazia** | Testes verdes e cobertura **medidos**: **1 802** testes de unidade, **1 801** a passar, **0 a falhar** (o saltado é pré-existente, nos segredos), dos quais **66** novos em `tests/onboarding.test.ts`, **21** em `tests/onboarding.graph.test.ts`, **21** em `services/gwy/tests/canais.test.ts` e **29** em `tests_bd/onboarding.bd.test.ts`; as *suites* do *gate* 8 verdes (`tests` **512**, que inclui a revisão `0017` e o `downgrade`; `tests_outbound` **10**, com os tres ficheiros do modulo; `tests_isolamento` **78**); `src/onboarding/` entre **94,8% e 100%** por ficheiro. O `cifra.ts` entra no estrato `critico` de `ci/thresholds.yaml` — é o mesmo tipo de código que põe o `identity/cripto.ts` lá desde o KAM-008 — e mede **94,8%** contra os 90% desse estrato; o resto do módulo fica no `restante`, a 83% agregados contra 75%. **Zero revisores humanos** — é decisão escrita do fundador, e a caixa fica vazia como facto registado e não como passo cumprido. **Alterar `ci/thresholds.yaml` pede dois revisores**, e essa caixa fica vazia pela mesma razão |
+| Documentação actualizada (`../docs/onboarding-canal.md`); Conventional Commits | **marcada** | [`../docs/onboarding-canal.md`](../docs/onboarding-canal.md), com as sete decisões de desenho e as **cinco** limitações declaradas. Emenda **1.29** ao dicionário (§3.20) e `canon/dicionario.yaml` regenerado — `dict_export --check`, `canon_lint check` e `canon_lint canario` conformes, v1.29, **230** entradas, 25 extensões. O `../docs/ci.md` §3 ganha as **sete** propriedades novas e a linha de versão **1.49**. Conventional Commits validados pelo gancho (`git -c core.hooksPath=tools/githooks commit`) |
+| **Isolamento de tenant** — um canal pertence a um só tenant; RLS em `channel_onboarding`; teste cruzado | **marcada** | `rls.enable_tenant_rls("channel_onboarding")` na `0017`, com `FORCE` e a política `tenant_iso` (ADR-015); a descoberta do X-05 passa de vinte e quatro para **vinte e cinco** tabelas e a tabela ganhou receita de sementes no *gate* 6, com o canário no `waba_id`. Teste cruzado nos dois sentidos: com o contexto de A a tentativa de B não se vê, e **sem contexto são zero linhas**. A FK composta `(tenant_id, channel_id)` impede uma tentativa de A de apontar para um canal de B, e isso mede-se. **E a escrita não depende da política**: o `kamba_app` leva **`42501`** num `INSERT`, num `UPDATE` e num `DELETE` — o privilégio nem existe, que é mais forte do que a política recusar porque não depende de a política estar certa. «Um canal pertence a um só tenant» é a `tenant_channels_phone_number_id_uq` **global** da `0001`, e é a mesma unicidade que dá o 409 |
+| **Idempotência** — passos repetíveis com teste de repetição | **marcada** | Critério 2, acima, em **três** níveis: o mesmo *code* duas vezes, o mesmo par com um *code* novo, e duas aberturas **em paralelo em duas ligações** (o `ON CONFLICT` a serializar). E os passos são repetíveis um a um: subscrever duas vezes não duplica (o conjunto é um conjunto), anular duas vezes resolve, revogar um segredo que já não existe resolve, e compensar duas vezes não revoga nada a segunda vez |
+| **Privacidade** — nenhum dado de cliente final tratado; *token* e PIN nunca em logs | **marcada** | **Nenhuma coluna da tabela nova é dado pessoal de cliente final**, e isso não é sorte: o onboarding é entre a plataforma e o **dono** da PME. O que lá está são chaves opacas da Meta — e o `phone_number_id` **não é um telefone**, como o `COMMENT` da coluna homónima diz desde a `0001`. O módulo nunca vê um telefone. Os logs passam a lista branca de nove campos do `../docs/tecnica/08` §7.3 — nenhuma chamada leva um `fase` ou um `recurso` como campo, porque a lista não os tem: o que sai é `outcome` e `error_code`. **O `code` não entra na mensagem de um 400** (há teste), **o *token* não entra na mensagem de um erro da Graph** (há teste), e a resposta da rota **não leva o `token_ref` nem o `pin_ref`** (há teste). As quatro métricas não levam etiqueta de *tenant*, e há um teste que varre a exposição |
+| **Sem segredos** — *token*/PIN só no cofre; *scan* limpo | **marcada** | O *dump grep* do critério 3, acima, nos **dois** sítios que o critério nomeia (a base e os logs) e num terceiro que ele não nomeia: o cofre guarda o **criptograma** e não o *token*. O `code` entra na base em `sha256` e nunca em claro — ele é trocável por um *token*, logo é um segredo com o valor do *token*, e guardá-lo em claro para fazer idempotência punha na base exactamente o que este critério manda não pôr lá. O `pin_ref` leva `CHECK` de forma de `SecretRef` na base. A `SecretWriter` vive num ficheiro só, e isso é deliberado: um `cunhar(familia, valor)` é a única assinatura deste repositório onde um valor de segredo é argumento, e tê-la num sítio mantém pequena a área que o *gate* 9 vigia |
+| **Migrações reversíveis** — `downgrade` testado | **marcada** | `TestDowngradeDa0017`: desce **com linhas** e sobe outra vez; a tabela, os três índices e a política desaparecem, o canal e o *tenant* ficam, e o `upgrade` repõe tudo. **Sem guarda de dados e sem cópia para ficheiro**, ao contrário da `0010` e da `0012`: o que se perde é o registo de **tentativas** de onboarding — não é dinheiro nem prova jurídica, e as tentativas vivas refazem-se (o *code* queima-se e o dono repete o *popup*). Os canais **não** se perdem: a linha de `tenant_channels` é da `0001`. **E sem repor concessões**, pela lição que o KAM-023 mediu na `0013`: o PostgreSQL remove as concessões **com** o objecto, pelo que um `REVOKE` antes do `DROP TABLE` é uma instrução que nenhuma mutação consegue matar |
+
+#### A prova por mutação
+
+**570** mutações conferidas pelo `--aplicaveis`, **0 não aplicáveis** — e
+esse comando corre-se depois de cada integração do `main`, pela lição que o
+KAM-023 deixou: o `git merge` pode fazer uma constante deste ficheiro sombrear
+outra **sem conflito nenhum**, e nenhum teste o vê. **Trinta e sete** são novas:
+cinco da revisão `0017` (as duas unicidades, a FK composta, o `GRANT` e a RLS) e
+trinta e duas do código, cada uma a tirar uma afirmação de um critério — o `ON
+CONFLICT` com alvo nomeado, o *compare-and-set* sem a fase de partida, o
+`recursos_criados` reescrito em vez de concatenado, a aresta que o critério 7
+precisa, o `smb_message_echoes` fora dos onze, a DEK sem o *tenant*, o `kid` fora
+do criptograma, o IV fixo, o sufixo previsível da referência.
+
+**O prefixo é `ON_` e foi escolhido depois de procurar.** É a lição do
+`MED_SQL`/`FT_SQL` que o KAM-022 repetiu: um prefixo que colida com o de outro
+ticket sombreia entradas em silêncio.
+
+---
 
 ### Handoff para Claude Code
 
@@ -2853,3 +3064,4 @@ Testes: idempotência, limites, bounce, isolamento, X-11. Abre PR com o template
 | 1.6 | Outubro 2026 | **KAM-023 entregue, em duas metades.** Secção de verificação no bloco, com **onze** caixas marcadas e **cinco** vazias, cada uma com a razão escrita. A metade de código entrou sem DDL (contagem do *free tier*, alertas aos 800 e 1.000 por **flanco** e não por valor, custo estimado em micro-dólares inteiros, quatro métricas) e a revisão `0013` entrou quando a `0012` do KAM-020 fundiu — as revisões de base encaixam uma na anterior, e duas a reclamar o mesmo pai não são colisão mecânica. As cinco vazias: o fuso **por canal** que o esquema não tem (só há por *tenant*, e o fuso vive na `platform.ten_periodo` da `0007`), a etiqueta `{tenant}` que as bibliotecas de métricas recusam **por gramática** (mesmo precedente da emenda 1.21 do dicionário), o critério 7 que é de **saída** e pede um mês real de Piloto, a dos revisores (zero humanos, decisão do fundador) e a que depende das outras. Quatro dívidas novas (65 a 68), todas critérios que pedem o que o esquema não tem. **Esta linha fecha uma deriva:** o KAM-019 e o KAM-020 não acrescentaram a sua, pelo que a tabela saltou da 1.5 para aqui — fica registado em `../docs/dividas-documentais.md`. | Equipa KAMBÁ |
 | 1.7 | Outubro 2026 | **KAM-021 entregue.** Secção de verificação no bloco, com **catorze** caixas marcadas e **três** vazias, cada uma com a razão escrita. Entrou a revisão `0014` (`channel_quality_log` com unicidade `(tenant_id, event_key)` e `tenant_channels.max_phone_numbers_per_business`) e o módulo `packages/core-ts/src/qualidade/`, que preenche o braço `gestao_de_canal` que o KAM-013 deixou a registar e mais nada. **A caixa do critério 3 fica vazia por segurança, e a decisão é do fundador:** ele quer que o `tenants.estado` projecte `restrito`, e a revisão `0007` retirou o `UPDATE (estado)` a `kamba_app` **de propósito** — «o sujeito da condição não pode ser quem a retira» —, com um teste a prendê-la; devolver o privilégio reabria a escalada que a revisão adversarial do KAM-009 fechou. As outras duas vazias são a dos revisores (zero humanos, decisão do fundador) e a que depende da primeira. Duas caixas entregam-se «pelo que o repositório tem» — o *ticket* de T&S dos critérios 4 e 8 não existe como mecanismo, e o que existe (contador e registo) é o que se usa, como o KAM-023 fez — e duas trazem divergências registadas: **dois critérios do mesmo bloco não dizem o mesmo** (o 2 nomeia só a `marketing` e a matriz do §3.7 recusa também a `utility`, e segue-se a matriz porque é o que o critério 9 pede), e o nome do escalão do critério 5 (`TIER_2000` contra o `TIER_2K` que o gerador do KAM-024 produz). Cinco dívidas novas (70 a 74). **A prova por mutação encontrou um teste em falta que nenhuma leitura viu:** apagar o `WHERE estado <> 'restrito'` do `SQL_RESTRINGIR` passava a prova inteira, porque no caminho sequencial o predicado é redundante — quem o torna necessário é a concorrência com chaves **diferentes**, e o teste da corrida que existia usava a mesma chave. **E o grupo do critério 9 passava pela razão errada:** o `tenants.estado` nasce `onboarding`, que é mais restritivo do que `restrito`, pelo que as três asserções de `STATE_REFUSED` teriam passado com o canal `ativo`. **A divergência que o DoD manda registar já estava fechada pelo KAM-111:** o `../docs/tecnica/10` §6.4 diz hoje «vermelho → `restrito`», e quem ainda diz `suspenso` é o `00` §6.2, que o `01` §9 já registra. | Equipa KAMBÁ |
 | 1.8 | Outubro 2026 | **KAM-022 entregue.** Secção de verificação no bloco, com **quinze** caixas marcadas e **uma** vazia — a dos revisores, que neste ticket pede **dois** por serem dados pessoais e por isso fica vazia e não meia. Entrou a revisão `0015` (a `consent_event` *append-only*, a `consent_texts` **sem `tenant_id`** e **a primeira vista do esquema**, a `consent_actual`) e o módulo `packages/core-ts/src/consentimento/`, que é a barreira anterior ao AGR. **Três coisas que não são transcrição:** a decisão é **um valor** (`invocaAgr`) e o módulo nunca chama o AGR, porque a propriedade do critério 4 — «0 *jobs* sem consentimento válido anterior» — só é demonstrável se houver um sítio onde a medir; a idempotência do critério 2 sai do **próprio `evidence_hash`**, que leva o `wamid` e a hora **da Meta**, pelo que uma reentrega do mesmo *webhook* bate na unicidade (com a nossa hora, duas entregas davam duas linhas); e a contagem de avisos do critério 3 **não acrescentou DDL** — a chave `aviso:{conversation_id}:{n}` que impede o aviso de sair duas vezes é a que diz quantas vezes saiu. **A `consent_actual` é a primeira vista do esquema e leva `security_invoker = true`:** o `verificar_vistas` do catálogo do X-05 exige-o desde o KAM-004 e nunca tinha tido nada para ver — sem a opção, uma vista corre com os privilégios do dono e a RLS passa a depender do `FORCE`, numa relação onde ninguém iria procurar. Ela sacudiu **quatro** sítios que diziam «tabelas» e mediam relações, todos listados na secção. **A `consent_texts` nasce vazia e o gate falha fechada**, pelo que a loja fica muda até o texto existir: é o lado certo, porque a alternativa era tratar dados sem ter mostrado o aviso (ADR-010, `E3` req. 15). Quatro dívidas novas (75 a 78), e as duas primeiras são da classe da 74 — o bloco manda registar o que o **KAM-140** já fechou. **Dois defeitos que só uma máquina apanhou, os dois do ensaio:** um `excepcao.sqlstate` que o `pg8000` não tem (dezasseis erros), e a metade positiva do *append-only* a contar linhas que a sessão da aplicação não podia ver. | Equipa KAMBÁ |
+| 1.9 | Outubro 2026 | **KAM-016 entregue, sem o nono critério.** Secção de verificação no bloco, com **oito** caixas de critério marcadas e **uma** vazia — o onboarding real numa conta de teste da Meta, que depende de `ext:KAM-102` e que **nenhuma medição deste ramo pode substituir**: não há `../docs/evidencia/KAM-016.md` e não se inventou nenhum. Entrou a revisão `0017` (a `channel_onboarding` com as nove fases e as duas unicidades), o módulo `packages/core-ts/src/onboarding/`, a rota `POST /internal/channels` na app **interna** do GWY, e a porta de escrita no cofre que o `ADR-L002` §6 declarou em falta para este dia. **Três leituras que mudaram o desenho:** o 409 do critério 4 é a `tenant_channels_phone_number_id_uq` **global** da `0001` a morder e não uma verificação em código; esta revisão **não acrescenta coluna nenhuma a `tenant_channels`**, porque os três identificadores do critério 8 existem desde a `0001`; e o registo de auditoria da recusa **não é o `audit_log`**, porque o domínio de `action` tem sete valores no `CHECK` da `0006`, fundida, e o *gate* 3b compara-o com o dicionário nos dois sentidos — um oitavo valor deixava essa revisão vermelha. **E quatro defeitos da revisão adversarial, os quatro sobre a fronteira transaccional, e o primeiro estava verde em todos os testes:** um `23505` aborta a transacção, pelo que a compensação que revoga o *token* respondia `25P02` — e o cofre **não é transaccional**, logo o `ROLLBACK` apagava a linha do canal e deixava o segredo lá (corrigido com um `SAVEPOINT`, e o duplo da base passou a modelar o `25P02`); a compensação apagava o canal **antes** de a linha o largar, e a FK sem `ON DELETE CASCADE` levantava `23503` — o que o comentário de `db/tests/test_inventario.py` já tinha previsto por escrito antes de o código existir; a limpeza corria antes da transição e o `channel_onboarding_canal_ck` levantava `23514`; e um comentário dizia o contrário do código, sendo o comentário o que estava errado. **A própria bateria esgotava o seu tecto**, e isso é o critério 8 a funcionar: o `es_onboardings_7d` atravessa *tenants*, pelo que as linhas de um teste contam na janela do seguinte. Emenda **1.30** ao dicionário (§3.21); a descoberta do X-05 passa de vinte e quatro para **vinte e cinco** tabelas; **570** mutações, 0 não aplicáveis. | Equipa KAMBÁ |
