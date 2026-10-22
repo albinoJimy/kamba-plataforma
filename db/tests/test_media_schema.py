@@ -94,9 +94,22 @@ CHAVE_DE_TESTE = "t/00000000-0000-4000-8000-000000000000/media_audio/2026/10/abc
 
 
 def _tabelas(cursor) -> tuple[str, ...]:
+    """As tabelas de base de `platform`, e **so** as de base.
+
+    O `table_type = 'BASE TABLE'` entrou no KAM-022, e a razao e que o
+    `information_schema.tables` lista tambem as **vistas**: a `consent_actual`
+    daquele ticket e a primeira do esquema, e sem o filtro este ajudante passava
+    a devolver uma relacao a mais do que a tupla `TABELAS` declara. As duas
+    copias deste ajudante no `test_conversas_schema.py` e no
+    `test_handoff_schema.py` leem o `pg_tables`, que ja so tem as de base; esta
+    era a unica que nao filtrava. Que a vista existe e tem
+    `security_invoker = true` prova-se noutro sitio: no
+    `verificar_vistas` do catalogo do X-05 e no `test_consentimento_schema.py`.
+    """
     cursor.execute(
         "SELECT table_name FROM information_schema.tables "
-        "WHERE table_schema = 'platform' ORDER BY table_name"
+        "WHERE table_schema = 'platform' AND table_type = 'BASE TABLE' "
+        "ORDER BY table_name"
     )
     return tuple(linha[0] for linha in cursor.fetchall())
 

@@ -403,6 +403,16 @@ ESPERADO_POR_TABELA.update(
         # Meta ter dito uma coisa a uma hora, e um facto nao se corrige.
         "channel_quality_log": _handoff(kamba_app={"SELECT", "INSERT"}),
         "media_assets": _handoff(kamba_app={"SELECT", "INSERT"}),
+        # KAM-022: a prova de consentimento. `SELECT` e `INSERT` e mais nada,
+        # como o `channel_quality_log` — e aqui o *append-only* e **criterio**
+        # e nao consequencia: «`UPDATE/DELETE` recusados para `kamba_app`». Uma
+        # prova de consentimento que se possa corrigir nao e prova.
+        "consent_event": _handoff(kamba_app={"SELECT", "INSERT"}),
+        # O texto do aviso: a aplicacao **le** e nao escreve. Quem publica uma
+        # versao nova e operacao, com o papel de administracao — e e por isso
+        # que o `kamba_batch` tem os quatro. Dar `INSERT` a aplicacao deixava o
+        # caminho que serve clientes publicar um texto juridico.
+        "consent_texts": _handoff(kamba_app={"SELECT"}),
     }
 )
 
@@ -640,6 +650,14 @@ COLUNAS_POR_PAPEL = {
     # `handoff_accounts`, e o que ela prova e mais forte do que uma politica:
     # o privilegio **nem existe**, pelo que nao depende de a RLS estar certa.
     ("kamba_app", "channel_quality_log", "UPDATE"): set(),
+    # KAM-022. **Dois conjuntos vazios, e sao o criterio 6 escrito em
+    # privilegios:** a `0015` nao concede `UPDATE` nenhum nas duas tabelas a
+    # `kamba_app`. Na `consent_event` porque uma prova append-only que se possa
+    # corrigir nao e prova; na `consent_texts` porque editar o texto de uma
+    # versao ja mostrada era reescrever o que um cliente viu — e a `hash` da
+    # linha existe exactamente para se poder dizer que isso nao aconteceu.
+    ("kamba_app", "consent_event", "UPDATE"): set(),
+    ("kamba_app", "consent_texts", "UPDATE"): set(),
     ("kamba_app", "media_assets", "UPDATE"): {
         "content_type",
         "size",
@@ -719,6 +737,9 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # KAM-021: pela mesma razao — a matriz de tabela nao ve um privilegio de
     # coluna a mais, nem a **ausencia** de um.
     "channel_quality_log",
+    # KAM-022: as duas, pela mesma razao.
+    "consent_event",
+    "consent_texts",
 )
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.

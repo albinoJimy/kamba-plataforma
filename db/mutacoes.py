@@ -246,6 +246,26 @@ QL_METRICAS = "packages/core-ts/src/qualidade/metricas.ts"
 QL_MODULO = "packages/core-ts/src/qualidade/qualidade.ts"
 REV14 = "db/migrations/versions/0014_qualidade_de_canal.py"
 
+# -------------------------------------------------------------- KAM-022
+#: O consentimento no 1.o contacto. A suite e a `tests_outbound` por uma razao
+#: que nao e a dos dois tickets anteriores: a contagem de avisos do criterio 3
+#: sai do prefixo da `idempotency_key` de `outbound_messages`, que e a tabela do
+#: KAM-015. O resto do que a base prova vive na mesma base e nao precisa de fila
+#: nem de Meta falsa.
+#:
+#: **`CS_` e nao `C_`**, e o prefixo escolheu-se depois de procurar: nenhuma
+#: outra constante deste ficheiro comeca por `CS_`. E a licao que o
+#: `MED_SQL`/`FT_SQL` deixou — um prefixo que colida com o de outro ticket
+#: sombreia entradas sem conflito de merge, e nenhum teste o ve.
+CS_SQL = "packages/core-ts/src/consentimento/consultas.ts"
+CS_DECISAO = "packages/core-ts/src/consentimento/decisao.ts"
+CS_CONTRATO = "packages/core-ts/src/consentimento/contrato.ts"
+CS_PARAR = "packages/core-ts/src/consentimento/parar.ts"
+CS_PROVA = "packages/core-ts/src/consentimento/prova.ts"
+CS_METRICAS = "packages/core-ts/src/consentimento/metricas.ts"
+CS_MODULO = "packages/core-ts/src/consentimento/consentimento.ts"
+REV15 = "db/migrations/versions/0015_consentimento.py"
+
 #: O corpo da subtransaccao da `ten_consumir`, como a revisao 0007 o escreve:
 #: **a chave primeiro, a contagem depois**. A mutacao da ordem precisa do
 #: texto inteiro, incluindo o comentario pelo meio, porque nao ha alteracao
@@ -2184,6 +2204,133 @@ MUTACOES = [
     ('criterio 9: um canal que a porta nao encontra volta a enviar', SAIDA_ADAPTER,
      '      if (estado === null) return this.#recusar(pedido, "STATE_REFUSED");',
      '      if (false) return this.#recusar(pedido, "STATE_REFUSED");', SAIDA),
+    # -------------------------------- KAM-022, revisao 0015 (consentimento)
+    #
+    # As oito primeiras sao da revisao: sete correm na suite `tests`, onde vive
+    # o `test_consentimento_schema.py`, e uma na `tests_isolamento`, porque quem
+    # ve a politica desaparecer e o X-05. As vinte seguintes sao do codigo e
+    # correm na `tests_outbound`.
+    #
+    # **A mutacao mais importante desta lista e a do `security_invoker`**, e ela
+    # nao e uma mutacao de logica: tira uma opcao de uma vista. Sem ela, a vista
+    # corre com os privilegios do dono e a RLS passa a depender do `FORCE` — e o
+    # que a mata e o `verificar_vistas` do catalogo, que existe desde o KAM-004
+    # e que esta revisao foi a primeira a por a prova.
+    #
+    # **Duas foram escritas e descartadas.** A primeira trocava o `DISTINCT ON`
+    # da vista por um `GROUP BY`: nao ha forma de o escrever que devolva as
+    # mesmas colunas, pelo que a migracao nao corre — e uma mutacao que rebenta
+    # na criacao e apanhada por qualquer teste, o que nao prova nada sobre a
+    # vista. A segunda apagava o `DROP VIEW` do `downgrade`: sem `CASCADE`, o
+    # `DROP TABLE` **falha** enquanto a vista existir, pelo que o `downgrade`
+    # rebenta — e o teste que o apanha nao diz nada sobre a ordem, diz que o
+    # Alembic falhou.
+    ('consentimento 0015: o dominio das finalidades perde a ultima', REV15,
+     "    \"'partilha_estafeta'\",\n    \"'notificacao_dono'\",",
+     "    \"'partilha_estafeta'\",", "tests"),
+    ('consentimento 0015: a vista deixa de correr como quem a consulta', REV15,
+     "          WITH (security_invoker = true) AS",
+     "          AS", "tests_isolamento"),
+    ('consentimento 0015: a prova perde a unicidade que da a idempotencia', REV15,
+     "            CONSTRAINT consent_event_prova_uq\n                UNIQUE (tenant_id, contact_id, purpose, evidence_hash),",
+     "", "tests"),
+    ('consentimento 0015: a unicidade da prova passa a ser global', REV15,
+     "                UNIQUE (tenant_id, contact_id, purpose, evidence_hash),",
+     "                UNIQUE (contact_id, purpose, evidence_hash),", "tests"),
+    ('consentimento 0015: o resumo da prova passa a aceitar qualquer tamanho', REV15,
+     "            CONSTRAINT consent_event_evidence_ck\n                CHECK (octet_length(evidence_hash) = {BYTES_DO_SHA256})",
+     "            CONSTRAINT consent_event_evidence_ck\n                CHECK (octet_length(evidence_hash) >= 1)", "tests"),
+    ('consentimento 0015: a app ganha UPDATE na prova que nao se corrige', REV15,
+     '"GRANT SELECT, INSERT ON platform.consent_event TO kamba_app"',
+     '"GRANT SELECT, INSERT, UPDATE ON platform.consent_event TO kamba_app"',
+     "tests"),
+    ('consentimento 0015: a app ganha INSERT no texto juridico', REV15,
+     '"GRANT SELECT ON platform.consent_texts TO kamba_app"',
+     '"GRANT SELECT, INSERT ON platform.consent_texts TO kamba_app"', "tests"),
+    ('consentimento 0015: a prova nasce sem politica de tenant', REV15,
+     '    rls.enable_tenant_rls("consent_event")',
+     '    pass  # rls.enable_tenant_rls("consent_event")', "tests_isolamento"),
+    ('consentimento: a versao vigente passa a incluir as futuras', CS_SQL,
+     "     AND vigente_desde <= coalesce($2, now())",
+     "     AND vigente_desde IS NOT NULL", SAIDA),
+    ('consentimento: a versao vigente passa a ser a mais antiga', CS_SQL,
+     "   ORDER BY vigente_desde DESC\n   LIMIT 1",
+     "   ORDER BY vigente_desde ASC\n   LIMIT 1", SAIDA),
+    ('consentimento: o estado passa a ler a tabela em vez da vista', CS_SQL,
+     "    FROM platform.consent_actual\n   WHERE tenant_id = $1 AND contact_id = $2 AND purpose = $3",
+     "    FROM platform.consent_event\n   WHERE tenant_id = $1 AND contact_id = $2 AND purpose = $3",
+     SAIDA),
+    ('consentimento: o registo passa a reescrever a prova que ja existia', CS_SQL,
+     "      ON CONFLICT (tenant_id, contact_id, purpose, evidence_hash) DO NOTHING",
+     "      ON CONFLICT (tenant_id, contact_id, purpose, evidence_hash) DO UPDATE\n            SET accepted = EXCLUDED.accepted",
+     SAIDA),
+    ('consentimento: a contagem de avisos passa a contar a conversa toda', CS_SQL,
+     "     AND idempotency_key LIKE $3",
+     "     AND idempotency_key IS NOT NULL", SAIDA),
+    ('consentimento: a contagem de avisos deixa de filtrar a conversa', CS_SQL,
+     "   WHERE tenant_id = $1\n     AND conversation_id = $2\n     AND idempotency_key LIKE $3",
+     "   WHERE tenant_id = $1\n     AND idempotency_key LIKE $3", SAIDA),
+    ('consentimento: o PARAR passa a disparar dentro de uma frase', CS_PARAR,
+     "  return (PALAVRAS_DE_PARAR as readonly string[]).includes(limpo);",
+     "  return PALAVRAS_DE_PARAR.some((p) => limpo.includes(p));", SAIDA),
+    ('consentimento: a normalizacao deixa de tirar os acentos', CS_PARAR,
+     '    .replace(/[\u0300-\u036f]/g, "")',
+     '    .replace(/[\u0300-\u036f]/g, "\u0301")', SAIDA),
+    ('consentimento: a normalizacao deixa de ignorar a caixa', CS_PARAR,
+     "    .toLowerCase()\n    .replace(/[^\\p{L}\\p{N}\\s]/gu, \" \")",
+     "    .replace(/[^\\p{L}\\p{N}\\s]/gu, \" \")", SAIDA),
+    ('consentimento: a lista de opt-out perde o PARAR do criterio', CS_PARAR,
+     'export const PALAVRAS_DE_PARAR = ["parar", "stop", "sair", "cancelar"] as const;',
+     'export const PALAVRAS_DE_PARAR = ["stop", "sair", "cancelar"] as const;', SAIDA),
+    ('consentimento: o texto livre passa a autorizar o agente', CS_DECISAO,
+     '  texto: {\n    ausente: "enviar_aviso",\n    desactualizado: "enviar_aviso",\n    valido: "seguir",\n  },',
+     '  texto: {\n    ausente: "seguir",\n    desactualizado: "seguir",\n    valido: "seguir",\n  },',
+     SAIDA),
+    ('consentimento: uma versao desactualizada passa a valer', CS_DECISAO,
+     '  return linha.text_version === versaoVigente ? "valido" : "desactualizado";',
+     '  return "valido";', SAIDA),
+    ('consentimento: uma recusa passa a contar como consentimento', CS_DECISAO,
+     '  if (linha === null || !linha.accepted) return "ausente";',
+     '  if (linha === null) return "ausente";', SAIDA),
+    ('consentimento: o `enviar_politica` passa a autorizar o agente', CS_DECISAO,
+     '  return accao === "seguir" || accao === "registar_e_seguir";',
+     '  return accao !== "enviar_aviso";', SAIDA),
+    ('consentimento: o aviso passa a repetir-se para sempre', CS_DECISAO,
+     '  if (accao === "enviar_aviso" && avisosEnviados >= AVISOS_ANTES_DO_HUMANO) {',
+     "  if (false) {", SAIDA),
+    ('consentimento: o PARAR deixa de ser lido antes do texto livre', CS_DECISAO,
+     '    return eParar(entrada.texto) ? "parar" : "texto";',
+     '    return "texto";', SAIDA),
+    ('consentimento: um botao desconhecido passa a ser o continuar', CS_DECISAO,
+     '      ? (entrada.id as Linha)\n      : "outro";',
+     '      ? (entrada.id as Linha)\n      : "continuar";', SAIDA),
+    ('consentimento: o tecto de avisos passa de dois a dez', CS_CONTRATO,
+     "export const AVISOS_ANTES_DO_HUMANO = 2;",
+     "export const AVISOS_ANTES_DO_HUMANO = 10;", SAIDA),
+    ('consentimento: o separador da prova desaparece', CS_PROVA,
+     'export const SEPARADOR = "\\u0000";',
+     'export const SEPARADOR = "";', SAIDA),
+    ('consentimento: a prova deixa de cobrir a hora', CS_PROVA,
+     "    [campos.textoMostrado, campos.contactId, campos.wamid, campos.hora].join(",
+     "    [campos.textoMostrado, campos.contactId, campos.wamid].join(", SAIDA),
+    ('consentimento: o texto do aviso sai com o marcador em claro', CS_PROVA,
+     "  return texto.split(MARCADOR_DA_LOJA).join(nomeDaLoja);",
+     "  return texto;", SAIDA),
+    ('consentimento: o racio sem aviso passa a dizer que ninguem aceitou', CS_METRICAS,
+     "    if (avisos === 0) return -1;",
+     "    if (avisos === 0) return 0;", SAIDA),
+    ('consentimento: a prova passa a escrever-se depois de autorizar', CS_MODULO,
+     '    if (accao === "registar_e_seguir") {',
+     "    if (false) {", SAIDA),
+    ('consentimento: sem texto vigente passa a autorizar o agente', CS_MODULO,
+     "    if (vigente === null) {",
+     "    if (false && vigente === null) {", SAIDA),
+    ('consentimento: a revogacao passa a escrever marketing aceite', CS_MODULO,
+     "        FINALIDADE_DE_MARKETING,\n        vigente.version,\n        false,",
+     "        FINALIDADE_DE_MARKETING,\n        vigente.version,\n        true,", SAIDA),
+    ('consentimento: a contagem de avisos deixa de se ler', CS_MODULO,
+     "    const precisaDaContagem =\n      (linha === \"texto\" || linha === \"outro\") && estado !== \"valido\";",
+     "    const precisaDaContagem = false;", SAIDA),
 ]
 
 

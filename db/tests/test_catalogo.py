@@ -181,6 +181,17 @@ class TestConvencoes(ComBase):
                 # media quantas transicoes de qualidade tem a plataforma — isto
                 # e, quantos canais dela estao a degradar-se.
                 "channel_quality_log",
+                # KAM-022: a prova de consentimento. `uuid` aleatorio **contra o
+                # DDL de referencia do `docs/tecnica/10` §7.2**, que escreve
+                # `bigint GENERATED ALWAYS AS IDENTITY: o `kamba_app` **le**
+                # esta tabela (o `ConsentGate` pergunta pelo estado antes de
+                # decidir), pelo que nao tem a propriedade que dispensa as tres
+                # excepcoes acima, e com um `id` sequencial esse papel media
+                # quantos consentimentos tem a plataforma — e, pela cadencia,
+                # quantos clientes novos ela ve por dia. A ordem que a vista
+                # `consent_actual` precisava vem do `ocorrido_em`, e o empate
+                # dentro do trio e impossivel pela `consent_event_prova_uq`.
+                "consent_event",
             }
             | por_identidade,
         )
@@ -261,6 +272,18 @@ class TestConvencoes(ComBase):
                 # `tenant_id`. Uma chave primaria derivada do evento era o
                 # mesmo facto duas vezes.
                 ("channel_quality_log", "id", "uuid", "gen_random_uuid()"),
+                # KAM-022: a chave da prova e um `uuid` gerado, e a
+                # idempotencia do criterio 2 esta ao lado, na
+                # `consent_event_prova_uq` composta com o `tenant_id` — o
+                # `evidence_hash` leva o `wamid` e a hora **da Meta**, pelo que
+                # uma reentrega do mesmo botao da o mesmo resumo. A chave da
+                # `consent_texts` e **natural**, `(version, purpose)`: uma
+                # versao do aviso identifica-se pelo numero que lhe foi dado e
+                # pela finalidade que descreve, e um `uuid` ali era um
+                # identificador que ninguem citaria.
+                ("consent_event", "id", "uuid", "gen_random_uuid()"),
+                ("consent_texts", "purpose", "text", None),
+                ("consent_texts", "version", "text", None),
                 ("contact_deks", "dek_id", "uuid", "gen_random_uuid()"),
                 ("contact_endpoints", "id", "uuid", "gen_random_uuid()"),
                 ("contacts", "contact_id", "uuid", "gen_random_uuid()"),
@@ -413,9 +436,20 @@ class TestConvencoes(ComBase):
         Em primeiro lugar no indice, porque e o predicado que a RLS acrescenta
         a todas as consultas: num indice `(estado, tenant_id)` nao serviria.
         """
+        # **So tabelas de base, e a restricao entrou no KAM-022.** O
+        # `information_schema.columns` inclui as colunas das **vistas**, e a
+        # `consent_actual` — a primeira vista do esquema — tem `tenant_id`.
+        # Uma vista nao tem indice nem `NOT NULL`, pelo que as duas asercoes
+        # deste teste nao se lhe aplicam; o que a isola e a politica da tabela
+        # por baixo **mais** o `security_invoker = true`, e isso tem teste
+        # proprio no `verificar_vistas` do catalogo do X-05. A divisao de
+        # trabalho e essa: tabelas aqui, vistas la.
         com_tenant = self.consultar(
-            "SELECT table_name, is_nullable FROM information_schema.columns "
-            "WHERE table_schema = 'platform' AND column_name = 'tenant_id'"
+            "SELECT c.table_name, c.is_nullable FROM information_schema.columns AS c "
+            "JOIN information_schema.tables AS t "
+            "  ON t.table_schema = c.table_schema AND t.table_name = c.table_name "
+            "WHERE c.table_schema = 'platform' AND c.column_name = 'tenant_id' "
+            "AND t.table_type = 'BASE TABLE'"
         )
         self.assertEqual(
             {t for t, _ in com_tenant},
@@ -481,7 +515,16 @@ class TestConvencoes(ComBase):
              # chave primaria e o `id` aleatorio. Levou indice proprio,
              # `(tenant_id, ocorrido_em DESC)`, e a segunda coluna e por onde
              # se le um historico.
-             "channel_quality_log"},
+             "channel_quality_log",
+             # KAM-022. A **quarta** desta classe, e pela mesma razao: a chave
+             # primaria e o `id` aleatorio. Levou indice proprio,
+             # `(tenant_id, contact_id, purpose, ocorrido_em DESC)`, que e a
+             # pergunta que a vista `consent_actual` faz — e o `tenant_id` vem
+             # primeiro porque a RLS o le em toda a consulta. A
+             # `consent_texts` **nao** esta aqui e nao e esquecimento: nao tem
+             # `tenant_id`, porque um aviso de privacidade e um texto juridico
+             # de plataforma e nao dado de tenant.
+             "consent_event"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -555,7 +598,13 @@ class TestConvencoes(ComBase):
         # `tenants` e a composta para `tenant_channels`. Duas e nao tres,
         # porque uma transicao de qualidade e do canal e nao de uma conversa:
         # nao ha contacto nem conversa a que responder «de quem?».
-        self.assertEqual(len(linhas), 31)
+        # 33 desde o KAM-022: as **duas** da `consent_event` — para `tenants`
+        # e a composta para `contacts`. Duas e nao tres, porque uma prova de
+        # consentimento e do contacto e nao de uma conversa: o consentimento
+        # vale para o titular, nao para o fio em que ele o deu. A
+        # `consent_texts` nao tem FK nenhuma: nao tem `tenant_id` e a
+        # finalidade e um dominio e nao uma tabela.
+        self.assertEqual(len(linhas), 33)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)
