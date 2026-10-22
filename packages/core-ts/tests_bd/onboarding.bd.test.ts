@@ -113,6 +113,60 @@ function graphDeEnsaio(falso: GraphFalso, estado: { falhar: boolean }): Graph {
   };
 }
 
+/**
+ * Envelhece todas as tentativas para fora da janela de sete dias.
+ *
+ * **Isto não é higiene: é uma consequência do critério 8 que a própria bateria
+ * descobriu.** O `es_onboardings_7d` **atravessa *tenants*** — o tecto de dez
+ * clientes por sete dias é da nossa app perante a Meta —, pelo que as linhas que
+ * um teste deixa contam na janela do seguinte. A primeira versão desta bateria
+ * esgotava o seu próprio tecto a meio: os testes do *dump grep* e do PIN
+ * falhavam com `o tecto de 10 clientes novos por 7 dias está gasto (10)`, o que
+ * é o módulo a fazer exactamente o que o critério manda.
+ *
+ * Envelhece em vez de apagar, e a diferença importa: apagar escondia o efeito, e
+ * envelhecer mantém as linhas lá — o que deixa as asserções anteriores
+ * verificáveis e prova, de passagem, que a janela é **móvel** e não um contador.
+ */
+async function envelhecerJanela(): Promise<void> {
+  await admin.query(
+    `UPDATE platform.channel_onboarding
+        SET criado_at = now() - ($1::integer * interval '1 day')
+      WHERE criado_at > now() - ($1::integer * interval '1 day')`,
+    [JANELA_DE_ONBOARDINGS_DIAS + 1],
+  );
+}
+
+/**
+ * Corre o onboarding **dentro de uma transacção**, que é o que a porta 1 do
+ * contrato exige — e que o `SAVEPOINT` do `#criarCanal` torna exigível e não só
+ * convencionado.
+ *
+ * Um `pg.Client` sem `BEGIN` está em *autocommit*, e um `SAVEPOINT` fora de um
+ * bloco de transacção levanta `25P01`. A primeira versão desta bateria chamava
+ * o `ligar()` sobre o cliente nu e **passava**, porque o módulo ainda não abria
+ * ponto de salvaguarda nenhum; depois da correcção da revisão adversarial
+ * deixou de passar — e isso é o contrato a morder, não um defeito.
+ *
+ * `COMMIT` em caso de sucesso e `ROLLBACK` em caso de falha: é o que uma rota
+ * faria, e é o que faz o critério 4 («não altera nada») ser verificável desta
+ * bateria.
+ */
+async function comTransaccao<T>(
+  cliente: pg.Client,
+  corpo: () => Promise<T>,
+): Promise<T> {
+  await cliente.query("BEGIN");
+  try {
+    const resultado = await corpo();
+    await cliente.query("COMMIT");
+    return resultado;
+  } catch (erro) {
+    await cliente.query("ROLLBACK");
+    throw erro;
+  }
+}
+
 function entrada(tenant: string, parcial: Partial<ResultadoDoEs> = {}): ResultadoDoEs {
   const marca = randomUUID().slice(0, 8);
   return {
@@ -192,8 +246,9 @@ after(async () => {
 
 describe("idempotencia (criterio 2)", () => {
   it("o caminho completo escreve 1 tentativa, 1 canal, 1 token, 11 campos", async () => {
+    await envelhecerJanela();
     const e = entrada(tenantA);
-    const { tentativa, novo } = await servico.ligar(e);
+    const { tentativa, novo } = await comTransaccao(batch, () => servico.ligar(e));
     assert.equal(novo, true);
     assert.equal(tentativa.fase, "subscrito");
     const linhas = await tentativasDe(tenantA);
@@ -219,9 +274,10 @@ describe("idempotencia (criterio 2)", () => {
 
   it("o mesmo code 2x produz 1 tentativa e 1 canal", async () => {
     const e = entrada(tenantA);
-    await servico.ligar(e);
+    await envelhecerJanela();
+    await comTransaccao(batch, () => servico.ligar(e));
     const antes = (await tentativasDe(tenantA)).length;
-    const segunda = await servico.ligar(e);
+    const segunda = await comTransaccao(batch, () => servico.ligar(e));
     assert.equal(segunda.novo, false);
     assert.equal((await tentativasDe(tenantA)).length, antes);
   });
@@ -233,16 +289,19 @@ describe("idempotencia (criterio 2)", () => {
    */
   it("o mesmo (tenant_id, waba_id) com outro code produz 1 canal", async () => {
     const primeira = entrada(tenantA);
-    await servico.ligar(primeira);
+    await envelhecerJanela();
+    await comTransaccao(batch, () => servico.ligar(primeira));
     const canaisAntes = await admin.query(
       "SELECT count(*)::int AS n FROM platform.tenant_channels WHERE tenant_id = $1",
       [tenantA],
     );
-    const segunda = await servico.ligar({
-      ...primeira,
-      code: `AQB-${randomUUID()}`,
-      phone_number_id: `pnid-${randomUUID()}`,
-    });
+    const segunda = await comTransaccao(batch, () =>
+      servico.ligar({
+        ...primeira,
+        code: `AQB-${randomUUID()}`,
+        phone_number_id: `pnid-${randomUUID()}`,
+      }),
+    );
     assert.equal(segunda.novo, false);
     const canaisDepois = await admin.query(
       "SELECT count(*)::int AS n FROM platform.tenant_channels WHERE tenant_id = $1",
@@ -323,7 +382,10 @@ describe("o 409 do phone_number_id (criterio 4)", () => {
     const e = entrada(tenantB, { phone_number_id: dono.phoneNumberId });
 
     // A transacção é de quem chama (a porta 1 do contrato): abre-se aqui, e é o
-    // `ROLLBACK` que faz «não altera nada».
+    // `ROLLBACK` que faz «não altera nada». **E o `BEGIN` é obrigatório**, não
+    // cerimónia: o `#criarCanal` abre um `SAVEPOINT`, e um ponto de salvaguarda
+    // fora de um bloco de transacção levanta `25P01` — ver o `comTransaccao`.
+    await envelhecerJanela();
     const cliente = await ligar("batch");
     const servicoDaCorrida = new Onboarding({
       sql: cliente,
@@ -377,7 +439,18 @@ describe("o 409 do phone_number_id (criterio 4)", () => {
 // ------------------------------------------------------------------ critério 6
 
 describe("a maquina de estados contra a base (criterio 6)", () => {
+  /**
+   * **A linha leva canal, e isso não é detalhe: são dois `CHECK` sobre ela.**
+   *
+   * A primeira versão deste teste alterava só a `fase`, e o PostgreSQL recusava
+   * pelo `channel_onboarding_canal_ck` — correctamente, porque uma fase fora das
+   * nove também não está nas três que dispensam canal. A linha **era** recusada,
+   * mas pela outra restrição, e a asserção sobre o nome ficava vermelha. A ordem
+   * de avaliação de dois `CHECK` não é garantida, pelo que a única forma de
+   * afirmar **qual** morde é deixar só um por morder.
+   */
   it("o CHECK recusa uma fase fora das nove, incluindo o desligado", async () => {
+    const canal = await criarCanal(admin, tenantA);
     const { rows } = await batch.query(SQL_ABRIR, [
       tenantA,
       `waba-${randomUUID().slice(0, 8)}`,
@@ -386,7 +459,13 @@ describe("a maquina de estados contra a base (criterio 6)", () => {
       resumoDoCode(`AQB-${randomUUID()}`),
     ]);
     const id = (rows[0] as { id: string }).id;
-    for (const fase of ["desligado", "pendente", "INICIADO", ""]) {
+    await admin.query(
+      "UPDATE platform.channel_onboarding SET channel_id = $2 WHERE id = $1",
+      [id, canal.id],
+    );
+    // O `desligado` é o décimo estado do diagrama do `01` §13.1, e é estado de
+    // `tenant_channels` e não fase de onboarding.
+    for (const fase of ["desligado", "pendente", "suspenso", "INICIADO", ""]) {
       await assert.rejects(
         () =>
           admin.query("UPDATE platform.channel_onboarding SET fase = $2 WHERE id = $1", [
@@ -421,20 +500,17 @@ describe("a maquina de estados contra a base (criterio 6)", () => {
           resumoDoCode(`AQB-${de}-${para}`),
         ]);
         const id = (rows[0] as { id: string }).id;
-        // Põe a linha na fase de partida. As fases do meio exigem `channel_id`
-        // (`channel_onboarding_canal_ck`), e é isso que a coluna prova.
-        if (de !== "iniciado" && de !== "falhado" && de !== "abandonado") {
-          const canal = await criarCanal(admin, tenant);
-          await admin.query(
-            "UPDATE platform.channel_onboarding SET channel_id = $2, fase = $3 WHERE id = $1",
-            [id, canal.id, de],
-          );
-        } else {
-          await admin.query("UPDATE platform.channel_onboarding SET fase = $2 WHERE id = $1", [
-            id,
-            de,
-          ]);
-        }
+        // **A linha leva canal sempre**, e não só quando a fase de partida o
+        // exige. A primeira versão só o punha nas seis do meio, e falhava em
+        // `iniciado → es_concluido`: o `channel_onboarding_canal_ck` olha para a
+        // linha **depois** da transição, e a fase de **chegada** pode ser uma
+        // das seis. Com canal em todas, o único `CHECK` que pode morder é o do
+        // domínio — e é esse que este teste está a medir.
+        const canal = await criarCanal(admin, tenant);
+        await admin.query(
+          "UPDATE platform.channel_onboarding SET channel_id = $2, fase = $3 WHERE id = $1",
+          [id, canal.id, de],
+        );
         const feita = await batch.query(SQL_TRANSITAR, [id, tenant, de, para, null]);
         assert.equal(feita.rows.length, 1, `${de} -> ${para} devia escrever`);
         // E a segunda vez **não**: a fase já não é a esperada.
@@ -539,8 +615,15 @@ describe("a compensacao: 0 recursos orfaos (criterio 7)", () => {
     const canaisAntes = await admin.query(
       "SELECT count(*)::int AS n FROM platform.tenant_channels",
     );
+    await envelhecerJanela();
     falha.falhar = true;
+    // **Sem `comTransaccao`**, e de propósito: o que se mede aqui é o que a
+    // compensação deixa escrito, e um `ROLLBACK` à volta apagava a prova. A
+    // transacção abre-se à mão e **confirma-se** no fim, porque a compensação é
+    // o desfecho desejado e não um acidente a desfazer.
+    await batch.query("BEGIN");
     await assert.rejects(() => servico.ligar(e), /falha injectada no passo 4/);
+    await batch.query("COMMIT");
     falha.falhar = false;
 
     // **Zero recursos órfãos**, e medem-se os três sítios e não só a coluna.
@@ -574,7 +657,10 @@ describe("a compensacao: 0 recursos orfaos (criterio 7)", () => {
       cofre,
       vertical: "vendedor",
     });
+    await envelhecerJanela();
+    await batch.query("BEGIN");
     await assert.rejects(() => servicoIncompleto.ligar(e), SubscricaoIncompletaError);
+    await batch.query("COMMIT");
     assert.deepEqual([...falso.subscricoes(e.waba_id)], []);
     const linha = (await tentativasDe(tenant))[0];
     assert.deepEqual([...(linha?.recursos_criados ?? [])], []);
@@ -641,7 +727,8 @@ describe("o token e o PIN: o dump grep nao os encontra (criterio 3)", () => {
   it("o token em claro nao esta em coluna nenhuma da base", async () => {
     const tenant = await criarTenant(admin, "onb-dump");
     const e = entrada(tenant);
-    await servico.ligar(e);
+    await envelhecerJanela();
+    await comTransaccao(batch, () => servico.ligar(e));
     const token = "ensaio-token-para-a-base";
 
     // **O *dump grep*, e é literal**: todas as colunas de texto e `bytea` das
@@ -679,7 +766,8 @@ describe("o token e o PIN: o dump grep nao os encontra (criterio 3)", () => {
         extras: { featureType: "whatsapp_business_onboarding" },
       },
     });
-    await servico.ligar(e);
+    await envelhecerJanela();
+    await comTransaccao(batch, () => servico.ligar(e));
     const linha = (await tentativasDe(tenant))[0];
     assert.match(String(linha?.pin_ref), /^meta_pin_2fa\/[0-9a-f]{32}$/);
     const pin = await cofre.get(String(linha?.pin_ref));
@@ -734,6 +822,7 @@ describe("o token e o PIN: o dump grep nao os encontra (criterio 3)", () => {
 
 describe("o contador es_onboardings_7d (criterio 8)", () => {
   it("atravessa tenants, que e o que o limite da Meta mede", async () => {
+    await envelhecerJanela();
     const umA = await criarTenant(admin, "onb-janela-a");
     const umB = await criarTenant(admin, "onb-janela-b");
     const antes = await servico.contarJanela();
@@ -773,6 +862,7 @@ describe("o contador es_onboardings_7d (criterio 8)", () => {
   });
 
   it("conta tambem o abandonado e o falhado: e o lado conservador", async () => {
+    await envelhecerJanela();
     const tenant = await criarTenant(admin, "onb-conserv");
     const antes = await servico.contarJanela();
     const { rows } = await batch.query(SQL_ABRIR, [

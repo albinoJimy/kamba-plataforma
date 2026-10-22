@@ -194,6 +194,37 @@ describe("os codigos de resposta", () => {
     assert.ok(!corpo.includes(TENANT));
   });
 
+  /**
+   * **O registo que falha não leva o 409 consigo.**
+   *
+   * O `SQL_REGISTAR_RECUSA` nomeia uma das duas unicidades no `ON CONFLICT`, e a
+   * outra existe: um *tenant* que já tenha gasto este `code` noutro WABA faz
+   * essa escrita levantar `23505`. Sem o `try` da rota, a excepção escapava e o
+   * `onError` do Hono respondia **500** — e quem tentou ligar um número de outro
+   * *tenant* ficava sem o 409 que o critério 4 promete.
+   */
+  it("o 409 sai mesmo que o registo de auditoria falhe", async () => {
+    let transaccoes = 0;
+    const servico = {
+      async ligar(): Promise<never> {
+        throw new NumeroJaUsadoError(CORPO.phone_number_id);
+      },
+      async registarRecusa(): Promise<never> {
+        throw new Error("duplicate key value violates unique constraint");
+      },
+    } as unknown as Onboarding;
+    const d: { comTransaccao: ComTransaccao } = {
+      comTransaccao: async (corpo) => {
+        transaccoes += 1;
+        return corpo(servico);
+      },
+    };
+    const resposta = await criarAppDeMetricas(new Logger("gwy"), d).request(pedido(CORPO));
+    assert.equal(resposta.status, 409);
+    // As duas transacções abriram-se: a que reverteu e a do registo que falhou.
+    assert.equal(transaccoes, 2);
+  });
+
   it("429 quando o tecto de dez em sete dias esta gasto, e nao 403", async () => {
     const d = montar({
       ligar: async () => {

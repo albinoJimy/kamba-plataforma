@@ -118,6 +118,7 @@ import {
   SQL_RECURSOS,
   SQL_REGISTAR_RECURSO,
   SQL_REGISTAR_RECUSA,
+  SQL_SOLTAR_CANAL,
   SQL_TENTATIVA,
   SQL_TRANSITAR,
   SQL_VOLTAR_AO_PONTO,
@@ -535,6 +536,22 @@ export class Onboarding {
     let tokenRef: string | null = null;
     for (const { recurso, ref } of lista) if (recurso === "token") tokenRef = ref;
 
+    // **Os dois pré-requisitos da base, antes de desfazer recurso nenhum.**
+    //
+    // A `channel_onboarding_channel_fk` não tem `ON DELETE CASCADE`: enquanto
+    // esta linha apontar para o canal, apagá-lo levanta `23503`. E largar o
+    // `channel_id` exige que a fase já esteja em `falhado`, porque o
+    // `channel_onboarding_canal_ck` recusa o nulo nas seis fases do meio. São
+    // três restrições em cadeia, e a ordem das três é toda da base — ver o
+    // `docstring` do `SQL_SOLTAR_CANAL`.
+    //
+    // Corre **só quando há canal na lista**: sem ele não há FK a largar, e a
+    // transição para `falhado` acontece no fim como em qualquer outra falha.
+    if (lista.some(({ recurso }) => recurso === "canal")) {
+      await this.#transitarParaFalhado(id, tenantId, motivo);
+      await this.#d.sql.query(SQL_SOLTAR_CANAL, [id, tenantId]);
+    }
+
     for (const { recurso, ref } of [...lista].reverse()) {
       try {
         if (recurso === "subscricao" && tokenRef !== null) {
@@ -575,18 +592,32 @@ export class Onboarding {
     // último passo da compensação — depois de ter desfeito tudo o que havia a
     // desfazer. Apanhado pela revisão adversarial.
     //
-    // Lê-se a fase corrente em vez de a assumir: a compensação pode correr a
-    // partir de qualquer passo, e é para isso que as arestas para `falhado`
-    // existem na matriz (ver o `TRANSICOES`).
-    const { rows: actual } = await this.#d.sql.query<{ fase: Fase }>(SQL_FASE, [
-      id,
-      tenantId,
-    ]);
-    const fase = actual[0]?.fase;
+    // A transição corre outra vez porque pode não ter corrido acima: ela só
+    // acontece lá quando há canal na lista. É idempotente — o
+    // `#transitarParaFalhado` lê a fase e não faz nada se já estiver lá.
+    await this.#transitarParaFalhado(id, tenantId, motivo);
+    await this.#d.sql.query(SQL_LIMPAR_RECURSOS, [id, tenantId]);
+  }
+
+  /**
+   * Põe a tentativa em `falhado`, de onde ela estiver. Idempotente.
+   *
+   * Lê a fase em vez de a assumir: a compensação pode correr a partir de
+   * qualquer passo, e é para isso que as arestas para `falhado` existem na
+   * matriz (ver o `TRANSICOES`). Se já estiver em `falhado`, não faz nada — e
+   * **tem** de ser assim, porque a compensação chama isto duas vezes: uma antes
+   * de largar o canal (a base exige-o) e outra no fim.
+   */
+  async #transitarParaFalhado(
+    id: string,
+    tenantId: string,
+    motivo: string,
+  ): Promise<void> {
+    const { rows } = await this.#d.sql.query<{ fase: Fase }>(SQL_FASE, [id, tenantId]);
+    const fase = rows[0]?.fase;
     if (fase !== undefined && fase !== "falhado") {
       await this.transitar(id, tenantId, fase, "falhado", motivo);
     }
-    await this.#d.sql.query(SQL_LIMPAR_RECURSOS, [id, tenantId]);
   }
 
   /** O *token* em claro, do cofre e da KEK. Nunca sai deste objecto. */

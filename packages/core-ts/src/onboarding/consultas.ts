@@ -147,23 +147,55 @@ export const SQL_REGISTAR_RECURSO = `
  * lista vazia é a afirmação de que não há nada pendurado, e esvaziá-la primeiro
  * era apagar o mapa antes de desfazer o caminho.
  *
- * **E corre depois de a fase já estar em `falhado`**, o que é a ordem inversa da
- * que parecia natural. A razão é o `channel_onboarding_canal_ck`: nas seis fases
- * do meio o `channel_id` **não pode** ser nulo, pelo que pôr-lhe `NULL` com a
- * fase ainda em `es_concluido` levanta `23514`. A revisão adversarial
- * apanhou-o — a compensação do critério 7 rebentava no **último** passo, depois
- * de ter desfeito tudo o que havia a desfazer, que é o pior momento possível
- * para rebentar.
+ * **Só esvazia a lista.** O `channel_id` e o `pin_ref` largam-se antes, no
+ * `SQL_SOLTAR_CANAL`, e a razão é uma cadeia de três restrições da base que está
+ * escrita no `docstring` dele. A primeira versão desta instrução largava os três
+ * de uma vez e corria no fim, e levantava `23514` — a compensação rebentava no
+ * **último** passo, depois de ter desfeito tudo o que havia a desfazer.
  */
 export const SQL_LIMPAR_RECURSOS = `
   UPDATE platform.channel_onboarding
      SET recursos_criados = '[]'::jsonb,
-         channel_id = NULL,
-         pin_ref = NULL,
          actualizado_at = clock_timestamp()
    WHERE id = $1::uuid
      AND tenant_id = $2::uuid
      RETURNING recursos_criados
+`;
+
+/**
+ * Larga o canal e o PIN. **Corre ANTES de o canal ser apagado**, e é a base que
+ * manda.
+ *
+ * A `channel_onboarding_channel_fk` é uma FK sem `ON DELETE CASCADE`, como todas
+ * as deste esquema: enquanto esta linha apontar para o canal, o
+ * `SQL_APAGAR_CANAL` levanta `23503`. A compensação do critério 7 **apaga** o
+ * canal, pelo que tem de o largar primeiro — e a revisão adversarial encontrou
+ * esta instrução em falta **depois** de o comentário de
+ * `db/tests/test_inventario.py` já a ter previsto por escrito: a análise estava
+ * certa e o código não a seguia.
+ *
+ * E ela própria tem um pré-requisito: o `channel_onboarding_canal_ck` recusa
+ * `channel_id` nulo nas seis fases do meio, pelo que a fase tem de estar em
+ * `falhado` antes disto. São três instruções em cadeia, e a ordem das três é
+ * toda da base:
+ *
+ *     1. fase → `falhado`      (o `canal_ck` passa a admitir o nulo)
+ *     2. `channel_id` → NULL   (a FK larga o canal)
+ *     3. `DELETE` do canal     (deixa de haver quem o aponte)
+ *
+ * O `pin_ref` vai no mesmo `UPDATE` por conveniência e não por necessidade: ele
+ * não tem FK. Vai aqui porque é o mesmo momento — a referência deixa de valer
+ * quando o segredo for revogado, e deixá-la na coluna era apontar para o que já
+ * não existe.
+ */
+export const SQL_SOLTAR_CANAL = `
+  UPDATE platform.channel_onboarding
+     SET channel_id = NULL,
+         pin_ref = NULL,
+         actualizado_at = clock_timestamp()
+   WHERE id = $1::uuid
+     AND tenant_id = $2::uuid
+     RETURNING channel_id::text AS channel_id
 `;
 
 /**

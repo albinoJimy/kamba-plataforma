@@ -2430,9 +2430,13 @@ MUTACOES = [
     ('onboarding: a compensacao passa a apagar canais activos', ON_SQL,
      "          AND estado = 'pendente'\n      RETURNING id::text AS id",
      "      RETURNING id::text AS id", SAIDA),
-    ('onboarding: a limpeza deixa de soltar o canal da tentativa', ON_SQL,
-     "     SET recursos_criados = '[]'::jsonb,\n         channel_id = NULL,",
-     "     SET recursos_criados = '[]'::jsonb,", SAIDA),
+    # A instrucao que larga o canal: sem ela, a FK recusa o `DELETE`. **Esta
+    # mutacao substituiu a que tirava o `channel_id = NULL` do
+    # `SQL_LIMPAR_RECURSOS`**, que deixou de ser aplicavel quando a revisao
+    # adversarial separou as duas instrucoes — e o `--aplicaveis` apanhou-a.
+    ('onboarding: largar o canal deixa de largar o canal', ON_SQL,
+     "     SET channel_id = NULL,\n         pin_ref = NULL,",
+     "     SET pin_ref = NULL,", SAIDA),
     # A matriz do criterio 6.
     ('onboarding: a matriz ganha a aresta que o ativo nao tem', ON_CONTRATO,
      "  ativo: [],", '  ativo: ["iniciado"],', SAIDA),
@@ -2467,6 +2471,17 @@ MUTACOES = [
     # compensacao nao consegue revogar o *token* — o cofre nao e transaccional,
     # pelo que o `ROLLBACK` da rota apaga a linha do canal e **deixa o segredo
     # la**. Quem a mata e a assercao de que o cofre fica vazio depois do 409.
+    # **As duas da cadeia de tres restricoes da base**, que foi o quarto achado
+    # da revisao adversarial. A FK nao tem `ON DELETE CASCADE`: apagar o canal
+    # com a linha a aponta-lo levanta `23503`, e largar o `channel_id` exige a
+    # fase em `falhado` pelo `channel_onboarding_canal_ck`.
+    ('onboarding: a compensacao passa a apagar o canal sem o largar', ON_MODULO,
+     '      await this.#d.sql.query(SQL_SOLTAR_CANAL, [id, tenantId]);',
+     '      // sem largar o canal', SAIDA),
+    ('onboarding: a compensacao larga o canal sem transitar primeiro', ON_MODULO,
+     '      await this.#transitarParaFalhado(id, tenantId, motivo);\n'
+     '      await this.#d.sql.query(SQL_SOLTAR_CANAL, [id, tenantId]);',
+     '      await this.#d.sql.query(SQL_SOLTAR_CANAL, [id, tenantId]);', SAIDA),
     ('onboarding: o conflito do numero passa a abortar a transaccao', ON_MODULO,
      "    await this.#d.sql.query(SQL_PONTO_DE_SALVAGUARDA);",
      "    // sem ponto de salvaguarda", SAIDA),
@@ -2474,11 +2489,14 @@ MUTACOES = [
     # `channel_id` ir a `NULL`, porque o `channel_onboarding_canal_ck` o recusa
     # nas seis fases do meio. A mutacao troca as duas, e quem a mata e o teste
     # que afirma a ordem no registo de chamadas.
-    ('onboarding: a limpeza passa a vir antes da transicao', ON_MODULO,
-     '    const { rows: actual } = await this.#d.sql.query<{ fase: Fase }>(SQL_FASE, [',
-     '    await this.#d.sql.query(SQL_LIMPAR_RECURSOS, [id, tenantId]);\n'
-     '    const { rows: actual } = await this.#d.sql.query<{ fase: Fase }>(SQL_FASE, [',
-     SAIDA),
+    # A ordem do fim da compensacao: a fase vai a `falhado` antes de a lista se
+    # esvaziar. A mutacao tira a transicao final, e a tentativa fica com a
+    # lista vazia e a fase do passo onde falhou — um estado que diz que nao
+    # ha nada pendurado e que a saga ainda esta a correr.
+    ('onboarding: a compensacao deixa de transitar no fim', ON_MODULO,
+     '    await this.#transitarParaFalhado(id, tenantId, motivo);\n'
+     '    await this.#d.sql.query(SQL_LIMPAR_RECURSOS, [id, tenantId]);\n  }',
+     '    await this.#d.sql.query(SQL_LIMPAR_RECURSOS, [id, tenantId]);\n  }', SAIDA),
     ('onboarding: o 409 passa a ser qualquer violacao de unicidade', ON_MODULO,
      "        restricaoDoErro(erro) === RESTRICAO_DO_NUMERO\n      ) {",
      "        true\n      ) {", SAIDA),

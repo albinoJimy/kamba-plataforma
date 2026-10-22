@@ -169,9 +169,25 @@ export function montarCanais(
       if (erro instanceof NumeroJaUsadoError) {
         // O registo de auditoria do critério 4, **numa transacção própria**: a
         // anterior reverteu, e com ela tudo o que tinha escrito.
-        await dependencias.comTransaccao((servico) =>
-          servico.registarRecusa(entrada, "phone_number_id de outro tenant"),
-        );
+        //
+        // **E numa tentativa que não pode levar o 409 consigo.** O
+        // `SQL_REGISTAR_RECUSA` nomeia uma das duas unicidades no `ON CONFLICT`,
+        // e a outra existe: um *tenant* que já tenha gasto este `code` noutro
+        // WABA faz esta escrita levantar `23505`. Sem o `try`, essa excepção
+        // escapava e o `onError` do Hono respondia **500** — quem tentou ligar
+        // um número de outro *tenant* ficava sem saber porquê, e o 409 que o
+        // critério promete nunca saía. O registo é importante; a resposta certa
+        // é mais.
+        try {
+          await dependencias.comTransaccao((servico) =>
+            servico.registarRecusa(entrada, "phone_number_id de outro tenant"),
+          );
+        } catch (falha) {
+          log?.excepcao(falha, "canal_recusa_sem_registo", {
+            tenant_id: entrada.tenant_id,
+            outcome: "canal_numero_de_outro_tenant",
+          });
+        }
         log?.warn({ outcome: "canal_numero_de_outro_tenant", tenant_id: entrada.tenant_id });
         // **A resposta não diz de quem é o número.** Quem recebe o 409 é o tenant
         // que tentou, e nomear o dono era um canal de leitura entre tenants por

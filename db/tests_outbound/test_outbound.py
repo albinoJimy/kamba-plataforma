@@ -194,7 +194,11 @@ GRUPOS = (
     # unidade (a forma de v4, a matriz nos 81 pares, os onze campos, a cifra e a
     # saga); os restantes sao os que **so** uma base real prova, e o do cliente
     # da Graph e o unico que abre socket.
-    "a forma de v4, e so v4 (criterio 1)",
+    # **Com o acento**, e isso nao e detalhe: a comparacao e por igualdade
+    # com o nome do `describe`, e a primeira versao desta lista escreveu
+    # «e so v4» onde o teste diz «e só v4». O gate 8 apanhou-o — um grupo
+    # que nao se encontra e, para esta suite, um grupo que nao correu.
+    "a forma de v4, e só v4 (criterio 1)",
     "a matriz de transicoes: os 81 pares ordenados (criterio 6)",
     "os onze campos e a igualdade de conjuntos (criterio 5)",
     "a cifra do token: AES-256-GCM, DEK por tenant, kid versionado (criterio 3)",

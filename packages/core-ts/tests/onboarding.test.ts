@@ -68,6 +68,7 @@ import {
   SQL_RECURSOS,
   SQL_REGISTAR_RECURSO,
   SQL_REGISTAR_RECUSA,
+  SQL_SOLTAR_CANAL,
   SQL_TENTATIVA,
   SQL_TRANSITAR,
   SQL_VOLTAR_AO_PONTO,
@@ -149,6 +150,20 @@ class BaseFalsa implements ClienteSql {
    */
   abortada = false;
   pontos = 0;
+  /**
+   * **O `channel_id` que a linha aponta, e a FK que o protege.**
+   *
+   * A `channel_onboarding_channel_fk` não tem `ON DELETE CASCADE`, como todas as
+   * deste esquema: enquanto a tentativa apontar para o canal, apagá-lo levanta
+   * `23503`. O duplo passou a fazer o mesmo, e foi assim que a revisão
+   * adversarial ficou medida em vez de corrigida às cegas — a compensação
+   * apagava o canal **antes** de a linha o largar, e o `23503` abortava a
+   * transacção no último passo.
+   *
+   * É a terceira coisa que este duplo aprendeu a modelar, e as três são a mesma
+   * lição: o que a base impõe e o duplo não impõe é um defeito que fica verde.
+   */
+  canalApontado: string | null = null;
   readonly linhas = new Map<string, Tentativa>();
   recursos: RecursoCriado[] = [];
   fase: Fase = "iniciado";
@@ -244,13 +259,40 @@ class BaseFalsa implements ClienteSql {
     }
     if (texto === SQL_LIGAR_CANAL) {
       this.fase = "es_concluido";
+      this.canalApontado = String(valores[2]);
       return { rows: [{ fase: this.fase }] as T[] };
+    }
+    if (texto === SQL_SOLTAR_CANAL) {
+      // O `channel_onboarding_canal_ck` recusa o nulo nas seis fases do meio.
+      if (this.fase !== "iniciado" && this.fase !== "falhado" && this.fase !== "abandonado") {
+        const erro = new Error(
+          'new row for relation "channel_onboarding" violates check constraint ' +
+            '"channel_onboarding_canal_ck"',
+        ) as Error & { code: string; constraint: string };
+        erro.code = "23514";
+        erro.constraint = "channel_onboarding_canal_ck";
+        this.abortada = true;
+        throw erro;
+      }
+      this.canalApontado = null;
+      this.pinRef = null;
+      return { rows: [{ channel_id: null }] as T[] };
     }
     if (texto === SQL_GUARDAR_PIN) {
       this.pinRef = String(valores[2]);
       return { rows: [{ pin_ref: this.pinRef }] as T[] };
     }
     if (texto === SQL_APAGAR_CANAL) {
+      if (this.canalApontado === String(valores[0])) {
+        const erro = new Error(
+          'update or delete on table "tenant_channels" violates foreign key ' +
+            'constraint "channel_onboarding_channel_fk" on table "channel_onboarding"',
+        ) as Error & { code: string; constraint: string };
+        erro.code = "23503";
+        erro.constraint = "channel_onboarding_channel_fk";
+        this.abortada = true;
+        throw erro;
+      }
       this.canaisApagados += 1;
       return { rows: [{ id: String(valores[0]) }] as T[] };
     }
@@ -966,6 +1008,33 @@ describe("a saga: ordem dos passos e idempotencia (criterios 2, 4, 7, 8)", () =>
     assert.ok(transicao >= 0, "a transicao para falhado devia ter corrido");
     assert.ok(limpeza >= 0, "a limpeza devia ter corrido");
     assert.ok(transicao < limpeza, "a transicao tem de vir antes da limpeza");
+  });
+
+  /**
+   * **A cadeia das três restrições da base**, e a ordem das três é toda dela:
+   *
+   *     1. fase → `falhado`      (o `canal_ck` passa a admitir o nulo)
+   *     2. `channel_id` → NULL   (a FK larga o canal)
+   *     3. `DELETE` do canal     (deixa de haver quem o aponte)
+   *
+   * A primeira versão da compensação fazia só o 3, e o `23503` abortava a
+   * transacção **no último passo** — depois de a subscrição já estar anulada. O
+   * comentário de `db/tests/test_inventario.py` tinha previsto isto por escrito
+   * antes de o código existir: a análise estava certa e o código não a seguia.
+   */
+  it("a compensacao larga o canal antes de o apagar, na ordem que a base impoe", async () => {
+    const { servico, sql, graph } = montar();
+    graph.falharNaSubscricao = true;
+    await assert.rejects(() => servico.ligar(entradaDeEnsaio()), /recusou a subscrição/);
+    // **A transacção não ficou abortada**: nem o `canal_ck` nem a FK mordem.
+    assert.equal(sql.abortada, false);
+    assert.equal(sql.canaisApagados, 1);
+    assert.equal(sql.canalApontado, null);
+    const soltar = sql.chamadas.indexOf(SQL_SOLTAR_CANAL);
+    const apagar = sql.chamadas.indexOf(SQL_APAGAR_CANAL);
+    const transitar = sql.chamadas.indexOf(SQL_TRANSITAR);
+    assert.ok(transitar >= 0 && transitar < soltar, "a transicao vem antes de largar");
+    assert.ok(soltar >= 0 && soltar < apagar, "largar vem antes de apagar");
   });
 
   it("os quatro recursos sao os quatro passos com efeito fora da transaccao", () => {
