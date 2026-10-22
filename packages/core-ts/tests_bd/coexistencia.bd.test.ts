@@ -347,7 +347,7 @@ describe("a coexistencia contra a base", () => {
     const cedo = new Date(T0.getTime() + 5_000);
     const { coex: primeiro } = montar(() => tarde);
     const { coex: segundo } = montar(() => cedo);
-    const destinatario = { bsuid: null, telefone: "+244900000001" };
+    const destinatario = { bsuid: null, telefone: "+999100000001" };
     await primeiro.tratarEcho(app, tenantA, canal, { wamid: "w1", destinatario });
     await segundo.tratarEcho(app, tenantA, canal, { wamid: "w2", destinatario });
     const { rows } = await admin.query<{ ultimo_echo_em: Date }>(
@@ -392,7 +392,7 @@ describe("a coexistencia contra a base", () => {
     );
     const r = await coex.tratarEcho(app, tenantA, canal, {
       wamid,
-      destinatario: { bsuid: null, telefone: "+244900000001" },
+      destinatario: { bsuid: null, telefone: "+999100000001" },
     });
     assert.equal(r.desfecho, "nosso");
     assert.equal(metricas.ler()["coex_echo_total:nosso"], 1);

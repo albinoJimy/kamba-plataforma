@@ -197,7 +197,7 @@ describe("coexistencia: criterio 8 — o `channel_mode` manda", () => {
     const canal = await canalDe(m);
     const r = await m.coex.tratarEcho(m.bd, TENANT, canal, {
       wamid: "wamid.X",
-      destinatario: { bsuid: null, telefone: "+244900000001" },
+      destinatario: { bsuid: null, telefone: "+999100000001" },
     });
     assert.equal(r.desfecho, "sem_conversa");
     assert.equal(m.transicoes.length, 0);
@@ -214,8 +214,8 @@ describe("coexistencia: criterios 1 e 2 — ingestao sem AGR, sem envio, sem cor
     const r = await m.coex.ingerirHistorico(m.bd, TENANT, CANAL, {
       mensagens: 1_240,
       contactos: [
-        { bsuid: null, telefone: "+244900000001" },
-        { bsuid: null, telefone: "+244900000002" },
+        { bsuid: null, telefone: "+999100000001" },
+        { bsuid: null, telefone: "+999100000002" },
       ],
       erros: [],
     });
@@ -234,7 +234,7 @@ describe("coexistencia: criterios 1 e 2 — ingestao sem AGR, sem envio, sem cor
     await m.coex.abrir(m.bd, TENANT, canal);
     await m.coex.ingerirStateSync(m.bd, TENANT, CANAL, [
       { bsuid: "bsuid-1", telefone: null },
-      { bsuid: null, telefone: "+244900000003" },
+      { bsuid: null, telefone: "+999100000003" },
       // Um contacto sem identificador nenhum **nao** vai a porta: o KAM-008
       // levanta `PedidoSemIdentificadorError`, e um lote de seis meses nao se
       // perde por uma linha mal formada.
@@ -249,7 +249,7 @@ describe("coexistencia: criterios 1 e 2 — ingestao sem AGR, sem envio, sem cor
     await m.coex.abrir(m.bd, TENANT, canal);
     await m.coex.ingerirHistorico(m.bd, TENANT, CANAL, {
       mensagens: 3,
-      contactos: [{ bsuid: null, telefone: "+244900000001" }],
+      contactos: [{ bsuid: null, telefone: "+999100000001" }],
       erros: [],
     });
     // O criterio 2 pela forma: **nenhum parametro de nenhuma instrucao** e um
@@ -273,7 +273,7 @@ describe("coexistencia: criterios 1 e 2 — ingestao sem AGR, sem envio, sem cor
     const canal = await canalDe(m);
     await m.coex.abrir(m.bd, TENANT, canal);
     await m.coex.ingerirStateSync(m.bd, TENANT, CANAL, [
-      { bsuid: null, telefone: "+244900000001" },
+      { bsuid: null, telefone: "+999100000001" },
     ]);
     assert.equal(m.bd.ver(TENANT, CANAL)?.estado, "a_sincronizar");
     m.relogio = new Date(T0.getTime() + 90 * 1_000);
@@ -301,7 +301,7 @@ describe("coexistencia: criterio 3 — o passo corre uma vez", () => {
     await m.coex.abrir(m.bd, TENANT, canal);
     const lote = {
       mensagens: 500,
-      contactos: [{ bsuid: null, telefone: "+244900000001" }],
+      contactos: [{ bsuid: null, telefone: "+999100000001" }],
       erros: [] as number[],
     };
     const primeiro = await m.coex.ingerirHistorico(m.bd, TENANT, CANAL, lote);
@@ -536,7 +536,7 @@ describe("coexistencia: criterio 6 — o aviso aos 10 dias", () => {
     // O dono volta a escrever.
     await m.coex.tratarEcho(m.bd, TENANT, canal, {
       wamid: "wamid.A",
-      destinatario: { bsuid: null, telefone: "+244900000001" },
+      destinatario: { bsuid: null, telefone: "+999100000001" },
     });
     assert.equal(m.bd.ver(TENANT, CANAL)?.avisado_em, null);
     // Dez dias depois **desse** echo, avisa outra vez.
@@ -578,11 +578,11 @@ describe("coexistencia: criterio 7 — o echo e o `wamid`", () => {
     await m.coex.abrir(m.bd, TENANT, canal);
     const r = await m.coex.tratarEcho(m.bd, TENANT, canal, {
       wamid: "wamid.DoDono",
-      destinatario: { bsuid: null, telefone: "+244900000001" },
+      destinatario: { bsuid: null, telefone: "+999100000001" },
     });
     assert.equal(r.desfecho, "do_dono");
-    assert.equal(r.conversationId, "conv-c-+244900000001");
-    assert.deepEqual(m.transicoes, ["conv-c-+244900000001"]);
+    assert.equal(r.conversationId, "conv-c-+999100000001");
+    assert.deepEqual(m.transicoes, ["conv-c-+999100000001"]);
     assert.equal(m.metricas.ler()["coex_echo_total:do_dono"], 1);
     assert.equal(
       m.bd.ver(TENANT, CANAL)?.ultimo_echo_em?.toISOString(),
@@ -597,7 +597,7 @@ describe("coexistencia: criterio 7 — o echo e o `wamid`", () => {
     await m.coex.abrir(m.bd, TENANT, canal);
     const r = await m.coex.tratarEcho(m.bd, TENANT, canal, {
       wamid: "wamid.Nosso",
-      destinatario: { bsuid: null, telefone: "+244900000001" },
+      destinatario: { bsuid: null, telefone: "+999100000001" },
     });
     assert.equal(r.desfecho, "nosso");
     assert.equal(m.transicoes.length, 0);
@@ -614,7 +614,7 @@ describe("coexistencia: criterio 7 — o echo e o `wamid`", () => {
     m.bd.vistas.length = 0;
     await m.coex.tratarEcho(m.bd, TENANT, canal, {
       wamid: "wamid.X",
-      destinatario: { bsuid: null, telefone: "+244900000001" },
+      destinatario: { bsuid: null, telefone: "+999100000001" },
     });
     assert.equal(m.bd.nomes()[0], "por_wamid");
     assert.equal(m.bd.vistas[0]?.parametros[0], TENANT);
@@ -627,7 +627,7 @@ describe("coexistencia: criterio 7 — o echo e o `wamid`", () => {
     await m.coex.abrir(m.bd, TENANT, canal);
     const r = await m.coex.tratarEcho(m.bd, TENANT, canal, {
       wamid: "wamid.Y",
-      destinatario: { bsuid: null, telefone: "+244900000009" },
+      destinatario: { bsuid: null, telefone: "+999100000009" },
     });
     assert.equal(r.desfecho, "sem_conversa");
     assert.equal(m.metricas.ler()["coex_echo_total:sem_conversa"], 1);
@@ -655,12 +655,12 @@ describe("coexistencia: criterio 7 — o echo e o `wamid`", () => {
     m.relogio = new Date(T0.getTime() + 10_000);
     await m.coex.tratarEcho(m.bd, TENANT, canal, {
       wamid: "wamid.1",
-      destinatario: { bsuid: null, telefone: "+244900000001" },
+      destinatario: { bsuid: null, telefone: "+999100000001" },
     });
     m.relogio = new Date(T0.getTime() + 5_000);
     await m.coex.tratarEcho(m.bd, TENANT, canal, {
       wamid: "wamid.2",
-      destinatario: { bsuid: null, telefone: "+244900000001" },
+      destinatario: { bsuid: null, telefone: "+999100000001" },
     });
     assert.equal(
       m.bd.ver(TENANT, CANAL)?.ultimo_echo_em?.getTime(),
@@ -833,7 +833,7 @@ describe("coexistencia: os defeitos que a revisao adversarial encontrou", () => 
     assert.equal(m.bd.linhas.size, 0);
     const r = await m.coex.tratarEcho(m.bd, TENANT, canal, {
       wamid: "wamid.Orfao",
-      destinatario: { bsuid: null, telefone: "+244900000001" },
+      destinatario: { bsuid: null, telefone: "+999100000001" },
     });
     assert.equal(r.desfecho, "do_dono");
     assert.ok(
@@ -860,7 +860,7 @@ describe("coexistencia: isolamento de tenant", () => {
     });
     await m.coex.tratarEcho(m.bd, TENANT, canal, {
       wamid: "w",
-      destinatario: { bsuid: null, telefone: "+244900000001" },
+      destinatario: { bsuid: null, telefone: "+999100000001" },
     });
     const semTenant = new Set(["alertar", "falhar", "avisar"]);
     for (let i = 0; i < m.bd.vistas.length; i += 1) {
