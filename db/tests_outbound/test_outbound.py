@@ -282,6 +282,15 @@ TESTES_OBRIGATORIOS = (
     # varredura que respondia `42501` por o `kamba_batch` nao ter `UPDATE`.
     "[bd] um lote depois do prazo nao entra, e e a instrucao que o recusa",
     "[bd] a varredura dos prazos corre como kamba_batch, e nao como admin",
+    # KAM-017, do aviso dos 10 dias: os tres que a prova por mutacao do KAM-115
+    # obrigou a escrever. Os predicados do `SQL_AVISAR_INACTIVOS` so se provam
+    # onde e o PostgreSQL a avalia-los — na `BaseFalsa` eles vivem em JavaScript,
+    # e ela reconhece a instrucao pela **constante importada**, que a mutacao
+    # tambem muda: mutar o SQL nao tinha efeito nenhum sobre a bateria do gate 4.
+    "[bd] o aviso dos 10 dias é idempotente, e é o `avisado_em` que o faz",
+    "[bd] o aviso só olha para os dois estados de sucesso",
+    "[bd] o echo do dono **reabre** a janela do aviso, pela coluna",
+    "[bd] a varredura do aviso corre como `kamba_batch`",
     "[bd] duas aberturas concorrentes deixam **uma** linha",
     "[bd] dois `account_update` concorrentes deixam **uma** transicao",
     "[bd] com o contexto de A, a coexistencia de B nao se altera",

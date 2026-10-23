@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Canais WhatsApp e Handoff |
-| Versão | 1.14 |
+| Versão | 1.15 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md`, `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md`, `../docs/tecnica/06_Dados_Eventos_Analytics.md`, `../docs/tecnica/08_Seguranca_Conformidade.md`, `../docs/tecnica/10_Onboarding_Governanca.md` (§6–§7), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` |
@@ -1441,6 +1441,47 @@ em `tests/coexistencia.test.ts`. A propriedade que o critério mede — zero *jo
 zero envios, zero corpos — não depende do volume, e é por isso que a caixa fica
 marcada; o que falta é a *fixture* saber produzir o volume, e isso é do KAM-024
 (dívida **83**, que é onde a contradição daquela *fixture* já está declarada).
+
+#### As quatro mutações do aviso, e porque é que sobreviviam todas pela mesma razão
+
+Entregues depois do ticket, e o que as encontrou foi a prova por mutação do
+KAM-115: o filtro largo dele (`aviso`) apanhou três mutações **deste** ticket a
+sobreviver, e alargá-lo revelou uma quarta. São estas:
+
+| Mutação | O que apaga |
+|---|---|
+| `o aviso deixa de ser idempotente` | o `avisado_em IS NULL` do `SQL_AVISAR_INACTIVOS` |
+| `o aviso passa a apanhar canais a sincronizar` | o `estado IN ('sincronizado', 'sincronizado_sem_historico')` |
+| `o echo do dono deixa de reabrir a janela do aviso` | o `avisado_em = NULL` do `SQL_REGISTAR_ECHO` |
+| `o aviso de desalinhamento volta a disparar em cloud_only` | a condição `canal.channelMode === "coexistencia"` |
+
+**As três primeiras sobreviviam pela mesma razão, e ela é instrutiva.** Todos os
+testes do critério 6 viviam na bateria do *gate* 4, contra a `BaseFalsa` — e ela
+**reimplementa o predicado em JavaScript**. Pior do que isso: ela reconhece a
+instrução comparando-a com a **constante importada**, que a mutação também muda,
+pelo que a comparação continua a bater e o predicado em JavaScript fica intacto.
+Mutar o SQL não tinha efeito nenhum sobre aqueles testes — eles passavam com o
+predicado e sem ele.
+
+É a mesma classe de lacuna que o KAM-115 encontrou em dois dos seus oito
+sobreviventes, e a lição é a que o `outbound/consultas.ts` do KAM-015 já tinha
+escrito: **a *suite* do *gate* 8 corre estas cadeias e não cópias delas**. Um
+predicado só se prova onde é o PostgreSQL a avaliá-lo. Os três ensaios novos
+estão em `tests_bd/coexistencia.bd.test.ts` e são a primeira vez que o critério 6
+deste ticket toca uma base real: a idempotência pela coluna, os **quatro** estados
+um a um (os dois de sucesso entram, o `a_sincronizar` e o `falhado` não), o ciclo
+inteiro do *echo* — avisa, o dono escreve, avisa outra vez dez dias depois — e a
+varredura a correr como `kamba_batch`, que é o único papel com `BYPASSRLS`.
+
+**A quarta era outra coisa: um teste que não olhava para onde o seu próprio nome
+prometia.** O «um canal `cloud_only` desliga sem avisar de desalinhamento»
+afirmava o desfecho e o estado do canal, e **não** a ausência do aviso — e o
+duplo de `Logger` daquele ficheiro já guardava os `outcome` em `m.avisos`,
+faltava afirmar. Passou a afirmar o silêncio, e ganhou a **metade positiva** sem
+a qual ele passaria com o `warn` apagado por inteiro: um canal em `coexistencia`
+sem linha **avisa**.
+
+---
 
 ### Handoff para Claude Code
 
@@ -3444,14 +3485,15 @@ inventário.
    deixar o dono sem canal, que é precisamente o que a métrica do critério 6 tem
    de ver.
 
-**E três sobreviventes que não são deste ticket.** O filtro largo que corri
-(`aviso`) apanhou também três mutações do KAM-017, porque o nome delas tem a
-palavra: «o aviso deixa de ser idempotente», «o aviso passa a apanhar canais a
-sincronizar» e «o aviso de desalinhamento volta a disparar em `cloud_only`». São
-do aviso de inactividade **daquele** ticket, correm na `tests_outbound`, e **não
-se tocou** — mexer no código de outro ticket a meio deste é o que a nota do
-KAM-023 sobre o `MED_SQL` desaconselha. Ficam aqui nomeadas para que não se
-perca: quem fechar o KAM-017 à letra tem três lacunas medidas por onde começar.
+**E três sobreviventes que não eram deste ticket, ~~e ficam para quem fechar o
+KAM-017~~ — fechadas desde então.** O filtro largo que corri (`aviso`) apanhou
+também três mutações do KAM-017, porque o nome delas tem a palavra: «o aviso
+deixa de ser idempotente», «o aviso passa a apanhar canais a sincronizar» e «o
+aviso de desalinhamento volta a disparar em `cloud_only`». Não se tocou **neste**
+PR — mexer no código de outro ticket a meio deste é o que a nota do KAM-023 sobre
+o `MED_SQL` desaconselha —, e ficaram aqui nomeadas. **Fecharam-se logo a
+seguir**, com uma quarta da mesma família que o filtro alargado revelou: ver a
+secção de verificação do KAM-017, «as quatro mutações do aviso».
 
 **Setenta e nove** mutações novas — **dez** da revisão `0019` e **sessenta e
 nove** do código, cinco delas a prender os achados desta revisão —, e a cobertura
@@ -3525,3 +3567,4 @@ um `--suite tests` de dois minutos teria dito.
 | 1.12 | Outubro 2026 | **As caixas dos sete blocos restantes conferidas, e nenhuma mudou.** A auditoria do §2 alargou-se aos blocos KAM-013, KAM-014, KAM-015, KAM-018, KAM-019, KAM-020 e KAM-024, caixa a caixa contra o veredito da tabela de verificação de cada um, nos **dois** sentidos — marcar o que a verificação sustenta e desmarcar o que ela não sustenta. **Os sete já concordavam**, e três deles declaram no próprio texto a contagem que têm («9 critérios; 7 marcados, 2 vazios» no KAM-013; «quinze caixas marcadas, três vazias» no KAM-020; e as emendas 1.2, 1.4 e 1.5 para o KAM-014, o KAM-024 e o KAM-015). O que esta emenda acrescenta é, por isso, a nota no §2 de que a conferência cobriu os blocos todos — e o resultado do inverso, que é a verificação mais forte que o repositório permite aqui: os **328** nomes declarados nas listas `GRUPOS` e `TESTES_OBRIGATORIOS` das suites de `db/tests_*/` existem todos nos ficheiros de teste, quatro deles com uma constante interpolada no nome. Uma caixa cuja evidência está nessas listas é prendida por máquina: o nome que desaparecer faz a suite falhar. Nenhum bloco de ticket, nenhuma tabela de verificação e nenhum código mudaram nesta emenda. | Equipa KAMBÁ |
 | 1.13 | Outubro 2026 | **As caixas vazias dos tickets fundidos inventariadas por credor**, em [`../docs/epic-02-divida-de-criterios.md`](../docs/epic-02-divida-de-criterios.md). Das caixas vazias que a auditoria do §2 contou, as dos revisores humanos e as do «todos os CA satisfeitos» são derivadas e as do KAM-115 são trabalho por fazer; sobram **32** nos tickets fundidos, e o documento dá a cada uma a razão que a tabela de verificação do seu bloco já dava, mais o credor e a classe. **O achado é que cinco esperam um ticket que já fundiu** e ninguém voltou a medir: o critério 5 do KAM-024 («usado por KAM-015, 016, 017 e 020» — os quatro fundidos), o critério 1 do KAM-018 (a detecção do *echo*, que pedia o KAM-017), o critério 8 do KAM-015 (o *lock* da conversa, que pedia o KAM-018), o critério 6 do KAM-018 (a `v3` do contrato e o `setBotMuted`, que pediam o KAM-007 e o KAM-019) e o critério 3 do KAM-014. É a mesma classe de omissão que a emenda 1.10 encontrou no §2, um nível abaixo. O resumo por credor desfaz a leitura pessimista das caixas soltas: só sete esperam genuinamente um terceiro (`ext:KAM-100` e `ext:KAM-102`), dez são decisões e não trabalho — e **duas dessas não devem fechar**, a do KAM-021 porque devolver o privilégio reabre uma escalada e a do KAM-024 porque satisfazer a letra pioraria a protecção. Três caixas não têm credor nomeado, e é isso que as torna perigosas. Nenhuma caixa se marcou ou desmarcou, e nenhuma tabela de verificação foi reescrita. | Equipa KAMBÁ |
 | 1.14 | Outubro 2026 | **KAM-115 entregue, e o epic fecha.** Secção de verificação no bloco, com **sete** caixas de critério marcadas e **uma** vazia, e com seis das oito do DoD. O que fica vazio é o alvo de «≥ 95% dos *tenants* `ativo` com contacto verificado» (critério 6): é medição sobre *tenants* reais e não há nenhum — a métrica que o mede está entregue, com numerador **e** denominador, e a varredura que a alimenta também. **O risco R16 passa a FECHADA**: era «sem ticket para avisar o dono por canal alternativo», e os emissores existiam desde o KAM-017, o KAM-021 e o KAM-023 — o que não existia era quem entrega. Entregues: a revisão `0019` com **duas** tabelas (e são duas porque o critério 7 manda marcar o **contacto** como inválido, que é facto do contacto e não do aviso), o módulo `packages/core-ts/src/avisos/`, a *suite* de *gate* 8 `tests_avisos` — a primeira que leva as duas baterias do módulo no mesmo corredor —, e o *gate* de `prod` do subprocessador, que é a alternativa que o próprio critério 8 escreve («ou fica `pendente` e bloqueia `prod`»), porque o inventário do KAM-069 não existe e escolher um subprocessador num ficheiro de código é o que o ADR-008 existe para impedir. **Três defeitos apanhados por máquina**, e o terceiro é o mais sério: o `criado_at` não podia vir do `now()` do servidor (o relógio acelerado dos ensaios media uma coisa e a base registava outra, e a varredura dos lembretes não via episódio nenhum); o `apagarTenant` do `apoio.ts` não conhecia as duas tabelas novas e o `after` pendurava o processo por trezentos segundos **sem uma linha de saída**; e a prova por mutação foi a **primeira coisa a executar** a bateria de esquema deste ticket — o *gate* 8 correu antes de ela existir —, encontrando quatro testes a responder `25P02` em vez de `23514` por falta de `SAVEPOINT`. **E a revisão adversarial não aprovou a primeira versão**: quatro achados, os quatro corrigidos — os lembretes **nunca saíam** (a janela do gatilho filtrava-os, e o teste que o afirmava media um histórico vazio), o tecto diário contava linhas e não avisos, a varredura tinha uma guarda **inalcançável** no lugar do «depois pára e abre tarefa a T2» (e o `lembretesEsgotados` existia, estava testado e não era chamado por ninguém), e a hora do aviso saía em UTC a um dono de Luanda. | Equipa KAMBÁ |
+| 1.15 | Outubro 2026 | **As quatro mutações do aviso de inactividade do KAM-017, fechadas.** Encontrou-as a prova por mutação do KAM-115: o filtro largo dele apanhou três deste ticket a sobreviver, e alargá-lo revelou uma quarta. **As três do SQL sobreviviam todas pela mesma razão**, e ela é a lição: os testes do critério 6 viviam todos na bateria do *gate* 4, contra a `BaseFalsa` — que **reimplementa o predicado em JavaScript** e reconhece a instrução comparando-a com a **constante importada**, que a mutação também muda. A comparação continuava a bater, o predicado em JavaScript ficava intacto, e mutar o SQL não tinha efeito nenhum. É a mesma classe de lacuna que o KAM-115 encontrou em dois dos seus oito, e a regra que o `outbound/consultas.ts` já tinha escrito: a *suite* do *gate* 8 corre estas cadeias e não cópias delas. Os três ensaios novos em `tests_bd/coexistencia.bd.test.ts` são a **primeira vez** que o critério 6 deste ticket toca uma base real — a idempotência pela coluna, os quatro estados um a um, o ciclo inteiro do *echo* e a varredura como `kamba_batch`. **A quarta era outra coisa:** o «um canal `cloud_only` desliga sem avisar de desalinhamento» afirmava o desfecho e o estado e **não** a ausência do aviso, com o duplo de `Logger` daquele ficheiro já a guardar os `outcome`; passou a afirmar o silêncio e ganhou a metade positiva, sem a qual passaria com o `warn` apagado por inteiro. Nenhuma caixa de critério muda: eram lacunas de prova e não de código. | Equipa KAMBÁ |

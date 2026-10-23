@@ -789,6 +789,37 @@ describe("coexistencia: os defeitos que a revisao adversarial encontrou", () => 
     });
     assert.equal(r.desligou, true);
     assert.equal(m.bd.canais.get(`${TENANT}|${CANAL}`)?.estado, "desligado");
+    // **E o registo fica calado, que e o que o nome deste teste promete.** A
+    // primeira versao afirmava o desfecho e o estado e nao olhava para o
+    // registo, pelo que passava com a condicao do modo **e sem ela**: a prova
+    // por mutacao do KAM-115 apanhou-a. O `desligamento_desalinhado` existe
+    // para apanhar desalinhamento a serio, e um `warn` por cada
+    // `PARTNER_REMOVED` de cada canal `cloud_only` e ruido nesse sinal.
+    assert.equal(
+      m.avisos.includes("desligamento_desalinhado"),
+      false,
+      JSON.stringify(m.avisos),
+    );
+  });
+
+  it("um canal `coexistencia` sem linha **avisa** de desalinhamento", async () => {
+    // A metade positiva, e sem ela o teste acima passava com o `warn` apagado
+    // por inteiro. Em `coexistencia` a ausencia de linha nao e normal: ou ela ja
+    // estava marcada, ou nunca foi aberta.
+    const m = montar();
+    const canal = await canalDe(m);
+    // **Nao se chama o `abrir`**: e isso que deixa o canal em `coexistencia` sem
+    // linha, que e o desalinhamento que o aviso existe para apanhar.
+    assert.equal(m.bd.linhas.size, 0);
+    const r = await m.coex.tratarAccountUpdate(m.bd, TENANT, canal, {
+      evento: "PARTNER_REMOVED",
+      motivo: "CHANGE_NUMBER",
+    });
+    assert.equal(r.desligou, true);
+    assert.ok(
+      m.avisos.includes("desligamento_desalinhado"),
+      JSON.stringify(m.avisos),
+    );
   });
 
   it("um `account_update` que nao e PARTNER_REMOVED nao desliga", async () => {
