@@ -82,6 +82,8 @@ TESTES_OBRIGATORIOS = (
     "o *bounce* invalida o contacto pelo caminho do módulo",
     "**um contacto inválido faz o aviso seguinte falhar com `sem_contacto`**",
     "**um episódio com os dois lembretes aparece como esgotado**",
+    "**uma ligação expirada não confirma, e o prazo está na instrução**",
+    "**a varredura só conta o contacto verificado e não inválido**",
 )
 
 #: Os testes do gate 4 que dao a letra dos criterios de regra. Correm aqui
@@ -97,6 +99,9 @@ TESTES_DAS_REGRAS = (
     "**em `prod`, sem `apd_ref`, o serviço não arranca**",
     "**a linha de `sem_contacto` entra nos avisos devolvidos**",
     "**a hora sai em `Africa/Luanda` e na forma longa**",
+    "**a janela do gatilho não morde um lembrete, e a prova precisa de um vizinho**",
+    "**a linha deduplicada por outra transacção não se entrega**",
+    "**nenhum modelo leva um marcador que a lista fechada não tenha**",
 )
 
 #: Os ficheiros do modulo. A cobertura mede-se em **cada um**.

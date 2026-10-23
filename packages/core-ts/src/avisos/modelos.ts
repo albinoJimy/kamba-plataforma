@@ -207,24 +207,27 @@ export function prepararLoja(nome: string): string {
 }
 
 /**
- * Preenche um texto com os parâmetros, e **levanta** num parâmetro desconhecido.
+ * Preenche um texto com os parâmetros, e **levanta** num marcador desconhecido.
  *
- * Levanta nos dois sentidos, e isso é mais do que validar a entrada:
+ * Um marcador que não esteja na lista fechada não é preenchido — levanta. É o
+ * critério 5 visto do lado do modelo: um `{telefone}` num texto nosso seria um
+ * campo por onde a PII entrava, e ele nem chega a ter valor.
  *
- * * um valor cuja chave não está na lista fechada não entra — é o critério 5;
- * * e um marcador no texto do modelo que **não** tenha valor também levanta, em
- *   vez de ficar `{loja}` literal no e-mail do dono. Um modelo com um marcador
- *   mal escrito é um defeito nosso, e um defeito que sai em texto para o
- *   cliente é o pior sítio para o descobrir.
+ * **E não há guarda para «o marcador está na lista mas não tem valor».** A
+ * primeira versão tinha uma, e ela era **inalcançável**: o `Parametros` é um
+ * `Record` total dos quatro nomes, pelo que todos existem sempre. Apagou-se, e
+ * é a resposta que o KAM-018 deu às duas guardas inalcançáveis do
+ * `transicoes.ts` — «uma guarda inalcançável dá a ilusão de proteger». O que
+ * ela pretendia proteger — nenhum modelo levar um marcador que a lista não
+ * tenha — tem agora teste próprio, sobre os cinco modelos, pelo
+ * `marcadoresDosModelos`.
  */
 function preencher(texto: string, valores: Parametros): string {
   return texto.replace(MARCADOR, (_todo, nome: string) => {
     if (!(PARAMETROS as readonly string[]).includes(nome)) {
       throw new ParametroInvalidoError(nome);
     }
-    const valor = valores[nome as Parametro];
-    if (valor === undefined) throw new ParametroInvalidoError(nome);
-    return valor;
+    return valores[nome as Parametro];
   });
 }
 
@@ -260,4 +263,28 @@ export function construir(
 /** Os gatilhos que têm modelo. É a lista do critério 1, vista deste lado. */
 export function gatilhosComModelo(): readonly Gatilho[] {
   return Object.keys(MODELOS) as readonly Gatilho[];
+}
+
+/**
+ * Todos os marcadores que os cinco modelos usam, sem repetição.
+ *
+ * Existe para um teste, e é o invariante que a guarda apagada pretendia
+ * proteger: **nenhum modelo leva um marcador que a lista fechada não tenha**. Um
+ * `{hroa}` mal escrito num texto nosso sairia como `{hroa}` literal no e-mail do
+ * dono — ou, com a guarda, levantaria no primeiro aviso de uma avaria, que é o
+ * pior momento possível para descobrir um erro de dactilografia.
+ *
+ * A verificação é sobre os **modelos** e não sobre uma chamada, e é isso que a
+ * torna exaustiva: a guarda só disparava no modelo que alguém exercitasse.
+ */
+export function marcadoresDosModelos(): readonly string[] {
+  const vistos = new Set<string>();
+  for (const modelo of Object.values(MODELOS)) {
+    for (const texto of [modelo.assunto, modelo.corpo, modelo.passo]) {
+      for (const achado of texto.matchAll(MARCADOR)) {
+        if (achado[1] !== undefined) vistos.add(achado[1]);
+      }
+    }
+  }
+  return [...vistos].sort();
 }

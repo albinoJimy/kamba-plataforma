@@ -128,13 +128,21 @@ const FUSO = "Africa/Luanda";
 /**
  * A hora como o dono a lê.
  *
- * `dateStyle: "long"` e não `"short"`, e a razão é medida: a forma curta dá
- * `09/11/2026`, que são **oito dígitos separados por barras** — e a régua do
- * `modelos.ts` que apanha telefones escritos à mão apanharia a data também. A
- * forma longa dá «9 de novembro de 2026 às 10:00», onde nenhuma corrida de
- * dígitos chega a sete. O varrimento do critério 5 passa a poder correr sobre o
- * aviso **inteiro**, sem excepção nenhuma — e um varrimento sem excepções é mais
- * forte do que um com.
+ * `dateStyle: "long"`, e as três formas mediram-se antes de escolher — porque a
+ * primeira versão desta nota dizia uma coisa falsa sobre a curta:
+ *
+ *     short    "09/11/26, 10:00"                 seis dígitos na data
+ *     medium   "09/11/2026, 10:00"               **oito**, e a régua apanha-a
+ *     long     "9 de novembro de 2026 às 10:00"  nenhuma corrida chega a sete
+ *
+ * Duas razões, e cada uma exclui uma das outras formas. A **`medium` está fora
+ * por medição**: `09/11/2026` são oito dígitos separados por barras, e a régua do
+ * `modelos.ts` que apanha telefones escritos à mão apanharia a data também — com
+ * ela, o varrimento do critério 5 precisaria de uma excepção, e um varrimento com
+ * excepções é mais fraco do que um sem. A **`short` está fora por legibilidade**:
+ * `09/11/26` dá o ano em dois dígitos, e num aviso de avaria que o dono pode ler
+ * dias depois a data tem de ser inequívoca. O mês por extenso é o que o teste
+ * prende.
  */
 export function horaDeLuanda(agora: Date): string {
   return new Intl.DateTimeFormat("pt-PT", {

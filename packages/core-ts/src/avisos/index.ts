@@ -92,6 +92,7 @@ export {
 export {
   construir,
   gatilhosComModelo,
+  marcadoresDosModelos,
   mascarar,
   MASCARA,
   MAXIMO_DA_LOJA,

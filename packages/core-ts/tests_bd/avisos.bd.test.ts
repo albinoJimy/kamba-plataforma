@@ -319,6 +319,94 @@ describe("o aviso ao dono contra a base", () => {
     assert.deepEqual([rows[0].feito, rows[0].gasto], [true, true]);
   });
 
+  it("**uma ligação expirada não confirma, e o prazo está na instrução**", async () => {
+    // O teste da expiração vivia só na bateria do *gate* 4, contra a base falsa —
+    // e ela implementa o seu **próprio** predicado de prazo, pelo que uma mutação
+    // que tirasse o `confirmacao_expira_em > $4` do `SQL_CONFIRMAR` passava. A
+    // prova por mutação mostrou-o. Aqui o prazo é avaliado pelo servidor, com o
+    // instante que lhe passamos — o relógio acelerado do ensaio.
+    const terceiro = await criarTenant(admin, "aviso-expira");
+    try {
+      await admin.query(
+        "INSERT INTO platform.owner_contacts (tenant_id, canal, endereco_enc) " +
+          "VALUES ($1, 'email', $2)",
+        [terceiro, CIFRA],
+      );
+      const aviso = montar([email, painel]);
+      const { token, expiraEm } = await comTenant(app1, terceiro, () =>
+        aviso.emitirConfirmacao(app1, terceiro),
+      );
+      // Um milissegundo **depois** do prazo: a instrução compara com `>`.
+      relogio = new Date(expiraEm.getTime() + 1);
+      const confirmou = await comTenant(app1, terceiro, () =>
+        aviso.confirmar(app1, terceiro, token),
+      );
+      assert.equal(confirmou, false);
+      const { rows } = await admin.query(
+        "SELECT verificado_at, confirmacao_hash IS NOT NULL AS tem_resumo " +
+          "FROM platform.owner_contacts WHERE tenant_id = $1",
+        [terceiro],
+      );
+      // Continua sem verificação **e** com o resumo por gastar: um prazo que
+      // passou não consome a ligação, só a recusa.
+      assert.equal(rows[0].verificado_at, null);
+      assert.equal(rows[0].tem_resumo, true);
+    } finally {
+      await apagarTenant(admin, terceiro);
+    }
+  });
+
+  it("**a varredura só conta o contacto verificado e não inválido**", async () => {
+    // O teste anterior afirmava que os nossos dois *tenants* **não** aparecem na
+    // varredura — e isso continuava verdade com o predicado do `LEFT JOIN`
+    // mutado, porque eles têm contacto. O que prende os dois ramos é um *tenant*
+    // `ativo` cujo contacto existe mas **não serve**: ele tem de aparecer.
+    const quarto = await criarTenant(admin, "aviso-sem-prova");
+    try {
+      await admin.query("UPDATE platform.tenants SET estado = 'ativo' WHERE id = $1", [
+        quarto,
+      ]);
+      // Não verificado: existe linha, e não conta.
+      await admin.query(
+        "INSERT INTO platform.owner_contacts (tenant_id, canal, endereco_enc) " +
+          "VALUES ($1, 'email', $2)",
+        [quarto, CIFRA],
+      );
+      const { rows: naoVerificado } = await batch.query(SQL_TENANTS_SEM_CONTACTO);
+      assert.ok(
+        naoVerificado.some((l) => l.id === quarto),
+        "um contacto nao verificado nao devia contar",
+      );
+
+      // Verificado: passa a contar, e o *tenant* sai da lista.
+      await admin.query(
+        "UPDATE platform.owner_contacts SET verificado_at = now() WHERE tenant_id = $1",
+        [quarto],
+      );
+      const { rows: verificado } = await batch.query(SQL_TENANTS_SEM_CONTACTO);
+      assert.equal(
+        verificado.some((l) => l.id === quarto),
+        false,
+        "um contacto verificado devia contar",
+      );
+
+      // Verificado **e** inválido: volta a não contar — é o critério 7 a deixar o
+      // dono sem canal, e é precisamente o que a métrica do critério 6 tem de ver.
+      await admin.query(
+        "UPDATE platform.owner_contacts " +
+          "SET invalido_at = now(), motivo_invalido = 'bounce' WHERE tenant_id = $1",
+        [quarto],
+      );
+      const { rows: invalido } = await batch.query(SQL_TENANTS_SEM_CONTACTO);
+      assert.ok(
+        invalido.some((l) => l.id === quarto),
+        "um contacto invalido nao devia contar",
+      );
+    } finally {
+      await apagarTenant(admin, quarto);
+    }
+  });
+
   it("o resumo guardado não é o *token*", async () => {
     const token = Buffer.alloc(OCTETOS_DO_TOKEN, 7);
     const { rows } = await admin.query(

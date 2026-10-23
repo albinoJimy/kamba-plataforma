@@ -48,6 +48,9 @@ import {
   gatilhosComModelo,
   JANELA_DIARIA_MS,
   JANELA_DO_GATILHO_MS,
+  LATENCIA_ALVO_MS,
+  LIMIAR_DO_PAINEL_MS,
+  marcadoresDosModelos,
   lembreteDevido,
   lembretesEsgotados,
   LEMBRETE_MAXIMO,
@@ -187,7 +190,7 @@ class BaseFalsa {
       // `ON CONFLICT DO NOTHING`: zero linhas na segunda passagem, e e assim que
       // quem chama sabe se escreveu — sem uma leitura anterior que uma corrida
       // podia invalidar entre a leitura e a escrita.
-      if (existe) return [];
+      if (existe || this.conflitoNoRegisto) return [];
       this.#id += 1;
       const linha: LinhaDeAviso = {
         chaveHex: chave,
@@ -283,6 +286,19 @@ class BaseFalsa {
   }
 
   agora = T0;
+
+  /**
+   * Quando `true`, o `SQL_REGISTAR` devolve zero linhas **sem** o histórico as
+   * mostrar.
+   *
+   * É a corrida real do critério 2, e é o único caminho por onde o
+   * `registado === null` do módulo se alcança: duas transacções lêem «ainda não
+   * avisei» as duas — logo o `decidir` autoriza as duas — e a unicidade deixa
+   * passar **uma**. A prova por mutação mostrou que nenhum teste o exercitava: em
+   * série o `decidir` tapa o caminho, porque na segunda chamada o histórico já
+   * tem a linha e a recusa é `ja_avisado`.
+   */
+  conflitoNoRegisto = false;
 
   /** Semeia um contacto verificado e utilizável. */
   comContactoVerificado(): this {
@@ -1525,5 +1541,121 @@ describe("os achados da revisão adversarial", () => {
     // E o `lembreteDevido` nunca passa do máximo: era por isso que a guarda
     // antiga era inalcançável.
     assert.equal(lembreteDevido(new Date(T0.getTime() + 1_000 * 3_600_000), primeiro), 2);
+  });
+});
+
+// ================================= as lacunas que a prova por mutação mostrou
+
+describe("as lacunas que a prova por mutação mostrou", () => {
+  it("**a janela do gatilho não morde um lembrete, e a prova precisa de um vizinho**", () => {
+    // O teste que afirmava isto media o lembrete das 24 h com o aviso próprio em
+    // `T0` — e aí a janela **já tinha expirado** (ela é `[T0, T0+24h)`), pelo que
+    // ele passava com o predicado `lembrete === 0` e sem ele. A mutação mostrou-o.
+    //
+    // O cenário em que a janela **morderia** é outro: o episódio A avisado em
+    // `T0`, o lembrete 1 dele em `T0+24h`, um episódio **novo** do mesmo gatilho
+    // avisado em `T0+50h` (permitido: a última linha do gatilho é de 26 h antes),
+    // e o lembrete 2 de A em `T0+72h`. A linha de `T0+50h` está a 22 h —
+    // **dentro** da janela —, pelo que sem o predicado o lembrete 2 era recusado.
+    const h = 3_600_000;
+    const historico = [
+      avisoAnterior({ episodio: "A", lembrete: 0, criadoAt: T0 }),
+      avisoAnterior({
+        episodio: "A",
+        lembrete: 1,
+        criadoAt: new Date(T0.getTime() + 24 * h),
+      }),
+      avisoAnterior({
+        episodio: "B",
+        lembrete: 0,
+        criadoAt: new Date(T0.getTime() + 50 * h),
+      }),
+    ];
+    const agora = new Date(T0.getTime() + 72 * h);
+    const lembrete = decidir(agora, "canal_desligado", "A", 2, historico);
+    assert.equal(lembrete.avisar, true, JSON.stringify(lembrete));
+    // E o controlo: um **aviso próprio** de um terceiro episódio, no mesmo
+    // instante, **é** recusado pela janela — senão este teste provava que a
+    // janela não existe.
+    const proprio = decidir(agora, "canal_desligado", "C", 0, historico);
+    assert.equal(proprio.motivo, "janela_do_gatilho");
+  });
+
+  it("**os números de produto afirmam-se pelo valor**", () => {
+    // Os testes da janela usavam `JANELA_DO_GATILHO_MS` nas duas pontas da
+    // fronteira, pelo que eram verdadeiros para **qualquer** valor da constante:
+    // uma mutação que a pusesse em 1 h passava. Um número de produto afirma-se
+    // pelo número, como o `ATRASO_DO_LEMBRETE_MS` já fazia.
+    assert.equal(JANELA_DO_GATILHO_MS, 24 * 60 * 60 * 1_000);
+    assert.equal(JANELA_DIARIA_MS, 24 * 60 * 60 * 1_000);
+    assert.equal(TECTO_DIARIO, 3);
+    assert.equal(LATENCIA_ALVO_MS, 5 * 60 * 1_000);
+    assert.equal(LIMIAR_DO_PAINEL_MS, 5 * 60 * 1_000);
+    assert.equal(PRAZO_DA_CONFIRMACAO_MS, 7 * 24 * 60 * 60 * 1_000);
+  });
+
+  it("**o separador nulo impede a colisão por deslocamento**", () => {
+    // O teste anterior comparava `(inactividade, "a")` com `(inactivid, "adea")`,
+    // que dão cadeias diferentes **com qualquer separador** — pelo que não
+    // provava nada sobre o separador. A colisão real é o deslocamento de uma
+    // fronteira: com um ponto, `(a, "b.c")` e `(a.b, "c")` dão a mesma cadeia.
+    const esquerda = chaveDoEpisodio(TENANT, "inactividade" as never, "b.c");
+    const direita = chaveDoEpisodio(TENANT, "inactividade.b" as never, "c");
+    assert.notEqual(esquerda.toString("hex"), direita.toString("hex"));
+    // E o mesmo com o separador que um `episodio` real traz, que são
+    // dois-pontos: `canal-1:primary_inactivity`.
+    const a = chaveDoEpisodio(TENANT, "canal_desligado", "x:y");
+    const b = chaveDoEpisodio(TENANT, "canal_desligado:x" as never, "y");
+    assert.notEqual(a.toString("hex"), b.toString("hex"));
+  });
+
+  it("**nenhum modelo leva um marcador que a lista fechada não tenha**", () => {
+    // O invariante que a guarda inalcançável do `preencher` pretendia proteger, e
+    // agora afirmado sobre os **cinco modelos** em vez de sobre a chamada que
+    // alguém exercitasse. Um `{hroa}` mal escrito sairia literal no e-mail do
+    // dono.
+    const marcadores = marcadoresDosModelos();
+    assert.ok(marcadores.length > 0, "nenhum modelo usa marcador nenhum?");
+    for (const marcador of marcadores) {
+      assert.ok(
+        (PARAMETROS as readonly string[]).includes(marcador),
+        `o marcador {${marcador}} nao esta em PARAMETROS`,
+      );
+    }
+  });
+
+  it("**a linha deduplicada por outra transacção não se entrega**", async () => {
+    // O caminho do `registado === null`, que **nenhum teste alcançava**: em série
+    // o `decidir` recusa primeiro, com `ja_avisado`, e o registo nem é chamado.
+    // Aqui o histórico vem vazio — como vem às duas transacções de uma corrida —
+    // e é a unicidade que decide.
+    const base = new BaseFalsa().comContactoVerificado();
+    base.conflitoNoRegisto = true;
+    const montagem = montar({ base });
+    const resultado = await montagem.aviso.notificar(base as never, {
+      tenantId: TENANT,
+      gatilho: "canal_desligado",
+      episodio: "ep-1",
+    });
+    // Nada se entregou, por canal nenhum: quem escreveu a linha é quem entrega.
+    assert.deepEqual(resultado.avisos, []);
+    assert.equal(resultado.suprimido, null);
+    assert.equal((montagem.email as Entrega).entregas.length, 0);
+    assert.equal((montagem.painel as Entrega).entregas.length, 0);
+    // E não se abriu tarefa a T2: não houve falha nenhuma — houve outra
+    // transacção a fazer o trabalho.
+    assert.equal(montagem.tarefas.length, 0);
+  });
+
+  it("**a hora leva o mês por extenso, e é o que exclui as outras duas formas**", () => {
+    // A `medium` sai por medição (`09/11/2026` são oito dígitos e a régua
+    // apanha-a) e a `short` por legibilidade (`09/11/26` dá o ano em dois
+    // dígitos). O mês por extenso é o que distingue a `long` das duas.
+    const hora = horaDeLuanda(T0);
+    assert.match(hora, /novembro/);
+    assert.equal(/\d{2}\/\d{2}\//.test(hora), false, hora);
+    // E o ano inteiro: num aviso que o dono pode ler dias depois, a data tem de
+    // ser inequívoca.
+    assert.match(hora, /2026/);
   });
 });

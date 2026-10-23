@@ -299,6 +299,24 @@ E a linha de `sem_contacto` passou a entrar no resultado devolvido: ela **foi
 escrita**, e o campo está documentado como «as linhas escritas» — descartá-la
 fazia o resultado dizer que nada se escreveu num caminho que escreve.
 
+## 12. O que a prova por mutação mostrou: oito lacunas nos meus testes
+
+As 79 mutações deste ticket correram com o código já congelado, e **oito
+sobreviveram**. Nenhuma era um falso positivo. O inventário está na secção de
+verificação do bloco do ticket, e o resumo é este: dois testes mediam a fronteira
+**com a própria constante**, pelo que eram verdadeiros para qualquer valor dela;
+dois construíam uma colisão ou um cenário que **não podia falhar**; dois viviam
+só na base falsa, que implementa o seu próprio predicado e não o do SQL; um
+guardava um ramo **inalcançável** — e a resposta foi apagar a guarda, como o
+KAM-018 fez; e um apontava para um caminho que **só a concorrência alcança**, o
+`registado === null`, que em série o `decidir` tapa antes.
+
+O mais útil dos oito foi o que apagou o predicado `lembrete === 0` — a própria
+correcção da revisão adversarial. O teste que o afirmava media o lembrete das
+24 h com o aviso em `T0`, onde a janela já tinha expirado: passava nos dois
+sentidos. Uma correcção sem um teste que a prenda é uma correcção que a próxima
+pessoa desfaz.
+
 ## Controlo de versões
 
 | Versão | Data | Descrição | Autor |

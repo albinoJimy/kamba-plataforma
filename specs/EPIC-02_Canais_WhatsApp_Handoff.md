@@ -3379,6 +3379,80 @@ facto.
    dono com três problemas sabia de um. Passou a contar `(gatilho, episodio,
    lembrete)` distintos, e há teste com quatro linhas e dois avisos.
 
+#### A prova por mutação: oito sobreviventes, e os oito eram lacunas minhas
+
+Corrida sobre as 79 mutações deste ticket, com o código já congelado. **Oito
+sobreviveram**, e nenhuma era um falso positivo: cada uma mostrou um teste que
+passava pela razão errada. É a razão por que ela existe, e vale a pena o
+inventário.
+
+1. **A janela do gatilho a morder nos lembretes** — a mutação mais importante
+   das oito, porque o predicado que ela apaga é a **correcção da revisão
+   adversarial**. O teste que o afirmava media o lembrete das 24 h com o aviso
+   próprio em `T0`, e aí a janela **já tinha expirado** — ela é `[T0, T0+24h)`.
+   Passava com o predicado e sem ele. O cenário em que a janela morderia precisa
+   de um **vizinho**: o episódio A avisado em `T0`, o lembrete 1 dele em
+   `T0+24h`, um episódio **novo** do mesmo gatilho avisado em `T0+50h` e o
+   lembrete 2 de A em `T0+72h` — a linha de `T0+50h` está a 22 h, dentro da
+   janela. O teste novo tem esse cenário **e** o controlo que prova que a janela
+   existe.
+2. **A janela a passar de 24 h para 1 h** — os testes da fronteira usavam a
+   própria constante nas duas pontas, pelo que eram verdadeiros para **qualquer**
+   valor dela. Um número de produto afirma-se pelo número, como o
+   `ATRASO_DO_LEMBRETE_MS` já fazia; os seis passaram a ser afirmados assim.
+3. **O separador da chave a passar de octeto nulo para ponto** — a colisão que o
+   teste construía (`(inactividade, "a")` contra `(inactivid, "adea")`) dá cadeias
+   diferentes com **qualquer** separador. A colisão real é o deslocamento de uma
+   fronteira: com um ponto, `(a, "b.c")` e `(a.b, "c")` dão a mesma cadeia. O
+   teste novo tem essa, e a versão com dois-pontos — que é o separador que um
+   `episodio` real traz.
+4. **O marcador sem valor a deixar de levantar** — e aqui a resposta não foi um
+   teste: a guarda era **inalcançável**. O `Parametros` é um `Record` total dos
+   quatro nomes, pelo que o `valor === undefined` nunca podia ser verdade.
+   Apagou-se, com a mutação, e é a resposta que o KAM-018 deu às duas guardas do
+   `transicoes.ts` dele — «uma guarda inalcançável dá a ilusão de proteger». O
+   invariante que ela pretendia proteger tem agora teste próprio, sobre os
+   **cinco modelos** em vez de sobre a chamada que alguém exercitasse:
+   `marcadoresDosModelos()` ⊆ `PARAMETROS`.
+5. **A linha deduplicada a ser entregue outra vez** — e esta é a mais
+   interessante das oito, porque o caminho que ela apaga era **inalcançável pelos
+   testes mas não pelo código**. Em série, o `decidir` recusa primeiro, com
+   `ja_avisado`, e o registo nem é chamado: o `registado === null` só acontece
+   quando **duas transacções** lêem «ainda não avisei» as duas e a unicidade deixa
+   passar uma. A base falsa ganhou um modo de conflito que reproduz exactamente
+   isso — histórico vazio e `INSERT` sem linhas —, e o teste afirma que nada se
+   entrega e que **não** se abre tarefa a T2: não houve falha, houve outra
+   transacção a fazer o trabalho.
+6. **A hora a voltar à forma curta** — e esta mostrou que a razão que eu tinha
+   escrito era **falsa**. A nota dizia que a forma curta dá `09/11/2026`, oito
+   dígitos que a régua apanharia; mediram-se as três formas e é a **média** que
+   os traz (`short` dá `09/11/26`, seis). Agora são duas mutações, e cada uma
+   morre por um teste diferente: a `medium` pelo varrimento do critério 5 e a
+   `short` pela legibilidade — o mês por extenso e o ano inteiro, porque num
+   aviso que o dono pode ler dias depois a data tem de ser inequívoca.
+7. **A confirmação a deixar de conferir o prazo** — o teste da expiração vivia só
+   na bateria do *gate* 4, contra a base falsa, e ela implementa o seu **próprio**
+   predicado de prazo. Uma mutação ao `SQL_CONFIRMAR` passava. O ensaio contra a
+   base ganhou-o, com o prazo avaliado pelo servidor e com a asserção de que um
+   prazo que passou **não consome** a ligação — só a recusa.
+8. **A varredura a contar os contactos não verificados** — o teste afirmava que
+   os dois *tenants* do ensaio **não** aparecem na lista, e isso continuava
+   verdade com o predicado mutado, porque eles têm contacto. O que prende os dois
+   ramos é um *tenant* `ativo` cujo contacto existe e **não serve**: o ensaio novo
+   percorre os três estados — não verificado (aparece), verificado (sai),
+   verificado e inválido (volta a aparecer) —, e o terceiro é o critério 7 a
+   deixar o dono sem canal, que é precisamente o que a métrica do critério 6 tem
+   de ver.
+
+**E três sobreviventes que não são deste ticket.** O filtro largo que corri
+(`aviso`) apanhou também três mutações do KAM-017, porque o nome delas tem a
+palavra: «o aviso deixa de ser idempotente», «o aviso passa a apanhar canais a
+sincronizar» e «o aviso de desalinhamento volta a disparar em `cloud_only`». São
+do aviso de inactividade **daquele** ticket, correm na `tests_outbound`, e **não
+se tocou** — mexer no código de outro ticket a meio deste é o que a nota do
+KAM-023 sobre o `MED_SQL` desaconselha. Ficam aqui nomeadas para que não se
+perca: quem fechar o KAM-017 à letra tem três lacunas medidas por onde começar.
+
 **Setenta e nove** mutações novas — **dez** da revisão `0019` e **sessenta e
 nove** do código, cinco delas a prender os achados desta revisão —, e a cobertura
 de `src/avisos/` mede-se na *suite* própria (`db/tests_avisos/`), ficheiro a
@@ -3388,10 +3462,12 @@ entre **98%** e **100%** em cada um dos oito, contra os 90% exigidos.
 **A prova por mutação completa corre de noite** (KAM-143), e o que o PR corre é o
 `--aplicaveis` — que confere que cada mutação ainda **encontra o seu texto**, e
 que é o que torna verdadeira a frase «no PR corre o que é novo». As 689 estão
-aplicáveis. A corrida parcial que se fez durante o desenvolvimento é a que
-encontrou o terceiro defeito desta lista, e vale a pena dizer o que ela custou:
-**três horas de máquina para descobrir que uma bateria nova nunca tinha
-corrido**, o que um `--suite tests` de dois minutos teria dito.
+aplicáveis. **As 79 deste ticket corremos-as**, e o que elas encontraram está na
+secção acima: oito sobreviventes, oito lacunas, zero falsos positivos.
+
+E vale a pena dizer o que a corrida **parcial** do desenvolvimento custou: três
+horas de máquina para descobrir que uma bateria nova nunca tinha corrido, o que
+um `--suite tests` de dois minutos teria dito.
 
 ---
 

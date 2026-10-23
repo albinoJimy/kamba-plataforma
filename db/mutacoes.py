@@ -3141,9 +3141,14 @@ MUTACOES = [
     ('aviso: o nome da loja deixa de ser truncado', AV_MODELOS,
      "  return limpo.length > MAXIMO_DA_LOJA ? `${limpo.slice(0, MAXIMO_DA_LOJA - 1)}…` : limpo;",
      "  return limpo;", AVISOS),
-    ('aviso: um marcador sem valor deixa de levantar', AV_MODELOS,
-     "    if (valor === undefined) throw new ParametroInvalidoError(nome);",
-     "    if (valor === undefined) return \"\";", AVISOS),
+    # A mutacao «um marcador sem valor deixa de levantar» esteve aqui, e saiu
+    # com a guarda: o `Parametros` e um `Record` **total** dos quatro nomes,
+    # pelo que o `valor === undefined` nunca podia ser verdade. A prova por
+    # mutacao mostrou-a a sobreviver, e a resposta foi apagar a guarda — e nao
+    # escrever um teste para um ramo inalcancavel. E a mesma resposta que o
+    # KAM-018 deu as duas guardas do `transicoes.ts`. O invariante que ela
+    # pretendia proteger — nenhum modelo leva um marcador fora da lista — tem
+    # agora teste proprio, sobre os cinco modelos, pelo `marcadoresDosModelos`.
 
     # A instrucao: a idempotencia, a entrega e a invalidacao.
     ('aviso: o registo deixa de ser idempotente', AV_SQL,
@@ -3225,6 +3230,14 @@ MUTACOES = [
     ('aviso: a hora do aviso volta a sair em UTC', AV_MODULO,
      '    timeZone: FUSO,',
      '    timeZone: "UTC",', AVISOS),
+    # **Duas**, e cada uma morre por um teste diferente: a `medium` pelo
+    # varrimento do criterio 5 (`09/11/2026` sao oito digitos e a regua apanha-a)
+    # e a `short` pela legibilidade (`09/11/26` da o ano em dois digitos). A
+    # primeira versao so tinha a `short` e dizia, na razao, que ela trazia oito
+    # digitos — mediu-se as tres formas e e a `medium` que os traz.
+    ('aviso: a hora do aviso volta a forma media', AV_MODULO,
+     '    dateStyle: "long",',
+     '    dateStyle: "medium",', AVISOS),
     ('aviso: a hora do aviso volta a forma curta', AV_MODULO,
      '    dateStyle: "long",',
      '    dateStyle: "short",', AVISOS),
