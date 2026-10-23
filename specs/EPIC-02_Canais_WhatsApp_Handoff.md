@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Canais WhatsApp e Handoff |
-| Versão | 1.9 |
+| Versão | 1.13 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md`, `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md`, `../docs/tecnica/06_Dados_Eventos_Analytics.md`, `../docs/tecnica/08_Seguranca_Conformidade.md`, `../docs/tecnica/10_Onboarding_Governanca.md` (§6–§7), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` |
@@ -24,15 +24,68 @@ Fase mista, por desenho: **Fase 0** para o que o esqueleto andante exige (KAM-01
 
 ## 2. Critérios de Saída do Epic
 
-- [ ] Reenviar o mesmo webhook 2× produz 1 *job*; a mesma mensagem em dois envelopes distintos produz 1 `inbound_events`; assinatura inválida devolve 401; o GWY responde 200 com p99 < 500 ms a 3× de tráfego de estados (alvo de `../docs/tecnica/01` §16).
+Auditados em 2026-10-23, com todos os tickets do epic fundidos menos o KAM-115,
+sobre `publico/main` (`3278307`, KAM-017). **Uma caixa marcada é uma afirmação,
+e nenhuma se marcou sem o teste que a prova nomeado ao lado** — ficheiro e nome
+do teste, para que se possa ir lá. Onde a caixa fica vazia, a razão e de quem
+depende estão escritas: uma lista de caixas vazias sem razão é um mapa e não um
+critério.
+
+**Um critério com duas metades fica vazio quando uma não se cumpre**, e isso não
+é o mesmo que não ter trabalho feito — é a regra que o KAM-023 já aplicou aos
+seus próprios critérios. A metade que está medida fica dita na mesma, senão a
+caixa vazia leria-se como «nada disto existe», que é falso.
+
+**E as caixas dos blocos de ticket foram conferidas, todas.** À letra desta
+mesma regra, e não só as do §2: cada caixa de critério e de *DoD* dos tickets
+fundidos foi comparada com o veredito que a tabela de verificação do seu bloco
+lhe dá. Quatro — KAM-016, KAM-017, KAM-021 e KAM-022 — tinham as caixas todas
+vazias com as verificações a dar a maioria dos critérios como satisfeitos, e
+ficaram alinhados (emenda 1.11); os restantes **já concordavam, caixa a
+caixa**, e não se tocou em nenhum. Conferiu-se também o inverso, que é o que
+faz de uma caixa uma afirmação prendida por máquina em vez de escrita: **todos**
+os nomes declarados nas listas `GRUPOS` e `TESTES_OBRIGATORIOS` das suites de
+`db/tests_*/` existem hoje nos ficheiros de teste — quatro deles com uma
+constante interpolada no nome, e não como texto literal.
+
+- [x] Reenviar o mesmo webhook 2× produz 1 *job*; a mesma mensagem em dois envelopes distintos produz 1 `inbound_events`; assinatura inválida devolve 401; o GWY responde 200 com p99 < 500 ms a 3× de tráfego de estados (alvo de `../docs/tecnica/01` §16).
+  - **Evidência — as quatro partes, contra o GWY a correr.** `db/tests_entrada/test_entrada.py`: `TestFila::test_o_mesmo_corpo_duas_vezes_produz_um_job` (o `jobId` **é** o `sha256` do corpo, comparado com o resumo calculado em Python), `TestRegistoEQuarentena::test_a_mesma_mensagem_em_dois_corpos_distintos_da_uma_linha` (dois *jobs* e **uma** linha, pela `UNIQUE (kind, event_key)` — os dois níveis de deduplicação são distintos e o critério pede os dois) e `TestAssinatura::test_assinatura_invalida_responde_401`, com `test_o_corpo_reserializado_com_a_assinatura_do_original_da_401` ao lado, que é o que distingue a assinatura sobre os bytes recebidos da assinatura sobre o `JSON.stringify`.
+  - **O p99 mede-se, e não se assume.** `db/tests_entrada_carga/test_carga.py::TestCarga::test_o_perfil_do_criterio_7` emite 50 corpos de mensagem e 150 de estado por segundo — o `3×` de estados do `E1` §5 — durante 60 s, com o ritmo imposto por instante-alvo e não à velocidade do anfitrião, e **falha** se o p99 não ficar abaixo dos 500 ms. Medido: p99 **199 ms**, mediana 39 ms, 12 000 respostas e todas 200, 3 000 de 3 000 mensagens registadas. A latência é a vista pelo cliente, do primeiro byte enviado ao último recebido.
+  - A caixa do critério 7 do bloco KAM-013 fica vazia pela **regra do descarte sob saturação**, que é outra afirmação e que este critério de saída não pede.
+
 - [x] 0 mensagens enviadas com janela fechada (`WINDOW_CLOSED`) e 0 respostas do bot depois de um *echo* do dono em 100 intercalações aleatórias de corrida (KAM-015, KAM-018).
+  - **Reconfirmada.** A janela: `packages/core-ts/tests/outbound.decisao.test.ts`, grupo «janela fechada: WINDOW_CLOSED sem chamada (criterio 1)», e `packages/core-ts/tests/outbound.adapter.test.ts`, «a janela fechada da WINDOW_CLOSED sem chamada (criterio 1)» — que afirma **zero** chamadas HTTP à Meta e não apenas o motivo devolvido, porque um `WINDOW_CLOSED` depois da chamada já gastou o envio.
+  - As intercalações: `packages/core-ts/tests_bd/modos.bd.test.ts`, «as 100 intercalacoes: 0 mensagens depois de o echo estar registado», com a corrida da letra ao lado («turno em t0, echo em t0+1s, resposta em t0+2s: 0 enviadas e 1 suprimida») e com «as 100 intercalacoes sao reproduziveis: a mesma semente da a mesma sequencia» — sem esta, uma semente degenerada dava 100 intercalações iguais e o teste passava sem provar nada. Os nomes estão prendidos pelos `TESTES_OBRIGATORIOS` de `db/tests_modos/test_modos.py`, que falha se um deles desaparecer da saída.
+
 - [ ] Um onboarding Embedded Signup v4 completo numa conta de teste da Meta, com evidência em `docs/evidencia/KAM-016.md`; a coexistência está validada com ≥ 1 número +244 real **ou** o modo `cloud_only` está documentado como predefinido, conforme o relatório de KAM-100 (KAM-016, KAM-017).
-- [ ] A sincronização de coexistência alerta aos 12 h e marca `falhado` às 24 h; `history` nunca gera resposta do bot (KAM-017).
+  - **Vazia, e as duas saídas do «ou» estão fechadas por terceiros.** O onboarding real depende de `ext:KAM-102` (Business Verification, App Review, Tech Provider) e não existe `docs/evidencia/KAM-016.md`; a coexistência com um +244 depende de `ext:KAM-100` e não existe `docs/evidencia/KAM-100.md`. A alternativa — `cloud_only` **como predefinido** — também não se cumpre, porque é precisamente o que o KAM-017 deixou por decidir à espera do mesmo relatório (bloco KAM-017, critério 10 e DoD). O que **está** entregue é a lógica dos dois modos, inteira e testada; o que falta é um valor por omissão que ninguém aqui pode escolher. Depende de `ext:KAM-102` e de `ext:KAM-100`.
+
+- [x] A sincronização de coexistência alerta aos 12 h e marca `falhado` às 24 h; `history` nunca gera resposta do bot (KAM-017).
+  - **Evidência — as duas metades.** Os prazos: `packages/core-ts/tests/coexistencia.test.ts`, «alerta as 12 h, **uma vez**, e nao falha nada ainda» (a segunda varredura não alerta de novo, pelo `alertado_em IS NULL`) e «falha e pede offboard as 24 h, com o relogio acelerado»; contra a base, `packages/core-ts/tests_bd/coexistencia.bd.test.ts`, «[bd] o relogio acelerado fecha as 24 h, e a segunda varredura nao faz nada». O relógio entra por parâmetro e o prazo é coluna — é isso que torna «relógio acelerado» possível sem mexer no servidor.
+  - O `history`: `packages/core-ts/tests/coexistencia.test.ts`, «um lote de historico alimenta contactos e contagens, e zero jobs» — o `jobsParaOAgr` é do tipo literal `0` e o módulo **não tem porta** para o AGR nem para a saída, pelo que o zero é da forma e não de um `if` —, com «nenhuma instrucao escreve corpo de mensagem: a tabela nao tem onde» ao lado. Grupos e nomes prendidos pelos `GRUPOS` e `TESTES_OBRIGATORIOS` de `db/tests_outbound/test_outbound.py`, e o esquema por `db/tests/test_coexistencia_schema.py`.
+  - **O que esta caixa não afirma:** que a varredura corre sozinha. Não há agendador neste repositório (nasce com KAM-071/KAM-078); o que está provado é o predicado, chamado com o relógio por parâmetro.
+
 - [ ] O Chatwoot não tem credenciais Meta; o agente da conta A não lê conversas da conta B; `openHandoff` repetido com o mesmo `handoffId` cria 1 conversa (KAM-019).
-- [ ] 0 invocações do AGR sem `consent_event` válido; «PARAR» pausa a conversa e regista a revogação (KAM-022).
-- [ ] Qualidade RED passa o canal a `restrito` sem suspender; o contador de *free tier* alerta aos 800 e aos 1.000 (KAM-021, KAM-023).
+  - **Vazia: das três cláusulas, uma está medida e duas não.** As credenciais **estão**: o spike `infra/chatwoot/spike.py` (`make chatwoot-spike`) lê `WHATSAPP_APP_ID`, `WHATSAPP_CONFIGURATION_ID` e `WHATSAPP_APP_SECRET` **no `env` do contentor a correr** — a única forma de a asserção valer, porque uma variável pode entrar por `.env`, por herança ou embutida na imagem — e as três estão ausentes; o *inbox* criado vem `Channel::Api` do próprio Chatwoot. Resultado em `docs/evidencia/KAM-019-bot-open.md`.
+  - «O agente da conta A não lê conversas da conta B» **não está medido**. O que existe é o X-03 sobre as **nossas** tabelas (`packages/core-ts/tests_bd/handoff.bd.test.ts`, «com o contexto de A, as passagens de B nao aparecem», e as duas `UNIQUE` que recusam a mesma conta e o mesmo utilizador do provedor em dois *tenants*), que é uma afirmação diferente: ninguém exercitou a API do Chatwoot com o *token* de uma conta contra as conversas de outra. O registo que hospedaria o X-10 não existe em código — é o `registerCase` do EPIC-07, KAM-066.
+  - «`openHandoff` repetido cria 1 conversa» está provado **do nosso lado** e não no Chatwoot: «**cinco aberturas concorrentes: 1 linha e 1 chamada ao provedor**», em duas ligações, pela chave primária com o `handoff_id` derivado. Falta a busca da conversa por atributo `handoffId`, porque o `ClienteDoProvedor` não tem operação de leitura — e sem ela duas aberturas que a nossa base não correlacione criam duas conversas lá, pelo caminho do `degraded`. Depende do KAM-066 e de uma leitura no cliente do provedor que o KAM-019 deixou por fazer.
+
+- [x] 0 invocações do AGR sem `consent_event` válido; «PARAR» pausa a conversa e regista a revogação (KAM-022).
+  - **Evidência — as duas metades.** Os zeros: `packages/core-ts/tests/consentimento.test.ts`, «**0 invocacoes do AGR sem consentimento valido anterior**» — mil mensagens, cinquenta contactos, entradas sorteadas com semente fixa, zero violações, e com a asserção de que **houve** invocações, sem a qual um gate que recusasse tudo passava o teste. Contra a base: `packages/core-ts/tests_bd/consentimento.bd.test.ts`, «**sem consentimento: 1 aviso, 0 AGR, e a linha fica em outbound_messages**», que verifica também que **nenhuma prova** foi escrita — o aviso não é um consentimento. A decisão é um valor (`invocaAgr`) e o módulo nunca chama o AGR, que é o que torna a propriedade mensurável num sítio só.
+  - O «PARAR»: `packages/core-ts/tests_bd/consentimento.bd.test.ts`, «**grava a revogacao de marketing e pausa, sem tocar na transacao**» (`accepted = false`, modo `pausada`, uma confirmação, `consent.withdrawn`), e `packages/core-ts/tests/consentimento.test.ts`, «**as oito variantes dos Testes Requeridos**» (caixa, acentos, espaços, pontuação e os três sinónimos). A revogação é **linha nova** e não correcção: «**o kamba_app nao tem UPDATE em consent_event**» e «**nem DELETE**» afirmam um `42501` — privilégio, não política.
+
+- [x] Qualidade RED passa o canal a `restrito` sem suspender; o contador de *free tier* alerta aos 800 e aos 1.000 (KAM-021, KAM-023).
+  - **Evidência — as duas metades.** O RED: `packages/core-ts/tests_bd/qualidade.bd.test.ts`, «**o RED restringe e escreve o motivo na mesma instrucao**» (as duas colunas na mesma instrução, senão há uma janela em que o canal está `restrito` e não diz porquê) e «**o GREEN repoe o canal, e emite**». O «sem suspender» é `packages/core-ts/tests/qualidade.test.ts`, «**nunca produz `suspenso`, com 50 eventos aleatorios** — a letra do criterio», com semente fixa.
+  - Os avisos: `packages/core-ts/tests/metering.test.ts`, «um mes inteiro de 1.200 mensagens da **um** aviso e **um** esgotado» — é a **travessia** do número e não o valor, e um `usadas >= 800` dava duzentos avisos — com «**o esgotado sai na travessia dos 1.000, e so nela**» ao lado. Sob concorrência: `packages/core-ts/tests_bd/metering.bd.test.ts`, «**dois incrementos em paralelo na travessia: +2 e UM aviso**», em duas ligações. O 800 está escrito como fracção do tecto (`FRACCAO_DE_AVISO = 0.8`) e não como literal.
+  - A caixa do critério 3 do bloco KAM-023 fica vazia pelo **fuso por canal**, que não existe no esquema e que este critério de saída não pede.
+
 - [ ] O simulador cobre 100% dos tipos de entrada de `../docs/tecnica/01` §5.4 e dos campos de webhook de §4.4; o contrato *online* corre uma vez no número de teste de *staging* (KAM-024).
+  - **Vazia: a cobertura cumpre-se e o contrato *online* não existe.** A cobertura **mede-se** e dá **100,0% (33/33)**, `exit 0` — `node tools/meta-sim/src/cli.ts cobertura`, com dezasseis itens de tipo, onze de campo e os seis motivos de `PARTNER_REMOVED` (quatro dos quais existiam só na declaração do `enum` antes da revisão adversarial). E o relatório não se acredita a si próprio: `tools/meta-sim/tests/cobertura.test.ts`, grupo «o relatorio de cobertura» — «da 100% e nenhuma falta», «tem 33 itens: 16 tipos, 11 campos e 6 motivos» e «falha quando um item perde o teste», que é o que o torna um *gate* e não um número.
+  - O contrato *online* **não existe**, e não por falta de trabalho: precisa do número de teste da app Meta de *staging*, que depende de `ext:KAM-102`, pelo que `docs/evidencia/KAM-024.md` não pode trazer «1 execução verde». Escrever uma *suite* que se desligasse sozinha por falta de credenciais era construir o falso verde que o critério 9 do próprio KAM-024 proíbe por extenso. As duas regras já decididas estão em `../docs/meta-sim.md` §9, para quem a escrever quando o número existir. Depende de `ext:KAM-102`.
+
 - [ ] Os itens NÃO VERIFICADOS L1, L2, L6, L7, L10 têm medição ou nota de evidência anexada ao ticket respectivo.
+  - **Vazia por um dos cinco, e é o L10.** **L7 está medido**: o spike do KAM-019 respondeu à pergunta, com veredicto `O TOKEN DO BOT CHEGA` em `docs/evidencia/KAM-019-bot-open.md`, e a implementação usa a opção que funciona. **L2 tem medição e nota**: a carga do KAM-013 acima mede o p99 real, e a leitura do «estados não facturáveis» está devolvida por escrito a quem escreveu o critério, na secção de verificação daquele bloco. **L1 e L6 têm nota escrita** nos blocos respectivos — o KAM-017 diz por extenso que o relatório de `ext:KAM-100` não existe e que o modo predefinido fica por decidir, e o critério 8 do KAM-018 deixa a caixa vazia com a razão: a `echo_latency_ms` pede ≥ 30 *echoes* reais de *staging* com números +244, que é o mesmo `ext:KAM-100`.
+  - **O L10 — verificação por SMS Unitel/Africell — não tem nota em ticket nenhum deste epic.** O risco R8 da secção «Riscos do Epic e itens NÃO VERIFICADOS» atribui-o ao KAM-093, que é de outro epic, e o único ticket deste que o tocaria, o KAM-115, está bloqueado pelo KAM-116 (agregador de SMS) e não arrancou. Depende do KAM-093 e do KAM-116.
 
 ---
 
@@ -898,14 +951,14 @@ Implementar o lado servidor do onboarding de canal: receber o resultado do ES v4
 
 ### Critérios de Aceitação
 
-- [ ] `POST /internal/channels` aceita `{tenant_id, code, waba_id, phone_number_id, session_info}`; o ES é v4 (`extras.featureType = "whatsapp_business_app_onboarding"` e `sessionInfoVersion: "3"` para coexistência); o código não referencia v2/v3.
-- [ ] Idempotência: repetir o mesmo `code` ou o mesmo `(tenant_id, waba_id)` 2× produz 1 canal, 1 token e 0 subscrições duplicadas.
-- [ ] O token de cliente é guardado cifrado (AES-256-GCM, DEK por tenant, KEK no cofre, `kid` versionado) com `token_ref` em `tenant_channels`; um *dump grep* da BD e dos logs não encontra o token em claro; o PIN 2FA de 6 dígitos (modo `cloud_only`) vai para o cofre com acesso mínimo.
-- [ ] Anexar um `phone_number_id` já usado por outro tenant devolve 409, não altera nada e deixa registo de auditoria.
-- [ ] A subscrição cobre exactamente os campos: `messages`, `smb_message_echoes`, `history`, `smb_app_state_sync`, `account_update`, `phone_number_quality_update`, `business_capability_update`, `account_alerts`, `message_template_status_update`, `template_category_update`, `message_template_quality_update`; a leitura de confirmação devolve esse conjunto (igualdade de conjuntos) e um evento de teste chega ao GWY.
-- [ ] `channel_onboarding` regista a fase (`iniciado, es_concluido, subscrito, a_sincronizar, verificado, pronto, ativo, falhado, abandonado`); transições inválidas são rejeitadas; sem conclusão em 30 min o estado passa a `abandonado`.
-- [ ] Cada passo regista o recurso criado e tem compensação (revogar token, anular subscrição); uma falha injectada no passo 4 deixa 0 recursos órfãos.
-- [ ] Guarda `waba_id` e `waac_id` (nulo hoje) e `phone_number_id`; o contador `es_onboardings_7d` está exposto para o limite de 10 clientes/7 dias (a lista de espera é KAM-095).
+- [x] `POST /internal/channels` aceita `{tenant_id, code, waba_id, phone_number_id, session_info}`; o ES é v4 (`extras.featureType = "whatsapp_business_app_onboarding"` e `sessionInfoVersion: "3"` para coexistência); o código não referencia v2/v3.
+- [x] Idempotência: repetir o mesmo `code` ou o mesmo `(tenant_id, waba_id)` 2× produz 1 canal, 1 token e 0 subscrições duplicadas.
+- [x] O token de cliente é guardado cifrado (AES-256-GCM, DEK por tenant, KEK no cofre, `kid` versionado) com `token_ref` em `tenant_channels`; um *dump grep* da BD e dos logs não encontra o token em claro; o PIN 2FA de 6 dígitos (modo `cloud_only`) vai para o cofre com acesso mínimo.
+- [x] Anexar um `phone_number_id` já usado por outro tenant devolve 409, não altera nada e deixa registo de auditoria.
+- [x] A subscrição cobre exactamente os campos: `messages`, `smb_message_echoes`, `history`, `smb_app_state_sync`, `account_update`, `phone_number_quality_update`, `business_capability_update`, `account_alerts`, `message_template_status_update`, `template_category_update`, `message_template_quality_update`; a leitura de confirmação devolve esse conjunto (igualdade de conjuntos) e um evento de teste chega ao GWY.
+- [x] `channel_onboarding` regista a fase (`iniciado, es_concluido, subscrito, a_sincronizar, verificado, pronto, ativo, falhado, abandonado`); transições inválidas são rejeitadas; sem conclusão em 30 min o estado passa a `abandonado`.
+- [x] Cada passo regista o recurso criado e tem compensação (revogar token, anular subscrição); uma falha injectada no passo 4 deixa 0 recursos órfãos.
+- [x] Guarda `waba_id` e `waac_id` (nulo hoje) e `phone_number_id`; o contador `es_onboardings_7d` está exposto para o limite de 10 clientes/7 dias (a lista de espera é KAM-095).
 - [ ] 1 onboarding ES v4 real numa conta de teste da Meta, depois de KAM-102, com evidência em `docs/evidencia/KAM-016.md` (capturas sem dados pessoais).
 
 ### Detalhes Técnicos
@@ -925,14 +978,29 @@ Implementar o lado servidor do onboarding de canal: receber o resultado do ES v4
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] Código revisto por 2 revisores (segredos, número de uma PME); testes verdes; cobertura ≥ limiar.
-- [ ] Documentação actualizada (`docs/onboarding-canal.md`); Conventional Commits.
-- [ ] **Isolamento de tenant** — um canal pertence a um só tenant; RLS em `channel_onboarding`; teste cruzado.
-- [ ] **Idempotência** — passos repetíveis com teste de repetição.
-- [ ] **Privacidade** — nenhum dado de cliente final tratado; token e PIN nunca em logs.
-- [ ] **Sem segredos** — token/PIN só no cofre; scan limpo.
-- [ ] **Migrações reversíveis** — `downgrade` testado.
+- [x] Documentação actualizada (`docs/onboarding-canal.md`); Conventional Commits.
+- [x] **Isolamento de tenant** — um canal pertence a um só tenant; RLS em `channel_onboarding`; teste cruzado.
+- [x] **Idempotência** — passos repetíveis com teste de repetição.
+- [x] **Privacidade** — nenhum dado de cliente final tratado; token e PIN nunca em logs.
+- [x] **Sem segredos** — token/PIN só no cofre; scan limpo.
+- [x] **Migrações reversíveis** — `downgrade` testado.
 
 ### Verificação dos Critérios de Aceitação
+
+> **As caixas desta lista foram marcadas a 2026-10-23**, na auditoria dos
+> critérios de saída do epic (§2), e não no PR que entregou o ticket: elas
+> ficaram todas vazias enquanto esta tabela já dizia o veredito de cada
+> critério. A regra da marca é a desta tabela — **a caixa fica vazia quando
+> qualquer parte do critério não se cumpre** — e nenhuma se marcou sem o teste
+> que ela cita ter sido conferido no ficheiro de teste. Nada desta secção foi
+> reescrito: ela mede o que era verdade no dia em que correu.
+>
+> **Oito caixas de critério marcadas e uma vazia** — a do critério 9, o
+> onboarding real numa conta de teste da Meta, que depende de `ext:KAM-102`
+> —, e **seis de DoD marcadas e duas vazias**: a dos revisores, e a do
+> «todos os CA satisfeitos», que não pode estar marcada com o 9 vazio. É o
+> que a emenda 1.9 do «Controlo de versões» deste epic já declarava — «oito
+> caixas de critério marcadas e uma vazia» — e que as caixas nunca mostraram.
 
 Medido em 2026-10-22, ramo `feature/KAM-016-embedded-signup-v4-tech-provider`,
 sobre `publico/main` (`5f7dfeb`, KAM-022). Desenho em
@@ -1183,15 +1251,15 @@ Tratar os webhooks de coexistência e a sincronização inicial com prazo duro d
 
 ### Critérios de Aceitação
 
-- [ ] `history` e `smb_app_state_sync` alimentam `contacts` (KAM-008) e `coexistence_synced_at`; 0 *jobs* para o AGR e 0 mensagens enviadas por estes eventos (fixture com 6 meses de histórico).
-- [ ] O corpo das mensagens de histórico **não** é persistido nem indexado no Piloto (apenas contactos e contagens); a base legal para o usar (a confirmar por parecer, KAM-104) fica como critério de saída antes de o alargar.
-- [ ] O *job* de sincronização é idempotente (cada passo executado uma vez; 2.ª execução = *no-op*), alerta aos 12 h sem conclusão e marca o canal `falhado` + tarefa de *offboard* às 24 h (relógio acelerado nos testes).
-- [ ] O erro 2593109 (cliente não partilhou histórico) conduz a `sincronizado_sem_historico` e **não** a falha.
-- [ ] Cada um dos 6 motivos de `PARTNER_REMOVED` passa o canal a `desligado`, emite `channel.updated` e cria alerta; repetir o mesmo evento 2× produz 1 transição.
+- [x] `history` e `smb_app_state_sync` alimentam `contacts` (KAM-008) e `coexistence_synced_at`; 0 *jobs* para o AGR e 0 mensagens enviadas por estes eventos (fixture com 6 meses de histórico).
+- [x] O corpo das mensagens de histórico **não** é persistido nem indexado no Piloto (apenas contactos e contagens); a base legal para o usar (a confirmar por parecer, KAM-104) fica como critério de saída antes de o alargar.
+- [x] O *job* de sincronização é idempotente (cada passo executado uma vez; 2.ª execução = *no-op*), alerta aos 12 h sem conclusão e marca o canal `falhado` + tarefa de *offboard* às 24 h (relógio acelerado nos testes).
+- [x] O erro 2593109 (cliente não partilhou histórico) conduz a `sincronizado_sem_historico` e **não** a falha.
+- [x] Cada um dos 6 motivos de `PARTNER_REMOVED` passa o canal a `desligado`, emite `channel.updated` e cria alerta; repetir o mesmo evento 2× produz 1 transição.
 - [ ] Aviso preventivo `channel.inactivity_warning` aos 10 dias sem *echo* e sem actividade do dono (heurística de `../docs/tecnica/01` §10.5; a entrega ao dono por canal alternativo depende de mecanismo ainda sem ticket: ver riscos).
-- [ ] Os *echoes* (`smb_message_echoes`) são registados em `inbound_events` (`kind=echo`) e entregues ao tratador de KAM-018; um *echo* cujo `wamid` consta de `outbound_messages` é ignorado como actividade humana.
-- [ ] O `channel_mode` determina o que fica activo: em `cloud_only` não há *job* de sincronização nem *echoes*; o débito do *token bucket* de KAM-015 usa 15 mps em `coexistencia`.
-- [ ] A reconexão (`desligado → iniciado`) reutiliza o ES de KAM-016 sem criar canal duplicado.
+- [x] Os *echoes* (`smb_message_echoes`) são registados em `inbound_events` (`kind=echo`) e entregues ao tratador de KAM-018; um *echo* cujo `wamid` consta de `outbound_messages` é ignorado como actividade humana.
+- [x] O `channel_mode` determina o que fica activo: em `cloud_only` não há *job* de sincronização nem *echoes*; o débito do *token bucket* de KAM-015 usa 15 mps em `coexistencia`.
+- [x] A reconexão (`desligado → iniciado`) reutiliza o ES de KAM-016 sem criar canal duplicado.
 - [ ] Evidência da elegibilidade: ≥ 1 sincronização completa num número +244 real e referência ao relatório de KAM-100; se KAM-100 concluir negativo, o predefinido do produto passa a `cloud_only` e o ticket regista-o.
 
 ### Detalhes Técnicos
@@ -1212,14 +1280,32 @@ Tratar os webhooks de coexistência e a sincronização inicial com prazo duro d
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] Código revisto por 2 revisores (número de uma PME, dados pessoais); testes verdes; cobertura ≥ limiar.
-- [ ] Documentação actualizada (`docs/coexistencia.md`, com funcionalidades perdidas); Conventional Commits.
-- [ ] **Isolamento de tenant** — eventos resolvidos por `waba_id`/`phone_number_id` → tenant; teste cruzado.
-- [ ] **Idempotência** — sincronização e `account_update` repetidos com teste.
-- [ ] **Privacidade** — histórico não persistido nem enviado a LLM; contactos por `contact_id`.
-- [ ] **Custo e observabilidade** — `coex_sync_duration_s`, `coex_sync_failed_total`, `channel_disconnected_total`.
+- [x] Documentação actualizada (`docs/coexistencia.md`, com funcionalidades perdidas); Conventional Commits.
+- [x] **Isolamento de tenant** — eventos resolvidos por `waba_id`/`phone_number_id` → tenant; teste cruzado.
+- [x] **Idempotência** — sincronização e `account_update` repetidos com teste.
+- [x] **Privacidade** — histórico não persistido nem enviado a LLM; contactos por `contact_id`.
+- [x] **Custo e observabilidade** — `coex_sync_duration_s`, `coex_sync_failed_total`, `channel_disconnected_total`.
 - [ ] O resultado de KAM-100 (L1) está referenciado e o modo predefinido decidido.
 
 ### Verificação dos Critérios de Aceitação
+
+> **As caixas desta lista foram marcadas a 2026-10-23**, na auditoria dos
+> critérios de saída do epic (§2), e não no PR que entregou o ticket: elas
+> ficaram todas vazias enquanto esta tabela já dizia o veredito de cada
+> critério. A regra da marca é a desta tabela — **a caixa fica vazia quando
+> qualquer parte do critério não se cumpre** — e nenhuma se marcou sem o teste
+> que ela cita ter sido conferido no ficheiro de teste. Nada desta secção foi
+> reescrito: ela mede o que era verdade no dia em que correu.
+>
+> **Oito caixas de critério marcadas e duas vazias** — o critério 6, porque
+> esta tabela o dá como **parcial** (metade da heurística do `01` §10.5 pede
+> um sinal de acesso ao painel que não existe no esquema; dívida 84, KAM-093),
+> e o critério 10, por `ext:KAM-100`. No DoD, **cinco marcadas e três
+> vazias**: as duas que o parágrafo acima nomeia, mais a do «todos os CA
+> satisfeitos», que não pode estar marcada com o 6 e o 10 vazios. As três
+> grandezas do DoD de observabilidade foram conferidas em
+> `packages/core-ts/src/coexistencia/metricas.ts` antes de a caixa ser
+> marcada.
 
 **Os nove critérios constroem-se, e oito ficam marcados.** O décimo — a
 *Definition of Done* «o resultado de KAM-100 (L1) está referenciado e o modo
@@ -2093,15 +2179,15 @@ Persistir o estado de qualidade e de limites dos canais, aplicar a transição a
 
 ### Critérios de Aceitação
 
-- [ ] `phone_number_quality_update` actualiza `tenant_channels.quality_rating` e acrescenta linha a `channel_quality_log` (valor anterior, novo, evento, hora); GREEN/YELLOW/RED aceites, outro valor registado como desconhecido sem falhar.
-- [ ] RED passa o canal a `restrito` em ≤ 5 s (proposta), emite `channel.updated` e: bloqueia templates *marketing* e iniciar conversas, mantém respostas dentro da janela; o regresso a GREEN/YELLOW repõe `ativo`; nunca há transição automática para `suspenso` (teste com 50 eventos aleatórios).
+- [x] `phone_number_quality_update` actualiza `tenant_channels.quality_rating` e acrescenta linha a `channel_quality_log` (valor anterior, novo, evento, hora); GREEN/YELLOW/RED aceites, outro valor registado como desconhecido sem falhar.
+- [x] RED passa o canal a `restrito` em ≤ 5 s (proposta), emite `channel.updated` e: bloqueia templates *marketing* e iniciar conversas, mantém respostas dentro da janela; o regresso a GREEN/YELLOW repõe `ativo`; nunca há transição automática para `suspenso` (teste com 50 eventos aleatórios).
 - [ ] No Piloto (1 canal por tenant) `tenants.estado` projecta `restrito` enquanto o canal único estiver restrito e volta a `ativo` com ele.
-- [ ] YELLOW gera 1 alerta a T&S por transição (sem repetição em eventos idênticos) e marca os templates para revisão.
-- [ ] `business_capability_update` persiste `messaging_limit` (ex.: `TIER_250 → TIER_2000`) e `max_phone_numbers_per_business`; `message_template_quality_update` pausa localmente o envio do template afectado.
-- [ ] Duplicados: o mesmo evento 2× gera 1 transição (a chave do evento é o *hash* de `phone_number_id` + tipo + valor + marca temporal da Meta).
-- [ ] Medidor `messaging_limit_usage_ratio` = utilizadores únicos contactados por template nas últimas 24 h ÷ limite do escalão; 200 contactos distintos com `TIER_250` dá 0,8 e dispara alerta; resposta dentro da janela não consome.
-- [ ] O `account_alerts` cria *ticket* para T&S com o texto da Meta (sem dados pessoais) e o canal não muda de estado.
-- [ ] O KAM-015 honra `restrito` (recusa *marketing*/iniciar conversa) e o CHR usa a matriz de KAM-009 (teste de integração entre os três).
+- [x] YELLOW gera 1 alerta a T&S por transição (sem repetição em eventos idênticos) e marca os templates para revisão.
+- [x] `business_capability_update` persiste `messaging_limit` (ex.: `TIER_250 → TIER_2000`) e `max_phone_numbers_per_business`; `message_template_quality_update` pausa localmente o envio do template afectado.
+- [x] Duplicados: o mesmo evento 2× gera 1 transição (a chave do evento é o *hash* de `phone_number_id` + tipo + valor + marca temporal da Meta).
+- [x] Medidor `messaging_limit_usage_ratio` = utilizadores únicos contactados por template nas últimas 24 h ÷ limite do escalão; 200 contactos distintos com `TIER_250` dá 0,8 e dispara alerta; resposta dentro da janela não consome.
+- [x] O `account_alerts` cria *ticket* para T&S com o texto da Meta (sem dados pessoais) e o canal não muda de estado.
+- [x] O KAM-015 honra `restrito` (recusa *marketing*/iniciar conversa) e o CHR usa a matriz de KAM-009 (teste de integração entre os três).
 
 ### Detalhes Técnicos
 
@@ -2121,12 +2207,12 @@ Persistir o estado de qualidade e de limites dos canais, aplicar a transição a
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] Código revisto por ≥ 1 revisor; testes verdes; cobertura ≥ limiar.
-- [ ] Documentação actualizada; divergência com `../docs/tecnica/10` §6.4 registada para correcção; Conventional Commits.
-- [ ] **Isolamento de tenant** — resolução por `phone_number_id`; RLS em `channel_quality_log`; teste cruzado.
-- [ ] **Idempotência** — chave por evento e teste de repetição.
-- [ ] **Privacidade** — alertas e *tickets* sem conteúdo nem telefone.
-- [ ] **Custo e observabilidade** — `channel_quality{rating}`, `messaging_limit_usage_ratio`, `channel_restricted_total`.
-- [ ] **Migrações reversíveis** — `downgrade` testado.
+- [x] Documentação actualizada; divergência com `../docs/tecnica/10` §6.4 registada para correcção; Conventional Commits.
+- [x] **Isolamento de tenant** — resolução por `phone_number_id`; RLS em `channel_quality_log`; teste cruzado.
+- [x] **Idempotência** — chave por evento e teste de repetição.
+- [x] **Privacidade** — alertas e *tickets* sem conteúdo nem telefone.
+- [x] **Custo e observabilidade** — `channel_quality{rating}`, `messaging_limit_usage_ratio`, `channel_restricted_total`.
+- [x] **Migrações reversíveis** — `downgrade` testado.
 
 ### Handoff para Claude Code
 
@@ -2143,6 +2229,25 @@ Testes: sequências de qualidade, duplicados, integração com KAM-015, isolamen
 ```
 
 ### Verificação dos Critérios de Aceitação
+
+> **As caixas desta lista foram marcadas a 2026-10-23**, na auditoria dos
+> critérios de saída do epic (§2), e não no PR que entregou o ticket: elas
+> ficaram todas vazias enquanto esta tabela já dizia o veredito de cada
+> critério. A regra da marca é a desta tabela — **a caixa fica vazia quando
+> qualquer parte do critério não se cumpre** — e nenhuma se marcou sem o teste
+> que ela cita ter sido conferido no ficheiro de teste. Nada desta secção foi
+> reescrito: ela mede o que era verdade no dia em que correu.
+>
+> **Oito caixas de critério marcadas e uma vazia** — a do critério 3, pela
+> razão de segurança escrita acima —, e **seis de DoD marcadas e duas
+> vazias**: a dos revisores, e a do «todos os CA satisfeitos», que não pode
+> estar marcada enquanto o 3 estiver vazio. Os critérios 4 e 8 marcam-se com
+> o veredito que esta tabela lhes dá, «satisfeito pelo que o repositório
+> tem»: o que lhes falta é um mecanismo de *ticket* para T&S que não existe
+> em sítio nenhum deste repositório, está em dívida (73) e é do KAM-115. As
+> sub-linhas `2b` e `5b` são **divergências registadas** e não cláusulas em
+> falta: numa, a matriz recusa **mais** do que a frase do critério; na
+> outra, o nome do escalão difere entre o critério e o gerador.
 
 **Entregue em `feature/KAM-021-qualidade-e-limites`:** a revisão `0014`
 (descende da `0013`) e o módulo `packages/core-ts/src/qualidade/`, que preenche o
@@ -2343,15 +2448,15 @@ Implementar a barreira de consentimento anterior ao AGR: aviso curto e versionad
 
 ### Critérios de Aceitação
 
-- [ ] Primeira mensagem de um contacto sem `consent_event` válido para a versão de texto vigente: exactamente 1 mensagem de saída (o aviso, com 3 botões «Continuar», «Falar com a loja», «Saber mais») e 0 invocações do AGR.
-- [ ] «Continuar» grava 1 linha `consent_event` (`purpose='transacao'`, `accepted=true`, `text_version`, `canal`, `evidence_hash`) e só então o AGR é invocado; o mesmo botão repetido 2× produz 1 linha.
-- [ ] «Falar com a loja» passa a conversa a `humano` (KAM-018/019) sem tratar dados por IA; «Saber mais» envia o texto completo/ligação à política e repete o aviso; texto livre em vez de botão repete o aviso até 2 vezes e depois encaminha a `humano` (comportamento a confirmar por parecer).
-- [ ] Propriedade: em sequências aleatórias de 1.000 mensagens por 50 contactos, nenhum *job* do AGR é criado sem `consent_event` válido anterior (0 violações).
-- [ ] «PARAR» (insensível a maiúsculas e acentos) em qualquer ponto grava `purpose='marketing'`, `accepted=false`, passa a conversa a `pausada` (gancho de KAM-018) e responde 1 confirmação; *marketing* sem `accepted=true` específico é recusado pelo Outbound (KAM-015).
-- [ ] `consent_event` é *append-only* (`UPDATE/DELETE` recusados para `kamba_app`); revogação = nova linha; a vista `consent_actual` devolve o último estado por `(tenant, contact, purpose)`.
-- [ ] `consent_texts(version, purpose, texto, hash, vigente_desde)` versiona o aviso; subir a versão exige re-aviso apenas a contactos sem consentimento da nova versão (política em proposta, a confirmar por parecer); `evidence_hash = sha256(texto_versão ‖ contact_id ‖ wamid_do_botão ‖ hora)` é reprodutível.
-- [ ] Eventos `consent.recorded` e `consent.withdrawn` emitidos pelo outbox com `contact_id` (sem texto nem telefone).
-- [ ] Contactos vindos da sincronização de histórico (KAM-017) recebem o aviso na primeira mensagem **depois** do onboarding; o aviso é uma única mensagem em PT-AO (custo de *service message* a considerar).
+- [x] Primeira mensagem de um contacto sem `consent_event` válido para a versão de texto vigente: exactamente 1 mensagem de saída (o aviso, com 3 botões «Continuar», «Falar com a loja», «Saber mais») e 0 invocações do AGR.
+- [x] «Continuar» grava 1 linha `consent_event` (`purpose='transacao'`, `accepted=true`, `text_version`, `canal`, `evidence_hash`) e só então o AGR é invocado; o mesmo botão repetido 2× produz 1 linha.
+- [x] «Falar com a loja» passa a conversa a `humano` (KAM-018/019) sem tratar dados por IA; «Saber mais» envia o texto completo/ligação à política e repete o aviso; texto livre em vez de botão repete o aviso até 2 vezes e depois encaminha a `humano` (comportamento a confirmar por parecer).
+- [x] Propriedade: em sequências aleatórias de 1.000 mensagens por 50 contactos, nenhum *job* do AGR é criado sem `consent_event` válido anterior (0 violações).
+- [x] «PARAR» (insensível a maiúsculas e acentos) em qualquer ponto grava `purpose='marketing'`, `accepted=false`, passa a conversa a `pausada` (gancho de KAM-018) e responde 1 confirmação; *marketing* sem `accepted=true` específico é recusado pelo Outbound (KAM-015).
+- [x] `consent_event` é *append-only* (`UPDATE/DELETE` recusados para `kamba_app`); revogação = nova linha; a vista `consent_actual` devolve o último estado por `(tenant, contact, purpose)`.
+- [x] `consent_texts(version, purpose, texto, hash, vigente_desde)` versiona o aviso; subir a versão exige re-aviso apenas a contactos sem consentimento da nova versão (política em proposta, a confirmar por parecer); `evidence_hash = sha256(texto_versão ‖ contact_id ‖ wamid_do_botão ‖ hora)` é reprodutível.
+- [x] Eventos `consent.recorded` e `consent.withdrawn` emitidos pelo outbox com `contact_id` (sem texto nem telefone).
+- [x] Contactos vindos da sincronização de histórico (KAM-017) recebem o aviso na primeira mensagem **depois** do onboarding; o aviso é uma única mensagem em PT-AO (custo de *service message* a considerar).
 
 ### Detalhes Técnicos
 
@@ -2368,14 +2473,14 @@ Implementar a barreira de consentimento anterior ao AGR: aviso curto e versionad
 
 ### Definition of Done
 
-- [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
+- [x] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] Código revisto por 2 revisores (dados pessoais); testes verdes; cobertura ≥ limiar.
-- [ ] Documentação actualizada; reconciliação dos três desenhos de consentimento registada; Conventional Commits.
-- [ ] **Isolamento de tenant** — RLS em `consent_event`/`consent_texts`; teste cruzado.
-- [ ] **Idempotência** — botão repetido não duplica registo; teste incluído.
-- [ ] **Privacidade** — `contact_id` (nunca telefone); texto e prova versionados; base legal marcada «a confirmar por parecer».
-- [ ] **Custo e observabilidade** — `consent_notice_sent_total`, `consent_accepted_ratio`, `consent_optout_total`.
-- [ ] **Migrações reversíveis** — `downgrade` testado (`consent_event` é aditivo).
+- [x] Documentação actualizada; reconciliação dos três desenhos de consentimento registada; Conventional Commits.
+- [x] **Isolamento de tenant** — RLS em `consent_event`/`consent_texts`; teste cruzado.
+- [x] **Idempotência** — botão repetido não duplica registo; teste incluído.
+- [x] **Privacidade** — `contact_id` (nunca telefone); texto e prova versionados; base legal marcada «a confirmar por parecer».
+- [x] **Custo e observabilidade** — `consent_notice_sent_total`, `consent_accepted_ratio`, `consent_optout_total`.
+- [x] **Migrações reversíveis** — `downgrade` testado (`consent_event` é aditivo).
 
 ### Handoff para Claude Code
 
@@ -2392,6 +2497,22 @@ Testes: máquina de estados, propriedade 0 AGR sem consentimento, PARAR, append-
 ```
 
 ### Verificação dos Critérios de Aceitação
+
+> **As caixas desta lista foram marcadas a 2026-10-23**, na auditoria dos
+> critérios de saída do epic (§2), e não no PR que entregou o ticket: elas
+> ficaram todas vazias enquanto esta tabela já dizia o veredito de cada
+> critério. A regra da marca é a desta tabela — **a caixa fica vazia quando
+> qualquer parte do critério não se cumpre** — e nenhuma se marcou sem o teste
+> que ela cita ter sido conferido no ficheiro de teste. Nada desta secção foi
+> reescrito: ela mede o que era verdade no dia em que correu.
+>
+> **Nove caixas de critério marcadas e nenhuma vazia; sete de DoD marcadas e
+> uma vazia** — a dos revisores. A do «todos os CA satisfeitos» marca-se
+> porque esta tabela a dá como `marcada` e os nove critérios como
+> satisfeitos. **A linha `9b` não a impede**: a pergunta dela — se o
+> `ConsentGate` está construído no caminho de canal — não é cláusula de
+> critério nenhum, e o que ela nomeia (um caminho de envio no *worker*, e
+> uma versão do texto publicada, KAM-104) é montagem e não aceitação.
 
 **Entregue em `feature/KAM-022-consentimento-no-primeiro-contacto`:** a revisão
 `0015` (descende da `0014`) — duas tabelas e **a primeira vista do esquema** — e
@@ -3197,3 +3318,7 @@ Testes: idempotência, limites, bounce, isolamento, X-11. Abre PR com o template
 | 1.7 | Outubro 2026 | **KAM-021 entregue.** Secção de verificação no bloco, com **catorze** caixas marcadas e **três** vazias, cada uma com a razão escrita. Entrou a revisão `0014` (`channel_quality_log` com unicidade `(tenant_id, event_key)` e `tenant_channels.max_phone_numbers_per_business`) e o módulo `packages/core-ts/src/qualidade/`, que preenche o braço `gestao_de_canal` que o KAM-013 deixou a registar e mais nada. **A caixa do critério 3 fica vazia por segurança, e a decisão é do fundador:** ele quer que o `tenants.estado` projecte `restrito`, e a revisão `0007` retirou o `UPDATE (estado)` a `kamba_app` **de propósito** — «o sujeito da condição não pode ser quem a retira» —, com um teste a prendê-la; devolver o privilégio reabria a escalada que a revisão adversarial do KAM-009 fechou. As outras duas vazias são a dos revisores (zero humanos, decisão do fundador) e a que depende da primeira. Duas caixas entregam-se «pelo que o repositório tem» — o *ticket* de T&S dos critérios 4 e 8 não existe como mecanismo, e o que existe (contador e registo) é o que se usa, como o KAM-023 fez — e duas trazem divergências registadas: **dois critérios do mesmo bloco não dizem o mesmo** (o 2 nomeia só a `marketing` e a matriz do §3.7 recusa também a `utility`, e segue-se a matriz porque é o que o critério 9 pede), e o nome do escalão do critério 5 (`TIER_2000` contra o `TIER_2K` que o gerador do KAM-024 produz). Cinco dívidas novas (70 a 74). **A prova por mutação encontrou um teste em falta que nenhuma leitura viu:** apagar o `WHERE estado <> 'restrito'` do `SQL_RESTRINGIR` passava a prova inteira, porque no caminho sequencial o predicado é redundante — quem o torna necessário é a concorrência com chaves **diferentes**, e o teste da corrida que existia usava a mesma chave. **E o grupo do critério 9 passava pela razão errada:** o `tenants.estado` nasce `onboarding`, que é mais restritivo do que `restrito`, pelo que as três asserções de `STATE_REFUSED` teriam passado com o canal `ativo`. **A divergência que o DoD manda registar já estava fechada pelo KAM-111:** o `../docs/tecnica/10` §6.4 diz hoje «vermelho → `restrito`», e quem ainda diz `suspenso` é o `00` §6.2, que o `01` §9 já registra. | Equipa KAMBÁ |
 | 1.8 | Outubro 2026 | **KAM-022 entregue.** Secção de verificação no bloco, com **quinze** caixas marcadas e **uma** vazia — a dos revisores, que neste ticket pede **dois** por serem dados pessoais e por isso fica vazia e não meia. Entrou a revisão `0015` (a `consent_event` *append-only*, a `consent_texts` **sem `tenant_id`** e **a primeira vista do esquema**, a `consent_actual`) e o módulo `packages/core-ts/src/consentimento/`, que é a barreira anterior ao AGR. **Três coisas que não são transcrição:** a decisão é **um valor** (`invocaAgr`) e o módulo nunca chama o AGR, porque a propriedade do critério 4 — «0 *jobs* sem consentimento válido anterior» — só é demonstrável se houver um sítio onde a medir; a idempotência do critério 2 sai do **próprio `evidence_hash`**, que leva o `wamid` e a hora **da Meta**, pelo que uma reentrega do mesmo *webhook* bate na unicidade (com a nossa hora, duas entregas davam duas linhas); e a contagem de avisos do critério 3 **não acrescentou DDL** — a chave `aviso:{conversation_id}:{n}` que impede o aviso de sair duas vezes é a que diz quantas vezes saiu. **A `consent_actual` é a primeira vista do esquema e leva `security_invoker = true`:** o `verificar_vistas` do catálogo do X-05 exige-o desde o KAM-004 e nunca tinha tido nada para ver — sem a opção, uma vista corre com os privilégios do dono e a RLS passa a depender do `FORCE`, numa relação onde ninguém iria procurar. Ela sacudiu **quatro** sítios que diziam «tabelas» e mediam relações, todos listados na secção. **A `consent_texts` nasce vazia e o gate falha fechada**, pelo que a loja fica muda até o texto existir: é o lado certo, porque a alternativa era tratar dados sem ter mostrado o aviso (ADR-010, `E3` req. 15). Quatro dívidas novas (75 a 78), e as duas primeiras são da classe da 74 — o bloco manda registar o que o **KAM-140** já fechou. **Dois defeitos que só uma máquina apanhou, os dois do ensaio:** um `excepcao.sqlstate` que o `pg8000` não tem (dezasseis erros), e a metade positiva do *append-only* a contar linhas que a sessão da aplicação não podia ver. | Equipa KAMBÁ |
 | 1.9 | Outubro 2026 | **KAM-016 entregue, sem o nono critério.** Secção de verificação no bloco, com **oito** caixas de critério marcadas e **uma** vazia — o onboarding real numa conta de teste da Meta, que depende de `ext:KAM-102` e que **nenhuma medição deste ramo pode substituir**: não há `../docs/evidencia/KAM-016.md` e não se inventou nenhum. Entrou a revisão `0017` (a `channel_onboarding` com as nove fases e as duas unicidades), o módulo `packages/core-ts/src/onboarding/`, a rota `POST /internal/channels` na app **interna** do GWY, e a porta de escrita no cofre que o `ADR-L002` §6 declarou em falta para este dia. **Três leituras que mudaram o desenho:** o 409 do critério 4 é a `tenant_channels_phone_number_id_uq` **global** da `0001` a morder e não uma verificação em código; esta revisão **não acrescenta coluna nenhuma a `tenant_channels`**, porque os três identificadores do critério 8 existem desde a `0001`; e o registo de auditoria da recusa **não é o `audit_log`**, porque o domínio de `action` tem sete valores no `CHECK` da `0006`, fundida, e o *gate* 3b compara-o com o dicionário nos dois sentidos — um oitavo valor deixava essa revisão vermelha. **E quatro defeitos da revisão adversarial, os quatro sobre a fronteira transaccional, e o primeiro estava verde em todos os testes:** um `23505` aborta a transacção, pelo que a compensação que revoga o *token* respondia `25P02` — e o cofre **não é transaccional**, logo o `ROLLBACK` apagava a linha do canal e deixava o segredo lá (corrigido com um `SAVEPOINT`, e o duplo da base passou a modelar o `25P02`); a compensação apagava o canal **antes** de a linha o largar, e a FK sem `ON DELETE CASCADE` levantava `23503` — o que o comentário de `db/tests/test_inventario.py` já tinha previsto por escrito antes de o código existir; a limpeza corria antes da transição e o `channel_onboarding_canal_ck` levantava `23514`; e um comentário dizia o contrário do código, sendo o comentário o que estava errado. **A própria bateria esgotava o seu tecto**, e isso é o critério 8 a funcionar: o `es_onboardings_7d` atravessa *tenants*, pelo que as linhas de um teste contam na janela do seguinte. Emenda **1.29** ao dicionário (§3.20); a descoberta do X-05 passa de vinte e quatro para **vinte e cinco** tabelas; **528** mutações, 0 não aplicáveis. | Equipa KAMBÁ |
+| 1.10 | Outubro 2026 | **Os critérios de saída do epic auditados, ticket a ticket.** O §2 passa a ter, debaixo de cada critério, ou a evidência que o prova — ficheiro e nome do teste — ou a razão de a caixa ficar vazia e de quem ela depende. **Cinco caixas marcadas e quatro vazias**, e as marcas não são a soma das caixas dos blocos: um critério de saída é mais estreito do que o critério de aceitação que lhe deu origem, e dois marcam-se por isso — a carga do KAM-013 mede o p99 em **199 ms** e a caixa do bloco só fica vazia pela regra do descarte, e o aviso do *free tier* aos 800 e aos 1.000 está medido com a caixa do bloco vazia pelo fuso por canal. Em sentido contrário, o do Chatwoot **desmarca-se** apesar de o ticket estar fundido: das três cláusulas, o cross-account pela API do provedor não está medido (o registo do X-10 é KAM-066) e o «1 conversa» só está provado do nosso lado. As quatro vazias são por terceiros ou por dependência: `ext:KAM-102` e `ext:KAM-100` (onboarding real e coexistência +244, e o contrato *online* do simulador), KAM-066 e a leitura no cliente do provedor (Chatwoot), e o **L10** — verificação por SMS —, que não tem nota em ticket nenhum deste epic porque o seu é o KAM-093, de outro. Nenhuma caixa se marcou sem o teste nomeado. O §3 e o código não mudaram; os blocos de ticket mudam na emenda seguinte e não nesta. | Equipa KAMBÁ |
+| 1.11 | Outubro 2026 | **As caixas dos blocos KAM-016, KAM-017, KAM-021 e KAM-022, marcadas pelo que as suas tabelas de verificação já diziam.** A auditoria do §2 encontrou os quatro com **zero** caixas marcadas e as verificações a dar a maioria dos critérios como satisfeitos — o KAM-017 escreve «os nove critérios constroem-se, e oito ficam marcados» e tinha zero; o KAM-021 escreve «uma caixa fica vazia por segurança, e é a do critério 3», o que afirma que as outras estão marcadas, e tinha zero. Ficaram **cinquenta e sete** marcadas e **doze** vazias, critérios e DoD, e cada bloco leva agora uma nota a dizer que as caixas se marcaram a 2026-10-23 e por que regra: a caixa fica vazia quando **qualquer** parte do critério não se cumpre, e nenhuma se marcou sem o nome do teste citado ter sido conferido no ficheiro de teste. **As vazias:** `ext:KAM-102` (o onboarding real do KAM-016), `ext:KAM-100` (a elegibilidade do KAM-017), o `tenants.estado` que a revisão `0007` recusa por segurança (KAM-021), a metade da heurística do aviso preventivo que pede um sinal de painel que não existe (KAM-017, dívida 84), as quatro dos revisores humanos — vazias como facto registado, por decisão escrita do fundador — e as três do «todos os CA satisfeitos», que não fecham enquanto o bloco tiver um critério por fechar. **Nenhuma linha de tabela de verificação foi reescrita:** elas medem o que era verdade no dia em que correram. Dívida documental **87** paga no mesmo PR que a abriu. | Equipa KAMBÁ |
+| 1.12 | Outubro 2026 | **As caixas dos sete blocos restantes conferidas, e nenhuma mudou.** A auditoria do §2 alargou-se aos blocos KAM-013, KAM-014, KAM-015, KAM-018, KAM-019, KAM-020 e KAM-024, caixa a caixa contra o veredito da tabela de verificação de cada um, nos **dois** sentidos — marcar o que a verificação sustenta e desmarcar o que ela não sustenta. **Os sete já concordavam**, e três deles declaram no próprio texto a contagem que têm («9 critérios; 7 marcados, 2 vazios» no KAM-013; «quinze caixas marcadas, três vazias» no KAM-020; e as emendas 1.2, 1.4 e 1.5 para o KAM-014, o KAM-024 e o KAM-015). O que esta emenda acrescenta é, por isso, a nota no §2 de que a conferência cobriu os blocos todos — e o resultado do inverso, que é a verificação mais forte que o repositório permite aqui: os **328** nomes declarados nas listas `GRUPOS` e `TESTES_OBRIGATORIOS` das suites de `db/tests_*/` existem todos nos ficheiros de teste, quatro deles com uma constante interpolada no nome. Uma caixa cuja evidência está nessas listas é prendida por máquina: o nome que desaparecer faz a suite falhar. Nenhum bloco de ticket, nenhuma tabela de verificação e nenhum código mudaram nesta emenda. | Equipa KAMBÁ |
+| 1.13 | Outubro 2026 | **As caixas vazias dos tickets fundidos inventariadas por credor**, em [`../docs/epic-02-divida-de-criterios.md`](../docs/epic-02-divida-de-criterios.md). Das caixas vazias que a auditoria do §2 contou, as dos revisores humanos e as do «todos os CA satisfeitos» são derivadas e as do KAM-115 são trabalho por fazer; sobram **32** nos tickets fundidos, e o documento dá a cada uma a razão que a tabela de verificação do seu bloco já dava, mais o credor e a classe. **O achado é que cinco esperam um ticket que já fundiu** e ninguém voltou a medir: o critério 5 do KAM-024 («usado por KAM-015, 016, 017 e 020» — os quatro fundidos), o critério 1 do KAM-018 (a detecção do *echo*, que pedia o KAM-017), o critério 8 do KAM-015 (o *lock* da conversa, que pedia o KAM-018), o critério 6 do KAM-018 (a `v3` do contrato e o `setBotMuted`, que pediam o KAM-007 e o KAM-019) e o critério 3 do KAM-014. É a mesma classe de omissão que a emenda 1.10 encontrou no §2, um nível abaixo. O resumo por credor desfaz a leitura pessimista das caixas soltas: só sete esperam genuinamente um terceiro (`ext:KAM-100` e `ext:KAM-102`), dez são decisões e não trabalho — e **duas dessas não devem fechar**, a do KAM-021 porque devolver o privilégio reabre uma escalada e a do KAM-024 porque satisfazer a letra pioraria a protecção. Três caixas não têm credor nomeado, e é isso que as torna perigosas. Nenhuma caixa se marcou ou desmarcou, e nenhuma tabela de verificação foi reescrita. | Equipa KAMBÁ |
