@@ -3321,7 +3321,7 @@ facto.
 | **Todos os CA satisfeitos** | **por marcar** | Sete de oito. O critério 6 fica parcial pelo alvo de ≥ 95%, que é medição sobre *tenants* reais |
 | **≥ 1 revisor** | **por marcar** | Não houve revisor humano. A revisão adversarial foi feita e está abaixo |
 
-#### Os três defeitos que uma máquina apanhou, e o terceiro é o mais sério
+#### Os quatro defeitos que uma máquina apanhou, e o quarto é um gate que eu não corri
 
 1. **O relógio, e foi o ensaio contra a base.** A varredura dos lembretes não
    encontrava episódio nenhum: as linhas tinham `criado_at` do servidor e a
@@ -3348,6 +3348,22 @@ facto.
    de ela existir, e a prova por mutação foi a primeira coisa a executá-la. A
    lição não é sobre `SAVEPOINT` — é que uma bateria nova tem de correr no seu
    *gate* **depois** de ser escrita, e não antes.
+4. **O CI apanhou o *gate* 7, que eu não corri.** O `varrer` do KAM-024 conta
+   números de **forma** real em todo o repositório e exige que cada ficheiro que
+   os tenha esteja no inventário de `../tools/meta-sim/src/inventario.ts`, com a
+   contagem e a razão. Os nomes de loja do varrimento de 200 avisos do critério 5
+   têm dois — «Loja do Zé 923456789» e «Mercearia 923 456 789» —, e **têm de os
+   ter**: sem números de forma real, o teste provava que a máscara apanha números
+   que não se parecem com telefones, que é o contrário do que ela existe para
+   fazer. Declarou-se, e **não se mudou o valor**: é a mesma escolha que o
+   `ci/secrets-allow.yaml` impõe pelo outro lado — a lista não se alarga, e aqui o
+   inventário é desenhado para ser alargado **com a razão escrita**, que é o que o
+   distingue de uma pasta isenta. O total do inventário sobe de 86 para 88 e as
+   entradas de 22 para 23, e há um teste que afirma os dois números — o que obriga
+   quem acrescentar um ficheiro a dizê-lo num sítio só. **A lição é a do KAM-022,
+   repetida:** corri as duas primeiras verificações do *gate* 7 (o
+   `contract_diff`) e não a terceira, o `ci-7-meta`. Correr a função de um gate
+   não é correr o gate.
 
 #### A revisão adversarial
 
