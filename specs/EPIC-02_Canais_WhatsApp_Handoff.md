@@ -1473,6 +1473,19 @@ um a um (os dois de sucesso entram, o `a_sincronizar` e o `falhado` não), o cic
 inteiro do *echo* — avisa, o dono escreve, avisa outra vez dez dias depois — e a
 varredura a correr como `kamba_batch`, que é o único papel com `BYPASSRLS`.
 
+**E há mais seis da mesma classe, que este trabalho não fecha.** O filtro
+`coexistencia` inteiro — mais largo do que o `aviso` que encontrou estas quatro —
+mostra seis outros sobreviventes neste ticket: `o passo passa a aceitar uma
+sincronizacao falhada`, `o prazo deixa de morder ao concluir`, `concluir deixa de
+exigir os dois passos`, `o alerta das 12 h deixa de ser idempotente`, `o prazo
+passa a ler o arranque e nao a coluna` e `o desligamento deixa de ser
+idempotente`. São todos predicados do `coexistencia/consultas.ts` e a razão é a
+**mesma**: só se exercitam contra a `BaseFalsa`. Isto é, **o critério 3 (a
+sincronização de 24 h e o alerta das 12 h) e o critério 5 (a idempotência do
+desligamento) têm hoje a mesma lacuna que o critério 6 tinha.** Ficam nomeados,
+medidos e com a razão diagnosticada; fechá-los é reescrever a prova daqueles dois
+critérios contra uma base real, e isso é trabalho com o seu próprio tamanho.
+
 **A quarta era outra coisa: um teste que não olhava para onde o seu próprio nome
 prometia.** O «um canal `cloud_only` desliga sem avisar de desalinhamento»
 afirmava o desfecho e o estado do canal, e **não** a ausência do aviso — e o
