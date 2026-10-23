@@ -35,9 +35,11 @@ import {
   CODIGO_SEM_HISTORICO,
   Coexistente,
   MetricasDaCoexistencia,
+  INACTIVIDADE_DO_DONO_MS,
   PRAZO_DE_SINCRONIZACAO_MS,
   SQL_ABRIR,
   SQL_MARCAR_PASSO,
+  SQL_REGISTAR_ECHO,
 } from "../src/coexistencia/index.ts";
 import {
   BASE_DESCARTAVEL,
@@ -237,6 +239,132 @@ describe("a coexistencia contra a base", () => {
     const segunda = await varredor.varrerPrazos(admin);
     assert.deepEqual(segunda.falhados, []);
     void metricas;
+  });
+
+  // --------------------------------- critério 6: o aviso dos 10 dias, na base
+  //
+  // **Estes dois ensaios nasceram da prova por mutação do KAM-115.** Ela corria
+  // um filtro largo e apanhou três mutações deste ticket a sobreviver, duas
+  // delas no `SQL_AVISAR_INACTIVOS`: o `avisado_em IS NULL` e o
+  // `estado IN ('sincronizado', 'sincronizado_sem_historico')`.
+  //
+  // A razão de sobreviverem é a mesma para as duas, e é instrutiva: os testes do
+  // critério 6 vivem todos na bateria do *gate* 4, contra a `BaseFalsa` — e ela
+  // **reimplementa o predicado em JavaScript**. Pior: ela reconhece a instrução
+  // comparando-a com a constante importada, que a mutação também muda, pelo que
+  // a comparação continua a bater e o predicado JS fica intacto. Mutar o SQL não
+  // tinha efeito nenhum sobre aqueles testes.
+  //
+  // É a mesma classe de lacuna que o KAM-115 encontrou em dois dos seus. A lição
+  // é a do `outbound/consultas.ts`: **a suite do gate 8 corre estas cadeias e
+  // não cópias delas**, e um predicado só se prova onde é o PostgreSQL a
+  // avaliá-lo.
+
+  it("[bd] o aviso dos 10 dias é idempotente, e é o `avisado_em` que o faz", async () => {
+    // A primeira varredura avisa, a segunda não — e o que o impede é a coluna,
+    // não um `if`. Sem o `avisado_em IS NULL`, a segunda passagem voltava a
+    // devolver o canal e o dono levava um aviso por cada varredura.
+    await limpar();
+    await abrir(app, canalA);
+    // Põe o canal num estado de sucesso: o aviso só olha para esses.
+    await admin.query(
+      "UPDATE platform.channel_coexistence SET estado = 'sincronizado' " +
+        "WHERE tenant_id = $1 AND channel_id = $2",
+      [tenantA, canalA],
+    );
+    const depois = new Date(T0.getTime() + INACTIVIDADE_DO_DONO_MS + 1_000);
+    const { coex } = montar(() => depois);
+    assert.deepEqual(await coex.varrerInactividade(admin), [canalA]);
+    assert.deepEqual(await coex.varrerInactividade(admin), []);
+    // E a coluna ficou escrita: é dela que a idempotência sai.
+    const { rows } = await admin.query(
+      "SELECT avisado_em IS NOT NULL AS avisado FROM platform.channel_coexistence " +
+        "WHERE tenant_id = $1 AND channel_id = $2",
+      [tenantA, canalA],
+    );
+    assert.equal(rows[0].avisado, true);
+  });
+
+  it("[bd] o aviso só olha para os dois estados de sucesso", async () => {
+    // «Um canal cuja sincronização falhou já não está em coexistência, e avisá-lo
+    // de inactividade era avisar de um problema que não é o dele.» Os quatro
+    // estados, um a um: os dois de sucesso entram e os outros dois não.
+    const depois = new Date(T0.getTime() + INACTIVIDADE_DO_DONO_MS + 1_000);
+    const { coex } = montar(() => depois);
+    for (const [estado, esperado] of [
+      ["sincronizado", [canalA]],
+      ["sincronizado_sem_historico", [canalA]],
+      ["a_sincronizar", []],
+      ["falhado", []],
+    ] as const) {
+      await limpar();
+      await abrir(app, canalA);
+      await admin.query(
+        "UPDATE platform.channel_coexistence SET estado = $3 " +
+          "WHERE tenant_id = $1 AND channel_id = $2",
+        [tenantA, canalA, estado],
+      );
+      assert.deepEqual(await coex.varrerInactividade(admin), esperado, estado);
+    }
+  });
+
+  it("[bd] o echo do dono **reabre** a janela do aviso, pela coluna", async () => {
+    // A quarta da mesma familia, e apareceu quando o filtro das mutacoes se
+    // alargou de «o aviso» para incluir o `SQL_REGISTAR_ECHO`: o
+    // `avisado_em = NULL` que ele escreve e **metade** do criterio 6, e nao um
+    // extra. Sem ele, um canal avisado uma vez nunca mais era avisado, porque o
+    // predicado do aviso filtra por `avisado_em IS NULL` — e a janela deixava de
+    // reabrir quando o dono voltava a dar sinal.
+    //
+    // O ciclo inteiro, na base: avisa, o dono escreve, avisa outra vez.
+    await limpar();
+    await abrir(app, canalA);
+    await admin.query(
+      "UPDATE platform.channel_coexistence SET estado = 'sincronizado' " +
+        "WHERE tenant_id = $1 AND channel_id = $2",
+      [tenantA, canalA],
+    );
+    const depois = new Date(T0.getTime() + INACTIVIDADE_DO_DONO_MS + 1_000);
+    const { coex } = montar(() => depois);
+    assert.deepEqual(await coex.varrerInactividade(admin), [canalA]);
+    assert.deepEqual(await coex.varrerInactividade(admin), []);
+
+    // Actividade do dono: o `SQL_REGISTAR_ECHO` move o relogio **e** limpa o
+    // aviso.
+    await app.query(SQL_REGISTAR_ECHO, [tenantA, canalA, depois]);
+    const { rows } = await admin.query(
+      "SELECT avisado_em FROM platform.channel_coexistence " +
+        "WHERE tenant_id = $1 AND channel_id = $2",
+      [tenantA, canalA],
+    );
+    assert.equal(rows[0].avisado_em, null);
+
+    // E dez dias depois **desse** echo, o aviso volta a sair.
+    const maisDez = new Date(depois.getTime() + INACTIVIDADE_DO_DONO_MS + 1_000);
+    const { coex: outraVez } = montar(() => maisDez);
+    assert.deepEqual(await outraVez.varrerInactividade(admin), [canalA]);
+  });
+
+  it("[bd] a varredura do aviso corre como `kamba_batch`", async () => {
+    // Pela mesma razão que a dos prazos: é um `UPDATE` **sem `tenant_id`** no
+    // predicado, logo só corre com `BYPASSRLS` — e o `kamba_batch` é o único
+    // papel que o tem. Sem a concessão da `0018` respondia `42501`, e o critério
+    // 6 não tinha caminho executável.
+    await limpar();
+    await abrir(app, canalA);
+    await admin.query(
+      "UPDATE platform.channel_coexistence SET estado = 'sincronizado' " +
+        "WHERE tenant_id = $1 AND channel_id = $2",
+      [tenantA, canalA],
+    );
+    const batch = await ligar("batch");
+    try {
+      const depois = new Date(T0.getTime() + INACTIVIDADE_DO_DONO_MS + 1_000);
+      const { coex } = montar(() => depois);
+      assert.deepEqual(await coex.varrerInactividade(batch), [canalA]);
+    } finally {
+      await batch.end();
+    }
   });
 
   // ------------------------------------------------- critério 9 sob concorrência
