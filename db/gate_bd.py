@@ -8,6 +8,7 @@
     python db/gate_bd.py --suite tests_handoff       # gate 8, o handoff (KAM-019)
     python db/gate_bd.py --suite tests_media         # gate 8, a midia (KAM-020)
     python db/gate_bd.py --suite tests_modos         # gate 8, os modos (KAM-018)
+    python db/gate_bd.py --suite tests_avisos        # gate 8, o aviso ao dono (KAM-115)
     python db/gate_bd.py --suite tests --bd-existente
 
 Os dois gates precisam do mesmo: um PostgreSQL real, vazio e descartavel. Este
@@ -173,6 +174,23 @@ SUITES = (
     # fila: a guarda recusa o envio **antes** de haver chamada a Meta, e a porta
     # do AGR e uma interface (KAM-025).
     "tests_modos",
+    # KAM-115: o aviso ao dono por canal alternativo. O que so aqui se prova e o
+    # que o objecto da prova obriga — o servidor: que as onze cadeias de
+    # `src/avisos/consultas.ts` **correm** (uma base falsa compara-as por texto
+    # e nunca as interpreta, pelo que um erro de sintaxe passava o gate 4
+    # inteiro e falhava no primeiro aviso real), que o `ON CONFLICT DO NOTHING`
+    # da idempotencia do criterio 2 desempata entre **duas** ligacoes e nao por
+    # quem leu primeiro, que o `owner_notices_lembrete_ck` recusa o quarto
+    # lembrete do criterio 4, que a confirmacao do criterio 6 e **atomica** — a
+    # comparacao do resumo e o prazo estao na instrucao, e com a leitura e a
+    # escrita separadas passavam duas confirmacoes do mesmo *token* —, que as
+    # tres varreduras correm com `BYPASSRLS` e **nao** correm como `kamba_app`,
+    # que o endereco do dono nao aparece em claro em coluna nenhuma, e o X-03
+    # sobre as duas tabelas novas. **Nao leva o `tools/meta-sim`** e nao precisa
+    # de fila: este modulo nao fala com a Meta — e o ticket inteiro, porque
+    # avisar o dono pelo canal que falhou e inutil — e os notificadores sao
+    # portas, que o criterio 3 manda exercitar com fornecedor falso.
+    "tests_avisos",
 )
 #: As que precisam tambem de uma fila.
 SUITES_COM_FILA = (

@@ -445,6 +445,31 @@ ESPERADO_POR_TABELA.update(
             # papel que o tem (`db/bootstrap.py`). Sem isto respondiam `42501`.
             kamba_batch={"SELECT", "UPDATE", "DELETE"},
         ),
+        # KAM-115. As duas do aviso ao dono, e as duas **sem `UPDATE` de
+        # tabela** para o `kamba_app`, pela razao que a `0018` pagou: o
+        # `test_privilegios_por_coluna_nas_tabelas_com_matriz` compara
+        # `de_tabela or coluna in por_coluna`, e um `UPDATE` de tabela
+        # curto-circuita o `or` — a lista de colunas nunca era confrontada.
+        "owner_contacts": _handoff(
+            kamba_app={"SELECT", "INSERT"},
+            # **Sem `INSERT` para o `kamba_batch`**, e e a unica assimetria entre
+            # as duas tabelas deste ticket: quem capta o endereco e o caminho do
+            # dono (KAM-086) e nao um *job* de retaguarda. O que o `kamba_batch`
+            # faz aqui e a varredura do criterio 6 — os tenants `ativo` sem
+            # contacto verificado —, que e `SELECT`, e marcar invalido o que
+            # deu *bounce*, que e `UPDATE` **sem `tenant_id` no predicado** e so
+            # corre com `BYPASSRLS`.
+            kamba_batch={"SELECT", "UPDATE", "DELETE"},
+        ),
+        "owner_notices": _handoff(
+            kamba_app={"SELECT", "INSERT"},
+            # **Com `INSERT`**, ao contrario da tabela acima: os lembretes das
+            # 24 h e das 72 h do criterio 4 sao escritas de retaguarda, e sem
+            # `INSERT` o «lembretes se o estado persiste» nao tinha caminho
+            # executavel — so decisao escrita. E a mesma classe de achado que a
+            # revisao adversarial da `0018` mediu nas varreduras dela.
+            kamba_batch={"SELECT", "INSERT", "UPDATE", "DELETE"},
+        ),
     }
 )
 
@@ -731,6 +756,34 @@ COLUNAS_POR_PAPEL = {
         "avisado_em",
         "motivo_desligamento",
         "desligado_em",
+        "actualizado_at",
+    },
+    # KAM-115. **O desfecho, e nada mais.** Nem a `chave`, nem o `gatilho`, nem
+    # o `episodio`, nem o `lembrete`, nem o `canal`: mover qualquer um deles era
+    # fazer um aviso passar por outro, e a
+    # `owner_notices_idempotencia_uq (tenant_id, chave, lembrete, canal)`
+    # deixava de significar o que significa — o mesmo evento voltava a ser
+    # avisado por se lhe ter mudado uma coluna da chave. O `criado_at` fica de
+    # fora porque e registo, e e dele que os dois limites do criterio 4 contam.
+    ("kamba_app", "owner_notices", "UPDATE"): {
+        "estado",
+        "entregue_at",
+        "falha_motivo",
+        "tentativas",
+        "actualizado_at",
+    },
+    # KAM-115. O `endereco_enc` **esta aqui** e o `canal` nao: trocar o endereco
+    # e o que o dono faz quando muda de e-mail (o KAM-086 escreve-o por este
+    # papel), e trocar o canal era transformar um e-mail num painel — que nao
+    # tem endereco. A verificacao e a invalidacao sao as duas escritas deste
+    # ticket, e as duas sao colunas desta lista.
+    ("kamba_app", "owner_contacts", "UPDATE"): {
+        "endereco_enc",
+        "verificado_at",
+        "confirmacao_hash",
+        "confirmacao_expira_em",
+        "invalido_at",
+        "motivo_invalido",
         "actualizado_at",
     },
     ("kamba_app", "media_assets", "UPDATE"): {

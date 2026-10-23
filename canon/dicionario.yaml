@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.31"
+versao_dicionario: "1.32"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -1592,15 +1592,6 @@ entradas:
       - "quote.requested"
       - "quote.sent"
       - "content.approved"
-    nomes_nota: []
-    variantes_literais: []
-  - seccao: "3.8"
-    conceito: "Avisos ao dono por canal alternativo"
-    canonico: "owner_notices"
-    literais:
-      - "owner_notices"
-    nomes:
-      - "owner_notices"
     nomes_nota: []
     variantes_literais: []
   - seccao: "3.8"
@@ -4612,6 +4603,482 @@ entradas:
     nomes_nota:
       - "to"
     variantes_literais: []
+  - seccao: "3.23"
+    conceito: "Contacto alternativo do dono"
+    canonico: "platform.owner_contacts — id, tenant_id, canal, endereco_enc, verificado_at, confirmacao_hash, confirmacao_expira_em, invalido_at, motivo_invalido, criado_at, actualizado_at"
+    literais:
+      - "platform.owner_contacts"
+      - "id"
+      - "tenant_id"
+      - "canal"
+      - "endereco_enc"
+      - "verificado_at"
+      - "confirmacao_hash"
+      - "confirmacao_expira_em"
+      - "invalido_at"
+      - "motivo_invalido"
+      - "criado_at"
+      - "actualizado_at"
+    nomes:
+      - "platform.owner_contacts"
+      - "id"
+      - "tenant_id"
+      - "canal"
+      - "endereco_enc"
+      - "verificado_at"
+      - "confirmacao_hash"
+      - "confirmacao_expira_em"
+      - "invalido_at"
+      - "motivo_invalido"
+      - "criado_at"
+      - "actualizado_at"
+    nomes_nota:
+      - "owner_notices"
+      - "tenants"
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "O endereço, cifrado"
+    canonico: "owner_contacts.endereco_enc (bytea)"
+    literais:
+      - "owner_contacts.endereco_enc"
+      - "bytea"
+    nomes:
+      - "owner_contacts.endereco_enc"
+      - "bytea"
+    nomes_nota:
+      - "kid"
+      - "kek_contacto_dono"
+      - "contact_endpoints"
+      - "tenant_id"
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "Canal de um contacto"
+    canonico: "owner_contacts.canal ∈ {email}"
+    literais:
+      - "owner_contacts.canal"
+      - "email"
+    nomes:
+      - "owner_contacts.canal"
+      - "email"
+    nomes_nota:
+      - "tenant_id"
+      - "sms"
+      - "ARRAY_DOS_ECHOES"
+      - "consent_event.canal"
+      - "IN"
+      - "whatsapp"
+      - "owner_notices.canal"
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "Prova da verificação"
+    canonico: "owner_contacts.verificado_at, owner_contacts.confirmacao_hash, owner_contacts.confirmacao_expira_em"
+    literais:
+      - "owner_contacts.verificado_at"
+      - "owner_contacts.confirmacao_hash"
+      - "owner_contacts.confirmacao_expira_em"
+    nomes:
+      - "owner_contacts.verificado_at"
+      - "owner_contacts.confirmacao_hash"
+      - "owner_contacts.confirmacao_expira_em"
+    nomes_nota:
+      - "sha256"
+      - "_hmac"
+      - "verificado_at"
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "Invalidez de um contacto"
+    canonico: "owner_contacts.invalido_at, owner_contacts.motivo_invalido ∈ {bounce, rejeitado}"
+    literais:
+      - "owner_contacts.invalido_at"
+      - "owner_contacts.motivo_invalido"
+      - "bounce"
+      - "rejeitado"
+    nomes:
+      - "owner_contacts.invalido_at"
+      - "owner_contacts.motivo_invalido"
+      - "bounce"
+      - "rejeitado"
+    nomes_nota:
+      - "indisponivel"
+      - "sem_contacto"
+      - "bounce"
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "Registo dos avisos"
+    canonico: "platform.owner_notices — id, tenant_id, gatilho, episodio, chave, lembrete, canal, estado, tentativas, falha_motivo, criado_at, entregue_at, actualizado_at"
+    literais:
+      - "platform.owner_notices"
+      - "id"
+      - "tenant_id"
+      - "gatilho"
+      - "episodio"
+      - "chave"
+      - "lembrete"
+      - "canal"
+      - "estado"
+      - "tentativas"
+      - "falha_motivo"
+      - "criado_at"
+      - "entregue_at"
+      - "actualizado_at"
+    nomes:
+      - "platform.owner_notices"
+      - "id"
+      - "tenant_id"
+      - "gatilho"
+      - "episodio"
+      - "chave"
+      - "lembrete"
+      - "canal"
+      - "estado"
+      - "tentativas"
+      - "falha_motivo"
+      - "criado_at"
+      - "entregue_at"
+      - "actualizado_at"
+    nomes_nota:
+      - "notice_id"
+      - "tenant_id"
+      - "gatilho"
+      - "episodio"
+      - "canal"
+      - "estado"
+      - "criado_at"
+      - "entregue_at"
+      - "id"
+      - "chave"
+      - "lembrete"
+      - "tentativas"
+      - "falha_motivo"
+      - "actualizado_at"
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "A chave de idempotência"
+    canonico: "owner_notices.chave = sha256(domínio ␀ tenant ␀ gatilho ␀ episódio), 32 octetos"
+    literais:
+      - "owner_notices.chave"
+      - "sha256(domínio ␀ tenant ␀ gatilho ␀ episódio)"
+    nomes:
+      - "owner_notices.chave"
+      - "sha256"
+      - "dom"
+      - "nio"
+      - "tenant"
+      - "gatilho"
+      - "epis"
+      - "dio"
+    nomes_nota:
+      - "hash"
+      - "tenant_id"
+      - "gatilho"
+      - "epis"
+      - "dio"
+      - "episodio"
+      - "channel_id"
+      - "event_key"
+      - "sha256"
+      - "prova.ts"
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "O episódio"
+    canonico: "owner_notices.episodio (text, não vazio)"
+    literais:
+      - "owner_notices.episodio"
+      - "text"
+    nomes:
+      - "owner_notices.episodio"
+      - "text"
+    nomes_nota:
+      - "channel_id"
+      - "event_key"
+      - "CHECK"
+      - "episodio"
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "Gatilho de um aviso"
+    canonico: "owner_notices.gatilho ∈ {canal_desligado, inactividade, qualidade_restrita, sem_pagamento, painel_indisponivel}"
+    literais:
+      - "owner_notices.gatilho"
+      - "canal_desligado"
+      - "inactividade"
+      - "qualidade_restrita"
+      - "sem_pagamento"
+      - "painel_indisponivel"
+    nomes:
+      - "owner_notices.gatilho"
+      - "canal_desligado"
+      - "inactividade"
+      - "qualidade_restrita"
+      - "sem_pagamento"
+      - "painel_indisponivel"
+    nomes_nota:
+      - "CHECK"
+      - "pg_get_constraintdef"
+      - "channel.updated"
+      - "PARTNER_REMOVED"
+      - "episodio"
+      - "outcome"
+      - "Logger"
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "Canal de um aviso"
+    canonico: "owner_notices.canal ∈ {email, painel}"
+    literais:
+      - "owner_notices.canal"
+      - "email"
+      - "painel"
+    nomes:
+      - "owner_notices.canal"
+      - "email"
+      - "painel"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "Estado de um aviso"
+    canonico: "owner_notices.estado ∈ {pendente, entregue, falhado}"
+    literais:
+      - "owner_notices.estado"
+      - "pendente"
+      - "entregue"
+      - "falhado"
+    nomes:
+      - "owner_notices.estado"
+      - "pendente"
+      - "entregue"
+      - "falhado"
+    nomes_nota:
+      - "suprimido"
+      - "owner_notice_suppressed_total"
+      - "estado"
+      - "pendente"
+      - "outbound"
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "Motivo de falha de um aviso"
+    canonico: "owner_notices.falha_motivo ∈ {bounce, rejeitado, sem_contacto, indisponivel}"
+    literais:
+      - "owner_notices.falha_motivo"
+      - "bounce"
+      - "rejeitado"
+      - "sem_contacto"
+      - "indisponivel"
+    nomes:
+      - "owner_notices.falha_motivo"
+      - "bounce"
+      - "rejeitado"
+      - "sem_contacto"
+      - "indisponivel"
+    nomes_nota:
+      - "sem_contacto"
+      - "ativo"
+      - "indisponivel"
+      - "owner_contacts.motivo_invalido"
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "Ordem do lembrete"
+    canonico: "owner_notices.lembrete ∈ 0..2"
+    literais:
+      - "owner_notices.lembrete"
+    nomes:
+      - "owner_notices.lembrete"
+    nomes_nota:
+      - "tenant_id"
+      - "chave"
+      - "lembrete"
+      - "canal"
+      - "CHECK"
+      - "if"
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "Tentativas de entrega"
+    canonico: "owner_notices.tentativas (smallint, ≥ 0)"
+    literais:
+      - "owner_notices.tentativas"
+      - "smallint"
+    nomes:
+      - "owner_notices.tentativas"
+      - "smallint"
+    nomes_nota:
+      - "estado"
+      - "entregue_at"
+      - "CHECK"
+      - "UPDATE"
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "Quando o aviso foi criado"
+    canonico: "owner_notices.criado_at"
+    literais:
+      - "owner_notices.criado_at"
+    nomes:
+      - "owner_notices.criado_at"
+    nomes_nota:
+      - "now"
+      - "DEFAULT"
+      - "prazo_em"
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "Limites de frequência"
+    canonico: "JANELA_DO_GATILHO_MS = 24 h, TECTO_DIARIO = 3, JANELA_DIARIA_MS = 24 h"
+    literais:
+      - "JANELA_DO_GATILHO_MS"
+      - "TECTO_DIARIO"
+      - "JANELA_DIARIA_MS"
+    nomes:
+      - "JANELA_DO_GATILHO_MS"
+      - "TECTO_DIARIO"
+      - "JANELA_DIARIA_MS"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "Atraso dos lembretes"
+    canonico: "ATRASO_DO_LEMBRETE_MS = [24 h, 72 h]"
+    literais:
+      - "ATRASO_DO_LEMBRETE_MS"
+    nomes:
+      - "ATRASO_DO_LEMBRETE_MS"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "Alvo de latência"
+    canonico: "LATENCIA_ALVO_MS = 5 min"
+    literais:
+      - "LATENCIA_ALVO_MS"
+    nomes:
+      - "LATENCIA_ALVO_MS"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "Limiar do painel em baixo"
+    canonico: "LIMIAR_DO_PAINEL_MS = 5 min"
+    literais:
+      - "LIMIAR_DO_PAINEL_MS"
+    nomes:
+      - "LIMIAR_DO_PAINEL_MS"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "Prazo da confirmação"
+    canonico: "PRAZO_DA_CONFIRMACAO_MS = 7 dias"
+    literais:
+      - "PRAZO_DA_CONFIRMACAO_MS"
+    nomes:
+      - "PRAZO_DA_CONFIRMACAO_MS"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "Parâmetros de um modelo"
+    canonico: "PARAMETROS = {loja, estado, hora, painel}"
+    literais:
+      - "PARAMETROS"
+      - "loja"
+      - "estado"
+      - "hora"
+      - "painel"
+    nomes:
+      - "PARAMETROS"
+      - "loja"
+      - "estado"
+      - "hora"
+      - "painel"
+    nomes_nota:
+      - "contact_id"
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "O estado no texto"
+    canonico: "ESTADOS_NO_TEXTO ∈ {restrito, desligado, suspenso}"
+    literais:
+      - "ESTADOS_NO_TEXTO"
+      - "restrito"
+      - "desligado"
+      - "suspenso"
+    nomes:
+      - "ESTADOS_NO_TEXTO"
+      - "restrito"
+      - "desligado"
+      - "suspenso"
+    nomes_nota:
+      - "estado"
+      - "CHECK"
+      - "tenant_channels.estado"
+      - "a_verificar"
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "A máscara do nome da loja"
+    canonico: "MASCARA, DIGITOS_MAXIMOS (reexportado), MAXIMO_DA_LOJA = 120"
+    literais:
+      - "MASCARA"
+      - "DIGITOS_MAXIMOS"
+      - "MAXIMO_DA_LOJA"
+    nomes:
+      - "MASCARA"
+      - "DIGITOS_MAXIMOS"
+      - "MAXIMO_DA_LOJA"
+    nomes_nota:
+      - "loja"
+      - "DIGITOS_MAXIMOS"
+      - "MPS_POR_MODO"
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "A ligação ao painel"
+    canonico: "a raiz do painel, sem ?, # nem ="
+    literais:
+      - "?"
+      - "#"
+      - "="
+    nomes: []
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "Métricas do aviso"
+    canonico: "owner_notice_sent_total{gatilho,canal}, owner_notice_latency_s, owner_alt_contact_missing, owner_notice_suppressed_total{gatilho,motivo}, owner_notice_failed_total{canal,motivo}"
+    literais:
+      - "owner_notice_sent_total{gatilho,canal}"
+      - "owner_notice_latency_s"
+      - "owner_alt_contact_missing"
+      - "owner_notice_suppressed_total{gatilho,motivo}"
+      - "owner_notice_failed_total{canal,motivo}"
+    nomes:
+      - "owner_notice_sent_total"
+      - "gatilho"
+      - "canal"
+      - "owner_notice_latency_s"
+      - "owner_alt_contact_missing"
+      - "owner_notice_suppressed_total"
+      - "motivo"
+      - "owner_notice_failed_total"
+    nomes_nota:
+      - "owner_alt_contact_missing"
+      - "tenant_id"
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "A porta de notificação"
+    canonico: "OwnerNotifier → AvisoAoDono, com Notificador por canal"
+    literais:
+      - "OwnerNotifier"
+      - "AvisoAoDono"
+      - "Notificador"
+    nomes:
+      - "OwnerNotifier"
+      - "AvisoAoDono"
+      - "Notificador"
+    nomes_nota:
+      - "OwnerNotifier.notify"
+      - "tenant_id"
+      - "gatilho"
+      - "episodio"
+      - "params"
+      - "canal"
+      - "SmsNotifier"
+    variantes_literais: []
+  - seccao: "3.23"
+    conceito: "A fila humana"
+    canonico: "AbrirTarefa, porta"
+    literais:
+      - "AbrirTarefa"
+    nomes:
+      - "AbrirTarefa"
+    nomes_nota: []
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -4994,6 +5461,14 @@ tabelas:
     assinatura: "pg_advisory_xact_lock(hashtextextended(tenant_id ‖ ':' ‖ contact_id, 0))"
     seccao: "3.20"
     conceito: "Chave do lock da conversa"
+  - nome: "sha256"
+    esquema: ""
+    colunas:
+      - "dom"
+    aberta: false
+    assinatura: "sha256(domínio ␀ tenant ␀ gatilho ␀ episódio)"
+    seccao: "3.23"
+    conceito: "A chave de idempotência"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -5382,6 +5857,61 @@ dominios:
       - "sem_conversa"
     seccao: "3.22"
     conceito: "Desfecho de um echo"
+    so_no_registo: false
+  - coluna: "owner_contacts.canal"
+    valores:
+      - "email"
+    seccao: "3.23"
+    conceito: "Canal de um contacto"
+    so_no_registo: false
+  - coluna: "owner_contacts.motivo_invalido"
+    valores:
+      - "bounce"
+      - "rejeitado"
+    seccao: "3.23"
+    conceito: "Invalidez de um contacto"
+    so_no_registo: false
+  - coluna: "owner_notices.gatilho"
+    valores:
+      - "canal_desligado"
+      - "inactividade"
+      - "qualidade_restrita"
+      - "sem_pagamento"
+      - "painel_indisponivel"
+    seccao: "3.23"
+    conceito: "Gatilho de um aviso"
+    so_no_registo: false
+  - coluna: "owner_notices.canal"
+    valores:
+      - "email"
+      - "painel"
+    seccao: "3.23"
+    conceito: "Canal de um aviso"
+    so_no_registo: false
+  - coluna: "owner_notices.estado"
+    valores:
+      - "pendente"
+      - "entregue"
+      - "falhado"
+    seccao: "3.23"
+    conceito: "Estado de um aviso"
+    so_no_registo: false
+  - coluna: "owner_notices.falha_motivo"
+    valores:
+      - "bounce"
+      - "rejeitado"
+      - "sem_contacto"
+      - "indisponivel"
+    seccao: "3.23"
+    conceito: "Motivo de falha de um aviso"
+    so_no_registo: false
+  - coluna: "ESTADOS_NO_TEXTO"
+    valores:
+      - "restrito"
+      - "desligado"
+      - "suspenso"
+    seccao: "3.23"
+    conceito: "O estado no texto"
     so_no_registo: false
 
 variantes:

@@ -118,6 +118,16 @@ class TestCatalogoReal(ComBase):
         pela mesma razao — renomear o teste de outro ticket a meio deste e ruido
         no diff. Fica em `docs/dividas-documentais.md`.
 
+        Vinte e oito desde o KAM-115: a `owner_contacts` e a `owner_notices`. Sao
+        as duas primeiras tabelas isoladas que **nao tocam em `tenant_channels`**
+        — tem uma FK so, para `tenants` —, e a razao e o que o ticket e: o aviso
+        e do **dono** e nao do canal, e o canal, quando faz parte da historia,
+        vai dentro do `episodio`, que e texto opaco. As duas tem chave primaria
+        `id` sem `tenant_id`, logo indice proprio a comecar por ele. Na
+        `owner_notices` o `kamba_batch` **insere**, e e a unica tabela isolada em
+        que ele o faz por uma razao de produto e nao de provisionamento: os
+        lembretes das 24 h e das 72 h do criterio 4 sao escritas de retaguarda.
+
         Vinte e uma desde o KAM-019: a `handoff_accounts` e a `handoffs`. A
         segunda e a **primeira tabela desta lista cuja chave primaria nao leva
         `tenant_id`** — e o `handoff_id` derivado —, e por isso levou um indice
@@ -189,6 +199,14 @@ class TestCatalogoReal(ComBase):
                 # `sorted()`, que compara por ponto de codigo.
                 ("platform", "message_templates", "tenant_id"),
                 ("platform", "outbound_messages", "tenant_id"),
+                # KAM-115: as duas do aviso ao dono, e a posicao e **depois**
+                # de `outbound_messages`: no `sorted()` por ponto de codigo,
+                # «ou» vence «ow» porque 'u' (0x75) < 'w' (0x77). Entre as duas,
+                # «owner_c» vem antes de «owner_n». As duas tem uma FK so — para
+                # `tenants` — e chave primaria `id` sem `tenant_id`, logo indice
+                # proprio a comecar por ele.
+                ("platform", "owner_contacts", "tenant_id"),
+                ("platform", "owner_notices", "tenant_id"),
                 ("platform", "tenant_channels", "tenant_id"),
                 # KAM-009: o contador de uso e o livro de idempotencia.
                 ("platform", "tenant_usage", "tenant_id"),
@@ -286,6 +304,10 @@ class TestCatalogoReal(ComBase):
                 # KAM-015: as duas da saida de canal.
                 ("message_templates", "tenant_iso", "ALL", "{public}"),
                 ("outbound_messages", "tenant_iso", "ALL", "{public}"),
+                # KAM-115: as duas do aviso ao dono, depois de
+                # `outbound_messages` («ou» < «ow»).
+                ("owner_contacts", "tenant_iso", "ALL", "{public}"),
+                ("owner_notices", "tenant_iso", "ALL", "{public}"),
                 ("tenant_channels", "resolver_leitura", "SELECT", "{kamba_resolver}"),
                 ("tenant_channels", "tenant_iso", "ALL", "{public}"),
                 # KAM-009. A ordem e a da coleccao `C` e nao a da base: o
@@ -345,7 +367,15 @@ class TestCatalogoReal(ComBase):
              # que o proximo nao as descubra uma a uma.
              "media_assets",
              # KAM-015: as duas da saida de canal.
-             "message_templates", "outbound_messages", "tenant_channels",
+             "message_templates", "outbound_messages",
+             # KAM-115: as duas do aviso ao dono. **Quarta lista deste ficheiro
+             # a precisar delas**, e as outras tres ja estavam feitas quando esta
+             # falhou — exactamente como o KAM-017 avisou duas notas acima. A
+             # licao nao e sobre este ticket: quem acrescentar uma tabela isolada
+             # corre o *gate* 6 **inteiro**, porque as quatro listas sao quatro
+             # perguntas diferentes sobre a mesma tabela.
+             "owner_contacts", "owner_notices",
+             "tenant_channels",
              # KAM-009: o contador e o livro. `tenant_usage` antes de
              # `tenants` pela colacao `C` do tipo `name` (ver o teste acima).
              "tenant_usage", "tenants", "usage_ledger"],

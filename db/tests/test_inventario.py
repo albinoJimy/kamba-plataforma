@@ -825,6 +825,126 @@ INVENTARIO = {
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
         "actualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
     },
+    # KAM-115: o contacto alternativo do dono.
+    #
+    # **E a unica tabela do esquema cujo conteudo e, por definicao, um dado
+    # pessoal** — um endereco de e-mail de uma pessoa singular —, e e por isso
+    # que nao ha coluna em claro: o `endereco_enc` e `bytea` e o DoD do ticket
+    # di-lo por extenso, «endereco do dono so em cifra e nunca em logs». A
+    # diferenca face ao `contacto_negocio_enc` da `0001` e so o sujeito: la e o
+    # contacto da empresa, aqui e o do dono como pessoa.
+    #
+    # Nao ha HMAC de pesquisa, ao contrario do `contact_endpoints` do KAM-008:
+    # la ha pesquisa por valor (chega um telefone num webhook e e preciso achar
+    # o contacto), aqui entra-se sempre pelo `tenant_id`. Um HMAC sem quem o
+    # consulte era uma chave a mais para guardar e rodar.
+    "owner_contacts": {
+        "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "canal": (
+            "text",
+            NAO,
+            "'email'::text",
+            "nao — e o transporte e nao o interlocutor, como o consent_event.canal. "
+            "Dominio de **um** valor: o painel nao tem endereco e o sms e o KAM-116",
+        ),
+        "endereco_enc": (
+            "bytea",
+            NAO,
+            None,
+            "**sim, e e o unico sitio do esquema onde isto esta certo**: e o "
+            "e-mail do dono, cifrado com AES-256-GCM e DEK por tenant derivada "
+            "da KEK kek_contacto_dono. Nao existe coluna em claro, e e assim "
+            "que a regra se garante — uma regra que depende de ninguem "
+            "escrever onde da para escrever nao e uma regra",
+        ),
+        "verificado_at": (
+            "timestamp with time zone",
+            SIM,
+            None,
+            "nao — nulo e o estado normal de um endereco acabado de captar, e "
+            "um endereco nao verificado **nao recebe avisos**: quem o impoe e o "
+            "predicado da consulta e nao um if (criterio 6)",
+        ),
+        "confirmacao_hash": (
+            "bytea",
+            SIM,
+            None,
+            "nao — sha256 do token da ligacao de confirmacao, nunca o token. "
+            "Sem chave, ao contrario dos *_hmac do KAM-008: o que obriga a HMAC "
+            "la e o espaco dos numeros angolanos ter poucos milhoes de "
+            "elementos, e 32 octetos do gerador do sistema nao se enumeram",
+        ),
+        "confirmacao_expira_em": ("timestamp with time zone", SIM, None, "nao"),
+        "invalido_at": (
+            "timestamp with time zone",
+            SIM,
+            None,
+            "nao — quando uma entrega falhou de forma que condena o endereco "
+            "(criterio 7). E facto do **contacto** e nao do aviso, e e por isso "
+            "que sao duas tabelas",
+        ),
+        "motivo_invalido": ("text", SIM, None, "nao"),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "actualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
+    # KAM-115: o registo de cada aviso ao dono, **sem corpo**.
+    #
+    # Os Detalhes Tecnicos do ticket pedem «RLS e sem corpo», e nao haver coluna
+    # de texto para o conteudo e a forma de o garantir — o mesmo argumento que a
+    # `0018` escreveu para as contagens do historico. O que se registra e qual o
+    # gatilho, qual o episodio, por que canal, em que lembrete e com que
+    # desfecho; nunca o texto que saiu.
+    #
+    # O `episodio` **e** texto livre, e e a unica coluna desta tabela que o e.
+    # Nao guarda dados pessoais porque o que lhe entra sao identificadores
+    # nossos e da Meta — um `channel_id` com um motivo, uma `event_key` —, e
+    # nunca telefone, `contact_id` nem corpo de mensagem.
+    "owner_notices": {
+        "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "gatilho": ("text", NAO, None, "nao"),
+        "episodio": (
+            "text",
+            NAO,
+            None,
+            "nao — e o que distingue «o canal caiu outra vez» de «o canal "
+            "caiu», cunhado por quem conhece o episodio: o channel_id com o "
+            "motivo, a event_key da Meta. Identificadores nossos e dela, nunca "
+            "de um titular",
+        ),
+        "chave": (
+            "bytea",
+            NAO,
+            None,
+            "nao — sha256(dominio ␀ tenant ␀ gatilho ␀ episodio), 32 octetos. "
+            "Redundante com as tres colunas de proposito: e sobre ela que a "
+            "unicidade se faz, e um resumo de comprimento fixo nao se parte com "
+            "um episodio de 300 caracteres",
+        ),
+        "lembrete": (
+            "smallint",
+            NAO,
+            "0",
+            "nao — 0 o aviso, 1 as 24 h, 2 as 72 h. E com esta coluna que a "
+            "idempotencia do criterio 2 e os lembretes do criterio 4 cabem na "
+            "mesma unicidade",
+        ),
+        "canal": ("text", NAO, None, "nao — e o transporte e nao o interlocutor"),
+        "estado": ("text", NAO, "'pendente'::text", "nao"),
+        "tentativas": (
+            "smallint",
+            NAO,
+            "0",
+            "nao — quantas vezes se tentou entregar **este** aviso. Nao e o "
+            "limite de frequencia (esse conta avisos, nao tentativas): e o que "
+            "torna visivel um fornecedor a devolver erro transitorio em serie",
+        ),
+        "falha_motivo": ("text", SIM, None, "nao"),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "entregue_at": ("timestamp with time zone", SIM, None, "nao"),
+        "actualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
 }
 
 #: **A primeira vista do esquema** (KAM-022), e esta no inventario e nao fora
@@ -951,6 +1071,19 @@ class TestInventario(ComBase):
                         # porque e que ele se desligou.
                         "channel_coexistence_tenant_fk",
                         "channel_coexistence_channel_fk",
+                        # KAM-115: **uma** de cada tabela do aviso ao dono, as
+                        # duas para `tenants` e nenhuma para `tenant_channels`.
+                        # Uma e nao duas, e a razao e o que o ticket e: o aviso e
+                        # do **dono** e nao do canal, e o canal, quando faz parte
+                        # da historia, vai dentro do `episodio`. E nenhuma
+                        # referencia a outra: o contacto existe sem aviso e o
+                        # aviso sai sem contacto (pelo painel), e uma FK entre
+                        # elas tornava impossivel o caso que o criterio 6 manda
+                        # tratar. Sem `ON DELETE CASCADE`, como todas: apagar um
+                        # tenant nao pode apagar em silencio a prova de que ele
+                        # foi avisado.
+                        "owner_contacts_tenant_fk",
+                        "owner_notices_tenant_fk",
                         "handoffs_tenant_fk",
                         "handoffs_conversation_fk",
                         "handoff_accounts_tenant_fk",
@@ -1073,6 +1206,23 @@ class TestInventario(ComBase):
             # nenhum — e dava duas entradas abertas sobre o mesmo evento, com o
             # alerta a contar o dobro.
             "events_dlq_aberta_uq": True,
+            # KAM-115: os dois do aviso ao dono, e os dois parciais e **nao**
+            # unicos. O do contacto cobre so os enderecos utilizaveis
+            # (verificados e nao invalidos), que e o conjunto que a entrega le;
+            # o dos avisos cobre so o que ainda nao foi entregue, que e o
+            # conjunto que as varreduras dos lembretes e dos pendentes leem. Nos
+            # dois, o indice cheio seria quase todo entradas que a consulta nao
+            # quer — e uma plataforma saudavel tem poucas linhas no segundo.
+            #
+            # **Nao unicos, e isso e desenho e nao esquecimento**: a unicidade
+            # destas tabelas e de restricao e nao de indice parcial — a
+            # `owner_contacts_canal_uq` e a `owner_notices_idempotencia_uq` —, e
+            # um parcial unico aqui diria uma regra diferente: «um contacto
+            # verificado por canal» ja e dito pela restricao, e «um aviso
+            # pendente por episodio» era falso, porque um episodio tem um aviso
+            # por canal.
+            "owner_contacts_verificado_idx": False,
+            "owner_notices_pendentes_idx": False,
         }
         linhas = self.consultar(
             "SELECT indexname::text, indexdef FROM pg_indexes "
@@ -1148,6 +1298,41 @@ class TestInventario(ComBase):
                     # nao negativas, e o `desligamento_ck`, que e uma
                     # **igualdade e nao uma implicacao**: um desligamento tem as
                     # duas metades ou nenhuma.
+                    # KAM-115: as duas tabelas do aviso ao dono. No contacto,
+                    # o dominio de **um** valor do `canal` (o painel nao tem
+                    # endereco, o sms e o KAM-116), os dois `CHECK` de
+                    # comprimento — `bytea` aceita qualquer um, e e aqui que se
+                    # diz que um `sha256` tem 32 octetos e um criptograma pelo
+                    # menos 30 —, e os dois pares em **igualdade e nao
+                    # implicacao**: uma invalidacao tem as duas metades ou
+                    # nenhuma, e um resumo de confirmacao sem prazo era uma
+                    # ligacao eterna. No aviso, os quatro dominios fechados, a
+                    # unicidade de quatro colunas que e a idempotencia do
+                    # criterio 2 **e** os lembretes do criterio 4 ao mesmo tempo,
+                    # o `lembrete BETWEEN 0 AND 2` que e o «depois para» do
+                    # criterio 4 na base, e o `episodio` nao vazio — um episodio
+                    # vazio punha todos os avisos do mesmo gatilho na mesma chave
+                    # e o segundo episodio de um tenant nunca mais era avisado.
+                    "owner_contacts_pkey",
+                    "owner_contacts_canal_uq",
+                    "owner_contacts_canal_ck",
+                    "owner_contacts_motivo_ck",
+                    "owner_contacts_invalidez_ck",
+                    "owner_contacts_confirmacao_ck",
+                    "owner_contacts_hash_ck",
+                    "owner_contacts_enc_ck",
+                    "owner_notices_pkey",
+                    "owner_notices_idempotencia_uq",
+                    "owner_notices_gatilho_ck",
+                    "owner_notices_canal_ck",
+                    "owner_notices_estado_ck",
+                    "owner_notices_falha_ck",
+                    "owner_notices_lembrete_ck",
+                    "owner_notices_tentativas_ck",
+                    "owner_notices_entrega_ck",
+                    "owner_notices_motivo_ck",
+                    "owner_notices_episodio_ck",
+                    "owner_notices_chave_ck",
                     "channel_coexistence_pkey",
                     "channel_coexistence_canal_uq",
                     "channel_coexistence_estado_ck",

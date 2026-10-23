@@ -326,6 +326,30 @@ CX_METRICAS = "packages/core-ts/src/coexistencia/metricas.ts"
 CX_EXPLOSAO = "packages/core-ts/src/entrada/explosao.ts"
 REV18 = "db/migrations/versions/0018_coexistencia.py"
 
+# -------------------------------------------------------------- KAM-115
+#: O aviso ao dono por canal alternativo. A suite e a **`tests_avisos`**, a
+#: propria do ticket, e nao uma emprestada: ela corre as duas baterias — as
+#: regras (`tests/avisos.test.ts`) e o ensaio contra a base
+#: (`tests_bd/avisos.bd.test.ts`) —, pelo que uma mutacao de regra e uma de SQL
+#: provam-se as duas no mesmo corredor. E a primeira suite deste ficheiro em que
+#: isso acontece: a `tests_outbound` do KAM-017 teve de ser emprestada porque a
+#: regra do `echo` le a tabela daquele ticket.
+#:
+#: **`AV_` e nao `A_` nem `AD_`**, e o prefixo escolheu-se depois de procurar:
+#: nenhuma outra constante deste ficheiro comeca por `AV_`. E a licao que o
+#: `MED_SQL`/`FT_SQL` deixou e que as notas do `CS_SQL`, do `MO_SQL`, do
+#: `ON_SQL` e do `CX_SQL` repetiram — um prefixo que colida com o de outro
+#: ticket **sombreia** entradas sem conflito de merge, e nenhum teste o ve.
+AVISOS = "tests_avisos"
+AV_SQL = "packages/core-ts/src/avisos/consultas.ts"
+AV_CONTRATO = "packages/core-ts/src/avisos/contrato.ts"
+AV_DECISAO = "packages/core-ts/src/avisos/decisao.ts"
+AV_MODELOS = "packages/core-ts/src/avisos/modelos.ts"
+AV_MODULO = "packages/core-ts/src/avisos/avisos.ts"
+AV_METRICAS = "packages/core-ts/src/avisos/metricas.ts"
+AV_FORNECEDOR = "packages/core-ts/src/avisos/fornecedor.ts"
+REV19 = "db/migrations/versions/0019_aviso_ao_dono.py"
+
 #: O corpo da subtransaccao da `ten_consumir`, como a revisao 0007 o escreve:
 #: **a chave primeiro, a contagem depois**. A mutacao da ordem precisa do
 #: texto inteiro, incluindo o comentario pelo meio, porque nao ha alteracao
@@ -2975,6 +2999,304 @@ MUTACOES = [
     ('coexistencia: uma duracao negativa passa a entrar no histograma', CX_METRICAS,
      "    if (!Number.isFinite(segundos) || segundos < 0) {",
      "    if (false) {", SAIDA),
+
+    # ------------------------------ KAM-115, revisao 0019 (aviso ao dono)
+    #
+    # Seis da revisao, e correm na suite `tests` — e onde vive o
+    # `test_avisos_schema.py`. As de codigo correm na `tests_avisos`, que e a
+    # propria do ticket e leva as duas baterias.
+    ('aviso 0019: a idempotencia perde o lembrete da unicidade', REV19,
+     "                UNIQUE (tenant_id, chave, lembrete, canal),",
+     "                UNIQUE (tenant_id, chave, canal),", "tests"),
+    ('aviso 0019: a idempotencia perde o canal da unicidade', REV19,
+     "                UNIQUE (tenant_id, chave, lembrete, canal),",
+     "                UNIQUE (tenant_id, chave, lembrete),", "tests"),
+    ('aviso 0019: o tecto dos lembretes desaparece', REV19,
+     "                CHECK (lembrete BETWEEN 0 AND {LEMBRETE_MAXIMO}),",
+     "                CHECK (lembrete >= 0),", "tests"),
+    ('aviso 0019: a entrega passa a implicacao', REV19,
+     "                CHECK ((estado = 'entregue') = (entregue_at IS NOT NULL)),",
+     "                CHECK (estado <> 'entregue' OR entregue_at IS NOT NULL),", "tests"),
+    ('aviso 0019: o episodio passa a poder ser vazio', REV19,
+     "                CHECK (length(episodio) > 0),",
+     "                CHECK (episodio IS NOT NULL),", "tests"),
+    # O dominio da invalidez tem **dois** valores e nao quatro: um fornecedor em
+    # baixo nao diz nada sobre o endereco, e marcar o contacto por isso era
+    # deixar o dono sem canal por uma avaria nossa.
+    ('aviso 0019: a invalidez do contacto passa a aceitar os quatro motivos', REV19,
+     'CHECK (motivo_invalido IN ({", ".join(MOTIVOS_DE_INVALIDEZ)})),',
+     'CHECK (motivo_invalido IN ({", ".join(MOTIVOS_DE_FALHA)})),', "tests"),
+    # Da revisao adversarial da `0018`, aplicada aqui antes de custar: o `GRANT`
+    # do `kamba_app` e **por coluna** (sem isso a matriz era vacua) e o
+    # `kamba_batch` tem o `INSERT` sem o qual os lembretes nao tinham caminho.
+    ('aviso 0019: o kamba_app passa a poder mover um aviso de episodio', REV19,
+     '    "estado, entregue_at, falha_motivo, tentativas, actualizado_at"',
+     '    "episodio, estado, entregue_at, falha_motivo, tentativas, actualizado_at"',
+     "tests"),
+    ('aviso 0019: o kamba_batch perde o INSERT dos lembretes', REV19,
+     '"GRANT SELECT, INSERT, UPDATE, DELETE ON platform.owner_notices TO kamba_batch"',
+     '"GRANT SELECT, UPDATE, DELETE ON platform.owner_notices TO kamba_batch"',
+     "tests"),
+    ('aviso 0019: o kamba_batch ganha o INSERT dos contactos', REV19,
+     '"GRANT SELECT, UPDATE, DELETE ON platform.owner_contacts TO kamba_batch"',
+     '"GRANT SELECT, INSERT, UPDATE, DELETE ON platform.owner_contacts TO kamba_batch"',
+     "tests"),
+    ('aviso 0019: o kamba_app ganha DELETE nos avisos', REV19,
+     '"GRANT SELECT, INSERT ON platform.owner_notices TO kamba_app"',
+     '"GRANT SELECT, INSERT, DELETE ON platform.owner_notices TO kamba_app"',
+     "tests"),
+
+    # A idempotencia e a ordem das recusas (criterios 1, 2 e 4).
+    ('aviso: o gatilho desconhecido passa a enviar', AV_DECISAO,
+     '  if (!gatilhoConhecido(gatilho)) return nao("gatilho_desconhecido");',
+     "  if (false) return nao(\"gatilho_desconhecido\");", AVISOS),
+    ('aviso: o mesmo episodio deixa de ser recusado', AV_DECISAO,
+     "    if (anterior.gatilho === gatilho && anterior.episodio === episodio) {",
+     "    if (false) {", AVISOS),
+    ('aviso: a repeticao deixa de distinguir o lembrete', AV_DECISAO,
+     "    if (anterior.lembrete !== lembrete) continue;\n",
+     "", AVISOS),
+    # **A que paga a ordem das recusas.** Sem o `lembrete === 0`, a janela do
+    # gatilho recusa os lembretes — que sao, por definicao, um segundo aviso do
+    # mesmo gatilho dentro das 24 h — e o criterio 4 deixava de ter caminho.
+    ('aviso: a janela do gatilho passa a morder nos lembretes', AV_DECISAO,
+     "  if (lembrete === 0) {",
+     "  if (true) {", AVISOS),
+    ('aviso: a janela de 24 h por gatilho desaparece', AV_DECISAO,
+     '        return nao("janela_do_gatilho");',
+     "        continue;", AVISOS),
+    ('aviso: a janela deixa de filtrar pelo gatilho', AV_DECISAO,
+     "      if (anterior.gatilho !== gatilho) continue;\n",
+     "", AVISOS),
+    ('aviso: o tecto diario passa a contar linhas e nao avisos', AV_DECISAO,
+     '    distintos.add(`${anterior.gatilho}${SEPARADOR}${anterior.episodio}${SEPARADOR}${anterior.lembrete}`);',
+     "    distintos.add(anterior.id);", AVISOS),
+    ('aviso: o tecto diario desaparece', AV_DECISAO,
+     '  if (distintos.size >= TECTO_DIARIO) return nao("tecto_diario");',
+     "  if (false) return nao(\"tecto_diario\");", AVISOS),
+    ('aviso: o tecto diario deixa de recortar a janela', AV_DECISAO,
+     "    if (instante - anterior.criadoAt.getTime() >= JANELA_DIARIA_MS) continue;\n",
+     "", AVISOS),
+    ('aviso: o lembrete acima do maximo deixa de ser recusado', AV_DECISAO,
+     '  if (lembrete < 0 || lembrete > LEMBRETE_MAXIMO) return nao("lembretes_esgotados");',
+     "  if (false) return nao(\"lembretes_esgotados\");", AVISOS),
+
+    # Os lembretes e o relogio (criterio 4).
+    ('aviso: o lembrete devido passa a ser o primeiro e nao o mais alto', AV_DECISAO,
+     "    if (decorrido >= atraso) devido = indice + 1;",
+     "    if (decorrido >= atraso && devido === null) devido = indice + 1;", AVISOS),
+    ('aviso: o lembrete passa a ser devido antes da hora', AV_DECISAO,
+     "    if (decorrido >= atraso) devido = indice + 1;",
+     "    if (decorrido >= 0) devido = indice + 1;", AVISOS),
+    ('aviso: os lembretes passam a esgotar-se antes do ultimo', AV_DECISAO,
+     "  if (ultimoEnviado < LEMBRETE_MAXIMO) return false;",
+     "  if (false) return false;", AVISOS),
+    ('aviso: o lembrete das 24 h passa a 1 h', AV_CONTRATO,
+     "  24 * 60 * 60 * 1_000,\n  72 * 60 * 60 * 1_000,",
+     "  1 * 60 * 60 * 1_000,\n  72 * 60 * 60 * 1_000,", AVISOS),
+    ('aviso: a janela do gatilho passa a 1 h', AV_CONTRATO,
+     "export const JANELA_DO_GATILHO_MS = 24 * 60 * 60 * 1_000;",
+     "export const JANELA_DO_GATILHO_MS = 1 * 60 * 60 * 1_000;", AVISOS),
+    ('aviso: o tecto diario passa de 3 para 30', AV_CONTRATO,
+     "export const TECTO_DIARIO = 3;",
+     "export const TECTO_DIARIO = 30;", AVISOS),
+    ('aviso: a confirmacao passa a valer no instante em que expira', AV_DECISAO,
+     "  return agora.getTime() < expiraEm.getTime();",
+     "  return agora.getTime() <= expiraEm.getTime();", AVISOS),
+    ('aviso: a chave do episodio deixa de levar o tenant', AV_DECISAO,
+     "  resumo.update([DOMINIO, tenantId, gatilho, episodio].join(SEPARADOR), \"utf8\");",
+     "  resumo.update([DOMINIO, gatilho, episodio].join(SEPARADOR), \"utf8\");", AVISOS),
+    ('aviso: o separador da chave passa a ser um ponto', AV_DECISAO,
+     'const SEPARADOR = "\\u0000";',
+     'const SEPARADOR = ".";', AVISOS),
+
+    # O contacto e a invalidacao (criterios 6 e 7).
+    ('aviso: um contacto nao verificado passa a receber avisos', AV_DECISAO,
+     "  return contacto.verificadoAt !== null && contacto.invalidoAt === null;",
+     "  return contacto.invalidoAt === null;", AVISOS),
+    ('aviso: um contacto invalido volta a receber avisos', AV_DECISAO,
+     "  return contacto.verificadoAt !== null && contacto.invalidoAt === null;",
+     "  return contacto.verificadoAt !== null;", AVISOS),
+    ('aviso: um fornecedor em baixo passa a condenar o endereco', AV_DECISAO,
+     "  return MOTIVOS_DE_INVALIDEZ.includes(motivo);",
+     "  return true;", AVISOS),
+    ('aviso: o painel passa a exigir endereco', AV_DECISAO,
+     "  return CANAIS_COM_ENDERECO.includes(canal);",
+     "  return true;", AVISOS),
+
+    # A lista branca de modelos (criterio 5).
+    ('aviso: o parametro fora da lista deixa de ser recusado na construcao', AV_MODELOS,
+     "    if (!(PARAMETROS as readonly string[]).includes(nome)) {\n      throw new ParametroInvalidoError(nome);\n    }\n  }\n  const loja",
+     "    if (false) {\n      throw new ParametroInvalidoError(nome);\n    }\n  }\n  const loja",
+     AVISOS),
+    ('aviso: o nome da loja deixa de ser mascarado', AV_MODELOS,
+     "  const limpo = mascarar(nome.trim().replace(/\\s+/g, \" \"));",
+     "  const limpo = nome.trim().replace(/\\s+/g, \" \");", AVISOS),
+    ('aviso: a mascara passa a aceitar dez digitos seguidos', AV_MODELOS,
+     "  return texto.replace(/(?:\\d[ .\\-/]*){7,}/g, MASCARA);",
+     "  return texto.replace(/(?:\\d[ .\\-/]*){11,}/g, MASCARA);", AVISOS),
+    ('aviso: a mascara deixa de apanhar os separadores', AV_MODELOS,
+     "  return texto.replace(/(?:\\d[ .\\-/]*){7,}/g, MASCARA);",
+     "  return texto.replace(/\\d{7,}/g, MASCARA);", AVISOS),
+    ('aviso: o nome da loja deixa de ser truncado', AV_MODELOS,
+     "  return limpo.length > MAXIMO_DA_LOJA ? `${limpo.slice(0, MAXIMO_DA_LOJA - 1)}…` : limpo;",
+     "  return limpo;", AVISOS),
+    # A mutacao «um marcador sem valor deixa de levantar» esteve aqui, e saiu
+    # com a guarda: o `Parametros` e um `Record` **total** dos quatro nomes,
+    # pelo que o `valor === undefined` nunca podia ser verdade. A prova por
+    # mutacao mostrou-a a sobreviver, e a resposta foi apagar a guarda — e nao
+    # escrever um teste para um ramo inalcancavel. E a mesma resposta que o
+    # KAM-018 deu as duas guardas do `transicoes.ts`. O invariante que ela
+    # pretendia proteger — nenhum modelo leva um marcador fora da lista — tem
+    # agora teste proprio, sobre os cinco modelos, pelo `marcadoresDosModelos`.
+
+    # A instrucao: a idempotencia, a entrega e a invalidacao.
+    ('aviso: o registo deixa de ser idempotente', AV_SQL,
+     "      ON CONFLICT (tenant_id, chave, lembrete, canal) DO NOTHING",
+     "", AVISOS),
+    ('aviso: o criado_at volta a ser o relogio do servidor', AV_SQL,
+     "          criado_at, actualizado_at)\n  VALUES ($1, $2, $3, $4, $5, $6, $7, $7)",
+     "          criado_at, actualizado_at)\n  VALUES ($1, $2, $3, $4, $5, $6, now(), now())",
+     AVISOS),
+    ('aviso: a entrega passa a poder mover o instante duas vezes', AV_SQL,
+     "     AND estado = 'pendente'\n   RETURNING id, tenant_id, gatilho, episodio, lembrete, canal, estado,\n             tentativas, falha_motivo, criado_at, entregue_at\n`;\n\n/**\n * Marca um aviso como falhado.",
+     "     AND estado <> 'x'\n   RETURNING id, tenant_id, gatilho, episodio, lembrete, canal, estado,\n             tentativas, falha_motivo, criado_at, entregue_at\n`;\n\n/**\n * Marca um aviso como falhado.",
+     AVISOS),
+    ('aviso: um aviso entregue passa a poder ficar falhado', AV_SQL,
+     "     AND estado <> 'entregue'",
+     "     AND estado <> 'x'", AVISOS),
+    ('aviso: a invalidacao passa a reescrever o primeiro motivo', AV_SQL,
+     "     AND invalido_at IS NULL\n   RETURNING id, tenant_id, canal, endereco_enc, verificado_at,",
+     "     AND TRUE\n   RETURNING id, tenant_id, canal, endereco_enc, verificado_at,", AVISOS),
+    ('aviso: emitir confirmacao deixa de repor o verificado_at', AV_SQL,
+     "         verificado_at = NULL,\n         invalido_at = NULL,",
+     "         invalido_at = NULL,", AVISOS),
+    ('aviso: a confirmacao deixa de conferir o prazo', AV_SQL,
+     "     AND confirmacao_expira_em > $4",
+     "     AND TRUE", AVISOS),
+    ('aviso: a confirmacao deixa de conferir o resumo', AV_SQL,
+     "     AND confirmacao_hash = $3\n",
+     "", AVISOS),
+    ('aviso: o historico deixa de ser por tenant', AV_SQL,
+     "   WHERE tenant_id = $1\n     AND criado_at > $2",
+     "   WHERE criado_at > $2", AVISOS),
+    ('aviso: a varredura dos tenants passa a reclamar dos que estao em onboarding', AV_SQL,
+     "   WHERE t.estado = 'ativo'\n     AND c.id IS NULL",
+     "   WHERE c.id IS NULL", AVISOS),
+    ('aviso: a varredura passa a contar os contactos nao verificados', AV_SQL,
+     "          AND c.verificado_at IS NOT NULL\n          AND c.invalido_at IS NULL",
+     "          AND TRUE", AVISOS),
+    ('aviso: o denominador passa a contar todos os tenants', AV_SQL,
+     "    FROM platform.tenants\n   WHERE estado = 'ativo'",
+     "    FROM platform.tenants", AVISOS),
+
+    # O modulo: a ordem, o painel e a tarefa a T2.
+    ('aviso: o painel passa a aceitar um token no URL', AV_MODULO,
+     "  if (/[?#=]/.test(limpo)) {",
+     "  if (false) {", AVISOS),
+    ('aviso: o painel passa a aceitar http', AV_MODULO,
+     '  if (!/^https:\\/\\//.test(limpo)) throw new PainelInvalidoError("nao e https");',
+     "  if (false) throw new PainelInvalidoError(\"nao e https\");", AVISOS),
+    ('aviso: o canal desconhecido deixa de ser recusado', AV_MODULO,
+     "      if (!(CANAIS as readonly string[]).includes(notificador.canal)) {",
+     "      if (false) {", AVISOS),
+    ('aviso: dois notificadores do mesmo canal deixam de ser recusados', AV_MODULO,
+     "      if (this.#porCanal.has(notificador.canal)) {",
+     "      if (false) {", AVISOS),
+    ('aviso: o estado do texto deixa de vir de uma lista fechada', AV_MODULO,
+     "    if (!(ESTADOS_NO_TEXTO as readonly string[]).includes(estado)) {",
+     "    if (false) {", AVISOS),
+    ('aviso: a falta de contacto deixa de abrir tarefa a T2', AV_MODULO,
+     '          assunto: "tenant sem contacto alternativo verificado",\n        });\n        tarefaAberta = true;',
+     '          assunto: "tenant sem contacto alternativo verificado",\n        });',
+     AVISOS),
+    ('aviso: a falha de entrega deixa de condenar o endereco', AV_MODULO,
+     "      if (condenaOEndereco(motivo)) {",
+     "      if (false) {", AVISOS),
+    ('aviso: a linha deduplicada passa a ser entregue outra vez', AV_MODULO,
+     "      if (registado === null) {",
+     "      if (false) {", AVISOS),
+
+    # Os quatro achados da revisao adversarial, cada um com a sua mutacao.
+    ('aviso: o episodio esgotado volta a desaparecer da varredura', AV_SQL,
+     "  HAVING max(lembrete) <= $2",
+     "  HAVING max(lembrete) < $2", AVISOS),
+    ('aviso: a varredura deixa de reconhecer o esgotamento', AV_MODULO,
+     "      if (lembretesEsgotados(agora, linha.primeiro_em, enviado)) {",
+     "      if (false) {", AVISOS),
+    ('aviso: a linha do sem_contacto volta a ser descartada', AV_MODULO,
+     "        if (semContacto !== null) escritos.push(semContacto);\n",
+     "", AVISOS),
+    ('aviso: a hora do aviso volta a sair em UTC', AV_MODULO,
+     '    timeZone: FUSO,',
+     '    timeZone: "UTC",', AVISOS),
+    # **Duas**, e cada uma morre por um teste diferente: a `medium` pelo
+    # varrimento do criterio 5 (`09/11/2026` sao oito digitos e a regua apanha-a)
+    # e a `short` pela legibilidade (`09/11/26` da o ano em dois digitos). A
+    # primeira versao so tinha a `short` e dizia, na razao, que ela trazia oito
+    # digitos — mediu-se as tres formas e e a `medium` que os traz.
+    ('aviso: a hora do aviso volta a forma media', AV_MODULO,
+     '    dateStyle: "long",',
+     '    dateStyle: "medium",', AVISOS),
+    ('aviso: a hora do aviso volta a forma curta', AV_MODULO,
+     '    dateStyle: "long",',
+     '    dateStyle: "short",', AVISOS),
+
+    # As metricas.
+    ('aviso: a etiqueta deixa de ser conferida', AV_METRICAS,
+     "      if (!definicao.valores[indice]?.includes(valor)) {",
+     "      if (false) {", AVISOS),
+    ('aviso: o numero de etiquetas deixa de ser conferido', AV_METRICAS,
+     "    if (etiquetas.length !== definicao.nomes.length) {",
+     "    if (false) {", AVISOS),
+    ('aviso: uma latencia negativa passa a entrar no histograma', AV_METRICAS,
+     "    if (!Number.isFinite(segundos) || segundos < 0) return;",
+     "    if (false) return;", AVISOS),
+    ('aviso: as contagens de contacto deixam de ser conferidas', AV_METRICAS,
+     "    if (!Number.isInteger(semContacto) || semContacto < 0) return;",
+     "    if (false) return;", AVISOS),
+    # O subprocessador e o gate de `prod` (criterio 8).
+    ('aviso: o gate de prod deixa de bloquear', AV_FORNECEDOR,
+     '    if (limpar(env[VARIAVEIS.ambiente]).toLowerCase() === AMBIENTE_BLOQUEANTE) {',
+     "    if (false) {", AVISOS),
+    ('aviso: o gate passa a bloquear fora de prod tambem', AV_FORNECEDOR,
+     '    if (limpar(env[VARIAVEIS.ambiente]).toLowerCase() === AMBIENTE_BLOQUEANTE) {',
+     "    if (true) {", AVISOS),
+    # **A que paga o caso de fronteira**: com o predicado so no pais, um
+    # ambiente sem nada declarado tem `country` `AO` por omissao e passava — e
+    # nao tem fornecedor nenhum.
+    ('aviso: o pendente em Angola deixa de bloquear', AV_FORNECEDOR,
+     "  const transfere = country !== PAIS_SEM_TRANSFERENCIA || provider === FORNECEDOR_PENDENTE;",
+     "  const transfere = country !== PAIS_SEM_TRANSFERENCIA;", AVISOS),
+    ('aviso: a transferencia passa a ser sempre verdadeira', AV_FORNECEDOR,
+     "  const transfere = country !== PAIS_SEM_TRANSFERENCIA || provider === FORNECEDOR_PENDENTE;",
+     "  const transfere = true;", AVISOS),
+    ('aviso: o apd_ref deixa de ser conferido', AV_FORNECEDOR,
+     "  if (transfere && apdRef === null) {",
+     "  if (false) {", AVISOS),
+    ('aviso: a forma do pais deixa de ser conferida', AV_FORNECEDOR,
+     "  if (!PAIS.test(country)) {",
+     "  if (false) {", AVISOS),
+    ('aviso: a forma do fornecedor deixa de ser conferida', AV_FORNECEDOR,
+     "  if (!FORNECEDOR.test(provider)) {",
+     "  if (false) {", AVISOS),
+    ('aviso: a forma da referencia da APD deixa de ser conferida', AV_FORNECEDOR,
+     '  if (apdBruto !== "" && !APD_REF.test(apdBruto)) {',
+     "  if (false) {", AVISOS),
+    ('aviso: a declaracao invalida deixa de levantar', AV_FORNECEDOR,
+     "  if (problemas.length > 0) throw new DeclaracaoInvalidaError(problemas);",
+     "  if (false) throw new DeclaracaoInvalidaError(problemas);", AVISOS),
+    # O texto vai num literal **cru** (`r'...'`): no ficheiro TypeScript
+    # esta `\t` — barra invertida e t —, e num literal normal do Python isso
+    # virava uma tabulacao. O `--aplicaveis` recusou as duas primeiras
+    # tentativas, e e exactamente para isso que esse modo existe.
+    ('aviso: as pontas do valor deixam de ser limpas', AV_FORNECEDOR,
+     r'  return (valor ?? "").replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "");',
+     '  return valor ?? "";', AVISOS),
+    ('aviso: o corte dos 300 s sai dos baldes', AV_METRICAS,
+     "export const CORTES_DA_LATENCIA: readonly number[] = [1, 5, 15, 30, 60, 120, 300, 600, 1_800];",
+     "export const CORTES_DA_LATENCIA: readonly number[] = [1, 5, 15, 30, 60, 120, 600, 1_800];",
+     AVISOS),
 ]
 
 

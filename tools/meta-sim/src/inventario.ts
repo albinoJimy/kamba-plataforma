@@ -96,6 +96,18 @@ export const INVENTARIO: readonly Entrada[] = [
       "prova que o detector o ve, e um zero sobre uma entrada limpa nao diz nada",
   },
   {
+    ficheiro: "packages/core-ts/tests/avisos.test.ts",
+    ocorrencias: 2,
+    razao:
+      "os nomes de loja do varrimento de 200 avisos do KAM-115, criterio 5: o " +
+      "aviso ao dono mascara corridas de sete ou mais digitos no nome da loja " +
+      "porque «Loja do Ze 923 456 789» e um nome plausivel em Luanda, e sem " +
+      "numeros de forma real o teste provava que a mascara apanha numeros que " +
+      "nao se parecem com telefones — que e o contrario do que ela existe para " +
+      "fazer. Nenhum pertence a ninguem: sao sequenciais a partir do prefixo " +
+      "movel, como os das outras entradas desta lista",
+  },
+  {
     ficheiro: "tools/log_policy/tests/test_x11.py",
     ocorrencias: 6,
     razao:

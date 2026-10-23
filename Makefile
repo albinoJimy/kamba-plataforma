@@ -1001,6 +1001,22 @@ ci-8:
 	@# haver chamada a Meta.
 	@echo "==> gate 8: modos da conversa contra PostgreSQL 18.6 (KAM-018)"
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_modos
+	@#
+	@# KAM-115: o aviso ao dono por canal alternativo. O que so aqui se prova e
+	@# o que o objecto da prova obriga — o servidor: que as onze cadeias de
+	@# `src/avisos/consultas.ts` **correm** (uma base falsa compara-as por texto
+	@# e nunca as interpreta, pelo que um erro de sintaxe passava o gate 4
+	@# inteiro), que o `ON CONFLICT DO NOTHING` da idempotencia do criterio 2
+	@# desempata entre **duas** ligacoes e nao por quem leu primeiro, que o
+	@# `owner_notices_lembrete_ck` recusa o quarto lembrete do criterio 4, que a
+	@# confirmacao do criterio 6 e atomica — a comparacao do resumo e o prazo
+	@# estao na instrucao —, que as tres varreduras correm sem contexto de
+	@# tenant e **nao** correm como `kamba_app`, que o endereco do dono nao
+	@# aparece em claro em coluna nenhuma, e o X-03 sobre as duas tabelas novas.
+	@# Nao corre contra simulador nenhum: o criterio 3 manda medir com
+	@# fornecedor falso, e o verdadeiro e um subprocessador por contratar.
+	@echo "==> gate 8: aviso ao dono contra PostgreSQL 18.6 (KAM-115)"
+	@$(VENV_PYTHON) db/gate_bd.py --suite tests_avisos
 
 # -----------------------------------------------------------------------------
 # Limpeza

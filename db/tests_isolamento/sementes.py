@@ -501,6 +501,71 @@ def _coexistencia_do_canal(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _contacto_do_dono(cursor, tenant_id: str, canario: str) -> None:
+    """O contacto alternativo do dono (KAM-115). O canario vai no `id`.
+
+    **A terceira tabela isolada sem coluna de texto livre**, depois da
+    `conversations` do KAM-014 e da `channel_coexistence` do KAM-017 — e aqui
+    isso e o proprio DoD: «endereco do dono so em cifra e nunca em logs». Das
+    dez colunas, o `canal` e um dominio de um valor, o `endereco_enc` e o
+    `confirmacao_hash` sao `bytea` com `CHECK` de comprimento, cinco sao tempos,
+    o `motivo_invalido` e um dominio fechado emparelhado com o `invalido_at`, e
+    sobra o `id`. Que nao haja onde escrever texto **nao e acidente**: e a forma
+    de garantir a regra, porque uma regra que depende de ninguem escrever num
+    sitio onde da para escrever nao e uma regra.
+
+    O `endereco_enc` leva quarenta octetos de enchimento e nao um endereco: o
+    `owner_contacts_enc_ck` exige trinta no minimo (um criptograma tem versao,
+    `kid`, IV e etiqueta), e uma semente com um e-mail em claro punha na base de
+    ensaio exactamente o que esta tabela existe para nao ter.
+
+    Semeia o administrador da instancia: o `kamba_batch` tem `SELECT`, `UPDATE`
+    e `DELETE` e **nao** `INSERT`, de proposito — quem capta o endereco e o
+    caminho do dono (KAM-086) e nao um *job* de retaguarda.
+    """
+    cursor.execute(
+        "INSERT INTO platform.owner_contacts "
+        "(id, tenant_id, canal, endereco_enc) "
+        "VALUES (%s, %s, 'email', %s)",
+        (_uuid(canario), tenant_id, b"" * 40),
+    )
+
+
+def _aviso_ao_dono(cursor, tenant_id: str, canario: str) -> None:
+    """Um aviso ao dono (KAM-115). O canario vai no `episodio`.
+
+    **Vai no `episodio` e nao na chave**, ao contrario das duas tabelas acima:
+    aqui ha coluna de texto livre, e e por desenho — o `episodio` e o que
+    distingue «o canal caiu outra vez» de «o canal caiu», e quem o cunha e quem
+    conhece o episodio. E a coluna certa para o oraculo, porque e a unica desta
+    tabela que aceita um valor arbitrario sem deixar de significar o que
+    significa.
+
+    A `chave` deriva do canario pelo `_resumo` e nao e o canario: o
+    `owner_notices_chave_ck` exige trinta e dois octetos. Em producao ela e
+    `sha256(dominio ␀ tenant ␀ gatilho ␀ episodio)`; aqui basta que seja unica
+    por tenant e por tabela, que e o que a unicidade
+    `owner_notices_idempotencia_uq` precisa para nao deduplicar as duas
+    sementes.
+
+    **A coluna alteravel e `tentativas` e nao `estado`**, e a escolha e do
+    `CHECK`: os testes de escrita cruzada alteram **uma** coluna, e o
+    `owner_notices_entrega_ck` liga o `estado = 'entregue'` ao `entregue_at` —
+    um `UPDATE` de uma coluna so levantava `23514` antes de a politica ser
+    avaliada, e o que o teste mede deixava de ser o isolamento. O `tentativas`
+    esta no `GRANT UPDATE` por coluna e so tem `CHECK` de nao-negativo.
+
+    Semeia o `kamba_batch`, que tem `INSERT` nesta tabela — e tem-no porque os
+    lembretes das 24 h e das 72 h do criterio 4 sao escritas de retaguarda.
+    """
+    cursor.execute(
+        "INSERT INTO platform.owner_notices "
+        "(tenant_id, gatilho, episodio, chave, canal) "
+        "VALUES (%s, 'canal_desligado', %s, %s, 'email')",
+        (tenant_id, canario, _resumo(canario)),
+    )
+
+
 def _midia(cursor, tenant_id: str, canario: str) -> None:
     """Um objecto de midia do tenant (KAM-020). O canario vai no `media_id`.
 
@@ -831,6 +896,23 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "channel_onboarding"): Receita(
         _tentativa_de_onboarding, "waba_id", None, None, escrita_do_papel=False,
     ),
+    # KAM-115: a terceira tabela isolada sem coluna de texto livre, e aqui isso e
+    # o DoD «endereco do dono so em cifra». O canario vai no `id`; a coluna
+    # alteravel e o `endereco_enc`, que esta no `GRANT UPDATE` por coluna da
+    # `0019` e so tem `CHECK` de comprimento minimo. Semeia o administrador: o
+    # `kamba_batch` nao tem `INSERT` aqui, de proposito.
+    ("platform", "owner_contacts"): Receita(
+        _contacto_do_dono, "id", "endereco_enc", b"" * 40,
+        semeador="admin", guardado=_uuid,
+    ),
+    # KAM-115: aqui **ha** coluna de texto livre e o canario vai no `episodio`.
+    # A coluna alteravel e `tentativas` e nao `estado`, porque o
+    # `owner_notices_entrega_ck` liga o `estado = 'entregue'` ao `entregue_at` e
+    # um `UPDATE` de uma coluna so levantava `23514` antes de a politica ser
+    # avaliada. Semeia o `kamba_batch`, que escreve os lembretes do criterio 4.
+    ("platform", "owner_notices"): Receita(
+        _aviso_ao_dono, "episodio", "tentativas", 7,
+    ),
     ("platform", "events_outbox"): Receita(
         _evento_no_outbox, "agregado_id", None, None, semeador="admin"
     ),
@@ -955,6 +1037,12 @@ ORDEM = (
     # tickets entraram.
     ("platform", "channel_coexistence"),
     ("platform", "channel_onboarding"),
+    # KAM-115: as duas so tem FK para `tenants` — nenhuma aponta para a outra,
+    # e e por isso que a ordem entre elas e arbitraria e se escolhe a da
+    # revisao. Ficam aqui, a seguir ao onboarding, porque a ordem inversa e a de
+    # apagar e nenhuma delas e apontada por ninguem.
+    ("platform", "owner_contacts"),
+    ("platform", "owner_notices"),
     # KAM-009: as duas so tem FK para `tenants`, e por isso ficam no fim.
     ("platform", "tenant_usage"),
     ("platform", "usage_ledger"),

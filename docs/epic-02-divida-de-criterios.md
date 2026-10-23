@@ -21,7 +21,7 @@ Separadas, são quatro populações, e três delas não precisam de inventário:
 |---|---|---|
 | Revisores humanos | 13 | Vazias por decisão escrita do fundador: nesta fase não há revisores, e a caixa fica vazia **como facto registado**. Uma por bloco |
 | «Todos os CA satisfeitos» | 12 | Derivada: fecha sozinha no dia em que o seu bloco fechar |
-| KAM-115 | 14 | O ticket não arrancou, e espera o KAM-116 (agregador de SMS, EPIC-09). Não é dívida de execução, é trabalho por fazer |
+| KAM-115 | 14 | **Esta linha ficou desactualizada no dia seguinte**, e fica como estava com a correcção ao lado: o ticket arrancou e entregou — sete critérios de oito, uma caixa vazia (o alvo de ≥ 95%, que é medição sobre *tenants* reais) e seis das oito do DoD. **E não esperava o KAM-116**: os *Fora de âmbito* e o critério 8 do próprio bloco mandam o SMS para lá, e o ticket entrega-se inteiro sem ele — a dependência está na tabela sem gatear critério nenhum, e isso é agora a dívida **90** |
 | **Os tickets fundidos** | **32** | **É isto que este documento inventaria** |
 
 Destas 32, **nenhuma é trabalho esquecido.** Cada uma tem a razão escrita na
@@ -172,7 +172,7 @@ Responde à pergunta útil: **se este credor chegar amanhã, quantas caixas fech
 | KAM-025 — consumidor da fila do espelho | 1 | KAM-019 crit. 3 |
 | KAM-066 — o registo que hospeda o X-10 | 1 | KAM-019 crit. 10 |
 | KAM-093 — o painel da PME | 1 | KAM-017 crit. 6 |
-| KAM-115 — aviso ao dono por canal alternativo | 1 | KAM-015 crit. 6 |
+| ~~KAM-115 — aviso ao dono por canal alternativo~~ | ~~1~~ | ~~KAM-015 crit. 6~~ — **paga**: o KAM-115 entregou-se e o aviso ao dono existe. O que fica por fazer na segunda frase do critério 6 do KAM-015 é a **fila** com ordem por conversa, que é outro credor (KAM-071/KAM-078, o agendador) |
 | Um mês de Piloto a facturar | 1 | KAM-023 crit. 7 |
 
 O que esta tabela mostra, e que as 32 linhas soltas não mostravam:

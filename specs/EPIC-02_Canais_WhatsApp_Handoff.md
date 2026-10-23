@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Canais WhatsApp e Handoff |
-| Versão | 1.13 |
+| Versão | 1.14 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md`, `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md`, `../docs/tecnica/06_Dados_Eventos_Analytics.md`, `../docs/tecnica/08_Seguranca_Conformidade.md`, `../docs/tecnica/10_Onboarding_Governanca.md` (§6–§7), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` |
@@ -25,7 +25,11 @@ Fase mista, por desenho: **Fase 0** para o que o esqueleto andante exige (KAM-01
 ## 2. Critérios de Saída do Epic
 
 Auditados em 2026-10-23, com todos os tickets do epic fundidos menos o KAM-115,
-sobre `publico/main` (`3278307`, KAM-017). **Uma caixa marcada é uma afirmação,
+sobre `publico/main` (`3278307`, KAM-017). **O KAM-115 entregou-se depois desta
+auditoria** e está verificado no bloco dele: sete critérios de oito, e o vazio é
+o alvo de ≥ 95% dos *tenants* `ativo` com contacto verificado, que é medição
+sobre *tenants* reais. As contagens desta secção são as do instante em que ela
+foi escrita e não se reescrevem aqui — quem as quiser actualizadas lê o bloco. **Uma caixa marcada é uma afirmação,
 e nenhuma se marcou sem o teste que a prova nomeado ao lado** — ficheiro e nome
 do teste, para que se possa ir lá. Onde a caixa fica vazia, a razão e de quem
 depende estão escritas: uma lista de caixas vazias sem razão é um mapa e não um
@@ -3222,14 +3226,14 @@ Consumir os eventos de falha ou risco do canal e enviar ao dono um aviso idempot
 
 ### Critérios de Aceitação
 
-- [ ] Cinco gatilhos geram aviso: `channel.updated` com `desligado` (cada um dos 6 motivos de `PARTNER_REMOVED`), `channel.inactivity_warning` (10 dias), `restrito` por qualidade, `motivo_restricao='payment_method'` e HND indisponível > 5 min (*proposta*); cada um com texto próprio e o passo seguinte (reconectar, abrir a app, adicionar cartão). Um gatilho fora da lista não envia nada.
-- [ ] Idempotência por `hash(tenant_id, gatilho, episódio)`: o mesmo evento 3× (e re-entregue pela DLQ) produz 1 aviso; um novo episódio depois de resolvido produz outro.
-- [ ] Latência do evento ao aviso entregue ao fornecedor de e-mail ≤ 5 min p95 (*proposta*), medida com relógio acelerado e fornecedor falso.
-- [ ] Limites de frequência (*propostas*): ≤ 1 aviso por (tenant, gatilho) em 24 h e ≤ 3 por tenant/dia; lembretes às 24 h e 72 h se o estado persiste, depois pára e abre tarefa a T2; 500 eventos/hora de um só tenant enviam ≤ 3.
-- [ ] Conteúdo por allowlist de modelos (1 por gatilho): nome da loja, estado, hora, passos e ligação ao painel sem token nem identificador pessoal no URL; 0 telefones, `contact_id`, BSUID ou texto de clientes (varrimento X-11 sobre 200 avisos gerados).
+- [x] Cinco gatilhos geram aviso: `channel.updated` com `desligado` (cada um dos 6 motivos de `PARTNER_REMOVED`), `channel.inactivity_warning` (10 dias), `restrito` por qualidade, `motivo_restricao='payment_method'` e HND indisponível > 5 min (*proposta*); cada um com texto próprio e o passo seguinte (reconectar, abrir a app, adicionar cartão). Um gatilho fora da lista não envia nada.
+- [x] Idempotência por `hash(tenant_id, gatilho, episódio)`: o mesmo evento 3× (e re-entregue pela DLQ) produz 1 aviso; um novo episódio depois de resolvido produz outro.
+- [x] Latência do evento ao aviso entregue ao fornecedor de e-mail ≤ 5 min p95 (*proposta*), medida com relógio acelerado e fornecedor falso.
+- [x] Limites de frequência (*propostas*): ≤ 1 aviso por (tenant, gatilho) em 24 h e ≤ 3 por tenant/dia; lembretes às 24 h e 72 h se o estado persiste, depois pára e abre tarefa a T2; 500 eventos/hora de um só tenant enviam ≤ 3.
+- [x] Conteúdo por allowlist de modelos (1 por gatilho): nome da loja, estado, hora, passos e ligação ao painel sem token nem identificador pessoal no URL; 0 telefones, `contact_id`, BSUID ou texto de clientes (varrimento X-11 sobre 200 avisos gerados).
 - [ ] O dono tem ≥ 1 contacto alternativo verificado por ligação de confirmação (o e-mail é captado em KAM-086); tenant `ativo` sem contacto verificado gera alerta a T2 e a métrica `owner_alt_contact_missing`; alvo ≥ 95% dos tenants `ativo` com contacto verificado (*proposta*).
-- [ ] Falha de entrega (*bounce*, rejeição) marca o contacto como inválido, tenta o painel e abre tarefa a T2; nenhum aviso se perde em silêncio (falha injectada).
-- [ ] Nenhum adaptador de envio WhatsApp neste módulo (teste de configuração); o fornecedor de e-mail consta do inventário de subprocessadores (KAM-069) com `apd_ref`, ou fica `pendente` e bloqueia `prod` (ADR-008).
+- [x] Falha de entrega (*bounce*, rejeição) marca o contacto como inválido, tenta o painel e abre tarefa a T2; nenhum aviso se perde em silêncio (falha injectada).
+- [x] Nenhum adaptador de envio WhatsApp neste módulo (teste de configuração); o fornecedor de e-mail consta do inventário de subprocessadores (KAM-069) com `apd_ref`, ou fica `pendente` e bloqueia `prod` (ADR-008).
 
 ### Detalhes Técnicos
 
@@ -3248,12 +3252,12 @@ Consumir os eventos de falha ou risco do canal e enviar ao dono um aviso idempot
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] Código revisto por ≥ 1 revisor; testes verdes; cobertura ≥ limiar.
-- [ ] Documentação actualizada (`docs/avisos-ao-dono.md`); Conventional Commits.
-- [ ] **Isolamento de tenant** — RLS em `owner_notices` e teste cruzado.
-- [ ] **Idempotência** — chave por episódio com teste de repetição.
-- [ ] **Privacidade** — avisos sem dados de clientes; endereço do dono só em cifra e nunca em logs.
-- [ ] **Custo e observabilidade** — `owner_notice_sent_total{gatilho,canal}`, `owner_notice_latency_s`, `owner_alt_contact_missing`.
-- [ ] **Migrações reversíveis** — `downgrade` testado.
+- [x] Documentação actualizada (`docs/avisos-ao-dono.md`); Conventional Commits.
+- [x] **Isolamento de tenant** — RLS em `owner_notices` e teste cruzado.
+- [x] **Idempotência** — chave por episódio com teste de repetição.
+- [x] **Privacidade** — avisos sem dados de clientes; endereço do dono só em cifra e nunca em logs.
+- [x] **Custo e observabilidade** — `owner_notice_sent_total{gatilho,canal}`, `owner_notice_latency_s`, `owner_alt_contact_missing`.
+- [x] **Migrações reversíveis** — `downgrade` testado.
 
 ### Handoff para Claude Code
 
@@ -3268,6 +3272,204 @@ Objectivo: avisar o dono por e-mail e painel quando o canal falha ou está em ri
 Não expandas escopo: sem SMS, sem régua de cobrança (KAM-058), sem runbooks (KAM-083).
 Testes: idempotência, limites, bounce, isolamento, X-11. Abre PR com o template do §7.
 ```
+
+---
+
+### Verificação dos Critérios de Aceitação
+
+**Entregue em `feature/KAM-115-aviso-ao-dono`:** a revisão `0019` (descende da
+`0018`) — **duas** tabelas — e o módulo `packages/core-ts/src/avisos/`, que é
+quem entrega o aviso. Desenho em
+[`../docs/avisos-ao-dono.md`](../docs/avisos-ao-dono.md).
+
+**Este é o último ticket do epic, e fecha a lacuna R16.** Os emissores existiam
+desde o KAM-017, o KAM-021 e o KAM-023; o que não existia era quem entrega.
+
+**São duas tabelas e não uma, e quem o decide é o critério 7.** Ele manda que uma
+falha de entrega «marque o **contacto** como inválido»: isso é um facto do
+contacto e não do aviso, e com uma tabela só a pergunta «este dono tem contacto
+válido?» passava a ser uma consulta sobre o histórico de envios em vez de um
+facto.
+
+| # | Critério | Estado | Evidência |
+|---|---|---|---|
+| 1 | Cinco gatilhos geram aviso, cada um com texto próprio e o passo seguinte; um gatilho fora da lista não envia nada | **satisfeito** | Os cinco estão no `GATILHOS` e no `owner_notices_gatilho_ck`, e **há um teste que compara os dois** contra o `pg_get_constraintdef` (`db/tests/test_avisos_schema.py`, «o dominio do gatilho e o do contrato em typescript») — a lição que a `0008` e a `0009` pagaram. «**os cinco gatilhos geram aviso, cada um com o seu texto e o seu passo**» verifica cinco assuntos **diferentes**, e «**todos os modelos dizem o passo seguinte**» que o corpo leva o passo dentro: um aviso que diz que algo está mal e não diz o que fazer é um aviso que o dono não pode usar. A recusa é literal nos dois lados: «**um gatilho fora da lista não envia nada**» mede 0 linhas e 0 entregas, e na base o `CHECK` recusa com `23514`. **Os seis motivos de `PARTNER_REMOVED` são um gatilho só**, e é decisão escrita: o critério pede que os seis *gerem* aviso, não que gerem seis textos — o passo é o mesmo nos seis, e seis modelos iguais eram seis sítios para a mesma frase divergir. O motivo vive no `episodio`, e «**os seis motivos de PARTNER_REMOVED são um gatilho só, e episódios diferentes**» prova que os seis dão **seis chaves**. O `painel_indisponivel` é ***proposta***, como o critério o marca |
+| 1b | …e os cinco nomes passam a gramática do registo | **satisfeito, e mediu-se em vez de se prometer** | «**os cinco gatilhos passam a gramática do `outcome`**». Estes valores são também `outcome` de linha de registo, e o `IDENTIFICADOR` do `logger/politica.ts` só aceita minúsculas sem acentos — **em modo estrito, que é o do CI, o `Logger` levanta**, e um aviso perfeitamente normal passava a excepção não tratada no caminho de um *webhook*. É a mesma classe de defeito que o `sem_humano_24h` do KAM-018 pagou e que a `0018` repetiu para os motivos de desligamento; aqui o que isso proíbe é um `painel_indisponível` com acento |
+| 2 | Idempotência por `hash(tenant_id, gatilho, episódio)`: o mesmo evento 3× (e re-entregue pela DLQ) produz 1 aviso; um novo episódio depois de resolvido produz outro | **satisfeito, e é da base** | «**o mesmo evento 3× produz 1 aviso por canal**»: três chamadas, **duas** linhas (uma por canal) e **uma** entrega em cada notificador. Quem decide é a `owner_notices_idempotencia_uq` com `ON CONFLICT DO NOTHING`, e isso só se prova com **duas** ligações: `tests_bd/avisos.bd.test.ts`, «**duas transacções concorrentes com a mesma chave deixam uma linha**» — `primeira + segunda === 1`. Com a decisão no código, duas transacções liam «ainda não avisei» as duas e o dono levava dois. A segunda metade é o `episodio`: «**um episódio novo depois de resolvido produz outro aviso**» e, na base, «o mesmo episodio em dois tenants da duas linhas» — a chave leva o `tenant_id` **dentro** do resumo (sem ele, dois *tenants* com a mesma `event_key` da Meta partilhavam-na e o segundo nunca era avisado) **e** ao lado, na restrição, porque a primeira protege de uma colisão e a segunda dá uma mensagem de erro em vez de um aviso perdido |
+| 2b | …e a re-entrega pela DLQ não gasta o tecto | **satisfeito, e a ordem das recusas é que o dá** | «**a re-entrega pela DLQ não gasta o tecto diário**». O `ja_avisado` avalia-se **antes** dos limites, e não é detalhe: com os limites primeiro, três entregas do mesmo evento consumiam o tecto diário do dono e os outros gatilhos calavam-se — um dono com o canal desligado **e** o pagamento em falta sabia do primeiro três vezes e do segundo nunca |
+| 3 | Latência do evento ao aviso entregue ao fornecedor ≤ 5 min p95 (*proposta*), medida com relógio acelerado e fornecedor falso | **satisfeito como o critério o escreve** | O critério manda medir «com relógio acelerado e fornecedor falso», e é o que se faz: **nenhuma função do módulo chama `Date.now()`** — o relógio é porta —, e os notificadores são portas com duas implementações de ensaio. «**mede-se com o relógio na mão, e entra no histograma**»: evento a `T0 − 90 s`, dois canais, `owner_notice_latency_s_count = 2` e `_sum = 180`. O corte de **300 s** está nos baldes por causa deste critério — «**o corte dos 300 s existe para o p95 se ler sem interpolar**» —, e uma latência negativa não entra, porque um `NaN` no formato de exposição faz o Prometheus descartar a recolha **toda**. **O p95 contra tráfego real é do Piloto**: o que a máquina pode afirmar é que o caminho é síncrono dentro da transacção de quem chama, pelo que a latência é a do fornecedor e não a de uma fila nossa |
+| 4 | Limites (*propostas*): ≤ 1 aviso por (tenant, gatilho) em 24 h e ≤ 3 por tenant/dia; lembretes às 24 h e 72 h se o estado persiste, depois pára e abre tarefa a T2; 500 eventos/hora de um só tenant enviam ≤ 3 | **satisfeito** | As quatro metades. «**≤ 1 aviso por (tenant, gatilho) em 24 h**» nos dois lados da fronteira (`JANELA − 1` recusa, `JANELA` passa); «**≤ 3 avisos por tenant por dia**», com o dia **corrido e não civil** — «**o dia é corrido e não civil**», porque um dia civil fazia o tecto reiniciar à meia-noite e um dono avisado três vezes às 23 h levava outros três uma hora depois; «**os lembretes são às 24 h e às 72 h, e depois param**», e o «depois pára» está no `owner_notices_lembrete_ck` **na base** — «**o quarto lembrete é recusado pelo servidor, e não por um `if`**», com `23514` —, porque a regra de parar é a parte do limite que protege o dono de nós; e os 500: «**500 eventos numa hora de um só tenant enviam ≤ 3 avisos**», com a contagem de avisos **distintos** e com a asserção de que as supressões se contaram (mais de 400), sem a qual o teste provava que nada aconteceu |
+| 4b | …e a ordem dos dois limites, que foi medida | **satisfeito, e é um achado da revisão adversarial** | «**a janela do gatilho vem antes do tecto diário, e a ordem é medida**». Com o tecto primeiro, um *tenant* com três episódios do mesmo gatilho gastava o dia todo num gatilho só e os outros quatro ficavam sem voz para as 24 h seguintes; com a janela primeiro, o segundo episódio do mesmo gatilho é recusado **sem gastar nada do tecto**. É a diferença entre um dono que sabe que tem três problemas e um dono que sabe três vezes o mesmo. E «**o tecto conta avisos e não linhas**»: um aviso sai pelos dois canais e é **um** aviso — contar duas linhas fazia o tecto de três valer um e meio |
+| 4c | …e os lembretes, que a primeira versão nunca enviava | **satisfeito depois de a revisão adversarial o apanhar** | «**um lembrete não é recusado pela janela do gatilho**». Um lembrete é, por definição, um segundo aviso do mesmo gatilho dentro das 24 h — e a primeira versão filtrava os dois, pelo que **os lembretes nunca saíam**. O teste que afirmava o contrário media o lembrete das 24 h num **histórico vazio**, onde a janela não tem nada para recusar: passava pela razão errada. A correcção é o `lembrete === 0` no predicado da janela, e o teste afirma agora as duas coisas no mesmo instante — o lembrete passa e o aviso próprio é recusado por `ja_avisado`. Há uma mutação que troca o predicado por `true` |
+| 5 | Conteúdo por *allowlist* de modelos (1 por gatilho): nome da loja, estado, hora, passos e ligação ao painel sem *token* nem identificador pessoal no URL; 0 telefones, `contact_id`, BSUID ou texto de clientes (varrimento X-11 sobre 200 avisos gerados) | **satisfeito** | A lista é fechada e aplica-se na **construção**: «**um parâmetro fora da lista levanta**» e «**a recusa é antes de preencher, e não dentro**» — com a recusa só dentro do `preencher`, um parâmetro a mais que nenhum modelo usasse passava sem ser visto, e o que entrava sem ser visto era o que o critério proíbe. O varrimento é o do critério: «**o varrimento de 200 avisos não encontra nada do que o critério proíbe**» gera 200 avisos variando gatilho, estado, hora e nome de loja — com telefones, NIF e IBAN escritos de todas as maneiras em que uma pessoa os escreve — e afirma **0** corridas de sete ou mais dígitos, **0** UUID, **0** BSUID e **0** marcadores por preencher. A ligação ao painel recusa a **forma** e não uma lista de parâmetros proibidos: «**a ligação ao painel não leva token nem identificador**» recusa `?`, `#`, `=` e `http`. E o `{estado}` vem de uma lista fechada, porque um parâmetro de texto livre era por onde a PII entrava |
+| 5b | …e o nome da loja, que é o único texto livre | **satisfeito, e mascara-se em vez de recusar** | «**o nome da loja mascara telefones em vez de recusar o aviso**». O `loja` é o que o dono escreveu, e «Loja do Zé 923 456 789» é um nome plausível em Luanda. Recusar o aviso fazia o dono não saber que o canal caiu por causa de **como ele escreveu o nome da loja**, que é castigá-lo por um defeito nosso. A fronteira é o `DIGITOS_MAXIMOS` do `logger/politica.ts` — **seis** —, **reexportado e não redeclarado** («**a fronteira é o `DIGITOS_MAXIMOS` da casa e não um número novo**»), pela razão que o `MPS_POR_MODO` do KAM-017 escreveu. E a régua apanha as corridas **separadas por espaços, pontos, hífenes e barras**: procurar só a corrida contígua deixava passar exactamente o caso comum |
+| 6 | O dono tem ≥ 1 contacto alternativo verificado por ligação de confirmação; *tenant* `ativo` sem contacto verificado gera alerta a T2 e a métrica `owner_alt_contact_missing`; alvo ≥ 95% dos *tenants* `ativo` com contacto verificado (*proposta*) | **parcial — caixa vazia** | **As duas primeiras metades estão satisfeitas.** A ligação de confirmação é emitida, guardada em resumo (`sha256`, nunca o *token*), tem prazo e confirma **uma vez**: «**a ligação de confirmação vale sete dias e confirma uma vez**», «um token errado não confirma», «uma ligação expirada não confirma», e contra a base «**duas confirmações simultâneas do mesmo *token* dão uma**» — a comparação e o prazo estão **na instrução**, pelo que com a leitura e a escrita separadas no código passavam as duas. Um contacto não verificado **não recebe avisos** (`contactoUtilizavel` exige verificado **e** não inválido). O alerta e a métrica estão: «**um *tenant* sem contacto verificado abre tarefa a T2 e conta**», e «**a varredura publica o numerador e o denominador**» — os dois, porque uma percentagem precisa de denominador e «doze *tenants* sem contacto» não se distingue de catástrofe nem de ruído sem ele. **O que não se cumpre é o alvo**: «≥ 95% dos *tenants* `ativo`» é uma medição sobre *tenants* reais, e não há nenhum — afirmar a percentagem contra dois *tenants* de ensaio era afirmar 100% de nada. O número sai no Piloto, e a caixa fica vazia. **E a captação do e-mail é do KAM-086**, como o próprio critério diz: este ticket emite, guarda, confirma e usa |
+| 7 | Falha de entrega (*bounce*, rejeição) marca o contacto como inválido, tenta o painel e abre tarefa a T2; nenhum aviso se perde em silêncio (falha injectada) | **satisfeito** | As três metades, com falha injectada. «**um *bounce* marca o contacto como inválido e abre tarefa a T2**», e na base «**o *bounce* invalida o contacto pelo caminho do módulo**» confirma a coluna. «**e o painel entrega, que é o «tenta o painel» do critério**»: o aviso sai pelos **dois** canais sempre, pelo que quando o e-mail falha a notificação do painel já saiu — o «tenta o painel» não precisa de um segundo caminho. E «nenhum aviso se perde em silêncio: a falha fica registada na linha» (`estado = 'falhado'`, `falha_motivo`, `tentativas = 1`), com as duas séries de métrica que distinguem **nós recusámos** de **o fornecedor não entregou**: sem elas, um painel vê «o dono não foi avisado» e não distingue a regra a funcionar do canal alternativo estar quebrado |
+| 7b | …e o que **não** condena o endereço | **satisfeito, e o domínio da base é que o impõe** | «**um fornecedor em baixo não condena o endereço**»: `indisponivel` não diz nada sobre o endereço, e marcar o contacto por uma avaria **nossa** era deixar o dono sem canal alternativo. O `sem_contacto` também não, porque não há nada a condenar — «**o `sem_contacto` não marca o contacto como inválido**», e um `sem_contacto` tratado como `bounce` marcava como inválido um endereço que não existe. Os dois lados: o `MOTIVOS_DE_INVALIDEZ` tem **dois** valores dos quatro, e o `owner_contacts_motivo_ck` recusa os outros dois com `23514`. E «**um contacto inválido faz o aviso seguinte falhar com `sem_contacto`**» e não com `bounce`: um `bounce` ali era dizer que o fornecedor recusou uma mensagem que nunca lhe foi entregue |
+| 8 | Nenhum adaptador de envio WhatsApp neste módulo (teste de configuração); o fornecedor de e-mail consta do inventário de subprocessadores (KAM-069) com `apd_ref`, ou fica `pendente` e bloqueia `prod` (ADR-008) | **satisfeito** | A primeira metade é um **teste e não uma promessa**: «**nenhum `import` do módulo vem do `outbound` nem do `entrada`**» lê o texto dos ficheiros do directório — porque é o texto que o compilador lê — e recusa qualquer `import` de onde vive o cliente da Meta, e mede também a ausência da palavra `wamid`, que é o que um adaptador dela precisaria. Os `CANAIS` são dois e o `whatsapp` não é um deles, nem no `CHECK` da base («**o WhatsApp não é um canal de aviso**», `23514`); e o `sms` **não está pré-declarado**, porque é o KAM-116 e um nome sem superfície é o que o *gate* 3b recusa. A segunda metade é a alternativa que o próprio critério escreve: o inventário de subprocessadores **não existe** (nasce com o KAM-069), e o `fornecedor.ts` entrega o *gate* — «**em `prod`, sem `apd_ref`, o serviço não arranca**», com a forma do `storage/config.ts` do KAM-011 e os nomes de `tenant_destinations(provider, country, apd_ref)` do `../docs/tecnica/08` §8.3.1, para que o KAM-069 confronte um vocabulário só. **Qual é o fornecedor não se decide aqui**, e não é omissão: escolher um subprocessador num ficheiro de código é exactamente o que o ADR-008 existe para impedir — o valor por omissão é `pendente`, e `pendente` em `prod` é um arranque recusado |
+| 8b | …e o caso de fronteira do *gate* | **satisfeito, e é o que uma mutação prende** | «**mas `pendente` em Angola bloqueia, porque `pendente` não é um sítio**». O `country` por omissão é `AO`, pelo que um predicado só sobre o país deixava passar um ambiente sem nada declarado — que não tem fornecedor nenhum. E o inverso também se afirma: «**um fornecedor escolhido em Angola não precisa de `apd_ref`**», porque o *gate* existe por causa da **transferência** e não por cerimónia |
+
+#### O isolamento, a privacidade e as migrações
+
+| DoD | Estado | Evidência |
+|---|---|---|
+| **Isolamento de tenant** — RLS em `owner_notices` e teste cruzado | **marcada** | RLS `FORCE` e política `tenant_iso` nas **duas** tabelas, pelo `rls.enable_tenant_rls`. O *gate* 6 descobre-as pela coluna `tenant_id` e corre o X-03/X-04 sobre elas — a receita de sementes é nova em `db/tests_isolamento/sementes.py`, e as **quatro** listas de `test_x05_catalogo.py` precisaram delas (a quarta falhou depois de as três primeiras passarem, exactamente como o KAM-017 avisou). Pelo caminho do módulo: «com o contexto de A, o aviso de B não se lê», «…não se muda» e «…o contacto de B não se lê nem se invalida» — zero linhas e `rowCount = 0`, que é a política como condição e não como excepção |
+| **Idempotência** — chave por episódio com teste de repetição | **marcada** | Ver os critérios 2 e 2b. A chave é `sha256(domínio ␀ tenant ␀ gatilho ␀ episódio)` e o separador é o **octeto nulo** — «**o separador é o octeto nulo, e não um ponto**» —, pela razão que o `prova.ts` do KAM-022 escreveu: com um separador que possa aparecer nos campos, dois episódios diferentes davam a mesma cadeia. O `episodio` **não pode ser vazio**, e o `CHECK` está lá por isso: um `episodio` vazio punha todos os avisos do mesmo gatilho na mesma chave e o segundo episódio de um *tenant* nunca mais era avisado — o defeito mais silencioso possível neste módulo |
+| **Privacidade** — avisos sem dados de clientes; endereço do dono só em cifra e nunca em logs | **marcada** | Três provas de três tipos. **Do esquema:** `db/tests/test_avisos_schema.py`, «**não há coluna em claro para o endereço**» — das colunas de `owner_contacts`, as de texto são **duas** e as duas têm domínio fechado; um teste do lado do código prova o que o código faz hoje, este prova que não há onde escrever um e-mail em claro. **Da base real:** `tests_bd/avisos.bd.test.ts`, «**o endereço nunca é escrito em claro em nenhuma coluna**» varre a tabela à procura do endereço que o módulo acabou de usar. **Do conteúdo:** o varrimento de 200 avisos do critério 5. E `owner_notices` **não tem coluna de corpo**, que é o que os *Detalhes Técnicos* pedem — o mesmo argumento que a `0018` escreveu: uma regra que depende de ninguém escrever num sítio onde dá para escrever não é uma regra |
+| **Custo e observabilidade** — as três métricas do DoD | **marcada, e são cinco** | As três do DoD mais duas, e as duas entram pela razão da emenda 1.21: **recusar sem contar é recusar em silêncio**. Aqui isso é mais do que um princípio — há duas maneiras **opostas** de um aviso não chegar ao dono, e sem as duas séries um painel não distingue a regra a funcionar do canal quebrado. É a **primeira métrica desta casa com duas etiquetas**, e nenhuma é identificador: cinco gatilhos × dois canais são dez séries fixas, e o OBS-I recusa identificadores e não dimensões pequenas. «**um `tenant_id` numa etiqueta levanta**» mede-o, e «**uma etiqueta a menos levanta**» impede que `{gatilho}` conviva com `{gatilho,canal}` na mesma recolha — o Prometheus trata-as como séries diferentes e a soma deixa de ser o número de avisos |
+| **Migrações reversíveis** — `downgrade` testado | **marcada** | `TestDowngradeDa0019`: desce com linhas, não recusa, e sobe outra vez — com as tabelas comparadas contra `TABELAS_ATE_0018` e `TABELAS`, e com a RLS e o `FORCE` conferidos **depois** de subir, porque um `downgrade` que deixasse a tabela sem política ao subir era pior do que não descer. O que se perde está dito na própria revisão: não é prova jurídica como o consentimento da `0015` — é a **idempotência**, porque descer e subir faz o episódio em curso poder ser avisado outra vez |
+| **Todos os CA satisfeitos** | **por marcar** | Sete de oito. O critério 6 fica parcial pelo alvo de ≥ 95%, que é medição sobre *tenants* reais |
+| **≥ 1 revisor** | **por marcar** | Não houve revisor humano. A revisão adversarial foi feita e está abaixo |
+
+#### Os quatro defeitos que uma máquina apanhou, e o quarto é um gate que eu não corri
+
+1. **O relógio, e foi o ensaio contra a base.** A varredura dos lembretes não
+   encontrava episódio nenhum: as linhas tinham `criado_at` do servidor e a
+   janela tinha a hora acelerada do ensaio. A correcção é o `criado_at` vir do
+   relógio de quem chama, e é de **desenho** e não de teste — em produção os dois
+   relógios coincidem, pelo que isto nunca apareceria antes do Piloto. É a mesma
+   razão pela qual o `prazo_em` da `0018` é coluna e não cálculo.
+2. **O `after` do ensaio, e pendurou o processo.** O `apagarTenant` do
+   `tests_bd/apoio.ts` não conhecia as duas tabelas novas, pelo que o `DELETE` do
+   *tenant* rebentava com `23503` **depois** de os testes passarem — e o `after`
+   que fecha as ligações nunca chegava ao fim, pelo que o `node --test` não
+   acabava. Trezentos segundos de silêncio, sem uma linha de saída. O lançador
+   desta *suite* passou a devolver a saída parcial quando o tempo estoura, porque
+   um ensaio pendurado sem saída não se investiga. A nota do KAM-016 já previa a
+   oitava tabela; esta é a nona e a décima.
+3. **Quatro testes meus a passar pela razão errada, e foi a prova por mutação.**
+   Cada caso negativo precisa do seu `SAVEPOINT`: um erro aborta a transacção
+   inteira no PostgreSQL, pelo que a segunda assercão negativa do mesmo teste
+   respondia `25P02` («in_failed_sql_transaction») e não o `23514` que se
+   esperava. O `ComBase.assertErroSql` já existia e faz exactamente isto — e a
+   mesma corrida mostrou que um cursor do `pg8000` **não é gestor de contexto**,
+   o que fazia o teste do `downgrade` levantar `TypeError` antes de afirmar o que
+   fosse. **A bateria de esquema nunca tinha corrido**: o *gate* 8 correu antes
+   de ela existir, e a prova por mutação foi a primeira coisa a executá-la. A
+   lição não é sobre `SAVEPOINT` — é que uma bateria nova tem de correr no seu
+   *gate* **depois** de ser escrita, e não antes.
+4. **O CI apanhou o *gate* 7, que eu não corri.** O `varrer` do KAM-024 conta
+   números de **forma** real em todo o repositório e exige que cada ficheiro que
+   os tenha esteja no inventário de `../tools/meta-sim/src/inventario.ts`, com a
+   contagem e a razão. Os nomes de loja do varrimento de 200 avisos do critério 5
+   têm dois — «Loja do Zé 923456789» e «Mercearia 923 456 789» —, e **têm de os
+   ter**: sem números de forma real, o teste provava que a máscara apanha números
+   que não se parecem com telefones, que é o contrário do que ela existe para
+   fazer. Declarou-se, e **não se mudou o valor**: é a mesma escolha que o
+   `ci/secrets-allow.yaml` impõe pelo outro lado — a lista não se alarga, e aqui o
+   inventário é desenhado para ser alargado **com a razão escrita**, que é o que o
+   distingue de uma pasta isenta. O total do inventário sobe de 86 para 88 e as
+   entradas de 22 para 23, e há um teste que afirma os dois números — o que obriga
+   quem acrescentar um ficheiro a dizê-lo num sítio só. **A lição é a do KAM-022,
+   repetida:** corri as duas primeiras verificações do *gate* 7 (o
+   `contract_diff`) e não a terceira, o `ci-7-meta`. Correr a função de um gate
+   não é correr o gate.
+
+#### A revisão adversarial
+
+**Dois achados, e os dois mudaram o código.**
+
+1. **Os lembretes nunca saíam.** A janela de 24 h por gatilho filtrava **todos**
+   os avisos desse gatilho, e um lembrete é por definição um segundo aviso do
+   mesmo gatilho dentro da janela. O critério 4 manda enviá-lo, e a regra
+   recusava-o. O teste que afirmava o contrário media o lembrete das 24 h num
+   histórico **vazio**: passava, e não provava nada. Ver o critério 4c.
+2. **O tecto diário contava linhas.** Um aviso sai pelos dois canais e escreve
+   duas linhas; com a contagem por linha, o tecto de três valia um e meio e um
+   dono com três problemas sabia de um. Passou a contar `(gatilho, episodio,
+   lembrete)` distintos, e há teste com quatro linhas e dois avisos.
+
+#### A prova por mutação: oito sobreviventes, e os oito eram lacunas minhas
+
+Corrida sobre as 79 mutações deste ticket, com o código já congelado. **Oito
+sobreviveram**, e nenhuma era um falso positivo: cada uma mostrou um teste que
+passava pela razão errada. É a razão por que ela existe, e vale a pena o
+inventário.
+
+1. **A janela do gatilho a morder nos lembretes** — a mutação mais importante
+   das oito, porque o predicado que ela apaga é a **correcção da revisão
+   adversarial**. O teste que o afirmava media o lembrete das 24 h com o aviso
+   próprio em `T0`, e aí a janela **já tinha expirado** — ela é `[T0, T0+24h)`.
+   Passava com o predicado e sem ele. O cenário em que a janela morderia precisa
+   de um **vizinho**: o episódio A avisado em `T0`, o lembrete 1 dele em
+   `T0+24h`, um episódio **novo** do mesmo gatilho avisado em `T0+50h` e o
+   lembrete 2 de A em `T0+72h` — a linha de `T0+50h` está a 22 h, dentro da
+   janela. O teste novo tem esse cenário **e** o controlo que prova que a janela
+   existe.
+2. **A janela a passar de 24 h para 1 h** — os testes da fronteira usavam a
+   própria constante nas duas pontas, pelo que eram verdadeiros para **qualquer**
+   valor dela. Um número de produto afirma-se pelo número, como o
+   `ATRASO_DO_LEMBRETE_MS` já fazia; os seis passaram a ser afirmados assim.
+3. **O separador da chave a passar de octeto nulo para ponto** — a colisão que o
+   teste construía (`(inactividade, "a")` contra `(inactivid, "adea")`) dá cadeias
+   diferentes com **qualquer** separador. A colisão real é o deslocamento de uma
+   fronteira: com um ponto, `(a, "b.c")` e `(a.b, "c")` dão a mesma cadeia. O
+   teste novo tem essa, e a versão com dois-pontos — que é o separador que um
+   `episodio` real traz.
+4. **O marcador sem valor a deixar de levantar** — e aqui a resposta não foi um
+   teste: a guarda era **inalcançável**. O `Parametros` é um `Record` total dos
+   quatro nomes, pelo que o `valor === undefined` nunca podia ser verdade.
+   Apagou-se, com a mutação, e é a resposta que o KAM-018 deu às duas guardas do
+   `transicoes.ts` dele — «uma guarda inalcançável dá a ilusão de proteger». O
+   invariante que ela pretendia proteger tem agora teste próprio, sobre os
+   **cinco modelos** em vez de sobre a chamada que alguém exercitasse:
+   `marcadoresDosModelos()` ⊆ `PARAMETROS`.
+5. **A linha deduplicada a ser entregue outra vez** — e esta é a mais
+   interessante das oito, porque o caminho que ela apaga era **inalcançável pelos
+   testes mas não pelo código**. Em série, o `decidir` recusa primeiro, com
+   `ja_avisado`, e o registo nem é chamado: o `registado === null` só acontece
+   quando **duas transacções** lêem «ainda não avisei» as duas e a unicidade deixa
+   passar uma. A base falsa ganhou um modo de conflito que reproduz exactamente
+   isso — histórico vazio e `INSERT` sem linhas —, e o teste afirma que nada se
+   entrega e que **não** se abre tarefa a T2: não houve falha, houve outra
+   transacção a fazer o trabalho.
+6. **A hora a voltar à forma curta** — e esta mostrou que a razão que eu tinha
+   escrito era **falsa**. A nota dizia que a forma curta dá `09/11/2026`, oito
+   dígitos que a régua apanharia; mediram-se as três formas e é a **média** que
+   os traz (`short` dá `09/11/26`, seis). Agora são duas mutações, e cada uma
+   morre por um teste diferente: a `medium` pelo varrimento do critério 5 e a
+   `short` pela legibilidade — o mês por extenso e o ano inteiro, porque num
+   aviso que o dono pode ler dias depois a data tem de ser inequívoca.
+7. **A confirmação a deixar de conferir o prazo** — o teste da expiração vivia só
+   na bateria do *gate* 4, contra a base falsa, e ela implementa o seu **próprio**
+   predicado de prazo. Uma mutação ao `SQL_CONFIRMAR` passava. O ensaio contra a
+   base ganhou-o, com o prazo avaliado pelo servidor e com a asserção de que um
+   prazo que passou **não consome** a ligação — só a recusa.
+8. **A varredura a contar os contactos não verificados** — o teste afirmava que
+   os dois *tenants* do ensaio **não** aparecem na lista, e isso continuava
+   verdade com o predicado mutado, porque eles têm contacto. O que prende os dois
+   ramos é um *tenant* `ativo` cujo contacto existe e **não serve**: o ensaio novo
+   percorre os três estados — não verificado (aparece), verificado (sai),
+   verificado e inválido (volta a aparecer) —, e o terceiro é o critério 7 a
+   deixar o dono sem canal, que é precisamente o que a métrica do critério 6 tem
+   de ver.
+
+**E três sobreviventes que não são deste ticket.** O filtro largo que corri
+(`aviso`) apanhou também três mutações do KAM-017, porque o nome delas tem a
+palavra: «o aviso deixa de ser idempotente», «o aviso passa a apanhar canais a
+sincronizar» e «o aviso de desalinhamento volta a disparar em `cloud_only`». São
+do aviso de inactividade **daquele** ticket, correm na `tests_outbound`, e **não
+se tocou** — mexer no código de outro ticket a meio deste é o que a nota do
+KAM-023 sobre o `MED_SQL` desaconselha. Ficam aqui nomeadas para que não se
+perca: quem fechar o KAM-017 à letra tem três lacunas medidas por onde começar.
+
+**Setenta e nove** mutações novas — **dez** da revisão `0019` e **sessenta e
+nove** do código, cinco delas a prender os achados desta revisão —, e a cobertura
+de `src/avisos/` mede-se na *suite* própria (`db/tests_avisos/`), ficheiro a
+ficheiro, contra o limiar do estrato `critico` lido de `ci/thresholds.yaml`: está
+entre **98%** e **100%** em cada um dos oito, contra os 90% exigidos.
+
+**A prova por mutação completa corre de noite** (KAM-143), e o que o PR corre é o
+`--aplicaveis` — que confere que cada mutação ainda **encontra o seu texto**, e
+que é o que torna verdadeira a frase «no PR corre o que é novo». As 689 estão
+aplicáveis. **As 79 deste ticket corremos-as duas vezes**: a primeira deu os oito
+sobreviventes da secção acima — oito lacunas, zero falsos positivos — e a
+segunda, com as lacunas fechadas, deu **79 apanhadas e zero sobreviventes** (69
+do código, na `tests_avisos`, e 10 da revisão `0019`, na `tests`).
+
+E vale a pena dizer o que a corrida **parcial** do desenvolvimento custou: três
+horas de máquina para descobrir que uma bateria nova nunca tinha corrido, o que
+um `--suite tests` de dois minutos teria dito.
 
 ---
 
@@ -3290,7 +3492,7 @@ Testes: idempotência, limites, bounce, isolamento, X-11. Abre PR com o template
 | R13 | Limite de 10 clientes/7 dias até verificação completa | CONFIRMADO | D5 | Contador `es_onboardings_7d` (KAM-016); lista de espera (KAM-095) |
 | R14 | Divergências documentais: RED → `suspenso` (`../docs/tecnica/10` §6.4) vs `restrito` (doc 00, doc 01); três tabelas de consentimento; `contact_id` como `bytea` em `consent_event` | Conflito documental | ADR-010 | Decisões em KAM-021 e KAM-022; propagar a `../docs/tecnica/10`, `01` e `06` |
 | R15 | Dependências em falta no backlog mestre: KAM-016 sem KAM-010; KAM-014 sem KAM-004 nem KAM-006; KAM-018, KAM-021 e KAM-022 sem dependentes | Defeito do backlog | — | Sinalizado ao responsável de produto; entretanto usar `SecretProvider` de ambiente e TTL de cache |
-| R16 | Sem ticket para avisar o dono por canal alternativo (e-mail/push) em `PARTNER_REMOVED`, inactividade ou falha de pagamento Meta | Coberta por **KAM-115** (consolidação) | — | KAM-017/023 emitem eventos; KAM-115 entrega o aviso por canal alternativo |
+| R16 | Sem ticket para avisar o dono por canal alternativo (e-mail/push) em `PARTNER_REMOVED`, inactividade ou falha de pagamento Meta | **FECHADA** pelo KAM-115 | — | Entregue: a revisão `0019` (duas tabelas) e o módulo `packages/core-ts/src/avisos/`, com cinco gatilhos, idempotência por episódio, limites de frequência, lembretes e o *gate* de `prod` do subprocessador. Sete de oito critérios satisfeitos; o oitavo — o alvo de ≥ 95% dos *tenants* com contacto verificado — é medição sobre *tenants* reais e sai no Piloto |
 
 ---
 
@@ -3322,3 +3524,4 @@ Testes: idempotência, limites, bounce, isolamento, X-11. Abre PR com o template
 | 1.11 | Outubro 2026 | **As caixas dos blocos KAM-016, KAM-017, KAM-021 e KAM-022, marcadas pelo que as suas tabelas de verificação já diziam.** A auditoria do §2 encontrou os quatro com **zero** caixas marcadas e as verificações a dar a maioria dos critérios como satisfeitos — o KAM-017 escreve «os nove critérios constroem-se, e oito ficam marcados» e tinha zero; o KAM-021 escreve «uma caixa fica vazia por segurança, e é a do critério 3», o que afirma que as outras estão marcadas, e tinha zero. Ficaram **cinquenta e sete** marcadas e **doze** vazias, critérios e DoD, e cada bloco leva agora uma nota a dizer que as caixas se marcaram a 2026-10-23 e por que regra: a caixa fica vazia quando **qualquer** parte do critério não se cumpre, e nenhuma se marcou sem o nome do teste citado ter sido conferido no ficheiro de teste. **As vazias:** `ext:KAM-102` (o onboarding real do KAM-016), `ext:KAM-100` (a elegibilidade do KAM-017), o `tenants.estado` que a revisão `0007` recusa por segurança (KAM-021), a metade da heurística do aviso preventivo que pede um sinal de painel que não existe (KAM-017, dívida 84), as quatro dos revisores humanos — vazias como facto registado, por decisão escrita do fundador — e as três do «todos os CA satisfeitos», que não fecham enquanto o bloco tiver um critério por fechar. **Nenhuma linha de tabela de verificação foi reescrita:** elas medem o que era verdade no dia em que correram. Dívida documental **87** paga no mesmo PR que a abriu. | Equipa KAMBÁ |
 | 1.12 | Outubro 2026 | **As caixas dos sete blocos restantes conferidas, e nenhuma mudou.** A auditoria do §2 alargou-se aos blocos KAM-013, KAM-014, KAM-015, KAM-018, KAM-019, KAM-020 e KAM-024, caixa a caixa contra o veredito da tabela de verificação de cada um, nos **dois** sentidos — marcar o que a verificação sustenta e desmarcar o que ela não sustenta. **Os sete já concordavam**, e três deles declaram no próprio texto a contagem que têm («9 critérios; 7 marcados, 2 vazios» no KAM-013; «quinze caixas marcadas, três vazias» no KAM-020; e as emendas 1.2, 1.4 e 1.5 para o KAM-014, o KAM-024 e o KAM-015). O que esta emenda acrescenta é, por isso, a nota no §2 de que a conferência cobriu os blocos todos — e o resultado do inverso, que é a verificação mais forte que o repositório permite aqui: os **328** nomes declarados nas listas `GRUPOS` e `TESTES_OBRIGATORIOS` das suites de `db/tests_*/` existem todos nos ficheiros de teste, quatro deles com uma constante interpolada no nome. Uma caixa cuja evidência está nessas listas é prendida por máquina: o nome que desaparecer faz a suite falhar. Nenhum bloco de ticket, nenhuma tabela de verificação e nenhum código mudaram nesta emenda. | Equipa KAMBÁ |
 | 1.13 | Outubro 2026 | **As caixas vazias dos tickets fundidos inventariadas por credor**, em [`../docs/epic-02-divida-de-criterios.md`](../docs/epic-02-divida-de-criterios.md). Das caixas vazias que a auditoria do §2 contou, as dos revisores humanos e as do «todos os CA satisfeitos» são derivadas e as do KAM-115 são trabalho por fazer; sobram **32** nos tickets fundidos, e o documento dá a cada uma a razão que a tabela de verificação do seu bloco já dava, mais o credor e a classe. **O achado é que cinco esperam um ticket que já fundiu** e ninguém voltou a medir: o critério 5 do KAM-024 («usado por KAM-015, 016, 017 e 020» — os quatro fundidos), o critério 1 do KAM-018 (a detecção do *echo*, que pedia o KAM-017), o critério 8 do KAM-015 (o *lock* da conversa, que pedia o KAM-018), o critério 6 do KAM-018 (a `v3` do contrato e o `setBotMuted`, que pediam o KAM-007 e o KAM-019) e o critério 3 do KAM-014. É a mesma classe de omissão que a emenda 1.10 encontrou no §2, um nível abaixo. O resumo por credor desfaz a leitura pessimista das caixas soltas: só sete esperam genuinamente um terceiro (`ext:KAM-100` e `ext:KAM-102`), dez são decisões e não trabalho — e **duas dessas não devem fechar**, a do KAM-021 porque devolver o privilégio reabre uma escalada e a do KAM-024 porque satisfazer a letra pioraria a protecção. Três caixas não têm credor nomeado, e é isso que as torna perigosas. Nenhuma caixa se marcou ou desmarcou, e nenhuma tabela de verificação foi reescrita. | Equipa KAMBÁ |
+| 1.14 | Outubro 2026 | **KAM-115 entregue, e o epic fecha.** Secção de verificação no bloco, com **sete** caixas de critério marcadas e **uma** vazia, e com seis das oito do DoD. O que fica vazio é o alvo de «≥ 95% dos *tenants* `ativo` com contacto verificado» (critério 6): é medição sobre *tenants* reais e não há nenhum — a métrica que o mede está entregue, com numerador **e** denominador, e a varredura que a alimenta também. **O risco R16 passa a FECHADA**: era «sem ticket para avisar o dono por canal alternativo», e os emissores existiam desde o KAM-017, o KAM-021 e o KAM-023 — o que não existia era quem entrega. Entregues: a revisão `0019` com **duas** tabelas (e são duas porque o critério 7 manda marcar o **contacto** como inválido, que é facto do contacto e não do aviso), o módulo `packages/core-ts/src/avisos/`, a *suite* de *gate* 8 `tests_avisos` — a primeira que leva as duas baterias do módulo no mesmo corredor —, e o *gate* de `prod` do subprocessador, que é a alternativa que o próprio critério 8 escreve («ou fica `pendente` e bloqueia `prod`»), porque o inventário do KAM-069 não existe e escolher um subprocessador num ficheiro de código é o que o ADR-008 existe para impedir. **Três defeitos apanhados por máquina**, e o terceiro é o mais sério: o `criado_at` não podia vir do `now()` do servidor (o relógio acelerado dos ensaios media uma coisa e a base registava outra, e a varredura dos lembretes não via episódio nenhum); o `apagarTenant` do `apoio.ts` não conhecia as duas tabelas novas e o `after` pendurava o processo por trezentos segundos **sem uma linha de saída**; e a prova por mutação foi a **primeira coisa a executar** a bateria de esquema deste ticket — o *gate* 8 correu antes de ela existir —, encontrando quatro testes a responder `25P02` em vez de `23514` por falta de `SAVEPOINT`. **E a revisão adversarial não aprovou a primeira versão**: quatro achados, os quatro corrigidos — os lembretes **nunca saíam** (a janela do gatilho filtrava-os, e o teste que o afirmava media um histórico vazio), o tecto diário contava linhas e não avisos, a varredura tinha uma guarda **inalcançável** no lugar do «depois pára e abre tarefa a T2» (e o `lembretesEsgotados` existia, estava testado e não era chamado por ninguém), e a hora do aviso saía em UTC a um dono de Luanda. | Equipa KAMBÁ |

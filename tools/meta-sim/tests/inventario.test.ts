@@ -94,11 +94,25 @@ describe("o inventario deste repositorio", () => {
     }
   });
 
-  it("o total declarado e o que a medicao de 2026-10-20 deu", () => {
-    // 89 ocorrências em 24 ficheiros, menos as 3 que este ticket passou para o
-    // intervalo fictício em services/gwy/tests/webhook.test.ts: 86.
-    assert.equal(totalDeclarado(), 86);
-    assert.equal(INVENTARIO.length, 22);
+  it("o total declarado e o que a medicao diz", () => {
+    // 89 ocorrências em 24 ficheiros na medição de 2026-10-20, menos as 3 que o
+    // KAM-024 passou para o intervalo fictício em
+    // `services/gwy/tests/webhook.test.ts`: **86**.
+    //
+    // **88 desde o KAM-115**, e as duas que entram dizem para que servem: são
+    // nomes de loja do varrimento de 200 avisos do critério 5 daquele ticket. O
+    // aviso ao dono mascara corridas de sete ou mais dígitos no nome da loja
+    // porque «Loja do Zé 923 456 789» é um nome plausível em Luanda — e sem
+    // números de **forma** real o teste provava que a máscara apanha números
+    // que não se parecem com telefones, que é o contrário do que ela existe
+    // para fazer.
+    //
+    // **Este número sobe com o inventário e é isso que o torna um raquete**: a
+    // contagem num sítio só obriga quem acrescenta um ficheiro a dizê-lo aqui
+    // também, e é o que distingue isto de uma pasta isenta — que cresceria em
+    // silêncio.
+    assert.equal(totalDeclarado(), 88);
+    assert.equal(INVENTARIO.length, 23);
   });
 
   it("nenhuma entrada e de uma pasta inteira", () => {
