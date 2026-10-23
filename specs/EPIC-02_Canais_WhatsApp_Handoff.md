@@ -3462,8 +3462,10 @@ entre **98%** e **100%** em cada um dos oito, contra os 90% exigidos.
 **A prova por mutação completa corre de noite** (KAM-143), e o que o PR corre é o
 `--aplicaveis` — que confere que cada mutação ainda **encontra o seu texto**, e
 que é o que torna verdadeira a frase «no PR corre o que é novo». As 689 estão
-aplicáveis. **As 79 deste ticket corremos-as**, e o que elas encontraram está na
-secção acima: oito sobreviventes, oito lacunas, zero falsos positivos.
+aplicáveis. **As 79 deste ticket corremos-as duas vezes**: a primeira deu os oito
+sobreviventes da secção acima — oito lacunas, zero falsos positivos — e a
+segunda, com as lacunas fechadas, deu **79 apanhadas e zero sobreviventes** (69
+do código, na `tests_avisos`, e 10 da revisão `0019`, na `tests`).
 
 E vale a pena dizer o que a corrida **parcial** do desenvolvimento custou: três
 horas de máquina para descobrir que uma bateria nova nunca tinha corrido, o que
