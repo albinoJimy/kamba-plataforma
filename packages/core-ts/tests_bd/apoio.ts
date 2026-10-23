@@ -257,6 +257,22 @@ export async function apagarTenant(admin: pg.Client, tenant: string): Promise<vo
   await admin.query("DELETE FROM platform.channel_coexistence WHERE tenant_id = $1", [
     tenant,
   ]);
+  // KAM-115: as duas do aviso ao dono. E a **nona** e a decima, e as duas
+  // referenciam so a `tenants` — nao os canais —, pelo que podiam vir em
+  // qualquer ponto antes da ultima linha; ficam aqui para a lista continuar a
+  // ler-se pela ordem em que os tickets entraram. A nota do KAM-016 previu-as:
+  // «quem acrescentar a oitava descobre-a la, e nao aqui», e foi exactamente
+  // assim — o `after` desta bateria rebentou com `23503` em
+  // `owner_contacts_tenant_fk` **depois** de os testes passarem, e o processo
+  // ficou pendurado porque o `after` que fecha as ligacoes nunca chegou ao fim.
+  // Esse e o custo real de esquecer uma linha aqui: nao e uma falha, e um
+  // ensaio que nao acaba.
+  await admin.query("DELETE FROM platform.owner_notices WHERE tenant_id = $1", [
+    tenant,
+  ]);
+  await admin.query("DELETE FROM platform.owner_contacts WHERE tenant_id = $1", [
+    tenant,
+  ]);
   await admin.query("DELETE FROM platform.tenant_channels WHERE tenant_id = $1", [tenant]);
   await admin.query("DELETE FROM platform.contact_endpoints WHERE tenant_id = $1", [tenant]);
   await admin.query("DELETE FROM platform.contact_deks WHERE tenant_id = $1", [tenant]);

@@ -178,6 +178,8 @@ fontes_adicionais:
   # uma imagem que ninguem fixou nem inventariou.
   - ficheiro: db/tests_modos/node.py
     constante: IMAGEM_NODE
+  - ficheiro: db/tests_avisos/node.py
+    constante: IMAGEM_NODE
   # KAM-005: o publicador e TypeScript e corre num contentor Node quando a
   # maquina nao tem `node`, na rede do gate.
   - ficheiro: db/tests_eventos/node.py

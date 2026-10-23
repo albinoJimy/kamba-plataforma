@@ -49,6 +49,8 @@ def main() -> int:
         "tests_media",
         # KAM-018: os modos da conversa e o silenciamento do bot.
         "tests_modos",
+        # KAM-115: o aviso ao dono por canal alternativo.
+        "tests_avisos",
     ):
         print(f"suite desconhecida: {directorio!r}", file=sys.stderr)
         return 2

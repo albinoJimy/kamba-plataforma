@@ -79,6 +79,10 @@
       "types": "./dist/modos/index.d.ts",
       "default": "./dist/modos/index.js"
     },
+    "./avisos": {
+      "types": "./dist/avisos/index.d.ts",
+      "default": "./dist/avisos/index.js"
+    },
     "./coexistencia": {
       "types": "./dist/coexistencia/index.d.ts",
       "default": "./dist/coexistencia/index.js"

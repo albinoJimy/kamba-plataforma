@@ -217,6 +217,16 @@ class TestConvencoes(ComBase):
                 # canais a plataforma tem em coexistencia** — que e a mesma
                 # rampa de lancamento que o `channel_onboarding` protege.
                 "channel_coexistence",
+                # KAM-115: as duas do aviso ao dono. `uuid` aleatorio, e a razao
+                # e a de sempre por um caminho que importa mais do que nos
+                # outros: o `kamba_app` **le e escreve** as duas, e um `id`
+                # sequencial no `owner_notices` media **quantas avarias de canal
+                # a plataforma tem** — que e a saude do produto inteiro, lida
+                # pelo papel que trata um webhook. No `owner_contacts` mediria
+                # quantos donos deram e-mail, que e a mesma rampa de lancamento
+                # que o `channel_onboarding` protege.
+                "owner_contacts",
+                "owner_notices",
             }
             | por_identidade,
         )
@@ -315,6 +325,14 @@ class TestConvencoes(ComBase):
                 ("channel_coexistence", "id", "uuid", "gen_random_uuid()"),
                 ("channel_onboarding", "id", "uuid", "gen_random_uuid()"),
                 ("channel_quality_log", "id", "uuid", "gen_random_uuid()"),
+                # KAM-115: as duas do aviso ao dono. A posicao e **depois** da
+                # `message_templates` e antes da `tenant_channels`, porque a
+                # lista esta ordenada e 'o' fica entre 'm' e 't'. As duas tem
+                # chave `uuid` gerada e a chave de negocio ao lado: a
+                # `owner_contacts_canal_uq (tenant_id, canal)` e a
+                # `owner_notices_idempotencia_uq (tenant_id, chave, lembrete,
+                # canal)`, que e a idempotencia do criterio 2 e os lembretes do
+                # criterio 4 na mesma restricao.
                 # KAM-022: a chave da prova e um `uuid` gerado, e a
                 # idempotencia do criterio 2 esta ao lado, na
                 # `consent_event_prova_uq` composta com o `tenant_id` — o
@@ -410,6 +428,8 @@ class TestConvencoes(ComBase):
                 # uma `UNIQUE` ao lado, e varios tickets a jusante vao referir
                 # uma mensagem enviada por um identificador so.
                 ("outbound_messages", "id", "uuid", "gen_random_uuid()"),
+                ("owner_contacts", "id", "uuid", "gen_random_uuid()"),
+                ("owner_notices", "id", "uuid", "gen_random_uuid()"),
                 ("tenant_channels", "id", "uuid", "gen_random_uuid()"),
                 # KAM-009: as duas tabelas de uso tem chave **composta e de
                 # negocio**, e nao um `uuid` gerado. E deliberado: a chave de
@@ -512,6 +532,17 @@ class TestConvencoes(ComBase):
              # decisao: a pergunta que responde e a varredura dos prazos, que
              # nao filtra por tenant e corre com `BYPASSRLS`.
              "channel_coexistence",
+             # KAM-115. As duas do aviso ao dono, e as duas com a mesma forma:
+             # chave primaria `id` sem `tenant_id`, logo indice proprio a
+             # comecar por ele — `(tenant_id, canal)` no contacto e
+             # `(tenant_id, gatilho, criado_at)` no aviso. Os outros indices das
+             # duas **nao** comecam pelo `tenant_id`, e e decisao: as perguntas
+             # que respondem — a varredura dos lembretes e a dos tenants sem
+             # contacto verificado — nao filtram por tenant, porque um lembrete
+             # que venceu nao e problema de uma loja; e quem as faz tem
+             # `BYPASSRLS`.
+             "owner_contacts",
+             "owner_notices",
              # KAM-014. A conversa tem `(tenant_id, contact_id, channel_id)`,
              # que e a `UNIQUE` de negocio **e** o indice que a RLS precisa:
              # `tenant_id` em primeiro lugar, sem indice extra.
@@ -670,7 +701,15 @@ class TestConvencoes(ComBase):
         # `tenants` e a composta para `tenant_channels`, pela razao que a
         # `0009` fixou. Duas e nao tres, pela razao das entradas acima: a
         # coexistencia e do canal e nao de um contacto nem de uma conversa.
-        self.assertEqual(len(linhas), 37)
+        # 39 desde o KAM-115: **uma** de cada tabela do aviso ao dono, as duas
+        # para `tenants`. Uma e nao duas, e a razao e o que o ticket e: o aviso e
+        # do **dono** e nao do canal, pelo que nenhuma das duas tabelas
+        # referencia `tenant_channels` — o canal, quando faz parte da historia,
+        # vai dentro do `episodio`, que e texto opaco. E nenhuma referencia a
+        # outra: o contacto existe sem aviso e o aviso sai sem contacto (pelo
+        # painel), e uma FK entre elas tornava impossivel o caso que o criterio 6
+        # manda tratar — o tenant sem contacto verificado.
+        self.assertEqual(len(linhas), 39)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)
