@@ -51,6 +51,8 @@ def main() -> int:
         "tests_modos",
         # KAM-115: o aviso ao dono por canal alternativo.
         "tests_avisos",
+        # KAM-025: a tranca por conversa, quem tem a palavra, e a repeticao.
+        "tests_agr",
     ):
         print(f"suite desconhecida: {directorio!r}", file=sys.stderr)
         return 2

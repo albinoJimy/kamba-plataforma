@@ -1017,6 +1017,23 @@ ci-8:
 	@# fornecedor falso, e o verdadeiro e um subprocessador por contratar.
 	@echo "==> gate 8: aviso ao dono contra PostgreSQL 18.6 (KAM-115)"
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_avisos
+	@#
+	@# KAM-025: o AGR. Python puro, e o que so aqui se prova e o que o objecto
+	@# da prova obriga — o servidor: que o `pg_advisory_lock` de **sessao** e
+	@# exclusao mutua entre sessoes (com uma ligacao nao ha forma de o medir, e
+	@# um teste com uma ligacao so diz «passou» sem medir nada), que a tranca
+	@# larga quando a ligacao **morre** — um SIGKILL a serio num processo filho,
+	@# que e o criterio 4 e o que dispensa um temporizador que expiraria com o
+	@# dono vivo —, que a chave desta tranca **colide** com a do
+	@# `pg_advisory_xact_lock` dos modos (KAM-018), que as quatro cadeias de
+	@# `services/agr/src/kamba_agr/consultas.py` correm, e que a RLS esconde a
+	@# conversa de A do contexto de B (X-02) incluindo no `EXISTS` sobre
+	@# `handoffs`. Corre tambem o executor verdadeiro: 20 mensagens da mesma
+	@# `thread_id` em serie e por ordem, e a repeticao de um turno com
+	@# `idempotency_key = turn_id:seq` e 0 duplicados. Nao precisa de fila: o
+	@# consumidor e um shim em TypeScript (ADR-L004).
+	@echo "==> gate 8: AGR contra PostgreSQL 18.6 (KAM-025)"
+	@$(VENV_PYTHON) db/gate_bd.py --suite tests_agr
 
 # -----------------------------------------------------------------------------
 # Limpeza

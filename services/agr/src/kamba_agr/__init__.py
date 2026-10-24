@@ -1,9 +1,24 @@
-"""AGR — runtime de agentes da KAMBÁ; esqueleto (KAM-001).
+"""AGR — runtime de agentes da KAMBÁ.
 
-Aqui ainda nao ha agente nenhum. O grafo LangGraph (biblioteca MIT, ADR-002), o
-`langgraph-checkpoint-postgres`, a ToolLayer e o consumidor da fila entram no
-EPIC-03 (KAM-023 e seguintes). O que o KAM-001 entrega e o lugar onde isso vai
-viver, com a mesma sonda `/healthz` que os servicos Node.
+O KAM-001 deixou aqui o lugar: a sonda `/healthz` e mais nada. O KAM-025 enche-o
+com o **esqueleto do servico** — workers assincronos atras da fila, um turno por
+conversa, tectos de concorrencia, a API interna minima e as guardas do ADR-002 —
+e continua a nao haver agente nenhum:
+
+| O que falta | Ticket |
+|---|---|
+| Checkpointer Postgres no esquema `lg` | KAM-026 |
+| AgentRegistry e validacao no arranque | KAM-027 |
+| ToolLayer | KAM-028 |
+| Grafo do Vendedor | KAM-031 |
+| Grafo de Servicos | KAM-035 |
+
+Enquanto o KAM-027 nao registar grafos, `/internal/turn` com uma invocacao
+valida responde **503** com `Retry-After` e a mensagem fica na fila. E o estado
+honesto de um esqueleto, e esta escrito em `../../../../docs/agr.md`.
+
+O desenho — quem consome a fila `agr-inbound` e o que serializa um turno — esta
+em `docs/adr/ADR-L004-fila-e-tranca-do-agr.md`.
 """
 
 from .meta import SERVICE, VERSION
@@ -11,8 +26,8 @@ from .meta import SERVICE, VERSION
 __all__ = ["SERVICE", "VERSION", "create_app"]
 
 
-def create_app():
+def create_app(rotas_internas=None):
     """Importacao tardia para que `meta` seja legivel sem Starlette instalado."""
     from .app import create_app as _create_app
 
-    return _create_app()
+    return _create_app(rotas_internas)

@@ -1,14 +1,33 @@
 # Dependencias de runtime do AGR (KAM-001) — pins exactos, fecho completo.
 # Gerar o lock com hashes: make lock   (ver tools/pip_lock.py)
 #
-# O KAM-001 entrega o esqueleto: o /healthz sobre ASGI e nada mais. LangGraph,
-# checkpointer Postgres e consumidor de fila entram no EPIC-03 (KAM-023+), nao aqui.
+# O KAM-001 entregou o esqueleto: o /healthz sobre ASGI e nada mais. O KAM-025
+# acrescenta a API interna e a tranca por conversa, o que traz o **driver**:
+# nada mais. LangGraph (biblioteca MIT) e o checkpointer Postgres entram com o
+# KAM-027 e o KAM-026; o consumidor da fila **nao** entra aqui — e um shim em
+# TypeScript que chama `/internal/turn`, e a decisao esta em
+# `docs/adr/ADR-L004-fila-e-tranca-do-agr.md`. E por isso que nao ha `bullmq`
+# nesta lista: a compatibilidade de protocolo entre o `bullmq` Python 3.3.1 e o
+# `bullmq` TypeScript 6.3.11 que o CHR usa e NAO VERIFICADA (`E4` §2.10).
+#
+# O `pg8000` e a escolha ja feita e justificada em `db/requirements/migrations.in`
+# (KAM-003): BSD-3-Clause, Python puro — pelo que o fecho com
+# `--require-hashes --no-deps` vale no Windows e no Linux sem wheels por
+# plataforma —, e as alternativas estao la medidas contra a allowlist de
+# licencas (`psycopg` e `psycopg2-binary` sao LGPL e estao PROIBIDAS). A mesma
+# versao exacta dos dois lados, de proposito: duas versoes do mesmo driver no
+# mesmo repositorio divergem no dia em que uma delas subir.
 starlette==1.7.0
 uvicorn==0.54.0
+pg8000==1.31.5
 
 # Fecho transitivo.
 anyio==4.15.1
+asn1crypto==1.5.1          # MIT        <- pg8000
 click==8.5.0
 h11==0.16.0
 idna==3.20
+python-dateutil==2.9.0.post0  # Apache-2.0 <- pg8000
+scramp==1.4.17             # MIT-0      <- pg8000
+six==1.17.0                # MIT        <- python-dateutil
 typing-extensions==4.16.0

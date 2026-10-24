@@ -1194,14 +1194,23 @@ dispensa.
 
 #### A segunda metade: identidade de contacto (KAM-008)
 
-O `make ci-8` corre **catorze** *suites*, cada uma com a sua base descartável:
-`tests` (as migrações, acima), **`tests_identidade`** (esta secção),
-**`tests_eventos`** e **`tests_eventos_carga`** (a secção seguinte, KAM-005),
-`tests_eventos_consumo` (KAM-006), `tests_auditoria_carga` (KAM-012),
+O `make ci-8` corre **dezesseis** *suites*, cada uma com a sua base
+descartável: `tests` (as migrações, acima), **`tests_identidade`** (esta
+secção), **`tests_eventos`** e **`tests_eventos_carga`** (a secção seguinte,
+KAM-005), `tests_eventos_consumo` (KAM-006), `tests_auditoria_carga` (KAM-012),
 **`tests_ten`** (KAM-009), **`tests_entrada`** e **`tests_entrada_carga`**
 (KAM-013), **`tests_chr`** (KAM-014), **`tests_outbound`** (KAM-015),
-**`tests_handoff`** (KAM-019), **`tests_media`** (KAM-020) e **`tests_modos`**
-(KAM-018, a última secção).
+**`tests_handoff`** (KAM-019), **`tests_media`** (KAM-020), **`tests_modos`**
+(KAM-018), **`tests_avisos`** (KAM-115) e **`tests_agr`** (KAM-025, a última
+secção).
+
+> **Esta frase estava atrasada duas *suites*, e não uma.** Dizia «catorze» e
+> listava catorze; o `Makefile` corria quinze desde o KAM-115, e a linha 1.52
+> do §9 escreve «quinze» — a contagem em prosa e a linha de versão discordavam,
+> e nenhum *gate* as compara. Fica corrigida para dezesseis, com a `tests_avisos`
+> nomeada na lista onde faltava. Apagar o erro sem o nomear era o mesmo defeito
+> ao contrário; a dívida está registada em
+> [`dividas-documentais.md`](dividas-documentais.md).
 A de identidade entrou com o KAM-008. Esta põe o módulo de identidade — TypeScript, em
 `packages/core-ts/src/identity/` — a correr contra o PostgreSQL com o papel
 `kamba_identity` verdadeiro e a RLS ligada. O desenho está em
@@ -1646,6 +1655,63 @@ fila.
 métrica `echo_latency_ms` pede ≥ 30 *echoes* de *staging* com números +244
 (R6/L6, KAM-100). Nesta bateria o gatilho `echo_do_dono` é **disparado** pelo
 ensaio, que é o que a máquina expõe.
+
+#### O AGR: a tranca por conversa e quem tem a palavra (KAM-025)
+
+`tests_agr` é a primeira *suite* deste *gate* que é **Python puro** e que não
+corre nem Node nem fila. Não é economia: o AGR é um processo Python
+(`services/agr`), o consumidor da fila é um *shim* em TypeScript
+([`ADR-L004`](adr/ADR-L004-fila-e-tranca-do-agr.md), Decisão 1) e a porta do AGR
+é HTTP — uma fila aqui não acrescentava prova nenhuma.
+
+O que **só aqui** se prova, e nada disto se mede com um duplo:
+
+- **O `pg_advisory_lock` é exclusão mútua entre sessões.** Com uma ligação não
+  há forma de o medir: o PostgreSQL conta as tomadas, e a segunda tomada do
+  mesmo *lock* na mesma sessão é concedida de imediato. Um teste com uma ligação
+  dizia «passou» sem ter medido exclusão nenhuma.
+- **A tranca larga quando a ligação morre**, com um `SIGKILL` a sério num
+  processo filho que a tomou. É o critério 4 do ticket e é a razão de peso da
+  Decisão 2 do ADR: não há temporizador a calibrar, e um TTL em Redis expiraria
+  com o dono vivo.
+- **A chave desta tranca colide com a do `pg_advisory_xact_lock` dos modos**
+  (KAM-018). Os dois textos são o mesmo — o `thread_id` **é**
+  `tenant_id:contact_id` —, e é isso que faz uma transição de modo em curso
+  travar a entrada de um turno. É uma afirmação sobre o `hashtextextended`, e só
+  a base a confirma.
+- **As quatro cadeias de `services/agr/src/kamba_agr/consultas.py` correm.** Uma
+  base falsa compara-as por texto e nunca as interpreta, pelo que um
+  `conversations.modo` em vez de `conversations.mode` passava o *gate* 4 inteiro
+  e falhava no primeiro turno real.
+- **O `EXISTS` sobre `handoffs` filtra pela conversa e não pelo *tenant***: se
+  filtrasse só pelo *tenant*, um *handoff* aberto numa conversa fechava a porta
+  a **todas** as conversas da loja, e a resposta continuava plausível.
+- **O X-02:** a RLS esconde a conversa de A do contexto de B, e esconde-a também
+  no `EXISTS` — um `EXISTS` que atravessasse a política dizia a B que A tem uma
+  conversa com um humano. É o que justifica não haver `or 'bot'` no código:
+  zero linhas e «contexto trocado» são indistinguíveis, e as duas têm de fechar
+  a porta.
+- **E o executor verdadeiro, duas vezes:** 20 mensagens da mesma `thread_id` em
+  série, sem sobreposição e **pela ordem de chegada**, com a tranca da base; e a
+  repetição de um turno com `idempotency_key = turn_id:seq` a dar 0 duplicados.
+
+**Duas tensões entre critérios ficaram escritas em vez de resolvidas em
+silêncio**, e as duas estão na *docstring* de
+[`admissao.py`](../services/agr/src/kamba_agr/admissao.py): vinte mensagens
+concorrentes distam muito menos de 1,5 s, pelo que a coalescência do critério 3
+e as «20 em série» do critério 2 não podem valer ao mesmo tempo; e com o tecto
+por *tenant* a 3 as vinte davam dezessete recusas. A leitura adoptada — que o
+próprio critério 3 autoriza ao dizer «configurável» — é que os dois tectos se
+desligam (`0`) para medir a propriedade da tranca, e cada um tem bateria própria.
+Sem a janela a zero, um defeito na tranca ficava invisível: um turno a correr
+sozinho passa o teste da serialização por não haver segundo turno nenhum.
+
+A *suite* **não** mede «0 chamadas a `beacon.langchain.com`»: verifica que o
+destino não está na *allowlist* de `services/agr/egress.yaml`, que é a
+propriedade que existe hoje. A aplicação na rede é o KAM-076, e isso está dito
+em [`agr.md`](agr.md) §5 em vez de ficar por dizer.
+
+---
 
 ## 4. Gates reservados (5)
 
@@ -2348,3 +2414,4 @@ sobrevivem ao PR.
 | 1.50 | Outubro 2026 | **KAM-016: o *gate* 8 ganha sete propriedades na `tests_outbound` e a revisao `0017` na `tests`.** A revisao e a **`0017`** e nao a `0016` porque o KAM-018 reclamou aquele numero e chegou primeiro ao remoto — e a dele **nao cria tabela nenhuma**, pelo que o `TABELAS_ATE_0016` do `db/tests/base.py` tem as mesmas tabelas que o `TABELAS_ATE_0015` teria. O onboarding de canal vive em `packages/core-ts/src/onboarding/` e entra nesta *suite* pelas razoes dos tres tickets anteriores — escreve `tenant_channels`, usa o mesmo `apoio.ts` e os mesmos papeis — e por uma que nao tinha alternativa: **«0 subscricoes no WABA» le-se no `GraphFalso` do KAM-024, e esta e a unica *suite* do *gate* 8 que o monta.** A descoberta do X-05 passa de vinte e quatro para **vinte e cinco** tabelas e ganha receita de sementes para a tentativa de onboarding, com o canario no `waba_id` (a unicidade dele leva o `tenant_id`, pelo que os dois *tenants* podem semear o mesmo valor; o `phone_number_id` nao servia, porque a unicidade **dele** e global). **Tres defeitos que a maquina apanhou e eu nao, e os tres antes de a base entrar:** o cliente da Graph mandava o *code* e o `client_secret` no corpo `form-urlencoded`, pela RFC 6749 §4.1.3, e o `#trocarCode` do `GraphFalso` le `pedido.consulta.code` e responde `400` a quem nao o ponha la — alargar o simulador era passar a provar o cliente contra uma superficie alargada para lhe servir, pelo que se seguiu o simulador e a exposicao ficou **declarada** no `graph.ts`, no dicionario §3.20 e no `onboarding-canal.md` §6; a procura por «v2/v3» do criterio 1 estava escrita como `["']?[^3"']` e dava achado em `sessionInfoVersion: "3"` — o `["']?` casava vazio e o `[^3"']` casava a propria aspa —, pelo que o teste media a ortografia do canon e nao o codigo; e um `graph.ouvir()` a mais num teste ficou sem `fechar()` e o `node --test` **nunca terminou**, porque o processo tinha um socket a escuta. **E dois que o *gate* 3b apanhou, os dois da emenda:** declarar o dominio como `channel_onboarding.recursos_criados[].recurso` fez o `dict_export` colhe-lo como dominio da **coluna** `jsonb` e o gate exigiu-lhe um `CHECK (recursos_criados IN (…))` que ela nao pode ter — passou a `RecursoCriado.recurso`, qualificado pelo tipo, que e a correccao que a emenda 1.22 ja fez duas vezes; e o `waac_id` passou a ser nome do §3.20 e a extensao `tenant_channels.waac_id` ficou **redundante**, como o `token_ref` na emenda 1.22 (25 extensoes, eram 26). O `ci/thresholds.yaml` ganha **um** padrao — `*/onboarding/cifra.ts` no estrato `critico`, medido a 94,8% —, e o resto do modulo fica no `restante`, como o `qualidade/` e o `consentimento/`. Sem *job* novo: o `esperados` do resumo nao muda. | Equipa KAMBA |
 | 1.51 | Outubro 2026 | **KAM-017: o *gate* 8 não ganha *suite* nova, ganha três ficheiros e doze grupos na `tests_outbound`, e a revisão `0018` na `tests`.** A coexistência vive em `packages/core-ts/src/coexistencia/` e entra naquela *suite* por uma razão que não é a dos quatro tickets anteriores: **ela lê `outbound_messages`**, que é a tabela daquela *suite*, e é dessa leitura que sai a regra do critério 7 — «um *echo* cujo `wamid` consta de `outbound_messages` é ignorado como actividade humana». Não há onde provar isso sem as duas tabelas na mesma base. Uma *suite* própria custava um ficheiro de arranque, um alvo no `Makefile`, uma entrada em `db/gate_bd.py`, outra em `db/correr_suite.py` e uma entrada em `ci/supply-chain/imagens.yaml` para levantar o mesmo PostgreSQL. **Os dois ficheiros de unidade entram pela prova por mutação**, pela razão que o `metering.test.ts` escreveu: as mutações na tradução dos seis motivos, na decisão do 2593109, nos três desfechos do *echo* e no `COALESCE` do aviso só por eles são apanhadas. O *gate* 8 passa a correr **610** mutações (eram 570), **40** delas deste ticket — seis da revisão e 34 de código. **Oito nasceram da revisão adversarial**, e duas delas prendem defeitos que tornavam critérios **inexecutáveis**: o `prazo_em` que não mordia na instrução (o prazo das 24 h era duro só a partir do momento em que alguém chamasse a varredura, e não há agendador) e o `GRANT UPDATE` que faltava ao `kamba_batch` (as três varreduras respondiam `42501`, porque são `UPDATE` sem `tenant_id` e só correm com `BYPASSRLS`). **O *gate* 6 ganha a receita de sementes da `channel_coexistence`** e a tabela entra na descoberta do X-05, que passa a **vinte e seis** — e são **seis** as listas daquele ficheiro a precisarem dela, não uma: as duas últimas só caíram depois de as quatro primeiras passarem, que é a lição que o KAM-016 já tinha escrito e esta repete; o `apagarTenant` do `tests_bd/apoio.ts` aprende a oitava tabela, e a nota que a sétima deixou lá escrita previu-a por extenso. **O *gate* 2 e o 3b não mudam de forma**, mas este ticket pagou-lhes uma lição que vale para quem vier: um valor de lista fechada que vá ao `outcome` de um registo confronta-se com o `logger/politica.ts` **antes** — os seis motivos de `PARTNER_REMOVED` vão em minúsculas por isso, e o código 2593109 **não pode ser registado de todo**, porque tem sete dígitos e o `DIGITOS_MAXIMOS` é seis. | Equipa KAMBÁ |
 | 1.52 | Outubro 2026 | **KAM-115: o *gate* 8 passa a correr quinze *suites*.** A nova é `tests_avisos`, e é a primeira que leva **as duas** baterias do módulo no mesmo corredor — as regras (`tests/avisos.test.ts`, que corre também no *gate* 4) e o ensaio contra a base (`tests_bd/avisos.bd.test.ts`) —, pelo que a cobertura de `src/avisos/` se mede ficheiro a ficheiro contra o estrato `critico` e uma mutação de regra e uma de SQL provam-se no mesmo sítio. Abre **duas** ligações de `kamba_app` pela razão que a `tests_modos` escreveu para o *advisory lock*: um `ON CONFLICT DO NOTHING` só é desempate entre sessões diferentes, e com uma ligação as duas escritas saem em série e o ensaio prova que o JavaScript é sequencial. O que só aqui se prova está no §3: que as onze cadeias de `src/avisos/consultas.ts` **correm** (uma base falsa compara-as por texto e nunca as interpreta, pelo que um erro de sintaxe passava o *gate* 4 inteiro e falhava no primeiro aviso real); que a idempotência do critério 2 desempata entre duas transacções e não por quem leu primeiro; que o `owner_notices_lembrete_ck` recusa o quarto lembrete com `23514`; que a confirmação do critério 6 é **atómica**, porque a comparação do resumo e o prazo estão na instrução; que as três varreduras correm com `BYPASSRLS` e **não** correm como `kamba_app` — as duas metades, e a segunda é a que prova que o predicado sem `tenant_id` não é um descuido; que o endereço do dono não aparece em claro em coluna nenhuma; e o X-03 sobre as duas tabelas novas. O *gate* 6 ganha **duas** receitas de sementes e a descoberta do X-05 passa de vinte e seis para **vinte e oito** tabelas — e as **quatro** listas do `test_x05_catalogo.py` precisaram delas, com a quarta a falhar depois de as três primeiras passarem, exactamente como a nota do KAM-017 avisava. O `ci/supply-chain/imagens.yaml` ganha o lançador novo, pela lição que o KAM-018 pagou: um lançador de Docker não declarado derruba o *gate* 11 **e** os testes de unidade do `supply_chain`. **Três defeitos que só uma máquina apanhou, e o terceiro é o mais sério.** (1) O ensaio contra a base mostrou que o `criado_at` não podia vir do `now()` do servidor: os dois limites e os lembretes medem-se dele, e com o servidor a escrevê-lo o relógio acelerado media uma coisa e a base registava outra — a varredura dos lembretes não via episódio nenhum. É um defeito de **desenho** que em produção nunca apareceria, porque lá os dois relógios coincidem. (2) O `apagarTenant` do `tests_bd/apoio.ts` não conhecia as duas tabelas novas, e o `DELETE` do *tenant* rebentava com `23503` **depois** de os testes passarem: o `after` que fecha as ligações nunca chegava ao fim e o `node --test` não acabava — trezentos segundos de silêncio, sem uma linha de saída. O lançador desta *suite* passou a devolver a **saída parcial** quando o tempo estoura, porque um ensaio pendurado sem saída não se investiga. (3) A prova por mutação foi a **primeira coisa a executar** a bateria de esquema deste ticket — o *gate* 8 correu antes de ela existir —, e encontrou quatro testes a falhar com `25P02` em vez de `23514`: cada caso negativo precisa do seu `SAVEPOINT`, e o `ComBase.assertErroSql` já fazia isso. A lição não é sobre `SAVEPOINT`: é que uma bateria nova tem de correr no seu *gate* **depois** de ser escrita, e não antes. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |
+| 1.53 | Outubro 2026 | **KAM-025: o *gate* 8 passa a correr dezesseis *suites*.** A nova é `tests_agr`, e é a primeira que é **Python puro** e não corre nem Node nem fila — o AGR é um processo Python, o consumidor da fila é um *shim* em TypeScript (`ADR-L004`, Decisão 1) e a porta do AGR é HTTP. O que só aqui se prova está no §3: que o `pg_advisory_lock` de **sessão** é exclusão mútua entre sessões (com uma ligação não há forma de o medir — o PostgreSQL conta as tomadas, e a segunda na mesma sessão é concedida de imediato, pelo que um teste com uma ligação dizia «passou» sem medir nada); que a tranca **larga quando a ligação morre**, com um `SIGKILL` a sério num processo filho, que é o critério 4 e é o que dispensa um temporizador — um TTL expiraria com o dono vivo; que a chave desta tranca **colide** com a do `pg_advisory_xact_lock` dos modos (KAM-018), porque o `thread_id` **é** `tenant_id:contact_id` — uma afirmação sobre o `hashtextextended` que só a base confirma, e é ela que faz uma transição de modo em curso travar a entrada de um turno; que as quatro cadeias de `consultas.py` **correm**; que o `EXISTS` sobre `handoffs` filtra pela **conversa** e não pelo *tenant* (se filtrasse pelo *tenant*, um *handoff* fechava a porta a todas as conversas da loja e a resposta continuava plausível); e o X-02, incluindo dentro do `EXISTS`. Corre também o executor verdadeiro: 20 mensagens da mesma `thread_id` em série, sem sobreposição e pela ordem de chegada, e a repetição de um turno com `idempotency_key = turn_id:seq` a dar 0 duplicados. **Duas tensões entre critérios do próprio ticket ficaram escritas em vez de resolvidas em silêncio:** vinte mensagens concorrentes distam muito menos de 1,5 s, pelo que a coalescência do critério 3 e as «20 em série» do critério 2 não podem valer ao mesmo tempo, e com o tecto por *tenant* a 3 as vinte davam dezessete recusas — a leitura adoptada (que o critério 3 autoriza ao dizer «configurável») é desligar os tectos a `0` para medir a tranca, e cada tecto tem bateria própria. **E a contagem em prosa do §3 estava atrasada duas *suites* e não uma:** dizia «catorze» e listava catorze, o `Makefile` corria quinze desde o KAM-115 e a linha 1.52 escrevia «quinze» — a prosa e a linha de versão discordavam, e nenhum *gate* as compara. Fica corrigida, com a `tests_avisos` nomeada onde faltava; a dívida dos ordinais está em `dividas-documentais.md`. Sem *job* novo: o `esperados` do resumo não muda. | Equipa KAMBÁ |

@@ -5,6 +5,14 @@ A revisao adversarial tirou o `log_config=None` do `uvicorn.run`, trocou o
 nenhum teste deu por isso (`docs/analises/ANALISE-11`, A10). Aqui corre-se
 `main()` com o `uvicorn.run` substituido, e confere-se o que ele recebe e o que
 o processo escreve.
+
+**O que o KAM-025 acrescentou a este ficheiro**, e porque e que as duas
+asserções originais mudaram de forma: o arranque passou a ter duas guardas do
+ADR-002 antes de tudo (criterios 7 e 8) e a exigir o segredo da API interna. As
+linhas de registo deixaram de ser so `service_started`, e a bateria segue-as em
+vez de fixar uma lista literal que ja nao e verdade. O que **nao** mudou e o que
+estes testes existem para proteger: `log_config=None`, `access_log=False`, e
+nenhum valor de ambiente a aparecer no registo.
 """
 
 from __future__ import annotations
@@ -19,8 +27,18 @@ import unittest
 import warnings
 from unittest import mock
 
+from apoio import CREDENCIAL
 from kamba_agr import __main__ as arranque
 from kamba_core.logger.ponte import PonteLogging
+
+#: O ambiente minimo com que o AGR arranca depois do KAM-025.
+AMBIENTE_BASE = {
+    "PORT": "8123",
+    "HOST": "127.0.0.1",
+    "KAMBA_ENV": "dev",
+    # O nome e `KAMBA_SECRET_` + o `id` do inventario em maiusculas (ADR-L002).
+    "KAMBA_SECRET_AGR_INTERNAL_TOKEN": CREDENCIAL,
+}
 
 
 class TestArranque(unittest.TestCase):
@@ -64,8 +82,19 @@ class TestArranque(unittest.TestCase):
     def linhas(self) -> list[dict]:
         return [json.loads(linha) for linha in self.saida.getvalue().splitlines()]
 
+    def erro(self) -> dict:
+        """A linha de nivel `error`, procurada e nao contada pela posicao.
+
+        A ultima linha e **sempre** a `log_biblioteca` que o `_correr` provoca
+        de proposito, para confirmar que a ponte esta instalada. Fixar `[-1]`
+        fazia estes dois testes afirmar sobre ela.
+        """
+        erros = [l for l in self.linhas() if l["level"] == "error"]
+        self.assertEqual(len(erros), 1, self.saida.getvalue())
+        return erros[0]
+
     def test_arranca_pelo_logger_e_cala_o_registo_proprio_do_uvicorn(self) -> None:
-        codigo, correr = self._correr({"PORT": "8123", "HOST": "127.0.0.1"})
+        codigo, correr = self._correr(AMBIENTE_BASE)
         self.assertEqual(codigo, 0)
         correr.assert_called_once()
         argumentos = correr.call_args.kwargs
@@ -77,27 +106,94 @@ class TestArranque(unittest.TestCase):
 
         raiz = logging.getLogger()
         self.assertEqual([type(m) for m in raiz.handlers], [PonteLogging])
-        self.assertEqual(
-            [(l["level"], l["svc"], l["outcome"], l.get("error_code")) for l in self.linhas()],
-            [
-                ("info", "agr", "service_started", None),
-                ("info", "agr", "log_biblioteca", "uvicorn.error"),
-            ],
-        )
+        linhas = self.linhas()
+        self.assertTrue(all(l["svc"] == "agr" for l in linhas))
+        desfechos = [l["outcome"] for l in linhas]
+        self.assertIn("service_started", desfechos)
+        self.assertEqual(desfechos[-1], "log_biblioteca")
         self.assertEqual(self.erros.getvalue(), "")
         self.assertNotIn("8123", self.saida.getvalue())
         self.assertNotIn("0.0.0.0", self.saida.getvalue())
 
+    def test_a_credencial_nunca_aparece_no_registo(self) -> None:
+        # O segredo passa pelo arranque. Se alguma linha o repetisse, a
+        # *allowlist* do `docs/tecnica/08` §7.3 nao o impedia: `outcome` e
+        # `error_code` aceitam identificadores, e um segredo pode ter a forma de
+        # um. O que impede e nao escrever.
+        self._correr(AMBIENTE_BASE)
+        self.assertNotIn(CREDENCIAL, self.saida.getvalue())
+        self.assertNotIn("agr_internal_token", self.saida.getvalue())
+
     def test_uma_porta_invalida_sai_pelo_codigo_e_nunca_pelo_valor(self) -> None:
-        codigo, correr = self._correr({"PORT": "abc923456789"})
+        codigo, correr = self._correr({**AMBIENTE_BASE, "PORT": "abc923456789"})
         self.assertEqual(codigo, 2)
         correr.assert_not_called()
         self.assertEqual(self.erros.getvalue(), "")
         self.assertNotIn("923456789", self.saida.getvalue())
-        self.assertEqual(
-            [(l["level"], l["error_code"]) for l in self.linhas()][0],
-            ("error", "arranque_invalido:ValueError"),
-        )
+        self.assertEqual(self.erro()["error_code"], "arranque_invalido:ValueError")
+
+    def test_sem_o_segredo_da_api_o_arranque_recusa(self) -> None:
+        ambiente = {k: v for k, v in AMBIENTE_BASE.items()}
+        del ambiente["KAMBA_SECRET_AGR_INTERNAL_TOKEN"]
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("KAMBA_SECRET_AGR_INTERNAL_TOKEN", None)
+            codigo, correr = self._correr(ambiente)
+        self.assertEqual(codigo, 2)
+        correr.assert_not_called()
+        self.assertEqual(self.erro()["error_code"].split(":")[0], "cofre_indisponivel")
+
+    def test_um_ambiente_desconhecido_recusa_em_vez_de_cair_em_dev(self) -> None:
+        # A licao do `chaves.ts` do KAM-008: um `KAMBA_ENV=producao` a servir
+        # segredos de `dev` e pior do que nao arrancar.
+        codigo, correr = self._correr({**AMBIENTE_BASE, "KAMBA_ENV": "producao"})
+        self.assertEqual(codigo, 2)
+        correr.assert_not_called()
+
+
+class TestGuardasDoAdr002(unittest.TestCase):
+    """Criterios 7 e 8: a lista de bloqueio e a telemetria, em *runtime*."""
+
+    def test_o_langgraph_api_importavel_impede_o_arranque(self) -> None:
+        with (
+            mock.patch.object(
+                arranque.egresso,
+                "exigir_biblioteca_mit",
+                side_effect=arranque.egresso.ModuloProibidoError("langgraph_api"),
+            ),
+            mock.patch.object(arranque.uvicorn, "run") as correr,
+            mock.patch("sys.stdout", io.StringIO()),
+        ):
+            codigo = arranque.main()
+        self.assertEqual(codigo, arranque.SAIDA_GUARDA_ADR002)
+        self.assertNotEqual(codigo, 0)
+        correr.assert_not_called()
+
+    def test_a_guarda_corre_antes_de_se_ler_variavel_nenhuma(self) -> None:
+        # Com a porta invalida **e** o modulo proibido, o codigo e o da guarda:
+        # ela corre primeiro. Uma guarda do ADR-002 que corresse depois da
+        # configuracao era uma guarda que uma variavel errada desligava.
+        with (
+            mock.patch.object(
+                arranque.egresso,
+                "exigir_biblioteca_mit",
+                side_effect=arranque.egresso.ModuloProibidoError("langgraph_api"),
+            ),
+            mock.patch.dict(os.environ, {"PORT": "nao-e-porta"}),
+            mock.patch.object(arranque.uvicorn, "run"),
+            mock.patch("sys.stdout", io.StringIO()),
+        ):
+            self.assertEqual(arranque.main(), arranque.SAIDA_GUARDA_ADR002)
+
+    def test_o_arranque_deixa_a_telemetria_desligada(self) -> None:
+        ambiente = {**AMBIENTE_BASE, "LANGSMITH_TRACING": "true"}
+        with (
+            mock.patch.dict(os.environ, ambiente),
+            mock.patch("sys.stdout", io.StringIO()),
+            mock.patch.object(arranque.uvicorn, "run"),
+        ):
+            arranque.main()
+            for variavel in arranque.egresso.VARIAVEIS_DE_TELEMETRIA:
+                self.assertEqual(os.environ[variavel], "false")
 
 
 if __name__ == "__main__":

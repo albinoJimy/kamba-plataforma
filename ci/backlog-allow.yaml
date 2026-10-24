@@ -154,12 +154,6 @@ cabecalhos:
       epic que mais emendas recebeu. Linha 21 de `docs/dividas-documentais.md`,
       a mesma que regista o buraco do 1.13.
 
-  - ficheiro: specs/EPIC-03_Agent_Runtime_Verticais.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-11
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
 
   - ficheiro: specs/EPIC-04_Core_Comercio.md
     origem: KAM-138

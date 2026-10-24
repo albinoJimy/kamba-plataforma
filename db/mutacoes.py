@@ -343,6 +343,28 @@ REV18 = "db/migrations/versions/0018_coexistencia.py"
 AVISOS = "tests_avisos"
 AV_SQL = "packages/core-ts/src/avisos/consultas.ts"
 AV_CONTRATO = "packages/core-ts/src/avisos/contrato.ts"
+
+#: O AGR (KAM-025). A suite e a **`tests_agr`**, a propria do ticket: e a
+#: unica que corre o `pg_advisory_lock` contra um PostgreSQL real, e sem isso
+#: metade destas mutacoes nao tem quem as mate.
+#:
+#: **`AG_` e nao `A_` nem `AGR_`**, e o prefixo escolheu-se depois de procurar:
+#: nenhuma outra constante deste ficheiro comeca por `AG_`. E a licao que o
+#: `MED_SQL`/`FT_SQL` deixou e que as notas do `CS_SQL`, do `MO_SQL`, do
+#: `ON_SQL`, do `CX_SQL` e do `AV_SQL` repetiram — um prefixo que colida com o
+#: de outro ticket **sombreia** entradas sem conflito de merge, e nenhum teste
+#: o ve.
+#:
+#: **Sao Python e nao TypeScript**, as primeiras deste ficheiro a mutar codigo
+#: de um servico Python. O mecanismo e o mesmo: substitui-se texto no ficheiro
+#: e corre-se a suite. O que muda e que a `tests_agr` importa estes modulos
+#: directamente (`sys.path` para `services/agr/src`), pelo que a mutacao chega
+#: ao que corre sem passar por uma compilacao.
+AGR = "tests_agr"
+AG_SQL = "services/agr/src/kamba_agr/consultas.py"
+AG_TURNO = "services/agr/src/kamba_agr/turno.py"
+AG_TRANCAS = "services/agr/src/kamba_agr/trancas.py"
+AG_CONTEXTO = "services/agr/src/kamba_agr/contexto.py"
 AV_DECISAO = "packages/core-ts/src/avisos/decisao.ts"
 AV_MODELOS = "packages/core-ts/src/avisos/modelos.ts"
 AV_MODULO = "packages/core-ts/src/avisos/avisos.ts"
@@ -3297,6 +3319,46 @@ MUTACOES = [
      "export const CORTES_DA_LATENCIA: readonly number[] = [1, 5, 15, 30, 60, 120, 300, 600, 1_800];",
      "export const CORTES_DA_LATENCIA: readonly number[] = [1, 5, 15, 30, 60, 120, 600, 1_800];",
      AVISOS),
+    # ----------------------------------------------------------- KAM-025, AGR
+    #
+    # Oito mutacoes, e a escolha nao e arbitraria: cada uma apaga **uma**
+    # propriedade que um criterio de aceitacao nomeia. Quatro so morrem contra
+    # a base (a tranca, as duas leituras e a RLS), e e isso que justifica a
+    # suite propria.
+    ('agr: a tranca passa a ser de transaccao', AG_SQL,
+     "SELECT pg_advisory_lock(hashtextextended(%s::text, 0))",
+     "SELECT pg_advisory_xact_lock(hashtextextended(%s::text, 0))", AGR),
+    # Em `autocommit`, um *lock* de transaccao larga no fim da instrucao: a
+    # exclusao mutua desaparece sem erro nenhum. E a Decisao 2 do ADR-L004 a
+    # ser verificada em vez de afirmada.
+    ('agr: a semente do hash deixa de ser fixa', AG_SQL,
+     "SELECT pg_advisory_lock(hashtextextended(%s::text, 0))",
+     "SELECT pg_advisory_lock(hashtextextended(%s::text, 1))", AGR),
+    # Uma semente diferente da chaves diferentes para a mesma conversa, e a
+    # colisao com o *lock* dos modos (KAM-018) desaparece.
+    ('agr: o unlock deixa de dizer se a tranca era nossa', AG_SQL,
+     "SELECT pg_advisory_unlock(hashtextextended(%s::text, 0)) AS largou",
+     "SELECT pg_advisory_unlock(hashtextextended(%s::text, 0)) IS NOT NULL AS largou",
+     AGR),
+    ('agr: o EXISTS do handoff deixa de filtrar a conversa', AG_SQL,
+     "              AND h.conversation_id = %s\n              AND h.status = 'waiting'",
+     "              AND h.status = 'waiting'", AGR),
+    # Com isto, um *handoff* aberto numa conversa fecha a porta a **todas** as
+    # conversas da loja — e a resposta continua plausivel.
+    ('agr: o waiting deixa de ser o unico estado que fecha', AG_SQL,
+     "AND h.status = 'waiting'", "AND h.status <> 'resumed'", AGR),
+    ('agr: zero linhas passa a ler-se como bot', AG_TURNO,
+     '                    desfecho = "sem_conversa"',
+     '                    desfecho = "executado"', AGR),
+    # O furo de isolamento mais barato que este ticket podia ter.
+    ('agr: o modo deixa de ser lista de permitidos', AG_TURNO,
+     "        return self.modo != MODO_DO_BOT or self.handoff_a_espera",
+     '        return self.modo in ("dono", "humano", "pausada") or self.handoff_a_espera',
+     AGR),
+    # Equivalente hoje, e **nao** amanha: um modo novo no dominio passa a abrir
+    # a porta por omissao, que e o lado errado de errar.
+    ('agr: o seq da chave de envio deixa de entrar', AG_CONTEXTO,
+     'return f"{self.turn_id}:{seq}"', 'return self.turn_id', AGR),
 ]
 
 
@@ -3348,6 +3410,16 @@ def _copiar(destino: Path, suite: str = "tests") -> None:
         return
     shutil.copytree(RAIZ / "db", destino / "db", ignore=ignorar)
     shutil.copytree(RAIZ / "libs" / "py-core", destino / "libs" / "py-core", ignore=ignorar)
+    # KAM-025: o servico AGR. **E a regra escrita no fim desta funcao a ser
+    # cumprida a primeira vez por quem a leu**: as oito mutacoes `agr:` mudam
+    # ficheiros de `services/agr/src/kamba_agr/`, a `tests_agr` importa-os pelo
+    # `sys.path` relativo a raiz da copia, e sem esta linha a linha de base da
+    # suite ficava vermelha com `ModuleNotFoundError: No module named
+    # 'kamba_agr'` — e uma mutacao «apanhada» sobre isso nao significa nada.
+    # Encontrado pelo proprio corredor, na primeira execucao das oito.
+    shutil.copytree(
+        RAIZ / "services" / "agr", destino / "services" / "agr", ignore=ignorar
+    )
     shutil.copytree(RAIZ / "ci", destino / "ci", ignore=shutil.ignore_patterns("coverage", "sbom"))
     (destino / "tools").mkdir()
     shutil.copy(RAIZ / "tools" / "kamba_yaml.py", destino / "tools" / "kamba_yaml.py")

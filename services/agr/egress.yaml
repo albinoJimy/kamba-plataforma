@@ -5,10 +5,28 @@
 # de FQDN). `make supply-chain` falha se o ficheiro faltar, se `por_omissao`
 # deixar de ser `negar`, ou se um destino nao tiver nome (`*`, IP, CIDR).
 #
-# Hoje o servico e o esqueleto do KAM-001 (`/healthz`) e nao abre ligacao
-# nenhuma para fora. O AGR nunca fala directamente com um fornecedor de LLM:
-# fala com o proxy LiteLLM, na rede interna (ADR-005, KAM-030). Os FQDN dos
-# fornecedores pertencem a lista do proxy, nao a esta.
+# Hoje — depois do KAM-025 — o servico tem a API interna, a tranca por conversa
+# e os tectos de concorrencia, e **continua a nao abrir ligacao nenhuma para
+# fora**. As duas ligacoes que ele abre sao ao PostgreSQL, e uma ligacao a outro
+# servico da pilha nao e uma saida: e uma rede do compose (ver abaixo).
+#
+# A lista que o bloco do KAM-025 nomeia — «LLM gateway interno, Postgres, Redis,
+# HND, OBS; tudo o resto negado por defeito» — tem cinco destinos e **nenhum e
+# uma saida deste ficheiro**: o gateway LiteLLM, o Postgres e o Redis estao na
+# rede interna; o HND (Chatwoot) e o OBS (Langfuse) tambem, por desenho do
+# `docs/tecnica/09`. O que esta lista guarda sao FQDN de **terceiros**, e o AGR
+# nao fala com nenhum.
+#
+# O AGR nunca fala directamente com um fornecedor de LLM: fala com o proxy
+# LiteLLM, na rede interna (ADR-005, KAM-030). Os FQDN dos fornecedores
+# pertencem a lista do proxy, nao a esta.
+#
+# **O `beacon.langchain.com` nao esta aqui, e e a razao de ser do criterio 7 do
+# KAM-025.** E o destino que o `langgraph-api` contacta (Elastic-2.0, `E4`
+# §2.6); o ADR-002 so admite o LangGraph como biblioteca MIT, o arranque do AGR
+# falha se `langgraph_api` for importavel (`src/kamba_agr/egresso.py`), e com
+# `por_omissao: negar` e `destinos: []` nao ha caminho de saida nenhum — muito
+# menos para ele. A aplicacao na rede e o KAM-076.
 #
 # Cada destino: `fqdn`, `porta`, `protocolo`, `razao` e `ticket` (KAM-NNN).
 # Ligacoes a outros servicos da pilha (base de dados, fila) nao sao saidas: sao
