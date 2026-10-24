@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import unittest
+import uuid
 
 from apoio import Relogio, invocacao_crua
 from kamba_agr.admissao import (
@@ -40,47 +41,64 @@ class TestRitmo(unittest.TestCase):
             tectos=Tectos(ritmo_por_contacto=3), relogio=self.relogio
         )
 
+    def _mensagens(self, quantas: int, **par):
+        """`quantas` mensagens **diferentes** do mesmo contacto.
+
+        Diferentes de proposito: o ritmo conta **mensagens** e nao entregas da
+        mesma mensagem, e usar a mesma invocacao varias vezes media a
+        idempotencia e nao o tecto (ver `TestRitmoEIdempotencia`).
+        """
+        primeira = inv(**par)
+        saida = [primeira]
+        for _ in range(quantas - 1):
+            saida.append(
+                inv(tenant_id=primeira.tenant_id, contact_id=primeira.contact_id)
+            )
+        return saida
+
     def test_passa_ate_ao_limite_e_recusa_a_seguir(self) -> None:
-        invocacao = inv()
-        for _ in range(3):
-            self.assertTrue(self.admissao.aceita_o_ritmo(invocacao))
-        self.assertFalse(self.admissao.aceita_o_ritmo(invocacao))
-        self.assertEqual(
-            METRICAS.ler()[f"{METRICA_RECUSADOS}:ritmo"], 1
-        )
+        mensagens = self._mensagens(4)
+        for mensagem in mensagens[:3]:
+            self.assertTrue(self.admissao.aceita_o_ritmo(mensagem))
+        self.assertFalse(self.admissao.aceita_o_ritmo(mensagens[3]))
+        self.assertEqual(METRICAS.ler()[f"{METRICA_RECUSADOS}:ritmo"], 1)
 
     def test_a_janela_desliza_e_liberta_quota(self) -> None:
-        invocacao = inv()
-        for _ in range(3):
-            self.admissao.aceita_o_ritmo(invocacao)
-        self.assertFalse(self.admissao.aceita_o_ritmo(invocacao))
+        mensagens = self._mensagens(5)
+        for mensagem in mensagens[:3]:
+            self.admissao.aceita_o_ritmo(mensagem)
+        self.assertFalse(self.admissao.aceita_o_ritmo(mensagens[3]))
         self.relogio.avancar(JANELA_DO_RITMO_S + 0.1)
-        self.assertTrue(self.admissao.aceita_o_ritmo(invocacao))
+        self.assertTrue(self.admissao.aceita_o_ritmo(mensagens[4]))
 
     def test_a_quota_e_por_contacto_e_nao_do_processo(self) -> None:
-        a, b = inv(), inv()
-        for _ in range(3):
-            self.admissao.aceita_o_ritmo(a)
-        self.assertFalse(self.admissao.aceita_o_ritmo(a))
-        self.assertTrue(self.admissao.aceita_o_ritmo(b))
+        de_a = self._mensagens(4)
+        de_b = inv()
+        for mensagem in de_a[:3]:
+            self.admissao.aceita_o_ritmo(mensagem)
+        self.assertFalse(self.admissao.aceita_o_ritmo(de_a[3]))
+        self.assertTrue(self.admissao.aceita_o_ritmo(de_b))
 
     def test_dois_canais_do_mesmo_contacto_partilham_a_quota(self) -> None:
         # A chave e o `thread_id`, que e `(tenant, contacto)` e nao a conversa:
-        # e o que «por contacto» quer dizer.
-        primeira = inv()
-        segunda = inv(
-            tenant_id=primeira.tenant_id,
-            contact_id=primeira.contact_id,
+        # e o que «por contacto» quer dizer. As conversas sao diferentes.
+        mensagens = self._mensagens(3)
+        for mensagem in mensagens:
+            self.assertTrue(self.admissao.aceita_o_ritmo(mensagem))
+        noutro_canal = inv(
+            tenant_id=mensagens[0].tenant_id,
+            contact_id=mensagens[0].contact_id,
+            conversation_id=str(uuid.uuid4()),
         )
-        for _ in range(3):
-            self.admissao.aceita_o_ritmo(primeira)
-        self.assertFalse(self.admissao.aceita_o_ritmo(segunda))
+        self.assertNotEqual(
+            noutro_canal.conversation_id, mensagens[0].conversation_id
+        )
+        self.assertFalse(self.admissao.aceita_o_ritmo(noutro_canal))
 
     def test_zero_e_sem_limite(self) -> None:
         admissao = Admissao(tectos=Tectos(ritmo_por_contacto=0), relogio=self.relogio)
-        invocacao = inv()
-        for _ in range(50):
-            self.assertTrue(admissao.aceita_o_ritmo(invocacao))
+        for mensagem in self._mensagens(50):
+            self.assertTrue(admissao.aceita_o_ritmo(mensagem))
 
     def test_o_aviso_e_um_por_contacto_por_janela(self) -> None:
         # «descarte silencioso com aviso unico» (criterio 5). Um aviso por
@@ -93,6 +111,90 @@ class TestRitmo(unittest.TestCase):
         self.relogio.avancar(JANELA_DO_RITMO_S + 0.1)
         self.assertTrue(self.admissao.deve_avisar(invocacao))
 
+
+class TestRitmoEIdempotencia(unittest.TestCase):
+    """A re-entrega do mesmo *job* nao gasta quota nova.
+
+    O cenario que isto fecha, e que a revisao adversarial mediu: com o tecto do
+    *tenant* cheio, vinte 503 do **mesmo** `wamid` consumiam os vinte lugares
+    do minuto, e a mensagem seguinte — legitima — era descartada em silencio. E
+    o efeito duplicado que o DoD da idempotencia diz nao existir.
+    """
+
+    def setUp(self) -> None:
+        METRICAS.repor()
+        self.relogio = Relogio()
+        self.admissao = Admissao(
+            tectos=Tectos(ritmo_por_contacto=3), relogio=self.relogio
+        )
+
+    def test_vinte_entregas_do_mesmo_turno_gastam_uma_quota(self) -> None:
+        mensagem = inv()
+        for _ in range(20):
+            self.assertTrue(self.admissao.aceita_o_ritmo(mensagem))
+        # Gastou **uma**: sobram duas das tres para mensagens novas.
+        outras = [
+            inv(tenant_id=mensagem.tenant_id, contact_id=mensagem.contact_id)
+            for _ in range(3)
+        ]
+        self.assertTrue(self.admissao.aceita_o_ritmo(outras[0]))
+        self.assertTrue(self.admissao.aceita_o_ritmo(outras[1]))
+        self.assertFalse(self.admissao.aceita_o_ritmo(outras[2]))
+
+    def test_passada_a_janela_a_mesma_mensagem_volta_a_contar(self) -> None:
+        # O `turn_id` memorizado expira com a janela: senao o dicionario
+        # crescia com um `wamid` por mensagem, para sempre.
+        mensagem = inv()
+        self.assertTrue(self.admissao.aceita_o_ritmo(mensagem))
+        self.relogio.avancar(JANELA_DO_RITMO_S + 0.1)
+        self.assertTrue(self.admissao.aceita_o_ritmo(mensagem))
+        self.assertEqual(self.admissao.chaves_guardadas[0], 1)
+
+
+class TestOsDicionariosEncolhem(unittest.TestCase):
+    """Nenhum dos tres cresce com uma chave por contacto para sempre.
+
+    O `_em_curso` ja o fazia e tinha teste; o `_chegadas` e o `_avisado` **nao**,
+    e cresciam sem fim — a mesma classe de defeito que o modulo nomeia, a passar
+    ao lado no proprio ficheiro. Achado da revisao adversarial.
+    """
+
+    def setUp(self) -> None:
+        METRICAS.repor()
+        self.relogio = Relogio()
+        self.admissao = Admissao(
+            tectos=Tectos(ritmo_por_contacto=3), relogio=self.relogio
+        )
+
+    def test_as_chegadas_desaparecem_quando_a_janela_esvazia(self) -> None:
+        for _ in range(200):
+            self.admissao.aceita_o_ritmo(inv())
+        self.assertEqual(self.admissao.chaves_guardadas[0], 200)
+        self.relogio.avancar(JANELA_DO_RITMO_S + 0.1)
+        # Uma passagem nova por **um** contacto limpa a janela dele; os outros
+        # limpam-se quando voltarem. O que importa e que a chave **sai**.
+        uma = inv()
+        self.admissao.aceita_o_ritmo(uma)
+        for _ in range(3):
+            self.admissao.aceita_o_ritmo(
+                inv(tenant_id=uma.tenant_id, contact_id=uma.contact_id)
+            )
+        self.relogio.avancar(JANELA_DO_RITMO_S + 0.1)
+        self.admissao.aceita_o_ritmo(uma)
+        self.assertEqual(self.admissao.chaves_guardadas[0], 201)
+        self.assertEqual(
+            len(self.admissao._chegadas[uma.thread_id]), 1, "a janela nao limpou"
+        )
+
+    def test_os_avisados_expirados_desaparecem(self) -> None:
+        for _ in range(200):
+            self.admissao.deve_avisar(inv())
+        self.assertEqual(self.admissao.chaves_guardadas[1], 200)
+        self.relogio.avancar(JANELA_DO_RITMO_S + 0.1)
+        self.admissao.deve_avisar(inv())
+        self.assertEqual(
+            self.admissao.chaves_guardadas[1], 1, "os avisos antigos nao sairam"
+        )
 
 class TestTectoPorTenant(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:

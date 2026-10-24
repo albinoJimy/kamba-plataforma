@@ -21,14 +21,40 @@ Mesma regra para o `hnd` (reencaminhar) e para o `outbound` (enviar com chave
 de idempotencia): portas. O Outbound real e o KAM-015 e o HND e o KAM-019; o
 «(fake)» do criterio 4 esta no enunciado do proprio criterio.
 
+## A fila e por conversa; a tranca e por `thread_id`. Sao chaves diferentes.
+
+E a correccao mais importante que a revisao adversarial trouxe, e vale a pena
+ver porque e que as duas chaves tem de ser diferentes.
+
+O `thread_id` e `{tenant_id}:{contact_id}` — e **por contacto**, porque e o
+`thread_id` do LangGraph (`docs/tecnica/02` §12). Mas a `conversations` e
+`UNIQUE (tenant_id, contact_id, channel_id)` (revisao `0009`): o **mesmo
+contacto em dois canais do mesmo tenant tem duas conversas e um so
+`thread_id`**.
+
+A primeira versao indexava a fila por `thread_id` e corria o lote com a
+**primeira** invocacao: `ler_palavra(primeira)` e `estado_inicial(primeira)`.
+Com duas mensagens de conversas diferentes do mesmo contacto a distarem menos de
+1,5 s, elas coalesciam e a decisao da conversa A valia para a B — se a B
+estivesse com um *handoff* em `waiting`, o turno entrava no grafo sobre ela
+(invariante do §11 regra 4 violada, criterio 6), e a mensagem da B **perdia-se**,
+porque o *shim* via 200 e completava o *job*.
+
+Hoje a fila e indexada por `(thread_id, conversation_id)`: um lote nunca
+atravessa conversas. **A tranca continua a ser por `thread_id`**, e isso e
+deliberado: ela tem de travar os dois canais do mesmo contacto, senao dois turnos
+corriam sobre o **mesmo** *thread* do LangGraph. Logo as duas conversas de um
+contacto serializam entre si — pela tranca — e nunca se misturam num lote — pela
+fila.
+
 ## A ordem de chegada, e ate onde ela e garantida
 
 Dentro deste processo e garantida por **esta** fila, e nao pela tranca: o
-`pg_advisory_lock` nao promete FIFO na ordem em que acorda quem espera, e vinte
-corrotinas a bloquear nele davam vinte turnos em serie **em ordem arbitraria** —
-que cumpre «0 execucoes sobrepostas» e falha «ordem de chegada preservada».
-Por isso ha um dreno por `thread_id`, com uma lista FIFO, e a tranca e tomada
-**uma vez por lote**, pelo dreno.
+`pg_try_advisory_lock` nao promete nada sobre a ordem em que os que esperam o
+conseguem, e vinte corrotinas a tenta-lo davam vinte turnos em serie **em ordem
+arbitraria** — que cumpre «0 execucoes sobrepostas» e falha «ordem de chegada
+preservada». Por isso ha um dreno por conversa, com uma lista FIFO, e a tranca e
+tomada **uma vez por lote**, pelo dreno.
 
 **Entre processos nao e garantida, e fica dito.** Duas replicas do AGR com
 mensagens da mesma `thread_id` serializam (a tranca e da base) mas podem
@@ -141,8 +167,10 @@ class ExecutorDeTurnos:
         self._reencaminhar = reencaminhar
         self._admissao = admissao or Admissao()
         self._agora = relogio
-        self._pendentes: dict[str, list[Pendente]] = {}
-        self._drenos: dict[str, asyncio.Task] = {}
+        # A chave e `(thread_id, conversation_id)` e nao o `thread_id`: ver a
+        # *docstring* do modulo. A da tranca continua a ser o `thread_id`.
+        self._pendentes: dict[tuple[str, str], list[Pendente]] = {}
+        self._drenos: dict[tuple[str, str], asyncio.Task] = {}
 
     async def correr(self, invocacao: InvocacaoDoAgente) -> DesfechoDoTurno:
         """Poe a invocacao na fila da sua `thread_id` e espera pelo desfecho.
@@ -160,34 +188,37 @@ class ExecutorDeTurnos:
         # um dreno por `thread_id` e o tecto do *tenant* a 3, nunca passava de
         # um numero pequeno, e o `AGR_LIMIAR_DE_CONTRAPRESSAO` de 100 era
         # inalcancavel por construcao. A metrica dizia uma coisa e media outra.
+        chave = (invocacao.thread_id, invocacao.conversation_id)
         with self._admissao.na_fila():
-            self._pendentes.setdefault(invocacao.thread_id, []).append(pendente)
-            self._arrancar_dreno(invocacao.thread_id)
+            self._pendentes.setdefault(chave, []).append(pendente)
+            self._arrancar_dreno(chave)
             return await pendente.espera
 
-    def _arrancar_dreno(self, thread_id: str) -> None:
-        dreno = self._drenos.get(thread_id)
+    def _arrancar_dreno(self, chave: tuple[str, str]) -> None:
+        dreno = self._drenos.get(chave)
         if dreno is None or dreno.done():
-            self._drenos[thread_id] = asyncio.create_task(self._drenar(thread_id))
+            self._drenos[chave] = asyncio.create_task(self._drenar(chave))
 
-    async def _drenar(self, thread_id: str) -> None:
-        """Corre lotes desta `thread_id` ate a fila esvaziar.
+    async def _drenar(self, chave: tuple[str, str]) -> None:
+        """Corre lotes desta conversa ate a fila esvaziar.
 
-        Um dreno por `thread_id`, e e ele que serializa dentro do processo. A
-        tranca da base serializa **entre** processos; as duas sao precisas, e
-        nenhuma substitui a outra.
+        Um dreno por `(thread_id, conversation_id)`, e e ele que serializa dentro
+        do processo **e** garante que um lote nunca atravessa conversas. A tranca
+        da base serializa **entre** processos e **entre as conversas do mesmo
+        contacto**; as duas sao precisas, e nenhuma substitui a outra.
         """
+        thread_id = chave[0]
         try:
             while True:
-                pendentes = self._pendentes.get(thread_id) or []
+                pendentes = self._pendentes.get(chave) or []
                 if not pendentes:
                     break
                 try:
                     lote, resto = self._admissao.coalescer(pendentes)
                     if resto:
-                        self._pendentes[thread_id] = resto
+                        self._pendentes[chave] = resto
                     else:
-                        self._pendentes.pop(thread_id, None)
+                        self._pendentes.pop(chave, None)
                 except BaseException as erro:  # noqa: BLE001 — ver comentario
                     # Sem isto, uma excepcao **fora** do `_correr_lote` — na
                     # coalescencia, ou num contador de metrica a recusar — tinha
@@ -198,27 +229,38 @@ class ExecutorDeTurnos:
                     # `Future`, e **todos os pedidos HTTP daquela conversa
                     # ficavam pendurados ate o `lockDuration` do shim expirar**.
                     # Falha-se o que estava na fila e larga-se.
-                    self._pendentes.pop(thread_id, None)
+                    self._pendentes.pop(chave, None)
                     self._falhar(pendentes, erro)
                     if isinstance(erro, asyncio.CancelledError):
                         raise
                     return
                 await self._correr_lote(thread_id, lote)
         finally:
-            self._drenos.pop(thread_id, None)
+            self._drenos.pop(chave, None)
             # Entre o `while` ver a fila vazia e o dreno sair, uma invocacao
             # nova pode ter chegado e visto um dreno ainda vivo — e ficava sem
             # ninguem a drena-la, pendurada no `await` para sempre. Fechar a
             # janela aqui, depois de o dreno se ter retirado do registo, e o
             # que a impede. Apanhado a pensar na corrida, nao a correr: o teste
             # `test_chegada_na_fronteira_do_dreno` reproduz a intercalacao.
-            if self._pendentes.get(thread_id):
-                self._arrancar_dreno(thread_id)
+            if self._pendentes.get(chave):
+                self._arrancar_dreno(chave)
 
     async def _correr_lote(self, thread_id: str, lote: list[Pendente]) -> None:
         comecou = self._agora()
         invocacoes = [pendente.invocacao for pendente in lote]
         primeira = invocacoes[0]
+        # **Um lote e de uma conversa so.** A decisao e o estado saem da
+        # `primeira`, pelo que um lote que atravessasse conversas aplicava a
+        # decisao de uma a outra — e a segunda mensagem perdia-se, porque o
+        # *shim* ve 200. A fila ja garante isto pela chave; afirma-se aqui
+        # porque uma invariante que so vive no indice de um dicionario e uma
+        # invariante que a proxima pessoa nao ve.
+        assert all(
+            invocacao.conversation_id == primeira.conversation_id
+            and invocacao.thread_id == thread_id
+            for invocacao in invocacoes
+        ), "um lote atravessou conversas"
         try:
             async with self._trancas.tomar(thread_id):
                 palavra = await self._ler_palavra(primeira)

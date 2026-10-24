@@ -29,11 +29,22 @@ recusa `autocommit` — de propósito, para o seu proprio uso.
 
 **E sincrona por dentro e assincrona por fora.** O driver da casa e o `pg8000`
 (sincrono, BSD-3-Clause, Python puro — a escolha e a justificacao estao em
-`db/requirements/migrations.in`), e os *workers* do AGR sao `asyncio`. O
-`pg_advisory_lock` **bloqueia** a espera da tranca, e bloquear a *event loop*
-era serializar o AGR inteiro numa conversa. Por isso cada chamada ao driver vai
-a um *executor*; a ligacao e usada por uma `thread` de cada vez, protegida pelo
-`asyncio.Lock` de `TrancaDeConversas`.
+`db/requirements/migrations.in`), e os *workers* do AGR sao `asyncio`. Por isso
+cada chamada ao driver vai a um *executor*; a ligacao e usada por uma `thread`
+de cada vez, protegida pelo `asyncio.Lock` desta classe.
+
+**E a espera nao acontece dentro desse `asyncio.Lock`.** A primeira versao usava
+`pg_advisory_lock`, que bloqueia **no servidor** ate a tranca ser sua — com a
+`thread` presa e, com ela, o `asyncio.Lock` da unica ligacao do processo. A
+revisao adversarial mediu o que isso custa: uma conversa a espera de uma chave
+parava o processo inteiro, e as conversas que **acabaram** nao conseguiam
+destrancar, porque o `pg_advisory_unlock` precisa da mesma ligacao. Bloqueio de
+cabeca de fila a atravessar *tenants*, que e o que o criterio 5 proibe.
+
+Hoje usa-se `pg_try_advisory_lock` num ciclo: cada tentativa toma o
+`asyncio.Lock`, faz **uma** instrucao e larga-o; entre tentativas espera-se fora
+dele. A ordem de chegada continua preservada porque dentro do processo so uma
+corrotina por `thread_id` chega aqui — quem serializa e o dreno de `turno.py`.
 
 **O que nao e: o grafo.** Este modulo nao sabe o que corre dentro da secção
 critica. Recebe uma corrotina e corre-a com a tranca tomada.
@@ -50,10 +61,35 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from .consultas import SQL_DESTRANCAR_THREAD, SQL_TRANCAR_THREAD
+
+#: Quanto se espera entre duas tentativas de tomar a tranca, em segundos.
+#: *Proposta*. Sobe por recuo exponencial ate `ESPERA_MAXIMA_S`, para que uma
+#: conversa a espera de um turno de 7 s nao faca 700 idas a base.
+ESPERA_INICIAL_S: float = 0.01
+ESPERA_MAXIMA_S: float = 0.5
+
+#: Tecto de espera por uma tranca, em segundos. *Proposta*: tres vezes a espera
+#: maxima do *shim* (`ESPERA_MAXIMA_MS`, 30 s), para que quem desiste seja o
+#: `fetch` e nao isto — desistir aqui devolve o *job* a fila, que e o certo, mas
+#: o tecto existe para que uma tranca que ficou presa por um defeito nao
+#: prenda uma corrotina para sempre. Calibra-se em KAM-084.
+ESPERA_TOTAL_MAXIMA_S: float = 90.0
+
+
+class TrancaNaoObtidaError(RuntimeError):
+    """Nao se conseguiu a tranca dentro de `ESPERA_TOTAL_MAXIMA_S`.
+
+    O turno nao corre e a excepcao sobe: o *shim* ve 500 e devolve o *job* a
+    fila, que e o comportamento certo — a mensagem nao se perde e a conversa que
+    detem a tranca acaba o seu turno. Um tecto e nao uma espera sem fim porque
+    uma tranca presa por um defeito (um *pooler* em modo transaccao, uma sessao
+    orfa) prenderia a corrotina para sempre, e um pedido pendurado nao da erro.
+    """
 
 
 class TrancaNaoLargadaError(RuntimeError):
@@ -77,8 +113,13 @@ class TrancaDeConversas:
     so a base pode provar.
     """
 
-    def __init__(self, abrir_ligacao: Callable[[], Any]) -> None:
+    def __init__(
+        self,
+        abrir_ligacao: Callable[[], Any],
+        relogio: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._abrir = abrir_ligacao
+        self._agora = relogio
         self._ligacao: Any | None = None
         # Uma ligacao, uma `thread` de cada vez. O `pg8000` nao e seguro para
         # uso concorrente na mesma ligacao, e duas corrotinas a mandar
@@ -120,20 +161,34 @@ class TrancaDeConversas:
                     pass
             raise
 
+    async def _esperar_pela_tranca(self, thread_id: str) -> None:
+        """Tenta ate conseguir, largando o `asyncio.Lock` entre tentativas.
+
+        **Espera**, nao desiste a primeira: o criterio 2 pede vinte turnos em
+        serie com a ordem de chegada preservada, e desistir perdia turnos. O que
+        mudou face a primeira versao e **onde** se espera: fora do
+        `asyncio.Lock`, para que uma conversa a espera nao prenda as outras.
+        """
+        espera = ESPERA_INICIAL_S
+        limite = self._agora() + ESPERA_TOTAL_MAXIMA_S
+        while True:
+            if await self._executar(SQL_TRANCAR_THREAD, thread_id) is True:
+                return
+            if self._agora() >= limite:
+                raise TrancaNaoObtidaError("tranca_nao_obtida")
+            await asyncio.sleep(espera)
+            espera = min(espera * 2, ESPERA_MAXIMA_S)
+
     @contextlib.asynccontextmanager
     async def tomar(self, thread_id: str) -> AsyncIterator[None]:
         """Corre o bloco com a tranca de `thread_id` tomada.
-
-        **Espera**, nao desiste: o criterio 2 pede vinte turnos em serie com a
-        ordem de chegada preservada, e um `NOWAIT` aqui perdia turnos. Quem
-        decide nao esperar e a admissao, antes de chegar aqui.
 
         O `destrancar` corre no `finally` — mesmo com o turno a levantar. Se
         **ele** falhar, a tranca fica ate a ligacao morrer, o que e o
         comportamento certo: o processo que a tomou ja nao esta em condicoes de
         a largar, e a ligacao e o unico sinal honesto que resta.
         """
-        await self._executar(SQL_TRANCAR_THREAD, thread_id)
+        await self._esperar_pela_tranca(thread_id)
         try:
             yield
         finally:

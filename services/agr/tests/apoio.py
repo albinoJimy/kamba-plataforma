@@ -10,6 +10,7 @@ directa exercita o encaminhamento real do Starlette.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from typing import Any
@@ -78,13 +79,27 @@ async def pedir(
 
 
 def invocacao_crua(**sobrepor: Any) -> dict[str, Any]:
-    """Um `agent_invocation` valido, com UUID novos. `sobrepor` muda campos."""
+    """Um `agent_invocation` valido, com UUID novos. `sobrepor` muda campos.
+
+    **O `conversation_id` segue o par (tenant, contacto) por omissao**, e isso
+    e uma correccao: antes gerava-se um UUID novo em cada chamada, pelo que
+    duas invocacoes do **mesmo** contacto saiam com conversas **diferentes**.
+    O teste da coalescencia juntava assim seis conversas num lote e passava,
+    porque o duplo de `ler_palavra` devolvia a mesma `Palavra` para qualquer
+    invocacao — o duplo tornava a propriedade impossivel de falhar, e escondeu
+    o defeito que a revisao adversarial encontrou (um lote a atravessar
+    conversas aplica a decisao de uma a outra e perde a mensagem da outra).
+
+    Quem quer duas conversas do mesmo contacto — o caso de dois canais, que a
+    `conversations_tenant_contact_channel_uq` permite — passa
+    `conversation_id` explicitamente.
+    """
     tenant_id = sobrepor.pop("tenant_id", str(uuid.uuid4()))
     contact_id = sobrepor.pop("contact_id", str(uuid.uuid4()))
     corpo = {
         "tenant_id": tenant_id,
         "contact_id": contact_id,
-        "conversation_id": str(uuid.uuid4()),
+        "conversation_id": _conversa_de(tenant_id, contact_id),
         "channel_id": str(uuid.uuid4()),
         "wamid": "wamid.HBgMMjQ0OTAwMDAwMDAwFQIAEhgg" + uuid.uuid4().hex[:8],
         "type": "text",
@@ -94,6 +109,18 @@ def invocacao_crua(**sobrepor: Any) -> dict[str, Any]:
     }
     corpo.update(sobrepor)
     return corpo
+
+
+def _conversa_de(tenant_id: str, contact_id: str) -> str:
+    """Um `conversation_id` estavel para um par (tenant, contacto).
+
+    Deriva-se do par por `uuid5` para que duas chamadas com o mesmo par dem a
+    mesma conversa, sem o apoio ter de guardar estado. **Nao e um nome do
+    dicionario nem um esquema de producao**: em producao o `conversation_id` e
+    a chave primaria de `platform.conversations`, gerada pela base. E so uma
+    forma de o apoio ser deterministico.
+    """
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"kamba-teste:{tenant_id}:{contact_id}"))
 
 
 def como_json(corpo: dict[str, Any]) -> bytes:
@@ -114,31 +141,52 @@ class Relogio:
 
 
 class TrancaFalsa:
-    """A tranca, sem base: registra a ordem e recusa a sobreposicao.
+    """A tranca, sem base: **exclui** por chave, e registra a ordem e as esperas.
 
-    E o duplo que torna o criterio 2 mensuravel sem PostgreSQL. **Nao substitui
-    a *suite* do *gate* 8**: o que uma tranca falsa prova e que o executor pede
-    a tranca e so corre um lote de cada vez; que o `pg_advisory_lock` e exclusao
-    mutua entre **processos** so a base pode dizer, e e la que esta medido.
+    A primeira versao nao excluia nada — contava sobreposicoes e nunca as
+    impedia —, e isso tornava-a um duplo que nao modela o que substitui: com a
+    fila por conversa, os dois canais de um contacto pedem a **mesma** chave ao
+    mesmo tempo, e um duplo que deixa passar as duas afirma o contrario da
+    propriedade. A revisao adversarial apanhou-o (o achado M3 aponta ao mesmo
+    sitio pelo outro lado: um duplo que serializa sem excluir mede o dreno e
+    nao a tranca).
+
+    Agora ha um `asyncio.Lock` por chave, e o duplo tem duas saidas:
+
+    - `sobrepostas` tem de ser **0** sempre: e a invariante.
+    - `esperas` diz quantas vezes alguem teve de **esperar** por uma chave que
+      outro detinha. Um teste de contencao que da `esperas == 0` nao mediu
+      contencao nenhuma, e diz isso em vez de passar por acidente.
+
+    **Isto nao substitui a *suite* do *gate* 8.** Que o `pg_try_advisory_lock`
+    exclui entre **processos** so a base o pode dizer, e e la que esta medido
+    (`db/tests_agr/test_tranca.py`).
     """
 
     def __init__(self) -> None:
         self.tomadas: list[str] = []
         self.dentro = 0
         self.sobrepostas = 0
+        self.esperas = 0
+        self._por_chave: dict[str, asyncio.Lock] = {}
 
     def tomar(self, thread_id: str):
         import contextlib
 
+        trinco = self._por_chave.setdefault(thread_id, asyncio.Lock())
+
         @contextlib.asynccontextmanager
         async def gerir():
-            self.tomadas.append(thread_id)
-            self.dentro += 1
-            if self.dentro > 1:
-                self.sobrepostas += 1
-            try:
-                yield
-            finally:
-                self.dentro -= 1
+            if trinco.locked():
+                self.esperas += 1
+            async with trinco:
+                self.tomadas.append(thread_id)
+                self.dentro += 1
+                if self.dentro > 1:
+                    self.sobrepostas += 1
+                try:
+                    yield
+                finally:
+                    self.dentro -= 1
 
         return gerir()

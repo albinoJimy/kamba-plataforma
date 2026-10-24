@@ -108,8 +108,8 @@ def exigir_biblioteca_mit() -> None:
             )
 
 
-def desligar_telemetria(ambiente: dict[str, str] | None = None) -> dict[str, str]:
-    """Poe as `VARIAVEIS_DE_TELEMETRIA` a `false`. Devolve o que mudou.
+def desligar_telemetria(ambiente: dict[str, str] | None = None) -> tuple[str, ...]:
+    """Poe as `VARIAVEIS_DE_TELEMETRIA` a `false`. Devolve os **nomes** que mudou.
 
     **Sobrepoe** um valor existente, mesmo que diga `true`. Nao e descuido com
     a configuracao de quem faz o *deploy*: e o criterio 7, e um AGR que
@@ -117,13 +117,19 @@ def desligar_telemetria(ambiente: dict[str, str] | None = None) -> dict[str, str
     conversas de clientes para fora de Angola sem destino registado (ADR-008).
     Quem quiser *traces* tem o Langfuse (KAM-069).
 
-    Devolve-se o que mudou para que o arranque o possa registar — o **nome** da
-    variavel, que e constante deste modulo, e nunca o valor que lá estava.
+    **Devolve nomes e nao um `dict`, e isto e uma correccao.** A primeira versao
+    devolvia `{nome: valor_anterior}` com uma *docstring* a prometer «o nome e
+    nunca o valor»: o valor anterior ia no dicionario, e um `LANGSMITH_TRACING`
+    pode trazer uma chave colada por engano. O arranque salvava-se por acidente,
+    porque registava `sorted(...)` — que itera as **chaves** —, e o teste que
+    negava o valor fazia `" ".join(mudou)`, que itera as chaves tambem: a
+    asercao era sempre verdadeira. Um tipo que nao pode levar o valor fecha as
+    duas coisas de uma vez. Achado da revisao adversarial.
     """
     alvo = ambiente if ambiente is not None else os.environ
-    mudou: dict[str, str] = {}
+    mudou: list[str] = []
     for variavel in VARIAVEIS_DE_TELEMETRIA:
         if alvo.get(variavel) != TELEMETRIA_DESLIGADA:
-            mudou[variavel] = alvo.get(variavel, "")
+            mudou.append(variavel)
         alvo[variavel] = TELEMETRIA_DESLIGADA
-    return mudou
+    return tuple(mudou)

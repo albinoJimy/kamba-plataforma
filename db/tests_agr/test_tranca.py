@@ -33,10 +33,16 @@ RAIZ = Path(__file__).resolve().parents[2]
 #: tranca, que e o que um teste precisa de fazer sem ficar pendurado.
 SQL_TENTAR = "SELECT pg_try_advisory_lock(hashtextextended(%s::text, 0)) AS consegui"
 
-#: Os *locks* de tipo `advisory` que uma sessao detem, pelo `pg_locks`.
+#: Os *locks* de tipo `advisory` que **esta** sessao detem, pelo `pg_locks`.
+#:
+#: `pid = pg_backend_pid()` nao e zelo: sem ele a contagem e de **todo o
+#: servidor**, e o `assertEqual(antes, depois)` falhava se outra sessao tomasse
+#: um *advisory* no meio — o gate 8 corre dezesseis suites e a base e
+#: descartavel, mas partilhada dentro da execucao. Achado da revisao
+#: adversarial.
 SQL_LOCKS_ADVISORY = """
   SELECT count(*) FROM pg_locks
-   WHERE locktype = 'advisory' AND granted
+   WHERE locktype = 'advisory' AND granted AND pid = pg_backend_pid()
 """
 
 

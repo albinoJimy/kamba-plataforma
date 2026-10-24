@@ -37,13 +37,28 @@ vez da conversa de outro. E zero linhas **nao** e «esta em `bot`»: ver
 
 from __future__ import annotations
 
-#: Toma a tranca da conversa. **Fora** de transaccao, numa ligacao dedicada.
+#: Tenta tomar a tranca da conversa. **Fora** de transaccao, numa ligacao
+#: dedicada. Devolve `true` se a conseguiu e `false` se outra sessao a tem.
 #:
-#: `pg_advisory_lock` bloqueia ate a tranca ser sua. Nao ha `NOWAIT` aqui de
-#: proposito: o criterio 2 pede que vinte mensagens da mesma `thread_id` dem
-#: vinte turnos **em serie** e com a ordem de chegada preservada, e desistir em
-#: vez de esperar perdia turnos ou reordenava-os. Quem precisa de nao esperar e
-#: a admissao (`admissao.py`), que decide **antes** de chegar aqui.
+#: **`pg_try_advisory_lock` e nao `pg_advisory_lock`, e a diferenca e a razao de
+#: ser desta linha.** O `pg_advisory_lock` **bloqueia** no servidor ate a tranca
+#: ser sua, e o `pg8000` e sincrono: a chamada prende a `thread` do *executor* e,
+#: com ela, o `asyncio.Lock` que serializa o uso da unica ligacao de tranca do
+#: processo. O resultado — medido pela revisao adversarial — e que uma conversa
+#: a espera de uma chave **para o processo inteiro**: nenhuma outra conversa
+#: consegue trancar, e as que acabaram nao conseguem **destrancar**, porque o
+#: `pg_advisory_unlock` precisa da mesma ligacao. E bloqueio de cabeca de fila
+#: que atravessa *tenants*, que e exactamente o que o criterio 5 proibe.
+#:
+#: A chave colide de proposito com a do `pg_advisory_xact_lock` dos modos
+#: (KAM-018), que o `PreSendGuard` toma **em cada envio do bot**: nao e preciso
+#: um segundo AGR para a espera acontecer.
+#:
+#: Com a tentativa que nao bloqueia, quem espera larga o `asyncio.Lock` entre
+#: tentativas (`trancas.py`), e a espera deixa de ser exclusiva. **A ordem de
+#: chegada continua preservada** porque dentro do processo so uma corrotina por
+#: `thread_id` chega aqui — o dreno de `turno.py` e que serializa —, pelo que
+#: nao ha duas tentativas da mesma chave a competir neste processo.
 #:
 #: `hashtextextended(texto, 0)` e nao `hashtext`: o primeiro devolve `bigint`,
 #: que e a largura que `pg_advisory_lock(bigint)` aceita; o segundo devolve
@@ -60,7 +75,7 @@ from __future__ import annotations
 #:
 #: Parametros: o `thread_id`.
 SQL_TRANCAR_THREAD = """
-  SELECT pg_advisory_lock(hashtextextended(%s::text, 0))
+  SELECT pg_try_advisory_lock(hashtextextended(%s::text, 0)) AS consegui
 """
 
 #: Larga a tranca da conversa. Devolve `true` se esta sessao a tinha.

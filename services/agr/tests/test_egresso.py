@@ -107,19 +107,30 @@ class TestTelemetria(unittest.TestCase):
         self.assertEqual(sorted(mudou), sorted(VARIAVEIS_DE_TELEMETRIA))
 
     def test_o_que_devolve_nao_leva_o_valor_que_la_estava(self) -> None:
-        # Um `LANGSMITH_TRACING` pode trazer uma chave colada por engano, e o
-        # arranque registra o que isto devolve.
-        ambiente = {"LANGSMITH_TRACING": "lsv2_pt_923456789_segredo"}
+        """Um `LANGSMITH_TRACING` pode trazer uma chave colada por engano.
+
+        **E a primeira versao deste teste nao podia falhar.** A funcao devolvia
+        `{nome: valor_anterior}` e a asercao era `assertNotIn("segredo",
+        " ".join(mudou))` — `" ".join(dict)` itera as **chaves**, pelo que o
+        valor nunca era olhado. Hoje a funcao devolve um `tuple` de nomes, que
+        nao pode levar o valor, e a asercao percorre o que ha. Achado da
+        revisao adversarial.
+        """
+        segredo = "lsv2_pt_923456789_colado_por_engano"
+        ambiente = {"LANGSMITH_TRACING": segredo}
         mudou = desligar_telemetria(ambiente)
+        self.assertIsInstance(mudou, tuple)
         # As duas mudaram: a que trazia o valor, e a que nao estava definida.
         self.assertEqual(sorted(mudou), sorted(VARIAVEIS_DE_TELEMETRIA))
-        # A chave do dicionario e o nome; o valor **anterior** e o que fica, e
-        # por isso o arranque so registra `sorted(telemetria)` — as chaves.
-        self.assertNotIn("segredo", " ".join(mudou))
+        for item in mudou:
+            self.assertIn(item, VARIAVEIS_DE_TELEMETRIA)
+            self.assertNotIn(segredo, item)
+        self.assertNotIn(segredo, " ".join(mudou))
+        self.assertNotIn(segredo, repr(mudou))
 
     def test_com_as_duas_ja_a_false_nao_declara_mudanca(self) -> None:
         ambiente = {v: TELEMETRIA_DESLIGADA for v in VARIAVEIS_DE_TELEMETRIA}
-        self.assertEqual(desligar_telemetria(ambiente), {})
+        self.assertEqual(desligar_telemetria(ambiente), ())
 
 
 class TestAllowlistDeSaida(unittest.TestCase):

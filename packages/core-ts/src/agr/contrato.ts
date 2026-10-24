@@ -56,7 +56,18 @@ export const ESPERA_MAXIMA_MS = 30_000;
  */
 export const TRANCA_DO_JOB_MS = 120_000;
 
-/** Um *job* de cada vez por *worker*. Escala-se com réplicas. */
+/**
+ * Quantos *jobs* um *worker* trata ao mesmo tempo.
+ *
+ * **Quatro, e não um** — é a única vez neste repositório, e a razão está no
+ * cabeçalho de `shim.ts`: os outros dois *workers* da casa têm concorrência 1
+ * porque o trabalho deles é uma transacção numa ligação à base, e aqui não há
+ * ligação nenhuma: há um `fetch`. Um *worker* a esperar 3–7 s por turno
+ * processava uns dez turnos por minuto.
+ *
+ * O comentário dizia «um *job* de cada vez por *worker*» ao lado do valor 4,
+ * contradizendo o valor e o próprio `shim.ts`. Achado da revisão adversarial.
+ */
 export const CONCORRENCIA = 4;
 
 /**
@@ -67,6 +78,18 @@ export const CONCORRENCIA = 4;
  * natureza: o AGR em baixo, a base em baixo, um 503 de contrapressão.
  */
 export const TENTATIVAS = 6;
+
+/**
+ * O mesmo número, com o nome que o **produtor** usa.
+ *
+ * O `chr/fila.ts` põe-no em `attempts` no `fila.add`, porque o `attempts` é
+ * opção do *job* e não do *worker*: sem ele o BullMQ dá **uma** tentativa e
+ * manda o *job* para `failed`, e todo o caminho de contrapressão do AGR — «503
+ * e o *job* volta à fila com atraso» — era falso. Um alias e não um segundo
+ * número, para que não possam divergir; o nome é explícito porque quem lê o
+ * produtor não tem contexto do *shim*.
+ */
+export const TENTATIVAS_DO_AGR = TENTATIVAS;
 
 /** A variável com a URL base do AGR na rede interna. Dicionário §3.24. */
 export const VARIAVEL_DO_AGR = "KAMBA_AGR_URL";

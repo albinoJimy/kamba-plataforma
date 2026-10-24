@@ -73,6 +73,27 @@ sítio onde ela vive.
 
 ## 3. As três coisas que enganam quem o opera
 
+### 3.0 A espera pela tranca não é exclusiva, e tem de continuar a não ser
+
+Há **uma** ligação dedicada à tranca por processo, e o driver é síncrono. A
+primeira versão deste ticket usava `pg_advisory_lock`, que bloqueia no servidor:
+a espera prendia a `thread` e, com ela, o `asyncio.Lock` da ligação. Uma
+conversa à espera parava o processo inteiro, e as que acabavam não conseguiam
+`pg_advisory_unlock` — bloqueio de cabeça de fila a atravessar *tenants*, sem
+erro nenhum, com os pedidos pendurados até o `fetch` do *shim* cortar.
+
+Hoje é `pg_try_advisory_lock` num ciclo com recuo exponencial, e a espera é
+**fora** do trinco da ligação. Quem mexer nisto tem de manter a propriedade: a
+bateria `db/tests_agr/test_repeticao.py::TestDoisExecutoresNaMesmaConversa`
+mede-a, e há uma mutação (`agr: a espera pela tranca volta a ser exclusiva`) que
+a repõe de propósito para confirmar que a bateria a apanha.
+
+**E a fila do executor tem outra chave:** `(thread_id, conversation_id)`. A
+tranca é por `thread_id` porque tem de travar os dois canais do mesmo contacto —
+é o `thread_id` do LangGraph —, mas um lote **nunca** pode atravessar conversas:
+a decisão sai da primeira invocação, e um lote misturado aplicava a decisão de
+uma conversa à outra e perdia a mensagem da outra.
+
 ### 3.1 A ligação da tranca não pode passar por um *pooler* em modo transacção
 
 É o único modo de falha desta escolha que **não dá erro nenhum**: dá exclusão
@@ -96,6 +117,13 @@ O *shim* **espera** pela resposta do AGR, de propósito: é isso que faz um turn
 interrompido a meio ser retomado (critério 4). O *job* fica aberto durante o
 turno, e o `TRANCA_DO_JOB_MS` (120 000 ms, *proposta*) é o número que decide se
 o BullMQ o declara `stalled` com o *shim* vivo.
+
+**E o *job* só volta à fila porque o produtor o permite:** o `fila.add` do
+`chr/fila.ts` leva `attempts` e `backoff` (`TENTATIVAS_DO_AGR`), e o `attempts`
+é opção do *job* e não do *worker* — sem ele o BullMQ dá **uma** tentativa e
+manda o *job* para `failed`, com o `wamid` bloqueado porque o `jobId` deduplica
+em `failed`. Faltava, e tornava falsa toda a frase «a mensagem fica na fila»;
+quem mexer no produtor tem de o manter.
 
 Curto demais **não perde** o *job*: duplica-o. O AGR é idempotente por
 `turn_id` e o envio leva `idempotency_key = turn_id:seq`, pelo que a duplicação
@@ -235,7 +263,10 @@ que faz um defeito de SQL passar por verde:
 | A tranca larga quando o *worker* morre? | `db/tests_agr/test_tranca.py`, com um `SIGKILL` a sério num processo filho |
 | As cadeias de `consultas.py` correm? | `db/tests_agr/test_palavra.py` — uma base falsa compara SQL por texto e nunca o interpreta |
 | A RLS esconde a conversa de A do contexto de B? | `db/tests_agr/test_palavra.py` (X-02) |
-| 20 mensagens em série, pela ordem, com a tranca verdadeira? | `db/tests_agr/test_repeticao.py` |
+| 20 mensagens em série, pela ordem? | `db/tests_agr/test_repeticao.py::TestSerieContraABase` — e **isso mede o dreno**, não a tranca: um executor é uma ligação, e o `pg_advisory_lock` conta por sessão |
+| Dois clientes da tranca sobre a mesma conversa não se sobrepõem, e a espera de um não prende o outro? | `db/tests_agr/test_repeticao.py::TestDoisExecutoresNaMesmaConversa` |
+| Um lote nunca atravessa conversas do mesmo contacto? | `services/agr/tests/test_turno.py::TestUmLoteNaoAtravessaConversas` |
+| A re-entrega do mesmo *job* não gasta quota de ritmo? | `services/agr/tests/test_admissao.py::TestRitmoEIdempotencia` |
 
 ---
 
@@ -253,3 +284,4 @@ tabela do §1 atribui a outro ticket.
 | Versão | Data | Autor | Alterações |
 |---|---|---|---|
 | 1.0 | 2026-10-24 | KAM-025 | Versão inicial: o esqueleto do AGR, a tranca, a API interna e os tectos |
+| 1.1 | 2026-10-24 | KAM-025 | Revisão adversarial: o §3.0 (a espera pela tranca e a chave da fila), o `attempts` do produtor no §3.2, e a tabela do §7 corrigida — o teste das 20 em série mede o dreno e não a tranca, e isso agora está escrito |

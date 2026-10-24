@@ -144,15 +144,18 @@ def rotas(
     credencial: Callable[[], str],
     executar: Callable[..., Awaitable[Any]],
     admissao: Admissao,
+    trancas: Any,
     retomar: Callable[[str, str, str], Awaitable[None]] | None = None,
     aviso: Callable[[str], None] | None = None,
 ) -> list[Route]:
     """As duas rotas internas, com as portas que elas precisam.
 
-    `executar` e o `ExecutorDeTurnos.correr`; `retomar` e a porta do KAM-034,
-    que por omissao levanta `RetomaNaoImplementadaError` — e nao devolve 200 a
-    fingir que retomou. `aviso` recebe o «aviso unico» do criterio 5; por
-    omissao nao escreve nada, e quem o liga ao *logger* e o `__main__.py`.
+    `executar` e o `ExecutorDeTurnos.correr`; `trancas` e o
+    `TrancaDeConversas`, que a **retoma** precisa de tomar (§11 regra 3) — o
+    turno toma-a por dentro, no executor; `retomar` e a porta do KAM-034, que
+    por omissao levanta `RetomaNaoImplementadaError` e nao devolve 200 a fingir
+    que retomou. `aviso` recebe o «aviso unico» do criterio 5; por omissao nao
+    escreve nada, e quem o liga ao *logger* e o `__main__.py`.
     """
 
     async def turno(pedido: Request) -> JSONResponse:
@@ -167,13 +170,18 @@ def rotas(
                 status_code=400,
             )
 
-        if not admissao.aceita_o_ritmo(invocacao):
-            if admissao.deve_avisar(invocacao) and aviso is not None:
-                aviso("ritmo_excedido")
-            return JSONResponse({"outcome": "descartado"}, status_code=200)
-
+        # **A vaga vem antes do ritmo**, e a ordem foi invertida de proposito:
+        # uma recusa por tecto devolve o *job* a fila, e a entrega seguinte do
+        # **mesmo** `wamid` nao pode gastar quota nova. Com a ordem anterior,
+        # vinte 503 do mesmo *job* consumiam os vinte lugares do minuto e a
+        # mensagem seguinte — legitima — era descartada em silencio. Achado da
+        # revisao adversarial.
         try:
             async with admissao.vaga(invocacao):
+                if not admissao.aceita_o_ritmo(invocacao):
+                    if admissao.deve_avisar(invocacao) and aviso is not None:
+                        aviso("ritmo_excedido")
+                    return JSONResponse({"outcome": "descartado"}, status_code=200)
                 desfecho = await executar(invocacao)
         except TectoDoTenantCheioError:
             return JSONResponse(
@@ -222,7 +230,14 @@ def rotas(
             )
         if retomar is None:
             raise RetomaNaoImplementadaError("retoma_e_kam_034")
-        await retomar(corpo["thread_id"], corpo["handoff_id"], corpo["outcome"])
+        # **Sob a tranca da conversa**, que e o que o `docs/tecnica/02` §11
+        # regra 3 exige por escrito: «a invocacao `Command(resume=...)` corre
+        # sob o *lock* da conversa». Tres sitios afirmavam que o KAM-025
+        # entregava isto e o codigo chamava a porta directamente — achado da
+        # revisao adversarial. Sem a tranca, um `resume` entrava no grafo ao
+        # mesmo tempo que um turno novo, sobre o mesmo *thread*.
+        async with trancas.tomar(corpo["thread_id"]):
+            await retomar(corpo["thread_id"], corpo["handoff_id"], corpo["outcome"])
         return JSONResponse({"outcome": "retomado"}, status_code=200)
 
     return [

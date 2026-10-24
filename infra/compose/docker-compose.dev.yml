@@ -266,13 +266,9 @@ services:
       - "127.0.0.1:${AGR_PORT:-8000}:8000"
     networks:
       - app
-      # Desde o KAM-025 o AGR le `conversations` e `handoffs` (criterio 6) e
-      # toma a tranca por conversa: precisa da rede da base, como o
-      # `worker-canal`.
-      - data
-    depends_on:
-      postgres:
-        condition: service_healthy
+      # A rede da base ja aqui estava, e desde o KAM-025 o AGR usa-a de
+      # verdade: le `conversations` e `handoffs` (criterio 6) e toma a tranca
+      # por conversa.
       - data
     depends_on:
       postgres:

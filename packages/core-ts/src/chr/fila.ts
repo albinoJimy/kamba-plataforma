@@ -32,6 +32,11 @@
  * Reabrir um turno falhado é operação, não re-entrega: KAM-025 e KAM-084.
  * Achado da revisão adversarial.
  *
+ * **O KAM-025 estreitou o caminho que leva ali**: o `attempts` abaixo da ao
+ * *job* as seis tentativas da escada, pelo que um AGR em baixo ou em
+ * contrapressao deixa de mandar o *wamid* para `failed` a primeira. O caso
+ * difícil fica o que era: tentativas **esgotadas**.
+ *
  * ## `removeOnComplete` e a janela da idempotência, dita em vez de assumida
  *
  * O `jobId` só deduplica enquanto o *job* existir. Com `removeOnComplete` a
@@ -45,6 +50,7 @@
 
 import { Queue } from "bullmq";
 
+import { TENTATIVAS_DO_AGR } from "../agr/contrato.ts";
 import { LIGACAO_QUE_ESPERA, opcoesDaUrl } from "../eventos/filas_bullmq.ts";
 import type { AgentInvocation } from "./contrato.ts";
 import { FILA_AGR, JOB_AGR } from "./contrato.ts";
@@ -92,6 +98,23 @@ export function criarFilaDoAgr(url: string): FilaDoAgr {
         jobId: jobIdDe(invocacao.tenant_id, invocacao.wamid),
         removeOnComplete: JOBS_GUARDADOS,
         removeOnFail: FALHADOS_GUARDADOS,
+        // **O `attempts` e opção do *job*, não do *worker*.** Sem ele não há
+        // retentativa nenhuma: por omissão o BullMQ dá uma tentativa e manda o
+        // *job* para `failed`. Faltava, e o que isso tornava falso não era
+        // pouco — todo o caminho de contrapressão do AGR (KAM-025) assenta em
+        // «503 e o *job* volta à fila com atraso», e o *job* não voltava: ia
+        // direito para `failed`, e o `jobId` deduplica **incluindo em
+        // `failed`**, pelo que o mesmo `wamid` ficava bloqueado até o
+        // `removeOnFail` o despejar. Com `grafos` ainda por registar (KAM-027),
+        // *toda* invocação válida dá 503 — isto é, todas as mensagens morriam
+        // à primeira. Achado da revisão adversarial do KAM-025.
+        attempts: TENTATIVAS_DO_AGR,
+        // `custom` é a forma de o BullMQ passar a decisão do atraso ao
+        // `backoffStrategy` do *worker* (`agr/shim.ts`), que é a escada do
+        // consumidor de eventos. Sem isto, o `backoffStrategy` que o *shim*
+        // registra nunca era chamado — e é a mesma lição que o `addLote` do
+        // `eventos/filas_bullmq.ts` já tinha escrita.
+        backoff: { type: "custom" },
       });
     },
     async fechar(): Promise<void> {

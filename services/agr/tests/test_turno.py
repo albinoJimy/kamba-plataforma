@@ -461,5 +461,155 @@ class TestODrenoNaoPenduraNinguem(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(desfecho.desfecho, "executado")
         self.assertEqual(len(grafo.turnos), 1)
 
+class TestUmLoteNaoAtravessaConversas(unittest.IsolatedAsyncioTestCase):
+    """Dois canais do mesmo contacto sao duas conversas e um so `thread_id`.
+
+    A `conversations` e `UNIQUE (tenant_id, contact_id, channel_id)` (revisao
+    `0009`) e o `thread_id` e `{tenant_id}:{contact_id}`: o mesmo contacto em
+    dois canais tem **duas** conversas e **um** `thread_id`.
+
+    A primeira versao do executor indexava a fila pelo `thread_id` e corria o
+    lote com a **primeira** invocacao. Com as duas mensagens a distarem menos de
+    1,5 s, elas coalesciam, a decisao da conversa A valia para a B, e se a B
+    tivesse um *handoff* em `waiting` o turno entrava no grafo sobre ela — a
+    invariante do `docs/tecnica/02` §11 regra 4 violada — e a mensagem da B
+    **perdia-se**, porque o *shim* ve 200 e completa o *job*.
+
+    **E nenhum teste o apanhava**, porque o duplo de `ler_palavra` devolvia a
+    mesma `Palavra` para qualquer invocacao: o duplo tornava a propriedade
+    impossivel de falhar. Aqui o duplo responde **por conversa**, que e o minimo
+    para a pergunta ter sentido. Achado da revisao adversarial.
+    """
+
+    async def asyncSetUp(self) -> None:
+        METRICAS.repor()
+
+    def _duas_conversas_do_mesmo_contacto(self):
+        tenant, contacto = str(uuid.uuid4()), str(uuid.uuid4())
+        a = ler_invocacao(
+            invocacao_crua(
+                tenant_id=tenant, contact_id=contacto, conversation_id=str(uuid.uuid4())
+            )
+        )
+        b = ler_invocacao(
+            invocacao_crua(
+                tenant_id=tenant, contact_id=contacto, conversation_id=str(uuid.uuid4())
+            )
+        )
+        self.assertEqual(a.thread_id, b.thread_id, "o apoio nao deu o mesmo thread_id")
+        self.assertNotEqual(a.conversation_id, b.conversation_id)
+        return a, b
+
+    def _executor_por_conversa(self, palavras: dict, grafo, reencaminhados: list):
+        tranca = TrancaFalsa()
+        lidas: list[str] = []
+
+        async def ler_palavra(invocacao):
+            lidas.append(invocacao.conversation_id)
+            return palavras[invocacao.conversation_id]
+
+        async def reencaminhar(invocacoes):
+            reencaminhados.extend(invocacoes)
+
+        exec_ = ExecutorDeTurnos(
+            trancas=tranca,
+            ler_palavra=ler_palavra,
+            grafos=lambda _i: grafo,
+            reencaminhar=reencaminhar,
+            # Coalescencia **ligada**: e com ela que o defeito aparecia.
+            admissao=Admissao(tectos=Tectos(coalescencia_ms=1_500)),
+        )
+        return exec_, tranca, lidas
+
+    async def test_cada_conversa_leva_a_sua_decisao(self) -> None:
+        a, b = self._duas_conversas_do_mesmo_contacto()
+        grafo = GrafoEspia(atraso=0.01)
+        reencaminhados: list = []
+        palavras = {
+            a.conversation_id: Palavra(modo="bot", handoff_a_espera=False),
+            # A conversa B esta com um humano: **nao** pode entrar no grafo.
+            b.conversation_id: Palavra(modo="bot", handoff_a_espera=True),
+        }
+        exec_, _, lidas = self._executor_por_conversa(palavras, grafo, reencaminhados)
+
+        desfechos = await asyncio.wait_for(
+            asyncio.gather(exec_.correr(a), exec_.correr(b)), timeout=10
+        )
+
+        # As duas conversas foram **ambas** consultadas.
+        self.assertEqual(sorted(lidas), sorted([a.conversation_id, b.conversation_id]))
+        # Cada uma com o seu desfecho.
+        self.assertEqual([d.desfecho for d in desfechos], ["executado", "entregue_ao_hnd"])
+        # Só a de `bot` entrou no grafo.
+        self.assertEqual(grafo.turnos, [a.turn_id])
+        # E a de `waiting` foi reencaminhada, e nao perdida.
+        self.assertEqual([i.turn_id for i in reencaminhados], [b.turn_id])
+
+    async def test_na_ordem_inversa_tambem(self) -> None:
+        # Se a ordem decidisse, uma conversa em `bot` ia ao HND.
+        a, b = self._duas_conversas_do_mesmo_contacto()
+        grafo = GrafoEspia(atraso=0.01)
+        reencaminhados: list = []
+        palavras = {
+            a.conversation_id: Palavra(modo="pausada", handoff_a_espera=False),
+            b.conversation_id: Palavra(modo="bot", handoff_a_espera=False),
+        }
+        exec_, _, _ = self._executor_por_conversa(palavras, grafo, reencaminhados)
+        desfechos = await asyncio.wait_for(
+            asyncio.gather(exec_.correr(a), exec_.correr(b)), timeout=10
+        )
+        self.assertEqual([d.desfecho for d in desfechos], ["entregue_ao_hnd", "executado"])
+        self.assertEqual(grafo.turnos, [b.turn_id])
+        self.assertEqual([i.turn_id for i in reencaminhados], [a.turn_id])
+
+    async def test_a_tranca_continua_a_ser_por_thread_id(self) -> None:
+        """As duas conversas do contacto serializam, apesar de nao coalescerem.
+
+        E a outra metade do desenho: a fila separa-as (para a decisao nao
+        atravessar) e a tranca junta-as (para dois turnos nao correrem sobre o
+        **mesmo** *thread* do LangGraph). Uma chave de tranca por conversa
+        deixava os dois canais a correr ao mesmo tempo sobre o mesmo *thread*.
+        """
+        a, b = self._duas_conversas_do_mesmo_contacto()
+        grafo = GrafoEspia(atraso=0.01)
+        palavras = {
+            a.conversation_id: Palavra(modo="bot", handoff_a_espera=False),
+            b.conversation_id: Palavra(modo="bot", handoff_a_espera=False),
+        }
+        exec_, tranca, _ = self._executor_por_conversa(palavras, grafo, [])
+        await asyncio.wait_for(
+            asyncio.gather(exec_.correr(a), exec_.correr(b)), timeout=10
+        )
+        # A mesma chave de tranca, duas vezes, e nunca sobreposta.
+        self.assertEqual(tranca.tomadas, [a.thread_id, b.thread_id])
+        self.assertEqual(tranca.tomadas[0], tranca.tomadas[1])
+        self.assertEqual(tranca.sobrepostas, 0)
+        # E houve contencao de verdade: as duas conversas pediram a mesma chave
+        # ao mesmo tempo. Sem isto, o teste passava por as duas correrem uma
+        # depois da outra por acidente de escalonamento, sem medir exclusao.
+        self.assertGreaterEqual(tranca.esperas, 1)
+        self.assertEqual(grafo.sobrepostas, 0)
+        self.assertEqual(sorted(grafo.turnos), sorted([a.turn_id, b.turn_id]))
+
+    async def test_e_as_mensagens_da_mesma_conversa_continuam_a_coalescer(self) -> None:
+        # Senao, a correccao do lote teria desligado o criterio 3.
+        a, _ = self._duas_conversas_do_mesmo_contacto()
+        segunda = ler_invocacao(
+            invocacao_crua(
+                tenant_id=a.tenant_id,
+                contact_id=a.contact_id,
+                conversation_id=a.conversation_id,
+            )
+        )
+        grafo = GrafoEspia(atraso=0.02)
+        palavras = {a.conversation_id: Palavra(modo="bot", handoff_a_espera=False)}
+        exec_, _, _ = self._executor_por_conversa(palavras, grafo, [])
+        desfechos = await asyncio.wait_for(
+            asyncio.gather(exec_.correr(a), exec_.correr(segunda)), timeout=10
+        )
+        self.assertEqual(len(desfechos), 2)
+        self.assertEqual(len(grafo.turnos), 1, "as duas da mesma conversa nao juntaram")
+        self.assertEqual(max(d.coalescidos for d in desfechos), 1)
+
 if __name__ == "__main__":
     unittest.main()

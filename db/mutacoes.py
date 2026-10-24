@@ -3326,14 +3326,16 @@ MUTACOES = [
     # a base (a tranca, as duas leituras e a RLS), e e isso que justifica a
     # suite propria.
     ('agr: a tranca passa a ser de transaccao', AG_SQL,
-     "SELECT pg_advisory_lock(hashtextextended(%s::text, 0))",
-     "SELECT pg_advisory_xact_lock(hashtextextended(%s::text, 0))", AGR),
+     "SELECT pg_try_advisory_lock(hashtextextended(%s::text, 0)) AS consegui",
+     "SELECT pg_try_advisory_xact_lock(hashtextextended(%s::text, 0)) AS consegui",
+     AGR),
     # Em `autocommit`, um *lock* de transaccao larga no fim da instrucao: a
     # exclusao mutua desaparece sem erro nenhum. E a Decisao 2 do ADR-L004 a
     # ser verificada em vez de afirmada.
     ('agr: a semente do hash deixa de ser fixa', AG_SQL,
-     "SELECT pg_advisory_lock(hashtextextended(%s::text, 0))",
-     "SELECT pg_advisory_lock(hashtextextended(%s::text, 1))", AGR),
+     "SELECT pg_try_advisory_lock(hashtextextended(%s::text, 0)) AS consegui",
+     "SELECT pg_try_advisory_lock(hashtextextended(%s::text, 1)) AS consegui",
+     AGR),
     # Uma semente diferente da chaves diferentes para a mesma conversa, e a
     # colisao com o *lock* dos modos (KAM-018) desaparece.
     ('agr: o unlock deixa de dizer se a tranca era nossa', AG_SQL,
@@ -3347,10 +3349,14 @@ MUTACOES = [
     # conversas da loja — e a resposta continua plausivel.
     ('agr: o waiting deixa de ser o unico estado que fecha', AG_SQL,
      "AND h.status = 'waiting'", "AND h.status <> 'resumed'", AGR),
+    # **Muda o caminho e nao a etiqueta.** A primeira versao trocava so a cadeia
+    # `"sem_conversa"` por `"executado"`, e com isso o grafo **continuava** a nao
+    # correr: modelava uma etiqueta mal posta e nao o furo `or 'bot'` que o nome
+    # lhe atribui. Agora a condicao desaparece, e e o grafo que corre sobre uma
+    # conversa que o AGR nao conseguiu ler — o furo de isolamento mais barato
+    # que este ticket podia ter. Achado da revisao adversarial.
     ('agr: zero linhas passa a ler-se como bot', AG_TURNO,
-     '                    desfecho = "sem_conversa"',
-     '                    desfecho = "executado"', AGR),
-    # O furo de isolamento mais barato que este ticket podia ter.
+     '                if palavra is None:', '                if False:', AGR),
     ('agr: o modo deixa de ser lista de permitidos', AG_TURNO,
      "        return self.modo != MODO_DO_BOT or self.handoff_a_espera",
      '        return self.modo in ("dono", "humano", "pausada") or self.handoff_a_espera',
@@ -3359,6 +3365,41 @@ MUTACOES = [
     # a porta por omissao, que e o lado errado de errar.
     ('agr: o seq da chave de envio deixa de entrar', AG_CONTEXTO,
      'return f"{self.turn_id}:{seq}"', 'return self.turn_id', AGR),
+    # A nona, e a unica que muda um bloco inteiro: e a reposicao do defeito C2
+    # que a revisao adversarial encontrou. A espera pela tranca volta a correr
+    # **dentro** do `asyncio.Lock` que serializa a unica ligacao de tranca do
+    # processo — que e o que acontece com `pg_advisory_lock` a bloquear no
+    # servidor. Quem a mata e o
+    # `test_repeticao.py::TestDoisExecutoresNaMesmaConversa::test_a_espera_de_uma_conversa_nao_prende_outra`,
+    # e sem essa bateria o defeito nao tinha quem o apanhasse: nenhum dos
+    # outros testes punha dois `TrancaDeConversas` sobre a mesma chave.
+    #
+    # E a razao de o `AG_TRANCAS` existir: a revisao notou que a constante
+    # estava declarada e **nao usada** — isto e, nao havia mutacao nenhuma
+    # sobre o ficheiro onde vive a propriedade mais delicada do ticket.
+    ('agr: a espera pela tranca volta a ser exclusiva', AG_TRANCAS,
+     '''        espera = ESPERA_INICIAL_S
+        limite = self._agora() + ESPERA_TOTAL_MAXIMA_S
+        while True:
+            if await self._executar(SQL_TRANCAR_THREAD, thread_id) is True:
+                return
+            if self._agora() >= limite:
+                raise TrancaNaoObtidaError("tranca_nao_obtida")
+            await asyncio.sleep(espera)
+            espera = min(espera * 2, ESPERA_MAXIMA_S)''',
+     '''        espera = ESPERA_INICIAL_S
+        limite = self._agora() + ESPERA_TOTAL_MAXIMA_S
+        async with self._exclusiva:
+            while True:
+                linha = await asyncio.to_thread(
+                    self._sincrono, SQL_TRANCAR_THREAD, thread_id
+                )
+                if linha is True:
+                    return
+                if self._agora() >= limite:
+                    raise TrancaNaoObtidaError("tranca_nao_obtida")
+                await asyncio.sleep(espera)
+                espera = min(espera * 2, ESPERA_MAXIMA_S)''', AGR),
 ]
 
 

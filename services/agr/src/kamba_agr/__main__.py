@@ -146,8 +146,18 @@ def main() -> int:
             credencial=lambda: segredos.get(SEGREDO_DA_API),
             executar=executor.correr,
             admissao=admissao,
+            trancas=trancas,
             aviso=lambda motivo: log.warn(outcome="admissao", error_code=motivo),
-        )
+        ),
+        # As duas ligacoes fecham-se no encerramento do processo, e **havia aqui
+        # uma lacuna**: o `TrancaDeConversas.fechar()` existia e nao tinha
+        # chamador nenhum em producao (achado da revisao adversarial). Corre no
+        # `lifespan`, que o uvicorn fecha em `SIGTERM` — o sinal com que um
+        # orquestrador para um contentor. Fechar a tomada larga as trancas que
+        # ela tivesse, o que importa: sem isto, as trancas de um processo que
+        # para ficam ate o PostgreSQL notar a tomada fechada, e o *worker* que
+        # recebe os *jobs* a seguir espera por elas sem razao.
+        ao_encerrar=trancas.fechar,
     )
 
     # O anfitriao e a porta nao estao na *allowlist* de `docs/tecnica/08` §7.3.

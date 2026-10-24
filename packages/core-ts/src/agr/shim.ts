@@ -78,9 +78,10 @@ import {
  * segunda tentativa — e o *job* fica em `failed` sem passar por tratamento
  * nenhum. Medido na *suite* `tests_entrada`, e vale aqui pela mesma razão.
  *
- * O `lockDuration` é o número que o `ADR-L004` obriga a declarar: é ele que
- * decide se um *job* é `stalled` com o *worker* vivo. Fica aqui, e não dentro
- * da chamada ao `new Worker`, para que o teste o possa ler sem abrir ligação.
+ * **O `lockDuration` não está aqui**, e o comentário anterior dizia que estava:
+ * ele é opção do `new Worker` e vive em `trabalhador.ts`, com a constante
+ * `TRANCA_DO_JOB_MS` de `contrato.ts` — que é o que um teste lê sem abrir
+ * ligação nenhuma. Achado da revisão adversarial.
  */
 export const AJUSTES_DO_SHIM = {
   backoffStrategy: (tentativasFeitas: number): number =>

@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import unittest
 
-from apoio import CREDENCIAL, como_json, invocacao_crua, pedir
+from apoio import CREDENCIAL, TrancaFalsa, como_json, invocacao_crua, pedir
 from kamba_agr.admissao import Admissao, Tectos
 from kamba_agr.api_interna import (
     CABECALHO,
@@ -29,8 +29,10 @@ def aplicacao(
     tectos=None,
     retomar=None,
     avisos=None,
+    trancas=None,
 ):
     admissao = Admissao(tectos=tectos or Tectos())
+    trancas = trancas if trancas is not None else TrancaFalsa()
 
     async def executar(_invocacao):
         if erro is not None:
@@ -42,6 +44,7 @@ def aplicacao(
             credencial=lambda: CREDENCIAL,
             executar=executar,
             admissao=admissao,
+            trancas=trancas,
             retomar=retomar,
             aviso=(avisos.append if avisos is not None else None),
         )
@@ -153,19 +156,85 @@ class TestTurno(unittest.IsolatedAsyncioTestCase):
     async def test_o_descarte_por_ritmo_da_200(self) -> None:
         # Um 429 fazia o BullMQ repetir a mensagem que acabamos de decidir
         # descartar, e um descarte que se repete nao e um descarte.
+        #
+        # **Duas mensagens diferentes do mesmo contacto**, e nao a mesma duas
+        # vezes: o ritmo conta mensagens e nao entregas, e a mesma invocacao
+        # repetida mede a idempotencia (o teste seguinte).
         avisos: list = []
         app, _ = aplicacao(tectos=Tectos(ritmo_por_contacto=1), avisos=avisos)
-        corpo = invocacao_crua()
+        primeira = invocacao_crua()
+        segunda = invocacao_crua(
+            tenant_id=primeira["tenant_id"], contact_id=primeira["contact_id"]
+        )
+        self.assertNotEqual(primeira["wamid"], segunda["wamid"])
         primeiro, _, _ = await pedir(
-            app, "/internal/turn", "POST", como_json(corpo), COM_CREDENCIAL
+            app, "/internal/turn", "POST", como_json(primeira), COM_CREDENCIAL
         )
         self.assertEqual(primeiro, 200)
         segundo, _, resposta = await pedir(
-            app, "/internal/turn", "POST", como_json(corpo), COM_CREDENCIAL
+            app, "/internal/turn", "POST", como_json(segunda), COM_CREDENCIAL
         )
         self.assertEqual(segundo, 200)
         self.assertEqual(json.loads(resposta)["outcome"], "descartado")
         self.assertEqual(avisos, ["ritmo_excedido"])
+
+    async def test_a_re_entrega_do_mesmo_job_nao_gasta_quota(self) -> None:
+        """Vinte entregas do mesmo `wamid` gastam **uma** quota.
+
+        Com a ordem anterior — ritmo antes da vaga, e sem memoria do `turn_id` —
+        vinte 503 do mesmo *job* consumiam os vinte lugares do minuto e a
+        mensagem seguinte, legitima, era descartada em silencio. E o efeito
+        duplicado que o DoD da idempotencia diz nao existir. Achado da revisao
+        adversarial.
+        """
+        app, _ = aplicacao(tectos=Tectos(ritmo_por_contacto=2))
+        corpo = invocacao_crua()
+        for _ in range(20):
+            estado, _, resposta = await pedir(
+                app, "/internal/turn", "POST", como_json(corpo), COM_CREDENCIAL
+            )
+            self.assertEqual(estado, 200)
+            self.assertEqual(json.loads(resposta)["outcome"], "executado")
+        # Sobra **uma** quota das duas, para uma mensagem nova.
+        outra = invocacao_crua(
+            tenant_id=corpo["tenant_id"], contact_id=corpo["contact_id"]
+        )
+        _, _, resposta = await pedir(
+            app, "/internal/turn", "POST", como_json(outra), COM_CREDENCIAL
+        )
+        self.assertEqual(json.loads(resposta)["outcome"], "executado")
+        terceira = invocacao_crua(
+            tenant_id=corpo["tenant_id"], contact_id=corpo["contact_id"]
+        )
+        _, _, resposta = await pedir(
+            app, "/internal/turn", "POST", como_json(terceira), COM_CREDENCIAL
+        )
+        self.assertEqual(json.loads(resposta)["outcome"], "descartado")
+
+    async def test_uma_recusa_por_tecto_nao_gasta_quota_de_ritmo(self) -> None:
+        # A segunda via da correccao: o ritmo verifica-se **dentro** da vaga.
+        from kamba_agr.contexto import ler_invocacao
+
+        app, admissao = aplicacao(
+            tectos=Tectos(tecto_por_tenant=1, ritmo_por_contacto=1)
+        )
+        corpo = invocacao_crua()
+        vaga = admissao.vaga(ler_invocacao(corpo))
+        await vaga.__aenter__()
+        try:
+            for _ in range(5):
+                estado, _, _ = await pedir(
+                    app, "/internal/turn", "POST", como_json(corpo), COM_CREDENCIAL
+                )
+                self.assertEqual(estado, 503)
+        finally:
+            await vaga.__aexit__(None, None, None)
+        # As cinco recusas nao gastaram nada: a quota de 1 esta intacta.
+        estado, _, resposta = await pedir(
+            app, "/internal/turn", "POST", como_json(corpo), COM_CREDENCIAL
+        )
+        self.assertEqual(estado, 200)
+        self.assertEqual(json.loads(resposta)["outcome"], "executado")
 
     async def test_o_aviso_do_descarte_e_um_so(self) -> None:
         avisos: list = []
@@ -176,8 +245,14 @@ class TestTurno(unittest.IsolatedAsyncioTestCase):
 
         avisos.clear()
         app, _ = aplicacao(tectos=Tectos(ritmo_por_contacto=1), avisos=avisos)
-        corpo = invocacao_crua()
+        primeira = invocacao_crua()
+        await pedir(app, "/internal/turn", "POST", como_json(primeira), COM_CREDENCIAL)
+        # Cinco mensagens **novas** do mesmo contacto, todas descartadas, e um
+        # so aviso.
         for _ in range(5):
+            corpo = invocacao_crua(
+                tenant_id=primeira["tenant_id"], contact_id=primeira["contact_id"]
+            )
             await pedir(app, "/internal/turn", "POST", como_json(corpo), COM_CREDENCIAL)
         self.assertEqual(avisos, ["ritmo_excedido"])
 
@@ -266,6 +341,119 @@ class TestRetoma(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(resposta)["outcome"], "retomado")
         self.assertEqual(chamadas, [("a:b", "h", "resumed")])
 
+    async def test_a_retoma_corre_sob_a_tranca_da_conversa(self) -> None:
+        """`docs/tecnica/02` §11 regra 3, por escrito: «a invocacao
+        `Command(resume=...)` corre sob o *lock* da conversa».
+
+        Tres sitios afirmavam que o KAM-025 entregava isto — a *docstring* do
+        `RetomaNaoImplementadaError`, o dicionario §3.24 e a secção de
+        verificação — e o codigo chamava a porta directamente. Sem a tranca, um
+        `resume` entra no grafo ao mesmo tempo que um turno novo, sobre o mesmo
+        *thread*. Achado da revisao adversarial.
+        """
+        dentro: list = []
+        tranca = TrancaFalsa()
+
+        async def retomar(thread_id, _handoff_id, _outcome):
+            # Dentro do `retomar`, a tranca daquele `thread_id` tem de estar
+            # tomada.
+            dentro.append((thread_id, tranca.dentro))
+
+        app, _ = aplicacao(retomar=retomar, trancas=tranca)
+        estado, _, _ = await pedir(
+            app,
+            "/internal/resume",
+            "POST",
+            como_json({"thread_id": "a:b", "handoff_id": "h", "outcome": "resumed"}),
+            COM_CREDENCIAL,
+        )
+        self.assertEqual(estado, 200)
+        self.assertEqual(tranca.tomadas, ["a:b"])
+        self.assertEqual(dentro, [("a:b", 1)])
+        # E larga-se no fim.
+        self.assertEqual(tranca.dentro, 0)
+
+    async def test_a_retoma_nao_toma_a_tranca_sem_credencial(self) -> None:
+        # Senao, um pedido nao autenticado podia prender a conversa de alguem.
+        tranca = TrancaFalsa()
+        app, _ = aplicacao(retomar=lambda *_a: None, trancas=tranca)
+        estado, _, _ = await pedir(
+            app,
+            "/internal/resume",
+            "POST",
+            como_json({"thread_id": "a:b", "handoff_id": "h", "outcome": "resumed"}),
+        )
+        self.assertEqual(estado, 401)
+        self.assertEqual(tranca.tomadas, [])
+
+
+class TestEncerramento(unittest.IsolatedAsyncioTestCase):
+    """O `ao_encerrar` corre no fim do `lifespan`.
+
+    O `TrancaDeConversas.fechar()` existia e **nao tinha chamador nenhum em
+    producao** (achado da revisao adversarial): as trancas de um processo que
+    para ficavam ate o PostgreSQL notar a tomada fechada, e o *worker* que
+    recebe os *jobs* a seguir esperava por elas sem razao. Agora liga-se pelo
+    `lifespan`, que o uvicorn fecha em `SIGTERM`.
+    """
+
+    async def _ciclo(self, app) -> None:
+        """Conduz o `lifespan` da aplicacao ASGI: arranca e encerra."""
+        recebidas: list[dict] = []
+        a_enviar = [{"type": "lifespan.startup"}, {"type": "lifespan.shutdown"}]
+
+        async def receive() -> dict:
+            return a_enviar.pop(0) if a_enviar else {"type": "lifespan.shutdown"}
+
+        async def send(mensagem: dict) -> None:
+            recebidas.append(mensagem)
+
+        await app({"type": "lifespan", "asgi": {"version": "3.0"}}, receive, send)
+        self.assertIn(
+            "lifespan.startup.complete", [m["type"] for m in recebidas], recebidas
+        )
+
+    async def test_o_encerramento_fecha_as_ligacoes(self) -> None:
+        fechou = {"vezes": 0}
+
+        async def ao_encerrar() -> None:
+            fechou["vezes"] += 1
+
+        await self._ciclo(create_app(ao_encerrar=ao_encerrar))
+        self.assertEqual(fechou["vezes"], 1)
+
+    async def test_sem_ao_encerrar_a_aplicacao_arranca_igual(self) -> None:
+        # A aplicacao do KAM-001 continua a construir-se sem argumentos.
+        await self._ciclo(create_app())
+
+    async def test_o_encerramento_corre_mesmo_quando_o_ciclo_rebenta(self) -> None:
+        """E um `finally`, e isso tem um limite que vale a pena escrever.
+
+        **Cobre** um erro depois do arranque: o Starlette ja entrou no gestor de
+        contexto, e o `finally` corre. **Nao cobre** um erro no proprio arranque
+        — ali o `receive()` levanta antes de se entrar no gestor, e nao ha nada
+        a fechar porque nada abriu. A primeira versao deste teste afirmava o
+        contrario e falhou, que e onde se quer que isso aconteca.
+        """
+        fechou = {"vezes": 0}
+
+        async def ao_encerrar() -> None:
+            fechou["vezes"] += 1
+
+        app = create_app(ao_encerrar=ao_encerrar)
+        passos = [{"type": "lifespan.startup"}]
+
+        async def receive() -> dict:
+            if passos:
+                return passos.pop(0)
+            raise RuntimeError("o servidor ASGI rebentou a meio")
+
+        async def send(_m: dict) -> None:
+            return None
+
+        with self.assertRaises(RuntimeError):
+            await app({"type": "lifespan", "asgi": {"version": "3.0"}}, receive, send)
+        self.assertEqual(fechou["vezes"], 1)
 
 class TestNomes(unittest.TestCase):
     def test_o_id_do_segredo_esta_no_inventario(self) -> None:

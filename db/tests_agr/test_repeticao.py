@@ -219,7 +219,24 @@ class TestRepeticao(ComAgr):
 
 
 class TestSerieContraABase(ComAgr):
-    """Criterio 2 com a tranca **verdadeira**: 20 em serie, pela ordem."""
+    """Criterio 2: 20 turnos em serie, pela ordem, com um executor.
+
+    **O que este teste mede, e o que nao mede.** Ele constroi **um**
+    `ExecutorDeTurnos`, logo **uma** `TrancaDeConversas`, logo **uma** ligacao —
+    e o `pg_advisory_lock` conta por **sessao**: a segunda tomada da mesma chave
+    na mesma sessao e concedida de imediato. Portanto a serializacao que este
+    teste observa vem do **dreno por conversa** de `turno.py`, e nao da base.
+
+    Nao e um defeito do teste: a ordem de chegada e exactamente o que o dreno
+    garante, e e o que o criterio 2 pede. Mas a afirmacao «sem a janela a zero
+    um defeito na tranca ficava invisivel» estava ao contrario — a este teste um
+    defeito na tranca **e** invisivel —, e a revisao adversarial apanhou-a.
+
+    Quem mede a tranca entre sessoes e, por ordem de forca:
+    `test_tranca.py::TestExclusaoMutua` (SQL cru, duas ligacoes),
+    `TestDoisExecutoresNaMesmaConversa` (abaixo, o **cliente** da tranca com
+    duas ligacoes) e `test_tranca.py::TestMorteDoWorker` (o SIGKILL).
+    """
 
     def setUp(self) -> None:
         super().setUp()
@@ -525,6 +542,161 @@ class TestODesfechoQuandoNaoSeLeAConversa(ComAgr):
         )
         self.assertEqual(desfecho.desfecho, "executado")
         self.assertEqual(grafo.voltas, 1)
+
+class TestDoisExecutoresNaMesmaConversa(ComAgr):
+    """Dois executores, duas ligacoes, a mesma conversa: so um turno de cada vez.
+
+    E o teste que faltava, e e o que mede o **cliente** da tranca: o
+    `test_tranca.py` prova que o `pg_try_advisory_lock` exclui entre sessoes com
+    SQL cru, e o `TestSerieContraABase` prova a ordem com um executor so. Entre
+    os dois ficava um vazio — ninguem exercitava dois `TrancaDeConversas` sobre
+    a mesma chave —, e era nesse vazio que vivia o defeito que a revisao
+    adversarial encontrou: a primeira versao usava `pg_advisory_lock`, que
+    **bloqueia** no servidor, dentro do `asyncio.Lock` que serializa a unica
+    ligacao do processo. Uma conversa a espera parava o processo inteiro, e as
+    que acabaram nao conseguiam destrancar.
+
+    **Dois executores no mesmo processo e nao dois processos**, de proposito:
+    dois processos provariam a exclusao (que o `test_tranca.py` ja prova) e nao
+    o que aqui importa — que a espera de um nao prende o outro. Com uma
+    *event loop* so, se a espera fosse exclusiva este teste nao terminava.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        METRICAS.repor()
+
+    def _executor_proprio(self, grafo, ordem: list):
+        """Um executor com `TrancaDeConversas` e ligacao **proprias**."""
+        import ligacao as modulo
+
+        def abrir_tranca():
+            conexao = modulo.ligar("app")
+            conexao.autocommit = True
+            self._conexoes.append(conexao)
+            return conexao
+
+        async def ler_palavra(_invocacao):
+            return Palavra(modo="bot", handoff_a_espera=False)
+
+        async def reencaminhar(_invocacoes):
+            return None
+
+        return ExecutorDeTurnos(
+            trancas=TrancaDeConversas(abrir_tranca),
+            ler_palavra=ler_palavra,
+            grafos=lambda _i: grafo,
+            reencaminhar=reencaminhar,
+            admissao=Admissao(tectos=Tectos(coalescencia_ms=0, tecto_por_tenant=0)),
+        )
+
+    def _invocacao(self, conversa, wamid: str) -> InvocacaoDoAgente:
+        return InvocacaoDoAgente(
+            tenant_id=conversa.tenant_id,
+            contact_id=conversa.contact_id,
+            conversation_id=conversa.conversation_id,
+            channel_id=conversa.canal_id,
+            wamid=wamid,
+            type="text",
+            modo="bot",
+            thread_id=conversa.thread_id,
+            vertical="vendedor",
+        )
+
+    def test_os_dois_turnos_nao_se_sobrepoem(self) -> None:
+        conversa = self.criar_conversa()
+        dentro = {"agora": 0, "maximo": 0}
+        ordem: list[str] = []
+
+        class GrafoQueDemora:
+            async def ainvoke(self, estado, config):
+                dentro["agora"] += 1
+                dentro["maximo"] = max(dentro["maximo"], dentro["agora"])
+                ordem.append(estado["turn_id"])
+                # Longo o suficiente para que, sem tranca, as duas se cruzem.
+                await asyncio.sleep(0.3)
+                dentro["agora"] -= 1
+                return estado
+
+        grafo = GrafoQueDemora()
+        primeiro = self._executor_proprio(grafo, ordem)
+        segundo = self._executor_proprio(grafo, ordem)
+
+        async def correr():
+            return await asyncio.wait_for(
+                asyncio.gather(
+                    primeiro.correr(self._invocacao(conversa, "wamid.ENSAIO.dois.a")),
+                    segundo.correr(self._invocacao(conversa, "wamid.ENSAIO.dois.b")),
+                ),
+                timeout=120,
+            )
+
+        desfechos = asyncio.run(correr())
+
+        self.assertEqual([d.desfecho for d in desfechos], ["executado", "executado"])
+        self.assertEqual(
+            dentro["maximo"],
+            1,
+            "dois turnos correram ao mesmo tempo sobre a mesma conversa: a "
+            "tranca de sessao nao excluiu entre as duas ligacoes",
+        )
+        self.assertEqual(len(ordem), 2)
+
+    def test_a_espera_de_uma_conversa_nao_prende_outra(self) -> None:
+        """O defeito C2, medido: a espera nao pode ser exclusiva.
+
+        O primeiro executor detem a tranca da conversa A durante 1 s. O segundo
+        pede a **mesma** chave (fica a tentar) e, ao mesmo tempo, um terceiro
+        pedido — de outra conversa, no **mesmo** executor que espera — tem de
+        passar. Com a espera dentro do `asyncio.Lock` da ligacao, o terceiro
+        ficava preso atras do segundo e este teste estourava o `wait_for`.
+        """
+        a = self.criar_conversa()
+        b = self.criar_conversa()
+        acabou_b = {"quando": None}
+
+        class GrafoLento:
+            async def ainvoke(self, estado, config):
+                await asyncio.sleep(1.0)
+                return estado
+
+        class GrafoRapido:
+            async def ainvoke(self, estado, config):
+                acabou_b["quando"] = asyncio.get_running_loop().time()
+                return estado
+
+        lento = self._executor_proprio(GrafoLento(), [])
+        # **O mesmo** executor para o que espera e para o que passa: e assim
+        # que eles partilham a ligacao de tranca, que e onde o defeito vivia.
+        outro = self._executor_proprio(GrafoRapido(), [])
+
+        async def correr():
+            comecou = asyncio.get_running_loop().time()
+            segurar = asyncio.create_task(
+                lento.correr(self._invocacao(a, "wamid.ENSAIO.segura"))
+            )
+            await asyncio.sleep(0.15)  # deixa o primeiro tomar a tranca
+            espera = asyncio.create_task(
+                outro.correr(self._invocacao(a, "wamid.ENSAIO.espera"))
+            )
+            await asyncio.sleep(0.05)
+            passa = asyncio.create_task(
+                outro.correr(self._invocacao(b, "wamid.ENSAIO.passa"))
+            )
+            # O de outra conversa tem de acabar **antes** de o lento largar.
+            await asyncio.wait_for(passa, timeout=30)
+            fim_do_que_passa = acabou_b["quando"]
+            await asyncio.wait_for(asyncio.gather(segurar, espera), timeout=120)
+            return comecou, fim_do_que_passa
+
+        comecou, fim_do_que_passa = asyncio.run(correr())
+        self.assertIsNotNone(fim_do_que_passa)
+        self.assertLess(
+            fim_do_que_passa - comecou,
+            1.0,
+            "a conversa B esperou pelo turno da conversa A: a espera pela "
+            "tranca esta a prender a ligacao do processo (defeito C2)",
+        )
 
 if __name__ == "__main__":
     unittest.main()

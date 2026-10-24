@@ -18,7 +18,8 @@ que nao funciona e pior do que um que a nao expoe.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import contextlib
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 
 from kamba_core import healthz
 from starlette.applications import Starlette
@@ -33,11 +34,33 @@ async def healthz_endpoint(_request: Request) -> JSONResponse:
     return JSONResponse(healthz(SERVICE, VERSION))
 
 
-def create_app(rotas_internas: Sequence[Route] | None = None) -> Starlette:
-    """A aplicacao do AGR. Sem `rotas_internas`, so a sonda."""
+def create_app(
+    rotas_internas: Sequence[Route] | None = None,
+    ao_encerrar: Callable[[], Awaitable[None]] | None = None,
+) -> Starlette:
+    """A aplicacao do AGR. Sem `rotas_internas`, so a sonda.
+
+    `ao_encerrar` corre no encerramento do processo — e e onde as ligacoes da
+    tranca se fecham. **Pelo `lifespan` e nao por `add_event_handler`**: o
+    Starlette 1.7 ja nao tem o segundo, e a primeira tentativa rebentou com
+    `AttributeError` na propria bateria (que e onde se quer que rebente).
+    Fechar a tomada larga as trancas que ela tivesse, e sem isso as trancas de
+    um processo que para ficam ate o PostgreSQL notar a tomada fechada.
+    """
     rotas: list[Route] = [Route("/healthz", healthz_endpoint, methods=["GET"])]
     rotas.extend(rotas_internas or ())
-    return Starlette(routes=rotas)
+
+    if ao_encerrar is None:
+        return Starlette(routes=rotas)
+
+    @contextlib.asynccontextmanager
+    async def ciclo(_app: Starlette) -> AsyncIterator[None]:
+        try:
+            yield
+        finally:
+            await ao_encerrar()
+
+    return Starlette(routes=rotas, lifespan=ciclo)
 
 
 app = create_app()

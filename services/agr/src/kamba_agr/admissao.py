@@ -41,6 +41,28 @@ Janela deslizante e nao *token bucket*: o criterio conta «msgs/min», e um
 contacto por janela — o «aviso unico» do criterio. Um aviso por mensagem
 descartada era o atacante a escolher quantas linhas de registo escrevemos.
 
+**O ritmo conta *mensagens*, e nao *entregas* da mesma mensagem.** E uma
+correccao da revisao adversarial, e o cenario era este: a re-entrega do mesmo
+*job* — que o BullMQ faz, e que o KAM-025 **conta com** — gastava uma quota
+nova em cada volta. Com o tecto do *tenant* cheio, vinte 503 do mesmo `wamid`
+consumiam os vinte lugares do minuto, e a mensagem **seguinte**, legitima, era
+descartada em silencio. Isto e precisamente o que o DoD da idempotencia diz nao
+acontecer («re-entrega de *job* sem efeitos duplicados»): o efeito duplicado
+existia, e era o descarte de outra mensagem.
+
+Fecha-se por duas vias, e as duas sao precisas:
+
+1. o `turn_id` ja contado na janela nao conta outra vez (`_contados`);
+2. o ritmo verifica-se **depois** da vaga do *tenant* (`api_interna.py`), para
+   que uma recusa por tecto nao gaste quota nenhuma.
+
+**E os tres dicionarios encolhem.** O `_em_curso` ja apagava a chave a zero; o
+`_chegadas` e o `_avisado` **nao**, e cresciam com um `thread_id` por contacto
+para sempre — a mesma classe de defeito que este modulo nomeia, a passar ao lado
+no mesmo ficheiro que a nomeia. A limpeza faz-se na propria passagem da janela,
+que e quando ja se esta a olhar para a chave; um varrimento periodico era um
+temporizador a mais para a mesma coisa.
+
 **Tecto de concorrencia por *tenant* — 3 (criterio 5).** E o anti-vizinho-ruidoso
 da regra 2 do §15.2. **E por processo**, e isso fica dito: com N replicas do
 AGR o tecto efectivo e 3xN. Um tecto verdadeiramente distribuido pede um
@@ -178,6 +200,10 @@ class Admissao:
         self._tectos = tectos or Tectos()
         self._agora = relogio
         self._chegadas: dict[str, collections.deque[float]] = {}
+        #: Os `turn_id` ja contados, por `thread_id`, com o instante em que o
+        #: foram. E o que impede a re-entrega do mesmo *job* de gastar quota
+        #: nova — ver a *docstring* do modulo.
+        self._contados: dict[str, dict[str, float]] = {}
         self._avisado: dict[str, float] = {}
         self._em_curso: dict[str, int] = {}
         self._a_espera = 0
@@ -195,21 +221,66 @@ class Admissao:
         if self._tectos.ritmo_por_contacto == 0:
             return True
         agora = self._agora()
-        chegadas = self._chegadas.setdefault(invocacao.thread_id, collections.deque())
+        chave = invocacao.thread_id
         limite = agora - JANELA_DO_RITMO_S
+
+        chegadas = self._chegadas.get(chave) or collections.deque()
         while chegadas and chegadas[0] <= limite:
             chegadas.popleft()
+        contados = {
+            turn_id: visto
+            for turn_id, visto in (self._contados.get(chave) or {}).items()
+            if visto > limite
+        }
+
+        # A re-entrega do mesmo *job* nao gasta quota nova: ja a gastou.
+        if invocacao.turn_id in contados:
+            self._guardar_ritmo(chave, chegadas, contados)
+            return True
+
         if len(chegadas) >= self._tectos.ritmo_por_contacto:
             METRICAS.contar(METRICA_RECUSADOS, "ritmo")
+            self._guardar_ritmo(chave, chegadas, contados)
             return False
+
         chegadas.append(agora)
+        contados[invocacao.turn_id] = agora
+        self._guardar_ritmo(chave, chegadas, contados)
         return True
 
+    def _guardar_ritmo(self, chave: str, chegadas, contados: dict[str, float]) -> None:
+        """Guarda o estado da janela, **ou apaga a chave quando esvazia**.
+
+        Sem o apagar, o dicionario cresce com um `thread_id` por contacto e
+        nunca encolhe: memoria ilimitada a custa de outrem, a razao do
+        `MAXIMO_DE_CANAIS` do `chr/contrato.ts`. Era o unico dos tres que nao
+        o fazia, e passou ao lado no mesmo ficheiro que o nomeia — achado da
+        revisao adversarial.
+        """
+        if chegadas:
+            self._chegadas[chave] = chegadas
+        else:
+            self._chegadas.pop(chave, None)
+        if contados:
+            self._contados[chave] = contados
+        else:
+            self._contados.pop(chave, None)
+
     def deve_avisar(self, invocacao: InvocacaoDoAgente) -> bool:
-        """`True` uma vez por contacto por janela. O «aviso unico» do criterio 5."""
+        """`True` uma vez por contacto por janela. O «aviso unico» do criterio 5.
+
+        Aproveita a passagem para apagar as entradas expiradas: o dicionario
+        tambem crescia com um `thread_id` por contacto para sempre. Varre-se
+        aqui e nao num temporizador porque este caminho so corre quando ha
+        descarte, que e raro — e um varrimento sobre um dicionario de milhares
+        de chaves, nesse ritmo, nao e um custo.
+        """
         agora = self._agora()
+        limite = agora - JANELA_DO_RITMO_S
         ultimo = self._avisado.get(invocacao.thread_id)
-        if ultimo is not None and agora - ultimo < JANELA_DO_RITMO_S:
+        for chave in [c for c, visto in self._avisado.items() if visto <= limite]:
+            del self._avisado[chave]
+        if ultimo is not None and ultimo > limite:
             return False
         self._avisado[invocacao.thread_id] = agora
         return True
@@ -273,6 +344,11 @@ class Admissao:
 
     def em_curso(self, tenant_id: str) -> int:
         return self._em_curso.get(tenant_id, 0)
+
+    @property
+    def chaves_guardadas(self) -> tuple[int, int, int]:
+        """`(chegadas, avisados, em_curso)`. Para os testes de crescimento."""
+        return (len(self._chegadas), len(self._avisado), len(self._em_curso))
 
     # ------------------------------------------------------- coalescencia
 
