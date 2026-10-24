@@ -231,6 +231,16 @@ services:
       # a mao, e o `healthcheck` interno le `PORT` precisamente para nao assumir.
       PORT: "8000"
       KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:-unknown}
+      # KAM-025. O segredo e o **unico** que o arranque exige: sem ele o
+      # processo sai com 2 (`cofre_indisponivel`) e a sonda nunca fica verde.
+      # As variaveis da base sao lidas na primeira ligacao, nao no arranque,
+      # porque o AGR tem de poder servir `/healthz` com a base em baixo.
+      KAMBA_ENV: dev
+      KAMBA_SECRET_AGR_INTERNAL_TOKEN: ${KAMBA_SECRET_AGR_INTERNAL_TOKEN:?defina-o no .env}
+      KAMBA_DB_HOST: postgres
+      KAMBA_DB_PORT: "5432"
+      KAMBA_DB_NAME: ${KAMBA_DB_NAME:-kamba_platform}
+      KAMBA_SECRET_DB_APP_PASSWORD: ${KAMBA_SECRET_DB_APP_PASSWORD:?defina-o no .env}
     healthcheck:
       # `urllib` da biblioteca padrao: a sonda nao precisa de curl na imagem.
       test:
@@ -247,9 +257,18 @@ services:
       retries: 6
       start_period: 20s
     ports:
+      # So o *loopback* do anfitriao, e desde o KAM-025 isso tem uma segunda
+      # razao: as rotas `/internal/*` existem a partir deste ticket, e o
+      # criterio 1 pede que nao estejam publicadas fora da rede interna. Em
+      # `dev` publica-se em `127.0.0.1` para se poder sondar o `/healthz` a
+      # mao; quem chega la precisa da credencial de qualquer forma, e em
+      # producao a porta nao se publica (KAM-076, proxy de saida e topologia).
       - "127.0.0.1:${AGR_PORT:-8000}:8000"
     networks:
       - app
+      # A rede da base ja aqui estava, e desde o KAM-025 o AGR usa-a de
+      # verdade: le `conversations` e `handoffs` (criterio 6) e toma a tranca
+      # por conversa.
       - data
     depends_on:
       postgres:

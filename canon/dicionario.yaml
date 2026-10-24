@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.32"
+versao_dicionario: "1.33"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -5079,6 +5079,233 @@ entradas:
       - "AbrirTarefa"
     nomes_nota: []
     variantes_literais: []
+  - seccao: "3.24"
+    conceito: "Identificador do turno"
+    canonico: "turn_id = o wamid da mensagem que o iniciou"
+    literais:
+      - "turn_id"
+      - "wamid"
+    nomes:
+      - "turn_id"
+      - "wamid"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.24"
+    conceito: "Chave de idempotência de um envio do turno"
+    canonico: "idempotency_key = {turn_id}:{seq}, com seq a contar dentro do turno e a reiniciar em cada volta"
+    literais:
+      - "idempotency_key"
+      - "{turn_id}:{seq}"
+      - "seq"
+    nomes:
+      - "idempotency_key"
+      - "turn_id"
+      - "seq"
+    nomes_nota:
+      - "seq"
+      - "handoff_seq"
+    variantes_literais: []
+  - seccao: "3.24"
+    conceito: "Rotas internas do AGR"
+    canonico: "POST /internal/turn, POST /internal/resume, e a GET /healthz que já existia"
+    literais: []
+    nomes: []
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.24"
+    conceito: "Cabeçalho da credencial interna"
+    canonico: "x-kamba-interno"
+    literais:
+      - "x-kamba-interno"
+    nomes:
+      - "x"
+      - "kamba"
+      - "interno"
+    nomes_nota:
+      - "X"
+      - "Kamba"
+      - "Interno"
+    variantes_literais: []
+  - seccao: "3.24"
+    conceito: "Credencial da API interna"
+    canonico: "agr_internal_token (§3.9 dá a forma)"
+    literais:
+      - "agr_internal_token"
+    nomes:
+      - "agr_internal_token"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.24"
+    conceito: "Chave da tranca por conversa"
+    canonico: "pg_advisory_lock(hashtextextended(thread_id, 0)), de sessão, numa ligação dedicada"
+    literais:
+      - "pg_advisory_lock(hashtextextended(thread_id, 0))"
+    nomes:
+      - "pg_advisory_lock"
+      - "hashtextextended"
+      - "thread_id"
+    nomes_nota:
+      - "ADR"
+      - "L004"
+      - "pg_advisory_xact_lock"
+      - "hash"
+      - "tenant_id"
+      - "contact_id"
+      - "hashtextextended"
+    variantes_literais: []
+  - seccao: "3.24"
+    conceito: "Quem consome a fila agr-inbound"
+    canonico: "shim em TypeScript (@kamba/core-ts/agr), hospedado em services/worker-canal/src/agr_shim.ts"
+    literais: []
+    nomes:
+      - "agr"
+      - "inbound"
+    nomes_nota:
+      - "ADR"
+      - "L004"
+      - "bullmq"
+    variantes_literais: []
+  - seccao: "3.24"
+    conceito: "Tectos do AGR, por variável de ambiente"
+    canonico: "AGR_RITMO_POR_CONTACTO (20), AGR_TECTO_POR_TENANT (3), AGR_COALESCENCIA_MS (1500), AGR_LIMIAR_DE_CONTRAPRESSAO (100)"
+    literais:
+      - "AGR_RITMO_POR_CONTACTO"
+      - "AGR_TECTO_POR_TENANT"
+      - "AGR_COALESCENCIA_MS"
+      - "AGR_LIMIAR_DE_CONTRAPRESSAO"
+    nomes:
+      - "AGR_RITMO_POR_CONTACTO"
+      - "AGR_TECTO_POR_TENANT"
+      - "AGR_COALESCENCIA_MS"
+      - "AGR_LIMIAR_DE_CONTRAPRESSAO"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.24"
+    conceito: "URL do AGR na rede interna"
+    canonico: "KAMBA_AGR_URL; a porta da sonda do shim é AGR_SHIM_PORT (3025)"
+    literais:
+      - "KAMBA_AGR_URL"
+      - "AGR_SHIM_PORT"
+    nomes:
+      - "KAMBA_AGR_URL"
+      - "AGR_SHIM_PORT"
+    nomes_nota:
+      - "KAMBA_DB_HOST"
+      - "KAMBA_DB_PORT"
+      - "KAMBA_DB_NAME"
+      - "KAMBA_SECRET_DB_APP_PASSWORD"
+      - "kamba_app"
+      - "KAMBA_CHR_"
+      - "_DB_URL"
+    variantes_literais: []
+  - seccao: "3.24"
+    conceito: "Métricas do AGR"
+    canonico: "agr_turns_total{outcome}, agr_turn_latency_ms, agr_queue_depth, agr_admitted_rejected_total{motivo}, agr_coalesced_total, agr_backpressure_total"
+    literais:
+      - "agr_turns_total{outcome}"
+      - "agr_turn_latency_ms"
+      - "agr_queue_depth"
+      - "agr_admitted_rejected_total{motivo}"
+      - "agr_coalesced_total"
+      - "agr_backpressure_total"
+    nomes:
+      - "agr_turns_total"
+      - "outcome"
+      - "agr_turn_latency_ms"
+      - "agr_queue_depth"
+      - "agr_admitted_rejected_total"
+      - "motivo"
+      - "agr_coalesced_total"
+      - "agr_backpressure_total"
+    nomes_nota:
+      - "degraded_turns"
+      - "chr_resolve_total"
+      - "conv_mode_rejected_total"
+    variantes_literais: []
+  - seccao: "3.24"
+    conceito: "Desfecho de um turno (etiqueta outcome)"
+    canonico: "executado, entregue_ao_hnd, sem_conversa, falhou"
+    literais:
+      - "executado"
+      - "entregue_ao_hnd"
+      - "sem_conversa"
+      - "falhou"
+    nomes:
+      - "outcome"
+      - "executado"
+      - "entregue_ao_hnd"
+      - "sem_conversa"
+      - "falhou"
+    nomes_nota:
+      - "wa_type"
+      - "sem_conversa"
+    variantes_literais: []
+  - seccao: "3.24"
+    conceito: "Razão de uma recusa na admissão (etiqueta motivo)"
+    canonico: "ritmo, tecto_do_tenant, invocacao_invalida"
+    literais:
+      - "ritmo"
+      - "tecto_do_tenant"
+      - "invocacao_invalida"
+    nomes:
+      - "motivo"
+      - "ritmo"
+      - "tecto_do_tenant"
+      - "invocacao_invalida"
+    nomes_nota:
+      - "tecto_do_tenant"
+      - "OBS"
+      - "I"
+    variantes_literais: []
+  - seccao: "3.24"
+    conceito: "Métricas do shim da fila"
+    canonico: "agr_shim_total{outcome} — com outcome de nove valores, os oito que o AGR responde (executado, entregue_ao_hnd, sem_conversa, descartado, tecto_do_tenant, grafo_nao_registado, invocacao_invalida, nao_autorizado) mais desconhecido para uma resposta que não é nenhuma delas — e agr_shim_failed_total"
+    literais:
+      - "agr_shim_total{outcome}"
+      - "outcome"
+      - "executado"
+      - "entregue_ao_hnd"
+      - "sem_conversa"
+      - "descartado"
+      - "tecto_do_tenant"
+      - "grafo_nao_registado"
+      - "invocacao_invalida"
+      - "nao_autorizado"
+      - "desconhecido"
+      - "agr_shim_failed_total"
+    nomes:
+      - "agr_shim_total"
+      - "outcome"
+      - "executado"
+      - "entregue_ao_hnd"
+      - "sem_conversa"
+      - "descartado"
+      - "tecto_do_tenant"
+      - "grafo_nao_registado"
+      - "invocacao_invalida"
+      - "nao_autorizado"
+      - "desconhecido"
+      - "agr_shim_failed_total"
+    nomes_nota:
+      - "agr_shim_total"
+      - "outcome"
+      - "executado"
+      - "agr_turns_total"
+      - "lockDuration"
+      - "desconhecido"
+    variantes_literais: []
+  - seccao: "3.24"
+    conceito: "Turnos em modo determinístico"
+    canonico: "agr_degraded_turns_total — pertence ao AGR e nasce com o KAM-037"
+    literais:
+      - "agr_degraded_turns_total"
+    nomes:
+      - "agr_degraded_turns_total"
+    nomes_nota:
+      - "echo_latency_ms"
+      - "degraded_turns"
+      - "agr_backpressure_total"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -5469,6 +5696,14 @@ tabelas:
     assinatura: "sha256(domínio ␀ tenant ␀ gatilho ␀ episódio)"
     seccao: "3.23"
     conceito: "A chave de idempotência"
+  - nome: "pg_advisory_lock"
+    esquema: ""
+    colunas:
+      - "hashtextextended"
+    aberta: false
+    assinatura: "pg_advisory_lock(hashtextextended(thread_id, 0))"
+    seccao: "3.24"
+    conceito: "Chave da tranca por conversa"
 
 dominios:
   - coluna: "consent_event.purpose"

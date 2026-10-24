@@ -1,0 +1,129 @@
+"""O `ConversaState` base nasce do contexto e de mais nada (`docs/tecnica/02` §5.3)."""
+
+from __future__ import annotations
+
+import re
+import unittest
+from pathlib import Path
+
+from apoio import invocacao_crua
+from kamba_agr.contexto import ler_invocacao
+from kamba_agr.estado import (
+    ESTAGIO_INICIAL,
+    ESTAGIOS,
+    SCHEMA_VERSION,
+    TIPOS_DE_ENTRADA,
+    VersaoDeEstadoAFrenteError,
+    estado_inicial,
+    tipo_de_entrada,
+    versao_lida,
+)
+
+#: As dezenove chaves do bloco de codigo do §5.3, tal como la estao escritas.
+CHAVES_DO_521 = (
+    "schema_version",
+    "tenant_id",
+    "channel_id",
+    "contact_id",
+    "conversation_id",
+    "vertical",
+    "turn_id",
+    "thread_id",
+    "input_kind",
+    "messages",
+    "summary",
+    "stt",
+    "guard",
+    "intent",
+    "facts",
+    "cart",
+    "stage",
+    "slots",
+    "draft",
+    "citation_retries",
+    "handoff_seq",
+    "handoff",
+)
+
+
+class TestEstadoInicial(unittest.TestCase):
+    def test_as_chaves_sao_as_do_521_e_nenhuma_e_nova(self) -> None:
+        # §3 do dicionario: um nome novo entra no dicionario antes de entrar em
+        # codigo. Este teste e o que impede uma chave inventada de passar.
+        estado = estado_inicial(ler_invocacao(invocacao_crua()))
+        self.assertEqual(sorted(estado), sorted(CHAVES_DO_521))
+
+    def test_as_chaves_sao_as_que_o_documento_escreve(self) -> None:
+        # Nao de memoria: le-se o §5.3 do documento e confrontam-se os nomes.
+        doc = (
+            Path(__file__).resolve().parents[3]
+            / "docs"
+            / "tecnica"
+            / "02_Agent_Runtime_Verticais.md"
+        ).read_text(encoding="utf-8")
+        bloco = doc.split("### 5.3 Estado partilhado")[1].split("```")[1]
+        declaradas = set(re.findall(r"^\s{4}(\w+):", bloco, re.MULTILINE))
+        # O bloco do documento escreve tres pares na mesma linha
+        # (`channel_id: str; contact_id: str; conversation_id: str`), que a
+        # expressao acima nao apanha — por isso o teste e de inclusao num
+        # sentido e a igualdade exacta fica no teste de cima.
+        self.assertTrue(declaradas)
+        self.assertTrue(declaradas.issubset(set(CHAVES_DO_521)), declaradas)
+
+    def test_os_identificadores_vem_todos_da_invocacao(self) -> None:
+        invocacao = ler_invocacao(invocacao_crua())
+        estado = estado_inicial(invocacao)
+        self.assertEqual(estado["tenant_id"], invocacao.tenant_id)
+        self.assertEqual(estado["channel_id"], invocacao.channel_id)
+        self.assertEqual(estado["contact_id"], invocacao.contact_id)
+        self.assertEqual(estado["conversation_id"], invocacao.conversation_id)
+        self.assertEqual(estado["vertical"], invocacao.vertical)
+        self.assertEqual(estado["turn_id"], invocacao.wamid)
+        self.assertEqual(estado["thread_id"], invocacao.thread_id)
+
+    def test_nasce_com_a_versao_deste_codigo_e_no_estagio_inicial(self) -> None:
+        estado = estado_inicial(ler_invocacao(invocacao_crua()))
+        self.assertEqual(estado["schema_version"], SCHEMA_VERSION)
+        self.assertEqual(estado["stage"], ESTAGIO_INICIAL)
+        self.assertIn(estado["stage"], ESTAGIOS)
+
+    def test_os_facts_nascem_vazios_em_cada_turno(self) -> None:
+        # §5.3: «so deste turno; reiniciado em `ingest`». Um *fact* de um turno
+        # anterior e um numero sem prova neste.
+        invocacao = ler_invocacao(invocacao_crua())
+        primeiro = estado_inicial(invocacao)
+        primeiro["facts"].append({"inventado": 1})
+        self.assertEqual(estado_inicial(invocacao)["facts"], [])
+
+    def test_o_input_kind_cai_nos_cinco_valores(self) -> None:
+        for wa_type in ("text", "audio", "image", "location", "interactive"):
+            with self.subTest(wa_type=wa_type):
+                self.assertEqual(tipo_de_entrada(wa_type), wa_type)
+        for wa_type in ("button", "sticker", "document", "order", "system"):
+            with self.subTest(wa_type=wa_type):
+                self.assertIn(tipo_de_entrada(wa_type), TIPOS_DE_ENTRADA)
+
+
+class TestVersaoDeEstado(unittest.TestCase):
+    def test_um_estado_sem_a_chave_conta_como_um(self) -> None:
+        self.assertEqual(versao_lida({}), 1)
+
+    def test_a_versao_deste_codigo_le_se(self) -> None:
+        self.assertEqual(versao_lida({"schema_version": SCHEMA_VERSION}), SCHEMA_VERSION)
+
+    def test_uma_versao_a_frente_levanta_em_vez_de_degradar(self) -> None:
+        # Correr um turno sobre um estado da versao N+1 reescreve-o **sem** as
+        # chaves que este codigo nao conhece: e perder dados de uma conversa.
+        with self.assertRaises(VersaoDeEstadoAFrenteError):
+            versao_lida({"schema_version": SCHEMA_VERSION + 1})
+
+    def test_uma_versao_que_nao_e_inteiro_levanta(self) -> None:
+        for valor in ("1", 1.5, None, True, 0, -1, [1]):
+            with self.subTest(valor=valor), self.assertRaises(
+                VersaoDeEstadoAFrenteError
+            ):
+                versao_lida({"schema_version": valor})
+
+
+if __name__ == "__main__":
+    unittest.main()

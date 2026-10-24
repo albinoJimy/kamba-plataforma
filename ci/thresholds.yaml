@@ -263,6 +263,18 @@ excluidos:
   # 4. Os restantes ficheiros de `*/chr/*` ficam medidos: no gate 4 pelo que os
   # testes sem base carregam, e por ficheiro em `db/tests_chr/`.
   - "packages/core-ts/src/chr/fila.ts"
+  # KAM-025, e e a mesma situacao do `chr/fila.ts`, do outro lado da fila: o
+  # `agr/trabalhador.ts` e casca sobre o BullMQ — um `Worker`, um cliente
+  # `ioredis` e dois ouvintes — e quem o exercita de verdade e uma fila real,
+  # que nao produz cobertura V8. O precedente e o
+  # `eventos/trabalhador_bullmq.ts`, que fica fora pela mesma razao.
+  #
+  # **A decisao nao sai da medicao**: o que pode errar em silencio e a traducao
+  # de estados HTTP do AGR em «repete» ou «nao repete» (um 400 retentado gasta
+  # treze minutos de escada num corpo que nunca melhora; um 503 **nao**
+  # retentado perde uma conversa), e isso e o `agr/shim.ts`, que tem bateria
+  # propria no gate 4 e fica no estrato `restante`.
+  - "packages/core-ts/src/agr/trabalhador.ts"
   # O corredor do parser de Mermaid (KAM-140). E uma chamada a `mermaid.parse`
   # dentro de um contentor descartavel, e o `mermaid` **nao** e dependencia
   # deste repositorio de proposito (ver o alvo `mermaid` do Makefile): o

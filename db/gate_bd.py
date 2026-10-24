@@ -9,6 +9,7 @@
     python db/gate_bd.py --suite tests_media         # gate 8, a midia (KAM-020)
     python db/gate_bd.py --suite tests_modos         # gate 8, os modos (KAM-018)
     python db/gate_bd.py --suite tests_avisos        # gate 8, o aviso ao dono (KAM-115)
+    python db/gate_bd.py --suite tests_agr           # gate 8, o AGR (KAM-025)
     python db/gate_bd.py --suite tests --bd-existente
 
 Os dois gates precisam do mesmo: um PostgreSQL real, vazio e descartavel. Este
@@ -191,6 +192,20 @@ SUITES = (
     # avisar o dono pelo canal que falhou e inutil — e os notificadores sao
     # portas, que o criterio 3 manda exercitar com fornecedor falso.
     "tests_avisos",
+    # KAM-025: o AGR. Python puro, e o que so aqui se prova e o que o objecto
+    # da prova obriga — o servidor: que o `pg_advisory_lock` de **sessao** e
+    # exclusao mutua entre sessoes (com uma ligacao nao ha forma de o medir: a
+    # segunda tomada na mesma sessao e concedida de imediato), que a tranca
+    # larga quando a ligacao **morre** (um `SIGKILL` a serio num processo filho,
+    # que e o criterio 4 e o que dispensa um temporizador), que a chave desta
+    # tranca **colide** com a do `pg_advisory_xact_lock` dos modos (KAM-018) —
+    # uma afirmacao sobre o `hashtextextended` que so a base confirma —, que as
+    # quatro cadeias de `src/kamba_agr/consultas.py` **correm** (uma base falsa
+    # compara-as por texto e nunca as interpreta), e que a RLS esconde a
+    # conversa de A do contexto de B (X-02) incluindo no `EXISTS` sobre
+    # `handoffs`. Nao precisa de fila: o consumidor e um shim em TypeScript
+    # (ADR-L004) e a porta do AGR e HTTP.
+    "tests_agr",
 )
 #: As que precisam tambem de uma fila.
 SUITES_COM_FILA = (

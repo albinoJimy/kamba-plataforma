@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Agent Runtime e Verticais |
-| Versão | 1.0 |
+| Versão | 1.3 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/02_Agent_Runtime_Verticais.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -85,14 +85,14 @@ Entregar o esqueleto do serviço AGR: workers assíncronos atrás da fila, seria
 
 ### Critérios de Aceitação
 
-- [ ] `GET /healthz` devolve 200; `POST /internal/turn` e `POST /internal/resume` recusam (401) pedidos sem credencial interna e não estão publicados fora da rede interna.
-- [ ] 20 mensagens concorrentes da mesma `thread_id` produzem 20 turnos **em série** (0 execuções sobrepostas, ordem de chegada preservada) com um grafo de teste.
-- [ ] Mensagens que chegam durante um turno ficam em fila e são coalescidas se distarem < 1,5 s (valor *proposta*, configurável).
+- [x] `GET /healthz` devolve 200; `POST /internal/turn` e `POST /internal/resume` recusam (401) pedidos sem credencial interna e não estão publicados fora da rede interna.
+- [x] 20 mensagens concorrentes da mesma `thread_id` produzem 20 turnos **em série** (0 execuções sobrepostas, ordem de chegada preservada) com um grafo de teste.
+- [x] Mensagens que chegam durante um turno ficam em fila e são coalescidas se distarem < 1,5 s (valor *proposta*, configurável).
 - [ ] Um worker morto com SIGKILL a meio de um turno vê o *job* retomado por outro worker e o turno repete-se; o envio ao Outbound (fake) usa `idempotency_key = turn_id:seq` e regista 0 duplicados.
 - [ ] Tecto de concorrência por tenant configurável (omissão *proposta*: 3) e limite por contacto (omissão *proposta*: 20 msgs/min, descarte silencioso com aviso único); um tenant com 1.000 mensagens em fila não aumenta o p95 de um segundo tenant mais de 20% (limiar *proposta*).
 - [ ] Conversa com `conversations.mode = pausada` ou `handoffs.status = 'waiting'` **não** entra no grafo: a mensagem é reencaminhada ao HND (invariante de `../docs/tecnica/02` §11).
 - [ ] Com egress bloqueado, 0 chamadas a `beacon.langchain.com`; `LANGSMITH_TRACING=false` aplicado (nome exacto da variável a validar na versão fixada, L5).
-- [ ] CI falha se o lockfile contiver `langgraph-api` ou `langgraph-runtime-inmem`; arranque falha se `langgraph_api` for importável.
+- [x] CI falha se o lockfile contiver `langgraph-api` ou `langgraph-runtime-inmem`; arranque falha se `langgraph_api` for importável.
 
 ### Detalhes Técnicos
 
@@ -120,12 +120,132 @@ async def handle(job):
 ### Definition of Done
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
-- [ ] **Isolamento de tenant:** `tenant_id` só do estado/contexto do CHR; teste cruzado cobre o novo caminho (ADR-015).
-- [ ] **Idempotência:** repetição de turno e re-entrega de *job* sem efeitos duplicados (ADR-009).
-- [ ] **Privacidade:** `thread_id = tenant_id:contact_id`, sem telefone em logs, chaves ou eventos (ADR-010).
+- [x] **Isolamento de tenant:** `tenant_id` só do estado/contexto do CHR; teste cruzado cobre o novo caminho (ADR-015).
+- [x] **Idempotência:** repetição de turno e re-entrega de *job* sem efeitos duplicados (ADR-009).
+- [x] **Privacidade:** `thread_id = tenant_id:contact_id`, sem telefone em logs, chaves ou eventos (ADR-010).
 - [ ] **Custo e observabilidade:** métricas de fila, latência de turno e `degraded_turns` nascem aqui (ADR-018).
-- [ ] **Dependências:** versões fixadas por lockfile com *hash*; lista de bloqueio activa em CI (ADR-002).
+- [x] **Dependências:** versões fixadas por lockfile com *hash*; lista de bloqueio activa em CI (ADR-002).
 - [ ] Sem segredos em código, logs ou traces; revisão por dois revisores (P0 de isolamento); documentação do serviço actualizada.
+
+### Verificação dos Critérios de Aceitação
+
+Medido a 2026-10-24, no ramo `feature/KAM-025-agr-servico-workers-lock`. Os
+comandos estão em [`../docs/agr.md`](../docs/agr.md) §7. **Quatro caixas ficam
+vazias**, e cada uma diz porquê: nenhuma delas é «passa em espírito».
+
+| # | Critério | Estado | Evidência |
+|---|---|---|---|
+| 1 | `/healthz` 200; `/internal/*` recusam 401; não publicados fora da rede interna | **satisfeito** | `services/agr/tests/test_api_interna.py::TestAutenticacao` — 8 asserções: 401 sem cabeçalho nas duas rotas, 401 com cinco valores errados (incluindo o certo menos um caracter e em maiúsculas), **corpo de resposta igual nos dois casos** (as duas respostas juntas seriam um oráculo sobre o formato da credencial), autenticação **antes** de ler o corpo (um corpo de 16 KB sem credencial devolve 401 e não 400), `/healthz` continua sem credencial, 405 nos outros métodos, e 404 quando as rotas não estão montadas. A comparação é `hmac.compare_digest`. **Não publicado:** o `__main__.py` escuta em `127.0.0.1` e só o `Dockerfile` põe `0.0.0.0` (é o DoD do KAM-001, e `services/agr/tests/test_arranque.py` confere o `host` que chega ao `uvicorn`); o `infra/compose/docker-compose.dev.yml` publica em `127.0.0.1:${AGR_PORT}` — o *loopback* do anfitrião e não uma rede, conferido com `docker compose config` (que a revisão adversarial correu e **falhou**: a primeira versão deste PR duplicou o `depends_on` do bloco `agr` e o ficheiro deixou de ser analisável, pelo que a prova aqui nomeada não carregava — corrigido, e `docker compose config` sai com 0). **O limite:** a rede é do KAM-076; o que aqui se prova é que o processo não abre a porta por si |
+| 2 | 20 concorrentes da mesma `thread_id` → 20 turnos em série, 0 sobrepostas, ordem preservada | **satisfeito** | `db/tests_agr/test_repeticao.py::TestSerieContraABase`: 20 desfechos, `maximo de execucoes simultaneas = 1`, e a lista de `turn_id` que o grafo viu **igual** à ordem de entrada. **E o que esse teste mede é o dreno, não a tranca** — a revisão adversarial apanhou-o e a frase anterior estava ao contrário: ele constrói **um** executor, logo uma ligação, e o `pg_advisory_lock` conta por sessão, pelo que a segunda tomada da mesma chave na mesma sessão é concedida de imediato. A ordem de chegada é exactamente o que o dreno garante, e é o que o critério pede; o que **não** se pode concluir dele é nada sobre a tranca. Quem mede a tranca é, por ordem de força: `test_tranca.py::TestExclusaoMutua` (SQL cru, duas ligações), `test_repeticao.py::TestDoisExecutoresNaMesmaConversa` (**novo** — dois executores com ligações próprias sobre a mesma conversa: 0 sobrepostas, e a espera de uma conversa não prende outra) e `TestMorteDoWorker`. **A leitura, e está declarada:** mede-se com `AGR_COALESCENCIA_MS=0` e `AGR_TECTO_POR_TENANT=0`, porque vinte mensagens concorrentes distam muito menos de 1,5 s (critério 3) e o tecto de 3 (critério 5) recusaria dezessete. É a tensão da linha 93 de `../docs/dividas-documentais.md`; o critério 3 autoriza-a ao dizer «configurável» |
+| 3 | Mensagens durante um turno ficam em fila e coalescem se distarem < 1,5 s | **satisfeito** | `services/agr/tests/test_admissao.py::TestCoalescencia` — junta as que distam menos de 1,5 s; a distância é ao **anterior admitido** e não ao primeiro (dez mensagens a 1,4 s dão **um** lote, e não dois); a fronteira é estrita (1,5 s exactos ficam fora); e com a janela a zero cada mensagem é um turno. `TestCoalescenciaNoExecutor` prova no executor que as que chegam durante um turno esperam e entram no mesmo lote, com o invariante «cada mensagem que não abriu um lote foi coalescida» e todas a receberem o desfecho do turno que correu. Relógio injectado, não `sleep` |
+| 4 | SIGKILL a meio do turno → *job* retomado por outro *worker*, turno repete-se, `idempotency_key = turn_id:seq`, 0 duplicados | **parcial** | **O que está medido:** `db/tests_agr/test_tranca.py::TestMorteDoWorker` mata um processo filho com `SIGKILL` a sério no meio da secção crítica e prova que (a) enquanto ele vivia ninguém mais tinha a tranca e (b) morto ele, outra sessão a consegue — é o que torna a retoma possível sem temporizador nenhum, e só o servidor o pode dizer. `test_repeticao.py::TestRepeticao` prova a outra metade com o executor verdadeiro: o turno levanta depois de enviar, repete-se desde o início, a chave é `turn_id:seq` **literalmente**, vinte entregas do mesmo *job* dão **duas** chaves distintas e **zero** chaves novas, e `wamid` diferentes dão chaves diferentes (senão a recompra era deduplicada). **O que NÃO está medido, e é por isso que a caixa fica vazia:** «o *job* retomado por outro *worker*» é a retoma de um *job* `stalled` **pelo BullMQ**, e as garantias do BullMQ são NÃO VERIFICADO (`../docs/tecnica/evidencia/E4` §2.10). O que existe é a tradução que o *shim* faz — 5xx, rede e *timeout* lançam, 400 e 401 não (`packages/core-ts/tests/agr.shim.test.ts`, 23 testes) — e a propriedade da tranca acima. **E a revisão adversarial encontrou aqui um defeito que tornava a frase «a mensagem fica na fila» falsa em todo o ticket:** o `fila.add` do `chr/fila.ts` não punha `attempts`, que é opção do ***job*** e não do *worker*, pelo que o BullMQ dava **uma** tentativa e mandava o *job* para `failed` — e o `jobId` deduplica incluindo em `failed`. Com `grafos` ainda por registar, *toda* invocação válida dá 503, isto é: todas as mensagens morriam à primeira e o `wamid` ficava bloqueado. Corrigido no produtor (`attempts: TENTATIVAS_DO_AGR` e `backoff: {type:"custom"}`). Medir a retoma pede uma fila real com dois *shims*, e isso é o *gate* 5 (linha 92 das dívidas) ou o KAM-084 |
+| 5 | Tecto por tenant (3) e limite por contacto (20/min, descarte silencioso com aviso único); 1.000 mensagens de um tenant não sobem o p95 de outro > 20% | **parcial** | **O que está medido:** `test_admissao.py` — o ritmo passa até ao limite e recusa a seguir, a janela desliza e liberta quota, a quota é por contacto (dois canais do mesmo contacto partilham-na, dois contactos não), `0` é sem limite, e o aviso é **um** por contacto por janela; o tecto recusa a quarta e liberta no fim, o tecto de um *tenant* não trava outro, e o dicionário de contadores **não cresce** com um *tenant* por chave. `test_api_interna.py` prova o que o chamador vê: o descarte por ritmo dá **200** com `outcome: descartado` (um 429 fazia o BullMQ repetir a mensagem que se acabou de decidir descartar), e o tecto cheio dá **503** com `Retry-After`. Os quatro tectos lêem-se do ambiente, e um valor que não é inteiro **levanta** em vez de cair na omissão. **E o ritmo conta mensagens e não entregas:** `TestRitmoEIdempotencia` prova que vinte entregas do mesmo `wamid` gastam **uma** quota, e `test_api_interna.py::test_uma_recusa_por_tecto_nao_gasta_quota_de_ritmo` que um 503 não gasta nenhuma. A revisão adversarial mediu o contrário na primeira versão — vinte 503 do mesmo *job* consumiam os vinte lugares do minuto e a mensagem seguinte, legítima, era descartada em silêncio, que é o efeito duplicado que o DoD da idempotência diz não existir. **O que NÃO está medido:** o p95 comparado entre dois *tenants* com 1.000 mensagens em fila. É uma medição de carga, não há *suite* que a faça, e o tecto é **por processo** (com N réplicas é 3×N — está escrito em `../docs/agr.md` §4). Pertence ao KAM-084, que é quem calibra |
+| 6 | `mode = pausada` ou `handoffs.status='waiting'` não entram no grafo: a mensagem vai ao HND | **parcial** | **O que está medido, contra a base:** `db/tests_agr/test_palavra.py` — os três modos que não são `bot` fecham a porta; um `handoffs` em `waiting` fecha-a mesmo com `mode = 'bot'`; os outros **quatro** estados (`resumed`, `timeout`, `cancelled`, `degraded`) deixam passar, porque são passagens acabadas; e um *handoff* aberto **noutra** conversa da mesma loja **não** fecha esta (o `EXISTS` filtra por `(tenant_id, conversation_id)`) — com o controlo positivo de que na conversa certa ele conta, senão o teste passava com um `EXISTS` que nunca encontra nada. `test_repeticao.py::TestODesfechoQuandoNaoSeLeAConversa` prova no executor verdadeiro que um modo **que a base ainda não deixa escrever** fecha a porta: `modo != 'bot'` é lista de permitidos, e um quinto valor no domínio não pode abrir a porta por omissão. **E o defeito mais sério que a revisão adversarial encontrou estava aqui:** a fila era indexada por `thread_id`, e a `conversations` é `UNIQUE (tenant_id, contact_id, channel_id)` — o mesmo contacto em dois canais tem **duas** conversas e **um** `thread_id`. Duas mensagens de conversas diferentes do mesmo contacto a distarem menos de 1,5 s coalesciam, e a decisão da conversa A valia para a B: se a B tivesse um *handoff* em `waiting`, o turno entrava no grafo sobre ela (esta invariante violada) e a mensagem da B **perdia-se**, porque o *shim* vê 200. E nenhum teste o apanhava, porque o duplo de `ler_palavra` devolvia a mesma `Palavra` para qualquer invocação — o duplo tornava a propriedade impossível de falhar. A fila passa a ser indexada por `(thread_id, conversation_id)`, a tranca continua por `thread_id` (tem de travar os dois canais, senão dois turnos correm sobre o mesmo *thread* do LangGraph), e `test_turno.py::TestUmLoteNaoAtravessaConversas` mede as quatro propriedades com um duplo que responde **por conversa**. **O que NÃO está medido:** a entrega ao HND. O `reencaminhar` é uma **porta**, e quem a liga é o KAM-019 — o `__main__.py` monta uma que não faz nada e diz porquê. O que este ticket prova é a **decisão** de não entrar no grafo e de reencaminhar; a entrega é do ticket que tem o provedor |
+| 7 | Com egress bloqueado, 0 chamadas a `beacon.langchain.com`; `LANGSMITH_TRACING=false` aplicado | **parcial** | **O que está medido:** `test_egresso.py::TestTelemetria` — as duas variáveis ficam a `false`, e **sobrepõem** um `true` do ambiente (um AGR que respeitasse um `LANGSMITH_TRACING=true` mandava conteúdo de conversas para fora de Angola sem destino registado, ADR-008); o que a função devolve é um `tuple` de **nomes**, que não pode levar o valor — e a primeira versão devolvia `{nome: valor_anterior}` com uma *docstring* a prometer o contrário, com um teste que não podia falhar (`" ".join(dict)` itera as chaves): corrigido depois da revisão adversarial. `test_arranque.py::TestGuardasDoAdr002` confirma-o depois de `main()` correr. `TestAllowlistDeSaida` lê o `services/agr/egress.yaml` e confirma que o `beacon` **não** está nos destinos, que `por_omissao` continua `negar`, e que nenhum destino é `*` — com a asserção de que o `beacon` **está** no ficheiro, num comentário que diz porque não está na lista (apagar o comentário não melhora nada, e o teste nota-o). **O que NÃO está medido:** «com egress bloqueado». O bloqueio de rede é o KAM-076; não há aqui rede bloqueada nem contador de chamadas, e fingir que há era a classe de defeito que esta secção existe para não ter. **E o nome exacto da variável continua NÃO VERIFICADO (L5)**, como o próprio critério diz: impõem-se as duas que a evidência nomeia, e o egresso negado por omissão é o que vale se nenhuma for a certa |
+| 8 | CI falha com `langgraph-api`/`langgraph-runtime-inmem` no lockfile; arranque falha se `langgraph_api` for importável | **satisfeito** | **CI:** a lista de bloqueio do `tools/lint_arch` já cobre os dois nomes com normalização PEP 503 (`langgraph_api` ≡ `langgraph-api`), e `python -m lint_arch --root . all` → `lista de bloqueio: conforme`, `estrutura: conforme`. O lock novo do AGR não os contém: `python tools/pip_lock.py --check-offline` → «coerente com os pins» nos três locks. **Arranque:** `egresso.exigir_biblioteca_mit()` corre antes de se ler uma variável e antes de abrir uma porta, e `test_arranque.py::TestGuardasDoAdr002` prova que (a) com o módulo importável `main()` devolve `3` e o `uvicorn.run` **não** é chamado, e (b) com o módulo importável **e** uma `PORT` inválida o código é o da guarda — isto é, a guarda corre primeiro. `test_egresso.py` prova que a guarda **procura** o módulo sem o importar (um `import` executava o `__init__.py` do pacote que estamos a recusar) e que os nomes são de **módulo** e não de distribuição, senão o `find_spec` nunca encontrava nada |
+
+#### Definition of Done
+
+| Caixa | Estado | Evidência |
+|---|---|---|
+| Todos os CA satisfeitos e demonstráveis | **não satisfeito** | Quatro parciais: 4, 5, 6 e 7, cada um com a parte que falta nomeada acima. As quatro partes que faltam pertencem ao BullMQ (NÃO VERIFICADO, `E4` §2.10), ao KAM-084 (carga), ao KAM-019 (o provedor de *handoff*) e ao KAM-076 (a rede) |
+| **Isolamento de tenant** (ADR-015) | **satisfeito** | `services/agr/tests/test_isolamento.py` fecha as três portas por onde a injecção poderia entrar: um campo de texto a mais no corpo recusa o contrato **inteiro** (`campo_desconhecido`, e o código da recusa não repete o nome nem o valor que vieram de fora); conteúdo dentro de um campo de forma fechada recusa; e um `thread_id` que aponta para outro *tenant* recusa com `thread_id_incoerente` em vez de se recalcular em silêncio — a tranca depende dele. **Cruzado, contra a base:** `db/tests_agr/test_palavra.py::TestIsolamento` (o contexto de B não lê a conversa de A, nem o `EXISTS` sobre `handoffs`; sem contexto nenhum não há resposta) e `test_repeticao.py::TestODesfechoQuandoNaoSeLeAConversa`, que corre o **executor verdadeiro** com o contexto trocado e prova que o grafo **não** corre e que não há envio. **E um achado:** um `wamid` pode transportar `tenant_id=<uuid>` e passar a forma — está medido e escrito em `test_isolamento.py`, com a razão pela qual apertar o alfabeto seria uma lista de proibidos sobre conteúdo e a propriedade que fecha o caso é o `wamid` nunca ser interpretado |
+| **Idempotência** (ADR-009) | **satisfeito** | `db/tests_agr/test_repeticao.py` — a repetição de um turno que levantou dá a **mesma** chave, vinte entregas do mesmo *job* dão duas chaves distintas e zero novas, e `wamid` diferentes dão chaves diferentes. `test_contexto.py` prova que duas leituras do mesmo corpo dão a mesma chave, e que um `seq` negativo recusa |
+| **Privacidade** (ADR-010) | **satisfeito** | `thread_id = tenant_id:contact_id`, conferido também contra o **texto** do `threadIdDe` do TypeScript (`test_contexto.py::TestThreadId`). O telefone não entra: o contrato não tem campo para ele (§3.13), e o `wamid` — que carrega o número em base64, INDÍCIO de `../docs/logs.md` §2.1 — não vai para registo nenhum (o *shim* registra o desfecho e não o `wamid`) nem para chave de métrica. `test_arranque.py` prova que a credencial nunca aparece no registo. `test_metricas.py` e `agr.shim.test.ts` provam que nenhuma linha exposta traz um identificador, e que a regra se impõe pela **gramática** da etiqueta e não por uma lista de palavras — um `tenant_id` levanta. `log_policy lint` → 0 achados |
+| **Custo e observabilidade** (ADR-018) | **não satisfeito** | As métricas de **fila** (`agr_queue_depth`) e de **latência de turno** (`agr_turn_latency_ms`) nascem aqui, com `agr_turns_total{outcome}`, `agr_admitted_rejected_total{motivo}`, `agr_coalesced_total` e `agr_backpressure_total`. O **`degraded_turns` não**, e a caixa fica vazia por isso: ele conta turnos em **modo determinístico**, que é o KAM-037, e não há neste ticket caminho nenhum por onde um turno possa ficar degradado. É a decisão que o KAM-018 tomou para o `echo_latency_ms` — «uma métrica declarada e sempre a zero é pior do que uma métrica ausente» —, e está registada no dicionário §3.24. O que nasce em vez dela, e conta de verdade, é o `agr_backpressure_total`: o sinal que o KAM-037 vai consumir |
+| **Dependências** (ADR-002) | **satisfeito** | `services/agr/requirements/runtime.txt` regenerado com `tools/pip_lock.py`, **com *hashes***, e `--check-offline` conforme nos três locks. A dependência nova é **uma**: o `pg8000` 1.31.5, na mesma versão exacta que o `db/requirements/migrations.in` já escolheu e justificou (BSD-3-Clause, Python puro). **Não** há `bullmq` para Python, e a razão está no `ADR-L004`. Lista de bloqueio: `lint_arch` conforme; `supply_chain check` conforme nos seis passos (26 referências a imagens, todas por *digest*; 12 serviços com lista de saídas negada por omissão; 20 componentes de licença registados) |
+| Sem segredos; **2 revisores**; documentação do serviço actualizada | **parcial** | **Sem segredos:** `scan_secrets tree` → limpo, 1219 ficheiros. Os valores de teste têm espaços de propósito (nenhum segredo tem espaços), e há um teste que prova que a credencial não chega ao registo. **Documentação:** [`../docs/agr.md`](../docs/agr.md) (novo), [`../docs/adr/ADR-L004-fila-e-tranca-do-agr.md`](../docs/adr/ADR-L004-fila-e-tranca-do-agr.md) (novo), dicionário §3.24 (emenda 1.33), `../docs/ci.md` §3 e `../ops/secrets-inventory.yaml`. **Os 2 revisores: a caixa fica vazia.** Uma revisão adversarial é evidência, não é um revisor, e este ticket é P0 de isolamento. É o mesmo estado dos tickets anteriores desta linha |
+
+#### Prova por mutação
+
+`python db/mutacoes.py --aplicaveis` → **698 mutações conferidas, 0 não
+aplicáveis**. As **nove** novas (prefixo `agr:`) correm contra a `tests_agr`:
+`9 mutação(ões) corrida(s), 0 não apanhada(s)`.
+
+A nona é a reposição do defeito **C2** que a revisão adversarial encontrou — a
+espera pela tranca a correr dentro do `asyncio.Lock` da única ligação do
+processo —, e é a razão de o `AG_TRANCAS` existir: a revisão notou que a
+constante estava declarada e **não usada**, isto é, que não havia mutação
+nenhuma sobre o ficheiro onde vive a propriedade mais delicada do ticket. Quem
+a mata é a bateria nova `TestDoisExecutoresNaMesmaConversa`.
+
+**Duas sobreviveram à primeira execução, e as duas eram defeitos de cobertura
+reais da *suite* nova** — não do código:
+
+1. `agr: zero linhas passa a ler-se como bot` sobreviveu porque a propriedade
+   só tinha bateria no *gate* 4, com um duplo a devolver `None`. Fechou-se com
+   `TestODesfechoQuandoNaoSeLeAConversa`, que corre o executor verdadeiro com o
+   contexto de RLS trocado — **mais forte** do que a do *gate* 4, porque quem
+   esconde a linha é a política e não um duplo.
+2. `agr: o modo deixa de ser lista de permitidos` sobreviveu porque
+   `modo != 'bot'` e `modo in ('dono','humano','pausada')` são equivalentes para
+   os quatro valores de hoje. Fechou-se com um teste que injecta um **quinto**
+   modo — que o `conversations_mode_ck` não deixa escrever —, e que é o único
+   sítio onde a diferença aparece.
+
+**E o corredor apanhou um terceiro defeito, que nenhum *gate* apanhava:** o
+`_copiar` do `db/mutacoes.py` não levava `services/agr`, pelo que a linha de
+base da `tests_agr` ficava vermelha com `ModuleNotFoundError: No module named
+'kamba_agr'` — e uma mutação «apanhada» sobre isso não significa nada. É
+exactamente a regra que aquela função já tinha escrita para a próxima vez
+(«uma mutação nova sobre um ficheiro que esta cópia não leva obriga a
+acrescentá-lo aqui»), cumprida pela primeira vez por quem a leu.
+
+#### Migração
+
+**Não há.** A cadeia fica na `0019`. Este ticket não cria tabela nenhuma: a
+tranca é um `pg_advisory_lock`, que não tem tabela, e as duas tabelas que o AGR
+lê — `conversations` e `handoffs` — existem desde as revisões `0009` e `0011`,
+com `SELECT` já concedido a `kamba_app`. O papel `kamba_agr` e o esquema `lg`
+são o KAM-026. Conferido: `canon_lint` → `migracoes: 19 ficheiro(s)`.
+
+#### Revisão adversarial independente: treze achados, treze fechados
+
+A revisão correu sobre o `de60f7d` com os requisitos e o código, **sem** as
+justificações de quem escreveu, e não aprovou. Os quatro que mudam
+comportamento, e que nenhum *gate* apanhava:
+
+| # | O que estava errado | Como se fechou |
+|---|---|---|
+| C1 | O `docker-compose.dev.yml` ficou **YAML inválido** — o bloco `agr` ganhou um `depends_on` duplicado —, e com ele `make up` falhava para **todos** os serviços. Agravante: era a prova nomeada do critério 1 | Bloco duplicado apagado; `docker compose config` sai com 0. **Nenhum *gate* o apanha** — o `lint_arch` só confere que o ficheiro existe e o `supply_chain` só lhe aplica *regex*. Fica na linha 94 das dívidas |
+| C2 | A espera pela tranca corria **dentro** do `asyncio.Lock` da única ligação do processo: uma conversa à espera parava o processo inteiro, e as que acabaram não conseguiam **destrancar**. Bloqueio de cabeça de fila a atravessar *tenants* — o oposto do critério 5. E a chave colide de propósito com a do `PreSendGuard` do KAM-018, que corre em **cada envio do bot**: não era preciso um segundo AGR | `pg_try_advisory_lock` em ciclo, largando o `asyncio.Lock` entre tentativas, com recuo exponencial e tecto. Bateria nova (`TestDoisExecutoresNaMesmaConversa`) e **mutação nova** que repõe o defeito |
+| C3 | Um lote **atravessava conversas**: a fila era por `thread_id` e um contacto em dois canais tem duas conversas e um `thread_id`. A decisão de uma valia para a outra, e a mensagem da outra **perdia-se**. O duplo de `ler_palavra` tornava-o impossível de falhar | Fila por `(thread_id, conversation_id)`, tranca ainda por `thread_id`, `assert` do invariante no lote, duplo que responde por conversa, `invocacao_crua` a derivar o `conversation_id` do par |
+| A1 | O `fila.add` não punha `attempts`, que é opção do ***job*** e não do *worker*: o 503 era **terminal**, e com `grafos` por registar todas as mensagens morriam à primeira — com o `wamid` bloqueado, porque o `jobId` deduplica em `failed`. «A mensagem fica na fila» era falso em todo o ticket | `attempts: TENTATIVAS_DO_AGR` e `backoff: {type:"custom"}` no produtor |
+
+E nove de severidade menor, todos fechados: o ritmo gasto pelas nossas próprias
+retentativas (**A2**, e era um efeito duplicado que o DoD da idempotência nega);
+dois dicionários a crescer para sempre no mesmo ficheiro que nomeia esse defeito
+(**M1**); o `desligar_telemetria` a devolver o valor antigo com um teste que não
+podia falhar (**M2**); o critério 2 satisfeito pela razão errada (**M3**, acima);
+a retoma sem a tranca que três sítios afirmavam (**M4**); e cinco afirmações de
+comentário ou de ADR que não correspondiam ao código (**B1–B3**), a métrica do
+*shim* sem domínio no dicionário (**B4**), o `fechar()` sem chamador (**B5**), o
+`pg_locks` contado sem `pid` (**B6**), a mutação que modelava a etiqueta e não o
+furo (**B7**) e o teste do processo do *shim* deixado fora do *commit* (**B8**).
+
+**E a revisão disse por extenso onde não encontrou nada**, que é a parte que
+mais vale: **nenhum caminho de fuga de isolamento entre *tenants*** (o `tenant_id`
+entra só pelo contrato fechado, `InvocacaoDoAgente` é `frozen`, o `thread_id` não
+se recalcula, o `wamid` nunca é interpretado, zero linhas é sempre «não entra», e
+nenhum identificador chega a etiqueta ou a registo); nenhum `await` em falta;
+nenhuma dereferência nula; nenhum erro engolido além dos dois deliberados; e nada
+a apontar no SQL. O único defeito de isolamento era **entre conversas do mesmo
+contacto** (C3), e está fechado.
+
+#### O que não se verificou, e porquê
+
+- **A retoma de um *job* `stalled` pelo BullMQ** (parte do critério 4). Pede uma
+  fila real com dois *shims*; as garantias do BullMQ são NÃO VERIFICADO (`E4`
+  §2.10) e nenhum documento deste conjunto as mediu.
+- **O p95 entre dois *tenants* sob carga** (parte do critério 5). É KAM-084.
+- **A entrega ao HND** (parte do critério 6). É KAM-019; aqui prova-se a decisão.
+- **O egresso bloqueado na rede** (parte do critério 7). É KAM-076; aqui prova-se
+  o contrato e a guarda de arranque.
+- **A latência real de um turno.** O `agr_turn_latency_ms` mede o que correu, e
+  o que correu neste ticket é um grafo de teste. O orçamento de 3–7 s do
+  `../docs/tecnica/02` §15.1 é **orçamento de desenho** e continua por medir.
+
+---
 
 ### Handoff para Claude Code
 
@@ -1391,3 +1511,4 @@ Não expandas escopo: sem aprovação automática, sem UI própria. Testes: esta
 | 1.0 | Outubro 2026 | Emissão inicial: 16 tickets (KAM-025 a KAM-040) do Agent Runtime e Verticais; KAM-114 (modo concierge) acrescentado na consolidação. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | KAM-145: os **26** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | **KAM-160** entra no `Dependências` do KAM-037, nas três superfícies, por reciprocidade: o `01` §14 manda registar um `pending_reply` que não existe em superfície nenhuma, e o KAM-037 é quem implementa a degradação. O `02` §14 deste epic é a prova de que não falta coluna — fecha com a mesma regra de recuperação («Ao recuperar, não se reenviam respostas antigas fora da janela») sem nome novo, e o critério 1 do KAM-037 já mede «0 turnos sem resposta em 100 execuções». Nada do bloco do KAM-037 muda além dessa linha. | Equipa KAMBÁ |
+| 1.3 | Outubro 2026 | **KAM-025 entregue.** O bloco ganha a secção «Verificação dos Critérios de Aceitação», com a prova nomeada de cada um e a razão de cada caixa vazia. **Quatro critérios marcados** (1, 2, 3 e 8) e **quatro parciais** (4, 5, 6 e 7), e os quatro parciais não ficam vagos: o que falta em cada um pertence ao BullMQ (a retoma de um *job* `stalled`, NÃO VERIFICADO em `../docs/tecnica/evidencia/E4` §2.10), ao KAM-084 (o p95 sob carga), ao KAM-019 (a entrega ao HND, que aqui é uma porta) e ao KAM-076 (o bloqueio de rede). No DoD ficam vazias a primeira (por causa dos quatro parciais), a de observabilidade — o `degraded_turns` conta turnos em modo determinístico, que é o KAM-037, e uma métrica sempre a zero afirma o que ninguém mediu — e a dos dois revisores, que continua vazia em toda esta linha. **Três tensões do próprio bloco ficaram escritas em vez de resolvidas em silêncio:** os critérios 2, 3 e 5 não podem valer ao mesmo tempo com as omissões que propõem (vinte mensagens concorrentes distam muito menos de 1,5 s, e o tecto de 3 recusaria dezessete), e a leitura adoptada — que o critério 3 autoriza ao dizer «configurável» — é desligar os tectos a `0` para medir a propriedade da tranca. Está na linha 93 de `../docs/dividas-documentais.md`. **Sem migração:** a cadeia fica na `0019`. As duas decisões que o bloco manda registar estão em `../docs/adr/ADR-L004-fila-e-tranca-do-agr.md`; os nomes novos no dicionário §3.24 (emenda 1.33), que resolve também a lacuna do `turn_id` que o §3.13 tinha deixado por escrito. | Equipa KAMBÁ |

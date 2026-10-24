@@ -51,6 +51,10 @@
       "types": "./dist/ten/index.d.ts",
       "default": "./dist/ten/index.js"
     },
+    "./agr": {
+      "types": "./dist/agr/index.d.ts",
+      "default": "./dist/agr/index.js"
+    },
     "./chr": {
       "types": "./dist/chr/index.d.ts",
       "default": "./dist/chr/index.js"
