@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Canais WhatsApp e Handoff |
-| Versão | 1.16 |
+| Versão | 1.17 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md`, `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md`, `../docs/tecnica/06_Dados_Eventos_Analytics.md`, `../docs/tecnica/08_Seguranca_Conformidade.md`, `../docs/tecnica/10_Onboarding_Governanca.md` (§6–§7), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` |
@@ -1500,8 +1500,9 @@ final.) Os dez eram de **quatro** classes, e as quatro fecharam-se:
   conferida` e `uma duracao negativa passa a entrar no histograma`. As duas
   recusas silenciosas: nenhum teste as exercita.
 
-**Fecharam-se com dez ensaios: sete contra a base e três na bateria do *gate*
-4.** Os sete contra a base são a primeira vez que os critérios 3 e 5 deste ticket
+**Fecharam-se com dez ensaios — sete contra a base e três na bateria do *gate*
+4 —, e nove deles mataram a sua mutação à primeira.** Os sete contra a base são a
+primeira vez que os critérios 3 e 5 deste ticket
 tocam um PostgreSQL pelos predicados: o passo recusado numa sincronização
 `falhado`, a conclusão recusada depois do prazo e sem os dois passos, a
 idempotência do alerta das 12 h pela coluna `alertado_em`, a falha às 24 h a ler o
@@ -1517,11 +1518,31 @@ dele —, a etiqueta de métrica fora da lista fechada a **levantar** (é o `OBS
 `tenant_id` é um UUID com hífenes), e a duração não finita ou negativa a levantar
 em vez de entrar em silêncio no histograma.
 
-**E uma leitura minha estava errada:** eu classifiquei a mutação `o desligamento
-volta a registar antes de transitar` como «ordem de instruções», e ela não mexe em
-ordem nenhuma — substitui o instante que o `SQL_DESLIGAR_CANAL` escreve por
-`new Date(0)`. O nome da mutação diz uma coisa e o que ela faz é outra; o que
-estava por provar era o **carimbo**, e é isso que o ensaio novo lê.
+**E uma leitura minha estava errada, duas vezes sobre a mesma mutação.** Primeiro
+classifiquei a `o desligamento volta a registar antes de transitar` como «ordem de
+instruções», e ela não mexe em ordem nenhuma — substitui o instante que o
+`SQL_DESLIGAR_CANAL` escreve por `new Date(0)`. O nome da mutação diz uma coisa e o
+que ela faz é outra; o que estava por provar era o **carimbo**. Corrigida a
+classificação, escrevi um ensaio para o carimbo e dei a mutação por fechada **antes
+de a corrida completa terminar**. Ela sobreviveu: a corrida deu **41 mutações e 1
+não apanhada**, e era esta.
+
+A razão vale mais do que a mutação. O ensaio chama o `SQL_DESLIGAR_CANAL`
+**directamente**, com o seu próprio parâmetro, e a mutação está no **sítio onde o
+módulo o chama** — dentro do `tratarAccountUpdate`. Provei a instrução em vez do
+caminho que a usa, que é a armadilha da `BaseFalsa` um nível acima: aqui não há
+nenhum duplo em JavaScript, há uma instrução verdadeira exercitada fora do código
+que a invoca. Fecha-se onde o módulo escolhe o instante — o ensaio `as duas tabelas
+concordam depois de um desligamento` passa pelo `tratarAccountUpdate` e afirmava
+`desligado_em !== null`, que um `new Date(0)` satisfaz; passa a afirmar os dois
+instantes **pelo valor**, o `desligado_em` do registo e o `last_account_update_at`
+do canal.
+
+**E fica a regra de trabalho que isto impõe, pela terceira vez neste par de
+tickets:** uma mutação não se declara fechada antes de a corrida que a mede
+terminar. As duas primeiras vezes foram contagens parciais passadas por finais;
+esta foi um ensaio dado por bom sem a prova chegar ao fim. O número de uma corrida
+inacabada não é um número, e um ensaio sem a sua mutação morta não é uma prova.
 
 **A quarta era outra coisa: um teste que não olhava para onde o seu próprio nome
 prometia.** O «um canal `cloud_only` desliga sem avisar de desalinhamento»
@@ -3619,3 +3640,4 @@ um `--suite tests` de dois minutos teria dito.
 | 1.14 | Outubro 2026 | **KAM-115 entregue, e o epic fecha.** Secção de verificação no bloco, com **sete** caixas de critério marcadas e **uma** vazia, e com seis das oito do DoD. O que fica vazio é o alvo de «≥ 95% dos *tenants* `ativo` com contacto verificado» (critério 6): é medição sobre *tenants* reais e não há nenhum — a métrica que o mede está entregue, com numerador **e** denominador, e a varredura que a alimenta também. **O risco R16 passa a FECHADA**: era «sem ticket para avisar o dono por canal alternativo», e os emissores existiam desde o KAM-017, o KAM-021 e o KAM-023 — o que não existia era quem entrega. Entregues: a revisão `0019` com **duas** tabelas (e são duas porque o critério 7 manda marcar o **contacto** como inválido, que é facto do contacto e não do aviso), o módulo `packages/core-ts/src/avisos/`, a *suite* de *gate* 8 `tests_avisos` — a primeira que leva as duas baterias do módulo no mesmo corredor —, e o *gate* de `prod` do subprocessador, que é a alternativa que o próprio critério 8 escreve («ou fica `pendente` e bloqueia `prod`»), porque o inventário do KAM-069 não existe e escolher um subprocessador num ficheiro de código é o que o ADR-008 existe para impedir. **Três defeitos apanhados por máquina**, e o terceiro é o mais sério: o `criado_at` não podia vir do `now()` do servidor (o relógio acelerado dos ensaios media uma coisa e a base registava outra, e a varredura dos lembretes não via episódio nenhum); o `apagarTenant` do `apoio.ts` não conhecia as duas tabelas novas e o `after` pendurava o processo por trezentos segundos **sem uma linha de saída**; e a prova por mutação foi a **primeira coisa a executar** a bateria de esquema deste ticket — o *gate* 8 correu antes de ela existir —, encontrando quatro testes a responder `25P02` em vez de `23514` por falta de `SAVEPOINT`. **E a revisão adversarial não aprovou a primeira versão**: quatro achados, os quatro corrigidos — os lembretes **nunca saíam** (a janela do gatilho filtrava-os, e o teste que o afirmava media um histórico vazio), o tecto diário contava linhas e não avisos, a varredura tinha uma guarda **inalcançável** no lugar do «depois pára e abre tarefa a T2» (e o `lembretesEsgotados` existia, estava testado e não era chamado por ninguém), e a hora do aviso saía em UTC a um dono de Luanda. | Equipa KAMBÁ |
 | 1.15 | Outubro 2026 | **As quatro mutações do aviso de inactividade do KAM-017, fechadas.** Encontrou-as a prova por mutação do KAM-115: o filtro largo dele apanhou três deste ticket a sobreviver, e alargá-lo revelou uma quarta. **As três do SQL sobreviviam todas pela mesma razão**, e ela é a lição: os testes do critério 6 viviam todos na bateria do *gate* 4, contra a `BaseFalsa` — que **reimplementa o predicado em JavaScript** e reconhece a instrução comparando-a com a **constante importada**, que a mutação também muda. A comparação continuava a bater, o predicado em JavaScript ficava intacto, e mutar o SQL não tinha efeito nenhum. É a mesma classe de lacuna que o KAM-115 encontrou em dois dos seus oito, e a regra que o `outbound/consultas.ts` já tinha escrito: a *suite* do *gate* 8 corre estas cadeias e não cópias delas. Os três ensaios novos em `tests_bd/coexistencia.bd.test.ts` são a **primeira vez** que o critério 6 deste ticket toca uma base real — a idempotência pela coluna, os quatro estados um a um, o ciclo inteiro do *echo* e a varredura como `kamba_batch`. **A quarta era outra coisa:** o «um canal `cloud_only` desliga sem avisar de desalinhamento» afirmava o desfecho e o estado e **não** a ausência do aviso, com o duplo de `Logger` daquele ficheiro já a guardar os `outcome`; passou a afirmar o silêncio e ganhou a metade positiva, sem a qual passaria com o `warn` apagado por inteiro. Nenhuma caixa de critério muda: eram lacunas de prova e não de código. | Equipa KAMBÁ |
 | 1.16 | Outubro 2026 | **As dez mutações restantes do KAM-017, fechadas.** A corrida completa do filtro `coexistencia` deu 41 mutações com 10 sobreviventes, em quatro classes; as quatro fecharam-se com **dez ensaios** — sete contra a base e três na bateria do *gate* 4. Os sete são a **primeira vez** que os critérios 3 e 5 deste ticket tocam um PostgreSQL pelos predicados: o passo recusado numa sincronização `falhado`, a conclusão recusada depois do prazo e sem os dois passos, a idempotência do alerta das 12 h, a falha às 24 h a ler o `prazo_em` **e não** o `iniciado_em` (com o `prazo_em` posto 48 h à frente para os separar), a idempotência do registo do desligamento com o **primeiro** motivo a ficar, e o `last_account_update_at` a levar o instante do evento com o `GREATEST` a não deixar um evento atrasado recuar o carimbo. Os três do *gate* 4: os três prazos afirmados **pelo valor** — a lacuna que o KAM-115 fechou na janela dele —, a etiqueta de métrica fora da lista a levantar (`OBS-I`) e a duração não finita a levantar em vez de entrar em silêncio. **E uma classificação minha estava errada:** a mutação «o desligamento volta a registar antes de transitar» não mexe em ordem nenhuma — substitui o instante que o `SQL_DESLIGAR_CANAL` escreve por `new Date(0)`. O nome diz uma coisa e o que ela faz é outra, e o que estava por provar era o carimbo. Nenhuma caixa de critério muda: eram lacunas de prova e não de código. | Equipa KAMBÁ |
+| 1.17 | Outubro 2026 | **A décima mutação do KAM-017 sobreviveu, e fecha agora.** A corrida completa do filtro `coexistencia` — que só terminou depois do PR da 1.16 fundir — deu **41 mutações e 1 não apanhada**: a «o desligamento volta a registar antes de transitar». O ensaio que a devia matar chama o `SQL_DESLIGAR_CANAL` **directamente**, com o seu próprio parâmetro, e a mutação está no **sítio onde o módulo o chama**, dentro do `tratarAccountUpdate` — provou-se a instrução em vez do caminho que a usa, que é a armadilha da `BaseFalsa` um nível acima. Fecha-se no ensaio `as duas tabelas concordam depois de um desligamento`, que passa pelo `tratarAccountUpdate` e afirmava `desligado_em !== null` — satisfeito por um `new Date(0)`: passa a afirmar o `desligado_em` e o `last_account_update_at` **pelo valor**. **A 1.16 dizia que as dez estavam fechadas, e estavam nove.** Fica escrita a regra que isto impõe, pela terceira vez neste par de tickets: uma mutação não se declara fechada antes de a corrida que a mede terminar. Nenhuma caixa de critério muda. | Equipa KAMBÁ |

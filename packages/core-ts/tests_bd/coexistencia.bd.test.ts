@@ -403,6 +403,13 @@ describe("a coexistencia contra a base", () => {
     // **tratado**». Nenhum teste a lia, pelo que uma mutação que passasse a
     // escrever a época sobrevivia — e o painel passava a dizer que a Meta falou
     // em 1970.
+    //
+    // **O que este ensaio não cobre, e ficou provado que não cobria:** ele
+    // chama a instrução directamente, com o seu próprio parâmetro, pelo que
+    // prova o `GREATEST` e **não** o instante que o módulo escolhe. A mutação
+    // que troca esse instante vive no `tratarAccountUpdate` e sobreviveu a este
+    // ensaio; quem a apanha é o «as duas tabelas concordam depois de um
+    // desligamento».
     await limpar();
     const agora = new Date(T0.getTime() + 5_000);
     const r = await app.query(SQL_DESLIGAR_CANAL, [tenantA, canalA, agora]);
@@ -625,8 +632,21 @@ describe("a coexistencia contra a base", () => {
   });
 
   it("[bd] as duas tabelas concordam depois de um desligamento", async () => {
+    // **E concordam no instante, afirmado pelo valor.** Este ensaio dizia
+    // `desligado_em !== null`, e um `new Date(0)` não é nulo: a mutação que
+    // troca o `agora` por `new Date(0)` nos argumentos do `SQL_DESLIGAR_CANAL`
+    // sobrevivia aqui.
+    //
+    // E sobreviveu também ao ensaio que entrou no #50 a fechar esta mesma
+    // mutação, por uma razão que vale escrever: aquele chama o
+    // `SQL_DESLIGAR_CANAL` **directamente**, com o seu próprio parâmetro, pelo
+    // que nunca passa pela linha mutada — a mutação está no **sítio onde o
+    // módulo o chama**, dentro do `tratarAccountUpdate`. É a armadilha da
+    // `BaseFalsa` um nível acima: provar a instrução em vez do caminho que a
+    // usa. Fecha-se aqui, que é onde o módulo escolhe o instante.
     await limpar();
-    const { coex } = montar();
+    const instante = new Date(T0.getTime() + 5_000);
+    const { coex } = montar(() => instante);
     const canal = await coex.canal(app, tenantA, pnidA);
     assert.ok(canal !== null);
     await coex.abrir(app, tenantA, canal);
@@ -638,9 +658,11 @@ describe("a coexistencia contra a base", () => {
       estado_canal: string;
       motivo: string;
       desligado_em: Date | null;
+      carimbo: Date | null;
     }>(
       "SELECT c.estado AS estado_canal, x.motivo_desligamento AS motivo, " +
-        "       x.desligado_em AS desligado_em " +
+        "       x.desligado_em AS desligado_em, " +
+        "       c.last_account_update_at AS carimbo " +
         "FROM platform.tenant_channels c " +
         "JOIN platform.channel_coexistence x ON x.channel_id = c.id " +
         "WHERE c.id = $1",
@@ -648,7 +670,12 @@ describe("a coexistencia contra a base", () => {
     );
     assert.equal(rows[0]?.estado_canal, "desligado");
     assert.equal(rows[0]?.motivo, "change_number");
-    assert.ok(rows[0]?.desligado_em !== null);
+    // Os dois instantes saem **do mesmo** `agora` do módulo: o `desligado_em`
+    // do registo da coexistência e o `last_account_update_at` do canal. Um
+    // `new Date(0)` em qualquer dos dois punha o painel a dizer que a Meta
+    // falou em 1970.
+    assert.equal(rows[0]?.desligado_em?.toISOString(), instante.toISOString());
+    assert.equal(rows[0]?.carimbo?.toISOString(), instante.toISOString());
   });
 
   // ------------------------------------------------- o relógio do `echo`
