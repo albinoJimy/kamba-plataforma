@@ -166,6 +166,14 @@ TABELAS_0018 = ("channel_coexistence",)
 #: no `episodio`, que e texto opaco.
 TABELAS_0019 = ("owner_contacts", "owner_notices")
 
+#: KAM-026: as duas tabelas do checkpointer (revisao `0020`).
+#:
+#: **Noutro esquema, e por isso numa constante propria.** Todas as tuplas acima
+#: sao nomes de tabela do `platform` e o `TABELAS` junta-as sem qualificar; estas
+#: vivem no `lg` e um nome solto misturado la dentro fazia o catalogo procura-las
+#: no sitio errado. Quem as consome diz o esquema.
+TABELAS_LG = ("checkpoint_writes", "checkpoints")
+
 #: A unica vista do esquema (KAM-022). Separada das tabelas porque a descoberta
 #: do catalogo tambem as separa, e porque o `verificar_vistas` do
 #: `db/tests_isolamento/catalogo.py` — que existe desde o KAM-004 — passa a ter

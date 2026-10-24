@@ -7,7 +7,7 @@ privacidade do DoD.
 from __future__ import annotations
 
 from tests import factories
-from tests.base import PRIVILEGIO_INSUFICIENTE, TABELAS, ComBase
+from tests.base import PRIVILEGIO_INSUFICIENTE, TABELAS, TABELAS_LG, ComBase
 
 #: Colunas com `msisdn`, `telefone` ou `phone` no nome que sao aceites.
 #:
@@ -725,13 +725,13 @@ class TestPapeis(ComBase):
         )
         return {linha[0]: linha[1:] for linha in linhas}
 
-    def test_existem_os_seis_e_so_os_seis(self) -> None:
+    def test_existem_os_sete_e_so_os_sete(self) -> None:
         """Os tres do KAM-003, o `kamba_resolver` do KAM-004, o `kamba_identity`
-        do KAM-008 e o `kamba_audit` do KAM-012."""
+        do KAM-008, o `kamba_audit` do KAM-012 e o `kamba_agr` do KAM-026."""
         self.assertEqual(
             set(self.atributos()),
             {"kamba_migrator", "kamba_app", "kamba_batch", "kamba_resolver",
-             "kamba_identity", "kamba_audit"},
+             "kamba_identity", "kamba_audit", "kamba_agr"},
         )
 
     def test_nenhum_e_superutilizador_nem_cria_bases_ou_papeis(self) -> None:
@@ -758,6 +758,10 @@ class TestPapeis(ComBase):
                 # KAM-012: quem audita um tenant audita **esse** tenant. A
                 # cadeia de plataforma le-se com o `kamba_batch`.
                 "kamba_audit": False,
+                # KAM-026: as tabelas do `lg` nao tem politica de RLS, pelo que
+                # nao ha nada para contornar. O que isola o checkpointer e nao
+                # ter `USAGE` no `platform` — revisao `0020`.
+                "kamba_agr": False,
             },
         )
 
@@ -837,7 +841,11 @@ class TestPapeis(ComBase):
         )
         self.assertEqual(
             linhas,
-            [("platform", tabela) for tabela in TABELAS]
+            # O `lg` entra aqui porque e o `kamba_migrator` que o cria, como
+            # cria o `platform` (KAM-026, revisao `0020`). O `ORDER BY 1, 2` da
+            # consulta ordena por esquema, e `lg` vem antes de `platform`.
+            [("lg", tabela) for tabela in TABELAS_LG]
+            + [("platform", tabela) for tabela in TABELAS]
             + [("public", "alembic_version")],
         )
 

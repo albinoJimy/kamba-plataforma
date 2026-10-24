@@ -41,6 +41,8 @@ ligacoes. Uma falha aqui e um `return`, nunca um `uvicorn.run` a meio.
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
+from typing import Any
 
 import uvicorn
 from kamba_core import host, port
@@ -51,8 +53,13 @@ from . import egresso
 from .admissao import Admissao, Tectos
 from .api_interna import SEGREDO_DA_API, rotas
 from .app import create_app
+from .checkpointer import CheckpointerDoAgr
 from .conversa import leitor
-from .ligacao import ligar_para_leitura, ligar_para_tranca
+from .ligacao import (
+    ligar_para_checkpoint,
+    ligar_para_leitura,
+    ligar_para_tranca,
+)
 from .meta import DEFAULT_PORT, SERVICE
 from .trancas import TrancaDeConversas
 from .turno import ExecutorDeTurnos, sem_grafos
@@ -60,6 +67,13 @@ from .turno import ExecutorDeTurnos, sem_grafos
 #: Codigo de saida de uma guarda do ADR-002 violada. Distinto do `2` do KAM-001
 #: (configuracao invalida), para que os dois se distingam num painel.
 SAIDA_GUARDA_ADR002 = 3
+
+#: Codigo de saida sem checkpointer (KAM-026, criterio 3).
+#:
+#: Proprio e nao o `2` da configuracao invalida, pela mesma razao que o `3` do
+#: ADR-002: num painel, «o AGR nao arranca» sem dizer porque nao se diagnostica.
+#: E o que distingue «falta a palavra-passe do `kamba_agr`» de «falta a porta».
+SAIDA_SEM_CHECKPOINTER = 4
 
 #: A variavel que diz o ambiente do cofre. A mesma do `entrada.ts` e do
 #: `chaves.ts`; `dev` por omissao, e um valor fora dos tres **levanta** em vez
@@ -75,6 +89,21 @@ def _ambiente(ambiente: dict[str, str] | None = None) -> str:
     if valor not in AMBIENTES:
         raise ValueError(f"{VARIAVEL_DE_AMBIENTE} fora de {AMBIENTES}")
     return valor
+
+
+def _fechar_as_tomadas(trancas: Any, checkpointer: Any) -> Callable[[], None]:
+    """O que o `lifespan` corre no `SIGTERM`: fecha as duas, pela ordem.
+
+    O checkpointer depois das trancas: um turno a meio larga a tranca e **ja
+    gravou** o que tinha a gravar, pelo que fechar a gravacao primeiro era
+    tirar a tomada a quem ainda pode precisar dela.
+    """
+
+    def fechar() -> None:
+        trancas.fechar()
+        checkpointer.fechar()
+
+    return fechar
 
 
 def main() -> int:
@@ -128,6 +157,23 @@ def main() -> int:
         log.excepcao(exc, "cofre_indisponivel")
         return 2
 
+    # **Sem checkpointer durável o AGR nao arranca** (KAM-026, criterio 3; o
+    # `docs/tecnica/02` §11 regra 6 di-lo por extenso: «sem checkpointer
+    # duravel o `interrupt()` perde-se»). A guarda e abrir a ligacao **aqui**,
+    # no arranque, e nao a primeira vez que um turno precisar dela: um processo
+    # que aceita pedidos e so depois descobre que nao consegue gravar estado
+    # perde o primeiro handoff de cada reinicio, e perde-o em silencio.
+    #
+    # Abrir a ligacao prova as duas metades que importam — a palavra-passe do
+    # `kamba_agr` existe, e o servidor responde. Nao prova que o esquema `lg`
+    # esta na revisao certa: isso e do `gate` 8, e por-lo aqui era o servico a
+    # correr migracoes, que a `0020` recusa pelo nome.
+    try:
+        checkpointer = CheckpointerDoAgr(ligar_para_checkpoint())
+    except Exception as exc:  # noqa: BLE001 — qualquer falha aborta o arranque
+        log.excepcao(exc, "checkpointer_indisponivel")
+        return SAIDA_SEM_CHECKPOINTER
+
     admissao = Admissao(tectos=tectos)
     trancas = TrancaDeConversas(ligar_para_tranca)
     executor = ExecutorDeTurnos(
@@ -157,7 +203,11 @@ def main() -> int:
         # ela tivesse, o que importa: sem isto, as trancas de um processo que
         # para ficam ate o PostgreSQL notar a tomada fechada, e o *worker* que
         # recebe os *jobs* a seguir espera por elas sem razao.
-        ao_encerrar=trancas.fechar,
+        # As trancas **e** o checkpointer: sao as tres tomadas que este
+        # processo abre, e nenhuma se fecha sozinha. Quem o passa ao
+        # `compile(checkpointer=...)` e o KAM-027 — aqui ele serve a guarda do
+        # arranque e o encerramento, e nada mais.
+        ao_encerrar=_fechar_as_tomadas(trancas, checkpointer),
     )
 
     # O anfitriao e a porta nao estao na *allowlist* de `docs/tecnica/08` §7.3.

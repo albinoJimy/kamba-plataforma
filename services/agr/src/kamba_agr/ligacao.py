@@ -1,13 +1,15 @@
-"""As duas ligacoes do AGR a base da plataforma (KAM-025).
+"""As tres ligacoes do AGR a base da plataforma (KAM-025, KAM-026).
 
-O AGR corre com **um** papel, o `kamba_app` (`NOBYPASSRLS`, sem DDL), e abre
-**duas** ligacoes com ele. Nao sao dois papeis: sao dois usos que nao podem
-partilhar uma tomada.
+O AGR corre com **dois** papeis e abre **tres** ligacoes. Duas sao do
+`kamba_app` (`NOBYPASSRLS`, sem DDL) e nao sao dois papeis: sao dois usos que
+nao podem partilhar uma tomada. A terceira e de outro papel, e isso **e**
+deliberado — ver `PAPEL_DO_CHECKPOINTER` mais abaixo.
 
-| Ligacao | `autocommit` | Para que serve |
-|---|---|---|
-| leitura | nao | `conversations.mode` e `handoffs.status`, dentro de `tenant_guard.tx` |
-| tranca | **sim** | so `pg_advisory_lock` / `pg_advisory_unlock` (`trancas.py`) |
+| Ligacao | Papel | `autocommit` | Para que serve |
+|---|---|---|---|
+| leitura | `kamba_app` | nao | `conversations.mode` e `handoffs.status`, dentro de `tenant_guard.tx` |
+| tranca | `kamba_app` | **sim** | so `pg_advisory_lock` / `pg_advisory_unlock` (`trancas.py`) |
+| checkpoint | `kamba_agr` | nao | o esquema `lg`, e **nada** do `platform` (`checkpointer.py`) |
 
 A da tranca e `autocommit` porque a tranca e de **sessao** e nao de transaccao
 (`docs/adr/ADR-L004-fila-e-tranca-do-agr.md`, Decisao 2): com `autocommit` cada
@@ -18,11 +20,17 @@ expirava antes da consulta seguinte, e a RLS devolvia zero linhas.
 
 ## Isto le as variaveis do `db/ligacao.py`; nao as define outra vez
 
-Os nomes — `KAMBA_DB_HOST`, `KAMBA_DB_PORT`, `KAMBA_DB_NAME`, e a palavra-passe
-em `KAMBA_SECRET_DB_APP_PASSWORD` — sao os de `db/ligacao.py` (KAM-003), e o
-papel e o `kamba_app` do dicionario §3.2. **Nao se acrescenta variavel nenhuma
-para o AGR**, e e deliberado: um segundo conjunto de nomes para a mesma base
-era o defeito que o §3.13 ja pagou a inventar `KAMBA_CHR_*_DB_URL`.
+Os nomes — `KAMBA_DB_HOST`, `KAMBA_DB_PORT`, `KAMBA_DB_NAME`, e as
+palavras-passe em `KAMBA_SECRET_DB_APP_PASSWORD` e
+`KAMBA_SECRET_DB_AGR_PASSWORD` — sao os de `db/ligacao.py` (KAM-003, KAM-026), e
+os papeis sao os do dicionario §3.2. **Nao se inventa nome nenhum aqui**, e e
+deliberado: um segundo conjunto de nomes para a mesma base era o defeito que o
+§3.13 ja pagou a inventar `KAMBA_CHR_*_DB_URL`.
+
+A regra nao e «nenhuma variavel nova» — e «nenhum nome que o `db/ligacao.py`
+nao tenha». E por isso que o `test_nao_ha_variavel_nova_para_o_agr` compara o
+conjunto com o `VARIAVEL_DA_SENHA` **dele** em vez de contar variaveis: um papel
+novo passa, um nome inventado nao.
 
 Porque e que ha codigo aqui, entao: o `db/ligacao.py` vive em `db/`, que nao e
 um pacote instalado e nao esta no caminho de importacao de um servico. O que
@@ -60,9 +68,28 @@ VAR_BASE: Final = "KAMBA_DB_NAME"
 #: (`KAMBA_SECRET_` + o `id` do inventario em maiusculas).
 VAR_SENHA: Final = "KAMBA_SECRET_DB_APP_PASSWORD"
 
+#: O papel do checkpointer, e **o segundo papel do AGR** (KAM-026). Dicionario
+#: §3.2; criado pelo `db/bootstrap.py` como os outros seis.
+#:
+#: Sao dois papeis e nao um porque fazem coisas incompativeis. O `kamba_app` le
+#: o `platform` e nao toca no `lg`; o `kamba_agr` escreve o `lg` e **nao tem
+#: `USAGE` no `platform`** — e isso que o criterio 4 do KAM-026 pede, e e o que
+#: faz do estado das conversas um compartimento: o codigo do checkpointer nao
+#: tem por onde chegar aos `contacts`, haja o defeito que houver.
+#:
+#: Isto revoga em parte a nota do modulo acima, que foi escrita no KAM-025 e
+#: dizia «nao se acrescenta variavel nenhuma para o AGR». O que ela recusava —
+#: e bem — era um **segundo conjunto de nomes para a mesma coisa**
+#: (`KAMBA_AGR_DB_URL` a duplicar o `KAMBA_DB_*`). Isto nao e isso: e a
+#: palavra-passe de um papel novo, no mesmo esquema de nomes do
+#: `db/ligacao.py`, que e quem continua a mandar nos nomes.
+PAPEL_DO_CHECKPOINTER: Final = "kamba_agr"
+VAR_SENHA_AGR: Final = "KAMBA_SECRET_DB_AGR_PASSWORD"
+
 #: `application_name` de cada uso, para o `pg_stat_activity`.
 NOME_DA_LEITURA: Final = "kamba-agr:leitura"
 NOME_DA_TRANCA: Final = "kamba-agr:tranca"
+NOME_DO_CHECKPOINTER: Final = "kamba-agr:checkpoint"
 
 
 class ConfiguracaoEmFalta(RuntimeError):
@@ -78,7 +105,13 @@ def _exigir(nome: str, ambiente: Any) -> str:
     return valor
 
 
-def _ligar(ambiente: Any, autocommit: bool, nome: str) -> Any:
+def _ligar(
+    ambiente: Any,
+    autocommit: bool,
+    nome: str,
+    papel: str = PAPEL,
+    var_senha: str = VAR_SENHA,
+) -> Any:
     import pg8000.dbapi
 
     ambiente = os.environ if ambiente is None else ambiente
@@ -86,8 +119,8 @@ def _ligar(ambiente: Any, autocommit: bool, nome: str) -> Any:
     if not porta.isdigit():
         raise ConfiguracaoEmFalta(f"{VAR_PORTA} tem de ser um numero de porta")
     ligacao = pg8000.dbapi.connect(
-        user=PAPEL,
-        password=_exigir(VAR_SENHA, ambiente),
+        user=papel,
+        password=_exigir(var_senha, ambiente),
         host=ambiente.get(VAR_HOST, "127.0.0.1"),
         port=int(porta),
         database=_exigir(VAR_BASE, ambiente),
@@ -112,3 +145,20 @@ def ligar_para_tranca(ambiente: Any = None) -> Any:
     Decisao 2). O `KAMBA_DB_HOST` do AGR aponta para a base.
     """
     return _ligar(ambiente, autocommit=True, nome=NOME_DA_TRANCA)
+
+
+def ligar_para_checkpoint(ambiente: Any = None) -> Any:
+    """A ligacao do checkpointer, com o papel proprio (KAM-026).
+
+    `autocommit` **nao**: o `_correr_sincrono` do `checkpointer.py` confirma
+    cada instrucao, e um `aput` seguido de um `aput_writes` que falhasse a meio
+    tem de deixar o checkpoint escrito — e a propria interface que o diz, ao
+    separar os dois metodos.
+    """
+    return _ligar(
+        ambiente,
+        autocommit=False,
+        nome=NOME_DO_CHECKPOINTER,
+        papel=PAPEL_DO_CHECKPOINTER,
+        var_senha=VAR_SENHA_AGR,
+    )

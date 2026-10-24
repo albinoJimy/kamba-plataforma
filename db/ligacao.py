@@ -37,6 +37,7 @@ PAPEIS = {
     "resolver": "kamba_resolver",
     "identity": "kamba_identity",
     "audit": "kamba_audit",
+    "agr": "kamba_agr",
 }
 
 #: Variavel de ambiente da palavra-passe de cada identidade.
@@ -48,6 +49,7 @@ VARIAVEL_DA_SENHA = {
     "resolver": "KAMBA_SECRET_DB_RESOLVER_PASSWORD",
     "identity": "KAMBA_SECRET_DB_IDENTITY_PASSWORD",
     "audit": "KAMBA_SECRET_DB_AUDIT_PASSWORD",
+    "agr": "KAMBA_SECRET_DB_AGR_PASSWORD",
 }
 
 
