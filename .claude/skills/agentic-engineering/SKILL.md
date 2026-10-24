@@ -261,7 +261,7 @@ tem de devolver. O formato está em
 [`references/contratos-de-agente.md`](references/contratos-de-agente.md), com a definição de cada
 papel e o mapeamento para os `subagent_type` disponíveis.
 
-Três regras que valem mais do que o resto desta secção:
+Quatro regras que valem mais do que o resto desta secção:
 
 **Não inventes.** Preços, prazos, limites de terceiros, nomes de parâmetros, artigos de lei,
 capacidades de ferramentas — se não está confirmado, é `NÃO VERIFICADO`. Se precisares de um
@@ -287,6 +287,37 @@ justificada e registada. Defeito fora de escopo abre ticket novo — usa
 **Respeita o canon.** Não contradigas um ADR em vigor sem o substituir explicitamente; não
 promovas uma decisão aberta a fechada sem o gatilho que a Carta nomeia; não marques uma fase P
 para algo que depende de um ticket de fase 1.
+
+**Escreve pelo mínimo que resolve.** Quando o ticket produz código, a escrita corre em modo
+*ponytail* — a alteração mais pequena que resolve o problema **por inteiro**, incluindo os
+chamadores, os testes e as *fixtures* que ela quebra:
+
+```
+Skill(skill: "ponytail:ponytail")
+```
+
+Invoca-se **ao entrar nesta secção**, antes da primeira linha, e vale até ao fim da escrita.
+Não acrescenta fase nenhuma ao ciclo: **substitui** o hábito de desenhar a abstracção antes
+do caso de uso, e reforça pelo outro lado a regra do escopo acima — ali é o escopo que não se
+alarga, aqui é o código.
+
+**Nível `full` (a omissão), sempre o mesmo.** O nível do *ponytail* é sobre a forma do diff,
+não sobre quanto se verifica — o rigor por ticket não se gradua (§«Ritmo»), e nenhum dos
+níveis mexe no que esta skill exige. O `lite` não se usa: pára para o utilizador escolher
+entre duas opções, e aqui não se pára à espera. O `ultra` questiona o próprio pedido, e por
+isso **só se usa fora de um ticket** — ao redigir um ticket, um ADR ou um critério de
+aceitação, onde pôr em causa a necessidade é precisamente o trabalho. Dentro de um `KAM-NNN`
+o critério de aceitação é o contrato: cumpre-se à letra (§5), não se discute a meio.
+
+Duas fronteiras, porque o *ponytail* é lacónico e esta skill não é:
+
+- **Governa o diff, não o registo.** O relatório do §8, as caixas do epic e a secção
+  `### Verificação dos Critérios de Aceitação` mantêm-se por inteiro. A frase final do
+  *ponytail* — o que saltou e o risco que fica — é útil e não é evidência nomeada; onde as
+  duas se cruzarem, prevalece o §5.
+- **Um atalho deliberado leva comentário**, na forma `shortcut: <o limite>, <quando se
+  revê>`. É o que o `ponytail-debt` depois lê, sem ficheiro novo para manter (ver «Fora do
+  ciclo de um ticket»). Um atalho sem limite escrito não é atalho, é defeito.
 
 ---
 
@@ -407,11 +438,21 @@ pressa. Não a sacrifiques.
 A revisão **procura razões para o resultado estar errado**. Não confirma que está certo. Um
 reviewer que só relê o documento e concorda não produziu evidência nenhuma.
 
-Quando houver código, a revisão do repositório sabe olhar para o diff:
+Quando houver código, a revisão corre com dois instrumentos **na mesma passagem**:
 
 ```
 Skill(skill: "code-review", args: "high")
+Skill(skill: "ponytail:ponytail-review")
 ```
+
+O `code-review` procura o defeito no diff. O `ponytail-review` lê o **código ligado** — quem
+chama a função que mudou, o que ela chama, os testes, o que o repositório diz da carga
+esperada — e faz as perguntas que o primeiro não faz: aguenta a carga real, a lógica
+arriscada tem um teste que falha quando ela quebrar, e cada linha é precisa. Exige um caso
+concreto por achado («esta entrada dá este resultado errado»), que é a mesma exigência de
+evidência que esta skill faz ao resto. **Substitui** a última pergunta da lista abaixo (o
+`simplify`) quando o trabalho é código, e não acrescenta passagem nenhuma — ver a
+reconciliação no fim desta secção.
 
 Para trabalho documental — que é a maior parte aqui — a revisão independente é um subagente
 `general-purpose` que recebe **o documento e os requisitos, nunca as tuas justificações**. O
@@ -424,10 +465,45 @@ padrões de defeito que este repositório já produziu; as perguntas centrais s�
 - Que decisão foi tomada em silêncio entre duas fontes que discordavam?
 - Que consumidor deste desenho quebra (ticket, documento, gate)?
 - **O critério de aceitação pode estar satisfeito pela razão errada?**
-- Existe forma mais simples que preserve o significado? (`Skill(skill: "simplify")`)
+- Existe forma mais simples que preserve o significado? Em trabalho documental, pergunta-a o
+  revisor; em código é o grupo *Lean* do `ponytail-review`, que a substitui com a exigência de
+  um caso concreto — o `Skill(skill: "simplify")` deixa de se invocar no ciclo de um ticket.
 
 As análises adversariais ficam em `docs/analises/ANALISE-NN-<slug>.md`, com achados classificados e
 veredicto — é onde vive a memória das revisões deste conjunto.
+
+### O `ponytail-review` e a revisão adversarial que já existe
+
+**Uma revisão adversarial por ticket. O `ponytail-review` não é uma segunda: é o instrumento
+de código da que já está aqui.**
+
+Isto está escrito porque a confusão é fácil e tem preço. A decisão do fundador (Outubro de
+2026) é «sem segundas leituras nem gates novos», e a razão dela não foi a revisão — essa
+encontrou defeitos reais em todas as primeiras entregas — foi **repeti-la**: segundas e
+terceiras passagens, achados menores devolvidos ao autor, e configuração nova a cada ticket.
+Um instrumento mais afiado dentro da passagem que já se faz não repete nada; uma passagem
+nova repetiria tudo. Por isso o `ponytail-review` entra como instrumento e nunca como fase.
+
+Na prática:
+
+- **Uma passagem, uma lista, uma volta de correcções.** Os achados dos dois instrumentos
+  juntam-se numa lista só, corrigem-se de uma vez, e o PR funde. Não se pede ao
+  `ponytail-review` para reler as correcções, mesmo quando a correcção inclui um redesenho.
+- **Corre-o o revisor, não o autor.** Vale a regra desta secção: o revisor recebe o diff e os
+  requisitos, nunca as justificações de quem escreveu.
+- **Achado menor segue o destino que já tem.** Um *Nice to have*, ou um *Lean* fora do âmbito,
+  não volta ao autor: resíduo textual vai para `docs/dividas-documentais.md`, o que pede
+  código abre ticket (§«Ritmo»).
+- **Não é gate.** `Verdict: fix 1 and 3 first.` é parecer para quem corrige, não bloqueio de
+  CI. Nenhum gate novo entra no pipeline por causa disto, e nenhum relatório do *ponytail*
+  passa a ser condição de merge.
+- **O que não se corta são defeitos.** O grupo *Must fix* — defeito, segurança, perda de
+  dados, quebra na carga esperada — corrige-se antes do merge, como qualquer achado da revisão
+  adversarial sempre se corrigiu.
+- **Em trabalho documental não entra.** Lê código, e a maior parte do que se faz aqui é
+  desenho e backlog; para isso o guião é
+  [`references/revisao-adversarial.md`](references/revisao-adversarial.md), inteiro e sem
+  acrescento.
 
 ---
 
@@ -501,6 +577,69 @@ verdade.
 
 ---
 
+## Fora do ciclo de um ticket — auditoria do repositório e livro de dívida
+
+Duas das skills do `/ponytail` são de **repositório**, não de ticket. Têm cadência própria,
+produzem relatório, e **não entram no PR de um ticket**: entrar lá fazia delas um gate, e
+gates novos não entram (§«Ritmo»).
+
+**`ponytail-audit` — ao fechar um epic.**
+
+```
+Skill(skill: "ponytail:ponytail-audit")
+```
+
+Auditoria do código do repositório ordenada por gravidade, que não altera nada. A cadência é
+o fecho de um `EPIC-XX`, ou um pedido do fundador — nunca a entrega de um ticket: o que ela
+procura (carga real, lógica arriscada sem teste, código que não devia existir) só se vê
+depois de vários tickets assentarem, e dentro de um PR seria ruído fora de âmbito. O que sai
+dela **não** é lista para corrigir ali: o relatório vai para
+`docs/analises/ANALISE-NN-<slug>.md`, como qualquer memória de revisão, e cada achado segue a
+regra que já existe — defeito abre ticket (`specs/01` §6), resíduo textual vai para
+`docs/dividas-documentais.md`. **Acrescenta** uma vista que o ciclo de um ticket não tem, e
+**não substitui** a auditoria de completude do §8, que compara o pedido com o entregue e é de
+âmbito inteiramente diferente.
+
+**`ponytail-debt` — na mesma cadência, e antes de prometer um limite.**
+
+```
+Skill(skill: "ponytail:ponytail-debt")
+```
+
+Lê os comentários `shortcut:` do repositório e devolve-os como livro de dívida: uma linha por
+atalho, com o tecto que ele nomeia e o gatilho de revisão. Não substitui nada — não havia
+onde ler isto. Corre com o `ponytail-audit`, e também **quando um ticket vai afirmar um
+limite** (um p95, um tecto de carga, uma capacidade): um atalho declarado por baixo dessa
+afirmação é a razão mais provável para ela ser verdade por acidente, que é o defeito que o §6
+persegue. Um atalho que o relatório marque `no-trigger` — sem gatilho escrito — emenda-se no
+próprio comentário, no mesmo PR: é a forma de dívida que apodrece em silêncio.
+
+### `ponytail-debt` e `docs/dividas-documentais.md` não são a mesma lista
+
+São dois livros de naturezas diferentes, e misturá-los estraga os dois:
+
+| | `docs/dividas-documentais.md` | `ponytail-debt` |
+|---|---|---|
+| O que regista | resíduo **textual**: frase desactualizada, nome antigo, contagem errada | limite **de código** aceite de propósito, com o seu tecto |
+| Onde vive | ficheiro do repositório, mantido à mão | no comentário `shortcut:`, ao lado da linha que explica; a lista gera-se quando se pede |
+| Quem acrescenta | uma revisão que encontrou algo fora do âmbito | quem escreveu o atalho, no mesmo diff |
+| Como se fecha | quem emenda o documento risca a linha | o gatilho chega e abre-se ticket, porque pede código |
+
+Daí duas regras: um `shortcut:` **não** se copia para `docs/dividas-documentais.md` — ficava a
+mesma dívida em dois sítios, e um deles a desactualizar-se; e um resíduo textual **não** leva
+comentário `shortcut:`, porque não há código onde o pôr.
+
+### `ponytail-gain` fica de fora
+
+Mostra as poupanças medidas do *ponytail* — médias de 39 tarefas noutro repositório, e a
+própria skill proíbe derivar delas um número para o repositório onde corre. Aqui isso seria
+uma afirmação sobre o mundo sem evidência local, **NÃO VERIFICADO** à letra da escala de
+verificação, e um relatório de ticket não a pode citar. Não entra em nenhuma fase. (O
+`ponytail-help` é só o cartão de referência dos níveis e comandos: usa-o quem precisar, não
+tem sítio no fluxo.)
+
+---
+
 ## Convenções não negociáveis deste repositório
 
 - **Português europeu/angolano**, na grafia do conjunto: `arquitectura`, `activo`, `facto`,
@@ -518,6 +657,9 @@ verdade.
   entrar num ticket.
 - **Documentos formais** levam tabela de cabeçalho, tabela de aprovação e controlo de versões;
   uma alteração relevante acrescenta linha de versão.
+- **Atalho deliberado em código leva comentário `shortcut: <o limite>, <quando se revê>`.**
+  A palavra-chave fica em inglês, porque é por ela que o `ponytail-debt` procura; o limite e o
+  gatilho escrevem-se em português. Um atalho sem limite escrito é defeito, não atalho.
 - **Nada está ratificado** até o fundador o dizer. A Carta, o dicionário e a classificação dos
   ADRs são propostas — não as apresentes como decididas.
 
