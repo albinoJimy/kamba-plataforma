@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Canais WhatsApp e Handoff |
-| Versão | 1.15 |
+| Versão | 1.16 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md`, `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md`, `../docs/tecnica/06_Dados_Eventos_Analytics.md`, `../docs/tecnica/08_Seguranca_Conformidade.md`, `../docs/tecnica/10_Onboarding_Governanca.md` (§6–§7), `../docs/tecnica/evidencia/E1_Meta_WhatsApp.md` |
@@ -1473,13 +1473,12 @@ um a um (os dois de sucesso entram, o `a_sincronizar` e o `falhado` não), o cic
 inteiro do *echo* — avisa, o dono escreve, avisa outra vez dez dias depois — e a
 varredura a correr como `kamba_batch`, que é o único papel com `BYPASSRLS`.
 
-**E há mais dez da mesma família, que este trabalho não fecha.** A corrida
-completa do filtro `coexistencia` — 41 mutações — dá **31 apanhadas e 10
-sobreviventes**, nenhum deles do aviso. (Uma leitura anterior desta secção dizia
-«seis»: era de uma corrida a meio, e o número de uma corrida inacabada não é um
-número. Fica dito, porque é a segunda vez neste par de tickets que uma contagem
-parcial passou por final.) Os dez são de **quatro** classes, e só a primeira é a
-que este PR fecha:
+**E havia mais dez da mesma família, fechadas logo a seguir.** A corrida completa
+do filtro `coexistencia` — 41 mutações — deu **31 apanhadas e 10 sobreviventes**,
+nenhum deles do aviso. (Uma leitura anterior desta secção dizia «seis»: era de uma
+corrida a meio, e o número de uma corrida inacabada não é um número. Fica dito,
+porque é a segunda vez neste par de tickets que uma contagem parcial passou por
+final.) Os dez eram de **quatro** classes, e as quatro fecharam-se:
 
 * **seis predicados de SQL** (`consultas.ts`) — `o passo passa a aceitar uma
   sincronizacao falhada`, `o prazo deixa de morder ao concluir`, `concluir deixa
@@ -1501,9 +1500,28 @@ que este PR fecha:
   conferida` e `uma duracao negativa passa a entrar no histograma`. As duas
   recusas silenciosas: nenhum teste as exercita.
 
-Ficam nomeados, medidos e classificados; fechá-los é reescrever a prova dos
-critérios 3 e 5 contra uma base real mais quatro testes curtos, e isso é trabalho
-com o seu próprio tamanho.
+**Fecharam-se com dez ensaios: sete contra a base e três na bateria do *gate*
+4.** Os sete contra a base são a primeira vez que os critérios 3 e 5 deste ticket
+tocam um PostgreSQL pelos predicados: o passo recusado numa sincronização
+`falhado`, a conclusão recusada depois do prazo e sem os dois passos, a
+idempotência do alerta das 12 h pela coluna `alertado_em`, a falha às 24 h a ler o
+`prazo_em` **e não** o `iniciado_em` — com o `prazo_em` posto 48 h à frente para
+os separar, que é a única forma de distinguir as duas leituras —, a idempotência
+do registo do desligamento pelo `desligado_em` (com o **primeiro** motivo a ficar)
+e o `last_account_update_at` a levar o instante do evento, com o `GREATEST` a não
+deixar um evento atrasado recuar o carimbo.
+
+Os três da bateria do *gate* 4 são de outra natureza: os **três prazos afirmados
+pelo valor** — e não por si mesmos, que é a lacuna que o KAM-115 fechou na janela
+dele —, a etiqueta de métrica fora da lista fechada a **levantar** (é o `OBS-I`: um
+`tenant_id` é um UUID com hífenes), e a duração não finita ou negativa a levantar
+em vez de entrar em silêncio no histograma.
+
+**E uma leitura minha estava errada:** eu classifiquei a mutação `o desligamento
+volta a registar antes de transitar` como «ordem de instruções», e ela não mexe em
+ordem nenhuma — substitui o instante que o `SQL_DESLIGAR_CANAL` escreve por
+`new Date(0)`. O nome da mutação diz uma coisa e o que ela faz é outra; o que
+estava por provar era o **carimbo**, e é isso que o ensaio novo lê.
 
 **A quarta era outra coisa: um teste que não olhava para onde o seu próprio nome
 prometia.** O «um canal `cloud_only` desliga sem avisar de desalinhamento»
@@ -3600,3 +3618,4 @@ um `--suite tests` de dois minutos teria dito.
 | 1.13 | Outubro 2026 | **As caixas vazias dos tickets fundidos inventariadas por credor**, em [`../docs/epic-02-divida-de-criterios.md`](../docs/epic-02-divida-de-criterios.md). Das caixas vazias que a auditoria do §2 contou, as dos revisores humanos e as do «todos os CA satisfeitos» são derivadas e as do KAM-115 são trabalho por fazer; sobram **32** nos tickets fundidos, e o documento dá a cada uma a razão que a tabela de verificação do seu bloco já dava, mais o credor e a classe. **O achado é que cinco esperam um ticket que já fundiu** e ninguém voltou a medir: o critério 5 do KAM-024 («usado por KAM-015, 016, 017 e 020» — os quatro fundidos), o critério 1 do KAM-018 (a detecção do *echo*, que pedia o KAM-017), o critério 8 do KAM-015 (o *lock* da conversa, que pedia o KAM-018), o critério 6 do KAM-018 (a `v3` do contrato e o `setBotMuted`, que pediam o KAM-007 e o KAM-019) e o critério 3 do KAM-014. É a mesma classe de omissão que a emenda 1.10 encontrou no §2, um nível abaixo. O resumo por credor desfaz a leitura pessimista das caixas soltas: só sete esperam genuinamente um terceiro (`ext:KAM-100` e `ext:KAM-102`), dez são decisões e não trabalho — e **duas dessas não devem fechar**, a do KAM-021 porque devolver o privilégio reabre uma escalada e a do KAM-024 porque satisfazer a letra pioraria a protecção. Três caixas não têm credor nomeado, e é isso que as torna perigosas. Nenhuma caixa se marcou ou desmarcou, e nenhuma tabela de verificação foi reescrita. | Equipa KAMBÁ |
 | 1.14 | Outubro 2026 | **KAM-115 entregue, e o epic fecha.** Secção de verificação no bloco, com **sete** caixas de critério marcadas e **uma** vazia, e com seis das oito do DoD. O que fica vazio é o alvo de «≥ 95% dos *tenants* `ativo` com contacto verificado» (critério 6): é medição sobre *tenants* reais e não há nenhum — a métrica que o mede está entregue, com numerador **e** denominador, e a varredura que a alimenta também. **O risco R16 passa a FECHADA**: era «sem ticket para avisar o dono por canal alternativo», e os emissores existiam desde o KAM-017, o KAM-021 e o KAM-023 — o que não existia era quem entrega. Entregues: a revisão `0019` com **duas** tabelas (e são duas porque o critério 7 manda marcar o **contacto** como inválido, que é facto do contacto e não do aviso), o módulo `packages/core-ts/src/avisos/`, a *suite* de *gate* 8 `tests_avisos` — a primeira que leva as duas baterias do módulo no mesmo corredor —, e o *gate* de `prod` do subprocessador, que é a alternativa que o próprio critério 8 escreve («ou fica `pendente` e bloqueia `prod`»), porque o inventário do KAM-069 não existe e escolher um subprocessador num ficheiro de código é o que o ADR-008 existe para impedir. **Três defeitos apanhados por máquina**, e o terceiro é o mais sério: o `criado_at` não podia vir do `now()` do servidor (o relógio acelerado dos ensaios media uma coisa e a base registava outra, e a varredura dos lembretes não via episódio nenhum); o `apagarTenant` do `apoio.ts` não conhecia as duas tabelas novas e o `after` pendurava o processo por trezentos segundos **sem uma linha de saída**; e a prova por mutação foi a **primeira coisa a executar** a bateria de esquema deste ticket — o *gate* 8 correu antes de ela existir —, encontrando quatro testes a responder `25P02` em vez de `23514` por falta de `SAVEPOINT`. **E a revisão adversarial não aprovou a primeira versão**: quatro achados, os quatro corrigidos — os lembretes **nunca saíam** (a janela do gatilho filtrava-os, e o teste que o afirmava media um histórico vazio), o tecto diário contava linhas e não avisos, a varredura tinha uma guarda **inalcançável** no lugar do «depois pára e abre tarefa a T2» (e o `lembretesEsgotados` existia, estava testado e não era chamado por ninguém), e a hora do aviso saía em UTC a um dono de Luanda. | Equipa KAMBÁ |
 | 1.15 | Outubro 2026 | **As quatro mutações do aviso de inactividade do KAM-017, fechadas.** Encontrou-as a prova por mutação do KAM-115: o filtro largo dele apanhou três deste ticket a sobreviver, e alargá-lo revelou uma quarta. **As três do SQL sobreviviam todas pela mesma razão**, e ela é a lição: os testes do critério 6 viviam todos na bateria do *gate* 4, contra a `BaseFalsa` — que **reimplementa o predicado em JavaScript** e reconhece a instrução comparando-a com a **constante importada**, que a mutação também muda. A comparação continuava a bater, o predicado em JavaScript ficava intacto, e mutar o SQL não tinha efeito nenhum. É a mesma classe de lacuna que o KAM-115 encontrou em dois dos seus oito, e a regra que o `outbound/consultas.ts` já tinha escrito: a *suite* do *gate* 8 corre estas cadeias e não cópias delas. Os três ensaios novos em `tests_bd/coexistencia.bd.test.ts` são a **primeira vez** que o critério 6 deste ticket toca uma base real — a idempotência pela coluna, os quatro estados um a um, o ciclo inteiro do *echo* e a varredura como `kamba_batch`. **A quarta era outra coisa:** o «um canal `cloud_only` desliga sem avisar de desalinhamento» afirmava o desfecho e o estado e **não** a ausência do aviso, com o duplo de `Logger` daquele ficheiro já a guardar os `outcome`; passou a afirmar o silêncio e ganhou a metade positiva, sem a qual passaria com o `warn` apagado por inteiro. Nenhuma caixa de critério muda: eram lacunas de prova e não de código. | Equipa KAMBÁ |
+| 1.16 | Outubro 2026 | **As dez mutações restantes do KAM-017, fechadas.** A corrida completa do filtro `coexistencia` deu 41 mutações com 10 sobreviventes, em quatro classes; as quatro fecharam-se com **dez ensaios** — sete contra a base e três na bateria do *gate* 4. Os sete são a **primeira vez** que os critérios 3 e 5 deste ticket tocam um PostgreSQL pelos predicados: o passo recusado numa sincronização `falhado`, a conclusão recusada depois do prazo e sem os dois passos, a idempotência do alerta das 12 h, a falha às 24 h a ler o `prazo_em` **e não** o `iniciado_em` (com o `prazo_em` posto 48 h à frente para os separar), a idempotência do registo do desligamento com o **primeiro** motivo a ficar, e o `last_account_update_at` a levar o instante do evento com o `GREATEST` a não deixar um evento atrasado recuar o carimbo. Os três do *gate* 4: os três prazos afirmados **pelo valor** — a lacuna que o KAM-115 fechou na janela dele —, a etiqueta de métrica fora da lista a levantar (`OBS-I`) e a duração não finita a levantar em vez de entrar em silêncio. **E uma classificação minha estava errada:** a mutação «o desligamento volta a registar antes de transitar» não mexe em ordem nenhuma — substitui o instante que o `SQL_DESLIGAR_CANAL` escreve por `new Date(0)`. O nome diz uma coisa e o que ela faz é outra, e o que estava por provar era o carimbo. Nenhuma caixa de critério muda: eram lacunas de prova e não de código. | Equipa KAMBÁ |

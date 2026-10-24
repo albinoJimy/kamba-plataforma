@@ -287,6 +287,17 @@ TESTES_OBRIGATORIOS = (
     # onde e o PostgreSQL a avalia-los — na `BaseFalsa` eles vivem em JavaScript,
     # e ela reconhece a instrucao pela **constante importada**, que a mutacao
     # tambem muda: mutar o SQL nao tinha efeito nenhum sobre a bateria do gate 4.
+    # KAM-017, os criterios 3 e 5: os sete que a corrida completa do filtro
+    # `coexistencia` obrigou a escrever. Seis eram predicados de SQL com a mesma
+    # lacuna do criterio 6 — so provados contra a `BaseFalsa` —, e o setimo e o
+    # instante que o `SQL_DESLIGAR_CANAL` escreve, que nenhum teste lia.
+    "[bd] o passo não entra numa sincronização que já falhou",
+    "[bd] concluir depois do prazo não concluí",
+    "[bd] concluir sem os dois passos não concluí",
+    "[bd] o alerta das 12 h é idempotente, e é o `alertado_em` que o faz",
+    "[bd] a falha às 24 h lê o `prazo_em` e não o `iniciado_em`",
+    "[bd] o registo do desligamento é idempotente, pelo `desligado_em`",
+    "[bd] o `last_account_update_at` leva o instante do evento",
     "[bd] o aviso dos 10 dias é idempotente, e é o `avisado_em` que o faz",
     "[bd] o aviso só olha para os dois estados de sucesso",
     "[bd] o echo do dono **reabre** a janela do aviso, pela coluna",
