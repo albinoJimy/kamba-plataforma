@@ -1,0 +1,258 @@
+"""O checkpointer, na parte que **nao** e SQL (KAM-026).
+
+## Porque e que nao ha aqui um `aput` seguido de um `aget_tuple`
+
+Porque isso prova o SQL, e o SQL nao se prova contra um duplo. Um espiao que
+guardasse as linhas e as devolvesse interpretava as cadeias de `consultas.py`
+em Python — e e exactamente a armadilha que o `coexistencia.base_falsa.ts`
+pagou duas vezes no KAM-017: a mutacao muda a cadeia, o duplo reconhece-a pela
+constante importada, e o teste continua verde com o predicado apagado.
+
+O que esta aqui sao as guardas e a leitura do `config`, que sao Python e nao
+tem base de dados nenhuma. O resto esta em `db/tests_agr/test_checkpointer.py`,
+que corre contra um PostgreSQL de verdade no *gate* 8.
+
+O duplo abaixo **regista** o que recebeu e nao o interpreta: nao ha nele um
+`if` sobre o texto do SQL.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import unittest
+
+from kamba_agr.checkpointer import (
+    JANELA_MAXIMA,
+    CheckpointerDoAgr,
+    JanelaExcedidaError,
+    _coordenadas,
+)
+
+TENANT = "11111111-1111-4111-8111-111111111111"
+CONTACTO = "22222222-2222-4222-8222-222222222222"
+THREAD = f"{TENANT}:{CONTACTO}"
+
+
+def config(thread_id: str | None = THREAD, **extra: object) -> dict:
+    configuravel: dict = {}
+    if thread_id is not None:
+        configuravel["thread_id"] = thread_id
+    configuravel.update(extra)
+    return {"configurable": configuravel}
+
+
+def checkpoint(mensagens: int = 0, ident: str = "cp-1") -> dict:
+    return {
+        "v": 1,
+        "id": ident,
+        "ts": "2026-10-25T00:00:00+00:00",
+        "channel_values": {"messages": list(range(mensagens))},
+        "channel_versions": {},
+        "versions_seen": {},
+        "updated_channels": None,
+    }
+
+
+class LigacaoEspia:
+    """Regista `(sql, parametros)` e devolve o que lhe mandarem devolver.
+
+    Nao le o SQL: devolve `self.respostas.pop(0)` pela ordem das chamadas. Um
+    duplo que escolhesse a resposta pelo texto da cadeia era uma base falsa, e
+    esta casa ja mediu o que isso esconde.
+    """
+
+    def __init__(self, respostas: list[list[list]] | None = None) -> None:
+        self.chamadas: list[tuple[str, tuple]] = []
+        self.respostas = list(respostas or [])
+        self.commits = 0
+        self.fechada = False
+
+    def cursor(self) -> "LigacaoEspia":
+        return self
+
+    def execute(self, sql: str, parametros: tuple) -> None:
+        self.chamadas.append((sql, parametros))
+
+    def fetchall(self) -> list[list]:
+        return self.respostas.pop(0) if self.respostas else []
+
+    @property
+    def description(self) -> object:
+        return [("coluna",)] if self.respostas else None
+
+    def close(self) -> None:
+        pass
+
+    def commit(self) -> None:
+        self.commits += 1
+
+
+class TestCoordenadas(unittest.TestCase):
+    def test_sem_thread_id_levanta(self) -> None:
+        # O proprio `BaseCheckpointSaver` di-lo: «Without it, the checkpointer
+        # cannot save state». Aceitar a ausencia gravava o estado de uma
+        # conversa debaixo do de outra.
+        for mau in (None, {}, {"configurable": {}}, {"configurable": {"thread_id": ""}}):
+            with self.subTest(mau=mau), self.assertRaises(ValueError):
+                _coordenadas(mau)
+
+    def test_um_thread_id_que_nao_e_cadeia_levanta(self) -> None:
+        with self.assertRaises(ValueError):
+            _coordenadas({"configurable": {"thread_id": 7}})
+
+    def test_o_namespace_por_omissao_e_a_cadeia_vazia(self) -> None:
+        # O LangGraph passa cadeia vazia no grafo de topo, e a coluna tem
+        # `DEFAULT ''` por isso. Um `None` aqui entrava na chave primaria.
+        self.assertEqual(_coordenadas(config())[1], "")
+        self.assertEqual(_coordenadas(config(checkpoint_ns=None))[1], "")
+
+    def test_o_checkpoint_id_e_opcional(self) -> None:
+        self.assertIsNone(_coordenadas(config())[2])
+        self.assertEqual(_coordenadas(config(checkpoint_id="cp-9"))[2], "cp-9")
+
+
+class TestJanela(unittest.TestCase):
+    def test_no_maximo_exacto_grava(self) -> None:
+        saver = CheckpointerDoAgr(LigacaoEspia())
+        asyncio.run(saver.aput(config(), checkpoint(JANELA_MAXIMA), {}, {}))
+
+    def test_acima_do_maximo_levanta(self) -> None:
+        # Levanta em vez de recortar: recortar aqui punha o estado em memoria do
+        # grafo a divergir do que esta na base, sem erro nenhum. Quem recorta e
+        # o `ingest` (KAM-031), com o `estado.recortar_janela`.
+        saver = CheckpointerDoAgr(LigacaoEspia())
+        with self.assertRaises(JanelaExcedidaError):
+            asyncio.run(saver.aput(config(), checkpoint(JANELA_MAXIMA + 1), {}, {}))
+
+    def test_a_guarda_corre_antes_de_tocar_na_base(self) -> None:
+        # Senao ficava um checkpoint meio escrito por uma janela que nao cabia.
+        ligacao = LigacaoEspia()
+        saver = CheckpointerDoAgr(ligacao)
+        with self.assertRaises(JanelaExcedidaError):
+            asyncio.run(saver.aput(config(), checkpoint(JANELA_MAXIMA + 1), {}, {}))
+        self.assertEqual(ligacao.chamadas, [])
+
+
+class TestEscrita(unittest.TestCase):
+    def test_aput_devolve_o_config_do_checkpoint_novo(self) -> None:
+        saver = CheckpointerDoAgr(LigacaoEspia())
+        devolvido = asyncio.run(saver.aput(config(), checkpoint(ident="cp-7"), {}, {}))
+        self.assertEqual(
+            devolvido["configurable"],
+            {"thread_id": THREAD, "checkpoint_ns": "", "checkpoint_id": "cp-7"},
+        )
+
+    def test_o_checkpoint_do_config_de_entrada_e_o_pai(self) -> None:
+        # A cadeia de `parent_checkpoint_id` e o que o `parent_config` devolve:
+        # trocar isto partia a viagem no tempo sem dar erro.
+        ligacao = LigacaoEspia()
+        saver = CheckpointerDoAgr(ligacao)
+        asyncio.run(
+            saver.aput(config(checkpoint_id="cp-6"), checkpoint(ident="cp-7"), {}, {})
+        )
+        _sql, parametros = ligacao.chamadas[0]
+        self.assertEqual(parametros[2], "cp-7")
+        self.assertEqual(parametros[3], "cp-6")
+
+    def test_o_tipo_do_checkpoint_e_o_dos_metadados_sao_gravados_a_parte(self) -> None:
+        # Duas colunas e nao uma: os dois objectos passam pelo mesmo
+        # serializador mas o tipo que ele devolve para um nao e garantidamente
+        # o do outro.
+        ligacao = LigacaoEspia()
+        saver = CheckpointerDoAgr(ligacao)
+        asyncio.run(saver.aput(config(), checkpoint(), {"step": 1}, {}))
+        _sql, parametros = ligacao.chamadas[0]
+        self.assertEqual(len(parametros), 8)
+        self.assertIsInstance(parametros[4], str)   # type do checkpoint
+        self.assertIsInstance(parametros[5], bytes)
+        self.assertIsInstance(parametros[6], str)   # metadata_type
+        self.assertIsInstance(parametros[7], bytes)
+
+    def test_aput_writes_sem_checkpoint_id_levanta(self) -> None:
+        saver = CheckpointerDoAgr(LigacaoEspia())
+        with self.assertRaises(ValueError):
+            asyncio.run(saver.aput_writes(config(), [("canal", 1)], "tarefa"))
+
+    def test_aput_writes_numera_as_escritas_pela_ordem(self) -> None:
+        # O `idx` entra no `writes_sort_key` da interface, e e a ordem em que a
+        # execucao as produziu. Numerar por outra coisa reconstruia outro valor
+        # num redutor sensivel a ordem.
+        ligacao = LigacaoEspia()
+        saver = CheckpointerDoAgr(ligacao)
+        asyncio.run(
+            saver.aput_writes(
+                config(checkpoint_id="cp-1"),
+                [("a", 1), ("b", 2), ("c", 3)],
+                "tarefa",
+                "caminho",
+            )
+        )
+        self.assertEqual([p[5] for _s, p in ligacao.chamadas], [0, 1, 2])
+        self.assertEqual([p[6] for _s, p in ligacao.chamadas], ["a", "b", "c"])
+        self.assertEqual({p[4] for _s, p in ligacao.chamadas}, {"caminho"})
+
+
+class TestListagem(unittest.IsolatedAsyncioTestCase):
+    async def test_um_filtro_de_metadados_levanta(self) -> None:
+        # Ignorar o filtro devolvia o historico inteiro a quem pediu um pedaco:
+        # a resposta errada sem erro, que e pior do que a excepcao.
+        saver = CheckpointerDoAgr(LigacaoEspia())
+        with self.assertRaises(NotImplementedError):
+            async for _ in saver.alist(config(), filter={"step": 1}):
+                pass
+
+    async def test_sem_filtro_nao_levanta(self) -> None:
+        saver = CheckpointerDoAgr(LigacaoEspia())
+        self.assertEqual([t async for t in saver.alist(config(), filter={})], [])
+
+
+class TestOQueNaoSeImplementa(unittest.IsolatedAsyncioTestCase):
+    """Os metodos que a interface deixa a levantar, e porque isso e certo."""
+
+    async def test_a_poda_levanta_em_vez_de_cortar_a_cadeia(self) -> None:
+        # O `prune` da propria interface avisa que um `keep_latest` ingenuo
+        # corta a cadeia de um canal `DeltaChannel` e que o valor «would
+        # silently reconstruct as empty (no error raised)». Nao ha grafo nenhum
+        # ainda; quem decide se algum usa canais delta e o KAM-031.
+        saver = CheckpointerDoAgr(LigacaoEspia())
+        with self.assertRaises(NotImplementedError):
+            await saver.aprune([THREAD])
+
+    async def test_a_copia_de_thread_levanta(self) -> None:
+        # A fusao de contactos migra o *thread* (`docs/tecnica/02` §12), e quem
+        # funde contactos e outro processo. Nenhum criterio deste bloco o pede.
+        saver = CheckpointerDoAgr(LigacaoEspia())
+        with self.assertRaises(NotImplementedError):
+            await saver.acopy_thread(THREAD, "outro")
+
+    def test_os_metodos_sincronos_levantam(self) -> None:
+        # O AGR so chama os assincronos. Um grafo sincrono levanta, e levanta a
+        # dizer o que falta.
+        saver = CheckpointerDoAgr(LigacaoEspia())
+        with self.assertRaises(NotImplementedError):
+            saver.get_tuple(config())
+
+
+class TestVersoes(unittest.TestCase):
+    def test_as_versoes_de_canal_sao_inteiras(self) -> None:
+        # `BaseCheckpointSaver[int]` e nao `[str]`: a implementacao por omissao
+        # do `get_next_version` incrementa inteiros e **levanta** com cadeias.
+        # Em inteiros nao se sobrepoe nada.
+        saver = CheckpointerDoAgr(LigacaoEspia())
+        self.assertEqual(saver.get_next_version(None, None), 1)
+        self.assertEqual(saver.get_next_version(4, None), 5)
+
+
+class TestEncerramento(unittest.TestCase):
+    def test_fechar_larga_a_ligacao(self) -> None:
+        class Tomada(LigacaoEspia):
+            def close(self) -> None:
+                self.fechada = True
+
+        tomada = Tomada()
+        CheckpointerDoAgr(tomada).fechar()
+        self.assertTrue(tomada.fechada)
+
+
+if __name__ == "__main__":
+    unittest.main()

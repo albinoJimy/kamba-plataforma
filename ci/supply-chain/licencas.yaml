@@ -218,6 +218,36 @@ componentes:
       - "pypi:langgraph"
     nota: So a biblioteca. O servidor e outro componente, e esta bloqueado.
 
+  - componente: langgraph-checkpoint
+    versao: "4.3.0"
+    licenca: MIT
+    data_verificacao: "2026-10-25"
+    fonte: "pypi.org/pypi/langgraph-checkpoint/4.3.0/json, e o METADATA do pacote instalado"
+    estado_verificacao: CONFIRMADO
+    estado: permitido
+    ligacoes:
+      - "pypi:langgraph-checkpoint"
+    nota: >-
+      A interface (`BaseCheckpointSaver`) e o serializador (`JsonPlusSerializer`)
+      do checkpointer do KAM-026. O fecho dele sao 35 pacotes e foi medido com o
+      avaliador deste gate contra o `ci/licenses.yaml`: 35 permitidas, 0 fora.
+
+  - componente: langgraph-checkpoint-postgres
+    versao: "3.1.2"
+    licenca: MIT
+    data_verificacao: "2026-10-25"
+    fonte: "pypi.org/pypi/langgraph-checkpoint-postgres/3.1.2/json (requires_dist)"
+    estado_verificacao: CONFIRMADO
+    estado: bloqueado
+    ligacoes:
+      - "pypi:langgraph-checkpoint-postgres"
+    nota: >-
+      **O pacote e MIT e o fecho dele nao e.** Exige `psycopg >= 3.2.0` e
+      `psycopg-pool >= 3.2.0`, ambos LGPL-3.0-only, e o prefixo `LGPL` esta nas
+      negadas. O `E4` §2.6 da-o como «SIM, sem restricoes» porque olhou o pacote
+      e nao o fecho; fica corrigido la. O KAM-026 escreve o checkpointer sobre
+      `pg8000` e usa so o `langgraph-checkpoint`.
+
   - componente: seaweedfs
     versao: "4.48"
     licenca: Apache-2.0
