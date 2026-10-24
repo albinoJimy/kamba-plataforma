@@ -76,12 +76,29 @@ class TestRecusas(unittest.TestCase):
         self.assertEqual(apanhado.exception.codigo, "campo_desconhecido")
 
     def test_o_codigo_de_um_campo_a_mais_nao_repete_o_nome_que_veio_de_fora(self) -> None:
+        # O numero e do **intervalo ficticio** da casa (`999` + 9 algarismos,
+        # `tools/meta-sim/src/numeros.ts`) e vai **sem `+`**, e as duas coisas
+        # sao deliberadas. A primeira versao usava um movel angolano em E.164, e
+        # casava os **dois** padroes de telefone real do *gate* 7
+        # (`telefone_ao` e `e164_entre_aspas`): o `meta-sim varrer` recusou o
+        # ficheiro, com razao, porque um numero de forma real num ficheiro sem
+        # entrada no inventario e exactamente o que ele existe para apanhar.
+        #
+        # **E o varrimento nao distingue comentario de codigo**, o que tambem se
+        # aprendeu aqui: a segunda tentativa punha o numero antigo *neste*
+        # comentario, a explicar porque e que ele saiu — e o *gate* apanhou-o
+        # outra vez. Nao se nomeia o valor; descreve-se.
+        #
+        # O que o teste prova nao depende de a forma ser real: depende de o
+        # valor ser um sentinela reconhecivel que **nao** pode aparecer na
+        # excepcao.
+        TELEFONE_FICTICIO = "999123456789"
         corpo = invocacao_crua()
-        corpo["telefone_do_cliente"] = "+244923456789"
+        corpo["telefone_do_cliente"] = TELEFONE_FICTICIO
         with self.assertRaises(InvocacaoInvalidaError) as apanhado:
             ler_invocacao(corpo)
         self.assertNotIn("telefone", apanhado.exception.codigo)
-        self.assertNotIn("923456789", str(apanhado.exception))
+        self.assertNotIn(TELEFONE_FICTICIO, str(apanhado.exception))
 
     def test_cada_campo_em_falta_recusa(self) -> None:
         for campo in CAMPOS:
