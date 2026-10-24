@@ -645,24 +645,43 @@ class TestDoisExecutoresNaMesmaConversa(ComAgr):
     def test_a_espera_de_uma_conversa_nao_prende_outra(self) -> None:
         """O defeito C2, medido: a espera nao pode ser exclusiva.
 
-        O primeiro executor detem a tranca da conversa A durante 1 s. O segundo
-        pede a **mesma** chave (fica a tentar) e, ao mesmo tempo, um terceiro
-        pedido — de outra conversa, no **mesmo** executor que espera — tem de
-        passar. Com a espera dentro do `asyncio.Lock` da ligacao, o terceiro
-        ficava preso atras do segundo e este teste estourava o `wait_for`.
+        O primeiro executor detem a tranca da conversa A. O segundo pede a
+        **mesma** chave (fica a tentar) e, ao mesmo tempo, um terceiro pedido —
+        de outra conversa, no **mesmo** executor que espera — tem de passar.
+        Com a espera dentro do `asyncio.Lock` da ligacao, o terceiro ficava
+        preso atras do segundo.
+
+        **A asercao e de ordem e nao de relogio**, e isso e deliberado: a
+        primeira versao exigia que a conversa B acabasse em menos de 1,0 s de
+        relogio, o que num *runner* lento depende de quanto tempo levam duas
+        ligacoes novas ao PostgreSQL — e um teste que falha por carga da
+        maquina nao diz nada sobre a propriedade. O que se mede e que a
+        conversa B acaba **antes** de a conversa A largar a tranca, que e a
+        propriedade e nao tem relogio nenhum. O `ESPERA_DO_LENTO` existe para
+        dar janela a intercalacao, e nao como limiar.
         """
         a = self.criar_conversa()
         b = self.criar_conversa()
-        acabou_b = {"quando": None}
+        #: Quanto tempo o turno da conversa A segura a tranca. Nao e limiar: so
+        #: tem de ser maior do que o que a conversa B leva a correr, e dois
+        #: segundos sao folga para abrir duas ligacoes num *runner* lento.
+        ESPERA_DO_LENTO = 2.0
+        # **Por `turn_id` e nao um registo por grafo**, e o teste apanhou-o a
+        # si mesmo: o executor `outro` serve **dois** turnos — o que espera pela
+        # chave da A e o que passa pela B — com a **mesma** instancia de
+        # `GrafoRapido`, pelo que um registo unico era sobrescrito pelo segundo
+        # e a asercao de ordem comparava o instante errado.
+        acabou: dict[str, float] = {}
 
         class GrafoLento:
             async def ainvoke(self, estado, config):
-                await asyncio.sleep(1.0)
+                await asyncio.sleep(ESPERA_DO_LENTO)
+                acabou[estado["turn_id"]] = asyncio.get_running_loop().time()
                 return estado
 
         class GrafoRapido:
             async def ainvoke(self, estado, config):
-                acabou_b["quando"] = asyncio.get_running_loop().time()
+                acabou[estado["turn_id"]] = asyncio.get_running_loop().time()
                 return estado
 
         lento = self._executor_proprio(GrafoLento(), [])
@@ -671,7 +690,6 @@ class TestDoisExecutoresNaMesmaConversa(ComAgr):
         outro = self._executor_proprio(GrafoRapido(), [])
 
         async def correr():
-            comecou = asyncio.get_running_loop().time()
             segurar = asyncio.create_task(
                 lento.correr(self._invocacao(a, "wamid.ENSAIO.segura"))
             )
@@ -683,20 +701,39 @@ class TestDoisExecutoresNaMesmaConversa(ComAgr):
             passa = asyncio.create_task(
                 outro.correr(self._invocacao(b, "wamid.ENSAIO.passa"))
             )
-            # O de outra conversa tem de acabar **antes** de o lento largar.
-            await asyncio.wait_for(passa, timeout=30)
-            fim_do_que_passa = acabou_b["quando"]
-            await asyncio.wait_for(asyncio.gather(segurar, espera), timeout=120)
-            return comecou, fim_do_que_passa
+            # Com o defeito, este `wait_for` estourava: a conversa B ficava
+            # presa atras da que espera pela chave da A.
+            await asyncio.wait_for(passa, timeout=60)
+            # E a conversa A ainda nao pode ter acabado — senao o teste nao
+            # mediu intercalacao nenhuma, mediu uma sequencia.
+            self.assertNotIn(
+                "wamid.ENSAIO.segura",
+                acabou,
+                "a conversa A ja tinha largado a tranca: a janela fechou-se "
+                "antes de a conversa B correr, e o teste nao mediu nada",
+            )
+            await asyncio.wait_for(asyncio.gather(segurar, espera), timeout=180)
 
-        comecou, fim_do_que_passa = asyncio.run(correr())
-        self.assertIsNotNone(fim_do_que_passa)
+        asyncio.run(correr())
+
+        self.assertIn("wamid.ENSAIO.passa", acabou, "a conversa B nunca correu")
+        self.assertIn("wamid.ENSAIO.segura", acabou)
+        self.assertIn("wamid.ENSAIO.espera", acabou, "o que esperava nunca correu")
         self.assertLess(
-            fim_do_que_passa - comecou,
-            1.0,
-            "a conversa B esperou pelo turno da conversa A: a espera pela "
+            acabou["wamid.ENSAIO.passa"],
+            acabou["wamid.ENSAIO.segura"],
+            "a conversa B acabou depois de a A largar a tranca: a espera pela "
             "tranca esta a prender a ligacao do processo (defeito C2)",
         )
+        # E o que esperava pela chave da A so corre **depois** de ela largar:
+        # e a outra metade da propriedade, e sem ela o teste passava com uma
+        # tranca que nao exclui nada.
+        self.assertGreaterEqual(
+            acabou["wamid.ENSAIO.espera"],
+            acabou["wamid.ENSAIO.segura"],
+            "o turno que esperava correu antes de a tranca ser largada",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
