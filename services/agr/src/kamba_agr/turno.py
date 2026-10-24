@@ -119,6 +119,17 @@ class Grafo(Protocol):
     async def ainvoke(self, estado: dict[str, Any], config: dict[str, Any]) -> Any: ...
 
 
+class LoteMisturadoError(RuntimeError):
+    """Um lote levava invocacoes de mais do que uma conversa.
+
+    Nao pode acontecer: a fila e indexada por `(thread_id, conversation_id)`.
+    Se acontecer, alguem mexeu na chave da fila sem mexer no que o lote assume,
+    e o efeito seria a decisao de uma conversa aplicada a outra — com a
+    mensagem da outra perdida, porque o *shim* ve 200 e completa o *job*.
+    Levanta-se para que o *job* volte a fila em vez de a mensagem desaparecer.
+    """
+
+
 class GrafoNaoRegistadoError(RuntimeError):
     """Nao ha grafo para esta vertical. O AgentRegistry e o KAM-027.
 
@@ -173,7 +184,7 @@ class ExecutorDeTurnos:
         self._drenos: dict[tuple[str, str], asyncio.Task] = {}
 
     async def correr(self, invocacao: InvocacaoDoAgente) -> DesfechoDoTurno:
-        """Poe a invocacao na fila da sua `thread_id` e espera pelo desfecho.
+        """Poe a invocacao na fila da **sua conversa** e espera pelo desfecho.
 
         A vaga do *tenant* ja foi tomada por quem chama (`api_interna.py`), e
         nao aqui: uma recusa por tecto tem de chegar ao chamador **antes** de a
@@ -182,13 +193,13 @@ class ExecutorDeTurnos:
         processo.
         """
         pendente = Pendente(invocacao=invocacao, chegou_em=self._agora())
+        chave = (invocacao.thread_id, invocacao.conversation_id)
         # O contador da fila abre **aqui** e nao no `_correr_lote`, e a diferenca
         # e o que o nome da metrica promete: `agr_queue_depth` e «turnos a
         # espera». Contado no `_correr_lote`, media os **lotes a correr** — com
-        # um dreno por `thread_id` e o tecto do *tenant* a 3, nunca passava de
-        # um numero pequeno, e o `AGR_LIMIAR_DE_CONTRAPRESSAO` de 100 era
+        # um dreno por conversa e o tecto do *tenant* a 3, nunca passava de um
+        # numero pequeno, e o `AGR_LIMIAR_DE_CONTRAPRESSAO` de 100 era
         # inalcancavel por construcao. A metrica dizia uma coisa e media outra.
-        chave = (invocacao.thread_id, invocacao.conversation_id)
         with self._admissao.na_fila():
             self._pendentes.setdefault(chave, []).append(pendente)
             self._arrancar_dreno(chave)
@@ -256,11 +267,16 @@ class ExecutorDeTurnos:
         # *shim* ve 200. A fila ja garante isto pela chave; afirma-se aqui
         # porque uma invariante que so vive no indice de um dicionario e uma
         # invariante que a proxima pessoa nao ve.
-        assert all(
-            invocacao.conversation_id == primeira.conversation_id
-            and invocacao.thread_id == thread_id
+        #
+        # **`raise` e nao `assert`**: um `assert` desaparece com `python -O`, e
+        # uma invariante que impede a perda de mensagens nao pode depender de
+        # uma *flag* do interpretador.
+        if any(
+            invocacao.conversation_id != primeira.conversation_id
+            or invocacao.thread_id != thread_id
             for invocacao in invocacoes
-        ), "um lote atravessou conversas"
+        ):
+            raise LoteMisturadoError("lote_atravessou_conversas")
         try:
             async with self._trancas.tomar(thread_id):
                 palavra = await self._ler_palavra(primeira)
