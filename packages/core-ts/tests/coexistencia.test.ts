@@ -17,6 +17,7 @@ import {
   type ContactoDoSync,
   DESFECHOS_DO_ECHO,
   ESTADOS,
+  ALERTA_DE_SINCRONIZACAO_MS,
   INACTIVIDADE_DO_DONO_MS,
   MOTIVOS_DE_DESLIGAMENTO,
   MPS_POR_MODO,
@@ -903,5 +904,61 @@ describe("coexistencia: isolamento de tenant", () => {
         `a instrucao ${nome} nao leva o tenant_id no primeiro parametro`,
       );
     }
+  });
+});
+
+describe("coexistencia: as mutacoes que sobreviviam a bateria do gate 4", () => {
+  it("**os tres prazos afirmam-se pelo valor, e nao por si mesmos**", () => {
+    // A mutação `os 10 dias passam a 14` sobrevivia porque os testes da janela
+    // usam a constante nas duas pontas da fronteira — são verdadeiros para
+    // **qualquer** valor dela. É a mesma lacuna que o KAM-115 fechou na janela
+    // do gatilho dele, e fecha-se da mesma maneira: um número de produto
+    // afirma-se pelo número.
+    //
+    // Os três juntos, porque são um conjunto: as 24 h são **CONFIRMADAS** pelo
+    // `E1` §2, e as 12 h e os 10 dias são ***proposta*** — e é por isso que
+    // mudá-los é uma decisão e não uma correcção.
+    assert.equal(PRAZO_DE_SINCRONIZACAO_MS, 24 * 60 * 60 * 1_000);
+    assert.equal(ALERTA_DE_SINCRONIZACAO_MS, 12 * 60 * 60 * 1_000);
+    assert.equal(INACTIVIDADE_DO_DONO_MS, 10 * 24 * 60 * 60 * 1_000);
+    // E a relação que o `contrato.ts` escreve: o alerta é **metade** do prazo, e
+    // o aviso é a folga de quatro dias sobre os ~14 da Meta.
+    assert.equal(ALERTA_DE_SINCRONIZACAO_MS * 2, PRAZO_DE_SINCRONIZACAO_MS);
+    assert.ok(INACTIVIDADE_DO_DONO_MS < 14 * 24 * 60 * 60 * 1_000);
+  });
+
+  it("**uma etiqueta fora da lista fechada levanta**", () => {
+    // A guarda existe por causa do `OBS-I`: um `tenant_id` é um UUID com hífenes
+    // e não pode entrar numa métrica. Nenhum teste a exercitava, pelo que a
+    // mutação que a apaga sobrevivia — e com ela apagada, o dia em que alguém
+    // passasse um identificador ele era publicado.
+    const m = new MetricasDaCoexistencia();
+    assert.throws(
+      () => m.contar("coex_echo_total", "11111111-1111-4111-8111-111111111111"),
+      /lista fechada/,
+    );
+    // E a metade positiva: os três desfechos declarados passam.
+    for (const desfecho of DESFECHOS_DO_ECHO) {
+      m.contar("coex_echo_total", desfecho);
+    }
+    assert.equal(m.ler()["coex_echo_total:do_dono"], 1);
+  });
+
+  it("**uma duracao negativa ou nao finita levanta, e nao entra em silencio**", () => {
+    // Um `NaN` no formato de exposição faz o Prometheus descartar a recolha
+    // **toda**, e uma duração negativa é um relógio ao contrário: o `_sum`
+    // deixava de querer dizer nada. A guarda existia e nenhum teste a media, e
+    // ela **levanta** em vez de ignorar — uma duração negativa só pode vir de um
+    // `concluido_em` anterior ao `iniciado_em`, que é um defeito e não um valor.
+    const m = new MetricasDaCoexistencia();
+    for (const mau of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.throws(() => m.observarDuracao(mau), RangeError, String(mau));
+    }
+    assert.match(m.exposicao(), /coex_sync_duration_s_count 0/);
+    // E a metade positiva, senão este teste passava com o histograma inteiro
+    // apagado.
+    m.observarDuracao(42);
+    assert.match(m.exposicao(), /coex_sync_duration_s_count 1/);
+    assert.match(m.exposicao(), /coex_sync_duration_s_sum 42/);
   });
 });

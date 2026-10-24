@@ -38,6 +38,10 @@ import {
   INACTIVIDADE_DO_DONO_MS,
   PRAZO_DE_SINCRONIZACAO_MS,
   SQL_ABRIR,
+  ALERTA_DE_SINCRONIZACAO_MS,
+  SQL_CONCLUIR,
+  SQL_REGISTAR_DESLIGAMENTO,
+  SQL_DESLIGAR_CANAL,
   SQL_MARCAR_PASSO,
   SQL_REGISTAR_ECHO,
 } from "../src/coexistencia/index.ts";
@@ -239,6 +243,190 @@ describe("a coexistencia contra a base", () => {
     const segunda = await varredor.varrerPrazos(admin);
     assert.deepEqual(segunda.falhados, []);
     void metricas;
+  });
+
+  // ------------- critérios 3 e 5: os predicados que só a base pode recusar
+  //
+  // **Sete ensaios, e nasceram todos da mesma medição.** Depois de fechar as
+  // quatro mutações do aviso, a corrida completa do filtro `coexistencia` deu 41
+  // mutações com **10 sobreviventes** — e seis delas eram predicados de SQL dos
+  // critérios 3 e 5, exactamente a lacuna que o critério 6 tinha: os testes
+  // viviam na `BaseFalsa`, que os reimplementa em JavaScript e reconhece a
+  // instrução pela **constante importada**, que a mutação também muda.
+  //
+  // A sétima é o instante que o `SQL_DESLIGAR_CANAL` escreve, que nenhum teste
+  // lia.
+
+  it("[bd] o passo não entra numa sincronização que já falhou", async () => {
+    // `AND estado = 'a_sincronizar'`. Sem ele, um lote de `history` que chegasse
+    // depois do *offboard* voltava a mexer numa sincronização encerrada — e os
+    // passos «só podem ser executados uma vez» (`E1` §2, CONFIRMADO).
+    await limpar();
+    await abrir(app, canalA);
+    await admin.query(
+      "UPDATE platform.channel_coexistence SET estado = 'falhado' " +
+        "WHERE tenant_id = $1 AND channel_id = $2",
+      [tenantA, canalA],
+    );
+    const r = await app.query(SQL_MARCAR_PASSO, [
+      tenantA,
+      canalA,
+      "historico",
+      1,
+      100,
+      T0,
+    ]);
+    assert.equal(r.rows.length, 0);
+    // E a metade positiva: em `a_sincronizar` o mesmo lote entra.
+    await admin.query(
+      "UPDATE platform.channel_coexistence SET estado = 'a_sincronizar' " +
+        "WHERE tenant_id = $1 AND channel_id = $2",
+      [tenantA, canalA],
+    );
+    const bom = await app.query(SQL_MARCAR_PASSO, [
+      tenantA,
+      canalA,
+      "historico",
+      1,
+      100,
+      T0,
+    ]);
+    assert.equal(bom.rows.length, 1);
+  });
+
+  it("[bd] concluir depois do prazo não concluí", async () => {
+    // `AND prazo_em > $3` no `SQL_CONCLUIR`. **Não há agendador**, pelo que uma
+    // conclusão pode chegar depois das 24 h sem que ninguém tenha corrido a
+    // varredura — e o prazo tem de morder na própria instrução. Achado da
+    // revisão adversarial do ticket, e sem teste até agora.
+    await limpar();
+    await abrir(app, canalA);
+    for (const passo of ["contactos", "historico"]) {
+      await app.query(SQL_MARCAR_PASSO, [tenantA, canalA, passo, 1, 10, T0]);
+    }
+    const vencido = new Date(T0.getTime() + PRAZO_DE_SINCRONIZACAO_MS + 1_000);
+    assert.equal((await app.query(SQL_CONCLUIR, [tenantA, canalA, vencido])).rows.length, 0);
+    // Dentro do prazo, conclui.
+    const dentro = new Date(T0.getTime() + 1_000);
+    assert.equal((await app.query(SQL_CONCLUIR, [tenantA, canalA, dentro])).rows.length, 1);
+  });
+
+  it("[bd] concluir sem os dois passos não concluí", async () => {
+    // `AND passos_feitos @> ARRAY['contactos','historico']`. Com um passo só, a
+    // sincronização não acabou — e é o `@>` que o diz, não um `if`.
+    await limpar();
+    await abrir(app, canalA);
+    await app.query(SQL_MARCAR_PASSO, [tenantA, canalA, "contactos", 1, 0, T0]);
+    const dentro = new Date(T0.getTime() + 1_000);
+    assert.equal((await app.query(SQL_CONCLUIR, [tenantA, canalA, dentro])).rows.length, 0);
+    await app.query(SQL_MARCAR_PASSO, [tenantA, canalA, "historico", 0, 10, T0]);
+    assert.equal((await app.query(SQL_CONCLUIR, [tenantA, canalA, dentro])).rows.length, 1);
+  });
+
+  it("[bd] o alerta das 12 h é idempotente, e é o `alertado_em` que o faz", async () => {
+    // `AND alertado_em IS NULL`. Sem ele, cada varredura voltava a alertar o
+    // mesmo canal — e as varreduras correm em série, pelo que o dono levava um
+    // alerta por passagem.
+    await limpar();
+    await abrir(app, canalA);
+    const depois = new Date(T0.getTime() + ALERTA_DE_SINCRONIZACAO_MS + 1_000);
+    const { coex } = montar(() => depois);
+    const primeira = await coex.varrerPrazos(admin);
+    assert.deepEqual(primeira.alertados, [canalA]);
+    const segunda = await coex.varrerPrazos(admin);
+    assert.deepEqual(segunda.alertados, []);
+    const { rows } = await admin.query(
+      "SELECT alertado_em IS NOT NULL AS alertado FROM platform.channel_coexistence " +
+        "WHERE tenant_id = $1 AND channel_id = $2",
+      [tenantA, canalA],
+    );
+    assert.equal(rows[0].alertado, true);
+  });
+
+  it("[bd] a falha às 24 h lê o `prazo_em` e não o `iniciado_em`", async () => {
+    // `AND prazo_em <= $1`. Os dois instantes são **diferentes** por desenho: o
+    // `prazo_em` é coluna para que o relógio acelerado dos testes o possa mover
+    // sem mexer no servidor. Este ensaio separa-os: põe o `prazo_em` 48 h à
+    // frente do que o `iniciado_em` implicaria, e mede às 24 h — com a instrução
+    // a ler o arranque, o canal falhava; a ler a coluna, não falha.
+    await limpar();
+    await abrir(app, canalA);
+    await admin.query(
+      "UPDATE platform.channel_coexistence SET prazo_em = $3 " +
+        "WHERE tenant_id = $1 AND channel_id = $2",
+      [tenantA, canalA, new Date(T0.getTime() + 48 * 3_600_000)],
+    );
+    const as24 = new Date(T0.getTime() + PRAZO_DE_SINCRONIZACAO_MS + 1_000);
+    const { coex } = montar(() => as24);
+    assert.deepEqual((await coex.varrerPrazos(admin)).falhados, []);
+    // E às 48 h, falha.
+    const as48 = new Date(T0.getTime() + 48 * 3_600_000 + 1_000);
+    const { coex: depois } = montar(() => as48);
+    assert.deepEqual((await depois.varrerPrazos(admin)).falhados, [canalA]);
+  });
+
+  it("[bd] o registo do desligamento é idempotente, pelo `desligado_em`", async () => {
+    // `AND desligado_em IS NULL` no `SQL_REGISTAR_DESLIGAMENTO`. É o «repetir o
+    // mesmo evento 2× produz 1 transição» do critério 5 visto da tabela da
+    // coexistência: a segunda passagem devolve zero linhas, e é isso que o
+    // módulo lê para decidir se avisa de desalinhamento.
+    await limpar();
+    await abrir(app, canalA);
+    const agora = new Date(T0.getTime() + 1_000);
+    const primeiro = await app.query(SQL_REGISTAR_DESLIGAMENTO, [
+      tenantA,
+      canalA,
+      "change_number",
+      agora,
+    ]);
+    assert.equal(primeiro.rows.length, 1);
+    const segundo = await app.query(SQL_REGISTAR_DESLIGAMENTO, [
+      tenantA,
+      canalA,
+      "primary_inactivity",
+      new Date(agora.getTime() + 1_000),
+    ]);
+    assert.equal(segundo.rows.length, 0);
+    // E o **primeiro** motivo é o que fica: um canal desliga-se uma vez, e
+    // reescrever o motivo era perder porque é que ele se desligou.
+    const { rows } = await admin.query(
+      "SELECT motivo_desligamento FROM platform.channel_coexistence " +
+        "WHERE tenant_id = $1 AND channel_id = $2",
+      [tenantA, canalA],
+    );
+    assert.equal(rows[0].motivo_desligamento, "change_number");
+  });
+
+  it("[bd] o `last_account_update_at` leva o instante do evento", async () => {
+    // O `GREATEST(COALESCE(last_account_update_at, $3), $3)` do
+    // `SQL_DESLIGAR_CANAL`, e a coluna é «o carimbo do último `account_update`
+    // **tratado**». Nenhum teste a lia, pelo que uma mutação que passasse a
+    // escrever a época sobrevivia — e o painel passava a dizer que a Meta falou
+    // em 1970.
+    await limpar();
+    const agora = new Date(T0.getTime() + 5_000);
+    const r = await app.query(SQL_DESLIGAR_CANAL, [tenantA, canalA, agora]);
+    assert.equal(r.rows.length, 1);
+    const { rows } = await admin.query(
+      "SELECT last_account_update_at FROM platform.tenant_channels " +
+        "WHERE tenant_id = $1 AND id = $2",
+      [tenantA, canalA],
+    );
+    assert.equal(
+      (rows[0].last_account_update_at as Date).toISOString(),
+      agora.toISOString(),
+    );
+    // E o `GREATEST` não deixa um evento atrasado recuar o carimbo.
+    await app.query(SQL_DESLIGAR_CANAL, [tenantA, canalA, new Date(0)]);
+    const { rows: depois } = await admin.query(
+      "SELECT last_account_update_at FROM platform.tenant_channels " +
+        "WHERE tenant_id = $1 AND id = $2",
+      [tenantA, canalA],
+    );
+    assert.equal(
+      (depois[0].last_account_update_at as Date).toISOString(),
+      agora.toISOString(),
+    );
   });
 
   // --------------------------------- critério 6: o aviso dos 10 dias, na base
