@@ -12,9 +12,18 @@
 # corre as seis. Tres delas precisam de uma fonte que ainda nao existe no
 # repositorio:
 #
-#   (1) `tools`   — precisa do catalogo da ToolLayer           -> KAM-028
 #   (3) `grafo`   — precisa de um grafo compilado              -> KAM-031/035
 #   (6) `golden`  — precisa do dataset e do eval harness       -> KAM-040
+#
+# Eram **tres**. A (1) `tools` fechou com o KAM-028: o catalogo da ToolLayer
+# existe (`kamba_agr/tls/catalogo.py`, as onze tools do §6.2), o `__main__`
+# passa-o ao `load_all`, e a validacao corre em `bloqueio` — e foi **apagar a
+# linha** que a fechou, que e a mecanica que este ficheiro descreve no fim.
+#
+# As onze estao no catalogo e **uma** tem executor (`get_store_info`). As outras
+# dez estao `declaradas`, com o ticket que as liga, e a validacao (1) aceita-as
+# porque a pergunta dela e «esta tool existe?». Que elas nao respondem e a
+# validacao (3) a dizer, que continua em `aviso` com o seu credor.
 #
 # O critero 8 do bloco do KAM-027 manda, para a (6), «modo **aviso** ate
 # existir KAM-040 e **bloqueante** quando este ficar Done (registo explicito em
@@ -70,9 +79,6 @@ gates:
   vendedor:
     golden: golden/vendedor/v1
     validacoes:
-      tools:
-        modo: aviso
-        credor: KAM-028
       grafo:
         modo: aviso
         credor: KAM-031
@@ -82,9 +88,6 @@ gates:
   servicos:
     golden: golden/servicos/v1
     validacoes:
-      tools:
-        modo: aviso
-        credor: KAM-028
       grafo:
         modo: aviso
         credor: KAM-035

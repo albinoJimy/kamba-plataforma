@@ -99,6 +99,9 @@ CI_YAML = ".github/workflows/ci.yaml"
 MAKEFILE = "Makefile"
 GATE9 = "gate9"
 GATE9_CI = "gate9_ci"
+#: KAM-028: a bateria do *lint* dos esquemas de tool, no mesmo pacote que o
+#: `GATE9_CI` e noutro ficheiro — as duas medem coisas diferentes do `lint_arch`.
+TOOL_SCHEMA = "lint_tool_schema"
 #: KAM-158: o varredor das contagens em prosa. Corre-se `test_scan.py` e nao a
 #: bateria inteira: o `test_cli.py` tem um caso que afirma sobre o repositorio.
 CONTAGENS = "contagens"
@@ -120,6 +123,10 @@ CONTRATOS = "contratos"
 SUITES_DE_TOOLS = {
     GATE9: ("scan_secrets", "test_historia.py"),
     GATE9_CI: ("lint_arch", "test_ci_gate9.py"),
+    # KAM-028: a bateria do *lint* dos esquemas de tool. Entrada propria e nao
+    # a do `GATE9_CI` porque essa corre **um** ficheiro, e as duas medem coisas
+    # diferentes do mesmo pacote.
+    TOOL_SCHEMA: ("lint_arch", "test_tool_schema.py"),
     CONTAGENS: ("lint_contagens", "test_scan.py"),
     CONTRATOS: ("contract_diff", "test_*.py"),
 }
@@ -377,6 +384,18 @@ AG_REGISTO = "services/agr/src/kamba_agr/registo/__init__.py"
 AG_VALIDAR = "services/agr/src/kamba_agr/registo/validar.py"
 AG_ESQUEMA = "services/agr/src/kamba_agr/registo/esquema.py"
 AG_EGRESSO = "services/agr/src/kamba_agr/egresso.py"
+#: A ToolLayer (KAM-028). As que mudam **logica** correm na `agr_unit`
+#: (`services/agr/tests`, sem base de dados); as que mudam o que vai para a
+#: `tool_audit` correm na `tests_agr`, porque o que as mata e um varrimento
+#: contra os dados e nao uma asercao sobre um duplo.
+AG_TLS_CAMADA = "services/agr/src/kamba_agr/tls/camada.py"
+AG_TLS_CONTEXTO = "services/agr/src/kamba_agr/tls/contexto.py"
+AG_TLS_ESPECIFICACOES = "services/agr/src/kamba_agr/tls/especificacoes.py"
+AG_TLS_DISJUNTOR = "services/agr/src/kamba_agr/tls/disjuntor.py"
+AG_TLS_AUDITORIA = "services/agr/src/kamba_agr/tls/auditoria.py"
+#: O *lint* do critero 3, que corre no *gate* 2. A suite (`TOOL_SCHEMA`) esta
+#: declarada junto das outras de `tools/`, acima.
+LA_TOOL_SCHEMA = "tools/lint_arch/tool_schema.py"
 AV_DECISAO = "packages/core-ts/src/avisos/decisao.ts"
 AV_MODELOS = "packages/core-ts/src/avisos/modelos.ts"
 AV_MODULO = "packages/core-ts/src/avisos/avisos.ts"
@@ -3331,6 +3350,153 @@ MUTACOES = [
      "export const CORTES_DA_LATENCIA: readonly number[] = [1, 5, 15, 30, 60, 120, 300, 600, 1_800];",
      "export const CORTES_DA_LATENCIA: readonly number[] = [1, 5, 15, 30, 60, 120, 600, 1_800];",
      AVISOS),
+    # ------------------------------------------------- KAM-028, a ToolLayer
+    #
+    # Dezenove mutacoes, e cada uma apaga **uma** propriedade que um criterio
+    # de aceitacao nomeia. A escolha segue os oito passos do `docs/tecnica/02`
+    # §6.1: ha pelo menos uma por passo que tem logica propria, mais as do
+    # disjuntor (critero 7), da auditoria (critero 5) e do *lint* (critero 3).
+    #
+    # **Duas nao sao de logica e sao as mais importantes**: a que faz a redaccao
+    # guardar o valor do argumento e a que tira a ordenacao da forma canonica.
+    # As duas deixam o codigo a funcionar e quebram o que o critero 5 protege.
+    ('tls: o passo 1 deixa de confrontar a lista allowed', AG_TLS_CAMADA,
+     "    if inv.nome not in inv.allowed:",
+     "    if not inv.allowed:",
+     AGR_UNIT),
+    # A lista `allowed` da vertical deixa de ser lista fechada: passa a recusar
+    # so quando esta vazia. E o passo 1 do §6.1 e o critero 2 do bloco.
+    ('tls: o passo 1 passa a aceitar uma tool declarada', AG_TLS_CAMADA,
+     "    if not especificacao.ligada:",
+     "    if not especificacao.ligada and especificacao.credor is None:",
+     AGR_UNIT),
+    # Todas as declaradas tem `credor` — e obrigatorio —, pelo que a condicao
+    # nunca e verdadeira e uma tool sem executor passa a ser oferecida ao
+    # pipeline. E a metade do mecanismo que fecha a validacao (1) do §5.2.
+    ('tls: o passo 3 deixa de recusar argumento a mais', AG_TLS_ESPECIFICACOES,
+     '        if self.modelo.model_config.get("extra") != "forbid":',
+     '        if self.modelo.model_config.get("extra") == "allow":',
+     AGR_UNIT),
+    # Um modelo que simplesmente **nao declare** `extra` passa a ser aceite, e
+    # a omissao do Pydantic e `ignore`: o argumento a mais entra em silencio em
+    # vez de dar `VALIDATION_ERROR` (critero 2).
+    ('tls: o esquema deixa de recusar o tenant_id', AG_TLS_ESPECIFICACOES,
+     "        expostos = sorted(self.parametros_visiveis() & set(PARAMETROS_PROIBIDOS))",
+     "        expostos = sorted(self.parametros_visiveis() & set(PARAMETROS_PROIBIDOS[1:]))",
+     AGR_UNIT),
+    # Fica a recusar `merchant_id`, `seller` e `account` e deixa passar o
+    # `tenant_id`, que e o unico dos quatro que e nome canonico e o unico que o
+    # ADR-015 nomeia. Uma mutacao que tirasse os quatro era mais facil de matar.
+    ('tls: o passo 4 deixa de confrontar o contacto', AG_TLS_CAMADA,
+     "    if inv.confirmation.contact_id != inv.ctx.contact_id:",
+     "    if inv.confirmation.contact_id is None:",
+     AGR_UNIT),
+    # Uma confirmacao de **outro contacto** da mesma conversa passa a autorizar
+    # a escrita. E a exfiltracao entre contactos do `docs/tecnica/08` §4.4, e o
+    # critero 4 pede «do **mesmo** `contact_id`».
+    ('tls: o passo 4 deixa de confrontar o turno', AG_TLS_CONTEXTO,
+     """            and self.contact_id == ctx.contact_id
+            and self.turn_id == ctx.turn_id""",
+     """            and self.contact_id == ctx.contact_id""",
+     AGR_UNIT),
+    # Um botao de um turno anterior passa a valer. E a re-entrega de webhook do
+    # §6.3, e o critero 4 pede «no turno actual».
+    ('tls: o passo 4 deixa de confrontar a referencia', AG_TLS_CONTEXTO,
+     "            and self.referencia == referencia_esperada",
+     "            and bool(self.referencia)",
+     AGR_UNIT),
+    # Um `confirm:{outro_carrinho}` passa a autorizar este. O critero 4 pede
+    # `confirm:{cart_id}` e nao «algum botao de confirmacao».
+    ('tls: o passo 5 deixa de exigir chave a write e money', AG_TLS_CAMADA,
+     "    if not isinstance(inv.idempotency_key, str) or not inv.idempotency_key.strip():",
+     "    if inv.idempotency_key is not None and not inv.idempotency_key.strip():",
+     AGR_UNIT),
+    # Uma chave **ausente** passa; uma chave vazia continua a ser recusada. E a
+    # caixa do DoD que diz «`write`/`money` nunca correm sem chave», e e a
+    # forma mais provavel de a quebrar sem notar.
+    ('tls: o disjuntor passa a valer so para leituras', AG_TLS_CAMADA,
+     "        if not self.disjuntor.permite(backend):",
+     '        if not self.disjuntor.permite(backend) and especificacao.klass == "read":',
+     AGR_UNIT),
+    # O critero 7 nao distingue classes, e as tools que mais precisam do
+    # disjuntor sao as de escrita: uma `money` contra um PAY em baixo repete-se
+    # oito segundos de cada vez.
+    ('tls: o disjuntor deixa de repor o contador ao sucesso', AG_TLS_DISJUNTOR,
+     "            self._por_backend.pop(backend, None)",
+     "            self._por_backend.setdefault(backend, _Estado())",
+     AGR_UNIT),
+    # Passa a contar falhas **acumuladas** em vez de consecutivas, e com isso
+    # abre o disjuntor de um backend que esta de pe.
+    ('tls: a meia-abertura deixa passar tudo', AG_TLS_DISJUNTOR,
+     "            estado.a_experimentar = True",
+     "            estado.a_experimentar = False",
+     AGR_UNIT),
+    # Passada a pausa, **todas** as chamadas acumuladas passam ao mesmo tempo —
+    # que e o oposto do que um disjuntor serve para fazer.
+    ('tls: o tecto de escrita passa a ser o de leitura', AG_TLS_CAMADA,
+     '        return self._timeout_read if klass == "read" else self._timeout_escrita',
+     "        return self._timeout_read",
+     AGR_UNIT),
+    # Os dois numeros do §6.5 passam a ser um. Uma `money` com 2 s de tecto
+    # desiste de uma cobranca que ia completar.
+    ('tls: uma entrada declarada deixa de exigir credor', AG_TLS_ESPECIFICACOES,
+     "        if self.credor is None or not CREDOR.match(self.credor):",
+     "        if self.credor is not None and not CREDOR.match(self.credor):",
+     AGR_UNIT),
+    # Um `aviso` sem dono com ar de temporario, outra vez: e a disciplina que o
+    # KAM-027 impôs ao `registry/gates.yaml`, aqui aplicada ao catalogo.
+    ('tls: o catalogo deixa de nomear as declaradas', AG_TLS_ESPECIFICACOES,
+     "        return frozenset(self._por_nome)",
+     "        return frozenset(self.ligadas())",
+     AGR_UNIT),
+    # A validacao (1) do §5.2 passa a recusar as duas verticais do Piloto, por
+    # causa de dez tools que o KAM-031 e o KAM-035 ainda nao ligaram. E a
+    # mutacao que prova que incluir as declaradas nos `nomes()` e deliberado.
+    ('tls: o ToolContext passa a aceitar uma chave vazia', AG_TLS_CONTEXTO,
+     "            if not isinstance(estado.get(chave), str) or not estado[chave]",
+     "            if not isinstance(estado.get(chave), str)",
+     AGR_UNIT),
+    # Um `contact_id` vazio passa a construir contexto, e uma tool de ambito
+    # «tenant **e** contacto» (o `get_order_status` do §6.2) deixa de ter o que
+    # confrontar.
+    ('tls: a auditoria deixa de escrever quando um passo recusa', AG_TLS_CAMADA,
+     "        if inv.registada:\n            return",
+     "        if inv.registada or resultado is not None:\n            return",
+     AGR_UNIT),
+    # A cobertura do critero 5 cai para as invocacoes que **correram**: uma
+    # tool `money` recusada no passo 1 — que e a que mais interessa auditar —
+    # deixa de ter linha.
+    # --- As duas que nao sao de logica, e morrem contra a base ---------------
+    ('tls: a redaccao passa a guardar o valor do argumento', AG_TLS_AUDITORIA,
+     "    return {nome: type(valor).__name__ for nome, valor in sorted(args.items())}",
+     "    return {nome: str(valor) for nome, valor in sorted(args.items())}",
+     AGR),
+    # O `args_redacted` passa a levar o texto que o cliente escreveu. O codigo
+    # continua a funcionar, a coluna continua a ser `jsonb`, e o critero 5
+    # («nao contem texto de mensagem nem telefone») fica falso. Quem a mata e o
+    # varrimento com canarios, e nao uma asercao sobre o tipo.
+    ('tls: a impressao deixa de ordenar as chaves', AG_TLS_AUDITORIA,
+     "        valor, sort_keys=True, separators=(\",\", \":\"), ensure_ascii=False, default=str",
+     "        valor, sort_keys=False, separators=(\",\", \":\"), ensure_ascii=False, default=str",
+     AGR_UNIT),
+    # O `args_hash` passa a depender da ordem em que o dicionario foi montado:
+    # a mesma chamada da dois hashes, e «foi a mesma chamada» deixa de se poder
+    # perguntar — que e a unica coisa que esta coluna serve para responder.
+    # --- E o *lint* do critero 3 --------------------------------------------
+    ('tls: o lint deixa de exigir o extra=forbid', LA_TOOL_SCHEMA,
+     "            if not _proibe_extra(no):",
+     "            if not _proibe_extra(no) and not _campos(no):",
+     TOOL_SCHEMA),
+    # Passa a exigir `extra="forbid"` so a modelos **sem** campos, que e o
+    # contrario do que importa: um modelo sem campos nao tem argumento a mais
+    # para aceitar.
+    ('tls: o lint deixa de varrer a escrita fora da TLS', LA_TOOL_SCHEMA,
+     "        if not _dentro_da_tls(caminho):",
+     "        if _dentro_da_tls(caminho):",
+     TOOL_SCHEMA),
+    # Inverte o lado: varre escritas **dentro** da TLS (onde sao legitimas) e
+    # deixa de varrer fora. A segunda metade do `docs/tecnica/08` §3.2 passa a
+    # nao verificar nada.
     # ----------------------------------------------------------- KAM-025, AGR
     #
     # Oito mutacoes, e a escolha nao e arbitraria: cada uma apaga **uma**
@@ -3908,6 +4074,35 @@ def _copiar_para_as_contagens(destino: Path, ignorar) -> None:
     shutil.copy(RAIZ / "tools" / "kamba_yaml.py", destino / "tools" / "kamba_yaml.py")
 
 
+def _copiar_para_o_tool_schema(destino: Path, ignorar) -> None:
+    """O que as mutacoes do *lint* dos esquemas de tool precisam (KAM-028).
+
+    Duas arvores, e as duas contam:
+
+    * `tools/lint_arch` — o *lint* que se muta e a bateria que o mede;
+    * `services/agr` — **a fonte que ele varre**. Sem ela, o
+      `test_o_repositorio_esta_conforme` corria sobre uma arvore sem servicos,
+      devolvia `[]` por nao haver nada para ver, e a mutacao que inverte o lado
+      do `_dentro_da_tls` sobrevivia: e com a arvore que ela se mata, porque a
+      `tls/auditoria.py` **tem** um `INSERT INTO platform.tool_audit` legitimo
+      que a versao invertida acusa.
+
+    E tambem o que o `test_a_lista_e_a_mesma_que_o_agr_aplica_em_execucao` le
+    (`registo/validar.py`), que e o que impede as duas copias dos quatro
+    parametros proibidos de divergirem.
+    """
+    shutil.copytree(
+        RAIZ / "tools" / "lint_arch", destino / "tools" / "lint_arch", ignore=ignorar
+    )
+    # O `lint_arch/__init__.py` importa o `cli`, que importa o `blocklist`, que
+    # importa o `kamba_yaml`. Sem ele a **importacao do pacote** falha e a linha
+    # de base fica vermelha antes de correr teste nenhum.
+    shutil.copy(RAIZ / "tools" / "kamba_yaml.py", destino / "tools" / "kamba_yaml.py")
+    shutil.copytree(
+        RAIZ / "services" / "agr", destino / "services" / "agr", ignore=ignorar
+    )
+
+
 #: Que copia cada suite de `tools/` leva. Uma suite nova sem entrada aqui falha
 #: a dizer que falta — em vez de correr sobre a copia de outra.
 COPIA_DE_TOOLS = {
@@ -3915,6 +4110,7 @@ COPIA_DE_TOOLS = {
     GATE9_CI: _copiar_para_o_gate_9,
     CONTAGENS: _copiar_para_as_contagens,
     CONTRATOS: _copiar_para_os_contratos,
+    TOOL_SCHEMA: _copiar_para_o_tool_schema,
 }
 
 
@@ -3941,14 +4137,20 @@ def _gate_de_tools(copia: Path, pacote: str, padrao: str) -> tuple[int, str]:
 
 #: Os modulos de `services/agr/tests` que a suite `agr_unit` corre.
 #:
-#: **Dois, e nao a bateria inteira**, pela mesma razao que as suites de `tools/`
+#: **Tres, e nao a bateria inteira**, pela mesma razao que as suites de `tools/`
 #: correm um ficheiro: as outras baterias do AGR afirmam coisas sobre o
 #: **repositorio** que a copia nao e — o `test_api_interna.py` le
 #: `ops/secrets-inventory.yaml` e o `test_estado.py` le
 #: `docs/tecnica/02_Agent_Runtime_Verticais.md`. Medido: com a bateria inteira a
 #: linha de base ficava vermelha nesses dois, e **nenhuma** mutacao se podia
 #: provar. O corredor recusou-se a continuar, que e o que ele existe para fazer.
-MODULOS_DO_AGR_UNIT = ("test_registo", "test_egresso")
+#:
+#: **O `test_tls` entrou com o KAM-028, e sem ele as dezessete mutacoes `tls:`
+#: dessa suite sobreviviam todas** — nao por falta de teste, mas porque o
+#: corredor nao corria o ficheiro que as mata. E a mesma classe de defeito que
+#: a nota do KAM-025 descreve para o `_copiar`: quem acrescenta uma bateria que
+#: uma mutacao precisa tem de a acrescentar aqui.
+MODULOS_DO_AGR_UNIT = ("test_registo", "test_egresso", "test_tls")
 
 
 def _gate_do_agr(copia: Path) -> tuple[int, str]:

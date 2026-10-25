@@ -4,7 +4,8 @@
     python -m lint_arch structure [--root .]     arvore obrigatoria
     python -m lint_arch commit-msg <ficheiro>    mensagem de commit
     python -m lint_arch branch [<nome>]          nome de ramo
-    python -m lint_arch all [--root .]           deps + structure
+    python -m lint_arch tool-schema [--root .]   esquemas de tool (KAM-028)
+    python -m lint_arch all [--root .]           deps + structure + tool-schema
 
 Codigo de saida 0 = conforme, 1 = achados, 2 = erro de configuracao. A distincao
 importa: um ficheiro de bloqueio malformado nao pode parecer um repositorio limpo.
@@ -19,7 +20,7 @@ from pathlib import Path
 
 from . import blocklist as blocklist_module
 from . import conventions as conventions_module
-from . import manifests, names, structure, versions
+from . import manifests, names, structure, tool_schema, versions
 
 
 def _default_root() -> Path:
@@ -155,7 +156,11 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("deps", help="aplica tools/blocklist.yaml aos manifestos")
     sub.add_parser("structure", help="verifica a arvore obrigatoria")
-    sub.add_parser("all", help="deps e structure")
+    sub.add_parser(
+        "tool-schema",
+        help="esquemas de tool sem parametro proibido e escrita so na TLS (KAM-028)",
+    )
+    sub.add_parser("all", help="deps, structure e tool-schema")
     commit = sub.add_parser("commit-msg", help="valida uma mensagem de commit")
     commit.add_argument("path", type=Path, help="ficheiro com a mensagem (COMMIT_EDITMSG)")
     branch = sub.add_parser("branch", help="valida um nome de ramo")
@@ -169,9 +174,15 @@ def main(argv: list[str] | None = None) -> int:
             return _report("lista de bloqueio", check_dependencies(root))
         if args.command == "structure":
             return _report("estrutura", structure.check(root))
+        if args.command == "tool-schema":
+            return _report("esquemas de tool", tool_schema.check(root))
         if args.command == "all":
+            # Os tres correm **sempre**, e o codigo de saida e o maximo: parar no
+            # primeiro achado escondia os outros dois, e quem corre `all` quer a
+            # lista toda de uma vez.
             status = _report("lista de bloqueio", check_dependencies(root))
-            return max(status, _report("estrutura", structure.check(root)))
+            status = max(status, _report("estrutura", structure.check(root)))
+            return max(status, _report("esquemas de tool", tool_schema.check(root)))
 
         rules = conventions_module.load(_conventions_path(root))
         if args.command == "commit-msg":

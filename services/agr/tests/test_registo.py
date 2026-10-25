@@ -22,6 +22,7 @@ from typing import TypedDict
 from langgraph.graph import StateGraph
 
 from kamba_agr import registo
+from kamba_agr.tls.catalogo import ESPECIFICACOES_DO_PILOTO, catalogo_do_piloto
 from kamba_agr.metricas import (
     ETIQUETA,
     METRICA_REGISTO_NEGADO,
@@ -729,9 +730,24 @@ class TestResolve(unittest.TestCase):
 class TestFicheirosReais(unittest.TestCase):
     """Integracao: o `registry/` **deste** repositorio carrega e valida."""
 
-    def test_o_registo_do_repositorio_carrega_com_tres_avisos_por_vertical(self) -> None:
+    def test_o_registo_do_repositorio_carrega_com_dois_avisos_por_vertical(self) -> None:
+        """**Eram tres, e passaram a dois com o KAM-028.**
+
+        A validacao (1) (`tools`) fechou: o catalogo da ToolLayer existe, o
+        `registry/gates.yaml` deixou de ter a linha `tools: { modo: aviso }`, e
+        ela corre em `bloqueio`. Sobram a (3) `grafo` (KAM-031/035) e a (6)
+        `golden` (KAM-040).
+
+        **E por isso que este teste passa o `catalogo`.** Sem ele a validacao
+        devolve um `PorLigar` que, sem a linha no `gates.yaml`, nao e calado por
+        nada — e o registo recusa-se a carregar. Isso **e** o mecanismo a
+        funcionar: era o que ia acontecer em producao ao primeiro arranque se o
+        `__main__` nao o passasse.
+        """
         verticais, gates, adiadas = registo.carregar(
-            validar.AmbienteDoRegisto.do_repositorio(RAIZ, {"KAMBA_FASE": "piloto"}),
+            validar.AmbienteDoRegisto.do_repositorio(
+                RAIZ, {"KAMBA_FASE": "piloto"}, catalogo=catalogo_do_piloto()
+            ),
             RAIZ / "registry",
         )
         self.assertEqual(sorted(verticais), ["servicos", "vendedor"])
@@ -743,17 +759,42 @@ class TestFicheirosReais(unittest.TestCase):
                 ("golden", "vendedor", "KAM-040"),
                 ("grafo", "servicos", "KAM-035"),
                 ("grafo", "vendedor", "KAM-031"),
-                ("tools", "servicos", "KAM-028"),
-                ("tools", "vendedor", "KAM-028"),
             ],
         )
+
+    def test_com_o_catalogo_ligado_a_validacao_das_tools_morde(self) -> None:
+        """A prova de que fechar o `aviso` nao foi trocar um silencio por outro.
+
+        Com o catalogo ligado, uma tool que ele **nao** conheca reprova o
+        arranque — e nao vira aviso, porque a linha do `gates.yaml` ja nao
+        existe. Sem este teste, «a validacao (1) corre em bloqueio» era uma
+        afirmacao sobre um ficheiro e nao sobre o que acontece.
+        """
+        from kamba_agr.tls.especificacoes import Catalogo
+
+        magro = Catalogo(
+            tuple(
+                e for e in ESPECIFICACOES_DO_PILOTO if e.nome != "search_catalog"
+            )
+        )
+        with self.assertRaises(registo.RegistoInvalidoError) as capturado:
+            registo.carregar(
+                validar.AmbienteDoRegisto.do_repositorio(
+                    RAIZ, {"KAMBA_FASE": "piloto"}, catalogo=magro
+                ),
+                RAIZ / "registry",
+            )
+        self.assertIn("search_catalog", str(capturado.exception))
+        self.assertIn("nao existe no catalogo", str(capturado.exception))
 
     def test_as_duas_verticais_subscrevem_os_dois_eventos_de_pagamento(self) -> None:
         """Dicionario §3.5: quem nao distingue os dois caminhos subscreve os dois.
         E o gate da Fase 0 — o `payment.manual_confirmed` de um pedido do
         Vendedor e consumido pelo handler de Servicos (KAM-108)."""
         verticais, _, _ = registo.carregar(
-            validar.AmbienteDoRegisto.do_repositorio(RAIZ, {"KAMBA_FASE": "piloto"}),
+            validar.AmbienteDoRegisto.do_repositorio(
+                RAIZ, {"KAMBA_FASE": "piloto"}, catalogo=catalogo_do_piloto()
+            ),
             RAIZ / "registry",
         )
         for vertical in verticais.values():
@@ -765,7 +806,9 @@ class TestFicheirosReais(unittest.TestCase):
         """ADR-011: o `assistente` do Fluxo B nunca esta activo no Piloto, e a
         forma mais barata de o garantir e nao existir ficheiro nenhum dele."""
         verticais, _, _ = registo.carregar(
-            validar.AmbienteDoRegisto.do_repositorio(RAIZ, {"KAMBA_FASE": "piloto"}),
+            validar.AmbienteDoRegisto.do_repositorio(
+                RAIZ, {"KAMBA_FASE": "piloto"}, catalogo=catalogo_do_piloto()
+            ),
             RAIZ / "registry",
         )
         self.assertEqual({v.phase for v in verticais.values()}, {"P"})
@@ -840,7 +883,9 @@ class TestFicheirosReais(unittest.TestCase):
         # As onze tools: cada nome do catálogo das duas verticais é tool do §3.
         do_registo: set[str] = set()
         for vertical in registo.carregar(
-            validar.AmbienteDoRegisto.do_repositorio(RAIZ, {"KAMBA_FASE": "piloto"}),
+            validar.AmbienteDoRegisto.do_repositorio(
+                RAIZ, {"KAMBA_FASE": "piloto"}, catalogo=catalogo_do_piloto()
+            ),
             RAIZ / "registry",
         )[0].values():
             do_registo.update(vertical.tools)

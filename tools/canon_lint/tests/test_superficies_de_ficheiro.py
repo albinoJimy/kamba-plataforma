@@ -986,13 +986,20 @@ class TestGates(unittest.TestCase):
         self.assertEqual([a.classe for a in achados], [REGRA])
         self.assertIn("`gates`", achados[0].mensagem)
 
-    def test_o_ficheiro_do_repositorio_cobre_as_tres_validacoes_adiadas(self) -> None:
-        """O que o critero 8 do KAM-027 manda registar aqui, e as outras duas.
+    def test_o_ficheiro_do_repositorio_cobre_as_validacoes_adiadas(self) -> None:
+        """O que o critero 8 do KAM-027 manda registar aqui, e a outra.
 
         E o unico teste desta classe que le o ficheiro real: as seis validacoes
         correm em `bloqueio` por omissao, e as que nao correm tem de estar aqui
         **com o credor nomeado** — senao ficam `bloqueio` no codigo e `aviso` na
         cabeca de quem escreveu o ticket.
+
+        **Eram tres e passaram a duas com o KAM-028**, e o nome deste teste
+        deixou de levar o numero pela razao que o KAM-027 escreveu para as
+        listas literais: a invariante e «as adiadas estao aqui com credor», nao
+        «as adiadas sao tres». A `tools` saiu porque o catalogo da ToolLayer
+        existe e a validacao (1) passou a `bloqueio` — e fechar um `aviso` e
+        **apagar a linha**, que e o que este ficheiro descreve.
         """
         from .base import ROOT
 
@@ -1000,9 +1007,14 @@ class TestGates(unittest.TestCase):
         self.assertEqual(sorted(documento["gates"]), ["servicos", "vendedor"])
         for vertical, grafo in (("vendedor", "KAM-031"), ("servicos", "KAM-035")):
             validacoes = documento["gates"][vertical]["validacoes"]
-            self.assertEqual(sorted(validacoes), ["golden", "grafo", "tools"])
+            self.assertEqual(sorted(validacoes), ["golden", "grafo"])
             self.assertEqual({v["modo"] for v in validacoes.values()}, {"aviso"})
-            self.assertEqual(validacoes["tools"]["credor"], "KAM-028")
+            self.assertNotIn(
+                "tools",
+                validacoes,
+                "a validacao (1) fechou com o KAM-028; um `aviso` que sobreviva "
+                "ao credor e erro de arranque",
+            )
             self.assertEqual(validacoes["grafo"]["credor"], grafo)
             self.assertEqual(validacoes["golden"]["credor"], "KAM-040")
 

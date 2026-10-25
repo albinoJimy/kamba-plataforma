@@ -68,7 +68,10 @@ class TestArranque(unittest.TestCase):
         self.saida, self.erros = io.StringIO(), io.StringIO()
 
     def _correr(
-        self, ambiente: dict[str, str], ligar_checkpoint: object | None = None
+        self,
+        ambiente: dict[str, str],
+        ligar_checkpoint: object | None = None,
+        confirmar_auditoria: object | None = None,
     ) -> tuple[int, mock.Mock]:
         # **A ligacao do checkpointer e dupla por omissao** (KAM-026). A guarda
         # do criterio 3 abre-a no arranque, e nenhum ensaio desta bateria tem
@@ -84,6 +87,18 @@ class TestArranque(unittest.TestCase):
                 arranque,
                 "ligar_para_checkpoint",
                 ligar_checkpoint or (lambda: mock.Mock()),
+            ),
+            # **A guarda da auditoria de tools e dupla pela mesma razao**
+            # (KAM-028). Ela abre uma ligacao e pergunta a base se o papel tem
+            # `INSERT` nas dezoito colunas de `tool_audit`; sem base de dados,
+            # todos os ensaios desta bateria passavam a devolver o codigo **6**.
+            # Quem quer medir essa guarda passa um `confirmar_auditoria` que
+            # levanta.
+            mock.patch.object(arranque, "ligar_para_tools", lambda: mock.Mock()),
+            mock.patch.object(
+                arranque.tls_auditoria,
+                "confirmar",
+                confirmar_auditoria or (lambda _ligacao: None),
             ),
         ):
             os.environ.pop("KAMBA_LOG_ESTRITO", None)
@@ -195,6 +210,54 @@ class TestArranque(unittest.TestCase):
         # Pela ordem: as trancas primeiro, a gravacao depois.
         self.assertEqual(fechadas, ["trancas", "checkpointer"])
 
+    def test_sem_auditoria_de_tools_o_agr_nao_arranca(self) -> None:
+        """KAM-028, critero 5: a guarda do passo 7, medida no `main()` real.
+
+        O que importa nao e o `confirmar` levantar — isso esta medido contra a
+        base em `db/tests_agr/test_tool_audit.py` — e o processo **sair**, com o
+        codigo proprio e **sem abrir porta nenhuma**. Um AGR que aceitasse
+        pedidos e so descobrisse no passo 7 que nao consegue registar corria
+        tools `money` sem registo, que e o oposto do ADR-015.
+        """
+        from kamba_agr.tls.auditoria import AuditoriaIndisponivelError
+
+        def recusa(_ligacao):
+            raise AuditoriaIndisponivelError("sem INSERT em tool_audit")
+
+        codigo, correr = self._correr(AMBIENTE_BASE, confirmar_auditoria=recusa)
+        self.assertEqual(codigo, arranque.SAIDA_SEM_AUDITORIA)
+        self.assertEqual(codigo, 6)
+        correr.assert_not_called()
+        # O `log.excepcao` escreve `error_code` e nao `outcome`, e compoe-no com
+        # a classe da excepcao: e o unico campo da *allowlist* de
+        # `docs/tecnica/08` §7.3 onde um identificador deste cabe.
+        self.assertIn("auditoria_de_tools_indisponivel", self.erro()["error_code"])
+
+    def test_a_guarda_da_auditoria_corre_depois_da_do_checkpointer(self) -> None:
+        """A ordem e a do custo: a mais barata primeiro.
+
+        As duas guardas abrem uma ligacao. A do *checkpointer* corre antes
+        porque a falta dela e mais comum (e uma palavra-passe de um papel
+        proprio, KAM-026) e porque o codigo **4** e mais antigo; se as duas
+        falharem, o painel mostra a primeira. Mede-se pelo codigo que sai
+        quando ambas recusam.
+        """
+        from kamba_agr.tls.auditoria import AuditoriaIndisponivelError
+
+        def recusa(_ligacao):
+            raise AuditoriaIndisponivelError("sem INSERT em tool_audit")
+
+        def sem_checkpointer():
+            raise RuntimeError("sem checkpointer")
+
+        codigo, correr = self._correr(
+            AMBIENTE_BASE,
+            ligar_checkpoint=sem_checkpointer,
+            confirmar_auditoria=recusa,
+        )
+        self.assertEqual(codigo, arranque.SAIDA_SEM_CHECKPOINTER)
+        correr.assert_not_called()
+
     def test_um_ambiente_desconhecido_recusa_em_vez_de_cair_em_dev(self) -> None:
         # A licao do `chaves.ts` do KAM-008: um `KAMBA_ENV=producao` a servir
         # segredos de `dev` e pior do que nao arrancar.
@@ -215,13 +278,17 @@ class TestRegistoNoArranque(unittest.TestCase):
     def _correr(self, ambiente: dict[str, str]):
         # A ligacao do checkpointer e dupla, pela razao do `TestArranque`: nenhum
         # ensaio desta bateria tem base de dados, e sem o duplo todos mediriam
-        # «nao ha Postgres» (codigo 4) em vez do que dizem medir.
+        # «nao ha Postgres» (codigo 4) em vez do que dizem medir. A guarda da
+        # auditoria de tools (KAM-028) e dupla pela mesma razao — sem ela todos
+        # mediriam «nao ha Postgres» com o codigo **6**.
         saida = io.StringIO()
         with (
             mock.patch.dict(os.environ, {**AMBIENTE_BASE, **ambiente}),
             mock.patch("sys.stdout", saida),
             mock.patch.object(arranque.uvicorn, "run") as correr,
             mock.patch.object(arranque, "ligar_para_checkpoint", lambda: mock.Mock()),
+            mock.patch.object(arranque, "ligar_para_tools", lambda: mock.Mock()),
+            mock.patch.object(arranque.tls_auditoria, "confirmar", lambda _l: None),
         ):
             os.environ.pop("KAMBA_LOG_ESTRITO", None)
             codigo = arranque.main()
@@ -244,16 +311,22 @@ class TestRegistoNoArranque(unittest.TestCase):
         self.assertEqual(codigo, arranque.SAIDA_REGISTO_INVALIDO)
         correr.assert_not_called()
 
-    def test_os_quatro_codigos_de_saida_sao_distintos(self) -> None:
-        """Num painel, «o AGR nao arranca» sem dizer porque nao se diagnostica."""
+    def test_os_cinco_codigos_de_saida_sao_distintos(self) -> None:
+        """Num painel, «o AGR nao arranca» sem dizer porque nao se diagnostica.
+
+        Eram quatro; o KAM-028 acrescentou o **6** (sem auditoria de tools), e
+        cada um manda olhar para um sitio diferente: o `.env`, a imagem, o cofre
+        da base, `registry/`, e a revisao `0021` com os seus `GRANT`.
+        """
         codigos = (
             2,
             arranque.SAIDA_GUARDA_ADR002,
             arranque.SAIDA_SEM_CHECKPOINTER,
             arranque.SAIDA_REGISTO_INVALIDO,
+            arranque.SAIDA_SEM_AUDITORIA,
         )
-        self.assertEqual(len(set(codigos)), 4)
-        self.assertEqual(codigos, (2, 3, 4, 5))
+        self.assertEqual(len(set(codigos)), 5)
+        self.assertEqual(codigos, (2, 3, 4, 5, 6))
 
     def test_o_registo_do_repositorio_deixa_o_agr_arrancar(self) -> None:
         """O positivo, e e o que impede este ticket de parar o servico: com o
@@ -289,7 +362,11 @@ class TestRegistoNoArranque(unittest.TestCase):
         }
         self.assertEqual(
             sorted(codigos),
-            ["golden_kam_040", "grafo_kam_031", "grafo_kam_035", "tools_kam_028"],
+            # **Tres e nao quatro desde o KAM-028**: a validacao (1) (`tools`)
+            # fechou — o catalogo da ToolLayer existe e o `registry/gates.yaml`
+            # deixou de a nomear. Um `aviso` que sobrevivesse ao credor seria,
+            # ele proprio, erro de arranque.
+            ["golden_kam_040", "grafo_kam_031", "grafo_kam_035"],
         )
 
 

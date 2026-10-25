@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.35"
+versao_dicionario: "1.36"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -5864,6 +5864,524 @@ entradas:
       - "Dockerfile"
       - "COPY"
     variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Camada de tools"
+    canonico: "ToolLayer, com for_context(ctx, allowed) e invoke(ctx, name, args, confirmation)"
+    literais:
+      - "ToolLayer"
+      - "for_context(ctx, allowed)"
+      - "invoke(ctx, name, args, confirmation)"
+    nomes:
+      - "ToolLayer"
+      - "for_context"
+      - "ctx"
+      - "allowed"
+      - "invoke"
+      - "name"
+      - "args"
+      - "confirmation"
+    nomes_nota:
+      - "estado.py"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Contexto de um turno, para tools"
+    canonico: "ToolContext, com tenant_id, channel_id, contact_id, conversation_id, turn_id, vertical, run_id, graph_version"
+    literais:
+      - "ToolContext"
+      - "tenant_id"
+      - "channel_id"
+      - "contact_id"
+      - "conversation_id"
+      - "turn_id"
+      - "vertical"
+      - "run_id"
+      - "graph_version"
+    nomes:
+      - "ToolContext"
+      - "tenant_id"
+      - "channel_id"
+      - "contact_id"
+      - "conversation_id"
+      - "turn_id"
+      - "vertical"
+      - "run_id"
+      - "graph_version"
+    nomes_nota:
+      - "frozen"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Identificador de uma execução do grafo"
+    canonico: "run_id"
+    literais:
+      - "run_id"
+    nomes:
+      - "run_id"
+    nomes_nota:
+      - "tool_audit"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Versão do grafo que corre o turno"
+    canonico: "graph_version"
+    literais:
+      - "graph_version"
+    nomes:
+      - "graph_version"
+    nomes_nota:
+      - "version"
+      - "tool_audit"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Tool ligada a um contexto"
+    canonico: "BoundTool, com o nome da tool, o klass, a versão e o esquema visível ao modelo"
+    literais:
+      - "BoundTool"
+      - "klass"
+    nomes:
+      - "BoundTool"
+      - "klass"
+    nomes_nota:
+      - "for_context"
+      - "ToolContext"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Classe de uma tool"
+    canonico: "klass ∈ {read, write, money}"
+    literais:
+      - "klass"
+      - "read"
+      - "write"
+      - "money"
+    nomes:
+      - "klass"
+      - "read"
+      - "write"
+      - "money"
+    nomes_nota:
+      - "read"
+      - "write"
+      - "money"
+      - "klass"
+      - "class"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Resultado de uma invocação"
+    canonico: "ToolResult, com ok, data, facts, error, idempotent_replay"
+    literais:
+      - "ToolResult"
+      - "ok"
+      - "data"
+      - "facts"
+      - "error"
+      - "idempotent_replay"
+    nomes:
+      - "ToolResult"
+      - "ok"
+      - "data"
+      - "facts"
+      - "error"
+      - "idempotent_replay"
+    nomes_nota:
+      - "idempotent_replay"
+      - "False"
+      - "True"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Número vindo de uma tool"
+    canonico: "Fact, com fact_id, kind, value, retrieved_at"
+    literais:
+      - "Fact"
+      - "fact_id"
+      - "kind"
+      - "value"
+      - "retrieved_at"
+    nomes:
+      - "Fact"
+      - "fact_id"
+      - "kind"
+      - "value"
+      - "retrieved_at"
+    nomes_nota:
+      - "fact_id"
+      - "facts"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Natureza de um fact"
+    canonico: "kind ∈ {price, stock, total, datetime}"
+    literais:
+      - "kind"
+      - "price"
+      - "stock"
+      - "total"
+      - "datetime"
+    nomes:
+      - "kind"
+      - "price"
+      - "stock"
+      - "total"
+      - "datetime"
+    nomes_nota:
+      - "kind"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Prova de confirmação por botão"
+    canonico: "Confirmation, com botao, contact_id e turn_id"
+    literais:
+      - "Confirmation"
+      - "botao"
+      - "contact_id"
+      - "turn_id"
+    nomes:
+      - "Confirmation"
+      - "botao"
+      - "contact_id"
+      - "turn_id"
+    nomes_nota:
+      - "botao"
+      - "confirm"
+      - "cart_id"
+      - "hold_id"
+      - "contact_id"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Especificação de uma tool"
+    canonico: "EspecificacaoDeTool, com o nome da tool, o klass, a versão, o backend, o modelo de argumentos e o credor"
+    literais:
+      - "EspecificacaoDeTool"
+      - "klass"
+      - "backend"
+      - "credor"
+    nomes:
+      - "EspecificacaoDeTool"
+      - "klass"
+      - "backend"
+      - "credor"
+    nomes_nota:
+      - "modelo"
+      - "extra"
+      - "forbid"
+      - "credor"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Entrada de catálogo sem executor"
+    canonico: "declarada, com credor obrigatório"
+    literais:
+      - "declarada"
+      - "credor"
+    nomes:
+      - "declarada"
+      - "credor"
+    nomes_nota:
+      - "klass"
+      - "credor"
+      - "modo"
+      - "aviso"
+      - "declarada"
+      - "for_context"
+      - "invoke"
+      - "TOOL_NOT_ALLOWED"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Entrada de catálogo com executor"
+    canonico: "ligada"
+    literais:
+      - "ligada"
+    nomes:
+      - "ligada"
+    nomes_nota:
+      - "get_store_info"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Backend de uma tool"
+    canonico: "backend ∈ {com, pay, idx, plataforma}"
+    literais:
+      - "backend"
+      - "com"
+      - "pay"
+      - "idx"
+      - "plataforma"
+    nomes:
+      - "backend"
+      - "com"
+      - "pay"
+      - "idx"
+      - "plataforma"
+    nomes_nota:
+      - "plataforma"
+      - "get_store_info"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Registo de todas as invocações"
+    canonico: "platform.tool_audit"
+    literais:
+      - "platform.tool_audit"
+    nomes:
+      - "platform.tool_audit"
+    nomes_nota:
+      - "audit_log"
+      - "REVOKE"
+      - "UPDATE"
+      - "DELETE"
+      - "TRUNCATE"
+      - "ENABLE"
+      - "ALWAYS"
+      - "money"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Colunas de tool_audit"
+    canonico: "id, ts, tenant_id, contact_id, conversation_id, turn_id, run_id, vertical, graph_version, tool, tool_version, klass, args_hash, args_redacted, idempotency_key, status, error_code, result_hash, fact_ids, latency_ms"
+    literais:
+      - "id"
+      - "ts"
+      - "tenant_id"
+      - "contact_id"
+      - "conversation_id"
+      - "turn_id"
+      - "run_id"
+      - "vertical"
+      - "graph_version"
+      - "tool"
+      - "tool_version"
+      - "klass"
+      - "args_hash"
+      - "args_redacted"
+      - "idempotency_key"
+      - "status"
+      - "error_code"
+      - "result_hash"
+      - "fact_ids"
+      - "latency_ms"
+    nomes:
+      - "tool_audit"
+      - "id"
+      - "ts"
+      - "tenant_id"
+      - "contact_id"
+      - "conversation_id"
+      - "turn_id"
+      - "run_id"
+      - "vertical"
+      - "graph_version"
+      - "tool"
+      - "tool_version"
+      - "klass"
+      - "args_hash"
+      - "args_redacted"
+      - "idempotency_key"
+      - "status"
+      - "error_code"
+      - "result_hash"
+      - "fact_ids"
+      - "latency_ms"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Impressão dos argumentos"
+    canonico: "args_hash"
+    literais:
+      - "args_hash"
+    nomes:
+      - "args_hash"
+    nomes_nota:
+      - "sha256"
+      - "args"
+      - "NOT"
+      - "NULL"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Argumentos redigidos"
+    canonico: "args_redacted"
+    literais:
+      - "args_redacted"
+    nomes:
+      - "args_redacted"
+    nomes_nota:
+      - "jsonb"
+      - "query"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Impressão do resultado"
+    canonico: "result_hash"
+    literais:
+      - "result_hash"
+    nomes:
+      - "result_hash"
+    nomes_nota:
+      - "sha256"
+      - "data"
+      - "NULL"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Identificadores dos facts devolvidos"
+    canonico: "fact_ids"
+    literais:
+      - "fact_ids"
+    nomes:
+      - "fact_ids"
+    nomes_nota:
+      - "text"
+      - "fact_id"
+      - "ToolResult.facts"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Estado de uma invocação, no registo"
+    canonico: "status ∈ {ok, erro}"
+    literais:
+      - "status"
+      - "ok"
+      - "erro"
+    nomes:
+      - "status"
+      - "ok"
+      - "erro"
+    nomes_nota:
+      - "erro"
+      - "error_code"
+      - "ok"
+      - "NULL"
+      - "CHECK"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Erros tipados da camada"
+    canonico: "tool_audit.error_code ∈ {NOT_FOUND, OUT_OF_STOCK, PRICE_CHANGED, LIMIT_EXCEEDED, ENTITLEMENT_DENIED, TOOL_NOT_ALLOWED, TENANT_MISMATCH, UPSTREAM_TIMEOUT, UPSTREAM_DOWN, VALIDATION_ERROR}"
+    literais:
+      - "tool_audit.error_code"
+      - "NOT_FOUND"
+      - "OUT_OF_STOCK"
+      - "PRICE_CHANGED"
+      - "LIMIT_EXCEEDED"
+      - "ENTITLEMENT_DENIED"
+      - "TOOL_NOT_ALLOWED"
+      - "TENANT_MISMATCH"
+      - "UPSTREAM_TIMEOUT"
+      - "UPSTREAM_DOWN"
+      - "VALIDATION_ERROR"
+    nomes:
+      - "tool_audit.error_code"
+      - "NOT_FOUND"
+      - "OUT_OF_STOCK"
+      - "PRICE_CHANGED"
+      - "LIMIT_EXCEEDED"
+      - "ENTITLEMENT_DENIED"
+      - "TOOL_NOT_ALLOWED"
+      - "TENANT_MISMATCH"
+      - "UPSTREAM_TIMEOUT"
+      - "UPSTREAM_DOWN"
+      - "VALIDATION_ERROR"
+    nomes_nota:
+      - "tool_audit.error_code"
+      - "NOT_FOUND"
+      - "CHECK"
+      - "error_code"
+      - "outbound_messages"
+      - "channel_coexistence.meta_error_code"
+      - "ENTITLEMENT_DENIED"
+      - "LIMIT_EXCEEDED"
+      - "hook_de_tool"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Timeout por classe"
+    canonico: "KAMBA_TLS_TIMEOUT_READ_MS (2000), KAMBA_TLS_TIMEOUT_ESCRITA_MS (8000)"
+    literais:
+      - "KAMBA_TLS_TIMEOUT_READ_MS"
+      - "KAMBA_TLS_TIMEOUT_ESCRITA_MS"
+    nomes:
+      - "KAMBA_TLS_TIMEOUT_READ_MS"
+      - "KAMBA_TLS_TIMEOUT_ESCRITA_MS"
+    nomes_nota:
+      - "KAMBA_"
+      - "UPSTREAM_TIMEOUT"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Circuit breaker"
+    canonico: "KAMBA_TLS_DISJUNTOR_FALHAS (5), KAMBA_TLS_DISJUNTOR_PAUSA_MS (30000)"
+    literais:
+      - "KAMBA_TLS_DISJUNTOR_FALHAS"
+      - "KAMBA_TLS_DISJUNTOR_PAUSA_MS"
+    nomes:
+      - "KAMBA_TLS_DISJUNTOR_FALHAS"
+      - "KAMBA_TLS_DISJUNTOR_PAUSA_MS"
+    nomes_nota:
+      - "UPSTREAM_DOWN"
+      - "disjuntor"
+      - "backend"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Invocações de tool"
+    canonico: "agr_tool_invocacoes_total"
+    literais:
+      - "agr_tool_invocacoes_total"
+    nomes:
+      - "agr_tool_invocacoes_total"
+    nomes_nota:
+      - "tool"
+      - "tenant_id"
+      - "OBS"
+      - "I"
+      - "metricas.py"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Erros de tool"
+    canonico: "agr_tool_erros_total"
+    literais:
+      - "agr_tool_erros_total"
+    nomes:
+      - "agr_tool_erros_total"
+    nomes_nota:
+      - "codigo"
+      - "tool_not_allowed"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Latência da última invocação"
+    canonico: "agr_tool_latency_ms"
+    literais:
+      - "agr_tool_latency_ms"
+    nomes:
+      - "agr_tool_latency_ms"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Aberturas do disjuntor"
+    canonico: "agr_tls_disjuntor_aberto_total"
+    literais:
+      - "agr_tls_disjuntor_aberto_total"
+    nomes:
+      - "agr_tls_disjuntor_aberto_total"
+    nomes_nota:
+      - "backend"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Alerta de isolamento"
+    canonico: "agr_tool_tenant_mismatch_total"
+    literais:
+      - "agr_tool_tenant_mismatch_total"
+    nomes:
+      - "agr_tool_tenant_mismatch_total"
+    nomes_nota:
+      - "TENANT_MISMATCH"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Código de saída sem auditoria"
+    canonico: "6"
+    literais:
+      - "6"
+    nomes: []
+    nomes_nota:
+      - "tool_audit"
+      - "money"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Lint dos esquemas expostos ao modelo"
+    canonico: "tool_schema, no lint_arch"
+    literais:
+      - "tool_schema"
+      - "lint_arch"
+    nomes:
+      - "tool_schema"
+      - "lint_arch"
+    nomes_nota:
+      - "lint_arch"
+      - "PARAMETROS_PROIBIDOS"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -6270,6 +6788,26 @@ tabelas:
     assinatura: "build_graph(deps)"
     seccao: "3.26"
     conceito: "Contrato de uma vertical"
+  - nome: "for_context"
+    esquema: ""
+    colunas:
+      - "ctx"
+      - "allowed"
+    aberta: false
+    assinatura: "for_context(ctx, allowed)"
+    seccao: "3.27"
+    conceito: "Camada de tools"
+  - nome: "invoke"
+    esquema: ""
+    colunas:
+      - "ctx"
+      - "name"
+      - "args"
+      - "confirmation"
+    aberta: false
+    assinatura: "invoke(ctx, name, args, confirmation)"
+    seccao: "3.27"
+    conceito: "Camada de tools"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -6720,6 +7258,54 @@ dominios:
       - "bloqueio"
     seccao: "3.26"
     conceito: "Modo de uma validação"
+    so_no_registo: false
+  - coluna: "klass"
+    valores:
+      - "read"
+      - "write"
+      - "money"
+    seccao: "3.27"
+    conceito: "Classe de uma tool"
+    so_no_registo: false
+  - coluna: "kind"
+    valores:
+      - "price"
+      - "stock"
+      - "total"
+      - "datetime"
+    seccao: "3.27"
+    conceito: "Natureza de um fact"
+    so_no_registo: false
+  - coluna: "backend"
+    valores:
+      - "com"
+      - "pay"
+      - "idx"
+      - "plataforma"
+    seccao: "3.27"
+    conceito: "Backend de uma tool"
+    so_no_registo: false
+  - coluna: "status"
+    valores:
+      - "ok"
+      - "erro"
+    seccao: "3.27"
+    conceito: "Estado de uma invocação, no registo"
+    so_no_registo: false
+  - coluna: "tool_audit.error_code"
+    valores:
+      - "NOT_FOUND"
+      - "OUT_OF_STOCK"
+      - "PRICE_CHANGED"
+      - "LIMIT_EXCEEDED"
+      - "ENTITLEMENT_DENIED"
+      - "TOOL_NOT_ALLOWED"
+      - "TENANT_MISMATCH"
+      - "UPSTREAM_TIMEOUT"
+      - "UPSTREAM_DOWN"
+      - "VALIDATION_ERROR"
+    seccao: "3.27"
+    conceito: "Erros tipados da camada"
     so_no_registo: false
 
 variantes:

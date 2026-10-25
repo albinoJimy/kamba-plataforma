@@ -180,21 +180,37 @@ TABELAS_LG = ("checkpoint_writes", "checkpoints")
 #: a primeira coisa para ver: `security_invoker = true`.
 VISTAS = ("consent_actual",)
 
+#: KAM-028: o registo de invocacoes da ToolLayer (revisao `0021`).
+#:
+#: **Uma tabela, no `platform` e nao no `lg`.** O `docs/tecnica/02` §6.4 poe-a
+#: ao lado da `audit_log` e nao junto do *checkpointer*: e um registo de
+#: auditoria da plataforma, lido por quem audita, e o papel que escreve o `lg`
+#: nao tem `USAGE` no `platform` (KAM-026).
+TABELAS_0021 = ("tool_audit",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
         + TABELAS_0006 + TABELAS_0007 + TABELAS_0008 + TABELAS_0009
         + TABELAS_0010 + TABELAS_0011 + TABELAS_0012 + TABELAS_0013
         + TABELAS_0014 + TABELAS_0015 + TABELAS_0017 + TABELAS_0018
-        + TABELAS_0019
+        + TABELAS_0019 + TABELAS_0021
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0020`.
+#:
+#: Pela mesma razao das outras: o `downgrade` da `0021` leva a base para aqui, e
+#: o teste do ciclo compara o conjunto com esta tupla. **A `0020` e do KAM-026 e
+#: nao cria tabela no `platform`** — cria o esquema `lg` e as duas de
+#: `TABELAS_LG` —, pelo que o conjunto do `platform` na `0020` e o da `0019`.
+TABELAS_ATE_0020 = tuple(sorted(set(TABELAS) - set(TABELAS_0021)))
 
 #: O que existe em `platform` quando a base esta na revisao `0018`.
 #:
 #: Pela mesma razao das outras: o `downgrade` da `0019` leva a base para aqui, e
 #: o teste do ciclo compara o conjunto com esta tupla.
-TABELAS_ATE_0018 = tuple(sorted(set(TABELAS) - set(TABELAS_0019)))
+TABELAS_ATE_0018 = tuple(sorted(set(TABELAS_ATE_0020) - set(TABELAS_0019)))
 
 #: O que existe em `platform` quando a base esta na revisao `0017`.
 #:

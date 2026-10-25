@@ -89,6 +89,28 @@ METRICA_LATENCIA_CHECKPOINT: Final = "agr_checkpoint_latency_ms"
 #: e o `JANELA_MAXIMA` so levanta quando ja e tarde.
 METRICA_TAMANHO_DO_ESTADO: Final = "agr_checkpoint_state_bytes"
 
+#: As cinco da ToolLayer (KAM-028, DoD «metricas de latencia e erro por tool»).
+#:
+#: A etiqueta de `agr_tool_invocacoes_total` e o **nome da tool**, e isso e
+#: seguro por construcao: os nomes sao os onze do catalogo (dicionario §3.26),
+#: lista fechada, e um nome de tool casa a gramatica de etiqueta porque a
+#: especificacao o exige com a mesma expressao.
+METRICA_TOOL_INVOCACOES: Final = "agr_tool_invocacoes_total"
+#: Erros de tool, por codigo do §6.5 **em minusculas**: a gramatica de etiqueta
+#: exige-as e o codigo canonico e maiusculo.
+METRICA_TOOL_ERROS: Final = "agr_tool_erros_total"
+#: Duracao da **ultima** invocacao, em milissegundos. O nome tem `latency` e nao
+#: `latencia` para casar o `agr_turn_latency_ms` e o `agr_checkpoint_latency_ms`,
+#: que e o que um painel agrupa.
+METRICA_TOOL_LATENCIA: Final = "agr_tool_latency_ms"
+#: Vezes que o disjuntor de um backend abriu (critero 7).
+METRICA_TOOL_DISJUNTOR: Final = "agr_tls_disjuntor_aberto_total"
+#: O «gera alerta de seguranca» do critero 8. **Sem etiqueta**: o que um painel
+#: precisa de saber e que houve um `TENANT_MISMATCH`, e qual tool foi le-se na
+#: `tool_audit`. Uma etiqueta por tool aqui convidava a tratar o alerta como uma
+#: estatistica por tool, e um destes nao e estatistica.
+METRICA_TOOL_TENANT_MISMATCH: Final = "agr_tool_tenant_mismatch_total"
+
 #: O que aconteceu a um turno. Lista **fechada**: e etiqueta.
 #:
 #: `executado`        correu o grafo
@@ -118,6 +140,33 @@ MOTIVOS_DE_RECUSA: Final = ("ritmo", "tecto_do_tenant", "invocacao_invalida")
 #: `vertical_desconhecida`  o `ctx.vertical` nao esta no registo carregado
 MOTIVOS_DE_NEGACAO: Final = ("sem_entitlement", "vertical_desconhecida")
 
+#: Os nomes de tool que podem ser etiqueta. **Derivados do catalogo, nao
+#: escritos a mao**: a licao que o KAM-027 pagou no `test_gate11` — «uma lista
+#: literal transforma uma invariante num numero» — e o KAM-031 e o KAM-035
+#: acrescentam especificacoes sem ter de vir aqui.
+#:
+#: O `import` e local a este modulo e feito ao carregar, nao dentro da funcao:
+#: o `tls.catalogo` importa o `tls.especificacoes`, que importa o
+#: `registo.validar`, e nenhum dos tres importa este ficheiro — nao ha ciclo.
+def _nomes_de_tool() -> tuple[str, ...]:
+    from .tls.catalogo import ESPECIFICACOES_DO_PILOTO
+
+    return tuple(sorted(e.nome for e in ESPECIFICACOES_DO_PILOTO))
+
+
+#: Os dez codigos do §6.5 em minusculas. Derivados, pela mesma razao.
+def _codigos_de_erro() -> tuple[str, ...]:
+    from .tls.erros import CODIGOS
+
+    return tuple(sorted(codigo.lower() for codigo in CODIGOS))
+
+
+#: Os backends do §6.5, que sao a unidade do disjuntor. Derivados.
+def _backends() -> tuple[str, ...]:
+    from .tls.especificacoes import BACKENDS
+
+    return tuple(sorted(BACKENDS))
+
 #: A gramatica de uma etiqueta. A mesma de `ten/metricas.py`, e pela mesma
 #: razao: um `tenant_id` tem hifenes e nao casa.
 ETIQUETA: Final = re.compile(r"^[a-z][a-z0-9_]{1,62}$")
@@ -126,14 +175,22 @@ _VALORES_DA_ETIQUETA: Final = {
     METRICA_TURNOS: DESFECHOS,
     METRICA_RECUSADOS: MOTIVOS_DE_RECUSA,
     METRICA_REGISTO_NEGADO: MOTIVOS_DE_NEGACAO,
+    METRICA_TOOL_INVOCACOES: _nomes_de_tool(),
+    METRICA_TOOL_ERROS: _codigos_de_erro(),
+    METRICA_TOOL_DISJUNTOR: _backends(),
 }
 
-_CONTADORES_SEM_ETIQUETA: Final = (METRICA_COALESCIDAS, METRICA_CONTRAPRESSAO)
+_CONTADORES_SEM_ETIQUETA: Final = (
+    METRICA_COALESCIDAS,
+    METRICA_CONTRAPRESSAO,
+    METRICA_TOOL_TENANT_MISMATCH,
+)
 _MEDIDAS: Final = (
     METRICA_DURACAO,
     METRICA_FILA,
     METRICA_LATENCIA_CHECKPOINT,
     METRICA_TAMANHO_DO_ESTADO,
+    METRICA_TOOL_LATENCIA,
 )
 
 _AJUDA: Final = {
@@ -154,6 +211,17 @@ _AJUDA: Final = {
     METRICA_TAMANHO_DO_ESTADO: (
         "gauge",
         "Tamanho do ultimo estado serializado, em octetos.",
+    ),
+    METRICA_TOOL_INVOCACOES: ("counter", "Invocacoes da ToolLayer, por tool."),
+    METRICA_TOOL_ERROS: ("counter", "Erros da ToolLayer, por codigo do §6.5."),
+    METRICA_TOOL_LATENCIA: (
+        "gauge",
+        "Duracao da ultima invocacao de tool, em milissegundos.",
+    ),
+    METRICA_TOOL_DISJUNTOR: ("counter", "Aberturas do disjuntor, por backend."),
+    METRICA_TOOL_TENANT_MISMATCH: (
+        "counter",
+        "Invocacoes recusadas por TENANT_MISMATCH. Alerta de seguranca.",
     ),
 }
 
@@ -254,8 +322,19 @@ class MetricasDoAgr:
 #: sem esta linha a exposicao dizia `outcome` e contradizia o canon. Medido.
 _COM_MOTIVO: Final = (METRICA_RECUSADOS, METRICA_REGISTO_NEGADO)
 
+#: O nome do eixo de cada metrica com etiqueta, quando nao e `outcome` nem
+#: `motivo`. As tres da ToolLayer (KAM-028) tem eixos proprios, e chamar-lhes
+#: `outcome` dizia que `get_store_info` e um desfecho.
+_NOME_DO_EIXO: Final = {
+    METRICA_TOOL_INVOCACOES: "tool",
+    METRICA_TOOL_ERROS: "codigo",
+    METRICA_TOOL_DISJUNTOR: "backend",
+}
+
 
 def _etiqueta_de(metrica: str) -> str:
+    if metrica in _NOME_DO_EIXO:
+        return _NOME_DO_EIXO[metrica]
     return "motivo" if metrica in _COM_MOTIVO else "outcome"
 
 

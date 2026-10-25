@@ -1,15 +1,23 @@
-"""As tres ligacoes do AGR a base da plataforma (KAM-025, KAM-026).
+"""As quatro ligacoes do AGR a base da plataforma (KAM-025, KAM-026, KAM-028).
 
-O AGR corre com **dois** papeis e abre **tres** ligacoes. Duas sao do
-`kamba_app` (`NOBYPASSRLS`, sem DDL) e nao sao dois papeis: sao dois usos que
-nao podem partilhar uma tomada. A terceira e de outro papel, e isso **e**
+O AGR corre com **dois** papeis e abre **quatro** ligacoes. Tres sao do
+`kamba_app` (`NOBYPASSRLS`, sem DDL) e nao sao tres papeis: sao tres usos que
+nao podem partilhar uma tomada. A quarta e de outro papel, e isso **e**
 deliberado — ver `PAPEL_DO_CHECKPOINTER` mais abaixo.
 
 | Ligacao | Papel | `autocommit` | Para que serve |
 |---|---|---|---|
 | leitura | `kamba_app` | nao | `conversations.mode` e `handoffs.status`, dentro de `tenant_guard.tx` |
 | tranca | `kamba_app` | **sim** | so `pg_advisory_lock` / `pg_advisory_unlock` (`trancas.py`) |
+| tools | `kamba_app` | nao | a ToolLayer: entitlement, backend `plataforma` e `tool_audit` (`tls/`) |
 | checkpoint | `kamba_agr` | nao | o esquema `lg`, e **nada** do `platform` (`checkpointer.py`) |
+
+A das tools e uma tomada propria e nao a da leitura, e a razao e o
+`kamba_core.tenant_guard`: ele **recusa** uma segunda transaccao na mesma
+ligacao (`LigacaoEmUso`), e uma invocacao de tool abre tres em serie — o
+entitlement, o backend e a auditoria. Partilhada com a leitura da palavra da
+conversa, a primeira tool de um turno rebentava por uma razao que nao tem nada
+a ver com ela.
 
 A da tranca e `autocommit` porque a tranca e de **sessao** e nao de transaccao
 (`docs/adr/ADR-L004-fila-e-tranca-do-agr.md`, Decisao 2): com `autocommit` cada
@@ -90,6 +98,8 @@ VAR_SENHA_AGR: Final = "KAMBA_SECRET_DB_AGR_PASSWORD"
 NOME_DA_LEITURA: Final = "kamba-agr:leitura"
 NOME_DA_TRANCA: Final = "kamba-agr:tranca"
 NOME_DO_CHECKPOINTER: Final = "kamba-agr:checkpoint"
+#: A quarta ligacao, da ToolLayer (KAM-028).
+NOME_DAS_TOOLS: Final = "kamba-agr:tools"
 
 
 class ConfiguracaoEmFalta(RuntimeError):
@@ -145,6 +155,21 @@ def ligar_para_tranca(ambiente: Any = None) -> Any:
     Decisao 2). O `KAMBA_DB_HOST` do AGR aponta para a base.
     """
     return _ligar(ambiente, autocommit=True, nome=NOME_DA_TRANCA)
+
+
+def ligar_para_tools(ambiente: Any = None) -> Any:
+    """A ligacao da ToolLayer (KAM-028). Transaccional, papel `kamba_app`.
+
+    `autocommit` **nao**, pela razao da leitura: tudo o que a camada faz na base
+    corre dentro de `tenant_guard.tx`, que precisa de o `SET LOCAL
+    app.tenant_id` sobreviver ate a consulta seguinte.
+
+    Papel `kamba_app` e nao `kamba_agr`: o que ela toca e do `platform` — a
+    `platform.entitlements` (passo 2), a `platform.tenants` (`get_store_info`) e
+    a `platform.tool_audit` (passo 7) —, e o `kamba_agr` **nao tem `USAGE` no
+    `platform`**, de proposito (KAM-026).
+    """
+    return _ligar(ambiente, autocommit=False, nome=NOME_DAS_TOOLS)
 
 
 def ligar_para_checkpoint(ambiente: Any = None) -> Any:

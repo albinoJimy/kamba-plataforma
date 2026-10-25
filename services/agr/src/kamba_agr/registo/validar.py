@@ -176,13 +176,25 @@ class AmbienteDoRegisto:
 
     @classmethod
     def do_repositorio(
-        cls, raiz: Path, ambiente: Mapping[str, str] | None = None
+        cls,
+        raiz: Path,
+        ambiente: Mapping[str, str] | None = None,
+        *,
+        catalogo: CatalogoDeTools | None = None,
     ) -> "AmbienteDoRegisto":
         """O ambiente real, com as tres fontes que existem hoje.
 
         As importacoes sao locais de proposito: o `kamba_core.eventos.contratos`
         tem 700 linhas de `TypedDict` e o catalogo inteiro, e nao se paga isso
         ao importar o esquema do registo.
+
+        **O `catalogo` entra por parametro e nao se constroi aqui** (KAM-028).
+        Este modulo declara o `CatalogoDeTools` como `Protocol` precisamente
+        para nao depender da ToolLayer: importa-lo aqui punha o registo a
+        depender da camada que ele valida, e um ciclo entre os dois era o preco
+        de poupar um argumento. Quem o constroi e o `__main__`, que e quem
+        tambem o passa a camada — uma so instancia, para que o que a validacao
+        confere e o que a camada executa nao possam divergir.
         """
         import os
 
@@ -197,6 +209,7 @@ class AmbienteDoRegisto:
                 tipo: frozenset(entrada["versoes"]) for tipo, entrada in CATALOGO.items()
             },
             raiz=raiz,
+            catalogo=catalogo,
         )
 
 
