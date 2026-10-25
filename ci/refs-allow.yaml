@@ -158,3 +158,13 @@ excepcoes:
   - ficheiro: docs/adr/README.md
     token: ADR-022
     razao: Mesma linha e mesma razao de `ADR-021`.
+
+  - ficheiro: services/agr/tests/test_tls.py
+    token: KAM-0311
+    razao: >-
+      Caso do validador de credor da ToolLayer (KAM-028): a lista de credores
+      deliberadamente invalidos inclui `KAM-0311`, `KAM-31` e `kam-031`, para
+      provar que a especificacao de uma tool recusa um credor que nao casa
+      `^KAM-\d{3}$`. E a mesma razao do `KAM-0001` do
+      `tools/lint_arch/tests/test_conventions.py`, e o mesmo mecanismo: um
+      ticket que nao existe citado para dizer que e recusado.
