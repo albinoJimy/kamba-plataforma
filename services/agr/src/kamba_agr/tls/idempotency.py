@@ -384,19 +384,28 @@ def _abandonada(ligacao: Any, ctx: ToolContext, nascida_em: Any) -> bool:
 #: se muda. Apagar antes do prazo apaga a prova de que a encomenda foi uma so.
 DIAS_DE_RETENCAO: Final = 30
 
-#: Apaga **so linhas fechadas**. Uma reserva `em_curso` nao se apaga por idade,
-#: por mais velha que seja: pode ser de uma invocacao a correr — o tecto da
-#: camada para `money` e de 8,5 s, mas daqui um `created_at` antigo e um relogio
-#: desacertado nao se distinguem — e apagar a reserva de uma tool que ainda esta
-#: no backend era abrir a janela que este modulo fecha.
-SQL_APAGAR_RESERVAS_FECHADAS = """
+#: Apaga por idade, **em qualquer estado**, e isso mudou depois da revisao
+#: adversarial (`ANALISE-31`).
+#:
+#: A primeira versao poupava as `em_curso` «porque podem ser de uma invocacao a
+#: correr». O argumento vale por **minutos** e nao por um mes: o tecto da camada
+#: para uma classe de escrita e de 8,5 s, e uma `em_curso` com mais de
+#: `MINUTOS_PARA_RETOMAR` ja se considera abandonada e **retoma-se**. Ao fim de
+#: `DIAS_DE_RETENCAO` nao ha invocacao nenhuma a correr, e o que a excepcao fazia
+#: era deixar a tabela crescer monotonicamente com orfas que ninguem torna a
+#: tocar — numa tabela de dinheiro, e foi o revisor a notar.
+#:
+#: Apagar uma `em_curso` de 30 dias nao reabre janela nenhuma: quem voltar a
+#: tocar aquele `cart_id` reserva de novo e corre o backend, que e o mesmo que a
+#: retoma faria dois minutos depois de ela nascer.
+SQL_APAGAR_RESERVAS_VELHAS = """
   DELETE FROM platform.tool_idempotency
-  WHERE created_at < %s AND estado IN ('concluida', 'falhada')
+  WHERE created_at < %s
 """
 
 
 def varrer(ligacao: Any, agora: Any, dias: int = DIAS_DE_RETENCAO) -> int:
-    """Apaga as reservas fechadas com mais de `dias` e devolve quantas.
+    """Apaga as reservas com mais de `dias` e devolve quantas.
 
     Um numero basta, ao contrario do `retencao.varrer` do `lg`: ali o que se
     apaga e o estado de uma conversa e quem audita quer saber **qual**; aqui e
@@ -418,7 +427,7 @@ def varrer(ligacao: Any, agora: Any, dias: int = DIAS_DE_RETENCAO) -> int:
     limite = agora - _dt.timedelta(days=dias)
     cursor = ligacao.cursor()
     try:
-        cursor.execute(SQL_APAGAR_RESERVAS_FECHADAS, (limite,))
+        cursor.execute(SQL_APAGAR_RESERVAS_VELHAS, (limite,))
         apagadas = cursor.rowcount
     finally:
         cursor.close()

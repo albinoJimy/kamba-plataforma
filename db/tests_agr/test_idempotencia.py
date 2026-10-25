@@ -673,12 +673,20 @@ class TestRetencao(_ComIdempotencia):
         )
         return chave
 
-    def test_apaga_as_fechadas_velhas_e_poupa_as_novas_e_as_em_curso(self) -> None:
-        """Relogio simulado, e o `em_curso` **nao se apaga por idade**.
+    def test_apaga_as_velhas_em_qualquer_estado_e_poupa_as_novas(self) -> None:
+        """Relogio simulado, e **o `em_curso` velho tambem se apaga**.
 
-        Uma reserva `em_curso` velha pode ser de uma invocacao a correr, e
-        apaga-la era reabrir a janela que este ticket fecha. A bateria semeia uma
-        com 90 dias exactamente para o provar.
+        A primeira versao desta bateria exigia o contrario, e a revisao
+        adversarial mostrou porque e que estava errada (`ANALISE-31`, achado 2):
+        poupar uma `em_curso` «porque pode ser de uma invocacao a correr» vale por
+        **minutos** e nao por um mes — o tecto da camada para uma escrita e de
+        8,5 s, e uma `em_curso` com mais de `MINUTOS_PARA_RETOMAR` ja se retoma.
+        O que a excepcao fazia era deixar a tabela crescer monotonicamente com
+        orfas que ninguem torna a tocar, numa tabela de dinheiro.
+
+        Apagar uma `em_curso` de 30 dias nao reabre janela nenhuma: quem voltar a
+        tocar aquele `cart_id` reserva de novo e corre o backend, que e o mesmo
+        que a retoma faria dois minutos depois de ela nascer.
         """
         velha_concluida = self._semear("v-concluida", "concluida", 40)
         velha_falhada = self._semear("v-falhada", "falhada", 40)
@@ -689,11 +697,14 @@ class TestRetencao(_ComIdempotencia):
         lote = self.ligar("batch")
         apagadas = idempotency.varrer(lote, _dt.datetime.now(_dt.UTC))
 
-        self.assertEqual(apagadas, 2)
+        self.assertEqual(apagadas, 3)
         restantes = {r[0] for r in self.reservas()}
-        self.assertEqual(restantes, {velha_em_curso, nova, na_fronteira})
-        self.assertNotIn(velha_concluida, restantes)
-        self.assertNotIn(velha_falhada, restantes)
+        # **A fronteira e a idade e nao o estado**: as tres de 40 e 90 dias saem,
+        # a de 29 dias fica. Sem a de 29 a bateria passava com uma varredura que
+        # apagasse a tabela toda.
+        self.assertEqual(restantes, {nova, na_fronteira})
+        for chave in (velha_concluida, velha_falhada, velha_em_curso):
+            self.assertNotIn(chave, restantes)
 
     def test_a_retencao_cobre_a_reserva_de_72h_com_folga(self) -> None:
         """O criterio pede «>= validade da reserva (72 h) + prazo de disputa».
