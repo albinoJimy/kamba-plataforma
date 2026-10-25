@@ -771,6 +771,48 @@ class TestFicheirosReais(unittest.TestCase):
         self.assertEqual({v.phase for v in verticais.values()}, {"P"})
         self.assertFalse((RAIZ / "registry/assistente.yaml").exists())
 
+    def test_cada_ficheiro_do_registo_le_se_pelos_tres_leitores(self) -> None:
+        """**O teste que faltava, e sem o qual o *gate* 7 foi o primeiro a saber.**
+
+        Há **três** leitores de YAML a tocar `registry/*.yaml`, e não um:
+
+        | Leitor | Quem o usa | Mapas em estilo de fluxo |
+        |---|---|---|
+        | `tools/canon_lint/yamlreg.py` | *gate* 3b | aceita |
+        | `yaml.safe_load` (PyYAML) | o `AgentRegistry`, em execução | aceita |
+        | `tools/kamba_yaml.py` | *gates* 7, 9 e 11 | **recusa** |
+
+        Os três ficheiros nasceram em estilo de fluxo — copiado à letra do
+        exemplo de `docs/tecnica/02` §5.1 e do exemplo do bloco do KAM-027 —, os
+        dois primeiros leitores leram-nos, as baterias passaram, e o *gate* 7
+        rebentou com `mapa em estilo de fluxo nao suportado`. Um ficheiro que só
+        um dos leitores entende é um ficheiro que funciona até ao CI.
+
+        Quem escreve em `registry/` escreve para o **mais estrito dos três**, e é
+        isto que o impõe antes de o CI o fazer.
+        """
+        import sys
+
+        import yaml
+
+        sys.path.insert(0, str(RAIZ / "tools"))
+        try:
+            import kamba_yaml
+            from canon_lint import yamlreg
+        finally:
+            sys.path.remove(str(RAIZ / "tools"))
+
+        ficheiros = sorted((RAIZ / "registry").glob("*.yaml"))
+        self.assertGreaterEqual(len(ficheiros), 4, "nao ha ficheiros de registo para ler")
+        for caminho in ficheiros:
+            fonte = caminho.read_text(encoding="utf-8")
+            with self.subTest(ficheiro=caminho.name):
+                pelo_estrito = kamba_yaml.load_file(caminho)
+                # E os três têm de dar o **mesmo** documento: um leitor que
+                # aceite e leia outra coisa é pior do que um que recuse.
+                self.assertEqual(pelo_estrito, yaml.safe_load(fonte), "kamba_yaml vs PyYAML")
+                self.assertEqual(pelo_estrito, yamlreg.ler(fonte), "kamba_yaml vs yamlreg")
+
     def test_os_seis_nos_e_as_onze_tools_batem_com_o_dicionario(self) -> None:
         """**O teste que a isenção do *gate* 3b promete.**
 

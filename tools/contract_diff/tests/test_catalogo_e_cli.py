@@ -525,12 +525,50 @@ class TestCoerenciaDosExemplos(unittest.TestCase):
         self.assertIn("agregado", achado.porque)
 
 
-class TestSubscricoesVazias(unittest.TestCase):
-    """A verificacao que hoje passa sobre um conjunto vazio, e di-lo."""
+class TestSubscricoesDoRegisto(unittest.TestCase):
+    """A verificacao deixou de passar sobre um conjunto vazio (KAM-027).
 
-    def test_nao_ha_subscricoes_declaradas(self) -> None:
-        """Se isto falhar, o KAM-038 chegou — e o teste de cima passa a morder."""
-        self.assertEqual(subscricoes.ler(RAIZ), [])
+    Esta classe chamava-se `TestSubscricoesVazias` e o teste de baixo afirmava
+    `== []`, com a *docstring* «se isto falhar, o KAM-038 chegou — e o teste de
+    cima passa a morder». Chegou antes: o **KAM-027** escreveu os dois primeiros
+    ficheiros de vertical, com oito subscricoes.
+
+    **E a promessa nao se cumpriu sozinha.** O `ler` procurava a chave
+    `subscricoes` com `versao_max` — os nomes da tabela `evt_subscricoes` — e a
+    forma da vertical e `subscriptions` com `versao`: com os ficheiros no disco,
+    esta verificacao lia **zero de oito** e passava vacuamente. Le as duas
+    formas desde o KAM-027, e e isso que os testes abaixo prendem.
+    """
+
+    def test_le_as_subscricoes_das_verticais_do_repositorio(self) -> None:
+        lidas = subscricoes.ler(RAIZ)
+        self.assertEqual(len(lidas), 8, [(s.consumer, s.tipo) for s in lidas])
+        # O `consumer` vem do `id` da vertical e nao do nome do ficheiro.
+        self.assertEqual({s.consumer for s in lidas}, {"vendedor", "servicos"})
+        # **Os dois eventos de pagamento, nas duas** (dicionario §3.4 e §3.5).
+        for consumer in ("vendedor", "servicos"):
+            tipos = {s.tipo for s in lidas if s.consumer == consumer}
+            self.assertIn("payment.confirmed", tipos)
+            self.assertIn("payment.manual_confirmed", tipos)
+        # E todas tem contrato: zero achados sobre o repositorio real.
+        self.assertEqual(subscricoes.verificar(RAIZ), [])
+
+    def test_le_tambem_a_forma_da_tabela_evt_subscricoes(self) -> None:
+        """A forma que este ficheiro escreveu por antecipacao continua a valer.
+
+        Le-se de um directorio temporario: a forma da tabela nao existe em
+        `registry/` e nao se inventa um ficheiro no repositorio para a provar.
+        """
+        import tempfile
+
+        pasta = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (pasta / subscricoes.PASTA_DO_REGISTO).mkdir()
+        (pasta / subscricoes.PASTA_DO_REGISTO / "consumidor.yaml").write_text(
+            "consumer: ensaio\nsubscricoes:\n  - tipo: order.created\n    versao_max: 1\n",
+            encoding="utf-8",
+        )
+        (lida,) = subscricoes.ler(pasta)
+        self.assertEqual((lida.consumer, lida.tipo, lida.versao_max), ("ensaio", "order.created", 1))
 
     def test_mas_a_verificacao_morde_com_uma_inventada(self) -> None:
         inventada = [subscricoes.Subscricao("(teste)", "ensaio", "order.created", 99)]
@@ -588,11 +626,17 @@ class TestCli(unittest.TestCase):
         codigo, texto = self.correr("exemplos")
         self.assertEqual(codigo, cli.SAIDA_OK, texto)
 
-    def test_as_subscricoes_dizem_que_sao_zero(self) -> None:
-        """Zero e um numero visivel, e nao um silencio."""
+    def test_as_subscricoes_dizem_quantas_sao(self) -> None:
+        """O numero e visivel, e nao um silencio — e deixou de ser zero.
+
+        Dizia «0 subscricoes declaradas» e isso era verdade enquanto `registry/`
+        tinha so um `README.md`. O KAM-027 trouxe oito, e o que este teste mede
+        e que a saida as **conta**: um gate que diz zero sobre oito e um gate que
+        passa vacuamente.
+        """
         codigo, texto = self.correr("subscricoes")
         self.assertEqual(codigo, cli.SAIDA_OK, texto)
-        self.assertIn("0 subscricoes declaradas", texto)
+        self.assertIn("8 subscricao(oes) lida(s)", texto)
 
     def test_sem_base_diz_que_nao_correu(self) -> None:
         """Uma verificacao que se desliga tem de o dizer na saida."""

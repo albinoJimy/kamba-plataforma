@@ -36,6 +36,13 @@
 # existir, a validacao (3) do §5.2 corre em modo `aviso`
 # (`registry/gates.yaml`) e o `/internal/turn` continua a responder 503.
 
+# ---------------------------------------------------------------------------
+# ESTILO DE BLOCO, E NAO DE FLUXO — ver `registry/gates.yaml`, que leva a razao
+# por extenso. O exemplo de `docs/tecnica/02` §5.1 escreve
+# `models: { router: ..., chat: ... }` e `- { tipo: ..., versao: 1 }`, e o
+# `tools/kamba_yaml.py` (gates 7, 9 e 11) nao le mapas em estilo de fluxo.
+# Copiar o desenho a letra punha o `gate` 7 vermelho, e punha.
+
 id: vendedor
 version: 1.0.0
 phase: P
@@ -62,16 +69,26 @@ entitlements:
     - msgs_ai_mes
     - valor_max_pedido_minor
 subscriptions:
-  - { tipo: payment.confirmed, versao: 1 }
-  - { tipo: payment.manual_confirmed, versao: 1 }
-  - { tipo: order.expired, versao: 1 }
-  - { tipo: stock.low, versao: 1 }
-models: { router: kamba-router, chat: kamba-chat }
+  - tipo: payment.confirmed
+    versao: 1
+  - tipo: payment.manual_confirmed
+    versao: 1
+  - tipo: order.expired
+    versao: 1
+  - tipo: stock.low
+    versao: 1
+models:
+  router: kamba-router
+  chat: kamba-chat
 guardrails:
   dominio: comercio_atendimento
-  handoff_triggers: [pedido_humano, reclamacao_grave, saude]
+  handoff_triggers:
+    - pedido_humano
+    - reclamacao_grave
+    - saude
 # O `dataset` e o caminho; o MODO do *gate* vive em `registry/gates.yaml`, e o
 # `load_all` exige que os dois caminhos coincidam. O §5.1 tinha aqui tambem um
 # `gate: "gates/vendedor.yaml"`; o critero 8 do bloco manda o registo em
 # `registry/gates.yaml`, e e o bloco que prevalece (dicionario §3.26).
-golden: { dataset: "golden/vendedor/v1" }
+golden:
+  dataset: "golden/vendedor/v1"

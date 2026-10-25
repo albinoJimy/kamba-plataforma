@@ -437,10 +437,26 @@ Implementar o `AgentRegistry` com carregamento e validação fail-closed no arra
 - A validação de licenças é *defesa em profundidade*; o bloqueio principal está no CI (KAM-025, KAM-067).
 
 ```yaml
-# registry/gates.yaml (exemplo)
-vendedor: { golden: "golden/vendedor/v1", golden_gate: warn }   # passa a block com KAM-040
-servicos: { golden: "golden/servicos/v1", golden_gate: warn }
+# registry/gates.yaml — a forma entregue. **Estilo de bloco, nao de fluxo:** o
+# `tools/kamba_yaml.py` (gates 7, 9 e 11) nao le mapas `{ ... }`, e a primeira
+# versao deste exemplo — copiada a letra — punha o gate 7 vermelho.
+version: 1.0.0
+gates:
+  vendedor:
+    golden: golden/vendedor/v1
+    validacoes:
+      golden:                 # passa a bloqueante com KAM-040: apaga-se a linha
+        modo: aviso
+        credor: KAM-040
 ```
+
+O `golden_gate: warn` do esboco inicial virou `validacoes.golden.modo: aviso`,
+e por uma razao: sao **tres** as validacoes que esperam por um credor e nao uma
+(a (1) pelo KAM-028 e a (3) pelo KAM-031/KAM-035), e tres chaves de topo
+diferentes para a mesma ideia eram tres sitios para esquecer uma. `bloqueio` e a
+omissao e nao se escreve, um `aviso` exige `credor`, e um `aviso` que sobreviva
+ao credor e **erro de arranque** — e isso que torna «fechar um gate e apagar uma
+linha» uma regra imposta.
 
 ### Testes Requeridos
 
@@ -594,6 +610,44 @@ não tinha `pydantic`, `yaml` nem `langgraph`. Todos os achados vêm de leitura 
 diff e do código ligado. Dos 25, **dois** não se confirmaram ao medir: a
 *self-validation* já tinha fechado o 1, e a mutação que a revisão inspirou para
 a largura das versões acabou por ser equivalente (ver «duas sobreviventes»).
+
+**Um defeito que só o CI soube, e a lição é sobre leitores e não sobre YAML.**
+O *gate* 7 do PR #54 abriu vermelho com
+`registry/gates.yaml: mapa em estilo de fluxo nao suportado ('{')`. Há **três**
+leitores de YAML a tocar `registry/*.yaml` — o `yamlreg` do *gate* 3b, o
+`yaml.safe_load` do AGR, e o `tools/kamba_yaml.py` dos *gates* 7, 9 e 11 — e só
+o terceiro é estrito. Os três ficheiros nasceram em estilo de fluxo, copiado à
+letra do exemplo de `docs/tecnica/02` §5.1 **e do exemplo deste próprio bloco**;
+os dois primeiros leitores leram-nos, as 62 baterias passaram, e o terceiro
+rebentou. Os três estavam quebrados, não só o primeiro: o *gate* pára no
+primeiro ficheiro por ordem alfabética.
+
+Corrigido nos ficheiros e no exemplo do bloco, com `docs/dividas-documentais.md`
+linha **100** para o §5.1, que continua a ensinar a forma que o CI recusa. E com
+o teste que faltava: `test_cada_ficheiro_do_registo_le_se_pelos_tres_leitores`
+exige que os três leiam cada ficheiro **e devolvam o mesmo documento** — um
+leitor que aceite e leia outra coisa é pior do que um que recuse.
+
+**E havia um segundo defeito atrás da falha, mais quieto.** O
+`tools/contract_diff/subscricoes.py` promete por escrito que «quando o KAM-038
+escrever o primeiro ficheiro, esta verificação começa a morder sem ninguém lhe
+tocar». Não começa: ela procura a chave `subscricoes` com `versao_max` (os nomes
+da tabela `evt_subscricoes`), e a forma da vertical tem `subscriptions` com
+`versao`. Com os ficheiros a parsear, o *gate* 7 lê **zero** subscrições das
+oito que lá estão — passaria vacuamente. Corrigido no mesmo PR, em oito linhas: o `ler`
+passa a conhecer as **duas** formas — a da tabela `evt_subscricoes`, que aquele
+ficheiro escrevera por antecipação, e a da vertical, que é a que existe no disco
+— e o *gate* 7 passa a ler **8 subscrições, 0 sem contrato**. Os dois testes que
+afirmavam `== []` e «0 subscrições declaradas» passaram a afirmar o novo número,
+e um deles tinha escrito na *docstring* «se isto falhar, o KAM-038 chegou»:
+chegou antes, e a promessa de que a verificação «começa a morder sem ninguém lhe
+tocar» era falsa.
+
+**Porque é que isto se corrigiu aqui e não se deixou ao KAM-038.** A propriedade
+já estava garantida — a validação (4) do registo confronta tipo e versão com o
+catálogo no arranque, e bloqueia. O que faltava era o controlo do **CI**, sobre
+ficheiros que este ticket acabou de criar: deixá-lo a ler zero era deixar um
+*gate* verde pela razão errada numa superfície minha.
 
 **O que não se mediu, e não se diz medido.** O *gate* 8 (as *suites* contra um
 PostgreSQL real) **não corre neste ticket**: nada do que ele entrega toca a base

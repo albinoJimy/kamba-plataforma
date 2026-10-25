@@ -39,9 +39,16 @@ entitlements:
     - msgs_ai_mes
     - marcacoes_mes
 subscriptions:
-  - { tipo: booking.created, versao: 1 }
-  - { tipo: booking.reminder_due, versao: 1 }
-  - { tipo: payment.confirmed, versao: 1 }
-  - { tipo: payment.manual_confirmed, versao: 1 }
-models: { router: kamba-router, chat: kamba-chat }
-golden: { dataset: "golden/servicos/v1" }
+  - tipo: booking.created
+    versao: 1
+  - tipo: booking.reminder_due
+    versao: 1
+  - tipo: payment.confirmed
+    versao: 1
+  - tipo: payment.manual_confirmed
+    versao: 1
+models:
+  router: kamba-router
+  chat: kamba-chat
+golden:
+  dataset: "golden/servicos/v1"

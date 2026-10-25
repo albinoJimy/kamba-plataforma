@@ -44,6 +44,21 @@
 #   vertical, o critero 8 poe o gate aqui, e sem o confronto ficavam duas
 #   verdades a divergir em silencio.
 #
+# ---------------------------------------------------------------------------
+# ESTILO DE BLOCO, E NAO DE FLUXO.
+#
+# O exemplo do bloco do KAM-027 escreve
+# `vendedor: { golden: "...", golden_gate: warn }`, e este ficheiro nasceu assim.
+# O `gate` 7 rebentou: o `tools/kamba_yaml.py` — o subconjunto de YAML que esta
+# casa le, sem dependencia externa — **nao suporta mapas em estilo de fluxo**.
+#
+# Nao e preferencia de estilo: ha DOIS leitores de YAML no repositorio e os dois
+# tem de conseguir ler os ficheiros de `registry/`. O `tools/canon_lint/yamlreg.py`
+# (gate 3b) aceita fluxo; o `kamba_yaml` (gates 7, 9 e 11) nao. Quem escreve aqui
+# escreve para o mais estrito dos dois, e ha um teste que le cada
+# `registry/*.yaml` pelos **dois** — era o que faltava, e e por isso que este
+# defeito so apareceu no CI.
+#
 # QUANDO SE EDITA: quando um dos tres credores ficar `Done`. Tirar a linha e o
 # que torna a validacao bloqueante — nao ha interruptor nenhum no codigo, e
 # `bloqueio` e a omissao precisamente para que fechar um `aviso` seja APAGAR
@@ -55,12 +70,24 @@ gates:
   vendedor:
     golden: golden/vendedor/v1
     validacoes:
-      tools: { modo: aviso, credor: KAM-028 }
-      grafo: { modo: aviso, credor: KAM-031 }
-      golden: { modo: aviso, credor: KAM-040 }
+      tools:
+        modo: aviso
+        credor: KAM-028
+      grafo:
+        modo: aviso
+        credor: KAM-031
+      golden:
+        modo: aviso
+        credor: KAM-040
   servicos:
     golden: golden/servicos/v1
     validacoes:
-      tools: { modo: aviso, credor: KAM-028 }
-      grafo: { modo: aviso, credor: KAM-035 }
-      golden: { modo: aviso, credor: KAM-040 }
+      tools:
+        modo: aviso
+        credor: KAM-028
+      grafo:
+        modo: aviso
+        credor: KAM-035
+      golden:
+        modo: aviso
+        credor: KAM-040
