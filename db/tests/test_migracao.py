@@ -42,8 +42,8 @@ def _objectos_em_platform(cursor) -> int:
     return int(cursor.fetchone()[0])
 
 
-def _schema_existe(cursor) -> bool:
-    cursor.execute("SELECT count(*) FROM pg_namespace WHERE nspname = 'platform'")
+def _schema_existe(cursor, nome: str = "platform") -> bool:
+    cursor.execute("SELECT count(*) FROM pg_namespace WHERE nspname = %s", (nome,))
     return bool(cursor.fetchone()[0])
 
 
@@ -79,6 +79,13 @@ class TestCiclo(unittest.TestCase):
         """O criterio 1, a letra: `alembic`, pela linha de comandos, num processo novo."""
         alembic_cli_ok("downgrade", "base")
         self.assertFalse(_schema_existe(self.cursor), "a base nao estava vazia")
+        # **O `lg` tambem** (KAM-026). Este teste media so o `platform`, e um
+        # esquema que sobrevivesse ao `downgrade base` ficava invisivel: a
+        # `0020` seguinte falhava com «schema "lg" already exists» num sitio
+        # que nao diz porque.
+        self.assertFalse(
+            _schema_existe(self.cursor, "lg"), "o lg sobreviveu ao downgrade base"
+        )
 
         alembic_cli_ok("upgrade", "head")
         self.assertEqual(_tabelas(self.cursor), TABELAS)

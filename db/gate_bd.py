@@ -45,7 +45,7 @@ caso fica um `kamba-gate8-*` orfao, que se remove a mao.
 trincos, e o segundo e o que importa:
 
 - a base tem de se chamar `kamba_gate8`;
-- as palavras-passe dos cinco papeis tem de vir **dadas** no ambiente. Os papeis
+- as palavras-passe dos sete papeis tem de vir **dadas** no ambiente. Os papeis
   sao globais a instancia, nao a base: o `bootstrap` redefine-lhes a
   palavra-passe, e gera-las aqui trocava as credenciais de todos os servicos da
   instancia por valores que ninguem conhece. Este modo so e seguro contra uma
@@ -238,6 +238,7 @@ def _ambiente_da_suite(host: str, porta: str, senha_admin: str) -> dict[str, str
             "KAMBA_SECRET_DB_RESOLVER_PASSWORD": secrets.token_urlsafe(24),
             "KAMBA_SECRET_DB_IDENTITY_PASSWORD": secrets.token_urlsafe(24),
             "KAMBA_SECRET_DB_AUDIT_PASSWORD": secrets.token_urlsafe(24),
+            "KAMBA_SECRET_DB_AGR_PASSWORD": secrets.token_urlsafe(24),
         }
     )
     return ambiente
@@ -386,12 +387,12 @@ def com_bd_existente(suite: str) -> int:
     ambiente = dict(os.environ)
     em_falta = [
         f"KAMBA_SECRET_DB_{papel}_PASSWORD"
-        for papel in ("MIGRATOR", "APP", "BATCH", "RESOLVER", "IDENTITY")
+        for papel in ("MIGRATOR", "APP", "BATCH", "RESOLVER", "IDENTITY", "AUDIT", "AGR")
         if not ambiente.get(f"KAMBA_SECRET_DB_{papel}_PASSWORD")
     ]
     if em_falta:
         print(
-            "gate de BD: --bd-existente exige as palavras-passe dos cinco papeis no "
+            "gate de BD: --bd-existente exige as palavras-passe dos sete papeis no "
             f"ambiente; faltam: {', '.join(em_falta)}.\n"
             "    Os papeis sao globais a instancia: gera-las aqui trocava as "
             "credenciais de todos os servicos que a usam.",

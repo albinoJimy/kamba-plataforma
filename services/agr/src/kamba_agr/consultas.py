@@ -198,6 +198,11 @@ SQL_ESCRITAS_PENDENTES = """
 #: dizer «sem limite superior», e o `%s IS NULL OR` e o que o permite sem uma
 #: segunda cadeia.
 #:
+#: **Os dois `::text` nao sao enfeite.** Sem eles o servidor responde
+#: `42P18 — could not determine data type of parameter $3`: um parametro cujo
+#: unico uso e `IS NULL` nao da ao analisador contexto nenhum para inferir o
+#: tipo, e a instrucao nem chega a correr. Medido contra a base, nao lido.
+#:
 #: Parametros: `thread_id`, `checkpoint_ns`, `before` (ou nulo), `limite`.
 SQL_LISTAR_CHECKPOINTS = """
   SELECT checkpoint_id, parent_checkpoint_id, type, checkpoint,
@@ -205,7 +210,7 @@ SQL_LISTAR_CHECKPOINTS = """
     FROM lg.checkpoints
    WHERE thread_id = %s
      AND checkpoint_ns = %s
-     AND (%s IS NULL OR checkpoint_id < %s)
+     AND (%s::text IS NULL OR checkpoint_id < %s::text)
    ORDER BY checkpoint_id DESC
    LIMIT %s
 """

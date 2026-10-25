@@ -190,6 +190,15 @@ TABELAS = tuple(
     )
 )
 
+#: O que existe em `platform` quando a base esta na revisao `0019`.
+#:
+#: **Igual ao `TABELAS`**, e e por isso que nao se deriva de uma tupla
+#: `TABELAS_0020`: a `0020` nao cria tabela nenhuma no `platform` — cria o
+#: esquema `lg` e as duas dele. Fica nomeada na mesma, porque o teste do ciclo
+#: pergunta «o que ha depois de descer um degrau» e a resposta ser «o mesmo» e
+#: um facto, nao uma omissao.
+TABELAS_ATE_0019 = TABELAS
+
 #: O que existe em `platform` quando a base esta na revisao `0018`.
 #:
 #: Pela mesma razao das outras: o `downgrade` da `0019` leva a base para aqui, e
