@@ -780,6 +780,21 @@ class ToolLayer:
         if not inv.dono_da_chave or inv.chave is None:
             return
         ok = resultado is not None and resultado.ok
+        # **Tenta-se uma vez, e a marca limpa-se mesmo que a tentativa falhe.**
+        #
+        # Chama-se nos dois caminhos — no `except`, antes de a ligacao cair, e no
+        # `finally` —, e a marca e o que faz da segunda chamada um `return`.
+        # Limpar so **depois** de a escrita passar tinha um modo de falha pior do
+        # que o que resolvia: com a ligacao ja quebrada, a tentativa do `except`
+        # levantava (e e engolida ali, de proposito), a marca ficava de pe, e a
+        # do `finally` levantava **de dentro do `finally`** — substituindo a
+        # excepcao original por um `InterfaceError` do driver. Quem lesse o log
+        # via o sintoma e nao a causa, numa tool `money`.
+        #
+        # Com a marca limpa a entrada, uma falha de fecho deixa a linha
+        # `em_curso` e e o `shortcut` declarado no `idempotency.py` — que e o
+        # desfecho que ja estava escrito para este caso.
+        inv.dono_da_chave = False
         idempotency.fechar(
             inv.ligacao,
             inv.ctx,
@@ -787,11 +802,6 @@ class ToolLayer:
             ok=ok,
             resultado=resultado.data if ok and resultado is not None else None,
         )
-        # **Fecha-se uma vez.** Chama-se nos dois caminhos — no `except`, antes
-        # de a ligacao cair, e no `finally` — e a marca e o que faz da segunda
-        # chamada um `return`. Sem ela, o caminho de excepcao escrevia duas vezes,
-        # a segunda numa ligacao fechada.
-        inv.dono_da_chave = False
 
     def verificar_entitlement(self, inv: Invocacao) -> ErroDeTool | None:
         """O passo 2, dentro de uma transaccao com `app.tenant_id`."""

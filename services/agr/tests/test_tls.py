@@ -2218,6 +2218,38 @@ class TestProtocoloDeIdempotencia(_Base):
         )
         self.assertEqual(ligacao.idempotencia[chave][0], "concluida")
 
+    def test_um_fecho_que_falha_nao_mascara_a_excepcao_original(self) -> None:
+        """O que sobe tem de ser a falha que travou o turno, e nao o sintoma.
+
+        O fecho da reserva corre em **dois** caminhos: no `except`, antes de a
+        tomada cair, e no `finally`. Se a marca de posse só se limpasse **depois**
+        de a escrita passar, uma ligação já quebrada dava isto: a tentativa do
+        `except` levanta (e é engolida ali, de propósito), a marca fica de pé, e
+        a tentativa do `finally` levanta **de dentro do `finally`** —
+        substituindo a excepção original. Quem lesse o log de uma tool `money`
+        via o `InterfaceError` do driver e não a causa.
+
+        Encontrado a raciocinar sobre o caminho, não a correr: a bateria do
+        critério 4 não o apanha porque ali o fecho **passa**.
+        """
+        camada, ligacao, _, _ = self.camada_que_conta()
+
+        class _FalhaDoFecho(RuntimeError):
+            pass
+
+        original = idempotency.fechar
+
+        def fechar_que_falha(*argumentos, **nomeados):
+            raise _FalhaDoFecho("a ligacao ja estava quebrada")
+
+        idempotency.fechar = fechar_que_falha
+        ligacao.levantar_em = "INSERT INTO platform.tool_audit"
+        try:
+            with self.assertRaises(auditoria.AuditoriaIndisponivelError):
+                self.invocar(camada)
+        finally:
+            idempotency.fechar = original
+
     def test_uma_read_nao_reserva_nada(self) -> None:
         """Repetir uma leitura nao tem efeito, e por isso nao leva chave."""
         _, ligacao, _ = self.camada()
