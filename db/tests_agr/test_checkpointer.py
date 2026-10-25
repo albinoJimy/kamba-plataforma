@@ -1,0 +1,671 @@
+"""O checkpointer contra um PostgreSQL de verdade (KAM-026).
+
+E aqui que o SQL de `kamba_agr/consultas.py` se prova. A bateria de unidade em
+`services/agr/tests/test_checkpointer.py` cobre as guardas e a leitura do
+`config`, que sao Python; o que depende de a base avaliar — a ordem das
+escritas, o `ON CONFLICT`, o que o papel ve e nao ve — so se mede aqui.
+
+**A suite corre estas cadeias e nao copias delas**, que e a regra que o
+`outbound/consultas.ts` escreveu e que o KAM-017 pagou duas vezes para
+reaprender.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import datetime as dt
+import re
+import unittest
+
+import ligacao
+from tests_agr.base import ComAgr, thread_id_de
+
+from kamba_agr import consultas, retencao
+from kamba_agr.checkpointer import CheckpointerDoAgr
+
+#: O que o criterio 2 manda procurar: um numero angolano em qualquer forma.
+#:
+#: **«Em qualquer forma» e a parte que custa.** O criterio escreve
+#: `\+?244\d{9}`, que so apanha a forma internacional — e a que um cliente
+#: angolano escreve no WhatsApp e a **local**, `9xxxxxxxx`, sem indicativo e as
+#: vezes com espacos. Uma expressao que so apanhasse a do criterio dava zero
+#: sobre um estado cheio de numeros locais. Esta apanha as tres.
+TELEFONE = re.compile(r"(?:\+?244[\s-]?)?9\d{2}[\s-]?\d{3}[\s-]?\d{3}\b")
+
+#: A outra metade do criterio 2, o **BSUID**.
+#:
+#: Procura-se pelo **nome do campo** e nao pelo valor, e a razao esta no
+#: dicionario: um BSUID e um identificador opaco da Meta, sem forma fixa — o
+#: §3.1 so diz que vive cifrado em `contact_endpoints.bsuid_enc` e que o HMAC
+#: de pesquisa e o `bsuid_hmac`. Uma expressao sobre o valor nao existe para
+#: se escrever; o que se pode medir e que o estado nao traga o campo.
+CAMPOS_PROIBIDOS = ("bsuid", "phone", "msisdn", "telefone")
+
+AGORA = dt.datetime(2026, 10, 25, 12, 0, tzinfo=dt.timezone.utc)
+
+
+def checkpoint(ident: str, **canais: object) -> dict:
+    return {
+        "v": 1,
+        "id": ident,
+        "ts": AGORA.isoformat(),
+        "channel_values": dict({"messages": []}, **canais),
+        "channel_versions": {"messages": 1},
+        "versions_seen": {},
+        "updated_channels": None,
+    }
+
+
+def config(thread_id: str, checkpoint_id: str | None = None) -> dict:
+    configuravel: dict = {"thread_id": thread_id, "checkpoint_ns": ""}
+    if checkpoint_id is not None:
+        configuravel["checkpoint_id"] = checkpoint_id
+    return {"configurable": configuravel}
+
+
+class ComCheckpointer(ComAgr):
+    """Abre o papel `kamba_agr` e limpa o `lg` das *threads* que tocou."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._threads: list[str] = []
+        self.saver = self.novo_saver()
+
+    def novo_saver(self) -> CheckpointerDoAgr:
+        """Um checkpointer numa ligacao **nova**.
+
+        E assim que se simula um reinicio sem reiniciar nada: o criterio 1 pede
+        que o estado sobreviva ao processo, e um saver novo numa tomada nova
+        nao tem nada em memoria do anterior.
+        """
+        conexao = ligacao.ligar("agr")
+        self.addCleanup(conexao.close)
+        return CheckpointerDoAgr(conexao)
+
+    def thread(self, conversa=None) -> str:
+        conversa = conversa or self.criar_conversa()
+        identificador = thread_id_de(conversa.tenant_id, conversa.contact_id)
+        self._threads.append(identificador)
+        self.addCleanup(self._apagar, identificador)
+        return identificador
+
+    def _apagar(self, thread_id: str) -> None:
+        for tabela in ("checkpoint_writes", "checkpoints"):
+            self.semente.execute(
+                f"DELETE FROM lg.{tabela} WHERE thread_id = %s", (thread_id,)
+            )
+
+
+class TestVoltaDaBase(ComCheckpointer):
+    def test_o_que_se_grava_volta_igual(self) -> None:
+        thread = self.thread()
+        gravado = checkpoint("cp-1", stage="cart", cart={"itens": 2})
+        asyncio.run(self.saver.aput(config(thread), gravado, {"step": 3}, {}))
+
+        lido = asyncio.run(self.saver.aget_tuple(config(thread)))
+        assert lido is not None
+        self.assertEqual(lido.checkpoint["id"], "cp-1")
+        self.assertEqual(lido.checkpoint["channel_values"]["stage"], "cart")
+        self.assertEqual(lido.metadata["step"], 3)
+
+    def test_sobrevive_ao_reinicio_do_processo(self) -> None:
+        # **O criterio 1.** `stage`, `cart` e `handoff` pelo nome, porque e o
+        # que ele enumera. O saver novo nao partilha nada com o anterior.
+        thread = self.thread()
+        asyncio.run(
+            self.saver.aput(
+                config(thread),
+                checkpoint("cp-1", stage="awaiting_confirm", cart={"total_minor": 1500},
+                           handoff={"estado": "waiting"}),
+                {},
+                {},
+            )
+        )
+        depois_do_reinicio = self.novo_saver()
+        lido = asyncio.run(depois_do_reinicio.aget_tuple(config(thread)))
+        assert lido is not None
+        valores = lido.checkpoint["channel_values"]
+        self.assertEqual(valores["stage"], "awaiting_confirm")
+        self.assertEqual(valores["cart"], {"total_minor": 1500})
+        self.assertEqual(valores["handoff"], {"estado": "waiting"})
+
+    def test_sem_checkpoint_devolve_none(self) -> None:
+        self.assertIsNone(asyncio.run(self.saver.aget_tuple(config(self.thread()))))
+
+    def test_o_mais_recente_e_o_do_maior_checkpoint_id(self) -> None:
+        # O `Checkpoint` do LangGraph di-lo: «unique and monotonically
+        # increasing, so can be used for sorting». Gravam-se fora de ordem de
+        # proposito — se a consulta ordenasse pelo `criado_at`, dois do mesmo
+        # microssegundo empatavam e o desempate era a ordem do disco.
+        thread = self.thread()
+        for ident in ("cp-2", "cp-1", "cp-3"):
+            asyncio.run(self.saver.aput(config(thread), checkpoint(ident), {}, {}))
+        lido = asyncio.run(self.saver.aget_tuple(config(thread)))
+        assert lido is not None
+        self.assertEqual(lido.checkpoint["id"], "cp-3")
+
+    def test_um_checkpoint_nomeado_le_esse_e_nao_o_ultimo(self) -> None:
+        thread = self.thread()
+        for ident in ("cp-1", "cp-2"):
+            asyncio.run(self.saver.aput(config(thread), checkpoint(ident), {}, {}))
+        lido = asyncio.run(self.saver.aget_tuple(config(thread, "cp-1")))
+        assert lido is not None
+        self.assertEqual(lido.checkpoint["id"], "cp-1")
+
+    def test_o_pai_volta_no_parent_config(self) -> None:
+        thread = self.thread()
+        asyncio.run(self.saver.aput(config(thread), checkpoint("cp-1"), {}, {}))
+        asyncio.run(
+            self.saver.aput(config(thread, "cp-1"), checkpoint("cp-2"), {}, {})
+        )
+        lido = asyncio.run(self.saver.aget_tuple(config(thread, "cp-2")))
+        assert lido is not None
+        assert lido.parent_config is not None
+        self.assertEqual(lido.parent_config["configurable"]["checkpoint_id"], "cp-1")
+        # E o primeiro nao tem pai: um `parent_config` apontando para nada
+        # mandava a viagem no tempo procurar um checkpoint que nunca existiu.
+        primeiro = asyncio.run(self.saver.aget_tuple(config(thread, "cp-1")))
+        assert primeiro is not None
+        self.assertIsNone(primeiro.parent_config)
+
+
+class TestEscritasPendentes(ComCheckpointer):
+    def test_voltam_na_ordem_do_writes_sort_key(self) -> None:
+        # `(task_path, task_id, idx)`. Gravam-se ao contrario: com um `ORDER BY`
+        # pelo `task_id` so, ou sem ordem nenhuma, esta ordem saia do disco — e
+        # a interface avisa que «an order-sensitive reducer rebuilds a different
+        # value than the run produced».
+        thread = self.thread()
+        asyncio.run(self.saver.aput(config(thread), checkpoint("cp-1"), {}, {}))
+        alvo = config(thread, "cp-1")
+        # **O `task_path` e o `task_id` ordenam em sentidos opostos**, e e isso
+        # que torna o ensaio capaz de ver a diferenca. Com os dois a ordenar
+        # para o mesmo lado, tirar o `task_path` do `ORDER BY` dava o mesmo
+        # resultado e a mutacao sobrevivia — foi o que aconteceu a primeira
+        # versao deste ensaio, e a prova por mutacao apanhou-o.
+        asyncio.run(self.saver.aput_writes(alvo, [("c", 3)], "tarefa-a", "caminho-z"))
+        asyncio.run(self.saver.aput_writes(alvo, [("a", 1), ("b", 2)], "tarefa-b", "caminho-a"))
+
+        lido = asyncio.run(self.saver.aget_tuple(alvo))
+        assert lido is not None
+        self.assertEqual(
+            [(t, c) for t, c, _v in lido.pending_writes or []],
+            # Por `caminho-a` primeiro, que e a `tarefa-b`. Por `task_id`
+            # primeiro seria a `tarefa-a`, e e essa a diferenca.
+            [("tarefa-b", "a"), ("tarefa-b", "b"), ("tarefa-a", "c")],
+        )
+
+    def test_repetir_a_mesma_escrita_nao_duplica(self) -> None:
+        # **O criterio 5 visto da tabela.** Um turno que repete depois de uma
+        # falha reescreve a mesma `(tarefa, idx)` em vez de criar outra linha:
+        # e isso que faz a repeticao nao duplicar o efeito.
+        thread = self.thread()
+        asyncio.run(self.saver.aput(config(thread), checkpoint("cp-1"), {}, {}))
+        alvo = config(thread, "cp-1")
+        for _ in range(3):
+            asyncio.run(self.saver.aput_writes(alvo, [("canal", 7)], "tarefa"))
+        lido = asyncio.run(self.saver.aget_tuple(alvo))
+        assert lido is not None
+        self.assertEqual(len(lido.pending_writes or []), 1)
+        self.assertEqual((lido.pending_writes or [])[0][2], 7)
+
+    def test_regravar_o_mesmo_checkpoint_nao_duplica(self) -> None:
+        thread = self.thread()
+        for _ in range(2):
+            asyncio.run(self.saver.aput(config(thread), checkpoint("cp-1"), {}, {}))
+        self.semente.execute(
+            "SELECT count(*) FROM lg.checkpoints WHERE thread_id = %s", (thread,)
+        )
+        self.assertEqual(self.semente.fetchone()[0], 1)
+
+
+class TestJanelaContraABase(ComCheckpointer):
+    def test_acima_da_janela_nao_chega_a_base(self) -> None:
+        # A guarda tambem se mede aqui, e nao so na bateria de unidade: sem um
+        # ensaio nesta *suite* uma mutacao no `>` do `_exigir_janela`
+        # sobrevivia por desenho, porque todos os outros ensaios gravam
+        # estados de zero ou uma mensagem.
+        from kamba_agr.checkpointer import JANELA_MAXIMA, JanelaExcedidaError
+
+        thread = self.thread()
+        grande = checkpoint("cp-1", messages=[f"m{i}" for i in range(JANELA_MAXIMA + 1)])
+        with self.assertRaises(JanelaExcedidaError):
+            asyncio.run(self.saver.aput(config(thread), grande, {}, {}))
+        self.semente.execute(
+            "SELECT count(*) FROM lg.checkpoints WHERE thread_id = %s", (thread,)
+        )
+        self.assertEqual(self.semente.fetchone()[0], 0)
+
+    def test_no_maximo_exacto_grava(self) -> None:
+        from kamba_agr.checkpointer import JANELA_MAXIMA
+
+        thread = self.thread()
+        cheio = checkpoint("cp-1", messages=[f"m{i}" for i in range(JANELA_MAXIMA)])
+        asyncio.run(self.saver.aput(config(thread), cheio, {}, {}))
+        lido = asyncio.run(self.saver.aget_tuple(config(thread)))
+        assert lido is not None
+        self.assertEqual(len(lido.checkpoint["channel_values"]["messages"]), JANELA_MAXIMA)
+
+
+class TestApagar(ComCheckpointer):
+    def test_adelete_thread_leva_as_duas_tabelas(self) -> None:
+        thread = self.thread()
+        asyncio.run(self.saver.aput(config(thread), checkpoint("cp-1"), {}, {}))
+        asyncio.run(
+            self.saver.aput_writes(config(thread, "cp-1"), [("c", 1)], "tarefa")
+        )
+        asyncio.run(self.saver.adelete_thread(thread))
+        for tabela in ("checkpoints", "checkpoint_writes"):
+            with self.subTest(tabela=tabela):
+                self.semente.execute(
+                    f"SELECT count(*) FROM lg.{tabela} WHERE thread_id = %s", (thread,)
+                )
+                self.assertEqual(self.semente.fetchone()[0], 0)
+
+    def test_nao_leva_as_outras_threads(self) -> None:
+        a, b = self.thread(), self.thread()
+        for thread in (a, b):
+            asyncio.run(self.saver.aput(config(thread), checkpoint("cp-1"), {}, {}))
+        asyncio.run(self.saver.adelete_thread(a))
+        self.semente.execute(
+            "SELECT count(*) FROM lg.checkpoints WHERE thread_id = %s", (b,)
+        )
+        self.assertEqual(self.semente.fetchone()[0], 1)
+
+
+class TestRetencao(ComCheckpointer):
+    """O criterio 8, primeira metade, com relogio simulado."""
+
+    def _envelhecer(self, thread_id: str, dias: int) -> None:
+        self.semente.execute(
+            "UPDATE lg.checkpoints SET criado_at = %s WHERE thread_id = %s",
+            (AGORA - dt.timedelta(days=dias), thread_id),
+        )
+
+    def test_apaga_a_parada_e_deixa_a_viva(self) -> None:
+        parada, viva = self.thread(), self.thread()
+        for thread in (parada, viva):
+            asyncio.run(self.saver.aput(config(thread), checkpoint("cp-1"), {}, {}))
+        self._envelhecer(parada, 31)
+        self._envelhecer(viva, 29)
+
+        lote = ligacao.ligar("batch")
+        self.addCleanup(lote.close)
+        self.assertEqual(retencao.varrer(lote, AGORA), [parada])
+
+    def test_a_fronteira_e_pelo_valor(self) -> None:
+        # Exactamente 30 dias **nao** apaga: o predicado e `<`, e uma *thread*
+        # no dia do prazo ainda esta dentro dele.
+        thread = self.thread()
+        asyncio.run(self.saver.aput(config(thread), checkpoint("cp-1"), {}, {}))
+        self._envelhecer(thread, 30)
+        lote = ligacao.ligar("batch")
+        self.addCleanup(lote.close)
+        self.assertEqual(retencao.varrer(lote, AGORA), [])
+
+    def test_o_maximo_da_thread_manda_e_nao_cada_linha(self) -> None:
+        # Uma *thread* com um checkpoint velho **e** um recente esta viva.
+        # Apagar-lhe o velho era poda, e a poda nao se faz aqui.
+        thread = self.thread()
+        for ident in ("cp-1", "cp-2"):
+            asyncio.run(self.saver.aput(config(thread), checkpoint(ident), {}, {}))
+        self.semente.execute(
+            "UPDATE lg.checkpoints SET criado_at = %s "
+            "WHERE thread_id = %s AND checkpoint_id = 'cp-1'",
+            (AGORA - dt.timedelta(days=200), thread),
+        )
+        lote = ligacao.ligar("batch")
+        self.addCleanup(lote.close)
+        self.assertEqual(retencao.varrer(lote, AGORA), [])
+
+
+    def test_a_lista_de_candidatas_sai_do_maximo_e_a_fronteira_e_pelo_valor(self) -> None:
+        """O `SQL_THREADS_INACTIVAS` sozinho, que e o que escolhe quem se olha.
+
+        **Afirma-se a cadeia e nao o desfecho da varredura**, e e deliberado:
+        desde que o `DELETE` ganhou predicado de tempo proprio, uma lista de
+        candidatas errada deixou de mudar o que se apaga — a segunda barreira
+        recusa. Isso e defesa em profundidade a funcionar, mas deixa o
+        `SELECT` por provar: tres mutacoes nele sobreviveram a bateria antes
+        deste ensaio existir. Aqui a instrucao e o sujeito.
+        """
+        parada, viva, na_fronteira = self.thread(), self.thread(), self.thread()
+        for thread in (parada, viva, na_fronteira):
+            asyncio.run(self.saver.aput(config(thread), checkpoint("cp-1"), {}, {}))
+        self._envelhecer(parada, 31)
+        self._envelhecer(viva, 29)
+        self._envelhecer(na_fronteira, 30)
+        # A `viva` leva **tambem** um checkpoint velho: com `min` em vez de
+        # `max` ela entrava na lista, e e isso que separa as duas leituras.
+        asyncio.run(self.saver.aput(config(viva), checkpoint("cp-0"), {}, {}))
+        self.semente.execute(
+            "UPDATE lg.checkpoints SET criado_at = %s "
+            "WHERE thread_id = %s AND checkpoint_id = 'cp-0'",
+            (AGORA - dt.timedelta(days=200), viva),
+        )
+
+        limite = AGORA - dt.timedelta(days=retencao.DIAS_DE_INACTIVIDADE)
+        self.semente.execute(consultas.SQL_THREADS_INACTIVAS, (limite,))
+        candidatas = {linha[0] for linha in self.semente.fetchall()}
+        # A `parada` sim; a `viva` nao, apesar do checkpoint de ha 200 dias; e a
+        # `na_fronteira` nao, porque o predicado e `<` e nao `<=`.
+        self.assertIn(parada, candidatas)
+        self.assertNotIn(viva, candidatas)
+        self.assertNotIn(na_fronteira, candidatas)
+
+    def test_a_corrida_entre_o_select_e_o_delete(self) -> None:
+        """Uma mensagem chega **depois** da lista e **antes** do apagamento.
+
+        O ensaio anterior desta corrida escrevia o checkpoint novo antes de a
+        varredura correr — e a *thread* nem chegava a ser candidata, pelo que a
+        corrida nunca acontecia e a mutacao que tira o predicado do `DELETE`
+        sobrevivia. Aqui a escrita entra **no intervalo**, por uma ligacao que
+        conta quantas instrucoes passaram.
+        """
+        acordada = self.thread()
+        asyncio.run(self.saver.aput(config(acordada), checkpoint("cp-1"), {}, {}))
+        self._envelhecer(acordada, 31)
+
+        escrever = self.saver
+        semente = self.semente
+
+        class LigacaoQueAcorda:
+            """Delega tudo, e acorda a *thread* a seguir ao `SELECT`."""
+
+            def __init__(self, interna) -> None:
+                self._interna = interna
+                self._instrucoes = 0
+
+            def cursor(self):
+                return _CursorQueAcorda(self, self._interna.cursor())
+
+            def commit(self) -> None:
+                self._interna.commit()
+
+            def close(self) -> None:
+                self._interna.close()
+
+        class _CursorQueAcorda:
+            def __init__(self, dono, interno) -> None:
+                self._dono = dono
+                self._interno = interno
+
+            def execute(self, sql, parametros=None):
+                resultado = self._interno.execute(sql, parametros)
+                self._dono._instrucoes += 1
+                if self._dono._instrucoes == 1:
+                    # A lista ja saiu. Chega agora uma mensagem.
+                    asyncio.run(
+                        escrever.aput(config(acordada), checkpoint("cp-2"), {}, {})
+                    )
+                return resultado
+
+            def fetchall(self):
+                return self._interno.fetchall()
+
+            @property
+            def rowcount(self):
+                return self._interno.rowcount
+
+            def close(self) -> None:
+                self._interno.close()
+
+        lote = ligacao.ligar("batch")
+        self.addCleanup(lote.close)
+        apagadas = retencao.varrer(LigacaoQueAcorda(lote), AGORA)
+
+        # A *thread* estava na lista — era candidata legitima — e **nao** se
+        # apaga, porque o `DELETE` reconfere o tempo. Sem esse predicado, o
+        # estado da conversa ia-se a meio do turno.
+        self.assertEqual(apagadas, [])
+        semente.execute(
+            "SELECT count(*) FROM lg.checkpoints WHERE thread_id = %s", (acordada,)
+        )
+        self.assertEqual(semente.fetchone()[0], 2)
+
+    def test_uma_thread_que_acorda_entre_o_select_e_o_delete_nao_se_apaga(self) -> None:
+        # **A corrida que a revisao adversarial apanhou.** A varredura le a
+        # lista das inactivas e so depois apaga, uma a uma; entre as duas
+        # coisas pode chegar uma mensagem. Simula-se escrevendo um checkpoint
+        # novo com o relogio de agora numa *thread* que ja estava na lista.
+        parada, acordada = self.thread(), self.thread()
+        for thread in (parada, acordada):
+            asyncio.run(self.saver.aput(config(thread), checkpoint("cp-1"), {}, {}))
+        self._envelhecer(parada, 31)
+        self._envelhecer(acordada, 31)
+        # A `acordada` recebe agora um checkpoint novo — e o `criado_at` dele e
+        # o `now()` do servidor, que esta a frente do limite.
+        asyncio.run(self.saver.aput(config(acordada), checkpoint("cp-2"), {}, {}))
+
+        lote = ligacao.ligar("batch")
+        self.addCleanup(lote.close)
+        self.assertEqual(retencao.varrer(lote, AGORA), [parada])
+        self.semente.execute(
+            "SELECT count(*) FROM lg.checkpoints WHERE thread_id = %s", (acordada,)
+        )
+        self.assertEqual(self.semente.fetchone()[0], 2)
+
+    def test_o_apagamento_da_varredura_corre_com_o_kamba_batch(self) -> None:
+        # O `GRANT DELETE ... TO kamba_batch` da revisao `0020` era privilegio
+        # morto: a primeira versao apagava pela ligacao do checkpointer, que e
+        # `kamba_agr`. Aqui a ligacao e **so** a do lote, e se o `GRANT` nao
+        # existisse isto levantava `42501`.
+        thread = self.thread()
+        asyncio.run(self.saver.aput(config(thread), checkpoint("cp-1"), {}, {}))
+        asyncio.run(
+            self.saver.aput_writes(config(thread, "cp-1"), [("c", 1)], "tarefa")
+        )
+        self._envelhecer(thread, 31)
+        lote = ligacao.ligar("batch")
+        self.addCleanup(lote.close)
+        self.assertEqual(retencao.varrer(lote, AGORA), [thread])
+        for tabela in ("checkpoints", "checkpoint_writes"):
+            with self.subTest(tabela=tabela):
+                self.semente.execute(
+                    f"SELECT count(*) FROM lg.{tabela} WHERE thread_id = %s", (thread,)
+                )
+                self.assertEqual(self.semente.fetchone()[0], 0)
+
+
+class TestIsolamento(ComCheckpointer):
+    """O X-02 do DoD, visto do `lg`."""
+
+    def test_a_thread_de_a_nao_volta_no_pedido_de_b(self) -> None:
+        # O isolamento aqui nao e RLS — estas tabelas nao tem `tenant_id`. E o
+        # prefixo do `thread_id`, e e isso que este ensaio mede.
+        a, b = self.thread(), self.thread()
+        asyncio.run(self.saver.aput(config(a), checkpoint("cp-1", stage="cart"), {}, {}))
+        self.assertIsNone(asyncio.run(self.saver.aget_tuple(config(b))))
+
+    def test_o_papel_do_checkpointer_nao_ve_o_platform(self) -> None:
+        # **O criterio 4.** Sem `USAGE` no esquema, nao chega as tabelas mesmo
+        # que tivesse privilegio nelas — e nao tem.
+        conexao = ligacao.ligar("agr")
+        self.addCleanup(conexao.close)
+        cursor = conexao.cursor()
+        for tabela in ("tenants", "contacts", "conversations"):
+            with self.subTest(tabela=tabela):
+                self.assertErroSql(
+                    "42501", cursor, f"SELECT 1 FROM platform.{tabela} LIMIT 1", ()
+                )
+
+    def test_o_papel_nao_alcanca_mais_bases_do_que_o_kamba_app(self) -> None:
+        # A outra metade do criterio 4: «sem acesso a `platform` **nem a
+        # `medusa`**». O Medusa e uma **base** separada (`kamba_medusa`), nao
+        # um esquema, pelo que o mecanismo nao e o `USAGE` — e o `CONNECT`.
+        #
+        # **A primeira versao deste ensaio exigia o conjunto vazio e falhou,
+        # a dizer uma verdade:** o `kamba_agr` liga-se a base `postgres`,
+        # porque o PostgreSQL da `CONNECT` ao `PUBLIC` em todas as bases por
+        # omissao. Isso vale para os **sete** papeis e e anterior a este
+        # ticket; exigir o vazio aqui era este bloco a pagar uma conta que nao
+        # e dele. Fica em `docs/dividas-documentais.md`.
+        #
+        # O que **e** deste ticket e que o papel novo nao alcance mais do que o
+        # que ja existia. E isso que se mede.
+        def bases(papel: str) -> set[str]:
+            self.semente.execute(
+                "SELECT datname FROM pg_database "
+                " WHERE NOT datistemplate "
+                "   AND has_database_privilege(%s, datname, 'CONNECT')",
+                (papel,),
+            )
+            return {linha[0] for linha in self.semente.fetchall()}
+
+        self.assertEqual(bases("kamba_agr"), bases("kamba_app"))
+
+    def test_os_outros_papeis_nao_leem_o_lg(self) -> None:
+        # **O compartimento, no sentido inverso.** A revisao `0020` so concede
+        # `USAGE` no `lg` ao `kamba_agr` e ao `kamba_batch`; os outros cinco
+        # nao tem nada. Isso estava afirmado («o codigo do checkpointer nao tem
+        # por onde chegar aos `contacts`») e provado **so num sentido**. Achado
+        # da revisao adversarial.
+        for identidade in ("app", "resolver", "identity", "audit"):
+            with self.subTest(papel=identidade):
+                conexao = ligacao.ligar(identidade)
+                self.addCleanup(conexao.close)
+                self.assertErroSql(
+                    "42501", conexao.cursor(), "SELECT 1 FROM lg.checkpoints LIMIT 1", ()
+                )
+
+    def test_o_papel_do_checkpointer_nao_cria_nada_no_lg(self) -> None:
+        # Tem os quatro de dados e nao o DDL: um checkpointer que pudesse criar
+        # tabelas no seu esquema podia tambem apagar as que la estao.
+        conexao = ligacao.ligar("agr")
+        self.addCleanup(conexao.close)
+        self.assertErroSql(
+            "42501", conexao.cursor(), "CREATE TABLE lg.nao_devia (x int)", ()
+        )
+
+
+class TestPrivacidade(ComCheckpointer):
+    """O criterio 2, e a armadilha que ele tem."""
+
+    def test_o_varrimento_desserializa_em_vez_de_procurar_texto(self) -> None:
+        # **A armadilha.** O estado vai em `msgpack` para uma coluna `bytea`.
+        # Uma busca por texto sobre a coluna passa vazia **mesmo com um
+        # telefone la dentro** — o criterio satisfeito pela razao errada. Este
+        # ensaio prova que o varrimento ve o que la esta: semeia um numero de
+        # proposito e exige que o varrimento o encontre.
+        # As tres formas, porque o varrimento so vale o que apanha.
+        for forma in ("+244923456789", "244923456789", "923 456 789"):
+            with self.subTest(forma=forma):
+                thread = self.thread()
+                asyncio.run(
+                    self.saver.aput(
+                        config(thread),
+                        checkpoint("cp-1", messages=[f"ligue para {forma}"]),
+                        {},
+                        {},
+                    )
+                )
+                self.assertNotEqual(self._numeros_em(thread), [])
+                asyncio.run(self.saver.adelete_thread(thread))
+
+    def test_o_varrimento_encontra_um_campo_de_bsuid_semeado(self) -> None:
+        # A mesma disciplina do telefone: o varrimento so prova alguma coisa
+        # depois de se mostrar que encontra o que la esta.
+        thread = self.thread()
+        asyncio.run(
+            self.saver.aput(
+                config(thread),
+                checkpoint("cp-1", facts=[{"bsuid_enc": "o-que-for"}]),
+                {},
+                {},
+            )
+        )
+        self.assertEqual(self._campos_em(thread), ["bsuid"])
+
+    def test_o_estado_de_um_turno_normal_nao_leva_bsuid(self) -> None:
+        thread = self.thread()
+        asyncio.run(
+            self.saver.aput(
+                config(thread),
+                checkpoint("cp-1", stage="cart", facts=[{"sku": "SAB-01"}]),
+                {},
+                {},
+            )
+        )
+        self.assertEqual(self._campos_em(thread), [])
+
+    def test_o_estado_de_um_turno_normal_nao_leva_numeros(self) -> None:
+        # O criterio, agora que o varrimento esta provado a encontrar.
+        thread = self.thread()
+        asyncio.run(
+            self.saver.aput(
+                config(thread),
+                checkpoint("cp-1", stage="cart", messages=["quero dois sabao"]),
+                {"step": 1},
+                {},
+            )
+        )
+        self.assertEqual(self._numeros_em(thread), [])
+
+    def _campos_em(self, thread_id: str) -> list[str]:
+        """Os campos proibidos que aparecem no estado desserializado."""
+        texto = " ".join(self._desserializado(thread_id)).lower()
+        return [campo for campo in CAMPOS_PROIBIDOS if campo in texto]
+
+    def _numeros_em(self, thread_id: str) -> list[str]:
+        """Desserializa tudo o que a *thread* tem no `lg` e procura numeros."""
+        achados: list[str] = []
+        for texto in self._desserializado(thread_id):
+            achados += TELEFONE.findall(texto)
+        return achados
+
+    def _desserializado(self, _thread_id: str | None = None) -> list[str]:
+        """Tudo o que esta **nas tabelas `lg.*`**, desfeito pelo serde.
+
+        **Desserializa, e e isso que faz o ensaio valer.** O estado vai em
+        `msgpack` para uma coluna `bytea`: uma busca por texto sobre a coluna
+        devolvia zero ocorrencias com um telefone la dentro.
+
+        **E varre as tabelas inteiras, nao a *thread* do ensaio.** O criterio
+        diz «nas tabelas `lg.*`», e um varrimento filtrado pelo `thread_id` que
+        o proprio ensaio acabou de semear afirmava uma propriedade da sua
+        *fixture* e nao do esquema. Achado da revisao adversarial. A base do
+        *gate* 8 e descartavel e cada ensaio limpa o que semeou, pelo que varrer
+        tudo e barato e e o que o criterio pede.
+        """
+        textos: list[str] = []
+        self.semente.execute(
+            "SELECT type, checkpoint, metadata_type, metadata FROM lg.checkpoints"
+        )
+        for tipo, octetos, tipo_meta, octetos_meta in self.semente.fetchall():
+            for par in ((tipo, bytes(octetos)), (tipo_meta, bytes(octetos_meta))):
+                textos.append(repr(self.saver.serde.loads_typed(par)))
+        self.semente.execute("SELECT type, blob FROM lg.checkpoint_writes")
+        for tipo, octetos in self.semente.fetchall():
+            textos.append(repr(self.saver.serde.loads_typed((tipo, bytes(octetos)))))
+        return textos
+
+
+class TestHistorico(ComCheckpointer):
+    def test_alist_volta_do_mais_recente_para_o_mais_antigo(self) -> None:
+        thread = self.thread()
+        for ident in ("cp-1", "cp-2", "cp-3"):
+            asyncio.run(self.saver.aput(config(thread), checkpoint(ident), {}, {}))
+
+        async def listar(**kwargs):
+            return [t.checkpoint["id"] async for t in self.saver.alist(config(thread), **kwargs)]
+
+        self.assertEqual(asyncio.run(listar()), ["cp-3", "cp-2", "cp-1"])
+
+    def test_o_before_corta_no_checkpoint_dado(self) -> None:
+        thread = self.thread()
+        for ident in ("cp-1", "cp-2", "cp-3"):
+            asyncio.run(self.saver.aput(config(thread), checkpoint(ident), {}, {}))
+
+        async def listar():
+            return [
+                t.checkpoint["id"]
+                async for t in self.saver.alist(
+                    config(thread), before=config(thread, "cp-3")
+                )
+            ]
+
+        self.assertEqual(asyncio.run(listar()), ["cp-2", "cp-1"])
+
+
+if __name__ == "__main__":
+    unittest.main()

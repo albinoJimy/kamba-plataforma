@@ -16,6 +16,7 @@ from kamba_agr.estado import (
     VersaoDeEstadoAFrenteError,
     estado_inicial,
     tipo_de_entrada,
+    recortar_janela,
     versao_lida,
 )
 
@@ -123,6 +124,50 @@ class TestVersaoDeEstado(unittest.TestCase):
                 VersaoDeEstadoAFrenteError
             ):
                 versao_lida({"schema_version": valor})
+
+
+class TestRecorteDaJanela(unittest.TestCase):
+    """O «estado minimo» do §12: ultimas K mensagens mais o `summary`."""
+
+    def test_abaixo_do_maximo_devolve_o_mesmo_estado(self) -> None:
+        estado = {"messages": [1, 2, 3], "summary": None}
+        self.assertIs(recortar_janela(estado, 20), estado)
+
+    def test_no_maximo_exacto_nao_corta(self) -> None:
+        # A fronteira **pelo valor**: com `<` em vez de `<=` perdia-se a
+        # mensagem mais antiga de uma janela que ja cabia.
+        estado = {"messages": list(range(20))}
+        self.assertEqual(recortar_janela(estado, 20)["messages"], list(range(20)))
+
+    def test_acima_do_maximo_deixa_as_ultimas(self) -> None:
+        # As ultimas e nao as primeiras: o principio de uma conversa e o que o
+        # `summary` ja resume.
+        recortado = recortar_janela({"messages": list(range(25))}, 20)
+        self.assertEqual(recortado["messages"], list(range(5, 25)))
+
+    def test_uma_janela_de_zero_esvazia(self) -> None:
+        # O caso que um `[-maximo:]` ingenuo erra: `[-0:]` e a lista inteira.
+        self.assertEqual(recortar_janela({"messages": [1, 2]}, 0)["messages"], [])
+
+    def test_nao_muta_o_estado_que_recebe(self) -> None:
+        estado = {"messages": list(range(25)), "stage": "browsing"}
+        recortar_janela(estado, 5)
+        self.assertEqual(len(estado["messages"]), 25)
+
+    def test_as_outras_chaves_passam_intactas(self) -> None:
+        estado = {"messages": list(range(25)), "stage": "cart", "summary": "x"}
+        recortado = recortar_janela(estado, 2)
+        self.assertEqual(recortado["stage"], "cart")
+        self.assertEqual(recortado["summary"], "x")
+
+    def test_sem_mensagens_devolve_o_mesmo(self) -> None:
+        for estado in ({"messages": None}, {}, {"messages": []}):
+            with self.subTest(estado=estado):
+                self.assertIs(recortar_janela(estado, 20), estado)
+
+    def test_uma_janela_negativa_levanta(self) -> None:
+        with self.assertRaises(ValueError):
+            recortar_janela({"messages": [1]}, -1)
 
 
 if __name__ == "__main__":

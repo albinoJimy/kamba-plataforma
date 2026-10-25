@@ -365,6 +365,9 @@ AG_SQL = "services/agr/src/kamba_agr/consultas.py"
 AG_TURNO = "services/agr/src/kamba_agr/turno.py"
 AG_TRANCAS = "services/agr/src/kamba_agr/trancas.py"
 AG_CONTEXTO = "services/agr/src/kamba_agr/contexto.py"
+#: KAM-026. O checkpointer e a varredura de retencao.
+AG_CHECKPOINTER = "services/agr/src/kamba_agr/checkpointer.py"
+AG_RETENCAO = "services/agr/src/kamba_agr/retencao.py"
 AV_DECISAO = "packages/core-ts/src/avisos/decisao.ts"
 AV_MODELOS = "packages/core-ts/src/avisos/modelos.ts"
 AV_MODULO = "packages/core-ts/src/avisos/avisos.ts"
@@ -3338,6 +3341,67 @@ MUTACOES = [
      AGR),
     # Uma semente diferente da chaves diferentes para a mesma conversa, e a
     # colisao com o *lock* dos modos (KAM-018) desaparece.
+    # --- O checkpointer (KAM-026) -------------------------------------------
+    #
+    # Todas morrem na `tests_agr`, e isso foi medido e nao suposto. A licao do
+    # KAM-017 esta aqui: uma mutacao que vive no **sitio onde o modulo chama**
+    # a instrucao nao morre com um ensaio que chama a instrucao directamente —
+    # por isso as do `adelete_thread`, do `aput` e da janela visam o modulo, e
+    # a bateria exercita o modulo.
+    ('checkpointer: o mais recente passa a ser o mais antigo', AG_SQL,
+     "   ORDER BY checkpoint_id DESC\n   LIMIT 1",
+     "   ORDER BY checkpoint_id ASC\n   LIMIT 1",
+     AGR),
+    # O `Checkpoint` do LangGraph diz que o `checkpoint_id` e monotonico e que
+    # ordena. Invertido, a retoma de um `interrupt` voltava ao primeiro passo
+    # da conversa em vez do ultimo.
+    ('checkpointer: as escritas pendentes perdem o task_path na ordem', AG_SQL,
+     "   ORDER BY task_path, task_id, idx",
+     "   ORDER BY task_id, idx",
+     AGR),
+    # O `writes_sort_key` da interface e `(task_path, task_id, idx)`, e ela
+    # avisa que «an order-sensitive reducer rebuilds a different value than the
+    # run produced» se a ordem for outra.
+    ('checkpointer: a retencao passa a olhar o checkpoint mais antigo', AG_SQL,
+     "  HAVING max(criado_at) < %s",
+     "  HAVING min(criado_at) < %s",
+     AGR),
+    # Com o minimo, uma conversa viva com um checkpoint de ha um ano era
+    # apagada inteira: retencao a fazer o trabalho da poda.
+    ('checkpointer: a fronteira da retencao passa a incluir o dia do prazo', AG_SQL,
+     "  HAVING max(criado_at) < %s",
+     "  HAVING max(criado_at) <= %s",
+     AGR),
+    ('checkpointer: apagar a thread deixa as escritas para tras', AG_CHECKPOINTER,
+     "                (consultas.SQL_APAGAR_ESCRITAS_DA_THREAD, (thread_id,)),\n",
+     "",
+     AGR),
+    ('checkpointer: a varredura apaga mesmo o que acordou', AG_RETENCAO,
+     "                consultas.SQL_APAGAR_THREAD_PARADA, (thread_id, thread_id, limite)",
+     "                consultas.SQL_APAGAR_CHECKPOINTS_DA_THREAD, (thread_id,)",
+     AGR),
+    # Sem o predicado de tempo no `DELETE`, uma conversa que acorde entre o
+    # `SELECT` da lista e o apagamento perde o estado a meio do turno — e a
+    # varredura devolve-a como apagada, com razao. Achado da revisao
+    # adversarial.
+    # Escritas orfas de um checkpoint que ja nao existe: o apagamento a pedido
+    # do titular (KAM-070) deixava texto de cliente na base.
+    ('checkpointer: o checkpoint novo deixa de ter pai', AG_CHECKPOINTER,
+     "                pai,\n                tipo,",
+     "                None,\n                tipo,",
+     AGR),
+    # A cadeia de `parent_checkpoint_id` e a viagem no tempo. Sem ela cada
+    # checkpoint fica orfao e o historico nao se anda para tras.
+    ('checkpointer: a janela passa a admitir mais uma mensagem', AG_CHECKPOINTER,
+     "    if isinstance(mensagens, list) and len(mensagens) > JANELA_MAXIMA:",
+     "    if isinstance(mensagens, list) and len(mensagens) > JANELA_MAXIMA + 1:",
+     AGR),
+    ('checkpointer: a retencao passa a contar para a frente', AG_RETENCAO,
+     "    limite = agora - _dt.timedelta(days=dias)",
+     "    limite = agora + _dt.timedelta(days=dias)",
+     AGR),
+    # Com o sinal trocado a varredura apaga **tudo**: nenhuma thread tem
+    # escrita depois de daqui a trinta dias.
     ('agr: o unlock deixa de dizer se a tranca era nossa', AG_SQL,
      "SELECT pg_advisory_unlock(hashtextextended(%s::text, 0)) AS largou",
      "SELECT pg_advisory_unlock(hashtextextended(%s::text, 0)) IS NOT NULL AS largou",

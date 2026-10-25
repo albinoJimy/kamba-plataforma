@@ -567,6 +567,24 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+#: O `kamba_agr` (KAM-026) nao tem privilegio nenhum em `platform`, em nenhuma
+#: tabela — e isso **e** o criterio 4 do bloco, nao uma omissao.
+#:
+#: Entra por aqui e nao nas nove matrizes a mao por duas razoes. A entrada e a
+#: mesma nas nove, e nove copias de `set()` escondem a afirmacao em vez de a
+#: fazerem; e o dia em que ele ganhar privilegio em alguma, a excepcao aparece
+#: contra **esta** linha, que diz que ele nao tem nenhum. A nove copias, a
+#: excepcao era indistinguivel de uma distraccao.
+#:
+#: O que o `lg` lhe concede esta na revisao `0020` e prova-se na bateria do
+#: KAM-026, nao aqui: esta matriz e de `platform`.
+PAPEIS_SEM_NADA_EM_PLATFORM = ("kamba_agr",)
+
+ESPERADO_POR_TABELA = {
+    tabela: dict(por_papel, **{p: set() for p in PAPEIS_SEM_NADA_EM_PLATFORM})
+    for tabela, por_papel in ESPERADO_POR_TABELA.items()
+}
+
 #: (papel, tabela, privilegio) -> colunas concedidas **por coluna** nas tabelas
 #: da revisao 0003. O que nao esta aqui nao tem privilegio de coluna nenhum.
 COLUNAS_POR_PAPEL = {

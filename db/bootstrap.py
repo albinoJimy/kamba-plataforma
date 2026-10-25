@@ -73,6 +73,11 @@ ATRIBUTOS = {
     # `kamba_batch`. E o unico com `SELECT` em `audit_log` — o `kamba_app`
     # escreve e nao le.
     "kamba_audit": "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS",
+    # O papel do checkpointer (KAM-026). `NOBYPASSRLS` como os outros, mas por
+    # uma razao diferente: as tabelas do `lg` **nao tem** politica de RLS, pelo
+    # que nao ha nada para contornar. O que o isola e nao ter `USAGE` no
+    # `platform` — ver a nota da revisao `0020`.
+    "kamba_agr": "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS",
 }
 
 

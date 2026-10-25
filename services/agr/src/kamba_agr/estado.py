@@ -142,3 +142,32 @@ def versao_lida(estado: dict[str, Any]) -> int:
     if valor > SCHEMA_VERSION:
         raise VersaoDeEstadoAFrenteError("schema_version_a_frente")
     return valor
+
+
+def recortar_janela(estado: dict[str, Any], maximo: int) -> dict[str, Any]:
+    """Deixa no estado as ultimas `maximo` mensagens, e mais nada muda.
+
+    E o «estado minimo» do `docs/tecnica/02` §12: «janela de mensagens recortada
+    (ultimas K, K a calibrar) + `summary`». O `maximo` vem de quem chama — o
+    `JANELA_MAXIMA` do `checkpointer.py` — e nao esta aqui para que a constante
+    tenha **um** dono.
+
+    **Quem chama isto e o `ingest` (KAM-031), e e por isso que o checkpointer
+    nao o faz.** Recortar na gravacao punha o estado em memoria do grafo a
+    divergir do que esta na base sem erro nenhum: a leitura seguinte devolvia
+    menos mensagens do que a execucao escreveu. O `aput` **levanta** em vez de
+    recortar, e esta funcao e a que faz o estado caber antes de la chegar.
+
+    Devolve um `dict` novo: o estado do LangGraph passa por redutores que
+    comparam identidade, e mutar a lista no sitio escondia a alteracao de quem
+    guardasse a referencia anterior.
+    """
+    if maximo < 0:
+        raise ValueError("a janela nao pode ser negativa")
+    mensagens = estado.get("messages")
+    if not isinstance(mensagens, list) or len(mensagens) <= maximo:
+        return estado
+    # As **ultimas**, nao as primeiras: o que uma conversa perde primeiro e o
+    # principio, que o `summary` ja resume. `maximo` zero e lista vazia, e nao
+    # a lista inteira — que e o que um `[-0:]` daria.
+    return dict(estado, messages=mensagens[len(mensagens) - maximo :])

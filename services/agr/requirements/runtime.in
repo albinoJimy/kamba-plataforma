@@ -31,3 +31,77 @@ python-dateutil==2.9.0.post0  # Apache-2.0 <- pg8000
 scramp==1.4.17             # MIT-0      <- pg8000
 six==1.17.0                # MIT        <- python-dateutil
 typing-extensions==4.16.0
+
+# --- O checkpointer (KAM-026) -------------------------------------------------
+#
+# **O que entra e o `langgraph-checkpoint`, nao o `-postgres`.** O
+# `docs/tecnica/02` §12 nomeia o `langgraph-checkpoint-postgres` 3.1.2 e o `E4`
+# §2.6 da-o como «MIT, sem restricoes». O pacote e MIT; o fecho dele nao e —
+# medido contra o PyPI, nao de memoria:
+#
+#   langgraph-checkpoint-postgres 3.1.2   MIT
+#     -> psycopg >= 3.2.0                 LGPL-3.0-only   PROIBIDA
+#     -> psycopg-pool >= 3.2.0            LGPL-3.0-only   PROIBIDA
+#
+# O `LGPL` esta nas negadas do `ci/licenses.yaml` e o `psycopg` ja foi recusado
+# pelo nome na tabela de `db/requirements/migrations.in` e na nota acima. Logo o
+# checkpointer e nosso, sobre o `pg8000`, contra a interface e o serializador do
+# `langgraph-checkpoint`, que sao MIT. Ver `services/agr/src/kamba_agr/checkpointer.py`.
+#
+# **O fecho cresce de 12 para 43 pacotes, e isso e o preco.** Trinta e um novos,
+# todos medidos a partir de um `pip install langgraph-checkpoint==4.3.0` limpo e
+# classificados pelo avaliador do proprio *gate* 11 contra o `ci/licenses.yaml`:
+# **35 avaliados, 35 permitidas, 0 fora**. Nenhum e LGPL e nenhum e copyleft de
+# rede.
+#
+# Dois reparos honestos sobre este crescimento:
+#
+# 1. O `langgraph` do KAM-027 traz este fecho inteiro de qualquer maneira — o
+#    `langgraph-checkpoint` e dependencia dele. O que este ticket faz e paga-lo
+#    um ticket mais cedo, nao cria-lo.
+# 2. So **14** destes modulos sao tocados ao importar e exercitar o serde; os
+#    outros entram por caminhos tardios. Nao se podam na mesma: num fecho
+#    `--require-hashes --no-deps` instala-se exactamente o que esta listado, e
+#    um modulo que falta rebenta na primeira chamada que o procure, nao no
+#    arranque. Lista-se o fecho **declarado**, como nos outros dois `.in`.
+#
+# E um que importa para o `egresso.py`: o `langsmith` entra aqui, e e a
+# biblioteca cuja telemetria o `desligar_telemetria` existe para calar. As
+# variaveis estao em `egresso.py` e o estado delas e NAO VERIFICADO (`L5`).
+langgraph-checkpoint==4.3.0
+
+# Fecho transitivo do `langgraph-checkpoint`, por ordem alfabetica.
+annotated-types==0.8.0     # MIT          <- pydantic
+certifi==2026.10.23        # MPL-2.0      <- requests
+charset-normalizer==3.5.2  # MIT          <- requests
+distro==1.9.0              # Apache-2.0   <- langsmith
+httpcore==1.0.9            # BSD-3-Clause <- httpx
+httpcore2==2.16.0          # BSD-3-Clause <- httpx2
+httpx==0.28.1              # BSD-3-Clause <- langsmith
+httpx2==2.16.0             # BSD-3-Clause <- langsmith
+# So em emscripten (`sys_platform == "emscripten"`), e o `pip_lock.py` exige o
+# fecho completo — condicionais incluidas — porque e ele que garante que o
+# `--require-hashes` nao encontra nada por fixar no dia em que a plataforma mude.
+httpx2-jsfetch==1.0        # BSD-3-Clause <- httpx2
+jsonpatch==1.37            # BSD-3-Clause <- langchain-core
+jsonpointer==3.5           # BSD-3-Clause <- jsonpatch
+langchain-core==1.7.0      # MIT          <- langgraph-checkpoint
+langchain-protocol==0.0.20 # MIT          <- langchain-core
+langsmith==0.14.12         # MIT          <- langchain-core
+orjson==3.13.0             # MPL-2.0 AND (Apache-2.0 OR MIT) <- langsmith
+ormsgpack==1.13.0          # Apache-2.0 OR MIT <- langgraph-checkpoint
+packaging==26.3            # Apache-2.0 OR BSD-2-Clause <- langchain-core
+pydantic==2.14.1           # MIT          <- langchain-core
+pydantic-core==2.50.1      # MIT          <- pydantic
+PyYAML==6.0.3              # MIT          <- langchain-core
+requests==2.34.2           # Apache-2.0   <- langsmith
+requests-toolbelt==1.0.0   # Apache-2.0   <- langsmith
+sniffio==1.3.1             # MIT OR Apache-2.0 <- httpx
+tenacity==9.2.1            # Apache-2.0   <- langchain-core
+truststore==0.10.5         # MIT          <- langsmith
+typing-inspection==0.4.4   # MIT          <- pydantic
+urllib3==2.8.0             # MIT          <- requests
+uuid-utils==0.18.0         # BSD-3-Clause <- langsmith
+websockets==17.3           # BSD-3-Clause <- langsmith
+xxhash==4.0.2              # BSD-2-Clause <- langsmith
+zstandard==0.25.0          # BSD-3-Clause <- langsmith

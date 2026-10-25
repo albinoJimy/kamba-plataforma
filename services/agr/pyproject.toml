@@ -20,6 +20,9 @@ dependencies = [
   "starlette",
   "uvicorn",
   "kamba-core",
+  # KAM-026: a interface `BaseCheckpointSaver` e o serializador. O
+  # `-postgres` **nao** entra: e MIT mas exige `psycopg`, LGPL.
+  "langgraph-checkpoint",
 ]
 
 [tool.setuptools.packages.find]

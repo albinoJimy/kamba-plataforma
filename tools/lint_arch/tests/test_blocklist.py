@@ -73,6 +73,24 @@ class TestFicheiroDeBloqueio(unittest.TestCase):
                 self.assertIn("E4_Stack_Licencas.md", entry.evidence)
                 self.assertGreater(len(entry.reason), 30)
 
+    def test_o_saver_postgres_e_os_dois_lgpl_sao_bloqueados(self) -> None:
+        """A descoberta do KAM-026, presa por teste.
+
+        O `langgraph-checkpoint-postgres` e MIT e o fecho dele nao e. Bloquear
+        o pacote sem bloquear os dois que ele arrasta deixava a porta aberta a
+        quem os pedisse directamente.
+        """
+        entries = blocklist.load_entries(BLOCKLIST)
+        for nome in ("langgraph-checkpoint-postgres", "psycopg", "psycopg-pool"):
+            with self.subTest(nome=nome):
+                self.assertTrue(
+                    any(
+                        e.applies_to_kind("pypi") and e.matches_name(nome, "pypi")
+                        for e in entries
+                    ),
+                    f"{nome} e LGPL por transitividade e tem de estar bloqueado",
+                )
+
     def test_litellm_tem_limiar(self) -> None:
         entries = [e for e in blocklist.load_entries(BLOCKLIST) if e.name == "litellm"]
         self.assertTrue(entries)
@@ -228,9 +246,17 @@ class TestNormalizacaoPyPI(unittest.TestCase):
                 self.assertTrue(entry.matches_name(variante, "pypi"))
 
     def test_nome_vizinho_nao_bate(self) -> None:
-        """`langgraph` (MIT, ADR-002 manda usar) e vizinhos nao sao bloqueados."""
+        """`langgraph` (MIT, ADR-002 manda usar) e vizinhos nao sao bloqueados.
+
+        **O `langgraph-checkpoint-postgres` estava nesta lista e saiu.** Estava
+        aqui porque o `E4` §2.6 o dava como «MIT, sem restricoes» — e o pacote
+        e MIT, mas o fecho nao: exige `psycopg` e `psycopg-pool`, LGPL-3.0-only
+        (KAM-026, medido contra o `requires_dist` do PyPI). Passou para o
+        `test_o_saver_postgres_e_bloqueado`, abaixo. O que ficou no lugar dele
+        e o `langgraph-checkpoint`, que e o que a casa usa mesmo.
+        """
         entries = blocklist.load_entries(BLOCKLIST)
-        for vizinho in ("langgraph", "langgraph-api-client", "langgraph-checkpoint-postgres"):
+        for vizinho in ("langgraph", "langgraph-api-client", "langgraph-checkpoint"):
             with self.subTest(vizinho=vizinho):
                 bloqueado = any(
                     e.applies_to_kind("pypi") and e.matches_name(vizinho, "pypi")

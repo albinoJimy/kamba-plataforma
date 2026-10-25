@@ -20,6 +20,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import asyncio
 import os
 import sys
 import threading
@@ -66,12 +67,24 @@ class TestArranque(unittest.TestCase):
         self.addCleanup(repor)
         self.saida, self.erros = io.StringIO(), io.StringIO()
 
-    def _correr(self, ambiente: dict[str, str]) -> tuple[int, mock.Mock]:
+    def _correr(
+        self, ambiente: dict[str, str], ligar_checkpoint: object | None = None
+    ) -> tuple[int, mock.Mock]:
+        # **A ligacao do checkpointer e dupla por omissao** (KAM-026). A guarda
+        # do criterio 3 abre-a no arranque, e nenhum ensaio desta bateria tem
+        # base de dados: sem o duplo, todos passavam a medir «nao ha Postgres»
+        # em vez do que dizem medir. Quem quer medir a guarda passa um
+        # `ligar_checkpoint` que levanta.
         with (
             mock.patch.dict(os.environ, ambiente),
             mock.patch("sys.stdout", self.saida),
             mock.patch("sys.stderr", self.erros),
             mock.patch.object(arranque.uvicorn, "run") as correr,
+            mock.patch.object(
+                arranque,
+                "ligar_para_checkpoint",
+                ligar_checkpoint or (lambda: mock.Mock()),
+            ),
         ):
             os.environ.pop("KAMBA_LOG_ESTRITO", None)
             codigo = arranque.main()
@@ -141,6 +154,46 @@ class TestArranque(unittest.TestCase):
         self.assertEqual(codigo, 2)
         correr.assert_not_called()
         self.assertEqual(self.erro()["error_code"].split(":")[0], "cofre_indisponivel")
+
+    def test_sem_checkpointer_o_arranque_recusa(self) -> None:
+        """O criterio 3 do KAM-026, e o codigo de saida e proprio."""
+
+        def nao_liga() -> object:
+            raise RuntimeError("sem base")
+
+        codigo, correr = self._correr(AMBIENTE_BASE, nao_liga)
+        self.assertEqual(codigo, arranque.SAIDA_SEM_CHECKPOINTER)
+        correr.assert_not_called()
+        self.assertEqual(
+            self.erro()["error_code"].split(":")[0], "checkpointer_indisponivel"
+        )
+
+    def test_o_encerramento_fecha_as_duas_tomadas(self) -> None:
+        """O `ao_encerrar` corre no `lifespan` do `create_app`, e **espera**.
+
+        A primeira versao do `_fechar_as_tomadas` devolvia uma funcao
+        **sincrona**: o `create_app` declara `Awaitable[None]` e faz
+        `await ao_encerrar()`, e o `TrancaDeConversas.fechar` e `async def`. O
+        resultado era `lifespan.shutdown.failed`, um `TypeError`, e — o que
+        importa — a ligacao da tranca a **nao fechar**, que e o modo de falha
+        que esta funcao existe para evitar. Achado da revisao adversarial, e
+        este ensaio liga-a ao `create_app` real porque os outros desta bateria
+        substituem o `uvicorn.run` e nunca correm o `lifespan`.
+        """
+        fechadas = []
+
+        class TrancasFalsas:
+            async def fechar(self) -> None:
+                fechadas.append("trancas")
+
+        class CheckpointerFalso:
+            def fechar(self) -> None:
+                fechadas.append("checkpointer")
+
+        ao_encerrar = arranque._fechar_as_tomadas(TrancasFalsas(), CheckpointerFalso())
+        asyncio.run(ao_encerrar())
+        # Pela ordem: as trancas primeiro, a gravacao depois.
+        self.assertEqual(fechadas, ["trancas", "checkpointer"])
 
     def test_um_ambiente_desconhecido_recusa_em_vez_de_cair_em_dev(self) -> None:
         # A licao do `chaves.ts` do KAM-008: um `KAMBA_ENV=producao` a servir

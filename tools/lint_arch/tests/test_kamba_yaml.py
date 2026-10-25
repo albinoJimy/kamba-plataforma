@@ -180,9 +180,12 @@ class TestFicheirosDoRepositorio(unittest.TestCase):
         """A migracao do `yamlmini` para este leitor nao pode mudar o resultado."""
         d = kamba_yaml.load_file(ROOT / "tools" / "blocklist.yaml")
         self.assertEqual(d["version"], 1)
-        # 10 entradas: 7 itens do ticket mais 3 variantes de imagem
-        # (`langgraph-api`, `langgenius`, `n8nio`) acrescentadas pela revisao.
-        self.assertEqual(len(d["entries"]), 10)
+        # 13 entradas: 7 itens do ticket, 3 variantes de imagem
+        # (`langgraph-api`, `langgenius`, `n8nio`) acrescentadas pela revisao, e
+        # 3 do KAM-026 — o `langgraph-checkpoint-postgres` e os dois LGPL que
+        # ele arrasta, que o `E4` §2.6 dava como «sem restricoes» por ter
+        # olhado o pacote e nao o fecho.
+        self.assertEqual(len(d["entries"]), 13)
         for entrada in d["entries"]:
             self.assertIn("name", entrada)
             self.assertIn("adr", entrada)

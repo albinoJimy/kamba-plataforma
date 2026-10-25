@@ -129,3 +129,192 @@ SQL_PALAVRA_DA_CONVERSA = """
 # outro). Uma segunda copia da mesma regra aqui era a classe de defeito que o
 # `ten/consultas.py` nomeia por escrito: a primeira versao dele escrevia o
 # `min(...)` que a `ten_consumir` ja tinha.
+
+
+# ---------------------------------------------------------------------------
+# O checkpointer (KAM-026)
+#
+# Oito cadeias, e as colunas sao as do `CheckpointTuple` do
+# `BaseCheckpointSaver`. Tres notas que valem antes de as ler:
+#
+# **O `checkpoint_id` ordena.** O `Checkpoint` do LangGraph di-lo por escrito —
+# «both unique and monotonically increasing, so can be used for sorting
+# checkpoints from first to last» —, e e por isso que o «mais recente» e um
+# `ORDER BY checkpoint_id DESC LIMIT 1` e nao um `ORDER BY criado_at`: o
+# `criado_at` e o relogio do servidor e dois checkpoints do mesmo passo podem
+# cair no mesmo microssegundo.
+#
+# **As escritas pendentes voltam por `(task_path, task_id, idx)`**, que e o
+# `writes_sort_key` da interface. Nao e enfeite: ela avisa que um redutor
+# sensivel a ordem reconstroi um valor diferente do que a execucao produziu se
+# a ordem for outra.
+#
+# **O `ON CONFLICT DO UPDATE` e o que torna o turno repetivel.** Um turno que
+# repete depois de uma falha reescreve o mesmo `checkpoint_id` e a mesma
+# `(tarefa, idx)` em vez de duplicar — e o criterio 5 visto da tabela.
+
+#: O checkpoint mais recente de uma *thread* num *namespace*.
+#:
+#: Parametros: `thread_id`, `checkpoint_ns`.
+SQL_CHECKPOINT_RECENTE = """
+  SELECT checkpoint_id, parent_checkpoint_id, type, checkpoint,
+         metadata_type, metadata
+    FROM lg.checkpoints
+   WHERE thread_id = %s
+     AND checkpoint_ns = %s
+   ORDER BY checkpoint_id DESC
+   LIMIT 1
+"""
+
+#: Um checkpoint nomeado. E o caminho da retoma de um `interrupt` e da viagem
+#: no tempo: o `config` traz o `checkpoint_id` e pede-se exactamente aquele.
+#:
+#: Parametros: `thread_id`, `checkpoint_ns`, `checkpoint_id`.
+SQL_CHECKPOINT_POR_ID = """
+  SELECT checkpoint_id, parent_checkpoint_id, type, checkpoint,
+         metadata_type, metadata
+    FROM lg.checkpoints
+   WHERE thread_id = %s
+     AND checkpoint_ns = %s
+     AND checkpoint_id = %s
+"""
+
+#: As escritas pendentes de um checkpoint, na ordem do `writes_sort_key`.
+#:
+#: Parametros: `thread_id`, `checkpoint_ns`, `checkpoint_id`.
+SQL_ESCRITAS_PENDENTES = """
+  SELECT task_id, channel, type, blob
+    FROM lg.checkpoint_writes
+   WHERE thread_id = %s
+     AND checkpoint_ns = %s
+     AND checkpoint_id = %s
+   ORDER BY task_path, task_id, idx
+"""
+
+#: O historico de uma *thread*, do mais recente para o mais antigo.
+#:
+#: O `before` do `alist` e um `<` sobre o `checkpoint_id` pela mesma razao que o
+#: `SQL_CHECKPOINT_RECENTE` ordena por ele. O nulo no terceiro parametro quer
+#: dizer «sem limite superior», e o `%s IS NULL OR` e o que o permite sem uma
+#: segunda cadeia.
+#:
+#: **Os dois `::text` nao sao enfeite.** Sem eles o servidor responde
+#: `42P18 — could not determine data type of parameter $3`: um parametro cujo
+#: unico uso e `IS NULL` nao da ao analisador contexto nenhum para inferir o
+#: tipo, e a instrucao nem chega a correr. Medido contra a base, nao lido.
+#:
+#: Parametros: `thread_id`, `checkpoint_ns`, `before` (ou nulo), `limite`.
+SQL_LISTAR_CHECKPOINTS = """
+  SELECT checkpoint_id, parent_checkpoint_id, type, checkpoint,
+         metadata_type, metadata
+    FROM lg.checkpoints
+   WHERE thread_id = %s
+     AND checkpoint_ns = %s
+     AND (%s::text IS NULL OR checkpoint_id < %s::text)
+   ORDER BY checkpoint_id DESC
+   LIMIT %s
+"""
+
+#: Grava um checkpoint. Repetir o mesmo `checkpoint_id` reescreve-o.
+#:
+#: Parametros: `thread_id`, `checkpoint_ns`, `checkpoint_id`,
+#: `parent_checkpoint_id`, `type`, `checkpoint`, `metadata_type`, `metadata`.
+SQL_GRAVAR_CHECKPOINT = """
+  INSERT INTO lg.checkpoints
+         (thread_id, checkpoint_ns, checkpoint_id, parent_checkpoint_id,
+          type, checkpoint, metadata_type, metadata)
+  VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+      ON CONFLICT (thread_id, checkpoint_ns, checkpoint_id)
+      DO UPDATE SET parent_checkpoint_id = EXCLUDED.parent_checkpoint_id,
+                    type                 = EXCLUDED.type,
+                    checkpoint           = EXCLUDED.checkpoint,
+                    metadata_type        = EXCLUDED.metadata_type,
+                    metadata             = EXCLUDED.metadata
+"""
+
+#: Grava uma escrita pendente. A chave e (thread, ns, checkpoint, tarefa, idx),
+#: pelo que a mesma tarefa a repetir a mesma escrita cai no mesmo sitio.
+#:
+#: Parametros: `thread_id`, `checkpoint_ns`, `checkpoint_id`, `task_id`,
+#: `task_path`, `idx`, `channel`, `type`, `blob`.
+SQL_GRAVAR_ESCRITA = """
+  INSERT INTO lg.checkpoint_writes
+         (thread_id, checkpoint_ns, checkpoint_id, task_id, task_path,
+          idx, channel, type, blob)
+  VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+      ON CONFLICT (thread_id, checkpoint_ns, checkpoint_id, task_id, idx)
+      DO UPDATE SET task_path = EXCLUDED.task_path,
+                    channel   = EXCLUDED.channel,
+                    type      = EXCLUDED.type,
+                    blob      = EXCLUDED.blob
+"""
+
+#: Apaga uma *thread* inteira: as escritas primeiro, pela ordem que nao deixa
+#: escritas orfas se a segunda instrucao falhar.
+#:
+#: Sao duas cadeias e nao uma com `CASCADE`: nao ha chave estrangeira entre as
+#: duas tabelas de proposito — uma `FOREIGN KEY` obrigava cada escrita a esperar
+#: pelo checkpoint que a origina, e o LangGraph grava escritas de uma tarefa
+#: **antes** do checkpoint do passo seguinte existir.
+#:
+#: Parametros: o `thread_id`.
+SQL_APAGAR_ESCRITAS_DA_THREAD = """
+  DELETE FROM lg.checkpoint_writes WHERE thread_id = %s
+"""
+
+#: Parametros: o `thread_id`.
+SQL_APAGAR_CHECKPOINTS_DA_THREAD = """
+  DELETE FROM lg.checkpoints WHERE thread_id = %s
+"""
+
+#: As mesmas duas, mas **so se a *thread* continuar parada** — para a varredura
+#: da retencao.
+#:
+#: Sem o segundo predicado havia uma corrida que ninguem via: a varredura le a
+#: lista das inactivas, o ciclo leva minutos com milhares de linhas, e uma
+#: conversa que acorde nesse intervalo e apagada a meio do turno. A varredura
+#: nao toma a tranca por conversa, pelo que nao ha nada a impedi-lo. Achado da
+#: revisao adversarial.
+#:
+#: Parametros: o `thread_id` e o instante limite.
+SQL_APAGAR_THREAD_PARADA = """
+  DELETE FROM lg.checkpoints
+   WHERE thread_id = %s
+     AND NOT EXISTS (
+           SELECT 1 FROM lg.checkpoints
+            WHERE thread_id = %s AND criado_at >= %s
+         )
+"""
+
+#: As escritas da *thread* que a instrucao de cima deixou sem checkpoint.
+#:
+#: Corre **depois**, na mesma transaccao, e so apaga as que ficaram orfas: se a
+#: *thread* acordou e os checkpoints ficaram, as escritas dela tambem ficam.
+#:
+#: Parametros: o `thread_id`.
+SQL_APAGAR_ESCRITAS_ORFAS = """
+  DELETE FROM lg.checkpoint_writes w
+   WHERE w.thread_id = %s
+     AND NOT EXISTS (
+           SELECT 1 FROM lg.checkpoints c
+            WHERE c.thread_id = w.thread_id
+              AND c.checkpoint_ns = w.checkpoint_ns
+              AND c.checkpoint_id = w.checkpoint_id
+         )
+"""
+
+#: As *threads* sem escrita nenhuma desde um instante. E a varredura da
+#: retencao (criterio 8), e corre como `kamba_batch`.
+#:
+#: O predicado e sobre o **maximo** `criado_at` da *thread* e nao sobre cada
+#: linha: uma *thread* com um checkpoint de ontem e outro de ha um ano esta
+#: activa, e apagar-lhe o antigo era poda e nao retencao — e a poda nao se faz
+#: aqui, pela razao escrita no `checkpointer.py`.
+#:
+#: Parametros: o instante limite.
+SQL_THREADS_INACTIVAS = """
+  SELECT thread_id
+    FROM lg.checkpoints
+   GROUP BY thread_id
+  HAVING max(criado_at) < %s
+"""

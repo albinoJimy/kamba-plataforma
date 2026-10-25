@@ -208,6 +208,13 @@ PAPEIS_DE_SERVICO = (
     "kamba_batch",
     "kamba_resolver",
     "kamba_identity",
+    # O `kamba_audit` (KAM-012) faltava aqui desde que foi criado, e o
+    # `kamba_agr` (KAM-026) entra agora. Os dois juntos de proposito:
+    # acrescentar so o novo deixava a lista a mentir na mesma, e esta varredura
+    # existe para que um `GRANT` a um papel de servico numa particao **nao**
+    # passe despercebido. Achado da revisao adversarial do KAM-026.
+    "kamba_audit",
+    "kamba_agr",
     "public",
 )
 

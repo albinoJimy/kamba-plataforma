@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.33"
+versao_dicionario: "1.34"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -402,19 +402,24 @@ entradas:
     variantes_literais: []
   - seccao: "3.2"
     conceito: "Papéis de base de dados"
-    canonico: "kamba_migrator (DDL, dono das tabelas), kamba_app (NOBYPASSRLS, sem DDL), kamba_batch (BYPASSRLS, auditado)"
+    canonico: "kamba_migrator (DDL, dono das tabelas), kamba_app (NOBYPASSRLS, sem DDL), kamba_batch (BYPASSRLS, auditado), kamba_agr (NOBYPASSRLS, so o esquema lg; KAM-026, §3.25)"
     literais:
       - "kamba_migrator"
       - "kamba_app"
       - "NOBYPASSRLS"
       - "kamba_batch"
       - "BYPASSRLS"
+      - "kamba_agr"
+      - "NOBYPASSRLS"
+      - "lg"
     nomes:
       - "kamba_migrator"
       - "kamba_app"
       - "NOBYPASSRLS"
       - "kamba_batch"
       - "BYPASSRLS"
+      - "kamba_agr"
+      - "lg"
     nomes_nota:
       - "REVOKE"
       - "FROM"
@@ -5306,6 +5311,185 @@ entradas:
       - "degraded_turns"
       - "agr_backpressure_total"
     variantes_literais: []
+  - seccao: "3.25"
+    conceito: "Papel do checkpointer"
+    canonico: "kamba_agr"
+    literais:
+      - "kamba_agr"
+    nomes:
+      - "kamba_agr"
+    nomes_nota:
+      - "NOBYPASSRLS"
+      - "USAGE"
+      - "platform"
+      - "kamba_app"
+      - "lg"
+    variantes_literais: []
+  - seccao: "3.25"
+    conceito: "Palavra-passe do papel"
+    canonico: "db_agr_password"
+    literais:
+      - "db_agr_password"
+    nomes:
+      - "db_agr_password"
+    nomes_nota:
+      - "KAMBA_SECRET_DB_AGR_PASSWORD"
+    variantes_literais: []
+  - seccao: "3.25"
+    conceito: "Tabela dos checkpoints"
+    canonico: "lg.checkpoints"
+    literais:
+      - "lg.checkpoints"
+    nomes:
+      - "lg.checkpoints"
+    nomes_nota:
+      - "Checkpoint"
+      - "channel_values"
+    variantes_literais: []
+  - seccao: "3.25"
+    conceito: "Tabela das escritas pendentes"
+    canonico: "lg.checkpoint_writes"
+    literais:
+      - "lg.checkpoint_writes"
+    nomes:
+      - "lg.checkpoint_writes"
+    nomes_nota:
+      - "pending_writes"
+      - "CheckpointTuple"
+    variantes_literais: []
+  - seccao: "3.25"
+    conceito: "Chave da thread"
+    canonico: "thread_id"
+    literais:
+      - "thread_id"
+    nomes:
+      - "thread_id"
+    nomes_nota:
+      - "uuid"
+      - "contexto.py"
+      - "CHECK"
+      - "thread_id"
+    variantes_literais: []
+  - seccao: "3.25"
+    conceito: "Namespace do subgrafo"
+    canonico: "checkpoint_ns"
+    literais:
+      - "checkpoint_ns"
+    nomes:
+      - "checkpoint_ns"
+    nomes_nota:
+      - "DEFAULT"
+    variantes_literais: []
+  - seccao: "3.25"
+    conceito: "Identificador do checkpoint"
+    canonico: "checkpoint_id"
+    literais:
+      - "checkpoint_id"
+    nomes:
+      - "checkpoint_id"
+    nomes_nota:
+      - "criado_at"
+    variantes_literais: []
+  - seccao: "3.25"
+    conceito: "Pai na cadeia"
+    canonico: "parent_checkpoint_id"
+    literais:
+      - "parent_checkpoint_id"
+    nomes:
+      - "parent_checkpoint_id"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.25"
+    conceito: "Estado serializado"
+    canonico: "checkpoint"
+    literais:
+      - "checkpoint"
+    nomes:
+      - "checkpoint"
+    nomes_nota:
+      - "bytea"
+      - "Checkpoint"
+      - "channel_values"
+      - "checkpoints"
+    variantes_literais: []
+  - seccao: "3.25"
+    conceito: "Metadados do passo"
+    canonico: "metadata"
+    literais:
+      - "metadata"
+    nomes:
+      - "metadata"
+    nomes_nota:
+      - "bytea"
+      - "CheckpointMetadata"
+    variantes_literais: []
+  - seccao: "3.25"
+    conceito: "Valor da escrita pendente"
+    canonico: "blob"
+    literais:
+      - "blob"
+    nomes:
+      - "blob"
+    nomes_nota:
+      - "bytea"
+      - "checkpoint_writes"
+      - "type"
+      - "blob"
+    variantes_literais: []
+  - seccao: "3.25"
+    conceito: "Discriminador do serializador"
+    canonico: "type, metadata_type"
+    literais:
+      - "type"
+      - "metadata_type"
+    nomes:
+      - "type"
+      - "metadata_type"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.25"
+    conceito: "Caminho da tarefa"
+    canonico: "task_path"
+    literais:
+      - "task_path"
+    nomes:
+      - "task_path"
+    nomes_nota:
+      - "writes_sort_key"
+      - "task_path"
+      - "task_id"
+      - "idx"
+    variantes_literais: []
+  - seccao: "3.25"
+    conceito: "Canal da escrita"
+    canonico: "channel"
+    literais:
+      - "channel"
+    nomes:
+      - "channel"
+    nomes_nota:
+      - "canal"
+    variantes_literais: []
+  - seccao: "3.25"
+    conceito: "Janela de mensagens"
+    canonico: "JANELA_MAXIMA"
+    literais:
+      - "JANELA_MAXIMA"
+    nomes:
+      - "JANELA_MAXIMA"
+    nomes_nota:
+      - "K"
+      - "llm_call_log"
+    variantes_literais: []
+  - seccao: "3.25"
+    conceito: "Inactividade até apagar"
+    canonico: "DIAS_DE_INACTIVIDADE"
+    literais:
+      - "DIAS_DE_INACTIVIDADE"
+    nomes:
+      - "DIAS_DE_INACTIVIDADE"
+    nomes_nota: []
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -6184,7 +6368,7 @@ variantes:
     tipo: "nome"
     seccao: "3.2"
     conceito: "Papéis de base de dados"
-    canonico: "kamba_migrator (DDL, dono das tabelas), kamba_app (NOBYPASSRLS, sem DDL), kamba_batch (BYPASSRLS, auditado)"
+    canonico: "kamba_migrator (DDL, dono das tabelas), kamba_app (NOBYPASSRLS, sem DDL), kamba_batch (BYPASSRLS, auditado), kamba_agr (NOBYPASSRLS, so o esquema lg; KAM-026, §3.25)"
   - nome: "tenant_isolamento"
     tipo: "nome"
     seccao: "3.2"

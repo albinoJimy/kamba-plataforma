@@ -419,10 +419,10 @@ class TestSbom(unittest.TestCase):
     def test_o_grafo_do_lado_python_conta_as_dependencias_todas(self) -> None:
         """Uma entrada **parcial** mente mais do que nenhuma.
 
-        O `services/agr/pyproject.toml` declara tres (`starlette`, `uvicorn`,
-        `kamba-core`), e a primeira versao emitia so o `kamba-core` — os outros
-        dois estao no mesmo documento, com versao. Com entrada, quem le conclui
-        que o grafo e conhecido.
+        O `services/agr/pyproject.toml` declara quatro (`starlette`, `uvicorn`,
+        `kamba-core` e, desde o KAM-026, `langgraph-checkpoint`), e a primeira
+        versao emitia so o `kamba-core` — os outros estao no mesmo documento,
+        com versao. Com entrada, quem le conclui que o grafo e conhecido.
         """
         with tempfile.TemporaryDirectory() as tmp:
             gerar(ROOT, Path(tmp))
@@ -434,6 +434,7 @@ class TestSbom(unittest.TestCase):
                 arestas["pkg:pypi/kamba-agr@0.1.0"],
                 [
                     "pkg:pypi/kamba-core@0.1.0",
+                    "pkg:pypi/langgraph-checkpoint@4.3.0",
                     "pkg:pypi/starlette@1.7.0",
                     "pkg:pypi/uvicorn@0.54.0",
                 ],
