@@ -163,14 +163,21 @@ class TestEscritasPendentes(ComCheckpointer):
         thread = self.thread()
         asyncio.run(self.saver.aput(config(thread), checkpoint("cp-1"), {}, {}))
         alvo = config(thread, "cp-1")
-        asyncio.run(self.saver.aput_writes(alvo, [("c", 3)], "tarefa-b", "caminho-z"))
-        asyncio.run(self.saver.aput_writes(alvo, [("a", 1), ("b", 2)], "tarefa-a", "caminho-a"))
+        # **O `task_path` e o `task_id` ordenam em sentidos opostos**, e e isso
+        # que torna o ensaio capaz de ver a diferenca. Com os dois a ordenar
+        # para o mesmo lado, tirar o `task_path` do `ORDER BY` dava o mesmo
+        # resultado e a mutacao sobrevivia — foi o que aconteceu a primeira
+        # versao deste ensaio, e a prova por mutacao apanhou-o.
+        asyncio.run(self.saver.aput_writes(alvo, [("c", 3)], "tarefa-a", "caminho-z"))
+        asyncio.run(self.saver.aput_writes(alvo, [("a", 1), ("b", 2)], "tarefa-b", "caminho-a"))
 
         lido = asyncio.run(self.saver.aget_tuple(alvo))
         assert lido is not None
         self.assertEqual(
             [(t, c) for t, c, _v in lido.pending_writes or []],
-            [("tarefa-a", "a"), ("tarefa-a", "b"), ("tarefa-b", "c")],
+            # Por `caminho-a` primeiro, que e a `tarefa-b`. Por `task_id`
+            # primeiro seria a `tarefa-a`, e e essa a diferenca.
+            [("tarefa-b", "a"), ("tarefa-b", "b"), ("tarefa-a", "c")],
         )
 
     def test_repetir_a_mesma_escrita_nao_duplica(self) -> None:
@@ -195,6 +202,34 @@ class TestEscritasPendentes(ComCheckpointer):
             "SELECT count(*) FROM lg.checkpoints WHERE thread_id = %s", (thread,)
         )
         self.assertEqual(self.semente.fetchone()[0], 1)
+
+
+class TestJanelaContraABase(ComCheckpointer):
+    def test_acima_da_janela_nao_chega_a_base(self) -> None:
+        # A guarda tambem se mede aqui, e nao so na bateria de unidade: sem um
+        # ensaio nesta *suite* uma mutacao no `>` do `_exigir_janela`
+        # sobrevivia por desenho, porque todos os outros ensaios gravam
+        # estados de zero ou uma mensagem.
+        from kamba_agr.checkpointer import JANELA_MAXIMA, JanelaExcedidaError
+
+        thread = self.thread()
+        grande = checkpoint("cp-1", messages=[f"m{i}" for i in range(JANELA_MAXIMA + 1)])
+        with self.assertRaises(JanelaExcedidaError):
+            asyncio.run(self.saver.aput(config(thread), grande, {}, {}))
+        self.semente.execute(
+            "SELECT count(*) FROM lg.checkpoints WHERE thread_id = %s", (thread,)
+        )
+        self.assertEqual(self.semente.fetchone()[0], 0)
+
+    def test_no_maximo_exacto_grava(self) -> None:
+        from kamba_agr.checkpointer import JANELA_MAXIMA
+
+        thread = self.thread()
+        cheio = checkpoint("cp-1", messages=[f"m{i}" for i in range(JANELA_MAXIMA)])
+        asyncio.run(self.saver.aput(config(thread), cheio, {}, {}))
+        lido = asyncio.run(self.saver.aget_tuple(config(thread)))
+        assert lido is not None
+        self.assertEqual(len(lido.checkpoint["channel_values"]["messages"]), JANELA_MAXIMA)
 
 
 class TestApagar(ComCheckpointer):
@@ -291,6 +326,31 @@ class TestIsolamento(ComCheckpointer):
                 self.assertErroSql(
                     "42501", cursor, f"SELECT 1 FROM platform.{tabela} LIMIT 1", ()
                 )
+
+    def test_o_papel_nao_alcanca_mais_bases_do_que_o_kamba_app(self) -> None:
+        # A outra metade do criterio 4: «sem acesso a `platform` **nem a
+        # `medusa`**». O Medusa e uma **base** separada (`kamba_medusa`), nao
+        # um esquema, pelo que o mecanismo nao e o `USAGE` — e o `CONNECT`.
+        #
+        # **A primeira versao deste ensaio exigia o conjunto vazio e falhou,
+        # a dizer uma verdade:** o `kamba_agr` liga-se a base `postgres`,
+        # porque o PostgreSQL da `CONNECT` ao `PUBLIC` em todas as bases por
+        # omissao. Isso vale para os **sete** papeis e e anterior a este
+        # ticket; exigir o vazio aqui era este bloco a pagar uma conta que nao
+        # e dele. Fica em `docs/dividas-documentais.md`.
+        #
+        # O que **e** deste ticket e que o papel novo nao alcance mais do que o
+        # que ja existia. E isso que se mede.
+        def bases(papel: str) -> set[str]:
+            self.semente.execute(
+                "SELECT datname FROM pg_database "
+                " WHERE NOT datistemplate "
+                "   AND has_database_privilege(%s, datname, 'CONNECT')",
+                (papel,),
+            )
+            return {linha[0] for linha in self.semente.fetchall()}
+
+        self.assertEqual(bases("kamba_agr"), bases("kamba_app"))
 
     def test_o_papel_do_checkpointer_nao_cria_nada_no_lg(self) -> None:
         # Tem os quatro de dados e nao o DDL: um checkpointer que pudesse criar

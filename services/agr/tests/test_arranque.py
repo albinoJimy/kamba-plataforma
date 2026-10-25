@@ -66,12 +66,24 @@ class TestArranque(unittest.TestCase):
         self.addCleanup(repor)
         self.saida, self.erros = io.StringIO(), io.StringIO()
 
-    def _correr(self, ambiente: dict[str, str]) -> tuple[int, mock.Mock]:
+    def _correr(
+        self, ambiente: dict[str, str], ligar_checkpoint: object | None = None
+    ) -> tuple[int, mock.Mock]:
+        # **A ligacao do checkpointer e dupla por omissao** (KAM-026). A guarda
+        # do criterio 3 abre-a no arranque, e nenhum ensaio desta bateria tem
+        # base de dados: sem o duplo, todos passavam a medir «nao ha Postgres»
+        # em vez do que dizem medir. Quem quer medir a guarda passa um
+        # `ligar_checkpoint` que levanta.
         with (
             mock.patch.dict(os.environ, ambiente),
             mock.patch("sys.stdout", self.saida),
             mock.patch("sys.stderr", self.erros),
             mock.patch.object(arranque.uvicorn, "run") as correr,
+            mock.patch.object(
+                arranque,
+                "ligar_para_checkpoint",
+                ligar_checkpoint or (lambda: mock.Mock()),
+            ),
         ):
             os.environ.pop("KAMBA_LOG_ESTRITO", None)
             codigo = arranque.main()
@@ -141,6 +153,36 @@ class TestArranque(unittest.TestCase):
         self.assertEqual(codigo, 2)
         correr.assert_not_called()
         self.assertEqual(self.erro()["error_code"].split(":")[0], "cofre_indisponivel")
+
+    def test_sem_checkpointer_o_arranque_recusa(self) -> None:
+        """O criterio 3 do KAM-026, e o codigo de saida e proprio."""
+
+        def nao_liga() -> object:
+            raise RuntimeError("sem base")
+
+        codigo, correr = self._correr(AMBIENTE_BASE, nao_liga)
+        self.assertEqual(codigo, arranque.SAIDA_SEM_CHECKPOINTER)
+        correr.assert_not_called()
+        self.assertEqual(
+            self.erro()["error_code"].split(":")[0], "checkpointer_indisponivel"
+        )
+
+    def test_o_codigo_sem_checkpointer_distingue_se_dos_outros(self) -> None:
+        # Num painel, «o AGR nao arranca» sem dizer porque nao se diagnostica.
+        # Quatro, e nao o 2 da configuracao nem o 3 do ADR-002.
+        self.assertNotIn(
+            arranque.SAIDA_SEM_CHECKPOINTER, (0, 2, arranque.SAIDA_GUARDA_ADR002)
+        )
+
+    def test_a_guarda_do_checkpointer_corre_antes_do_servidor(self) -> None:
+        # Um processo que aceitasse pedidos e so depois descobrisse que nao
+        # consegue gravar estado perdia o primeiro handoff de cada reinicio, e
+        # perdia-o em silencio.
+        def nao_liga() -> object:
+            raise RuntimeError("sem base")
+
+        _codigo, correr = self._correr(AMBIENTE_BASE, nao_liga)
+        correr.assert_not_called()
 
     def test_um_ambiente_desconhecido_recusa_em_vez_de_cair_em_dev(self) -> None:
         # A licao do `chaves.ts` do KAM-008: um `KAMBA_ENV=producao` a servir

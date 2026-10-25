@@ -55,6 +55,7 @@ from .api_interna import SEGREDO_DA_API, rotas
 from .app import create_app
 from .checkpointer import CheckpointerDoAgr
 from .conversa import leitor
+from .metricas import METRICAS
 from .ligacao import (
     ligar_para_checkpoint,
     ligar_para_leitura,
@@ -169,7 +170,7 @@ def main() -> int:
     # esta na revisao certa: isso e do `gate` 8, e por-lo aqui era o servico a
     # correr migracoes, que a `0020` recusa pelo nome.
     try:
-        checkpointer = CheckpointerDoAgr(ligar_para_checkpoint())
+        checkpointer = CheckpointerDoAgr(ligar_para_checkpoint(), metricas=METRICAS)
     except Exception as exc:  # noqa: BLE001 — qualquer falha aborta o arranque
         log.excepcao(exc, "checkpointer_indisponivel")
         return SAIDA_SEM_CHECKPOINTER

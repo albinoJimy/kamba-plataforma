@@ -243,6 +243,38 @@ class TestVersoes(unittest.TestCase):
         self.assertEqual(saver.get_next_version(4, None), 5)
 
 
+class TestMedidas(unittest.TestCase):
+    """As duas medidas do DoD: latencia da gravacao e tamanho do estado."""
+
+    def test_aput_mede_a_latencia_e_o_tamanho(self) -> None:
+        from kamba_agr.metricas import (
+            METRICA_LATENCIA_CHECKPOINT,
+            METRICA_TAMANHO_DO_ESTADO,
+            MetricasDoAgr,
+        )
+
+        medidor = MetricasDoAgr()
+        saver = CheckpointerDoAgr(LigacaoEspia(), metricas=medidor)
+        asyncio.run(saver.aput(config(), checkpoint(3), {"step": 1}, {}))
+        lido = medidor.ler()
+        self.assertGreater(lido[METRICA_TAMANHO_DO_ESTADO], 0)
+        self.assertGreaterEqual(lido[METRICA_LATENCIA_CHECKPOINT], 0)
+
+    def test_sem_metricas_nao_levanta(self) -> None:
+        # O parametro e opcional: as baterias que nao medem nao montam duplo.
+        saver = CheckpointerDoAgr(LigacaoEspia())
+        asyncio.run(saver.aput(config(), checkpoint(), {}, {}))
+
+    def test_uma_medida_nao_leva_etiqueta_de_tenant(self) -> None:
+        # O `OBS-I`: um `tenant_id` e um UUID com hifenes e nao entra numa
+        # metrica. O `medir` nem aceita etiqueta, e e isso que o prova.
+        from kamba_agr.metricas import METRICA_LATENCIA_CHECKPOINT, MetricasDoAgr
+
+        medidor = MetricasDoAgr()
+        with self.assertRaises(TypeError):
+            medidor.medir(METRICA_LATENCIA_CHECKPOINT, 1.0, "tenant")  # type: ignore[call-arg]
+
+
 class TestEncerramento(unittest.TestCase):
     def test_fechar_larga_a_ligacao(self) -> None:
         class Tomada(LigacaoEspia):

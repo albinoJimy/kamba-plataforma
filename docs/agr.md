@@ -270,6 +270,99 @@ que faz um defeito de SQL passar por verde:
 
 ---
 
+## 7-A. O checkpointer e o esquema `lg` (KAM-026)
+
+O estado de uma conversa vive no esquema `lg`, num *checkpointer* **nosso**
+sobre `pg8000`. A interface e o serializador vêm do `langgraph-checkpoint`
+(MIT); o SQL está em `kamba_agr/consultas.py` e prova-se contra um PostgreSQL
+real na *suite* `tests_agr`.
+
+### Porque é que não é o `AsyncPostgresSaver`
+
+O `docs/tecnica/02` §12 nomeia o `langgraph-checkpoint-postgres` 3.1.2 e o `E4`
+§2.6 dá-o como «MIT, sem restrições». O pacote é MIT; **o fecho dele não é**:
+
+| Pacote | Licença |
+|---|---|
+| `langgraph-checkpoint-postgres` 3.1.2 | MIT |
+| ⤷ `psycopg >= 3.2.0` | **LGPL-3.0-only** |
+| ⤷ `psycopg-pool >= 3.2.0` | **LGPL-3.0-only** |
+
+O `ci/licenses.yaml` nega o prefixo `LGPL`, e este repositório já tinha
+recusado o `psycopg` pelo nome duas vezes por escrito — a tabela do
+`db/requirements/migrations.in` (KAM-003) e a nota do `runtime.in` deste
+serviço. Emendar a política pede dois revisores.
+
+O que entra é o `langgraph-checkpoint`, cujo fecho — 35 pacotes — foi medido
+com o avaliador do próprio *gate* 11 contra o `ci/licenses.yaml`: **35
+permitidas, 0 fora**. O fecho do AGR passa de 12 para 44. O `langgraph` do
+KAM-027 traz este fecho de qualquer maneira, pelo que este ticket paga-o um
+ticket mais cedo e não o cria.
+
+### As duas tabelas, e porque não são três
+
+O *saver* oficial separa os valores dos canais num `checkpoint_blobs` próprio,
+para não reescrever o estado a cada passo. Aqui o estado é a **janela
+recortada** — últimas `JANELA_MAXIMA` mensagens mais o `summary` —, pelo que
+cabe numa coluna. Uma tabela a menos, um `JOIN` a menos por leitura.
+
+**O que isso custa:** um grafo que use `DeltaChannel` guarda só um sentinela no
+`channel_values` e reconstrói o valor andando a cadeia de escritas para trás. O
+`aget_delta_channel_history` não está implementado, e o `BaseCheckpointSaver`
+levanta nesse caminho — melhor levantar do que reconstruir um estado vazio em
+silêncio.
+
+### O que o checkpointer não implementa, e porquê
+
+| Método | Porquê |
+|---|---|
+| `aprune` | A própria interface avisa que um `keep_latest` ingénuo corta a cadeia de um canal `DeltaChannel` e que o valor «would silently reconstruct as empty (no error raised)», e nomeia como opção segura não podar. Não há grafo nenhum ainda; quem decide se algum usa canais delta é o KAM-031 |
+| `acopy_thread` | A fusão de contactos migra o *thread* (`docs/tecnica/02` §12), e quem funde contactos é outro processo. Nenhum critério do bloco o pede |
+| `aget_delta_channel_history` | Depende do `checkpoint_blobs` que este esquema não tem |
+| Os métodos síncronos | O AGR só chama os assíncronos |
+
+### O isolamento, que aqui não é RLS
+
+As tabelas do `lg` **não têm `tenant_id`**, pelo que o ADR-015 — «`FORCE ROW
+LEVEL SECURITY` em todas as tabelas com `tenant_id`» — não se lhes aplica. Não
+é contradição: é a ausência da condição que ele nomeia. O que as isola são três
+coisas, e nenhuma é a RLS:
+
+1. o prefixo do `thread_id` (`{tenant_id}:{contact_id}`), construído **só** do
+   estado validado e conferido contra a invocação antes de cada turno;
+2. o papel `kamba_agr`, que **não tem `USAGE` no `platform`** e por isso não
+   consegue juntar estas linhas a nada;
+3. o ensaio cruzado, que mede 1 e 2 contra a base.
+
+O `ci/rls_exceptions.yaml` não leva linha nenhuma: aquele ficheiro é para
+tabelas **com** `tenant_id` que dispensem a política, e uma excepção morta
+falha o *gate* 6.
+
+### A retenção, e os dois prazos do canon
+
+`retencao.varrer` apaga as *threads* sem escrita há mais de
+`DIAS_DE_INACTIVIDADE` dias, com o papel `kamba_batch`. **Não há agendador**
+nesta fase, como no KAM-017: esta função é o corpo da varredura, e quem a chama
+a horas é o KAM-071 com o KAM-079.
+
+O prazo tem dois valores no canon e **nenhum é decisão deste ticket**: o
+`docs/tecnica/02` §12 diz *threads* inactivos **> 30 dias**; o
+`docs/tecnica/08` §7.1 e §11 dizem conteúdo de conversa **90 dias após o
+fecho**, que é o que o KAM-071 toma. Não são o mesmo relógio, e «fecho de
+conversa» não está definido em documento nenhum. Fica o valor do §12 como
+*proposta*, e o prazo espera parecer — como o próprio §11 já diz.
+
+### Uma armadilha do critério 2, que vale para quem lá voltar
+
+O critério manda varrer as tabelas `lg.*` por `\+?244\d{9}` e devolver **0**.
+Com o estado serializado em `msgpack`, **uma busca por texto passa vazia mesmo
+com um telefone lá dentro** — o critério satisfeito pela razão errada. O
+varrimento da bateria desserializa com o serde e procura nos objectos, e há um
+ensaio que semeia um número de propósito e exige que o varrimento o encontre.
+Sem esse, o outro não prova nada.
+
+---
+
 ## 8. O que este documento não decide
 
 A topologia e as réplicas (`docs/tecnica/09`, KAM-088), a aplicação da
@@ -285,3 +378,4 @@ tabela do §1 atribui a outro ticket.
 |---|---|---|---|
 | 1.0 | 2026-10-24 | KAM-025 | Versão inicial: o esqueleto do AGR, a tranca, a API interna e os tectos |
 | 1.1 | 2026-10-24 | KAM-025 | Revisão adversarial: o §3.0 (a espera pela tranca e a chave da fila), o `attempts` do produtor no §3.2, e a tabela do §7 corrigida — o teste das 20 em série mede o dreno e não a tranca, e isso agora está escrito |
+| 1.2 | 2026-10-25 | KAM-026 | §7-A: o checkpointer sobre `pg8000` e o esquema `lg`. Porque não é o `AsyncPostgresSaver` (o fecho dele é LGPL), as duas tabelas em vez de três e o que isso custa, os quatro métodos que não se implementam, o isolamento que aqui não é RLS, a retenção e os dois prazos do canon, e a armadilha do critério 2 — em `msgpack`, uma busca por texto não encontra um telefone que lá esteja |

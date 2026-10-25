@@ -67,6 +67,17 @@ METRICA_COALESCIDAS: Final = "agr_coalesced_total"
 #: Vezes que a fila de admissao passou o limiar de contrapressao.
 METRICA_CONTRAPRESSAO: Final = "agr_backpressure_total"
 
+#: Quanto demorou a **ultima** gravacao de checkpoint, em milissegundos
+#: (KAM-026). O alvo do `docs/tecnica/02` §15.1 e 0,05-0,15 s «Postgres local»,
+#: e e **a medir**, nao um limiar: nada falha por o exceder.
+METRICA_LATENCIA_CHECKPOINT: Final = "agr_checkpoint_latency_ms"
+#: O tamanho do **ultimo** estado serializado, em octetos (KAM-026).
+#:
+#: E o numero que diz se a janela recortada esta a fazer o seu trabalho: um
+#: estado que cresce sem parar quer dizer que o `ingest` nao esta a recortar,
+#: e o `JANELA_MAXIMA` so levanta quando ja e tarde.
+METRICA_TAMANHO_DO_ESTADO: Final = "agr_checkpoint_state_bytes"
+
 #: O que aconteceu a um turno. Lista **fechada**: e etiqueta.
 #:
 #: `executado`        correu o grafo
@@ -99,7 +110,12 @@ _VALORES_DA_ETIQUETA: Final = {
 }
 
 _CONTADORES_SEM_ETIQUETA: Final = (METRICA_COALESCIDAS, METRICA_CONTRAPRESSAO)
-_MEDIDAS: Final = (METRICA_DURACAO, METRICA_FILA)
+_MEDIDAS: Final = (
+    METRICA_DURACAO,
+    METRICA_FILA,
+    METRICA_LATENCIA_CHECKPOINT,
+    METRICA_TAMANHO_DO_ESTADO,
+)
 
 _AJUDA: Final = {
     METRICA_TURNOS: ("counter", "Turnos do AGR, por desfecho."),
@@ -108,6 +124,14 @@ _AJUDA: Final = {
     METRICA_RECUSADOS: ("counter", "Turnos recusados na admissao, por motivo."),
     METRICA_COALESCIDAS: ("counter", "Mensagens coalescidas num turno em curso."),
     METRICA_CONTRAPRESSAO: ("counter", "Vezes que a fila passou o limiar."),
+    METRICA_LATENCIA_CHECKPOINT: (
+        "gauge",
+        "Duracao da ultima gravacao de checkpoint, em milissegundos.",
+    ),
+    METRICA_TAMANHO_DO_ESTADO: (
+        "gauge",
+        "Tamanho do ultimo estado serializado, em octetos.",
+    ),
 }
 
 

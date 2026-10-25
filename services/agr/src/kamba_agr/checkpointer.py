@@ -64,6 +64,7 @@ em silencio.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator, Sequence
 from typing import Any, Final
 
@@ -76,6 +77,7 @@ from langgraph.checkpoint.base import (
 )
 
 from . import consultas
+from .metricas import METRICA_LATENCIA_CHECKPOINT, METRICA_TAMANHO_DO_ESTADO
 
 #: Quantas mensagens a janela recortada do estado pode levar, alem do `summary`
 #: (`docs/tecnica/02` §12: «ultimas K, K a calibrar»).
@@ -112,10 +114,13 @@ class CheckpointerDoAgr(BaseCheckpointSaver[int]):
     uma cadeia. Em inteiros nao se sobrepoe nada.
     """
 
-    def __init__(self, ligacao: Any, *, serde: Any = None) -> None:
+    def __init__(self, ligacao: Any, *, serde: Any = None, metricas: Any = None) -> None:
         super().__init__(serde=serde)
         self._ligacao = ligacao
         self._tranca = asyncio.Lock()
+        # Opcional como o `#log` do `coexistencia.ts`: as baterias que nao
+        # medem metricas nao tem de montar um duplo para as ignorar.
+        self._metricas = metricas
 
     # -- leitura ------------------------------------------------------------
 
@@ -171,6 +176,7 @@ class CheckpointerDoAgr(BaseCheckpointSaver[int]):
     ) -> Any:
         thread_id, ns, pai = _coordenadas(config)
         _exigir_janela(checkpoint)
+        comecou = time.monotonic()
         tipo, octetos = self.serde.dumps_typed(checkpoint)
         tipo_meta, octetos_meta = self.serde.dumps_typed(metadata)
         await self._correr(
@@ -186,6 +192,16 @@ class CheckpointerDoAgr(BaseCheckpointSaver[int]):
                 octetos_meta,
             ),
         )
+        # **Depois da escrita, e nao antes.** A latencia que interessa e a da
+        # gravacao inteira — serializar mais escrever —, que e o que o alvo de
+        # 0,05-0,15 s do `docs/tecnica/02` §15.1 mede. Sem etiqueta: um
+        # `tenant_id` e um UUID com hifenes e o `OBS-I` nao o deixa entrar numa
+        # metrica.
+        if self._metricas is not None:
+            self._metricas.medir(
+                METRICA_LATENCIA_CHECKPOINT, (time.monotonic() - comecou) * 1000
+            )
+            self._metricas.medir(METRICA_TAMANHO_DO_ESTADO, len(octetos))
         return {
             "configurable": {
                 "thread_id": thread_id,
