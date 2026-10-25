@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.34"
+versao_dicionario: "1.35"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -5490,6 +5490,380 @@ entradas:
       - "DIAS_DE_INACTIVIDADE"
     nomes_nota: []
     variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Registo de verticais"
+    canonico: "AgentRegistry"
+    literais:
+      - "AgentRegistry"
+    nomes:
+      - "AgentRegistry"
+    nomes_nota:
+      - "estado.py"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Carregamento e validação no arranque"
+    canonico: "load_all"
+    literais:
+      - "load_all"
+    nomes:
+      - "load_all"
+    nomes_nota:
+      - "resolve"
+      - "build_graph"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Resolução por contexto"
+    canonico: "resolve"
+    literais:
+      - "resolve"
+    nomes:
+      - "resolve"
+    nomes_nota:
+      - "ctx.vertical"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Contrato de uma vertical"
+    canonico: "Vertical, com build_graph(deps)"
+    literais:
+      - "Vertical"
+      - "build_graph(deps)"
+    nomes:
+      - "Vertical"
+      - "build_graph"
+      - "deps"
+    nomes_nota:
+      - "Protocol"
+      - "deps"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Nós obrigatórios de um grafo"
+    canonico: "ingest, guard_in, validate, guard_out, send, handoff_wait"
+    literais:
+      - "ingest"
+      - "guard_in"
+      - "validate"
+      - "guard_out"
+      - "send"
+      - "handoff_wait"
+    nomes:
+      - "ingest"
+      - "guard_in"
+      - "validate"
+      - "guard_out"
+      - "send"
+      - "handoff_wait"
+    nomes_nota:
+      - "handoff_wait"
+      - "handoff_"
+      - "interrupt"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Terceira forma do registo"
+    canonico: "registry/gates.yaml, chave de topo gates"
+    literais:
+      - "gates"
+    nomes:
+      - "gates"
+    nomes_nota:
+      - "id"
+      - "plans"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Modo de uma validação"
+    canonico: "modo ∈ {aviso, bloqueio}, com credor"
+    literais:
+      - "modo"
+      - "aviso"
+      - "bloqueio"
+      - "credor"
+    nomes:
+      - "modo"
+      - "aviso"
+      - "bloqueio"
+      - "credor"
+    nomes_nota:
+      - "warn"
+      - "block"
+      - "bloqueio"
+      - "modo"
+      - "aviso"
+      - "credor"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "As seis validações, por nome"
+    canonico: "tools, entitlements, grafo, subscriptions, fase, golden"
+    literais:
+      - "tools"
+      - "entitlements"
+      - "grafo"
+      - "subscriptions"
+      - "fase"
+      - "golden"
+    nomes:
+      - "tools"
+      - "entitlements"
+      - "grafo"
+      - "subscriptions"
+      - "fase"
+      - "golden"
+    nomes_nota:
+      - "tool"
+      - "tools"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Tool de pesquisa no catálogo"
+    canonico: "search_catalog (tool search_catalog)"
+    literais:
+      - "search_catalog"
+    nomes:
+      - "search_catalog"
+    nomes_nota:
+      - "read"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Tool de preço e stock"
+    canonico: "get_price_stock (tool get_price_stock)"
+    literais:
+      - "get_price_stock"
+    nomes:
+      - "get_price_stock"
+    nomes_nota:
+      - "read"
+      - "price"
+      - "stock"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Tool de proposta de carrinho"
+    canonico: "propose_cart (tool propose_cart)"
+    literais:
+      - "propose_cart"
+    nomes:
+      - "propose_cart"
+    nomes_nota:
+      - "read"
+      - "cart_id"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Tool de criação de pedido"
+    canonico: "criar_pedido (tool criar_pedido)"
+    literais:
+      - "criar_pedido"
+    nomes:
+      - "criar_pedido"
+    nomes_nota:
+      - "money"
+      - "confirm"
+      - "cart_id"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Tool de estado de pedido"
+    canonico: "get_order_status (tool get_order_status)"
+    literais:
+      - "get_order_status"
+    nomes:
+      - "get_order_status"
+    nomes_nota:
+      - "read"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Tool de informação da loja"
+    canonico: "get_store_info (tool get_store_info)"
+    literais:
+      - "get_store_info"
+    nomes:
+      - "get_store_info"
+    nomes_nota:
+      - "read"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Tool de lista de serviços"
+    canonico: "list_services (tool list_services)"
+    literais:
+      - "list_services"
+    nomes:
+      - "list_services"
+    nomes_nota:
+      - "read"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Tool de disponibilidade"
+    canonico: "get_availability (tool get_availability)"
+    literais:
+      - "get_availability"
+    nomes:
+      - "get_availability"
+    nomes_nota:
+      - "read"
+      - "datetime"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Tool de marcação"
+    canonico: "book_slot (tool book_slot)"
+    literais:
+      - "book_slot"
+    nomes:
+      - "book_slot"
+    nomes_nota:
+      - "write"
+      - "confirm"
+      - "hold_id"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Tool de cancelamento de marcação"
+    canonico: "cancel_booking (tool cancel_booking)"
+    literais:
+      - "cancel_booking"
+    nomes:
+      - "cancel_booking"
+    nomes_nota:
+      - "write"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Tool de reagendamento"
+    canonico: "reschedule_booking (tool reschedule_booking)"
+    literais:
+      - "reschedule_booking"
+    nomes:
+      - "reschedule_booking"
+    nomes_nota:
+      - "write"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Parâmetros proibidos no esquema visível ao modelo"
+    canonico: "tenant_id, merchant_id, seller, account"
+    literais:
+      - "tenant_id"
+      - "merchant_id"
+      - "seller"
+      - "account"
+    nomes:
+      - "tenant_id"
+      - "merchant_id"
+      - "seller"
+      - "account"
+    nomes_nota:
+      - "tenant_id"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "O que resolve devolve"
+    canonico: "Resolucao, com vertical, resposta e motivo"
+    literais:
+      - "Resolucao"
+      - "vertical"
+      - "resposta"
+      - "motivo"
+    nomes:
+      - "resolve"
+      - "Resolucao"
+      - "vertical"
+      - "resposta"
+      - "motivo"
+    nomes_nota:
+      - "resolve"
+      - "ctx"
+      - "Vertical"
+      - "except"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Classe de problema que um aviso pode calar"
+    canonico: "PorLigar"
+    literais:
+      - "PorLigar"
+    nomes:
+      - "aviso"
+      - "PorLigar"
+    nomes_nota:
+      - "modo"
+      - "aviso"
+      - "gates.yaml"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Validação adiada, no registo de arranque"
+    canonico: "Adiada, com validacao, vertical e credor"
+    literais:
+      - "Adiada"
+      - "validacao"
+      - "vertical"
+      - "credor"
+    nomes:
+      - "Adiada"
+      - "validacao"
+      - "vertical"
+      - "credor"
+    nomes_nota:
+      - "error_code"
+      - "validacao"
+      - "_"
+      - "credor"
+      - "em"
+      - "min"
+      - "sculas"
+      - "com"
+      - "tools_kam_028"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Fases em que uma vertical phase: D pode correr"
+    canonico: "FASES_POSTERIORES, lista vazia"
+    literais:
+      - "FASES_POSTERIORES"
+    nomes:
+      - "phase"
+      - "D"
+      - "FASES_POSTERIORES"
+    nomes_nota:
+      - "KAMBA_FASE"
+      - "piloto"
+      - "assistente"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Resposta sem entitlement activo"
+    canonico: "servico_indisponivel"
+    literais:
+      - "servico_indisponivel"
+    nomes:
+      - "servico_indisponivel"
+    nomes_nota:
+      - "compose"
+      - "error_code"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Métrica das resoluções negadas"
+    canonico: "agr_registry_denied_total"
+    literais:
+      - "agr_registry_denied_total"
+    nomes:
+      - "agr_registry_denied_total"
+    nomes_nota:
+      - "motivo"
+      - "sem_entitlement"
+      - "vertical_desconhecida"
+      - "tenant_id"
+      - "OBS"
+      - "I"
+      - "metricas.py"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Código de saída de registo inválido"
+    canonico: "5"
+    literais:
+      - "5"
+    nomes: []
+    nomes_nota:
+      - "__main__.py"
+    variantes_literais: []
+  - seccao: "3.26"
+    conceito: "Directório do registo"
+    canonico: "KAMBA_REGISTRY_DIR"
+    literais:
+      - "KAMBA_REGISTRY_DIR"
+    nomes:
+      - "KAMBA_REGISTRY_DIR"
+    nomes_nota:
+      - "registry"
+      - "KAMBA_"
+      - "Dockerfile"
+      - "COPY"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -5888,6 +6262,14 @@ tabelas:
     assinatura: "pg_advisory_lock(hashtextextended(thread_id, 0))"
     seccao: "3.24"
     conceito: "Chave da tranca por conversa"
+  - nome: "build_graph"
+    esquema: ""
+    colunas:
+      - "deps"
+    aberta: false
+    assinatura: "build_graph(deps)"
+    seccao: "3.26"
+    conceito: "Contrato de uma vertical"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -6331,6 +6713,13 @@ dominios:
       - "suspenso"
     seccao: "3.23"
     conceito: "O estado no texto"
+    so_no_registo: false
+  - coluna: "modo"
+    valores:
+      - "aviso"
+      - "bloqueio"
+    seccao: "3.26"
+    conceito: "Modo de uma validação"
     so_no_registo: false
 
 variantes:

@@ -610,7 +610,13 @@ class TestRegisto(unittest.TestCase):
 
     def test_tools_e_parametros(self) -> None:
         self.assertEqual(self.classes(SERVICOS + "tools: [enhance_image]\n"), [])
-        self.assertEqual(self.classes(SERVICOS + "tools: [book_slot]\n"), [FORA])
+        # `book_slot` esteve aqui como a tool fora do dicionario, e deixou de o
+        # ser: a emenda 1.35 (KAM-027) poe as onze tools do catalogo do §6.2 no
+        # dicionario. A negativa passa a ser a tool que o §6.2 diz que **nao
+        # existe**: «Nao existe tool de envio de mensagem: o unico caminho para
+        # o cliente e o no `send`».
+        self.assertEqual(self.classes(SERVICOS + "tools: [book_slot]\n"), [])
+        self.assertEqual(self.classes(SERVICOS + "tools: [enviar_mensagem]\n"), [FORA])
         com_parametros = SERVICOS + "tools:\n  - nome: enhance_image\n    parametros:\n      contact_id: uuid\n      cor_favorita: text\n"
         achados = self.achados(com_parametros)
         self.assertEqual([a.classe for a in achados], [FORA])
@@ -853,6 +859,152 @@ class TestRegistoDeChaves(unittest.TestCase):
         }
         self.assertTrue(usados)
         self.assertLessEqual(usados, set(self.schema["properties"]))
+
+
+GATES = """\
+version: 1.0.0
+gates:
+  vendedor:
+    golden: golden/vendedor/v1
+    validacoes:
+      tools: { modo: aviso, credor: KAM-028 }
+      grafo: { modo: aviso, credor: KAM-031 }
+      golden: { modo: aviso, credor: KAM-040 }
+"""
+
+
+class TestGates(unittest.TestCase):
+    """A forma `gates` (KAM-027) — e uma negativa por regra.
+
+    A razao e a que o `TestPlanos` escreveu para a segunda forma: sem uma
+    negativa por regra, o gate herda o buraco que o ficheiro tinha antes de
+    existir — um ficheiro que nenhuma verificacao lia.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.saber = saber()
+
+    def achados(self, fonte: str, ficheiro: str = "registry/gates.yaml"):
+        return registo.verificar(ficheiro, fonte, self.saber)
+
+    def classes(self, fonte: str) -> list[str]:
+        return [a.classe for a in self.achados(fonte)]
+
+    def test_ficheiro_canonico_passa(self) -> None:
+        self.assertEqual(self.classes(GATES), [])
+
+    def test_a_chave_de_um_gate_e_uma_vertical(self) -> None:
+        self.assertEqual(self.classes(GATES.replace("  vendedor:", "  assistente:")), [FORA])
+        self.assertEqual(self.classes(GATES.replace("  vendedor:", "  servicos:")), [])
+
+    def test_validacao_fora_das_seis_falha(self) -> None:
+        """Um `tool` por `tools` desligava a validacao em silencio."""
+        achados = self.achados(GATES.replace("      tools: {", "      tool: {"))
+        self.assertEqual([a.classe for a in achados], [REGRA])
+        self.assertIn("nao e uma das seis validacoes", achados[0].mensagem)
+        self.assertEqual(self.classes(GATES.replace("      tools: {", "      fase: {")), [])
+
+    def test_modo_fora_dos_dois_falha(self) -> None:
+        """O `docs/tecnica/02` §5.1 escreve `warn`, que e o nome antigo.
+
+        E e por isso que o `warn` nao se registou como variante do dicionario
+        (emenda 1.35): e uma palavra inglesa corrente, e quem a recusa e esta
+        lista fechada — aqui, onde ela significa um modo de validacao.
+        """
+        for errado in ("warn", "block", "Aviso", "sim"):
+            with self.subTest(modo=errado):
+                achados = self.achados(
+                    GATES.replace("modo: aviso, credor: KAM-028", f"modo: {errado}, credor: KAM-028")
+                )
+                self.assertEqual([a.classe for a in achados], [REGRA])
+                self.assertIn(f"`modo: {errado}`", achados[0].mensagem)
+        self.assertEqual(
+            self.classes(GATES.replace("tools: { modo: aviso, credor: KAM-028 }", "tools: { modo: bloqueio }")),
+            [],
+        )
+
+    def test_aviso_sem_credor_falha_e_bloqueio_com_credor_tambem(self) -> None:
+        achados = self.achados(GATES.replace("{ modo: aviso, credor: KAM-028 }", "{ modo: aviso }"))
+        self.assertEqual([a.classe for a in achados], [REGRA])
+        self.assertIn("sem `credor`", achados[0].mensagem)
+        for credor in ("KAM-28", "kam-028", "o KAM-028", "em breve"):
+            with self.subTest(credor=credor):
+                self.assertEqual(
+                    self.classes(GATES.replace("credor: KAM-028", f'credor: "{credor}"')), [REGRA]
+                )
+        sobra = self.achados(
+            GATES.replace("tools: { modo: aviso, credor: KAM-028 }", "tools: { modo: bloqueio, credor: KAM-028 }")
+        )
+        self.assertEqual([a.classe for a in sobra], [REGRA])
+        self.assertIn("o credor e de quem espera", sobra[0].mensagem)
+
+    def test_chave_desconhecida_no_topo_no_gate_e_na_validacao(self) -> None:
+        self.assertEqual(self.classes(GATES + "golden_gate: warn\n"), [ILEGIVEL])
+        # `dataset:` em vez de `golden:` da **dois** achados, e os dois contam:
+        # a chave que o lint nao conhece, e o `golden` que passou a faltar.
+        self.assertEqual(
+            self.classes(
+                GATES.replace("    golden: golden/vendedor/v1", "    dataset: golden/vendedor/v1")
+            ),
+            [ILEGIVEL, REGRA],
+        )
+        self.assertEqual(self.classes(GATES.replace("{ modo: aviso, credor: KAM-028 }", "{ modo: aviso, credor: KAM-028, nota: x }")), [ILEGIVEL])
+
+    def test_um_gate_sem_golden_falha_antes_de_producao(self) -> None:
+        """O `GateDaVertical` do AGR exige-o, e sem isto o CI ficava verde.
+
+        O `load_all` confronta o `golden` do gate com o `golden.dataset` da
+        vertical; um `gates.yaml` sem ele passava aqui e o AGR saia com 5 em
+        producao. Achado da revisao adversarial do KAM-027.
+        """
+        sem_golden = "version: 1.0.0\ngates:\n  vendedor:\n    validacoes:\n      tools: { modo: aviso, credor: KAM-028 }\n"
+        achados = self.achados(sem_golden)
+        self.assertEqual([a.classe for a in achados], [REGRA])
+        self.assertIn("nao declara `golden`", achados[0].mensagem)
+        self.assertEqual(
+            self.classes(GATES.replace("    golden: golden/vendedor/v1", '    golden: ""')),
+            [REGRA],
+        )
+
+    def test_gate_sem_validacoes_falha(self) -> None:
+        """`bloqueio` e a omissao: quem nao tem nada a declarar nao se escreve."""
+        so_golden = "version: 1.0.0\ngates:\n  vendedor:\n    golden: golden/vendedor/v1\n"
+        achados = self.achados(so_golden)
+        self.assertEqual([a.classe for a in achados], [ILEGIVEL])
+        self.assertIn("nao tem um mapa `validacoes`", achados[0].mensagem)
+        self.assertEqual(self.classes("version: 1.0.0\ngates: {}\n"), [ILEGIVEL])
+
+    def test_as_tres_formas_nao_se_misturam(self) -> None:
+        achados = self.achados(GATES + "id: vendedor\n")
+        self.assertEqual([a.classe for a in achados], [REGRA])
+        self.assertIn("nao se misturam", achados[0].mensagem)
+        self.assertEqual([a.classe for a in self.achados(GATES + "plans: {}\n")], [REGRA])
+
+    def test_um_ficheiro_que_nao_e_nenhuma_das_tres_falha(self) -> None:
+        achados = self.achados("version: 1.0.0\ngate: { vendedor: aviso }\n")
+        self.assertEqual([a.classe for a in achados], [REGRA])
+        self.assertIn("`gates`", achados[0].mensagem)
+
+    def test_o_ficheiro_do_repositorio_cobre_as_tres_validacoes_adiadas(self) -> None:
+        """O que o critero 8 do KAM-027 manda registar aqui, e as outras duas.
+
+        E o unico teste desta classe que le o ficheiro real: as seis validacoes
+        correm em `bloqueio` por omissao, e as que nao correm tem de estar aqui
+        **com o credor nomeado** — senao ficam `bloqueio` no codigo e `aviso` na
+        cabeca de quem escreveu o ticket.
+        """
+        from .base import ROOT
+
+        documento = yamlreg.ler((ROOT / "registry/gates.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(sorted(documento["gates"]), ["servicos", "vendedor"])
+        for vertical, grafo in (("vendedor", "KAM-031"), ("servicos", "KAM-035")):
+            validacoes = documento["gates"][vertical]["validacoes"]
+            self.assertEqual(sorted(validacoes), ["golden", "grafo", "tools"])
+            self.assertEqual({v["modo"] for v in validacoes.values()}, {"aviso"})
+            self.assertEqual(validacoes["tools"]["credor"], "KAM-028")
+            self.assertEqual(validacoes["grafo"]["credor"], grafo)
+            self.assertEqual(validacoes["golden"]["credor"], "KAM-040")
 
 
 class TestYamlDoRegisto(unittest.TestCase):

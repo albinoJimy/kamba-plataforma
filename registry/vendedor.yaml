@@ -1,0 +1,77 @@
+# registry/vendedor.yaml — a vertical Vendedor (ADR-012, KAM-027)
+#
+# A PRIMEIRA FORMA dos ficheiros de `registry/`, distinguida pela chave de topo
+# `id`. A forma e a de `docs/tecnica/02` §5.1; o *gate* 3b
+# (`tools/canon_lint/registo.py`) le-a e recusa uma chave de topo que nao
+# conheca, porque um `subscricoes:` escrito em vez de `subscriptions:` passava o
+# ficheiro inteiro ao lado das verificacoes.
+#
+# ---------------------------------------------------------------------------
+# `valor_max_pedido_minor`, E NAO `valor_max_pedido_kz`.
+#
+# O exemplo do §5.1 e os Detalhes Tecnicos do bloco do KAM-027 escrevem
+# `valor_max_pedido_kz`. A emenda 1.13 do dicionario canonico registou esse
+# nome como VARIANTE que o dicionario substitui, pelo que o *gate* 3b o trata
+# como achado de nivel 1 — falha sempre. O proprio bloco previa a resolucao («a
+# divergencia nominal resolve-se com o KAM-009, e unidades em minor»), e o
+# KAM-009 esta feito: a chave canonica e `valor_max_pedido_minor`, e e a que o
+# `CHAVES_DE_LIMITE` de `kamba_core.ten` conhece. Dicionario §3.26.
+#
+# ---------------------------------------------------------------------------
+# PORQUE E QUE AQUI ESTAO OS DOIS EVENTOS DE PAGAMENTO.
+#
+# O §5.1 subscreve so `payment.confirmed`. O Piloto usa o `ManualProvider`,
+# cujo evento e `payment.manual_confirmed` (KAM-055), e o dicionario §3.4 diz
+# que quem nao distingue os dois caminhos subscreve os dois — regra que o
+# *gate* 3b impoe. Uma vertical que subscrevesse so o primeiro ficava surda ao
+# unico caminho de pagamento que existe hoje, que e o pedido confirmado a mao.
+#
+# ---------------------------------------------------------------------------
+# O `graph` AINDA NAO RESOLVE, E ISSO ESTA DECIDIDO.
+#
+# O §5.1 escreve `kamba.verticals.vendedor:build_graph`, um caminho que nao
+# existe nem pode existir: o pacote chama-se `kamba_agr`, e o KAM-025 ja
+# decidiu que o que e so do AGR vive nele (`estado.py`). O alvo abaixo e
+# *proposta*, e quem o ratifica e o KAM-031, que escreve o modulo. Enquanto nao
+# existir, a validacao (3) do §5.2 corre em modo `aviso`
+# (`registry/gates.yaml`) e o `/internal/turn` continua a responder 503.
+
+id: vendedor
+version: 1.0.0
+phase: P
+persona:
+  nome: "Vendedor"
+  idioma: pt
+  tom: "cordial, directo, portugues de Angola; sem emojis em excesso"
+  apresentacao: "Sou o assistente automatico de {loja}. Posso ajudar com produtos, precos e pedidos."
+graph: kamba_agr.verticais.vendedor:build_graph
+# Lista FECHADA: a ToolLayer recusa qualquer outra (KAM-028, passo 1 do
+# pipeline de `invoke`). Os nomes sao os do catalogo de `docs/tecnica/02` §6.2,
+# canonicos desde a emenda 1.35; as especificacoes (classe, versao, modelo
+# Pydantic) sao do KAM-028 e do KAM-031.
+tools:
+  - search_catalog
+  - get_price_stock
+  - propose_cart
+  - criar_pedido
+  - get_order_status
+  - get_store_info
+entitlements:
+  modulo: vendedor
+  limites:
+    - msgs_ai_mes
+    - valor_max_pedido_minor
+subscriptions:
+  - { tipo: payment.confirmed, versao: 1 }
+  - { tipo: payment.manual_confirmed, versao: 1 }
+  - { tipo: order.expired, versao: 1 }
+  - { tipo: stock.low, versao: 1 }
+models: { router: kamba-router, chat: kamba-chat }
+guardrails:
+  dominio: comercio_atendimento
+  handoff_triggers: [pedido_humano, reclamacao_grave, saude]
+# O `dataset` e o caminho; o MODO do *gate* vive em `registry/gates.yaml`, e o
+# `load_all` exige que os dois caminhos coincidam. O §5.1 tinha aqui tambem um
+# `gate: "gates/vendedor.yaml"`; o critero 8 do bloco manda o registo em
+# `registry/gates.yaml`, e e o bloco que prevalece (dicionario §3.26).
+golden: { dataset: "golden/vendedor/v1" }

@@ -208,15 +208,48 @@ componentes:
       branca. Nao se carrega.
 
   - componente: langgraph
-    versao: "1.2.14"
+    versao: "1.2.17"
     licenca: MIT
-    data_verificacao: "2026-10-08"
-    fonte: "docs/tecnica/evidencia/E4_Stack_Licencas.md §1 e §2.6 (pypi.org/pypi/langgraph/json)"
+    data_verificacao: "2026-10-25"
+    fonte: "docs/tecnica/evidencia/E4_Stack_Licencas.md §2.6 (actualizacao de 2026-10-25); pypi.org/pypi/langgraph/json (license_expression) e o METADATA do pacote instalado"
     estado_verificacao: CONFIRMADO
     estado: permitido
     ligacoes:
       - "pypi:langgraph"
-    nota: So a biblioteca. O servidor e outro componente, e esta bloqueado.
+    nota: >-
+      So a biblioteca. O servidor e outro componente, e esta bloqueado. Entra no
+      fecho do AGR com o KAM-027, que e quem primeiro compila um grafo — contra
+      ele corre o teste de contrato da validacao (3) de `docs/tecnica/02` §5.2.
+      A versao subiu de 1.2.14 para 1.2.17 e a licenca foi relida nessa versao.
+
+  - componente: langgraph-prebuilt
+    versao: "1.1.1"
+    licenca: MIT
+    data_verificacao: "2026-10-25"
+    fonte: "pypi.org/pypi/langgraph-prebuilt/json (license_expression), e o METADATA do pacote instalado"
+    estado_verificacao: CONFIRMADO
+    estado: permitido
+    ligacoes:
+      - "pypi:langgraph-prebuilt"
+    nota: >-
+      Dependencia do `langgraph`. Nao se importa em codigo nosso; entra no fecho
+      porque um fecho `--require-hashes --no-deps` instala exactamente o que esta
+      listado (KAM-027).
+
+  - componente: langgraph-sdk
+    versao: "0.4.9"
+    licenca: MIT
+    data_verificacao: "2026-10-25"
+    fonte: "pypi.org/pypi/langgraph-sdk/json (license_expression), e o METADATA do pacote instalado"
+    estado_verificacao: CONFIRMADO
+    estado: permitido
+    ligacoes:
+      - "pypi:langgraph-sdk"
+    nota: >-
+      Dependencia do `langgraph`. E o cliente do **Server**, que o ADR-002 veda;
+      o que o veda e a lista de bloqueio do `langgraph-api` e o `egress.yaml` do
+      AGR, onde `beacon.langchain.com` nao esta — um cliente sem servidor nem
+      caminho de saida nao fala com ninguem (KAM-027).
 
   - componente: langgraph-checkpoint
     versao: "4.3.0"

@@ -6,6 +6,7 @@
     agr_admitted_rejected_total{motivo}  counter  turnos recusados na admissao
     agr_coalesced_total              counter  mensagens coalescidas
     agr_backpressure_total           counter  vezes que a fila passou o limiar
+    agr_registry_denied_total{motivo}    counter  resolucoes do registo negadas (KAM-027)
 
 A forma e a do `ten/metricas.py`, que e a do `tenant_guard.Contadores`: um
 dicionario de numeros, em memoria, com um trinco, sem dependencias. Esta
@@ -67,6 +68,16 @@ METRICA_COALESCIDAS: Final = "agr_coalesced_total"
 #: Vezes que a fila de admissao passou o limiar de contrapressao.
 METRICA_CONTRAPRESSAO: Final = "agr_backpressure_total"
 
+#: Resolucoes do AgentRegistry negadas, por motivo (KAM-027, criterio 6).
+#:
+#: E o «emite alerta» do critero 6: sem entitlement activo, o `resolve` devolve
+#: a resposta estatica e conta aqui. Vive neste modulo e nao no `registo/`
+#: porque e aqui que vivem as outras oito — e porque um contador que este
+#: ficheiro nao conheca **levanta** `EtiquetaInvalida` («contador
+#: desconhecido»), que foi como se descobriu que faltava: o `resolve` contava
+#: contra um duplo nos testes e teria rebentado em producao.
+METRICA_REGISTO_NEGADO: Final = "agr_registry_denied_total"
+
 #: Quanto demorou a **ultima** gravacao de checkpoint, em milissegundos
 #: (KAM-026). O alvo do `docs/tecnica/02` §15.1 e 0,05-0,15 s «Postgres local»,
 #: e e **a medir**, nao um limiar: nada falha por o exceder.
@@ -100,6 +111,13 @@ DESFECHOS: Final = ("executado", "entregue_ao_hnd", "sem_conversa", "falhou")
 #: `invocacao_invalida`  o corpo nao e um `agent_invocation`
 MOTIVOS_DE_RECUSA: Final = ("ritmo", "tecto_do_tenant", "invocacao_invalida")
 
+#: Porque e que o `AgentRegistry.resolve` nao devolveu vertical. Lista
+#: **fechada**: e etiqueta, e e a do dicionario §3.26.
+#:
+#: `sem_entitlement`        o tenant nao tem o modulo da vertical activo
+#: `vertical_desconhecida`  o `ctx.vertical` nao esta no registo carregado
+MOTIVOS_DE_NEGACAO: Final = ("sem_entitlement", "vertical_desconhecida")
+
 #: A gramatica de uma etiqueta. A mesma de `ten/metricas.py`, e pela mesma
 #: razao: um `tenant_id` tem hifenes e nao casa.
 ETIQUETA: Final = re.compile(r"^[a-z][a-z0-9_]{1,62}$")
@@ -107,6 +125,7 @@ ETIQUETA: Final = re.compile(r"^[a-z][a-z0-9_]{1,62}$")
 _VALORES_DA_ETIQUETA: Final = {
     METRICA_TURNOS: DESFECHOS,
     METRICA_RECUSADOS: MOTIVOS_DE_RECUSA,
+    METRICA_REGISTO_NEGADO: MOTIVOS_DE_NEGACAO,
 }
 
 _CONTADORES_SEM_ETIQUETA: Final = (METRICA_COALESCIDAS, METRICA_CONTRAPRESSAO)
@@ -124,6 +143,10 @@ _AJUDA: Final = {
     METRICA_RECUSADOS: ("counter", "Turnos recusados na admissao, por motivo."),
     METRICA_COALESCIDAS: ("counter", "Mensagens coalescidas num turno em curso."),
     METRICA_CONTRAPRESSAO: ("counter", "Vezes que a fila passou o limiar."),
+    METRICA_REGISTO_NEGADO: (
+        "counter",
+        "Resolucoes do AgentRegistry negadas, por motivo.",
+    ),
     METRICA_LATENCIA_CHECKPOINT: (
         "gauge",
         "Duracao da ultima gravacao de checkpoint, em milissegundos.",
@@ -225,8 +248,15 @@ class MetricasDoAgr:
         return "\n".join(linhas) + ("\n" if linhas else "")
 
 
+#: As metricas cuja etiqueta se chama `motivo` e nao `outcome`. As duas contam
+#: **porque** algo nao aconteceu, e `outcome` ali era o nome errado do eixo —
+#: o dicionario §3.26 escreve `motivo` para o `agr_registry_denied_total`, e
+#: sem esta linha a exposicao dizia `outcome` e contradizia o canon. Medido.
+_COM_MOTIVO: Final = (METRICA_RECUSADOS, METRICA_REGISTO_NEGADO)
+
+
 def _etiqueta_de(metrica: str) -> str:
-    return "motivo" if metrica == METRICA_RECUSADOS else "outcome"
+    return "motivo" if metrica in _COM_MOTIVO else "outcome"
 
 
 def _numero(valor: float) -> str:

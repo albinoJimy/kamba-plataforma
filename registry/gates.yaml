@@ -1,0 +1,66 @@
+# registry/gates.yaml — o modo de cada validacao do arranque (KAM-027)
+#
+# A TERCEIRA FORMA dos ficheiros de `registry/`, distinguida pela chave de topo
+# `gates`. As outras duas sao a vertical (`id`) e os planos (`plans`). O *gate*
+# 3b (`tools/canon_lint/registo.py`) escolhe a forma PELA CHAVE DE TOPO e nunca
+# pelo nome do ficheiro, e recusa um ficheiro que nao seja nenhuma das tres.
+#
+# ---------------------------------------------------------------------------
+# PORQUE E QUE ESTE FICHEIRO EXISTE.
+#
+# O §5.2 de `docs/tecnica/02` da seis validacoes de arranque, e o `load_all`
+# corre as seis. Tres delas precisam de uma fonte que ainda nao existe no
+# repositorio:
+#
+#   (1) `tools`   — precisa do catalogo da ToolLayer           -> KAM-028
+#   (3) `grafo`   — precisa de um grafo compilado              -> KAM-031/035
+#   (6) `golden`  — precisa do dataset e do eval harness       -> KAM-040
+#
+# O critero 8 do bloco do KAM-027 manda, para a (6), «modo **aviso** ate
+# existir KAM-040 e **bloqueante** quando este ficar Done (registo explicito em
+# `registry/gates.yaml`)». Este ficheiro e esse registo, e as outras duas
+# entram pelo mesmo mecanismo em vez de ganharem um seu: tres maneiras de dizer
+# «esta validacao espera por um ticket» eram tres sitios para esquecer uma.
+#
+# ---------------------------------------------------------------------------
+# AS REGRAS, E PORQUE SAO ESTAS.
+#
+# * `bloqueio` e a OMISSAO. Uma validacao que este ficheiro nao nomeie falha
+#   fechada — e o unico lado seguro de errar, e e por isso que `entitlements`,
+#   `subscriptions` e `fase` nao aparecem aqui: as fontes delas existem
+#   (`CHAVES_DE_LIMITE` do TEN, `CATALOGO` de `kamba_core.eventos.contratos`, e
+#   `KAMBA_FASE` de `kamba_core.fluxo_piloto`) e as tres correm em `bloqueio`.
+#
+# * Um `modo: aviso` SEM `credor` e recusado. Um atalho sem o ticket que o
+#   fecha nao e atalho, e um `aviso` sem dono e uma validacao desligada para
+#   sempre com ar de temporaria.
+#
+# * O `credor` tem de ser um ticket do backlog mestre — o *gate* 3 (referencias
+#   cruzadas) le os `KAM-NNN` deste ficheiro como le os de qualquer outro.
+#
+# * O `golden` daqui e o MESMO caminho que a vertical declara em
+#   `golden.dataset`, e o `load_all` RECUSA o registo se os dois discordarem.
+#   A duplicacao e deliberada e e um confronto: o §5.1 poe o dataset na
+#   vertical, o critero 8 poe o gate aqui, e sem o confronto ficavam duas
+#   verdades a divergir em silencio.
+#
+# QUANDO SE EDITA: quando um dos tres credores ficar `Done`. Tirar a linha e o
+# que torna a validacao bloqueante — nao ha interruptor nenhum no codigo, e
+# `bloqueio` e a omissao precisamente para que fechar um `aviso` seja APAGAR
+# uma linha e nunca acrescentar uma.
+
+version: 1.0.0
+
+gates:
+  vendedor:
+    golden: golden/vendedor/v1
+    validacoes:
+      tools: { modo: aviso, credor: KAM-028 }
+      grafo: { modo: aviso, credor: KAM-031 }
+      golden: { modo: aviso, credor: KAM-040 }
+  servicos:
+    golden: golden/servicos/v1
+    validacoes:
+      tools: { modo: aviso, credor: KAM-028 }
+      grafo: { modo: aviso, credor: KAM-035 }
+      golden: { modo: aviso, credor: KAM-040 }

@@ -70,6 +70,39 @@ typing-extensions==4.16.0
 # variaveis estao em `egresso.py` e o estado delas e NAO VERIFICADO (`L5`).
 langgraph-checkpoint==4.3.0
 
+# --- O LangGraph, biblioteca MIT (KAM-027, ADR-002) ---------------------------
+#
+# O comentario do KAM-026, acima, previu isto por escrito: «o `langgraph` do
+# KAM-027 traz este fecho inteiro de qualquer maneira — o
+# `langgraph-checkpoint` e dependencia dele». E assim: o `langgraph` 1.2.17
+# pede `langchain-core<2,>=1.4.7`, `langgraph-checkpoint<5,>=4.3.0`,
+# `pydantic>=2.7.4` e `xxhash>=3.5.0`, que ja estao todos fixados nesta lista.
+# O que ele acrescenta de novo sao **tres** pacotes, e os tres sao MIT (lido no
+# PyPI a 2026-10-25, `license_expression`):
+#
+#   langgraph           1.2.17  MIT
+#   langgraph-prebuilt  1.1.1   MIT   <- langgraph
+#   langgraph-sdk       0.4.9   MIT   <- langgraph
+#
+# O `langgraph-sdk` pede `httpx`, `langchain-protocol`, `orjson` e
+# `websockets`; o `langgraph-prebuilt` pede `langchain-core` e
+# `langgraph-checkpoint`. Todos ja fixados. O fecho passa de 43 para 46.
+#
+# **Porque e que entra neste ticket e nao no KAM-031.** O KAM-027 nao constroi
+# grafos — isso e o KAM-031 e o KAM-035 —, mas a validacao (3) do
+# `docs/tecnica/02` §5.2 diz que «o grafo compilado contem os nos obrigatorios»,
+# e o critero 3 do bloco pede um **teste de contrato** com e sem eles. Esse
+# teste contra um objecto inventado nao prova nada sobre o `CompiledStateGraph`
+# que vai la estar: prova que o nosso `nos_do_grafo` le o nosso proprio duplo.
+# Um critero satisfeito pela razao errada e o defeito mais caro deste
+# repositorio, e tres pacotes MIT sao o preco de o fechar.
+#
+# E o `langgraph_api` e o `langgraph_runtime_inmem` continuam PROIBIDOS
+# (ADR-002, `tools/blocklist.yaml`): o que entra e a biblioteca, nunca o Server.
+langgraph==1.2.17
+langgraph-prebuilt==1.1.1  # MIT          <- langgraph
+langgraph-sdk==0.4.9       # MIT          <- langgraph
+
 # Fecho transitivo do `langgraph-checkpoint`, por ordem alfabetica.
 annotated-types==0.8.0     # MIT          <- pydantic
 certifi==2026.10.23        # MPL-2.0      <- requests

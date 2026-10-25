@@ -29,19 +29,29 @@ esqueleto do serviço. Não há agente nenhum.
 | `POST /internal/turn`, `POST /internal/resume` com credencial interna | **KAM-025** |
 | Um turno por conversa (tranca), coalescência, tectos por *tenant* e por contacto | **KAM-025** |
 | Guardas do ADR-002 em *runtime* (lista de bloqueio, telemetria desligada) | **KAM-025** |
-| Checkpointer Postgres no esquema `lg`, e o papel `kamba_agr` | KAM-026 |
-| AgentRegistry e validação no arranque | KAM-027 |
+| Checkpointer Postgres no esquema `lg`, e o papel `kamba_agr` | **KAM-026** |
+| AgentRegistry, as seis validações de arranque e `resolve` | **KAM-027** |
+| Guarda do SBOM do ambiente em *runtime* | **KAM-027** |
 | ToolLayer | KAM-028 |
 | Grafo do Vendedor / de Serviços | KAM-031 / KAM-035 |
 | Modo determinístico e `agr_degraded_turns_total` | KAM-037 |
 | *Compare-and-set* da retoma do *handoff* | KAM-034 |
 
-**Enquanto o KAM-027 não registar grafos, `/internal/turn` com uma invocação
-válida responde 503 com `Retry-After`**, e a mensagem fica na fila. É o estado
-honesto de um esqueleto: um 200 fingia que o turno correu, e um 500 punha o
-BullMQ a repetir para sempre uma mensagem que nenhuma versão deste código
-consegue tratar. A forma segue o `docs/tecnica/02` §14, linha do checkpointer
-indisponível — «o turno não corre; a mensagem permanece na fila».
+**`/internal/turn` com uma invocação válida continua a responder 503 com
+`Retry-After`**, e a mensagem fica na fila. É o estado honesto de um esqueleto:
+um 200 fingia que o turno correu, e um 500 punha o BullMQ a repetir para sempre
+uma mensagem que nenhuma versão deste código consegue tratar. A forma segue o
+`docs/tecnica/02` §14, linha do checkpointer indisponível — «o turno não corre;
+a mensagem permanece na fila».
+
+**E o KAM-027 não mudou isso, de propósito.** O registo existe, valida-se no
+arranque e o `resolve` funciona; o que não existe é **grafo**. O `graph` das
+duas verticais aponta para `kamba_agr.verticais.<id>:build_graph`, que o KAM-031
+e o KAM-035 escrevem. Ligar o `grafos=` do `ExecutorDeTurnos` ao registo hoje
+trocava um 503 por outro 503 — `GrafoNaoRegistadoError` por alvo que não
+resolve — e punha uma leitura de entitlement no caminho de cada turno para
+nada. O `sem_grafos` fica, e quem o substitui é o ticket que tiver um grafo
+para lhe dar. **O serviço continua a não ir a produção antes do KAM-031.**
 
 ---
 
@@ -159,6 +169,8 @@ configurou a parecer configurado.
 | `AGR_TECTO_POR_TENANT` | `3` | *Proposta*. Turnos em curso por *tenant*, **neste processo**; `0` = sem tecto |
 | `AGR_COALESCENCIA_MS` | `1500` | *Proposta*. Distância máxima entre duas mensagens para se juntarem; `0` = nenhuma coalescência |
 | `AGR_LIMIAR_DE_CONTRAPRESSAO` | `100` | *Proposta*. Turnos à espera a partir dos quais se conta contrapressão |
+| `KAMBA_REGISTRY_DIR` | `registry` | Onde vivem os `registry/*.yaml`, relativo ao `cwd` (no contentor, `/app`). O *dataset* golden resolve-se contra a **pasta acima** desta, para que um caminho absoluto mova as duas coisas juntas. Um registo inválido sai com `5` |
+| `KAMBA_FASE` | — | Ausente ou vazia **trata-se como `piloto`** (`kamba_core.fluxo_piloto`): uma vertical `phase: D` não arranca. É a validação (5), ADR-011 |
 | `LANGSMITH_TRACING`, `LANGCHAIN_TRACING_V2` | **impostas a `false`** | Não se leem: impõem-se (critério 7). Quem quer *traces* tem o Langfuse (KAM-069) |
 
 E, do lado do *shim* (`services/worker-canal/src/agr_shim.ts`):
@@ -181,7 +193,8 @@ ocupar *workers* a dormir.
 | Regra do §4.2 | Onde se cumpre |
 |---|---|
 | 1 — lista de bloqueio no lockfile | CI: `tools/lint_arch` (*gate* 2) e `make supply-chain` |
-| 1 — **e no processo** | `egresso.exigir_biblioteca_mit()` no arranque: se `langgraph_api` estiver importável, sai com `3` |
+| 1 — **e no processo, por módulo** | `egresso.exigir_biblioteca_mit()` no arranque: se `langgraph_api` estiver importável, sai com `3` |
+| 1 — **e no processo, pelo SBOM** | `egresso.exigir_sbom_mit()` (KAM-027): se uma distribuição da lista de bloqueio estiver **instalada**, o mesmo `3`. Não é a mesma pergunta — ver abaixo |
 | 2 — `LANGSMITH_TRACING=false` | `egresso.desligar_telemetria()`, que **impõe** e não verifica |
 | 2 — egresso por *allowlist* | [`services/agr/egress.yaml`](../services/agr/egress.yaml): `por_omissao: negar`, `destinos: []` |
 | 3 — *traces* no Langfuse | KAM-069 |
@@ -193,6 +206,23 @@ num contentor de depuração, uma imagem base que mude, uma camada que alguém
 acrescente — nenhuma passa pelo lockfile, e todas acabam com o `langgraph_api`
 importável num processo em produção. O CI protege o que **declaramos**; isto
 protege o que **corre**.
+
+**E a guarda do módulo não é a guarda do SBOM.** O `find_spec` procura
+**módulos**; o `exigir_sbom_mit` lê as **distribuições instaladas**
+(`importlib.metadata`), que é o SBOM do ambiente no único sentido que um
+processo pode medir sobre si próprio. A diferença mede-se num pacote real: o
+`langgraph-checkpoint-postgres` instala `langgraph.checkpoint.postgres`, dentro
+de um pacote de *namespace* que nós **temos** e queremos ter — nenhum nome de
+`MODULOS_PROIBIDOS` o encontraria, e ele está na lista de bloqueio desde o
+KAM-026 porque o fecho dele exige `psycopg` e `psycopg-pool`, LGPL-3.0-only.
+
+A guarda compara pelas **mesmas regras do *gate* 2** — nomes normalizados por
+PEP 503, fronteira de palavra para os nomes curtos, `forbidden_below` onde ele
+existe — e há um teste que confronta as duas implementações **por
+comportamento** e não por campos: para 23 nomes × 4 versões, a guarda de
+*runtime* e o `lint_arch.blocklist` têm de decidir o mesmo. Há duas cópias
+porque `tools/` não está no `PYTHONPATH` do contentor do AGR e o `Dockerfile`
+não o copia; o que as mantém honestas é esse teste.
 
 **O que isto não cobre, e não se diz coberto:** «0 chamadas a
 `beacon.langchain.com` com egress bloqueado» mede-se com a rede bloqueada, e o
@@ -210,12 +240,25 @@ se nenhuma delas for a certa.
 
 ## 6. Métricas
 
-As seis do AGR (`agr_turns_total{outcome}`, `agr_turn_latency_ms`,
+As seis do KAM-025 (`agr_turns_total{outcome}`, `agr_turn_latency_ms`,
 `agr_queue_depth`, `agr_admitted_rejected_total{motivo}`, `agr_coalesced_total`,
 `agr_backpressure_total`) e as duas do *shim* (`agr_shim_total{outcome}`,
-`agr_shim_failed_total`) estão no dicionário §3.24, com a razão de cada uma.
+`agr_shim_failed_total`) estão no dicionário §3.24, com a razão de cada uma. O
+KAM-026 acrescentou duas (`agr_checkpoint_latency_ms`,
+`agr_checkpoint_state_bytes`) e o KAM-027 uma:
+**`agr_registry_denied_total{motivo}`**, com `motivo` ∈ {`sem_entitlement`,
+`vertical_desconhecida`} — é o «emite alerta» do critério 6 (dicionário §3.26).
 
-Três notas que valem mais do que a lista:
+Quatro notas que valem mais do que a lista:
+
+- **Uma métrica que este módulo não conheça levanta, e isso apanhou um
+  defeito.** O `MetricasDoAgr.contar` recusa um contador que não esteja no
+  `_AJUDA` («contador desconhecido»), e o `agr_registry_denied_total` não
+  estava: os testes do `resolve` contavam contra um duplo e passavam, e em
+  produção o primeiro *tenant* sem plano fazia o turno rebentar. Há agora um
+  teste que conta contra o `MetricasDoAgr` **real** e lê a exposição. A lição
+  não é sobre esta métrica: é que um duplo de métricas prova que se chamou
+  `contar`, não que o contador existe.
 
 - **Nenhuma leva `tenant_id`, `contact_id`, `conversation_id` ou `wamid`**
   (`docs/seguranca/ameacas_stride.md`, `OBS-I`), e a regra impõe-se pela
@@ -363,6 +406,116 @@ Sem esse, o outro não prova nada.
 
 ---
 
+## 7-B. O AgentRegistry e as seis validações (KAM-027)
+
+Uma vertical é configuração e não código (ADR-012): um tuplo
+`(grafo, tools autorizadas, persona, entitlements, subscrições)` num
+`registry/*.yaml`, com SemVer. O `AgentRegistry` lê esse tuplo, recusa-o quando
+está errado, e devolve-o a quem corre um turno.
+
+O módulo é `services/agr/src/kamba_agr/registo/` — três ficheiros: `esquema.py`
+(os modelos Pydantic), `validar.py` (as seis validações) e `__init__.py`
+(`carregar`, `AgentRegistry`, `resolve`). Vive no AGR e não em `libs/py-core`
+pela razão que o `estado.py` do KAM-025 escreveu: aquela biblioteca é o que
+**todos** os serviços Python precisam de fazer igual, e o AGR é o único que
+constrói e lê isto.
+
+### Três formas em `registry/`, e a terceira é deste ticket
+
+| Ficheiro | Chave de topo | Quem o escreve |
+|---|---|---|
+| `vendedor.yaml`, `servicos.yaml` | `id` | KAM-027 (a forma é `docs/tecnica/02` §5.1) |
+| `plans.yaml` | `plans` | KAM-009 — o AGR **salta-o**: quem o lê é o provisionamento |
+| `gates.yaml` | `gates` | KAM-027 — o **modo** de cada validação |
+
+A forma escolhe-se pela **chave de topo** e nunca pelo nome do ficheiro, nos
+dois lados: no *gate* 3b (`tools/canon_lint/registo.py`) e no `carregar`. Um
+`planos.yaml` ou um `tarifas.yaml` são o mesmo ficheiro, e adivinhar pelo nome
+punha a verificação a depender de como alguém lhe chamou.
+
+### As seis validações, e as três que esperam
+
+| # | Nome | Fonte da verdade | Modo hoje |
+|---|---|---|---|
+| 1 | `tools` | catálogo da ToolLayer | **aviso** → KAM-028 |
+| 2 | `entitlements` | `kamba_core.ten.CHAVES_DE_LIMITE` | bloqueio |
+| 3 | `grafo` | o `build_graph` da vertical | **aviso** → KAM-031 / KAM-035 |
+| 4 | `subscriptions` | `kamba_core.eventos.contratos.CATALOGO` | bloqueio |
+| 5 | `fase` | `kamba_core.fluxo_piloto` | bloqueio |
+| 6 | `golden` | o disco, e o *eval harness* | **aviso** → KAM-040 |
+
+**Uma validação por ligar não é uma validação que passa.** As três da direita
+não têm fonte no repositório, e havia duas maneiras erradas de lidar com isso:
+devolvê-las verdes (o defeito que o próprio bloco avisa — «um critério pode
+estar satisfeito pela razão errada») ou pô-las a falhar, o que impedia o AGR de
+arrancar hoje por causa de um ticket de amanhã.
+
+O que se faz é o que o **critério 8** manda fazer para a (6), e vale igual para
+as outras duas: a validação **corre sempre** e devolve o problema que encontra —
+«o catálogo não está ligado» é um problema —, e o `registry/gates.yaml` diz se
+esse problema bloqueia ou avisa, **com o ticket que o fecha**. Um `modo: aviso`
+sem `credor` é recusado.
+
+**`bloqueio` é a omissão, e é isso que faz do `gates.yaml` um registo e não um
+interruptor:** fechar um aviso é **apagar** uma linha, nunca acrescentar uma. Há
+um teste que o mede (`test_apagar_a_linha_do_gates_torna_a_validacao_bloqueante`).
+
+### O que o arranque escreve, e o que não cabe lá
+
+Uma linha de `warn` por par (validação, credor), com `error_code` na forma
+`tools_kam_028`. **A prosa do problema não cabe** no `error_code`: a *allowlist*
+de `docs/tecnica/08` §7.3 faz dele um identificador de 96 caracteres, e a
+primeira versão deste código punha lá a frase — que a *allowlist* deixava cair
+**em silêncio**. O resultado era um arranque que dizia ter registado os avisos e
+não registava nenhum, que é precisamente a coisa que o critério 8 existe para
+evitar. Um teste apanhou-o, e há uma mutação que o prende.
+
+### `resolve`, e porque devolve duas coisas
+
+```python
+resolve(ctx) -> Resolucao(vertical=..., resposta=None, motivo=None)
+             |  Resolucao(vertical=None, resposta="servico_indisponivel", motivo="sem_entitlement")
+```
+
+O §5.2 escreve `resolve(ctx) -> Vertical`, e o critério 6 pede mais: «sem
+entitlement activo devolve a resposta estática *serviço indisponível* e emite
+alerta». Um `Vertical` não tem onde levar essa resposta, e levantar uma excepção
+punha o caminho normal de um *tenant* sem plano a passar por um `except` — que é
+como uma recusa prevista deixa de se distinguir de um defeito.
+
+O alerta é `agr_registry_denied_total{motivo}`, com `motivo` ∈
+{`sem_entitlement`, `vertical_desconhecida`}. **O `tenant_id` não entra na
+etiqueta** (`OBS-I`), e não por omissão: a gramática de etiqueta de
+`metricas.py` recusa-o pela forma.
+
+**Uma só vertical principal por número no Piloto**: o que decide é
+`ctx.vertical`, que o CHR resolveu do canal. Não há agregação nem *front-door
+router* — isso é Fase C, e um registo que escolhesse entre duas verticais para o
+mesmo número estaria a implementá-lo por acidente.
+
+### Dois nomes que o canon corrigiu, e que o desenho ainda escreve
+
+- **`valor_max_pedido_minor`**, e não o `valor_max_pedido_kz` que o §5.1 e os
+  *Detalhes Técnicos* do bloco escrevem: a emenda 1.13 do dicionário registou
+  aquele nome como **variante**, pelo que o *gate* 3b o trata como achado de
+  nível 1 e um `vendedor.yaml` escrito à letra do §5.1 **não passava**.
+- **Os dois eventos de pagamento** nas duas verticais. O §5.1 subscreve só
+  `payment.confirmed`; o Piloto usa o `ManualProvider`, cujo evento é
+  `payment.manual_confirmed`, e o dicionário §3.5 já decidiu que quem não
+  distingue os dois caminhos subscreve os dois. É também o gate da Fase 0: um
+  pedido do Vendedor pago à mão emite o segundo, e é a vertical **Serviços** que
+  o consome (KAM-108).
+
+### O que este ticket não liga
+
+O `grafos=` do `ExecutorDeTurnos`. Ver o §1: o `graph` das duas verticais aponta
+para um módulo que o KAM-031 e o KAM-035 escrevem, e até lá o `/internal/turn`
+continua em 503. O `resolve` é a costura; quem a usa é o ticket que tiver um
+grafo para lhe dar — e é também ele que passa o `checkpointer` ao
+`compile(checkpointer=...)`.
+
+---
+
 ## 8. O que este documento não decide
 
 A topologia e as réplicas (`docs/tecnica/09`, KAM-088), a aplicação da
@@ -379,3 +532,4 @@ tabela do §1 atribui a outro ticket.
 | 1.0 | 2026-10-24 | KAM-025 | Versão inicial: o esqueleto do AGR, a tranca, a API interna e os tectos |
 | 1.1 | 2026-10-24 | KAM-025 | Revisão adversarial: o §3.0 (a espera pela tranca e a chave da fila), o `attempts` do produtor no §3.2, e a tabela do §7 corrigida — o teste das 20 em série mede o dreno e não a tranca, e isso agora está escrito |
 | 1.2 | 2026-10-25 | KAM-026 | §7-A: o checkpointer sobre `pg8000` e o esquema `lg`. Porque não é o `AsyncPostgresSaver` (o fecho dele é LGPL), as duas tabelas em vez de três e o que isso custa, os quatro métodos que não se implementam, o isolamento que aqui não é RLS, a retenção e os dois prazos do canon, e a armadilha do critério 2 — em `msgpack`, uma busca por texto não encontra um telefone que lá esteja |
+| 1.3 | 2026-10-25 | KAM-027 | §7-B: o `AgentRegistry`, as três formas de `registry/`, as seis validações do arranque e as três que correm em **aviso** com o credor nomeado em `registry/gates.yaml`, o `resolve` e o alerta, e os dois nomes que o canon corrigiu ao desenho (`valor_max_pedido_minor` e os dois eventos de pagamento). §5: a guarda do SBOM do ambiente, que não é a mesma pergunta que a do módulo — o `langgraph-checkpoint-postgres` instala `langgraph.checkpoint.postgres` e nenhum nome de `MODULOS_PROIBIDOS` o encontraria. §1 e §4: o 503 fica, e porquê; `KAMBA_REGISTRY_DIR`, `KAMBA_FASE` e o código de saída `5` |

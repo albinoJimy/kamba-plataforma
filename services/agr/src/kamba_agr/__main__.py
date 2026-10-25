@@ -26,8 +26,14 @@ configuracao nem abre nada —, e as guardas do ADR-002 correm **imediatamente
 depois**, antes de se ler uma variavel de ambiente e antes de abrir uma porta:
 
 1. `egresso.exigir_biblioteca_mit()` — se `langgraph_api` estiver importavel, o
-   processo sai com `3` e nao serve um unico pedido. E o criterio 8.
-2. `egresso.desligar_telemetria()` — impoe `false`, nao verifica. E o criterio 7.
+   processo sai com `3` e nao serve um unico pedido. E o criterio 8 do KAM-025.
+2. `egresso.exigir_sbom_mit()` — se uma distribuicao da lista de bloqueio
+   estiver **instalada**, o mesmo `3`. E a segunda metade do criterio 7 do
+   KAM-027, e nao e a mesma pergunta da de cima: o
+   `langgraph-checkpoint-postgres` instala `langgraph.checkpoint.postgres`, que
+   nenhum nome de `MODULOS_PROIBIDOS` encontraria.
+3. `egresso.desligar_telemetria()` — impoe `false`, nao verifica. E o criterio 7
+   do KAM-025.
 
 Sai com codigo **3** e nao com `2`: o `2` e o de configuracao invalida, que o
 KAM-001 ja usa para a porta, e os dois distinguem-se no painel de arranques. Um
@@ -49,7 +55,7 @@ from kamba_core import host, port
 from kamba_core.logger import instalar
 from kamba_core.secrets import AMBIENTES, EnvSecretProvider, Secrets
 
-from . import egresso
+from . import egresso, registo
 from .admissao import Admissao, Tectos
 from .api_interna import SEGREDO_DA_API, rotas
 from .app import create_app
@@ -75,6 +81,14 @@ SAIDA_GUARDA_ADR002 = 3
 #: ADR-002: num painel, «o AGR nao arranca» sem dizer porque nao se diagnostica.
 #: E o que distingue «falta a palavra-passe do `kamba_agr`» de «falta a porta».
 SAIDA_SEM_CHECKPOINTER = 4
+
+#: Codigo de saida com registo de verticais invalido (KAM-027, criterio 1).
+#:
+#: O quarto, pela mesma razao escrita acima: `2` configuracao, `3` guarda do
+#: ADR-002, `4` sem checkpointer, `5` registo invalido. Sao as quatro maneiras
+#: de este processo se recusar a arrancar, e cada uma manda olhar para um sitio
+#: diferente — o `.env`, a imagem, o cofre da base, e `registry/`.
+SAIDA_REGISTO_INVALIDO = 5
 
 #: A variavel que diz o ambiente do cofre. A mesma do `entrada.ts` e do
 #: `chaves.ts`; `dev` por omissao, e um valor fora dos tres **levanta** em vez
@@ -135,6 +149,7 @@ def main() -> int:
     log = instalar(SERVICE)
     try:
         egresso.exigir_biblioteca_mit()
+        egresso.exigir_sbom_mit()
     except egresso.ModuloProibidoError as exc:
         # O nome do modulo e constante deste codigo e cabe em `error_code`; a
         # mensagem nao tem conteudo de ninguem.
@@ -159,6 +174,40 @@ def main() -> int:
         # `PORT`, e um valor de ambiente errado pode ser qualquer coisa.
         log.excepcao(exc, "arranque_invalido")
         return 2
+
+    # **O registo das verticais valida-se aqui, e invalido falha o deploy**
+    # (KAM-027, criterio 1; `docs/tecnica/02` §5.2). E a primeira coisa depois
+    # da configuracao porque e a mais barata — le ficheiros do disco, nao abre
+    # tomada nenhuma — e porque nao ha nada a ganhar em descobrir um
+    # `registry/vendedor.yaml` errado **depois** de abrir tres ligacoes.
+    #
+    # Os caminhos sao relativos ao directorio de trabalho, que no contentor e
+    # `/app`: e por isso que o `Dockerfile` passou a ter um `COPY registry`.
+    #
+    # A raiz contra a qual se resolve um *dataset* golden e a **pasta acima do
+    # registo**, e nao o directorio de trabalho: assim um `KAMBA_REGISTRY_DIR`
+    # absoluto move as duas coisas juntas. Duas raizes independentes eram um
+    # registo lido de um sitio e um golden procurado noutro.
+    pasta = registo.directorio_do_registo()
+    try:
+        _, _, adiadas = registo.carregar(
+            registo.AmbienteDoRegisto.do_repositorio(pasta.parent), pasta
+        )
+    except (registo.RegistoInvalidoError, registo.FicheiroIlegivelError) as exc:
+        log.excepcao(exc, "registo_invalido")
+        return SAIDA_REGISTO_INVALIDO
+
+    # As validacoes em modo `aviso` — as que esperam por KAM-028, KAM-031,
+    # KAM-035 e KAM-040 (`registry/gates.yaml`). Um `aviso` que nao aparece no
+    # registo de arranque e uma validacao adiada em silencio, que e o que o
+    # critero 8 existe para fechar.
+    #
+    # Uma linha por par (validacao, credor) e nao por vertical: o `error_code`
+    # e a `Adiada.codigo()`, que e o identificador que a *allowlist* de
+    # `docs/tecnica/08` §7.3 aceita. A prosa do problema **nao** cabe ali — foi
+    # a primeira versao disto e a *allowlist* deixava-a cair em silencio.
+    for codigo in sorted({adiada.codigo() for adiada in adiadas}):
+        log.warn(outcome="registo_validacao_adiada", error_code=codigo)
 
     try:
         segredos = Secrets.arrancar(
@@ -218,7 +267,9 @@ def main() -> int:
         # recebe os *jobs* a seguir espera por elas sem razao.
         # As trancas **e** o checkpointer: sao as tres tomadas que este
         # processo abre, e nenhuma se fecha sozinha. Quem o passa ao
-        # `compile(checkpointer=...)` e o KAM-027 — aqui ele serve a guarda do
+        # `compile(checkpointer=...)` e o **KAM-031** — e nao o KAM-027, como
+        # esta linha dizia: aquele entregou o registo e nao um grafo, e nao ha
+        # `compile` nenhum sem grafo. Aqui o checkpointer serve a guarda do
         # arranque e o encerramento, e nada mais.
         ao_encerrar=_fechar_as_tomadas(trancas, checkpointer),
     )

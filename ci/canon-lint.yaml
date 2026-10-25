@@ -32,9 +32,10 @@ version: 1
 # (`make ci-3b` corre-as) provam que a verificacao morde — o que continua a
 # valer depois, porque um ficheiro limpo nao prova que o lint morde.
 #
-# A superficie `registo` le DUAS formas (KAM-009), pela chave de topo e nunca
-# pelo nome do ficheiro: a vertical (`id`) e os planos (`plans`). Um ficheiro
-# que nao seja nenhuma das duas falha.
+# A superficie `registo` le TRES formas, pela chave de topo e nunca pelo nome do
+# ficheiro: a vertical (`id`), os planos (`plans`, KAM-009) e os gates (`gates`,
+# KAM-027 — o modo de cada validacao de arranque). Um ficheiro que nao seja
+# nenhuma das tres falha.
 superficies:
   migracoes:
     - "db/migrations/versions/*.py"
@@ -184,6 +185,24 @@ fora_de_ambito:
       KAM-006: a suite que corre o consumidor contra PostgreSQL e fila reais.
       Bate na sentinela `*/eventos/*`; nao tem DDL nem schemas, e os nomes que
       usa sao os das revisoes `0004` e `0005`, que o gate le.
+
+  - caminho: "services/agr/src/kamba_agr/registo/*"
+    razao: >-
+      KAM-027: o `AgentRegistry` do AGR — o esquema Pydantic, as seis validacoes
+      de arranque e o `resolve`. Bate na sentinela `*/registo/*`, mas a
+      superficie `registo` sao os **ficheiros** do registo (`registry/*.yaml`) e
+      o gate 3b nao le Python. E a mesma razao da biblioteca de eventos em
+      Python (`libs/py-core/src/kamba_core/eventos/*`), e com a mesma cobertura
+      transitiva: os nomes que este codigo usa sao contrato onde sao escritos —
+      em `registry/vendedor.yaml`, `registry/servicos.yaml` e
+      `registry/gates.yaml`, que estao na superficie e sao lidos — e ha um teste
+      de arquitectura que prende os seis nos obrigatorios e as onze tools ao
+      dicionario, lido como texto.
+
+  - caminho: "services/agr/tests/test_registo*"
+    razao: >-
+      KAM-027: os testes do `AgentRegistry`. Bate na mesma sentinela pela mesma
+      razao, e sao testes: os nomes que usam vem das *fixtures* e dos modulos.
 
   - caminho: "db/migrations/env.py"
     razao: >-
