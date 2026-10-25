@@ -889,7 +889,7 @@ a camada pode impor sem saber o que é opaco para cada tool.
 
 A segunda foi da revisão adversarial, e é da mesma classe: **os nomes dos
 argumentos iam em claro.** As chaves de `args` vêm do modelo de linguagem, e um
-nome é texto tanto como um valor — `{"contacto +244923456789": "x"}` punha um
+nome é texto tanto como um valor — `{"contacto 999123456789": "x"}` punha um
 telefone na `tool_audit` pela coluna que este critério fecha para os valores, e
 punha-o pelo caminho `VALIDATION_ERROR`, que é precisamente onde um argumento
 inventado chega. Hoje só passam os nomes que o esquema **declara**; o resto
@@ -1152,7 +1152,7 @@ recebeu um executor lento**:
 | 2 | o *lint* do critério 3 devolvia `conforme` para `class Args(Base)` com `tenant_id` — só reconhecia herança **directa** de `BaseModel` | árvore de ensaio, exit 0 | `test_uma_subclasse_indirecta_tambem_falha`; e uma base de fora do ficheiro passou a ser **achado** (falha fechada) |
 | 3 | um `asyncio.Lock` por processo serializava **todos** os *tenants* | 10 invocações de 10 *tenants* com backend de 200 ms → **2,02 s** | `test_dez_tenants_nao_correm_em_serie` (hoje 0,61 s com a fila de 4) |
 | 4 | nenhum tecto era imposto pela camada | executor de 5 s contra tecto de 2 s → `ok=True` em 5,01 s | `test_uma_tool_pendurada_custa_uma_vaga_e_nao_o_processo` |
-| 5 | os **nomes** dos argumentos iam em claro para a `tool_audit` | `redigir({'contacto +244923456789': …})` | `TestRedaccaoDosNomes` e `test_um_nome_de_argumento_inventado_nao_chega_a_tabela` |
+| 5 | os **nomes** dos argumentos iam em claro para a `tool_audit` | `redigir({'contacto 999123456789': …})` | `TestRedaccaoDosNomes` e `test_um_nome_de_argumento_inventado_nao_chega_a_tabela` |
 | 6 | o parâmetro `tecto` do passo 2 não tinha chamador senão a própria camada | `grep "tecto="` → 1 linha | `test_o_tecto_por_pedido_do_passo_2_nega_e_nao_consome`, contra o `platform.ten_tecto` |
 | 7 | o X-02 media onze **recusas** e não onze tools | nenhuma invocação chegava ao passo 6 | controlo positivo no próprio X-02 |
 | 8 | a linha de arranque da camada era recusada pelo *logger* (e com `KAMBA_LOG_ESTRITO=1` abortava o `main()`) | `_CODIGO.fullmatch('ligadas_1_de_11_read_2000ms')` → `None` | `test_sem_auditoria_de_tools_o_agr_nao_arranca` lê o campo |

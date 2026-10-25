@@ -143,7 +143,7 @@ def redigir(args: dict[str, Any], declarados: Collection[str] = ()) -> dict[str,
 
     **E os nomes tambem sao do modelo, e nao de quem chamou.** As chaves de
     `args` vem do modelo de linguagem, e um nome e texto tanto como um valor:
-    `{"contacto +244923456789": "x"}` punha um telefone na `tool_audit` pela
+    `{"contacto 999123456789": "x"}` punha um telefone na `tool_audit` pela
     coluna que o critero 5 fecha para os valores. A primeira versao desta funcao
     escrevia-os em claro — incluindo no caminho `VALIDATION_ERROR`, que e
     precisamente onde um argumento inventado chega. Apanhado pela revisao

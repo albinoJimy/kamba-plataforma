@@ -616,7 +616,7 @@ punha o caminho de leitura de um turno à espera do mesmo trinco. O que se copia
 **O que a linha não guarda** é o critério 5: nem texto de mensagem, nem
 telefone, nem valores de argumento — **nem os nomes deles**. As chaves de `args`
 vêm do modelo de linguagem, e um nome é texto tanto como um valor: a primeira
-versão escrevia-os em claro, e `{"contacto +244923456789": "x"}` punha um
+versão escrevia-os em claro, e `{"contacto 999123456789": "x"}` punha um
 telefone na `tool_audit` pela coluna que este critério fecha para os valores —
 pelo caminho `VALIDATION_ERROR`, que é onde um argumento inventado chega.
 Apanhado pela revisão adversarial. Hoje só passam os nomes que o esquema
