@@ -95,6 +95,29 @@ TECTO_DE_ESPERA_MS: Final = 3_000
 #: dentro dele.
 INTERVALO_DE_ESPERA_MS: Final = 50
 
+#: Ao fim de quanto tempo uma linha `em_curso` se considera **abandonada** e se
+#: retoma. E o ponto 4 do `docs/tecnica/03` §6.3, que escreve o mesmo para o COM:
+#: «intencoes `em_curso` > 2 min sao retomadas ou marcadas `falhada`».
+#:
+#: **Sem isto havia um caminho que deixava um `cart_id` envenenado para sempre, e
+#: com a encomenda ja feita.** Nao e o `SIGKILL` exotico: e o caminho que o
+#: `except` do `_correr` existe para tratar — o backend corre, a ligacao cai, o
+#: `fechar` levanta e e engolido ali de proposito. A linha ficava `em_curso`, a
+#: varredura recusa apagar `em_curso` por idade (e bem: pode ser uma invocacao a
+#: correr), e nada mais a tocava. Toda a repeticao daquele `cart_id` respondia
+#: `UPSTREAM_TIMEOUT`; o cliente saia por um carrinho novo, que tem `cart_id`
+#: novo, logo **chave nova** — e a segunda barreira do COM tambem nao o apanhava,
+#: porque um carrinho novo e `draft_id` novo e portanto `intent_key` nova. **Duas
+#: encomendas.** Achado 2 da revisao adversarial (`ANALISE-31`).
+#:
+#: **Dois minutos e nao oito segundos e meio**, que e o tecto da camada para uma
+#: classe de escrita: o tecto diz quanto o dono pode demorar, e retomar por cima
+#: de um dono vivo e exactamente o que duplica o efeito. A folga entre os dois e
+#: a margem para um relogio desacertado entre o servidor e nos. A retoma e segura
+#: porque o backend recebe a chave e e idempotente por ela — a mesma premissa do
+#: criterio 4.
+MINUTOS_PARA_RETOMAR: Final = 2
+
 #: Os tres estados de uma linha. Lista **fechada**, e a mesma do `CHECK` da
 #: revisao `0022`.
 ESTADOS: Final = ("em_curso", "concluida", "falhada")
@@ -107,10 +130,19 @@ SQL_RESERVAR = """
 """
 
 SQL_LER = """
-  SELECT estado, args_hash, result
+  SELECT estado, args_hash, result, created_at
   FROM platform.tool_idempotency
   WHERE key = %s
 """
+
+#: O instante do **servidor**, para comparar com o `created_at` dele.
+#:
+#: Nao se usa o relogio do processo: o `created_at` e escrito pelo `DEFAULT
+#: now()` do PostgreSQL, e comparar dois relogios diferentes punha a decisao de
+#: retomar — que e a decisao de correr o backend outra vez — a depender de uma
+#: deriva de NTP. O relogio simulado dos ensaios entra pelo `agora`, nao por
+#: aqui.
+SQL_AGORA = "SELECT now()"
 
 #: A retoma de uma linha `falhada`. O `WHERE estado = 'falhada'` e o que faz
 #: dela atomica: de dois leitores concorrentes, so um actualiza uma linha.
@@ -118,6 +150,24 @@ SQL_RETOMAR = """
   UPDATE platform.tool_idempotency
   SET estado = 'em_curso', result = NULL
   WHERE key = %s AND estado = 'falhada'
+  RETURNING key
+"""
+
+#: A retoma de uma linha `em_curso` **abandonada**, por idade. Ver a nota do
+#: `MINUTOS_PARA_RETOMAR`.
+#:
+#: O `created_at < %s` esta **dentro** do `UPDATE` e nao numa leitura anterior, e
+#: e isso que a torna atomica: de dois leitores concorrentes de uma linha velha,
+#: so um actualiza. E o `estado = 'em_curso'` no mesmo `WHERE` impede-a de tocar
+#: uma linha que o dono acabou de fechar entre a leitura e esta instrucao.
+#:
+#: **Nao mexe no `created_at`**, de proposito: se a retoma o reescrevesse, uma
+#: linha que fosse retomada e falhasse outra vez ganhava idade nova a cada volta
+#: e a varredura de retencao nunca lhe chegava.
+SQL_RETOMAR_ABANDONADA = """
+  UPDATE platform.tool_idempotency
+  SET estado = 'em_curso', result = NULL
+  WHERE key = %s AND estado = 'em_curso' AND created_at < %s
   RETURNING key
 """
 
@@ -197,9 +247,17 @@ def reservar(
     while True:
         linha = _ler(ligacao, ctx, chave)
         if linha is not None:
-            estado, guardado_hash, resultado = linha
+            estado, guardado_hash, resultado, nascida_em = linha
             if bytes(guardado_hash) != args_hash:
                 return Reserva(codigo="INTENT_REUSED_WITH_DIFFERENT_CONTENT")
+            if estado == "em_curso" and _abandonada(ligacao, ctx, nascida_em):
+                # Ninguem a vai fechar: o dono morreu, ou a ligacao dele caiu
+                # entre o backend e o `fechar`. Retoma-se. Ver a nota do
+                # `MINUTOS_PARA_RETOMAR`.
+                if _retomou(ligacao, ctx, chave, nascida_em=nascida_em):
+                    return Reserva(dono=True)
+                # Outro retomou-a primeiro: volta a `em_curso` com dono vivo, e
+                # espera-se por ele como por qualquer outro.
             if estado == "concluida":
                 # O `jsonb` chega como dicionario ou como texto, conforme o
                 # que o driver decida; aceitam-se os dois em vez de se supor um.
@@ -260,10 +318,39 @@ def _ler(ligacao: Any, ctx: ToolContext, chave: str) -> tuple[Any, ...] | None:
         return cursor.fetchone()
 
 
-def _retomou(ligacao: Any, ctx: ToolContext, chave: str) -> bool:
+def _retomou(
+    ligacao: Any, ctx: ToolContext, chave: str, *, nascida_em: Any = None
+) -> bool:
+    """Retoma uma linha `falhada`, ou uma `em_curso` abandonada por idade.
+
+    As duas instrucoes tem a condicao **dentro** do `UPDATE`, e e isso que as
+    torna atomicas: de dois leitores concorrentes da mesma linha, so um
+    actualiza, e so esse corre o backend.
+    """
     with tenant_guard.tx(ligacao, ctx.tenant_id) as cursor:
-        cursor.execute(SQL_RETOMAR, (chave,))
+        if nascida_em is None:
+            cursor.execute(SQL_RETOMAR, (chave,))
+        else:
+            cursor.execute(SQL_RETOMAR_ABANDONADA, (chave, _limite_de_abandono(cursor)))
         return cursor.fetchone() is not None
+
+
+def _agora_do_servidor(cursor: Any) -> Any:
+    cursor.execute(SQL_AGORA)
+    return cursor.fetchone()[0]
+
+
+def _limite_de_abandono(cursor: Any) -> Any:
+    """`now()` do servidor menos `MINUTOS_PARA_RETOMAR`."""
+    return _agora_do_servidor(cursor) - _dt.timedelta(minutes=MINUTOS_PARA_RETOMAR)
+
+
+def _abandonada(ligacao: Any, ctx: ToolContext, nascida_em: Any) -> bool:
+    """Se uma linha `em_curso` e velha o suficiente para ninguem a vir fechar."""
+    if nascida_em is None:
+        return False
+    with tenant_guard.tx(ligacao, ctx.tenant_id) as cursor:
+        return nascida_em < _limite_de_abandono(cursor)
 
 
 # ------------------------------------------------------------------- retencao

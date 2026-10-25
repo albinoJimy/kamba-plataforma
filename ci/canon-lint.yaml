@@ -308,6 +308,54 @@ dominios_por_conceito:
 # dicionario nao chega.
 dominios_so_no_registo: []
 
+# ------------------------------- declaracoes de dominio que a historia deixou
+#
+# Um dominio fechado PODE crescer. Quando cresce, a revisao que o faz escreve
+# `DROP CONSTRAINT` + `ADD CONSTRAINT`, e a revisao que o criou fica a declarar
+# o dominio ANTIGO para sempre. Isso e um facto historico e nao um defeito: a
+# base, depois de `upgrade head`, tem o dominio novo. Sem esta lista, o gate
+# cobrava `falta` a revisao antiga e NENHUM dominio fechado deste repositorio
+# podia crescer — a unica saida era editar uma revisao ja fundida, e aqui cada
+# revisao tem um commit, do seu proprio ticket.
+#
+# Isto NAO e uma lista de dispensas:
+#
+#   * o `a mais` continua a cobrar-se SEMPRE, historica ou nao: um valor que o
+#     dicionario ja nao tem e achado em qualquer revisao;
+#   * so dispensa o `falta`, e so na revisao, tabela e coluna que a entrada
+#     nomeia — nao na tabela toda nem nas revisoes seguintes;
+#   * cada entrada leva o ticket que a introduziu, a razao e a data, como o
+#     `ci/refs-allow.yaml` e o `canon/extensoes.yaml`.
+#
+# O QUE ISTO NAO VERIFICA, dito antes que alguem conte com isso: nao se
+# confere que a `revisao` exista nem que ela continue a declarar aquele
+# dominio. A verificacao de existencia esteve aqui e saiu — o arnes de
+# canarios do gate corre sobre copias PARCIAIS da arvore e ela rebentava-o.
+# Uma entrada que aponte para nada nao dispensa nada que exista; o que custa
+# e ruido. E mais fraco do que a verificacao de uso do canon/extensoes.yaml.
+#
+# NAO se infere da ordem dos ficheiros. A primeira versao desta regra (KAM-029)
+# inferia — «nao se cobra `falta` a quem uma revisao de nome posterior
+# redeclare» — e a revisao adversarial mostrou-lhe tres buracos: nao exigia
+# prova de `DROP CONSTRAINT` (um `ADD CONSTRAINT` com nome novo AO LADO do
+# antigo deixava a base a recusar e o gate a dizer conforme), o leitor de
+# revisoes le o `downgrade` e uma declaracao de la amnistiava as anteriores, e a
+# ordem era o `sorted()` do caminho e nao a cadeia. Esta em
+# `docs/analises/ANALISE-31-KAM-029-idempotencia.md`, achado 5.
+dominios_historicos:
+  - revisao: "db/migrations/versions/0021_tool_audit.py"
+    tabela: "tool_audit"
+    coluna: "error_code"
+    ticket: "KAM-029"
+    data: "2026-10-26"
+    razao: >-
+      A 0021 (KAM-028) criou o dominio com os dez erros tipados do
+      docs/tecnica/02 §6.5. A 0022 (KAM-029) acrescentou-lhe o decimo primeiro,
+      INTENT_REUSED_WITH_DIFFERENT_CONTENT, do §6.3, por DROP CONSTRAINT mais
+      ADD CONSTRAINT com o mesmo nome; o dicionario §3.28 passou a declarar os
+      onze. A declaracao da 0021 fica a dizer dez, e e o que a base tinha
+      naquela revisao.
+
 # ------------------------------------------------ unicidades que o §3 proibe
 #
 # §3.4, «Unicidade do ledger»: «**nao** `UNIQUE(provider, referencia)`». O ledger

@@ -746,7 +746,27 @@ class ToolLayer:
             inv.ctx,
             inv.chave,
             inv.especificacao.nome,
-            auditoria.impressao(inv.args_crus),
+            # **O modelo validado, e nao o `args_crus`.** O `args_crus` e o
+            # dicionario como o modelo de linguagem o emitiu, e duas chamadas
+            # semanticamente iguais podem nao ser iguais byte a byte: o segundo
+            # toque e um **turno novo**, com geracao nova, e basta ele reemitir
+            # um campo de omissao (`{"cart_id": "c-1"}` contra
+            # `{"cart_id": "c-1", "nota": ""}`) ou dar `"2"` onde deu `2` para o
+            # `args_hash` mudar — e o *replay* do criterio 8 virava
+            # `INTENT_REUSED_WITH_DIFFERENT_CONTENT`. Achado 4 da revisao
+            # adversarial (`ANALISE-31`).
+            #
+            # O `model_dump()` passa pela validacao: as omissoes estao
+            # preenchidas e os tipos coagidos, pelo que o que se compara e a
+            # **intencao** e nao a forma como ela foi escrita. O criterio 3 nao
+            # se perde — um carrinho realmente diferente continua a dar hash
+            # diferente.
+            #
+            # A `tool_audit.args_hash` continua a ser do `args_crus`, e as duas
+            # colunas deixam de ser o mesmo valor: a auditoria registra o que
+            # **chegou** (que e o que um registo deve guardar) e esta compara o
+            # que **vale**. Esta dito no dicionario §3.28.
+            auditoria.impressao(inv.args.model_dump()),
             tecto_ms=self._espera_de_idempotencia,
             relogio=self._relogio,
             dormir=self._dormir,

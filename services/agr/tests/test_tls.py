@@ -24,6 +24,7 @@ X-02 nao se provam com uma base falsa.
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import re
 import time
@@ -101,30 +102,51 @@ def contexto(**troca: Any) -> ToolContext:
 # que e o que torna a reserva e a retoma **atomicas**. Sem isto, uma bateria de
 # unidade sobre a camada tinha de enlatar a resposta e deixava de medir o
 # protocolo; o que vai a base a serio esta em `db/tests_agr/test_idempotencia.py`.
-def _idem_reservar(tabela: dict, p: tuple) -> list[tuple[Any, ...]]:
+def _idem_reservar(ligacao: "_Ligacao", p: tuple) -> list[tuple[Any, ...]]:
     chave, _tenant, _tool, args_hash = p
-    if chave in tabela:
+    if chave in ligacao.idempotencia:
         return []
-    tabela[chave] = ["em_curso", bytes(args_hash), None]
+    ligacao.idempotencia[chave] = ["em_curso", bytes(args_hash), None, ligacao.agora]
     return [(chave,)]
 
 
-def _idem_ler(tabela: dict, p: tuple) -> list[tuple[Any, ...]]:
-    linha = tabela.get(p[0])
+def _idem_ler(ligacao: "_Ligacao", p: tuple) -> list[tuple[Any, ...]]:
+    linha = ligacao.idempotencia.get(p[0])
     return [] if linha is None else [tuple(linha)]
 
 
-def _idem_retomar(tabela: dict, p: tuple) -> list[tuple[Any, ...]]:
-    linha = tabela.get(p[0])
+def _idem_retomar(ligacao: "_Ligacao", p: tuple) -> list[tuple[Any, ...]]:
+    linha = ligacao.idempotencia.get(p[0])
     if linha is None or linha[0] != "falhada":
         return []
     linha[0], linha[2] = "em_curso", None
     return [(p[0],)]
 
 
-def _idem_fechar(tabela: dict, p: tuple) -> list[tuple[Any, ...]]:
+def _idem_retomar_abandonada(ligacao: "_Ligacao", p: tuple) -> list[tuple[Any, ...]]:
+    """O `UPDATE … WHERE estado = 'em_curso' AND created_at < %s`.
+
+    A condicao esta aqui dentro, como no SQL: e o que torna a retoma atomica, e
+    um duplo que a verificasse fora deixava dois leitores retomarem a mesma
+    linha e correrem os dois o backend — que e o defeito que ela existe para
+    fechar.
+    """
+    chave, limite = p
+    linha = ligacao.idempotencia.get(chave)
+    if linha is None or linha[0] != "em_curso" or not linha[3] < limite:
+        return []
+    linha[0], linha[2] = "em_curso", None
+    return [(chave,)]
+
+
+def _idem_agora(ligacao: "_Ligacao", _p: tuple) -> list[tuple[Any, ...]]:
+    """O `SELECT now()` do servidor. No duplo, o relogio que o teste controla."""
+    return [(ligacao.agora,)]
+
+
+def _idem_fechar(ligacao: "_Ligacao", p: tuple) -> list[tuple[Any, ...]]:
     estado, carga, chave = p
-    linha = tabela.get(chave)
+    linha = ligacao.idempotencia.get(chave)
     if linha is not None:
         linha[0] = estado
         linha[2] = json.loads(carga) if carga is not None else None
@@ -135,6 +157,8 @@ _IDEMPOTENCIA = {
     "reservar": _idem_reservar,
     "ler_idempotencia": _idem_ler,
     "retomar": _idem_retomar,
+    "retomar_abandonada": _idem_retomar_abandonada,
+    "agora_do_servidor": _idem_agora,
     "fechar_idempotencia": _idem_fechar,
 }
 
@@ -155,7 +179,7 @@ class _Cursor:
         chave = _chave_do_sql(sql)
         if chave in _IDEMPOTENCIA:
             self.description, self._linhas = None, _IDEMPOTENCIA[chave](
-                self._ligacao.idempotencia, tuple(parametros)
+                self._ligacao, tuple(parametros)
             )
             return
         resposta = self._ligacao.respostas.get(chave)
@@ -190,12 +214,19 @@ def _chave_do_sql(sql: str) -> str:
     # (ver `_Ligacao.idempotencia`): com respostas enlatadas, uma bateria de
     # unidade nao podia distinguir «reservou» de «leu uma linha concluida», que
     # e precisamente a diferenca entre cobrar e nao cobrar.
+    if texto == "SELECT NOW()":
+        return "agora_do_servidor"
     if "PLATFORM.TOOL_IDEMPOTENCY" in texto:
         if texto.startswith("INSERT"):
             return "reservar"
         if texto.startswith("SELECT"):
             return "ler_idempotencia"
-        return "retomar" if "'EM_CURSO'" in texto else "fechar_idempotencia"
+        # **Tres `UPDATE` e nao dois**, e distinguem-se pelo `WHERE`: a retoma
+        # por idade leva o `created_at`, a de uma `falhada` leva o estado, e o
+        # fecho nao leva nenhum dos dois.
+        if "CREATED_AT <" in texto:
+            return "retomar_abandonada"
+        return "retomar" if "'FALHADA'" in texto else "fechar_idempotencia"
     return "outro"
 
 
@@ -221,6 +252,12 @@ class _Ligacao:
         #: entre invocacoes porque a tabela e partilhada: e o que faz uma
         #: segunda invocacao da mesma chave encontrar a primeira.
         self.idempotencia: dict[str, list[Any]] = {}
+        #: O `now()` do **servidor**, que o duplo serve ao `SELECT now()`. E um
+        #: relogio proprio e nao o do processo, pela razao escrita no `SQL_AGORA`
+        #: do `idempotency.py`: a decisao de retomar compara-se com o
+        #: `created_at`, que o servidor escreve, e um teste que usasse dois
+        #: relogios media a deriva entre eles.
+        self.agora = _dt.datetime(2026, 10, 25, 12, 0, tzinfo=_dt.UTC)
 
     def cursor(self) -> _Cursor:
         return _Cursor(self)
@@ -1930,10 +1967,14 @@ class TestDerivacaoDaChave(_Base):
         (`db/tests_agr/test_idempotencia.py`).
         """
         forma = re.compile(r"^[0-9a-f]{64}$")
+        # A revisao adversarial notou que a docstring dizia «em todas as partes
+        # de onde ela se deriva» e ele entra so numa. Corrigido acima.
         for i in range(1000):
-            # O telefone entra pelo `cart_id`, que e o unico campo opaco e de
-            # texto livre das quatro partes — e portanto o unico por onde um
-            # defeito do `propose_cart` o poderia trazer.
+            # O telefone entra **so pelo `cart_id`**, e e o que a docstring
+            # devia ter dito: e o unico campo opaco e de texto livre das quatro
+            # partes, e portanto o unico por onde um defeito do `propose_cart` o
+            # poderia trazer. O `tenant_id` e o `contact_id` sao UUID e o `tool`
+            # tem gramatica de identificador.
             chave = idempotency.derivar(
                 contexto(), f"tool_{i % 7}", f"{self.TELEFONE}-{i}"
             )
@@ -2185,10 +2226,15 @@ class TestProtocoloDeIdempotencia(_Base):
 
         camada, ligacao, chamadas, _ = self.camada_que_conta(relogio=lambda: agora[0])
         camada._dormir = dormir
-        # Uma reserva de outro, ja em curso: e o que o pipeline encontra.
+        # Uma reserva de outro, ja em curso, com **dez segundos**: mais do que os
+        # 2 s que o criterio nomeia, e muito menos do que os 2 min ao fim dos
+        # quais ela se considera abandonada. E a janela em que o dono esta vivo.
         chave = idempotency.derivar(contexto(), "criar_pedido", "c-1")
         ligacao.idempotencia[chave] = [
-            "em_curso", auditoria.impressao({"cart_id": "c-1"}), None
+            "em_curso",
+            auditoria.impressao({"cart_id": "c-1", "nota": ""}),
+            None,
+            ligacao.agora - _dt.timedelta(seconds=10),
         ]
 
         resultado = self.invocar(camada)
@@ -2198,6 +2244,45 @@ class TestProtocoloDeIdempotencia(_Base):
         self.assertEqual(chamadas, [], "esperou e executou na mesma")
         self.assertGreaterEqual(agora[0], 3.0, "desistiu antes dos 3 s do §6.3")
         self.assertLess(agora[0], 3.2, "esperou para alem do tecto")
+
+    def test_uma_em_curso_abandonada_retoma_se_em_vez_de_esperar(self) -> None:
+        """A **idade** decide, e sem isto o `created_at` era decoração.
+
+        Esta bateria e o par da de cima, e e ela que torna o «há mais de 2 s» do
+        critério 5 uma medição em vez de uma afirmação: a **única** diferença
+        entre as duas é a idade da linha, e o desfecho é o oposto. Sem ela, o
+        teste de cima passava igual com a idade apagada — foi o achado 3 da
+        revisão adversarial, e é a mesma forma do varrimento do KAM-026 que dava
+        sempre zero.
+
+        O que fecha é um caminho que deixava dinheiro em risco: uma linha
+        `em_curso` cujo `fechar` não passou (a ligação caiu entre o backend e o
+        registo) não era retomada por ninguém, a varredura recusa apagar
+        `em_curso` por idade, e aquele `cart_id` respondia `UPSTREAM_TIMEOUT`
+        para sempre — com a encomenda já feita. O cliente saía por um carrinho
+        novo, que tem `cart_id` novo, logo chave nova: **segunda encomenda**.
+        """
+        camada, ligacao, chamadas, encomendas = self.camada_que_conta()
+        chave = idempotency.derivar(contexto(), "criar_pedido", "c-1")
+        ligacao.idempotencia[chave] = [
+            "em_curso",
+            auditoria.impressao({"cart_id": "c-1", "nota": ""}),
+            None,
+            ligacao.agora - _dt.timedelta(minutes=5),
+        ]
+
+        resultado = self.invocar(camada)
+
+        self.assertTrue(resultado.ok, "nao retomou uma linha abandonada")
+        self.assertEqual(len(chamadas), 1, "retomou e nao chamou o backend")
+        self.assertEqual(len(encomendas), 1)
+        self.assertEqual(ligacao.idempotencia[chave][0], "concluida")
+        # E a retoma **nao** reescreve o `created_at`: se o fizesse, uma linha
+        # que falhasse a cada volta ganhava idade nova e a retencao nunca lhe
+        # chegava.
+        self.assertEqual(
+            ligacao.idempotencia[chave][3], ligacao.agora - _dt.timedelta(minutes=5)
+        )
 
     def test_uma_linha_falhada_retoma_se_e_o_backend_devolve_o_mesmo(self) -> None:
         """O criterio 4 em memoria; o que o mede a serio e a falha injectada."""

@@ -279,7 +279,7 @@ idempotency_key = sha256(tenant_id | contact_id | tool | cart_id)       # um ped
 botao de confirmacao: id = "confirm:{cart_id}" (Vendedor) | "confirm:{hold_id}" (Servicos)   # embutido no reply button
 ```
 
-Duplo toque ou re-entrega do webhook: (i) o `wamid` repetido é filtrado no GWY; (ii) um segundo toque com `wamid` novo encontra `stage != awaiting_confirm` (o `confirm_gate` trata-o como *stale*, §7); (iii) mesmo que ambos corram em concorrência, o *lock* por conversa serializa-os e a chave devolve o resultado guardado (`idempotent_replay=true`).
+Duplo toque ou re-entrega do webhook: (i) o `wamid` repetido é filtrado no GWY; (ii) um segundo toque com `wamid` novo encontra `stage != awaiting_confirm` (o `confirm_gate` trata-o como *stale*, §7); (iii) mesmo que ambos corram em concorrência, a chave devolve o resultado guardado (`idempotent_replay=true`). **O *lock* por conversa já não é o que os serializa**, e esta frase dizia que era: a revisão adversarial do KAM-028 substituiu o trinco único da ToolLayer por uma `asyncio.Queue` de tomadas, pelo que quem serializa pelo `cart_id` é o `INSERT … ON CONFLICT DO NOTHING` da `tool_idempotency` (KAM-029) e mais nada.
 Tabela `tool_idempotency(key PK, tool, result jsonb, created_at)`; retenção ≥ validade da reserva + prazo de disputa (a definir em `04`).
 
 **Entregue pelo KAM-029, com quatro coisas que este parágrafo não dizia** (revisão

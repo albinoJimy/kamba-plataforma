@@ -6568,6 +6568,19 @@ entradas:
     nomes_nota: []
     variantes_literais: []
   - seccao: "3.28"
+    conceito: "Retoma de uma reserva abandonada"
+    canonico: "MINUTOS_PARA_RETOMAR (2)"
+    literais:
+      - "MINUTOS_PARA_RETOMAR"
+    nomes:
+      - "MINUTOS_PARA_RETOMAR"
+    nomes_nota:
+      - "em_curso"
+      - "UPDATE"
+      - "fechar"
+      - "cart_id"
+    variantes_literais: []
+  - seccao: "3.28"
     conceito: "Tecto de espera por uma reserva de outro"
     canonico: "TECTO_DE_ESPERA_MS (3000)"
     literais:

@@ -68,12 +68,7 @@ def _nivel1(tokens: list[sql.Token], desloca: int, ficheiro: str, saber: Saber, 
             achados.append(achado)
 
 
-def _nivel2(
-    objectos: sql.Objectos,
-    ficheiro: str,
-    saber: Saber,
-    substituidos: frozenset[tuple[str, str]] = frozenset(),
-) -> tuple[list[Achado], int]:
+def _nivel2(objectos: sql.Objectos, ficheiro: str, saber: Saber) -> tuple[list[Achado], int]:
     """As regras do dicionario sobre tudo o que o ficheiro introduz."""
     achados: list[Achado] = []
     dicionario = saber.dicionario
@@ -126,28 +121,41 @@ def _nivel2(
                 com_dominio_lido.add((check.tabela, check.coluna))
             canonicos = list(dominio["valores"])
             sobra = [v for v in check.valores if v not in canonicos]
-            # **`falta` nao se cobra a uma declaracao que outra revisao ja
-            # substituiu.** Um dominio fechado pode crescer, e cresce por
-            # `ALTER TABLE … DROP CONSTRAINT` + `ADD CONSTRAINT` numa revisao
-            # posterior. A revisao antiga continua a declarar o dominio antigo,
-            # que e um **facto historico** e nao um defeito: a base, depois de
-            # `upgrade head`, tem o dominio novo.
+            # **`falta` nao se cobra a uma declaracao declarada historica.**
             #
-            # Sem isto, nenhum dominio fechado deste repositorio podia crescer —
-            # a revisao que o criou passava a estar sempre em falta, e a unica
-            # saida era editar uma revisao ja fundida, que e coisa que nunca se
-            # fez aqui (cada revisao tem um `commit`, do seu proprio ticket).
-            # Medido no KAM-029, que foi o primeiro a fazer crescer um:
-            # `tool_audit.error_code` passou de dez para onze valores.
+            # Um dominio fechado pode crescer, e cresce por `DROP CONSTRAINT` +
+            # `ADD CONSTRAINT` numa revisao posterior. A revisao antiga continua
+            # a declarar o dominio antigo, que e um facto historico e nao um
+            # defeito: a base, depois de `upgrade head`, tem o dominio novo.
+            # Sem isto, **nenhum dominio fechado deste repositorio podia
+            # crescer** — a revisao que o criou ficava sempre em falta, e a unica
+            # saida era editar uma revisao ja fundida, coisa que aqui nunca se
+            # fez (cada uma das 22 tem um `commit`, do seu proprio ticket).
+            # Medido no KAM-029, o primeiro a fazer um crescer.
             #
-            # O `sobra` **continua a cobrar-se sempre**, e e o que impede isto de
-            # ser uma dispensa: um valor que o dicionario ja nao tem e achado em
-            # qualquer revisao, antiga ou nova, porque nenhuma base devia aceitar
-            # um valor que o canon deixou de conhecer.
-            substituida = (check.tabela, check.coluna) in substituidos
+            # A lista e **nomeada** e vive em `ci/canon-lint.yaml`
+            # (`dominios_historicos`), com revisao, ticket, razao e data. **Nao
+            # se infere da ordem dos ficheiros**: a primeira versao desta regra,
+            # no mesmo ticket, fazia-o e tinha tres buracos que a revisao
+            # adversarial demonstrou (`ANALISE-31`, achado 5) — a amnistia nao
+            # exigia prova de `DROP CONSTRAINT` (pelo que um `ADD CONSTRAINT`
+            # com nome novo **ao lado** do antigo deixava a base a recusar e o
+            # gate a dizer conforme), o leitor de revisoes le o `downgrade` e uma
+            # declaracao de la amnistiava as anteriores, e a ordem era o
+            # `sorted()` do caminho e nao a cadeia de revisoes.
+            #
+            # O `sobra` **continua a cobrar-se sempre**: um valor que o
+            # dicionario ja nao tem e achado em qualquer revisao, historica ou
+            # nao, porque nenhuma base devia aceitar o que o canon esqueceu.
+            historica = any(
+                entrada.revisao == ficheiro
+                and entrada.tabela == check.tabela
+                and entrada.coluna == check.coluna
+                for entrada in saber.politica.dominios_historicos
+            )
             falta = (
                 [v for v in canonicos if v not in check.valores]
-                if check.fechado and not substituida
+                if check.fechado and not historica
                 else []
             )
             if sobra or falta:
@@ -235,12 +243,7 @@ def _nivel2(
     return achados, valores_lidos
 
 
-def verificar_blocos(
-    blocos: list[revisao.Bloco],
-    ficheiro: str,
-    saber: Saber,
-    substituidos: frozenset[tuple[str, str]] = frozenset(),
-) -> tuple[list[Achado], Contagem]:
+def verificar_blocos(blocos: list[revisao.Bloco], ficheiro: str, saber: Saber) -> tuple[list[Achado], Contagem]:
     """Verifica o SQL de um ficheiro: nivel 1 bloco a bloco, nivel 2 sobre o conjunto."""
     achados: list[Achado] = []
     todos = sql.Objectos()
@@ -272,7 +275,7 @@ def verificar_blocos(
         _nivel1(tokens, desloca, ficheiro, saber, sufixo, achados)
         todos.juntar(objectos, desloca - 1)
 
-    novos, valores = _nivel2(todos, ficheiro, saber, substituidos)
+    novos, valores = _nivel2(todos, ficheiro, saber)
     achados += novos
     contagem = Contagem(
         instrucoes=todos.instrucoes,
@@ -284,33 +287,15 @@ def verificar_blocos(
     return achados, contagem
 
 
-def verificar_sql(
-    texto: str,
-    base: int,
-    ficheiro: str,
-    saber: Saber,
-    substituidos: frozenset[tuple[str, str]] = frozenset(),
-) -> tuple[list[Achado], Contagem]:
+def verificar_sql(texto: str, base: int, ficheiro: str, saber: Saber) -> tuple[list[Achado], Contagem]:
     """Verifica um texto SQL. `base` e a linha do ficheiro onde ele comeca."""
-    return verificar_blocos(
-        [revisao.Bloco(texto, base)], ficheiro, saber, substituidos
-    )
+    return verificar_blocos([revisao.Bloco(texto, base)], ficheiro, saber)
 
 
-def verificar(
-    ficheiro: str,
-    fonte: str,
-    saber: Saber,
-    substituidos: frozenset[tuple[str, str]] = frozenset(),
-) -> tuple[list[Achado], Contagem]:
-    """Verifica uma migracao: `.py` (revisao Alembic) ou `.sql`.
-
-    `substituidos` sao os pares `(tabela, coluna)` cujo dominio fechado uma
-    revisao **posterior** torna a declarar. Para esses, nao se cobra `falta`
-    a esta revisao: ver a nota no `_nivel2`.
-    """
+def verificar(ficheiro: str, fonte: str, saber: Saber) -> tuple[list[Achado], Contagem]:
+    """Verifica uma migracao: `.py` (revisao Alembic) ou `.sql`."""
     if ficheiro.lower().endswith(".sql"):
-        return verificar_sql(fonte, 1, ficheiro, saber, substituidos)
+        return verificar_sql(fonte, 1, ficheiro, saber)
 
     try:
         extraccao = revisao.extrair(fonte, saber.politica.auxiliares, saber.carregar)
@@ -320,39 +305,8 @@ def verificar(
             Contagem(),
         )
     achados = [Achado(ficheiro, linha, ILEGIVEL, mensagem) for linha, mensagem in extraccao.ilegiveis]
-    novos, contagem = verificar_blocos(
-        extraccao.blocos, ficheiro, saber, substituidos
-    )
+    novos, contagem = verificar_blocos(extraccao.blocos, ficheiro, saber)
     return achados + novos, contagem
 
 
 __all__ = ["Contagem", "verificar", "verificar_blocos", "verificar_sql", "FORA"]
-
-
-def declaracoes_fechadas(ficheiro: str, fonte: str, saber: Saber) -> set[tuple[str, str]]:
-    """Os pares `(tabela, coluna)` para que esta revisao declara um dominio **fechado**.
-
-    Serve a pre-passagem do `cli.py`: para saber se a declaracao de uma revisao
-    foi substituida por outra, e preciso saber quem declara o que. Nao produz
-    achados — um ficheiro que nao se consiga ler devolve o conjunto vazio, e o
-    achado sai da passagem a serio.
-    """
-    if ficheiro.lower().endswith(".sql"):
-        blocos = [revisao.Bloco(fonte, 1)]
-    else:
-        try:
-            blocos = revisao.extrair(
-                fonte, saber.politica.auxiliares, saber.carregar
-            ).blocos
-        except SyntaxError:
-            return set()
-    pares: set[tuple[str, str]] = set()
-    for bloco in blocos:
-        try:
-            objectos, _ = sql.analisar(bloco.texto)
-        except Exception:  # noqa: BLE001 — o achado sai da passagem a serio
-            continue
-        for check in objectos.checks:
-            if check.fechado:
-                pares.add((check.tabela, check.coluna))
-    return pares

@@ -245,6 +245,22 @@ class _ComIdempotencia(ComAgr):
     def chave_de(self, cart_id: str, ctx=None) -> str:
         return idempotency.derivar(ctx or self.contexto(), "criar_pedido", cart_id)
 
+    def impressao_de(self, cart_id: str, **extra) -> bytes:
+        """O `args_hash` que a camada vai calcular, pelo **modelo validado**.
+
+        Nao e `impressao({"cart_id": …})`: desde o achado 4 da revisao
+        adversarial o hash e de `inv.args.model_dump()` e nao do `args_crus`, o
+        que faz as omissoes do Pydantic entrarem (`nota=""`). Semear a mao com o
+        dicionario cru dava `INTENT_REUSED_WITH_DIFFERENT_CONTENT` e a bateria
+        media o criterio 3 enquanto dizia medir o 5 — que foi o que aconteceu.
+
+        Deriva-se do mesmo modelo que a camada usa, e por isso nao se pode
+        desfasar dele.
+        """
+        return auditoria.impressao(
+            ArgumentosDoEnsaio(cart_id=cart_id, **extra).model_dump()
+        )
+
     def cursor_de_app(self, tenant: str | None = None):
         """Um cursor do papel da aplicacao, com o `app.tenant_id` definido.
 
@@ -429,18 +445,8 @@ class TestRegistoEmCurso(_ComIdempotencia):
         self.semente.execute(
             "INSERT INTO platform.tool_idempotency "
             "(key, tenant_id, tool, args_hash, created_at) "
-            "VALUES (%s, %s::uuid, 'criar_pedido', %s, now() - interval '10 minutes')",
-            (
-                chave,
-                self.conversa.tenant_id,
-                # **`args_crus` e o dicionario como o chamador o passou**, e nao
-                # o modelo validado: o `nota=""` da omissao do Pydantic nao esta
-                # la. Semeado com ele, o `args_hash` nao batia e a bateria
-                # recebia `INTENT_REUSED_WITH_DIFFERENT_CONTENT` em vez de
-                # `UPSTREAM_TIMEOUT` — passava a medir o criterio 3 e dizia que
-                # media o 5.
-                auditoria.impressao({"cart_id": "c-curso"}),
-            ),
+            "VALUES (%s, %s::uuid, 'criar_pedido', %s, now() - interval '10 seconds')",
+            (chave, self.conversa.tenant_id, self.impressao_de("c-curso")),
         )
 
         resultado = self.invocar(camada, {"cart_id": "c-curso"})
@@ -461,7 +467,7 @@ class TestRegistoEmCurso(_ComIdempotencia):
         """
         agora = [0.0]
         chave = self.chave_de("c-fecha")
-        args_hash = auditoria.impressao({"cart_id": "c-fecha"})
+        args_hash = self.impressao_de("c-fecha")
         self.semente.execute(
             "INSERT INTO platform.tool_idempotency (key, tenant_id, tool, args_hash) "
             "VALUES (%s, %s::uuid, 'criar_pedido', %s)",
@@ -488,6 +494,121 @@ class TestRegistoEmCurso(_ComIdempotencia):
         self.assertEqual(resultado.data, {"order_id": "do-dono"})
         self.assertEqual(self.backend.chamadas, [])
         self.assertLess(agora[0], 3.0, "esperou o tecto inteiro tendo resposta")
+
+
+class TestRetomaPorIdade(_ComIdempotencia):
+    """A linha `em_curso` abandonada retoma-se, e e o que fecha o caminho que
+    deixava um `cart_id` envenenado com a encomenda ja feita.
+
+    Achado 2 da revisao adversarial (`ANALISE-31`), e nao era o `SIGKILL`
+    exotico: e o caminho que o `except` do `_correr` existe para tratar — o
+    backend corre, a ligacao cai, o `fechar` levanta e e engolido ali. A linha
+    ficava `em_curso`, a varredura recusa apagar `em_curso` por idade (e bem:
+    pode ser uma invocacao a correr), e nada mais lhe chegava.
+
+    O `docs/tecnica/03` §6.3 ponto 4 ja desenhava isto para o COM («intencoes
+    `em_curso` > 2 min sao retomadas ou marcadas `falhada`»); a TLS nao o tinha.
+    """
+
+    def _semear_em_curso(self, cart_id: str, intervalo: str) -> str:
+        chave = self.chave_de(cart_id)
+        self.semente.execute(
+            "INSERT INTO platform.tool_idempotency "
+            "(key, tenant_id, tool, args_hash, created_at) "
+            f"VALUES (%s, %s::uuid, 'criar_pedido', %s, now() - interval '{intervalo}')",
+            (chave, self.conversa.tenant_id, self.impressao_de(cart_id)),
+        )
+        return chave
+
+    def test_uma_em_curso_velha_retoma_se_e_corre_o_backend(self) -> None:
+        camada = self.montar(_Backend())
+        self.addCleanup(lambda: asyncio.run(camada.fechar()))
+        chave = self._semear_em_curso("c-velha", "5 minutes")
+
+        resultado = self.invocar(camada, {"cart_id": "c-velha"})
+
+        self.assertTrue(resultado.ok, "nao retomou uma linha abandonada")
+        self.assertEqual(len(self.backend.chamadas), 1)
+        reservas = self.reservas()
+        self.assertEqual(len(reservas), 1)
+        self.assertEqual(reservas[0][3], "concluida")
+
+    def test_uma_em_curso_nova_nao_se_retoma_e_estoura_o_tecto(self) -> None:
+        """O par da de cima: a **unica** diferenca e a idade, e o desfecho e o
+        oposto.
+
+        Sem esta, a de cima passava com uma retoma que ignorasse a idade — e
+        retomar por cima de um dono **vivo** e exactamente o que duplica o
+        efeito, que e o oposto do que o ticket faz.
+        """
+        agora = [0.0]
+
+        def dormir(segundos):
+            agora[0] += segundos
+
+        camada = self.montar(_Backend(), relogio=lambda: agora[0], dormir=dormir)
+        self.addCleanup(lambda: asyncio.run(camada.fechar()))
+        self._semear_em_curso("c-nova", "10 seconds")
+
+        resultado = self.invocar(camada, {"cart_id": "c-nova"})
+
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, "UPSTREAM_TIMEOUT")
+        self.assertEqual(self.backend.chamadas, [], "retomou um dono vivo")
+        self.assertEqual(self.reservas()[0][3], "em_curso")
+
+    def test_a_retoma_nao_reescreve_o_created_at(self) -> None:
+        """Senao uma linha que falhasse a cada volta nunca chegava a retencao."""
+        camada = self.montar(_Backend())
+        self.addCleanup(lambda: asyncio.run(camada.fechar()))
+        self._semear_em_curso("c-idade", "5 minutes")
+        antes = self.consultar(
+            "SELECT created_at FROM platform.tool_idempotency"
+        )[0][0]
+
+        self.invocar(camada, {"cart_id": "c-idade"})
+
+        depois = self.consultar(
+            "SELECT created_at FROM platform.tool_idempotency"
+        )[0][0]
+        self.assertEqual(antes, depois)
+
+    def test_a_fronteira_e_a_do_minutos_para_retomar(self) -> None:
+        """A fronteira e a constante, e nao um numero escondido no SQL.
+
+        Semeia-se **um minuto de cada lado** do `MINUTOS_PARA_RETOMAR` e
+        exige-se desfechos opostos. O minuto de folga nao e timidez: a sondagem
+        do caminho que **nao** retoma dura 3 s de relogio simulado mas tambem
+        tempo real, e a linha envelhece em tempo real — uma semente colada a
+        fronteira atravessa-a durante o proprio teste, e foi o que a primeira
+        versao desta bateria mediu (`1 minute 59 seconds` era retomada).
+
+        **O relogio e o do servidor, e isso e estrutural e nao medido aqui:** a
+        comparacao e entre dois `timestamptz`, e o relogio de processo que estas
+        baterias injectam e um `float` — codigo que o usasse levantava
+        `TypeError` em vez de decidir mal. E a razao escrita no `SQL_AGORA`.
+        """
+        minutos = idempotency.MINUTOS_PARA_RETOMAR
+        for intervalo, retoma in (
+            (f"{minutos + 1} minutes", True),
+            (f"{minutos - 1} minutes", False),
+        ):
+            with self.subTest(intervalo=intervalo):
+                self.semente.execute("DELETE FROM platform.tool_idempotency")
+                agora = [0.0]
+                camada = self.montar(
+                    _Backend(),
+                    relogio=lambda: agora[0],
+                    dormir=lambda s: agora.__setitem__(0, agora[0] + s),
+                )
+                self._semear_em_curso("c-fronteira", intervalo)
+                resultado = self.invocar(camada, {"cart_id": "c-fronteira"})
+                asyncio.run(camada.fechar())
+                self.assertEqual(
+                    resultado.ok,
+                    retoma,
+                    f"com {intervalo} o desfecho devia ser ok={retoma}",
+                )
 
 
 class TestConteudoDiferente(_ComIdempotencia):

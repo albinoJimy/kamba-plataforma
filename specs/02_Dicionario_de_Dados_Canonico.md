@@ -1401,7 +1401,18 @@ novo e portanto chave de turno nova. Se o carrinho se desduplicasse pela chave d
 turno, esse toque não encontrava nada guardado e cobrava outra vez — a encomenda a
 dobrar que o ticket existe para fechar. A chave do carrinho não tem turno dentro,
 de propósito, e é isso que o teste de propriedade do critério 6 mede. As duas
-linhas ligam-se pelo par `(tool, args_hash)`, que é o mesmo nas duas tabelas.
+linhas ligam-se pelo `tool` e pelo turno em que correram.
+
+**E o `args_hash` das duas tabelas não é o mesmo valor**, o que a primeira versão
+desta emenda afirmou e a revisão adversarial desmentiu (`../docs/analises/ANALISE-31-KAM-029-idempotencia.md`,
+achado 4). O da `tool_idempotency` é do **modelo validado**
+(`inv.args.model_dump()`) e o da `tool_audit` é dos argumentos **crus**, como o
+modelo de linguagem os emitiu. A razão é que respondem a perguntas diferentes: a
+auditoria registra o que **chegou**, que é o que um registo deve guardar, e esta
+compara o que **vale** — e tem de o fazer sobre o modelo validado, senão um
+segundo toque que reemitisse um campo de omissão (`{"cart_id": "c-1"}` contra
+`{"cart_id": "c-1", "nota": ""}`) dava `args_hash` diferente e o *replay* virava
+`INTENT_REUSED_WITH_DIFFERENT_CONTENT`.
 
 **O `|` da fórmula do §6.3 não é um caractere separador.** O `cart_id` é opaco —
 é gerado pelo `propose_cart` (KAM-046) — pelo que nenhum caractere é seguro como
@@ -1420,6 +1431,7 @@ nada sobre o conteúdo.
 | Resultado guardado de uma invocação | `result` | — | `jsonb`, o `data` do `ToolResult`. Há `CHECK` **nos dois sentidos**: uma `concluida` sem `result` devolvia um *replay* vazio, e um `result` numa `falhada` era um resultado devolvido como *replay* de uma invocação que ninguém confirmou |
 | Marca de repetição, na resposta | `idempotent_replay` | — | Campo do `ToolResult` (§3.27). Nasce `False`; é este ticket que o põe a `True`, quando a chave encontra um resultado guardado |
 | Reutilização de uma intenção com outro conteúdo | `INTENT_REUSED_WITH_DIFFERENT_CONTENT` | — | O **décimo primeiro** erro tipado, e o mesmo nome que o COM usa no §6.3 do `../docs/tecnica/03` — são as duas barreiras independentes da mesma intenção. É defeito do chamador e **não se repete**; não é violação e não levanta alerta de segurança |
+| Retoma de uma reserva abandonada | `MINUTOS_PARA_RETOMAR` (2) | — | Uma reserva `em_curso` mais velha do que isto considera-se **abandonada** e retoma-se, por `UPDATE` condicional (atómico). É o ponto 4 do `../docs/tecnica/03` §6.3, que escreve o mesmo para o COM. **Dois minutos e não os 8,5 s do tecto da classe:** o tecto diz quanto o dono *pode* demorar, e retomar por cima de um dono vivo é o que duplica o efeito. Sem isto, uma reserva cujo `fechar` não passasse envenenava aquele `cart_id` para sempre, com a encomenda já feita |
 | Tecto de espera por uma reserva de outro | `TECTO_DE_ESPERA_MS` (3000) | — | O «poll ≤ 3 s» do `../docs/tecnica/03` §6.3. Esgotado, devolve `UPSTREAM_TIMEOUT` **sem executar**. Não é variável de ambiente, ao contrário dos tectos por classe do §3.27: vem do desenho e não da afinação de um ambiente |
 | Retenção de uma reserva | `DIAS_DE_RETENCAO` (30) | — | ***Proposta***. O critério pede «≥ validade da reserva (72 h) + prazo de disputa», e o prazo de disputa **não está fixado em documento nenhum** — o `../docs/tecnica/04` tem `refund_cases` e a transição `paga → reembolso_pendente` e não dá prazo. Apaga só reservas **fechadas**; recalibra-se quando o `04` o fixar |
 

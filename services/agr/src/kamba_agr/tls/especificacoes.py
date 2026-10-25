@@ -120,9 +120,23 @@ class Pedido:
     cumprir.** Esse criterio diz, por extenso, que a repeticao de uma invocacao
     cujo resultado se perdeu «nao duplica o efeito (o backend e idempotente pela
     chave)» — e um backend nao pode ser idempotente por uma chave que nunca ve.
-    E a chave do §6.3, a mesma de `tool_idempotency.key`: o COM recebe-a e
-    deriva dela a sua `intent_key` (`docs/tecnica/03` §6.3), que e a segunda das
-    duas barreiras independentes. `None` numa tool `read`, que nao tem nenhuma.
+    E a chave do §6.3, a mesma de `tool_idempotency.key`. `None` numa tool
+    `read`, que nao tem nenhuma.
+
+    **O COM nao deriva nada desta chave**, e a primeira versao desta *docstring*
+    dizia que sim — era falso nos dois sentidos. O `docs/tecnica/03` §6.3 define
+    `intent_key = base32(HMAC-SHA256(segredo_intents, tenant_id || contact_id ||
+    draft_id || draft_version))[:26]`, que nao tem esta chave dentro, e o
+    Contexto do bloco KAM-029 diz por extenso que «nenhuma das duas depende da
+    outra». Sao **duas barreiras independentes** da mesma intencao: esta fecha
+    antes de o backend ser chamado, a do COM fecha dentro dele.
+
+    **O que o executor faz com ela e contrato dele, e nao esta imposto por
+    maquina.** O criterio 4 supoe que o backend e idempotente pela chave, e o
+    que este campo garante e que ele a **recebe**; usa-la e do KAM-046 (para o
+    `criar_pedido`) e do KAM-035 (para o `book_slot`). Enquanto nenhum executor
+    real existir, a propriedade esta provada so contra o duplo de ensaio — esta
+    escrito na secçao de verificaçao do bloco, e e o limite real do criterio 4.
     """
 
     ctx: ToolContext

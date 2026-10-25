@@ -71,46 +71,10 @@ def _ler(raiz: Path, relativo: str) -> str | None:
         return None
 
 
-def substituicoes_por_revisao(
-    relativos: list[str], fontes: dict[str, str], saber: Saber
-) -> dict[str, frozenset[tuple[str, str]]]:
-    """Por revisao, os dominios fechados que uma revisao **posterior** redeclara.
-
-    Um dominio fechado pode crescer, e cresce por `DROP CONSTRAINT` +
-    `ADD CONSTRAINT` numa revisao posterior; a revisao antiga continua a declarar
-    o dominio antigo, que e historia e nao defeito. A razao inteira esta na nota
-    do `ddl._nivel2`.
-
-    **A ordem e a do nome do ficheiro**, e aqui isso e a ordem das revisoes: a
-    cadeia e linear (`down_revision` de cada uma e a anterior) e o nome comeca
-    pelo numero da revisao (`0021_tool_audit.py`). Se a cadeia deixar de ser
-    linear, isto passa a precisar do grafo em vez do nome.
-    """
-    ordenados = sorted(relativos)
-    declaradas = {
-        relativo: ddl.declaracoes_fechadas(relativo, fontes[relativo], saber)
-        for relativo in ordenados
-        if fontes.get(relativo) is not None
-    }
-    resultado: dict[str, frozenset[tuple[str, str]]] = {}
-    for indice, relativo in enumerate(ordenados):
-        posteriores: set[tuple[str, str]] = set()
-        for seguinte in ordenados[indice + 1 :]:
-            posteriores |= declaradas.get(seguinte, set())
-        resultado[relativo] = frozenset(posteriores)
-    return resultado
-
-
-def verificar_ficheiro(
-    superficie: str,
-    relativo: str,
-    fonte: str,
-    saber: Saber,
-    substituidos: frozenset[tuple[str, str]] = frozenset(),
-):
+def verificar_ficheiro(superficie: str, relativo: str, fonte: str, saber: Saber):
     """Um ficheiro de uma das tres superficies de ficheiro. Devolve (achados, contagem)."""
     if superficie == "migracoes":
-        return ddl.verificar(relativo, fonte, saber, substituidos)
+        return ddl.verificar(relativo, fonte, saber)
     if superficie == "eventos":
         return eventos.verificar(relativo, fonte, saber), None
     if superficie == "registo":
@@ -127,26 +91,13 @@ def verificar(raiz: Path, hoje: datetime.date | None = None) -> tuple[list[Achad
     por_superficie, achados = superficies.repartir(ficheiros, saber.politica)
 
     contagem = ddl.Contagem()
-    # A pre-passagem das migracoes: le-se cada revisao uma vez para saber quem
-    # declara que dominio fechado, antes de cobrar `falta` a alguma delas.
-    fontes_de_migracao = {
-        relativo: _ler(raiz, relativo) for relativo in por_superficie["migracoes"]
-    }
-    substituicoes = substituicoes_por_revisao(
-        list(por_superficie["migracoes"]),
-        {k: v for k, v in fontes_de_migracao.items() if v is not None},
-        saber,
-    )
     for superficie in SUPERFICIES_DE_FICHEIRO:
         for relativo in por_superficie[superficie]:
             fonte = _ler(raiz, relativo)
             if fonte is None:
                 achados.append(Achado(relativo, 0, "ilegivel", "nao se consegue ler como UTF-8"))
                 continue
-            novos, parcial = verificar_ficheiro(
-                superficie, relativo, fonte, saber,
-                substituicoes.get(relativo, frozenset()),
-            )
+            novos, parcial = verificar_ficheiro(superficie, relativo, fonte, saber)
             achados += novos
             if parcial is not None:
                 contagem.juntar(parcial)
