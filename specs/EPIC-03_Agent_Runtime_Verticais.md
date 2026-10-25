@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Agent Runtime e Verticais |
-| Versão | 1.3 |
+| Versão | 1.4 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/02_Agent_Runtime_Verticais.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -289,10 +289,10 @@ Configurar o `AsyncPostgresSaver` (`langgraph-checkpoint-postgres` 3.1.2, MIT) n
 
 ### Critérios de Aceitação
 
-- [ ] Estado gravado num turno é recuperado após reinício do processo (mesmo `thread_id`), incluindo `stage`, `cart` e `handoff`.
-- [ ] `thread_id` cumpre `^<uuid>:<uuid>$`; após correr o golden/suite de integração, a pesquisa de `\+?244\d{9}` e de BSUID nas tabelas `lg.*` devolve **0** ocorrências.
-- [ ] `setup()` corre numa migração Alembic controlada (com `downgrade` testado), nunca em *runtime*; o AGR falha o arranque (exit ≠ 0) sem checkpointer configurado.
-- [ ] Papel Postgres próprio para `lg` (`kamba_agr`), sem acesso a `platform` nem a `medusa`; esquema separado.
+- [x] Estado gravado num turno é recuperado após reinício do processo (mesmo `thread_id`), incluindo `stage`, `cart` e `handoff`.
+- [x] `thread_id` cumpre `^<uuid>:<uuid>$`; após correr o golden/suite de integração, a pesquisa de `\+?244\d{9}` e de BSUID nas tabelas `lg.*` devolve **0** ocorrências.
+- [x] `setup()` corre numa migração Alembic controlada (com `downgrade` testado), nunca em *runtime*; o AGR falha o arranque (exit ≠ 0) sem checkpointer configurado.
+- [x] Papel Postgres próprio para `lg` (`kamba_agr`), sem acesso a `platform` nem a `medusa`; esquema separado.
 - [ ] Para grafos com nós `write`/`money`, o *checkpoint* precede o efeito seguinte (teste: falha injectada entre checkpoint e efeito não duplica nem perde o efeito na repetição).
 - [ ] O estado persistido contém no máximo K mensagens recortadas + `summary` (K *proposta*, a calibrar) e `facts` apenas do turno; teste falha se surgirem binários, segredos ou catálogo completo.
 - [ ] Estado com `schema_version` N-1 é migrado em `ingest` sem perda; teste de retoma de um `interrupt` pendente após *upgrade* de versão do grafo.
@@ -317,11 +317,11 @@ Configurar o `AsyncPostgresSaver` (`langgraph-checkpoint-postgres` 3.1.2, MIT) n
 ### Definition of Done
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
-- [ ] **Isolamento de tenant:** `thread_id` construído do estado; teste de isolamento cobre `lg` (ADR-015).
+- [x] **Isolamento de tenant:** `thread_id` construído do estado; teste de isolamento cobre `lg` (ADR-015).
 - [ ] **Privacidade:** nenhum telefone nem BSUID em claro no estado; retenção por classe aplicada (ADR-010; parecer pendente sobre prazos).
-- [ ] **Migrações reversíveis:** `upgrade` e `downgrade` testados; `downgrade` documentado como destrutivo só em ambientes não-produtivos.
+- [x] **Migrações reversíveis:** `upgrade` e `downgrade` testados; `downgrade` documentado como destrutivo só em ambientes não-produtivos.
 - [ ] **Dependências:** `langgraph-checkpoint-postgres` fixado por *hash*; licença MIT registada no SBOM.
-- [ ] **Custo e observabilidade:** métricas de tamanho de estado e latência de checkpoint (alvo 0,05–0,15 s de `../docs/tecnica/02` §15.1, a medir).
+- [x] **Custo e observabilidade:** métricas de tamanho de estado e latência de checkpoint (alvo 0,05–0,15 s de `../docs/tecnica/02` §15.1, a medir).
 - [ ] Revisão por dois revisores (dados pessoais); documentação de retenção actualizada.
 
 ### Handoff para Claude Code
@@ -340,6 +340,44 @@ Não expandas escopo: purga por titular (KAM-070) e retenção global (KAM-071) 
 Testes: unit, integração (reinício, kill -9), isolamento, retenção. PR com o template §7.
 Commits: feat(KAM-026): …
 ```
+
+### Verificação dos Critérios de Aceitação
+
+Medido no ramo `feature/KAM-026-checkpointer`, contra um PostgreSQL 18 real
+(`python db/gate_bd.py --suite tests_agr`) e a bateria de unidade do serviço.
+
+| # | Veredicto | O que se mediu, e com que comando |
+|---|---|---|
+| 1 | **satisfeito** | `test_sobrevive_ao_reinicio_do_processo`: grava, abre um `CheckpointerDoAgr` **novo numa ligação nova** — que é o reinício sem reiniciar nada — e lê `stage`, `cart` e `handoff` pelo nome. `tests_agr` → **57 OK** |
+| 2 | **satisfeito** | O `thread_id` cumpre a forma à entrada (`contexto.py` do KAM-025, `thread_id_de` e `thread_id_incoerente`). O varrimento de `lg.*` dá **0** telefones e **0** campos de BSUID num turno normal — e, antes disso, há dois ensaios que **semeiam** um `+244923456789` e um `bsuid_enc` e exigem que o varrimento os **encontre**. Sem eles o critério passava pela razão errada: em `msgpack`, uma busca por texto sobre a coluna devolve 0 com o telefone lá dentro. O BSUID procura-se pelo **nome do campo**, porque é um identificador opaco sem forma fixa no canon. **O que não se mediu:** o *golden* — é o KAM-040 e não existe; o varrimento correu sobre os dados desta *suite* de integração, que é a outra metade da conjunção que o critério oferece |
+| 3 | **satisfeito** | **Não há `setup()`**: o DDL é nosso e vive na revisão `0020`, pelo que nada corre em *runtime* por construção. O `downgrade` é testado em `db/tests/test_migracao.py::TestCiclo`, que passou a exigir que o esquema `lg` **também** desapareça no `downgrade base` — media só o `platform`. O arranque: três ensaios em `test_arranque.py` — sem checkpointer sai com **4**, o código distingue-se do 2 e do 3, e a guarda corre **antes** do `uvicorn.run` |
+| 4 | **satisfeito** | `test_o_papel_do_checkpointer_nao_ve_o_platform`: `42501` em `platform.tenants`, `contacts` e `conversations`. `test_o_papel_do_checkpointer_nao_cria_nada_no_lg`: `42501` num `CREATE TABLE`. O Medusa é uma **base** separada e não um esquema, pelo que o mecanismo é o `CONNECT`: `test_o_papel_nao_alcanca_mais_bases_do_que_o_kamba_app`. **A primeira versão desse ensaio exigia o conjunto vazio e falhou a dizer `['postgres']`** — o PostgreSQL dá `CONNECT` ao `PUBLIC` por omissão, para os sete papéis, desde o KAM-003. Não é deste bloco; ficou na dívida **95** |
+| 5 | **parcial — caixa vazia** | A metade que se pode medir está: o `ON CONFLICT` torna a repetição idempotente nas duas tabelas (`test_repetir_a_mesma_escrita_nao_duplica`, `test_regravar_o_mesmo_checkpoint_nao_duplica`), que é «a repetição não duplica» visto da tabela. A outra metade **não tem sujeito**: «grafos com nós `write`/`money`» não está modelado em lado nenhum, não existe grafo nenhum (o `sem_grafos` do KAM-025 levanta), e o `durability` do LangGraph é argumento **por invocação** (`sync`/`async`/`exit`) que o `Protocol Grafo` do `turno.py` não aceita. Credor: **KAM-031** |
+| 6 | **parcial — caixa vazia** | O tecto da janela cumpre-se e prova-se nos dois lados: o `aput` **levanta** acima de `JANELA_MAXIMA` (20, ***proposta***) e não chega a tocar na base, e o `estado.recortar_janela` tem oito ensaios — a fronteira pelo valor, as últimas e não as primeiras, janela zero a esvaziar. **Faltam duas coisas à letra:** «`facts` apenas do turno» é do `ingest`, que é o **KAM-031**; e o teste que falha «se surgirem binários, segredos ou catálogo completo» não existe — o varrimento cobre telefones e campos de BSUID, não binários nem segredos |
+| 7 | **não satisfeito — caixa vazia** | O `versao_lida` do KAM-025 lê e recusa uma versão à frente, e o `SCHEMA_VERSION` nasce a 1. Mas **não há função de migração N-1 → N**, e o sítio onde ela correria — o `ingest` — é do **KAM-031**; a «retoma de um `interrupt` pendente» precisa de um grafo, que não existe. Nada disto se pode medir hoje |
+| 8 | **parcial — caixa vazia** | A retenção está: `retencao.varrer` apaga as *threads* paradas há mais de 30 dias com o papel `kamba_batch`, com relógio simulado, a fronteira afirmada **pelo valor** e o **máximo** da *thread* a mandar em vez de cada linha. **A poda «manter os últimos N» não se implementa, e é escolha:** o `prune` do próprio `BaseCheckpointSaver` avisa que um `keep_latest` ingénuo corta a cadeia de um canal `DeltaChannel` e que o valor «would silently reconstruct as empty (no error raised)», e nomeia como opção segura não podar. Não há grafo nenhum; quem decide se algum usa canais delta é o **KAM-031**. O método levanta `NotImplementedError`, que é o comportamento certo |
+
+**O Definition of Done, linha a linha.**
+
+| Linha | Veredicto | Evidência |
+|---|---|---|
+| Todos os CA satisfeitos | **vazia** | Derivada: quatro de oito, pelas razões acima |
+| Isolamento de tenant | **satisfeito** | O `thread_id` é construído do estado validado (`thread_id_de`) e conferido antes do turno; a *suite* cobre o `lg` com o X-02 — a *thread* de A invisível no pedido de B, e o papel sem alcance ao `platform` |
+| Privacidade | **vazia** | A primeira metade cumpre-se e está medida (nenhum telefone nem campo de BSUID no estado, com os dois ensaios que provam que o varrimento encontra). A segunda — «retenção por classe aplicada» — **não**: a varredura apaga por **inactividade da *thread***, não por classe de dados, e o prazo é *proposta* com dois valores em conflito no canon. Espera parecer, como o `../docs/tecnica/08` §11 já diz |
+| Migrações reversíveis | **satisfeito** | `TestCiclo` corre `downgrade base` e `upgrade head` pela linha de comandos, e exige que o `lg` desapareça. O `downgrade` está documentado como destrutivo na nota do módulo da `0020`, com a razão de não levar `CASCADE` |
+| Dependências | **vazia — divergência** | O critério pede o `langgraph-checkpoint-postgres` fixado por *hash*. **Esse pacote não pode entrar:** é MIT mas exige `psycopg` e `psycopg-pool`, LGPL-3.0-only, que o `ci/licenses.yaml` nega por prefixo. O que entra é o `langgraph-checkpoint`, fixado por *hash* (o *lock* tem **1159**) e registado em `ci/supply-chain/licencas.yaml` — e o `-postgres` fica lá registado como **bloqueado**, com a razão. O fecho inteiro foi classificado pelo avaliador do próprio *gate* 11: **35 avaliadas, 35 permitidas, 0 fora**. Fechar esta caixa é reescrever o critério, não mudar código |
+| Custo e observabilidade | **satisfeito** | `agr_checkpoint_latency_ms` e `agr_checkpoint_state_bytes`, as duas **sem etiqueta** — o `medir` nem a aceita, e é isso que prova o `OBS-I`. O alvo de 0,05–0,15 s é «a medir» e não um limiar: nada falha por o exceder |
+| Revisão por dois revisores | **vazia** | Decisão escrita do fundador: nesta fase não há revisores. A revisão adversarial correu e é evidência, não é um revisor |
+| Documentação de retenção | **satisfeito** | `docs/agr.md` §7-A, versão 1.2, com os dois prazos do canon e porque é que nenhum é decisão deste ticket |
+
+**Três conflitos do canon que este ticket nomeia e não resolve.** A retenção
+tem 30 dias de inactividade no `../docs/tecnica/02` §12 e 90 dias após o fecho
+no `../docs/tecnica/08` §7.1, e «fecho de conversa» não está definido em
+documento nenhum. O `E4` §2.6 dá o `langgraph-checkpoint-postgres` como «MIT,
+sem restrições» porque olhou o pacote e não o fecho. E o `../docs/tecnica/06`
+§7.6.2 diz que os *checkpoints* são cifrados com a DEK do contacto, o que nem o
+§12 nem este bloco nomeiam — o `SerializerProtocol` do LangGraph tem um
+`CipherProtocol`, pelo que o sítio existe, e a decisão fica por tomar com dono.
 
 ---
 
@@ -1512,3 +1550,4 @@ Não expandas escopo: sem aprovação automática, sem UI própria. Testes: esta
 | 1.1 | Outubro 2026 | KAM-145: os **26** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | **KAM-160** entra no `Dependências` do KAM-037, nas três superfícies, por reciprocidade: o `01` §14 manda registar um `pending_reply` que não existe em superfície nenhuma, e o KAM-037 é quem implementa a degradação. O `02` §14 deste epic é a prova de que não falta coluna — fecha com a mesma regra de recuperação («Ao recuperar, não se reenviam respostas antigas fora da janela») sem nome novo, e o critério 1 do KAM-037 já mede «0 turnos sem resposta em 100 execuções». Nada do bloco do KAM-037 muda além dessa linha. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | **KAM-025 entregue.** O bloco ganha a secção «Verificação dos Critérios de Aceitação», com a prova nomeada de cada um e a razão de cada caixa vazia. **Quatro critérios marcados** (1, 2, 3 e 8) e **quatro parciais** (4, 5, 6 e 7), e os quatro parciais não ficam vagos: o que falta em cada um pertence ao BullMQ (a retoma de um *job* `stalled`, NÃO VERIFICADO em `../docs/tecnica/evidencia/E4` §2.10), ao KAM-084 (o p95 sob carga), ao KAM-019 (a entrega ao HND, que aqui é uma porta) e ao KAM-076 (o bloqueio de rede). No DoD ficam vazias a primeira (por causa dos quatro parciais), a de observabilidade — o `degraded_turns` conta turnos em modo determinístico, que é o KAM-037, e uma métrica sempre a zero afirma o que ninguém mediu — e a dos dois revisores, que continua vazia em toda esta linha. **Três tensões do próprio bloco ficaram escritas em vez de resolvidas em silêncio:** os critérios 2, 3 e 5 não podem valer ao mesmo tempo com as omissões que propõem (vinte mensagens concorrentes distam muito menos de 1,5 s, e o tecto de 3 recusaria dezessete), e a leitura adoptada — que o critério 3 autoriza ao dizer «configurável» — é desligar os tectos a `0` para medir a propriedade da tranca. Está na linha 93 de `../docs/dividas-documentais.md`. **Sem migração:** a cadeia fica na `0019`. As duas decisões que o bloco manda registar estão em `../docs/adr/ADR-L004-fila-e-tranca-do-agr.md`; os nomes novos no dicionário §3.24 (emenda 1.33), que resolve também a lacuna do `turn_id` que o §3.13 tinha deixado por escrito. | Equipa KAMBÁ |
+| 1.4 | Outubro 2026 | **KAM-026 entregue.** O bloco ganha a secção «Verificação dos Critérios de Aceitação». **Quatro critérios marcados** (1, 2, 3 e 4) e **quatro por marcar** (5, 6, 7 e 8), e nenhum fica vago: o 5 e o 7 encostam a grafos que não existem — «nós `write`/`money`» não está modelado em lado nenhum e o `ingest` que migra o `schema_version` é do **KAM-031** —, ao 6 falta «`facts` apenas do turno» (mesmo credor) e o teste de binários e segredos, e ao 8 falta a poda «últimos N», que **não se implementa de propósito**: o `prune` do próprio `BaseCheckpointSaver` avisa que um `keep_latest` ingénuo corta a cadeia de um canal `DeltaChannel` e que o valor «would silently reconstruct as empty (no error raised)». **A decisão que deu a forma ao ticket:** o `langgraph-checkpoint-postgres` que o `../docs/tecnica/02` §12 nomeia é MIT mas exige `psycopg` e `psycopg-pool`, LGPL-3.0-only, que o `ci/licenses.yaml` nega — o checkpointer é nosso, sobre `pg8000`, contra a interface e o serializador do `langgraph-checkpoint`, cujo fecho de 35 pacotes foi classificado pelo avaliador do próprio *gate* 11 com **35 permitidas, 0 fora**. Por isso a linha das dependências do DoD fica vazia como **divergência**: ela nomeia o pacote que não pode entrar. **O critério 2 tinha uma armadilha**, e está fechada: em `msgpack` uma busca por texto devolve 0 com um telefone lá dentro, pelo que o varrimento desserializa e há dois ensaios que semeiam um número e um campo de BSUID e exigem que ele os encontre. Revisão `0020`: esquema `lg`, duas tabelas e o papel `kamba_agr`, sem `USAGE` no `platform`. Dicionário §3.25 (emenda 1.34); dívida **95**, medida ao escrever o ensaio do critério 4. | Equipa KAMBÁ |

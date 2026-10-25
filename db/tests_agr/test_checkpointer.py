@@ -26,6 +26,15 @@ from kamba_agr.checkpointer import CheckpointerDoAgr
 #: O que o criterio 2 manda procurar: um numero angolano em qualquer forma.
 TELEFONE = re.compile(r"\+?244\d{9}")
 
+#: A outra metade do criterio 2, o **BSUID**.
+#:
+#: Procura-se pelo **nome do campo** e nao pelo valor, e a razao esta no
+#: dicionario: um BSUID e um identificador opaco da Meta, sem forma fixa — o
+#: §3.1 so diz que vive cifrado em `contact_endpoints.bsuid_enc` e que o HMAC
+#: de pesquisa e o `bsuid_hmac`. Uma expressao sobre o valor nao existe para
+#: se escrever; o que se pode medir e que o estado nao traga o campo.
+CAMPOS_PROIBIDOS = ("bsuid", "phone", "msisdn", "telefone")
+
 AGORA = dt.datetime(2026, 10, 25, 12, 0, tzinfo=dt.timezone.utc)
 
 
@@ -382,6 +391,32 @@ class TestPrivacidade(ComCheckpointer):
         )
         self.assertEqual(self._numeros_em(thread), ["+244923456789"])
 
+    def test_o_varrimento_encontra_um_campo_de_bsuid_semeado(self) -> None:
+        # A mesma disciplina do telefone: o varrimento so prova alguma coisa
+        # depois de se mostrar que encontra o que la esta.
+        thread = self.thread()
+        asyncio.run(
+            self.saver.aput(
+                config(thread),
+                checkpoint("cp-1", facts=[{"bsuid_enc": "o-que-for"}]),
+                {},
+                {},
+            )
+        )
+        self.assertEqual(self._campos_em(thread), ["bsuid"])
+
+    def test_o_estado_de_um_turno_normal_nao_leva_bsuid(self) -> None:
+        thread = self.thread()
+        asyncio.run(
+            self.saver.aput(
+                config(thread),
+                checkpoint("cp-1", stage="cart", facts=[{"sku": "SAB-01"}]),
+                {},
+                {},
+            )
+        )
+        self.assertEqual(self._campos_em(thread), [])
+
     def test_o_estado_de_um_turno_normal_nao_leva_numeros(self) -> None:
         # O criterio, agora que o varrimento esta provado a encontrar.
         thread = self.thread()
@@ -395,9 +430,26 @@ class TestPrivacidade(ComCheckpointer):
         )
         self.assertEqual(self._numeros_em(thread), [])
 
+    def _campos_em(self, thread_id: str) -> list[str]:
+        """Os campos proibidos que aparecem no estado desserializado."""
+        texto = " ".join(self._desserializado(thread_id)).lower()
+        return [campo for campo in CAMPOS_PROIBIDOS if campo in texto]
+
     def _numeros_em(self, thread_id: str) -> list[str]:
         """Desserializa tudo o que a *thread* tem no `lg` e procura numeros."""
         achados: list[str] = []
+        for texto in self._desserializado(thread_id):
+            achados += TELEFONE.findall(texto)
+        return achados
+
+    def _desserializado(self, thread_id: str) -> list[str]:
+        """Tudo o que a *thread* tem no `lg`, desfeito pelo serde.
+
+        **Desserializa, e e isso que faz o ensaio valer.** O estado vai em
+        `msgpack` para uma coluna `bytea`: uma busca por texto sobre a coluna
+        devolvia zero ocorrencias com um telefone la dentro.
+        """
+        textos: list[str] = []
         self.semente.execute(
             "SELECT type, checkpoint, metadata_type, metadata FROM lg.checkpoints "
             "WHERE thread_id = %s",
@@ -405,16 +457,14 @@ class TestPrivacidade(ComCheckpointer):
         )
         for tipo, octetos, tipo_meta, octetos_meta in self.semente.fetchall():
             for par in ((tipo, bytes(octetos)), (tipo_meta, bytes(octetos_meta))):
-                achados += TELEFONE.findall(repr(self.saver.serde.loads_typed(par)))
+                textos.append(repr(self.saver.serde.loads_typed(par)))
         self.semente.execute(
             "SELECT type, blob FROM lg.checkpoint_writes WHERE thread_id = %s",
             (thread_id,),
         )
         for tipo, octetos in self.semente.fetchall():
-            achados += TELEFONE.findall(
-                repr(self.saver.serde.loads_typed((tipo, bytes(octetos))))
-            )
-        return achados
+            textos.append(repr(self.saver.serde.loads_typed((tipo, bytes(octetos)))))
+        return textos
 
 
 class TestHistorico(ComCheckpointer):
