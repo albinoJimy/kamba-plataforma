@@ -82,6 +82,8 @@ class TestCredenciais(unittest.TestCase):
                 "KAMBA_SECRET_DB_RESOLVER_PASSWORD",
                 "KAMBA_SECRET_DB_IDENTITY_PASSWORD",
                 "KAMBA_SECRET_DB_AUDIT_PASSWORD",
+                # KAM-026: o papel do checkpointer, o setimo.
+                "KAMBA_SECRET_DB_AGR_PASSWORD",
             },
         )
 

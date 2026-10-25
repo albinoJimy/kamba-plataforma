@@ -370,6 +370,18 @@ Medido no ramo `feature/KAM-026-checkpointer`, contra um PostgreSQL 18 real
 | Revisão por dois revisores | **vazia** | Decisão escrita do fundador: nesta fase não há revisores. A revisão adversarial correu e é evidência, não é um revisor |
 | Documentação de retenção | **satisfeito** | `docs/agr.md` §7-A, versão 1.2, com os dois prazos do canon e porque é que nenhum é decisão deste ticket |
 
+**A revisão adversarial reprovou-o à primeira, e isso está escrito.** Vinte e
+dois achados — quatro críticos, sete sérios, onze menores — em
+[`../docs/analises/ANALISE-28-KAM-026-checkpointer-lg.md`](../docs/analises/ANALISE-28-KAM-026-checkpointer-lg.md).
+Dois dos críticos eram reproduzíveis sem base de dados, e um deles já punha uma
+bateria existente a vermelho: a inserção de duas entradas no inventário de
+segredos **partiu a entrada vizinha**, e o `secrets_inventory` reportava 0
+segredos e cobertura 0/11. Os outros três: o encerramento rebentava e a ligação
+da tranca não largava; uma excepção deixava a única ligação do processo em
+`25P02` para sempre; e um cancelamento largava a tranca com a *thread* ainda a
+usar a tomada — o único caminho que a revisão encontrou para o estado de um
+*tenant* chegar a outro. Vinte corrigidos, dois declarados.
+
 **Três conflitos do canon que este ticket nomeia e não resolve.** A retenção
 tem 30 dias de inactividade no `../docs/tecnica/02` §12 e 90 dias após o fecho
 no `../docs/tecnica/08` §7.1, e «fecho de conversa» não está definido em
