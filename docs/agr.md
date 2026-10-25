@@ -560,7 +560,7 @@ se afirmava lendo.
 | 2 | `entitlement` | o `hook_de_tool` do KAM-009 → `ENTITLEMENT_DENIED` ou `LIMIT_EXCEEDED` |
 | 3 | `argumentos` | Pydantic com `extra="forbid"` → `VALIDATION_ERROR` |
 | 4 | `confirmacao` | `write`/`money` sem botão válido → `VALIDATION_ERROR`; de **outro contacto** → `TENANT_MISMATCH` |
-| 5 | `idempotencia` | `write`/`money` sem chave → `VALIDATION_ERROR` (ponto de extensão do KAM-029) |
+| 5 | `idempotencia` | `write`/`money` sem chave do chamador → `VALIDATION_ERROR`; `cart_id` reutilizado com outro conteúdo → `INTENT_REUSED_WITH_DIFFERENT_CONTENT`; reserva de outro ainda `em_curso` ao fim de 3 s → `UPSTREAM_TIMEOUT`. Um resultado guardado **para** aqui o pipeline, com `idempotent_replay=true` (KAM-029) |
 | 6 | `backend` | disjuntor aberto → `UPSTREAM_DOWN`; *timeout* → `UPSTREAM_TIMEOUT`; o resto, o que o backend disser |
 | 7 | `auditoria` | não recusa: **escreve**, e levanta se não conseguir |
 | 8 | `facts` | devolve |
@@ -775,12 +775,22 @@ porque o disjuntor conta falhas consecutivas por backend e isso é estado do
 processo: uma instância por grafo dava a cada vertical um contador próprio, e
 dois contadores a metade do caminho nunca abrem.
 
-A chave de idempotência do §6.3 e a tabela `tool_idempotency` são do
-**KAM-029**; o que aqui está é a coluna, o parâmetro, e a regra de que
-`write`/`money` nunca correm sem chave. **Não se deriva a chave aqui para «já ir
-adiantado»**: uma chave derivada e guardada em sítio nenhum não desduplica nada,
-e deixava uma coluna preenchida que ninguém lê — pior do que vazia, porque um
-painel que a mostre diz que a idempotência funciona.
+A chave de idempotência do §6.3 e a tabela `tool_idempotency` **eram** do
+KAM-029 e estão entregues (`tls/idempotency.py`, revisão `0022`). O que o KAM-028
+deixou aqui foi a coluna, o parâmetro, e a regra de que `write`/`money` nunca
+correm sem chave.
+
+**E três coisas que o KAM-029 teve de corrigir ao atravessar este passo**, as
+três descobertas a escrever código contra o que estava escrito:
+
+| O que estava | O que passou a estar |
+|---|---|
+| o `Pedido` não levava a chave ao executor | leva (`Pedido.chave`). Sem isso, «o backend é idempotente pela chave» era uma frase sem nada a sustentá-la, e a retoma de uma reserva `falhada` duplicava o efeito |
+| a `tool_audit.idempotency_key` era «a chave do §6.3» | é a do **chamador**, a do turno. A do §6.3 é a do carrinho e vive em `tool_idempotency.key`; são duas porque um segundo toque com `wamid` novo é um turno novo (dicionário §3.28) |
+| o fecho da reserva no `finally` do pipeline | **também no `except`, antes de a ligação cair**. O caminho de excepção fecha a tomada e o `finally` corre depois dele: a reserva ficava aberta precisamente no caminho em que mais precisa de fechar |
+
+A terceira é a que fecha a janela do achado 12 da `analises/ANALISE-30`, e foi
+apanhada **a correr** a bateria da falha injectada — não a ler o código.
 
 O retry do §6.5 («1 retry com *backoff*») é do grafo: **a camada não repete
 nada**, de propósito, e há teste a dizê-lo.
@@ -805,3 +815,4 @@ tabela do §1 atribui a outro ticket.
 | 1.2 | 2026-10-25 | KAM-026 | §7-A: o checkpointer sobre `pg8000` e o esquema `lg`. Porque não é o `AsyncPostgresSaver` (o fecho dele é LGPL), as duas tabelas em vez de três e o que isso custa, os quatro métodos que não se implementam, o isolamento que aqui não é RLS, a retenção e os dois prazos do canon, e a armadilha do critério 2 — em `msgpack`, uma busca por texto não encontra um telefone que lá esteja |
 | 1.3 | 2026-10-25 | KAM-027 | §7-B: o `AgentRegistry`, as três formas de `registry/`, as seis validações do arranque e as três que correm em **aviso** com o credor nomeado em `registry/gates.yaml`, o `resolve` e o alerta, e os dois nomes que o canon corrigiu ao desenho (`valor_max_pedido_minor` e os dois eventos de pagamento). §5: a guarda do SBOM do ambiente, que não é a mesma pergunta que a do módulo — o `langgraph-checkpoint-postgres` instala `langgraph.checkpoint.postgres` e nenhum nome de `MODULOS_PROIBIDOS` o encontraria. §1 e §4: o 503 fica, e porquê; `KAMBA_REGISTRY_DIR`, `KAMBA_FASE` e o código de saída `5` |
 | 1.4 | 2026-10-25 | KAM-028 | §7-C: a ToolLayer — os oito passos do §6.1 como **dados** (e porquê), os dois estados de uma entrada de catálogo e como isso fechou a validação (1) do §5.2, a `tool_audit` com a imutabilidade em três camadas e o que a linha **não** guarda, a quarta ligação e porque não é a da leitura, as quatro variáveis novas, o código de saída `6` e o *lint* do critério 3. §7-B: a tabela das seis validações passa a `bloqueio` na (1) e a prosa diz «eram três e são duas». Duas descobertas que mudaram código: a *docstring* de um modelo Pydantic vai no prompt, e um `fact_id` derivado de um argumento põe texto do cliente na auditoria. **Correcções da revisão adversarial** (`analises/ANALISE-30`): as tomadas passam a ser uma fila e não uma (uma só serializava todos os *tenants* — 2,02 s para dez invocações de dez *tenants*), a camada passa a **impor** o tecto de tempo (um executor de 5 s contra 2 s devolvia `ok=True` em 5 s), os **nomes** dos argumentos deixam de ir em claro para a `tool_audit`, a quarta tomada fecha-se no `ao_encerrar`, e o `error_code` da linha de arranque passa a ter a forma que a *allowlist* do §7.3 exige — não tinha, e com `KAMBA_LOG_ESTRITO=1` abortava o `main()` |
+| 1.5 | 2026-10-25 | KAM-029 | §7-C: o passo 5 passa de ponto de extensão a passo com três recusas e um *replay*. O que **este** ticket descobriu ao atravessá-lo está na tabela do §7-C: o `Pedido` não levava a chave ao executor (e sem ela «o backend é idempotente pela chave» era uma frase sem sustento), a `tool_audit.idempotency_key` não é a chave do §6.3 mas a do **turno**, e o fecho da reserva tinha de correr também no `except` — o caminho de excepção fecha a tomada e o `finally` corre depois dele, pelo que a reserva ficava aberta precisamente no caminho em que mais precisa de fechar. As três saíram de **correr** e não de ler, a terceira na bateria da falha injectada. O décimo primeiro erro tipado (`INTENT_REUSED_WITH_DIFFERENT_CONTENT`) e o que ele arrasta: revisão `0022`, dicionário §3.28, e a etiqueta de `agr_tool_erros_total`, que é derivada |

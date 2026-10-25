@@ -115,12 +115,21 @@ class Pedido:
     A `ligacao` e a tomada DB-API para os backends que falam com a nossa base
     (o `plataforma`); e `None` para os outros, e um executor que a precise e nao
     a tenha levanta — o que e um defeito de registo, nao uma resposta.
+
+    **A `chave` entrou pelo KAM-029, e sem ela o criterio 4 dele nao se podia
+    cumprir.** Esse criterio diz, por extenso, que a repeticao de uma invocacao
+    cujo resultado se perdeu «nao duplica o efeito (o backend e idempotente pela
+    chave)» — e um backend nao pode ser idempotente por uma chave que nunca ve.
+    E a chave do §6.3, a mesma de `tool_idempotency.key`: o COM recebe-a e
+    deriva dela a sua `intent_key` (`docs/tecnica/03` §6.3), que e a segunda das
+    duas barreiras independentes. `None` numa tool `read`, que nao tem nenhuma.
     """
 
     ctx: ToolContext
     args: BaseModel
     timeout_ms: int
     ligacao: Any = None
+    chave: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

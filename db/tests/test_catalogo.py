@@ -466,6 +466,13 @@ class TestConvencoes(ComBase):
                 # razao — `kamba_app` escreve e **nao le**, pelo que nenhum
                 # papel sujeito a RLS ve esta coluna.
                 ("tool_audit", "id", "bigint", None),
+                # KAM-029: **natural e de texto**, como a `message_templates`, e
+                # pela mesma razao com outro dono — a chave desta tabela e o
+                # `sha256` do `docs/tecnica/02` §6.3, e um `uuid` gerado ao lado
+                # dela era um segundo identificador para a mesma coisa. Nada a
+                # referencia por chave estrangeira: o que liga esta linha a de
+                # `tool_audit` e o par `(tool, args_hash)`, nao uma FK.
+                ("tool_idempotency", "key", "text", None),
                 ("unrouted_events", "id", "uuid", "gen_random_uuid()"),
                 ("usage_ledger", "chave_limite", "text", None),
                 ("usage_ledger", "idempotency_key", "text", None),
@@ -637,7 +644,15 @@ class TestConvencoes(ComBase):
              # a leitura desta tabela e «as invocacoes deste tenant, por
              # ordem», e o `ts` tem empates (varias invocacoes no mesmo turno,
              # no mesmo milissegundo) enquanto o `id` nao.
-             "tool_audit"},
+             "tool_audit",
+             # KAM-029. A `tool_idempotency` tambem nao satisfaz a convencao de
+             # graca — a chave primaria e a `key`, que e o `sha256` do §6.3 e
+             # nao leva `tenant_id` — e levou indice proprio,
+             # `(tenant_id, created_at)`. A segunda coluna e a idade, que e a
+             # unica pergunta por tenant que se faz a esta tabela: a leitura do
+             # caminho quente e pela chave primaria, e a varredura da retencao
+             # corre como `kamba_batch` sem tenant nenhum.
+             "tool_idempotency"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):

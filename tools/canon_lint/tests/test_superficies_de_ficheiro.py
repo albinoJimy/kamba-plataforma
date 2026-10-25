@@ -160,6 +160,69 @@ class TestMigracoes(unittest.TestCase):
         self.assertEqual([a.classe for a in a_mais], [REGRA])
         self.assertIn("a mais: pausado", a_mais[0].mensagem)
 
+    def test_um_dominio_fechado_pode_crescer_numa_revisao_posterior(self) -> None:
+        """KAM-029: a revisao antiga declara o dominio antigo, e isso e historia.
+
+        Um dominio fechado cresce por `DROP CONSTRAINT` + `ADD CONSTRAINT` numa
+        revisao posterior. Sem esta regra, **nenhum dominio fechado deste
+        repositorio podia crescer**: a revisao que o criou passava a estar sempre
+        em falta, e a unica saida era editar uma revisao ja fundida — que e coisa
+        que nunca se fez aqui (cada revisao tem um `commit`, do seu ticket).
+
+        Sao **tres** asserçoes e nao uma, porque a regra tem de morder nos dois
+        sentidos e nao servir de dispensa:
+        """
+        estreito = migracao(
+            "CREATE TABLE platform.tenant_channels (id uuid, origem text "
+            "CHECK (origem IN ('pme')))"
+        )
+        # 1. sem substituicao declarada, continua a faltar — a regra nao e uma
+        #    dispensa por omissao.
+        self.assertIn("falta: plataforma", self.achados(estreito)[0].mensagem)
+        # 2. com uma revisao posterior a redeclarar o par, a antiga passa.
+        substituidos = frozenset({("tenant_channels", "origem")})
+        self.assertEqual(
+            ddl.verificar(
+                "db/migrations/versions/0009_x.py", estreito, self.saber, substituidos
+            )[0],
+            [],
+        )
+        # 3. **o excesso continua a cobrar-se**, substituida ou nao: um valor que
+        #    o dicionario ja nao tem e defeito em qualquer revisao.
+        com_excesso = migracao(
+            "CREATE TABLE platform.tenant_channels (id uuid, origem text "
+            "CHECK (origem IN ('pme','plataforma','inventado')))"
+        )
+        achados = ddl.verificar(
+            "db/migrations/versions/0009_x.py", com_excesso, self.saber, substituidos
+        )[0]
+        self.assertEqual([a.classe for a in achados], [REGRA])
+        self.assertIn("a mais: inventado", achados[0].mensagem)
+
+    def test_quem_declara_um_dominio_fechado_e_quem_o_diz(self) -> None:
+        """O `declaracoes_fechadas`, que e o que a pre-passagem do `cli` usa.
+
+        Um `CHECK` fechado conta; um que **nao** seja o dominio inteiro da coluna
+        nao conta — senao uma restricao parcial numa revisao posterior dispensava
+        a anterior de ter o dominio todo, que era a dispensa pela porta do lado.
+        """
+        fechado = migracao(
+            "CREATE TABLE platform.tenant_channels (id uuid, origem text "
+            "CHECK (origem IN ('pme','plataforma')))"
+        )
+        self.assertIn(
+            ("tenant_channels", "origem"),
+            ddl.declaracoes_fechadas("db/migrations/versions/0009_x.py", fechado, self.saber),
+        )
+        parcial = migracao(
+            "CREATE TABLE platform.tenant_channels (id uuid, origem text, "
+            "CONSTRAINT x CHECK (origem IN ('pme') OR id IS NULL))"
+        )
+        self.assertNotIn(
+            ("tenant_channels", "origem"),
+            ddl.declaracoes_fechadas("db/migrations/versions/0009_x.py", parcial, self.saber),
+        )
+
     def test_o_dominio_nao_se_contorna_pela_forma_do_pg_dump(self) -> None:
         """M1 (s18, s20, s21): `tenants.estado` sem `restrito`, em tres formas honestas."""
         for expressao in (

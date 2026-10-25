@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.36"
+versao_dicionario: "1.37"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -6253,7 +6253,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.27"
     conceito: "Erros tipados da camada"
-    canonico: "tool_audit.error_code ∈ {NOT_FOUND, OUT_OF_STOCK, PRICE_CHANGED, LIMIT_EXCEEDED, ENTITLEMENT_DENIED, TOOL_NOT_ALLOWED, TENANT_MISMATCH, UPSTREAM_TIMEOUT, UPSTREAM_DOWN, VALIDATION_ERROR}"
+    canonico: "tool_audit.error_code ∈ {NOT_FOUND, OUT_OF_STOCK, PRICE_CHANGED, LIMIT_EXCEEDED, ENTITLEMENT_DENIED, TOOL_NOT_ALLOWED, TENANT_MISMATCH, UPSTREAM_TIMEOUT, UPSTREAM_DOWN, VALIDATION_ERROR, INTENT_REUSED_WITH_DIFFERENT_CONTENT}"
     literais:
       - "tool_audit.error_code"
       - "NOT_FOUND"
@@ -6266,6 +6266,7 @@ entradas:
       - "UPSTREAM_TIMEOUT"
       - "UPSTREAM_DOWN"
       - "VALIDATION_ERROR"
+      - "INTENT_REUSED_WITH_DIFFERENT_CONTENT"
     nomes:
       - "tool_audit.error_code"
       - "NOT_FOUND"
@@ -6278,7 +6279,9 @@ entradas:
       - "UPSTREAM_TIMEOUT"
       - "UPSTREAM_DOWN"
       - "VALIDATION_ERROR"
+      - "INTENT_REUSED_WITH_DIFFERENT_CONTENT"
     nomes_nota:
+      - "INTENT_REUSED_WITH_DIFFERENT_CONTENT"
       - "tool_audit.error_code"
       - "NOT_FOUND"
       - "CHECK"
@@ -6374,6 +6377,8 @@ entradas:
     nomes_nota:
       - "codigo"
       - "tool_not_allowed"
+      - "CODIGOS"
+      - "test_gate11"
     variantes_literais: []
   - seccao: "3.27"
     conceito: "Latência da última invocação"
@@ -6426,6 +6431,163 @@ entradas:
     nomes_nota:
       - "lint_arch"
       - "PARAMETROS_PROIBIDOS"
+    variantes_literais: []
+  - seccao: "3.28"
+    conceito: "Barreira de idempotência das tools de escrita"
+    canonico: "platform.tool_idempotency"
+    literais:
+      - "platform.tool_idempotency"
+    nomes:
+      - "platform.tool_idempotency"
+    nomes_nota:
+      - "tool_audit"
+      - "UPDATE"
+    variantes_literais: []
+  - seccao: "3.28"
+    conceito: "Colunas de tool_idempotency"
+    canonico: "key, tenant_id, tool, args_hash, estado, result, created_at"
+    literais:
+      - "key"
+      - "tenant_id"
+      - "tool"
+      - "args_hash"
+      - "estado"
+      - "result"
+      - "created_at"
+    nomes:
+      - "tool_idempotency"
+      - "key"
+      - "tenant_id"
+      - "tool"
+      - "args_hash"
+      - "estado"
+      - "result"
+      - "created_at"
+    nomes_nota:
+      - "contact_id"
+      - "key"
+    variantes_literais: []
+  - seccao: "3.28"
+    conceito: "Chave de idempotência de um carrinho"
+    canonico: "key = sha256(tenant_id ⟂ contact_id ⟂ tool ⟂ cart_id), em hexadecimal"
+    literais:
+      - "key"
+      - "sha256(tenant_id"
+      - "contact_id"
+      - "tool"
+      - "cart_id)"
+    nomes:
+      - "key"
+      - "sha256"
+      - "tenant_id"
+      - "contact_id"
+      - "tool"
+      - "cart_id"
+    nomes_nota:
+      - "CHECK"
+      - "key"
+      - "a"
+      - "f"
+    variantes_literais:
+      - "hash(msisdn + sku + janela_5min)"
+  - seccao: "3.28"
+    conceito: "Identificador opaco do carrinho"
+    canonico: "cart_id"
+    literais:
+      - "cart_id"
+    nomes:
+      - "cart_id"
+    nomes_nota:
+      - "propose_cart"
+      - "hold_id"
+      - "confirm"
+      - "cart_id"
+      - "id"
+    variantes_literais: []
+  - seccao: "3.28"
+    conceito: "Estado de uma reserva"
+    canonico: "tool_idempotency.estado ∈ {em_curso, concluida, falhada}"
+    literais:
+      - "tool_idempotency.estado"
+      - "em_curso"
+      - "concluida"
+      - "falhada"
+    nomes:
+      - "tool_idempotency.estado"
+      - "em_curso"
+      - "concluida"
+      - "falhada"
+    nomes_nota:
+      - "em_curso"
+      - "concluida"
+      - "result"
+      - "falhada"
+      - "ESTADOS"
+      - "CHECK"
+      - "estado"
+      - "hmac_key_versions"
+      - "events_dlq"
+      - "evt_acoes"
+      - "error_code"
+    variantes_literais: []
+  - seccao: "3.28"
+    conceito: "Resultado guardado de uma invocação"
+    canonico: "result"
+    literais:
+      - "result"
+    nomes:
+      - "result"
+    nomes_nota:
+      - "jsonb"
+      - "data"
+      - "ToolResult"
+      - "CHECK"
+      - "concluida"
+      - "result"
+      - "falhada"
+    variantes_literais: []
+  - seccao: "3.28"
+    conceito: "Marca de repetição, na resposta"
+    canonico: "idempotent_replay"
+    literais:
+      - "idempotent_replay"
+    nomes:
+      - "idempotent_replay"
+    nomes_nota:
+      - "ToolResult"
+      - "False"
+      - "True"
+    variantes_literais: []
+  - seccao: "3.28"
+    conceito: "Reutilização de uma intenção com outro conteúdo"
+    canonico: "INTENT_REUSED_WITH_DIFFERENT_CONTENT"
+    literais:
+      - "INTENT_REUSED_WITH_DIFFERENT_CONTENT"
+    nomes:
+      - "INTENT_REUSED_WITH_DIFFERENT_CONTENT"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.28"
+    conceito: "Tecto de espera por uma reserva de outro"
+    canonico: "TECTO_DE_ESPERA_MS (3000)"
+    literais:
+      - "TECTO_DE_ESPERA_MS"
+    nomes:
+      - "TECTO_DE_ESPERA_MS"
+    nomes_nota:
+      - "UPSTREAM_TIMEOUT"
+    variantes_literais: []
+  - seccao: "3.28"
+    conceito: "Retenção de uma reserva"
+    canonico: "DIAS_DE_RETENCAO (30)"
+    literais:
+      - "DIAS_DE_RETENCAO"
+    nomes:
+      - "DIAS_DE_RETENCAO"
+    nomes_nota:
+      - "refund_cases"
+      - "paga"
+      - "reembolso_pendente"
     variantes_literais: []
 
 tabelas:
@@ -7349,8 +7511,17 @@ dominios:
       - "UPSTREAM_TIMEOUT"
       - "UPSTREAM_DOWN"
       - "VALIDATION_ERROR"
+      - "INTENT_REUSED_WITH_DIFFERENT_CONTENT"
     seccao: "3.27"
     conceito: "Erros tipados da camada"
+    so_no_registo: false
+  - coluna: "tool_idempotency.estado"
+    valores:
+      - "em_curso"
+      - "concluida"
+      - "falhada"
+    seccao: "3.28"
+    conceito: "Estado de uma reserva"
     so_no_registo: false
 
 variantes:

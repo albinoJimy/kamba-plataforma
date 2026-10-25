@@ -995,12 +995,22 @@ INVENTARIO = {
             "nao — a **forma** dos argumentos (nome e tipo), nunca o valor. Um "
             "valor aqui era texto do cliente num registo de auditoria",
         ),
+        # KAM-029 corrigiu a razao desta linha, e nao a coluna. Ela dizia «a
+        # chave do §6.3», e **nao e**: aqui fica a chave do **chamador**, que e
+        # a do turno (vai tambem ao `usage_ledger`, no passo 2), enquanto a do
+        # §6.3 e a do **carrinho** e vive na `tool_idempotency.key`. Nao sao a
+        # mesma e nao podiam ser — um segundo toque com `wamid` novo e um turno
+        # novo, com chave de turno nova, e se o carrinho se desduplicasse por
+        # ela esse toque cobrava outra vez (criterio 8 do KAM-029). As duas
+        # linhas ligam-se pelo par `(tool, args_hash)`, que e o mesmo nas duas
+        # tabelas. A nota longa esta no `kamba_agr/tls/idempotency.py`.
         "idempotency_key": (
             "text",
             SIM,
             None,
-            "nao — o ponto de extensao do passo 5 do §6.1, preenchido pelo "
-            "KAM-029. A chave do §6.3 e um sha256 e nao leva telefone (ADR-010)",
+            "nao — a chave de idempotencia **do chamador** (do turno; o KAM-025 "
+            "usa `turn_id:seq`). Opaca, sem telefone (ADR-010); a chave do "
+            "carrinho do §6.3 vive na `tool_idempotency`",
         ),
         "status": ("text", NAO, None, "nao"),
         "error_code": ("text", SIM, None, "nao — um dos dez codigos do §6.5"),
@@ -1013,6 +1023,45 @@ INVENTARIO = {
             "citacao do KAM-032 a linha que a produziu",
         ),
         "latency_ms": ("integer", SIM, None, "nao"),
+    },
+    # KAM-029: a barreira de idempotencia. A pergunta «isto guarda dados
+    # pessoais?» tem aqui uma resposta que a base **impoe** e nao so declara: a
+    # `key` tem `CHECK (key ~ '^[0-9a-f]{64}$')`, pelo que nenhum telefone,
+    # BSUID ou nome cabe la, qualquer que seja o chamador (criterio 6, ADR-010).
+    #
+    # A coluna a olhar com cuidado e o `result`, e nao a `key`: e o `data` que o
+    # backend devolveu, guardado para o *replay*. Um `criar_pedido` devolve
+    # identificadores de encomenda, que sao opacos; o dia em que um executor
+    # devolver nome ou morada do cliente no `data`, e esta linha que passa a
+    # dizer «sim» — e o varrimento com canarios de
+    # `db/tests_agr/test_idempotencia.py` que o apanha.
+    "tool_idempotency": {
+        "key": (
+            "text",
+            NAO,
+            None,
+            "nao — sha256 de `(tenant_id, contact_id, tool, cart_id)` em "
+            "hexadecimal, com `CHECK` de forma. Irreversivel por construcao",
+        ),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "tool": ("text", NAO, None, "nao"),
+        "args_hash": (
+            "bytea",
+            NAO,
+            None,
+            "nao — sha256 da forma canonica dos argumentos, 32 octetos. O mesmo "
+            "valor da `tool_audit.args_hash`, pela mesma funcao",
+        ),
+        "estado": ("text", NAO, "'em_curso'::text", "nao"),
+        "result": (
+            "jsonb",
+            SIM,
+            None,
+            "nao — o `data` que o backend devolveu, que num `criar_pedido` sao "
+            "identificadores de encomenda, opacos. Varrido por canarios em "
+            "`db/tests_agr/test_idempotencia.py`",
+        ),
+        "created_at": ("timestamp with time zone", NAO, "now()", "nao"),
     },
 }
 
@@ -1443,6 +1492,26 @@ class TestInventario(ComBase):
                     "tool_audit_latencia_nao_negativa",
                     "tool_audit_fact_ids_sem_nulos",
                     "tool_audit_texto_curto",
+                    # ------------------------------------- KAM-029 (0022)
+                    # Seis, e a primeira e a que mais vale: o `key_sha256` e o
+                    # criterio 6 do bloco imposto **pela base** e nao por um
+                    # teste nosso — «a coluna `key` nunca contem `+244`» passa a
+                    # ser verdade porque nenhum telefone casa `^[0-9a-f]{64}$`.
+                    #
+                    # O `resultado_so_em_concluida` olha para os **dois**
+                    # sentidos, pela licao que a `0021` pagou: uma `concluida`
+                    # sem `result` devolvia um *replay* vazio, e um `result`
+                    # numa `falhada` era um resultado devolvido como *replay* de
+                    # uma invocacao que ninguem confirmou.
+                    #
+                    # O `tool_nome` e de forma e nao de dominio, pela razao
+                    # exacta do `tool_audit_tool_nome` acima.
+                    "tool_idempotency_pkey",
+                    "tool_idempotency_key_sha256",
+                    "tool_idempotency_estado",
+                    "tool_idempotency_tool_nome",
+                    "tool_idempotency_args_hash_sha256",
+                    "tool_idempotency_resultado_so_em_concluida",
                     # ------------------------------------- KAM-015 (0010)
                     # Os dois dominios da `outbound_messages`, as duas
                     # unicidades (a da chave de idempotencia e **por tenant**;
