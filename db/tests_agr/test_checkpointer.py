@@ -20,7 +20,7 @@ import unittest
 import ligacao
 from tests_agr.base import ComAgr, thread_id_de
 
-from kamba_agr import retencao
+from kamba_agr import consultas, retencao
 from kamba_agr.checkpointer import CheckpointerDoAgr
 
 #: O que o criterio 2 manda procurar: um numero angolano em qualquer forma.
@@ -318,6 +318,110 @@ class TestRetencao(ComCheckpointer):
         self.addCleanup(lote.close)
         self.assertEqual(retencao.varrer(lote, AGORA), [])
 
+
+    def test_a_lista_de_candidatas_sai_do_maximo_e_a_fronteira_e_pelo_valor(self) -> None:
+        """O `SQL_THREADS_INACTIVAS` sozinho, que e o que escolhe quem se olha.
+
+        **Afirma-se a cadeia e nao o desfecho da varredura**, e e deliberado:
+        desde que o `DELETE` ganhou predicado de tempo proprio, uma lista de
+        candidatas errada deixou de mudar o que se apaga — a segunda barreira
+        recusa. Isso e defesa em profundidade a funcionar, mas deixa o
+        `SELECT` por provar: tres mutacoes nele sobreviveram a bateria antes
+        deste ensaio existir. Aqui a instrucao e o sujeito.
+        """
+        parada, viva, na_fronteira = self.thread(), self.thread(), self.thread()
+        for thread in (parada, viva, na_fronteira):
+            asyncio.run(self.saver.aput(config(thread), checkpoint("cp-1"), {}, {}))
+        self._envelhecer(parada, 31)
+        self._envelhecer(viva, 29)
+        self._envelhecer(na_fronteira, 30)
+        # A `viva` leva **tambem** um checkpoint velho: com `min` em vez de
+        # `max` ela entrava na lista, e e isso que separa as duas leituras.
+        asyncio.run(self.saver.aput(config(viva), checkpoint("cp-0"), {}, {}))
+        self.semente.execute(
+            "UPDATE lg.checkpoints SET criado_at = %s "
+            "WHERE thread_id = %s AND checkpoint_id = 'cp-0'",
+            (AGORA - dt.timedelta(days=200), viva),
+        )
+
+        limite = AGORA - dt.timedelta(days=retencao.DIAS_DE_INACTIVIDADE)
+        self.semente.execute(consultas.SQL_THREADS_INACTIVAS, (limite,))
+        candidatas = {linha[0] for linha in self.semente.fetchall()}
+        # A `parada` sim; a `viva` nao, apesar do checkpoint de ha 200 dias; e a
+        # `na_fronteira` nao, porque o predicado e `<` e nao `<=`.
+        self.assertIn(parada, candidatas)
+        self.assertNotIn(viva, candidatas)
+        self.assertNotIn(na_fronteira, candidatas)
+
+    def test_a_corrida_entre_o_select_e_o_delete(self) -> None:
+        """Uma mensagem chega **depois** da lista e **antes** do apagamento.
+
+        O ensaio anterior desta corrida escrevia o checkpoint novo antes de a
+        varredura correr — e a *thread* nem chegava a ser candidata, pelo que a
+        corrida nunca acontecia e a mutacao que tira o predicado do `DELETE`
+        sobrevivia. Aqui a escrita entra **no intervalo**, por uma ligacao que
+        conta quantas instrucoes passaram.
+        """
+        acordada = self.thread()
+        asyncio.run(self.saver.aput(config(acordada), checkpoint("cp-1"), {}, {}))
+        self._envelhecer(acordada, 31)
+
+        escrever = self.saver
+        semente = self.semente
+
+        class LigacaoQueAcorda:
+            """Delega tudo, e acorda a *thread* a seguir ao `SELECT`."""
+
+            def __init__(self, interna) -> None:
+                self._interna = interna
+                self._instrucoes = 0
+
+            def cursor(self):
+                return _CursorQueAcorda(self, self._interna.cursor())
+
+            def commit(self) -> None:
+                self._interna.commit()
+
+            def close(self) -> None:
+                self._interna.close()
+
+        class _CursorQueAcorda:
+            def __init__(self, dono, interno) -> None:
+                self._dono = dono
+                self._interno = interno
+
+            def execute(self, sql, parametros=None):
+                resultado = self._interno.execute(sql, parametros)
+                self._dono._instrucoes += 1
+                if self._dono._instrucoes == 1:
+                    # A lista ja saiu. Chega agora uma mensagem.
+                    asyncio.run(
+                        escrever.aput(config(acordada), checkpoint("cp-2"), {}, {})
+                    )
+                return resultado
+
+            def fetchall(self):
+                return self._interno.fetchall()
+
+            @property
+            def rowcount(self):
+                return self._interno.rowcount
+
+            def close(self) -> None:
+                self._interno.close()
+
+        lote = ligacao.ligar("batch")
+        self.addCleanup(lote.close)
+        apagadas = retencao.varrer(LigacaoQueAcorda(lote), AGORA)
+
+        # A *thread* estava na lista — era candidata legitima — e **nao** se
+        # apaga, porque o `DELETE` reconfere o tempo. Sem esse predicado, o
+        # estado da conversa ia-se a meio do turno.
+        self.assertEqual(apagadas, [])
+        semente.execute(
+            "SELECT count(*) FROM lg.checkpoints WHERE thread_id = %s", (acordada,)
+        )
+        self.assertEqual(semente.fetchone()[0], 2)
 
     def test_uma_thread_que_acorda_entre_o_select_e_o_delete_nao_se_apaga(self) -> None:
         # **A corrida que a revisao adversarial apanhou.** A varredura le a
