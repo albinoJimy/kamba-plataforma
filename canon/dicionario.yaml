@@ -5987,22 +5987,33 @@ entradas:
     variantes_literais: []
   - seccao: "3.27"
     conceito: "Número vindo de uma tool"
-    canonico: "Fact, com fact_id, kind, value, retrieved_at"
+    canonico: "Fact, com fact_id, kind, value, retrieved_at e sku"
     literais:
       - "Fact"
       - "fact_id"
       - "kind"
       - "value"
       - "retrieved_at"
+      - "sku"
     nomes:
       - "Fact"
       - "fact_id"
       - "kind"
       - "value"
       - "retrieved_at"
+      - "sku"
     nomes_nota:
       - "fact_id"
       - "facts"
+      - "sku"
+      - "Fact"
+      - "kind"
+      - "retrieved_at"
+      - "total"
+      - "datetime"
+      - "value"
+      - "value_kz"
+      - "stock"
     variantes_literais: []
   - seccao: "3.27"
     conceito: "Natureza de um fact"
@@ -6290,6 +6301,40 @@ entradas:
     nomes_nota:
       - "KAMBA_"
       - "UPSTREAM_TIMEOUT"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Tomadas da camada"
+    canonico: "KAMBA_TLS_LIGACOES (4)"
+    literais:
+      - "KAMBA_TLS_LIGACOES"
+    nomes:
+      - "KAMBA_TLS_LIGACOES"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Folga do tecto que a camada impõe"
+    canonico: "MARGEM_DO_TECTO_MS (500)"
+    literais:
+      - "MARGEM_DO_TECTO_MS"
+    nomes:
+      - "MARGEM_DO_TECTO_MS"
+    nomes_nota:
+      - "statement_timeout"
+      - "get_store_info"
+      - "ok"
+      - "True"
+    variantes_literais: []
+  - seccao: "3.27"
+    conceito: "Argumentos que o esquema não declara, no registo"
+    canonico: "<nao_declarados>, com a contagem"
+    literais:
+      - "<nao_declarados>"
+    nomes:
+      - "nao_declarados"
+    nomes_nota:
+      - "args"
+      - "contacto"
+      - "tool_audit"
     variantes_literais: []
   - seccao: "3.27"
     conceito: "Circuit breaker"

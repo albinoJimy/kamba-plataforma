@@ -3352,14 +3352,17 @@ MUTACOES = [
      AVISOS),
     # ------------------------------------------------- KAM-028, a ToolLayer
     #
-    # Dezenove mutacoes, e cada uma apaga **uma** propriedade que um criterio
-    # de aceitacao nomeia. A escolha segue os oito passos do `docs/tecnica/02`
+    # Vinte e seis mutacoes — vinte do ticket e **seis das correccoes da
+    # revisao adversarial** —, e cada uma apaga **uma** propriedade que um
+    # criterio de aceitacao nomeia. A escolha segue os oito passos do `docs/tecnica/02`
     # §6.1: ha pelo menos uma por passo que tem logica propria, mais as do
     # disjuntor (critero 7), da auditoria (critero 5) e do *lint* (critero 3).
     #
     # **Duas nao sao de logica e sao as mais importantes**: a que faz a redaccao
     # guardar o valor do argumento e a que tira a ordenacao da forma canonica.
     # As duas deixam o codigo a funcionar e quebram o que o critero 5 protege.
+    # Delas, **uma** corre na `tests_agr` (a redaccao, que so um varrimento com
+    # canarios contra a base apanha) e a outra na `agr_unit`.
     ('tls: o passo 1 deixa de confrontar a lista allowed', AG_TLS_CAMADA,
      "    if inv.nome not in inv.allowed:",
      "    if not inv.allowed:",
@@ -3466,10 +3469,10 @@ MUTACOES = [
     # A cobertura do critero 5 cai para as invocacoes que **correram**: uma
     # tool `money` recusada no passo 1 — que e a que mais interessa auditar —
     # deixa de ter linha.
-    # --- As duas que nao sao de logica, e morrem contra a base ---------------
+    # --- A que nao e de logica, e morre contra a base ------------------------
     ('tls: a redaccao passa a guardar o valor do argumento', AG_TLS_AUDITORIA,
-     "    return {nome: type(valor).__name__ for nome, valor in sorted(args.items())}",
-     "    return {nome: str(valor) for nome, valor in sorted(args.items())}",
+     "            redigido[nome] = type(valor).__name__",
+     "            redigido[nome] = str(valor)",
      AGR),
     # O `args_redacted` passa a levar o texto que o cliente escreveu. O codigo
     # continua a funcionar, a coluna continua a ser `jsonb`, e o critero 5
@@ -3484,8 +3487,8 @@ MUTACOES = [
     # perguntar — que e a unica coisa que esta coluna serve para responder.
     # --- E o *lint* do critero 3 --------------------------------------------
     ('tls: o lint deixa de exigir o extra=forbid', LA_TOOL_SCHEMA,
-     "            if not _proibe_extra(no):",
-     "            if not _proibe_extra(no) and not _campos(no):",
+     "            if not _proibe_extra(no, _POR_NOME.get(onde, {})):",
+     "            if not _proibe_extra(no, _POR_NOME.get(onde, {})) and not _campos(no):",
      TOOL_SCHEMA),
     # Passa a exigir `extra="forbid"` so a modelos **sem** campos, que e o
     # contrario do que importa: um modelo sem campos nao tem argumento a mais
@@ -3497,6 +3500,49 @@ MUTACOES = [
     # Inverte o lado: varre escritas **dentro** da TLS (onde sao legitimas) e
     # deixa de varrer fora. A segunda metade do `docs/tecnica/08` §3.2 passa a
     # nao verificar nada.
+    # --- As seis das correccoes da revisao adversarial ----------------------
+    #
+    # Seis propriedades que o codigo **nao tinha** quando a prova por mutacao
+    # correu pela primeira vez: todas elas passaram as vinte primeiras mutacoes
+    # e nenhuma estava protegida. Uma mutacao por cada, e cada uma repoe
+    # exactamente o defeito que a revisao mediu.
+    ('tls: as tomadas voltam a ser uma', AG_TLS_CAMADA,
+     "        for _ in range(self._quantas):",
+     "        for _ in range(1):",
+     AGR_UNIT),
+    # Repoe o bloqueio de cabeca de fila entre tenants: dez invocacoes de dez
+    # tenants com um backend de 200 ms voltam a 2,02 s.
+    ('tls: a camada deixa de impor o tecto', AG_TLS_CAMADA,
+     """            resultado, ligacao = await asyncio.wait_for(
+                asyncio.shield(tarefa), self._espera_de(name) / 1000
+            )""",
+     """            resultado, ligacao = await tarefa""",
+     AGR_UNIT),
+    # O `timeout_ms` volta a ser um numero que se passa e ninguem impoe: um
+    # executor de 5 s contra o tecto de 2 s devolve `ok=True` em 5 s.
+    ('tls: a redaccao volta a deixar passar qualquer nome', AG_TLS_AUDITORIA,
+     "        if nome in permitidos:",
+     "        if nome not in (None,):",
+     AGR_UNIT),
+    # Os **nomes** dos argumentos — que vem do modelo — voltam a entrar em claro
+    # na `tool_audit`, pelo caminho `VALIDATION_ERROR`.
+    ('tls: o erro de negocio volta a apagar a contagem', AG_TLS_CAMADA,
+     "            self.disjuntor.absolver(backend)",
+     "            self.disjuntor.registar_sucesso(backend)",
+     AGR_UNIT),
+    # Um backend a alternar entre erro de negocio e falha nunca abre o
+    # disjuntor, porque cada resposta de negocio poe a contagem a zero.
+    ('tls: a tentativa de meio-aberto deixa de caducar', AG_TLS_DISJUNTOR,
+     "            if estado.a_experimentar and self._relogio() < estado.experimenta_ate:",
+     "            if estado.a_experimentar:",
+     AGR_UNIT),
+    # Quem levar a tentativa e nunca responder deixa o backend em disjuntor
+    # permanente.
+    ('tls: o lint volta a ver so a heranca directa', LA_TOOL_SCHEMA,
+     "                if etiqueta == \"BaseModel\" or etiqueta in modelos:",
+     "                if etiqueta == \"BaseModel\":",
+     TOOL_SCHEMA),
+    # Uma `class Args(Base)` com `tenant_id` volta a passar o critero 3.
     # ----------------------------------------------------------- KAM-025, AGR
     #
     # Oito mutacoes, e a escolha nao e arbitraria: cada uma apaga **uma**
@@ -3850,6 +3896,18 @@ def _copiar(destino: Path, suite: str = "tests") -> None:
         RAIZ / "services" / "agr", destino / "services" / "agr", ignore=ignorar
     )
     shutil.copytree(RAIZ / "ci", destino / "ci", ignore=shutil.ignore_patterns("coverage", "sbom"))
+    # KAM-028: **um** ficheiro de `docs/`, e nao a pasta. O
+    # `test_os_kinds_que_faltam_ao_kam032_estao_registados` le a lista de
+    # dividas para confirmar que os tres `kind` que o KAM-032 precisa estao
+    # registados com credor — uma afirmacao sobre o **repositorio**, e nao sobre
+    # o codigo. Sem o ficheiro, a linha de base da `agr_unit` fica vermelha com
+    # `FileNotFoundError` e nenhuma mutacao se pode provar: e a regra do fim
+    # desta funcao a valer para um teste que le um documento.
+    (destino / "docs").mkdir(parents=True, exist_ok=True)
+    shutil.copy(
+        RAIZ / "docs" / "dividas-documentais.md",
+        destino / "docs" / "dividas-documentais.md",
+    )
     (destino / "tools").mkdir()
     shutil.copy(RAIZ / "tools" / "kamba_yaml.py", destino / "tools" / "kamba_yaml.py")
     # O modulo de identidade (KAM-008): a fonte e os testes, sem `node_modules`

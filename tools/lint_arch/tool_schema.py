@@ -73,8 +73,13 @@ PARAMETROS_PROIBIDOS = ("tenant_id", "merchant_id", "seller", "account")
 DIRECTORIO_DA_TLS = "tls"
 
 #: Uma escrita SQL contra o `platform`. Procura-se o texto da instrucao e nao
-#: uma chamada: o SQL vive em constantes de modulo (`SQL_REGISTAR`,
+#: uma chamada: o SQL vive em constantes de modulo (`SQL_ESCREVER`,
 #: `SQL_PALAVRA_DA_CONVERSA`), que e a forma desta casa.
+#:
+#: **Aplica-se ao ficheiro inteiro e nao linha a linha.** O padrao atravessa
+#: espaco em branco — `INSERT\s+INTO` — e o SQL desta casa esta em literais de
+#: varias linhas: um `INSERT INTO` com a tabela na linha seguinte era invisivel
+#: a uma varredura por linha. Apanhado pela revisao adversarial.
 ESCRITA_NO_PLATFORM = re.compile(
     r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+platform\.", re.IGNORECASE
 )
@@ -92,13 +97,82 @@ def _dentro_da_tls(caminho: Path) -> bool:
     return DIRECTORIO_DA_TLS in caminho.parts
 
 
-def _e_base_model(classe: ast.ClassDef) -> bool:
-    for base in classe.bases:
-        if isinstance(base, ast.Name) and base.id == "BaseModel":
-            return True
-        if isinstance(base, ast.Attribute) and base.attr == "BaseModel":
-            return True
-    return False
+def _nome_da_base(base: ast.expr) -> str | None:
+    if isinstance(base, ast.Name):
+        return base.id
+    if isinstance(base, ast.Attribute):
+        return base.attr
+    return None
+
+
+def _modelos_do_ficheiro(arvore: ast.AST) -> tuple[set[str], set[str]]:
+    """`(modelos, indecisos)` — as classes que herdam de `BaseModel`, e as duvidas.
+
+    **Transitivo e nao directo**, e foi um canario a mostrar porque: a primeira
+    versao reconhecia so `class Args(BaseModel)`, pelo que
+
+        class Base(BaseModel): ...
+        class Args(Base):
+            tenant_id: str
+
+    passava as duas verificacoes e o *lint* devolvia `conforme` — com o
+    `tenant_id` no esquema que vai ao modelo. Apanhado pela revisao adversarial,
+    medido numa arvore de ensaio.
+
+    Resolve-se por ponto fixo sobre os nomes das bases **dentro do ficheiro**,
+    que e tudo o que o `ast` pode saber sem importar nada. Uma classe cuja base
+    e um nome que o ficheiro nao define — importado de outro modulo — fica
+    **indecisa**, e um indeciso e um achado: o *lint* diz que nao consegue
+    decidir em vez de deixar passar. E a mesma regra que o `check_dependencies`
+    aplica a uma dependencia que nao consegue ler (`declaration.name == "?"`).
+    """
+    classes = {
+        no.name: no for no in ast.walk(arvore) if isinstance(no, ast.ClassDef)
+    }
+    modelos: set[str] = set()
+    indecisos: set[str] = set()
+    # Ponto fixo: no maximo tantas passagens quantas classes houver.
+    for _ in range(len(classes) + 1):
+        mudou = False
+        for nome, classe in classes.items():
+            if nome in modelos:
+                continue
+            for base in classe.bases:
+                etiqueta = _nome_da_base(base)
+                if etiqueta is None:
+                    continue
+                if etiqueta == "BaseModel" or etiqueta in modelos:
+                    modelos.add(nome)
+                    mudou = True
+                    break
+        if not mudou:
+            break
+    for nome, classe in classes.items():
+        if nome in modelos:
+            continue
+        for base in classe.bases:
+            etiqueta = _nome_da_base(base)
+            if etiqueta is not None and etiqueta not in classes:
+                # Uma base que este ficheiro nao define. Pode ser um `BaseModel`
+                # de outro modulo, pode ser um `Protocol`, pode ser `Exception`.
+                # Os nomes que esta casa usa e que **nao** sao modelos declaram-se
+                # aqui; o resto e indeciso.
+                if etiqueta not in BASES_QUE_NAO_SAO_MODELO:
+                    indecisos.add(nome)
+                break
+    return modelos, indecisos
+
+
+#: As bases que, vindas de fora do ficheiro, **nao** sao modelos de argumentos.
+#: Lista curta e de nomes da biblioteca padrao e dos `Protocol` desta casa: o
+#: que nao estiver aqui e indeciso, e um indeciso e um achado.
+BASES_QUE_NAO_SAO_MODELO = frozenset(
+    {
+        "Exception", "ValueError", "RuntimeError", "TypeError", "KeyError",
+        "OSError", "Protocol", "Enum", "StrEnum", "IntEnum", "TypedDict",
+        "NamedTuple", "ABC", "object", "str", "int", "dict", "list", "tuple",
+    }
+)
 
 
 def _campos(classe: ast.ClassDef) -> list[str]:
@@ -113,30 +187,48 @@ def _campos(classe: ast.ClassDef) -> list[str]:
     return campos
 
 
-def _proibe_extra(classe: ast.ClassDef) -> bool:
+def _proibe_extra(classe: ast.ClassDef, por_nome: dict[str, ast.ClassDef]) -> bool:
     """Se a classe configura `extra="forbid"`.
 
     Aceita as duas formas que o Pydantic 2 tem — `ConfigDict(extra="forbid")` e
     um `dict` literal — porque as duas produzem a mesma configuracao, e um
     *lint* que so reconhecesse uma recusava codigo correcto.
     """
-    for corpo in classe.body:
-        if not isinstance(corpo, ast.AnnAssign | ast.Assign):
+    vistas: set[str] = set()
+    fila = [classe]
+    while fila:
+        actual = fila.pop()
+        if actual.name in vistas:
             continue
-        alvos = (
-            [corpo.target] if isinstance(corpo, ast.AnnAssign) else list(corpo.targets)
-        )
-        if not any(isinstance(a, ast.Name) and a.id == "model_config" for a in alvos):
-            continue
-        valor = corpo.value
-        if isinstance(valor, ast.Call):
-            for palavra in valor.keywords:
-                if palavra.arg == "extra" and _texto(palavra.value) == "forbid":
-                    return True
-        if isinstance(valor, ast.Dict):
-            for chave, item in zip(valor.keys, valor.values, strict=True):
-                if _texto(chave) == "extra" and _texto(item) == "forbid":
-                    return True
+        vistas.add(actual.name)
+        for corpo in actual.body:
+            if not isinstance(corpo, ast.AnnAssign | ast.Assign):
+                continue
+            alvos = (
+                [corpo.target]
+                if isinstance(corpo, ast.AnnAssign)
+                else list(corpo.targets)
+            )
+            if not any(
+                isinstance(a, ast.Name) and a.id == "model_config" for a in alvos
+            ):
+                continue
+            valor = corpo.value
+            if isinstance(valor, ast.Call):
+                for palavra in valor.keywords:
+                    if palavra.arg == "extra" and _texto(palavra.value) == "forbid":
+                        return True
+            if isinstance(valor, ast.Dict):
+                for chave, item in zip(valor.keys, valor.values, strict=True):
+                    if _texto(chave) == "extra" and _texto(item) == "forbid":
+                        return True
+        # **Herda-se, e o Pydantic herda mesmo.** Um `class Args(Base)` cujo
+        # `Base` declara `extra="forbid"` esta configurado, e exigir-lhe a linha
+        # outra vez era recusar codigo correcto.
+        for base in actual.bases:
+            etiqueta = _nome_da_base(base)
+            if etiqueta is not None and etiqueta in por_nome:
+                fila.append(por_nome[etiqueta])
     return False
 
 
@@ -144,9 +236,15 @@ def _texto(no: ast.expr | None) -> str | None:
     return no.value if isinstance(no, ast.Constant) and isinstance(no.value, str) else None
 
 
+#: As classes de cada ficheiro, por nome, enquanto o `check` corre. Existe para
+#: o `_proibe_extra` poder subir a cadeia de bases sem reparsear.
+_POR_NOME: dict[str, dict[str, ast.ClassDef]] = {}
+
+
 def check(root: Path) -> list[str]:
     """Os achados. Lista vazia e conforme."""
     achados: list[str] = []
+    _POR_NOME.clear()
     for caminho in _ficheiros_de_servico(root):
         onde = caminho.relative_to(root).as_posix()
         try:
@@ -156,15 +254,15 @@ def check(root: Path) -> list[str]:
             continue
 
         if not _dentro_da_tls(caminho):
-            for numero, linha in enumerate(fonte.splitlines(), start=1):
-                if ESCRITA_NO_PLATFORM.search(linha):
-                    achados.append(
-                        f"{onde}:{numero}: escrita no schema `platform` fora da "
-                        f"ToolLayer.\n"
-                        "    A TLS e a unica via de escrita dos agentes "
-                        "(`docs/tecnica/02` §6.1, ADR-015, `docs/tecnica/08` §3.2).\n"
-                        f"    {linha.strip()[:120]}"
-                    )
+            for achado in ESCRITA_NO_PLATFORM.finditer(fonte):
+                numero = fonte.count("\n", 0, achado.start()) + 1
+                achados.append(
+                    f"{onde}:{numero}: escrita no schema `platform` fora da "
+                    f"ToolLayer.\n"
+                    "    A TLS e a unica via de escrita dos agentes "
+                    "(`docs/tecnica/02` §6.1, ADR-015, `docs/tecnica/08` §3.2).\n"
+                    f"    {' '.join(achado.group(0).split())}"
+                )
             continue
 
         try:
@@ -173,8 +271,21 @@ def check(root: Path) -> list[str]:
             achados.append(f"{onde}: nao compila: {erro}")
             continue
 
+        modelos, indecisos = _modelos_do_ficheiro(arvore)
+        _POR_NOME[onde] = {
+            no.name: no for no in ast.walk(arvore) if isinstance(no, ast.ClassDef)
+        }
+        for nome in sorted(indecisos):
+            achados.append(
+                f"{onde}: a classe `{nome}` herda de um nome que este ficheiro "
+                "nao define, e o *lint* nao importa nada para o descobrir.\n"
+                "    Se e um esquema de tool, declare a base neste ficheiro; se "
+                "nao e um modelo, acrescente a base a `BASES_QUE_NAO_SAO_MODELO`.\n"
+                "    Falha fechada de proposito: um esquema que o lint nao "
+                "consegue ler e um esquema que ele nao verifica."
+            )
         for no in ast.walk(arvore):
-            if not isinstance(no, ast.ClassDef) or not _e_base_model(no):
+            if not isinstance(no, ast.ClassDef) or no.name not in modelos:
                 continue
             expostos = sorted(set(_campos(no)) & set(PARAMETROS_PROIBIDOS))
             if expostos:
@@ -186,7 +297,7 @@ def check(root: Path) -> list[str]:
                     "ADR-015).\n"
                     "    Tire o campo do esquema e leia-o de `pedido.ctx`."
                 )
-            if not _proibe_extra(no):
+            if not _proibe_extra(no, _POR_NOME.get(onde, {})):
                 achados.append(
                     f"{onde}:{no.lineno}: o esquema `{no.name}` nao declara "
                     '`model_config = ConfigDict(extra="forbid")`.\n'

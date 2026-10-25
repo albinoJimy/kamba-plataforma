@@ -57,6 +57,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any, Final
 
@@ -101,6 +102,15 @@ SQL_ESCREVER = (
 )
 
 
+class FactIdDerivadoError(ValueError):
+    """Um `fact_id` cunhado a partir de um argumento.
+
+    Levanta e nao e um dos dez erros do §6.5: nenhum deles descreve isto, e nao
+    e uma resposta de negocio — e a tool a cunhar mal um identificador, que e
+    defeito de quem a escreveu.
+    """
+
+
 class AuditoriaIndisponivelError(RuntimeError):
     """Nao se conseguiu escrever a linha de `tool_audit`.
 
@@ -120,14 +130,43 @@ def impressao(valor: Any) -> bytes:
     return hashlib.sha256(texto.encode("utf-8")).digest()
 
 
-def redigir(args: dict[str, Any]) -> dict[str, str]:
-    """A **forma** dos argumentos: nome -> nome do tipo. Nunca o valor.
+#: A chave que agrega os argumentos que o esquema nao declara.
+NAO_DECLARADOS: Final = "<nao_declarados>"
+
+
+def redigir(args: dict[str, Any], declarados: Collection[str] = ()) -> dict[str, Any]:
+    """A **forma** dos argumentos: nome -> nome do tipo. Nunca o valor, **nem o nome**.
 
     O tipo e o nome da classe Python e nao o valor convertido em texto: um
     `{"query": "str"}` nao diz o que o cliente escreveu, e um
     `{"query": "sapatos"}` diria.
+
+    **E os nomes tambem sao do modelo, e nao de quem chamou.** As chaves de
+    `args` vem do modelo de linguagem, e um nome e texto tanto como um valor:
+    `{"contacto +244923456789": "x"}` punha um telefone na `tool_audit` pela
+    coluna que o critero 5 fecha para os valores. A primeira versao desta funcao
+    escrevia-os em claro — incluindo no caminho `VALIDATION_ERROR`, que e
+    precisamente onde um argumento inventado chega. Apanhado pela revisao
+    adversarial.
+
+    Por isso so passam os nomes que o esquema **declara**; o resto conta-se:
+    `{"<nao_declarados>": 2}`. A contagem e informacao util — houve argumentos a
+    mais, e quantos — e nao e um canal: nao leva nada de quem a provocou.
+
+    Sem `declarados`, **nenhum** nome passa. Falha fechada: a alternativa era
+    confiar num nome por nao se saber de onde veio.
     """
-    return {nome: type(valor).__name__ for nome, valor in sorted(args.items())}
+    permitidos = frozenset(declarados)
+    redigido: dict[str, Any] = {}
+    fora = 0
+    for nome, valor in sorted(args.items()):
+        if nome in permitidos:
+            redigido[nome] = type(valor).__name__
+        else:
+            fora += 1
+    if fora:
+        redigido[NAO_DECLARADOS] = fora
+    return redigido
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +184,36 @@ class LinhaDeAuditoria:
     data: dict[str, Any] | None = None
     facts: tuple[Fact, ...] = ()
     idempotency_key: str | None = None
+    #: Os campos que o esquema da tool declara. Vazio significa «nao se sabe», e
+    #: nesse caso **nenhum** nome de argumento entra na linha.
+    campos_declarados: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Um `fact_id` que leve um argumento dentro **nao** se escreve.
+
+        «Um `fact_id` e opaco» era uma regra escrita para o KAM-031 e o KAM-032,
+        e uma regra escrita nao e imposta por ninguem: a revisao adversarial
+        notou-o. Esta e a parte que a camada **pode** impor sem saber nada sobre
+        os *facts* de cada tool — se um `fact_id` contem um valor de argumento,
+        ele deriva de texto do cliente, e a coluna `fact_ids` passava a levar o
+        que o critero 5 fecha para as outras.
+
+        Foi exactamente o defeito que o varrimento com canarios apanhou no
+        executor de ensaio (`fact_id=f"f-{cart_id}"`), e levanta em vez de
+        redigir: um `fact_id` que se redigisse deixava de resolver a citacao que
+        ele existe para resolver. E defeito de quem cunha o *fact*.
+        """
+        valores = {
+            str(valor) for valor in self.args.values() if isinstance(valor, str) and valor
+        }
+        for facto in self.facts:
+            for valor in valores:
+                if valor in facto.fact_id:
+                    raise FactIdDerivadoError(
+                        f"o `fact_id` {facto.fact_id!r} de `{self.tool}` contem o valor "
+                        "de um argumento: um `fact_id` e opaco, senao a coluna "
+                        "`fact_ids` leva texto do cliente (critero 5, ADR-007)"
+                    )
 
     def parametros(self) -> tuple[Any, ...]:
         """Os dezoito valores, pela ordem de `COLUNAS`."""
@@ -160,7 +229,11 @@ class LinhaDeAuditoria:
             self.tool_version,
             self.klass,
             impressao(self.args),
-            json.dumps(redigir(self.args), sort_keys=True, ensure_ascii=False),
+            json.dumps(
+                redigir(self.args, self.campos_declarados),
+                sort_keys=True,
+                ensure_ascii=False,
+            ),
             self.idempotency_key,
             self.status,
             self.error.codigo if self.error is not None else None,

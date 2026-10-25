@@ -120,9 +120,9 @@ def _ambiente(ambiente: dict[str, str] | None = None) -> str:
 
 
 def _fechar_as_tomadas(
-    trancas: Any, checkpointer: Any
+    trancas: Any, checkpointer: Any, tools: Any = None
 ) -> Callable[[], Awaitable[None]]:
-    """O que o `lifespan` corre no `SIGTERM`: fecha as duas, pela ordem.
+    """O que o `lifespan` corre no `SIGTERM`: fecha-as, pela ordem.
 
     O checkpointer depois das trancas: um turno a meio larga a tranca e **ja
     gravou** o que tinha a gravar, pelo que fechar a gravacao primeiro era
@@ -141,6 +141,14 @@ def _fechar_as_tomadas(
 
     async def fechar() -> None:
         await trancas.fechar()
+        # As tomadas da ToolLayer **antes** do checkpointer e depois das
+        # trancas, pela mesma razao da ordem que ja estava: um turno a meio
+        # larga a tranca, acaba as invocacoes que tinha em curso, e so depois
+        # grava. A primeira versao do KAM-028 nao as fechava — eram as unicas
+        # tomadas do processo que ficavam ao servidor para limpar. Apanhado pela
+        # revisao adversarial.
+        if tools is not None:
+            await tools.fechar()
         checkpointer.fechar()
 
     return fechar
@@ -296,12 +304,19 @@ def main() -> int:
     # `/internal/turn` responde 503 — e o que ela faz pelo arranque e o que esta
     # escrito acima.
     tools = ToolLayer(catalogo, abrir_ligacao=ligar_para_tools, metricas=METRICAS)
+    # **O `error_code` tem forma, e esta linha nao a tinha.** A *allowlist* do
+    # `docs/tecnica/08` §7.3 aceita uma sequencia de palavras com ate tres
+    # digitos no fim de cada uma (`http_404`, `sha256`), e
+    # `ligadas_1_de_11_read_2000ms` nao casa — o `2000ms` e digitos seguidos de
+    # letras. Em modo normal a linha saia **sem** `error_code` e contava
+    # `log_field_rejected_total`; com `KAMBA_LOG_ESTRITO=1` levantava
+    # `CampoRejeitado` e o `main()` abortava. Apanhado pela revisao adversarial.
+    #
+    # Os tectos nao vao nesta linha: quem os quer le-os do ambiente, e o que
+    # aqui importa e quantas tools respondem.
     log.info(
         outcome="toollayer_pronta",
-        error_code=(
-            f"ligadas_{len(catalogo.ligadas())}_de_{len(catalogo.nomes())}"
-            f"_read_{tools.timeout_de('read')}ms"
-        ),
+        error_code=f"ligadas_{len(catalogo.ligadas())}_de_{len(catalogo.nomes())}",
     )
 
     admissao = Admissao(tectos=tectos)
@@ -339,7 +354,7 @@ def main() -> int:
         # esta linha dizia: aquele entregou o registo e nao um grafo, e nao ha
         # `compile` nenhum sem grafo. Aqui o checkpointer serve a guarda do
         # arranque e o encerramento, e nada mais.
-        ao_encerrar=_fechar_as_tomadas(trancas, checkpointer),
+        ao_encerrar=_fechar_as_tomadas(trancas, checkpointer, tools),
     )
 
     # O anfitriao e a porta nao estao na *allowlist* de `docs/tecnica/08` §7.3.

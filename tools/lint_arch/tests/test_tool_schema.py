@@ -124,6 +124,68 @@ class TestCanarios(_ComArvore):
                 self.assertEqual(len(achados), 1, achados)
                 self.assertIn("unica via de escrita", achados[0])
 
+    def test_uma_subclasse_indirecta_tambem_falha(self) -> None:
+        """A primeira versao reconhecia so heranca **directa** de `BaseModel`.
+
+        Com isso, duas linhas escapavam as duas verificacoes e o *lint*
+        devolvia `conforme` sobre um esquema com `tenant_id`. Medido pela
+        revisao adversarial numa arvore de ensaio.
+        """
+        achados = self.arvore(
+            dentro_da_tls=True,
+            fonte=CABECA
+            + "class Base(BaseModel):\n"
+            '    model_config = ConfigDict(extra="forbid")\n\n\n'
+            "class Args(Base):\n"
+            "    tenant_id: str\n"
+            "    seller: str\n",
+        )
+        self.assertEqual(len(achados), 1, achados)
+        self.assertIn("tenant_id", achados[0])
+        self.assertIn("seller", achados[0])
+
+    def test_o_extra_forbid_herda_se(self) -> None:
+        """O Pydantic herda a configuracao; exigi-la outra vez recusava codigo certo."""
+        achados = self.arvore(
+            dentro_da_tls=True,
+            fonte=CABECA
+            + "class Base(BaseModel):\n"
+            '    model_config = ConfigDict(extra="forbid")\n\n\n'
+            "class Args(Base):\n"
+            "    sku: str\n",
+        )
+        self.assertEqual(achados, [])
+
+    def test_uma_base_de_fora_do_ficheiro_e_achado_e_nao_silencio(self) -> None:
+        """Falha fechada: o *lint* nao importa nada para a descobrir."""
+        achados = self.arvore(
+            dentro_da_tls=True,
+            fonte="from .comum import Base\n\n\nclass Args(Base):\n    sku: str\n",
+        )
+        self.assertEqual(len(achados), 1, achados)
+        self.assertIn("nao define", achados[0])
+
+    def test_uma_excepcao_nao_e_um_esquema(self) -> None:
+        achados = self.arvore(
+            dentro_da_tls=True,
+            fonte="class ErroDeTool(Exception):\n    pass\n",
+        )
+        self.assertEqual(achados, [])
+
+    def test_uma_escrita_em_varias_linhas_tambem_falha(self) -> None:
+        """O SQL desta casa esta em literais de varias linhas.
+
+        A primeira versao varria **linha a linha** com um padrao que atravessa
+        espaco em branco: um `INSERT INTO` com a tabela na linha seguinte era
+        invisivel. Apanhado pela revisao adversarial.
+        """
+        achados = self.arvore(
+            dentro_da_tls=False,
+            fonte='SQL = """\nINSERT INTO\n  platform.tool_audit (tool)\nVALUES (%s)\n"""\n',
+        )
+        self.assertEqual(len(achados), 1, achados)
+        self.assertIn("unica via de escrita", achados[0])
+
     def test_a_mesma_escrita_dentro_da_tls_passa(self) -> None:
         achados = self.arvore(
             dentro_da_tls=True,

@@ -4,7 +4,7 @@ O §5.2 escreve-as por extenso, e a numeracao abaixo e a dele:
 
 | # | Nome | O que exige | Fonte da verdade | Estado hoje |
 |---|---|---|---|---|
-| 1 | `tools` | cada `tools[]` existe no catalogo da TLS e **nenhuma** tem parametro proibido no esquema visivel ao modelo | catalogo da ToolLayer | **por ligar** (KAM-028) |
+| 1 | `tools` | cada `tools[]` existe no catalogo da TLS e **nenhuma** tem parametro proibido no esquema visivel ao modelo | catalogo da ToolLayer | corre (KAM-028) |
 | 2 | `entitlements` | cada chave de `entitlements.limites` existe no TEN | `kamba_core.ten.CHAVES_DE_LIMITE` | corre |
 | 3 | `grafo` | o grafo compilado tem os seis nos obrigatorios | o `build_graph` da vertical | **por ligar** (KAM-031/035) |
 | 4 | `subscriptions` | cada `{tipo, versao}` tem contrato publicado | `kamba_core.eventos.contratos.CATALOGO` | corre |
@@ -13,8 +13,9 @@ O §5.2 escreve-as por extenso, e a numeracao abaixo e a dele:
 
 ## Uma validacao por ligar nao e uma validacao que passa
 
-As tres da coluna da direita nao tem fonte no repositorio, e havia duas
-maneiras erradas de lidar com isso. A primeira era devolve-las verdes, que e o
+**Eram tres e sao duas:** a (1) fechou com o KAM-028, que ligou o catalogo. As
+que sobram nao tem fonte no repositorio, e havia duas maneiras erradas de lidar
+com isso. A primeira era devolve-las verdes, que e o
 defeito que o critero de aceitacao deste ticket avisa — «um critero pode estar
 satisfeito pela razao errada». A segunda era pô-las a falhar, que impedia o AGR
 de arrancar hoje por causa de um ticket de amanha.

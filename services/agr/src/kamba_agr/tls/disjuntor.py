@@ -87,6 +87,9 @@ class _Estado:
     aberto_ate: float = 0.0
     #: A tentativa de meio-aberto esta entregue e ainda sem resposta.
     a_experimentar: bool = False
+    #: Ate quando a tentativa de meio-aberto vale. Passado isto, a porta volta a
+    #: deixar passar uma — ver o `permite`.
+    experimenta_ate: float = 0.0
 
 
 class Disjuntor:
@@ -125,17 +128,42 @@ class Disjuntor:
                 return True
             if self._relogio() < estado.aberto_ate:
                 return False
-            if estado.a_experimentar:
+            if estado.a_experimentar and self._relogio() < estado.experimenta_ate:
                 # A tentativa de meio-aberto ja foi entregue a alguem e ainda
                 # nao respondeu. Deixar passar a segunda era abrir a porta toda.
                 return False
+            # **A tentativa caduca**, e sem isso o disjuntor fica aberto para
+            # sempre: se quem a levou nunca responder — uma `BaseException`, um
+            # processo abatido a meio —, ninguem lhe chama `registar_falha` nem
+            # `absolver`, e o `a_experimentar` ficava `True` eternamente. O prazo
+            # e a propria pausa: se a tentativa nao respondeu nesse tempo, vale
+            # tanto como nao ter sido feita. Apanhado pela revisao adversarial.
             estado.a_experimentar = True
+            estado.experimenta_ate = self._relogio() + self._pausa_ms / 1000
             return True
 
     def registar_sucesso(self, backend: str) -> None:
         """Fecha o disjuntor e poe o contador a zero."""
         with self._trinco:
             self._por_backend.pop(backend, None)
+
+    def absolver(self, backend: str) -> None:
+        """A resposta chegou e **nao** diz nada sobre a saude do backend.
+
+        Larga a tentativa de meio-aberto — alguem respondeu, e a porta pode
+        voltar a ser tentada — e **nao toca na contagem**. E o que um erro de
+        negocio merece: um `NOT_FOUND` nao e o backend em baixo, mas tambem nao
+        e prova de que esta de pe.
+
+        Existe porque a primeira versao chamava o `registar_sucesso` neste
+        caminho, e isso **apagava** o estado: um backend a alternar entre erro de
+        negocio e *timeout* nunca abria o disjuntor. Apanhado pela revisao
+        adversarial.
+        """
+        with self._trinco:
+            estado = self._por_backend.get(backend)
+            if estado is not None:
+                estado.a_experimentar = False
 
     def registar_falha(self, backend: str) -> bool:
         """Conta a falha. Devolve `True` se **esta** falha abriu o disjuntor."""

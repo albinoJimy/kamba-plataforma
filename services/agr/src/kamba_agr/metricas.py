@@ -51,6 +51,7 @@ ser o gatilho do modo deterministico. Conta de verdade, e a *suite* mede-o.
 
 from __future__ import annotations
 
+import functools
 import re
 import threading
 from typing import Final
@@ -140,32 +141,40 @@ MOTIVOS_DE_RECUSA: Final = ("ritmo", "tecto_do_tenant", "invocacao_invalida")
 #: `vertical_desconhecida`  o `ctx.vertical` nao esta no registo carregado
 MOTIVOS_DE_NEGACAO: Final = ("sem_entitlement", "vertical_desconhecida")
 
-#: Os nomes de tool que podem ser etiqueta. **Derivados do catalogo, nao
-#: escritos a mao**: a licao que o KAM-027 pagou no `test_gate11` — «uma lista
-#: literal transforma uma invariante num numero» — e o KAM-031 e o KAM-035
-#: acrescentam especificacoes sem ter de vir aqui.
+#: As tres etiquetas da ToolLayer sao **derivadas** e nao escritas a mao: a
+#: licao que o KAM-027 pagou no `test_gate11` — «uma lista literal transforma
+#: uma invariante num numero» — e o KAM-031 e o KAM-035 acrescentam
+#: especificacoes sem ter de vir aqui.
 #:
-#: O `import` e local a este modulo e feito ao carregar, nao dentro da funcao:
-#: o `tls.catalogo` importa o `tls.especificacoes`, que importa o
-#: `registo.validar`, e nenhum dos tres importa este ficheiro — nao ha ciclo.
-def _nomes_de_tool() -> tuple[str, ...]:
-    from .tls.catalogo import ESPECIFICACOES_DO_PILOTO
+#: **E derivam-se a primeira chamada e nao ao carregar, e isso nao e
+#: optimizacao: era um ciclo de importacao.** A primeira versao chamava estas
+#: funcoes no corpo do modulo, e o triangulo fechava — `metricas` importa
+#: `tls.catalogo`, que importa `tls.get_store_info`, que importa
+#: `tls.especificacoes`, e o `tls.camada` importa `metricas`. Funcionava **pela
+#: ordem** em que alguem importasse primeiro: `import kamba_agr.tls.camada`
+#: passava e `import kamba_agr.tls.especificacoes` dava
+#: `ImportError: partially initialized module` — nos tres ficheiros que o
+#: KAM-031 e o KAM-035 vao abrir primeiro. Medido pela revisao adversarial, e o
+#: comentario que aqui estava afirmava o contrario.
+#:
+#: Com o `lru_cache`, nada se importa enquanto ninguem contar uma metrica de
+#: tool, e nesse instante os modulos ja estao carregados. Ha um teste por
+#: ficheiro a importa-lo **sozinho**, que e a unica forma de medir isto.
+@functools.lru_cache(maxsize=None)
+def _valores_derivados(metrica: str) -> tuple[str, ...]:
+    if metrica == METRICA_TOOL_INVOCACOES:
+        from .tls.catalogo import ESPECIFICACOES_DO_PILOTO
 
-    return tuple(sorted(e.nome for e in ESPECIFICACOES_DO_PILOTO))
+        return tuple(sorted(e.nome for e in ESPECIFICACOES_DO_PILOTO))
+    if metrica == METRICA_TOOL_ERROS:
+        from .tls.erros import CODIGOS
 
+        return tuple(sorted(codigo.lower() for codigo in CODIGOS))
+    if metrica == METRICA_TOOL_DISJUNTOR:
+        from .tls.especificacoes import BACKENDS
 
-#: Os dez codigos do §6.5 em minusculas. Derivados, pela mesma razao.
-def _codigos_de_erro() -> tuple[str, ...]:
-    from .tls.erros import CODIGOS
-
-    return tuple(sorted(codigo.lower() for codigo in CODIGOS))
-
-
-#: Os backends do §6.5, que sao a unidade do disjuntor. Derivados.
-def _backends() -> tuple[str, ...]:
-    from .tls.especificacoes import BACKENDS
-
-    return tuple(sorted(BACKENDS))
+        return tuple(sorted(BACKENDS))
+    raise EtiquetaInvalida(f"{metrica}: nao tem valores derivados")
 
 #: A gramatica de uma etiqueta. A mesma de `ten/metricas.py`, e pela mesma
 #: razao: um `tenant_id` tem hifenes e nao casa.
@@ -175,10 +184,21 @@ _VALORES_DA_ETIQUETA: Final = {
     METRICA_TURNOS: DESFECHOS,
     METRICA_RECUSADOS: MOTIVOS_DE_RECUSA,
     METRICA_REGISTO_NEGADO: MOTIVOS_DE_NEGACAO,
-    METRICA_TOOL_INVOCACOES: _nomes_de_tool(),
-    METRICA_TOOL_ERROS: _codigos_de_erro(),
-    METRICA_TOOL_DISJUNTOR: _backends(),
 }
+
+#: As que resolvem por `_valores_derivados`, a primeira chamada.
+_DERIVADAS: Final = (
+    METRICA_TOOL_INVOCACOES,
+    METRICA_TOOL_ERROS,
+    METRICA_TOOL_DISJUNTOR,
+)
+
+
+def _valores_de(metrica: str) -> tuple[str, ...]:
+    """A lista fechada de uma metrica com etiqueta, derivada ou literal."""
+    if metrica in _DERIVADAS:
+        return _valores_derivados(metrica)
+    return _VALORES_DA_ETIQUETA[metrica]
 
 _CONTADORES_SEM_ETIQUETA: Final = (
     METRICA_COALESCIDAS,
@@ -247,7 +267,7 @@ class MetricasDoAgr:
             if etiqueta is not None:
                 raise EtiquetaInvalida(f"{metrica} nao leva etiqueta")
             nome = metrica
-        elif metrica in _VALORES_DA_ETIQUETA:
+        elif metrica in _VALORES_DA_ETIQUETA or metrica in _DERIVADAS:
             nome = f"{metrica}:{self._validar(metrica, etiqueta)}"
         else:
             raise EtiquetaInvalida(f"{metrica}: contador desconhecido")
@@ -275,10 +295,10 @@ class MetricasDoAgr:
                 "Identificadores (tenant_id, contact_id, conversation_id) nao "
                 "entram em metricas (docs/seguranca/ameacas_stride.md, OBS-I)"
             )
-        if etiqueta not in _VALORES_DA_ETIQUETA[metrica]:
+        permitidos = _valores_de(metrica)
+        if etiqueta not in permitidos:
             raise EtiquetaInvalida(
-                f"{metrica}: {etiqueta!r} nao esta na lista fechada "
-                f"{_VALORES_DA_ETIQUETA[metrica]}"
+                f"{metrica}: {etiqueta!r} nao esta na lista fechada {permitidos}"
             )
         return etiqueta
 

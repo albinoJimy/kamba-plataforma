@@ -368,6 +368,67 @@ class TestPipelineReal(_ComTls):
         )
         self.assertEqual(resultado.error.codigo, erros.ENTITLEMENT_DENIED)
 
+    def test_o_tecto_por_pedido_do_passo_2_nega_e_nao_consome(self) -> None:
+        """O `tecto` do passo 2 contra o `platform.ten_tecto` a serio (critero 2).
+
+        O §6.1 passo 2 nomeia dois limites: o `msgs_ai_mes` e o
+        `valor_max_pedido_kz` — hoje `valor_max_pedido_minor` (dicionario
+        §3.26). Este e o segundo: um valor que nao cabe no tecto por pedido e
+        recusado com `LIMIT_EXCEEDED`, **sem consumir nada**.
+
+        **Sem este teste o parametro `tecto` nao tinha chamador nenhum senao a
+        propria camada** — e um caminho que nenhum teste percorre e um caminho
+        que ninguem mediu. Apanhado pela revisao adversarial. Quem o passa a
+        serio e o `criar_pedido` do **KAM-031**, que e quem tem o valor do
+        carrinho.
+
+        **O `msgs_ai_mes` nao se consome aqui, e isso e deliberado.** Ele conta
+        **mensagens** e e consumido no envio (o no `send`), nao por invocacao de
+        tool: consumi-lo a cada `search_catalog` queimava o balde mensal de um
+        tenant numa conversa. E por isso que a camada nao passa `chave` ao
+        `hook_de_tool` — o `consume_limit` nao corre — e a verificacao que ela
+        faz no passo 2 e a do entitlement e a do tecto por pedido.
+        """
+        self.semente.execute(
+            "UPDATE platform.entitlements SET limites = %s::jsonb "
+            " WHERE tenant_id = %s AND modulo = 'vendedor'",
+            ('{"valor_max_pedido_minor": 500000}', self.conversa.tenant_id),
+        )
+        factories.contexto(self.semente, None)
+        camada = ToolLayer(self.catalogo(), abrir_ligacao=lambda: self.ligar("app"))
+
+        def invocar(valor: int):
+            return asyncio.run(
+                camada.invoke(
+                    self.contexto(),
+                    "criar_pedido",
+                    {"cart_id": "c-1"},
+                    allowed=["criar_pedido"],
+                    confirmation=Confirmation(
+                        botao="confirm:c-1",
+                        contact_id=self.conversa.contact_id,
+                        turn_id="t-1",
+                    ),
+                    idempotency_key=f"k-{uuid.uuid4().hex}",
+                    tecto=("valor_max_pedido_minor", valor),
+                )
+            )
+
+        cabe = invocar(400_000)
+        self.assertTrue(cabe.ok, cabe.error)
+        nao_cabe = invocar(900_000)
+        self.assertFalse(nao_cabe.ok)
+        self.assertEqual(nao_cabe.error.codigo, erros.LIMIT_EXCEEDED)
+        self.assertIn("500000", nao_cabe.error.detalhe)
+        # E **nao consumiu**: a verificacao do tecto nao escreve.
+        self.assertEqual(
+            self.consultar(
+                "SELECT count(*) FROM platform.usage_ledger WHERE tenant_id = %s",
+                (self.conversa.tenant_id,),
+            )[0][0],
+            0,
+        )
+
     def test_a_get_store_info_le_a_loja_do_contexto(self) -> None:
         """A primeira tool real, contra a `platform.tenants` sob RLS."""
         self.semente.execute(
@@ -573,14 +634,47 @@ class TestPrivacidade(_ComTls):
         """A licao do KAM-026: um varrimento que procura no sitio errado da zero.
 
         Este teste e o **controlo** do de cima: semeia o canario numa coluna de
-        texto da propria tabela — pelo caminho legitimo, o `args_redacted`, que
-        guarda nomes de argumento — e confirma que o varrimento o **encontra**.
-        Sem ele, um varrimento que procurasse no vazio dava zero e o critero
-        passava pela razao errada.
+        texto da propria tabela, pelo caminho legitimo, e confirma que o
+        varrimento o **encontra**. Sem ele, um varrimento que procurasse no vazio
+        dava zero e o critero passava pela razao errada.
+
+        **O caminho legitimo mudou, e e por isso que este teste vale.** A
+        primeira versao semeava-o num **nome de argumento**, e chamava-lhe
+        legitimo; a revisao adversarial mostrou que nao era — os nomes vem do
+        modelo e podiam levar um telefone —, e a redaccao passou a deixar passar
+        so os nomes que o esquema declara. Com isso, **este controlo deixou de
+        encontrar o canario**: o teste falhou, que e exactamente o que um
+        controlo serve para fazer quando o caminho que ele usa se fecha.
+
+        O caminho que fica e a `idempotency_key`, que e uma coluna que o chamador
+        enche por inteiro. Nao e um buraco de privacidade: a chave do §6.3 e um
+        `sha256`, e quem a deriva e o KAM-029. E aqui serve de controlo
+        precisamente por ser texto do chamador numa coluna de texto.
         """
-        self.invocar("criar_pedido", {"cart_id": "c-1", self.CANARIO_TEXTO: ""})
+        self.invocar(
+            "criar_pedido", {"cart_id": "c-1"}, idempotency_key=self.CANARIO_TEXTO
+        )
         self.ligacao_app.commit()
         self.assertEqual(self._ocorrencias(self.CANARIO_TEXTO), 1)
+
+    def test_um_nome_de_argumento_inventado_nao_chega_a_tabela(self) -> None:
+        """O achado da revisao, medido contra a base.
+
+        As chaves de `args` vem do modelo de linguagem. Um nome com um telefone
+        la dentro chegava a coluna `args_redacted` em claro — e chegava pelo
+        caminho `VALIDATION_ERROR`, que e onde um argumento inventado cai.
+        """
+        canario = f"contacto {self.CANARIO_TELEFONE}"
+        resultado = self.invocar("criar_pedido", {"cart_id": "c-1", canario: 1})
+        self.assertEqual(resultado.error.codigo, erros.VALIDATION_ERROR)
+        self.ligacao_app.commit()
+        self.assertEqual(self._ocorrencias(canario), 0)
+        self.assertEqual(self._ocorrencias(self.CANARIO_TELEFONE), 0)
+        # A linha existe — a cobertura do critero 5 nao se perde — e diz que
+        # houve argumentos a mais, sem dizer quais.
+        linhas = self.linhas()
+        self.assertEqual(len(linhas), 1)
+        self.assertIn("nao_declarados", linhas[0][5])
 
     def test_nenhuma_coluna_da_tabela_tem_nome_de_dado_pessoal(self) -> None:
         """Os sete nomes que o *lint* de PII do `docs/tecnica/08` §7.3 proibe."""
@@ -645,20 +739,53 @@ class TestIsolamento(_ComTls):
         era de quem chamou —, e o teste falhava sobre um eco. O que o X-02
         pergunta e se uma tool **le** dados de outro tenant, e a unica forma de
         o distinguir de um eco e o canario so existir do lado de B.
+
+        **E os argumentos sao os de cada tool, e nao os mesmos para todas.** A
+        segunda versao deste teste passava `cart_id`/`nota` a todas, e com isso a
+        `get_store_info` — cujo modelo nao tem campos — recusava no **passo 3**;
+        com as declaradas a recusar no passo 1, nenhuma invocacao chegava ao
+        backend e o `assertNotIn` nao podia falhar. Um critero satisfeito pela
+        razao errada, que e precisamente o que este ticket avisa. Hoje ha
+        controlo positivo: as tools **ligadas** tem de chegar ao passo 6.
         """
+        catalogo = self.catalogo()
         referencias_de_b = [
             self.b.tenant_id, self.b.contact_id, self.b.conversation_id,
         ]
-        for nome in sorted(self.catalogo().nomes()):
+        chegaram_ao_backend: set[str] = set()
+        for nome in sorted(catalogo.nomes()):
+            especificacao = catalogo[nome]
             for referencia in referencias_de_b:
                 with self.subTest(tool=nome, referencia=referencia[:12]):
                     resultado = self.invocar(
                         nome,
-                        {"cart_id": referencia, "nota": referencia},
-                        allowed=sorted(self.catalogo().nomes()),
+                        self.argumentos_para(especificacao, referencia),
+                        allowed=sorted(catalogo.nomes()),
                     )
                     texto = f"{resultado.data}{resultado.error}"
                     self.assertNotIn(self.canario, texto)
+                    if especificacao.ligada:
+                        # **O controlo positivo do X-02.** Sem isto o teste
+                        # media recusas: a primeira versao passava `cart_id` e
+                        # `nota` a **todas** as tools, e a `get_store_info` — a
+                        # unica ligada do catalogo real — recusava no passo 3
+                        # por ter um modelo sem campos. Com as dez declaradas a
+                        # recusar no passo 1, **nenhuma** invocacao chegava ao
+                        # backend e o oraculo nao podia falhar.
+                        self.assertNotEqual(
+                            resultado.error.codigo if resultado.error else None,
+                            erros.VALIDATION_ERROR,
+                            f"a `{nome}` nem chegou ao passo 4: o laco deu-lhe "
+                            "argumentos que o esquema dela nao aceita, e o X-02 "
+                            "passava a medir o passo 3",
+                        )
+                        chegaram_ao_backend.add(nome)
+        # E a prova de que o oraculo **podia** falhar: as ligadas do catalogo de
+        # ensaio correram o passo 6 com o estado de A.
+        self.assertEqual(
+            chegaram_ao_backend, set(catalogo.ligadas()),
+            "alguma tool ligada nao chegou ao backend; o X-02 nao mediu nada",
+        )
         self.ligacao_app.commit()
         self.assertEqual(
             self.consultar(
@@ -668,6 +795,19 @@ class TestIsolamento(_ComTls):
             )[0][0],
             0,
         )
+
+    def argumentos_para(self, especificacao, referencia: str) -> dict:
+        """Argumentos que **aquela** tool aceita, com a referencia de B onde cabe.
+
+        Uma entrada `declarada` nao tem modelo: nao ha campos onde pôr a
+        referencia, e o passo 1 recusa-a antes de chegar ao passo 3 — o que a
+        referencia fosse era indiferente. Uma `ligada` leva a referencia em
+        **todos** os campos de texto que declara, que e o que «argumentos que
+        referem entidades de B» quer dizer.
+        """
+        if not especificacao.ligada:
+            return {}
+        return {campo: referencia for campo in especificacao.parametros_visiveis()}
 
     def test_a_get_store_info_com_o_contexto_de_a_nunca_devolve_a_loja_de_b(
         self,

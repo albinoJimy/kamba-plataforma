@@ -94,6 +94,29 @@ TIMEOUT_READ_POR_OMISSAO_MS: Final = 2_000
 VARIAVEL_DE_TIMEOUT_ESCRITA: Final = "KAMBA_TLS_TIMEOUT_ESCRITA_MS"
 TIMEOUT_ESCRITA_POR_OMISSAO_MS: Final = 8_000
 
+#: Quantas tomadas a camada abre. Dicionario §3.27.
+#:
+#: **Nao e uma.** A primeira versao tinha uma ligacao e um `asyncio.Lock`, como
+#: o `leitor` do `conversa.py` — e ali a razao escrita e que «um *worker* faz uma
+#: leitura por turno e os turnos do *worker* sao em serie». Aqui nao: um turno
+#: invoca tools varias vezes e os turnos correm em concorrencia, pelo que uma
+#: tomada so serializava **todos os tenants**. Medido: dez invocacoes de dez
+#: tenants com um backend de 200 ms levavam 2,02 s em vez de ~0,2 s — bloqueio de
+#: cabeca de fila a atravessar tenants, que e o defeito mais caro do KAM-025
+#: repetido. Apanhado pela revisao adversarial.
+VARIAVEL_DE_LIGACOES: Final = "KAMBA_TLS_LIGACOES"
+LIGACOES_POR_OMISSAO: Final = 4
+
+#: A folga do tecto que a camada impoe, sobre o tecto da classe.
+#:
+#: O tecto do §6.5 e do **backend**, e onde ha um tecto preciso do lado do
+#: servidor — o `statement_timeout` do `get_store_info` — e esse que tem de
+#: morder, porque e ele que tambem para a consulta na base. A espera da camada e
+#: a **rede** por baixo: existe para um executor que ignore o tecto que recebeu,
+#: e nesse caso o cliente deixa de ficar pendurado. Sem a folga, os dois
+#: tectos corriam ao mesmo instante e qual ganhava dependia do escalonador.
+MARGEM_DO_TECTO_MS: Final = 500
+
 
 class ConfiguracaoDaCamadaError(ValueError):
     """Um tecto de tempo que nao serve. Codigo de saida `2` no arranque."""
@@ -178,6 +201,8 @@ class Invocacao:
     #: Quando a invocacao entrou no pipeline, no relogio da camada. O passo 7
     #: mede a latencia a partir daqui — e nao de um valor que o `finally`
     #: escreva depois dele, que era zero no caminho feliz.
+    #: A tomada que esta invocacao tem emprestada da fila da camada.
+    ligacao: Any = None
     comecou: float = 0.0
     #: Se a linha de `tool_audit` ja foi escrita. O passo 7 escreve-a no caminho
     #: feliz e o `finally` escreve-a quando um passo anterior recusou; e esta
@@ -412,6 +437,7 @@ class ToolLayer:
         metricas: MetricasDoAgr | None = None,
         relogio: Callable[[], float] = time.monotonic,
         passos: Sequence[Callable[[Invocacao], ToolResult | None]] = PASSOS,
+        ligacoes: int | None = None,
     ) -> None:
         self.catalogo = catalogo
         self._abrir_ligacao = abrir_ligacao
@@ -425,8 +451,21 @@ class ToolLayer:
         self._timeout_escrita = _timeout(
             VARIAVEL_DE_TIMEOUT_ESCRITA, TIMEOUT_ESCRITA_POR_OMISSAO_MS
         )
-        self._ligacao: Any = None
-        self._exclusiva = asyncio.Lock()
+        self._quantas = (
+            ligacoes
+            if ligacoes is not None
+            else _timeout(VARIAVEL_DE_LIGACOES, LIGACOES_POR_OMISSAO)
+        )
+        # **A fila e o pool, e e tambem o tecto de tomadas.** Nasce com uma
+        # vaga por ligacao e cada vaga e `None` ate alguem precisar dela: a
+        # camada constroi-se no arranque e nao se abrem quatro ligacoes a uma
+        # base que ainda pode estar a subir.
+        #
+        # Todas as operacoes dela correm no **laco** e nunca na *thread*: um
+        # `put_nowait` de dentro de um `asyncio.to_thread` nao e seguro.
+        self._tomadas: asyncio.Queue[Any] = asyncio.Queue()
+        for _ in range(self._quantas):
+            self._tomadas.put_nowait(None)
 
     # ------------------------------------------------------------- contrato
     def for_context(self, ctx: ToolContext, allowed: Sequence[str]) -> list[BoundTool]:
@@ -468,44 +507,116 @@ class ToolLayer:
 
         O trabalho que bloqueia — a base, o backend — corre em
         `asyncio.to_thread`, que e a forma do `conversa.py` do KAM-025: o
-        `pg8000` nao e seguro para uso concorrente na mesma ligacao, e o
-        `asyncio.Lock` e o que impede duas corrotinas de entrelacar respostas na
-        mesma tomada.
+        `pg8000` nao e seguro para uso concorrente na mesma ligacao.
+
+        **Mas a tomada vem de uma fila e nao e uma so**, e a diferenca e de
+        isolamento: com uma tomada, dez invocacoes de dez tenants corriam em
+        serie (medido: 2,02 s com um backend de 200 ms). A fila e o pool e e o
+        tecto: no maximo `KAMBA_TLS_LIGACOES` ligacoes, e quem nao tem vaga
+        espera — por uma vaga, e nao pelo turno de outro tenant.
+
+        **E a camada impoe o tecto de tempo**, que e a outra metade do critero
+        7. O `timeout_ms` que o executor recebe e o tecto *dele*; esta espera e
+        a rede por baixo, para um executor que o ignore. Sem ela, um executor
+        de 5 s contra um tecto de 2 s devolvia `ok=True` em 5 s — medido.
+
+        Quando a espera estoura, a *thread* **continua**: nao se pode cancelar
+        uma, e nao se quer. Ela tem a ligacao, acaba o pipeline e escreve a
+        linha de `tool_audit` com a latencia real — pelo que a invocacao nao
+        desaparece do registo. O que ela custa e a sua vaga, ate acabar, e isso
+        e o tecto a funcionar: uma tool pendurada tira **uma** tomada das
+        `KAMBA_TLS_LIGACOES`, e nao o processo.
 
         **O `allowed` vem por parametro e nao do registo.** A assinatura do §6.1
         poe-o no `for_context`, e quem o tem no `invoke` e o grafo, que o recebeu
         do `AgentRegistry` quando resolveu a vertical. Ler o registo aqui dava a
-        esta camada uma segunda fonte para a mesma lista, e duas fontes para uma
-        lista fechada divergem.
+        esta camada uma segunda fonte para a mesma lista fechada.
         """
-        async with self._exclusiva:
-            if self._ligacao is None:
-                self._ligacao = self._abrir_ligacao()
+        vaga = await self._tomadas.get()
+        tarefa = asyncio.create_task(
+            asyncio.to_thread(
+                self._correr,
+                vaga,
+                ctx,
+                name,
+                args,
+                tuple(allowed),
+                confirmation,
+                idempotency_key,
+                tecto,
+            )
+        )
+        try:
+            resultado, ligacao = await asyncio.wait_for(
+                asyncio.shield(tarefa), self._espera_de(name) / 1000
+            )
+        except TimeoutError:
+            # A vaga volta quando a *thread* acabar, e nao agora.
+            tarefa.add_done_callback(self._devolver)
+            return falha(
+                UPSTREAM_TIMEOUT,
+                f"`{name}` passou do tecto de {self._espera_de(name)} ms",
+            )
+        except BaseException:
+            # **Duas situacoes com o mesmo `except`, e a diferenca e quem tem a
+            # tomada.** Se a tarefa acabou, o pipeline levantou (auditoria
+            # indisponivel, contexto invalido) e a ligacao ja foi fechada por
+            # ela: a vaga volta vazia, agora. Se **nao** acabou — quem chamou
+            # cancelou o `invoke`, e um `CancelledError` e uma `BaseException` —
+            # a *thread* continua com a tomada, e devolve-la aqui punha na fila
+            # uma vaga a mais e deixava uma ligacao a correr fora dela.
+            if tarefa.done():
+                self._tomadas.put_nowait(None)
+            else:
+                tarefa.add_done_callback(self._devolver)
+            raise
+        self._tomadas.put_nowait(ligacao)
+        return resultado
+
+    def _espera_de(self, nome: str) -> int:
+        """O tecto da classe da tool, mais a folga. Em milissegundos.
+
+        Uma tool que o catalogo nao conheca leva o tecto de `read`: o passo 1
+        recusa-a de imediato e nada lento corre, e dar-lhe o tecto de escrita
+        era deixar oito segundos a um nome inventado.
+        """
+        especificacao = self.catalogo.get(nome)
+        klass = especificacao.klass if especificacao is not None else "read"
+        return self.timeout_de(klass) + MARGEM_DO_TECTO_MS
+
+    def _devolver(self, tarefa: "asyncio.Task[Any]") -> None:
+        """Devolve a vaga de uma *thread* que acabou depois de a espera estourar.
+
+        Corre no laco (e um `done_callback`), que e onde a fila se pode tocar.
+        Uma *thread* que acabou mal nao devolve ligacao: a vaga volta vazia e a
+        proxima invocacao abre outra.
+        """
+        try:
+            _, ligacao = tarefa.result()
+        except BaseException:  # noqa: BLE001 — a excepcao e de quem a espera
+            ligacao = None
+        self._tomadas.put_nowait(ligacao)
+
+    async def fechar(self) -> None:
+        """Fecha as tomadas que estao na fila. Para o `ao_encerrar` do `lifespan`.
+
+        Fecha **as que estao livres**: uma que esteja numa *thread* a correr
+        volta a fila depois e o processo esta a cair de qualquer forma. Nao
+        espera por elas, porque o `SIGTERM` tem prazo.
+        """
+        while not self._tomadas.empty():
+            ligacao = self._tomadas.get_nowait()
+            if ligacao is None:
+                continue
             try:
-                return await asyncio.to_thread(
-                    self._correr,
-                    ctx,
-                    name,
-                    args,
-                    tuple(allowed),
-                    confirmation,
-                    idempotency_key,
-                    tecto,
-                )
-            except Exception:
-                # A razao do `conversa.py` e do `trancas.py`: uma ligacao
-                # quebrada que fique guardada faz **todas** as invocacoes deste
-                # processo falharem ate alguem reiniciar o servico.
-                ligacao, self._ligacao = self._ligacao, None
-                try:
-                    ligacao.close()
-                except Exception:  # noqa: BLE001 — ja esta quebrada
-                    pass
-                raise
+                ligacao.close()
+            except Exception:  # noqa: BLE001 — a fechar, um erro nao muda nada
+                pass
 
     # ------------------------------------------------------------- pipeline
     def _correr(
         self,
+        vaga: Any,
         ctx: ToolContext,
         nome: str,
         args: dict[str, Any],
@@ -513,7 +624,15 @@ class ToolLayer:
         confirmation: Confirmation | None,
         idempotency_key: str | None,
         tecto: tuple[str, int] | None,
-    ) -> ToolResult:
+    ) -> tuple[ToolResult, Any]:
+        """Corre na *thread*. Devolve o resultado **e** a ligacao, ou larga-a.
+
+        A ligacao volta pelo valor de retorno e nunca pela fila: a fila e do
+        laco. Uma ligacao quebrada nao volta — e a razao do `conversa.py` e do
+        `trancas.py`: uma tomada em estado incerto que fique guardada faz
+        **todas** as invocacoes seguintes falharem ate alguem reiniciar.
+        """
+        ligacao = vaga if vaga is not None else self._abrir_ligacao()
         inv = Invocacao(
             camada=self,
             ctx=ctx,
@@ -523,6 +642,7 @@ class ToolLayer:
             confirmation=confirmation,
             idempotency_key=idempotency_key,
             tecto=tecto,
+            ligacao=ligacao,
         )
         inv.comecou = self._relogio()
         resultado: ToolResult | None = None
@@ -540,13 +660,26 @@ class ToolLayer:
                 raise RuntimeError(
                     "o pipeline acabou sem resultado; o ultimo passo tem de devolver um"
                 )
-            return resultado
+            return resultado, ligacao
+        except BaseException:
+            try:
+                ligacao.close()
+            except Exception:  # noqa: BLE001 — ja esta quebrada
+                pass
+            raise
         finally:
             # O registo primeiro, as metricas depois: se a auditoria levantar, o
             # que tem de subir e isso — e um contador incrementado antes dela
             # dizia que a invocacao ficou registada.
-            self.registar_se_falta(inv, resultado=resultado)
-            self._contar(inv, resultado, self._latencia_de(inv))
+            #
+            # **As metricas correm mesmo que o registo levante**, e por isso vao
+            # num `finally` proprio: sem ele, uma invocacao recusada cuja linha
+            # nao se conseguiu escrever desaparecia dos dois lados, e um painel
+            # com zero erros era indistinguivel de um sem trafego.
+            try:
+                self.registar_se_falta(inv, resultado=resultado)
+            finally:
+                self._contar(inv, resultado, self._latencia_de(inv))
 
     def _latencia_de(self, inv: Invocacao) -> int:
         return max(0, int((self._relogio() - inv.comecou) * 1000))
@@ -555,7 +688,7 @@ class ToolLayer:
     def verificar_entitlement(self, inv: Invocacao) -> ErroDeTool | None:
         """O passo 2, dentro de uma transaccao com `app.tenant_id`."""
         chave, valor = (inv.tecto if inv.tecto is not None else (None, None))
-        with tenant_guard.tx(self._ligacao, inv.ctx.tenant_id) as cursor:
+        with tenant_guard.tx(inv.ligacao, inv.ctx.tenant_id) as cursor:
             erro = hook_de_tool(
                 _ClienteDeCursor(cursor),
                 inv.ctx,
@@ -588,7 +721,7 @@ class ToolLayer:
             ctx=inv.ctx,
             args=inv.args,
             timeout_ms=self.timeout_de(especificacao.klass),
-            ligacao=self._ligacao if backend == "plataforma" else None,
+            ligacao=inv.ligacao if backend == "plataforma" else None,
         )
         try:
             inv.resposta = especificacao.executor(pedido)
@@ -596,7 +729,13 @@ class ToolLayer:
             # Um estado de negocio **nao** conta para o disjuntor: um
             # `NOT_FOUND` e o backend a responder, e um disjuntor que contasse
             # respostas abria-se com trafego normal de uma loja sem stock.
-            self.disjuntor.registar_sucesso(backend)
+            #
+            # **Mas tambem nao conta ao contrario.** A primeira versao chamava o
+            # `registar_sucesso`, que **apaga** o estado: um backend a alternar
+            # entre erro de negocio e *timeout* nunca abria o disjuntor, porque
+            # cada resposta de negocio punha o contador a zero. «Nao conta» e
+            # nao mexer, e e o que o `absolver` faz. Apanhado pela revisao.
+            self.disjuntor.absolver(backend)
             return falha(erro.codigo, erro.detalhe)
         except TimeoutError as erro:
             self._contar_disjuntor(backend)
@@ -655,13 +794,14 @@ class ToolLayer:
             data=resultado.data if resultado.ok else None,
             facts=resultado.facts,
             idempotency_key=inv.idempotency_key,
+            campos_declarados=tuple(sorted(especificacao.parametros_visiveis())),
         )
         # A marca poe-se **antes** de escrever: se a escrita levantar, o
         # `finally` nao tenta outra vez com a mesma ligacao em estado incerto —
         # o que dava duas linhas quando a primeira tinha passado e o `commit`
         # e que falhou.
         inv.registada = True
-        auditoria.escrever(self._ligacao, linha)
+        auditoria.escrever(inv.ligacao, linha)
 
     # ------------------------------------------------------------- metricas
     def _contar(

@@ -725,7 +725,7 @@ Implementar o contrato `ToolLayer` (`for_context`, `invoke`), o pipeline de 8 pa
 - [x] Tool `write`/`money` sem `Confirmation` válida (botão `confirm:{cart_id}` do **mesmo** `contact_id`, no turno actual) devolve erro e não chama o backend.
 - [x] Cada invocação `write`/`money` tem 1 linha em `tool_audit` (cobertura 100%); a linha não contém texto de mensagem nem telefone, só `args_hash`, `args_redacted`, `fact_ids`.
 - [x] O papel da aplicação não consegue `UPDATE` nem `DELETE` em `tool_audit` (teste SQL).
-- [ ] Timeouts: `read` 2 s, `write`/`money` 8 s; *circuit breaker* abre após falhas consecutivas configuráveis e devolve `UPSTREAM_DOWN` sem chamar o backend.
+- [x] Timeouts: `read` 2 s, `write`/`money` 8 s; *circuit breaker* abre após falhas consecutivas configuráveis e devolve `UPSTREAM_DOWN` sem chamar o backend.
 - [ ] `TENANT_MISMATCH` nunca é repetido e gera alerta de segurança; X-02: cada tool invocada com estado de A e referência a entidade de B devolve 0 canários.
 
 ### Detalhes Técnicos
@@ -876,12 +876,44 @@ quatro.
   errado dava zero e o critério passava pela razão errada — que é o que o
   KAM-026 pagou.
 
-**E o varrimento encontrou uma fuga real, num sítio em que ninguém tinha
-olhado.** O executor de ensaio devolvia `fact_id=f"f-{cart_id}"`, e o `fact_id`
-vai para a coluna `fact_ids`: um `fact_id` derivado de um argumento **põe texto
-do cliente no registo de auditoria**, pelo caminho que o critério fecha para o
-`args_redacted`. A regra fica escrita para quem vai cunhar `fact_id` a sério
-(KAM-031, KAM-032): **um `fact_id` é opaco**.
+**E o varrimento encontrou duas fugas reais, em sítios onde ninguém tinha
+olhado.** A primeira: o executor de ensaio devolvia `fact_id=f"f-{cart_id}"`, e o
+`fact_id` vai para a coluna `fact_ids` — um `fact_id` derivado de um argumento
+**põe texto do cliente no registo de auditoria**, pelo caminho que o critério
+fecha para o `args_redacted`. A regra fica escrita para quem vai cunhar
+`fact_id` a sério (KAM-031, KAM-032): **um `fact_id` é opaco** — e a revisão
+adversarial notou que uma regra escrita não é imposta por ninguém, pelo que hoje
+é máquina: a montagem da linha de auditoria **recusa** um `fact_id` que contenha
+um valor de argumento (`FactIdDerivadoError`, `TestFactIdOpaco`). É a parte que
+a camada pode impor sem saber o que é opaco para cada tool.
+
+A segunda foi da revisão adversarial, e é da mesma classe: **os nomes dos
+argumentos iam em claro.** As chaves de `args` vêm do modelo de linguagem, e um
+nome é texto tanto como um valor — `{"contacto +244923456789": "x"}` punha um
+telefone na `tool_audit` pela coluna que este critério fecha para os valores, e
+punha-o pelo caminho `VALIDATION_ERROR`, que é precisamente onde um argumento
+inventado chega. Hoje só passam os nomes que o esquema **declara**; o resto
+conta-se em `<nao_declarados>`, que é informação útil e não é um canal. Sem
+`declarados`, **nenhum** nome passa: falha fechada.
+
+**O que fica aberto, com o credor: a janela do passo 7.** O §6.1 põe o registo
+**depois** da chamada ao backend, pelo que uma escrita que falhe deixa um efeito
+sem linha. A camada faz três coisas por isso e nenhuma é esconder: o arranque
+confirma que o `INSERT` funciona e recusa subir se não (código **6**, o que tira
+a causa de longe mais provável, que é configuração); em execução a falha
+**levanta** em vez de devolver `ok`, o turno falha e o *job* volta à fila; e as
+métricas contam mesmo nesse caminho. O que fecha a janela por inteiro é a
+idempotência do **KAM-029**: com a chave, a repetição do turno reencontra o
+resultado em vez de repetir o efeito. Até lá, para uma `money`, o pior caso é um
+efeito repetido — que é o que a chave existe para impedir — e não um efeito sem
+registo em silêncio.
+
+**E o controlo do varrimento teve de mudar de caminho, o que é o controlo a
+funcionar.** Ele semeava o canário num nome de argumento e chamava-lhe
+legítimo; quando a redacção fechou esse caminho, o controlo **falhou** — que é
+exactamente o que um controlo serve para fazer. O caminho que fica é a
+`idempotency_key`, que é texto do chamador numa coluna de texto (e não é um
+buraco: a chave do §6.3 é um `sha256`).
 
 #### Critério 6 — o papel da aplicação não altera nem apaga `tool_audit`
 
@@ -900,8 +932,26 @@ que o impede.
 
 #### Critério 7 — *timeouts* e *circuit breaker*
 
-**`parcial`.** O *circuit breaker* está satisfeito por inteiro; a metade dos
-*timeouts* que falta pertence a executores que não existem.
+**Satisfeito**, e a revisão adversarial é a razão pela qual deixou de ser
+parcial: **nenhum tecto era imposto pela camada**, nem o de `read`. Um executor
+de 5 s contra o tecto de 2 s devolvia `ok=True` em 5,01 s — o `timeout_ms` era
+passado e só o `get_store_info` o honrava, do lado do servidor. Hoje a camada
+impõe-o, e os dois lados existem:
+
+* **o tecto do backend** é o `timeout_ms` que o executor recebe. Para o backend
+  `plataforma` é um `SET LOCAL statement_timeout`, do lado do servidor, e é ele
+  que também pára a consulta na base;
+* **a espera da camada** é a rede por baixo, para um executor que ignore o seu:
+  `asyncio.wait_for` sobre o tecto da classe mais `MARGEM_DO_TECTO_MS` (500 ms),
+  para que o tecto preciso ganhe quando existe. Medido:
+  `test_uma_tool_pendurada_custa_uma_vaga_e_nao_o_processo` → `UPSTREAM_TIMEOUT`
+  em 2,50 s contra um executor de 3 s, com a invocação paralela a passar.
+
+Quando a espera estoura, a *thread* **continua** — não se cancela uma, e não se
+quer: ela tem a tomada, acaba o pipeline e escreve a linha de `tool_audit` com a
+latência real, pelo que a invocação não desaparece do registo. O que custa é a
+sua vaga até acabar, e isso é o tecto a funcionar: uma tool pendurada tira
+**uma** das `KAMBA_TLS_LIGACOES`, e não o processo.
 
 **O que está medido:**
 
@@ -921,20 +971,21 @@ que o impede.
   `test_o_servidor_honra_o_statement_timeout` prova contra a base que o
   servidor cancela (`pg_sleep(1)` contra um tecto de 50 ms → SQLSTATE `57014`).
 
-**O que falta, e o credor.** As tools `write`/`money` do catálogo estão
-`declaradas` e não têm executor: o tecto de 8 s é calculado e passado no
-`Pedido`, e **nada o consome ainda**. Quem o honrar é o executor que o
-**KAM-031** (Vendedor) e o **KAM-035** (Serviços) escrevem — e é lá que «o
-*timeout* de uma escrita é 8 s» passa de número passado a número imposto.
-Também pertence ao KAM-031 o retry do §6.5 («1 retry com *backoff*»): a camada
-**não repete nada**, de propósito, e um teste di-lo —
-`test_passo_6_timeout_e_upstream_timeout_e_qualquer_outra_e_down` chama o
-executor uma vez.
+**O que pertence a outro ticket**, e não é o tecto: o retry do §6.5 («1 retry
+com *backoff*») é do grafo. A camada **não repete nada**, de propósito, e um
+teste di-lo — `test_passo_6_timeout_e_upstream_timeout_e_qualquer_outra_e_down`
+chama o executor uma vez. Quem repete é o **KAM-031**.
 
-Uma decisão que vale registar: um erro de negócio (`NOT_FOUND`, `OUT_OF_STOCK`)
-**não conta para o disjuntor** — `test_um_erro_de_negocio_nao_conta_para_o_disjuntor`.
-Um disjuntor que contasse respostas abria-se com tráfego normal de uma loja sem
-stock.
+**E duas correcções no disjuntor, as duas da revisão.** Um erro de negócio
+(`NOT_FOUND`, `OUT_OF_STOCK`) não conta para o disjuntor — um que contasse
+respostas abria-se com tráfego normal de uma loja sem stock — mas a primeira
+versão chamava `registar_sucesso` nesse caminho, e isso **apaga** o estado: um
+backend a alternar entre erro de negócio e *timeout* nunca abria, porque cada
+resposta de negócio punha a contagem a zero. Hoje é `absolver`, que larga a
+tentativa de meio-aberto e não toca na contagem
+(`test_um_erro_de_negocio_nao_apaga_a_contagem`). E a tentativa de meio-aberto
+**caduca**: sem prazo, uma `BaseException` que ninguém reportasse deixava o
+backend em disjuntor permanente (`test_a_tentativa_de_meio_aberto_caduca`).
 
 #### Critério 8 — `TENANT_MISMATCH` e o X-02
 
@@ -951,7 +1002,15 @@ grafo.
 * **X-02** — `db/tests_agr/test_tool_audit.py::TestIsolamento::test_x02_cada_tool_com_estado_de_a_e_referencia_a_b_da_zero_canarios`:
   por cada uma das onze tools do catálogo × três referências de B (o
   `tenant_id`, o `contact_id` e o `conversation_id`), invoca-se com o estado de
-  A → **0** ocorrências do canário na resposta, no erro e na `tool_audit`;
+  A → **0** ocorrências do canário na resposta, no erro e na `tool_audit`.
+  **Com controlo positivo, e é a correcção mais importante da revisão:** a
+  primeira versão passava os mesmos `cart_id`/`nota` a todas as tools, e com
+  isso a única ligada do catálogo real — a `get_store_info`, cujo modelo não tem
+  campos — recusava no **passo 3**. Com as declaradas a recusar no passo 1,
+  **nenhuma** invocação chegava ao backend e o `assertNotIn` não podia falhar:
+  o critério estava satisfeito pela razão errada. Hoje cada tool recebe
+  argumentos que o seu esquema aceita, e o teste **exige** que as ligadas
+  cheguem ao passo 6 (`chegaram_ao_backend == catalogo.ligadas()`);
 * **X-04**: `test_x04_uma_sessao_sem_contexto_le_zero_linhas` → `count(*) == 0`.
   E `test_escrever_no_nome_de_outro_tenant_e_recusado` prova o `WITH CHECK`, que
   **não** é redundante com o *append-only*: o único tipo de escrita que esta
@@ -993,6 +1052,17 @@ O `tools_kam_028` desapareceu da lista. E a validação **morde**:
 validação (1) corre em `bloqueio`» era uma afirmação sobre um ficheiro e não
 sobre o que acontece.
 
+**E o fecho é honesto numa metade e tem credor na outra, e isso diz-se.** A
+validação (1) tem duas perguntas: «esta tool existe?» e «o esquema dela expõe um
+parâmetro proibido?». A primeira morde hoje para as **onze** — há teste a
+prová-lo. A segunda só pode morder onde há esquema, e hoje há **um**: as dez
+`declaradas` devolvem `frozenset()` porque **nada delas está exposto** (o
+`for_context` não as liga e o `invoke` recusa-as, as duas coisas com teste), e
+não porque não se procurou. No dia em que o **KAM-031** e o **KAM-035**
+registarem os dez modelos, a segunda pergunta passa a cobrir os onze — e é lá
+que ela passa de verdadeira a verificada. O *lint* de CI do critério 3 cobre
+entretanto o mesmo em todos os esquemas que existam, por análise da fonte.
+
 **A distinção que o tornou possível** está no `tls/especificacoes.py`: uma
 entrada de catálogo está `ligada` (tem modelo e executor) ou `declarada` (tem
 nome, classe e o **ticket que a liga**, e é recusada sem ele). As onze existem,
@@ -1006,7 +1076,7 @@ que é o que impede este mecanismo de ser um silêncio trocado por outro.
 
 | Caixa | Estado | Evidência |
 |---|---|---|
-| Todos os Critérios satisfeitos e demonstráveis | **vazia** | os critérios 7 e 8 são `parcial`, com o credor nomeado acima. Marcá-la era contradizer as duas linhas de cima |
+| Todos os Critérios satisfeitos e demonstráveis | **vazia** | o critério 8 é `parcial`, com o credor nomeado acima — «nunca é repetido» é metade do caminho enquanto o grafo (KAM-031) não existir. O 7 **passou a satisfeito** com a revisão adversarial, que mostrou que nenhum tecto era imposto. Marcá-la era contradizer a linha do 8 |
 | **Isolamento de tenant** | marcada | `rls.enable_tenant_rls("tool_audit")` na `0021`; X-02, X-03 e X-04 medidos; `gate_bd.py --suite tests_isolamento` → **78** testes OK, com a `tool_audit` nas quatro listas do `test_x05_catalogo.py` |
 | **Idempotência** | marcada | a coluna `idempotency_key` existe e recebe a chave (`test_passo_5_a_chave_vai_para_a_linha_de_auditoria`); `write`/`money` **nunca correm sem chave** (`test_passo_5_money_sem_chave_nao_corre`, com `None`, `""` e `"   "`). A derivação do §6.3 e a tabela `tool_idempotency` são do KAM-029, e **não** entram aqui: uma chave derivada e guardada em sítio nenhum não desduplica nada |
 | **Pagamento só por evento autenticado** | marcada | `test_nenhuma_tool_do_cliente_altera_preco_stock_ou_pagamento` enumera o catálogo **×** `registry/*.yaml` e recusa um verbo de alteração sobre preço, stock ou pagamento; `test_nao_existe_tool_de_envio_de_mensagem` faz o mesmo para o envio. **Enumeração e não leitura**: a ausência de uma coisa não se vê a ler a lista do que há |
@@ -1016,18 +1086,30 @@ que é o que impede este mecanismo de ser um silêncio trocado por outro.
 
 #### Prova por mutação
 
-**Vinte mutações novas (`tls:`), 0 não apanhadas.** Cada uma apaga **uma**
-propriedade que um critério nomeia; as duas que mais valem não são de lógica —
-a que faz a redacção guardar o valor do argumento e a que tira a ordenação da
-forma canónica — porque deixam o código a funcionar e quebram o que o critério 5
-protege.
+**Vinte e seis mutações novas (`tls:`), 0 não apanhadas** — vinte do ticket e
+**seis das correcções da revisão adversarial**, que repõem exactamente os
+defeitos que ela mediu. Cada uma apaga **uma** propriedade que um critério
+nomeia; as duas que mais valem não são de lógica — a que faz a redacção guardar
+o valor do argumento e a que tira a ordenação da forma canónica — porque deixam
+o código a funcionar e quebram o que o critério 5 protege.
 
 ```
 .venv/Scripts/python.exe db/mutacoes.py <python-absoluto> "tls:"
-→ 20 mutacao(oes) corrida(s), 0 nao apanhada(s)
+→ 26 mutacao(oes) corrida(s), 0 nao apanhada(s)
 .venv/Scripts/python.exe db/mutacoes.py --aplicaveis
-→ 745 mutacao(oes) conferida(s), 0 nao aplicavel(is)
+→ 751 mutacao(oes) conferida(s), 0 nao aplicavel(is)
 ```
+
+**E uma sobreviveu na penúltima corrida, com uma lição que não se compra de
+outra forma.** A mutação que repõe o `registar_sucesso` no caminho do erro de
+negócio passou: o `test_um_erro_de_negocio_nao_apaga_a_contagem` chama
+`disjuntor.absolver` **directamente**, pelo que prova o que o `absolver` faz — e
+não que a camada o chama. É «um teste que passa pela razão errada» com o
+instrumento que este repositório tem para o apanhar. O teste que a mata corre
+pelo `invoke`, com um backend a alternar entre erro de negócio e falha
+(`test_na_camada_um_erro_de_negocio_nao_apaga_a_contagem`): com `absolver` a
+contagem chega a dois e o disjuntor abre; com `registar_sucesso`, a resposta de
+negócio põe-na a zero e ele nunca abre.
 
 **E a primeira corrida apanhou um defeito no próprio corredor.** O
 `MODULOS_DO_AGR_UNIT` corria dois ficheiros (`test_registo`, `test_egresso`), e
@@ -1055,20 +1137,56 @@ o `status`. E o domínio escreve-se no dicionário **qualificado pela tabela**
 `outbound_messages` e um domínio sobre o nome nu declarava-a ilegível — também
 medido.
 
+#### A revisão adversarial, e o que ela mudou
+
+`../docs/analises/ANALISE-30-KAM-028-toollayer.md` — **23 achados: 9 *must fix*,
+10 *should fix*, 4 *nice to have*; veredicto REPROVADO.** Os nove foram
+verificados por medição antes de se corrigirem, e os nove estão corrigidos com
+teste. Os quatro mais graves não eram de desenho — eram de uma camada que
+**nunca foi importada sozinha, nunca foi chamada em concorrência e nunca
+recebeu um executor lento**:
+
+| # | O que estava errado | Como se mediu | Onde ficou o teste |
+|---|---|---|---|
+| 1 | três dos oito ficheiros não se importavam sozinhos (`ImportError: partially initialized module`), e eram os três que o KAM-031/035 abre primeiro — o `metricas.py` derivava as etiquetas no corpo do módulo | `python -c "import kamba_agr.tls.especificacoes"` | `TestImportacaoIsolada`, em **subprocesso**: dentro do processo os módulos já estão em `sys.modules` e o ciclo não se vê |
+| 2 | o *lint* do critério 3 devolvia `conforme` para `class Args(Base)` com `tenant_id` — só reconhecia herança **directa** de `BaseModel` | árvore de ensaio, exit 0 | `test_uma_subclasse_indirecta_tambem_falha`; e uma base de fora do ficheiro passou a ser **achado** (falha fechada) |
+| 3 | um `asyncio.Lock` por processo serializava **todos** os *tenants* | 10 invocações de 10 *tenants* com backend de 200 ms → **2,02 s** | `test_dez_tenants_nao_correm_em_serie` (hoje 0,61 s com a fila de 4) |
+| 4 | nenhum tecto era imposto pela camada | executor de 5 s contra tecto de 2 s → `ok=True` em 5,01 s | `test_uma_tool_pendurada_custa_uma_vaga_e_nao_o_processo` |
+| 5 | os **nomes** dos argumentos iam em claro para a `tool_audit` | `redigir({'contacto +244923456789': …})` | `TestRedaccaoDosNomes` e `test_um_nome_de_argumento_inventado_nao_chega_a_tabela` |
+| 6 | o parâmetro `tecto` do passo 2 não tinha chamador senão a própria camada | `grep "tecto="` → 1 linha | `test_o_tecto_por_pedido_do_passo_2_nega_e_nao_consome`, contra o `platform.ten_tecto` |
+| 7 | o X-02 media onze **recusas** e não onze tools | nenhuma invocação chegava ao passo 6 | controlo positivo no próprio X-02 |
+| 8 | a linha de arranque da camada era recusada pelo *logger* (e com `KAMBA_LOG_ESTRITO=1` abortava o `main()`) | `_CODIGO.fullmatch('ligadas_1_de_11_read_2000ms')` → `None` | `test_sem_auditoria_de_tools_o_agr_nao_arranca` lê o campo |
+| 9 | o `Fact` entregue não servia o KAM-032, que declara `sku` e precisa de três `kind` a mais | o bloco do KAM-032, *Detalhes Técnicos* | `TestFactParaOKam032`; o `sku` entrou, os `kind` ficaram em dívida com credor |
+
+**O achado 6 corrigiu-se em parte e discorda-se em parte, com a razão escrita.**
+A revisão nota que o `consume_limit` nunca corre e o `msgs_ai_mes` nunca
+decrementa — é verdade, e é deliberado: o `msgs_ai_mes` conta **mensagens** e
+consome-se no envio (o nó `send`), não por invocação de tool; consumi-lo a cada
+`search_catalog` queimava o balde mensal de um *tenant* numa conversa. O que se
+corrigiu foi a outra metade: o tecto por pedido passou a ter teste contra a base.
+
+Dos dez *should fix*, corrigiram-se os seis que são de comportamento ou de
+contagem — as duas do disjuntor, o SQL de várias linhas invisível ao *lint*, as
+métricas que se perdiam quando a auditoria levantava, a quarta tomada que não se
+fechava no `ao_encerrar`, e três contagens em prosa. Os quatro restantes são
+registo e ficaram em `../docs/dividas-documentais.md` (linhas 105 a 107) ou
+nomeados nesta secção. Os quatro *nice to have* **não** se corrigiram, por
+decisão: a análise di-lo explicitamente.
+
 #### Estado da prova
 
 | Bateria | Onde corre | Resultado |
 |---|---|---|
-| `services/agr/tests` (unidade e arquitectura) | *gate* 4 | **371** testes, OK (86 novos em `test_tls.py`) |
-| `tools/lint_arch/tests/test_tool_schema.py` | *gate* 4 | **14** testes, OK |
+| `services/agr/tests` (unidade e arquitectura) | *gate* 4 | **389** testes, OK (106 novos em `test_tls.py`) |
+| `tools/lint_arch/tests` (inclui `test_tool_schema.py`, 19) | *gate* 4 | **344** testes, OK |
 | `db/tests` (catálogo, inventário, privilégios) | *gate* 8 | **584** testes, OK |
-| `db/tests_agr` (TLS contra PostgreSQL 18.6) | *gate* 8 | **105** testes, OK (74 novos) |
+| `db/tests_agr` (TLS contra PostgreSQL 18.6) | *gate* 8 | **107** testes, OK (76 novos) |
 | `db/tests_isolamento` (X-02 a X-05) | *gate* 6 | **78** testes, OK |
 | `lint_arch all` (inclui `tool-schema`) | *gates* 2 e 11 | conforme |
 | `log_policy lint` | *gate* 2 | **0** achados |
 | `canon_lint` (gate 3b) | *gate* 3b | **0** achados |
 | `lint_refs`, `lint_handoff` | *gate* 3 | conforme |
-| Mutações `tls:` | PR | 20 corridas, **0** não apanhadas |
+| Mutações `tls:` | PR | **26** corridas, **0** não apanhadas |
 
 **O `lint_contagens` não correu**: não corre de dentro de um *worktree* (defeito
 dele, dono KAM-158) — o filtro do corpus exclui tudo o que tenha `.claude` no
@@ -2109,4 +2227,4 @@ Não expandas escopo: sem aprovação automática, sem UI própria. Testes: esta
 | 1.2 | Outubro 2026 | **KAM-160** entra no `Dependências` do KAM-037, nas três superfícies, por reciprocidade: o `01` §14 manda registar um `pending_reply` que não existe em superfície nenhuma, e o KAM-037 é quem implementa a degradação. O `02` §14 deste epic é a prova de que não falta coluna — fecha com a mesma regra de recuperação («Ao recuperar, não se reenviam respostas antigas fora da janela») sem nome novo, e o critério 1 do KAM-037 já mede «0 turnos sem resposta em 100 execuções». Nada do bloco do KAM-037 muda além dessa linha. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | **KAM-025 entregue.** O bloco ganha a secção «Verificação dos Critérios de Aceitação», com a prova nomeada de cada um e a razão de cada caixa vazia. **Quatro critérios marcados** (1, 2, 3 e 8) e **quatro parciais** (4, 5, 6 e 7), e os quatro parciais não ficam vagos: o que falta em cada um pertence ao BullMQ (a retoma de um *job* `stalled`, NÃO VERIFICADO em `../docs/tecnica/evidencia/E4` §2.10), ao KAM-084 (o p95 sob carga), ao KAM-019 (a entrega ao HND, que aqui é uma porta) e ao KAM-076 (o bloqueio de rede). No DoD ficam vazias a primeira (por causa dos quatro parciais), a de observabilidade — o `degraded_turns` conta turnos em modo determinístico, que é o KAM-037, e uma métrica sempre a zero afirma o que ninguém mediu — e a dos dois revisores, que continua vazia em toda esta linha. **Três tensões do próprio bloco ficaram escritas em vez de resolvidas em silêncio:** os critérios 2, 3 e 5 não podem valer ao mesmo tempo com as omissões que propõem (vinte mensagens concorrentes distam muito menos de 1,5 s, e o tecto de 3 recusaria dezessete), e a leitura adoptada — que o critério 3 autoriza ao dizer «configurável» — é desligar os tectos a `0` para medir a propriedade da tranca. Está na linha 93 de `../docs/dividas-documentais.md`. **Sem migração:** a cadeia fica na `0019`. As duas decisões que o bloco manda registar estão em `../docs/adr/ADR-L004-fila-e-tranca-do-agr.md`; os nomes novos no dicionário §3.24 (emenda 1.33), que resolve também a lacuna do `turn_id` que o §3.13 tinha deixado por escrito. | Equipa KAMBÁ |
 | 1.4 | Outubro 2026 | **KAM-026 entregue.** O bloco ganha a secção «Verificação dos Critérios de Aceitação». **Quatro critérios marcados** (1, 2, 3 e 4) e **quatro por marcar** (5, 6, 7 e 8), e nenhum fica vago: o 5 e o 7 encostam a grafos que não existem — «nós `write`/`money`» não está modelado em lado nenhum e o `ingest` que migra o `schema_version` é do **KAM-031** —, ao 6 falta «`facts` apenas do turno» (mesmo credor) e o teste de binários e segredos, e ao 8 falta a poda «últimos N», que **não se implementa de propósito**: o `prune` do próprio `BaseCheckpointSaver` avisa que um `keep_latest` ingénuo corta a cadeia de um canal `DeltaChannel` e que o valor «would silently reconstruct as empty (no error raised)». **A decisão que deu a forma ao ticket:** o `langgraph-checkpoint-postgres` que o `../docs/tecnica/02` §12 nomeia é MIT mas exige `psycopg` e `psycopg-pool`, LGPL-3.0-only, que o `ci/licenses.yaml` nega — o checkpointer é nosso, sobre `pg8000`, contra a interface e o serializador do `langgraph-checkpoint`, cujo fecho de 35 pacotes foi classificado pelo avaliador do próprio *gate* 11 com **35 permitidas, 0 fora**. Por isso a linha das dependências do DoD fica vazia como **divergência**: ela nomeia o pacote que não pode entrar. **O critério 2 tinha uma armadilha**, e está fechada: em `msgpack` uma busca por texto devolve 0 com um telefone lá dentro, pelo que o varrimento desserializa e há dois ensaios que semeiam um número e um campo de BSUID e exigem que ele os encontre. Revisão `0020`: esquema `lg`, duas tabelas e o papel `kamba_agr`, sem `USAGE` no `platform`. Dicionário §3.25 (emenda 1.34); dívida **95**, medida ao escrever o ensaio do critério 4. | Equipa KAMBÁ |
-| 1.5 | Outubro 2026 | **KAM-028 entregue.** O bloco ganha a secção «Verificação dos Critérios de Aceitação». **Seis critérios marcados** (1 a 6) e **dois parciais** (7 e 8), e nenhum fica vago: ao 7 falta a metade dos *timeouts* que pertence a executores que não existem — o tecto de 8 s é calculado e passado, e quem o honra é o **KAM-031**/**KAM-035** —, e ao 8 falta «nunca é repetido», que o §6.5 põe no grafo (**KAM-031**). Cinco caixas do DoD marcadas; a dos **dois revisores** fica vazia, como em toda esta linha, e a de «todos os critérios satisfeitos» também, porque dois são parciais. **A validação (1) do §5.2 fechou:** as duas linhas `tools: { modo: aviso }` saíram do `registry/gates.yaml` e a validação corre em `bloqueio` — o mecanismo é apagar a linha, e há teste a provar que ela morde. **A linha de versão do KAM-027 nunca foi escrita** e fica registada em `../docs/dividas-documentais.md`: esta é a 1.5 e não a 1.6. | Equipa KAMBÁ |
+| 1.5 | Outubro 2026 | **KAM-028 entregue.** O bloco ganha a secção «Verificação dos Critérios de Aceitação». **Sete critérios marcados** (1 a 7) e **um parcial** (8), e o parcial não fica vago: ao 8 falta «nunca é repetido», que o §6.5 põe no grafo (**KAM-031**). **O 7 era parcial e passou a satisfeito pela revisão adversarial**, que mediu que nenhum tecto era imposto pela camada — nem o de `read`: um executor de 5 s contra 2 s devolvia `ok=True` em 5,01 s. Cinco caixas do DoD marcadas; a dos **dois revisores** fica vazia, como em toda esta linha, e a de «todos os critérios satisfeitos» também, porque dois são parciais. **A validação (1) do §5.2 fechou:** as duas linhas `tools: { modo: aviso }` saíram do `registry/gates.yaml` e a validação corre em `bloqueio` — o mecanismo é apagar a linha, e há teste a provar que ela morde. **A linha de versão do KAM-027 nunca foi escrita** e fica registada em `../docs/dividas-documentais.md`: esta é a 1.5 e não a 1.6. **A revisão adversarial (`../docs/analises/ANALISE-30-KAM-028-toollayer.md`) reprovou com 9 *must fix*, e os nove estão corrigidos com teste**: entre eles, três dos oito ficheiros da camada não se importavam sozinhos (ciclo pelo `metricas.py`), uma tomada só serializava todos os *tenants* (2,02 s para dez invocações de dez *tenants*), o *lint* do critério 3 não via uma subclasse indirecta de `BaseModel`, os **nomes** dos argumentos iam em claro para a `tool_audit`, e o X-02 media onze recusas em vez de onze tools. | Equipa KAMBÁ |

@@ -34,11 +34,20 @@ diferencas face ao bloco tem razao:
   `get_store_info.py` sao ficheiros proprios — e o `specs/` do bloco, com a tool
   real separada da lista.
 
-## Este ficheiro nao importa nada, de proposito
+## Este ficheiro nao importa nada, e isso nao bastava
 
 O `metricas.py` do AGR deriva as suas etiquetas do `catalogo.py` (a licao das
-listas literais, KAM-027), e o `camada.py` importa o `metricas.py`. Um
-`__init__` que importasse o `camada` fechava esse triangulo num ciclo de
-importacao que so rebenta pela ordem em que alguem importar primeiro. Quem quer
-a camada importa `kamba_agr.tls.camada`.
+listas literais, KAM-027) e o `camada.py` importa o `metricas.py`: o triangulo
+existe, e um `__init__` que importasse o `camada` fecha-o num ciclo. Este
+ficheiro nao importa nada por isso, e quem quer a camada importa
+`kamba_agr.tls.camada`.
+
+**Mas a primeira versao disto afirmava «nao ha ciclo», e havia.** O
+`metricas.py` derivava as etiquetas no **corpo do modulo**, e com isso
+`import kamba_agr.tls.especificacoes`, `.get_store_info` e `.catalogo` davam
+`ImportError: partially initialized module` — os tres ficheiros que o KAM-031 e
+o KAM-035 vao abrir primeiro. Funcionava pela **ordem** em que alguem importasse,
+e a bateria importava sempre o `camada` antes. Hoje a derivacao e preguicosa
+(`functools.lru_cache` no `metricas.py`) e ha um teste que importa **cada um dos
+oito ficheiros sozinho**, num subprocesso, que e a unica forma de medir isto.
 """

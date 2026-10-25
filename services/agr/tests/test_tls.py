@@ -24,6 +24,7 @@ X-02 nao se provam com uma base falsa.
 
 from __future__ import annotations
 
+import time
 import unittest
 from pathlib import Path
 from typing import Any
@@ -185,6 +186,10 @@ class ArgumentosSemForbid(BaseModel):
 class ArgumentosComTenant(BaseModel):
     model_config = ConfigDict(extra="forbid")
     tenant_id: str
+
+
+class ArgumentosSemCampos(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
 
 def _executor_ok(pedido: Pedido) -> Resposta:
@@ -1197,7 +1202,9 @@ class TestAuditoria(_Base):
         self.assertEqual(len(auditoria.impressao({})), 32)
 
     def test_a_redaccao_guarda_o_tipo_e_nunca_o_valor(self) -> None:
-        redigido = auditoria.redigir({"query": "sapatos do Joao", "limite": 5})
+        redigido = auditoria.redigir(
+            {"query": "sapatos do Joao", "limite": 5}, ["query", "limite"]
+        )
         self.assertEqual(redigido, {"limite": "int", "query": "str"})
         self.assertNotIn("sapatos", repr(redigido))
         self.assertNotIn("Joao", repr(redigido))
@@ -1278,6 +1285,432 @@ class TestAuditoria(_Base):
         self.assertEqual(
             tuple(parte.strip() for parte in texto.split(",")), auditoria.COLUNAS
         )
+
+
+# ------------------------------------------------- os achados da revisao
+class TestImportacaoIsolada(unittest.TestCase):
+    """Cada um dos oito ficheiros da TLS importa-se **sozinho**.
+
+    O `metricas.py` deriva as etiquetas do `catalogo.py` e o `camada.py` importa
+    o `metricas.py`: o triangulo existe. A primeira versao derivava-as no corpo
+    do modulo e fechava-o — `import kamba_agr.tls.especificacoes`,
+    `.get_store_info` e `.catalogo` davam
+    `ImportError: partially initialized module`, e sao os tres ficheiros que o
+    KAM-031 e o KAM-035 vao abrir primeiro.
+
+    **Funcionava pela ordem**, e a bateria importava sempre o `camada` antes. E
+    por isso que este teste corre em **subprocesso**, um por ficheiro: dentro
+    deste processo os modulos ja estao em `sys.modules` e o ciclo nao se ve.
+    """
+
+    FICHEIROS = (
+        "auditoria", "camada", "catalogo", "contexto", "disjuntor", "erros",
+        "especificacoes", "get_store_info",
+    )
+
+    def test_cada_ficheiro_importa_se_sozinho(self) -> None:
+        import os
+        import subprocess
+        import sys
+
+        ambiente = dict(
+            os.environ,
+            PYTHONPATH=os.pathsep.join(
+                str(_RAIZ / caminho)
+                for caminho in ("libs/py-core/src", "services/agr/src")
+            ),
+        )
+        for ficheiro in self.FICHEIROS:
+            with self.subTest(ficheiro=ficheiro):
+                r = subprocess.run(
+                    [sys.executable, "-c", f"import kamba_agr.tls.{ficheiro}"],
+                    capture_output=True, text=True, env=ambiente,
+                    encoding="utf-8", errors="replace",
+                )
+                self.assertEqual(r.returncode, 0, r.stderr[-800:])
+
+    def test_as_etiquetas_derivadas_continuam_derivadas(self) -> None:
+        """A correccao nao podia ser escrever a lista a mao (KAM-027)."""
+        from kamba_agr.metricas import (
+            METRICA_TOOL_DISJUNTOR,
+            METRICA_TOOL_ERROS,
+            METRICA_TOOL_INVOCACOES,
+            _valores_derivados,
+        )
+
+        self.assertEqual(len(_valores_derivados(METRICA_TOOL_INVOCACOES)), 11)
+        self.assertEqual(len(_valores_derivados(METRICA_TOOL_ERROS)), 10)
+        self.assertEqual(len(_valores_derivados(METRICA_TOOL_DISJUNTOR)), 4)
+        fonte = (_RAIZ / "services/agr/src/kamba_agr/metricas.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn('"get_store_info"', fonte)
+        self.assertNotIn('"criar_pedido"', fonte)
+
+
+class TestIsolamentoEntreTenants(_Base):
+    """As tomadas sao uma fila, e uma invocacao lenta nao prende as outras."""
+
+    def camada_lenta(self, *, segundos: float, ligacoes: int):
+        import threading
+
+        abertas: list[int] = []
+        trinco = threading.Lock()
+
+        def executor(_pedido: Pedido) -> Resposta:
+            time.sleep(segundos)
+            return Resposta(data={})
+
+        def abrir():
+            with trinco:
+                abertas.append(1)
+            return _Ligacao()
+
+        camada = ToolLayer(
+            Catalogo((
+                EspecificacaoDeTool(
+                    nome="get_store_info", klass="read", backend="com",
+                    modelo=ArgumentosSemCampos, executor=executor,
+                ),
+            )),
+            abrir_ligacao=abrir,
+            ligacoes=ligacoes,
+        )
+        return camada, abertas
+
+    def correr(self, camada, quantos: int):
+        import asyncio
+
+        async def tudo():
+            return await asyncio.gather(*[
+                camada.invoke(
+                    contexto(tenant_id=f"{i:08d}-1111-4111-8111-111111111111"),
+                    "get_store_info", {}, allowed=("get_store_info",),
+                )
+                for i in range(quantos)
+            ])
+
+        comecou = time.monotonic()
+        resultados = asyncio.run(tudo())
+        return resultados, time.monotonic() - comecou
+
+    def test_dez_tenants_nao_correm_em_serie(self) -> None:
+        """O defeito mais caro do KAM-025, medido nesta camada.
+
+        Com **uma** tomada e um `asyncio.Lock`, dez invocacoes de dez tenants
+        com um backend de 200 ms levavam 2,02 s — bloqueio de cabeca de fila a
+        atravessar tenants. Com a fila de quatro, o tecto e
+        `ceil(10/4) * 200 ms`, e o que este teste afirma e a **folga**: menos de
+        metade do tempo em serie.
+        """
+        camada, _ = self.camada_lenta(segundos=0.2, ligacoes=4)
+        resultados, duracao = self.correr(camada, 10)
+        self.assertTrue(all(r.ok for r in resultados), [r.error for r in resultados])
+        self.assertLess(
+            duracao, 10 * 0.2 / 2,
+            f"dez invocacoes de dez tenants em {duracao:.2f}s: estao em serie",
+        )
+
+    def test_a_fila_e_o_tecto_de_tomadas(self) -> None:
+        """Mais invocacoes do que vagas nao abre mais ligacoes do que o tecto."""
+        camada, abertas = self.camada_lenta(segundos=0.05, ligacoes=2)
+        self.correr(camada, 8)
+        self.assertLessEqual(len(abertas), 2, f"abriu {len(abertas)} tomadas")
+
+    def test_uma_tool_pendurada_custa_uma_vaga_e_nao_o_processo(self) -> None:
+        """O tecto da camada sobre um executor que ignora o dele (critero 7).
+
+        Sem a espera, um executor de 5 s contra um tecto de 2 s devolvia
+        `ok=True` em 5 s — medido. Com ela, o cliente leva `UPSTREAM_TIMEOUT` no
+        tecto da classe mais a folga, e a *thread* continua: leva a sua vaga
+        consigo, e as outras continuam a servir.
+        """
+        import asyncio
+
+        def pendurado(_pedido: Pedido) -> Resposta:
+            time.sleep(3.0)
+            return Resposta(data={})
+
+        def rapido(_pedido: Pedido) -> Resposta:
+            return Resposta(data={"ok": True})
+
+        camada = ToolLayer(
+            Catalogo((
+                EspecificacaoDeTool(
+                    nome="get_store_info", klass="read", backend="com",
+                    modelo=ArgumentosSemCampos, executor=pendurado,
+                ),
+                EspecificacaoDeTool(
+                    nome="list_services", klass="read", backend="com",
+                    modelo=ArgumentosSemCampos, executor=rapido,
+                ),
+            )),
+            abrir_ligacao=_Ligacao,
+            ligacoes=2,
+        )
+
+        async def tudo():
+            comecou = time.monotonic()
+            lento = asyncio.create_task(
+                camada.invoke(
+                    contexto(), "get_store_info", {},
+                    allowed=("get_store_info", "list_services"),
+                )
+            )
+            await asyncio.sleep(0.05)
+            outro = await camada.invoke(
+                contexto(), "list_services", {},
+                allowed=("get_store_info", "list_services"),
+            )
+            return await lento, outro, time.monotonic() - comecou
+
+        # **O tempo mede-se dentro do laco**, e nao em volta do `asyncio.run`: o
+        # `run` fecha o executor no fim e **espera pelas *threads***, pelo que
+        # medi-lo por fora dava sempre os 3 s do executor pendurado e nao o que
+        # este teste afirma. Ao encerrar, esperar por ela e o que se quer — o que
+        # nao se quer e esperar por ela **a servir**.
+        pendurada, outra, duracao = asyncio.run(tudo())
+        self.assertTrue(outra.ok, "a invocacao rapida ficou presa atras da lenta")
+        self.assertFalse(pendurada.ok)
+        self.assertEqual(pendurada.error.codigo, erros.UPSTREAM_TIMEOUT)
+        self.assertLess(duracao, 3.0, f"esperou pela thread: {duracao:.2f}s")
+
+
+    def test_cancelar_o_invoke_nao_poe_uma_vaga_a_mais_na_fila(self) -> None:
+        """Quem cancela nao tem a tomada: a *thread* e que a tem.
+
+        Um `CancelledError` e uma `BaseException`, e a primeira versao do
+        tratamento devolvia a vaga **ali** — punha na fila uma vaga a mais e
+        deixava uma ligacao a correr fora dela. Mede-se pela conta: depois do
+        cancelamento e de a *thread* acabar, a fila tem as vagas que tinha.
+        """
+        import asyncio
+
+        def lento(_pedido: Pedido) -> Resposta:
+            time.sleep(0.4)
+            return Resposta(data={})
+
+        camada = ToolLayer(
+            Catalogo((
+                EspecificacaoDeTool(
+                    nome="get_store_info", klass="read", backend="com",
+                    modelo=ArgumentosSemCampos, executor=lento,
+                ),
+            )),
+            abrir_ligacao=_Ligacao,
+            ligacoes=2,
+        )
+
+        async def tudo():
+            tarefa = asyncio.create_task(
+                camada.invoke(
+                    contexto(), "get_store_info", {}, allowed=("get_store_info",)
+                )
+            )
+            await asyncio.sleep(0.05)
+            tarefa.cancel()
+            try:
+                await tarefa
+            except asyncio.CancelledError:
+                pass
+            # Deixa a *thread* acabar e o `done_callback` correr.
+            await asyncio.sleep(0.6)
+            return camada._tomadas.qsize()
+
+        self.assertEqual(asyncio.run(tudo()), 2)
+
+
+class TestRedaccaoDosNomes(_Base):
+    """Os **nomes** dos argumentos tambem vem do modelo (critero 5)."""
+
+    def test_um_nome_que_o_esquema_nao_declara_nao_entra_na_linha(self) -> None:
+        canario = "contacto 999123456789"
+        redigido = auditoria.redigir({canario: "x", "cart_id": "c-1"}, ["cart_id"])
+        self.assertEqual(
+            redigido, {"cart_id": "str", auditoria.NAO_DECLARADOS: 1}
+        )
+        self.assertNotIn(canario, repr(redigido))
+
+    def test_sem_campos_declarados_nenhum_nome_passa(self) -> None:
+        """Falha fechada: nao se confia num nome por nao se saber de onde veio."""
+        self.assertEqual(
+            auditoria.redigir({"cart_id": "c-1"}),
+            {auditoria.NAO_DECLARADOS: 1},
+        )
+
+    def test_a_linha_de_um_argumento_inventado_nao_leva_o_nome(self) -> None:
+        """E o caminho `VALIDATION_ERROR`, que e onde um nome inventado chega."""
+        canario = "telefone 999123456789"
+        camada, ligacao, _ = self.camada()
+        resultado = self.invocar(camada, args={"cart_id": "c-1", canario: 1})
+        self.assertEqual(resultado.error.codigo, erros.VALIDATION_ERROR)
+        self.assertEqual(len(ligacao.linhas_de_auditoria()), 1)
+        self.assertNotIn(canario, repr(ligacao.linhas_de_auditoria()[0]))
+
+
+class TestDisjuntorDepoisDaRevisao(_Base):
+    def relogio(self):
+        agora = {"t": 0.0}
+        return agora, lambda: agora["t"]
+
+    def test_um_erro_de_negocio_nao_apaga_a_contagem(self) -> None:
+        """Um backend a alternar negocio/falha tem de acabar por abrir.
+
+        A primeira versao chamava `registar_sucesso` no caminho do
+        `ErroDeBackend`, e isso **apaga** o estado: a contagem voltava a zero a
+        cada resposta de negocio e o disjuntor nunca abria.
+        """
+        agora, relogio = self.relogio()
+        disjuntor = Disjuntor(falhas=2, pausa_ms=1_000, relogio=relogio)
+        disjuntor.registar_falha("com")
+        disjuntor.absolver("com")
+        self.assertTrue(
+            disjuntor.registar_falha("com"),
+            "o `absolver` apagou a contagem; o disjuntor nunca abriria",
+        )
+
+    def test_na_camada_um_erro_de_negocio_nao_apaga_a_contagem(self) -> None:
+        """A mesma propriedade, medida **na camada** e nao no disjuntor.
+
+        **Isto saiu de uma mutacao sobrevivente**, e a licao e a que este
+        repositorio ja tinha escrita: um teste pode passar pela razao errada. O
+        `test_um_erro_de_negocio_nao_apaga_a_contagem` chama o
+        `disjuntor.absolver` **directamente**, pelo que prova o que o `absolver`
+        faz — e nao que a camada o chama. A mutacao que repoe o
+        `registar_sucesso` no `chamar_backend` passava por ele sem o acordar.
+        Corre-se pelo `invoke`, com um backend a alternar.
+
+        A sequencia e o que importa: com `falhas=2`, uma falha, uma resposta de
+        negocio, outra falha. Com `absolver`, a contagem chega a dois e o
+        disjuntor abre; com `registar_sucesso`, a resposta de negocio poe-a a
+        zero e ele **nunca** abre.
+        """
+        respostas = iter([
+            ValueError("em baixo"),
+            ErroDeBackend(erros.NOT_FOUND, "nao ha"),
+            ValueError("em baixo"),
+        ])
+
+        def executor(_pedido: Pedido) -> Resposta:
+            raise next(respostas)
+
+        agora, relogio = self.relogio()
+        disjuntor = Disjuntor(falhas=2, pausa_ms=10_000, relogio=relogio)
+        camada, _, _ = self.camada(
+            especificacoes=(
+                EspecificacaoDeTool(
+                    nome="criar_pedido",
+                    klass="money",
+                    backend="com",
+                    modelo=ArgumentosDeEnsaio,
+                    executor=executor,
+                    campo_de_confirmacao="cart_id",
+                ),
+            ),
+            disjuntor=disjuntor,
+        )
+        codigos = [self.invocar(camada).error.codigo for _ in range(3)]
+        self.assertEqual(
+            codigos,
+            [erros.UPSTREAM_DOWN, erros.NOT_FOUND, erros.UPSTREAM_DOWN],
+        )
+        self.assertTrue(
+            disjuntor.aberto("com"),
+            "a resposta de negocio apagou a contagem: um backend a alternar "
+            "entre negocio e falha nunca abre o disjuntor",
+        )
+
+    def test_a_tentativa_de_meio_aberto_caduca(self) -> None:
+        """Senao uma `BaseException` deixa o backend em disjuntor permanente."""
+        agora, relogio = self.relogio()
+        disjuntor = Disjuntor(falhas=1, pausa_ms=1_000, relogio=relogio)
+        disjuntor.registar_falha("com")
+        agora["t"] = 2.0
+        self.assertTrue(disjuntor.permite("com"), "a tentativa de meio-aberto")
+        self.assertFalse(disjuntor.permite("com"), "a segunda, dentro do prazo")
+        agora["t"] = 4.0
+        self.assertTrue(
+            disjuntor.permite("com"),
+            "quem levou a tentativa nunca respondeu e a porta ficou fechada "
+            "para sempre",
+        )
+
+
+class TestMetricasNoFinally(_Base):
+    def test_uma_auditoria_que_levanta_nao_perde_o_contador(self) -> None:
+        ligacao = _Ligacao()
+        ligacao.levantar_em = "INSERT INTO platform.tool_audit"
+        metricas = MetricasDoAgr()
+        camada, _, _ = self.camada(ligacao=ligacao, metricas=metricas)
+        with self.assertRaises(auditoria.AuditoriaIndisponivelError):
+            self.invocar(camada)
+        self.assertEqual(
+            metricas.ler().get(f"{METRICA_TOOL_INVOCACOES}:criar_pedido"), 1
+        )
+
+
+class TestFactIdOpaco(_Base):
+    """«Um `fact_id` e opaco» passou de regra escrita a regra imposta.
+
+    Era uma frase para o KAM-031 e o KAM-032, e uma frase nao e imposta por
+    ninguem — a revisao adversarial notou-o. A camada nao sabe o que e opaco
+    para cada tool, mas sabe **isto**: um `fact_id` que contenha um valor de
+    argumento deriva de texto do cliente, e a coluna `fact_ids` passava a levar
+    o que o critero 5 fecha para as outras. Foi o defeito que o varrimento com
+    canarios apanhou no executor de ensaio (`fact_id=f"f-{cart_id}"`).
+    """
+
+    def linha(self, fact_id: str, args: dict) -> None:
+        auditoria.LinhaDeAuditoria(
+            ctx=contexto(),
+            tool="criar_pedido",
+            tool_version="1",
+            klass="money",
+            args=args,
+            status=auditoria.STATUS_OK,
+            latency_ms=1,
+            facts=(
+                erros.Fact(
+                    fact_id=fact_id, kind="total", value=1, retrieved_at="z"
+                ),
+            ),
+        )
+
+    def test_um_fact_id_que_leva_um_argumento_e_recusado(self) -> None:
+        with self.assertRaises(auditoria.FactIdDerivadoError):
+            self.linha("f-999123456789", {"cart_id": "999123456789"})
+
+    def test_um_fact_id_opaco_passa(self) -> None:
+        self.linha("f-000001", {"cart_id": "999123456789"})
+
+    def test_levanta_e_nao_redige(self) -> None:
+        """Um `fact_id` redigido deixava de resolver a citacao que ele resolve.
+
+        E por isso que e excepcao e nao um dos dez codigos do §6.5: nenhum deles
+        descreve isto, e nao e uma resposta de negocio — e a tool a cunhar mal um
+        identificador.
+        """
+        self.assertTrue(issubclass(auditoria.FactIdDerivadoError, ValueError))
+        self.assertNotIn("FactIdDerivado", erros.CODIGOS)
+
+
+class TestFactParaOKam032(_Base):
+    def test_o_sku_existe_e_e_anulavel(self) -> None:
+        """O KAM-032 declara `Fact(kind, …, sku, fact_id, retrieved_at)`."""
+        com = erros.Fact(
+            fact_id="f-1", kind="price", value=1200, retrieved_at="z", sku="SKU-1"
+        )
+        self.assertEqual(com.sku, "SKU-1")
+        sem = erros.Fact(fact_id="f-2", kind="total", value=1, retrieved_at="z")
+        self.assertIsNone(sem.sku, "um total de carrinho nao tem sku")
+
+    def test_os_kinds_que_faltam_ao_kam032_estao_registados(self) -> None:
+        """Nao se acrescentam por antecipacao, mas a divida fica escrita."""
+        self.assertEqual(erros.KINDS, ("price", "stock", "total", "datetime"))
+        dividas = (_RAIZ / "docs/dividas-documentais.md").read_text(encoding="utf-8")
+        for kind in ("`name`", "`qty`", "`discount`"):
+            self.assertIn(kind, dividas)
+        self.assertIn("KAM-032", dividas)
 
 
 # ----------------------------------------------------------- a arquitectura

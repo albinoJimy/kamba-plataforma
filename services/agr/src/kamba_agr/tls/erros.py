@@ -77,6 +77,15 @@ VIOLACOES: Final = (ENTITLEMENT_DENIED, TOOL_NOT_ALLOWED, TENANT_MISMATCH)
 
 #: As naturezas de *fact* que o §6.2 nomeia. Lista **fechada** (dicionario
 #: §3.27): um `kind` novo entra la com a tool que o produz.
+#:
+#: **Sao quatro e o KAM-032 precisa de sete**, e isso esta registado em vez de
+#: adivinhado. Os veredictos dele (`name_sku_mismatch`, `qty_unbacked`,
+#: `discount_unbacked`) exigem *facts* de `kind` `name`, `qty` e `discount`, e
+#: os tres saem de tools que o **KAM-031** liga (`search_catalog`,
+#: `get_price_stock`). Nao entram aqui por antecipacao: um `kind` que nenhuma
+#: tool produz e um valor que o validador de citacao nunca vai receber, e a
+#: forma de o acrescentar e a que o §5 do dicionario fixa — **emenda primeiro,
+#: codigo depois**. A divergencia esta em `docs/dividas-documentais.md`.
 KINDS: Final = ("price", "stock", "total", "datetime")
 
 
@@ -125,12 +134,36 @@ class Fact:
     O `retrieved_at` nao e decoracao: um `stock` de ha dez minutos e um numero
     diferente de um `stock` de agora, e e o que permite a um no decidir se
     volta a perguntar.
+
+    ## O `sku` esta aqui porque o consumidor o declarou
+
+    O KAM-032 escreve nos seus *Detalhes Tecnicos* «dependencia apenas da
+    interface `Fact(kind, value_kz|datetime, sku, fact_id, retrieved_at)` de
+    KAM-028», e o vinculo `sku`<->preco e metade do que ele faz: sem o campo,
+    ele tinha de o inventar — num `dict` de `data`, ou por convencao no
+    `fact_id`. E anulavel porque nao faz sentido em todos: um `total` de
+    carrinho e de varias linhas e um `datetime` de *slot* nao tem `sku`.
+
+    **O `value` fica `value` e nao `value_kz`**, e a divergencia e deliberada: o
+    dicionario §2 manda dinheiro em **unidade menor inteira** (`*_minor`) e
+    registou `valor_kz` como variante que substitui. Um campo chamado `value_kz`
+    num *fact* de `stock` ou de `datetime` era pior do que impreciso — era o
+    nome errado. Quem le um `kind` de dinheiro le unidade menor, e o KAM-032
+    normaliza para isso. Esta registado em `docs/dividas-documentais.md`.
+
+    **Um `fact_id` e opaco.** Nao se deriva de um argumento nem do valor: ele
+    entra na coluna `fact_ids` da `tool_audit`, e um `fact_id` derivado de texto
+    do cliente poe texto do cliente no registo de auditoria — foi medido com
+    canarios neste ticket. O que liga o *fact* ao que o produziu e a linha de
+    `tool_audit`, nao o nome dele.
     """
 
     fact_id: str
     kind: str
     value: Any
     retrieved_at: str
+    #: O `sku` a que este *fact* pertence, quando pertence a um (KAM-032).
+    sku: str | None = None
 
     def __post_init__(self) -> None:
         if self.kind not in KINDS:

@@ -614,7 +614,13 @@ punha o caminho de leitura de um turno à espera do mesmo trinco. O que se copia
 3. `ENABLE ALWAYS` — prende quem pode `SET session_replication_role = replica`.
 
 **O que a linha não guarda** é o critério 5: nem texto de mensagem, nem
-telefone, nem valores de argumento. O `args_hash` é um `sha256`, o
+telefone, nem valores de argumento — **nem os nomes deles**. As chaves de `args`
+vêm do modelo de linguagem, e um nome é texto tanto como um valor: a primeira
+versão escrevia-os em claro, e `{"contacto +244923456789": "x"}` punha um
+telefone na `tool_audit` pela coluna que este critério fecha para os valores —
+pelo caminho `VALIDATION_ERROR`, que é onde um argumento inventado chega.
+Apanhado pela revisão adversarial. Hoje só passam os nomes que o esquema
+**declara**; o resto conta-se em `<nao_declarados>`. O `args_hash` é um `sha256`, o
 `args_redacted` guarda a **forma** (nome e tipo de cada argumento, nunca o
 valor) e os `fact_ids` são identificadores. Isto não se prova a ler o DDL:
 prova-se por varrimento dos dados com canários, e o varrimento tem **controlo**
@@ -625,6 +631,49 @@ o critério passa pela razão errada.
 **E o varrimento encontrou uma fuga onde ninguém tinha olhado:** um `fact_id`
 derivado de um argumento põe texto do cliente na coluna `fact_ids`. Para quem
 vier cunhar `fact_id` a sério (KAM-031, KAM-032): **um `fact_id` é opaco.**
+
+### As tomadas são uma fila, e não uma
+
+| Variável | Omissão | O que é |
+|---|---|---|
+| `KAMBA_TLS_LIGACOES` | `4` | Quantas tomadas a camada abre |
+
+**Não é uma, e a razão foi medida.** A primeira versão tinha uma ligação e um
+`asyncio.Lock`, como o `leitor` do `conversa.py` — e ali a razão escrita é que
+«um *worker* faz uma leitura por turno e os turnos do *worker* são em série».
+Aqui não: um turno invoca tools várias vezes e os turnos correm em concorrência.
+Com uma tomada, **dez invocações de dez *tenants*** com um backend de 200 ms
+levavam **2,02 s** em vez de ~0,2 s: bloqueio de cabeça de fila a atravessar
+*tenants*, que é o defeito mais caro do KAM-025 repetido. Apanhado pela revisão
+adversarial; hoje são 0,61 s com a fila de quatro.
+
+A fila é o *pool* **e** é o tecto: no máximo `KAMBA_TLS_LIGACOES` ligações, e
+quem não tem vaga espera por uma vaga — não pelo turno de outro *tenant*. Todas
+as operações dela correm no laço e nunca na *thread*: um `put_nowait` de dentro
+de um `asyncio.to_thread` não é seguro, e é por isso que a ligação volta pelo
+**valor de retorno** do trabalho e não por ele próprio.
+
+### O tecto de tempo tem dois lados, e a camada impõe o de fora
+
+**Nenhum tecto era imposto, e isso também foi medido.** O `timeout_ms` ia no
+`Pedido` e só o `get_store_info` o honrava (do lado do servidor): um executor de
+5 s contra o tecto de 2 s devolvia `ok=True` em 5,01 s. Com o ponto anterior,
+um executor pendurado prendia toda a leitura e escrita do processo, sem
+recuperação.
+
+| Lado | Quem o impõe | O que para |
+|---|---|---|
+| do backend | o executor, com o `timeout_ms` que recebe. No `plataforma` é um `SET LOCAL statement_timeout` | a consulta, **na base** |
+| da camada | `asyncio.wait_for`, sobre o tecto da classe mais `MARGEM_DO_TECTO_MS` (500 ms) | a espera de **quem chamou** |
+
+A folga existe para que o tecto preciso ganhe quando existe: sem ela, os dois
+corriam no mesmo instante e qual mordia dependia do escalonador.
+
+Quando a espera estoura, a *thread* **continua** — não se cancela uma, e não se
+quer. Ela tem a tomada, acaba o pipeline e escreve a linha de `tool_audit` com a
+latência real, pelo que a invocação **não desaparece do registo**. O que custa é
+a sua vaga até acabar: uma tool pendurada tira **uma** das
+`KAMBA_TLS_LIGACOES`, e não o processo.
 
 ### A quarta ligação, e porque não é a da leitura
 
@@ -647,6 +696,7 @@ Papel `kamba_app` e não `kamba_agr`: o que ela toca é do `platform`, e o
 
 | Variável | Omissão | O que é |
 |---|---|---|
+| `KAMBA_TLS_LIGACOES` | `4` | Quantas tomadas a camada abre. Ver «As tomadas são uma fila» |
 | `KAMBA_TLS_TIMEOUT_READ_MS` | `2000` | O tecto de uma tool `read` (§6.5). Para o backend `plataforma` é um `SET LOCAL statement_timeout`, do lado do servidor |
 | `KAMBA_TLS_TIMEOUT_ESCRITA_MS` | `8000` | O tecto de uma `write` ou `money` |
 | `KAMBA_TLS_DISJUNTOR_FALHAS` | `5` | Falhas **consecutivas** por backend até abrir |
@@ -754,4 +804,4 @@ tabela do §1 atribui a outro ticket.
 | 1.1 | 2026-10-24 | KAM-025 | Revisão adversarial: o §3.0 (a espera pela tranca e a chave da fila), o `attempts` do produtor no §3.2, e a tabela do §7 corrigida — o teste das 20 em série mede o dreno e não a tranca, e isso agora está escrito |
 | 1.2 | 2026-10-25 | KAM-026 | §7-A: o checkpointer sobre `pg8000` e o esquema `lg`. Porque não é o `AsyncPostgresSaver` (o fecho dele é LGPL), as duas tabelas em vez de três e o que isso custa, os quatro métodos que não se implementam, o isolamento que aqui não é RLS, a retenção e os dois prazos do canon, e a armadilha do critério 2 — em `msgpack`, uma busca por texto não encontra um telefone que lá esteja |
 | 1.3 | 2026-10-25 | KAM-027 | §7-B: o `AgentRegistry`, as três formas de `registry/`, as seis validações do arranque e as três que correm em **aviso** com o credor nomeado em `registry/gates.yaml`, o `resolve` e o alerta, e os dois nomes que o canon corrigiu ao desenho (`valor_max_pedido_minor` e os dois eventos de pagamento). §5: a guarda do SBOM do ambiente, que não é a mesma pergunta que a do módulo — o `langgraph-checkpoint-postgres` instala `langgraph.checkpoint.postgres` e nenhum nome de `MODULOS_PROIBIDOS` o encontraria. §1 e §4: o 503 fica, e porquê; `KAMBA_REGISTRY_DIR`, `KAMBA_FASE` e o código de saída `5` |
-| 1.4 | 2026-10-25 | KAM-028 | §7-C: a ToolLayer — os oito passos do §6.1 como **dados** (e porquê), os dois estados de uma entrada de catálogo e como isso fechou a validação (1) do §5.2, a `tool_audit` com a imutabilidade em três camadas e o que a linha **não** guarda, a quarta ligação e porque não é a da leitura, as quatro variáveis novas, o código de saída `6` e o *lint* do critério 3. §7-B: a tabela das seis validações passa a `bloqueio` na (1) e a prosa diz «eram três e são duas». Duas descobertas que mudaram código: a *docstring* de um modelo Pydantic vai no prompt, e um `fact_id` derivado de um argumento põe texto do cliente na auditoria |
+| 1.4 | 2026-10-25 | KAM-028 | §7-C: a ToolLayer — os oito passos do §6.1 como **dados** (e porquê), os dois estados de uma entrada de catálogo e como isso fechou a validação (1) do §5.2, a `tool_audit` com a imutabilidade em três camadas e o que a linha **não** guarda, a quarta ligação e porque não é a da leitura, as quatro variáveis novas, o código de saída `6` e o *lint* do critério 3. §7-B: a tabela das seis validações passa a `bloqueio` na (1) e a prosa diz «eram três e são duas». Duas descobertas que mudaram código: a *docstring* de um modelo Pydantic vai no prompt, e um `fact_id` derivado de um argumento põe texto do cliente na auditoria. **Correcções da revisão adversarial** (`analises/ANALISE-30`): as tomadas passam a ser uma fila e não uma (uma só serializava todos os *tenants* — 2,02 s para dez invocações de dez *tenants*), a camada passa a **impor** o tecto de tempo (um executor de 5 s contra 2 s devolvia `ok=True` em 5 s), os **nomes** dos argumentos deixam de ir em claro para a `tool_audit`, a quarta tomada fecha-se no `ao_encerrar`, e o `error_code` da linha de arranque passa a ter a forma que a *allowlist* do §7.3 exige — não tinha, e com `KAMBA_LOG_ESTRITO=1` abortava o `main()` |
