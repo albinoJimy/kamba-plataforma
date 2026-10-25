@@ -56,14 +56,14 @@ entries:
     kind: pypi
     match: exact
     adr: ADR-002
-    evidence: db/requirements/migrations.in (KAM-003, medido contra o PyPI)
+    evidence: docs/tecnica/evidencia/E4_Stack_Licencas.md §2.6 (correccao do KAM-026)
     reason: LGPL-3.0-only, negada por prefixo no ci/licenses.yaml. O driver da casa e o pg8000, BSD-3-Clause e Python puro.
 
   - name: psycopg-pool
     kind: pypi
     match: exact
     adr: ADR-002
-    evidence: db/requirements/migrations.in (KAM-003, medido contra o PyPI)
+    evidence: docs/tecnica/evidencia/E4_Stack_Licencas.md §2.6 (correccao do KAM-026)
     reason: LGPL-3.0-only, pela mesma razao do psycopg. Entra so como dependencia do langgraph-checkpoint-postgres, que tambem esta bloqueado.
 
   - name: langgraph-runtime-inmem
