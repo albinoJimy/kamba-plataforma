@@ -59,6 +59,13 @@ entries:
     evidence: docs/tecnica/evidencia/E4_Stack_Licencas.md §2.6 (correccao do KAM-026)
     reason: LGPL-3.0-only, negada por prefixo no ci/licenses.yaml. O driver da casa e o pg8000, BSD-3-Clause e Python puro.
 
+  - name: psycopg2-binary
+    kind: pypi
+    match: exact
+    adr: ADR-002
+    evidence: docs/tecnica/evidencia/E4_Stack_Licencas.md §2.6 (lacuna encontrada no KAM-027)
+    reason: LGPL, como o psycopg. As duas listas de requisitos ja o recusavam pelo nome em prosa e esta nao o tinha - as entradas psycopg sao `exact` e nao lhe batem. Encontrado pelo teste de paridade da guarda de runtime do AGR (KAM-027), com os dois controlos calados sobre ele.
+
   - name: psycopg-pool
     kind: pypi
     match: exact

@@ -203,6 +203,96 @@ class TestArranque(unittest.TestCase):
         correr.assert_not_called()
 
 
+class TestRegistoNoArranque(unittest.TestCase):
+    """KAM-027, criterio 1: um registo invalido **falha o arranque**.
+
+    Integracao do bloco («arranque do AGR com registo invalido»), e mede-se no
+    `main()` real: o que importa nao e o `carregar` levantar — isso ja esta
+    medido em `test_registo.py` — e o processo **sair**, com o codigo proprio e
+    sem abrir porta nenhuma.
+    """
+
+    def _correr(self, ambiente: dict[str, str]):
+        # A ligacao do checkpointer e dupla, pela razao do `TestArranque`: nenhum
+        # ensaio desta bateria tem base de dados, e sem o duplo todos mediriam
+        # «nao ha Postgres» (codigo 4) em vez do que dizem medir.
+        saida = io.StringIO()
+        with (
+            mock.patch.dict(os.environ, {**AMBIENTE_BASE, **ambiente}),
+            mock.patch("sys.stdout", saida),
+            mock.patch.object(arranque.uvicorn, "run") as correr,
+            mock.patch.object(arranque, "ligar_para_checkpoint", lambda: mock.Mock()),
+        ):
+            os.environ.pop("KAMBA_LOG_ESTRITO", None)
+            codigo = arranque.main()
+        return codigo, correr, saida.getvalue()
+
+    def test_um_directorio_de_registo_que_nao_existe_sai_com_5(self) -> None:
+        codigo, correr, registado = self._correr({"KAMBA_REGISTRY_DIR": "nao_existe_mesmo"})
+        self.assertEqual(codigo, arranque.SAIDA_REGISTO_INVALIDO)
+        self.assertEqual(codigo, 5)
+        correr.assert_not_called()
+        self.assertIn("registo_invalido", registado)
+
+    def test_um_ficheiro_invalido_sai_com_5(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        pasta = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (pasta / "mau.yaml").write_text("id: vendedor\nversion: nao-e-semver\n", encoding="utf-8")
+        codigo, correr, _ = self._correr({"KAMBA_REGISTRY_DIR": str(pasta)})
+        self.assertEqual(codigo, arranque.SAIDA_REGISTO_INVALIDO)
+        correr.assert_not_called()
+
+    def test_os_quatro_codigos_de_saida_sao_distintos(self) -> None:
+        """Num painel, «o AGR nao arranca» sem dizer porque nao se diagnostica."""
+        codigos = (
+            2,
+            arranque.SAIDA_GUARDA_ADR002,
+            arranque.SAIDA_SEM_CHECKPOINTER,
+            arranque.SAIDA_REGISTO_INVALIDO,
+        )
+        self.assertEqual(len(set(codigos)), 4)
+        self.assertEqual(codigos, (2, 3, 4, 5))
+
+    def test_o_registo_do_repositorio_deixa_o_agr_arrancar(self) -> None:
+        """O positivo, e e o que impede este ticket de parar o servico: com o
+        `registry/` real as tres validacoes adiadas sao **avisos**, e o processo
+        chega ao `uvicorn.run`."""
+        from pathlib import Path
+
+        raiz = Path(arranque.__file__).resolve().parents[4]
+        codigo, correr, registado = self._correr({"KAMBA_REGISTRY_DIR": str(raiz / "registry")})
+        self.assertEqual(codigo, 0)
+        correr.assert_called_once()
+        self.assertIn("registo_validacao_adiada", registado)
+        self.assertIn("service_started", registado)
+
+    def test_cada_aviso_adiado_nomeia_o_seu_credor_no_registo(self) -> None:
+        """Um `aviso` que nao aparece no registo de arranque e uma validacao
+        adiada em silencio, que e o que o critero 8 existe para fechar.
+
+        **E o `error_code` tem de la estar mesmo.** A primeira versao punha a
+        prosa do problema naquele campo, e a *allowlist* de
+        `docs/tecnica/08` §7.3 deixava-a cair sem dizer nada: as linhas sairam,
+        sem o campo que as identificava. E por isso que este teste le a chave em
+        vez de procurar texto na saida.
+        """
+        from pathlib import Path
+
+        raiz = Path(arranque.__file__).resolve().parents[4]
+        _, _, registado = self._correr({"KAMBA_REGISTRY_DIR": str(raiz / "registry")})
+        codigos = {
+            json.loads(linha)["error_code"]
+            for linha in registado.splitlines()
+            if linha.startswith("{") and '"registo_validacao_adiada"' in linha
+        }
+        self.assertEqual(
+            sorted(codigos),
+            ["golden_kam_040", "grafo_kam_031", "grafo_kam_035", "tools_kam_028"],
+        )
+
+
 class TestGuardasDoAdr002(unittest.TestCase):
     """Criterios 7 e 8: a lista de bloqueio e a telemetria, em *runtime*."""
 
@@ -236,6 +326,29 @@ class TestGuardasDoAdr002(unittest.TestCase):
             mock.patch("sys.stdout", io.StringIO()),
         ):
             self.assertEqual(arranque.main(), arranque.SAIDA_GUARDA_ADR002)
+
+    def test_uma_distribuicao_proibida_instalada_impede_o_arranque(self) -> None:
+        """A segunda metade do criterio 7 do KAM-027: o SBOM do ambiente.
+
+        E a guarda de cima passa — e isso e o ponto. O
+        `langgraph-checkpoint-postgres` instala `langgraph.checkpoint.postgres`,
+        que nenhum nome de `MODULOS_PROIBIDOS` encontraria: sao duas perguntas
+        diferentes, e sem esta metade um `pip install` a mao num contentor punha
+        LGPL em producao com a outra guarda a dizer que estava tudo bem.
+        """
+        with (
+            mock.patch.object(
+                arranque.egresso,
+                "exigir_sbom_mit",
+                side_effect=arranque.egresso.ModuloProibidoError("langgraph-checkpoint-postgres"),
+            ),
+            mock.patch.dict(os.environ, AMBIENTE_BASE),
+            mock.patch.object(arranque.uvicorn, "run") as correr,
+            mock.patch("sys.stdout", io.StringIO()),
+        ):
+            codigo = arranque.main()
+        self.assertEqual(codigo, arranque.SAIDA_GUARDA_ADR002)
+        correr.assert_not_called()
 
     def test_o_arranque_deixa_a_telemetria_desligada(self) -> None:
         ambiente = {**AMBIENTE_BASE, "LANGSMITH_TRACING": "true"}

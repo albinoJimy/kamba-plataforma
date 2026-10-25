@@ -1,21 +1,23 @@
-"""Superficie 3 — `registry/*.yaml`: verticais, planos, entitlements e tools.
+"""Superficie 3 — `registry/*.yaml`: verticais, planos, gates, entitlements e tools.
 
-## Duas formas, e so duas
+## Tres formas, e so tres
 
-Um ficheiro desta superficie e uma de duas coisas, e a forma distingue-se por
+Um ficheiro desta superficie e uma de tres coisas, e a forma distingue-se por
 uma **chave de topo propria**, nunca pelo nome do ficheiro:
 
 1. **vertical** — a chave `id`. A forma e a de `docs/tecnica/02` §5.1;
 2. **planos** — a chave `plans`. E o `registry/plans.yaml` do KAM-009:
-   `plano` -> entitlements por omissao.
+   `plano` -> entitlements por omissao;
+3. **gates** — a chave `gates`. E o `registry/gates.yaml` do KAM-027: o **modo**
+   de cada validacao de arranque do §5.2, com o ticket que a desbloqueia.
 
-Um ficheiro que nao tenha nenhuma das duas **falha**, e um que tenha as duas
-tambem: nao se adivinha qual das verificacoes se lhe aplica. Antes do KAM-009
-havia uma so forma, a lista fechada de chaves de topo era a dela, e o `id`
-tinha de ser uma vertical — um `plans.yaml` falhava as duas coisas e nao havia
-como o escrever.
+Um ficheiro que nao tenha nenhuma das tres **falha**, e um que tenha mais do
+que uma tambem: nao se adivinha qual das verificacoes se lhe aplica. Antes do
+KAM-009 havia uma so forma, a lista fechada de chaves de topo era a dela, e o
+`id` tinha de ser uma vertical — um `plans.yaml` falhava as duas coisas e nao
+havia como o escrever.
 
-## O que se verifica nas duas
+## O que se verifica nas duas primeiras
 
 * nivel 1 em **todas** as chaves e todos os textos do ficheiro;
 * **os nomes de limite**, contra as dez chaves do dicionario §3.2 («Entitlement
@@ -37,6 +39,17 @@ como o escrever.
 * **os dois eventos de pagamento** (§3.4): quem subscreve um e nao o outro esta
   a tratar os dois caminhos como um so, salvo se a politica o declarar como
   consumidor que os distingue.
+
+## So nos gates
+
+* o nome de cada entrada e uma **vertical** do dicionario §3.2;
+* o nome de cada validacao esta na lista fechada do §5.2 (`tools`,
+  `entitlements`, `grafo`, `subscriptions`, `fase`, `golden`) — um `tool` por
+  `tools` desligava a validacao em silencio, que e o pior dos dois erros;
+* `modo` ∈ {`aviso`, `bloqueio`}, e um `aviso` **exige** `credor` com a forma
+  `KAM-NNN`: um atalho sem o ticket que o fecha nao e atalho. Que o ticket
+  exista no backlog e do *gate* 3, que le os `KAM-NNN` deste ficheiro como os
+  de qualquer outro.
 
 ## So nos planos
 
@@ -93,9 +106,10 @@ CHAVES_DE_ENTITLEMENTS = {"modulo", "limites"}
 CHAVES_DE_SUBSCRICAO = {"tipo", "versao"}
 
 #: As chaves de topo que **declaram a forma**. Sao o discriminante, e e por
-#: isso que nao podem aparecer as duas no mesmo ficheiro.
+#: isso que nao podem aparecer duas no mesmo ficheiro.
 CHAVE_DA_VERTICAL = "id"
 CHAVE_DOS_PLANOS = "plans"
+CHAVE_DOS_GATES = "gates"
 
 #: A segunda forma (`registry/plans.yaml`, KAM-009). `version` e o SemVer que a
 #: regra 1 do `registry/README.md` impoe a um ficheiro deste directorio.
@@ -116,6 +130,32 @@ CHAVES_DE_ENTITLEMENT_DE_PLANO = {"modulo", "ativo", "limites"}
 #: decisao e uma alteracao de codigo com revisao — nao uma linha nova num
 #: ficheiro de configuracao.
 ESTADOS_DE_PLANO = {"hipotese_nao_validada"}
+
+#: A terceira forma (`registry/gates.yaml`, KAM-027). O `version` e o mesmo
+#: SemVer que a regra 1 do `registry/README.md` impoe a todo o directorio.
+CHAVES_DE_TOPO_DE_GATES = {"version", "gates"}
+#: As chaves de uma entrada de gate. O `golden` e o caminho do dataset — o
+#: mesmo que a vertical declara em `golden.dataset`, e quem confronta os dois e
+#: o `load_all` do AGR, nao este lint: aqui nao se le a vertical ao lado.
+CHAVES_DE_GATE = {"golden", "validacoes"}
+#: As chaves do modo de uma validacao.
+CHAVES_DE_VALIDACAO = {"modo", "credor"}
+
+#: Os nomes das seis validacoes de arranque, pela ordem de `docs/tecnica/02`
+#: §5.2 (dicionario §3.26). Lista **fechada**, e no codigo e nao na politica
+#: pela razao das sentinelas minimas: uma validacao nova e uma alteracao do
+#: `load_all`, com revisao — nao uma linha nova num ficheiro de configuracao.
+VALIDACOES_DO_ARRANQUE = (
+    "tools", "entitlements", "grafo", "subscriptions", "fase", "golden",
+)
+
+#: `bloqueio` e a omissao: uma validacao que o ficheiro nao nomeie falha
+#: fechada. So o `aviso` se escreve, e so ele exige `credor`.
+MODO_DE_AVISO = "aviso"
+MODOS_DE_VALIDACAO = {MODO_DE_AVISO, "bloqueio"}
+
+#: A forma de um ticket, para o `credor`. A mesma de `dicionario.py`.
+_TICKET = re.compile(r"^KAM-\d{3}$")
 
 _CHAVES_DE_NOME = ("nome", "name", "id", "tool")
 _CHAVES_DE_PARAMETROS = ("parametros", "params", "args", "argumentos")
@@ -448,31 +488,146 @@ def verificar(ficheiro: str, fonte: str, saber: Saber) -> list[Achado]:
                                    "`platform.ten_consumir` (revisão `0007`), que compara `bigint`")
                         )
 
-    # --- qual das duas formas e esta -------------------------------------------------
+    # --- terceira forma: os gates (`registry/gates.yaml`, KAM-027) ------------------
+
+    def forma_de_gates() -> None:
+        """`gates: {<vertical>: {golden, validacoes: {<validacao>: {modo, credor}}}}`.
+
+        O que este ficheiro guarda e o **modo** de cada uma das seis validacoes
+        de arranque do `docs/tecnica/02` §5.2: `bloqueio` (a omissao, que nao se
+        escreve) ou `aviso` com o ticket que a desbloqueia. Tres validacoes
+        nascem em `aviso` porque a fonte delas nao existe — o catalogo da
+        ToolLayer (KAM-028), um grafo compilado (KAM-031/035) e o dataset
+        *golden* (KAM-040) —, e e o critero 8 do bloco do KAM-027 que manda
+        regista-lo aqui em vez de num interruptor de codigo.
+        """
+        chaves(documento, CHAVES_DE_TOPO_DE_GATES, "no topo do ficheiro de gates")
+        gates = documento.get(CHAVE_DOS_GATES)
+        if not isinstance(gates, dict) or not gates:
+            achados.append(
+                Achado(ficheiro, _linha_de(fonte, CHAVE_DOS_GATES), ILEGIVEL,
+                       f"`{CHAVE_DOS_GATES}` tem de ser um mapa com pelo menos uma vertical "
+                       "(`<vertical>:` com `validacoes`)")
+            )
+            return
+        for nome, gate in gates.items():
+            onde = f"no gate de `{nome}`"
+            linha = _linha_de(fonte, str(nome))
+            if nome not in verticais and not saber.extensoes.tem("vertical", str(nome)):
+                achados.append(
+                    fora(ficheiro, linha, "vertical", str(nome),
+                         f"a chave de um gate e uma vertical ∈ {{{', '.join(verticais)}}}, "
+                         f"dicionário §{politica.verticais['seccao']}")
+                )
+            if not isinstance(gate, dict):
+                achados.append(Achado(ficheiro, linha, ILEGIVEL, f"o gate de `{nome}` nao e um mapa"))
+                continue
+            chaves(gate, CHAVES_DE_GATE, onde)
+
+            # **O `golden` e obrigatorio, e nao era.** O `GateDaVertical` do AGR
+            # exige-o (o `load_all` confronta-o com o `golden.dataset` da
+            # vertical), e sem esta verificacao um `gates.yaml` sem ele passava
+            # o *gate* 3b e o AGR saia com 5 em producao — o CI verde a dizer
+            # que estava bem. Achado da revisao adversarial do KAM-027.
+            if not isinstance(gate.get("golden"), str) or not gate["golden"]:
+                achados.append(
+                    Achado(ficheiro, linha, REGRA,
+                           f"o gate de `{nome}` nao declara `golden` com o caminho do dataset. "
+                           "O `load_all` do AGR exige que ele coincida com o `golden.dataset` "
+                           "da vertical, e sem ele o arranque sai com 5 — este gate existe "
+                           "para o CI dizer isso antes de producao")
+                )
+
+            validacoes = gate.get("validacoes")
+            if not isinstance(validacoes, dict) or not validacoes:
+                achados.append(
+                    Achado(ficheiro, linha, ILEGIVEL,
+                           f"o gate de `{nome}` nao tem um mapa `validacoes` com pelo menos uma entrada. "
+                           "Um gate sem validacao nenhuma nao diz nada: `bloqueio` e a omissao, pelo que "
+                           "quem nao tem nada a declarar nao escreve a vertical aqui")
+                )
+                continue
+            for validacao, modo in validacoes.items():
+                if validacao not in VALIDACOES_DO_ARRANQUE:
+                    achados.append(
+                        Achado(ficheiro, _linha_de(fonte, str(validacao)), REGRA,
+                               f"`{validacao}` {onde} nao e uma das seis validacoes de arranque "
+                               f"({', '.join(VALIDACOES_DO_ARRANQUE)}; `docs/tecnica/02` §5.2, dicionário "
+                               "§3.26). Um nome a mais aqui e uma validacao que o `load_all` nunca ve: o "
+                               "modo ficava por aplicar e a validacao corria em `bloqueio` sem ninguem "
+                               "saber — ou, pior, o contrario, se o nome errado fosse o da que se queria "
+                               "deixar em `aviso`")
+                    )
+                    continue
+                if not isinstance(modo, dict):
+                    achados.append(
+                        Achado(ficheiro, linha, ILEGIVEL,
+                               f"`{validacao}` {onde} nao e um mapa `{{modo, credor}}`: {modo!r}")
+                    )
+                    continue
+                chaves(modo, CHAVES_DE_VALIDACAO, f"na validacao `{validacao}` {onde}")
+                valor = modo.get("modo")
+                if valor not in MODOS_DE_VALIDACAO:
+                    achados.append(
+                        Achado(ficheiro, _linha_de(fonte, str(valor)), REGRA,
+                               f"`modo: {valor}` na validacao `{validacao}` {onde}: os modos sao "
+                               f"{', '.join(sorted(MODOS_DE_VALIDACAO))} (dicionário §3.26). O "
+                               "`docs/tecnica/02` §5.1 escreve `warn`, que e o nome antigo")
+                    )
+                    # E **nao** se julga o `credor` por cima disto: com um modo
+                    # que o lint nao reconhece, a regra «o credor e de quem
+                    # espera» daria um segundo achado para o mesmo defeito, e
+                    # diria o contrario do que devia se o modo pretendido fosse
+                    # `aviso` mal escrito. Um defeito, um achado.
+                    continue
+                credor = modo.get("credor")
+                if valor == MODO_DE_AVISO and (not isinstance(credor, str) or not _TICKET.match(credor)):
+                    achados.append(
+                        Achado(ficheiro, linha, REGRA,
+                               f"`modo: {MODO_DE_AVISO}` na validacao `{validacao}` {onde} sem `credor` com "
+                               f"a forma `KAM-NNN` (recebido: {credor!r}). Um atalho sem o ticket que o "
+                               "fecha nao e atalho: e uma validacao desligada para sempre com ar de "
+                               "temporaria")
+                    )
+                elif valor != MODO_DE_AVISO and credor is not None:
+                    achados.append(
+                        Achado(ficheiro, linha, REGRA,
+                               f"`credor: {credor}` na validacao `{validacao}` {onde} com "
+                               f"`modo: {valor}`: o credor e de quem espera. Em `bloqueio` nao ha nada "
+                               "por que esperar, e a linha so sobrevive a quem a devia ter apagado")
+                    )
+
+    # --- qual das tres formas e esta -------------------------------------------------
     #
     # Pela chave de topo, e nunca pelo nome do ficheiro: um `planos.yaml`, um
     # `plans-piloto.yaml` ou um `tarifas.yaml` sao o mesmo ficheiro, e adivinhar
     # pelo nome punha a verificacao a depender de como alguem lhe chamou.
-    tem_planos = CHAVE_DOS_PLANOS in documento
-    tem_vertical = CHAVE_DA_VERTICAL in documento
+    declaradas = [
+        chave
+        for chave in (CHAVE_DA_VERTICAL, CHAVE_DOS_PLANOS, CHAVE_DOS_GATES)
+        if chave in documento
+    ]
     vertical = ""
-    if tem_planos and tem_vertical:
+    if len(declaradas) > 1:
         achados.append(
-            Achado(ficheiro, _linha_de(fonte, CHAVE_DOS_PLANOS), REGRA,
-                   f"o ficheiro declara `{CHAVE_DA_VERTICAL}` (vertical) e `{CHAVE_DOS_PLANOS}` (planos): "
-                   "sao as duas formas desta superficie e nao se misturam. O gate 3b nao escolhe por si "
-                   "qual das verificacoes se aplica")
+            Achado(ficheiro, _linha_de(fonte, declaradas[1]), REGRA,
+                   f"o ficheiro declara {' e '.join(f'`{c}`' for c in declaradas)}: sao chaves de forma "
+                   "desta superficie e nao se misturam. O gate 3b nao escolhe por si qual das "
+                   "verificacoes se aplica")
         )
-    elif tem_planos:
+    elif declaradas == [CHAVE_DOS_PLANOS]:
         forma_de_planos()
-    elif tem_vertical:
+    elif declaradas == [CHAVE_DOS_GATES]:
+        forma_de_gates()
+    elif declaradas == [CHAVE_DA_VERTICAL]:
         vertical = forma_de_vertical()
     else:
         achados.append(
             Achado(ficheiro, 0, REGRA,
-                   f"ficheiro do registo sem `{CHAVE_DA_VERTICAL}` (vertical, `docs/tecnica/02` §5.1) e sem "
-                   f"`{CHAVE_DOS_PLANOS}` (planos, `registry/plans.yaml`): sao as duas unicas formas desta "
-                   "superficie, e um ficheiro que nao e nenhuma delas nao passa por nao ter sido lido")
+                   f"ficheiro do registo sem `{CHAVE_DA_VERTICAL}` (vertical, `docs/tecnica/02` §5.1), sem "
+                   f"`{CHAVE_DOS_PLANOS}` (planos, `registry/plans.yaml`) e sem `{CHAVE_DOS_GATES}` "
+                   "(gates, `registry/gates.yaml`): sao as tres unicas formas desta superficie, e um "
+                   "ficheiro que nao e nenhuma delas nao passa por nao ter sido lido")
         )
 
     # --- identificador de confirmacao -----------------------------------------------

@@ -147,7 +147,16 @@ class GrafoNaoRegistadoError(RuntimeError):
 
 
 def sem_grafos(_invocacao: InvocacaoDoAgente) -> Grafo:
-    """A porta `grafos` por omissao: levanta. Substituida pelo KAM-027."""
+    """A porta `grafos` por omissao: levanta.
+
+    **O KAM-027 nao a substituiu, e isso e decisao escrita.** Ele entregou o
+    `AgentRegistry` — que valida o registo no arranque e resolve a vertical por
+    contexto e entitlement —, mas o `graph` das duas verticais aponta para
+    `kamba_agr.verticais.<id>:build_graph`, que o KAM-031 e o KAM-035 escrevem.
+    Ligar esta porta ao registo hoje trocava este 503 por outro 503 (o alvo nao
+    resolve) e punha uma leitura de entitlement no caminho de **cada** turno,
+    para nada. Quem a substitui e o ticket que tiver um grafo para lhe dar.
+    """
     raise GrafoNaoRegistadoError("grafo_nao_registado")
 
 

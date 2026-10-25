@@ -180,12 +180,16 @@ class TestFicheirosDoRepositorio(unittest.TestCase):
         """A migracao do `yamlmini` para este leitor nao pode mudar o resultado."""
         d = kamba_yaml.load_file(ROOT / "tools" / "blocklist.yaml")
         self.assertEqual(d["version"], 1)
-        # 13 entradas: 7 itens do ticket, 3 variantes de imagem
-        # (`langgraph-api`, `langgenius`, `n8nio`) acrescentadas pela revisao, e
+        # 14 entradas: 7 itens do ticket, 3 variantes de imagem
+        # (`langgraph-api`, `langgenius`, `n8nio`) acrescentadas pela revisao,
         # 3 do KAM-026 — o `langgraph-checkpoint-postgres` e os dois LGPL que
         # ele arrasta, que o `E4` §2.6 dava como «sem restricoes» por ter
-        # olhado o pacote e nao o fecho.
-        self.assertEqual(len(d["entries"]), 13)
+        # olhado o pacote e nao o fecho — e 1 do KAM-027: o
+        # `psycopg2-binary`, que as duas listas de requisitos recusavam pelo
+        # nome em prosa e que nenhuma entrada apanhava (as `psycopg` sao
+        # `exact`). Encontrado pelo teste de paridade da guarda de *runtime* do
+        # AGR, com os dois controlos calados sobre um pacote LGPL.
+        self.assertEqual(len(d["entries"]), 14)
         for entrada in d["entries"]:
             self.assertIn("name", entrada)
             self.assertIn("adr", entrada)

@@ -21,6 +21,23 @@ diz, na saida e sempre, quantas subscricoes leu. Zero e um numero visivel, e o
 relatorio do ticket cita-o. Quando o KAM-038 escrever o primeiro ficheiro, esta
 verificacao comeca a morder sem ninguem lhe tocar — e o `canario` prova, com
 uma subscricao inventada em memoria, que ela morde mesmo.
+
+## A promessa acima era falsa, e o KAM-027 pagou-a
+
+«Comeca a morder sem ninguem lhe tocar» **nao era verdade**, e so se soube
+quando houve ficheiros. O KAM-027 escreveu os dois primeiros ficheiros de
+vertical, com **oito** subscricoes entre eles, e esta verificacao continuou a
+ler **zero**: procurava a chave `subscricoes` com `versao_max`, que sao os nomes
+da tabela `platform.evt_subscricoes` (`docs/tecnica/06` §6.1), e a forma da
+vertical e `subscriptions` com `versao` (`docs/tecnica/02` §5.1). Dois nomes
+para a mesma ideia, em dois documentos, e um deles escrito aqui por antecipacao.
+
+Le-se agora **as duas formas**, e a saida distingue-as. Nao e generosidade com
+formatos: sao duas superficies diferentes — uma tabela e um registo — e as duas
+declaram subscricoes que tem de ter contrato. A forma da vertical e tambem
+validada no arranque do AGR (validacao (4) do §5.2, bloqueante); este gate e o
+controlo que a apanha **antes** do deploy, e os dois juntos sao a defesa em
+profundidade que o KAM-007 queria.
 """
 
 from __future__ import annotations
@@ -62,7 +79,11 @@ def ler(raiz: Path) -> list[Subscricao]:
     for caminho in sorted(pasta.glob("*.yaml")):
         documento = kamba_yaml.load_file(caminho)
         relativo = caminho.relative_to(raiz).as_posix()
-        consumer = str(documento.get("consumer") or caminho.stem)
+        consumer = str(documento.get("consumer") or documento.get("id") or caminho.stem)
+        # A forma da tabela `evt_subscricoes` (`docs/tecnica/06` §6.1), que este
+        # ficheiro escreveu por antecipacao, e a forma da **vertical**
+        # (`docs/tecnica/02` §5.1), que e a que existe no disco. Ver a docstring:
+        # ler so a primeira fazia este gate passar com zero sobre oito.
         for entrada in documento.get("subscricoes") or []:
             lidas.append(
                 Subscricao(
@@ -70,6 +91,15 @@ def ler(raiz: Path) -> list[Subscricao]:
                     consumer=consumer,
                     tipo=str(entrada["tipo"]),
                     versao_max=int(entrada["versao_max"]),
+                )
+            )
+        for entrada in documento.get("subscriptions") or []:
+            lidas.append(
+                Subscricao(
+                    ficheiro=relativo,
+                    consumer=consumer,
+                    tipo=str(entrada["tipo"]),
+                    versao_max=int(entrada["versao"]),
                 )
             )
     return lidas

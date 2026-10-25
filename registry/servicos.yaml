@@ -1,0 +1,54 @@
+# registry/servicos.yaml — a vertical Servicos, persona Rececionista (KAM-027)
+#
+# A PRIMEIRA FORMA dos ficheiros de `registry/` (chave de topo `id`). A forma e
+# a de `docs/tecnica/02` §5.1; as razoes comuns as duas verticais — a chave de
+# limite em `_minor`, os dois eventos de pagamento, o `graph` que ainda nao
+# resolve — estao escritas em `registry/vendedor.yaml` e nao se repetem aqui.
+#
+# O que e proprio desta vertical: ela e a OUTRA METADE DA REGRA DE DOIS
+# (ADR-012). O gate da Fase 0 (`docs/tecnica/00` §13.2, KAM-108) pede que um
+# evento produzido por uma vertical seja consumido pelo handler da outra sem
+# alteracao do bus: um pedido do Vendedor pago via `ManualProvider` emite
+# `payment.manual_confirmed`, e e ESTA vertical que o consome e confirma uma
+# marcacao com sinal (dicionario §3.5, «Evento do gate da Fase 0»). E por isso
+# que os dois eventos de pagamento estao aqui e nao sao decoracao.
+#
+# O §5.1 nao da a esta vertical `tom` nem `guardrails`, e nao se inventam: um
+# `handoff_triggers` escrito aqui por simetria passava a ser citado como
+# decisao. Entram com o KAM-035, que escreve o grafo, ou com o KAM-033, que
+# escreve o `compose`.
+
+id: servicos
+version: 1.0.0
+phase: P
+persona:
+  nome: "Rececionista"
+  idioma: pt
+  apresentacao: "Sou o assistente automatico de {loja}. Posso tratar de marcacoes e informacoes."
+graph: kamba_agr.verticais.servicos:build_graph
+tools:
+  - list_services
+  - get_availability
+  - book_slot
+  - cancel_booking
+  - reschedule_booking
+  - get_store_info
+entitlements:
+  modulo: servicos
+  limites:
+    - msgs_ai_mes
+    - marcacoes_mes
+subscriptions:
+  - tipo: booking.created
+    versao: 1
+  - tipo: booking.reminder_due
+    versao: 1
+  - tipo: payment.confirmed
+    versao: 1
+  - tipo: payment.manual_confirmed
+    versao: 1
+models:
+  router: kamba-router
+  chat: kamba-chat
+golden:
+  dataset: "golden/servicos/v1"

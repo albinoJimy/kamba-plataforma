@@ -86,6 +86,20 @@ uma dependência compilada a fixar com *hash* por plataforma.
 `/internal/turn` do EPIC-03 é o candidato. O FastAPI é construído sobre o
 Starlette, pelo que a migração é aditiva.
 
+> **O gatilho chegou, e metade dele foi accionada (KAM-027).** A razão desta
+> decisão era o **custo de acrescentar o Pydantic**, e esse custo desapareceu
+> sem ninguém o escolher: o KAM-026 trouxe o `langgraph-checkpoint`, cujo fecho
+> inclui `pydantic==2.14.1` e `PyYAML==6.0.3`, e o fecho do AGR passou de 12
+> para 43 pacotes. O KAM-027 **usa** o Pydantic — o esquema de `registry/*.yaml`
+> com `extra="forbid"`, que os *Detalhes Técnicos* do bloco pedem por extenso —
+> e portanto a razão escrita aqui deixou de valer.
+>
+> **O que não mudou: o Starlette fica.** O `/internal/turn` continua a validar o
+> corpo à mão (`contexto.py`, KAM-025), e trocá-lo pelo FastAPI é trabalho de
+> quem tiver motivo para o fazer. O que esta nota registra é que a **premissa**
+> desta decisão caducou, para que ninguém a cite como se o Pydantic continuasse
+> a ser uma dependência a pagar.
+
 ### 5. `unittest` da biblioteca padrão, não `pytest`
 
 **Decisão:** os testes Python correm com `python -m unittest`.
@@ -273,3 +287,4 @@ erro.
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial (KAM-001). | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | KAM-130: o número de tickets sai do texto e dá lugar à remissão para `../../specs/INDICE.md` §1. O ADR não precisa do valor para se entender, e repeti-lo era pô-lo a envelhecer — que é o que tinha acontecido (dizia 126). | Equipa KAMBÁ |
+| 1.2 | Outubro 2026 | KAM-027: nota no §4. A premissa daquela decisão — o **custo** de acrescentar o Pydantic — caducou: o KAM-026 trouxe-o por transitividade do `langgraph-checkpoint` e o KAM-027 usa-o no esquema de `registry/*.yaml`, com o `extra="forbid"` que o bloco pede. O Starlette fica e o `/internal/turn` continua a validar o corpo à mão; o que esta linha registra é que a razão deixou de valer, para que ninguém a cite como se o Pydantic fosse ainda uma dependência a pagar. O §5 (`unittest` em vez de `pytest`) **não** se reverte: o gatilho dele era «quando o AGR tiver testes a sério (EPIC-03)», e as baterias novas deste ticket correm em `unittest` sem *fixtures* nem parametrização que o justifiquem. | Equipa KAMBÁ |

@@ -368,6 +368,15 @@ AG_CONTEXTO = "services/agr/src/kamba_agr/contexto.py"
 #: KAM-026. O checkpointer e a varredura de retencao.
 AG_CHECKPOINTER = "services/agr/src/kamba_agr/checkpointer.py"
 AG_RETENCAO = "services/agr/src/kamba_agr/retencao.py"
+#: O AgentRegistry (KAM-027). A suite e a **`agr_unit`** — `services/agr/tests`,
+#: sem base de dados — e nao a `tests_agr`: nada do que estas mutacoes alteram
+#: toca o PostgreSQL, e correr a suite de BD para as provar pagava um contentor
+#: por mutacao sem medir nada a mais.
+AGR_UNIT = "agr_unit"
+AG_REGISTO = "services/agr/src/kamba_agr/registo/__init__.py"
+AG_VALIDAR = "services/agr/src/kamba_agr/registo/validar.py"
+AG_ESQUEMA = "services/agr/src/kamba_agr/registo/esquema.py"
+AG_EGRESSO = "services/agr/src/kamba_agr/egresso.py"
 AV_DECISAO = "packages/core-ts/src/avisos/decisao.ts"
 AV_MODELOS = "packages/core-ts/src/avisos/modelos.ts"
 AV_MODULO = "packages/core-ts/src/avisos/avisos.ts"
@@ -3464,6 +3473,155 @@ MUTACOES = [
                     raise TrancaNaoObtidaError("tranca_nao_obtida")
                 await asyncio.sleep(espera)
                 espera = min(espera * 2, ESPERA_MAXIMA_S)''', AGR),
+    # --- KAM-027: o AgentRegistry e a guarda do SBOM ---------------------------
+    #
+    # Suite `agr_unit` (`services/agr/tests`), sem base de dados: nada do que
+    # estas mutacoes alteram toca o PostgreSQL. Cada uma repoe um defeito que
+    # faria **uma** das seis validacoes do §5.2, ou a guarda do critero 7,
+    # passar pela razao errada.
+    ('registo: a fase volta a ler «nao e piloto» como «ja se pode»', AG_VALIDAR,
+     "    if env.fase in FASES_POSTERIORES:",
+     "    if env.fase and env.fase != FASE_PILOTO:",
+     AGR_UNIT),
+    # **A reposicao de um defeito que a revisao adversarial encontrou.** O canon
+    # define **um** valor para o `KAMBA_FASE`; ler qualquer outro como «ja nao e
+    # Piloto» punha o `assistente` do Fluxo B em producao com um
+    # `KAMBA_FASE=clusters` escrito por engano no *deploy* — o que o ADR-011
+    # difere ate haver resposta escrita da Meta (D2). Mata-a o
+    # `test_5_nenhum_valor_de_kamba_fase_deixa_passar_uma_vertical_diferida`.
+    ('registo: a validacao dos nos passa a ser por igualdade', AG_VALIDAR,
+     "    em_falta = sorted(set(NOS_OBRIGATORIOS) - nos_do_grafo(grafo))",
+     "    em_falta = sorted(nos_do_grafo(grafo) - set(NOS_OBRIGATORIOS))",
+     AGR_UNIT),
+    # Invertida, a validacao (3) passa a exigir que o grafo **nao** tenha mais
+    # nada do que os seis — e deixa passar um grafo a que falte qualquer deles.
+    ('registo: os sentinelas do LangGraph passam a contar como nos', AG_VALIDAR,
+     '    return frozenset(nome for nome in grafo.nodes if not nome.startswith("__"))',
+     "    return frozenset(grafo.nodes)",
+     AGR_UNIT),
+    # O `__start__` esta em qualquer grafo compilado. A contar, um grafo vazio
+    # tem um no — e a validacao (3) mede o LangGraph em vez do desenho.
+    ('registo: a tool deixa de ser confrontada com os parametros proibidos', AG_VALIDAR,
+     "        expostos = sorted(env.catalogo.parametros_visiveis(tool) & set(PARAMETROS_PROIBIDOS))",
+     "        expostos = sorted(env.catalogo.parametros_visiveis(tool) - set(PARAMETROS_PROIBIDOS))",
+     AGR_UNIT),
+    # Com `-` em vez de `&`, a lista fica com os parametros **permitidos** e o
+    # `tenant_id` chega ao modelo. E a metade do critero 2 que o ADR-015 paga.
+    ('registo: o catalogo em falta passa a validacao verde', AG_VALIDAR,
+     """    if env.catalogo is None:
+        return (
+            PorLigar(
+                "o catalogo da ToolLayer nao esta ligado, pelo que nao se confirma que as "
+                f"{len(vertical.tools)} tools de `{vertical.id}` existem nem que nenhuma expoe "
+                f"{list(PARAMETROS_PROIBIDOS)} ao modelo"
+            ),
+        )""",
+     "    if env.catalogo is None:\n        return ()",
+     AGR_UNIT),
+    # **A mutacao que importa mais**, porque e o defeito que o bloco avisa: uma
+    # fonte que falta devolvida como validacao verde. Com ela, o registo carrega
+    # sem nunca ter confrontado tool nenhuma — e o `registry/gates.yaml` deixa de
+    # significar o que diz. Mata-a o `test_1_sem_catalogo_a_validacao_bloqueia`.
+    ('registo: o modo aviso passa a valer para todas as validacoes', AG_REGISTO,
+     '            em_aviso = modo is not None and modo.modo == "aviso"',
+     "            em_aviso = modo is not None",
+     AGR_UNIT),
+    # Com isto, declarar **uma** validacao em `registry/gates.yaml` punha as
+    # seis em aviso para aquela vertical: nada bloqueava o arranque.
+    ('registo: o dataset golden deixa de ser confrontado nos dois ficheiros', AG_REGISTO,
+     "        elif gate.golden != vertical.golden.dataset:",
+     "        elif False:",
+     AGR_UNIT),
+    ('registo: a vertical repetida passa a ser a ultima por ordem alfabetica', AG_REGISTO,
+     "        if vertical.id in verticais:",
+     "        if False:",
+     AGR_UNIT),
+    ('registo: resolve deixa de exigir entitlement activo', AG_REGISTO,
+     "        if not entitlement.permitido:",
+     "        if False:",
+     AGR_UNIT),
+    # O critero 6 ao contrario: um tenant sem plano passa a ter a vertical.
+    ('registo: o codigo de um aviso deixa de caber no error_code', AG_REGISTO,
+     "        return f\"{self.validacao}_{self.credor.lower().replace('-', '_')}\"",
+     '        return f"{self.validacao}_{self.credor}"',
+     AGR_UNIT),
+    # O `-` de `KAM-028` nao casa o `_CODIGO` da *allowlist* de logs: o campo
+    # cai **em silencio** e as linhas de arranque saem sem o que as identifica.
+    # Foi o defeito real da primeira versao deste codigo, e e a mutacao que o
+    # prende. Mata-a o `test_o_codigo_de_uma_adiada_cabe_no_error_code`.
+    ('registo: a guarda do SBOM passa a comparar por subcadeia', AG_EGRESSO,
+     """    elif not re.search(
+        r"(?<![a-z0-9])" + re.escape(entrada.nome) + r"(?![a-z0-9])", nome
+    ):
+        return False""",
+     "    elif entrada.nome not in nome:\n        return False",
+     AGR_UNIT),
+    # O `minion` e o `dominion` passam a ser bloqueados — e um gate que bloqueia
+    # o que ninguem escolheu e um gate que alguem acaba por desligar (ADR-L001
+    # §10). Mata-a o `test_a_fronteira_de_palavra_nao_apanha_quem_ninguem_escolheu`
+    # e o teste de paridade com o `lint_arch`.
+    ('registo: o limiar do SBOM passa a incluir a versao que ja e permitida', AG_EGRESSO,
+     "    return esquerda < direita",
+     "    return esquerda <= direita",
+     AGR_UNIT),
+    ('registo: uma versao ilegivel passa a contar como acima do limiar', AG_EGRESSO,
+     "    if partes is None:\n        return True",
+     "    if partes is None:\n        return False",
+     AGR_UNIT),
+    # Para um pacote que ja foi vector de ataque, «nao provado» trata-se como
+    # «nao permitido» — a regra que o ADR-L001 §10 escreveu para as imagens sem
+    # versao na tag. Com o `9999`, um `litellm` de versao ilegivel passa.
+    ('registo: o esquema do registo deixa de fechar as chaves', AG_ESQUEMA,
+     '    model_config = ConfigDict(extra="forbid", frozen=True)',
+     '    model_config = ConfigDict(extra="ignore", frozen=True)',
+     AGR_UNIT),
+    # Um `subscricoes:` escrito em vez de `subscriptions:` dava uma vertical sem
+    # subscricao nenhuma, **validada com sucesso**: a validacao (4) passava por
+    # nao ter nada para rejeitar. E o `extra="forbid"` dos Detalhes Tecnicos.
+    ('registo: o aviso deixa de distinguir a fonte em falta do problema real', AG_REGISTO,
+     "            reais = [p for p in problemas if not isinstance(p, PorLigar)]",
+     "            reais = []",
+     AGR_UNIT),
+    # **A reposicao do achado mais serio da revisao adversarial.** Com isto, no
+    # dia em que o KAM-028 ligasse o catalogo, uma tool inexistente — ou uma que
+    # exponha `tenant_id` ao modelo — passava a **aviso**, porque a linha
+    # `tools: { modo: aviso }` sobreviveria ao credor: o mecanismo de adiamento
+    # a engolir o defeito que a validacao existe para apanhar. Mata-a o
+    # `test_o_aviso_cala_a_fonte_em_falta_e_nao_um_problema_real`.
+    ('registo: um aviso que sobreviveu ao credor deixa de ser erro', AG_REGISTO,
+     "            if not por_ligar:",
+     "            if False:",
+     AGR_UNIT),
+    # Sem este erro, a frase «fechar um aviso e apagar uma linha» passa a ser
+    # intencao e nao regra: a linha fica a adiar o que ja nao e adiavel, e e so
+    # uma questao de tempo ate calar um defeito. E a disciplina do
+    # `canon/extensoes.yaml`, onde uma declaracao que nenhuma superficie usa
+    # falha o gate. Mata-a o `test_um_aviso_que_sobreviveu_ao_credor_e_erro`.
+    ('registo: a largura das versoes do SBOM deixa de se igualar', AG_EGRESSO,
+     "    largura = max(len(partes), len(entrada.limiar))",
+     "    largura = min(len(partes), len(entrada.limiar))",
+     AGR_UNIT),
+    # A outra divergencia que a revisao mediu, no sentido contrario ao da
+    # versao ilegivel: sem igualar as larguras **para cima**, um `litellm==1.83`
+    # e bloqueado pela guarda e permitido pelo `lint_arch`. Mata-a o teste de
+    # paridade, que chama o `versions.satisfies_floor` verdadeiro.
+    #
+    # **O `min` e nao o `len(entrada.limiar)`, e a diferenca ensina algo.** A
+    # primeira versao desta mutacao punha `largura = len(entrada.limiar)` e
+    # **sobreviveu** — nao por falta de teste, mas por ser *equivalente*: com o
+    # limiar sempre mais longo ou igual, a conta da sobra fica negativa, o
+    # `(0,) * -1` e vazio, e a comparacao de tuplos de comprimentos diferentes
+    # da o mesmo resultado. Uma mutacao que nao pode mudar comportamento nao
+    # prova nada; o `min` trunca mesmo.
+    ('registo: o aviso deixa de exigir credor', AG_ESQUEMA,
+     '''        if self.modo == "aviso" and self.credor is None:
+            raise ValueError(
+                "`modo: aviso` sem `credor`: a validacao fica desligada e ninguem a volta a ligar"
+            )''',
+     "        pass",
+     AGR_UNIT),
+    # Um atalho sem o ticket que o fecha nao e atalho: e uma validacao desligada
+    # para sempre com ar de temporaria.
 ]
 
 
@@ -3627,6 +3785,33 @@ def _copiar(destino: Path, suite: str = "tests") -> None:
         ignore=ignorar,
     )
     shutil.copytree(RAIZ / "contratos", destino / "contratos", ignore=ignorar)
+    # **E outra vez, pela regra escrita acima** (KAM-027). As mutacoes `registo:`
+    # correm na suite `agr_unit`, que le quatro coisas que esta copia nao levava:
+    # os ficheiros do registo, o `tools/lint_arch` (o teste de paridade da guarda
+    # do SBOM le a lista de bloqueio pelo `load_entries`, que e quem a valida), a
+    # lista em si, e o `tools/canon_lint` (o teste que confronta a lista fechada
+    # das seis validacoes nos dois lados). Sem elas a linha de base daquela suite
+    # fica vermelha e nenhuma mutacao dela se pode provar.
+    shutil.copytree(RAIZ / "registry", destino / "registry", ignore=ignorar)
+    shutil.copytree(
+        RAIZ / "tools" / "lint_arch", destino / "tools" / "lint_arch", ignore=ignorar
+    )
+    shutil.copytree(
+        RAIZ / "tools" / "canon_lint", destino / "tools" / "canon_lint", ignore=ignorar
+    )
+    shutil.copy(RAIZ / "tools" / "blocklist.yaml", destino / "tools" / "blocklist.yaml")
+    # **E o dicionario canonico em Markdown**, e nao so o `canon/` exportado. O
+    # teste que a isencao do *gate* 3b promete — o que prende os seis nos
+    # obrigatorios e os quatro parametros proibidos ao §3.26 — le a **linha da
+    # tabela**, que e o que um leitor humano emenda; o export nao preserva a
+    # ordem dentro de uma linha. Sem este ficheiro a linha de base da `agr_unit`
+    # ficava vermelha com `FileNotFoundError`, e nenhuma mutacao dela se podia
+    # provar. Medido, ao correr as tres novas do KAM-027.
+    (destino / "specs").mkdir(exist_ok=True)
+    shutil.copy(
+        RAIZ / "specs" / "02_Dicionario_de_Dados_Canonico.md",
+        destino / "specs" / "02_Dicionario_de_Dados_Canonico.md",
+    )
     (destino / ".github" / "workflows").mkdir(parents=True)
     shutil.copy(
         RAIZ / ".github" / "workflows" / "ci.yaml",
@@ -3754,7 +3939,54 @@ def _gate_de_tools(copia: Path, pacote: str, padrao: str) -> tuple[int, str]:
     return r.returncode, r.stdout + r.stderr
 
 
+#: Os modulos de `services/agr/tests` que a suite `agr_unit` corre.
+#:
+#: **Dois, e nao a bateria inteira**, pela mesma razao que as suites de `tools/`
+#: correm um ficheiro: as outras baterias do AGR afirmam coisas sobre o
+#: **repositorio** que a copia nao e — o `test_api_interna.py` le
+#: `ops/secrets-inventory.yaml` e o `test_estado.py` le
+#: `docs/tecnica/02_Agent_Runtime_Verticais.md`. Medido: com a bateria inteira a
+#: linha de base ficava vermelha nesses dois, e **nenhuma** mutacao se podia
+#: provar. O corredor recusou-se a continuar, que e o que ele existe para fazer.
+MODULOS_DO_AGR_UNIT = ("test_registo", "test_egresso")
+
+
+def _gate_do_agr(copia: Path) -> tuple[int, str]:
+    """As baterias de unidade do `AgentRegistry` e do egresso, sem Docker.
+
+    Correm sem base de dados — ao contrario da `tests_agr`, que e a suite de
+    PostgreSQL do mesmo servico. Nada do que as mutacoes `registo:` alteram toca
+    a base, e levantar um contentor por mutacao nao mediria nada a mais.
+
+    O `PYTHONPATH` tem de ser explicito, com o `os.pathsep` da plataforma: o
+    `make test-py` herda-o do `Makefile` (que o exporta) e este corredor nao
+    corre por `make`. Leva tambem `services/agr/tests`, para que os modulos se
+    importem pelo nome como o `-t` do `discover` faria.
+    """
+    env = dict(
+        os.environ,
+        PYTHONPATH=os.pathsep.join(
+            str(copia / caminho)
+            for caminho in (
+                "tools", "libs/py-core/src", "services/agr/src", "services/agr/tests",
+            )
+        ),
+    )
+    r = subprocess.run(
+        [PY, "-m", "unittest", *MODULOS_DO_AGR_UNIT],
+        cwd=copia,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+    )
+    return r.returncode, r.stdout + r.stderr
+
+
 def _gate(copia: Path, suite: str) -> tuple[int, str]:
+    if suite == AGR_UNIT:
+        return _gate_do_agr(copia)
     if suite in SUITES_DE_TOOLS:
         return _gate_de_tools(copia, *SUITES_DE_TOOLS[suite])
     r = subprocess.run(

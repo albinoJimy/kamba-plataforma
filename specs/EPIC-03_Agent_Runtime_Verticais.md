@@ -420,13 +420,13 @@ Implementar o `AgentRegistry` com carregamento e validação fail-closed no arra
 ### Critérios de Aceitação
 
 - [ ] `load_all(env)` falha o arranque (exit ≠ 0) se qualquer das 6 validações de `../docs/tecnica/02` §5.2 falhar; cada uma tem um teste negativo dedicado (6 testes).
-- [ ] Uma tool no YAML que não existe no catálogo da TLS, ou cujo esquema visível ao modelo tenha parâmetro `tenant_id`, `merchant_id`, `seller` ou `account`, reprova o arranque.
-- [ ] O grafo compilado sem algum dos nós `ingest`, `guard_in`, `validate`, `guard_out`, `send`, `handoff_wait` reprova o arranque (teste de contrato).
-- [ ] `phase: D` com `KAMBA_FASE=piloto` é rejeitado; `registry/assistente.yaml` não existe no ambiente de produção do Piloto.
-- [ ] `subscriptions` com tipo ou versão desconhecidos no catálogo de eventos reprova o arranque.
-- [ ] `resolve(ctx)` sem entitlement activo devolve a resposta estática «serviço indisponível» e emite alerta; com entitlement activo devolve a vertical; uma só vertical principal por número no Piloto.
-- [ ] Arranque falha se um pacote proibido (`langgraph_api`, `langgraph_runtime_inmem`) for importável ou constar do SBOM do ambiente.
-- [ ] A validação (6) «dataset golden existe e o gate está verde» corre em modo **aviso** até existir KAM-040 e passa a **bloqueante** quando este ficar `Done` (registo explícito em `registry/gates.yaml`).
+- [x] Uma tool no YAML que não existe no catálogo da TLS, ou cujo esquema visível ao modelo tenha parâmetro `tenant_id`, `merchant_id`, `seller` ou `account`, reprova o arranque.
+- [x] O grafo compilado sem algum dos nós `ingest`, `guard_in`, `validate`, `guard_out`, `send`, `handoff_wait` reprova o arranque (teste de contrato).
+- [x] `phase: D` com `KAMBA_FASE=piloto` é rejeitado; `registry/assistente.yaml` não existe no ambiente de produção do Piloto.
+- [x] `subscriptions` com tipo ou versão desconhecidos no catálogo de eventos reprova o arranque.
+- [x] `resolve(ctx)` sem entitlement activo devolve a resposta estática «serviço indisponível» e emite alerta; com entitlement activo devolve a vertical; uma só vertical principal por número no Piloto.
+- [x] Arranque falha se um pacote proibido (`langgraph_api`, `langgraph_runtime_inmem`) for importável ou constar do SBOM do ambiente.
+- [x] A validação (6) «dataset golden existe e o gate está verde» corre em modo **aviso** até existir KAM-040 e passa a **bloqueante** quando este ficar `Done` (registo explícito em `registry/gates.yaml`).
 
 ### Detalhes Técnicos
 
@@ -437,10 +437,26 @@ Implementar o `AgentRegistry` com carregamento e validação fail-closed no arra
 - A validação de licenças é *defesa em profundidade*; o bloqueio principal está no CI (KAM-025, KAM-067).
 
 ```yaml
-# registry/gates.yaml (exemplo)
-vendedor: { golden: "golden/vendedor/v1", golden_gate: warn }   # passa a block com KAM-040
-servicos: { golden: "golden/servicos/v1", golden_gate: warn }
+# registry/gates.yaml — a forma entregue. **Estilo de bloco, nao de fluxo:** o
+# `tools/kamba_yaml.py` (gates 7, 9 e 11) nao le mapas `{ ... }`, e a primeira
+# versao deste exemplo — copiada a letra — punha o gate 7 vermelho.
+version: 1.0.0
+gates:
+  vendedor:
+    golden: golden/vendedor/v1
+    validacoes:
+      golden:                 # passa a bloqueante com KAM-040: apaga-se a linha
+        modo: aviso
+        credor: KAM-040
 ```
+
+O `golden_gate: warn` do esboco inicial virou `validacoes.golden.modo: aviso`,
+e por uma razao: sao **tres** as validacoes que esperam por um credor e nao uma
+(a (1) pelo KAM-028 e a (3) pelo KAM-031/KAM-035), e tres chaves de topo
+diferentes para a mesma ideia eram tres sitios para esquecer uma. `bloqueio` e a
+omissao e nao se escreve, um `aviso` exige `credor`, e um `aviso` que sobreviva
+ao credor e **erro de arranque** — e isso que torna «fechar um gate e apagar uma
+linha» uma regra imposta.
 
 ### Testes Requeridos
 
@@ -453,9 +469,215 @@ servicos: { golden: "golden/servicos/v1", golden_gate: warn }
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] **Isolamento de tenant:** `resolve` usa o `tenant_id` do contexto; entitlement lido sob RLS (ADR-015).
-- [ ] **Dependências:** versões fixadas; lista de bloqueio respeitada (ADR-002).
-- [ ] **Eval-gate:** o registo é artefacto comportamental; SemVer atribuído; gate golden pendente de KAM-040, registado em `registry/gates.yaml`.
-- [ ] Documentação do esquema YAML e ADRs afectados actualizados; sem TODOs órfãos.
+- [x] **Dependências:** versões fixadas; lista de bloqueio respeitada (ADR-002).
+- [x] **Eval-gate:** o registo é artefacto comportamental; SemVer atribuído; gate golden pendente de KAM-040, registado em `registry/gates.yaml`.
+- [x] Documentação do esquema YAML e ADRs afectados actualizados; sem TODOs órfãos.
+
+### Verificação dos Critérios de Aceitação
+
+Medido a 2026-10-25, no ramo `feature/KAM-027-agentregistry` (base `publico/main`,
+`147bc8e`). Os comandos correm da raiz do repositório. Não há `make` nesta
+máquina (`docs/adr/ADR-L001` §1); as vias usadas estão em
+`.claude/skills/agentic-engineering/references/evidencia-e-verificacao.md`.
+
+| # | Critério | Estado | O que se mediu, com que comando, e que número saiu |
+|---|---|---|---|
+| 1 | `load_all(env)` falha o arranque se qualquer das 6 validações falhar; 6 testes negativos dedicados | **parcial** | **Os 6 negativos existem e cada um mede uma validação:** `TestSeisNegativos`. **O arranque falha:** `TestRegistoNoArranque` corre o `main()` real → **5** com directório inexistente e com ficheiro inválido, `uvicorn.run` nunca chamado. **E qualquer problema real de qualquer das seis reprova o arranque — modo nenhum o cala**, que é a correcção descrita no critério 2. **O que falta à letra, e só isto:** um problema da classe «a fonte que esta validação confronta não existe neste repositório» (`PorLigar`) é aviso para três delas, e o critério 1 não abre essa excepção — o critério 8 abre-a só para a (6). Ver «as três validações que esperam», abaixo; credores **KAM-028** (1), **KAM-031**/**KAM-035** (3) e **KAM-040** (6) |
+| 2 | Tool fora do catálogo da TLS, ou com parâmetro `tenant_id`/`merchant_id`/`seller`/`account` visível ao modelo, reprova o arranque | **satisfeito** | **Reprova sempre, e isso é uma correcção da revisão adversarial.** A primeira versão punha a validação inteira em `aviso`, e com isso, no dia em que o KAM-028 ligasse o catálogo, uma tool inexistente passava a aviso porque a linha do `gates.yaml` sobreviveria ao credor. Agora o `aviso` cala **uma classe** de problema — `PorLigar`, «a fonte não existe aqui» — e qualquer outro bloqueia seja qual for o modo: `test_o_aviso_cala_a_fonte_em_falta_e_nao_um_problema_real` mede-o com o `tools` em `aviso` e um catálogo ligado a que falta `criar_pedido`, e com um que expõe `tenant_id`. Mais: `test_1_uma_tool_fora_do_catalogo_da_tls_reprova` e `test_1_uma_tool_que_expoe_tenant_id_ao_modelo_reprova` (4 sub-testes, um por parâmetro). Mutações `a tool deixa de ser confrontada com os parametros proibidos` e `o aviso deixa de distinguir a fonte em falta do problema real` → **apanhadas**. **O limite, escrito:** não há catálogo da TLS no repositório, pelo que no arranque de hoje não se confronta tool nenhuma — o que sai é um aviso que nomeia o **KAM-028**, e um `aviso` que sobreviva ao credor é, ele próprio, erro de arranque |
+| 3 | O grafo compilado sem algum dos nós `ingest`, `guard_in`, `validate`, `guard_out`, `send`, `handoff_wait` reprova o arranque (teste de contrato) | **satisfeito** | **Contra um `CompiledStateGraph` real do LangGraph**, não um duplo: `TestContratoDoGrafo` constrói `StateGraph(...).compile()` e mede 6 sub-testes, um por nó em falta; e mede que o `__start__` que o LangGraph acrescenta **não** conta como nó. Pela mesma correcção do critério 2, um nó em falta **bloqueia** com o `grafo` em `aviso` — `test_o_aviso_cala_a_fonte_em_falta_e_nao_um_problema_real` mede-o. Mutações `a validacao dos nos passa a ser por igualdade` e `os sentinelas do LangGraph passam a contar como nos` → **apanhadas**. **O limite, escrito:** o `graph` das duas verticais aponta para `kamba_agr.verticais.<id>:build_graph`, que não existe — e não pode existir antes deste ticket, que é quem **bloqueia** o KAM-031 e o KAM-035 —, pelo que no arranque de hoje não se compila grafo nenhum e o aviso nomeia-os |
+| 4 | `phase: D` com `KAMBA_FASE=piloto` é rejeitado; `registry/assistente.yaml` não existe no ambiente de produção do Piloto | **satisfeito** | `test_5_phase_d_com_kamba_fase_piloto_reprova`; `test_5_a_variavel_ausente_trata_se_como_piloto` (ausente **e** vazia, pela regra do `fluxo_piloto` do KAM-003); `test_5_phase_d_fora_do_piloto_passa`. E `test_nenhuma_vertical_do_repositorio_esta_em_fase_diferida`: as duas verticais do `registry/` têm `phase: P` e `registry/assistente.yaml` **não existe**. Corre em `bloqueio`. Mutação `a fase deixa de tratar a variavel vazia como piloto` → **apanhada** |
+| 5 | `subscriptions` com tipo ou versão desconhecidos no catálogo de eventos reprova o arranque | **satisfeito** | Contra o catálogo real (`kamba_core.eventos.contratos.CATALOGO`, 38 tipos, verificado em `test_4_o_catalogo_vem_dos_contratos_e_nao_de_uma_copia` contra `contratos/eventos/`): `test_4_um_tipo_de_evento_desconhecido_reprova` e `test_4_uma_versao_desconhecida_reprova_em_vez_de_ser_ignorada` (uma `versao: 9` dá «as versoes publicadas sao v1, v2»). Corre em `bloqueio` |
+| 6 | `resolve(ctx)` sem entitlement activo devolve a resposta estática «serviço indisponível» e emite alerta; com entitlement activo devolve a vertical; uma só vertical principal por número no Piloto | **satisfeito** | `TestResolve`, 8 testes: sem entitlement → `resposta="servico_indisponivel"`, `motivo="sem_entitlement"`; com entitlement → a vertical; vertical desconhecida → a mesma resposta com `motivo="vertical_desconhecida"` e **zero** leituras de entitlement. Com as duas verticais carregadas, um contexto de `vendedor` nunca devolve `servicos`. **E o «emite alerta» mede-se contra o `MetricasDoAgr` real e não contra um duplo** — `test_o_alerta_conta_contra_as_metricas_reais_e_nao_so_contra_um_duplo` lê a exposição e encontra `agr_registry_denied_total{motivo="…"} 1` para os dois motivos. **Era preciso: o contador não estava registado em `metricas.py`**, o `contar` levantava `EtiquetaInvalida`, e os sete testes com duplo passavam — ver o defeito (b), abaixo. Mutação `resolve deixa de exigir entitlement activo` → **apanhada**. **Nada chama o `resolve` em produção**: quem o chama é o ticket que tiver um grafo (KAM-031) |
+| 7 | Arranque falha se um pacote proibido (`langgraph_api`, `langgraph_runtime_inmem`) for importável ou constar do SBOM do ambiente | **satisfeito** | A primeira metade era do KAM-025. A segunda é deste ticket: `egresso.exigir_sbom_mit()` lê `importlib.metadata.distributions()`. `TestSbomDoAmbiente`, 11 testes: cada uma das **11** entradas de `tools/blocklist.yaml` que podem estar em Python morde; a normalização é a de PEP 503; metadados corrompidos não derrubam o arranque. **A paridade com o `lint_arch` chama o `versions.satisfies_floor` verdadeiro** — e não uma reimplementação dele — sobre 25 nomes × 12 versões = **300 casos**, e as duas decidem o mesmo em todos. Foi a revisão adversarial que o exigiu, com razão: a comparação caseira divergia em dois casos — `litellm==1.83` (o lint permitia, a guarda bloqueava) e `litellm==1.84.0.post1` (a guarda **permitia**, o lint bloqueava). A segunda era a grave: o controlo que protege o que **corre** era mais frouxo do que o do CI. As duas têm teste com nome próprio. **E fechou-se uma lacuna que a paridade descobriu:** o `psycopg2-binary` é LGPL, as duas listas de requisitos recusavam-no em prosa, e **nem a lista de bloqueio nem a guarda o tinham** — as entradas `psycopg` são `exact` e não lhe batem. Entrou nas duas, com ADR e evidência. Mede-se também o caso que justifica esta metade existir: o `langgraph-checkpoint-postgres` instala `langgraph.checkpoint.postgres`, o `exigir_biblioteca_mit()` passa (com razão) e o `exigir_sbom_mit()` apanha-o. No `main()`: **3**. Quatro mutações → **apanhadas** |
+| 8 | A validação (6) corre em modo **aviso** até existir KAM-040 e passa a **bloqueante** quando este ficar `Done` (registo explícito em `registry/gates.yaml`) | **satisfeito** | `registry/gates.yaml` existe, é a **terceira forma** da superfície do registo, e declara `golden: { modo: aviso, credor: KAM-040 }` para as duas verticais. Medido nos dois lados: `test_o_ficheiro_do_repositorio_cobre_as_tres_validacoes_adiadas` (*gate* 3b) e `test_o_registo_do_repositorio_carrega_com_tres_avisos_por_vertical` (o AGR). **E a passagem a bloqueante mede-se nas três linhas, uma a uma** — `test_apagar_a_linha_do_gates_torna_cada_validacao_bloqueante`, um sub-teste por validação. A primeira versão media só a linha do `tools`, e o critério 8 — que é sobre o `golden` — ficava provado pela linha errada: achado da revisão adversarial. **Mais:** um `aviso` que sobreviva ao credor é **erro de arranque** (`test_um_aviso_que_sobreviveu_ao_credor_e_erro`), o que faz de «fechar um aviso é apagar uma linha» uma regra imposta e não uma intenção |
+
+**As três validações que esperam, e porque é que isto não é o critério 1
+cumprido em espírito.** O critério 1 pede que as seis falhem o arranque; o
+critério 8 do mesmo bloco carva a (6) dessa regra e dá o mecanismo (modo
+`aviso`, registado em `registry/gates.yaml`, com o ticket que o fecha). A (1) e
+a (3) entram pelo mesmo mecanismo porque **as fontes delas não podem existir
+antes deste ticket**: o catálogo da ToolLayer é o KAM-028, e um grafo compilado é
+o KAM-031/KAM-035 — dois tickets que o KAM-027 **bloqueia**. As dependências
+deste ticket são KAM-025 e KAM-009, as duas fundidas.
+
+Isto é uma **inversão no próprio bloco**, não uma lacuna da entrega, e fica
+registada em vez de resolvida em silêncio: o critério 1 foi escrito a assumir
+fontes que a ordem do backlog põe depois. As três alternativas e porque se
+escolheu esta:
+
+| Alternativa | Porque não |
+|---|---|
+| Devolver as validações verdes | É o defeito que o próprio bloco avisa — «um critério pode estar satisfeito pela razão errada». Com um catálogo em falta a devolver verde, o registo carregava sem nunca ter confrontado tool nenhuma. **Há uma mutação que o prende** (`o catalogo em falta passa a validacao verde` → apanhada) |
+| Pô-las a falhar o arranque | O AGR deixava de arrancar hoje por causa de dois tickets de amanhã, e o `/healthz` que o esqueleto andante do KAM-108 precisa morria com ele |
+| Um mecanismo próprio para cada | Três maneiras de dizer «esta validação espera por um ticket» eram três sítios para esquecer uma. O do critério 8 já existe e nomeia o credor |
+
+**Uma validação em `aviso` não é uma validação que passa, e o `aviso` cala
+uma classe de problema — não a validação.** Um problema é de uma de duas
+classes: `PorLigar` («a fonte que esta validação confronta não existe neste
+repositório») ou qualquer outro («confrontei e está errado»). O `modo: aviso`
+cala **só** o primeiro; o segundo reprova o arranque seja qual for o modo.
+
+A distinção é a correcção do achado mais sério da revisão adversarial, e vale
+escrever o caso que ela nomeou: sem ela, no dia em que o KAM-028 ligasse o
+catálogo, uma tool inexistente — ou uma que exponha `tenant_id` ao modelo —
+passava a ser **aviso**, porque a linha `tools: { modo: aviso }` sobreviveria ao
+credor. O mecanismo de adiamento engolia o defeito que a validação existe para
+apanhar, e o que hoje é «parcial» tornava-se «não satisfeito» sem ninguém dar
+por isso. É por causa dela que os critérios 2 e 3 ficam cumpridos **à letra**.
+
+**E um `aviso` que sobreviva ao credor é erro de arranque.** Se uma validação em
+`aviso` não devolver problema nenhum de `PorLigar`, a fonte dela já existe, a
+linha do `gates.yaml` está morta, e o arranque falha a dizê-lo. É a disciplina
+do `canon/extensoes.yaml` — «uma extensão que nenhuma superfície usa falha o
+gate» — e é o que torna «fechar um aviso é apagar uma linha» uma regra imposta
+em vez de uma intenção escrita.
+
+O arranque registra uma linha por par (validação, credor), com `error_code` na
+forma `tools_kam_028`; um `aviso` que não aparecesse no registo de arranque era
+uma validação adiada em silêncio.
+
+**O que este ticket não liga, e porquê.** O `grafos=` do `ExecutorDeTurnos`
+continua a ser o `sem_grafos` que o KAM-025 lá deixou, e `/internal/turn` com
+uma invocação válida continua a responder **503**. Ligar o registo à porta hoje
+trocava um 503 (`GrafoNaoRegistadoError`) por outro 503 (o alvo de `graph` não
+resolve) e punha uma leitura de entitlement no caminho de **cada** turno, para
+nada. Pela mesma razão o `checkpointer` não chega a `compile(checkpointer=...)`:
+não há grafo que o receba. **O AGR continua a não ir a produção antes do
+KAM-031**, como o §1 de `docs/agr.md` já dizia.
+
+### Verificação do Definition of Done
+
+| Caixa | Estado | Evidência |
+|---|---|---|
+| Todos os Critérios de Aceitação satisfeitos e demonstráveis | **não satisfeito** | **Sete dos oito** satisfeitos (2 a 8); o critério **1** está `parcial`, pela inversão de dependências descrita acima — a letra dele não abre a excepção que o critério 8 do mesmo bloco abre para a validação (6), e que as (1) e (3) precisam por as fontes delas estarem em tickets que este **bloqueia**. Os critérios 2 e 3 passaram de `parcial` a satisfeito com a correcção do mecanismo do `aviso` (revisão adversarial). A caixa fica **vazia**: marcá-la com um critério `parcial` era transformar o DoD num enfeite |
+| **Isolamento de tenant:** `resolve` usa o `tenant_id` do contexto; entitlement lido sob RLS (ADR-015) | **parcial** | Primeira metade **medida**: `test_o_entitlement_le_se_com_o_tenant_do_contexto_e_o_modulo_da_vertical` — o único argumento do `resolve` é o contexto, e o par `(tenant_id, modulo)` que chega ao leitor é o dele. O `ContextoDeResolucao` tem **dois** campos e nenhum vem de texto (a invariante é do `contexto.py` do KAM-025, medida em `test_isolamento.py`). Segunda metade **não ligada**: quem lê o entitlement é a porta injectada, e em produção ninguém constrói um `AgentRegistry` porque ninguém chama `resolve`. A leitura sob RLS é do chamador. Credor **KAM-031** |
+| **Dependências:** versões fixadas; lista de bloqueio respeitada (ADR-002) | **satisfeito** | `python tools/pip_lock.py --check-offline` nos três `.in` → «coerente com os pins» nos três. O fecho do AGR passa de 43 para **46** pacotes: `langgraph==1.2.17`, `langgraph-prebuilt==1.1.1` e `langgraph-sdk==0.4.9`, os três **MIT** (lido no `license_expression` do PyPI e no `METADATA` instalado, 2026-10-25) e registados em `ci/supply-chain/licencas.yaml`. `lint_arch all` → «lista de bloqueio: conforme», «estrutura: conforme». *Gate* 11: `sbom check` → 179 componentes, **168 permitidas, 0 fora**, 0 CRITICAL; `supply_chain check` → 24 componentes registados, conforme. `langgraph_api` e `langgraph_runtime_inmem` continuam bloqueados, e agora também em *runtime* pelo SBOM |
+| **Eval-gate:** o registo é artefacto comportamental; SemVer atribuído; gate golden pendente de KAM-040, registado em `registry/gates.yaml` | **satisfeito** | `version: 1.0.0` nos três ficheiros novos, e o SemVer é **imposto** e não convenção: `test_a_versao_e_semver` recusa `1.0`, `v1.0.0`, `1.0.0-rc1` e `ultima`. O gate golden está em `registry/gates.yaml` com `credor: KAM-040` — ver o critério 8 |
+| Documentação do esquema YAML e ADRs afectados actualizados; sem TODOs órfãos | **satisfeito** | `registry/README.md` (as três formas, e porque é que apagar uma linha é que fecha um gate); `docs/agr.md` §7-B novo, mais o §1, §4 e §5 (versão 1.3); `docs/ci.md` §3 (a superfície 3 passa a ter três formas) e versão 1.54; `specs/02` §3.26 e emenda **1.35**. **ADR afectado:** `docs/adr/ADR-L001` §4 ganha nota e versão 1.2 — a premissa daquela decisão (o **custo** de acrescentar o Pydantic) caducou com o KAM-026, e o gatilho de reversão que ela própria escreveu chegou; o Starlette fica. `grep -rn "TODO\|FIXME\|XXX"` nos ficheiros novos → **0** |
+
+### Nomes, canon e provas
+
+| O que | Número |
+|---|---|
+| Emenda ao dicionário | **1.35**, §3.26 — o contrato do `AgentRegistry`, os seis nós, as **onze** tools do catálogo do Piloto (nenhuma era nome canónico: só o `enhance_image` do §3.7 o era), os quatro parâmetros proibidos, a terceira forma do registo, o `modo` com `credor`, `servico_indisponivel`, `agr_registry_denied_total`, o código de saída `5` e o `KAMBA_REGISTRY_DIR` |
+| Divergências decididas pela emenda | **três**, todas a favor da fonte mais alta: `valor_max_pedido_minor` contra o `valor_max_pedido_kz` que o §5.1 e o bloco escrevem (é a variante da emenda 1.13 — o *gate* 3b trata-a como nível 1, e um `vendedor.yaml` escrito à letra do §5.1 **não passava**); `registry/gates.yaml` contra o `gates/vendedor.yaml` dentro da vertical; e o `payment.manual_confirmed` no `servicos.yaml`, que o bloco dá como *proposta* e o §3.5 já tinha decidido |
+| *Gate* 3b | `canon_lint check` → conforme, 4 ficheiros na superfície `registo` (era 1). `canon_lint canario` → 0. Suite do `canon_lint`: **226** testes, 0 falhas, com `TestGates` (11 testes, uma negativa por regra) |
+| Testes, nas quatro naturezas que o bloco pede | Contados por `TestLoader.countTestCases()` e não à mão — três dos números desta linha estiveram errados por os ter estimado. **Unidade** `TestEsquema` (9) e `TestSeisNegativos` (29, com os seis negativos dedicados); **contrato** `TestContratoDoGrafo` (6, contra um `CompiledStateGraph` real do LangGraph); **integração** `TestResolve` (8), `TestFicheirosReais` (6) e `TestRegistoNoArranque` (5); **arquitectura** `TestArquitectura` (4). Mais `TestSbomDoAmbiente` (11), do critério 7. Suite do AGR: **280** testes, 0 falhas (eram 256 antes do ticket) |
+| As baterias que o *gate* 4 corre, todas | **as quinze** de `tools/` mais a do `py-core` (537) e a do AGR (280). É o que o *gate* 4 vermelho me ensinou a correr: tinha corrido quatro e o `sbom check` — que não é a bateria do `sbom` |
+| Prova por mutação | **18** novas, suite `agr_unit` (`services/agr/tests`, sem base de dados). `python db/mutacoes.py <venv> "registo:"` → linha de base verde, **18 corridas, 0 não apanhadas**. `python db/mutacoes.py --aplicaveis` → **725** conferidas, **0** não aplicáveis. Três das dezoito nasceram da revisão adversarial, e prendem as guardas que ela fez nascer: o `aviso` a distinguir a fonte em falta do problema real, o `aviso` morto a ser erro, e a largura das versões do SBOM |
+| Duas sobreviventes, e o que elas mostraram | A primeira corrida deu **1 sobrevivente**: `o modo aviso passa a valer para todas as validacoes`. A razão era um buraco real — nenhum teste escrevia `modo: bloqueio` **por extenso**, e os dois casos de bloqueio medidos eram ambos por *omissão*, que não passa por aquela comparação. Fechada com `test_um_modo_bloqueio_escrito_por_extenso_bloqueia`. A segunda foi de outra natureza: a mutação `a largura das versoes do SBOM deixa de se igualar`, na forma `largura = len(entrada.limiar)`, sobreviveu **por ser equivalente** — com o limiar sempre mais longo ou igual, a conta da sobra fica negativa, o `(0,) * -1` é vazio, e a comparação de tuplos de comprimentos diferentes dá o mesmo resultado. Uma mutação que não pode mudar comportamento não prova nada: passou a `min(...)`, que trunca mesmo, e é apanhada. **As duas lições são diferentes** — a primeira é um teste que faltava, a segunda é uma mutação que não servia |
+| Dois defeitos que a *self-validation* apanhou, e que teriam passado em silêncio | **(a)** O arranque punha a **prosa** do problema em `error_code`, e a *allowlist* de `docs/tecnica/08` §7.3 faz daquele campo um identificador de 96 caracteres: o campo **caía sem dizer nada**, e o arranque dizia ter registado os avisos sem registar nenhum — a própria coisa que o critério 8 existe para evitar. Corrigido com a `Adiada.codigo()` (`tools_kam_028`), medido contra o validador real (`kamba_core.logger.politica.validar`) e preso por mutação. **(b) O mais grave, e é do critério 6:** o `agr_registry_denied_total` não estava registado no `_AJUDA` de `metricas.py`, e o `MetricasDoAgr.contar` **levanta** `EtiquetaInvalida` («contador desconhecido») para uma métrica que ele não conheça. Os sete testes do `resolve` contavam contra um `MetricasEspia` e passavam; em produção o primeiro *tenant* sem plano fazia o turno rebentar. Encontrado a correr o `contar` real à mão, não por um teste. Corrigido: a métrica e os dois motivos passam a viver em `metricas.py` (o `registo/` importa-os, em vez de os redeclarar), o `_etiqueta_de` passa a dar `motivo` e não `outcome` — que é o que o dicionário §3.26 escreve —, e `test_o_alerta_conta_contra_as_metricas_reais_e_nao_so_contra_um_duplo` lê a exposição. **A lição não é sobre esta métrica: é que um duplo de métricas prova que se chamou `contar`, não que o contador existe** |
+
+### Revisão adversarial
+
+[`ANALISE-29-KAM-027-agentregistry.md`](../docs/analises/ANALISE-29-KAM-027-agentregistry.md).
+Uma passagem, com os dois instrumentos (`code-review high` e `ponytail-review`)
+e os achados numa lista só: **25 — 3 críticos, 8 importantes, 11 menores, 3
+*nice-to-have***. Veredicto: **REPROVADO**, com nove exigidos antes do *merge*.
+
+Os nove estão corrigidos, e três deles mudaram o desenho e não só o código:
+
+| # | O achado | O que mudou |
+|---|---|---|
+| 1 | `agr_registry_denied_total` não estava em `metricas.py`; o `contar` levantava, e o critério 6 estava provado contra um duplo | A métrica e os dois motivos passam a viver em `metricas.py`; o `_etiqueta_de` dá `motivo` e não `outcome`; um teste lê a exposição real. **Encontrado também pela *self-validation*, antes do relatório** |
+| 2 | O `aviso` calava a validação inteira: no dia em que o credor chegasse, um defeito real passava a aviso | A classe `PorLigar`: o `aviso` cala **só** «a fonte não existe aqui». Fez os critérios 2 e 3 passarem a satisfeitos |
+| 3 | `validar_fase` deixava passar `phase: D` com qualquer `KAMBA_FASE` ≠ `piloto` — um valor que o canon não define | `FASES_POSTERIORES`, lista **vazia**: uma vertical diferida não arranca em ambiente nenhum até a Fase C entrar por emenda |
+| 4, 5 | O `aviso` do `golden` engolia «o dataset não existe», e a prova de «apagar a linha» media a linha do `tools` | As duas metades do `golden` são `PorLigar` (são as duas do KAM-040); a prova passa a medir as **três** linhas, uma a uma |
+| 6 | A isenção do *gate* 3b prometia um teste que prendia os nós e as tools ao dicionário, e esse teste **não existia** | Existe: `test_os_seis_nos_e_as_onze_tools_batem_com_o_dicionario` |
+| 9 | O *gate* 3b aceitava um gate sem `golden`; o AGR saía com 5 em produção com o CI verde | O lint passa a exigi-lo, com negativa própria |
+| 10 | A paridade do SBOM reimplementava a comparação de versões, e divergia em dois casos | Chama o `versions.satisfies_floor` verdadeiro, 300 casos; as duas divergências têm teste com nome |
+| 11 | O `psycopg2-binary` (LGPL) não batia em entrada nenhuma, com os dois controlos calados | Entrou em `tools/blocklist.yaml` e na guarda, com ADR e evidência |
+
+Dos restantes dezesseis: os de prosa e declaração foram corrigidos no mesmo PR
+(o rasto que apontava para este ticket em `turno.py` e `__main__.py`, o
+cabeçalho do dicionário em 1.34, o comentário «duas formas» do
+`ci/canon-lint.yaml`, as dependências que o `pyproject.toml` do AGR não
+declarava, o `assert` que desaparece com `-O`, o ficheiro lido duas vezes, o
+nome de um teste que afirmava sobre o interpretador inteiro, e a `Resolucao` e
+mais três nomes que a emenda 1.35 não registava). **Dois viraram dívida
+documental**, porque são de outros donos: a lista de permitidos de
+`contexto.py` recusa a vertical `catalogo` que o KAM-118 vai precisar (linha
+**98**), e a guarda de arranque do ADR-011 em `fluxo_piloto` **não tem chamador
+em serviço nenhum** (linha **99**). Os três *nice-to-have* ficam **declarados e
+não feitos**: o `Vertical(Protocol)` com `build_graph(deps)` que a emenda
+canoniza não existe em código (nasce com o KAM-031, que é quem constrói um
+grafo), o `do_repositorio` não tem porta para o catálogo nem para o grafo (quem
+as ligar passa-as ao `AmbienteDoRegisto`, que as tem como campos), e o `resolve`
+lê entitlement por turno sem costura para cache (o `CacheDeEntitlements` do
+KAM-009 existe e entra com o chamador).
+
+**O que a revisão não correu, e diz:** bateria nenhuma — o interpretador dela
+não tinha `pydantic`, `yaml` nem `langgraph`. Todos os achados vêm de leitura do
+diff e do código ligado. Dos 25, **dois** não se confirmaram ao medir: a
+*self-validation* já tinha fechado o 1, e a mutação que a revisão inspirou para
+a largura das versões acabou por ser equivalente (ver «duas sobreviventes»).
+
+**Um defeito que só o CI soube, e a lição é sobre leitores e não sobre YAML.**
+O *gate* 7 do PR #54 abriu vermelho com
+`registry/gates.yaml: mapa em estilo de fluxo nao suportado ('{')`. Há **três**
+leitores de YAML a tocar `registry/*.yaml` — o `yamlreg` do *gate* 3b, o
+`yaml.safe_load` do AGR, e o `tools/kamba_yaml.py` dos *gates* 7, 9 e 11 — e só
+o terceiro é estrito. Os três ficheiros nasceram em estilo de fluxo, copiado à
+letra do exemplo de `docs/tecnica/02` §5.1 **e do exemplo deste próprio bloco**;
+os dois primeiros leitores leram-nos, as 62 baterias passaram, e o terceiro
+rebentou. Os três estavam quebrados, não só o primeiro: o *gate* pára no
+primeiro ficheiro por ordem alfabética.
+
+Corrigido nos ficheiros e no exemplo do bloco, com `docs/dividas-documentais.md`
+linha **100** para o §5.1, que continua a ensinar a forma que o CI recusa. E com
+o teste que faltava: `test_cada_ficheiro_do_registo_le_se_pelos_tres_leitores`
+exige que os três leiam cada ficheiro **e devolvam o mesmo documento** — um
+leitor que aceite e leia outra coisa é pior do que um que recuse.
+
+**E havia um segundo defeito atrás da falha, mais quieto.** O
+`tools/contract_diff/subscricoes.py` promete por escrito que «quando o KAM-038
+escrever o primeiro ficheiro, esta verificação começa a morder sem ninguém lhe
+tocar». Não começa: ela procura a chave `subscricoes` com `versao_max` (os nomes
+da tabela `evt_subscricoes`), e a forma da vertical tem `subscriptions` com
+`versao`. Com os ficheiros a parsear, o *gate* 7 lê **zero** subscrições das
+oito que lá estão — passaria vacuamente. Corrigido no mesmo PR, em oito linhas: o `ler`
+passa a conhecer as **duas** formas — a da tabela `evt_subscricoes`, que aquele
+ficheiro escrevera por antecipação, e a da vertical, que é a que existe no disco
+— e o *gate* 7 passa a ler **8 subscrições, 0 sem contrato**. Os dois testes que
+afirmavam `== []` e «0 subscrições declaradas» passaram a afirmar o novo número,
+e um deles tinha escrito na *docstring* «se isto falhar, o KAM-038 chegou»:
+chegou antes, e a promessa de que a verificação «começa a morder sem ninguém lhe
+tocar» era falsa.
+
+**Porque é que isto se corrigiu aqui e não se deixou ao KAM-038.** A propriedade
+já estava garantida — a validação (4) do registo confronta tipo e versão com o
+catálogo no arranque, e bloqueia. O que faltava era o controlo do **CI**, sobre
+ficheiros que este ticket acabou de criar: deixá-lo a ler zero era deixar um
+*gate* verde pela razão errada numa superfície minha.
+
+**O *gate* 4 também abriu vermelho, e a lição é sobre o que eu não corri.**
+`sbom.tests.test_gate11.TestSbom.test_o_grafo_do_lado_python_conta_as_dependencias_todas`
+afirmava, numa lista **literal**, as quatro dependências que o
+`services/agr/pyproject.toml` declarava; este ticket declarou mais três
+(`langgraph`, `pydantic`, `pyyaml`) e a lista deixou de bater. Corri o `sbom
+check` — que passou — e **não corri a bateria do `sbom`**: são coisas diferentes,
+e o *gate* 4 corre as **quinze** suites de `tools/`, mais a do `py-core` e a do
+AGR. Tinha corrido quatro.
+
+A correcção não foi reescrever a lista: foi derivá-la do `pyproject.toml` pelos
+nomes. O KAM-027 era o **segundo** ticket seguido a ter de a reescrever à mão (o
+KAM-026 acrescentou-lhe o `langgraph-checkpoint`), e uma lista literal transforma
+«o grafo está completo» — que é a invariante que o teste existe para proteger —
+em «o grafo tem estes quatro», que é um número a envelhecer. A comparação é por
+**nome** e não por `purl`: a versão vem do *lock* e é o resto daquele ficheiro
+que a verifica.
+
+**O que não se mediu, e não se diz medido.** O *gate* 8 (as *suites* contra um
+PostgreSQL real) **não corre neste ticket**: nada do que ele entrega toca a base
+— o registo são ficheiros e as validações leem constantes de módulo —, e a
+`tests_agr` não ganhou caso nenhum. O *gate* 4 (cobertura), o *gate* 1 e o
+*gate* 2 do lado Node precisam de contentor com `pnpm` e correm no CI. O
+`gate 5 — reservado` falha por desenho em todos os PRs desta linha.
+
+**Um que se mediu ao contrário do esperado:** o `lint_contagens` **corre** de
+dentro deste *worktree* e dá conforme (13 contagens vivas, 0 dívidas), chamado
+com raiz **relativa**, que é a forma que a dívida 44 nomeia. A dívida é sobre a
+chamada com raiz absoluta.
 
 ### Handoff para Claude Code
 

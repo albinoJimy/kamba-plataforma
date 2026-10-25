@@ -23,6 +23,15 @@ dependencies = [
   # KAM-026: a interface `BaseCheckpointSaver` e o serializador. O
   # `-postgres` **nao** entra: e MIT mas exige `psycopg`, LGPL.
   "langgraph-checkpoint",
+  # KAM-027: o `langgraph` (a biblioteca MIT do ADR-002) porque a validacao (3)
+  # do registo le os nos de um `CompiledStateGraph`; o `pydantic` e o `pyyaml`
+  # porque o esquema de `registry/*.yaml` e Pydantic com `extra="forbid"` e o
+  # ficheiro le-se com `yaml.safe_load`. Os dois ultimos **ja vinham** no fecho
+  # por transitividade do `langchain-core` (KAM-026) e nao estavam declarados
+  # aqui — uma dependencia que o codigo importa e dependencia, venha de onde vier.
+  "langgraph",
+  "pydantic",
+  "pyyaml",
 ]
 
 [tool.setuptools.packages.find]

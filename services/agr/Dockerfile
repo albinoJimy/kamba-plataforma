@@ -43,6 +43,13 @@ COPY --from=deps /install /usr/local
 COPY libs/py-core libs/py-core
 COPY services/agr/pyproject.toml services/agr/pyproject.toml
 COPY services/agr/src services/agr/src
+# O registo das verticais (KAM-027). E o primeiro ficheiro do repositorio que
+# um servico deste conjunto le em **execucao**, e isso e consequencia do
+# ADR-012: uma vertical e configuracao, logo tem de chegar ao processo como
+# configuracao. O `load_all` corre no arranque e sai com 5 se faltar, pelo que
+# um `COPY` esquecido aqui nao e um defeito silencioso — e um contentor que nao
+# arranca. Continua a ser `COPY` selectivo e nunca `COPY . .` (ADR-L001 §11).
+COPY registry registry
 # `nobody` existe na imagem base; nao se cria utilizador para nao fixar um UID
 # que a infraestrutura do KAM-075 possa querer escolher.
 USER nobody

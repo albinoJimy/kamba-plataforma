@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.34 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.35 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -1179,6 +1179,97 @@ bloco falam de cifra. O `SerializerProtocol` do LangGraph tem um
 
 ---
 
+### 3.26 AgentRegistry: o registo das verticais, as seis validações e o modo de um gate (KAM-027)
+
+*Emenda 1.35, **proposta**.* O `registry/` já era canónico — o §3.2 fixa
+`id ∈ {vendedor, servicos, catalogo, social, orcamento}` «no registo
+(`registry/*.yaml`)» e a emenda 1.17 pôs lá a lista fechada de planos. O que
+entra aqui são os nomes que os ficheiros das **verticais** escrevem, os **seis
+nós** que um grafo tem de ter, as **onze** tools do catálogo do Piloto e a
+terceira forma desta superfície.
+
+A fonte é `../docs/tecnica/02_Agent_Runtime_Verticais.md` §5.1 (o esquema), §5.2
+(as seis validações) e §6.2 (o catálogo de tools), com o ADR-012 (verticais como
+configuração) e o ADR-011 (`phase: D` fora de produção no Piloto).
+
+**`valor_max_pedido_kz` não entra, e isto é uma correcção ao desenho.** O
+exemplo de `../docs/tecnica/02` §5.1 e os *Detalhes Técnicos* do bloco do
+KAM-027 escrevem `limites: [msgs_ai_mes, valor_max_pedido_kz]`. A emenda 1.13
+registou `valor_max_pedido_kz` como **variante** que este dicionário substitui
+por `valor_max_pedido_minor`, pelo que o *gate* 3b o trata como achado de nível
+1 — falha sempre, e um `registry/vendedor.yaml` escrito à letra do §5.1 **não
+passava**. O próprio bloco previa a resolução («a divergência nominal resolve-se
+com o KAM-009, e unidades em *minor*»), e o KAM-009 está feito: a chave canónica
+é `valor_max_pedido_minor`. Fonte 3 sobre fontes 6 e 7.
+
+**`registry/gates.yaml` é a terceira forma desta superfície, e as duas fontes
+discordavam.** O §5.1 põe o gate dentro da vertical
+(`golden: { dataset, gate: "gates/vendedor.yaml" }`); o critério 8 do bloco
+manda registá-lo em `registry/gates.yaml`. Resolve-se a favor do bloco (fonte 6
+sobre fonte 7): a vertical mantém o `golden` que o §5.1 lhe dá, com o
+**dataset**, e o `registry/gates.yaml` leva o **modo** de cada validação. A
+duplicação do caminho do dataset nos dois ficheiros não fica à solta — o
+`load_all` exige que coincidam e recusa o registo se não coincidirem.
+
+**O `servicos.yaml` subscreve os dois eventos de pagamento, e isso já era
+canónico.** O bloco dá o `payment.manual_confirmed` como *proposta* a confirmar
+no KAM-038; a linha «Evento do gate da Fase 0» do §3.5 já o decidiu por
+extenso, e o *gate* 3b já impõe a regra («quem não distingue os dois caminhos
+subscreve os dois»). Não é decisão deste ticket: é cumprimento.
+
+| Conceito | Nome canónico | Substitui | Nota |
+|---|---|---|---|
+| Registo de verticais | `AgentRegistry` | — | Já nomeado em `../docs/tecnica/00` §4 (REG) e no ADR-012 como costura definitiva. Vive no AGR e não em `libs/py-core`: é o único serviço que o constrói e o lê, a mesma razão escrita no `estado.py` do KAM-025 |
+| Carregamento e validação no arranque | `load_all` | — | Corre as **seis** validações do §5.2 e falha o arranque. Em inglês porque é o nome do contrato do §5.2, como `resolve` e `build_graph` |
+| Resolução por contexto | `resolve` | — | Por `ctx.vertical` **e** entitlement activo do tenant. Uma só vertical principal por número no Piloto: não agrega, não encaminha |
+| Contrato de uma vertical | `Vertical`, com `build_graph(deps)` | «persona» como sinónimo de vertical (§3.2) | `Protocol`. O `deps` injecta ToolLayer, LLM, HND e Outbound — nenhum existe neste ticket, e por isso o grafo constrói-se fora dele |
+| Nós obrigatórios de um grafo | `ingest`, `guard_in`, `validate`, `guard_out`, `send`, `handoff_wait` | — | Validação (3) do §5.2. São **nós partilhados** (§5.4, «Regra de dois»), não da vertical; o `handoff_wait` é o `handoff_*` do §5.4 que suspende no `interrupt()` |
+| Terceira forma do registo | `registry/gates.yaml`, chave de topo `gates` | `gates/vendedor.yaml` (`../docs/tecnica/02` §5.1) | As outras duas são a vertical (chave `id`) e os planos (chave `plans`). O *gate* 3b distingue-as pela chave de topo e nunca pelo nome do ficheiro |
+| Modo de uma validação | `modo` ∈ {`aviso`, `bloqueio`}, com `credor` | — | O §5.1 e o exemplo do bloco escrevem `warn` e `block`, e **não** se registam como variantes: são duas palavras inglesas correntes, e pô-las na coluna «Substitui» fazia de qualquer `warn` em prosa um achado de nível 1 em todo o conjunto — a lição do ADR-L001 §10 («um gate que bloqueia o que ninguém escolheu é um gate que alguém acaba por desligar»). Quem as recusa é a lista fechada do `registry/gates.yaml`, onde elas importam. `bloqueio` é a omissão: uma validação que o ficheiro não nomeie **falha fechada**. Um `modo: aviso` sem `credor` é recusado — um atalho sem o ticket que o fecha não é atalho |
+| As seis validações, por nome | `tools`, `entitlements`, `grafo`, `subscriptions`, `fase`, `golden` | — | A ordem é a do §5.2. Lista fechada no código: um nome a mais em `registry/gates.yaml` é recusado, senão um `tool` escrito por `tools` desligava a validação em silêncio |
+| Tool de pesquisa no catálogo | `search_catalog` (tool search_catalog) | — | `../docs/tecnica/02` §6.2, classe `read`. Vendedor. As especificações são do KAM-028 e do KAM-031; o que entra aqui é o **nome** |
+| Tool de preço e stock | `get_price_stock` (tool get_price_stock) | — | §6.2, `read`. Vendedor. Devolve *facts* `price` e `stock` |
+| Tool de proposta de carrinho | `propose_cart` (tool propose_cart) | — | §6.2, `read`. Vendedor. Devolve `cart_id` e o *fact* do total; sem efeitos |
+| Tool de criação de pedido | `criar_pedido` (tool criar_pedido) | — | §6.2, classe `money`, botão `confirm:{cart_id}`. Vendedor. O único nome do catálogo em português, como o §6.2 o escreve |
+| Tool de estado de pedido | `get_order_status` (tool get_order_status) | — | §6.2, `read`. Vendedor. Só encomendas do **próprio** contacto |
+| Tool de informação da loja | `get_store_info` (tool get_store_info) | — | §6.2, `read`. **Nas duas verticais** — é a primeira tool real do KAM-028 |
+| Tool de lista de serviços | `list_services` (tool list_services) | — | §6.2, `read`. Serviços |
+| Tool de disponibilidade | `get_availability` (tool get_availability) | — | §6.2, `read`. Serviços. Devolve *slots* como *facts* `datetime` |
+| Tool de marcação | `book_slot` (tool book_slot) | — | §6.2, classe `write`, botão `confirm:{hold_id}`. Serviços |
+| Tool de cancelamento de marcação | `cancel_booking` (tool cancel_booking) | — | §6.2, `write`, botão. Serviços |
+| Tool de reagendamento | `reschedule_booking` (tool reschedule_booking) | — | §6.2, `write`, botão. Serviços. Atómica (cancela e marca) |
+| Parâmetros proibidos no esquema visível ao modelo | `tenant_id`, `merchant_id`, `seller`, `account` | — | Lista **fechada** e de **proibidos**, ao contrário do resto deste documento: são os quatro que o critério 2 do KAM-027 e o critério 3 do KAM-028 nomeiam. O `tenant_id` é nome canónico (§3.1) e é precisamente por isso que não pode chegar ao modelo (ADR-002, ADR-015) |
+| O que `resolve` devolve | `Resolucao`, com `vertical`, `resposta` e `motivo` | — | Exactamente **um** dos dois lados vem preenchido. O §5.2 escreve `resolve(ctx) -> Vertical`, e um `Vertical` não tem onde levar a resposta estática que o critério 6 pede; levantar uma excepção punha o caminho normal de um tenant sem plano a passar por um `except`, e é assim que uma recusa prevista deixa de se distinguir de um defeito |
+| Classe de problema que um `aviso` pode calar | `PorLigar` | — | «A fonte que esta validação confronta não existe neste repositório.» É a **única** classe que o `modo: aviso` cala; qualquer outro problema bloqueia o arranque seja qual for o modo. Sem a distinção, no dia em que o credor chegasse a linha do `gates.yaml` sobrevivia e um defeito real passava a aviso — e um `aviso` que sobrevive ao credor é, ele próprio, erro de arranque |
+| Validação adiada, no registo de arranque | `Adiada`, com `validacao`, `vertical` e `credor` | — | O `error_code` é `<validacao>_<credor em minúsculas, com `_`>`: `tools_kam_028`. **Não leva o texto do problema:** o `error_code` da *allowlist* de `../docs/tecnica/08` §7.3 é um identificador de 96 caracteres, e uma frase ali **cai em silêncio** — o arranque dizia ter registado os avisos e não registava nenhum |
+| Fases em que uma vertical `phase: D` pode correr | `FASES_POSTERIORES`, **lista vazia** | — | O canon define **um** valor para `KAMBA_FASE`: `piloto`. Uma vertical diferida não arranca em ambiente nenhum até a Fase C entrar aqui por emenda. Ler «≠ `piloto`» como «já se pode» era inventar canon, e punha o `assistente` em produção com um `KAMBA_FASE` escrito por engano (ADR-011) |
+| Resposta sem entitlement activo | `servico_indisponivel` | — | O identificador da resposta estática do critério 6, não o texto. O texto ao cliente é português de Angola e vive no `compose` (KAM-033); um identificador é o que cabe num `error_code` da *allowlist* de `../docs/tecnica/08` §7.3 |
+| Métrica das resoluções negadas | `agr_registry_denied_total` | — | Etiqueta `motivo` ∈ {`sem_entitlement`, `vertical_desconhecida`}, lista fechada. **Nunca `tenant_id`** (`../docs/seguranca/ameacas_stride.md`, `OBS-I`): a gramática de etiqueta de `metricas.py` recusa-o pela forma |
+| Código de saída de registo inválido | `5` | — | Próprio, pela razão escrita no §3.25 e no `__main__.py`: o `2` é configuração inválida, o `3` a guarda do ADR-002, o `4` a falta de checkpointer. Num painel, «o AGR não arranca» sem dizer porquê não se diagnostica |
+| Directório do registo | `KAMBA_REGISTRY_DIR` | — | Omissão `registry`, relativa ao directório de trabalho do processo. A forma `KAMBA_*` é a do §3.9 e do §3.11. É o primeiro ficheiro do repositório que um serviço lê em execução, e por isso entra no `Dockerfile` do AGR por `COPY` |
+
+**A validação (6) nasce em `aviso`, e está escrito em três sítios.** O critério 8
+do bloco di-lo: o *gate* do *golden* corre em modo aviso até o KAM-040 existir, e
+passa a bloqueante quando ele ficar `Done`. Não é a única: a (1) precisa do
+catálogo da ToolLayer, que é o KAM-028, e a (3) precisa de um grafo compilado,
+que é o KAM-031 e o KAM-035. As três ficam em `aviso` com o seu `credor` nomeado
+em `registry/gates.yaml`; as outras três — `entitlements` contra o
+`CHAVES_DE_LIMITE` do TEN, `subscriptions` contra o `CATALOGO` de
+`kamba_core.eventos.contratos`, e `fase` contra o `KAMBA_FASE` de
+`fluxo_piloto` — correm em `bloqueio` desde já, porque as fontes **existem**.
+
+**O que esta emenda não decide.** O nome do módulo que constrói cada grafo. O
+§5.1 escreve `graph: kamba.verticals.vendedor:build_graph`, e esse caminho não
+existe nem pode existir: o pacote chama-se `kamba_agr` e o KAM-025 já decidiu,
+por extenso, que o que é só do AGR vive nele. Os ficheiros das verticais levam
+`kamba_agr.verticais.<id>:build_graph` como ***proposta***, e quem o ratifica é
+o ticket que escreve o módulo (KAM-031 para o Vendedor, KAM-035 para Serviços).
+Enquanto não existir, a validação (3) está em `aviso` e o alvo não resolve — que
+é a razão pela qual `resolve` não devolve grafo nenhum e o `/internal/turn`
+continua a responder 503.
+
+---
+
 ## 4. Itens que continuam por decidir
 
 | Item | Estado | Ticket |
@@ -1234,3 +1325,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.32 | Outubro 2026 | **Emenda (*proposta*), KAM-115.** §3.23: as **duas** tabelas da revisão `0019` — a `platform.owner_contacts` (**onze** colunas, e o bloco do ticket não nomeia nenhuma) e a `platform.owner_notices` (**treze**, contra as oito do bloco) —, e são duas e não uma porque o critério 7 manda marcar o **contacto** como inválido: com uma tabela só, a invalidação vivia na última linha de aviso e «este dono tem contacto válido?» passava a ser uma consulta sobre o histórico de envios em vez de um facto. Entram também o domínio **qualificado** de `owner_notices.gatilho` (**cinco** valores — o gatilho é a *situação* e não o tipo do evento, e os **seis** motivos de `PARTNER_REMOVED` são um gatilho só, com o motivo no `episodio`), o de `owner_notices.canal` (**dois**, e o WhatsApp não é um deles — é o ticket inteiro), o de `owner_contacts.canal` (**um**, e o `sms` **não** se pré-declara: é o KAM-116), os dois domínios de motivo — **quatro** na falha do aviso e **dois** na invalidez do contacto, porque um fornecedor em baixo não diz nada sobre o endereço —, a `chave` de idempotência com o *tenant* dentro do resumo, o `lembrete` de 0 a 2 **no `CHECK`**, os três limites de frequência, os dois atrasos de lembrete, a lista branca de quatro parâmetros, a máscara do nome da loja e as **cinco** métricas. **O `owner_notices` sai do §3.8**, onde estava pré-declarado desde a redacção do epic: é o mesmo percurso do `token_ref` na 1.22 e do `waac_id` na 1.30, e o lint recusa a redundância. **Quatro decisões que saíram de medição.** (1) O `criado_at` é escrito pelo **relógio de quem chama** e não pelo `now()` do servidor: os dois limites e os lembretes medem-se dele, e com o servidor a escrevê-lo o relógio acelerado dos ensaios media uma coisa e a base registava outra — a varredura dos lembretes não via episódio nenhum. É a razão do `prazo_em` da `0018`. (2) A **janela do gatilho avalia-se antes do tecto diário**: com o tecto primeiro, três episódios do mesmo gatilho gastavam o dia todo e os outros quatro calavam-se. (3) A unicidade leva o `lembrete` **e** o `canal`: sem o primeiro, o critério 4 era impossível (um lembrete é um segundo aviso do mesmo episódio); sem o segundo, o aviso não podia sair pelos dois canais, que é o objectivo do ticket. (4) **Não há estado `suprimido`**: um aviso recusado por um limite não escreve linha, porque escrevê-la era inventar um aviso que não houve e fazer o próprio limite ter de distinguir os que contam. **O que esta emenda não decide:** o alvo de ≥ 95% dos *tenants* `ativo` com contacto verificado, que é medição sobre *tenants* reais e **fica por marcar** (a métrica e a varredura estão entregues); o fornecedor de e-mail no inventário de subprocessadores, que fica `pendente` e bloqueia `prod` por desenho (KAM-069, ADR-008); o adaptador SMS (KAM-116); a captação do e-mail e a entrega da ligação de confirmação (KAM-086); e a base legal do contacto do dono (KAM-104). | Equipa KAMBÁ |
 | 1.33 | Outubro 2026 | **Emenda (*proposta*), KAM-025, e entra sem DDL.** §3.24: a API interna do AGR (`/internal/turn`, `/internal/resume`, o cabeçalho `x-kamba-interno` e o segredo `agr_internal_token`), a chave da tranca por conversa — um `pg_advisory_lock` de **sessão**, cuja chave **colide de propósito** com a do `pg_advisory_xact_lock` dos modos (§3.20), medido contra a base —, os quatro tectos por variável de ambiente (**proposta**, zero = sem limite), e as **seis** métricas do AGR mais as **duas** do *shim*. **Resolve a lacuna que o §3.13 deixou por escrito:** o `turn_id` é o `wamid` e fica **derivado**, não campo — o contrato `agent_invocation` mantém nove campos. **A cadeia de migrações fica na `0019`:** este ticket não cria tabela nenhuma, e a tranca não tem tabela. **Uma caixa do DoD fica por marcar e está dito onde:** o `agr_degraded_turns_total` pertence ao AGR e nasce com o KAM-037, pela razão que a emenda 1.29 escreveu para o `echo_latency_ms` — uma métrica sempre a zero afirma o que ninguém mediu. As duas decisões que o bloco do ticket manda registar estão em `../docs/adr/ADR-L004-fila-e-tranca-do-agr.md`, com as opções que se pesaram e o que faria rever cada uma. | Equipa KAMBÁ |
 | 1.34 | Outubro 2026 | **Emenda (*proposta*), KAM-026.** §3.25: o papel `kamba_agr` — o **segundo** papel do AGR, `NOBYPASSRLS` e **sem `USAGE` no `platform`** —, a palavra-passe `db_agr_password` (obrigatória nos três ambientes: sem ela o AGR não arranca), e as duas tabelas da revisão `0020`, a `lg.checkpoints` (**oito** colunas) e a `lg.checkpoint_writes` (**nove**). As colunas são o `CheckpointTuple` do `BaseCheckpointSaver`, não um desenho nosso. **Duas tabelas e não três:** o *saver* oficial separa os valores dos canais num `checkpoint_blobs`, e com a janela recortada o estado é pequeno — o custo é não suportar canais `DeltaChannel`, e está escrito na revisão. **O `channel` fica em inglês** porque `canal` já é o canal de WhatsApp (§3.6). **Dois discriminadores de serializador** (`type` e `metadata_type`) porque o tipo do *checkpoint* não é garantidamente o dos metadados. **O pacote que o canon nomeava não entra:** o `langgraph-checkpoint-postgres` é MIT mas exige `psycopg` e `psycopg-pool`, LGPL-3.0-only, que o `ci/licenses.yaml` nega — entra só o `langgraph-checkpoint` (interface e serializador) e o SQL é nosso sobre `pg8000`; o `E4` §2.6 fica corrigido. **A RLS não se aplica** a estas tabelas, que não têm `tenant_id`: o isolamento é o prefixo do `thread_id`, o papel sem `USAGE` e o ensaio cruzado, e isso é a decisão que o bloco manda registar. **O que não decide:** os dois prazos de retenção do canon (30 dias de inactividade no §12 contra 90 após o fecho no `08` §7.1, e «fecho de conversa» não está definido em sítio nenhum), e a cifra do conteúdo do `lg` que o `06` §7.6.2 pressupõe e o §12 não nomeia. | Equipa KAMBÁ |
+| 1.35 | Outubro 2026 | **Emenda (*proposta*), KAM-027.** §3.26: os nomes do `AgentRegistry` — o contrato (`load_all`, `resolve`, `Vertical`, `build_graph`), os **seis** nos obrigatorios de um grafo, as **onze** tools do catalogo do Piloto (`../docs/tecnica/02` §6.2, que nenhuma linha deste documento nomeava: so o `enhance_image` do §3.7 era tool canonica), os quatro parametros proibidos no esquema visivel ao modelo, a `registry/gates.yaml` como **terceira forma** da superficie do registo, o `modo` de uma validacao com o seu `credor`, a resposta `servico_indisponivel`, a metrica `agr_registry_denied_total`, o codigo de saida `5` e o `KAMBA_REGISTRY_DIR`. **A revisao adversarial acrescentou quatro nomes**, e os quatro saem de defeitos que ela encontrou: a `Resolucao` (que o §5.2 nao tem, e sem a qual a resposta estatica do critero 6 nao cabe no retorno), o `PorLigar` (a unica classe de problema que um `aviso` pode calar — sem ela, no dia em que o credor chegasse a linha do `gates.yaml` engolia um defeito real), a `Adiada` (cujo `error_code` tem de ser um identificador, porque a *allowlist* de logs deixava a prosa cair em silencio) e as `FASES_POSTERIORES` **vazias** (ler «≠ piloto» como «ja se pode» punha o `assistente` em producao com um `KAMBA_FASE` escrito por engano). **Decide tres divergencias**, todas a favor de fontes mais altas: `valor_max_pedido_minor` contra o `valor_max_pedido_kz` que o §5.1 e o bloco escrevem (a variante da emenda 1.13 falharia o *gate* 3b no nivel 1); `registry/gates.yaml` contra o `gates/vendedor.yaml` dentro da vertical; e o `payment.manual_confirmed` no `servicos.yaml`, que o bloco da como *proposta* e a linha «Evento do gate da Fase 0» do §3.5 ja tinha decidido. | Equipa KAMBÁ |
