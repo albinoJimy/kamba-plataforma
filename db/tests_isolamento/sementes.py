@@ -981,7 +981,17 @@ RECEITAS: dict[tuple[str, str], Receita] = {
 #: `db/tests/test_auditoria.py::TestIsolamento`, que faz as mesmas perguntas
 #: do X-04 (escrever no tenant de outro, escrever a cadeia de plataforma) sem
 #: precisar de apagar nada.
-SEM_RECEITA_COM_RAZAO = {("platform", "audit_heads"), ("platform", "audit_log")}
+#: A `tool_audit` junta-se-lhes pela razao da `audit_log`, e so por essa
+#: (KAM-028): tem RLS e politica `tenant_iso`, e e *append-only* por um
+#: *trigger* `ENABLE ALWAYS` que recusa o `DELETE` com que estas receitas
+#: limpam. O isolamento dela prova-se em `db/tests_agr/test_tool_audit.py`, que
+#: faz as perguntas do X-04 — ler e escrever no tenant de outro, e sem contexto
+#: nenhum — sem precisar de apagar linha nenhuma.
+SEM_RECEITA_COM_RAZAO = {
+    ("platform", "audit_heads"),
+    ("platform", "audit_log"),
+    ("platform", "tool_audit"),
+}
 
 #: `tenants` primeiro: as outras referenciam-na. Depois, pela ordem das FK. As
 #: de eventos nao tem FK para nada (o `agregado_id` e uma referencia logica, por

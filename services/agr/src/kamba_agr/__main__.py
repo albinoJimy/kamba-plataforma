@@ -65,9 +65,13 @@ from .metricas import METRICAS
 from .ligacao import (
     ligar_para_checkpoint,
     ligar_para_leitura,
+    ligar_para_tools,
     ligar_para_tranca,
 )
 from .meta import DEFAULT_PORT, SERVICE
+from .tls import auditoria as tls_auditoria
+from .tls.camada import ToolLayer
+from .tls.catalogo import catalogo_do_piloto
 from .trancas import TrancaDeConversas
 from .turno import ExecutorDeTurnos, sem_grafos
 
@@ -90,6 +94,15 @@ SAIDA_SEM_CHECKPOINTER = 4
 #: diferente — o `.env`, a imagem, o cofre da base, e `registry/`.
 SAIDA_REGISTO_INVALIDO = 5
 
+#: Codigo de saida sem auditoria de tools (KAM-028, critero 5).
+#:
+#: O quinto, pela mesma razao escrita acima: `2` configuracao, `3` guarda do
+#: ADR-002, `4` sem checkpointer, `5` registo invalido, `6` sem auditoria. Um
+#: AGR que arrancasse sem poder escrever `tool_audit` corria tools `money` sem
+#: registo, que e o oposto do ADR-015 — e descobria-o no passo 7, **depois** de
+#: o efeito ter acontecido.
+SAIDA_SEM_AUDITORIA = 6
+
 #: A variavel que diz o ambiente do cofre. A mesma do `entrada.ts` e do
 #: `chaves.ts`; `dev` por omissao, e um valor fora dos tres **levanta** em vez
 #: de cair em `dev` — um `KAMBA_ENV=producao` a servir segredos de `dev` e o
@@ -107,9 +120,9 @@ def _ambiente(ambiente: dict[str, str] | None = None) -> str:
 
 
 def _fechar_as_tomadas(
-    trancas: Any, checkpointer: Any
+    trancas: Any, checkpointer: Any, tools: Any = None
 ) -> Callable[[], Awaitable[None]]:
-    """O que o `lifespan` corre no `SIGTERM`: fecha as duas, pela ordem.
+    """O que o `lifespan` corre no `SIGTERM`: fecha-as, pela ordem.
 
     O checkpointer depois das trancas: um turno a meio larga a tranca e **ja
     gravou** o que tinha a gravar, pelo que fechar a gravacao primeiro era
@@ -128,6 +141,14 @@ def _fechar_as_tomadas(
 
     async def fechar() -> None:
         await trancas.fechar()
+        # As tomadas da ToolLayer **antes** do checkpointer e depois das
+        # trancas, pela mesma razao da ordem que ja estava: um turno a meio
+        # larga a tranca, acaba as invocacoes que tinha em curso, e so depois
+        # grava. A primeira versao do KAM-028 nao as fechava — eram as unicas
+        # tomadas do processo que ficavam ao servidor para limpar. Apanhado pela
+        # revisao adversarial.
+        if tools is not None:
+            await tools.fechar()
         checkpointer.fechar()
 
     return fechar
@@ -188,17 +209,30 @@ def main() -> int:
     # registo**, e nao o directorio de trabalho: assim um `KAMBA_REGISTRY_DIR`
     # absoluto move as duas coisas juntas. Duas raizes independentes eram um
     # registo lido de um sitio e um golden procurado noutro.
+    #
+    # **O catalogo da ToolLayer entra aqui, e e isso que fecha a validacao (1)**
+    # (KAM-028). O `registry/gates.yaml` ja nao tem a linha `tools: { modo:
+    # aviso }`: a validacao corre em `bloqueio`, confronta as onze tools que as
+    # duas verticais declaram contra este catalogo, e recusa o arranque se
+    # alguma nao existir ou se alguma expuser `tenant_id`, `merchant_id`,
+    # `seller` ou `account` no esquema que o modelo ve.
+    #
+    # E a **mesma** instancia que a camada usa, mais abaixo. Duas instancias
+    # eram duas listas de tools a poder divergir, com a validacao a conferir uma
+    # e o `invoke` a executar a outra.
     pasta = registo.directorio_do_registo()
+    catalogo = catalogo_do_piloto()
     try:
         _, _, adiadas = registo.carregar(
-            registo.AmbienteDoRegisto.do_repositorio(pasta.parent), pasta
+            registo.AmbienteDoRegisto.do_repositorio(pasta.parent, catalogo=catalogo),
+            pasta,
         )
     except (registo.RegistoInvalidoError, registo.FicheiroIlegivelError) as exc:
         log.excepcao(exc, "registo_invalido")
         return SAIDA_REGISTO_INVALIDO
 
-    # As validacoes em modo `aviso` — as que esperam por KAM-028, KAM-031,
-    # KAM-035 e KAM-040 (`registry/gates.yaml`). Um `aviso` que nao aparece no
+    # As validacoes em modo `aviso` — as que esperam por KAM-031, KAM-035 e
+    # KAM-040 (`registry/gates.yaml`). A do KAM-028 saiu: o catalogo existe. Um `aviso` que nao aparece no
     # registo de arranque e uma validacao adiada em silencio, que e o que o
     # critero 8 existe para fechar.
     #
@@ -236,6 +270,55 @@ def main() -> int:
         log.excepcao(exc, "checkpointer_indisponivel")
         return SAIDA_SEM_CHECKPOINTER
 
+    # **Sem auditoria de tools o AGR nao arranca** (KAM-028, critero 5). A
+    # guarda e a mesma ideia da do checkpointer, pela mesma razao: o passo 7 do
+    # `docs/tecnica/02` §6.1 corre **depois** da chamada ao backend, pelo que um
+    # privilegio em falta so se descobre com um efeito de `money` ja feito e sem
+    # registo. Confirma-se no arranque e **nao se escreve nada** — a tabela e
+    # *append-only* e uma linha de ensaio ficava la a contar como invocacao numa
+    # tabela cuja cobertura e critero de aceitacao.
+    try:
+        ligacao_das_tools = ligar_para_tools()
+        tls_auditoria.confirmar(ligacao_das_tools)
+        ligacao_das_tools.close()
+    except Exception as exc:  # noqa: BLE001 — qualquer falha aborta o arranque
+        log.excepcao(exc, "auditoria_de_tools_indisponivel")
+        return SAIDA_SEM_AUDITORIA
+
+    # A camada constroi-se **aqui** e nao no grafo, por duas razoes.
+    #
+    # Os tectos do §6.5 e os numeros do disjuntor lem-se do ambiente ao
+    # construir, e levantam num valor que nao serve: construida no arranque, um
+    # `KAMBA_TLS_TIMEOUT_READ_MS=dois` e codigo de saida `2` ao subir, e nao uma
+    # excepcao a meio da primeira conversa. E o disjuntor conta falhas
+    # **consecutivas por backend**, que e estado do processo: uma instancia por
+    # grafo construido dava a cada vertical um contador proprio, e dois
+    # contadores a metade do caminho nunca abrem.
+    #
+    # A tomada abre-se a primeira invocacao e nao agora: a do arranque fechou-se
+    # acima, e uma ligacao guardada daqui ate ao primeiro turno e uma ligacao
+    # que o servidor pode ter fechado entretanto.
+    #
+    # **Quem a invoca e o grafo, que e o KAM-031 e o KAM-035**: e esta instancia
+    # que o `build_graph(deps)` do §5.2 recebe. Ate la nada a chama — o
+    # `/internal/turn` responde 503 — e o que ela faz pelo arranque e o que esta
+    # escrito acima.
+    tools = ToolLayer(catalogo, abrir_ligacao=ligar_para_tools, metricas=METRICAS)
+    # **O `error_code` tem forma, e esta linha nao a tinha.** A *allowlist* do
+    # `docs/tecnica/08` §7.3 aceita uma sequencia de palavras com ate tres
+    # digitos no fim de cada uma (`http_404`, `sha256`), e
+    # `ligadas_1_de_11_read_2000ms` nao casa — o `2000ms` e digitos seguidos de
+    # letras. Em modo normal a linha saia **sem** `error_code` e contava
+    # `log_field_rejected_total`; com `KAMBA_LOG_ESTRITO=1` levantava
+    # `CampoRejeitado` e o `main()` abortava. Apanhado pela revisao adversarial.
+    #
+    # Os tectos nao vao nesta linha: quem os quer le-os do ambiente, e o que
+    # aqui importa e quantas tools respondem.
+    log.info(
+        outcome="toollayer_pronta",
+        error_code=f"ligadas_{len(catalogo.ligadas())}_de_{len(catalogo.nomes())}",
+    )
+
     admissao = Admissao(tectos=tectos)
     trancas = TrancaDeConversas(ligar_para_tranca)
     executor = ExecutorDeTurnos(
@@ -271,7 +354,7 @@ def main() -> int:
         # esta linha dizia: aquele entregou o registo e nao um grafo, e nao ha
         # `compile` nenhum sem grafo. Aqui o checkpointer serve a guarda do
         # arranque e o encerramento, e nada mais.
-        ao_encerrar=_fechar_as_tomadas(trancas, checkpointer),
+        ao_encerrar=_fechar_as_tomadas(trancas, checkpointer, tools),
     )
 
     # O anfitriao e a porta nao estao na *allowlist* de `docs/tecnica/08` §7.3.

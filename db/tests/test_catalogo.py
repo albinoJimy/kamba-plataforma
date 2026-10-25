@@ -153,7 +153,13 @@ class TestConvencoes(ComBase):
         # `kamba_app` escreve em `audit_log` e **nao le**, pelo que nenhum
         # papel sujeito a RLS ve esta coluna; e a ordem de insercao e o que
         # torna a cadeia de hash verificavel de cima a baixo.
-        por_identidade = {"events_outbox", "events_dlq", "audit_log"}
+        # KAM-028: a quarta, e a razao e exactamente a do `audit_log` — o
+        # `kamba_app` escreve na `tool_audit` e **nao le** (so o `kamba_audit`
+        # e o `kamba_batch` lem), pelo que nenhum papel sujeito a RLS ve esta
+        # coluna. E a ordem de insercao e o que torna a cobertura do critero 5
+        # ponderavel: «uma linha por invocacao `write`/`money`» le-se seguindo
+        # o `id`, nao adivinhando por `ts`.
+        por_identidade = {"events_outbox", "events_dlq", "audit_log", "tool_audit"}
         linhas = self.consultar(
             "SELECT table_name, data_type, column_default FROM information_schema.columns "
             "WHERE table_schema = 'platform' AND column_name = 'id'"
@@ -239,18 +245,26 @@ class TestConvencoes(ComBase):
                     self.assertEqual(tipo, "uuid")
                     self.assertEqual(omissao, "gen_random_uuid()")
 
-    def test_as_colunas_de_identidade_sao_as_tres_declaradas(self) -> None:
+    def test_as_colunas_de_identidade_sao_as_declaradas(self) -> None:
         """Uma `GENERATED AS IDENTITY` a mais era uma chave sequencial nova.
 
         Chaves sequenciais vazam volume (quantos pedidos tem o vizinho) e por
-        isso o dicionario §2 manda `uuid`. Sao **tres** as excepcoes, e as tres
-        tem a mesma propriedade: nenhum papel sujeito a RLS le a coluna. O
-        outbox porque a tabela nao e exposta a nenhum tenant e a ordem e o que o
-        publicador precisa; a `events_dlq` porque `kamba_app` tem so `INSERT`
-        nela e quem a le e a operacao (KAM-006, §6.4); e a `audit_log`
+        isso o dicionario §2 manda `uuid`. Sao **quatro** as excepcoes, e as
+        quatro tem a mesma propriedade: nenhum papel sujeito a RLS le a coluna.
+        O outbox porque a tabela nao e exposta a nenhum tenant e a ordem e o que
+        o publicador precisa; a `events_dlq` porque `kamba_app` tem so `INSERT`
+        nela e quem a le e a operacao (KAM-006, §6.4); a `audit_log`
         (KAM-012) pela mesma razao com mais forca — o `kamba_app` **escreve e
         nao le**, e a ordem de insercao e o que torna a cadeia de hash
-        verificavel por quem a le de cima a baixo.
+        verificavel por quem a le de cima a baixo; e a `tool_audit` (KAM-028)
+        pela razao da `audit_log`, com a cobertura do critero 5 em vez da
+        cadeia.
+
+        **O nome deste teste nao leva o numero, e isso e deliberado.** Levava —
+        `..._sao_as_tres_declaradas` — e cada tabela nova obrigava a renomear um
+        teste cujo proposito nao mudou. E a licao que o KAM-027 escreveu para as
+        listas literais: um numero no nome transforma «as excepcoes sao as
+        declaradas», que e a invariante, em «as excepcoes sao tres».
         """
         linhas = self.consultar(
             "SELECT c.relname::text, a.attname::text, a.attidentity "
@@ -261,7 +275,7 @@ class TestConvencoes(ComBase):
         self.assertEqual(
             linhas,
             [("audit_log", "id", "a"), ("events_dlq", "id", "a"),
-             ("events_outbox", "id", "a")],
+             ("events_outbox", "id", "a"), ("tool_audit", "id", "a")],
         )
 
     def test_as_chaves_primarias_sao_as_declaradas(self) -> None:
@@ -448,6 +462,10 @@ class TestConvencoes(ComBase):
                 ("tenant_usage", "periodo", "date", None),
                 ("tenant_usage", "tenant_id", "uuid", None),
                 ("tenants", "id", "uuid", "gen_random_uuid()"),
+                # KAM-028: de identidade, como a de `audit_log` e pela mesma
+                # razao — `kamba_app` escreve e **nao le**, pelo que nenhum
+                # papel sujeito a RLS ve esta coluna.
+                ("tool_audit", "id", "bigint", None),
                 ("unrouted_events", "id", "uuid", "gen_random_uuid()"),
                 ("usage_ledger", "chave_limite", "text", None),
                 ("usage_ledger", "idempotency_key", "text", None),
@@ -612,7 +630,14 @@ class TestConvencoes(ComBase):
              # `consent_texts` **nao** esta aqui e nao e esquecimento: nao tem
              # `tenant_id`, porque um aviso de privacidade e um texto juridico
              # de plataforma e nao dado de tenant.
-             "consent_event"},
+             "consent_event",
+             # KAM-028. A `tool_audit` nao satisfaz a convencao de graca — a
+             # chave primaria e o `id` de identidade — e levou indice proprio,
+             # `(tenant_id, id)`. A segunda coluna e o `id` e nao o `ts`: toda
+             # a leitura desta tabela e «as invocacoes deste tenant, por
+             # ordem», e o `ts` tem empates (varias invocacoes no mesmo turno,
+             # no mesmo milissegundo) enquanto o `id` nao.
+             "tool_audit"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):

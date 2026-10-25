@@ -945,6 +945,75 @@ INVENTARIO = {
         "entregue_at": ("timestamp with time zone", SIM, None, "nao"),
         "actualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
     },
+    # KAM-028, revisao 0021. O registo de **todas** as invocacoes da ToolLayer.
+    #
+    # **Vinte colunas e nenhuma guarda texto do cliente**, que e o critero 5 do
+    # bloco e o `docs/tecnica/08` §6. As tres que poderiam e nao guardam:
+    #
+    #   args_hash      a impressao da chamada, 32 octetos. Nao e reversivel, e
+    #                  e por isso que serve: diz «foi a mesma chamada» sem
+    #                  guardar a chamada
+    #   args_redacted  a **forma** dos argumentos — nome e tipo de cada um —, e
+    #                  nunca o valor. O `query` de `search_catalog` e texto que
+    #                  um cliente escreveu, e a pergunta «isto guarda dados
+    #                  pessoais?» responde-se com o que a coluna guarda e nao
+    #                  com o que a chamada tinha
+    #   fact_ids       os identificadores dos *facts*, nao os valores deles
+    #
+    # Isto nao se prova por leitura: prova-se por varrimento com canarios, em
+    # `db/tests_agr/test_tool_audit.py`.
+    "tool_audit": {
+        "id": ("bigint", NAO, None, "nao"),
+        "ts": ("timestamp with time zone", NAO, "now()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "contact_id": (
+            "uuid",
+            SIM,
+            None,
+            "referencia opaca a contacts (KAM-008); nunca o telefone",
+        ),
+        "conversation_id": ("uuid", SIM, None, "referencia opaca a conversations"),
+        "turn_id": ("text", SIM, None, "nao — identificador do turno, opaco"),
+        "run_id": ("text", SIM, None, "nao — identificador da execucao do grafo"),
+        "vertical": ("text", SIM, None, "nao"),
+        "graph_version": ("text", SIM, None, "nao"),
+        "tool": ("text", NAO, None, "nao"),
+        "tool_version": ("text", SIM, None, "nao"),
+        "klass": ("text", NAO, None, "nao"),
+        "args_hash": (
+            "bytea",
+            NAO,
+            None,
+            "nao — sha256 da forma canonica dos argumentos, 32 octetos. "
+            "Irreversivel por construcao, e e isso que a torna aceitavel num "
+            "registo que cobre tambem as leituras",
+        ),
+        "args_redacted": (
+            "jsonb",
+            SIM,
+            None,
+            "nao — a **forma** dos argumentos (nome e tipo), nunca o valor. Um "
+            "valor aqui era texto do cliente num registo de auditoria",
+        ),
+        "idempotency_key": (
+            "text",
+            SIM,
+            None,
+            "nao — o ponto de extensao do passo 5 do §6.1, preenchido pelo "
+            "KAM-029. A chave do §6.3 e um sha256 e nao leva telefone (ADR-010)",
+        ),
+        "status": ("text", NAO, None, "nao"),
+        "error_code": ("text", SIM, None, "nao — um dos dez codigos do §6.5"),
+        "result_hash": ("bytea", SIM, None, "nao — sha256 do resultado, 32 octetos"),
+        "fact_ids": (
+            "ARRAY",
+            SIM,
+            None,
+            "nao — os `fact_id` devolvidos, nao os valores. E o que liga uma "
+            "citacao do KAM-032 a linha que a produziu",
+        ),
+        "latency_ms": ("integer", SIM, None, "nao"),
+    },
 }
 
 #: **A primeira vista do esquema** (KAM-022), e esta no inventario e nao fora
@@ -1341,6 +1410,39 @@ class TestInventario(ComBase):
                     "channel_coexistence_prazo_ck",
                     "channel_coexistence_contagens_ck",
                     "channel_coexistence_desligamento_ck",
+                    # ------------------------------------- KAM-028 (0021)
+                    # A chave, os tres dominios fechados de canon (`klass`,
+                    # `status` e os dez codigos do §6.5) e as cinco coerencias.
+                    #
+                    # **O dominio do `error_code` e restricao propria**, separada
+                    # da coerencia com o `status`: o *gate* 3b exige «CHECK
+                    # fechado» na coluna para reconhecer os dez valores como
+                    # canon, e dentro de uma condicao composta nao os ve.
+                    #
+                    # **Dois `CHECK` sao de forma e nao de dominio**, e isso e
+                    # deliberado: o `tool` e o `vertical` levam uma gramatica de
+                    # identificador em vez da lista das onze tools. Uma lista de
+                    # permitidos obrigava a uma revisao de base de dados por
+                    # cada tool que o KAM-031, o KAM-035 ou a Fase C
+                    # acrescentassem, e quem recusa uma tool fora do catalogo e
+                    # o passo 1 do `invoke` — com `TOOL_NOT_ALLOWED` e contra o
+                    # registo, que e onde a lista vive.
+                    #
+                    # O `erro_tem_codigo` olha para os **dois** sentidos: um
+                    # `ok` com codigo e um `erro` sem codigo sao a mesma classe
+                    # de linha ilegivel.
+                    "tool_audit_pkey",
+                    "tool_audit_klass",
+                    "tool_audit_status",
+                    "tool_audit_tool_nome",
+                    "tool_audit_vertical_nome",
+                    "tool_audit_error_code",
+                    "tool_audit_erro_tem_codigo",
+                    "tool_audit_resultado_so_em_ok",
+                    "tool_audit_hashes_sha256",
+                    "tool_audit_latencia_nao_negativa",
+                    "tool_audit_fact_ids_sem_nulos",
+                    "tool_audit_texto_curto",
                     # ------------------------------------- KAM-015 (0010)
                     # Os dois dominios da `outbound_messages`, as duas
                     # unicidades (a da chave de idempotencia e **por tenant**;

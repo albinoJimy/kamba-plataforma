@@ -211,6 +211,12 @@ class TestCatalogoReal(ComBase):
                 # KAM-009: o contador de uso e o livro de idempotencia.
                 ("platform", "tenant_usage", "tenant_id"),
                 ("platform", "tenants", "id"),
+                # KAM-028: o registo das invocacoes da ToolLayer. Sem receita de
+                # sementes, e a razao esta em `sementes.SEM_RECEITA_COM_RAZAO`:
+                # e *append-only* por um *trigger* `ENABLE ALWAYS`, e estas
+                # receitas limpam com `DELETE`. Aqui entra pela coluna, como as
+                # outras — o que a descoberta ve e o `tenant_id` e a politica.
+                ("platform", "tool_audit", "tenant_id"),
                 ("platform", "usage_ledger", "tenant_id"),
             ],
         )
@@ -318,6 +324,12 @@ class TestCatalogoReal(ComBase):
                 ("tenant_usage", "tenant_iso", "ALL", "{public}"),
                 ("tenants", "resolver_leitura", "SELECT", "{kamba_resolver}"),
                 ("tenants", "tenant_iso", "ALL", "{public}"),
+                # KAM-028: a `tool_audit`. A politica nao e redundante com o
+                # *append-only* — o `WITH CHECK` e o que impede o papel da
+                # aplicacao de escrever uma linha de auditoria **no nome de
+                # outro tenant**, que e o unico tipo de escrita que a tabela
+                # aceita.
+                ("tool_audit", "tenant_iso", "ALL", "{public}"),
                 ("usage_ledger", "tenant_iso", "ALL", "{public}"),
             ],
         )
@@ -378,7 +390,9 @@ class TestCatalogoReal(ComBase):
              "tenant_channels",
              # KAM-009: o contador e o livro. `tenant_usage` antes de
              # `tenants` pela colacao `C` do tipo `name` (ver o teste acima).
-             "tenant_usage", "tenants", "usage_ledger"],
+             "tenant_usage", "tenants",
+             # KAM-028: a `tool_audit`, entre `tenants` e `usage_ledger`.
+             "tool_audit", "usage_ledger"],
         )
         for tabela, comando, permissiva, papeis, qual, com_check in linhas:
             with self.subTest(tabela=tabela):

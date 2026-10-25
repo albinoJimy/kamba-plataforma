@@ -567,6 +567,31 @@ ESPERADO_POR_TABELA.update(
     }
 )
 
+ESPERADO_POR_TABELA.update(
+    {
+        # ------------------------------------------------- KAM-028 (0021)
+        #
+        # **Quem escreve nao le**, como na `audit_log` e pela mesma razao: quem
+        # produz o registo nao e quem o audita, e um `SELECT` concedido ao
+        # processo que corre os turnos era um caminho para o conteudo do registo
+        # voltar a um turno. Quem le e o `kamba_audit` e o `kamba_batch`.
+        #
+        # O `kamba_app` aparece aqui **vazio** porque o `INSERT` dele e por
+        # coluna — sem `id` e sem `ts` — e um privilegio de coluna nao se
+        # declara nesta matriz: esta em `COLUNAS_POR_PAPEL`. Declara-lo aqui
+        # dizia que ele escolhe o instante da sua propria linha de auditoria.
+        #
+        # **Ninguem tem `UPDATE` nem `DELETE`**, e o `kamba_migrator` tem tudo
+        # porque e o dono: o privilegio de tabela nao mostra o *append-only*, e
+        # quem o impoe e o *trigger* `ENABLE ALWAYS`, que esta bateria nao ve.
+        # Prova-se em `db/tests_agr/test_tool_audit.py`.
+        "tool_audit": _auditoria(
+            kamba_batch={"SELECT"},
+            kamba_audit={"SELECT"},
+        ),
+    }
+)
+
 #: O `kamba_agr` (KAM-026) nao tem privilegio nenhum em `platform`, em nenhuma
 #: tabela — e isso **e** o criterio 4 do bloco, nao uma omissao.
 #:
@@ -626,6 +651,17 @@ COLUNAS_POR_PAPEL = {
     ("kamba_batch", "audit_log", "INSERT"): {
         "tenant_id", "actor_type", "actor_id", "action", "entity", "entity_id",
         "turn_id", "payload_hash",
+    },
+    # KAM-028: as dezoito colunas que quem invoca escreve — todas menos o `id`
+    # (identidade) e o `ts` (`DEFAULT now()`). O `ts` fica de fora mesmo com o
+    # `DEFAULT` a reescreve-lo na mesma: uma coluna que nenhum chamador pode
+    # escrever e uma coluna que nenhum chamador tenta escrever, e o instante de
+    # uma linha de auditoria nao e do chamador.
+    ("kamba_app", "tool_audit", "INSERT"): {
+        "tenant_id", "contact_id", "conversation_id", "turn_id", "run_id",
+        "vertical", "graph_version", "tool", "tool_version", "klass",
+        "args_hash", "args_redacted", "idempotency_key", "status", "error_code",
+        "result_hash", "fact_ids", "latency_ms",
     },
     # KAM-006: tres colunas, e nenhuma por gosto. O `ON CONFLICT (consumer,
     # event_id) WHERE estado = 'aberta'` do `paraDlq()` precisa dos dois
