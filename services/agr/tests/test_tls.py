@@ -2098,6 +2098,38 @@ class TestProtocoloDeIdempotencia(_Base):
         self.assertTrue(segundo.idempotent_replay)
         self.assertEqual(primeiro.data, segundo.data)
 
+    def test_um_replay_escreve_uma_linha_de_auditoria_e_com_a_chave_do_turno(self) -> None:
+        """O criterio 5 do **KAM-028** («uma linha por invocacao») num caminho novo.
+
+        Num *replay* o passo 5 devolve um `ToolResult` e os passos 6 e 7 **nao
+        correm**: quem escreve a linha e o `finally` do pipeline. Se ela nao se
+        escrevesse, duas invocacoes `money` davam **uma** linha e o registo
+        passava a contar menos invocacoes de dinheiro do que houve — sem nada a
+        dize-lo, porque o resultado devolvido e o mesmo.
+
+        E a linha leva a chave **do turno** e nao a do carrinho, que e a decisao
+        do dicionario §3.28: sao duas chaves, e a coluna e da de cima.
+        """
+        camada, ligacao, chamadas, _ = self.camada_que_conta()
+        self.invocar(camada)
+        self.invocar(
+            camada,
+            ctx=contexto(turn_id="t-2"),
+            confirmation=Confirmation(
+                botao="confirm:c-1", contact_id=CONTACTO, turn_id="t-2"
+            ),
+            idempotency_key="k-2",
+        )
+
+        linhas = ligacao.linhas_de_auditoria()
+        self.assertEqual(len(chamadas), 1)
+        self.assertEqual(len(linhas), 2, "o replay nao escreveu linha de auditoria")
+        # `status` e `idempotency_key` pela ordem das `COLUNAS` do `auditoria.py`.
+        indice_chave = auditoria.COLUNAS.index("idempotency_key")
+        indice_status = auditoria.COLUNAS.index("status")
+        self.assertEqual([linha[indice_status] for linha in linhas], ["ok", "ok"])
+        self.assertEqual([linha[indice_chave] for linha in linhas], ["k-1", "k-2"])
+
     def test_a_fronteira_da_janela_da_um_pedido_e_a_recompra_da_dois(self) -> None:
         """O criterio 2, com relogio simulado.
 

@@ -1281,7 +1281,7 @@ CREATE TABLE tool_idempotency (
 Medido a 2026-10-25, no ramo `feature/KAM-029-idempotencia-de-tools-por-cart-id`,
 contra um PostgreSQL 18.6 descartável (`python db/gate_bd.py --suite tests_agr`) e
 a bateria de unidade do serviço. As quatro *suites* que este trabalho toca:
-`tests_agr` **133 OK** (105 antes), unidade do AGR **402 OK** (389 antes),
+`tests_agr` **133 OK** (105 antes), unidade do AGR **403 OK** (389 antes),
 `tests` **584 OK**, `tests_isolamento` **78 OK**.
 
 **O oráculo de todos os critérios de execução é o contador de chamadas ao
