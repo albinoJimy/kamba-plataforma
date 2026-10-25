@@ -30,6 +30,10 @@ import urllib.parse
 
 #: Papel de base de dados de cada identidade. `admin` nao tem nome fixo: e o
 #: `POSTGRES_USER` da instancia.
+#:
+#: **Sete**, desde o KAM-026: os tres do KAM-003, o `kamba_resolver`
+#: (KAM-004), o `kamba_identity` (KAM-008), o `kamba_audit` (KAM-012) e o
+#: `kamba_agr` (KAM-026), que e o unico que nao toca no esquema `platform`.
 PAPEIS = {
     "migrator": "kamba_migrator",
     "app": "kamba_app",

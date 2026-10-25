@@ -3373,9 +3373,17 @@ MUTACOES = [
      "  HAVING max(criado_at) <= %s",
      AGR),
     ('checkpointer: apagar a thread deixa as escritas para tras', AG_CHECKPOINTER,
-     "        await self._correr(consultas.SQL_APAGAR_ESCRITAS_DA_THREAD, (thread_id,))\n",
+     "                (consultas.SQL_APAGAR_ESCRITAS_DA_THREAD, (thread_id,)),\n",
      "",
      AGR),
+    ('checkpointer: a varredura apaga mesmo o que acordou', AG_RETENCAO,
+     "                consultas.SQL_APAGAR_THREAD_PARADA, (thread_id, thread_id, limite)",
+     "                consultas.SQL_APAGAR_CHECKPOINTS_DA_THREAD, (thread_id,)",
+     AGR),
+    # Sem o predicado de tempo no `DELETE`, uma conversa que acorde entre o
+    # `SELECT` da lista e o apagamento perde o estado a meio do turno — e a
+    # varredura devolve-a como apagada, com razao. Achado da revisao
+    # adversarial.
     # Escritas orfas de um checkpoint que ja nao existe: o apagamento a pedido
     # do titular (KAM-070) deixava texto de cliente na base.
     ('checkpointer: o checkpoint novo deixa de ter pai', AG_CHECKPOINTER,

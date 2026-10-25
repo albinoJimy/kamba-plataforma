@@ -133,10 +133,18 @@ def upgrade() -> None:
         )
         """
     )
-    # A varredura da retencao pergunta «que threads nao escrevem desde quando?».
-    # Sem este indice era um `seq scan` por passagem.
+    # A varredura da retencao pergunta «que threads nao escrevem desde
+    # quando?», que em SQL e `GROUP BY thread_id HAVING max(criado_at) < %s`.
+    #
+    # **O indice e `(thread_id, criado_at)` e nao `(criado_at)`.** A primeira
+    # versao tinha so a segunda coluna e afirmava que sem ela «era um `seq
+    # scan` por passagem» — falso: um indice so no `criado_at` nao serve um
+    # agregado por `thread_id`, e o planeador lia a tabela toda na mesma. Com
+    # as duas pela ordem certa, a agregacao sai do indice. Achado da revisao
+    # adversarial.
     op.execute(
-        f"CREATE INDEX checkpoints_criado_idx ON {ESQUEMA}.checkpoints (criado_at)"
+        f"CREATE INDEX checkpoints_thread_criado_idx "
+        f"ON {ESQUEMA}.checkpoints (thread_id, criado_at)"
     )
 
     # ------------------------------------------------------ checkpoint_writes
@@ -204,6 +212,6 @@ def downgrade() -> None:
     # revisao faz isto **falhar**, que e melhor do que o apagar sem ninguem
     # mandar.
     op.execute(f"DROP TABLE {ESQUEMA}.checkpoint_writes")
-    op.execute(f"DROP INDEX {ESQUEMA}.checkpoints_criado_idx")
+    op.execute(f"DROP INDEX {ESQUEMA}.checkpoints_thread_criado_idx")
     op.execute(f"DROP TABLE {ESQUEMA}.checkpoints")
     op.execute(f"DROP SCHEMA {ESQUEMA}")

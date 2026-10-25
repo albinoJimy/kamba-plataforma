@@ -267,6 +267,42 @@ SQL_APAGAR_CHECKPOINTS_DA_THREAD = """
   DELETE FROM lg.checkpoints WHERE thread_id = %s
 """
 
+#: As mesmas duas, mas **so se a *thread* continuar parada** — para a varredura
+#: da retencao.
+#:
+#: Sem o segundo predicado havia uma corrida que ninguem via: a varredura le a
+#: lista das inactivas, o ciclo leva minutos com milhares de linhas, e uma
+#: conversa que acorde nesse intervalo e apagada a meio do turno. A varredura
+#: nao toma a tranca por conversa, pelo que nao ha nada a impedi-lo. Achado da
+#: revisao adversarial.
+#:
+#: Parametros: o `thread_id` e o instante limite.
+SQL_APAGAR_THREAD_PARADA = """
+  DELETE FROM lg.checkpoints
+   WHERE thread_id = %s
+     AND NOT EXISTS (
+           SELECT 1 FROM lg.checkpoints
+            WHERE thread_id = %s AND criado_at >= %s
+         )
+"""
+
+#: As escritas da *thread* que a instrucao de cima deixou sem checkpoint.
+#:
+#: Corre **depois**, na mesma transaccao, e so apaga as que ficaram orfas: se a
+#: *thread* acordou e os checkpoints ficaram, as escritas dela tambem ficam.
+#:
+#: Parametros: o `thread_id`.
+SQL_APAGAR_ESCRITAS_ORFAS = """
+  DELETE FROM lg.checkpoint_writes w
+   WHERE w.thread_id = %s
+     AND NOT EXISTS (
+           SELECT 1 FROM lg.checkpoints c
+            WHERE c.thread_id = w.thread_id
+              AND c.checkpoint_ns = w.checkpoint_ns
+              AND c.checkpoint_id = w.checkpoint_id
+         )
+"""
+
 #: As *threads* sem escrita nenhuma desde um instante. E a varredura da
 #: retencao (criterio 8), e corre como `kamba_batch`.
 #:

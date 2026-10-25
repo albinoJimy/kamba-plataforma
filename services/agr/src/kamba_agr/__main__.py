@@ -41,7 +41,7 @@ ligacoes. Uma falha aqui e um `return`, nunca um `uvicorn.run` a meio.
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import uvicorn
@@ -92,16 +92,28 @@ def _ambiente(ambiente: dict[str, str] | None = None) -> str:
     return valor
 
 
-def _fechar_as_tomadas(trancas: Any, checkpointer: Any) -> Callable[[], None]:
+def _fechar_as_tomadas(
+    trancas: Any, checkpointer: Any
+) -> Callable[[], Awaitable[None]]:
     """O que o `lifespan` corre no `SIGTERM`: fecha as duas, pela ordem.
 
     O checkpointer depois das trancas: um turno a meio larga a tranca e **ja
     gravou** o que tinha a gravar, pelo que fechar a gravacao primeiro era
     tirar a tomada a quem ainda pode precisar dela.
+
+    **Devolve uma corrotina, e isso nao e detalhe.** O `create_app` declara
+    `ao_encerrar: Callable[[], Awaitable[None]]` e faz `await ao_encerrar()`, e
+    o `TrancaDeConversas.fechar` e `async def`. A primeira versao desta funcao
+    devolvia uma funcao sincrona que chamava o `fechar()` sem `await`: o
+    `lifespan` emitia `lifespan.shutdown.failed`, a corrotina ficava por
+    esperar, e a ligacao da tranca **nao fechava** — que e exactamente o modo
+    de falha que esta funcao existe para evitar. Achado da revisao adversarial,
+    e o `TestEncerramento` de `test_arranque.py` passou a liga-lo ao
+    `create_app` real.
     """
 
-    def fechar() -> None:
-        trancas.fechar()
+    async def fechar() -> None:
+        await trancas.fechar()
         checkpointer.fechar()
 
     return fechar

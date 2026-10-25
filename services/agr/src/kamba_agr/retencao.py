@@ -3,10 +3,16 @@
 ## O que apaga, e com que papel
 
 *Threads* sem escrita nenhuma ha mais do que `DIAS_DE_INACTIVIDADE` dias. A
-varredura e o `SQL_THREADS_INACTIVAS` seguido de um `adelete_thread` por
-*thread*, e corre com o **`kamba_batch`** — o papel `BYPASSRLS` que a revisao
-`0020` autoriza a `SELECT` e `DELETE` no `lg`, e **nao** a `INSERT`: quem limpa
-nao escreve.
+varredura e o `SQL_THREADS_INACTIVAS` para descobrir, e depois duas instrucoes
+por *thread* — os checkpoints e as escritas orfas —, **todas na mesma ligacao**,
+que e a do `kamba_batch`: o papel `BYPASSRLS` que a revisao `0020` autoriza a
+`SELECT` e `DELETE` no `lg`, e **nao** a `INSERT`, porque quem limpa nao
+escreve.
+
+O apagamento **nao** passa pelo `adelete_thread` do checkpointer, e isso e
+deliberado: aquele corre com o `kamba_agr`, e usa-lo aqui fazia do `GRANT` ao
+`kamba_batch` privilegio morto — foi o que a primeira versao deste modulo fez,
+e o que ela escreveu sobre si mesma era falso.
 
 A ligacao vem de quem chama, de proposito. O AGR corre com o `kamba_app` e o
 `kamba_agr`, e dar-lhe um terceiro papel com `BYPASSRLS` para uma varredura que
@@ -48,20 +54,27 @@ from . import consultas
 DIAS_DE_INACTIVIDADE: Final = 30
 
 
-async def varrer(
-    checkpointer: Any,
+def varrer(
     ligacao: Any,
     agora: _dt.datetime,
     dias: int = DIAS_DE_INACTIVIDADE,
 ) -> list[str]:
     """Apaga as *threads* paradas ha mais de `dias` e devolve as que apagou.
 
-    O `checkpointer` e quem apaga — pelo `adelete_thread`, que e o metodo da
-    interface e o unico sitio onde a ordem das duas tabelas esta escrita. A
-    `ligacao` e so para **descobrir** quais, e e ela que traz o `kamba_batch`.
+    **Tudo corre na `ligacao`, que e a do `kamba_batch`** — a descoberta e o
+    apagamento. A primeira versao descobria com o `kamba_batch` e apagava pelo
+    `adelete_thread` do checkpointer, que corre com o `kamba_agr`: o `GRANT
+    DELETE ... TO kamba_batch` da revisao `0020` era privilegio **morto**, e o
+    que o modulo e o `docs/agr.md` diziam era falso. Achado da revisao
+    adversarial.
+
+    E sincrona porque nao ha nada de assincrono a fazer: e uma varredura de
+    lote, nao um turno. Quem a chamar de dentro de um `event loop` envolve-a
+    num `asyncio.to_thread`, como o resto da casa.
 
     Devolve a lista em vez de um numero: quem chama regista o que apagou, e uma
-    varredura que diz «apaguei 4» nao se audita.
+    varredura que diz «apaguei 4» nao se audita. **Uma falha a meio nao perde a
+    lista**: o que ja foi apagado esta confirmado e vai na excepcao.
     """
     if dias < 0:
         raise ValueError("os dias de inactividade nao podem ser negativos")
@@ -69,10 +82,28 @@ async def varrer(
     cursor = ligacao.cursor()
     try:
         cursor.execute(consultas.SQL_THREADS_INACTIVAS, (limite,))
-        threads = [linha[0] for linha in cursor.fetchall()]
+        candidatas = [linha[0] for linha in cursor.fetchall()]
     finally:
         cursor.close()
     ligacao.commit()
-    for thread_id in threads:
-        await checkpointer.adelete_thread(thread_id)
-    return threads
+
+    apagadas: list[str] = []
+    for thread_id in candidatas:
+        cursor = ligacao.cursor()
+        try:
+            # Os checkpoints primeiro, e **so se a *thread* continuar parada**:
+            # entre o `SELECT` de cima e este `DELETE` pode ter chegado uma
+            # mensagem, e apagar o estado a meio de um turno nao se desfaz.
+            cursor.execute(
+                consultas.SQL_APAGAR_THREAD_PARADA, (thread_id, thread_id, limite)
+            )
+            levou = cursor.rowcount
+            # As escritas orfas que a instrucao de cima deixou. Se ela nao
+            # apagou nada — a *thread* acordou —, esta tambem nao apaga.
+            cursor.execute(consultas.SQL_APAGAR_ESCRITAS_ORFAS, (thread_id,))
+        finally:
+            cursor.close()
+        ligacao.commit()
+        if levou:
+            apagadas.append(thread_id)
+    return apagadas

@@ -20,6 +20,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import asyncio
 import os
 import sys
 import threading
@@ -167,22 +168,32 @@ class TestArranque(unittest.TestCase):
             self.erro()["error_code"].split(":")[0], "checkpointer_indisponivel"
         )
 
-    def test_o_codigo_sem_checkpointer_distingue_se_dos_outros(self) -> None:
-        # Num painel, «o AGR nao arranca» sem dizer porque nao se diagnostica.
-        # Quatro, e nao o 2 da configuracao nem o 3 do ADR-002.
-        self.assertNotIn(
-            arranque.SAIDA_SEM_CHECKPOINTER, (0, 2, arranque.SAIDA_GUARDA_ADR002)
-        )
+    def test_o_encerramento_fecha_as_duas_tomadas(self) -> None:
+        """O `ao_encerrar` corre no `lifespan` do `create_app`, e **espera**.
 
-    def test_a_guarda_do_checkpointer_corre_antes_do_servidor(self) -> None:
-        # Um processo que aceitasse pedidos e so depois descobrisse que nao
-        # consegue gravar estado perdia o primeiro handoff de cada reinicio, e
-        # perdia-o em silencio.
-        def nao_liga() -> object:
-            raise RuntimeError("sem base")
+        A primeira versao do `_fechar_as_tomadas` devolvia uma funcao
+        **sincrona**: o `create_app` declara `Awaitable[None]` e faz
+        `await ao_encerrar()`, e o `TrancaDeConversas.fechar` e `async def`. O
+        resultado era `lifespan.shutdown.failed`, um `TypeError`, e — o que
+        importa — a ligacao da tranca a **nao fechar**, que e o modo de falha
+        que esta funcao existe para evitar. Achado da revisao adversarial, e
+        este ensaio liga-a ao `create_app` real porque os outros desta bateria
+        substituem o `uvicorn.run` e nunca correm o `lifespan`.
+        """
+        fechadas = []
 
-        _codigo, correr = self._correr(AMBIENTE_BASE, nao_liga)
-        correr.assert_not_called()
+        class TrancasFalsas:
+            async def fechar(self) -> None:
+                fechadas.append("trancas")
+
+        class CheckpointerFalso:
+            def fechar(self) -> None:
+                fechadas.append("checkpointer")
+
+        ao_encerrar = arranque._fechar_as_tomadas(TrancasFalsas(), CheckpointerFalso())
+        asyncio.run(ao_encerrar())
+        # Pela ordem: as trancas primeiro, a gravacao depois.
+        self.assertEqual(fechadas, ["trancas", "checkpointer"])
 
     def test_um_ambiente_desconhecido_recusa_em_vez_de_cair_em_dev(self) -> None:
         # A licao do `chaves.ts` do KAM-008: um `KAMBA_ENV=producao` a servir

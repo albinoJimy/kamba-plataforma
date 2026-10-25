@@ -18,7 +18,7 @@ Tudo a partir de `db/`, com a ligação configurada **só pelo ambiente** — n�
 URL no `alembic.ini`, porque conteria uma palavra-passe.
 
 ```bash
-python bootstrap.py                                        # como admin: cria os cinco papéis
+python bootstrap.py                                        # como admin: cria os sete papéis
 python -m alembic -c migrations/alembic.ini upgrade head   # como kamba_migrator
 python -m alembic -c migrations/alembic.ini downgrade base
 ```

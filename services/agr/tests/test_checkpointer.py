@@ -19,6 +19,7 @@ O duplo abaixo **regista** o que recebeu e nao o interpreta: nao ha nele um
 from __future__ import annotations
 
 import asyncio
+import time
 import unittest
 
 from kamba_agr.checkpointer import (
@@ -70,7 +71,15 @@ class LigacaoEspia:
     def cursor(self) -> "LigacaoEspia":
         return self
 
+    #: Quanto a espia demora em cada instrucao, em segundos. Zero por omissao;
+    #: o ensaio da latencia poe um valor para que a medida tenha o que medir —
+    #: `assertGreaterEqual(..., 0)` sobre uma diferenca de `monotonic` e sempre
+    #: verdade, e uma mutacao que devolvesse `0` sobrevivia.
+    demora: float = 0.0
+
     def execute(self, sql: str, parametros: tuple) -> None:
+        if self.demora:
+            time.sleep(self.demora)
         self.chamadas.append((sql, parametros))
 
     def fetchall(self) -> list[list]:
@@ -105,6 +114,29 @@ class TestCoordenadas(unittest.TestCase):
         # `DEFAULT ''` por isso. Um `None` aqui entrava na chave primaria.
         self.assertEqual(_coordenadas(config())[1], "")
         self.assertEqual(_coordenadas(config(checkpoint_ns=None))[1], "")
+
+    def test_um_thread_id_fora_da_forma_levanta(self) -> None:
+        # O dominio e `<uuid>:<uuid>` (dicionario §3.1). A revisao `0020`
+        # declinou o `CHECK` na coluna dizendo que a forma se impoe a entrada —
+        # e impoe, para quem entra pelo `contexto.py`. O `compile(...)` do
+        # KAM-027 e o `ingest` do KAM-031 constroem o `config` eles proprios.
+        maus = (
+            "sem-dois-pontos",
+            "nao-e-uuid:nao-e-uuid",
+            f"{TENANT}:{CONTACTO}:a-mais",
+            # Maiusculas: o `UUID` que o PostgreSQL devolve e minusculo, e
+            # aceitar as duas formas dava duas *threads* para a mesma conversa.
+            # O `TENANT` deste ficheiro e so digitos, pelo que `.upper()` nao
+            # lhe mexe — e preciso um com letras.
+            "AAAAAAAA-1111-4111-8111-111111111111:" + CONTACTO,
+            f" {TENANT}:{CONTACTO}",
+        )
+        for mau in maus:
+            with self.subTest(mau=mau), self.assertRaises(ValueError):
+                _coordenadas(config(mau))
+
+    def test_a_forma_boa_passa(self) -> None:
+        self.assertEqual(_coordenadas(config())[0], THREAD)
 
     def test_o_checkpoint_id_e_opcional(self) -> None:
         self.assertIsNone(_coordenadas(config())[2])
@@ -201,6 +233,32 @@ class TestListagem(unittest.IsolatedAsyncioTestCase):
             async for _ in saver.alist(config(), filter={"step": 1}):
                 pass
 
+    async def test_sem_config_levanta_nao_implementado(self) -> None:
+        # O contrato admite `config=None` (listar todas as *threads*). Nao se
+        # implementa, e levanta a dizer isso em vez de se disfarcar de erro de
+        # argumento. Achado da revisao adversarial.
+        saver = CheckpointerDoAgr(LigacaoEspia())
+        with self.assertRaises(NotImplementedError):
+            async for _ in saver.alist(None):
+                pass
+
+    async def test_o_before_pode_nao_trazer_thread_id(self) -> None:
+        # A biblioteca passa `{"configurable": {"checkpoint_id": ...}}`. A
+        # primeira versao lia-o pelo `_coordenadas`, que **exige** `thread_id`,
+        # e levantava num `before` legitimo.
+        saver = CheckpointerDoAgr(LigacaoEspia())
+        antes = {"configurable": {"checkpoint_id": "cp-3"}}
+        self.assertEqual([t async for t in saver.alist(config(), before=antes)], [])
+
+    async def test_sem_limite_nao_corta_em_cem(self) -> None:
+        # `limit=None` e «sem maximo»; vai como `LIMIT NULL`, que em Postgres e
+        # sem limite. A primeira versao punha 100 em silencio.
+        ligacao = LigacaoEspia()
+        saver = CheckpointerDoAgr(ligacao)
+        [t async for t in saver.alist(config())]
+        _sql, parametros = ligacao.chamadas[0]
+        self.assertIsNone(parametros[-1])
+
     async def test_sem_filtro_nao_levanta(self) -> None:
         saver = CheckpointerDoAgr(LigacaoEspia())
         self.assertEqual([t async for t in saver.alist(config(), filter={})], [])
@@ -254,25 +312,49 @@ class TestMedidas(unittest.TestCase):
         )
 
         medidor = MetricasDoAgr()
-        saver = CheckpointerDoAgr(LigacaoEspia(), metricas=medidor)
+        ligacao = LigacaoEspia()
+        ligacao.demora = 0.02
+        saver = CheckpointerDoAgr(ligacao, metricas=medidor)
         asyncio.run(saver.aput(config(), checkpoint(3), {"step": 1}, {}))
         lido = medidor.ler()
         self.assertGreater(lido[METRICA_TAMANHO_DO_ESTADO], 0)
-        self.assertGreaterEqual(lido[METRICA_LATENCIA_CHECKPOINT], 0)
+        # **Pelo menos a demora da escrita**, e nao `>= 0`: uma diferenca de
+        # `monotonic` e sempre nao-negativa, pelo que a assercao antiga passava
+        # com a medida substituida por zero.
+        self.assertGreaterEqual(lido[METRICA_LATENCIA_CHECKPOINT], 20)
 
     def test_sem_metricas_nao_levanta(self) -> None:
         # O parametro e opcional: as baterias que nao medem nao montam duplo.
         saver = CheckpointerDoAgr(LigacaoEspia())
         asyncio.run(saver.aput(config(), checkpoint(), {}, {}))
 
-    def test_uma_medida_nao_leva_etiqueta_de_tenant(self) -> None:
-        # O `OBS-I`: um `tenant_id` e um UUID com hifenes e nao entra numa
-        # metrica. O `medir` nem aceita etiqueta, e e isso que o prova.
-        from kamba_agr.metricas import METRICA_LATENCIA_CHECKPOINT, MetricasDoAgr
+    def test_um_tenant_id_nao_entra_como_etiqueta(self) -> None:
+        # O `OBS-I`. A versao anterior deste ensaio chamava `medir` com tres
+        # argumentos e esperava `TypeError` — o que prova que uma funcao de
+        # dois parametros recusa tres, e passaria com qualquer funcao do
+        # interpretador. Quem faz cumprir o `OBS-I` e o `_validar`/`ETIQUETA`
+        # do `metricas.py`, e e esse que se exercita. Achado da revisao
+        # adversarial.
+        from kamba_agr.metricas import (
+            METRICA_TURNOS,
+            EtiquetaInvalida,
+            MetricasDoAgr,
+        )
 
         medidor = MetricasDoAgr()
-        with self.assertRaises(TypeError):
-            medidor.medir(METRICA_LATENCIA_CHECKPOINT, 1.0, "tenant")  # type: ignore[call-arg]
+        with self.assertRaises(EtiquetaInvalida):
+            medidor.contar(METRICA_TURNOS, "11111111-1111-4111-8111-111111111111")
+
+    def test_as_duas_medidas_do_checkpointer_nao_tem_etiqueta(self) -> None:
+        # E a outra metade: as duas sao **medidas** e nao contadores, e o
+        # `medir` nao tem por onde receber uma etiqueta. Afirma-se pela
+        # declaracao, nao pela aridade da funcao.
+        from kamba_agr import metricas as m
+
+        for nome in (m.METRICA_LATENCIA_CHECKPOINT, m.METRICA_TAMANHO_DO_ESTADO):
+            with self.subTest(nome=nome):
+                self.assertIn(nome, m._MEDIDAS)
+                self.assertNotIn(nome, m._VALORES_DA_ETIQUETA)
 
 
 class TestEncerramento(unittest.TestCase):

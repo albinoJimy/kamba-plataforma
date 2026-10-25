@@ -15,8 +15,9 @@ O `ci/licenses.yaml` nega o prefixo `LGPL`, e este repositorio ja recusou o
 (KAM-003) tem a tabela com a medicao, e o `runtime.in` deste servico repete-a.
 Emendar a politica pede dois revisores (DoD do KAM-002), que esta fase nao tem.
 
-O que se usa e o `langgraph-checkpoint` (MIT, fecho de 36 pacotes sem nenhuma
-licenca negada): dele vem a **interface** — `BaseCheckpointSaver` — e o
+O que se usa e o `langgraph-checkpoint` (MIT, fecho de **35** pacotes sem
+nenhuma licenca negada — o numero e o das entradas medidas, e nao o de 36 que
+uma versao anterior desta nota dizia): dele vem a **interface** — `BaseCheckpointSaver` — e o
 **serializador**, que e a parte dificil e a que nao se reescreve. O que fica
 nosso e o SQL, em `consultas.py`, sobre o `pg8000` que e o driver de toda a casa.
 
@@ -64,6 +65,7 @@ em silencio.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections.abc import AsyncIterator, Sequence
 from typing import Any, Final
@@ -90,6 +92,16 @@ from .metricas import METRICA_LATENCIA_CHECKPOINT, METRICA_TAMANHO_DO_ESTADO
 #: mensagem a mais custa.
 JANELA_MAXIMA: Final = 20
 
+#: A forma do `thread_id` (dicionario §3.1): `{tenant_id}:{contact_id}`.
+#:
+#: Em minusculas, como o `contexto.py` do KAM-025 — o `UUID` que o PostgreSQL
+#: devolve e minusculo, e aceitar as duas formas dava duas *threads* para a
+#: mesma conversa.
+FORMA_DO_THREAD: Final = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    r":[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+
 #: O *namespace* do grafo de topo. O LangGraph passa cadeia vazia quando nao ha
 #: subgrafo, e a coluna tem `DEFAULT ''` por isso.
 NS_DE_TOPO: Final = ""
@@ -97,6 +109,18 @@ NS_DE_TOPO: Final = ""
 
 class JanelaExcedidaError(RuntimeError):
     """O estado a persistir tem mais mensagens do que a janela admite.
+
+    **O que isto custa se o recorte nao estiver ligado, e vale saber antes:**
+    com o KAM-027 feito e o `ingest` do KAM-031 por fazer, a mensagem numero
+    `JANELA_MAXIMA + 1` de uma conversa faz **todos** os `aput` dela levantar —
+    o turno falha, o *job* volta a fila e repete, e a conversa fica morta sem o
+    cliente receber resposta. A alternativa (recortar aqui) era pior de outra
+    maneira, e esta escrita abaixo; o que nao se pode e ligar o checkpointer a
+    um grafo sem ligar tambem o recorte. Achado da revisao adversarial.
+
+    A guarda conta **mensagens, nao octetos**: uma mensagem muito grande passa,
+    e nada limita o tamanho do `bytea`. O `agr_checkpoint_state_bytes` e o
+    numero que o diria.
 
     Levanta em vez de recortar. Recortar aqui era o `checkpointer` a decidir o
     que o grafo guarda: o estado em memoria do grafo passava a divergir do que
@@ -156,11 +180,22 @@ class CheckpointerDoAgr(BaseCheckpointSaver[int]):
                 "alist com filtro de metadados: os metadados estao em bytea, "
                 "nao em jsonb"
             )
+        if config is None:
+            # O contrato admite `config=None` para listar **todas** as
+            # *threads*. Nao se implementa — e levanta a dizer isso, em vez de
+            # se disfarcar de erro de argumento no `_coordenadas`.
+            raise NotImplementedError("alist sem config: listar todas as threads")
         thread_id, ns, _ = _coordenadas(config)
-        antes = _coordenadas(before)[2] if before is not None else None
+        # O `before` da biblioteca pode trazer so o `checkpoint_id`; o
+        # `_coordenadas` exige `thread_id` e levantava num `before` legitimo.
+        antes = ((before or {}).get("configurable") or {}).get("checkpoint_id")
         linhas = await self._correr(
             consultas.SQL_LISTAR_CHECKPOINTS,
-            (thread_id, ns, antes, antes, limit if limit is not None else 100),
+            # **`limit=None` e `LIMIT NULL`, que em Postgres e «sem limite»** —
+            # e o que o contrato diz («Maximum number of checkpoints»). A
+            # primeira versao cortava em 100 em silencio, e um historico longo
+            # vinha truncado sem ninguem saber.
+            (thread_id, ns, antes, antes, limit),
         )
         for linha in linhas:
             yield await self._montar(thread_id, ns, linha)
@@ -192,11 +227,19 @@ class CheckpointerDoAgr(BaseCheckpointSaver[int]):
                 octetos_meta,
             ),
         )
-        # **Depois da escrita, e nao antes.** A latencia que interessa e a da
-        # gravacao inteira — serializar mais escrever —, que e o que o alvo de
-        # 0,05-0,15 s do `docs/tecnica/02` §15.1 mede. Sem etiqueta: um
-        # `tenant_id` e um UUID com hifenes e o `OBS-I` nao o deixa entrar numa
-        # metrica.
+        # **Depois da escrita, e nao antes:** o que se mede e a gravacao
+        # inteira, serializar mais escrever.
+        #
+        # **E nao verifica o alvo do `docs/tecnica/02` §15.1.** Aquilo sao
+        # 0,05-0,15 s de latencia tipica, e isto e um *gauge* do **ultimo**
+        # valor — a mesma limitacao que o `agr_turn_latency_ms` ja declara, e
+        # pela mesma razao (esta biblioteca nao implementa histogramas,
+        # ADR-018). Serve para ver que a gravacao nao parou e para apanhar uma
+        # ordem de grandeza errada; um percentil mede-se na *suite* e no
+        # *staging*, com os valores todos.
+        #
+        # Sem etiqueta: um `tenant_id` e um UUID com hifenes e o `OBS-I` nao o
+        # deixa entrar numa metrica.
         if self._metricas is not None:
             self._metricas.medir(
                 METRICA_LATENCIA_CHECKPOINT, (time.monotonic() - comecou) * 1000
@@ -220,22 +263,32 @@ class CheckpointerDoAgr(BaseCheckpointSaver[int]):
         thread_id, ns, checkpoint_id = _coordenadas(config)
         if checkpoint_id is None:
             raise ValueError("aput_writes sem checkpoint_id no config")
+        # **As escritas de uma tarefa vao numa transaccao so.** Uma confirmacao
+        # por linha deixava, num `SIGKILL` a meio do ciclo, a tarefa com metade
+        # das escritas gravadas — e na retoma o LangGraph ve `pending_writes`
+        # para aquele `task_id`, da a tarefa por concluida, e a outra metade
+        # **perde-se em silencio**. Achado da revisao adversarial.
+        instrucoes = []
         for idx, (channel, valor) in enumerate(writes):
             tipo, octetos = self.serde.dumps_typed(valor)
-            await self._correr(
-                consultas.SQL_GRAVAR_ESCRITA,
+            instrucoes.append(
                 (
-                    thread_id,
-                    ns,
-                    checkpoint_id,
-                    task_id,
-                    task_path,
-                    idx,
-                    channel,
-                    tipo,
-                    octetos,
-                ),
+                    consultas.SQL_GRAVAR_ESCRITA,
+                    (
+                        thread_id,
+                        ns,
+                        checkpoint_id,
+                        task_id,
+                        task_path,
+                        idx,
+                        channel,
+                        tipo,
+                        octetos,
+                    ),
+                )
             )
+        if instrucoes:
+            await self._correr_todas(instrucoes)
 
     def fechar(self) -> None:
         """Larga a ligacao. Corre no `lifespan`, como o `trancas.fechar`.
@@ -248,30 +301,91 @@ class CheckpointerDoAgr(BaseCheckpointSaver[int]):
         self._ligacao.close()
 
     async def adelete_thread(self, thread_id: str) -> None:
-        # As escritas primeiro: na ordem inversa, uma falha entre as duas
-        # deixava escritas sem o checkpoint que as explica.
-        await self._correr(consultas.SQL_APAGAR_ESCRITAS_DA_THREAD, (thread_id,))
-        await self._correr(consultas.SQL_APAGAR_CHECKPOINTS_DA_THREAD, (thread_id,))
+        # **Numa transaccao, e os checkpoints primeiro.** A primeira versao
+        # apagava as escritas primeiro, a argumentar que a ordem inversa
+        # deixava escritas orfas — e deixa, mas uma escrita orfa **nunca e
+        # lida**: todas as leituras partem da tabela `checkpoints`. O que a
+        # ordem antiga deixava numa falha a meio era pior nas duas contas que
+        # importam: uma *thread* viva e legivel **sem** as suas escritas
+        # pendentes (o grafo re-executa tarefas ja concluidas), e, para o
+        # apagamento a pedido do titular (KAM-070), o texto do cliente a ficar
+        # exactamente onde ele esta — no `lg.checkpoints.checkpoint`. Numa
+        # transaccao so, a questao da ordem deixa de se por. Achado da revisao
+        # adversarial.
+        await self._correr_todas(
+            [
+                (consultas.SQL_APAGAR_CHECKPOINTS_DA_THREAD, (thread_id,)),
+                (consultas.SQL_APAGAR_ESCRITAS_DA_THREAD, (thread_id,)),
+            ]
+        )
 
     # -- base ---------------------------------------------------------------
 
     async def _correr(self, sql: str, parametros: tuple[Any, ...]) -> list[list[Any]]:
+        return await self._correr_todas([(sql, parametros)])
+
+    async def _correr_todas(
+        self, instrucoes: Sequence[tuple[str, tuple[Any, ...]]]
+    ) -> list[list[Any]]:
+        """Corre as instrucoes **numa transaccao so** e devolve a ultima leitura.
+
+        **A tranca nao se larga com a *thread* a meio.** O `asyncio.to_thread`
+        nao cancela a *thread*: um `CancelledError` no `await` desenrolava o
+        `async with`, libertava o `asyncio.Lock` e deixava a *thread* a meio do
+        protocolo do `pg8000` na mesma tomada — e a corrotina seguinte entrava
+        e usava-a em paralelo, que e a corrupcao que a tranca existe para
+        evitar. O cancelamento e caminho vivo (`turno.py` trata-o em dois
+        sitios). Achado da revisao adversarial.
+        """
         async with self._tranca:
-            return await asyncio.to_thread(self._correr_sincrono, sql, parametros)
+            tarefa = asyncio.ensure_future(
+                asyncio.to_thread(self._correr_sincrono, instrucoes)
+            )
+            try:
+                return await asyncio.shield(tarefa)
+            except asyncio.CancelledError:
+                # Espera a *thread* acabar antes de largar a tranca. Sem isto o
+                # `shield` so adia o problema: o `await` levanta na mesma e o
+                # `async with` sai com a tomada ocupada.
+                await asyncio.wait([tarefa])
+                raise
 
     def _correr_sincrono(
-        self, sql: str, parametros: tuple[Any, ...]
+        self, instrucoes: Sequence[tuple[str, tuple[Any, ...]]]
     ) -> list[list[Any]]:
-        cursor = self._ligacao.cursor()
+        linhas: list[list[Any]] = []
         try:
-            cursor.execute(sql, parametros)
-            # O `pg8000` levanta em `fetchall()` numa instrucao sem resultado,
-            # e um `DELETE` nao tem. O `description` e `None` nessas.
-            linhas = list(cursor.fetchall()) if cursor.description else []
-        finally:
-            cursor.close()
+            for sql, parametros in instrucoes:
+                cursor = self._ligacao.cursor()
+                try:
+                    cursor.execute(sql, parametros)
+                    # O `pg8000` levanta em `fetchall()` numa instrucao sem
+                    # resultado, e um `DELETE` nao tem. O `description` e
+                    # `None` nessas.
+                    linhas = list(cursor.fetchall()) if cursor.description else []
+                finally:
+                    cursor.close()
+        except BaseException:
+            # **Desfaz, e isto nao e cerimonia.** A ligacao e `autocommit=False`
+            # e o `pg8000` abre transaccao antes de cada instrucao sem a desfazer
+            # no erro. Sem este `rollback`, um `statement_timeout` ou um
+            # reinicio do servidor deixava a **unica** ligacao do processo em
+            # `25P02 current transaction is aborted` **para sempre**: todas as
+            # instrucoes seguintes falhavam, nenhuma chegava ao `commit`, e o
+            # checkpointer ficava morto para todas as conversas sem que nada o
+            # dissesse. Achado da revisao adversarial.
+            self._desfazer()
+            raise
         self._ligacao.commit()
         return linhas
+
+    def _desfazer(self) -> None:
+        try:
+            self._ligacao.rollback()
+        except Exception:  # noqa: BLE001 — a ligacao pode ja estar morta
+            # Nao se esconde o erro original por causa do `rollback`: se a
+            # tomada caiu, e a excepcao de cima que diz o que aconteceu.
+            pass
 
     async def _montar(
         self, thread_id: str, ns: str, linha: Sequence[Any]
@@ -320,6 +434,14 @@ def _coordenadas(config: Any) -> tuple[str, str, str | None]:
     thread_id = configuravel.get("thread_id")
     if not isinstance(thread_id, str) or not thread_id:
         raise ValueError("config sem `thread_id`")
+    # **A forma confere-se aqui tambem, e nao so a entrada.** A revisao `0020`
+    # declinou o `CHECK` na coluna dizendo que o `contexto.py` a impoe — e
+    # impoe, mas so para quem entra por ali. O `compile(checkpointer=...)` do
+    # KAM-027 e o `ingest` do KAM-031 constroem o `config` eles proprios, e sem
+    # esta linha um `thread_id` de outra origem passava as tres pernas do
+    # isolamento sem erro nenhum. Achado da revisao adversarial.
+    if not FORMA_DO_THREAD.match(thread_id):
+        raise ValueError("thread_id fora de `<uuid>:<uuid>`")
     ns = configuravel.get("checkpoint_ns") or NS_DE_TOPO
     checkpoint_id = configuravel.get("checkpoint_id")
     return thread_id, ns, checkpoint_id

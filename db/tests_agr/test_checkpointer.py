@@ -24,7 +24,13 @@ from kamba_agr import retencao
 from kamba_agr.checkpointer import CheckpointerDoAgr
 
 #: O que o criterio 2 manda procurar: um numero angolano em qualquer forma.
-TELEFONE = re.compile(r"\+?244\d{9}")
+#:
+#: **«Em qualquer forma» e a parte que custa.** O criterio escreve
+#: `\+?244\d{9}`, que so apanha a forma internacional — e a que um cliente
+#: angolano escreve no WhatsApp e a **local**, `9xxxxxxxx`, sem indicativo e as
+#: vezes com espacos. Uma expressao que so apanhasse a do criterio dava zero
+#: sobre um estado cheio de numeros locais. Esta apanha as tres.
+TELEFONE = re.compile(r"(?:\+?244[\s-]?)?9\d{2}[\s-]?\d{3}[\s-]?\d{3}\b")
 
 #: A outra metade do criterio 2, o **BSUID**.
 #:
@@ -285,8 +291,7 @@ class TestRetencao(ComCheckpointer):
 
         lote = ligacao.ligar("batch")
         self.addCleanup(lote.close)
-        apagadas = asyncio.run(retencao.varrer(self.saver, lote, AGORA))
-        self.assertEqual(apagadas, [parada])
+        self.assertEqual(retencao.varrer(lote, AGORA), [parada])
 
     def test_a_fronteira_e_pelo_valor(self) -> None:
         # Exactamente 30 dias **nao** apaga: o predicado e `<`, e uma *thread*
@@ -296,7 +301,7 @@ class TestRetencao(ComCheckpointer):
         self._envelhecer(thread, 30)
         lote = ligacao.ligar("batch")
         self.addCleanup(lote.close)
-        self.assertEqual(asyncio.run(retencao.varrer(self.saver, lote, AGORA)), [])
+        self.assertEqual(retencao.varrer(lote, AGORA), [])
 
     def test_o_maximo_da_thread_manda_e_nao_cada_linha(self) -> None:
         # Uma *thread* com um checkpoint velho **e** um recente esta viva.
@@ -311,7 +316,51 @@ class TestRetencao(ComCheckpointer):
         )
         lote = ligacao.ligar("batch")
         self.addCleanup(lote.close)
-        self.assertEqual(asyncio.run(retencao.varrer(self.saver, lote, AGORA)), [])
+        self.assertEqual(retencao.varrer(lote, AGORA), [])
+
+
+    def test_uma_thread_que_acorda_entre_o_select_e_o_delete_nao_se_apaga(self) -> None:
+        # **A corrida que a revisao adversarial apanhou.** A varredura le a
+        # lista das inactivas e so depois apaga, uma a uma; entre as duas
+        # coisas pode chegar uma mensagem. Simula-se escrevendo um checkpoint
+        # novo com o relogio de agora numa *thread* que ja estava na lista.
+        parada, acordada = self.thread(), self.thread()
+        for thread in (parada, acordada):
+            asyncio.run(self.saver.aput(config(thread), checkpoint("cp-1"), {}, {}))
+        self._envelhecer(parada, 31)
+        self._envelhecer(acordada, 31)
+        # A `acordada` recebe agora um checkpoint novo — e o `criado_at` dele e
+        # o `now()` do servidor, que esta a frente do limite.
+        asyncio.run(self.saver.aput(config(acordada), checkpoint("cp-2"), {}, {}))
+
+        lote = ligacao.ligar("batch")
+        self.addCleanup(lote.close)
+        self.assertEqual(retencao.varrer(lote, AGORA), [parada])
+        self.semente.execute(
+            "SELECT count(*) FROM lg.checkpoints WHERE thread_id = %s", (acordada,)
+        )
+        self.assertEqual(self.semente.fetchone()[0], 2)
+
+    def test_o_apagamento_da_varredura_corre_com_o_kamba_batch(self) -> None:
+        # O `GRANT DELETE ... TO kamba_batch` da revisao `0020` era privilegio
+        # morto: a primeira versao apagava pela ligacao do checkpointer, que e
+        # `kamba_agr`. Aqui a ligacao e **so** a do lote, e se o `GRANT` nao
+        # existisse isto levantava `42501`.
+        thread = self.thread()
+        asyncio.run(self.saver.aput(config(thread), checkpoint("cp-1"), {}, {}))
+        asyncio.run(
+            self.saver.aput_writes(config(thread, "cp-1"), [("c", 1)], "tarefa")
+        )
+        self._envelhecer(thread, 31)
+        lote = ligacao.ligar("batch")
+        self.addCleanup(lote.close)
+        self.assertEqual(retencao.varrer(lote, AGORA), [thread])
+        for tabela in ("checkpoints", "checkpoint_writes"):
+            with self.subTest(tabela=tabela):
+                self.semente.execute(
+                    f"SELECT count(*) FROM lg.{tabela} WHERE thread_id = %s", (thread,)
+                )
+                self.assertEqual(self.semente.fetchone()[0], 0)
 
 
 class TestIsolamento(ComCheckpointer):
@@ -361,6 +410,20 @@ class TestIsolamento(ComCheckpointer):
 
         self.assertEqual(bases("kamba_agr"), bases("kamba_app"))
 
+    def test_os_outros_papeis_nao_leem_o_lg(self) -> None:
+        # **O compartimento, no sentido inverso.** A revisao `0020` so concede
+        # `USAGE` no `lg` ao `kamba_agr` e ao `kamba_batch`; os outros cinco
+        # nao tem nada. Isso estava afirmado («o codigo do checkpointer nao tem
+        # por onde chegar aos `contacts`») e provado **so num sentido**. Achado
+        # da revisao adversarial.
+        for identidade in ("app", "resolver", "identity", "audit"):
+            with self.subTest(papel=identidade):
+                conexao = ligacao.ligar(identidade)
+                self.addCleanup(conexao.close)
+                self.assertErroSql(
+                    "42501", conexao.cursor(), "SELECT 1 FROM lg.checkpoints LIMIT 1", ()
+                )
+
     def test_o_papel_do_checkpointer_nao_cria_nada_no_lg(self) -> None:
         # Tem os quatro de dados e nao o DDL: um checkpointer que pudesse criar
         # tabelas no seu esquema podia tambem apagar as que la estao.
@@ -380,16 +443,20 @@ class TestPrivacidade(ComCheckpointer):
         # telefone la dentro** — o criterio satisfeito pela razao errada. Este
         # ensaio prova que o varrimento ve o que la esta: semeia um numero de
         # proposito e exige que o varrimento o encontre.
-        thread = self.thread()
-        asyncio.run(
-            self.saver.aput(
-                config(thread),
-                checkpoint("cp-1", messages=["ligue para +244923456789"]),
-                {},
-                {},
-            )
-        )
-        self.assertEqual(self._numeros_em(thread), ["+244923456789"])
+        # As tres formas, porque o varrimento so vale o que apanha.
+        for forma in ("+244923456789", "244923456789", "923 456 789"):
+            with self.subTest(forma=forma):
+                thread = self.thread()
+                asyncio.run(
+                    self.saver.aput(
+                        config(thread),
+                        checkpoint("cp-1", messages=[f"ligue para {forma}"]),
+                        {},
+                        {},
+                    )
+                )
+                self.assertNotEqual(self._numeros_em(thread), [])
+                asyncio.run(self.saver.adelete_thread(thread))
 
     def test_o_varrimento_encontra_um_campo_de_bsuid_semeado(self) -> None:
         # A mesma disciplina do telefone: o varrimento so prova alguma coisa
@@ -442,26 +509,28 @@ class TestPrivacidade(ComCheckpointer):
             achados += TELEFONE.findall(texto)
         return achados
 
-    def _desserializado(self, thread_id: str) -> list[str]:
-        """Tudo o que a *thread* tem no `lg`, desfeito pelo serde.
+    def _desserializado(self, _thread_id: str | None = None) -> list[str]:
+        """Tudo o que esta **nas tabelas `lg.*`**, desfeito pelo serde.
 
         **Desserializa, e e isso que faz o ensaio valer.** O estado vai em
         `msgpack` para uma coluna `bytea`: uma busca por texto sobre a coluna
         devolvia zero ocorrencias com um telefone la dentro.
+
+        **E varre as tabelas inteiras, nao a *thread* do ensaio.** O criterio
+        diz «nas tabelas `lg.*`», e um varrimento filtrado pelo `thread_id` que
+        o proprio ensaio acabou de semear afirmava uma propriedade da sua
+        *fixture* e nao do esquema. Achado da revisao adversarial. A base do
+        *gate* 8 e descartavel e cada ensaio limpa o que semeou, pelo que varrer
+        tudo e barato e e o que o criterio pede.
         """
         textos: list[str] = []
         self.semente.execute(
-            "SELECT type, checkpoint, metadata_type, metadata FROM lg.checkpoints "
-            "WHERE thread_id = %s",
-            (thread_id,),
+            "SELECT type, checkpoint, metadata_type, metadata FROM lg.checkpoints"
         )
         for tipo, octetos, tipo_meta, octetos_meta in self.semente.fetchall():
             for par in ((tipo, bytes(octetos)), (tipo_meta, bytes(octetos_meta))):
                 textos.append(repr(self.saver.serde.loads_typed(par)))
-        self.semente.execute(
-            "SELECT type, blob FROM lg.checkpoint_writes WHERE thread_id = %s",
-            (thread_id,),
-        )
+        self.semente.execute("SELECT type, blob FROM lg.checkpoint_writes")
         for tipo, octetos in self.semente.fetchall():
             textos.append(repr(self.saver.serde.loads_typed((tipo, bytes(octetos)))))
         return textos
