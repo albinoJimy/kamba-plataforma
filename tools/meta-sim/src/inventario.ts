@@ -108,6 +108,21 @@ export const INVENTARIO: readonly Entrada[] = [
       "movel, como os das outras entradas desta lista",
   },
   {
+    ficheiro: "db/tests_agr/test_checkpointer.py",
+    ocorrencias: 3,
+    razao:
+      "o controlo positivo do criterio 2 do KAM-026: o estado do checkpointer " +
+      "vai em `msgpack` para uma coluna `bytea`, pelo que uma busca por texto " +
+      "devolve **zero** com um telefone la dentro. O varrimento desserializa, e " +
+      "so prova alguma coisa depois de se mostrar que encontra o que la esta — " +
+      "pelo que o ensaio semeia um numero e exige que o encontre. Sao **tres** " +
+      "formas e nao uma: a internacional que o criterio escreve, a mesma sem o " +
+      "`+`, e a **local** com espacos, que e a que um cliente angolano escreve " +
+      "no WhatsApp e que a primeira versao da expressao nao apanhava. Nenhum " +
+      "pertence a ninguem: sao sequenciais a partir do prefixo movel, como os " +
+      "das outras entradas desta lista",
+  },
+  {
     ficheiro: "tools/log_policy/tests/test_x11.py",
     ocorrencias: 6,
     razao:

@@ -45,6 +45,27 @@ entries:
     evidence: docs/tecnica/evidencia/E4_Stack_Licencas.md §2.6
     reason: Imagem do LangGraph Server (Elastic-2.0); o runtime e nosso, com checkpointer Postgres proprio.
 
+  - name: langgraph-checkpoint-postgres
+    kind: pypi
+    match: exact
+    adr: ADR-002
+    evidence: docs/tecnica/evidencia/E4_Stack_Licencas.md §2.6
+    reason: O pacote e MIT mas o fecho nao e - exige psycopg e psycopg-pool, LGPL-3.0-only, que o ci/licenses.yaml nega por prefixo e que o db/requirements/migrations.in ja recusara pelo nome. O checkpointer e nosso, sobre pg8000 (KAM-026).
+
+  - name: psycopg
+    kind: pypi
+    match: exact
+    adr: ADR-002
+    evidence: db/requirements/migrations.in (KAM-003, medido contra o PyPI)
+    reason: LGPL-3.0-only, negada por prefixo no ci/licenses.yaml. O driver da casa e o pg8000, BSD-3-Clause e Python puro.
+
+  - name: psycopg-pool
+    kind: pypi
+    match: exact
+    adr: ADR-002
+    evidence: db/requirements/migrations.in (KAM-003, medido contra o PyPI)
+    reason: LGPL-3.0-only, pela mesma razao do psycopg. Entra so como dependencia do langgraph-checkpoint-postgres, que tambem esta bloqueado.
+
   - name: langgraph-runtime-inmem
     kind: pypi
     match: exact

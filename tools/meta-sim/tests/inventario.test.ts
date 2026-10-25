@@ -111,8 +111,8 @@ describe("o inventario deste repositorio", () => {
     // contagem num sítio só obriga quem acrescenta um ficheiro a dizê-lo aqui
     // também, e é o que distingue isto de uma pasta isenta — que cresceria em
     // silêncio.
-    assert.equal(totalDeclarado(), 88);
-    assert.equal(INVENTARIO.length, 23);
+    assert.equal(totalDeclarado(), 91);
+    assert.equal(INVENTARIO.length, 24);
   });
 
   it("nenhuma entrada e de uma pasta inteira", () => {
