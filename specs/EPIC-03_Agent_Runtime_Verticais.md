@@ -562,7 +562,8 @@ KAM-031**, como o §1 de `docs/agr.md` já dizia.
 | Emenda ao dicionário | **1.35**, §3.26 — o contrato do `AgentRegistry`, os seis nós, as **onze** tools do catálogo do Piloto (nenhuma era nome canónico: só o `enhance_image` do §3.7 o era), os quatro parâmetros proibidos, a terceira forma do registo, o `modo` com `credor`, `servico_indisponivel`, `agr_registry_denied_total`, o código de saída `5` e o `KAMBA_REGISTRY_DIR` |
 | Divergências decididas pela emenda | **três**, todas a favor da fonte mais alta: `valor_max_pedido_minor` contra o `valor_max_pedido_kz` que o §5.1 e o bloco escrevem (é a variante da emenda 1.13 — o *gate* 3b trata-a como nível 1, e um `vendedor.yaml` escrito à letra do §5.1 **não passava**); `registry/gates.yaml` contra o `gates/vendedor.yaml` dentro da vertical; e o `payment.manual_confirmed` no `servicos.yaml`, que o bloco dá como *proposta* e o §3.5 já tinha decidido |
 | *Gate* 3b | `canon_lint check` → conforme, 4 ficheiros na superfície `registo` (era 1). `canon_lint canario` → 0. Suite do `canon_lint`: **226** testes, 0 falhas, com `TestGates` (11 testes, uma negativa por regra) |
-| Testes, nas quatro naturezas que o bloco pede | **unidade** `TestEsquema` (9) e `TestSeisNegativos` (24, com os seis negativos dedicados); **contrato** `TestContratoDoGrafo` (6, contra um `CompiledStateGraph` real do LangGraph); **integração** `TestResolve` (8), `TestFicheirosReais` (5) e `TestRegistoNoArranque` (5); **arquitectura** `TestArquitectura` (5). Mais 11 em `TestSbomDoAmbiente` (critério 7). Suite do AGR: **279** testes, 0 falhas (eram 256 antes do ticket) |
+| Testes, nas quatro naturezas que o bloco pede | **unidade** `TestEsquema` (10) e `TestSeisNegativos` (26, com os seis negativos dedicados); **contrato** `TestContratoDoGrafo` (6, contra um `CompiledStateGraph` real do LangGraph); **integração** `TestResolve` (8), `TestFicheirosReais` (6) e `TestRegistoNoArranque` (5); **arquitectura** `TestArquitectura` (5). Mais 11 em `TestSbomDoAmbiente` (critério 7). Suite do AGR: **280** testes, 0 falhas (eram 256 antes do ticket) |
+| As baterias que o *gate* 4 corre, todas | **as quinze** de `tools/` mais a do `py-core` (537) e a do AGR (280). É o que o *gate* 4 vermelho me ensinou a correr: tinha corrido quatro e o `sbom check` — que não é a bateria do `sbom` |
 | Prova por mutação | **18** novas, suite `agr_unit` (`services/agr/tests`, sem base de dados). `python db/mutacoes.py <venv> "registo:"` → linha de base verde, **18 corridas, 0 não apanhadas**. `python db/mutacoes.py --aplicaveis` → **725** conferidas, **0** não aplicáveis. Três das dezoito nasceram da revisão adversarial, e prendem as guardas que ela fez nascer: o `aviso` a distinguir a fonte em falta do problema real, o `aviso` morto a ser erro, e a largura das versões do SBOM |
 | Duas sobreviventes, e o que elas mostraram | A primeira corrida deu **1 sobrevivente**: `o modo aviso passa a valer para todas as validacoes`. A razão era um buraco real — nenhum teste escrevia `modo: bloqueio` **por extenso**, e os dois casos de bloqueio medidos eram ambos por *omissão*, que não passa por aquela comparação. Fechada com `test_um_modo_bloqueio_escrito_por_extenso_bloqueia`. A segunda foi de outra natureza: a mutação `a largura das versoes do SBOM deixa de se igualar`, na forma `largura = len(entrada.limiar)`, sobreviveu **por ser equivalente** — com o limiar sempre mais longo ou igual, a conta da sobra fica negativa, o `(0,) * -1` é vazio, e a comparação de tuplos de comprimentos diferentes dá o mesmo resultado. Uma mutação que não pode mudar comportamento não prova nada: passou a `min(...)`, que trunca mesmo, e é apanhada. **As duas lições são diferentes** — a primeira é um teste que faltava, a segunda é uma mutação que não servia |
 | Dois defeitos que a *self-validation* apanhou, e que teriam passado em silêncio | **(a)** O arranque punha a **prosa** do problema em `error_code`, e a *allowlist* de `docs/tecnica/08` §7.3 faz daquele campo um identificador de 96 caracteres: o campo **caía sem dizer nada**, e o arranque dizia ter registado os avisos sem registar nenhum — a própria coisa que o critério 8 existe para evitar. Corrigido com a `Adiada.codigo()` (`tools_kam_028`), medido contra o validador real (`kamba_core.logger.politica.validar`) e preso por mutação. **(b) O mais grave, e é do critério 6:** o `agr_registry_denied_total` não estava registado no `_AJUDA` de `metricas.py`, e o `MetricasDoAgr.contar` **levanta** `EtiquetaInvalida` («contador desconhecido») para uma métrica que ele não conheça. Os sete testes do `resolve` contavam contra um `MetricasEspia` e passavam; em produção o primeiro *tenant* sem plano fazia o turno rebentar. Encontrado a correr o `contar` real à mão, não por um teste. Corrigido: a métrica e os dois motivos passam a viver em `metricas.py` (o `registo/` importa-os, em vez de os redeclarar), o `_etiqueta_de` passa a dar `motivo` e não `outcome` — que é o que o dicionário §3.26 escreve —, e `test_o_alerta_conta_contra_as_metricas_reais_e_nao_so_contra_um_duplo` lê a exposição. **A lição não é sobre esta métrica: é que um duplo de métricas prova que se chamou `contar`, não que o contador existe** |
@@ -648,6 +649,23 @@ já estava garantida — a validação (4) do registo confronta tipo e versão c
 catálogo no arranque, e bloqueia. O que faltava era o controlo do **CI**, sobre
 ficheiros que este ticket acabou de criar: deixá-lo a ler zero era deixar um
 *gate* verde pela razão errada numa superfície minha.
+
+**O *gate* 4 também abriu vermelho, e a lição é sobre o que eu não corri.**
+`sbom.tests.test_gate11.TestSbom.test_o_grafo_do_lado_python_conta_as_dependencias_todas`
+afirmava, numa lista **literal**, as quatro dependências que o
+`services/agr/pyproject.toml` declarava; este ticket declarou mais três
+(`langgraph`, `pydantic`, `pyyaml`) e a lista deixou de bater. Corri o `sbom
+check` — que passou — e **não corri a bateria do `sbom`**: são coisas diferentes,
+e o *gate* 4 corre as **quinze** suites de `tools/`, mais a do `py-core` e a do
+AGR. Tinha corrido quatro.
+
+A correcção não foi reescrever a lista: foi derivá-la do `pyproject.toml` pelos
+nomes. O KAM-027 era o **segundo** ticket seguido a ter de a reescrever à mão (o
+KAM-026 acrescentou-lhe o `langgraph-checkpoint`), e uma lista literal transforma
+«o grafo está completo» — que é a invariante que o teste existe para proteger —
+em «o grafo tem estes quatro», que é um número a envelhecer. A comparação é por
+**nome** e não por `purl`: a versão vem do *lock* e é o resto daquele ficheiro
+que a verifica.
 
 **O que não se mediu, e não se diz medido.** O *gate* 8 (as *suites* contra um
 PostgreSQL real) **não corre neste ticket**: nada do que ele entrega toca a base

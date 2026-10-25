@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -419,26 +420,45 @@ class TestSbom(unittest.TestCase):
     def test_o_grafo_do_lado_python_conta_as_dependencias_todas(self) -> None:
         """Uma entrada **parcial** mente mais do que nenhuma.
 
-        O `services/agr/pyproject.toml` declara quatro (`starlette`, `uvicorn`,
-        `kamba-core` e, desde o KAM-026, `langgraph-checkpoint`), e a primeira
-        versao emitia so o `kamba-core` — os outros estao no mesmo documento,
-        com versao. Com entrada, quem le conclui que o grafo e conhecido.
+        A primeira versao emitia so o `kamba-core` — os outros estao no mesmo
+        documento, com versao. Com entrada parcial, quem le conclui que o grafo
+        e conhecido.
+
+        **A lista deixou de ser literal, e isso e uma correccao.** Ela nomeava
+        os quatro de entao (`starlette`, `uvicorn`, `kamba-core` e, desde o
+        KAM-026, `langgraph-checkpoint`), e o KAM-027 foi o **segundo** ticket
+        seguido a ter de a reescrever — acrescentou `langgraph`, `pydantic` e
+        `pyyaml`. Uma lista a mao transforma «o grafo esta completo», que e a
+        invariante, em «o grafo tem estes quatro», que e um numero a envelhecer.
+        Compara-se agora com o que o `pyproject.toml` **declara**, pelos nomes:
+        a invariante fica a mesma e o teste para de pedir manutencao.
+
+        Compara **nomes** e nao `purl`s completos de proposito: a versao de cada
+        um vem do lock e e o resto deste ficheiro que a verifica; o que esta
+        aresta tem de provar e que nao falta ninguem.
         """
+        declarados = sorted(
+            re.sub(r"[-_.]+", "-", nome).lower()
+            for nome in re.findall(
+                r'^\s*"([A-Za-z0-9][A-Za-z0-9._-]*)"',
+                (ROOT / "services/agr/pyproject.toml").read_text(encoding="utf-8")
+                .split("dependencies = [")[1]
+                .split("]")[0],
+                re.M,
+            )
+        )
+        self.assertGreaterEqual(len(declarados), 4, "o `pyproject.toml` nao se leu")
         with tempfile.TemporaryDirectory() as tmp:
             gerar(ROOT, Path(tmp))
             documento = json.loads(
                 (Path(tmp) / "services__agr.cdx.json").read_text(encoding="utf-8")
             )
             arestas = {e["ref"]: e["dependsOn"] for e in documento["dependencies"]}
-            self.assertEqual(
-                arestas["pkg:pypi/kamba-agr@0.1.0"],
-                [
-                    "pkg:pypi/kamba-core@0.1.0",
-                    "pkg:pypi/langgraph-checkpoint@4.3.0",
-                    "pkg:pypi/starlette@1.7.0",
-                    "pkg:pypi/uvicorn@0.54.0",
-                ],
+            do_grafo = sorted(
+                p.removeprefix("pkg:pypi/").rsplit("@", 1)[0].lower()
+                for p in arestas["pkg:pypi/kamba-agr@0.1.0"]
             )
+            self.assertEqual(do_grafo, declarados)
 
     def test_as_expressoes_vao_no_campo_certo(self) -> None:
         """Um `id` e comparavel; uma `expression` tem de ser avaliada."""
