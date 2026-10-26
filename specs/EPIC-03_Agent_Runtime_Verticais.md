@@ -1281,8 +1281,18 @@ CREATE TABLE tool_idempotency (
 Medido a 2026-10-25, no ramo `feature/KAM-029-idempotencia-de-tools-por-cart-id`,
 contra um PostgreSQL 18.6 descartável (`python db/gate_bd.py --suite tests_agr`) e
 a bateria de unidade do serviço. As quatro *suites* que este trabalho toca:
-`tests_agr` **133 OK** (105 antes), unidade do AGR **403 OK** (389 antes),
-`tests` **584 OK**, `tests_isolamento` **78 OK**.
+`tests_agr` **141 OK** (105 antes), unidade do AGR **405 OK** (389 antes),
+`tests` **584 OK**, `tests_isolamento` **78 OK**, e as 229 baterias do
+`canon_lint` (duas novas, a primeira com quatro asserçoes). As **dez**
+mutações `idem:` correm com **0 não apanhadas**, e `--aplicaveis` dá **761**
+com 0 não aplicáveis. **A primeira corrida das mutações deu três não
+apanhadas**, e nenhuma era a mesma coisa: uma sobreviveu (tirar o
+`AND estado = 'falhada'` da retoma não era medido por nada — e sem ele um
+`UPDATE` numa linha `concluida` apaga o resultado guardado e manda correr o
+backend outra vez), e duas davam `PROVA INVALIDA` por a *suite* **pendurar**,
+porque a mutação que tira o tecto à espera faz do laço um ciclo infinito. O
+`dormir` das baterias passou a ser um cão-de-guarda, e uma bateria de unidade
+deixou de poder pendurar.
 
 **O oráculo de todos os critérios de execução é o contador de chamadas ao
 backend, e não o que o `invoke` devolve.** Um teste de idempotência que meça o
