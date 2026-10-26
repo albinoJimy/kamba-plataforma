@@ -269,11 +269,23 @@ class TestEscreverAserio(_ComLlm):
 class TestPrivacidade(_ComLlm):
     """Criterio 5 e DoD: a linha **sem conteudo**. Por varrimento, com canarios."""
 
+    #: **Os telefones sao do intervalo ficticio reservado** (`999…`, nove
+    #: algarismos, `tools/meta-sim/src/numeros.ts`) e nao de forma real.
+    #:
+    #: A primeira versao usava um numero angolano com indicativo e entre aspas, e
+    #: isso casa **os dois** padroes do varrimento do *gate* 7 (`telefone_ao` e
+    #: `e164_entre_aspas`): obrigava este ficheiro a ter entrada no inventario de
+    #: `tools/meta-sim/src/inventario.ts` — um raquete, e nao uma isencao
+    #: (`docs/meta-sim.md` §6). **E este comentario tambem nao o pode escrever**,
+    #: que foi a segunda tentativa: o varrimento le o ficheiro todo.
+    #:
+    #: Um canario nao precisa de um numero real para ser um canario: precisa de
+    #: ser **procuravel**, e um do intervalo reservado e-o.
     CANARIOS = (
         "SAPATOS-VERMELHOS-CANARIO-42",
         "RESPOSTA-DO-MODELO-CANARIO-99",
-        "+244923456789",
-        "923456789",
+        "999100000001",
+        "999100000002",
     )
 
     def test_nenhum_canario_cabe_na_tabela(self) -> None:
