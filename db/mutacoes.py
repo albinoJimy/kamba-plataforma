@@ -1486,19 +1486,22 @@ MUTACOES = [
     ("revisao 0006: o texto deixa de ter tecto", REV6,
      "            length(actor_id) <= {TECTO_DE_TEXTO}",
      "            length(actor_id) <= 1000000"),
-    # **Nao ha mutacao ao `if prev_hash != anterior:`, e a razao e um defeito.**
-    # Ela esteve aqui, sobreviveu a noite de 2026-10-26, e sobreviveu por o
-    # ramo ser **inalcancavel**: o `_por_ordem_da_cadeia` constroi a lista
-    # seguindo o `prev_hash` (arranca na `GENESE` e avanca
-    # `actual = row_hash`), pelo que toda a linha que ele devolve tem, por
-    # construcao, `prev_hash == anterior`; as que nao encaixam saem em `soltas`
-    # e dao o achado «nao esta na cadeia». A mensagem «elo partido» e codigo
-    # morto, e `grep` so a encontra na prosa, nela mesma e nesta lista.
-    # Trocar codigo morto por `if False:` nao pode mudar comportamento nenhum,
-    # e uma mutacao que nao pode mudar comportamento nao prova nada.
-    # O defeito — a docstring do modulo promete tres diagnosticos distinguidos
-    # e so dois podem sair — e o KAM-161, e e la que se decide se o ramo se
-    # apaga ou se se define o caso (cadeia bifurcada) em que devia disparar.
+    # **A mutacao do «elo partido» voltou, e agora sobre um ramo que corre.**
+    # A primeira versao trocava por `if False:` o `if prev_hash != anterior:` do
+    # laco da travessia, e sobreviveu a noite de 2026-10-26 por esse ramo ser
+    # **inalcancavel**: o `_por_ordem_da_cadeia` constroi a lista seguindo o
+    # `prev_hash`, pelo que toda a linha que ele devolve o tem igual ao
+    # `anterior` por construcao. Trocar codigo morto por codigo morto nao prova
+    # nada, e o KAM-161 apagou o ramo.
+    #
+    # O caso que ele dizia apanhar — a cadeia **bifurcada** — existia e saia com
+    # a mensagem da orfa, que afirma que o `prev_hash` nao e o `row_hash` de
+    # nenhuma outra: o contrario do que se passa numa bifurcacao. O KAM-161
+    # separou as duas especies de `soltas`, e e essa separacao que esta mutacao
+    # agora quebra — devolvendo a bifurcacao ao balde errado.
+    ("auditoria: a bifurcacao volta a ser reportada como orfa", AUDITORIA,
+     "            if prev in todos_os_elos:",
+     "            if False:"),
     ("auditoria: o verificador deixa de recalcular o hash", AUDITORIA,
      "            if calculado != guardado:",
      "            if False:"),

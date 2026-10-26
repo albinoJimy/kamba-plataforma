@@ -19,18 +19,28 @@ recalcula.
 
 ## O que conta como adulteracao
 
-Tres coisas, e o verificador distingue-as porque a resposta operacional e
+Quatro coisas, e o verificador distingue-as porque a resposta operacional e
 diferente:
 
     fora da cadeia   o `prev_hash` de uma linha nao e o `row_hash` de nenhuma
                      outra, e ela nao parte da genese. Alguem **apagou** uma
                      linha do meio, ou **inseriu** uma forjada.
+    elo partido      o `prev_hash` de uma linha **e** o `row_hash` de outra,
+                     mas essa outra ja tem quem a siga: a cadeia **bifurca**.
+                     Alguem inseriu uma linha a meio sem refazer o resto.
     hash errado      o `row_hash` nao bate com o que as colunas dao. Alguem
                      **alterou** uma coluna.
     cabeca errada    o `audit_heads` nao aponta para o ultimo elo. A cadeia
                      esta inteira e a cabeca nao: ou a cabeca foi mexida, ou
                      uma linha foi apagada **do fim**, que e o unico caso que
-                     o elo partido nao apanha.
+                     os dois primeiros nao apanham.
+
+**Eram tres, e a quarta nasceu de um defeito** (KAM-161): a bifurcacao existia
+e caia no balde «fora da cadeia», cuja mensagem afirma que o `prev_hash` nao e
+o `row_hash` de nenhuma outra — o contrario do que se passa numa bifurcacao. O
+verificador reportava a adulteracao, mas dizia a causa errada, e quem fosse
+investigar procurava uma linha apagada onde havia uma inserida. Havia uma guarda
+escrita para este caso, no laco da travessia, e era **inalcancavel**.
 
 O terceiro e o que justifica a tabela de cabecas existir para alem do
 desempenho: sem ela, apagar as ultimas N linhas de uma cadeia deixava-a
@@ -192,23 +202,42 @@ def verificar(cursor, tenant: str | None = None, ancora: dict | None = None) -> 
     for dono, linhas_por_id in sorted(por_cadeia.items(), key=lambda par: str(par[0])):
         nome = str(dono) if dono is not None else "(plataforma)"
         linhas, soltas = _por_ordem_da_cadeia(linhas_por_id)
+        # **As `soltas` sao de duas especies, e dizer-lhes o mesmo era mentir
+        # numa delas** (KAM-161). Uma linha fica fora da travessia por o seu
+        # `prev_hash` nao ser o `row_hash` de ninguem — orfa —, **ou** por ele
+        # ser o de uma linha que ja tem quem a siga: a cadeia bifurca, e o
+        # `pop(0)` leva uma das duas e deixa a outra. As duas saiam com a
+        # mensagem da orfa, que numa bifurcacao afirma o contrario do que se
+        # mede. `todos_os_elos` e o que as separa.
+        todos_os_elos = {bytes(outra[11]) for outra in linhas_por_id}
         for linha in soltas:
-            achados.append(
-                f"{nome}: a linha {linha[1]} nao esta na cadeia: o seu prev_hash "
-                f"({bytes(linha[10]).hex()[:16]}…) nao e o row_hash de nenhuma outra, "
-                "e ela nao parte da genese"
-            )
+            prev = bytes(linha[10])
+            if prev in todos_os_elos:
+                achados.append(
+                    f"{nome}: elo partido na linha {linha[1]}: o seu prev_hash "
+                    f"({prev.hex()[:16]}…) e o row_hash de uma linha que **ja tem** "
+                    "quem a siga; a cadeia bifurca, e uma das duas foi inserida"
+                )
+            else:
+                achados.append(
+                    f"{nome}: a linha {linha[1]} nao esta na cadeia: o seu prev_hash "
+                    f"({prev.hex()[:16]}…) nao e o row_hash de nenhuma outra, "
+                    "e ela nao parte da genese"
+                )
         anterior = GENESE
         for linha in linhas:
             (_, identificador, criado_at, actor_type, actor_id, action, entity,
              entity_id, turn_id, payload_hash, prev_hash, guardado) = linha
             prev_hash, guardado = bytes(prev_hash), bytes(guardado)
-            if prev_hash != anterior:
-                achados.append(
-                    f"{nome}: elo partido na linha {identificador}: o prev_hash e "
-                    f"{prev_hash.hex()[:16]}… e o elo anterior deu {anterior.hex()[:16]}…; "
-                    "alguem apagou ou inseriu uma linha"
-                )
+            # **Nao se confronta aqui o `prev_hash` com o elo anterior**, e a
+            # razao e que nao pode falhar: o `_por_ordem_da_cadeia` constroi
+            # `linhas` **seguindo** o `prev_hash`, pelo que toda a linha que ele
+            # devolve o tem igual ao `anterior` por construcao. A guarda que
+            # aqui estava era inalcancavel — codigo morto que dava a ilusao de
+            # proteger —, e a prova por mutacao mostrou-o: troca-la por
+            # `if False:` nao quebrava teste nenhum (KAM-161). O caso que ela
+            # dizia apanhar e a bifurcacao, e essa e agora dita acima, de onde
+            # ela de facto sai.
             calculado = row_hash(prev_hash, criado_at, dono, actor_type, actor_id,
                                  action, entity, entity_id, turn_id,
                                  bytes(payload_hash))

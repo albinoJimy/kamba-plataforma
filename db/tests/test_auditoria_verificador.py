@@ -139,6 +139,42 @@ class TestAdulteracaoDetectada(ComCadeia):
         achados = self.achados()
         self.assertTrue(any("nao esta na cadeia" in a for a in achados), achados)
 
+    def test_uma_cadeia_bifurcada_diz_elo_partido_e_nao_fora_da_cadeia(self) -> None:
+        """A quarta forma de adulteracao, e nasceu de um defeito (KAM-161).
+
+        Uma linha fica fora da travessia por duas razoes diferentes: o seu
+        `prev_hash` nao ser o `row_hash` de ninguem — **orfa** —, ou ser o de
+        uma linha que **ja tem quem a siga**, e ai a cadeia **bifurca** e o
+        `pop(0)` leva uma das duas. As duas saiam com a mensagem da orfa, que
+        afirma «o seu prev_hash nao e o row_hash de nenhuma outra» — o
+        contrario do que se passa numa bifurcacao. O verificador reportava a
+        adulteracao e dizia a causa errada: quem fosse investigar procurava uma
+        linha apagada onde havia uma inserida.
+
+        Medido antes de corrigir, com esta mesma bifurcacao: saiam dois
+        achados, e o primeiro era o da orfa.
+
+        O canario sao os **dois** `assertFalse`: afirmar so que sai «elo
+        partido» passava com um verificador que dissesse as duas coisas ao
+        mesmo tempo, e o que se quer e que diga **a certa** e nao a outra.
+        """
+        ids = self.ids()
+        self.cursor.execute(
+            "SELECT encode(row_hash,'hex') FROM platform.audit_log WHERE id = %s",
+            (ids[0],),
+        )
+        elo_da_primeira = self.cursor.fetchone()[0]
+        # A ultima passa a declarar o mesmo `prev_hash` que a segunda: duas
+        # linhas a dizer que vem depois da primeira.
+        self.sem_trigger(
+            "UPDATE platform.audit_log SET prev_hash = decode(%s,'hex') WHERE id = %s",
+            (elo_da_primeira, ids[-1]),
+        )
+        achados = self.achados()
+        self.assertTrue(any("elo partido" in a for a in achados), achados)
+        self.assertFalse(any("nao esta na cadeia" in a for a in achados), achados)
+        self.assertTrue(any("bifurca" in a for a in achados), achados)
+
     def test_apagar_do_fim_so_a_cabeca_apanha(self) -> None:
         """O caso que justifica o `audit_heads` existir para alem do desempenho.
 
