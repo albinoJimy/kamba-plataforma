@@ -112,14 +112,31 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - name: dependencias das migracoes, e so elas
+      - name: dependencias das suites que a lista mede
         # Nao se usa a accao `preparar`: ela corre o `make bootstrap` inteiro
         # (Node, pnpm, build dos pacotes), e esta prova so precisa de Python e
-        # Docker. Eram minutos de Node x seis runners, por noite.
+        # Docker. Eram minutos de Node x seis runners, por noite. Isso mantem-se.
+        #
+        # O que **nao** se mantem e instalar so o fecho das migracoes, que era o
+        # que esta tarefa fazia desde que nasceu. A lista nao e so de base de
+        # dados: 57 mutacoes medem a suite `agr_unit` e 55 medem sete suites de
+        # `tools/`. Sem o `langgraph`, o `pydantic` e o fecho de `tools/`, a
+        # copia sem mutacao nao carrega, o corredor recusa-se a medir — «uma
+        # mutacao apanhada sobre isto nao significa nada», e tem razao — e a
+        # fatia morre em segundos. Correram assim onze noites seguidas, todas
+        # vermelhas, sem medir uma unica das 783 (issue #3).
+        #
+        # Os tres fechos, e as duas chamadas, sao exactamente os do
+        # `$(VENV)/.stamp` do `Makefile`: e o caminho que o `make bootstrap`
+        # exercita em cada PR, e nao vale a pena ter aqui uma segunda receita a
+        # divergir dessa.
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install --quiet --require-hashes --no-deps \
+            -r tools/requirements/tools.txt \
             -r db/requirements/migrations.txt
+          .venv/bin/python -m pip install --quiet --require-hashes --no-deps \
+            -r services/agr/requirements/runtime.txt
       - name: prova por mutacao
         # O corredor levanta o seu proprio PostgreSQL por mutacao, com a imagem
         # fixada por digest em `db/gate_bd.py` — a mesma dos gates 6 e 8.
