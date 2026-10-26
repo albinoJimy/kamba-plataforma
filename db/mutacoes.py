@@ -4421,6 +4421,71 @@ def _copiar_para_o_tool_schema(destino: Path, ignorar) -> None:
     )
 
 
+def _copiar_para_os_aliases(destino: Path, ignorar) -> None:
+    """O que as mutacoes do gerador de configuracao do proxy precisam (KAM-030).
+
+    Tres coisas, e as tres contam:
+
+    * `tools/llm_config` — o gerador que se muta e a bateria que o mede;
+    * `tools/kamba_yaml.py` — o leitor por onde ele le o `aliases.yaml`;
+    * **`llm/`** — a fonte. A bateria copia o `llm/aliases.yaml` e o
+      `llm/precos.yaml` do repositorio para uma arvore temporaria e gera a
+      configuracao a partir deles; sem a pasta, o `setUp` falha a copiar e a
+      linha de base fica vermelha antes de correr teste nenhum.
+
+    O `libs/py-core` entra porque o `nome_da_chave` deriva o nome da variavel
+    por `kamba_core.secrets.env.nome_da_variavel` — sem ele o gerador cai no
+    caminho de reserva e as duas mutacoes do nome da chave nunca se mediriam
+    contra a regra a serio.
+    """
+    shutil.copytree(
+        RAIZ / "tools" / "llm_config", destino / "tools" / "llm_config", ignore=ignorar
+    )
+    shutil.copy(RAIZ / "tools" / "kamba_yaml.py", destino / "tools" / "kamba_yaml.py")
+    shutil.copytree(RAIZ / "llm", destino / "llm", ignore=ignorar)
+    shutil.copytree(
+        RAIZ / "libs" / "py-core", destino / "libs" / "py-core", ignore=ignorar
+    )
+
+
+def _copiar_para_o_pip_na_build(destino: Path, ignorar) -> None:
+    """O que as mutacoes do leitor de `RUN pip install` precisam (KAM-030).
+
+    O `lint_arch`, o `kamba_yaml` (que o `blocklist` importa) e o
+    **`tools/blocklist.yaml`**: a bateria aplica a lista de bloqueio real a
+    Dockerfiles de ensaio que ela escreve num temporario, pelo que e a lista que
+    decide se o achado aparece. Sem ela o `load_entries` falha e a linha de base
+    fica vermelha.
+    """
+    shutil.copytree(
+        RAIZ / "tools" / "lint_arch", destino / "tools" / "lint_arch", ignore=ignorar
+    )
+    shutil.copy(RAIZ / "tools" / "kamba_yaml.py", destino / "tools" / "kamba_yaml.py")
+    shutil.copy(
+        RAIZ / "tools" / "blocklist.yaml", destino / "tools" / "blocklist.yaml"
+    )
+
+
+def _copiar_para_o_cosign(destino: Path, ignorar) -> None:
+    """O que as mutacoes do verificador de assinaturas precisam (KAM-030).
+
+    O `supply_chain`, o `kamba_yaml`, e **o `ci/supply-chain/` inteiro**: o
+    `TestOInventarioRealDoRepositorio` le o inventario de imagens de verdade e
+    confere que a entrada do LiteLLM verifica **por chave** e que o ficheiro da
+    chave existe. Sem o `ci/`, aquelas duas baterias ficavam a medir «nao ha
+    inventario» em vez do que dizem medir.
+    """
+    shutil.copytree(
+        RAIZ / "tools" / "supply_chain",
+        destino / "tools" / "supply_chain",
+        ignore=ignorar,
+    )
+    shutil.copy(RAIZ / "tools" / "kamba_yaml.py", destino / "tools" / "kamba_yaml.py")
+    shutil.copytree(
+        RAIZ / "ci" / "supply-chain", destino / "ci" / "supply-chain", ignore=ignorar
+    )
+
+
 #: Que copia cada suite de `tools/` leva. Uma suite nova sem entrada aqui falha
 #: a dizer que falta — em vez de correr sobre a copia de outra.
 COPIA_DE_TOOLS = {
@@ -4429,6 +4494,9 @@ COPIA_DE_TOOLS = {
     CONTAGENS: _copiar_para_as_contagens,
     CONTRATOS: _copiar_para_os_contratos,
     TOOL_SCHEMA: _copiar_para_o_tool_schema,
+    LLM_CONFIG: _copiar_para_os_aliases,
+    PIP_NA_BUILD: _copiar_para_o_pip_na_build,
+    COSIGN: _copiar_para_o_cosign,
 }
 
 
