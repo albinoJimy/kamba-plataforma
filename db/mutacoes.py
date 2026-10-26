@@ -1384,9 +1384,19 @@ MUTACOES = [
     # acoplamentos entre ficheiros, ou guardas, que **nenhuma execucao
     # distingue de uma coincidencia**. Vivem no
     # `db/tests/test_consumo_contrato.py` e no `test_dlq_reabertura.py`.
+    # **Na suite `tests`, pela segunda camada que a `tests_eventos_consumo` nao
+    # pode ver.** O `trabalhador_bullmq.ts` poe `app.tenant_id` ao nivel da
+    # **sessao** (`is_local = false`) na mesma ligacao, antes de chamar o
+    # `consumir`, pelo que a transaccao herda-o e o `WITH CHECK` da politica
+    # passa com o `set_config` local arrancado. A suite tem um unico *tenant* —
+    # nao ha com que distinguir de onde veio o contexto —, e a mutacao
+    # sobreviveu a noite de 2026-10-26. A propriedade nao e «a escrita tem
+    # contexto»: e «o modulo nao depende do contexto da ligacao que lhe
+    # calhou», e e do tenant do **envelope** e nao do `tenantDoJob`. Prende-se
+    # por texto, no `TestContextoDeTenantPorModulo`.
     ("consumo: a marca de consumo deixa de ser do tenant do envelope", EV_CONSUMO,
      "    await bd.query(SQL_DEFINIR_TENANT, [envelope.tenant_id, true]);\n",
-     "", CONSUMO),
+     ""),
     ("consumo: um duplicado volta a aplicar o efeito", EV_CONSUMO,
      "    if ((marca.rowCount ?? 0) === 0) {",
      "    if ((marca.rowCount ?? 0) === -1) {", CONSUMO),
@@ -1403,9 +1413,17 @@ MUTACOES = [
     ("trabalho: um fora_de_ordem passa a recuar pela escada", EV_TRABALHO,
      "    if (erro instanceof ForaDeOrdem) {",
      "    if (erro instanceof RangeError) {", CONSUMO),
+    # Passa a `tests` pela mesma razao da irma do `consumo.ts`: o contexto de
+    # sessao posto pelo `trabalhador_bullmq.ts` chega **tambem** ao caminho da
+    # DLQ, inclusive no do envelope ilegivel — o `set_config` corre antes do
+    # `SQL_ENVELOPE_DO_EVENTO` que devolve zero linhas. E ha uma terceira
+    # camada do lado da suite `tests`: o `ComEntradaNaDlq` do
+    # `test_dlq_reabertura.py` poe o contexto no proprio `setUp`, antes de
+    # chamar o SQL extraido do TypeScript, pelo que nunca depende de o modulo o
+    # por. Prende-se por texto, no `TestContextoDeTenantPorModulo`.
     ("dlq: a entrada deixa de ter contexto de tenant", EV_DLQ,
      "    await bd.query(SQL_DEFINIR_TENANT, [tenantId, true]);\n",
-     "", CONSUMO),
+     ""),
     ("trabalhador: um evento ilegivel deixa de abrir a DLQ", EV_TRABALHADOR,
      "            await paraDlqSemEnvelope({",
      "            await Promise.resolve({", CONSUMO),
