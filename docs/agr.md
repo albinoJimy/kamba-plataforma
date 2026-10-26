@@ -33,6 +33,8 @@ esqueleto do serviço. Não há agente nenhum.
 | AgentRegistry, as seis validações de arranque e `resolve` | **KAM-027** |
 | Guarda do SBOM do ambiente em *runtime* | **KAM-027** |
 | ToolLayer | KAM-028 |
+| *Gateway* de LLM por *digest*, chaves virtuais e `dat.llm_call_log` | **KAM-030** |
+| Validador de citação: *renderer* por referência e vínculo `sku`↔preço | **KAM-032** |
 | Grafo do Vendedor / de Serviços | KAM-031 / KAM-035 |
 | Modo determinístico e `agr_degraded_turns_total` | KAM-037 |
 | *Compare-and-set* da retoma do *handoff* | KAM-034 |
@@ -268,6 +270,21 @@ Quatro notas que valem mais do que a lista:
   Esta biblioteca não implementa histogramas (ADR-018, observabilidade leve no
   Piloto). O p95 que o critério 5 pede mede-se onde tem significado — na *suite*
   e no *staging*, sobre a amostra toda —, e a agregação contínua é KAM-080.
+- **As cinco do validador de citação são contadores, e as «taxas» do §9.2 são
+  razões entre eles** (KAM-032). O §9.2 do `tecnica/02` nomeia
+  `validate_fail_rate`, `validate_retry_rate`, `handoff_by_citation` e
+  `render_only_ratio`, e três delas são taxas; esta biblioteca não tem
+  histogramas, e uma taxa guardada numa medida perde o denominador. Exportam-se
+  `agr_validate_total`, `agr_validate_falhas_total`,
+  `agr_validate_repeticoes_total`, `agr_validate_handoff_total` e
+  `agr_render_only_total`, todas com o eixo **`vertical`**, e a taxa lê-se no
+  painel: `falhas / total` (o `handoff` é um **subconjunto** das falhas e não se
+  soma a elas), `repetições / total`, o `handoff` como contagem, e o
+  `render_only` sobre `agr_turns_total{outcome="executado"}` — porque o
+  denominador de uma proporção de **respostas** é o turno e não a validação, e um
+  turno com duas repetições conta três validações. O `tenant_id` **não** é eixo de nenhuma, pela regra da gramática acima
+  — e isso é o critério 8 do KAM-032 a não se poder cumprir à letra: ver o §7-E.
+
 - **O `agr_degraded_turns_total` não existe**, e a caixa do DoD fica por marcar.
   O modo determinístico é o KAM-037 e não há, neste ticket, caminho nenhum por
   onde um turno possa ficar degradado; uma métrica declarada e sempre a zero
@@ -797,6 +814,190 @@ nada**, de propósito, e há teste a dizê-lo.
 
 ---
 
+## 7-E. O validador de citação: os dois níveis e o que eles não cobrem (KAM-032)
+
+O ADR-007 manda que preço e stock nunca estejam em *prompts* nem *embeddings* e
+que **cada número citado exista no *output* real de uma tool**. O
+`docs/tecnica/02` §9 desenha isso em duas camadas, e o módulo
+`kamba_agr/validador/` é as duas:
+
+| Camada | Onde | O que faz |
+|---|---|---|
+| 1 — citação por referência (proposta 02-A) | `render.py` | o `compose` devolve **blocos** e não números; o *renderer* preenche-os a partir de *facts* |
+| 2 — validador pós-geração | `veredicto.py` | confronta o texto final (e qualquer prosa livre) com os *facts*, e devolve os sete veredictos |
+
+A camada 1 é a garantia e a camada 2 é a rede de segurança. O §8.4 diz o que o
+grafo faz com o veredicto: «retry → handoff», com o `citation_retries` que o
+§5.3 já tem no estado.
+
+### O contrato dos blocos
+
+Cinco, e são os do dicionário §3.30 (emenda 1.39) — o exemplo do §9.1 tem
+quatro, e o quinto vem do §8.2, que estende o validador a «datas, horas e
+durações»:
+
+```json
+{ "blocks": [
+  { "type": "text",     "text": "Encontrei estas opções para si:" },
+  { "type": "item",     "sku": "SKU-100", "show": ["name", "price", "stock"] },
+  { "type": "total",    "fact_id": "ft-1" },
+  { "type": "datetime", "fact_id": "fd-1" },
+  { "type": "buttons",  "ids": ["confirm:c_77", "cancel:c_77", "human"] } ] }
+```
+
+Três decisões que o exemplo do §9.1 não escreve, e que custam de descobrir:
+
+- **Os `buttons` saem ao lado do texto, e não dentro dele.** Um id de botão é
+  `confirm:c_77`, e o `77` é estrutura e não um número citado: posto no corpo da
+  mensagem, o extractor lê-o e dá `number_unbacked` — o *renderer* a falhar o
+  seu próprio validador. É também o que o canal faz: numa mensagem interactiva
+  os botões são *payload* próprio (`tecnica/01` §8), e o limite é de **10**
+  (§8.2, limite da Meta, CONFIRMADO).
+- **Um bloco `item` leva sempre o `sku`.** O `tecnica/05` §6.3 diz «resposta com
+  `sku` ausente é rejeitada», e um `item` que mostrasse só nome e preço seria
+  recusado pela camada 2 — com razão, porque é exactamente a forma do «produto
+  errado com preço certo».
+- **Um bloco `text` com dígitos levanta.** É a regra do §9.1 («o modelo não
+  escreve números em prosa») imposta onde é barata. Degradar em silêncio gastava
+  uma repetição do modelo para descobrir o que o *renderer* sabe de imediato.
+
+E uma ausência que é desenho: **o `show` admite `name`, `price` e `stock`, e não
+`description`.** O critério 5 pede que os dígitos de descrições escritas pela PME
+não contem como *facts* e que o modelo não os possa repetir; a forma de o garantir
+não é uma regra que alguém tenha de lembrar, é **não haver campo**. A `Oferta`
+que o módulo consome tem `sku`, `nome` e `preco_tipo` — nem descrição, nem preço
+(o preço vem de um `Fact`).
+
+### Os sete veredictos, e o vínculo que fecha o ponto cego do ADR-007
+
+`money_unbacked`, `sku_price_mismatch`, `name_sku_mismatch`, `qty_unbacked`,
+`datetime_unbacked`, `discount_unbacked`, `number_unbacked` — lista fechada
+(dicionário §3.30), porque o grafo decide **pelo veredicto** e um código que ele
+não conheça cai no caminho de omissão.
+
+Em dinheiro a tolerância é zero, e são quatro passos por cada valor do texto:
+
+1. tem de existir um *fact* `price` ou `total` com **exactamente** aquele valor,
+   senão `money_unbacked`. É isto que apanha o critério 3: **um total somado
+   correctamente pelo modelo mas que não é *fact* falha**, porque os totais vêm
+   só do `propose_cart`;
+2. se só um `price` o sustentar, o `sku` desse preço tem de estar **na mesma
+   linha**, senão `sku_price_mismatch`. É o §6.3 do `tecnica/05`, e é o que fecha
+   o «produto errado com preço certo» que o próprio ADR-007 assinala como o seu
+   ponto cego;
+3. uma linha cujo `sku` esteja `sob_consulta` recusa **qualquer** valor
+   monetário, mesmo um que coincida com um total;
+4. um `sku` em `a_partir_de` exige o marcador «a partir de» na linha — citado
+   como preço fixo, falha. Os três modos são os do dicionário §3.3 e o
+   `precoDisplay` é o do `tecnica/03` §7.1: «12 500 Kz», «a partir de 12 500 Kz»,
+   «preço sob consulta».
+
+**A quantidade vincula-se ao `sku` da mesma maneira**, e isso não está no §9.1.
+O pseudocódigo escreve só `require_fact(q, kinds={"qty","stock"})`, e um teste
+mostrou o que isso deixava passar: «SKU-100 — Camisa Azul — 7 unidades» era
+**aceite** porque 7 era o stock de outro produto. É o mesmo «produto errado com
+número certo», e a mitigação que o §9.2 nomeia para ele é a mesma — «validação
+por `kind` e por vínculo».
+
+### Três `kind` que faltam, e o que isso custa a dois critérios
+
+O bloco declara «dependência apenas da interface `Fact`», e três dos sete
+veredictos pedem `kind` que o catálogo do §6.2 não tem: `name`, `qty` e
+`discount` (o §9.1 nomeia ainda um quarto, `expiry`). O `KINDS` do KAM-028 está
+fechado nos **quatro** do §6.2, e um `Fact(kind="discount", …)` **levanta**. É a
+dívida **105**, e o credor que ela nomeia é o **KAM-031**, o ticket que produz os
+*facts*: «quem acrescenta o `kind` é o ticket que produz o *fact*».
+
+O que este módulo faz em vez disso, e o preço de cada escolha:
+
+| Veredicto | Cai em | Consequência |
+|---|---|---|
+| `qty_unbacked` | `stock`, que existe | nenhuma: é o `kinds={"qty","stock"}` do §9.1 menos o que não existe |
+| `datetime_unbacked` | `datetime`, que existe | nenhuma, pela mesma conta sobre o `expiry` |
+| `name_sku_mismatch` | o `nome` do contrato de saída do `tecnica/05` §6.3 | o nome vive no `ToolResult.data` e não num `Fact`, pelo que o validador recebe a **oferta** ao lado dos *facts* em vez de inventar um `kind` |
+| `discount_unbacked` | **nada** | *qualquer* percentagem recusa. É *fail-closed* e é o que o ADR-007 manda, **mas o lado positivo do critério 2 — uma percentagem com *fact* a ser aceite — é inverificável** até o `kind` existir |
+
+O mesmo vale para a moeda: o critério 1 diz «moeda diferente de Kz **sem *fact*
+de moeda** é erro», não há `kind` de moeda, e por isso *toda* a moeda
+estrangeira é erro. A metade «com *fact*» também não se consegue medir.
+
+### A unidade é o cêntimo, e o critério escreve outra coisa
+
+O critério 1 diz «devolve `value_kz` inteiro». **Não é o nome nem a unidade**, e
+as duas fontes que decidem isso são mais altas do que o bloco: o §2 do dicionário
+manda unidade menor inteira (`*_minor`), e o §9.1 do `tecnica/02` foi **corrigido
+pelo KAM-139** depois de a revisão adversarial medir o achado C1 — o *fact* vem
+do `search_catalog` em `preco_minor`, em cêntimos, e comparar a fala do cliente
+em Kz com um *fact* em cêntimos falha **sempre**, por um factor de cem. «12.500
+Kz» dá `value_minor = 1250000`. Está na dívida **106** e na emenda 1.39.
+
+Os nove formatos do critério 1 têm um teste cada, e a parte difícil é a
+ambiguidade do separador: o critério pede `12,500` = 12 500 Kz **e** `12,5 mil` =
+12 500 Kz, isto é, a mesma vírgula a decidir coisas diferentes. As seis regras
+estão no cabeçalho do `normalizacao.py`; a única que é uma **escolha** e não uma
+leitura é «vírgula com exactamente três dígitos e sem multiplicador é separador
+de milhares», e a consequência está escrita lá.
+
+### O critério 8 não se cumpre à letra, e a caixa fica vazia
+
+Pede as quatro métricas «exportadas com `tenant_id` e `vertical`». **O
+`tenant_id` não pode ser etiqueta de métrica** — não por convenção, pela
+gramática: um UUID tem hífenes, não casa `^[a-z][a-z0-9_]{1,62}$`, e a chamada
+levanta `EtiquetaInvalida` (`OBS-I`). Uma métrica escrita como o critério pede
+não exporta valor nenhum: rebenta no primeiro turno.
+
+Não é a primeira vez. As emendas 1.21, 1.25 e 1.38 resolveram-no da mesma
+maneira, e a dívida **54** é o caso idêntico — o critério 4 e o DoD do KAM-015
+pedem `meta_cost_usd_total{tenant}`, a etiqueta não é implementável, e «as duas
+caixas ficam vazias». Aqui: o `vertical` entra (lista fechada, derivada de
+`VERTICAIS`), o `tenant_id` não, a desagregação por *tenant* faz-se onde tem
+significado — o `turn_id` do registo do turno, de onde a amostragem do §9.2 lê —,
+**a gramática não se alarga**, e a decisão volta a quem escreveu o critério.
+
+### As limitações do §9.2 estão medidas, e não fechadas
+
+O bloco manda «limitações a assumir e testar». Um validador que passasse estas
+não é o que o ticket pede; o que ele pede é que estejam nomeadas e com o efeito
+preso por teste — no dia em que uma delas mudar, a bateria falha e alguém decide
+de propósito. Vivem em `casos_adversariais.LIMITES`, em lista **separada** do
+conjunto do *gate* duro, para não inflarem o «0 falsos aceites»:
+
+| Limitação (§9.2) | O que o validador faz hoje |
+|---|---|
+| Coincidência de valores | um valor que coincide com um *fact* `total` dispensa o vínculo ao `sku`; a mitigação que o §9.2 nomeia para isto é a camada 1, não a 2 |
+| Números por extenso | `um`/`uma` isolados são artigo e não número — «levo um» passa sem *fact*. Distingui-lo de «levo um produto» pedia entender a frase; o que escapa é a quantidade **1** |
+| Afirmações sem números | «mais barato», «chega amanhã» não são cobertas: é `guard_out`, e o credor é o **KAM-033** |
+| Disponibilidade qualitativa | «há em stock» sem quantidade passa |
+| *Facts* obsoletos entre turnos | o `retrieved_at` **não** é consultado aqui; quem revalida é o `cart_build`/`create_order`, e o `PRICE_CHANGED` obriga a reconfirmar |
+| Dígitos num **nome** de produto | o intervalo de um nome é reservado (senão «Vestido 2 peças» dava `qty_unbacked` em toda a resposta sobre esse produto). O que isso abriria fecha-se na `Oferta`, que **recusa** um nome com marca de moeda ou valor monetário dentro |
+
+**E a regra dos três, que vai escrita onde o resultado aparece:** 0 falhas em
+N = 200 limita o risco a cerca de **1,5%** com 95% de confiança. «0 divergentes
+no conjunto» **não** é «0 divergentes em produção» — o §9.2 chama ao segundo um
+«objectivo de desenho com risco residual», medido por amostragem
+(`citation_fail_rate`, que não é métrica Prometheus e tem dono KAM-040 e
+KAM-081).
+
+### O fuso: desvio fixo, e não `ZoneInfo`
+
+A apresentação é em `Africa/Luanda` e o armazenamento em UTC. O
+`zoneinfo.ZoneInfo("Africa/Luanda")` **levanta** na máquina de desenvolvimento
+(`ZoneInfoNotFoundError`: não há `tzdata`), e pô-lo a funcionar era uma
+dependência nova para resolver um fuso que nunca teve horário de verão: Angola
+está em WAT (UTC+1) sem transições. O desvio fixo é **exacto** para este fuso e
+não arrasta dependência nenhuma.
+
+### O que este ticket não liga
+
+O nó `validate` e o `compose` do grafo (KAM-031 e KAM-035 — este módulo é a
+interface que eles chamam, e o `registar` das métricas recebe do nó se houve
+repetição ou *handoff*, porque só o nó o sabe); os três `kind` que faltam
+(KAM-031); as frases vetadas sem número (KAM-033); o `price_quote` do dono
+(KAM-123); a entrada do conjunto adversarial no *gate* 13 (KAM-040); e a
+amostragem de produção (KAM-040 com KAM-081).
+
+---
+
 ## 8. O que este documento não decide
 
 A topologia e as réplicas (`docs/tecnica/09`, KAM-088), a aplicação da
@@ -817,3 +1018,4 @@ tabela do §1 atribui a outro ticket.
 | 1.4 | 2026-10-25 | KAM-028 | §7-C: a ToolLayer — os oito passos do §6.1 como **dados** (e porquê), os dois estados de uma entrada de catálogo e como isso fechou a validação (1) do §5.2, a `tool_audit` com a imutabilidade em três camadas e o que a linha **não** guarda, a quarta ligação e porque não é a da leitura, as quatro variáveis novas, o código de saída `6` e o *lint* do critério 3. §7-B: a tabela das seis validações passa a `bloqueio` na (1) e a prosa diz «eram três e são duas». Duas descobertas que mudaram código: a *docstring* de um modelo Pydantic vai no prompt, e um `fact_id` derivado de um argumento põe texto do cliente na auditoria. **Correcções da revisão adversarial** (`analises/ANALISE-30`): as tomadas passam a ser uma fila e não uma (uma só serializava todos os *tenants* — 2,02 s para dez invocações de dez *tenants*), a camada passa a **impor** o tecto de tempo (um executor de 5 s contra 2 s devolvia `ok=True` em 5 s), os **nomes** dos argumentos deixam de ir em claro para a `tool_audit`, a quarta tomada fecha-se no `ao_encerrar`, e o `error_code` da linha de arranque passa a ter a forma que a *allowlist* do §7.3 exige — não tinha, e com `KAMBA_LOG_ESTRITO=1` abortava o `main()` |
 | 1.5 | 2026-10-25 | KAM-029 | §7-C: o passo 5 passa de ponto de extensão a passo com três recusas e um *replay*. O que **este** ticket descobriu ao atravessá-lo está na tabela do §7-C: o `Pedido` não levava a chave ao executor (e sem ela «o backend é idempotente pela chave» era uma frase sem sustento), a `tool_audit.idempotency_key` não é a chave do §6.3 mas a do **turno**, e o fecho da reserva tinha de correr também no `except` — o caminho de excepção fecha a tomada e o `finally` corre depois dele, pelo que a reserva ficava aberta precisamente no caminho em que mais precisa de fechar. As três saíram de **correr** e não de ler, a terceira na bateria da falha injectada. O décimo primeiro erro tipado (`INTENT_REUSED_WITH_DIFFERENT_CONTENT`) e o que ele arrasta: revisão `0022`, dicionário §3.28, e a etiqueta de `agr_tool_erros_total`, que é derivada |
 | 1.6 | 2026-10-26 | KAM-030 | §7-D: o *gateway* de LLM — o cliente por **papéis** (`chamar(papel, mensagens, ctx)`), e porque é que nenhum SDK de fornecedor nem o pacote `litellm` entram no AGR (fala HTTP com o proxy, e o `httpx` já estava no fecho desde o KAM-026: o *gateway* **não acrescenta dependência nenhuma**); o *gate* de destino a correr **antes** da chamada e para **todos** os fornecedores do alias, porque o *fallback* é do router e autorizar só o de `ordem: 1` deixava o segundo receber os dados sem o *gate* ter sido consultado por ele; a `dat.llm_call_log` com uma linha por chamada **incluindo as recusadas**, e porque é que uma falha de registo **não** levanta (levantar repetia a chamada ao modelo — segunda transferência, segundo custo — e a perda de uma linha é mais barata); a quinta ligação (`kamba-agr:llm`) e porque não é a das tools; o código de saída **7**. §5: a guarda do arranque, que são três verificações de configuração — os dois ficheiros de `llm/` e o `INSERT` nas catorze colunas. **O que este ticket descobriu ao atravessar o proxy, e que mudou o desenho:** a configuração do `tecnica/02` §13.1, à letra, não comuta de fornecedor de forma determinística (`simple-shuffle`, 3 falhas em 20), o orçamento esgotado responde **422** e não 400, e `google/` não é um prefixo que o proxy conheça. As três saíram de **correr** e não de ler. §1: o 503 fica, e porquê — os grafos continuam a ser o KAM-031 e o KAM-035, e o que este ticket entrega é o caminho para o modelo, provado em `staging`, com a porta de `prod` fechada por desenho enquanto o KAM-069 não existir |
+| 1.7 | 2026-10-26 | KAM-032 | §7-E: o validador de citação — as duas camadas do §9, o contrato dos cinco blocos (e as três decisões que o exemplo do §9.1 não escreve: os botões ao lado do texto, o `sku` sempre no `item`, e um `text` com dígitos a levantar), os sete veredictos com o vínculo `sku`↔preço que fecha o ponto cego do ADR-007, os três modos de preço, e a unidade em **cêntimos** contra o `value_kz` que o critério escreve (dívida 106, corrigido no desenho pelo KAM-139). §1 e §6: a linha do validador e as **cinco** métricas, que são contadores porque as quatro «taxas» do §9.2 não cabem numa biblioteca sem histogramas. **Dois limites escritos em vez de contornados:** o critério 8 pede `tenant_id` em etiqueta e isso levanta pela gramática (`OBS-I`), pelo que a caixa fica vazia como na dívida 54; e três `kind` que três veredictos precisam não existem (dívida 105, credor KAM-031), o que torna *qualquer* percentagem `discount_unbacked` — *fail-closed*, mas com o lado positivo do critério 2 **inverificável**. **Três defeitos que os testes apanharam e que mudaram código:** a quantidade não estava vinculada ao `sku` (7 unidades de um produto eram aceites pelo stock de outro), os dígitos de um nome de produto recusavam toda a resposta sobre esse produto, e um padrão guloso fazia «doze mil e quinhentos Kz» **desaparecer** — um falso aceite. |

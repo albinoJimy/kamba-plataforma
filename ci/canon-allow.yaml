@@ -48,6 +48,13 @@ historicas:
       - "**correcção** do exploratório"
     razao: "§7 (tabela de correccoes ao grafo exploratorio, linha 10) e §12 (`thread_id`, «correccao do exploratorio»). As duas citam `msisdn_hash+tenant` como a forma que foi substituida."
 
+  - ficheiro: docs/tecnica/02_Agent_Runtime_Verticais.md
+    variante: value_kz
+    ocorrencias: 1
+    ancoras:
+      - "e a comparação estava errada"
+    razao: "§9.1, frase final da normalizacao monetaria: «O nome era `value_kz` e a comparacao estava errada desde que o `05` passou a `preco_minor`». Cita o nome antigo para dizer que o KAM-139 o substituiu por `value_minor` em centimos; a variante entrou no dicionario na emenda 1.39 (§3.30, KAM-032), que e quem normaliza para essa unidade."
+
   - ficheiro: docs/tecnica/03_Core_Comercio_Medusa.md
     variante: total_kz
     ocorrencias: 1

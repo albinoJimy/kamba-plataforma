@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.38"
+versao_dicionario: "1.39"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -6016,7 +6016,6 @@ entradas:
       - "total"
       - "datetime"
       - "value"
-      - "value_kz"
       - "stock"
     variantes_literais: []
   - seccao: "3.27"
@@ -7079,6 +7078,144 @@ entradas:
     nomes_nota:
       - "destinos"
     variantes_literais: []
+  - seccao: "3.30"
+    conceito: "Veredicto do validador"
+    canonico: "Verdict.errors ∈ {money_unbacked, sku_price_mismatch, name_sku_mismatch, qty_unbacked, datetime_unbacked, discount_unbacked, number_unbacked}"
+    literais:
+      - "Verdict.errors"
+      - "money_unbacked"
+      - "sku_price_mismatch"
+      - "name_sku_mismatch"
+      - "qty_unbacked"
+      - "datetime_unbacked"
+      - "discount_unbacked"
+      - "number_unbacked"
+    nomes:
+      - "Verdict.errors"
+      - "money_unbacked"
+      - "sku_price_mismatch"
+      - "name_sku_mismatch"
+      - "qty_unbacked"
+      - "datetime_unbacked"
+      - "discount_unbacked"
+      - "number_unbacked"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.30"
+    conceito: "Bloco do renderer"
+    canonico: "blocks[].type ∈ {text, item, total, buttons, datetime}"
+    literais:
+      - "blocks[].type"
+      - "text"
+      - "item"
+      - "total"
+      - "buttons"
+      - "datetime"
+    nomes:
+      - "blocks"
+      - "type"
+      - "text"
+      - "item"
+      - "total"
+      - "buttons"
+      - "datetime"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.30"
+    conceito: "Literais permitidos fora de facts"
+    canonico: "Policy.allowed_literals"
+    literais:
+      - "Policy.allowed_literals"
+    nomes:
+      - "Policy.allowed_literals"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.30"
+    conceito: "Campos de um bloco de item"
+    canonico: "item.sku + item.show ⊆ {name, price, stock}"
+    literais:
+      - "item.sku"
+      - "item.show"
+      - "name"
+      - "price"
+      - "stock"
+    nomes:
+      - "item.sku"
+      - "item.show"
+      - "name"
+      - "price"
+      - "stock"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.30"
+    conceito: "Valor monetário normalizado"
+    canonico: "value_minor"
+    literais:
+      - "value_minor"
+    nomes:
+      - "value_minor"
+    nomes_nota: []
+    variantes_literais:
+      - "value_kz"
+  - seccao: "3.30"
+    conceito: "Validações de citação"
+    canonico: "agr_validate_total{vertical}"
+    literais:
+      - "agr_validate_total{vertical}"
+    nomes:
+      - "agr_validate_total"
+      - "vertical"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.30"
+    conceito: "Validações recusadas"
+    canonico: "agr_validate_falhas_total{vertical}"
+    literais:
+      - "agr_validate_falhas_total{vertical}"
+    nomes:
+      - "agr_validate_falhas_total"
+      - "vertical"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.30"
+    conceito: "Recusas que geraram repetição"
+    canonico: "agr_validate_repeticoes_total{vertical}"
+    literais:
+      - "agr_validate_repeticoes_total{vertical}"
+    nomes:
+      - "agr_validate_repeticoes_total"
+      - "vertical"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.30"
+    conceito: "Recusas que esgotaram o tecto"
+    canonico: "agr_validate_handoff_total{vertical}"
+    literais:
+      - "agr_validate_handoff_total{vertical}"
+    nomes:
+      - "agr_validate_handoff_total"
+      - "vertical"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.30"
+    conceito: "Respostas sem prosa numérica livre"
+    canonico: "agr_render_only_total{vertical}"
+    literais:
+      - "agr_render_only_total{vertical}"
+    nomes:
+      - "agr_render_only_total"
+      - "vertical"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.30"
+    conceito: "Amostragem em produção"
+    canonico: "citation_fail_rate"
+    literais:
+      - "citation_fail_rate"
+    nomes:
+      - "citation_fail_rate"
+    nomes_nota: []
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -8058,6 +8195,28 @@ dominios:
     seccao: "3.29"
     conceito: "Fornecedor aprovado"
     so_no_registo: false
+  - coluna: "Verdict.errors"
+    valores:
+      - "money_unbacked"
+      - "sku_price_mismatch"
+      - "name_sku_mismatch"
+      - "qty_unbacked"
+      - "datetime_unbacked"
+      - "discount_unbacked"
+      - "number_unbacked"
+    seccao: "3.30"
+    conceito: "Veredicto do validador"
+    so_no_registo: false
+  - coluna: "blocks"
+    valores:
+      - "text"
+      - "item"
+      - "total"
+      - "buttons"
+      - "datetime"
+    seccao: "3.30"
+    conceito: "Bloco do renderer"
+    so_no_registo: false
 
 variantes:
   - nome: "lookup_hmac"
@@ -8160,5 +8319,10 @@ variantes:
     seccao: "3.29"
     conceito: "Registo de chamadas a modelos"
     canonico: "dat.llm_call_log"
+  - nome: "value_kz"
+    tipo: "nome"
+    seccao: "3.30"
+    conceito: "Valor monetário normalizado"
+    canonico: "value_minor"
 
 contradicoes: []
