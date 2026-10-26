@@ -343,7 +343,7 @@ jobs:
       contents: read
       actions: read
     steps:
-      - name: a ultima noite concluida tem menos de 36 horas?
+      - name: a ultima noite correu ha menos de 36 horas, e ficou verde?
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -352,20 +352,36 @@ jobs:
           # 36 h e uma noite mais a folga de uma: a tarefa corre as 02:10 UTC,
           # e um atraso de horas nao e uma noite perdida.
           limite=$((36 * 3600))
-          ultima=$(gh run list --workflow mutacoes.yaml --event schedule \
-            --status completed --limit 1 --json updatedAt --jq '.[0].updatedAt // ""')
-          if [ -z "$ultima" ]; then
+          linha=$(gh run list --workflow mutacoes.yaml --event schedule \
+            --status completed --limit 1 --json updatedAt,conclusion \
+            --jq '.[0] | if . == null then "" else .updatedAt + " " + (.conclusion // "?") end')
+          if [ -z "$linha" ]; then
             echo "A prova nocturna nunca concluiu uma execucao agendada." >&2
             echo 'Enquanto o KAM-143 nao tiver passado uma noite em main, isto e' >&2
             echo 'o esperado. Depois disso, e uma tarefa que deixou de correr.' >&2
             exit 1
           fi
+          ultima=${linha%% *}
+          desfecho=${linha##* }
           idade=$(( $(date -u +%s) - $(date -u -d "$ultima" +%s) ))
-          echo "ultima noite concluida: $ultima (ha $((idade / 3600)) h)"
+          echo "ultima noite: $ultima (ha $((idade / 3600)) h), $desfecho"
           if [ "$idade" -gt "$limite" ]; then
             echo "Passaram mais de 36 h sem uma prova nocturna concluida." >&2
             echo 'Ve .github/workflows/mutacoes.yaml: pode estar desactivada por' >&2
             echo 'inactividade, ou as execucoes podem estar a ser canceladas em fila.' >&2
+            exit 1
+          fi
+          # **E o desfecho, nao so a idade.** A primeira versao desta vigia
+          # pedia `--status completed` e media so a idade. Uma noite vermelha
+          # tambem «conclui»: a vigia passou verde **onze noites seguidas**
+          # enquanto nenhuma das 783 mutacoes era medida (issue #3). O alarme
+          # estava feito para a falha que se imaginou — a noite que deixa de
+          # correr — e a falha real foi a noite que corre e falha.
+          if [ "$desfecho" != "success" ]; then
+            echo "A ultima prova nocturna concluiu com '$desfecho'." >&2
+            echo 'Nao e razao para travar este PR, e e razao para alguem olhar:' >&2
+            echo 'uma noite vermelha nao mede mutacao nenhuma. Ve o issue com a' >&2
+            echo 'etiqueta `mutacoes` e o registo de cada fatia.' >&2
             exit 1
           fi
 

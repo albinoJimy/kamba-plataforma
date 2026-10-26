@@ -169,7 +169,15 @@ def _achados_dos_precos(raiz: Path) -> list[str]:
     """
     import sys as _sys
 
-    servicos = str(raiz / "services" / "agr" / "src")
+    # A partir da arvore onde **esta ferramenta** vive, e nao da arvore que ela
+    # linta. O calculo de precos e codigo do projecto (`kamba_agr.llm.precos`,
+    # a mesma implementacao que o AGR usa, de proposito); o `llm/precos.yaml` e
+    # dado da arvore-alvo. Confundir os dois fazia o `raiz` de um teste — que e
+    # uma arvore temporaria com `llm/` e mais nada — nao ter onde achar o
+    # modulo: tres baterias so passavam onde o `services/agr/src` estivesse no
+    # `sys.path` por outra via, e nesta maquina estava, por um `kamba.pth` do
+    # `.venv` feito a mao. No *runner* nao estava.
+    servicos = str(Path(__file__).resolve().parents[2] / "services" / "agr" / "src")
     if servicos not in _sys.path:
         _sys.path.insert(0, servicos)
     try:

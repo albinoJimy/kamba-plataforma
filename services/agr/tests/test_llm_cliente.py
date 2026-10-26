@@ -268,6 +268,49 @@ class TestUmaLinhaPorChamada(unittest.TestCase):
         )
 
 
+class TestOEscreverNaoLevanta(unittest.TestCase):
+    """O contrato do `registo.escrever`, medido **nele** e nao pelo cliente.
+
+    A primeira noite da prova por mutacao que chegou a medir (KAM-143) apanhou
+    aqui uma sobrevivente: trocar o `except Exception: return False` do
+    `registo.escrever` por um `raise` **nao quebrava teste nenhum**. A razao e
+    instrutiva — havia duas camadas e so a de fora estava medida. O
+    `cliente._escrever` tambem envolve a chamada num `try/except`, pelo que o
+    `test_o_registo_que_falha_nao_rebenta_a_chamada` continuava verde com a
+    guarda interna arrancada: a chamada nao rebentava e a metrica subia na
+    mesma, porque era o cliente a apanhar.
+
+    O contrato esta escrito no docstring do `escrever` — «**nao levanta**;
+    devolve se escreveu» — e e uma propriedade da funcao, nao do seu unico
+    chamador de hoje. Prega-se aqui.
+    """
+
+    LINHA = dict(
+        tenant_id=TENANT,
+        trace_id=CTX.trace_id,
+        papel="chat",
+        modelo="por_decidir",
+        fornecedor="anthropic",
+        resultado=RESULTADO_OK,
+    )
+
+    def test_devolve_falso_em_vez_de_levantar(self) -> None:
+        lig = _Ligacao(levantar=True)
+        linha = registo_mod.LinhaDeChamada(**self.LINHA)
+        self.assertIs(registo_mod.escrever(lig, linha), False)
+
+    def test_devolve_verdadeiro_quando_escreve(self) -> None:
+        """Canario do teste acima.
+
+        Sem ele, um `escrever` que devolvesse sempre `False` passava o primeiro
+        e nao escrevia nunca.
+        """
+        lig = _Ligacao()
+        linha = registo_mod.LinhaDeChamada(**self.LINHA)
+        self.assertIs(registo_mod.escrever(lig, linha), True)
+        self.assertEqual(len(lig.linhas()), 1)
+
+
 class TestDuasChamadasConcorrentes(unittest.TestCase):
     """O canario do achado 4 da revisao adversarial.
 

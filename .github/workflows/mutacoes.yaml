@@ -96,11 +96,23 @@ jobs:
     name: "mutacoes — fatia ${{ matrix.fatia }}/6"
     needs: aplicaveis
     runs-on: ubuntu-latest
-    # Medido: ~5–10 min por fatia com a lista de 48, ~10–15 min com a de 110 do
-    # ramo do KAM-008. 90 min e folga de uma ordem de grandeza; 300 eram trinta
-    # vezes o esperado, e um tecto que nao morde nao protege de nada — uma fatia
-    # pendurada queimava cinco horas de runner antes de morrer.
-    timeout-minutes: 90
+    # **Medido no runner a 2026-10-26**, na primeira execucao que chegou a medir
+    # mutacoes: as seis fatias da lista de 783 levaram 43, 46, 51, 52, 54 e
+    # **75** minutos. Contra os 90 que aqui estavam, a pior fatia ia a 83% do
+    # tecto — ou seja, a tarefa estava a uma noite mais lenta de morrer por
+    # tempo e de ninguem saber porque.
+    #
+    # Os 90 vinham de uma estimativa de 10–15 min por fatia com a lista de 110
+    # do ramo do KAM-008 — «folga de uma ordem de grandeza», e era, para 110. A
+    # lista cresceu para 783 e o tecto nao, e a estimativa nunca foi medicao: o
+    # DoD do KAM-143 di-lo por escrito na caixa que ficou vazia.
+    #
+    # 150 e o dobro da pior fatia medida, e mantem a razao pela qual nao se poe
+    # 300: um tecto que nao morde nao protege de nada, e uma fatia pendurada
+    # queima duas horas e meia de runner em vez de cinco. Re-calibra-se quando a
+    # lista crescer outra vez — e o sinal e este comentario deixar de bater com
+    # o relatorio de uma noite.
+    timeout-minutes: 150
     permissions:
       contents: read
     strategy:
@@ -109,17 +121,31 @@ jobs:
         fatia: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-      - name: dependencias das migracoes, e so elas
-        # Nao se usa a accao `preparar`: ela corre o `make bootstrap` inteiro
-        # (Node, pnpm, build dos pacotes), e esta prova so precisa de Python e
-        # Docker. Eram minutos de Node x seis runners, por noite.
-        run: |
-          python -m venv .venv
-          .venv/bin/python -m pip install --quiet --require-hashes --no-deps \
-            -r db/requirements/migrations.txt
+      # A mesma preparacao dos gates 4, 6 e 8, e **nao** uma segunda receita.
+      #
+      # A primeira versao desta tarefa instalava a mao, e so o fecho das
+      # migracoes: «esta prova so precisa de Python e Docker; eram minutos de
+      # Node x seis runners, por noite». A poupanca era real e o preco nao
+      # estava medido — e o preco eram **onze noites seguidas vermelhas sem
+      # medir uma unica das 783 mutacoes** (issue #3). A lista nao e so de base
+      # de dados:
+      #
+      # * 57 mutacoes medem a suite `agr_unit` e 55 medem sete suites de
+      #   `tools/`, que precisam do `langgraph`, do `pydantic` e do fecho de
+      #   `tools/`;
+      # * 69 medem a `tests_avisos`, que corre uma bateria **Node** contra a
+      #   base e por isso precisa dos `node_modules` e do `dist/` dos pacotes
+      #   partilhados.
+      #
+      # Sem isso a copia sem mutacao nao corre verde, o corredor recusa-se a
+      # medir — «uma mutacao apanhada sobre isto nao significa nada», e tem
+      # razao — e a fatia morre em segundos.
+      #
+      # Usar a accao em vez de repetir os passos tem uma segunda razao: uma
+      # segunda receita **divergiu** da primeira sem ninguem notar durante onze
+      # noites, e e exactamente o que volta a acontecer a proxima que se
+      # escreva aqui. A accao tem cache do `pnpm` e do `venv`.
+      - uses: ./.github/actions/preparar
       - name: prova por mutacao
         # O corredor levanta o seu proprio PostgreSQL por mutacao, com a imagem
         # fixada por digest em `db/gate_bd.py` — a mesma dos gates 6 e 8.

@@ -4389,6 +4389,12 @@ def _copiar_para_os_contratos(destino: Path, ignorar) -> None:
     )
     shutil.copy(RAIZ / "tools" / "kamba_yaml.py", destino / "tools" / "kamba_yaml.py")
     shutil.copytree(RAIZ / "contratos", destino / "contratos", ignore=ignorar)
+    # **E o `registry/`** — a quinta vez, e descoberta pela primeira noite que
+    # chegou a correr. O `subscricoes.py` le `registry/*.yaml` por caminho
+    # relativo, e o seu docstring ainda diz que a pasta «tem so um README.md»:
+    # quatro YAML entraram depois, e o `test_catalogo_e_cli.py` passou a exigir
+    # «8 subscricao(oes) lida(s)». Sem a pasta, a copia lia zero.
+    shutil.copytree(RAIZ / "registry", destino / "registry", ignore=ignorar)
     (destino / "ci").mkdir(parents=True, exist_ok=True)
     shutil.copy(RAIZ / "ci" / "contratos-allow.yaml", destino / "ci" / "contratos-allow.yaml")
     # E o `docs/tecnica/06`, que e a **fonte** do criterio 1: desde a revisao
@@ -4481,6 +4487,25 @@ def _copiar_para_os_aliases(destino: Path, ignorar) -> None:
     shutil.copytree(
         RAIZ / "libs" / "py-core", destino / "libs" / "py-core", ignore=ignorar
     )
+    # **E o `services/agr/src`**, que faltava: o `cli.py` le o custo pelo
+    # `kamba_agr.llm.precos` — a mesma implementacao que o AGR usa, de proposito
+    # — e po-e ele mesmo no `sys.path`, a partir da raiz que recebe. Sem a pasta
+    # na copia, tres baterias do `llm_config` davam «nao se conseguiu ler o
+    # calculo de precos» e a linha de base ficava vermelha. Nesta maquina
+    # passavam pelo `kamba.pth` do `.venv`, que aponta o `services/agr/src`
+    # **real**.
+    shutil.copytree(
+        RAIZ / "services" / "agr" / "src",
+        destino / "services" / "agr" / "src",
+        ignore=ignorar,
+    )
+    # E o `pyproject.toml` do AGR: o `kamba_agr/meta.py` le a versao de
+    # `parents[2]/pyproject.toml` quando a metadata instalada nao existe, e numa
+    # copia nao existe.
+    shutil.copy(
+        RAIZ / "services" / "agr" / "pyproject.toml",
+        destino / "services" / "agr" / "pyproject.toml",
+    )
 
 
 def _copiar_para_o_pip_na_build(destino: Path, ignorar) -> None:
@@ -4509,13 +4534,25 @@ def _copiar_para_o_cosign(destino: Path, ignorar) -> None:
     confere que a entrada do LiteLLM verifica **por chave** e que o ficheiro da
     chave existe. Sem o `ci/`, aquelas duas baterias ficavam a medir «nao ha
     inventario» em vez do que dizem medir.
+
+    **E o `lint_arch`, o `sbom` e o `ci_waivers`**, que a primeira versao desta
+    receita nao levava: o `supply_chain/licencas.py` importa os dois primeiros
+    no topo do modulo, e o `sbom/cli.py` importa o terceiro, pelo que sem eles
+    nem `import supply_chain` corre. A primeira versao parecia funcionar porque
+    o `.venv` desta maquina tinha um `kamba.pth` — feito a mao, que nenhum
+    ficheiro do projecto cria — a por o `tools/` **real** no `sys.path`: a copia
+    ficava a importar os pacotes que lhe faltavam da arvore verdadeira, e a
+    linha de base nunca podia ficar vermelha por falta de copia. No *runner*,
+    que nao tem esse ficheiro, a suite `cosign` morria em `ModuleNotFoundError`.
+    O `TestAsCopiasDeToolsImportamSozinhas` de `db/tests/test_mutacoes.py` passa
+    a medir isto sem o `.pth` pelo meio.
     """
-    shutil.copytree(
-        RAIZ / "tools" / "supply_chain",
-        destino / "tools" / "supply_chain",
-        ignore=ignorar,
-    )
-    shutil.copy(RAIZ / "tools" / "kamba_yaml.py", destino / "tools" / "kamba_yaml.py")
+    for pacote in ("supply_chain", "lint_arch", "sbom"):
+        shutil.copytree(
+            RAIZ / "tools" / pacote, destino / "tools" / pacote, ignore=ignorar
+        )
+    for modulo in ("kamba_yaml.py", "ci_waivers.py"):
+        shutil.copy(RAIZ / "tools" / modulo, destino / "tools" / modulo)
     shutil.copytree(
         RAIZ / "ci" / "supply-chain", destino / "ci" / "supply-chain", ignore=ignorar
     )

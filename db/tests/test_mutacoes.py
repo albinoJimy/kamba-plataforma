@@ -14,12 +14,31 @@ from __future__ import annotations
 
 import contextlib
 import io
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 import unittest.mock
 from pathlib import Path
 
 import mutacoes
+
+#: Estamos no repositorio, e nao dentro de uma copia de mutacao?
+#:
+#: Esta bateria corre **tambem** dentro de uma copia: a suite `tests` e ela
+#: mesma mutada, e lá a `RAIZ` do corredor e a raiz da copia — uma arvore
+#: parcial, sem `tools/supply_chain`, sem `docs/tecnica/` e sem a maioria dos
+#: 142 ficheiros que a lista altera. Os testes que afirmam coisas sobre o
+#: **repositorio** nao tem lá o que medir, e saltam.
+#:
+#: O marcador e o `.git`: nenhuma receita o copia. Num *worktree* e um ficheiro
+#: e nao uma pasta, e por isso `exists` e nao `is_dir`.
+#: **Nao se usa `skipUnless`**: o `gate_bd` recusa testes saltados — «num gate,
+#: saltar e falhar», e tem razao, porque um salto e uma verificacao que nao
+#: aconteceu e que ninguem conta. Os testes desta classe **nao se definem** numa
+#: arvore parcial, e assim nao ha salto nenhum para contar.
+NO_REPOSITORIO = (mutacoes.RAIZ / ".git").exists()
 
 
 class TestClassificar(unittest.TestCase):
@@ -258,8 +277,6 @@ class TestCodigoDeSaida(unittest.TestCase):
                 self.assertEqual(mutacoes.aplicaveis(), 1)
                 self.assertEqual(mutacoes.main(["--aplicaveis"]), 1)
 
-    def test_aplicaveis_sai_com_zero_sobre_a_lista_real(self) -> None:
-        self.assertEqual(mutacoes.aplicaveis(), 0)
 
 
 class TestCaminhoDoPython(unittest.TestCase):
@@ -358,6 +375,134 @@ class TestParalelo(unittest.TestCase):
                 os.environ.pop("KAMBA_MUTACOES_PARALELO", None)
             else:
                 os.environ["KAMBA_MUTACOES_PARALELO"] = anterior
+
+
+#: Corre a suite de `tools/` na copia, com a arvore real fora do `sys.path`.
+#:
+#: E o mesmo `discover` que o `_gate_de_tools` do corredor faz — de proposito:
+#: o que esta guarda mede e a **linha de base**, que e o que o corredor exige
+#: antes de dar qualquer mutacao por apanhada.
+#:
+#: O `sys.path` tem de se limpar aqui dentro: um `.pth` no `site-packages`
+#: entra no `sys.path` de qualquer processo e nao se tira com `PYTHONPATH` nem
+#: com `-I`.
+#:
+#: Tira-se **a raiz inteira**, e nao so o `tools/`. A primeira versao tirava so
+#: o `tools/`, e por isso nao viu que a receita do `llm_config` nao levava o
+#: `services/agr/src`: o `kamba.pth` desta maquina aponta tres pastas, e bastava
+#: uma de pe para a copia ir buscar fora o que lhe faltava.
+_GUIAO_DA_LINHA_DE_BASE = """
+import sys, os, unittest
+raiz, pacote, padrao = sys.argv[1], sys.argv[2], sys.argv[3]
+raiz = os.path.normcase(os.path.normpath(raiz)) + os.sep
+
+
+def de_fora(p):
+    # Tira as arvores de codigo do repositorio e **nao** o ambiente instalado:
+    # o `.venv` vive dentro da raiz, e cortar o `site-packages` com ele levava
+    # o `jsonschema` e o resto do fecho — a copia falhava por nao ter
+    # dependencias, que nao e o que esta guarda mede.
+    p = os.path.normcase(os.path.normpath(p))
+    return not (p + os.sep).startswith(raiz) or "site-packages" in p
+
+
+sys.path[:] = ["tools"] + [p for p in sys.path if p and de_fora(p)]
+testes = unittest.defaultTestLoader.discover(
+    "tools/%s/tests" % pacote, pattern=padrao, top_level_dir="tools"
+)
+resultado = unittest.TextTestRunner(verbosity=0).run(testes)
+sys.exit(0 if resultado.wasSuccessful() else 1)
+"""
+
+
+class TestOQueSoORepositorioPodeAfirmar(unittest.TestCase):
+    """O que se afirma sobre o **repositorio**, e nao sobre uma copia parcial.
+
+    Esta bateria corre tambem **dentro** de uma copia de mutacao, onde a `RAIZ`
+    do corredor e a raiz da copia. Estes dois testes nao tem lá o que medir, e
+    por isso a classe e apagada do modulo quando nao ha `.git` — ver o fim do
+    modulo.
+
+    A linha de base de cada suite de `tools/`, medida num PR e nao as 02:10.
+
+    **Terceira vez que o instrumento falha pela razao errada**, e a primeira em
+    que falha sem se notar. Duas receitas estavam atras do que a sua suite abre:
+    a do `cosign` (KAM-030) copiava o `supply_chain` e nao o `lint_arch`, o
+    `sbom` e o `ci_waivers`, que ele importa no topo do modulo; a dos
+    `contratos` nao levava o `registry/`, onde entretanto entraram quatro YAML
+    que o `test_catalogo_e_cli.py` conta. Nos dois casos a copia nao corria
+    verde, o corredor recusava-se a medir — e bem — e a fatia morria em segundos.
+    Onze noites assim, nenhuma mutacao medida (issue #3).
+
+    **Nesta maquina as duas passavam**, porque o `.venv` tinha um `kamba.pth`
+    — feito a mao, que nenhum ficheiro do projecto cria — a por o `tools/`
+    **real** no `sys.path`: a copia ia buscar a arvore verdadeira o que lhe
+    faltava, e a linha de base nao podia ficar vermelha por falta de copia.
+
+    Mede-se correndo a suite, e nao lendo os `import`: a primeira versao desta
+    guarda so importava o pacote, e teria deixado passar o `registry/` — que
+    nao e um `import`, e um ficheiro que o teste abre.
+    """
+
+    def test_aplicaveis_sai_com_zero_sobre_a_lista_real(self) -> None:
+        """Estava no `TestCodigoDeSaida`, e vem para aqui.
+
+        Corre `aplicaveis()` sobre a lista inteira, e numa copia quase nenhum
+        dos 142 ficheiros-alvo existe: punha a linha de base da **propria**
+        suite `tests` vermelha, e com ela as suas 174 mutacoes fora de alcance.
+        Nunca se notou porque nenhuma noite chegava tao longe. Nenhuma mutacao
+        depende dele — nenhuma das 783 altera o `db/mutacoes.py`.
+        """
+        self.assertEqual(mutacoes.aplicaveis(), 0)
+
+    def test_cada_suite_de_tools_corre_verde_so_com_o_que_a_receita_copia(self) -> None:
+        raiz = str(mutacoes.RAIZ.resolve())
+        ignorar = shutil.ignore_patterns("__pycache__", "*.pyc")
+        for suite, (pacote, padrao) in sorted(mutacoes.SUITES_DE_TOOLS.items()):
+            with self.subTest(suite=suite):
+                destino = Path(tempfile.mkdtemp(prefix="kamba-copia-"))
+                try:
+                    mutacoes.COPIA_DE_TOOLS[suite](destino, ignorar)
+                    corrida = subprocess.run(
+                        [
+                            sys.executable, "-c", _GUIAO_DA_LINHA_DE_BASE,
+                            raiz, pacote, padrao,
+                        ],
+                        cwd=destino,
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                    )
+                finally:
+                    shutil.rmtree(destino, ignore_errors=True)
+                self.assertEqual(
+                    corrida.returncode,
+                    0,
+                    f"a linha de base da suite {suite!r} nao corre verde so com o "
+                    f"que a sua receita copia; a receita esta atras do que a suite "
+                    f"abre:\n{corrida.stdout}\n{corrida.stderr}",
+                )
+
+    def test_toda_a_suite_de_tools_tem_receita(self) -> None:
+        """Sem isto, uma suite nova corre sobre a copia de outra."""
+        self.assertEqual(
+            sorted(mutacoes.SUITES_DE_TOOLS), sorted(mutacoes.COPIA_DE_TOOLS)
+        )
+
+
+# Numa copia de mutacao esta classe nao tem o que medir, e **apaga-se**.
+#
+# Apaga-se, e nao se salta: o `gate_bd` recusa testes saltados — «num gate,
+# saltar e falhar», e tem razao, porque um salto e uma verificacao que nao
+# aconteceu e que ninguem conta.
+#
+# E apaga-se do modulo, nao basta dar-lhe um nome com `_` a frente: o
+# `unittest` descobre as baterias por serem subclasses de `TestCase`, e o nome
+# da classe nao conta para nada. Medido — a primeira versao usava o `_` e as
+# seis fatias continuaram vermelhas exactamente na mesma.
+if not NO_REPOSITORIO:
+    del TestOQueSoORepositorioPodeAfirmar
 
 
 if __name__ == "__main__":
