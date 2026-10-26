@@ -372,16 +372,27 @@ class TestParalelo(unittest.TestCase):
 #: O `sys.path` tem de se limpar aqui dentro: um `.pth` no `site-packages`
 #: entra no `sys.path` de qualquer processo e nao se tira com `PYTHONPATH` nem
 #: com `-I`.
+#:
+#: Tira-se **a raiz inteira**, e nao so o `tools/`. A primeira versao tirava so
+#: o `tools/`, e por isso nao viu que a receita do `llm_config` nao levava o
+#: `services/agr/src`: o `kamba.pth` desta maquina aponta tres pastas, e bastava
+#: uma de pe para a copia ir buscar fora o que lhe faltava.
 _GUIAO_DA_LINHA_DE_BASE = """
 import sys, os, unittest
-real, pacote, padrao = sys.argv[1], sys.argv[2], sys.argv[3]
+raiz, pacote, padrao = sys.argv[1], sys.argv[2], sys.argv[3]
+raiz = os.path.normcase(os.path.normpath(raiz)) + os.sep
 
 
-def mesma(a, b):
-    return os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))
+def de_fora(p):
+    # Tira as arvores de codigo do repositorio e **nao** o ambiente instalado:
+    # o `.venv` vive dentro da raiz, e cortar o `site-packages` com ele levava
+    # o `jsonschema` e o resto do fecho — a copia falhava por nao ter
+    # dependencias, que nao e o que esta guarda mede.
+    p = os.path.normcase(os.path.normpath(p))
+    return not (p + os.sep).startswith(raiz) or "site-packages" in p
 
 
-sys.path[:] = ["tools"] + [p for p in sys.path if p and not mesma(p, real)]
+sys.path[:] = ["tools"] + [p for p in sys.path if p and de_fora(p)]
 testes = unittest.defaultTestLoader.discover(
     "tools/%s/tests" % pacote, pattern=padrao, top_level_dir="tools"
 )
@@ -412,8 +423,29 @@ class TestAsCopiasDeToolsBastamSeASiMesmas(unittest.TestCase):
     nao e um `import`, e um ficheiro que o teste abre.
     """
 
+    #: Pastas da raiz que as receitas abrem. Sem elas, nao e o repositorio.
+    DA_RAIZ = ("tools", "llm", "registry", "contratos", "ci", "docs", "libs", "services")
+
+    def setUp(self) -> None:
+        """Numa copia de mutacao esta guarda nao tem o que medir, e salta.
+
+        A suite `tests` corre **dentro** de uma copia parcial, onde a `RAIZ` do
+        corredor e a raiz da copia: as receitas de `tools/` iam la buscar
+        `docs/`, `registry/` e `llm/`, que a copia nao leva, e rebentavam com
+        `FileNotFoundError` — a linha de base da propria suite `tests` ficava
+        vermelha. E a armadilha que a `docs/ci.md` 1.56 ja nomeia: «o arnes de
+        canarios corre sobre copias parciais da arvore». No *gate* 8 e no
+        `make test-py` a arvore e inteira e a guarda corre.
+        """
+        faltam = [d for d in self.DA_RAIZ if not (mutacoes.RAIZ / d).is_dir()]
+        if faltam:
+            self.skipTest(
+                "arvore parcial (sem " + ", ".join(faltam) + "): esta guarda mede "
+                "as receitas contra o repositorio, e aqui nao ha repositorio"
+            )
+
     def test_cada_suite_de_tools_corre_verde_so_com_o_que_a_receita_copia(self) -> None:
-        real = str((mutacoes.RAIZ / "tools").resolve())
+        raiz = str(mutacoes.RAIZ.resolve())
         ignorar = shutil.ignore_patterns("__pycache__", "*.pyc")
         for suite, (pacote, padrao) in sorted(mutacoes.SUITES_DE_TOOLS.items()):
             with self.subTest(suite=suite):
@@ -423,7 +455,7 @@ class TestAsCopiasDeToolsBastamSeASiMesmas(unittest.TestCase):
                     corrida = subprocess.run(
                         [
                             sys.executable, "-c", _GUIAO_DA_LINHA_DE_BASE,
-                            real, pacote, padrao,
+                            raiz, pacote, padrao,
                         ],
                         cwd=destino,
                         capture_output=True,

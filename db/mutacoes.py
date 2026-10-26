@@ -4487,6 +4487,25 @@ def _copiar_para_os_aliases(destino: Path, ignorar) -> None:
     shutil.copytree(
         RAIZ / "libs" / "py-core", destino / "libs" / "py-core", ignore=ignorar
     )
+    # **E o `services/agr/src`**, que faltava: o `cli.py` le o custo pelo
+    # `kamba_agr.llm.precos` — a mesma implementacao que o AGR usa, de proposito
+    # — e po-e ele mesmo no `sys.path`, a partir da raiz que recebe. Sem a pasta
+    # na copia, tres baterias do `llm_config` davam «nao se conseguiu ler o
+    # calculo de precos» e a linha de base ficava vermelha. Nesta maquina
+    # passavam pelo `kamba.pth` do `.venv`, que aponta o `services/agr/src`
+    # **real**.
+    shutil.copytree(
+        RAIZ / "services" / "agr" / "src",
+        destino / "services" / "agr" / "src",
+        ignore=ignorar,
+    )
+    # E o `pyproject.toml` do AGR: o `kamba_agr/meta.py` le a versao de
+    # `parents[2]/pyproject.toml` quando a metadata instalada nao existe, e numa
+    # copia nao existe.
+    shutil.copy(
+        RAIZ / "services" / "agr" / "pyproject.toml",
+        destino / "services" / "agr" / "pyproject.toml",
+    )
 
 
 def _copiar_para_o_pip_na_build(destino: Path, ignorar) -> None:
