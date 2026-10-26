@@ -66,12 +66,36 @@ def executar(nome: str, raiz: Path) -> tuple[list[Achado], str]:
     raise ValueError(nome)
 
 
+#: Achados que sao propriedade da **maquina** e nao da arvore, e por isso nao
+#: entram no varrimento que o canario e o teste do repositorio usam.
+#:
+#: Ha um so, e entra com o KAM-030: o `cosign-sem-binario`. Desde que o
+#: inventario tem uma imagem com `cosign: verificar` — a primeira assinada que o
+#: repositorio referencia —, uma maquina sem o binario `cosign` produz este
+#: achado, e e **correcto** que o produza: uma verificacao que nao corre nao
+#: passa, e e por isso que o `_relatar` (o caminho do *gate*) **continua a
+#: ve-lo**. O que nao faz sentido e o canario e o
+#: `test_o_repositorio_passa_todas_as_verificacoes` falharem por ele: o primeiro
+#: compara uma arvore mutada com a arvore limpa, e um achado que aparece nas
+#: duas nao distingue nada; o segundo afirma algo sobre **o repositorio**, e a
+#: ausencia de um binario no `runner` do *gate* 4 nao e uma propriedade dele.
+#:
+#: O *job* do *gate* 11 instala o `cosign` e e la que a verificacao corre a
+#: serio. Esta lista e fechada e nomeada de proposito: nao e um «ignorar
+#: achados», e um achado nomeado com a razao escrita.
+ACHADOS_DA_MAQUINA = ("cosign-sem-binario",)
+
+
 def executar_todas(raiz: Path) -> list[Achado]:
-    """Todas as verificacoes, sem imprimir. E o que o canario usa."""
+    """Todas as verificacoes, sem imprimir. E o que o canario usa.
+
+    Sem os `ACHADOS_DA_MAQUINA` — ver a nota deles. O caminho do *gate*
+    (`_relatar`) nao passa por aqui e continua a ver tudo.
+    """
     achados: list[Achado] = []
     for nome in VERIFICACOES:
         achados += executar(nome, raiz)[0]
-    return achados
+    return [a for a in achados if a.regra not in ACHADOS_DA_MAQUINA]
 
 
 def _relatar(nome: str, raiz: Path) -> int:

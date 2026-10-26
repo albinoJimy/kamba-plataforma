@@ -125,6 +125,15 @@ class AliasesInvalidos(ValueError):
     """O `llm/aliases.yaml` nao se pode usar. A mensagem diz porque."""
 
 
+class BumpEmFalta(RuntimeError):
+    """O conteudo mudou e a `versao` nao. O `escrever` **recusa-se**.
+
+    Vive aqui e nao no `cli` porque e parte do contrato do modulo, como o
+    `AliasesInvalidos`: quem chama o `escrever` de outro sitio — o `lint_arch`
+    chama o `check` — tem de poder apanha-la pelo nome do pacote.
+    """
+
+
 def ler(raiz: Path) -> dict[str, Any]:
     """Le e **valida** os aliases. Levanta `AliasesInvalidos` se nao servirem."""
     dados = load_file(raiz / ALIASES)
@@ -161,6 +170,7 @@ def ler(raiz: Path) -> dict[str, Any]:
         raise AliasesInvalidos("dois aliases com o mesmo `nome`")
 
     vistos: set[tuple[str, int]] = set()
+    por_fornecedor: set[tuple[str, str]] = set()
     por_alias: dict[str, int] = {}
     for linha in dados["fornecedores"]:
         alias = str(linha.get("alias", ""))
@@ -180,6 +190,28 @@ def ler(raiz: Path) -> dict[str, Any]:
         if (alias, ordem) in vistos:
             raise AliasesInvalidos(f"{alias}: duas linhas com `ordem: {ordem}`")
         vistos.add((alias, ordem))
+        # **Dois fornecedores iguais no mesmo alias sao recusados**, e nao e
+        # arrumacao: o cliente do AGR descobre quem servio pelo **prefixo** da
+        # resposta, e dois modelos do mesmo fornecedor colapsam nesse mapa — uma
+        # chamada servida pelo primeiro era gravada como o segundo, com o custo
+        # do segundo. Com Haiku (0,10/0,50) e Sonnet (2,00/10,00) atras do mesmo
+        # `kamba-chat`, isso e **vinte vezes** o custo real na coluna em que o
+        # criterio 5 se apoia, e o registo de transferencia a apontar para o
+        # modelo errado.
+        #
+        # Um *fallback* de qualidade dentro do mesmo subprocessador e um pedido
+        # legitimo; o que ele precisa e de o cliente desambiguar por
+        # `(prefixo, modelo)`, e isso e trabalho de quem o pedir. Ate la,
+        # recusa-se aqui — falha fechada no lint e no arranque, nao em producao.
+        # Encontrado pela revisao adversarial, medido.
+        if (alias, fornecedor) in por_fornecedor:
+            raise AliasesInvalidos(
+                f"{alias}: duas linhas com `fornecedor: {fornecedor}`. O cliente "
+                "distingue quem servio pelo prefixo da resposta, e dois modelos do "
+                "mesmo fornecedor colapsam nesse mapa: a chamada era gravada com o "
+                "modelo e o custo errados"
+            )
+        por_fornecedor.add((alias, fornecedor))
         por_alias[alias] = por_alias.get(alias, 0) + 1
         if not str(linha.get("modelo", "")):
             raise AliasesInvalidos(f"{alias}: `modelo` nao pode ser vazio")

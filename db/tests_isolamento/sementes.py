@@ -1043,10 +1043,13 @@ SEM_RECEITA_COM_RAZAO = {
     # que faz as perguntas do X-04 — ler e escrever no nome de outro tenant, e
     # sem contexto nenhum — sem precisar de apagar nada.
     ("dat", "llm_call_log"),
-    # A particao por omissao entra tambem, e por uma razao propria: para o
-    # catalogo do *gate* 6 uma particao **e** uma tabela com `tenant_id`, e esta
-    # herda o `tenant_id` do pai. Semeá-la seria semear a tabela duas vezes.
-    ("dat", "llm_call_log_default"),
+    # **A particao `llm_call_log_default` nao entra aqui**, e isso mediu-se: o
+    # `tabelas_isoladas` do `catalogo.py` exclui particoes
+    # (`NOT c.relispartition`) desde o KAM-005, porque elas tem verificacao
+    # propria em `verificar_particoes` — RLS propria **e** nenhum privilegio
+    # concedido a papel nenhum. Declara-la nesta lista nomeava uma tabela que a
+    # suite nao considera isolada, e a asercao `SEM_RECEITA_COM_RAZAO <= todas`
+    # falhava. Uma excepcao morta e pior do que nenhuma.
 }
 
 #: `tenants` primeiro: as outras referenciam-na. Depois, pela ordem das FK. As

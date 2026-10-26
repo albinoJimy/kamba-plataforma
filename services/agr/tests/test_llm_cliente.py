@@ -56,16 +56,23 @@ class _Cursor:
             raise RuntimeError("base indisponivel (ensaio)")
         self._ligacao.sql.append((sql, tuple(parametros or ())))
 
+    def __enter__(self) -> "_Cursor":
+        # O `tenant_guard.tx` real **reserva a ligacao** e recusa uma segunda
+        # entrada com `LigacaoEmUso`. O duplo faz o mesmo, porque sem isso uma
+        # ligacao partilhada entre turnos concorrentes passava nos ensaios e
+        # perdia linhas em producao — foi o que aconteceu.
+        if self._ligacao.em_uso:
+            raise RuntimeError("LigacaoEmUso (ensaio): ja ha uma transaccao aberta")
+        self._ligacao.em_uso += 1
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self._ligacao.em_uso -= 1
+
     def fetchone(self) -> tuple[Any, ...]:
         return tuple(True for _ in registo_mod.COLUNAS)
 
     def close(self) -> None:
-        return None
-
-    def __enter__(self) -> "_Cursor":
-        return self
-
-    def __exit__(self, *_: object) -> None:
         return None
 
 
@@ -74,6 +81,11 @@ class _Ligacao:
         self.autocommit = False
         self.sql: list[tuple[str, tuple[Any, ...]]] = []
         self.levantar = levantar
+        self.fechada = 0
+        #: Quantas transaccoes estao abertas **agora**. E isto que denuncia uma
+        #: ligacao partilhada: o `tenant_guard` real recusa a segunda com
+        #: `LigacaoEmUso`, e este duplo faz o mesmo.
+        self.em_uso = 0
 
     def cursor(self) -> _Cursor:
         return _Cursor(self)
@@ -85,7 +97,7 @@ class _Ligacao:
         return None
 
     def close(self) -> None:
-        return None
+        self.fechada += 1
 
     # ------------------------------------------------------------- leituras
     def linhas(self) -> list[dict[str, Any]]:
@@ -175,7 +187,11 @@ def _cliente(
         aliases=ALIASES,
         tabela_de_precos=PRECOS,
         porta_de_destinos=destinos_mod.arrancar(ambiente),
-        ligacao_do_registo=lig,
+        # **Uma fabrica e nao uma ligacao.** A primeira versao passava a ligacao
+        # e o cliente guardava-a; aqui devolve-se sempre a mesma instancia, para
+        # as baterias poderem ler o SQL, mas o cliente **abre e fecha** por
+        # chamada — e e isso que o `TestDuasChamadasConcorrentes` mede.
+        abrir_ligacao=lambda: lig,
         chave_virtual=lambda t: f"sk-virtual-{t}",
         url_do_proxy="http://litellm:4000",
         metricas=met,
@@ -249,6 +265,122 @@ class TestUmaLinhaPorChamada(unittest.TestCase):
         self.assertEqual(
             met.ler().get(metricas_mod.METRICA_LLM_REGISTO_FALHOU), 1,
             "a perda tem de ser visivel numa metrica",
+        )
+
+
+class TestDuasChamadasConcorrentes(unittest.TestCase):
+    """O canario do achado 4 da revisao adversarial.
+
+    Com uma ligacao **por processo**, o `tenant_guard.tx` recusava a segunda
+    entrada (`LigacaoEmUso`), o `escrever` engolia-a e a segunda chamada saía,
+    consumia *tokens*, transferia dados e **nao gravava linha**. O criterio 5 e
+    o registo de transferencia do ADR-008 falhavam exactamente sob carga, e o
+    duplo sequencial da primeira versao desta bateria nao o via.
+    """
+
+    def test_duas_chamadas_ao_mesmo_tempo_gravam_duas_linhas(self) -> None:
+        import threading
+
+        lig = _Ligacao()
+        met = metricas_mod.MetricasDoAgr()
+        # Uma ligacao **nova** por chamada, como o `ligar_para_llm` faz em
+        # producao; todas escrevem no mesmo registo para a bateria o poder ler.
+        abertas: list[_Ligacao] = []
+
+        def abrir() -> _Ligacao:
+            nova = _Ligacao()
+            nova.sql = lig.sql
+            abertas.append(nova)
+            return nova
+
+        a_meio = threading.Barrier(2, timeout=5)
+
+        def transporte(url, cabecalhos, corpo, timeout):
+            # As duas chamadas chegam ao registo **ao mesmo tempo**: sem a
+            # barreira, a segunda podia comecar depois de a primeira acabar e o
+            # ensaio nao media concorrencia nenhuma.
+            a_meio.wait()
+            return 200, _resposta(), {}
+
+        cliente = ClienteDeLlm(
+            aliases=ALIASES, tabela_de_precos=PRECOS,
+            porta_de_destinos=destinos_mod.arrancar(destinos_mod.AMBIENTE_STAGING),
+            abrir_ligacao=abrir, chave_virtual=lambda t: "sk-x",
+            metricas=met, transporte=transporte,
+        )
+        erros: list[BaseException] = []
+
+        def correr() -> None:
+            try:
+                cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+            except BaseException as excepcao:  # noqa: BLE001
+                erros.append(excepcao)
+
+        fios = [threading.Thread(target=correr) for _ in range(2)]
+        for fio in fios:
+            fio.start()
+        for fio in fios:
+            fio.join(timeout=10)
+
+        self.assertEqual(erros, [])
+        self.assertEqual(len(lig.linhas()), 2, "uma linha por chamada, sob carga")
+        self.assertIsNone(met.ler().get(metricas_mod.METRICA_LLM_REGISTO_FALHOU))
+        self.assertEqual(len(abertas), 2, "uma ligacao por chamada")
+        self.assertTrue(all(l.fechada for l in abertas), "e fechada no fim")
+
+
+class TestOPrecoExpirado(unittest.TestCase):
+    """O canario do achado 5 da revisao adversarial.
+
+    O `custo()` **levanta** numa tarifa expirada, e era chamado no caminho de
+    sucesso **antes** de se gravar a linha: a chamada saía, zero linhas ficavam
+    na tabela, e escapava um `ValueError` que nao e `ErroDeLlm` — pelo que o
+    turno falhava, o *job* voltava a fila e a chamada **repetia-se**: segunda
+    transferencia e segundo custo.
+    """
+
+    def test_uma_tarifa_expirada_grava_a_linha_com_custo_nulo(self) -> None:
+        import datetime as dt
+
+        expirado = {
+            ("anthropic", "claude-haiku-5-5"): precos_mod.Preco(
+                "anthropic", "claude-haiku-5-5",
+                Decimal("0.10"), Decimal("0.01"), Decimal("0.50"),
+                "CONFIRMADO", "ensaio", valido_ate=dt.date(2020, 1, 1),
+            )
+        }
+        lig = _Ligacao()
+        met = metricas_mod.MetricasDoAgr()
+        cliente = ClienteDeLlm(
+            aliases=ALIASES, tabela_de_precos=expirado,
+            porta_de_destinos=destinos_mod.arrancar(destinos_mod.AMBIENTE_STAGING),
+            abrir_ligacao=lambda: lig, chave_virtual=lambda t: "sk-x",
+            metricas=met, transporte=_Transporte(),
+        )
+        resposta = cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+        self.assertEqual(resposta.resultado, RESULTADO_OK)
+        self.assertIsNone(resposta.custo_usd)
+        self.assertEqual(len(lig.linhas()), 1, "a linha nao se perde")
+        self.assertIsNone(lig.linhas()[0]["custo_usd"])
+        self.assertEqual(met.ler().get(metricas_mod.METRICA_LLM_SEM_PRECO), 1)
+
+    def test_o_arranque_recusa_uma_tarifa_expirada(self) -> None:
+        """A metade preventiva: chegar ao caminho acima e a rede, nao a regra."""
+        import datetime as dt
+        import pathlib
+
+        tabela = precos_mod.carregar(
+            pathlib.Path(__file__).resolve().parents[3] / "llm"
+        )
+        promocional = {("google", "gemini-3.8-flash")}
+        precos_mod.sem_expirados(tabela, promocional, hoje=dt.date(2026, 12, 31))
+        with self.assertRaises(precos_mod.PrecoExpirado):
+            precos_mod.sem_expirados(tabela, promocional, hoje=dt.date(2027, 1, 1))
+        # **E o canario**: a mesma tabela, na mesma data, com os pares que os
+        # aliases usam **hoje** (nenhum tem preco) passa — e e isso que impede
+        # o arranque de recusar subir por um candidato que ninguem escolheu.
+        precos_mod.sem_expirados(
+            tabela, {("anthropic", "por_decidir")}, hoje=dt.date(2030, 1, 1)
         )
 
 
@@ -352,7 +484,7 @@ class TestOGateDeDestino(unittest.TestCase):
         lig = _Ligacao()
         cliente = ClienteDeLlm(
             aliases=ALIASES, tabela_de_precos=PRECOS, porta_de_destinos=_Porta(),
-            ligacao_do_registo=lig, chave_virtual=lambda t: "sk-x",
+            abrir_ligacao=lambda: lig, chave_virtual=lambda t: "sk-x",
             metricas=metricas_mod.MetricasDoAgr(), transporte=_Transporte(),
         )
         cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
@@ -366,13 +498,59 @@ class TestOGateDeDestino(unittest.TestCase):
         cliente = ClienteDeLlm(
             aliases={"papel_invalido": alias}, tabela_de_precos=PRECOS,
             porta_de_destinos=destinos_mod.arrancar(destinos_mod.AMBIENTE_STAGING),
-            ligacao_do_registo=lig, chave_virtual=lambda t: "sk-x",
+            abrir_ligacao=lambda: lig, chave_virtual=lambda t: "sk-x",
             metricas=met, transporte=_Transporte(),
         )
         with self.assertRaises(DestinoNegado):
             cliente.chamar("papel_invalido", [{"role": "user", "content": "x"}], CTX)
         self.assertEqual(len(lig.linhas()), 1)
         self.assertEqual(met.ler().get(metricas_mod.METRICA_LLM_DESTINO_NEGADO), 1)
+
+
+class TestAMensagemDoFornecedorNaoVaza(unittest.TestCase):
+    """O achado 16 da revisao adversarial, e e uma fuga de conteudo.
+
+    O proxy devolve o pedido recusado **dentro** da mensagem de erro. A primeira
+    versao do `classificar` copiava 200 caracteres dela para `str(erro)`; o
+    `/internal/turn` nao apanha `ErroDeLlm`, pelo que o *traceback* do uvicorn a
+    escrevia no *stdout* do contentor — com um telefone de cliente. ADR-010.
+    """
+
+    CANARIO = "Bom dia, o meu numero e 923000000"
+
+    def test_o_corpo_do_erro_nao_entra_na_excepcao(self) -> None:
+        corpo = {
+            "error": {
+                "type": "invalid_request_error",
+                "message": f"Invalid value for 'messages[0].content': '{self.CANARIO}'",
+            }
+        }
+        cliente, _, _ = _cliente(_Transporte((400, corpo, {})))
+        with self.assertRaises(FornecedorFalhou) as apanhado:
+            cliente.chamar("chat", [{"role": "user", "content": self.CANARIO}], CTX)
+        texto = str(apanhado.exception)
+        self.assertNotIn("923000000", texto)
+        self.assertNotIn("Bom dia", texto)
+        # O que **fica** e o diagnostico: o estado e o tipo.
+        self.assertIn("400", texto)
+        self.assertIn("invalid_request_error", texto)
+
+    def test_um_tipo_que_nao_e_identificador_nao_passa(self) -> None:
+        """Um fornecedor que ponha prosa no `type` nao a passa por ali."""
+        corpo = {"error": {"type": f"recusado: {self.CANARIO}", "message": "x"}}
+        cliente, _, _ = _cliente(_Transporte((400, corpo, {})))
+        with self.assertRaises(FornecedorFalhou) as apanhado:
+            cliente.chamar("chat", [{"role": "user", "content": "x"}], CTX)
+        self.assertNotIn("923000000", str(apanhado.exception))
+        self.assertIn("sem_tipo", str(apanhado.exception))
+
+    def test_um_corpo_que_nao_e_json_nao_devolve_texto(self) -> None:
+        cliente, _, _ = _cliente(
+            _Transporte((502, {"error": {"type": "resposta_nao_json"}}, {}))
+        )
+        with self.assertRaises(FornecedorFalhou) as apanhado:
+            cliente.chamar("chat", [{"role": "user", "content": "x"}], CTX)
+        self.assertIn("resposta_nao_json", str(apanhado.exception))
 
 
 class TestQuemServiu(unittest.TestCase):
@@ -477,7 +655,7 @@ class TestOsOutrosDesfechos(unittest.TestCase):
         cliente = ClienteDeLlm(
             aliases={"chat": alias}, tabela_de_precos=PRECOS,
             porta_de_destinos=destinos_mod.arrancar(destinos_mod.AMBIENTE_STAGING),
-            ligacao_do_registo=lig, chave_virtual=lambda t: "sk-x",
+            abrir_ligacao=lambda: lig, chave_virtual=lambda t: "sk-x",
             metricas=met,
             transporte=_Transporte((200, _resposta("anthropic/por_decidir"), {})),
         )
@@ -503,12 +681,30 @@ class TestAsContagensDeTokens(unittest.TestCase):
         self.assertEqual(linha["custo_usd"], Decimal("0.00036"))
 
     def test_um_cache_maior_do_que_a_entrada_nao_da_negativo(self) -> None:
-        """O `CHECK llm_call_log_tokens_ck` recusaria a linha, no caminho que nao levanta."""
-        cliente, lig, _ = _cliente(
+        """O `CHECK llm_call_log_tokens_ck` recusaria a linha, no caminho que nao levanta.
+
+        **E conta-se**, que e o achado 12 da revisao adversarial: `cache >
+        entrada` e o sinal inequivoco de que o fornecedor reporta o cache **ao
+        lado** e nao dentro, e nesse caso a subtraccao subavalia o custo em
+        toda a linha. Cortar para zero em silencio deixava uma diferenca de 43%
+        invisivel.
+        """
+        cliente, lig, met = _cliente(
             _Transporte((200, _resposta(entrada=100, saida=10, cache=500), {}))
         )
         cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
         self.assertEqual(lig.linhas()[0]["tokens_in"], 0)
+        self.assertEqual(
+            met.ler().get(metricas_mod.METRICA_LLM_CONTAGEM_INCOERENTE), 1
+        )
+
+    def test_um_cache_normal_nao_conta_incoerencia(self) -> None:
+        """O canario pelo outro lado: nao se inventa o sinal."""
+        cliente, _, met = _cliente(
+            _Transporte((200, _resposta(entrada=3000, saida=300, cache=1000), {}))
+        )
+        cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+        self.assertIsNone(met.ler().get(metricas_mod.METRICA_LLM_CONTAGEM_INCOERENTE))
 
 
 class TestAParidadeComARevisao0023(unittest.TestCase):

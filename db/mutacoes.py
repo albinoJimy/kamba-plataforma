@@ -4089,11 +4089,27 @@ MUTACOES = [
     # Para o *gate* 6 uma particao e uma tabela: sem `FORCE` na particao, um
     # `SELECT` dirigido a ela escapa a politica do pai.
     ('llm: o trigger de imutabilidade so prende o DELETE', REV23,
-     "          BEFORE UPDATE OR DELETE ON {PARTICAO}",
-     "          BEFORE DELETE ON {PARTICAO}",
+     "          BEFORE UPDATE OR DELETE ON {TABELA}",
+     "          BEFORE DELETE ON {TABELA}",
      AGR),
     # Um `UPDATE` e precisamente o que faria desaparecer uma transferencia que
     # ja aconteceu.
+    ('llm: o trigger volta para a particao e deixa de ser herdado', REV23,
+     "          BEFORE UPDATE OR DELETE ON {TABELA}\n          FOR EACH ROW",
+     "          BEFORE UPDATE OR DELETE ON {PARTICAO}\n          FOR EACH ROW",
+     AGR),
+    # Era a forma da primeira versao, e a revisao adversarial mostrou o que ela
+    # custava: uma particao **nova** nascia sem *trigger*, e e isso que o *job*
+    # da retencao (KAM-071) ia criar — um `UPDATE` do dono sobre a particao de
+    # 2027 reescrevia registo de custo e fazia desaparecer transferencias.
+    # Medido: no pai, uma particao nova **herda-o**.
+    ('llm: o TRUNCATE deixa de ser recusado', REV23,
+     "    op.execute(f\"ALTER TABLE {TABELA} ENABLE ALWAYS TRIGGER llm_call_log_sem_truncate\")",
+     "    pass  # o trigger de TRUNCATE fica sem ENABLE ALWAYS",
+     AGR),
+    # O *trigger* de linha nao cobre o `TRUNCATE`, e a primeira versao desta
+    # revisao nao tinha o de instrucao — por afirmar que uma tabela particionada
+    # nao o aceita. Aceita, e mediu-se.
 ]
 
 
@@ -4168,8 +4184,27 @@ def _copiar(destino: Path, suite: str = "tests") -> None:
         RAIZ / "docs" / "dividas-documentais.md",
         destino / "docs" / "dividas-documentais.md",
     )
+    # KAM-030: a pasta `llm/` e o `infra/llm/`, e as duas por baterias que leem
+    # **o repositorio** e nao um duplo.
+    #
+    # O `test_llm_precos` e o `test_llm_aliases` abrem o `llm/aliases.yaml` e o
+    # `llm/precos.yaml` reais — de proposito: assim uma tarifa trocada ou um
+    # fornecedor fora do inventario sao apanhados pela bateria e nao so pelo
+    # lint. O `test_llm_chaves` carrega o `infra/llm/chaves.py` pelo caminho,
+    # porque ele vive fora de qualquer pacote instalado (corre a mao na Fase 0).
+    # Sem estas duas copias a linha de base da `agr_unit` fica vermelha com
+    # `FileNotFoundError`, e e a regra do fim desta funcao outra vez.
+    shutil.copytree(RAIZ / "llm", destino / "llm", ignore=ignorar)
+    shutil.copytree(RAIZ / "infra" / "llm", destino / "infra" / "llm", ignore=ignorar)
     (destino / "tools").mkdir()
     shutil.copy(RAIZ / "tools" / "kamba_yaml.py", destino / "tools" / "kamba_yaml.py")
+    # KAM-030: o gerador, para o `TestParidadeComOLlmConfig` do
+    # `test_llm_aliases` o carregar pelo caminho. E a maquina que impede a copia
+    # de quatro superficies em `kamba_agr/llm/aliases.py` de divergir dele; sem
+    # ele, aquela bateria mede «nao ha ficheiro».
+    shutil.copytree(
+        RAIZ / "tools" / "llm_config", destino / "tools" / "llm_config", ignore=ignorar
+    )
     # O modulo de identidade (KAM-008): a fonte e os testes, sem `node_modules`
     # nem `dist` — a suite vai buscar os modulos a `KAMBA_RAIZ_NODE_MODULES`.
     shutil.copytree(
@@ -4536,7 +4571,30 @@ def _gate_de_tools(copia: Path, pacote: str, padrao: str) -> tuple[int, str]:
 #: corredor nao corria o ficheiro que as mata. E a mesma classe de defeito que
 #: a nota do KAM-025 descreve para o `_copiar`: quem acrescenta uma bateria que
 #: uma mutacao precisa tem de a acrescentar aqui.
-MODULOS_DO_AGR_UNIT = ("test_registo", "test_egresso", "test_tls")
+#: Os modulos de `services/agr/tests` que a suite `agr_unit` corre.
+#:
+#: **Esta lista literal custou dez sobreviventes ao KAM-030**, e vale a pena
+#: dizer como: as dez mutacoes de unidade dele correram, a suite passou, e o
+#: corredor deu-as por **nao apanhadas** — porque os quatro modulos que as
+#: matam nao estavam aqui e nunca correram. A suite nao falhou; nao mediu.
+#:
+#: E a mesma classe de defeito que o `metricas.py` do KAM-027 ja nomeou («uma
+#: lista literal transforma uma invariante num numero»), e nao se derivou agora
+#: por uma razao: nem todo o modulo de `services/agr/tests` corre sem base de
+#: dados, e derivar punha a linha de base vermelha num sitio que nada tem a ver
+#: com a mutacao. **Quem acrescentar baterias de unidade ao AGR acrescenta-as
+#: aqui**, e o sinal de que se esqueceu e uma mutacao sua a sobreviver com a
+#: suite verde.
+MODULOS_DO_AGR_UNIT = (
+    "test_registo",
+    "test_egresso",
+    "test_tls",
+    # KAM-030.
+    "test_llm_precos",
+    "test_llm_aliases",
+    "test_llm_cliente",
+    "test_llm_chaves",
+)
 
 
 def _gate_do_agr(copia: Path) -> tuple[int, str]:

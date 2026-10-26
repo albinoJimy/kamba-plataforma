@@ -61,7 +61,7 @@ quatro achados de nivel 1.
 |---|---|
 | `ok` | a chamada correu no fornecedor de `ordem: 1` |
 | `ok_fallback` | correu no segundo fornecedor aprovado (criterio 6) |
-| `budget_exhausted` | o LiteLLM recusou por orcamento (400 mapeado, criterio 4) |
+| `budget_exhausted` | o LiteLLM recusou por orcamento. O criterio 4 diz «mapeado do 400» e a versao fixada responde **422** com `type: budget_exceeded`; o reconhecimento e pelo tipo (`llm/erros.py`) |
 | `timeout` | passou o tecto do alias (8 s no `router`, 20 s no `chat`) |
 | `erro_fornecedor` | o fornecedor falhou por outra razao |
 | `destino_negado` | o *gate* de destino recusou **antes** de sair (ADR-008) |
@@ -285,6 +285,9 @@ def _imutabilidade() -> None:
     Uma linha de custo que se pudesse alterar nao era um registo de custo: era
     uma estimativa. E o `UPDATE` e precisamente o que faria desaparecer uma
     transferencia que ja aconteceu, que e o que o ADR-008 manda poder auditar.
+
+    Os *triggers* vao no **pai** — ver a nota de baixo, que e o que uma medicao
+    corrigiu.
     """
     op.execute(f"REVOKE UPDATE, DELETE, TRUNCATE ON {TABELA} FROM PUBLIC")
     op.execute(
@@ -304,30 +307,44 @@ def _imutabilidade() -> None:
         "'Levanta excepcao em UPDATE e DELETE de dat.llm_call_log. "
         "SECURITY INVOKER: nao precisa de privilegio nenhum para recusar.'"
     )
-    # **O *trigger* vai na particao e nao no pai, e isso e uma limitacao do
-    # PostgreSQL e nao uma escolha:** uma tabela particionada nao aceita
-    # *trigger* de `TRUNCATE`, e um `BEFORE ... FOR EACH ROW` no pai e clonado
-    # para as particoes — o que da o mesmo efeito por um caminho que uma
-    # particao nova herdaria. Posto na particao, prende as duas vias que
-    # importam: um `UPDATE` pelo pai encaminha para a particao e dispara la.
+    # **Os dois *triggers* vao no PAI, e isso e o que faz uma particao nova
+    # nascer imutavel.** A primeira versao desta revisao pos o de `UPDATE`/
+    # `DELETE` na particao e afirmou que «uma tabela particionada nao aceita
+    # *trigger* de `TRUNCATE`». As duas coisas estavam erradas, e mediram-se
+    # contra um PostgreSQL 18 real (`docs/evidencia/KAM-030-litellm.md` §6):
     #
-    # A consequencia, dita: uma particao **nova** nasce com o *trigger* clonado
-    # do pai so se o pai o tiver. Esta revisao poe-o na particao, pelo que quem
-    # criar particoes (o *job* da retencao, KAM-071) tem de o por tambem — e e
-    # por isso que a funcao fica no esquema e nao na tabela. O
-    # `db/tests_agr/test_llm_call_log.py` tem uma bateria que cria uma particao
-    # e confirma que a falta se **ve**, em vez de ficar por descobrir.
+    #   * `BEFORE UPDATE OR DELETE ... FOR EACH ROW` no pai **e aceite**, e
+    #     morde tanto pelo pai como pela particao;
+    #   * uma particao **nova herda-o** — e era precisamente essa a via que o
+    #     *job* da retencao (KAM-071) ia abrir: `dat.llm_call_log_2027_01`
+    #     nascia sem *trigger* e um `UPDATE` do dono reescrevia registo de custo
+    #     e fazia desaparecer transferencias que o ADR-008 manda poder auditar;
+    #   * `BEFORE TRUNCATE ... FOR EACH STATEMENT` no pai **tambem e aceite**.
+    #
+    # O que **nao** se herda e a RLS (medido: `false/false` numa particao nova),
+    # e por isso ela continua no pai **e** na particao — e o KAM-071 tem de a
+    # por nas mensais. Essa metade fica na divida **121**.
+    #
+    # Encontrado pela revisao adversarial (`docs/analises/ANALISE-32`, achado 15).
     op.execute(
         f"""
         CREATE TRIGGER llm_call_log_sem_update_nem_delete
-          BEFORE UPDATE OR DELETE ON {PARTICAO}
+          BEFORE UPDATE OR DELETE ON {TABELA}
           FOR EACH ROW EXECUTE FUNCTION {ESQUEMA}.llm_call_log_imutavel()
         """
     )
     op.execute(
-        f"ALTER TABLE {PARTICAO} "
+        f"ALTER TABLE {TABELA} "
         "ENABLE ALWAYS TRIGGER llm_call_log_sem_update_nem_delete"
     )
+    op.execute(
+        f"""
+        CREATE TRIGGER llm_call_log_sem_truncate
+          BEFORE TRUNCATE ON {TABELA}
+          FOR EACH STATEMENT EXECUTE FUNCTION {ESQUEMA}.llm_call_log_imutavel()
+        """
+    )
+    op.execute(f"ALTER TABLE {TABELA} ENABLE ALWAYS TRIGGER llm_call_log_sem_truncate")
     op.execute(f"REVOKE ALL ON FUNCTION {ESQUEMA}.llm_call_log_imutavel() FROM PUBLIC")
 
 

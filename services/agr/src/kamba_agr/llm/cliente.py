@@ -48,7 +48,6 @@ from __future__ import annotations
 import dataclasses
 import time
 from decimal import Decimal
-from pathlib import Path
 from typing import Any, Callable, Final
 
 from .. import metricas as metricas_mod
@@ -65,9 +64,10 @@ from .erros import (
     classificar,
 )
 
-#: A pasta com `aliases.yaml` e `precos.yaml`. Mesmo desenho do
-#: `KAMBA_REGISTRY_DIR` do KAM-027: o servico nao sabe onde a arvore esta.
-VARIAVEL_DA_PASTA: Final = "KAMBA_LLM_DIR"
+#: A pasta com `aliases.yaml` e `precos.yaml` vive em `aliases.py`
+#: (`VARIAVEL_DA_PASTA`): duas declaracoes do mesmo nome de variavel de ambiente
+#: sao duas verdades a espera de divergirem, e quem o le e o `__main__.py` pela
+#: de la. Removida aqui pela revisao adversarial.
 
 #: Onde o proxy escuta, na rede interna. **Nunca um FQDN de fornecedor**: o
 #: `services/agr/egress.yaml` tem `destinos: []` e o AGR nao fala com nenhum.
@@ -126,10 +126,10 @@ class Resposta:
         return self.resultado == RESULTADO_OK_FALLBACK
 
 
-#: O `Alias` e o leitor vivem em `aliases.py`, com o teste de paridade que
-#: impede a copia de divergir do `tools/llm_config`.
+#: O `Alias` vive em `aliases.py`, com o teste de paridade que impede a copia
+#: de divergir do `tools/llm_config`. O `ler_aliases` que aqui estava **nao
+#: tinha leitor** — quem le os aliases e o `__main__.py`, pelo `aliases.ler`.
 Alias = aliases_mod.Alias
-ler_aliases = aliases_mod.ler
 
 
 class ClienteDeLlm:
@@ -147,7 +147,7 @@ class ClienteDeLlm:
         aliases: dict[str, Alias],
         tabela_de_precos: dict[tuple[str, str], precos_mod.Preco],
         porta_de_destinos: destinos_mod.PortaDeDestinos,
-        ligacao_do_registo: Any,
+        abrir_ligacao: Callable[[], Any],
         chave_virtual: Callable[[str], str],
         url_do_proxy: str = PROXY_POR_OMISSAO,
         metricas: metricas_mod.MetricasDoAgr | None = None,
@@ -157,7 +157,7 @@ class ClienteDeLlm:
         self._aliases = aliases
         self._precos = tabela_de_precos
         self._destinos = porta_de_destinos
-        self._ligacao = ligacao_do_registo
+        self._abrir_ligacao = abrir_ligacao
         self._chave_virtual = chave_virtual
         self._url = url_do_proxy.rstrip("/")
         self._metricas = metricas or metricas_mod.METRICAS
@@ -244,11 +244,32 @@ class ClienteDeLlm:
         inicio: float,
     ) -> Resposta:
         servido, modelo = self._quem_servio(alias, corpo, cabecalhos)
-        tokens_in, tokens_out, tokens_cache = _contagens(corpo)
+        tokens_in, tokens_out, tokens_cache, incoerente = _contagens(corpo)
+        if incoerente:
+            self._metricas.contar(metricas_mod.METRICA_LLM_CONTAGEM_INCOERENTE)
         preco = self._precos.get((servido, modelo))
-        if preco is None:
+        try:
+            custo = precos_mod.custo(preco, tokens_in, tokens_out, tokens_cache)
+        except precos_mod.PrecoInvalido:
+            # **O unico ponto do caminho de sucesso que levantava**, e levantava
+            # depois de o fornecedor ter respondido e **antes** de se gravar a
+            # linha: a chamada saia, os dados transferiam-se, zero linhas ficavam
+            # em `dat.llm_call_log`, e escapava um `ValueError` que nao e
+            # `ErroDeLlm` — pelo que nenhum no do grafo o apanha pelo tipo, o
+            # turno falha, o *job* volta a fila e a chamada **repete-se**:
+            # segunda transferencia e segundo custo. E exactamente o cenario que
+            # a nota do `registo.py` escreve para justificar o `return False`.
+            #
+            # Acontece com uma linha de `llm/precos.yaml` cujo `valido_ate` ja
+            # passou — e ha uma no ficheiro (`gemini-3.8-flash`, 2026-12-31).
+            # Encontrado pela revisao adversarial, medido com a data adiantada.
+            #
+            # O desfecho e o mesmo de «nao ha preco»: custo nulo, nunca zero. O
+            # arranque tambem o recusa (ver `llm_precos.sem_expirados`), pelo que
+            # chegar aqui significa que a data passou com o processo de pe.
+            custo = None
+        if custo is None:
             self._metricas.contar(metricas_mod.METRICA_LLM_SEM_PRECO)
-        custo = precos_mod.custo(preco, tokens_in, tokens_out, tokens_cache)
         resultado = (
             RESULTADO_OK if servido == alias.fornecedores[0] else RESULTADO_OK_FALLBACK
         )
@@ -317,7 +338,35 @@ class ClienteDeLlm:
         )
 
     def _escrever(self, linha: registo_mod.LinhaDeChamada) -> None:
-        if not registo_mod.escrever(self._ligacao, linha):
+        """Abre uma ligacao **por chamada**, escreve, e fecha.
+
+        **Nao e uma ligacao por processo, e a diferenca e perder linhas sob
+        carga.** O `kamba_core.tenant_guard.tx` e exclusivo por ligacao
+        (`LigacaoEmUso`), e o AGR corre turnos em paralelo — um `asyncio.Task`
+        por conversa (`turno.py`). Com uma ligacao guardada no cliente, duas
+        chamadas concorrentes faziam a segunda sair, consumir *tokens*,
+        transferir dados e **nao gravar linha**: so incrementava
+        `agr_llm_registo_falhou_total`, e o criterio 5 e o registo de
+        transferencia do ADR-008 falhavam precisamente quando ha carga.
+        Encontrado pela revisao adversarial, medido.
+
+        E o desenho que a ToolLayer ja usa — e o que a *docstring* do
+        `ligar_para_llm` argumentava e esta nao seguia. O custo de abrir uma
+        tomada e de milissegundos contra uma chamada a um modelo de 8 a 20 s.
+        """
+        ligacao = None
+        try:
+            ligacao = self._abrir_ligacao()
+            escreveu = registo_mod.escrever(ligacao, linha)
+        except Exception:  # noqa: BLE001 — ver o ponto 2 da nota do `registo.py`
+            escreveu = False
+        finally:
+            if ligacao is not None:
+                try:
+                    ligacao.close()
+                except Exception:  # noqa: BLE001 — fechar nao pode levantar
+                    pass
+        if not escreveu:
             # Nao levanta: ver o ponto 2 da nota do `registo.py`. O que fica e a
             # metrica, para que a perda seja visivel num painel.
             self._metricas.contar(metricas_mod.METRICA_LLM_REGISTO_FALHOU)
@@ -373,7 +422,7 @@ def _texto(corpo: Any) -> str:
     return str(mensagem.get("content") or "") if isinstance(mensagem, dict) else ""
 
 
-def _contagens(corpo: Any) -> tuple[int, int, int]:
+def _contagens(corpo: Any) -> tuple[int, int, int, bool]:
     """`(tokens_in, tokens_out, tokens_cache)`, com o cache **subtraido** da entrada.
 
     O OpenAI reporta `cached_tokens` **dentro** de `prompt_tokens`; a Anthropic
@@ -387,17 +436,27 @@ def _contagens(corpo: Any) -> tuple[int, int, int]:
     `CHECK llm_call_log_tokens_ck` recusaria — a linha de registo perdia-se por
     uma conta, no caminho que nao pode levantar. Declarado em
     `docs/dividas-documentais.md`, credor KAM-040.
+
+    O quarto valor devolvido diz se `cache > entrada`, que e o **sinal** de que
+    a premissa caiu. Sem ele, o corte para zero subavaliava o custo em 43% em
+    todas as linhas, em silencio.
     """
     if not isinstance(corpo, dict):
-        return 0, 0, 0
+        return 0, 0, 0, False
     uso = corpo.get("usage") or {}
     if not isinstance(uso, dict):
-        return 0, 0, 0
+        return 0, 0, 0, False
     entrada = int(uso.get("prompt_tokens") or 0)
     saida = int(uso.get("completion_tokens") or 0)
     detalhe = uso.get("prompt_tokens_details") or {}
     cache = int(detalhe.get("cached_tokens") or 0) if isinstance(detalhe, dict) else 0
-    return max(0, entrada - cache), saida, cache
+    # `cache > entrada` e o **sinal inequivoco** de que o fornecedor reporta o
+    # cache **ao lado** e nao dentro, e nesse caso a subtraccao subavalia o
+    # custo em toda a linha — 3000 in + 2000 de cache dariam 0,000270 em vez de
+    # 0,000470, 43% a menos, em **todas** as chamadas. Cortar para zero em
+    # silencio era deixar isso invisivel; conta-se, e e o contador que diz a
+    # quem medir a divida 116 que a premissa caiu.
+    return max(0, entrada - cache), saida, cache, cache > entrada
 
 
 def _transporte_httpx(
@@ -413,7 +472,12 @@ def _transporte_httpx(
     try:
         interpretado: Any = resposta.json()
     except ValueError:
-        interpretado = resposta.text[:500]
+        # **Nao se devolve o texto cru.** Um corpo que nao e JSON pode ser uma
+        # pagina de erro de um intermediario com o pedido ecoado dentro, e o
+        # `classificar` ja nao usa a mensagem — devolver o texto so dava a
+        # alguem a tentacao de o registar. O que fica e o comprimento, que
+        # diagnostica («houve corpo e nao era JSON») sem levar nada.
+        interpretado = {"error": {"type": "resposta_nao_json"}}
     return (
         resposta.status_code,
         interpretado,

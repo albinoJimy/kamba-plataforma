@@ -50,6 +50,37 @@ POJC8+i2Wko82gBOUCe3M0Vw86H/4rhUhfoYEti4gdJ9wZbYmK0I2EE96g==
 uma chave **ECDSA P-256** (`prime256v1`), não um certificado X.509. Ou seja: o
 LiteLLM assina **com uma chave**, não pelo fluxo *keyless* do Fulcio.
 
+### 1.1 A chave que se fixa é a **publicada**, e não esta — e as duas diferem
+
+A primeira versão deste ticket fixou a chave acima, extraída do *bundle*. **A
+revisão adversarial reprovou-a, e com razão:** numa verificação por chave, a
+chave é a raiz de confiança, e tirá-la do artefacto que ela vai verificar torna
+o `cosign verify --key` tautológico — confirma que a assinatura é internamente
+consistente, não **quem** assinou. No dia em que alguém suba o digest para uma
+imagem adulterada (o cenário do incidente de 2026-03-24), repetir a extracção
+extraía a chave do atacante.
+
+O projecto **publica** a chave, e é essa que está fixada:
+
+```
+curl -sSfL https://raw.githubusercontent.com/BerriAI/litellm/main/cosign.pub
+-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEG06dpKM+vEDnmp2zcjyXgVCXxzRg
+JA5H2LnmwBKQafZGka6OOrWujCEWATQewiAgyD4WQdJ0pvU9RC4mvNAjvQ==
+-----END PUBLIC KEY-----
+```
+
+**E as duas chaves são diferentes** (`…G06dpKM+…` contra `…Ki4ivqGpE…`). Isso é
+um facto, não uma interpretação, e tem só duas leituras: ou a `v1.104.2` foi
+assinada com outra chave que não a publicada, ou o `publicKey.content` do
+`hashedrekord` não é a chave de assinatura deste artefacto. **Qual delas é, só o
+`cosign verify` o diz**, e é isso que o *gate* 11 passa a medir com a chave
+publicada.
+
+Até essa medição existir, a cláusula cosign do critério 1 fica **por
+satisfazer** — e não «pendente do CI», que foi como a primeira versão a
+escreveu. Está na linha **117** de `../dividas-documentais.md`.
+
 **Consequência para o CI, e é uma correcção a código já fundido.** O
 `tools/supply_chain/cosign.py` monta o comando com `--certificate-identity` e
 `--certificate-oidc-issuer`, e o `imagens.yaml` exige os campos
@@ -67,9 +98,11 @@ declara — `--key` para uma chave, os dois `--certificate-*` para uma identidad
 Uma entrada com os dois, ou com nenhum, é recusada.
 
 **O que continua NÃO VERIFICADO:** que `cosign verify --key <ficheiro>
-<nome>@<digest>` passa de facto. Não há binário `cosign` nesta máquina nem no
-*runner*, e não se descarrega um binário de terceiros a meio de um ticket. O
-`cosign.py` **falha fechado** nesse caso (`cosign-sem-binario`), que é o
+<nome>@<digest>` passa de facto — e, depois do §1.1, isso deixou de ser uma
+formalidade: há duas chaves candidatas e a medição é que decide. O binário não
+existe nesta máquina; o *job* do *gate* 11 passou a instalá-lo (fixado por
+versão, com `sha256` lido da *release*), pelo que a primeira execução a sério é o
+CI. O `cosign.py` **falha fechado** sem binário (`cosign-sem-binario`), que é o
 comportamento certo e já era o dele.
 
 ---

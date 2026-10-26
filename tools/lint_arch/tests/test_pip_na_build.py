@@ -101,6 +101,62 @@ class TestOsBloqueadosSaoApanhados(_ComDockerfile):
     def test_com_variavel_de_ambiente_a_frente(self) -> None:
         self.assertTrue(self._achados("RUN PIP_NO_CACHE_DIR=1 pip install litellm\n"))
 
+    def test_as_quatro_formas_que_a_revisao_adversarial_encontrou(self) -> None:
+        """O achado 8: quatro formas que a primeira versao deixava passar.
+
+        `sh -c "…"` e `bash -lc '…'` sao a forma mais comum de envolver um
+        comando; a forma **exec** (`RUN [...]`) e JSON e nao passa por shell
+        nenhum; o tab depois do `RUN` o Docker aceita; e uma opcao **antes** do
+        `install` tambem.
+        """
+        for corpo in (
+            'RUN sh -c "pip install litellm"\n',
+            "RUN bash -lc 'pip install litellm'\n",
+            'RUN ["pip", "install", "litellm"]\n',
+            "RUN\tpip install litellm\n",
+            "RUN pip --no-cache-dir install litellm\n",
+        ):
+            with self.subTest(corpo=corpo.strip()):
+                self.assertTrue(self._achados(corpo), corpo)
+
+    def test_o_que_continua_a_passar_esta_declarado(self) -> None:
+        """**Tres formas continuam a escapar, e estao na divida 119.**
+
+        Fecha-las exigia um analisador de shell a serio, e nenhuma e a forma em
+        que alguem escreve um `pip install` por distraccao. Este teste existe
+        para a lacuna ser **medida** e nao suposta: no dia em que alguem a
+        fechar, ele falha e manda apagar a linha da divida.
+        """
+        for corpo in (
+            'RUN eval "pip install litellm"\n',
+            "RUN echo litellm | xargs pip install\n",
+        ):
+            with self.subTest(corpo=corpo.strip()):
+                self.assertEqual(
+                    self._achados(corpo), [],
+                    "se isto passou a ser apanhado, apague a linha 119 das "
+                    "dividas e este caso",
+                )
+
+    def test_a_versao_vai_na_declaracao(self) -> None:
+        """O achado 21: a `spec` saia vazia e a mensagem mentia.
+
+        Com a `spec` vazia, uma entrada com `forbidden_below` dava achado mesmo
+        correctamente fixada, a dizer «a versao nao esta fixada exactamente
+        ('')». Para o `litellm` o desfecho era o desejado — o critero 1 quer que
+        **qualquer** `pip install litellm` reprove —, mas a proxima entrada PyPI
+        com piso ganhava um falso positivo.
+        """
+        raiz = self._arvore("RUN pip install litellm==1.104.2\n")
+        decls = [
+            d
+            for d in manifests.from_dockerfile(
+                raiz / "services" / "ensaio" / "Dockerfile", raiz
+            )
+            if d.ecosystem == manifests.PYPI
+        ]
+        self.assertEqual([(d.name, d.spec) for d in decls], [("litellm", "==1.104.2")])
+
 
 class TestNaoSeInventamPacotes(_ComDockerfile):
     """Os canarios pelo outro lado."""

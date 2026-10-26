@@ -112,7 +112,7 @@ METRICA_TOOL_DISJUNTOR: Final = "agr_tls_disjuntor_aberto_total"
 #: estatistica por tool, e um destes nao e estatistica.
 METRICA_TOOL_TENANT_MISMATCH: Final = "agr_tool_tenant_mismatch_total"
 
-#: As seis do gateway de LLM (KAM-030, DoD «custo e observabilidade», ADR-018).
+#: As oito do gateway de LLM (KAM-030, DoD «custo e observabilidade», ADR-018).
 #:
 #: **O `tenant_id` nao e etiqueta de nenhuma delas, e isso resolve uma tensao do
 #: bloco.** O ticket manda «metering por *tag* `tenant_id`, `vertical`, `papel`,
@@ -154,6 +154,13 @@ METRICA_LLM_REGISTO_FALHOU: Final = "agr_llm_registo_falhou_total"
 #: isto, o registo dizia `ordem: 1` em silencio e um *fallback* aparecia como
 #: tendo ido para o destino errado.
 METRICA_LLM_SERVIDOR_DESCONHECIDO: Final = "agr_llm_servidor_desconhecido_total"
+#: Chamadas em que o fornecedor reportou mais *tokens* de cache do que de
+#: entrada. **E o sinal de que a premissa da contagem caiu**: o cliente supoe
+#: que o cache vem **dentro** do `prompt_tokens` (esquema do OpenAI, que o proxy
+#: normaliza) e subtrai-o; se algum fornecedor o reportar **ao lado**, a
+#: subtraccao subavalia o custo em toda a linha. Cortar para zero em silencio
+#: deixava isso invisivel. Divida 116.
+METRICA_LLM_CONTAGEM_INCOERENTE: Final = "agr_llm_contagem_incoerente_total"
 
 #: O que aconteceu a um turno. Lista **fechada**: e etiqueta.
 #:
@@ -263,6 +270,7 @@ _CONTADORES_SEM_ETIQUETA: Final = (
     METRICA_LLM_SEM_PRECO,
     METRICA_LLM_REGISTO_FALHOU,
     METRICA_LLM_SERVIDOR_DESCONHECIDO,
+    METRICA_LLM_CONTAGEM_INCOERENTE,
 )
 _MEDIDAS: Final = (
     METRICA_DURACAO,
@@ -327,6 +335,10 @@ _AJUDA: Final = {
     METRICA_LLM_SERVIDOR_DESCONHECIDO: (
         "counter",
         "Chamadas em que nao se soube que fornecedor respondeu.",
+    ),
+    METRICA_LLM_CONTAGEM_INCOERENTE: (
+        "counter",
+        "Chamadas com mais tokens de cache do que de entrada: o custo esta subavaliado.",
     ),
 }
 

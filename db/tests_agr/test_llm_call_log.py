@@ -85,13 +85,15 @@ class _ComLlm(ComAgr):
         Limpa-se como `admin`, com o *trigger* desligado — a mesma escolha que o
         `test_tool_audit.py` faz, pela mesma razao.
         """
+        # O *trigger* esta no **pai** e e herdado pela particao; desliga-se e
+        # volta-se a ligar no pai, que e onde ele vive.
         self.semente.execute(
-            f"ALTER TABLE {PARTICAO} DISABLE TRIGGER "
+            f"ALTER TABLE {TABELA} DISABLE TRIGGER "
             "llm_call_log_sem_update_nem_delete"
         )
-        self.semente.execute(f"DELETE FROM {PARTICAO}")
+        self.semente.execute(f"DELETE FROM {TABELA}")
         self.semente.execute(
-            f"ALTER TABLE {PARTICAO} ENABLE ALWAYS TRIGGER "
+            f"ALTER TABLE {TABELA} ENABLE ALWAYS TRIGGER "
             "llm_call_log_sem_update_nem_delete"
         )
 
@@ -175,15 +177,34 @@ class TestAppendOnly(_ComLlm):
             self.semente.execute(f"DELETE FROM {PARTICAO}")
         self.assertIn("append-only", str(apanhado.exception))
 
-    def test_o_trigger_esta_ENABLE_ALWAYS(self) -> None:
+    def test_os_dois_triggers_estao_ENABLE_ALWAYS_no_pai(self) -> None:
         """Um *trigger* normal nao prende quem pode `session_replication_role`."""
         linhas = self.consultar(
-            "SELECT tgenabled FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid "
+            "SELECT t.tgname::text, t.tgenabled::text FROM pg_trigger t "
+            "JOIN pg_class c ON c.oid = t.tgrelid "
             "JOIN pg_namespace n ON n.oid = c.relnamespace "
-            "WHERE n.nspname = 'dat' AND c.relname = 'llm_call_log_default' "
-            "AND t.tgname = 'llm_call_log_sem_update_nem_delete'"
+            "WHERE n.nspname = 'dat' AND c.relname = 'llm_call_log' "
+            "AND NOT t.tgisinternal ORDER BY 1"
         )
-        self.assertEqual(linhas, [("A",)], "'A' = ALWAYS")
+        self.assertEqual(
+            linhas,
+            [
+                ("llm_call_log_sem_truncate", "A"),
+                ("llm_call_log_sem_update_nem_delete", "A"),
+            ],
+            "'A' = ALWAYS, e sao dois: o de linha e o de TRUNCATE",
+        )
+
+    def test_o_truncate_e_recusado(self) -> None:
+        """O *trigger* de linha nao cobre o `TRUNCATE`; o de instrucao cobre.
+
+        A primeira versao desta revisao nao tinha o segundo, por afirmar que uma
+        tabela particionada nao o aceita. Aceita — medido.
+        """
+        self.escrever(_linha(self.tenant))
+        with self.assertRaises(Exception) as apanhado:
+            self.semente.execute(f"TRUNCATE {TABELA}")
+        self.assertIn("append-only", str(apanhado.exception))
 
 
 class TestGuardaDeArranque(_ComLlm):
@@ -453,11 +474,18 @@ class TestAParticao(_ComLlm):
             [("llm_call_log", "tenant_iso"), ("llm_call_log_default", "tenant_iso")],
         )
 
-    def test_uma_particao_nova_nasce_sem_o_trigger(self) -> None:
-        """A limitacao esta escrita na revisao; aqui **ve-se**.
+    def test_uma_particao_nova_herda_o_trigger(self) -> None:
+        """**Era o contrario, e a revisao adversarial mostrou que estava errado.**
 
-        Sem esta bateria, quem criar particoes mensais (KAM-071) descobria a
-        falta quando alguem alterasse uma linha de custo — e nao descobria.
+        A primeira versao desta bateria afirmava `count == 0` — uma particao
+        nova nascia sem *trigger* — e com isso **cimentava a lacuna**: quem a
+        corrigisse fazia-a falhar. Medido contra PostgreSQL 18: um
+        `BEFORE UPDATE OR DELETE ... FOR EACH ROW` no pai particionado e aceite e
+        **e herdado**, pelo que os dois *triggers* passaram para o pai e a
+        particao que o KAM-071 criar nasce imutavel.
+
+        O que **nao** se herda e a RLS, e isso continua a ser do KAM-071 (divida
+        121).
         """
         self.addCleanup(self._largar_particao_de_ensaio)
         self.semente.execute(
@@ -471,9 +499,20 @@ class TestAParticao(_ComLlm):
             "AND NOT t.tgisinternal"
         )
         self.assertEqual(
-            linhas, [(0,)],
-            "uma particao nova nasce sem o trigger: e o que a revisao 0023 diz, "
-            "e e o que o KAM-071 tem de por quando criar as mensais",
+            linhas, [(1,)],
+            "uma particao nova herda o trigger de linha do pai: e o que faz as "
+            "mensais do KAM-071 nascerem imutaveis",
+        )
+        # E a RLS **nao** se herda — a outra metade, que fica para o KAM-071.
+        rls = self.consultar(
+            "SELECT relrowsecurity, relforcerowsecurity FROM pg_class c "
+            "JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = 'dat' AND c.relname = 'llm_call_log_ensaio'"
+        )
+        self.assertEqual(
+            rls, [(False, False)],
+            "a RLS nao se herda: quem criar particoes mensais tem de a por "
+            "(divida 121)",
         )
 
     def _largar_particao_de_ensaio(self) -> None:

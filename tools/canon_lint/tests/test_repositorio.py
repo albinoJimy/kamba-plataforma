@@ -108,14 +108,14 @@ class TestCanario(ComCopia):
         for curto in ("`", "dicionário §3", "`llm_calls`"):
             with self.subTest(espera=curto):
                 original = (self.raiz / MANIFESTO).read_bytes()
-                self.trocar(MANIFESTO, 'espera: "`llm_calls` → `llm_call_log`, dicionário §3.6"', f'espera: "{curto}"')
+                self.trocar(MANIFESTO, 'espera: "`llm_calls` → `dat.llm_call_log`, dicionário §3.29"', f'espera: "{curto}"')
                 falhas = self.falhas()
                 (self.raiz / MANIFESTO).write_bytes(original)
                 self.assertTrue(any("nao tem a forma" in f for f in falhas), falhas)
                 self.assertTrue(all(f.startswith("D-10") for f in falhas), falhas)
 
     def test_espera_que_nao_e_a_mensagem(self) -> None:
-        self.trocar(MANIFESTO, "`llm_calls` → `llm_call_log`, dicionário §3.6", "`llm_calls` → `llm_call_log`, dicionário §3.5")
+        self.trocar(MANIFESTO, "`llm_calls` → `dat.llm_call_log`, dicionário §3.29", "`llm_calls` → `llm_call_log`, dicionário §3.5")
         falhas = self.falhas()
         self.assertEqual(len(falhas), 1)
         self.assertIn("D-10", falhas[0])
@@ -465,7 +465,7 @@ class TestMutacoes(ComCopia):
     # --- documentos --------------------------------------------------------------
     def test_variante_reposta_num_documento_limpo(self) -> None:
         self.trocar("docs/tecnica/09_Topologia_Operacao_Escala.md", "tabela `llm_call_log` sem conteúdo;", "tabela `llm_calls` sem conteúdo;")
-        self.unico(VARIANTE, "`llm_calls` → `llm_call_log`, dicionário §3.6", "docs/tecnica/09_Topologia_Operacao_Escala.md")
+        self.unico(VARIANTE, "`llm_calls` → `dat.llm_call_log`, dicionário §3.29", "docs/tecnica/09_Topologia_Operacao_Escala.md")
 
     def test_uma_divida_declarada_com_a_contagem_certa_passa(self) -> None:
         """A base das tres que seguem: sem isto, todas passariam por acidente."""
@@ -520,8 +520,8 @@ class TestMutacoes(ComCopia):
         """O dicionario manda: mudar o Markdown muda o que o gate recusa."""
         self.trocar(
             "specs/02_Dicionario_de_Dados_Canonico.md",
-            "| Registo de chamadas LLM | `llm_call_log` | `llm_calls` |",
-            "| Registo de chamadas LLM | `llm_call_log` | `llm_calls`, `fuso_horario` |",
+            "| Registo de chamadas a modelos | `dat.llm_call_log` | `llm_calls` |",
+            "| Registo de chamadas a modelos | `dat.llm_call_log` | `llm_calls`, `fuso_horario` |",
         )
         self.assertEqual(dict_export(["--root", str(self.raiz), "--check"]), 1, "o YAML ficou atras do Markdown")
         self.assertEqual(dict_export(["--root", str(self.raiz)]), 0)

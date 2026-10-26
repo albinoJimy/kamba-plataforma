@@ -31,6 +31,7 @@ sabemos classificar».
 
 from __future__ import annotations
 
+import re
 from typing import Final
 
 #: Os seis desfechos de uma chamada. **E o dominio de
@@ -52,10 +53,6 @@ RESULTADOS: Final = (
     RESULTADO_ERRO,
     RESULTADO_DESTINO,
 )
-
-#: Os desfechos que **nao** sao sucesso. Derivado e nao escrito a mao: um
-#: desfecho novo entra em `RESULTADOS` e aparece aqui sem ninguem se lembrar.
-FALHAS: Final = tuple(r for r in RESULTADOS if not r.startswith("ok"))
 
 #: O `error.type` que o proxy usa para orcamento esgotado. Medido na versao
 #: fixada; ver a nota do modulo.
@@ -120,29 +117,48 @@ class DestinoNegado(ErroDeLlm):
     resultado = RESULTADO_DESTINO
 
 
+#: A gramatica de um `error.type` que se pode repetir numa mensagem. E a mesma
+#: forma que a *allowlist* de `docs/tecnica/08` §7.3 aceita para um
+#: `error_code`: letras minusculas, digitos e sublinhado.
+_TIPO = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+
+
 def classificar(estado: int, corpo: object, papel: str = "") -> ErroDeLlm:
     """Traduz uma resposta de erro do proxy num erro tipado.
 
     `corpo` e o que o proxy devolveu, ja interpretado (um `dict`) ou texto. O
     reconhecimento e pelo `error.type` e **nao** pelo estado: ver a nota do
     modulo, e a medicao em `docs/evidencia/KAM-030-litellm.md` §4.
+
+    ## A mensagem do fornecedor **nao** entra na excepcao
+
+    A primeira versao copiava ate 200 caracteres do corpo para `str(erro)`, e
+    isso e uma fuga de conteudo: o proxy devolve o pedido recusado dentro da
+    mensagem de erro, pelo que um `{"message": "Invalid value for
+    'messages[0].content': 'Bom dia, o meu numero e 923000000'"}` punha um
+    telefone de cliente na excepcao. O `/internal/turn` nao apanha `ErroDeLlm`,
+    pelo que o *traceback* do uvicorn escrevia-a no *stdout* do contentor — e o
+    varrimento de privacidade deste ticket varre as **colunas da tabela**, nao a
+    mensagem de uma excepcao. ADR-010 e a linha de privacidade do DoD.
+    Encontrado pela revisao adversarial.
+
+    O que fica na mensagem e o **estado** e o `error.type`, e o tipo so se ele
+    casar a gramatica de identificador — um fornecedor que puser prosa no `type`
+    nao a passa por ali.
     """
     tipo = ""
-    mensagem = ""
     if isinstance(corpo, dict):
         erro = corpo.get("error")
         if isinstance(erro, dict):
             tipo = str(erro.get("type") or "")
-            mensagem = str(erro.get("message") or "")
-    if not mensagem:
-        mensagem = str(corpo)[:200]
+    seguro = tipo if _TIPO.match(tipo) else "sem_tipo"
 
     if tipo == TIPO_ORCAMENTO:
         return OrcamentoEsgotado(
-            f"o orcamento da chave virtual esgotou-se ({estado}): {mensagem}", papel
+            f"o orcamento da chave virtual esgotou-se ({estado}, {seguro})", papel
         )
     # 408 e 504 sao tempo; o `httpx` trata o tempo do lado do cliente e nunca
     # chega aqui com estado, mas um proxy intermedio pode responder assim.
     if estado in (408, 504):
-        return TempoEsgotado(f"o proxy respondeu {estado}: {mensagem}", papel)
-    return FornecedorFalhou(f"o proxy respondeu {estado}: {mensagem}", papel)
+        return TempoEsgotado(f"o proxy respondeu {estado} ({seguro})", papel)
+    return FornecedorFalhou(f"o proxy respondeu {estado} ({seguro})", papel)

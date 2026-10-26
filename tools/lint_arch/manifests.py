@@ -475,10 +475,24 @@ def from_compose(path: Path, root: Path) -> list[Declaration]:
 #: `&&`, `pip3` e `install` como pacotes. Segmenta-se primeiro pelo shell
 #: (`_SEPARADOR_DE_SHELL`) e so depois se procura, o que tambem apanha o
 #: **segundo** `pip install` da mesma linha, que a primeira versao perdia.
+#: Tambem aceita opcoes **antes** do `install` (`pip --no-cache-dir install x`),
+#: que o Docker e o pip aceitam e a primeira versao nao lia.
 _PIP_NA_BUILD = re.compile(
     r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+)?"
-    r"(?:uv\s+pip|pip3?|python3?\s+-m\s+pip)\s+install\b(?P<resto>.*)$",
+    r"(?:uv\s+pip|pip3?|python3?\s+-m\s+pip)\s+(?:-{1,2}[^\s]+\s+)*install\b"
+    r"(?P<resto>.*)$",
     re.IGNORECASE,
+)
+
+#: `sh -c "…"`, `bash -lc '…'`: desembrulha-se o comando de dentro das aspas.
+#:
+#: **Nao e um interprete de shell, e isso esta declarado.** O que fica de fora —
+#: `eval`, `xargs`, e o *heredoc* do BuildKit — esta na divida 119, porque
+#: fecha-los exigia um analisador de shell a serio e nenhum deles e a forma em
+#: que alguem escreve um `pip install` por distraccao.
+_ENVOLVIDO = re.compile(
+    r"""^\s*(?:sh|bash|ash|dash)\s+(?:-[a-z]+\s+)*-?[a-z]*c\s+(?P<aspa>["'])(?P<dentro>.*)(?P=aspa)\s*$""",
+    re.IGNORECASE | re.VERBOSE,
 )
 
 #: O que separa dois comandos numa linha de `RUN`.
@@ -499,8 +513,8 @@ _PIP_COM_VALOR = frozenset(
 _FIM_DO_NOME = re.compile(r"[\[<>=!~;@\s]")
 
 
-def _pacotes_de_pip(resto: str) -> list[str]:
-    """Os nomes de pacote de uma linha `pip install`. So nomes, sem versao.
+def _pacotes_de_pip(resto: str) -> list[tuple[str, str]]:
+    """Os pacotes de uma linha `pip install`: `(nome, especificador)`.
 
     `-r requirements.txt` nao da pacote nenhum: aquele ficheiro e varrido por si
     (`_is_requirements_file`), e contar o nome dele como pacote dava um achado
@@ -531,7 +545,15 @@ def _pacotes_de_pip(resto: str) -> list[str]:
             continue
         nome = _FIM_DO_NOME.split(token, 1)[0]
         if nome:
-            nomes.append(nome)
+            # **Com o especificador**, e nao so o nome: a `spec` saia sempre
+            # vazia e por isso uma entrada com `forbidden_below` dava achado
+            # mesmo correctamente fixada, com a mensagem «a versao nao esta
+            # fixada exactamente ('')» — que mente. Para o `litellm` o desfecho
+            # era o desejado (qualquer `pip install litellm` reprova, criterio
+            # 1), mas a proxima entrada PyPI com piso ganhava um falso positivo
+            # que alguem ia querer desligar. Encontrado pela revisao
+            # adversarial (achado 21).
+            nomes.append((nome, token[len(nome) :].lstrip("[]")))
     return nomes
 
 
@@ -576,18 +598,35 @@ def from_dockerfile(path: Path, root: Path) -> list[Declaration]:
         linhas_juntas.append((inicio, acumulado))
 
     for lineno, linha in linhas_juntas:
-        despido = linha.lstrip()
+        # O `\t` conta como espaco depois do `RUN`: o Docker aceita-o, e a
+        # primeira versao exigia um espaco e deixava passar a forma com tab.
+        despido = linha.lstrip().replace("\t", " ")
         if not despido.upper().startswith("RUN "):
             continue
         corpo = despido[4:]
+        # A forma **exec** (`RUN ["pip", "install", "x"]`) e JSON e nao passa por
+        # um shell; o Docker aceita-a e a primeira versao nao a lia.
+        exec_ = corpo.strip()
+        if exec_.startswith("[") and exec_.endswith("]"):
+            import json as _json
+
+            try:
+                partes = _json.loads(exec_)
+            except ValueError:
+                partes = None
+            if isinstance(partes, list) and all(isinstance(x, str) for x in partes):
+                corpo = " ".join(partes)
         for segmento in _SEPARADOR_DE_SHELL.split(corpo):
+            envolvido = _ENVOLVIDO.match(segmento)
+            if envolvido:
+                segmento = envolvido.group("dentro")
             achado = _PIP_NA_BUILD.match(segmento)
             if not achado:
                 continue
-            for nome in _pacotes_de_pip(achado.group("resto")):
+            for nome, spec in _pacotes_de_pip(achado.group("resto")):
                 out.append(
                     Declaration(
-                        PYPI, nome, "", source, f"RUN pip install: linha {lineno}"
+                        PYPI, nome, spec, source, f"RUN pip install: linha {lineno}"
                     )
                 )
 

@@ -310,6 +310,17 @@ class TestCatalogoReal(ComBase):
                 ("handoff_accounts", "tenant_iso", "ALL", "{public}"),
                 ("handoffs", "tenant_iso", "ALL", "{public}"),
                 # KAM-020: a midia, pela mesma ordem.
+                # KAM-030: as duas do esquema `dat` (revisao `0023`). **Sao
+                # duas e nao uma**: a segunda e a particao por omissao, e tem
+                # politica propria porque para esta consulta — e para o
+                # `verificar_particoes` — uma particao e uma tabela. Sem ela, um
+                # `SELECT` dirigido a particao escapava a politica do pai.
+                #
+                # A consulta pede so `tablename`, pelo que a ordem e alfabetica
+                # pelo nome e nao pelo esquema: depois de `hmac_key_versions`,
+                # antes de `media_assets`.
+                ("llm_call_log", "tenant_iso", "ALL", "{public}"),
+                ("llm_call_log_default", "tenant_iso", "ALL", "{public}"),
                 ("media_assets", "tenant_iso", "ALL", "{public}"),
                 # KAM-015: as duas da saida de canal.
                 ("message_templates", "tenant_iso", "ALL", "{public}"),

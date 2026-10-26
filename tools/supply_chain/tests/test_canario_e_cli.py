@@ -41,14 +41,21 @@ class TestRepositorioReal(unittest.TestCase):
         # e o `chatwoot-worker` partilham a mesma, e reutiliza os digests do
         # pgvector e do Valkey que ja ca estavam.
         self.assertGreaterEqual(resumo["referencias"], 12)
-        self.assertEqual(resumo["imagens"], 6)
-        self.assertEqual(resumo["cosign"]["verificar"], 0)
+        # **KAM-030: a setima imagem e o proxy LiteLLM**, do compose do
+        # `make llm-proxy`. E a **primeira com assinatura publicada** que o
+        # repositorio referencia, pelo que o `verificar` passa de 0 para 1 e o
+        # `por_apurar` fica nos mesmos 6: as outras seis continuam por apurar,
+        # e nenhuma delas e esta.
+        self.assertEqual(resumo["imagens"], 7)
+        self.assertEqual(resumo["cosign"]["verificar"], 1)
         self.assertEqual(resumo["cosign"]["por_apurar"], 6)
 
         _, resumo = runtime.verificar(ROOT)
         self.assertEqual(resumo["dockerfiles"], 5)
         # KAM-019: oito mais os quatro do compose do spike, todos `read_only`.
-        self.assertEqual(resumo["servicos"], 12)
+        # **KAM-030: mais um**, o proxy LiteLLM do `make llm-proxy` — tambem
+        # `read_only`, com `cap_drop: ALL` e `no-new-privileges`.
+        self.assertEqual(resumo["servicos"], 13)
 
         _, resumo = egress.verificar(ROOT)
         # Idem: as quatro listas de saidas sao **vazias** com `por_omissao:
@@ -56,7 +63,13 @@ class TestRepositorioReal(unittest.TestCase):
         # canal, pelo que uma rota de saida dali so serviria um inbox de
         # WhatsApp a falar com a Graph, o correio de notificacao a levar
         # conversa de clientes para fora, ou telemetria.
-        self.assertEqual(resumo["servicos"], 12)
+        #
+        # **KAM-030: o decimo terceiro e o `litellm`, e e o primeiro com a lista
+        # NAO vazia** — tres FQDN de fornecedores de LLM. E a unica lista de
+        # saidas da pilha com destinos, e por desenho: o `agr` continua com
+        # `destinos: []` e fala com o proxy na rede interna.
+        self.assertEqual(resumo["servicos"], 13)
+        self.assertEqual(resumo["destinos"], 3)
 
         _, resumo = licencas.verificar(ROOT)
         self.assertEqual(resumo["estados"]["pendente_de_decisao"], 2)  # redis e valkey: D12

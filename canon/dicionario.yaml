@@ -6937,11 +6937,12 @@ entradas:
       - "fornecedor"
       - "finalidade"
     nomes_nota:
+      - "assertDestinationAllowed"
+      - "dict_export"
       - "tenant_destinations"
       - "NegaTudoAteKam069"
       - "prod"
-    variantes_literais:
-      - "assertDestinationAllowed"
+    variantes_literais: []
   - seccao: "3.29"
     conceito: "Momento do gate"
     canonico: "antes da chamada, para todos os fornecedores do alias"
@@ -8159,10 +8160,5 @@ variantes:
     seccao: "3.29"
     conceito: "Registo de chamadas a modelos"
     canonico: "dat.llm_call_log"
-  - nome: "assertDestinationAllowed"
-    tipo: "nome"
-    seccao: "3.29"
-    conceito: "Gate de transferência"
-    canonico: "PortaDeDestinos.autorizar(tenant_id, fornecedor, finalidade)"
 
 contradicoes: []

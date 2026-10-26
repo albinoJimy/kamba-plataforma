@@ -61,6 +61,18 @@ services:
       LLM_KEY_P1: ${KAMBA_SECRET_LLM_KEY_P1:?do cofre (KAM-010)}
       LLM_KEY_P2: ${KAMBA_SECRET_LLM_KEY_P2:?do cofre (KAM-010)}
       LLM_KEY_P3: ${KAMBA_SECRET_LLM_KEY_P3:?do cofre (KAM-010)}
+      # **Sem isto o proxy sai para `raw.githubusercontent.com` no arranque**,
+      # para descarregar o mapa de precos — medido na imagem fixada: o
+      # `import litellm` tenta tres vezes antes de cair para a copia local
+      # (`docs/evidencia/KAM-030-litellm.md` §5). Aquele FQDN **nao esta** em
+      # `infra/egress/litellm.yaml` e nao vai estar: e a mesma classe do
+      # `beacon.langchain.com` do KAM-025, e fecha-se do mesmo modo — desligar a
+      # saida, nao declarar o destino.
+      #
+      # **Faltava.** O comentario do gerador afirmava que estava aqui e nao
+      # estava: o critero 2 ficava com uma saida aberta e um comentario a dizer
+      # que nao. Encontrado pela revisao adversarial.
+      LITELLM_LOCAL_MODEL_COST_MAP: "True"
       # Telemetria do LiteLLM desligada, pela mesma razao do
       # `desligar_telemetria` do `kamba_agr/egresso.py`: um destino que ninguem
       # declarou nao sai desta pilha.

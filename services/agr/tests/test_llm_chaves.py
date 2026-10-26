@@ -138,7 +138,58 @@ class TestAIdempotencia(unittest.TestCase):
         duplo = _Proxy()
         chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE)
         corpo = [c for u, _, c in duplo.pedidos if u.endswith("/key/generate")][0]
-        self.assertEqual(corpo["models"], ["kamba-router", "kamba-chat"])
+        self.assertNotIn("kamba-vision", corpo["models"])
+        self.assertNotIn("kamba-embed", corpo["models"])
+        self.assertIn("kamba-router", corpo["models"])
+        self.assertIn("kamba-chat", corpo["models"])
+
+    def test_a_chave_autoriza_o_grupo_de_fallback(self) -> None:
+        """O achado 11 da revisão adversarial, e fazia o critério 6 falhar em `staging`.
+
+        O *fallback* é entre **grupos distintos** (`kamba-chat` →
+        `kamba-chat-fallback2`), e não entre duas entradas do mesmo
+        `model_name`. Sem o segundo grupo na *allowlist* da própria chave
+        virtual, uma falha do primeiro fornecedor topava com ela — e as 20
+        corridas que mediram o critério 6 foram feitas com `Router(...)` em
+        Python, **sem chave virtual**, pelo que nada o apanhava.
+        """
+        duplo = _Proxy()
+        chaves.provisionar(duplo.proxy(), TENANT, "basico", AMBIENTE)
+        corpo = [c for u, _, c in duplo.pedidos if u.endswith("/key/generate")][0]
+        self.assertIn("kamba-chat-fallback2", corpo["models"])
+
+    def test_os_grupos_da_chave_sao_os_que_o_gerador_produz(self) -> None:
+        """A máquina que impede a lista literal de divergir do `llm/aliases.yaml`.
+
+        O `MODELOS_DA_CHAVE` é literal de propósito — este *script* corre à mão,
+        fora de qualquer `.venv`, e derivá-lo punha-o a depender do leitor de
+        YAML de `tools/`. O preço é este teste.
+        """
+        import importlib.util
+        import sys
+
+        raiz = pathlib.Path(__file__).resolve().parents[3]
+        ferramentas = str(raiz / "tools")
+        if ferramentas not in sys.path:
+            sys.path.insert(0, ferramentas)
+        spec = importlib.util.spec_from_file_location(
+            "llm_config_para_chaves", raiz / "tools" / "llm_config" / "__init__.py"
+        )
+        gerador = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gerador)
+        dados = gerador.ler(raiz)
+
+        # Os grupos dos papéis que uma chave de *tenant* pode chamar.
+        papeis_do_agr = {"router", "chat"}
+        de_papel = {
+            str(a["nome"]): str(a["papel"]) for a in dados["aliases"]
+        }
+        esperados = {
+            gerador.nome_do_grupo(str(f["alias"]), int(f["ordem"]))
+            for f in dados["fornecedores"]
+            if de_papel[str(f["alias"])] in papeis_do_agr
+        }
+        self.assertEqual(set(chaves.MODELOS_DA_CHAVE), esperados)
 
     def test_um_plano_sem_mensalidade_nao_cria_chave_nenhuma(self) -> None:
         duplo = _Proxy()

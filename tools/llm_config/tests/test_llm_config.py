@@ -91,6 +91,45 @@ class TestOBumpSemVer(_ComCopia):
             f"a mensagem tem de dizer o que fazer: {achados}",
         )
 
+    def test_o_escrever_recusa_se_faltar_o_bump(self) -> None:
+        """**O canario central do critério 7**, e o achado 1 da revisao adversarial.
+
+        A primeira versao do `escrever` reescrevia o *lock* com a `versao`
+        actual e o *hash* novo, pelo que o fluxo que a documentacao manda seguir
+        — «mude o alias, corra `escrever`» — deixava o `check` **conforme sem
+        *bump* nenhum**: trocar `por_decidir` por um modelo a serio e correr
+        `escrever` dava exit 0 com a versao em 1.0.0, e o proxy passava a servir
+        um modelo que o artefacto versionado nunca nomeou. O que o *lint*
+        apanhava era «esqueceu-se de regenerar», que e outra coisa.
+        """
+        self._reescrever(
+            "llm/aliases.yaml", "    modelo: por_decidir", "    modelo: claude-sonnet-5-5"
+        )
+        with self.assertRaises(llm_config.BumpEmFalta) as apanhado:
+            self._escrever_calado()
+        self.assertIn("bump", str(apanhado.exception).lower())
+        # E **nao escreveu nada**: o `check` continua a acusar, em vez de passar.
+        self.assertTrue(llm_cli.check(self.raiz))
+
+    def test_o_escrever_pela_cli_devolve_1_quando_falta_o_bump(self) -> None:
+        import contextlib
+        import io
+
+        self._reescrever(
+            "llm/aliases.yaml", "    modelo: por_decidir", "    modelo: claude-sonnet-5-5"
+        )
+        erro = io.StringIO()
+        with contextlib.redirect_stderr(erro):
+            codigo = llm_cli.main(["--root", str(self.raiz), "escrever"])
+        self.assertEqual(codigo, 1)
+        self.assertIn("versao", erro.getvalue().lower())
+
+    def test_o_escrever_passa_quando_so_o_gerado_esta_atrasado(self) -> None:
+        """O caso legitimo: o conteudo nao mudou, so o ficheiro gerado faltava."""
+        (self.raiz / llm_config.CONFIG).unlink()
+        self._escrever_calado()
+        self.assertEqual(llm_cli.check(self.raiz), [])
+
     def test_conteudo_mudado_com_bump_e_lock_novo_passa(self) -> None:
         self._reescrever("llm/aliases.yaml", "    timeout: 8", "    timeout: 9")
         self._reescrever("llm/aliases.yaml", 'versao: "1.0.0"', 'versao: "1.1.0"')
@@ -142,6 +181,70 @@ class TestAValidacaoDosAliases(_ComCopia):
         with self.assertRaises(llm_config.AliasesInvalidos) as apanhado:
             llm_config.ler(self.raiz)
         self.assertIn("ordem", str(apanhado.exception))
+
+    def test_dois_fornecedores_iguais_no_mesmo_alias_sao_recusados(self) -> None:
+        """O achado 6 da revisao adversarial, e custava vinte vezes o custo real.
+
+        O cliente descobre quem servio pelo **prefixo** da resposta, e dois
+        modelos do mesmo fornecedor colapsam nesse mapa: uma chamada servida
+        pelo primeiro era gravada como o segundo, com o custo do segundo. Com
+        Haiku (0,10/0,50) e Sonnet (2,00/10,00) atras do mesmo `kamba-chat`, uma
+        chamada de 3000/300 ficava a 0,009000 em vez de 0,000450 — e o registo
+        de transferencia apontava para o modelo errado.
+        """
+        self._reescrever(
+            "llm/aliases.yaml",
+            "    fornecedor: openai\n    modelo: por_decidir\n    chave_env: LLM_KEY_P2",
+            "    fornecedor: anthropic\n    modelo: por_decidir\n    chave_env: LLM_KEY_P2",
+        )
+        with self.assertRaises(llm_config.AliasesInvalidos) as apanhado:
+            llm_config.ler(self.raiz)
+        self.assertIn("fornecedor", str(apanhado.exception))
+
+
+class TestOLintDasTarifas(_ComCopia):
+    """O achado 14 da revisao adversarial: o `llm/precos.yaml` nao passava por
+    maquina nenhuma antes do arranque do servico — e e o ficheiro que decide o
+    `custo_usd` de toda a linha de `dat.llm_call_log`."""
+
+    def test_o_ficheiro_real_passa(self) -> None:
+        self.assertEqual(llm_cli.check(self.raiz), [])
+
+    def test_uma_tarifa_ilegivel_e_achado(self) -> None:
+        """Um `O.10` com a letra O punha o AGR a sair com **7** em producao."""
+        self._reescrever("llm/precos.yaml", 'entrada: "0.10"', 'entrada: "O.10"')
+        achados = llm_cli.check(self.raiz)
+        self.assertTrue(achados)
+        self.assertTrue(
+            any("precos.yaml" in a for a in achados), achados
+        )
+
+    def test_o_ficheiro_apagado_e_achado(self) -> None:
+        (self.raiz / "llm" / "precos.yaml").unlink()
+        self.assertTrue(any("precos.yaml" in a for a in llm_cli.check(self.raiz)))
+
+    def test_uma_tarifa_expirada_em_uso_e_achado(self) -> None:
+        """So **em uso**: a tabela e um catalogo de candidatos (KAM-040).
+
+        Este teste poe o `gemini-3.8-flash` — a linha com `valido_ate` — atras de
+        um alias, com uma data de validade ja passada, e confirma que o *lint*
+        morde. Sem o «em uso», a mesma linha reprovava o *lint* a partir de
+        2027-01-01 sem nenhum alias a nomear, que era a bomba de relogio que a
+        primeira versao tinha.
+        """
+        self._reescrever(
+            "llm/precos.yaml", 'valido_ate: "2026-12-31"', 'valido_ate: "2020-01-01"'
+        )
+        self.assertEqual(llm_cli.check(self.raiz), [], "nao esta em uso: nao morde")
+        self._reescrever(
+            "llm/aliases.yaml",
+            "    fornecedor: google\n    modelo: por_decidir\n    chave_env: LLM_KEY_P3\n    credor: KAM-033",
+            "    fornecedor: google\n    modelo: gemini-3.8-flash\n    chave_env: LLM_KEY_P3\n    credor: KAM-033",
+        )
+        achados = llm_cli.check(self.raiz)
+        self.assertTrue(
+            any("expirada" in a for a in achados), achados
+        )
 
 
 class TestAConfiguracaoGerada(_ComCopia):

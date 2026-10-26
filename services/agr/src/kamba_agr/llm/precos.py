@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+from collections.abc import Collection
 from decimal import Decimal
 from pathlib import Path
 from typing import Final
@@ -114,6 +115,43 @@ def carregar(pasta: Path) -> dict[tuple[str, str], Preco]:
     if not tabela:
         raise PrecoInvalido(f"{FICHEIRO}: tabela vazia")
     return tabela
+
+
+def sem_expirados(
+    tabela: dict[tuple[str, str], Preco],
+    em_uso: Collection[tuple[str, str]],
+    hoje: dt.date | None = None,
+) -> None:
+    """Levanta `PrecoExpirado` se a tarifa de um modelo **em uso** ja expirou.
+
+    Corre no **arranque** (codigo de saida 7), e e a metade preventiva do que o
+    `custo` faz defensivamente: uma tarifa expirada descobre-se ao subir o
+    processo e nao a meio de um turno, onde o unico desfecho honesto e registar
+    custo nulo. A data e do dia do arranque, pelo que um processo que atravesse a
+    meia-noite da validade cai no caminho defensivo do `cliente.py` — e esse e o
+    que nao pode levantar.
+
+    **Olha so para o que os aliases usam**, e nao para a tabela toda. A primeira
+    versao varria tudo, e com isso a linha promocional do `gemini-3.8-flash`
+    (valida ate 2026-12-31) punha o arranque — e a bateria de arranque — a
+    falhar a 2027-01-01 por causa de uma tarifa que **nenhum alias nomeia**: uma
+    bomba de relogio na *suite* e um servico a recusar subir por um candidato
+    que ninguem escolheu. A tabela e um catalogo de candidatos (KAM-040); o que
+    tem de estar valido e o que se vai cobrar.
+    """
+    dia = hoje or dt.datetime.now(dt.UTC).date()
+    alvos = set(em_uso)
+    expirados = sorted(
+        f"{p.fornecedor}/{p.modelo} (valido ate {p.valido_ate.isoformat()})"
+        for chave, p in tabela.items()
+        if chave in alvos and p.valido_ate is not None and dia > p.valido_ate
+    )
+    if expirados:
+        raise PrecoExpirado(
+            f"tarifa(s) expirada(s) em {FICHEIRO}, de modelo(s) que um alias usa: "
+            f"{', '.join(expirados)}. Calcular com elas registava menos do que se "
+            "paga; releia a tarifa na fonte e actualize o ficheiro"
+        )
 
 
 def custo(

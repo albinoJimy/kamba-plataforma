@@ -150,7 +150,7 @@ def _ambiente(ambiente: dict[str, str] | None = None) -> str:
 
 
 def _fechar_as_tomadas(
-    trancas: Any, checkpointer: Any, tools: Any = None, ligacao_do_llm: Any = None
+    trancas: Any, checkpointer: Any, tools: Any = None
 ) -> Callable[[], Awaitable[None]]:
     """O que o `lifespan` corre no `SIGTERM`: fecha-as, pela ordem.
 
@@ -179,17 +179,11 @@ def _fechar_as_tomadas(
         # revisao adversarial.
         if tools is not None:
             await tools.fechar()
-        # A tomada do gateway de LLM (KAM-030) **antes** do checkpointer e
-        # depois das tools, pela mesma razao da ordem que ja estava: a ultima
-        # coisa que uma chamada ao modelo faz e escrever a linha de
-        # `dat.llm_call_log`, e fechar essa tomada primeiro era perder
-        # precisamente o registo da ultima chamada — que, numa tabela de custo e
-        # de transferencia, e a linha que mais interessa guardar.
-        if ligacao_do_llm is not None:
-            try:
-                ligacao_do_llm.close()
-            except Exception:  # noqa: BLE001 — encerrar nao pode levantar
-                pass
+        # **O gateway de LLM nao tem tomada para fechar**, e isso e o desenho
+        # que a revisao adversarial obrigou: ele abre uma ligacao por chamada e
+        # fecha-a no `finally`, porque o `tenant_guard.tx` e exclusivo por
+        # ligacao e os turnos correm em paralelo. Uma tomada por processo perdia
+        # a linha de `dat.llm_call_log` da segunda chamada concorrente.
         checkpointer.fechar()
 
     return fechar
@@ -376,8 +370,34 @@ def main() -> int:
         log.excepcao(exc, "llm_configuracao_invalida")
         return SAIDA_SEM_GATEWAY_LLM
     try:
-        ligacao_do_llm = ligar_para_llm()
-        llm_registo.confirmar(ligacao_do_llm)
+        llm_precos.sem_expirados(
+            precos,
+            # Os pares `(fornecedor, modelo)` que os aliases nomeiam. Hoje
+            # nenhum tem linha de preco (o modelo e `por_decidir`), pelo que
+            # isto nao recusa nada — e e o que se quer: a tabela e um catalogo
+            # de candidatos e so o que se vai cobrar tem de estar valido.
+            {
+                (fornecedor, modelo)
+                for alias in aliases.values()
+                for fornecedor, modelo in zip(
+                    alias.fornecedores, alias.modelos, strict=True
+                )
+            },
+        )
+    except llm_precos.PrecoInvalido as exc:
+        log.excepcao(exc, "llm_tarifa_expirada")
+        return SAIDA_SEM_GATEWAY_LLM
+    # A guarda abre, confirma e **fecha**, como a da `tool_audit`: a ligacao de
+    # execucao e uma **por chamada** (ver o `_escrever` do `cliente.py`), porque
+    # o `tenant_guard.tx` e exclusivo por ligacao e o AGR corre turnos em
+    # paralelo. Uma ligacao guardada daqui ate a primeira chamada era tambem uma
+    # ligacao que o servidor pode ter fechado entretanto.
+    try:
+        ligacao_de_ensaio = ligar_para_llm()
+        try:
+            llm_registo.confirmar(ligacao_de_ensaio)
+        finally:
+            ligacao_de_ensaio.close()
     except Exception as exc:  # noqa: BLE001 — qualquer falha aborta o arranque
         log.excepcao(exc, "llm_call_log_indisponivel")
         return SAIDA_SEM_GATEWAY_LLM
@@ -396,7 +416,7 @@ def main() -> int:
         aliases=aliases,
         tabela_de_precos=precos,
         porta_de_destinos=destinos,
-        ligacao_do_registo=ligacao_do_llm,
+        abrir_ligacao=ligar_para_llm,
         # A chave virtual do tenant vem do cofre, com a instancia no nome
         # (`litellm_virtual_key/<tenant_id>`, `ops/secrets-inventory.yaml`). Nao
         # e obrigatoria no arranque: ela existe por tenant e o arranque nao sabe
@@ -450,7 +470,7 @@ def main() -> int:
         # esta linha dizia: aquele entregou o registo e nao um grafo, e nao ha
         # `compile` nenhum sem grafo. Aqui o checkpointer serve a guarda do
         # arranque e o encerramento, e nada mais.
-        ao_encerrar=_fechar_as_tomadas(trancas, checkpointer, tools, ligacao_do_llm),
+        ao_encerrar=_fechar_as_tomadas(trancas, checkpointer, tools),
     )
 
     # O anfitriao e a porta nao estao na *allowlist* de `docs/tecnica/08` §7.3.

@@ -71,12 +71,26 @@ LIMIAR_DE_ALERTA: Final = 0.80
 #: O ciclo do orcamento. O `budget_duration` do `/key/generate`.
 DURACAO: Final = "30d"
 
-#: Os papeis que uma chave de tenant pode usar. **Nao inclui o `kamba-vision`
-#: nem o `kamba-embed`**: aqueles correm no COM e no IDX (`docs/tecnica/02`
-#: §13.2), nao no AGR, e uma chave de tenant que os pudesse chamar dava a um
-#: turno de conversa acesso a dois papeis que nenhum no do grafo usa. E a mesma
-#: lista que o §13.1 escreve no exemplo de `/key/generate`.
-MODELOS_DA_CHAVE: Final = ("kamba-router", "kamba-chat")
+#: Os grupos que uma chave de tenant pode chamar. **Nao inclui o
+#: `kamba-vision` nem o `kamba-embed`**: aqueles correm no COM e no IDX
+#: (`docs/tecnica/02` §13.2), nao no AGR, e uma chave de tenant que os pudesse
+#: chamar dava a um turno de conversa acesso a dois papeis que nenhum no do
+#: grafo usa.
+#:
+#: **O `kamba-chat-fallback2` tem de estar aqui**, e isso nao esta no exemplo do
+#: §13.1 porque ali o *fallback* era uma segunda entrada do mesmo `model_name`.
+#: Aqui sao **grupos distintos** (ver `tools/llm_config`), e o router comuta de
+#: `kamba-chat` para `kamba-chat-fallback2`: sem o segundo nesta lista, uma
+#: falha do primeiro fornecedor topava com a *allowlist* da propria chave e o
+#: criterio 6 falhava em `staging` com toda a bateria verde — a medicao das 20
+#: corridas foi feita com `Router(...)` em Python, sem chave virtual.
+#: Encontrado pela revisao adversarial (achado 11).
+#:
+#: **Lista literal, de proposito**, e o preco esta escrito: derivar de
+#: `llm/aliases.yaml` punha este *script* — que corre a mao, fora de qualquer
+#: `.venv` — a depender do leitor de YAML de `tools/`. Em troca, ha um teste que
+#: a confronta com os grupos que o gerador produz (`test_llm_chaves.py`).
+MODELOS_DA_CHAVE: Final = ("kamba-router", "kamba-chat", "kamba-chat-fallback2")
 
 #: O nome da chave virtual de um tenant. `tenant-<uuid>`, como o §13.1.
 def alias_do_tenant(tenant_id: str) -> str:
@@ -131,6 +145,13 @@ def _pedir_http(
             return erro.code, json.loads(cru or b"{}")
         except ValueError:
             return erro.code, cru[:400].decode("utf-8", "replace")
+    except (urllib.error.URLError, TimeoutError, OSError) as erro:
+        # **Rede nao e desfecho.** Sem isto, um proxy em baixo dava *traceback* e
+        # exit 1 — que no contrato deste *script* significa «alguma chave passou
+        # os 80%». Um `cron` que leia o codigo de saida passava a ler um alerta
+        # onde houve uma falha de rede. Encontrado pela revisao adversarial
+        # (achado 18).
+        raise ErroDeProvisionamento(f"nao se alcancou o proxy em {url}: {erro}") from erro
 
 
 class Proxy:
@@ -155,13 +176,50 @@ class Proxy:
         self._chave = master_key
         self._pedir = pedir or _pedir_http
 
+    #: Quantas chaves se pedem por pagina. O proxy pagina, e o `total_count`
+    #: diz quantas ha.
+    POR_PAGINA = 500
+
     def listar(self) -> list[dict[str, Any]]:
-        estado, corpo = self._pedir(
-            f"{self._url}/key/list?return_full_object=true&size=500", "GET", self._chave, None
-        )
-        if estado != 200 or not isinstance(corpo, dict):
-            raise ErroDeProvisionamento(f"/key/list respondeu {estado}: {str(corpo)[:200]}")
-        return [k for k in (corpo.get("keys") or []) if isinstance(k, dict)]
+        """Todas as chaves, por paginas. **Levanta se nao as conseguir todas.**
+
+        A primeira versao pedia `size=500`, lia `corpo["keys"]` e nao olhava
+        para o `total_count`: com 501 chaves, o 501.o *tenant* ficava invisivel
+        — o `provisionar` nao o encontrava, chamava `/key/generate` e levava o
+        400 «already exists» numa execucao que devia ser idempotente, e o
+        `orcamentos` simplesmente **nunca alertava** por ele, em silencio.
+        Encontrado pela revisao adversarial (achado 9).
+        """
+        todas: list[dict[str, Any]] = []
+        pagina = 1
+        while True:
+            estado, corpo = self._pedir(
+                f"{self._url}/key/list?return_full_object=true"
+                f"&size={self.POR_PAGINA}&page={pagina}",
+                "GET",
+                self._chave,
+                None,
+            )
+            if estado != 200 or not isinstance(corpo, dict):
+                raise ErroDeProvisionamento(
+                    f"/key/list respondeu {estado}: {str(corpo)[:200]}"
+                )
+            desta = [k for k in (corpo.get("keys") or []) if isinstance(k, dict)]
+            todas += desta
+            total = corpo.get("total_count")
+            if not desta or not isinstance(total, int) or len(todas) >= total:
+                break
+            pagina += 1
+        total = corpo.get("total_count")
+        if isinstance(total, int) and len(todas) != total:
+            # Falha fechada: uma lista incompleta faz o `provisionar` gerar uma
+            # chave que ja existe e o `orcamentos` calar-se sobre tenants reais.
+            raise ErroDeProvisionamento(
+                f"/key/list devolveu {len(todas)} chave(s) e diz ter {total}: "
+                "uma lista incompleta faz o provisionamento gerar o que ja existe "
+                "e o alerta de orcamento calar-se"
+            )
+        return todas
 
     def procurar(self, alias: str) -> dict[str, Any] | None:
         for chave in self.listar():
@@ -213,7 +271,22 @@ def provisionar(proxy: Proxy, tenant_id: str, plano: str, ambiente: Any = None) 
         "metadata": {"tenant_id": tenant_id, "plano": plano},
     }
     if existente is None:
-        proxy.gerar(comum)
+        try:
+            proxy.gerar(comum)
+        except ErroDeProvisionamento as excepcao:
+            # **`check-then-act` nao e idempotente sob concorrencia**, e o
+            # criterio 4 diz «e idempotente» sem qualificar: duas corridas ao
+            # mesmo tempo — ou o KAM-091 a consumir `tenant.approved`
+            # *at-least-once* — vem as duas `existente is None`, as duas chamam
+            # `/key/generate`, e uma leva o 400 «already exists». Apanha-se esse
+            # 400 **pelo texto que o proxy devolve** e cai-se para o
+            # `actualizar`, que e o desfecho correcto: a chave existe e fica com
+            # os valores desta corrida. Encontrado pela revisao adversarial
+            # (achado 10).
+            if "already exists" not in str(excepcao):
+                raise
+            proxy.actualizar(comum)
+            return "actualizada"
         return "criada"
     proxy.actualizar(comum)
     return "actualizada"

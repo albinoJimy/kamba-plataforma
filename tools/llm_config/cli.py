@@ -20,6 +20,7 @@ from . import (
     CONFIG,
     LOCK,
     AliasesInvalidos,
+    BumpEmFalta,
     impressao,
     ler,
     render,
@@ -52,10 +53,45 @@ def _texto_do_lock(versao: str, hash_: str) -> str:
 
 
 def escrever(raiz: Path) -> int:
+    """Gera a configuracao e o *lock*. **Recusa-se** se faltar o *bump*.
+
+    **E aqui que o criterio 7 vive, e nao so no `check`.** A primeira versao
+    desta funcao reescrevia o *lock* com a `versao` actual e o *hash* novo, pelo
+    que o fluxo que a documentacao manda seguir — «mude o alias, corra
+    `escrever`» — deixava o `check` conforme **sem *bump* nenhum**: o que o
+    *lint* apanhava era «esqueceu-se de regenerar», que e outra coisa. Trocar
+    `por_decidir` por um modelo a serio e correr `escrever` dava exit 0 com a
+    versao em 1.0.0, e o proxy passava a servir um modelo que o artefacto
+    versionado nunca nomeou. Encontrado pela revisao adversarial, medido.
+
+    A guarda e simetrica a do `check` e **nao precisa do ramo base**: se existe
+    um *lock* cuja `versao` e igual a dos aliases e cujo *hash* e **diferente**,
+    entao o conteudo mudou depois de aquela versao ter sido fixada — e isso e
+    exactamente o que o criterio proibe. Subir a versao e o que o autoriza.
+    """
+    from kamba_yaml import YamlSubsetError, load_file
+
     dados = ler(raiz)
+    versao = str(dados["versao"])
+    agora = impressao(dados)
+
+    caminho_lock = raiz / LOCK
+    if caminho_lock.is_file():
+        try:
+            lock = load_file(caminho_lock)
+        except YamlSubsetError:
+            lock = {}
+        if str(lock.get("versao", "")) == versao and str(lock.get("sha256", "")) != agora:
+            raise BumpEmFalta(
+                f"o conteudo de {ALIASES} mudou e a `versao` continua em {versao}. "
+                "Um alias e um artefacto comportamental: mudar o modelo atras dele "
+                "exige *bump* SemVer (criterio 7 do KAM-030). Suba a `versao` em "
+                f"{ALIASES} e volte a correr este comando"
+            )
+
     _escrever_lf(raiz / CONFIG, render(dados))
-    _escrever_lf(raiz / LOCK, _texto_do_lock(str(dados["versao"]), impressao(dados)))
-    print(f"llm_config: {CONFIG} e {LOCK} escritos (versao {dados['versao']})")
+    _escrever_lf(raiz / LOCK, _texto_do_lock(versao, agora))
+    print(f"llm_config: {CONFIG} e {LOCK} escritos (versao {versao})")
     return 0
 
 
@@ -90,6 +126,8 @@ def check(raiz: Path) -> list[str]:
         achados.append(f"{LOCK}: ilegivel: {excepcao}")
         return achados
 
+    achados += _achados_dos_precos(raiz)
+
     agora = impressao(dados)
     guardado = str(lock.get("sha256", ""))
     versao_guardada = str(lock.get("versao", ""))
@@ -114,6 +152,50 @@ def check(raiz: Path) -> list[str]:
     return achados
 
 
+def _achados_dos_precos(raiz: Path) -> list[str]:
+    """O `llm/precos.yaml` tambem passa por maquina antes do arranque.
+
+    **Nao passava, e e o ficheiro que decide o `custo_usd` de toda a linha de
+    `dat.llm_call_log`** (achado 14 da revisao adversarial). Duas consequencias
+    reais: um `entrada: "O.10"` com a letra O passava todos os *gates* e punha o
+    AGR a sair com **7** no arranque seguinte, em producao; e baixar uma tarifa
+    reescrevia o custo registado de todas as chamadas futuras sem *bump*, sem
+    *lock* e sem rasto — e o DoD de custo apoia-se nesse numero.
+
+    O ficheiro **nao** entra no *lock*: ele e um catalogo de candidatos (KAM-040)
+    e muda quando um fornecedor muda a tarifa, que nao e um *release* do produto.
+    O que se verifica e que se le, que as linhas estao completas, e que nenhuma
+    tarifa **que um alias usa** esta expirada.
+    """
+    import sys as _sys
+
+    servicos = str(raiz / "services" / "agr" / "src")
+    if servicos not in _sys.path:
+        _sys.path.insert(0, servicos)
+    try:
+        from kamba_agr.llm import precos as precos_mod
+    except ImportError as excepcao:  # pragma: no cover — arvore incompleta
+        return [f"nao se conseguiu ler o calculo de precos: {excepcao}"]
+
+    pasta = raiz / "llm"
+    if not (pasta / precos_mod.FICHEIRO).is_file():
+        return [f"llm/{precos_mod.FICHEIRO} nao existe"]
+    try:
+        tabela = precos_mod.carregar(pasta)
+    except Exception as excepcao:  # noqa: BLE001 — a razao vai na mensagem
+        return [f"llm/{precos_mod.FICHEIRO}: {excepcao}"]
+
+    dados = ler(raiz)
+    em_uso = {
+        (str(f["fornecedor"]), str(f["modelo"])) for f in dados["fornecedores"]
+    }
+    try:
+        precos_mod.sem_expirados(tabela, em_uso)
+    except Exception as excepcao:  # noqa: BLE001 — a razao vai na mensagem
+        return [str(excepcao)]
+    return []
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="llm_config", description="Gerador da configuracao do proxy LiteLLM"
@@ -127,6 +209,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.comando == "escrever":
             return escrever(raiz)
         achados = check(raiz)
+    except BumpEmFalta as excepcao:
+        print(f"llm_config: {excepcao}", file=sys.stderr)
+        return 1
     except AliasesInvalidos as excepcao:
         print(f"llm_config: {ALIASES} invalido: {excepcao}", file=sys.stderr)
         return 2

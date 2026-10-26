@@ -174,6 +174,18 @@ TABELAS_0019 = ("owner_contacts", "owner_notices")
 #: no sitio errado. Quem as consome diz o esquema.
 TABELAS_LG = ("checkpoint_writes", "checkpoints")
 
+#: KAM-030: as do esquema `dat` (revisao `0023`). Constante propria pela mesma
+#: razao do `TABELAS_LG`, acima — vivem noutro esquema e quem as consome diz
+#: qual.
+#:
+#: **Sao duas e a segunda e uma particao.** A `llm_call_log_default` e a unica
+#: que a revisao cria, e aparece no catalogo como tabela: o
+#: `test_o_migrator_nao_e_dono_de_nada_fora_do_que_criou` conta-a, e o X-05 do
+#: *gate* 6 exige-lhe RLS `FORCE` por si. As mensais nascem do *job* da
+#: retencao (KAM-071) e **nao** entram aqui: esta lista e o que a cadeia de
+#: revisoes cria.
+TABELAS_DAT = ("llm_call_log", "llm_call_log_default")
+
 #: A unica vista do esquema (KAM-022). Separada das tabelas porque a descoberta
 #: do catalogo tambem as separa, e porque o `verificar_vistas` do
 #: `db/tests_isolamento/catalogo.py` — que existe desde o KAM-004 — passa a ter
