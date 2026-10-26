@@ -571,9 +571,25 @@ MUTACOES = [
      '    op.execute("GRANT UPDATE (limites, ativo) ON platform.entitlements TO kamba_app")',
      '    op.execute("GRANT UPDATE (limites, ativo) ON platform.entitlements TO kamba_app")\n'
      '    op.execute("GRANT DELETE ON platform.tenants TO kamba_app")'),
-    ("UPDATE de tipo dado a kamba_app", REV,
-     '    op.execute("GRANT UPDATE (limites, ativo) ON platform.entitlements TO kamba_app")',
-     '    op.execute("GRANT UPDATE (limites, ativo) ON platform.entitlements TO kamba_app")\n'
+    # **Injectada na `0007` e nao na `0001`, e a prova nocturna e que o disse.**
+    # Com a injeccao na `0001` esta mutacao era *equivalente*: a `0007` faz
+    # `REVOKE UPDATE ON platform.tenants FROM kamba_app` antes de conceder a
+    # lista nova («revoga-se a concessao inteira e concede-se a nova»), e em
+    # PostgreSQL um `REVOKE UPDATE` de **tabela** apaga tambem as concessoes por
+    # **coluna** — o `GRANT UPDATE (tipo)` era limpo tres revisoes depois e
+    # `head` ficava byte a byte igual. Sobreviveu a 2026-10-26 por isso, e nao
+    # por falta de teste: `tipo` esta em `IMUTAVEIS_PARA_A_APP` e o
+    # `TestOQueAAppNaoConsegue.test_nao_muda_o_tipo_de_um_tenant` tenta mesmo o
+    # `UPDATE`. Na `0007` a concessao chega a `head`, e as duas apanham-na.
+    ("UPDATE de tipo dado a kamba_app", REV7,
+     '    op.execute(\n'
+     '        f"GRANT UPDATE ({COLUNAS_QUE_A_APLICACAO_ALTERA}) "\n'
+     '        "ON platform.tenants TO kamba_app"\n'
+     '    )',
+     '    op.execute(\n'
+     '        f"GRANT UPDATE ({COLUNAS_QUE_A_APLICACAO_ALTERA}) "\n'
+     '        "ON platform.tenants TO kamba_app"\n'
+     '    )\n'
      '    op.execute("GRANT UPDATE (tipo) ON platform.tenants TO kamba_app")'),
     ("privilegios por omissao", REV,
      '    op.execute("GRANT UPDATE (limites, ativo) ON platform.entitlements TO kamba_app")',
@@ -668,9 +684,19 @@ MUTACOES = [
     # `pg_inherits` liga tambem um indice particionado aos seus filhos, e o
     # `pg_attribute` tem linhas para as colunas de um indice: sem o filtro, o
     # X-05 pedia uma politica de RLS **num indice** (medido, e corrigido).
+    # **Os dois filtros juntos, e nao so o do filho.** A versao que tirava so o
+    # `c.relkind` era *equivalente*, e sobreviveu a noite de 2026-10-26: o
+    # filtro do **pai**, na linha seguinte da mesma consulta, chega para excluir
+    # um indice-particao, porque no `pg_inherits` ele pendura-se num indice pai
+    # (`relkind = 'I'`) e nunca numa tabela. Uma mutacao que nao pode mudar
+    # comportamento nao prova nada; tirados os dois, o
+    # `test_a_particao_do_arquivo_nao_entra_na_descoberta` compara a lista
+    # inteira e apanha-a.
     ("catalogo: a descoberta de particoes apanha indices", CATALOGO,
-     "WHERE c.relispartition AND c.relkind IN ('r', 'p') ",
-     "WHERE c.relispartition ", ISOLAMENTO),
+     "\"WHERE c.relispartition AND c.relkind IN ('r', 'p') \"\n"
+     "        \"AND p.relkind IN ('r', 'p') AND a.attname = 'tenant_id' \"",
+     "\"WHERE c.relispartition \"\n"
+     "        \"AND a.attname = 'tenant_id' \"", ISOLAMENTO),
     ("catalogo: vistas materializadas fora da verificacao", CATALOGO,
      "WHERE c.relkind IN ('v', 'm')", "WHERE c.relkind IN ('v')", ISOLAMENTO),
     ("catalogo: public volta a ficar de fora", CATALOGO,
@@ -1139,19 +1165,43 @@ MUTACOES = [
     # E o modo de falha que o outbox existe para nao ter — um `kill -9` logo
     # depois do `COMMIT` deixava a linha publicada e o *job* por criar — e e o
     # criterio 3 que a apanha.
+    # **O `addLote` tem de ser o que se move, e nao o arquivo.** A primeira
+    # versao desta mutacao trocava a ordem `ARQUIVAR`/`MARCAR` ↔ `COMMIT` e
+    # deixava o `addLote` onde estava — ou seja, o *job* continuava a ir a fila
+    # **antes** do `COMMIT` e a propriedade do criterio 3 ficava intacta. Com o
+    # `ON CONFLICT DO NOTHING` do `SQL_ARQUIVAR`, o `jobId = event_id` e o
+    # `publicado_at` em ultimo, nenhum estado final observavel diferia: era
+    # quase equivalente, e sobreviveu a noite de 2026-10-26. O gancho
+    # `KAMBA_PUB_PARAR_APOS_ADD` congela **dentro** do `addLote`, antes das duas
+    # variantes, pelo que o `TestKill9` nunca via a diferenca.
+    #
+    # Assim, o nome passa a dizer a verdade: confirma-se **antes** de por na
+    # fila, que e o modo de falha que o outbox existe para nao ter — um
+    # `kill -9` a seguir ao `COMMIT` deixa a linha publicada e o *job* por
+    # criar. O `TestKill9` ve a janela: com o gancho a congelar depois do
+    # `COMMIT`, nao ha *job* na fila e `pendentes()` da 0 em vez de 1.
     ("eventos: o publicador confirma antes de por na fila", EV_PUBLICADOR,
+     "      await Promise.all(\n"
+     "        [...porFila].map(([fila, trabalhos]) => this.#filas.addLote(fila, trabalhos)),\n"
+     "      );\n"
+     '      this.#metricas.contar(METRICA_PUBLICADOS, "entregue", jobs);\n'
+     "\n"
      "      const ids = boas.map((p) => p.linha.id);\n"
      "      if (ids.length > 0) {\n"
      "        await this.#bd.query(SQL_ARQUIVAR, [ids]);\n"
      "        await this.#bd.query(SQL_MARCAR_PUBLICADO, [ids]);\n"
      "      }\n"
      '      await this.#bd.query("COMMIT");\n',
-     '      await this.#bd.query("COMMIT");\n'
      "      const ids = boas.map((p) => p.linha.id);\n"
      "      if (ids.length > 0) {\n"
      "        await this.#bd.query(SQL_ARQUIVAR, [ids]);\n"
      "        await this.#bd.query(SQL_MARCAR_PUBLICADO, [ids]);\n"
-     "      }\n",
+     "      }\n"
+     '      await this.#bd.query("COMMIT");\n'
+     "      await Promise.all(\n"
+     "        [...porFila].map(([fila, trabalhos]) => this.#filas.addLote(fila, trabalhos)),\n"
+     "      );\n"
+     '      this.#metricas.contar(METRICA_PUBLICADOS, "entregue", jobs);\n',
      EVENTOS),
     # Achado 1: a fase 1 deixa de cortar por agregado e passa a derrubar o lote.
     # A mutacao poe de volta o defeito que o achado 1 descreve.
@@ -1172,12 +1222,19 @@ MUTACOES = [
      EVENTOS),
     # Achado 1, segunda metade: o corte deixa de ser por agregado e passa a ser
     # so da linha ma — o que perde a ordem causal do agregado dela.
+    #
+    # **Faltava-lhe a suite, e foi so isso que a fez sobreviver** a noite de
+    # 2026-10-26. A entrada tinha quatro elementos e caia na omissao `tests`,
+    # que nao le nem corre o `publicador.ts`; a irmã de cima leva `EVENTOS`, e a
+    # divergencia entre as duas era o indicio. O
+    # `test_a_linha_envenenada_arrasta_o_seu_agregado_e_mais_nenhum` ja afirma
+    # exactamente o que ela quebra — `assertNotIn(terceira, publicados)`.
     ("eventos: o corte deixa de arrastar o resto do agregado", EV_PUBLICADOR,
      "      if (agregadosBloqueados.has(agregado)) {\n"
      "        adiadas.push(linha);\n"
      "        continue;\n"
      "      }\n",
-     ""),
+     "", EVENTOS),
     # Achado 13: o erro do laco volta a nao largar o lock consultivo.
     ("eventos: um erro transitorio deixa o lock preso", EV_PUBLICADOR,
      "        await this.largar();\n"
@@ -1193,10 +1250,20 @@ MUTACOES = [
      "     SET publicado_at = clock_timestamp()",
      "     SET publicado_at = now()"),
     # Achado 5: o cliente da fila volta a esconder a indisponibilidade.
+    #
+    # **Na suite `tests`, e nao na `tests_eventos`.** O proprio `filas_bullmq.ts`
+    # escreve que o `enableOfflineQueue: false` **nao** e o que torna o criterio
+    # 4 possivel — e o `TEMPO_MAXIMO_DO_ADD` com o `comLimite`, e com a fila
+    # parada o `addLote` rejeita aos 5 s de qualquer maneira. Em `tests_eventos`
+    # a mutacao e praticamente equivalente, e sobreviveu a 2026-10-26. A
+    # propriedade existe como **texto**, e o
+    # `test_consumo_contrato.TestLigacaoDoWorker.test_a_do_publicador_continua_a_desistir`
+    # — que corre na `tests` — ja afirma `enableOfflineQueue: false` no bloco.
+    # (A irma `o add espera indefinidamente pela fila` fica em `EVENTOS`: essa
+    # mexe no tecto e tem efeito observavel la.)
     ("eventos: a fila em baixo deixa de falhar o add", EV_FILAS,
      "  enableOfflineQueue: false,",
-     "  enableOfflineQueue: true,",
-     EVENTOS),
+     "  enableOfflineQueue: true,"),
     # A que mais importa das tres: sem limite no `add`, o publicador fica
     # pendurado com a fila em baixo e o recuo do criterio 4 nunca acontece.
     ("eventos: o add espera indefinidamente pela fila", EV_FILAS,
@@ -1383,9 +1450,19 @@ MUTACOES = [
     ("revisao 0006: o texto deixa de ter tecto", REV6,
      "            length(actor_id) <= {TECTO_DE_TEXTO}",
      "            length(actor_id) <= 1000000"),
-    ("auditoria: o verificador deixa de ver o elo partido", AUDITORIA,
-     "            if prev_hash != anterior:",
-     "            if False:"),
+    # **Nao ha mutacao ao `if prev_hash != anterior:`, e a razao e um defeito.**
+    # Ela esteve aqui, sobreviveu a noite de 2026-10-26, e sobreviveu por o
+    # ramo ser **inalcancavel**: o `_por_ordem_da_cadeia` constroi a lista
+    # seguindo o `prev_hash` (arranca na `GENESE` e avanca
+    # `actual = row_hash`), pelo que toda a linha que ele devolve tem, por
+    # construcao, `prev_hash == anterior`; as que nao encaixam saem em `soltas`
+    # e dao o achado «nao esta na cadeia». A mensagem «elo partido» e codigo
+    # morto, e `grep` so a encontra na prosa, nela mesma e nesta lista.
+    # Trocar codigo morto por `if False:` nao pode mudar comportamento nenhum,
+    # e uma mutacao que nao pode mudar comportamento nao prova nada.
+    # O defeito — a docstring do modulo promete tres diagnosticos distinguidos
+    # e so dois podem sair — e o KAM-161, e e la que se decide se o ramo se
+    # apaga ou se se define o caso (cadeia bifurcada) em que devia disparar.
     ("auditoria: o verificador deixa de recalcular o hash", AUDITORIA,
      "            if calculado != guardado:",
      "            if False:"),
@@ -1416,11 +1493,22 @@ MUTACOES = [
     ("revisao 0005: a retencao aceita uma janela menor que a re-entrega", REV5,
      "          IF p_dias < 7 THEN",
      "          IF p_dias < 1 THEN", CONSUMO),
+    # **O predicado inteiro, e nao so a primeira clausula.** A versao que
+    # trocava `estado <> 'aberta'` por `true` era *equivalente* e sobreviveu a
+    # noite de 2026-10-26: as duas clausulas que ficavam de pe
+    # (`resolvido_at IS NOT NULL AND resolvido_at < ...`) ja implicam
+    # `estado <> 'aberta'`, porque o `events_dlq_resolucao_ck` desta mesma
+    # revisao prende `CHECK ((estado = 'aberta') = (resolvido_at IS NULL))` —
+    # uma entrada aberta nunca pode ter `resolvido_at`. Nenhum teste a podia
+    # matar sem primeiro largar a restricao. Apagado o predicado todo, o
+    # `TestRetencao.test_a_dlq_so_apaga_o_que_foi_resolvido` apanha-a: a entrada
+    # `aberta` que ele guarda e «um efeito por aplicar» desaparece.
     ("revisao 0005: a retencao da DLQ apaga entradas abertas", REV5,
      "          DELETE FROM platform.events_dlq\n"
-     "            WHERE estado <> 'aberta'\n",
-     "          DELETE FROM platform.events_dlq\n"
-     "            WHERE true\n", CONSUMO),
+     "            WHERE estado <> 'aberta'\n"
+     "              AND resolvido_at IS NOT NULL\n"
+     "              AND resolvido_at < now() - make_interval(days => p_dias);\n",
+     "          DELETE FROM platform.events_dlq;\n", CONSUMO),
     # Esta e das tres que a suite com fila **nao** apanha, e e por isso que o
     # `db/tests/test_consumo_contrato.py` existe: com o relogio acelerado a
     # escada do publicador e a do worker dao tempos parecidos, e com a escada
@@ -2091,9 +2179,14 @@ MUTACOES = [
     ('revisao 0009: a unicidade da conversa perde o canal', REV9,
      '                UNIQUE (tenant_id, contact_id, channel_id)',
      '                UNIQUE (tenant_id, contact_id)', CHR),
-    ('revisao 0009: a aplicacao passa a poder mudar o modo', REV9,
-     'COLUNAS_DA_APLICACAO = ("last_inbound_at", "window_expires_at")',
-     'COLUNAS_DA_APLICACAO = ("last_inbound_at", "window_expires_at", "mode")', CHR),
+    # **Nao ha mutacao ao `COLUNAS_DA_APLICACAO` da `0009`.** Ela esteve aqui e
+    # sobreviveu a noite de 2026-10-26, por ser *equivalente*: a `0016` concede
+    # `UPDATE (mode, last_human_activity_at)` em `conversations`, e as
+    # concessoes por coluna **somam-se** (a propria `0016` escreve-o). Conceder
+    # o `mode` ja na `0009` nao muda `head` em nada; a unica diferenca fica na
+    # janela entre as duas revisoes, que nenhuma suite observa. A propriedade
+    # que importa — quem pode escrever o `mode` em `head` — e medida pela
+    # mutacao `modos 0016: a app perde o UPDATE do mode`, na seccao do KAM-018.
     ('revisao 0009: a janela deixa de ter de ser coerente', REV9,
      '            CONSTRAINT conversations_janela_ck',
      '            CONSTRAINT conversations_janela_sem_regra_ck', "tests"),
@@ -2226,7 +2319,16 @@ MUTACOES = [
     ('restricao 0013: o conjunto de codigos perde o tecto', REV13,
      "OR array_length(meta_error_codes_seen, 1) <= {TECTO_DE_CODIGOS}",
      "OR true", "tests"),
-    ('restricao 0013: a app deixa de poder escrever o motivo', REV13,
+    # **Na `0014` e nao na `0013`, pela mesma razao que a do `tipo` na `0007`.**
+    # Na `0013` era *equivalente* e sobreviveu a noite de 2026-10-26: a `0014`
+    # repete o padrao `REVOKE UPDATE ON platform.tenant_channels FROM kamba_app`
+    # seguido do `GRANT` da sua propria lista, que **contem**
+    # `motivo_restricao` — a concessao que a mutacao tirava a `0013` era reposta
+    # uma revisao depois, e `head` ficava igual. O texto e o mesmo nas duas
+    # revisoes, e e na `0014` que ele decide o estado de `head`: la, o
+    # `test_a_app_pode_escrever_as_duas_colunas_novas` compara o conjunto
+    # inteiro de colunas de `UPDATE` e apanha-a.
+    ('restricao 0014: a app deixa de poder escrever o motivo', REV14,
      "                      last_account_update_at, motivo_restricao,",
      "                      last_account_update_at,", "tests"),
     ('restricao 0013: o conjunto de codigos passa a ser anulavel', REV13,
@@ -2414,9 +2516,19 @@ MUTACOES = [
     ('consentimento 0015: a prova perde a unicidade que da a idempotencia', REV15,
      "            CONSTRAINT consent_event_prova_uq\n                UNIQUE (tenant_id, contact_id, purpose, evidence_hash),",
      "", "tests"),
-    ('consentimento 0015: a unicidade da prova passa a ser global', REV15,
-     "                UNIQUE (tenant_id, contact_id, purpose, evidence_hash),",
-     "                UNIQUE (contact_id, purpose, evidence_hash),", "tests"),
+    # **Nao ha mutacao que torne esta unicidade global.** A que estava aqui
+    # tirava o `tenant_id` da chave e sobreviveu a noite de 2026-10-26, por ser
+    # *equivalente*: em `consent_event` o `contact_id` **determina** o
+    # `tenant_id`. A FK e composta (`(tenant_id, contact_id)` →
+    # `contacts (tenant_id, contact_id)`) e o `contacts.contact_id` e a chave
+    # primaria **global** da tabela (`contacts_pkey`, 0003), pelo que cada
+    # `contact_id` tem exactamente um tenant. As duas chaves —
+    # `(tenant_id, contact_id, purpose, evidence_hash)` e
+    # `(contact_id, purpose, evidence_hash)` — recusam o mesmo conjunto de
+    # linhas, e nenhum teste as pode distinguir sem primeiro largar aquela
+    # chave primaria ou aquela FK, que e onde a invariante de facto vive.
+    # Que a restricao **exista** continua medido: e a mutacao de cima, que a
+    # apaga, e o `test_a_mesma_prova_duas_vezes_e_recusada` apanha-a.
     ('consentimento 0015: o resumo da prova passa a aceitar qualquer tamanho', REV15,
      "            CONSTRAINT consent_event_evidence_ck\n                CHECK (octet_length(evidence_hash) = {BYTES_DO_SHA256})",
      "            CONSTRAINT consent_event_evidence_ck\n                CHECK (octet_length(evidence_hash) >= 1)", "tests"),
@@ -2799,10 +2911,16 @@ MUTACOES = [
      "     AND actualizado_at < now() - ($1::integer * interval '1 minute')",
      "     AND actualizado_at IS NOT NULL", SAIDA),
     # O contador do criterio 8.
-    ('onboarding: a contagem passa a filtrar por tenant', ON_SQL,
-     "   WHERE criado_at > now() - ($1::integer * interval '1 day')",
-     "   WHERE criado_at > now() - ($1::integer * interval '1 day')\n     AND tenant_id = tenant_id",
-     SAIDA),
+    #
+    # **Nao ha mutacao que lhe acrescente um filtro por tenant.** A que estava
+    # aqui punha `AND tenant_id = tenant_id` e sobreviveu a noite de
+    # 2026-10-26, por ser *tautologia*: `channel_onboarding.tenant_id` e
+    # `NOT NULL` (0017), logo a condicao e verdadeira em todas as linhas e o
+    # `count(*)` nao muda. O nome prometia um filtro; o texto nao o fazia. Um
+    # filtro a serio precisaria de um `$2` que o chamador nao passa — rebentava
+    # por aritmetica de marcadores, e nao por o limite deixar de atravessar
+    # tenants. A propriedade esta provada por
+    # `it("atravessa tenants, que e o que o limite da Meta mede")`.
     ('onboarding: a contagem passa a ignorar o abandonado', ON_SQL,
      "   WHERE criado_at > now() - ($1::integer * interval '1 day')",
      "   WHERE criado_at > now() - ($1::integer * interval '1 day')\n     AND fase <> 'abandonado'",
