@@ -107,6 +107,7 @@ class ConfiguracaoInvalida(ValueError):
 CHAVES_DA_POLITICA = {
     "version", "superficies", "fora_de_ambito", "sentinelas",
     "dominios_por_conceito", "dominios_so_no_registo", "unicidades_proibidas",
+    "dominios_historicos",
     "confirmacao", "eventos_de_pagamento", "envelope", "limites", "verticais",
     "papeis", "esquemas", "auxiliares_de_migracao", "eventos_partilhados",
 }
@@ -402,6 +403,49 @@ class Extensoes:
         return cls(entradas)
 
 
+@dataclass(frozen=True)
+class DominioHistorico:
+    """Uma declaracao de dominio que uma revisao posterior substituiu (KAM-029).
+
+    Um dominio fechado **pode** crescer: a revisao que o fez escreve
+    `DROP CONSTRAINT` + `ADD CONSTRAINT`, e a revisao antiga fica a declarar o
+    dominio antigo para sempre. Isso e um **facto historico** — a base, depois de
+    `upgrade head`, tem o dominio novo — e nao um defeito.
+
+    **Declara-se uma a uma, com revisao, ticket, razao e data, e nao se infere.**
+    A primeira tentativa (no mesmo ticket) era uma regra geral: «nao se cobra
+    `falta` a uma declaracao que uma revisao de nome posterior redeclare». A
+    revisao adversarial mostrou-lhe tres buracos — a amnistia nao exigia prova de
+    `DROP CONSTRAINT` (pelo que um `ADD CONSTRAINT` com nome novo **ao lado** do
+    antigo deixava a base a recusar e o gate a dizer conforme), o leitor de
+    revisoes le o `downgrade` e uma declaracao de la amnistiava as anteriores, e
+    a ordem era o `sorted()` do caminho e nao a cadeia. Uma lista nomeada nao
+    infere nada: diz exactamente qual declaracao e historica.
+
+    E a forma das outras listas de excepcao desta casa (`ci/refs-allow.yaml`,
+    `ci/backlog-allow.yaml`, `canon/extensoes.yaml`): nomeada, datada e com
+    ticket.
+
+    **O que NAO se verifica, dito antes que alguem conte com isso:** nao se
+    confere que a `revisao` nomeada exista, nem que ela continue a declarar
+    aquele dominio. Houve uma versao com a verificacao de existencia e foi
+    retirada: o arnes de canarios do gate corre sobre **copias parciais** da
+    arvore (`ComCopia`), que nao levam as migracoes todas, e a verificacao
+    rebentava-o — trocava uma dispensa inerte por um gate que falha onde o
+    repositorio esta bem. Uma entrada que aponte para nada e inofensiva (nao
+    dispensa nada que exista); o que ela custa e ruido na lista. E um limite e
+    nao uma garantia, e e mais fraco do que a verificacao de uso do
+    `canon/extensoes.yaml`.
+    """
+
+    revisao: str
+    tabela: str
+    coluna: str
+    ticket: str
+    razao: str
+    data: str
+
+
 @dataclass
 class Politica:
     superficies: dict[str, list[str]]
@@ -417,6 +461,7 @@ class Politica:
     verticais: dict
     auxiliares: dict[str, str]
     eventos_partilhados: list[str]
+    dominios_historicos: list[DominioHistorico]
 
     @classmethod
     def ler(cls, raiz: Path, dicionario: Dicionario) -> "Politica":
@@ -454,6 +499,33 @@ class Politica:
                 raise ConfiguracaoInvalida(f"{onde}: falta `caminho`")
             _razao(area, onde)
             fora.append(str(area["caminho"]))
+
+        historicos = []
+        for indice, item in enumerate(
+            _lista(dados, "dominios_historicos", POLITICA), start=1
+        ):
+            onde = f"{POLITICA}: dominio_historico {indice}"
+            _exigir_chaves(
+                item, {"revisao", "tabela", "coluna", "ticket", "razao", "data"}, onde
+            )
+            for campo in ("revisao", "tabela", "coluna", "ticket", "data"):
+                if not item.get(campo):
+                    raise ConfiguracaoInvalida(f"{onde}: falta `{campo}`")
+            if not _TICKET.fullmatch(str(item["ticket"])):
+                raise ConfiguracaoInvalida(
+                    f"{onde}: `ticket` tem de ter a forma KAM-NNN"
+                )
+            _razao(item, onde)
+            historicos.append(
+                DominioHistorico(
+                    str(item["revisao"]),
+                    str(item["tabela"]),
+                    str(item["coluna"]),
+                    str(item["ticket"]),
+                    str(item["razao"]),
+                    str(item["data"]),
+                )
+            )
 
         sentinelas = []
         for indice, item in enumerate(_lista(dados, "sentinelas", POLITICA), start=1):
@@ -589,6 +661,7 @@ class Politica:
             verticais=referencias["verticais"],
             auxiliares=auxiliares,
             eventos_partilhados=partilhados,
+            dominios_historicos=historicos,
         )
 
 

@@ -188,15 +188,31 @@ VISTAS = ("consent_actual",)
 #: nao tem `USAGE` no `platform` (KAM-026).
 TABELAS_0021 = ("tool_audit",)
 
+#: KAM-029: a barreira de idempotencia das tools de escrita (revisao `0022`).
+#:
+#: **Uma tabela, no `platform`, e ao contrario da `0021` nao e *append-only*.**
+#: O protocolo do `docs/tecnica/02` §6.3 e `INSERT` com estado `em_curso` ->
+#: executar -> `UPDATE` com o resultado, e um *trigger* de imutabilidade recusava
+#: o segundo passo; o que a protege e o `UPDATE` concedido **por coluna**. E a
+#: razao pela qual ela, ao contrario da `tool_audit`, tem receita de sementes no
+#: `db/tests_isolamento/sementes.py`: apaga-se com `DELETE`.
+TABELAS_0022 = ("tool_idempotency",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
         + TABELAS_0006 + TABELAS_0007 + TABELAS_0008 + TABELAS_0009
         + TABELAS_0010 + TABELAS_0011 + TABELAS_0012 + TABELAS_0013
         + TABELAS_0014 + TABELAS_0015 + TABELAS_0017 + TABELAS_0018
-        + TABELAS_0019 + TABELAS_0021
+        + TABELAS_0019 + TABELAS_0021 + TABELAS_0022
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0021`.
+#:
+#: Pela mesma razao das outras: o `downgrade` da `0022` leva a base para aqui, e
+#: o teste do ciclo compara o conjunto com esta tupla.
+TABELAS_ATE_0021 = tuple(sorted(set(TABELAS) - set(TABELAS_0022)))
 
 #: O que existe em `platform` quando a base esta na revisao `0020`.
 #:
@@ -204,7 +220,7 @@ TABELAS = tuple(
 #: o teste do ciclo compara o conjunto com esta tupla. **A `0020` e do KAM-026 e
 #: nao cria tabela no `platform`** — cria o esquema `lg` e as duas de
 #: `TABELAS_LG` —, pelo que o conjunto do `platform` na `0020` e o da `0019`.
-TABELAS_ATE_0020 = tuple(sorted(set(TABELAS) - set(TABELAS_0021)))
+TABELAS_ATE_0020 = tuple(sorted(set(TABELAS_ATE_0021) - set(TABELAS_0021)))
 
 #: O que existe em `platform` quando a base esta na revisao `0018`.
 #:

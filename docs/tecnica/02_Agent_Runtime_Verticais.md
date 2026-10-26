@@ -279,8 +279,33 @@ idempotency_key = sha256(tenant_id | contact_id | tool | cart_id)       # um ped
 botao de confirmacao: id = "confirm:{cart_id}" (Vendedor) | "confirm:{hold_id}" (Servicos)   # embutido no reply button
 ```
 
-Duplo toque ou re-entrega do webhook: (i) o `wamid` repetido é filtrado no GWY; (ii) um segundo toque com `wamid` novo encontra `stage != awaiting_confirm` (o `confirm_gate` trata-o como *stale*, §7); (iii) mesmo que ambos corram em concorrência, o *lock* por conversa serializa-os e a chave devolve o resultado guardado (`idempotent_replay=true`).
+Duplo toque ou re-entrega do webhook: (i) o `wamid` repetido é filtrado no GWY; (ii) um segundo toque com `wamid` novo encontra `stage != awaiting_confirm` (o `confirm_gate` trata-o como *stale*, §7); (iii) mesmo que ambos corram em concorrência, a chave devolve o resultado guardado (`idempotent_replay=true`). **O *lock* por conversa já não é o que os serializa**, e esta frase dizia que era: a revisão adversarial do KAM-028 substituiu o trinco único da ToolLayer por uma `asyncio.Queue` de tomadas, pelo que quem serializa pelo `cart_id` é o `INSERT … ON CONFLICT DO NOTHING` da `tool_idempotency` (KAM-029) e mais nada.
 Tabela `tool_idempotency(key PK, tool, result jsonb, created_at)`; retenção ≥ validade da reserva + prazo de disputa (a definir em `04`).
+
+**Entregue pelo KAM-029, com quatro coisas que este parágrafo não dizia** (revisão
+`0022`, dicionário §3.28):
+
+1. **O `|` da fórmula não é um caractere separador.** O `cart_id` é opaco
+   (KAM-046), pelo que nenhum caractere é seguro: com um separador literal,
+   `(a, b|c)` e `(a|b, c)` dão a mesma chave — numa tool `money`, a encomenda de
+   um cliente a responder pela de outro. A derivação prefixa cada parte com o
+   comprimento.
+2. **A `idempotency_key` da `tool_audit` não é esta chave.** Aquela é do
+   **turno** (vai ao `usage_ledger` no passo 2; o KAM-025 usa `turn_id:seq`) e
+   esta é do **carrinho**. Não podiam ser a mesma: o segundo toque de que o ponto
+   (ii) acima fala é um turno novo, e uma desduplicação por chave de turno
+   cobrava outra vez.
+3. **Três estados e não dois.** `em_curso` → quem chega espera (tecto de 3 s,
+   `03` §6.3, depois `UPSTREAM_TIMEOUT` sem executar); `concluida` → devolve-se o
+   resultado guardado; `falhada` → **retoma-se** e executa-se outra vez, o que
+   só é seguro porque a chave vai ao backend, que é idempotente por ela.
+4. **A coluna `key` tem `CHECK` de forma hexadecimal.** «Sem telefone na chave»
+   deixa de depender de quem chama (ADR-010).
+
+A retenção fica em **30 dias, *proposta***: a validade da reserva está fixada
+(`03` §6.4, tecto de 72 h) mas o **prazo de disputa não está fixado em documento
+nenhum** — o `04` tem `refund_cases` e a transição `paga → reembolso_pendente` e
+não dá prazo. Recalibra-se quando o `04` o fixar.
 
 ### 6.4 Auditoria
 
@@ -305,6 +330,14 @@ Dinheiro, stock e preço têm, além disto, o seu registo no domínio (`payment_
 | `ENTITLEMENT_DENIED`, `TOOL_NOT_ALLOWED`, `TENANT_MISMATCH` | Violação | Bloqueio, alerta de segurança, `safe_reply`; **nunca** tentar de novo |
 | `UPSTREAM_TIMEOUT`, `UPSTREAM_DOWN` | COM/PAY/IDX indisponível | 1 retry com *backoff*; depois `handoff_prepare` ou fluxo determinístico |
 | `VALIDATION_ERROR` | Argumentos inválidos do modelo | 1 correcção automática; depois `unknown_reply` |
+| `INTENT_REUSED_WITH_DIFFERENT_CONTENT` | O mesmo `cart_id` com outro conteúdo (§6.3) | Defeito do chamador: o carrinho mudou e não gerou `cart_id` novo. **Nunca** repetir; novo `propose_cart` |
+
+**São onze e não dez** (KAM-029). O décimo primeiro nasce no §6.3 e não aqui, e
+não é uma constante: a `tool_audit.error_code` é um `CHECK` fechado, pelo que ele
+obriga a uma revisão de base de dados (a `0022`), entra no dicionário §3.28 e
+muda a etiqueta de `agr_tool_erros_total` — que é **derivada** da lista e não
+escrita à mão. Não é violação e não levanta alerta de segurança: é um defeito de
+quem chama, não uma tentativa de atravessar fronteira.
 
 Timeouts por classe: read 2 s, write/money 8 s; *circuit breaker* por backend. Testes cruzados (tenant A tenta ler B, contacto X tenta ler encomenda de Y) fazem falhar o *build* (doc 00 §9).
 

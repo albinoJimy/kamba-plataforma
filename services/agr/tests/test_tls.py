@@ -24,6 +24,9 @@ X-02 nao se provam com uma base falsa.
 
 from __future__ import annotations
 
+import datetime as _dt
+import json
+import re
 import time
 import unittest
 from pathlib import Path
@@ -39,7 +42,7 @@ from kamba_agr.metricas import (
     MetricasDoAgr,
 )
 from kamba_agr.registo.validar import PARAMETROS_PROIBIDOS
-from kamba_agr.tls import auditoria, erros
+from kamba_agr.tls import auditoria, erros, idempotency
 from kamba_agr.tls.camada import (
     PASSOS,
     BoundTool,
@@ -92,6 +95,74 @@ def contexto(**troca: Any) -> ToolContext:
 
 
 # ------------------------------------------------------------------ dobragens
+#
+# KAM-029: `platform.tool_idempotency` em memoria. Cada entrada e
+# `[estado, args_hash, result]`, e as quatro funcoes fazem o que o SQL faz —
+# inclusive o `ON CONFLICT DO NOTHING` e o `WHERE estado = 'falhada'` da retoma,
+# que e o que torna a reserva e a retoma **atomicas**. Sem isto, uma bateria de
+# unidade sobre a camada tinha de enlatar a resposta e deixava de medir o
+# protocolo; o que vai a base a serio esta em `db/tests_agr/test_idempotencia.py`.
+def _idem_reservar(ligacao: "_Ligacao", p: tuple) -> list[tuple[Any, ...]]:
+    chave, _tenant, _tool, args_hash = p
+    if chave in ligacao.idempotencia:
+        return []
+    ligacao.idempotencia[chave] = ["em_curso", bytes(args_hash), None, ligacao.agora]
+    return [(chave,)]
+
+
+def _idem_ler(ligacao: "_Ligacao", p: tuple) -> list[tuple[Any, ...]]:
+    linha = ligacao.idempotencia.get(p[0])
+    return [] if linha is None else [tuple(linha)]
+
+
+def _idem_retomar(ligacao: "_Ligacao", p: tuple) -> list[tuple[Any, ...]]:
+    linha = ligacao.idempotencia.get(p[0])
+    if linha is None or linha[0] != "falhada":
+        return []
+    linha[0], linha[2] = "em_curso", None
+    return [(p[0],)]
+
+
+def _idem_retomar_abandonada(ligacao: "_Ligacao", p: tuple) -> list[tuple[Any, ...]]:
+    """O `UPDATE … WHERE estado = 'em_curso' AND created_at < %s`.
+
+    A condicao esta aqui dentro, como no SQL: e o que torna a retoma atomica, e
+    um duplo que a verificasse fora deixava dois leitores retomarem a mesma
+    linha e correrem os dois o backend — que e o defeito que ela existe para
+    fechar.
+    """
+    chave, limite = p
+    linha = ligacao.idempotencia.get(chave)
+    if linha is None or linha[0] != "em_curso" or not linha[3] < limite:
+        return []
+    linha[0], linha[2] = "em_curso", None
+    return [(chave,)]
+
+
+def _idem_agora(ligacao: "_Ligacao", _p: tuple) -> list[tuple[Any, ...]]:
+    """O `SELECT now()` do servidor. No duplo, o relogio que o teste controla."""
+    return [(ligacao.agora,)]
+
+
+def _idem_fechar(ligacao: "_Ligacao", p: tuple) -> list[tuple[Any, ...]]:
+    estado, carga, chave = p
+    linha = ligacao.idempotencia.get(chave)
+    if linha is not None:
+        linha[0] = estado
+        linha[2] = json.loads(carga) if carga is not None else None
+    return []
+
+
+_IDEMPOTENCIA = {
+    "reservar": _idem_reservar,
+    "ler_idempotencia": _idem_ler,
+    "retomar": _idem_retomar,
+    "retomar_abandonada": _idem_retomar_abandonada,
+    "agora_do_servidor": _idem_agora,
+    "fechar_idempotencia": _idem_fechar,
+}
+
+
 class _Cursor:
     """O minimo de um cursor DB-API, com as respostas que o teste lhe der."""
 
@@ -105,7 +176,13 @@ class _Cursor:
         self._ligacao.sql.append((sql, tuple(parametros)))
         if self._ligacao.levantar_em is not None and self._ligacao.levantar_em in sql:
             raise RuntimeError("a base recusou")
-        resposta = self._ligacao.respostas.get(_chave_do_sql(sql))
+        chave = _chave_do_sql(sql)
+        if chave in _IDEMPOTENCIA:
+            self.description, self._linhas = None, _IDEMPOTENCIA[chave](
+                self._ligacao, tuple(parametros)
+            )
+            return
+        resposta = self._ligacao.respostas.get(chave)
         if resposta is None:
             self.description, self._linhas = None, []
             return
@@ -132,6 +209,24 @@ def _chave_do_sql(sql: str) -> str:
         return "auditoria"
     if "HAS_COLUMN_PRIVILEGE" in texto:
         return "privilegio"
+    # KAM-029: as quatro instrucoes de `tool_idempotency`. Sao quatro chaves e
+    # nao uma porque o `_Cursor` as **executa** contra um dicionario em memoria
+    # (ver `_Ligacao.idempotencia`): com respostas enlatadas, uma bateria de
+    # unidade nao podia distinguir «reservou» de «leu uma linha concluida», que
+    # e precisamente a diferenca entre cobrar e nao cobrar.
+    if texto == "SELECT NOW()":
+        return "agora_do_servidor"
+    if "PLATFORM.TOOL_IDEMPOTENCY" in texto:
+        if texto.startswith("INSERT"):
+            return "reservar"
+        if texto.startswith("SELECT"):
+            return "ler_idempotencia"
+        # **Tres `UPDATE` e nao dois**, e distinguem-se pelo `WHERE`: a retoma
+        # por idade leva o `created_at`, a de uma `falhada` leva o estado, e o
+        # fecho nao leva nenhum dos dois.
+        if "CREATED_AT <" in texto:
+            return "retomar_abandonada"
+        return "retomar" if "'FALHADA'" in texto else "fechar_idempotencia"
     return "outro"
 
 
@@ -153,6 +248,16 @@ class _Ligacao:
         self.levantar_em: str | None = None
         self.commits = 0
         self.fechada = False
+        #: `platform.tool_idempotency` desta ligacao (KAM-029). Partilha-se
+        #: entre invocacoes porque a tabela e partilhada: e o que faz uma
+        #: segunda invocacao da mesma chave encontrar a primeira.
+        self.idempotencia: dict[str, list[Any]] = {}
+        #: O `now()` do **servidor**, que o duplo serve ao `SELECT now()`. E um
+        #: relogio proprio e nao o do processo, pela razao escrita no `SQL_AGORA`
+        #: do `idempotency.py`: a decisao de retomar compara-se com o
+        #: `created_at`, que o servidor escreve, e um teste que usasse dois
+        #: relogios media a deriva entre eles.
+        self.agora = _dt.datetime(2026, 10, 25, 12, 0, tzinfo=_dt.UTC)
 
     def cursor(self) -> _Cursor:
         return _Cursor(self)
@@ -177,6 +282,21 @@ class _Ligacao:
 class ArgumentosDeEnsaio(BaseModel):
     model_config = ConfigDict(extra="forbid")
     cart_id: str
+
+
+class ArgumentosComNota(BaseModel):
+    """Dois campos, para o criterio 3 do KAM-029.
+
+    O `ArgumentosDeEnsaio` tem **so** o `cart_id` e `extra="forbid"`: com ele,
+    um segundo argumento era recusado no passo **3** e a bateria do criterio 3
+    media a validacao de argumentos em vez da reutilizacao do `cart_id`. Para
+    dois `args_hash` diferirem com o mesmo `cart_id` tem de haver um campo onde
+    eles possam diferir.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    cart_id: str
+    nota: str = ""
 
 
 class ArgumentosSemForbid(BaseModel):
@@ -221,6 +341,8 @@ class _Base(unittest.TestCase):
         espioes_a_partir_de: int | None = None,
         metricas: MetricasDoAgr | None = None,
         disjuntor: Disjuntor | None = None,
+        relogio: Any = time.monotonic,
+        dormir: Any = None,
     ) -> tuple[ToolLayer, _Ligacao, list[str]]:
         """A camada, a ligacao falsa, e a lista dos passos espiados que correram."""
         if especificacoes is None:
@@ -247,6 +369,8 @@ class _Base(unittest.TestCase):
             disjuntor=disjuntor,
             metricas=metricas,
             passos=passos,
+            relogio=relogio,
+            **({} if dormir is None else {"dormir": dormir}),
         )
         return camada, ligacao, corridos
 
@@ -369,15 +493,23 @@ class TestConfirmation(_Base):
 
 # ---------------------------------------------------------------- os erros
 class TestErros(_Base):
-    def test_sao_dez_e_os_do_documento(self) -> None:
-        self.assertEqual(len(erros.CODIGOS), 10)
-        self.assertEqual(len(set(erros.CODIGOS)), 10)
+    def test_sao_os_do_documento(self) -> None:
+        """Os dez do §6.5 mais o `INTENT_REUSED_WITH_DIFFERENT_CONTENT` do §6.3.
+
+        **O nome deste teste deixou de levar o numero** (era
+        `..._sao_dez_e_os_do_documento`), pela licao que o KAM-027 escreveu para
+        as listas literais e que o `test_catalogo.py` do `db/` repete: a
+        invariante e «sao os do documento», e um numero no nome transformava-a em
+        «sao dez» — que foi o que este ticket teve de vir mudar.
+        """
+        self.assertEqual(len(set(erros.CODIGOS)), len(erros.CODIGOS))
         self.assertEqual(
             set(erros.CODIGOS),
             {
                 "NOT_FOUND", "OUT_OF_STOCK", "PRICE_CHANGED", "LIMIT_EXCEEDED",
                 "ENTITLEMENT_DENIED", "TOOL_NOT_ALLOWED", "TENANT_MISMATCH",
                 "UPSTREAM_TIMEOUT", "UPSTREAM_DOWN", "VALIDATION_ERROR",
+                "INTENT_REUSED_WITH_DIFFERENT_CONTENT",
             },
         )
 
@@ -1339,7 +1471,12 @@ class TestImportacaoIsolada(unittest.TestCase):
         )
 
         self.assertEqual(len(_valores_derivados(METRICA_TOOL_INVOCACOES)), 11)
-        self.assertEqual(len(_valores_derivados(METRICA_TOOL_ERROS)), 10)
+        # Onze desde o KAM-029, e derivados: confronta-se com `CODIGOS` e nao
+        # com um numero, que e o que «continuam derivadas» quer dizer.
+        self.assertEqual(
+            _valores_derivados(METRICA_TOOL_ERROS),
+            tuple(sorted(codigo.lower() for codigo in erros.CODIGOS)),
+        )
         self.assertEqual(len(_valores_derivados(METRICA_TOOL_DISJUNTOR)), 4)
         fonte = (_RAIZ / "services/agr/src/kamba_agr/metricas.py").read_text(
             encoding="utf-8"
@@ -1759,6 +1896,495 @@ class TestArquitectura(_Base):
             and padrao.search(caminho.read_text(encoding="utf-8"))
         )
         self.assertEqual(importadores, ["__main__.py", "metricas.py"])
+
+
+# ------------------------------------------------------------ idempotencia
+class TestDerivacaoDaChave(_Base):
+    """O criterio 6 do KAM-029: a chave nao depende de telefone, BSUID nem tempo.
+
+    **O teste de propriedade mede a independencia contra as colunas que
+    existem**, e nao contra uma ideia de tempo. As quatro partes do §6.3 sao
+    `(tenant_id, contact_id, tool, cart_id)`; tudo o mais que o `ToolContext`
+    tem — `turn_id`, `run_id`, `conversation_id`, `channel_id`, `graph_version`
+    — e exactamente o que **nao** pode entrar, e e por ai que um relogio
+    entraria: um `turn_id` ou um `run_id` muda a cada turno, e uma chave que os
+    levasse dentro desduplicava uma intencao por turno em vez de por carrinho.
+
+    O `TestOControlDaDerivacao` logo abaixo prova que este oraculo apanha isso.
+    """
+
+    #: O intervalo ficticio da casa (`999` + nove algarismos, sem `+`), que e o
+    #: que a nota do KAM-025 manda usar. Um exemplo de fuga escrito com um
+    #: numero de forma real **e** a fuga, e o *gate* 7 recusou cinco ficheiros
+    #: do KAM-028 por isso.
+    TELEFONE = "999123456789"
+
+    def _mil_combinacoes(self):
+        for i in range(1000):
+            yield (
+                f"{i:08d}-1111-4111-8111-111111111111",
+                f"{i:08d}-3333-4333-8333-333333333333",
+                f"tool_{i % 7}",
+                f"cart-{i}",
+            )
+
+    def test_mil_combinacoes_nao_dependem_do_turno_nem_do_relogio(self) -> None:
+        """Mil chaves, cada uma derivada duas vezes com turno e execucao novos."""
+        instaveis = []
+        for tenant, contacto, tool, cart in self._mil_combinacoes():
+            primeira = idempotency.derivar(
+                contexto(tenant_id=tenant, contact_id=contacto, turn_id="t-1"), tool, cart
+            )
+            # Tudo o que muda entre dois toques do mesmo carrinho: turno novo,
+            # execucao nova, conversa nova, canal novo, versao de grafo nova.
+            segunda = idempotency.derivar(
+                ToolContext.de_estado(
+                    estado_valido(
+                        tenant_id=tenant,
+                        contact_id=contacto,
+                        turn_id="t-2",
+                        conversation_id="77777777-7777-4777-8777-777777777777",
+                        channel_id="88888888-8888-4888-8888-888888888888",
+                    ),
+                    run_id="r-2",
+                    graph_version="9.9.9",
+                ),
+                tool,
+                cart,
+            )
+            if primeira != segunda:
+                instaveis.append((tenant, tool, cart))
+        self.assertEqual(instaveis, [], "entradas dependentes de turno/relogio")
+
+    def test_mil_chaves_tem_a_forma_de_um_sha256_e_nenhuma_leva_telefone(self) -> None:
+        """O criterio 6: «a coluna `key` nunca contem `+244`».
+
+        Prova-se de duas maneiras e as duas fazem falta. Aqui mede-se que a
+        chave sai hexadecimal **mesmo com um telefone em todas as partes de
+        onde ela se deriva**; na base, o `CHECK tool_idempotency_key_sha256`
+        recusa qualquer outra forma, qualquer que seja o chamador — e essa e a
+        que nao depende deste teste estar certo
+        (`db/tests_agr/test_idempotencia.py`).
+        """
+        forma = re.compile(r"^[0-9a-f]{64}$")
+        # A revisao adversarial notou que a docstring dizia «em todas as partes
+        # de onde ela se deriva» e ele entra so numa. Corrigido acima.
+        for i in range(1000):
+            # O telefone entra **so pelo `cart_id`**, e e o que a docstring
+            # devia ter dito: e o unico campo opaco e de texto livre das quatro
+            # partes, e portanto o unico por onde um defeito do `propose_cart` o
+            # poderia trazer. O `tenant_id` e o `contact_id` sao UUID e o `tool`
+            # tem gramatica de identificador.
+            chave = idempotency.derivar(
+                contexto(), f"tool_{i % 7}", f"{self.TELEFONE}-{i}"
+            )
+            self.assertRegex(chave, forma)
+            self.assertNotIn("+244", chave)
+            self.assertNotIn(self.TELEFONE, chave)
+
+    def test_o_comprimento_a_prefixar_desfaz_a_ambiguidade(self) -> None:
+        """Duas particoes diferentes das mesmas partes dao chaves diferentes.
+
+        E a razao escrita na nota do `idempotency.py`: com um separador literal,
+        um `cart_id` que o contivesse punha a encomenda de um cliente a responder
+        pela de outro. O `cart_id` e **opaco** e nenhum caractere e seguro.
+        """
+        ctx = contexto()
+        self.assertNotEqual(
+            idempotency.derivar(ctx, "criar_pedido", "a|b"),
+            idempotency.derivar(ctx, "criar_pedido|a", "b"),
+        )
+        # E o separador nao e o `|`: experimenta-se o que um `cart_id` opaco
+        # pode ter dentro.
+        for sufixo in ("|", ":", "\x1f", "0:", " "):
+            self.assertNotEqual(
+                idempotency.derivar(ctx, "criar_pedido", f"c-1{sufixo}"),
+                idempotency.derivar(ctx, "criar_pedido", "c-1"),
+            )
+
+    def test_as_quatro_partes_entram_todas(self) -> None:
+        """Mudar qualquer uma das quatro muda a chave — senao nao servia."""
+        base = idempotency.derivar(contexto(), "criar_pedido", "c-1")
+        self.assertNotEqual(
+            base, idempotency.derivar(contexto(tenant_id=CONTACTO), "criar_pedido", "c-1")
+        )
+        self.assertNotEqual(
+            base, idempotency.derivar(contexto(contact_id=TENANT), "criar_pedido", "c-1")
+        )
+        self.assertNotEqual(base, idempotency.derivar(contexto(), "book_slot", "c-1"))
+        self.assertNotEqual(base, idempotency.derivar(contexto(), "criar_pedido", "c-2"))
+
+    def test_os_tres_estados_sao_os_da_revisao_0022(self) -> None:
+        """A lista fechada do codigo e a do `CHECK` da base nao divergem.
+
+        Compara-se o **conjunto declarado** na revisao e nao uma contagem de
+        ocorrencias no ficheiro: uma contagem passa a dizer outra coisa no dia em
+        que alguem escrever `em_curso` num comentario, e foi o que a primeira
+        versao deste teste fez. E a forma do confronto que o KAM-027 pos entre as
+        duas listas de nomes de validacao.
+        """
+        fonte = (
+            _RAIZ / "db/migrations/versions/0022_tool_idempotency.py"
+        ).read_text(encoding="utf-8")
+        declarada = re.search(r'LITERAIS_DE_ESTADO = "([^"]+)"', fonte)
+        self.assertIsNotNone(declarada, "a revisao deixou de declarar os estados")
+        self.assertEqual(
+            tuple(parte.strip().strip("'") for parte in declarada.group(1).split(",")),
+            idempotency.ESTADOS,
+        )
+
+
+class TestOControlDaDerivacao(_Base):
+    """O controlo do criterio 6: **o oraculo acima pode falhar**.
+
+    Sem isto, `test_mil_combinacoes_nao_dependem_do_turno_nem_do_relogio`
+    passava com a derivacao a levar o `turn_id` dentro, ou a nao levar nada —
+    e passava tambem se `derivar` devolvesse sempre a mesma cadeia. Sao os dois
+    unicos modos de falha de um teste de estabilidade, e os dois tem canario.
+
+    E a disciplina que o KAM-026, o KAM-027 e o KAM-028 pagaram tres vezes: um
+    criterio pode estar satisfeito pela razao errada, e por cada caixa pergunta-se
+    o que a faria passar com o codigo apagado.
+    """
+
+    def test_uma_derivacao_que_leve_o_turno_e_apanhada(self) -> None:
+        import hashlib
+
+        def com_turno(ctx, tool, referencia):
+            partes = (ctx.tenant_id, ctx.contact_id, tool, referencia, ctx.turn_id)
+            crua = b"".join(
+                f"{len(p.encode('utf-8'))}:".encode("ascii") + p.encode("utf-8")
+                for p in partes
+            )
+            return hashlib.sha256(crua).hexdigest()
+
+        primeira = com_turno(contexto(turn_id="t-1"), "criar_pedido", "c-1")
+        segunda = com_turno(contexto(turn_id="t-2"), "criar_pedido", "c-1")
+        self.assertNotEqual(
+            primeira, segunda, "o canario tem de ser instavel, senao nao e canario"
+        )
+
+    def test_uma_derivacao_constante_e_apanhada(self) -> None:
+        """O outro modo de falha: estavel por nao olhar para nada."""
+        self.assertNotEqual(
+            idempotency.derivar(contexto(), "criar_pedido", "c-1"),
+            idempotency.derivar(contexto(), "criar_pedido", "c-2"),
+        )
+
+
+class TestProtocoloDeIdempotencia(_Base):
+    """Os criterios 2, 3 e 8 contra a `tool_idempotency` em memoria.
+
+    O que **nao** se mede aqui esta em `db/tests_agr/test_idempotencia.py`: os
+    50 concorrentes (criterio 1), a falha injectada (4), o registo `em_curso` que
+    nao bloqueia (5) e a retencao (7) sao-no contra um PostgreSQL a serio, porque
+    e o `INSERT … ON CONFLICT` e a RLS que os provam e nao um dicionario.
+
+    **O oraculo de todos eles e o contador de chamadas ao backend**, e nao o que
+    o `invoke` devolve: um teste de idempotencia que meca o resultado passa com a
+    idempotencia apagada — as duas invocacoes devolvem o mesmo `ok=True` de
+    qualquer maneira. Foi o defeito do X-02 do KAM-028, que media onze recusas
+    em vez de onze tools.
+    """
+
+    def camada_que_conta(self, **troca):
+        """Uma camada de ensaio com um backend que conta e que e idempotente.
+
+        O backend **e idempotente pela chave** (devolve o mesmo `order_id` para
+        a mesma chave), que e o que o criterio 4 supoe por extenso. Sem isso, o
+        contador media a idempotencia da camada e mais nada, e a frase «o backend
+        e idempotente pela chave» ficava sem nada a sustenta-la.
+        """
+        chamadas: list[str | None] = []
+        encomendas: dict[str | None, str] = {}
+
+        def executor(pedido):
+            chamadas.append(pedido.chave)
+            encomendas.setdefault(pedido.chave, f"ord-{len(encomendas) + 1}")
+            return Resposta(data={"order_id": encomendas[pedido.chave]})
+
+        especificacao = EspecificacaoDeTool(
+            nome="criar_pedido",
+            klass="money",
+            backend="com",
+            modelo=ArgumentosComNota,
+            executor=executor,
+            campo_de_confirmacao="cart_id",
+        )
+        troca.setdefault("dormir", self.dormir_com_guarda())
+        camada, ligacao, _ = self.camada(especificacoes=(especificacao,), **troca)
+        return camada, ligacao, chamadas, encomendas
+
+    #: Quantas vezes o laco da espera pode dormir antes de a bateria desistir.
+    #: O tecto de 3 s com intervalos de 50 ms dá 60; 200 é folga larga e continua
+    #: a ser um numero finito.
+    SESTAS_NO_MAXIMO = 200
+
+    def dormir_com_guarda(self, relogio=None):
+        """Um `dormir` que **levanta** em vez de deixar o laco girar para sempre.
+
+        Uma bateria de unidade nunca deve pendurar, e esta familia pode: o laco
+        do `reservar` espera por uma linha de outro, e uma mutacao que lhe tire o
+        tecto transforma a espera num ciclo infinito. Sem esta guarda, o corredor
+        de mutacoes nao distingue isso de a suite rebentar — reporta
+        `PROVA INVALIDA`, que conta como **sobrevivente** e nao como apanhada.
+        Foi o que aconteceu a primeira corrida de `idem:`.
+
+        Com ela, a mutacao vira um `AssertionError` com nome, que e uma medicao.
+        No codigo certo o tecto dispara aos 60 e a guarda nunca e tocada.
+        """
+        sestas = [0]
+
+        def dormir(segundos):
+            sestas[0] += 1
+            if sestas[0] > self.SESTAS_NO_MAXIMO:
+                raise AssertionError(
+                    f"a espera dormiu {sestas[0]} vezes sem tecto: o laco do "
+                    "`reservar` nao esta a medir o `TECTO_DE_ESPERA_MS`"
+                )
+            if relogio is not None:
+                relogio[0] += segundos
+
+        return dormir
+
+    def test_o_segundo_toque_devolve_o_guardado_sem_chamar_o_backend(self) -> None:
+        """O criterio 8, do lado da TLS: um `wamid` novo e um **turno novo**.
+
+        O que o grafo faz com o `stage` e do KAM-031 (o `confirm_gate` manda a
+        confirmacao antiga para o `compose` com o fact `STALE_CONFIRMATION`) e o
+        `ToolContext` nem tem `stage` — nao ha daqui como o ver. O que esta
+        metade prova e que, **se** o toque antigo chegar a camada, ele nao toca
+        no backend: mesmo carrinho, turno novo, chave de turno nova.
+        """
+        camada, _, chamadas, _ = self.camada_que_conta()
+        primeiro = self.invocar(camada)
+        segundo = self.invocar(
+            camada,
+            ctx=contexto(turn_id="t-2"),
+            confirmation=Confirmation(
+                botao="confirm:c-1", contact_id=CONTACTO, turn_id="t-2"
+            ),
+            idempotency_key="k-2",
+        )
+
+        self.assertEqual(len(chamadas), 1, "o backend correu mais do que uma vez")
+        self.assertFalse(primeiro.idempotent_replay)
+        self.assertTrue(segundo.idempotent_replay)
+        self.assertEqual(primeiro.data, segundo.data)
+
+    def test_um_replay_escreve_uma_linha_de_auditoria_e_com_a_chave_do_turno(self) -> None:
+        """O criterio 5 do **KAM-028** («uma linha por invocacao») num caminho novo.
+
+        Num *replay* o passo 5 devolve um `ToolResult` e os passos 6 e 7 **nao
+        correm**: quem escreve a linha e o `finally` do pipeline. Se ela nao se
+        escrevesse, duas invocacoes `money` davam **uma** linha e o registo
+        passava a contar menos invocacoes de dinheiro do que houve — sem nada a
+        dize-lo, porque o resultado devolvido e o mesmo.
+
+        E a linha leva a chave **do turno** e nao a do carrinho, que e a decisao
+        do dicionario §3.28: sao duas chaves, e a coluna e da de cima.
+        """
+        camada, ligacao, chamadas, _ = self.camada_que_conta()
+        self.invocar(camada)
+        self.invocar(
+            camada,
+            ctx=contexto(turn_id="t-2"),
+            confirmation=Confirmation(
+                botao="confirm:c-1", contact_id=CONTACTO, turn_id="t-2"
+            ),
+            idempotency_key="k-2",
+        )
+
+        linhas = ligacao.linhas_de_auditoria()
+        self.assertEqual(len(chamadas), 1)
+        self.assertEqual(len(linhas), 2, "o replay nao escreveu linha de auditoria")
+        # `status` e `idempotency_key` pela ordem das `COLUNAS` do `auditoria.py`.
+        indice_chave = auditoria.COLUNAS.index("idempotency_key")
+        indice_status = auditoria.COLUNAS.index("status")
+        self.assertEqual([linha[indice_status] for linha in linhas], ["ok", "ok"])
+        self.assertEqual([linha[indice_chave] for linha in linhas], ["k-1", "k-2"])
+
+    def test_a_fronteira_da_janela_da_um_pedido_e_a_recompra_da_dois(self) -> None:
+        """O criterio 2, com relogio simulado.
+
+        A chave nao tem tempo dentro, pelo que a fronteira dos cinco minutos
+        **nao existe** — e e isso que se mede: um relogio que salta de 4:59 para
+        5:01 nao faz diferenca nenhuma, e um `cart_id` novo faz toda.
+        """
+        agora = [0.0]
+        camada, _, chamadas, encomendas = self.camada_que_conta(
+            relogio=lambda: agora[0]
+        )
+
+        agora[0] = 4 * 60 + 59
+        self.invocar(camada)
+        agora[0] = 5 * 60 + 1
+        self.invocar(camada)
+        self.assertEqual(len(chamadas), 1, "a fronteira da janela duplicou o pedido")
+
+        # A recompra, imediatamente a seguir: `cart_id` novo, pedido novo.
+        self.invocar(
+            camada,
+            args={"cart_id": "c-2"},
+            confirmation=Confirmation(
+                botao="confirm:c-2", contact_id=CONTACTO, turn_id="t-1"
+            ),
+        )
+        self.assertEqual(len(chamadas), 2, "a recompra nao criou pedido novo")
+        self.assertEqual(len(encomendas), 2)
+
+    def test_o_mesmo_cart_id_com_outros_argumentos_recusa_sem_chamar(self) -> None:
+        """O criterio 3: `INTENT_REUSED_WITH_DIFFERENT_CONTENT`."""
+        camada, _, chamadas, _ = self.camada_que_conta()
+        self.invocar(camada)
+        resultado = self.invocar(camada, args={"cart_id": "c-1", "nota": "mudei"})
+
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, "INTENT_REUSED_WITH_DIFFERENT_CONTENT")
+        self.assertEqual(len(chamadas), 1, "recusou e chamou o backend na mesma")
+
+    def test_uma_linha_em_curso_de_outro_nao_executa_e_estoura_o_tecto(self) -> None:
+        """O criterio 5, em memoria: a espera tem tecto e nao chama o backend.
+
+        O relogio e o `dormir` sao dobragens: o tecto mede-se por **quanto o
+        relogio andou**, nao por quanto o teste demorou. Um teste que esperasse
+        3 s a serio media a maquina.
+        """
+        agora = [0.0]
+        camada, ligacao, chamadas, _ = self.camada_que_conta(
+            relogio=lambda: agora[0], dormir=self.dormir_com_guarda(agora)
+        )
+        # Uma reserva de outro, ja em curso, com **dez segundos**: mais do que os
+        # 2 s que o criterio nomeia, e muito menos do que os 2 min ao fim dos
+        # quais ela se considera abandonada. E a janela em que o dono esta vivo.
+        chave = idempotency.derivar(contexto(), "criar_pedido", "c-1")
+        ligacao.idempotencia[chave] = [
+            "em_curso",
+            auditoria.impressao({"cart_id": "c-1", "nota": ""}),
+            None,
+            ligacao.agora - _dt.timedelta(seconds=10),
+        ]
+
+        resultado = self.invocar(camada)
+
+        self.assertFalse(resultado.ok)
+        self.assertEqual(resultado.error.codigo, "UPSTREAM_TIMEOUT")
+        self.assertEqual(chamadas, [], "esperou e executou na mesma")
+        self.assertGreaterEqual(agora[0], 3.0, "desistiu antes dos 3 s do §6.3")
+        self.assertLess(agora[0], 3.2, "esperou para alem do tecto")
+
+    def test_uma_em_curso_abandonada_retoma_se_em_vez_de_esperar(self) -> None:
+        """A **idade** decide, e sem isto o `created_at` era decoração.
+
+        Esta bateria e o par da de cima, e e ela que torna o «há mais de 2 s» do
+        critério 5 uma medição em vez de uma afirmação: a **única** diferença
+        entre as duas é a idade da linha, e o desfecho é o oposto. Sem ela, o
+        teste de cima passava igual com a idade apagada — foi o achado 3 da
+        revisão adversarial, e é a mesma forma do varrimento do KAM-026 que dava
+        sempre zero.
+
+        O que fecha é um caminho que deixava dinheiro em risco: uma linha
+        `em_curso` cujo `fechar` não passou (a ligação caiu entre o backend e o
+        registo) não era retomada por ninguém, a varredura recusa apagar
+        `em_curso` por idade, e aquele `cart_id` respondia `UPSTREAM_TIMEOUT`
+        para sempre — com a encomenda já feita. O cliente saía por um carrinho
+        novo, que tem `cart_id` novo, logo chave nova: **segunda encomenda**.
+        """
+        camada, ligacao, chamadas, encomendas = self.camada_que_conta()
+        chave = idempotency.derivar(contexto(), "criar_pedido", "c-1")
+        ligacao.idempotencia[chave] = [
+            "em_curso",
+            auditoria.impressao({"cart_id": "c-1", "nota": ""}),
+            None,
+            ligacao.agora - _dt.timedelta(minutes=5),
+        ]
+
+        resultado = self.invocar(camada)
+
+        self.assertTrue(resultado.ok, "nao retomou uma linha abandonada")
+        self.assertEqual(len(chamadas), 1, "retomou e nao chamou o backend")
+        self.assertEqual(len(encomendas), 1)
+        self.assertEqual(ligacao.idempotencia[chave][0], "concluida")
+        # E a retoma **nao** reescreve o `created_at`: se o fizesse, uma linha
+        # que falhasse a cada volta ganhava idade nova e a retencao nunca lhe
+        # chegava.
+        self.assertEqual(
+            ligacao.idempotencia[chave][3], ligacao.agora - _dt.timedelta(minutes=5)
+        )
+
+    def test_uma_linha_falhada_retoma_se_e_o_backend_devolve_o_mesmo(self) -> None:
+        """O criterio 4 em memoria; o que o mede a serio e a falha injectada."""
+        camada, ligacao, chamadas, encomendas = self.camada_que_conta()
+        self.invocar(camada)
+        chave = idempotency.derivar(contexto(), "criar_pedido", "c-1")
+        # O desfecho que uma falha a meio deixa: linha fechada como `falhada`,
+        # sem resultado, com o efeito ja feito no backend.
+        ligacao.idempotencia[chave][0] = "falhada"
+        ligacao.idempotencia[chave][2] = None
+
+        resultado = self.invocar(camada)
+
+        self.assertTrue(resultado.ok)
+        self.assertEqual(len(chamadas), 2, "a retoma nao voltou a chamar o backend")
+        self.assertEqual(
+            len(encomendas), 1, "o backend nao foi idempotente pela chave"
+        )
+        self.assertEqual(ligacao.idempotencia[chave][0], "concluida")
+
+    def test_um_fecho_que_falha_nao_mascara_a_excepcao_original(self) -> None:
+        """O que sobe tem de ser a falha que travou o turno, e nao o sintoma.
+
+        O fecho da reserva corre em **dois** caminhos: no `except`, antes de a
+        tomada cair, e no `finally`. Se a marca de posse só se limpasse **depois**
+        de a escrita passar, uma ligação já quebrada dava isto: a tentativa do
+        `except` levanta (e é engolida ali, de propósito), a marca fica de pé, e
+        a tentativa do `finally` levanta **de dentro do `finally`** —
+        substituindo a excepção original. Quem lesse o log de uma tool `money`
+        via o `InterfaceError` do driver e não a causa.
+
+        Encontrado a raciocinar sobre o caminho, não a correr: a bateria do
+        critério 4 não o apanha porque ali o fecho **passa**.
+        """
+        camada, ligacao, _, _ = self.camada_que_conta()
+
+        class _FalhaDoFecho(RuntimeError):
+            pass
+
+        original = idempotency.fechar
+
+        def fechar_que_falha(*argumentos, **nomeados):
+            raise _FalhaDoFecho("a ligacao ja estava quebrada")
+
+        idempotency.fechar = fechar_que_falha
+        ligacao.levantar_em = "INSERT INTO platform.tool_audit"
+        try:
+            with self.assertRaises(auditoria.AuditoriaIndisponivelError):
+                self.invocar(camada)
+        finally:
+            idempotency.fechar = original
+
+    def test_uma_read_nao_reserva_nada(self) -> None:
+        """Repetir uma leitura nao tem efeito, e por isso nao leva chave."""
+        _, ligacao, _ = self.camada()
+        camada, ligacao, _ = self.camada(
+            especificacoes=(
+                EspecificacaoDeTool(
+                    nome="get_store_info",
+                    klass="read",
+                    backend="plataforma",
+                    modelo=ArgumentosDeEnsaio,
+                    executor=_executor_ok,
+                ),
+            )
+        )
+        self.invocar(
+            camada,
+            name="get_store_info",
+            allowed=("get_store_info",),
+            confirmation=None,
+            idempotency_key=None,
+        )
+        self.assertEqual(ligacao.idempotencia, {})
 
 
 if __name__ == "__main__":

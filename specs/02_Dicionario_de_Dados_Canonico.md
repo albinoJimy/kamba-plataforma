@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.36 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.37 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -1334,32 +1334,32 @@ ticket. Fonte 3 sobre fonte 7.
 | Argumentos redigidos | `args_redacted` | — | `jsonb`. **Só a forma**: por cada argumento, o nome e o tipo, nunca o valor. Um `query` de pesquisa é texto do cliente, e texto do cliente não entra num registo de auditoria |
 | Impressão do resultado | `result_hash` | — | `sha256` da forma canónica do `data`, ou `NULL` quando a invocação falhou |
 | Identificadores dos *facts* devolvidos | `fact_ids` | — | `text[]`. Os `fact_id` do `ToolResult.facts`, não os valores: é o que liga uma citação do KAM-032 à linha que a produziu |
-| Estado de uma invocação, no registo | `status` ∈ {`ok`, `erro`} | — | Lista **fechada**. Quando é `erro`, o `error_code` leva um dos dez do §6.5; quando é `ok`, o `error_code` é `NULL`, e há um `CHECK` que o impõe nos dois sentidos |
-| Erros tipados da camada | `tool_audit.error_code` ∈ {`NOT_FOUND`, `OUT_OF_STOCK`, `PRICE_CHANGED`, `LIMIT_EXCEEDED`, `ENTITLEMENT_DENIED`, `TOOL_NOT_ALLOWED`, `TENANT_MISMATCH`, `UPSTREAM_TIMEOUT`, `UPSTREAM_DOWN`, `VALIDATION_ERROR`} | — | Lista **fechada**, os dez do §6.5, com o tratamento no grafo que ele define. **Escritos como valores de `tool_audit.error_code`, qualificados pela tabela:** o *gate* 3b qualifica um valor pela coluna a que pertence (`tool_audit.error_code=NOT_FOUND`), e uma lista sem a coluna deixava os dez `CHECK` da revisao `0021` fora do dicionario — medido, dez achados de nivel 1. **Sem a tabela tambem nao serve**: o `error_code` ja e coluna de `outbound_messages` (§3.14), e um dominio sobre o nome nu aplicava-se a ela e declarava-a ilegivel — tambem medido. A forma qualificada e a do `channel_coexistence.meta_error_code` do §3.22. `ENTITLEMENT_DENIED` e `LIMIT_EXCEEDED` são os que o `hook_de_tool` do KAM-009 já devolve (`libs/py-core/src/kamba_core/ten/hook.py`), e não se redeclaram: importam-se de lá |
+| Estado de uma invocação, no registo | `status` ∈ {`ok`, `erro`} | — | Lista **fechada**. Quando é `erro`, o `error_code` leva um dos **onze** (os dez do §6.5 e o do §6.3); quando é `ok`, o `error_code` é `NULL`, e há um `CHECK` que o impõe nos dois sentidos |
+| Erros tipados da camada | `tool_audit.error_code` ∈ {`NOT_FOUND`, `OUT_OF_STOCK`, `PRICE_CHANGED`, `LIMIT_EXCEEDED`, `ENTITLEMENT_DENIED`, `TOOL_NOT_ALLOWED`, `TENANT_MISMATCH`, `UPSTREAM_TIMEOUT`, `UPSTREAM_DOWN`, `VALIDATION_ERROR`, `INTENT_REUSED_WITH_DIFFERENT_CONTENT`} | — | Lista **fechada**, os dez do §6.5 **mais o do §6.3** (`INTENT_REUSED_WITH_DIFFERENT_CONTENT`, emenda 1.37), com o tratamento no grafo que eles definem. **Escritos como valores de `tool_audit.error_code`, qualificados pela tabela:** o *gate* 3b qualifica um valor pela coluna a que pertence (`tool_audit.error_code=NOT_FOUND`), e uma lista sem a coluna deixava os dez `CHECK` da revisao `0021` fora do dicionario — medido, dez achados de nivel 1. **Sem a tabela tambem nao serve**: o `error_code` ja e coluna de `outbound_messages` (§3.14), e um dominio sobre o nome nu aplicava-se a ela e declarava-a ilegivel — tambem medido. A forma qualificada e a do `channel_coexistence.meta_error_code` do §3.22. `ENTITLEMENT_DENIED` e `LIMIT_EXCEEDED` são os que o `hook_de_tool` do KAM-009 já devolve (`libs/py-core/src/kamba_core/ten/hook.py`), e não se redeclaram: importam-se de lá |
 | *Timeout* por classe | `KAMBA_TLS_TIMEOUT_READ_MS` (2000), `KAMBA_TLS_TIMEOUT_ESCRITA_MS` (8000) | — | Os dois números do §6.5 («read 2 s, write/money 8 s»). A forma `KAMBA_*` é a do §3.9. Um *timeout* dá `UPSTREAM_TIMEOUT` |
 | Tomadas da camada | `KAMBA_TLS_LIGACOES` (4) | — | Quantas ligações a camada abre. **Não é uma**: com uma só, dez invocações de dez *tenants* corriam em série (medido: 2,02 s com um backend de 200 ms) — bloqueio de cabeça de fila a atravessar *tenants*, que é o defeito mais caro do KAM-025. A fila é o *pool* e é o tecto; quem não tem vaga espera por uma vaga, e não pelo turno de outro *tenant* |
 | Folga do tecto que a camada impõe | `MARGEM_DO_TECTO_MS` (500) | — | O tecto do §6.5 é do **backend**, e onde há um tecto preciso do lado do servidor (o `statement_timeout` do `get_store_info`) é esse que tem de morder. A espera da camada é a rede por baixo, para um executor que ignore o tecto que recebeu — sem ela, um executor de 5 s contra um tecto de 2 s devolvia `ok=True` em 5 s |
 | Argumentos que o esquema não declara, no registo | `<nao_declarados>`, com a contagem | — | As chaves de `args` vêm do modelo, e um **nome** é texto tanto como um valor: `{"contacto 999123456789": …}` punha um telefone na `tool_audit` pela coluna que o critério 5 fecha para os valores. Só passam os nomes que o esquema declara; o resto conta-se. A contagem é informação útil e não é um canal |
 | *Circuit breaker* | `KAMBA_TLS_DISJUNTOR_FALHAS` (5), `KAMBA_TLS_DISJUNTOR_PAUSA_MS` (30000) | — | Falhas **consecutivas** por backend até abrir, e quanto fica aberto. Aberto devolve `UPSTREAM_DOWN` **sem chamar o backend** (critério 7). `disjuntor` é o nome português da peça; `backend` é a sua unidade |
 | Invocações de tool | `agr_tool_invocacoes_total` | — | Etiqueta `tool`, lista fechada (as onze do §3.26). **Nunca `tenant_id`** (`../docs/seguranca/ameacas_stride.md`, `OBS-I`): a gramática de etiqueta do `metricas.py` recusa-o pela forma |
-| Erros de tool | `agr_tool_erros_total` | — | Etiqueta `codigo`, os dez erros em minúsculas (`tool_not_allowed`, …) — a gramática de etiqueta exige minúsculas, e o código canónico é maiúsculo |
+| Erros de tool | `agr_tool_erros_total` | — | Etiqueta `codigo`, os **onze** erros em minúsculas (`tool_not_allowed`, …) — a gramática de etiqueta exige minúsculas, e o código canónico é maiúsculo. Os valores são **derivados** de `CODIGOS` e não escritos à mão, pela lição que o KAM-027 pagou no `test_gate11` |
 | Latência da última invocação | `agr_tool_latency_ms` | — | Medida, em milissegundos. É o «métricas de latência e erro por tool» do DoD |
 | Aberturas do disjuntor | `agr_tls_disjuntor_aberto_total` | — | Etiqueta `backend`, lista fechada |
 | Alerta de isolamento | `agr_tool_tenant_mismatch_total` | — | **Sem etiqueta.** É o «gera alerta de segurança» do critério 8. Um `TENANT_MISMATCH` nunca se repete (§6.5: «**nunca** tentar de novo») |
 | Código de saída sem auditoria | `6` | — | Próprio, pela razão escrita no §3.25 e no §3.26: o `2` é configuração inválida, o `3` a guarda do ADR-002, o `4` a falta de *checkpointer*, o `5` registo inválido. Um AGR que arrancasse sem poder escrever `tool_audit` corria tools `money` sem registo, que é o oposto do ADR-015 |
 | *Lint* dos esquemas expostos ao modelo | `tool_schema`, no `lint_arch` | — | O «falha o build» do critério 3 e do `../docs/tecnica/08` §3.2. Corre no *gate* 2 (e no 11, que já corre o `lint_arch`) e **não** abre *gate* novo. Verifica os quatro `PARAMETROS_PROIBIDOS` do §3.26 por análise da fonte, sem importar nada — o `lint_arch` só depende da biblioteca padrão, por desenho |
 
-**O ponto de extensão da idempotência existe e está vazio, e isso é o DoD.** O
-passo 5 do §6.1 é a chave de idempotência, e o §6.3 dá a fórmula
-(`sha256(tenant_id | contact_id | tool | cart_id)`) e a tabela
-`tool_idempotency`. **Nada disso entra aqui:** é o KAM-029. O que este ticket
-entrega é a coluna `idempotency_key` em `tool_audit`, o parâmetro no caminho, e
-a regra que o DoD pede por extenso — uma tool `write` ou `money` **nunca corre
-sem chave**. Sem chave, o passo 5 recusa antes de chegar ao backend.
+**O ponto de extensão da idempotência era deste ticket e está preenchido pelo
+KAM-029.** O passo 5 do §6.1 é a chave de idempotência, e o §6.3 dá a fórmula e
+a tabela `tool_idempotency`. O que o KAM-028 entregou é a coluna
+`idempotency_key` em `tool_audit`, o parâmetro no caminho, e a regra que o DoD
+pede por extenso — uma tool `write` ou `money` **nunca corre sem chave**. O
+resto está no **§3.28** (emenda 1.37).
 
-**`tool_idempotency` não entra no dicionário neste ticket.** O nome está no
-§6.3 e a tabela é do KAM-029; registá-la aqui era registar colunas que outro
-ticket decide.
+**E uma coisa que este ticket afirmou saiu errada, com a razão escrita no
+§3.28:** a `idempotency_key` da `tool_audit` **não** é a chave do §6.3. É a do
+chamador — a do turno —, e a do §6.3 é a do carrinho, que vive em
+`tool_idempotency.key`. As duas não podiam ser a mesma, e o §3.28 diz porquê.
 
 **Quatro nomes desta secção entraram pela revisão adversarial**, e os quatro
 saíram de uma medição e não de uma leitura: o `KAMBA_TLS_LIGACOES` (a camada
@@ -1370,6 +1370,83 @@ para a `tool_audit`) e o `sku` do `Fact` (o KAM-032 declara-o e sem ele teria de
 o inventar). A análise está em `../docs/analises/ANALISE-30-KAM-028-toollayer.md`.
 
 ---
+
+---
+
+### 3.28 Idempotência de tools por `cart_id` (KAM-029)
+
+*Emenda 1.37, **proposta**.* A emenda 1.36 registou a ToolLayer e deixou escrito
+que «`tool_idempotency` não entra no dicionário neste ticket», porque a tabela
+era do KAM-029. É este. Entram a tabela e as suas colunas, o erro tipado novo, e
+os dois nomes da espera.
+
+A fonte é `../docs/tecnica/02_Agent_Runtime_Verticais.md` §6.3 (a chave e a
+tabela) e `../docs/tecnica/03_Core_Comercio_Medusa.md` §6.3 (o protocolo, o
+tecto de espera de 3 s e o nome do erro), com os ADR-009, ADR-010 e ADR-013.
+
+**Há duas chaves de idempotência no caminho de uma invocação, e não são a mesma.**
+É a decisão que dá forma a esta secção, e a emenda 1.36 afirmou o contrário sem o
+ter medido — o inventário dizia que a `tool_audit.idempotency_key` guardava «a
+chave do §6.3».
+
+A `idempotency_key` — o parâmetro do `invoke` e a coluna de `tool_audit` — é **do
+chamador**, o grafo, e responde a «este *turno* já foi contado?»: vai ao
+`hook_de_tool` do passo 2, que escreve o `usage_ledger`, e o KAM-025 usa
+`turn_id:seq`. A `tool_idempotency.key` é **derivada na TLS** e responde a «este
+*carrinho* já foi comprado?».
+
+A chave do chamador **não pode** servir para o carrinho, e a razão é o critério 8
+deste ticket: um segundo toque com `wamid` novo é um **turno novo**, com `turn_id`
+novo e portanto chave de turno nova. Se o carrinho se desduplicasse pela chave do
+turno, esse toque não encontrava nada guardado e cobrava outra vez — a encomenda a
+dobrar que o ticket existe para fechar. A chave do carrinho não tem turno dentro,
+de propósito, e é isso que o teste de propriedade do critério 6 mede. As duas
+linhas ligam-se pelo `tool` e pelo turno em que correram.
+
+**E o `args_hash` das duas tabelas não é o mesmo valor**, o que a primeira versão
+desta emenda afirmou e a revisão adversarial desmentiu (`../docs/analises/ANALISE-31-KAM-029-idempotencia.md`,
+achado 4). O da `tool_idempotency` é do **modelo validado**
+(`inv.args.model_dump()`) e o da `tool_audit` é dos argumentos **crus**, como o
+modelo de linguagem os emitiu. A razão é que respondem a perguntas diferentes: a
+auditoria registra o que **chegou**, que é o que um registo deve guardar, e esta
+compara o que **vale** — e tem de o fazer sobre o modelo validado, senão um
+segundo toque que reemitisse um campo de omissão (`{"cart_id": "c-1"}` contra
+`{"cart_id": "c-1", "nota": ""}`) dava `args_hash` diferente e o *replay* virava
+`INTENT_REUSED_WITH_DIFFERENT_CONTENT`.
+
+**O `|` da fórmula do §6.3 não é um caractere separador.** O `cart_id` é opaco —
+é gerado pelo `propose_cart` (KAM-046) — pelo que nenhum caractere é seguro como
+separador: com um separador literal, `(a, b|c)` e `(a|b, c)` dão a mesma chave, e
+numa tool `money` isso é a encomenda de um cliente a responder pela de outro.
+Escreve-se com o **comprimento a prefixar** cada parte, que é inequívoco sem supor
+nada sobre o conteúdo.
+
+| Conceito | Nome canónico | Substitui | Nota |
+|---|---|---|---|
+| Barreira de idempotência das tools de escrita | `platform.tool_idempotency` | — | DDL na revisão `0022`. **Não** é *append-only*, ao contrário da `tool_audit`: o protocolo tem de alterar a linha. O que a protege é o `UPDATE` concedido **por coluna** |
+| Colunas de `tool_idempotency` | `key`, `tenant_id`, `tool`, `args_hash`, `estado`, `result`, `created_at` | — | Sete. Sem `contact_id`: ele entra na **derivação** da `key` e guardá-lo ao lado era guardar uma referência a um contacto numa tabela que não precisa de a ler |
+| Chave de idempotência de um carrinho | `key` = `sha256(tenant_id` ⟂ `contact_id` ⟂ `tool` ⟂ `cart_id)`, em hexadecimal | `hash(msisdn + sku + janela_5min)` | As quatro partes do §6.3, com o comprimento a prefixar (⟂ denota essa concatenação, não um caractere). `CHECK (key ~ '^[0-9a-f]{64}$')`: um telefone **não cabe** nesta coluna, por recusa da base e não por confiança no chamador (ADR-010, critério 6) |
+| Identificador opaco do carrinho | `cart_id` | — | Produzido por `propose_cart` (KAM-046) e **opaco**: não se interpreta nem se deriva de nada. Em Serviços o lugar dele é o `hold_id` (§6.2). O botão é `confirm:{cart_id}`; que ele caiba nos 256 caracteres do `id` de um *reply button* é **NÃO VERIFICADO** — ver o §4 |
+| Estado de uma reserva | `tool_idempotency.estado` ∈ {`em_curso`, `concluida`, `falhada`} | — | Lista **fechada**. `em_curso` → quem chega espera; `concluida` → devolve-se o `result` guardado; `falhada` → **retoma-se** e executa-se outra vez, que é o critério 4. A lista fechada do código (`ESTADOS`) e a do `CHECK` são confrontadas por um teste. **Qualificado pela tabela**, e não `estado` nu: o `estado` é já coluna de `hmac_key_versions`, `events_dlq` e `evt_acoes`, com domínios diferentes, e um domínio sobre o nome nu declarava as três ilegíveis — medido, quatro achados de nível 1 mais uma extensão do `canon/` a ficar sem uso. É a lição que a emenda 1.36 escreveu para o `error_code`, repetida |
+| Resultado guardado de uma invocação | `result` | — | `jsonb`, o `data` do `ToolResult`. Há `CHECK` **nos dois sentidos**: uma `concluida` sem `result` devolvia um *replay* vazio, e um `result` numa `falhada` era um resultado devolvido como *replay* de uma invocação que ninguém confirmou |
+| Marca de repetição, na resposta | `idempotent_replay` | — | Campo do `ToolResult` (§3.27). Nasce `False`; é este ticket que o põe a `True`, quando a chave encontra um resultado guardado |
+| Reutilização de uma intenção com outro conteúdo | `INTENT_REUSED_WITH_DIFFERENT_CONTENT` | — | O **décimo primeiro** erro tipado, e o mesmo nome que o COM usa no §6.3 do `../docs/tecnica/03` — são as duas barreiras independentes da mesma intenção. É defeito do chamador e **não se repete**; não é violação e não levanta alerta de segurança |
+| Retoma de uma reserva abandonada | `MINUTOS_PARA_RETOMAR` (2) | — | Uma reserva `em_curso` mais velha do que isto considera-se **abandonada** e retoma-se, por `UPDATE` condicional (atómico). É o ponto 4 do `../docs/tecnica/03` §6.3, que escreve o mesmo para o COM. **Dois minutos e não os 8,5 s do tecto da classe:** o tecto diz quanto o dono *pode* demorar, e retomar por cima de um dono vivo é o que duplica o efeito. Sem isto, uma reserva cujo `fechar` não passasse envenenava aquele `cart_id` para sempre, com a encomenda já feita |
+| Tecto de espera por uma reserva de outro | `TECTO_DE_ESPERA_MS` (3000) | — | O «poll ≤ 3 s» do `../docs/tecnica/03` §6.3. Esgotado, devolve `UPSTREAM_TIMEOUT` **sem executar**. Não é variável de ambiente, ao contrário dos tectos por classe do §3.27: vem do desenho e não da afinação de um ambiente |
+| Retenção de uma reserva | `DIAS_DE_RETENCAO` (30) | — | ***Proposta***. O critério pede «≥ validade da reserva (72 h) + prazo de disputa», e o prazo de disputa **não está fixado em documento nenhum** — o `../docs/tecnica/04` tem `refund_cases` e a transição `paga → reembolso_pendente` e não dá prazo. Apaga só reservas **fechadas**; recalibra-se quando o `04` o fixar |
+
+**Dois nomes do §3.27 ficaram errados e corrigem-se aqui, e os dois saíram de
+escrever código contra eles.** O primeiro é a `idempotency_key` da `tool_audit`,
+acima. O segundo é a contagem: «os dez erros tipados» passa a onze, e isso toca a
+revisão `0022` (que altera o `CHECK` fechado da `0021`), a etiqueta da métrica
+`agr_tool_erros_total` — **derivada** de `CODIGOS`, pela lição que o KAM-027 pagou
+— e os testes que afirmavam «são dez». Um `CHECK` fechado é canon: um código novo
+não é uma constante, são quatro sítios e uma revisão de base de dados.
+
+**Esta tabela não tem chave estrangeira para `tenants`, e é deliberado.** É a
+mesma escolha da `tool_audit`: uma FK punha o `DELETE` de um *tenant* a depender
+de marcas de desduplicação, e o que liga a linha ao *tenant* é a RLS, que não
+precisa de FK para valer.
 
 ## 4. Itens que continuam por decidir
 
@@ -1428,3 +1505,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.34 | Outubro 2026 | **Emenda (*proposta*), KAM-026.** §3.25: o papel `kamba_agr` — o **segundo** papel do AGR, `NOBYPASSRLS` e **sem `USAGE` no `platform`** —, a palavra-passe `db_agr_password` (obrigatória nos três ambientes: sem ela o AGR não arranca), e as duas tabelas da revisão `0020`, a `lg.checkpoints` (**oito** colunas) e a `lg.checkpoint_writes` (**nove**). As colunas são o `CheckpointTuple` do `BaseCheckpointSaver`, não um desenho nosso. **Duas tabelas e não três:** o *saver* oficial separa os valores dos canais num `checkpoint_blobs`, e com a janela recortada o estado é pequeno — o custo é não suportar canais `DeltaChannel`, e está escrito na revisão. **O `channel` fica em inglês** porque `canal` já é o canal de WhatsApp (§3.6). **Dois discriminadores de serializador** (`type` e `metadata_type`) porque o tipo do *checkpoint* não é garantidamente o dos metadados. **O pacote que o canon nomeava não entra:** o `langgraph-checkpoint-postgres` é MIT mas exige `psycopg` e `psycopg-pool`, LGPL-3.0-only, que o `ci/licenses.yaml` nega — entra só o `langgraph-checkpoint` (interface e serializador) e o SQL é nosso sobre `pg8000`; o `E4` §2.6 fica corrigido. **A RLS não se aplica** a estas tabelas, que não têm `tenant_id`: o isolamento é o prefixo do `thread_id`, o papel sem `USAGE` e o ensaio cruzado, e isso é a decisão que o bloco manda registar. **O que não decide:** os dois prazos de retenção do canon (30 dias de inactividade no §12 contra 90 após o fecho no `08` §7.1, e «fecho de conversa» não está definido em sítio nenhum), e a cifra do conteúdo do `lg` que o `06` §7.6.2 pressupõe e o §12 não nomeia. | Equipa KAMBÁ |
 | 1.35 | Outubro 2026 | **Emenda (*proposta*), KAM-027.** §3.26: os nomes do `AgentRegistry` — o contrato (`load_all`, `resolve`, `Vertical`, `build_graph`), os **seis** nos obrigatorios de um grafo, as **onze** tools do catalogo do Piloto (`../docs/tecnica/02` §6.2, que nenhuma linha deste documento nomeava: so o `enhance_image` do §3.7 era tool canonica), os quatro parametros proibidos no esquema visivel ao modelo, a `registry/gates.yaml` como **terceira forma** da superficie do registo, o `modo` de uma validacao com o seu `credor`, a resposta `servico_indisponivel`, a metrica `agr_registry_denied_total`, o codigo de saida `5` e o `KAMBA_REGISTRY_DIR`. **A revisao adversarial acrescentou quatro nomes**, e os quatro saem de defeitos que ela encontrou: a `Resolucao` (que o §5.2 nao tem, e sem a qual a resposta estatica do critero 6 nao cabe no retorno), o `PorLigar` (a unica classe de problema que um `aviso` pode calar — sem ela, no dia em que o credor chegasse a linha do `gates.yaml` engolia um defeito real), a `Adiada` (cujo `error_code` tem de ser um identificador, porque a *allowlist* de logs deixava a prosa cair em silencio) e as `FASES_POSTERIORES` **vazias** (ler «≠ piloto» como «ja se pode» punha o `assistente` em producao com um `KAMBA_FASE` escrito por engano). **Decide tres divergencias**, todas a favor de fontes mais altas: `valor_max_pedido_minor` contra o `valor_max_pedido_kz` que o §5.1 e o bloco escrevem (a variante da emenda 1.13 falharia o *gate* 3b no nivel 1); `registry/gates.yaml` contra o `gates/vendedor.yaml` dentro da vertical; e o `payment.manual_confirmed` no `servicos.yaml`, que o bloco da como *proposta* e a linha «Evento do gate da Fase 0» do §3.5 ja tinha decidido. | Equipa KAMBÁ |
 | 1.36 | Outubro 2026 | **Emenda (*proposta*), KAM-028.** §3.27: o contrato da ToolLayer (`ToolLayer` com `for_context`/`invoke`, `ToolContext` de oito campos, `ToolResult`, `Fact`, `BoundTool`, `Confirmation`), as **tres** classes de tool (`klass` ∈ {`read`, `write`, `money`}), as **vinte** colunas da `platform.tool_audit` (`../docs/tecnica/02` §6.4), os **dez** erros tipados do §6.5, os dois `timeout` por classe e os dois numeros do disjuntor, as cinco metricas de tool e o codigo de saida **6**. Dois nomes entram porque **nenhuma** chave do estado os tinha e nenhuma os pode ter (o §5.3 fecha em dezenove): o `run_id`, que identifica uma execucao do grafo, e o `graph_version`, que e o `version` da vertical. Registam-se tambem os dois estados de uma entrada de catalogo — `ligada` e `declarada`, esta com `credor` obrigatorio —, que e o mecanismo pelo qual a validacao (1) do §5.2 passa de `aviso` a `bloqueio` neste ticket sem que as especificacoes das tools do Vendedor e de Servicos (KAM-031 e KAM-035) tenham de existir. Duas correccoes ao desenho: `klass` com dois `s` **nao** e variante de `classe` (e o nome da coluna do §6.4, e `class` e reservada em Python), e a «morada» que o §6.2 da ao `get_store_info` **nao existe** na `platform.tenants` e e um dos sete nomes que o *lint* de PII do `../docs/tecnica/08` §7.3 proibe — a tool devolve `fuso_horario`, `zona` e `plus_code`, que sao as colunas que ha. **Quatro nomes entraram pela revisão adversarial**, e os quatro de uma medição: `KAMBA_TLS_LIGACOES` (uma tomada só serializava todos os *tenants* — 2,02 s para dez invocações de dez *tenants*), `MARGEM_DO_TECTO_MS` (o tecto do §6.5 não era imposto: um executor de 5 s contra 2 s devolvia `ok=True`), `<nao_declarados>` (os **nomes** dos argumentos, que vêm do modelo, iam em claro para a `tool_audit`) e o `sku` do `Fact`, que o KAM-032 declara. | Equipa KAMBÁ |
+| 1.37 | Outubro 2026 | **Emenda (*proposta*), KAM-029.** §3.28: a `platform.tool_idempotency` e as suas sete colunas, a chave do §6.3 com o `CHECK` de forma hexadecimal, os três estados de uma reserva, o `INTENT_REUSED_WITH_DIFFERENT_CONTENT` como **décimo primeiro** erro tipado, o `TECTO_DE_ESPERA_MS` e o `DIAS_DE_RETENCAO`. **Corrige duas afirmações da emenda 1.36**, e as duas saíram de escrever código contra elas e não de uma leitura: a `tool_audit.idempotency_key` **não** guarda a chave do §6.3 — guarda a do chamador, a do turno —, e são duas chaves porque um segundo toque com `wamid` novo é um turno novo, pelo que uma desduplicação por chave de turno cobrava outra vez (critério 8); e «os dez erros tipados» passa a onze, o que arrasta o `CHECK` fechado da revisão `0021`, a etiqueta da métrica e os testes de contagem. **Uma decisão de forma com consequência:** o `\|` da fórmula do §6.3 não é um caractere separador — o `cart_id` é opaco e nenhum caractere seria seguro —, e a derivação prefixa cada parte com o comprimento; com um separador literal, duas partições diferentes das mesmas partes davam a mesma chave, que numa tool `money` é a encomenda de um cliente a responder pela de outro. Fica **NÃO VERIFICADO** e declarado no §4 que o `confirm:{cart_id}` cabe nos 256 caracteres do `id` de um *reply button*. | Equipa KAMBÁ |

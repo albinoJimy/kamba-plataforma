@@ -121,7 +121,43 @@ def _nivel2(objectos: sql.Objectos, ficheiro: str, saber: Saber) -> tuple[list[A
                 com_dominio_lido.add((check.tabela, check.coluna))
             canonicos = list(dominio["valores"])
             sobra = [v for v in check.valores if v not in canonicos]
-            falta = [v for v in canonicos if v not in check.valores] if check.fechado else []
+            # **`falta` nao se cobra a uma declaracao declarada historica.**
+            #
+            # Um dominio fechado pode crescer, e cresce por `DROP CONSTRAINT` +
+            # `ADD CONSTRAINT` numa revisao posterior. A revisao antiga continua
+            # a declarar o dominio antigo, que e um facto historico e nao um
+            # defeito: a base, depois de `upgrade head`, tem o dominio novo.
+            # Sem isto, **nenhum dominio fechado deste repositorio podia
+            # crescer** — a revisao que o criou ficava sempre em falta, e a unica
+            # saida era editar uma revisao ja fundida, coisa que aqui nunca se
+            # fez (cada uma das 22 tem um `commit`, do seu proprio ticket).
+            # Medido no KAM-029, o primeiro a fazer um crescer.
+            #
+            # A lista e **nomeada** e vive em `ci/canon-lint.yaml`
+            # (`dominios_historicos`), com revisao, ticket, razao e data. **Nao
+            # se infere da ordem dos ficheiros**: a primeira versao desta regra,
+            # no mesmo ticket, fazia-o e tinha tres buracos que a revisao
+            # adversarial demonstrou (`ANALISE-31`, achado 5) — a amnistia nao
+            # exigia prova de `DROP CONSTRAINT` (pelo que um `ADD CONSTRAINT`
+            # com nome novo **ao lado** do antigo deixava a base a recusar e o
+            # gate a dizer conforme), o leitor de revisoes le o `downgrade` e uma
+            # declaracao de la amnistiava as anteriores, e a ordem era o
+            # `sorted()` do caminho e nao a cadeia de revisoes.
+            #
+            # O `sobra` **continua a cobrar-se sempre**: um valor que o
+            # dicionario ja nao tem e achado em qualquer revisao, historica ou
+            # nao, porque nenhuma base devia aceitar o que o canon esqueceu.
+            historica = any(
+                entrada.revisao == ficheiro
+                and entrada.tabela == check.tabela
+                and entrada.coluna == check.coluna
+                for entrada in saber.politica.dominios_historicos
+            )
+            falta = (
+                [v for v in canonicos if v not in check.valores]
+                if check.fechado and not historica
+                else []
+            )
             if sobra or falta:
                 pormenor = "; ".join(
                     p

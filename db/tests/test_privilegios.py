@@ -127,6 +127,27 @@ def _uso(**por_papel: set[str]) -> dict[str, set[str]]:
     return base
 
 
+def _idempotencia(**por_papel: set[str]) -> dict[str, set[str]]:
+    """Matriz da `tool_idempotency` (revisao 0022, KAM-029).
+
+    Helper proprio e nao o `_uso` nem o `_auditoria`, porque nenhum dos dois
+    diz a verdade sobre esta tabela: o `_uso` da ao `kamba_batch` os quatro
+    privilegios de dados e aqui ele so purga, e o `_auditoria` poe o
+    `kamba_app` a zero e aqui ele le — sem leitura nao ha *replay*.
+    """
+    base = {
+        "kamba_app": {"SELECT"},
+        "kamba_batch": {"SELECT", "DELETE"},
+        "kamba_resolver": set(),
+        "kamba_identity": set(),
+        "kamba_audit": set(),
+        "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+        "public": set(),
+    }
+    base.update(por_papel)
+    return base
+
+
 def _auditoria(**por_papel: set[str]) -> dict[str, set[str]]:
     """Matriz de uma tabela da revisao 0006 (KAM-012).
 
@@ -589,6 +610,25 @@ ESPERADO_POR_TABELA.update(
             kamba_batch={"SELECT"},
             kamba_audit={"SELECT"},
         ),
+        # KAM-029: a barreira de idempotencia (revisao `0022`).
+        #
+        # **Nao e uma tabela de auditoria e nao usa o `_auditoria`**: ali
+        # ninguem altera nada e e o *trigger* que o impoe; aqui o protocolo do
+        # §6.3 **tem** de alterar — `em_curso` -> `concluida` — e o que o
+        # protege e o `UPDATE` por coluna, que esta matriz nao ve. Por isso ela
+        # esta tambem em `TABELAS_COM_MATRIZ_DE_COLUNA`, e e la que a afirmacao
+        # que importa vive.
+        #
+        # O `kamba_app` aparece com `SELECT` e mais nada, e o `SELECT` **esta**
+        # aqui ao contrario da `tool_audit`: ali um `SELECT` era um caminho para
+        # o conteudo de um registo voltar a um turno, aqui a leitura e a funcao
+        # — sem ela nao ha *replay*. O `INSERT` e o `UPDATE` dele sao por coluna.
+        #
+        # O `kamba_batch` tem `SELECT, DELETE` e nao os quatro de dados que tem
+        # nas tabelas do `_uso`: quem purga nao insere nem altera. O
+        # `kamba_audit` nao tem nada, pela razao que o `_uso` escreveu para os
+        # contadores — quem audita le o `audit_log`.
+        "tool_idempotency": _idempotencia(),
     }
 )
 
@@ -860,6 +900,23 @@ COLUNAS_POR_PAPEL = {
     ("kamba_identity", "conversations", "UPDATE"): {
         "contact_id", "last_inbound_at", "window_expires_at", "last_human_activity_at",
     },
+    # KAM-029: as duas metades do protocolo do §6.3, e as duas sao **listas
+    # exactas** por uma razao que o KAM-015 mediu e esta no
+    # `TABELAS_COM_MATRIZ_DE_COLUNA`.
+    #
+    # No `INSERT` nao entra o `estado` — vem da omissao, `em_curso` — nem o
+    # `created_at`: e por ele que a retencao apaga, e um chamador que o
+    # escolhesse escolhia quando e que a sua reserva deixava de existir.
+    #
+    # No `UPDATE` so entram o desfecho e o resultado. **O `args_hash` nao, e e
+    # a linha que importa deste ticket**: e a coluna que a recusa do criterio 3
+    # compara, e quem a pudesse reescrever contornava a recusa que ela existe
+    # para accionar. A `key` tambem nao: e a chave primaria, e reescreve-la era
+    # transferir uma reserva de um carrinho para outro.
+    ("kamba_app", "tool_idempotency", "INSERT"): {
+        "key", "tenant_id", "tool", "args_hash",
+    },
+    ("kamba_app", "tool_idempotency", "UPDATE"): {"estado", "result"},
 }
 PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
 
@@ -930,6 +987,14 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # lista exacta — uma mutacao que acrescente o `channel_id` ao `GRANT UPDATE`
     # sobrevive sem esta linha, e com ela morre.
     "channel_coexistence",
+    # KAM-029: e **a mesma razao medida no KAM-015**, com outro nome de coluna.
+    # Ali era «a aplicacao passa a poder reescrever a chave de idempotencia»;
+    # aqui e o `args_hash`, e a consequencia e pior: a recusa
+    # `INTENT_REUSED_WITH_DIFFERENT_CONTENT` do criterio 3 existe para apanhar
+    # um `cart_id` reutilizado com outro conteudo, e um `GRANT UPDATE
+    # (args_hash)` a mais deixava quem a ia accionar reescrever a prova e
+    # passar. Nenhuma matriz de tabela ve isso.
+    "tool_idempotency",
 )
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.

@@ -66,7 +66,7 @@ from ..metricas import (
     METRICA_TOOL_TENANT_MISMATCH,
     MetricasDoAgr,
 )
-from . import auditoria
+from . import auditoria, idempotency
 from .contexto import Confirmation, ToolContext
 from .disjuntor import Disjuntor
 from .erros import (
@@ -196,6 +196,14 @@ class Invocacao:
     tecto: tuple[str, int] | None = None
     especificacao: EspecificacaoDeTool | None = None
     args: BaseModel | None = None
+    #: A chave do §6.3, derivada no passo 5 (KAM-029). **Nao e a
+    #: `idempotency_key` acima**, e a razao esta na nota do `idempotency.py`: a
+    #: de cima e do turno (vai ao `usage_ledger` e a linha de auditoria), esta e
+    #: do carrinho, e um segundo toque com `wamid` novo e um turno novo.
+    chave: str | None = None
+    #: Se a reserva do passo 5 nos fez donos da linha — e portanto se o
+    #: `finally` do pipeline a tem de fechar.
+    dono_da_chave: bool = False
     resposta: Any = None
     passos_corridos: list[str] = field(default_factory=list)
     #: Quando a invocacao entrou no pipeline, no relogio da camada. O passo 7
@@ -338,21 +346,24 @@ def passo_4_confirmacao(inv: Invocacao) -> ToolResult | None:
 
 # --------------------------------------------------------------------- passo 5
 def passo_5_idempotencia(inv: Invocacao) -> ToolResult | None:
-    """A chave de idempotencia (§6.1 passo 5, §6.3) — **ponto de extensao**.
+    """A chave de idempotencia (§6.1 passo 5, §6.3). Preenchido pelo KAM-029.
 
-    O que este ticket entrega e a regra que o DoD pede: uma tool `write` ou
-    `money` **nunca corre sem chave**. Uma tool `read` nao precisa — repetir uma
-    leitura nao tem efeito —, e exigir-lhe chave obrigava o grafo a derivar uma
-    para cada pergunta de preco.
+    Uma tool `read` nao passa por aqui — repetir uma leitura nao tem efeito —, e
+    exigir-lhe chave obrigava o grafo a derivar uma para cada pergunta de preco.
 
-    O que **nao** esta aqui, e e o KAM-029: derivar a chave do §6.3, procurar o
-    resultado guardado em `tool_idempotency` e devolver `idempotent_replay=True`.
-    A chave que chega entra na linha de `tool_audit` e mais nada.
+    Para `write`/`money` ha **duas** verificacoes, e a ordem importa:
 
-    **Nao se deriva a chave aqui para «ja ir adiantado».** Uma chave derivada e
-    guardada em sitio nenhum nao desduplica nada, e deixava este ticket com uma
-    coluna preenchida que ninguem le — o que e pior do que vazia, porque um
-    painel que a mostre diz que a idempotencia funciona.
+    1. a regra que o KAM-028 deixou: sem a chave do **chamador** nao se corre.
+       Ela nao e a chave do carrinho (ver o `idempotency.py`), mas e o que faz o
+       passo 2 contar o turno uma vez so, e um chamador que a nao traga tem um
+       defeito que e melhor descobrir aqui do que no `usage_ledger`;
+    2. o protocolo do §6.3: deriva-se a chave do carrinho, reserva-se, e o que a
+       reserva disser decide se o backend corre, se se devolve o resultado
+       guardado, ou se se recusa sem executar.
+
+    A referencia que entra na chave e a do botao que o passo 4 **ja** confrontou
+    com os argumentos (`camada.py`, passo 4): usa-se a dos argumentos, que e a
+    que o §6.3 nomeia, e chegar aqui e ter provado que as duas batem.
     """
     assert inv.especificacao is not None
     if not inv.especificacao.exige_confirmacao:
@@ -361,9 +372,9 @@ def passo_5_idempotencia(inv: Invocacao) -> ToolResult | None:
         return falha(
             VALIDATION_ERROR,
             f"`{inv.nome}` e de classe `{inv.especificacao.klass}` e nao traz chave de "
-            "idempotencia (`docs/tecnica/02` §6.3; preenchida pelo KAM-029)",
+            "idempotencia do chamador (`docs/tecnica/02` §6.3)",
         )
-    return None
+    return inv.camada.reservar_idempotencia(inv)
 
 
 # --------------------------------------------------------------------- passo 6
@@ -438,9 +449,18 @@ class ToolLayer:
         relogio: Callable[[], float] = time.monotonic,
         passos: Sequence[Callable[[Invocacao], ToolResult | None]] = PASSOS,
         ligacoes: int | None = None,
+        espera_de_idempotencia_ms: int = idempotency.TECTO_DE_ESPERA_MS,
+        dormir: Callable[[float], None] = time.sleep,
     ) -> None:
         self.catalogo = catalogo
         self._abrir_ligacao = abrir_ligacao
+        # O tecto do §6.3 (`poll <= 3 s`) e o `dormir` que o espera. Sao
+        # parametros e nao variaveis de ambiente, ao contrario dos tectos das
+        # classes: este valor vem do desenho (`docs/tecnica/03` §6.3) e nao da
+        # afinacao de um ambiente, e quem o troca nos ensaios e o relogio
+        # simulado do criterio 5.
+        self._espera_de_idempotencia = espera_de_idempotencia_ms
+        self._dormir = dormir
         self.disjuntor = disjuntor if disjuntor is not None else Disjuntor()
         self._metricas = metricas
         self._relogio = relogio
@@ -662,6 +682,21 @@ class ToolLayer:
                 )
             return resultado, ligacao
         except BaseException:
+            # **A reserva fecha-se aqui, antes de a ligacao cair.** Este caminho
+            # fecha a ligacao — ela pode estar quebrada — e o `finally` corre
+            # **depois** do `except`: deixar o fecho da reserva so para la era
+            # tentar escrever numa ligacao ja fechada, e precisamente no caminho
+            # em que a reserva mais precisa de fechar (o criterio 4 do KAM-029,
+            # a falha entre o backend e o registo). Apanhado a correr a bateria
+            # da falha injectada, que e a que percorre este caminho.
+            #
+            # Se o proprio fecho falhar, **nao se mascara a excepcao original**:
+            # a linha fica `em_curso` e e o `shortcut` declarado no
+            # `idempotency.py`. O que sobe tem de ser a falha que travou o turno.
+            try:
+                self.fechar_idempotencia(inv, resultado)
+            except Exception:  # noqa: BLE001 — ver o paragrafo acima
+                pass
             try:
                 ligacao.close()
             except Exception:  # noqa: BLE001 — ja esta quebrada
@@ -676,15 +711,118 @@ class ToolLayer:
             # num `finally` proprio: sem ele, uma invocacao recusada cuja linha
             # nao se conseguiu escrever desaparecia dos dois lados, e um painel
             # com zero erros era indistinguivel de um sem trafego.
+            # **A idempotencia primeiro, e a razao esta no `fechar_idempotencia`**:
+            # a auditoria levanta por desenho, e uma linha de `tool_idempotency`
+            # que ficasse aberta por causa disso punha a repeticao a cobrar outra
+            # vez. Em cada `finally` proprio, para que nenhuma das tres falhas
+            # engula as outras duas.
             try:
-                self.registar_se_falta(inv, resultado=resultado)
+                self.fechar_idempotencia(inv, resultado)
             finally:
-                self._contar(inv, resultado, self._latencia_de(inv))
+                try:
+                    self.registar_se_falta(inv, resultado=resultado)
+                finally:
+                    self._contar(inv, resultado, self._latencia_de(inv))
 
     def _latencia_de(self, inv: Invocacao) -> int:
         return max(0, int((self._relogio() - inv.comecou) * 1000))
 
     # ------------------------------------------------------- passos, por dentro
+    def reservar_idempotencia(self, inv: Invocacao) -> ToolResult | None:
+        """O passo 5 do §6.3 (KAM-029): deriva, reserva, e decide.
+
+        Devolver `None` e deixar o backend correr. Devolver um `ToolResult` e
+        parar o pipeline — e nesse caminho o passo 6 **nao corre**, que e o que
+        os criterios 1, 3 e 5 pedem por extenso («sem chamar o backend», «sem
+        executar»).
+        """
+        assert inv.especificacao is not None and inv.args is not None
+        campo = inv.especificacao.campo_de_confirmacao
+        assert campo is not None, "o passo 4 nao deixa passar uma `write` sem campo"
+        referencia = str(getattr(inv.args, campo))
+        inv.chave = idempotency.derivar(inv.ctx, inv.especificacao.nome, referencia)
+        reserva = idempotency.reservar(
+            inv.ligacao,
+            inv.ctx,
+            inv.chave,
+            inv.especificacao.nome,
+            # **O modelo validado, e nao o `args_crus`.** O `args_crus` e o
+            # dicionario como o modelo de linguagem o emitiu, e duas chamadas
+            # semanticamente iguais podem nao ser iguais byte a byte: o segundo
+            # toque e um **turno novo**, com geracao nova, e basta ele reemitir
+            # um campo de omissao (`{"cart_id": "c-1"}` contra
+            # `{"cart_id": "c-1", "nota": ""}`) ou dar `"2"` onde deu `2` para o
+            # `args_hash` mudar — e o *replay* do criterio 8 virava
+            # `INTENT_REUSED_WITH_DIFFERENT_CONTENT`. Achado 4 da revisao
+            # adversarial (`ANALISE-31`).
+            #
+            # O `model_dump()` passa pela validacao: as omissoes estao
+            # preenchidas e os tipos coagidos, pelo que o que se compara e a
+            # **intencao** e nao a forma como ela foi escrita. O criterio 3 nao
+            # se perde — um carrinho realmente diferente continua a dar hash
+            # diferente.
+            #
+            # A `tool_audit.args_hash` continua a ser do `args_crus`, e as duas
+            # colunas deixam de ser o mesmo valor: a auditoria registra o que
+            # **chegou** (que e o que um registo deve guardar) e esta compara o
+            # que **vale**. Esta dito no dicionario §3.28.
+            auditoria.impressao(inv.args.model_dump()),
+            tecto_ms=self._espera_de_idempotencia,
+            relogio=self._relogio,
+            dormir=self._dormir,
+        )
+        if reserva.dono:
+            inv.dono_da_chave = True
+            return None
+        if reserva.codigo is not None:
+            return falha(
+                reserva.codigo,
+                f"`{inv.especificacao.nome}` com a chave do §6.3 ja reservada: "
+                f"{reserva.codigo}",
+            )
+        return ToolResult(
+            ok=True, data=reserva.guardado or {}, idempotent_replay=True
+        )
+
+    def fechar_idempotencia(self, inv: Invocacao, resultado: ToolResult | None) -> None:
+        """Fecha a linha de `tool_idempotency` que o passo 5 nos deu.
+
+        Corre no `finally` do pipeline e **antes** da linha de auditoria, de
+        propósito: se a auditoria levantar (ela levanta, por desenho) e o *job*
+        voltar a fila, o que impede a repeticao de cobrar outra vez e esta linha
+        estar fechada. E a janela que a `ANALISE-30` (achado 12) deixou aberta e
+        nomeou este ticket para fechar.
+
+        Uma linha so se fecha como `concluida` quando houve resultado **e** ele
+        correu bem; em qualquer outro caminho fica `falhada`, que e o estado que
+        a retoma do criterio 4 procura.
+        """
+        if not inv.dono_da_chave or inv.chave is None:
+            return
+        ok = resultado is not None and resultado.ok
+        # **Tenta-se uma vez, e a marca limpa-se mesmo que a tentativa falhe.**
+        #
+        # Chama-se nos dois caminhos — no `except`, antes de a ligacao cair, e no
+        # `finally` —, e a marca e o que faz da segunda chamada um `return`.
+        # Limpar so **depois** de a escrita passar tinha um modo de falha pior do
+        # que o que resolvia: com a ligacao ja quebrada, a tentativa do `except`
+        # levantava (e e engolida ali, de proposito), a marca ficava de pe, e a
+        # do `finally` levantava **de dentro do `finally`** — substituindo a
+        # excepcao original por um `InterfaceError` do driver. Quem lesse o log
+        # via o sintoma e nao a causa, numa tool `money`.
+        #
+        # Com a marca limpa a entrada, uma falha de fecho deixa a linha
+        # `em_curso` e e o `shortcut` declarado no `idempotency.py` — que e o
+        # desfecho que ja estava escrito para este caso.
+        inv.dono_da_chave = False
+        idempotency.fechar(
+            inv.ligacao,
+            inv.ctx,
+            inv.chave,
+            ok=ok,
+            resultado=resultado.data if ok and resultado is not None else None,
+        )
+
     def verificar_entitlement(self, inv: Invocacao) -> ErroDeTool | None:
         """O passo 2, dentro de uma transaccao com `app.tenant_id`."""
         chave, valor = (inv.tecto if inv.tecto is not None else (None, None))
@@ -722,6 +860,11 @@ class ToolLayer:
             args=inv.args,
             timeout_ms=self.timeout_de(especificacao.klass),
             ligacao=inv.ligacao if backend == "plataforma" else None,
+            # A chave do §6.3 (KAM-029). E o que torna verdadeira a frase do
+            # criterio 4 — «o backend e idempotente pela chave» —, e sem ela a
+            # retoma de uma linha `falhada` duplicava o efeito em vez de o
+            # reencontrar.
+            chave=inv.chave,
         )
         try:
             inv.resposta = especificacao.executor(pedido)

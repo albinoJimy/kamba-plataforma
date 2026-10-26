@@ -760,6 +760,33 @@ def _livro_de_uso(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _reserva_de_tool(cursor, tenant_id: str, canario: str) -> None:
+    """Uma reserva de idempotencia (KAM-029), com o canario no nome da tool.
+
+    A `key` e um `sha256` **do canario**, nao o canario: a coluna tem `CHECK` de
+    forma hexadecimal (criterio 6) e e isso que impede um telefone de la entrar.
+    Derivar daqui mantem a chave unica por semente sem a tabela deixar de ser o
+    que e.
+
+    A linha nasce `em_curso` e **sem `result`**, e a escolha e do `CHECK`
+    `tool_idempotency_resultado_so_em_concluida`: a `coluna_alteravel` desta
+    receita e o `estado`, e o X-04 altera-a para `falhada`. Semeada `concluida`
+    com `result`, essa alteracao violava a restricao — `falhada` com resultado —
+    e o teste de escrita cruzada falhava por um defeito que nao era o que ele
+    mede. `em_curso` -> `falhada` tem `result` nulo nas duas pontas.
+    """
+    cursor.execute(
+        "INSERT INTO platform.tool_idempotency (key, tenant_id, tool, args_hash) "
+        "VALUES (%s, %s::uuid, %s, %s)",
+        (
+            hashlib.sha256(canario.encode("ascii")).hexdigest(),
+            tenant_id,
+            canario,
+            hashlib.sha256(canario.encode("ascii")).digest(),
+        ),
+    )
+
+
 #: (schema, tabela) -> receita. A ordem de insercao respeita as FK.
 RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "tenants"): Receita(_tenant, "nome", "nome", "Nome alterado"),
@@ -963,6 +990,25 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "usage_ledger"): Receita(
         _livro_de_uso, "idempotency_key", None, None
     ),
+    # KAM-029. **Tem receita, ao contrario da `tool_audit`**, e a diferenca e a
+    # unica que importa a estas receitas: esta tabela nao e *append-only* e
+    # apaga-se com `DELETE`. O que a protege e o `UPDATE` por coluna, e por isso
+    # `coluna_alteravel="estado"` — e a coluna que o papel da aplicacao **pode**
+    # alterar, e e com ela que o X-04 mede se a politica recusa alterar a linha
+    # de outro tenant. O `args_hash` nao servia: o papel nem tem privilegio nele,
+    # e o que isso prova esta no `test_privilegios`.
+    #
+    # O canario vai no `tool` e nao na `key`, e nao e preferencia: a `key` tem
+    # `CHECK (key ~ '^[0-9a-f]{64}$')` (criterio 6) e um canario nao casa. O
+    # `tool` tem a gramatica de identificador, que o `canario()` respeita.
+    # O semeador e o **administrador da instancia** e nao o `kamba_batch`, pela
+    # razao que o `Receita.semeador` escreve: o `kamba_batch` so tem `SELECT` e
+    # `DELETE` nesta tabela (revisao `0022`), porque quem purga nao insere. Com
+    # ele, a semente falhava por falta de privilegio — e o privilegio que falta
+    # e precisamente o que se quer que falte.
+    ("platform", "tool_idempotency"): Receita(
+        _reserva_de_tool, "tool", "estado", "falhada", semeador="admin"
+    ),
 }
 
 #: As duas tabelas da auditoria **nao** entram nas receitas, e nenhuma das
@@ -1056,6 +1102,12 @@ ORDEM = (
     # KAM-009: as duas so tem FK para `tenants`, e por isso ficam no fim.
     ("platform", "tenant_usage"),
     ("platform", "usage_ledger"),
+    # KAM-029: **nao tem FK nenhuma**, nem para `tenants`. E deliberado e e a
+    # mesma escolha da `tool_audit`: uma FK daqui para `tenants` punha o
+    # `DELETE` de um tenant a depender de reservas de idempotencia, e o que liga
+    # esta linha ao tenant e a RLS, que nao precisa de FK para valer. Fica no
+    # fim porque ninguem a aponta.
+    ("platform", "tool_idempotency"),
 )
 
 #: As identidades com que as receitas semeiam.

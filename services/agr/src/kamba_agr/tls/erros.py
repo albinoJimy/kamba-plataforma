@@ -1,7 +1,7 @@
-"""Os dez erros tipados da ToolLayer (`docs/tecnica/02` §6.5) e o `ToolResult`.
+"""Os onze erros tipados da ToolLayer (`docs/tecnica/02` §6.5, §6.3) e o `ToolResult`.
 
 O §6.5 e uma tabela de canon: dez codigos, cada um com o tratamento que o grafo
-lhe da. Esta lista e **fechada** — um codigo novo entra no dicionario §3.27
+lhe da, e o §6.3 acrescenta o decimo primeiro (KAM-029). Esta lista e **fechada** — um codigo novo entra no dicionario §3.27
 antes de entrar aqui, porque e por ele que o grafo decide se repete, se compoe
 uma resposta ou se levanta alerta de seguranca.
 
@@ -16,15 +16,18 @@ mudasse a grafia de uma delas o grafo deixava de reconhecer a recusa.
 ## Porque e que o erro nao e uma excepcao
 
 Um `ToolResult` com `ok=False` e `error` preenchido, e nao uma excepcao, porque
-**os dez sao respostas previstas** e o grafo decide sobre elas: o §6.5 da, por
+**os onze sao respostas previstas** e o grafo decide sobre elas: o §6.5 da, por
 cada um, o que `compose` faz. Uma excepcao obrigava cada no do grafo a embrulhar
 a chamada num `except`, e e assim que uma recusa prevista deixa de se distinguir
 de um defeito — a mesma razao que o KAM-027 escreveu para o `Resolucao` do
 `resolve`.
 
-O que **e** excepcao e o que nao e resposta: um contexto malformado, uma
-especificacao invalida, uma tool `write` sem chave de idempotencia. Sao defeitos
-de quem chama e levantam.
+O que **e** excepcao e o que nao e resposta: um contexto malformado ou uma
+especificacao invalida. Sao defeitos de quem chama e levantam.
+
+**Uma tool `write` sem chave ja nao esta nessa lista**, e estava: o passo 5
+devolve `VALIDATION_ERROR` e nunca levantou. Corrigido pelo KAM-029, que foi
+ler o passo para lhe preencher o resto.
 """
 
 from __future__ import annotations
@@ -57,7 +60,15 @@ UPSTREAM_DOWN: Final = "UPSTREAM_DOWN"
 #: `unknown_reply`.
 VALIDATION_ERROR: Final = "VALIDATION_ERROR"
 
-#: Os dez, pela ordem do §6.5. Lista **fechada**.
+#: O mesmo `cart_id` com argumentos diferentes (KAM-029, criterio 3). **E um
+#: defeito do chamador, nao um estado de negocio**, e por isso nao se repete: o
+#: carrinho mudou e nao gerou `cart_id` novo, que e o que o `propose_cart`
+#: (KAM-046) promete fazer. O `docs/tecnica/03` §6.3 da-lhe o mesmo nome do lado
+#: do COM, onde a `intent_key` o devolve pela mesma razao — sao as duas
+#: barreiras independentes da mesma intencao.
+INTENT_REUSED_WITH_DIFFERENT_CONTENT: Final = "INTENT_REUSED_WITH_DIFFERENT_CONTENT"
+
+#: Os **onze**, pela ordem do §6.5 mais o do §6.3. Lista **fechada**.
 CODIGOS: Final = (
     NOT_FOUND,
     OUT_OF_STOCK,
@@ -69,6 +80,7 @@ CODIGOS: Final = (
     UPSTREAM_TIMEOUT,
     UPSTREAM_DOWN,
     VALIDATION_ERROR,
+    INTENT_REUSED_WITH_DIFFERENT_CONTENT,
 )
 
 #: Os que o §6.5 classifica como **violacao**, e que por isso levantam alerta de
@@ -90,7 +102,7 @@ KINDS: Final = ("price", "stock", "total", "datetime")
 
 
 class CodigoDesconhecidoError(ValueError):
-    """Um codigo fora dos dez do §6.5.
+    """Um codigo fora dos onze do §6.5 e do §6.3.
 
     Levanta em vez de passar porque o grafo decide **pelo codigo**: um codigo
     que ele nao conheca cai no caminho de omissao, e o caminho de omissao de uma
@@ -100,7 +112,7 @@ class CodigoDesconhecidoError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class ErroDeTool:
-    """Um dos dez codigos do §6.5, com o detalhe para o registo.
+    """Um dos onze codigos do §6.5 e do §6.3, com o detalhe para o registo.
 
     O `detalhe` **nao vai para o cliente** e **nao vai para a `tool_audit`**: a
     tabela guarda o `error_code` e mais nada (§6.4). Vai para o log do servico,
@@ -113,7 +125,7 @@ class ErroDeTool:
     def __post_init__(self) -> None:
         if self.codigo not in CODIGOS:
             raise CodigoDesconhecidoError(
-                f"{self.codigo!r} nao e um dos dez erros de `docs/tecnica/02` §6.5: "
+                f"{self.codigo!r} nao e um dos onze erros de `docs/tecnica/02` §6.5/§6.3: "
                 f"{list(CODIGOS)}"
             )
 

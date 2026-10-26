@@ -393,6 +393,7 @@ AG_TLS_CONTEXTO = "services/agr/src/kamba_agr/tls/contexto.py"
 AG_TLS_ESPECIFICACOES = "services/agr/src/kamba_agr/tls/especificacoes.py"
 AG_TLS_DISJUNTOR = "services/agr/src/kamba_agr/tls/disjuntor.py"
 AG_TLS_AUDITORIA = "services/agr/src/kamba_agr/tls/auditoria.py"
+AG_TLS_IDEMPOTENCY = "services/agr/src/kamba_agr/tls/idempotency.py"
 #: O *lint* do critero 3, que corre no *gate* 2. A suite (`TOOL_SCHEMA`) esta
 #: declarada junto das outras de `tools/`, acima.
 LA_TOOL_SCHEMA = "tools/lint_arch/tool_schema.py"
@@ -3543,6 +3544,94 @@ MUTACOES = [
      "                if etiqueta == \"BaseModel\":",
      TOOL_SCHEMA),
     # Uma `class Args(Base)` com `tenant_id` volta a passar o critero 3.
+    # ------------------------------------------ KAM-029, a idempotencia por carrinho
+    #
+    # Dez mutacoes, com prefixo `idem:` — o `tls:` ja tem vinte e seis e um
+    # prefixo e o filtro do `db/mutacoes.py <python> <excerto>`, pelo que
+    # misturar as duas series obrigava a correr as duas por cada volta.
+    #
+    # Cada uma apaga **uma** propriedade que um criterio nomeia, e as cinco
+    # primeiras sao as que custam dinheiro: todas elas deixam a encomenda sair a
+    # dobrar sem erro nenhum. **Sete morrem na unidade** (`test_tls`) e tres so
+    # contra a base — a reserva atomica, a retoma atomica e o fecho no caminho
+    # de excepcao nao se medem contra um dicionario, porque o que as faz valer e
+    # o `ON CONFLICT`, o `WHERE` e o estado da linha depois de a tomada cair.
+    ('idem: a chave passa a levar o turno dentro', AG_TLS_IDEMPOTENCY,
+     "    partes = (ctx.tenant_id, ctx.contact_id, tool, referencia)",
+     "    partes = (ctx.tenant_id, ctx.contact_id, tool, referencia, ctx.turn_id)",
+     AGR_UNIT),
+    # E a mutacao central do criterio 6, e a que o `TestOControlDaDerivacao`
+    # existe para garantir que o oraculo apanha: com o turno dentro, um segundo
+    # toque com `wamid` novo deriva chave nova, nao encontra nada guardado, e
+    # cobra outra vez. E exactamente a encomenda a dobrar do criterio 8.
+    ('idem: o comprimento deixa de prefixar as partes', AG_TLS_IDEMPOTENCY,
+     "    crua = b\"\".join(f\"{len(p.encode('utf-8'))}:\".encode(\"ascii\") + p.encode(\"utf-8\") for p in partes)",
+     "    crua = b\"|\".join(p.encode(\"utf-8\") for p in partes)",
+     AGR_UNIT),
+    # Com um separador literal, um `cart_id` opaco que contenha `|` faz duas
+    # particoes diferentes darem a mesma chave: a encomenda de um cliente a
+    # responder pela de outro.
+    ('idem: o args_hash deixa de ser confrontado', AG_TLS_IDEMPOTENCY,
+     "            if bytes(guardado_hash) != args_hash:",
+     "            if False:",
+     AGR_UNIT),
+    # O criterio 3 desaparece: o mesmo `cart_id` com outro conteudo devolve o
+    # resultado do conteudo antigo como se fosse o do novo.
+    ('idem: o replay deixa de se marcar', AG_TLS_CAMADA,
+     "            ok=True, data=reserva.guardado or {}, idempotent_replay=True",
+     "            ok=True, data=reserva.guardado or {}, idempotent_replay=False",
+     AGR_UNIT),
+    # O grafo deixa de poder distinguir um pedido novo de uma repeticao, e o
+    # painel diz que a idempotencia nunca actua.
+    # **Duas, e os excertos levam a linha seguinte de proposito.** O fecho
+    # chama-se em **dois** caminhos — no `except`, antes de a tomada cair, e no
+    # `finally` — e sem a linha seguinte o texto aparece duas vezes e nenhuma
+    # das duas mutacoes era aplicavel. Foi o que o `--aplicaveis` apanhou depois
+    # de a bateria do criterio 4 obrigar a acrescentar o segundo caminho.
+    ('idem: a reserva deixa de fechar no fim do pipeline', AG_TLS_CAMADA,
+     "                self.fechar_idempotencia(inv, resultado)\n            finally:",
+     "                pass\n            finally:",
+     AGR_UNIT),
+    # A linha fica `em_curso` para sempre: a repeticao espera 3 s e devolve
+    # `UPSTREAM_TIMEOUT`, e o carrinho fica inutilizavel. E a janela do achado
+    # 12 da `ANALISE-30` a reabrir.
+    ('idem: a reserva deixa de fechar no caminho de excepcao', AG_TLS_CAMADA,
+     "                self.fechar_idempotencia(inv, resultado)\n            except Exception:",
+     "                pass\n            except Exception:",
+     AGR),
+    # E o **criterio 4**: o `except` fecha a tomada e o `finally` corre depois
+    # dele, pelo que sem este caminho a reserva fica aberta precisamente quando
+    # o backend ja correu e o registo falhou. Morre contra a base, porque o que
+    # a mata e o estado da linha depois de a ligacao ter sido fechada.
+    ('idem: a espera deixa de ter tecto', AG_TLS_IDEMPOTENCY,
+     "        if relogio() >= limite:\n            return Reserva(codigo=\"UPSTREAM_TIMEOUT\")",
+     "        if False:\n            return Reserva(codigo=\"UPSTREAM_TIMEOUT\")",
+     AGR_UNIT),
+    # O criterio 5 desaparece e com ele a tomada da camada: uma linha
+    # `em_curso` de um processo morto prende uma ligacao para sempre. E o ciclo
+    # sem tecto que esta bateria apanhou a correr, antes de haver mutacao.
+    ('idem: a chave deixa de chegar ao backend', AG_TLS_CAMADA,
+     "            chave=inv.chave,",
+     "            chave=None,",
+     AGR_UNIT),
+    # O criterio 4 deixa de poder valer: a frase «o backend e idempotente pela
+    # chave» fica sem nada que a sustente, e a retoma de uma linha `falhada`
+    # duplica o efeito em vez de o reencontrar.
+    ('idem: a reserva deixa de ser atomica', AG_TLS_IDEMPOTENCY,
+     "  ON CONFLICT (key) DO NOTHING\n  RETURNING key",
+     "  RETURNING key",
+     AGR),
+    # Sem o `ON CONFLICT`, o segundo dos 50 concorrentes levanta violacao de
+    # chave primaria em vez de ler o resultado guardado — e o turno falha, o
+    # *job* volta a fila, e a repeticao tenta outra vez. So a base o mostra.
+    ('idem: a retoma deixa de ser atomica', AG_TLS_IDEMPOTENCY,
+     "  WHERE key = %s AND estado = 'falhada'\n  RETURNING key",
+     "  WHERE key = %s\n  RETURNING key",
+     AGR),
+    # Dois leitores concorrentes de uma linha `falhada` retomam-na os dois e
+    # correm os dois o backend; e tambem retoma uma linha `concluida`, que e
+    # pior — apaga o resultado guardado e manda executar outra vez. So a base o
+    # mostra, porque o que o impede e o `WHERE`.
     # ----------------------------------------------------------- KAM-025, AGR
     #
     # Oito mutacoes, e a escolha nao e arbitraria: cada uma apaga **uma**

@@ -217,6 +217,10 @@ class TestCatalogoReal(ComBase):
                 # receitas limpam com `DELETE`. Aqui entra pela coluna, como as
                 # outras — o que a descoberta ve e o `tenant_id` e a politica.
                 ("platform", "tool_audit", "tenant_id"),
+                # KAM-029: a barreira de idempotencia. **Esta tem receita de
+                # sementes**, ao contrario da `tool_audit`: nao e *append-only*
+                # e apaga-se com `DELETE`.
+                ("platform", "tool_idempotency", "tenant_id"),
                 ("platform", "usage_ledger", "tenant_id"),
             ],
         )
@@ -330,6 +334,11 @@ class TestCatalogoReal(ComBase):
                 # outro tenant**, que e o unico tipo de escrita que a tabela
                 # aceita.
                 ("tool_audit", "tenant_iso", "ALL", "{public}"),
+                # KAM-029: a `tool_idempotency`. Aqui o `WITH CHECK` e o que
+                # impede o papel da aplicacao de **reservar** uma chave no nome
+                # de outro tenant — que seria desduplicar a encomenda de um
+                # cliente contra o carrinho de outro.
+                ("tool_idempotency", "tenant_iso", "ALL", "{public}"),
                 ("usage_ledger", "tenant_iso", "ALL", "{public}"),
             ],
         )
@@ -392,7 +401,10 @@ class TestCatalogoReal(ComBase):
              # `tenants` pela colacao `C` do tipo `name` (ver o teste acima).
              "tenant_usage", "tenants",
              # KAM-028: a `tool_audit`, entre `tenants` e `usage_ledger`.
-             "tool_audit", "usage_ledger"],
+             # KAM-029: a `tool_idempotency`, logo a seguir — depois da
+             # `tool_audit` porque `a` vem antes de `i`, e antes da
+             # `usage_ledger` porque `t` vem antes de `u`.
+             "tool_audit", "tool_idempotency", "usage_ledger"],
         )
         for tabela, comando, permissiva, papeis, qual, com_check in linhas:
             with self.subTest(tabela=tabela):

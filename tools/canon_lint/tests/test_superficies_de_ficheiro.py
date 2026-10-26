@@ -160,6 +160,79 @@ class TestMigracoes(unittest.TestCase):
         self.assertEqual([a.classe for a in a_mais], [REGRA])
         self.assertIn("a mais: pausado", a_mais[0].mensagem)
 
+    #: Uma migracao de ensaio com um dominio **estreito** (falta `plataforma`).
+    ESTREITO = (
+        "CREATE TABLE platform.tenant_channels (id uuid, origem text "
+        "CHECK (origem IN ('pme')))"
+    )
+    REVISAO = "db/migrations/versions/0009_x.py"
+
+    def _com_historico(self, *entradas):
+        """O mesmo `Saber`, com a lista `dominios_historicos` trocada."""
+        import dataclasses
+
+        return dataclasses.replace(
+            self.saber,
+            politica=dataclasses.replace(
+                self.saber.politica, dominios_historicos=list(entradas)
+            ),
+        )
+
+    def _entrada(self, revisao=None, tabela="tenant_channels", coluna="origem"):
+        from canon_lint.dicionario import DominioHistorico
+
+        return DominioHistorico(
+            revisao or self.REVISAO, tabela, coluna, "KAM-029", "porque sim", "2026-10-26"
+        )
+
+    def test_um_dominio_fechado_pode_crescer_e_a_dispensa_e_nomeada(self) -> None:
+        """KAM-029: a declaracao antiga de um dominio que cresceu e historia.
+
+        Sem isto, **nenhum dominio fechado deste repositorio podia crescer**: a
+        revisao que o criou passava a estar sempre em falta, e a unica saida era
+        editar uma revisao ja fundida — coisa que nunca se fez aqui.
+
+        Sao **quatro** asserçoes, e nao uma, porque a regra tem de morder nos
+        dois sentidos e nao servir de dispensa geral:
+        """
+        fonte = migracao(self.ESTREITO)
+        # 1. sem entrada, a falta continua a cobrar-se — nao ha dispensa por
+        #    omissao.
+        self.assertIn("falta: plataforma", self.achados(fonte)[0].mensagem)
+        # 2. com a entrada que nomeia **esta** revisao, esta tabela e esta
+        #    coluna, passa.
+        self.assertEqual(
+            ddl.verificar(self.REVISAO, fonte, self._com_historico(self._entrada()))[0],
+            [],
+        )
+        # 3. uma entrada que nomeie **outra** revisao nao dispensa esta. E a
+        #    diferenca entre uma lista nomeada e a regra inferida que a revisao
+        #    adversarial reprovou: ali qualquer ficheiro de nome posterior
+        #    amnistiava, aqui so o que esta escrito.
+        outra = self._entrada(revisao="db/migrations/versions/0021_tool_audit.py")
+        self.assertIn(
+            "falta: plataforma",
+            ddl.verificar(self.REVISAO, fonte, self._com_historico(outra))[0][0].mensagem,
+        )
+        # 4. o **excesso** continua a cobrar-se, historica ou nao: um valor que o
+        #    dicionario ja nao tem e defeito em qualquer revisao.
+        com_excesso = migracao(
+            "CREATE TABLE platform.tenant_channels (id uuid, origem text "
+            "CHECK (origem IN ('pme','plataforma','inventado')))"
+        )
+        achados = ddl.verificar(
+            self.REVISAO, com_excesso, self._com_historico(self._entrada())
+        )[0]
+        self.assertEqual([a.classe for a in achados], [REGRA])
+        self.assertIn("a mais: inventado", achados[0].mensagem)
+
+    def test_a_dispensa_e_por_coluna_e_nao_por_tabela(self) -> None:
+        """Uma entrada para outra coluna da mesma tabela nao dispensa esta."""
+        fonte = migracao(self.ESTREITO)
+        entrada = self._entrada(coluna="estado")
+        achados = ddl.verificar(self.REVISAO, fonte, self._com_historico(entrada))[0]
+        self.assertIn("falta: plataforma", achados[0].mensagem)
+
     def test_o_dominio_nao_se_contorna_pela_forma_do_pg_dump(self) -> None:
         """M1 (s18, s20, s21): `tenants.estado` sem `restrito`, em tres formas honestas."""
         for expressao in (
