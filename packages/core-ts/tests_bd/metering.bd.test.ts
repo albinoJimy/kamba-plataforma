@@ -838,6 +838,89 @@ describe("o contador do free tier contra a base", () => {
       assert.equal(await eventosDe(tenantA), 1);
     });
 
+    /**
+     * **Espera que alguém esteja mesmo a bloquear no trinco da linha.**
+     *
+     * Não afirma nada: é melhor-esforço. O `UPDATE` exterior toma o trinco da
+     * linha nos **dois** mundos — com e sem o `FOR UPDATE` da subconsulta —,
+     * pelo que esperar por ele não depende da mutação; e se o trinco não
+     * aparecer, o teste segue e são as asserções que decidem. Assim isto não
+     * pode tornar o teste vermelho por si.
+     */
+    async function esperarPeloTrinco(limiteMs = 5_000): Promise<void> {
+      const fim = Date.now() + limiteMs;
+      while (Date.now() < fim) {
+        const { rows } = await admin.query<{ n: number }>(
+          "SELECT count(*)::int AS n FROM pg_stat_activity " +
+            " WHERE wait_event_type = 'Lock' AND query ILIKE '%tenant_channels%'",
+        );
+        if ((rows[0]?.n ?? 0) > 0) return;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
+
+    /**
+     * **O entrelaçamento imposto**, que é o que o teste de cima não faz.
+     *
+     * O `Promise.all` de duas instruções em **autocommit** pode não se sobrepor
+     * dentro do servidor. Quando não se sobrepõem, a segunda lê o
+     * `motivo_restricao` **já confirmado** no seu próprio instantâneo, devolve
+     * `marcou: false`, e é a mesma resposta que o original dá — o teste passa e
+     * a mutação sobrevive. Foi o que aconteceu na noite de 2026-10-26 à
+     * `restricao: a marca perde o FOR UPDATE e o evento sai duas vezes`.
+     *
+     * Aqui a primeira marca fica numa transacção **aberta**, e a segunda tem de
+     * esperar pelo trinco. Depois do `COMMIT`: com `FOR UPDATE` a subconsulta
+     * relê a versão nova e vê o motivo posto, logo não emite; sem ele, o `antes`
+     * ficou do instantâneo antigo, vê `NULL`, e sai um **segundo** evento.
+     *
+     * E afirma-se o segundo observável, que o teste de cima não tinha: o
+     * `meta_error_codes_seen` com os **dois** códigos. Sem o `FOR UPDATE` as
+     * duas leem `{}` e a última escrita deixa **um** só. É o que distingue esta
+     * mutação da sua irmã do `SQL_CONTAR`, que morre por o seu teste afirmar
+     * também o valor da coluna.
+     */
+    it("**duas marcas entrelacadas a forca: um evento, e os dois codigos**", async () => {
+      await limparMarca(canalA);
+      await limparEventos(tenantA);
+      const um = meteringDe(tenantA, ANTES_DA_MEIA_NOITE, app);
+      const dois = meteringDe(tenantA, ANTES_DA_MEIA_NOITE, app2);
+      try {
+        await app.query("BEGIN");
+        const primeira = await um.metering.marcarRestricao(
+          tenantA,
+          pnidA,
+          "payment_method",
+          131049,
+        );
+        // O canário: sem isto, uma primeira marca que não passasse deixava a
+        // segunda a ser a única — e `marcou: true` nela seria o esperado.
+        assert.equal(primeira?.marcou, true, "a primeira marca nao passou");
+
+        const segunda = dois.metering.marcarRestricao(
+          tenantA,
+          pnidA,
+          "payment_method",
+          130429,
+        );
+        await esperarPeloTrinco();
+        await app.query("COMMIT");
+        const b = await segunda;
+
+        assert.equal(b?.marcou, false, "a segunda marca emitiu um segundo evento");
+        assert.equal(await eventosDe(tenantA), 1);
+        assert.deepEqual(
+          [...(await marcaCrua(canalA)).codigos].sort((x, y) => x - y),
+          [130429, 131049],
+          "a escrita perdida comeu um dos codigos",
+        );
+      } finally {
+        // Uma asserção que falhe antes do `COMMIT` deixava a transacção aberta e
+        // o trinco da linha preso para tudo o que corre depois.
+        await app.query("ROLLBACK").catch(() => {});
+      }
+    });
+
     it("**levantar exige o motivo certo**, e emite", async () => {
       await limparMarca(canalA);
       await limparEventos(tenantA);

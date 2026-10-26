@@ -48,6 +48,7 @@ import {
   REF_DA_KEK,
   SESSION_INFO_VERSION,
   SQL_ABRIR,
+  SQL_APAGAR_CANAL,
   SQL_TRANSITAR,
   SubscricaoIncompletaError,
   TRANSICOES,
@@ -354,6 +355,47 @@ describe("idempotencia (criterio 2)", () => {
    * calhasse no mesmo `code_hash` era deduplicada em silêncio contra a de A — e
    * o que se perdia era o onboarding de B, sem erro nenhum a dizer porquê.
    */
+  /**
+   * **O mesmo `code_hash` noutro WABA, no mesmo tenant.** É o caso que separa um
+   * `ON CONFLICT DO NOTHING` **sem alvo** de um com alvo nomeado, e é o que o
+   * `docstring` do `SQL_ABRIR` promete — e não havia teste nenhum a exercê-lo.
+   *
+   * A tabela tem **duas** unicidades, `(tenant_id, code_hash)` e
+   * `(tenant_id, waba_id)`. Os quatro casos de idempotência que havia variavam o
+   * `code` com o WABA igual, ou o tenant, pelo que o alvo nomeado
+   * `(tenant_id, waba_id)` absorvia-os também. Com o WABA **diferente** e o
+   * `code` igual, o conflito é na unicidade do *code* — que um alvo nomeado não
+   * cobre: em vez de absorver, sai um `23505` cru, e o `EsNaoEV4Error` que o
+   * `onboarding.ts` promete nunca chega a ser levantado. A mutação `onboarding:
+   * o ON CONFLICT passa a nomear uma chave so` sobreviveu à noite de 2026-10-26
+   * por falta deste caso.
+   */
+  it("o mesmo code noutro waba do mesmo tenant absorve, e nao levanta", async () => {
+    const resumo = resumoDoCode(`AQB-${randomUUID()}`);
+    const primeira = await batch.query(SQL_ABRIR, [
+      tenantA,
+      `waba-${randomUUID().slice(0, 8)}`,
+      null,
+      `pnid-${randomUUID()}`,
+      resumo,
+    ]);
+    // O canário: sem esta linha, uma primeira abertura que falhasse deixava a
+    // segunda a absorver por não haver com que colidir.
+    assert.equal(primeira.rows.length, 1, "a primeira abertura nao passou");
+    const segunda = await batch.query(SQL_ABRIR, [
+      tenantA,
+      `waba-${randomUUID().slice(0, 8)}`,
+      null,
+      `pnid-${randomUUID()}`,
+      resumo,
+    ]);
+    assert.equal(
+      segunda.rows.length,
+      0,
+      "o conflito na unicidade do code devia ser absorvido, sem linha e sem erro",
+    );
+  });
+
   it("o mesmo code em dois tenants abre duas tentativas", async () => {
     const code = `AQB-${randomUUID()}`;
     const resumo = resumoDoCode(code);
@@ -609,6 +651,43 @@ describe("a maquina de estados contra a base (criterio 6)", () => {
 // ------------------------------------------------------------------ critério 7
 
 describe("a compensacao: 0 recursos orfaos (criterio 7)", () => {
+  /**
+   * **A compensação apaga o canal que a saga criou, e só esse.** O
+   * `AND estado = 'pendente'` do `SQL_APAGAR_CANAL` é uma guarda contra um estado
+   * que a saga de hoje não alcança — o canal nasce `pendente` e fica, porque o
+   * portão de activação é o KAM-093 —, e por isso **nenhum** dos dois ensaios de
+   * compensação a exercita: em ambos o canal está `pendente` e o `DELETE` apaga
+   * a mesma linha com ou sem o predicado.
+   *
+   * Três camadas escondiam-na, e vale nomeá-las: o `try/catch` por recurso do
+   * `onboarding.ts` transforma qualquer desfecho anormal em *log*; o resultado do
+   * `SQL_APAGAR_CANAL` é **descartado**, pelo que «0 linhas» e «1 linha» são
+   * indistinguíveis para o chamador; e a base falsa da bateria de unidade
+   * despacha por identidade da constante, logo é cega ao texto do SQL.
+   *
+   * Daí este teste ser **ao nível da instrução** e não através do serviço: é o
+   * único nível a que a guarda tem efeito observável. A mutação `onboarding: a
+   * compensacao passa a apagar canais activos` sobreviveu à noite de 2026-10-26.
+   */
+  it("a compensacao nao apaga um canal que nao esta pendente", async () => {
+    const tenant = await criarTenant(admin, "onb-comp-activo");
+    // O `criarCanal` do `apoio.ts` nasce `ativo` por omissão — que é
+    // precisamente o estado que a saga nunca produz, e por isso o que faltava.
+    const activo = await criarCanal(admin, tenant);
+    const { rows } = await batch.query(SQL_APAGAR_CANAL, [activo.id, tenant]);
+    assert.equal(
+      rows.length,
+      0,
+      "a compensacao apagou um canal activo: a guarda de estado caiu",
+    );
+    const sobrou = await admin.query(
+      "SELECT count(*)::int AS n FROM platform.tenant_channels WHERE id = $1",
+      [activo.id],
+    );
+    assert.equal(sobrou.rows[0].n, 1, "o canal activo desapareceu");
+    await apagarTenant(admin, tenant);
+  });
+
   it("a falha injectada no passo 4 nao deixa canal, token nem subscricao", async () => {
     const tenant = await criarTenant(admin, "onb-comp");
     const e = entrada(tenant);

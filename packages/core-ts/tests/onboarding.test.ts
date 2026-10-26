@@ -81,6 +81,7 @@ import {
   VersaoDaGraphInvalidaError,
   cifrarToken,
   compararCampos,
+  contextoDaCifra,
   decifrarToken,
   dekDoTenant,
   kidDoCriptograma,
@@ -691,6 +692,32 @@ describe("a cifra do token: AES-256-GCM, DEK por tenant, kid versionado (criteri
     );
   });
 
+  /**
+   * **O AAD é o único observável desta propriedade, e ninguém o observava.**
+   *
+   * O teste de cima — «um criptograma copiado para outro tenant nao abre» —
+   * passa com e sem o tenant no contexto autenticado, porque a **chave** já é
+   * por tenant: a DEK de B não é a de A (`dekDoTenant`, com `info = domínio ‖
+   * tenant`) e o GCM rejeita na chave, sem nunca chegar ao AAD. O tenant está
+   * ligado duas vezes, e a outra ligação é mais forte — pelo que arrancar esta
+   * não quebrava teste nenhum, e a mutação `onboarding: o contexto autenticado
+   * deixa de levar o tenant` sobreviveu à noite de 2026-10-26.
+   *
+   * O `contextoDaCifra` é exportado no `index.ts` de propósito, e tinha **zero**
+   * testes. É aqui que a defesa em profundidade se afirma: ela existe para o
+   * dia em que a DEK deixar de ser por tenant, e é nesse dia que uma guarda que
+   * ninguém mede já não está lá.
+   */
+  it("o contexto autenticado leva o tenant, e o kid", () => {
+    const contexto = contextoDaCifra(TENANT, "1");
+    assert.ok(
+      contexto.toString("utf8").includes(TENANT),
+      "o AAD nao leva o tenant: um criptograma de A abre no contexto de B",
+    );
+    assert.notDeepEqual(contexto, contextoDaCifra(OUTRO_TENANT, "1"));
+    assert.notDeepEqual(contexto, contextoDaCifra(TENANT, "2"));
+  });
+
   it("o kid vai dentro do criptograma e le-se sem o abrir", () => {
     assert.equal(kidDoCriptograma(cifrarToken(KEK, "7", TENANT, "x")), "7");
   });
@@ -942,6 +969,45 @@ describe("a saga: ordem dos passos e idempotencia (criterios 2, 4, 7, 8)", () =>
     assert.equal(sql.canaisApagados, 1);
     assert.equal(cofre.segredos.size, 0);
     assert.deepEqual(sql.recursos, []);
+  });
+
+  /**
+   * **A igualdade é de conjuntos, e não de cardinalidade** — e os três testes de
+   * confirmação que havia não distinguiam as duas, porque todos usavam conjuntos
+   * de tamanho **diferente** de onze (dez campos, ou nenhum). Trocar o portão
+   * por uma contagem (`obtidos.length !== CAMPOS_DE_WEBHOOK.length`) levantava
+   * nos três, e a mutação `onboarding: a confirmacao passa a comparar so o
+   * tamanho` sobreviveu à noite de 2026-10-26.
+   *
+   * A igualdade de conjuntos **está** provada, mas na altitude errada: o
+   * `describe("os onze campos e a igualdade de conjuntos (criterio 5)")` chama o
+   * `compararCampos` **directamente**, e a mutação não lhe toca — ela tira a
+   * decisão de lá e põe-na numa contagem no chamador. Por isso estes dois casos
+   * passam pelo **serviço**.
+   *
+   * Os dois desfechos que divergem, um em cada sentido.
+   */
+  it("uma troca de igual cardinalidade na confirmacao falha e compensa", async () => {
+    const { servico, graph, cofre } = montar();
+    graph.confirmacao = [...CAMPOS_DE_WEBHOOK.filter((c) => c !== "history"), "flows"];
+    assert.equal(
+      graph.confirmacao.length,
+      CAMPOS_DE_WEBHOOK.length,
+      "a fixture tem de ter a mesma cardinalidade, senao o caso nao distingue nada",
+    );
+    await assert.rejects(() => servico.ligar(entradaDeEnsaio()), SubscricaoIncompletaError);
+    assert.equal(graph.anulacoes, 1);
+    assert.equal(cofre.segredos.size, 0);
+  });
+
+  it("um duplicado na confirmacao nao compensa um onboarding sao", async () => {
+    const { servico, graph } = montar();
+    graph.confirmacao = [...CAMPOS_DE_WEBHOOK, CAMPOS_DE_WEBHOOK[0]];
+    // Não levanta: o conjunto é o mesmo, e um duplicado na resposta da Meta não
+    // é um campo a mais. Com a contagem, levantava — e compensava um
+    // onboarding são, que é o lado mais caro de errar.
+    await servico.ligar(entradaDeEnsaio());
+    assert.equal(graph.anulacoes, 0);
   });
 
   /**

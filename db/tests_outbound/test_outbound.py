@@ -432,6 +432,37 @@ TESTES_OBRIGATORIOS = (
     "o codigo nao referencia v2 nem v3 do Embedded Signup",
     "exactamente dezesseis pares passam, e os outros 65 nao",
     "um criptograma copiado para outro tenant nao abre",
+    # A vizinha de cima passa com e **sem** o tenant no contexto autenticado,
+    # porque a chave ja e por tenant: a DEK de B nao e a de A e o GCM rejeita na
+    # **chave**, sem chegar ao AAD. O tenant esta ligado duas vezes e a outra
+    # ligacao e mais forte, pelo que a mutacao `onboarding: o contexto
+    # autenticado deixa de levar o tenant` sobreviveu a noite de 2026-10-26. O
+    # `contextoDaCifra` e exportado de proposito e tinha **zero** testes; passa
+    # a ter um, e o nome fica preso aqui.
+    "o contexto autenticado leva o tenant, e o kid",
+    # Os dois desfechos em que a igualdade de **conjuntos** difere de uma
+    # contagem. Os tres testes de confirmacao que havia usavam todos conjuntos
+    # de tamanho diferente de onze (dez campos, ou nenhum), pelo que uma
+    # contagem levantava nos tres e a mutacao `onboarding: a confirmacao passa a
+    # comparar so o tamanho` sobreviveu a noite de 2026-10-26. A igualdade de
+    # conjuntos estava provada na altitude errada — a chamar o `compararCampos`
+    # directamente, que a mutacao nao toca.
+    "uma troca de igual cardinalidade na confirmacao falha e compensa",
+    "um duplicado na confirmacao nao compensa um onboarding sao",
+    # O caso que separa um `ON CONFLICT DO NOTHING` sem alvo de um com alvo
+    # nomeado: mesmo tenant, mesmo `code_hash`, WABA **diferente**. A tabela tem
+    # duas unicidades e os quatro casos que havia variavam sempre o `code` ou o
+    # tenant, pelo que o alvo nomeado absorvia-os tambem.
+    "o mesmo code noutro waba do mesmo tenant absorve, e nao levanta",
+    # A guarda de estado da compensacao, ao nivel da instrucao — o unico nivel a
+    # que ela tem efeito observavel: o resultado do `SQL_APAGAR_CANAL` e
+    # descartado pelo chamador, e o canal da saga nasce `pendente` e fica.
+    "a compensacao nao apaga um canal que nao esta pendente",
+    # KAM-023: o entrelacamento **imposto** da marca de restricao. O teste que
+    # ja existia — «duas marcas em paralelo» — nao forca sobreposicao: duas
+    # instrucoes em autocommit podem nao se sobrepor, e ai a segunda le o motivo
+    # ja confirmado e devolve `marcou: false`, que e a resposta do original.
+    "**duas marcas entrelacadas a forca: um evento, e os dois codigos**",
     "a rotacao da KEK nao perde os tokens antigos",
     # E a do cliente da Graph que fixa a exposicao declarada do `graph.ts`.
     "o code e o client_secret vao na consulta, como a Meta documenta",
