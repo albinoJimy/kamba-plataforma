@@ -4389,6 +4389,12 @@ def _copiar_para_os_contratos(destino: Path, ignorar) -> None:
     )
     shutil.copy(RAIZ / "tools" / "kamba_yaml.py", destino / "tools" / "kamba_yaml.py")
     shutil.copytree(RAIZ / "contratos", destino / "contratos", ignore=ignorar)
+    # **E o `registry/`** — a quinta vez, e descoberta pela primeira noite que
+    # chegou a correr. O `subscricoes.py` le `registry/*.yaml` por caminho
+    # relativo, e o seu docstring ainda diz que a pasta «tem so um README.md»:
+    # quatro YAML entraram depois, e o `test_catalogo_e_cli.py` passou a exigir
+    # «8 subscricao(oes) lida(s)». Sem a pasta, a copia lia zero.
+    shutil.copytree(RAIZ / "registry", destino / "registry", ignore=ignorar)
     (destino / "ci").mkdir(parents=True, exist_ok=True)
     shutil.copy(RAIZ / "ci" / "contratos-allow.yaml", destino / "ci" / "contratos-allow.yaml")
     # E o `docs/tecnica/06`, que e a **fonte** do criterio 1: desde a revisao
