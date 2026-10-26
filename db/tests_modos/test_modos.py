@@ -87,6 +87,19 @@ TESTES_OBRIGATORIOS = (
     "`kamba_app` consegue agora escrever `mode` e `last_human_activity_at`",
     "`kamba_app` continua sem poder reescrever a identidade da conversa",
     "com o contexto de A, o modo de B nao se le nem se muda",
+    # As duas que nasceram **da** prova por mutacao e nao estavam presas pelo
+    # nome. O KAM-018 converteu tres mutacoes sobreviventes em testes; a
+    # terceira ficou na lista e estas duas nao, e so o `returncode == 0` do
+    # `test_os_testes_dos_modos_passam` as defendia. Quem as renomeie, marque
+    # `skip` ou apague nao faz falhar afirmacao nenhuma do lado Python, e a
+    # mutacao volta a sobreviver sem ninguem dar por isso.
+    #
+    # A primeira e a unica que mata o `FOR UPDATE` da transicao: tem de correr
+    # o `SQL_MUDAR_MODO` **sem** o `pg_advisory_xact_lock`, porque com ele as
+    # duas sessoes serializam-se e a diferenca desaparece — defesa em
+    # profundidade genuina, e por isso a prova tem de a contornar.
+    "o UPDATE ganha a corrida **sem** o lock: a atomicidade e da linha",
+    "um echo fora de ordem nao faz a actividade humana andar para tras",
 )
 
 #: Os ficheiros do modulo. A cobertura mede-se em **cada um**.
