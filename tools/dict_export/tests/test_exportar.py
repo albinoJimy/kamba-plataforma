@@ -333,6 +333,14 @@ class TestDicionarioReal(unittest.TestCase):
                     ("hmac_sha256", "nome"), ("status_pull", "nome"),
                     ("humano_auditado", "nome"),
                     ("lookup_hmac", "nome"),
+                    # Emenda 1.39 (KAM-032): entra `value_kz`, o nome que o
+                    # criterio 1 do bloco da ao campo monetario do `Fact` e que
+                    # o §2 substitui por unidade menor inteira. O §9.1 do
+                    # `docs/tecnica/02` ja o tinha corrigido para `value_minor`
+                    # em centimos (KAM-139, achado C1): comparar a fala do
+                    # cliente em Kz com um *fact* em `preco_minor` falha
+                    # **sempre**, por um factor de cem. Divida 106.
+                    ("value_kz", "nome"),
                 ]
             ),
         )
