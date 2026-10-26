@@ -1707,9 +1707,10 @@ Nenhum dos números abaixo é o que esta secção afirmava antes dela.
 
 #### Prova por mutação
 
-`python db/mutacoes.py --aplicaveis` → **806 mutações conferidas, 0 não
-aplicáveis** (eram 783 antes deste ticket). As **vinte e três** novas (prefixo
-`cit:`) correm contra a `agr_unit`:
+`python db/mutacoes.py --aplicaveis` → **802 mutações conferidas, 0 não
+aplicáveis** — o total desceu de 806 para 802 ao integrar o KAM-003 (#60), que
+retirou quatro que eram defeito da lista e não lacuna da bateria. As **vinte e
+três** novas deste ticket (prefixo `cit:`) correm contra a `agr_unit`:
 `23 mutação(ões) corrida(s), 0 não apanhada(s)`.
 
 Cada uma apaga **uma** propriedade que um critério nomeia, e três delas repõem
