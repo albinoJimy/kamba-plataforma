@@ -2516,9 +2516,19 @@ MUTACOES = [
     ('consentimento 0015: a prova perde a unicidade que da a idempotencia', REV15,
      "            CONSTRAINT consent_event_prova_uq\n                UNIQUE (tenant_id, contact_id, purpose, evidence_hash),",
      "", "tests"),
-    ('consentimento 0015: a unicidade da prova passa a ser global', REV15,
-     "                UNIQUE (tenant_id, contact_id, purpose, evidence_hash),",
-     "                UNIQUE (contact_id, purpose, evidence_hash),", "tests"),
+    # **Nao ha mutacao que torne esta unicidade global.** A que estava aqui
+    # tirava o `tenant_id` da chave e sobreviveu a noite de 2026-10-26, por ser
+    # *equivalente*: em `consent_event` o `contact_id` **determina** o
+    # `tenant_id`. A FK e composta (`(tenant_id, contact_id)` →
+    # `contacts (tenant_id, contact_id)`) e o `contacts.contact_id` e a chave
+    # primaria **global** da tabela (`contacts_pkey`, 0003), pelo que cada
+    # `contact_id` tem exactamente um tenant. As duas chaves —
+    # `(tenant_id, contact_id, purpose, evidence_hash)` e
+    # `(contact_id, purpose, evidence_hash)` — recusam o mesmo conjunto de
+    # linhas, e nenhum teste as pode distinguir sem primeiro largar aquela
+    # chave primaria ou aquela FK, que e onde a invariante de facto vive.
+    # Que a restricao **exista** continua medido: e a mutacao de cima, que a
+    # apaga, e o `test_a_mesma_prova_duas_vezes_e_recusada` apanha-a.
     ('consentimento 0015: o resumo da prova passa a aceitar qualquer tamanho', REV15,
      "            CONSTRAINT consent_event_evidence_ck\n                CHECK (octet_length(evidence_hash) = {BYTES_DO_SHA256})",
      "            CONSTRAINT consent_event_evidence_ck\n                CHECK (octet_length(evidence_hash) >= 1)", "tests"),
