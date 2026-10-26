@@ -138,6 +138,13 @@ class TestCatalogoReal(ComBase):
         self.assertEqual(
             catalogo.tabelas_isoladas(self.cursor),
             [
+                # KAM-030: a primeira tabela isolada **fora do `platform`**, e
+                # por isso a primeira da lista — o `ORDER BY 1, 2` da descoberta
+                # ordena por esquema, e «dat» vem antes de «platform». Sem
+                # receita de sementes, pela razao do `audit_log`: e append-only e
+                # o *trigger* `ENABLE ALWAYS` recusa o `DELETE` da limpeza. O
+                # isolamento dela prova-se em `db/tests_agr/test_llm_call_log.py`.
+                ("dat", "llm_call_log", "tenant_id"),
                 # KAM-012. Nenhuma das duas tem receita de sementes, e as
                 # duas razoes estao em `sementes.SEM_RECEITA_COM_RAZAO`: o
                 # `audit_heads` nao tem politica para provar, e o `audit_log` e
@@ -237,7 +244,15 @@ class TestCatalogoReal(ComBase):
         self.assertNotIn("events_log_default", descobertas)
         self.assertEqual(
             catalogo.particoes_de_isoladas(self.cursor),
-            [("platform", "events_log_default", "events_log")],
+            [
+                # KAM-030: a particao por omissao da `dat.llm_call_log`. Entra
+                # **como particao** e nao como tabela isolada, que e o que faz o
+                # `verificar_particoes` exigir-lhe RLS propria e nenhum
+                # privilegio — e ela tem as duas coisas: os `GRANT` da revisao
+                # `0023` sao todos no pai.
+                ("dat", "llm_call_log_default", "llm_call_log"),
+                ("platform", "events_log_default", "events_log"),
+            ],
         )
 
     def test_cada_particao_tem_a_sua_rls_e_nenhum_privilegio(self) -> None:
@@ -254,11 +269,18 @@ class TestCatalogoReal(ComBase):
         # E o que esta declarado sem receita tem mesmo de existir: uma entrada
         # em `SEM_RECEITA_COM_RAZAO` que nao corresponda a tabela nenhuma e uma
         # porta aberta com a chave perdida.
+        # **Todos os esquemas aplicacionais, e nao so o `platform`.** Esteve
+        # preso ao `platform` enquanto todas as tabelas isoladas lá viviam; o
+        # KAM-030 trouxe a primeira do `dat`, e com o filtro antigo uma entrada
+        # legitima em `SEM_RECEITA_COM_RAZAO` parecia «uma porta aberta com a
+        # chave perdida». O que se exclui e o mesmo que a descoberta exclui.
         todas = {
             (esquema, tabela)
             for esquema, tabela in self.consultar(
                 "SELECT schemaname::text, tablename::text FROM pg_tables "
-                " WHERE schemaname = 'platform'"
+                " WHERE schemaname <> ALL(%s) "
+                " AND schemaname NOT LIKE 'pg!_%%' ESCAPE '!'",
+                (list(catalogo.SCHEMAS_DE_SISTEMA),),
             )
         }
         self.assertLessEqual(sementes.SEM_RECEITA_COM_RAZAO, todas)

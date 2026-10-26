@@ -186,6 +186,14 @@ TABELAS_LG = ("checkpoint_writes", "checkpoints")
 #: revisoes cria.
 TABELAS_DAT = ("llm_call_log", "llm_call_log_default")
 
+#: As do `dat` que a **matriz de privilegios** cobre. A particao fica de fora, e
+#: por uma razao e nao por esquecimento: os `GRANT` da revisao `0023` sao todos
+#: no **pai**, pelo que a particao nao tem privilegio proprio nenhum — e e isso
+#: que o `verificar_particoes` do *gate* 6 exige dela. Uma linha de matriz para
+#: uma relacao sem privilegios era uma matriz de zeros a afirmar o que o *gate* 6
+#: ja afirma.
+TABELAS_DAT_COM_MATRIZ = ("llm_call_log",)
+
 #: A unica vista do esquema (KAM-022). Separada das tabelas porque a descoberta
 #: do catalogo tambem as separa, e porque o `verificar_vistas` do
 #: `db/tests_isolamento/catalogo.py` — que existe desde o KAM-004 — passa a ter

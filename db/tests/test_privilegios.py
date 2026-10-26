@@ -20,6 +20,7 @@ from tests.base import (
     PRIVILEGIO_INSUFICIENTE,
     TABELAS,
     TABELAS_0001,
+    TABELAS_DAT_COM_MATRIZ,
     VIOLACAO_DE_CHECK,
     ComBase,
 )
@@ -1236,7 +1237,14 @@ class TestMatrizDePrivilegios(ComBase):
 
     def test_a_matriz_cobre_todos_os_papeis_do_bootstrap(self) -> None:
         """Um papel novo que ninguem ponha na matriz e um papel por medir."""
-        self.assertEqual(set(ESPERADO_POR_TABELA), set(TABELAS))
+        # **O inventario da matriz passou a ter duas origens** (KAM-030): as do
+        # `platform` e as do `dat`. A `dat.llm_call_log` tem `GRANT INSERT` por
+        # coluna e por isso precisa de linha aqui — e a licao da divida 111, que
+        # o `fix` do KAM-029 fechou para a `tool_audit` tres linhas de versao
+        # antes. A particao nao entra: nao tem privilegio proprio nenhum.
+        self.assertEqual(
+            set(ESPERADO_POR_TABELA), set(TABELAS) | set(TABELAS_DAT_COM_MATRIZ)
+        )
         for tabela, por_papel in ESPERADO_POR_TABELA.items():
             with self.subTest(tabela=tabela):
                 self.assertEqual(
