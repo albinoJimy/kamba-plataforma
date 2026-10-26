@@ -42,7 +42,12 @@ import unittest
 from pathlib import Path
 
 import ligacao
-from tests.base import PRIVILEGIO_INSUFICIENTE, VIOLACAO_DE_CHECK, ComBase
+from tests.base import (
+    PRIVILEGIO_INSUFICIENTE,
+    VIOLACAO_DE_CHECK,
+    ComBase,
+    ConsultaDoTypeScript,
+)
 
 RAIZ = Path(__file__).resolve().parents[2]
 FIXTURE_DE_PII = (
@@ -77,6 +82,17 @@ ROLLBACKS_DO_CRITERIO_1 = 1000
 
 #: Quantas repeticoes o criterio 2 pede. «100 repeticoes.»
 REPETICOES_DO_CRITERIO_2 = 100
+
+#: As consultas do publicador, de onde se le o `SQL_MARCAR_PUBLICADO` para o
+#: correr tal e qual — uma copia dele aqui provaria que a copia funciona.
+CONSULTAS_DOS_EVENTOS = (
+    RAIZ / "packages" / "core-ts" / "src" / "eventos" / "consultas.ts"
+)
+
+#: Quanto tempo tem de passar dentro da transaccao para que o relogio do seu
+#: inicio fique mensuravelmente atras do da escrita. 50 ms chegam e sobram
+#: para a resolucao de microssegundos do `timestamptz`.
+ESPERA_DO_ATRASO = 0.05
 
 #: Quantos agregados confrontam a mascara da particao com a conta do documento.
 #: Um so dava 50% de deteccao a uma mascara errada por um bit — ver
@@ -709,6 +725,65 @@ class TestParticao(ComEventos):
         for agregado, guardada, conta in linhas:
             with self.subTest(agregado=agregado):
                 self.assertEqual(guardada, conta)
+
+
+class TestMarcaDePublicado(ComEventos):
+    """O `publicado_at` e o instante da **escrita**, nao o do inicio do ciclo.
+
+    Corre o `SQL_MARCAR_PUBLICADO` lido do `consultas.ts`, pelo
+    `ConsultaDoTypeScript` — o mesmo mecanismo do `test_accoes.py` e do
+    `test_dlq_reabertura.py`. Uma copia da instrucao aqui provaria que a copia
+    funciona.
+
+    **Porque e que isto faltava.** Toda a bateria olhava para o `publicado_at`
+    por `IS NULL` / `IS NOT NULL`, nunca pelo **valor**; e a unica que mede o
+    atraso, a `tests_eventos_carga`, compara-o com um **tecto**. Trocar
+    `clock_timestamp()` por `now()` baixa o atraso medido, pelo que faz esse
+    teste passar com mais folga: a mutacao `eventos: o atraso e medido antes do
+    trabalho` era imune por construcao, e sobreviveu a noite de 2026-10-26.
+    """
+
+    def test_o_publicado_at_e_posterior_ao_inicio_da_transaccao(self) -> None:
+        """`now()` e `transaction_timestamp()`: o instante **antes** do trabalho.
+
+        Com `now()` o `publicado_at` sai exactamente igual ao inicio da
+        transaccao e o atraso do criterio 8 passa a excluir o enfileiramento do
+        lote — o enviesamento cresce precisamente no regime em que o atraso real
+        e maior (ANALISE-20, achado 7).
+        """
+        marcar = ConsultaDoTypeScript(
+            "SQL_MARCAR_PUBLICADO", ficheiro=CONSULTAS_DOS_EVENTOS
+        )
+        conexao, cursor = self.admin()
+        _emitir(cursor, self.tenant, self.agregado)
+        conexao.commit()
+
+        # Daqui para baixo e **uma** transaccao: o `transaction_timestamp()`
+        # fica fixo no primeiro comando, e o `pg_sleep` afasta-o do relogio.
+        cursor.execute(
+            "SELECT id FROM platform.events_outbox WHERE agregado_id = %s",
+            (self.agregado,),
+        )
+        ids = [linha[0] for linha in cursor.fetchall()]
+        self.assertEqual(len(ids), 1, "o emitir nao deixou uma linha so")
+        cursor.execute("SELECT pg_sleep(%s)", (ESPERA_DO_ATRASO,))
+        cursor.execute(marcar.sql, marcar.args(ids))
+        cursor.execute(
+            "SELECT publicado_at, publicado_at - transaction_timestamp() "
+            "  FROM platform.events_outbox WHERE id = ANY(%s)",
+            (ids,),
+        )
+        publicado_at, atraso = cursor.fetchone()
+        conexao.rollback()
+
+        # O canario: sem esta linha, um `publicado_at` que ficasse NULL dava uma
+        # subtraccao NULL e o teste rebentava — vermelho, mas pela razao errada.
+        self.assertIsNotNone(publicado_at, "o SQL do modulo nao marcou a linha")
+        self.assertGreaterEqual(
+            atraso.total_seconds(),
+            ESPERA_DO_ATRASO,
+            "o `publicado_at` e o relogio do inicio da transaccao, nao o da escrita",
+        )
 
 
 class TestEnvelope(ComEventos):
