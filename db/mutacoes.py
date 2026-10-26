@@ -418,6 +418,13 @@ AG_LLM_DESTINOS = "services/agr/src/kamba_agr/llm/destinos.py"
 AG_LLM_ERROS = "services/agr/src/kamba_agr/llm/erros.py"
 AG_LLM_PRECOS = "services/agr/src/kamba_agr/llm/precos.py"
 AG_LLM_REGISTO = "services/agr/src/kamba_agr/llm/registo.py"
+#: O validador de citacao (KAM-032). As mutacoes correm na `agr_unit`
+#: (`services/agr/tests`, sem base de dados): nada do que elas alteram toca a
+#: base, e levantar um contentor por mutacao nao mediria nada a mais.
+AG_VAL_NORM = "services/agr/src/kamba_agr/validador/normalizacao.py"
+AG_VAL_EXTR = "services/agr/src/kamba_agr/validador/extraccao.py"
+AG_VAL_REND = "services/agr/src/kamba_agr/validador/render.py"
+AG_VAL_VER = "services/agr/src/kamba_agr/validador/veredicto.py"
 REV23 = "db/migrations/versions/0023_llm_call_log.py"
 #: O gerador da configuracao do proxy, o leitor de manifestos e o verificador de
 #: assinaturas, que o KAM-030 estendeu. As suites estao declaradas junto das
@@ -4110,6 +4117,122 @@ MUTACOES = [
     # O *trigger* de linha nao cobre o `TRUNCATE`, e a primeira versao desta
     # revisao nao tinha o de instrucao — por afirmar que uma tabela particionada
     # nao o aceita. Aceita, e mediu-se.
+    # ---------------------------------------------------------------- KAM-032
+    #
+    # Dezenove mutacoes, com prefixo `cit:`. Cada uma apaga **uma** propriedade
+    # que um criterio nomeia, e tres delas repoem defeitos que os testes deste
+    # ticket apanharam — a quantidade sem vinculo ao `sku`, o intervalo do nome
+    # nao reservado, e a comparacao em Kz em vez de centimos (o achado C1 do
+    # KAM-139). Correm todas na `agr_unit`.
+    ('cit: o dinheiro deixa de exigir vinculo ao sku', AG_VAL_VER,
+     "        ligados = [f for f in casam if f.sku and f.sku in linha.skus]",
+     "        ligados = list(casam)",
+     AGR_UNIT),
+    # E o «produto errado com preco certo» que o ADR-007 assinala por extenso e
+    # que o criterio 2 poe em segundo lugar na lista de falsos aceites.
+    ('cit: a quantidade deixa de exigir vinculo ao sku', AG_VAL_VER,
+     "                    _inteiro(f.value) == numero.valor\n                    and f.sku\n                    and f.sku in linha.skus\n",
+     "                    _inteiro(f.value) == numero.valor\n",
+     AGR_UNIT),
+    # O defeito que o `test_qty_unbacked` apanhou: 7 unidades do SKU-100 eram
+    # aceites porque 7 era o stock do SKU-500.
+    ('cit: sob_consulta deixa de recusar qualquer numero', AG_VAL_VER,
+     "        if sob_consulta:",
+     "        if False:",
+     AGR_UNIT),
+    ('cit: a_partir_de passa a poder citar-se como preco fixo', AG_VAL_VER,
+     "                and not linha.tem_a_partir_de",
+     "                and False",
+     AGR_UNIT),
+    # As duas acima sao o criterio 4, e cada uma por um lado: um preco publicado
+    # como minimo apresentado como final, e um produto sem preco a receber um.
+    ('cit: a percentagem passa a aceitar-se', AG_VAL_VER,
+     '                erros.append(Erro("discount_unbacked", valor=numero.valor))',
+     "                pass",
+     AGR_UNIT),
+    ('cit: o numero solto passa a aceitar-se', AG_VAL_VER,
+     "                if numero.valor is None or numero.valor not in policy.allowed_literals:",
+     "                if False:",
+     AGR_UNIT),
+    # O `outro` e o saco *fail-closed* do extractor: sem esta regra, tudo o que
+    # ele nao reconhece passa — e e exactamente o que ele nao reconhece que
+    # ninguem olhou.
+    ('cit: um valor que coincide com um total dispensa o vinculo sempre', AG_VAL_VER,
+     '        if any(f.kind == "total" for f in casam):\n            continue',
+     "        if casam:\n            continue",
+     AGR_UNIT),
+    # O criterio 3: um total somado pelo modelo falha porque nao e *fact*. Com
+    # esta mutacao qualquer valor que exista em qualquer *fact* passa.
+    ('cit: a data compara-se so pela forma completa', AG_VAL_REND,
+     '        datahora_display(iso_utc),\n        f"{quando:%d/%m/%Y}",',
+     "        datahora_display(iso_utc),",
+     AGR_UNIT),
+    # O extractor parte «14/11/2026 as 14h30» em dois achados: sem as formas
+    # parciais, o texto do proprio *renderer* da `datetime_unbacked` duas vezes.
+    ('cit: a virgula de tres digitos passa a decimal', AG_VAL_NORM,
+     '        inteiro, _, cauda = texto.rpartition(",")\n        # Regras 2 e 3.\n        if len(cauda) == 3 and cauda.isdigit():',
+     '        inteiro, _, cauda = texto.rpartition(",")\n        # Regras 2 e 3.\n        if False:',
+     AGR_UNIT),
+    # `12,500` passava a valer 12,5 Kz: o formato 4 do criterio 1, lido com um
+    # factor de mil de diferenca.
+    ('cit: o valor compara-se em Kz e nao em centimos', AG_VAL_NORM,
+     "        total = (inteiro * CENTIMOS_POR_KZ + centimos) * escala",
+     "        total = (inteiro + centimos) * escala",
+     AGR_UNIT),
+    # **E o achado C1 do KAM-139 reposto**: o *fact* vem do `search_catalog` em
+    # `preco_minor`, e comparar a fala em Kz com centimos falha sempre, por um
+    # factor de cem. Esteve errado no desenho ate alguem o medir.
+    ('cit: a moeda estrangeira passa a aceitar-se', AG_VAL_NORM,
+     "            raise MoedaEstrangeiraError(",
+     "            pass\n        elif False:\n            raise MoedaEstrangeiraError(",
+     AGR_UNIT),
+    ('cit: um bloco text passa a levar digitos', AG_VAL_REND,
+     "            if _DIGITO.search(texto):",
+     "            if False:",
+     AGR_UNIT),
+    # A camada 1 deixa de ser camada: o modelo volta a escrever numeros em
+    # prosa, e a garantia passa a depender so da rede de seguranca.
+    ('cit: um nome com preco dentro passa a renderizar', AG_VAL_REND,
+     "        if _PRECO_NO_NOME.search(self.nome):",
+     "        if False:",
+     AGR_UNIT),
+    # O que a reserva do intervalo do nome abre, e que esta guarda fecha: um
+    # nome escrito pela PME como «Camisa 99 999 Kz» citava um preco sem *fact*.
+    ('cit: o item deixa de levar o sku', AG_VAL_REND,
+     "    partes = [sku]",
+     "    partes = []",
+     AGR_UNIT),
+    # O §6.3 do `docs/tecnica/05`: «resposta com `sku` ausente e rejeitada».
+    ('cit: os botoes passam a entrar no corpo da mensagem', AG_VAL_REND,
+     "    return Renderizacao(texto=\"\\n\".join(linhas), botoes=tuple(botoes))",
+     "    return Renderizacao(texto=\"\\n\".join(linhas + botoes), botoes=tuple(botoes))",
+     AGR_UNIT),
+    # Um `confirm:c_77` no corpo da mensagem da `number_unbacked`: o *renderer*
+    # a falhar o seu proprio validador.
+    ('cit: a apresentacao passa a ser em UTC', AG_VAL_REND,
+     'LUANDA: Final = datetime.timezone(datetime.timedelta(hours=1), "WAT")',
+     'LUANDA: Final = datetime.timezone(datetime.timedelta(hours=0), "WAT")',
+     AGR_UNIT),
+    # Datas e horas em UTC na apresentacao: uma marcacao das 14h30 mostrada como
+    # 13h30 ao cliente.
+    ('cit: o intervalo de um nome deixa de ser reservado', AG_VAL_EXTR,
+     "        for achado in re.finditer(re.escape(nome), texto, re.IGNORECASE):",
+     "        for achado in re.finditer(r'(?!x)x', texto, re.IGNORECASE):",
+     AGR_UNIT),
+    # O outro lado do defeito do nome: «Vestido 2 pecas» volta a dar
+    # `qty_unbacked` em todas as respostas sobre esse produto.
+    ('cit: o intervalo de um sku deixa de ser reservado', AG_VAL_EXTR,
+     "        for achado in re.finditer(re.escape(sku), texto):",
+     "        for achado in re.finditer(r'(?!x)x', texto):",
+     AGR_UNIT),
+    # Os digitos de `SKU-123` passam a ser um numero citado, e nenhuma linha com
+    # `sku` passa — o validador a bloquear a loja em vez de a proteger.
+    ('cit: o artigo um passa a contar como numero', AG_VAL_EXTR,
+     "    if palavras[0] in _ARTIGOS:",
+     "    if False:",
+     AGR_UNIT),
+    # «Encontrei um produto para si» passa a ter o numero 1 e da
+    # `number_unbacked`: metade das respostas legitimas recusadas.
 ]
 
 
@@ -4183,6 +4306,15 @@ def _copiar(destino: Path, suite: str = "tests") -> None:
     shutil.copy(
         RAIZ / "docs" / "dividas-documentais.md",
         destino / "docs" / "dividas-documentais.md",
+    )
+    # KAM-032: o dicionario, pela mesma razao do ficheiro acima. O `TestCanon`
+    # do `test_validador.py` confronta os sete veredictos, os cinco blocos e as
+    # cinco metricas com o §3.30 — uma afirmacao sobre o **repositorio**, que a
+    # copia tem de levar para a linha de base nao ficar vermelha.
+    (destino / "specs").mkdir(parents=True, exist_ok=True)
+    shutil.copy(
+        RAIZ / "specs" / "02_Dicionario_de_Dados_Canonico.md",
+        destino / "specs" / "02_Dicionario_de_Dados_Canonico.md",
     )
     # KAM-030: a pasta `llm/` e o `infra/llm/`, e as duas por baterias que leem
     # **o repositorio** e nao um duplo.
@@ -4631,6 +4763,10 @@ MODULOS_DO_AGR_UNIT = (
     "test_llm_aliases",
     "test_llm_cliente",
     "test_llm_chaves",
+    # KAM-032. **Sem esta linha as mutacoes `cit:` sobreviviam todas**, com a
+    # suite verde: e a lista literal de que fala a nota acima, e o KAM-030
+    # pagou-a com dez sobreviventes.
+    "test_validador",
 )
 
 
