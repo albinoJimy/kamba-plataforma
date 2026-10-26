@@ -234,6 +234,12 @@ def _extenso_conta(cru: str, texto: str, inicio: int, fim: int) -> bool:
         return True
     if palavras[0] in _ARTIGOS:
         # Artigo: so conta se a moeda ou a contagem o reclamarem.
+        #
+        # shortcut: «levo um» nao se extrai, pelo que uma quantidade de **1**
+        # escrita por extenso e sem palavra de contagem passa sem *fact*;
+        # distingui-la de «levo um produto» pedia entender a frase. Revê-se se o
+        # KAM-033 trouxer o classificador de saida, que tem o contexto que falta
+        # aqui, ou se a amostragem do KAM-040 mostrar que acontece.
         depois = texto[fim : fim + 24]
         return bool(re.match(rf"\s*{_KZ}\b", depois)) or _e_quantidade(texto, fim, inicio)
     return True

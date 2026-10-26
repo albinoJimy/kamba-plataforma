@@ -4158,8 +4158,8 @@ MUTACOES = [
     # ele nao reconhece passa — e e exactamente o que ele nao reconhece que
     # ninguem olhou.
     ('cit: um valor que coincide com um total dispensa o vinculo sempre', AG_VAL_VER,
-     '        if any(f.kind == "total" for f in casam):\n            continue',
-     "        if casam:\n            continue",
+     '        if any(f.kind == "total" for f in casam):',
+     "        if casam:",
      AGR_UNIT),
     # O criterio 3: um total somado pelo modelo falha porque nao e *fact*. Com
     # esta mutacao qualquer valor que exista em qualquer *fact* passa.

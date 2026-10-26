@@ -172,7 +172,16 @@ def _dinheiro(
             erros.append(Erro("money_unbacked", valor=valor))
             continue
         if any(f.kind == "total" for f in casam):
-            continue  # um total nao tem `sku` para vincular
+            # Um total nao tem `sku` para vincular (KAM-028), e os totais vem so
+            # do `propose_cart`.
+            #
+            # shortcut: um valor de preco que **coincida** com um *fact* `total`
+            # salta o vinculo ao `sku` e passa sem ser verificado contra o
+            # produto da linha — e a «coincidencia de valores» do §9.2, medida em
+            # `casos_adversariais.LIMITES`; revê-se quando o `Fact` distinguir o
+            # total do carrinho do total de uma linha, ou quando o KAM-040 medir
+            # a frequencia real disto por amostragem (`citation_fail_rate`).
+            continue
         ligados = [f for f in casam if f.sku and f.sku in linha.skus]
         if not ligados:
             erros.append(
