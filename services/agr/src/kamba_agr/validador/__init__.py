@@ -47,9 +47,23 @@ vivem ao lado de quem decide com elas — como o KAM-028 juntou o `pipeline` ao
 `layer` no `camada.py`, e pela mesma razao: o que se ganhava era um nome, o que
 se perdia era ler a regra ao lado do numero que ela julga.
 
-## Este ficheiro nao importa nada
+## O SemVer, e o que ele serve
 
-E a forma do `tls/__init__.py`, mas **a razao e mais fraca e vale dize-lo**: ali
+O DoD pede «o validador e artefacto comportamental; SemVer atribuido». O numero
+esta no `VERSAO` abaixo, e vale dizer o que ele **nao** faz hoje: nada o le. Quem
+o vai ler e o *gate* 13 do KAM-040, que fixa o conjunto adversarial no *golden* —
+e e por isso que o numero existe antes do gate, e nao depois: um conjunto
+comportamental sem versao nao se consegue fixar.
+
+A regra de incremento, para quem cá voltar: **maior** quando um veredicto entra
+ou sai da lista fechada, ou quando um bloco entra ou sai; **menor** quando uma
+regra passa a recusar o que aceitava (um `kind` novo da divida 105, por exemplo);
+**correccao** quando o extractor passa a ler um formato que nao lia.
+
+## Este ficheiro nao importa nenhum modulo do pacote
+
+So o `typing`, para o `VERSAO`. E a forma do `tls/__init__.py`, mas **a razao e
+mais fraca e vale dize-lo**: ali
 havia um ciclo medido, aqui nao ha. O `metricas.py` deriva a etiqueta `vertical`
 do `contexto.py` e nao deste modulo, pelo que o triangulo que o KAM-028
 descreveu nao se fecha — um `from .veredicto import validar` aqui importaria
@@ -61,3 +75,9 @@ punha a biblioteca de metricas no caminho de quem so quer normalizar um valor; e
 o KAM-031 e o KAM-035 vao abrir estes ficheiros um a um, como abriram os do
 `tls/`. Quem quer o validador importa `kamba_agr.validador.veredicto`.
 """
+
+from typing import Final
+
+#: O SemVer do artefacto comportamental (DoD «Eval-gate»). Ver a nota acima: quem
+#: o le e o *gate* 13 do KAM-040, e a regra de incremento esta la escrita.
+VERSAO: Final = "1.0.0"

@@ -994,6 +994,29 @@ class TestCanon(unittest.TestCase):
                 self.assertIn(kind, dividas)
         self.assertIn("KAM-031", dividas)
 
+    def test_o_artefacto_comportamental_tem_semver(self) -> None:
+        """DoD «Eval-gate». Quem o le e o *gate* 13 do KAM-040."""
+        import kamba_agr.validador as modulo
+
+        self.assertRegex(modulo.VERSAO, r"^\d+\.\d+\.\d+$")
+
+    def test_o_init_nao_importa_modulos_do_pacote(self) -> None:
+        """Quem quer o validador importa o modulo, nao o pacote.
+
+        **Le-se a fonte e nao os atributos**: assim que qualquer bateria faz
+        `import kamba_agr.validador.veredicto`, o Python poe o submodulo como
+        atributo do pacote, pelo que um `hasattr` daqui dava `True` sempre —
+        media a ordem dos testes e nao o `__init__`. Medido: a primeira versao
+        deste teste falhava com os quatro.
+        """
+        import kamba_agr.validador as modulo
+
+        fonte = Path(modulo.__file__).read_text(encoding="utf-8")
+        corpo = fonte.split('"""', 2)[2] if fonte.count('"""') >= 2 else fonte
+        self.assertNotIn("from .", corpo)
+        self.assertNotIn("import .", corpo)
+        self.assertIn("from typing import Final", corpo)
+
     def test_os_modos_de_preco_sao_os_do_dicionario(self) -> None:
         self.assertEqual(
             render.MODOS_DE_PRECO, ("fixo", "a_partir_de", "sob_consulta")
