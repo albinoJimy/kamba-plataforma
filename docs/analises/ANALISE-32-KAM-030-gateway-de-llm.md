@@ -121,12 +121,32 @@ que a assinatura é consistente, não **quem** assinou. No dia em que alguém su
 digest para uma imagem adulterada — o cenário do incidente de 2026-03-24 que
 motivou o ADR-005 —, o procedimento escrito mandava repetir a extracção.
 
-**Corrigido, e a correcção descobriu mais:** o projecto **publica** a chave em
-`raw.githubusercontent.com/BerriAI/litellm/main/cosign.pub`, e ela é
-**diferente** da que o *bundle* da `v1.104.2` traz. Fixou-se a publicada — que é
-fora de banda e autoritativa — e a divergência ficou registada: qual delas
-assinou esta versão só o `cosign verify` o diz. **A cláusula cosign do critério 1
-passou de «pendente do CI» a «não satisfeita»**, que é o que ela é.
+**Corrigido à terceira medição, e cada uma ensinou algo.** O caminho inteiro,
+porque é o que dá valor a este achado:
+
+1. **A chave publicada em `main` não verifica este digest.** O projecto publica
+   uma em `raw.githubusercontent.com/BerriAI/litellm/main/cosign.pub`, e ela é
+   **diferente** da do *bundle*. Fixei a publicada — fora de banda, como a
+   objecção manda — e o *gate* 11, com o `cosign` 3.1.4 instalado, reprovou:
+   `no matching signatures: error verifying bundle: comparing public key PEMs`.
+2. **A razão é uma rotação.** O histórico de `cosign.pub` tem dois *commits*: o
+   que a introduziu (`0112e53046`, 2026-03-31) e **«Rotate the cosign
+   image-signing public key»** (`e82a3c6469`, **2026-10-23**). A assinatura da
+   `v1.104.2` é de **2026-10-08** — quinze dias antes.
+3. **A chave publicada à data da assinatura verifica-a**, e é **exactamente** a
+   do *bundle*. É essa que está fixada, nomeada por *commit* e não por `main`.
+
+O que isto diz sobre o achado é melhor do que «estava certo»: **a chave do
+*bundle* era a genuína, e a objecção mantém-se de pé por inteiro.** Tirá-la de lá
+nunca provou quem assinou — o que o provou foi uma segunda fonte, independente do
+artefacto, e essa segunda fonte foi também a única que podia revelar a rotação.
+Um `cosign verify` verde contra a chave do *bundle* teria escondido as duas
+coisas.
+
+A cláusula cosign do critério 1 **fica satisfeita**, e o que resta na linha
+**117** das dívidas é a regra que a rotação cria: uma imagem assinada depois de
+2026-10-23 precisa da outra chave, e o sinal de quem se esquecer é aquela
+mensagem exacta — que é o comportamento certo de um *gate* que falha fechado.
 
 ---
 
@@ -171,7 +191,15 @@ passou de «pendente do CI» a «não satisfeita»**, que é o que ela é.
    que a evidência sustenta, e omitia que não havia chave virtual no caminho. O
    critério desceu a parcial por causa disso.
 
-E uma quarta, de ferramenta: **o revisor reviu `3261eaf` enquanto o `HEAD` passou
+**E uma quarta, que o achado 7 acabou por ensinar: um achado corrigido pode
+revelar mais do que o achado.** A objecção era «a raiz de confiança não pode vir
+do artefacto». Corrigi-la obrigou a procurar uma segunda fonte, e foi a segunda
+fonte — não a objecção — que revelou que o fornecedor tinha rodado a chave de
+assinatura quinze dias depois de assinar a versão que fixámos. Se eu tivesse
+«corrigido» o achado pondo o `cosign verify` a passar contra a chave do *bundle*,
+teria tapado as duas coisas com um *gate* verde.
+
+E uma quinta, de ferramenta: **o revisor reviu `3261eaf` enquanto o `HEAD` passou
 a `755d1a3`** (um *merge* de `publico/main` feito em paralelo), e disse-o em voz
 alta no relatório — o que evitou que eu lesse como achado deste ticket uma
 alteração de 29 linhas em `db/tests/test_privilegios.py` que veio de `main`. Quem
