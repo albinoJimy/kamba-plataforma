@@ -2111,8 +2111,41 @@ class TestProtocoloDeIdempotencia(_Base):
             executor=executor,
             campo_de_confirmacao="cart_id",
         )
+        troca.setdefault("dormir", self.dormir_com_guarda())
         camada, ligacao, _ = self.camada(especificacoes=(especificacao,), **troca)
         return camada, ligacao, chamadas, encomendas
+
+    #: Quantas vezes o laco da espera pode dormir antes de a bateria desistir.
+    #: O tecto de 3 s com intervalos de 50 ms dá 60; 200 é folga larga e continua
+    #: a ser um numero finito.
+    SESTAS_NO_MAXIMO = 200
+
+    def dormir_com_guarda(self, relogio=None):
+        """Um `dormir` que **levanta** em vez de deixar o laco girar para sempre.
+
+        Uma bateria de unidade nunca deve pendurar, e esta familia pode: o laco
+        do `reservar` espera por uma linha de outro, e uma mutacao que lhe tire o
+        tecto transforma a espera num ciclo infinito. Sem esta guarda, o corredor
+        de mutacoes nao distingue isso de a suite rebentar — reporta
+        `PROVA INVALIDA`, que conta como **sobrevivente** e nao como apanhada.
+        Foi o que aconteceu a primeira corrida de `idem:`.
+
+        Com ela, a mutacao vira um `AssertionError` com nome, que e uma medicao.
+        No codigo certo o tecto dispara aos 60 e a guarda nunca e tocada.
+        """
+        sestas = [0]
+
+        def dormir(segundos):
+            sestas[0] += 1
+            if sestas[0] > self.SESTAS_NO_MAXIMO:
+                raise AssertionError(
+                    f"a espera dormiu {sestas[0]} vezes sem tecto: o laco do "
+                    "`reservar` nao esta a medir o `TECTO_DE_ESPERA_MS`"
+                )
+            if relogio is not None:
+                relogio[0] += segundos
+
+        return dormir
 
     def test_o_segundo_toque_devolve_o_guardado_sem_chamar_o_backend(self) -> None:
         """O criterio 8, do lado da TLS: um `wamid` novo e um **turno novo**.
@@ -2218,14 +2251,9 @@ class TestProtocoloDeIdempotencia(_Base):
         3 s a serio media a maquina.
         """
         agora = [0.0]
-        dormidas: list[float] = []
-
-        def dormir(segundos):
-            dormidas.append(segundos)
-            agora[0] += segundos
-
-        camada, ligacao, chamadas, _ = self.camada_que_conta(relogio=lambda: agora[0])
-        camada._dormir = dormir
+        camada, ligacao, chamadas, _ = self.camada_que_conta(
+            relogio=lambda: agora[0], dormir=self.dormir_com_guarda(agora)
+        )
         # Uma reserva de outro, ja em curso, com **dez segundos**: mais do que os
         # 2 s que o criterio nomeia, e muito menos do que os 2 min ao fim dos
         # quais ela se considera abandonada. E a janela em que o dono esta vivo.

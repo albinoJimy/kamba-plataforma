@@ -611,6 +611,128 @@ class TestRetomaPorIdade(_ComIdempotencia):
                 )
 
 
+class TestAtomicidadeDaRetoma(_ComIdempotencia):
+    """O `WHERE` de cada retoma, medido directamente contra a base.
+
+    **Esta classe existe porque uma mutação sobreviveu.** Tirar o
+    `AND estado = 'falhada'` do `SQL_RETOMAR` não era apanhado por bateria
+    nenhuma: o `_retomou` só é chamado no ramo em que a linha **já** é `falhada`,
+    pelo que o desfecho era o mesmo com e sem a condição, e o que ela protege só
+    aparece com dois leitores ou com uma linha noutro estado.
+
+    E o que ela protege é o pior desfecho desta tabela: sem a condição, um
+    `UPDATE … SET estado = 'em_curso', result = NULL` numa linha **`concluida`**
+    **apaga o resultado guardado** e manda executar o backend outra vez — uma
+    encomenda a dobrar a partir de um *replay* que estava correcto.
+
+    Mede-se o SQL directamente, como o `test_tranca.py` faz com o
+    `pg_advisory_lock`: é a única forma de pôr a linha no estado que o código
+    nunca lhe dá.
+    """
+
+    def _semear(self, cart_id: str, estado: str, resultado: str | None) -> str:
+        chave = self.chave_de(cart_id)
+        self.semente.execute(
+            "INSERT INTO platform.tool_idempotency "
+            "(key, tenant_id, tool, args_hash, estado, result) "
+            "VALUES (%s, %s::uuid, 'criar_pedido', %s, %s, %s::jsonb)",
+            (
+                chave,
+                self.conversa.tenant_id,
+                self.impressao_de(cart_id),
+                estado,
+                resultado,
+            ),
+        )
+        return chave
+
+    def test_a_retoma_de_uma_falhada_nao_toca_uma_concluida(self) -> None:
+        chave = self._semear("c-concluida", "concluida", '{"order_id": "ord-7"}')
+        ligacao = self.tomada()
+
+        retomou = idempotency._retomou(ligacao, self.contexto(), chave)
+
+        self.assertFalse(retomou, "retomou uma linha que ja estava concluida")
+        linha = self.consultar(
+            "SELECT estado, result::text FROM platform.tool_idempotency WHERE key = %s",
+            (chave,),
+        )
+        self.assertEqual(linha[0][0], "concluida", "mudou o estado de uma concluida")
+        self.assertIn("ord-7", linha[0][1], "apagou o resultado guardado")
+
+    def test_a_retoma_de_uma_falhada_nao_toca_uma_em_curso(self) -> None:
+        """Uma `em_curso` tem dono vivo, e retomá-la é correr o backend por cima dele."""
+        chave = self._semear("c-curso-vivo", "em_curso", None)
+        ligacao = self.tomada()
+
+        self.assertFalse(idempotency._retomou(ligacao, self.contexto(), chave))
+        self.assertEqual(
+            self.consultar(
+                "SELECT estado FROM platform.tool_idempotency WHERE key = %s", (chave,)
+            ),
+            [("em_curso",)],
+        )
+
+    def test_a_retoma_de_uma_falhada_passa_uma_vez_so(self) -> None:
+        """O controlo: a condição **deixa passar** o que deve, e só uma vez.
+
+        Sem esta, as duas de cima passavam com um `_retomou` que nunca
+        actualizasse nada — e aí a retoma do critério 4 não existia.
+        """
+        chave = self._semear("c-falhada", "falhada", None)
+        ligacao = self.tomada()
+
+        self.assertTrue(idempotency._retomou(ligacao, self.contexto(), chave))
+        self.assertEqual(
+            self.consultar(
+                "SELECT estado FROM platform.tool_idempotency WHERE key = %s", (chave,)
+            ),
+            [("em_curso",)],
+        )
+        # A segunda tentativa nao passa: a linha ja nao esta `falhada`. E isto que
+        # faz de dois leitores concorrentes **um** executor.
+        self.assertFalse(
+            idempotency._retomou(ligacao, self.contexto(), chave),
+            "dois leitores retomaram a mesma linha e correriam os dois o backend",
+        )
+
+    def test_a_retoma_por_idade_nao_toca_uma_concluida_velha(self) -> None:
+        """A outra retoma tem a sua condição, e tem de morder pelo mesmo lado.
+
+        Uma `concluida` de cinco minutos é velha e **não** é para retomar: o
+        resultado dela é o que o *replay* devolve.
+        """
+        chave = self.chave_de("c-velha-ok")
+        self.semente.execute(
+            "INSERT INTO platform.tool_idempotency "
+            "(key, tenant_id, tool, args_hash, estado, result, created_at) "
+            "VALUES (%s, %s::uuid, 'criar_pedido', %s, 'concluida', %s::jsonb, "
+            "        now() - interval '5 minutes')",
+            (
+                chave,
+                self.conversa.tenant_id,
+                self.impressao_de("c-velha-ok"),
+                '{"order_id": "ord-8"}',
+            ),
+        )
+        ligacao = self.tomada()
+        nascida = self.consultar(
+            "SELECT created_at FROM platform.tool_idempotency WHERE key = %s", (chave,)
+        )[0][0]
+
+        retomou = idempotency._retomou(
+            ligacao, self.contexto(), chave, nascida_em=nascida
+        )
+
+        self.assertFalse(retomou, "retomou por idade uma linha concluida")
+        linha = self.consultar(
+            "SELECT estado, result::text FROM platform.tool_idempotency WHERE key = %s",
+            (chave,),
+        )
+        self.assertEqual(linha[0][0], "concluida")
+        self.assertIn("ord-8", linha[0][1], "apagou o resultado de um replay valido")
+
+
 class TestConteudoDiferente(_ComIdempotencia):
     """O criterio 3 contra a base, com o `args_hash` a serio."""
 
