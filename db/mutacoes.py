@@ -1270,16 +1270,23 @@ MUTACOES = [
      "export const TEMPO_MAXIMO_DO_ADD = 5_000;",
      "export const TEMPO_MAXIMO_DO_ADD = 3_600_000;",
      EVENTOS),
+    # **As duas do envelope correm contra `tests_eventos`, e nao contra `tests`.**
+    # Estavam sem suite, caiam na omissao, e a suite `tests` nao le nem corre o
+    # `envelope.ts` — nenhuma das duas podia ser apanhada la, e as duas
+    # sobreviveram a noite de 2026-10-26. O `lerEnvelope` so corre no
+    # publicador, e o caminho que o exercita e o `_inserir_directo` (uma linha
+    # no outbox sem passar pelo `evt_emitir`, que escreve sempre `P0` e nunca
+    # um campo a mais). Os dois casos que faltavam estao agora la.
     ("eventos: o envelope deixa de recusar campos desconhecidos", EV_ENVELOPE,
      "  if (demais.length > 0) {\n"
      "    throw new EnvelopeInvalidoError(\n"
      "      `campo(s) de topo desconhecido(s): ${demais.sort().join(\", \")}`,\n"
      "    );\n"
      "  }\n",
-     ""),
+     "", EVENTOS),
     ("eventos: o envelope aceita classe_pii P2", EV_ENVELOPE,
      '  if (classe === "P2") {',
-     '  if (classe === "P9") {'),
+     '  if (classe === "P9") {', EVENTOS),
     ("eventos: o guarda de PII perde o padrao angolano", EV_PII,
      "export const PADROES_DE_TELEFONE = [TELEFONE_AO, E164_ENTRE_ASPAS] as const;",
      "export const PADROES_DE_TELEFONE = [E164_ENTRE_ASPAS] as const;"),
