@@ -27,6 +27,7 @@ EVENTOS = RAIZ / "packages" / "core-ts" / "src" / "eventos"
 FILAS = EVENTOS / "filas_bullmq.ts"
 TRABALHADOR = EVENTOS / "trabalhador_bullmq.ts"
 CONSUMO = EVENTOS / "consumo.ts"
+DLQ = EVENTOS / "dlq.ts"
 
 
 class TestOsFicheirosExistem(unittest.TestCase):
@@ -82,6 +83,67 @@ class TestEscadaDoConsumidor(unittest.TestCase):
         degraus = len(re.findall(r"[0-9_]+", escada.group(1)))
         self.assertEqual(int(achado.group(1)), 1 + degraus)
         self.assertEqual(int(achado.group(1)), 6, "o criterio 2 diz 6 (1 + 5)")
+
+
+class TestContextoDeTenantPorModulo(unittest.TestCase):
+    """Cada modulo poe o **seu** contexto de tenant, e poe-no na transaccao.
+
+    E a classe de acoplamento que esta bateria existe para prender, e as duas
+    mutacoes que a pediram sobreviveram a noite de 2026-10-26 pela mesma razao —
+    uma **segunda camada** que torna as guardas invisiveis a qualquer suite de
+    execucao:
+
+        trabalhador_bullmq.ts:  bd.query(SQL_DEFINIR_TENANT, [tenantId, false])
+        consumo.ts:             bd.query(SQL_DEFINIR_TENANT, [envelope.tenant_id, true])
+        dlq.ts:                 bd.query(SQL_DEFINIR_TENANT, [tenantId, true])
+
+    O `false` do *worker* e `is_local = false`: o contexto fica na **sessao**, na
+    mesma ligacao, e a transaccao de cada modulo herda-o. Arrancar o `set_config`
+    **local** de dentro do `consumo.ts` ou do `dlq.ts` nao quebra nada em
+    `tests_eventos_consumo` — o `WITH CHECK` da politica passa com o valor de
+    sessao, e a suite tem um unico *tenant*, pelo que nao ha com que distinguir
+    de onde veio.
+
+    A propriedade nao e «a escrita tem contexto»: e «o modulo **nao depende** do
+    contexto da ligacao que lhe calhou». E a de `consumo.ts` tem uma segunda
+    metade: o *tenant* e o do **envelope**, lido do arquivo, e nao o
+    `tenantDoJob(dados)` que o *worker* usa — um *job* forjado ou obsoleto
+    marcava o consumo no *tenant* errado.
+
+    Por isso le-se como texto, aqui, e nao se mede por execucao: e o que esta
+    classe de teste existe para dizer — «diz o que eles nao podem dizer».
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.consumo = CONSUMO.read_text(encoding="utf-8")
+        cls.dlq = DLQ.read_text(encoding="utf-8")
+        cls.trabalhador = TRABALHADOR.read_text(encoding="utf-8")
+
+    def test_a_marca_de_consumo_e_do_tenant_do_envelope(self) -> None:
+        self.assertIn(
+            "await bd.query(SQL_DEFINIR_TENANT, [envelope.tenant_id, true]);",
+            self.consumo,
+        )
+
+    def test_a_entrada_da_dlq_leva_o_seu_contexto_de_tenant(self) -> None:
+        self.assertIn(
+            "await bd.query(SQL_DEFINIR_TENANT, [tenantId, true]);", self.dlq
+        )
+
+    def test_o_worker_poe_o_contexto_na_sessao_e_os_modulos_na_transaccao(self) -> None:
+        """O canario, e e ele que torna os dois de cima necessarios.
+
+        Se o *worker* passasse a por o contexto **local** (`true`), herdar
+        deixava de funcionar e as duas guardas de cima passariam a ter efeito
+        observavel numa suite de execucao — e estes testes de texto seriam
+        redundancia. E se deixasse de o por, as duas de cima passariam a ser a
+        **unica** defesa. Nos dois casos a razao escrita no `docstring` desta
+        classe deixa de valer, e e isso que se quer que falhe.
+        """
+        self.assertIn(
+            "await bd.query(SQL_DEFINIR_TENANT, [tenantId, false]);", self.trabalhador
+        )
 
 
 class TestOnceForaDaTransaccao(unittest.TestCase):

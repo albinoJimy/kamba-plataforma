@@ -1236,14 +1236,25 @@ MUTACOES = [
      "      }\n",
      "", EVENTOS),
     # Achado 13: o erro do laco volta a nao largar o lock consultivo.
+    #
+    # **Na suite `tests`, por texto, e a razao e que nenhuma execucao da
+    # `tests_eventos` alcanca este `catch` sem matar o lider.** O `parar()`
+    # aborta o sinal e sai pelo `largar()` de **fora** do laco; as falhas
+    # tipicas nao chegam aqui, porque o `#recuar` tem `catch` proprio e o
+    # `#reverter()` corre antes; e o `kill -9` do `TestLideranca` fecha a
+    # ligacao, e o servidor larga o *lock* de sessao sozinho — o que torna a
+    # contagem de referencias irrelevante, que e precisamente a propriedade.
+    # Sobreviveu a noite de 2026-10-26 por isso, e nao por falta de atencao.
+    # Medi-la por execucao exigiria um gancho novo no `publicador_runner.ts`
+    # para um ciclo falhar sem morrer. O contrato prende-se no
+    # `test_publicador_contrato.TestOCatchDoLacoLargaOLock`.
     ("eventos: um erro transitorio deixa o lock preso", EV_PUBLICADOR,
      "        await this.largar();\n"
      "      }\n"
      "      await esperar(this.#intervalo, sinal);",
      "        this.#lider = false;\n"
      "      }\n"
-     "      await esperar(this.#intervalo, sinal);",
-     EVENTOS),
+     "      await esperar(this.#intervalo, sinal);"),
     # Achado 7: o atraso do criterio 8 volta a ser medido pelo relogio do
     # inicio da transaccao, que exclui o enfileiramento do lote.
     ("eventos: o atraso e medido antes do trabalho", EV_CONSULTAS,
@@ -1270,16 +1281,23 @@ MUTACOES = [
      "export const TEMPO_MAXIMO_DO_ADD = 5_000;",
      "export const TEMPO_MAXIMO_DO_ADD = 3_600_000;",
      EVENTOS),
+    # **As duas do envelope correm contra `tests_eventos`, e nao contra `tests`.**
+    # Estavam sem suite, caiam na omissao, e a suite `tests` nao le nem corre o
+    # `envelope.ts` — nenhuma das duas podia ser apanhada la, e as duas
+    # sobreviveram a noite de 2026-10-26. O `lerEnvelope` so corre no
+    # publicador, e o caminho que o exercita e o `_inserir_directo` (uma linha
+    # no outbox sem passar pelo `evt_emitir`, que escreve sempre `P0` e nunca
+    # um campo a mais). Os dois casos que faltavam estao agora la.
     ("eventos: o envelope deixa de recusar campos desconhecidos", EV_ENVELOPE,
      "  if (demais.length > 0) {\n"
      "    throw new EnvelopeInvalidoError(\n"
      "      `campo(s) de topo desconhecido(s): ${demais.sort().join(\", \")}`,\n"
      "    );\n"
      "  }\n",
-     ""),
+     "", EVENTOS),
     ("eventos: o envelope aceita classe_pii P2", EV_ENVELOPE,
      '  if (classe === "P2") {',
-     '  if (classe === "P9") {'),
+     '  if (classe === "P9") {', EVENTOS),
     ("eventos: o guarda de PII perde o padrao angolano", EV_PII,
      "export const PADROES_DE_TELEFONE = [TELEFONE_AO, E164_ENTRE_ASPAS] as const;",
      "export const PADROES_DE_TELEFONE = [E164_ENTRE_ASPAS] as const;"),
@@ -1377,9 +1395,19 @@ MUTACOES = [
     # acoplamentos entre ficheiros, ou guardas, que **nenhuma execucao
     # distingue de uma coincidencia**. Vivem no
     # `db/tests/test_consumo_contrato.py` e no `test_dlq_reabertura.py`.
+    # **Na suite `tests`, pela segunda camada que a `tests_eventos_consumo` nao
+    # pode ver.** O `trabalhador_bullmq.ts` poe `app.tenant_id` ao nivel da
+    # **sessao** (`is_local = false`) na mesma ligacao, antes de chamar o
+    # `consumir`, pelo que a transaccao herda-o e o `WITH CHECK` da politica
+    # passa com o `set_config` local arrancado. A suite tem um unico *tenant* —
+    # nao ha com que distinguir de onde veio o contexto —, e a mutacao
+    # sobreviveu a noite de 2026-10-26. A propriedade nao e «a escrita tem
+    # contexto»: e «o modulo nao depende do contexto da ligacao que lhe
+    # calhou», e e do tenant do **envelope** e nao do `tenantDoJob`. Prende-se
+    # por texto, no `TestContextoDeTenantPorModulo`.
     ("consumo: a marca de consumo deixa de ser do tenant do envelope", EV_CONSUMO,
      "    await bd.query(SQL_DEFINIR_TENANT, [envelope.tenant_id, true]);\n",
-     "", CONSUMO),
+     ""),
     ("consumo: um duplicado volta a aplicar o efeito", EV_CONSUMO,
      "    if ((marca.rowCount ?? 0) === 0) {",
      "    if ((marca.rowCount ?? 0) === -1) {", CONSUMO),
@@ -1396,9 +1424,17 @@ MUTACOES = [
     ("trabalho: um fora_de_ordem passa a recuar pela escada", EV_TRABALHO,
      "    if (erro instanceof ForaDeOrdem) {",
      "    if (erro instanceof RangeError) {", CONSUMO),
+    # Passa a `tests` pela mesma razao da irma do `consumo.ts`: o contexto de
+    # sessao posto pelo `trabalhador_bullmq.ts` chega **tambem** ao caminho da
+    # DLQ, inclusive no do envelope ilegivel — o `set_config` corre antes do
+    # `SQL_ENVELOPE_DO_EVENTO` que devolve zero linhas. E ha uma terceira
+    # camada do lado da suite `tests`: o `ComEntradaNaDlq` do
+    # `test_dlq_reabertura.py` poe o contexto no proprio `setUp`, antes de
+    # chamar o SQL extraido do TypeScript, pelo que nunca depende de o modulo o
+    # por. Prende-se por texto, no `TestContextoDeTenantPorModulo`.
     ("dlq: a entrada deixa de ter contexto de tenant", EV_DLQ,
      "    await bd.query(SQL_DEFINIR_TENANT, [tenantId, true]);\n",
-     "", CONSUMO),
+     ""),
     ("trabalhador: um evento ilegivel deixa de abrir a DLQ", EV_TRABALHADOR,
      "            await paraDlqSemEnvelope({",
      "            await Promise.resolve({", CONSUMO),

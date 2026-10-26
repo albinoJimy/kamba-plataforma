@@ -180,26 +180,94 @@ class TestPublicacao(ComFila):
         )
         return str(self.cursor.fetchone()[0])
 
-    def _envelope(self, payload: str) -> str:
+    def _envelope(self, payload: str, **trocas: object) -> str:
+        """Um envelope valido. `trocas` substitui ou **acrescenta** chaves de topo.
+
+        Acrescentar e o que faltava: as linhas envenenadas desta suite eram
+        todas por campo **em falta**, e um campo a mais nunca foi tentado — ver
+        `test_um_envelope_com_campo_de_topo_a_mais_nao_vai_a_fila`.
+        """
         import json
 
-        return json.dumps(
-            {
-                "id": str(uuid.uuid4()),
-                "tipo": TIPO,
-                "versao": 1,
-                "tenant_id": self.tenant,
-                "ocorrido_em": "2026-11-02T14:03:11.482Z",
-                "registado_em": "2026-11-02T14:03:11.610Z",
-                "produtor": "ensaio@0",
-                "agregado": {"tipo": "order", "id": "agg-directo", "seq": 1},
-                "correlacao_id": None,
-                "causa_id": None,
-                "trace_id": None,
-                "classe_pii": "P1",
-                "finalidades": ["transacao"],
-                "payload": json.loads(payload),
-            }
+        campos = {
+            "id": str(uuid.uuid4()),
+            "tipo": TIPO,
+            "versao": 1,
+            "tenant_id": self.tenant,
+            "ocorrido_em": "2026-11-02T14:03:11.482Z",
+            "registado_em": "2026-11-02T14:03:11.610Z",
+            "produtor": "ensaio@0",
+            "agregado": {"tipo": "order", "id": "agg-directo", "seq": 1},
+            "correlacao_id": None,
+            "causa_id": None,
+            "trace_id": None,
+            "classe_pii": "P1",
+            "finalidades": ["transacao"],
+            "payload": json.loads(payload),
+        }
+        campos.update(trocas)
+        return json.dumps(campos)
+
+    def _a_ma_nao_passa(self, mau: str, porque: str) -> None:
+        """A linha boa publica-se, a ma fica por publicar.
+
+        **O canario e a linha boa.** Sem ela, um publicador que nao publicasse
+        nada — morto ao arrancar, a falhar o lote inteiro, a nao ver a fila —
+        passava estes testes por acidente: a ma ficaria por publicar pela razao
+        errada. Exigir `publicados() == 1` e a profundidade da fila da boa
+        separa «recusou aquela» de «nao fez nada».
+        """
+        (boa,) = self.emitir(1)
+        self.lancar_publicador()
+
+        self.assertTrue(
+            esperar_por(lambda: self.publicados() == 1, 60),
+            f"a linha boa nao passou{self.diagnostico()}",
+        )
+        self.cursor.execute(
+            "SELECT publicado_at IS NULL FROM platform.events_outbox WHERE event_id = %s",
+            (mau,),
+        )
+        self.assertTrue(self.cursor.fetchone()[0], porque)
+        self.assertEqual(self.fila.pendentes(self.nome_da_fila(boa)), 1)
+
+    def test_um_envelope_com_classe_pii_p2_nao_vai_a_fila(self) -> None:
+        """`classe_pii` P2 e proibida no envelope (`docs/tecnica/06` §7.1).
+
+        A proibicao vive no `lerEnvelope`, e so o publicador a corre: o
+        `evt_emitir` escreve sempre `P0`, pelo que uma linha emitida pela base
+        nunca a exercita. O unico envelope construido a mao nesta suite
+        declarava `P1` — nenhum declarava `P2`, e por isso trocar a classe
+        recusada por uma que nunca ocorre tornava o bloco **codigo morto** sem
+        nada a dizer. A mutacao `eventos: o envelope aceita classe_pii P2`
+        sobreviveu a noite de 2026-10-26 por isso.
+        """
+        mau = self._inserir_directo(
+            self._envelope('{"order_id": "x"}', classe_pii="P2")
+        )
+        self._a_ma_nao_passa(mau, "publicou um envelope com classe_pii P2")
+
+    def test_um_envelope_com_campo_de_topo_a_mais_nao_vai_a_fila(self) -> None:
+        """O schema do envelope e **fechado**, e e a defesa principal de PII.
+
+        O `envelope.ts` di-lo por escrito: a defesa contra PII nao e o guarda de
+        telefones, e o schema fechado mais o nome de campo proibido. Mas as
+        linhas envenenadas desta suite eram todas por campo **em falta**
+        (`{"tipo": ...}`, `{}`), que os guardas de tipo do `lerEnvelope` recusam
+        de qualquer maneira; nenhuma trazia um campo **a mais**. Retirar o bloco
+        que recusa os desconhecidos deixava a suite verde, e a mutacao
+        `eventos: o envelope deixa de recusar campos desconhecidos` sobreviveu
+        a noite de 2026-10-26.
+
+        O campo escolhido e o caso que importa: um nome de aspecto inocente que
+        transporta um telefone para fora do `payload`, onde o guarda de PII do
+        §6.1 ainda o apanharia, mas onde um lint de nomes de campo nao olha.
+        """
+        mau = self._inserir_directo(
+            self._envelope('{"order_id": "x"}', notificar_em="whatsapp")
+        )
+        self._a_ma_nao_passa(
+            mau, "publicou um envelope com um campo de topo desconhecido"
         )
 
     def test_um_envelope_com_telefone_inserido_directamente_nao_vai_a_fila(self) -> None:

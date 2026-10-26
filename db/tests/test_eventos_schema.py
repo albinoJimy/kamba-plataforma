@@ -35,13 +35,19 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import threading
 import time
 import unittest
 from pathlib import Path
 
 import ligacao
-from tests.base import PRIVILEGIO_INSUFICIENTE, VIOLACAO_DE_CHECK, ComBase
+from tests.base import (
+    PRIVILEGIO_INSUFICIENTE,
+    VIOLACAO_DE_CHECK,
+    ComBase,
+    ConsultaDoTypeScript,
+)
 
 RAIZ = Path(__file__).resolve().parents[2]
 FIXTURE_DE_PII = (
@@ -56,6 +62,17 @@ PADRAO_E164 = r'"\+[0-9]{9,15}"'
 
 REVISAO = RAIZ / "db" / "migrations" / "versions" / "0004_outbox_e_eventos.py"
 
+#: O espelho em TypeScript do guarda — a outra metade da paridade.
+GUARDA_TS = RAIZ / "packages" / "core-ts" / "src" / "eventos" / "pii.ts"
+
+#: O nome de cada `RegExp` do `pii.ts` e o padrao do SQL que ele tem de repetir.
+#: A **ordem** e a do `evt_emitir`, e e a ordem em que
+#: `PADROES_DE_TELEFONE` os tem de listar.
+PADROES_DO_GUARDA_TS = (
+    ("TELEFONE_AO", PADRAO_TELEFONE_AO),
+    ("E164_ENTRE_ASPAS", PADRAO_E164),
+)
+
 #: O criterio 1 pede «1 000 *rollbacks* aleatorios». Mil **rollbacks**, e nao
 #: mil transaccoes de que metade reverte: a primeira versao deste teste fazia
 #: mil transaccoes e ~500 reversoes, e a revisao adversarial (ANALISE-20, achado
@@ -65,6 +82,22 @@ ROLLBACKS_DO_CRITERIO_1 = 1000
 
 #: Quantas repeticoes o criterio 2 pede. «100 repeticoes.»
 REPETICOES_DO_CRITERIO_2 = 100
+
+#: As consultas do publicador, de onde se le o `SQL_MARCAR_PUBLICADO` para o
+#: correr tal e qual — uma copia dele aqui provaria que a copia funciona.
+CONSULTAS_DOS_EVENTOS = (
+    RAIZ / "packages" / "core-ts" / "src" / "eventos" / "consultas.ts"
+)
+
+#: Quanto tempo tem de passar dentro da transaccao para que o relogio do seu
+#: inicio fique mensuravelmente atras do da escrita. 50 ms chegam e sobram
+#: para a resolucao de microssegundos do `timestamptz`.
+ESPERA_DO_ATRASO = 0.05
+
+#: Quantos agregados confrontam a mascara da particao com a conta do documento.
+#: Um so dava 50% de deteccao a uma mascara errada por um bit — ver
+#: `TestParticao.test_a_conta_e_a_do_documento`.
+AGREGADOS_DA_PARIDADE = 24
 
 SQL_EMITIR = (
     "SELECT platform.evt_emitir(%s, 1::smallint, %s, %s, %s, %s::jsonb)"
@@ -553,6 +586,48 @@ class TestParidadeDoGuardaDePii(ComBase):
         self.assertIn(r"p_payload::text ~ '\+?244 ?9[0-9]{8}'", corpo)
         self.assertIn(r"""p_payload::text ~ '"\+[0-9]{9,15}"'""", corpo)
 
+    def test_cada_regexp_do_typescript_e_o_padrao_do_sql(self) -> None:
+        """A outra metade da paridade: o `RegExp` e o `~` sao a mesma cadeia.
+
+        A fixture corria so contra o PostgreSQL, e o docstring desta classe
+        prometia os dois lados. O lado TypeScript nunca era lido aqui: a suite
+        do gate 8 nao corre Node, e o `pii.ts` passava a valer pelo que a
+        bateria *vitest* dissesse — que nao e esta prova.
+
+        Le-se o modulo como texto, que e o padrao do
+        `db/tests/test_consumo_contrato.py`: diz o que uma suite de execucao
+        sem Node nao pode dizer.
+        """
+        corpo = GUARDA_TS.read_text(encoding="utf-8")
+        for nome, padrao in PADROES_DO_GUARDA_TS:
+            with self.subTest(padrao=nome):
+                achado = re.search(
+                    rf"^export const {nome} = /(?P<fonte>.*)/;$",
+                    corpo,
+                    re.MULTILINE,
+                )
+                self.assertIsNotNone(achado, f"`{nome}` nao esta no pii.ts")
+                self.assertEqual(achado.group("fonte"), padrao)
+
+    def test_o_guarda_do_typescript_usa_os_dois_padroes(self) -> None:
+        """Um dos dois retirado da lista e meio guarda, e ninguem dava por ela.
+
+        O canario e a propria lista: afirmar que os dois `RegExp` **existem**
+        no ficheiro passava com qualquer um deles fora de
+        `PADROES_DE_TELEFONE` — as constantes continuam declaradas, e e so a
+        lista que o `padraoDeTelefoneEm` percorre. Por isso o que se compara e
+        o conteudo da lista, e pela ordem do `evt_emitir`.
+        """
+        corpo = GUARDA_TS.read_text(encoding="utf-8")
+        achado = re.search(
+            r"^export const PADROES_DE_TELEFONE = \[(?P<lista>[^\]]*)\] as const;$",
+            corpo,
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(achado, "`PADROES_DE_TELEFONE` nao esta no pii.ts")
+        listados = [n.strip() for n in achado.group("lista").split(",") if n.strip()]
+        self.assertEqual(listados, [nome for nome, _ in PADROES_DO_GUARDA_TS])
+
     def test_as_cadeias_apanhadas_sao_apanhadas_pelo_sql(self) -> None:
         self.assertTrue(self.fixture["apanhados"])
         for cadeia in self.fixture["apanhados"]:
@@ -620,16 +695,95 @@ class TestParticao(ComEventos):
         self.assertEqual(len(particoes), 1, particoes)
 
     def test_a_conta_e_a_do_documento(self) -> None:
-        """`hashtextextended(tenant || agregado_id, 0) & 15`, sem desvio."""
+        """`hashtextextended(tenant || agregado_id, 0) & 15`, sem desvio.
+
+        **Um agregado nao chega, e a prova por mutacao mostrou-o.** Com um so
+        — e ele e um UUID novo por execucao (`setUp`) —, uma mascara errada por
+        um bit (`& 7` em vez de `& 15`) so se ve quando o bit 3 do *hash* esta
+        a 1: metade das execucoes. A mutacao `0004: a particao usa oito filas
+        em vez de dezasseis` sobreviveu a noite de 2026-10-26 e foi apanhada na
+        repeticao seguinte — o teste nao estava em falta, estava a matar **por
+        sorte**.
+
+        Com `AGREGADOS_DA_PARIDADE` agregados independentes, escapar exige que
+        o bit 3 esteja a 0 em todos: 2 ** -24, da ordem de 1e-8. O custo e
+        vinte e quatro `evt_emitir` numa transaccao.
+        """
+        conexao, cursor = self.admin()
+        agregados = [f"{self.agregado}-c{i}" for i in range(AGREGADOS_DA_PARIDADE)]
+        for agregado in agregados:
+            _emitir(cursor, self.tenant, agregado)
+        conexao.commit()
+        linhas = self.consultar(
+            "SELECT o.agregado_id, o.particao, "
+            "       (hashtextextended(%s || o.agregado_id, 0) & 15)::smallint "
+            "  FROM platform.events_outbox o WHERE o.agregado_id = ANY(%s) "
+            " ORDER BY 1",
+            (self.tenant, agregados),
+        )
+        self.assertEqual(len(linhas), AGREGADOS_DA_PARIDADE)
+        for agregado, guardada, conta in linhas:
+            with self.subTest(agregado=agregado):
+                self.assertEqual(guardada, conta)
+
+
+class TestMarcaDePublicado(ComEventos):
+    """O `publicado_at` e o instante da **escrita**, nao o do inicio do ciclo.
+
+    Corre o `SQL_MARCAR_PUBLICADO` lido do `consultas.ts`, pelo
+    `ConsultaDoTypeScript` — o mesmo mecanismo do `test_accoes.py` e do
+    `test_dlq_reabertura.py`. Uma copia da instrucao aqui provaria que a copia
+    funciona.
+
+    **Porque e que isto faltava.** Toda a bateria olhava para o `publicado_at`
+    por `IS NULL` / `IS NOT NULL`, nunca pelo **valor**; e a unica que mede o
+    atraso, a `tests_eventos_carga`, compara-o com um **tecto**. Trocar
+    `clock_timestamp()` por `now()` baixa o atraso medido, pelo que faz esse
+    teste passar com mais folga: a mutacao `eventos: o atraso e medido antes do
+    trabalho` era imune por construcao, e sobreviveu a noite de 2026-10-26.
+    """
+
+    def test_o_publicado_at_e_posterior_ao_inicio_da_transaccao(self) -> None:
+        """`now()` e `transaction_timestamp()`: o instante **antes** do trabalho.
+
+        Com `now()` o `publicado_at` sai exactamente igual ao inicio da
+        transaccao e o atraso do criterio 8 passa a excluir o enfileiramento do
+        lote — o enviesamento cresce precisamente no regime em que o atraso real
+        e maior (ANALISE-20, achado 7).
+        """
+        marcar = ConsultaDoTypeScript(
+            "SQL_MARCAR_PUBLICADO", ficheiro=CONSULTAS_DOS_EVENTOS
+        )
         conexao, cursor = self.admin()
         _emitir(cursor, self.tenant, self.agregado)
         conexao.commit()
-        linha = self.consultar(
-            "SELECT o.particao, (hashtextextended(%s || %s, 0) & 15)::smallint "
-            "FROM platform.events_outbox o WHERE o.agregado_id = %s",
-            (self.tenant, self.agregado, self.agregado),
-        )[0]
-        self.assertEqual(linha[0], linha[1])
+
+        # Daqui para baixo e **uma** transaccao: o `transaction_timestamp()`
+        # fica fixo no primeiro comando, e o `pg_sleep` afasta-o do relogio.
+        cursor.execute(
+            "SELECT id FROM platform.events_outbox WHERE agregado_id = %s",
+            (self.agregado,),
+        )
+        ids = [linha[0] for linha in cursor.fetchall()]
+        self.assertEqual(len(ids), 1, "o emitir nao deixou uma linha so")
+        cursor.execute("SELECT pg_sleep(%s)", (ESPERA_DO_ATRASO,))
+        cursor.execute(marcar.sql, marcar.args(ids))
+        cursor.execute(
+            "SELECT publicado_at, publicado_at - transaction_timestamp() "
+            "  FROM platform.events_outbox WHERE id = ANY(%s)",
+            (ids,),
+        )
+        publicado_at, atraso = cursor.fetchone()
+        conexao.rollback()
+
+        # O canario: sem esta linha, um `publicado_at` que ficasse NULL dava uma
+        # subtraccao NULL e o teste rebentava — vermelho, mas pela razao errada.
+        self.assertIsNotNone(publicado_at, "o SQL do modulo nao marcou a linha")
+        self.assertGreaterEqual(
+            atraso.total_seconds(),
+            ESPERA_DO_ATRASO,
+            "o `publicado_at` e o relogio do inicio da transaccao, nao o da escrita",
+        )
 
 
 class TestEnvelope(ComEventos):
