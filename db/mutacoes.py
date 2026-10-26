@@ -4509,13 +4509,25 @@ def _copiar_para_o_cosign(destino: Path, ignorar) -> None:
     confere que a entrada do LiteLLM verifica **por chave** e que o ficheiro da
     chave existe. Sem o `ci/`, aquelas duas baterias ficavam a medir «nao ha
     inventario» em vez do que dizem medir.
+
+    **E o `lint_arch`, o `sbom` e o `ci_waivers`**, que a primeira versao desta
+    receita nao levava: o `supply_chain/licencas.py` importa os dois primeiros
+    no topo do modulo, e o `sbom/cli.py` importa o terceiro, pelo que sem eles
+    nem `import supply_chain` corre. A primeira versao parecia funcionar porque
+    o `.venv` desta maquina tinha um `kamba.pth` — feito a mao, que nenhum
+    ficheiro do projecto cria — a por o `tools/` **real** no `sys.path`: a copia
+    ficava a importar os pacotes que lhe faltavam da arvore verdadeira, e a
+    linha de base nunca podia ficar vermelha por falta de copia. No *runner*,
+    que nao tem esse ficheiro, a suite `cosign` morria em `ModuleNotFoundError`.
+    O `TestAsCopiasDeToolsImportamSozinhas` de `db/tests/test_mutacoes.py` passa
+    a medir isto sem o `.pth` pelo meio.
     """
-    shutil.copytree(
-        RAIZ / "tools" / "supply_chain",
-        destino / "tools" / "supply_chain",
-        ignore=ignorar,
-    )
-    shutil.copy(RAIZ / "tools" / "kamba_yaml.py", destino / "tools" / "kamba_yaml.py")
+    for pacote in ("supply_chain", "lint_arch", "sbom"):
+        shutil.copytree(
+            RAIZ / "tools" / pacote, destino / "tools" / pacote, ignore=ignorar
+        )
+    for modulo in ("kamba_yaml.py", "ci_waivers.py"):
+        shutil.copy(RAIZ / "tools" / modulo, destino / "tools" / modulo)
     shutil.copytree(
         RAIZ / "ci" / "supply-chain", destino / "ci" / "supply-chain", ignore=ignorar
     )

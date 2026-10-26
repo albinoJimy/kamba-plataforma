@@ -14,7 +14,10 @@ from __future__ import annotations
 
 import contextlib
 import io
+import shutil
+import subprocess
 import sys
+import tempfile
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -358,6 +361,76 @@ class TestParalelo(unittest.TestCase):
                 os.environ.pop("KAMBA_MUTACOES_PARALELO", None)
             else:
                 os.environ["KAMBA_MUTACOES_PARALELO"] = anterior
+
+
+#: Importa `<pacote>` com a arvore `tools/` **real** fora do `sys.path`.
+#:
+#: Nao basta correr na copia: um `.pth` no `site-packages` entra no `sys.path`
+#: de qualquer processo e nao se tira com `PYTHONPATH` nem com `-I`. Tira-se
+#: aqui, por caminho, antes do `import`.
+_GUIAO_DE_IMPORTACAO = """
+import sys, os
+real, pacote = sys.argv[1], sys.argv[2]
+
+
+def mesma(a, b):
+    return os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))
+
+
+sys.path[:] = ["tools"] + [p for p in sys.path if p and not mesma(p, real)]
+__import__(pacote)
+"""
+
+
+class TestAsCopiasDeToolsImportamSozinhas(unittest.TestCase):
+    """Cada receita de `COPIA_DE_TOOLS` tem de bastar-se a si mesma.
+
+    **Terceira vez que o instrumento falha pela razao errada**, e a primeira em
+    que falha sem se notar. A receita do `cosign` (KAM-030) copiava o
+    `supply_chain` e nao o `lint_arch`, o `sbom` e o `ci_waivers`, que ele
+    importa no topo do modulo. No *runner* a suite morria em
+    `ModuleNotFoundError` antes de medir mutacao nenhuma; nesta maquina passava,
+    porque o `.venv` tinha um `kamba.pth` — feito a mao, que nenhum ficheiro do
+    projecto cria — a por o `tools/` **real** no `sys.path`. A copia importava
+    da arvore verdadeira o que lhe faltava, e a linha de base nao podia ficar
+    vermelha por falta de copia. Onze noites assim, todas vermelhas por outra
+    razao e nenhuma medida (issue #3).
+
+    Mede-se por importacao e nao por leitura dos `import`: o que interessa nao
+    e a lista de nomes, e se o interpretador chega ao fim do modulo com **so** o
+    que a receita copiou.
+    """
+
+    def test_cada_suite_de_tools_importa_com_o_que_a_sua_receita_copia(self) -> None:
+        real = str((mutacoes.RAIZ / "tools").resolve())
+        ignorar = shutil.ignore_patterns("__pycache__", "*.pyc")
+        for suite, (pacote, _padrao) in sorted(mutacoes.SUITES_DE_TOOLS.items()):
+            with self.subTest(suite=suite):
+                destino = Path(tempfile.mkdtemp(prefix="kamba-copia-"))
+                try:
+                    mutacoes.COPIA_DE_TOOLS[suite](destino, ignorar)
+                    corrida = subprocess.run(
+                        [sys.executable, "-c", _GUIAO_DE_IMPORTACAO, real, pacote],
+                        cwd=destino,
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                    )
+                finally:
+                    shutil.rmtree(destino, ignore_errors=True)
+                self.assertEqual(
+                    corrida.returncode,
+                    0,
+                    f"a copia da suite {suite!r} nao basta para `import {pacote}`; "
+                    f"a receita tem de levar o que ele importa:\n{corrida.stderr}",
+                )
+
+    def test_toda_a_suite_de_tools_tem_receita(self) -> None:
+        """Sem isto, uma suite nova corre sobre a copia de outra."""
+        self.assertEqual(
+            sorted(mutacoes.SUITES_DE_TOOLS), sorted(mutacoes.COPIA_DE_TOOLS)
+        )
 
 
 if __name__ == "__main__":
