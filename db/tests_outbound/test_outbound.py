@@ -440,6 +440,15 @@ TESTES_OBRIGATORIOS = (
     # `contextoDaCifra` e exportado de proposito e tinha **zero** testes; passa
     # a ter um, e o nome fica preso aqui.
     "o contexto autenticado leva o tenant, e o kid",
+    # Os dois desfechos em que a igualdade de **conjuntos** difere de uma
+    # contagem. Os tres testes de confirmacao que havia usavam todos conjuntos
+    # de tamanho diferente de onze (dez campos, ou nenhum), pelo que uma
+    # contagem levantava nos tres e a mutacao `onboarding: a confirmacao passa a
+    # comparar so o tamanho` sobreviveu a noite de 2026-10-26. A igualdade de
+    # conjuntos estava provada na altitude errada — a chamar o `compararCampos`
+    # directamente, que a mutacao nao toca.
+    "uma troca de igual cardinalidade na confirmacao falha e compensa",
+    "um duplicado na confirmacao nao compensa um onboarding sao",
     "a rotacao da KEK nao perde os tokens antigos",
     # E a do cliente da Graph que fixa a exposicao declarada do `graph.ts`.
     "o code e o client_secret vao na consulta, como a Meta documenta",

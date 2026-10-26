@@ -972,6 +972,45 @@ describe("a saga: ordem dos passos e idempotencia (criterios 2, 4, 7, 8)", () =>
   });
 
   /**
+   * **A igualdade é de conjuntos, e não de cardinalidade** — e os três testes de
+   * confirmação que havia não distinguiam as duas, porque todos usavam conjuntos
+   * de tamanho **diferente** de onze (dez campos, ou nenhum). Trocar o portão
+   * por uma contagem (`obtidos.length !== CAMPOS_DE_WEBHOOK.length`) levantava
+   * nos três, e a mutação `onboarding: a confirmacao passa a comparar so o
+   * tamanho` sobreviveu à noite de 2026-10-26.
+   *
+   * A igualdade de conjuntos **está** provada, mas na altitude errada: o
+   * `describe("os onze campos e a igualdade de conjuntos (criterio 5)")` chama o
+   * `compararCampos` **directamente**, e a mutação não lhe toca — ela tira a
+   * decisão de lá e põe-na numa contagem no chamador. Por isso estes dois casos
+   * passam pelo **serviço**.
+   *
+   * Os dois desfechos que divergem, um em cada sentido.
+   */
+  it("uma troca de igual cardinalidade na confirmacao falha e compensa", async () => {
+    const { servico, graph, cofre } = montar();
+    graph.confirmacao = [...CAMPOS_DE_WEBHOOK.filter((c) => c !== "history"), "flows"];
+    assert.equal(
+      graph.confirmacao.length,
+      CAMPOS_DE_WEBHOOK.length,
+      "a fixture tem de ter a mesma cardinalidade, senao o caso nao distingue nada",
+    );
+    await assert.rejects(() => servico.ligar(entradaDeEnsaio()), SubscricaoIncompletaError);
+    assert.equal(graph.anulacoes, 1);
+    assert.equal(cofre.segredos.size, 0);
+  });
+
+  it("um duplicado na confirmacao nao compensa um onboarding sao", async () => {
+    const { servico, graph } = montar();
+    graph.confirmacao = [...CAMPOS_DE_WEBHOOK, CAMPOS_DE_WEBHOOK[0]];
+    // Não levanta: o conjunto é o mesmo, e um duplicado na resposta da Meta não
+    // é um campo a mais. Com a contagem, levantava — e compensava um
+    // onboarding são, que é o lado mais caro de errar.
+    await servico.ligar(entradaDeEnsaio());
+    assert.equal(graph.anulacoes, 0);
+  });
+
+  /**
    * **A ordem inversa não é arbitrária.** O `anularSubscricao` precisa do *token*
    * em claro, e o *token* está cifrado no cofre; se a revogação dele corresse
    * primeiro, não haveria com que desfazer a subscrição.
