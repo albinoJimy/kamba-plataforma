@@ -34,10 +34,11 @@ import mutacoes
 #:
 #: O marcador e o `.git`: nenhuma receita o copia. Num *worktree* e um ficheiro
 #: e nao uma pasta, e por isso `exists` e nao `is_dir`.
+#: **Nao se usa `skipUnless`**: o `gate_bd` recusa testes saltados — «num gate,
+#: saltar e falhar», e tem razao, porque um salto e uma verificacao que nao
+#: aconteceu e que ninguem conta. Os testes desta classe **nao se definem** numa
+#: arvore parcial, e assim nao ha salto nenhum para contar.
 NO_REPOSITORIO = (mutacoes.RAIZ / ".git").exists()
-SO_NO_REPOSITORIO = unittest.skipUnless(
-    NO_REPOSITORIO, "arvore parcial: isto afirma coisas sobre o repositorio"
-)
 
 
 class TestClassificar(unittest.TestCase):
@@ -276,16 +277,6 @@ class TestCodigoDeSaida(unittest.TestCase):
                 self.assertEqual(mutacoes.aplicaveis(), 1)
                 self.assertEqual(mutacoes.main(["--aplicaveis"]), 1)
 
-    @SO_NO_REPOSITORIO
-    def test_aplicaveis_sai_com_zero_sobre_a_lista_real(self) -> None:
-        """Numa copia a maioria dos 142 ficheiros-alvo nao existe, e salta.
-
-        Este teste esteve a por a **propria** linha de base da suite `tests`
-        vermelha dentro da copia — 174 mutacoes que nenhuma noite podia medir.
-        Nunca se notou porque nenhuma noite chegou tao longe: as fatias morriam
-        antes, por falta das dependencias das suites.
-        """
-        self.assertEqual(mutacoes.aplicaveis(), 0)
 
 
 class TestCaminhoDoPython(unittest.TestCase):
@@ -424,8 +415,15 @@ sys.exit(0 if resultado.wasSuccessful() else 1)
 """
 
 
-class TestAsCopiasDeToolsBastamSeASiMesmas(unittest.TestCase):
-    """A linha de base de cada suite de `tools/`, medida num PR e nao as 02:10.
+class _OQueSoORepositorioPodeAfirmar(unittest.TestCase):
+    """O que se afirma sobre o **repositorio**, e nao sobre uma copia parcial.
+
+    Esta bateria corre tambem **dentro** de uma copia de mutacao, onde a `RAIZ`
+    do corredor e a raiz da copia. Estes dois testes nao tem lá o que medir, e
+    por isso a classe so e exposta ao `unittest` quando ha `.git` — ver o
+    `NO_REPOSITORIO` no fim do modulo.
+
+    A linha de base de cada suite de `tools/`, medida num PR e nao as 02:10.
 
     **Terceira vez que o instrumento falha pela razao errada**, e a primeira em
     que falha sem se notar. Duas receitas estavam atras do que a sua suite abre:
@@ -446,7 +444,17 @@ class TestAsCopiasDeToolsBastamSeASiMesmas(unittest.TestCase):
     nao e um `import`, e um ficheiro que o teste abre.
     """
 
-    @SO_NO_REPOSITORIO
+    def test_aplicaveis_sai_com_zero_sobre_a_lista_real(self) -> None:
+        """Estava no `TestCodigoDeSaida`, e vem para aqui.
+
+        Corre `aplicaveis()` sobre a lista inteira, e numa copia quase nenhum
+        dos 142 ficheiros-alvo existe: punha a linha de base da **propria**
+        suite `tests` vermelha, e com ela as suas 174 mutacoes fora de alcance.
+        Nunca se notou porque nenhuma noite chegava tao longe. Nenhuma mutacao
+        depende dele — nenhuma das 783 altera o `db/mutacoes.py`.
+        """
+        self.assertEqual(mutacoes.aplicaveis(), 0)
+
     def test_cada_suite_de_tools_corre_verde_so_com_o_que_a_receita_copia(self) -> None:
         raiz = str(mutacoes.RAIZ.resolve())
         ignorar = shutil.ignore_patterns("__pycache__", "*.pyc")
@@ -481,6 +489,12 @@ class TestAsCopiasDeToolsBastamSeASiMesmas(unittest.TestCase):
         self.assertEqual(
             sorted(mutacoes.SUITES_DE_TOOLS), sorted(mutacoes.COPIA_DE_TOOLS)
         )
+
+
+#: A classe so vira bateria quando ha repositorio para medir. Numa copia de
+#: mutacao o nome fica a comecar por `_`, e o `unittest` nao o descobre.
+if NO_REPOSITORIO:
+    TestOQueSoORepositorioPodeAfirmar = _OQueSoORepositorioPodeAfirmar
 
 
 if __name__ == "__main__":
