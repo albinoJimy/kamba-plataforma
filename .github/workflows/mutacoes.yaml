@@ -96,11 +96,23 @@ jobs:
     name: "mutacoes — fatia ${{ matrix.fatia }}/6"
     needs: aplicaveis
     runs-on: ubuntu-latest
-    # Medido: ~5–10 min por fatia com a lista de 48, ~10–15 min com a de 110 do
-    # ramo do KAM-008. 90 min e folga de uma ordem de grandeza; 300 eram trinta
-    # vezes o esperado, e um tecto que nao morde nao protege de nada — uma fatia
-    # pendurada queimava cinco horas de runner antes de morrer.
-    timeout-minutes: 90
+    # **Medido no runner a 2026-10-26**, na primeira execucao que chegou a medir
+    # mutacoes: as seis fatias da lista de 783 levaram 43, 46, 51, 52, 54 e
+    # **75** minutos. Contra os 90 que aqui estavam, a pior fatia ia a 83% do
+    # tecto — ou seja, a tarefa estava a uma noite mais lenta de morrer por
+    # tempo e de ninguem saber porque.
+    #
+    # Os 90 vinham de uma estimativa de 10–15 min por fatia com a lista de 110
+    # do ramo do KAM-008 — «folga de uma ordem de grandeza», e era, para 110. A
+    # lista cresceu para 783 e o tecto nao, e a estimativa nunca foi medicao: o
+    # DoD do KAM-143 di-lo por escrito na caixa que ficou vazia.
+    #
+    # 150 e o dobro da pior fatia medida, e mantem a razao pela qual nao se poe
+    # 300: um tecto que nao morde nao protege de nada, e uma fatia pendurada
+    # queima duas horas e meia de runner em vez de cinco. Re-calibra-se quando a
+    # lista crescer outra vez — e o sinal e este comentario deixar de bater com
+    # o relatorio de uma noite.
+    timeout-minutes: 150
     permissions:
       contents: read
     strategy:
