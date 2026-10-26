@@ -260,13 +260,53 @@ class TestAncora(ComCadeia):
         `Africa/Luanda` — que e a omissao de `tenants.fuso_horario` — a mesma
         base no mesmo dia dava outra ancora. A afirmacao «reproduzivel a partir
         da base» era falsa fora de uma sessao de fuso fixo.
+
+        **Este teste matava a mutacao numa hora em vinte e quatro, e sobreviveu
+        a noite de 2026-10-26 por isso.** As linhas do `setUp` tem
+        `criado_at = now()` e a ancora era do dia de hoje, pelo que ficavam
+        abaixo das **duas** fronteiras — a fixa em UTC e a que o fuso desloca
+        uma hora — e as duas ancoras saiam iguais com a fronteira errada. So
+        entre as 23:00 e as 00:00 UTC e que as duas leituras discordavam sobre
+        uma linha de `now()`.
+
+        Por isso a linha passa a estar **dentro** da hora em que discordam:
+        recua-se o ultimo elo para as 23:30 UTC de ontem e ancora-se ontem. A
+        fronteira certa — `(ontem + 1) AT TIME ZONE 'UTC'`, isto e, hoje as
+        00:00 UTC — inclui-a sempre; a fronteira do fuso de Luanda cai em ontem
+        as 23:00 UTC e deixa-a de fora. Deterministico a qualquer hora do dia.
         """
+        import json
+
+        ontem = datetime.datetime.now(datetime.timezone.utc).date() - datetime.timedelta(
+            days=1
+        )
+        na_hora_da_divergencia = datetime.datetime.combine(
+            ontem, datetime.time(23, 30), tzinfo=datetime.timezone.utc
+        )
+        self.sem_trigger(
+            "UPDATE platform.audit_log SET criado_at = %s WHERE id = ("
+            "  SELECT max(id) FROM platform.audit_log WHERE tenant_id = %s)",
+            (na_hora_da_divergencia, self.tenant),
+        )
         with tempfile.TemporaryDirectory() as pasta:
             self.cursor.execute("SET TimeZone = 'UTC'")
-            em_utc = auditoria.ancorar(self.cursor, destino=Path(pasta)).read_bytes()
+            em_utc = auditoria.ancorar(
+                self.cursor, dia=ontem, destino=Path(pasta)
+            ).read_bytes()
             self.cursor.execute("SET TimeZone = 'Africa/Luanda'")
-            em_luanda = auditoria.ancorar(self.cursor, destino=Path(pasta)).read_bytes()
+            em_luanda = auditoria.ancorar(
+                self.cursor, dia=ontem, destino=Path(pasta)
+            ).read_bytes()
             self.cursor.execute("SET TimeZone = 'UTC'")
+
+        # O canario: sem isto, uma ancora **vazia** nos dois fusos passava o
+        # teste — e vazia e exactamente o que sai se a linha recuada nao entrar
+        # em nenhuma das duas leituras. O que se quer e que ela entre nas duas.
+        self.assertIn(
+            self.tenant,
+            json.loads(em_utc.decode("utf-8"))["cadeias"],
+            "a linha recuada nao entrou na ancora de ontem",
+        )
         self.assertEqual(em_utc, em_luanda)
 
     def test_o_dia_fecha_a_ancora(self) -> None:
