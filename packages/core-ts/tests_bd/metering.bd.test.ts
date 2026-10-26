@@ -854,7 +854,7 @@ describe("o contador do free tier contra a base", () => {
           "SELECT count(*)::int AS n FROM pg_stat_activity " +
             " WHERE wait_event_type = 'Lock' AND query ILIKE '%tenant_channels%'",
         );
-        if (rows[0].n > 0) return;
+        if ((rows[0]?.n ?? 0) > 0) return;
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
     }
