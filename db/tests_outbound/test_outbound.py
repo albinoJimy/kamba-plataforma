@@ -458,6 +458,11 @@ TESTES_OBRIGATORIOS = (
     # que ela tem efeito observavel: o resultado do `SQL_APAGAR_CANAL` e
     # descartado pelo chamador, e o canal da saga nasce `pendente` e fica.
     "a compensacao nao apaga um canal que nao esta pendente",
+    # KAM-023: o entrelacamento **imposto** da marca de restricao. O teste que
+    # ja existia — «duas marcas em paralelo» — nao forca sobreposicao: duas
+    # instrucoes em autocommit podem nao se sobrepor, e ai a segunda le o motivo
+    # ja confirmado e devolve `marcou: false`, que e a resposta do original.
+    "**duas marcas entrelacadas a forca: um evento, e os dois codigos**",
     "a rotacao da KEK nao perde os tokens antigos",
     # E a do cliente da Graph que fixa a exposicao declarada do `graph.ts`.
     "o code e o client_secret vao na consulta, como a Meta documenta",
