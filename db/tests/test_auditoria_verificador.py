@@ -239,6 +239,53 @@ class TestAdulteracaoDetectada(ComCadeia):
         achados = self.achados()
         self.assertTrue(any("hash errado" in a for a in achados), achados)
 
+    def test_apagar_so_a_cabeca_e_apanhado(self) -> None:
+        """A cadeia inteira e **nenhuma** cabeca: apagar a cabeca nao e disfarce.
+
+        Sem este caso, o achado `ha N linha(s) e nao ha cabeca` era a unica
+        mensagem do `verificar` sem teste que a exigisse — e uma mensagem que
+        ninguem exige e uma mensagem que se pode apagar sem nada ficar vermelho.
+        Apanhado ao fechar o KAM-161, a contar as mensagens contra os testes.
+        """
+        self.cursor.execute(
+            "DELETE FROM platform.audit_heads WHERE tenant_id = %s", (self.tenant,)
+        )
+        achados = self.achados()
+        self.assertTrue(any("nao ha cabeca" in a for a in achados), achados)
+
+    def test_apagar_as_linhas_e_deixar_a_cabeca_e_apanhado(self) -> None:
+        """O inverso: a cabeca de pe e a cadeia vazia.
+
+        E o caso que o `verificar` ve **sem** ancora, ao contrario do
+        `desapareceu inteira`: aqui a cabeca ficou, e e ela que denuncia.
+        """
+        self.sem_trigger(
+            "DELETE FROM platform.audit_log WHERE tenant_id = %s", (self.tenant,)
+        )
+        achados = self.achados()
+        self.assertTrue(
+            any("ha cabeca e nao ha linha nenhuma" in a for a in achados), achados
+        )
+
+    def test_a_ancora_apanha_um_elo_ancorado_que_desapareceu(self) -> None:
+        """A cadeia continua coerente consigo e perdeu o elo que foi ancorado.
+
+        Distingue-se do `desapareceu inteira`: ali a cadeia vai-se toda; aqui
+        ela existe e o `row_hash` que a ancora de ontem registou ja nao esta
+        nela. Era a terceira mensagem do `verificar` sem teste proprio.
+        """
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as pasta:
+            caminho = auditoria.ancorar(self.cursor, destino=Path(pasta))
+            ancora = json.loads(caminho.read_text(encoding="utf-8"))
+        self.sem_trigger(
+            "DELETE FROM platform.audit_log WHERE id = %s", (self.ids()[-1],)
+        )
+        achados = auditoria.verificar(self.cursor, self.tenant, ancora)
+        self.assertTrue(any("ja nao existe na cadeia" in a for a in achados), achados)
+
     def test_uma_cadeia_que_desaparece_inteira_so_a_ancora_apanha(self) -> None:
         """O achado M4: o verificador percorre o que existe.
 
