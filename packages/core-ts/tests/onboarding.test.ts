@@ -81,6 +81,7 @@ import {
   VersaoDaGraphInvalidaError,
   cifrarToken,
   compararCampos,
+  contextoDaCifra,
   decifrarToken,
   dekDoTenant,
   kidDoCriptograma,
@@ -689,6 +690,32 @@ describe("a cifra do token: AES-256-GCM, DEK por tenant, kid versionado (criteri
       () => decifrarToken({ "1": KEK }, OUTRO_TENANT, criptograma),
       TokenCifradoInvalidoError,
     );
+  });
+
+  /**
+   * **O AAD é o único observável desta propriedade, e ninguém o observava.**
+   *
+   * O teste de cima — «um criptograma copiado para outro tenant nao abre» —
+   * passa com e sem o tenant no contexto autenticado, porque a **chave** já é
+   * por tenant: a DEK de B não é a de A (`dekDoTenant`, com `info = domínio ‖
+   * tenant`) e o GCM rejeita na chave, sem nunca chegar ao AAD. O tenant está
+   * ligado duas vezes, e a outra ligação é mais forte — pelo que arrancar esta
+   * não quebrava teste nenhum, e a mutação `onboarding: o contexto autenticado
+   * deixa de levar o tenant` sobreviveu à noite de 2026-10-26.
+   *
+   * O `contextoDaCifra` é exportado no `index.ts` de propósito, e tinha **zero**
+   * testes. É aqui que a defesa em profundidade se afirma: ela existe para o
+   * dia em que a DEK deixar de ser por tenant, e é nesse dia que uma guarda que
+   * ninguém mede já não está lá.
+   */
+  it("o contexto autenticado leva o tenant, e o kid", () => {
+    const contexto = contextoDaCifra(TENANT, "1");
+    assert.ok(
+      contexto.toString("utf8").includes(TENANT),
+      "o AAD nao leva o tenant: um criptograma de A abre no contexto de B",
+    );
+    assert.notDeepEqual(contexto, contextoDaCifra(OUTRO_TENANT, "1"));
+    assert.notDeepEqual(contexto, contextoDaCifra(TENANT, "2"));
   });
 
   it("o kid vai dentro do criptograma e le-se sem o abrir", () => {

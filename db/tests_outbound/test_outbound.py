@@ -432,6 +432,14 @@ TESTES_OBRIGATORIOS = (
     "o codigo nao referencia v2 nem v3 do Embedded Signup",
     "exactamente dezesseis pares passam, e os outros 65 nao",
     "um criptograma copiado para outro tenant nao abre",
+    # A vizinha de cima passa com e **sem** o tenant no contexto autenticado,
+    # porque a chave ja e por tenant: a DEK de B nao e a de A e o GCM rejeita na
+    # **chave**, sem chegar ao AAD. O tenant esta ligado duas vezes e a outra
+    # ligacao e mais forte, pelo que a mutacao `onboarding: o contexto
+    # autenticado deixa de levar o tenant` sobreviveu a noite de 2026-10-26. O
+    # `contextoDaCifra` e exportado de proposito e tinha **zero** testes; passa
+    # a ter um, e o nome fica preso aqui.
+    "o contexto autenticado leva o tenant, e o kid",
     "a rotacao da KEK nao perde os tokens antigos",
     # E a do cliente da Graph que fixa a exposicao declarada do `graph.ts`.
     "o code e o client_secret vao na consulta, como a Meta documenta",
