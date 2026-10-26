@@ -60,7 +60,8 @@ consistente, não **quem** assinou. No dia em que alguém suba o digest para uma
 imagem adulterada (o cenário do incidente de 2026-03-24), repetir a extracção
 extraía a chave do atacante.
 
-O projecto **publica** a chave, e é essa que está fixada:
+O projecto **publica** a chave — e aqui começa a parte que só se soube medindo.
+A que está em `main` é:
 
 ```
 curl -sSfL https://raw.githubusercontent.com/BerriAI/litellm/main/cosign.pub
@@ -70,16 +71,50 @@ JA5H2LnmwBKQafZGka6OOrWujCEWATQewiAgyD4WQdJ0pvU9RC4mvNAjvQ==
 -----END PUBLIC KEY-----
 ```
 
-**E as duas chaves são diferentes** (`…G06dpKM+…` contra `…Ki4ivqGpE…`). Isso é
-um facto, não uma interpretação, e tem só duas leituras: ou a `v1.104.2` foi
-assinada com outra chave que não a publicada, ou o `publicKey.content` do
-`hashedrekord` não é a chave de assinatura deste artefacto. **Qual delas é, só o
-`cosign verify` o diz**, e é isso que o *gate* 11 passa a medir com a chave
-publicada.
+**E ela não verifica este digest.** Medido no *gate* 11, com o `cosign` 3.1.4
+instalado no *runner*:
 
-Até essa medição existir, a cláusula cosign do critério 1 fica **por
-satisfazer** — e não «pendente do CI», que foi como a primeira versão a
-escreveu. Está na linha **117** de `../dividas-documentais.md`.
+```
+[cosign-falhou] `cosign verify` falhou para ghcr.io/berriai/litellm@sha256:3d88bd…:
+Error: no matching signatures: error verifying bundle:
+comparing public key PEMs, expected -----BEGIN PUBLIC KEY-----
+```
+
+**A razão é uma rotação, e é o que torna esta secção útil para o futuro.** O
+histórico de `cosign.pub` tem dois *commits*:
+
+| *commit* | Data | Mensagem |
+|---|---|---|
+| `0112e53046` | 2026-03-31 | «[Infra] Add release workflow and cosign public key» |
+| `e82a3c6469` | **2026-10-23** | «Rotate the cosign image-signing public key» |
+
+A assinatura da `v1.104.2` é de **2026-10-08** (`integratedTime 1791448609`), ou
+seja **quinze dias antes da rotação**. A chave que o projecto publicava nessa
+data — lida de `…/BerriAI/litellm/0112e53046/cosign.pub` — é:
+
+```
+-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEKi4ivqGpE231OGH50PKbqy1Y1Kkb
+POJC8+i2Wko82gBOUCe3M0Vw86H/4rhUhfoYEti4gdJ9wZbYmK0I2EE96g==
+-----END PUBLIC KEY-----
+```
+
+**que é exactamente a do *bundle*.** É essa que está fixada.
+
+Três coisas se seguem, e as três importam a quem vier depois:
+
+1. **A chave do *bundle* era a chave de assinatura genuína** — mas isso não se
+   podia saber *do bundle*. A objecção da revisão adversarial mantém-se de pé
+   por inteiro: tirá-la de lá não prova **quem** assinou. O que a provou foi uma
+   segunda fonte, independente do artefacto.
+2. **Fixa-se um *commit*, nunca `main`.** Um `cosign.pub` buscado a `main` dá a
+   chave de hoje, que não verifica uma imagem assinada antes da rotação — e o
+   *gate* fica vermelho sem nada estar comprometido. A entrada do inventário
+   nomeia o *commit* e a data.
+3. **Uma rotação de chave do fornecedor é um evento a seguir.** Quando o digest
+   subir para uma versão assinada depois de 2026-10-23, a chave fixada tem de
+   passar a ser a de `e82a3c6469`. Isso está na linha **117** de
+   `../dividas-documentais.md`, que é o que resta deste achado.
 
 **Consequência para o CI, e é uma correcção a código já fundido.** O
 `tools/supply_chain/cosign.py` monta o comando com `--certificate-identity` e

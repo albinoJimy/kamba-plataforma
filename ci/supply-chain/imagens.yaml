@@ -184,15 +184,19 @@ imagens:
     cosign_razao: >-
       Assinatura publicada e por chave (ECDSA P-256, sem certificado): a
       etiqueta sha256-<digest>.sig resolve e o bundle tem entrada no Rekor
-      (logIndex 3144616019, integratedTime 1791448609). A chave fixada em
-      ci/supply-chain/cosign/litellm.pub e a que o **projecto publica** em
-      raw.githubusercontent.com/BerriAI/litellm/main/cosign.pub, lida a
-      2026-10-26 — e nao a do bundle: uma raiz de confianca tirada do artefacto
-      que ela verifica confirma que a assinatura e consistente e nao **quem**
-      assinou. ATENCAO: a chave publicada **difere** da que o bundle desta
-      versao traz; qual delas assinou a v1.104.2 so o `cosign verify` o diz, e
-      e isso que o gate 11 passa a medir. Ate essa medicao existir, a clausula
-      cosign do criterio 1 do KAM-030 fica por satisfazer.
+      (logIndex 3144616019, integratedTime 1791448609 = 2026-10-08). A chave
+      fixada em ci/supply-chain/cosign/litellm.pub e a que o **projecto
+      publicava a data da assinatura**, lida de
+      raw.githubusercontent.com/BerriAI/litellm/0112e53046/cosign.pub a
+      2026-10-26 — fora de banda, e **nao** a do bundle: uma raiz de confianca
+      tirada do artefacto que ela verifica confirma que a assinatura e
+      consistente e nao **quem** assinou. ATENCAO, e e o que obriga a fixar um
+      commit e nao `main`: o projecto **rodou** esta chave a 2026-10-23
+      (commit e82a3c6469, «Rotate the cosign image-signing public key»), quinze
+      dias depois de assinar esta versao. A chave em `main` **nao verifica**
+      este digest — medido no gate 11, `no matching signatures: comparing
+      public key PEMs`. Uma imagem assinada antes daquela data precisa da chave
+      anterior; uma assinada depois precisa da de `main`.
 
 # Codigo que lanca contentores sem passar por um compose. Um
 # `subprocess.run(["docker", "run", imagem])` nao e um manifesto, e nenhum
