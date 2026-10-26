@@ -751,6 +751,37 @@ class TestFicheirosDePolitica(unittest.TestCase):
                 with self.assertRaises(catalogo.PoliticaInvalida):
                     catalogo.excepcoes_rls(raiz)
 
+    def test_uma_lista_vazia_em_notacao_de_fluxo_le_se_como_lista(self) -> None:
+        """`excepcoes: []` tem de dar a lista vazia, e nao a cadeia `"[]"`.
+
+        O leitor de YAML desta casa trata o `[]` em notacao de **fluxo** a parte.
+        Se devolvesse o texto, o `enumerate` do `_ler_lista` iterava os
+        caracteres `[` e `]` e cada um batia no «tem de ser um mapa»: o caminho
+        de **sucesso** passava a erro, e os dois ficheiros de politica do gate 6
+        deixavam de se poder declarar vazios.
+
+        **Esta propriedade estava coberta e deixou de estar.** O
+        `docs/evidencia/KAM-136.md` registra a mutacao `kam136 isolamento: lista
+        vazia em fluxo deixa de ser lista` como «apanhada», pelo teste
+        `test_a_lista_de_excepcoes_esta_vazia` — que lia os dois ficheiros de
+        `ci/` quando ambos estavam vazios. O KAM-012 encheu-os, o teste
+        desapareceu com a razao de ser, e o `[]` em fluxo saiu do caminho desta
+        suite: a mutacao voltou a sobreviver, na noite de 2026-10-26.
+
+        A unica *fixture* que ainda tem um `[]` **nao** a exercita: e o caso
+        `"versao"` do `test_campos_em_falta_razao_curta_e_versao_errada`, com
+        `version: 2`, e o curto-circuito da versao levanta antes de a lista ser
+        tocada — o `assertRaises` passa igual nos dois mundos. Por isso esta usa
+        `version: 1` e afirma o sucesso.
+
+        Os dois leitores, porque o leitor e o mesmo mas o `identificador`
+        difere.
+        """
+        raiz = self.escrever("rls_exceptions.yaml", "version: 1\nexcepcoes: []\n")
+        self.assertEqual(catalogo.excepcoes_rls(raiz), {})
+        raiz = self.escrever("secdef_allowlist.yaml", "version: 1\nfuncoes: []\n")
+        self.assertEqual(catalogo.funcoes_permitidas(raiz), {})
+
     def test_ficheiro_em_falta_levanta(self) -> None:
         raiz = Path(self.enterContext(tempfile.TemporaryDirectory()))
         with self.assertRaises(catalogo.PoliticaInvalida):
