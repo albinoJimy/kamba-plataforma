@@ -112,6 +112,56 @@ METRICA_TOOL_DISJUNTOR: Final = "agr_tls_disjuntor_aberto_total"
 #: estatistica por tool, e um destes nao e estatistica.
 METRICA_TOOL_TENANT_MISMATCH: Final = "agr_tool_tenant_mismatch_total"
 
+#: As oito do gateway de LLM (KAM-030, DoD «custo e observabilidade», ADR-018).
+#:
+#: **O `tenant_id` nao e etiqueta de nenhuma delas, e isso resolve uma tensao do
+#: bloco.** O ticket manda «metering por *tag* `tenant_id`, `vertical`, `papel`,
+#: `graph_version`» (`docs/tecnica/02` §13.4), e a convencao do repositorio diz
+#: que `tenant_id` **nunca** entra em etiqueta de metrica (`OBS-I`). As duas
+#: conciliam-se porque sao dois sitios: as quatro etiquetas vao para os
+#: metadados da chamada e para as **colunas** de `dat.llm_call_log`, que e de
+#: onde o custo por tenant se le (ADR-018, e a `v_tenant_cost_daily` do
+#: KAM-081); a metrica Prometheus leva so o `papel`, que e lista fechada de
+#: quatro valores. O custo por tenant e uma consulta, nao uma serie temporal —
+#: e tinha de ser, porque uma serie por tenant explode a cardinalidade e
+#: re-identifica, que e o que o `OBS-I` diz.
+#:
+#: A etiqueta de `agr_llm_chamadas_total` e o **papel**, derivado dos aliases
+#: pela mesma razao das tres da ToolLayer: uma lista literal transformava uma
+#: invariante num numero.
+METRICA_LLM_CHAMADAS: Final = "agr_llm_chamadas_total"
+#: Erros do gateway, por desfecho de `dat.llm_call_log.resultado` **em
+#: minusculas** — ja o sao, ao contrario dos codigos da TLS.
+METRICA_LLM_ERROS: Final = "agr_llm_erros_total"
+#: Duracao da **ultima** chamada, em milissegundos. `latency` e nao `latencia`,
+#: para casar as outras tres do painel.
+METRICA_LLM_LATENCIA: Final = "agr_llm_latency_ms"
+#: Chamadas recusadas pelo *gate* de destino. **Sem etiqueta**, pela razao do
+#: `agr_tool_tenant_mismatch_total`: o que um painel precisa de saber e que
+#: houve uma transferencia recusada, e qual destino le-se na tabela. Em `prod`,
+#: hoje, **todas** as chamadas caem aqui (KAM-069 nao existe).
+METRICA_LLM_DESTINO_NEGADO: Final = "agr_llm_destino_negado_total"
+#: Chamadas cujo modelo nao tem linha em `llm/precos.yaml`, e por isso ficaram
+#: com `custo_usd` nulo. Hoje **todas**, porque o modelo e `por_decidir`
+#: (KAM-040). Existe para que a ausencia de custo seja visivel em vez de
+#: silenciosa — a licao que o `echo_latency_ms` do KAM-018 escreveu pelo outro
+#: lado.
+METRICA_LLM_SEM_PRECO: Final = "agr_llm_sem_preco_total"
+#: Linhas de `dat.llm_call_log` que nao se conseguiram escrever. O registo nao
+#: levanta (ver `llm/registo.py`), e sem este contador a perda era invisivel.
+METRICA_LLM_REGISTO_FALHOU: Final = "agr_llm_registo_falhou_total"
+#: Chamadas em que nao se conseguiu saber **que** fornecedor respondeu. Sem
+#: isto, o registo dizia `ordem: 1` em silencio e um *fallback* aparecia como
+#: tendo ido para o destino errado.
+METRICA_LLM_SERVIDOR_DESCONHECIDO: Final = "agr_llm_servidor_desconhecido_total"
+#: Chamadas em que o fornecedor reportou mais *tokens* de cache do que de
+#: entrada. **E o sinal de que a premissa da contagem caiu**: o cliente supoe
+#: que o cache vem **dentro** do `prompt_tokens` (esquema do OpenAI, que o proxy
+#: normaliza) e subtrai-o; se algum fornecedor o reportar **ao lado**, a
+#: subtraccao subavalia o custo em toda a linha. Cortar para zero em silencio
+#: deixava isso invisivel. Divida 116.
+METRICA_LLM_CONTAGEM_INCOERENTE: Final = "agr_llm_contagem_incoerente_total"
+
 #: O que aconteceu a um turno. Lista **fechada**: e etiqueta.
 #:
 #: `executado`        correu o grafo
@@ -174,6 +224,16 @@ def _valores_derivados(metrica: str) -> tuple[str, ...]:
         from .tls.especificacoes import BACKENDS
 
         return tuple(sorted(BACKENDS))
+    if metrica == METRICA_LLM_CHAMADAS:
+        # Os papeis de `llm/aliases.yaml`, pela lista fechada do servico — o
+        # `tools/llm_config` tem a mesma, e o teste de paridade confronta-as.
+        from .llm.aliases import PAPEIS
+
+        return tuple(sorted(PAPEIS))
+    if metrica == METRICA_LLM_ERROS:
+        from .llm.erros import RESULTADOS
+
+        return tuple(sorted(RESULTADOS))
     raise EtiquetaInvalida(f"{metrica}: nao tem valores derivados")
 
 #: A gramatica de uma etiqueta. A mesma de `ten/metricas.py`, e pela mesma
@@ -191,6 +251,8 @@ _DERIVADAS: Final = (
     METRICA_TOOL_INVOCACOES,
     METRICA_TOOL_ERROS,
     METRICA_TOOL_DISJUNTOR,
+    METRICA_LLM_CHAMADAS,
+    METRICA_LLM_ERROS,
 )
 
 
@@ -204,6 +266,11 @@ _CONTADORES_SEM_ETIQUETA: Final = (
     METRICA_COALESCIDAS,
     METRICA_CONTRAPRESSAO,
     METRICA_TOOL_TENANT_MISMATCH,
+    METRICA_LLM_DESTINO_NEGADO,
+    METRICA_LLM_SEM_PRECO,
+    METRICA_LLM_REGISTO_FALHOU,
+    METRICA_LLM_SERVIDOR_DESCONHECIDO,
+    METRICA_LLM_CONTAGEM_INCOERENTE,
 )
 _MEDIDAS: Final = (
     METRICA_DURACAO,
@@ -211,6 +278,7 @@ _MEDIDAS: Final = (
     METRICA_LATENCIA_CHECKPOINT,
     METRICA_TAMANHO_DO_ESTADO,
     METRICA_TOOL_LATENCIA,
+    METRICA_LLM_LATENCIA,
 )
 
 _AJUDA: Final = {
@@ -242,6 +310,35 @@ _AJUDA: Final = {
     METRICA_TOOL_TENANT_MISMATCH: (
         "counter",
         "Invocacoes recusadas por TENANT_MISMATCH. Alerta de seguranca.",
+    ),
+    METRICA_LLM_CHAMADAS: ("counter", "Chamadas ao gateway de LLM, por papel."),
+    METRICA_LLM_ERROS: (
+        "counter",
+        "Chamadas ao gateway sem resposta, por desfecho de llm_call_log.resultado.",
+    ),
+    METRICA_LLM_LATENCIA: (
+        "gauge",
+        "Duracao da ultima chamada ao gateway, em milissegundos.",
+    ),
+    METRICA_LLM_DESTINO_NEGADO: (
+        "counter",
+        "Chamadas recusadas pelo gate de destino (ADR-008). Alerta de conformidade.",
+    ),
+    METRICA_LLM_SEM_PRECO: (
+        "counter",
+        "Chamadas cujo modelo nao tem linha em llm/precos.yaml: custo_usd nulo.",
+    ),
+    METRICA_LLM_REGISTO_FALHOU: (
+        "counter",
+        "Linhas de dat.llm_call_log que nao se conseguiram escrever.",
+    ),
+    METRICA_LLM_SERVIDOR_DESCONHECIDO: (
+        "counter",
+        "Chamadas em que nao se soube que fornecedor respondeu.",
+    ),
+    METRICA_LLM_CONTAGEM_INCOERENTE: (
+        "counter",
+        "Chamadas com mais tokens de cache do que de entrada: o custo esta subavaliado.",
     ),
 }
 
@@ -349,6 +446,11 @@ _NOME_DO_EIXO: Final = {
     METRICA_TOOL_INVOCACOES: "tool",
     METRICA_TOOL_ERROS: "codigo",
     METRICA_TOOL_DISJUNTOR: "backend",
+    # `papel` e `resultado` sao os nomes do dicionario §3.29 e das colunas de
+    # `dat.llm_call_log`. Chamar `outcome` ao papel dizia que `chat` e um
+    # desfecho, que e o mesmo defeito que o `_COM_MOTIVO` corrigiu.
+    METRICA_LLM_CHAMADAS: "papel",
+    METRICA_LLM_ERROS: "resultado",
 }
 
 

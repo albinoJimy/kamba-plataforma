@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.37 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.38 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -130,9 +130,9 @@ Os documentos técnicos e os epics foram escritos em paralelo e **divergem em no
 
 | Conceito | Nome canónico | Substitui | Nota |
 |---|---|---|---|
-| Registo de chamadas LLM | `llm_call_log` | `llm_calls` | Sem conteúdo de mensagens |
 | Esquema do checkpointer | `lg` | — | Role próprio |
-| Esquemas | `platform`, `lg`, `idx`, `servicos`, esquemas do Medusa | — | RLS também em `idx.*` (KAM-061) |
+| Esquema de analítica | `dat` | — | *proposta* (emenda 1.38, KAM-030). Criado pela revisão `0023`. O que vive aqui é **medida**, não estado de negócio, e a retenção é `DROP` de partição e não `DELETE` |
+| Esquemas | `platform`, `lg`, `dat`, `idx`, `servicos`, esquemas do Medusa | — | RLS também em `idx.*` (KAM-061) e em `dat.*` (KAM-030) |
 | Retenção de `assistant_queries` | 12 meses (*proposta*; a confirmar por parecer) | 12 (`../docs/tecnica/08`) vs 13 (`../docs/tecnica/06`) | Minimização |
 | Coordenadas | Arredondadas à zona; exactas só no pedido de entrega (Clusters) | lat/lng exactos em `assistant_queries` | — |
 
@@ -1448,6 +1448,107 @@ mesma escolha da `tool_audit`: uma FK punha o `DELETE` de um *tenant* a depender
 de marcas de desduplicação, e o que liga a linha ao *tenant* é a RLS, que não
 precisa de FK para valer.
 
+### 3.29 Gateway de LLM (KAM-030)
+
+*Emenda 1.38, **proposta**.* O `llm_call_log` estava pré-declarado no §3.6 desde
+a redacção inicial, sem esquema e sem colunas. Sai de lá e entra aqui
+**qualificado** — `dat.llm_call_log` —, com o esquema novo, as dezesseis colunas,
+o domínio fechado do `resultado` e o contrato do cliente. É o mesmo percurso do
+`owner_notices` na emenda 1.32 e do `token_ref` na 1.22, e pela mesma razão: o
+*lint* recusa a redundância.
+
+A fonte é `../docs/tecnica/02_Agent_Runtime_Verticais.md` §13 e §14 (o *gateway* e
+a degradação), `../docs/tecnica/06_Dados_Eventos_Analytics.md` §14 (a tabela) e
+`../docs/tecnica/evidencia/E4_Stack_Licencas.md` §2.7 e §3 (o incidente e as
+tarifas), com os ADR-005, ADR-008, ADR-010 e ADR-018.
+
+**Três afirmações de fonte mais alta não sobreviveram a serem medidas contra a
+versão fixada da imagem**, e as três mudaram código. Estão em
+`../docs/evidencia/KAM-030-litellm.md`, e são a espinha desta secção:
+
+1. **O orçamento esgotado não devolve 400.** O critério 4 do bloco diz
+   «`BUDGET_EXHAUSTED` (mapeado do 400)». A versão 1.104.2 responde **422** com
+   `{"error": {"type": "budget_exceeded"}}`, e usa o 400 para outra coisa — um
+   `/key/generate` com `key_alias` repetido. Um mapeamento pelo 400 **nunca
+   disparava** no orçamento e disparava num erro de provisionamento: o critério
+   ficava satisfeito por nada. O reconhecimento passa a ser pelo `error.type`.
+2. **A configuração do `../docs/tecnica/02` §13.1, à letra, não cumpre o critério
+   6.** Ela escreve duas entradas de `model_list` com o **mesmo** `model_name` e
+   conta com o `num_retries: 1` para comutar. Medido, 20 corridas com o primeiro
+   fornecedor sempre em falha: a estratégia por omissão é `simple-shuffle`
+   (aleatória), **3 das 20 falharam por completo**, e num grupo aleatório não
+   existe «fornecedor primário» nenhum — a `ordem` não teria efeito. Com dois
+   grupos e um `fallbacks` nomeado, 20 de 20 passam e a sequência é sempre a
+   mesma.
+3. **O nome do subprocessador não é o prefixo do fornecedor no proxy.**
+   `google/` é recusado (`BadRequestError`); o prefixo do Gemini é `gemini/`.
+   Dos 162 prefixos que a versão reconhece, nenhum se chama `google`. Os dois
+   espaços de nomes ficam **separados**, e não se harmonizam: o `fornecedor` é o
+   nome do subprocessador do `../docs/tecnica/08` §8.3.2, que é o que o ADR-008 e
+   o `tenant_destinations` (KAM-069) usam para autorizar uma transferência, e
+   renomeá-lo para acompanhar uma biblioteca punha o registo da APD a falar a
+   língua de um pacote.
+
+**O que esta emenda não decide, e é o mais importante: nenhum modelo.** O §13.2 e
+o `E4` §3.5 dizem-no por extenso — qualidade em português de Angola e latência
+são **NÃO VERIFICADAS**, não há *benchmark* por variante, e a escolha faz-se com
+o *golden* do KAM-040. Todas as linhas de `llm/aliases.yaml` têm
+`modelo: por_decidir`, com o credor escrito ao lado, e há um teste que **falha**
+no dia em que isso mudar — porque esse dia é um *release*.
+
+| Conceito | Nome canónico | Substitui | Nota |
+|---|---|---|---|
+| Registo de chamadas a modelos | `dat.llm_call_log` | `llm_calls` | DDL na revisão `0023`. *Append-only* nas três camadas da `0006`, particionada por `RANGE (ts)` com **só** a `DEFAULT` criada (a decisão da emenda 1.9 para o `events_log`: as mensais têm data no nome e nascem de um *job*, que é o KAM-071). Retenção 13 meses por `DROP` de partição (`../docs/tecnica/06` §9.3) |
+| Partição DEFAULT do registo de chamadas | `dat.llm_call_log_default` | — | A única que a revisão `0023` cria, pela decisão que a emenda 1.9 tomou para o `events_log_default`: as mensais têm data no nome e nascem de um *job* (KAM-071), e uma migração que as criasse fixava o calendário. Leva RLS e *trigger* **próprios** — para o *gate* 6 uma partição é uma tabela, e um `SELECT` dirigido a ela escapava à política do pai |
+| Colunas de `dat.llm_call_log` | `id`, `ts`, `tenant_id`, `trace_id`, `vertical`, `no_grafo`, `papel`, `graph_version`, `modelo`, `fornecedor`, `tokens_in`, `tokens_out`, `tokens_cache`, `custo_usd`, `latencia_ms`, `resultado` | — | **Dezesseis**, contra as catorze do `../docs/tecnica/06` §14: entram o `papel` e o `graph_version`. É desvio **aditivo** com razão escrita, como o `tenant_id` que a emenda 1.10 deu ao `events_consumed` — sem `papel`, o «custo por tenant, por vertical e por **papel**» do DoD não é calculável de lado nenhum, e o §13.4 lista as quatro etiquetas de *metering* por extenso |
+| Colunas que o chamador escreve | `COLUNAS` (catorze) | — | As dezesseis menos o `id` e o `ts`: o instante de um registo não é do chamador e o `id` é de identidade. É a mesma decisão da `tool_audit` (§3.27), e o `GRANT INSERT` da `0023` é **por coluna** — um `has_table_privilege` não a verificava |
+| Desfecho de uma chamada | `llm_call_log.resultado` ∈ {`ok`, `ok_fallback`, `budget_exhausted`, `timeout`, `erro_fornecedor`, `destino_negado`} | — | Lista **fechada**, com `CHECK`: um valor novo é uma revisão de base de dados e não uma constante, pela lição que a `0022` pagou. **Qualificado pela tabela** e não `resultado` nu: o `resultado` é já coluna de `evt_acoes` com outro domínio, e um domínio sobre o nome nu declarava-a ilegível — quatro achados de nível 1, que é o que a emenda 1.37 pagou com o `estado` |
+| Custo de uma chamada | `custo_usd` | — | `numeric(12, 6)`, do §14. **Não** é unidade menor inteira, e a razão está na revisão: o turno do §13.3 custa 0,00045 USD — quatro centésimos e meio de **cêntimo** —, que em unidade menor arredonda a zero, e uma tabela de custo que arredonda cada linha a zero não mede nada. O que a convenção proíbe é vírgula flutuante, e `numeric` é decimal exacto; a moeda fica explícita no nome |
+| Custo desconhecido | `custo_usd` nulo | `custo_usd` = 0 | Um modelo sem linha em `llm/precos.yaml` dá **nulo**, nunca zero: zero afirmava que a chamada foi gratuita e punha o somatório por *tenant* a mentir por omissão. Hoje é o caso de **todas** as chamadas, porque o modelo é `por_decidir`, e a métrica `agr_llm_sem_preco_total` torna isso visível |
+| Artefacto comportamental dos aliases | `llm/aliases.yaml` | — | Tem `versao` em SemVer e o conteúdo fixado por *hash* em `ci/llm-aliases.lock`. O *hash* **exclui os comentários**, e é isso que faz «mudou o conteúdo e não a versão» ser detectável — o cabeçalho gerado nomeia a `versao`, pelo que hashear o texto inteiro desfazia a propriedade. Passo `aliases` do `lint_arch`, *gate* 2 |
+| Configuração do proxy | `llm/litellm.config.yaml` | — | **Gerada** de `llm/aliases.yaml` por `python -m llm_config`, e versionada — o mesmo desenho do `canon/dicionario.yaml`, que é gerado de `specs/02` e também entra no repositório. Duas fontes à mão punham o produto a servir um modelo que o artefacto versionado não nomeia, que é a falha que o critério 7 fecha |
+| Tarifário de tokens | `llm/precos.yaml` | — | *proposta* nos valores do Google (INDÍCIO, `E4` §3.3) e CONFIRMADO nos da Anthropic e do OpenAI. **É nosso e não o do LiteLLM**: o dele descarrega-se de `raw.githubusercontent.com` no arranque — medido —, e um custo registado que dependesse de um ficheiro de terceiros a mudar sem aviso não é um registo. A linha do `gemini-3.8-flash` leva `valido_ate: 2026-12-31` e o cálculo **levanta** depois disso, porque o preço duplica |
+| Papel de um alias | `llm_call_log.papel` ∈ {`router`, `chat`, `vision`, `embed`} | — | Lista fechada, no `CHECK` da revisão `0023` e em `PAPEIS` (serviço e `tools/llm_config`, com teste de paridade). **Fechada e não gramática**, ao contrário do `tool` da `0021`: o argumento de lá — «uma lista de permitidos obrigava a uma revisão por cada *tool* nova» — não se aplica, porque as *tools* crescem com o KAM-031 e o KAM-035 e os papéis **não crescem** (o §13.2 fixa quatro). Com gramática, o dicionário dizia quatro e o DDL aceitava qualquer identificador: duas verdades sobre a mesma coluna. O grafo pede o **papel**; qual modelo está atrás disso é o `llm/aliases.yaml`. `vision` e `embed` ficam `declarada`, com credor KAM-033 e KAM-063: correm no COM e no IDX (§13.2) e nenhum nó do AGR os chama |
+| Nome de um alias | `kamba-router`, `kamba-chat`, `kamba-vision`, `kamba-embed` | — | Os quatro do §13.1. `timeout` de **8 s** no `router` e **20 s** nos outros três |
+| Estado de um alias | `aliases[].estado` ∈ {`ligada`, `declarada`} | — | O vocabulário do §3.26 (KAM-027), reutilizado. `declarada` exige `credor` com a forma `KAM-NNN`: um atalho sem o ticket que o fecha não é atalho. Hoje os quatro são `declarada`, credor KAM-040 |
+| Ordem de tentativa de um fornecedor | `fornecedores[].ordem` | — | **Não é um ranking de qualidade**: é a ordem de tentativa. A `ordem: 1` fica com o nome do alias e as seguintes com `<alias>-fallback<ordem>` — grupos **distintos** no proxy, ligados por um `fallbacks` nomeado, porque um grupo único é aleatório (ver o ponto 2, acima) |
+| Fornecedor aprovado | `fornecedor` ∈ {`anthropic`, `openai`, `google`} | — | Três dos onze subprocessadores do `../docs/tecnica/08` §8.3.2; os outros oito não servem modelos de linguagem, e o Groq é STT (KAM-036). Um nome fora desta lista é recusado pelo *lint* **e** pelo arranque do AGR: é um destino de transferência que ninguém registou |
+| Prefixo do fornecedor no proxy | `PREFIXO_LITELLM` (`google` → `gemini`) | — | Espaço de nomes **separado** do nome do subprocessador. Ver o ponto 3, acima. Um fornecedor aprovado sem entrada aqui faz o gerador **levantar**, em vez de escrever uma configuração que o proxy recusa no arranque |
+| Contrato do cliente | `ClienteDeLlm` com `chamar(papel, mensagens, ctx)`, `ContextoDeChamada` (cinco campos), `Resposta` | — | `kamba_agr/llm/cliente.py`. Expõe **papéis**, nunca modelos, e fala HTTP com o proxy no esquema OpenAI-compatível: **nenhum SDK de fornecedor entra no AGR**, e o pacote `litellm` também não — o `httpx` já estava no fecho desde o KAM-026, pelo que o *gateway* não acrescenta dependência nenhuma |
+| Contexto de uma chamada | `ContextoDeChamada(tenant_id, trace_id, vertical, no_grafo, graph_version)` | — | **Não é o `ToolContext`**, que tem oito campos: aqui não entram `contact_id` nem `conversation_id`, porque nenhum entra na tabela. Um contexto mais largo do que a tabela era um convite a guardar o que não se deve |
+| Erros tipados do *gateway* | `OrcamentoEsgotado`, `TempoEsgotado`, `FornecedorFalhou`, `DestinoNegado` | — | Quatro, e **não** são os onze do §6.5 (§3.27, §3.28): aqueles são o contrato entre o grafo e uma *tool*, estes entre o grafo e o **modelo**. Juntá-los punha um `BUDGET_EXHAUSTED` no `CHECK` fechado da `tool_audit.error_code` para descrever o que nenhuma *tool* faz |
+| *Gate* de transferência | `PortaDeDestinos.autorizar(tenant_id, fornecedor, finalidade)` | — | **O `assertDestinationAllowed` do bloco do KAM-069 não é uma variante e não entra na coluna «Substitui»**: é o mesmo conceito escrito em inglês no texto de outro ticket, e declará-lo como variante tornava ilegal o vocabulário do bloco que o vai implementar — além de acrescentar uma variante ao canon que o `dict_export` conta. Esta é a porta que o **KAM-069** vai implementar sobre `tenant_destinations`, com os nomes em português. Até lá a implementação é `NegaTudoAteKam069`, que nega **tudo** em `prod` — mais restritivo do que o KAM-069 será. Um ambiente desconhecido é tratado como `prod` |
+| Momento do *gate* | antes da chamada, para **todos** os fornecedores do alias | — | O *fallback* é do router e o cliente não escolhe quem serve. Autorizar só o de `ordem: 1` deixava o segundo receber os dados **sem** o *gate* ter sido consultado por ele. Falha fechada sobre a **união**, não sobre a escolha |
+| Métricas do *gateway* | `agr_llm_chamadas_total{papel}`, `agr_llm_erros_total{resultado}`, `agr_llm_latency_ms`, `agr_llm_destino_negado_total`, `agr_llm_sem_preco_total`, `agr_llm_registo_falhou_total`, `agr_llm_servidor_desconhecido_total` | — | **Sete**, e o `tenant_id` não é etiqueta de nenhuma. Resolve a tensão do bloco: o §13.4 manda *metering* por `tenant_id`, `vertical`, `papel`, `graph_version`, e a convenção proíbe `tenant_id` em etiqueta (`OBS-I`). São dois sítios — as quatro etiquetas vão para as **colunas** de `dat.llm_call_log`, de onde o custo por *tenant* se lê; a métrica leva só o `papel`. O custo por *tenant* é uma consulta, não uma série temporal, e tinha de ser |
+| Chave virtual de um *tenant* | `key_alias` = `tenant-<uuid>`, segredo `litellm_virtual_key/<tenant_id>` | — | Criada por `infra/llm/chaves.py`, **idempotente por código nosso**: medido, um segundo `/key/generate` com o mesmo alias devolve 400 «already exists». A idempotência é procurar em `/key/list` e depois `/key/update` ou `/key/generate`. O `/key/update` **não reemite** a chave, pelo que o valor no cofre continua válido |
+| Orçamento de uma chave | 15% × mensalidade em USD, `budget_duration: 30d` | — | ***Proposta***, e a mensalidade por plano **não está fixada** em documento nenhum (`../docs/tecnica/10`): vem de `KAMBA_LLM_MENSALIDADE_USD_<PLANO>` e sem ela o *script* **recusa-se a correr**, em vez de inventar um tecto de custo. Calibra-se em H6 |
+| Limiar do alerta de orçamento | `LIMIAR_DE_ALERTA` (0,80) | — | O «alertas a 80%» do §13.3. Lê-se o `spend` e o `max_budget` de `/key/list`, que é quem **impõe** o orçamento; somar a nossa `dat.llm_call_log` dava outro número, e hoje daria zero (custo nulo). Uma chave com `max_budget` 0 não entra: sem tecto não há fracção |
+| Imagem do proxy | `ghcr.io/berriai/litellm:v1.104.2@sha256:3d88bd…a500` | — | Etiqueta **e** digest ao mesmo tempo: o digest fixa o conteúdo e a etiqueta prova a versão, que é o que o `forbidden_below: 1.83.0` de `tools/blocklist.yaml` avalia. Nunca abaixo de 1.83.0 e fora de {1.82.7, 1.82.8}, as duas com malware (`E4` §2.7) |
+| Material de verificação de uma assinatura | `cosign_chave_publica` | — | Campo novo do `ci/supply-chain/imagens.yaml`, **alternativa** a `cosign_identidade`/`cosign_emissor` e não um extra. O LiteLLM assina **com uma chave** (ECDSA P-256) e a assinatura não tem certificado: não existe identidade OIDC para escrever. Uma entrada com as duas formas é recusada — não se saberia qual foi verificada |
+| Código de saída sem *gateway* | **7** | — | O sétimo: `2` configuração, `3` guarda do ADR-002, `4` sem checkpointer, `5` registo inválido, `6` sem auditoria de tools, `7` sem *gateway* de LLM. Cobre os dois ficheiros de `llm/` e o `INSERT` nas catorze colunas. Uma chamada que corresse sem poder escrever a linha descobria-o **depois** de os dados saírem de Angola |
+| Quinta ligação do AGR | `kamba-agr:llm` | — | Papel `kamba_app`, transaccional. A quinta e não a das tools, pela razão que o `ligacao.py` já dá para a das tools não ser a da leitura: o `tenant_guard` recusa uma segunda transacção na mesma ligação, e uma chamada ao modelo acontece **dentro** de um nó que pode ter uma invocação de tool a meio |
+| Pasta dos ficheiros de LLM | `KAMBA_LLM_DIR` | — | Como o `KAMBA_REGISTRY_DIR` do §3.26: o serviço não sabe onde a árvore está |
+| Endereço do proxy | `KAMBA_LLM_PROXY_URL` | — | Na rede interna. **Nunca um FQDN de fornecedor**: o `services/agr/egress.yaml` tem `destinos: []` e os FQDN pertencem a `infra/egress/litellm.yaml`, que é a única lista de saídas da pilha com fornecedores de LLM |
+
+**O que esta emenda deixa por decidir, e a quem.** O modelo de cada alias e o
+*ranking* (KAM-040, e com ele o Gate 13, que **não existe**); a tabela
+`tenant_destinations` e o `apd_ref` que autoriza uma transferência (KAM-069, e
+sem eles `prod` fica fechado); o modo determinístico a que o
+`OrcamentoEsgotado` devia degradar (KAM-037, e por isso hoje o turno falha e o
+*job* volta à fila); **o domínio das finalidades de transferência** — as três
+(`conversa`, `embeddings`, `visao`) vivem em `FINALIDADES`, em
+`kamba_agr/llm/destinos.py`, e **não** entram no §3: a coluna é o
+`tenant_destinations.purpose` do KAM-069 e quem declara o domínio de uma coluna é
+a revisão que a cria. Escritas aqui como domínio, o *gate* 3b ligava-as ao
+`finalidade` de `platform.contact_endpoints` — três achados de nível 1 na
+primeira forma e três extensões do `canon/` a ficar **sem uso** na segunda, que é
+o efeito colateral que a emenda 1.37 descreve. Medido: o `canon_lint` está
+conforme no `HEAD` e os três achados eram desta emenda; a minimização de PII
+antes do modelo (KAM-112, que este ticket desbloqueia); a mensalidade por plano (`../docs/tecnica/10`, H6); o
+agendador do alerta de orçamento e das partições mensais (KAM-071); e **se os
+fornecedores reportam o cache dentro ou ao lado da entrada**, que está NÃO
+VERIFICADO e cuja subtracção é defensiva até alguém medir com uma chave real.
+
 ## 4. Itens que continuam por decidir
 
 | Item | Estado | Ticket |
@@ -1506,3 +1607,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.35 | Outubro 2026 | **Emenda (*proposta*), KAM-027.** §3.26: os nomes do `AgentRegistry` — o contrato (`load_all`, `resolve`, `Vertical`, `build_graph`), os **seis** nos obrigatorios de um grafo, as **onze** tools do catalogo do Piloto (`../docs/tecnica/02` §6.2, que nenhuma linha deste documento nomeava: so o `enhance_image` do §3.7 era tool canonica), os quatro parametros proibidos no esquema visivel ao modelo, a `registry/gates.yaml` como **terceira forma** da superficie do registo, o `modo` de uma validacao com o seu `credor`, a resposta `servico_indisponivel`, a metrica `agr_registry_denied_total`, o codigo de saida `5` e o `KAMBA_REGISTRY_DIR`. **A revisao adversarial acrescentou quatro nomes**, e os quatro saem de defeitos que ela encontrou: a `Resolucao` (que o §5.2 nao tem, e sem a qual a resposta estatica do critero 6 nao cabe no retorno), o `PorLigar` (a unica classe de problema que um `aviso` pode calar — sem ela, no dia em que o credor chegasse a linha do `gates.yaml` engolia um defeito real), a `Adiada` (cujo `error_code` tem de ser um identificador, porque a *allowlist* de logs deixava a prosa cair em silencio) e as `FASES_POSTERIORES` **vazias** (ler «≠ piloto» como «ja se pode» punha o `assistente` em producao com um `KAMBA_FASE` escrito por engano). **Decide tres divergencias**, todas a favor de fontes mais altas: `valor_max_pedido_minor` contra o `valor_max_pedido_kz` que o §5.1 e o bloco escrevem (a variante da emenda 1.13 falharia o *gate* 3b no nivel 1); `registry/gates.yaml` contra o `gates/vendedor.yaml` dentro da vertical; e o `payment.manual_confirmed` no `servicos.yaml`, que o bloco da como *proposta* e a linha «Evento do gate da Fase 0» do §3.5 ja tinha decidido. | Equipa KAMBÁ |
 | 1.36 | Outubro 2026 | **Emenda (*proposta*), KAM-028.** §3.27: o contrato da ToolLayer (`ToolLayer` com `for_context`/`invoke`, `ToolContext` de oito campos, `ToolResult`, `Fact`, `BoundTool`, `Confirmation`), as **tres** classes de tool (`klass` ∈ {`read`, `write`, `money`}), as **vinte** colunas da `platform.tool_audit` (`../docs/tecnica/02` §6.4), os **dez** erros tipados do §6.5, os dois `timeout` por classe e os dois numeros do disjuntor, as cinco metricas de tool e o codigo de saida **6**. Dois nomes entram porque **nenhuma** chave do estado os tinha e nenhuma os pode ter (o §5.3 fecha em dezenove): o `run_id`, que identifica uma execucao do grafo, e o `graph_version`, que e o `version` da vertical. Registam-se tambem os dois estados de uma entrada de catalogo — `ligada` e `declarada`, esta com `credor` obrigatorio —, que e o mecanismo pelo qual a validacao (1) do §5.2 passa de `aviso` a `bloqueio` neste ticket sem que as especificacoes das tools do Vendedor e de Servicos (KAM-031 e KAM-035) tenham de existir. Duas correccoes ao desenho: `klass` com dois `s` **nao** e variante de `classe` (e o nome da coluna do §6.4, e `class` e reservada em Python), e a «morada» que o §6.2 da ao `get_store_info` **nao existe** na `platform.tenants` e e um dos sete nomes que o *lint* de PII do `../docs/tecnica/08` §7.3 proibe — a tool devolve `fuso_horario`, `zona` e `plus_code`, que sao as colunas que ha. **Quatro nomes entraram pela revisão adversarial**, e os quatro de uma medição: `KAMBA_TLS_LIGACOES` (uma tomada só serializava todos os *tenants* — 2,02 s para dez invocações de dez *tenants*), `MARGEM_DO_TECTO_MS` (o tecto do §6.5 não era imposto: um executor de 5 s contra 2 s devolvia `ok=True`), `<nao_declarados>` (os **nomes** dos argumentos, que vêm do modelo, iam em claro para a `tool_audit`) e o `sku` do `Fact`, que o KAM-032 declara. | Equipa KAMBÁ |
 | 1.37 | Outubro 2026 | **Emenda (*proposta*), KAM-029.** §3.28: a `platform.tool_idempotency` e as suas sete colunas, a chave do §6.3 com o `CHECK` de forma hexadecimal, os três estados de uma reserva, o `INTENT_REUSED_WITH_DIFFERENT_CONTENT` como **décimo primeiro** erro tipado, o `TECTO_DE_ESPERA_MS` e o `DIAS_DE_RETENCAO`. **Corrige duas afirmações da emenda 1.36**, e as duas saíram de escrever código contra elas e não de uma leitura: a `tool_audit.idempotency_key` **não** guarda a chave do §6.3 — guarda a do chamador, a do turno —, e são duas chaves porque um segundo toque com `wamid` novo é um turno novo, pelo que uma desduplicação por chave de turno cobrava outra vez (critério 8); e «os dez erros tipados» passa a onze, o que arrasta o `CHECK` fechado da revisão `0021`, a etiqueta da métrica e os testes de contagem. **Uma decisão de forma com consequência:** o `\|` da fórmula do §6.3 não é um caractere separador — o `cart_id` é opaco e nenhum caractere seria seguro —, e a derivação prefixa cada parte com o comprimento; com um separador literal, duas partições diferentes das mesmas partes davam a mesma chave, que numa tool `money` é a encomenda de um cliente a responder pela de outro. Fica **NÃO VERIFICADO** e declarado no §4 que o `confirm:{cart_id}` cabe nos 256 caracteres do `id` de um *reply button*. | Equipa KAMBÁ |
+| 1.38 | Outubro 2026 | **Emenda (*proposta*), KAM-030.** §3.29: o esquema **`dat`** (o terceiro do repositório, depois do `platform` da `0001` e do `lg` da `0020`, e que o canon não tinha), a `dat.llm_call_log` com as suas **dezesseis** colunas — **catorze** no `../docs/tecnica/06` §14, mais o `papel` e o `graph_version`, sem os quais o «custo por papel» do DoD não é calculável de lado nenhum —, o domínio **fechado e qualificado** de `dat.llm_call_log.resultado` (seis valores), o `llm/aliases.yaml` como artefacto comportamental com SemVer e *lock*, o `llm/precos.yaml`, os quatro papéis, os quatro erros tipados, a `PortaDeDestinos`, as **sete** métricas, a chave virtual por *tenant*, o código de saída **7** e a quinta ligação. **O `llm_call_log` sai do §3.6**, onde estava pré-declarado sem esquema e sem colunas: é o percurso do `owner_notices` na 1.32 e do `token_ref` na 1.22, e o *lint* recusa a redundância. **Três afirmações de fonte mais alta não sobreviveram a serem medidas contra a imagem fixada, e as três mudaram código** (`../docs/evidencia/KAM-030-litellm.md`): (1) o orçamento esgotado responde **422** com `type: budget_exceeded` e não o **400** que o critério 4 escreve — e o proxy usa o 400 para «alias repetido», pelo que o mapeamento do bloco nunca disparava no orçamento e disparava num erro de provisionamento; (2) a configuração do `../docs/tecnica/02` §13.1, à letra — duas entradas com o mesmo `model_name` —, **não cumpre o critério 6**: a estratégia por omissão é `simple-shuffle`, aleatória, e em 20 corridas com o primeiro fornecedor sempre em falha **3 falharam por completo**; com dois grupos e um `fallbacks` nomeado são 20 de 20; (3) `google/` é recusado pelo proxy e o prefixo do Gemini é `gemini/` — o nome do subprocessador e o prefixo da biblioteca ficam em espaços de nomes **separados**, porque é o primeiro que o `tenant_destinations` do KAM-069 usa para autorizar uma transferência. **Duas decisões de conformidade que se escrevem em vez de se tomarem em silêncio:** o `custo_usd` é `numeric` e não unidade menor inteira (0,00045 USD não cabe num cêntimo, e `numeric` não é vírgula flutuante), e o `tenant_id` **não** é etiqueta de métrica nenhuma apesar de o §13.4 mandar *metering* por ele — as quatro etiquetas vão para as colunas da tabela, e a métrica leva só o `papel` (`OBS-I`). **O que não decide:** nenhum modelo (KAM-040, e todas as linhas são `por_decidir` com credor escrito), a `tenant_destinations` e o `apd_ref` (KAM-069, e sem eles `prod` nega tudo), o modo determinístico da degradação (KAM-037), a minimização de PII (KAM-112), a mensalidade por plano (H6), o agendador (KAM-071), e se os fornecedores reportam o cache dentro ou ao lado da entrada, que fica **NÃO VERIFICADO**. | Equipa KAMBÁ |

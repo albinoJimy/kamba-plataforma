@@ -154,6 +154,50 @@ imagens:
       testes locais, em tmpfs, sem dados reais. Em falta: SBOM por imagem e
       varrimento das camadas (KAM-078).
 
+  # KAM-030. O proxy LiteLLM: unico caminho para modelos (ADR-005), e o
+  # componente que o `E4` §2.7 chama «o de maior superficie de ataque do stack».
+  #
+  # **A etiqueta leva a versao e o digest fixa o conteudo, e sao as duas coisas
+  # ao mesmo tempo de proposito.** O `tools/lint_arch` avalia o piso
+  # `forbidden_below: 1.83.0` de `tools/blocklist.yaml` **da etiqueta** — um
+  # digest sozinho nao prova versao nenhuma sem rede —, e `1.104.2` esta acima
+  # do piso e fora de {1.82.7, 1.82.8}, as duas versoes com malware. E a mesma
+  # versao que `licencas.yaml` registou a 2026-10-08, que e o que a regra 3
+  # daquele ficheiro exige.
+  #
+  # **`cosign: verificar`, com chave e nao com identidade.** A nota de topo deste
+  # ficheiro dizia que o LiteLLM «nao pode vir com `n/a` nem com `por_apurar`:
+  # a assinatura esta publicada desde a v1.83.0», e esta: a etiqueta
+  # `sha256-<digest>.sig` resolve, com entrada no Rekor (`logIndex` 3144616019).
+  # O que ninguem tinha medido e **como** ele assina — e assina com uma chave
+  # ECDSA P-256, sem certificado, pelo que nao ha identidade OIDC nem emissor
+  # para escrever. Ver `docs/evidencia/KAM-030-litellm.md` §1.
+  - nome: ghcr.io/berriai/litellm
+    etiqueta: v1.104.2
+    digest: "sha256:3d88bd757134a00e8c00237b85a021ab1f6d54abb9c1df750f411dbe7256a500"
+    lido_em: "2026-10-26"
+    lido_de: "docker buildx imagetools inspect ghcr.io/berriai/litellm:v1.104.2 (indice OCI multi-arquitectura); o mesmo digest sai de docker.io/litellm/litellm:v1.104.2, e `importlib.metadata.version('litellm')` dentro da imagem deu 1.104.2"
+    componentes:
+      - litellm
+    cosign: verificar
+    cosign_chave_publica: ci/supply-chain/cosign/litellm.pub
+    cosign_razao: >-
+      Assinatura publicada e por chave (ECDSA P-256, sem certificado): a
+      etiqueta sha256-<digest>.sig resolve e o bundle tem entrada no Rekor
+      (logIndex 3144616019, integratedTime 1791448609 = 2026-10-08). A chave
+      fixada em ci/supply-chain/cosign/litellm.pub e a que o **projecto
+      publicava a data da assinatura**, lida de
+      raw.githubusercontent.com/BerriAI/litellm/0112e53046/cosign.pub a
+      2026-10-26 — fora de banda, e **nao** a do bundle: uma raiz de confianca
+      tirada do artefacto que ela verifica confirma que a assinatura e
+      consistente e nao **quem** assinou. ATENCAO, e e o que obriga a fixar um
+      commit e nao `main`: o projecto **rodou** esta chave a 2026-10-23
+      (commit e82a3c6469, «Rotate the cosign image-signing public key»), quinze
+      dias depois de assinar esta versao. A chave em `main` **nao verifica**
+      este digest — medido no gate 11, `no matching signatures: comparing
+      public key PEMs`. Uma imagem assinada antes daquela data precisa da chave
+      anterior; uma assinada depois precisa da de `main`.
+
 # Codigo que lanca contentores sem passar por um compose. Um
 # `subprocess.run(["docker", "run", imagem])` nao e um manifesto, e nenhum
 # leitor estruturado o encontra: o ficheiro declara-se aqui, com a constante de

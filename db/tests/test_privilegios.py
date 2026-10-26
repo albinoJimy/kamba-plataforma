@@ -20,6 +20,7 @@ from tests.base import (
     PRIVILEGIO_INSUFICIENTE,
     TABELAS,
     TABELAS_0001,
+    TABELAS_DAT_COM_MATRIZ,
     VIOLACAO_DE_CHECK,
     ComBase,
 )
@@ -610,6 +611,22 @@ ESPERADO_POR_TABELA.update(
             kamba_batch={"SELECT"},
             kamba_audit={"SELECT"},
         ),
+        # KAM-030: o registo de chamadas a modelos (revisao `0023`), no esquema
+        # `dat`. A matriz e a mesma da `tool_audit`, e por uma razao que nao e
+        # simetria: as duas sao *append-only* e nas duas **quem escreve nao le**
+        # — um `SELECT` concedido ao processo que escreve e um caminho para o
+        # custo de outro *tenant* voltar a um turno.
+        #
+        # O `kamba_batch` le e **nao apaga**: a retencao desta tabela e um `DROP`
+        # de particao (`docs/tecnica/06` §9.3), que exige ser dono.
+        #
+        # O `kamba_app` aparece sem nada de tabela e com `INSERT` **por coluna**
+        # em `COLUNAS_POR_PAPEL`, que e onde a afirmacao que importa vive.
+        # Prova-se em `db/tests_agr/test_llm_call_log.py`.
+        "llm_call_log": _auditoria(
+            kamba_batch={"SELECT"},
+            kamba_audit={"SELECT"},
+        ),
         # KAM-029: a barreira de idempotencia (revisao `0022`).
         #
         # **Nao e uma tabela de auditoria e nao usa o `_auditoria`**: ali
@@ -932,8 +949,41 @@ COLUNAS_POR_PAPEL = {
         "args_hash", "args_redacted", "idempotency_key", "status", "error_code",
         "result_hash", "fact_ids", "latency_ms",
     },
+    # KAM-030. As **catorze** colunas do `COLUNAS_DO_CHAMADOR` da revisao
+    # `0023`, pela mesma razao com que a linha acima entrou: a
+    # `dat.llm_call_log` tem `INSERT` **por coluna** e uma coluna a mais naquele
+    # `GRANT` era invisivel em qualquer matriz de tabela. Foi o `fix` do
+    # KAM-029 que fechou a divida 111 a declarar a vizinha, e esta tem a mesma
+    # forma: declarar so uma delas era deixar a outra com o mesmo buraco.
+    #
+    # O que a lista prende e o que **nao** esta nela: o `id` e o `ts`. Um
+    # `GRANT INSERT (ts)` punha o chamador a escolher o instante da sua propria
+    # linha de custo — e com ele podia escrever uma chamada de hoje numa
+    # particao de outro mes, o que faz o somatorio por *tenant* e a
+    # `v_transfer_audit` do KAM-069 olharem para o sitio errado. Um
+    # `GRANT INSERT (id)` deixava-o escolher a ordem.
+    #
+    # **Nao ha `UPDATE` nem `DELETE` nenhum, de ninguem**, e a ausencia e a
+    # afirmacao: a tabela e *append-only*.
+    ("kamba_app", "llm_call_log", "INSERT"): {
+        "tenant_id", "trace_id", "vertical", "no_grafo", "papel",
+        "graph_version", "modelo", "fornecedor", "tokens_in", "tokens_out",
+        "tokens_cache", "custo_usd", "latencia_ms", "resultado",
+    },
 }
 PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
+
+#: Em que esquema vive cada tabela da matriz. **Omissao `platform`**, porque era
+#: onde viviam todas: o KAM-030 trouxe a primeira de outro esquema
+#: (`dat.llm_call_log`), e sem isto a consulta da matriz procurava-a em
+#: `platform`, nao encontrava coluna nenhuma e a bateria falhava com
+#: «llm_call_log sem colunas» — o que e o comportamento certo de um inventario
+#: que nao sabe onde a tabela esta, e nao um falso negativo.
+ESQUEMA_DA_TABELA = {"llm_call_log": "dat"}
+
+
+def esquema_de(tabela: str) -> str:
+    return ESQUEMA_DA_TABELA.get(tabela, "platform")
 
 #: As tabelas cuja matriz se confere **coluna a coluna**, nos dois sentidos: as
 #: quatro da identidade (KAM-008) e as cinco de eventos (KAM-005). Sao as que
@@ -1024,6 +1074,10 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     #
     # Encontrada a declarar a `tool_idempotency` e a olhar para a vizinha.
     "tool_audit",
+    # KAM-030, pela mesma razao e no mesmo dia: a `dat.llm_call_log` nasce com
+    # `INSERT` por coluna, e entrar aqui de inicio e mais barato do que uma
+    # divida a fechar tres linhas de versao depois.
+    "llm_call_log",
 )
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.
@@ -1183,7 +1237,14 @@ class TestMatrizDePrivilegios(ComBase):
 
     def test_a_matriz_cobre_todos_os_papeis_do_bootstrap(self) -> None:
         """Um papel novo que ninguem ponha na matriz e um papel por medir."""
-        self.assertEqual(set(ESPERADO_POR_TABELA), set(TABELAS))
+        # **O inventario da matriz passou a ter duas origens** (KAM-030): as do
+        # `platform` e as do `dat`. A `dat.llm_call_log` tem `GRANT INSERT` por
+        # coluna e por isso precisa de linha aqui — e a licao da divida 111, que
+        # o `fix` do KAM-029 fechou para a `tool_audit` tres linhas de versao
+        # antes. A particao nao entra: nao tem privilegio proprio nenhum.
+        self.assertEqual(
+            set(ESPERADO_POR_TABELA), set(TABELAS) | set(TABELAS_DAT_COM_MATRIZ)
+        )
         for tabela, por_papel in ESPERADO_POR_TABELA.items():
             with self.subTest(tabela=tabela):
                 self.assertEqual(
@@ -1211,14 +1272,21 @@ class TestMatrizDePrivilegios(ComBase):
         papeis = (*sorted(ligacao.PAPEIS.values()), "public")
         cursor = self.ligar("admin").cursor()
         for tabela in TABELAS_COM_MATRIZ_DE_COLUNA:
+            esquema = esquema_de(tabela)
             cursor.execute(
                 "SELECT r.papel, c.column_name::text, p.priv, "
                 "       has_column_privilege(r.papel, %s, c.column_name, p.priv) "
                 "  FROM unnest(%s::text[]) AS r(papel) "
                 " CROSS JOIN unnest(%s::text[]) AS p(priv) "
                 " CROSS JOIN information_schema.columns c "
-                " WHERE c.table_schema = 'platform' AND c.table_name = %s",
-                (f"platform.{tabela}", list(papeis), list(PRIVILEGIOS_DE_COLUNA), tabela),
+                " WHERE c.table_schema = %s AND c.table_name = %s",
+                (
+                    f"{esquema}.{tabela}",
+                    list(papeis),
+                    list(PRIVILEGIOS_DE_COLUNA),
+                    esquema,
+                    tabela,
+                ),
             )
             matriz = {(p, c, v): bool(tem) for p, c, v, tem in cursor.fetchall()}
             colunas = sorted({c for _, c, _ in matriz})

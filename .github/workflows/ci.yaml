@@ -194,6 +194,32 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/preparar
+      # KAM-030: o inventario de imagens passou a ter uma entrada com
+      # `cosign: verificar` (o proxy LiteLLM), e **sem o binario o gate falha**
+      # — de proposito, com `cosign-sem-binario`: uma verificacao que nao corre
+      # nao passa. Instala-se aqui, fixado por versao e **conferido por
+      # checksum** antes de correr: descarregar um binario de terceiros para o
+      # usar a verificar assinaturas sem conferir o proprio binario era fechar a
+      # porta e deixar a janela aberta.
+      #
+      # A acao oficial (`sigstore/cosign-installer`) faria isto em uma linha e
+      # **nao se usa**: era uma acao de terceiros com `contents: read` neste job,
+      # e o `docs/tecnica/08` §4.8 manda o minimo de superficie. Isto sao quatro
+      # linhas de `curl` e um `sha256sum`.
+      - name: instalar o cosign (fixado, com checksum)
+        env:
+          # Versao e checksum **lidos da fonte** a 2026-10-26, nao de memoria:
+          # `cosign_checksums.txt` da release v3.1.4 do sigstore/cosign.
+          COSIGN_VERSAO: "3.1.4"
+          COSIGN_SHA256: "424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa"
+        run: |
+          set -euo pipefail
+          curl -sSfL -o /tmp/cosign \
+            "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSAO}/cosign-linux-amd64"
+          echo "${COSIGN_SHA256}  /tmp/cosign" | sha256sum -c -
+          chmod +x /tmp/cosign
+          sudo mv /tmp/cosign /usr/local/bin/cosign
+          cosign version
       - name: make ci-11
         run: make ci-11
       - name: arquivar os SBOM

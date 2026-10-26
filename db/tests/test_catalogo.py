@@ -7,7 +7,13 @@ privacidade do DoD.
 from __future__ import annotations
 
 from tests import factories
-from tests.base import PRIVILEGIO_INSUFICIENTE, TABELAS, TABELAS_LG, ComBase
+from tests.base import (
+    PRIVILEGIO_INSUFICIENTE,
+    TABELAS,
+    TABELAS_DAT,
+    TABELAS_LG,
+    ComBase,
+)
 
 #: Colunas com `msisdn`, `telefone` ou `phone` no nome que sao aceites.
 #:
@@ -884,7 +890,11 @@ class TestPapeis(ComBase):
             # O `lg` entra aqui porque e o `kamba_migrator` que o cria, como
             # cria o `platform` (KAM-026, revisao `0020`). O `ORDER BY 1, 2` da
             # consulta ordena por esquema, e `lg` vem antes de `platform`.
-            [("lg", tabela) for tabela in TABELAS_LG]
+            #
+            # O `dat` entra pela mesma razao (KAM-030, revisao `0023`) e vem
+            # **antes** do `lg`, que e o que aquele `ORDER BY` manda.
+            [("dat", tabela) for tabela in TABELAS_DAT]
+            + [("lg", tabela) for tabela in TABELAS_LG]
             + [("platform", tabela) for tabela in TABELAS]
             + [("public", "alembic_version")],
         )

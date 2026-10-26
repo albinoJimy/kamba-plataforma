@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 import uvicorn
@@ -65,12 +66,18 @@ from .metricas import METRICAS
 from .ligacao import (
     ligar_para_checkpoint,
     ligar_para_leitura,
+    ligar_para_llm,
     ligar_para_tools,
     ligar_para_tranca,
 )
 from .meta import DEFAULT_PORT, SERVICE
 from .tls import auditoria as tls_auditoria
 from .tls.camada import ToolLayer
+from .llm import aliases as llm_aliases
+from .llm import destinos as llm_destinos
+from .llm import precos as llm_precos
+from .llm import registo as llm_registo
+from .llm.cliente import ClienteDeLlm, PROXY_POR_OMISSAO, REF_CHAVE_VIRTUAL, VARIAVEL_DO_PROXY
 from .tls.catalogo import catalogo_do_piloto
 from .trancas import TrancaDeConversas
 from .turno import ExecutorDeTurnos, sem_grafos
@@ -102,6 +109,29 @@ SAIDA_REGISTO_INVALIDO = 5
 #: registo, que e o oposto do ADR-015 — e descobria-o no passo 7, **depois** de
 #: o efeito ter acontecido.
 SAIDA_SEM_AUDITORIA = 6
+
+#: Codigo de saida sem gateway de LLM utilizavel (KAM-030).
+#:
+#: O **setimo**, pela mesma razao escrita acima: `2` configuracao, `3` guarda do
+#: ADR-002, `4` sem checkpointer, `5` registo invalido, `6` sem auditoria de
+#: tools, `7` sem gateway de LLM. Cada um manda olhar para um sitio diferente, e
+#: este manda olhar para `llm/`.
+#:
+#: Cobre tres coisas, e as tres sao configuracao:
+#:
+#: * `llm/aliases.yaml` ou `llm/precos.yaml` que nao se leem;
+#: * um alias com um fornecedor fora do inventario de subprocessadores — um
+#:   destino de transferencia que ninguem registou (ADR-008);
+#: * o papel desta ligacao sem `INSERT` nas catorze colunas de
+#:   `dat.llm_call_log`.
+#:
+#: A guarda e a mesma ideia da do checkpointer e da da `tool_audit`, e pela mesma
+#: razao: uma chamada a um modelo que corresse **sem** poder escrever a linha de
+#: custo e de transferencia descobria-o depois de os dados terem saido de Angola.
+#: O ADR-008 e o ADR-018 nao admitem isso, e um processo que aceita pedidos e so
+#: depois descobre que nao registra perde a primeira chamada de cada reinicio em
+#: silencio.
+SAIDA_SEM_GATEWAY_LLM = 7
 
 #: A variavel que diz o ambiente do cofre. A mesma do `entrada.ts` e do
 #: `chaves.ts`; `dev` por omissao, e um valor fora dos tres **levanta** em vez
@@ -149,6 +179,11 @@ def _fechar_as_tomadas(
         # revisao adversarial.
         if tools is not None:
             await tools.fechar()
+        # **O gateway de LLM nao tem tomada para fechar**, e isso e o desenho
+        # que a revisao adversarial obrigou: ele abre uma ligacao por chamada e
+        # fecha-a no `finally`, porque o `tenant_guard.tx` e exclusivo por
+        # ligacao e os turnos correm em paralelo. Uma tomada por processo perdia
+        # a linha de `dat.llm_call_log` da segunda chamada concorrente.
         checkpointer.fechar()
 
     return fechar
@@ -317,6 +352,87 @@ def main() -> int:
     log.info(
         outcome="toollayer_pronta",
         error_code=f"ligadas_{len(catalogo.ligadas())}_de_{len(catalogo.nomes())}",
+    )
+
+    # **Sem gateway de LLM utilizavel o AGR nao arranca** (KAM-030). Tres
+    # verificacoes, pela ordem em que custam: os dois ficheiros de `llm/`, que
+    # nao tocam na rede; e depois a ligacao que escreve `dat.llm_call_log`.
+    #
+    # A ligacao fica **aberta** e e a do cliente: ao contrario da guarda da
+    # `tool_audit`, que abre, confirma e fecha, aqui a tomada e a mesma que vai
+    # escrever — a camada de tools abre a sua a cada invocacao e esta e uma por
+    # processo, fechada no `ao_encerrar`.
+    pasta_do_llm = Path(os.environ.get(llm_aliases.VARIAVEL_DA_PASTA, "llm"))
+    try:
+        aliases = llm_aliases.ler(pasta_do_llm)
+        precos = llm_precos.carregar(pasta_do_llm)
+    except (llm_aliases.AliasesIndisponiveis, llm_precos.PrecoInvalido) as exc:
+        log.excepcao(exc, "llm_configuracao_invalida")
+        return SAIDA_SEM_GATEWAY_LLM
+    try:
+        llm_precos.sem_expirados(
+            precos,
+            # Os pares `(fornecedor, modelo)` que os aliases nomeiam. Hoje
+            # nenhum tem linha de preco (o modelo e `por_decidir`), pelo que
+            # isto nao recusa nada — e e o que se quer: a tabela e um catalogo
+            # de candidatos e so o que se vai cobrar tem de estar valido.
+            {
+                (fornecedor, modelo)
+                for alias in aliases.values()
+                for fornecedor, modelo in zip(
+                    alias.fornecedores, alias.modelos, strict=True
+                )
+            },
+        )
+    except llm_precos.PrecoInvalido as exc:
+        log.excepcao(exc, "llm_tarifa_expirada")
+        return SAIDA_SEM_GATEWAY_LLM
+    # A guarda abre, confirma e **fecha**, como a da `tool_audit`: a ligacao de
+    # execucao e uma **por chamada** (ver o `_escrever` do `cliente.py`), porque
+    # o `tenant_guard.tx` e exclusivo por ligacao e o AGR corre turnos em
+    # paralelo. Uma ligacao guardada daqui ate a primeira chamada era tambem uma
+    # ligacao que o servidor pode ter fechado entretanto.
+    try:
+        ligacao_de_ensaio = ligar_para_llm()
+        try:
+            llm_registo.confirmar(ligacao_de_ensaio)
+        finally:
+            ligacao_de_ensaio.close()
+    except Exception as exc:  # noqa: BLE001 — qualquer falha aborta o arranque
+        log.excepcao(exc, "llm_call_log_indisponivel")
+        return SAIDA_SEM_GATEWAY_LLM
+
+    destinos = llm_destinos.arrancar(ambiente)
+    # **O aviso em `staging` nao e enfeite.** O criterio 8 diz «ate KAM-069
+    # existir, so dados sinteticos em `staging`», e nenhum codigo consegue
+    # verificar que os dados sao sinteticos. Um aviso por arranque torna a
+    # condicao visivel; o silencio lia-se como garantia. Em `prod` a porta nega
+    # tudo, e tambem se diz.
+    if ambiente == llm_destinos.AMBIENTE_PROD:
+        log.warn(outcome="llm_destinos", error_code="nega_tudo_ate_kam069")
+    else:
+        log.warn(outcome="llm_destinos", error_code="so_dados_sinteticos")
+    cliente_de_llm = ClienteDeLlm(
+        aliases=aliases,
+        tabela_de_precos=precos,
+        porta_de_destinos=destinos,
+        abrir_ligacao=ligar_para_llm,
+        # A chave virtual do tenant vem do cofre, com a instancia no nome
+        # (`litellm_virtual_key/<tenant_id>`, `ops/secrets-inventory.yaml`). Nao
+        # e obrigatoria no arranque: ela existe por tenant e o arranque nao sabe
+        # que tenants ha — o que se confirma aqui e que o **cofre** responde,
+        # que o `Secrets.arrancar` acima ja fez.
+        chave_virtual=lambda tenant_id: segredos.get(
+            f"{REF_CHAVE_VIRTUAL}/{tenant_id}"
+        ),
+        url_do_proxy=os.environ.get(VARIAVEL_DO_PROXY, PROXY_POR_OMISSAO),
+        metricas=METRICAS,
+    )
+    # **Quem o invoca e o grafo, que e o KAM-031 e o KAM-035**, como a ToolLayer:
+    # e esta instancia que o `build_graph(deps)` recebe. Ate la nada o chama.
+    log.info(
+        outcome="llm_gateway_pronto",
+        error_code=f"papeis_{len(cliente_de_llm.papeis())}",
     )
 
     admissao = Admissao(tectos=tectos)

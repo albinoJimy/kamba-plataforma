@@ -138,6 +138,13 @@ class TestCatalogoReal(ComBase):
         self.assertEqual(
             catalogo.tabelas_isoladas(self.cursor),
             [
+                # KAM-030: a primeira tabela isolada **fora do `platform`**, e
+                # por isso a primeira da lista — o `ORDER BY 1, 2` da descoberta
+                # ordena por esquema, e «dat» vem antes de «platform». Sem
+                # receita de sementes, pela razao do `audit_log`: e append-only e
+                # o *trigger* `ENABLE ALWAYS` recusa o `DELETE` da limpeza. O
+                # isolamento dela prova-se em `db/tests_agr/test_llm_call_log.py`.
+                ("dat", "llm_call_log", "tenant_id"),
                 # KAM-012. Nenhuma das duas tem receita de sementes, e as
                 # duas razoes estao em `sementes.SEM_RECEITA_COM_RAZAO`: o
                 # `audit_heads` nao tem politica para provar, e o `audit_log` e
@@ -237,7 +244,15 @@ class TestCatalogoReal(ComBase):
         self.assertNotIn("events_log_default", descobertas)
         self.assertEqual(
             catalogo.particoes_de_isoladas(self.cursor),
-            [("platform", "events_log_default", "events_log")],
+            [
+                # KAM-030: a particao por omissao da `dat.llm_call_log`. Entra
+                # **como particao** e nao como tabela isolada, que e o que faz o
+                # `verificar_particoes` exigir-lhe RLS propria e nenhum
+                # privilegio — e ela tem as duas coisas: os `GRANT` da revisao
+                # `0023` sao todos no pai.
+                ("dat", "llm_call_log_default", "llm_call_log"),
+                ("platform", "events_log_default", "events_log"),
+            ],
         )
 
     def test_cada_particao_tem_a_sua_rls_e_nenhum_privilegio(self) -> None:
@@ -254,11 +269,18 @@ class TestCatalogoReal(ComBase):
         # E o que esta declarado sem receita tem mesmo de existir: uma entrada
         # em `SEM_RECEITA_COM_RAZAO` que nao corresponda a tabela nenhuma e uma
         # porta aberta com a chave perdida.
+        # **Todos os esquemas aplicacionais, e nao so o `platform`.** Esteve
+        # preso ao `platform` enquanto todas as tabelas isoladas lá viviam; o
+        # KAM-030 trouxe a primeira do `dat`, e com o filtro antigo uma entrada
+        # legitima em `SEM_RECEITA_COM_RAZAO` parecia «uma porta aberta com a
+        # chave perdida». O que se exclui e o mesmo que a descoberta exclui.
         todas = {
             (esquema, tabela)
             for esquema, tabela in self.consultar(
                 "SELECT schemaname::text, tablename::text FROM pg_tables "
-                " WHERE schemaname = 'platform'"
+                " WHERE schemaname <> ALL(%s) "
+                " AND schemaname NOT LIKE 'pg!_%%' ESCAPE '!'",
+                (list(catalogo.SCHEMAS_DE_SISTEMA),),
             )
         }
         self.assertLessEqual(sementes.SEM_RECEITA_COM_RAZAO, todas)
@@ -310,6 +332,17 @@ class TestCatalogoReal(ComBase):
                 ("handoff_accounts", "tenant_iso", "ALL", "{public}"),
                 ("handoffs", "tenant_iso", "ALL", "{public}"),
                 # KAM-020: a midia, pela mesma ordem.
+                # KAM-030: as duas do esquema `dat` (revisao `0023`). **Sao
+                # duas e nao uma**: a segunda e a particao por omissao, e tem
+                # politica propria porque para esta consulta — e para o
+                # `verificar_particoes` — uma particao e uma tabela. Sem ela, um
+                # `SELECT` dirigido a particao escapava a politica do pai.
+                #
+                # A consulta pede so `tablename`, pelo que a ordem e alfabetica
+                # pelo nome e nao pelo esquema: depois de `hmac_key_versions`,
+                # antes de `media_assets`.
+                ("llm_call_log", "tenant_iso", "ALL", "{public}"),
+                ("llm_call_log_default", "tenant_iso", "ALL", "{public}"),
                 ("media_assets", "tenant_iso", "ALL", "{public}"),
                 # KAM-015: as duas da saida de canal.
                 ("message_templates", "tenant_iso", "ALL", "{public}"),

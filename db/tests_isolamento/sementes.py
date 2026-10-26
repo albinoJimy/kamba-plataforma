@@ -1037,6 +1037,19 @@ SEM_RECEITA_COM_RAZAO = {
     ("platform", "audit_heads"),
     ("platform", "audit_log"),
     ("platform", "tool_audit"),
+    # KAM-030. Pela razao da `audit_log` e da `tool_audit`: as receitas semeiam
+    # **e apagam**, e o *trigger* `ENABLE ALWAYS` da revisao `0023` recusa o
+    # `DELETE`. O isolamento prova-se em `db/tests_agr/test_llm_call_log.py`,
+    # que faz as perguntas do X-04 — ler e escrever no nome de outro tenant, e
+    # sem contexto nenhum — sem precisar de apagar nada.
+    ("dat", "llm_call_log"),
+    # **A particao `llm_call_log_default` nao entra aqui**, e isso mediu-se: o
+    # `tabelas_isoladas` do `catalogo.py` exclui particoes
+    # (`NOT c.relispartition`) desde o KAM-005, porque elas tem verificacao
+    # propria em `verificar_particoes` — RLS propria **e** nenhum privilegio
+    # concedido a papel nenhum. Declara-la nesta lista nomeava uma tabela que a
+    # suite nao considera isolada, e a asercao `SEM_RECEITA_COM_RAZAO <= todas`
+    # falhava. Uma excepcao morta e pior do que nenhuma.
 }
 
 #: `tenants` primeiro: as outras referenciam-na. Depois, pela ordem das FK. As

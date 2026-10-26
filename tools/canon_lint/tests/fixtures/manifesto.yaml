@@ -73,7 +73,7 @@ casos:
     superficie: migracoes
     negativa: negativas/D-10_llm_calls.py
     positiva: positivas/D-10_llm_call_log.py
-    espera: "`llm_calls` → `llm_call_log`, dicionário §3.6"
+    espera: "`llm_calls` → `dat.llm_call_log`, dicionário §3.29"
 
   - divergencia: D-11
     superficie: registo
