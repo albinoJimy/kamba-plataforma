@@ -1236,14 +1236,25 @@ MUTACOES = [
      "      }\n",
      "", EVENTOS),
     # Achado 13: o erro do laco volta a nao largar o lock consultivo.
+    #
+    # **Na suite `tests`, por texto, e a razao e que nenhuma execucao da
+    # `tests_eventos` alcanca este `catch` sem matar o lider.** O `parar()`
+    # aborta o sinal e sai pelo `largar()` de **fora** do laco; as falhas
+    # tipicas nao chegam aqui, porque o `#recuar` tem `catch` proprio e o
+    # `#reverter()` corre antes; e o `kill -9` do `TestLideranca` fecha a
+    # ligacao, e o servidor larga o *lock* de sessao sozinho — o que torna a
+    # contagem de referencias irrelevante, que e precisamente a propriedade.
+    # Sobreviveu a noite de 2026-10-26 por isso, e nao por falta de atencao.
+    # Medi-la por execucao exigiria um gancho novo no `publicador_runner.ts`
+    # para um ciclo falhar sem morrer. O contrato prende-se no
+    # `test_publicador_contrato.TestOCatchDoLacoLargaOLock`.
     ("eventos: um erro transitorio deixa o lock preso", EV_PUBLICADOR,
      "        await this.largar();\n"
      "      }\n"
      "      await esperar(this.#intervalo, sinal);",
      "        this.#lider = false;\n"
      "      }\n"
-     "      await esperar(this.#intervalo, sinal);",
-     EVENTOS),
+     "      await esperar(this.#intervalo, sinal);"),
     # Achado 7: o atraso do criterio 8 volta a ser medido pelo relogio do
     # inicio da transaccao, que exclui o enfileiramento do lote.
     ("eventos: o atraso e medido antes do trabalho", EV_CONSULTAS,
