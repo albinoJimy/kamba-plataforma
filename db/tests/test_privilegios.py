@@ -1078,6 +1078,25 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # `INSERT` por coluna, e entrar aqui de inicio e mais barato do que uma
     # divida a fechar tres linhas de versao depois.
     "llm_call_log",
+    # KAM-014 e KAM-018, e esta entrou **medida**, como a `outbound_messages`.
+    # A matriz de `conversations` esta escrita em `COLUNAS_POR_PAPEL` desde o
+    # KAM-018, com as quatro colunas de `UPDATE` do `kamba_app` e um comentario
+    # longo sobre as quatro que ficam de fora — e **nunca foi lida**, porque a
+    # tabela nao estava nesta lista. Dados mortos: o
+    # `test_privilegios_por_coluna_nas_tabelas_com_matriz` so itera esta tupla.
+    #
+    # O preco esta medido: a mutacao `modos 0016: a app perde o UPDATE do mode`
+    # — tirar o `mode` das colunas que a `0016` concede — **sobreviveu** a noite
+    # de 2026-10-26. A matriz de tabela nao a podia ver (ali `conversations` diz
+    # `{"SELECT", "INSERT"}`, e o `has_table_privilege` devolve `false` para
+    # `UPDATE` com ou sem o `GRANT` por coluna), e nenhum teste da suite `tests`
+    # tentava um `UPDATE platform.conversations`. Com esta linha, a entrada
+    # passa a ser afirmada nos **dois** sentidos, e cobre tambem o par de
+    # `kamba_identity`, hoje igualmente morto.
+    #
+    # A propria `0016` aponta para um ficheiro que nao existe —
+    # «Medido em `db/tests/test_modos_privilegios.py`» — e e essa a raiz.
+    "conversations",
 )
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.
