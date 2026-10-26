@@ -415,13 +415,13 @@ sys.exit(0 if resultado.wasSuccessful() else 1)
 """
 
 
-class _OQueSoORepositorioPodeAfirmar(unittest.TestCase):
+class TestOQueSoORepositorioPodeAfirmar(unittest.TestCase):
     """O que se afirma sobre o **repositorio**, e nao sobre uma copia parcial.
 
     Esta bateria corre tambem **dentro** de uma copia de mutacao, onde a `RAIZ`
     do corredor e a raiz da copia. Estes dois testes nao tem lá o que medir, e
-    por isso a classe so e exposta ao `unittest` quando ha `.git` — ver o
-    `NO_REPOSITORIO` no fim do modulo.
+    por isso a classe e apagada do modulo quando nao ha `.git` — ver o fim do
+    modulo.
 
     A linha de base de cada suite de `tools/`, medida num PR e nao as 02:10.
 
@@ -491,10 +491,18 @@ class _OQueSoORepositorioPodeAfirmar(unittest.TestCase):
         )
 
 
-#: A classe so vira bateria quando ha repositorio para medir. Numa copia de
-#: mutacao o nome fica a comecar por `_`, e o `unittest` nao o descobre.
-if NO_REPOSITORIO:
-    TestOQueSoORepositorioPodeAfirmar = _OQueSoORepositorioPodeAfirmar
+# Numa copia de mutacao esta classe nao tem o que medir, e **apaga-se**.
+#
+# Apaga-se, e nao se salta: o `gate_bd` recusa testes saltados — «num gate,
+# saltar e falhar», e tem razao, porque um salto e uma verificacao que nao
+# aconteceu e que ninguem conta.
+#
+# E apaga-se do modulo, nao basta dar-lhe um nome com `_` a frente: o
+# `unittest` descobre as baterias por serem subclasses de `TestCase`, e o nome
+# da classe nao conta para nada. Medido — a primeira versao usava o `_` e as
+# seis fatias continuaram vermelhas exactamente na mesma.
+if not NO_REPOSITORIO:
+    del TestOQueSoORepositorioPodeAfirmar
 
 
 if __name__ == "__main__":
