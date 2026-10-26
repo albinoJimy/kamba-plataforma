@@ -158,6 +158,30 @@ class TestCanal(_ComApp):
             self.dominio_no_catalogo("tenant_channels_estado_ck"), ESTADOS_DO_CANAL
         )
 
+    def test_o_indice_por_tenant_comeca_pelo_tenant(self) -> None:
+        """A ordem das colunas **e** a razao de este indice existir.
+
+        `(tenant_id, estado)` e nao `(estado, tenant_id)`: o `tenant_id` e o
+        predicado que a RLS do KAM-004 acrescenta a **todas** as consultas desta
+        tabela, e e por ele que o indice serve. Trocada a ordem, o indice
+        continua a existir, com o mesmo nome e o mesmo numero de colunas, e
+        continua a servir uma consulta por `estado` — nada na bateria lia a
+        **definicao**, e a mutacao `ordem do indice trocada` sobreviveu a noite
+        de 2026-10-26.
+
+        O modelo e o `test_os_dois_indices_existem_e_o_primeiro_comeca_pelo_tenant`
+        do `test_coexistencia_schema.py`, que ja faz isto para o indice gemeo da
+        `0018`. Faltava o irmao para a `0001`.
+        """
+        linhas = self.consultar(
+            "SELECT indexdef FROM pg_indexes WHERE schemaname = 'platform' "
+            "AND indexname = 'tenant_channels_tenant_estado_idx'"
+        )
+        # O canario: sem esta linha, um indice que deixasse de existir dava uma
+        # lista vazia e o `assertIn` nunca corria.
+        self.assertEqual(len(linhas), 1, "o indice por tenant desapareceu")
+        self.assertIn("(tenant_id, estado)", linhas[0][0])
+
     def test_rejeita_os_estados_do_ddl_antigo(self) -> None:
         for estado in ("pausado", "revogado", "onboarding"):
             with self.subTest(estado=estado):
