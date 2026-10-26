@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.38 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.39 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -1549,6 +1549,159 @@ agendador do alerta de orçamento e das partições mensais (KAM-071); e **se os
 fornecedores reportam o cache dentro ou ao lado da entrada**, que está NÃO
 VERIFICADO e cuja subtracção é defensiva até alguém medir com uma chave real.
 
+### 3.30 Validador de citação e *renderer* por referência (KAM-032)
+
+*Emenda 1.39, **proposta**.* O `../docs/tecnica/02_Agent_Runtime_Verticais.md` §9
+desenha o validador em duas camadas e nomeia sete veredictos, quatro métricas e
+os blocos do *renderer*; nenhum deles estava neste documento. Entram aqui porque
+são contrato entre o `compose`, o `validate` e o `render` do grafo (KAM-031,
+KAM-035) e o consumo do KAM-123 — e porque o §1 declara defeito um nome em código
+que não esteja aqui.
+
+A fonte é o §9 (o desenho e as limitações do §9.2), o §8.2 (a extensão a datas,
+horas e durações), o `../docs/tecnica/03_Core_Comercio_Medusa.md` §7.1 (o preço
+opaco e o `OfferView.precoDisplay`), o
+`../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md` §6.3 (o contrato de saída da
+tool), o ADR-007 e a **proposta 02-A** do §20 do `02`.
+
+| Conceito | Nome canónico | Substitui | Nota |
+|---|---|---|---|
+| Veredicto do validador | `Verdict.errors` ∈ {`money_unbacked`, `sku_price_mismatch`, `name_sku_mismatch`, `qty_unbacked`, `datetime_unbacked`, `discount_unbacked`, `number_unbacked`} | — | ../docs/tecnica/02 §9.1. Lista fechada de sete |
+| Bloco do *renderer* | `blocks[].type` ∈ {`text`, `item`, `total`, `buttons`, `datetime`} | — | ../docs/tecnica/02 §9.1; o quinto vem do §8.2, que estende o validador a datas, horas e duracoes |
+| Literais permitidos fora de *facts* | `Policy.allowed_literals` | — | ../docs/tecnica/02 §9.1, «lista curta permitida» |
+| Campos de um bloco de item | `item.sku` + `item.show` ⊆ {`name`, `price`, `stock`} | — | ../docs/tecnica/02 §9.1, do exemplo de blocos |
+| Valor monetário normalizado | `value_minor` | `value_kz` | §2 (unidade menor inteira) e ../docs/tecnica/02 §9.1, corrigido pelo KAM-139: inteiro, em cêntimos de AOA |
+
+**Lista fechada de sete, e o número é canon.** É a mesma escolha dos onze erros
+tipados da `tool_audit` (§3.28): o grafo decide **pelo veredicto** — `retry` até
+ao tecto, depois `handoff` (§8.4, linha «Citação de números e `sku`») —, e um
+veredicto que ele não conheça cai no caminho de omissão, que num validador
+*fail-closed* é o caminho errado. Os sete são valores de `Verdict.errors` e
+**qualificados pela estrutura**, pela razão que a emenda 1.37 pagou com o
+`error_code` e a 1.38 com o `resultado`: `total` é já um `type` de bloco neste
+mesmo §3.30 e `price` é já um `kind` de `Fact` no §3.28, e um domínio sobre o
+nome nu colidia com os dois.
+
+#### O `value_minor` é em cêntimos, e `value_kz` não entra
+
+O critério 1 do bloco do KAM-032 escreve «devolve `value_kz` inteiro», e **não é
+o nome nem a unidade**. São duas fontes mais altas a dizer o contrário, e as duas
+já estavam escritas antes deste ticket:
+
+* o §2 deste documento manda dinheiro em **unidade menor inteira** (`*_minor`) e
+  a emenda 1.13 registou `valor_kz` como variante que ele substitui;
+* o §9.1 do `02` foi **corrigido pelo KAM-139** depois de a revisão adversarial
+  medir o achado C1: o *fact* vem do `search_catalog` do `05` §6.3, cujo contrato
+  de saída é `preco_minor` **em cêntimos**, e comparar a fala do cliente em Kz com
+  um *fact* em cêntimos falha **sempre**, por um factor de cem. «12.500 Kz» dá
+  `value_minor = 1250000`.
+
+A dívida **106** de `../docs/dividas-documentais.md` já tinha nomeado esta
+divergência, com o credor. Fica decidida a favor da fonte mais alta (fonte 3
+sobre fonte 6): o campo do `Fact` é o `value` que o KAM-028 entregou — serve os
+quatro `kind`, e um `stock` não é Kz — e a normalização para cêntimos é deste
+ticket.
+
+#### Três `kind` que o validador precisa e que **não** nascem aqui
+
+O bloco declara «dependência apenas da interface `Fact(kind, value_kz|datetime,
+sku, fact_id, retrieved_at)`», e três dos sete veredictos pedem `kind` que o
+catálogo do §6.2 não tem: `name` (para o `name_sku_mismatch`), `qty`
+(`qty_unbacked`) e `discount` (`discount_unbacked`). O §9.1 nomeia ainda um
+quarto, `expiry`, no `require_fact` das datas. O `KINDS` do KAM-028 está **fechado
+nos quatro** do §6.2 (`price`, `stock`, `total`, `datetime`, emenda 1.36), e um
+`Fact(kind="discount", …)` **levanta**.
+
+É a dívida **105**, e o credor que ela nomeia mantém-se: «quem acrescenta o `kind`
+é o ticket que produz o *fact*» — os três saem de tools que o **KAM-031** liga
+(`search_catalog`, `get_price_stock`). Este ticket **não** os acrescenta, e o que
+faz em vez disso está escrito e medido:
+
+* a quantidade cai em `stock`, que existe — é o `kinds={"qty","stock"}` do §9.1
+  menos o que não existe;
+* a data cai em `datetime`, pela mesma conta sobre `expiry`;
+* o desconto **não tem onde cair**, pelo que *qualquer* percentagem dá
+  `discount_unbacked`. É *fail-closed* e é o que o ADR-007 manda («cada número
+  citado existe no *output* real de uma tool»), mas tem um limite que se escreve:
+  o lado positivo do critério — uma percentagem **com** *fact* a ser aceite — é
+  **inverificável** hoje, e passa a verificável no dia em que o `discount` for um
+  `kind`;
+* o nome resolve-se a `sku` pelo `nome` do contrato de saída do `05` §6.3, que
+  vive no `ToolResult.data` e **não** num `Fact` — e é por isso que o validador
+  recebe a oferta ao lado dos *facts*, em vez de inventar um `kind`.
+
+#### As métricas: o `vertical` entra, o `tenant_id` não
+
+O critério 8 pede as quatro métricas «exportadas com `tenant_id` e `vertical`».
+**O `tenant_id` não pode ser etiqueta de métrica**, e não é convenção: o `OBS-I`
+de `../docs/seguranca/ameacas_stride.md` impõe-no, e a biblioteca da casa
+impõe-no **pela gramática** — uma etiqueta tem de casar `^[a-z][a-z0-9_]{1,62}$`,
+e um UUID canónico tem hífenes, não casa, e a chamada **levanta**
+`EtiquetaInvalida`. Uma métrica escrita como o critério 8 pede não exporta valor
+nenhum: rebenta no primeiro turno.
+
+Não é a primeira vez, e os precedentes dizem todos o mesmo. A emenda **1.21**
+(`meta_cost_usd_total`), a **1.25** (as quatro do *free tier*) e a **1.38** (o
+§13.4 do `02`: «as quatro etiquetas vão para as colunas da tabela, e a métrica
+leva só o `papel`») resolveram-no da mesma maneira. E a dívida **54** de
+`../docs/dividas-documentais.md` é o caso idêntico a este, com o desfecho
+escrito: o critério 4 e o DoD do KAM-015 pedem `meta_cost_usd_total{tenant}`, a
+etiqueta **não é implementável**, e «as duas caixas ficam vazias».
+
+Resolve-se igual: **a desagregação por *tenant* faz-se onde tem significado e não
+na etiqueta.** Lá foram as colunas de `dat.llm_call_log` e o `pricing` por
+consulta; aqui é o `turn_id` do registo do turno, de onde a amostragem do §9.2 lê.
+A leitura fica escrita, a gramática **não se alarga**, e a caixa do critério 8
+fica vazia: a decisão é de quem escreveu o critério.
+
+A segunda metade do critério também não sobrevive à biblioteca como está: as
+quatro são **taxas**, e a biblioteca da casa tem contadores e medidas e **não tem
+histogramas** (ADR-018, observabilidade leve). Uma taxa guardada como medida perde
+o denominador — e o `agr_llm_*` do KAM-030 já escolheu o outro caminho. Exportam-se
+**cinco contadores**, cada um com o `vertical` por eixo, e as quatro taxas do §9.2
+são razões entre eles:
+
+* `validate_fail_rate` = (`agr_validate_falhas_total` + `agr_validate_handoff_total`) / `agr_validate_total`;
+* `validate_retry_rate` = `agr_validate_repeticoes_total` / `agr_validate_total`;
+* `handoff_by_citation` = `agr_validate_handoff_total` — é uma contagem, e o §9.2 não lhe chama taxa;
+* `render_only_ratio` = `agr_render_only_total` / `agr_validate_total`.
+
+| Conceito | Nome canónico | Substitui | Nota |
+|---|---|---|---|
+| Validações de citação | `agr_validate_total{vertical}` | — | ../docs/tecnica/02 §9.2. É o denominador das taxas |
+| Validações recusadas | `agr_validate_falhas_total{vertical}` | — | ../docs/tecnica/02 §9.2 |
+| Recusas que geraram repetição | `agr_validate_repeticoes_total{vertical}` | — | ../docs/tecnica/02 §9.2 |
+| Recusas que esgotaram o tecto | `agr_validate_handoff_total{vertical}` | — | ../docs/tecnica/02 §9.2 e §8.4, «retry -> handoff» |
+| Respostas sem prosa numérica livre | `agr_render_only_total{vertical}` | — | ../docs/tecnica/02 §9.2. Medido por turno |
+| Amostragem em produção | `citation_fail_rate` | — | ../docs/tecnica/02 §9.2. Não é métrica Prometheus: é a medição por amostragem, com dono KAM-040 e KAM-081 |
+
+O `citation_fail_rate` **não** é métrica Prometheus e está aqui para não ser
+confundido com uma: o §9.2 nomeia-o como a medição **por amostragem de produção**
+que complementa o *gate* duro, e o seu dono é o KAM-040 (o *golden*) com o
+KAM-081 (as vistas). A razão de ele existir está no próprio §9.2 e repete-se
+porque é o limite deste ticket: «0 preços/totais divergentes das tools em
+produção» é **objectivo de desenho com risco residual**, e a regra dos três diz
+quanto vale um conjunto fechado — 0 falhas em N = 200 limita o risco a ≈ 1,5%
+(95%), e não a zero.
+
+Os valores do eixo `vertical` **derivam-se** de `VERTICAIS` (`kamba_agr/contexto.py`,
+espelho de `VERTICAIS_DO_PILOTO` do `02` §5.1) e não se escrevem à mão, pela lição
+que o KAM-027 pagou no `test_gate11`: uma lista literal transforma uma invariante
+num número. O dia em que o KAM-123 trouxer o `orcamento` ao `ToolContext`, a
+etiqueta segue sozinha.
+
+#### O que esta emenda **não** decide
+
+Nenhum `kind` novo (dívida 105, credor KAM-031); o nome da tool, que é
+`search_catalog` e não o `search_products` que o `05` §6.3 e o bloco escrevem
+(dívida 107, decidida na emenda 1.35); o `OfferView` e o `precoDisplay`, que são
+nomes da vista do COM (`03` §7.1) e entram com o KAM-051 que define a
+`v_oferta_viva` — este ticket consome os canónicos `preco_minor` e `preco_tipo`
+(§3.3); o `price_quote` do dono (KAM-123); as frases vetadas sem número («mais
+barato», «chega amanhã»), que são `guard_out` e pertencem ao **KAM-033**; e o
+tecto de repetições antes do *handoff*, que é do grafo (KAM-031) e lê o
+`citation_retries` que o §5.3 já tem.
+
 ## 4. Itens que continuam por decidir
 
 | Item | Estado | Ticket |
@@ -1608,3 +1761,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.36 | Outubro 2026 | **Emenda (*proposta*), KAM-028.** §3.27: o contrato da ToolLayer (`ToolLayer` com `for_context`/`invoke`, `ToolContext` de oito campos, `ToolResult`, `Fact`, `BoundTool`, `Confirmation`), as **tres** classes de tool (`klass` ∈ {`read`, `write`, `money`}), as **vinte** colunas da `platform.tool_audit` (`../docs/tecnica/02` §6.4), os **dez** erros tipados do §6.5, os dois `timeout` por classe e os dois numeros do disjuntor, as cinco metricas de tool e o codigo de saida **6**. Dois nomes entram porque **nenhuma** chave do estado os tinha e nenhuma os pode ter (o §5.3 fecha em dezenove): o `run_id`, que identifica uma execucao do grafo, e o `graph_version`, que e o `version` da vertical. Registam-se tambem os dois estados de uma entrada de catalogo — `ligada` e `declarada`, esta com `credor` obrigatorio —, que e o mecanismo pelo qual a validacao (1) do §5.2 passa de `aviso` a `bloqueio` neste ticket sem que as especificacoes das tools do Vendedor e de Servicos (KAM-031 e KAM-035) tenham de existir. Duas correccoes ao desenho: `klass` com dois `s` **nao** e variante de `classe` (e o nome da coluna do §6.4, e `class` e reservada em Python), e a «morada» que o §6.2 da ao `get_store_info` **nao existe** na `platform.tenants` e e um dos sete nomes que o *lint* de PII do `../docs/tecnica/08` §7.3 proibe — a tool devolve `fuso_horario`, `zona` e `plus_code`, que sao as colunas que ha. **Quatro nomes entraram pela revisão adversarial**, e os quatro de uma medição: `KAMBA_TLS_LIGACOES` (uma tomada só serializava todos os *tenants* — 2,02 s para dez invocações de dez *tenants*), `MARGEM_DO_TECTO_MS` (o tecto do §6.5 não era imposto: um executor de 5 s contra 2 s devolvia `ok=True`), `<nao_declarados>` (os **nomes** dos argumentos, que vêm do modelo, iam em claro para a `tool_audit`) e o `sku` do `Fact`, que o KAM-032 declara. | Equipa KAMBÁ |
 | 1.37 | Outubro 2026 | **Emenda (*proposta*), KAM-029.** §3.28: a `platform.tool_idempotency` e as suas sete colunas, a chave do §6.3 com o `CHECK` de forma hexadecimal, os três estados de uma reserva, o `INTENT_REUSED_WITH_DIFFERENT_CONTENT` como **décimo primeiro** erro tipado, o `TECTO_DE_ESPERA_MS` e o `DIAS_DE_RETENCAO`. **Corrige duas afirmações da emenda 1.36**, e as duas saíram de escrever código contra elas e não de uma leitura: a `tool_audit.idempotency_key` **não** guarda a chave do §6.3 — guarda a do chamador, a do turno —, e são duas chaves porque um segundo toque com `wamid` novo é um turno novo, pelo que uma desduplicação por chave de turno cobrava outra vez (critério 8); e «os dez erros tipados» passa a onze, o que arrasta o `CHECK` fechado da revisão `0021`, a etiqueta da métrica e os testes de contagem. **Uma decisão de forma com consequência:** o `\|` da fórmula do §6.3 não é um caractere separador — o `cart_id` é opaco e nenhum caractere seria seguro —, e a derivação prefixa cada parte com o comprimento; com um separador literal, duas partições diferentes das mesmas partes davam a mesma chave, que numa tool `money` é a encomenda de um cliente a responder pela de outro. Fica **NÃO VERIFICADO** e declarado no §4 que o `confirm:{cart_id}` cabe nos 256 caracteres do `id` de um *reply button*. | Equipa KAMBÁ |
 | 1.38 | Outubro 2026 | **Emenda (*proposta*), KAM-030.** §3.29: o esquema **`dat`** (o terceiro do repositório, depois do `platform` da `0001` e do `lg` da `0020`, e que o canon não tinha), a `dat.llm_call_log` com as suas **dezesseis** colunas — **catorze** no `../docs/tecnica/06` §14, mais o `papel` e o `graph_version`, sem os quais o «custo por papel» do DoD não é calculável de lado nenhum —, o domínio **fechado e qualificado** de `dat.llm_call_log.resultado` (seis valores), o `llm/aliases.yaml` como artefacto comportamental com SemVer e *lock*, o `llm/precos.yaml`, os quatro papéis, os quatro erros tipados, a `PortaDeDestinos`, as **sete** métricas, a chave virtual por *tenant*, o código de saída **7** e a quinta ligação. **O `llm_call_log` sai do §3.6**, onde estava pré-declarado sem esquema e sem colunas: é o percurso do `owner_notices` na 1.32 e do `token_ref` na 1.22, e o *lint* recusa a redundância. **Três afirmações de fonte mais alta não sobreviveram a serem medidas contra a imagem fixada, e as três mudaram código** (`../docs/evidencia/KAM-030-litellm.md`): (1) o orçamento esgotado responde **422** com `type: budget_exceeded` e não o **400** que o critério 4 escreve — e o proxy usa o 400 para «alias repetido», pelo que o mapeamento do bloco nunca disparava no orçamento e disparava num erro de provisionamento; (2) a configuração do `../docs/tecnica/02` §13.1, à letra — duas entradas com o mesmo `model_name` —, **não cumpre o critério 6**: a estratégia por omissão é `simple-shuffle`, aleatória, e em 20 corridas com o primeiro fornecedor sempre em falha **3 falharam por completo**; com dois grupos e um `fallbacks` nomeado são 20 de 20; (3) `google/` é recusado pelo proxy e o prefixo do Gemini é `gemini/` — o nome do subprocessador e o prefixo da biblioteca ficam em espaços de nomes **separados**, porque é o primeiro que o `tenant_destinations` do KAM-069 usa para autorizar uma transferência. **Duas decisões de conformidade que se escrevem em vez de se tomarem em silêncio:** o `custo_usd` é `numeric` e não unidade menor inteira (0,00045 USD não cabe num cêntimo, e `numeric` não é vírgula flutuante), e o `tenant_id` **não** é etiqueta de métrica nenhuma apesar de o §13.4 mandar *metering* por ele — as quatro etiquetas vão para as colunas da tabela, e a métrica leva só o `papel` (`OBS-I`). **O que não decide:** nenhum modelo (KAM-040, e todas as linhas são `por_decidir` com credor escrito), a `tenant_destinations` e o `apd_ref` (KAM-069, e sem eles `prod` nega tudo), o modo determinístico da degradação (KAM-037), a minimização de PII (KAM-112), a mensalidade por plano (H6), o agendador (KAM-071), e se os fornecedores reportam o cache dentro ou ao lado da entrada, que fica **NÃO VERIFICADO**. | Equipa KAMBÁ |
+| 1.39 | Outubro 2026 | **Emenda (*proposta*), KAM-032.** §3.30: os **sete** veredictos de `Verdict.errors` como lista fechada e qualificada, os **cinco** blocos de `blocks[].type` (o `datetime` vindo do §8.2, que o exemplo do §9.1 não tem), o `Policy.allowed_literals`, o `item.show`, o `value_minor` em **cêntimos de AOA**, as **cinco** métricas com o `vertical` por eixo e o `citation_fail_rate` como medição de amostragem que **não** é métrica Prometheus. **Decide uma divergência a favor de fonte mais alta:** o critério 1 do bloco escreve `value_kz`, e tanto o §2 (unidade menor inteira, emenda 1.13) como o §9.1 do `02` corrigido pelo KAM-139 dizem cêntimos — comparar Kz com `preco_minor` falha **sempre**, por um factor de cem (dívida 106). **Devolve duas ao credor em vez de as resolver:** os `kind` `name`, `qty` e `discount` (mais o `expiry` do `require_fact`) continuam fora do `KINDS` fechado do KAM-028, e quem os acrescenta é o ticket que produz o *fact* (dívida 105, KAM-031) — pelo que a quantidade cai em `stock`, a data em `datetime`, e o desconto **não tem onde cair**, o que torna *qualquer* percentagem `discount_unbacked`: é *fail-closed* e é o que o ADR-007 manda, mas o lado positivo do critério fica **inverificável** até o `discount` existir. **E o critério 8 não se marca:** pede as métricas «com `tenant_id` e `vertical`», e o `tenant_id` em etiqueta **levanta** `EtiquetaInvalida` pela gramática `^[a-z][a-z0-9_]{1,62}$` (`OBS-I`) — é a tensão que a emenda 1.38 já resolveu para o §13.4, e resolve-se igual: a desagregação por *tenant* faz-se onde tem significado (o `turn_id` do registo), a gramática não se alarga, e a decisão volta a quem escreveu o critério. As quatro «taxas» do §9.2 passam a razões entre cinco contadores, porque a biblioteca da casa não tem histogramas e uma taxa guardada como medida perde o denominador. | Equipa KAMBÁ |
