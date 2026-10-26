@@ -214,7 +214,7 @@ verifica assinaturas, o AGR não tem grafo, o COM não arranca o Medusa.
 | Arquitectura, ADR-001…ADR-020, decisões abertas D1…D13 | [`docs/tecnica/00_Arquitectura_Solucao.md`](docs/tecnica/00_Arquitectura_Solucao.md) |
 | Como se chama cada coisa | [`specs/02_Dicionario_de_Dados_Canonico.md`](specs/02_Dicionario_de_Dados_Canonico.md) |
 | DoR, DoD, gates, convenções, template de PR | [`specs/01_Engineering_Standards_e_Handoff.md`](specs/01_Engineering_Standards_e_Handoff.md) |
-| Backlog mestre (160 tickets) | [`specs/INDICE.md`](specs/INDICE.md) §4 |
+| Backlog mestre (161 tickets) | [`specs/INDICE.md`](specs/INDICE.md) §4 |
 | Topologia, operação, CI/CD | [`docs/tecnica/09_Topologia_Operacao_Escala.md`](docs/tecnica/09_Topologia_Operacao_Escala.md) |
 | Segurança, conformidade, cadeia de abastecimento | [`docs/tecnica/08_Seguranca_Conformidade.md`](docs/tecnica/08_Seguranca_Conformidade.md) |
 | Licenças e versões verificadas | [`docs/tecnica/evidencia/E4_Stack_Licencas.md`](docs/tecnica/evidencia/E4_Stack_Licencas.md) |
