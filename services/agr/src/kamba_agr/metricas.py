@@ -162,6 +162,46 @@ METRICA_LLM_SERVIDOR_DESCONHECIDO: Final = "agr_llm_servidor_desconhecido_total"
 #: deixava isso invisivel. Divida 116.
 METRICA_LLM_CONTAGEM_INCOERENTE: Final = "agr_llm_contagem_incoerente_total"
 
+#: As cinco do validador de citacao (KAM-032, dicionario §3.30), com o
+#: `vertical` por eixo.
+#:
+#: **Sao cinco contadores e o criterio 8 pede quatro metricas**, e a diferenca
+#: resolve duas tensoes do bloco de uma vez.
+#:
+#: A primeira: o §9.2 do `docs/tecnica/02` nomeia `validate_fail_rate`,
+#: `validate_retry_rate`, `handoff_by_citation` e `render_only_ratio`, e **tres
+#: delas sao taxas**. Esta biblioteca tem contadores e medidas e nao tem
+#: histogramas (ADR-018, observabilidade leve), e uma taxa guardada numa medida
+#: perde o denominador — fica um numero que ninguem pode reagregar nem comparar
+#: entre janelas. Exportam-se os termos e a taxa le-se no painel:
+#:
+#:     validate_fail_rate   (falhas + handoff) / total
+#:     validate_retry_rate  repeticoes / total
+#:     handoff_by_citation  handoff            (e contagem, nao taxa)
+#:     render_only_ratio    render_only / total
+#:
+#: A segunda: o criterio 8 pede-as «exportadas com `tenant_id` e `vertical`», e
+#: **o `tenant_id` nao entra**. Nao por convencao — pela gramatica: um UUID tem
+#: hifenes, nao casa `ETIQUETA`, e a chamada levanta `EtiquetaInvalida`. E a
+#: mesma tensao que o KAM-030 resolveu para o §13.4 e que a divida 54 resolveu
+#: para o `meta_cost_usd_total{tenant}` do KAM-015, com o mesmo desfecho: a
+#: desagregacao por *tenant* faz-se onde tem significado (o `turn_id` do registo
+#: do turno, de onde a amostragem do §9.2 le) e a caixa do criterio fica vazia.
+METRICA_VALIDATE: Final = "agr_validate_total"
+METRICA_VALIDATE_FALHAS: Final = "agr_validate_falhas_total"
+METRICA_VALIDATE_REPETICOES: Final = "agr_validate_repeticoes_total"
+METRICA_VALIDATE_HANDOFF: Final = "agr_validate_handoff_total"
+METRICA_RENDER_ONLY: Final = "agr_render_only_total"
+
+#: As cinco juntas, para quem precisa de as percorrer.
+METRICAS_DO_VALIDADOR: Final = (
+    METRICA_VALIDATE,
+    METRICA_VALIDATE_FALHAS,
+    METRICA_VALIDATE_REPETICOES,
+    METRICA_VALIDATE_HANDOFF,
+    METRICA_RENDER_ONLY,
+)
+
 #: O que aconteceu a um turno. Lista **fechada**: e etiqueta.
 #:
 #: `executado`        correu o grafo
@@ -234,6 +274,12 @@ def _valores_derivados(metrica: str) -> tuple[str, ...]:
         from .llm.erros import RESULTADOS
 
         return tuple(sorted(RESULTADOS))
+    if metrica in METRICAS_DO_VALIDADOR:
+        # As verticais do `ToolContext`, e nao uma lista literal: o dia em que o
+        # KAM-123 trouxer o `orcamento` ao contexto, a etiqueta segue sozinha.
+        from .contexto import VERTICAIS
+
+        return tuple(sorted(VERTICAIS))
     raise EtiquetaInvalida(f"{metrica}: nao tem valores derivados")
 
 #: A gramatica de uma etiqueta. A mesma de `ten/metricas.py`, e pela mesma
@@ -253,6 +299,7 @@ _DERIVADAS: Final = (
     METRICA_TOOL_DISJUNTOR,
     METRICA_LLM_CHAMADAS,
     METRICA_LLM_ERROS,
+    *METRICAS_DO_VALIDADOR,
 )
 
 
@@ -339,6 +386,26 @@ _AJUDA: Final = {
     METRICA_LLM_CONTAGEM_INCOERENTE: (
         "counter",
         "Chamadas com mais tokens de cache do que de entrada: o custo esta subavaliado.",
+    ),
+    METRICA_VALIDATE: (
+        "counter",
+        "Validacoes de citacao, por vertical. E o denominador das taxas do §9.2.",
+    ),
+    METRICA_VALIDATE_FALHAS: (
+        "counter",
+        "Validacoes de citacao recusadas, por vertical.",
+    ),
+    METRICA_VALIDATE_REPETICOES: (
+        "counter",
+        "Recusas de citacao que geraram repeticao do modelo, por vertical.",
+    ),
+    METRICA_VALIDATE_HANDOFF: (
+        "counter",
+        "Recusas de citacao que esgotaram o tecto e foram a handoff, por vertical.",
+    ),
+    METRICA_RENDER_ONLY: (
+        "counter",
+        "Respostas sem prosa numerica livre, por vertical.",
     ),
 }
 
@@ -451,6 +518,9 @@ _NOME_DO_EIXO: Final = {
     # desfecho, que e o mesmo defeito que o `_COM_MOTIVO` corrigiu.
     METRICA_LLM_CHAMADAS: "papel",
     METRICA_LLM_ERROS: "resultado",
+    # O eixo das cinco do validador e o `vertical` (KAM-032, criterio 8). O
+    # `tenant_id` nao e eixo de nenhuma, e a razao esta na nota delas acima.
+    **{m: "vertical" for m in METRICAS_DO_VALIDADOR},
 }
 
 
