@@ -24,6 +24,21 @@ from pathlib import Path
 
 import mutacoes
 
+#: Estamos no repositorio, e nao dentro de uma copia de mutacao?
+#:
+#: Esta bateria corre **tambem** dentro de uma copia: a suite `tests` e ela
+#: mesma mutada, e lá a `RAIZ` do corredor e a raiz da copia — uma arvore
+#: parcial, sem `tools/supply_chain`, sem `docs/tecnica/` e sem a maioria dos
+#: 142 ficheiros que a lista altera. Os testes que afirmam coisas sobre o
+#: **repositorio** nao tem lá o que medir, e saltam.
+#:
+#: O marcador e o `.git`: nenhuma receita o copia. Num *worktree* e um ficheiro
+#: e nao uma pasta, e por isso `exists` e nao `is_dir`.
+NO_REPOSITORIO = (mutacoes.RAIZ / ".git").exists()
+SO_NO_REPOSITORIO = unittest.skipUnless(
+    NO_REPOSITORIO, "arvore parcial: isto afirma coisas sobre o repositorio"
+)
+
 
 class TestClassificar(unittest.TestCase):
     FALHA = "FAIL: test_a_politica_e_a_tenant_iso (tests_isolamento.test_x05.Catalogo)\n"
@@ -261,7 +276,15 @@ class TestCodigoDeSaida(unittest.TestCase):
                 self.assertEqual(mutacoes.aplicaveis(), 1)
                 self.assertEqual(mutacoes.main(["--aplicaveis"]), 1)
 
+    @SO_NO_REPOSITORIO
     def test_aplicaveis_sai_com_zero_sobre_a_lista_real(self) -> None:
+        """Numa copia a maioria dos 142 ficheiros-alvo nao existe, e salta.
+
+        Este teste esteve a por a **propria** linha de base da suite `tests`
+        vermelha dentro da copia — 174 mutacoes que nenhuma noite podia medir.
+        Nunca se notou porque nenhuma noite chegou tao longe: as fatias morriam
+        antes, por falta das dependencias das suites.
+        """
         self.assertEqual(mutacoes.aplicaveis(), 0)
 
 
@@ -423,27 +446,7 @@ class TestAsCopiasDeToolsBastamSeASiMesmas(unittest.TestCase):
     nao e um `import`, e um ficheiro que o teste abre.
     """
 
-    #: Pastas da raiz que as receitas abrem. Sem elas, nao e o repositorio.
-    DA_RAIZ = ("tools", "llm", "registry", "contratos", "ci", "docs", "libs", "services")
-
-    def setUp(self) -> None:
-        """Numa copia de mutacao esta guarda nao tem o que medir, e salta.
-
-        A suite `tests` corre **dentro** de uma copia parcial, onde a `RAIZ` do
-        corredor e a raiz da copia: as receitas de `tools/` iam la buscar
-        `docs/`, `registry/` e `llm/`, que a copia nao leva, e rebentavam com
-        `FileNotFoundError` — a linha de base da propria suite `tests` ficava
-        vermelha. E a armadilha que a `docs/ci.md` 1.56 ja nomeia: «o arnes de
-        canarios corre sobre copias parciais da arvore». No *gate* 8 e no
-        `make test-py` a arvore e inteira e a guarda corre.
-        """
-        faltam = [d for d in self.DA_RAIZ if not (mutacoes.RAIZ / d).is_dir()]
-        if faltam:
-            self.skipTest(
-                "arvore parcial (sem " + ", ".join(faltam) + "): esta guarda mede "
-                "as receitas contra o repositorio, e aqui nao ha repositorio"
-            )
-
+    @SO_NO_REPOSITORIO
     def test_cada_suite_de_tools_corre_verde_so_com_o_que_a_receita_copia(self) -> None:
         raiz = str(mutacoes.RAIZ.resolve())
         ignorar = shutil.ignore_patterns("__pycache__", "*.pyc")
