@@ -221,9 +221,30 @@ def _deve_recusar() -> list[Caso]:
     for sku in _COM_PRECO:
         casos.append(
             Caso(
+                # **O preco esta aqui depois da revisao adversarial.** A
+                # primeira versao era «Temos {nome} para si», sem numero, e isso
+                # fazia o validador recusar um bloco `text` legitimo do
+                # *renderer* («Temos a Camisa Azul para si»). O risco que este
+                # veredicto fecha e «produto errado com preco certo», e esse
+                # precisa de um numero ligado ao produto.
                 nome=f"name_sku_mismatch:sem_sku:{sku}",
-                texto=f"Temos {_nome(sku)} para si",
-                espera=("name_sku_mismatch",),
+                texto=f"Temos {_nome(sku)} por {_kz(PRECOS[sku])}",
+                # **Os dois veredictos, e nao so um.** Uma linha que nomeia um
+                # produto sem `sku` falha nos dois eixos: o nome nao resolve
+                # para `sku` nenhum da linha, e o preco nao tem `sku` a que se
+                # vincular. A expectativa e **exacta** (ver
+                # `test_cada_recusa_pela_razao_certa`), pelo que tem de nomear
+                # os dois — e a assimetria importa, porque o grafo decide pelo
+                # codigo.
+                espera=("name_sku_mismatch", "sku_price_mismatch"),
+                familia="nome sem sku",
+            )
+        )
+        casos.append(
+            Caso(
+                nome=f"name_sku_mismatch:sem_sku_com_stock:{sku}",
+                texto=f"Temos {_nome(sku)}, {STOCKS[sku]} unidades",
+                espera=("name_sku_mismatch", "qty_unbacked"),
                 familia="nome sem sku",
             )
         )
@@ -362,15 +383,77 @@ def _deve_recusar() -> list[Caso]:
         )
 
     # 12. moeda estrangeira: nao ha `kind` de moeda (criterio 1).
-    for moeda in ("100 USD", "50 EUR", "200 USD", "15 EUR", "1 000 USD"):
+    #
+    # **Da `money_unbacked` e nao `number_unbacked`**, e a diferenca saiu da
+    # revisao adversarial: com `number_unbacked`, um `Policy(allowed_literals=
+    # (100,))` **perdoava** «100 USD». Uma moeda estrangeira e dinheiro que nao
+    # se consegue sustentar, e o `allowed_literals` nao a pode absolver.
+    for moeda in (
+        "100 USD", "50 EUR", "200 USD", "15 EUR", "1 000 USD",
+        "$100", "€50", "R$ 200", "75 ZAR", "12 GBP",
+    ):
         casos.append(
             Caso(
                 nome=f"moeda_estrangeira:{moeda}",
                 texto=f"SKU-100 - Camisa Azul - {moeda}",
-                espera=("number_unbacked",),
+                espera=("money_unbacked",),
                 familia="moeda diferente de Kz",
             )
         )
+    # E com o literal **declarado**, que e o caso que o defeito escondia.
+    casos.append(
+        Caso(
+            nome="moeda_estrangeira:literal_declarado_nao_absolve",
+            texto="SKU-100 - Camisa Azul - 100 USD",
+            espera=("money_unbacked",),
+            familia="moeda diferente de Kz",
+            literais=(100,),
+        )
+    )
+
+    # 13. Os falsos aceites que a revisao adversarial encontrou. Cada um e uma
+    #     entrada concreta que **era aceite** e passa a recusar; estao aqui para
+    #     que a correccao tenha guarda e nao volte a abrir.
+    casos.append(
+        Caso(
+            # O `total` de um carrinho de **um** item e o preco desse item, pelo
+            # que dispensar o vinculo quando o valor casa um `total` aceitava o
+            # preco da Calca na linha da Camisa — na carga mais comum da loja.
+            nome="revisao:total_de_um_item_nao_dispensa_o_vinculo",
+            texto=f"SKU-100 - Camisa Azul - {_kz(PRECOS['SKU-200'])}",
+            espera=("sku_price_mismatch",),
+            familia="par sku<->preco trocado",
+        )
+    )
+    casos.append(
+        Caso(
+            nome="revisao:marcador_a_partir_de_longe_do_valor",
+            texto=f"SKU-500 - Fato Completo - {_kz(PRECOS['SKU-500'])}, entregamos a partir de amanha",
+            espera=("sku_price_mismatch",),
+            familia="a_partir_de citado como fixo",
+        )
+    )
+    for forma in ("2 milhões de Kz", "3 milhões Kz", "2 MIL Kz", "DEZ mil Kz"):
+        casos.append(
+            Caso(
+                # O multiplicador com acento e em maiusculas: sem isto o numero
+                # **desaparecia** do texto, e o que nao se extrai nao se valida.
+                nome=f"revisao:multiplicador:{forma}",
+                texto=f"SKU-100 - Camisa Azul - {forma}",
+                espera=("money_unbacked",),
+                familia="dinheiro sem fact",
+            )
+        )
+    casos.append(
+        Caso(
+            # A data de um *slot* com a hora de outro: as formas eram achatadas
+            # sobre todos os *facts*, e a combinacao passava.
+            nome="revisao:data_de_um_slot_com_hora_de_outro",
+            texto="A entrega e a 14/11/2026 as 16h00",
+            espera=("datetime_unbacked",),
+            familia="data/hora sem fact",
+        )
+    )
 
     return casos
 
@@ -533,19 +616,28 @@ def _limites() -> list[Caso]:
     """
     return [
         Caso(
-            nome="limite:coincidencia_com_o_total",
-            # O preco do SKU-300 (45 000 Kz) numa linha de outro `sku`
-            # passaria se coincidisse com um *fact* `total`. Aqui o total e
-            # 21 500 Kz, pelo que a coincidencia constroi-se de proposito.
-            texto=f"SKU-100 - Camisa Azul - {_kz(TOTAL)}",
+            # **Este limite fechou-se**, e fica aqui como guarda em vez de sair:
+            # a revisao adversarial mostrou que num carrinho de **um** item o
+            # `total` *e* o preco desse item, pelo que «coincidencia» era a
+            # carga normal da loja e nao um acidente. Hoje o `total` so dispensa
+            # o vinculo numa linha que nao fala de produto nenhum, e por isso
+            # este caso **recusa** — o que resta do limite e um valor de preco
+            # citado numa linha sem `sku` **e** sem nome, que nao identifica
+            # produto e por isso nao pode trocar um por outro.
+            nome="limite:total_em_linha_sem_produto",
+            texto=f"O total fica em {_kz(TOTAL)}",
             espera=(),
             familia="coincidencia de valores (§9.2)",
         ),
         Caso(
-            # «Levo dois» **extrai-se** e da `number_unbacked`; o `um` nao, por
-            # ser artigo. Ver o cabecalho do `extraccao.py`.
-            nome="limite:artigo_um_sem_contexto",
-            texto="Levo um",
+            # **O limite e mais largo do que o `um`**, e a revisao adversarial
+            # pagou a versao estreita: com ela, «Mil desculpas», «Cem por cento
+            # de certeza» e «Dois minutos e volto» davam `number_unbacked` —
+            # respostas legitimas recusadas. Uma palavra de numero isolada so
+            # conta quando a moeda ou uma palavra de contagem a reclama, pelo
+            # que «levo dois» passa. Ver o cabecalho do `extraccao.py`.
+            nome="limite:palavra_de_numero_isolada_sem_contexto",
+            texto="Levo dois",
             espera=(),
             familia="numeros por extenso (§9.2)",
         ),

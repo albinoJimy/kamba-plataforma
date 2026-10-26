@@ -1661,10 +1661,13 @@ o denominador — e o `agr_llm_*` do KAM-030 já escolheu o outro caminho. Expor
 **cinco contadores**, cada um com o `vertical` por eixo, e as quatro taxas do §9.2
 são razões entre eles:
 
-* `validate_fail_rate` = (`agr_validate_falhas_total` + `agr_validate_handoff_total`) / `agr_validate_total`;
+* `validate_fail_rate` = `agr_validate_falhas_total` / `agr_validate_total` — **não** se soma o
+  `handoff`, que é um subconjunto das falhas e não uma classe ao lado delas;
 * `validate_retry_rate` = `agr_validate_repeticoes_total` / `agr_validate_total`;
 * `handoff_by_citation` = `agr_validate_handoff_total` — é uma contagem, e o §9.2 não lhe chama taxa;
-* `render_only_ratio` = `agr_render_only_total` / `agr_validate_total`.
+* `render_only_ratio` = `agr_render_only_total` / `agr_turns_total{outcome="executado"}` — o
+  denominador é o **turno** e não a validação, que é o que o critério 6 pede por extenso
+  («medido por turno»): um turno com duas repetições conta três validações.
 
 | Conceito | Nome canónico | Substitui | Nota |
 |---|---|---|---|

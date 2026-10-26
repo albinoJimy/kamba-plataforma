@@ -175,10 +175,21 @@ METRICA_LLM_CONTAGEM_INCOERENTE: Final = "agr_llm_contagem_incoerente_total"
 #: perde o denominador — fica um numero que ninguem pode reagregar nem comparar
 #: entre janelas. Exportam-se os termos e a taxa le-se no painel:
 #:
-#:     validate_fail_rate   (falhas + handoff) / total
-#:     validate_retry_rate  repeticoes / total
-#:     handoff_by_citation  handoff            (e contagem, nao taxa)
-#:     render_only_ratio    render_only / total
+#:     validate_fail_rate   falhas      / total
+#:     validate_retry_rate  repeticoes  / total
+#:     handoff_by_citation  handoff                 (e contagem, nao taxa)
+#:     render_only_ratio    render_only / agr_turns_total{executado}
+#:
+#: **O `falhas` nao se soma ao `handoff`**, e a primeira versao desta nota
+#: somava-os: o `falhas` conta **toda** a recusa e o `handoff` e um subconjunto
+#: dela (a recusa que esgotou o tecto), pelo que a soma dava 2,0 numa recusa que
+#: foi a *handoff*. Medido pela revisao adversarial com um espiao de metricas.
+#:
+#: **E o denominador do `render_only_ratio` e o turno e nao a validacao**, que e
+#: o que o criterio 6 pede por extenso («medido por turno»): um turno com duas
+#: repeticoes conta tres validacoes, pelo que `agr_validate_total` nao serve de
+#: denominador para uma proporcao de **respostas**. O denominador por turno
+#: existe e e o `agr_turns_total{outcome="executado"}` do KAM-025.
 #:
 #: A segunda: o criterio 8 pede-as «exportadas com `tenant_id` e `vertical`», e
 #: **o `tenant_id` nao entra**. Nao por convencao — pela gramatica: um UUID tem

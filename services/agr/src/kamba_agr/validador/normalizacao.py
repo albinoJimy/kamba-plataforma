@@ -130,8 +130,15 @@ def extenso_para_int(texto: str) -> int:
     """«doze mil e quinhentos» -> 12500. Levanta `NaoEDinheiroError`.
 
     Acumula por escala: o `mil` e o `milhao` fecham o grupo que vem antes deles,
-    e o resto soma-se. E a unica forma que lida com «mil e quinhentos» (onde o
-    grupo antes do `mil` esta **vazio** e vale 1) e com «dois milhoes e mil».
+    e o resto soma-se. Lida com «mil e quinhentos» (onde o grupo antes do `mil`
+    esta **vazio** e vale 1) e com «dois milhoes e mil».
+
+    **O que ele nao faz, e a revisao adversarial apanhou a afirmacao exagerada
+    que aqui estava:** o composto «mil milhoes» (10^9) da `1001000`, porque as
+    escalas se somam em vez de se multiplicarem entre si. Fica como limite
+    escrito e com teste, e nao se corrige: um numero dessa ordem numa resposta de
+    loja nao existe, e o erro e *fail-closed* — da um valor **diferente** do
+    *fact*, logo `money_unbacked`.
     """
     palavras = [p for p in re.split(r"[\s-]+", sem_acento(texto).strip()) if p and p != "e"]
     if not palavras:
@@ -161,10 +168,17 @@ def extenso_para_int(texto: str) -> int:
     return total + grupo
 
 
-def _digitos_para_decimal(bruto: str) -> tuple[int, int]:
+def _digitos_para_decimal(bruto: str, com_multiplicador: bool = False) -> tuple[int, int]:
     """`12.500,00` -> (12500, 0): a parte inteira e os centimos.
 
     As seis regras do cabecalho deste modulo, nesta ordem.
+
+    O `com_multiplicador` existe para a regra 2 ser verdade. Sem ele, o
+    multiplicador era retirado pelo `para_centimos` **antes** desta funcao, pelo
+    que ela nunca o via e «12,500 mil» dava 12,5 **milhoes** de Kz — a regra
+    escrita diz «sem multiplicador», e a revisao adversarial notou que o codigo
+    nao a cumpria. Com o multiplicador presente a virgula e decimal, e
+    «12,500 mil» da 12 500 Kz.
     """
     texto = bruto.strip().replace(" ", " ")
     if not re.fullmatch(r"\d[\d.,\s]*", texto):
@@ -181,7 +195,7 @@ def _digitos_para_decimal(bruto: str) -> tuple[int, int]:
     elif tem_virgula:
         inteiro, _, cauda = texto.rpartition(",")
         # Regras 2 e 3.
-        if len(cauda) == 3 and cauda.isdigit():
+        if len(cauda) == 3 and cauda.isdigit() and not com_multiplicador:
             inteiro, decimal = texto, ""
         else:
             decimal = cauda
@@ -230,6 +244,15 @@ def para_centimos(texto: str) -> int:
         marca = achado.group(1).strip()
         if sem_acento(marca) in MARCAS_DE_KZ:
             sem_marca = sem_marca[: achado.start(1)] + sem_marca[achado.end(1) :]
+        elif sem_acento(marca) in PALAVRAS_DE_NUMERO:
+            # **Uma palavra de numero nao e uma moeda, mesmo em maiusculas.** O
+            # `_MARCA_DE_MOEDA` aceita `[A-Z]{3}` (ISO 4217), e `DEZ`, `MIL` e
+            # `UMA` casam. A revisao adversarial mediu o resultado: «Temos DEZ
+            # unidades» fazia o `validar` **levantar** em vez de devolver um
+            # `Verdict` — o no `validate` rebentava, o «retry -> handoff» do §8.4
+            # nunca corria, e a mensagem da excepcao levava uma palavra do texto
+            # gerado para o *traceback*.
+            continue
         elif _MARCA_DE_MOEDA.match(marca):
             raise MoedaEstrangeiraError(
                 f"{marca!r} nao e Kz, e nao existe `kind` de moeda onde a sustentar "
@@ -239,7 +262,11 @@ def para_centimos(texto: str) -> int:
 
     # Um multiplicador por extenso no fim: «12,5 mil», «2 milhoes».
     escala = 1
-    achado = re.search(r"\s+([a-zA-Z]+)\s*$", sem_marca)
+    # `[a-zA-ZÀ-ÿ]` e nao `[a-zA-Z]`: sem os acentos, «2 milhões» nao casava o
+    # multiplicador, caia no `_digitos_para_decimal`, levantava, e o numero
+    # **desaparecia** do texto — medido pela revisao adversarial com «O carro
+    # custa 2 milhões de Kz», aceite sem *fact* nenhum.
+    achado = re.search(r"\s+([a-zA-ZÀ-ÿ]+)\s*$", sem_marca)
     if achado:
         palavra = sem_acento(achado.group(1))
         if palavra in MULTIPLICADORES:
@@ -255,7 +282,7 @@ def para_centimos(texto: str) -> int:
     # espaco tem algo a frente. Um `sem_marca` vazio cai no `extenso_para_int`,
     # que levanta «texto vazio» — o mesmo erro, sem a linha a mais.
     if re.match(r"^\d", sem_marca):
-        inteiro, centimos = _digitos_para_decimal(sem_marca)
+        inteiro, centimos = _digitos_para_decimal(sem_marca, com_multiplicador=escala > 1)
         total = (inteiro * CENTIMOS_POR_KZ + centimos) * escala
     else:
         total = extenso_para_int(sem_marca) * CENTIMOS_POR_KZ * escala

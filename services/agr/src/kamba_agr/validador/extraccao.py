@@ -52,7 +52,9 @@ from dataclasses import dataclass
 from typing import Final
 
 from .normalizacao import (
+    MARCAS_DE_KZ,
     MULTIPLICADORES,
+    MoedaEstrangeiraError,
     NaoEDinheiroError,
     PALAVRAS_DE_NUMERO,
     para_centimos,
@@ -115,10 +117,23 @@ _DATAHORA: Final = re.compile(
 )
 
 #: Dinheiro: o numero com marca de moeda de um dos lados, ou com multiplicador.
+#: O multiplicador e insensivel a maiusculas porque o modelo escreve «2 MIL Kz».
+_MULT: Final = r"(?i:mil|milhao|milhoes|milh[õo]es)"
 _DINHEIRO: Final = re.compile(
     rf"(?:{_KZ}\s*(?P<a>{_DIGITOS})"
-    rf"|(?P<b>{_DIGITOS})(?:\s+(?P<mult>mil|milhao|milhoes|milh[õo]es))?\s*{_KZ}"
-    rf"|(?P<c>{_DIGITOS})\s+(?P<mult2>mil|milhao|milhoes|milh[õo]es)\b)"
+    rf"|(?P<b>{_DIGITOS})(?:\s+(?P<mult>{_MULT}))?\s*{_KZ}"
+    rf"|(?P<c>{_DIGITOS})\s+(?P<mult2>{_MULT})\b)"
+)
+
+#: Um numero com marca de moeda **estrangeira** ao lado. Existe em separado
+#: porque o `_DINHEIRO` so casa o que tem Kz ou multiplicador, e sem isto «100
+#: USD» caia no varrimento de `outro` e um `Policy(allowed_literals=(100,))`
+#: **perdoava-o** — medido pela revisao adversarial. Uma moeda estrangeira e
+#: dinheiro que nao se consegue sustentar (nao ha `kind` de moeda, divida 105),
+#: e tem de dar `money_unbacked` e nao `number_unbacked`.
+_MOEDA_ESTRANGEIRA: Final = re.compile(
+    rf"(?:(?P<sim>[$€£¥₦₹]|R\$)\s*(?P<v1>{_DIGITOS})"
+    rf"|(?P<v2>{_DIGITOS})\s*(?P<cod>[A-Z]{{3}}|[$€£¥₦₹]|R\$)(?![A-Za-z]))"
 )
 
 #: Qualquer corrida de digitos, para o varrimento final de `outro`.
@@ -224,25 +239,29 @@ def _corridas_de_extenso(texto: str) -> list[tuple[int, int]]:
 
 
 def _extenso_conta(cru: str, texto: str, inicio: int, fim: int) -> bool:
-    """Se uma sequencia de palavras de numero conta como numero (cabecalho)."""
+    """Se uma sequencia de palavras de numero conta como numero (cabecalho).
+
+    **Uma palavra so precisa de contexto**, seja ela qual for — e nao apenas o
+    `um`/`uma`, como a primeira versao fazia. A revisao adversarial mediu o
+    preco dessa versao: «Mil desculpas, ja corrijo», «Cem por cento de certeza»,
+    «Dois minutos e volto» e um nome de marca com «Zero» davam todos
+    `number_unbacked`, isto e, respostas legitimas da loja recusadas, cada uma a
+    custar uma repeticao do modelo e, ao esgotar o tecto, um *handoff*.
+
+    O que **nao** se perde: duas ou mais palavras de numero contam sempre
+    («doze mil», «vinte e cinco»), e uma palavra so conta assim que a moeda ou
+    uma palavra de contagem a reclame («mil Kz», «cem unidades»). O que fica
+    aceite e uma palavra de numero isolada sem nada que a reclame — e nao e uma
+    citacao de *fact*, e conversa.
+    """
     palavras = [p for p in re.split(r"[\s-]+", sem_acento(cru)) if p and p != "e"]
     if not palavras:
         return False
-    if any(p in _ESCALAS for p in palavras):
-        return True
     if len(palavras) >= 2:
         return True
-    if palavras[0] in _ARTIGOS:
-        # Artigo: so conta se a moeda ou a contagem o reclamarem.
-        #
-        # shortcut: «levo um» nao se extrai, pelo que uma quantidade de **1**
-        # escrita por extenso e sem palavra de contagem passa sem *fact*;
-        # distingui-la de «levo um produto» pedia entender a frase. Revê-se se o
-        # KAM-033 trouxer o classificador de saida, que tem o contexto que falta
-        # aqui, ou se a amostragem do KAM-040 mostrar que acontece.
-        depois = texto[fim : fim + 24]
-        return bool(re.match(rf"\s*{_KZ}\b", depois)) or _e_quantidade(texto, fim, inicio)
-    return True
+    # Uma palavra so: a moeda ou a contagem tem de a reclamar.
+    depois = texto[fim : fim + 24]
+    return bool(re.match(rf"\s*{_KZ}\b", depois)) or _e_quantidade(texto, fim, inicio)
 
 
 def extrair(texto: str, skus: tuple[str, ...] = (), nomes: tuple[str, ...] = ()) -> tuple[Linha, ...]:
@@ -264,8 +283,14 @@ def _linha(texto: str, skus: tuple[str, ...], nomes: tuple[str, ...]) -> Linha:
 
     # Um `sku` ocupa o seu intervalo **antes** de tudo: os digitos de `SKU-123`
     # nao sao um numero citado, sao o identificador do produto.
+    #
+    # **Do mais longo para o mais curto**, e a revisao adversarial mediu porque:
+    # com `SKU-10` e `SKU-100` no catalogo, o curto reservava primeiro e o longo
+    # falhava o `_marca`, pelo que a linha do `SKU-100` ficava com `skus =
+    # ("SKU-10",)` e o preco certo dava `sku_price_mismatch` — o *renderer* a
+    # falhar o seu proprio validador por um prefixo.
     presentes_sku = []
-    for sku in skus:
+    for sku in sorted(skus, key=len, reverse=True):
         for achado in re.finditer(re.escape(sku), texto):
             if _marca(ocupado, achado.start(), achado.end()):
                 if sku not in presentes_sku:
@@ -274,114 +299,167 @@ def _linha(texto: str, skus: tuple[str, ...], nomes: tuple[str, ...]) -> Linha:
     # E um **nome** de produto ocupa o seu, pela mesma razao e com um custo que
     # se escreve. «Vestido 2 pecas» e o nome que a tool devolveu: o `2` nao e um
     # numero citado, e o controlo positivo do conjunto adversarial apanhou-o a
-    # dar `qty_unbacked` em todas as respostas sobre esse produto — isto e, o
-    # *renderer* a falhar o seu proprio validador.
+    # dar `qty_unbacked` em todas as respostas sobre esse produto.
+    #
+    # Tambem do mais longo para o mais curto: com «Coca-Cola» e «Coca-Cola
+    # Zero», o curto reservava primeiro e o longo nunca era visto.
     #
     # **O que isto abre, e onde se fecha:** um nome e texto escrito pela PME, e
     # reservar-lhe o intervalo deixaria um nome como «Camisa 99 999 Kz» citar um
     # preco sem *fact*. Nao se fecha aqui — fecha-se no `render.py`, que **recusa
-    # renderizar** um nome com marca de moeda ou com valor monetario, que e onde
-    # o dado entra. O que fica aceite e um numero nu dentro de um nome, e isso e
-    # *output* da tool por desenho (`item.show` inclui `name`, §9.1).
+    # renderizar** um nome com marca de moeda ou com valor monetario.
     presentes_nome = []
-    for nome in nomes:
+    for nome in sorted(nomes, key=len, reverse=True):
         for achado in re.finditer(re.escape(nome), texto, re.IGNORECASE):
             if _marca(ocupado, achado.start(), achado.end()):
                 if nome not in presentes_nome:
                     presentes_nome.append(nome)
 
+    # Daqui para baixo **marca-se so depois de o achado existir**, e a ordem
+    # inversa foi um dos defeitos mais caros deste ticket: a primeira versao
+    # reservava o intervalo antes de saber se o conseguia ler, e quando o ramo
+    # desistia o intervalo ficava ocupado — o varrimento 5 saltava-o e o numero
+    # **desaparecia**. Tres entradas medidas pela revisao adversarial, todas
+    # aceites: «SKU-9 - Camisa 12 500 Kz» com um *fact* de 500 Kz (o cliente le
+    # 12 500 num produto de 500), «SKU-700 - Tinta 250 unidades» com stock 2, e
+    # «2 milhões de Kz» sem *fact* nenhum. O que nao se extrai nao se valida.
+    def _guardar(inicio: int, fim: int, numero: Numero) -> None:
+        if _marca(ocupado, inicio, fim):
+            achados.append(numero)
+
     # 1. percentagem
     for achado in _PERCENTAGEM.finditer(texto):
-        if _marca(ocupado, achado.start(), achado.end()):
-            achados.append(
-                Numero(
-                    bruto=achado.group(0),
-                    inicio=achado.start(),
-                    fim=achado.end(),
-                    classe="percentagem",
-                    valor=_inteiro(achado.group("n")),
-                )
-            )
+        if any(ocupado[achado.start() : achado.end()]):
+            continue
+        _guardar(
+            achado.start(),
+            achado.end(),
+            Numero(
+                bruto=achado.group(0),
+                inicio=achado.start(),
+                fim=achado.end(),
+                classe="percentagem",
+                valor=_inteiro(achado.group("n")),
+            ),
+        )
 
     # 2. data/hora
     for achado in _DATAHORA.finditer(texto):
-        if _marca(ocupado, achado.start(), achado.end()):
-            achados.append(
-                Numero(
-                    bruto=achado.group(0),
-                    inicio=achado.start(),
-                    fim=achado.end(),
-                    classe="datahora",
-                )
-            )
+        if any(ocupado[achado.start() : achado.end()]):
+            continue
+        _guardar(
+            achado.start(),
+            achado.end(),
+            Numero(
+                bruto=achado.group(0),
+                inicio=achado.start(),
+                fim=achado.end(),
+                classe="datahora",
+            ),
+        )
+
+    # 2.5. moeda estrangeira — **antes** do dinheiro em Kz, para que «100 USD»
+    #      nao caia em `outro` e seja perdoado por um `allowed_literals`.
+    for achado in _MOEDA_ESTRANGEIRA.finditer(texto):
+        if any(ocupado[achado.start() : achado.end()]):
+            continue
+        marca = achado.group("sim") or achado.group("cod") or ""
+        if sem_acento(marca) in MARCAS_DE_KZ or sem_acento(marca) in PALAVRAS_DE_NUMERO:
+            continue
+        _guardar(
+            achado.start(),
+            achado.end(),
+            Numero(
+                bruto=achado.group(0),
+                inicio=achado.start(),
+                fim=achado.end(),
+                classe="dinheiro",
+                value_minor=None,  # nao ha `kind` de moeda onde a sustentar
+            ),
+        )
 
     # 3. dinheiro
     for achado in _DINHEIRO.finditer(texto):
-        if not _marca(ocupado, achado.start(), achado.end()):
+        if any(ocupado[achado.start() : achado.end()]):
             continue
         digitos = achado.group("a") or achado.group("b") or achado.group("c")
         mult = achado.group("mult") or achado.group("mult2") or ""
         try:
-            centimos = para_centimos(f"{digitos} {mult}".strip())
+            centimos: int | None = para_centimos(f"{digitos} {mult}".strip())
+        except MoedaEstrangeiraError:
+            # **Dinheiro que nao se consegue sustentar, e nao um numero solto.**
+            # Nao ha `kind` de moeda (divida 105), pelo que uma moeda
+            # estrangeira e sempre `money_unbacked` — e nao `number_unbacked`,
+            # que o `allowed_literals` podia perdoar: a revisao mediu
+            # `Policy(allowed_literals=(100,))` a aceitar «100 USD».
+            centimos = None
         except NaoEDinheiroError:
-            continue
-        achados.append(
+            continue  # deixa o intervalo livre para o varrimento 5
+        _guardar(
+            achado.start(),
+            achado.end(),
             Numero(
                 bruto=achado.group(0),
                 inicio=achado.start(),
                 fim=achado.end(),
                 classe="dinheiro",
                 value_minor=centimos,
-            )
+            ),
         )
 
     # 4. numeros por extenso — dinheiro se a moeda os reclamar, senao quantidade
     #    ou `outro`.
     for comeco, acaba in _corridas_de_extenso(texto):
+        if any(ocupado[comeco:acaba]):
+            continue
         cru = texto[comeco:acaba]
         if not _extenso_conta(cru, texto, comeco, acaba):
-            continue
-        if not _marca(ocupado, comeco, acaba):
             continue
         depois = texto[acaba : acaba + 24]
         if re.match(rf"\s*{_KZ}\b", depois):
             try:
                 centimos = para_centimos(cru)
-            except NaoEDinheiroError:
+            except (NaoEDinheiroError, MoedaEstrangeiraError):
                 continue
-            achados.append(
+            _guardar(
+                comeco,
+                acaba,
                 Numero(
                     bruto=cru, inicio=comeco, fim=acaba,
                     classe="dinheiro", value_minor=centimos,
-                )
+                ),
             )
             continue
         try:
             valor = para_centimos(cru) // 100
-        except NaoEDinheiroError:
+        except (NaoEDinheiroError, MoedaEstrangeiraError):
             continue
         classe = "quantidade" if _e_quantidade(texto, acaba, comeco) else "outro"
-        achados.append(
-            Numero(bruto=cru, inicio=comeco, fim=acaba, classe=classe, valor=valor)
+        _guardar(
+            comeco,
+            acaba,
+            Numero(bruto=cru, inicio=comeco, fim=acaba, classe=classe, valor=valor),
         )
 
     # 5. o resto: quantidade se a contagem o reclamar, senao `outro`.
     for achado in _QUALQUER_NUMERO.finditer(texto):
-        if not _marca(ocupado, achado.start(), achado.end()):
+        if any(ocupado[achado.start() : achado.end()]):
             continue
         classe = (
             "quantidade"
             if _e_quantidade(texto, achado.end(), achado.start())
             else "outro"
         )
-        achados.append(
+        _guardar(
+            achado.start(),
+            achado.end(),
             Numero(
                 bruto=achado.group(0),
                 inicio=achado.start(),
                 fim=achado.end(),
                 classe=classe,
                 valor=_inteiro(achado.group(0)),
-            )
+            ),
         )
 
     return Linha(

@@ -278,7 +278,11 @@ Quatro notas que valem mais do que a lista:
   `agr_validate_total`, `agr_validate_falhas_total`,
   `agr_validate_repeticoes_total`, `agr_validate_handoff_total` e
   `agr_render_only_total`, todas com o eixo **`vertical`**, e a taxa lê-se no
-  painel. O `tenant_id` **não** é eixo de nenhuma, pela regra da gramática acima
+  painel: `falhas / total` (o `handoff` é um **subconjunto** das falhas e não se
+  soma a elas), `repetições / total`, o `handoff` como contagem, e o
+  `render_only` sobre `agr_turns_total{outcome="executado"}` — porque o
+  denominador de uma proporção de **respostas** é o turno e não a validação, e um
+  turno com duas repetições conta três validações. O `tenant_id` **não** é eixo de nenhuma, pela regra da gramática acima
   — e isso é o critério 8 do KAM-032 a não se poder cumprir à letra: ver o §7-E.
 
 - **O `agr_degraded_turns_total` não existe**, e a caixa do DoD fica por marcar.

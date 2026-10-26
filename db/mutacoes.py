@@ -4119,14 +4119,14 @@ MUTACOES = [
     # nao o aceita. Aceita, e mediu-se.
     # ---------------------------------------------------------------- KAM-032
     #
-    # Dezenove mutacoes, com prefixo `cit:`. Cada uma apaga **uma** propriedade
+    # Vinte e tres mutacoes, com prefixo `cit:`. Cada uma apaga **uma** propriedade
     # que um criterio nomeia, e tres delas repoem defeitos que os testes deste
     # ticket apanharam — a quantidade sem vinculo ao `sku`, o intervalo do nome
     # nao reservado, e a comparacao em Kz em vez de centimos (o achado C1 do
     # KAM-139). Correm todas na `agr_unit`.
     ('cit: o dinheiro deixa de exigir vinculo ao sku', AG_VAL_VER,
-     "        ligados = [f for f in casam if f.sku and f.sku in linha.skus]",
-     "        ligados = list(casam)",
+     "    ligados = [f for f in casam if f.kind == \"price\" and f.sku and f.sku in linha.skus]",
+     "    ligados = list(casam)",
      AGR_UNIT),
     # E o «produto errado com preco certo» que o ADR-007 assinala por extenso e
     # que o criterio 2 poe em segundo lugar na lista de falsos aceites.
@@ -4141,13 +4141,13 @@ MUTACOES = [
      "        if False:",
      AGR_UNIT),
     ('cit: a_partir_de passa a poder citar-se como preco fixo', AG_VAL_VER,
-     "                and not linha.tem_a_partir_de",
+     "                and not _tem_a_partir_de(linha, numero)",
      "                and False",
      AGR_UNIT),
     # As duas acima sao o criterio 4, e cada uma por um lado: um preco publicado
     # como minimo apresentado como final, e um produto sem preco a receber um.
     ('cit: a percentagem passa a aceitar-se', AG_VAL_VER,
-     '                erros.append(Erro("discount_unbacked", valor=numero.valor))',
+     '                erros.append(Erro("discount_unbacked"))',
      "                pass",
      AGR_UNIT),
     ('cit: o numero solto passa a aceitar-se', AG_VAL_VER,
@@ -4158,7 +4158,7 @@ MUTACOES = [
     # ele nao reconhece passa — e e exactamente o que ele nao reconhece que
     # ninguem olhou.
     ('cit: um valor que coincide com um total dispensa o vinculo sempre', AG_VAL_VER,
-     '        if any(f.kind == "total" for f in casam):',
+     '        if any(f.kind == "total" for f in casam) and not fala_de_produto:',
      "        if casam:",
      AGR_UNIT),
     # O criterio 3: um total somado pelo modelo falha porque nao e *fact*. Com
@@ -4170,8 +4170,8 @@ MUTACOES = [
     # O extractor parte «14/11/2026 as 14h30» em dois achados: sem as formas
     # parciais, o texto do proprio *renderer* da `datetime_unbacked` duas vezes.
     ('cit: a virgula de tres digitos passa a decimal', AG_VAL_NORM,
-     '        inteiro, _, cauda = texto.rpartition(",")\n        # Regras 2 e 3.\n        if len(cauda) == 3 and cauda.isdigit():',
-     '        inteiro, _, cauda = texto.rpartition(",")\n        # Regras 2 e 3.\n        if False:',
+     '        if len(cauda) == 3 and cauda.isdigit() and not com_multiplicador:',
+     '        if False:',
      AGR_UNIT),
     # `12,500` passava a valer 12,5 Kz: o formato 4 do criterio 1, lido com um
     # factor de mil de diferenca.
@@ -4187,7 +4187,7 @@ MUTACOES = [
      "            pass\n        elif False:\n            raise MoedaEstrangeiraError(",
      AGR_UNIT),
     ('cit: um bloco text passa a levar digitos', AG_VAL_REND,
-     "            if _DIGITO.search(texto):",
+     "            if _DIGITO.search(texto) or any(\n                linha.numeros for linha in extrair(texto)\n            ):",
      "            if False:",
      AGR_UNIT),
     # A camada 1 deixa de ser camada: o modelo volta a escrever numeros em
@@ -4215,6 +4215,41 @@ MUTACOES = [
      AGR_UNIT),
     # Datas e horas em UTC na apresentacao: uma marcacao das 14h30 mostrada como
     # 13h30 ao cliente.
+    # ---- Quatro que a revisao adversarial notou em falta (ANALISE-33, achado 17)
+    #
+    # Nenhuma propriedade delicada deste ticket deve ficar sem mutacao. Estas
+    # quatro fechavam: o unico veredicto dos sete sem mutacao, a separacao por
+    # `kind` que o §9.2 nomeia como mitigacao, a garantia **estrutural** do
+    # criterio 5 (que estava garantida por **ausencia**, e uma prova por mutacao
+    # nao ve uma ausencia a menos que alguem a mute para dentro), e os centimos
+    # da apresentacao.
+    ('cit: o nome deixa de se vincular ao sku', AG_VAL_VER,
+     "        if not possiveis or possiveis.isdisjoint(linha.skus):",
+     "        if False:",
+     AGR_UNIT),
+    # O `name_sku_mismatch` era o unico dos sete veredictos sem mutacao, e e
+    # metade da familia 3 do criterio 2 — «nome que resolve para outro `sku`».
+    ('cit: o stock passa a sustentar um preco', AG_VAL_VER,
+     'MONEY_KINDS: Final = ("price", "total")',
+     'MONEY_KINDS: Final = ("price", "total", "stock")',
+     AGR_UNIT),
+    # A separacao por `kind` e a mitigacao que o §9.2 nomeia para a coincidencia
+    # de valores: com o `stock` aqui, o stock de um produto sustenta o preco de
+    # outro.
+    ('cit: o item passa a poder mostrar a descricao', AG_VAL_REND,
+     'CAMPOS_DE_ITEM: Final = ("name", "price", "stock")',
+     'CAMPOS_DE_ITEM: Final = ("name", "price", "stock", "description")',
+     AGR_UNIT),
+    # O criterio 5 — «digitos de descricoes escritas pela PME nao contam como
+    # *facts*; o modelo nao os pode repetir» — e garantido por **nao haver
+    # campo**. Esta mutacao e a unica forma de uma prova por mutacao ver isso.
+    ('cit: a apresentacao perde os centimos', AG_VAL_NORM,
+     'return f"{grupos},{resto:02d} Kz" if resto else f"{grupos} Kz"',
+     'return f"{grupos} Kz"',
+     AGR_UNIT),
+    # Um preco de 20 750,50 Kz apresentado como «20 750 Kz» e um numero
+    # **diferente** do *fact*, que e exactamente o que o validador recusa — e o
+    # *renderer* a produzi-lo.
     ('cit: o intervalo de um nome deixa de ser reservado', AG_VAL_EXTR,
      "        for achado in re.finditer(re.escape(nome), texto, re.IGNORECASE):",
      "        for achado in re.finditer(r'(?!x)x', texto, re.IGNORECASE):",
@@ -4227,12 +4262,14 @@ MUTACOES = [
      AGR_UNIT),
     # Os digitos de `SKU-123` passam a ser um numero citado, e nenhuma linha com
     # `sku` passa — o validador a bloquear a loja em vez de a proteger.
-    ('cit: o artigo um passa a contar como numero', AG_VAL_EXTR,
-     "    if palavras[0] in _ARTIGOS:",
-     "    if False:",
+    ('cit: a palavra de numero isolada passa a contar sozinha', AG_VAL_EXTR,
+     "    if len(palavras) >= 2:\n        return True",
+     "    if len(palavras) >= 1:\n        return True",
      AGR_UNIT),
-    # «Encontrei um produto para si» passa a ter o numero 1 e da
-    # `number_unbacked`: metade das respostas legitimas recusadas.
+    # «Mil desculpas», «Cem por cento de certeza» e «Dois minutos e volto»
+    # passam a dar `number_unbacked`: respostas legitimas da loja recusadas,
+    # cada uma a custar uma repeticao do modelo. Medido pela revisao
+    # adversarial, que pagou a versao estreita desta regra.
 ]
 
 

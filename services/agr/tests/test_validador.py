@@ -145,6 +145,33 @@ class TestNormalizacaoRecusa(unittest.TestCase):
         """Regra 5: `12.5` nao pode ser milhares — um grupo tem tres digitos."""
         self.assertEqual(normalizacao.para_centimos("12.5 Kz"), 1250)
 
+    def test_a_regra_2_vale_mesmo_com_multiplicador(self) -> None:
+        """«sem multiplicador» era falso: ele era retirado antes da regra.
+
+        `12,500 mil` dava 12,5 **milhões** de Kz, porque o multiplicador saía
+        antes de a regra o poder ver. Com ele presente a vírgula é decimal, como
+        a regra sempre disse — e `12,500` passa a ter três casas decimais, que
+        não cabem em cêntimos, pelo que **levanta**.
+
+        Levantar é o desfecho certo para uma entrada ambígua: o extractor deixa
+        o intervalo livre, o número cai em `outro` e dá `number_unbacked`. Uma
+        recusa, em vez de um valor adivinhado mil vezes maior.
+        """
+        self.assertEqual(normalizacao.para_centimos("12,500"), 1250000)
+        self.assertEqual(normalizacao.para_centimos("12,5 mil"), 1250000)
+        with self.assertRaises(normalizacao.NaoEDinheiroError):
+            normalizacao.para_centimos("12,500 mil")
+
+    def test_mil_milhoes_e_um_limite_escrito(self) -> None:
+        """As escalas somam-se e não se multiplicam entre si.
+
+        «mil milhões» (10^9) dá 1 001 000. Não se corrige: um número dessa ordem
+        numa resposta de loja não existe, e o erro é *fail-closed* — dá um valor
+        **diferente** do *fact*, logo `money_unbacked`.
+        """
+        self.assertEqual(normalizacao.extenso_para_int("mil milhoes"), 1001000)
+        self.assertEqual(normalizacao.extenso_para_int("dois milhoes e mil"), 2001000)
+
     def test_dinheiro_negativo_nao_se_apresenta(self) -> None:
         with self.assertRaises(ValueError):
             normalizacao.kz_display(-1)
@@ -449,20 +476,41 @@ class TestSeteVeredictos(_ComCatalogo):
         with self.assertRaises(ValueError):
             veredicto.Verdict(ok=False, errors=())
 
-    def test_um_erro_nao_leva_texto(self) -> None:
+    def test_um_erro_nao_leva_texto_nem_numero_nao_sustentado(self) -> None:
         """A resposta validada pode repetir texto do cliente (ADR-010).
 
-        O `Erro` tem `codigo`, `valor` e `sku` e mais nada: nao ha campo por onde
-        prosa chegue ao registo do servico. E a licao que o `fact_id` do KAM-028
-        pagou com canarios.
+        **Percorre todos os campos da *dataclass* por reflexao**, e a primeira
+        versao nao: olhava para o `codigo` e o `sku` e saltava o `valor`, que era
+        precisamente o campo que quebrava a propriedade — a revisao adversarial
+        mediu `Erro(codigo='number_unbacked', valor=923456789)`. Um
+        `number_unbacked` e, por definicao, o numero que **nao** veio de tool
+        nenhuma: e onde um telefone ou um NIF repetido pelo modelo aterra.
+
+        E a licao que o `fact_id` do KAM-028 pagou com canarios, com o canario
+        certo e o campo errado medido.
         """
-        campos = set(veredicto.Erro.__dataclass_fields__)
-        self.assertEqual(campos, {"codigo", "valor", "sku"})
-        canario = "o meu numero e 923456789 e moro na Rua X"
-        for erro in self.validar(canario).errors:
-            for valor in (erro.codigo, erro.sku):
-                self.assertNotIn("923456789", str(valor))
-                self.assertNotIn("Rua", str(valor))
+        import dataclasses
+
+        canario = "o meu numero e 923456789 e moro na Rua X, porta 14"
+        ver = self.validar(canario)
+        self.assertFalse(ver.ok, "o canario tem de ser recusado")
+        for erro in ver.errors:
+            for campo in dataclasses.fields(erro):
+                valor = str(getattr(erro, campo.name))
+                with self.subTest(codigo=erro.codigo, campo=campo.name):
+                    self.assertNotIn("923456789", valor)
+                    self.assertNotIn("Rua", valor)
+                    self.assertNotIn("14", valor)
+
+    def test_o_valor_so_vem_quando_saiu_de_um_fact(self) -> None:
+        """A regra que torna o teste acima verdadeiro por construcao."""
+        sem_valor = self.validar("SKU-100 - Camisa Azul - 99 999 Kz")
+        self.assertEqual(sem_valor.codigos, ("money_unbacked",))
+        self.assertIsNone(sem_valor.errors[0].valor)
+        # O `sku_price_mismatch` **pode** levar valor: ele casou um *fact*.
+        casou = self.validar("SKU-100 - Camisa Azul - 9 000 Kz")
+        self.assertEqual(casou.codigos, ("sku_price_mismatch",))
+        self.assertEqual(casou.errors[0].valor, ca.PRECOS["SKU-200"])
 
 
 class TestVinculoSkuPreco(_ComCatalogo):
@@ -787,15 +835,15 @@ class TestMetricas(unittest.TestCase):
         with self.assertRaises(EtiquetaInvalida):
             self.metricas.contar(METRICA_VALIDATE, "orcamento")
 
-    def test_registar_conta_o_que_o_no_lhe_diz(self) -> None:
+    def test_medir_validacao_conta_o_que_o_no_lhe_diz(self) -> None:
         falhou = veredicto.Verdict(
             ok=False, errors=(veredicto.Erro("money_unbacked", valor=1),)
         )
-        veredicto.registar(self.metricas, "vendedor", falhou, repetiu=True)
-        veredicto.registar(
+        veredicto.medir_validacao(self.metricas, "vendedor", falhou, repetiu=True)
+        veredicto.medir_validacao(
             self.metricas, "vendedor", falhou, handoff=True
         )
-        veredicto.registar(
+        veredicto.medir_validacao(
             self.metricas, "vendedor", veredicto.Verdict(ok=True), so_blocos=True
         )
         lido = self.metricas.ler()
@@ -808,16 +856,19 @@ class TestMetricas(unittest.TestCase):
     def test_as_quatro_taxas_do_922_saiem_dos_cinco_contadores(self) -> None:
         """Nao ha histogramas nesta biblioteca (ADR-018): a taxa e uma razao."""
         for _ in range(8):
-            veredicto.registar(self.metricas, "vendedor", veredicto.Verdict(ok=True))
+            veredicto.medir_validacao(self.metricas, "vendedor", veredicto.Verdict(ok=True))
         falhou = veredicto.Verdict(ok=False, errors=(veredicto.Erro("money_unbacked"),))
-        veredicto.registar(self.metricas, "vendedor", falhou, repetiu=True)
-        veredicto.registar(self.metricas, "vendedor", falhou, handoff=True)
+        veredicto.medir_validacao(self.metricas, "vendedor", falhou, repetiu=True)
+        veredicto.medir_validacao(self.metricas, "vendedor", falhou, handoff=True)
         lido = self.metricas.ler()
         total = lido[f"{METRICA_VALIDATE}:vendedor"]
         self.assertEqual(total, 10)
-        validate_fail_rate = (
-            lido[f"{METRICA_VALIDATE_FALHAS}:vendedor"]
-        ) / total
+        # `falhas / total`, e **nao** `(falhas + handoff) / total`: o
+        # `falhas` ja conta toda a recusa, e o `handoff` e um
+        # subconjunto dela. A formula somada dava 2,0 numa recusa que
+        # esgotou o tecto — medido pela revisao adversarial, e corrigida
+        # na nota do `metricas.py`, no §3.30 e no `docs/agr.md` §7-E.
+        validate_fail_rate = lido[f"{METRICA_VALIDATE_FALHAS}:vendedor"] / total
         self.assertAlmostEqual(validate_fail_rate, 0.2)
         validate_retry_rate = lido[f"{METRICA_VALIDATE_REPETICOES}:vendedor"] / total
         self.assertAlmostEqual(validate_retry_rate, 0.1)
@@ -859,7 +910,12 @@ class TestConjuntoAdversarial(unittest.TestCase):
         erradas = []
         for caso in ca.DEVE_RECUSAR:
             codigos = set(self._validar(caso).codigos)
-            if not set(caso.espera) <= codigos:
+            # **Igualdade e nao subconjunto.** Com `<=`, um veredicto
+            # colateral nunca reprovava um caso — e o grafo decide
+            # **pelo codigo**, pelo que um caso que devia dar
+            # `qty_unbacked` e da tambem `sku_price_mismatch`
+            # desencaminha o *retry*. Medido pela revisao adversarial.
+            if set(caso.espera) != codigos:
                 erradas.append((caso.nome, caso.espera, sorted(codigos)))
         self.assertEqual(erradas, [])
 
@@ -948,6 +1004,206 @@ class TestLimitesAssumidos(unittest.TestCase):
             "SKU-100 - Camisa Azul - 12 500 Kz", antigo, veredicto.Policy(), ca.OFERTAS
         )
         self.assertTrue(ver.ok)
+
+
+
+class TestCorreccoesDaRevisao(_ComCatalogo):
+    """Um teste por achado da `ANALISE-33`, com a entrada que o demonstrava.
+
+    Estao juntos de proposito: sao nove falsos aceites e falsos rejeitos que a
+    *suite* anterior nao via, e o valor deles e impedirem a reabertura.
+    """
+
+    def test_o_validar_nunca_levanta(self) -> None:
+        """Uma palavra de numero em maiusculas casava `[A-Z]{3}` do ISO 4217.
+
+        «Temos DEZ unidades» fazia o `validar` **levantar**
+        `MoedaEstrangeiraError`: o no `validate` rebentava, o «retry -> handoff»
+        do §8.4 nunca corria, e a mensagem da excepcao levava uma palavra do
+        texto gerado para o *traceback*.
+        """
+        for texto in (
+            "Temos DEZ unidades", "Custa 2 MIL Kz", "Levo UMA caixa",
+            "SAO tres", "Tem CEM gramas",
+        ):
+            with self.subTest(texto=texto):
+                self.assertIsInstance(self.validar(texto), veredicto.Verdict)
+
+    def test_o_total_de_um_carrinho_de_um_item_nao_dispensa_o_vinculo(self) -> None:
+        """Num carrinho de um item o `total` **e** o preco desse item."""
+        facts = (
+            Fact(fact_id="p1", kind="price", value=1250000, retrieved_at="z", sku="SKU-100"),
+            Fact(fact_id="p2", kind="price", value=900000, retrieved_at="z", sku="SKU-200"),
+            Fact(fact_id="t1", kind="total", value=900000, retrieved_at="z"),
+        )
+        ver = veredicto.validar(
+            "SKU-100 - Camisa Azul - 9 000 Kz", facts, veredicto.Policy(), self.ofertas
+        )
+        self.assertEqual(ver.codigos, ("sku_price_mismatch",))
+        # E o total legitimo continua a passar, numa linha sem produto.
+        self.assertTrue(
+            veredicto.validar(
+                "Total: 9 000 Kz", facts, veredicto.Policy(), self.ofertas
+            ).ok
+        )
+
+    def test_o_marcador_a_partir_de_tem_de_estar_junto_ao_valor(self) -> None:
+        self.assertEqual(
+            self.validar(
+                "SKU-500 - Fato Completo - 5 000 Kz, entregamos a partir de amanha"
+            ).codigos,
+            ("sku_price_mismatch",),
+        )
+        self.assertTrue(
+            self.validar("SKU-500 - Fato Completo - a partir de 5 000 Kz").ok
+        )
+
+    def test_um_numero_que_nao_se_consegue_ler_nao_desaparece(self) -> None:
+        """O intervalo marcava-se antes de o achado existir, e o ramo desistia.
+
+        O que nao se extrai nao se valida: era um falso aceite por omissao, e o
+        mais difícil de ver, porque nada no resultado o denuncia.
+        """
+        for texto in (
+            "O carro custa 2 milhões de Kz",
+            "Sao 3 milhões Kz",
+            "SKU-100 - Camisa Azul - DEZ mil Kz",
+        ):
+            with self.subTest(texto=texto):
+                ver = self.validar(texto)
+                self.assertFalse(ver.ok, f"nao extraiu nada de {texto!r}")
+                self.assertIn("money_unbacked", ver.codigos)
+
+    def test_um_nome_que_acaba_em_digitos_recusa_se(self) -> None:
+        """«Camisa 12» + um *fact* de 500 Kz davam «Camisa 12 500 Kz» aceite."""
+        for nome in ("Camisa 12", "Tinta 250", "Modelo 3"):
+            with self.subTest(nome=nome):
+                with self.assertRaises(render.NomeComPrecoError):
+                    render.Oferta(sku="SKU-1", nome=nome, preco_tipo="fixo")
+        # Digitos no **meio** nao se colam ao numero seguinte.
+        self.assertTrue(render.Oferta(sku="SKU-1", nome="Vestido 2 pecas", preco_tipo="fixo"))
+
+    def test_as_datas_da_linha_cabem_todas_no_mesmo_fact(self) -> None:
+        """A data de um *slot* com a hora de outro passava."""
+        facts = (
+            Fact(fact_id="d1", kind="datetime", value="2026-11-14T13:30:00Z", retrieved_at="z"),
+            Fact(fact_id="d2", kind="datetime", value="2026-11-15T15:00:00Z", retrieved_at="z"),
+        )
+        self.assertIn(
+            "datetime_unbacked",
+            veredicto.validar(
+                "A entrega e a 14/11/2026 as 16h00", facts, veredicto.Policy()
+            ).codigos,
+        )
+        self.assertTrue(
+            veredicto.validar(
+                "A entrega e a 14/11/2026 as 14h30", facts, veredicto.Policy()
+            ).ok
+        )
+
+    def test_um_sku_ou_nome_que_e_prefixo_de_outro_nao_quebra_a_linha(self) -> None:
+        """O curto reservava primeiro e o longo nunca era visto."""
+        ofertas = (
+            render.Oferta(sku="SKU-10", nome="Coca-Cola", preco_tipo="fixo"),
+            render.Oferta(sku="SKU-100", nome="Coca-Cola Zero", preco_tipo="fixo"),
+        )
+        facts = (
+            Fact(fact_id="a", kind="price", value=60000, retrieved_at="z", sku="SKU-100"),
+        )
+        ver = veredicto.validar(
+            "SKU-100 - Coca-Cola Zero - 600 Kz", facts, veredicto.Policy(), ofertas
+        )
+        self.assertTrue(ver.ok, ver.errors)
+
+    def test_duas_variantes_com_o_mesmo_nome_nao_se_recusam(self) -> None:
+        """O `_skus_do_nome` devolve o conjunto, e a pergunta e de pertenca."""
+        ofertas = (
+            render.Oferta(sku="SKU-100", nome="Camisa Azul", preco_tipo="fixo"),
+            render.Oferta(sku="SKU-101", nome="Camisa Azul", preco_tipo="fixo"),
+        )
+        facts = (
+            Fact(fact_id="c", kind="price", value=1350000, retrieved_at="z", sku="SKU-101"),
+        )
+        self.assertTrue(
+            veredicto.validar(
+                "SKU-101 - Camisa Azul - 13 500 Kz", facts, veredicto.Policy(), ofertas
+            ).ok
+        )
+
+    def test_um_bloco_text_pode_nomear_um_produto(self) -> None:
+        """O `_nomes` exigia o `sku` na linha, e recusava o proprio *renderer*."""
+        saida = render.renderizar(
+            [
+                {"type": "text", "text": "Temos a Camisa Azul para si"},
+                {"type": "item", "sku": "SKU-100", "show": ["name", "price"]},
+            ],
+            self.facts,
+            self.ofertas,
+        )
+        self.assertTrue(self.validar(saida.texto).ok)
+
+    def test_um_bloco_text_nao_leva_numeros_por_extenso(self) -> None:
+        """«A camisa custa doze mil Kz» renderizava sem erro."""
+        with self.assertRaises(render.BlocoInvalidoError):
+            render.renderizar([{"type": "text", "text": "A camisa custa doze mil Kz"}])
+
+    def test_um_total_ou_datetime_sem_fact_id_levanta(self) -> None:
+        """Sem `fact_id`, o `_fact` casava qualquer *fact* daquele `kind`."""
+        facts = (
+            Fact(fact_id="ft-antigo", kind="total", value=500000, retrieved_at="z"),
+            Fact(fact_id="ft-novo", kind="total", value=2150000, retrieved_at="z"),
+        )
+        for bloco in ({"type": "total"}, {"type": "datetime"}, {"type": "total", "fact_id": ""}):
+            with self.subTest(bloco=bloco):
+                with self.assertRaises(render.BlocoInvalidoError):
+                    render.renderizar([bloco], facts)
+
+    def test_um_literal_declarado_nao_absolve_moeda_estrangeira(self) -> None:
+        """«100 USD» caia em `outro`, e um `allowed_literals=(100,)` perdoava-o."""
+        for texto in ("SKU-100 - Camisa Azul - 100 USD", "Custa $100", "Sao 50 EUR"):
+            with self.subTest(texto=texto):
+                ver = self.validar(texto, literais=(50, 100))
+                self.assertIn("money_unbacked", ver.codigos)
+
+    def test_prosa_portuguesa_corrente_nao_e_numero(self) -> None:
+        """A regra estreita recusava respostas legitimas da loja."""
+        for prosa in (
+            "Mil desculpas, ja corrijo.",
+            "Cem por cento de certeza",
+            "Dois minutos e volto",
+            "Temos Coca-Cola Zero, quer que confirme?",
+        ):
+            with self.subTest(prosa=prosa):
+                self.assertTrue(self.validar(prosa).ok, self.validar(prosa).errors)
+
+    def test_um_stock_nao_sustenta_um_preco(self) -> None:
+        """A separacao por `kind` é a mitigação que o §9.2 nomeia.
+
+        **Esta bateria nasceu de uma mutação sobrevivente**, e vale dizer como:
+        pôr `stock` em `MONEY_KINDS` passava a *suite* inteira, porque nenhum
+        caso tinha um valor monetário igual a uma contagem de stock — os stocks
+        do catálogo são 1 a 25 e um valor em cêntimos igual a 3 seria «0,03 Kz»,
+        que ninguém escreve. A propriedade estava certa e **não estava medida**,
+        que é a definição de um teste que passa pela razão errada.
+        """
+        facts = (
+            Fact(fact_id="s", kind="stock", value=1250000, retrieved_at="z", sku="SKU-100"),
+        )
+        ver = veredicto.validar(
+            "SKU-100 - Camisa Azul - 12 500 Kz", facts, veredicto.Policy(), self.ofertas
+        )
+        self.assertEqual(ver.codigos, ("money_unbacked",))
+        self.assertEqual(veredicto.MONEY_KINDS, ("price", "total"))
+
+    def test_o_nome_da_funcao_de_metricas_nao_colide_com_o_lint(self) -> None:
+        """O `log_policy` do *gate* 2 marca qualquer `.registar(`.
+
+        E a licao que o `tls/auditoria.py` escreveu ao escolher `escrever`: um
+        nome que colide com uma regra de lint por acidente custa um ciclo de CI
+        a quem vier depois — aqui, ao KAM-031.
+        """
+        self.assertTrue(hasattr(veredicto, "medir_validacao"))
+        self.assertFalse(hasattr(veredicto, "registar"))
 
 
 # -------------------------------------------------------------------- canon

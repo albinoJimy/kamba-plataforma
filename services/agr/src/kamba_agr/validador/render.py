@@ -80,8 +80,16 @@ _DIGITO: Final = re.compile(r"\d")
 #: «Camisa 99 999 Kz» citaria um preco sem *fact*. Recusa-se a renderizar, no
 #: sitio onde o dado entra, em vez de confiar que a camada 2 o apanha (nao
 #: apanha: o intervalo esta reservado).
+#: **Inclui um nome que acaba em digitos**, e a razao e um falso aceite medido
+#: pela revisao adversarial: com a oferta `("SKU-9", "Camisa 12")` e um *fact* de
+#: 500 Kz, o texto «SKU-9 - Camisa 12 500 Kz» era **aceite** — o intervalo do
+#: nome engolia o `12`, sobrava «500 Kz» que casa o *fact*, e o cliente lia
+#: 12 500 Kz num produto de 500 Kz. Digitos **no meio** de um nome nao tem este
+#: problema («Vestido 2 pecas»), porque nao se colam ao numero seguinte; no fim,
+#: colam-se sempre.
 _PRECO_NO_NOME: Final = re.compile(
-    r"(?:Kz|KZ|kz|AOA|kwanzas?|Kwanzas?)|\d{1,3}(?:[ .,]\d{3})+|\d{4,}", re.IGNORECASE
+    r"(?:Kz|KZ|kz|AOA|kwanzas?|Kwanzas?)|\d{1,3}(?:[ .,]\d{3})+|\d{4,}|\d\s*$",
+    re.IGNORECASE,
 )
 
 
@@ -132,7 +140,7 @@ class Oferta:
 
 @dataclass(frozen=True, slots=True)
 class Renderizacao:
-    """O que o *renderer* produziu: corpo, botoes, e os literais do registo."""
+    """O que o *renderer* produziu: o corpo da mensagem e os botoes, ao lado."""
 
     texto: str
     botoes: tuple[str, ...] = ()
@@ -182,9 +190,38 @@ def _fact(facts: tuple[Any, ...], *, kind: str, sku: str | None = None, fact_id:
     return None
 
 
-def _inteiro(valor: Any) -> int | None:
-    """O `value` de um *fact*, se for um inteiro. `None` fecha a porta."""
+def inteiro_do_fact(valor: Any) -> int | None:
+    """O `value` de um *fact*, se for um inteiro. `None` fecha a porta.
+
+    Publica porque o `veredicto.py` precisa da mesma leitura, e tinha uma copia
+    identica: duas funcoes com o mesmo nome e o mesmo corpo divergem no dia em
+    que alguem corrigir uma (achado *Lean* da `ANALISE-33`).
+    """
     return valor if isinstance(valor, int) and not isinstance(valor, bool) else None
+
+
+#: O nome curto, para quem le este ficheiro.
+_inteiro = inteiro_do_fact
+
+
+def _exigir_fact_id(bloco: dict) -> str:
+    """O `fact_id` de um bloco `total` ou `datetime`. **Obrigatorio.**
+
+    Sem isto, um `fact_id` ausente dava `None` no `_fact`, que casava **qualquer**
+    *fact* daquele `kind` — e a revisao adversarial mediu o resultado: com dois
+    *facts* `total` na mesa, `{"type": "total"}` escolhia o primeiro e escrevia
+    «Total: 5 000 Kz» quando o carrinho era de 21 500 Kz. A camada 1 a produzir o
+    numero errado em silencio e precisamente a divergencia que o ADR-007 proibe,
+    e a *docstring* do `BlocoInvalidoError` diz que aqui se levanta em vez de
+    degradar.
+    """
+    fact_id = bloco.get("fact_id")
+    if not isinstance(fact_id, str) or not fact_id:
+        raise BlocoInvalidoError(
+            f"um bloco `{bloco.get('type')}` precisa de `fact_id`: sem ele, qualquer "
+            "*fact* do mesmo `kind` serviria"
+        )
+    return fact_id
 
 
 def preco_display(centimos: int, preco_tipo: str) -> str:
@@ -256,16 +293,26 @@ def renderizar(
             texto = bloco.get("text", "")
             if not isinstance(texto, str):
                 raise BlocoInvalidoError("`text` tem de ser uma cadeia")
-            if _DIGITO.search(texto):
+            # **Nao basta procurar digitos.** A revisao adversarial mediu-o: um
+            # bloco `text` com «A camisa custa doze mil Kz» renderizava sem
+            # erro, e com um *fact* `total` de 12 000 Kz passava a camada 2 —
+            # prosa monetaria escrita pelo modelo a chegar ao cliente, no sitio
+            # onde esta regra existe para o impedir. Pergunta-se ao extractor,
+            # que e quem sabe o que e um numero.
+            from .extraccao import extrair
+
+            if _DIGITO.search(texto) or any(
+                linha.numeros for linha in extrair(texto)
+            ):
                 raise BlocoInvalidoError(
-                    "um bloco `text` nao leva digitos: os numeros citam-se por "
-                    "referencia (§9.1, proposta 02-A)"
+                    "um bloco `text` nao leva numeros, nem em digitos nem por "
+                    "extenso: citam-se por referencia (§9.1, proposta 02-A)"
                 )
             linhas.append(texto)
         elif tipo == "item":
             linhas.append(_item(bloco, facts, por_sku))
         elif tipo == "total":
-            fact = _fact(facts, kind="total", fact_id=bloco.get("fact_id"))
+            fact = _fact(facts, kind="total", fact_id=_exigir_fact_id(bloco))
             centimos = _inteiro(fact.value) if fact is not None else None
             if centimos is None:
                 raise BlocoInvalidoError(
@@ -273,7 +320,7 @@ def renderizar(
                 )
             linhas.append(f"Total: {kz_display(centimos)}")
         elif tipo == "datetime":
-            fact = _fact(facts, kind="datetime", fact_id=bloco.get("fact_id"))
+            fact = _fact(facts, kind="datetime", fact_id=_exigir_fact_id(bloco))
             if fact is None or not isinstance(fact.value, str):
                 raise BlocoInvalidoError(
                     f"sem *fact* `datetime` com `fact_id` {bloco.get('fact_id')!r}"
