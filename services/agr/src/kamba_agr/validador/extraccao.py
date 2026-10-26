@@ -260,6 +260,13 @@ def _extenso_conta(cru: str, texto: str, inicio: int, fim: int) -> bool:
     if len(palavras) >= 2:
         return True
     # Uma palavra so: a moeda ou a contagem tem de a reclamar.
+    #
+    # shortcut: uma palavra de numero **isolada**, sem moeda e sem palavra de
+    # contagem, nao se extrai — «levo dois» passa sem *fact*. O tecto e uma
+    # quantidade de uma palavra (ate «noventa e nove» sao duas e contam), e o
+    # gatilho e o KAM-033: o classificador de saida tem o contexto da frase, que
+    # e o que falta aqui para distinguir «levo dois» de «dois minutos e volto».
+    # Medido nos `LIMITES` do conjunto adversarial.
     depois = texto[fim : fim + 24]
     return bool(re.match(rf"\s*{_KZ}\b", depois)) or _e_quantidade(texto, fim, inicio)
 
