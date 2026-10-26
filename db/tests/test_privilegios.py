@@ -917,6 +917,21 @@ COLUNAS_POR_PAPEL = {
         "key", "tenant_id", "tool", "args_hash",
     },
     ("kamba_app", "tool_idempotency", "UPDATE"): {"estado", "result"},
+    # KAM-028, declarada pelo KAM-029 (divida 111). As **dezoito** colunas do
+    # `COLUNAS_ESCRITAS_PELO_CHAMADOR` da revisao `0021`, e a lista e exacta: o
+    # que importa aqui e o que **nao** esta nela — o `id` e o `ts`, que sao a
+    # ordem e o instante da linha de auditoria, e nenhum dos dois e do chamador.
+    #
+    # **Nao ha `UPDATE` nem `DELETE` nenhum**, de ninguem, e a ausencia e a
+    # afirmacao: a tabela e *append-only*, e quem o impoe sao as tres camadas da
+    # `0021` (o `REVOKE`, o *trigger* e o `ENABLE ALWAYS`). Esta lista prende a
+    # quarta coisa que elas nao veem, que e um privilegio de **coluna** a mais.
+    ("kamba_app", "tool_audit", "INSERT"): {
+        "tenant_id", "contact_id", "conversation_id", "turn_id", "run_id",
+        "vertical", "graph_version", "tool", "tool_version", "klass",
+        "args_hash", "args_redacted", "idempotency_key", "status", "error_code",
+        "result_hash", "fact_ids", "latency_ms",
+    },
 }
 PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
 
@@ -995,6 +1010,20 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # (args_hash)` a mais deixava quem a ia accionar reescrever a prova e
     # passar. Nenhuma matriz de tabela ve isso.
     "tool_idempotency",
+    # KAM-028, posta aqui pelo KAM-029 (divida **111**): a `tool_audit` tem
+    # `INSERT` **por coluna** desde que nasceu e nunca entrou nesta lista, pelo
+    # que uma coluna a mais naquele `GRANT` era invisivel em qualquer matriz.
+    #
+    # E o que uma coluna a mais daria e exactamente o que a propria revisao
+    # `0021` escreve que ninguem pode: um `GRANT INSERT (ts)` punha o chamador a
+    # escolher o instante da sua propria linha de auditoria («uma coluna que
+    # nenhum chamador pode escrever e uma coluna que nenhum chamador tenta
+    # escrever — e o `ts` de uma linha de auditoria nao e do chamador»), e um
+    # `GRANT INSERT (id)` deixava-o escolher a ordem, que e o que torna a
+    # cobertura do critero 5 daquele ticket ponderavel.
+    #
+    # Encontrada a declarar a `tool_idempotency` e a olhar para a vizinha.
+    "tool_audit",
 )
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.
