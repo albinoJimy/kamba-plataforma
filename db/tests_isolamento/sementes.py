@@ -1037,6 +1037,16 @@ SEM_RECEITA_COM_RAZAO = {
     ("platform", "audit_heads"),
     ("platform", "audit_log"),
     ("platform", "tool_audit"),
+    # KAM-030. Pela razao da `audit_log` e da `tool_audit`: as receitas semeiam
+    # **e apagam**, e o *trigger* `ENABLE ALWAYS` da revisao `0023` recusa o
+    # `DELETE`. O isolamento prova-se em `db/tests_agr/test_llm_call_log.py`,
+    # que faz as perguntas do X-04 — ler e escrever no nome de outro tenant, e
+    # sem contexto nenhum — sem precisar de apagar nada.
+    ("dat", "llm_call_log"),
+    # A particao por omissao entra tambem, e por uma razao propria: para o
+    # catalogo do *gate* 6 uma particao **e** uma tabela com `tenant_id`, e esta
+    # herda o `tenant_id` do pai. Semeá-la seria semear a tabela duas vezes.
+    ("dat", "llm_call_log_default"),
 }
 
 #: `tenants` primeiro: as outras referenciam-na. Depois, pela ordem das FK. As

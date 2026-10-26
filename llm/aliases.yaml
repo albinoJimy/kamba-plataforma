@@ -1,0 +1,123 @@
+# Aliases de modelo por papel — KAM-030.
+#
+# Este ficheiro e um **artefacto comportamental**: mudar o modelo atras de um
+# alias muda o que o produto responde. Por isso tem `versao` em SemVer e o seu
+# conteudo esta fixado por *hash* em `ci/llm-aliases.lock`. Alterar o conteudo
+# sem subir a `versao` e sem reescrever o *lock* **reprova o lint** do passo
+# `aliases` do `lint_arch` (criterio 7 do KAM-030). O Gate 13 (eval golden
+# PT-AO) e o segundo meio desse criterio e **nao existe**: nasce com o KAM-040.
+#
+# O QUE ESTE FICHEIRO NAO DECIDE, e e a parte que mais importa.
+#
+# **Nao escolhe modelos.** O `docs/tecnica/02` §13.2 e o `E4` §3.5 dizem-no por
+# extenso: a qualidade em portugues de Angola e a latencia sao **NAO
+# VERIFICADAS**, nao existe *benchmark* por variante, e a escolha faz-se com o
+# dataset *golden* do KAM-040 — nunca por ranking publico. A propria amostra de
+# configuracao do `docs/tecnica/02` §13.1 escreve `<fornecedor/modelo-barato>`,
+# um lugar vazio. Aqui o lugar vazio chama-se `por_decidir`, e o credor esta
+# escrito em cada linha.
+#
+# **O que esta decidido sao os papeis, os tectos de tempo e a ordem de
+# tentativa** — que e o que o criterio 3 pede e o que o cliente do AGR precisa
+# para existir antes do KAM-031.
+#
+# **A ordem nao e um ranking de qualidade.** `ordem: 1` e a primeira tentativa e
+# `ordem: 2` e o *fallback* do criterio 6. Os dois fornecedores de `kamba-chat`
+# estao na lista de subprocessadores do `docs/tecnica/08` §8.3.2, e **nenhum dos
+# dois esta autorizado como destino**: as linhas de `tenant_destinations` nascem
+# todas `pendente` (KAM-069), pelo que em `KAMBA_ENV=prod` o gate de destino
+# recusa os dois e o *fallback* nao tem para onde ir. Isso e o desenho, nao um
+# defeito: o ADR-008 nao deixa sair dado pessoal de Angola sem procedimento da
+# APD. Em `staging` corre com dados sinteticos e fornecedores falsos.
+#
+# `chave_env` e o **nome** da variavel que o proxy le; o valor vive no cofre
+# (KAM-010) e nunca neste ficheiro nem na imagem.
+
+version: 1
+versao: "1.0.0"
+
+# `router_settings` do `docs/tecnica/02` §13.1. Os tres nomes foram confirmados
+# contra a versao fixada (ver `docs/evidencia/KAM-030-litellm.md`): o ticket
+# dava-os como «a validar na versao fixada, L5».
+router_settings:
+  num_retries: 1
+  allowed_fails: 3
+  cooldown_time: 30
+
+# Um alias por papel. `estado` e o vocabulario do KAM-027 (dicionario §3.26):
+# `ligada` tem modelo escolhido, `declarada` espera pelo `credor`.
+aliases:
+  - nome: kamba-router
+    papel: router
+    timeout: 8
+    estado: declarada
+    credor: KAM-040
+    razao: >-
+      Classificar intencao, guardrails e resumos curtos. Tecto de 8 s do
+      §13.1. Os candidatos do §13.2 tem preco CONFIRMADO no E4 §3 e **nao**
+      tem ranking: escolhe-se no golden.
+  - nome: kamba-chat
+    papel: chat
+    timeout: 20
+    estado: declarada
+    credor: KAM-040
+    razao: >-
+      Compor a resposta com os facts das tools. Tecto de 20 s do §13.1. E o
+      papel que domina o custo de IA (§13.3) e o unico com dois fornecedores,
+      porque o criterio 6 exige comutacao em <= 1 retry.
+  - nome: kamba-vision
+    papel: vision
+    timeout: 20
+    estado: declarada
+    credor: KAM-033
+    razao: >-
+      Foto para produto, na ingestao de catalogo. **Nao e do AGR** — e do COM
+      (§13.2, «A decidir em 03»). O alias existe aqui para o proxy o conhecer;
+      o cliente do AGR expoe o papel e nenhum no do Vendedor o usa.
+  - nome: kamba-embed
+    papel: embed
+    timeout: 20
+    estado: declarada
+    credor: KAM-063
+    razao: >-
+      Embeddings do catalogo, no IDX (§13.2, «A decidir em 05»). Mesma razao
+      do `kamba-vision`: declarado, sem no do AGR a chama-lo.
+
+# Fornecedores por alias, em lista propria e nao aninhada: o leitor de YAML
+# deste repositorio (`tools/kamba_yaml.py`) aceita um subconjunto, e uma lista
+# de mapas dentro de um item de lista nao esta nesse subconjunto.
+#
+# `fornecedor` tem de ser um dos onze subprocessadores do `docs/tecnica/08`
+# §8.3.2 — o lint recusa um nome fora dessa lista, porque um fornecedor que o
+# inventario nao conhece e um destino de transferencia que ninguem registou.
+fornecedores:
+  - alias: kamba-router
+    ordem: 1
+    fornecedor: anthropic
+    modelo: por_decidir
+    chave_env: LLM_KEY_P1
+    credor: KAM-040
+  - alias: kamba-chat
+    ordem: 1
+    fornecedor: anthropic
+    modelo: por_decidir
+    chave_env: LLM_KEY_P1
+    credor: KAM-040
+  - alias: kamba-chat
+    ordem: 2
+    fornecedor: openai
+    modelo: por_decidir
+    chave_env: LLM_KEY_P2
+    credor: KAM-040
+  - alias: kamba-vision
+    ordem: 1
+    fornecedor: google
+    modelo: por_decidir
+    chave_env: LLM_KEY_P3
+    credor: KAM-033
+  - alias: kamba-embed
+    ordem: 1
+    fornecedor: google
+    modelo: por_decidir
+    chave_env: LLM_KEY_P3
+    credor: KAM-063

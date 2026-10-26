@@ -22,6 +22,7 @@ import json
 import logging
 import asyncio
 import os
+import pathlib
 import sys
 import threading
 import unittest
@@ -30,6 +31,9 @@ from unittest import mock
 
 from apoio import CREDENCIAL
 from kamba_agr import __main__ as arranque
+
+#: A raiz do repositorio, para o `KAMBA_LLM_DIR` apontar para o `llm/` real.
+_RAIZ_DO_REPOSITORIO = pathlib.Path(__file__).resolve().parents[3]
 from kamba_core.logger.ponte import PonteLogging
 
 #: O ambiente minimo com que o AGR arranca depois do KAM-025.
@@ -39,6 +43,11 @@ AMBIENTE_BASE = {
     "KAMBA_ENV": "dev",
     # O nome e `KAMBA_SECRET_` + o `id` do inventario em maiusculas (ADR-L002).
     "KAMBA_SECRET_AGR_INTERNAL_TOKEN": CREDENCIAL,
+    # KAM-030: a pasta com `aliases.yaml` e `precos.yaml`. **Explicita e nao a
+    # omissao relativa**, porque a omissao (`"llm"`) depende do directorio de
+    # onde a *suite* corre, e uma bateria que passa ou falha pelo `cwd` nao
+    # mede nada.
+    "KAMBA_LLM_DIR": str(_RAIZ_DO_REPOSITORIO / "llm"),
 }
 
 
@@ -72,6 +81,7 @@ class TestArranque(unittest.TestCase):
         ambiente: dict[str, str],
         ligar_checkpoint: object | None = None,
         confirmar_auditoria: object | None = None,
+        confirmar_llm: object | None = None,
     ) -> tuple[int, mock.Mock]:
         # **A ligacao do checkpointer e dupla por omissao** (KAM-026). A guarda
         # do criterio 3 abre-a no arranque, e nenhum ensaio desta bateria tem
@@ -99,6 +109,23 @@ class TestArranque(unittest.TestCase):
                 arranque.tls_auditoria,
                 "confirmar",
                 confirmar_auditoria or (lambda _ligacao: None),
+            ),
+            # **A guarda do gateway de LLM e dupla pela mesma razao** (KAM-030).
+            # Ela abre uma ligacao e pergunta a base se o papel tem `INSERT` nas
+            # catorze colunas de `dat.llm_call_log`; sem base de dados, todos os
+            # ensaios desta bateria passavam a devolver o codigo **7**. Quem
+            # quer medir essa guarda passa um `confirmar_llm` que levanta.
+            #
+            # Os **ficheiros** de `llm/` nao se duplicam: sao os do repositorio,
+            # pelo `KAMBA_LLM_DIR` do `AMBIENTE_BASE`, e e deliberado — assim o
+            # arranque destes ensaios falha se alguem quebrar o
+            # `llm/aliases.yaml` ou o `llm/precos.yaml` de verdade, que e mais do
+            # que um duplo diria.
+            mock.patch.object(arranque, "ligar_para_llm", lambda: mock.Mock()),
+            mock.patch.object(
+                arranque.llm_registo,
+                "confirmar",
+                confirmar_llm or (lambda _ligacao: None),
             ),
         ):
             os.environ.pop("KAMBA_LOG_ESTRITO", None)
@@ -280,7 +307,8 @@ class TestRegistoNoArranque(unittest.TestCase):
         # ensaio desta bateria tem base de dados, e sem o duplo todos mediriam
         # «nao ha Postgres» (codigo 4) em vez do que dizem medir. A guarda da
         # auditoria de tools (KAM-028) e dupla pela mesma razao — sem ela todos
-        # mediriam «nao ha Postgres» com o codigo **6**.
+        # mediriam «nao ha Postgres» com o codigo **6** —, e a do gateway de LLM
+        # (KAM-030) com o codigo **7**.
         saida = io.StringIO()
         with (
             mock.patch.dict(os.environ, {**AMBIENTE_BASE, **ambiente}),
@@ -289,6 +317,8 @@ class TestRegistoNoArranque(unittest.TestCase):
             mock.patch.object(arranque, "ligar_para_checkpoint", lambda: mock.Mock()),
             mock.patch.object(arranque, "ligar_para_tools", lambda: mock.Mock()),
             mock.patch.object(arranque.tls_auditoria, "confirmar", lambda _l: None),
+            mock.patch.object(arranque, "ligar_para_llm", lambda: mock.Mock()),
+            mock.patch.object(arranque.llm_registo, "confirmar", lambda _l: None),
         ):
             os.environ.pop("KAMBA_LOG_ESTRITO", None)
             codigo = arranque.main()
@@ -311,12 +341,13 @@ class TestRegistoNoArranque(unittest.TestCase):
         self.assertEqual(codigo, arranque.SAIDA_REGISTO_INVALIDO)
         correr.assert_not_called()
 
-    def test_os_cinco_codigos_de_saida_sao_distintos(self) -> None:
+    def test_os_seis_codigos_de_saida_sao_distintos(self) -> None:
         """Num painel, «o AGR nao arranca» sem dizer porque nao se diagnostica.
 
-        Eram quatro; o KAM-028 acrescentou o **6** (sem auditoria de tools), e
-        cada um manda olhar para um sitio diferente: o `.env`, a imagem, o cofre
-        da base, `registry/`, e a revisao `0021` com os seus `GRANT`.
+        Eram quatro; o KAM-028 acrescentou o **6** (sem auditoria de tools) e o
+        KAM-030 o **7** (sem gateway de LLM), e cada um manda olhar para um
+        sitio diferente: o `.env`, a imagem, o cofre da base, `registry/`, a
+        revisao `0021` com os seus `GRANT`, e `llm/` com a revisao `0023`.
         """
         codigos = (
             2,
@@ -324,9 +355,10 @@ class TestRegistoNoArranque(unittest.TestCase):
             arranque.SAIDA_SEM_CHECKPOINTER,
             arranque.SAIDA_REGISTO_INVALIDO,
             arranque.SAIDA_SEM_AUDITORIA,
+            arranque.SAIDA_SEM_GATEWAY_LLM,
         )
-        self.assertEqual(len(set(codigos)), 5)
-        self.assertEqual(codigos, (2, 3, 4, 5, 6))
+        self.assertEqual(len(set(codigos)), 6)
+        self.assertEqual(codigos, (2, 3, 4, 5, 6, 7))
 
     def test_o_registo_do_repositorio_deixa_o_agr_arrancar(self) -> None:
         """O positivo, e e o que impede este ticket de parar o servico: com o

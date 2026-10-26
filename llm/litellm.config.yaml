@@ -1,0 +1,65 @@
+# GERADO por `python -m llm_config --root . escrever`. NAO EDITAR A MAO.
+#
+# Fonte: llm/aliases.yaml versao 1.0.0. Quem muda o comportamento e a
+# fonte; este ficheiro e a traducao dela para o esquema do proxy LiteLLM.
+# O passo `aliases` do `lint_arch` falha se este ficheiro nao estiver em dia.
+
+model_list:
+  - model_name: kamba-chat
+    litellm_params:
+      model: anthropic/por_decidir
+      api_key: os.environ/KAMBA_SECRET_LLM_PROVIDER_KEY__anthropic
+      timeout: 20
+    model_info:
+      papel: chat
+      ordem: 1
+      fornecedor: anthropic
+  - model_name: kamba-chat-fallback2
+    litellm_params:
+      model: openai/por_decidir
+      api_key: os.environ/KAMBA_SECRET_LLM_PROVIDER_KEY__openai
+      timeout: 20
+    model_info:
+      papel: chat
+      ordem: 2
+      fornecedor: openai
+  - model_name: kamba-embed
+    litellm_params:
+      model: gemini/por_decidir
+      api_key: os.environ/KAMBA_SECRET_LLM_PROVIDER_KEY__google
+      timeout: 20
+    model_info:
+      papel: embed
+      ordem: 1
+      fornecedor: google
+  - model_name: kamba-router
+    litellm_params:
+      model: anthropic/por_decidir
+      api_key: os.environ/KAMBA_SECRET_LLM_PROVIDER_KEY__anthropic
+      timeout: 8
+    model_info:
+      papel: router
+      ordem: 1
+      fornecedor: anthropic
+  - model_name: kamba-vision
+    litellm_params:
+      model: gemini/por_decidir
+      api_key: os.environ/KAMBA_SECRET_LLM_PROVIDER_KEY__google
+      timeout: 20
+    model_info:
+      papel: vision
+      ordem: 1
+      fornecedor: google
+
+router_settings:
+  allowed_fails: 3
+  cooldown_time: 30
+  num_retries: 1
+  fallbacks:
+    - kamba-chat: [kamba-chat-fallback2]
+
+general_settings:
+  master_key: os.environ/KAMBA_SECRET_LITELLM_MASTER_KEY
+
+litellm_settings:
+  turn_off_message_logging: true

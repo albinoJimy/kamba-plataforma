@@ -1,0 +1,14 @@
+# GERADO por `python -m llm_config --root . escrever`. NAO EDITAR A MAO.
+#
+# Fixa o par (versao, hash do conteudo) de llm/aliases.yaml. O hash **nao**
+# inclui a `versao`: e isso que torna «mudou o conteudo e nao a versao»
+# detectavel, que e o criterio 7 do KAM-030.
+#
+# Mudar o modelo atras de um alias e um *release*: sobe-se a `versao` em
+# llm/aliases.yaml, corre-se `escrever`, e os dois ficheiros gerados entram no
+# mesmo *commit*. O Gate 13 (eval golden PT-AO) e a outra metade do
+# criterio e nasce com o KAM-040.
+
+version: 1
+versao: "1.0.0"
+sha256: "f73e258341dd4ea727c5117d851bd4938e1718bdaa6238f1f6bc92519d14139c"

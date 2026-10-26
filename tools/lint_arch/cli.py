@@ -138,6 +138,37 @@ def _current_branch(root: Path) -> str | None:
     return result.stdout.strip() or None
 
 
+def _check_aliases(root: Path) -> list[str]:
+    """O passo `aliases` (KAM-030, criterio 7).
+
+    Delega no `tools/llm_config`, que e quem gera a configuracao do proxy: o
+    *lint* e o gerador tem de concordar por construcao, e nao por duas leituras
+    do mesmo ficheiro. Importa-se **aqui dentro** e nao no topo porque o
+    `lint_arch` corre como primeiro passo do `make bootstrap`, antes de qualquer
+    instalacao, e um `ImportError` no topo deixava os outros tres passos sem
+    correr.
+
+    Um `llm/aliases.yaml` que nao exista nao e achado deste passo: um
+    repositorio sem aliases ainda nao chegou ao KAM-030, e um *lint* que
+    falhasse por um ficheiro que o ticket ainda nao criou e um *lint* que alguem
+    desliga.
+    """
+    if not (root / "llm" / "aliases.yaml").is_file():
+        return []
+    import sys as _sys
+
+    ferramentas = str(root / "tools")
+    if ferramentas not in _sys.path:
+        _sys.path.insert(0, ferramentas)
+    from llm_config import AliasesInvalidos
+    from llm_config.cli import check as check_llm
+
+    try:
+        return check_llm(root)
+    except AliasesInvalidos as excepcao:
+        return [f"llm/aliases.yaml invalido: {excepcao}"]
+
+
 def _report(title: str, findings: list[str]) -> int:
     if not findings:
         print(f"lint_arch: {title}: conforme")
@@ -160,7 +191,11 @@ def main(argv: list[str] | None = None) -> int:
         "tool-schema",
         help="esquemas de tool sem parametro proibido e escrita so na TLS (KAM-028)",
     )
-    sub.add_parser("all", help="deps, structure e tool-schema")
+    sub.add_parser(
+        "aliases",
+        help="llm/aliases.yaml com SemVer, lock em dia e config gerada (KAM-030)",
+    )
+    sub.add_parser("all", help="deps, structure, tool-schema e aliases")
     commit = sub.add_parser("commit-msg", help="valida uma mensagem de commit")
     commit.add_argument("path", type=Path, help="ficheiro com a mensagem (COMMIT_EDITMSG)")
     branch = sub.add_parser("branch", help="valida um nome de ramo")
@@ -176,13 +211,16 @@ def main(argv: list[str] | None = None) -> int:
             return _report("estrutura", structure.check(root))
         if args.command == "tool-schema":
             return _report("esquemas de tool", tool_schema.check(root))
+        if args.command == "aliases":
+            return _report("aliases de LLM", _check_aliases(root))
         if args.command == "all":
-            # Os tres correm **sempre**, e o codigo de saida e o maximo: parar no
-            # primeiro achado escondia os outros dois, e quem corre `all` quer a
+            # Os quatro correm **sempre**, e o codigo de saida e o maximo: parar
+            # no primeiro achado escondia os outros, e quem corre `all` quer a
             # lista toda de uma vez.
             status = _report("lista de bloqueio", check_dependencies(root))
             status = max(status, _report("estrutura", structure.check(root)))
-            return max(status, _report("esquemas de tool", tool_schema.check(root)))
+            status = max(status, _report("esquemas de tool", tool_schema.check(root)))
+            return max(status, _report("aliases de LLM", _check_aliases(root)))
 
         rules = conventions_module.load(_conventions_path(root))
         if args.command == "commit-msg":

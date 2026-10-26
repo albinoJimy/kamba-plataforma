@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.37"
+versao_dicionario: "1.38"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -1441,16 +1441,6 @@ entradas:
       - "id"
     variantes_literais: []
   - seccao: "3.6"
-    conceito: "Registo de chamadas LLM"
-    canonico: "llm_call_log"
-    literais:
-      - "llm_call_log"
-    nomes:
-      - "llm_call_log"
-    nomes_nota: []
-    variantes_literais:
-      - "llm_calls"
-  - seccao: "3.6"
     conceito: "Esquema do checkpointer"
     canonico: "lg"
     literais:
@@ -1460,20 +1450,34 @@ entradas:
     nomes_nota: []
     variantes_literais: []
   - seccao: "3.6"
+    conceito: "Esquema de analítica"
+    canonico: "dat"
+    literais:
+      - "dat"
+    nomes:
+      - "dat"
+    nomes_nota:
+      - "DROP"
+      - "DELETE"
+    variantes_literais: []
+  - seccao: "3.6"
     conceito: "Esquemas"
-    canonico: "platform, lg, idx, servicos, esquemas do Medusa"
+    canonico: "platform, lg, dat, idx, servicos, esquemas do Medusa"
     literais:
       - "platform"
       - "lg"
+      - "dat"
       - "idx"
       - "servicos"
     nomes:
       - "platform"
       - "lg"
+      - "dat"
       - "idx"
       - "servicos"
     nomes_nota:
       - "idx"
+      - "dat"
     variantes_literais: []
   - seccao: "3.6"
     conceito: "Retenção de assistant_queries"
@@ -6602,6 +6606,478 @@ entradas:
       - "paga"
       - "reembolso_pendente"
     variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Registo de chamadas a modelos"
+    canonico: "dat.llm_call_log"
+    literais:
+      - "dat.llm_call_log"
+    nomes:
+      - "dat.llm_call_log"
+    nomes_nota:
+      - "RANGE"
+      - "ts"
+      - "DEFAULT"
+      - "events_log"
+      - "DROP"
+    variantes_literais:
+      - "llm_calls"
+  - seccao: "3.29"
+    conceito: "Partição DEFAULT do registo de chamadas"
+    canonico: "dat.llm_call_log_default"
+    literais:
+      - "dat.llm_call_log_default"
+    nomes:
+      - "dat.llm_call_log_default"
+    nomes_nota:
+      - "events_log_default"
+      - "SELECT"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Colunas de dat.llm_call_log"
+    canonico: "id, ts, tenant_id, trace_id, vertical, no_grafo, papel, graph_version, modelo, fornecedor, tokens_in, tokens_out, tokens_cache, custo_usd, latencia_ms, resultado"
+    literais:
+      - "id"
+      - "ts"
+      - "tenant_id"
+      - "trace_id"
+      - "vertical"
+      - "no_grafo"
+      - "papel"
+      - "graph_version"
+      - "modelo"
+      - "fornecedor"
+      - "tokens_in"
+      - "tokens_out"
+      - "tokens_cache"
+      - "custo_usd"
+      - "latencia_ms"
+      - "resultado"
+    nomes:
+      - "dat.llm_call_log"
+      - "id"
+      - "ts"
+      - "tenant_id"
+      - "trace_id"
+      - "vertical"
+      - "no_grafo"
+      - "papel"
+      - "graph_version"
+      - "modelo"
+      - "fornecedor"
+      - "tokens_in"
+      - "tokens_out"
+      - "tokens_cache"
+      - "custo_usd"
+      - "latencia_ms"
+      - "resultado"
+    nomes_nota:
+      - "papel"
+      - "graph_version"
+      - "tenant_id"
+      - "events_consumed"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Colunas que o chamador escreve"
+    canonico: "COLUNAS (catorze)"
+    literais:
+      - "COLUNAS"
+    nomes:
+      - "COLUNAS"
+    nomes_nota:
+      - "id"
+      - "ts"
+      - "tool_audit"
+      - "GRANT"
+      - "INSERT"
+      - "has_table_privilege"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Desfecho de uma chamada"
+    canonico: "llm_call_log.resultado ∈ {ok, ok_fallback, budget_exhausted, timeout, erro_fornecedor, destino_negado}"
+    literais:
+      - "llm_call_log.resultado"
+      - "ok"
+      - "ok_fallback"
+      - "budget_exhausted"
+      - "timeout"
+      - "erro_fornecedor"
+      - "destino_negado"
+    nomes:
+      - "llm_call_log.resultado"
+      - "ok"
+      - "ok_fallback"
+      - "budget_exhausted"
+      - "timeout"
+      - "erro_fornecedor"
+      - "destino_negado"
+    nomes_nota:
+      - "CHECK"
+      - "resultado"
+      - "evt_acoes"
+      - "estado"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Custo de uma chamada"
+    canonico: "custo_usd"
+    literais:
+      - "custo_usd"
+    nomes:
+      - "custo_usd"
+    nomes_nota:
+      - "numeric"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Custo desconhecido"
+    canonico: "custo_usd nulo"
+    literais:
+      - "custo_usd"
+    nomes:
+      - "custo_usd"
+    nomes_nota:
+      - "por_decidir"
+      - "agr_llm_sem_preco_total"
+    variantes_literais:
+      - "custo_usd"
+  - seccao: "3.29"
+    conceito: "Artefacto comportamental dos aliases"
+    canonico: "llm/aliases.yaml"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "versao"
+      - "aliases"
+      - "lint_arch"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Configuração do proxy"
+    canonico: "llm/litellm.config.yaml"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "python"
+      - "m"
+      - "llm_config"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Tarifário de tokens"
+    canonico: "llm/precos.yaml"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "E4"
+      - "raw.githubusercontent.com"
+      - "gemini"
+      - "flash"
+      - "valido_ate"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Papel de um alias"
+    canonico: "llm_call_log.papel ∈ {router, chat, vision, embed}"
+    literais:
+      - "llm_call_log.papel"
+      - "router"
+      - "chat"
+      - "vision"
+      - "embed"
+    nomes:
+      - "llm_call_log.papel"
+      - "router"
+      - "chat"
+      - "vision"
+      - "embed"
+    nomes_nota:
+      - "CHECK"
+      - "PAPEIS"
+      - "tool"
+      - "vision"
+      - "embed"
+      - "declarada"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Nome de um alias"
+    canonico: "kamba-router, kamba-chat, kamba-vision, kamba-embed"
+    literais:
+      - "kamba-router"
+      - "kamba-chat"
+      - "kamba-vision"
+      - "kamba-embed"
+    nomes:
+      - "kamba"
+      - "router"
+      - "chat"
+      - "vision"
+      - "embed"
+    nomes_nota:
+      - "timeout"
+      - "router"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Estado de um alias"
+    canonico: "aliases[].estado ∈ {ligada, declarada}"
+    literais:
+      - "aliases[].estado"
+      - "ligada"
+      - "declarada"
+    nomes:
+      - "aliases"
+      - "estado"
+      - "ligada"
+      - "declarada"
+    nomes_nota:
+      - "declarada"
+      - "credor"
+      - "KAM"
+      - "NNN"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Ordem de tentativa de um fornecedor"
+    canonico: "fornecedores[].ordem"
+    literais:
+      - "fornecedores[].ordem"
+    nomes:
+      - "fornecedores"
+      - "ordem"
+    nomes_nota:
+      - "ordem"
+      - "alias"
+      - "fallback"
+      - "fallbacks"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Fornecedor aprovado"
+    canonico: "fornecedor ∈ {anthropic, openai, google}"
+    literais:
+      - "fornecedor"
+      - "anthropic"
+      - "openai"
+      - "google"
+    nomes:
+      - "fornecedor"
+      - "anthropic"
+      - "openai"
+      - "google"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Prefixo do fornecedor no proxy"
+    canonico: "PREFIXO_LITELLM (google → gemini)"
+    literais:
+      - "PREFIXO_LITELLM"
+      - "google"
+      - "gemini"
+    nomes:
+      - "PREFIXO_LITELLM"
+      - "google"
+      - "gemini"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Contrato do cliente"
+    canonico: "ClienteDeLlm com chamar(papel, mensagens, ctx), ContextoDeChamada (cinco campos), Resposta"
+    literais:
+      - "ClienteDeLlm"
+      - "chamar(papel, mensagens, ctx)"
+      - "ContextoDeChamada"
+      - "Resposta"
+    nomes:
+      - "ClienteDeLlm"
+      - "chamar"
+      - "papel"
+      - "mensagens"
+      - "ctx"
+      - "ContextoDeChamada"
+      - "Resposta"
+    nomes_nota:
+      - "litellm"
+      - "httpx"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Contexto de uma chamada"
+    canonico: "ContextoDeChamada(tenant_id, trace_id, vertical, no_grafo, graph_version)"
+    literais:
+      - "ContextoDeChamada(tenant_id, trace_id, vertical, no_grafo, graph_version)"
+    nomes:
+      - "ContextoDeChamada"
+      - "tenant_id"
+      - "trace_id"
+      - "vertical"
+      - "no_grafo"
+      - "graph_version"
+    nomes_nota:
+      - "ToolContext"
+      - "contact_id"
+      - "conversation_id"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Erros tipados do gateway"
+    canonico: "OrcamentoEsgotado, TempoEsgotado, FornecedorFalhou, DestinoNegado"
+    literais:
+      - "OrcamentoEsgotado"
+      - "TempoEsgotado"
+      - "FornecedorFalhou"
+      - "DestinoNegado"
+    nomes:
+      - "OrcamentoEsgotado"
+      - "TempoEsgotado"
+      - "FornecedorFalhou"
+      - "DestinoNegado"
+    nomes_nota:
+      - "BUDGET_EXHAUSTED"
+      - "CHECK"
+      - "tool_audit.error_code"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Gate de transferência"
+    canonico: "PortaDeDestinos.autorizar(tenant_id, fornecedor, finalidade)"
+    literais:
+      - "PortaDeDestinos.autorizar(tenant_id, fornecedor, finalidade)"
+    nomes:
+      - "PortaDeDestinos.autorizar"
+      - "tenant_id"
+      - "fornecedor"
+      - "finalidade"
+    nomes_nota:
+      - "tenant_destinations"
+      - "NegaTudoAteKam069"
+      - "prod"
+    variantes_literais:
+      - "assertDestinationAllowed"
+  - seccao: "3.29"
+    conceito: "Momento do gate"
+    canonico: "antes da chamada, para todos os fornecedores do alias"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "ordem"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Métricas do gateway"
+    canonico: "agr_llm_chamadas_total{papel}, agr_llm_erros_total{resultado}, agr_llm_latency_ms, agr_llm_destino_negado_total, agr_llm_sem_preco_total, agr_llm_registo_falhou_total, agr_llm_servidor_desconhecido_total"
+    literais:
+      - "agr_llm_chamadas_total{papel}"
+      - "agr_llm_erros_total{resultado}"
+      - "agr_llm_latency_ms"
+      - "agr_llm_destino_negado_total"
+      - "agr_llm_sem_preco_total"
+      - "agr_llm_registo_falhou_total"
+      - "agr_llm_servidor_desconhecido_total"
+    nomes:
+      - "agr_llm_chamadas_total"
+      - "papel"
+      - "agr_llm_erros_total"
+      - "resultado"
+      - "agr_llm_latency_ms"
+      - "agr_llm_destino_negado_total"
+      - "agr_llm_sem_preco_total"
+      - "agr_llm_registo_falhou_total"
+      - "agr_llm_servidor_desconhecido_total"
+    nomes_nota:
+      - "tenant_id"
+      - "vertical"
+      - "papel"
+      - "graph_version"
+      - "OBS"
+      - "I"
+      - "dat.llm_call_log"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Chave virtual de um tenant"
+    canonico: "key_alias = tenant-<uuid>, segredo litellm_virtual_key/<tenant_id>"
+    literais:
+      - "key_alias"
+      - "tenant-<uuid>"
+    nomes:
+      - "key_alias"
+      - "tenant"
+      - "uuid"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Orçamento de uma chave"
+    canonico: "15% × mensalidade em USD, budget_duration: 30d"
+    literais:
+      - "budget_duration: 30d"
+    nomes:
+      - "budget_duration"
+      - "d"
+    nomes_nota:
+      - "KAMBA_LLM_MENSALIDADE_USD_"
+      - "PLANO"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Limiar do alerta de orçamento"
+    canonico: "LIMIAR_DE_ALERTA (0,80)"
+    literais:
+      - "LIMIAR_DE_ALERTA"
+    nomes:
+      - "LIMIAR_DE_ALERTA"
+    nomes_nota:
+      - "spend"
+      - "max_budget"
+      - "dat.llm_call_log"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Imagem do proxy"
+    canonico: "ghcr.io/berriai/litellm:v1.104.2@sha256:3d88bd…a500"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "forbidden_below"
+      - "E4"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Material de verificação de uma assinatura"
+    canonico: "cosign_chave_publica"
+    literais:
+      - "cosign_chave_publica"
+    nomes:
+      - "cosign_chave_publica"
+    nomes_nota:
+      - "cosign_identidade"
+      - "cosign_emissor"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Código de saída sem gateway"
+    canonico: "7"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "INSERT"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Quinta ligação do AGR"
+    canonico: "kamba-agr:llm"
+    literais:
+      - "kamba-agr:llm"
+    nomes:
+      - "kamba"
+      - "agr"
+      - "llm"
+    nomes_nota:
+      - "kamba_app"
+      - "ligacao.py"
+      - "tenant_guard"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Pasta dos ficheiros de LLM"
+    canonico: "KAMBA_LLM_DIR"
+    literais:
+      - "KAMBA_LLM_DIR"
+    nomes:
+      - "KAMBA_LLM_DIR"
+    nomes_nota:
+      - "KAMBA_REGISTRY_DIR"
+    variantes_literais: []
+  - seccao: "3.29"
+    conceito: "Endereço do proxy"
+    canonico: "KAMBA_LLM_PROXY_URL"
+    literais:
+      - "KAMBA_LLM_PROXY_URL"
+    nomes:
+      - "KAMBA_LLM_PROXY_URL"
+    nomes_nota:
+      - "destinos"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -7028,6 +7504,16 @@ tabelas:
     assinatura: "invoke(ctx, name, args, confirmation)"
     seccao: "3.27"
     conceito: "Camada de tools"
+  - nome: "chamar"
+    esquema: ""
+    colunas:
+      - "papel"
+      - "mensagens"
+      - "ctx"
+    aberta: false
+    assinatura: "chamar(papel, mensagens, ctx)"
+    seccao: "3.29"
+    conceito: "Contrato do cliente"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -7536,6 +8022,41 @@ dominios:
     seccao: "3.28"
     conceito: "Estado de uma reserva"
     so_no_registo: false
+  - coluna: "llm_call_log.resultado"
+    valores:
+      - "ok"
+      - "ok_fallback"
+      - "budget_exhausted"
+      - "timeout"
+      - "erro_fornecedor"
+      - "destino_negado"
+    seccao: "3.29"
+    conceito: "Desfecho de uma chamada"
+    so_no_registo: false
+  - coluna: "llm_call_log.papel"
+    valores:
+      - "router"
+      - "chat"
+      - "vision"
+      - "embed"
+    seccao: "3.29"
+    conceito: "Papel de um alias"
+    so_no_registo: false
+  - coluna: "aliases"
+    valores:
+      - "ligada"
+      - "declarada"
+    seccao: "3.29"
+    conceito: "Estado de um alias"
+    so_no_registo: false
+  - coluna: "fornecedor"
+    valores:
+      - "anthropic"
+      - "openai"
+      - "google"
+    seccao: "3.29"
+    conceito: "Fornecedor aprovado"
+    so_no_registo: false
 
 variantes:
   - nome: "lookup_hmac"
@@ -7635,8 +8156,13 @@ variantes:
     canonico: "payment_events.authn_ok boolean + authn_method ∈ {hmac, manual, consulta}"
   - nome: "llm_calls"
     tipo: "nome"
-    seccao: "3.6"
-    conceito: "Registo de chamadas LLM"
-    canonico: "llm_call_log"
+    seccao: "3.29"
+    conceito: "Registo de chamadas a modelos"
+    canonico: "dat.llm_call_log"
+  - nome: "assertDestinationAllowed"
+    tipo: "nome"
+    seccao: "3.29"
+    conceito: "Gate de transferência"
+    canonico: "PortaDeDestinos.autorizar(tenant_id, fornecedor, finalidade)"
 
 contradicoes: []

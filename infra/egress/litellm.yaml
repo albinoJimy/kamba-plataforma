@@ -1,0 +1,53 @@
+# Lista de saidas de `litellm` — KAM-067, criterio 9; proxy do KAM-030.
+#
+# Negado por omissao: o que nao esta em `destinos` nao sai. Este ficheiro e o
+# **contrato**; a aplicacao na rede e do KAM-076 (proxy de saida com allowlist
+# de FQDN). `make supply-chain` falha se o ficheiro faltar, se `por_omissao`
+# deixar de ser `negar`, ou se um destino nao tiver nome (`*`, IP, CIDR).
+#
+# **Esta e a unica lista de saidas da pilha com FQDN de fornecedores de LLM**, e
+# e por desenho: o `services/agr/egress.yaml` tem `destinos: []` e diz por
+# escrito que «o AGR nunca fala directamente com um fornecedor de LLM: fala com
+# o proxy LiteLLM, na rede interna (ADR-005, KAM-030). Os FQDN dos fornecedores
+# pertencem a lista do proxy, nao a esta». E esta.
+#
+# Cada FQDN aqui e um **destino de transferencia de dados pessoais para fora de
+# Angola** (ADR-008) e um subprocessador do `docs/tecnica/08` §8.3.2. Estar
+# nesta lista **nao** autoriza a transferencia: autoriza o pacote a sair da
+# rede. A autorizacao e uma linha `autorizado` com `apd_ref` em
+# `tenant_destinations`, que e o KAM-069 e que **nao existe** — pelo que em
+# `KAMBA_ENV=prod` o gate de destino do cliente recusa os tres antes de o
+# pacote chegar a esta lista. Ver `services/agr/src/kamba_agr/llm/destinos.py`.
+#
+# Tres e nao quatro: o `api.groq.com` e STT (KAM-036) e nao entra num ticket de
+# gateway de LLM.
+
+version: 1
+servico: litellm
+por_omissao: negar
+destinos:
+  - fqdn: api.anthropic.com
+    porta: 443
+    protocolo: https
+    razao: >-
+      Fornecedor de `kamba-router` e de `kamba-chat` (ordem 1) em
+      `llm/aliases.yaml`. Subprocessador do `docs/tecnica/08` §8.3.2; destino
+      de transferencia `pendente` ate o KAM-069 lhe dar `apd_ref`.
+    ticket: KAM-030
+  - fqdn: api.openai.com
+    porta: 443
+    protocolo: https
+    razao: >-
+      Fornecedor de `kamba-chat` na ordem 2 — o *fallback* do criterio 6. Esta
+      aqui para que o *fallback* nao use um destino que ninguem aprovou:
+      comutar para um FQDN fora desta lista era criar destino de dados novo,
+      que e o que o criterio proibe.
+    ticket: KAM-030
+  - fqdn: generativelanguage.googleapis.com
+    porta: 443
+    protocolo: https
+    razao: >-
+      Fornecedor de `kamba-vision` (KAM-033) e de `kamba-embed` (KAM-063), os
+      dois papeis declarados sem no do AGR a chama-los. Entra agora porque os
+      aliases existem agora e o proxy recusa um alias sem fornecedor.
+    ticket: KAM-030

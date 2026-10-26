@@ -118,6 +118,10 @@ class Entrada:
     cosign_razao: str
     cosign_identidade: str
     cosign_emissor: str
+    #: Caminho, dentro do repositorio, do PEM da chave publica com que a imagem
+    #: foi assinada. **Alternativa** a identidade/emissor, nao um extra: ver a
+    #: nota em `ESTADOS_COSIGN`.
+    cosign_chave_publica: str = ""
 
     @property
     def referencia(self) -> str:
@@ -141,6 +145,7 @@ class Inventario:
 _CHAVES_ENTRADA = {
     "nome", "etiqueta", "digest", "lido_em", "lido_de", "componentes",
     "cosign", "cosign_razao", "cosign_identidade", "cosign_emissor",
+    "cosign_chave_publica",
 }
 _CHAVES_FONTE = {"ficheiro", "constante", "sem_imagem"}
 _CHAVES_TOPO = {"version", "imagens", "fontes_adicionais"}
@@ -217,12 +222,44 @@ def ler_inventario(raiz: Path, hoje: _datetime.date | None = None) -> Inventario
         razao = str(bruta.get("cosign_razao") or "")
         identidade = str(bruta.get("cosign_identidade") or "")
         emissor = str(bruta.get("cosign_emissor") or "")
+        chave_publica = str(bruta.get("cosign_chave_publica") or "")
         if cosign == COSIGN_VERIFICAR:
-            if not identidade or not emissor:
+            # **Ha duas formas de assinatura, e uma entrada declara exactamente
+            # uma.** Ate ao KAM-030 este leitor exigia identidade e emissor, isto
+            # e, o fluxo *keyless* do Fulcio. Medido contra a primeira imagem
+            # assinada que o repositorio referencia: o LiteLLM assina **com uma
+            # chave** (ECDSA P-256) e a sua assinatura **nao tem certificado**,
+            # pelo que nao existe identidade OIDC nem emissor para escrever
+            # (`docs/evidencia/KAM-030-litellm.md` §1). Exigi-los tornava
+            # impossivel declarar a unica imagem assinada que ha.
+            #
+            # Exige-se uma e **recusa-se as duas**: com identidade e chave ao
+            # mesmo tempo nao se sabe qual delas o `cosign verify` usou, e uma
+            # entrada que parece verificar duas coisas e verifica uma e pior do
+            # que uma que verifica uma so.
+            keyless = bool(identidade and emissor)
+            if keyless and chave_publica:
+                raise ConfiguracaoInvalida(
+                    f"{onde}: `cosign: verificar` com `cosign_chave_publica` **e** "
+                    "`cosign_identidade`/`cosign_emissor`: declare uma forma so, "
+                    "senao nao se sabe qual delas foi verificada"
+                )
+            if not keyless and not chave_publica:
                 raise ConfiguracaoInvalida(
                     f"{onde}: `cosign: verificar` exige `cosign_identidade` e "
-                    "`cosign_emissor` — sem eles, qualquer assinatura valida de "
-                    "qualquer pessoa passava"
+                    "`cosign_emissor` (assinatura keyless) **ou** "
+                    "`cosign_chave_publica` (assinatura por chave) — sem um dos "
+                    "dois, qualquer assinatura valida de qualquer pessoa passava"
+                )
+            if chave_publica and not (raiz / chave_publica).is_file():
+                raise ConfiguracaoInvalida(
+                    f"{onde}: `cosign_chave_publica` aponta para "
+                    f"`{chave_publica}`, que nao existe no repositorio"
+                )
+            if identidade and not emissor or emissor and not identidade:
+                raise ConfiguracaoInvalida(
+                    f"{onde}: `cosign_identidade` e `cosign_emissor` vao sempre "
+                    "juntos"
                 )
         elif len(razao) < 40:
             raise ConfiguracaoInvalida(
@@ -239,6 +276,7 @@ def ler_inventario(raiz: Path, hoje: _datetime.date | None = None) -> Inventario
                 lido_de=str(bruta["lido_de"]), componentes=tuple(componentes),
                 cosign=cosign, cosign_razao=razao,
                 cosign_identidade=identidade, cosign_emissor=emissor,
+                cosign_chave_publica=chave_publica,
             )
         )
 

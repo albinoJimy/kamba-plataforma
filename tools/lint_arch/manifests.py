@@ -465,19 +465,133 @@ def from_compose(path: Path, root: Path) -> list[Declaration]:
     return out
 
 
+#: `pip install` no **inicio de um segmento de shell**. Apanha `pip`, `pip3`,
+#: `python -m pip` e `uv pip`, com ou sem `sudo` e com variaveis de ambiente a
+#: frente (`PIP_NO_CACHE=1 pip install ...`).
+#:
+#: Ancorado no inicio do segmento de proposito: a primeira versao procurava
+#: `pip install` em qualquer parte da linha e levava o **resto da linha toda**,
+#: pelo que um `RUN pip install -r req.txt && pip3 install x` dava os nomes
+#: `&&`, `pip3` e `install` como pacotes. Segmenta-se primeiro pelo shell
+#: (`_SEPARADOR_DE_SHELL`) e so depois se procura, o que tambem apanha o
+#: **segundo** `pip install` da mesma linha, que a primeira versao perdia.
+_PIP_NA_BUILD = re.compile(
+    r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:sudo\s+)?"
+    r"(?:uv\s+pip|pip3?|python3?\s+-m\s+pip)\s+install\b(?P<resto>.*)$",
+    re.IGNORECASE,
+)
+
+#: O que separa dois comandos numa linha de `RUN`.
+_SEPARADOR_DE_SHELL = re.compile(r"&&|\|\||[;&|]")
+
+#: Opcoes de `pip install` que levam valor: o token seguinte nao e um pacote.
+_PIP_COM_VALOR = frozenset(
+    {
+        "-r", "--requirement", "-c", "--constraint", "-i", "--index-url",
+        "--extra-index-url", "-f", "--find-links", "--target", "-t",
+        "--platform", "--python-version", "--implementation", "--abi",
+        "--prefix", "--root", "--cache-dir", "--log", "--proxy",
+        "--trusted-host", "--only-binary", "--no-binary", "--hash",
+    }
+)
+
+#: O que separa um nome de pacote do seu especificador de versao.
+_FIM_DO_NOME = re.compile(r"[\[<>=!~;@\s]")
+
+
+def _pacotes_de_pip(resto: str) -> list[str]:
+    """Os nomes de pacote de uma linha `pip install`. So nomes, sem versao.
+
+    `-r requirements.txt` nao da pacote nenhum: aquele ficheiro e varrido por si
+    (`_is_requirements_file`), e contar o nome dele como pacote dava um achado
+    por um ficheiro que o lint ja le.
+    """
+    nomes: list[str] = []
+    saltar = False
+    for token in resto.split():
+        if saltar:
+            saltar = False
+            continue
+        # As continuacoes de linha ja foram juntas por quem chama; o que sobra e
+        # uma barra solta. **Nao se troca por espaco**: um `\` seguido de letra
+        # dava um nome de pacote inventado (`\n` -> `n`), e um nome inventado
+        # numa lista de bloqueio e ruido que um dia alguem desliga.
+        if "\\" in token:
+            continue
+        if token in _PIP_COM_VALOR:
+            saltar = True
+            continue
+        if token.startswith("-"):
+            # `--no-cache-dir`, `-U`, `--upgrade`: opcoes sem valor, ou
+            # `--opcao=valor`, que tambem nao e pacote.
+            continue
+        if token.startswith((".", "/", "git+", "http://", "https://")):
+            # Um caminho ou um URL nao e um nome que a lista de bloqueio
+            # reconheca; deixa-se passar em vez de inventar um nome.
+            continue
+        nome = _FIM_DO_NOME.split(token, 1)[0]
+        if nome:
+            nomes.append(nome)
+    return nomes
+
+
 def from_dockerfile(path: Path, root: Path) -> list[Declaration]:
-    """Le os `FROM`, resolvendo variaveis e ignorando as flags.
+    """Le os `FROM`, os `ARG` de imagem e os `pip install` dos `RUN`.
 
     `FROM --platform=linux/amd64 minio/minio:...` tem de ser apanhado: capturar o
     primeiro token depois de `FROM` daria a *flag* como nome da imagem, e a
     imagem real nunca seria examinada.
+
+    **Os `RUN pip install` entram com o KAM-030**, e fecham metade de um critero
+    de aceitacao que o lint nao cobria: «`pip install litellm` na *build* reprova
+    o lint» (criterio 1). Antes desta leitura, um `RUN pip install litellm==1.82.7`
+    num Dockerfile passava limpo — a entrada `litellm` de `tools/blocklist.yaml`
+    e `kind: any` e estava la desde o KAM-067, mas nenhuma declaracao PyPI saia
+    de um Dockerfile para ela se aplicar. Medido: era a unica das quatro clausulas
+    do criterio 1 sem maquina a impo-la.
+
+    Vale para qualquer pacote bloqueado, nao so o LiteLLM — e isso e o ponto: o
+    `langgraph-api` do ADR-002 corria o mesmo risco.
     """
     out: list[Declaration] = []
     source = _rel(path, root)
     args: dict[str, str] = {}
     stages: set[str] = set()
 
-    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    # Junta as continuacoes de linha: um `RUN pip install \\\n    pacote` e uma
+    # instrucao so, e ler linha a linha perdia o nome do pacote.
+    bruto = path.read_text(encoding="utf-8")
+    linhas_juntas: list[tuple[int, str]] = []
+    acumulado = ""
+    inicio = 1
+    for numero, linha in enumerate(bruto.splitlines(), start=1):
+        if not acumulado:
+            inicio = numero
+        if linha.rstrip().endswith("\\"):
+            acumulado += linha.rstrip()[:-1] + " "
+            continue
+        linhas_juntas.append((inicio, acumulado + linha))
+        acumulado = ""
+    if acumulado:
+        linhas_juntas.append((inicio, acumulado))
+
+    for lineno, linha in linhas_juntas:
+        despido = linha.lstrip()
+        if not despido.upper().startswith("RUN "):
+            continue
+        corpo = despido[4:]
+        for segmento in _SEPARADOR_DE_SHELL.split(corpo):
+            achado = _PIP_NA_BUILD.match(segmento)
+            if not achado:
+                continue
+            for nome in _pacotes_de_pip(achado.group("resto")):
+                out.append(
+                    Declaration(
+                        PYPI, nome, "", source, f"RUN pip install: linha {lineno}"
+                    )
+                )
+
+    for lineno, line in enumerate(bruto.splitlines(), start=1):
         declared = _DOCKER_ARG.match(line)
         if declared:
             value = declared.group("value").strip("\"'")

@@ -1,0 +1,95 @@
+# Tabela de precos de tokens — KAM-030, fonte `docs/tecnica/evidencia/E4_Stack_Licencas.md` §3.
+#
+# **Porque e que o preco e nosso e nao do LiteLLM.** O LiteLLM traz o seu proprio
+# mapa de precos e, no arranque, **descarrega-o** de
+# `raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json`
+# — medido na imagem fixada, tres tentativas antes de cair para a copia local
+# (`docs/evidencia/KAM-030-litellm.md` §5). Um custo registado em
+# `dat.llm_call_log` que dependesse de um ficheiro de terceiros a mudar sem aviso
+# nao e um registo de custo: e uma estimativa com fonte movel. E o destino nao
+# esta em `infra/egress/litellm.yaml` nem vai estar — a saida desliga-se com
+# `LITELLM_LOCAL_MODEL_COST_MAP`, pela mesma razao do `beacon.langchain.com` do
+# KAM-025.
+#
+# **Os valores sao em USD por 1M de tokens**, como o `E4` §3 os escreve, e o
+# `estado` de cada linha e o estado da evidencia: nao se promove um INDICIO a
+# facto por conveniencia.
+#
+# **Nenhum destes modelos esta escolhido.** O `llm/aliases.yaml` tem
+# `modelo: por_decidir` em todas as linhas, e a escolha e do KAM-040 (dataset
+# *golden*; `docs/tecnica/02` §13.2 e `E4` §3.5 — qualidade em portugues de
+# Angola e latencia sao NAO VERIFICADAS, e nao ha ranking). Esta tabela existe
+# para que o calculo de custo esteja **pronto e provado** quando a escolha
+# chegar: sem ela, o KAM-040 teria de entregar modelo **e** tarifario.
+#
+# Um modelo sem linha aqui da `custo_usd` **nulo** na linha de registo, e conta
+# na metrica `agr_llm_sem_preco_total`. Escrever zero era afirmar que a chamada
+# foi gratuita, e o somatorio de custo por tenant passava a mentir por omissao.
+#
+# **O tokenizador da Anthropic (>= 4.7) produz ~30% mais tokens para o mesmo
+# texto** (`E4` §3.1, CONFIRMADO). Isso **nao** se corrige aqui: o custo calcula-se
+# dos tokens que o fornecedor **contou**, e os 30% ja estao nessa contagem. O
+# numero aparece no §13.3 como aviso sobre a estimativa, nao como factor a
+# aplicar — aplica-lo seria contar duas vezes.
+
+version: 1
+
+# `fonte` e `estado` por linha, porque nao sao todas do mesmo grau: as do
+# Anthropic e do OpenAI foram lidas da pagina oficial, as do Google sao resumo
+# de WebFetch.
+precos:
+  # --- Anthropic (E4 §3.1, CONFIRMADO) ---------------------------------------
+  # O Haiku 5.5 e o modelo do exemplo de custo do `docs/tecnica/02` §13.3
+  # (0,10 / 0,50), que e o que o criterio 5 manda dar 0,00045.
+  - fornecedor: anthropic
+    modelo: claude-haiku-5-5
+    entrada: "0.10"
+    cache: "0.01"
+    saida: "0.50"
+    estado: CONFIRMADO
+    fonte: "E4 §3.1 (prompts <= 100k; acima disso 0,50 / 0,05 / 2,50)"
+  - fornecedor: anthropic
+    modelo: claude-sonnet-5-5
+    entrada: "2.00"
+    cache: "0.10"
+    saida: "10.00"
+    estado: CONFIRMADO
+    fonte: "E4 §3.1"
+
+  # --- OpenAI (E4 §3.2, CONFIRMADO, tier Standard) ---------------------------
+  - fornecedor: openai
+    modelo: gpt-6-luna
+    entrada: "0.10"
+    cache: "0.01"
+    saida: "0.50"
+    estado: CONFIRMADO
+    fonte: "E4 §3.2"
+  - fornecedor: openai
+    modelo: gpt-6.1-sol
+    entrada: "2.00"
+    cache: "0.10"
+    saida: "10.00"
+    estado: CONFIRMADO
+    fonte: "E4 §3.2"
+
+  # --- Google (E4 §3.3, INDICIO-forte: resumo de WebFetch, revalidar) --------
+  - fornecedor: google
+    modelo: gemini-3.1-flash-lite
+    entrada: "0.25"
+    cache: "0.025"
+    saida: "1.50"
+    estado: INDICIO
+    fonte: "E4 §3.3 (audio 0,50 na entrada)"
+  # **O preco deste duplica a 2027-01-01**, e esta linha e a promocional. E a
+  # unica linha da tabela com data de validade, e e por isso que o `estado` nao
+  # chega: quem a usar depois dessa data paga 1,50 / 0,15 / 7,50 e o custo
+  # registado fica a metade do real. O `precos.py` **levanta** se esta linha for
+  # usada depois de `valido_ate`, em vez de calcular com o preco errado.
+  - fornecedor: google
+    modelo: gemini-3.8-flash
+    entrada: "0.75"
+    cache: "0.075"
+    saida: "3.75"
+    estado: INDICIO
+    valido_ate: "2026-12-31"
+    fonte: "E4 §3.3 (promocional; a partir de 2027-01-01 passa a 1,50 / 0,15 / 7,50)"

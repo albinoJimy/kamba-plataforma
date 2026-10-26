@@ -105,6 +105,10 @@ TOOL_SCHEMA = "lint_tool_schema"
 #: KAM-158: o varredor das contagens em prosa. Corre-se `test_scan.py` e nao a
 #: bateria inteira: o `test_cli.py` tem um caso que afirma sobre o repositorio.
 CONTAGENS = "contagens"
+#: KAM-030.
+LLM_CONFIG = "llm_config"
+PIP_NA_BUILD = "lint_pip_na_build"
+COSIGN = "cosign"
 
 #: As baterias de `tools/` que esta prova sabe correr: `(pacote, padrao)`.
 #: Nao levantam base de dados nenhuma — o gate 9 nao tem base de dados — e por
@@ -129,6 +133,14 @@ SUITES_DE_TOOLS = {
     TOOL_SCHEMA: ("lint_arch", "test_tool_schema.py"),
     CONTAGENS: ("lint_contagens", "test_scan.py"),
     CONTRATOS: ("contract_diff", "test_*.py"),
+    # KAM-030: o gerador da configuracao do proxy, o leitor de `RUN pip install`
+    # dos Dockerfiles e a escolha da forma do `cosign verify`. Entradas proprias
+    # e nao a do `GATE9_CI`, pela razao que o KAM-028 escreveu para o
+    # `TOOL_SCHEMA`: essa corre **um** ficheiro, e estas medem coisas diferentes
+    # de pacotes diferentes.
+    LLM_CONFIG: ("llm_config", "test_llm_config.py"),
+    PIP_NA_BUILD: ("lint_arch", "test_pip_na_build.py"),
+    COSIGN: ("supply_chain", "test_cosign.py"),
 }
 #: O leitor de YAML (KAM-136). As duas suites leem por ele as listas de
 #: excepcoes de `ci/` e o limiar do estrato `critico`.
@@ -397,6 +409,22 @@ AG_TLS_IDEMPOTENCY = "services/agr/src/kamba_agr/tls/idempotency.py"
 #: O *lint* do critero 3, que corre no *gate* 2. A suite (`TOOL_SCHEMA`) esta
 #: declarada junto das outras de `tools/`, acima.
 LA_TOOL_SCHEMA = "tools/lint_arch/tool_schema.py"
+#: O gateway de LLM (KAM-030). As que mudam **logica** correm na `agr_unit`
+#: (`services/agr/tests`, sem base de dados); as que mudam o DDL ou o que vai
+#: para a `dat.llm_call_log` correm na `tests_agr`, porque o que as mata e um
+#: `CHECK` do servidor ou a RLS — e nao uma asercao sobre um duplo.
+AG_LLM_CLIENTE = "services/agr/src/kamba_agr/llm/cliente.py"
+AG_LLM_DESTINOS = "services/agr/src/kamba_agr/llm/destinos.py"
+AG_LLM_ERROS = "services/agr/src/kamba_agr/llm/erros.py"
+AG_LLM_PRECOS = "services/agr/src/kamba_agr/llm/precos.py"
+AG_LLM_REGISTO = "services/agr/src/kamba_agr/llm/registo.py"
+REV23 = "db/migrations/versions/0023_llm_call_log.py"
+#: O gerador da configuracao do proxy, o leitor de manifestos e o verificador de
+#: assinaturas, que o KAM-030 estendeu. As suites estao declaradas junto das
+#: outras de `tools/`, acima.
+TO_LLM_CONFIG = "tools/llm_config/__init__.py"
+LA_MANIFESTS = "tools/lint_arch/manifests.py"
+SC_COSIGN = "tools/supply_chain/cosign.py"
 AV_DECISAO = "packages/core-ts/src/avisos/decisao.ts"
 AV_MODELOS = "packages/core-ts/src/avisos/modelos.ts"
 AV_MODULO = "packages/core-ts/src/avisos/avisos.ts"
@@ -3923,6 +3951,149 @@ MUTACOES = [
      AGR_UNIT),
     # Um atalho sem o ticket que o fecha nao e atalho: e uma validacao desligada
     # para sempre com ar de temporaria.
+    # ---------------------------------------------------------------- KAM-030
+    #
+    # Vinte mutacoes, com prefixo `llm:` — o `tls:` tem vinte e seis e o
+    # `idem:` dez, e um prefixo e o filtro do `db/mutacoes.py <python>
+    # <excerto>`: misturar as series obrigava a correr as tres por cada volta.
+    #
+    # Cada uma apaga **uma** propriedade que um criterio nomeia. As quatro
+    # primeiras custam mais do que dinheiro: todas elas deixam dados pessoais
+    # sair de Angola, ou o custo de os mandar ficar por registar. **Dez morrem
+    # na unidade** (`test_llm_*`), **cinco contra a base** — os dois `CHECK`, a
+    # RLS da particao, o *trigger* e o `GRANT` por coluna nao se medem contra um
+    # dicionario — e **cinco** nas suites de `tools/`.
+    ('llm: o gate de destino autoriza em prod', AG_LLM_DESTINOS,
+     "        if self.ambiente != AMBIENTE_PROD:\n            return\n",
+     "        if True:\n            return\n",
+     AGR_UNIT),
+    # A mutacao central do criterio 8: sem o KAM-069 nao ha destino autorizado
+    # nenhum, pelo que autorizar em `prod` e mandar conteudo de conversa para
+    # fora de Angola sem notificacao da APD (ADR-008).
+    ('llm: o gate so consulta o primeiro fornecedor', AG_LLM_CLIENTE,
+     "            for fornecedor in alias.fornecedores:",
+     "            for fornecedor in alias.fornecedores[:1]:",
+     AGR_UNIT),
+    # O *fallback* e do router do proxy e o cliente nao sabe qual fornecedor vai
+    # servir. Autorizar so o de `ordem: 1` deixava o segundo receber os dados
+    # **sem** o gate ter sido consultado por ele.
+    ('llm: a recusa de destino deixa de escrever linha', AG_LLM_CLIENTE,
+     "            self._metricas.contar(metricas_mod.METRICA_LLM_DESTINO_NEGADO)\n            self._falhou(alias, ctx, erro, inicio)",
+     "            self._metricas.contar(metricas_mod.METRICA_LLM_DESTINO_NEGADO)",
+     AGR_UNIT),
+    # Uma transferencia recusada que nao deixa rasto e uma tentativa que a
+    # `v_transfer_audit` do KAM-069 nunca vera, e o criterio 5 diz «cada chamada
+    # grava 1 linha».
+    ('llm: o orcamento reconhece-se pelo estado 400', AG_LLM_ERROS,
+     "    if tipo == TIPO_ORCAMENTO:",
+     "    if estado == 400:",
+     AGR_UNIT),
+    # E o que o bloco do ticket manda a letra, e **esta errado**: a versao
+    # fixada responde 422 com `type: budget_exceeded`, e usa o 400 para «alias
+    # repetido». Mapear pelo estado nunca disparava no orcamento e disparava num
+    # erro de provisionamento (`docs/evidencia/KAM-030-litellm.md` §4).
+    ('llm: o cache passa a tarifa de entrada', AG_LLM_PRECOS,
+     "        + Decimal(tokens_cache) * preco.cache",
+     "        + Decimal(tokens_cache) * preco.entrada",
+     AGR_UNIT),
+    ('llm: o custo perde o termo de saida', AG_LLM_PRECOS,
+     "        + Decimal(tokens_out) * preco.saida",
+     "        + Decimal(0) * preco.saida",
+     AGR_UNIT),
+    # As duas acima matam o numero do criterio 5 (0,00045) por caminhos
+    # diferentes: a primeira cobra o cache dez vezes a mais, a segunda esquece a
+    # saida. Uma formula testada num ponto so nao distinguia nenhuma delas.
+    ('llm: sem preco o custo passa a zero', AG_LLM_PRECOS,
+     "    if preco is None:\n        return None",
+     "    if preco is None:\n        return Decimal(0)",
+     AGR_UNIT),
+    # Zero afirma que a chamada foi gratuita. Hoje **todas** as chamadas caem
+    # aqui (o modelo e `por_decidir` ate o KAM-040 escolher), pelo que esta
+    # mutacao poe o custo por tenant a zero e a parecer medido.
+    ('llm: o fornecedor que serviu assume-se o primeiro', AG_LLM_CLIENTE,
+     "        if prefixo in prefixos:",
+     "        if False:",
+     AGR_UNIT),
+    # Um registo de transferencia a apontar para o destino errado e pior do que
+    # nao ter registo: diz que os dados foram para onde nao foram.
+    ('llm: o registo que falha passa a levantar', AG_LLM_REGISTO,
+     "    except Exception:  # noqa: BLE001 \u2014 ver o ponto 2 da nota do modulo\n        return False",
+     "    except Exception:  # noqa: BLE001\n        raise",
+     AGR_UNIT),
+    # Levantar faz o turno falhar e o *job* voltar a fila, o que **repete a
+    # chamada ao modelo**: segunda transferencia, segundo custo, e o mesmo
+    # registo a falhar. A perda de uma linha e mais barata.
+    ('llm: o tecto do cliente passa a ser o do alias', AG_LLM_CLIENTE,
+     "TENTATIVAS_DO_PROXY: Final = 3",
+     "TENTATIVAS_DO_PROXY: Final = 1",
+     AGR_UNIT),
+    # O cliente tem de esperar mais do que o proxy: com o tecto do alias, o
+    # cliente desiste antes de o router poder comutar e o *fallback* do criterio
+    # 6 nunca acontece.
+    ('llm: o hash dos aliases passa a incluir os comentarios', TO_LLM_CONFIG,
+     '        if not linha.lstrip().startswith("#")',
+     '        if True',
+     LLM_CONFIG),
+    # O cabecalho gerado nomeia a `versao`: com os comentarios dentro do hash, a
+    # versao entra, e «mudou o conteudo e nao a versao» deixa de se distinguir
+    # de «mudou a versao» — o criterio 7 fica a nao verificar nada. Foi o
+    # defeito da primeira versao deste mecanismo.
+    ('llm: o nome do grupo ignora a ordem', TO_LLM_CONFIG,
+     '    return alias if ordem == 1 else f"{alias}-fallback{ordem}"',
+     '    return alias',
+     LLM_CONFIG),
+    # Com o mesmo nome nos dois, volta-se ao grupo unico com `simple-shuffle`
+    # que **mediu 3 falhas em 20** (`docs/evidencia/KAM-030-litellm.md` §4).
+    ('llm: o google passa a prefixo do proxy', TO_LLM_CONFIG,
+     '    "google": "gemini",',
+     '    "google": "google",',
+     LLM_CONFIG),
+    # Medido: `google/` da `BadRequestError` e o proxy recusa a configuracao no
+    # arranque. O nome do subprocessador nao e o prefixo do LiteLLM.
+    ('llm: o pip install dos Dockerfiles deixa de se ler', LA_MANIFESTS,
+     "        for segmento in _SEPARADOR_DE_SHELL.split(corpo):",
+     "        for segmento in []:",
+     PIP_NA_BUILD),
+    # Era o estado antes do KAM-030, e e a quarta clausula do criterio 1: um
+    # `RUN pip install litellm==1.82.7` passava limpo.
+    ('llm: o cosign volta a assumir sempre keyless', SC_COSIGN,
+     "    if entrada.cosign_chave_publica:",
+     "    if False:",
+     COSIGN),
+    # A assinatura do LiteLLM nao tem certificado: `--certificate-identity`
+    # ficava com a cadeia vazia e `cosign verify` nao verificava identidade
+    # nenhuma.
+    ('llm: a confirmacao do arranque olha para a tabela e nao para as colunas', AG_LLM_REGISTO,
+     "    f\"has_column_privilege('{TABELA}', '{coluna}', 'INSERT')\" for coluna in COLUNAS",
+     "    f\"has_table_privilege('{TABELA}', 'INSERT') OR '{coluna}' IS NOT NULL\" for coluna in COLUNAS",
+     AGR),
+    # O `GRANT` da revisao `0023` e **por coluna**, e o
+    # `has_table_privilege(..., 'INSERT')` devolve falso com privilegios de
+    # coluna concedidos — pelo que esta mutacao faz o arranque recusar um papel
+    # que tem tudo. Mata-se contra a base porque e o servidor que responde.
+    ('llm: o CHECK do resultado deixa de ser fechado', REV23,
+     "                CHECK (resultado IN ({RESULTADOS_SQL})),",
+     "                CHECK (resultado IS NOT NULL),",
+     AGR),
+    ('llm: uma recusa de destino passa a poder levar custo', REV23,
+     "                resultado <> 'destino_negado'\n                OR (tokens_in IS NULL",
+     "                resultado IS NOT NULL\n                OR (tokens_in IS NULL",
+     AGR),
+    # Uma linha `destino_negado` com custo afirma que se pagou por uma chamada
+    # que nunca saiu de Angola, e o somatorio por tenant passa a contar o que
+    # nao houve.
+    ('llm: a particao perde a RLS', REV23,
+     '    rls.enable_tenant_rls("llm_call_log_default", schema=ESQUEMA)\n',
+     '',
+     AGR),
+    # Para o *gate* 6 uma particao e uma tabela: sem `FORCE` na particao, um
+    # `SELECT` dirigido a ela escapa a politica do pai.
+    ('llm: o trigger de imutabilidade so prende o DELETE', REV23,
+     "          BEFORE UPDATE OR DELETE ON {PARTICAO}",
+     "          BEFORE DELETE ON {PARTICAO}",
+     AGR),
+    # Um `UPDATE` e precisamente o que faria desaparecer uma transferencia que
+    # ja aconteceu.
 ]
 
 

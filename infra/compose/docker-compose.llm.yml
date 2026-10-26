@@ -1,0 +1,92 @@
+# Proxy LiteLLM — KAM-030, ADR-005.
+#
+# Levanta-se com `make llm-proxy` (ou `python infra/llm/proxy.py`), que gera a
+# *master key* de ensaio, escolhe a porta, corre as suites e apaga tudo no fim.
+# **Nao entra em `docker-compose.dev.yml`**, pela mesma razao que o SeaweedFS do
+# KAM-011 nao entra: a pilha de desenvolvimento nao ganha um caminho para
+# fornecedores de LLM no estrangeiro por omissao. Para sair para um fornecedor a
+# serio faltam duas coisas que nao sao deste ticket — a autorizacao da APD
+# (KAM-069) e o proxy de saida (KAM-076).
+#
+# SEIS REGRAS, e cinco delas sao criterios de aceitacao deste ticket.
+#
+# 1. **Imagem por digest, com a versao na etiqueta.** As duas coisas ao mesmo
+#    tempo: o digest e o que fixa o conteudo, e a etiqueta e o que prova a
+#    versao — um digest sozinho nao prova versao nenhuma sem rede, e e por isso
+#    que o `lint_arch` exige a versao na etiqueta para avaliar o limiar
+#    `forbidden_below: 1.83.0` de `tools/blocklist.yaml`. A forma legal e esta.
+#    Digest lido de `docker buildx imagetools inspect
+#    ghcr.io/berriai/litellm:v1.104.2` a 2026-10-26 (indice OCI multi-arquitectura).
+# 2. **Nunca `pip install` na build.** Este ficheiro nao constroi nada: usa a
+#    imagem publicada. Nao ha `Dockerfile` do LiteLLM no repositorio, e o passo
+#    `pip-na-build` do `lint_arch` recusa um `RUN pip install litellm` em
+#    qualquer Dockerfile — era o meio do criterio 1 que o lint nao cobria.
+# 3. **Nao e alcancavel de fora da rede interna.** Nao ha `ports:` para
+#    `0.0.0.0`: a unica publicacao e em `127.0.0.1`, e so para a suite de
+#    integracao poder falar com ele. Em `staging` e `prod` a rede e a do
+#    `docs/tecnica/09` e o proxy nao publica porta nenhuma.
+# 4. **Sem segredos no ficheiro.** A *master key* e as chaves de fornecedor
+#    chegam pelo ambiente, do cofre (KAM-010, `litellm_master_key` e
+#    `llm_provider_key` no dicionario §3.14). O `:?` faz o compose **recusar-se
+#    a arrancar** sem elas, em vez de arrancar com uma chave vazia.
+# 5. **Config so de leitura, gerada.** O `llm/litellm.config.yaml` e **gerado**
+#    de `llm/aliases.yaml` por `python -m llm_config` e versionado, como o
+#    `canon/dicionario.yaml` o e de `specs/02`. Monta-se `:ro`.
+# 6. **Sem base de dados.** O LiteLLM com `DATABASE_URL` cria o seu proprio
+#    esquema e guarda *spend logs* e chaves virtuais nele. Nao se faz aqui: a
+#    auditoria de chamadas e **nossa** (`dat.llm_call_log`, ADR-018, E4 §2.7),
+#    e uma segunda imagem do mesmo projecto com acesso de escrita a base era
+#    superficie de ataque pelo componente que o E4 chama «o de maior superficie
+#    de ataque do stack». As chaves virtuais da Fase 0 criam-se por *script*
+#    (`infra/llm/chaves.py`) e vivem na memoria do proxy.
+
+name: kamba-llm-proxy
+
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:v1.104.2@sha256:3d88bd757134a00e8c00237b85a021ab1f6d54abb9c1df750f411dbe7256a500
+    command:
+      - "--config"
+      - "/etc/litellm/config.yaml"
+      - "--port"
+      - "4000"
+      # Sem `--detailed_debug`: o corpo das mensagens nao vai para os logs
+      # (ADR-018, `docs/logs.md`; criterio de privacidade do DoD).
+      - "--num_workers"
+      - "1"
+    environment:
+      LITELLM_MASTER_KEY: ${KAMBA_SECRET_LITELLM_MASTER_KEY:?do cofre (KAM-010) ou gerada por infra/llm/proxy.py}
+      # Os nomes sao os de `chave_env` em `llm/aliases.yaml`. Em ensaio apontam
+      # para o fornecedor falso; em `staging` vem do cofre.
+      LLM_KEY_P1: ${KAMBA_SECRET_LLM_KEY_P1:?do cofre (KAM-010)}
+      LLM_KEY_P2: ${KAMBA_SECRET_LLM_KEY_P2:?do cofre (KAM-010)}
+      LLM_KEY_P3: ${KAMBA_SECRET_LLM_KEY_P3:?do cofre (KAM-010)}
+      # Telemetria do LiteLLM desligada, pela mesma razao do
+      # `desligar_telemetria` do `kamba_agr/egresso.py`: um destino que ninguem
+      # declarou nao sai desta pilha.
+      LITELLM_DONT_SHOW_FEEDBACK_BOX: "True"
+      DISABLE_SCHEMA_UPDATE: "True"
+      LITELLM_MODE: "PRODUCTION"
+    volumes:
+      - ../../llm/litellm.config.yaml:/etc/litellm/config.yaml:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=0700
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "127.0.0.1:${KAMBA_LLM_PORT:?escolhida por infra/llm/proxy.py}:4000"
+    healthcheck:
+      # `/health/liveliness` nao exige a *master key*; o `/health` exige.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=2).status==200 else 1)\""]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+      start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "1"

@@ -100,6 +100,8 @@ NOME_DA_TRANCA: Final = "kamba-agr:tranca"
 NOME_DO_CHECKPOINTER: Final = "kamba-agr:checkpoint"
 #: A quarta ligacao, da ToolLayer (KAM-028).
 NOME_DAS_TOOLS: Final = "kamba-agr:tools"
+#: A quinta, do gateway de LLM (KAM-030): so `dat.llm_call_log`.
+NOME_DO_LLM: Final = "kamba-agr:llm"
 
 
 class ConfiguracaoEmFalta(RuntimeError):
@@ -170,6 +172,26 @@ def ligar_para_tools(ambiente: Any = None) -> Any:
     `platform`**, de proposito (KAM-026).
     """
     return _ligar(ambiente, autocommit=False, nome=NOME_DAS_TOOLS)
+
+
+def ligar_para_llm(ambiente: Any = None) -> Any:
+    """A ligacao do gateway de LLM (KAM-030). Transaccional, papel `kamba_app`.
+
+    **A quinta tomada, e nao a das tools**, pela razao que a tabela deste modulo
+    da para a das tools nao ser a da leitura: o `kamba_core.tenant_guard` recusa
+    uma segunda transaccao na mesma ligacao (`LigacaoEmUso`), e uma chamada ao
+    modelo acontece **dentro** de um no do grafo que pode ter uma invocacao de
+    tool a meio. Partilhada, a linha de `dat.llm_call_log` rebentava por uma
+    razao que nao tem nada a ver com ela — e e precisamente a linha que o
+    criterio 5 exige que exista.
+
+    Papel `kamba_app` e nao `kamba_agr`: o que ela toca e a `dat.llm_call_log`, e
+    o `GRANT INSERT` por coluna da revisao `0023` e para o `kamba_app`. O
+    `kamba_agr` nao ganha nada no `dat`, pela mesma razao por que nao tem `USAGE`
+    no `platform` (KAM-026): o papel que guarda o estado das conversas nao tem
+    por onde chegar ao custo de ninguem.
+    """
+    return _ligar(ambiente, autocommit=False, nome=NOME_DO_LLM)
 
 
 def ligar_para_checkpoint(ambiente: Any = None) -> Any:

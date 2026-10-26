@@ -29,7 +29,7 @@ def executar(nome: str, raiz: Path) -> tuple[list[Achado], str]:
     """Corre uma verificacao. Devolve (achados, linha de resumo)."""
     if nome == "imagens":
         achados, resumo = imagens.verificar(raiz)
-        achados_cosign, resumo_cosign = cosign.verificar(resumo["inventario"])
+        achados_cosign, resumo_cosign = cosign.verificar(resumo["inventario"], raiz=raiz)
         estados = resumo["cosign"]
         return achados + achados_cosign, (
             f"{resumo['referencias']} referencia(s) a {resumo['imagens']} imagem(ns), "
