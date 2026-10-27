@@ -277,10 +277,33 @@ class OpcoesDoConsumo:
     #: Da subscricao. Para `payment.*` e sempre `True` (restricao da revisao
     #: 0005). Decide **so** a leitura da ordem, nao a pre-condicao de estado.
     exige_ordem: bool = False
-    #: Obrigatoria sempre que o tipo causa transicao (`ESTADO_PRETENDIDO`),
-    #: com ordem ou sem ela.
+    #: Obrigatoria sempre que o tipo causa transicao (`ESTADO_PRETENDIDO`) **e**
+    #: este consumidor a aplica, com ordem ou sem ela.
     maquina: MaquinaDeEstados | None = None
     metricas: Metricas | None = None
+    #: Este consumidor **aplica** a transicao que o tipo causa?
+    #:
+    #: `True` e a omissao, pelo que nenhum chamador existente muda de
+    #: comportamento. `False` salta a pre-condicao de estado — e **so** essa: a
+    #: marca, a leitura da ordem e o que se levanta nao mudam.
+    #:
+    #: **Existe porque o `ESTADO_PRETENDIDO` e uma propriedade de quem aplica a
+    #: transicao e estava a ser lido como propriedade do tipo.** A nota dele
+    #: di-lo por extenso — «estao aqui os eventos cujo consumo **aplica** a
+    #: transicao» —, e o primeiro consumidor Python a chegar nao e desses: o AGR
+    #: (KAM-038) consome `payment.confirmed` para **notificar** o cliente e o
+    #: dono, e quem transita a encomenda e o COM (`docs/tecnica/03` §6). Sem a
+    #: distincao, ele levantava `MaquinaEmFalta` em todos os pagamentos — ou,
+    #: com uma maquina sobre a tabela de encomendas que o KAM-041 ainda nao
+    #: escreveu, adiava seis vezes e mandava para a DLQ **todos** os pagamentos
+    #: confirmados. Dicionario §3.33.
+    #:
+    #: **Nao ha equivalente em TypeScript, e isso e dito em vez de escondido:**
+    #: os consumidores de la sao os que aplicam a transicao, e acrescentar uma
+    #: opcao que ninguem usa daquele lado era codigo sem chamador a envelhecer.
+    #: O `TestParidadeDoTypeScript` continua a confrontar o SQL e os numeros,
+    #: que e onde as duas implementacoes tem de ser a mesma.
+    aplica_transicao: bool = True
 
 
 def _ler_seq(bruto: object) -> int | None:
@@ -381,7 +404,15 @@ def consumir(opcoes: OpcoesDoConsumo, efeito: Efeito) -> ResultadoDoConsumo:
         # **sem verificacao nenhuma**. A restricao do DDL so obriga
         # `exige_ordem` em `payment.%`, pelo que o buraco era alcancavel por
         # configuracao.
-        pretendido = ESTADO_PRETENDIDO.get(str(envelope["tipo"]))
+        # A pre-condicao e de quem **aplica** a transicao. Um consumidor que so
+        # e informado dela — o AGR, que notifica o cliente — nao tem o estado do
+        # agregado para a verificar, e exigir-lho era adiar toda a primeira
+        # entrega ate a replica dele ter o estado novo. Ver `aplica_transicao`.
+        pretendido = (
+            ESTADO_PRETENDIDO.get(str(envelope["tipo"]))
+            if opcoes.aplica_transicao
+            else None
+        )
         if pretendido is not None:
             if opcoes.maquina is None:
                 raise MaquinaEmFalta(
