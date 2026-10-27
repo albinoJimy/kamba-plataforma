@@ -1815,12 +1815,54 @@ fecha.** Ela escreveu três posições na casa sobre onde vive o *compare-and-se
 KAM-019 manda que «a retoma por *compare-and-set* é KAM-034». Segue-se a regra
 (3), porque é a única das três que diz **onde** o *endpoint* vive e sob que
 *lock* corre. A consequência é que a `handoffs` tem **dois escritores em duas
-linguagens**, e a fronteira fica escrita aqui para que ninguém a redescubra:
+linguagens**:
 
 * **criar a passagem, marcá-la aberta, degradá-la e fechá-la pelo provedor** é do
   HND (KAM-019), em TypeScript — as quatro instruções do `hnd/consultas.ts`;
 * **sair de `waiting` por `/internal/resume`** é do AGR (KAM-034), em Python, e é
   a única escrita que ele faz nesta tabela.
+
+**E as duas linhas NÃO são uma partição.** A primeira versão desta secção dizia
+que eram, e que a fronteira ficava «escrita aqui para que ninguém a
+redescubra» — e isso era **falso**, medido pela revisão adversarial do KAM-034
+(`../docs/analises/ANALISE-35`, achado 1). «Fechá-la pelo provedor» é o
+`SQL_FECHAR` do `hnd/consultas.ts`, cujo `WHERE status = ANY($3)` recebe o
+`ESTADOS_QUE_FECHAM` do `hnd/estados.ts` — que é `["waiting", "degraded"]`. Isto
+é: **o HND também sai de `waiting`**, e escreve o mesmo `status = 'resumed'` que
+o CAS do AGR.
+
+E a ordem está fixada em código, no `receber` do `hnd/provedor.ts`, e é a pior
+das duas: o `#fechar` corre **antes** do `onHumanEvent`, que é o único sítio de
+onde `/internal/resume` pode ser chamado. No caminho feliz — um colega responde e
+marca a conversa como resolvida — a linha já está em `resumed` quando o pedido
+chega ao AGR, o CAS dá zero linhas, a rota responde 200 (o *no-op* do §11.5
+aplicado a um pedido legítimo) e o `Command(resume=…)` **nunca corre**: o
+`interrupt()` fica pendente no *checkpoint*, a varredura dos prazos não o
+encontra (filtra `waiting`) e a invariante da não-reentrada abre-se (o
+`handoff_a_espera` do `SQL_PALAVRA_DA_CONVERSA` também só conta `waiting`).
+
+**Esta emenda não resolve a sobreposição, e diz porquê.** Do lado do AGR as duas
+situações são **indistinguíveis** — uma passagem em `resumed` a receber um
+`outcome=resolved` pode ser o *webhook* duplicado (e o *no-op* está certo) ou o
+primeiro pedido legítimo depois de o HND ter escrito (e o *no-op* mata a
+conversa) —, e a única marca que as separa é o estado do *checkpoint* do
+LangGraph, que esta rota não lê. As duas saídas são:
+
+1. **o HND deixa de escrever o `status` no `resolved`** e passa a chamar
+   `/internal/resume`, deixando o AGR vencer o CAS. É a que o `../docs/tecnica/01`
+   §11.4 desenha (`CW->>H: webhook … resolved`, e **depois** `H->>A: retoma com
+   Command resume e resultado`), a que a regra (3) do `../docs/tecnica/02` §11
+   escolhe, e a que a **emenda 1.22 já tinha escrito**: «a coluna `resumed_at`
+   nasce e ninguém a escreve neste ticket [o KAM-019]» — o código do HND
+   contradiz a entrada de canon do seu próprio ticket. Obriga a dar ao `resolver`
+   um caminho próprio, porque hoje ele viaja no mesmo `#fechar`;
+2. **ou o AGR aceita retomar de `resumed`**, e então o «segundo é *no-op*» do
+   §11.5 deixa de se poder decidir pelo `status` e precisa de outra marca.
+
+A primeira é a recomendada e **a decisão é de quem aprova emendas**, porque muda
+código do KAM-019. Até ela ser tomada, o critério 3 do KAM-034 está `parcial` e
+o **credor é o KAM-019**; está escrito na verificação do bloco, com as duas
+opções.
 
 (Uma lista e não uma tabela: as tabelas do §3 são lidas pelo `dict_export`, que
 exige as colunas «Conceito», «Nome canónico» e «Notas» — uma tabela auxiliar
@@ -1880,7 +1922,15 @@ número nenhum do painel.
 * **a varredura de passagens em `resumed` sem *checkpoint* retomado.** É o
   resíduo do único caso em que a compensação da retoma também falha, e limpá-la
   exige ler o estado do LangGraph, que esta varredura não faz. **Não está
-  atribuída a ticket nenhum**, e fica dito em vez de ficar por dizer.
+  atribuída a ticket nenhum**, e fica dito em vez de ficar por dizer. É também o
+  estado em que a sobreposição descrita acima deixa toda a passagem resolvida por
+  um humano, pelo que decidir a fronteira é o que torna esta varredura
+  dispensável em vez de necessária;
+* **o caminho de escrita do `resolver`, se a fronteira for decidida pela opção
+  1.** Hoje ele é escrito pelo mesmo `#fechar` cuja ordem é o defeito: pô-lo
+  depois do `onHumanEvent` fá-lo encontrar a linha já em `resumed`, que não está
+  no `ESTADOS_QUE_FECHAM`, e a coluna fica por escrever. Quem decidir a fronteira
+  decide os dois no mesmo *diff*.
 
 ---
 

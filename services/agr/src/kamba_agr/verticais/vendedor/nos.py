@@ -1494,7 +1494,7 @@ def handoff_prepare(deps: Dependencias):
         hid = _handoff_id(estado)
         motivo = str(estado.get("handoff_motivo") or MOTIVO_PEDIDO)
         if deps.hnd is None:
-            return _degradado(hid)
+            return _degradado(estado, hid)
         try:
             referencia = deps.hnd.abrir(
                 handoff_id=hid,
@@ -1507,7 +1507,7 @@ def handoff_prepare(deps: Dependencias):
         except HandoffIndisponivel:
             # O §11: `HandoffUnavailable` -> `degraded` -> aresta 37 -> `send`.
             # O §14 acrescenta a conversa em `pausada`, que e do CHR e nao daqui.
-            return _degradado(hid)
+            return _degradado(estado, hid)
         deps.saida.enfileirar(
             estado,
             com_apresentacao(deps, estado, MSG_HUMANO_A_CAMINHO),
@@ -1530,10 +1530,28 @@ def handoff_prepare(deps: Dependencias):
     return no
 
 
-def _degradado(hid: str) -> dict[str, Any]:
-    """O ramo `degraded` da linha 37, com a mensagem que o `send` leva."""
+def _degradado(estado: Mapping[str, Any], hid: str) -> dict[str, Any]:
+    """O ramo `degraded` da linha 37, com a mensagem que o `send` leva.
+
+    **O `handoff_seq` sobe tambem aqui, e a primeira versao nao o fazia** —
+    achado 9 da revisao adversarial do KAM-034. A razao e que o ramo degradado
+    **tambem** pode ter deixado uma linha no HND: o `openHandoff` do §11.4
+    escreve a passagem **antes** de falar com o provedor («a linha antes da
+    chamada ao terceiro, como o KAM-015 fez com o envio»), pelo que uma falha do
+    Chatwoot deixa a linha la com este `hid` e a excepcao sobe. Sem o `seq` a
+    subir, o *handoff* **seguinte** da mesma conversa recalculava o **mesmo**
+    identificador e batia nessa linha — e a idempotencia por `handoff_id`, que
+    existe para proteger a repeticao do mesmo *handoff*, passava a engolir um
+    *handoff* diferente.
+
+    O `hid` continua estavel **dentro** da mesma execucao repetida, que e o que
+    o criterio 1 pede: o delta de um no que levanta nao e aceite, pelo que a
+    repeticao do *job* recalcula o mesmo valor. O que muda e o *handoff*
+    seguinte, que e outro pedido de ajuda e tem de ter outra chave.
+    """
     resposta = _resposta_estatica(MSG_DEGRADADO)
     resposta["handoff"] = {"id": hid, "status": "degraded"}
+    resposta["handoff_seq"] = int(estado.get("handoff_seq") or 0) + 1
     return resposta
 
 

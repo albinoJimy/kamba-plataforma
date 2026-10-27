@@ -97,9 +97,30 @@ DIRECTORIO_DA_TLS = "tls"
 #: espaco em branco — `INSERT\s+INTO` — e o SQL desta casa esta em literais de
 #: varias linhas: um `INSERT INTO` com a tabela na linha seguinte era invisivel
 #: a uma varredura por linha. Apanhado pela revisao adversarial.
+#: **O identificador pode vir entre aspas, e a primeira versao da captura
+#: esqueceu-o.** O padrao era `platform\.` sem grupo e apanhava `UPDATE
+#: platform."orders"`; passar a `platform\.(\w+)` para saber a **tabela** fez o
+#: `\w+` nao casar a aspa, e com isso uma escrita com identificador citado
+#: deixou de morder — uma regressao num *gate* de bloqueio, e para **todas** as
+#: tabelas e nao so para a dispensada. Apanhado pela revisao adversarial do
+#: KAM-034 (achado 4).
+#:
+#: O grupo 1 e a forma sem aspas e o grupo 2 a forma com aspas; o `_tabela_de`
+#: junta-os. O verbo tambem se captura, porque a dispensa e por verbo.
 ESCRITA_NO_PLATFORM = re.compile(
-    r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+platform\.(\w+)", re.IGNORECASE
+    r"\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+platform\.(?:(\w+)|\"([^\"]+)\")",
+    re.IGNORECASE,
 )
+
+
+def _tabela_de(achado: re.Match[str]) -> str:
+    """O nome da tabela, com ou sem aspas, em minusculas."""
+    return (achado.group(2) or achado.group(3) or "").lower()
+
+
+def _verbo_de(achado: re.Match[str]) -> str:
+    """`insert`, `update` ou `delete`, normalizado."""
+    return achado.group(1).split()[0].lower()
 
 #: As escritas no `platform` que **nao** sao um agente a escrever, por
 #: `(ficheiro, tabela)`.
@@ -125,10 +146,20 @@ ESCRITA_NO_PLATFORM = re.compile(
 #:    `tenant_guard.tx` — o isolamento do ADR-015 continua a ser da base;
 #: 4. o canon **nomeia** o AGR como dono da escrita.
 #:
-#: E a chave e `(ficheiro, tabela)` e nao o ficheiro: um `consultas.py`
+#: E a chave e `(ficheiro, tabela, verbo)` e nao o ficheiro: um `consultas.py`
 #: dispensado em bloco deixava passar um `UPDATE platform.orders` na linha
-#: seguinte, que e precisamente o que esta regra existe para apanhar. Ha um
-#: canario que o mede.
+#: seguinte, que e precisamente o que esta regra existe para apanhar. Ha
+#: canarios que medem os tres eixos.
+#:
+#: **O verbo entra, e a primeira versao desta lista deixou-o de fora.** Ela
+#: dispensava `(ficheiro, tabela)` e argumentava que distinguir verbos era
+#: redundante porque «o `GRANT` por coluna da revisao `0011` da-a melhor: o
+#: `kamba_app` **nao tem** `DELETE` em `platform.handoffs`». Metade disso era
+#: falso: a `0011` concede `GRANT SELECT, INSERT ON platform.handoffs TO
+#: kamba_app`, pelo que um `INSERT` escrito aqui **passava o *lint* e corria na
+#: base** — e o canon atribui a criacao da passagem ao HND e a purga ao
+#: `kamba_batch`, nao ao AGR. Apanhado pela revisao adversarial do KAM-034
+#: (achado 5).
 ESCRITAS_DO_PLANO_DE_CONTROLO = frozenset(
     {
         # KAM-034, criterio 3: o *compare-and-set* `waiting -> resumed` de
@@ -139,7 +170,12 @@ ESCRITAS_DO_PLANO_DE_CONTROLO = frozenset(
         # com `GRANT UPDATE` por coluna na revisao `0011`, e nenhuma delas vem de
         # modelo nenhum: o `outcome` chega num corpo autenticado pelo `secret`
         # do *agent bot* e e um de tres valores de lista fechada.
-        ("services/agr/src/kamba_agr/consultas.py", "handoffs"),
+        #
+        # **So o `update`.** A criacao da passagem e do HND (`SQL_ABRIR_HANDOFF`)
+        # e a purga e do `kamba_batch` (KAM-071); um `INSERT` ou um `DELETE`
+        # escritos no AGR sao uma fronteira a mudar, e uma fronteira a mudar
+        # passa por aqui com uma entrada nova e a razao escrita.
+        ("services/agr/src/kamba_agr/consultas.py", "handoffs", "update"),
     }
 )
 
@@ -314,11 +350,12 @@ def check(root: Path) -> list[str]:
 
         if not _dentro_da_tls(caminho):
             for achado in ESCRITA_NO_PLATFORM.finditer(fonte):
-                tabela = achado.group(1).lower()
-                if (onde, tabela) in ESCRITAS_DO_PLANO_DE_CONTROLO:
+                chave = (onde, _tabela_de(achado), _verbo_de(achado))
+                if chave in ESCRITAS_DO_PLANO_DE_CONTROLO:
                     # Plano de controlo do runtime, declarado por
-                    # `(ficheiro, tabela)`. Ver `ESCRITAS_DO_PLANO_DE_CONTROLO`
-                    # para os quatro criterios e a razao de cada entrada.
+                    # `(ficheiro, tabela, verbo)`. Ver
+                    # `ESCRITAS_DO_PLANO_DE_CONTROLO` para os quatro criterios e
+                    # a razao de cada entrada.
                     continue
                 numero = fonte.count("\n", 0, achado.start()) + 1
                 achados.append(

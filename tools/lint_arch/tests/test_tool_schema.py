@@ -245,14 +245,15 @@ class TestCanarios(_ComArvore):
         self.assertEqual(len(achados), 1, achados)
         self.assertIn("unica via de escrita", achados[0])
 
-    def test_um_insert_ou_delete_na_tabela_dispensada_tambem_passa(self) -> None:
-        """A dispensa e por tabela e nao por verbo, e isso fica medido.
+    def test_um_insert_ou_delete_na_tabela_dispensada_continua_a_falhar(self) -> None:
+        """**A dispensa e por verbo, e a primeira versao deixou-o de fora.**
 
-        E uma escolha e nao um descuido: o par declarado cobre o plano de
-        controlo daquela tabela naquele ficheiro, e distinguir verbos dava a
-        ilusao de uma barreira que o `GRANT` por coluna da revisao `0011` ja da
-        melhor — o `kamba_app` **nao tem** `DELETE` em `platform.handoffs`, pelo
-        que um `DELETE` escrito aqui falhava na base e nao no *lint*.
+        Ela argumentava que distinguir verbos era redundante porque «o `GRANT`
+        por coluna da revisao `0011` da-a melhor: o `kamba_app` nao tem `DELETE`
+        em `platform.handoffs`». Metade era falso — a `0011` concede
+        `GRANT SELECT, INSERT`, pelo que um `INSERT` escrito ali **passava o
+        *lint* e corria na base**. E o canon atribui a criacao da passagem ao HND
+        e a purga ao `kamba_batch`. Achado 5 da revisao adversarial.
         """
         for instrucao in (
             "INSERT INTO platform.handoffs (handoff_id) VALUES (%s)",
@@ -264,7 +265,45 @@ class TestCanarios(_ComArvore):
                     nome="consultas.py",
                     fonte=f'SQL = "{instrucao}"\n',
                 )
-                self.assertEqual(achados, [])
+                self.assertEqual(len(achados), 1, achados)
+                self.assertIn("unica via de escrita", achados[0])
+
+    def test_um_identificador_entre_aspas_tambem_falha(self) -> None:
+        """**A regressao que a captura da tabela introduziu.**
+
+        O padrao era `platform\\.` e apanhava `UPDATE platform."orders"`; passar
+        a `platform\\.(\\w+)` para saber a tabela fez o `\\w+` nao casar a aspa,
+        e com isso uma escrita com identificador citado deixou de morder — num
+        *gate* de bloqueio, e para **todas** as tabelas. Achado 4 da revisao
+        adversarial.
+        """
+        for instrucao in (
+            'UPDATE platform."orders" SET x = %s',
+            'INSERT INTO platform."handoffs" (handoff_id) VALUES (%s)',
+            'DELETE FROM platform."conversations" WHERE id = %s',
+        ):
+            with self.subTest(instrucao=instrucao.split()[0]):
+                achados = self.arvore(
+                    dentro_da_tls=False, fonte=f"SQL = '{instrucao}'\n"
+                )
+                self.assertEqual(len(achados), 1, achados)
+                self.assertIn("unica via de escrita", achados[0])
+
+    def test_a_tabela_dispensada_entre_aspas_nao_escapa_a_regra_do_verbo(self) -> None:
+        """As aspas nao sao uma terceira via: o `update` citado passa (e a mesma
+        escrita) e o `insert` citado falha (e a mesma fronteira)."""
+        passa = self.arvore(
+            dentro_da_tls=False,
+            nome="consultas.py",
+            fonte="SQL = 'UPDATE platform.\"handoffs\" SET status = %s'\n",
+        )
+        self.assertEqual(passa, [])
+        falha = self.arvore(
+            dentro_da_tls=False,
+            nome="consultas.py",
+            fonte="SQL = 'INSERT INTO platform.\"handoffs\" (handoff_id) VALUES (%s)'\n",
+        )
+        self.assertEqual(len(falha), 1, falha)
 
 
 class TestOQueNaoEAchado(_ComArvore):

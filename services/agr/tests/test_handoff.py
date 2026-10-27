@@ -62,6 +62,11 @@ TENANT = str(uuid.UUID(int=1))
 CONTACTO = str(uuid.UUID(int=2))
 CONVERSA = str(uuid.UUID(int=3))
 THREAD = thread_id_de(TENANT, CONTACTO)
+#: Um UUID **com letras**, para os casos que medem a forma canonica. Os de
+#: `uuid.UUID(int=N)` so tem digitos e hifenes, pelo que `.upper()` neles e uma
+#: operacao vazia — e um ensaio de maiusculas sobre um deles media o caminho
+#: feliz a dizer que media o malformado.
+_COM_LETRAS = str(uuid.UUID(int=0xABCDEF0123456789ABCDEF0123456789))
 
 #: Um instante de parede plausivel (2023-11-14), e **nao** o `1000.0` por
 #: omissao do `Relogio`: menos de 24 h depois da epoca da-lo negativo, e o
@@ -412,6 +417,60 @@ class TestIdempotenciaDoPrepare(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len({c["handoff_id"] for c in provedor.chamadas}), 1)
         self.assertTrue(saida.chaves[0].endswith(":msg"))
 
+    async def test_o_handoff_seguinte_tem_outro_identificador_mesmo_depois_de_degradar(
+        self,
+    ) -> None:
+        """**O ramo degradado tambem sobe o `handoff_seq`** (achado 9).
+
+        O `openHandoff` do §11.4 escreve a linha **antes** de falar com o
+        provedor, pelo que uma falha do Chatwoot deixa a passagem la com este
+        `hid` e a excepcao sobe. Sem o `seq` a subir, o *handoff* seguinte da
+        mesma conversa recalculava o **mesmo** identificador e batia nessa
+        linha — e a idempotencia por `handoff_id`, que existe para proteger a
+        repeticao do mesmo *handoff*, passava a engolir um *handoff* diferente:
+        o cliente pedia ajuda outra vez e ninguem era chamado.
+        """
+        deps_em_baixo = nos_mod.Dependencias(
+            tools=None,
+            saida=SaidaFalsa(),
+            hnd=ServicoDeHandoff(ProvedorFalso(falha=True), metricas=MetricasDoAgr()),
+        )
+        degradado = await nos_mod.handoff_prepare(deps_em_baixo)(
+            estado_de_handoff(handoff_seq=0)
+        )
+        self.assertEqual(degradado["handoff"]["status"], "degraded")
+        self.assertEqual(degradado["handoff_seq"], 1)
+
+        # O provedor volta, e o *handoff* seguinte **nao** reusa a chave.
+        provedor = ProvedorFalso()
+        deps_de_pe = nos_mod.Dependencias(
+            tools=None,
+            saida=SaidaFalsa(),
+            hnd=ServicoDeHandoff(provedor, metricas=MetricasDoAgr()),
+        )
+        seguinte = await nos_mod.handoff_prepare(deps_de_pe)(
+            estado_de_handoff(handoff_seq=degradado["handoff_seq"])
+        )
+        self.assertNotEqual(degradado["handoff"]["id"], seguinte["handoff"]["id"])
+
+    async def test_o_hid_do_ramo_degradado_e_estavel_na_repeticao(self) -> None:
+        """O outro lado da mesma moeda: **dentro** da repeticao o `hid` nao muda.
+
+        O delta de um no que levanta nao e aceite, e o ramo degradado nao
+        levanta — devolve delta. Logo a repeticao do *job* parte do **mesmo**
+        estado de entrada e recalcula o mesmo identificador, que e o que o
+        criterio 1 pede.
+        """
+        deps = nos_mod.Dependencias(
+            tools=None,
+            saida=SaidaFalsa(),
+            hnd=ServicoDeHandoff(ProvedorFalso(falha=True), metricas=MetricasDoAgr()),
+        )
+        no = nos_mod.handoff_prepare(deps)
+        entrada = estado_de_handoff(handoff_seq=0)
+        vistos = {(await no(dict(entrada)))["handoff"]["id"] for _ in range(5)}
+        self.assertEqual(len(vistos), 1)
+
     async def test_o_handoff_seguinte_da_conversa_tem_outro_identificador(self) -> None:
         """Senao, dois *handoffs* seguidos partilhavam a chave e o segundo era
         engolido pela idempotencia do primeiro."""
@@ -635,14 +694,52 @@ class TestRetoma(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(grafo.invocacoes, [])
 
     async def test_um_thread_id_malformado_levanta_em_vez_de_recusar(self) -> None:
-        """400 e nao 404: o corpo esta mal, a passagem nao esta em causa."""
+        """400 e nao 404: o corpo esta mal, a passagem nao esta em causa.
+
+        **As duas metades tem de ter forma de UUID**, e a primeira versao so
+        exigia que existissem (achado 7): um `contact_id` que nao e UUID chegava
+        a base, o PostgreSQL respondia `22P02`, o `_executar` largava a ligacao e
+        subia 500 — e o HND **repete**, com uma tomada nova por volta. Um corpo
+        malformado passava a ser uma tempestade de repeticoes em vez de um 400
+        que o chamador descarta.
+        """
         base = BaseFalsa(*uma_passagem())
         alvo, _ = retomador(base)
-        for mau in ("", ":", "sem-dois-pontos", ":contacto", f"{TENANT}:", "a:b:c"):
+        maus = (
+            "",
+            ":",
+            "sem-dois-pontos",
+            ":contacto",
+            f"{TENANT}:",
+            "a:b:c",
+            f"{TENANT}:nao-e-um-uuid",
+            f"nao-e-um-uuid:{CONTACTO}",
+            f"{TENANT}:{CONTACTO}:a-mais",
+            # **A forma nao canonica**, que o `uuid.UUID` aceita e o
+            # `normalizar_tenant` do `kamba_core` recusa: «duas escritas do
+            # mesmo tenant sao duas chaves de cache e dois valores de log
+            # diferentes mais adiante».
+            f"{TENANT.replace('-', '')}:{CONTACTO}",
+            f"{{{TENANT}}}:{CONTACTO}",
+            f"urn:uuid:{TENANT}:{CONTACTO}",
+            # **Maiusculas, e o UUID tem de ter letras para o caso existir.** O
+            # `TENANT` desta bateria e `uuid.UUID(int=1)`, que so tem digitos e
+            # hifenes: `TENANT.upper()` e o proprio `TENANT`, e o caso media o
+            # caminho feliz a dizer que media o malformado. Apanhado a correr.
+            f"{_COM_LETRAS.upper()}:{CONTACTO}",
+        )
+        for mau in maus:
             with self.subTest(thread_id=mau):
                 with self.assertRaises(ThreadInvalidoError):
                     await alvo.retomar(mau, "h1", "resolved")
         self.assertEqual(base.instrucoes, [], "nao se toca na base")
+
+    async def test_o_thread_id_canonico_passa(self) -> None:
+        """O controlo positivo: sem ele, um `partes` que recusasse tudo passava
+        o ensaio de cima — e a rota respondia 400 a toda a retoma."""
+        base = BaseFalsa(*uma_passagem())
+        alvo, _ = retomador(base)
+        self.assertEqual(await alvo.retomar(THREAD, "h1", "resolved"), "retomado")
 
     async def test_um_desfecho_invalido_levanta_antes_de_tocar_na_base(self) -> None:
         base = BaseFalsa(*uma_passagem())
@@ -709,7 +806,7 @@ class TestRetoma(unittest.IsolatedAsyncioTestCase):
         base.executar = sabotar  # type: ignore[method-assign]
         with self.assertRaises(ReversaoFalhadaError) as capturado:
             await alvo.retomar(THREAD, "h1", "resolved")
-        self.assertIs(capturado.exception.__cause__, original)
+        self.assertIs(capturado.exception.original, original)
 
     async def test_os_tres_desfechos_da_retoma_sao_etiqueta_fechada(self) -> None:
         self.assertEqual(
@@ -778,6 +875,154 @@ class TestATomadaDaRetoma(unittest.IsolatedAsyncioTestCase):
         await alvo.fechar()  # nao levanta
 
 
+class TestATrancaExcluiDentroDoProcesso(unittest.IsolatedAsyncioTestCase):
+    """A `TrancaDeConversas` **real**, com a base a modelar o que ela faz.
+
+    **E o ensaio que faltava, e o que faltava era o duplo.** A `TrancaFalsa` da
+    bateria tem um `asyncio.Lock` por chave e afirma `sobrepostas == 0`; a
+    `TrancaDeConversas` a serio tem **uma** ligacao por processo, e os *advisory
+    locks* de sessao do PostgreSQL sao **contados** — a segunda tomada da mesma
+    chave na mesma sessao devolve `true`. Dentro de um processo, a tranca da base
+    nao excluia nada, e o `pg_advisory_unlock` devolvia `true` nas duas, pelo que
+    o `TrancaNaoLargadaError` nunca levantava.
+
+    Para o turno isso estava coberto pelo dreno do `turno.py`; a rota de retoma e
+    a varredura dos prazos **nao passam pelo dreno**, e para elas a tranca era a
+    unica barreira. Achado 2 da revisao adversarial, medido contra PostgreSQL 18.
+
+    **A ligacao falsa aqui conta como o PostgreSQL conta**, de proposito: um
+    duplo que devolvesse `false` a segunda tomada modelava a propriedade que a
+    base nao tem, e o ensaio voltava a medir o duplo.
+    """
+
+    class LigacaoQueConta:
+        """`pg_try_advisory_lock` de **sessao**: re-entrante e contado."""
+
+        autocommit = True
+
+        def __init__(self) -> None:
+            self.contagem: dict[str, int] = {}
+
+        def cursor(self):
+            return self
+
+        def execute(self, sql, parametros=()) -> None:
+            from kamba_agr.consultas import (
+                SQL_DESTRANCAR_THREAD,
+                SQL_TRANCAR_THREAD,
+            )
+
+            chave = parametros[0]
+            if sql is SQL_TRANCAR_THREAD:
+                # **Sempre `True` na mesma sessao**, que e o que a base faz.
+                self.contagem[chave] = self.contagem.get(chave, 0) + 1
+                self._linha = (True,)
+            elif sql is SQL_DESTRANCAR_THREAD:
+                self.contagem[chave] = max(0, self.contagem.get(chave, 0) - 1)
+                self._linha = (True,)
+            else:
+                raise AssertionError(f"instrucao inesperada: {sql[:40]!r}")
+
+        def fetchone(self):
+            return self._linha
+
+        def close(self) -> None:
+            pass
+
+    async def test_duas_corrotinas_nao_entram_na_mesma_conversa(self) -> None:
+        from kamba_agr.trancas import TrancaDeConversas
+
+        ligacao = self.LigacaoQueConta()
+        trancas = TrancaDeConversas(lambda: ligacao)
+        dentro = {"agora": 0, "maximo": 0}
+        ordem: list[str] = []
+
+        async def seccao(nome: str):
+            async with trancas.tomar(THREAD):
+                ordem.append(f"entra:{nome}")
+                dentro["agora"] += 1
+                dentro["maximo"] = max(dentro["maximo"], dentro["agora"])
+                await asyncio.sleep(0.01)
+                dentro["agora"] -= 1
+                ordem.append(f"sai:{nome}")
+
+        await asyncio.gather(seccao("A"), seccao("B"))
+        self.assertEqual(dentro["maximo"], 1, ordem)
+        self.assertEqual(ordem, ["entra:A", "sai:A", "entra:B", "sai:B"])
+
+    async def test_conversas_diferentes_nao_esperam_uma_pela_outra(self) -> None:
+        """O controlo positivo: sem ele, um trinco global passava o de cima.
+
+        Um trinco por processo em vez de por `thread_id` era bloqueio de cabeca
+        de fila a atravessar *tenants*, que e exactamente o que o criterio 5 do
+        KAM-025 proibe — e o que a primeira versao do `trancas.py` pagou.
+        """
+        from kamba_agr.trancas import TrancaDeConversas
+
+        trancas = TrancaDeConversas(lambda: self.LigacaoQueConta())
+        dentro = {"agora": 0, "maximo": 0}
+
+        async def seccao(chave: str):
+            async with trancas.tomar(chave):
+                dentro["agora"] += 1
+                dentro["maximo"] = max(dentro["maximo"], dentro["agora"])
+                await asyncio.sleep(0.01)
+                dentro["agora"] -= 1
+
+        await asyncio.gather(seccao("t:um"), seccao("t:dois"))
+        self.assertEqual(dentro["maximo"], 2, "duas conversas serializaram")
+
+    async def test_o_dicionario_de_trincos_nao_cresce(self) -> None:
+        """Um `dict` de trincos sem limpeza e uma fuga proporcional ao numero de
+        conversas distintas que o processo viu."""
+        from kamba_agr.trancas import TrancaDeConversas
+
+        trancas = TrancaDeConversas(lambda: self.LigacaoQueConta())
+        for i in range(20):
+            async with trancas.tomar(f"t:{i}"):
+                pass
+        self.assertEqual(trancas._por_thread, {})
+
+    async def test_uma_retoma_concorrente_com_a_varredura_nao_se_perde(self) -> None:
+        """**O caminho que o achado 2 mediu, agora com a tranca a excluir.**
+
+        Uma passagem expirada: a varredura vence o CAS e o `Command` **falha**
+        (o *checkpointer* a reiniciar), pelo que ela compensa e devolve a linha a
+        `waiting`. Cinquenta milissegundos depois chega o `resolved` do colega.
+
+        Com exclusao a serio, o *webhook* **espera**, encontra a linha outra vez
+        em `waiting`, vence o CAS e o grafo retoma. Sem ela, o `resolved` do
+        colega levava 200 `repetido`, o Chatwoot parava de reenviar, e o cliente
+        — cuja pergunta um humano ja respondeu — recebia a mensagem de
+        alternativas.
+        """
+        from kamba_agr.trancas import TrancaDeConversas
+
+        passagens, contactos = uma_passagem()
+        base = BaseFalsa(passagens, contactos)
+        trancas = TrancaDeConversas(lambda: self.LigacaoQueConta())
+
+        da_varredura, _ = retomador(
+            base, grafo=GrafoFalso(levanta=RuntimeError("checkpointer a reiniciar"))
+        )
+        do_webhook, grafo_do_webhook = retomador(base)
+
+        async def varredura():
+            async with trancas.tomar(THREAD):
+                with self.assertRaises(GrafoDaRetomaError):
+                    await da_varredura.retomar(THREAD, "h1", "timeout")
+
+        async def webhook():
+            await asyncio.sleep(0.005)
+            async with trancas.tomar(THREAD):
+                return await do_webhook.retomar(THREAD, "h1", "resolved")
+
+        _, desfecho = await asyncio.gather(varredura(), webhook())
+        self.assertEqual(desfecho, "retomado")
+        self.assertEqual(base.passagens["h1"]["status"], "resumed")
+        self.assertEqual(len(grafo_do_webhook.invocacoes), 1)
+
+
 class TestOsDoisResiduos(unittest.IsolatedAsyncioTestCase):
     """Os dois caminhos que ninguem quer e que tem de ter nome."""
 
@@ -802,8 +1047,12 @@ class TestOsDoisResiduos(unittest.IsolatedAsyncioTestCase):
         base.executar = sabotar  # type: ignore[method-assign]
         with self.assertRaises(ReversaoFalhadaError) as capturado:
             await alvo.retomar(THREAD, "h1", "resolved")
-        self.assertIs(capturado.exception.__cause__, original)
-        self.assertIs(capturado.exception.__context__, da_base)
+        # **O atributo e nao os *dunders*.** O `raise ... from` escreve o
+        # `__cause__` e o `__context__` por sua conta, e nao na mesma ordem em
+        # 3.12 e em 3.13: a primeira versao deste ensaio passava nesta maquina e
+        # **falhava no runner**. O que se quer guardar guarda-se num campo.
+        self.assertIs(capturado.exception.original, original)
+        self.assertIs(capturado.exception.__cause__, da_base)
         # E a passagem fica presa, que e o residuo que o nome declara.
         self.assertEqual(base.passagens["h1"]["status"], "resumed")
 
@@ -980,6 +1229,46 @@ class TestPrazos(unittest.IsolatedAsyncioTestCase):
 
     def test_o_prazo_e_de_24_horas(self) -> None:
         self.assertEqual(PRAZO_SEGUNDOS, 24 * 60 * 60)
+
+    def test_a_mensagem_de_alternativas_nomeia_os_tres_canais(self) -> None:
+        """**A unica substancia nova do criterio 7, e nao tinha ensaio nenhum.**
+
+        Achado 8 da revisao adversarial: uma mutacao que revertesse a
+        `MSG_ALTERNATIVAS` ao texto anterior («Pode escrever outra vez, ou tentar
+        mais tarde») sobrevivia a bateria inteira e aos dez *gates* — o ensaio
+        do `handoff_close` compara a mensagem com a **constante**, pelo que
+        mudar a constante muda os dois lados.
+
+        O que o `01` §11.4 regra 4 exige e que o cliente receba **alternativas**,
+        e o que a Messaging Policy nomeia sao tres: telefone, e-mail e loja. Esta
+        asserção e sobre o **conteudo** e nao sobre a constante, que e a unica
+        forma de nao ser circular.
+        """
+        texto = nos_mod.MSG_ALTERNATIVAS.lower()
+        for canal, palavras in (
+            ("telefone", ("ligar",)),
+            ("e-mail", ("e-mail", "email")),
+            ("loja", ("loja", "passar por la")),
+        ):
+            with self.subTest(canal=canal):
+                self.assertTrue(
+                    any(palavra in texto for palavra in palavras),
+                    f"a mensagem de alternativas nao nomeia o canal {canal}: {texto!r}",
+                )
+
+    def test_a_mensagem_de_alternativas_continua_sem_digitos(self) -> None:
+        """E o outro lado: **nomear** os canais e nao trazer os valores.
+
+        Um numero de telefone ou um e-mail com digitos nao cabe num bloco
+        `text` — o `renderizar` levanta, de proposito, porque e a regra que
+        impede prosa numerica (ADR-007). **Nao se alarga a proibicao de
+        digitos**, que e uma regra de seguranca; o que fecha a divida 124 e um
+        sexto bloco cuja cadeia venha de um *fact* com proveniencia.
+        """
+        import re
+
+        self.assertIsNone(re.search(r"\d", nos_mod.MSG_ALTERNATIVAS))
+        self.assertIsNone(nos_mod.violacao_de_saida(nos_mod.MSG_ALTERNATIVAS))
 
     def test_o_limite_e_o_agora_menos_vinte_e_quatro_horas_em_utc(self) -> None:
         """**O `86_400` e literal e nao `PRAZO_SEGUNDOS`, de proposito.**

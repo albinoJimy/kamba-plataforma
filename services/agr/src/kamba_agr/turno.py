@@ -222,10 +222,24 @@ class ExecutorDeTurnos:
     async def _drenar(self, chave: tuple[str, str]) -> None:
         """Corre lotes desta conversa ate a fila esvaziar.
 
-        Um dreno por `(thread_id, conversation_id)`, e e ele que serializa dentro
-        do processo **e** garante que um lote nunca atravessa conversas. A tranca
-        da base serializa **entre** processos e **entre as conversas do mesmo
-        contacto**; as duas sao precisas, e nenhuma substitui a outra.
+        Um dreno por `(thread_id, conversation_id)`, e e ele que coalesce, que
+        preserva a ordem de chegada de um lote, e que garante que um lote nunca
+        atravessa conversas.
+
+        **E a tranca que serializa, dentro do processo e entre processos** — e a
+        frase que aqui estava («a tranca da base serializa entre processos e
+        entre as conversas do mesmo contacto») estava **meia errada** e a
+        revisao adversarial do KAM-034 mediu-a: os *advisory locks* de sessao
+        sao contados e a `TrancaDeConversas` tem uma ligacao por processo, pelo
+        que a tranca da base **nao** excluia dentro de um. O que salvava o turno
+        era este dreno; o que nao salvava era quem nao passa por ele (a rota de
+        retoma e a varredura dos prazos, que o KAM-034 acrescentou). Hoje a
+        `TrancaDeConversas` tem um `asyncio.Lock` por `thread_id` a frente da ida
+        a base, pelo que a afirmacao passa a ser verdadeira — ver a *docstring*
+        do `trancas.py`.
+
+        As duas continuam a ser precisas e nenhuma substitui a outra: a tranca
+        exclui, o dreno coalesce e ordena.
         """
         thread_id = chave[0]
         try:

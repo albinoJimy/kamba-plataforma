@@ -44,7 +44,36 @@ cabeca de fila a atravessar *tenants*, que e o que o criterio 5 proibe.
 Hoje usa-se `pg_try_advisory_lock` num ciclo: cada tentativa toma o
 `asyncio.Lock`, faz **uma** instrucao e larga-o; entre tentativas espera-se fora
 dele. A ordem de chegada continua preservada porque dentro do processo so uma
-corrotina por `thread_id` chega aqui — quem serializa e o dreno de `turno.py`.
+corrotina por `thread_id` chega aqui — e quem o garante esta na secção seguinte.
+
+## A tranca da base **nao** exclui dentro do processo (KAM-034)
+
+E a correccao de uma afirmacao que esteve aqui desde o KAM-025 e que era falsa.
+Esta linha dizia que «dentro do processo so uma corrotina por `thread_id` chega
+aqui — quem serializa e o dreno de `turno.py`», e o `turno.py` dizia que «a
+tranca da base serializa entre processos **e entre as conversas do mesmo
+contacto**». As duas nao podiam ser verdade, e a segunda e a que importa:
+
+**os *advisory locks* de sessao do PostgreSQL sao contados.** Esta classe tem
+**uma** ligacao por processo (`self._ligacao`), pelo que a segunda tomada da
+mesma chave na mesma sessao devolve `true` — e devolve `true` tambem o
+`pg_advisory_unlock` de cada uma, pelo que o `TrancaNaoLargadaError`, que existe
+para que «a exclusao mutua que deixou de existir apareca», nunca levanta. Medido
+contra PostgreSQL 18 pela revisao adversarial do KAM-034: duas corrotinas
+**dentro** da secção critica da mesma conversa, e o controlo positivo com duas
+ligacoes a dar uma.
+
+Para o turno isso estava coberto por outra peca — o dreno de `turno.py`, que
+serializa por `(thread_id, conversation_id)` — e por isso ninguem tropecou nela.
+O KAM-034 acrescentou os dois unicos chamadores que **nao** passam pelo dreno
+(a rota `/internal/resume` e a varredura dos prazos), e para esses a tranca era a
+unica barreira.
+
+A correccao e um `asyncio.Lock` por `thread_id` **a frente** da ida a base: a
+tranca da base continua a excluir entre processos, e o trinco exclui dentro de
+um. Nao substitui o dreno, que faz outra coisa (coalescer e preservar a ordem de
+chegada de um lote); dar as duas e o que torna verdadeira a frase em que o
+KAM-034 assenta — «entre o CAS e a compensacao ninguem mais toca na linha».
 
 **O que nao e: o grafo.** Este modulo nao sabe o que corre dentro da secção
 critica. Recebe uma corrotina e corre-a com a tranca tomada.
@@ -125,6 +154,11 @@ class TrancaDeConversas:
         # uso concorrente na mesma ligacao, e duas corrotinas a mandar
         # instrucoes pela mesma tomada entrelacam as respostas.
         self._exclusiva = asyncio.Lock()
+        # **A exclusao dentro do processo, que a tranca da base nao da.** Ver a
+        # secção «A tranca da base nao exclui dentro do processo» na *docstring*
+        # do modulo. Um `asyncio.Lock` por `thread_id`, com contagem de quem
+        # espera para que o dicionario nao cresca com as conversas que passaram.
+        self._por_thread: dict[str, tuple[asyncio.Lock, list[int]]] = {}
 
     async def _executar(self, sql: str, thread_id: str) -> Any:
         async with self._exclusiva:
@@ -187,14 +221,53 @@ class TrancaDeConversas:
         **ele** falhar, a tranca fica ate a ligacao morrer, o que e o
         comportamento certo: o processo que a tomou ja nao esta em condicoes de
         a largar, e a ligacao e o unico sinal honesto que resta.
+
+        **Sao duas trancas e nao uma**, e a de dentro do processo vem primeiro:
+        ver a secção «A tranca da base nao exclui dentro do processo» na
+        *docstring* do modulo. A ordem importa — o `asyncio.Lock` antes da ida a
+        base — porque assim so **uma** corrotina por `thread_id` chega ao
+        `pg_try_advisory_lock`, que e precisamente a premissa que o
+        `_esperar_pela_tranca` assume para nao haver duas tentativas da mesma
+        chave a competir neste processo.
         """
-        await self._esperar_pela_tranca(thread_id)
-        try:
-            yield
-        finally:
-            largou = await self._executar(SQL_DESTRANCAR_THREAD, thread_id)
-            if largou is False:
-                raise TrancaNaoLargadaError("tranca_nao_largada")
+        trinco = self._trinco_do_thread(thread_id)
+        async with trinco:
+            await self._esperar_pela_tranca(thread_id)
+            try:
+                yield
+            finally:
+                try:
+                    largou = await self._executar(SQL_DESTRANCAR_THREAD, thread_id)
+                finally:
+                    self._largar_o_trinco(thread_id)
+                if largou is False:
+                    raise TrancaNaoLargadaError("tranca_nao_largada")
+
+    def _trinco_do_thread(self, thread_id: str) -> asyncio.Lock:
+        """O `asyncio.Lock` deste `thread_id`, criando-o a primeira vez.
+
+        Conta quem espera, para que o dicionario nao cresca com as conversas que
+        ja passaram: um `dict` de trincos sem limpeza e uma fuga de memoria
+        proporcional ao numero de conversas distintas que o processo viu.
+
+        Nao ha corrida na criacao: isto corre na *event loop*, sem `await` entre
+        a leitura e a escrita.
+        """
+        entrada = self._por_thread.get(thread_id)
+        if entrada is None:
+            entrada = (asyncio.Lock(), [0])
+            self._por_thread[thread_id] = entrada
+        entrada[1][0] += 1
+        return entrada[0]
+
+    def _largar_o_trinco(self, thread_id: str) -> None:
+        """Esquece o trinco quando ninguem mais o espera."""
+        entrada = self._por_thread.get(thread_id)
+        if entrada is None:
+            return
+        entrada[1][0] -= 1
+        if entrada[1][0] <= 0:
+            self._por_thread.pop(thread_id, None)
 
     async def fechar(self) -> None:
         """Fecha a ligacao dedicada, largando tudo o que ela tivesse.

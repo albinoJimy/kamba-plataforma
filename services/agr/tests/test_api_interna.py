@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import unittest
+import uuid
 
 from apoio import (
     CREDENCIAL,
@@ -16,6 +17,7 @@ from apoio import (
     invocacao_crua,
     pedir,
 )
+from apoio import thread_id_de  # noqa: E402 — o mesmo modulo, pelo nome que ele reexporta
 from kamba_agr.admissao import Admissao, Tectos
 from kamba_agr.api_interna import (
     CABECALHO,
@@ -70,6 +72,14 @@ def aplicacao(
         )
     ), admissao
 
+
+#: Um `thread_id` com a forma que o `contexto.py` constroi:
+#: `{tenant_id}:{contact_id}`, os dois UUID canonicos. **O "a:b" que estes
+#: ensaios usavam nunca foi um `thread_id` valido** — passava porque a rota do
+#: KAM-025 nao validava a forma, e o KAM-034 passou a valida-la antes de tomar a
+#: tranca e antes de ir a base (um `contact_id` que nao e UUID dava `22P02` e
+#: um 500 que o HND repetia).
+THREAD = thread_id_de(str(uuid.UUID(int=11)), str(uuid.UUID(int=22)))
 
 COM_CREDENCIAL = {CABECALHO: CREDENCIAL}
 #: As duas credenciais de `/internal/resume`: a de rede e a do *agent bot*.
@@ -342,7 +352,7 @@ class TestRetoma(unittest.IsolatedAsyncioTestCase):
                 "/internal/resume",
                 "POST",
                 como_json(
-                    {"thread_id": "a:b", "handoff_id": "h", "outcome": "resolved"}
+                    {"thread_id": THREAD, "handoff_id": "h", "outcome": "resolved"}
                 ),
                 COM_AS_DUAS,
             )
@@ -359,7 +369,7 @@ class TestRetoma(unittest.IsolatedAsyncioTestCase):
             app,
             "/internal/resume",
             "POST",
-            como_json({"thread_id": "a:b", "handoff_id": "h", "outcome": "resolved"}),
+            como_json({"thread_id": THREAD, "handoff_id": "h", "outcome": "resolved"}),
             COM_AS_DUAS,
         )
         self.assertEqual(estado, 200)
@@ -371,7 +381,7 @@ class TestRetoma(unittest.IsolatedAsyncioTestCase):
         # **tres** desfechos (`resolved`, `timeout`, `cancelled`) e e esse o
         # campo `outcome` do §11 regra 3; o `resumed` e o que o `resolved`
         # escreve na tabela.
-        self.assertEqual(chamadas, [("a:b", "h", "resolved")])
+        self.assertEqual(chamadas, [(THREAD, "h", "resolved")])
 
     async def test_a_retoma_corre_sob_a_tranca_da_conversa(self) -> None:
         """`docs/tecnica/02` §11 regra 3, por escrito: «a invocacao
@@ -397,12 +407,12 @@ class TestRetoma(unittest.IsolatedAsyncioTestCase):
             app,
             "/internal/resume",
             "POST",
-            como_json({"thread_id": "a:b", "handoff_id": "h", "outcome": "resolved"}),
+            como_json({"thread_id": THREAD, "handoff_id": "h", "outcome": "resolved"}),
             COM_AS_DUAS,
         )
         self.assertEqual(estado, 200)
-        self.assertEqual(tranca.tomadas, ["a:b"])
-        self.assertEqual(dentro, [("a:b", 1)])
+        self.assertEqual(tranca.tomadas, [THREAD])
+        self.assertEqual(dentro, [(THREAD, 1)])
         # E larga-se no fim.
         self.assertEqual(tranca.dentro, 0)
 
@@ -414,7 +424,7 @@ class TestRetoma(unittest.IsolatedAsyncioTestCase):
             app,
             "/internal/resume",
             "POST",
-            como_json({"thread_id": "a:b", "handoff_id": "h", "outcome": "resolved"}),
+            como_json({"thread_id": THREAD, "handoff_id": "h", "outcome": "resolved"}),
         )
         self.assertEqual(estado, 401)
         self.assertEqual(tranca.tomadas, [])
@@ -467,7 +477,7 @@ class TestRetoma(unittest.IsolatedAsyncioTestCase):
             app,
             "/internal/resume",
             "POST",
-            como_json({"thread_id": "a:b", "handoff_id": "h", "outcome": "resolved"}),
+            como_json({"thread_id": THREAD, "handoff_id": "h", "outcome": "resolved"}),
             COM_CREDENCIAL,
         )
         self.assertEqual(estado, 401)

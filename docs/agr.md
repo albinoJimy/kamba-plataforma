@@ -1224,10 +1224,34 @@ entrada** no AGR, e o critério 7 do KAM-019 manda que «a retoma por
 *compare-and-set* é KAM-034». Segue-se a regra (3), que é a única das três que
 diz **onde** o *endpoint* vive e sob que *lock* corre.
 
-A fronteira fica escrita, para que ninguém a redescubra: criar a passagem,
-marcá-la aberta, degradá-la e fechá-la pelo provedor é do HND (as quatro
-instruções do `hnd/consultas.ts`); sair de `waiting` por `/internal/resume` é do
-AGR, e é a **única** escrita que ele faz nesta tabela.
+A repartição pretendida era: criar a passagem, marcá-la aberta, degradá-la e
+fechá-la pelo provedor é do HND (as quatro instruções do `hnd/consultas.ts`);
+sair de `waiting` por `/internal/resume` é do AGR, e é a **única** escrita que
+ele faz nesta tabela.
+
+**E as duas NÃO são uma partição.** A primeira versão desta secção dizia que
+eram, e a revisão adversarial mediu que não (`analises/ANALISE-35`, achado 1): o
+`ESTADOS_QUE_FECHAM` do `hnd/estados.ts` é `["waiting", "degraded"]`, pelo que o
+`SQL_FECHAR` do HND **também sai de `waiting`** e escreve o mesmo
+`status = 'resumed'`. E a ordem está fixada em código — no `receber` do
+`hnd/provedor.ts` o `#fechar` corre **antes** do `onHumanEvent`, que é o único
+sítio de onde `/internal/resume` pode ser chamado.
+
+No caminho feliz, portanto: um colega responde, o HND escreve `resumed`, o pedido
+chega ao AGR, o CAS dá zero linhas, a rota responde 200 (o *no-op* do §11.5
+aplicado a um pedido legítimo) e o `Command(resume=…)` **nunca corre**. O
+`interrupt()` fica pendente, a varredura dos prazos não o encontra (filtra
+`waiting`) e a invariante da não-reentrada abre-se (o `handoff_a_espera` também
+só conta `waiting`).
+
+**Isto não está resolvido**, e o critério 3 está `parcial` por causa dele. As
+duas saídas, a recomendação e a razão de a decisão não ser deste ticket estão na
+emenda 1.41 (dicionário §3.32); o credor é o **KAM-019**. Em resumo: a correcção
+é TypeScript nos ficheiros dele, esta máquina não consegue correr aquelas
+baterias (`pnpm` vive no Docker), e a emenda 1.22 já tinha escrito que «a coluna
+`resumed_at` nasce e ninguém a escreve neste ticket [o KAM-019]» — o código do
+HND contradiz a entrada de canon do seu próprio ticket, e decidir qual dos dois
+cede é de quem aprova emendas.
 
 ### O `handoff_id` é irreversível, e isso obriga a uma verificação que nenhum documento pede
 
@@ -1266,6 +1290,22 @@ porque a varredura dos prazos só olha para `waiting`. O `SQL_REVERTER_RETOMA`
 devolve a linha a `waiting` e a excepção sobe; o HND repete, o CAS vence outra
 vez, e o `Command` tem outra oportunidade. É seguro porque tudo isto corre **sob
 a tranca da conversa**, que quem chama toma antes.
+
+**E essa frase só passou a ser verdade com o achado 2 da revisão.** Ela estava
+escrita em cinco sítios e a tranca não a sustentava: os *advisory locks* de
+sessão do PostgreSQL são **contados**, e a `TrancaDeConversas` tem **uma** ligação
+por processo, pelo que a segunda tomada da mesma chave devolvia `true`. Dentro de
+um processo a tranca da base não excluía nada — e os dois únicos chamadores para
+quem ela é a única barreira (a rota de retoma e a varredura dos prazos) são os
+dois que este ticket acrescentou; o turno estava coberto pelo dreno do
+`turno.py`. Nem o `TrancaNaoLargadaError` o denunciava, porque o
+`pg_advisory_unlock` devolve `true` nas duas tomadas.
+
+Hoje a `TrancaDeConversas` tem um `asyncio.Lock` por `thread_id` à frente da ida
+à base: a tranca da base continua a excluir entre processos e o trinco exclui
+dentro de um. As duas *docstrings* da casa que se contradiziam sobre isto — a do
+`trancas.py` e a do `turno.py` — passaram a dizer o mesmo, que é o que impede a
+próxima pessoa de voltar a assumir a barreira errada.
 
 **O resíduo tem nome e não tem ticket.** Se o `Command` **e** a compensação
 falharem no mesmo pedido, a passagem fica presa: o `ReversaoFalhadaError` levanta
@@ -1374,7 +1414,9 @@ e não as outras quatro.
 | A notificação ao dono da degradação | KAM-115 | Não entra: o `01` §11.4 regra 2 proíbe usar o número da própria loja |
 | A porta `grafos` da retoma | quem ligar o AgentRegistry | 503 com `Retry-After`, e **nada escrito**. São **duas** resoluções a ligar e não uma: a do turno recebe uma `InvocacaoDoAgente` e esta recebe um `thread_id`, porque a retoma não tem invocação |
 | O *golden* de handoff (H7, ≥ 85%) | KAM-040 | Os três nós são artefactos comportamentais; o *eval-gate* mede-se lá |
-| A limpeza de passagens em `resumed` sem *checkpoint* retomado | **ninguém** | O resíduo da compensação falhada, descrito acima |
+| A limpeza de passagens em `resumed` sem *checkpoint* retomado | **ninguém** | O resíduo da compensação falhada, descrito acima — e também o estado em que a sobreposição dos dois escritores deixa **toda** a passagem resolvida por um humano, pelo que decidir a fronteira é o que torna esta varredura dispensável em vez de necessária |
+| A fronteira do `waiting → resumed` entre os dois escritores (critério 3, `parcial`) | KAM-019, e a decisão é de quem aprova emendas | O `#fechar` do HND escreve a transição **antes** do `onHumanEvent`. Duas saídas e a recomendação na emenda 1.41 (dicionário §3.32) |
+| O caminho de escrita do `resolver`, se a fronteira for decidida pela opção 1 | KAM-019, no mesmo *diff* | Hoje ele viaja no mesmo `#fechar`: pô-lo depois do `onHumanEvent` fá-lo encontrar a linha já em `resumed`, que não está no `ESTADOS_QUE_FECHAM` |
 
 ### Uma regra de arquitectura estreitou-se, e não em silêncio
 
@@ -1438,3 +1480,4 @@ tabela do §1 atribui a outro ticket.
 | 1.7 | 2026-10-26 | KAM-032 | §7-E: o validador de citação — as duas camadas do §9, o contrato dos cinco blocos (e as três decisões que o exemplo do §9.1 não escreve: os botões ao lado do texto, o `sku` sempre no `item`, e um `text` com dígitos a levantar), os sete veredictos com o vínculo `sku`↔preço que fecha o ponto cego do ADR-007, os três modos de preço, e a unidade em **cêntimos** contra o `value_kz` que o critério escreve (dívida 106, corrigido no desenho pelo KAM-139). §1 e §6: a linha do validador e as **cinco** métricas, que são contadores porque as quatro «taxas» do §9.2 não cabem numa biblioteca sem histogramas. **Dois limites escritos em vez de contornados:** o critério 8 pede `tenant_id` em etiqueta e isso levanta pela gramática (`OBS-I`), pelo que a caixa fica vazia como na dívida 54; e três `kind` que três veredictos precisam não existem (dívida 105, credor KAM-031), o que torna *qualquer* percentagem `discount_unbacked` — *fail-closed*, mas com o lado positivo do critério 2 **inverificável**. **Três defeitos que os testes apanharam e que mudaram código:** a quantidade não estava vinculada ao `sku` (7 unidades de um produto eram aceites pelo stock de outro), os dígitos de um nome de produto recusavam toda a resposta sobre esse produto, e um padrão guloso fazia «doze mil e quinhentos Kz» **desaparecer** — um falso aceite. |
 | 1.8 | 2026-10-27 | KAM-031 | §7-F: o grafo do Vendedor — a tabela de arestas como fonte (42 arestas em 39 linhas), os quatro campos de estado da emenda 1.40 e porque nenhum era dispensavel, a assimetria de tempo de vida entre o `cart` e os `facts` que produziu o primeiro defeito, as tres respostas que os cinco blocos do §9.1 nao conseguem levar, o que e Fase 0 em cada no com o credor, e porque e que as cinco tools ficam `declaradas` com o credor a mudar para quem liga o backend. **E o que a revisao adversarial mudou**: os tres *must fix* de dinheiro (a quantidade inventada, o cancelamento escrito, a confirmacao nao exercida), o recorte da janela que matava a conversa, e as duas licoes de escrita. |
 | 1.9 | 2026-10-27 | KAM-034 | §7-G: o *handoff* idempotente e a retoma por *compare-and-set* — o par de nós que o KAM-031 deixou e a porta que faltava, a `HandoffIndisponivel` a mudar de casa (e porque a identidade da classe era a razão), os **dois** escritores da `platform.handoffs` em duas linguagens com a fronteira escrita, a ordem das duas escritas e a compensação, as duas credenciais de `/internal/resume` e o que cada uma prova, e a varredura das 24 h sem agendador. **Três coisas que saíram de escrever código contra o canon:** o `handoff_id` é irreversível, pelo que o `tenant_id` no predicado não chega — um `handoff_id` de **outro contacto do mesmo tenant** retomava o *thread* errado, e o CAS passou a levar o vínculo ao `contact_id`; o grafo resolve-se **antes** do CAS, senão uma rota sem grafo escrevia e compensava para nada; e o `resumed_at` escreve-se nos **quatro** desfechos, contra o `SQL_FECHAR` do HND, porque as quatro saídas de `waiting` por esta rota retomam o grafo. **E uma regra de arquitectura estreitou-se, com canários:** o *lint* do `tool_schema` proibia toda a escrita no `platform` fora da ToolLayer e a regra diz «dos **agentes**» — passa a haver uma lista de pares `(ficheiro, tabela)` com quatro critérios por entrada. O que fica por ligar tem credor numa tabela própria, e a limpeza de passagens em `resumed` sem *checkpoint* retomado **não tem ticket**. |
+| 1.10 | 2026-10-27 | KAM-034 | **Revisao adversarial** (`analises/ANALISE-35`): REPROVADO, 3 *must fix* e 6 *should fix*. A classe que ela nomeia e nova nesta serie — **a propriedade esta medida, e o duplo que a mede e mais forte do que a peca que ele substitui** —, e os tres *must fix* sao todos dessa forma. Duas barreiras que este ticket afirmava em cinco e em tres sitios nao existiam: **a tranca da conversa nao excluia dentro do processo** (os *advisory locks* de sessao sao contados e a `TrancaDeConversas` tem uma ligacao por processo; os dois unicos chamadores que nao passam pelo dreno do `turno.py` sao os dois que este ticket acrescentou, e nem o `TrancaNaoLargadaError` o denunciava), e **a politica AST do criterio 2 evadia-se com uma linha, por seis formas** (o efeito na posicao de argumento, um tuplo, o `contextlib.suppress`, uma compreensao, o `except*` e o `async with`). As duas estao corrigidas, com ensaio contra a peca **real** e com mutacao; as duas *docstrings* da casa que se contradiziam sobre a tranca passaram a dizer o mesmo. **O terceiro nao se corrigiu, e e por isso que o criterio 3 ficou `parcial`:** a `platform.handoffs` tem dois escritores para `waiting -> resumed` e o do HND corre **primeiro** (o `#fechar` do `receber` antes do `onHumanEvent`), pelo que no caminho feliz o CAS da zero linhas e o `Command(resume=...)` nunca corre. A correccao e TypeScript nos ficheiros do KAM-019 e a emenda 1.22 ja tinha escrito que ele nao escreve esta transicao: e uma decisao de canon, e esta devolvida com as duas saidas no §3.32. **E tentou-se um paliativo e retirou-se** — um desfecho `conflito` proprio dispara tambem no *webhook* duplicado legitimo, pelo que nao separa nada. Dos *should fix*: a captura da tabela no *lint* tinha introduzido uma **regressao** (`platform."orders"` deixou de morder, num gate de bloqueio e para todas as tabelas), a dispensa passou a ser por **verbo** (a `0011` concede `INSERT` ao `kamba_app`, pelo que o argumento escrito era metade falso), o `partes` passou a exigir a forma **canonica** de UUID (um `contact_id` invalido dava `22P02`, 500, e o HND a repetir), a `MSG_ALTERNATIVAS` ganhou ensaio de **conteudo** (o que havia comparava-a com a propria constante), e o ramo degradado passou a subir o `handoff_seq` (sem isso o *handoff* seguinte reusava o `hid` de uma passagem que o HND pode ter deixado criada). |

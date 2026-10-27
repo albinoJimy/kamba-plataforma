@@ -105,12 +105,31 @@ class ReversaoFalhadaError(RuntimeError):
     cair entre os dois. A passagem fica presa: o *webhook* repetido ve zero
     linhas e a varredura dos prazos nao a ve, porque so olha para `waiting`.
 
-    Levanta-se com a falha original encadeada (`raise ... from`), que e o que
-    poe as duas no mesmo registo. **Quem a limpa nao esta atribuido a ticket
-    nenhum**, e isso fica escrito no bloco do ticket: uma varredura de passagens
-    em `resumed` sem *checkpoint* retomado precisa de ler o estado do LangGraph,
-    que e o que esta varredura nao faz.
+    **Quem a limpa nao esta atribuido a ticket nenhum**, e isso fica escrito no
+    bloco do ticket: uma varredura de passagens em `resumed` sem *checkpoint*
+    retomado precisa de ler o estado do LangGraph, que e o que esta varredura
+    nao faz.
+
+    ## A falha original vem num atributo e nao nos *dunders*
+
+    `original` e a excepcao que fez a retoma falhar — tipicamente a do grafo —, e
+    e a unica informacao com que alguem consegue ir desencravar a passagem a
+    mao: sem ela o registo diz que a base caiu e cala **qual** retoma ficou
+    presa.
+
+    **A primeira versao punha-a em `__cause__` e `__context__` a mao, e isso era
+    fragil de uma maneira que so o CI mostrou:** o `raise ... from` escreve os
+    dois por sua conta — o `__context__` sai do `sys.exc_info()` no instante do
+    `raise` — e a ordem em que isso acontece **nao e a mesma em 3.12 e em
+    3.13**. O ensaio passava nesta maquina (3.13) e falhava no *runner* (3.12),
+    que e o modo de falha que uma afirmacao sobre *dunders* convida. Com um
+    atributo proprio, o que se quer guardar fica guardado e o encadeamento
+    normal do Python faz o que quiser com o resto.
     """
+
+    def __init__(self, mensagem: str, original: BaseException | None = None) -> None:
+        super().__init__(mensagem)
+        self.original = original
 
 
 class Retomador:
@@ -234,16 +253,18 @@ class Retomador:
                 SQL_REVERTER_RETOMA, (tenant_id, handoff_id, estado_novo), tenant_id
             )
         except BaseException as erro:
-            # **A falha original encadeia-se e a da reversao vai no contexto.**
-            # Um `raise ... from erro` deixava o registo a dizer que a base caiu
-            # e calava **qual** retoma ficou presa, que e a unica informacao com
-            # que alguem consegue ir desencravar a passagem a mao.
-            falha = ReversaoFalhadaError("reversao_da_retoma_falhou")
-            falha.__cause__ = original
-            falha.__context__ = erro
-            raise falha from original
+            # **A falha original vai num atributo e a da base no encadeamento.**
+            # Um `raise ... from erro` sozinho deixava o registo a dizer que a
+            # base caiu e calava **qual** retoma ficou presa, que e a unica
+            # informacao com que alguem consegue ir desencravar a passagem a
+            # mao. Escrever os dois *dunders* a mao era pior: o `raise`
+            # sobrepoe-se-lhes, e nao da mesma maneira em 3.12 e em 3.13 — ver a
+            # nota da classe.
+            raise ReversaoFalhadaError("reversao_da_retoma_falhou", original) from erro
         if not revertida:
-            raise ReversaoFalhadaError("reversao_da_retoma_sem_linha") from original
+            raise ReversaoFalhadaError(
+                "reversao_da_retoma_sem_linha", original
+            ) from original
 
     async def _executar(self, sql: str, parametros: tuple, tenant_id: str) -> Any:
         """Uma instrucao com contexto de *tenant*, num *executor*.
@@ -299,15 +320,57 @@ class Retomador:
 def partes(thread_id: str) -> tuple[str, str]:
     """`(tenant_id, contact_id)` de um `thread_id`, ou levanta.
 
-    **Exige exactamente um `:`**, e nao e rigor decorativo: o
-    `autenticacao.tenant_do_thread` le o prefixo e deixa passar o resto, porque
-    o que ele precisa e de saber de quem e o segredo. Aqui as duas metades vao
-    para o predicado do CAS, e um `contact_id` com um `:` dentro e um
-    `contact_id` que nao e um UUID — o que significa que o `thread_id` nao e o
-    que o `contexto.py` constroi. Recusa-se com 400 em vez de ir a base
-    perguntar por uma conversa que nao pode existir.
+    **Exige exactamente um `:` e duas metades com forma de UUID**, e nao e rigor
+    decorativo. O `autenticacao.tenant_do_thread` le o prefixo e deixa passar o
+    resto, porque o que ele precisa e de saber de quem e o segredo; aqui as duas
+    metades vao para o predicado do CAS, onde o `tenant_id` e o `contact_id` sao
+    comparados com colunas `uuid`.
+
+    **A primeira versao nao validava a forma, e o que isso custava foi medido**
+    (achado 7 da revisao adversarial): um `contact_id` que nao e um UUID chega a
+    base, o PostgreSQL responde `22P02 invalid input syntax for type uuid`, o
+    `_executar` larga a ligacao e a excepcao sobe como 500 — e o HND **repete**,
+    e cada repeticao larga outra vez a tomada. Um corpo malformado passava a ser
+    uma tempestade de repeticoes com uma ligacao nova por volta, em vez de um
+    400 que o chamador descarta.
+
+    O `tenant_id` tambem se valida, e ha uma segunda razao: o `tenant_guard.tx`
+    levanta `TenantInvalido` sobre um `tenant` que nao seja UUID canonico, pelo
+    que sem isto a recusa chegava como 500 em vez de 400 — e a mensagem dele
+    conta o **comprimento** do valor recebido, que e informacao que nao precisa
+    de sair num registo.
     """
     tenant_id, separador, contact_id = thread_id.partition(":")
-    if not separador or not tenant_id or not contact_id or ":" in contact_id:
+    if not separador or not _e_uuid(tenant_id) or not _e_uuid(contact_id):
         raise ThreadInvalidoError("thread_id_invalido")
     return tenant_id, contact_id
+
+
+def _e_uuid(valor: str) -> bool:
+    """A forma **canonica** de um UUID, e nao o que o `uuid.UUID` aceita.
+
+    O construtor do `uuid` aceita a forma sem hifenes, com chaves e com o
+    prefixo `urn:uuid:`, e as tres davam `thread_id` diferentes para o mesmo
+    par — «duas escritas do mesmo tenant sao duas chaves de *cache* e dois
+    valores de *log* diferentes mais adiante», que e a regra que o
+    `normalizar_tenant` do `kamba_core` ja escreveu.
+
+    **E e mais estrito do que ele num ponto: recusa maiusculas.** O
+    `normalizar_tenant` compara com `tenant.lower()` porque **normaliza** — o
+    que sai dele e a forma canonica, venha como vier. Aqui nao se normaliza: o
+    `thread_id` segue inteiro para o `hashtextextended` da tranca
+    (`SQL_TRANCAR_THREAD`), e `hashtextextended('ABC…')` nao e
+    `hashtextextended('abc…')`. Um `thread_id` em maiusculas tomava **outra**
+    chave de tranca para a mesma conversa, e a exclusao que o KAM-034 precisa
+    deixava de existir — sem erro nenhum pelo caminho, porque a base
+    normalizaria os `uuid` do predicado e a consulta devolveria as linhas certas.
+
+    E o que o `contexto.py` constroi e exactamente a forma canonica, pelo que
+    recusar o resto nao fecha nenhum caminho legitimo.
+    """
+    import uuid as _uuid
+
+    try:
+        return str(_uuid.UUID(valor)) == valor
+    except (ValueError, AttributeError, TypeError):
+        return False

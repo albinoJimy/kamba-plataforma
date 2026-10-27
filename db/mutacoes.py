@@ -439,6 +439,13 @@ AG_HND_SERVICO = "services/agr/src/kamba_agr/handoff/servico.py"
 AG_HND_RETOMA = "services/agr/src/kamba_agr/handoff/retoma.py"
 AG_HND_PRAZOS = "services/agr/src/kamba_agr/handoff/prazos.py"
 AG_HND_AUTH = "services/agr/src/kamba_agr/handoff/autenticacao.py"
+#: A politica AST do criterio 2 (KAM-034). **Vive na pasta dos testes e e
+#: mutada de qualquer maneira**, e isso e deliberado: aqui o artefacto **sob**
+#: prova e a politica, e quem a prova sao os canarios do `test_handoff_ast.py`.
+#: Mutar a politica e a unica forma de medir que os canarios mordem; mutar o
+#: `nos.py` mede o contrario (que a politica ve o codigo real), e as duas sao
+#: precisas — ha mutacoes das duas formas.
+AG_POLITICA = "services/agr/tests/politica_ast.py"
 #: A API interna (KAM-025), que o KAM-034 estendeu com a segunda credencial e a
 #: ordem das verificacoes da rota de retoma.
 AG_API = "services/agr/src/kamba_agr/api_interna.py"
@@ -4677,13 +4684,15 @@ MUTACOES = [
     # Uma passagem de outro *tenant* ou de outro contacto passa a responder 200
     # «tratado» sobre um pedido que nao tratamos: o furo de isolamento deixa de
     # dar alerta e passa a dar silencio.
-    ('handoff: o thread_id deixa de exigir exactamente um separador', AG_HND_RETOMA,
-     '    if not separador or not tenant_id or not contact_id or ":" in contact_id:',
-     '    if not separador:',
+    ('handoff: o thread_id deixa de validar a segunda metade', AG_HND_RETOMA,
+     '    if not separador or not _e_uuid(tenant_id) or not _e_uuid(contact_id):',
+     '    if not separador or not _e_uuid(tenant_id):',
      AGR_UNIT),
-    # `":contacto"` e `"<tenant>:"` passam a ir a base com metade vazia, e
-    # `"a:b:c"` com um `contact_id` que nao e UUID — tres 404 onde devia estar
-    # um 400, e tres consultas por uma conversa que nao pode existir.
+    # `"<tenant>:"` e `"<tenant>:nao-e-uuid"` passam a ir a base com um
+    # `contact_id` que o `uuid` nao aceita — `22P02`, 500, e o HND a repetir.
+    # (O texto desta mutacao mudou com o achado 7 da revisao adversarial: a
+    # condicao que ela alterava deixou de existir quando o `partes` passou a
+    # exigir a **forma** de UUID e nao so a presenca das duas metades.)
     ('handoff: uma falha do cofre passa a levantar em vez de recusar', AG_HND_AUTH,
      '''        except Exception:  # noqa: BLE001 — ver docstring: recusa, nao 500
             return "secret_errado"''',
@@ -4865,6 +4874,98 @@ MUTACOES = [
     # denominador de um SLA de atendimento conta uma falha como amostra: o
     # painel passa a mostrar o SLA melhor do que ele e, porque uma expiracao de
     # 24 h e lenta mas entra na conta.
+    # As sete que a revisao adversarial obrigou (`ANALISE-35`). **Cinco delas
+    # quebram propriedades que a bateria afirmava e nao media** — o duplo era
+    # mais forte do que a peca que ele substitui —, e e essa a classe de defeito
+    # que aquela revisao nomeia.
+    ('handoff: a tranca deixa de excluir dentro do processo', AG_TRANCAS,
+     '''        trinco = self._trinco_do_thread(thread_id)
+        async with trinco:
+            await self._esperar_pela_tranca(thread_id)''',
+     '''        self._trinco_do_thread(thread_id)
+        if True:
+            await self._esperar_pela_tranca(thread_id)''',
+     AGR_UNIT),
+    # **O estado anterior ao achado 2**: os *advisory locks* de sessao sao
+    # contados e esta classe tem uma ligacao por processo, pelo que a tranca da
+    # base nao excluia nada dentro de um. A rota de retoma e a varredura dos
+    # prazos sao os dois unicos chamadores que nao passam pelo dreno, e para
+    # elas a tranca era a unica barreira: uma retoma legitima perdia-se.
+    ('handoff: a politica AST volta a aceitar um efeito no argumento', AG_POLITICA,
+     '''        if any(_toca_a_porta(argumento) for argumento in primeira.args) or any(
+            _toca_a_porta(palavra.value) for palavra in primeira.keywords
+        ):
+            apontar(EFEITO_NO_ARGUMENTO)''',
+     '''        if False:
+            apontar(EFEITO_NO_ARGUMENTO)''',
+     AGR_UNIT),
+    # `desfecho = interrupt(deps.saida.enfileirar(...))` volta a passar: o
+    # argumento avalia-se **antes** da chamada, pelo que o efeito corre duas
+    # vezes na retoma. E o defeito 6 do §7.1 inteiro, numa linha, e e a forma
+    # mais natural de o escrever por acidente.
+    ('handoff: a politica AST volta a aceitar o interrupt dentro de with', AG_POLITICA,
+     '_ENGOLEM: Final = (ast.Try, ast.TryStar, ast.With, ast.AsyncWith)',
+     '_ENGOLEM: Final = (ast.Try,)',
+     AGR_UNIT),
+    # Um `with contextlib.suppress(BaseException)` engole a interrupcao
+    # exactamente como o `except` que a regra existe para apanhar — e o
+    # `except*` deixa de morder, porque `ast.TryStar` nao e `ast.Try`.
+    ('handoff: a politica AST deixa de ver o ciclo escrito como compreensao', AG_POLITICA,
+     '''_REPETEM: Final = (
+    ast.While,
+    ast.For,
+    ast.AsyncFor,
+    ast.ListComp,
+    ast.SetComp,
+    ast.DictComp,
+    ast.GeneratorExp,
+)''',
+     '_REPETEM: Final = (ast.While, ast.For, ast.AsyncFor)',
+     AGR_UNIT),
+    # `[interrupt({"i": i}) for i in range(3)][-1]` volta a passar: tres
+    # `interrupt()` num ciclo, que e o problema de indice que a regra nomeia.
+    ('handoff: o ramo degradado deixa de subir o handoff_seq', AG_VEN_NOS,
+     '    resposta["handoff_seq"] = int(estado.get("handoff_seq") or 0) + 1\n',
+     '',
+     AGR_UNIT),
+    # O `openHandoff` escreve a linha **antes** de falar com o provedor, pelo que
+    # um Chatwoot em baixo deixa a passagem la com este `hid`. Sem o `seq` a
+    # subir, o *handoff* seguinte da mesma conversa recalcula o mesmo
+    # identificador e e engolido pela idempotencia do primeiro: o cliente pede
+    # ajuda outra vez e ninguem e chamado.
+    ('handoff: a mensagem de alternativas deixa de nomear os canais', AG_VEN_NOS,
+     '''    "Ainda nao houve resposta de um colega. Pode ligar para a loja, escrever "
+    "um e-mail, ou passar por la; ou escrever-me outra vez por aqui."''',
+     '''    "Ainda nao houve resposta de um colega. Pode escrever outra vez, ou tentar "
+    "mais tarde."''',
+     AGR_UNIT),
+    # O texto anterior ao ticket. E a **unica substancia nova do criterio 7**, e
+    # nao tinha ensaio nenhum: o do `handoff_close` compara a mensagem com a
+    # constante, pelo que mudar a constante muda os dois lados. O `01` §11.4
+    # regra 4 exige que o cliente receba alternativas, e nomeia tres.
+    ('handoff: o thread_id deixa de exigir a forma de UUID', AG_HND_RETOMA,
+     '    if not separador or not _e_uuid(tenant_id) or not _e_uuid(contact_id):',
+     '    if not separador or not tenant_id or not contact_id:',
+     AGR_UNIT),
+    # Um `contact_id` que nao e UUID chega a base, o PostgreSQL responde `22P02`,
+    # o `_executar` larga a ligacao e sobe 500 — e o HND **repete**, com uma
+    # tomada nova por volta. Um corpo malformado passa a ser uma tempestade de
+    # repeticoes em vez de um 400 que o chamador descarta.
+    ('handoff: a dispensa do lint volta a ser por tabela e nao por verbo',
+     LA_TOOL_SCHEMA,
+     '''                chave = (onde, _tabela_de(achado), _verbo_de(achado))''',
+     '''                chave = (onde, _tabela_de(achado), "update")''',
+     TOOL_SCHEMA),
+    # Um `INSERT platform.handoffs` no `consultas.py` volta a passar o *lint* — e
+    # a `0011` concede `GRANT SELECT, INSERT` ao `kamba_app`, pelo que corria na
+    # base. O canon atribui a criacao da passagem ao HND e a purga ao
+    # `kamba_batch`.
+    ('handoff: o lint volta a nao ver o identificador entre aspas', LA_TOOL_SCHEMA,
+     '''    r"\\b(INSERT\\s+INTO|UPDATE|DELETE\\s+FROM)\\s+platform\\.(?:(\\w+)|\\"([^\\"]+)\\")",''',
+     '''    r"\\b(INSERT\\s+INTO|UPDATE|DELETE\\s+FROM)\\s+platform\\.(\\w+)",''',
+     TOOL_SCHEMA),
+    # `UPDATE platform."orders"` deixa de morder, num *gate* de bloqueio e para
+    # **todas** as tabelas. Foi a regressao que a captura da tabela introduziu.
     ('handoff: o drain passa a contar as passagens acabadas', AG_SQL,
      '''  SELECT count(*) AS a_espera
     FROM platform.handoffs

@@ -2115,7 +2115,7 @@ Implementar a porta `HandoffService` usada pelos nós de handoff de ambas as ver
 
 - [x] `handoff_id = sha256(thread_id:handoff_seq)`; re-executar `handoff_prepare` 5 vezes (incluindo falha injectada entre `openHandoff` e o enfileiramento da mensagem) produz **1** conversa no HND (*fake* a contar) e **1** mensagem ao cliente (`key = {hid}:msg`).
 - [x] `handoff_wait` tem o `interrupt()` como 1.ª instrução; teste AST falha se existir efeito antes dele, `interrupt()` dentro de `try/except` ou dentro de ciclo `while`.
-- [x] `POST /internal/resume {thread_id, handoff_id, outcome}` faz CAS `waiting → resumed`; dois pedidos concorrentes com o mesmo `handoff_id` produzem 1 retoma e o 2.º devolve *no-op* (200).
+- [ ] `POST /internal/resume {thread_id, handoff_id, outcome}` faz CAS `waiting → resumed`; dois pedidos concorrentes com o mesmo `handoff_id` produzem 1 retoma e o 2.º devolve *no-op* (200).
 - [x] Origem autenticada pelo `secret` do *agent bot* do HND; `secret` inválido devolve 401 e incrementa métrica; `Command(resume=…)` corre sob o lock da conversa.
 - [x] Mensagem de cliente num thread com `handoffs.status = 'waiting'` **não** invoca o grafo; vai ao HND (invariante), 0 invocações de grafo com *input* novo.
 - [ ] `HandoffUnavailable` → estado `degraded`, mensagem de degradação ao cliente e `conversation.mode = pausada`; sem excepção não tratada.
@@ -2169,12 +2169,12 @@ Commits: feat(KAM-034): …
 |---|---|---|---|
 | 1 | `handoff_id = sha256(thread_id:handoff_seq)`; re-executar `handoff_prepare` 5 vezes (incluindo falha injectada entre `openHandoff` e o enfileiramento da mensagem) produz **1** conversa no HND (*fake* a contar) e **1** mensagem ao cliente (`key = {hid}:msg`) | **satisfeito** | `TestIdempotenciaDoPrepare::test_cinco_execucoes_com_falha_injectada_dao_uma_de_cada` corre o nó **real** do KAM-031 cinco vezes com o **mesmo estado de entrada** — que é o que um *worker* que cai e repete o *job* vê — e a `SaidaFalsa` levanta na segunda, **depois** de o provedor ter sido chamado e **antes** de a chave ser guardada: 5 chamadas ao provedor, **1** conversa, **1** mensagem. **E há uma asserção que não depende do duplo:** `test_as_cinco_execucoes_pedem_sempre_a_mesma_chave` mede `len(set(saida.chaves)) == 1` e que todos os `handoff_id` pedidos são o mesmo. A `SaidaFalsa` de-duplica **por chave** de propósito — modela a `UNIQUE (tenant_id, idempotency_key)` de `outbound_messages` (revisão `0010`) —, porque um duplo que não modela o que substitui faz a propriedade depender de o nó ser chamado uma vez. **A idempotência não está neste serviço, e isso é desenho:** são três peças e nenhuma é um contador em memória — o `handoff_id` estável é do nó, a conversa única é o `ON CONFLICT (handoff_id) DO NOTHING` do `SQL_ABRIR_HANDOFF` do HND, e a mensagem única é a chave do Outbound. Um `dict` de identificadores já vistos tornava a propriedade **deste processo**, perdida no reinício e invisível à segunda réplica. `test_o_handoff_seguinte_da_conversa_tem_outro_identificador` fecha o outro lado: sem o `handoff_seq` a subir, dois *handoffs* seguidos partilhavam a chave e o segundo era engolido pela idempotência do primeiro |
 | 2 | `handoff_wait` tem o `interrupt()` como 1.ª instrução; teste AST falha se existir efeito antes dele, `interrupt()` dentro de `try/except` ou dentro de ciclo `while` | **satisfeito** | `services/agr/tests/politica_ast.py` segue a forma do `tools/log_policy/lint.py`, que é a política AST que o *gate* 2 já corre: regras com nome, mensagem por regra com o **porquê**, e um manifesto `REGRAS_OBRIGATORIAS` fixo no código — «um manifesto que se esvazia dava *0 negativas, tudo verde*». `test_handoff_ast.py` tem **um canário por regra** mais quatro controlos positivos (o conforme, a *docstring*, o `types.interrupt(...)` por atributo, e o nó interno resolvido pelo `return` e não pelo nome). **Não é um *gate* novo**, e isso é decisão: o bloco pede «Contrato/CI: teste AST», esta bateria corre no `make test-py`, e um *gate* novo é uma regra de bloqueio nova — a mesma escolha que o `tool_schema.py` fez ao entrar no `lint_arch`. **Uma quarta regra que o critério não pede, e sem a qual as três passam vazias:** `sem_interrupt`. Um `handoff_wait` que não interrompesse nada satisfazia as três (não há efeito antes de nada, não há `try`, não há ciclo) e mandava a conversa para o `handoff_close` sem ninguém ter sido chamado. **E o `import` subiu para o topo do `nos.py`:** o `from langgraph.types import interrupt` estava dentro da função — não é um efeito, mas era uma instrução antes do `interrupt`, e deixá-lo lá obrigava a política a nascer com uma excepção. O `nos.py` já importa o LangGraph de qualquer maneira, pelo `estado.py`. **A prova de que o teste morde contra código real são duas mutações** (`o handoff_wait ganha um efeito antes do interrupt`, `o interrupt do handoff_wait passa a correr dentro de try`), as duas apanhadas |
-| 3 | `POST /internal/resume {thread_id, handoff_id, outcome}` faz CAS `waiting → resumed`; dois pedidos concorrentes com o mesmo `handoff_id` produzem 1 retoma e o 2.º devolve *no-op* (200) | **satisfeito** | O CAS é o `SQL_RETOMAR_HANDOFF`, **uma** instrução: ler o estado e escrever depois perdia a corrida entre dois *webhooks* duplicados do Chatwoot. Contra a base: `db/tests_agr/test_handoff_retoma.py::TestOCompareAndSet` — `test_duas_sessoes_concorrentes_dao_uma_retoma` (duas ligações, o mesmo `handoff_id`, exactamente uma vence), `test_o_segundo_pedido_nao_casa_linha_nenhuma` (e **não** reescreve o `resumed_at`), e `test_nao_se_retoma_de_um_estado_que_nao_e_waiting` sobre os quatro estados terminais, com o controlo positivo dos três estados novos ao lado. Na orquestração: `TestRetoma::test_dois_pedidos_concorrentes_dao_uma_retoma` corre os dois **sob a tranca**, como em produção, e afirma `sobrepostas == 0`. **Zero linhas são duas respostas diferentes**, e é isso que a classificação separa: a passagem que já saiu de `waiting` é o duplicado (200 `repetido`) e a que não é deste *thread* é uma recusa (404 `recusado`) — um 200 ali dizia ao HND «tratado» sobre um pedido que não tratámos. **E o `outcome` atravessa o `interrupt()` sem tradução**, porque o `handoff_close` do KAM-031 compara `outcome == "timeout"`: a mutação que o traduz antes de entrar é apanhada |
-| 4 | Origem autenticada pelo `secret` do *agent bot* do HND; `secret` inválido devolve 401 e incrementa métrica; `Command(resume=…)` corre sob o lock da conversa | **satisfeito** | **Duas credenciais na mesma rota, e provam coisas diferentes:** o `x-kamba-interno` do KAM-025 prova «vem de dentro da rede» e o `x-kamba-hnd-bot` prova «vem do *agent bot* **deste tenant**». Com só a primeira, qualquer componente interno retomava a passagem de qualquer *tenant*; com só a segunda, o segredo de um bot valia de fora da rede. `TestAutenticacaoDoBot` mede o segredo certo, o ausente (`sem_secret`), os errados (`secret_errado`), o esperado **vazio** a recusar sempre («uma configuração sem segredo não pode tornar-se uma porta aberta», a regra do `segredoConfere` do HND), e um cofre que levanta a **recusar** em vez de dar 500 — um 500 punha o *webhook* a repetir contra um *tenant* que nunca vai ter segredo. `test_a_retoma_nao_toma_a_tranca_sem_o_segredo_do_bot` fecha a rota, e a métrica é o `agr_resume_nao_autorizado_total{motivo}`. **E `verificar_bot` não tem omissão segura:** sem verificador, **toda** a retoma leva 401 — um argumento por omissão a desligar um controlo de segurança era o defeito. O *lock*: `test_a_retoma_corre_sob_a_tranca_da_conversa` (KAM-025) continua a medi-lo, e a tranca cobre o CAS, o `Command` **e** a compensação, que é o que a torna segura. **A propriedade de tempo constante não tem ensaio, e diz-se:** com dois valores do mesmo comprimento, `compare_digest(a, b)` e `a == b` dão o mesmo resultado para toda a entrada — a diferença é o tempo, que não é observável num teste de unidade. É a mesma nota que o `hnd/assinatura.ts` escreveu, e por isso não se escreveu uma mutação a fingir que o prova |
+| 3 | `POST /internal/resume {thread_id, handoff_id, outcome}` faz CAS `waiting → resumed`; dois pedidos concorrentes com o mesmo `handoff_id` produzem 1 retoma e o 2.º devolve *no-op* (200) | **parcial — caixa vazia** | **O CAS e o *no-op* estão medidos, e a sobreposição com o HND não está resolvida.** O que está provado: O CAS é o `SQL_RETOMAR_HANDOFF`, **uma** instrução: ler o estado e escrever depois perdia a corrida entre dois *webhooks* duplicados do Chatwoot. Contra a base: `db/tests_agr/test_handoff_retoma.py::TestOCompareAndSet` — `test_duas_sessoes_concorrentes_dao_uma_retoma` (duas ligações, o mesmo `handoff_id`, exactamente uma vence), `test_o_segundo_pedido_nao_casa_linha_nenhuma` (e **não** reescreve o `resumed_at`), e `test_nao_se_retoma_de_um_estado_que_nao_e_waiting` sobre os quatro estados terminais, com o controlo positivo dos três estados novos ao lado. Na orquestração: `TestRetoma::test_dois_pedidos_concorrentes_dao_uma_retoma` corre os dois **sob a tranca**, como em produção, e afirma `sobrepostas == 0`. **Zero linhas são duas respostas diferentes**, e é isso que a classificação separa: a passagem que já saiu de `waiting` é o duplicado (200 `repetido`) e a que não é deste *thread* é uma recusa (404 `recusado`) — um 200 ali dizia ao HND «tratado» sobre um pedido que não tratámos. **E o `outcome` atravessa o `interrupt()` sem tradução**, porque o `handoff_close` do KAM-031 compara `outcome == "timeout"`: a mutação que o traduz antes de entrar é apanhada. **O que falta, e é porque a caixa fica vazia:** a `platform.handoffs` tem **dois** escritores para `waiting → resumed` e o do HND corre **primeiro** — o `ESTADOS_QUE_FECHAM` do `hnd/estados.ts` é `["waiting", "degraded"]` e o `#fechar` do `receber` corre antes do `onHumanEvent`, que é o único sítio de onde esta rota pode ser chamada. No caminho feliz a linha já está em `resumed` quando o pedido chega, o CAS dá zero linhas e o `Command(resume=…)` **nunca corre**. A descrição completa, com as duas saídas e a recomendação, está na emenda **1.41** (dicionário §3.32); o credor é o **KAM-019** e a decisão é de quem aprova emendas, porque muda código dele. **Não se inventou paliativo:** tentou-se um desfecho `conflito` próprio e retirou-se, porque ele dispara também no *webhook* duplicado legítimo — um contador que não separa os dois casos é o que já havia com outro nome |
+| 4 | Origem autenticada pelo `secret` do *agent bot* do HND; `secret` inválido devolve 401 e incrementa métrica; `Command(resume=…)` corre sob o lock da conversa | **satisfeito** | **Duas credenciais na mesma rota, e provam coisas diferentes:** o `x-kamba-interno` do KAM-025 prova «vem de dentro da rede» e o `x-kamba-hnd-bot` prova «vem do *agent bot* **deste tenant**». Com só a primeira, qualquer componente interno retomava a passagem de qualquer *tenant*; com só a segunda, o segredo de um bot valia de fora da rede. `TestAutenticacaoDoBot` mede o segredo certo, o ausente (`sem_secret`), os errados (`secret_errado`), o esperado **vazio** a recusar sempre («uma configuração sem segredo não pode tornar-se uma porta aberta», a regra do `segredoConfere` do HND), e um cofre que levanta a **recusar** em vez de dar 500 — um 500 punha o *webhook* a repetir contra um *tenant* que nunca vai ter segredo. `test_a_retoma_nao_toma_a_tranca_sem_o_segredo_do_bot` fecha a rota, e a métrica é o `agr_resume_nao_autorizado_total{motivo}`. **E `verificar_bot` não tem omissão segura:** sem verificador, **toda** a retoma leva 401 — um argumento por omissão a desligar um controlo de segurança era o defeito. O *lock*: `test_a_retoma_corre_sob_a_tranca_da_conversa` (KAM-025) continua a medi-lo, e a tranca cobre o CAS, o `Command` **e** a compensação. **E a tranca passou a excluir de verdade**, que é o achado 2 da revisão: os *advisory locks* de sessão são **contados** e a `TrancaDeConversas` tem uma ligação por processo, pelo que ela não excluia **nada** dentro de um — e os dois únicos chamadores que não passam pelo dreno do `turno.py` são os dois que este ticket acrescentou. Hoje há um `asyncio.Lock` por `thread_id` à frente da ida à base, com ensaio contra a classe **real** e mutação a prendê-lo. **A propriedade de tempo constante não tem ensaio, e diz-se:** com dois valores do mesmo comprimento, `compare_digest(a, b)` e `a == b` dão o mesmo resultado para toda a entrada — a diferença é o tempo, que não é observável num teste de unidade. É a mesma nota que o `hnd/assinatura.ts` escreveu, e por isso não se escreveu uma mutação a fingir que o prova |
 | 5 | Mensagem de cliente num thread com `handoffs.status = 'waiting'` **não** invoca o grafo; vai ao HND (invariante), 0 invocações de grafo com *input* novo | **satisfeito, e já estava** | A invariante é do KAM-025 e vive em dois sítios: o `SQL_PALAVRA_DA_CONVERSA` lê o `conversations.mode` e a existência de um `handoffs` em `waiting` **na mesma leitura** (em duas havia uma janela em que o modo dizia `bot` e o *handoff* abria), e o `Palavra.do_humano` do `turno.py` fecha a porta. O que este ticket acrescenta é a medição pelo ângulo do critério: `TestNaoReentrada::test_uma_mensagem_num_thread_em_waiting_nao_invoca_o_grafo` corre o `ExecutorDeTurnos` **real** com um grafo espião e afirma `invocacoes == []` e `desfecho == "entregue_ao_hnd"`, mais o **controlo positivo** (`modo=bot` e sem *handoff* → o grafo corre uma vez) — sem ele, um `do_humano` sempre `True` passava o primeiro ensaio. Contra a base, é o `db/tests_agr/test_palavra.py` do KAM-025 |
 | 6 | `HandoffUnavailable` → estado `degraded`, mensagem de degradação ao cliente e `conversation.mode = pausada`; sem excepção não tratada | **parcial — caixa vazia** | **Duas das três metades estão medidas, fim a fim pelo nó real:** `TestOServicoSatisfazOGrafo::test_o_provedor_em_baixo_acaba_em_degraded_sem_excepcao` corre o `handoff_prepare` com o provedor a levantar e afirma `handoff.status == "degraded"`, o `draft.texto == MSG_DEGRADADO` e **nenhuma** excepção a sair. (E mede-se pelo nó real porque é ele que apanha a excepção, o que só funciona se a classe for a **mesma** — `test_a_classe_apanhada_pelo_no_e_a_do_pacote_handoff` afirma a identidade depois da mudança de casa da `HandoffIndisponivel` para o `handoff/portas.py`.) **A terceira é uma porta, e o credor é o KAM-018:** a transição `→ pausada` corre pelo `SQL_MUDAR_MODO` e emite `conversation.mode_changed` **na mesma transacção** — «o evento e a mudança de modo confirmam juntos ou não confirmam nenhum» —, e reescrever esse par em Python dava um segundo dono para uma transição e a possibilidade de um modo mudar **sem evento**, que nenhum consumidor a jusante (o painel, KAM-091) saberia ler. O privilégio existe (a `0016` deu `UPDATE (mode)` a `kamba_app`), pelo que isto não é limitação da base: é escolha de quem é o dono. O serviço chama a porta e o ensaio mede que ela é chamada com a conversa e o motivo certos; com a porta por ligar, a degradação **conta** de qualquer maneira (`agr_handoff_degradado_total`), porque um `None` silencioso era pior do que a porta não existir. **E uma falha da pausa substitui a excepção original em vez de ser engolida:** se fosse engolida, o nó via `HandoffIndisponivel` e a conversa ficava em `bot` com uma passagem degradada — o bot a responder a quem pediu um humano |
 | 7 | Sem resposta humana em 24 h o scheduler retoma com `outcome=timeout` e `handoff_close` envia a mensagem de alternativas (telefone/e-mail/loja) uma só vez (`key = {hid}:timeout`) | **satisfeito, com o conteúdo da mensagem em dívida nomeada** | O corpo da varredura é o `Prazos.varrer`, com relógio simulado: `test_a_varredura_retoma_com_timeout_e_uma_so_vez` afirma a chamada com `timeout`, o `Command(resume={"outcome": "timeout"})` que chega ao grafo, e que **uma segunda varredura não retoma outra vez** — e não por este módulo guardar nada: é o CAS que a para, e a chave `{hid}:timeout` do Outbound fecha o resto. São duas barreiras independentes, e é por isso que não há coluna de controlo a manter. Contra a base: `TestAVarreduraDosPrazos` mede 25 h a aparecer e 23 h não, o `contact_id` que reconstrói o `thread_id`, só as `waiting` a entrar, a travessia de *tenants* como `kamba_batch`, e o tecto a trazer as mais antigas. **Não há agendador, e isso é a mesma linha que o `retencao.py` do KAM-026 escreveu:** entrega-se o corpo da varredura, prova-se com relógio simulado, e quem a chama a horas é o *scheduler* do EVT — agendar sem agendador era escrever um que ninguém pediu. **O que fica em dívida é o conteúdo:** a `MSG_ALTERNATIVAS` passou a **nomear** os três canais (ligar para a loja, e-mail, passar por lá) e **não** traz os valores, porque um telefone ou um e-mail com dígitos não cabe num bloco `text` — o `renderizar` levanta, de propósito. **Não se alargou a proibição de dígitos**, que é uma regra de segurança; o que fecha a dívida **124** é um sexto bloco cuja cadeia venha de um *fact* com proveniência, e o credor é o **KAM-032** (com o KAM-123 como o outro consumidor) |
-| 8 | Estados `waiting → resumed`, `timeout`, `cancelled` ou `degraded` com `opened_at`, `resumed_at`, `resolver`; a métrica de retoma < 15 min (alvo ≥ 80%, a validar) é calculável por tenant | **satisfeito, com o `resolver` atribuído ao HND** | A máquina vive em `handoff/maquina.py`, funções puras, e os cinco estados **lêem-se da migração `0011`** e não de uma cópia (`test_os_cinco_estados_sao_os_do_check_da_revisao_0011` lê o AST do `ESTADOS_DE_HANDOFF`): sem isso, as duas listas divergiam e o código escrevia um `status` que a base recusa com `23514` — um 500 em produção e nenhum teste vermelho. Os **dois vocabulários** são um só sítio (`ESTADO_DO_DESFECHO`), porque a rota recebe o desfecho de um `close` e a tabela guarda o estado, e duas leituras do mesmo par divergiam. O `opened_at` é da `0011`; o `resumed_at` escreve-se no CAS — **nos quatro desfechos e não só no `resumed`**, contra o `SQL_FECHAR` do HND, porque as quatro saídas de `waiting` por esta rota retomam o grafo. **O `resolver` não se escreve aqui, e não é esquecimento:** o corpo tem três campos de forma fechada (§11 regra 3) e nenhum é o agente; quem sabe quem respondeu é o HND, pelo seu próprio `close`, e o AGR nunca aprende essa identidade — que é o lado certo do ADR-010. A métrica é o `SQL_SLA_DE_RETOMA`, medido por `TestOSlaDeRetoma`: a rápida dentro, a lenta fora, o `timeout` **fora do denominador** (uma passagem que não foi atendida não é amostra de um SLA de atendimento), e um *tenant* a não ver o do outro. **É uma consulta e não uma série temporal, e a razão é de gramática:** o `tenant_id` não casa `^[a-z][a-z0-9_]{1,62}$` e a chamada **levanta** `EtiquetaInvalida` (`OBS-I`) — a mesma tensão que as emendas 1.38 e 1.39 resolveram igual. O alvo de ≥ 80% é «a validar» e não se afirma: mede-se no Piloto |
+| 8 | Estados `waiting → resumed`, `timeout`, `cancelled` ou `degraded` com `opened_at`, `resumed_at`, `resolver`; a métrica de retoma < 15 min (alvo ≥ 80%, a validar) é calculável por tenant | **satisfeito, com o `resolver` atribuído ao HND** | A máquina vive em `handoff/maquina.py`, funções puras, e os cinco estados **lêem-se da migração `0011`** e não de uma cópia (`test_os_cinco_estados_sao_os_do_check_da_revisao_0011` lê o AST do `ESTADOS_DE_HANDOFF`): sem isso, as duas listas divergiam e o código escrevia um `status` que a base recusa com `23514` — um 500 em produção e nenhum teste vermelho. Os **dois vocabulários** são um só sítio (`ESTADO_DO_DESFECHO`), porque a rota recebe o desfecho de um `close` e a tabela guarda o estado, e duas leituras do mesmo par divergiam. O `opened_at` é da `0011`; o `resumed_at` escreve-se no CAS — **nos quatro desfechos e não só no `resumed`**, contra o `SQL_FECHAR` do HND, porque as quatro saídas de `waiting` por esta rota retomam o grafo. **O `resolver` não se escreve aqui, e não é esquecimento:** o corpo tem três campos de forma fechada (§11 regra 3) e nenhum é o agente; quem sabe quem respondeu é o HND, pelo seu próprio `close`, e o AGR nunca aprende essa identidade — que é o lado certo do ADR-010. **E isso depende da fronteira do critério 3:** ele é escrito pelo mesmo `#fechar` cuja ordem é o achado 1, pelo que hoje tem caminho e, se a fronteira for decidida pela opção 1 do §3.32, deixa de ter. Quem a decidir decide os dois no mesmo *diff* (achado 6). A métrica é o `SQL_SLA_DE_RETOMA`, medido por `TestOSlaDeRetoma`: a rápida dentro, a lenta fora, o `timeout` **fora do denominador** (uma passagem que não foi atendida não é amostra de um SLA de atendimento), e um *tenant* a não ver o do outro. **É uma consulta e não uma série temporal, e a razão é de gramática:** o `tenant_id` não casa `^[a-z][a-z0-9_]{1,62}$` e a chamada **levanta** `EtiquetaInvalida` (`OBS-I`) — a mesma tensão que as emendas 1.38 e 1.39 resolveram igual. O alvo de ≥ 80% é «a validar» e não se afirma: mede-se no Piloto |
 
 #### Verificação do Definition of Done
 
@@ -2236,6 +2236,168 @@ continuam a morder.
 leitura: «o `conversa.py` lê a `conversations` e a `handoffs` para decidir se o
 turno entra no grafo, e isso é a admissão do turno e não um agente a ler dados
 de negócio».
+
+#### A revisão adversarial, e o que ela mudou
+
+`../docs/analises/ANALISE-35-KAM-034-handoff-idempotente.md`: **REPROVADO** — 3
+*must fix*, 6 *should fix*, 5 *nice to have*, e 5 hipóteses declaradas como não
+demonstradas. Oito dos nove *must/should* ficaram corrigidos com ensaio **e** com
+mutação; o nono é o achado 1, que não é um `if` que falta — é uma fronteira entre
+dois tickets, e está abaixo.
+
+**A classe de defeito, e é nova nesta série:**
+
+> a propriedade está medida, e o **duplo que a mede é mais forte do que a peça
+> que ele substitui**.
+
+Os três *must fix* são todos desta forma. O mecanismo existe e está certo visto
+de perto; o ensaio monta um duplo — uma tranca, uma base, uma política — que
+satisfaz a propriedade **por construção**; a peça real não a satisfaz; e a
+bateria fica verde a afirmar uma barreira que não existe.
+
+**Dois deles eram barreiras que este ticket afirmava em cinco e em três sítios.**
+
+##### 1. A tranca da conversa não excluía nada dentro do processo
+
+O desenho inteiro deste ticket assentava numa frase — «a compensação é segura
+porque tudo isto corre sob a tranca da conversa» — e ela aparecia no módulo
+`retoma.py`, no `Retomador`, no `api_interna.py`, no `SQL_REVERTER_RETOMA` e na
+caixa 4 desta secção. **Era falsa.**
+
+Os *advisory locks* de sessão do PostgreSQL são **contados**, e a
+`TrancaDeConversas` tem **uma** ligação por processo: a segunda tomada da mesma
+chave na mesma sessão devolve `true`. E devolve `true` também cada
+`pg_advisory_unlock`, pelo que o `TrancaNaoLargadaError` — a excepção que o
+`trancas.py` escreveu para que «a exclusão mútua que deixou de existir
+apareça» — nunca levantava. Medido contra PostgreSQL 18: **duas** corrotinas
+dentro da secção crítica da mesma conversa, com o controlo positivo de duas
+ligações a dar uma.
+
+Para o turno isso estava coberto pelo dreno do `turno.py`, que serializa por
+`(thread_id, conversation_id)`. **Este ticket acrescentou os dois únicos
+chamadores que não passam pelo dreno** — a rota de retoma e a varredura dos
+prazos —, e é para esses que a tranca era a única barreira. A sonda mostra o
+custo: a varredura vence o CAS e o `Command` falha, a compensação devolve a
+linha a `waiting`, e o `resolved` do colega que chega 50 ms depois leva **200
+`repetido`** em vez de retomar — o Chatwoot pára de reenviar e o cliente, cuja
+pergunta um humano já respondeu, recebe a mensagem de alternativas.
+
+**Corrigido** em `trancas.py`: um `asyncio.Lock` por `thread_id` à frente da ida
+à base, com contagem de quem espera para o dicionário não crescer. A tranca da
+base continua a excluir entre processos. E as **duas** *docstrings* que se
+contradiziam sobre isto — a do `trancas.py` e a do `turno.py` — passaram a dizer
+o mesmo, que é o que impede a próxima pessoa de voltar a assumir a barreira
+errada. Mutação `handoff: a tranca deixa de excluir dentro do processo`.
+
+##### 2. A política AST evadia-se com uma linha, por seis formas
+
+O critério 2 promete três proibições e a política implementava-as ao nível da
+**instrução**, perguntando se a primeira «contém um `interrupt`». Seis evasões
+medidas, e as três primeiras são o erro que alguém escreveria **sem má-fé**:
+
+| Evasão | Porque passava |
+|---|---|
+| `interrupt(deps.saida.enfileirar(…))` | o argumento avalia-se **antes** da chamada |
+| `_, desfecho = deps.x(), interrupt({})` | a instrução «contém um `interrupt`» |
+| `with contextlib.suppress(BaseException):` | um `With` não é um `ast.Try`, e o LangGraph interrompe **levantando** |
+| `[interrupt({"i": i}) for i in range(3)][-1]` | uma compreensão não é `ast.For` |
+| `try: … except* Exception:` | `ast.TryStar` não é `ast.Try` |
+| `async with engole():` | idem o `With` |
+
+O controlo positivo da primeira executa e imprime a ordem real:
+`['efeito', 'interrupt']`. É o defeito 6 do §7.1 inteiro, numa linha.
+
+**Corrigido** com uma política desenhada contra as evasões e não contra o
+enunciado: a chamada tem de ser o **valor inteiro** da primeira instrução (o que
+apanha as quatro evasões estruturais de uma vez), o `With`/`AsyncWith`/`TryStar`
+contam como «engolem», as compreensões contam como «repetem», e há uma regra
+nova — `efeito_no_argumento` — que é a única não estrutural.
+
+**E a razão dela vale escrever**, porque é o limite do `ast`: a pergunta «esta
+chamada é um efeito?» não tem resposta sintáctica. O nó real passa
+`estado.get("handoff")` nos argumentos, que é uma chamada e não é um efeito, pelo
+que proibir chamadas recusava código correcto — e é assim que se ensina alguém a
+desligar uma política. O que **se** pode decidir é de onde um efeito pode vir, e
+vem de um sítio só: o `deps` é a única porta deste grafo para o mundo. A regra é
+«nenhuma referência ao `deps` nos argumentos do `interrupt`».
+
+As seis evasões são canários, cada um a nomear qual regra tem de morder, mais
+uma asserção de conjunto («nenhuma das seis fica calada») e quatro controlos
+positivos. Três mutações sobre a própria política medem que os canários mordem,
+e duas sobre o `nos.py` medem que a política vê o código real.
+
+##### 3. A `platform.handoffs` tem dois escritores para `waiting → resumed` — e o do HND corre primeiro
+
+**Este não se corrigiu, e é por isso que o critério 3 ficou `parcial`.** A
+descrição completa está na emenda **1.41** (dicionário §3.32), com as duas saídas
+e a recomendação; em duas linhas: o `ESTADOS_QUE_FECHAM` do `hnd/estados.ts` é
+`["waiting", "degraded"]`, pelo que o `SQL_FECHAR` do HND **sai de `waiting`**, e
+no `receber` do `hnd/provedor.ts` o `#fechar` corre **antes** do `onHumanEvent`,
+que é o único sítio de onde `/internal/resume` pode ser chamado. No caminho
+feliz, a linha já está em `resumed` quando o pedido chega, o CAS dá zero linhas,
+e o `Command(resume=…)` nunca corre.
+
+**Porque é que não se corrigiu aqui, e não é por ser difícil.** A correcção é
+TypeScript nos ficheiros do KAM-019, e muda o contrato de quem escreve o quê
+nessa tabela. Duas razões para a devolver:
+
+* **esta máquina não consegue verificá-la.** As baterias de `packages/core-ts`
+  correm com `pnpm`, que não existe aqui (a *toolchain* corre em Docker), e
+  mandar uma alteração não verificada ao serviço de outro ticket numa PR é pior
+  do que a reportar;
+* **é uma decisão de canon e não de código.** A emenda **1.22** já tinha escrito
+  que «a coluna `resumed_at` nasce e ninguém a escreve neste ticket [o
+  KAM-019]» — o código do HND contradiz a entrada de canon do seu próprio
+  ticket. Decidir qual dos dois cede é de quem aprova emendas.
+
+**O que se fez em vez disso:** escrever a sobreposição no §3.32 (que antes
+afirmava uma partição que não existe), marcar o critério como `parcial` com o
+KAM-019 por credor, e **não** inventar um paliativo. Tentou-se um — um desfecho
+`conflito` próprio, para a condição deixar de subir o contador do duplicado — e
+retirou-se: ele dispara também no *webhook* duplicado legítimo, pelo que não
+distingue nada e dava a aparência de um sinal onde não há informação. Um
+contador que não separa os dois casos é o contador que já havia com outro nome.
+
+##### Os seis *should fix*, em uma linha cada
+
+1. **o `ESCRITA_NO_PLATFORM` ficou mais estreito ao ganhar a captura da
+   tabela**: `platform."orders"` mordia antes do *diff* e não mordia depois — uma
+   regressão num *gate* de bloqueio, e para **todas** as tabelas. Corrigido com a
+   forma citada no padrão e três canários;
+2. **a dispensa era por tabela e não por verbo**, e o argumento escrito («o
+   `kamba_app` não tem `DELETE`») era metade falso: a `0011` concede
+   `GRANT SELECT, INSERT`, pelo que um `INSERT` passava o *lint* **e** corria na
+   base. A chave passou a `(ficheiro, tabela, verbo)`;
+3. **o `partes` não validava a forma do `contact_id`**: um valor que não é UUID
+   chegava à base, dava `22P02`, subia 500 — e o HND **repete**, largando a
+   tomada da retoma a cada volta. Passou a exigir a forma **canónica**, e é mais
+   estrito do que o `normalizar_tenant` num ponto que vale dizer: recusa
+   maiúsculas, porque o `thread_id` segue inteiro para o `hashtextextended` da
+   tranca e `hashtextextended('ABC…')` não é `hashtextextended('abc…')`;
+4. **a `MSG_ALTERNATIVAS` não tinha ensaio nenhum** — a única substância nova do
+   critério 7 —, porque o ensaio do `handoff_close` compara a mensagem com a
+   **constante**: mudar a constante muda os dois lados. Há agora uma asserção
+   sobre o **conteúdo** (nomeia os três canais) e outra sobre o que ele não tem
+   (dígitos), mais uma mutação que reverte o texto;
+5. **o `handoff_seq` não subia no ramo degradado**, que é o ramo que **também**
+   pode ter deixado a linha no HND (o `openHandoff` escreve-a antes de falar com
+   o provedor): o *handoff* seguinte da mesma conversa recalculava o **mesmo**
+   identificador e era engolido pela idempotência do primeiro — o cliente pedia
+   ajuda outra vez e ninguém era chamado;
+6. **o `resolver`** é escrito pelo mesmo `#fechar` cuja ordem é o achado 1, pelo
+   que hoje tem caminho e, se a fronteira for decidida pela opção 1, deixa de ter.
+   Fica no §3.32 como parte da mesma decisão, e a caixa do critério 8 diz isso.
+
+##### E o que a revisão **não** encontrou, que vale tanto como o resto
+
+Cinco hipóteses procuradas e refutadas, com o método escrito na análise: não há
+caminho que abra **duas** conversas no provedor para o mesmo `handoff_id` (a
+chave derivada e o `ON CONFLICT` são independentes e as duas aguentam); a
+compensação não desfaz o trabalho de outro pedido (o predicado fixa o estado que
+este pedido escreveu); a autenticação não vaza o formato do segredo pela
+diferença entre os estados HTTP; não há caminho que tome a tranca de uma conversa
+sem as duas credenciais; e nenhuma das quatro métricas aceita um identificador
+como etiqueta — a gramática levanta, medida com um `tenant_id` a sério.
 
 #### O que este ticket não liga, e é decisão
 
