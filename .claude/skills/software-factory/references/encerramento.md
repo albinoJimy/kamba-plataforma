@@ -60,6 +60,9 @@ Uma task só integra quando **todas** fecham:
 [ ] Self-validation concluída
 [ ] Verificações relevantes executadas (nomeadas, com resultado — não "verifiquei")
 [ ] Revisão independente concluída
+[ ] Achados verificados — os CONFIRMADOS resolvidos, os PLAUSÍVEIS no relatório,
+    os MORTOS registados com a evidência que os matou
+[ ] Portões do eixo corridos na árvore integrada, com comando e resultado
 [ ] Problemas críticos resolvidos — não adiados
 [ ] Changeset auditado (ou a lacuna declarada)
 [ ] Propagação feita: nenhum documento do conjunto ficou a contradizer
@@ -218,11 +221,21 @@ presumido.
 > # marcadas, e vazias — cada vazia tem de aparecer na secção de verificação
 > # No EPIC-01 cada ticket é um ficheiro (KAM-155), e o bloco é o ficheiro todo:
 > bloco=$(cat specs/tickets/KAM-003.md)
-> # Nos outros dez epics os blocos vivem dentro do ficheiro do epic:
-> # bloco=$(awk '/^## KAM-013 /,/^---$/' specs/EPIC-02_Canais_WhatsApp_Handoff.md)
+> # Nos outros dez epics os blocos vivem dentro do ficheiro do epic, e a gama
+> # termina no cabeçalho SEGUINTE — não num `---`:
+> # bloco=$(awk -v t='^## KAM-029 ' '$0~t{f=1} f&&/^## KAM-/&&$0!~t{exit} f' \
+> #           specs/EPIC-03_Agent_Runtime_Verticais.md)
 > echo "$bloco" | grep -c '^- \[x\]'
 > echo "$bloco" | grep -c '^- \[ \]'
+> echo "$bloco" | grep -c '^## KAM-'    # tem de dar 1; se der 2, a gama atravessou
 > ```
+>
+> **A gama não pode terminar em `^---$`.** Nem todos os blocos têm esse separador antes do
+> seguinte: em `specs/EPIC-03`, o KAM-029 e o KAM-035 não o têm, e
+> `awk '/^## KAM-029 /,/^---$/'` atravessa para o KAM-030 e devolve 15 marcadas e 14 vazias
+> em vez de 9 e 5 — uma soma que **fecha**, e por isso ninguém a olha outra vez. Dois em 115
+> blocos sobrecontam assim; o EPIC-02 está entre os 113 que funcionam, o que faz a receita
+> errada parecer certa quando se testa. É para isso que serve a última linha.
 
 ---
 
@@ -286,15 +299,21 @@ Não verificado:
 Riscos residuais:
 - ...
 
+Indicadores:
+- Verde à primeira:      sim / não (e porquê)
+- Achados:               N levantados → N confirmados → N plausíveis → N mortos
+- Caixas por marcar:     N (as da secção acima)
+- Escape a converter:    nenhum / o passo ou gate que passa a cobri-lo
+
 Completude: COMPLETO / PARCIAL / NÃO VERIFICADO
 
 Estado final: DONE / NEEDS ATTENTION
 ```
 
-Cinco notas sobre como isto se lê:
+Seis notas sobre como isto se lê:
 
 **«Verificações executadas»** com o que a verificação faz e o resultado vale mais do que uma
-lista de nomes. «159 tickets, 0 erros de consistência; segunda passagem 0 divergências» é
+lista de nomes. «161 tickets, 0 erros de consistência; segunda passagem 0 divergências» é
 reproduzível; «backlog verificado» não é.
 
 **«Revisão»** tem de dizer o que a revisão *encontrou*, mesmo quando foi nada. «Revisão
@@ -316,6 +335,14 @@ nomeada.
 **«Não verificado»** nunca se omite por ser má notícia. Dizer «o SQL nunca correu» e «ninguém leu
 os tickets linha a linha» é o que permite ao leitor decidir onde olhar.
 
+**«Indicadores»** é o que faz da fábrica uma fábrica e não um método: sem número, não há
+melhoria, há repetição. Os dois primeiros leem-se de artefactos (`gh pr checks`, o bloco do
+ticket); a linha dos achados é a contagem da revisão desta entrega, e não uma taxa acumulada —
+uma taxa reconstruída à mão é `INDÍCIO`, nunca `CONFIRMADO`
+([`metricas-e-realimentacao.md`](metricas-e-realimentacao.md)). E «escape a converter» responde
+à pergunta que fecha o ciclo: **se um portão podia ter apanhado isto, qual, e já ficou a
+apanhar?**
+
 ---
 
 ## Conhecimento persistente
@@ -324,7 +351,9 @@ Depois de fechar, actualiza o conhecimento quando houver mesmo o que registar:
 
 | O que descobriste | Onde vive |
 |---|---|
-| Decisão de arquitectura nova | `docs/tecnica/00_Arquitectura_Solucao.md` §8 (ADR-NNN); contagem em `docs/tecnica/INDICE.md` §5; mapeamento em `specs/INDICE.md` §6 |
+| Decisão de arquitectura canónica nova | `docs/tecnica/00_Arquitectura_Solucao.md` §8 (ADR-NNN); contagem **e** mapeamento ADR → documento em `docs/tecnica/INDICE.md` §5 |
+| Decisão de execução (toolchain, segredos, fila, verificação) | `docs/adr/ADR-L<NNN>-<slug>.md`, numeração própria — **não** é ADR canónico |
+| Medição, procedimento ou registo longo de um ticket | `docs/evidencia/KAM-NNN.md` (21 anexos hoje; um deles é `REQUIRED_FILES` do `lint_arch`) |
 | Decisão que depende de terceiro | `docs/tecnica/00` §13.3 (D#) e `specs/00_KAMBA_Carta.md` §4.2, com dono e escalada |
 | Nome, estado, evento ou unidade | `specs/02_Dicionario_de_Dados_Canonico.md` §3, com emenda no §6 |
 | Facto novo sobre Meta, pagamentos, lei, licenças, fornecedores | `docs/tecnica/evidencia/EN_*.md`, com URL, data e estado |
@@ -333,6 +362,9 @@ Depois de fechar, actualiza o conhecimento quando houver mesmo o que registar:
 | Trabalho a fazer | ticket em `specs/tickets/KAM-NNN.md` (EPIC-01) ou `specs/EPIC-XX_*.md` (os outros dez) **e** linha no backlog mestre `specs/INDICE.md` §4 |
 | Achado de revisão | `docs/analises/ANALISE-NN-<slug>.md` |
 | Risco operacional ou armadilha de execução | o documento de operação (`docs/tecnica/09`) ou esta skill |
+| Resíduo textual fora do âmbito (sem código nem decisão) | `docs/dividas-documentais.md`, uma linha |
+| Decisão sobre o pipeline, ou lacuna que ele deixou | `docs/ci.md`, e o §7 se ficou lacuna |
+| **Defeito que escapou a um portão** | **um passo num gate que existe, ou um gate alargado** — ver [`metricas-e-realimentacao.md`](metricas-e-realimentacao.md) |
 
 Duas regras de higiene:
 
