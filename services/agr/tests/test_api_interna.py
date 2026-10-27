@@ -8,7 +8,14 @@ from __future__ import annotations
 import json
 import unittest
 
-from apoio import CREDENCIAL, TrancaFalsa, como_json, invocacao_crua, pedir
+from apoio import (
+    CREDENCIAL,
+    SEGREDO_DO_BOT,
+    TrancaFalsa,
+    como_json,
+    invocacao_crua,
+    pedir,
+)
 from kamba_agr.admissao import Admissao, Tectos
 from kamba_agr.api_interna import (
     CABECALHO,
@@ -19,8 +26,14 @@ from kamba_agr.api_interna import (
     rotas,
 )
 from kamba_agr.app import create_app
+from kamba_agr.handoff.autenticacao import CABECALHO_DO_BOT, verificador
 from kamba_agr.metricas import METRICA_RECUSADOS, METRICAS
 from kamba_agr.turno import DesfechoDoTurno, GrafoNaoRegistadoError
+
+
+#: «Nao passaram nada» — distinto de `None`, que e «monta as rotas **sem**
+#: verificador», e que a bateria tem de poder exercitar.
+_POR_OMISSAO = object()
 
 
 def aplicacao(
@@ -30,9 +43,15 @@ def aplicacao(
     retomar=None,
     avisos=None,
     trancas=None,
+    verificar_bot=_POR_OMISSAO,
 ):
     admissao = Admissao(tectos=tectos or Tectos())
     trancas = trancas if trancas is not None else TrancaFalsa()
+    if verificar_bot is _POR_OMISSAO:
+        # O verificador **real**, com o segredo das baterias. Um duplo que
+        # devolvesse sempre `None` media o caminho de sucesso sem nunca
+        # exercitar a comparacao, que e o que o criterio 4 pede.
+        verificar_bot = verificador(lambda _tenant_id: SEGREDO_DO_BOT)
 
     async def executar(_invocacao):
         if erro is not None:
@@ -46,12 +65,15 @@ def aplicacao(
             admissao=admissao,
             trancas=trancas,
             retomar=retomar,
+            verificar_bot=verificar_bot,
             aviso=(avisos.append if avisos is not None else None),
         )
     ), admissao
 
 
 COM_CREDENCIAL = {CABECALHO: CREDENCIAL}
+#: As duas credenciais de `/internal/resume`: a de rede e a do *agent bot*.
+COM_AS_DUAS = {CABECALHO: CREDENCIAL, CABECALHO_DO_BOT: SEGREDO_DO_BOT}
 
 
 class TestAutenticacao(unittest.IsolatedAsyncioTestCase):
@@ -312,15 +334,17 @@ class TestRetoma(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(estado, 400)
                 self.assertEqual(json.loads(resposta)["outcome"], "corpo_invalido")
 
-    async def test_sem_a_porta_do_kam_034_levanta_em_vez_de_fingir_200(self) -> None:
+    async def test_sem_a_porta_da_retoma_levanta_em_vez_de_fingir_200(self) -> None:
         app, _ = aplicacao()
         with self.assertRaises(RetomaNaoImplementadaError):
             await pedir(
                 app,
                 "/internal/resume",
                 "POST",
-                como_json({"thread_id": "a:b", "handoff_id": "h", "outcome": "resumed"}),
-                COM_CREDENCIAL,
+                como_json(
+                    {"thread_id": "a:b", "handoff_id": "h", "outcome": "resolved"}
+                ),
+                COM_AS_DUAS,
             )
 
     async def test_com_a_porta_ligada_chama_a_e_devolve_200(self) -> None:
@@ -328,18 +352,26 @@ class TestRetoma(unittest.IsolatedAsyncioTestCase):
 
         async def retomar(thread_id, handoff_id, outcome):
             chamadas.append((thread_id, handoff_id, outcome))
+            return "retomado"
 
         app, _ = aplicacao(retomar=retomar)
         estado, _, resposta = await pedir(
             app,
             "/internal/resume",
             "POST",
-            como_json({"thread_id": "a:b", "handoff_id": "h", "outcome": "resumed"}),
-            COM_CREDENCIAL,
+            como_json({"thread_id": "a:b", "handoff_id": "h", "outcome": "resolved"}),
+            COM_AS_DUAS,
         )
         self.assertEqual(estado, 200)
         self.assertEqual(json.loads(resposta)["outcome"], "retomado")
-        self.assertEqual(chamadas, [("a:b", "h", "resumed")])
+        # **`resolved` e nao `resumed`.** A primeira versao destes ensaios
+        # mandava `resumed`, que e um valor de `handoffs.status` e nao um
+        # desfecho de `close`: a rota do KAM-025 nao validava o vocabulario e
+        # por isso qualquer cadeia passava. O dicionario §3.15 da ao `close`
+        # **tres** desfechos (`resolved`, `timeout`, `cancelled`) e e esse o
+        # campo `outcome` do §11 regra 3; o `resumed` e o que o `resolved`
+        # escreve na tabela.
+        self.assertEqual(chamadas, [("a:b", "h", "resolved")])
 
     async def test_a_retoma_corre_sob_a_tranca_da_conversa(self) -> None:
         """`docs/tecnica/02` §11 regra 3, por escrito: «a invocacao
@@ -358,14 +390,15 @@ class TestRetoma(unittest.IsolatedAsyncioTestCase):
             # Dentro do `retomar`, a tranca daquele `thread_id` tem de estar
             # tomada.
             dentro.append((thread_id, tranca.dentro))
+            return "retomado"
 
         app, _ = aplicacao(retomar=retomar, trancas=tranca)
         estado, _, _ = await pedir(
             app,
             "/internal/resume",
             "POST",
-            como_json({"thread_id": "a:b", "handoff_id": "h", "outcome": "resumed"}),
-            COM_CREDENCIAL,
+            como_json({"thread_id": "a:b", "handoff_id": "h", "outcome": "resolved"}),
+            COM_AS_DUAS,
         )
         self.assertEqual(estado, 200)
         self.assertEqual(tranca.tomadas, ["a:b"])
@@ -381,7 +414,61 @@ class TestRetoma(unittest.IsolatedAsyncioTestCase):
             app,
             "/internal/resume",
             "POST",
-            como_json({"thread_id": "a:b", "handoff_id": "h", "outcome": "resumed"}),
+            como_json({"thread_id": "a:b", "handoff_id": "h", "outcome": "resolved"}),
+        )
+        self.assertEqual(estado, 401)
+        self.assertEqual(tranca.tomadas, [])
+
+    async def test_a_retoma_nao_toma_a_tranca_com_um_thread_id_malformado(self) -> None:
+        """A forma do `thread_id` confere-se **antes** de se tomar a tranca.
+
+        Ela é um `pg_advisory_lock` por chave: tomar uma chave que não
+        corresponde a conversa nenhuma era deixar quem tenha as duas
+        credenciais prender chaves arbitrárias — uma negação de serviço por
+        conversa, de dentro. A primeira versão da rota tomava a tranca e
+        deixava o `Retomador` recusar lá dentro.
+        """
+        for mau in (f"{'a' * 8}:", "a:b:c"):
+            with self.subTest(thread_id=mau):
+                tranca = TrancaFalsa()
+                chamadas: list = []
+
+                async def retomar(*args):
+                    chamadas.append(args)
+                    return "retomado"
+
+                app, _ = aplicacao(retomar=retomar, trancas=tranca)
+                estado, _, resposta = await pedir(
+                    app,
+                    "/internal/resume",
+                    "POST",
+                    como_json(
+                        {"thread_id": mau, "handoff_id": "h", "outcome": "resolved"}
+                    ),
+                    COM_AS_DUAS,
+                )
+                self.assertEqual(estado, 400)
+                self.assertEqual(
+                    json.loads(resposta)["error_code"], "thread_id_invalido"
+                )
+                self.assertEqual(tranca.tomadas, [])
+                self.assertEqual(chamadas, [])
+
+    async def test_a_retoma_nao_toma_a_tranca_sem_o_segredo_do_bot(self) -> None:
+        """A segunda credencial fecha a mesma porta que a primeira.
+
+        Com so a credencial de rede, qualquer componente interno — o COM, o
+        GWY, um *script* de operacao — podia prender a conversa de alguem e
+        retomar o *handoff* de qualquer *tenant*. Criterio 4 do KAM-034.
+        """
+        tranca = TrancaFalsa()
+        app, _ = aplicacao(retomar=lambda *_a: None, trancas=tranca)
+        estado, _, _ = await pedir(
+            app,
+            "/internal/resume",
+            "POST",
+            como_json({"thread_id": "a:b", "handoff_id": "h", "outcome": "resolved"}),
+            COM_CREDENCIAL,
         )
         self.assertEqual(estado, 401)
         self.assertEqual(tranca.tomadas, [])

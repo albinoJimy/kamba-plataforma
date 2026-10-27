@@ -22,6 +22,11 @@ from kamba_agr.contexto import thread_id_de
 #: nenhum segredo tem espacos (`docs/ci.md` §3, *gate* 9).
 CREDENCIAL = "credencial de teste do agr"
 
+#: O `secret` do *agent bot* das baterias (KAM-034, criterio 4). **Nao e um
+#: segredo**, pela mesma razao da `CREDENCIAL`: tem espacos, e o *gate* 9 recusa
+#: cadeias com forma de segredo — nenhum segredo a serio tem espacos.
+SEGREDO_DO_BOT = "segredo de teste do agent bot"
+
 
 async def pedir(
     app: Any,

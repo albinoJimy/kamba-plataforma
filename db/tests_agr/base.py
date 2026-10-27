@@ -37,14 +37,24 @@ for _caminho in (
 
 from kamba_agr.consultas import (  # noqa: E402
     SQL_DESTRANCAR_THREAD,
+    SQL_HANDOFF_PARA_RETOMA,
+    SQL_HANDOFFS_EXPIRADOS,
     SQL_PALAVRA_DA_CONVERSA,
+    SQL_RETOMAR_HANDOFF,
+    SQL_REVERTER_RETOMA,
+    SQL_SLA_DE_RETOMA,
     SQL_TRANCAR_THREAD,
 )
 from kamba_agr.contexto import thread_id_de  # noqa: E402
 
 __all__ = [
     "SQL_DESTRANCAR_THREAD",
+    "SQL_HANDOFFS_EXPIRADOS",
+    "SQL_HANDOFF_PARA_RETOMA",
     "SQL_PALAVRA_DA_CONVERSA",
+    "SQL_RETOMAR_HANDOFF",
+    "SQL_REVERTER_RETOMA",
+    "SQL_SLA_DE_RETOMA",
     "SQL_TRANCAR_THREAD",
     "ComAgr",
     "Conversa",
@@ -121,14 +131,32 @@ class ComAgr(ComBase):
         factories.contexto(self.semente, None)
         return Conversa(tenant, contacto, canal, conversa)
 
-    def abrir_handoff(self, conversa: Conversa, *, estado: str = "waiting") -> str:
-        """Um `handoffs` no estado dado. Devolve o `handoff_id`."""
+    def abrir_handoff(
+        self,
+        conversa: Conversa,
+        *,
+        estado: str = "waiting",
+        ha_horas: float = 0.0,
+    ) -> str:
+        """Um `handoffs` no estado dado. Devolve o `handoff_id`.
+
+        `ha_horas` recua o `opened_at` — e o que permite ao ensaio das 24 h
+        correr sem esperar um dia, e recua-se a **linha** e nao o relogio do
+        servidor, porque o `limite` do `Prazos` ja vem de fora como parametro
+        (KAM-034).
+        """
         handoff_id = f"h-{uuid.uuid4().hex}"
         self.semente.execute(
             "INSERT INTO platform.handoffs "
-            "(handoff_id, tenant_id, conversation_id, status, motivo) "
-            "VALUES (%s, %s, %s, %s, 'ensaio')",
-            (handoff_id, conversa.tenant_id, conversa.conversation_id, estado),
+            "(handoff_id, tenant_id, conversation_id, status, motivo, opened_at) "
+            "VALUES (%s, %s, %s, %s, 'ensaio', now() - make_interval(secs => %s))",
+            (
+                handoff_id,
+                conversa.tenant_id,
+                conversa.conversation_id,
+                estado,
+                ha_horas * 3600.0,
+            ),
         )
         return handoff_id
 

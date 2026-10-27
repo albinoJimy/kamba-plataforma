@@ -430,6 +430,18 @@ AG_VAL_VER = "services/agr/src/kamba_agr/validador/veredicto.py"
 #: alteram toca a base.
 AG_VEN_NOS = "services/agr/src/kamba_agr/verticais/vendedor/nos.py"
 AG_VEN_ENC = "services/agr/src/kamba_agr/verticais/vendedor/encaminhadores.py"
+#: O *handoff* idempotente e a retoma (KAM-034). Os tres primeiros sao Python
+#: puro e correm na `agr_unit`; o SQL da retoma vive no `AG_SQL` e as suas
+#: mutacoes correm na `tests_agr`, porque e a base que decide se o
+#: *compare-and-set* casa.
+AG_HND_MAQUINA = "services/agr/src/kamba_agr/handoff/maquina.py"
+AG_HND_SERVICO = "services/agr/src/kamba_agr/handoff/servico.py"
+AG_HND_RETOMA = "services/agr/src/kamba_agr/handoff/retoma.py"
+AG_HND_PRAZOS = "services/agr/src/kamba_agr/handoff/prazos.py"
+AG_HND_AUTH = "services/agr/src/kamba_agr/handoff/autenticacao.py"
+#: A API interna (KAM-025), que o KAM-034 estendeu com a segunda credencial e a
+#: ordem das verificacoes da rota de retoma.
+AG_API = "services/agr/src/kamba_agr/api_interna.py"
 REV23 = "db/migrations/versions/0023_llm_call_log.py"
 #: O gerador da configuracao do proxy, o leitor de manifestos e o verificador de
 #: assinaturas, que o KAM-030 estendeu. As suites estao declaradas junto das
@@ -3918,8 +3930,16 @@ MUTACOES = [
      "              AND h.status = 'waiting'", AGR),
     # Com isto, um *handoff* aberto numa conversa fecha a porta a **todas** as
     # conversas da loja — e a resposta continua plausivel.
+    # **O ancora leva o `) AS handoff_a_espera` por necessidade e nao por
+    # estilo.** Ate ao KAM-034 o `AND h.status = 'waiting'` aparecia **uma** vez
+    # no `consultas.py` e o texto curto bastava; o CAS da retoma trouxe um
+    # segundo, e o `--aplicaveis` apanhou-o — «uma mutacao antiga deixa de valer
+    # quando o codigo mutado muda». E a mesma licao que o KAM-031 escreveu na
+    # sua nota de entrega, pelo outro lado.
     ('agr: o waiting deixa de ser o unico estado que fecha', AG_SQL,
-     "AND h.status = 'waiting'", "AND h.status <> 'resumed'", AGR),
+     "              AND h.status = 'waiting'\n         ) AS handoff_a_espera",
+     "              AND h.status <> 'resumed'\n         ) AS handoff_a_espera",
+     AGR),
     # **Muda o caminho e nao a etiqueta.** A primeira versao trocava so a cadeia
     # `"sem_conversa"` por `"executado"`, e com isso o grafo **continuava** a nao
     # correr: modelava uma etiqueta mal posta e nao o furo `or 'bot'` que o nome
@@ -4594,6 +4614,270 @@ MUTACOES = [
     # O `awaiting_payment` atravessa turnos, pelo que «O seu pedido ficou
     # registado» volta a sair em todos os turnos seguintes — inclusive numa
     # pergunta sobre o horario da loja. Achado 12.
+    # ---------------------------------------------------------------- KAM-034
+    #
+    # O *handoff* idempotente e a retoma por *compare-and-set*. **Vinte, e
+    # dividem-se por onde a propriedade vive**: treze em Python, na `agr_unit`,
+    # e sete no SQL, na `tests_agr` — porque quem decide se um
+    # *compare-and-set* casa e a base, e uma base falsa compara SQL por texto e
+    # nunca o interpreta.
+    #
+    # As duas primeiras sao as **unicas** deste ticket que nao quebram
+    # comportamento: quebram o `handoff_wait`, e o que as apanha e a politica AST
+    # do criterio 2. Existem porque um teste AST que so corre contra codigo
+    # conforme nao prova que morde — e o que faria esse teste passar com a
+    # politica apagada e exactamente o que elas medem.
+    ('handoff: o handoff_wait ganha um efeito antes do interrupt', AG_VEN_NOS,
+     '''        desfecho = interrupt(
+            {
+                "handoff_id": (estado.get("handoff") or {}).get("id"),''',
+     '''        deps.saida.enfileirar(estado, MSG_HUMANO_A_CAMINHO, chave="repetida")
+        desfecho = interrupt(
+            {
+                "handoff_id": (estado.get("handoff") or {}).get("id"),''',
+     AGR_UNIT),
+    # Na retoma o no reinicia do principio, pelo que a mensagem sai **duas
+    # vezes** — e e o defeito 6 do §7.1 que este par de nos existe para
+    # corrigir, a voltar.
+    ('handoff: o interrupt do handoff_wait passa a correr dentro de try', AG_VEN_NOS,
+     '''        anterior = dict(estado.get("handoff") or {})
+        resultado = desfecho.get("outcome") if isinstance(desfecho, Mapping) else desfecho''',
+     '''        try:
+            desfecho = interrupt({"repetido": True})
+        except Exception:
+            desfecho = None
+        anterior = dict(estado.get("handoff") or {})
+        resultado = desfecho.get("outcome") if isinstance(desfecho, Mapping) else desfecho''',
+     AGR_UNIT),
+    # O LangGraph interrompe **levantando**, pelo que um `except` generico
+    # engole a interrupcao: a conversa segue para o `handoff_close` sem ninguem
+    # ter sido chamado.
+    ('handoff: o desfecho chega ao grafo traduzido para estado', AG_HND_RETOMA,
+     '            await self._resumir_o_grafo(grafo, thread_id, desfecho)',
+     '            await self._resumir_o_grafo(grafo, thread_id, estado_novo)',
+     AGR_UNIT),
+    # O `handoff_close` compara `outcome == "timeout"` para mandar a mensagem de
+    # alternativas: com a traducao, o `resolved` chega la como `resumed` — que
+    # nao bate com nada — e o criterio 7 perde o caminho.
+    ('handoff: a retoma deixa de compensar o CAS quando o grafo levanta', AG_HND_RETOMA,
+     '''            await self._reverter(tenant_id, handoff_id, estado_novo, erro)
+            raise GrafoDaRetomaError("retoma_do_grafo_falhou") from erro''',
+     '            raise GrafoDaRetomaError("retoma_do_grafo_falhou") from erro',
+     AGR_UNIT),
+    # A passagem fica em `resumed` com o grafo **ainda interrompido**: o
+    # *webhook* repetido ve zero linhas, responde 200, e a varredura dos prazos
+    # nao a encontra, porque so olha para `waiting`. Presa para sempre, e sem
+    # sinal nenhum.
+    ('handoff: o zero linhas passa a ser sempre um duplicado', AG_HND_RETOMA,
+     '''        if linha is None:
+            return "recusado"''',
+     '''        if linha is None:
+            return "repetido"''',
+     AGR_UNIT),
+    # Uma passagem de outro *tenant* ou de outro contacto passa a responder 200
+    # «tratado» sobre um pedido que nao tratamos: o furo de isolamento deixa de
+    # dar alerta e passa a dar silencio.
+    ('handoff: o thread_id deixa de exigir exactamente um separador', AG_HND_RETOMA,
+     '    if not separador or not tenant_id or not contact_id or ":" in contact_id:',
+     '    if not separador:',
+     AGR_UNIT),
+    # `":contacto"` e `"<tenant>:"` passam a ir a base com metade vazia, e
+    # `"a:b:c"` com um `contact_id` que nao e UUID — tres 404 onde devia estar
+    # um 400, e tres consultas por uma conversa que nao pode existir.
+    ('handoff: uma falha do cofre passa a levantar em vez de recusar', AG_HND_AUTH,
+     '''        except Exception:  # noqa: BLE001 — ver docstring: recusa, nao 500
+            return "secret_errado"''',
+     '''        except Exception:  # noqa: BLE001 — ver docstring: recusa, nao 500
+            raise''',
+     AGR_UNIT),
+    # Um *tenant* sem conta de atendimento provisionada da 500 em vez de 401, e
+    # o *webhook* do Chatwoot repete contra um *tenant* que nunca vai ter
+    # segredo.
+    ('handoff: o verificador pede o segredo pelo thread e nao pelo tenant', AG_HND_AUTH,
+     '            esperado = segredo_do_bot(tenant)',
+     '            esperado = segredo_do_bot(thread_id)',
+     AGR_UNIT),
+    # A referencia passa a ser `chatwoot_bot_secret/<thread_id>`, que nao existe
+    # no cofre: **toda** a retoma responde 401 e o *handoff* nunca fecha. E o
+    # modo de falha mais caro deste ticket, e nao da erro de arranque.
+    ('handoff: o segredo em falta passa a contar como segredo errado', AG_HND_AUTH,
+     '''    if not recebido:
+        return "sem_secret"
+    if not esperado:''',
+     '''    if recebido is None:
+        return "sem_secret"
+    if not esperado:''',
+     AGR_UNIT),
+    # Um cabecalho vazio conta como `secret_errado`, e a metrica do criterio 4
+    # deixa de distinguir «o HND nao mandou o segredo» de «o segredo esta
+    # errado» — que sao um defeito de configuracao e um ataque.
+    ('handoff: a degradacao deixa de pausar a conversa', AG_HND_SERVICO,
+     '''        self._modos.pausar(
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            motivo=MOTIVO_DA_PAUSA,
+        )''',
+     '        return',
+     AGR_UNIT),
+    # A conversa fica em `bot` com uma passagem degradada: o bot continua a
+    # responder a uma conversa que pediu um humano, que e o contrario do
+    # invariante do §10.2. Criterio 6.
+    ('handoff: a degradacao so conta se houver quem pause', AG_HND_SERVICO,
+     '''        self._contar(METRICA_HANDOFF_DEGRADADO, None)
+        self._contar(METRICA_HANDOFF, "degraded")
+        if self._modos is None:
+            return''',
+     '''        if self._modos is None:
+            return
+        self._contar(METRICA_HANDOFF_DEGRADADO, None)
+        self._contar(METRICA_HANDOFF, "degraded")''',
+     AGR_UNIT),
+    # Com a porta dos modos por ligar — que e o estado de hoje —, **nenhuma**
+    # degradacao e contada: o provedor pode estar em baixo uma semana e o painel
+    # mostra zero.
+    ('handoff: so se retoma de waiting passa a admitir o resumed', AG_HND_MAQUINA,
+     'ESTADOS_RETOMAVEIS: Final = ("waiting",)',
+     'ESTADOS_RETOMAVEIS: Final = ("waiting", "resumed")',
+     AGR_UNIT),
+    # O `pode_retomar` deixa de classificar o *webhook* duplicado como
+    # duplicado: ele passa a `recusado`, com 404, e o Chatwoot deixa de saber
+    # que o `resolved` foi tratado.
+    ('handoff: a varredura passa a retomar com resolved', AG_HND_MAQUINA,
+     'DESFECHO_DO_PRAZO: Final = "timeout"',
+     'DESFECHO_DO_PRAZO: Final = "resolved"',
+     AGR_UNIT),
+    # O `handoff_close` deixa de mandar a mensagem de alternativas, e o cliente
+    # que esperou 24 h nao recebe nada — que e a exigencia da Messaging Policy
+    # que o §11.4 cita. Criterio 7.
+    ('handoff: o prazo passa a ser de doze horas', AG_HND_PRAZOS,
+     'PRAZO_SEGUNDOS: Final = 24 * 60 * 60',
+     'PRAZO_SEGUNDOS: Final = 12 * 60 * 60',
+     AGR_UNIT),
+    # Metade das passagens que o §11.4 manda esperar 24 h sao fechadas as 12, e
+    # o cliente recebe «ainda nao houve resposta» enquanto o colega ainda esta a
+    # ler. Nao e parametro de calibracao: e a exigencia da Messaging Policy.
+    ('handoff: a varredura para na primeira falha', AG_HND_PRAZOS,
+     '''                contagem["falhou"] += 1
+                continue''',
+     '''                contagem["falhou"] += 1
+                raise''',
+     AGR_UNIT),
+    # Uma passagem que falhe deixa as restantes N-1 sem retoma, e a varredura
+    # seguinte bate na mesma primeira: um unico *thread* avariado para o prazo
+    # de **todos** os *tenants*.
+    ('handoff: a varredura deixa de tomar a tranca da conversa', AG_HND_PRAZOS,
+     '''                async with self._trancas.tomar(thread_id):
+                    desfecho = await self._retomar(
+                        thread_id, handoff_id, DESFECHO_DO_PRAZO
+                    )''',
+     '''                desfecho = await self._retomar(
+                    thread_id, handoff_id, DESFECHO_DO_PRAZO
+                )''',
+     AGR_UNIT),
+    # O `Command(resume=...)` passa a entrar no grafo ao mesmo tempo que um
+    # turno novo, sobre o mesmo *thread* — que e o que o §11 regra 3 proibe por
+    # escrito.
+    ('handoff: a tranca passa a tomar-se antes de o thread ser validado', AG_API,
+     '''        try:
+            partes(corpo["thread_id"])
+        except ThreadInvalidoError:
+            return JSONResponse(
+                {"outcome": "corpo_invalido", "error_code": "thread_id_invalido"},
+                status_code=400,
+            )
+        if retomar is None:''',
+     '        if retomar is None:',
+     AGR_UNIT),
+    # A tranca e um `pg_advisory_lock` **por chave**, e passa a tomar-se com uma
+    # chave que nao corresponde a conversa nenhuma: quem tenha as duas
+    # credenciais prende chaves arbitrarias — uma negacao de servico por
+    # conversa, de dentro da rede.
+    #
+    # E as sete do SQL, na suite da base.
+    ('handoff: o CAS deixa de exigir o estado de partida', AG_SQL,
+     '''   WHERE h.tenant_id = %s
+     AND h.handoff_id = %s
+     AND h.status = 'waiting\'''',
+     '''   WHERE h.tenant_id = %s
+     AND h.handoff_id = %s''',
+     "tests_agr"),
+    # O *webhook* duplicado do Chatwoot vence o CAS **outra vez**: duas retomas
+    # do mesmo *handoff*, e o `resumed_at` reescrito. E o criterio 3 pelo
+    # avesso.
+    ('handoff: o CAS deixa de verificar o vinculo ao thread', AG_SQL,
+     '''     AND h.status = 'waiting'
+     AND EXISTS (
+           SELECT 1
+             FROM platform.conversations c
+            WHERE c.tenant_id = h.tenant_id
+              AND c.id = h.conversation_id
+              AND c.contact_id = %s
+         )
+  RETURNING 1''',
+     '''     AND h.status = 'waiting'
+  RETURNING 1''',
+     "tests_agr"),
+    # Um `handoff_id` do mesmo *tenant* e de **outro contacto** retoma, e o
+    # `Command(resume=...)` vai ao *thread* errado: a conversa de outra pessoa
+    # retomada com o desfecho desta. O `handoff_id` e irreversivel, pelo que
+    # nada mais o impede.
+    ('handoff: o CAS deixa de escrever o instante da retoma', AG_SQL,
+     '''     SET status = %s,
+         resumed_at = now()
+   WHERE h.tenant_id = %s''',
+     '''     SET status = %s
+   WHERE h.tenant_id = %s''',
+     "tests_agr"),
+    # O SLA de retoma do criterio 8 deixa de ser calculavel: sem `resumed_at`,
+    # `resumed_at - opened_at` e nulo e **nenhuma** passagem conta como dentro
+    # dos 15 min.
+    ('handoff: a reversao deixa de limitar o estado de partida', AG_SQL,
+     '''   WHERE tenant_id = %s
+     AND handoff_id = %s
+     AND status = %s
+  RETURNING 1''',
+     '''   WHERE tenant_id = %s
+     AND handoff_id = %s
+  RETURNING 1''',
+     "tests_agr"),
+    # A compensacao passa a devolver a `waiting` uma passagem que **outro**
+    # pedido ja tinha fechado — um `cancelled` legitimo volta a ficar a espera
+    # de um humano.
+    ('handoff: a varredura passa a trazer as passagens degradadas', AG_SQL,
+     '''   WHERE h.status = 'waiting'
+     AND h.opened_at < %s''',
+     '''   WHERE h.status IN ('waiting', 'degraded')
+     AND h.opened_at < %s''',
+     "tests_agr"),
+    # Uma passagem que nunca chegou ao provedor passa a ser retomada por prazo,
+    # e o `Command(resume=...)` entra num *thread* que nao tem `interrupt`
+    # pendente nenhum — porque o `handoff_prepare` degradou e seguiu para o
+    # `send`.
+    ('handoff: o SLA passa a contar tambem as que expiraram', AG_SQL,
+     '''   WHERE h.tenant_id = %s
+     AND h.status = 'resumed'
+     AND h.resumed_at IS NOT NULL''',
+     '''   WHERE h.tenant_id = %s
+     AND h.status IN ('resumed', 'timeout')
+     AND h.resumed_at IS NOT NULL''',
+     "tests_agr"),
+    # Uma passagem que acabou em `timeout` **nao foi atendida**, e po-la no
+    # denominador de um SLA de atendimento conta uma falha como amostra: o
+    # painel passa a mostrar o SLA melhor do que ele e, porque uma expiracao de
+    # 24 h e lenta mas entra na conta.
+    ('handoff: a leitura de classificacao deixa de juntar a conversa', AG_SQL,
+     '''    JOIN platform.conversations c
+      ON c.tenant_id = h.tenant_id
+     AND c.id = h.conversation_id
+   WHERE h.tenant_id = %s
+     AND h.handoff_id = %s
+     AND c.contact_id = %s''',
+     '''   WHERE h.tenant_id = %s
+     AND h.handoff_id = %s''',
+     "tests_agr"),
+    # A classificacao do zero linhas deixa de distinguir o duplicado da recusa
+    # pelo lado errado: uma passagem de outro contacto do mesmo *tenant* passa a
+    # responder `repetido` com 200 — «tratado» sobre um pedido que nao tratamos.
 ]
 
 
@@ -4679,6 +4963,27 @@ def _copiar(destino: Path, suite: str = "tests") -> None:
         RAIZ / "specs" / "02_Dicionario_de_Dados_Canonico.md",
         destino / "specs" / "02_Dicionario_de_Dados_Canonico.md",
     )
+    # KAM-034: o inventario de segredos, **um** ficheiro de `ops/`. O
+    # `test_o_id_do_segredo_esta_no_inventario` do `test_api_interna.py` le-o
+    # para confirmar que o `agr_internal_token` (e agora o
+    # `chatwoot_bot_secret`) tem entrada — uma afirmacao sobre o
+    # **repositorio**, como o dicionario e a lista de dividas acima. Entra
+    # porque esta bateria passou a estar no `MODULOS_DO_AGR_UNIT`: ate ai
+    # ninguem a corria no corredor de mutacoes, e por isso ninguem precisava do
+    # ficheiro. Sem ele a linha de base da `agr_unit` fica vermelha com
+    # `FileNotFoundError`, e e a regra do fim desta funcao outra vez.
+    (destino / "ops").mkdir(parents=True, exist_ok=True)
+    shutil.copy(
+        RAIZ / "ops" / "secrets-inventory.yaml",
+        destino / "ops" / "secrets-inventory.yaml",
+    )
+    # (**Aqui esteve uma copia de um ficheiro de `packages/core-ts`, e sai
+    # porque era redundante.** O `test_os_motivos_sao_os_dois_primeiros_do_hnd`
+    # do KAM-034 le o `MOTIVOS_DE_RECUSA` do `hnd/assinatura.ts`, e a copia
+    # inteira de `packages/core-ts` mais abaixo ja o leva — a copia de um
+    # ficheiro so, feita **antes** dela, criava a pasta e o `copytree` seguinte
+    # rebentava com `FileExistsError`. Medido na primeira execucao das vinte
+    # mutacoes `handoff:`.)
     # KAM-030: a pasta `llm/` e o `infra/llm/`, e as duas por baterias que leem
     # **o repositorio** e nao um duplo.
     #
@@ -5132,8 +5437,23 @@ MODULOS_DO_AGR_UNIT = (
     "test_validador",
     # KAM-031, pela mesma razao. Quem acrescentar uma bateria de unidade ao AGR
     # acrescenta-a **aqui**, e nao ha maquina que o lembre: a nota acima e o
-    # aviso, e as doze mutacoes `grafo:` sao o que ele protege.
+    # aviso, e as dezenove mutacoes `grafo:` sao o que ele protege.
     "test_vendedor",
+    # KAM-034, e sao **tres**. A do *handoff* e a da politica AST sao obvias; a
+    # terceira nao, e e a licao desta lista outra vez: o `test_api_interna` era
+    # do KAM-025 e **nunca** esteve aqui, pelo que nenhuma mutacao ao
+    # `api_interna.py` podia ser apanhada. A mutacao
+    # `handoff: a tranca passa a tomar-se antes de o thread ser validado`
+    # **sobreviveu** por isso, com o ensaio dela a passar no `discover` — a
+    # suite verde e o corredor a nunca correr o ficheiro que a mata. Quem
+    # acrescentar uma bateria de unidade ao AGR acrescenta-a aqui.
+    #
+    # A da politica AST tambem nao e opcional: duas das mutacoes `handoff:`
+    # quebram o `handoff_wait` e **so** ela as apanha, pelo que sem a linha o
+    # teste AST do criterio 2 ficava a correr sem nunca provar que morde.
+    "test_handoff",
+    "test_handoff_ast",
+    "test_api_interna",
 )
 
 
