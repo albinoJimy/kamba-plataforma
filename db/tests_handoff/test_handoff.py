@@ -148,6 +148,7 @@ TESTES_OBRIGATORIOS = (
     "**o recusado do AGR e alcancavel: um thread que nao e da passagem**",
     # O orcamento total do cliente, que o tecto do sono sozinho nao dava.
     "**o orcamento total impede a segunda tentativa**",
+    "**a segunda tentativa leva o que resta do orcamento, e nao o tecto inteiro**",
     "**as duas credenciais leem-se a cada tentativa**",
     "**o AGR em baixo levanta, e a passagem fica em waiting**",
     "**o handler do onHumanEvent corre, e corre depois da retoma**",
