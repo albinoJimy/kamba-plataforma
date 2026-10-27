@@ -67,3 +67,10 @@ ci/x11/
 # que o `ci/coverage/` em falta. O LCOV e o que se arquiva; isto e intermediario.
 .coverage
 .coverage.*
+
+# Evidencia bruta de cada execucao do spike KAM-041: resultados, registos do
+# Medusa, e o `pg_dump` que o harness escreve. Reproduz-se correndo o harness
+# (`python spikes/medusa-d3/harness.py`), e o que se arquiva e o relatorio em
+# `docs/spikes/KAM-041-medusa.md` — com os numeros ja lidos. Guardar isto
+# versionaria megabytes de registo por cada medicao repetida.
+spikes/medusa-d3/resultados/

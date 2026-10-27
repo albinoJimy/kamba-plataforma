@@ -65,7 +65,7 @@ Cada decisão tem um estado: **FIXA** (não se re-litiga sem emenda), **CONDICIO
 |---|---|---|---|
 | ADR-001 | Cloud API + coexistência; Tech Provider; Embedded Signup v4; GWY único | **CONDICIONAL** | Coexistência em +244 NÃO VERIFICADA → KAM-100 |
 | ADR-002 | LangGraph biblioteca MIT; Dify/n8n/Typebot vedados a tenants | FIXA | Licenças confirmadas (E4) |
-| ADR-003 | Medusa v2 sujeito a spike; fallback | **CONDICIONAL** | KAM-041 |
+| ADR-003 | Medusa v2 sujeito a spike; fallback | **CONDICIONAL** | KAM-041 **feito** (2026-10-27): recomendação é a opção B com a autoridade da reserva no `platform` (`../docs/spikes/KAM-041-medusa.md`). Gatilho em falta: ratificação do fundador |
 | ADR-004 | Facilitador; liquidação directa; plataforma sem fundos | FIXA (invariante) | Enquadramento BNA a confirmar por parecer (D8) |
 | ADR-005 | LLM via LiteLLM ≥ 1.83.0 por digest | FIXA | — |
 | ADR-006 | Postgres 18 único com `iterative_scan`/partição | FIXA | Reavaliar no teste de carga (KAM-084) |
@@ -90,7 +90,7 @@ Cada decisão tem um estado: **FIXA** (não se re-litiga sem emenda), **CONDICIO
 |---|---|---|---|---|---|
 | D1 | Alojamento: Luanda ou JNB/CPT com procedimento APD | ABERTA | Produto + Segurança | KAM-105 | Fundador decide até à semana 3; sem D1 não há dados reais |
 | D2 | Fluxo B / número agregador | **CONDICIONAL** | Produto | KAM-101 | Gatilho: resposta escrita da Meta |
-| D3 | Medusa puro / Mercur / registo próprio | ABERTA | Arquitecto | KAM-041 | Spike decide em 5 dias úteis |
+| D3 | Medusa puro / Mercur / registo próprio | ABERTA | Arquitecto | KAM-041 | Spike **feito** (2026-10-27) com recomendação fundamentada (`../docs/spikes/KAM-041-medusa.md` §8). Falta assinar: Arquitecto de Plataforma e Responsável de Segurança; e ratificar: fundador |
 | D4 | Facilitador e onboarding bancário por PME | ABERTA | Produto | KAM-103 | Sem contrato à semana 6: Piloto fica em `ManualProvider` |
 | D5 | Tech Provider directo ou BSP | ABERTA | Produto | KAM-102 | Sem Tech Provider à semana 6: pára o canal (KAM-016) |
 | D6 | StorageProvider: SeaweedFS ou S3 gerido | ABERTA | SRE | KAM-011 | Decide com D1 |

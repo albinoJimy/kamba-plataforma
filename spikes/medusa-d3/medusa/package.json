@@ -1,0 +1,29 @@
+{
+  "name": "kamba-spike-medusa-d3",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Projecto Medusa v2 minimo do spike KAM-041. Nao e codigo de producao: o adaptador final e o KAM-042.",
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "medusa build",
+    "migrate": "medusa db:migrate",
+    "start": "medusa start",
+    "develop": "medusa develop"
+  },
+  "$comment_dependencies": "Quatro pacotes `@medusajs/*` e mais nada, como o starter oficial. **Nao se declaram `@mikro-orm/*`, `pg` nem `awilix`**: o MikroORM foi absorvido para o `@medusajs/framework` na v2.11.0 e vem com a versao que o framework quer. Fixa-los aqui parte o arranque — medido a 2026-10-27: com `@mikro-orm/*` em 6.4.3, o `db:generate` morreu com «Bad @mikro-orm/knex version 6.4.3. All official @mikro-orm/* packages need to have the exact same version as @mikro-orm/core (6.6.14)». A versao do Medusa fixa-se nos quatro; o resto fixa-se pelo `package-lock.json`.",
+  "dependencies": {
+    "@medusajs/admin-sdk": "2.21.2",
+    "@medusajs/cli": "2.21.2",
+    "@medusajs/framework": "2.21.2",
+    "@medusajs/medusa": "2.21.2"
+  },
+  "$comment_devDependencies": "O `ts-node` nao e opcional: o CLI do Medusa carrega o `medusa-config.ts` por `ts-node`, e sem ele o `db:generate` e o `db:migrate` morrem com `Cannot find module 'ts-node'` antes de tocarem na base. Medido no spike a 2026-10-27. (Uma chave `$comment_` DENTRO de `dependencies` nao passa: o npm recusa-a com EINVALIDPACKAGENAME. Tambem medido.)",
+  "devDependencies": {
+    "@types/node": "20.19.9",
+    "ts-node": "10.9.2",
+    "typescript": "5.6.2"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

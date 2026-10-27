@@ -275,6 +275,19 @@ fora_de_ambito:
       verifica versoes. Nao cria esquema, tabela nem coluna do dominio KAMBA —
       esses nascem so pelas revisoes do Alembic.
 
+  - caminho: "spikes/medusa-d3/ddl/*.sql"
+    razao: >-
+      Instrumento de medicao do spike KAM-041, nao migracao. Cria na base
+      descartavel do harness as tabelas do ciclo de vida da encomenda que o
+      `docs/tecnica/03` §5.4 desenha e que **ainda nao existem** em
+      `db/migrations/versions/` (a revisao de cabeca e a 0003; as tabelas de
+      encomenda sao do KAM-044 e do KAM-045). Ficam fora do dicionario de
+      proposito: os nomes canonicos entram pela mao de quem escrever essas
+      revisoes, verificados onde sao contrato, e nao por um ficheiro de spike
+      que mede o desenho antes de ele ser migracao. A unica tabela com nome
+      proprio do spike — `platform.spike_stock_levels` — leva o prefixo
+      `spike_` precisamente para nao se confundir com um nome candidato.
+
 # ----------------------------------------------- modulos auxiliares de migracao
 #
 # Uma revisao so pode importar o Alembic, o SQLAlchemy, a biblioteca padrao e os

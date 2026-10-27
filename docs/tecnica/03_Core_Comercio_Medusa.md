@@ -113,22 +113,55 @@ interface CommerceRegistry {
 
 Regras da porta: (1) toda a chamada recebe `ctx`; sem `ctx.tenantId` a implementação falha fechada; (2) `createOrder` é idempotente por `(tenantId, intentKey)`; (3) `transition` usa concorrência optimista (`expectedVersion`) e só aceita as transições do §6.2; (4) nenhuma operação aceita um preço do chamador: o preço vem de `offer_terms`/Registo, ou de uma `price_quote` do dono (§7.2).
 
-### 3.3 Mapeamento conceptual para o Medusa v2 (a validar no spike)
+### 3.3 Mapeamento conceptual para o Medusa v2 (validado no spike KAM-041)
 
-| Conceito KAMBÁ | Medusa v2 (hipótese) | Estado | Nota |
+Estados actualizados a 2026-10-27 pelo spike KAM-041
+([`../spikes/KAM-041-medusa.md`](../spikes/KAM-041-medusa.md)). Onde diz
+CONFIRMADO, há fonte primária lida ou medição por execução; o que ficou por
+medir diz-se, e diz porquê.
+
+| Conceito KAMBÁ | Medusa v2 | Estado | Nota |
 |---|---|---|---|
-| Tenant / vendedor | módulo custom `merchant` + *links* para produto, stock location, sales channel, encomenda | NÃO VERIFICADO | Base do fallback 1 (`merchant_id`); o Medusa não é multi-tenant nativo (`evidencia/E4` §2.1). |
-| Produto e variante | Product Module | INDÍCIO | Preço `fixo` pode viver no Pricing Module; os modos `a_partir_de`/`sob_consulta` vivem em `offer_terms`. |
-| Stock | Inventory Module (itens, níveis por localização, *reservation items*) | INDÍCIO | **Sem TTL nativo assumido**: a expiração é nossa (`stock_reservations.expira_at` + scheduler, §6.5). |
-| Encomenda | Order Module + *workflow* com compensação | INDÍCIO | O ciclo de vida de §6.1 é mantido em `orders_mirror`; o `status` do Medusa segue como projecção. |
-| Canal por tenant | Sales Channel + Stock Location por tenant | INDÍCIO | Reforço de âmbito, não substitui o filtro `merchant_id`. |
-| Eventos | *subscribers* do Medusa → *outbox* próprio | INDÍCIO | O bus canónico é o EVT (ADR-009), não o do Medusa. |
+| Tenant / vendedor | módulo custom `merchant` + *links* para produto, stock location, sales channel, encomenda | **CONFIRMADO** (o módulo e o *link* funcionam; o isolamento **não** vem deles) | O Medusa **não** é multi-tenant nativo — negação textual da documentação oficial. E o *link* «stores only the IDs of the linked records and does not hold a foreign key constraint»: não dá integridade referencial nem filtragem. Base do fallback 1 (`merchant_id`), e a imposição do filtro é inteiramente nossa. |
+| Produto e variante | Product Module | INDÍCIO | Preço `fixo` pode viver no Pricing Module; os modos `a_partir_de`/`sob_consulta` vivem em `offer_terms`. Não medido no spike: é do KAM-043. |
+| Stock | Inventory Module (itens, níveis por localização, *reservation items*) | **CONFIRMADO: sem TTL, sem atomicidade na camada do módulo** | O `ReservationItem` tem onze campos e **nenhum de expiração**; não há *scheduler* nativo (`packages/medusa/src/jobs/` só tem `.gitkeep`); e não há constraint que impeça `reserved_quantity` de passar `stocked_quantity`. A expiração é nossa (`stock_reservations.expira_at` + scheduler, §6.5) — e, pelo §4 do relatório, **a autoridade da reserva também**. |
+| Encomenda | Order Module + *workflow* com compensação | INDÍCIO | O ciclo de vida de §6.1 é mantido em `orders_mirror`; o `status` do Medusa segue como projecção. A compensação não foi exercitada no spike (§10 do relatório). |
+| Canal por tenant | Sales Channel + Stock Location por tenant | **CONFIRMADO: reforço, nunca barreira** | Confirmado por execução na matriz ISO-11..18: o canal limita o que uma chave publicável vê, mas não substitui o filtro `merchant_id` — e o *query graph* não aplica filtro nenhum (ISO-27..32). |
+| Eventos | *subscribers* do Medusa → *outbox* próprio | INDÍCIO | O bus canónico é o EVT (ADR-009), não o do Medusa. Não medido: os *subscribers* são do KAM-051. |
 
 ### 3.4 Licenciamento (CONFIRMADO em `evidencia/E4` §2.1)
 
 - Medusa é MIT **excepto** materiais *Enterprise Edition* desde 2026-08-11: **RBAC** (`rbac`, `policies`, rotas `admin/rbac`), **SSO/OIDC** (`providers/auth-oidc`). «Activar qualquer *feature flag* Enterprise constitui declaração de que se detém acordo comercial.»
 - **Decisão:** não activar `rbac` nem `auth-oidc` nem `policies`. As permissões por tenant e por utilizador do tenant são **nossas**, na API do COM (dono, funcionário, ops). O admin Medusa serve apenas operadores internos com utilizador genérico (MIT).
 - **Controlo:** teste de CI que falha o *build* se `medusa-config` contiver módulos ou flags EE; registo de licença por versão fixada (as versões anteriores a 2026-08-11 permanecem MIT). Se RBAC/SSO do admin passarem a ser necessários (equipa de suporte grande), a alternativa é **licença Enterprise do Medusa** (custo NÃO VERIFICADO; pedir proposta) — não contornar.
+
+**Três correcções do spike KAM-041** (2026-10-27, fonte primária lida;
+[`../spikes/KAM-041-medusa.md`](../spikes/KAM-041-medusa.md) §5, AC-7):
+
+1. **A versão que fixamos não é MIT.** O `package.json` do `@medusajs/medusa`
+   declara `"license": "SEE LICENSE IN LICENSE"` desde a **2.19.0**
+   (2026-08-13); a **2.18.0** (2026-07-23) é a última a declarar `MIT`. O acto
+   de licenciamento é de 2026-08-11 (PR #16110), e **não é retroactivo**: «This
+   notice applies prospectively and does not withdraw rights already granted for
+   earlier versions.» Dizer «Medusa é MIT excepto…» sem esta precisão faz supor
+   que o artefacto que instalamos vem sob MIT, e não vem — vem sob um ficheiro
+   que recorta a EE por caminhos.
+2. **Os pacotes EE instalam-se sempre, e o controlo não pode ser a presença.**
+   O `@medusajs/medusa` 2.21.2 declara `@medusajs/rbac@2.21.2` e
+   `@medusajs/auth-oidc@2.21.2` como `dependencies` **directas**: não há
+   `npm ci` do Medusa sem eles. Um gate que falhasse por os encontrar em
+   `node_modules` falharia em toda a instalação. O controlo certo é o que esta
+   secção já escreve — **activar** — e a licença concorda: o que constitui
+   declaração contratual é ligar a *flag*, não possuir o código.
+3. **`policies` não é um pacote, e falta uma flag à lista.**
+   `@medusajs/policies` não existe no npm (HTTP 404): `policies` é um
+   directório dentro do `@medusajs/framework`. E o interruptor real são duas
+   *feature flags*, ambas `default_val: false`:
+   `rbac` → `MEDUSA_FF_RBAC` e `rbac_filter_fields` →
+   `MEDUSA_FF_RBAC_FILTER_FIELDS`. A segunda não está nomeada em nenhum
+   critério do KAM-041 nem nos critérios de saída do EPIC-04; o verificador do
+   spike (`spikes/medusa-d3/ee.py`) cobre as duas, e a lacuna fica devolvida a
+   quem escreveu o critério.
 
 ---
 
@@ -324,7 +357,7 @@ Notas: (a) o espaço de números angolanos é pequeno e um HMAC simples é rever
 CREATE TABLE platform.orders_mirror (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id             uuid NOT NULL REFERENCES platform.tenants(id),
-  contact_id            uuid NOT NULL REFERENCES platform.contacts(contact_id),
+  contact_id            uuid NOT NULL,              -- FK COMPOSTA, no fim da tabela: ver a nota depois do bloco
   origem                text NOT NULL DEFAULT 'pme' CHECK (origem IN ('pme','plataforma')),
   numero_publico        text NOT NULL,              -- curto, base32 sem ambiguos (ex.: K7H3Q9); tambem serve de referencia curta em PAY
   intent_key            text NOT NULL,              -- ver 6.3
@@ -345,7 +378,10 @@ CREATE TABLE platform.orders_mirror (
   entrega_confirmada_por text CHECK (entrega_confirmada_por IN ('cliente','dono','estafeta')),
   version               integer NOT NULL DEFAULT 1, -- concorrencia optimista
   criado_at             timestamptz NOT NULL DEFAULT now(), atualizado_at         timestamptz NOT NULL DEFAULT now(),
-  deleted_at            timestamptz, UNIQUE (tenant_id, intent_key), UNIQUE (tenant_id, numero_publico)
+  deleted_at            timestamptz, UNIQUE (tenant_id, intent_key), UNIQUE (tenant_id, numero_publico),
+  -- O contacto tem de ser **do mesmo tenant** que a encomenda. Ver a nota abaixo.
+  CONSTRAINT orders_mirror_contacto_do_mesmo_tenant_fk
+    FOREIGN KEY (tenant_id, contact_id) REFERENCES platform.contacts (tenant_id, contact_id)
 );
 CREATE INDEX orders_mirror_estado_idx ON platform.orders_mirror (tenant_id, estado, criado_at DESC);
 CREATE INDEX orders_mirror_expira_idx ON platform.orders_mirror (expira_at) WHERE estado IN ('aguarda_pagamento','pendente_confirmacao');
@@ -398,6 +434,27 @@ CREATE TABLE platform.price_quotes (                 -- preco dado pelo dono par
   emitida_por uuid NOT NULL, criado_at timestamptz NOT NULL DEFAULT now()
 );
 ```
+
+**Correcção de 2026-10-27 (spike KAM-041, ISO-58): a FK do `contact_id` é
+composta, e tem de ser.** Até esta data o DDL acima escrevia
+`contact_id uuid NOT NULL REFERENCES platform.contacts(contact_id)`, e o caso
+ISO-58 do spike mostrou, **por execução**, o que isso permite: com `ctx` do
+tenant A e o `contact_id` de B, a `createOrder` passou e criou uma encomenda de A
+a apontar para um contacto de B. Nem a FK nem a RLS o impedem — a FK é satisfeita
+pela chave primária de `contacts`, que não inclui o tenant, e a política
+`tenant_iso` olha para o `tenant_id` **da linha da encomenda**, que é o do
+contexto e está correcto. É exactamente o risco que o `../seguranca/riscos_residuais.md`
+RR-01 descreve: «a RLS protege de um `WHERE` esquecido, não de código que escolha
+o tenant errado».
+
+A revisão `0003` já criou o único que torna a forma composta possível
+(`contacts_tenant_contact_uq UNIQUE (tenant_id, contact_id)`), pelo que a
+correcção não custa uma migração extra — custa escrever a FK com duas colunas.
+**A tabela de produção é do KAM-044**, que a cria a partir desta secção; a mesma
+regra vale para toda a FK entre duas tabelas com `tenant_id`
+(`stock_reservations → orders_mirror`, `order_state_log → orders_mirror`,
+`price_quotes → contacts`), e o KAM-044 e o KAM-045 herdam-na daqui. Medição em
+[`../spikes/KAM-041-medusa.md`](../spikes/KAM-041-medusa.md) §7.
 
 `payment_events`, `payment_charges` e as restantes tabelas de dinheiro têm o **DDL canónico em `04_Pagamentos_Liquidacao_AntiFraude.md` §6**; aqui referem-se apenas por `order_id`. A ordem de migração está no §11, e começa por `tenants + tenant_channels` (revisão `0001`).
 
@@ -507,7 +564,7 @@ Propriedades: duplo toque ⇒ mesma chave ⇒ 1 encomenda (também na fronteira 
 | Quando reserva | Ao emitir cobrança (`criada → aguarda_pagamento`). Itens `confirmar_dono`: só **depois** de `confirmacao_dono='confirmada'` (§7.3). |
 | Quanto dura | `expira_at = fim_validade_cobranca + folga`, com `fim_validade_cobranca = min(now + ttl_tenant, now + 72 h)`; `ttl_tenant ∈ [24 h, 72 h]` (omissão 48 h). Referência AppyPay tem 72 h por omissão (CONFIRMADO, `evidencia/E2` §1.3); no ProxyPay `end_datetime` é nosso (CONFIRMADO). Express (push) dura minutos: reserva curta (omissão 30 min, correspondente à expiração de 30 min do OPG, `evidencia/E2` §1.2). |
 | Folga | 15 min após o fim da validade no facilitador, para absorver callbacks atrasados antes de libertar stock. |
-| Atomicidade | `reserveStock` é tudo-ou-nada por encomenda; sobrevenda impedida por `UPDATE ... SET reservada = reservada + :q WHERE quantidade - reservada >= :q` (ou *reservation items* do Medusa, a validar em AC-3). |
+| Atomicidade | `reserveStock` é tudo-ou-nada por encomenda; sobrevenda impedida por `UPDATE ... SET reservada = reservada + :q WHERE quantidade - reservada >= :q`. **A alternativa «ou *reservation items* do Medusa» foi validada em AC-3 e reprovou** (KAM-041, 2026-10-27): mil tentativas concorrentes sobre stock 10 deram **mais de cem reservas** pela camada do módulo, e a protecção que existe vive no passo de *workflow* com um provider de locking *in-memory* que a documentação limita a uma instância. A autoridade da reserva é do `platform` (§10.1). |
 | Stock indicativo | Reserva interna existe, mas **não é promessa de exclusividade** perante o dono (§7.3). |
 | Prorrogação | `extendReservation` só enquanto `estado='aguarda_pagamento'`, no máximo ao limite de 72 h; exige cobrança com validade correspondente. |
 
@@ -838,8 +895,11 @@ Convenção: nomes `dominio.acao` em minúsculas; versões `v1`; campos novos s�
 
 | Item | Estado | Ligação |
 |---|---|---|
-| Multi-tenancy nativa e isolamento do Medusa v2 | NÃO VERIFICADO | **D3** — resolve-se no spike |
-| Reservas do Medusa sem TTL nativo; reserva atómica sob concorrência | NÃO VERIFICADO (docs não acedidas) | D3 / AC-3, AC-6 |
+| Multi-tenancy nativa e isolamento do Medusa v2 | **CONFIRMADO: não existe** (2026-10-27) | Resolvido no spike [KAM-041](../spikes/KAM-041-medusa.md) §2.1 |
+| Reservas do Medusa sem TTL nativo | **CONFIRMADO: não há campo de expiração nem *scheduler*** (2026-10-27) | [KAM-041](../spikes/KAM-041-medusa.md) §2.2 |
+| Reserva atómica sob concorrência no Medusa | **CONFIRMADO por execução: a camada do módulo sobrevende.** Mil tentativas concorrentes sobre `stocked_quantity = 10` deram **102 a 118 reservas aceitas** por `createReservationItems` directo (varia entre execuções, porque é uma corrida), e **10** pelo mesmo chamado dentro de `locking.execute(...)`. E o `reserved_quantity` acabou em `10` nos dois casos — no primeiro por *lost update*, o que faz o contador parecer correcto enquanto existem 105 linhas de reserva | [KAM-041](../spikes/KAM-041-medusa.md) §4.3. Consequência: a autoridade da reserva fica no `platform` (§6.4, §10.1), e o provider de locking *in-memory* não serve um COM com mais de uma instância |
+| Compensação do *workflow* do Medusa sob falha a meio | NÃO VERIFICADO | O spike não a exercitou: a saga que mediu é a do `platform` (AC-5). Fica para o KAM-042 |
+| Telemetria do CLI do Medusa activa por omissão | **CONFIRMADO** (2026-10-27) | [KAM-041](../spikes/KAM-041-medusa.md) §3.1. Desliga-se com `MEDUSA_DISABLE_TELEMETRY`; o destino dos dados é NÃO VERIFICADO e interessa ao ADR-008 e ao `08` |
 | Custo e condições da licença Enterprise do Medusa | NÃO VERIFICADO | D3 (apenas se RBAC/SSO forem necessários) |
 | Stripe Connect disponível em Angola (payout Mercur) | NÃO VERIFICADO | irrelevante no Piloto (ADR-004) |
 | Residência/transferência de imagens para LLM de visão | NÃO VERIFICADO | **D1** (alojamento, autorização APD) |
