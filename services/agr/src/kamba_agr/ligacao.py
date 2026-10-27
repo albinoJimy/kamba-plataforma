@@ -1,8 +1,9 @@
-"""As quatro ligacoes do AGR a base da plataforma (KAM-025, KAM-026, KAM-028).
+"""As ligacoes do AGR a base da plataforma (KAM-025, KAM-026, KAM-028 a KAM-034).
 
-O AGR corre com **dois** papeis e abre **quatro** ligacoes. Tres sao do
-`kamba_app` (`NOBYPASSRLS`, sem DDL) e nao sao tres papeis: sao tres usos que
-nao podem partilhar uma tomada. A quarta e de outro papel, e isso **e**
+O AGR corre com **dois** papeis e abre **seis** ligacoes. Cinco sao do
+`kamba_app` (`NOBYPASSRLS`, sem DDL) e nao sao cinco papeis: sao cinco usos que
+nao podem partilhar uma tomada, porque o `kamba_core.tenant_guard` recusa uma
+segunda transaccao na mesma ligacao. A sexta e de outro papel, e isso **e**
 deliberado — ver `PAPEL_DO_CHECKPOINTER` mais abaixo.
 
 | Ligacao | Papel | `autocommit` | Para que serve |
@@ -10,7 +11,15 @@ deliberado — ver `PAPEL_DO_CHECKPOINTER` mais abaixo.
 | leitura | `kamba_app` | nao | `conversations.mode` e `handoffs.status`, dentro de `tenant_guard.tx` |
 | tranca | `kamba_app` | **sim** | so `pg_advisory_lock` / `pg_advisory_unlock` (`trancas.py`) |
 | tools | `kamba_app` | nao | a ToolLayer: entitlement, backend `plataforma` e `tool_audit` (`tls/`) |
+| llm | `kamba_app` | nao | so `dat.llm_call_log` (`llm/registo.py`) |
+| handoff | `kamba_app` | nao | o CAS da retoma em `platform.handoffs` (`handoff/retoma.py`) |
 | checkpoint | `kamba_agr` | nao | o esquema `lg`, e **nada** do `platform` (`checkpointer.py`) |
+
+A varredura dos prazos do *handoff* **nao** esta na tabela, e nao e
+esquecimento: ela atravessa *tenants*, corre como `kamba_batch`, e recebe a
+ligacao de quem a chama — como o `retencao.varrer` do KAM-026. Nenhuma funcao
+deste modulo abre uma ligacao de lote, para que o processo do AGR nao ganhe um
+terceiro papel por causa de um trabalho que corre fora de qualquer pedido.
 
 A das tools e uma tomada propria e nao a da leitura, e a razao e o
 `kamba_core.tenant_guard`: ele **recusa** uma segunda transaccao na mesma
@@ -102,6 +111,8 @@ NOME_DO_CHECKPOINTER: Final = "kamba-agr:checkpoint"
 NOME_DAS_TOOLS: Final = "kamba-agr:tools"
 #: A quinta, do gateway de LLM (KAM-030): so `dat.llm_call_log`.
 NOME_DO_LLM: Final = "kamba-agr:llm"
+#: A sexta, da retoma do *handoff* (KAM-034): so `platform.handoffs`.
+NOME_DO_HANDOFF: Final = "kamba-agr:handoff"
 
 
 class ConfiguracaoEmFalta(RuntimeError):
@@ -192,6 +203,30 @@ def ligar_para_llm(ambiente: Any = None) -> Any:
     por onde chegar ao custo de ninguem.
     """
     return _ligar(ambiente, autocommit=False, nome=NOME_DO_LLM)
+
+
+def ligar_para_handoff(ambiente: Any = None) -> Any:
+    """A ligacao da retoma do *handoff* (KAM-034). Transaccional, `kamba_app`.
+
+    **A sexta tomada, e pela razao das duas anteriores**: o
+    `kamba_core.tenant_guard` recusa uma segunda transaccao na mesma ligacao
+    (`LigacaoEmUso`), e uma retoma corre **ao mesmo tempo** que turnos de outras
+    conversas — a tranca serializa por `thread_id`, nao o processo. Partilhada
+    com a leitura da palavra, um `/internal/resume` e um `/internal/turn`
+    concorrentes rebentavam um ao outro.
+
+    Papel `kamba_app` e nao `kamba_agr`: o que ela toca e a `platform.handoffs`
+    (`UPDATE (status, resumed_at)`, revisao `0011`) e a `platform.conversations`
+    (`SELECT`, para o vinculo ao *thread*), e o `kamba_agr` **nao tem `USAGE` no
+    `platform`**, de proposito (KAM-026).
+
+    A varredura dos prazos **nao** usa esta: atravessa *tenants*, corre como
+    `kamba_batch`, e recebe a ligacao de quem a chama — como o
+    `retencao.varrer` do KAM-026, e pela mesma razao. Dar ao processo do AGR um
+    terceiro papel para uma varredura que corre fora de qualquer pedido era
+    alargar o que o servico pode fazer pelo resto do tempo.
+    """
+    return _ligar(ambiente, autocommit=False, nome=NOME_DO_HANDOFF)
 
 
 def ligar_para_checkpoint(ambiente: Any = None) -> Any:

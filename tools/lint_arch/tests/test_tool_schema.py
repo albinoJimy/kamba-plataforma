@@ -64,15 +64,22 @@ class TestRepositorio(unittest.TestCase):
 
 
 class _ComArvore(unittest.TestCase):
-    def arvore(self, *, dentro_da_tls: bool, fonte: str) -> list[str]:
-        """Uma arvore com um ficheiro de servico, dentro ou fora de `tls/`."""
+    def arvore(
+        self, *, dentro_da_tls: bool, fonte: str, nome: str = "ensaio.py"
+    ) -> list[str]:
+        """Uma arvore com um ficheiro de servico, dentro ou fora de `tls/`.
+
+        `nome` existe para os canarios do `ESCRITAS_DO_PLANO_DE_CONTROLO`, cuja
+        chave e `(ficheiro, tabela)`: sem ele nao ha forma de escrever um
+        ficheiro **com** o nome dispensado e outro sem.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             raiz = Path(tmp)
             pasta = raiz / "services" / "agr" / "src" / "kamba_agr"
             if dentro_da_tls:
                 pasta = pasta / "tls"
             pasta.mkdir(parents=True)
-            (pasta / "ensaio.py").write_text(fonte, encoding="utf-8")
+            (pasta / nome).write_text(fonte, encoding="utf-8")
             return tool_schema.check(raiz)
 
 
@@ -200,6 +207,103 @@ class TestCanarios(_ComArvore):
             fonte='SQL = "SELECT mode FROM platform.conversations WHERE id = %s"\n',
         )
         self.assertEqual(achados, [])
+
+    def test_a_escrita_do_plano_de_controlo_declarada_passa(self) -> None:
+        """O CAS do KAM-034 em `consultas.py`, declarado por `(ficheiro, tabela)`."""
+        achados = self.arvore(
+            dentro_da_tls=False,
+            nome="consultas.py",
+            fonte='SQL = "UPDATE platform.handoffs SET status = %s"\n',
+        )
+        self.assertEqual(achados, [])
+
+    def test_outra_tabela_no_mesmo_ficheiro_dispensado_continua_a_falhar(self) -> None:
+        """**E a propriedade que faz a chave ser `(ficheiro, tabela)`.**
+
+        Um `consultas.py` dispensado em bloco deixava passar um `UPDATE
+        platform.orders` na linha seguinte — e e exactamente isso que esta regra
+        existe para apanhar. Com a chave por par, o ficheiro dispensado para uma
+        tabela continua a morder em todas as outras.
+        """
+        for tabela in ("orders", "contacts", "conversations", "tenants"):
+            with self.subTest(tabela=tabela):
+                achados = self.arvore(
+                    dentro_da_tls=False,
+                    nome="consultas.py",
+                    fonte=f'SQL = "UPDATE platform.{tabela} SET x = %s"\n',
+                )
+                self.assertEqual(len(achados), 1, achados)
+                self.assertIn("unica via de escrita", achados[0])
+
+    def test_a_mesma_tabela_noutro_ficheiro_continua_a_falhar(self) -> None:
+        """A dispensa e do par, logo nao viaja com a tabela."""
+        achados = self.arvore(
+            dentro_da_tls=False,
+            nome="turno.py",
+            fonte='SQL = "UPDATE platform.handoffs SET status = %s"\n',
+        )
+        self.assertEqual(len(achados), 1, achados)
+        self.assertIn("unica via de escrita", achados[0])
+
+    def test_um_insert_ou_delete_na_tabela_dispensada_continua_a_falhar(self) -> None:
+        """**A dispensa e por verbo, e a primeira versao deixou-o de fora.**
+
+        Ela argumentava que distinguir verbos era redundante porque «o `GRANT`
+        por coluna da revisao `0011` da-a melhor: o `kamba_app` nao tem `DELETE`
+        em `platform.handoffs`». Metade era falso — a `0011` concede
+        `GRANT SELECT, INSERT`, pelo que um `INSERT` escrito ali **passava o
+        *lint* e corria na base**. E o canon atribui a criacao da passagem ao HND
+        e a purga ao `kamba_batch`. Achado 5 da revisao adversarial.
+        """
+        for instrucao in (
+            "INSERT INTO platform.handoffs (handoff_id) VALUES (%s)",
+            "DELETE FROM platform.handoffs WHERE handoff_id = %s",
+        ):
+            with self.subTest(verbo=instrucao.split()[0]):
+                achados = self.arvore(
+                    dentro_da_tls=False,
+                    nome="consultas.py",
+                    fonte=f'SQL = "{instrucao}"\n',
+                )
+                self.assertEqual(len(achados), 1, achados)
+                self.assertIn("unica via de escrita", achados[0])
+
+    def test_um_identificador_entre_aspas_tambem_falha(self) -> None:
+        """**A regressao que a captura da tabela introduziu.**
+
+        O padrao era `platform\\.` e apanhava `UPDATE platform."orders"`; passar
+        a `platform\\.(\\w+)` para saber a tabela fez o `\\w+` nao casar a aspa,
+        e com isso uma escrita com identificador citado deixou de morder — num
+        *gate* de bloqueio, e para **todas** as tabelas. Achado 4 da revisao
+        adversarial.
+        """
+        for instrucao in (
+            'UPDATE platform."orders" SET x = %s',
+            'INSERT INTO platform."handoffs" (handoff_id) VALUES (%s)',
+            'DELETE FROM platform."conversations" WHERE id = %s',
+        ):
+            with self.subTest(instrucao=instrucao.split()[0]):
+                achados = self.arvore(
+                    dentro_da_tls=False, fonte=f"SQL = '{instrucao}'\n"
+                )
+                self.assertEqual(len(achados), 1, achados)
+                self.assertIn("unica via de escrita", achados[0])
+
+    def test_a_tabela_dispensada_entre_aspas_nao_escapa_a_regra_do_verbo(self) -> None:
+        """As aspas nao sao uma terceira via: o `update` citado passa (e a mesma
+        escrita) e o `insert` citado falha (e a mesma fronteira)."""
+        passa = self.arvore(
+            dentro_da_tls=False,
+            nome="consultas.py",
+            fonte="SQL = 'UPDATE platform.\"handoffs\" SET status = %s'\n",
+        )
+        self.assertEqual(passa, [])
+        falha = self.arvore(
+            dentro_da_tls=False,
+            nome="consultas.py",
+            fonte="SQL = 'INSERT INTO platform.\"handoffs\" (handoff_id) VALUES (%s)'\n",
+        )
+        self.assertEqual(len(falha), 1, falha)
 
 
 class TestOQueNaoEAchado(_ComArvore):

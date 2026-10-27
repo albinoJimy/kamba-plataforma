@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.40 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.41 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -1798,6 +1798,142 @@ confiança do STT ficam ao KAM-036, que o §10 nomeia e que declara os limiares
 «a calibrar com áudio PT-AO». As frases vetadas do `guard_out` ficam ao KAM-033,
 como a emenda 1.39 já escrevera.
 
+### 3.32 Retoma do handoff: o *compare-and-set*, o `secret` do bot e o prazo (KAM-034)
+
+*Emenda 1.41, **proposta**.* Entra **sem DDL**, e é a quinta assim (como as
+1.25, 1.29, 1.33 e as métricas da 1.21): a `platform.handoffs` existe desde a
+revisão `0011` e este ticket **não lhe acrescenta coluna nenhuma**. A cadeia de
+migrações fica na `0023`. A fonte do desenho é
+`../docs/tecnica/02_Agent_Runtime_Verticais.md` (§11 e §14) e
+`../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§11.1, §11.4, §11.5), com o
+ADR-002, o ADR-009, o ADR-010 e o ADR-015.
+
+**A emenda 1.22 deixou uma divergência por resolver e é esta secção que a
+fecha.** Ela escreveu três posições na casa sobre onde vive o *compare-and-set*
+`waiting → resumed`: o `../docs/tecnica/01` §11.5 põe-no no HND, a regra (3) do
+`../docs/tecnica/02` §11 põe o **ponto de entrada** no AGR, e o critério 7 do
+KAM-019 manda que «a retoma por *compare-and-set* é KAM-034». Segue-se a regra
+(3), porque é a única das três que diz **onde** o *endpoint* vive e sob que
+*lock* corre. A consequência é que a `handoffs` tem **dois escritores em duas
+linguagens**:
+
+* **criar a passagem, marcá-la aberta, degradá-la e fechá-la pelo provedor** é do
+  HND (KAM-019), em TypeScript — as quatro instruções do `hnd/consultas.ts`;
+* **sair de `waiting` por `/internal/resume`** é do AGR (KAM-034), em Python, e é
+  a única escrita que ele faz nesta tabela.
+
+**E as duas linhas NÃO são uma partição.** A primeira versão desta secção dizia
+que eram, e que a fronteira ficava «escrita aqui para que ninguém a
+redescubra» — e isso era **falso**, medido pela revisão adversarial do KAM-034
+(`../docs/analises/ANALISE-35`, achado 1). «Fechá-la pelo provedor» é o
+`SQL_FECHAR` do `hnd/consultas.ts`, cujo `WHERE status = ANY($3)` recebe o
+`ESTADOS_QUE_FECHAM` do `hnd/estados.ts` — que é `["waiting", "degraded"]`. Isto
+é: **o HND também sai de `waiting`**, e escreve o mesmo `status = 'resumed'` que
+o CAS do AGR.
+
+E a ordem está fixada em código, no `receber` do `hnd/provedor.ts`, e é a pior
+das duas: o `#fechar` corre **antes** do `onHumanEvent`, que é o único sítio de
+onde `/internal/resume` pode ser chamado. No caminho feliz — um colega responde e
+marca a conversa como resolvida — a linha já está em `resumed` quando o pedido
+chega ao AGR, o CAS dá zero linhas, a rota responde 200 (o *no-op* do §11.5
+aplicado a um pedido legítimo) e o `Command(resume=…)` **nunca corre**: o
+`interrupt()` fica pendente no *checkpoint*, a varredura dos prazos não o
+encontra (filtra `waiting`) e a invariante da não-reentrada abre-se (o
+`handoff_a_espera` do `SQL_PALAVRA_DA_CONVERSA` também só conta `waiting`).
+
+**Esta emenda não resolve a sobreposição, e diz porquê.** Do lado do AGR as duas
+situações são **indistinguíveis** — uma passagem em `resumed` a receber um
+`outcome=resolved` pode ser o *webhook* duplicado (e o *no-op* está certo) ou o
+primeiro pedido legítimo depois de o HND ter escrito (e o *no-op* mata a
+conversa) —, e a única marca que as separa é o estado do *checkpoint* do
+LangGraph, que esta rota não lê. As duas saídas são:
+
+1. **o HND deixa de escrever o `status` no `resolved`** e passa a chamar
+   `/internal/resume`, deixando o AGR vencer o CAS. É a que o `../docs/tecnica/01`
+   §11.4 desenha (`CW->>H: webhook … resolved`, e **depois** `H->>A: retoma com
+   Command resume e resultado`), a que a regra (3) do `../docs/tecnica/02` §11
+   escolhe, e a que a **emenda 1.22 já tinha escrito**: «a coluna `resumed_at`
+   nasce e ninguém a escreve neste ticket [o KAM-019]» — o código do HND
+   contradiz a entrada de canon do seu próprio ticket. Obriga a dar ao `resolver`
+   um caminho próprio, porque hoje ele viaja no mesmo `#fechar`;
+2. **ou o AGR aceita retomar de `resumed`**, e então o «segundo é *no-op*» do
+   §11.5 deixa de se poder decidir pelo `status` e precisa de outra marca.
+
+A primeira é a recomendada e **a decisão é de quem aprova emendas**, porque muda
+código do KAM-019. Até ela ser tomada, o critério 3 do KAM-034 está `parcial` e
+o **credor é o KAM-019**; está escrito na verificação do bloco, com as duas
+opções.
+
+(Uma lista e não uma tabela: as tabelas do §3 são lidas pelo `dict_export`, que
+exige as colunas «Conceito», «Nome canónico» e «Notas» — uma tabela auxiliar
+aqui fazia a exportação levantar, e foi o que ela fez à primeira versão desta
+secção.)
+
+**O `handoff_id` é irreversível, e isso obriga a uma verificação que nenhum
+documento pede.** Ele é `sha256(thread_id:handoff_seq)` (§3.15), pelo que do
+identificador **não** se lê o *thread* de volta: um `handoff_id` do mesmo
+*tenant* mas de **outro contacto** passaria o `tenant_id` do predicado e
+retomaria o *thread* errado — a conversa de outra pessoa a ser retomada com o
+desfecho desta. O CAS leva por isso o vínculo ao `contact_id` da conversa no
+predicado. A alternativa era uma coluna `thread_id` na `handoffs`, e com ela uma
+migração sobre uma tabela cujo DDL é do KAM-019.
+
+**E o `resumed_at` passa a escrever-se nos quatro desfechos**, contra o
+`SQL_FECHAR` do HND, que o escreve só em `resumed`: as quatro saídas de
+`waiting` por esta rota **retomam o grafo**, pelo que a coluna responde a «quando
+é que esta passagem deixou de estar à espera». O SLA de 15 min continua a contar
+só as `resumed`, pelo predicado da consulta, e por isso a divergência não altera
+número nenhum do painel.
+
+| Conceito | Nome canónico | Notas |
+|---|---|---|
+| Serviço de passagem do lado do agente | `HandoffService` | **Porta, não implementação**, e é **outra** porta que o `HandoffProvider` do §3.15: aquela é a costura para o provedor (seis operações, do lado do HND) e esta é o que o grafo chama — **uma** operação, a abertura. O `../docs/tecnica/02` §11 nomeia-a sem lhe dar campos; o que esta linha acrescenta é que ela recebe seis argumentos e **não** o estado da conversa, porque a janela de mensagens levava o texto do cliente para fora num campo que o §6.4 não cobre |
+| Corpo da retoma interna | `thread_id`, `handoff_id`, `outcome` | **Três campos de forma fechada**, os da regra (3) do `../docs/tecnica/02` §11, e um quarto é um corpo que não conhecemos. **Nenhum é o `tenant_id`**: ele sai do prefixo do `thread_id` (§3.1) e não de um campo, porque um `tenant_id` escrito por quem chama é um `tenant_id` que alguém pode trocar. E nenhum é o `resolver`: quem sabe que agente respondeu é o HND, e o AGR nunca aprende essa identidade — que é o lado certo do ADR-010 |
+| Valores do `outcome` da retoma | `resolved`, `timeout`, `cancelled` | São os três **desfechos de um `close`** que o §3.15 já fixou, e não os estados da tabela: o `outcome` atravessa o `interrupt()` sem tradução, porque é ele que o nó `handoff_close` compara para decidir se manda a mensagem de alternativas. Traduzir antes de entrar fazia o `resolved` chegar ao grafo como `resumed`, que não bate com nada |
+| Desfecho de uma chamada de retoma | `retomado`, `repetido`, `recusado` | Lista fechada; é o eixo de `agr_resume_total`. `retomado` venceu o *compare-and-set*; `repetido` é o *webhook* duplicado do Chatwoot, que responde 200 sem efeito; `recusado` é a passagem que **não é deste *thread*** e responde 404 — e é 404 e não 403 porque «existe mas não é tua» confirma a existência de uma passagem de outro *tenant* (ADR-015). Um painel que somasse os três não distinguia «uma retoma» de «duas» |
+| Cabeçalho do `secret` do *agent bot* | `x-kamba-hnd-bot` | **A segunda credencial de `/internal/resume`**, ao lado do `x-kamba-interno` do §3.24, e provam coisas diferentes: aquele prova «vem de dentro da rede» e este prova «vem do *agent bot* **deste tenant**». Com só o primeiro, qualquer componente interno retomava a passagem de qualquer *tenant*; com só o segundo, o segredo de um bot passava a valer de fora da rede. Cabeçalho próprio e não o `Authorization`: dois valores no mesmo obrigavam a um esquema de prefixos para os separar |
+| Motivo de uma retoma não autorizada | `sem_secret`, `secret_errado` | Lista fechada; é o eixo de `agr_resume_nao_autorizado_total`. São os **dois primeiros** dos quatro que o §3.15 dá ao `hnd_callback_rejeitado_total`; os outros dois não entram porque nenhum caminho desta rota os produz — o tipo é do *callback* do Chatwoot e a conta é resolvida pelo HND antes de ele chamar o AGR —, e declará-los era etiqueta sempre a zero |
+| Segredo do *agent bot* | `chatwoot_bot_secret` | Uma instância por conta, como o `chatwoot_bot_token` (§3.15), e **não é ele**: o *token* autentica as nossas chamadas **para** o Chatwoot e o `secret` autentica os pedidos que chegam **de** lá (`../docs/tecnica/01` §11.3). Dois alcances opostos no mesmo bot, logo duas instâncias no cofre. **Dois consumidores:** o HND verifica o *callback* e o AGR verifica o `/internal/resume` que o HND lhe faz. Não tem coluna em tabela nenhuma: a instância é o próprio *tenant*, e a `0011` não lhe deu uma porque não é uma referência que a aplicação resolva por linha |
+| Métricas da passagem no AGR | `agr_handoff_total`, `agr_resume_total`, `agr_resume_nao_autorizado_total`, `agr_handoff_degradado_total` | Quatro. O eixo da primeira são os cinco valores de `handoffs.status` e o nome do eixo é **estado** e não `outcome`, porque `waiting` é um estado de abertura e chamar-lhe desfecho dizia que uma passagem que acabou de abrir já tem um; a segunda e a terceira estão nas linhas acima; a quarta é **sem etiqueta**, pela razão do `agr_tool_tenant_mismatch_total` (§3.27). **Nenhuma leva `tenant_id`**, e o critério 8 pede a métrica de retoma «por *tenant*»: a tensão resolve-se como nas emendas 1.38 e 1.39 — a desagregação faz-se nas **colunas** (`tenant_id`, `opened_at`, `resumed_at`) e lê-se por consulta, porque uma série por *tenant* explode a cardinalidade e re-identifica (`OBS-I`) e a chamada levanta `EtiquetaInvalida` pela gramática de qualquer maneira |
+| Degradação da passagem contra degradação do turno | `agr_handoff_degradado_total` ≠ `agr_degraded_turns_total` | **Duas degradações diferentes com nomes parecidos**, e a distinção escreve-se porque somá-las num painel é misturar coisas sem relação: esta conta passagens que o provedor não aceitou abrir (`../docs/tecnica/02` §14, linha do HND) e a outra conta turnos que correram em **modo determinístico** por o LLM estar indisponível (§14, linha do LLM) — e essa continua a nascer com o KAM-037, como a emenda 1.33 escreveu |
+| Prazo sem resposta humana | 24 h | O `../docs/tecnica/01` §11.4 regra 4 e o critério 7. **Não é parâmetro de calibração**, ao contrário dos tectos do §3.24: é a exigência da Messaging Policy que o §11.4 cita. Ao fim dele o *scheduler* retoma com o desfecho `timeout` e o cliente recebe a mensagem de alternativas **uma só vez**, por uma chave de idempotência derivada da passagem |
+| Trabalho de lote da varredura dos prazos | `agr_handoff_prazos` | O nome do *job* que o `tx_batch` exige, e exige-o para que não haja «uso sem nome nem sem contagem» do papel `kamba_batch`. A varredura atravessa *tenants* — com contexto de um, a RLS devolvia só as passagens desse —, pelo que corre com esse papel e não com o `kamba_app` da retoma. **Não há agendador**, e isso é a mesma linha que a emenda 1.34 escreveu para a retenção do `lg`: entrega-se o corpo da varredura, prova-se com relógio simulado, e quem a chama a horas é o *scheduler* do EVT |
+| Sexta ligação do AGR | `kamba-agr:handoff` | O `application_name` da tomada da retoma, a sexta do serviço (§3.25 dá as quatro primeiras e a 1.38 a quinta). Tomada própria e não a da leitura pela razão da 1.38: o `kamba_core.tenant_guard` recusa uma segunda transacção na mesma ligação, e uma retoma corre **ao mesmo tempo** que turnos de outras conversas — a tranca serializa por `thread_id`, não o processo. Papel `kamba_app`, que é quem tem o `UPDATE (status, resumed_at)` da `0011` |
+
+**O que esta secção NÃO decide**, e cada um tem credor:
+
+* **a transição `conversation.mode = pausada` da degradação.** O critério 6 pede
+  as três metades do §14 e duas são do AGR (o estado `degraded` e a mensagem);
+  a terceira é a máquina de modos do **KAM-018**, que faz a transição pelo
+  `SQL_MUDAR_MODO` e emite `conversation.mode_changed` **na mesma transacção**.
+  O privilégio existe — a revisão `0016` deu `UPDATE (mode)` a `kamba_app` —,
+  pelo que isto não é limitação da base: reescrever aquele par em Python dava um
+  segundo dono para uma transição e a possibilidade de um modo mudar **sem
+  evento**, que nenhum consumidor a jusante (o painel, KAM-091) saberia ler. O
+  AGR tem a porta e chama-a; quem a liga é o KAM-018, do lado do CHR;
+* **o cliente HTTP do `openHandoff`** é o KAM-019. Até ele existir, a porta por
+  omissão levanta `HandoffUnavailable` — que não é uma falha a fingir: é
+  exactamente a linha que o `../docs/tecnica/01` §11.5 escreve para «Chatwoot
+  indisponível»;
+* **a notificação ao dono** por canal alternativo, que o §14 pede na mesma
+  linha da degradação, é o **KAM-115**; o §11.4 regra 2 proíbe usar o número da
+  própria loja;
+* **o *eval-gate* de handoff** (golden ≥ 85%, H7) é o **KAM-040**;
+* **a varredura de passagens em `resumed` sem *checkpoint* retomado.** É o
+  resíduo do único caso em que a compensação da retoma também falha, e limpá-la
+  exige ler o estado do LangGraph, que esta varredura não faz. **Não está
+  atribuída a ticket nenhum**, e fica dito em vez de ficar por dizer. É também o
+  estado em que a sobreposição descrita acima deixa toda a passagem resolvida por
+  um humano, pelo que decidir a fronteira é o que torna esta varredura
+  dispensável em vez de necessária;
+* **o caminho de escrita do `resolver`, se a fronteira for decidida pela opção
+  1.** Hoje ele é escrito pelo mesmo `#fechar` cuja ordem é o defeito: pô-lo
+  depois do `onHumanEvent` fá-lo encontrar a linha já em `resumed`, que não está
+  no `ESTADOS_QUE_FECHAM`, e a coluna fica por escrever. Quem decidir a fronteira
+  decide os dois no mesmo *diff*.
+
+---
+
 ## 4. Itens que continuam por decidir
 
 | Item | Estado | Ticket |
@@ -1859,3 +1995,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.38 | Outubro 2026 | **Emenda (*proposta*), KAM-030.** §3.29: o esquema **`dat`** (o terceiro do repositório, depois do `platform` da `0001` e do `lg` da `0020`, e que o canon não tinha), a `dat.llm_call_log` com as suas **dezesseis** colunas — **catorze** no `../docs/tecnica/06` §14, mais o `papel` e o `graph_version`, sem os quais o «custo por papel» do DoD não é calculável de lado nenhum —, o domínio **fechado e qualificado** de `dat.llm_call_log.resultado` (seis valores), o `llm/aliases.yaml` como artefacto comportamental com SemVer e *lock*, o `llm/precos.yaml`, os quatro papéis, os quatro erros tipados, a `PortaDeDestinos`, as **sete** métricas, a chave virtual por *tenant*, o código de saída **7** e a quinta ligação. **O `llm_call_log` sai do §3.6**, onde estava pré-declarado sem esquema e sem colunas: é o percurso do `owner_notices` na 1.32 e do `token_ref` na 1.22, e o *lint* recusa a redundância. **Três afirmações de fonte mais alta não sobreviveram a serem medidas contra a imagem fixada, e as três mudaram código** (`../docs/evidencia/KAM-030-litellm.md`): (1) o orçamento esgotado responde **422** com `type: budget_exceeded` e não o **400** que o critério 4 escreve — e o proxy usa o 400 para «alias repetido», pelo que o mapeamento do bloco nunca disparava no orçamento e disparava num erro de provisionamento; (2) a configuração do `../docs/tecnica/02` §13.1, à letra — duas entradas com o mesmo `model_name` —, **não cumpre o critério 6**: a estratégia por omissão é `simple-shuffle`, aleatória, e em 20 corridas com o primeiro fornecedor sempre em falha **3 falharam por completo**; com dois grupos e um `fallbacks` nomeado são 20 de 20; (3) `google/` é recusado pelo proxy e o prefixo do Gemini é `gemini/` — o nome do subprocessador e o prefixo da biblioteca ficam em espaços de nomes **separados**, porque é o primeiro que o `tenant_destinations` do KAM-069 usa para autorizar uma transferência. **Duas decisões de conformidade que se escrevem em vez de se tomarem em silêncio:** o `custo_usd` é `numeric` e não unidade menor inteira (0,00045 USD não cabe num cêntimo, e `numeric` não é vírgula flutuante), e o `tenant_id` **não** é etiqueta de métrica nenhuma apesar de o §13.4 mandar *metering* por ele — as quatro etiquetas vão para as colunas da tabela, e a métrica leva só o `papel` (`OBS-I`). **O que não decide:** nenhum modelo (KAM-040, e todas as linhas são `por_decidir` com credor escrito), a `tenant_destinations` e o `apd_ref` (KAM-069, e sem eles `prod` nega tudo), o modo determinístico da degradação (KAM-037), a minimização de PII (KAM-112), a mensalidade por plano (H6), o agendador (KAM-071), e se os fornecedores reportam o cache dentro ou ao lado da entrada, que fica **NÃO VERIFICADO**. | Equipa KAMBÁ |
 | 1.39 | Outubro 2026 | **Emenda (*proposta*), KAM-032.** §3.30: os **sete** veredictos de `Verdict.errors` como lista fechada e qualificada, os **cinco** blocos de `blocks[].type` (o `datetime` vindo do §8.2, que o exemplo do §9.1 não tem), o `Policy.allowed_literals`, o `item.show`, o `value_minor` em **cêntimos de AOA**, as **cinco** métricas com o `vertical` por eixo e o `citation_fail_rate` como medição de amostragem que **não** é métrica Prometheus. **Decide uma divergência a favor de fonte mais alta:** o critério 1 do bloco escreve `value_kz`, e tanto o §2 (unidade menor inteira, emenda 1.13) como o §9.1 do `02` corrigido pelo KAM-139 dizem cêntimos — comparar Kz com `preco_minor` falha **sempre**, por um factor de cem (dívida 106). **Devolve duas ao credor em vez de as resolver:** os `kind` `name`, `qty` e `discount` (mais o `expiry` do `require_fact`) continuam fora do `KINDS` fechado do KAM-028, e quem os acrescenta é o ticket que produz o *fact* (dívida 105, KAM-031) — pelo que a quantidade cai em `stock`, a data em `datetime`, e o desconto **não tem onde cair**, o que torna *qualquer* percentagem `discount_unbacked`: é *fail-closed* e é o que o ADR-007 manda, mas o lado positivo do critério fica **inverificável** até o `discount` existir. **E o critério 8 não se marca:** pede as métricas «com `tenant_id` e `vertical`», e o `tenant_id` em etiqueta **levanta** `EtiquetaInvalida` pela gramática `^[a-z][a-z0-9_]{1,62}$` (`OBS-I`) — é a tensão que a emenda 1.38 já resolveu para o §13.4, e resolve-se igual: a desagregação por *tenant* faz-se onde tem significado (o `turn_id` do registo), a gramática não se alarga, e a decisão volta a quem escreveu o critério. As quatro «taxas» do §9.2 passam a razões entre cinco contadores, porque a biblioteca da casa não tem histogramas e uma taxa guardada como medida perde o denominador. | Equipa KAMBÁ |
 | 1.40 | Outubro 2026 | **Emenda (*proposta*), KAM-031.** §3.31: os **vinte e um** nós do grafo do Vendedor como lista fechada (os seis do §3.26 são subconjunto), as **nove** intenções do Vendedor (a de Serviços é outra, e está no §8.2), os **seis** veredictos da guarda de entrada, o `state.ofertas`, o `state.avisos` e o `state.admissao` como campos novos do estado, o `STALE_CONFIRMATION` como oitavo valor de `avisos` que **não** é erro de tool, o `handoff_motivo` que o §11 lê e não declara, o tecto `citation_retries` ≤ 1 e a validade do carrinho (**30 min *proposta***). **Duas decisões que não são transcrição.** A primeira saiu de **medir** e não de ler: a tabela do §7.3 tem trinta e nove **linhas** e o grafo tem **quarenta e duas** arestas dirigidas — duas linhas carregam mais do que uma —, e um teste de contrato que afirmasse trinta e nove passava com três nós sem caminho para o envio. A segunda é o `avisos`: os critérios 3 e 6 do bloco mandam `STALE_CONFIRMATION` e `OUT_OF_STOCK` chegarem ao `compose` «como *facts*», e um `Fact` do §3.28 é um número com proveniência cujo `kind` está fechado nos quatro do §6.2 — o que os critérios querem é um campo de avisos, com domínio fechado, e não um `Fact` que levanta. **O que não decide:** o `seq` não entra no estado (com uma mensagem por turno, §15.1, o seq do único envio é zero), o limiar do IDX fica parâmetro sem valor canónico (KAM-061) e os níveis de confiança do STT ficam ao KAM-036, que o §10 declara «a calibrar». | Equipa KAMBÁ |
+| 1.41 | Outubro 2026 | **Emenda (*proposta*), KAM-034, e entra sem DDL.** §3.32: o `HandoffService` como porta **distinta** do `HandoffProvider` do §3.15 (aquela e a costura para o provedor, com seis operacoes do lado do HND; esta e o que o grafo chama, com **uma**), os tres campos de forma fechada do corpo de `/internal/resume`, os **tres** desfechos de uma chamada de retoma (`retomado`, `repetido`, `recusado`), o cabecalho `x-kamba-hnd-bot` e o segredo `chatwoot_bot_secret` com **dois** consumidores, os dois motivos de recusa, as **quatro** metricas da passagem, o prazo de 24 h, o *job* de lote `agr_handoff_prazos` e a sexta ligacao `kamba-agr:handoff`. **Fecha a divergencia que a emenda 1.22 deixou por resolver**, e eram **tres** posicoes e nao duas: segue-se a regra (3) do `../docs/tecnica/02` §11, que e a unica das tres que diz **onde** o *endpoint* vive e sob que *lock* corre, pelo que a `platform.handoffs` passa a ter dois escritores em duas linguagens — e a fronteira entre eles fica escrita. **Duas decisoes que sairam de escrever codigo contra o canon e nao de o ler.** A primeira: o `handoff_id` e `sha256(thread_id:handoff_seq)` e portanto **irreversivel**, pelo que o `tenant_id` no predicado nao chega — um `handoff_id` do mesmo *tenant* e de **outro contacto** retomava o *thread* errado, isto e, a conversa de outra pessoa com o desfecho desta; o CAS leva o vinculo ao `contact_id` da conversa, que compra a propriedade sem a coluna `thread_id` que obrigaria a uma migracao sobre DDL do KAM-019. A segunda: o `resumed_at` escreve-se nos **quatro** desfechos e nao so no `resumed`, contra o `SQL_FECHAR` do HND, porque as quatro saidas de `waiting` por esta rota retomam o grafo — e o SLA de 15 min continua a contar so as `resumed`, pelo predicado, pelo que a divergencia nao altera numero nenhum. **Uma regra de arquitectura estreitou-se, e nao em silencio:** o *lint* do `tool_schema` proibia **toda** a escrita no `platform` fora da ToolLayer e a regra que ele implementa (§6.1, ADR-015) diz «a unica via dos **agentes**» — as duas davam o mesmo resultado so enquanto nao houvesse uma escrita de plano de controlo; passa a haver uma lista de triplos `(ficheiro, tabela, verbo)` com quatro criterios por entrada, e seis canarios medem os tres eixos: a mesma tabela noutro ficheiro, outra tabela no mesmo ficheiro, e outro verbo na mesma tabela. **O verbo entrou pela revisao adversarial do ticket**, porque a `0011` concede `GRANT SELECT, INSERT` ao `kamba_app` e um `INSERT` escrito no `consultas.py` passava o *lint* **e** corria na base. **O que nao decide, com credor em cada:** a transicao `-> pausada` da degradacao e do KAM-018 (reescrever o `SQL_MUDAR_MODO` em Python dava um segundo dono para uma transicao e um modo a mudar **sem evento**), o cliente HTTP do `openHandoff` e do KAM-019, o aviso ao dono e do KAM-115, o *golden* de handoff e do KAM-040, e a varredura de passagens em `resumed` sem *checkpoint* retomado **nao esta atribuida a ticket nenhum**. | Equipa KAMBÁ |

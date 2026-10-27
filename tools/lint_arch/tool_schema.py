@@ -51,6 +51,23 @@ fora de `tls/`.
 a admissao do turno e nao um agente a ler dados de negocio. Uma regra que o
 proibisse obrigava a uma excepcao no primeiro dia, e uma regra que nasce com
 excepcao nao e a regra.
+
+### E a escrita do plano de controlo, que o KAM-034 trouxe
+
+A mesma distincao valeu pelo lado da escrita no dia em que houve uma: o
+*compare-and-set* `waiting -> resumed` de `/internal/resume`, que o
+`docs/tecnica/02` §11 regra 3 poe no AGR **por escrito** e que o dicionario
+§3.15 ja tinha atribuido ao KAM-034. Nao e um agente a escrever: nao ha modelo
+no caminho, o desfecho vem num corpo autenticado pelo `secret` do *agent bot* e
+e um de tres valores de lista fechada.
+
+O que a regra dizia — «nenhuma escrita no `platform` fora da TLS» — e mais
+larga do que a regra que ela implementa — «a TLS e a unica via dos **agentes**»
+—, e as duas davam o mesmo resultado so enquanto nao houvesse uma unica escrita
+de plano de controlo. `ESCRITAS_DO_PLANO_DE_CONTROLO` e onde a palavra
+«agentes» passa a contar, com **quatro** criterios por entrada e a chave em
+`(ficheiro, tabela, verbo)` — nunca o ficheiro inteiro, para que um `UPDATE
+platform.orders` na linha seguinte continue a morder. Ha canarios a medir os tres eixos.
 """
 
 from __future__ import annotations
@@ -80,8 +97,86 @@ DIRECTORIO_DA_TLS = "tls"
 #: espaco em branco — `INSERT\s+INTO` — e o SQL desta casa esta em literais de
 #: varias linhas: um `INSERT INTO` com a tabela na linha seguinte era invisivel
 #: a uma varredura por linha. Apanhado pela revisao adversarial.
+#: **O identificador pode vir entre aspas, e a primeira versao da captura
+#: esqueceu-o.** O padrao era `platform\.` sem grupo e apanhava `UPDATE
+#: platform."orders"`; passar a `platform\.(\w+)` para saber a **tabela** fez o
+#: `\w+` nao casar a aspa, e com isso uma escrita com identificador citado
+#: deixou de morder — uma regressao num *gate* de bloqueio, e para **todas** as
+#: tabelas e nao so para a dispensada. Apanhado pela revisao adversarial do
+#: KAM-034 (achado 4).
+#:
+#: O grupo 1 e a forma sem aspas e o grupo 2 a forma com aspas; o `_tabela_de`
+#: junta-os. O verbo tambem se captura, porque a dispensa e por verbo.
 ESCRITA_NO_PLATFORM = re.compile(
-    r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+platform\.", re.IGNORECASE
+    r"\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+platform\.(?:(\w+)|\"([^\"]+)\")",
+    re.IGNORECASE,
+)
+
+
+def _tabela_de(achado: re.Match[str]) -> str:
+    """O nome da tabela, com ou sem aspas, em minusculas."""
+    return (achado.group(2) or achado.group(3) or "").lower()
+
+
+def _verbo_de(achado: re.Match[str]) -> str:
+    """`insert`, `update` ou `delete`, normalizado."""
+    return achado.group(1).split()[0].lower()
+
+#: As escritas no `platform` que **nao** sao um agente a escrever, por
+#: `(ficheiro, tabela, verbo)`.
+#:
+#: **A regra que o §6.1 escreve e «a TLS e a unica via de leitura e escrita dos
+#: *agentes*», e esta lista e onde a palavra «agentes» passa a contar.** Ate ao
+#: KAM-034 nao havia no AGR uma unica escrita no `platform` fora da TLS, pelo
+#: que proibi-las todas e dizer «dos agentes» davam o mesmo resultado; deixaram
+#: de dar. Esta e a mesma distincao que a *docstring* deste modulo ja fazia pelo
+#: lado da leitura — «o `conversa.py` le a `conversations` e a `handoffs` para
+#: decidir se o turno entra no grafo, e isso e a admissao do turno e nao um
+#: agente a ler dados de negocio».
+#:
+#: **O criterio e estreito, e nao e «o AGR pode escrever».** Uma entrada so
+#: entra aqui se as quatro valerem:
+#:
+#: 1. nenhum passo da escrita depende de saida de modelo nem de texto do
+#:    cliente — se dependesse, era a TLS que tinha de a validar;
+#: 2. o que se escreve e **plano de controlo** do runtime (o estado de uma
+#:    espera, uma tranca, um prazo) e nao dado de negocio (uma encomenda, um
+#:    preco, um contacto);
+#: 3. o `tenant_id` esta no predicado e a instrucao corre dentro de
+#:    `tenant_guard.tx` — o isolamento do ADR-015 continua a ser da base;
+#: 4. o canon **nomeia** o AGR como dono da escrita.
+#:
+#: E a chave e `(ficheiro, tabela, verbo)` e nao o ficheiro: um `consultas.py`
+#: dispensado em bloco deixava passar um `UPDATE platform.orders` na linha
+#: seguinte, que e precisamente o que esta regra existe para apanhar. Ha
+#: canarios que medem os tres eixos.
+#:
+#: **O verbo entra, e a primeira versao desta lista deixou-o de fora.** Ela
+#: dispensava `(ficheiro, tabela)` e argumentava que distinguir verbos era
+#: redundante porque «o `GRANT` por coluna da revisao `0011` da-a melhor: o
+#: `kamba_app` **nao tem** `DELETE` em `platform.handoffs`». Metade disso era
+#: falso: a `0011` concede `GRANT SELECT, INSERT ON platform.handoffs TO
+#: kamba_app`, pelo que um `INSERT` escrito aqui **passava o *lint* e corria na
+#: base** — e o canon atribui a criacao da passagem ao HND e a purga ao
+#: `kamba_batch`, nao ao AGR. Apanhado pela revisao adversarial do KAM-034
+#: (achado 5).
+ESCRITAS_DO_PLANO_DE_CONTROLO = frozenset(
+    {
+        # KAM-034, criterio 3: o *compare-and-set* `waiting -> resumed` de
+        # `/internal/resume`. O `docs/tecnica/02` §11 regra 3 poe o *endpoint* no
+        # AGR por escrito, e o dicionario §3.15 ja o atribuiu («o
+        # *compare-and-set* `waiting -> resumed` fica fora deste ticket [o
+        # KAM-019]»). Escreve duas colunas — `status` e `resumed_at` —, as duas
+        # com `GRANT UPDATE` por coluna na revisao `0011`, e nenhuma delas vem de
+        # modelo nenhum: o `outcome` chega num corpo autenticado pelo `secret`
+        # do *agent bot* e e um de tres valores de lista fechada.
+        #
+        # **So o `update`.** A criacao da passagem e do HND (`SQL_ABRIR_HANDOFF`)
+        # e a purga e do `kamba_batch` (KAM-071); um `INSERT` ou um `DELETE`
+        # escritos no AGR sao uma fronteira a mudar, e uma fronteira a mudar
+        # passa por aqui com uma entrada nova e a razao escrita.
+        ("services/agr/src/kamba_agr/consultas.py", "handoffs", "update"),
+    }
 )
 
 
@@ -255,6 +350,13 @@ def check(root: Path) -> list[str]:
 
         if not _dentro_da_tls(caminho):
             for achado in ESCRITA_NO_PLATFORM.finditer(fonte):
+                chave = (onde, _tabela_de(achado), _verbo_de(achado))
+                if chave in ESCRITAS_DO_PLANO_DE_CONTROLO:
+                    # Plano de controlo do runtime, declarado por
+                    # `(ficheiro, tabela, verbo)`. Ver
+                    # `ESCRITAS_DO_PLANO_DE_CONTROLO` para os quatro criterios e
+                    # a razao de cada entrada.
+                    continue
                 numero = fonte.count("\n", 0, achado.start()) + 1
                 achados.append(
                     f"{onde}:{numero}: escrita no schema `platform` fora da "
