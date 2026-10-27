@@ -22,7 +22,7 @@ from kamba_agr.estado import (
 
 #: As chaves do bloco de codigo do §5.3, tal como la estao escritas. Eram
 #: vinte e tres; a emenda 1.40 (KAM-031) acrescenta `ofertas`, `avisos` e
-#: `handoff_motivo`, e o `admissao`, e sao **vinte e sete**. O comentario dizia «dezenove» e
+#: `handoff_motivo`, e o `admissao`, e sao **vinte e seis**. O comentario dizia «dezenove» e
 #: nunca foram dezenove — a lista abaixo e a prova, e e ela que o teste compara.
 CHAVES_DO_521 = (
     "schema_version",

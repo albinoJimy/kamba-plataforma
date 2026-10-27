@@ -42,7 +42,9 @@ migra: levanta, porque degradar um estado futuro e perder o que ele traz.
 
 from __future__ import annotations
 
-from typing import Any, Final
+from typing import Annotated, Any, Final, TypedDict
+
+from langgraph.graph.message import add_messages
 
 from .contexto import InvocacaoDoAgente
 
@@ -210,3 +212,46 @@ def reiniciar() -> dict[str, Any]:
     escrevia no estado de outra conversa.
     """
     return dict(CAMPOS_DO_TURNO)
+
+
+class ConversaState(TypedDict, total=False):
+    """O esquema de estado do grafo (`docs/tecnica/02` §5.3).
+
+    **Vive aqui e nao na vertical**, pela «regra de dois» do §5.4: o estado base
+    e **partilhado** e so o `cart` (Vendedor) e os `slots` (Servicos) sao
+    especificos. Duas copias deste `TypedDict`, uma por vertical, divergiam no
+    dia em que uma delas ganhasse um campo.
+
+    `total=False` porque um no devolve **o delta** e nao o estado inteiro: um
+    `TypedDict` total obrigava cada retorno a trazer as vinte e sete chaves.
+
+    O unico redutor e o do `messages`, e e o `add_messages` que o §5.3 escreve.
+    Os outros campos sao de ultima escrita — que e o que um turno faz com eles.
+    """
+
+    schema_version: int
+    tenant_id: str
+    channel_id: str
+    contact_id: str
+    conversation_id: str
+    vertical: str
+    turn_id: str
+    thread_id: str
+    input_kind: str
+    messages: Annotated[list[Any], add_messages]
+    summary: str | None
+    stt: dict[str, Any] | None
+    guard: dict[str, Any] | None
+    intent: str | None
+    admissao: str | None
+    facts: tuple[Any, ...]
+    ofertas: tuple[Any, ...]
+    avisos: tuple[str, ...]
+    handoff_motivo: str | None
+    cart: dict[str, Any] | None
+    stage: str
+    slots: dict[str, Any] | None
+    draft: dict[str, Any] | None
+    citation_retries: int
+    handoff_seq: int
+    handoff: dict[str, Any] | None

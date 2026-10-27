@@ -50,6 +50,7 @@ from kamba_agr.tls.camada import (
     nomes_dos_passos,
 )
 from kamba_agr.tls.catalogo import ESPECIFICACOES_DO_PILOTO, catalogo_do_piloto
+from kamba_agr.tls.vendedor import MODELOS
 from kamba_agr.tls.contexto import (
     Confirmation,
     ContextoInvalidoError,
@@ -723,11 +724,24 @@ class TestCatalogo(_Base):
         self.assertEqual(self.catalogo.ligadas(), ("get_store_info",))
         declaradas = self.catalogo.declaradas()
         self.assertEqual(len(declaradas), 10)
+        # **Os credores das cinco do Vendedor sao os tickets que ligam o
+        # backend, e nao o KAM-031.** Eram `KAM-031` e o proprio KAM-031
+        # corrigiu-os: o credor de uma entrada `declarada` e «o ticket que a
+        # liga», e os Detalhes Tecnicos do bloco dele dizem que «a ligacao real
+        # a COM/IDX e por KAM-043, KAM-046 e KAM-061». Ele escreve os modelos e
+        # os executores de ensaio; ligar o COM e o IDX nao esta no alcance dele,
+        # e cinco entradas a nomear um ticket fechado nao sao atalho nenhum.
+        #
+        # Sao **quatro** tickets e nao tres: o `get_order_status` le o
+        # `orders_mirror`, que e o KAM-044 — dependencia do proprio KAM-046.
         self.assertEqual(
-            {nome for nome, credor in declaradas.items() if credor == "KAM-031"},
+            {nome: credor for nome, credor in declaradas.items() if nome in MODELOS},
             {
-                "search_catalog", "get_price_stock", "propose_cart",
-                "criar_pedido", "get_order_status",
+                "search_catalog": "KAM-061",
+                "get_price_stock": "KAM-043",
+                "propose_cart": "KAM-046",
+                "criar_pedido": "KAM-046",
+                "get_order_status": "KAM-044",
             },
         )
         self.assertEqual(
