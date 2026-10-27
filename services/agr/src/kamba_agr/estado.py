@@ -87,7 +87,9 @@ def estado_inicial(invocacao: InvocacaoDoAgente) -> dict[str, Any]:
 
     `facts` nasce vazio **e e reiniciado em cada turno**, nao acumulado: o §5.3
     di-lo («so deste turno; reiniciado em `ingest`») e a razao e o validador de
-    citacao — um *fact* de um turno anterior e um numero sem prova neste.
+    citacao — um *fact* de um turno anterior e um numero sem prova neste. Os
+    `ofertas` e `avisos` da emenda 1.40 seguem a mesma regra, e o `reiniciar`
+    deste modulo e quem a aplica no `ingest`.
     """
     return {
         "schema_version": SCHEMA_VERSION,
@@ -104,7 +106,14 @@ def estado_inicial(invocacao: InvocacaoDoAgente) -> dict[str, Any]:
         "stt": None,
         "guard": None,
         "intent": None,
+        "admissao": None,
         "facts": [],
+        # Os tres da emenda 1.40, e os tres sao **do turno**, como os `facts`:
+        # uma oferta de um turno anterior e uma designacao sem prova neste, e um
+        # aviso de um turno anterior e uma explicacao que ja se deu.
+        "ofertas": [],
+        "avisos": [],
+        "handoff_motivo": None,
         "cart": None,
         "stage": ESTAGIO_INICIAL,
         "slots": None,
@@ -171,3 +180,33 @@ def recortar_janela(estado: dict[str, Any], maximo: int) -> dict[str, Any]:
     # principio, que o `summary` ja resume. `maximo` zero e lista vazia, e nao
     # a lista inteira — que e o que um `[-0:]` daria.
     return dict(estado, messages=mensagens[len(mensagens) - maximo :])
+
+
+#: As chaves que o `reiniciar` limpa no `ingest`, e o valor com que cada uma
+#: nasce. O §5.3 manda-o para os `facts` («so deste turno; reiniciado em
+#: `ingest`») e a emenda 1.40 estende-o aos outros tres pela mesma razao.
+#:
+#: O `citation_retries` entra aqui e nao e obvio: sem o reiniciar, uma resposta
+#: que falhasse a citacao num turno gastava a unica repeticao do turno seguinte,
+#: e o tecto de §7.3 linha 30 deixava de valer por turno — passava a valer por
+#: *thread*. Medido no ensaio `test_o_tecto_de_citacao_e_por_turno`.
+CAMPOS_DO_TURNO: Final = {
+    "facts": (),
+    "ofertas": (),
+    "avisos": (),
+    "handoff_motivo": None,
+    "admissao": None,
+    "draft": None,
+    "citation_retries": 0,
+}
+
+
+def reiniciar() -> dict[str, Any]:
+    """O que o `ingest` devolve para limpar o que e so do turno anterior.
+
+    Devolve um `dict` novo a cada chamada, e as colecoes sao tuplos: uma
+    constante de modulo com uma lista dentro era a mesma lista em todos os
+    turnos de todos os *threads*, e o primeiro no que lhe fizesse `append`
+    escrevia no estado de outra conversa.
+    """
+    return dict(CAMPOS_DO_TURNO)

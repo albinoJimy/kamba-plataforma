@@ -206,6 +206,7 @@ class ConversaState(TypedDict):
     messages: Annotated[list[AnyMessage], add_messages]   # janela recortada + `summary`
     summary: str | None
     stt: SttResult | None; guard: GuardVerdict | None; intent: str | None
+    admissao: str | None                     # desfecho da linha 4 do 7.3; None se o turno corre
     facts: list[Fact]                        # so deste turno; reiniciado em `ingest`
     ofertas: list[Oferta]                    # (sku, nome, preco_tipo) das tools; so deste turno
     avisos: list[str]                        # codigos de negocio que o `compose` explica (emenda 1.40)
@@ -217,7 +218,7 @@ class ConversaState(TypedDict):
     handoff_seq: int; handoff: HandoffInfo | None
 ```
 
-**Os `ofertas`, `avisos` e `handoff_motivo` entram pela emenda 1.40 (KAM-031)**, e
+**Os `ofertas`, `avisos`, `handoff_motivo` e `admissao` entram pela emenda 1.40 (KAM-031)**, e
 as tres ausencias aparecem ao escrever o grafo contra o §7.3. O `ofertas` e o que
 o `validate` precisa para resolver um nome de produto a um `sku` — o nome vive no
 `ToolResult.data` do `05` §6.3 e nao num `Fact` (divida 105). O `avisos` e por
@@ -225,7 +226,9 @@ onde `STALE_CONFIRMATION`, `OUT_OF_STOCK`, `PRICE_CHANGED` e `LIMIT_EXCEEDED`
 chegam ao `compose`: os criterios 3 e 6 do bloco do KAM-031 chamam-lhes «*facts*»
 e nao o podem ser, porque um `Fact` e um numero com proveniencia e o `kind` esta
 fechado nos quatro do §6.2. O `handoff_motivo` ja era lido pelo codigo do §11 e
-nao estava declarado aqui. Os tres sao **do turno** e reiniciam-se no `ingest`,
+nao estava declarado aqui. O `admissao` e o canal da decisao do `ingest`: sem
+ele o `r_ingest` tinha de voltar a perguntar ao ritmo do KAM-025, que **registra
+a chegada** — e duas perguntas por turno cortavam o tecto a metade. Os tres sao **do turno** e reiniciam-se no `ingest`,
 como os `facts`.
 
 ### 5.4 Regra de dois: o que é partilhado e o que é específico

@@ -7361,6 +7361,24 @@ entradas:
       - "tool_audit.error_code"
     variantes_literais: []
   - seccao: "3.31"
+    conceito: "Desfecho da admissao do turno"
+    canonico: "state.admissao ∈ {turno_repetido, contacto_bloqueado, ritmo}"
+    literais:
+      - "state.admissao"
+      - "turno_repetido"
+      - "contacto_bloqueado"
+      - "ritmo"
+    nomes:
+      - "state.admissao"
+      - "turno_repetido"
+      - "contacto_bloqueado"
+      - "ritmo"
+    nomes_nota:
+      - "None"
+      - "ritmo"
+      - "agr_admitted_rejected_total"
+    variantes_literais: []
+  - seccao: "3.31"
     conceito: "Motivo do handoff"
     canonico: "state.handoff_motivo"
     literais:
@@ -8424,6 +8442,14 @@ dominios:
       - "sensitive"
     seccao: "3.31"
     conceito: "Veredicto da guarda de entrada"
+    so_no_registo: false
+  - coluna: "state.admissao"
+    valores:
+      - "turno_repetido"
+      - "contacto_bloqueado"
+      - "ritmo"
+    seccao: "3.31"
+    conceito: "Desfecho da admissao do turno"
     so_no_registo: false
 
 variantes:

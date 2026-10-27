@@ -1728,6 +1728,7 @@ STT), o §11 (o par `handoff_prepare`/`handoff_wait`) e o §14 (a degradação).
 | Oferta de produto no estado do turno | `state.ofertas` | — | Os campos são os do contrato de saída da tool (`../docs/tecnica/05` §6.3) e **não se repetem aqui**: um deles designa o produto por palavras, e torná-lo canónico esvaziava a extensão qualificada da designação da loja no `canon/extensoes.yaml` — medido pelo *gate* 3b. Só deste turno, reiniciado em `ingest` |
 | Aviso de negócio para o `compose` | `state.avisos` ⊆ {`NOT_FOUND`, `OUT_OF_STOCK`, `PRICE_CHANGED`, `LIMIT_EXCEEDED`, `VALIDATION_ERROR`, `UPSTREAM_TIMEOUT`, `UPSTREAM_DOWN`, `STALE_CONFIRMATION`} | — | Os sete primeiros são erros tipados do §6.5 (§3.28); o oitavo nasce no §7.3 linha 24 e **não** é erro de tool |
 | Confirmação antiga ou inválida | `STALE_CONFIRMATION` | — | ../docs/tecnica/02 §7.3 linha 24. Valor de `state.avisos`, não de `tool_audit.error_code` |
+| Desfecho da admissao do turno | `state.admissao` ∈ {`turno_repetido`, `contacto_bloqueado`, `ritmo`} | — | ../docs/tecnica/02 §7.3 linha 4. `None` quando o turno corre; o `ritmo` e o mesmo valor que o `agr_admitted_rejected_total` ja usa (§3.24) |
 | Motivo do *handoff* | `state.handoff_motivo` | — | ../docs/tecnica/02 §11, que o lê no `handoff_prepare` e no `interrupt` |
 | Versão do grafo | `graph_version`, SemVer | — | ../docs/tecnica/02 §6.4 já tem a coluna; o valor é atribuído pelo grafo que a escreve |
 | Tecto de repetições de citação | `citation_retries` ≤ **1** | — | ../docs/tecnica/02 §7.3 linhas 30 e 31, e §14 («validador falha 2×») |
@@ -1769,6 +1770,21 @@ ausências aparecem ao escrever o grafo contra o §7.3, e não ao ler:
 Os dois são **do turno** e reiniciam-se no `ingest`, pela mesma razão que o §5.3
 escreve para os `facts`: uma oferta de um turno anterior é um nome sem prova
 neste, e um aviso de um turno anterior é uma explicação que já se deu.
+
+#### Porque e que o `admissao` e um campo e nao uma segunda pergunta
+
+Dos dez encaminhadores do §7.4, nove decidem por campos que o §5.3 já tem — o
+`r_stt` lê o `stt`, o `r_guard` lê o `guard`, o `r_intent` lê o `intent`, o
+`r_hits` lê as `ofertas`, o `r_upstream` e o `r_confirm` lêem os `avisos`, o
+`r_cite` lê o `draft` e o `citation_retries`, o `r_handoff` lê o `handoff`. O
+`r_ingest` não tinha nenhum, e a alternativa era ele **voltar a perguntar** às
+fontes que o `ingest` já consultou.
+
+Não pode: a fonte do ritmo é o `aceita_o_ritmo` do KAM-025, e esse **registra a
+chegada** numa janela deslizante. Chamá-lo duas vezes por turno gastava duas
+vagas das vinte por minuto e cortava o tecto a metade, sem nada no resultado o
+denunciar. O campo é o que faz a decisão ser tomada uma vez e lida a seguir —
+pela mesma razão que o `stt` e o `guard` são campos e não funções.
 
 #### O que esta emenda NÃO decide
 
