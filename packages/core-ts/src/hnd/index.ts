@@ -94,6 +94,8 @@ export {
   DESFECHOS_DA_RETOMA,
   ESPERA_DA_RETOMA_MS,
   ESPERA_POR_OMISSAO_MS,
+  MINIMO_DA_TENTATIVA_MS,
+  ORCAMENTO_DA_RETOMA_MS,
   RetomaIndisponivelError,
   RetomaNaoAutorizadaError,
   RetomaRecusadaError,

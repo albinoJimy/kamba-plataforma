@@ -225,11 +225,33 @@ describe("o handoff contra a base", () => {
         [estadoDe(pedido.outcome), tenantId, pedido.handoffId, contactId],
       );
       if ((venceu.rowCount ?? 0) > 0) return "retomado";
-      const existe = await cliente.query(
-        "SELECT 1 FROM platform.handoffs WHERE tenant_id = $1 AND handoff_id = $2",
-        [tenantId, pedido.handoffId],
+      // **A classificacao do zero linhas e a do `_classificar` real, e a
+      // primeira versao era mais FRACA do que a peca** — achado da revisao
+      // adversarial, e e o sentido contrario do habitual: ela lia so
+      // `(tenant_id, handoff_id)`, pelo que uma passagem de **outro contacto**
+      // do mesmo *tenant* dava `repetido` (200, benigno) aqui e `recusado`
+      // (404, que **levanta** no cliente) na peca. Com o duplo permissivo, a
+      // unica suite que corre contra PostgreSQL nunca podia observar a
+      // divergencia que o `RetomaRecusadaError` existe para gritar.
+      //
+      // E o `SQL_HANDOFF_PARA_RETOMA` de la leva o `contact_id` no predicado,
+      // e o estado passa pelo `pode_retomar`.
+      const desta = await cliente.query<{ status: string }>(
+        `SELECT h.status
+           FROM platform.handoffs h
+           JOIN platform.conversations c
+             ON c.tenant_id = h.tenant_id
+            AND c.id = h.conversation_id
+          WHERE h.tenant_id = $1 AND h.handoff_id = $2 AND c.contact_id = $3`,
+        [tenantId, pedido.handoffId, contactId],
       );
-      return (existe.rowCount ?? 0) > 0 ? "repetido" : "recusado";
+      const linha = desta.rows[0];
+      if (linha === undefined) return "recusado";
+      // O `pode_retomar` do `handoff/maquina.py`: so o `waiting` e retomavel, e
+      // aqui ele e `false` por construcao — o CAS acabou de nao casar. Confere-se
+      // de qualquer maneira, como a peca faz, porque se um dia ele disser `true`
+      // sobre uma passagem que o CAS recusou as duas leituras divergiram.
+      return linha.status === "waiting" ? "recusado" : "repetido";
     };
   }
 
@@ -749,29 +771,34 @@ describe("o handoff contra a base", () => {
       assert.equal(hnd.metricas.ler()["hnd_handoff_total:resumed"], 1);
     });
 
-    it("**a consulta do thread exige o external_id da conversa**", async () => {
+    it("**um handoffId de outra conversa nao retoma, contra a base**", async () => {
       // O `handoff_id` chega do atributo de uma conversa no provedor, isto e, de
-      // fora. Sem o `external_id` no predicado, um valor trocado la fazia-nos
-      // pedir a retoma do *thread* de outra pessoa — o perigo que o §3.32
-      // nomeia para o CAS, visto deste lado.
+      // fora: um valor trocado la fazia-nos pedir a retoma do *thread* de outra
+      // pessoa — o perigo que o §3.32 nomeia para o CAS, visto deste lado. Quem
+      // o impede e o `receber`, que confronta a conversa da linha com a do
+      // *callback*; **o predicado da consulta nao**, e essa foi a correccao da
+      // revisao adversarial (uma passagem `degraded` pode ter conversa la).
+      const pedidos: PedidoDeRetoma[] = [];
       const provedor = new ProvedorFalso();
-      const hnd = hndDe(tenantA, provedor, new FilaFalsa());
+      const hnd = hndDe(tenantA, provedor, new FilaFalsa(), app, agrDe(app2, pedidos));
+      await hnd.ensureAccount(tenantA);
       const aberta = await hnd.openHandoff(pedido(tenantA, conversaA, "h_thread"));
+      assert.notEqual(aberta.externalId, "cw-de-outra-conversa");
 
+      await hnd.receber(
+        tenantA,
+        "cccc-segredo",
+        corpoResolvido("h_thread", "cw-de-outra-conversa"),
+      );
+
+      assert.deepEqual(pedidos, [], "nao se pede retoma nenhuma");
       await definirContexto(app, tenantA);
-      const certa = await app.query<{ contact_id: string }>(SQL_THREAD_DA_PASSAGEM, [
-        tenantA,
-        "h_thread",
-        aberta.externalId,
-      ]);
-      assert.equal(certa.rows[0]?.contact_id, contactoA);
-
-      const errada = await app.query(SQL_THREAD_DA_PASSAGEM, [
-        tenantA,
-        "h_thread",
-        "cw-de-outra-conversa",
-      ]);
-      assert.equal(errada.rows.length, 0, "o external_id errado nao devolve thread nenhum");
+      const linha = await app.query<{ status: string; resolver: string | null }>(
+        "SELECT status, resolver FROM platform.handoffs WHERE handoff_id = $1",
+        ["h_thread"],
+      );
+      assert.equal(linha.rows[0]?.status, "waiting");
+      assert.equal(linha.rows[0]?.resolver, null, "nem se escreve o resolver");
     });
 
     it("**a consulta do thread nao atravessa tenants**", async () => {
@@ -784,26 +811,96 @@ describe("o handoff contra a base", () => {
       const aberta = await hnd.openHandoff(pedido(tenantA, conversaA, "h_thread_isolado"));
 
       await definirContexto(app2, tenantB);
-      const deB = await app2.query(SQL_THREAD_DA_PASSAGEM, [
-        tenantA,
-        "h_thread_isolado",
-        aberta.externalId,
-      ]);
+      const deB = await app2.query(SQL_THREAD_DA_PASSAGEM, [tenantA, "h_thread_isolado"]);
       assert.equal(deB.rows.length, 0);
 
       await definirContexto(app, tenantA);
-      const deA = await app.query(SQL_THREAD_DA_PASSAGEM, [
-        tenantA,
-        "h_thread_isolado",
-        aberta.externalId,
-      ]);
+      const deA = await app.query<{ external_id: string | null }>(
+        SQL_THREAD_DA_PASSAGEM,
+        [tenantA, "h_thread_isolado"],
+      );
       assert.equal(deA.rows.length, 1, "com o contexto certo tem de haver linha");
+      assert.equal(deA.rows[0]?.external_id, aberta.externalId);
     });
 
-    it("**uma passagem degraded nao tem thread para retomar**", async () => {
-      // Ela tem `external_id` nulo porque nao existe no provedor, pelo que
-      // nenhum *callback* legitimo dele pode ser dela — e o predicado recusa-a
-      // sem precisar de uma verificacao em codigo.
+    it("**uma passagem degraded com a conversa criada la recupera-se e retoma**", async () => {
+      // **O defeito que a revisao adversarial mediu, contra a base.** O
+      // `abrirConversa` cria a conversa no provedor e so depois publica a nota
+      // privada: se a nota falhar, a passagem fica `degraded` com `external_id`
+      // nulo e a conversa esta aberta la, com o atributo. Com o `external_id` no
+      // predicado da consulta do *thread*, o *callback* dava zero linhas —
+      // nenhuma retoma, 200 ao provedor, `interrupt()` pendente para sempre, e
+      // invisivel porque a varredura dos prazos filtra `waiting`.
+      const pedidos: PedidoDeRetoma[] = [];
+      const provedor = new ProvedorFalso();
+      const hnd = hndDe(tenantA, provedor, new FilaFalsa(), app, agrDe(app2, pedidos));
+      await hnd.ensureAccount(tenantA);
+      provedor.emBaixo = true;
+      const aberta = await hnd.openHandoff(pedido(tenantA, conversaA, "h_recuperada"));
+      assert.equal(aberta.estado, "degraded");
+
+      await definirContexto(app, tenantA);
+      const antes = await app.query<{ external_id: string | null }>(
+        "SELECT external_id FROM platform.handoffs WHERE handoff_id = $1",
+        ["h_recuperada"],
+      );
+      assert.equal(antes.rows[0]?.external_id, null, "a montagem tem de dar external_id nulo");
+
+      await hnd.receber(
+        tenantA,
+        "cccc-segredo",
+        corpoResolvido("h_recuperada", "cw-criada-no-provedor"),
+      );
+
+      await definirContexto(app, tenantA);
+      const linha = await app.query<{
+        status: string;
+        external_id: string | null;
+        resolver: string | null;
+      }>(
+        "SELECT status, external_id, resolver FROM platform.handoffs WHERE handoff_id = $1",
+        ["h_recuperada"],
+      );
+      assert.equal(linha.rows[0]?.external_id, "cw-criada-no-provedor", "a conversa fica gravada");
+      assert.equal(linha.rows[0]?.status, "resumed", "e o CAS vence");
+      assert.equal(linha.rows[0]?.resolver, "7");
+      assert.equal(pedidos.length, 1);
+    });
+
+    it("**o recusado do AGR e alcancavel: um thread que nao e da passagem**", async () => {
+      // O duplo da classificacao do zero linhas era **mais fraco** do que o
+      // `_classificar` real — lia so `(tenant_id, handoff_id)` —, pelo que uma
+      // passagem de outro contacto dava `repetido` (200) aqui e `recusado` (404,
+      // que levanta no cliente) na peca. Com o predicado completo, o 404 passa a
+      // ser observavel na unica suite que corre contra PostgreSQL.
+      const pedidos: PedidoDeRetoma[] = [];
+      const retomar = agrDe(app2, pedidos);
+      const hnd = hndDe(tenantA, new ProvedorFalso(), new FilaFalsa());
+      await hnd.openHandoff(pedido(tenantA, conversaA, "h_outro_thread"));
+
+      const desfecho = await retomar({
+        // Um contacto que nao e o da conversa desta passagem.
+        threadId: threadDe(tenantA, "44444444-4444-4444-8444-444444444444"),
+        handoffId: "h_outro_thread",
+        outcome: "resolved",
+      });
+      assert.equal(desfecho, "recusado");
+
+      // E a passagem **nao** mudou: o predicado do CAS leva o contacto.
+      await definirContexto(app, tenantA);
+      const linha = await app.query<{ status: string }>(
+        "SELECT status FROM platform.handoffs WHERE handoff_id = $1",
+        ["h_outro_thread"],
+      );
+      assert.equal(linha.rows[0]?.status, "waiting");
+    });
+
+    it("**a consulta do thread devolve a conversa gravada, para o chamador decidir**", async () => {
+      // **A primeira versao deste ensaio fixava uma afirmacao falsa**, e era a
+      // do `external_id` no predicado: «ela tem `external_id` nulo porque nao
+      // existe no provedor, pelo que nenhum *callback* legitimo dele pode ser
+      // dela». Pode — ver o ensaio da recuperacao, acima. A consulta devolve a
+      // linha com a coluna como ela esta, e quem decide e o `receber`.
       const provedor = new ProvedorFalso();
       const hnd = hndDe(tenantA, provedor, new FilaFalsa());
       provedor.emBaixo = true;
@@ -811,14 +908,26 @@ describe("o handoff contra a base", () => {
       assert.equal(aberta.estado, "degraded");
 
       await definirContexto(app, tenantA);
-      for (const externalId of ["", "cw-1"]) {
-        const linhas = await app.query(SQL_THREAD_DA_PASSAGEM, [
-          tenantA,
-          "h_degradada_thread",
-          externalId,
-        ]);
-        assert.equal(linhas.rows.length, 0, externalId);
-      }
+      const degradada = await app.query<{ contact_id: string; external_id: string | null }>(
+        SQL_THREAD_DA_PASSAGEM,
+        [tenantA, "h_degradada_thread"],
+      );
+      assert.equal(degradada.rows.length, 1, "a linha existe e o JOIN casa");
+      assert.equal(degradada.rows[0]?.contact_id, contactoA);
+      assert.equal(degradada.rows[0]?.external_id, null, "e e isto que o chamador le");
+
+      // E o controlo positivo: uma passagem aberta a serio traz a conversa que
+      // gravamos. Sem ele, a assercao de cima passava com uma consulta que
+      // devolvesse `null` sempre.
+      provedor.emBaixo = false;
+      const normal = await hnd.openHandoff(pedido(tenantA, conversaA, "h_thread_normal"));
+      assert.equal(normal.estado, "waiting");
+      await definirContexto(app, tenantA);
+      const comConversa = await app.query<{ external_id: string | null }>(
+        SQL_THREAD_DA_PASSAGEM,
+        [tenantA, "h_thread_normal"],
+      );
+      assert.equal(comConversa.rows[0]?.external_id, normal.externalId);
     });
   });
 

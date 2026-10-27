@@ -2118,11 +2118,18 @@ MUTACOES = [
     ('handoff: o resolver deixa de exigir a passagem a espera', HND_SQL,
      "     AND status = 'waiting'\n   RETURNING handoff_id\n",
      '   RETURNING handoff_id\n', HANDOFF),
-    ('handoff: a consulta do thread deixa de exigir o external_id', HND_SQL,
-     '     AND h.external_id = $3\n',
-     '', HANDOFF),
-    ('handoff: a passagem que nao e desta conversa passa a retomar-se', HND_PROVEDOR,
-     '    if (contactId === undefined) {',
+    # **Esta mutacao mudou de sujeito com a revisao adversarial deste
+    # trabalho.** A primeira versao apagava o `AND h.external_id = $3` do
+    # predicado da consulta do *thread* — e esse predicado era ele proprio o
+    # defeito do achado 2, pelo que saiu. O que se vigia agora e a coluna no
+    # `SELECT`: sem ela, o chamador nao consegue distinguir «a nossa linha
+    # ainda nao tem conversa gravada» de «o atributo e de outra conversa», e
+    # **tudo** passa a recuperar-se, a passagem de outra conversa incluida.
+    ('handoff: a consulta do thread deixa de trazer a conversa gravada', HND_SQL,
+     '  SELECT c.contact_id, h.external_id\n',
+     '  SELECT c.contact_id\n', HANDOFF),
+    ('handoff: a passagem que nao existe passa a retomar-se', HND_PROVEDOR,
+     '    if (linha === undefined) {',
      '    if (false) {', HANDOFF),
     ('handoff: a metrica volta a contar o webhook duplicado', HND_PROVEDOR,
      '    if (desfecho === "retomado") this.#metricas.contar(METRICA_HANDOFFS, estadoDe(outcome));',
@@ -2136,6 +2143,32 @@ MUTACOES = [
     ('handoff: a retoma passa a repetir o 503 sem fim', HND_RETOMA,
      'export const TENTATIVAS_DA_RETOMA = 2;',
      'export const TENTATIVAS_DA_RETOMA = 3;', HANDOFF),
+    # As cinco da revisao adversarial **deste** trabalho. As tres primeiras sao o
+    # achado 2, que era a propria emenda 1.42 a reintroduzir o seu defeito por
+    # outra porta: com o `external_id` no predicado da consulta do *thread*, o
+    # *callback* de uma passagem `degraded` cuja conversa o provedor **ja tinha
+    # criado** (o `abrirConversa` cria-a antes de a nota privada poder falhar)
+    # caia em silencio — nenhuma retoma, 200 ao provedor, e o `interrupt()`
+    # pendente para sempre, invisivel porque a varredura dos prazos filtra
+    # `waiting`.
+    ('handoff: a recuperacao pelo callback desaparece', HND_PROVEDOR,
+     '    if (!linha.external_id) {',
+     '    if (false) {', HANDOFF),
+    ('handoff: a recuperacao passa a aceitar uma passagem concluida', HND_PROVEDOR,
+     '        e.externalId,\n        ["waiting", "degraded"],',
+     '        e.externalId,\n        ["waiting", "degraded", "resumed", "timeout", "cancelled"],',
+     HANDOFF),
+    ('handoff: a conversa do callback deixa de se confrontar com a da linha', HND_PROVEDOR,
+     '    } else if (linha.external_id !== e.externalId) {',
+     '    } else if (false) {', HANDOFF),
+    # E as duas do orcamento, que o tecto do sono sozinho nao dava: o pior caso
+    # eram 25 s dentro do pedido do *webhook* do provedor.
+    ('handoff: o orcamento total da retoma desaparece', HND_RETOMA,
+     '        restaDepoisDeDormir < MINIMO_DA_TENTATIVA_MS',
+     '        false', HANDOFF),
+    ('handoff: a segunda tentativa volta a levar o tecto inteiro', HND_RETOMA,
+     '        Math.min(ESPERA_DA_RETOMA_MS, Math.max(resto, MINIMO_DA_TENTATIVA_MS)),',
+     '        ESPERA_DA_RETOMA_MS,', HANDOFF),
     ('handoff: o marcar_aberta volta a descartar o resultado', HND_PROVEDOR,
      '    if (marcada.rows.length === 0) {',
      '    if (false) {', HANDOFF),

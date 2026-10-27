@@ -31,8 +31,21 @@
  *   qualquer *tenant*.
  *
  * **O mesmo segredo com que o HND verifica o *callback* é o que ele apresenta
- * aqui**, e isso é o desenho e não um atalho: o §3.32 dá-lhe «dois
- * consumidores», e os dois são estes dois lados do mesmo bot.
+ * aqui**, e o canon escreve-o nesta frase do §3.32: «**Dois consumidores:** o
+ * HND verifica o *callback* e o AGR verifica o `/internal/resume` **que o HND
+ * lhe faz**» — para o AGR verificar o `secret` do bot num pedido nosso, o pedido
+ * tem de o levar. (A revisão adversarial leu a mesma linha ao contrário, como
+ * «dois verificadores e nenhum apresentante»; fica a citação por extenso para
+ * que a leitura não se repita.)
+ *
+ * **E o que esse desenho implica fica dito, porque é uma propriedade e não um
+ * detalhe:** este segredo é um valor que o **terceiro** também detém — ele
+ * viaja em cada *callback* de entrada — e é o único factor **por *tenant*** que
+ * autoriza esta transição, porque o `x-kamba-interno` é de rede e partilhado
+ * pelo COM, pelo GWY e pelo *shim*. A propriedade exacta é «quem chama conhece o
+ * segredo do *agent bot* deste *tenant*», e não «é o *agent bot*». Trocar isto
+ * por uma credencial própria da retoma, por *tenant*, é emenda ao §3.32 e ao
+ * inventário de segredos — não cabe neste ticket, e fica como seguimento.
  *
  * ## O que se repete e o que não se repete
  *
@@ -66,13 +79,34 @@
  *
  * Esta chamada corre **dentro** do pedido do *webhook* do Chatwoot: o tempo que
  * ela leva é tempo que ele espera, e um provedor que desista fecha a ligação e
- * reenvia. Por isso só se repete o caso em que repetir é curto e seguro —
- * o 503, que o AGR dá quando não há grafo para a *thread* e em que **nada foi
- * escrito** — e nunca mais do que o que o `TECTO_DA_ESPERA_MS` permite. Um 5xx
- * (o `Command` levantou) também é seguro de repetir, mas aí já houve ida e volta
- * à base e uma compensação: é mais honesto devolver o erro e deixar o
- * *webhook* voltar, que é a retentativa com a escada do provedor em vez de uma
- * nossa dentro do pedido dele.
+ * reenvia. Por isso só se repete o caso em que repetir é curto e seguro — o 503,
+ * que o AGR dá quando não há grafo para a *thread* e em que **nada foi
+ * escrito** —, e «curto» é por construção e não por esperança: há um tecto para
+ * o sono (`TECTO_DA_ESPERA_MS`) **e** um orçamento para o todo
+ * (`ORCAMENTO_DA_RETOMA_MS`), porque o primeiro sozinho deixava o pior caso em
+ * 25 s. Um 5xx (o `Command` levantou) também é seguro de repetir, mas aí já
+ * houve ida e volta à base e uma compensação: é mais honesto devolver o erro e
+ * deixar o *webhook* voltar, que é a retentativa com a escada do provedor em vez
+ * de uma nossa dentro do pedido dele.
+ *
+ * ## O que levanta daqui é repetido **pelo provedor**, e isso vale dizer
+ *
+ * A tabela acima é o que **este cliente** faz com a resposta: no 401, no 404 e
+ * no 400 ele não repete a chamada ao AGR, porque nenhuma repetição conserta uma
+ * credencial, uma passagem que não é do *thread* ou um campo que falta. Mas
+ * levantar faz o `receber` levantar, o *endpoint* do *callback* responder 5xx e
+ * **o provedor reenviar** — isto é, os três repetem-se, com a escada dele.
+ *
+ * É escolha, e a alternativa é pior: engolir um 401 permanente devolve 200 ao
+ * provedor, que pára de reenviar, e a conversa fica sem retoma **sem rasto
+ * accionável** — o defeito que a emenda 1.42 existe para matar. O custo é que um
+ * `secret` errado dos dois lados dá uma tempestade de reentregas, uma por
+ * passagem resolvida; o sinal disso é a métrica
+ * `agr_resume_nao_autorizado_total` do outro lado, que sobe por cada uma.
+ * **Quem decidir de outra maneira é quem escrever o *endpoint*** — ele não
+ * existe neste repositório —, e a decisão a tomar lá é se um erro permanente se
+ * traduz num 200 com registo em vez de um 5xx. Fica como seguimento, e é a razão
+ * de o `Veredicto` ainda não prever excepções.
  *
  * E a idempotência que sustenta qualquer destas repetições não é nossa: é o CAS
  * do AGR. Dois pedidos com o mesmo `handoff_id` dão **uma** retoma, e o segundo
@@ -146,6 +180,34 @@ export const ESPERA_POR_OMISSAO_MS = 5_000;
  */
 export const TECTO_DA_ESPERA_MS = 5_000;
 
+/**
+ * O orçamento **total** da retoma, em ms, do primeiro pedido ao último. *Proposta*.
+ *
+ * **O tecto acima limita só o sono, e isso não era suficiente** — achado da
+ * revisão adversarial deste trabalho. Com duas tentativas de 10 s e um sono de
+ * 5 s, o pior caso eram 25 s dentro do pedido do *webhook* do provedor; e o AGR
+ * manda sempre `Retry-After: 5` (o `ESPERAR_SEGUNDOS` do `api_interna.py`), pelo
+ * que o sono de 5 s é o caso **normal** do 503 e não o patológico. O argumento
+ * que este módulo usa para recusar um `Retry-After: 120` vale com a mesma força
+ * para 25 s, e a nota dizia «só se repete o caso em que repetir é curto».
+ *
+ * Agora é curto por construção: antes de dormir, confere-se o que resta do
+ * orçamento, e a segunda tentativa leva o **menor** entre a espera normal e esse
+ * resto. Vinte segundos é uma escolha e não uma medição — a paciência do
+ * *webhook* do Chatwoot não está verificada em documento nenhum —, e calibra-se
+ * em KAM-084 com o resto dos números de tempo.
+ */
+export const ORCAMENTO_DA_RETOMA_MS = 20_000;
+
+/**
+ * O mínimo que resta do orçamento para valer a pena tentar outra vez, em ms.
+ *
+ * Abaixo disto não se repete: um `fetch` com dois segundos de tecto contra um
+ * serviço que acabou de responder 503 é tempo gasto a somar latência ao pedido
+ * do provedor sem probabilidade séria de vencer.
+ */
+export const MINIMO_DA_TENTATIVA_MS = 2_000;
+
 /** O corpo de `/internal/resume`: três campos de forma fechada (§3.32). */
 export interface PedidoDeRetoma {
   /** `{tenant_id}:{contact_id}` (§3.1). */
@@ -178,6 +240,25 @@ export interface OpcoesDaRetoma {
   readonly buscar?: typeof fetch;
   /** Injectável para teste: sem isto, um ensaio do 503 esperava 5 s a sério. */
   readonly esperar?: (ms: number) => Promise<void>;
+  /**
+   * O relógio, em ms. Injectável para teste.
+   *
+   * Existe pelo `ORCAMENTO_DA_RETOMA_MS`: sem um relógio que o ensaio controle,
+   * a única forma de medir o orçamento total era um ensaio que demorasse o
+   * orçamento — e um ensaio que demora vinte segundos é um ensaio que ninguém
+   * corre duas vezes.
+   */
+  readonly agora?: () => number;
+  /**
+   * O corte de cada tentativa. Injectável para teste.
+   *
+   * Existe por uma razão só, e é de medição: o tecto de uma tentativa vai num
+   * `AbortSignal`, que **não** diz de fora quantos milissegundos leva. Sem esta
+   * costura, a parte do orçamento que encurta a **segunda** tentativa não tinha
+   * ensaio nenhum — e uma garantia sem ensaio é o que esta casa aprendeu a não
+   * escrever.
+   */
+  readonly cortar?: (ms: number) => AbortSignal;
   readonly log?: Logger;
 }
 
@@ -313,10 +394,17 @@ export function esperaDoRetryAfter(cabecalho: string | null): number | null {
 async function pedirUmaVez(
   opcoes: OpcoesDaRetoma,
   pedido: PedidoDeRetoma,
-  segredo: string,
+  tenantId: string,
+  tecto: number,
 ): Promise<{ desfecho: DesfechoDaRetoma } | { esperar: number | null }> {
   const buscar = opcoes.buscar ?? fetch;
+  // **As duas credenciais leem-se a cada tentativa, e as duas pela mesma razão.**
+  // A primeira versão resolvia o `secret` do bot **uma vez**, antes do ciclo, e
+  // a `credencial` a cada volta — com a *docstring* a justificar a releitura pela
+  // rotação, que vale igual para os dois (`chatwoot_bot_secret`, 182 dias).
+  // Achado da revisão adversarial.
   const credencial = await opcoes.credencial();
+  const segredo = await opcoes.segredoDoBot(tenantId);
   let resposta: Response;
   try {
     resposta = await buscar(`${opcoes.agr}${CAMINHO_DA_RETOMA}`, {
@@ -337,8 +425,10 @@ async function pedirUmaVez(
       }),
       // `AbortSignal.timeout` e não um `setTimeout` à mão, pela razão do
       // *shim*: sem corte, um AGR que aceita a ligação e nunca responde segura o
-      // pedido do *webhook* até o provedor desistir.
-      signal: AbortSignal.timeout(ESPERA_DA_RETOMA_MS),
+      // pedido do *webhook* até o provedor desistir. O `tecto` é o da tentativa
+      // e **não** é sempre o `ESPERA_DA_RETOMA_MS`: na segunda, é o que resta do
+      // `ORCAMENTO_DA_RETOMA_MS`.
+      signal: (opcoes.cortar ?? ((ms: number) => AbortSignal.timeout(ms)))(tecto),
     });
   } catch (erro) {
     throw new RetomaIndisponivelError(null, (erro as Error).name || "rede");
@@ -393,11 +483,18 @@ export function clienteDaRetoma(
       // prefixo vazio era um erro de credencial a apontar para o sítio errado.
       throw new CorpoDaRetomaRecusadoError("thread_id_sem_tenant");
     }
-    const segredo = await opcoes.segredoDoBot(tenantId);
     const esperar = opcoes.esperar ?? ((ms: number) => new Promise((pronto) => setTimeout(pronto, ms)));
+    const agora = opcoes.agora ?? (() => Date.now());
+    const inicio = agora();
 
     for (let tentativa = 1; ; tentativa += 1) {
-      const resultado = await pedirUmaVez(opcoes, pedido, segredo);
+      const resto = ORCAMENTO_DA_RETOMA_MS - (agora() - inicio);
+      const resultado = await pedirUmaVez(
+        opcoes,
+        pedido,
+        tenantId,
+        Math.min(ESPERA_DA_RETOMA_MS, Math.max(resto, MINIMO_DA_TENTATIVA_MS)),
+      );
       if ("desfecho" in resultado) {
         if (resultado.desfecho === "repetido") {
           // Não é erro e não se registra como tal: é o *webhook* duplicado do
@@ -409,9 +506,21 @@ export function clienteDaRetoma(
         return resultado.desfecho;
       }
       const espera = resultado.esperar;
-      if (espera === null || tentativa >= TENTATIVAS_DA_RETOMA) {
+      // **O orçamento total decide, e não só o número de tentativas.** Sem o
+      // resto do orçamento nesta condição, o pior caso eram 25 s dentro do
+      // pedido do *webhook* — ver o `ORCAMENTO_DA_RETOMA_MS`.
+      const restaDepoisDeDormir =
+        espera === null ? 0 : ORCAMENTO_DA_RETOMA_MS - (agora() - inicio) - espera;
+      if (
+        espera === null ||
+        tentativa >= TENTATIVAS_DA_RETOMA ||
+        restaDepoisDeDormir < MINIMO_DA_TENTATIVA_MS
+      ) {
         opcoes.log?.warn({ outcome: "retoma_indisponivel", tenant_id: tenantId });
-        throw new RetomaIndisponivelError(503, "grafo_nao_registado");
+        // O motivo é o **estado**, e não uma leitura do corpo. A primeira versão
+        // punha `grafo_nao_registado` fixo, que é só uma das razões pelas quais
+        // esta rota dá 503 — e o dia em que ela desse outra, a mensagem mentia.
+        throw new RetomaIndisponivelError(503, "http_503");
       }
       await esperar(espera);
     }

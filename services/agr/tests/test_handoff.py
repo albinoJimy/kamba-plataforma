@@ -1538,12 +1538,18 @@ class TestFronteiraComOHnd(unittest.TestCase):
             "sair de waiting e desta rota, nos tres desfechos: dicionario §3.32",
         )
 
-    def test_os_tres_estados_que_o_cas_escreve_nao_estao_na_lista_do_hnd(self) -> None:
-        """E o controlo positivo da assercao de cima, pelo lado dos valores.
+    def test_a_lista_do_hnd_nao_esta_vazia_nem_tem_estado_concluido(self) -> None:
+        """O controlo positivo da assercao de cima, pelo lado dos valores.
 
         Sem ele, `ESTADOS_QUE_FECHAM = []` passava o teste anterior e dizia
         outra coisa: que o HND nao fecha nada. O que se afirma e a **particao**,
         e para isso ela tem de ter os dois lados.
+
+        **O nome e este e nao «os tres estados que o CAS escreve nao estao na
+        lista»**, que era o da primeira versao: aquele prometia a fronteira e
+        esta assercao nao a mede — ela passa com `["waiting", "degraded"]`, cuja
+        interseccao com os tres estados concluidos tambem e vazia. Quem mede a
+        fronteira e o ensaio de cima. Achado da revisao adversarial.
         """
         import re
 
@@ -1590,12 +1596,29 @@ class TestFronteiraComOHnd(unittest.TestCase):
         so o `secret` do bot levava 401 em **todas** as retomas, e o sintoma
         eram conversas mortas — o mesmo sintoma do defeito que a emenda 1.42
         corrige, com outra causa.
+
+        **A primeira versao deste ensaio passava por construcao**, e e achado da
+        revisao adversarial: ela afirmava `assertIn("CABECALHO_INTERNO", ...)`, e
+        aquela cadeia esta na linha de `import` e no cabecalho do modulo — o
+        ensaio passava com o cliente a **nao** por o cabecalho no pedido, e nunca
+        confrontava o **valor** com o lado Python. Agora mede as duas coisas que
+        a *docstring* promete: o valor, e a presenca nos `headers`.
         """
+        from pathlib import Path
+
         from kamba_agr.api_interna import CABECALHO
 
-        self.assertIn("CABECALHO_INTERNO", self.retoma_ts)
-        self.assertIn(f'[CABECALHO_DO_BOT]: segredo', self.retoma_ts)
         self.assertEqual(CABECALHO, "x-kamba-interno")
+        # O valor, lido do ficheiro onde o cliente o vai buscar.
+        contrato = (
+            Path(__file__).resolve().parents[3]
+            / "packages" / "core-ts" / "src" / "agr" / "contrato.ts"
+        ).read_text(encoding="utf-8")
+        self.assertIn(f'CABECALHO_INTERNO = "{CABECALHO}"', contrato)
+        # E a presenca **nos cabecalhos do pedido**, que e o que falhava.
+        cabecalhos = self.retoma_ts.split("headers: {")[1].split("},")[0]
+        self.assertIn("[CABECALHO_INTERNO]: credencial", cabecalhos)
+        self.assertIn("[CABECALHO_DO_BOT]: segredo", cabecalhos)
 
     def test_o_corpo_que_o_hnd_envia_sao_os_tres_campos_da_rota(self) -> None:
         """A forma fechada do §3.32, confrontada com o que o cliente escreve.
@@ -1631,9 +1654,28 @@ class TestFronteiraComOHnd(unittest.TestCase):
         self.assertEqual(de_la, DESFECHOS_DA_RETOMA)
 
     def test_os_outcomes_que_o_hnd_envia_sao_os_tres_do_1101(self) -> None:
-        """O `outcome` atravessa o `interrupt()` sem traducao, e sao tres."""
+        """O `outcome` atravessa o `interrupt()` sem traducao, e sao tres.
+
+        **A primeira versao nao lia ficheiro TypeScript nenhum** — afirmava o
+        `DESFECHOS` e o `ESTADO_DO_DESFECHO`, os dois deste lado, com um nome que
+        promete o outro. Achado da revisao adversarial: um ensaio de paridade que
+        so le um dos lados nao e um ensaio de paridade. Agora le o `OUTCOMES` do
+        `hnd/contrato.ts`, que e o que o cliente pode enviar.
+        """
+        import re
+        from pathlib import Path
+
         self.assertEqual(maquina.DESFECHOS, ("resolved", "timeout", "cancelled"))
         self.assertEqual(len(maquina.ESTADO_DO_DESFECHO), 3)
+
+        contrato = (
+            Path(__file__).resolve().parents[3]
+            / "packages" / "core-ts" / "src" / "hnd" / "contrato.ts"
+        ).read_text(encoding="utf-8")
+        bloco = re.search(r"OUTCOMES = \[(.*?)\] as const", contrato, re.DOTALL)
+        self.assertIsNotNone(bloco, "o `OUTCOMES` do HND mudou de forma")
+        de_la = tuple(re.findall(r'"([a-z_]+)"', bloco.group(1)))
+        self.assertEqual(de_la, maquina.DESFECHOS)
 
     def test_o_resolver_tem_instrucao_propria_e_sai_do_fecho(self) -> None:
         """A outra metade da emenda 1.42, e e a que o ADR-010 obriga.

@@ -50,37 +50,57 @@ export const SQL_ABRIR_HANDOFF = `
  * resolveu o *callback*); o `contact_id` está na conversa a que a passagem
  * aponta, e esta é a instrução que o traz.
  *
- * **O `external_id` vai no predicado, e é a verificação que fecha o buraco que
- * o §3.32 nomeia do outro lado.** O `handoff_id` chega-nos do atributo
- * `handoffId` da conversa **no provedor**, isto é, de fora: um valor trocado lá
- * — um `handoff_id` do mesmo *tenant* mas de **outro contacto** — passava o
- * `tenant_id` e fazia-nos pedir a retoma do *thread* errado, que é a conversa de
- * outra pessoa a ser retomada com o desfecho desta. O `external_id` da linha é o
- * identificador da conversa que **nós** gravámos quando a criámos lá; o
- * *callback* traz o identificador da conversa de onde ele vem. Se os dois não
- * baterem, o atributo não é desta conversa e não se escreve nem se retoma nada.
+ * **O `external_id` sai no `SELECT` e NÃO vai no predicado, e isso é a correcção
+ * de um defeito que a revisão adversarial mediu.** A primeira versão punha
+ * `AND h.external_id = $3`, com esta justificação:
  *
- * O AGR faz a mesma verificação pelo outro lado (o `contact_id` no predicado do
- * CAS) e as duas não são redundantes: a dele impede que **alguém** retome o
- * *thread* errado, a nossa impede que **nós** lho peçamos — e sem a nossa, o
- * pedido chegava lá e saía como `recusado` (404), que é um alerta sobre um
- * defeito nosso disfarçado de ataque.
+ * > «Uma passagem `degraded` tem `external_id` nulo e por isso nunca casa aqui,
+ * > o que é o lado certo: ela não existe no provedor, logo nenhum *callback*
+ * > legítimo dele pode ser dela.»
  *
- * Uma passagem `degraded` tem `external_id` nulo e por isso **nunca** casa aqui,
- * o que é o lado certo: ela não existe no provedor, logo nenhum *callback*
- * legítimo dele pode ser dela.
+ * **A premissa é falsa, e o `chatwoot.ts` di-lo em dez linhas:** o
+ * `abrirConversa` **cria** a conversa no provedor, com o atributo `handoffId`, e
+ * só **depois** publica a nota privada. Se a nota levar um 5xx ou esgotar o
+ * tecto, o `openHandoff` apanha `ProvedorIndisponivelError` e marca a passagem
+ * `degraded` com `external_id` a `NULL` — **e a conversa está aberta lá, com o
+ * atributo**. Um colega resolve-a, o *callback* chega, e com o `external_id` no
+ * predicado dava zero linhas: nenhum pedido de retoma, nenhuma escrita, um 200
+ * ao provedor (que pára de reenviar) e o `interrupt()` pendente para sempre —
+ * que é, letra por letra, o defeito que a emenda 1.42 existe para matar. E
+ * invisível: a varredura dos prazos filtra `waiting` e esta ficava `degraded`,
+ * e o *job* `abertura:` que escreveria o `external_id` não tem consumidor neste
+ * repositório. A mesma coisa, por 24 h em vez de para sempre, na janela entre o
+ * `INSERT` e o `SQL_MARCAR_ABERTA`, que é uma chamada HTTP a um terceiro.
  *
- * Parâmetros: o `tenant_id`, o `handoff_id` e o `external_id` do *callback*.
+ * Por isso a coluna **sai no `SELECT`** e quem decide é o chamador, com três
+ * saídas distinguíveis em vez de um zero para tudo (ver `#retomarAPassagem`):
+ * a conversa bate, a nossa linha ainda não tem conversa gravada (recupera-se com
+ * o `SQL_MARCAR_ABERTA`, que é a instrução que já existe para isso), ou o
+ * atributo é de **outra** conversa — e essa é a única que se recusa.
+ *
+ * **A verificação que o `external_id` compra continua a ser a razão de ele sair
+ * daqui**, e é a que fecha deste lado o buraco que o §3.32 nomeia do outro: o
+ * `handoff_id` chega-nos do atributo de uma conversa **no provedor**, isto é, de
+ * fora, e um valor trocado lá — um `handoff_id` do mesmo *tenant* e de **outro
+ * contacto** — passa o `tenant_id` e faz-nos pedir a retoma do *thread* errado,
+ * isto é, a conversa de outra pessoa com o desfecho desta.
+ *
+ * O AGR faz a verificação equivalente pelo outro lado (o `contact_id` no
+ * predicado do CAS) e as duas não são redundantes: a dele impede que **alguém**
+ * retome o *thread* errado, a nossa impede que **nós** lho peçamos — e sem a
+ * nossa, o pedido chegava lá e saía como `recusado` (404), que é um alerta sobre
+ * um defeito nosso disfarçado de ataque.
+ *
+ * Parâmetros: o `tenant_id` e o `handoff_id`.
  */
 export const SQL_THREAD_DA_PASSAGEM = `
-  SELECT c.contact_id
+  SELECT c.contact_id, h.external_id
     FROM platform.handoffs h
     JOIN platform.conversations c
       ON c.tenant_id = h.tenant_id
      AND c.id = h.conversation_id
    WHERE h.tenant_id = $1
      AND h.handoff_id = $2
-     AND h.external_id = $3
 `;
 
 /**
@@ -95,12 +115,22 @@ export const SQL_THREAD_DA_PASSAGEM = `
  * §3.32 di-lo por extenso — «quem sabe que agente respondeu é o HND, e o AGR
  * nunca aprende essa identidade». Logo, escrita separada, deste lado.
  *
- * **O `status = 'waiting'` no predicado é o que torna o *webhook* duplicado um
- * *no-op* também aqui**, e pela mesma técnica do resto do módulo: o segundo
- * *callback* chega depois de o CAS ter movido a linha, não casa, e **não
- * reescreve** o `resolver` de quem de facto respondeu. Sem ele, o duplicado
- * passava por cima do primeiro — e nos dois *webhooks* do Chatwoot o segundo
- * pode trazer outro `assignee`.
+ * **O `status = 'waiting'` no predicado torna o *webhook* duplicado um *no-op*
+ * também aqui — no duplicado SEQUENCIAL, e a distinção é medida.** O segundo
+ * *callback* que chegue depois de o CAS ter movido a linha não casa, e **não
+ * reescreve** o `resolver` de quem de facto respondeu; sem o predicado, passava
+ * por cima dele, e nos dois *webhooks* do Chatwoot o segundo pode trazer outro
+ * `assignee`.
+ *
+ * **Duas chegadas concorrentes escrevem as duas**, e a nota dizia o contrário —
+ * achado da revisão adversarial. Elas vêem ambas `status = 'waiting'`, os dois
+ * `UPDATE` casam, e vence o último; o CAS do AGR continua a dar **uma** retoma,
+ * mas o `resolver` pode ficar o do segundo. Não se fecha com um
+ * `resolver IS NULL` no predicado, e a razão é a de baixo: ele faria o caminho
+ * **normal** da repetição legítima devolver zero linhas. O que se perde é
+ * pequeno e nomeia-se: os dois valores são agentes do mesmo *tenant* a resolver
+ * a mesma conversa nos mesmos milissegundos, pelo que «quem respondeu» é
+ * ambíguo de facto e não só na coluna.
  *
  * **E não leva `resolver IS NULL`**, que era o que apetecia para ficar
  * «primeiro a escrever vence». A razão é a repetição legítima: um 503 do AGR faz

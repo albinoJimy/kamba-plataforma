@@ -133,8 +133,22 @@ TESTES_OBRIGATORIOS = (
     "**o corpo da retoma sao os tres campos, e o thread_id vem da linha**",
     "**o resolver escreve-se antes da retoma, e e a unica ordem que funciona**",
     "**dois webhooks duplicados dao UMA retoma**",
-    "**o segundo webhook nao reescreve o resolver do primeiro**",
+    "**o segundo webhook SEQUENCIAL nao reescreve o resolver do primeiro**",
     "**um handoffId de outra conversa nao escreve nem retoma**",
+    "**um handoffId que nao e deste tenant nao escreve nem retoma**",
+    # A recuperacao pelo *callback*, que e o achado da revisao adversarial
+    # deste trabalho: uma passagem `degraded` **pode** ter conversa no
+    # provedor, porque o `abrirConversa` cria-a antes de a nota privada
+    # poder falhar. Com o `external_id` no predicado, o *callback* legitimo
+    # dela caia em silencio e o `interrupt()` ficava pendente para sempre.
+    "**uma passagem degraded com a conversa criada la retoma-se**",
+    "**uma passagem em waiting sem conversa gravada tambem retoma**",
+    "**uma passagem ja concluida nao se recupera pelo callback**",
+    "**uma passagem degraded com a conversa criada la recupera-se e retoma**",
+    "**o recusado do AGR e alcancavel: um thread que nao e da passagem**",
+    # O orcamento total do cliente, que o tecto do sono sozinho nao dava.
+    "**o orcamento total impede a segunda tentativa**",
+    "**as duas credenciais leem-se a cada tentativa**",
     "**o AGR em baixo levanta, e a passagem fica em waiting**",
     "**o handler do onHumanEvent corre, e corre depois da retoma**",
     "**um close sobre uma passagem em waiting nao escreve nada**",
@@ -152,7 +166,8 @@ TESTES_OBRIGATORIOS = (
     # E contra a base, que e onde as duas escritas compoem.
     "**o resolver chega a base sem passar pelo AGR, e o status vem do CAS**",
     "**dois webhooks duplicados dao UMA retoma e UM resolver**",
-    "**a consulta do thread exige o external_id da conversa**",
+    "**a consulta do thread devolve a conversa gravada, para o chamador decidir**",
+    "**um handoffId de outra conversa nao retoma, contra a base**",
     "**a consulta do thread nao atravessa tenants**",
     "**uma passagem em waiting nao se fecha por aqui**",
 )

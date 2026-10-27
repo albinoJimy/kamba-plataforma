@@ -334,10 +334,17 @@ export class Handoff implements HandoffProvider {
     }
 
     // **O resultado le-se, e a primeira versao descartava-o.** O
-    // `SQL_MARCAR_ABERTA` tem `AND status = ANY($4)`: se um
-    // `conversation_status_changed` com `resolved` chegou entre a escrita da
-    // linha e a volta do `abrirConversa` — e a janela e uma chamada HTTP a um
-    // terceiro, com 10 s de tecto —, o `UPDATE` nao casa. Descartar as linhas
+    // `SQL_MARCAR_ABERTA` tem `AND status = ANY($4)`: se a passagem saiu de
+    // `waiting` entre a escrita da linha e a volta do `abrirConversa` — e a
+    // janela e uma chamada HTTP a um terceiro, com 10 s de tecto —, o `UPDATE`
+    // nao casa.
+    //
+    // **Quem a tira de `waiting` nesta janela mudou com a emenda 1.42**, e o
+    // comentario dizia o antigo: era um `conversation_status_changed` com
+    // `resolved` a cair no `#fechar` deste modulo, e hoje e o *compare-and-set*
+    // do AGR, a quem o `receber` pede a retoma depois de recuperar a passagem
+    // pelo `external_id` do *callback* (ver `#retomarAPassagem`). O ramo
+    // continua alcancavel; o que mudou e por onde. Descartar as linhas
     // fazia tres coisas erradas de uma vez: dizia ao chamador que a passagem
     // estava `waiting` quando ela estava `resumed`, contava uma passagem
     // aberta que ja tinha fechado, e deixava a conversa criada no provedor
@@ -457,33 +464,67 @@ export class Handoff implements HandoffProvider {
    * escritas, não há transacção que as cubra, e só uma das ordens tem a
    * propriedade que se quer.
    *
-   * **A passagem confere-se antes de qualquer escrita**, e não é arrumação: o
-   * `handoff_id` chega do atributo de uma conversa **no provedor**, isto é, de
-   * fora. O `SQL_THREAD_DA_PASSAGEM` leva o `external_id` do *callback* no
-   * predicado, pelo que um atributo trocado lá não nos faz escrever na passagem
-   * de outro contacto nem pedir a retoma do *thread* errado — ver a nota da
-   * consulta.
+   * **A passagem confere-se antes de qualquer escrita, e em três saídas e não
+   * em duas.** O `handoff_id` chega do atributo de uma conversa **no provedor**,
+   * isto é, de fora, pelo que a conversa da linha tem de ser confrontada com a
+   * do *callback*; mas **a nossa linha pode legitimamente não ter conversa
+   * gravada** — uma passagem `degraded` cuja conversa o provedor criou antes de
+   * a nota privada falhar, ou a janela entre o `INSERT` e o `SQL_MARCAR_ABERTA`.
+   * Tratar esse caso como «não é desta conversa» era deixar cair um *callback*
+   * legítimo em silêncio, com o `interrupt()` pendente para sempre: o defeito
+   * que esta emenda existe para matar, por outra porta. Medido pela revisão
+   * adversarial deste trabalho; ver a nota do `SQL_THREAD_DA_PASSAGEM`.
+   *
+   * As três saídas, cada uma com o seu rasto — é a lição do
+   * `handoff_fecho_sem_efeito`, e aplicá-la a meio (um zero para tudo) é o que
+   * faz um caminho que ninguém investiga:
+   *
+   * 1. **não há linha**: o `handoff_id` não é deste *tenant*, ou a conversa que
+   *    ele aponta não existe. Não se escreve nem se retoma nada;
+   * 2. **a linha não tem `external_id`**: é nossa e ainda não sabíamos a
+   *    conversa. Recupera-se com o `SQL_MARCAR_ABERTA` — a instrução que já
+   *    existe para isto e cuja nota o diz («é também a que **recupera** uma
+   *    passagem que ficou `degraded`») —, que grava a conversa do *callback* e
+   *    põe a passagem em `waiting`, que é o estado de que o CAS do AGR pode
+   *    partir. Só então se continua;
+   * 3. **a linha tem outra conversa**: o atributo não é desta, e é a única que
+   *    se recusa.
    */
   async #retomarAPassagem(
     tenantId: string,
     e: HumanEvent,
     outcome: Outcome,
   ): Promise<void> {
-    const linhas = await this.#bd.query<{ contact_id: string }>(SQL_THREAD_DA_PASSAGEM, [
-      tenantId,
-      e.handoffId,
-      e.externalId,
-    ]);
-    const contactId = linhas.rows[0]?.contact_id;
-    if (contactId === undefined) {
-      // Nenhuma passagem deste *tenant* com este `handoff_id` **e** esta
-      // conversa. Não se escreve nem se retoma nada, e **deixa-se rasto**: é a
-      // lição do `handoff_fecho_sem_efeito` — um caminho silencioso onde cabem
-      // duas coisas muito diferentes (um atributo trocado no provedor e uma
-      // passagem que não é nossa) é um caminho que ninguém investiga.
+    const linhas = await this.#bd.query<{
+      contact_id: string;
+      external_id: string | null;
+    }>(SQL_THREAD_DA_PASSAGEM, [tenantId, e.handoffId]);
+    const linha = linhas.rows[0];
+    if (linha === undefined) {
       this.#log?.warn({ outcome: "retoma_sem_passagem", tenant_id: tenantId });
       return;
     }
+    if (!linha.external_id) {
+      // **A conversa existe lá e nós não a tínhamos gravada.** A lista de
+      // estados é a mesma que o `openHandoff` passa a esta instrução, e pela
+      // mesma razão: recupera-se uma passagem que ainda não concluiu, nunca uma
+      // concluída — essa devolve zero linhas e fica o rasto.
+      const recuperada = await this.#bd.query<{ status: string }>(SQL_MARCAR_ABERTA, [
+        tenantId,
+        e.handoffId,
+        e.externalId,
+        ["waiting", "degraded"],
+      ]);
+      if (recuperada.rows.length === 0) {
+        this.#log?.warn({ outcome: "retoma_sem_recuperacao", tenant_id: tenantId });
+        return;
+      }
+      this.#log?.info({ outcome: "handoff_recuperado_pelo_callback", tenant_id: tenantId });
+    } else if (linha.external_id !== e.externalId) {
+      this.#log?.warn({ outcome: "retoma_de_outra_conversa", tenant_id: tenantId });
+      return;
+    }
+    const contactId = linha.contact_id;
 
     if (e.resolver !== null) {
       const escrita = await this.#bd.query<{ handoff_id: string }>(SQL_MARCAR_RESOLVER, [

@@ -33,7 +33,10 @@ import {
   CABECALHO_DO_BOT,
   CAMINHO_DA_RETOMA,
   CorpoDaRetomaRecusadoError,
+  ESPERA_DA_RETOMA_MS,
   ESPERA_POR_OMISSAO_MS,
+  MINIMO_DA_TENTATIVA_MS,
+  ORCAMENTO_DA_RETOMA_MS,
   RetomaIndisponivelError,
   RetomaNaoAutorizadaError,
   RetomaRecusadaError,
@@ -69,6 +72,8 @@ interface Montagem {
   readonly esperas: number[];
   readonly registo: Record<string, unknown>[];
   readonly segredosPedidos: string[];
+  /** Os tectos de cada tentativa, em ms. É o que o orçamento encurta. */
+  readonly tectos: number[];
 }
 
 /**
@@ -79,12 +84,19 @@ interface Montagem {
  * teste.
  */
 function montar(
-  respostas: { estado: number; corpo?: unknown; retryAfter?: string }[],
+  respostas: {
+    estado: number;
+    corpo?: unknown;
+    retryAfter?: string;
+    /** Quanto tempo esta tentativa «demora», em ms. Avança o relógio do ensaio. */
+    demora?: number;
+  }[],
 ): Montagem {
   const chamadas: Chamada[] = [];
   const esperas: number[] = [];
   const registo: Record<string, unknown>[] = [];
   const segredosPedidos: string[] = [];
+  const tectos: number[] = [];
   // O `Logger` **real** e em modo estrito: e o que recusa um campo fora da
   // *allowlist*. Um registo falso provava que o teste sabe guardar objectos.
   const log = new Logger("worker-canal", {
@@ -96,6 +108,10 @@ function montar(
       },
     },
   });
+  // O relógio é nosso: o orçamento total mede-se fazendo o tempo passar, não
+  // esperando por ele. Um ensaio que demora o orçamento é um ensaio que ninguém
+  // corre duas vezes.
+  let relogio = 1_000_000;
   let i = 0;
   const buscar = (async (url: string, opcoes: RequestInit) => {
     const cabecalhos = opcoes.headers as Record<string, string>;
@@ -106,6 +122,7 @@ function montar(
     });
     const resposta = respostas[Math.min(i, respostas.length - 1)];
     i += 1;
+    relogio += resposta?.demora ?? 0;
     const cabecalhosDaResposta = new Headers();
     if (resposta?.retryAfter !== undefined) {
       cabecalhosDaResposta.set("retry-after", resposta.retryAfter);
@@ -131,10 +148,19 @@ function montar(
     // corre duas vezes.
     esperar: async (ms: number) => {
       esperas.push(ms);
+      relogio += ms;
+    },
+    agora: () => relogio,
+    // O corte vai por porta porque um `AbortSignal` nao diz de fora quantos ms
+    // leva, e sem isto a parte do orcamento que encurta a segunda tentativa nao
+    // tinha ensaio.
+    cortar: (ms: number) => {
+      tectos.push(ms);
+      return AbortSignal.timeout(ms);
     },
     log,
   });
-  return { retomar, chamadas, esperas, registo, segredosPedidos };
+  return { retomar, chamadas, esperas, registo, segredosPedidos, tectos };
 }
 
 describe("o pedido que sai", () => {
@@ -305,6 +331,79 @@ describe("o 503 e o Retry-After", () => {
     await assert.rejects(() => retomar(PEDIDO), RetomaIndisponivelError);
     assert.equal(chamadas.length, 1, "nem se tentou outra vez");
     assert.deepEqual(esperas, []);
+  });
+
+  it("**o orcamento total impede a segunda tentativa**", async () => {
+    // O `TECTO_DA_ESPERA_MS` limita so o **sono**, e com ele sozinho o pior caso
+    // eram 25 s dentro do pedido do *webhook* do provedor: 10 s de tentativa,
+    // 5 s de sono — que e o que o AGR pede **sempre** —, 10 s de tentativa.
+    // Achado da revisao adversarial. Aqui a primeira tentativa «demora» 18 s, e
+    // o que resta do orcamento nao chega para outra.
+    const { retomar, chamadas, esperas } = montar([
+      { estado: 503, retryAfter: "5", demora: 18_000 },
+    ]);
+    await assert.rejects(() => retomar(PEDIDO), RetomaIndisponivelError);
+    assert.equal(chamadas.length, 1, "nao se tenta outra vez com o orcamento gasto");
+    assert.deepEqual(esperas, [], "e nem se dorme");
+  });
+
+  it("com o orcamento a sobrar, a segunda tentativa corre", async () => {
+    // O controlo positivo: sem ele, o ensaio de cima passava com um cliente que
+    // **nunca** repetisse — e o 503 que repete e metade do que este modulo faz.
+    const { retomar, chamadas, esperas } = montar([
+      { estado: 503, retryAfter: "5", demora: 200 },
+      { estado: 200, corpo: { outcome: "retomado" }, demora: 200 },
+    ]);
+    assert.equal(await retomar(PEDIDO), "retomado");
+    assert.equal(chamadas.length, 2);
+    assert.deepEqual(esperas, [5000]);
+  });
+
+  it("**a segunda tentativa leva o que resta do orcamento, e nao o tecto inteiro**", async () => {
+    // Sem isto, o orcamento so decidia **se** havia segunda tentativa: ela podia
+    // levar 10 s a mais do que o que restava, e o total passava dos 20 s.
+    const { retomar, tectos } = montar([
+      { estado: 503, retryAfter: "5", demora: 8_000 },
+      { estado: 200, corpo: { outcome: "retomado" }, demora: 100 },
+    ]);
+    assert.equal(await retomar(PEDIDO), "retomado");
+    // A primeira leva o tecto inteiro; a segunda, o que resta: 20 000 - 8 000
+    // (a primeira) - 5 000 (o sono) = 7 000.
+    assert.deepEqual(tectos, [ESPERA_DA_RETOMA_MS, 7_000]);
+  });
+
+  it("e nunca menos do que o minimo, mesmo com o orcamento gasto", async () => {
+    // O `Math.max` com o `MINIMO_DA_TENTATIVA_MS` existe para a **primeira**
+    // tentativa de um cliente reutilizado: um tecto de zero (ou negativo)
+    // abortava o pedido antes de ele sair, e isso nao e um 503 — e nada.
+    const { retomar, tectos } = montar([
+      { estado: 200, corpo: { outcome: "retomado" }, demora: 30_000 },
+    ]);
+    await retomar(PEDIDO);
+    assert.deepEqual(tectos, [ESPERA_DA_RETOMA_MS]);
+    assert.ok(tectos.every((t) => t >= MINIMO_DA_TENTATIVA_MS));
+  });
+
+  it("o orcamento e maior do que uma tentativa mais o sono mais outra", () => {
+    // A fronteira **pelo valor** e nao por um literal: se alguem baixar o
+    // orcamento abaixo disto, o 503 deixa de repetir alguma vez e o ensaio de
+    // cima passa a medir outra coisa.
+    assert.ok(
+      ORCAMENTO_DA_RETOMA_MS >= ESPERA_DA_RETOMA_MS + ESPERA_POR_OMISSAO_MS + MINIMO_DA_TENTATIVA_MS,
+      `orcamento ${ORCAMENTO_DA_RETOMA_MS} nao cabe uma segunda tentativa`,
+    );
+  });
+
+  it("**as duas credenciais leem-se a cada tentativa**", async () => {
+    // A rotacao vale para as duas (`agr_internal_token` 90 dias,
+    // `chatwoot_bot_secret` 182), e a primeira versao resolvia o segredo do bot
+    // **uma vez** antes do ciclo com a *docstring* a justificar a releitura.
+    const { retomar, segredosPedidos } = montar([
+      { estado: 503, retryAfter: "1", demora: 100 },
+      { estado: 200, corpo: { outcome: "retomado" }, demora: 100 },
+    ]);
+    await retomar(PEDIDO);
+    assert.deepEqual(segredosPedidos, [TENANT, TENANT]);
   });
 
   it("a leitura do Retry-After, nos casos todos", () => {

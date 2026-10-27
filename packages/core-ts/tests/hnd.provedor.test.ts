@@ -187,20 +187,21 @@ class BaseFalsa {
       return linhas([{ handoff_id: linha.handoff_id, status: linha.status }]);
     }
     if (nome === "thread_da_passagem") {
-      // O `JOIN` com a conversa **e** o `external_id` no predicado. Os dois
-      // contam: sem o `JOIN` não há `contact_id`, e sem o `external_id` um
-      // atributo trocado no provedor fazia-nos pedir a retoma do *thread* de
-      // outra pessoa.
+      // O `JOIN` com a conversa, que é o que traz o `contact_id`. O
+      // `external_id` **sai no `SELECT`** e não vai no predicado: quem decide é
+      // o chamador, com três saídas — ver a nota da consulta.
       const linha = this.handoffs.get(String(valores[1]));
-      if (
-        linha === undefined ||
-        linha.tenant_id !== String(valores[0]) ||
-        linha.external_id !== String(valores[2])
-      ) {
+      if (linha === undefined || linha.tenant_id !== String(valores[0])) {
         return linhas([]);
       }
       const contactId = this.conversas.get(linha.conversation_id);
-      return linhas(contactId === undefined ? [] : [{ contact_id: contactId }]);
+      return linhas(
+        contactId === undefined
+          ? []
+          : [
+              { contact_id: contactId, external_id: linha.external_id },
+            ],
+      );
     }
     if (nome === "marcar_resolver") {
       // **Só de `waiting`**, e é isso que faz do *webhook* duplicado um *no-op*
@@ -333,13 +334,21 @@ class ProvedorFalso {
  *
  * **E o que ele não prova**, dito aqui porque a revisão adversarial do KAM-034
  * encontrou exactamente esta classe de defeito (um duplo mais forte do que a
- * peça que substitui): o CAS a sério é uma instrução de PostgreSQL, e a sua
- * atomicidade sob concorrência real está provada em
- * `db/tests_agr/test_handoff_retoma.py` contra um servidor — duas ligações, o
- * mesmo `handoff_id`, exactamente uma a vencer. Este duplo replica o
- * **predicado** (o *tenant*, o `handoff_id`, o contacto da conversa e o
- * `status = 'waiting'`), e nada mais; o que aqui se mede é o lado do HND e a
- * forma do corpo, não a serialização.
+ * peça que substitui), e a deste trabalho apontou-lhe o limite:
+ *
+ * * **a atomicidade do CAS** é uma instrução de PostgreSQL, e está provada em
+ *   `db/tests_agr/test_handoff_retoma.py` contra um servidor — duas ligações, o
+ *   mesmo `handoff_id`, exactamente uma a vencer. Este duplo replica o
+ *   **predicado** (o *tenant*, o `handoff_id`, o contacto da conversa e o
+ *   `status = 'waiting'`), e nada mais;
+ * * **o `interrupt()` não é independente do CAS aqui.** O
+ *   `interrompidas.delete(…)` corre na **mesma função** que vence o CAS, pelo
+ *   que «nenhuma *thread* fica interrompida» não pode discordar de «o CAS
+ *   venceu». O que o ensaio apanha é o defeito histórico — o HND a escrever
+ *   primeiro, e com isso ninguém a pedir a retoma — e **não** uma falha entre o
+ *   CAS e o `Command`: essa é a compensação do `retoma.py`, com prova do outro
+ *   lado. Chamar-lhe «a propriedade de ponta a ponta» era vender mais do que
+ *   ele entrega, e a revisão adversarial deste trabalho disse-o.
  */
 class AgrFalso {
   readonly pedidos: PedidoDeRetoma[] = [];
@@ -963,10 +972,16 @@ describe("a fronteira da retoma (emenda 1.42, credor do criterio 3 do KAM-034)",
     assert.equal(bd.handoffs.get("h_abc")?.resumed_at, T0);
   });
 
-  it("**o segundo webhook nao reescreve o resolver do primeiro**", async () => {
+  it("**o segundo webhook SEQUENCIAL nao reescreve o resolver do primeiro**", async () => {
     // O `status = 'waiting'` no predicado do `SQL_MARCAR_RESOLVER` e quem o
     // impede, e nos dois webhooks do Chatwoot o segundo pode trazer outro
     // `assignee` — quem respondeu foi o primeiro.
+    //
+    // **Sequencial, e o nome di-lo.** Duas chegadas **concorrentes** escrevem as
+    // duas: veem ambas `status = 'waiting'` e vence a ultima. A nota da consulta
+    // afirmava a propriedade sem a qualificacao, e este ensaio — dois `await`
+    // seguidos — nao a podia desmentir. Achado da revisao adversarial; a
+    // qualificacao esta agora nos dois sitios.
     const { hnd, bd, registo } = await comPassagemAEspera();
     await hnd.receber(TENANT, SEGREDO, corpoResolvido());
     await hnd.receber(TENANT, SEGREDO, corpoResolvido({ assignee: { id: 99 } }));
@@ -977,9 +992,9 @@ describe("a fronteira da retoma (emenda 1.42, credor do criterio 3 do KAM-034)",
 
   it("**um handoffId de outra conversa nao escreve nem retoma**", async () => {
     // O `handoff_id` chega do atributo de uma conversa **no provedor**, isto e,
-    // de fora. Com o `external_id` no predicado, um valor trocado la nao nos faz
-    // pedir a retoma do *thread* de outra pessoa — que e o perigo que o §3.32
-    // nomeia para o lado do AGR, visto deste lado.
+    // de fora. A conversa da linha confronta-se com a do *callback*, e um valor
+    // trocado la nao nos faz pedir a retoma do *thread* de outra pessoa — que e
+    // o perigo que o §3.32 nomeia para o lado do AGR, visto deste lado.
     const { hnd, bd, agr, registo } = await comPassagemAEspera();
     await hnd.receber(
       TENANT,
@@ -996,7 +1011,141 @@ describe("a fronteira da retoma (emenda 1.42, credor do criterio 3 do KAM-034)",
     assert.deepEqual(agr.pedidos, [], "nao se pede retoma nenhuma");
     assert.equal(bd.handoffs.get("h_abc")?.resolver, null, "e nao se escreve o resolver");
     assert.equal(bd.handoffs.get("h_abc")?.status, "waiting");
+    // E o rasto **separa** este caso do «nao ha passagem nenhuma»: um caminho
+    // onde cabem duas coisas diferentes e um caminho que ninguem investiga.
+    assert.ok(registo.some((l) => l["outcome"] === "retoma_de_outra_conversa"));
+    assert.ok(!registo.some((l) => l["outcome"] === "retoma_sem_passagem"));
+  });
+
+  it("**um handoffId que nao e deste tenant nao escreve nem retoma**", async () => {
+    const { hnd, agr, registo } = await comPassagemAEspera();
+    await hnd.receber(
+      TENANT,
+      SEGREDO,
+      corpoResolvido({
+        conversation: {
+          id: "cw-1",
+          status: "resolved",
+          custom_attributes: { handoffId: "h_que_nao_existe" },
+        },
+      }),
+    );
+
+    assert.deepEqual(agr.pedidos, []);
     assert.ok(registo.some((l) => l["outcome"] === "retoma_sem_passagem"));
+  });
+
+  it("**uma passagem degraded com a conversa criada la retoma-se**", async () => {
+    // **O defeito que a revisao adversarial mediu, e era o desta emenda por
+    // outra porta.** O `abrirConversa` cria a conversa no provedor e so depois
+    // publica a nota privada: se a nota falhar, a passagem fica `degraded` com
+    // `external_id` nulo **e a conversa esta aberta la, com o atributo**. Um
+    // colega resolve-a, o *callback* chega — e com o `external_id` no predicado
+    // da consulta isto dava zero linhas: nenhuma retoma, 200 ao provedor (que
+    // para de reenviar), e o `interrupt()` pendente para sempre. Invisivel: a
+    // varredura dos prazos filtra `waiting` e esta ficava `degraded`.
+    const { hnd, bd, agr, provedor, registo } = montar();
+    await hnd.ensureAccount(TENANT);
+    provedor.emBaixo = true;
+    const aberta = await hnd.openHandoff(pedido());
+    assert.equal(aberta.estado, "degraded");
+    assert.equal(bd.handoffs.get("h_abc")?.external_id, null, "sem conversa gravada");
+    agr.interrompidas.add(threadDe(TENANT, CONTACTO));
+
+    // O provedor tem a conversa `cw-7` com o atributo desta passagem.
+    await hnd.receber(
+      TENANT,
+      SEGREDO,
+      corpoResolvido({
+        conversation: {
+          id: "cw-7",
+          status: "resolved",
+          custom_attributes: { handoffId: "h_abc" },
+        },
+      }),
+    );
+
+    // A passagem recupera-se — a conversa fica gravada — e a retoma corre.
+    assert.equal(bd.handoffs.get("h_abc")?.external_id, "cw-7");
+    assert.equal(bd.handoffs.get("h_abc")?.resolver, "7");
+    assert.equal(bd.handoffs.get("h_abc")?.status, "resumed");
+    assert.equal(agr.comandos, 1);
+    assert.deepEqual([...agr.interrompidas], []);
+    assert.ok(registo.some((l) => l["outcome"] === "handoff_recuperado_pelo_callback"));
+  });
+
+  it("**uma passagem em waiting sem conversa gravada tambem retoma**", async () => {
+    // A segunda metade do mesmo achado: a janela entre o `INSERT` e o
+    // `SQL_MARCAR_ABERTA` e uma chamada HTTP a um terceiro, com 10 s de tecto, e
+    // nela a passagem esta `waiting` com `external_id` nulo **e a conversa ja
+    // existe la**. Antes da emenda, o `#fechar` tratava este caso; sem esta
+    // recuperacao, o cliente esperava pelo prazo das 24 h.
+    const { hnd, bd, agr } = montar();
+    await hnd.ensureAccount(TENANT);
+    bd.handoffs.set("h_janela", {
+      handoff_id: "h_janela",
+      tenant_id: TENANT,
+      conversation_id: CONVERSA,
+      status: "waiting",
+      motivo: "o cliente pediu uma pessoa",
+      external_id: null,
+      opened_at: T0,
+      resumed_at: null,
+      resolver: null,
+    });
+    agr.interrompidas.add(threadDe(TENANT, CONTACTO));
+
+    await hnd.receber(
+      TENANT,
+      SEGREDO,
+      corpoResolvido({
+        conversation: {
+          id: "cw-9",
+          status: "resolved",
+          custom_attributes: { handoffId: "h_janela" },
+        },
+      }),
+    );
+
+    assert.equal(bd.handoffs.get("h_janela")?.external_id, "cw-9");
+    assert.equal(bd.handoffs.get("h_janela")?.status, "resumed");
+    assert.equal(agr.comandos, 1);
+  });
+
+  it("**uma passagem ja concluida nao se recupera pelo callback**", async () => {
+    // A recuperacao usa o `SQL_MARCAR_ABERTA`, cujo predicado so aceita os dois
+    // estados abertos: uma passagem concluida devolve zero linhas e fica o
+    // rasto. Ressuscitar um handoff fechado era o lado errado para errar.
+    const { hnd, bd, agr, registo } = montar();
+    await hnd.ensureAccount(TENANT);
+    bd.handoffs.set("h_fechada", {
+      handoff_id: "h_fechada",
+      tenant_id: TENANT,
+      conversation_id: CONVERSA,
+      status: "cancelled",
+      motivo: "o cliente pediu uma pessoa",
+      external_id: null,
+      opened_at: T0,
+      resumed_at: null,
+      resolver: null,
+    });
+
+    await hnd.receber(
+      TENANT,
+      SEGREDO,
+      corpoResolvido({
+        conversation: {
+          id: "cw-9",
+          status: "resolved",
+          custom_attributes: { handoffId: "h_fechada" },
+        },
+      }),
+    );
+
+    assert.equal(bd.handoffs.get("h_fechada")?.status, "cancelled");
+    assert.equal(bd.handoffs.get("h_fechada")?.external_id, null);
+    assert.deepEqual(agr.pedidos, []);
+    assert.ok(registo.some((l) => l["outcome"] === "retoma_sem_recuperacao"));
   });
 
   it("**o callback sem resolver nao corre a instrucao do resolver**", async () => {
@@ -1078,8 +1227,15 @@ describe("a fronteira da retoma (emenda 1.42, credor do criterio 3 do KAM-034)",
       TypeError,
       "sem porta tem de levantar, nao de devolver aceite",
     );
-    // E a passagem fica como estava: a excepcao nao deixou meia transicao.
+    // **E o que fica escrito fica dito, porque a primeira versao deste
+    // comentario era falsa:** ele afirmava «a excepcao nao deixou meia
+    // transicao», e deixou — o `SQL_MARCAR_RESOLVER` ja correu quando a porta
+    // em falta levanta, e a assercao olhava so para o `status`. Achado da
+    // revisao adversarial. O que importa e a invariante que vale: **o `status`
+    // nao se move deste lado**, e o `resolver` escrito e benigno (o *callback*
+    // volta, a passagem ainda esta em `waiting`, e reescreve-se o mesmo valor).
     assert.equal(bd.handoffs.get("h_abc")?.status, "waiting");
+    assert.equal(bd.handoffs.get("h_abc")?.resolver, "7", "o resolver ja estava escrito");
   });
 });
 
