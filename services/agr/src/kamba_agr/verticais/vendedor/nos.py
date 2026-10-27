@@ -44,8 +44,11 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, Protocol
 
+from langgraph.types import interrupt
+
 from ... import metricas as metricas_mod
 from ...estado import reiniciar, versao_lida
+from ...handoff.portas import HandoffIndisponivel
 from ...tls.contexto import PREFIXO_DE_CONFIRMACAO, Confirmation, ToolContext
 from ...tls.erros import (
     LIMIT_EXCEEDED,
@@ -120,9 +123,25 @@ MSG_DEGRADADO: Final = (
     "Nao consigo passar a conversa a um colega agora. A loja responde-lhe aqui "
     "assim que puder."
 )
+#: As alternativas do `handoff_close` ao fim das 24 h (`01` §11.4 regra 4, e o
+#: criterio 7 do KAM-034). A Messaging Policy exige que o cliente receba
+#: **alternativas** — telefone, e-mail, loja —, e esta frase **nomeia as tres**.
+#:
+#: **O que ela nao traz sao os valores, e isso e a divida 124.** Um numero de
+#: telefone ou um e-mail com digitos nao cabe num bloco `text` — o `renderizar`
+#: levanta, de proposito, porque e a regra que impede prosa numerica (ADR-007) —
+#: e nenhum dos cinco blocos do §9.1 leva uma cadeia opaca. O KAM-034 **nao
+#: alarga a proibicao de digitos**: e uma regra de seguranca, e alarga-la para
+#: caber uma morada era abrir o caminho a toda a prosa numerica.
+#:
+#: O credor fica nomeado: resolver a 124 e acrescentar um sexto bloco cuja
+#: cadeia venha de um *fact* com proveniencia — o que torna o digito **citado**
+#: em vez de livre, que e o que o ADR-007 protege de verdade — e isso e a
+#: superficie do *renderer* do **KAM-032**, com o **KAM-123** como o outro
+#: consumidor que vai bater nisto (a referencia de pagamento do §14).
 MSG_ALTERNATIVAS: Final = (
-    "Ainda nao houve resposta de um colega. Pode escrever outra vez, ou tentar "
-    "mais tarde."
+    "Ainda nao houve resposta de um colega. Pode ligar para a loja, escrever "
+    "um e-mail, ou passar por la; ou escrever-me outra vez por aqui."
 )
 
 #: A identificacao quando o nome da loja nao pode entrar num bloco `text` (ver
@@ -303,8 +322,15 @@ class PortaDeSaida(Protocol):
     ) -> None: ...
 
 
-class HandoffIndisponivel(RuntimeError):
-    """O `HandoffUnavailable` do §11: o HND nao aceitou abrir o *handoff*."""
+# A `HandoffIndisponivel` **mudou de casa e nao de nome** (KAM-034): esta
+# definida em `kamba_agr/handoff/portas.py` e importada acima, pelo que
+# `nos.HandoffIndisponivel` continua a ser o mesmo objecto para quem a importe
+# daqui. A razao esta na *docstring* daquele modulo, em duas linhas: quem a
+# **levanta** passou a ser o `ServicoDeHandoff`, que e partilhado pelas duas
+# verticais (§5.4), e um `except` so apanha a excepcao se for a **mesma** classe
+# — duas com o mesmo nome, uma por vertical, davam um `except` que cala uma
+# delas. O `Protocol` `PortaDeHandoff` ficou aqui: uma implementacao nao precisa
+# de o importar para o satisfazer, porque a tipagem e estrutural.
 
 
 def _admite_sempre(_estado: Mapping[str, Any]) -> str | None:
@@ -1533,11 +1559,16 @@ def handoff_wait(deps: Dependencias):
     """Linha 38: **so** o `interrupt`, na primeira linha e sem `try/except` (§11)."""
 
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
-        from langgraph.types import interrupt
-
-        # Primeira linha, e nada antes dela. Na retoma o no reinicia do
+        # **Primeira instrucao, e nada antes dela.** Na retoma o no reinicia do
         # principio: um efeito antes do `interrupt` corria duas vezes, e e o
         # defeito 6 do §7.1 que este par de nos existe para corrigir.
+        #
+        # O `from langgraph.types import interrupt` estava **aqui** e subiu para
+        # o topo do modulo (KAM-034): um `import` nao e um efeito, mas era uma
+        # instrucao antes do `interrupt`, e a politica AST do criterio 2 passava
+        # a precisar de uma excepcao para o deixar passar. Uma regra que nasce
+        # com excepcao nao e a regra, e o `nos.py` ja importa o LangGraph de
+        # qualquer maneira — pelo `estado.py`, que traz o `add_messages`.
         desfecho = interrupt(
             {
                 "handoff_id": (estado.get("handoff") or {}).get("id"),

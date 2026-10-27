@@ -46,6 +46,22 @@ resposta decide se o *job* se repete:
 | nao ha grafo para a vertical (KAM-027) | 503 + `Retry-After` | devolve o *job* a fila com atraso |
 | o turno levantou | 500 | devolve o *job* a fila |
 
+E a `/internal/resume` tem a sua, com o chamador a ser o HND (KAM-034):
+
+| Caso | Estado | O que o HND faz |
+|---|---|---|
+| a retoma venceu o *compare-and-set* | 200 `retomado` | completa |
+| a passagem ja tinha saido de `waiting` (*webhook* duplicado) | **200** `repetido` | completa — e e o *no-op* do criterio 3 |
+| a passagem nao e deste *thread* (isolamento) | **404** | nao repete; a metrica e o registo mostram-no |
+| corpo invalido, ou `outcome` fora dos tres do §11.1 | 400 | descarta |
+| `secret` do *agent bot* ausente ou errado | 401 | nao repete; `agr_resume_nao_autorizado_total` sobe |
+| nao ha grafo para a *thread* (KAM-027) | 503 + `Retry-After` | repete — e **nada foi escrito** |
+| o `Command(resume=...)` levantou | 500 | repete — e a passagem **ja voltou** a `waiting` |
+
+**O 404 do `recusado` nao e 403**, e a diferenca e de privacidade: «existe mas
+nao e tua» confirma a existencia de uma passagem de outro *tenant*, que e
+exactamente o que o ADR-015 nao quer que esta rota diga.
+
 **O descarte por ritmo da 200 de proposito**, e e o unico sitio onde isso
 engana: um 429 fazia o BullMQ repetir a mensagem que acabamos de decidir
 descartar, e um descarte que se repete nao e um descarte. O criterio 5 chama-lhe
@@ -66,7 +82,14 @@ from starlette.routing import Route
 
 from .admissao import Admissao, TectoDoTenantCheioError
 from .contexto import InvocacaoInvalidaError, ler_invocacao
-from .metricas import METRICA_RECUSADOS, METRICAS
+from .handoff.autenticacao import CABECALHO_DO_BOT
+from .handoff.maquina import DESFECHOS, DesfechoInvalidoError
+from .handoff.retoma import ThreadInvalidoError, partes
+from .metricas import (
+    METRICA_RECUSADOS,
+    METRICA_RETOMA_NAO_AUTORIZADA,
+    METRICAS,
+)
 from .turno import GrafoNaoRegistadoError
 
 #: O cabecalho que leva a credencial interna. Dicionario §3.24.
@@ -97,13 +120,13 @@ CAMPOS_DA_RETOMA: Final = ("thread_id", "handoff_id", "outcome")
 
 
 class RetomaNaoImplementadaError(NotImplementedError):
-    """A retoma do *handoff* e o KAM-034.
+    """A porta da retoma nao foi ligada.
 
-    O que o KAM-025 entrega da retoma e a rota, a autenticacao, a validacao do
-    corpo e o **lock da conversa** que o §11 regra 3 exige («a invocacao
-    `Command(resume=...)` corre sob o *lock* da conversa»). O *compare-and-set*
-    em `handoffs(status: waiting -> resumed)` e o `Command(resume=...)` sao o
-    KAM-034, por nome, e o bloco deste ticket diz «nao expandas escopo».
+    **Nasceu como «a retoma e o KAM-034» e esse ticket esta feito**: o
+    *compare-and-set* e o `Command(resume=...)` vivem em
+    `kamba_agr/handoff/retoma.py` e o `__main__.py` liga-os. A excepcao fica
+    porque a porta continua a ser uma porta — quem monte estas rotas sem lhe dar
+    um `retomar` tem de levantar, e nao devolver 200 a fingir que retomou.
     """
 
 
@@ -145,17 +168,25 @@ def rotas(
     executar: Callable[..., Awaitable[Any]],
     admissao: Admissao,
     trancas: Any,
-    retomar: Callable[[str, str, str], Awaitable[None]] | None = None,
+    retomar: Callable[[str, str, str], Awaitable[str]] | None = None,
+    verificar_bot: Callable[[str | None, str], str | None] | None = None,
     aviso: Callable[[str], None] | None = None,
 ) -> list[Route]:
     """As duas rotas internas, com as portas que elas precisam.
 
     `executar` e o `ExecutorDeTurnos.correr`; `trancas` e o
     `TrancaDeConversas`, que a **retoma** precisa de tomar (§11 regra 3) — o
-    turno toma-a por dentro, no executor; `retomar` e a porta do KAM-034, que
-    por omissao levanta `RetomaNaoImplementadaError` e nao devolve 200 a fingir
-    que retomou. `aviso` recebe o «aviso unico» do criterio 5; por omissao nao
-    escreve nada, e quem o liga ao *logger* e o `__main__.py`.
+    turno toma-a por dentro, no executor; `retomar` e o `Retomador.retomar` do
+    KAM-034, que por omissao levanta `RetomaNaoImplementadaError` e nao devolve
+    200 a fingir que retomou. `aviso` recebe o «aviso unico» do criterio 5; por
+    omissao nao escreve nada, e quem o liga ao *logger* e o `__main__.py`.
+
+    **`verificar_bot` nao tem omissao segura, e por isso a omissao recusa.** E
+    o `secret` do *agent bot* do criterio 4 do KAM-034; sem verificador, **toda**
+    a retoma leva 401 com `secret_errado`. A alternativa — nao verificar quando
+    ninguem deu verificador — era um argumento por omissao a desligar um
+    controlo de seguranca, que e a mesma regra do `segredoConfere` do HND («uma
+    configuracao sem segredo nao pode tornar-se uma porta aberta»).
     """
 
     async def turno(pedido: Request) -> JSONResponse:
@@ -228,17 +259,97 @@ def rotas(
                 {"outcome": "corpo_invalido", "error_code": "campos_da_retoma"},
                 status_code=400,
             )
+
+        # **A segunda credencial: o `secret` do *agent bot* do HND** (KAM-034,
+        # criterio 4). Corre **depois** de o corpo ser lido, e nao antes como a
+        # primeira, porque o segredo e por bot — logo por *tenant* — e o
+        # *tenant* vem do prefixo do `thread_id`. A propriedade que a
+        # *docstring* deste modulo promete nao se perde: quem nao tem o
+        # `x-kamba-interno` continua a levar 401 **sem** o corpo ser lido, e o
+        # custo de ler um corpo para verificar a segunda credencial e um custo
+        # que so quem passou a primeira consegue impor.
+        #
+        # E corre **antes** de se validar o vocabulario do `outcome`, de
+        # proposito: senao um pedido sem segredo valido conseguia descobrir
+        # quais os tres desfechos aceites pela diferenca entre 400 e 401.
+        motivo = (
+            verificar_bot(pedido.headers.get(CABECALHO_DO_BOT), corpo["thread_id"])
+            if verificar_bot is not None
+            else "secret_errado"
+        )
+        if motivo is not None:
+            METRICAS.contar(METRICA_RETOMA_NAO_AUTORIZADA, motivo)
+            return _nao_autorizado()
+
+        if corpo["outcome"] not in DESFECHOS:
+            # Um quarto desfecho e um corpo que nao conhecemos. **Recusa-se, nao
+            # se ignora**: aceitar um desfecho que nao se sabe tratar e deixa-lo
+            # passar sem efeito, e o §3.15 da ao `close` exactamente tres.
+            return JSONResponse(
+                {"outcome": "corpo_invalido", "error_code": "desfecho_invalido"},
+                status_code=400,
+            )
+        # **A forma do `thread_id` confere-se ANTES de se tomar a tranca**, e
+        # nao e arrumacao: a tranca e um `pg_advisory_lock` por chave, e tomar
+        # uma chave que nao corresponde a conversa nenhuma era deixar quem
+        # tenha as duas credenciais prender chaves arbitrarias — uma negacao de
+        # servico por conversa, de dentro. A primeira versao desta rota tomava a
+        # tranca e deixava o `Retomador` recusar lá dentro.
+        try:
+            partes(corpo["thread_id"])
+        except ThreadInvalidoError:
+            return JSONResponse(
+                {"outcome": "corpo_invalido", "error_code": "thread_id_invalido"},
+                status_code=400,
+            )
         if retomar is None:
-            raise RetomaNaoImplementadaError("retoma_e_kam_034")
+            raise RetomaNaoImplementadaError("retoma_sem_porta")
+
         # **Sob a tranca da conversa**, que e o que o `docs/tecnica/02` §11
         # regra 3 exige por escrito: «a invocacao `Command(resume=...)` corre
         # sob o *lock* da conversa». Tres sitios afirmavam que o KAM-025
         # entregava isto e o codigo chamava a porta directamente — achado da
         # revisao adversarial. Sem a tranca, um `resume` entrava no grafo ao
         # mesmo tempo que um turno novo, sobre o mesmo *thread*.
-        async with trancas.tomar(corpo["thread_id"]):
-            await retomar(corpo["thread_id"], corpo["handoff_id"], corpo["outcome"])
-        return JSONResponse({"outcome": "retomado"}, status_code=200)
+        #
+        # **A tranca cobre o CAS, o `Command` e a compensacao**, e nao so o
+        # `Command`: e ela que torna a reversao do `retoma.py` segura, porque
+        # entre as duas escritas ninguem mais toca na linha.
+        try:
+            async with trancas.tomar(corpo["thread_id"]):
+                desfecho = await retomar(
+                    corpo["thread_id"], corpo["handoff_id"], corpo["outcome"]
+                )
+        except (ThreadInvalidoError, DesfechoInvalidoError) as erro:
+            # **Nenhum dos dois devia chegar aqui** — o `partes` e o `DESFECHOS`
+            # acima ja os filtraram —, e tratam-se de qualquer maneira porque
+            # sao duas leituras do mesmo dominio em dois sitios, e um 500 por
+            # divergencia entre elas punha o HND a repetir um pedido que nunca
+            # vai passar. 400 e nao 404: o corpo esta mal, e a passagem nao
+            # esta em causa.
+            return JSONResponse(
+                {"outcome": "corpo_invalido", "error_code": type(erro).__name__},
+                status_code=400,
+            )
+        except GrafoNaoRegistadoError:
+            # A mesma linha do `/internal/turn`: 503 com `Retry-After`, para que
+            # o *webhook* volte em vez de a retoma se perder. **E nada foi
+            # escrito**: o `retoma.py` resolve o grafo **antes** do CAS, pelo
+            # que esta excepcao sobe sem a base ser tocada — e repetir e seguro
+            # porque nao ha nada para desfazer.
+            return JSONResponse(
+                {"outcome": "grafo_nao_registado"},
+                status_code=503,
+                headers={"Retry-After": str(ESPERAR_SEGUNDOS)},
+            )
+
+        # `recusado` e 404 e nao 403: a passagem nao e deste *thread*, e dizer
+        # «existe mas nao e tua» era confirmar a existencia de uma passagem de
+        # outro. O `repetido` e 200 porque e o *webhook* duplicado do criterio 3
+        # — «o 2.º devolve *no-op* (200)» — e um 409 punha o Chatwoot a repetir
+        # um pedido que esta tratado.
+        estado = 404 if desfecho == "recusado" else 200
+        return JSONResponse({"outcome": desfecho}, status_code=estado)
 
     return [
         Route("/internal/turn", turno, methods=["POST"]),
