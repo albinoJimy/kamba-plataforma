@@ -28,6 +28,7 @@ from tests import factories
 from tests_agr.base import (
     SQL_HANDOFF_PARA_RETOMA,
     SQL_HANDOFFS_EXPIRADOS,
+    SQL_PASSAGENS_A_ESPERA,
     SQL_RETOMAR_HANDOFF,
     SQL_REVERTER_RETOMA,
     SQL_SLA_DE_RETOMA,
@@ -360,6 +361,51 @@ class TestAVarreduraDosPrazos(_ComRetoma):
         linhas = self.expiradas(limite, tecto=1)
         self.assertEqual(len(linhas), 1)
         self.assertEqual(linhas[0][0], mais_velha)
+
+
+class TestODrain(_ComRetoma):
+    """O instrumento do *drain* dos Detalhes Tecnicos do bloco."""
+
+    def a_espera(self):
+        conexao = self.ligar("batch")
+        cursor = conexao.cursor()
+        try:
+            cursor.execute(SQL_PASSAGENS_A_ESPERA)
+            return int(cursor.fetchone()[0])
+        finally:
+            cursor.close()
+
+    def test_conta_as_waiting_e_nao_as_outras(self) -> None:
+        """Uma passagem em `waiting` e um `interrupt()` pendente num
+        *checkpoint*; as outras quatro sao passagens **acabadas**, e um *drain*
+        que as contasse nunca chegava a zero."""
+        conversa = self.criar_conversa()
+        antes = self.a_espera()
+        self.abrir_handoff(conversa, estado="waiting")
+        self.abrir_handoff(conversa, estado="waiting")
+        for estado in ("resumed", "timeout", "cancelled", "degraded"):
+            self.abrir_handoff(conversa, estado=estado)
+        self.assertEqual(self.a_espera(), antes + 2)
+
+    def test_atravessa_tenants(self) -> None:
+        """Um *deploy* e global: contar so as do *tenant* do contexto era deixar
+        passar as dos outros."""
+        de_a = self.criar_conversa()
+        de_b = self.criar_conversa()
+        antes = self.a_espera()
+        self.abrir_handoff(de_a)
+        self.abrir_handoff(de_b)
+        self.assertEqual(self.a_espera(), antes + 2)
+
+    def test_uma_retoma_desce_a_contagem(self) -> None:
+        """O *drain* acaba quando elas saem de `waiting`, e e isso que o
+        procedimento do §7-G espera."""
+        conversa = self.criar_conversa()
+        handoff = self.abrir_handoff(conversa)
+        antes = self.a_espera()
+        conexao = self.ligar("app")
+        self.assertTrue(self.cas(conexao, conversa, handoff, "resumed"))
+        self.assertEqual(self.a_espera(), antes - 1)
 
 
 class TestOSlaDeRetoma(_ComRetoma):

@@ -1072,6 +1072,25 @@ class TestPrazos(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(dentro, [(THREAD, 1)])
         self.assertEqual(tranca.dentro, 0)
 
+    def test_o_instrumento_do_drain_conta_as_passagens_a_espera(self) -> None:
+        """O *drain* dos Detalhes Tecnicos: «mudanca incompativel de grafo
+        exige *drain* dos handoffs `waiting`».
+
+        Uma passagem em `waiting` e um `interrupt()` pendente num *checkpoint*,
+        e o no que o retoma e o da **versao nova** do grafo: se ele deixou de
+        existir, a retoma rebenta com a conversa a meio — num caminho que nenhum
+        teste de unidade ve, porque o estado que a quebra foi escrito por outra
+        versao.
+        """
+        ligacao = _LigacaoDeLote([(3,)], consulta=consultas.SQL_PASSAGENS_A_ESPERA)
+        prazos = Prazos(
+            abrir_ligacao=lambda: ligacao,
+            trancas=TrancaFalsa(),
+            retomar=None,
+            relogio=Relogio(inicio=_AGORA),
+        )
+        self.assertEqual(prazos.a_espera(ligacao), 3)
+
     async def test_a_ligacao_de_lote_fecha_mesmo_sem_passagens(self) -> None:
         ligacao = _LigacaoDeLote([])
         prazos = Prazos(
@@ -1095,16 +1114,22 @@ class _LigacaoDeLote:
 
     autocommit = False
 
-    def __init__(self, linhas) -> None:
+    def __init__(self, linhas, consulta=None) -> None:
         self.linhas = linhas
         self.fechada = False
         self.instrucoes: list = []
+        #: Qual das duas cadeias de lote se espera. **Compara-se por
+        #: identidade e levanta se nao bater**, em vez de devolver as linhas
+        #: para qualquer SQL: um duplo que responde a tudo nao distingue a
+        #: varredura da contagem do *drain*, e o ensaio passava com a consulta
+        #: errada.
+        self.consulta = consulta or consultas.SQL_HANDOFFS_EXPIRADOS
 
     def cursor(self):
         return self
 
     def execute(self, sql, parametros=()) -> None:
-        assert sql is consultas.SQL_HANDOFFS_EXPIRADOS, sql[:60]
+        assert sql is self.consulta, sql[:60]
         self.instrucoes.append(parametros)
 
     def fetchall(self):

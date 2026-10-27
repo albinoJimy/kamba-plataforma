@@ -60,7 +60,7 @@ from typing import Any, Final
 
 from kamba_core import tenant_guard
 
-from ..consultas import SQL_HANDOFFS_EXPIRADOS
+from ..consultas import SQL_HANDOFFS_EXPIRADOS, SQL_PASSAGENS_A_ESPERA
 from ..contexto import thread_id_de
 from .maquina import DESFECHO_DO_PRAZO
 
@@ -134,6 +134,27 @@ class Prazos:
                 (str(linha[0]), str(linha[1]), str(linha[2]))
                 for linha in cursor.fetchall()
             ]
+
+    def a_espera(self, ligacao: Any) -> int:
+        """Quantas passagens estao a espera de um humano, em todos os *tenants*.
+
+        **E o instrumento do *drain*** que os Detalhes Tecnicos do bloco exigem
+        — «mudanca incompativel de grafo exige *drain* dos handoffs `waiting` ou
+        compatibilidade dos nos pos-`interrupt` durante N releases» —, e o
+        procedimento esta em `docs/agr.md` §7-G.
+
+        Vive aqui e nao num modulo proprio porque e a mesma pergunta que a
+        varredura faz — «que passagens estao a espera?» — sem o filtro do prazo,
+        com o mesmo papel e a mesma ligacao de lote.
+
+        **Nao e uma barreira**, e isso fica dito: nada impede um *deploy* com
+        passagens a espera. Uma barreira automatica precisava de saber se a
+        mudanca **e** incompativel, e isso nao se le de um numero de versao — o
+        `VERSAO_DO_GRAFO` e SemVer escrito a mao.
+        """
+        with tenant_guard.tx_batch(ligacao, JOB) as cursor:
+            cursor.execute(SQL_PASSAGENS_A_ESPERA)
+            return int(cursor.fetchone()[0])
 
     async def varrer(self) -> dict[str, int]:
         """Uma passagem pela varredura. Devolve a contagem por desfecho.

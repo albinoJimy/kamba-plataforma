@@ -1330,6 +1330,41 @@ a manter.
 chama a horas é o *scheduler* do EVT. Agendar sem agendador era escrever um que
 ninguém pediu.
 
+### O *drain* antes de uma mudança incompatível de grafo
+
+É o item dos Detalhes Técnicos do bloco: «mudança incompatível de grafo exige
+*drain* dos handoffs `waiting` ou compatibilidade dos nós pós-`interrupt`
+durante N releases (`schema_version`)». Vale escrever o que ele quer dizer,
+porque a frase é curta e o modo de falha não é óbvio.
+
+Uma passagem em `waiting` é um `interrupt()` pendente num *checkpoint*, e o nó
+que a vai retomar é o da **versão nova** do grafo — não o que a interrompeu. Se
+esse nó deixou de existir, ou se o `handoff` do estado mudou de forma, a retoma
+rebenta com a conversa a meio; e rebenta num caminho que nenhuma bateria vê,
+porque o estado que a quebra foi escrito por outra versão do código.
+
+O procedimento, e o dono é quem faz o *release*:
+
+1. **antes** de publicar uma versão que mude os nós pós-`interrupt` ou a forma
+   do `state.handoff`, ler `Prazos.a_espera(ligacao)` — o
+   `SQL_PASSAGENS_A_ESPERA`, que atravessa *tenants* e corre como `kamba_batch`;
+2. se der zero, publica-se;
+3. se não der, há duas saídas e as duas são legítimas: **esperar** (as passagens
+   saem de `waiting` por resposta humana ou pelo prazo de 24 h, pelo que o
+   *drain* acaba sozinho em menos de um dia), ou **manter a compatibilidade** dos
+   nós pós-`interrupt` durante o número de *releases* que cubra esse dia;
+4. o `VERSAO_DO_GRAFO` (SemVer, `verticais/vendedor/arestas.py`) é onde a
+   incompatibilidade se declara, e o `schema_version` do estado é onde uma
+   mudança de forma se declara.
+
+**Não há barreira automática, e isso é decisão.** Nada impede um *deploy* com
+passagens à espera. Uma barreira precisava de saber se a mudança **é**
+incompatível, e isso não se lê de um número de versão — o `VERSAO_DO_GRAFO` é
+escrito à mão, e uma barreira que disparasse em toda a subida de versão
+ensinava quem faz o *release* a desligá-la. O que há é o instrumento, o
+procedimento, e três ensaios na suite da base a medir que ele conta as `waiting`
+e não as outras quatro.
+
 ### O que fica por ligar, e o credor de cada um
 
 | O que | Credor | O que acontece hoje |

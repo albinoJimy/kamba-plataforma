@@ -123,12 +123,19 @@ class Retomador:
     concorrente na mesma ligacao, e duas corrotinas na mesma tomada entrelacam
     as respostas.
 
-    **Nao toma a tranca da conversa.** Quem a toma e quem chama, e isso e
-    deliberado: a tranca tem de cobrir o CAS, o `Command` **e** a compensacao, e
-    um `async with` aqui dentro deixava a rota a tomar uma segunda vez a mesma
-    chave (o `pg_try_advisory_lock` e re-entrante na mesma sessao, pelo que nao
-    dava erro — dava um `unlock` a largar a tranca com o bloco de fora ainda
-    dentro dela).
+    **Nao toma a tranca da conversa.** Quem a toma e quem chama — a rota e a
+    varredura dos prazos —, e a razao e o alcance: a tranca tem de cobrir o CAS,
+    o `Command` **e** a compensacao, que e o que torna a reversao segura. Tomada
+    aqui dentro, cobria so o que esta classe faz, e a rota ficava a decidir o
+    estado HTTP fora dela.
+
+    **E nao e por um `unlock` a largar a tranca cedo**, que foi o que a primeira
+    versao desta nota afirmou e que e falso: os *advisory locks* de sessao do
+    PostgreSQL sao **contados**, pelo que um segundo `pg_try_advisory_lock` da
+    mesma chave na mesma sessao sobe o contador e o `pg_advisory_unlock` de
+    dentro desce-o para um — o bloco de fora continua a deter a tranca. O custo
+    de aninhar era uma ida a base por retoma e um leitor a deixar de ver que a
+    compensacao precisa da tranca; nao era um defeito de exclusao.
     """
 
     __slots__ = ("_abrir", "_grafos", "_metricas", "_ligacao", "_exclusiva")

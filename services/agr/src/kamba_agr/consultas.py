@@ -476,6 +476,35 @@ SQL_HANDOFFS_EXPIRADOS = """
    LIMIT %s
 """
 
+#: Quantas passagens estao a espera de um humano, de todos os *tenants*.
+#:
+#: **E o instrumento do *drain* que os Detalhes Tecnicos do bloco exigem**:
+#: «mudanca incompativel de grafo exige *drain* dos handoffs `waiting` ou
+#: compatibilidade dos nos pos-`interrupt` durante N releases
+#: (`schema_version`)». Uma passagem em `waiting` e um `interrupt()` pendente
+#: num *checkpoint*, e o no que o retoma e o da **versao nova** do grafo: se ele
+#: deixou de existir, ou se o `handoff` do estado mudou de forma, a retoma
+#: rebenta com a conversa a meio — e rebenta num caminho que nenhum teste de
+#: unidade ve, porque o estado que a quebra foi escrito por outra versao.
+#:
+#: Devolve uma contagem e nao as linhas: quem vai fazer um *deploy* precisa de
+#: saber **se** ha passagens a espera, e as que ha leem-se pelo painel do SLA.
+#: Atravessa *tenants* e corre como `kamba_batch`, pela razao do
+#: `SQL_HANDOFFS_EXPIRADOS`.
+#:
+#: **O que isto nao e: uma barreira.** Nao ha maquina a impedir um *deploy* com
+#: passagens a espera — o procedimento esta em `docs/agr.md` §7-G e o dono e
+#: quem faz o *release*. Uma barreira automatica precisava de saber se a
+#: mudanca **e** incompativel, e isso nao se le de um numero de versao: o
+#: `VERSAO_DO_GRAFO` e SemVer escrito a mao.
+#:
+#: Sem parametros.
+SQL_PASSAGENS_A_ESPERA = """
+  SELECT count(*) AS a_espera
+    FROM platform.handoffs
+   WHERE status = 'waiting'
+"""
+
 #: Quantas passagens de um *tenant* foram retomadas dentro do SLA, e quantas
 #: foram retomadas. O criterio 8 pede a metrica «calculavel por *tenant*».
 #:

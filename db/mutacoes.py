@@ -4865,6 +4865,17 @@ MUTACOES = [
     # denominador de um SLA de atendimento conta uma falha como amostra: o
     # painel passa a mostrar o SLA melhor do que ele e, porque uma expiracao de
     # 24 h e lenta mas entra na conta.
+    ('handoff: o drain passa a contar as passagens acabadas', AG_SQL,
+     '''  SELECT count(*) AS a_espera
+    FROM platform.handoffs
+   WHERE status = 'waiting\'''',
+     '''  SELECT count(*) AS a_espera
+    FROM platform.handoffs
+   WHERE status <> 'resumed\'''',
+     "tests_agr"),
+    # O *drain* deixa de chegar a zero: as passagens acabadas contam, e quem faz
+    # o *release* ou espera para sempre ou aprende a ignorar o numero. As duas
+    # saidas sao piores do que nao ter instrumento.
     ('handoff: a leitura de classificacao deixa de juntar a conversa', AG_SQL,
      '''    JOIN platform.conversations c
       ON c.tenant_id = h.tenant_id
