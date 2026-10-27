@@ -272,19 +272,29 @@ def _contra_a_ancora(por_cadeia: dict, ancora: dict | None) -> list[str]:
     if not ancora:
         return []
     achados: list[str] = []
-    vivas = {("" if dono is None else str(dono)) for dono in por_cadeia}
+    # **Pelo nome, e nao pelo `tenant_id`** (KAM-161). O `por_cadeia` vem da base
+    # e e indexado pelo `tenant_id` tal como o driver o devolve — um `UUID` —, e
+    # o `nome` vem do JSON da ancora, que so tem texto. O `dono` reconstruido a
+    # partir do `nome` nunca era chave do `por_cadeia`, e o segundo ramo desta
+    # funcao rebentava com `KeyError` em vez de dar o achado. Nao era
+    # inalcancavel por logica, como o do laco da travessia: era inalcancavel por
+    # **avariar** — e ninguem dava por isso porque exige uma cadeia viva **e**
+    # o elo ancorado em falta, que teste nenhum construia.
+    por_nome = {
+        ("" if dono is None else str(dono)): linhas
+        for dono, linhas in por_cadeia.items()
+    }
     for nome, registo in sorted((ancora.get("cadeias") or {}).items()):
         legivel = nome or "(plataforma)"
-        if nome not in vivas:
+        if nome not in por_nome:
             achados.append(
                 f"{legivel}: a ancora de {ancora.get('dia')} tem esta cadeia e ela "
                 "desapareceu inteira — linhas e cabeca"
             )
             continue
-        dono = None if nome == "" else nome
         ancorado = registo.get("row_hash")
         if ancorado and not any(
-            bytes(linha[11]).hex() == ancorado for linha in por_cadeia[dono]
+            bytes(linha[11]).hex() == ancorado for linha in por_nome[nome]
         ):
             achados.append(
                 f"{legivel}: o row_hash ancorado em {ancora.get('dia')} "
