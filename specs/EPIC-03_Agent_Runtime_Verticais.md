@@ -1588,6 +1588,135 @@ Testes: contrato do grafo, integração (duplo toque, stale), isolamento, smoke 
 Commits: feat(KAM-031): …
 ```
 
+### Verificação dos Critérios de Aceitação
+
+Medido no PR do KAM-031. A bateria do grafo é `services/agr/tests/test_vendedor.py`
+(**80** ensaios; a *suite* do AGR passa de **629** para **709**), e corre-se com
+`.venv/Scripts/python.exe -m unittest discover -s services/agr/tests -t services/agr/tests`.
+
+| # | Critério | Estado | Prova |
+|---|---|---|---|
+| 1 | O grafo compilado tem os 21 nós e as 39 arestas da tabela de §7.3; o teste de contrato (tabela `EDGES` em código **comparada** com o grafo compilado) falha se faltar ou sobrar uma aresta | **satisfeito, com a aritmética corrigida** | `TestContratoDoGrafo::test_as_arestas_do_compilado_sao_exactamente_as_da_tabela` compara o conjunto da `arestas.ARESTAS` com o que o **`get_graph()` de um `CompiledStateGraph` real** devolve, e afirma os **dois** sentidos com mensagem própria («arestas em falta», «arestas a mais»). Nunca contra um duplo: é a lição que o critério 3 do KAM-027 escreveu por extenso. Os nós são **21** e os sentinelas do LangGraph não contam (`test_os_nos_sao_vinte_e_um_e_os_sentinelas_nao_contam`, que afirma que o `__start__` e o `__end__` **estão** no desenho e **não** nos nossos — é a mutação que o KAM-027 pagou). **E o número do critério está errado por três, o que se mediu e não se leu:** a tabela de §7.3 tem **39 linhas** e o grafo tem **42 arestas dirigidas**, porque a linha 27 carrega duas (`order_status`, `tools_info` → `compose`) e a 34 carrega três (`unknown_reply`, `ask_repeat`, `safe_reply` → `send`). Um teste que afirmasse 39 passava com **três nós sem caminho para o envio**. As duas contagens provam-se ambas (`test_trinta_e_nove_linhas_e_quarenta_e_duas_arestas`), cada aresta leva o número da linha que a autoriza, e a leitura está na emenda **1.40** (dicionário §3.31) |
+| 2 | O teste de contrato falha para: nó sem aresta de saída, nó inalcançável de `START`, ciclo sem contador (`compose↔validate` limitado por `citation_retries`) | **satisfeito** | Três ensaios, e os três falham se a propriedade se partir: `test_nenhum_no_fica_sem_aresta_de_saida` (diferença de conjuntos vazia), `test_todos_os_nos_sao_alcancaveis_a_partir_do_start` (travessia desde `START`), `test_o_unico_ciclo_e_o_compose_validate_e_tem_contador` — que enumera **todos** os ciclos e afirma que há exactamente um, o `{compose, validate}`, e que a aresta de volta é condicional com a chave `retry` e tecto `TECTO_DE_CITACAO = 1`. **Os três medem-se sobre a tabela e não sobre o compilado, e isso é legítimo por causa do critério 1:** o primeiro ensaio prova que os dois conjuntos são iguais, pelo que uma propriedade do conjunto é propriedade dos dois. **Mais um que o critério não pede e que fecha a classe:** `test_um_no_sem_funcao_reprova_a_construcao` — o `build_graph` confronta a tabela com as funções dos nós e **levanta** `GrafoIncoerenteError`, em vez de compilar um grafo que cai no primeiro turno |
+| 3 | Duplo toque no botão `confirm:{cart_id}` (e 50 execuções concorrentes) produz **exactamente 1** pedido no backend *fake*; o 2.º toque recebe o *fact* `STALE_CONFIRMATION` e `compose` pede reconfirmação | **satisfeito, com um nome corrigido** | `test_o_duplo_toque_no_mesmo_botao_da_um_pedido_e_pede_reconfirmacao`: três turnos (carrinho, confirmação, segunda confirmação) → `chamadas["criar_pedido"] == 1`, `len(encomendas) == 1`, `STALE_CONFIRMATION` nos avisos, `stage` de volta a `browsing`, e a mensagem «Essa confirmação já não está válida» ao cliente. `TestConcorrencia::test_cinquenta_confirmacoes_concorrentes_dao_um_pedido`: cinquenta `ainvoke` concorrentes, cada um com o **seu** `turn_id` e todos com o mesmo `cart_id` → **uma** encomenda, **uma** chave em `por_chave`, **uma** chamada ao backend. A idempotência corre a sério e não enlatada: o duplo de ligação do `test_tls` executa o protocolo da `platform.tool_idempotency` do KAM-029 em memória, com o `ON CONFLICT DO NOTHING`. **O nome:** o critério chama *fact* ao `STALE_CONFIRMATION` e ele **não pode ser** um `Fact` — um `Fact` do §3.28 é um número com proveniência e o `kind` está fechado nos quatro do §6.2, pelo que `Fact(kind="STALE_CONFIRMATION")` levanta. É um valor de `state.avisos`, campo que a emenda **1.40** cria com domínio fechado de oito. **O limite, escrito onde o resultado aparece:** os cinquenta não passam pelo *checkpointer* nem pela tranca por conversa — o que serializa isso em produção é o `pg_advisory_lock` do KAM-025, e a serialização da chave contra uma base real é a `db/tests_agr/test_idempotencia.py` do KAM-029. O que aqui se mede é o que o §6.3 ponto (iii) promete: «mesmo que ambos corram em concorrência, a chave devolve o resultado guardado» |
+| 4 | `confirm_gate` só segue para `create_order` se `stage == awaiting_confirm`, `cart_id` do botão == `state.cart.cart_id` e o carrinho não expirou (TTL do carrinho *proposta*: 30 min, a calibrar) | **satisfeito** | As três perguntas por `and`, e **um ensaio por cada uma sozinha**: o estágio (`test_o_duplo_toque…`, onde o segundo toque encontra `awaiting_payment`), o `cart_id` (`test_um_botao_de_outro_carrinho_nao_confirma_este`), a validade (`test_a_confirmacao_de_um_carrinho_expirado_nao_cria_pedido`, com relógio simulado). A fronteira do TTL mede-se **pelo valor** e não «muito depois»: `test_a_fronteira_do_ttl_mede_se_pelo_valor` confirma que um segundo antes **passa** — senão um `>=` trocado por `>` passava o ensaio de cima. **A recusa muda o estado**, e isso é parte da propriedade: sem o `stage` voltar a `browsing`, o toque seguinte encontrava `awaiting_confirm` outra vez e o único obstáculo passava a ser o `cart_id` — e dois toques no mesmo botão citam o mesmo carrinho (mutação `grafo: o confirm_gate deixa de largar o estagio na recusa`, apanhada). **Não se devolve qual das três falhou**, pela razão que o `Confirmation.autoriza` do KAM-028 já tinha escrito: a mensagem é a mesma e dizer qual era um oráculo. O TTL de 30 min é *proposta* e **nenhum documento lhe dá prazo** — dívida **127**, credor KAM-040 |
+| 5 | `validate` falha 1.ª vez → volta a `compose` com a lista de erros e `citation_retries=1`; 2.ª falha → `handoff_prepare` | **parcial — caixa vazia** | **O contador, os ramos e o tecto estão medidos:** `TestValidate::test_um_bloco_invalido_conta_como_falha_e_incrementa` (→ `citation_retries` 1, `draft.ok` falso, nada sai) e `test_a_segunda_falha_vai_a_handoff_e_a_primeira_repete` (1 → `retry`, 2 → `human`), mais `test_r_cite` sobre a tabela de decisão e a mutação do tecto, apanhada. **O que não tem sujeito é «com a lista de erros»:** o `draft.erros` leva os códigos, e **ninguém os consome** — o `compose` deste ticket é determinístico, pelo que a segunda volta produz exactamente os mesmos blocos e falha outra vez. A lista de erros só muda alguma coisa quando o `compose` chamar o `kamba-chat` (§15.1), e aí é ela que diz ao modelo o que corrigir. Fica escrito em vez de se marcar a caixa: hoje a repetição é um ciclo que não pode mudar o resultado, e isso é uma propriedade do composer determinístico e não um defeito do contador. Credor: **KAM-037** (modo determinístico, que decide quando o modelo escreve) e **KAM-040** (que mede se a repetição serve). **E uma lacuna do §9.1 que apareceu aqui:** não há veredicto para «a camada 1 recusou os blocos» — os sete são todos sobre números do texto e o `Verdict` recusa-se a existir sem um deles —, pelo que um `BlocoInvalidoError` conta-se à mão nos mesmos dois contadores. Dívida **126** |
+| 6 | `PRICE_CHANGED`, `OUT_OF_STOCK`, `LIMIT_EXCEEDED` chegam a `compose` como *facts* e não criam pedido; `UPSTREAM_*` após 1 retry vai a `handoff_prepare` | **satisfeito, com o mesmo nome corrigido do critério 3** | Um ensaio por código: `test_sem_stock_explica_e_nao_cria_carrinho` (e **uma** chamada ao backend, não duas — o §6.5 manda repetir `UPSTREAM_*` e mais nada), `test_preco_alterado_explica_e_pede_reconfirmacao`, `test_limite_excedido_no_pedido_explica_e_nao_cria` (zero encomendas). Cada um confirma a frase que chega ao cliente, e há um ensaio a provar que **existe uma frase por cada um dos oito avisos** (`test_ha_uma_frase_por_cada_aviso_do_dominio`) — um aviso sem frase era um aviso que o cliente nunca via. `UPSTREAM_*`: `test_upstream_depois_de_um_retry_vai_a_handoff` (duas chamadas, `handoff.status == "waiting"`) e, do outro lado, `test_um_upstream_que_passa_a_segunda_nao_vai_a_handoff` — senão um retry que não recuperasse nada passava o primeiro ensaio. **O nome:** «como *facts*» é `state.avisos` e não `Fact`, pela mesma razão do critério 3 (emenda 1.40). **E um limite da tabela de arestas, não do código:** o `retrieve` **não tem** aresta `down`, pelo que uma avaria do IDX sai pelo `unknown_reply` e parece uma ausência. Não se acrescenta a aresta porque a tabela de §7.3 é que prevalece; fica na dívida **125** |
+| 7 | `ingest` termina em `END` sem envio quando o `turn_id` já foi processado ou o ritmo é excedido; `facts` é reiniciado em cada turno | **parcial — caixa vazia** | **A metade do grafo está medida, e para os três motivos:** `TestIngest::test_um_turno_recusado_acaba_sem_enviar_nada` corre os três valores de `RECUSAS` e afirma `admissao` no estado, **zero** envios e **zero** chamadas a tools. A mutação `grafo: o ingest deixa de respeitar a recusa da admissao` é apanhada. O reinício está completo e vai além dos `facts`: `test_os_facts_e_os_avisos_do_turno_anterior_nao_atravessam` e `test_o_tecto_de_citacao_e_por_turno_e_nao_por_thread` — sem este, uma resposta que falhasse a citação num turno gastava a única repetição do turno seguinte, e o tecto do §7.3 linha 30 passava a valer por *thread*. **O que não tem sujeito é quem decide**, e as três condições vivem fora deste ticket: o `turn_id` repetido é filtrado no GWY pelo `wamid` (§6.3 ponto i), o ritmo é o `aceita_o_ritmo` do `admissao.py` (KAM-025), que corre em `api_interna.py` **antes** da tranca e antes do grafo, e o contacto bloqueado vive em `contacts`, que este ticket não lê. A porta é injectável e a omissão **admite**, e a razão não é optimismo: o `aceita_o_ritmo` **registra a chegada** numa janela deslizante, pelo que chamá-lo outra vez dentro do grafo gastava duas vagas das vinte por minuto e cortava o tecto a metade, sem nada no resultado o denunciar. É também por isso que o `r_ingest` lê um campo (`state.admissao`, emenda 1.40) em vez de voltar a perguntar. Credor: quem ligar a porta `grafos` do `turno.py` |
+| 8 | A 1.ª mensagem da conversa identifica o assistente automático da loja; `retrieve` abaixo do limiar vai a `unknown_reply` (limiar de IDX, parâmetro) | **satisfeito, com um defeito corrigido pelo caminho** | **Identificação:** `test_o_primeiro_turno_da_carrinho_e_botoes_e_nao_cria_pedido` confirma a frase na primeira mensagem, e `test_o_segundo_turno_cria_exactamente_um_pedido` confirma que ela **não** se repete — a mutação `grafo: a apresentacao passa a repetir-se em cada turno` é apanhada. Conta-se pelas mensagens do **assistente** na janela e não pelas do cliente: numa conversa que começa com três mensagens seguidas dele, as três são o primeiro turno nosso. **O defeito:** a frase da persona é «Sou o assistente automático de {loja}» e o `renderizar` do KAM-032 **levanta** se um bloco `text` tiver dígitos — uma loja chamada «Kero 24» fazia o turno inteiro rebentar na camada 1, por causa do nome dela. Não se mutila o nome nem se desliga a regra: cai-se para uma frase sem nome, que identifica na mesma (`test_a_apresentacao_cai_para_uma_frase_sem_nome_se_a_loja_tiver_digitos`). O que fica em dívida é **mostrar o nome**, e é a dívida **124** — a mesma lacuna que cala a morada e o Plus Code. **Limiar:** `test_uma_pesquisa_abaixo_do_limiar_vai_a_unknown_reply` mede-o pelo valor (0,33 contra 0,5) e a mutação `grafo: o retrieve deixa de confrontar o limiar` é apanhada. O `LIMIAR_IDX` é **parâmetro** e o §7.3 chama-lhe isso; quem o calibra é o KAM-061, com índice real — e o par (pontuador, limiar) tem um dono só, pelo que os dois mudam juntos |
+
+#### Verificação do Definition of Done
+
+| Caixa | Estado | Nota |
+|---|---|---|
+| Todos os Critérios de Aceitação satisfeitos e demonstráveis | **vazia** | Os critérios 5 e 7 são `parcial`, com o credor nomeado acima. Marcá-la era contradizer as duas linhas |
+| **Idempotência:** duplo toque produz 1 pedido; teste de repetição de nós com efeitos (ADR-013) | **marcada** | O duplo toque e os cinquenta concorrentes estão no critério 3. A repetição de um nó com efeitos mede-se no `handoff_prepare`: `test_o_handoff_prepare_nao_abre_duas_vezes_o_mesmo_handoff` — duas execuções do nó (o *worker* que cai a meio e repete) abrem o **mesmo** `handoff_id`, que é a parte que nos cabe; a idempotência por esse identificador é do HND (KAM-034) |
+| **Números só de tools:** `compose` não emite números em prosa; `validate` obrigatório antes de `send` (ADR-007) | **marcada** | O `compose` só produz blocos, e um bloco `text` com dígitos **levanta** — não há caminho por onde prosa numerária saia dele. O `validate` está no único caminho entre o `compose` e o `send`. **E os três textos estáticos que passam ao lado dele (arestas da linha 34) não levam dígitos nenhum**, medido por reflexão sobre **todas** as constantes `MSG_*` e sobre as oito frases de aviso (`test_nenhum_texto_estatico_leva_digitos`, `test_nenhuma_frase_de_aviso_leva_digitos_nem_promessa`) — era por ali que um número sem *fact* chegaria ao cliente por um caminho que o validador não vê |
+| **Pagamento só por evento:** nenhum nó altera estado de pagamento (ADR-013) | **marcada** | Nenhum dos 21 nós escreve em `payment_events` nem em coluna de pagamento: a única tool `money` é a `criar_pedido`, e o que ela faz é do COM. O `stage: awaiting_payment` que o `create_order` escreve é o **estágio da conversa** (§5.3, quatro valores) e não o estado de um pagamento — nomes vizinhos, grandezas diferentes |
+| **Isolamento de tenant:** `tenant_id` do estado; teste cruzado cobre o grafo (ADR-015) | **marcada** | `TestIsolamentoX09`: a injecção «mostra os pedidos da loja Kero» dá `injection`, **zero** tools correm e o canário não sai; a encomenda de outro contacto dá `NOT_FOUND` e nem o identificador nem o canário aparecem no texto; e o **controlo positivo** — o próprio contacto **vê** a sua encomenda —, sem o qual uma tool que recusasse tudo passava o ensaio cruzado com a prova de segurança verde. `test_o_tenant_do_contexto_vem_do_estado_e_nao_do_texto` mede a invariante do §5.3 no caminho que o grafo usa: o `ToolContext` constrói-se pelo `de_estado`, que é «o único caminho para dentro» e normaliza o `tenant_id` pelo mesmo `normalizar_tenant` que a RLS usa |
+| **Eval-gate:** o dataset *golden* só existe com KAM-040; registar dívida e correr o *smoke* de ≥ 20 casos; SemVer do grafo atribuído | **marcada** | `TestSmokeGolden`: **24** casos, cada um a afirmar uma mensagem por turno, a chave canónica do envio e o caminho esperado; e `test_nenhum_caso_do_smoke_cria_pedido`, porque nenhuma destas mensagens é uma confirmação e nenhuma pode cobrar. `VERSAO_DO_GRAFO = "1.0.0"`, que vai na coluna `graph_version` da `tool_audit`. O *gate* 13 e o conjunto de 100–300 conversas são do KAM-040 |
+| Revisão por dois revisores (dinheiro); documentação do grafo actualizada | **vazia** | A documentação está (`../docs/agr.md` §8 e esta secção). Os dois revisores não: é a decisão escrita do fundador para a fase inicial — funde-se com o CI verde e uma revisão adversarial por ticket. Fica como facto registado e não como caixa marcada |
+
+#### Prova por mutação
+
+**Doze mutações `grafo:`**, e nenhuma é de sintaxe: cada uma deixa o grafo a
+compilar e a responder, e quebra uma propriedade que um critério nomeia. As três
+primeiras são as três perguntas do `confirm_gate` uma a uma, porque são as três
+que estão entre um toque e uma encomenda. A lista de mutações passa de 802 para
+**814** e o `--aplicaveis` corre a zero não aplicáveis.
+
+**E a bateria entrou no `MODULOS_DO_AGR_UNIT`** do `../db/mutacoes.py`. Sem essa
+linha as doze sobreviviam **todas** com a *suite* verde, porque o corredor nunca
+corre o ficheiro que as mata — é a lista literal que o KAM-030 pagou com dez
+sobreviventes e que a nota do próprio módulo avisa.
+
+**Uma sobreviveu na primeira medição, e o que ela denunciou não estava no
+grafo.** A mutação `grafo: o retrieve deixa de confrontar o limiar` sobreviveu
+porque **não havia candidato nenhum** para o limiar recusar: o pontuador do
+backend de ensaio partia o texto com um `split()` simples, pelo que «tem algum
+fato?» dava `fato?` — que não casa `fato` — e a última palavra de **toda**
+pergunta terminada em `?` deixava de contar. A consequência não era um teste
+vermelho: era um emparelhamento degradado a passar a bateria inteira. Corrigido o
+pontuador, a mutação é apanhada. É a lição do KAM-032 outra vez — **o que não se
+extrai não se valida** —, e foi uma mutação sobrevivente a encontrá-la, não uma
+leitura.
+
+**E uma que se decidiu não escrever, por ser equivalente.** O `create_order`
+passa ao passo 4 do `invoke` o botão que o cliente **tocou** e não um
+reconstruído do carrinho; trocá-los não quebra ensaio nenhum, e a razão é boa: o
+`confirm_gate` já recusou qualquer botão que não cite este carrinho, pelo que
+quando se chega ao `create_order` as duas formas dão o mesmo valor. O passo 4 é a
+**segunda** barreira da mesma propriedade. Fica escrito no código em vez de se
+inventar um ensaio que mediria o duplo em vez do grafo.
+
+#### Nomes, canon e provas
+
+A emenda **1.40** (dicionário §3.31) é deste ticket e entrou **antes** do código,
+como o §5 do dicionário manda: os 21 nós como lista fechada, as nove intenções do
+Vendedor, os seis veredictos da guarda de entrada, o `state.ofertas`, o
+`state.avisos`, o `state.admissao`, o `handoff_motivo` que o §11 lia sem
+declarar, o tecto `citation_retries ≤ 1` e a validade do carrinho. O §5.3 do
+`../docs/tecnica/02` passa a declarar os quatro campos novos e o documento sobe a
+**1.5** — o cabeçalho dizia 1.0 com a tabela na 1.4, e a deriva fica corrigida.
+
+**As cinco tools do Vendedor continuam `declaradas`, e o credor muda.** Os
+modelos Pydantic entram (`tls/vendedor.py`) porque são contrato e nascem do
+canon; os executores de ensaio ficam no pacote da vertical
+(`verticais/vendedor/fakes.py`), de onde nenhum arranque os importa. A razão é de
+segurança e não de arrumação: um executor de ensaio registado no
+`catalogo_do_piloto()` devolvia um `ToolResult` `ok` com *facts* que nenhuma loja
+tem, e o validador de citação **aceita-os** — são *facts* de uma tool. Era abrir
+no sítio mais caro o buraco que o ADR-007 existe para fechar. O credor das cinco
+passa de `KAM-031` para o ticket que liga cada backend (**KAM-061** o índice,
+**KAM-043** preço e stock, **KAM-046** o carrinho e o pedido, **KAM-044** o
+estado da encomenda — são quatro tickets e não os três que os Detalhes Técnicos
+nomeiam, porque o `get_order_status` lê o `orders_mirror`), e a razão é a regra da
+casa: o credor de uma entrada `declarada` é «o ticket que a liga», e cinco
+entradas a nomear um ticket fechado não são atalho nenhum.
+
+**A porta `grafos` do `turno.py` não se liga aqui, e é decisão.** Com as cinco
+tools `declaradas`, um turno real respondia a toda a pergunta de produto por
+`safe_reply` ou por *handoff* — o passo 1 do `invoke` recusa uma entrada sem
+executor —, e o 503 com `Retry-After` que mantém a mensagem na fila é a linha
+honesta do §14 até os backends existirem. O grafo existe, compila e está provado;
+servi-lo é do ticket que tiver tools a responder (KAM-043, KAM-044, KAM-046,
+KAM-061) ou do KAM-037, que desenha o modo determinístico.
+
+**De onde vem o texto do cliente, e o que isso deixa em dívida.** O contrato
+`agent_invocation` (§3.13) tem nove campos fechados e nenhum é o corpo da
+mensagem: o AGR recebe identificadores. O grafo lê o texto da janela `messages`
+do estado — que é o que o §12 manda guardar — e **quem a enche é quem invoca o
+grafo**. A convenção nasce aqui porque hoje ninguém invoca; o credor é quem ligar
+a porta.
+
+#### Três defeitos que a bateria apanhou, e a lição de cada um
+
+Os três eram «o critério satisfeito pela razão errada», que é o risco principal
+deste ticket.
+
+1. **O `total` de um carrinho do turno anterior não tem *fact* para citar.** O
+   carrinho sobrevive ao turno — o fluxo de dois turnos depende disso — e os
+   *facts* não (§5.3: «só deste turno»). O bloco `total` do segundo turno fazia o
+   `renderizar` **levantar**, e o turno acabava em *handoff* por defeito nosso: a
+   confirmação de uma compra, a falhar. O `compose` passa a citar o total **só**
+   se o *fact* for deste turno. **Lição: uma assimetria de tempo de vida entre
+   dois campos do estado é um defeito à espera** — e esta estava escrita no §9.2,
+   na linha «facts obsoletos entre turnos», que diz que quem o quiser mostrar
+   outra vez revalida no backend.
+2. **O `ToolContext` construía-se à mão.** A *docstring* do `de_estado` chama-lhe
+   «o único caminho para dentro» e a razão é o `normalizar_tenant`: um `tenant_id`
+   em maiúsculas dava um contexto válido que abria uma transacção a rebentar no
+   `::uuid` — ou, pior, um que a RLS não casava. **Lição: quando um tipo declara
+   um único caminho de construção, usá-lo não é estilo.**
+3. **O pontuador do backend de ensaio media a fracção errada.** «quero comprar
+   uma camisa azul» dava 0,4 e caía abaixo do limiar, porque três das cinco
+   palavras eram enchimento. **Lição: um *fake* mal calibrado não dá um teste
+   vermelho — dá um caminho que nunca se exercita.** E o par (pontuador, limiar)
+   tem um dono só: o valor do limiar só quer dizer algo contra um pontuador.
+
+E um quarto que não foi a bateria a apanhar, foi a prova por mutação: a
+pontuação a perder a última palavra de qualquer pergunta terminada em `?`.
+
 ---
 
 ## KAM-032 — Validador de citação: renderer por referência e validador numérico com `sku`

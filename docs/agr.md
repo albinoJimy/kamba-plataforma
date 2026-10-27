@@ -998,6 +998,122 @@ amostragem de produção (KAM-040 com KAM-081).
 
 ---
 
+## 7-F. O grafo do Vendedor: vinte e um nós, dois turnos e o que ele não liga (KAM-031)
+
+O `docs/tecnica/02` §7 desenha o grafo; este capítulo diz o que ficou escrito em
+código, o que se decidiu de maneira diferente e porquê, e o que um turno real
+ainda não faz.
+
+### A tabela de arestas é a fonte, e o grafo deriva dela
+
+O esqueleto do §7.4 escreve as arestas à mão, uma `add_conditional_edges` por nó,
+com o `path_map` em linha. O `build_graph` percorre a tabela
+(`verticais/vendedor/arestas.py`) e constrói as ligações a partir dela.
+
+A razão foi medida e não suposta: **dois destinos trocados no `path_map` de um
+encaminhador dão exactamente o mesmo conjunto de arestas**, e o conjunto é o que
+o teste de contrato compara. Escrito à mão, a troca passava; derivado da tabela,
+não se consegue escrever. O mesmo mecanismo fecha mais duas classes — um nó
+condicional sem encaminhador e um nó na tabela sem função fazem o `build_graph`
+**levantar** no arranque, em vez de compilarem um grafo que cai no primeiro
+turno.
+
+### Trinta e nove linhas, quarenta e duas arestas
+
+A tabela do §7.3 tem **39 linhas** e o grafo tem **42 arestas dirigidas**: a
+linha 27 carrega duas (`order_status`, `tools_info` → `compose`) e a 34 carrega
+três (`unknown_reply`, `ask_repeat`, `safe_reply` → `send`). O critério 1 do
+bloco escreve «as 39 arestas», e um teste que afirmasse 39 passava com **três nós
+sem caminho para o envio**. As duas contagens afirmam-se ambas, e cada aresta
+leva o número da linha que a autoriza. Está na emenda 1.40, dicionário §3.31.
+
+### O estado tem quatro campos novos, e nenhum é conveniência
+
+A emenda **1.40** acrescenta-os ao §5.3, e os quatro apareceram ao escrever o
+grafo contra a tabela:
+
+| Campo | Porque é que não havia alternativa |
+|---|---|
+| `ofertas` | O `validate` precisa de resolver a designação de um produto a um `sku` (`name_sku_mismatch`), e o quarto parâmetro do `validar` do KAM-032 é a lista de ofertas. A designação vive no `ToolResult.data` do `05` §6.3 e **não** num `Fact` (dívida 105). Entre o `tools_read`, que a recebe, e o `validate`, que a consome, o estado é o único canal |
+| `avisos` | Os critérios 3 e 6 do bloco mandam `STALE_CONFIRMATION`, `OUT_OF_STOCK`, `PRICE_CHANGED` e `LIMIT_EXCEEDED` chegar ao `compose` «como *facts*». Não podem: um `Fact` é **um número com proveniência** e o `kind` está fechado nos quatro do §6.2, pelo que `Fact(kind="STALE_CONFIRMATION")` levanta. O que os critérios querem é um campo de avisos, com domínio fechado de oito |
+| `admissao` | Nove dos dez encaminhadores decidem por campos que o §5.3 já tinha; o `r_ingest` não tinha nenhum, e a alternativa era **voltar a perguntar** ao ritmo. Não se pode: o `aceita_o_ritmo` do KAM-025 **registra a chegada**, pelo que duas perguntas por turno cortavam o tecto de vinte por minuto a metade, sem nada no resultado o denunciar |
+| `handoff_motivo` | O código do §11 já o lia no `handoff_prepare` e no `interrupt`, e o §5.3 não o declarava |
+
+Os quatro são **do turno** e reiniciam-se no `ingest`, como os `facts`, e pela
+mesma razão: uma oferta de um turno anterior é uma designação sem prova neste, e
+um aviso de um turno anterior é uma explicação que já se deu. O `citation_retries`
+entra no mesmo reinício, e isso não é óbvio — sem ele, uma resposta que falhasse
+a citação num turno gastava a única repetição do turno **seguinte**, e o tecto do
+§7.3 linha 30 passava a valer por *thread* em vez de por turno.
+
+O `cart` e o `handoff_seq`, ao contrário, **atravessam** turnos: o fluxo de dois
+turnos e a cadeia de *handoffs* dependem disso. **E é essa assimetria que
+produziu o primeiro defeito deste ticket**: o bloco `total` do segundo turno
+citava um carrinho cujo *fact* já não existia, e o `renderizar` levantava — a
+confirmação de uma compra a falhar por defeito nosso. O `compose` passa a citar o
+total **só** se o *fact* for deste turno, que é a linha «facts obsoletos entre
+turnos» do §9.2: quem o quiser mostrar outra vez revalida no backend.
+
+### O que o §9.1 não tem, e três respostas que ficam caladas
+
+Os cinco blocos do *renderer* são `text` (sem dígitos), `item` (preso a um
+`sku`), `total` e `datetime` (presos a um *fact*) e `buttons`. **Nenhum leva uma
+cadeia opaca com dígitos**, e três respostas do Piloto precisam de uma: a morada
+e o Plus Code da loja (`get_store_info`), a referência de uma encomenda
+(`get_order_status`) e a referência de pagamento que o §14 manda repetir no modo
+determinístico.
+
+A proibição de dígitos num `text` **é** a regra que impede prosa numérica
+(ADR-007) e não se desliga. Em Fase 0 sai o que não tem dígitos — o nome e a zona
+da loja, a palavra do estado da encomenda — e o resto fica calado: mutilar o valor
+era pior, porque parecia certo. É a dívida **124**, e é a mesma lacuna que faz a
+identificação do §8.4 cair para uma frase sem o nome da loja quando esse nome tem
+um dígito («Kero 24» fazia o turno inteiro rebentar na camada 1).
+
+### O que é Fase 0, e o que é atalho
+
+| Nó | O que faz hoje | Credor |
+|---|---|---|
+| `stt` | **Encaminha, não transcreve.** Sem porta de STT o veredicto é `ask_repeat`, que é a linha do §14 para «STT indisponível»; uma excepção do fornecedor dá o mesmo, em vez de matar o turno | KAM-036 |
+| `guard_in` / `guard_out` | Determinísticos mínimos: PAN com Luhn, IBAN, seis padrões de injecção, três de fronteira de *tenant*, dez de assunto sensível, e sete frases vetadas mais telefone na saída. O classificador barato não entra | KAM-033 |
+| `classify` | Regras primeiro, modelo só se elas não decidirem (§15.1). **Um botão `confirm:*` nunca passa por modelo** — é dinheiro, e a intenção está no identificador do botão | KAM-037 |
+| `handoff_*` | O par de dois nós do §11, com os efeitos idempotentes por `handoff_id`; a porta `HandoffService` é injectada | KAM-034 |
+| `cancelar` | O §7.3 **não tem nó de cancelamento**. O botão cai em `outro` e responde com texto estático, mas **larga o carrinho**: um `confirm:` que chegasse depois encontrava `awaiting_confirm` e criava a encomenda que o cliente acabou de cancelar | KAM-037 |
+
+### As cinco tools ficam declaradas, e isso é uma decisão de segurança
+
+Os modelos Pydantic das cinco tools do Vendedor entram (`tls/vendedor.py`):
+são contrato, nascem do canon e não mudam quando o backend chegar. Os executores
+de ensaio ficam no pacote da vertical (`verticais/vendedor/fakes.py`), de onde
+nenhum arranque os importa, e o `catalogo_do_piloto()` mantém as cinco entradas
+**`declaradas`**.
+
+A razão não é arrumação. Um executor de ensaio registado no catálogo de produção
+devolvia um `ToolResult` `ok` com *facts* que nenhuma loja tem, e o validador de
+citação **aceita-os** — são *facts* de uma tool, que é exactamente o que ele
+exige. Era abrir no sítio mais caro o buraco que o ADR-007 existe para fechar.
+
+O credor das cinco passa de `KAM-031` para o ticket que liga cada backend:
+**KAM-061** (o índice), **KAM-043** (preço e stock), **KAM-046** (o carrinho e o
+pedido) e **KAM-044** (o estado da encomenda). São quatro e não os três que os
+Detalhes Técnicos nomeiam — o `get_order_status` lê o `orders_mirror`, que é o
+KAM-044.
+
+### O que este ticket não liga
+
+**A porta `grafos` do `turno.py` continua a levantar, e o `/internal/turn`
+continua a responder 503.** O KAM-027 deixou-a para «o ticket que tiver um grafo
+para lhe dar», e este tem — mas com as cinco tools `declaradas` um turno real
+respondia a toda a pergunta de produto por `safe_reply` ou por *handoff*, porque o
+passo 1 do `invoke` recusa uma entrada sem executor. O 503 com `Retry-After`, que
+mantém a mensagem na fila, é a linha honesta do §14 até os backends existirem.
+
+**E o texto do cliente não tem caminho até ao grafo.** O contrato
+`agent_invocation` (§3.13) tem nove campos fechados e nenhum é o corpo da
+mensagem. O grafo lê o texto da janela `messages` do estado — que é o que o §12
+manda guardar — e quem a enche é quem invoca o grafo. A convenção nasce aqui; o
+credor é quem ligar a porta.
+
 ## 8. O que este documento não decide
 
 A topologia e as réplicas (`docs/tecnica/09`, KAM-088), a aplicação da
@@ -1019,3 +1135,4 @@ tabela do §1 atribui a outro ticket.
 | 1.5 | 2026-10-25 | KAM-029 | §7-C: o passo 5 passa de ponto de extensão a passo com três recusas e um *replay*. O que **este** ticket descobriu ao atravessá-lo está na tabela do §7-C: o `Pedido` não levava a chave ao executor (e sem ela «o backend é idempotente pela chave» era uma frase sem sustento), a `tool_audit.idempotency_key` não é a chave do §6.3 mas a do **turno**, e o fecho da reserva tinha de correr também no `except` — o caminho de excepção fecha a tomada e o `finally` corre depois dele, pelo que a reserva ficava aberta precisamente no caminho em que mais precisa de fechar. As três saíram de **correr** e não de ler, a terceira na bateria da falha injectada. O décimo primeiro erro tipado (`INTENT_REUSED_WITH_DIFFERENT_CONTENT`) e o que ele arrasta: revisão `0022`, dicionário §3.28, e a etiqueta de `agr_tool_erros_total`, que é derivada |
 | 1.6 | 2026-10-26 | KAM-030 | §7-D: o *gateway* de LLM — o cliente por **papéis** (`chamar(papel, mensagens, ctx)`), e porque é que nenhum SDK de fornecedor nem o pacote `litellm` entram no AGR (fala HTTP com o proxy, e o `httpx` já estava no fecho desde o KAM-026: o *gateway* **não acrescenta dependência nenhuma**); o *gate* de destino a correr **antes** da chamada e para **todos** os fornecedores do alias, porque o *fallback* é do router e autorizar só o de `ordem: 1` deixava o segundo receber os dados sem o *gate* ter sido consultado por ele; a `dat.llm_call_log` com uma linha por chamada **incluindo as recusadas**, e porque é que uma falha de registo **não** levanta (levantar repetia a chamada ao modelo — segunda transferência, segundo custo — e a perda de uma linha é mais barata); a quinta ligação (`kamba-agr:llm`) e porque não é a das tools; o código de saída **7**. §5: a guarda do arranque, que são três verificações de configuração — os dois ficheiros de `llm/` e o `INSERT` nas catorze colunas. **O que este ticket descobriu ao atravessar o proxy, e que mudou o desenho:** a configuração do `tecnica/02` §13.1, à letra, não comuta de fornecedor de forma determinística (`simple-shuffle`, 3 falhas em 20), o orçamento esgotado responde **422** e não 400, e `google/` não é um prefixo que o proxy conheça. As três saíram de **correr** e não de ler. §1: o 503 fica, e porquê — os grafos continuam a ser o KAM-031 e o KAM-035, e o que este ticket entrega é o caminho para o modelo, provado em `staging`, com a porta de `prod` fechada por desenho enquanto o KAM-069 não existir |
 | 1.7 | 2026-10-26 | KAM-032 | §7-E: o validador de citação — as duas camadas do §9, o contrato dos cinco blocos (e as três decisões que o exemplo do §9.1 não escreve: os botões ao lado do texto, o `sku` sempre no `item`, e um `text` com dígitos a levantar), os sete veredictos com o vínculo `sku`↔preço que fecha o ponto cego do ADR-007, os três modos de preço, e a unidade em **cêntimos** contra o `value_kz` que o critério escreve (dívida 106, corrigido no desenho pelo KAM-139). §1 e §6: a linha do validador e as **cinco** métricas, que são contadores porque as quatro «taxas» do §9.2 não cabem numa biblioteca sem histogramas. **Dois limites escritos em vez de contornados:** o critério 8 pede `tenant_id` em etiqueta e isso levanta pela gramática (`OBS-I`), pelo que a caixa fica vazia como na dívida 54; e três `kind` que três veredictos precisam não existem (dívida 105, credor KAM-031), o que torna *qualquer* percentagem `discount_unbacked` — *fail-closed*, mas com o lado positivo do critério 2 **inverificável**. **Três defeitos que os testes apanharam e que mudaram código:** a quantidade não estava vinculada ao `sku` (7 unidades de um produto eram aceites pelo stock de outro), os dígitos de um nome de produto recusavam toda a resposta sobre esse produto, e um padrão guloso fazia «doze mil e quinhentos Kz» **desaparecer** — um falso aceite. |
+| 1.8 | 2026-10-27 | KAM-031 | §7-F: o grafo do Vendedor — a tabela de arestas como fonte (42 arestas em 39 linhas), os quatro campos de estado da emenda 1.40 e porque nenhum era dispensavel, a assimetria de tempo de vida entre o `cart` e os `facts` que produziu o primeiro defeito, as tres respostas que os cinco blocos do §9.1 nao conseguem levar, o que e Fase 0 em cada no com o credor, e porque e que as cinco tools ficam `declaradas` com o credor a mudar para quem liga o backend. |

@@ -226,13 +226,6 @@ cabecalhos:
     razao: >-
       Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
 
-  - ficheiro: docs/tecnica/02_Agent_Runtime_Verticais.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-18
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
-
   - ficheiro: docs/tecnica/03_Core_Comercio_Medusa.md
     origem: KAM-138
     criado_em: 2026-10-18

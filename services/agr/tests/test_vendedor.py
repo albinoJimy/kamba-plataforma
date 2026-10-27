@@ -663,6 +663,10 @@ class TestErrosDeNegocio(unittest.TestCase):
         final = conversa.turno("quero comprar uma camisa azul")
 
         self.assertIn("OUT_OF_STOCK", final["avisos"])
+        # **Uma chamada e nao duas**: o §6.5 manda repetir `UPSTREAM_*` e mais
+        # nada. Um `OUT_OF_STOCK` repetido da o mesmo e gasta o orcamento de
+        # latencia do §15.1 a espera da mesma resposta.
+        self.assertEqual(backend.chamadas["propose_cart"], 1)
         self.assertIsNone(final["cart"])
         self.assertEqual(backend.chamadas.get("criar_pedido"), None)
         self.assertIn("unidades suficientes", conversa.saida.textos[-1])
@@ -1129,6 +1133,21 @@ class TestOutrosNos(unittest.TestCase):
         self.assertIn("Casa Bela", texto)
         self.assertIn("Luanda", texto)
         self.assertNotIn("6GCR2F", texto)
+
+    def test_uma_pesquisa_abaixo_do_limiar_vai_a_unknown_reply(self) -> None:
+        """Linha 19, e e o que da sentido ao limiar do IDX.
+
+        «tem algum fato?» cobre uma das tres palavras de «Fato por medida» —
+        0,33 contra um limiar de 0,5. Sem este ensaio, um `retrieve` que
+        aceitasse tudo passava a bateria inteira: o caminho do `unknown_reply`
+        nao tinha quem o exercitasse pelo **valor**.
+        """
+        grafo, _deps, backend, saida, _lig = montar()
+        final = correr(grafo, estado_de("tem algum fato?"))
+
+        self.assertEqual(final["ofertas"], ())
+        self.assertEqual(backend.chamadas["search_catalog"], 1)
+        self.assertIn("Nao encontrei nada no catalogo", saida.textos[0])
 
     def test_um_pedido_sem_referencia_no_texto_explica(self) -> None:
         grafo, _deps, backend, saida, _lig = montar()

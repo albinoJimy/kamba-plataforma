@@ -269,15 +269,25 @@ class BackendDeEnsaio:
 
 
 def _palavras(texto: str) -> list[str]:
-    """As palavras de um texto, sem acentos e em minusculas.
+    """As palavras de um texto, sem acentos, sem pontuacao e em minusculas.
 
     Usa a normalizacao do validador (KAM-032) em vez de uma propria: duas
     maneiras de tirar acentos no mesmo servico divergem no dia em que uma delas
     ganhar um caractere.
+
+    **A pontuacao tem de sair, e a primeira versao nao a tirava.** Com um
+    `split()` simples, «tem algum fato?» dava `fato?` — que nao casa `fato` —, e
+    a ultima palavra de **toda** a pergunta terminada em `?` deixava de contar.
+    A consequencia nao era um teste vermelho: era um emparelhamento degradado a
+    passar a bateria inteira, e foi uma mutacao sobrevivente que o denunciou (a
+    do limiar: nao havia candidato nenhum para o limiar recusar). E a licao do
+    KAM-032 outra vez — o que nao se extrai nao se valida.
     """
+    import re as _re
+
     from ...validador.normalizacao import sem_acento
 
-    return [p for p in sem_acento(texto.lower()).replace(",", " ").split() if p]
+    return [p for p in _re.split(r"[^a-z0-9]+", sem_acento(texto.lower())) if p]
 
 
 #: Os codigos que um ensaio pode pôr em `avarias` e que o §6.5 manda tratar no
