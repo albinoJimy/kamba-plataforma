@@ -52,10 +52,18 @@ from __future__ import annotations
 from typing import Final
 
 from . import get_store_info
+from . import vendedor
 from .especificacoes import Catalogo, EspecificacaoDeTool
 
-#: O credor das cinco tools do Vendedor (grafo do Vendedor).
-CREDOR_DO_VENDEDOR: Final = "KAM-031"
+#: O credor das cinco tools do Vendedor. **Era `KAM-031` e passou a ser o ticket
+#: que liga cada backend** (`tls/vendedor.py`, `CREDORES`), e a correccao e do
+#: proprio KAM-031: o credor de uma entrada `declarada` e «o ticket que a liga»,
+#: e os Detalhes Tecnicos do bloco dizem por extenso que «a ligacao real a
+#: COM/IDX e por KAM-043, KAM-046 e KAM-061». O KAM-031 escreve os modelos e os
+#: executores de ensaio; ligar o COM e o IDX nao esta no alcance dele. Deixar o
+#: nome antigo depois deste ticket fundir era deixar cinco entradas a nomear um
+#: ticket fechado — e a regra da casa e que «um atalho sem o ticket que o fecha
+#: nao e atalho».
 
 #: O credor das cinco tools de Servicos (grafo de Servicos).
 CREDOR_DE_SERVICOS: Final = "KAM-035"
@@ -63,22 +71,22 @@ CREDOR_DE_SERVICOS: Final = "KAM-035"
 #: As onze do §6.2, pela ordem em que esse documento as escreve.
 ESPECIFICACOES_DO_PILOTO: Final = (
     EspecificacaoDeTool(
-        nome="search_catalog", klass="read", backend="idx", credor=CREDOR_DO_VENDEDOR
+        nome="search_catalog", klass="read", backend="idx", credor=vendedor.CREDORES["search_catalog"]
     ),
     EspecificacaoDeTool(
-        nome="get_price_stock", klass="read", backend="com", credor=CREDOR_DO_VENDEDOR
+        nome="get_price_stock", klass="read", backend="com", credor=vendedor.CREDORES["get_price_stock"]
     ),
     EspecificacaoDeTool(
-        nome="propose_cart", klass="read", backend="com", credor=CREDOR_DO_VENDEDOR
+        nome="propose_cart", klass="read", backend="com", credor=vendedor.CREDORES["propose_cart"]
     ),
     # `money`: o unico nome do catalogo em portugues, como o §6.2 o escreve. O
     # botao e `confirm:{cart_id}`, e o campo que ele cita entra com o modelo —
     # que e do KAM-031.
     EspecificacaoDeTool(
-        nome="criar_pedido", klass="money", backend="com", credor=CREDOR_DO_VENDEDOR
+        nome="criar_pedido", klass="money", backend="com", credor=vendedor.CREDORES["criar_pedido"]
     ),
     EspecificacaoDeTool(
-        nome="get_order_status", klass="read", backend="com", credor=CREDOR_DO_VENDEDOR
+        nome="get_order_status", klass="read", backend="com", credor=vendedor.CREDORES["get_order_status"]
     ),
     # A unica `ligada`. `backend="plataforma"`: le a `platform.tenants`, que e a
     # nossa base, e nao o COM.

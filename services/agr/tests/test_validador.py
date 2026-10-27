@@ -1240,8 +1240,21 @@ class TestCanon(unittest.TestCase):
         self.assertIn("### 3.30", self.dicionario)
 
     def test_a_emenda_139_esta_no_controlo_de_versoes(self) -> None:
+        """A linha da 1.39 fica, e o cabecalho acompanha a **ultima** emenda.
+
+        A segunda afirmacao era `| Versão | 1.39 — **PROPOSTA**` e prendia o
+        cabecalho a esta emenda: a emenda seguinte (a 1.40, do KAM-031) punha-a
+        vermelha sem nada de errado ter acontecido. O que o teste quer dizer e
+        que o cabecalho **nao fica atras** da tabela — a deriva que a divida
+        1.46 nomeou, e que durou treze emendas —, e e isso que mede agora.
+        """
+        import re
+
         self.assertIn("| 1.39 | Outubro 2026 |", self.dicionario)
-        self.assertIn("| Versão | 1.39 — **PROPOSTA**", self.dicionario)
+        linhas = re.findall(r"^\| (\d+\.\d+) \| \w+ 2026 \|", self.dicionario, re.M)
+        self.assertTrue(linhas, "a tabela de versoes do dicionario nao tem linhas")
+        ultima = max(linhas, key=lambda v: tuple(int(p) for p in v.split(".")))
+        self.assertIn(f"| Versão | {ultima} — **PROPOSTA**", self.dicionario)
 
     def test_os_tres_kind_que_faltam_tem_credor_escrito(self) -> None:
         dividas = (_RAIZ / "docs/dividas-documentais.md").read_text(encoding="utf-8")

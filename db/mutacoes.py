@@ -425,6 +425,11 @@ AG_VAL_NORM = "services/agr/src/kamba_agr/validador/normalizacao.py"
 AG_VAL_EXTR = "services/agr/src/kamba_agr/validador/extraccao.py"
 AG_VAL_REND = "services/agr/src/kamba_agr/validador/render.py"
 AG_VAL_VER = "services/agr/src/kamba_agr/validador/veredicto.py"
+#: O grafo do Vendedor (KAM-031). Tambem na `agr_unit`: o grafo corre com
+#: *fakes* por contrato e com a ToolLayer a serio, e nada do que estas mutacoes
+#: alteram toca a base.
+AG_VEN_NOS = "services/agr/src/kamba_agr/verticais/vendedor/nos.py"
+AG_VEN_ENC = "services/agr/src/kamba_agr/verticais/vendedor/encaminhadores.py"
 REV23 = "db/migrations/versions/0023_llm_call_log.py"
 #: O gerador da configuracao do proxy, o leitor de manifestos e o verificador de
 #: assinaturas, que o KAM-030 estendeu. As suites estao declaradas junto das
@@ -3929,8 +3934,13 @@ MUTACOES = [
      AGR),
     # Equivalente hoje, e **nao** amanha: um modo novo no dominio passa a abrir
     # a porta por omissao, que e o lado errado de errar.
+    # O alvo mudou de linha com o KAM-031 e a mutacao **nao** mudou de sentido:
+    # o formato `{turn_id}:{seq}` passou do metodo da invocacao para uma funcao
+    # de modulo, que o metodo chama — o grafo tem o `turn_id` do estado e nao a
+    # invocacao, e escrever o formato a segunda vez era deixa-los divergir. Foi
+    # o `--aplicaveis` que o apanhou, que e para isso que ele existe.
     ('agr: o seq da chave de envio deixa de entrar', AG_CONTEXTO,
-     'return f"{self.turn_id}:{seq}"', 'return self.turn_id', AGR),
+     'return f"{turn_id}:{seq}"', 'return turn_id', AGR),
     # A nona, e a unica que muda um bloco inteiro: e a reposicao do defeito C2
     # que a revisao adversarial encontrou. A espera pela tranca volta a correr
     # **dentro** do `asyncio.Lock` que serializa a unica ligacao de tranca do
@@ -4427,7 +4437,166 @@ MUTACOES = [
     # passam a dar `number_unbacked`: respostas legitimas da loja recusadas,
     # cada uma a custar uma repeticao do modelo. Medido pela revisao
     # adversarial, que pagou a versao estreita desta regra.
+    # ---------------------------------------------------------------- KAM-031
+    #
+    # O grafo do Vendedor. **Doze, e nenhuma e de sintaxe**: cada uma deixa o
+    # grafo a compilar e a responder, e quebra uma propriedade que um criterio
+    # do bloco nomeia. As tres primeiras sao as tres perguntas do `confirm_gate`
+    # uma a uma, porque sao as tres que estao entre um toque e uma encomenda.
+    ('grafo: o confirm_gate deixa de exigir o estagio', AG_VEN_NOS,
+     '        no_estagio = estado.get("stage") == "awaiting_confirm"',
+     '        no_estagio = estado.get("stage") != "done"',
+     AGR_UNIT),
+    # Um segundo toque no mesmo botao encontra `awaiting_payment`, que nao e
+    # `done`, e passa: **duas encomendas do mesmo carrinho**. E a primeira das
+    # tres perguntas do critero 4 e a metade (ii) do §6.3.
+    ('grafo: o confirm_gate deixa de exigir o cart_id do botao', AG_VEN_NOS,
+     '            and botao == f"{PREFIXO_DE_CONFIRMACAO}{carrinho[\'cart_id\']}"',
+     '            and botao.startswith(PREFIXO_DE_CONFIRMACAO)',
+     AGR_UNIT),
+    # Qualquer botao de confirmacao passa a confirmar **este** carrinho. E o
+    # «`cart_id` do botao == `state.cart.cart_id`» do critero 4, e e a mesma
+    # classe do achado que o passo 4 do KAM-028 fecha um nivel abaixo.
+    ('grafo: o confirm_gate deixa de exigir a validade', AG_VEN_NOS,
+     '            and float(carrinho.get("expira_at", 0)) > deps.relogio()',
+     '            and carrinho.get("expira_at") is not None',
+     AGR_UNIT),
+    # Um carrinho de ha tres dias passa a confirmar-se, com o preco de ha tres
+    # dias. E a terceira pergunta do critero 4 e a linha «facts obsoletos entre
+    # turnos» do §9.2.
+    ('grafo: o confirm_gate deixa de largar o estagio na recusa', AG_VEN_NOS,
+     '        return {"avisos": _avisos_com(estado, STALE_CONFIRMATION), "stage": "browsing"}',
+     '        return {"avisos": _avisos_com(estado, STALE_CONFIRMATION)}',
+     AGR_UNIT),
+    # A recusa deixa o `stage` em `awaiting_confirm`, pelo que o unico obstaculo
+    # ao toque seguinte volta a ser o `cart_id` — e dois toques no mesmo botao
+    # citam o mesmo carrinho. E a razao de a recusa **mudar** o estado.
+    ('grafo: o tecto de citacao passa a dar duas repeticoes', AG_VEN_ENC,
+     '    return "retry" if repeticoes <= TECTO_DE_CITACAO else "human"',
+     '    return "retry" if repeticoes <= TECTO_DE_CITACAO + 1 else "human"',
+     AGR_UNIT),
+    # O ciclo `compose`<->`validate` passa a dar duas voltas antes do *handoff*:
+    # e o defeito 3 do §7.1 («o contador nao existe e o ciclo e ilimitado») a
+    # voltar um passo, e o critero 5 pede «2.a falha -> `handoff_prepare`».
+    ('grafo: o retrieve deixa de confrontar o limiar', AG_VEN_NOS,
+     '            if float(candidato.get("score", 0)) >= deps.limiar_idx',
+     '            if float(candidato.get("score", 0)) >= 0',
+     AGR_UNIT),
+    # Tudo o que a pesquisa devolve passa a ser oferta, e o `unknown_reply` fica
+    # inalcancavel: o cliente recebe o produto errado em vez de «nao encontrei».
+    # E a linha 19 e o defeito 5 do §7.1.
+    ('grafo: o retry passa a repetir qualquer erro', AG_VEN_NOS,
+     '        if resultado.error.codigo not in (UPSTREAM_TIMEOUT, UPSTREAM_DOWN):',
+     '        if resultado.error.codigo in ():',
+     AGR_UNIT),
+    # Um `OUT_OF_STOCK` passa a ser repetido, e com ele um `ENTITLEMENT_DENIED`
+    # — que o §6.5 manda **nunca** repetir, porque uma segunda tentativa de
+    # atravessar fronteira e uma segunda tentativa.
+    ('grafo: o compose cita o total sem fact deste turno', AG_VEN_NOS,
+     '''        tem_o_total = isinstance(carrinho, Mapping) and any(
+            f.kind == "total" and f.fact_id == carrinho.get("total_fact_id")
+            for f in facts
+        )''',
+     '        tem_o_total = isinstance(carrinho, Mapping) and bool(carrinho.get("total_fact_id"))',
+     AGR_UNIT),
+    # O bloco `total` volta a citar o carrinho do turno anterior, cujo *fact* ja
+    # nao existe: o `renderizar` levanta e o turno acaba em *handoff* por
+    # defeito nosso. Foi o defeito que a bateria apanhou primeiro.
+    ('grafo: o ingest deixa de reiniciar o que e do turno', AG_VEN_NOS,
+     '        delta = reiniciar()',
+     '        delta = {"admissao": None}',
+     AGR_UNIT),
+    # Os `facts`, as `ofertas`, os `avisos` e o `citation_retries` do turno
+    # anterior atravessam: um *fact* de ha dois turnos passa a sustentar um
+    # numero deste, que e o §5.3 ao contrario, e o tecto de citacao passa a ser
+    # por *thread* em vez de por turno.
+    ('grafo: o ingest deixa de respeitar a recusa da admissao', AG_VEN_NOS,
+     '        if recusa is not None:',
+     '        if recusa is not None and recusa not in RECUSAS:',
+     AGR_UNIT),
+    # Uma recusa valida deixa de parar o turno — a condicao so e verdadeira para
+    # uma recusa **invalida**, e essa levanta. O turno repetido volta a correr e
+    # a responder, que e o defeito 9 do §7.1.
+    ('grafo: a apresentacao passa a repetir-se em cada turno', AG_VEN_NOS,
+     '''        if papel in ("assistant", "ai"):
+            return False
+    return True''',
+     '''        if papel in ("assistant", "ai"):
+            return True
+    return True''',
+     AGR_UNIT),
+    # A identificacao do §8.4 passa a sair em **todas** as mensagens. Nao e
+    # falso aceite, e e o tipo de defeito que ninguem ve em revisao de codigo e
+    # que o cliente ve em todas as frases.
+    ('grafo: o Luhn passa a aceitar qualquer sequencia', AG_VEN_NOS,
+     '    return soma % 10 == 0',
+     '    return True',
+     AGR_UNIT),
+    # Qualquer corrida de treze a dezanove digitos passa a ser cartao: um numero
+    # de encomenda comprido manda a conversa para o `safe_reply`. E o segundo
+    # custo de uma guarda — o falso rejeito —, que a revisao adversarial do
+    # KAM-032 mediu e que a guarda de entrada tem igual.
+    # As sete da revisao adversarial (`ANALISE-34`). Cada uma repoe um achado,
+    # e seis delas sobreviviam a bateria antes de a revisao o mostrar — e a
+    # razao de estarem aqui: uma correccao sem mutacao que a prenda e uma
+    # afirmacao, e a proxima pessoa que refactorize isto apaga-a com a suite
+    # verde.
+    ('grafo: o recorte volta a deixar o tecto exacto da janela', AG_VEN_NOS,
+     "    tecto = JANELA_MAXIMA - 1",
+     "    tecto = JANELA_MAXIMA",
+     AGR_UNIT),
+    # O `send` acrescenta a resposta depois do recorte, pelo que o estado fica
+    # em `JANELA_MAXIMA + 1` e **todos** os `aput` da conversa passam a
+    # levantar: o turno falha, o *job* repete, e a conversa fica morta sem o
+    # cliente receber resposta. Achado 1, o mais serio da revisao.
+    ('grafo: a quantidade volta a aceitar qualquer palavra como unidade', AG_VEN_NOS,
+     '    r"(?:unidades?|caixas?|pares?|garrafas?|pacotes?|sacos?|duzias?|metros?|quilos?|kg)"',
+     '    r"(?:\\w+)"',
+     AGR_UNIT),
+    # «quero a camisa azul para as 18 horas» volta a dar um carrinho de
+    # dezoito. Nenhuma barreira do ADR-007 o pode ver: o total e um *fact* do
+    # backend, com proveniencia perfeita. Achado 2.
+    ('grafo: o cancelamento volta a depender do botao', AG_VEN_NOS,
+     "        if botao == BOTAO_CANCELAR or pediu_cancelamento(texto_do_turno):",
+     "        if botao == BOTAO_CANCELAR:",
+     AGR_UNIT),
+    # Um cliente que **escreva** `cancelar` deixa o carrinho de pe, e o botao
+    # `confirm:{cart_id}` que ficou no ecra do WhatsApp continua a cobrar ate
+    # ao TTL. Achado 3.
+    ('grafo: a confirmacao volta a ser reconstruida do carrinho', AG_VEN_NOS,
+     "            botao=_botao_do_turno(estado),",
+     '            botao=f"{PREFIXO_DE_CONFIRMACAO}{carrinho.get(\'cart_id\', \'\')}",',
+     AGR_UNIT),
+    # O passo 4 do `invoke` passa a comparar o `cart_id` consigo mesmo e a
+    # autorizar sempre: a segunda barreira da classe `money` deixa de existir.
+    # **Esta sobrevivia a bateria inteira** e foi a revisao a encontra-la
+    # (achado 4); o ensaio que a mata chama o `create_order` com um botao que
+    # nao cita o carrinho do estado.
+    ('grafo: a apresentacao volta a sair so pelo compose', AG_VEN_NOS,
+     "            com_apresentacao(deps, estado, texto),",
+     "            texto,",
+     AGR_UNIT),
+    # As arestas da linha 34 e o ramo `degraded` da 37 passam ao lado do
+    # `compose`, pelo que uma conversa que comece por um texto estatico nunca
+    # identifica o assistente automatico — e o criterio 8 e o §8.4 deixam de se
+    # cumprir sem nenhum ensaio vermelho. Achado 5.
+    ('grafo: a fronteira deixa de absolver a primeira pessoa', AG_VEN_NOS,
+     "    if any(padrao.search(texto) for padrao in _FRONTEIRA) and not _PRIMEIRA_PESSOA.search(\n        texto\n    ):",
+     "    if any(padrao.search(texto) for padrao in _FRONTEIRA):",
+     AGR_UNIT),
+    # «as minhas encomendas da loja ja sairam?» volta a ser `injection` — a
+    # mesma classe de «ignora as tuas instrucoes» —, com o contador de abuso por
+    # contacto a somar sobre a pergunta mais comum da vertical. Achado 6.
+    ('grafo: a frase do pedido volta a sair pelo estagio', AG_VEN_NOS,
+     '        if isinstance(dados, Mapping) and dados.get("order_id"):',
+     '        if estado.get("stage") == "awaiting_payment":',
+     AGR_UNIT),
+    # O `awaiting_payment` atravessa turnos, pelo que «O seu pedido ficou
+    # registado» volta a sair em todos os turnos seguintes — inclusive numa
+    # pergunta sobre o horario da loja. Achado 12.
 ]
+
+
 
 
 #: O que a copia leva. `tools/kamba_yaml.py` e `ci/` nao sao codigo de `db/`,
@@ -4961,6 +5130,10 @@ MODULOS_DO_AGR_UNIT = (
     # suite verde: e a lista literal de que fala a nota acima, e o KAM-030
     # pagou-a com dez sobreviventes.
     "test_validador",
+    # KAM-031, pela mesma razao. Quem acrescentar uma bateria de unidade ao AGR
+    # acrescenta-a **aqui**, e nao ha maquina que o lembre: a nota acima e o
+    # aviso, e as doze mutacoes `grafo:` sao o que ele protege.
+    "test_vendedor",
 )
 
 

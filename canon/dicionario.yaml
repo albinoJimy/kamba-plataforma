@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.39"
+versao_dicionario: "1.40"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -7216,6 +7216,207 @@ entradas:
       - "citation_fail_rate"
     nomes_nota: []
     variantes_literais: []
+  - seccao: "3.31"
+    conceito: "Nós do grafo do Vendedor"
+    canonico: "ingest, stt, guard_in, classify, retrieve, tools_read, cart_build, confirm_gate, create_order, order_status, tools_info, compose, validate, guard_out, unknown_reply, ask_repeat, safe_reply, send, handoff_prepare, handoff_wait, handoff_close"
+    literais:
+      - "ingest"
+      - "stt"
+      - "guard_in"
+      - "classify"
+      - "retrieve"
+      - "tools_read"
+      - "cart_build"
+      - "confirm_gate"
+      - "create_order"
+      - "order_status"
+      - "tools_info"
+      - "compose"
+      - "validate"
+      - "guard_out"
+      - "unknown_reply"
+      - "ask_repeat"
+      - "safe_reply"
+      - "send"
+      - "handoff_prepare"
+      - "handoff_wait"
+      - "handoff_close"
+    nomes:
+      - "ingest"
+      - "stt"
+      - "guard_in"
+      - "classify"
+      - "retrieve"
+      - "tools_read"
+      - "cart_build"
+      - "confirm_gate"
+      - "create_order"
+      - "order_status"
+      - "tools_info"
+      - "compose"
+      - "validate"
+      - "guard_out"
+      - "unknown_reply"
+      - "ask_repeat"
+      - "safe_reply"
+      - "send"
+      - "handoff_prepare"
+      - "handoff_wait"
+      - "handoff_close"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.31"
+    conceito: "Intenção do Vendedor"
+    canonico: "state.intent ∈ {produto, preco_stock, comprar, confirmar, pagamento_estado, encomenda, info_loja, humano, outro}"
+    literais:
+      - "state.intent"
+      - "produto"
+      - "preco_stock"
+      - "comprar"
+      - "confirmar"
+      - "pagamento_estado"
+      - "encomenda"
+      - "info_loja"
+      - "humano"
+      - "outro"
+    nomes:
+      - "state.intent"
+      - "produto"
+      - "preco_stock"
+      - "comprar"
+      - "confirmar"
+      - "pagamento_estado"
+      - "encomenda"
+      - "info_loja"
+      - "humano"
+      - "outro"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.31"
+    conceito: "Veredicto da guarda de entrada"
+    canonico: "state.guard.veredicto ∈ {ok, injection, abuse, out_of_domain, card_data, sensitive}"
+    literais:
+      - "state.guard.veredicto"
+      - "ok"
+      - "injection"
+      - "abuse"
+      - "out_of_domain"
+      - "card_data"
+      - "sensitive"
+    nomes:
+      - "state.guard.veredicto"
+      - "ok"
+      - "injection"
+      - "abuse"
+      - "out_of_domain"
+      - "card_data"
+      - "sensitive"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.31"
+    conceito: "Oferta de produto no estado do turno"
+    canonico: "state.ofertas"
+    literais:
+      - "state.ofertas"
+    nomes:
+      - "state.ofertas"
+    nomes_nota:
+      - "ingest"
+    variantes_literais: []
+  - seccao: "3.31"
+    conceito: "Aviso de negócio para o compose"
+    canonico: "state.avisos ⊆ {NOT_FOUND, OUT_OF_STOCK, PRICE_CHANGED, LIMIT_EXCEEDED, VALIDATION_ERROR, UPSTREAM_TIMEOUT, UPSTREAM_DOWN, STALE_CONFIRMATION}"
+    literais:
+      - "state.avisos"
+      - "NOT_FOUND"
+      - "OUT_OF_STOCK"
+      - "PRICE_CHANGED"
+      - "LIMIT_EXCEEDED"
+      - "VALIDATION_ERROR"
+      - "UPSTREAM_TIMEOUT"
+      - "UPSTREAM_DOWN"
+      - "STALE_CONFIRMATION"
+    nomes:
+      - "compose"
+      - "state.avisos"
+      - "NOT_FOUND"
+      - "OUT_OF_STOCK"
+      - "PRICE_CHANGED"
+      - "LIMIT_EXCEEDED"
+      - "VALIDATION_ERROR"
+      - "UPSTREAM_TIMEOUT"
+      - "UPSTREAM_DOWN"
+      - "STALE_CONFIRMATION"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.31"
+    conceito: "Confirmação antiga ou inválida"
+    canonico: "STALE_CONFIRMATION"
+    literais:
+      - "STALE_CONFIRMATION"
+    nomes:
+      - "STALE_CONFIRMATION"
+    nomes_nota:
+      - "state.avisos"
+      - "tool_audit.error_code"
+    variantes_literais: []
+  - seccao: "3.31"
+    conceito: "Desfecho da admissao do turno"
+    canonico: "state.admissao ∈ {turno_repetido, contacto_bloqueado, ritmo}"
+    literais:
+      - "state.admissao"
+      - "turno_repetido"
+      - "contacto_bloqueado"
+      - "ritmo"
+    nomes:
+      - "state.admissao"
+      - "turno_repetido"
+      - "contacto_bloqueado"
+      - "ritmo"
+    nomes_nota:
+      - "None"
+      - "ritmo"
+      - "agr_admitted_rejected_total"
+    variantes_literais: []
+  - seccao: "3.31"
+    conceito: "Motivo do handoff"
+    canonico: "state.handoff_motivo"
+    literais:
+      - "state.handoff_motivo"
+    nomes:
+      - "state.handoff_motivo"
+    nomes_nota:
+      - "handoff_prepare"
+      - "interrupt"
+    variantes_literais: []
+  - seccao: "3.31"
+    conceito: "Versão do grafo"
+    canonico: "graph_version, SemVer"
+    literais:
+      - "graph_version"
+    nomes:
+      - "graph_version"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.31"
+    conceito: "Tecto de repetições de citação"
+    canonico: "citation_retries ≤ 1"
+    literais:
+      - "citation_retries"
+    nomes:
+      - "citation_retries"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.31"
+    conceito: "Validade do carrinho"
+    canonico: "cart.expira_at, 30 min proposta"
+    literais:
+      - "cart.expira_at"
+    nomes:
+      - "cart.expira_at"
+    nomes_nota:
+      - "cart"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -8216,6 +8417,39 @@ dominios:
       - "datetime"
     seccao: "3.30"
     conceito: "Bloco do renderer"
+    so_no_registo: false
+  - coluna: "state.intent"
+    valores:
+      - "produto"
+      - "preco_stock"
+      - "comprar"
+      - "confirmar"
+      - "pagamento_estado"
+      - "encomenda"
+      - "info_loja"
+      - "humano"
+      - "outro"
+    seccao: "3.31"
+    conceito: "Intenção do Vendedor"
+    so_no_registo: false
+  - coluna: "state.guard.veredicto"
+    valores:
+      - "ok"
+      - "injection"
+      - "abuse"
+      - "out_of_domain"
+      - "card_data"
+      - "sensitive"
+    seccao: "3.31"
+    conceito: "Veredicto da guarda de entrada"
+    so_no_registo: false
+  - coluna: "state.admissao"
+    valores:
+      - "turno_repetido"
+      - "contacto_bloqueado"
+      - "ritmo"
+    seccao: "3.31"
+    conceito: "Desfecho da admissao do turno"
     so_no_registo: false
 
 variantes:

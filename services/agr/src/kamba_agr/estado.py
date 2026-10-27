@@ -42,7 +42,9 @@ migra: levanta, porque degradar um estado futuro e perder o que ele traz.
 
 from __future__ import annotations
 
-from typing import Any, Final
+from typing import Annotated, Any, Final, TypedDict
+
+from langgraph.graph.message import add_messages
 
 from .contexto import InvocacaoDoAgente
 
@@ -87,7 +89,9 @@ def estado_inicial(invocacao: InvocacaoDoAgente) -> dict[str, Any]:
 
     `facts` nasce vazio **e e reiniciado em cada turno**, nao acumulado: o §5.3
     di-lo («so deste turno; reiniciado em `ingest`») e a razao e o validador de
-    citacao — um *fact* de um turno anterior e um numero sem prova neste.
+    citacao — um *fact* de um turno anterior e um numero sem prova neste. Os
+    `ofertas` e `avisos` da emenda 1.40 seguem a mesma regra, e o `reiniciar`
+    deste modulo e quem a aplica no `ingest`.
     """
     return {
         "schema_version": SCHEMA_VERSION,
@@ -104,7 +108,14 @@ def estado_inicial(invocacao: InvocacaoDoAgente) -> dict[str, Any]:
         "stt": None,
         "guard": None,
         "intent": None,
+        "admissao": None,
         "facts": [],
+        # Os tres da emenda 1.40, e os tres sao **do turno**, como os `facts`:
+        # uma oferta de um turno anterior e uma designacao sem prova neste, e um
+        # aviso de um turno anterior e uma explicacao que ja se deu.
+        "ofertas": [],
+        "avisos": [],
+        "handoff_motivo": None,
         "cart": None,
         "stage": ESTAGIO_INICIAL,
         "slots": None,
@@ -171,3 +182,85 @@ def recortar_janela(estado: dict[str, Any], maximo: int) -> dict[str, Any]:
     # principio, que o `summary` ja resume. `maximo` zero e lista vazia, e nao
     # a lista inteira — que e o que um `[-0:]` daria.
     return dict(estado, messages=mensagens[len(mensagens) - maximo :])
+
+
+#: As chaves que o `reiniciar` limpa no `ingest`, e o valor com que cada uma
+#: nasce. O §5.3 manda-o para os `facts` («so deste turno; reiniciado em
+#: `ingest`») e a emenda 1.40 estende-o aos outros tres pela mesma razao.
+#:
+#: O `citation_retries` entra aqui e nao e obvio: sem o reiniciar, uma resposta
+#: que falhasse a citacao num turno gastava a unica repeticao do turno seguinte,
+#: e o tecto de §7.3 linha 30 deixava de valer por turno — passava a valer por
+#: *thread*. Medido no ensaio `test_o_tecto_de_citacao_e_por_turno`.
+CAMPOS_DO_TURNO: Final = {
+    "facts": (),
+    "ofertas": (),
+    "avisos": (),
+    "handoff_motivo": None,
+    "admissao": None,
+    "draft": None,
+    "citation_retries": 0,
+    # **O `guard`, o `intent` e o `stt` tambem**, e a primeira versao disto
+    # esquecia-os. Sao do turno tanto quanto os `facts`: um turno que chegue por
+    # nota de voz e saia por `ask_repeat` nao classifica nada, e sem o reinicio
+    # o estado continuava a dizer `intent="comprar"` do turno anterior — que e
+    # exactamente o que o `_resumo` do *handoff* escreve ao colega. Apanhado
+    # pela revisao adversarial (achado 15 da `ANALISE-34`).
+    "guard": None,
+    "intent": None,
+    "stt": None,
+}
+
+
+def reiniciar() -> dict[str, Any]:
+    """O que o `ingest` devolve para limpar o que e so do turno anterior.
+
+    Devolve um `dict` novo a cada chamada, e as colecoes sao tuplos: uma
+    constante de modulo com uma lista dentro era a mesma lista em todos os
+    turnos de todos os *threads*, e o primeiro no que lhe fizesse `append`
+    escrevia no estado de outra conversa.
+    """
+    return dict(CAMPOS_DO_TURNO)
+
+
+class ConversaState(TypedDict, total=False):
+    """O esquema de estado do grafo (`docs/tecnica/02` §5.3).
+
+    **Vive aqui e nao na vertical**, pela «regra de dois» do §5.4: o estado base
+    e **partilhado** e so o `cart` (Vendedor) e os `slots` (Servicos) sao
+    especificos. Duas copias deste `TypedDict`, uma por vertical, divergiam no
+    dia em que uma delas ganhasse um campo.
+
+    `total=False` porque um no devolve **o delta** e nao o estado inteiro: um
+    `TypedDict` total obrigava cada retorno a trazer as vinte e sete chaves.
+
+    O unico redutor e o do `messages`, e e o `add_messages` que o §5.3 escreve.
+    Os outros campos sao de ultima escrita — que e o que um turno faz com eles.
+    """
+
+    schema_version: int
+    tenant_id: str
+    channel_id: str
+    contact_id: str
+    conversation_id: str
+    vertical: str
+    turn_id: str
+    thread_id: str
+    input_kind: str
+    messages: Annotated[list[Any], add_messages]
+    summary: str | None
+    stt: dict[str, Any] | None
+    guard: dict[str, Any] | None
+    intent: str | None
+    admissao: str | None
+    facts: tuple[Any, ...]
+    ofertas: tuple[Any, ...]
+    avisos: tuple[str, ...]
+    handoff_motivo: str | None
+    cart: dict[str, Any] | None
+    stage: str
+    slots: dict[str, Any] | None
+    draft: dict[str, Any] | None
+    citation_retries: int
+    handoff_seq: int
+    handoff: dict[str, Any] | None
