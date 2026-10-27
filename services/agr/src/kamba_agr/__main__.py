@@ -62,9 +62,12 @@ from .api_interna import SEGREDO_DA_API, rotas
 from .app import create_app
 from .checkpointer import CheckpointerDoAgr
 from .conversa import leitor
+from .handoff.autenticacao import verificador
+from .handoff.retoma import Retomador
 from .metricas import METRICAS
 from .ligacao import (
     ligar_para_checkpoint,
+    ligar_para_handoff,
     ligar_para_leitura,
     ligar_para_llm,
     ligar_para_tools,
@@ -81,6 +84,14 @@ from .llm.cliente import ClienteDeLlm, PROXY_POR_OMISSAO, REF_CHAVE_VIRTUAL, VAR
 from .tls.catalogo import catalogo_do_piloto
 from .trancas import TrancaDeConversas
 from .turno import ExecutorDeTurnos, sem_grafos
+
+#: A referencia do `secret` do *agent bot* no cofre (KAM-034, criterio 4).
+#:
+#: `instancias: conta` em `ops/secrets-inventory.yaml`, pelo que o nome leva a
+#: instancia: `chatwoot_bot_secret/<tenant_id>`. A forma e a da
+#: `litellm_virtual_key` do KAM-030, e nao a do `agr_internal_token` — que tem
+#: `instancias: nenhuma` e e um valor so para o servico.
+REF_SEGREDO_DO_BOT = "chatwoot_bot_secret"
 
 #: Codigo de saida de uma guarda do ADR-002 violada. Distinto do `2` do KAM-001
 #: (configuracao invalida), para que os dois se distingam num painel.
@@ -150,7 +161,7 @@ def _ambiente(ambiente: dict[str, str] | None = None) -> str:
 
 
 def _fechar_as_tomadas(
-    trancas: Any, checkpointer: Any, tools: Any = None
+    trancas: Any, checkpointer: Any, tools: Any = None, retomador: Any = None
 ) -> Callable[[], Awaitable[None]]:
     """O que o `lifespan` corre no `SIGTERM`: fecha-as, pela ordem.
 
@@ -179,6 +190,12 @@ def _fechar_as_tomadas(
         # revisao adversarial.
         if tools is not None:
             await tools.fechar()
+        # A tomada da retoma (KAM-034) fecha aqui e nao antes das trancas: uma
+        # retoma a meio ainda tem de poder compensar o CAS se o grafo levantar,
+        # e fechar-lhe a ligacao primeiro era deixar a passagem em `resumed` com
+        # o grafo interrompido — o residuo que o `ReversaoFalhadaError` nomeia.
+        if retomador is not None:
+            await retomador.fechar()
         # **O gateway de LLM nao tem tomada para fechar**, e isso e o desenho
         # que a revisao adversarial obrigou: ele abre uma ligacao por chamada e
         # fecha-a no `finally`, porque o `tenant_guard.tx` e exclusivo por
@@ -435,8 +452,40 @@ def main() -> int:
         error_code=f"papeis_{len(cliente_de_llm.papeis())}",
     )
 
+    # O *handoff* (KAM-034). Sao tres pecas e **so uma se constroi aqui**:
+    #
+    # * o `ServicoDeHandoff` e a porta `hnd` que o `build_graph` recebe, e
+    #   constroi-o quem construir o `Dependencias` — isto e, quem ligar a porta
+    #   `grafos`. **Nao se constroi aqui**, ao contrario do `cliente_de_llm`:
+    #   aquele guarda uma tomada e e preciso fecha-la no encerramento, e este e
+    #   um invólucro de tres portas sem estado nenhum. Um objecto construido que
+    #   ninguem usa era a classe de defeito que a revisao `0011` nomeia pelo
+    #   outro lado — uma coisa criada «para quando for preciso».
+    # * o `Retomador` entra em `/internal/resume` e e usado **agora**;
+    # * a varredura dos prazos nao se constroi aqui, porque **nao ha
+    #   agendador** nesta fase (a mesma linha que o `retencao.py` do KAM-026
+    #   escreveu): o corpo da varredura e o `Prazos.varrer`, o credor e o
+    #   *scheduler* do EVT, e agendar sem agendador era escrever um que ninguem
+    #   pediu.
     admissao = Admissao(tectos=tectos)
     trancas = TrancaDeConversas(ligar_para_tranca)
+    retomador = Retomador(
+        abrir_ligacao=ligar_para_handoff,
+        # **A porta tem outra forma, e isso e a parte que importa.** O
+        # `grafos` do executor recebe uma `InvocacaoDoAgente`; este recebe um
+        # `thread_id`, porque a retoma **nao tem invocacao** — o corpo de
+        # `/internal/resume` sao tres campos e nenhum e o `agent_invocation`
+        # (§3.13). A vertical de uma *thread* que espera por um humano e a do
+        # grafo que a interrompeu, e quem a sabe e o *checkpoint*.
+        #
+        # Hoje as duas acabam no mesmo `sem_grafos`, que levanta de qualquer
+        # maneira; o adaptador existe para que quem ligar o AgentRegistry veja
+        # que sao **duas** resolucoes a ligar e nao uma. Enquanto levantar, a
+        # rota responde 503 com `Retry-After` **sem escrever nada** — o grafo
+        # resolve-se antes do CAS (ver `handoff/retoma.py`).
+        grafos=_grafo_da_thread,
+        metricas=METRICAS,
+    )
     executor = ExecutorDeTurnos(
         trancas=trancas,
         ler_palavra=leitor(ligar_para_leitura),
@@ -454,6 +503,17 @@ def main() -> int:
             executar=executor.correr,
             admissao=admissao,
             trancas=trancas,
+            retomar=retomador.retomar,
+            # O `secret` do *agent bot* do HND (KAM-034, criterio 4). E **por
+            # *tenant*** — uma conta Chatwoot por PME, logo um bot e um segredo
+            # por PME —, e por isso a referencia leva a instancia no nome, como
+            # a `litellm_virtual_key` do KAM-030. Nao e obrigatoria no arranque
+            # pela mesma razao: ela existe por *tenant* e o arranque nao sabe
+            # que *tenants* ha. Uma referencia que nao existe faz o
+            # `verificador` recusar com `secret_errado`, que e a falha fechada.
+            verificar_bot=verificador(
+                lambda tenant_id: segredos.get(f"{REF_SEGREDO_DO_BOT}/{tenant_id}")
+            ),
             aviso=lambda motivo: log.warn(outcome="admissao", error_code=motivo),
         ),
         # As duas ligacoes fecham-se no encerramento do processo, e **havia aqui
@@ -470,7 +530,7 @@ def main() -> int:
         # esta linha dizia: aquele entregou o registo e nao um grafo, e nao ha
         # `compile` nenhum sem grafo. Aqui o checkpointer serve a guarda do
         # arranque e o encerramento, e nada mais.
-        ao_encerrar=_fechar_as_tomadas(trancas, checkpointer, tools),
+        ao_encerrar=_fechar_as_tomadas(trancas, checkpointer, tools, retomador),
     )
 
     # O anfitriao e a porta nao estao na *allowlist* de `docs/tecnica/08` §7.3.
@@ -484,6 +544,18 @@ def main() -> int:
         access_log=False,
     )
     return 0
+
+
+def _grafo_da_thread(_thread_id: str):
+    """A porta `grafos` da **retoma**, por ligar. Ver o comentario no `main`.
+
+    Chama o `sem_grafos` com `None` em vez de o passar directamente, e nao e
+    cerimonia: as duas portas tem formas diferentes — aquela recebe uma
+    `InvocacaoDoAgente` e esta um `thread_id` —, e passar a mesma funcao as duas
+    escondia que sao duas resolucoes a ligar. Quem ligar o AgentRegistry
+    substitui **as duas**.
+    """
+    return sem_grafos(None)  # type: ignore[arg-type]
 
 
 async def _hnd_por_ligar(_invocacoes) -> None:

@@ -204,6 +204,40 @@ METRICA_VALIDATE_REPETICOES: Final = "agr_validate_repeticoes_total"
 METRICA_VALIDATE_HANDOFF: Final = "agr_validate_handoff_total"
 METRICA_RENDER_ONLY: Final = "agr_render_only_total"
 
+#: As quatro do *handoff* (KAM-034, dicionario §3.32).
+#:
+#: **O `tenant_id` nao e etiqueta de nenhuma delas, e o criterio 8 pede uma
+#: metrica «por *tenant*».** A tensao resolve-se como no §3.14, no §3.29 e no
+#: §3.30: a desagregacao por *tenant* faz-se onde tem significado — nas colunas
+#: de `platform.handoffs` —, e o SLA de retoma < 15 min le-se do
+#: `SQL_SLA_DE_RETOMA`, que e uma consulta e nao uma serie temporal. Uma serie
+#: por *tenant* explode a cardinalidade e re-identifica (`OBS-I`), e a chamada
+#: levantaria `EtiquetaInvalida` pela gramatica de qualquer maneira: um UUID tem
+#: hifenes.
+#:
+#: **E porque e que sao quatro e nao duas.** O criterio 4 pede uma («`secret`
+#: invalido devolve 401 e incrementa metrica») e o criterio 8 pede o SLA. As
+#: outras duas existem porque sem elas duas propriedades deste ticket ficavam
+#: invisiveis em producao: o `agr_resume_total` separa a retoma que **venceu** do
+#: duplicado que nao fez nada (criterio 3 — um painel que os somasse nao
+#: distinguia «uma retoma» de «duas»), e o `agr_handoff_degradado_total` conta a
+#: degradacao do criterio 6, que de outra forma so aparecia como um turno
+#: executado.
+METRICA_HANDOFF: Final = "agr_handoff_total"
+#: Retomas de `/internal/resume` e da varredura, por desfecho.
+METRICA_RETOMA: Final = "agr_resume_total"
+#: Retomas recusadas por credencial, por motivo. E a metrica do criterio 4.
+METRICA_RETOMA_NAO_AUTORIZADA: Final = "agr_resume_nao_autorizado_total"
+#: Passagens que o provedor nao aceitou abrir (criterio 6). **Sem etiqueta**: o
+#: que um painel precisa de saber e que houve degradacao, e o estado da passagem
+#: le-se no `agr_handoff_total{degraded}`.
+#:
+#: **Nao e o `agr_degraded_turns_total`** do `docs/tecnica/02` §14, que conta
+#: turnos em modo deterministico por o LLM estar em baixo e que nasce com o
+#: KAM-037 (ver a nota no cabecalho deste modulo). Sao duas degradacoes
+#: diferentes, e dar-lhes o mesmo nome fazia um painel somar maças com laranjas.
+METRICA_HANDOFF_DEGRADADO: Final = "agr_handoff_degradado_total"
+
 #: As cinco juntas, para quem precisa de as percorrer.
 METRICAS_DO_VALIDADOR: Final = (
     METRICA_VALIDATE,
@@ -291,6 +325,26 @@ def _valores_derivados(metrica: str) -> tuple[str, ...]:
         from .contexto import VERTICAIS
 
         return tuple(sorted(VERTICAIS))
+    # As tres do *handoff* (KAM-034), e sao **derivadas por necessidade e nao por
+    # estilo**: uma lista literal aqui fechava um ciclo de importacao. O
+    # `handoff.maquina` nao importa este modulo, mas importa-lo executa o
+    # `handoff/__init__.py`, que importa o `handoff.retoma`, que importa **este**
+    # — e no corpo do modulo isso dava `partially initialized module`, que e o
+    # defeito que as tres da ToolLayer pagaram antes. Com o `lru_cache`, nada
+    # disto se importa enquanto ninguem contar uma metrica de *handoff*, e nesse
+    # instante este modulo ja esta carregado.
+    if metrica == METRICA_HANDOFF:
+        from .handoff.maquina import ESTADOS
+
+        return tuple(sorted(ESTADOS))
+    if metrica == METRICA_RETOMA:
+        from .handoff.retoma import DESFECHOS_DA_RETOMA
+
+        return tuple(sorted(DESFECHOS_DA_RETOMA))
+    if metrica == METRICA_RETOMA_NAO_AUTORIZADA:
+        from .handoff.autenticacao import MOTIVOS_DE_RECUSA
+
+        return tuple(sorted(MOTIVOS_DE_RECUSA))
     raise EtiquetaInvalida(f"{metrica}: nao tem valores derivados")
 
 #: A gramatica de uma etiqueta. A mesma de `ten/metricas.py`, e pela mesma
@@ -311,6 +365,9 @@ _DERIVADAS: Final = (
     METRICA_LLM_CHAMADAS,
     METRICA_LLM_ERROS,
     *METRICAS_DO_VALIDADOR,
+    METRICA_HANDOFF,
+    METRICA_RETOMA,
+    METRICA_RETOMA_NAO_AUTORIZADA,
 )
 
 
@@ -329,6 +386,7 @@ _CONTADORES_SEM_ETIQUETA: Final = (
     METRICA_LLM_REGISTO_FALHOU,
     METRICA_LLM_SERVIDOR_DESCONHECIDO,
     METRICA_LLM_CONTAGEM_INCOERENTE,
+    METRICA_HANDOFF_DEGRADADO,
 )
 _MEDIDAS: Final = (
     METRICA_DURACAO,
@@ -417,6 +475,22 @@ _AJUDA: Final = {
     METRICA_RENDER_ONLY: (
         "counter",
         "Respostas sem prosa numerica livre, por vertical.",
+    ),
+    METRICA_HANDOFF: (
+        "counter",
+        "Passagens a humano, pelo estado de handoffs.status.",
+    ),
+    METRICA_RETOMA: (
+        "counter",
+        "Retomas de handoff, por desfecho: venceu o CAS, duplicado, recusada.",
+    ),
+    METRICA_RETOMA_NAO_AUTORIZADA: (
+        "counter",
+        "Retomas recusadas pelo secret do agent bot, por motivo.",
+    ),
+    METRICA_HANDOFF_DEGRADADO: (
+        "counter",
+        "Passagens que o provedor nao aceitou abrir: conversa degradada.",
     ),
 }
 
@@ -515,7 +589,13 @@ class MetricasDoAgr:
 #: **porque** algo nao aconteceu, e `outcome` ali era o nome errado do eixo —
 #: o dicionario §3.26 escreve `motivo` para o `agr_registry_denied_total`, e
 #: sem esta linha a exposicao dizia `outcome` e contradizia o canon. Medido.
-_COM_MOTIVO: Final = (METRICA_RECUSADOS, METRICA_REGISTO_NEGADO)
+#: O `agr_resume_nao_autorizado_total` entra pela mesma razao: conta **porque**
+#: uma retoma nao aconteceu, e `sem_secret` nao e um desfecho.
+_COM_MOTIVO: Final = (
+    METRICA_RECUSADOS,
+    METRICA_REGISTO_NEGADO,
+    METRICA_RETOMA_NAO_AUTORIZADA,
+)
 
 #: O nome do eixo de cada metrica com etiqueta, quando nao e `outcome` nem
 #: `motivo`. As tres da ToolLayer (KAM-028) tem eixos proprios, e chamar-lhes
@@ -532,6 +612,12 @@ _NOME_DO_EIXO: Final = {
     # O eixo das cinco do validador e o `vertical` (KAM-032, criterio 8). O
     # `tenant_id` nao e eixo de nenhuma, e a razao esta na nota delas acima.
     **{m: "vertical" for m in METRICAS_DO_VALIDADOR},
+    # O eixo do `agr_handoff_total` e o **estado** de `handoffs.status` e nao um
+    # desfecho: `waiting` e um estado de abertura, e chamar-lhe `outcome` dizia
+    # que uma passagem que acabou de abrir ja tem desfecho. O
+    # `agr_resume_total` fica em `outcome` por omissao, e ai o nome esta certo —
+    # os tres valores dele **sao** desfechos da chamada.
+    METRICA_HANDOFF: "estado",
 }
 
 
