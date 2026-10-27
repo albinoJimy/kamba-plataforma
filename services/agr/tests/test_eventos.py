@@ -337,10 +337,20 @@ class TestEnvelope(unittest.TestCase):
             env.ler_envelope("{isto nao e json")
 
     def test_a_mensagem_nunca_repete_um_valor_recusado(self) -> None:
-        """Um envelope invalido pode trazer um telefone no sitio de um UUID."""
+        """Um envelope invalido pode trazer um telefone no sitio de um UUID.
+
+        **O numero e do intervalo ficticio** (`999100000000`-`999999999999`,
+        `tools/meta-sim/src/numeros.ts`), e isso nao e arrumacao: um `+244 9…`
+        escrito aqui e um telefone de forma real num ficheiro fora do inventario
+        do KAM-024, e o *scan* do **gate 7** recusa-o — «uma fixture com um
+        numero real e um dado pessoal no repositorio, para sempre, no historico
+        do git». A primeira versao deste ensaio escreveu um, e foi o gate que o
+        apanhou. O intervalo reservado da a mesma prova sem o custo: a UIT nao
+        atribui o `999` a pais nenhum.
+        """
         with self.assertRaises(env.EnvelopeInvalidoError) as erro:
-            env.ler_envelope(envelope_cru(tenant_id="+244923000000"))
-        self.assertNotIn("244923000000", str(erro.exception))
+            env.ler_envelope(envelope_cru(tenant_id="+999100000001"))
+        self.assertNotIn("999100000001", str(erro.exception))
 
     def test_como_mapa_devolve_a_forma_que_o_consumir_le(self) -> None:
         mapa = env.ler_envelope(envelope_cru()).como_mapa()
