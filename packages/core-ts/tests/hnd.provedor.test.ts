@@ -44,15 +44,22 @@ import {
   SQL_HANDOFF_POR_ID,
   SQL_MARCAR_ABERTA,
   SQL_MARCAR_DEGRADADA,
+  SQL_MARCAR_RESOLVER,
+  SQL_THREAD_DA_PASSAGEM,
+  RetomaIndisponivelError,
   SemPrivilegioError,
+  estadoDe,
+  threadDe,
   type AberturaNoProvedor,
   type ContaCriada,
   type ContaDeAtendimento,
   type Corpo,
+  type DesfechoDaRetoma,
   type FilaDoEspelho,
   type HumanEvent,
   type MirrorMessage,
   type PedidoDeHandoff,
+  type PedidoDeRetoma,
 } from "../src/hnd/index.ts";
 
 const TENANT = "11111111-1111-4111-8111-111111111111";
@@ -85,6 +92,14 @@ interface Linha {
 class BaseFalsa {
   readonly pedidos: string[] = [];
   readonly handoffs = new Map<string, Linha>();
+  /**
+   * `conversation_id` → `contact_id`, que é o `JOIN` do `SQL_THREAD_DA_PASSAGEM`.
+   *
+   * Existe porque o `thread_id` do corpo da retoma é `{tenant_id}:{contact_id}`
+   * (§3.1) e o `handoff_id` é irreversível: o `contact_id` só se obtém pela
+   * conversa a que a passagem aponta. Uma conversa semeada, que é a do `pedido`.
+   */
+  readonly conversas = new Map<string, string>([[CONVERSA, CONTACTO]]);
   readonly contas = new Map<string, ContaDeAtendimento & { token_ref: string }>();
   /**
    * O *tenant* da sessão, que é o que o `SQL_FECHAR` lê do `current_setting`.
@@ -106,6 +121,8 @@ class BaseFalsa {
       [SQL_FECHAR, "fechar"],
       [SQL_GUARDAR_CONTA, "guardar_conta"],
       [SQL_CONTA, "conta"],
+      [SQL_THREAD_DA_PASSAGEM, "thread_da_passagem"],
+      [SQL_MARCAR_RESOLVER, "marcar_resolver"],
     ];
     return nomes.find(([sql]) => sql === texto)?.[1] ?? "desconhecida";
   }
@@ -167,8 +184,37 @@ class BaseFalsa {
       }
       linha.status = String(valores[1]);
       if (linha.status === "resumed") linha.resumed_at = T0;
-      if (valores[3] !== null) linha.resolver = String(valores[3]);
       return linhas([{ handoff_id: linha.handoff_id, status: linha.status }]);
+    }
+    if (nome === "thread_da_passagem") {
+      // O `JOIN` com a conversa **e** o `external_id` no predicado. Os dois
+      // contam: sem o `JOIN` não há `contact_id`, e sem o `external_id` um
+      // atributo trocado no provedor fazia-nos pedir a retoma do *thread* de
+      // outra pessoa.
+      const linha = this.handoffs.get(String(valores[1]));
+      if (
+        linha === undefined ||
+        linha.tenant_id !== String(valores[0]) ||
+        linha.external_id !== String(valores[2])
+      ) {
+        return linhas([]);
+      }
+      const contactId = this.conversas.get(linha.conversation_id);
+      return linhas(contactId === undefined ? [] : [{ contact_id: contactId }]);
+    }
+    if (nome === "marcar_resolver") {
+      // **Só de `waiting`**, e é isso que faz do *webhook* duplicado um *no-op*
+      // também nesta coluna: o segundo não reescreve o `resolver` do primeiro.
+      const linha = this.handoffs.get(String(valores[1]));
+      if (
+        linha === undefined ||
+        linha.tenant_id !== String(valores[0]) ||
+        linha.status !== "waiting"
+      ) {
+        return linhas([]);
+      }
+      linha.resolver = String(valores[2]);
+      return linhas([{ handoff_id: linha.handoff_id }]);
     }
     if (nome === "guardar_conta") {
       const chave = `${String(valores[0])}:${String(valores[1])}`;
@@ -273,6 +319,79 @@ class ProvedorFalso {
   };
 }
 
+/**
+ * O AGR por porta, com o *compare-and-set* e o `interrupt()` modelados.
+ *
+ * **O que este duplo permite medir**, e que de outra forma não se media deste
+ * lado: a propriedade de ponta a ponta do critério 3 do KAM-034 — «nenhum
+ * `interrupt()` fica pendente num *handoff* que um humano resolveu». Ele guarda
+ * as *threads* com interrupção pendente, como o *checkpoint* do LangGraph, e
+ * **só** o `Command(resume=…)` as tira — que é o que o `retomar` corre quando o
+ * CAS vence. Com o defeito que a emenda 1.42 corrige (o HND a escrever `resumed`
+ * antes), o CAS não casava, nenhum `Command` corria, e o conjunto ficava com a
+ * *thread* lá dentro: é esse o teste.
+ *
+ * **E o que ele não prova**, dito aqui porque a revisão adversarial do KAM-034
+ * encontrou exactamente esta classe de defeito (um duplo mais forte do que a
+ * peça que substitui): o CAS a sério é uma instrução de PostgreSQL, e a sua
+ * atomicidade sob concorrência real está provada em
+ * `db/tests_agr/test_handoff_retoma.py` contra um servidor — duas ligações, o
+ * mesmo `handoff_id`, exactamente uma a vencer. Este duplo replica o
+ * **predicado** (o *tenant*, o `handoff_id`, o contacto da conversa e o
+ * `status = 'waiting'`), e nada mais; o que aqui se mede é o lado do HND e a
+ * forma do corpo, não a serialização.
+ */
+class AgrFalso {
+  readonly pedidos: PedidoDeRetoma[] = [];
+  /** As *threads* com um `interrupt()` pendente. O `Command` é quem as tira. */
+  readonly interrompidas = new Set<string>();
+  comandos = 0;
+  /** Força a porta a levantar, como o 503 do `grafo_nao_registado`. */
+  emBaixo = false;
+  readonly #bd: BaseFalsa;
+
+  // Campo e atribuição, e não um parâmetro-propriedade: o `node --test` corre
+  // TypeScript em *strip-only mode* e aquela forma precisa de transformação.
+  constructor(bd: BaseFalsa) {
+    this.#bd = bd;
+  }
+
+  /**
+   * O que a linha tinha **no instante em que a retoma chegou**.
+   *
+   * É o que torna a ordem das duas escritas do HND mensurável de fora: com elas
+   * invertidas, o `resolver` chegava aqui a `null` — e o `SQL_MARCAR_RESOLVER`
+   * nunca mais casava, porque o CAS já tinha movido o `status`.
+   */
+  estadoNaChegada: string | null = null;
+  resolverNaChegada: string | null = null;
+
+  readonly retomar = async (pedido: PedidoDeRetoma): Promise<DesfechoDaRetoma> => {
+    this.pedidos.push(pedido);
+    const vista = this.#bd.handoffs.get(pedido.handoffId);
+    this.estadoNaChegada = vista?.status ?? null;
+    this.resolverNaChegada = vista?.resolver ?? null;
+    if (this.emBaixo) throw new RetomaIndisponivelError(503, "grafo_nao_registado");
+    const corte = pedido.threadId.indexOf(":");
+    const tenantId = pedido.threadId.slice(0, corte);
+    const contactId = pedido.threadId.slice(corte + 1);
+    const linha = this.#bd.handoffs.get(pedido.handoffId);
+    const desteThread =
+      linha !== undefined &&
+      linha.tenant_id === tenantId &&
+      this.#bd.conversas.get(linha.conversation_id) === contactId;
+    if (!desteThread || linha === undefined) return "recusado";
+    if (linha.status !== "waiting") return "repetido";
+    linha.status = estadoDe(pedido.outcome);
+    linha.resumed_at = T0;
+    // O `Command(resume=...)`: corre **depois** do CAS e é o que desfaz a
+    // interrupção. A ordem é a do `handoff/retoma.py`.
+    this.comandos += 1;
+    this.interrompidas.delete(pedido.threadId);
+    return "retomado";
+  };
+}
+
 /** A fila por porta, com a de-duplicação por `jobId` que a torna idempotente. */
 class FilaFalsa implements FilaDoEspelho {
   readonly jobs = new Map<string, Readonly<Record<string, unknown>>>();
@@ -293,6 +412,7 @@ interface Montagem {
   readonly bd: BaseFalsa;
   readonly provedor: ProvedorFalso;
   readonly fila: FilaFalsa;
+  readonly agr: AgrFalso;
   readonly registo: Record<string, unknown>[];
   readonly cofre: { ref: string; segredo: string }[];
   readonly cofreConsultado: string[];
@@ -300,6 +420,7 @@ interface Montagem {
 
 function montar(): Montagem {
   const bd = new BaseFalsa();
+  const agr = new AgrFalso(bd);
   const provedor = new ProvedorFalso();
   const fila = new FilaFalsa();
   const registo: Record<string, unknown>[] = [];
@@ -337,9 +458,10 @@ function montar(): Montagem {
       cofreConsultado.push(tenantId);
       return SEGREDO;
     },
+    retomar: agr.retomar,
     log,
   });
-  return { hnd, bd, provedor, fila, registo, cofre, cofreConsultado };
+  return { hnd, bd, provedor, fila, agr, registo, cofre, cofreConsultado };
 }
 
 function pedido(troca: Partial<PedidoDeHandoff> = {}): PedidoDeHandoff {
@@ -550,22 +672,54 @@ describe("o setBotMuted levanta (criterio 8)", () => {
   });
 });
 
-describe("o fecho (criterio 7)", () => {
-  it("o resolved escreve resumed e o resumed_at", async () => {
-    const { hnd, bd } = montar();
+describe("o fecho, depois da emenda 1.42 (criterio 7)", () => {
+  /** Uma passagem `degraded`: a conta existe e o provedor cai a seguir. */
+  async function comPassagemDegradada(): Promise<Montagem> {
+    const montagem = montar();
+    await montagem.hnd.ensureAccount(TENANT);
+    montagem.provedor.emBaixo = true;
+    const aberta = await montagem.hnd.openHandoff(pedido());
+    assert.equal(aberta.estado, "degraded", "a montagem tem de dar uma degradada");
+    return montagem;
+  }
+
+  it("**um close sobre uma passagem em waiting nao escreve nada**", async () => {
+    // E a fronteira da emenda 1.42, vista pela porta do §11.1: sair de
+    // `waiting` e do AGR, por `/internal/resume`, nos tres desfechos. O que
+    // este teste prende e que a porta **nao** o faz em silencio por um caminho
+    // lateral — era por aqui que o `Command(resume=...)` morria.
+    const { hnd, bd, registo } = montar();
     await hnd.openHandoff(pedido());
+    for (const outcome of ["resolved", "timeout", "cancelled"] as const) {
+      await hnd.close("h_abc", outcome);
+      assert.equal(
+        bd.handoffs.get("h_abc")?.status,
+        "waiting",
+        `o ${outcome} nao pode tirar a passagem de waiting`,
+      );
+    }
+    assert.equal(bd.handoffs.get("h_abc")?.resumed_at, null);
+    // **E deixa rasto.** Um zero linhas silencioso e a classe de defeito que
+    // este modulo ja pagou duas vezes.
+    assert.equal(
+      registo.filter((l) => l["outcome"] === "handoff_fecho_sem_efeito").length,
+      3,
+    );
+  });
+
+  it("**uma passagem degraded fecha-se, e e a unica que fecha**", async () => {
+    const { hnd, bd } = await comPassagemDegradada();
     await hnd.close("h_abc", "resolved");
     const linha = bd.handoffs.get("h_abc");
     assert.equal(linha?.status, "resumed");
     assert.notEqual(linha?.resumed_at, null);
+    assert.equal(hnd.metricas.ler()[`${METRICA_HANDOFFS}:resumed`], 1);
   });
 
-  it("**o resolved duplicado nao altera nada**", async () => {
+  it("**o fecho duplicado de uma degraded nao altera nada**", async () => {
     // A monotonia esta no predicado: o segundo `UPDATE` nao casa e devolve zero
-    // linhas. E a base que o faz, nao uma verificacao em codigo — dois webhooks
-    // duplicados chegam a dois processos.
-    const { hnd, bd } = montar();
-    await hnd.openHandoff(pedido());
+    // linhas. E a base que o faz, nao uma verificacao em codigo.
+    const { hnd, bd } = await comPassagemDegradada();
     await hnd.close("h_abc", "resolved");
     const antes = { ...bd.handoffs.get("h_abc") };
     await hnd.close("h_abc", "resolved");
@@ -579,8 +733,7 @@ describe("o fecho (criterio 7)", () => {
       ["timeout", "timeout"],
       ["cancelled", "cancelled"],
     ] as const) {
-      const { hnd, bd } = montar();
-      await hnd.openHandoff(pedido());
+      const { hnd, bd } = await comPassagemDegradada();
       await hnd.close("h_abc", outcome);
       assert.equal(bd.handoffs.get("h_abc")?.status, estado);
       assert.equal(bd.handoffs.get("h_abc")?.resumed_at, null, "so o resolved marca a retoma");
@@ -589,11 +742,10 @@ describe("o fecho (criterio 7)", () => {
 
   it("uma passagem de outro tenant nao se fecha", async () => {
     // O `SQL_FECHAR` le o tenant do contexto da sessao, e a base falsa imita-o.
-    const { hnd, bd } = montar();
-    await hnd.openHandoff(pedido());
+    const { hnd, bd } = await comPassagemDegradada();
     bd.tenantDaSessao = "99999999-9999-4999-8999-999999999999";
     await hnd.close("h_abc", "resolved");
-    assert.equal(bd.handoffs.get("h_abc")?.status, "waiting", "ficou como estava");
+    assert.equal(bd.handoffs.get("h_abc")?.status, "degraded", "ficou como estava");
   });
 });
 
@@ -645,24 +797,27 @@ describe("os callbacks (criterio 5)", () => {
     assert.equal(hnd.metricas.ler()[`${METRICA_RECUSAS}:tipo_desconhecido`], 1);
   });
 
-  it("**um resolved do provedor fecha a passagem**", async () => {
-    const { hnd, bd } = montar();
+  it("**um resolved do provedor pede a retoma ao AGR**", async () => {
+    const { hnd, bd, agr } = montar();
     await hnd.ensureAccount(TENANT);
     await hnd.openHandoff(pedido());
     const veredicto = await hnd.receber(TENANT, SEGREDO, corpoDeEstado("resolved"));
     assert.equal(veredicto.aceite, true);
+    // O `status` fica `resumed` porque **o AGR** o escreveu, ao vencer o CAS.
     assert.equal(bd.handoffs.get("h_abc")?.status, "resumed");
+    assert.equal(agr.pedidos.length, 1);
   });
 
-  it("um snoozed **nao** fecha nada", async () => {
+  it("um snoozed **nao** fecha nada nem pede retoma", async () => {
     // Tratar uma soneca do agente como fecho era deixar o cliente sem resposta
     // e marcar a passagem como atendida.
-    const { hnd, bd } = montar();
+    const { hnd, bd, agr } = montar();
     await hnd.ensureAccount(TENANT);
     await hnd.openHandoff(pedido());
     const veredicto = await hnd.receber(TENANT, SEGREDO, corpoDeEstado("snoozed"));
     assert.equal(veredicto.aceite, true, "o callback e valido");
     assert.equal(bd.handoffs.get("h_abc")?.status, "waiting", "mas nao fecha");
+    assert.deepEqual(agr.pedidos, [], "e nao se pede a retoma de uma soneca");
   });
 
   it("o handler registado recebe o acontecimento", async () => {
@@ -689,6 +844,242 @@ describe("os callbacks (criterio 5)", () => {
     assert.ok(!tudo.includes("beto@loja.ao"));
     assert.ok(!tudo.includes(SEGREDO), "o segredo tambem nao vai a registo");
     assert.ok(tudo.includes("callback_recusado_secret_errado"));
+  });
+});
+
+/**
+ * A fronteira da emenda 1.42: quem escreve a saída de `waiting` (KAM-019).
+ *
+ * **O defeito que estes testes prendem não era uma intercalação rara: era o
+ * caminho feliz, todas as vezes.** O `#fechar` corria antes de alguém poder
+ * pedir a retoma, o *compare-and-set* do AGR não casava linha nenhuma, o
+ * `Command(resume=…)` nunca corria, e o `interrupt()` do `handoff_wait` ficava
+ * pendente para sempre — invisível, porque a varredura dos prazos filtra
+ * `waiting` e a invariante da não-reentrada também. A descrição está na
+ * `docs/analises/ANALISE-35`, achado 1, e a decisão no dicionário §3.32.
+ */
+describe("a fronteira da retoma (emenda 1.42, credor do criterio 3 do KAM-034)", () => {
+  function corpoResolvido(troca: Corpo = {}): Corpo {
+    return {
+      event: "conversation_status_changed",
+      conversation: {
+        id: "cw-1",
+        status: "resolved",
+        custom_attributes: { handoffId: "h_abc" },
+      },
+      assignee: { id: 7, name: "Beto", email: "beto@loja.ao" },
+      ...troca,
+    };
+  }
+
+  /** Uma passagem aberta e com a *thread* interrompida, como em produção. */
+  async function comPassagemAEspera(): Promise<Montagem> {
+    const montagem = montar();
+    await montagem.hnd.ensureAccount(TENANT);
+    await montagem.hnd.openHandoff(pedido());
+    // O `handoff_wait` levantou o `interrupt()`: a *thread* está à espera de
+    // uma pessoa. É este o estado que o `Command(resume=…)` desfaz.
+    montagem.agr.interrompidas.add(threadDe(TENANT, CONTACTO));
+    return montagem;
+  }
+
+  it("**nenhum interrupt fica pendente num handoff que um humano resolveu**", async () => {
+    // A propriedade inteira, de ponta a ponta, e e a razao de ser deste
+    // trabalho. Com o defeito, o conjunto ficava com a *thread* la dentro.
+    const { hnd, agr, bd } = await comPassagemAEspera();
+    await hnd.receber(TENANT, SEGREDO, corpoResolvido());
+
+    assert.equal(agr.comandos, 1, "o Command(resume=...) tem de correr");
+    assert.deepEqual([...agr.interrompidas], [], "nenhuma thread fica interrompida");
+    assert.equal(bd.handoffs.get("h_abc")?.status, "resumed");
+  });
+
+  it("**o HND nao escreve o status: quem o escreve e o CAS do AGR**", async () => {
+    // A assercao e sobre as **consultas**, nao sobre o estado final: o estado
+    // final e o mesmo nos dois desenhos, e e isso que faz deste defeito uma
+    // coisa que nenhum teste de resultado podia apanhar. O que distingue os
+    // dois e nunca aparecer um `fechar` nesta sequencia.
+    const { hnd, bd } = await comPassagemAEspera();
+    bd.pedidos.length = 0;
+    await hnd.receber(TENANT, SEGREDO, corpoResolvido());
+
+    assert.ok(
+      !bd.pedidos.includes("fechar"),
+      `o receber nao pode fechar; correu ${JSON.stringify(bd.pedidos)}`,
+    );
+    assert.deepEqual(bd.pedidos, ["conta", "thread_da_passagem", "marcar_resolver"]);
+  });
+
+  it("**o corpo da retoma sao os tres campos, e o thread_id vem da linha**", async () => {
+    const { hnd, agr } = await comPassagemAEspera();
+    await hnd.receber(TENANT, SEGREDO, corpoResolvido());
+
+    assert.deepEqual(agr.pedidos, [
+      {
+        threadId: `${TENANT}:${CONTACTO}`,
+        handoffId: "h_abc",
+        // **O `outcome` atravessa sem traducao**: o `handoff_close` do grafo
+        // compara `outcome == "timeout"`, e um `resumed` a chegar la nao batia
+        // com nada.
+        outcome: "resolved",
+      },
+    ]);
+    // E o `resolver` **nao** vai no corpo: o ADR-010 mantem a identidade do
+    // agente fora do AGR, e e por isso que ele tem escrita propria.
+    assert.ok(!JSON.stringify(agr.pedidos).includes("7"));
+  });
+
+  it("**o resolver chega a base sem passar pelo AGR**", async () => {
+    const { hnd, bd, agr } = await comPassagemAEspera();
+    await hnd.receber(TENANT, SEGREDO, corpoResolvido());
+
+    assert.equal(bd.handoffs.get("h_abc")?.resolver, "7");
+    assert.ok(!JSON.stringify(agr.pedidos).includes("Beto"));
+  });
+
+  it("**o resolver escreve-se antes da retoma, e e a unica ordem que funciona**", async () => {
+    // Invertidas, o `SQL_MARCAR_RESOLVER` nao casava linha nenhuma: ele exige
+    // `status = 'waiting'` e o CAS acaba de o mudar. A assercao e sobre o
+    // **instante** e nao sobre o estado final: quando a retoma chega, a linha
+    // ainda esta em `waiting` e **ja** tem o resolver.
+    const { hnd, agr } = await comPassagemAEspera();
+    await hnd.receber(TENANT, SEGREDO, corpoResolvido());
+
+    assert.equal(agr.estadoNaChegada, "waiting", "o HND nao pode ter escrito o status");
+    assert.equal(agr.resolverNaChegada, "7", "e o resolver tem de ja estar la");
+  });
+
+  it("**dois webhooks duplicados dao UMA retoma**", async () => {
+    // Era isto que o compare-and-set comprava, e e isto que nao se pode perder
+    // ao mudar de escritor: o segundo pedido sai `repetido` e nao produz
+    // `Command` nenhum.
+    const { hnd, agr, bd } = await comPassagemAEspera();
+    await hnd.receber(TENANT, SEGREDO, corpoResolvido());
+    await hnd.receber(TENANT, SEGREDO, corpoResolvido());
+
+    assert.equal(agr.pedidos.length, 2, "os dois webhooks chegam ao AGR");
+    assert.equal(agr.comandos, 1, "e produzem **um** Command");
+    assert.equal(hnd.metricas.ler()[`${METRICA_HANDOFFS}:resumed`], 1);
+    assert.equal(bd.handoffs.get("h_abc")?.resumed_at, T0);
+  });
+
+  it("**o segundo webhook nao reescreve o resolver do primeiro**", async () => {
+    // O `status = 'waiting'` no predicado do `SQL_MARCAR_RESOLVER` e quem o
+    // impede, e nos dois webhooks do Chatwoot o segundo pode trazer outro
+    // `assignee` — quem respondeu foi o primeiro.
+    const { hnd, bd, registo } = await comPassagemAEspera();
+    await hnd.receber(TENANT, SEGREDO, corpoResolvido());
+    await hnd.receber(TENANT, SEGREDO, corpoResolvido({ assignee: { id: 99 } }));
+
+    assert.equal(bd.handoffs.get("h_abc")?.resolver, "7");
+    assert.ok(registo.some((l) => l["outcome"] === "resolver_sem_efeito"));
+  });
+
+  it("**um handoffId de outra conversa nao escreve nem retoma**", async () => {
+    // O `handoff_id` chega do atributo de uma conversa **no provedor**, isto e,
+    // de fora. Com o `external_id` no predicado, um valor trocado la nao nos faz
+    // pedir a retoma do *thread* de outra pessoa — que e o perigo que o §3.32
+    // nomeia para o lado do AGR, visto deste lado.
+    const { hnd, bd, agr, registo } = await comPassagemAEspera();
+    await hnd.receber(
+      TENANT,
+      SEGREDO,
+      corpoResolvido({
+        conversation: {
+          id: "cw-de-outra-conversa",
+          status: "resolved",
+          custom_attributes: { handoffId: "h_abc" },
+        },
+      }),
+    );
+
+    assert.deepEqual(agr.pedidos, [], "nao se pede retoma nenhuma");
+    assert.equal(bd.handoffs.get("h_abc")?.resolver, null, "e nao se escreve o resolver");
+    assert.equal(bd.handoffs.get("h_abc")?.status, "waiting");
+    assert.ok(registo.some((l) => l["outcome"] === "retoma_sem_passagem"));
+  });
+
+  it("**o callback sem resolver nao corre a instrucao do resolver**", async () => {
+    // Um `COALESCE($3, resolver)` punha-a a correr para nada e a devolver uma
+    // linha a dizer que escreveu.
+    const { hnd, bd, agr } = await comPassagemAEspera();
+    bd.pedidos.length = 0;
+    await hnd.receber(TENANT, SEGREDO, corpoResolvido({ assignee: undefined }));
+
+    assert.ok(!bd.pedidos.includes("marcar_resolver"));
+    assert.equal(bd.handoffs.get("h_abc")?.resolver, null);
+    assert.equal(agr.pedidos.length, 1, "mas a retoma pede-se de qualquer maneira");
+  });
+
+  it("**o AGR em baixo levanta, e a passagem fica em waiting**", async () => {
+    // O *endpoint* responde 5xx, o provedor reenvia o *callback*, e na volta
+    // seguinte a passagem ainda esta em `waiting`: o `resolver` reescreve-se e o
+    // CAS volta a ter oportunidade. Engolir isto era o defeito outra vez.
+    const { hnd, bd, agr } = await comPassagemAEspera();
+    agr.emBaixo = true;
+    await assert.rejects(
+      () => hnd.receber(TENANT, SEGREDO, corpoResolvido()),
+      RetomaIndisponivelError,
+    );
+    assert.equal(bd.handoffs.get("h_abc")?.status, "waiting");
+    assert.equal(bd.handoffs.get("h_abc")?.resolver, "7", "o resolver ja ficou");
+    assert.equal(agr.comandos, 0);
+
+    // E a repeticao do provedor conclui o que ficou a meio.
+    agr.emBaixo = false;
+    await hnd.receber(TENANT, SEGREDO, corpoResolvido());
+    assert.equal(agr.comandos, 1);
+    assert.deepEqual([...agr.interrompidas], []);
+  });
+
+  it("**o handler do onHumanEvent corre, e corre depois da retoma**", async () => {
+    // A ordem e escolhida: o handler e uma notificacao e a retoma e a transicao
+    // de estado. Com o handler primeiro, uma falha dele impedia a transicao de
+    // ser pedida — a forma mais recente do mesmo defeito.
+    const { hnd, agr } = await comPassagemAEspera();
+    const vistos: { evento: string; comandos: number }[] = [];
+    hnd.onHumanEvent(async (e) => {
+      vistos.push({ evento: e.acontecimento, comandos: agr.comandos });
+    });
+    await hnd.receber(TENANT, SEGREDO, corpoResolvido());
+
+    assert.deepEqual(vistos, [{ evento: "estado_mudou", comandos: 1 }]);
+  });
+
+  it("**sem porta de retoma o resolved levanta, e nao segue em frente**", async () => {
+    // A porta e obrigatoria no tipo, pelo que isto so se monta com um `as`: e
+    // deliberado, e o que se mede e que **nao ha omissao silenciosa**. Uma
+    // omissao que nao fizesse nada era o defeito original com outro nome — o
+    // `resolved` seguia o seu caminho, ninguem pedia a retoma, e o `interrupt()`
+    // ficava pendente sem um unico sinal. E a mesma decisao que o
+    // `RetomaNaoImplementadaError` do `api_interna.py` tomou do outro lado.
+    const { bd } = await comPassagemAEspera();
+    const semPorta = new Handoff({
+      bd,
+      provedor: {
+        abrirConversa: async () => "cw-1",
+        espelhar: async () => undefined,
+        fecharConversa: async () => undefined,
+      },
+      provisionador: {
+        criarConta: async () => {
+          throw new Error("este teste nao provisiona nada");
+        },
+      },
+      fila: new FilaFalsa(),
+      refDoTokenDoBot: (id: string) => `chatwoot_bot_token/${id}`,
+      refDoTokenDoUtilizador: (id: string) => `chatwoot_user_token/${id}`,
+      guardarSegredo: async () => undefined,
+      segredoDoBot: async () => SEGREDO,
+    } as unknown as ConstructorParameters<typeof Handoff>[0]);
+
+    await assert.rejects(
+      () => semPorta.receber(TENANT, SEGREDO, corpoResolvido()),
+      TypeError,
+      "sem porta tem de levantar, nao de devolver aceite",
+    );
+    // E a passagem fica como estava: a excepcao nao deixou meia transicao.
+    assert.equal(bd.handoffs.get("h_abc")?.status, "waiting");
   });
 });
 

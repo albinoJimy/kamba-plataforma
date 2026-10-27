@@ -36,12 +36,17 @@ import type pg from "pg";
 import {
   Handoff,
   SQL_FORA_DO_SLA,
+  SQL_THREAD_DA_PASSAGEM,
   ProvedorIndisponivelError,
+  estadoDe,
+  threadDe,
   type AberturaNoProvedor,
   type ContaCriada,
   type ContaDeAtendimento,
+  type DesfechoDaRetoma,
   type FilaDoEspelho,
   type PedidoDeHandoff,
+  type PedidoDeRetoma,
 } from "../src/hnd/index.ts";
 import {
   BASE_DESCARTAVEL,
@@ -177,12 +182,64 @@ describe("o handoff contra a base", () => {
     return [conversa.rows[0]?.id ?? "", contactId];
   }
 
+  /**
+   * O AGR, com o *compare-and-set* **em SQL** contra esta base.
+   *
+   * A instrução é uma cópia do `SQL_RETOMAR_HANDOFF` do
+   * `services/agr/src/kamba_agr/consultas.py` — o predicado inteiro: o
+   * *tenant*, o `handoff_id`, o `status = 'waiting'` e o `EXISTS` que liga a
+   * passagem ao contacto da conversa. **Uma cópia e não a peça**, e diz-se:
+   * a atomicidade dela sob concorrência real está provada do lado do AGR
+   * (`db/tests_agr/test_handoff_retoma.py`, duas ligações, uma a vencer), e o
+   * que esta montagem acrescenta é a outra metade, que só aqui se pode ver —
+   * que as **duas escritas do HND e a dele** compõem contra um PostgreSQL a
+   * sério: o `resolver` numa instrução, o `status` na dele, os privilégios de
+   * `kamba_app` a chegarem para as duas, e a RLS no meio.
+   *
+   * Corre na ligação que lhe derem, para que um teste possa pôr o CAS numa
+   * sessão e o HND noutra.
+   */
+  function agrDe(
+    cliente: pg.Client,
+    registo: PedidoDeRetoma[],
+  ): (pedido: PedidoDeRetoma) => Promise<DesfechoDaRetoma> {
+    return async (pedido: PedidoDeRetoma): Promise<DesfechoDaRetoma> => {
+      registo.push(pedido);
+      const corte = pedido.threadId.indexOf(":");
+      const tenantId = pedido.threadId.slice(0, corte);
+      const contactId = pedido.threadId.slice(corte + 1);
+      await definirContexto(cliente, tenantId);
+      const venceu = await cliente.query(
+        `UPDATE platform.handoffs AS h
+            SET status = $1, resumed_at = now()
+          WHERE h.tenant_id = $2
+            AND h.handoff_id = $3
+            AND h.status = 'waiting'
+            AND EXISTS (
+                  SELECT 1 FROM platform.conversations c
+                   WHERE c.tenant_id = h.tenant_id
+                     AND c.id = h.conversation_id
+                     AND c.contact_id = $4
+                )
+         RETURNING 1`,
+        [estadoDe(pedido.outcome), tenantId, pedido.handoffId, contactId],
+      );
+      if ((venceu.rowCount ?? 0) > 0) return "retomado";
+      const existe = await cliente.query(
+        "SELECT 1 FROM platform.handoffs WHERE tenant_id = $1 AND handoff_id = $2",
+        [tenantId, pedido.handoffId],
+      );
+      return (existe.rowCount ?? 0) > 0 ? "repetido" : "recusado";
+    };
+  }
+
   /** O HND de um *tenant*, sobre a ligação dada. */
   function hndDe(
     tenant: string,
     provedor: ProvedorFalso,
     fila: FilaDoEspelho,
     cliente: pg.Client = app,
+    retomar: ((pedido: PedidoDeRetoma) => Promise<DesfechoDaRetoma>) | null = null,
   ): Handoff {
     return new Handoff({
       bd: {
@@ -211,6 +268,15 @@ describe("o handoff contra a base", () => {
       // `SecretRef` vao para a base, e isso le-se das colunas.
       guardarSegredo: async () => undefined,
       segredoDoBot: async () => "cccc-segredo",
+      // Por omissão **levanta**, e não é descuido: a maioria dos testes deste
+      // ficheiro é sobre a abertura e o isolamento, e uma porta que devolvesse
+      // `retomado` a fingir escondia um `receber` a pedir retomas que ninguém
+      // mediu. Quem precisa dela passa-a.
+      retomar:
+        retomar ??
+        (async () => {
+          throw new Error("este teste nao liga a porta da retoma");
+        }),
     });
   }
 
@@ -433,9 +499,21 @@ describe("o handoff contra a base", () => {
       // escolha verificavel — e e o que mata a mutacao que a desfaz, porque
       // nenhum duplo o consegue: uma base falsa impoe o tenant em JavaScript e
       // nunca le o texto do SQL.
+      //
+      // **A passagem é `degraded` e não `waiting`, e isso mudou com a emenda
+      // 1.42.** O `ESTADOS_QUE_FECHAM` passou a `["degraded"]`, pelo que uma
+      // passagem em `waiting` já não é linha candidata deste `UPDATE` — e um
+      // predicado que não casa nada deixa o planeador livre para nunca avaliar
+      // o `current_setting`, o que fazia este teste passar sem medir aquilo que
+      // diz medir. Com a passagem no estado de que se fecha, a excepção é a
+      // única saída possível.
       const [tenant, conversa] = await tenantNovo("handoff-sem-contexto");
-      const hnd = hndDe(tenant, new ProvedorFalso(), new FilaFalsa());
-      await hnd.openHandoff(pedido(tenant, conversa, "h_sem_contexto"));
+      const provedor = new ProvedorFalso();
+      const hnd = hndDe(tenant, provedor, new FilaFalsa());
+      await hnd.ensureAccount(tenant);
+      provedor.emBaixo = true;
+      const aberta = await hnd.openHandoff(pedido(tenant, conversa, "h_sem_contexto"));
+      assert.equal(aberta.estado, "degraded", "a montagem tem de dar uma degradada");
 
       // Uma ligacao **sem** contexto, de proposito: e o unico sitio desta suite
       // onde o `definirContexto` nao corre antes da consulta.
@@ -466,6 +544,9 @@ describe("o handoff contra a base", () => {
           refDoTokenDoUtilizador: (id) => `chatwoot_user_token/${id}`,
           guardarSegredo: async () => undefined,
           segredoDoBot: async () => "cccc-segredo",
+          retomar: async () => {
+            throw new Error("este teste nao liga a porta da retoma");
+          },
         });
         await assert.rejects(
           () => semContexto.close("h_sem_contexto", "resolved"),
@@ -482,17 +563,36 @@ describe("o handoff contra a base", () => {
         "SELECT status FROM platform.handoffs WHERE handoff_id = $1",
         ["h_sem_contexto"],
       );
-      assert.equal(linha.rows[0]?.status, "waiting");
+      assert.equal(linha.rows[0]?.status, "degraded");
     });
   });
 
   describe("o fecho sob concorrencia (criterio 7)", () => {
+    /**
+     * Uma passagem `degraded`, que é a única de que o HND fecha.
+     *
+     * A emenda 1.42 tirou o `waiting` ao `ESTADOS_QUE_FECHAM`: estes dois testes
+     * são sobre a **monotonia no predicado** e não sobre qual a transição, pelo
+     * que continuam a medir o que mediam — com a passagem no estado de que este
+     * lado fecha.
+     */
+    async function degradada(id: string, cliente: pg.Client = app): Promise<Handoff> {
+      const provedor = new ProvedorFalso();
+      const hnd = hndDe(tenantA, provedor, new FilaFalsa(), cliente);
+      provedor.emBaixo = true;
+      const aberta = await hnd.openHandoff(pedido(tenantA, conversaA, id));
+      assert.equal(aberta.estado, "degraded");
+      return hnd;
+    }
+
     it("**dois close em paralelo: um escreve e o outro nao casa**", async () => {
       const provedor = new ProvedorFalso();
       const fila = new FilaFalsa();
       const um = hndDe(tenantA, provedor, fila, app);
       const outro = hndDe(tenantA, provedor, fila, app2);
-      await um.openHandoff(pedido(tenantA, conversaA, "h_fecho"));
+      provedor.emBaixo = true;
+      const aberta = await um.openHandoff(pedido(tenantA, conversaA, "h_fecho"));
+      assert.equal(aberta.estado, "degraded");
 
       await Promise.all([um.close("h_fecho", "resolved"), outro.close("h_fecho", "resolved")]);
 
@@ -512,8 +612,7 @@ describe("o handoff contra a base", () => {
     });
 
     it("de um estado concluido nao se fecha outra vez", async () => {
-      const hnd = hndDe(tenantA, new ProvedorFalso(), new FilaFalsa());
-      await hnd.openHandoff(pedido(tenantA, conversaA, "h_terminal"));
+      const hnd = await degradada("h_terminal");
       await hnd.close("h_terminal", "cancelled");
       await hnd.close("h_terminal", "resolved");
 
@@ -523,6 +622,203 @@ describe("o handoff contra a base", () => {
         ["h_terminal"],
       );
       assert.equal(linha.rows[0]?.status, "cancelled", "o cancelled nao se torna resumed");
+    });
+
+    it("**uma passagem em waiting nao se fecha por aqui**", async () => {
+      // A fronteira da emenda 1.42, contra a base: a saida de `waiting` e do
+      // AGR nos tres desfechos, e nenhum dos tres a tira daqui.
+      const hnd = hndDe(tenantA, new ProvedorFalso(), new FilaFalsa());
+      await hnd.openHandoff(pedido(tenantA, conversaA, "h_so_o_agr"));
+      for (const outcome of ["resolved", "timeout", "cancelled"] as const) {
+        await hnd.close("h_so_o_agr", outcome);
+      }
+
+      await definirContexto(app, tenantA);
+      const linha = await app.query<{ status: string; resumed_at: Date | null }>(
+        "SELECT status, resumed_at FROM platform.handoffs WHERE handoff_id = $1",
+        ["h_so_o_agr"],
+      );
+      assert.equal(linha.rows[0]?.status, "waiting");
+      assert.equal(linha.rows[0]?.resumed_at, null);
+      assert.equal(hnd.metricas.ler()["hnd_handoff_total:resumed"], undefined);
+    });
+  });
+
+  /**
+   * A fronteira entre os dois escritores, contra a base (emenda 1.42).
+   *
+   * **O que só aqui se prova:** que as duas escritas do HND e a do AGR compõem
+   * contra um PostgreSQL a sério — o `resolver` por uma instrução e o `status`
+   * por outra, em sessões diferentes, com os privilégios de `kamba_app` a
+   * chegarem para as duas e a RLS no meio. A base falsa da bateria do *gate* 4
+   * não lê o texto do SQL, pelo que nada disto se vê lá.
+   */
+  describe("a fronteira da retoma (emenda 1.42, credor do criterio 3 do KAM-034)", () => {
+    function corpoResolvido(handoffId: string, externalId: string): Record<string, unknown> {
+      return {
+        event: "conversation_status_changed",
+        conversation: {
+          id: externalId,
+          status: "resolved",
+          custom_attributes: { handoffId },
+        },
+        assignee: { id: 7, name: "Beto", email: "beto@loja.ao" },
+      };
+    }
+
+    it("**o resolver chega a base sem passar pelo AGR, e o status vem do CAS**", async () => {
+      // A propriedade que o ADR-010 obriga: a identidade do agente é escrita
+      // deste lado, numa instrução separada, e o corpo que vai ao AGR não a
+      // leva. As duas sessões são diferentes de propósito — o HND na `app` e o
+      // CAS na `app2` —, que é como corre em produção: dois processos.
+      const pedidos: PedidoDeRetoma[] = [];
+      const provedor = new ProvedorFalso();
+      const hnd = hndDe(tenantA, provedor, new FilaFalsa(), app, agrDe(app2, pedidos));
+      await hnd.ensureAccount(tenantA);
+      const aberta = await hnd.openHandoff(pedido(tenantA, conversaA, "h_fronteira"));
+      assert.equal(aberta.estado, "waiting");
+
+      const veredicto = await hnd.receber(
+        tenantA,
+        "cccc-segredo",
+        corpoResolvido("h_fronteira", aberta.externalId),
+      );
+      assert.equal(veredicto.aceite, true);
+
+      await definirContexto(app, tenantA);
+      const linha = await app.query<{
+        status: string;
+        resolver: string | null;
+        resumed_at: Date | null;
+      }>(
+        "SELECT status, resolver, resumed_at FROM platform.handoffs WHERE handoff_id = $1",
+        ["h_fronteira"],
+      );
+      assert.equal(linha.rows[0]?.resolver, "7", "o resolver e escrito pelo HND");
+      assert.equal(linha.rows[0]?.status, "resumed", "e o status pelo CAS do AGR");
+      assert.notEqual(linha.rows[0]?.resumed_at, null);
+      // E o corpo que foi ao AGR tem tres campos, com o `thread_id` montado a
+      // partir do `contact_id` que a consulta trouxe — nao de um campo que
+      // alguem escreveu.
+      assert.deepEqual(pedidos, [
+        {
+          threadId: threadDe(tenantA, contactoA),
+          handoffId: "h_fronteira",
+          outcome: "resolved",
+        },
+      ]);
+    });
+
+    it("**dois webhooks duplicados dao UMA retoma e UM resolver**", async () => {
+      const pedidos: PedidoDeRetoma[] = [];
+      const provedor = new ProvedorFalso();
+      const hnd = hndDe(tenantA, provedor, new FilaFalsa(), app, agrDe(app2, pedidos));
+      await hnd.ensureAccount(tenantA);
+      const aberta = await hnd.openHandoff(pedido(tenantA, conversaA, "h_duplicado"));
+      const corpo = corpoResolvido("h_duplicado", aberta.externalId);
+
+      await hnd.receber(tenantA, "cccc-segredo", corpo);
+      await definirContexto(app, tenantA);
+      const primeiro = await app.query<{ resumed_at: Date }>(
+        "SELECT resumed_at FROM platform.handoffs WHERE handoff_id = $1",
+        ["h_duplicado"],
+      );
+      // O segundo *webhook*, com **outro** agente: nem o `status` nem o
+      // `resolver` se reescrevem.
+      await hnd.receber(tenantA, "cccc-segredo", {
+        ...corpo,
+        assignee: { id: 99 },
+      });
+
+      await definirContexto(app, tenantA);
+      const linha = await app.query<{
+        status: string;
+        resolver: string | null;
+        resumed_at: Date;
+      }>(
+        "SELECT status, resolver, resumed_at FROM platform.handoffs WHERE handoff_id = $1",
+        ["h_duplicado"],
+      );
+      assert.equal(linha.rows[0]?.status, "resumed");
+      assert.equal(linha.rows[0]?.resolver, "7", "quem respondeu foi o primeiro");
+      assert.deepEqual(
+        linha.rows[0]?.resumed_at,
+        primeiro.rows[0]?.resumed_at,
+        "o resumed_at nao se reescreve",
+      );
+      assert.equal(hnd.metricas.ler()["hnd_handoff_total:resumed"], 1);
+    });
+
+    it("**a consulta do thread exige o external_id da conversa**", async () => {
+      // O `handoff_id` chega do atributo de uma conversa no provedor, isto e, de
+      // fora. Sem o `external_id` no predicado, um valor trocado la fazia-nos
+      // pedir a retoma do *thread* de outra pessoa — o perigo que o §3.32
+      // nomeia para o CAS, visto deste lado.
+      const provedor = new ProvedorFalso();
+      const hnd = hndDe(tenantA, provedor, new FilaFalsa());
+      const aberta = await hnd.openHandoff(pedido(tenantA, conversaA, "h_thread"));
+
+      await definirContexto(app, tenantA);
+      const certa = await app.query<{ contact_id: string }>(SQL_THREAD_DA_PASSAGEM, [
+        tenantA,
+        "h_thread",
+        aberta.externalId,
+      ]);
+      assert.equal(certa.rows[0]?.contact_id, contactoA);
+
+      const errada = await app.query(SQL_THREAD_DA_PASSAGEM, [
+        tenantA,
+        "h_thread",
+        "cw-de-outra-conversa",
+      ]);
+      assert.equal(errada.rows.length, 0, "o external_id errado nao devolve thread nenhum");
+    });
+
+    it("**a consulta do thread nao atravessa tenants**", async () => {
+      // Com o contexto de B, pede-se a passagem de A. E a assercao que so pode
+      // vir da RLS: ha linha, o `$1` e o tenant de A, e o que a esconde e a
+      // politica sobre a sessao de B — a licao da revisao adversarial do
+      // KAM-015.
+      const provedor = new ProvedorFalso();
+      const hnd = hndDe(tenantA, provedor, new FilaFalsa());
+      const aberta = await hnd.openHandoff(pedido(tenantA, conversaA, "h_thread_isolado"));
+
+      await definirContexto(app2, tenantB);
+      const deB = await app2.query(SQL_THREAD_DA_PASSAGEM, [
+        tenantA,
+        "h_thread_isolado",
+        aberta.externalId,
+      ]);
+      assert.equal(deB.rows.length, 0);
+
+      await definirContexto(app, tenantA);
+      const deA = await app.query(SQL_THREAD_DA_PASSAGEM, [
+        tenantA,
+        "h_thread_isolado",
+        aberta.externalId,
+      ]);
+      assert.equal(deA.rows.length, 1, "com o contexto certo tem de haver linha");
+    });
+
+    it("**uma passagem degraded nao tem thread para retomar**", async () => {
+      // Ela tem `external_id` nulo porque nao existe no provedor, pelo que
+      // nenhum *callback* legitimo dele pode ser dela — e o predicado recusa-a
+      // sem precisar de uma verificacao em codigo.
+      const provedor = new ProvedorFalso();
+      const hnd = hndDe(tenantA, provedor, new FilaFalsa());
+      provedor.emBaixo = true;
+      const aberta = await hnd.openHandoff(pedido(tenantA, conversaA, "h_degradada_thread"));
+      assert.equal(aberta.estado, "degraded");
+
+      await definirContexto(app, tenantA);
+      for (const externalId of ["", "cw-1"]) {
+        const linhas = await app.query(SQL_THREAD_DA_PASSAGEM, [
+          tenantA,
+          "h_degradada_thread",
+          externalId,
+        ]);
+        assert.equal(linhas.rows.length, 0, externalId);
+      }
     });
   });
 
@@ -585,15 +881,37 @@ describe("o handoff contra a base", () => {
       );
     });
 
-    it("uma passagem fechada sai do painel do SLA", async () => {
-      const hnd = hndDe(tenantA, new ProvedorFalso(), new FilaFalsa());
-      await hnd.openHandoff(pedido(tenantA, conversaA, "h_sla"));
+    it("uma passagem retomada sai do painel do SLA", async () => {
+      // **Retomada e não «fechada»**, e a diferença é a emenda 1.42: quem a
+      // tira de `waiting` é o CAS do AGR. O painel não muda — continua a ver
+      // `waiting` e `degraded` —, o que mudou é quem escreve a saída.
+      const pedidos: PedidoDeRetoma[] = [];
+      const hnd = hndDe(
+        tenantA,
+        new ProvedorFalso(),
+        new FilaFalsa(),
+        app,
+        agrDe(app2, pedidos),
+      );
+      await hnd.ensureAccount(tenantA);
+      const aberta = await hnd.openHandoff(pedido(tenantA, conversaA, "h_sla"));
       await definirContexto(app, tenantA);
       const antes = await app.query(SQL_FORA_DO_SLA, [tenantA, "0 seconds"]);
-      await hnd.close("h_sla", "resolved");
+
+      await hnd.receber(tenantA, "cccc-segredo", {
+        event: "conversation_status_changed",
+        conversation: {
+          id: aberta.externalId,
+          status: "resolved",
+          custom_attributes: { handoffId: "h_sla" },
+        },
+        assignee: { id: 7 },
+      });
+
       await definirContexto(app, tenantA);
       const depois = await app.query(SQL_FORA_DO_SLA, [tenantA, "0 seconds"]);
       assert.equal(depois.rows.length, antes.rows.length - 1);
+      assert.equal(pedidos.length, 1);
     });
 
     it("**uma passagem degradada conta no SLA**", async () => {

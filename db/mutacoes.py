@@ -218,6 +218,8 @@ HND_SQL = "packages/core-ts/src/hnd/consultas.ts"
 HND_CHATWOOT = "packages/core-ts/src/hnd/chatwoot.ts"
 HND_RESPOSTA = "packages/core-ts/src/hnd/resposta.ts"
 HND_PROVEDOR = "packages/core-ts/src/hnd/provedor.ts"
+#: O cliente de `/internal/resume` (KAM-019, emenda 1.42).
+HND_RETOMA = "packages/core-ts/src/hnd/retoma.ts"
 MEDIA = "tests_media"
 REV12 = "db/migrations/versions/0012_media.py"
 MED_CLASSES = "packages/core-ts/src/med/classes.ts"
@@ -2065,9 +2067,66 @@ MUTACOES = [
      '`/api/v1/accounts/${conta.accountId}/conversations/${externalId}/messages`',
      '`/api/v1/accounts/${conta.accountId}/conversations/${m.wamid}/messages`',
      HANDOFF),
+    # **Esta mutacao mudou de forma com a emenda 1.42, e nao de intencao.** A
+    # primeira versao trocava o terceiro argumento do `#fechar` por `null`,
+    # porque era assim que o `resolver` chegava a base: no mesmo `UPDATE` que
+    # punha o `status` em `resumed`. Esse `UPDATE` deixou de correr no caminho
+    # `resolved` — a saida de `waiting` e do AGR — e o `resolver` tem agora
+    # instrucao propria. O defeito que se vigia e o mesmo (a coluna fica por
+    # escrever em caminho nenhum, que e o achado 9 deste ticket) e o sitio e
+    # outro.
     ('handoff: o resolver do callback volta a ser perdido', HND_PROVEDOR,
-     'await this.#fechar(acontecimento.handoffId, outcome, acontecimento.resolver);',
-     'await this.#fechar(acontecimento.handoffId, outcome, null);', HANDOFF),
+     '    if (e.resolver !== null) {',
+     '    if (false) {', HANDOFF),
+    # --------------------------- KAM-019, emenda 1.42: a fronteira da retoma
+    #
+    # O defeito que estas prendem esta medido na `docs/analises/ANALISE-35`
+    # (achado 1) e nao era uma intercalacao rara: era o caminho feliz, todas as
+    # vezes. O `#fechar` do `receber` escrevia `resumed` antes de alguem poder
+    # pedir a retoma, o compare-and-set do AGR nao casava linha nenhuma, e o
+    # `interrupt()` do `handoff_wait` ficava pendente para sempre — invisivel,
+    # porque a varredura dos prazos filtra `waiting` e a invariante da
+    # nao-reentrada tambem.
+    ('handoff: o fecho do HND volta a sair de waiting', HND_ESTADOS,
+     'export const ESTADOS_QUE_FECHAM: readonly EstadoDeHandoff[] = ["degraded"];',
+     'export const ESTADOS_QUE_FECHAM: readonly EstadoDeHandoff[] = [\n  "waiting",\n  "degraded",\n];',
+     HANDOFF),
+    # **A mesma mutacao, na suite do AGR, e nao e duplicada.** Ela e o que prova
+    # que o ensaio de paridade entre os dois lados (`test_handoff.py`,
+    # `TestFronteiraComOHnd`) **morde**: sem ele, nada em Python olhava para o
+    # `ESTADOS_QUE_FECHAM` — e a prova de que ninguem olhara foi um `grep` sem
+    # resultados, no achado 1. Uma mutacao na suite errada e pior do que
+    # nenhuma, e e a terceira vez que este projecto o aprende; esta esta nas
+    # duas porque a propriedade tem dois donos.
+    ('handoff: o fecho do HND volta a sair de waiting, visto do AGR', HND_ESTADOS,
+     ' * Os estados de que um `close` **deste lado** pode sair. Um só: `degraded`.',
+     ' * Os estados de que um `close` pode sair.\n *\n * (A nota saiu com a mutacao: o que importa e a lista abaixo.)',
+     AGR_UNIT),
+    ('handoff: o receber volta a nao pedir a retoma', HND_PROVEDOR,
+     '      if (outcome !== null) await this.#retomarAPassagem(tenantId, acontecimento, outcome);',
+     '      if (false) await this.#retomarAPassagem(tenantId, acontecimento, outcome);',
+     HANDOFF),
+    ('handoff: o resolver deixa de exigir a passagem a espera', HND_SQL,
+     "     AND status = 'waiting'\n   RETURNING handoff_id\n",
+     '   RETURNING handoff_id\n', HANDOFF),
+    ('handoff: a consulta do thread deixa de exigir o external_id', HND_SQL,
+     '     AND h.external_id = $3\n',
+     '', HANDOFF),
+    ('handoff: a passagem que nao e desta conversa passa a retomar-se', HND_PROVEDOR,
+     '    if (contactId === undefined) {',
+     '    if (false) {', HANDOFF),
+    ('handoff: a metrica volta a contar o webhook duplicado', HND_PROVEDOR,
+     '    if (desfecho === "retomado") this.#metricas.contar(METRICA_HANDOFFS, estadoDe(outcome));',
+     '    this.#metricas.contar(METRICA_HANDOFFS, estadoDe(outcome));', HANDOFF),
+    ('handoff: o 401 da retoma passa a engolir-se', HND_RETOMA,
+     '  if (resposta.status === 401) throw new RetomaNaoAutorizadaError();',
+     '  if (false) throw new RetomaNaoAutorizadaError();', HANDOFF),
+    ('handoff: o Retry-After deixa de ter tecto', HND_RETOMA,
+     '  return ms > TECTO_DA_ESPERA_MS ? null : ms;',
+     '  return ms;', HANDOFF),
+    ('handoff: a retoma passa a repetir o 503 sem fim', HND_RETOMA,
+     'export const TENTATIVAS_DA_RETOMA = 2;',
+     'export const TENTATIVAS_DA_RETOMA = 3;', HANDOFF),
     ('handoff: o marcar_aberta volta a descartar o resultado', HND_PROVEDOR,
      '    if (marcada.rows.length === 0) {',
      '    if (false) {', HANDOFF),
