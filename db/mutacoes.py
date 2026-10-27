@@ -2098,9 +2098,18 @@ MUTACOES = [
     # resultados, no achado 1. Uma mutacao na suite errada e pior do que
     # nenhuma, e e a terceira vez que este projecto o aprende; esta esta nas
     # duas porque a propriedade tem dois donos.
+    #
+    # **E a primeira versao desta era imortal**, o que e pior do que nao a ter:
+    # ela trocava a **nota** do `ESTADOS_QUE_FECHAM` por outra nota, para nao
+    # repetir o texto da mutacao de cima, e um comentario nao muda comportamento
+    # nenhum. Sobreviveu na primeira corrida, com a `agr_unit` verde, e contava
+    # como prova de uma barreira que ninguem tinha medido. A lista pode servir de
+    # ancora as duas: o `aplicaveis()` conta as ocorrencias **por mutacao**, pelo
+    # que o mesmo texto em duas entradas da uma vez em cada. E a terceira
+    # imortal desta familia (ver as duas do `assinatura.ts` acima).
     ('handoff: o fecho do HND volta a sair de waiting, visto do AGR', HND_ESTADOS,
-     ' * Os estados de que um `close` **deste lado** pode sair. Um só: `degraded`.',
-     ' * Os estados de que um `close` pode sair.\n *\n * (A nota saiu com a mutacao: o que importa e a lista abaixo.)',
+     'export const ESTADOS_QUE_FECHAM: readonly EstadoDeHandoff[] = ["degraded"];',
+     'export const ESTADOS_QUE_FECHAM: readonly EstadoDeHandoff[] = [\n  "waiting",\n  "degraded",\n];',
      AGR_UNIT),
     ('handoff: o receber volta a nao pedir a retoma', HND_PROVEDOR,
      '      if (outcome !== null) await this.#retomarAPassagem(tenantId, acontecimento, outcome);',
