@@ -39,6 +39,91 @@ export const SQL_ABRIR_HANDOFF = `
    RETURNING handoff_id, status
 `;
 
+/**
+ * O `contact_id` da conversa desta passagem, para montar o `thread_id`.
+ *
+ * **Existe porque o `handoff_id` é irreversível.** Ele é
+ * `sha256(thread_id:handoff_seq)` (§3.15), pelo que do identificador não se lê o
+ * *thread* de volta — e o corpo de `/internal/resume` é
+ * `{thread_id, handoff_id, outcome}`, com o `thread_id` a ser
+ * `{tenant_id}:{contact_id}` (§3.1). O `tenant_id` o HND já tem (é a conta que
+ * resolveu o *callback*); o `contact_id` está na conversa a que a passagem
+ * aponta, e esta é a instrução que o traz.
+ *
+ * **O `external_id` vai no predicado, e é a verificação que fecha o buraco que
+ * o §3.32 nomeia do outro lado.** O `handoff_id` chega-nos do atributo
+ * `handoffId` da conversa **no provedor**, isto é, de fora: um valor trocado lá
+ * — um `handoff_id` do mesmo *tenant* mas de **outro contacto** — passava o
+ * `tenant_id` e fazia-nos pedir a retoma do *thread* errado, que é a conversa de
+ * outra pessoa a ser retomada com o desfecho desta. O `external_id` da linha é o
+ * identificador da conversa que **nós** gravámos quando a criámos lá; o
+ * *callback* traz o identificador da conversa de onde ele vem. Se os dois não
+ * baterem, o atributo não é desta conversa e não se escreve nem se retoma nada.
+ *
+ * O AGR faz a mesma verificação pelo outro lado (o `contact_id` no predicado do
+ * CAS) e as duas não são redundantes: a dele impede que **alguém** retome o
+ * *thread* errado, a nossa impede que **nós** lho peçamos — e sem a nossa, o
+ * pedido chegava lá e saía como `recusado` (404), que é um alerta sobre um
+ * defeito nosso disfarçado de ataque.
+ *
+ * Uma passagem `degraded` tem `external_id` nulo e por isso **nunca** casa aqui,
+ * o que é o lado certo: ela não existe no provedor, logo nenhum *callback*
+ * legítimo dele pode ser dela.
+ *
+ * Parâmetros: o `tenant_id`, o `handoff_id` e o `external_id` do *callback*.
+ */
+export const SQL_THREAD_DA_PASSAGEM = `
+  SELECT c.contact_id
+    FROM platform.handoffs h
+    JOIN platform.conversations c
+      ON c.tenant_id = h.tenant_id
+     AND c.id = h.conversation_id
+   WHERE h.tenant_id = $1
+     AND h.handoff_id = $2
+     AND h.external_id = $3
+`;
+
+/**
+ * Escreve o `resolver`, e **só** o `resolver`.
+ *
+ * **Nasce porque o `#fechar` deixou de escrever.** Até à emenda 1.42 o
+ * identificador do agente viajava no `SQL_FECHAR`, na mesma instrução que punha
+ * o `status` em `resumed`; com a transição a passar a ser do AGR, essa instrução
+ * já não corre no caminho `resolved` e o `resolver` ficava por escrever em
+ * caminho nenhum. E não pode ir no corpo da retoma: o ADR-010 mantém a
+ * identidade do agente fora do AGR, e a linha «Corpo da retoma interna» do
+ * §3.32 di-lo por extenso — «quem sabe que agente respondeu é o HND, e o AGR
+ * nunca aprende essa identidade». Logo, escrita separada, deste lado.
+ *
+ * **O `status = 'waiting'` no predicado é o que torna o *webhook* duplicado um
+ * *no-op* também aqui**, e pela mesma técnica do resto do módulo: o segundo
+ * *callback* chega depois de o CAS ter movido a linha, não casa, e **não
+ * reescreve** o `resolver` de quem de facto respondeu. Sem ele, o duplicado
+ * passava por cima do primeiro — e nos dois *webhooks* do Chatwoot o segundo
+ * pode trazer outro `assignee`.
+ *
+ * **E não leva `resolver IS NULL`**, que era o que apetecia para ficar
+ * «primeiro a escrever vence». A razão é a repetição legítima: um 503 do AGR faz
+ * o provedor reenviar o *callback*, e nessa segunda volta a passagem ainda está
+ * em `waiting` — com `resolver IS NULL` a instrução passava a devolver zero
+ * linhas no caminho **normal**, e um zero que é normal é um zero que não se pode
+ * vigiar. Quem exclui o segundo agente é o `status`, não esta coluna.
+ *
+ * O chamador só a corre quando o *callback* **traz** o identificador: um
+ * `COALESCE($3, resolver)` punha a instrução a correr para nada e a devolver uma
+ * linha a dizer que escreveu.
+ *
+ * Parâmetros: o `tenant_id`, o `handoff_id` e o `resolver`.
+ */
+export const SQL_MARCAR_RESOLVER = `
+  UPDATE platform.handoffs
+     SET resolver = $3
+   WHERE tenant_id = $1
+     AND handoff_id = $2
+     AND status = 'waiting'
+   RETURNING handoff_id
+`;
+
 /** A passagem de um `handoff_id`, com o *tenant* no predicado para a RLS. */
 export const SQL_HANDOFF_POR_ID = `
   SELECT handoff_id, tenant_id, conversation_id, status, motivo,
@@ -85,17 +170,26 @@ export const SQL_MARCAR_DEGRADADA = `
 `;
 
 /**
- * Fecha a passagem, com a monotonia **no predicado**.
+ * Fecha a passagem, com a monotonia **no predicado**. Só de `degraded`.
  *
- * O `$4` é a lista dos estados de que se pode fechar (`estados.ts`), e é ela
- * que faz do `resolved` duplicado um *no-op* **pela base**: o segundo `UPDATE`
+ * O `$3` é a lista dos estados de que se pode fechar (`estados.ts`), e é ela
+ * que faz do `close` repetido um *no-op* **pela base**: o segundo `UPDATE`
  * não casa e devolve zero linhas. É a mesma técnica da monotonia da saída no
  * KAM-015, e pela mesma razão — dois *webhooks* duplicados chegam a dois
  * processos, e só a base os serializa.
  *
- * O `resumed_at` escreve-se **apenas** quando o estado novo é `resumed`, e é a
- * única coluna desta revisão que o KAM-034 vai querer: o critério 7 põe o
- * *compare-and-set* da retoma lá, e o que fica aqui é o que o `close` sabe.
+ * **A lista deixou de ter `waiting`, e isso muda o que esta instrução é.** Até à
+ * emenda 1.42 ela era o segundo escritor da transição `waiting → resumed`, e
+ * corria **antes** de o AGR ter a oportunidade de a escrever — o que fazia do
+ * *compare-and-set* dele um *no-op* e deixava o `interrupt()` do `handoff_wait`
+ * pendente para sempre (`docs/analises/ANALISE-35`, achado 1). Hoje a saída de
+ * `waiting` é toda do AGR, por `/internal/resume`, e o que fica aqui é o fecho
+ * de uma passagem **`degraded`** — a que nunca chegou ao provedor, e que o
+ * predicado do CAS dele recusa. Ver a nota do `ESTADOS_QUE_FECHAM`.
+ *
+ * O `resumed_at` escreve-se **apenas** quando o estado novo é `resumed`, e o
+ * AGR escreve-o nos três desfechos: a divergência está medida e escrita no
+ * §3.32, e sobrevive só neste caminho — o `degraded`, de que ele não fecha.
  *
  * **O *tenant* vem do contexto da sessão e não de um parâmetro**, e é a única
  * consulta deste módulo assim. A razão é a assinatura: o `close(handoffId,
@@ -116,6 +210,14 @@ export const SQL_MARCAR_DEGRADADA = `
  * tinha perdido. A forma estrita **levanta** `42704`, e uma excepção é o que se
  * quer: ou o contexto está posto, ou isto não corre.
  *
+ * **E o `resolver` saiu daqui**, com o `$4` e o `COALESCE` que o levava. Ele
+ * tem instrução própria (`SQL_MARCAR_RESOLVER`) desde a emenda 1.42, e o único
+ * chamador que lhe passava um valor era o caminho `resolved` do `receber`, que
+ * deixou de fechar. Um `COALESCE($4, resolver)` que recebe `null` em todas as
+ * chamadas é a mesma classe de coisa que o `SQL_REPOR_CONTA` que este ficheiro
+ * já retirou por não ter chamador — um pedaço de instrução para um caminho
+ * inexistente, que o próximo leitor toma por caminho existente.
+ *
  * **E o que a primeira versão dizia sobre o `FORCE` era falso**, pelo que sai:
  * o predicado é byte a byte o que a política `tenant_iso` gera, e o `FORCE` só
  * vincula o **dono** da tabela — o `kamba_app`, que corre esta consulta, está
@@ -126,8 +228,7 @@ export const SQL_MARCAR_DEGRADADA = `
 export const SQL_FECHAR = `
   UPDATE platform.handoffs
      SET status = $2,
-         resumed_at = CASE WHEN $2 = 'resumed' THEN now() ELSE resumed_at END,
-         resolver = COALESCE($4, resolver)
+         resumed_at = CASE WHEN $2 = 'resumed' THEN now() ELSE resumed_at END
    WHERE tenant_id = NULLIF(current_setting('app.tenant_id'), '')::uuid
      AND handoff_id = $1
      AND status = ANY($3::text[])

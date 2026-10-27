@@ -19,6 +19,16 @@
  * 3. **O provedor em baixo degrada, não falha.** Se o `abrirConversa` levantar
  *    `ProvedorIndisponivelError`, a passagem fica `degraded` e a abertura vai
  *    para a fila: a linha existe, o painel vê o atraso, e o critério 9 é isso.
+ * 4. **Uma passagem resolvida não se fecha aqui: pede-se a retoma.** É a emenda
+ *    1.42 do dicionário (§3.32), e é a ordem outra vez — a pior possível, desta
+ *    vez entre dois **serviços**. Até ela, o `receber` escrevia `resumed` antes
+ *    de alguém poder chamar `/internal/resume`, e com isso o
+ *    *compare-and-set* do AGR não casava linha nenhuma: o `Command(resume=…)`
+ *    nunca corria e o `interrupt()` do `handoff_wait` ficava pendente para
+ *    sempre (`docs/analises/ANALISE-35`, achado 1 — o caminho feliz, todas as
+ *    vezes). Hoje este módulo **não escreve o `status`** nesse caminho: escreve
+ *    o `resolver`, que é a única coluna que o AGR não pode escrever (ADR-010), e
+ *    pede a retoma pela porta `retomar`.
  *
  * ## O `setBotMuted` levanta
  *
@@ -69,7 +79,10 @@ import {
   SQL_HANDOFF_POR_ID,
   SQL_MARCAR_ABERTA,
   SQL_MARCAR_DEGRADADA,
+  SQL_MARCAR_RESOLVER,
+  SQL_THREAD_DA_PASSAGEM,
 } from "./consultas.ts";
+import { threadDe, type DesfechoDaRetoma, type PedidoDeRetoma } from "./retoma.ts";
 
 /**
  * A fila do espelho, por porta.
@@ -121,6 +134,18 @@ export interface Dependencias {
   readonly guardarSegredo: (ref: string, segredo: string) => Promise<void>;
   /** O `secret` do bot de um *tenant*, para verificar os *callbacks*. */
   readonly segredoDoBot: (tenantId: string) => Promise<string>;
+  /**
+   * Pede ao AGR que retome o grafo. O `clienteDaRetoma` do `retoma.ts`.
+   *
+   * **Obrigatória, e isso é a decisão.** Uma porta por omissão que não fizesse
+   * nada era exactamente o defeito que a emenda 1.42 corrige, com outro nome: o
+   * `resolved` do provedor seguia o seu caminho, ninguém pedia a retoma, e o
+   * `interrupt()` ficava pendente **sem um único sinal**. A alternativa é a do
+   * `api_interna.py` do AGR com o `RetomaNaoImplementadaError` — levantar em vez
+   * de devolver sucesso a fingir —, e aqui é mais barata ainda: o tipo obriga
+   * quem monta o HND a dizer para onde é que a retoma vai.
+   */
+  readonly retomar: (pedido: PedidoDeRetoma) => Promise<DesfechoDaRetoma>;
   readonly log?: Logger;
   readonly metricas?: MetricasDoHnd;
   /** Qual provedor. Um hoje; a coluna existe pelo ADR-012. */
@@ -137,6 +162,7 @@ export class Handoff implements HandoffProvider {
   readonly #refDoTokenDoUtilizador: (tenantId: string) => string;
   readonly #guardarSegredo: (ref: string, segredo: string) => Promise<void>;
   readonly #segredoDoBot: (tenantId: string) => Promise<string>;
+  readonly #retomar: (pedido: PedidoDeRetoma) => Promise<DesfechoDaRetoma>;
   readonly #log: Logger | undefined;
   readonly #metricas: MetricasDoHnd;
   readonly #qual: Provedor;
@@ -151,6 +177,7 @@ export class Handoff implements HandoffProvider {
     this.#refDoTokenDoUtilizador = dependencias.refDoTokenDoUtilizador;
     this.#guardarSegredo = dependencias.guardarSegredo;
     this.#segredoDoBot = dependencias.segredoDoBot;
+    this.#retomar = dependencias.retomar;
     this.#log = dependencias.log;
     this.#metricas = dependencias.metricas ?? new MetricasDoHnd();
     this.#qual = dependencias.qual ?? PROVEDORES[0];
@@ -399,17 +426,88 @@ export class Handoff implements HandoffProvider {
 
     if (acontecimento.acontecimento === "estado_mudou" && acontecimento.estado !== null) {
       const outcome = outcomeDoProvedor(acontecimento.estado);
-      // **O `resolver` vai, e a primeira versao perdia-o.** O identificador do
-      // agente era lido do *callback*, posto no `HumanEvent` e descartado: o
-      // `close` passava `null` em `$4` sempre, pelo que o `COALESCE` era um
-      // *no-op* e a coluna `resolver` nunca era escrita por caminho nenhum. A
-      // cablagem estava feita de ponta a ponta menos um fio.
-      if (outcome !== null) {
-        await this.#fechar(acontecimento.handoffId, outcome, acontecimento.resolver);
-      }
+      // **Aqui estava o `#fechar`, e era o defeito.** Ver o ponto 4 da nota do
+      // módulo: escrever o `status` neste ponto fazia o *compare-and-set* do
+      // AGR não casar, e o `Command(resume=…)` nunca corria. O que corre agora
+      // é a retoma — e o `resolver` por dentro dela, porque o identificador do
+      // agente é a única coluna que o outro lado não pode escrever (ADR-010).
+      if (outcome !== null) await this.#retomarAPassagem(tenantId, acontecimento, outcome);
     }
+    // **O handler corre depois da retoma, e a ordem é escolhida.** Ele é uma
+    // notificação (quem o registra é o consumidor do KAM-025) e a retoma é a
+    // transição de estado: com o handler primeiro, uma falha dele impedia a
+    // transição de ser pedida — que é a forma mais recente do mesmo defeito.
+    // A retoma a levantar faz este `receber` levantar, o *endpoint* responder
+    // 5xx e o provedor reenviar o *callback*; na volta seguinte o `resolver`
+    // reescreve-se (a passagem ainda está em `waiting`) e o CAS volta a ter
+    // oportunidade. O que nunca acontece é uma retoma a mais: duas chegadas dão
+    // **uma** retoma e um `repetido`, pelo CAS.
     if (this.#handler !== null) await this.#handler(acontecimento);
     return { aceite: true };
+  }
+
+  /**
+   * O `resolved` do provedor: escreve o `resolver` e pede a retoma ao AGR.
+   *
+   * **A ordem das duas escritas é a única que funciona**, e o predicado de cada
+   * uma diz porquê: o `SQL_MARCAR_RESOLVER` exige `status = 'waiting'`, e depois
+   * de o CAS vencer a passagem já está em `resumed` — invertidas, o `resolver`
+   * nunca era escrito no caminho feliz. É o espelho da ordem que o `retoma.py`
+   * do AGR escolheu para o CAS e o `Command`, e pela mesma razão: há duas
+   * escritas, não há transacção que as cubra, e só uma das ordens tem a
+   * propriedade que se quer.
+   *
+   * **A passagem confere-se antes de qualquer escrita**, e não é arrumação: o
+   * `handoff_id` chega do atributo de uma conversa **no provedor**, isto é, de
+   * fora. O `SQL_THREAD_DA_PASSAGEM` leva o `external_id` do *callback* no
+   * predicado, pelo que um atributo trocado lá não nos faz escrever na passagem
+   * de outro contacto nem pedir a retoma do *thread* errado — ver a nota da
+   * consulta.
+   */
+  async #retomarAPassagem(
+    tenantId: string,
+    e: HumanEvent,
+    outcome: Outcome,
+  ): Promise<void> {
+    const linhas = await this.#bd.query<{ contact_id: string }>(SQL_THREAD_DA_PASSAGEM, [
+      tenantId,
+      e.handoffId,
+      e.externalId,
+    ]);
+    const contactId = linhas.rows[0]?.contact_id;
+    if (contactId === undefined) {
+      // Nenhuma passagem deste *tenant* com este `handoff_id` **e** esta
+      // conversa. Não se escreve nem se retoma nada, e **deixa-se rasto**: é a
+      // lição do `handoff_fecho_sem_efeito` — um caminho silencioso onde cabem
+      // duas coisas muito diferentes (um atributo trocado no provedor e uma
+      // passagem que não é nossa) é um caminho que ninguém investiga.
+      this.#log?.warn({ outcome: "retoma_sem_passagem", tenant_id: tenantId });
+      return;
+    }
+
+    if (e.resolver !== null) {
+      const escrita = await this.#bd.query<{ handoff_id: string }>(SQL_MARCAR_RESOLVER, [
+        tenantId,
+        e.handoffId,
+        e.resolver,
+      ]);
+      if (escrita.rows.length === 0) {
+        // A passagem já saiu de `waiting`: é o *webhook* duplicado, e o
+        // `resolver` de quem respondeu primeiro **fica**. Não é erro.
+        this.#log?.info({ outcome: "resolver_sem_efeito", tenant_id: tenantId });
+      }
+    }
+
+    const desfecho = await this.#retomar({
+      threadId: threadDe(tenantId, contactId),
+      handoffId: e.handoffId,
+      outcome,
+    });
+    // **Conta-se só o que foi retomado**, e é a mesma propriedade que o fecho
+    // tinha: dois *callbacks* duplicados somam **uma** passagem na métrica,
+    // porque o segundo sai `repetido`. O que mudou é quem decide — era o
+    // predicado do nosso `UPDATE`, é o CAS do AGR.
+    if (desfecho === "retomado") this.#metricas.contar(METRICA_HANDOFFS, estadoDe(outcome));
   }
 
   #recusar(tenantId: string, motivo: MotivoDeRecusa, veredicto: Veredicto): Veredicto {
@@ -422,44 +520,37 @@ export class Handoff implements HandoffProvider {
   }
 
   /**
-   * Fecha a passagem. O `resolved` duplicado é *no-op* **pela base**.
+   * Fecha uma passagem **`degraded`**. Repetido é *no-op* **pela base**.
    *
    * O `WHERE status = ANY($3)` é a monotonia no predicado: o segundo `UPDATE`
-   * não casa e devolve zero linhas, e é isso que o critério 7 pede. O *tenant*
-   * vem do contexto da sessão porque a assinatura do §11.1 não o tem — ver a
-   * nota do `SQL_FECHAR`.
+   * não casa e devolve zero linhas. O *tenant* vem do contexto da sessão porque
+   * a assinatura do §11.1 não o tem — ver a nota do `SQL_FECHAR`.
+   *
+   * **O que esta porta deixou de poder fazer, e é a emenda 1.42:** fechar uma
+   * passagem em `waiting`. O `ESTADOS_QUE_FECHAM` passou a `["degraded"]`,
+   * porque sair de `waiting` é do AGR por `/internal/resume` — toda a saída,
+   * nos três desfechos, porque os três retomam o grafo. Um `close` sobre uma
+   * passagem em `waiting` devolve zero linhas e **deixa rasto**, com o registo
+   * a dizer onde é que essa transição vive agora.
+   *
+   * **E o terceiro argumento saiu.** Havia um `#fechar(id, outcome, resolver)`
+   * privado, para o `receber` lhe poder passar o identificador do agente sem
+   * mudar a costura do §11.1; o `receber` já não fecha nada, e o `resolver` tem
+   * instrução própria. Um argumento que só recebe `null` é uma costura a fingir
+   * que serve dois chamadores quando tem um.
+   *
+   * **Zero linhas não é silêncio.** A primeira versão fazia `return` sem contar
+   * nem registar nada, e nesse caminho cabiam coisas muito diferentes: o fecho
+   * duplicado, benigno, e um fecho que não casou por outra razão — que deixava
+   * a passagem no painel do SLA como atrasada e respondia 200 ao provedor, que
+   * pára de reenviar.
    */
   async close(handoffId: string, outcome: Outcome): Promise<void> {
-    await this.#fechar(handoffId, outcome, null);
-  }
-
-  /**
-   * O fecho propriamente dito, com o `resolver` quando se sabe quem foi.
-   *
-   * **Privado e com um terceiro argumento** para não alterar a costura que o
-   * ADR-012 fixa: o `close(handoffId, outcome)` do `../docs/tecnica/01` §11.1
-   * continua a ser o que a porta expõe, e o `receber` — que é o único sítio
-   * onde o identificador do agente existe — chama esta.
-   *
-   * **Zero linhas deixou de ser silêncio.** A primeira versão fazia `return`
-   * sem contar nem registar nada, e nesse caminho cabiam duas coisas muito
-   * diferentes: o `resolved` duplicado, que é o critério 7 e é benigno, e um
-   * fecho que não casou por outra razão — que deixava a passagem em `waiting`
-   * para sempre, no painel do SLA como atrasada, e respondia 200 ao provedor,
-   * que pára de reenviar. Agora regista-se; a consulta é a mesma, o que muda é
-   * ficar rasto.
-   */
-  async #fechar(
-    handoffId: string,
-    outcome: Outcome,
-    resolver: string | null,
-  ): Promise<void> {
     const estado = estadoDe(outcome);
     const linhas = await this.#bd.query<{ status: string }>(SQL_FECHAR, [
       handoffId,
       estado,
       [...ESTADOS_QUE_FECHAM],
-      resolver,
     ]);
     if (linhas.rows.length === 0) {
       this.#log?.info({ outcome: "handoff_fecho_sem_efeito" });

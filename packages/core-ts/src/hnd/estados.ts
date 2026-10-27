@@ -49,19 +49,37 @@ export const ESTADOS_SEM_OUTCOME: readonly EstadoDeHandoff[] = [
 ];
 
 /**
- * Os estados de que um `close` pode sair.
+ * Os estados de que um `close` **deste lado** pode sair. Um só: `degraded`.
  *
- * De `waiting` e de `degraded`, e de mais nenhum: uma passagem já concluída
- * não se volta a concluir, e é isso que faz do `resolved` duplicado um *no-op*
- * (critério 7) **pela base** e não por uma verificação em código. O predicado
- * vai no `WHERE status = ANY(...)` do `SQL_FECHAR`, que é a mesma técnica que a
- * monotonia da saída usou no KAM-015: quem decide é a base, porque dois
- * *webhooks* duplicados chegam a dois processos.
+ * **Era `["waiting", "degraded"]`, e essa lista matava uma conversa por
+ * passagem resolvida.** O `waiting` sai pela emenda **1.42** do dicionário
+ * (§3.32), que decide a fronteira que a 1.41 deixou aberta, e a razão não é de
+ * arrumação — está medida na `docs/analises/ANALISE-35`, achado 1:
+ *
+ * a `platform.handoffs` tinha **dois** escritores para a saída de `waiting`, e
+ * o deste lado corria primeiro. Um colega marcava a conversa como resolvida, o
+ * `#fechar` escrevia `resumed`, e o *compare-and-set* do AGR — que é o gatilho
+ * do `Command(resume=…)` — não casava linha nenhuma e respondia 200 `repetido`,
+ * o *no-op* do §11.5 aplicado ao **pedido legítimo**. O `interrupt()` do
+ * `handoff_wait` ficava pendente para sempre, a varredura dos prazos não o
+ * encontrava (filtra `waiting`) e a invariante da não-reentrada abria-se. Não
+ * era uma intercalação rara: era o caminho feliz, todas as vezes.
+ *
+ * **E tira-se `waiting` para as três saídas e não só para o `resolved`.** As
+ * três retomam o grafo — a rota de retoma com `resolved` e `cancelled`, a
+ * varredura dos prazos com `timeout` —, pelo que sair de `waiting` por qualquer
+ * delas matava um `Command` da mesma maneira. O que fica é uma partição que se
+ * pode dizer em duas frases e confrontar com o código: **o HND nunca tira uma
+ * passagem de `waiting`; o AGR nunca tira uma de `degraded`.** Uma passagem
+ * `degraded` nem chegou ao provedor, pelo que não tem resposta humana para
+ * retomar, e o predicado do CAS (`AND h.status = 'waiting'`) recusa-a.
+ *
+ * O predicado continua a ir no `WHERE status = ANY(...)` do `SQL_FECHAR`, e a
+ * técnica é a mesma de antes — quem decide é a base, porque dois *webhooks*
+ * duplicados chegam a dois processos. O que mudou é **qual** a transição que
+ * este lado reclama.
  */
-export const ESTADOS_QUE_FECHAM: readonly EstadoDeHandoff[] = [
-  "waiting",
-  "degraded",
-];
+export const ESTADOS_QUE_FECHAM: readonly EstadoDeHandoff[] = ["degraded"];
 
 /** O estado que um desfecho escreve. */
 export function estadoDe(outcome: Outcome): EstadoDeHandoff {
