@@ -83,7 +83,32 @@ export {
   SQL_HANDOFF_POR_ID,
   SQL_MARCAR_ABERTA,
   SQL_MARCAR_DEGRADADA,
+  SQL_MARCAR_RESOLVER,
+  SQL_THREAD_DA_PASSAGEM,
 } from "./consultas.ts";
+
+export {
+  CABECALHO_DO_BOT,
+  CAMINHO_DA_RETOMA,
+  CorpoDaRetomaRecusadoError,
+  DESFECHOS_DA_RETOMA,
+  ESPERA_DA_RETOMA_MS,
+  ESPERA_POR_OMISSAO_MS,
+  MINIMO_DA_TENTATIVA_MS,
+  ORCAMENTO_DA_RETOMA_MS,
+  RetomaIndisponivelError,
+  RetomaNaoAutorizadaError,
+  RetomaRecusadaError,
+  TECTO_DA_ESPERA_MS,
+  TENTATIVAS_DA_RETOMA,
+  clienteDaRetoma,
+  esperaDoRetryAfter,
+  tenantDoThread,
+  threadDe,
+  type DesfechoDaRetoma,
+  type OpcoesDaRetoma,
+  type PedidoDeRetoma,
+} from "./retoma.ts";
 
 export { Handoff, type Dependencias, type FilaDoEspelho } from "./provedor.ts";
 

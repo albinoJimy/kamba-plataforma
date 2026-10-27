@@ -3,9 +3,9 @@
 | Campo | Valor |
 |---|---|
 | Ticket | KAM-019 — HND: `HandoffProvider` e Chatwoot (Agent Bot API, espelho por *inbox* de tipo API) |
-| Código | `packages/core-ts/src/hnd/` (oito ficheiros), revisão `0011` |
+| Código | `packages/core-ts/src/hnd/` (onze ficheiros), revisão `0011` |
 | Fonte do desenho | [`tecnica/01_Canais_WhatsApp_Fluxo_Dual.md`](tecnica/01_Canais_WhatsApp_Fluxo_Dual.md) §11 e §14, [`tecnica/02_Agent_Runtime_Verticais.md`](tecnica/02_Agent_Runtime_Verticais.md) §11 e §14 |
-| Nomes | [`../specs/02_Dicionario_de_Dados_Canonico.md`](../specs/02_Dicionario_de_Dados_Canonico.md) §3.15 (emenda 1.22) |
+| Nomes | [`../specs/02_Dicionario_de_Dados_Canonico.md`](../specs/02_Dicionario_de_Dados_Canonico.md) §3.15 (emendas 1.22 e 1.23) e §3.32 (emenda **1.42**, a fronteira da saída de `waiting`) |
 | Testes | `packages/core-ts/tests/hnd.*.test.ts` (*gate* 4), `db/tests_handoff/` (*gate* 8) |
 
 ---
@@ -162,6 +162,105 @@ E os dois que nenhum desfecho escreve: `waiting`, onde uma passagem nasce, e
 quem o acrescentar a decidir de que lado fica, em vez de o deixar sem tradução e
 descobri-lo quando um `close` não gravar nada.
 
+### De onde é que o HND **pode** fechar: só de `degraded` (emenda 1.42)
+
+O `ESTADOS_QUE_FECHAM` era `["waiting", "degraded"]` e passou a `["degraded"]`.
+Não é arrumação: com `waiting` lá dentro, o `close` deste módulo era o **segundo**
+escritor da saída de `waiting` da `platform.handoffs`, e corria **antes** do
+*compare-and-set* do AGR — que é o gatilho do `Command(resume=…)`. Um colega
+marcava a conversa como resolvida, o HND escrevia `resumed`, o CAS não casava
+linha nenhuma, a rota respondia 200 `repetido`, e o `interrupt()` do
+`handoff_wait` ficava pendente **para sempre**: o cliente não recebia nem a
+resposta nem a mensagem de alternativas, e a varredura dos prazos não o encontrava
+porque filtra `waiting`. Medido na
+[`analises/ANALISE-35-KAM-034-handoff-idempotente.md`](analises/ANALISE-35-KAM-034-handoff-idempotente.md)
+(achado 1); decidido na emenda 1.42 do dicionário (§3.32).
+
+A partição que fica diz-se em duas frases, e as duas têm ensaio:
+
+> **o HND nunca tira uma passagem de `waiting`; o AGR nunca tira uma de
+> `degraded`.**
+
+E são as **três** saídas de `waiting` e não só o `resolved`: a rota de retoma
+retoma o grafo com `resolved` e com `cancelled`, e a varredura dos prazos com
+`timeout`, pelo que sair de `waiting` por qualquer delas matava um `Command` da
+mesma maneira.
+
+**O que isto custa, e fica escrito:** das três, só duas têm hoje quem as peça — o
+`resolved` vem do *callback* e o `timeout` da varredura dos prazos. O `cancelled`
+tinha o `close(handoffId, 'cancelled')` do §11.1, que deixou de poder sair de
+`waiting`, e **nenhum caminho deste repositório pede a retoma com `cancelled`**: a
+desistência do cliente não está implementada em ticket nenhum — não estava antes
+e continua a não estar. Quem a fizer pede a retoma, no mesmo sítio de onde o
+`resolved` sai.
+
+### O que corre no lugar do fecho: `POST /internal/resume`
+
+O `receber`, no desfecho `resolved`, faz três coisas por esta ordem:
+
+1. **confere a passagem** (`SQL_THREAD_DA_PASSAGEM`): traz o `contact_id` da
+   conversa a que ela aponta — o `handoff_id` é irreversível
+   (`sha256(thread_id:handoff_seq)`), pelo que o `thread_id` do corpo tem de vir
+   da linha — e o `external_id` que nós gravámos. **Três saídas, e não duas:** a
+   conversa bate e segue-se; a linha ainda não tem conversa gravada e
+   **recupera-se** com o `SQL_MARCAR_ABERTA`, porque uma passagem `degraded`
+   **pode** ter conversa no provedor (o `abrirConversa` cria-a antes de a nota
+   privada poder falhar) e deixar cair esse *callback* era o defeito desta emenda
+   por outra porta; ou o atributo é de **outra** conversa, e essa é a única que se
+   recusa — o `handoff_id` chega de fora, e um valor trocado lá fazia-nos pedir a
+   retoma do *thread* de outra pessoa;
+2. **escreve o `resolver`** (`SQL_MARCAR_RESOLVER`), com `status = 'waiting'` no
+   predicado — e o *no-op* que esse predicado compra vale no duplicado
+   **sequencial**: duas chegadas concorrentes vêem ambas `waiting` e escrevem as
+   duas, com a última a vencer. É escrita separada porque o ADR-010 mantém a identidade do agente
+   fora do AGR — ela não entra no corpo da retoma —, e vem **antes** do pedido
+   porque depois do CAS a passagem já não está em `waiting`. O predicado é também
+   o que faz do *webhook* duplicado um *no-op* nesta coluna: o segundo não
+   reescreve o `resolver` de quem respondeu;
+3. **pede a retoma** (`retoma.ts`), com as **duas** credenciais — o
+   `x-kamba-interno` prova «vem de dentro da rede» e o `x-kamba-hnd-bot` prova
+   «vem do *agent bot* deste *tenant*» —, e o corpo são os três campos de forma
+   fechada do §3.32: `thread_id`, `handoff_id`, `outcome`.
+
+O `onHumanEvent` corre **depois**, e a ordem é escolhida: ele é uma notificação e
+a retoma é a transição de estado. Uma falha da retoma faz este `receber` levantar,
+o *endpoint* responder 5xx e o provedor reenviar — e na volta seguinte a passagem
+ainda está em `waiting`, pelo que o `resolver` se reescreve e o CAS volta a ter
+oportunidade. O que nunca acontece é uma retoma a mais: dois *callbacks* dão
+**uma**, pelo CAS.
+
+| Resposta do AGR | O que o HND faz |
+|---|---|
+| 200 `retomado` | tratado |
+| 200 `repetido` | tratado: é o *webhook* duplicado, e o *no-op* a funcionar |
+| 404 `recusado` | **levanta** — derivámos o `thread_id` da própria linha, pelo que isto é divergência nossa e não isolamento a morder |
+| 400 | **levanta**: nenhuma repetição acrescenta um campo que falta |
+| 401 | **levanta**. Engoli-lo fazia **todas** as passagens resolvidas deixarem de retomar o grafo, sem um único registo |
+| 503 com `Retry-After` | espera o que ele pede — até um tecto — e tenta **uma** vez mais; nada foi escrito |
+| 5xx, rede, corte | **levanta**: a passagem já voltou a `waiting` do lado dele, e a retentativa é a do provedor |
+
+**O 503 repete-se aqui e o 5xx não**, e a razão é a janela: esta chamada corre
+*dentro* do pedido do *webhook* do Chatwoot, e o tempo que ela leva é tempo que
+ele espera. Por isso há um tecto para o sono (`TECTO_DA_ESPERA_MS`) — cumprir
+`Retry-After: 120` à letra era manter uma ligação aberta dois minutos para um
+provedor que desiste muito antes — **e um orçamento para o todo**
+(`ORCAMENTO_DA_RETOMA_MS`, 20 s *proposta*): com o tecto do sono sozinho, o pior
+caso eram 10 s de tentativa, 5 s de sono e 10 s de tentativa, e o AGR pede 5 s
+**sempre**, pelo que o sono não era o caso patológico. O orçamento decide se há
+segunda tentativa e encurta-lhe o tecto ao que resta.
+
+**E o que levanta daqui é repetido pelo provedor.** A tabela é o que **este
+cliente** faz com a resposta: no 401, no 404 e no 400 ele não repete a chamada ao
+AGR. Mas levantar faz o `receber` levantar, o *endpoint* do *callback* responder
+5xx e o Chatwoot reenviar — pelo que os três se repetem, com a escada dele. É
+escolha: engolir um 401 permanente devolve 200, o provedor pára de reenviar, e a
+conversa fica sem retoma **sem rasto accionável**, que é o defeito que esta
+emenda existe para matar. O custo é uma tempestade de reentregas enquanto o
+segredo estiver errado dos dois lados, visível em
+`agr_resume_nao_autorizado_total`. **Quem decidir de outra maneira é quem
+escrever o *endpoint*** — ele não existe neste repositório —, e é a razão de o
+`Veredicto` ainda não prever excepções.
+
 O provedor tem o seu próprio vocabulário (`open|resolved|pending|snoozed`), e só
 o `resolved` dele é uma conclusão nossa. **Um `snoozed` não fecha nada:** tratar
 uma soneca do agente como fecho era deixar o cliente sem resposta e marcar a
@@ -290,8 +389,11 @@ primeiro, e a assinatura não permite pedir um *lock*. Conta-se e registra-se
 ## 10. Como correr
 
 ```bash
-# Os testes unitários e de porta (gate 4): estados, callbacks, Chatwoot, provedor
-pnpm --filter @kamba/core-ts exec node --test tests/hnd.estados.test.ts tests/hnd.callbacks.test.ts tests/hnd.chatwoot.test.ts tests/hnd.provedor.test.ts
+# Os testes unitários e de porta (gate 4): estados, callbacks, Chatwoot, provedor, retoma
+pnpm --filter @kamba/core-ts exec node --test tests/hnd.estados.test.ts tests/hnd.callbacks.test.ts tests/hnd.chatwoot.test.ts tests/hnd.provedor.test.ts tests/hnd.resposta.test.ts tests/hnd.retoma.test.ts
+
+# A paridade com o outro lado da fronteira (a lista de estados, o cabeçalho, o corpo)
+python -m unittest test_handoff.TestFronteiraComOHnd  # PYTHONPATH com services/agr/{src,tests}
 
 # A suite contra PostgreSQL (gate 8)
 python db/gate_bd.py --suite tests_handoff
@@ -332,3 +434,4 @@ pede, e o que ela responde está em
 | 1.0 | 2026-10-20 | Criado pelo KAM-019. |
 | 1.1 | 2026-10-21 | **O spike correu, e a §3 é o que ele mediu.** O veredicto é `O TOKEN DO BOT CHEGA` — o `pending → open` com o *token* do *agent bot* responde 200 e o plano B não é preciso para o estado. O que mudou o desenho foram as outras cinco medições: o *token* da Platform API dá 401 nos *endpoints* da conta, o *inbox* precisa de um utilizador ligado por `account_users`, o `set_agent_bot` é obrigatório, a conversa precisa de um contacto que exista, e o *token* do bot não cria contactos — pelo que o do utilizador é preciso em execução e a `handoff_accounts` passa a ter duas `SecretRef` e o `provider_user_id` (emenda 1.23). O cliente separou-se em dois objectos, pelo `tecnica/08` §3.6. E a chave do contacto passou a ser **opaca**: a primeira versão mandava o nosso `contact_id` para fora, contra o ADR-010. |
 | 1.2 | 2026-10-22 | **KAM-018: a razão pela qual o `setBotMuted` não é executável mudou, e a §9 di-lo.** O privilégio existe — a revisão `0016` concede `UPDATE (mode, last_human_activity_at)` a `kamba_app` —, pelo que a frase «`kamba_app` não tem `UPDATE (mode)`» deixou de ser verdade. O `setBotMuted` continua a levantar porque ligá-lo é alterar este provedor, e o KAM-018 não o faz para não alargar escopo em silêncio. A caixa do critério fica vazia, agora por esta razão, e a §9 diz como se liga. |
+| 1.3 | 2026-10-27 | **A fronteira da saída de `waiting` ficou decidida, e é a emenda 1.42 (§3.32).** O `ESTADOS_QUE_FECHAM` passa a `["degraded"]` e este módulo deixa de escrever o `status` no desfecho `resolved`: passa a chamar `POST /internal/resume` (`retoma.ts`, novo), porque era o `close` deste lado a correr primeiro que fazia o *compare-and-set* do AGR não casar — e com ele o `Command(resume=…)` nunca corria e o `interrupt()` ficava pendente para sempre (ANALISE-35, achado 1: o caminho feliz, todas as vezes). O `resolver` ganha instrução própria (`SQL_MARCAR_RESOLVER`), porque o ADR-010 mantém a identidade do agente fora do AGR, e o `thread_id` do corpo vem da linha da passagem com o `external_id` do *callback* no predicado (`SQL_THREAD_DA_PASSAGEM`). Novas §5.1, §5.2 e a tabela de respostas. |
