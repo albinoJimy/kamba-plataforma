@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.42"
+versao_dicionario: "1.43"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -7595,6 +7595,273 @@ entradas:
       - "UPDATE"
       - "status"
       - "resumed_at"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Consumidor de eventos de uma vertical"
+    canonico: "agr_vendedor, agr_servicos"
+    literais:
+      - "agr_vendedor"
+      - "agr_servicos"
+    nomes:
+      - "agr_vendedor"
+      - "agr_servicos"
+    nomes_nota:
+      - "consumer"
+      - "events_consumed"
+      - "events_dlq"
+      - "id"
+      - "agr_"
+      - "metricas.py"
+      - "a"
+      - "z"
+      - "z0"
+      - "_"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Rota interna de entrega de um evento"
+    canonico: "/internal/event"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "x"
+      - "kamba"
+      - "interno"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Corpo da entrega de um evento"
+    canonico: "event_id, tenant_id, envelope, tentativas"
+    literais:
+      - "event_id"
+      - "tenant_id"
+      - "envelope"
+      - "tentativas"
+    nomes:
+      - "event_id"
+      - "tenant_id"
+      - "envelope"
+      - "tentativas"
+    nomes_nota:
+      - "tentativas"
+      - "attemptsMade"
+      - "trabalhador_bullmq.ts"
+      - "event_id"
+      - "tenant_id"
+      - "events_dlq"
+      - "NOT"
+      - "NULL"
+      - "paraDlqSemEnvelope"
+      - "dlq.ts"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Desfecho do consumo de um evento"
+    canonico: "aplicado, duplicado, adiado, para_dlq, entregue_ao_hnd, sem_entitlement, sem_accao"
+    literais:
+      - "aplicado"
+      - "duplicado"
+      - "adiado"
+      - "para_dlq"
+      - "entregue_ao_hnd"
+      - "sem_entitlement"
+      - "sem_accao"
+    nomes:
+      - "aplicado"
+      - "duplicado"
+      - "adiado"
+      - "para_dlq"
+      - "entregue_ao_hnd"
+      - "sem_entitlement"
+      - "sem_accao"
+    nomes_nota:
+      - "agr_evt_consumidos_total"
+      - "DESFECHOS_DO_CONSUMO"
+      - "adiado"
+      - "para_dlq"
+      - "entregue_ao_hnd"
+      - "sem_entitlement"
+      - "evt_subscricoes"
+      - "consumer"
+      - "motivo"
+      - "agr_registry_denied_total"
+      - "sem_accao"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Motivo de uma entrada aberta na DLQ pelo AGR"
+    canonico: "envelope_invalido, tipo_desconhecido, versao_desconhecida, sem_template, tentativas_esgotadas"
+    literais:
+      - "envelope_invalido"
+      - "tipo_desconhecido"
+      - "versao_desconhecida"
+      - "sem_template"
+      - "tentativas_esgotadas"
+    nomes:
+      - "envelope_invalido"
+      - "tipo_desconhecido"
+      - "versao_desconhecida"
+      - "sem_template"
+      - "tentativas_esgotadas"
+    nomes_nota:
+      - "agr_evt_dlq_total"
+      - "events_dlq.erro"
+      - "fora_de_ordem"
+      - "aplica_transicao"
+      - "echo_latency_ms"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Acção com efeito externo de um evento"
+    canonico: "notificar_cliente, notificar_dono"
+    literais:
+      - "notificar_cliente"
+      - "notificar_dono"
+    nomes:
+      - "notificar_cliente"
+      - "notificar_dono"
+    nomes_nota:
+      - "accao"
+      - "consumer"
+      - "event_id"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Desfecho de uma notificação ao cliente"
+    canonico: "livre, template, sem_template"
+    literais:
+      - "livre"
+      - "template"
+      - "sem_template"
+    nomes:
+      - "livre"
+      - "template"
+      - "sem_template"
+    nomes_nota:
+      - "agr_evt_notificacoes_total"
+      - "dono"
+      - "service"
+      - "sem_template"
+      - "aplicado"
+      - "events_consumed"
+      - "duplicado"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Handler de um evento"
+    canonico: "(vertical, tipo)"
+    literais:
+      - "(vertical, tipo)"
+    nomes:
+      - "vertical"
+      - "tipo"
+    nomes_nota:
+      - "UNIQUE"
+      - "tenant_id"
+      - "idempotency_key"
+      - "outbound_messages"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Acção de uma vertical por ligar"
+    canonico: "ACCOES_POR_LIGAR, com o credor na linha"
+    literais:
+      - "ACCOES_POR_LIGAR"
+    nomes:
+      - "ACCOES_POR_LIGAR"
+    nomes_nota:
+      - "sem_accao"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Notificação ao dono"
+    canonico: "nunca pelo número da própria loja"
+    literais: []
+    nomes: []
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "turn_id de um turno por evento"
+    canonico: "o event_id do envelope"
+    literais:
+      - "event_id"
+    nomes:
+      - "turn_id"
+      - "event_id"
+    nomes_nota:
+      - "turn_id"
+      - "wamid"
+      - "seq"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Métricas da subscrição no AGR"
+    canonico: "agr_evt_consumidos_total, agr_evt_dlq_total, agr_evt_notificacoes_total, agr_evt_lag_ms"
+    literais:
+      - "agr_evt_consumidos_total"
+      - "agr_evt_dlq_total"
+      - "agr_evt_notificacoes_total"
+      - "agr_evt_lag_ms"
+    nomes:
+      - "agr_evt_consumidos_total"
+      - "agr_evt_dlq_total"
+      - "agr_evt_notificacoes_total"
+      - "agr_evt_lag_ms"
+    nomes_nota:
+      - "consumer"
+      - "tenant_id"
+      - "contact_id"
+      - "conversation_id"
+      - "wamid"
+      - "OBS"
+      - "I"
+      - "events_consumed"
+      - "events_dlq"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Lag de consumo"
+    canonico: "ocorrido_em até ao instante do consumo"
+    literais:
+      - "ocorrido_em"
+    nomes:
+      - "ocorrido_em"
+    nomes_nota:
+      - "ocorrido_em"
+      - "registado_em"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Reserva de concorrência dos eventos de pagamento"
+    canonico: "AGR_RESERVA_DE_PAGAMENTO"
+    literais:
+      - "AGR_RESERVA_DE_PAGAMENTO"
+    nomes:
+      - "AGR_RESERVA_DE_PAGAMENTO"
+    nomes_nota:
+      - "AGR_TECTO_POR_TENANT"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Consumo que não aplica transição"
+    canonico: "aplica_transicao"
+    literais:
+      - "aplica_transicao"
+    nomes:
+      - "aplica_transicao"
+    nomes_nota:
+      - "ESTADO_PRETENDIDO"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Sétima ligação do AGR"
+    canonico: "kamba-agr:eventos"
+    literais:
+      - "kamba-agr:eventos"
+    nomes:
+      - "kamba"
+      - "agr"
+      - "eventos"
+    nomes_nota:
+      - "application_name"
+      - "kamba_core.tenant_guard"
+      - "kamba_app"
+      - "INSERT"
+    variantes_literais: []
+  - seccao: "3.33"
+    conceito: "Código de saída com subscrições por registar"
+    canonico: "8"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "subscriptions"
+      - "validar_subscriptions"
     variantes_literais: []
 
 tabelas:

@@ -448,6 +448,36 @@ AG_HND_AUTH = "services/agr/src/kamba_agr/handoff/autenticacao.py"
 #: `nos.py` mede o contrario (que a politica ve o codigo real), e as duas sao
 #: precisas — ha mutacoes das duas formas.
 AG_POLITICA = "services/agr/tests/politica_ast.py"
+#: A subscricao de eventos (KAM-038). As mutacoes correm na `agr_unit`: nada do
+#: que elas alteram toca a base — o consumidor fala com um cliente injectado, e
+#: a *suite* de PostgreSQL do mesmo servico prova o que so a base pode provar (o
+#: SQL corre, o indice parcial existe, a RLS recusa).
+#:
+#: **O `eventos/consultas.py` nao esta aqui, e isso e dito em vez de ficar por
+#: dizer.** A base falsa da `agr_unit` compara o SQL por **texto**, pelo que
+#: qualquer mutacao a uma daquelas cadeias morre por a base falsa nao reconhecer
+#: a consulta — isto e, morre pela razao errada, e a mutacao nao mediria o que
+#: diz medir. As propriedades daquelas cadeias (o alvo do `ON CONFLICT`, o
+#: `ORDER BY` deterministico, o `tenant_id` no predicado) provam-se na suite de
+#: base de dados, com o SQL a correr.
+AG_EVT_ENVELOPE = "services/agr/src/kamba_agr/eventos/envelope.py"
+AG_EVT_SUBSCRICOES = "services/agr/src/kamba_agr/eventos/subscricoes.py"
+AG_EVT_CONSUMO = "services/agr/src/kamba_agr/eventos/consumo.py"
+AG_EVT_DLQ = "services/agr/src/kamba_agr/eventos/dlq.py"
+AG_EVT_NOTIFICACAO = "services/agr/src/kamba_agr/eventos/notificacao.py"
+AG_EVT_HANDLERS = "services/agr/src/kamba_agr/eventos/handlers.py"
+AG_EVT_TURNOS = "services/agr/src/kamba_agr/eventos/turnos.py"
+AG_EVT_DESFECHOS = "services/agr/src/kamba_agr/eventos/desfechos.py"
+#: As metricas e a admissao, que o KAM-038 estendeu: a primeira com a **medida
+#: com etiqueta** (a primeira do repositorio) e a segunda com a reserva de
+#: prioridade do criterio 8.
+AG_METRICAS = "services/agr/src/kamba_agr/metricas.py"
+AG_ADMISSAO = "services/agr/src/kamba_agr/admissao.py"
+#: O consumo idempotente do KAM-006, que o KAM-038 estendeu com o
+#: `aplica_transicao`. A mutacao corre na `agr_unit` e nao na `tests` porque
+#: quem a mata e o primeiro consumidor que **nao** aplica a transicao, e esse
+#: esta nos testes do AGR.
+NU_CONSUMO = "libs/py-core/src/kamba_core/eventos/consumo.py"
 #: A API interna (KAM-025), que o KAM-034 estendeu com a segunda credencial e a
 #: ordem das verificacoes da rota de retoma.
 AG_API = "services/agr/src/kamba_agr/api_interna.py"
@@ -5091,6 +5121,320 @@ MUTACOES = [
     # A classificacao do zero linhas deixa de distinguir o duplicado da recusa
     # pelo lado errado: uma passagem de outro contacto do mesmo *tenant* passa a
     # responder `repetido` com 200 — «tratado» sobre um pedido que nao tratamos.
+    # --- KAM-038: a subscricao de eventos ---------------------------------
+    #
+    # Todas na `agr_unit`. Cada uma apaga **uma** propriedade que um criterio
+    # nomeia; a que sobrevivesse seria um criterio marcado sem prova.
+    ('eventos_agr: o envelope deixa de recusar campo de topo a mais', AG_EVT_ENVELOPE,
+     "    demais = sorted(set(bruto) - set(CAMPOS_DO_ENVELOPE))\n    if demais:",
+     "    demais = []\n    if demais:",
+     AGR_UNIT),
+    # Um produtor que comece a escrever um campo novo sem subir a `versao` passa
+    # a ser aceite: contrato quebrado em silencio, que e o que o §6.6 proibe.
+    ('eventos_agr: o envelope deixa de recusar a classe P2', AG_EVT_ENVELOPE,
+     "    if classe == CLASSE_PROIBIDA:",
+     "    if False:",
+     AGR_UNIT),
+    # O telefone de um cliente passa a poder viajar em envelope e a ficar na
+    # coluna `envelope` da DLQ por trinta dias (§7.1, ADR-010).
+    ('eventos_agr: o seq do agregado passa a aceitar zero', AG_EVT_ENVELOPE,
+     '            seq=_inteiro(agregado.get("seq"), "agregado.seq", 1),',
+     '            seq=_inteiro(agregado.get("seq"), "agregado.seq", 0),',
+     AGR_UNIT),
+    # O `seq` e a ordem causal e e **sem lacunas** por agregado (§4): um zero
+    # nao e um seq, e e com ele que o `SQL_ULTIMO_SEQ` compara.
+    ('eventos_agr: o seq passa a aceitar um booleano', AG_EVT_ENVELOPE,
+     "    if isinstance(valor, bool) or not isinstance(valor, int) or valor < minimo:",
+     "    if not isinstance(valor, int) or valor < minimo:",
+     AGR_UNIT),
+    # `True` e um `int` em Python: um `seq` que valha `True` passa a valer 1, e a
+    # verificacao de ordem compara-se com uma coisa que ninguem escreveu.
+    ('eventos_agr: o tipo de evento deixa de ter gramatica', AG_EVT_ENVELOPE,
+     "    if not _TIPO.fullmatch(tipo):",
+     "    if False:",
+     AGR_UNIT),
+    # Um `tipo` com maiusculas ou sem ponto passa, e vai para a etiqueta de
+    # `evt_dlq_open`, que exige `familia.verbo` (dicionario §3.5).
+    ('eventos_agr: as finalidades passam a poder vir vazias', AG_EVT_ENVELOPE,
+     "    if not isinstance(finalidades, list) or not finalidades:",
+     "    if not isinstance(finalidades, list):",
+     AGR_UNIT),
+    # Sem finalidade nenhuma, o roteamento por finalidade do §7.3 nao tem o que
+    # comparar e o envelope passa por uma guarda que deixa de guardar.
+    ('eventos_agr: a validacao das subscricoes deixa de reprovar', AG_EVT_SUBSCRICOES,
+     "    if problemas:\n        raise SubscricoesInvalidasError(",
+     "    if False:\n        raise SubscricoesInvalidasError(",
+     AGR_UNIT),
+    # Um `{tipo, versao}` sem contrato publicado passa a arrancar: o consumidor
+    # fica registado para um evento que nunca chega (criterio 1).
+    ('eventos_agr: os pagamentos deixam de exigir ordem e prioridade',
+     AG_EVT_SUBSCRICOES,
+     "    return tipo.startswith(PREFIXO_DE_PAGAMENTO)",
+     "    return False",
+     AGR_UNIT),
+    # Duas propriedades de uma vez, e e por isso que o prefixo serve as duas: os
+    # consumidores de `payment.*` deixam de exigir ordem (§6.3, e a restricao
+    # `evt_subscricoes_payment_exige_ordem` da revisao `0005`) **e** deixam de
+    # ter prioridade sobre conversa (criterio 8, §15.2 regra 2).
+    ('eventos_agr: um tipo subscrito sem handler deixa de reprovar', AG_EVT_HANDLERS,
+     "    if fora:\n        raise SemHandlerError(",
+     "    if False:\n        raise SemHandlerError(",
+     AGR_UNIT),
+    # A outra metade do criterio 1: um consumidor registado que marca o evento
+    # como consumido e nao notifica ninguem.
+    ('eventos_agr: o aviso ao dono passa a falar com o cliente', AG_EVT_HANDLERS,
+     "    if not fala_com_o_cliente(vertical, envelope.tipo):",
+     "    if False:",
+     AGR_UNIT),
+    # O `03` §12 da o `stock.low` ao **dono**; com isto, o nivel de stock da loja
+    # passa a ir para a conversa de um cliente.
+    ('eventos_agr: o pagamento deixa de avisar o dono', AG_EVT_HANDLERS,
+     "    dono_por = envelope.tipo if par in AO_DONO else None",
+     "    dono_por = None",
+     AGR_UNIT),
+    # O `03` §12 manda «notifica cliente **e** dono»: o dono deixa de saber que
+    # recebeu dinheiro.
+    ('eventos_agr: a conversa que falta deixa de impedir a notificacao',
+     AG_EVT_HANDLERS,
+     "    if not contact_id or not conversation_id:",
+     "    if False:",
+     AGR_UNIT),
+    # Com a conversa por encontrar — ou com um envelope de outro *tenant*, que e
+    # o mesmo zero linhas — passa a montar-se uma notificacao sobre uma conversa
+    # que nao existe (criterios 4 e 5).
+    ('eventos_agr: o contacto do payload deixa de ter precedencia', AG_EVT_HANDLERS,
+     '    do_payload = envelope.payload.get("contact_id")',
+     "    do_payload = None",
+     AGR_UNIT),
+    # O `booking.created` traz `contact_id` no contrato (KAM-007); com isto,
+    # pede-se ao COM o que o produtor ja disse, e os dois podem discordar.
+    ('eventos_agr: a notificacao ao cliente deixa de exigir template',
+     AG_EVT_NOTIFICACAO,
+     "        if not self.template:",
+     "        if False:",
+     AGR_UNIT),
+    # Uma notificacao sem *template* nomeado passa a construir-se, e com a janela
+    # fechada o alerta do criterio 6 dispara por um campo esquecido em vez de por
+    # nao haver *template* aprovado.
+    ('eventos_agr: o sem_template deixa de alertar', AG_EVT_NOTIFICACAO,
+     "        if desfecho == DESFECHO_QUE_ALERTA:\n            self._alertar(desfecho)",
+     "        if False:\n            self._alertar(desfecho)",
+     AGR_UNIT),
+    # O criterio 6 pede «nao envia **e alerta**»: a mensagem que nao saiu passa a
+    # nao deixar rasto nenhum.
+    ('eventos_agr: o aviso ao dono passa pela porta do cliente', AG_EVT_NOTIFICACAO,
+     "        self._dono.avisar(\n            tenant_id=tenant_id,\n            motivo=motivo,",
+     "        self._cliente.notificar(\n            tenant_id=tenant_id,\n"
+     "            notificacao=Notificacao(\n                contact_id=motivo,\n"
+     "                conversation_id=motivo,\n                texto=motivo,\n"
+     "                template=motivo,\n            ),\n"
+     "            chave=chave_da_accao(consumidor, event_id, ACCAO_AO_CLIENTE),\n        )\n"
+     "        self._dono.avisar(\n            tenant_id=tenant_id,\n            motivo=motivo,",
+     AGR_UNIT),
+    # E o criterio 7 a letra: o aviso ao dono passa a tocar o Outbound, isto e, o
+    # numero da propria loja (`01` §11.4 regra 2).
+    ('eventos_agr: a DLQ aceita um motivo fora da lista fechada', AG_EVT_DLQ,
+     "        if motivo not in MOTIVOS_DA_DLQ:",
+     "        if False:",
+     AGR_UNIT),
+    # O `erro` e coluna **e** etiqueta de metrica: um valor novo escrito a
+    # passagem da ao painel uma serie que ninguem declarou, e a chamada
+    # levantaria `EtiquetaInvalida` dentro do consumo.
+    ('eventos_agr: o handler volta a ser por tipo e nao por vertical',
+     AG_EVT_HANDLERS,
+     "    return (vertical, tipo) in AO_CLIENTE",
+     "    return any(t == tipo for _v, t in AO_CLIENTE)",
+     AGR_UNIT),
+    # **E o defeito que a revisao adversarial encontrou, reposto.** Um *tenant*
+    # com as duas verticais activas — o do *gate* da Fase 0 (ADR-012, KAM-108) —
+    # passa a receber a **mesma** mensagem duas vezes sobre o mesmo pagamento:
+    # dois consumidores, duas chaves de idempotencia, e a `UNIQUE (tenant_id,
+    # idempotency_key)` de `outbound_messages` sem nada para deduplicar.
+    ('eventos_agr: a accao por ligar deixa de existir', AG_EVT_HANDLERS,
+     '    ("servicos", "payment.confirmed"): "KAM-047",',
+     "",
+     AGR_UNIT),
+    # O par deixa de ter handler, e com ele deixa de haver o `sem_accao` que
+    # nomeia o credor: o arranque reprova — que e o lado certo de errar — mas a
+    # alternativa que isto apaga era a unica que distingue «ninguem escreveu
+    # isto» de «isto nao existe».
+    ('eventos_agr: a accao por ligar passa a dar-se por aplicada',
+     AG_EVT_CONSUMO,
+     "            if credor is not None:\n"
+     '                return self._contado_so("sem_accao")',
+     "            if False:\n"
+     '                return self._contado_so("sem_accao")',
+     AGR_UNIT),
+    # Uma vertical cuja accao ninguem escreveu passa a reportar `aplicado`: o
+    # painel diz que o evento foi tratado, e nao foi notificado ninguem. **A
+    # primeira versao desta mutacao mirava a guarda do `_efeito` e sobreviveu**
+    # — porque aquela guarda era codigo morto, e e assim que se descobre: o
+    # `accoes_de` ja devolve accoes vazias para um par de `ACCOES_POR_LIGAR`.
+    ('eventos_agr: o sem_template volta a contar como sucesso', AG_EVT_NOTIFICACAO,
+     "            raise NotificacaoNaoEntregue(DESFECHO_QUE_ALERTA)",
+     "            pass",
+     AGR_UNIT),
+    # **O achado mais grave da revisao adversarial, reposto.** O evento fica
+    # marcado em `events_consumed` **sem** mensagem nenhuma, e no dia em que o
+    # KAM-024 aprovar os *templates* a re-entrega da `duplicado` e o cliente
+    # nunca e avisado. E e o unico caminho que hoje corre.
+    ('eventos_agr: o sem_entitlement deixa de marcar', AG_EVT_CONSUMO,
+     "            for candidato in candidatos:\n"
+     "                await self._marcar_sem_efeito(candidato, envelope, entrega)",
+     "            pass",
+     AGR_UNIT),
+    # Sem linha em `events_consumed` nem em `events_dlq`, o reconciliador do
+    # §6.5 reenfileira o evento de cinco em cinco minutos durante as 24 h da
+    # janela — um ciclo silencioso por cada evento de um *tenant* sem
+    # entitlement activo.
+    ('eventos_agr: o cancelamento deixa de esperar pela thread', AG_EVT_TURNOS,
+     "            except asyncio.CancelledError:\n"
+     "                # Espera a *thread* acabar antes de largar a exclusiva. Sem\n"
+     "                # isto o `shield` so adia o problema.\n"
+     "                await asyncio.wait([tarefa])\n                raise",
+     "            except asyncio.CancelledError:\n                raise",
+     AGR_UNIT),
+    # O `to_thread` **nao** cancela a *thread*: a corrotina sai, larga a
+    # exclusiva, e a entrega seguinte usa a **mesma** tomada em paralelo — a
+    # corrupcao do protocolo do `pg8000` que o `checkpointer.py` do KAM-026 ja
+    # pagou uma vez.
+    ('eventos_agr: os ponteiros da fila deixam de ser confrontados', AG_EVT_CONSUMO,
+     "        if envelope.id != entrega.event_id or envelope.tenant_id != entrega.tenant_id:",
+     "        if False:",
+     AGR_UNIT),
+    # Uma entrega com o `tenant_id` de B e um envelope de A passa a escrever a
+    # linha da DLQ no *tenant* B — o envelope de A dentro do *tenant* de B, numa
+    # coluna que uma auditoria le (criterio 4).
+    ('eventos_agr: a entrada de um envelope recusado passa a guarda-lo',
+     AG_EVT_CONSUMO,
+     "            await self._dlq_sem_envelope(entrega)\n            return None\n"
+     "        return envelope",
+     "            await self._dlq.abrir(\n                consumidor=self._tabela[0].nome,\n"
+     "                envelope=envelope,\n                motivo=MOTIVO_ENVELOPE_INVALIDO,\n"
+     "                tentativas=entrega.tentativas,\n            )\n"
+     "            return None\n        return envelope",
+     AGR_UNIT),
+    # O que a DLQ guarda passa a ser o envelope recusado — com o `tenant_id` de
+    # outro — numa linha escrita no *tenant* que a fila declarou.
+    ('eventos_agr: a ausencia de rota passa a ser uma lista vazia', AG_EVT_CONSUMO,
+     "        candidatos = self._por_par.get((envelope.tipo, envelope.versao))\n"
+     "        if candidatos is None:",
+     "        candidatos = self._por_par.get((envelope.tipo, envelope.versao), ())\n"
+     "        if candidatos is None:",
+     AGR_UNIT),
+    # Uma versao sem rota deixa de ir para a DLQ e passa por `sem_entitlement`:
+    # o silencio que o criterio 3 proibe, com ar de decisao.
+    ('eventos_agr: a versao desconhecida passa a ser tipo desconhecido',
+     AG_EVT_CONSUMO,
+     "            MOTIVO_VERSAO_DESCONHECIDA\n            if envelope.tipo in self._versoes\n"
+     "            else MOTIVO_TIPO_DESCONHECIDO",
+     "            MOTIVO_TIPO_DESCONHECIDO",
+     AGR_UNIT),
+    # Os dois motivos mandam olhar para sitios diferentes — a configuracao de
+    # entrega e a ordem de *deploy* do §6.6 —, e com um so o painel manda sempre
+    # para o errado.
+    ('eventos_agr: o entitlement deixa de decidir qual vertical consome',
+     AG_EVT_CONSUMO,
+     "            if self._ler_entitlement(envelope.tenant_id, consumidor.modulo).permitido",
+     "            if True",
+     AGR_UNIT),
+    # Os dois `registry/*.yaml` subscrevem os mesmos dois eventos de pagamento:
+    # com isto, um *tenant* que so tem o Vendedor recebe **duas** mensagens sobre
+    # o mesmo pagamento (criterio 2).
+    ('eventos_agr: a conversa com humano passa a notificar o cliente',
+     AG_EVT_CONSUMO,
+     "        do_humano = conversa is not None and conversa.do_humano",
+     "        do_humano = False",
+     AGR_UNIT),
+    # O criterio 5 e a invariante do §11 regra 4: o bot passa a responder a uma
+    # conversa que esta com um humano.
+    ('eventos_agr: o turno por evento deixa de tomar a tranca', AG_EVT_CONSUMO,
+     "        async with self._trancas.tomar(thread_id):",
+     "        if True:",
+     AGR_UNIT),
+    # Um turno por evento passa a poder correr ao lado de um turno de conversa da
+    # mesma pessoa, sobre o mesmo *thread* do LangGraph (criterio 5).
+    ('eventos_agr: a DLQ deixa de abrir depois das seis tentativas', AG_EVT_CONSUMO,
+     "        if entrega.tentativas >= TENTATIVAS:\n            await self._dlq.abrir(\n"
+     "                consumidor=consumidor.nome,\n                envelope=envelope,\n"
+     "                motivo=TENTATIVAS_ESGOTADAS,\n                tentativas=entrega.tentativas,\n"
+     "            )\n            return self._contado_so(\"para_dlq\")\n"
+     "        self._contado_so(\"adiado\")\n        raise EntregaPorRepetir(\n"
+     "            atraso_da_tentativa_do_consumidor(entrega.tentativas), \"falhou\"\n        )",
+     "        self._contado_so(\"adiado\")\n        raise EntregaPorRepetir(\n"
+     "            atraso_da_tentativa_do_consumidor(entrega.tentativas), \"falhou\"\n        )",
+     AGR_UNIT),
+    # O evento repete-se para sempre em vez de parar na DLQ: sem entrada, sem
+    # metrica e sem alerta, e o reconciliador volta a enfileira-lo de cinco em
+    # cinco minutos durante 24 h (§6.5).
+    ('eventos_agr: o lag passa a medir-se do registado_em', AG_EVT_CONSUMO,
+     "        medida = lag_ms(envelope.ocorrido_em, self._agora())",
+     "        medida = lag_ms(envelope.registado_em, self._agora())",
+     AGR_UNIT),
+    # O `registado_em` esconde o atraso entre o facto e a transaccao que o gravou
+    # (§4), e o p99 do criterio 8 passa a medir menos do que o cliente esperou.
+    ('eventos_agr: o lag negativo deixa de ser cortado', AG_EVT_CONSUMO,
+     "    return max(0, int((agora - instante.timestamp()) * 1_000))",
+     "    return int((agora - instante.timestamp()) * 1_000)",
+     AGR_UNIT),
+    # O `ocorrido_em` e o relogio do **produtor** e pode estar a frente do nosso:
+    # um *lag* negativo num painel le-se como defeito do painel.
+    ('eventos_agr: o lag passa a medir-se tambem nos duplicados', AG_EVT_CONSUMO,
+     '        if resultado.desfecho == "aplicado":\n            self._medir_lag(consumidor, envelope)',
+     "        if True:\n            self._medir_lag(consumidor, envelope)",
+     AGR_UNIT),
+    # O *lag* de um duplicado mede o tempo ate uma entrega que nao fez nada: o
+    # p99 sobe sem que cliente nenhum tenha esperado mais.
+    ('eventos_agr: o desfecho agregado passa a ser o primeiro', AG_EVT_CONSUMO,
+     "    for desfecho in _GRAVIDADE:\n        if desfecho in desfechos:\n            return desfecho",
+     "    return desfechos[0]",
+     AGR_UNIT),
+    # Uma entrega em que um consumidor aplicou e outro foi para a DLQ passa a
+    # reportar-se como aplicada.
+    ('eventos_agr: o BEGIN deixa de ser traduzido', AG_EVT_CONSUMO,
+     "        if primeira in self.TRADUZIDAS:",
+     '        if primeira in ("COMMIT", "ROLLBACK"):',
+     AGR_UNIT),
+    # O `BEGIN` do nucleo passa a chegar ao condutor, que ja abriu a transaccao:
+    # «um `BEGIN` dentro de uma transaccao aberta e um aviso e mais nada, e o
+    # `COMMIT` seguinte fecha a de fora» (KAM-006).
+    ('eventos_agr: uma instrucao de transaccao nao traduzida passa a passar',
+     AG_EVT_CONSUMO,
+     "        if primeira in self.PROIBIDAS:",
+     "        if False:",
+     AGR_UNIT),
+    # Um `SAVEPOINT` ou um `START TRANSACTION` do nucleo passam a chegar ao
+    # condutor, e com eles a marca e o efeito ficam em transaccoes diferentes
+    # **sem dar erro** — os dois modos de falha que o KAM-006 nomeia.
+    ('eventos_agr: a reserva de pagamento passa a descontar do tecto', AG_ADMISSAO,
+     "        if prioritario:\n            tecto += self._tectos.reserva_de_pagamento",
+     "        if not prioritario:\n            tecto -= self._tectos.reserva_de_pagamento",
+     AGR_UNIT),
+    # A concorrencia de conversa cai de 3 para 2 e o criterio 5 do KAM-025,
+    # medido com 3, muda sem que ninguem o diga.
+    ('eventos_agr: a medida com etiqueta deixa de a validar', AG_METRICAS,
+     '        if metrica in _MEDIDAS_COM_ETIQUETA:\n            nome = f"{metrica}:{self._validar(metrica, etiqueta)}"',
+     '        if metrica in _MEDIDAS_COM_ETIQUETA:\n            nome = f"{metrica}:{etiqueta}"',
+     AGR_UNIT),
+    # Um `tenant_id` passa a entrar como eixo de `agr_evt_lag_ms`: cardinalidade
+    # a explodir e re-identificacao (`OBS-I`).
+    ('eventos_agr: a medida com etiqueta desaparece da exposicao', AG_METRICAS,
+     "            series.update(\n                {\n                    chave: valor\n"
+     "                    for chave, valor in medidas.items()\n"
+     '                    if chave == metrica or chave.startswith(f"{metrica}:")\n'
+     "                }\n            )",
+     "            if metrica in medidas:\n                series[metrica] = medidas[metrica]",
+     AGR_UNIT),
+    # O *lag* por consumidor passa a ser medido e **invisivel**, que e pior do
+    # que nao medido: o DoD pede «lag de consumo por consumidor».
+    ('eventos_agr: o consumo volta a exigir a pre-condicao de estado', NU_CONSUMO,
+     "        pretendido = (\n            ESTADO_PRETENDIDO.get(str(envelope[\"tipo\"]))\n"
+     "            if opcoes.aplica_transicao\n            else None\n        )",
+     "        pretendido = ESTADO_PRETENDIDO.get(str(envelope[\"tipo\"]))",
+     AGR_UNIT),
+    # O AGR nao aplica transicao nenhuma — quem transita a encomenda e o COM
+    # (`03` §6) —, e com isto **todos** os pagamentos levantam `MaquinaEmFalta`
+    # e acabam na DLQ (dicionario §3.33).
 ]
 
 
@@ -5667,6 +6011,14 @@ MODULOS_DO_AGR_UNIT = (
     "test_handoff",
     "test_handoff_ast",
     "test_api_interna",
+    # KAM-038, pela mesma razao de sempre. **Sem esta linha as trinta e seis
+    # mutacoes `eventos_agr:` sobreviviam todas**, com a suite verde: o
+    # corredor nunca corria o ficheiro que as mata. E a nota do topo desta lista
+    # outra vez, e e a terceira vez que ela se paga — o KAM-030 com dez
+    # sobreviventes, o KAM-034 com uma, e agora. A bateria le os
+    # `registry/*.yaml` e o `packages/core-ts/src/eventos/envelope.ts`, e os
+    # dois ja vao na copia.
+    "test_eventos",
 )
 
 
