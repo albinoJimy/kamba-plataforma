@@ -145,9 +145,7 @@ class InvocacaoDoAgente:
         O `seq` e por turno e comeca em 0; nao e o `handoff_seq` do estado, que
         conta *handoffs* e e do KAM-034.
         """
-        if seq < 0:
-            raise ValueError("seq negativo")
-        return f"{self.turn_id}:{seq}"
+        return chave_de_envio(self.turn_id, seq)
 
 
 def _texto(corpo: dict[str, Any], campo: str) -> str:
@@ -208,3 +206,16 @@ def thread_id_de(tenant_id: str, contact_id: str) -> str:
     `msisdn_hash+tenant` e o `docs/tecnica/02` §12 corrige-o por escrito.
     """
     return f"{tenant_id}:{contact_id}"
+
+
+def chave_de_envio(turn_id: str, seq: int) -> str:
+    """`idempotency_key = {turn_id}:{seq}` — dicionario §3.24.
+
+    Funcao de modulo **e** metodo da invocacao, e o metodo chama esta: o grafo
+    (KAM-031) tem o `turn_id` do estado e nao a `InvocacaoDoAgente`, e escrever
+    o formato a segunda vez era deixar as duas divergirem no dia em que alguem
+    mudasse o separador. Um formato que o dicionario fixa tem **um** dono.
+    """
+    if seq < 0:
+        raise ValueError("seq negativo")
+    return f"{turn_id}:{seq}"

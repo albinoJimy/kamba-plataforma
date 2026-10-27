@@ -132,20 +132,27 @@ class BackendDeEnsaio:
     def search_catalog(self, pedido: Pedido) -> Resposta:
         """Candidatos **sem preco no ranking** (§6.2, primeira linha).
 
-        O `score` e a fraccao das palavras da pergunta que aparecem na
-        designacao do produto. Nao e o RRF do KAM-061 e nao finge ser: e uma
-        ordem monotona e explicavel, que e o que o `retrieve` precisa para
-        decidir contra um limiar.
+        O `score` e a fraccao da **designacao do produto** que a pergunta cobre,
+        e nao a fraccao da pergunta — que foi a primeira versao e estava errada:
+        «quero comprar uma camisa azul» tem tres palavras de enchimento, pelo
+        que a Camisa Azul dava 0,4 e caia abaixo do limiar. O que se quer medir
+        e quanto do produto foi nomeado.
+
+        Nao e o RRF do KAM-061 e nao finge ser: e uma ordem monotona e
+        explicavel, que e o que o `retrieve` precisa para decidir contra um
+        limiar. **E o par (pontuador, limiar) tem um dono so**: o valor de
+        `LIMIAR_IDX` so quer dizer algo contra um pontuador, e os dois mudam
+        juntos quando o KAM-061 trouxer o indice real.
         """
         self._contar("search_catalog")
         self._avaria("search_catalog")
         palavras = {p for p in _palavras(pedido.args.query) if len(p) > 2}
         candidatos = []
         for produto in self.catalogo:
-            alvo = set(_palavras(produto.designacao))
-            if not palavras:
+            alvo = {p for p in _palavras(produto.designacao) if len(p) > 2}
+            if not palavras or not alvo:
                 continue
-            score = len(palavras & alvo) / len(palavras)
+            score = len(palavras & alvo) / len(alvo)
             if score > 0:
                 candidatos.append(
                     {

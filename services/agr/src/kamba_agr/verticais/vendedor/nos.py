@@ -198,7 +198,7 @@ _SENSIVEL: Final = tuple(
     re.compile(rf"\b{p}\b", re.IGNORECASE)
     for p in (
         "medicament\\w*", "remedi\\w*", "receita medica", "doenca", "sintoma",
-        "arma", "municao", "aposta\\w*", "credito", "emprestimo",
+        "arma\\w*", "munic\\w*", "aposta\\w*", "credito\\w*", "emprestimo\\w*",
     )
 )
 
@@ -353,13 +353,12 @@ def contexto_de_tool(estado: Mapping[str, Any]) -> ToolContext:
     `uuid4()` por execucao dava duas identidades ao mesmo turno.
     """
     cru = f"{estado['thread_id']}:{estado['turn_id']}".encode()
-    return ToolContext(
-        tenant_id=estado["tenant_id"],
-        channel_id=estado["channel_id"],
-        contact_id=estado["contact_id"],
-        conversation_id=estado["conversation_id"],
-        turn_id=estado["turn_id"],
-        vertical=estado["vertical"],
+    # **Pelo `de_estado` e nao pelo construtor.** A *docstring* dele chama-lhe «o
+    # unico caminho para dentro», e a razao e o `normalizar_tenant`: construido a
+    # mao, um `tenant_id` em maiusculas dava um `ToolContext` valido que abria
+    # uma transaccao a rebentar no `::uuid` — ou, pior, um que a RLS nao casava.
+    return ToolContext.de_estado(
+        dict(estado),
         run_id=hashlib.sha256(cru).hexdigest()[:32],
         graph_version=VERSAO_DO_GRAFO,
     )
@@ -1061,7 +1060,18 @@ def compose(deps: Dependencias):
             )
 
         carrinho = estado.get("cart")
-        if isinstance(carrinho, Mapping) and carrinho.get("total_fact_id"):
+        # **O `total` so se cita se o *fact* dele for deste turno.** O carrinho
+        # sobrevive ao turno (tem de: o fluxo de dois turnos depende disso) e os
+        # *facts* **nao** (§5.3: «so deste turno»), pelo que um `total` do turno
+        # anterior nao tem *fact* para citar — e o `renderizar` levanta, com
+        # razao. Citar um valor sem *fact* era precisamente o que o ADR-007
+        # proibe, e e a linha «facts obsoletos entre turnos» do §9.2: quem o
+        # quiser mostrar outra vez revalida no backend e ganha um *fact* novo.
+        tem_o_total = isinstance(carrinho, Mapping) and any(
+            f.kind == "total" and f.fact_id == carrinho.get("total_fact_id")
+            for f in facts
+        )
+        if tem_o_total:
             blocos.append({"type": "total", "fact_id": carrinho["total_fact_id"]})
             if estado.get("stage") == "awaiting_confirm":
                 blocos.append(
