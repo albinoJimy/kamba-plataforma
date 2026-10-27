@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | Ticket | KAM-019 — HND: `HandoffProvider` e Chatwoot (Agent Bot API, espelho por *inbox* de tipo API) |
-| Código | `packages/core-ts/src/hnd/` (nove ficheiros), revisão `0011` |
+| Código | `packages/core-ts/src/hnd/` (onze ficheiros), revisão `0011` |
 | Fonte do desenho | [`tecnica/01_Canais_WhatsApp_Fluxo_Dual.md`](tecnica/01_Canais_WhatsApp_Fluxo_Dual.md) §11 e §14, [`tecnica/02_Agent_Runtime_Verticais.md`](tecnica/02_Agent_Runtime_Verticais.md) §11 e §14 |
 | Nomes | [`../specs/02_Dicionario_de_Dados_Canonico.md`](../specs/02_Dicionario_de_Dados_Canonico.md) §3.15 (emendas 1.22 e 1.23) e §3.32 (emenda **1.42**, a fronteira da saída de `waiting`) |
 | Testes | `packages/core-ts/tests/hnd.*.test.ts` (*gate* 4), `db/tests_handoff/` (*gate* 8) |
@@ -184,22 +184,35 @@ A partição que fica diz-se em duas frases, e as duas têm ensaio:
 E são as **três** saídas de `waiting` e não só o `resolved`: a rota de retoma
 retoma o grafo com `resolved` e com `cancelled`, e a varredura dos prazos com
 `timeout`, pelo que sair de `waiting` por qualquer delas matava um `Command` da
-mesma maneira. Uma passagem `degraded` nem chegou ao provedor — não tem resposta
-humana para retomar —, e o predicado do CAS recusa-a.
+mesma maneira.
+
+**O que isto custa, e fica escrito:** das três, só duas têm hoje quem as peça — o
+`resolved` vem do *callback* e o `timeout` da varredura dos prazos. O `cancelled`
+tinha o `close(handoffId, 'cancelled')` do §11.1, que deixou de poder sair de
+`waiting`, e **nenhum caminho deste repositório pede a retoma com `cancelled`**: a
+desistência do cliente não está implementada em ticket nenhum — não estava antes
+e continua a não estar. Quem a fizer pede a retoma, no mesmo sítio de onde o
+`resolved` sai.
 
 ### O que corre no lugar do fecho: `POST /internal/resume`
 
 O `receber`, no desfecho `resolved`, faz três coisas por esta ordem:
 
-1. **confere a passagem** (`SQL_THREAD_DA_PASSAGEM`): o `contact_id` da conversa
-   a que ela aponta, com o `external_id` do *callback* no predicado. O
-   `handoff_id` é irreversível (`sha256(thread_id:handoff_seq)`), pelo que o
-   `thread_id` do corpo da retoma tem de vir da linha; e o `handoff_id` chega do
-   atributo de uma conversa **no provedor**, isto é, de fora — com o
-   `external_id` no predicado, um valor trocado lá não nos faz pedir a retoma do
-   *thread* de outra pessoa;
+1. **confere a passagem** (`SQL_THREAD_DA_PASSAGEM`): traz o `contact_id` da
+   conversa a que ela aponta — o `handoff_id` é irreversível
+   (`sha256(thread_id:handoff_seq)`), pelo que o `thread_id` do corpo tem de vir
+   da linha — e o `external_id` que nós gravámos. **Três saídas, e não duas:** a
+   conversa bate e segue-se; a linha ainda não tem conversa gravada e
+   **recupera-se** com o `SQL_MARCAR_ABERTA`, porque uma passagem `degraded`
+   **pode** ter conversa no provedor (o `abrirConversa` cria-a antes de a nota
+   privada poder falhar) e deixar cair esse *callback* era o defeito desta emenda
+   por outra porta; ou o atributo é de **outra** conversa, e essa é a única que se
+   recusa — o `handoff_id` chega de fora, e um valor trocado lá fazia-nos pedir a
+   retoma do *thread* de outra pessoa;
 2. **escreve o `resolver`** (`SQL_MARCAR_RESOLVER`), com `status = 'waiting'` no
-   predicado. É escrita separada porque o ADR-010 mantém a identidade do agente
+   predicado — e o *no-op* que esse predicado compra vale no duplicado
+   **sequencial**: duas chegadas concorrentes vêem ambas `waiting` e escrevem as
+   duas, com a última a vencer. É escrita separada porque o ADR-010 mantém a identidade do agente
    fora do AGR — ela não entra no corpo da retoma —, e vem **antes** do pedido
    porque depois do CAS a passagem já não está em `waiting`. O predicado é também
    o que faz do *webhook* duplicado um *no-op* nesta coluna: o segundo não
@@ -228,9 +241,25 @@ oportunidade. O que nunca acontece é uma retoma a mais: dois *callbacks* dão
 
 **O 503 repete-se aqui e o 5xx não**, e a razão é a janela: esta chamada corre
 *dentro* do pedido do *webhook* do Chatwoot, e o tempo que ela leva é tempo que
-ele espera. Por isso há um tecto (`TECTO_DA_ESPERA_MS`) e um `Retry-After` acima
-dele não se espera — cumprir `Retry-After: 120` à letra era manter uma ligação
-aberta dois minutos para um provedor que desiste muito antes.
+ele espera. Por isso há um tecto para o sono (`TECTO_DA_ESPERA_MS`) — cumprir
+`Retry-After: 120` à letra era manter uma ligação aberta dois minutos para um
+provedor que desiste muito antes — **e um orçamento para o todo**
+(`ORCAMENTO_DA_RETOMA_MS`, 20 s *proposta*): com o tecto do sono sozinho, o pior
+caso eram 10 s de tentativa, 5 s de sono e 10 s de tentativa, e o AGR pede 5 s
+**sempre**, pelo que o sono não era o caso patológico. O orçamento decide se há
+segunda tentativa e encurta-lhe o tecto ao que resta.
+
+**E o que levanta daqui é repetido pelo provedor.** A tabela é o que **este
+cliente** faz com a resposta: no 401, no 404 e no 400 ele não repete a chamada ao
+AGR. Mas levantar faz o `receber` levantar, o *endpoint* do *callback* responder
+5xx e o Chatwoot reenviar — pelo que os três se repetem, com a escada dele. É
+escolha: engolir um 401 permanente devolve 200, o provedor pára de reenviar, e a
+conversa fica sem retoma **sem rasto accionável**, que é o defeito que esta
+emenda existe para matar. O custo é uma tempestade de reentregas enquanto o
+segredo estiver errado dos dois lados, visível em
+`agr_resume_nao_autorizado_total`. **Quem decidir de outra maneira é quem
+escrever o *endpoint*** — ele não existe neste repositório —, e é a razão de o
+`Veredicto` ainda não prever excepções.
 
 O provedor tem o seu próprio vocabulário (`open|resolved|pending|snoozed`), e só
 o `resolved` dele é uma conclusão nossa. **Um `snoozed` não fecha nada:** tratar
@@ -361,7 +390,7 @@ primeiro, e a assinatura não permite pedir um *lock*. Conta-se e registra-se
 
 ```bash
 # Os testes unitários e de porta (gate 4): estados, callbacks, Chatwoot, provedor, retoma
-pnpm --filter @kamba/core-ts exec node --test tests/hnd.estados.test.ts tests/hnd.callbacks.test.ts tests/hnd.chatwoot.test.ts tests/hnd.provedor.test.ts tests/hnd.retoma.test.ts
+pnpm --filter @kamba/core-ts exec node --test tests/hnd.estados.test.ts tests/hnd.callbacks.test.ts tests/hnd.chatwoot.test.ts tests/hnd.provedor.test.ts tests/hnd.resposta.test.ts tests/hnd.retoma.test.ts
 
 # A paridade com o outro lado da fronteira (a lista de estados, o cabeçalho, o corpo)
 python -m unittest test_handoff.TestFronteiraComOHnd  # PYTHONPATH com services/agr/{src,tests}

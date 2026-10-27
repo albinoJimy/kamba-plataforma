@@ -2189,15 +2189,23 @@ Commits: feat(KAM-034): …
 
 #### Prova por mutação
 
-**Trinta e quatro mutações `handoff:`**, e dividem-se por onde a propriedade
-vive: **vinte e quatro** em Python, na `agr_unit`, **oito** no SQL, na
-`tests_agr` — porque quem decide se um *compare-and-set* casa é a base, e uma
+**Trinta e cinco mutações `handoff:` deste lado**, e dividem-se por onde a
+propriedade vive: **vinte e cinco** em Python, na `agr_unit`, **oito** no SQL,
+na `tests_agr` — porque quem decide se um *compare-and-set* casa é a base, e uma
 base falsa compara SQL por texto e nunca o interpreta —, e **duas** na
 `TOOL_SCHEMA`, que são as da regra de arquitectura que este ticket estreitou.
+(O prefixo tem mais, na *suite* `tests_handoff`: são as do HND, e contam-se no
+bloco do KAM-019.)
+
+**Eram trinta e quatro e a vigésima quinta da `agr_unit` é do KAM-019**: a que
+prende a fronteira pelo lado de cá — o `ESTADOS_QUE_FECHAM` a voltar a sair de
+`waiting` — e que é o que prova que o ensaio de paridade entre os dois idiomas
+**morde**. Sem ela, nada em Python olhava para aquela lista, e a prova de que
+ninguém olhara foi um `grep` sem resultados.
 
 **Dez das trinta e quatro saíram da revisão adversarial**, e esta secção foi
-escrita quando eram vinte: o número de cima é o da árvore fundida, contado no
-`../db/mutacoes.py`, e a secção da revisão diz o que cada uma das dez mede.
+escrita quando eram vinte: o número de cima é contado no `../db/mutacoes.py` por
+`ast`, e a secção da revisão diz o que cada uma das dez mede.
 
 As duas primeiras da lista são as únicas que não quebram comportamento: quebram o
 `handoff_wait`, e o que as apanha é a política AST do critério 2. Existem porque
