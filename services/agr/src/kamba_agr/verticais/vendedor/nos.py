@@ -56,6 +56,7 @@ from ...tls.erros import (
     UPSTREAM_TIMEOUT,
     VALIDATION_ERROR,
 )
+from ...tls.vendedor import LIMITE_DA_QUERY
 from ...validador.render import BlocoInvalidoError, Oferta, renderizar
 from ...validador.veredicto import Policy, medir_validacao, validar
 from .arestas import AVISOS, INTENCOES, RECUSAS, STALE_CONFIRMATION, VERSAO_DO_GRAFO
@@ -190,15 +191,44 @@ _FRONTEIRA: Final = tuple(
     )
 )
 
-#: Assunto sensivel (§8.4, quarta linha): saude, medicamentos, armas, alcool,
-#: apostas e credito. Vai a **handoff** e nao a `safe_reply`, porque o §7.3
-#: linha 10 o manda — e porque uma loja pode legitimamente vender alguns
-#: destes, e quem decide e uma pessoa.
+#: O que **absolve** um padrao de fronteira: o cliente a falar dos pedidos dele.
+#:
+#: A revisao adversarial mediu o custo de nao ter isto (achado 6): «as minhas
+#: encomendas da loja ja sairam?» e «pode ver todos os pedidos que fiz?» saiam
+#: como `injection` — a mesma classe de «ignora as tuas instrucoes» —, com o
+#: contador de abuso por contacto a somar e uma resposta que se contradiz («so
+#: posso ajudar com … os pedidos desta loja»). **O que o X-09 procura e a
+#: travessia, e um possessivo de primeira pessoa e o contrario dela.** A
+#: barreira que protege de facto continua a ser a tool (so ve encomendas do
+#: proprio contacto) e a RLS; esta regra nao acrescentava seguranca,
+#: acrescentava recusa.
+_PRIMEIRA_PESSOA: Final = re.compile(
+    r"\b(?:meu|meus|minha|minhas|que fiz|que encomendei|que comprei)\b", re.IGNORECASE
+)
+
+#: Assunto sensivel (§8.4, quarta linha). Vai a **handoff** e nao a
+#: `safe_reply`, porque o §7.3 linha 10 o manda — e porque uma loja pode
+#: legitimamente vender alguns destes, e quem decide e uma pessoa.
+#:
+#: **O alcool da lista do §8.4 nao esta aqui, e e escolha com credor.** Essa
+#: linha nomeia «Classificador + **categorias da loja**», e as categorias da
+#: loja nao existem em sitio nenhum deste repositorio — o
+#: `registry/vendedor.yaml` nao as traz. Sem elas, um padrao de bebidas mandava
+#: a *handoff* toda a pergunta sobre cerveja, vinho ou whisky **de uma loja que
+#: os vende legitimamente**, que e o segundo custo de uma guarda e o mais
+#: provavel aqui. Credor **KAM-033**, que traz o classificador e as categorias.
+#: Apanhado pela revisao adversarial (achado 7), que notou — com razao — que um
+#: comentario a enumerar canon e a implementar menos e pior do que a lacuna.
 _SENSIVEL: Final = tuple(
     re.compile(rf"\b{p}\b", re.IGNORECASE)
     for p in (
         "medicament\\w*", "remedi\\w*", "receita medica", "doenca", "sintoma",
-        "arma\\w*", "munic\\w*", "aposta\\w*", "credito\\w*", "emprestimo\\w*",
+        "arma\\w*", "munic\\w*", "aposta\\w*", "emprestimo\\w*",
+        # **O `credito` nao conta depois de `cartao`**, e a revisao adversarial
+        # mediu porque (achado 8): o §8.4 fala de credito como **produto**, e
+        # «aceitam cartao de credito?» e uma das perguntas mais frequentes de
+        # uma loja angolana — ia a *handoff* por causa de um meio de pagamento.
+        "(?<!cartao de )(?<!cartao )credito\\w*",
     )
 )
 
@@ -235,10 +265,28 @@ class PortaDeStt(Protocol):
 
 
 class PortaDeHandoff(Protocol):
-    """O `HandoffService` do §11. A implementacao idempotente e o KAM-034."""
+    """O `HandoffService` do §11. A implementacao idempotente e o KAM-034.
+
+    **Cinco campos, e nao o estado.** A primeira versao passava o `estado`
+    inteiro, e a revisao adversarial mediu o que isso levava consigo (achado
+    11): a janela `messages` atravessava para o HND com o texto do cliente
+    dentro — um canario plantado numa mensagem chegou intacto ao espiao da
+    porta. O `open_handoff` do §11 recebe `handoff_id`, `tenant_id`,
+    `contact_id`, `conversation_id`, `motivo` e `resumo`, e a *docstring* do
+    `_resumo` ja dizia porque: «copiar a mensagem para aqui era passar texto do
+    cliente por um campo que o §6.4 nao cobre». O resumo cumpria-o; a chamada
+    nao.
+    """
 
     def abrir(
-        self, *, handoff_id: str, estado: Mapping[str, Any], motivo: str, resumo: str
+        self,
+        *,
+        handoff_id: str,
+        tenant_id: str,
+        contact_id: str,
+        conversation_id: str,
+        motivo: str,
+        resumo: str,
     ) -> str: ...
 
 
@@ -553,7 +601,9 @@ def veredicto_de_entrada(texto: str) -> str:
         return "sensitive"
     if any(padrao.search(texto) for padrao in _INJECCAO):
         return "injection"
-    if any(padrao.search(texto) for padrao in _FRONTEIRA):
+    if any(padrao.search(texto) for padrao in _FRONTEIRA) and not _PRIMEIRA_PESSOA.search(
+        texto
+    ):
         # **Atravessar a fronteira do tenant e `injection`**, nao
         # `out_of_domain`. Os dois vao ao `safe_reply` pela linha 9, mas e o
         # `injection` que nomeia o que isto e: o X-09 do `docs/tecnica/08` §3.7.
@@ -584,18 +634,50 @@ def violacao_de_saida(texto: str) -> str | None:
 #: decidirem, e e por isso que a lista e curta — cada padrao que entra aqui e um
 #: caso que o modelo deixa de ver, e tambem um caso que ninguem reve.
 _REGRAS_DE_INTENCAO: Final = (
-    ("humano", r"\b(?:humano|pessoa|atendente|funcionari\w*|colega)\b"),
+    # **O `humano` exige que a pessoa seja o objecto do pedido**, e nao uma
+    # mencao. A revisao adversarial mediu o custo da versao larga (achado 13):
+    # «quero comprar uma camisa azul **para o meu colega**» saia como `humano` e
+    # ia a *handoff* — e `colega` e uma palavra das nossas proprias mensagens
+    # estaticas.
+    ("humano", r"\b(?:falar com (?:uma |um )?(?:pessoa|humano|atendente|alguem|colega)|atendente|operador|funcionari\w*)\b"),
     ("info_loja", r"\b(?:horario|aberto|fecha\w*|morada|endereco|onde (?:fica|estao|e))\b"),
-    ("encomenda", r"\b(?:encomenda|pedido|entrega)\b"),
-    ("pagamento_estado", r"\b(?:pagamento|paguei|pago|referencia|transferenc\w*)\b"),
-    ("comprar", r"\b(?:comprar|quero|levar|encomendar|adiciona\w*)\b"),
+    # **O `comprar` vem antes do `encomenda` e do `pagamento_estado`**, e exige
+    # um verbo de compra ou um determinante depois do «quero»: um `quero` nu
+    # apanhava «quero saber da minha encomenda». E o `entrega` solto saiu do
+    # `encomenda` — «quero comprar duas camisas, a entrega e em casa?» e uma
+    # compra, nao uma pergunta sobre uma encomenda.
+    ("comprar", r"\b(?:comprar|compro|levar|levo|encomendar|adiciona\w*|quero (?:um|uma|dois|duas|tres|\d))\b"),
     ("preco_stock", r"\b(?:preco|precos|custa|quanto|stock|unidades|disponivel)\b"),
-    ("produto", r"\b(?:tem|teem|vendem|procuro|ha)\b"),
+    ("encomenda", r"\b(?:(?:meu|minha|o|a) (?:pedido|encomenda)|encomendas?\b.{0,12}\b(?:ja|sai|chegou)|pedido [A-Za-z0-9-]+)\b"),
+    ("pagamento_estado", r"\b(?:pagamento|paguei|pago|referencia|transferenc\w*)\b"),
+    ("produto", r"\b(?:tem|teem|vendem|procuro|ha|quero)\b"),
 )
 
 _INTENCAO_COMPILADA: Final = tuple(
     (nome, re.compile(padrao, re.IGNORECASE)) for nome, padrao in _REGRAS_DE_INTENCAO
 )
+
+
+#: O cancelamento **escrito**, que o botao nao cobre.
+#:
+#: A revisao adversarial mediu o que faltava (achado 3): o `_botao_do_turno` so
+#: devolve algo quando `input_kind == "interactive"`, pelo que um cliente que
+#: **escreva** `cancelar` — a palavra exacta que esta no botao — caia em `outro`,
+#: recebia o texto de fora de ambito, e o carrinho e o `stage` ficavam
+#: intactos. O botao `confirm:{cart_id}` da mensagem anterior continua no ecra
+#: do WhatsApp e continuava a valer ate ao TTL. Tres turnos medidos: uma
+#: encomenda criada **depois** de o cliente ter cancelado.
+_CANCELAMENTO: Final = re.compile(
+    r"\b(?:cancela\w*|anula\w*|desist\w*|nao quero|ja nao quero|deixa estar|esquece o pedido)\b",
+    re.IGNORECASE,
+)
+
+
+def pediu_cancelamento(texto: str) -> bool:
+    """Se o cliente pediu para largar o carrinho, por palavras."""
+    from ...validador.normalizacao import sem_acento
+
+    return bool(_CANCELAMENTO.search(sem_acento(texto.lower())))
 
 
 def intencao_por_regras(texto: str) -> str | None:
@@ -609,23 +691,65 @@ def intencao_por_regras(texto: str) -> str | None:
     return None
 
 
-#: Uma quantidade escrita pelo cliente: um ou dois digitos isolados. **Nao e um
-#: *fact* e nao precisa de ser** — e um **argumento** que o cliente deu, nao um
-#: numero que nos afirmamos, que e a distincao do ADR-007. O `propose_cart`
-#: valida-o (`qty` entre 1 e 99) e o total vem do backend.
-_QUANTIDADE: Final = re.compile(r"(?<!\S)(\d{1,2})(?!\S)")
+#: As palavras que **reclamam** um numero como quantidade. Sem uma delas, um
+#: numero no texto do cliente nao e uma quantidade: e um tamanho, um numero de
+#: porta, uma hora, ou o numero de bolsos de uma camisa.
+#:
+#: **A primeira versao lia qualquer um ou dois digitos isolados**, e a revisao
+#: adversarial mediu o que isso custava (achado 2): «quero comprar a camisa azul
+#: numero 5» dava um carrinho de **cinco** camisas, com o total certo para o
+#: carrinho errado. E nenhuma barreira do ADR-007 o pode ver — o total e um
+#: *fact* do backend, com proveniencia perfeita; o erro esta no **argumento**
+#: que inventamos, nao no numero que afirmamos. E a mesma regra que o KAM-032
+#: pagou para as palavras de numero: so conta quando algo a reclama.
+_PEDE_ANTES: Final = r"(?:quero|queria|levar|levo|comprar|compro|manda|mande|mais|da-me)"
+_UNIDADE_DEPOIS: Final = (
+    r"(?:unidades?|caixas?|pares?|garrafas?|pacotes?|sacos?|duzias?|metros?|quilos?|kg)"
+)
+_QUANTIDADE_ANTES: Final = re.compile(rf"\b{_PEDE_ANTES}\s+(\d{{1,2}})\b")
+_QUANTIDADE_DEPOIS: Final = re.compile(rf"\b(\d{{1,2}})\s+{_UNIDADE_DEPOIS}\b")
 
 #: A referencia de uma encomenda no texto do cliente.
 _REFERENCIA: Final = re.compile(r"\b([A-Za-z]{1,4}-?\d{1,12})\b")
 
 
+def _query_de(texto: str) -> str:
+    """O que se procura numa mensagem, dentro do comprimento que a tool aceita.
+
+    **Truncar e melhor do que recusar em silencio.** O `max_length` do modelo
+    recusava uma pergunta de 280 caracteres no passo 3 do `invoke`, e o cliente
+    recebia «nao encontrei nada no catalogo» — uma avaria nossa a responder como
+    uma ausencia de catalogo (achado 14 da revisao adversarial). A extraccao a
+    serio do que se procura numa frase e do KAM-061, com indice real; isto e o
+    limite declarado, e corta pelo fim porque o inicio de uma pergunta e onde o
+    produto costuma estar.
+
+    Uma mensagem vazia continua a ser recusada pelo `min_length`, e isso esta
+    certo: nao se pesquisa o nada.
+    """
+    return texto[:LIMITE_DA_QUERY]
+
+
 def quantidade_pedida(texto: str) -> int:
-    """Quantas unidades o cliente pediu. Uma, se nao disser."""
-    achado = _QUANTIDADE.search(texto)
-    if achado is None:
-        return 1
-    quantos = int(achado.group(1))
-    return quantos if 1 <= quantos <= 99 else 1
+    """Quantas unidades o cliente pediu. **Uma, se nao houver quem a reclame.**
+
+    Dois candidatos, e se discordarem **nao se adivinha**: volta a uma. O cliente
+    confirma o **total** antes de pagar, pelo que uma quantidade a menos custa
+    uma segunda pergunta e uma a mais custa uma encomenda errada — e nao sao o
+    mesmo erro. Pedir a confirmacao da quantidade era melhor do que as duas, e
+    nao ha no no §7.3 para isso: o `item` do §9.1 nao mostra quantidade, que e a
+    divida 124.
+    """
+    from ...validador.normalizacao import sem_acento
+
+    normalizado = sem_acento(texto.lower())
+    candidatos = {
+        int(achado.group(1))
+        for padrao in (_QUANTIDADE_ANTES, _QUANTIDADE_DEPOIS)
+        for achado in padrao.finditer(normalizado)
+    }
+    validos = {q for q in candidatos if 1 <= q <= 99}
+    return validos.pop() if len(validos) == 1 else 1
 
 
 # --------------------------------------------------------------------- os nos
@@ -658,10 +782,20 @@ def _recorte_da_janela(estado: Mapping[str, Any]) -> dict[str, Any]:
 
     from ...checkpointer import JANELA_MAXIMA
 
+    # **`JANELA_MAXIMA - 1` e nao `JANELA_MAXIMA`, e a diferenca mata conversas.**
+    # O `send` acrescenta a resposta no fim do turno pelo redutor
+    # `add_messages`, pelo que recortar para o tecto exacto deixava o estado em
+    # `JANELA_MAXIMA + 1` — e o `_exigir_janela` do `checkpointer.py` levanta
+    # acima do tecto. A *docstring* do `JanelaExcedidaError` diz o custo por
+    # extenso: «faz **todos** os `aput` dela levantar — o turno falha, o *job*
+    # volta a fila e repete, e a conversa fica morta sem o cliente receber
+    # resposta». O lugar que se reserva e **um**, porque o §15.1 fixa «uma so
+    # mensagem por turno». Apanhado pela revisao adversarial (achado 1).
+    tecto = JANELA_MAXIMA - 1
     mensagens = list(estado.get("messages") or ())
-    if len(mensagens) <= JANELA_MAXIMA:
+    if len(mensagens) <= tecto:
         return {}
-    a_remover = mensagens[: len(mensagens) - JANELA_MAXIMA]
+    a_remover = mensagens[: len(mensagens) - tecto]
     # Uma mensagem sem `id` nao se pode remover, e isso nao e erro: o redutor
     # atribui `id` quando converte, pelo que as que ca estao ja o tem. As que
     # nao tiverem ficam, e o `aput` levanta — que e melhor do que remover outra.
@@ -739,7 +873,8 @@ def classify(deps: Dependencias):
             return {"intent": "confirmar"}
         if botao == BOTAO_HUMANO:
             return {"intent": "humano", "handoff_motivo": MOTIVO_PEDIDO}
-        if botao == BOTAO_CANCELAR:
+        texto_do_turno = _texto_do_cliente(estado)
+        if botao == BOTAO_CANCELAR or pediu_cancelamento(texto_do_turno):
             # shortcut: o §7.3 **nao tem no de cancelamento** — nao esta nas
             # vinte e uma entradas —, pelo que o cancelar cai em `outro` e sai
             # com texto estatico. O que nao se pode deixar e o carrinho de pe:
@@ -748,7 +883,7 @@ def classify(deps: Dependencias):
             # carrinho. Credor: KAM-037, que desenha os menus por botoes.
             return {"intent": "outro", "cart": None, "stage": "browsing"}
 
-        texto = _texto_do_cliente(estado)
+        texto = texto_do_turno
         intencao = intencao_por_regras(texto)
         if intencao is None and deps.classificador is not None:
             escolhida = deps.classificador(texto)
@@ -768,7 +903,7 @@ def retrieve(deps: Dependencias):
 
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
         resultado = await _invocar(
-            deps, estado, "search_catalog", {"query": _texto_do_cliente(estado)}
+            deps, estado, "search_catalog", {"query": _query_de(_texto_do_cliente(estado))}
         )
         if not resultado.ok:
             # O §7.3 da ao `retrieve` **duas** arestas e nenhuma e `handoff`:
@@ -815,7 +950,9 @@ def cart_build(deps: Dependencias):
 
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
         texto = _texto_do_cliente(estado)
-        pesquisa = await _invocar(deps, estado, "search_catalog", {"query": texto})
+        pesquisa = await _invocar(
+            deps, estado, "search_catalog", {"query": _query_de(texto)}
+        )
         if not pesquisa.ok:
             return {"avisos": _avisos_com(estado, _aviso_do_erro(pesquisa))}
         candidatos = [
@@ -1040,12 +1177,8 @@ def compose(deps: Dependencias):
         facts = tuple(estado.get("facts") or ())
         ofertas = tuple(estado.get("ofertas") or ())
         avisos = tuple(estado.get("avisos") or ())
+        rascunho = estado.get("draft") or {}
         blocos: list[dict[str, Any]] = []
-
-        if _primeiro_turno(estado):
-            apresentacao = _apresentacao(deps)
-            if apresentacao:
-                blocos.append({"type": "text", "text": apresentacao})
 
         for aviso in avisos:
             blocos.append({"type": "text", "text": FRASE_DO_AVISO[aviso]})
@@ -1085,14 +1218,28 @@ def compose(deps: Dependencias):
                     }
                 )
 
-        if estado.get("stage") == "awaiting_payment":
+        # **Do turno em que a encomenda se cria, e nao do estagio.** O
+        # `awaiting_payment` atravessa turnos, pelo que a condicao anterior
+        # repetia «O seu pedido ficou registado» em **todos** os turnos
+        # seguintes — medido pela revisao adversarial (achado 12), com a frase a
+        # sair numa pergunta sobre o horario da loja. E a mesma simetria do
+        # `total`: so se cita o que este turno produziu.
+        dados = rascunho.get("dados") if isinstance(rascunho, Mapping) else None
+        if isinstance(dados, Mapping) and dados.get("order_id"):
             blocos.append({"type": "text", "text": MSG_PEDIDO_REGISTADO})
 
         blocos.extend(_blocos_dos_dados(estado))
 
         if not blocos:
             blocos.append({"type": "text", "text": MSG_NAO_ENTENDI})
-        return {"draft": {"blocos": tuple(blocos)}}
+        # **Preserva o rascunho em vez de o substituir.** Um `dict` novo
+        # apagava o `dados` que o `tools_info` e o `order_status` deixaram, e a
+        # revisao adversarial mediu a consequencia na segunda passagem do ciclo
+        # da linha 30 (achado 9): o `compose` perdia o que tinha para dizer e
+        # produzia «Nao encontrei nada no catalogo» — um bloco que **passa** o
+        # validador e **e enviado**, pelo que uma falha de citacao degradava
+        # numa resposta errada e plausivel em vez de ir a *handoff*.
+        return {"draft": dict(rascunho, blocos=tuple(blocos))}
 
     return no
 
@@ -1259,6 +1406,28 @@ def safe_reply(deps: Dependencias):
     return no
 
 
+def com_apresentacao(deps: Dependencias, estado: Mapping[str, Any], texto: str) -> str:
+    """A identificacao do §8.4 na **primeira** mensagem da conversa.
+
+    **Vive aqui e nao no `compose`, e a diferenca e o criterio 8 inteiro.** A
+    primeira versao punha-a num bloco do `compose`, e a revisao adversarial
+    mediu o que isso deixava de fora (achado 5): as arestas da linha 34
+    (`unknown_reply`, `ask_repeat`, `safe_reply` -> `send`) e o ramo `degraded`
+    da linha 37 **passam ao lado do `compose`**, e o `send` escreve a resposta
+    na janela de qualquer maneira — pelo que no turno seguinte o
+    `_primeiro_turno` ja era falso e a apresentacao nunca mais acontecia. Tres
+    sondas, tres conversas, **zero** identificacoes.
+
+    O `send` e o `handoff_prepare` sao os dois unicos sitios por onde uma
+    mensagem sai (linha 35, e o §11 para a mensagem de espera), pelo que esta
+    funcao cobre os sete caminhos de saida de uma vez.
+    """
+    if not _primeiro_turno(estado):
+        return texto
+    frase = _apresentacao(deps)
+    return frase + "\n" + texto if frase else texto
+
+
 def send(deps: Dependencias):
     """Linha 35: o Outbound, com `idempotency_key = turn_id:seq`."""
 
@@ -1272,7 +1441,7 @@ def send(deps: Dependencias):
             return {}
         deps.saida.enfileirar(
             estado,
-            texto,
+            com_apresentacao(deps, estado, texto),
             chave=chave_do_turno(estado),
             botoes=tuple(rascunho.get("botoes") or ()),
         )
@@ -1302,13 +1471,22 @@ def handoff_prepare(deps: Dependencias):
             return _degradado(hid)
         try:
             referencia = deps.hnd.abrir(
-                handoff_id=hid, estado=estado, motivo=motivo, resumo=_resumo(estado)
+                handoff_id=hid,
+                tenant_id=estado["tenant_id"],
+                contact_id=estado["contact_id"],
+                conversation_id=estado["conversation_id"],
+                motivo=motivo,
+                resumo=_resumo(estado),
             )
         except HandoffIndisponivel:
             # O §11: `HandoffUnavailable` -> `degraded` -> aresta 37 -> `send`.
             # O §14 acrescenta a conversa em `pausada`, que e do CHR e nao daqui.
             return _degradado(hid)
-        deps.saida.enfileirar(estado, MSG_HUMANO_A_CAMINHO, chave=f"{hid}:msg")
+        deps.saida.enfileirar(
+            estado,
+            com_apresentacao(deps, estado, MSG_HUMANO_A_CAMINHO),
+            chave=f"{hid}:msg",
+        )
         # O `handoff_seq` sobe **aqui** e nao no `handoff_close`: e o que faz o
         # *handoff* seguinte da mesma conversa ter outro `handoff_id`. Se subisse
         # no fim, dois *handoffs* seguidos partilhavam o identificador e o

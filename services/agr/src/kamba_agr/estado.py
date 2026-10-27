@@ -200,6 +200,15 @@ CAMPOS_DO_TURNO: Final = {
     "admissao": None,
     "draft": None,
     "citation_retries": 0,
+    # **O `guard`, o `intent` e o `stt` tambem**, e a primeira versao disto
+    # esquecia-os. Sao do turno tanto quanto os `facts`: um turno que chegue por
+    # nota de voz e saia por `ask_repeat` nao classifica nada, e sem o reinicio
+    # o estado continuava a dizer `intent="comprar"` do turno anterior — que e
+    # exactamente o que o `_resumo` do *handoff* escreve ao colega. Apanhado
+    # pela revisao adversarial (achado 15 da `ANALISE-34`).
+    "guard": None,
+    "intent": None,
+    "stt": None,
 }
 
 

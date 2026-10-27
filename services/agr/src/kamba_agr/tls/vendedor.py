@@ -51,6 +51,16 @@ CREDOR_DO_CARRINHO: Final = "KAM-046"
 CREDOR_DAS_ENCOMENDAS: Final = "KAM-044"
 
 
+#: O comprimento maximo de uma pergunta de pesquisa. **Tem um dono so**, e e
+#: esta constante: o `Field` do modelo e o `retrieve` do grafo leem-na daqui.
+#: Escrita nos dois sitios, divergiam — e a revisao adversarial do KAM-031 mediu
+#: o que isso custava (achado 14): uma pergunta de 280 caracteres, que e prosa
+#: normal de WhatsApp, dava `VALIDATION_ERROR` no passo 3 e o cliente recebia
+#: «nao encontrei nada no catalogo». Uma avaria nossa a responder como uma
+#: ausencia de catalogo.
+LIMITE_DA_QUERY: Final = 256
+
+
 class ArgumentosDeSearchCatalog(BaseModel):
     """`search_catalog(query, filtros)` — §6.2, primeira linha.
 
@@ -62,7 +72,7 @@ class ArgumentosDeSearchCatalog(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    query: str = Field(min_length=1, max_length=256)
+    query: str = Field(min_length=1, max_length=LIMITE_DA_QUERY)
     filtros: dict[str, str] = Field(default_factory=dict)
 
 

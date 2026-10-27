@@ -1099,6 +1099,43 @@ pedido) e **KAM-044** (o estado da encomenda). São quatro e não os três que o
 Detalhes Técnicos nomeiam — o `get_order_status` lê o `orders_mirror`, que é o
 KAM-044.
 
+### O que a revisão adversarial mudou, e a classe de defeito que ela nomeia
+
+A `analises/ANALISE-34` reprovou o ramo com seis *must fix*, e **três eram
+dinheiro**. Os três tinham a mesma forma — um mecanismo existia, a bateria
+passava, e o caso que o quebrava não estava no conjunto —, mas o primeiro nomeia
+uma classe que este serviço vai encontrar outra vez:
+
+**Um argumento inventado não é um número afirmado, e a camada de citação não o
+vê.** O `quantidade_pedida` lia qualquer número de um ou dois dígitos no texto do
+cliente, pelo que «quero comprar a camisa azul **número 5**» dava um carrinho de
+cinco camisas. O total que sai disso é um *fact* do backend, com proveniência
+perfeita: o `validate` confronta o texto com os *facts* e **tudo bate**. O erro
+está no argumento que o nó escolheu, e nenhuma barreira do ADR-007 olha para esse
+lado. A regra passa a ser a mesma que o KAM-032 pagou para as palavras de número:
+um número só é quantidade quando uma palavra o reclama (`quero N`, `N unidades`),
+e dois candidatos a discordar voltam a um.
+
+Os outros dois: um `cancelar` **escrito** deixava o carrinho de pé — o
+cancelamento entrava só pelo botão, e o botão que fica no ecrã do WhatsApp
+continuava a cobrar até ao TTL —, e a verificação de confirmação do passo 4 do
+`invoke` **nunca era exercida pelo grafo**, pelo que a segunda barreira da classe
+`money` podia ser removida com a *suite* verde.
+
+**E o mais sério dos seis não era dinheiro: era a conversa a morrer.** O recorte
+da janela deixava o tecto exacto e o `send` acrescentava a resposta por cima, com
+o que o `aput` passava a levantar para sempre naquela conversa. O recorte deixa
+agora lugar para a resposta (`JANELA_MAXIMA - 1`, uma mensagem por turno pelo
+§15.1), e o ensaio confronta o estado final com a guarda **real** do checkpointer
+em vez do saver em memória — que não a tem.
+
+**Duas lições de escrita que valem para quem vier depois.** Um comentário que
+enumera canon e implementa menos é pior do que a lacuna, porque quem o lê deixa
+de a procurar: o `_SENSIVEL` listava as seis categorias do §8.4 e tinha padrões
+para cinco. E uma guarda tem dois custos: «as minhas encomendas da loja já
+saíram?» saía como `injection`, com o contador de abuso a somar sobre a pergunta
+mais comum da vertical.
+
 ### O que este ticket não liga
 
 **A porta `grafos` do `turno.py` continua a levantar, e o `/internal/turn`
@@ -1135,4 +1172,4 @@ tabela do §1 atribui a outro ticket.
 | 1.5 | 2026-10-25 | KAM-029 | §7-C: o passo 5 passa de ponto de extensão a passo com três recusas e um *replay*. O que **este** ticket descobriu ao atravessá-lo está na tabela do §7-C: o `Pedido` não levava a chave ao executor (e sem ela «o backend é idempotente pela chave» era uma frase sem sustento), a `tool_audit.idempotency_key` não é a chave do §6.3 mas a do **turno**, e o fecho da reserva tinha de correr também no `except` — o caminho de excepção fecha a tomada e o `finally` corre depois dele, pelo que a reserva ficava aberta precisamente no caminho em que mais precisa de fechar. As três saíram de **correr** e não de ler, a terceira na bateria da falha injectada. O décimo primeiro erro tipado (`INTENT_REUSED_WITH_DIFFERENT_CONTENT`) e o que ele arrasta: revisão `0022`, dicionário §3.28, e a etiqueta de `agr_tool_erros_total`, que é derivada |
 | 1.6 | 2026-10-26 | KAM-030 | §7-D: o *gateway* de LLM — o cliente por **papéis** (`chamar(papel, mensagens, ctx)`), e porque é que nenhum SDK de fornecedor nem o pacote `litellm` entram no AGR (fala HTTP com o proxy, e o `httpx` já estava no fecho desde o KAM-026: o *gateway* **não acrescenta dependência nenhuma**); o *gate* de destino a correr **antes** da chamada e para **todos** os fornecedores do alias, porque o *fallback* é do router e autorizar só o de `ordem: 1` deixava o segundo receber os dados sem o *gate* ter sido consultado por ele; a `dat.llm_call_log` com uma linha por chamada **incluindo as recusadas**, e porque é que uma falha de registo **não** levanta (levantar repetia a chamada ao modelo — segunda transferência, segundo custo — e a perda de uma linha é mais barata); a quinta ligação (`kamba-agr:llm`) e porque não é a das tools; o código de saída **7**. §5: a guarda do arranque, que são três verificações de configuração — os dois ficheiros de `llm/` e o `INSERT` nas catorze colunas. **O que este ticket descobriu ao atravessar o proxy, e que mudou o desenho:** a configuração do `tecnica/02` §13.1, à letra, não comuta de fornecedor de forma determinística (`simple-shuffle`, 3 falhas em 20), o orçamento esgotado responde **422** e não 400, e `google/` não é um prefixo que o proxy conheça. As três saíram de **correr** e não de ler. §1: o 503 fica, e porquê — os grafos continuam a ser o KAM-031 e o KAM-035, e o que este ticket entrega é o caminho para o modelo, provado em `staging`, com a porta de `prod` fechada por desenho enquanto o KAM-069 não existir |
 | 1.7 | 2026-10-26 | KAM-032 | §7-E: o validador de citação — as duas camadas do §9, o contrato dos cinco blocos (e as três decisões que o exemplo do §9.1 não escreve: os botões ao lado do texto, o `sku` sempre no `item`, e um `text` com dígitos a levantar), os sete veredictos com o vínculo `sku`↔preço que fecha o ponto cego do ADR-007, os três modos de preço, e a unidade em **cêntimos** contra o `value_kz` que o critério escreve (dívida 106, corrigido no desenho pelo KAM-139). §1 e §6: a linha do validador e as **cinco** métricas, que são contadores porque as quatro «taxas» do §9.2 não cabem numa biblioteca sem histogramas. **Dois limites escritos em vez de contornados:** o critério 8 pede `tenant_id` em etiqueta e isso levanta pela gramática (`OBS-I`), pelo que a caixa fica vazia como na dívida 54; e três `kind` que três veredictos precisam não existem (dívida 105, credor KAM-031), o que torna *qualquer* percentagem `discount_unbacked` — *fail-closed*, mas com o lado positivo do critério 2 **inverificável**. **Três defeitos que os testes apanharam e que mudaram código:** a quantidade não estava vinculada ao `sku` (7 unidades de um produto eram aceites pelo stock de outro), os dígitos de um nome de produto recusavam toda a resposta sobre esse produto, e um padrão guloso fazia «doze mil e quinhentos Kz» **desaparecer** — um falso aceite. |
-| 1.8 | 2026-10-27 | KAM-031 | §7-F: o grafo do Vendedor — a tabela de arestas como fonte (42 arestas em 39 linhas), os quatro campos de estado da emenda 1.40 e porque nenhum era dispensavel, a assimetria de tempo de vida entre o `cart` e os `facts` que produziu o primeiro defeito, as tres respostas que os cinco blocos do §9.1 nao conseguem levar, o que e Fase 0 em cada no com o credor, e porque e que as cinco tools ficam `declaradas` com o credor a mudar para quem liga o backend. |
+| 1.8 | 2026-10-27 | KAM-031 | §7-F: o grafo do Vendedor — a tabela de arestas como fonte (42 arestas em 39 linhas), os quatro campos de estado da emenda 1.40 e porque nenhum era dispensavel, a assimetria de tempo de vida entre o `cart` e os `facts` que produziu o primeiro defeito, as tres respostas que os cinco blocos do §9.1 nao conseguem levar, o que e Fase 0 em cada no com o credor, e porque e que as cinco tools ficam `declaradas` com o credor a mudar para quem liga o backend. **E o que a revisao adversarial mudou**: os tres *must fix* de dinheiro (a quantidade inventada, o cancelamento escrito, a confirmacao nao exercida), o recorte da janela que matava a conversa, e as duas licoes de escrita. |

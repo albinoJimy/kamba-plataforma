@@ -11,8 +11,9 @@ aresta a mais no grafo ou a menos na tabela falha, nos dois sentidos.
 ## Trinta e nove linhas, quarenta e duas arestas
 
 A tabela do §7.3 tem **trinta e nove linhas** e o criterio escreve «as 39
-arestas». Sao grandezas diferentes, e a diferenca mede-se: tres linhas carregam
-mais do que uma aresta —
+arestas». Sao grandezas diferentes, e a diferenca mede-se: **duas** linhas
+carregam mais do que uma aresta (e nao tres, como a primeira versao desta nota
+dizia — a contagem estava certa e a palavra nao) —
 
 * a **27** (`order_status`, `tools_info` -> `compose`) carrega duas;
 * a **34** (`unknown_reply`, `ask_repeat`, `safe_reply` -> `send`) carrega tres.

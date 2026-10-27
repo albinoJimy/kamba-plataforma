@@ -4533,7 +4533,66 @@ MUTACOES = [
     # de encomenda comprido manda a conversa para o `safe_reply`. E o segundo
     # custo de uma guarda — o falso rejeito —, que a revisao adversarial do
     # KAM-032 mediu e que a guarda de entrada tem igual.
+    # As sete da revisao adversarial (`ANALISE-34`). Cada uma repoe um achado,
+    # e seis delas sobreviviam a bateria antes de a revisao o mostrar — e a
+    # razao de estarem aqui: uma correccao sem mutacao que a prenda e uma
+    # afirmacao, e a proxima pessoa que refactorize isto apaga-a com a suite
+    # verde.
+    ('grafo: o recorte volta a deixar o tecto exacto da janela', AG_VEN_NOS,
+     "    tecto = JANELA_MAXIMA - 1",
+     "    tecto = JANELA_MAXIMA",
+     AGR_UNIT),
+    # O `send` acrescenta a resposta depois do recorte, pelo que o estado fica
+    # em `JANELA_MAXIMA + 1` e **todos** os `aput` da conversa passam a
+    # levantar: o turno falha, o *job* repete, e a conversa fica morta sem o
+    # cliente receber resposta. Achado 1, o mais serio da revisao.
+    ('grafo: a quantidade volta a aceitar qualquer palavra como unidade', AG_VEN_NOS,
+     '    r"(?:unidades?|caixas?|pares?|garrafas?|pacotes?|sacos?|duzias?|metros?|quilos?|kg)"',
+     '    r"(?:\\w+)"',
+     AGR_UNIT),
+    # «quero a camisa azul para as 18 horas» volta a dar um carrinho de
+    # dezoito. Nenhuma barreira do ADR-007 o pode ver: o total e um *fact* do
+    # backend, com proveniencia perfeita. Achado 2.
+    ('grafo: o cancelamento volta a depender do botao', AG_VEN_NOS,
+     "        if botao == BOTAO_CANCELAR or pediu_cancelamento(texto_do_turno):",
+     "        if botao == BOTAO_CANCELAR:",
+     AGR_UNIT),
+    # Um cliente que **escreva** `cancelar` deixa o carrinho de pe, e o botao
+    # `confirm:{cart_id}` que ficou no ecra do WhatsApp continua a cobrar ate
+    # ao TTL. Achado 3.
+    ('grafo: a confirmacao volta a ser reconstruida do carrinho', AG_VEN_NOS,
+     "            botao=_botao_do_turno(estado),",
+     '            botao=f"{PREFIXO_DE_CONFIRMACAO}{carrinho.get(\'cart_id\', \'\')}",',
+     AGR_UNIT),
+    # O passo 4 do `invoke` passa a comparar o `cart_id` consigo mesmo e a
+    # autorizar sempre: a segunda barreira da classe `money` deixa de existir.
+    # **Esta sobrevivia a bateria inteira** e foi a revisao a encontra-la
+    # (achado 4); o ensaio que a mata chama o `create_order` com um botao que
+    # nao cita o carrinho do estado.
+    ('grafo: a apresentacao volta a sair so pelo compose', AG_VEN_NOS,
+     "            com_apresentacao(deps, estado, texto),",
+     "            texto,",
+     AGR_UNIT),
+    # As arestas da linha 34 e o ramo `degraded` da 37 passam ao lado do
+    # `compose`, pelo que uma conversa que comece por um texto estatico nunca
+    # identifica o assistente automatico — e o criterio 8 e o §8.4 deixam de se
+    # cumprir sem nenhum ensaio vermelho. Achado 5.
+    ('grafo: a fronteira deixa de absolver a primeira pessoa', AG_VEN_NOS,
+     "    if any(padrao.search(texto) for padrao in _FRONTEIRA) and not _PRIMEIRA_PESSOA.search(\n        texto\n    ):",
+     "    if any(padrao.search(texto) for padrao in _FRONTEIRA):",
+     AGR_UNIT),
+    # «as minhas encomendas da loja ja sairam?» volta a ser `injection` — a
+    # mesma classe de «ignora as tuas instrucoes» —, com o contador de abuso por
+    # contacto a somar sobre a pergunta mais comum da vertical. Achado 6.
+    ('grafo: a frase do pedido volta a sair pelo estagio', AG_VEN_NOS,
+     '        if isinstance(dados, Mapping) and dados.get("order_id"):',
+     '        if estado.get("stage") == "awaiting_payment":',
+     AGR_UNIT),
+    # O `awaiting_payment` atravessa turnos, pelo que «O seu pedido ficou
+    # registado» volta a sair em todos os turnos seguintes — inclusive numa
+    # pergunta sobre o horario da loja. Achado 12.
 ]
+
 
 
 
