@@ -1,6 +1,6 @@
 """Tickets que podem arrancar agora, e as vagas seguintes, pelo backlog mestre.
 
-    python .claude/skills/agentic-engineering/scripts/vagas.py
+    python .claude/skills/software-factory/scripts/vagas.py
 
 Um ticket conta como **fechado** quando o seu bloco tem a seccao
 `### Verificacao dos Criterios de Aceitacao` — que so se escreve no PR que o

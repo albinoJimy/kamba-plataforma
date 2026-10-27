@@ -3,6 +3,7 @@
 Lê este ficheiro quando estiveres a rever — o teu trabalho ou o de outro agente.
 
 - [O guião](#o-guião)
+- [Verificação do achado](#verificação-do-achado)
 - [Evidência antes de conclusão](#evidência-antes-de-conclusão)
 - [Regressão documental](#regressão-documental)
 - [Padrões de defeito neste repositório](#padrões-de-defeito-neste-repositório)
@@ -52,6 +53,49 @@ Os dois últimos têm verificação directa e barata. Fá-la.
 
 ---
 
+## Verificação do achado
+
+Um revisor instruído a encontrar problemas encontra problemas, haja-os ou não. Por isso o achado
+não é o fim da revisão — é o início da verificação.
+
+```text
+ACHADO → verificar contra o código e o canon → CONFIRMADO | PLAUSÍVEL | MORTO
+```
+
+| Veredicto | Significa | Destino |
+|---|---|---|
+| **CONFIRMADO** | reproduzi-o, ou a leitura das fontes não admite outra interpretação | entra no portão de integração |
+| **PLAUSÍVEL** | o mecanismo é real, a ocorrência não está demonstrada | relatório, com o que falta para decidir |
+| **MORTO** | o canon, um ADR em vigor ou o próprio código desmentem-no | registo, com a evidência que o matou |
+
+**Só o `CONFIRMADO` gera trabalho.** Um achado por verificar que vira ticket produz exactamente o
+efeito contrário ao da revisão: ocupa a fábrica a fechar coisas que não estavam abertas.
+
+Um `CONFIRMADO` precisa de **cenário concreto** — as entradas, o documento ou o estado que levam
+ao resultado errado. Em trabalho documental, é a citação das duas fontes que se contradizem, com
+ficheiro e secção. Se não consegues escrever o cenário, o achado é `PLAUSÍVEL`, por convicto que
+estejas.
+
+**Três coisas que matam um achado aqui**, e vale a pena procurá-las antes de o levantar:
+
+- um **ADR em vigor** que já decidiu ao contrário, ou uma decisão aberta `D#` que ainda não
+  decidiu nada — e por isso não há contradição, há espera;
+- um **estado de verificação** que o achado leu como facto: um `INDÍCIO` citado como `INDÍCIO`
+  não é um defeito, é a convenção a funcionar;
+- uma **caixa por marcar** que não é trabalho por fazer, mas trabalho feito cuja caixa ninguém
+  marcou — o EPIC-02 tem sete nesse estado desde 2026-10-23.
+
+**O `MORTO` regista-se**, em `docs/analises/ANALISE-NN-<slug>.md`. Sem isso, a mesma hipótese
+volta na próxima auditoria e paga-se outra vez a verificação — que é o custo que este veredicto
+existe para evitar.
+
+**Calibração.** Perto de 100% de achados confirmados significa que a revisão só procurou o
+óbvio; perto de 0% significa que está a produzir ruído. Qual é a ordem de grandeza saudável
+**neste** repositório é hoje `NÃO VERIFICADO`, e não se importa o número de outro conjunto
+([`metricas-e-realimentacao.md`](metricas-e-realimentacao.md)).
+
+---
+
 ## Evidência antes de conclusão
 
 Cada afirmação relevante precisa de evidência nomeada.
@@ -59,14 +103,14 @@ Cada afirmação relevante precisa de evidência nomeada.
 ```text
 AFIRMAÇÃO: "O backlog está consistente."
 EVIDÊNCIA:
-- script de consistência sobre specs/INDICE.md §4 → 159 tickets, 0 erros (ciclos,
+- script de consistência sobre specs/INDICE.md §4 → 161 tickets, 0 erros (ciclos,
   prioridade invertida, fase invertida, dependências inexistentes);
-- 159 blocos únicos `## KAM-NNN — ` nos 11 epics, 0 duplicados, 0 em falta;
+- 161 blocos únicos `## KAM-NNN — ` nos 11 epics, 0 duplicados, 0 em falta;
 - segunda passagem da sincronia mestre↔epics → 0 divergências.
 ```
 
 Cita a verificação **pelo que ela faz e pelo resultado**, não pelo nome. «Corri o script de
-verificação» não é evidência; «159 tickets, 0 erros de consistência» é.
+verificação» não é evidência; «161 tickets, 0 erros de consistência» é.
 
 E separa o que verificaste do que não verificaste. Nesta sessão, o conjunto de specs foi
 verificado na estrutura (referências, grafo, unicidade, sincronia) e **não** foi lido linha a
