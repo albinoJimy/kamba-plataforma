@@ -139,6 +139,42 @@ class TestAdulteracaoDetectada(ComCadeia):
         achados = self.achados()
         self.assertTrue(any("nao esta na cadeia" in a for a in achados), achados)
 
+    def test_uma_cadeia_bifurcada_diz_elo_partido_e_nao_fora_da_cadeia(self) -> None:
+        """A quarta forma de adulteracao, e nasceu de um defeito (KAM-161).
+
+        Uma linha fica fora da travessia por duas razoes diferentes: o seu
+        `prev_hash` nao ser o `row_hash` de ninguem — **orfa** —, ou ser o de
+        uma linha que **ja tem quem a siga**, e ai a cadeia **bifurca** e o
+        `pop(0)` leva uma das duas. As duas saiam com a mensagem da orfa, que
+        afirma «o seu prev_hash nao e o row_hash de nenhuma outra» — o
+        contrario do que se passa numa bifurcacao. O verificador reportava a
+        adulteracao e dizia a causa errada: quem fosse investigar procurava uma
+        linha apagada onde havia uma inserida.
+
+        Medido antes de corrigir, com esta mesma bifurcacao: saiam dois
+        achados, e o primeiro era o da orfa.
+
+        O canario sao os **dois** `assertFalse`: afirmar so que sai «elo
+        partido» passava com um verificador que dissesse as duas coisas ao
+        mesmo tempo, e o que se quer e que diga **a certa** e nao a outra.
+        """
+        ids = self.ids()
+        self.cursor.execute(
+            "SELECT encode(row_hash,'hex') FROM platform.audit_log WHERE id = %s",
+            (ids[0],),
+        )
+        elo_da_primeira = self.cursor.fetchone()[0]
+        # A ultima passa a declarar o mesmo `prev_hash` que a segunda: duas
+        # linhas a dizer que vem depois da primeira.
+        self.sem_trigger(
+            "UPDATE platform.audit_log SET prev_hash = decode(%s,'hex') WHERE id = %s",
+            (elo_da_primeira, ids[-1]),
+        )
+        achados = self.achados()
+        self.assertTrue(any("elo partido" in a for a in achados), achados)
+        self.assertFalse(any("nao esta na cadeia" in a for a in achados), achados)
+        self.assertTrue(any("bifurca" in a for a in achados), achados)
+
     def test_apagar_do_fim_so_a_cabeca_apanha(self) -> None:
         """O caso que justifica o `audit_heads` existir para alem do desempenho.
 
@@ -202,6 +238,53 @@ class TestAdulteracaoDetectada(ComCadeia):
         )
         achados = self.achados()
         self.assertTrue(any("hash errado" in a for a in achados), achados)
+
+    def test_apagar_so_a_cabeca_e_apanhado(self) -> None:
+        """A cadeia inteira e **nenhuma** cabeca: apagar a cabeca nao e disfarce.
+
+        Sem este caso, o achado `ha N linha(s) e nao ha cabeca` era a unica
+        mensagem do `verificar` sem teste que a exigisse — e uma mensagem que
+        ninguem exige e uma mensagem que se pode apagar sem nada ficar vermelho.
+        Apanhado ao fechar o KAM-161, a contar as mensagens contra os testes.
+        """
+        self.cursor.execute(
+            "DELETE FROM platform.audit_heads WHERE tenant_id = %s", (self.tenant,)
+        )
+        achados = self.achados()
+        self.assertTrue(any("nao ha cabeca" in a for a in achados), achados)
+
+    def test_apagar_as_linhas_e_deixar_a_cabeca_e_apanhado(self) -> None:
+        """O inverso: a cabeca de pe e a cadeia vazia.
+
+        E o caso que o `verificar` ve **sem** ancora, ao contrario do
+        `desapareceu inteira`: aqui a cabeca ficou, e e ela que denuncia.
+        """
+        self.sem_trigger(
+            "DELETE FROM platform.audit_log WHERE tenant_id = %s", (self.tenant,)
+        )
+        achados = self.achados()
+        self.assertTrue(
+            any("ha cabeca e nao ha linha nenhuma" in a for a in achados), achados
+        )
+
+    def test_a_ancora_apanha_um_elo_ancorado_que_desapareceu(self) -> None:
+        """A cadeia continua coerente consigo e perdeu o elo que foi ancorado.
+
+        Distingue-se do `desapareceu inteira`: ali a cadeia vai-se toda; aqui
+        ela existe e o `row_hash` que a ancora de ontem registou ja nao esta
+        nela. Era a terceira mensagem do `verificar` sem teste proprio.
+        """
+        import json
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as pasta:
+            caminho = auditoria.ancorar(self.cursor, destino=Path(pasta))
+            ancora = json.loads(caminho.read_text(encoding="utf-8"))
+        self.sem_trigger(
+            "DELETE FROM platform.audit_log WHERE id = %s", (self.ids()[-1],)
+        )
+        achados = auditoria.verificar(self.cursor, self.tenant, ancora)
+        self.assertTrue(any("ja nao existe na cadeia" in a for a in achados), achados)
 
     def test_uma_cadeia_que_desaparece_inteira_so_a_ancora_apanha(self) -> None:
         """O achado M4: o verificador percorre o que existe.
