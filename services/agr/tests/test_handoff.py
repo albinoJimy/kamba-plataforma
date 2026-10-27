@@ -1471,5 +1471,232 @@ class TestMetricasRegistadas(unittest.TestCase):
             METRICAS.contar(METRICA_HANDOFF_DEGRADADO, "waiting")
 
 
+# ------------------------------------------------- a fronteira com o HND (1.42)
+
+
+class TestFronteiraComOHnd(unittest.TestCase):
+    """A fronteira da emenda 1.42, lida do **outro** lado (credor: KAM-019).
+
+    **Esta classe existe por causa de uma medicao, e e a mais importante das
+    duas.** A revisao adversarial do KAM-034 (`docs/analises/ANALISE-35`, achado
+    1) encontrou que a `platform.handoffs` tinha dois escritores para a saida de
+    `waiting` e que o do HND corria primeiro — e a prova de que ninguem olhara
+    para isso foi um `grep`:
+
+        $ grep -rn "ESTADOS_QUE_FECHAM" --include=*.py .
+        (nada)
+
+    O segundo escritor foi lido pela coluna de que divergia (`resumed_at`) e
+    nunca pelo `status` que escrevia. O que estes ensaios fazem e **por o outro
+    lado dentro desta bateria**: quatro cadeias de texto e uma lista vivem em
+    dois idiomas, e a unica coisa que impede os dois lados de divergirem e
+    alguem medir que nao divergiram.
+
+    Le os ficheiros TypeScript como **texto**, e isso e deliberado: a travessia
+    nao existe (nao se importa TypeScript de Python), e a alternativa — copiar os
+    valores para ca — era criar a terceira copia do que ja estava em duas. E a
+    mesma tecnica do `test_os_motivos_sao_os_dois_primeiros_do_hnd`, acima.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        from pathlib import Path
+
+        raiz = Path(__file__).resolve().parents[3]
+        hnd = raiz / "packages" / "core-ts" / "src" / "hnd"
+        cls.retoma_ts = (hnd / "retoma.ts").read_text(encoding="utf-8")
+        cls.estados_ts = (hnd / "estados.ts").read_text(encoding="utf-8")
+        cls.consultas_ts = (hnd / "consultas.ts").read_text(encoding="utf-8")
+
+    def test_o_hnd_nao_sai_de_waiting(self) -> None:
+        """**A fronteira inteira, numa assercao.**
+
+        O `ESTADOS_QUE_FECHAM` e o predicado do `SQL_FECHAR` do HND, e com
+        `waiting` dentro dele o `#fechar` escrevia `resumed` antes de o
+        *compare-and-set* desta rota poder vencer: zero linhas, 200 `repetido`
+        ao pedido legitimo, e o `interrupt()` do `handoff_wait` pendente para
+        sempre. Nao era uma intercalacao rara — era o caminho feliz.
+
+        A emenda 1.42 (dicionario §3.32) poe-no a `["degraded"]`, e a particao
+        passa a ser enunciavel: o HND nunca tira uma passagem de `waiting`; o AGR
+        nunca tira uma de `degraded`.
+        """
+        import re
+
+        bloco = re.search(
+            r"ESTADOS_QUE_FECHAM:\s*readonly EstadoDeHandoff\[\]\s*=\s*\[(.*?)\]",
+            self.estados_ts,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(bloco, "o `ESTADOS_QUE_FECHAM` do HND mudou de forma")
+        de_la = tuple(re.findall(r'"([a-z_]+)"', bloco.group(1)))
+        self.assertEqual(de_la, ("degraded",))
+        self.assertNotIn(
+            "waiting",
+            de_la,
+            "sair de waiting e desta rota, nos tres desfechos: dicionario §3.32",
+        )
+
+    def test_a_lista_do_hnd_nao_esta_vazia_nem_tem_estado_concluido(self) -> None:
+        """O controlo positivo da assercao de cima, pelo lado dos valores.
+
+        Sem ele, `ESTADOS_QUE_FECHAM = []` passava o teste anterior e dizia
+        outra coisa: que o HND nao fecha nada. O que se afirma e a **particao**,
+        e para isso ela tem de ter os dois lados.
+
+        **O nome e este e nao «os tres estados que o CAS escreve nao estao na
+        lista»**, que era o da primeira versao: aquele prometia a fronteira e
+        esta assercao nao a mede — ela passa com `["waiting", "degraded"]`, cuja
+        interseccao com os tres estados concluidos tambem e vazia. Quem mede a
+        fronteira e o ensaio de cima. Achado da revisao adversarial.
+        """
+        import re
+
+        bloco = re.search(
+            r"ESTADOS_QUE_FECHAM:\s*readonly EstadoDeHandoff\[\]\s*=\s*\[(.*?)\]",
+            self.estados_ts,
+            re.DOTALL,
+        )
+        de_la = set(re.findall(r'"([a-z_]+)"', bloco.group(1)))
+        escritos_pelo_cas = set(maquina.ESTADO_DO_DESFECHO.values())
+        self.assertEqual(de_la & escritos_pelo_cas, set())
+        self.assertTrue(de_la, "e o HND tem de continuar a fechar alguma coisa")
+
+    def test_o_caminho_da_rota_e_o_mesmo_nos_dois_lados(self) -> None:
+        from kamba_agr.api_interna import rotas
+
+        caminhos = {
+            rota.path
+            for rota in rotas(
+                credencial=lambda: CREDENCIAL,
+                executar=None,  # type: ignore[arg-type]
+                admissao=None,  # type: ignore[arg-type]
+                trancas=None,
+            )
+        }
+        self.assertIn("/internal/resume", caminhos)
+        self.assertIn(
+            'CAMINHO_DA_RETOMA = "/internal/resume"',
+            self.retoma_ts,
+            "o cliente do HND tem de apontar para a rota que existe",
+        )
+
+    def test_o_cabecalho_do_bot_e_o_mesmo_nos_dois_lados(self) -> None:
+        """Uma cadeia de texto em dois idiomas: o unico laco e este ensaio."""
+        self.assertIn(
+            f'CABECALHO_DO_BOT = "{CABECALHO_DO_BOT}"',
+            self.retoma_ts,
+        )
+
+    def test_a_credencial_de_rede_tambem_vai_no_pedido_do_hnd(self) -> None:
+        """**As duas credenciais, e nao uma.**
+
+        A rota pede ambas e a ordem e a do custo (§3.32). Um cliente que levasse
+        so o `secret` do bot levava 401 em **todas** as retomas, e o sintoma
+        eram conversas mortas — o mesmo sintoma do defeito que a emenda 1.42
+        corrige, com outra causa.
+
+        **A primeira versao deste ensaio passava por construcao**, e e achado da
+        revisao adversarial: ela afirmava `assertIn("CABECALHO_INTERNO", ...)`, e
+        aquela cadeia esta na linha de `import` e no cabecalho do modulo — o
+        ensaio passava com o cliente a **nao** por o cabecalho no pedido, e nunca
+        confrontava o **valor** com o lado Python. Agora mede as duas coisas que
+        a *docstring* promete: o valor, e a presenca nos `headers`.
+        """
+        from pathlib import Path
+
+        from kamba_agr.api_interna import CABECALHO
+
+        self.assertEqual(CABECALHO, "x-kamba-interno")
+        # O valor, lido do ficheiro onde o cliente o vai buscar.
+        contrato = (
+            Path(__file__).resolve().parents[3]
+            / "packages" / "core-ts" / "src" / "agr" / "contrato.ts"
+        ).read_text(encoding="utf-8")
+        self.assertIn(f'CABECALHO_INTERNO = "{CABECALHO}"', contrato)
+        # E a presenca **nos cabecalhos do pedido**, que e o que falhava.
+        cabecalhos = self.retoma_ts.split("headers: {")[1].split("},")[0]
+        self.assertIn("[CABECALHO_INTERNO]: credencial", cabecalhos)
+        self.assertIn("[CABECALHO_DO_BOT]: segredo", cabecalhos)
+
+    def test_o_corpo_que_o_hnd_envia_sao_os_tres_campos_da_rota(self) -> None:
+        """A forma fechada do §3.32, confrontada com o que o cliente escreve.
+
+        A rota recusa com 400 um corpo cujo conjunto de chaves nao seja
+        **exactamente** o dela (`set(corpo) != set(CAMPOS_DA_RETOMA)`), pelo que
+        um campo a mais ou a menos do outro lado era 400 em producao e nenhum
+        ensaio a apanha-lo.
+        """
+        import re
+
+        from kamba_agr.api_interna import CAMPOS_DA_RETOMA
+
+        corpo = re.search(
+            r"body: JSON\.stringify\(\{(.*?)\}\)", self.retoma_ts, re.DOTALL
+        )
+        self.assertIsNotNone(corpo, "o corpo do cliente do HND mudou de forma")
+        campos = tuple(re.findall(r"^\s*([a-z_]+):", corpo.group(1), re.M))
+        self.assertEqual(sorted(campos), sorted(CAMPOS_DA_RETOMA))
+        # E **nenhum** deles e o `tenant_id` ou o `resolver`: o primeiro sai do
+        # prefixo do `thread_id` e o segundo nunca entra no AGR (ADR-010).
+        self.assertNotIn("tenant_id", campos)
+        self.assertNotIn("resolver", campos)
+
+    def test_os_desfechos_que_o_hnd_le_sao_os_que_esta_rota_devolve(self) -> None:
+        import re
+
+        bloco = re.search(
+            r"DESFECHOS_DA_RETOMA = \[(.*?)\] as const", self.retoma_ts, re.DOTALL
+        )
+        self.assertIsNotNone(bloco, "o `DESFECHOS_DA_RETOMA` do HND mudou de forma")
+        de_la = tuple(re.findall(r'"([a-z_]+)"', bloco.group(1)))
+        self.assertEqual(de_la, DESFECHOS_DA_RETOMA)
+
+    def test_os_outcomes_que_o_hnd_envia_sao_os_tres_do_1101(self) -> None:
+        """O `outcome` atravessa o `interrupt()` sem traducao, e sao tres.
+
+        **A primeira versao nao lia ficheiro TypeScript nenhum** — afirmava o
+        `DESFECHOS` e o `ESTADO_DO_DESFECHO`, os dois deste lado, com um nome que
+        promete o outro. Achado da revisao adversarial: um ensaio de paridade que
+        so le um dos lados nao e um ensaio de paridade. Agora le o `OUTCOMES` do
+        `hnd/contrato.ts`, que e o que o cliente pode enviar.
+        """
+        import re
+        from pathlib import Path
+
+        self.assertEqual(maquina.DESFECHOS, ("resolved", "timeout", "cancelled"))
+        self.assertEqual(len(maquina.ESTADO_DO_DESFECHO), 3)
+
+        contrato = (
+            Path(__file__).resolve().parents[3]
+            / "packages" / "core-ts" / "src" / "hnd" / "contrato.ts"
+        ).read_text(encoding="utf-8")
+        bloco = re.search(r"OUTCOMES = \[(.*?)\] as const", contrato, re.DOTALL)
+        self.assertIsNotNone(bloco, "o `OUTCOMES` do HND mudou de forma")
+        de_la = tuple(re.findall(r'"([a-z_]+)"', bloco.group(1)))
+        self.assertEqual(de_la, maquina.DESFECHOS)
+
+    def test_o_resolver_tem_instrucao_propria_e_sai_do_fecho(self) -> None:
+        """A outra metade da emenda 1.42, e e a que o ADR-010 obriga.
+
+        O `resolver` nao entra no corpo da retoma — o AGR nunca aprende a
+        identidade do agente —, pelo que tem de ser o HND a escreve-lo. E tem de
+        ser numa instrucao **separada** do `status`, porque a que o escrevia
+        deixou de correr: com ele ainda no `SQL_FECHAR`, a coluna ficava por
+        escrever em caminho nenhum, que e o defeito que o KAM-019 ja pagou uma
+        vez (achado 9 do bloco dele).
+        """
+        self.assertIn("SQL_MARCAR_RESOLVER", self.consultas_ts)
+        self.assertIn("SET resolver = $3", self.consultas_ts)
+        self.assertIn("AND status = 'waiting'", self.consultas_ts)
+        # E o `SQL_FECHAR` ja nao o leva: um `COALESCE($4, resolver)` que recebe
+        # `null` em todas as chamadas e um caminho inexistente a parecer um
+        # caminho.
+        fecho = self.consultas_ts.split("export const SQL_FECHAR = `")[1].split("`")[0]
+        self.assertNotIn("resolver", fecho)
+        self.assertIn("status = ANY($3::text[])", fecho)
+
+
 if __name__ == "__main__":
     unittest.main()

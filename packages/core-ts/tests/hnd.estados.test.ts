@@ -15,8 +15,11 @@
  *    que lado fica — em vez de o deixar sem tradução e descobri-lo quando um
  *    `close` não gravar nada.
  * 2. **O `resolved` dá `resumed`.** É a única que muda de nome.
- * 3. **De um estado concluído não se fecha outra vez**, e é essa lista que vai
- *    ao predicado do `UPDATE`: é a base que faz do duplicado um *no-op*.
+ * 3. **De `waiting` não se fecha deste lado**, e é essa lista que vai ao
+ *    predicado do `UPDATE`: é a base que faz do duplicado um *no-op*. A emenda
+ *    1.42 do dicionário (§3.32) tirou-lhe o `waiting`, e o teste que o afirma
+ *    está escrito como propriedade da fronteira e não como cópia da constante —
+ *    ver o bloco «de onde se pode fechar».
  */
 
 import assert from "node:assert/strict";
@@ -80,14 +83,43 @@ describe("os dois vocabularios", () => {
 });
 
 describe("de onde se pode fechar", () => {
-  it("de waiting e de degraded, e de mais nenhum", () => {
+  it("**de degraded, e de mais nenhum** — o waiting e do AGR", () => {
     // E esta lista que vai ao `WHERE status = ANY(...)`: e a base que faz do
-    // `resolved` duplicado um *no-op*, nao uma verificacao em codigo.
-    assert.deepEqual([...ESTADOS_QUE_FECHAM], ["waiting", "degraded"]);
+    // fecho duplicado um *no-op*, nao uma verificacao em codigo.
+    assert.deepEqual([...ESTADOS_QUE_FECHAM], ["degraded"]);
+  });
+
+  it("**o waiting nao esta na lista, e e a fronteira da emenda 1.42**", () => {
+    // Nao e a mesma assercao do teste de cima com outras palavras. Aquele diz o
+    // **valor** da constante; este diz a **propriedade** que a emenda 1.42
+    // (§3.32) fixou, e e ela que explica porque e que o valor e aquele: a
+    // `platform.handoffs` tinha dois escritores para a saida de `waiting` e o
+    // deste lado corria primeiro, pelo que o compare-and-set do AGR nao casava
+    // linha nenhuma e o `Command(resume=...)` nunca corria — o `interrupt()` do
+    // `handoff_wait` ficava pendente para sempre, no caminho feliz, todas as
+    // vezes (ANALISE-35, achado 1).
+    //
+    // Um dia alguem vai querer «so para o timeout» ou «so para o cancelled»: os
+    // tres desfechos retomam o grafo, e e por isso que a lista nao tem o
+    // `waiting` para nenhum deles.
+    assert.ok(
+      !ESTADOS_QUE_FECHAM.includes("waiting"),
+      "sair de waiting e do AGR, por /internal/resume: dicionario §3.32",
+    );
+  });
+
+  it("os tres estados concluidos tambem nao fecham", () => {
+    // Uma passagem ja concluida nao se volta a concluir. Com o `waiting` fora
+    // da lista a antiga igualdade `podeFechar === !concluido(estado)` deixou de
+    // valer — `waiting` nao e concluido **e** nao fecha —, pelo que o que se
+    // afirma e a implicacao que sobrevive, e a outra metade fica no teste de
+    // cima.
     for (const estado of ESTADOS) {
-      const podeFechar = ESTADOS_QUE_FECHAM.includes(estado);
-      assert.equal(podeFechar, !concluido(estado), estado);
+      if (concluido(estado)) {
+        assert.ok(!ESTADOS_QUE_FECHAM.includes(estado), estado);
+      }
     }
+    assert.ok(ESTADOS_QUE_FECHAM.every((estado) => !concluido(estado)));
   });
 
   it("os tres concluidos sao concluidos, e os dois abertos nao", () => {
