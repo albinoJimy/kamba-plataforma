@@ -66,8 +66,8 @@ larga do que a regra que ela implementa — «a TLS e a unica via dos **agentes*
 —, e as duas davam o mesmo resultado so enquanto nao houvesse uma unica escrita
 de plano de controlo. `ESCRITAS_DO_PLANO_DE_CONTROLO` e onde a palavra
 «agentes» passa a contar, com **quatro** criterios por entrada e a chave em
-`(ficheiro, tabela)` — nunca o ficheiro inteiro, para que um `UPDATE
-platform.orders` na linha seguinte continue a morder. Ha um canario que o mede.
+`(ficheiro, tabela, verbo)` — nunca o ficheiro inteiro, para que um `UPDATE
+platform.orders` na linha seguinte continue a morder. Ha canarios a medir os tres eixos.
 """
 
 from __future__ import annotations
@@ -123,7 +123,7 @@ def _verbo_de(achado: re.Match[str]) -> str:
     return achado.group(1).split()[0].lower()
 
 #: As escritas no `platform` que **nao** sao um agente a escrever, por
-#: `(ficheiro, tabela)`.
+#: `(ficheiro, tabela, verbo)`.
 #:
 #: **A regra que o §6.1 escreve e «a TLS e a unica via de leitura e escrita dos
 #: *agentes*», e esta lista e onde a palavra «agentes» passa a contar.** Ate ao
