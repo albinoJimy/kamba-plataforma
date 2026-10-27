@@ -12,7 +12,7 @@
 
 ## 1. Propósito
 
-Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **161 tickets atómicos (KAM-001 a KAM-161)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
+Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **162 tickets atómicos (KAM-001 a KAM-162)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
 
 O que **não** está aqui: a Fase 2 (Clusters) e a Fase 3 (Escala). Esses epics (geo e logística, estafetas, analytics e Score, índice federado, AdsEngine, vitrine SEO, API pública, Fluxo B) só se escrevem quando o **Gate do Piloto (KAM-110)** for verde. Está declarado em §6.
 
@@ -49,7 +49,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 
 | Epic | Range | N.º tickets | Fase |
 |------|-------|-------------|------|
-| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-161 | 46 | 0–1 |
+| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-162 | 47 | 0–1 |
 | EPIC-02 Canais WhatsApp e Handoff | KAM-013 – KAM-024, KAM-115 | 13 | 0–1 |
 | EPIC-03 Agent Runtime e Verticais | KAM-025 – KAM-040, KAM-114 | 17 | 0–1 |
 | EPIC-04 Core de Comércio | KAM-041 – KAM-051 | 11 | 0–1 |
@@ -60,7 +60,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117 | 16 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
 | EPIC-11 Módulos de Entrada | KAM-118 – KAM-127 | 10 | 1 |
-| **TOTAL** | **KAM-001 – KAM-161** | **161** | — |
+| **TOTAL** | **KAM-001 – KAM-162** | **162** | — |
 
 ### 3.2 Fases
 
@@ -129,6 +129,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-159 | Taxonomia de finalidades de consentimento: o dicionário contra os contratos publicados | fix | M | P0 | 0 | KAM-007 |
 | KAM-160 | O `pending_reply` que o `01` §14 manda registar e que não existe em superfície nenhuma | fix | S | P1 | 0 | — |
 | KAM-161 | O «elo partido» do verificador de auditoria é um ramo inalcançável | fix | S | P1 | 0 | KAM-012 |
+| KAM-162 | A `software-factory` substitui a `agentic-engineering`: uma skill só para o ciclo de um ticket | chore | S | P1 | 0 | — |
 
 ### EPIC-02 — Canais WhatsApp e Handoff
 
@@ -361,3 +362,4 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.26 | Outubro 2026 | **KAM-160** acrescentado: o `pending_reply` que o `../docs/tecnica/01` §14 manda registar existe **numa única linha do repositório inteiro** — a dele. Zero no dicionário canónico (§3.13 e §3.14, onde um campo de conversa ou de saída de canal teria de viver), zero como coluna nas dez revisões de `db/migrations/versions/`, zero em código. Obriga a escolher entre fazer a coluna existir e o §14 deixar de a mandar, e por isso é defeito e não resíduo textual (`specs/01` §6). O ticket **escolhe**: não se cria coluna, porque as duas tabelas de degradação (`01` §14 e `02` §14) já dão mecanismo a cada falha e o estado durável de «resposta em dívida» já vive no *job* da fila e em `outbound_messages.state` — um terceiro sítio seria uma terceira verdade. A frase do princípio é, palavra por palavra, uma segunda redacção da coluna «Recuperação» da linha 1 da sua própria tabela. Entra no EPIC-01, onde vive a série de defeitos documentais, pelos análogos KAM-139, KAM-140 e KAM-141; bloqueia o **KAM-037**, que é quem implementa a degradação e não deve partir de um canon que ordena um registo sem casa. Total: 160 tickets. | Equipa KAMBÁ |
 | 1.27 | Outubro 2026 | **KAM-160 entregue.** O fecho do `../docs/tecnica/01` §14 deixa de mandar registar `pending_reply` e o princípio «o cliente nunca fica sem resposta» passa de afirmação solta a garantia **derivada**, com as três metades (entrada KAM-013, composição KAM-037, saída KAM-015), a linha da tabela de onde cada uma sai e as duas medidas que já existem. O `grep` do nome passa de **1** para **0** ocorrências que o mandem registar. Nenhuma coluna criada e nenhuma emenda ao dicionário: o `canon_lint` fica conforme com o dicionário intacto em v1.21 (143 entradas), que é a prova de que a via escolhida não introduz nome canónico. Sete critérios marcados, seis caixas de DoD marcadas. | Equipa KAMBÁ |
 | 1.28 | Outubro 2026 | **KAM-161 acrescentado e entregue.** A linha do §4, a tabela do §3.1 e as contagens em prosa entraram com ele (total: 161 tickets; EPIC-01: 46), mas a tabela de versões ficou sem registo de nenhuma das duas pontas, e esta linha cobre as duas. O ticket nasceu de uma sobrevivente da primeira execução medida da prova nocturna (2026-10-26) e fechou com **dois** defeitos corrigidos no `db/auditoria.py`, não um: a cadeia bifurcada era detectada e **mal diagnosticada**, e o achado da âncora rebentava com `KeyError`. O detalhe, e a correcção ao que a **1.39** do `EPIC-01` afirma sobre a *docstring*, estão na **1.40** desse epic. | Equipa KAMBÁ |
+| 1.29 | Outubro 2026 | **KAM-162** acrescentado e entregue no mesmo PR: a skill `agentic-engineering` sai e a `software-factory` fica no seu lugar. O §4 do EPIC-01 ganha a linha, o §3.1 passa a 47 tickets no epic e 162 no total, e a contagem viva de «tickets» foi actualizada aqui, no `../README.md` e no `EPIC-07`. As 24 citações históricas da skill retirada ficam registadas na linha 132 de `../docs/dividas-documentais.md`, não reescritas. | Equipa KAMBÁ |

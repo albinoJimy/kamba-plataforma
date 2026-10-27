@@ -112,8 +112,8 @@ O que compensa sempre verificar neste conjunto:
 | **Unicidade** | cada ticket com exactamente um bloco `## KAM-NNN — ` em todo o conjunto |
 | **Sincronia mestre↔epics** | tipo, estimativa, prioridade, fase, dependências e `Bloqueia` iguais nos dois lados |
 | **Mermaid** | diagramas que não compilam (escrever sem acentos nos IDs não prova nada) |
-| **Contagens** | «20 ADRs», «159 tickets», «11 epics», totais por epic, números nos índices |
-| **Nomes canónicos** | tabelas, colunas, eventos e estados fora do dicionário (será o lint de KAM-111) |
+| **Contagens** | «20 ADRs», «161 tickets», «11 epics», totais por epic, números nos índices |
+| **Nomes canónicos** | tabelas, colunas, eventos e estados fora do dicionário — gate 3b activo: `make ci-3b`, ou `python -m canon_lint --root .. check` |
 
 Duas disciplinas sobre os scripts:
 

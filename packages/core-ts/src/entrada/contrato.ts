@@ -4,7 +4,7 @@
  *
  * Está num só ficheiro por uma razão que este repositório já pagou: dois
  * escritores sobre o mesmo desenho, sem um nome canónico para seguir, produzem
- * dois nomes para a mesma coisa (`.claude/skills/agentic-engineering`,
+ * dois nomes para a mesma coisa (`.claude/skills/software-factory`,
  * «Paralelismo»). O GWY enfileira e o *worker* consome; a fila, a forma do
  * *job*, as classes de evento e os destinos são a costura entre os dois, e é
  * aqui que vivem — a par do dicionário §3.12, emenda 1.19.

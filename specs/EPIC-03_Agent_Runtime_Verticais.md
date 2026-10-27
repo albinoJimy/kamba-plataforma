@@ -478,7 +478,7 @@ linha» uma regra imposta.
 Medido a 2026-10-25, no ramo `feature/KAM-027-agentregistry` (base `publico/main`,
 `147bc8e`). Os comandos correm da raiz do repositório. Não há `make` nesta
 máquina (`docs/adr/ADR-L001` §1); as vias usadas estão em
-`.claude/skills/agentic-engineering/references/evidencia-e-verificacao.md`.
+`.claude/skills/software-factory/references/evidencia-e-verificacao.md`.
 
 | # | Critério | Estado | O que se mediu, com que comando, e que número saiu |
 |---|---|---|---|

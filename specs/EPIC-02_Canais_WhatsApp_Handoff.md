@@ -463,7 +463,7 @@ via zero linhas, pelo que apagava tudo em silêncio. O desenho está em
 | DoD — migrações reversíveis: `downgrade` de `conversations` testado | **satisfeito** | Bateria própria (`db/tests/test_conversas_schema.py`), três casos. Com a tabela vazia, desce e sobe — e a `UNIQUE` acrescentada a `tenant_channels` sai, o `FORCE` fica reposto e o `plano` volta a estar fora do alcance do resolvedor. **Com conversas e sem `KAMBA_DOWNGRADE_0009_COPIA`, recusa**, com a contagem na mensagem, e a base fica em `head` sem ter tocado em nada. Com a variável, escreve a cópia lógica das oito colunas de cada conversa — incluindo o modo `humano` e a janela aberta, que é o que torna reverter destrutivo — e desce. O ciclo `upgrade → downgrade → upgrade` completo corre em `test_migracao.py`. **Não há ferramenta de reposição**: a cópia é um `INSERT` por linha, como a `0003` já declarou |
 
 **Como se correu, e o que saiu.** Nesta máquina não há `make`, `node` nem
-`pnpm` no `PATH` (`.claude/skills/agentic-engineering/references/evidencia-e-verificacao.md`,
+`pnpm` no `PATH` (`.claude/skills/software-factory/references/evidencia-e-verificacao.md`,
 «Como correr a verificação aqui»):
 
 | Verificação | Comando | Resultado |
@@ -836,7 +836,7 @@ eles a contagem de colunas do §8.4 no dicionário (treze e não doze).
 
 **Como se correu, e o que saiu.** Nesta máquina não há `make`, `node` nem
 `pnpm` no `PATH`
-(`.claude/skills/agentic-engineering/references/evidencia-e-verificacao.md`,
+(`.claude/skills/software-factory/references/evidencia-e-verificacao.md`,
 «Como correr a verificação aqui»):
 
 | Verificação | Comando | Resultado |
