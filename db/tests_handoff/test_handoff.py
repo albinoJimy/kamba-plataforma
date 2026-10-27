@@ -49,6 +49,12 @@ FICHEIROS = (
     "tests/hnd.chatwoot.test.ts",
     "tests/hnd.provedor.test.ts",
     "tests/hnd.resposta.test.ts",
+    # KAM-019, emenda 1.42: o cliente de `/internal/resume`. Entra nesta lista
+    # **no mesmo diff** que o cria, e a razao esta escrita no comentario do
+    # `FICHEIROS_DO_MODULO` abaixo: o `resposta.ts` ficou fora dela e a bateria
+    # dele apodreceu em silencio, porque o glob `tests/hnd.*.test.ts` a corria e
+    # o CI nao.
+    "tests/hnd.retoma.test.ts",
     "tests_bd/handoff.bd.test.ts",
 )
 
@@ -72,6 +78,15 @@ GRUPOS = (
     "o fecho sob concorrencia (criterio 7)",
     "isolamento (Testes Requeridos: X-03 sobre handoffs)",
     "o SLA de retoma (docs/tecnica/02 §11)",
+    # KAM-019, emenda 1.42. O primeiro aparece **duas** vezes na saida, uma por
+    # cada lado da prova: na bateria do gate 4 (com o AGR por porta, onde se
+    # mede que nenhum `interrupt()` fica pendente) e no ensaio de base (onde se
+    # mede que as duas escritas compoem contra um PostgreSQL a serio).
+    "a fronteira da retoma (emenda 1.42, credor do criterio 3 do KAM-034)",
+    "o fecho, depois da emenda 1.42 (criterio 7)",
+    "o pedido que sai",
+    "a traducao da resposta",
+    "o 503 e o Retry-After",
 )
 
 #: Testes que **tem** de ter corrido e passado, pelo nome. Lista curta, com os
@@ -108,6 +123,54 @@ TESTES_OBRIGATORIOS = (
     "**sem `app.tenant_id` o fecho levanta, e nao devolve zero linhas**",
     "**duas chamadas concorrentes: o ON CONFLICT da conta**",
     "**o mesmo utilizador do provedor em dois tenants e recusado**",
+    # A fronteira da emenda 1.42, que e o credor do criterio 3 do KAM-034. O
+    # defeito que estes prendem nao era uma intercalacao rara: era o caminho
+    # feliz, todas as vezes — o HND escrevia `resumed` antes de alguem poder
+    # pedir a retoma, o compare-and-set do AGR nao casava linha nenhuma, e o
+    # `interrupt()` do `handoff_wait` ficava pendente para sempre.
+    "**nenhum interrupt fica pendente num handoff que um humano resolveu**",
+    "**o HND nao escreve o status: quem o escreve e o CAS do AGR**",
+    "**o corpo da retoma sao os tres campos, e o thread_id vem da linha**",
+    "**o resolver escreve-se antes da retoma, e e a unica ordem que funciona**",
+    "**dois webhooks duplicados dao UMA retoma**",
+    "**o segundo webhook SEQUENCIAL nao reescreve o resolver do primeiro**",
+    "**um handoffId de outra conversa nao escreve nem retoma**",
+    "**um handoffId que nao e deste tenant nao escreve nem retoma**",
+    # A recuperacao pelo *callback*, que e o achado da revisao adversarial
+    # deste trabalho: uma passagem `degraded` **pode** ter conversa no
+    # provedor, porque o `abrirConversa` cria-a antes de a nota privada
+    # poder falhar. Com o `external_id` no predicado, o *callback* legitimo
+    # dela caia em silencio e o `interrupt()` ficava pendente para sempre.
+    "**uma passagem degraded com a conversa criada la retoma-se**",
+    "**uma passagem em waiting sem conversa gravada tambem retoma**",
+    "**uma passagem ja concluida nao se recupera pelo callback**",
+    "**uma passagem degraded com a conversa criada la recupera-se e retoma**",
+    "**o recusado do AGR e alcancavel: um thread que nao e da passagem**",
+    # O orcamento total do cliente, que o tecto do sono sozinho nao dava.
+    "**o orcamento total impede a segunda tentativa**",
+    "**a segunda tentativa leva o que resta do orcamento, e nao o tecto inteiro**",
+    "**as duas credenciais leem-se a cada tentativa**",
+    "**o AGR em baixo levanta, e a passagem fica em waiting**",
+    "**o handler do onHumanEvent corre, e corre depois da retoma**",
+    "**um close sobre uma passagem em waiting nao escreve nada**",
+    "**uma passagem degraded fecha-se, e e a unica que fecha**",
+    # O cliente HTTP, onde a traducao da resposta pode errar em silencio.
+    "**vai para /internal/resume, com as duas credenciais**",
+    "**o secret do bot e o deste tenant, lido do prefixo do thread_id**",
+    "**o corpo tem os tres campos e mais nenhum**",
+    "**401 levanta, e nao se engole**",
+    "**o segredo nao vai na mensagem do erro nem a registo**",
+    "**404 recusado levanta, porque e divergencia nossa**",
+    "**503 e depois 200: espera o que ele pede e retoma**",
+    "**dois 503 levantam: a terceira tentativa e do provedor**",
+    "**um Retry-After acima do tecto nao se espera**",
+    # E contra a base, que e onde as duas escritas compoem.
+    "**o resolver chega a base sem passar pelo AGR, e o status vem do CAS**",
+    "**dois webhooks duplicados dao UMA retoma e UM resolver**",
+    "**a consulta do thread devolve a conversa gravada, para o chamador decidir**",
+    "**um handoffId de outra conversa nao retoma, contra a base**",
+    "**a consulta do thread nao atravessa tenants**",
+    "**uma passagem em waiting nao se fecha por aqui**",
 )
 
 #: Os ficheiros do modulo. A cobertura mede-se em **cada um**.
@@ -132,6 +195,7 @@ FICHEIROS_DO_MODULO = (
     "metricas.ts",
     "provedor.ts",
     "resposta.ts",
+    "retoma.ts",
     "index.ts",
 )
 
