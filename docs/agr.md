@@ -1439,14 +1439,20 @@ no `platform` fora da ToolLayer, e a regra que ele implementa — `docs/tecnica/
 **agentes**». As duas davam o mesmo resultado só enquanto não houvesse uma única
 escrita de plano de controlo no AGR; o CAS da retoma é a primeira.
 
-A dispensa é uma lista de pares `(ficheiro, tabela)` com **quatro** critérios por
-entrada: a escrita não depende de saída de modelo nem de texto do cliente; o que
-se escreve é plano de controlo do *runtime* e não dado de negócio; o `tenant_id`
-está no predicado e a instrução corre dentro de `tenant_guard.tx`; e o canon
-**nomeia** o AGR como dono. A chave é o par e nunca o ficheiro — um
-`consultas.py` dispensado em bloco deixava passar um `UPDATE platform.orders` na
-linha seguinte —, e há canários a medir que a mesma tabela noutro ficheiro, e
-outra tabela no mesmo ficheiro, continuam a morder.
+A dispensa é uma lista de triplos `(ficheiro, tabela, verbo)` com **quatro**
+critérios por entrada: a escrita não depende de saída de modelo nem de texto do
+cliente; o que se escreve é plano de controlo do *runtime* e não dado de
+negócio; o `tenant_id` está no predicado e a instrução corre dentro de
+`tenant_guard.tx`; e o canon **nomeia** o AGR como dono. A chave é o triplo e
+nunca o ficheiro — um `consultas.py` dispensado em bloco deixava passar um
+`UPDATE platform.orders` na linha seguinte —, e há seis canários a medir os três
+eixos: a mesma tabela noutro ficheiro, outra tabela no mesmo ficheiro, e **outro
+verbo** na mesma tabela e no mesmo ficheiro.
+
+**O verbo entrou pela revisão adversarial.** A primeira versão dispensava o par
+e argumentava que o verbo era redundante porque «o `kamba_app` não tem `DELETE`
+em `platform.handoffs`» — e a `0011` concede-lhe `GRANT SELECT, INSERT`, pelo
+que um `INSERT` escrito no `consultas.py` passava o *lint* **e** corria na base.
 
 É a mesma distinção que a *docstring* daquele *lint* já fazia pelo lado da
 leitura: «o `conversa.py` lê a `conversations` e a `handoffs` para decidir se o

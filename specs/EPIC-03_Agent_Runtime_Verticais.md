@@ -2180,7 +2180,7 @@ Commits: feat(KAM-034): …
 
 | Caixa | Estado | Nota |
 |---|---|---|
-| Todos os Critérios de Aceitação satisfeitos e demonstráveis | **vazia** | O critério 6 é `parcial`, com o KAM-018 nomeado. Marcá-la era contradizer essa linha |
+| Todos os Critérios de Aceitação satisfeitos e demonstráveis | **vazia** | **Dois** critérios ficaram `parcial`, cada um com credor: o **6** (a transição `→ pausada`, do KAM-018) e o **3** (a fronteira do `waiting → resumed`, do KAM-019, e decisão de quem aprova emendas). O 3 passou a `parcial` **pela revisão adversarial** e não pela medição do autor. Marcá-la era contradizer as duas linhas |
 | **Idempotência:** nó re-executado e webhook duplicado sem duplicar efeitos (ADR-002, ADR-009) | **marcada** | As duas metades: o nó re-executado é o critério 1 (cinco execuções com falha injectada, 1 conversa e 1 mensagem) e o *webhook* duplicado é o critério 3 (o CAS contra a base, com duas sessões concorrentes). Nenhuma das duas depende de estado em memória deste processo |
 | **Isolamento de tenant:** `resume` valida `tenant_id` do `thread_id` e do `handoff` (ADR-015) | **marcada** | Duas barreiras, as duas da base: a RLS esconde a linha do contexto de outro *tenant*, e o `tenant_id` repetido no predicado torna a instrução correcta mesmo corrida sem contexto. `TestOIsolamento` mede as duas. **E uma terceira que nenhum documento pede:** o `handoff_id` é `sha256(thread_id:handoff_seq)` e portanto **irreversível**, pelo que com só o `tenant_id` um `handoff_id` de **outro contacto do mesmo tenant** retomava — e o `Command(resume=…)` ia ao *thread* errado, isto é, a conversa de outra pessoa retomada com o desfecho desta. O CAS leva o vínculo ao `contact_id` da conversa no predicado (`test_a_passagem_de_outro_contacto_do_mesmo_tenant_nao_retoma`, com o controlo positivo ao lado) |
 | **Privacidade:** resumo do handoff sem telefone em claro; logs sem conteúdo (ADR-010) | **marcada** | O `_resumo` do KAM-031 leva motivo, intenção, estágio e avisos, e **não** o texto do cliente — a `PortaDeHandoff` recebe seis argumentos e não o estado, pela razão que a revisão daquele ticket mediu (a janela `messages` atravessava para o HND com um canário plantado). Deste lado, o `resolver` **não entra** no AGR por desenho, e nenhuma das quatro métricas leva `tenant_id`, `contact_id`, `conversation_id` ou `wamid` — a gramática de etiqueta levanta. O *gate* 2 (`log_policy lint`) corre a zero achados sobre os módulos novos |
@@ -2189,21 +2189,31 @@ Commits: feat(KAM-034): …
 
 #### Prova por mutação
 
-**Vinte mutações `handoff:`**, e dividem-se por onde a propriedade vive: **treze**
-em Python, na `agr_unit`, e **sete** no SQL, na `tests_agr` — porque quem decide
-se um *compare-and-set* casa é a base, e uma base falsa compara SQL por texto e
-nunca o interpreta.
+**Trinta e quatro mutações `handoff:`**, e dividem-se por onde a propriedade
+vive: **vinte e quatro** em Python, na `agr_unit`, **oito** no SQL, na
+`tests_agr` — porque quem decide se um *compare-and-set* casa é a base, e uma
+base falsa compara SQL por texto e nunca o interpreta —, e **duas** na
+`TOOL_SCHEMA`, que são as da regra de arquitectura que este ticket estreitou.
 
-As duas primeiras são as únicas que não quebram comportamento: quebram o
+**Dez das trinta e quatro saíram da revisão adversarial**, e esta secção foi
+escrita quando eram vinte: o número de cima é o da árvore fundida, contado no
+`../db/mutacoes.py`, e a secção da revisão diz o que cada uma das dez mede.
+
+As duas primeiras da lista são as únicas que não quebram comportamento: quebram o
 `handoff_wait`, e o que as apanha é a política AST do critério 2. Existem porque
 um teste AST que só corre contra código conforme não prova que morde — e «o que
 faria este teste passar com o código da política apagado?» é exactamente o que
 elas medem.
 
-**E as duas baterias entraram no `MODULOS_DO_AGR_UNIT`** do `../db/mutacoes.py`.
-Sem essas linhas as treze sobreviviam **todas** com a *suite* verde, porque o
-corredor nunca corre o ficheiro que as mata — é a lista literal que o KAM-030
-pagou com dez sobreviventes e que a nota do próprio módulo avisa.
+**E as baterias entraram no `MODULOS_DO_AGR_UNIT`** do `../db/mutacoes.py`, e
+são **três** e não duas. As duas novas (`test_handoff`, `test_handoff_ast`) são
+óbvias; a terceira não, e é a lição desta lista outra vez: o `test_api_interna`
+era do KAM-025 e **nunca** esteve lá, pelo que nenhuma mutação ao
+`api_interna.py` podia ser apanhada. Sem essas linhas as mutações sobrevivem
+**com a *suite* verde**, porque o corredor nunca corre o ficheiro que as mata —
+e não é hipótese: `a tranca passa a tomar-se antes de o thread ser validado`
+sobreviveu assim, com o ensaio dela a passar no `discover`. É a lista literal
+que o KAM-030 pagou com dez sobreviventes e que a nota do próprio módulo avisa.
 
 **Uma mutação antiga deixou de se aplicar, e o `--aplicaveis` apanhou-o.** O
 `agr: o waiting deixa de ser o unico estado que fecha` (KAM-025) ancorava em
@@ -2222,15 +2232,21 @@ no `platform` fora da ToolLayer, e a regra que ele implementa — `../docs/tecni
 única escrita de plano de controlo no AGR; o CAS da retoma é a primeira, e o
 `../docs/tecnica/02` §11 regra 3 põe-na no AGR **por escrito**.
 
-A dispensa é `ESCRITAS_DO_PLANO_DE_CONTROLO`, uma lista de pares
-`(ficheiro, tabela)` com **quatro** critérios por entrada: a escrita não depende
-de saída de modelo nem de texto do cliente; o que se escreve é plano de controlo
-do *runtime* e não dado de negócio; o `tenant_id` está no predicado e a
+A dispensa é `ESCRITAS_DO_PLANO_DE_CONTROLO`, uma lista de triplos
+`(ficheiro, tabela, verbo)` com **quatro** critérios por entrada: a escrita não
+depende de saída de modelo nem de texto do cliente; o que se escreve é plano de
+controlo do *runtime* e não dado de negócio; o `tenant_id` está no predicado e a
 instrução corre dentro de `tenant_guard.tx`; e o canon **nomeia** o AGR como
-dono. A chave é o par e nunca o ficheiro — um `consultas.py` dispensado em bloco
-deixava passar um `UPDATE platform.orders` na linha seguinte —, e há canários a
-medir que a mesma tabela noutro ficheiro, e outra tabela no mesmo ficheiro,
-continuam a morder.
+dono. A chave é o triplo e nunca o ficheiro — um `consultas.py` dispensado em
+bloco deixava passar um `UPDATE platform.orders` na linha seguinte —, e há seis
+canários a medir os três eixos: a mesma tabela noutro ficheiro, outra tabela no
+mesmo ficheiro, e **outro verbo** na mesma tabela e no mesmo ficheiro.
+
+**O verbo entrou pela revisão adversarial**, e a primeira versão desta lista
+argumentou que distinguir verbos era redundante porque «o `kamba_app` não tem
+`DELETE` em `platform.handoffs`». Metade disso era falso: a `0011` concede-lhe
+`GRANT SELECT, INSERT`, pelo que um `INSERT` escrito no `consultas.py` passava
+o *lint* **e** corria na base — e o canon atribui a criação da passagem ao HND.
 
 É a mesma distinção que a *docstring* daquele *lint* já fazia pelo lado da
 leitura: «o `conversa.py` lê a `conversations` e a `handoffs` para decidir se o
@@ -2327,31 +2343,41 @@ uma asserção de conjunto («nenhuma das seis fica calada») e quatro controlos
 positivos. Três mutações sobre a própria política medem que os canários mordem,
 e duas sobre o `nos.py` medem que a política vê o código real.
 
-##### 3. A `platform.handoffs` tem dois escritores para `waiting → resumed` — e o do HND corre primeiro
+##### 3. A `platform.handoffs` tinha dois escritores para `waiting → resumed` — e o do HND corria primeiro
 
-**Este não se corrigiu, e é por isso que o critério 3 ficou `parcial`.** A
-descrição completa está na emenda **1.41** (dicionário §3.32), com as duas saídas
-e a recomendação; em duas linhas: o `ESTADOS_QUE_FECHAM` do `hnd/estados.ts` é
-`["waiting", "degraded"]`, pelo que o `SQL_FECHAR` do HND **sai de `waiting`**, e
-no `receber` do `hnd/provedor.ts` o `#fechar` corre **antes** do `onHumanEvent`,
-que é o único sítio de onde `/internal/resume` pode ser chamado. No caminho
-feliz, a linha já está em `resumed` quando o pedido chega, o CAS dá zero linhas,
-e o `Command(resume=…)` nunca corre.
+**Este não se corrigiu aqui, e foi o único dos três assim** — e já está
+corrigido, pelo credor. A descrição completa está na emenda **1.41** (dicionário
+§3.32), com as duas saídas e a recomendação; em duas linhas: o
+`ESTADOS_QUE_FECHAM` do `hnd/estados.ts` era `["waiting", "degraded"]`, pelo que o
+`SQL_FECHAR` do HND **saía de `waiting`**, e no `receber` do `hnd/provedor.ts` o
+`#fechar` corria **antes** do `onHumanEvent`, que é o único sítio de onde
+`/internal/resume` pode ser chamado. No caminho feliz, a linha já estava em
+`resumed` quando o pedido chegava, o CAS dava zero linhas, e o
+`Command(resume=…)` nunca corria.
 
-**Porque é que não se corrigiu aqui, e não é por ser difícil.** A correcção é
+**Porque é que não se corrigiu aqui, e não era por ser difícil.** A correcção é
 TypeScript nos ficheiros do KAM-019, e muda o contrato de quem escreve o quê
 nessa tabela. Duas razões para a devolver:
 
-* **esta máquina não consegue verificá-la.** As baterias de `packages/core-ts`
+* **esta máquina não conseguia verificá-la.** As baterias de `packages/core-ts`
   correm com `pnpm`, que não existe aqui (a *toolchain* corre em Docker), e
   mandar uma alteração não verificada ao serviço de outro ticket numa PR é pior
   do que a reportar;
 * **é uma decisão de canon e não de código.** A emenda **1.22** já tinha escrito
   que «a coluna `resumed_at` nasce e ninguém a escreve neste ticket [o
-  KAM-019]» — o código do HND contradiz a entrada de canon do seu próprio
-  ticket. Decidir qual dos dois cede é de quem aprova emendas.
+  KAM-019]» — o código do HND contradizia a entrada de canon do seu próprio
+  ticket. Decidir qual dos dois cedia era de quem aprova emendas.
 
-**O que se fez em vez disso:** escrever a sobreposição no §3.32 (que antes
+**E foi decidido:** a emenda **1.42** escolhe a opção 1 — o `ESTADOS_QUE_FECHAM`
+passa a `["degraded"]`, o HND passa a chamar `POST /internal/resume` e o
+`resolver` ganha instrução própria do lado dele —, e o **KAM-019** executou-a com
+prova dos dois lados (ver a caixa do critério 3 e o bloco dele no
+`../specs/EPIC-02`). A devolução funcionou: o ticket que tinha a propriedade do
+código fez a correcção, e esta bateria ganhou uma classe de ensaios que lê o
+outro lado (`TestFronteiraComOHnd`) para que a fronteira não volte a mover-se sem
+que alguém meça.
+
+**O que se fez aqui em vez disso:** escrever a sobreposição no §3.32 (que antes
 afirmava uma partição que não existe), marcar o critério como `parcial` com o
 KAM-019 por credor, e **não** inventar um paliativo. Tentou-se um — um desfecho
 `conflito` próprio, para a condição deixar de subir o contador do duplicado — e
