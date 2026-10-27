@@ -128,15 +128,6 @@ sequencias:
 # fizer, o gate falha com codigo 2 por declaracao que ja nao casa nada.
 
 cabecalhos:
-  - ficheiro: specs/INDICE.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-04
-    razao: >-
-      Cabecalho na forma de texto corrido, parado numa versao muito anterior a ultima linha do historico. E a
-      linha 4 de `docs/dividas-documentais.md`, e o unico documento do conjunto
-      que usa a forma em texto corrido.
-
   - ficheiro: specs/01_Engineering_Standards_e_Handoff.md
     origem: KAM-138
     criado_em: 2026-10-18
@@ -144,15 +135,6 @@ cabecalhos:
     razao: >-
       Cabecalho em `| Versao | 1.0 |` com historico muito a frente; o campo nunca foi
       tocado desde a emissao inicial. Mesma familia dos epics.
-
-  - ficheiro: specs/EPIC-01_Fundacoes_Dados.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-11
-    razao: >-
-      Cabecalho em 1.0 com historico muito a frente — o maior atraso do conjunto, no
-      epic que mais emendas recebeu. Linha 21 de `docs/dividas-documentais.md`,
-      a mesma que regista o buraco do 1.13.
 
 
   - ficheiro: specs/EPIC-04_Core_Comercio.md
