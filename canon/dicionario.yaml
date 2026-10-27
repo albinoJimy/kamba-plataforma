@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.40"
+versao_dicionario: "1.41"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -7416,6 +7416,185 @@ entradas:
       - "cart.expira_at"
     nomes_nota:
       - "cart"
+    variantes_literais: []
+  - seccao: "3.32"
+    conceito: "Serviço de passagem do lado do agente"
+    canonico: "HandoffService"
+    literais:
+      - "HandoffService"
+    nomes:
+      - "HandoffService"
+    nomes_nota:
+      - "HandoffProvider"
+    variantes_literais: []
+  - seccao: "3.32"
+    conceito: "Corpo da retoma interna"
+    canonico: "thread_id, handoff_id, outcome"
+    literais:
+      - "thread_id"
+      - "handoff_id"
+      - "outcome"
+    nomes:
+      - "thread_id"
+      - "handoff_id"
+      - "outcome"
+    nomes_nota:
+      - "tenant_id"
+      - "thread_id"
+      - "resolver"
+    variantes_literais: []
+  - seccao: "3.32"
+    conceito: "Valores do outcome da retoma"
+    canonico: "resolved, timeout, cancelled"
+    literais:
+      - "resolved"
+      - "timeout"
+      - "cancelled"
+    nomes:
+      - "outcome"
+      - "resolved"
+      - "timeout"
+      - "cancelled"
+    nomes_nota:
+      - "close"
+      - "outcome"
+      - "interrupt"
+      - "handoff_close"
+      - "resolved"
+      - "resumed"
+    variantes_literais: []
+  - seccao: "3.32"
+    conceito: "Desfecho de uma chamada de retoma"
+    canonico: "retomado, repetido, recusado"
+    literais:
+      - "retomado"
+      - "repetido"
+      - "recusado"
+    nomes:
+      - "retomado"
+      - "repetido"
+      - "recusado"
+    nomes_nota:
+      - "agr_resume_total"
+      - "retomado"
+      - "repetido"
+      - "recusado"
+    variantes_literais: []
+  - seccao: "3.32"
+    conceito: "Cabeçalho do secret do agent bot"
+    canonico: "x-kamba-hnd-bot"
+    literais:
+      - "x-kamba-hnd-bot"
+    nomes:
+      - "secret"
+      - "x"
+      - "kamba"
+      - "hnd"
+      - "bot"
+    nomes_nota:
+      - "x"
+      - "kamba"
+      - "interno"
+      - "Authorization"
+    variantes_literais: []
+  - seccao: "3.32"
+    conceito: "Motivo de uma retoma não autorizada"
+    canonico: "sem_secret, secret_errado"
+    literais:
+      - "sem_secret"
+      - "secret_errado"
+    nomes:
+      - "sem_secret"
+      - "secret_errado"
+    nomes_nota:
+      - "agr_resume_nao_autorizado_total"
+      - "hnd_callback_rejeitado_total"
+    variantes_literais: []
+  - seccao: "3.32"
+    conceito: "Segredo do agent bot"
+    canonico: "chatwoot_bot_secret"
+    literais:
+      - "chatwoot_bot_secret"
+    nomes:
+      - "chatwoot_bot_secret"
+    nomes_nota:
+      - "chatwoot_bot_token"
+      - "secret"
+    variantes_literais: []
+  - seccao: "3.32"
+    conceito: "Métricas da passagem no AGR"
+    canonico: "agr_handoff_total, agr_resume_total, agr_resume_nao_autorizado_total, agr_handoff_degradado_total"
+    literais:
+      - "agr_handoff_total"
+      - "agr_resume_total"
+      - "agr_resume_nao_autorizado_total"
+      - "agr_handoff_degradado_total"
+    nomes:
+      - "agr_handoff_total"
+      - "agr_resume_total"
+      - "agr_resume_nao_autorizado_total"
+      - "agr_handoff_degradado_total"
+    nomes_nota:
+      - "handoffs.status"
+      - "outcome"
+      - "waiting"
+      - "agr_tool_tenant_mismatch_total"
+      - "tenant_id"
+      - "opened_at"
+      - "resumed_at"
+      - "OBS"
+      - "I"
+      - "EtiquetaInvalida"
+    variantes_literais: []
+  - seccao: "3.32"
+    conceito: "Degradação da passagem contra degradação do turno"
+    canonico: "agr_handoff_degradado_total ≠ agr_degraded_turns_total"
+    literais:
+      - "agr_handoff_degradado_total"
+      - "agr_degraded_turns_total"
+    nomes:
+      - "agr_handoff_degradado_total"
+      - "agr_degraded_turns_total"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.32"
+    conceito: "Prazo sem resposta humana"
+    canonico: "24 h"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "timeout"
+    variantes_literais: []
+  - seccao: "3.32"
+    conceito: "Trabalho de lote da varredura dos prazos"
+    canonico: "agr_handoff_prazos"
+    literais:
+      - "agr_handoff_prazos"
+    nomes:
+      - "agr_handoff_prazos"
+    nomes_nota:
+      - "tx_batch"
+      - "kamba_batch"
+      - "kamba_app"
+      - "lg"
+    variantes_literais: []
+  - seccao: "3.32"
+    conceito: "Sexta ligação do AGR"
+    canonico: "kamba-agr:handoff"
+    literais:
+      - "kamba-agr:handoff"
+    nomes:
+      - "kamba"
+      - "agr"
+      - "handoff"
+    nomes_nota:
+      - "application_name"
+      - "kamba_core.tenant_guard"
+      - "thread_id"
+      - "kamba_app"
+      - "UPDATE"
+      - "status"
+      - "resumed_at"
     variantes_literais: []
 
 tabelas:
