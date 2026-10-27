@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.39 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.40 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -1705,6 +1705,83 @@ barato», «chega amanhã»), que são `guard_out` e pertencem ao **KAM-033**; e
 tecto de repetições antes do *handoff*, que é do grafo (KAM-031) e lê o
 `citation_retries` que o §5.3 já tem.
 
+### 3.31 Grafo do Vendedor: nós, intenções, veredictos de guarda e avisos (KAM-031)
+
+*Emenda 1.40, **proposta**.* O `../docs/tecnica/02_Agent_Runtime_Verticais.md` §7
+desenha o grafo do Vendedor com vinte e um nós e uma tabela de arestas, e o §5.3
+desenha o estado partilhado; o §8.4 nomeia as camadas de guardrail. Nenhum dos
+nomes abaixo estava neste documento — só os **seis** nós obrigatórios do §3.26,
+que são o esqueleto partilhado e não o grafo. Entram aqui porque são contrato
+entre o grafo, a ToolLayer e o validador, e porque o §1 declara defeito um nome
+em código que não esteja aqui.
+
+A fonte é o §7 (os vinte e um nós, as trinta e nove linhas da tabela de arestas,
+o fluxo de dois turnos), o §5.3 (o estado), o §6.5 (os erros tipados que chegam
+ao `compose`), o §8.4 (as camadas de guarda), o §10 (os níveis de confiança do
+STT), o §11 (o par `handoff_prepare`/`handoff_wait`) e o §14 (a degradação).
+
+| Conceito | Nome canónico | Substitui | Nota |
+|---|---|---|---|
+| Nós do grafo do Vendedor | `ingest`, `stt`, `guard_in`, `classify`, `retrieve`, `tools_read`, `cart_build`, `confirm_gate`, `create_order`, `order_status`, `tools_info`, `compose`, `validate`, `guard_out`, `unknown_reply`, `ask_repeat`, `safe_reply`, `send`, `handoff_prepare`, `handoff_wait`, `handoff_close` | — | ../docs/tecnica/02 §7.3 e §7.4. Lista fechada de **vinte e um**; os seis do §3.26 são subconjunto |
+| Intenção do Vendedor | `state.intent` ∈ {`produto`, `preco_stock`, `comprar`, `confirmar`, `pagamento_estado`, `encomenda`, `info_loja`, `humano`, `outro`} | — | ../docs/tecnica/02 §7.3, linhas 11 a 17. **Nove**, e é a lista do Vendedor: a de Serviços está no §8.2 e é outra |
+| Veredicto da guarda de entrada | `state.guard.veredicto` ∈ {`ok`, `injection`, `abuse`, `out_of_domain`, `card_data`, `sensitive`} | — | ../docs/tecnica/02 §7.3 linhas 8 a 10, e §8.4 (as cinco camadas de entrada) |
+| Oferta de produto no estado do turno | `state.ofertas` | — | Os campos são os do contrato de saída da tool (`../docs/tecnica/05` §6.3) e **não se repetem aqui**: um deles designa o produto por palavras, e torná-lo canónico esvaziava a extensão qualificada da designação da loja no `canon/extensoes.yaml` — medido pelo *gate* 3b. Só deste turno, reiniciado em `ingest` |
+| Aviso de negócio para o `compose` | `state.avisos` ⊆ {`NOT_FOUND`, `OUT_OF_STOCK`, `PRICE_CHANGED`, `LIMIT_EXCEEDED`, `VALIDATION_ERROR`, `UPSTREAM_TIMEOUT`, `UPSTREAM_DOWN`, `STALE_CONFIRMATION`} | — | Os sete primeiros são erros tipados do §6.5 (§3.28); o oitavo nasce no §7.3 linha 24 e **não** é erro de tool |
+| Confirmação antiga ou inválida | `STALE_CONFIRMATION` | — | ../docs/tecnica/02 §7.3 linha 24. Valor de `state.avisos`, não de `tool_audit.error_code` |
+| Motivo do *handoff* | `state.handoff_motivo` | — | ../docs/tecnica/02 §11, que o lê no `handoff_prepare` e no `interrupt` |
+| Versão do grafo | `graph_version`, SemVer | — | ../docs/tecnica/02 §6.4 já tem a coluna; o valor é atribuído pelo grafo que a escreve |
+| Tecto de repetições de citação | `citation_retries` ≤ **1** | — | ../docs/tecnica/02 §7.3 linhas 30 e 31, e §14 («validador falha 2×») |
+| Validade do carrinho | `cart.expira_at`, **30 min *proposta*** | — | ../docs/tecnica/02 §7.3 linha 23 («`cart` não expirado»), que não dá prazo |
+
+#### Os nós são vinte e um e as arestas são **quarenta e duas**, não trinta e nove
+
+A tabela do §7.3 tem **trinta e nove linhas** e o critério 1 do bloco do KAM-031
+escreve «as 39 arestas da tabela de §7.3». São coisas diferentes, e a diferença
+mede-se: três linhas carregam mais do que uma aresta — a **27** (`order_status`,
+`tools_info` → `compose`) carrega duas e a **34** (`unknown_reply`, `ask_repeat`,
+`safe_reply` → `send`) carrega três. Trinta e nove linhas, quarenta e duas
+arestas dirigidas.
+
+Fica escrito porque o critério pede um teste de contrato que falhe «se faltar ou
+sobrar uma aresta», e um teste que afirmasse trinta e nove passava com três
+arestas a menos — e três arestas a menos são três nós sem caminho para o envio.
+A tabela de arestas em código leva o número da linha de cada uma, de modo a que
+as duas contagens se provem **ambas**.
+
+#### O `avisos` é um campo novo do estado, e o `ofertas` também
+
+O §5.3 escreve vinte e três campos e nenhum deles serve para isto. As duas
+ausências aparecem ao escrever o grafo contra o §7.3, e não ao ler:
+
+* **`avisos`.** Os critérios 3 e 6 do bloco dizem que `STALE_CONFIRMATION`,
+  `PRICE_CHANGED`, `OUT_OF_STOCK` e `LIMIT_EXCEEDED` «chegam a `compose` como
+  *facts*». Não podem: um `Fact` do §3.28 é **um número com proveniência** e o
+  seu `kind` está fechado nos quatro do §6.2, pelo que um
+  `Fact(kind="STALE_CONFIRMATION")` **levanta**. O que os critérios querem é que
+  o `compose` seja informado, e é esse o campo — com um domínio fechado, para que
+  o `compose` decida por valor conhecido e não por cadeia livre.
+* **`ofertas`.** O `validate` precisa de resolver a designação de um produto a um `sku`
+  (`name_sku_mismatch`), e o quarto parâmetro do `validar` do KAM-032 é
+  exactamente a lista de ofertas — cujo tipo o KAM-032 já entregou — o nome vive no `ToolResult.data` do §6.3 do
+  `05` e **não** num `Fact`, pela dívida **105**. Entre o `tools_read`, que o
+  recebe da tool, e o `validate`, que o consome, o estado é o único canal.
+
+Os dois são **do turno** e reiniciam-se no `ingest`, pela mesma razão que o §5.3
+escreve para os `facts`: uma oferta de um turno anterior é um nome sem prova
+neste, e um aviso de um turno anterior é uma explicação que já se deu.
+
+#### O que esta emenda NÃO decide
+
+O `seq` do `idempotency_key` **não** entra no estado, e o §3.24 já o tem: com uma
+só mensagem por turno (§15.1, «uma só mensagem por turno»), o `seq` do único
+envio é zero, e um segundo envio no mesmo turno precisa de um campo de estado e
+de outra emenda. O limiar do IDX abaixo do qual o `retrieve` vai a
+`unknown_reply` fica **parâmetro sem valor canónico**: o §7.3 chama-lhe «limiar de
+IDX, parâmetro» e quem o calibra é o KAM-061 com índice real. Os níveis de
+confiança do STT ficam ao KAM-036, que o §10 nomeia e que declara os limiares
+«a calibrar com áudio PT-AO». As frases vetadas do `guard_out` ficam ao KAM-033,
+como a emenda 1.39 já escrevera.
+
 ## 4. Itens que continuam por decidir
 
 | Item | Estado | Ticket |
@@ -1765,3 +1842,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.37 | Outubro 2026 | **Emenda (*proposta*), KAM-029.** §3.28: a `platform.tool_idempotency` e as suas sete colunas, a chave do §6.3 com o `CHECK` de forma hexadecimal, os três estados de uma reserva, o `INTENT_REUSED_WITH_DIFFERENT_CONTENT` como **décimo primeiro** erro tipado, o `TECTO_DE_ESPERA_MS` e o `DIAS_DE_RETENCAO`. **Corrige duas afirmações da emenda 1.36**, e as duas saíram de escrever código contra elas e não de uma leitura: a `tool_audit.idempotency_key` **não** guarda a chave do §6.3 — guarda a do chamador, a do turno —, e são duas chaves porque um segundo toque com `wamid` novo é um turno novo, pelo que uma desduplicação por chave de turno cobrava outra vez (critério 8); e «os dez erros tipados» passa a onze, o que arrasta o `CHECK` fechado da revisão `0021`, a etiqueta da métrica e os testes de contagem. **Uma decisão de forma com consequência:** o `\|` da fórmula do §6.3 não é um caractere separador — o `cart_id` é opaco e nenhum caractere seria seguro —, e a derivação prefixa cada parte com o comprimento; com um separador literal, duas partições diferentes das mesmas partes davam a mesma chave, que numa tool `money` é a encomenda de um cliente a responder pela de outro. Fica **NÃO VERIFICADO** e declarado no §4 que o `confirm:{cart_id}` cabe nos 256 caracteres do `id` de um *reply button*. | Equipa KAMBÁ |
 | 1.38 | Outubro 2026 | **Emenda (*proposta*), KAM-030.** §3.29: o esquema **`dat`** (o terceiro do repositório, depois do `platform` da `0001` e do `lg` da `0020`, e que o canon não tinha), a `dat.llm_call_log` com as suas **dezesseis** colunas — **catorze** no `../docs/tecnica/06` §14, mais o `papel` e o `graph_version`, sem os quais o «custo por papel» do DoD não é calculável de lado nenhum —, o domínio **fechado e qualificado** de `dat.llm_call_log.resultado` (seis valores), o `llm/aliases.yaml` como artefacto comportamental com SemVer e *lock*, o `llm/precos.yaml`, os quatro papéis, os quatro erros tipados, a `PortaDeDestinos`, as **sete** métricas, a chave virtual por *tenant*, o código de saída **7** e a quinta ligação. **O `llm_call_log` sai do §3.6**, onde estava pré-declarado sem esquema e sem colunas: é o percurso do `owner_notices` na 1.32 e do `token_ref` na 1.22, e o *lint* recusa a redundância. **Três afirmações de fonte mais alta não sobreviveram a serem medidas contra a imagem fixada, e as três mudaram código** (`../docs/evidencia/KAM-030-litellm.md`): (1) o orçamento esgotado responde **422** com `type: budget_exceeded` e não o **400** que o critério 4 escreve — e o proxy usa o 400 para «alias repetido», pelo que o mapeamento do bloco nunca disparava no orçamento e disparava num erro de provisionamento; (2) a configuração do `../docs/tecnica/02` §13.1, à letra — duas entradas com o mesmo `model_name` —, **não cumpre o critério 6**: a estratégia por omissão é `simple-shuffle`, aleatória, e em 20 corridas com o primeiro fornecedor sempre em falha **3 falharam por completo**; com dois grupos e um `fallbacks` nomeado são 20 de 20; (3) `google/` é recusado pelo proxy e o prefixo do Gemini é `gemini/` — o nome do subprocessador e o prefixo da biblioteca ficam em espaços de nomes **separados**, porque é o primeiro que o `tenant_destinations` do KAM-069 usa para autorizar uma transferência. **Duas decisões de conformidade que se escrevem em vez de se tomarem em silêncio:** o `custo_usd` é `numeric` e não unidade menor inteira (0,00045 USD não cabe num cêntimo, e `numeric` não é vírgula flutuante), e o `tenant_id` **não** é etiqueta de métrica nenhuma apesar de o §13.4 mandar *metering* por ele — as quatro etiquetas vão para as colunas da tabela, e a métrica leva só o `papel` (`OBS-I`). **O que não decide:** nenhum modelo (KAM-040, e todas as linhas são `por_decidir` com credor escrito), a `tenant_destinations` e o `apd_ref` (KAM-069, e sem eles `prod` nega tudo), o modo determinístico da degradação (KAM-037), a minimização de PII (KAM-112), a mensalidade por plano (H6), o agendador (KAM-071), e se os fornecedores reportam o cache dentro ou ao lado da entrada, que fica **NÃO VERIFICADO**. | Equipa KAMBÁ |
 | 1.39 | Outubro 2026 | **Emenda (*proposta*), KAM-032.** §3.30: os **sete** veredictos de `Verdict.errors` como lista fechada e qualificada, os **cinco** blocos de `blocks[].type` (o `datetime` vindo do §8.2, que o exemplo do §9.1 não tem), o `Policy.allowed_literals`, o `item.show`, o `value_minor` em **cêntimos de AOA**, as **cinco** métricas com o `vertical` por eixo e o `citation_fail_rate` como medição de amostragem que **não** é métrica Prometheus. **Decide uma divergência a favor de fonte mais alta:** o critério 1 do bloco escreve `value_kz`, e tanto o §2 (unidade menor inteira, emenda 1.13) como o §9.1 do `02` corrigido pelo KAM-139 dizem cêntimos — comparar Kz com `preco_minor` falha **sempre**, por um factor de cem (dívida 106). **Devolve duas ao credor em vez de as resolver:** os `kind` `name`, `qty` e `discount` (mais o `expiry` do `require_fact`) continuam fora do `KINDS` fechado do KAM-028, e quem os acrescenta é o ticket que produz o *fact* (dívida 105, KAM-031) — pelo que a quantidade cai em `stock`, a data em `datetime`, e o desconto **não tem onde cair**, o que torna *qualquer* percentagem `discount_unbacked`: é *fail-closed* e é o que o ADR-007 manda, mas o lado positivo do critério fica **inverificável** até o `discount` existir. **E o critério 8 não se marca:** pede as métricas «com `tenant_id` e `vertical`», e o `tenant_id` em etiqueta **levanta** `EtiquetaInvalida` pela gramática `^[a-z][a-z0-9_]{1,62}$` (`OBS-I`) — é a tensão que a emenda 1.38 já resolveu para o §13.4, e resolve-se igual: a desagregação por *tenant* faz-se onde tem significado (o `turn_id` do registo), a gramática não se alarga, e a decisão volta a quem escreveu o critério. As quatro «taxas» do §9.2 passam a razões entre cinco contadores, porque a biblioteca da casa não tem histogramas e uma taxa guardada como medida perde o denominador. | Equipa KAMBÁ |
+| 1.40 | Outubro 2026 | **Emenda (*proposta*), KAM-031.** §3.31: os **vinte e um** nós do grafo do Vendedor como lista fechada (os seis do §3.26 são subconjunto), as **nove** intenções do Vendedor (a de Serviços é outra, e está no §8.2), os **seis** veredictos da guarda de entrada, o `state.ofertas` e o `state.avisos` como campos novos do estado, o `STALE_CONFIRMATION` como oitavo valor de `avisos` que **não** é erro de tool, o `handoff_motivo` que o §11 lê e não declara, o tecto `citation_retries` ≤ 1 e a validade do carrinho (**30 min *proposta***). **Duas decisões que não são transcrição.** A primeira saiu de **medir** e não de ler: a tabela do §7.3 tem trinta e nove **linhas** e o grafo tem **quarenta e duas** arestas dirigidas — três linhas carregam mais do que uma —, e um teste de contrato que afirmasse trinta e nove passava com três nós sem caminho para o envio. A segunda é o `avisos`: os critérios 3 e 6 do bloco mandam `STALE_CONFIRMATION` e `OUT_OF_STOCK` chegarem ao `compose` «como *facts*», e um `Fact` do §3.28 é um número com proveniência cujo `kind` está fechado nos quatro do §6.2 — o que os critérios querem é um campo de avisos, com domínio fechado, e não um `Fact` que levanta. **O que não decide:** o `seq` não entra no estado (com uma mensagem por turno, §15.1, o seq do único envio é zero), o limiar do IDX fica parâmetro sem valor canónico (KAM-061) e os níveis de confiança do STT ficam ao KAM-036, que o §10 declara «a calibrar». | Equipa KAMBÁ |

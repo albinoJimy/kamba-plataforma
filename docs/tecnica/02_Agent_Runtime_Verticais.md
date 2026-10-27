@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Agent Runtime e Verticais |
-| Versão | 1.0 |
+| Versão | 1.5 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `00_Arquitectura_Solucao.md`, `evidencia/E4_Stack_Licencas.md`, `evidencia/E1_Meta_WhatsApp.md`, `../exploracao/11-arquitetura-detalhada-engenharia.md` §4, `../exploracao/12-diagramas-c4-fluxogramas.md` C4.1, `../exploracao/14-tese-minima-e-plano-de-validacao.md` §3A |
@@ -207,12 +207,26 @@ class ConversaState(TypedDict):
     summary: str | None
     stt: SttResult | None; guard: GuardVerdict | None; intent: str | None
     facts: list[Fact]                        # so deste turno; reiniciado em `ingest`
+    ofertas: list[Oferta]                    # (sku, nome, preco_tipo) das tools; so deste turno
+    avisos: list[str]                        # codigos de negocio que o `compose` explica (emenda 1.40)
+    handoff_motivo: str | None               # o que o §11 le no `handoff_prepare`
     cart: Cart | None                        # {cart_id, items, total_fact_id, expira_at}
     stage: Literal["browsing","awaiting_confirm","awaiting_payment","done"]
     slots: dict | None                       # Servicos
     draft: Draft | None; citation_retries: int
     handoff_seq: int; handoff: HandoffInfo | None
 ```
+
+**Os `ofertas`, `avisos` e `handoff_motivo` entram pela emenda 1.40 (KAM-031)**, e
+as tres ausencias aparecem ao escrever o grafo contra o §7.3. O `ofertas` e o que
+o `validate` precisa para resolver um nome de produto a um `sku` — o nome vive no
+`ToolResult.data` do `05` §6.3 e nao num `Fact` (divida 105). O `avisos` e por
+onde `STALE_CONFIRMATION`, `OUT_OF_STOCK`, `PRICE_CHANGED` e `LIMIT_EXCEEDED`
+chegam ao `compose`: os criterios 3 e 6 do bloco do KAM-031 chamam-lhes «*facts*»
+e nao o podem ser, porque um `Fact` e um numero com proveniencia e o `kind` esta
+fechado nos quatro do §6.2. O `handoff_motivo` ja era lido pelo codigo do §11 e
+nao estava declarado aqui. Os tres sao **do turno** e reiniciam-se no `ingest`,
+como os `facts`.
 
 ### 5.4 Regra de dois: o que é partilhado e o que é específico
 
@@ -985,3 +999,4 @@ Metering por módulo (KAM-124); budgets LiteLLM por tenant incluem o custo de im
 | 1.2 | Outubro 2026 | KAM-128: As **28** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | **KAM-139** (variantes vivas do dicionário): §5.1, §6.1 e §6.2 passam a dizer `valor_max_pedido_minor` (3 ocorrências) e §5.3 passa a dizer `expira_at` (1 ocorrência) — eram variantes vivas das formas canónicas do dicionário §3.2 e §3.3 (emenda 1.12). | Equipa KAMBÁ |
 | 1.4 | Outubro 2026 | KAM-140: §5.1 — os dois manifestos de exemplo (`vendedor.yaml` e `servicos.yaml`) passam a subscrever os **dois** eventos de pagamento. O dicionário §3.4 diz que quem não distingue o caminho subscreve ambos, e o *gate* 3b já impõe essa regra em `registry/*.yaml` — o exemplo escapava-lhe só por viver num `.md`, e foi medido no KAM-139. §8.2 — a linha do sinal de marcação dizia que é o `payment.confirmed` que a confirma, quando o §3.5 nomeia o `payment.manual_confirmed` como o do *gate* da Fase 0 desta vertical; era o inverso. O `vendedor.yaml` não estava no ticket e tinha o mesmo defeito. | Equipa KAMBÁ |
+| 1.5 | Outubro 2026 | KAM-031: §5.3 — o estado partilhado passa a declarar `ofertas`, `avisos` e `handoff_motivo` (emenda 1.40 do dicionario). Os tres aparecem ao escrever o grafo do Vendedor contra o §7.3 e nenhum era declaravel sem emenda: o `ofertas` e o quarto parametro do validador do KAM-032 (o nome de um produto vive no `ToolResult.data` do `05` §6.3 e nao num `Fact`, divida 105); o `avisos` e por onde os criterios 3 e 6 do bloco mandam `STALE_CONFIRMATION` e `OUT_OF_STOCK` chegar ao `compose` «como *facts*», o que um `Fact` nao pode ser — e um numero com proveniencia, de `kind` fechado nos quatro do §6.2; e o `handoff_motivo` ja era lido pelo codigo do §11 sem estar declarado. | Equipa KAMBA |

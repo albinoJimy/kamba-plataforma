@@ -1554,7 +1554,7 @@ Implementar o grafo do Vendedor completo e compilável, com todas as arestas dec
 - **Fase 0:** `stt` encaminha para `ask_repeat`/`handoff_prepare` (a voz é KAM-036); `guard_in`/`guard_out` determinísticos mínimos (a cobertura completa é KAM-033); `handoff_*` delegam numa porta `HandoffService` (implementação idempotente é KAM-034); `validate` e o *renderer* usam a interface de KAM-032 (bloqueio a ordenar: ver nota abaixo).
 - `compose` devolve blocos estruturados (`text`, `item`, `total`, `buttons`) e nunca números em prosa; `send` chama o Outbound com `idempotency_key = turn_id:seq`.
 - Tools do Vendedor registadas aqui: `search_catalog`, `get_price_stock`, `propose_cart`, `criar_pedido`, `get_order_status`, `get_store_info`, com *fakes* por contrato; a ligação real a COM/IDX é por KAM-043, KAM-046 e KAM-061.
-- **Nota de ordem:** KAM-032 (validador) é pré-requisito funcional do nó `validate`; o `INDICE` não o lista como dependência. Mergear KAM-032 antes ou usar o *stub* `AllowAllValidator` apenas em testes.
+- **Nota de ordem:** KAM-032 (validador) é pré-requisito funcional do nó `validate`, e o `INDICE` **lista-o** como dependência — esta linha dizia o contrário, e é a dívida **122**, aberta pelo KAM-032 e paga aqui. Foi mergeado primeiro (PR `#61`, `743f3de`), pelo que o *stub* `AllowAllValidator` não existe nem é preciso: o `validate` chama o `validar` real.
 - Orçamento de latência de §15.1 é *desenho*, não medição: medir no staging com o número de teste.
 
 ### Testes Requeridos
