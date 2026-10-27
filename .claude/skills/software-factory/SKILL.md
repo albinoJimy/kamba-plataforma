@@ -66,11 +66,29 @@ falha observada em execução como se fosse um ticket por implementar.
 | Fechar um epic, ratificar a Carta, fechar um `D#`, assinar um limite | **L6** fecho → ratificação | **o fundador** |
 | Uma edição isolada num só ficheiro | nenhuma — não uses esta skill | eu |
 
-**Antes de arrancar, procura quem já está a trabalhar nisto.** O repositório é trabalhado em
-vários worktrees ao mesmo tempo (`git worktree list` dá 8 além do checkout principal; a pasta
-`.claude/worktrees/` tem 12 entradas, duas delas resíduos), em ramos que não se vêem uns aos
-outros, e **não há aqui instrumento de registo de sessões** — a colisão descobre-se a olho ou ao
-abrir o PR. A receita manual, e o que ela não cobre, estão em
+**Antes de arrancar, procura quem já está a trabalhar nisto — e não procures no `git`.** O
+repositório é trabalhado em vários worktrees ao mesmo tempo (`git worktree list` dá 8 além do
+checkout principal), em ramos que não se vêem uns aos outros.
+
+> **O `git` não vê uma sessão a trabalhar.** Uma sessão desta app abre ramo com nome gerado —
+> `claude/frosty-benz-177ecd` — e não committa nada até ter algo que preste. `git branch | grep
+> KAM-NNN`, `git log --all --grep KAM-NNN` e `git worktree list` devolvem **zero** sobre um
+> ticket que está a ser implementado neste momento. Medido: a admissão desta skill declarou «não
+> há colisão» sobre o KAM-038 enquanto uma sessão o implementava, com o worktree e o ramo à
+> vista nas três buscas.
+>
+> **O instrumento é a lista de sessões**, e corre-se primeiro:
+>
+> ```
+> mcp__ccd_session_mgmt__list_sessions   # título, cwd, ramo, isRunning, PR
+> ```
+>
+> O **título** da sessão é que leva o `KAM-NNN`; o ramo não. Uma sessão com `isRunning: true`
+> sobre o teu ticket é uma colisão, e nenhuma das duas sabe da outra. Depois disto, as buscas do
+> `git` servem para o que já está committado.
+
+Sem a lista — noutra máquina, ou fora desta app — **não há instrumento**, e a colisão
+descobre-se a olho ou ao abrir o PR. A receita manual, e o que ela não cobre, estão em
 [`references/isolamento.md`](references/isolamento.md).
 
 Os candidatos a arrancar agora leem-se do backlog, não da memória:

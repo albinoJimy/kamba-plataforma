@@ -60,7 +60,28 @@ confia no que o CI diz desse passo e não no que lês localmente.
 Outros repositórios da casa têm um `sessoes.py` que registam tarefa, tickets e ficheiros, e que
 sinaliza três colisões: mesmo ticket, mesmo ficheiro, e **base divergente** (dois HEAD em que
 nenhum é ancestral do outro). **Aqui não existe.** É lacuna conhecida, e enquanto o for, a
-verificação é manual e faz-se **antes** de escrever:
+verificação é manual e faz-se **antes** de escrever.
+
+**Começa pela lista de sessões, não pelo `git`**, e a ordem não é preferência:
+
+```
+mcp__ccd_session_mgmt__list_sessions   # título, cwd, ramo, isRunning, PR
+```
+
+> **O `git` é cego a uma sessão em curso.** Uma sessão desta app abre ramo com nome gerado
+> (`claude/frosty-benz-177ecd`) e não committa nada até ter algo que preste. Zero commits mais um
+> nome sem ticket faz com que as três buscas abaixo devolvam **zero** sobre um ticket que está a
+> ser implementado neste momento — e zero lê-se como «ninguém está nisto».
+>
+> **Medido, e sobre esta própria skill:** na primeira admissão a sério, declarou «não há colisão»
+> sobre o KAM-038 com uma sessão a implementá-lo, `isRunning: true`. O worktree
+> (`wonderful-murdock-9d1ff6`) e o ramo estavam à vista nas três buscas, e nenhuma os ligou ao
+> ticket. Quem leva o `KAM-NNN` é o **título** da sessão.
+>
+> Isto não substitui as buscas: a lista vê quem está a trabalhar **nesta máquina e nesta app**.
+> Trabalho noutra máquina, ou fora da app, continua invisível até ao `push`.
+
+Depois da lista, as buscas do `git`, para o que já está committado:
 
 ```bash
 git worktree list                                   # que árvores existem
