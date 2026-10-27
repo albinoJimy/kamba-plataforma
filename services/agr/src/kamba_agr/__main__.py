@@ -56,7 +56,7 @@ from kamba_core import host, port
 from kamba_core.logger import instalar
 from kamba_core.secrets import AMBIENTES, EnvSecretProvider, Secrets
 
-from . import egresso, registo
+from . import egresso, eventos as evt, registo
 from .admissao import Admissao, Tectos
 from .api_interna import SEGREDO_DA_API, rotas
 from .app import create_app
@@ -67,6 +67,7 @@ from .handoff.retoma import Retomador
 from .metricas import METRICAS
 from .ligacao import (
     ligar_para_checkpoint,
+    ligar_para_eventos,
     ligar_para_handoff,
     ligar_para_leitura,
     ligar_para_llm,
@@ -144,6 +145,21 @@ SAIDA_SEM_AUDITORIA = 6
 #: silencio.
 SAIDA_SEM_GATEWAY_LLM = 7
 
+#: Codigo de saida com subscricoes por registar (KAM-038, criterio 1).
+#:
+#: O **oitavo**, pela mesma razao escrita acima: `2` configuracao, `3` guarda do
+#: ADR-002, `4` sem checkpointer, `5` registo invalido, `6` sem auditoria de
+#: tools, `7` sem gateway de LLM, `8` sem consumidores. Cada um manda olhar para
+#: um sitio diferente, e este manda olhar para as `subscriptions` de
+#: `registry/*.yaml`.
+#:
+#: Cobre as duas metades do criterio 1, que nao sao a mesma pergunta: um
+#: `{tipo, versao}` **sem contrato publicado** (a validacao (4) do §5.2, que e a
+#: do KAM-027 e nao uma segunda), e um tipo subscrito **sem handler** no AGR —
+#: que seria um consumidor registado a marcar o evento como consumido sem
+#: notificar ninguem.
+SAIDA_SEM_CONSUMIDORES = 8
+
 #: A variavel que diz o ambiente do cofre. A mesma do `entrada.ts` e do
 #: `chaves.ts`; `dev` por omissao, e um valor fora dos tres **levanta** em vez
 #: de cair em `dev` — um `KAMBA_ENV=producao` a servir segredos de `dev` e o
@@ -161,7 +177,11 @@ def _ambiente(ambiente: dict[str, str] | None = None) -> str:
 
 
 def _fechar_as_tomadas(
-    trancas: Any, checkpointer: Any, tools: Any = None, retomador: Any = None
+    trancas: Any,
+    checkpointer: Any,
+    tools: Any = None,
+    retomador: Any = None,
+    conversas_de_eventos: Any = None,
 ) -> Callable[[], Awaitable[None]]:
     """O que o `lifespan` corre no `SIGTERM`: fecha-as, pela ordem.
 
@@ -196,6 +216,14 @@ def _fechar_as_tomadas(
         # o grafo interrompido — o residuo que o `ReversaoFalhadaError` nomeia.
         if retomador is not None:
             await retomador.fechar()
+        # A tomada da leitura de conversas do consumidor (KAM-038). As outras
+        # duas que ele usa — a do consumo e a da DLQ — abrem e fecham por
+        # entrega, pela razao escrita no `ligacao.py`; esta fica, como a da
+        # leitura da palavra, e por isso e a unica que precisa de ser fechada
+        # aqui. Sem isto, era a unica tomada do processo que ficava ao servidor
+        # para limpar.
+        if conversas_de_eventos is not None:
+            await conversas_de_eventos.fechar()
         # **O gateway de LLM nao tem tomada para fechar**, e isso e o desenho
         # que a revisao adversarial obrigou: ele abre uma ligacao por chamada e
         # fecha-a no `finally`, porque o `tenant_guard.tx` e exclusivo por
@@ -274,14 +302,37 @@ def main() -> int:
     # e o `invoke` a executar a outra.
     pasta = registo.directorio_do_registo()
     catalogo = catalogo_do_piloto()
+    ambiente_do_registo = registo.AmbienteDoRegisto.do_repositorio(
+        pasta.parent, catalogo=catalogo
+    )
     try:
-        _, _, adiadas = registo.carregar(
-            registo.AmbienteDoRegisto.do_repositorio(pasta.parent, catalogo=catalogo),
-            pasta,
-        )
+        verticais, _, adiadas = registo.carregar(ambiente_do_registo, pasta)
     except (registo.RegistoInvalidoError, registo.FicheiroIlegivelError) as exc:
         log.excepcao(exc, "registo_invalido")
         return SAIDA_REGISTO_INVALIDO
+
+    # **Um consumidor por cada `subscriptions`, e o arranque reprova se faltar
+    # um** (KAM-038, criterio 1). Duas verificacoes e nao uma, porque nao sao a
+    # mesma pergunta: a primeira e a validacao (4) do §5.2 — **a do KAM-027**,
+    # partilhada e nao copiada — e prova que o par `{tipo, versao}` tem contrato
+    # publicado; a segunda prova que ha **codigo** para ele. Uma subscricao com
+    # contrato e sem *handler* era um consumidor registado a marcar o evento
+    # como consumido e a nao notificar ninguem.
+    #
+    # Corre aqui, ao lado do registo, porque e da mesma natureza — le ficheiros
+    # e nao abre tomada nenhuma — e porque nao ha nada a ganhar em descobrir uma
+    # subscricao sem consumidor **depois** de abrir sete ligacoes.
+    try:
+        subscricoes = evt.consumidores(verticais, ambiente_do_registo)
+        evt.exigir_handlers(tuple((c.vertical, c.tipo) for c in subscricoes))
+    except (evt.SubscricoesInvalidasError, evt.SemHandlerError) as exc:
+        log.excepcao(exc, "subscricoes_invalidas")
+        return SAIDA_SEM_CONSUMIDORES
+    log.info(
+        outcome="consumidores_de_eventos",
+        error_code=f"consumidores_{len(evt.nomes_dos_consumidores(subscricoes))}"
+        f"_subscricoes_{len(subscricoes)}",
+    )
 
     # As validacoes em modo `aviso` — as que esperam por KAM-031, KAM-035 e
     # KAM-040 (`registry/gates.yaml`). A do KAM-028 saiu: o catalogo existe. Um `aviso` que nao aparece no
@@ -486,6 +537,43 @@ def main() -> int:
         grafos=_grafo_da_thread,
         metricas=METRICAS,
     )
+    # O consumidor de eventos (KAM-038). As portas que ainda nao existem ficam
+    # por omissao e **nenhuma delas finge**: o Outbound devolve `sem_template`
+    # (nao ha catalogo de templates aprovados, KAM-024), o HND nao faz nada
+    # (KAM-019), e a resolucao do contacto a partir do agregado **levanta**
+    # (KAM-041 e KAM-047) — pelo que um `payment.confirmed` esgota a escada e
+    # abre entrada na DLQ, que e Sev1 e esta certo: sem contacto, e cliente que
+    # pagou sem confirmacao.
+    #
+    # **O leitor de entitlements nao tem omissao**, e por isso constroi-se
+    # aqui: e ele que decide **qual** das verticais consome o evento deste
+    # *tenant*, e sem ele as duas consumiam os mesmos dois eventos de pagamento
+    # — duas mensagens ao mesmo cliente sobre o mesmo pagamento.
+    # **Sem subscricoes nao se liga a rota**, e nesse caso `/internal/event`
+    # responde 503 com `Retry-After` — «o evento nao se consome agora e fica na
+    # fila». Um consumidor sem consumidores devolvia 200 «tratado» sem escrever
+    # linha nenhuma, e o evento desaparecia em silencio. Achado da revisao
+    # adversarial.
+    conversas_de_eventos = evt.LeitorDeConversas(ligar_para_eventos)
+    consumidor_de_eventos = None if not subscricoes else evt.ConsumidorDeEventos(
+        tabela=subscricoes,
+        trancas=trancas,
+        conversas=conversas_de_eventos,
+        abrir_ligacao=ligar_para_eventos,
+        fila_de_mortos=evt.FilaDeMortos(
+            ligar_para_eventos,
+            metricas=METRICAS,
+            aviso=lambda onde, motivo: log.warn(outcome=onde, error_code=motivo),
+        ),
+        notificador=evt.Notificador(
+            metricas=METRICAS,
+            aviso=lambda onde, desfecho: log.warn(outcome=onde, error_code=desfecho),
+        ),
+        ler_entitlement=evt.LeitorDeEntitlements(ligar_para_eventos).ler,
+        metricas=METRICAS,
+        aviso=lambda onde, desfecho: log.warn(outcome=onde, error_code=desfecho),
+    )
+
     executor = ExecutorDeTurnos(
         trancas=trancas,
         ler_palavra=leitor(ligar_para_leitura),
@@ -515,6 +603,9 @@ def main() -> int:
                 lambda tenant_id: segredos.get(f"{REF_SEGREDO_DO_BOT}/{tenant_id}")
             ),
             aviso=lambda motivo: log.warn(outcome="admissao", error_code=motivo),
+            # A terceira rota (KAM-038). Sem ela, `/internal/event` responde 503
+            # e o evento fica na fila — e o que a omissao de `rotas` faz.
+            eventos=consumidor_de_eventos,
         ),
         # As duas ligacoes fecham-se no encerramento do processo, e **havia aqui
         # uma lacuna**: o `TrancaDeConversas.fechar()` existia e nao tinha
@@ -530,7 +621,9 @@ def main() -> int:
         # esta linha dizia: aquele entregou o registo e nao um grafo, e nao ha
         # `compile` nenhum sem grafo. Aqui o checkpointer serve a guarda do
         # arranque e o encerramento, e nada mais.
-        ao_encerrar=_fechar_as_tomadas(trancas, checkpointer, tools, retomador),
+        ao_encerrar=_fechar_as_tomadas(
+            trancas, checkpointer, tools, retomador, conversas_de_eventos
+        ),
     )
 
     # O anfitriao e a porta nao estao na *allowlist* de `docs/tecnica/08` §7.3.

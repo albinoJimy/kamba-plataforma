@@ -82,6 +82,7 @@ from starlette.routing import Route
 
 from .admissao import Admissao, TectoDoTenantCheioError
 from .contexto import InvocacaoInvalidaError, ler_invocacao
+from .eventos import EntregaInvalidaError, EntregaPorRepetir, ler_entrega
 from .handoff.autenticacao import CABECALHO_DO_BOT
 from .handoff.maquina import DESFECHOS, DesfechoInvalidoError
 from .handoff.retoma import ThreadInvalidoError, partes
@@ -171,8 +172,9 @@ def rotas(
     retomar: Callable[[str, str, str], Awaitable[str]] | None = None,
     verificar_bot: Callable[[str | None, str], str | None] | None = None,
     aviso: Callable[[str], None] | None = None,
+    eventos: Any = None,
 ) -> list[Route]:
-    """As duas rotas internas, com as portas que elas precisam.
+    """As tres rotas internas, com as portas que elas precisam.
 
     `executar` e o `ExecutorDeTurnos.correr`; `trancas` e o
     `TrancaDeConversas`, que a **retoma** precisa de tomar (§11 regra 3) — o
@@ -180,6 +182,12 @@ def rotas(
     KAM-034, que por omissao levanta `RetomaNaoImplementadaError` e nao devolve
     200 a fingir que retomou. `aviso` recebe o «aviso unico» do criterio 5; por
     omissao nao escreve nada, e quem o liga ao *logger* e o `__main__.py`.
+
+    `eventos` e o `ConsumidorDeEventos` do KAM-038; por omissao e `None`, e nesse
+    caso `/internal/event` responde **503** com `Retry-After` — «o evento nao se
+    consome agora e fica na fila», que e a mesma linha do §14 que o
+    `grafo_nao_registado` usa. Nao e 404: a rota existe, e o que falta e o
+    consumidor. Um 200 a fingir que consumiu perdia o evento em silencio.
 
     **`verificar_bot` nao tem omissao segura, e por isso a omissao recusa.** E
     o `secret` do *agent bot* do criterio 4 do KAM-034; sem verificador, **toda**
@@ -351,7 +359,114 @@ def rotas(
         estado = 404 if desfecho == "recusado" else 200
         return JSONResponse({"outcome": desfecho}, status_code=estado)
 
+    async def evento(pedido: Request) -> JSONResponse:
+        """`POST /internal/event` — a entrega de um evento (KAM-038).
+
+        A casca da fila fica em TypeScript, pelo molde do `agr/shim.ts`
+        (ADR-L004, Decisao 1): o que chega aqui e um pedido HTTP com o envelope
+        e a tentativa, e a decisao toda esta no `ConsumidorDeEventos`.
+
+        **Os codigos sao tres e cada um diz a fila o que fazer**: 200 «tratado,
+        nao repitas» (inclui o que foi para a DLQ — foi tratado), 400 «o corpo
+        nao e uma entrega, nao vale a pena repetir», e 503 com `Retry-After`
+        «volta». Um evento que foi para a DLQ responder 500 punha o BullMQ a
+        repetir o que ja esta registado e a abrir a mesma entrada seis vezes.
+        """
+        if not autenticado(pedido, credencial):
+            return _nao_autorizado()
+        try:
+            corpo = await _corpo(pedido)
+        except InvocacaoInvalidaError as erro:
+            return JSONResponse(
+                {"outcome": "corpo_invalido", "error_code": erro.codigo},
+                status_code=400,
+            )
+        if eventos is None:
+            return JSONResponse(
+                {"outcome": "consumidor_por_ligar"},
+                status_code=503,
+                headers={"Retry-After": str(ESPERAR_SEGUNDOS)},
+            )
+        try:
+            entrega = ler_entrega(corpo)
+        except EntregaInvalidaError as erro:
+            return JSONResponse(
+                {"outcome": "corpo_invalido", "error_code": erro.codigo},
+                status_code=400,
+            )
+
+        # **A vaga vem antes do consumo**, como no `/internal/turn`, e o
+        # `prioritario` e o criterio 8: um `payment.*` entra com a reserva
+        # **acima** do tecto do *tenant*, pelo que nao espera atras de mensagens
+        # de conversa. O `tenant_id` usado aqui e o **ponteiro da fila** e nao
+        # autoridade: o contexto de RLS do consumo sai do envelope validado, la
+        # dentro (criterio 4). Usa-se este porque a vaga tem de ser tomada antes
+        # de se ler o envelope — e a leitura ja e trabalho.
+        try:
+            async with admissao.vaga_de(
+                entrega.tenant_id,
+                prioritario=eventos.e_prioritario(_tipo_da_entrega(entrega)),
+            ):
+                desfecho = await eventos.entregar(corpo)
+        except TectoDoTenantCheioError:
+            return JSONResponse(
+                {"outcome": "tecto_do_tenant"},
+                status_code=503,
+                headers={"Retry-After": str(ESPERAR_SEGUNDOS)},
+            )
+        except EntregaPorRepetir as repetir:
+            # O atraso vem de dentro — da escada do §6.4 ou do `Adiar` — e
+            # converte-se a segundos **arredondando para cima**: um atraso de
+            # 1 000 ms que virasse `Retry-After: 1` estava certo, mas um de
+            # 1 500 ms que virasse 1 pedia a repeticao antes do tempo.
+            segundos = max(1, -(-repetir.atraso_ms // 1_000))
+            return JSONResponse(
+                {"outcome": repetir.codigo},
+                status_code=503,
+                headers={"Retry-After": str(segundos)},
+            )
+
+        return JSONResponse(
+            {
+                "outcome": desfecho.desfecho,
+                "por_consumidor": [
+                    {"consumer": nome, "outcome": resultado}
+                    for nome, resultado in desfecho.por_consumidor
+                ],
+            },
+            status_code=200,
+        )
+
     return [
         Route("/internal/turn", turno, methods=["POST"]),
         Route("/internal/resume", retoma, methods=["POST"]),
+        Route("/internal/event", evento, methods=["POST"]),
     ]
+
+
+def _tipo_da_entrega(entrega) -> str:
+    """O `tipo` do envelope cru, **so** para decidir a prioridade da vaga.
+
+    Le o campo sem validar nada: a validacao e la dentro, e so depois dela e que
+    o envelope e autoridade sobre o que quer que seja. Aqui o pior que um `tipo`
+    mentido consegue e pedir a reserva de pagamento para um evento que nao e de
+    pagamento — isto e, **uma** vaga a mais num *tenant*, que a entrega seguinte
+    larga. Validar antes de admitir era fazer o trabalho fora da vaga, que e o
+    oposto do que o tecto existe para proteger.
+    """
+    bruto = entrega.envelope
+    if isinstance(bruto, (str, bytes)):
+        # **O `ler_envelope` aceita texto JSON**, e a primeira versao disto nao:
+        # um `payment.*` entregue assim perdia a reserva de prioridade em
+        # silencio. Achado da revisao adversarial. O `json.loads` aqui nao
+        # valida nada — a validacao e la dentro — e o pior que um texto
+        # malformado consegue e cair no `""`, que e nao ter prioridade.
+        try:
+            bruto = json.loads(bruto)
+        except (ValueError, UnicodeDecodeError):
+            return ""
+    if isinstance(bruto, dict):
+        tipo = bruto.get("tipo")
+        if isinstance(tipo, str):
+            return tipo
+    return ""

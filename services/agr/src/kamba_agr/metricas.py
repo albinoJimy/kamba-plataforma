@@ -238,6 +238,33 @@ METRICA_RETOMA_NAO_AUTORIZADA: Final = "agr_resume_nao_autorizado_total"
 #: diferentes, e dar-lhes o mesmo nome fazia um painel somar maças com laranjas.
 METRICA_HANDOFF_DEGRADADO: Final = "agr_handoff_degradado_total"
 
+#: As quatro da subscricao de eventos (KAM-038, dicionario §3.33).
+#:
+#: **Nenhuma leva `tenant_id`, `contact_id`, `conversation_id` nem `wamid`**, e
+#: a razao e a mesma das quatro do *handoff*: a gramatica de etiqueta recusa-os
+#: pela forma (`OBS-I`), e a desagregacao por *tenant* faz-se onde tem
+#: significado — as colunas `tenant_id` de `platform.events_consumed` e de
+#: `platform.events_dlq`, que as duas tem.
+#:
+#: **E o `agr_evt_lag_ms` e a primeira medida com etiqueta do repositorio.** O
+#: DoD pede «*lag* de consumo **por consumidor**», e um valor sem eixo nao
+#: responde a isso: com dois consumidores a escrever na mesma medida, o que se
+#: le e o ultimo dos dois e nao o de nenhum. O eixo e o `consumer`, cujos
+#: valores sao **derivados** das verticais (`agr_<id>`) pela razao das tres da
+#: ToolLayer — uma lista literal transformava uma invariante num numero.
+METRICA_EVT_CONSUMIDOS: Final = "agr_evt_consumidos_total"
+#: Entradas abertas na DLQ, por motivo. **E o «alerta» do criterio 3**: uma
+#: versao desconhecida conta aqui e escreve linha de registo, em vez de passar
+#: em silencio.
+METRICA_EVT_DLQ: Final = "agr_evt_dlq_total"
+#: Notificacoes, por desfecho. O `sem_template` e o alerta do criterio 6.
+METRICA_EVT_NOTIFICACOES: Final = "agr_evt_notificacoes_total"
+#: *Lag* do ultimo evento consumido, em milissegundos, **por consumidor**.
+#: Medido do `ocorrido_em` do envelope (dicionario §3.33), que e quando o facto
+#: aconteceu — e nao do `registado_em`, que esconde o atraso entre o facto e a
+#: transaccao que o gravou.
+METRICA_EVT_LAG: Final = "agr_evt_lag_ms"
+
 #: As cinco juntas, para quem precisa de as percorrer.
 METRICAS_DO_VALIDADOR: Final = (
     METRICA_VALIDATE,
@@ -345,6 +372,26 @@ def _valores_derivados(metrica: str) -> tuple[str, ...]:
         from .handoff.autenticacao import MOTIVOS_DE_RECUSA
 
         return tuple(sorted(MOTIVOS_DE_RECUSA))
+    # As tres de eventos com dominio proprio (KAM-038), e a quarta — o eixo do
+    # `agr_evt_lag_ms` — derivada das verticais pela mesma razao das cinco do
+    # validador: o dia em que uma vertical nascer, o eixo segue sozinho.
+    if metrica == METRICA_EVT_CONSUMIDOS:
+        from .eventos.desfechos import DESFECHOS_DO_EVENTO
+
+        return tuple(sorted(DESFECHOS_DO_EVENTO))
+    if metrica == METRICA_EVT_DLQ:
+        from .eventos.desfechos import MOTIVOS_DA_DLQ
+
+        return tuple(sorted(MOTIVOS_DA_DLQ))
+    if metrica == METRICA_EVT_NOTIFICACOES:
+        from .eventos.desfechos import DESFECHOS_DA_NOTIFICACAO
+
+        return tuple(sorted(DESFECHOS_DA_NOTIFICACAO))
+    if metrica == METRICA_EVT_LAG:
+        from .contexto import VERTICAIS
+        from .eventos.subscricoes import nome_do_consumidor
+
+        return tuple(sorted(nome_do_consumidor(v) for v in VERTICAIS))
     raise EtiquetaInvalida(f"{metrica}: nao tem valores derivados")
 
 #: A gramatica de uma etiqueta. A mesma de `ten/metricas.py`, e pela mesma
@@ -368,12 +415,21 @@ _DERIVADAS: Final = (
     METRICA_HANDOFF,
     METRICA_RETOMA,
     METRICA_RETOMA_NAO_AUTORIZADA,
+    METRICA_EVT_CONSUMIDOS,
+    METRICA_EVT_DLQ,
+    METRICA_EVT_NOTIFICACOES,
 )
+
+#: As **medidas** com etiqueta (KAM-038). Fora do `_DERIVADAS` de proposito:
+#: aquele e consultado pelo `contar`, e uma medida que aparecesse la passava a
+#: aceitar `contar(agr_evt_lag_ms, ...)` — um contador a somar milissegundos,
+#: que e um numero sem significado nenhum.
+_MEDIDAS_COM_ETIQUETA: Final = (METRICA_EVT_LAG,)
 
 
 def _valores_de(metrica: str) -> tuple[str, ...]:
     """A lista fechada de uma metrica com etiqueta, derivada ou literal."""
-    if metrica in _DERIVADAS:
+    if metrica in _DERIVADAS or metrica in _MEDIDAS_COM_ETIQUETA:
         return _valores_derivados(metrica)
     return _VALORES_DA_ETIQUETA[metrica]
 
@@ -492,6 +548,22 @@ _AJUDA: Final = {
         "counter",
         "Passagens que o provedor nao aceitou abrir: conversa degradada.",
     ),
+    METRICA_EVT_CONSUMIDOS: (
+        "counter",
+        "Eventos entregues ao AGR, por desfecho do consumo.",
+    ),
+    METRICA_EVT_DLQ: (
+        "counter",
+        "Entradas abertas em events_dlq pelo AGR, por motivo. Alerta.",
+    ),
+    METRICA_EVT_NOTIFICACOES: (
+        "counter",
+        "Notificacoes por evento, por desfecho. O sem_template e alerta.",
+    ),
+    METRICA_EVT_LAG: (
+        "gauge",
+        "Lag do ultimo evento consumido, em milissegundos, por consumidor.",
+    ),
 }
 
 
@@ -523,19 +595,32 @@ class MetricasDoAgr:
         with self._trinco:
             self._contadores[nome] = self._contadores.get(nome, 0) + quanto
 
-    def medir(self, metrica: str, valor: float) -> None:
-        """Guarda o **ultimo** valor de uma medida.
+    def medir(self, metrica: str, valor: float, etiqueta: str | None = None) -> None:
+        """Guarda o **ultimo** valor de uma medida. `etiqueta` so onde a ha.
 
         Nao da percentis: esta biblioteca nao implementa histogramas (ADR-018,
         observabilidade leve no Piloto). E a mesma limitacao escrita no
         `chr_resolve_ms` e no `gwy_enqueue_ms`, e diz-se onde aparece: o p95 de
         latencia de turno que o criterio 5 pede mede-se na *suite* e no
-        *staging*, com os valores todos, nao com este *gauge*.
+        *staging*, com os valores todos, nao com este *gauge*. Vale igual para o
+        p99 de *lag* do criterio 8 do KAM-038.
+
+        **A etiqueta entrou com o KAM-038**, e entrou por necessidade: o DoD
+        dele pede «*lag* de consumo **por consumidor**», e dois consumidores a
+        escrever na mesma medida sem eixo davam um valor que e o do ultimo e nao
+        o de nenhum. As regras sao as do `contar` — lista fechada e a mesma
+        gramatica —, para que um `tenant_id` caia aqui pela forma, como la.
         """
-        if metrica not in _MEDIDAS:
+        if metrica in _MEDIDAS_COM_ETIQUETA:
+            nome = f"{metrica}:{self._validar(metrica, etiqueta)}"
+        elif metrica in _MEDIDAS:
+            if etiqueta is not None:
+                raise EtiquetaInvalida(f"{metrica} nao leva etiqueta")
+            nome = metrica
+        else:
             raise EtiquetaInvalida(f"{metrica}: medida desconhecida")
         with self._trinco:
-            self._medidas[metrica] = float(valor)
+            self._medidas[nome] = float(valor)
 
     def _validar(self, metrica: str, etiqueta: str | None) -> str:
         if not isinstance(etiqueta, str) or not ETIQUETA.match(etiqueta):
@@ -572,8 +657,18 @@ class MetricasDoAgr:
                 for chave, valor in contadores.items()
                 if chave == metrica or chave.startswith(f"{metrica}:")
             }
-            if metrica in medidas:
-                series[metrica] = medidas[metrica]
+            # As medidas entram pelo mesmo criterio dos contadores — o nome
+            # exacto **ou** o nome com etiqueta — desde que ha medidas com
+            # etiqueta (KAM-038). Com so o nome exacto, o `agr_evt_lag_ms` de
+            # cada consumidor ficava guardado e **nao aparecia na exposicao**:
+            # medido e invisivel, que e pior do que nao medido.
+            series.update(
+                {
+                    chave: valor
+                    for chave, valor in medidas.items()
+                    if chave == metrica or chave.startswith(f"{metrica}:")
+                }
+            )
             if not series:
                 continue
             linhas.append(f"# HELP {metrica} {ajuda}")
@@ -595,6 +690,9 @@ _COM_MOTIVO: Final = (
     METRICA_RECUSADOS,
     METRICA_REGISTO_NEGADO,
     METRICA_RETOMA_NAO_AUTORIZADA,
+    # O `agr_evt_dlq_total` conta **porque** um evento deixou de ser tentado, e
+    # `tentativas_esgotadas` nao e um desfecho: e a razao de um.
+    METRICA_EVT_DLQ,
 )
 
 #: O nome do eixo de cada metrica com etiqueta, quando nao e `outcome` nem
@@ -618,6 +716,10 @@ _NOME_DO_EIXO: Final = {
     # `agr_resume_total` fica em `outcome` por omissao, e ai o nome esta certo —
     # os tres valores dele **sao** desfechos da chamada.
     METRICA_HANDOFF: "estado",
+    # O eixo do *lag* e o `consumer`, que e o nome da coluna de
+    # `platform.events_consumed` e de `platform.events_dlq`: chamar-lhe
+    # `outcome` dizia que `agr_vendedor` e um desfecho.
+    METRICA_EVT_LAG: "consumer",
 }
 
 

@@ -176,6 +176,32 @@ ESCRITAS_DO_PLANO_DE_CONTROLO = frozenset(
         # escritos no AGR sao uma fronteira a mudar, e uma fronteira a mudar
         # passa por aqui com uma entrada nova e a razao escrita.
         ("services/agr/src/kamba_agr/consultas.py", "handoffs", "update"),
+        # KAM-038, criterios 2 e 3: a entrada na fila de mortos de um evento que
+        # o AGR consome. As quatro condicoes acima:
+        #
+        # 1. **nada depende de modelo nem de texto do cliente** — o que se
+        #    escreve e o envelope que o `platform.evt_emitir` construiu (ou, num
+        #    envelope ilegivel, um substituto deste codigo) e um `erro` de lista
+        #    fechada (`MOTIVOS_DA_DLQ`, dicionario §3.33);
+        # 2. **e plano de controlo** — uma entrada na DLQ diz que uma entrega
+        #    parou; nao mexe em encomenda, preco nem contacto;
+        # 3. **o `tenant_id` esta na instrucao e ela corre em
+        #    `tenant_guard.tx`** — o isolamento continua a ser da base, e a
+        #    `0005` da `GRANT INSERT ON platform.events_dlq TO kamba_app`;
+        # 4. **o canon nomeia o dono** — o `consumo.py` do KAM-006 escreve que
+        #    «nao trata de retentativas nem de DLQ: isso e politica, e vive no
+        #    trabalhador», e o trabalhador destas subscricoes e o AGR.
+        #
+        # **So o `insert`.** Fechar, descartar e reprocessar uma entrada sao do
+        # `kamba_batch` (a `0005` da-lhe o `UPDATE (estado, resolvido_at,
+        # resolvido_por)`) e exigem dois aprovadores num `payment.*`; um
+        # `UPDATE` escrito no AGR punha quem consome a poder fechar a sua propria
+        # entrada, que e o que a regra dos dois existe para impedir.
+        #
+        # A `events_consumed` **nao** aparece aqui: quem lhe escreve e o
+        # `kamba_core.eventos.consumir` (KAM-006), que vive em `libs/` e nao em
+        # `services/` — e este *lint* so varre `services/*/src/**`.
+        ("services/agr/src/kamba_agr/eventos/consultas.py", "events_dlq", "insert"),
     }
 )
 

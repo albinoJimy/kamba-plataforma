@@ -186,6 +186,27 @@ fora_de_ambito:
       Bate na sentinela `*/eventos/*`; nao tem DDL nem schemas, e os nomes que
       usa sao os das revisoes `0004` e `0005`, que o gate le.
 
+  - caminho: "services/agr/src/kamba_agr/eventos/*"
+    razao: >-
+      KAM-038: a subscricao de eventos do AGR — o leitor de envelope, a tabela
+      de consumidores, os handlers, o turno por evento, a notificacao e a DLQ.
+      Bate na sentinela `*/eventos/*`, mas a superficie `eventos` sao os
+      **schemas** de evento (`contratos/eventos/*.schema.json`, KAM-007) e o
+      gate 3b nao le Python. E a mesma razao, e a mesma cobertura transitiva,
+      do espelho em Python do KAM-006
+      (`libs/py-core/src/kamba_core/eventos/*`): os nomes que este codigo usa
+      sao contrato onde sao escritos — no DDL das revisoes `0004`, `0005`,
+      `0009` e `0011`, que estao na superficie `migracoes` e sao lidos, e nos
+      `registry/*.yaml`, que estao na superficie `registo` — e ha um teste de
+      paridade que prende os catorze campos do envelope ao
+      `packages/core-ts/src/eventos/envelope.ts`, lido como texto.
+
+  - caminho: "services/agr/tests/test_eventos.py"
+    razao: >-
+      KAM-038: a bateria da subscricao de eventos. Pela mesma razao da entrada
+      acima, e e um teste: os nomes que usa vem dos modulos e dos
+      `registry/*.yaml` reais.
+
   - caminho: "services/agr/src/kamba_agr/registo/*"
     razao: >-
       KAM-027: o `AgentRegistry` do AGR — o esquema Pydantic, as seis validacoes

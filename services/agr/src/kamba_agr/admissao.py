@@ -109,12 +109,27 @@ COALESCENCIA_MS: Final = 1_500
 #: Turnos a espera a partir dos quais se conta contrapressao. *Proposta*; e o
 #: «limiar» da regra 4 do §15.2, que nenhum documento numera.
 LIMIAR_DE_CONTRAPRESSAO: Final = 100
+#: Vagas que um evento **prioritario** tem **acima** do tecto do *tenant*.
+#: *Proposta* (KAM-038, criterio 8; dicionario §3.33).
+#:
+#: E a outra metade da regra 2 do §15.2 — «tecto de concorrencia por tenant
+#: (anti vizinho ruidoso) **e prioridade de eventos de pagamento sobre
+#: conversa**» —, e a primeira metade ja estava.
+#:
+#: **Acima e nao dentro**, e a escolha tem consequencia medida: descontar a
+#: reserva do tecto baixava a concorrencia de conversa de 3 para 2 e mudava o
+#: criterio 5 do KAM-025, que foi medido com 3. O anti-vizinho-ruidoso sobrevive
+#: porque o lugar extra so serve eventos `payment.*`, cujo ritmo e do
+#: facilitador e nao do cliente — um *tenant* nao o pode encher escrevendo
+#: mensagens. Calibra-se em KAM-084, com os outros quatro.
+RESERVA_DE_PAGAMENTO: Final = 1
 
 #: As variaveis que mexem nos quatro numeros acima. Dicionario §3.24.
 VAR_RITMO: Final = "AGR_RITMO_POR_CONTACTO"
 VAR_TECTO: Final = "AGR_TECTO_POR_TENANT"
 VAR_COALESCENCIA: Final = "AGR_COALESCENCIA_MS"
 VAR_LIMIAR: Final = "AGR_LIMIAR_DE_CONTRAPRESSAO"
+VAR_RESERVA: Final = "AGR_RESERVA_DE_PAGAMENTO"
 
 
 class RitmoExcedidoError(RuntimeError):
@@ -147,12 +162,13 @@ def _inteiro(variavel: str, omissao: int, ambiente: dict[str, str] | None = None
 
 @dataclass(frozen=True, slots=True)
 class Tectos:
-    """Os quatro numeros, lidos uma vez no arranque."""
+    """Os cinco numeros, lidos uma vez no arranque."""
 
     ritmo_por_contacto: int = RITMO_POR_CONTACTO
     tecto_por_tenant: int = TECTO_POR_TENANT
     coalescencia_ms: int = COALESCENCIA_MS
     limiar_de_contrapressao: int = LIMIAR_DE_CONTRAPRESSAO
+    reserva_de_pagamento: int = RESERVA_DE_PAGAMENTO
 
     @classmethod
     def do_ambiente(cls, ambiente: dict[str, str] | None = None) -> Tectos:
@@ -163,6 +179,7 @@ class Tectos:
             limiar_de_contrapressao=_inteiro(
                 VAR_LIMIAR, LIMIAR_DE_CONTRAPRESSAO, ambiente
             ),
+            reserva_de_pagamento=_inteiro(VAR_RESERVA, RESERVA_DE_PAGAMENTO, ambiente),
         )
 
 
@@ -296,7 +313,25 @@ class Admissao:
         mil a ocupar *workers* a dormir. Recusar devolve o *job* a fila com
         atraso, que e contrapressao a funcionar.
         """
-        tenant = invocacao.tenant_id
+        async with self.vaga_de(invocacao.tenant_id):
+            yield
+
+    @contextlib.asynccontextmanager
+    async def vaga_de(
+        self, tenant_id: str, *, prioritario: bool = False
+    ) -> AsyncIterator[None]:
+        """A mesma vaga, por `tenant_id` e com a prioridade do criterio 8.
+
+        Existe porque um evento **nao tem `InvocacaoDoAgente`**: o corpo de
+        `/internal/event` e um envelope, e o `tenant_id` dele sai do envelope
+        validado. Separar as duas assinaturas foi o que permitiu nao alargar o
+        contrato de `vaga`, que e o caminho do turno de conversa e esta medido.
+
+        **`prioritario` da `reserva_de_pagamento` vagas ACIMA do tecto**, e nao
+        dentro dele: ver a constante. O efeito e o que o criterio 8 quer — um
+        `payment.*` nao espera atras de mensagens de conversa do mesmo *tenant*,
+        e o p99 de *lag* dele nao herda a fila delas.
+        """
         if self._tectos.tecto_por_tenant == 0:
             # Zero e **sem tecto**, como no ritmo. E o modo em que o criterio 2
             # se mede: vinte mensagens concorrentes da mesma `thread_id` com o
@@ -306,21 +341,24 @@ class Admissao:
             # tranca, e os tectos desligam-se para a deixar ver.
             yield
             return
-        if self._em_curso.get(tenant, 0) >= self._tectos.tecto_por_tenant:
+        tecto = self._tectos.tecto_por_tenant
+        if prioritario:
+            tecto += self._tectos.reserva_de_pagamento
+        if self._em_curso.get(tenant_id, 0) >= tecto:
             METRICAS.contar(METRICA_RECUSADOS, "tecto_do_tenant")
             raise TectoDoTenantCheioError("tecto_do_tenant")
-        self._em_curso[tenant] = self._em_curso.get(tenant, 0) + 1
+        self._em_curso[tenant_id] = self._em_curso.get(tenant_id, 0) + 1
         try:
             yield
         finally:
-            restantes = self._em_curso[tenant] - 1
+            restantes = self._em_curso[tenant_id] - 1
             if restantes:
-                self._em_curso[tenant] = restantes
+                self._em_curso[tenant_id] = restantes
             else:
                 # Sem isto, o dicionario cresce com um *tenant* por chave e
                 # nunca encolhe — memoria ilimitada a custa de outrem, a razao
                 # do `MAXIMO_DE_CANAIS` do `chr/contrato.ts`.
-                del self._em_curso[tenant]
+                del self._em_curso[tenant_id]
 
     @contextlib.contextmanager
     def na_fila(self):

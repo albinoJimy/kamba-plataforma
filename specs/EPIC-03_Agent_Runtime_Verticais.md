@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Agent Runtime e Verticais |
-| Versão | 1.7 |
+| Versão | 1.8 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/02_Agent_Runtime_Verticais.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -2713,13 +2713,13 @@ Ligar as `subscriptions` do registo (KAM-027) a consumidores no AGR: handlers id
 
 ### Critérios de Aceitação
 
-- [ ] Para cada `subscriptions` de `registry/*.yaml` existe 1 consumidor registado; `tipo`/`versao` desconhecidos reprovam o arranque (partilha a validação de KAM-027).
-- [ ] O mesmo `evento.id` entregue 5 vezes (inclusive em paralelo) produz **1** efeito (1 mensagem, 1 linha em `events_consumed`); 2.ª entrega é *no-op*.
-- [ ] Um evento com **versão desconhecida** não é ignorado em silêncio: falha visível, reencaminha para DLQ e emite alerta (regra de Standards §5; contrariamente a `../docs/tecnica/03` §12, que diz «ignoram»).
+- [x] Para cada `subscriptions` de `registry/*.yaml` existe 1 consumidor registado; `tipo`/`versao` desconhecidos reprovam o arranque (partilha a validação de KAM-027).
+- [x] O mesmo `evento.id` entregue 5 vezes (inclusive em paralelo) produz **1** efeito (1 mensagem, 1 linha em `events_consumed`); 2.ª entrega é *no-op*.
+- [x] Um evento com **versão desconhecida** não é ignorado em silêncio: falha visível, reencaminha para DLQ e emite alerta (regra de Standards §5; contrariamente a `../docs/tecnica/03` §12, que diz «ignoram»).
 - [ ] Envelope com `tenant_id` forjado (diferente do `agregado`) é rejeitado; o consumidor define `SET LOCAL app.tenant_id` só a partir do envelope **validado** (ISO-43..46).
-- [ ] O turno por evento usa `turn_id = event_id`, corre sob o lock da conversa e **não** corre se a conversa estiver com humano (`pausada`/`waiting`): notifica o HND.
+- [x] O turno por evento usa `turn_id = event_id`, corre sob o lock da conversa e **não** corre se a conversa estiver com humano (`pausada`/`waiting`): notifica o HND.
 - [ ] Notificação ao cliente com janela aberta é mensagem livre (*service*); com janela fechada, *template utility* aprovado; sem *template* aprovado → não envia e alerta (decisão do Outbound, KAM-015).
-- [ ] Notificação ao **dono** nunca usa o número da própria loja; vai pelo HND (painel/e-mail do Chatwoot).
+- [x] Notificação ao **dono** nunca usa o número da própria loja; vai pelo HND (painel/e-mail do Chatwoot).
 - [ ] Eventos de pagamento têm prioridade sobre mensagens de conversa; `payment.*` p99 de *lag* ≤ 10 s no teste de carga leve (alvo de `../docs/tecnica/06`).
 
 ### Detalhes Técnicos
@@ -2739,13 +2739,552 @@ Ligar as `subscriptions` do registo (KAM-027) a consumidores no AGR: handlers id
 
 ### Definition of Done
 
-- [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
-- [ ] **Idempotência:** consumo repetido sem duplicar efeitos; `events_consumed` (ADR-009).
-- [ ] **Isolamento de tenant:** `tenant_id` validado do envelope; teste cruzado cobre consumidores (ADR-015).
-- [ ] **Privacidade:** eventos e logs sem telefone nem conteúdo (ADR-010).
-- [ ] **Pagamento só por evento autenticado:** o AGR só reage a eventos do PAY, nunca os produz (ADR-013).
-- [ ] **Custo e observabilidade:** *lag* de consumo por consumidor e custo de mensagens por origem.
-- [ ] Documentação do catálogo de subscrições actualizada.
+- [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis. **Cinco dos oito**: o 4, o 6 e o 8 ficam `parcial`, com o credor nomeado na verificação.
+- [x] **Idempotência:** consumo repetido sem duplicar efeitos; `events_consumed` (ADR-009).
+- [x] **Isolamento de tenant:** `tenant_id` validado do envelope; teste cruzado cobre consumidores (ADR-015).
+- [x] **Privacidade:** eventos e logs sem telefone nem conteúdo (ADR-010).
+- [x] **Pagamento só por evento autenticado:** o AGR só reage a eventos do PAY, nunca os produz (ADR-013).
+- [x] **Custo e observabilidade:** *lag* de consumo por consumidor; o custo de mensagens por origem é do Outbound, pela `idempotency_key` que este consumidor lhe passa (ver a verificação).
+- [x] Documentação do catálogo de subscrições actualizada.
+
+### Verificação dos Critérios de Aceitação
+
+A emenda **1.43** do dicionário canónico (§3.33) entra com este ticket e **sem
+DDL**: as quatro tabelas que o consumidor toca — `events_consumed`,
+`events_dlq`, `conversations` e `handoffs` — existem desde as revisões `0005`,
+`0009` e `0011`, e o `kamba_app` já tem nelas os privilégios de que precisa. A
+cadeia de migrações fica na `0023`.
+
+#### Critério 1 — um consumidor por cada `subscriptions`, e desconhecidos reprovam
+
+`subscricoes.consumidores()` lê o registo já carregado e produz **um consumidor
+por cada `{tipo, versao}` de cada vertical**, com o `consumer` derivado do `id`
+(`agr_vendedor`, `agr_servicos`) e não escrito à mão. Hoje são **dez**: quatro
+do Vendedor e seis de Serviços (os dois ficheiros partilham os dois eventos de
+pagamento).
+
+**A validação é a do KAM-027 e não uma segunda.** O módulo chama
+`registo.validar.validar_subscriptions` — a validação (4) do §5.2 — e **não
+importa o catálogo** de nenhum outro caminho; há um teste que mede exactamente
+isso (`test_a_validacao_e_a_do_kam_027_e_nao_uma_segunda`), lendo as linhas de
+importação do ficheiro.
+
+São **duas** verificações no arranque, e não a mesma pergunta:
+
+* um `{tipo, versao}` **sem contrato publicado** levanta
+  `SubscricoesInvalidasError` (a validação partilhada);
+* um tipo subscrito **sem *handler*** levanta `SemHandlerError`. Sem esta, um
+  consumidor registado marcava o evento como consumido e não notificava
+  ninguém — o pior dos dois mundos.
+
+As duas dão o código de saída **8**, o oitavo do serviço (`2` configuração, `3`
+guarda do ADR-002, `4` sem checkpointer, `5` registo inválido, `6` sem auditoria
+de tools, `7` sem gateway de LLM, `8` sem consumidores), e cada um manda olhar
+para um sítio diferente.
+
+**Prova:** `TestCriterio1Subscricoes` (12 ensaios), contra os
+`registry/*.yaml` **reais** e não contra um duplo.
+
+- [x] satisfeito.
+
+#### Critério 2 — cinco entregas, um efeito, uma linha
+
+A transacção é a do KAM-006 (`kamba_core.eventos.consumir`): `SET LOCAL
+app.tenant_id` do envelope validado, `INSERT ... ON CONFLICT (consumer,
+event_id) DO NOTHING`, efeito, `COMMIT`. O que este ticket decidiu é **onde
+corre o efeito**: dentro da transacção, e não depois do `COMMIT`. A razão é
+simétrica e está escrita no `consumo.py`:
+
+* se a notificação falhar, o `ROLLBACK` leva a marca com ela e a re-entrega
+  volta a tentar — **não há marca sem efeito**;
+* se o `COMMIT` falhar depois de a notificação passar, a re-entrega repete-a com
+  a **mesma** chave `consumer:event_id:accao` e a `UNIQUE (tenant_id,
+  idempotency_key)` de `outbound_messages` não enfileira nada — **não há efeito
+  duplicado**.
+
+A alternativa (efeito depois do `COMMIT`) deixava a primeira janela aberta; é a
+janela que a `evt_acoes` do §6.3 existe para fechar, e ela continua **sem
+escritor** (credor: KAM-006). Fecha-se por desenho em vez de por tabela.
+
+«DLQ após 5 tentativas» lê-se como as **6** do §6.4 (1 + 5), que é o que o
+dicionário §3.5 já tinha corrigido e o que o `TENTATIVAS` do KAM-006 deriva da
+escada. O atraso de cada retentativa vem do
+`atraso_da_tentativa_do_consumidor`, e não de um número escrito ao lado.
+
+**Prova, em dois sítios e por razões diferentes:**
+
+* `TestCriterio2Idempotencia` (10 ensaios, sem base) e `TestCriterio2SemTranca`: cinco entregas em série e
+  cinco **em paralelo** dão `["aplicado", "duplicado" × 4]`, uma chamada ao
+  Outbound e uma linha; uma notificação que levanta não deixa marca; a DLQ abre
+  à sexta e não à quinta; a reentrada não abre uma segunda entrada;
+* `db/tests_agr/test_eventos.py` (gate 8, com PostgreSQL): cinco **ligações**
+  concorrentes sobre o mesmo `INSERT` dão `[0,0,0,0,1]` e uma linha — o que
+  decide é o índice único do servidor, e nenhum duplo o simula. E o `ROLLBACK`
+  leva a marca com ele, que uma base falsa não tem como dizer.
+
+**E «1 mensagem» precisou de duas coisas e não de uma, o que a revisão
+adversarial mediu.** A primeira é o *entitlement*, que decide **qual** vertical
+consome. A segunda, que faltava, é o *handler* ser por `(vertical, tipo)`: um
+*tenant* com as duas verticais activas — o do *gate* da Fase 0 — tem **dois**
+consumidores por desenho, e com um *handler* agnóstico à vertical os dois
+mandavam o **mesmo** texto, com chaves de idempotência diferentes. Hoje o
+pagamento fala com o cliente pelo Vendedor e nos Serviços dá `sem_accao`, com o
+credor nomeado (KAM-047).
+
+- [x] satisfeito.
+
+#### Critério 3 — versão desconhecida falha visível, DLQ e alerta
+
+**A contradição que o critério manda arbitrar já não existe no texto**, e
+regista-se para que ninguém a reabra. O `../docs/tecnica/03` §12 **foi
+corrigido** e lê-se hoje «versões desconhecidas **falham de forma visível**
+(bloqueio com alerta, `06` §6.6), nunca são ignoradas em silêncio»; o `06` §6.6
+escreve a razão por extenso («isso perde dados em silêncio quando o produtor é
+actualizado primeiro»); e a regra §5 dos *Standards* manda o mesmo. **Prevalece
+a regra §5, as três fontes concordam, e o consumidor abre DLQ com alerta.**
+
+São **dois** motivos e não um, porque mandam olhar para sítios diferentes:
+`tipo_desconhecido` é configuração de entrega (`evt_subscricoes`, KAM-005) e
+`versao_desconhecida` é ordem de *deploy* (§6.6, «consumidores antes de
+produtores»). Nenhum dos dois gasta a escada do §6.4: não mudam entre
+tentativas, e esperar treze minutos para chegar à mesma conclusão era adiar o
+alerta.
+
+O «alerta» são as duas coisas que este repositório tem: o contador
+`agr_evt_dlq_total{motivo}` e uma linha de registo pelo `log.warn`, com o motivo
+em `error_code` (identificador de lista fechada — nunca o envelope).
+
+**Prova:** `TestCriterio3VersaoDesconhecida` (9 ensaios); o da DLQ contra a base
+mede que o `SQL_ABRIR_DLQ` **corre**.
+
+- [x] satisfeito.
+
+#### Critério 4 — envelope com `tenant_id` forjado é recusado
+
+Três barreiras, e cada uma fecha um caminho diferente:
+
+1. **O `SET LOCAL app.tenant_id` sai do envelope validado e de mais lado
+   nenhum.** É o `consumir` do KAM-006 a ler `envelope["tenant_id"]`, e esse
+   campo só existe depois de passar pelo `ler_envelope`. A conversa é lida com
+   esse contexto, pelo que um envelope forjado **não encontra conversa
+   nenhuma** — e zero linhas não é «está em `bot`»: é recusa.
+2. **Um `tenant_id` escrito no *payload* não chega lá.** O contrato de cada tipo
+   é fechado (`validar_payload`, KAM-007) e um campo a mais reprova o envelope.
+3. **Os ponteiros da fila têm de bater com o envelope.** O corpo de
+   `/internal/event` traz `event_id` e `tenant_id` porque sem eles um envelope
+   que **não se lê** desaparecia em silêncio (as colunas da `events_dlq` são
+   `NOT NULL`); quando o envelope se lê, confrontam-se com ele. Sem esta
+   verificação, uma entrega com o `tenant_id` de B e um envelope de A escrevia a
+   linha da DLQ no *tenant* B — **o envelope de A dentro do *tenant* de B**, numa
+   coluna que uma auditoria lê e que fica trinta dias depois da resolução. Por
+   isso a entrada de um envelope recusado guarda um **substituto** e nunca o que
+   recusou.
+
+**E a terceira barreira é mais fraca do que parecia, o que a revisão
+adversarial mediu.** As duas metades que ela confronta — o ponteiro e o
+envelope — vêm da **mesma** linha de `events_log` que a casca lê: quem forja uma
+forja as duas. A defesa a sério é a RLS, e ela só actua no caminho que **lê a
+conversa**. Num evento que só avisa o dono (`stock.low`) não se lê conversa nem
+se toma tranca, e o que resta é o *entitlement* do *tenant* declarado: com ele
+inactivo nada acontece; com um *tenant* real e activo, a linha em
+`events_consumed` e o aviso ao dono saem para ele. **Não há fuga de conteúdo** —
+o `motivo` é o tipo do evento — mas há escrita e alerta em *tenant* alheio.
+
+Fechar isto exige ligar o **agregado** ao *tenant*, e quem tem essa leitura é o
+COM (**KAM-041**), que não existe. O critério passa a `parcial` em vez de ficar
+marcado pela razão errada.
+
+**Prova:** `TestCriterio4TenantForjado` (7 ensaios, sem base, incluindo o do
+caminho só-do-dono) e
+`TestAConversaDoContacto.test_o_envelope_forjado_nao_ve_a_conversa_do_outro`
+(gate 8, com a RLS a sério — ISO-43..46, X-02).
+
+- [ ] parcial — o caminho que notifica o cliente está fechado pela RLS; o que
+  só avisa o dono tem como única barreira o *entitlement* do *tenant* declarado,
+  e a ligação entre o agregado e o *tenant* é **KAM-041**.
+
+#### Critério 5 — turno por evento: `turn_id = event_id`, tranca, humano
+
+As três propriedades que o critério nomeia:
+
+* **`turn_id = event_id`**: o §3.24 fixou `turn_id` como o `wamid`, e um turno
+  por evento não tem `wamid` nenhum. A consequência que interessa é a chave de
+  envio ficar estável entre re-entregas — é isso que faz «cinco entregas, uma
+  mensagem» ser consequência e não coincidência;
+* **sob a tranca da conversa**: a **mesma** `TrancaDeConversas` do KAM-025 e a
+  mesma chave (`thread_id = {tenant_id}:{contact_id}`), pelo que um turno por
+  evento e um turno de conversa da mesma pessoa serializam entre si;
+* **não corre com um humano com a palavra**: lê-se `mode` e o `EXISTS` sobre
+  `handoffs.status = 'waiting'` **dentro** da tranca, e o modo testa-se por
+  igualdade a `bot` — lista de permitidos. O evento **consome-se** e o HND é
+  notificado: repetir seis vezes para dizer sempre o mesmo não é tentar outra
+  vez.
+
+**O turno por evento não invoca o grafo, e isso é decisão e não omissão.**
+Nenhuma das três propriedades é «invoca o grafo»; o `ingest` do grafo do Vendedor
+pressupõe uma mensagem do cliente na janela `messages` (§3.31, KAM-031), e
+dar-lhe um envelope era mudar o nó de entrada de um grafo cujo dono é outro
+ticket. O que corre sob a tranca é um *handler* determinístico — sem modelo no
+caminho, logo sem prosa a validar pelo ADR-007. Credores: **KAM-031** e
+**KAM-035**.
+
+**Prova:** `TestCriterio5TurnoPorEvento` (12 ensaios), incluindo cinco entregas
+concorrentes com zero secções críticas sobrepostas.
+
+- [x] satisfeito.
+
+#### Critério 6 — janela aberta, janela fechada, sem *template*
+
+**`parcial`, e o credor é duplo: KAM-015 e KAM-024.**
+
+O que é deste ticket está feito e mede-se:
+
+* a porta recebe **sempre** o nome do *template* ao lado do texto, e uma
+  notificação sem *template* nomeado **não se constrói**
+  (`NotificacaoSemTemplateError`). Não há, por construção, caminho nenhum que
+  mande texto livre com a janela fechada;
+* os três desfechos (`livre`, `template`, `sem_template`) contam em
+  `agr_evt_notificacoes_total`, e o `sem_template` **alerta e levanta**: abre
+  entrada na DLQ em vez de dar `aplicado`. A primeira versão contava-o e seguia,
+  e a revisão adversarial mediu o que isso custava — uma linha em
+  `events_consumed` com **zero** mensagens, no **único** caminho que hoje corre,
+  e no dia em que o KAM-024 aprovasse os *templates* a re-entrega dava
+  `duplicado` e o cliente nunca era avisado;
+* os textos não levam **número nenhum** — nem valor, nem data, nem quantidade.
+  «O seu pagamento foi confirmado» é verdade sem citar o valor; citá-lo obrigava
+  a comparar o `valor_minor` do envelope com o da encomenda, que o AGR não tem,
+  e um valor errado numa confirmação de pagamento é pior do que um valor
+  omitido.
+
+O que **não** é deste ticket, e por isso a caixa fica parcial: a decisão entre os
+três é do **Outbound** (KAM-015, `01` §8.2) e o catálogo de *templates*
+aprovados é o **KAM-024**. Até ele existir, a porta por omissão devolve
+`sem_template` — **e isso não é uma falha a fingir**: é o estado do sistema hoje,
+porque não há *template utility* aprovado nenhum, e o que o critério manda fazer
+nesse caso é exactamente não enviar e alertar.
+
+- [ ] parcial — a decisão janela/*template* é **KAM-015** e o catálogo de
+  *templates* aprovados é **KAM-024**. O que é do AGR (nunca texto livre com
+  janela fechada, e o alerta) está e mede-se.
+
+#### Critério 7 — a notificação ao dono nunca pelo número da própria loja
+
+**São duas portas e não uma com um argumento**, e é isso que torna a propriedade
+do critério uma propriedade **do código**: o aviso ao dono não *tem* como chegar
+ao Outbound. A `PortaDeAvisoAoDono` não leva `contact_id` nem
+`conversation_id` — sem campos de conversa, não há por onde cair no canal do
+cliente — e as duas acções têm chaves de idempotência diferentes
+(`notificar_cliente` e `notificar_dono`), precisamente para que a segunda não
+seja engolida como repetição da primeira.
+
+**Prova:** `TestCriterio7AvisoAoDono` (7 ensaios), com um espião na porta do
+cliente a exigir **zero** chamadas, e um que lê a assinatura da porta do dono.
+
+Como no critério 6 do KAM-025, o que este ticket entrega é a **decisão de
+canal**; a entrega é do **KAM-019** (painel/e-mail do Chatwoot) e o canal
+alternativo é do **KAM-115**.
+
+- [x] satisfeito quanto à decisão de canal, que é o que o critério mede; a
+  entrega é KAM-019 e KAM-115.
+
+#### Critério 8 — prioridade dos eventos de pagamento, e o p99 de *lag*
+
+**`parcial`.**
+
+A prioridade está, e não é uma ordenação de fila: é a **admissão**, que é quem
+tem o tecto por *tenant*. Um evento `payment.*` entra com a reserva
+`AGR_RESERVA_DE_PAGAMENTO` (*proposta*, 1) **acima** do tecto e não dentro dele —
+descontá-la do tecto baixava a concorrência de conversa de 3 para 2 e mudava o
+critério 5 do KAM-025, que foi medido com 3. O anti-vizinho-ruidoso sobrevive
+porque o lugar extra só serve eventos de pagamento, cujo ritmo é do facilitador
+e não do cliente.
+
+O *lag* mede-se do **`ocorrido_em`** (quando o facto aconteceu) e não do
+`registado_em` (que esconde o atraso até à transacção que o gravou), por
+consumidor, no `agr_evt_lag_ms` — **a primeira medida com etiqueta do
+repositório**, porque «*lag* por consumidor» não cabe num valor sem eixo.
+
+**O que fica por verificar, e porquê.** O ensaio de carga leve (200 pagamentos)
+mede o p99 do caminho de decisão do consumidor e dá-o muito abaixo dos 10 s —
+mas **não mede a fila nem a base nem a rede**, que não existem nele. O alvo do
+`../docs/tecnica/06` mede-se em *staging*, com o BullMQ e o PostgreSQL reais, e
+as garantias de entrega do BullMQ continuam **NÃO VERIFICADAS** (L6, R9 do
+epic). A calibração dos tectos é **KAM-084**.
+
+- [ ] parcial — a prioridade está e mede-se; o p99 de *lag* ≤ 10 s em carga
+  leve **não se mede aqui**: mede-se em *staging*, e a calibração é KAM-084.
+
+#### O `payment.manual_confirmed` já estava subscrito
+
+Os *Detalhes Técnicos* pedem-no como *proposta* (SemVer MINOR) para as duas
+verticais. A emenda **1.35** (KAM-027) já o tinha decidido pela linha «Evento do
+*gate* da Fase 0» do §3.5, e os dois `registry/*.yaml` entregues já o declaram —
+com a razão escrita por extenso no `registry/vendedor.yaml`. O que este ticket
+acrescenta não é a subscrição: é o **consumidor** que a lê. Há um ensaio que o
+confronta contra os ficheiros reais
+(`test_os_dois_eventos_de_pagamento_estao_nas_duas_verticais`).
+
+#### Três decisões que saíram de escrever código, e não de o ler
+
+**O `contact_id` não está em cinco dos seis contratos.** Os *Detalhes Técnicos*
+do bloco dizem «os *payloads* trazem `contact_id`, nunca telefone». **Dos seis
+tipos subscritos, só o `booking.created` o traz**: o catálogo do KAM-007
+publicou `payment.confirmed` com `(order_id, provider, referencia, valor_minor,
+currency, autenticacao)`, `payment.manual_confirmed` sem o `provider` e o
+`referencia`, `order.expired` com `(order_id, expira_at)` e
+`booking.reminder_due` com `(booking_id, inicio_at)`. Nenhum diz **a quem** se
+fala. O que se faz é uma porta — `PortaDeContacto`, que resolve
+`(agregado.tipo, agregado.id) -> contact_id` — com os credores nomeados: o
+`order` é do **COM** (KAM-041) e o `booking` é do módulo `servicos` (KAM-047,
+§8.3). **Enquanto ninguém a ligar, um `payment.confirmed` esgota a escada e abre
+entrada na DLQ**, que é Sev1 pelo §6.4 — e a classificação está certa: «cliente
+que pagou sem confirmação» é exactamente o que acontece. Um alarme honesto vale
+mais do que um desfecho `aplicado` sobre uma notificação que ninguém recebeu. O
+`correlacao_id` do envelope **não serve de atalho**: o §4 descreve-o como
+«Conversa **ou** pedido», e um campo que pode ser duas coisas não endereça
+ninguém — usá-lo era arriscar falar do pagamento de uma pessoa a outra.
+
+**O `consumer` é por vertical e não por `(vertical, tipo)`, e o entitlement
+decide qual consome.** Com um consumidor por par, o mesmo `payment.confirmed`
+entregue às duas verticais dava quatro linhas em `events_consumed` e quatro
+efeitos. Mas um consumidor por vertical ainda dava **dois**, porque os dois
+`registry/*.yaml` subscrevem os mesmos dois eventos de pagamento e a
+`evt_subscricoes` é configuração **global** (por `consumer`, não por *tenant*).
+O que fecha isso é a mesma leitura que o turno de conversa usa — o
+`check_entitlement` do KAM-009, que falha fechada —, e sem ela o critério 2
+estava violado por construção: **duas mensagens ao mesmo cliente sobre o mesmo
+pagamento**. Um *tenant* com as duas verticais activas tem dois consumidores e
+dois efeitos, por desenho do ADR-012; no Piloto o §5.2 fixa uma vertical por
+número.
+
+**O `aplica_transicao` do KAM-006.** O `ESTADO_PRETENDIDO` põe os dois eventos de
+pagamento a exigir pré-condição de estado, e a sua própria nota diz porquê:
+«estão aqui os eventos cujo consumo **aplica** a transição». O AGR não aplica
+transição nenhuma — quem transita a encomenda é o COM (`03` §6) e quem decide o
+pagamento é o PAY (ADR-013) —, e sem a distinção o consumo de
+`payment.confirmed` levantava `MaquinaEmFalta` ou, com uma máquina sobre a
+tabela de encomendas que o KAM-041 ainda não escreveu, adiava seis vezes e
+mandava para a DLQ **todos** os pagamentos confirmados. A opção é do lado
+Python, a omissão é `true`, e nenhum consumidor existente muda de comportamento.
+O `fora_de_ordem` do KAM-006 deixa, por consequência, de ser alcançável por este
+consumidor — e por isso **não** se declara como motivo de DLQ: era uma etiqueta
+sempre a zero, que é a lição do `echo_latency_ms` do KAM-018.
+
+### Verificação do Definition of Done
+
+- [ ] **Todos os Critérios de Aceitação satisfeitos e demonstráveis** —
+  **cinco dos oito**; o 4, o 6 e o 8 ficam `parcial`, com o credor nomeado
+  acima. A
+  caixa não se marca: um DoD que diga «todos» com dois parciais é uma caixa
+  marcada pela razão errada.
+- [x] **Idempotência** — `events_consumed` com a chave `(consumer, event_id)`, a
+  marca e o efeito na mesma transacção, e a chave `consumer:event_id:accao` do
+  §6.3 no efeito externo. Medido sem base (cinco entregas concorrentes, e cinco
+  avisos ao dono em paralelo — o caminho que **não** toma tranca, que é onde as
+  cinco chegam juntas ao `ON CONFLICT`) e com base (cinco **ligações**
+  concorrentes, que é o único sítio onde o índice único do servidor decide).
+- [ ] **Isolamento de tenant** — o contexto sai do envelope **validado**; o
+  ensaio cruzado do gate 8 confirma que o contexto de B não vê a conversa de A
+  (ISO-43..46, X-02), e a entrada da DLQ de um envelope recusado guarda um
+  substituto e nunca o que recusou. **Mas o «teste cruzado cobre consumidores»
+  não é verdade para todos**: num evento que só avisa o dono não se lê conversa,
+  a RLS não tem onde morder, e a única barreira é o *entitlement* do *tenant*
+  declarado — ver o critério 4. Credor: **KAM-041**.
+- [x] **Privacidade** — os eventos não trazem telefone (é o contrato fechado do
+  KAM-007) e o envelope recusa `classe_pii: P2`. Os registos levam só `outcome`
+  e `error_code`, que são identificadores de lista fechada deste código: nem
+  `payload`, nem `event_id`, nem `tenant_id`. As métricas não levam `tenant_id`,
+  `contact_id`, `conversation_id` nem `wamid` — a gramática recusa-os pela forma.
+- [x] **Pagamento só por evento autenticado** — o AGR **reage** a
+  `payment.confirmed` e a `payment.manual_confirmed` e **não os produz**: não há
+  neste ticket nenhuma escrita que os emita, e o `aplica_transicao=False` diz por
+  extenso que ele não aplica a transição — quem a aplica é o COM, e quem a
+  decide é o PAY (ADR-013).
+- [x] **Custo e observabilidade** — `agr_evt_lag_ms{consumer}` é o «*lag* de
+  consumo por consumidor». **O «custo de mensagens por origem» não nasce aqui**,
+  e fica dito: quem conta o custo de uma mensagem é o Outbound
+  (`meta_cost_usd_total` e `outbound_messages.pricing`, KAM-015), e a «origem» é
+  a `idempotency_key` que este consumidor lhe passa — `consumer:event_id:accao`,
+  que distingue uma mensagem por evento de uma mensagem por turno de conversa.
+  Somar aqui um segundo contador de custo era uma segunda fonte para o mesmo
+  número.
+- [x] **Documentação do catálogo de subscrições actualizada** — §3.33 do
+  dicionário canónico (emenda 1.42), com o `consumer`, a rota, os desfechos, os
+  motivos, as acções, as métricas e o que **não** se decide, com credor em cada.
+
+### Revisão adversarial independente: nove achados, nove fechados
+
+Correu **uma**, sobre o código inteiro e com a bateria a correr. Reprovou o
+ticket, e tinha razão em tudo o que nomeou. Os três primeiros são da classe que
+esta série já conhece — «a propriedade está medida, e o que a mede não morde» —
+e os outros seis são defeitos de execução. Nenhum ficou por fechar.
+
+**A1 — duas mensagens idênticas ao mesmo cliente (alto).** Os *handlers* eram
+por **tipo** e não por `(vertical, tipo)`, pelo que num *tenant* com as duas
+verticais activas o mesmo `payment.confirmed` era consumido pelos dois
+consumidores e **os dois mandavam o mesmo texto**, com chaves de idempotência
+diferentes — a `UNIQUE (tenant_id, idempotency_key)` de `outbound_messages` não
+tinha o que deduplicar. E esse *tenant* não é hipotético: é o do *gate* da
+Fase 0 (ADR-012, KAM-108), onde o Vendedor produz e os Serviços consomem. **O
+critério 2 estava violado por construção**, e o ensaio
+`test_duas_verticais_activas_dao_dois_consumidores` **consagrava** o duplicado
+como correcto enquanto todos os ensaios do critério usavam uma tabela só do
+Vendedor. Fechado: a chave passou a ser o par, o `TEXTOS` e o `AO_DONO`
+passaram a nomear a vertical, e os dois pagamentos na vertical Serviços entraram
+em `ACCOES_POR_LIGAR` com o credor (KAM-047) — porque o que eles mandam fazer
+lá é outra coisa, «confirma uma marcação com sinal», que ninguém escreveu. O
+ensaio passou a exigir **uma** chamada ao Outbound, e há duas mutações a prová-lo.
+
+**A2 — marca sem efeito, permanente, no único caminho que hoje corre (alto).**
+O `sem_template` era contado e o efeito **devolvia normalmente**: a transacção
+confirmava, o desfecho era `aplicado`, e ficava uma linha em `events_consumed`
+com **zero** mensagens. Como a porta por omissão devolve sempre `sem_template`
+(não há catálogo de *templates*, KAM-024), era o que acontecia a **todas** as
+notificações — e no dia em que os *templates* fossem aprovados, as re-entregas
+davam `duplicado` e o cliente nunca seria avisado. Contradizia de frente a
+*docstring* do módulo («não há marca sem efeito»). Fechado: o `sem_template`
+conta, alerta, e **levanta** `NotificacaoNaoEntregue` dentro da transacção — o
+`ROLLBACK` leva a marca com ele e a entrega abre entrada na DLQ com o motivo
+`sem_template`, visível e **reprocessável**. É o único desfecho honesto de «não
+envia e alerta» sobre uma mensagem que ainda tem de sair.
+
+**A3 — o ciclo silencioso do reconciliador (médio).** O `sem_entitlement`
+respondia 200 «tratado» **sem linha em `events_consumed` nem em `events_dlq`** —
+que é exactamente o estado que a *docstring* do `abrir_sem_envelope` nomeia como
+o que se tem de evitar: o reconciliador do §6.5 re-enfileira de cinco em cinco
+minutos durante 24 h o que não tem registo de consumo nem DLQ. Fechado:
+marca-se, uma linha por candidato, com efeito vazio.
+
+**A4 — o cancelamento (médio).** O `asyncio.to_thread` **não cancela a
+*thread***: um `CancelledError` no `await` largava o `asyncio.Lock` do leitor de
+conversas com a *thread* ainda a meio do protocolo do `pg8000`, e a entrega
+seguinte usava a **mesma** tomada em paralelo. É o defeito que o
+`checkpointer.py` do KAM-026 já tinha pago e escrito, e este módulo copiou a
+forma errada nos três sítios que vão à base. Fechado com o padrão de lá —
+`ensure_future` + `shield` + `await wait([tarefa])` —, com um ensaio que prende a
+*thread* a meio e exige que o cancelamento **não** conclua antes dela, e uma
+mutação que o apaga.
+
+**A5 — I/O bloqueante na *event loop* (médio).** Das quatro ligações por
+entrega, **três abriam na *loop***, e a entrada na DLQ corria lá inteira —
+*connect*, `BEGIN`, `set_config`, `INSERT`, `COMMIT` e `close`. Contra o que o
+próprio módulo afirmava («a leitura vai a um executor, como **todas** as idas à
+base deste serviço»), e relevante para o critério 8: é a fonte de atraso que o
+ensaio de carga não vê. Fechado: tudo o que toca a base vai a um executor, e o
+`FilaDeMortos` ganhou um `_escrever_sincrono` para isso.
+
+**A6 — tabela de consumidores vazia (baixo).** Com ela vazia, a entrega
+respondia 200 sem escrever linha nenhuma: o evento desaparecia. Fechado nos dois
+lados — o `ConsumidorDeEventos` recusa-se a existir sem consumidores, e o
+`__main__` só liga a rota se houver subscrições (sem elas, `/internal/event`
+responde 503 e o evento fica na fila).
+
+**B1 — o critério 4 estava satisfeito pela razão errada (médio).** A verificação
+ponteiro-contra-envelope compara **duas metades da mesma linha** de
+`events_log`: quem forja uma forja as duas. A defesa real é a RLS, e ela só
+actua no caminho que **lê a conversa** — num evento que só avisa o dono
+(`stock.low`) não se lê conversa nem se toma tranca, pelo que ficava uma linha
+em `events_consumed` do *tenant* declarado e um aviso ao dono dele, a partir de
+um agregado que pode ser de outro. Não é fuga de conteúdo (o `motivo` é o tipo
+do evento), mas é escrita e alerta em *tenant* alheio. **Não se fecha com
+código**: a ligação entre o agregado e o *tenant* precisa do COM (KAM-041). O
+que se fez foi medir o que **há** — o `entitlement` do *tenant* declarado é a
+única barreira nesse caminho, e um *tenant* sem ele não produz efeito nenhum — e
+passar o critério a `parcial` com o credor nomeado, em vez de o manter marcado
+pela razão errada.
+
+**D1 — um ensaio que não media nada (médio).** O `test_o_tecto_do_tenant_e_503`
+trocava a `Admissao` **depois** de a aplicação estar montada, e o `rotas(...)` já
+tinha fechado sobre a anterior: o pedido corria com o tecto por omissão e um
+único pedido em voo, pelo que 200 era inevitável e a asserção passava com o ramo
+apagado. O `except TectoDoTenantCheioError` da rota não era exercido por ensaio
+nenhum. Fechado: o tecto entra antes de a aplicação ser montada, enche-se o
+tecto **e** a reserva (um pagamento é prioritário), e mede-se o 503 com
+`Retry-After`.
+
+**D2 e D3 — o paralelo que não corria, e a base falsa que afirmava de mais
+(médios).** As cinco entregas concorrentes de `payment.confirmed` serializam na
+tranca da conversa, pelo que só uma está na secção crítica: mediam a tranca e
+não a marca. E a *docstring* da base falsa dizia que o seu trinco «é o que o
+índice único da `0005` faz no servidor», o que é falso — no PostgreSQL o segundo
+`INSERT ... ON CONFLICT DO NOTHING` **bloqueia** até a primeira transacção
+fechar, e ali a marca é visível antes do `COMMIT`. Fechados: a nota passou a
+dizer a diferença e a mandar para a suite de base de dados, e acrescentou-se um
+ensaio com cinco avisos ao dono em paralelo — o caminho que **não** toma tranca,
+e onde as cinco chegam juntas ao `ON CONFLICT`.
+
+**D4 e D5 — asserções que não podiam falhar (médio e baixo).** O índice do p99
+era `int(len × 0,99) − 1`, que dá o percentil certo por coincidência de
+arredondamento e erra com outras contagens; o `assertIsInstance(antes, float)`
+era sempre verdadeiro porque o `medir` faz `float(valor)`; e a verificação de que
+o `subscricoes.py` não importa o catálogo filtrava por `startswith` sem `strip`,
+deixando passar uma importação indentada — que é **exactamente** a forma que o
+`metricas.py` usa. Os três corrigidos.
+
+**E — sete afirmações falsas em *docstrings*, e uma função sem chamador.** A
+revisão listou-as uma a uma; as mais caras eram as que o código deixou de
+cumprir (as de A1, A2 e A5) e uma que nunca foi verdade: o
+`MOTIVOS_SEM_RETENTATIVA` e o `e_definitivo()` declaravam a regra «este motivo
+dispensa a escada» e **nenhum código de produção os consultava** — a propriedade
+é imposta pela estrutura dos pontos de chamada, e a mutação que os apagava não
+mudava comportamento nenhum. Saíram os dois, e o ensaio passou a medir a
+estrutura. Saiu também o campo `Notificacao.variaveis`, declarado e nunca usado.
+
+### Prova por mutação
+
+Quarenta e uma mutações com o prefixo **`eventos_agr:`**, na suite `agr_unit`. O
+prefixo **não** é o `eventos:` que o *handoff* nomeia, e a razão é prática: esse
+já é o das vinte e duas do KAM-005, do lado TypeScript, e partilhá-lo tornava
+`--aplicaveis` e a contagem ambíguos.
+
+`db/mutacoes.py --aplicaveis` sai a **zero não aplicáveis** sobre as 897, e
+nenhuma das quarenta e uma sobrevive. **Seis delas nasceram da revisão
+adversarial** e repõem o achado que ela encontrou: o *handler* por tipo em vez de
+por vertical, a acção por ligar a seguir para o cliente, o `sem_template` a
+contar como sucesso, o `sem_entitlement` sem marca, e o cancelamento a não
+esperar pela *thread*.
+
+**E a bateria entrou no `MODULOS_DO_AGR_UNIT`.** Sem essa linha as quarenta e uma
+sobreviviam todas, com a suite verde, porque o corredor nunca corria o ficheiro
+que as mata — é a nota do topo daquela lista a pagar-se pela terceira vez (o
+KAM-030 com dez sobreviventes, o KAM-034 com uma, e esta).
+
+**Uma mutação saiu, e a razão é a mesma que a revisão adversarial deu:** a que
+esvaziava o `MOTIVOS_SEM_RETENTATIVA` não mudava comportamento nenhum, porque
+nem a constante nem o `e_definitivo()` tinham chamador em produção. Saíram os
+três — a constante, a função e a mutação — e a propriedade ficou onde sempre
+esteve: na estrutura dos pontos de chamada, que é o que o ensaio passou a medir.
+
+**E a suite de base de dados ensinou uma coisa à primeira execução, que vale a
+pena deixar escrita.** As dez escritas dela falharam todas com `42501 — new row
+violates row-level security policy`, porque as ligações estavam em `autocommit`
+(copiado do `ligacao_de_tranca`, que só corre `pg_advisory_*` e não toca em RLS):
+o `set_config('app.tenant_id', …, true)` vale **só para a transacção corrente**,
+e em `autocommit` cada instrução é a sua própria transacção — o contexto morre
+antes do `INSERT` seguinte. É a mesma armadilha que o `consumo.py` do KAM-006
+nomeia por extenso («com `is_local`, morre no `COMMIT`»), vista do outro lado, e
+é exactamente o que uma base falsa não pode dizer.
+
+**O `eventos/consultas.py` não tem mutações, e isso é dito em vez de ficar por
+dizer.** A base falsa da `agr_unit` compara o SQL por **texto**, pelo que
+qualquer mutação a uma daquelas cadeias morre por ela não reconhecer a consulta
+— isto é, morre pela razão errada. As propriedades daquelas cadeias (o alvo do
+`ON CONFLICT`, o índice parcial, o `ORDER BY` determinístico, o `tenant_id` no
+predicado) provam-se em `db/tests_agr/test_eventos.py`, com o SQL a correr.
+
+### O que não se verificou, e porquê
+
+| O quê | Porquê | Credor |
+|---|---|---|
+| As garantias de entrega do BullMQ | **NÃO VERIFICADO** (L6, R9 do epic). Não há fila nenhuma nestas baterias; o que cobre o risco são *handlers* idempotentes, a DLQ e o reprocessamento | — |
+| O p99 de *lag* ≤ 10 s **com fila e base reais** | O ensaio de carga mede o caminho de decisão, não o sistema | *staging*, KAM-084 |
+| A decisão janela/*template* | É do Outbound, e o catálogo de *templates* aprovados não existe | KAM-015, KAM-024 |
+| A entrega do aviso ao dono | A porta está; o painel e o e-mail são do HND, e o canal alternativo é outro ticket | KAM-019, KAM-115 |
+| A resolução `(agregado) -> contact_id` | Cinco dos seis contratos não trazem `contact_id` | KAM-041, KAM-047 |
+| As linhas de `evt_subscricoes` | Sem elas o publicador não entrega nada ao AGR. A fonte única para as escrever é o `consumidores()` deste ticket | KAM-005 |
+| A casca BullMQ → `POST /internal/event` | É casca, pelo molde do `agr/shim.ts` | KAM-005, KAM-006 |
+| A `evt_acoes` | Continua **sem escritor**. Aqui a janela que ela fecha está fechada por desenho (o efeito corre dentro da transacção), mas quem vier a precisar de um efeito que não caiba numa transacção precisa dela | KAM-006 |
+| O grafo invocado a partir de um evento | O `ingest` pressupõe uma mensagem do cliente | KAM-031, KAM-035 |
 
 ### Handoff para Claude Code
 
@@ -3026,3 +3565,4 @@ Não expandas escopo: sem aprovação automática, sem UI própria. Testes: esta
 | 1.5 | Outubro 2026 | **KAM-028 entregue.** O bloco ganha a secção «Verificação dos Critérios de Aceitação». **Sete critérios marcados** (1 a 7) e **um parcial** (8), e o parcial não fica vago: ao 8 falta «nunca é repetido», que o §6.5 põe no grafo (**KAM-031**). **O 7 era parcial e passou a satisfeito pela revisão adversarial**, que mediu que nenhum tecto era imposto pela camada — nem o de `read`: um executor de 5 s contra 2 s devolvia `ok=True` em 5,01 s. Cinco caixas do DoD marcadas; a dos **dois revisores** fica vazia, como em toda esta linha, e a de «todos os critérios satisfeitos» também, porque dois são parciais. **A validação (1) do §5.2 fechou:** as duas linhas `tools: { modo: aviso }` saíram do `registry/gates.yaml` e a validação corre em `bloqueio` — o mecanismo é apagar a linha, e há teste a provar que ela morde. **A linha de versão do KAM-027 nunca foi escrita** e fica registada em `../docs/dividas-documentais.md`: esta é a 1.5 e não a 1.6. **A revisão adversarial (`../docs/analises/ANALISE-30-KAM-028-toollayer.md`) reprovou com 9 *must fix*, e os nove estão corrigidos com teste**: entre eles, três dos oito ficheiros da camada não se importavam sozinhos (ciclo pelo `metricas.py`), uma tomada só serializava todos os *tenants* (2,02 s para dez invocações de dez *tenants*), o *lint* do critério 3 não via uma subclasse indirecta de `BaseModel`, os **nomes** dos argumentos iam em claro para a `tool_audit`, e o X-02 media onze recusas em vez de onze tools. | Equipa KAMBÁ |
 | 1.6 | Outubro 2026 | **KAM-029 entregue.** O bloco ganha a secção «Verificação dos Critérios de Aceitação». **Cinco critérios marcados** (2 a 6) e **três parciais** (1, 7 e 8), e nenhum fica vago. O **1** passou a parcial **pela revisão adversarial** (`../docs/analises/ANALISE-31-KAM-029-idempotencia.md`) e não pela medição do autor: ele e o critério 5 não podem valer ao mesmo tempo com um backend mais lento do que o tecto de espera — com 4 s, dentro do tecto de 8 s da classe, quem espera desiste aos 3 s (que é o que o 5 manda), o cliente lê falha de infra-estrutura, pede carrinho novo, e o `cart_id` novo dá chave nova: **duas encomendas**, e a segunda barreira do COM também não apanha. Não se resolve aqui porque as duas correcções possíveis contradizem um critério escrito; dívida **112**, e a carga é do **KAM-084**. Ao **7** falta a desigualdade — a validade da reserva está fixada em 72 h (`../docs/tecnica/03` §6.4) mas o **prazo de disputa não está em documento nenhum** —, e ao **8** falta o `stage`, que o `ToolContext` não tem: quem o lê é o `confirm_gate` do **KAM-031**, e é a segunda metade da fronteira que o KAM-028 abriu ao fechar o seu critério 8 como parcial. Quatro caixas do DoD marcadas; a de «todos os critérios» fica vazia pelos três parciais, e a dos **dois revisores** como em toda esta linha. **A decisão que deu forma ao ticket: são duas chaves e não uma.** A `tool_audit.idempotency_key` é do **turno** (vai ao `usage_ledger` no passo 2; o KAM-025 usa `turn_id:seq`) e a do §6.3 é do **carrinho**, e não podiam ser a mesma — um segundo toque com `wamid` novo é um turno novo, logo chave de turno nova, logo nada guardado a encontrar, e cobrava outra vez (critério 8). Dicionário §3.28 (emenda **1.37**), que corrige isso e «os dez erros tipados» para onze. **A revisão adversarial reprovou com 4 *must fix*, e os quatro estão tratados:** a retoma de uma reserva `em_curso` abandonada (sem ela, uma ligação caída entre o backend e o registo envenenava aquele `cart_id` para sempre, **com a encomenda já feita**), o `created_at` que não entrava em decisão nenhuma (o critério 5 estava satisfeito pela razão errada — apagar a semente e o teste passava igual), o `args_hash` que era dos argumentos **crus** e não do modelo validado (um campo de omissão reemitido virava o *replay* em recusa), e a tensão do critério 1, devolvida. **E dois defeitos que o autor apanhou antes dela**, os dois no caminho de excepção: o fecho da reserva corria **depois** de a tomada cair, e depois mascarava a excepção original. **O *gate* 3b:** o `canon_lint` não deixava crescer **nenhum** domínio fechado deste repositório, e a dispensa é **nomeada** em `ci/canon-lint.yaml` — a primeira versão inferia-a da ordem dos ficheiros e a revisão demonstrou-lhe três buracos. Razão em `../docs/ci.md` (linha **1.56**). Revisão `0022`; dívidas **108** a **112**. | Equipa KAMBÁ |
 | 1.7 | Outubro 2026 | **KAM-030 entregue.** O bloco ganha a secção «Verificação dos Critérios de Aceitação». **Dois critérios marcados** (3 e 5) e **seis parciais** (1, 2, 4, 6, 7 e 8), e nenhum fica vago: em quatro deles o credor é um ticket que **não existe** — KAM-076 (o bloqueio de rede que o critério 2 manda testar), KAM-037 (a degradação a que o critério 4 manda chegar), KAM-040 (o Gate 13 do critério 7, e a escolha dos modelos) e KAM-069 (a `tenant_destinations` do critério 8). **A revisão adversarial reprovou com 7 *must fix*, e os sete estão corrigidos com teste** (`../docs/analises/ANALISE-32-KAM-030-gateway-de-llm.md`): três deles eram **mecanismos que não podiam falhar** nas condições em que este bloco os declarou satisfeitos — o `escrever` reescrevia o *lock* e por isso o *bump* SemVer do critério 7 não era um *gate*; o cliente guardava **uma** ligação e, com turnos concorrentes, a segunda chamada transferia dados e **não gravava linha** (o `tenant_guard.tx` é exclusivo por ligação, e o duplo sequencial da bateria não o via); e a chave do cosign tinha sido extraída do **próprio *bundle*** que ela verifica, o que torna o `cosign verify --key` tautológico. Os outros quatro: a saída para `raw.githubusercontent.com` continuava aberta com um comentário a dizer que não, um preço expirado levantava no único ponto do caminho de sucesso que não pode levantar (e a chamada repetia-se, com segunda transferência), dois fornecedores iguais atrás de um alias gravavam **vinte vezes** o custo real, e a *suite* do `supply_chain` ficou vermelha com a linha de base do canário vermelha — o que desligava a prova por mutação daquele módulo. **O critério 6 foi desmarcado pela revisão**: as 20 corridas que o provaram usaram `Router(...)` em Python, sem chave virtual, e a `models` da chave não autorizava o grupo de *fallback*. **E a correcção da chave descobriu mais do que o achado**: o projecto publica a chave e ela **difere** da do *bundle* — dívida **117**, que é medição e não código. **A decisão que o ticket teve de tomar, e está escrita:** o DoR nomeia o KAM-069 e ele **não está entregue** — medido antes de se escrever código, zero caixas e nenhum ficheiro de inventário ou de *gate*. Entrega-se com o destino a falhar **fechado** e o KAM-069 como credor, que é o padrão desta linha (o KAM-028 deixou o passo 5 para o KAM-029, o KAM-029 deixou o `stage` para o KAM-031) e é o que o **próprio critério 8** manda ao escrever «até KAM-069 existir, só dados sintéticos em `staging`»; em `prod` não passa fornecedor nenhum, o que é mais restritivo do que o KAM-069 será. Duas caixas do DoD marcadas (segredos e eval-gate); a de «todos os critérios» fica vazia pelos cinco parciais, a de privacidade e a de custo ficam vazias e **parciais** (não há `apd_ref` para registar, e o `custo_usd` é nulo enquanto o modelo for `por_decidir`), a das dependências espera o `cosign verify`, e a dos **dois revisores** fica vazia como em toda esta linha. **Três afirmações de fonte mais alta não sobreviveram a serem medidas contra a imagem fixada, e as três mudaram código** (`../docs/evidencia/KAM-030-litellm.md`): o orçamento esgotado responde **422** com `type: budget_exceeded` e não o **400** que o critério 4 escreve — e o proxy usa o 400 para «alias repetido», pelo que o mapeamento do bloco nunca disparava no orçamento e disparava num erro de provisionamento; a configuração do `../docs/tecnica/02` §13.1 **à letra não cumpre o critério 6**, porque a estratégia por omissão é `simple-shuffle` e em 20 corridas com o primário sempre em falha **3 falharam por completo**; e `google/` é recusado pelo proxy, cujo prefixo para o Gemini é `gemini/`. **E uma quarta, sobre código já fundido:** o `tools/supply_chain/cosign.py` montava sempre o comando *keyless*, com a nota dele a dizer que a forma era «lida de memória: NÃO VERIFICADO» e que quem ligasse a primeira imagem a confirmaria — o LiteLLM assina **com uma chave** e a assinatura não tem certificado, pelo que `--certificate-identity` não tinha valor possível. **Fechou-se também a única das quatro cláusulas do critério 1 sem máquina a impô-la:** o leitor de Dockerfiles só lia `FROM` e `ARG`, e um `RUN pip install litellm==1.82.7` passava limpo. Revisão `0023`: o esquema **`dat`** (o terceiro do repositório), a `dat.llm_call_log` com dezesseis colunas — catorze no `../docs/tecnica/06` §14, mais o `papel` e o `graph_version`, sem os quais o «custo por papel» do DoD não é calculável —, partição `DEFAULT`, *append-only* e RLS no pai **e** na partição. Dicionário §3.29 (emenda **1.38**); `../docs/ci.md` linhas **1.57** e **1.58**; `../docs/agr.md` linha **1.6**; dívidas **113** a **121**; **22** mutações com prefixo `llm:`, e a primeira corrida delas deu **dez sobreviventes** por os módulos que as matam não estarem numa lista literal do corredor — a *suite* passava e não media. | Equipa KAMBÁ |
+| 1.8 | Outubro 2026 | **KAM-038 entregue.** O bloco ganha a secção «Verificação dos Critérios de Aceitação». **Cinco critérios marcados** (1, 2, 3, 5 e 7) e **três parciais** (4, 6 e 8), e nenhum fica vago. **A revisão adversarial reprovou-o com nove achados, e os nove fecharam**; três mudaram desenho e não só código, e dois deles eram criterios satisfeitos pela razao errada. O **A1**: os *handlers* eram por **tipo** e não por `(vertical, tipo)`, pelo que num *tenant* com as duas verticais activas — o do *gate* da Fase 0, onde o Vendedor produz e os Serviços consomem — o mesmo `payment.confirmed` dava **duas mensagens idênticas** ao mesmo cliente, com chaves de idempotência diferentes e nada para deduplicar; o critério 2 estava violado por construção e o ensaio consagrava o duplicado. O **A2**: o `sem_template` era contado e seguia, deixando uma linha em `events_consumed` com zero mensagens no **único** caminho que hoje corre — hoje levanta e abre entrada na DLQ, reprocessável. O **B1**: o critério 4 estava marcado e a sua barreira real (a RLS) só actua no caminho que lê a conversa — num aviso ao dono não há conversa, e o que resta é o *entitlement*; passou a `parcial` com credor **KAM-041**, em vez de ficar marcado pela razão errada. Os outros seis: o ciclo silencioso do reconciliador no `sem_entitlement`, o cancelamento que não esperava pela *thread* (o defeito que o `checkpointer.py` do KAM-026 já tinha pago), três das quatro ligações a abrir na *event loop*, a tabela de consumidores vazia a perder eventos, um ensaio do tecto que não media nada, e sete afirmações falsas em *docstrings* — entre elas uma constante e uma função que **nenhum** código de produção consultava. Ao **6** falta a decisão janela/*template*, que é do **KAM-015**, e o catálogo de *templates* aprovados, que é do **KAM-024** — até ele existir a porta devolve `sem_template`, que não é uma falha a fingir mas o estado do sistema; ao **8** falta o p99 de *lag* ≤ 10 s medido **com fila e base reais**, que se mede em *staging* (a prioridade está, e mede-se). **Três decisões saíram de escrever código e não de o ler.** A primeira é um achado contra os *Detalhes Técnicos* do próprio bloco: eles dizem «os *payloads* trazem `contact_id`» e **dos seis tipos subscritos só o `booking.created` o traz** — o catálogo do KAM-007 publicou os outros cinco sem dizer a quem se fala —, pelo que a resolução `(agregado) -> contact_id` fica numa porta com credores nomeados (**KAM-041** para `order`, **KAM-047** para `booking`) e, enquanto ninguém a ligar, um `payment.confirmed` acaba na DLQ como **Sev1** — classificação que está certa, porque «cliente que pagou sem confirmação» é exactamente o que acontece. A segunda: o `consumer` é **por vertical** e a vertical que consome decide-se pelo `check_entitlement` do KAM-009, senão os dois `registry/*.yaml` — que subscrevem os **mesmos** dois eventos de pagamento — davam **duas** mensagens ao mesmo cliente sobre o mesmo pagamento, e o critério 2 ficava violado por construção. A terceira: o `aplica_transicao` do `kamba_core.eventos.consumo` (KAM-006), porque o `ESTADO_PRETENDIDO` é propriedade de **quem aplica** a transição e estava a ser lido como propriedade do tipo — o AGR é informado de um pagamento, não é quem o decide (ADR-013), e sem a distinção **todos** os pagamentos levantavam `MaquinaEmFalta` ou acabavam na DLQ. **E a contradição que o critério 3 manda arbitrar já não existe no texto:** o `../docs/tecnica/03` §12 foi corrigido e lê-se hoje «falham de forma visível», pelo que as três fontes concordam — prevalece a regra §5 dos *Standards* e o consumidor abre DLQ com alerta. O `payment.manual_confirmed` não é proposta nenhuma: a emenda **1.35** já o tinha decidido e os dois ficheiros já o declaram; o que este ticket acrescenta é o consumidor. Dicionário canónico: emenda **1.43** (§3.33), **sem DDL**. | Equipa KAMBÁ |

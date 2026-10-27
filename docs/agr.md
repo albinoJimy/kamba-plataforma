@@ -752,7 +752,7 @@ critério de aceitação. A razão de ser guarda de arranque é que o §6.1 põe
 registo no passo **7**, depois da chamada ao backend: um privilégio em falta só
 se descobria com um efeito de `money` já feito e sem registo.
 
-Os cinco códigos, e cada um manda olhar para um sítio diferente:
+Os códigos, e cada um manda olhar para um sítio diferente:
 
 | Código | O que falta | Onde olhar |
 |---|---|---|
@@ -761,6 +761,8 @@ Os cinco códigos, e cada um manda olhar para um sítio diferente:
 | `4` | *checkpointer* (KAM-026) | o cofre da base, o papel `kamba_agr` |
 | `5` | registo de verticais (KAM-027) | `registry/` |
 | `6` | auditoria de tools (KAM-028) | a revisão `0021` e os seus `GRANT` |
+| `7` | *gateway* de LLM (KAM-030) | `llm/aliases.yaml`, `llm/precos.yaml`, a revisão `0023` |
+| `8` | consumidores de eventos (KAM-038) | as `subscriptions` de `registry/*.yaml` |
 
 ### As cinco métricas, e porque as etiquetas são derivadas
 
@@ -1485,6 +1487,248 @@ tabela do §1 atribui a outro ticket.
 
 ---
 
+## 7-H. A subscrição de eventos: as verticais acordam por evento (KAM-038)
+
+O AGR deixou de só responder a mensagens. «As verticais não se chamam entre si:
+subscrevem eventos do EVT» (ADR-009), e o que cada uma subscreve está no seu
+`registry/<id>.yaml`; este ticket liga essas linhas a consumidores.
+
+```
+evt.<consumer>.p<0..15>  (BullMQ, casca em TypeScript — KAM-005/KAM-006)
+        │
+        └── POST /internal/event   {event_id, tenant_id, envelope, tentativas}
+                │
+                ├── ler_envelope          14 campos, P2 recusada
+                ├── confrontar ponteiros  divergem -> DLQ sem envelope
+                ├── rota (tipo, versao)   sem rota -> DLQ com alerta
+                ├── validar_payload       contrato fechado (KAM-007)
+                ├── entitlement           qual vertical consome
+                └── por consumidor:
+                      contacto (fora da tranca)
+                      async with trancas.tomar(thread_id):
+                          ler quem tem a palavra
+                          consumir(..., efeito)   marca + efeito, uma transaccao
+```
+
+### A rota é a terceira, e o 503 dela não é um erro
+
+`/internal/event` junta-se ao `/internal/turn` (KAM-025) e ao `/internal/resume`
+(KAM-034), com o mesmo `x-kamba-interno`. Os códigos dizem à fila o que fazer, e
+é só isso que eles dizem:
+
+| Código | Significa | O que a fila faz |
+|---|---|---|
+| 200 | tratado — **inclui** o que foi para a DLQ | completa o *job* |
+| 400 | o corpo não é uma entrega | não vale a pena repetir |
+| 503 + `Retry-After` | volta | re-enfileira com o atraso |
+
+**Um evento que foi para a DLQ responde 200**, e isso enganaria quem o lesse ao
+contrário: um 500 ali punha o BullMQ a repetir o que já está registado e a
+tentar abrir a mesma entrada seis vezes. «Tratado» não quer dizer «correu bem».
+
+### Onde corre o efeito, e porque é dentro da transacção
+
+O §6.3 manda «aplicar efeitos na BD (mesma transacção); COMMIT; efeitos
+externos: tabela de acções com `Idempotency-Key`». A notificação é um efeito
+externo — mas o Outbound é uma **fila** e não uma chamada à Meta (quem fala com
+a Meta é o trabalhador dele), pelo que enfileirar é curto e cabe na transacção.
+Está lá de propósito, e o que isso compra é simétrico:
+
+* a notificação falha → `ROLLBACK` leva a marca com ela → a re-entrega tenta
+  outra vez. **Não há marca sem efeito** — e «falha» inclui o `sem_template`,
+  que **levanta**: a primeira versão contava-o e seguia, e deixava uma linha em
+  `events_consumed` com zero mensagens no único caminho que hoje corre. Achado
+  da revisão adversarial.
+* o `COMMIT` falha depois de a notificação passar → a re-entrega repete-a com a
+  **mesma** chave `consumer:event_id:accao`, e a `UNIQUE (tenant_id,
+  idempotency_key)` de `outbound_messages` não enfileira nada. **Não há efeito
+  duplicado.**
+
+A alternativa (efeito depois do `COMMIT`) deixava a primeira janela aberta. É a
+janela que a `evt_acoes` da revisão `0005` existe para fechar, e ela continua
+**sem escritor** — credor: KAM-006. Fecha-se por desenho em vez de por tabela, e
+isso tem um limite dito: quem vier a precisar de um efeito que **não** caiba numa
+transacção precisa daquela tabela.
+
+### A sétima ligação, e porque não se partilha
+
+`kamba-agr:eventos`, papel `kamba_app`, transaccional. É a sétima tomada do
+processo (leitura, tranca, checkpoint, tools, LLM, handoff, eventos), e a razão é
+a das três anteriores: o `kamba_core.tenant_guard` recusa uma segunda transacção
+na mesma ligação, e um evento é consumido **ao mesmo tempo** que turnos de outras
+conversas.
+
+**O `consumir` do KAM-006 manda `BEGIN`, `COMMIT` e `ROLLBACK` como instruções**,
+porque do lado TypeScript o cliente é um `pg` em bruto. O `pg8000` em modo
+transaccional abre a transacção sozinho na primeira instrução, e um `BEGIN`
+explícito dentro de uma transacção aberta é um aviso do servidor e mais nada — o
+`COMMIT` seguinte fechava a transacção de fora. Por isso o `LigacaoDoConsumo`
+traduz as três na API do condutor; e uma palavra de controlo de transacção que
+ele **não** conheça (`SAVEPOINT`, `START TRANSACTION`) **levanta**, em vez de
+passar: deixá-la passar punha a marca e o efeito em transacções diferentes sem
+dar erro.
+
+### Quem consome é a vertical que o *tenant* tem activa
+
+A `evt_subscricoes` é configuração **global** de entrega — por `consumer`, não
+por *tenant* (revisão `0004`) — e os dois `registry/*.yaml` subscrevem os
+**mesmos** dois eventos de pagamento. Sem uma leitura de entitlement, um
+`payment.confirmed` de um *tenant* que só tem o Vendedor era consumido também
+pelo consumidor de Serviços: duas chaves de idempotência diferentes, e **duas
+mensagens ao mesmo cliente sobre o mesmo pagamento**.
+
+A leitura é a **mesma** do turno de conversa — o `check_entitlement` do KAM-009,
+que falha fechada.
+
+**Mas isso por si não chega, e a primeira versão achava que chegava.** Um
+*tenant* com as duas verticais activas é o do *gate* da Fase 0 (ADR-012,
+KAM-108: o Vendedor produz e os Serviços consomem), e aí há **dois**
+consumidores por desenho. O que impede os dois de mandarem a **mesma** mensagem
+é o *handler* ser por `(vertical, tipo)`: o `payment.confirmed` fala com o
+cliente pelo Vendedor, e nos Serviços a acção é outra — «confirma uma marcação
+com sinal» (`03` §12) — que o KAM-047 ainda não escreveu, e que o desfecho
+`sem_accao` nomeia com o credor. Com a chave no tipo, o cliente recebia duas
+mensagens idênticas sobre o mesmo pagamento. Achado da revisão adversarial.
+
+### O turno por evento não invoca o grafo, e isso está decidido
+
+O critério 5 pede três propriedades — `turn_id = event_id`, sob a tranca da
+conversa, e não correr com um humano com a palavra — e nenhuma é «invoca o
+grafo». O `ingest` do grafo do Vendedor pressupõe uma mensagem do cliente na
+janela `messages` (§7-F), e dar-lhe um envelope era mudar o nó de entrada de um
+grafo cujo dono é outro ticket. O que corre sob a tranca é um *handler*
+determinístico: sem modelo no caminho, logo sem prosa a validar pelo ADR-007 —
+e os textos **não levam número nenhum**, nem valor, nem data, nem quantidade.
+
+A tranca é a **mesma** `TrancaDeConversas`, com a mesma chave (`thread_id`), pelo
+que um turno por evento e um turno de conversa da mesma pessoa serializam entre
+si. Um aviso ao dono (`stock.low`) **não** toma tranca: não há conversa, não há
+`thread_id`, e não há nada para serializar.
+
+### Duas portas para o cliente e para o dono, e não uma com um argumento
+
+É o que torna «a notificação ao dono nunca usa o número da própria loja» (`01`
+§11.4 regra 2) uma propriedade do **código** e não uma intenção: a
+`PortaDeAvisoAoDono` não leva `contact_id` nem `conversation_id`, pelo que não há
+por onde cair no canal do cliente. Há um ensaio que lhe põe um espião na porta do
+Outbound e exige **zero** chamadas.
+
+As duas acções têm chaves diferentes — `consumer:event_id:notificar_cliente` e
+`...:notificar_dono` — precisamente para que a segunda não seja engolida como
+repetição da primeira. E a chave **não leva o número da tentativa**: com ele, cada
+volta dava chave nova, e com ela uma mensagem nova.
+
+### O que ainda não existe, e o que o AGR faz enquanto não existir
+
+| Porta | Por omissão | Credor |
+|---|---|---|
+| Outbound (janela/*template*) | devolve `sem_template`: não envia, alerta, e **a entrega vai para a DLQ** | KAM-015, e o catálogo de *templates* é KAM-024 |
+| HND (dono e agente) | não faz nada; a decisão de canal é o que este ticket entrega | KAM-019, KAM-115 |
+| `(agregado) -> contact_id` | **levanta** | KAM-041 (`order`), KAM-047 (`booking`) |
+
+A terceira é a que se nota em produção, e vale dizê-lo por extenso: **dos seis
+tipos subscritos, só o `booking.created` traz `contact_id` no contrato**
+(KAM-007 publicou os outros cinco sem dizer a quem se fala, apesar de os
+*Detalhes Técnicos* do bloco afirmarem o contrário). Enquanto ninguém resolver o
+contacto, um `payment.confirmed` esgota a escada do §6.4 e abre entrada na DLQ —
+que é **Sev1**, e a classificação está certa: «cliente que pagou sem
+confirmação» é exactamente o que acontece.
+
+E o `correlacao_id` do envelope **não serve de atalho**: o §4 descreve-o como
+«Conversa **ou** pedido», e um campo que pode ser duas coisas não endereça
+ninguém.
+
+### Quatro métricas, e a primeira medida com etiqueta da casa
+
+```
+agr_evt_consumidos_total{outcome}      counter  entregas, por desfecho
+agr_evt_dlq_total{motivo}              counter  entradas abertas na DLQ. Alerta
+agr_evt_notificacoes_total{outcome}    counter  notificacoes, por desfecho
+agr_evt_lag_ms{consumer}               gauge    lag do ultimo evento, por consumidor
+```
+
+O `agr_evt_lag_ms` é a **primeira medida com etiqueta** do repositório, e entrou
+por necessidade: o DoD pede «*lag* de consumo **por consumidor**», e dois
+consumidores a escrever na mesma medida sem eixo davam um valor que é o do último
+e não o de nenhum. As regras da etiqueta são as do `contar` — lista fechada e a
+mesma gramática —, para que um `tenant_id` caia pela forma, como lá.
+
+O *lag* mede-se do **`ocorrido_em`** e não do `registado_em`: o primeiro é quando
+o facto aconteceu, que é o que o cliente espera, e o segundo esconde o atraso até
+à transacção que o gravou. Nunca é negativo — o `ocorrido_em` é o relógio do
+produtor e pode estar à frente do nosso —, e só se mede no `aplicado`: o *lag* de
+um duplicado mede o tempo até uma entrega que não fez nada.
+
+**O `fora_de_ordem` do KAM-006 não é motivo de DLQ aqui**, e não é esquecimento:
+ele nasce dentro da pré-condição de estado, que este consumidor não corre. Ver
+abaixo. Os motivos que há são cinco — `envelope_invalido`, `tipo_desconhecido`,
+`versao_desconhecida`, `sem_template` e `tentativas_esgotadas` —, e só o último
+vem **depois** da escada do §6.4: os outros quatro não mudam entre tentativas, e
+gastar treze minutos para chegar à mesma conclusão era adiar o alerta.
+
+### `aplica_transicao`: o AGR é informado, não é quem decide
+
+O `ESTADO_PRETENDIDO` do KAM-006 põe os dois eventos de pagamento a exigir
+pré-condição de estado, e a nota dele diz porquê: «estão aqui os eventos cujo
+consumo **aplica** a transição». O AGR não aplica transição nenhuma — quem
+transita a encomenda é o COM (`03` §6) e quem decide o pagamento é o PAY
+(ADR-013).
+
+Sem a distinção, o consumo de `payment.confirmed` no AGR levantava
+`MaquinaEmFalta` ou, com uma máquina sobre a tabela de encomendas que o KAM-041
+ainda não escreveu, adiava seis vezes e mandava para a DLQ **todos** os
+pagamentos confirmados. A opção é do lado Python, a omissão é `true`, e nenhum
+consumidor existente muda de comportamento. Dicionário §3.33.
+
+### A prioridade dos pagamentos é da admissão, e é **acima** do tecto
+
+A regra 2 do §15.2 tem duas metades e só uma estava. Um evento `payment.*` entra
+com a reserva `AGR_RESERVA_DE_PAGAMENTO` (*proposta*, 1) acima do
+`AGR_TECTO_POR_TENANT` e **não dentro dele**: descontá-la do tecto baixava a
+concorrência de conversa de 3 para 2 e mudava o critério 5 do KAM-025, que foi
+medido com 3. O anti-vizinho-ruidoso sobrevive porque o lugar extra só serve
+eventos de pagamento, cujo ritmo é do facilitador e não do cliente.
+
+### A escrita na `events_dlq`, e porque passa pelo *lint*
+
+O *lint* de arquitectura do *gate* 2 proíbe escrita no `platform` fora de
+`tls/`, porque «a TLS é a única via de leitura e escrita dos **agentes**» (§6.1,
+ADR-015). A `events_dlq` entra na lista `ESCRITAS_DO_PLANO_DE_CONTROLO` com as
+quatro condições dela, e **só o `insert`**: fechar, descartar e reprocessar são
+do `kamba_batch` e exigem dois aprovadores num `payment.*`. Um `UPDATE` escrito
+no AGR punha quem consome a poder fechar a sua própria entrada, que é o que a
+regra dos dois existe para impedir.
+
+A `events_consumed` não precisa de entrada: quem lhe escreve é o
+`kamba_core.eventos.consumir`, que vive em `libs/` — e o *lint* só varre
+`services/*/src/**`. **É um limite do *lint* e fica dito**: uma escrita no
+`platform` a partir de `libs/` não é verificada por ele.
+
+### O que estas baterias podem dizer, e o que não
+
+`services/agr/tests/test_eventos.py` corre **sem** base, Redis ou Outbound, com
+os clientes injectados: é ela que prova o roteamento, a idempotência da decisão,
+a tranca, as duas portas e as métricas. `db/tests_agr/test_eventos.py` corre
+contra PostgreSQL e prova o que só a base pode dizer: que o SQL **corre**, que o
+`ON CONFLICT` é atómico entre **sessões**, que o índice parcial
+`events_dlq_aberta_uq` deixa a reentrada idempotente só entre as abertas, que o
+`ROLLBACK` leva a marca com ele, e que a RLS esconde a conversa de A do contexto
+de B.
+
+**E tudo o que toca a base vai a um executor, com o cancelamento à espera da
+*thread*.** O `asyncio.to_thread` não cancela nada: um `CancelledError` no
+`await` largava a exclusiva com a *thread* ainda a meio do protocolo do
+`pg8000`, e a entrega seguinte usava a **mesma** tomada em paralelo. É o defeito
+que o `checkpointer.py` (§7-A) já tinha pago e escrito, e este módulo copiou a
+forma errada nos três sítios antes de a revisão adversarial o medir. O padrão é
+o de lá: `ensure_future` + `shield` + `await wait([tarefa])`.
+
+**Nenhuma das duas prova o BullMQ.** As garantias de entrega dele são **NÃO
+VERIFICADAS** (L6) e não há fila em bateria nenhuma; o que cobre o risco são
+*handlers* idempotentes, a DLQ e o reprocessamento. E o p99 de *lag* ≤ 10 s
+mede-se em *staging*: o ensaio de carga leve mede o caminho de decisão, que não é
+o sistema.
+
 ## 9. Controlo de versões
 
 | Versão | Data | Autor | Alterações |
@@ -1501,3 +1745,4 @@ tabela do §1 atribui a outro ticket.
 | 1.9 | 2026-10-27 | KAM-034 | §7-G: o *handoff* idempotente e a retoma por *compare-and-set* — o par de nós que o KAM-031 deixou e a porta que faltava, a `HandoffIndisponivel` a mudar de casa (e porque a identidade da classe era a razão), os **dois** escritores da `platform.handoffs` em duas linguagens com a fronteira escrita, a ordem das duas escritas e a compensação, as duas credenciais de `/internal/resume` e o que cada uma prova, e a varredura das 24 h sem agendador. **Três coisas que saíram de escrever código contra o canon:** o `handoff_id` é irreversível, pelo que o `tenant_id` no predicado não chega — um `handoff_id` de **outro contacto do mesmo tenant** retomava o *thread* errado, e o CAS passou a levar o vínculo ao `contact_id`; o grafo resolve-se **antes** do CAS, senão uma rota sem grafo escrevia e compensava para nada; e o `resumed_at` escreve-se nos **quatro** desfechos, contra o `SQL_FECHAR` do HND, porque as quatro saídas de `waiting` por esta rota retomam o grafo. **E uma regra de arquitectura estreitou-se, com canários:** o *lint* do `tool_schema` proibia toda a escrita no `platform` fora da ToolLayer e a regra diz «dos **agentes**» — passa a haver uma lista de pares `(ficheiro, tabela)` com quatro critérios por entrada. O que fica por ligar tem credor numa tabela própria, e a limpeza de passagens em `resumed` sem *checkpoint* retomado **não tem ticket**. |
 | 1.10 | 2026-10-27 | KAM-034 | **Revisao adversarial** (`analises/ANALISE-35`): REPROVADO, 3 *must fix* e 6 *should fix*. A classe que ela nomeia e nova nesta serie — **a propriedade esta medida, e o duplo que a mede e mais forte do que a peca que ele substitui** —, e os tres *must fix* sao todos dessa forma. Duas barreiras que este ticket afirmava em cinco e em tres sitios nao existiam: **a tranca da conversa nao excluia dentro do processo** (os *advisory locks* de sessao sao contados e a `TrancaDeConversas` tem uma ligacao por processo; os dois unicos chamadores que nao passam pelo dreno do `turno.py` sao os dois que este ticket acrescentou, e nem o `TrancaNaoLargadaError` o denunciava), e **a politica AST do criterio 2 evadia-se com uma linha, por seis formas** (o efeito na posicao de argumento, um tuplo, o `contextlib.suppress`, uma compreensao, o `except*` e o `async with`). As duas estao corrigidas, com ensaio contra a peca **real** e com mutacao; as duas *docstrings* da casa que se contradiziam sobre a tranca passaram a dizer o mesmo. **O terceiro nao se corrigiu, e e por isso que o criterio 3 ficou `parcial`:** a `platform.handoffs` tem dois escritores para `waiting -> resumed` e o do HND corre **primeiro** (o `#fechar` do `receber` antes do `onHumanEvent`), pelo que no caminho feliz o CAS da zero linhas e o `Command(resume=...)` nunca corre. A correccao e TypeScript nos ficheiros do KAM-019 e a emenda 1.22 ja tinha escrito que ele nao escreve esta transicao: e uma decisao de canon, e esta devolvida com as duas saidas no §3.32. **E tentou-se um paliativo e retirou-se** — um desfecho `conflito` proprio dispara tambem no *webhook* duplicado legitimo, pelo que nao separa nada. Dos *should fix*: a captura da tabela no *lint* tinha introduzido uma **regressao** (`platform."orders"` deixou de morder, num gate de bloqueio e para todas as tabelas), a dispensa passou a ser por **verbo** (a `0011` concede `INSERT` ao `kamba_app`, pelo que o argumento escrito era metade falso), o `partes` passou a exigir a forma **canonica** de UUID (um `contact_id` invalido dava `22P02`, 500, e o HND a repetir), a `MSG_ALTERNATIVAS` ganhou ensaio de **conteudo** (o que havia comparava-a com a propria constante), e o ramo degradado passou a subir o `handoff_seq` (sem isso o *handoff* seguinte reusava o `hid` de uma passagem que o HND pode ter deixado criada). |
 | 1.11 | 2026-10-27 | KAM-019 | **A fronteira dos dois escritores ficou decidida, e não foi aqui.** A emenda **1.42** do dicionário (§3.32) escolhe a opção 1 da 1.41: o `ESTADOS_QUE_FECHAM` do HND passa a `["degraded"]` — as **três** saídas de `waiting` e não só o `resolved`, porque as três retomam o grafo —, o HND passa a chamar `POST /internal/resume` e o `resolver` ganha instrução própria do lado dele (o ADR-010 mantém a identidade do agente fora deste serviço). O código deste serviço **não muda**; o que muda aqui é a §7-G, que deixa de descrever uma sobreposição, e a tabela do que fica por ligar, que perde duas linhas. A paridade passa a ter ensaio nesta bateria (`TestFronteiraComOHnd`, nove asserções que lêem os ficheiros TypeScript), e ela existe porque a prova de que ninguém olhara para o segundo escritor foi um `grep` sem resultados. **E corrige-se um número da 1.9:** o `resumed_at` escreve-se nos **três** desfechos e não nos quatro — o `DESFECHOS` do `handoff/maquina.py` tem três valores. |
+| 1.12 | 2026-10-27 | KAM-038 | §7-H: a subscricao de eventos — a rota `/internal/event` e os tres codigos que ela da a fila, o efeito **dentro** da transaccao do consumo e o que isso compra nos dois sentidos, a setima ligacao e a traducao do `BEGIN`/`COMMIT`/`ROLLBACK` para o condutor, o *handler* por `(vertical, tipo)` e o `sem_accao`, as duas portas que nao partilham caminho, as quatro metricas com a primeira **medida com etiqueta** da casa, o `aplica_transicao` do KAM-006, a reserva de prioridade acima do tecto, e a entrada da `events_dlq` no *lint* de arquitectura com so o `insert`. Os codigos de saida passam a oito (o `7` do KAM-030 tambem faltava nesta tabela). **A revisao adversarial reprovou o ticket com nove achados**, e os tres que mudaram desenho estao escritos na seccao: duas mensagens identicas ao mesmo cliente, o `sem_template` a marcar sem enviar, e o cancelamento a nao esperar pela *thread* — este ultimo e o defeito que o §7-A ja tinha pago. | Equipa KAMBA |

@@ -113,6 +113,9 @@ NOME_DAS_TOOLS: Final = "kamba-agr:tools"
 NOME_DO_LLM: Final = "kamba-agr:llm"
 #: A sexta, da retoma do *handoff* (KAM-034): so `platform.handoffs`.
 NOME_DO_HANDOFF: Final = "kamba-agr:handoff"
+#: A setima, da subscricao de eventos (KAM-038): `platform.events_consumed`,
+#: `platform.events_dlq` e a leitura de `platform.conversations`.
+NOME_DOS_EVENTOS: Final = "kamba-agr:eventos"
 
 
 class ConfiguracaoEmFalta(RuntimeError):
@@ -227,6 +230,29 @@ def ligar_para_handoff(ambiente: Any = None) -> Any:
     alargar o que o servico pode fazer pelo resto do tempo.
     """
     return _ligar(ambiente, autocommit=False, nome=NOME_DO_HANDOFF)
+
+
+def ligar_para_eventos(ambiente: Any = None) -> Any:
+    """A ligacao do consumidor de eventos (KAM-038). Transaccional, `kamba_app`.
+
+    **A setima tomada, e pela razao das tres anteriores**: o
+    `kamba_core.tenant_guard` recusa uma segunda transaccao na mesma ligacao
+    (`LigacaoEmUso`), e um evento e consumido **ao mesmo tempo** que turnos de
+    outras conversas — a tranca serializa por `thread_id`, nao o processo.
+
+    Papel `kamba_app` e nao `kamba_agr`: o que ela toca e a
+    `platform.events_consumed` (`SELECT, INSERT`), a `platform.events_dlq`
+    (`INSERT`) e a `platform.conversations` (`SELECT`), e o `kamba_agr` **nao
+    tem `USAGE` no `platform`**, de proposito (KAM-026). Os tres privilegios
+    existem desde a revisao `0005` e a `0009`; nao ha migracao neste ticket.
+
+    **Transaccional e nao `autocommit`**, apesar de o `consumir` do KAM-006
+    mandar `BEGIN`, `COMMIT` e `ROLLBACK` como instrucoes: o
+    `LigacaoDoConsumo` traduz as tres na API do condutor, e a razao esta na
+    *docstring* dele — em `autocommit` o `tenant_guard.tx` recusava a ligacao, e
+    a leitura da conversa e a entrada na DLQ precisam dele.
+    """
+    return _ligar(ambiente, autocommit=False, nome=NOME_DOS_EVENTOS)
 
 
 def ligar_para_checkpoint(ambiente: Any = None) -> Any:
