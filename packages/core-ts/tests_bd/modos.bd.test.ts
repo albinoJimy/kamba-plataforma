@@ -793,7 +793,51 @@ describe("os modos da conversa contra a base", () => {
       assert.deepEqual(Object.keys(payload).sort(), ["channel_mode", "thread_id"]);
       assert.equal(rows[0]?.agregado_id, conversa.id);
       const texto = JSON.stringify(payload);
-      assert.ok(!texto.includes("999"), "um telefone sintetico chegou ao payload");
+
+      // **Os canários são valores inteiros, e não sequências de dígitos** — e é
+      // um defeito medido (KAM-166). A primeira versão desta asserção procurava
+      // `"999"` no texto do payload; o payload é `{channel_mode, thread_id}` e o
+      // `thread_id` é `tenant_id:contact_id`, ou seja **64 dígitos
+      // hexadecimais** vindos de dois `gen_random_uuid()`. A probabilidade de
+      // `999` nascer de um UUID em alguma das 62 posições é
+      // `1 - (1 - 16^-3)^62` ≈ **1,5% por execução** — e foi isso que pintou o
+      // gate 8 do PR #78 de vermelho com o `main` verde e a reexecução do mesmo
+      // commit a passar. A lição já estava escrita por extenso nesta casa, em
+      // `db/tests_agr/test_idempotencia.py` (`test_a_base_recusa_uma_chave_que_nao_seja_um_sha256`):
+      // um `sha256` pode conter quatro dígitos de um telefone, pelo que a prova
+      // tem de ser sobre **o valor** e não sobre dígitos soltos.
+      //
+      // O canário do telefone é o do intervalo fictício da casa (`999` + nove
+      // algarismos — a forma do `telefoneDeEnsaio()` e do evento do critério 5),
+      // **por inteiro**: doze dígitos não nascem por acaso de 64 hex. E **não
+      // está semeado nos dados**, de propósito e com a razão medida: a
+      // plataforma não guarda telefone em claro em sítio nenhum — a `contacts` só
+      // tem `phone_hmac` (revisão `0003`) e o número vive cifrado em
+      // `contact_endpoints.phone_enc` —, pelo que semear um aqui pedia o
+      // arranque do KAM-008 inteiro e deixaria na base um HMAC, e não estes
+      // dígitos. Fica como asserção de regressão: se alguém alargar a carga para
+      // levar o interlocutor, ela apanha-o.
+      const CANARIO_TELEFONE = "999123456789";
+      assert.ok(
+        !texto.includes(CANARIO_TELEFONE),
+        `um telefone sintetico chegou ao payload: ${texto}`,
+      );
+
+      // **E o canário que está montado**: o `conversation_id`, o terceiro nome do
+      // título deste caso e um valor que este ensaio possui de facto. Está no
+      // `agregado_id` do envelope (asserido acima) e **não** pode estar na
+      // carga — é esta asserção que faz a prova não ser vazia, porque procura um
+      // valor que existe nos dados do ensaio.
+      assert.ok(
+        !texto.includes(conversa.id),
+        `o id da conversa chegou ao payload: ${texto}`,
+      );
+
+      // E o `thread_id` compara-se **carácter a carácter** com o que lhe é
+      // devido, em vez de se procurar nele: uma igualdade exacta fecha a carga
+      // toda de uma vez — nada foi acrescentado, nada foi trocado — e não
+      // depende de nenhuma sequência de dígitos.
+      assert.equal(payload["thread_id"], `${tenantA}:${conversa.contactId}`);
     });
 
     it("se a emissao levantar, a transicao e desfeita", async () => {
