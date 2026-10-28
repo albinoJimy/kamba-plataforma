@@ -111,7 +111,7 @@ de paralelismo da estação 1.3 aplica-se depois dela, não antes.
 > git fetch publico main:refs/remotes/publico/main --force   # sem refspec só move o FETCH_HEAD
 > git show refs/remotes/publico/main:specs/INDICE.md \
 >   | grep -oE '^\| KAM-[0-9]{3} \|' | grep -oE '[0-9]{3}' | sort -n | tail -1
-> gh pr list --repo albinoJimy/kamba-plataforma --state open --json number,headRefName,title
+> gh pr list --repo albinoJimy/kamba-plataforma --state open --json number,title,headRefName
 > git ls-remote --heads publico | grep -oE 'KAM-[0-9]{3}' | sort -u | tail -5
 > git checkout -b fix/KAM-NNN-<slug> refs/remotes/publico/main
 > ```
@@ -123,6 +123,14 @@ de paralelismo da estação 1.3 aplica-se depois dela, não antes.
 > **E a base não mostra um ID reclamado por um PR aberto**, que foi como nasceu a segunda
 > colisão do mesmo dia: dois PRs com o mesmo `KAM-165`, e o segundo em `CONFLICTING` quando o
 > primeiro fundiu. Daí o `gh pr list` e o `ls-remote`, que vêem o que a `main` ainda não tem.
+>
+> **E lê o `title` do PR, não o `headRefName`.** O nome de um ramo mente no instante em que o
+> ticket dentro dele é renumerado, porque ninguém renomeia o ramo. Medido: um PR cujo título já
+> dizia o número novo e cujo ramo continuava a dizer o antigo — o `ls-remote` não via o número
+> reclamado, e foi preciso o título para o ver. O `ls-remote` fica para os ramos empurrados
+> **sem** PR, que é o único caso que só ele vê. O mesmo vale localmente: o nome da
+> pasta de um *worktree* e o `git worktree list` guardam o nome antigo — quem diz a verdade é o
+> `.git/worktrees/<nome>/HEAD`.
 >
 > O mesmo vale para as contagens, para o número da próxima linha de «Controlo de versões» e
 > para a dispensa que vais pagar: lêem-se da base, não do teu ficheiro. Uma delas pode já ter
