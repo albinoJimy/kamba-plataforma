@@ -136,8 +136,22 @@ errado escrito num ficheiro de análise.
 **Não é riscada aqui, e a razão é de âmbito, não de dúvida.** A própria linha 44
 atribui o trabalho ao dono do *gate* 3 e diz explicitamente que **não** é do
 KAM-158; riscá-la obriga a corrigir também o §1.5 da skill, que é alteração a
-doutrina e está a ser editada por outra sessão neste momento. Fica proposto como
-ticket próprio, com a medição acima pronta a usar.
+doutrina e estava a ser editada por outra sessão no momento desta revisão. A
+medição acima foi-lhe entregue em vez do trabalho.
+
+**E foi aproveitada: o PR `#84` risca a linha 44** — verificado e não aceite por
+relato: `gh pr diff 84` mostra `| 44 |` a passar a `| ~~44~~ |`, com o `f4f63a6`
+como evidência. Essa sessão reproduziu a medição por sua conta antes de a
+aceitar, chamando o `ficheiros()` com a raiz dentro de cada
+`.claude/worktrees/*` da máquina: **62 a 142 ficheiros, nunca zero**.
+
+E encontrou **mais duas passagens** do aviso obsoleto do que as que esta análise
+nomeou — o `references/portoes-e-velocidade.md` e o **bloco de *handoff* do
+próprio `specs/tickets/KAM-165.md`**, que mandava o executor desconfiar do passo
+a cada leitura do ticket. Fica registado aqui porque é o verdadeiro custo da
+dívida paga e não riscada: não foi a linha, foram as cinco passagens que ela
+autorizou. **Mandar desconfiar de um passo que funciona é pior do que não avisar
+nada**, porque ensina a ler um verde como inconclusivo.
 
 A consequência prática, que vale repetir porque é o contrário do que a dívida
 sugere: **o terceiro passo do *gate* 3 é verificável de dentro de um
