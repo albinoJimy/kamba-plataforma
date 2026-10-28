@@ -8,7 +8,7 @@ real e nunca com um duplo — e a licao que o criterio 3 do KAM-027 pagou por
 escrito: «esse teste contra um objecto inventado prova que o nosso `nos_do_grafo`
 le o nosso proprio duplo».
 
-**Encaminhadores.** Dez funcoes puras, medidas com `dict`. Cada uma tem um ramo
+**Encaminhadores.** Doze funcoes puras, medidas com `dict`. Cada uma tem um ramo
 de omissao, e o teste mede que **nenhum deles e «segue em frente»**.
 
 **Integracao.** Os `fakes` por contrato, com a ToolLayer a serio: os oito passos
@@ -200,9 +200,19 @@ class TestContratoDoGrafo(unittest.TestCase):
         self.assertEqual(sorted(tabela.pares() - do_compilado), [], "arestas em falta")
         self.assertEqual(sorted(do_compilado - tabela.pares()), [], "arestas a mais")
 
-    def test_os_nos_sao_vinte_e_um_e_os_sentinelas_nao_contam(self) -> None:
+    def test_os_nos_sao_vinte_e_tres_e_os_sentinelas_nao_contam(self) -> None:
+        """**Vinte e tres desde o KAM-114**, e a conta diz de onde vem cada um.
+
+        O §7.4 fixa vinte e um e continua a fixa-los; os dois do concierge
+        (`draft_prepare`, `draft_wait`) vem do bloco do KAM-114, que os nomeia
+        nos Detalhes Tecnicos. Afirmam-se **em separado** para que acrescentar um
+        no ao §7.4 sem o documentar continue a falhar aqui.
+        """
         nos = tabela.nos_do_compilado(self.grafo)
-        self.assertEqual(len(nos), 21)
+        self.assertEqual(len(nos), 23)
+        do_concierge = ("draft_prepare", "draft_wait")
+        self.assertEqual(sorted(n for n in tabela.NOS if n.startswith("draft_")), sorted(do_concierge))
+        self.assertEqual(len([n for n in tabela.NOS if n not in do_concierge]), 21)
         self.assertEqual(nos, frozenset(tabela.NOS))
         # A mutacao `os sentinelas do LangGraph passam a contar como nos` do
         # KAM-027, medida outra vez aqui porque este grafo e que os tem.
@@ -219,9 +229,14 @@ class TestContratoDoGrafo(unittest.TestCase):
         34 carrega tres. Um teste que afirmasse 39 passava com tres nos sem
         caminho para o envio.
         """
-        self.assertEqual(len({a.linha for a in tabela.ARESTAS}), tabela.LINHAS_DO_73)
-        self.assertEqual(len(tabela.ARESTAS), 42)
-        self.assertEqual(len(tabela.pares()), 42, "ha duas arestas iguais na tabela")
+        self.assertEqual(len({a.linha for a in tabela.do_73()}), tabela.LINHAS_DO_73)
+        self.assertEqual(len(tabela.do_73()), 42)
+        # **E as quatro do concierge contam-se a parte** (KAM-114): elas nao
+        # estao no §7.3, e somar as duas contagens numa so fazia o
+        # `LINHAS_DO_73` mentir sobre um documento que aquele ticket nao abre.
+        self.assertEqual(len(tabela.do_concierge()), 4)
+        self.assertEqual(len(tabela.ARESTAS), 46)
+        self.assertEqual(len(tabela.pares()), 46, "ha duas arestas iguais na tabela")
         multiplas = {
             linha: sorted((a.de, a.para) for a in tabela.ARESTAS if a.linha == linha)
             for linha in (27, 34)
@@ -269,9 +284,27 @@ class TestContratoDoGrafo(unittest.TestCase):
         andar(START)
         self.assertEqual(
             {frozenset(c) for c in ciclos},
-            {frozenset({"compose", "validate"})},
-            "um ciclo novo no grafo precisa de contador, como o compose/validate",
+            {
+                frozenset({"compose", "validate"}),
+                frozenset({"send", "draft_prepare", "draft_wait"}),
+            },
+            "um ciclo novo no grafo precisa de limite, como o compose/validate",
         )
+        # **O segundo ciclo e do KAM-114, e o limite dele nao e um contador: e o
+        # `interrupt()`.** O `draft_wait` para o grafo e so uma decisao humana (ou
+        # a varredura) o retoma, pelo que este ciclo **nao pode** girar sozinho —
+        # o que e um limite mais forte do que um tecto, porque nao depende de
+        # ninguem manter o tecto certo. E a segunda passagem pelo `send` traz
+        # `concierge.decisao` no estado e sai pela `enviado`: sem decisao nao ha
+        # segunda passagem, e com decisao nao ha terceira.
+        volta = [a for a in tabela.ARESTAS if a.de == "draft_wait" and a.para == "send"]
+        self.assertEqual(len(volta), 1)
+        self.assertEqual(volta[0].chave, "enviar")
+        self.assertEqual(
+            enc.r_draft({"concierge": {"decisao": "aprovado"}}), "enviar"
+        )
+        self.assertEqual(enc.r_draft({"concierge": {"decisao": None}}), "end")
+        self.assertEqual(enc.r_send({"concierge": {"estado": "enviado"}}), "enviado")
         # E o contador existe, e tem tecto: a aresta 30 e condicional e o
         # `citation_retries` e quem a decide.
         retry = [a for a in tabela.ARESTAS if a.de == "validate" and a.para == "compose"]

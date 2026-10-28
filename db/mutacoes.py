@@ -441,6 +441,13 @@ AG_HND_SERVICO = "services/agr/src/kamba_agr/handoff/servico.py"
 AG_HND_RETOMA = "services/agr/src/kamba_agr/handoff/retoma.py"
 AG_HND_PRAZOS = "services/agr/src/kamba_agr/handoff/prazos.py"
 AG_HND_AUTH = "services/agr/src/kamba_agr/handoff/autenticacao.py"
+#: KAM-114, o modo concierge.
+AG_CON_MAQUINA = "services/agr/src/kamba_agr/concierge/maquina.py"
+AG_CON_POLITICA = "services/agr/src/kamba_agr/concierge/politica.py"
+AG_CON_SERVICO = "services/agr/src/kamba_agr/concierge/servico.py"
+AG_CON_RASCUNHO = "services/agr/src/kamba_agr/concierge/rascunho.py"
+AG_CON_CONSULTAS = "services/agr/src/kamba_agr/concierge/consultas.py"
+AG_ESTADO = "services/agr/src/kamba_agr/estado.py"
 #: A politica AST do criterio 2 (KAM-034). **Vive na pasta dos testes e e
 #: mutada de qualquer maneira**, e isso e deliberado: aqui o artefacto **sob**
 #: prova e a politica, e quem a prova sao os canarios do `test_handoff_ast.py`.
@@ -4790,6 +4797,156 @@ MUTACOES = [
     # O LangGraph interrompe **levantando**, pelo que um `except` generico
     # engole a interrupcao: a conversa segue para o `handoff_close` sem ninguem
     # ter sido chamado.
+    # ------------------------------------------------- KAM-114, o concierge
+    #
+    # **Dezenove, e as cinco primeiras quebram a barreira do criterio 1**: «0
+    # mensagens ao cliente sem decisao `aprovado` ou `editado` registada». Sao
+    # as que importam, porque e a propriedade que este ticket existe para impor.
+    #
+    # **Dezessete em Python** (`agr_unit`) e **duas no SQL** (`tests_agr`), e a
+    # divisao e por onde a propriedade vive: quem decide se um
+    # *compare-and-set* casa e a base, e uma base falsa compara SQL por texto e
+    # nunca o interpreta.
+    #
+    # A politica deixa de se ler: todos os turnos de todos os tenants passam a
+    # enviar sem aprovacao.
+    ('concierge: o send deixa de consultar a politica', AG_VEN_NOS,
+     '            if deps.concierge.activa(estado["tenant_id"]):',
+     '            if False:',
+     AGR_UNIT),
+    # A direccao da falha inverte-se: uma base em baixo passa a significar
+    # «politica desligada» e o bot fala sozinho na conversa de quem pediu
+    # aprovacao humana. E *fail-open* com cara de robustez.
+    ('concierge: a politica ilegivel passa a valer desligada', AG_CON_POLITICA,
+     '        return bool(self._ler(tenant_id, MODULO).permitido)',
+     '''        try:
+            return bool(self._ler(tenant_id, MODULO).permitido)
+        except Exception:
+            return False''',
+     AGR_UNIT),
+    # A defesa em profundidade do `send` cai: uma decisao que nao envia
+    # (`rejeitado`, `expirado`, `substituido`) passa a deixar sair a mensagem.
+    ('concierge: o send passa a enviar com qualquer decisao', AG_VEN_NOS,
+     '        elif decisao not in DECISOES_QUE_ENVIAM:',
+     '        elif False:',
+     AGR_UNIT),
+    # As duas vias deixam de ter dominios disjuntos: a varredura passa a poder
+    # escrever `aprovado` e deixar sair uma mensagem que nenhum humano aprovou.
+    ('concierge: a varredura passa a poder aprovar', AG_CON_SERVICO,
+     '        if decisao not in ("expirado", "substituido"):',
+     '        if False:',
+     AGR_UNIT),
+    # O encaminhador da decisao perde a omissao segura: um corpo de retoma que
+    # nao se entende passa a enviar em vez de acabar o turno.
+    ('concierge: o r_draft passa a enviar por omissao', AG_VEN_ENC,
+     '''    concierge = estado.get("concierge")
+    if not isinstance(concierge, dict):
+        return "end"''',
+     '''    concierge = estado.get("concierge")
+    if not isinstance(concierge, dict):
+        return "enviar"''',
+     AGR_UNIT),
+    # O `turn_seq` volta ao `estado_inicial`, que e o defeito que a revisao
+    # adversarial mediu: o `draft_id` passa a ser o mesmo em todos os turnos da
+    # conversa, o rascunho do 2.o turno e engolido pelo `ON CONFLICT`, o
+    # operador nunca o ve, e a conversa fica muda a partir do segundo turno.
+    ('concierge: o turn_seq volta ao estado inicial', AG_ESTADO,
+     '        "concierge": None,\n    }',
+     '        "concierge": None,\n        "turn_seq": 0,\n    }',
+     AGR_UNIT),
+    # O `concierge` deixa de se repor por turno: a decisao de um turno sobrevive
+    # ao seguinte, o `send` le-a como aprovacao, e a mensagem sai sem ninguem a
+    # ter aprovado.
+    ('concierge: a decisao passa a sobreviver ao turno', AG_ESTADO,
+     '        "concierge": None,\n    }',
+     '        "concierge": {"decisao": "aprovado"},\n    }',
+     AGR_UNIT),
+    # O `turn_seq` deixa de subir: o mesmo efeito por outra porta.
+    ('concierge: o ingest deixa de subir o turn_seq', AG_VEN_NOS,
+     '        delta["turn_seq"] = int(estado.get("turn_seq") or 0) + 1',
+     '        delta["turn_seq"] = 1',
+     AGR_UNIT),
+    # O `draft_id` deixa de depender do turno: todos os turnos partilham o
+    # rascunho.
+    ('concierge: o draft_id deixa de levar o turn_seq', AG_CON_MAQUINA,
+     '    return hashlib.sha256(f"{thread_id}:{int(turn_seq)}".encode()).hexdigest()',
+     '    return hashlib.sha256(f"{thread_id}".encode()).hexdigest()',
+     AGR_UNIT),
+    # A chave de envio volta a ser a do turno, e o criterio 2 nomeia a do
+    # rascunho.
+    ('concierge: a chave de envio deixa de ser a do rascunho', AG_VEN_NOS,
+     '''    draft_id = concierge.get("draft_id")
+    if draft_id:''',
+     '''    draft_id = concierge.get("draft_id")
+    if False:''',
+     AGR_UNIT),
+    # A politica activa sem servico ligado volta a interromper em vez de
+    # levantar: o `interrupt` fica pendente para sempre e a conversa morre.
+    ('concierge: a falta de servico volta a interromper', AG_VEN_NOS,
+     '            raise ConciergeSemServicoError(',
+     '            _morto = ConciergeSemServicoError(',
+     AGR_UNIT),
+    # O sinal do criterio 4 deixa de voltar a quem decidiu: o operador edita,
+    # mete um numero que nenhuma tool devolveu, e ninguem lhe diz nada.
+    ('concierge: o numero livre deixa de voltar na resposta', AG_CON_SERVICO,
+     '        return ResultadoDaDecisao(self._contar_e_devolver("decidido"), livre)',
+     '        return ResultadoDaDecisao(self._contar_e_devolver("decidido"), False)',
+     AGR_UNIT),
+    # A medida da edicao passa a ser sempre zero: o `draft_edit_ratio_p50` do
+    # criterio 6 deixa de medir e o `CHECK` da `0024` continua satisfeito.
+    ('concierge: a distancia da edicao passa a ser sempre zero', AG_CON_MAQUINA,
+     '    return round(1.0 - difflib.SequenceMatcher(None, antes, depois).ratio(), 3)',
+     '    return 0.0',
+     AGR_UNIT),
+    # O sinal do numero livre deixa de correr o validador: uma edicao com um
+    # preco inventado passa a nao ser sinalizada.
+    ('concierge: o numero livre deixa de correr o validador', AG_CON_MAQUINA,
+     '    return not validar(texto, tuple(facts)).ok',
+     '    return False',
+     AGR_UNIT),
+    # A compensacao cai: a decisao fica gravada com o grafo ainda interrompido,
+    # e a varredura nao a encontra porque filtra `decisao IS NULL`.
+    ('concierge: a decisao deixa de compensar quando o grafo levanta', AG_CON_SERVICO,
+     '            await self._reverter(tenant_id, draft_id, thread_id, decisao, erro)\n'
+     '            raise GrafoDaDecisaoError("retoma_do_grafo_falhou") from erro\n'
+     '\n'
+     '        self._contar_estado(decisao)\n'
+     '        return ResultadoDaDecisao(self._contar_e_devolver("decidido"), livre)',
+     '            raise GrafoDaDecisaoError("retoma_do_grafo_falhou") from erro\n'
+     '\n'
+     '        self._contar_estado(decisao)\n'
+     '        return ResultadoDaDecisao(self._contar_e_devolver("decidido"), livre)',
+     AGR_UNIT),
+    # A varredura e a substituicao deixam de retomar o grafo: o rascunho fica
+    # decidido e o `interrupt` pendente, e a invariante do §11 fecha a conversa
+    # a mensagens novas — muda em vez de automatica.
+    ('concierge: a decisao do sistema deixa de retomar o grafo', AG_CON_SERVICO,
+     '            await self._resumir_o_grafo(grafo, thread_id, decisao, None, False)',
+     '            pass',
+     AGR_UNIT),
+    # O prazo deixa de ser o das 24 h: tudo expira de imediato, e um rascunho
+    # que o operador ia aprovar desaparece.
+    ('concierge: o prazo dos rascunhos passa a zero', AG_CON_MAQUINA,
+     'PRAZO_HORAS: Final = 24',
+     'PRAZO_HORAS: Final = 0',
+     AGR_UNIT),
+    # O CAS deixa de exigir que o rascunho esteja pendente: o duplo clique passa
+    # a decidir duas vezes e a reescrever a decisao do primeiro. **So a base a
+    # apanha**, e por isso esta na `tests_agr` e nao na `agr_unit`.
+    ('concierge: o CAS deixa de exigir o pendente', AG_CON_CONSULTAS,
+     '     AND d.decisao IS NULL\n  RETURNING 1',
+     '  RETURNING 1',
+     AGR),
+    # O CAS deixa de exigir o `thread_id`: um `draft_id` de outro contacto do
+    # mesmo tenant passa a decidir — a mensagem de outra pessoa aprovada pela
+    # decisao desta. E a licao do KAM-034, e so a base a apanha.
+    ('concierge: o CAS deixa de exigir o thread', AG_CON_CONSULTAS,
+     '''     AND d.draft_id = %s
+     AND d.thread_id = %s
+     AND d.decisao IS NULL''',
+     '''     AND d.draft_id = %s
+     AND d.decisao IS NULL''',
+     AGR),
     ('handoff: o desfecho chega ao grafo traduzido para estado', AG_HND_RETOMA,
      '            await self._resumir_o_grafo(grafo, thread_id, desfecho)',
      '            await self._resumir_o_grafo(grafo, thread_id, estado_novo)',
@@ -6019,6 +6176,15 @@ MODULOS_DO_AGR_UNIT = (
     # `registry/*.yaml` e o `packages/core-ts/src/eventos/envelope.ts`, e os
     # dois ja vao na copia.
     "test_eventos",
+    # KAM-114, pela mesma razao de sempre. **Sem esta linha as dezessete
+    # mutacoes `concierge:` da `agr_unit` sobreviviam todas**, com a suite
+    # verde: o corredor nunca corria o ficheiro que as mata. E a quarta vez que
+    # esta nota se paga — o KAM-030 com dez sobreviventes, o KAM-034 com uma, o
+    # KAM-038 com trinta e seis, e agora.
+    #
+    # A bateria le a revisao `0024` (confronta os dominios do codigo com os do
+    # `CHECK`) e o `nos.py`, e os dois ja vao na copia.
+    "test_concierge",
 )
 
 

@@ -1,4 +1,4 @@
-"""Os vinte e um nos e as quarenta e duas arestas do grafo do Vendedor (§7.3).
+"""Os nos e as arestas do grafo do Vendedor (§7.3, mais o concierge do KAM-114).
 
 ## Porque e que a tabela vive em codigo, e nao so no documento
 
@@ -46,11 +46,34 @@ from langgraph.graph import END, START
 #: grafo atribuido». Sobe no *minor* quando um no entra ou sai; no *major*
 #: quando o estado deixa de ser compativel com um `interrupt` pendente (§12,
 #: linha do versionamento).
-VERSAO_DO_GRAFO: Final = "1.0.0"
+#: **1.1.0 e nao 1.0.1:** o KAM-114 acrescenta dois nos (`draft_prepare` e
+#: `draft_wait`) e a regra desta constante e «sobe no *minor* quando um no entra
+#: ou sai». Nao e *major* porque o estado continua compativel com um `interrupt`
+#: pendente: os campos que o concierge acrescenta sao novos e opcionais, e um
+#: *checkpoint* escrito pela 1.0.0 lê-se sem eles — o `handoff_wait` de um
+#: *thread* a espera retoma como antes.
+VERSAO_DO_GRAFO: Final = "1.1.0"
 
 #: O numero de linhas da tabela de §7.3. Afirma-se para que o numero do criterio
 #: 1 continue verificavel depois de alguem perceber que as arestas sao mais.
 LINHAS_DO_73: Final = 39
+
+#: O valor de `Aresta.fonte` das arestas que o KAM-114 acrescenta. **Nao estao
+#: no §7.3** e por isso nao contam para o `LINHAS_DO_73`: o documento continua a
+#: ter trinta e nove linhas, e inflacionar a constante era faze-la mentir sobre
+#: um ficheiro que este ticket nao abre.
+FONTE_DO_CONCIERGE: Final = "KAM-114"
+
+#: A `fonte` da **unica** aresta do §7.3 que o KAM-114 altera: a 35, que passou
+#: de incondicional («sempre») a condicional. Nao fica com a omissao, e a razao
+#: e o proprio mecanismo do `fonte`: ele existe para que cada aresta diga quem a
+#: autoriza, e deixa-la a apontar para um §7.3 que a descreve como «sempre» era
+#: usa-lo para mentir na primeira aresta a que ele se aplica com proveito.
+#: Apanhado pela revisao adversarial.
+#:
+#: **Conta para o `LINHAS_DO_73`**: a linha 35 continua a existir no documento,
+#: e o que mudou foi a forma e nao a autoria.
+FONTE_ALTERADA_PELO_CONCIERGE: Final = "02 §7.3, alterada por KAM-114"
 
 #: Os vinte e um nos, pela ordem do §7.4. Lista **fechada**: e por ela que o
 #: teste de contrato mede «nenhum no a mais, nenhum a menos», e cada nome e
@@ -79,6 +102,12 @@ NOS: Final = (
     "handoff_prepare",
     "handoff_wait",
     "handoff_close",
+    # KAM-114: os dois do concierge. **Nao estao no §7.4**, que fixa vinte e um:
+    # vem do bloco do ticket, que os nomeia nos Detalhes Tecnicos («nos
+    # `draft_prepare` e `draft_wait`, sem efeitos antes do `interrupt()`»), e o
+    # dicionario §3.34 declara-os. Ver o `FONTE_DO_CONCIERGE` abaixo.
+    "draft_prepare",
+    "draft_wait",
 )
 
 #: As nove intencoes do Vendedor (§7.3 linhas 11 a 17; dicionario §3.31).
@@ -147,13 +176,24 @@ class Aresta:
     para: str
     chave: str | None
     condicao: str
+    #: De onde vem a autorizacao desta aresta. Por omissao o §7.3, que e a fonte
+    #: das quarenta e duas do KAM-031.
+    #:
+    #: **Existe porque o grafo passou a ter duas fontes** (KAM-114), e sem ela o
+    #: `LINHAS_DO_73` deixava de poder dizer a verdade: ou contava arestas que o
+    #: §7.3 nao tem, ou obrigava a inventar linhas num documento que este ticket
+    #: nao altera. Com o campo, cada aresta diz quem a autoriza e as duas
+    #: contagens continuam verificaveis em separado.
+    fonte: str = "02 §7.3"
 
     @property
     def condicional(self) -> bool:
         return self.chave is not None
 
 
-#: As quarenta e duas arestas, pela ordem das linhas do §7.3.
+#: As arestas do grafo: as quarenta e duas do §7.3 (KAM-031) mais as quatro
+#: do concierge (KAM-114), pela ordem das linhas. O `fonte` de cada uma diz
+#: quem a autoriza, e e por ele que as duas contagens se provam em separado.
 ARESTAS: Final = (
     Aresta(1, START, "ingest", None, "sempre"),
     Aresta(2, "ingest", "stt", "stt", "input_kind == audio"),
@@ -194,12 +234,80 @@ ARESTAS: Final = (
     Aresta(34, "unknown_reply", "send", None, "sempre (texto estatico)"),
     Aresta(34, "ask_repeat", "send", None, "sempre (texto estatico)"),
     Aresta(34, "safe_reply", "send", None, "sempre (texto estatico)"),
-    Aresta(35, "send", END, None, "sempre; idempotency_key = turn_id:seq"),
+    # **A linha 35 passou a condicional com o KAM-114**, e e a unica aresta do
+    # §7.3 que este ticket toca. O §7.3 escreve «sempre», e e o que ela faz
+    # quando a politica `concierge` esta desligada — que e o caso de todos os
+    # *tenants* que nao estao no Piloto. Com a politica ligada, o `send` nao
+    # envia: desvia para o pedido de aprovacao pela aresta `aprovar`.
+    #
+    # O desvio e **aqui** e nao na entrada de cada caminho porque sao **cinco**
+    # as arestas que chegam ao `send` (32, as tres da 34, e a 37), e o criterio
+    # 1 conta «0 mensagens ao cliente sem decisao» — uma resposta estatica e
+    # uma mensagem ao cliente tanto como uma composta. Interceptar num sitio
+    # cobre as cinco; interceptar a entrada obrigava a cinco condicionais e a
+    # primeira esquecida era uma mensagem a sair sem aprovacao.
+    Aresta(
+        35,
+        "send",
+        END,
+        "enviado",
+        "enviado, ou politica concierge desligada",
+        fonte=FONTE_ALTERADA_PELO_CONCIERGE,
+    ),
     Aresta(36, "handoff_prepare", "handoff_wait", "wait", "openHandoff ok"),
     Aresta(37, "handoff_prepare", "send", "degraded", "HND indisponivel"),
     Aresta(38, "handoff_wait", "handoff_close", None, "retoma (Command(resume=...))"),
     Aresta(39, "handoff_close", END, None, "sempre"),
+    # ------------------------------------------------- KAM-114, o concierge
+    #
+    # Quatro arestas, numeradas a seguir as do §7.3 e com `fonte` propria. O
+    # ciclo `send -> draft_prepare -> draft_wait -> send` **e** um ciclo, e e
+    # limitado por construcao: a segunda visita ao `send` traz a decisao no
+    # estado, pelo que sai pela `enviado`. Sem a decisao nao ha segunda visita —
+    # o `draft_wait` esta interrompido.
+    Aresta(
+        40,
+        "send",
+        "draft_prepare",
+        "aprovar",
+        "politica concierge ligada e sem decisao humana",
+        fonte="KAM-114",
+    ),
+    Aresta(
+        41,
+        "draft_prepare",
+        "draft_wait",
+        None,
+        "sempre; mesmo com o HND em baixo (nada sai sem decisao)",
+        fonte="KAM-114",
+    ),
+    Aresta(
+        42,
+        "draft_wait",
+        "send",
+        "enviar",
+        "decisao aprovado ou editado",
+        fonte="KAM-114",
+    ),
+    Aresta(
+        43,
+        "draft_wait",
+        END,
+        "end",
+        "decisao rejeitado, expirado ou substituido",
+        fonte="KAM-114",
+    ),
 )
+
+
+def do_73() -> tuple["Aresta", ...]:
+    """So as arestas que o §7.3 autoriza. E o universo do `LINHAS_DO_73`."""
+    return tuple(a for a in ARESTAS if a.fonte != FONTE_DO_CONCIERGE)
+
+
+def do_concierge() -> tuple["Aresta", ...]:
+    """So as arestas que o KAM-114 acrescenta."""
+    return tuple(a for a in ARESTAS if a.fonte == FONTE_DO_CONCIERGE)
 
 
 def pares() -> frozenset[tuple[str, str]]:

@@ -22,8 +22,24 @@ from kamba_agr.estado import (
 
 #: As chaves do bloco de codigo do §5.3, tal como la estao escritas. Eram
 #: vinte e tres; a emenda 1.40 (KAM-031) acrescenta `ofertas`, `avisos` e
-#: `handoff_motivo`, e o `admissao`, e sao **vinte e seis**. O comentario dizia «dezenove» e
-#: nunca foram dezenove — a lista abaixo e a prova, e e ela que o teste compara.
+#: `handoff_motivo`, e o `admissao`, e eram **vinte e seis**. O comentario dizia
+#: «dezenove» e nunca foram dezenove — a lista abaixo e a prova, e e ela que o
+#: teste compara.
+#:
+#: A emenda 1.44 (KAM-114) acrescenta **uma** chave a esta lista, o `concierge`,
+#: e sao **vinte e sete**.
+#:
+#: **O `turn_seq` nao entra aqui de proposito, e a assimetria e o remedio de um
+#: defeito medido.** O `turno.py` passa o `estado_inicial` ao `ainvoke` em
+#: **cada** turno, pelo que toda a chave desta lista sobrescreve a do
+#: *checkpoint*. Com o `turn_seq` ca, ele valia 1 em todos os turnos e o
+#: `draft_id = sha256(thread_id:turn_seq)` era o mesmo em toda a conversa: o
+#: rascunho do 2.o turno era engolido pelo `ON CONFLICT` e a conversa ficava
+#: **muda**. Ele vive so no `ConversaState` (que e `total=False`) e no
+#: *checkpoint*.
+#:
+#: O `concierge` fica, e o reinicio por turno e a propriedade que impede a
+#: decisao de um turno de valer como aprovacao no turno seguinte.
 CHAVES_DO_521 = (
     "schema_version",
     "tenant_id",
@@ -51,6 +67,11 @@ CHAVES_DO_521 = (
     "citation_retries",
     "handoff_seq",
     "handoff",
+    # KAM-114, emenda 1.44. **Nao esta no bloco do §5.3**, que este ticket nao
+    # altera: vem do bloco do KAM-114 e do dicionario §3.34. O
+    # `test_as_chaves_sao_as_que_o_documento_escreve` continua a passar porque e
+    # de inclusao num sentido — o documento e subconjunto desta lista.
+    "concierge",
 )
 
 

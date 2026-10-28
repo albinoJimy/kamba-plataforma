@@ -123,6 +123,32 @@ def estado_inicial(invocacao: InvocacaoDoAgente) -> dict[str, Any]:
         "citation_retries": 0,
         "handoff_seq": 0,
         "handoff": None,
+        # KAM-114. **O `concierge` entra aqui e o `turn_seq` NÃO**, e a
+        # assimetria e o remedio de um defeito medido.
+        #
+        # O `turno.py` chama `estado_inicial` em **cada** turno e passa o
+        # resultado ao `ainvoke` (linha 315), pelo que **toda** a chave que
+        # nasca aqui sobrescreve a do *checkpoint*. Com o `turn_seq` nesta
+        # tabela, ele valia 0 a entrada de cada turno, o `ingest` punha-o a 1
+        # **sempre**, e o `draft_id = sha256(thread_id:turn_seq)` era o **mesmo**
+        # em todos os turnos da conversa: o rascunho do 2.o turno era engolido
+        # pelo `ON CONFLICT (draft_id) DO NOTHING`, o operador nunca o via, e a
+        # conversa ficava **muda** a partir do segundo turno. Medido contra o
+        # grafo real, e e exactamente o defeito que a nota do campo diz que ele
+        # existe para evitar — so que quem o limpava nao era o `reiniciar`, era
+        # esta funcao.
+        #
+        # Fora daqui, a chave **nao vem no input** e o canal do LangGraph guarda
+        # o valor do *checkpoint*; o `ingest` le-o e sobe-o. O `total=False` do
+        # `ConversaState` e o `estado.get("turn_seq") or 0` do `ingest` tratam a
+        # ausencia no primeiro turno.
+        #
+        # O `concierge` fica, e o reinicio por turno e **a propriedade que
+        # importa**: sem ele, a `decisao` de um turno sobrevivia ao turno
+        # seguinte, o `send` lia-a como aprovacao e a mensagem saia **sem
+        # ninguem a ter aprovado** — a barreira do criterio 1 furada no caminho
+        # mais comum que ha, o da conversa com mais de um turno.
+        "concierge": None,
     }
 
 
@@ -264,3 +290,28 @@ class ConversaState(TypedDict, total=False):
     citation_retries: int
     handoff_seq: int
     handoff: dict[str, Any] | None
+    #: KAM-114. O ordinal do turno na conversa, e a segunda metade do
+    #: `draft_id = sha256(thread_id:turn_seq)`.
+    #:
+    #: **Persiste entre turnos**, e para isso tem de estar fora de **duas**
+    #: tabelas e nao de uma: fora do `CAMPOS_DO_TURNO` (que o `reiniciar`
+    #: devolve) e fora do `estado_inicial` (que o `turno.py` passa ao `ainvoke`
+    #: em **cada** turno, sobrescrevendo o que o *checkpoint* tinha). A segunda
+    #: foi medida e nao deduzida: com a chave no `estado_inicial`, o `turn_seq`
+    #: valia 1 em todos os turnos e o `draft_id` era o mesmo em toda a conversa.
+    #: A razao por extenso esta no `estado_inicial`.
+    #:
+    #: Sobe no `ingest`, uma vez por turno. Uma repeticao do *job* que reexecute
+    #: o `ingest` recalcula o **mesmo** valor, porque parte do mesmo
+    #: *checkpoint*.
+    turn_seq: int
+    #: KAM-114. O que o concierge sabe sobre o rascunho **deste** turno:
+    #: `draft_id`, `estado`, `publicado`, `decisao` e `numero_livre`.
+    #:
+    #: **Reinicia-se em cada turno**, e ao contrario do `turn_seq` isso e o que
+    #: se quer: e o `estado_inicial` que o poe a `None`, e e essa reposicao que
+    #: impede a `decisao` de um turno de valer como aprovacao no turno seguinte.
+    #: Dentro do turno ela sobrevive ao `interrupt()`, porque a retoma entra por
+    #: `Command(resume=...)` e essa **nao** traz estado inicial nenhum — o canal
+    #: guarda o que o *checkpoint* tem.
+    concierge: dict[str, Any] | None

@@ -202,6 +202,49 @@ ESCRITAS_DO_PLANO_DE_CONTROLO = frozenset(
         # `kamba_core.eventos.consumir` (KAM-006), que vive em `libs/` e nao em
         # `services/` — e este *lint* so varre `services/*/src/**`.
         ("services/agr/src/kamba_agr/eventos/consultas.py", "events_dlq", "insert"),
+        # KAM-114, criterios 2, 5 e 8: o rascunho do modo concierge. Duas
+        # entradas e nao uma — o `insert` abre o rascunho e o `update` e o
+        # *compare-and-set* da decisao —, e as quatro condicoes:
+        #
+        # 1. **nada depende de modelo nem de texto do cliente** — e a razao de
+        #    ser desta tabela: ela nao tem coluna de texto nenhuma. O que se
+        #    escreve sao hashes (`draft_id`), identificadores (`thread_id`,
+        #    `turn_id`), dois dominios fechados (`decisao`, `motivo`), um
+        #    booleano e tres numeros. O texto do rascunho e da edicao vive no
+        #    checkpointer (`lg`) e no HND, e a medida da edicao atravessa como
+        #    um `numeric(4, 3)`;
+        # 2. **e plano de controlo** — uma linha diz que um humano decidiu (ou
+        #    nao decidiu) sobre uma mensagem; nao mexe em encomenda, preco,
+        #    stock nem contacto. Nenhuma tool escreve aqui, e nenhuma pode: a
+        #    decisao nao e uma capacidade do agente, e o contrario dela;
+        # 3. **o `tenant_id` esta na instrucao e ela corre em `tenant_guard.tx`**
+        #    — e o `thread_id` tambem, pela licao do KAM-034: o `draft_id` e
+        #    `sha256(thread_id:turn_seq)` e portanto irreversivel, pelo que com
+        #    so o `tenant_id` um `draft_id` de **outro contacto do mesmo tenant**
+        #    passava o predicado e aprovava a mensagem de outra pessoa. A `0024`
+        #    da `INSERT` e `UPDATE` **por coluna** a `kamba_app`;
+        # 4. **o canon nomeia o dono** — o bloco do KAM-114 poe o `endpoint` da
+        #    decisao no AGR por escrito («a decisao retoma por
+        #    `POST /internal/draft-decision` com compare-and-set»), e e a mesma
+        #    atribuicao que a regra (3) do `../docs/tecnica/02` §11 fez ao
+        #    `/internal/resume`. Dicionario §3.34.
+        #
+        # **Sem `delete`.** A retencao e do `kamba_batch` (KAM-071) e uma decisao
+        # gravada nao se apaga a pedido de quem a produziu — a mesma razao pela
+        # qual a `0005` nao deu `DELETE` ao consumidor da DLQ. A `0024` nao
+        # concede `DELETE` ao `kamba_app`, pelo que um `DELETE` escrito aqui
+        # falhava na base **e** passava este *lint*; a entrada em falta e a
+        # segunda barreira.
+        (
+            "services/agr/src/kamba_agr/concierge/consultas.py",
+            "draft_decisions",
+            "insert",
+        ),
+        (
+            "services/agr/src/kamba_agr/concierge/consultas.py",
+            "draft_decisions",
+            "update",
+        ),
     }
 )
 

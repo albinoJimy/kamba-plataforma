@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.43 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.44 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -153,8 +153,6 @@ Os documentos técnicos e os epics foram escritos em paralelo e **divergem em no
 
 | Conceito | Nome | Ticket |
 |---|---|---|
-| Decisões do modo concierge (aprovado, editado, rejeitado) | `draft_decisions` e política `concierge` | KAM-114 |
-| Edição livre de número no rascunho do concierge | `edicao_numero_livre` | KAM-114 |
 | Vistas de churn e tenants dormentes | `v_churn_signals`, `v_tenant_dormente` | KAM-117 |
 | Evento de aviso de inactividade do canal | `channel.inactivity_warning` | KAM-017 |
 
@@ -166,6 +164,10 @@ passou a ter a tabela, as colunas e os domínios no §3.23. É o mesmo percurso 
 o `token_ref` fez na 1.22, o `waac_id` na 1.30 e as duas colunas de
 `tenant_channels` na 1.31 — e o lint recusa a redundância, pelo que a linha tinha
 de sair daqui no mesmo *commit* em que entrou lá.
+
+As **duas linhas do KAM-114** fizeram o mesmo percurso com a emenda 1.44: a
+`draft_decisions`, a política `concierge` e o `edicao_numero_livre` passaram a ter
+tabela, colunas e domínios no §3.34, e saíram daqui no mesmo *commit*.
 
 ### 3.9 Nomes introduzidos pelo ticket KAM-010 — segredos (*proposta*, a ratificar por emenda)
 
@@ -2102,6 +2104,192 @@ nenhum consumidor existente muda de comportamento.
 
 ---
 
+### 3.34 Modo concierge: a política, o rascunho e a decisão (KAM-114)
+
+*Emenda 1.44, **proposta**.* A fonte do desenho é o bloco do KAM-114 em
+`EPIC-03_Agent_Runtime_Verticais.md`, o `../docs/exploracao/14` §3A (o Piloto
+concierge), o `../docs/tecnica/01` §10.2, §10.3 e §11.4 (os modos e o prazo), o
+`../docs/tecnica/02` §11 (o padrão dos dois nós) e §16 (o *golden*), e o
+`../docs/tecnica/10` §11.2 e §11.3 (a reescrita sintética), com o ADR-002, o
+ADR-007, o ADR-010, o ADR-015 e o ADR-018.
+
+**Os três nomes saem do §3.8**, onde estavam pré-declarados sem conceito: a
+`draft_decisions`, a política `concierge` e o `edicao_numero_livre`. É o percurso
+do `owner_notices` na 1.32, do `token_ref` na 1.22 e do `llm_call_log` na 1.38, e
+o *lint* recusa a redundância — pelo que as duas linhas tinham de sair de lá no
+mesmo *commit* em que entraram aqui.
+
+**O concierge não é um quinto modo de conversa, e essa é a decisão do ticket.**
+O KAM-018 recusa transições fora da tabela de `../docs/tecnica/01` §10.2, e os
+quatro modos (`bot`, `dono`, `humano`, `pausada`) ficam como estão. O concierge é
+uma **política por *tenant*** aplicada à conversa em modo `bot`: o nó de envio é
+substituído por um pedido de aprovação. Nada nesta secção toca na
+`platform.conversations` nem no `SQL_MUDAR_MODO`.
+
+**A política é uma linha de `platform.entitlements` e não superfície nova**, e as
+outras três foram medidas antes de se escolher esta. O `registry/*.yaml` lê-se
+uma vez no arranque e não se recarrega (não há *watcher*, não há TTL), pelo que
+uma política em YAML falhava o critério 8 — «desactivar repõe o envio automático
+sem reiniciar o AGR» — **por construção**. O `entitlements.limites` tem
+`additionalProperties: false` no `registry/entitlement_keys.schema.json` e as
+suas dez chaves são todas `bigint_nao_negativo`, pelo que um `concierge: true`
+ali é **recusado na escrita**. E uma tabela ou coluna de políticas não existe e
+era uma superfície a mais para o que uma linha já diz. Fica a linha, que herda a
+falha fechada do `check_entitlement` (KAM-009), a RLS, o X-03 e — por se ler da
+base em cada turno — o efeito imediato que o critério 8 pede.
+
+**`pendente` não é um valor de `decisao`: é a ausência de decisão.** O critério 2
+pede um *compare-and-set* `pendente → decidido` e o critério 6 fixa `decisao` em
+**cinco** valores, entre os quais o `pendente` não está. As duas coisas só valem
+ao mesmo tempo com uma leitura, e é esta: `decisao IS NULL` **é** o estado
+pendente, e o CAS é `SET decisao = $x ... WHERE decisao IS NULL`. Uma coluna
+`estado` com seis valores ao lado recusa-se pela razão que o §3.32 escreveu para
+o `handoffs.status` — chamar `decisao` a um rascunho que ainda não foi decidido
+dizia que um rascunho que acabou de nascer já tem uma —, e duas colunas a
+codificar o mesmo facto são duas verdades à espera de divergir.
+
+**O `turn_seq` não vive no `estado_inicial`, e a assimetria é o remédio de um
+defeito medido.** O `turno.py` chama `estado_inicial` em **cada** turno e passa o
+resultado ao `ainvoke`, pelo que toda a chave que aquela função escreve
+sobrescreve a do *checkpoint*. Com o `turn_seq` lá, ele valia 1 em todos os
+turnos e o `draft_id = sha256(thread_id:turn_seq)` era o **mesmo** em toda a
+conversa: o rascunho do 2.º turno era engolido pelo `ON CONFLICT (draft_id) DO
+NOTHING`, o operador nunca o via, e a conversa ficava **muda** a partir do
+segundo turno. Ele vive por isso fora de **duas** tabelas — o `CAMPOS_DO_TURNO`
+e o `estado_inicial` —, e o canal do LangGraph guarda o valor do *checkpoint*. O
+`concierge` fica no `estado_inicial`, e aí a reposição por turno é a propriedade
+que importa: sem ela, a `decisao` de um turno valia como aprovação no turno
+seguinte e a mensagem saía **sem ninguém a ter aprovado**.
+
+**O mesmo defeito atinge o `handoff_seq`, e não se corrige aqui.** Ele está no
+`estado_inicial` desde o KAM-031, pelo que dois *handoffs* em dois turnos da
+mesma conversa derivam o **mesmo** `handoff_id` e o segundo é engolido pelo `ON
+CONFLICT` do HND: ninguém é chamado. Medido ao implementar este ticket (duas
+passagens, um `handoff_id`, uma linha com contagem 2). É código fundido e fora de
+âmbito; o credor é o **KAM-031**/**KAM-034** e o remédio é o mesmo que o
+`turn_seq` usou.
+
+**O custo do critério 6 não é coluna desta tabela, e as duas razões mediram-se.**
+Ele manda gravar «custo da chamada (de `llm_call_log` por `turn_id`)», e: (1) a
+`dat.llm_call_log` **não tem** `turn_id` — as dezesseis colunas da `0023` trazem
+`trace_id`, o do W3C de `../docs/tecnica/06` §4, e o `turn_id` deste repositório
+é o `wamid` (§3.24) —, pelo que a chave que o critério nomeia não existe; e (2) o
+`kamba_app` **não tem `SELECT`** naquela tabela, por decisão deliberada do
+KAM-030 («quem produz o registo não é quem o audita»). O AGR não pode portanto
+ler o custo no instante da decisão, e preenchê-lo exigia retirar aquele
+privilégio — e *mínimo* nunca é retirar uma barreira. O critério 6 fica
+**parcial** por esta cláusula. As três saídas eram: conceder leitura ao AGR,
+acrescentar `turn_id` a uma tabela particionada e *append-only*, ou correlacionar
+`trace_id` e `turn_id` onde os dois existam. A escolha não era do executor, porque
+a primeira retira uma barreira de privilégio do KAM-030 — subiu, e **ficou decidida
+a terceira: aceita-se a vista sem coluna de custo.** O critério continua
+`parcial`, porque o custo não é entregue: «decidido» não é «feito». (E hoje
+qualquer das três devolvia `NULL` de qualquer maneira: o `custo_usd` da `0023` é
+nulo enquanto o modelo for `por_decidir`, que é o **KAM-040**.)
+
+**As quatro métricas do critério 6 são uma vista, e por duas razões
+independentes.** A primeira é a gramática de etiqueta (`OBS-I`): nem o
+`tenant_id` (tem hifenes) nem o `graph_version` (`1.1.0` começa por dígito e tem
+pontos) casam `^[a-z][a-z0-9_]{1,62}$`, pelo que as duas chamadas levantariam
+`EtiquetaInvalida` — a mesma tensão que as emendas 1.38, 1.39 e 1.41 resolveram
+três vezes, e resolve-se igual: a desagregação faz-se nas **colunas**. A segunda
+é mais dura e não tem contorno: esta biblioteca **não implementa histogramas**
+(está escrito no `medir`), pelo que um p50 e um p90 não são exprimíveis nela. A
+`platform.v_draft_metrics` é por isso o sítio onde as quatro medidas vivem, e é o
+que «alimentam H6 e H7 de KAM-109 **sem recálculo**» pede — uma consulta, não uma
+reconstrução a partir de conversas.
+
+**Privacidade: a tabela não tem coluna de texto, e isso é o produto.** O texto do
+rascunho vive só no checkpointer (`lg`, com a retenção de conversa de
+`../docs/tecnica/08` §7.1) e no HND. A medida da edição calcula-se onde o texto
+entra — o `concierge/servico.py`, que lê o original do *checkpoint* com
+`aget_state` — e para a tabela atravessa um `numeric(4, 3)`. Mas «não há coluna
+de texto» não é prova de «não há texto», que é a lição da `0023`: o `thread_id` e
+o `turn_id` são `text`, e a prova é por varrimento dos dados com canários. O
+`graph_version` **tem** `CHECK` de forma SemVer, e a assimetria tem razão: ele é
+o único dos três que **sai** na exportação do critério 7, e sem forma era um
+campo livre a atravessar para fora.
+
+**O que o HND em baixo faz, e porque não se melhora.** O `handoff_prepare` do
+KAM-034, com o provedor em baixo, degrada e manda uma **mensagem estática** ao
+cliente. Aqui não se pode: o critério 1 conta «0 mensagens ao cliente sem decisão
+`aprovado` ou `editado`», e uma mensagem de degradação é uma mensagem. O que fica
+é a linha `pendente` gravada (há registo da tentativa), a contagem em
+`agr_draft_indisponivel_total`, o `interrupt()` de qualquer maneira, e o prazo
+das 24 h a fechá-lo como `expirado`. **O cliente não recebe nada**, e isso é uma
+perda real que se escreve em vez de se descobrir; fechá-la por outro lado — um
+texto pré-aprovado por *tenant*, que seria uma decisão já tomada e não uma
+mensagem sem aprovação — é decisão do **Responsável de Produto**, o mesmo credor
+a quem o critério 4 devolve o «bloquear em vez de sinalizar».
+
+| Conceito | Nome canónico | Notas |
+|---|---|---|
+| Política por *tenant* do modo concierge | `concierge` | O `modulo` de uma linha de `platform.entitlements`. A coluna tem `CHECK` de **forma** (`^[a-z][a-z0-9_]*$`) e não de domínio desde a `0001`, e o §3.7 escreve que «um módulo novo entra por configuração e não por migração» (ADR-012) — pelo que **não há migração para a política**, só para a tabela de decisões. Não é um módulo de entrada do ADR-020: os quatro do §3.7 são capacidades que se vendem, e este é um modo de operação que se liga a um *tenant* do Piloto. Lê-se em **cada turno**, sem *cache*, e é isso que faz desactivá-la ter efeito no turno seguinte (critério 8) em vez de «até 60 s depois» |
+| Decisões sobre rascunhos | `platform.draft_decisions(draft_id, tenant_id, thread_id, turn_seq, turn_id, graph_version, decisao, motivo, razao_edicao, edicao_numero_livre, latencia_ms, criado_at, decidido_at)` | *proposta* (emenda 1.44, KAM-114). **Treze** colunas e **nenhuma de texto livre** — ver a nota acima. Criada pela revisão `0024`. Chave primária `draft_id`, e é ela que faz «re-executar o nó 5× cria 1 rascunho» ser uma propriedade da base e não de um contador deste processo. Sem `DELETE` para o `kamba_app`: a retenção é do `kamba_batch` (KAM-071) e uma decisão gravada não se apaga a pedido de quem a produziu |
+| Identificador de um rascunho | `draft_id` = `sha256(thread_id:turn_seq)` | A forma do `handoff_id` do §3.15, e com a mesma consequência: é **irreversível**, pelo que o `tenant_id` no predicado não chega — um `draft_id` do mesmo *tenant* e de **outro contacto** decidia o rascunho de outra pessoa. O CAS leva por isso o `thread_id` no predicado, que é `tenant_id:contact_id` (§3.1) e compra a propriedade sem coluna nova. É a lição que a revisão adversarial do KAM-034 mediu |
+| Estado pendente de um rascunho | `decisao IS NULL` | **Não é um sexto valor de `decisao`**, e a razão está na nota acima. É o que o CAS do critério 2 compara (`pendente → decidido`), o que a varredura dos prazos filtra, e o que o índice parcial `draft_decisions_pendentes_idx` indexa — total, crescia com as decididas para sempre |
+| Valores de `draft_decisions.decisao` | `aprovado`, `editado`, `rejeitado`, `expirado`, `substituido` | **Cinco**, lista fechada e qualificada pela tabela, pela razão que a emenda 1.38 escreveu para o `dat.llm_call_log.resultado`: `decisao` nu colidiria com outro domínio. Cresce só com uma revisão de base de dados, que é a lição que a `0022` pagou. **As duas primeiras são as únicas que deixam sair mensagem** (`DECISOES_QUE_ENVIAM`), e é aí que a barreira do critério 1 vive em código |
+| As duas vias de decisão, e os seus domínios disjuntos | `aprovado`, `editado`, `rejeitado` (o operador) contra `expirado`, `substituido` (o sistema) | A partição é a barreira do critério 1 **por dentro**: a varredura dos prazos não pode escrever `aprovado` e a rota não pode escrever `expirado`. Sem ela, uma varredura com um defeito fazia sair uma mensagem que nenhum humano aprovou, e um operador escrevia um desfecho que o sistema se reserva. Os dois conjuntos são disjuntos e a sua união são os cinco |
+| Motivo de uma decisão | `tom`, `preco_errado`, `stock_errado`, `fora_de_ambito`, `deveria_ir_a_humano`, `outro` | **Seis**, lista fechada, e ***proposta***: o critério 4 diz «a definir com o operador do Piloto», e calibra-se no KAM-109. Obrigatório no `rejeitado` **e** no `editado`, proibido no `aprovado` — é o motivo que alimenta o `golden-candidates`, e uma edição sem motivo exporta um caso sem rótulo. **Domínio fechado e não texto livre**, ao contrário da `handoffs.motivo`: ali quem escreve é o grafo, e aqui é um operador humano num botão — um campo livre numa mão humana é por onde o nome de um cliente entra numa tabela que jura não ter nenhum |
+| Sinal de edição com número fora dos *facts* | `edicao_numero_livre` | *proposta* (emenda 1.44, KAM-114). Coluna **booleana** e não um sétimo motivo: o `motivo` é a razão que o operador deu e este é uma condição que o sistema detectou, e juntá-los num campo perdia a que não foi escolhida. O sinal é o veredicto do validador de citação do KAM-032 sobre o texto editado — e **é o mesmo `validar`**, não uma regra própria: uma segunda implementação divergia da primeira no dia em que uma delas aprendesse um formato novo, e já há dois que só ele conhece (o extenso e o `a partir de`). O critério 4 manda **sinalizar e contar**, não bloquear, pelo que ele **volta no corpo da resposta** de `/internal/draft-decision` — gravá-lo sem o devolver deixava o sinal só num painel que quem editou não está a ver. Bloquear é decisão do Responsável de Produto |
+| Razão de edição | `razao_edicao` | A «distância normalizada 0–1» do critério 6, em `numeric(4, 3)` — decimal exacto, nunca vírgula flutuante (§2). `0` é «o operador não mexeu» e `1` é «reescreveu tudo». O **intervalo** é o que o critério fixa; a **medida** é o complemento do `difflib.SequenceMatcher.ratio()` e é ***proposta***, a calibrar no KAM-109 contra as edições reais do Piloto. Obrigatória no `editado` e proibida nos outros quatro, por `CHECK`: sem isso, um `rejeitado` com `razao_edicao` dizia que houve uma edição que não houve e o `draft_edit_ratio_p50` contava-a. É por este `CHECK` que a distância se calcula **antes** do CAS — a decisão e a sua medida entram numa escrita só |
+| Desfecho de uma chamada de decisão | `decidido`, `repetido`, `recusado` | Lista fechada; é o eixo de `agr_draft_decisao_total`. São os três do `/internal/resume` (§3.32) e pela mesma razão: `decidido` venceu o CAS; `repetido` é o duplo clique, que responde 200 sem efeito; `recusado` é o rascunho que **não é deste *thread*** e responde **404** — e é 404 e não 403 porque «existe mas não é teu» confirmava a existência do rascunho de outro *tenant* (ADR-015). Um painel que somasse os três não distinguia «uma decisão» de «duas» |
+| Rota da decisão | `POST /internal/draft-decision` | Três campos obrigatórios (`thread_id`, `draft_id`, `decisao`) e **dois opcionais** (`motivo`, `texto`). Por isso a verificação do corpo é de **inclusão** e não de igualdade, ao contrário da retoma, onde os três são de forma fechada: exigir igualdade obrigava o HND a mandar `"texto": null` num `aprovado`. Responde `{outcome, numero_livre}`. Duas credenciais, como a retoma: o `x-kamba-interno` (§3.24) prova «vem de dentro da rede» e o `x-kamba-hnd-bot` (§3.32) prova «vem do *agent bot* deste *tenant*». O `texto` tem tecto próprio de 4096 caracteres (*proposta*, a janela de texto do WhatsApp), porque é o único campo desta rota que atravessa para o *checkpoint* |
+| Nós do concierge | `draft_prepare`, `draft_wait` | Dois, o padrão do §11: o primeiro é idempotente e tem os efeitos, o segundo **só** faz `interrupt()`. Não estão nos vinte e um do §7.4 — o grafo do Vendedor passa a **vinte e três** —, e a mesma política AST do `handoff_wait` corre sobre o `draft_wait`, sem regra nova: o `verificar` do `politica_ast.py` recebe o nome do nó |
+| Arestas do concierge | 40 (`send → draft_prepare`), 41 (`draft_prepare → draft_wait`), 42 (`draft_wait → send`), 43 (`draft_wait → END`) | **Quatro, e não estão no §7.3**, que continua a ter trinta e nove linhas e quarenta e duas arestas — por isso cada aresta passou a declarar a sua `fonte`, em vez de se inflacionar um `LINHAS_DO_73` que nomeia um documento que este ticket não abre. A linha 35 (`send → END`) passou a **condicional** e declara-o na sua `fonte` («alterada por KAM-114»), que é a única do §7.3 que este ticket toca. O desvio é no `send` e não à entrada de cada caminho porque são **cinco** as arestas que chegam lá, e uma resposta estática é uma mensagem ao cliente tanto como uma composta — interceptar num sítio cobre as cinco, e a primeira esquecida era uma mensagem a sair sem aprovação |
+| O ciclo `send → draft_prepare → draft_wait → send` | limitado pelo `interrupt()`, não por contador | É o **segundo** ciclo do grafo (o primeiro é o `compose`/`validate`, com o `citation_retries`), e o limite é de outra natureza: o `draft_wait` **para** o grafo e só uma decisão humana ou a varredura o retomam, pelo que ele não pode girar sozinho — o que é mais forte do que um tecto, porque não depende de alguém manter o tecto certo. A segunda passagem pelo `send` traz a decisão no estado e sai pela aresta `enviado` |
+| Campo novo do estado | `concierge` | O que o concierge sabe sobre o rascunho **deste** turno: `draft_id`, `estado`, `publicado`, `decisao` e `numero_livre`. **Reinicia-se em cada turno** (o `estado_inicial` põe-no a `None`), e é essa reposição que impede a decisão de um turno de valer como aprovação no seguinte. Dentro do turno sobrevive ao `interrupt()`, porque a retoma entra por `Command(resume=…)` e essa não traz estado inicial nenhum. As chaves do §5.3 passam a **vinte e sete** |
+| Ordinal do turno na conversa | `turn_seq` | A segunda metade do `draft_id`. **Fora do `CAMPOS_DO_TURNO` e fora do `estado_inicial`** — ver a nota acima, e é a razão pela qual as chaves do §5.3 contam vinte e sete e não vinte e oito. Sobe no `ingest`, uma vez por turno, e **antes** da recusa de admissão: um turno recusado é um turno que aconteceu, e dar o mesmo ordinal ao seguinte fazia dois turnos partilharem o `draft_id` |
+| Chave de idempotência do envio aprovado | `{draft_id}:send` | A do critério 2, e é **outra** que a `turn_id:seq` do KAM-031 — são duas chaves pela razão do KAM-029: no concierge o envio é consequência da **decisão** e não do turno, e dois cliques concorrentes são o mesmo `draft_id` e têm de dar **um** envio |
+| Vista das métricas do concierge | `platform.v_draft_metrics` | *proposta* (emenda 1.44, KAM-114). Por `(tenant_id, graph_version)`, com `draft_approved_ratio`, `draft_edit_ratio_p50`, `draft_decision_latency_s_p50` e `_p90`. `security_invoker = true` **não é opcional**: o `verificar_vistas` do *gate* 6 recusa qualquer vista sem ele, e sem ele a vista corria com os privilégios do dono e via as linhas de todos os *tenants*. **Sem coluna de custo** — ver a nota acima. As razões são sobre as **decididas**: incluir pendentes no denominador fazia a taxa de aprovação descer só por haver rascunhos à espera |
+| Métricas do concierge no AGR | `agr_draft_decisao_total`, `agr_draft_estado_total`, `agr_draft_indisponivel_total`, `agr_draft_pendentes` | Quatro. **Nenhuma leva `tenant_id` nem `graph_version`** — ver a nota acima. O eixo da segunda é **estado** e não `outcome`, pela razão do `agr_handoff_total`: o `substituido` e o `expirado` não são desfechos de chamada nenhuma, porque ninguém os pediu. A terceira é sem etiqueta, e conta precisamente o caso em que o cliente **não recebe nada**: sem ela, o único sinal de uma conversa que morreu em silêncio era a linha `expirado` 24 h depois. A quarta é uma **medida** e não um contador, porque «quantos estão à espera agora» não se lê de um contador monótono |
+| Prazo sem decisão humana | 24 h | O critério 1. **Não é parâmetro de calibração**, como o do *handoff* (§3.32): é o mesmo prazo, e vem da Messaging Policy que o `../docs/tecnica/01` §11.4 cita — passadas 24 h a janela de serviço fechou e a mensagem não pode sair de qualquer maneira. Ao fim dele a varredura marca `expirado` **e retoma o grafo**, que é a metade que não se pode esquecer: um rascunho marcado sem retoma deixava o *thread* com um `interrupt` pendente para sempre, e a invariante do §11 proíbe invocar o grafo com *input* novo nesse estado — a conversa ficava **muda** em vez de automática |
+| Alerta de rascunho à espera | 10 minutos | ***Proposta*** (critério 6), a calibrar no KAM-109 com o operador do Piloto. É o valor que a varredura mede para o `agr_draft_pendentes` |
+| Trabalho de lote da varredura dos rascunhos | `agr_draft_prazos` | O nome do *job* que o `tx_batch` exige, e exige-o para que não haja «uso sem nome nem sem contagem» do papel `kamba_batch`. A varredura atravessa *tenants* — com contexto de um, a RLS devolvia só os rascunhos desse —, pelo que **lista** com esse papel; a **escrita** de cada rascunho vai pelo mesmo CAS e pela mesma tranca que um clique usa, porque uma segunda via de escrita era uma segunda implementação do critério 2 e perdia a corrida contra o operador que decide no mesmo instante. **Não há agendador**, e é a mesma linha da `0020` e do KAM-034: entrega-se o corpo, prova-se com relógio simulado, e quem a chama a horas é o *scheduler* do EVT (KAM-071) |
+| Substituição de um rascunho pendente | `substituido`, pelo `Substituidor` | O critério 5. O gatilho é o `Palavra.do_humano` do `ExecutorDeTurnos` — o *echo* do dono põe a conversa em `dono`, ou há um `handoffs` em `waiting` —, e corre **antes** do reencaminhamento ao HND: entre as duas chamadas um operador pode carregar em «aprovar», e alargar essa janela pelo tempo de uma chamada ao provedor era alargar a corrida. Passa pelo mesmo CAS, pelo que das duas **uma** vence. Uma falha aqui **não** impede o reencaminhamento: o cliente já está a falar com um humano, e trocar a entrega da mensagem dele por um rascunho que o prazo fecha de qualquer maneira era a troca errada |
+| Trabalho de lote da exportação | `agr_golden_candidates` | O *job* do `tx_batch` do `golden-candidates`. O comando corre como **`kamba_batch`** e não como `kamba_audit`: a exportação é por natureza cross-*tenant* e o `kamba_audit` é `NOBYPASSRLS`, pelo que sem contexto a política reduzia a `tenant_id = NULL` e a consulta devolvia **zero linhas, em silêncio** — indistinguível de «ainda não houve edições». Medido contra um PostgreSQL 18. A separação do KAM-030 mantém-se: quem produz as decisões é o `kamba_app`, e o `kamba_batch` não é o produtor |
+| Porta de publicação do rascunho | `PortaDeRascunho` com `publicar` | O `postDraft` que o bloco nomeia, do lado do AGR. **Uma operação e não duas**: o «evento de decisão» que o bloco põe ao lado não é operação desta porta — é um *callback* que entra pelo HND e sai em `POST /internal/draft-decision`, isto é, atravessa a fronteira no sentido contrário. Idempotente por `draft_id`, pela propriedade que o `abrir` do *handoff* compra com `ON CONFLICT`. Recebe o texto do rascunho e **não** o estado, pela lição que a revisão adversarial do KAM-031 mediu no `_resumo`: a janela de mensagens atravessava para o HND num campo que o §6.4 não cobre |
+| Política activa sem serviço ligado | `ConciergeSemServicoError` | **Levanta, e não interrompe**, e a distinção é o que separa uma conversa recuperável de uma morta. Sem serviço não se grava linha, e sem linha a varredura nunca encontra o rascunho (filtra a tabela) e o CAS nunca o casa (responde 404): o `interrupt` ficava pendente **para sempre** e a invariante do §11 fechava a conversa a mensagens novas. Levantar faz o turno falhar e a mensagem fica na fila. Nos dois casos não sai mensagem; o que muda é a recuperação |
+| Exportação de candidatos ao *golden* | `golden-candidates` (`db/golden_candidates.py`), com `origem=sintetico` | **Cinco** campos de `editado` e `rejeitado` — a decisão, o motivo, o sinal do número livre, a versão do grafo e a razão de edição **arredondada a uma casa** —, e nenhum identificador, nenhum instante e nenhum texto. O arredondamento é minimização e não estética: três casas sobre um universo pequeno é quase um identificador. Os Termos da Meta §4.7 proíbem treinar ou melhorar ML com dados do WhatsApp (ADR-018), pelo que daqui sai o **rótulo** e quem escreve o caso reescreve-o sinteticamente (`../docs/tecnica/10` §11.2); o caso entra em **KAM-040** |
+| Oitava ligação do AGR | `kamba-agr:concierge` | O `application_name` da tomada do concierge, a oitava do serviço (o §3.25 dá as quatro primeiras, a 1.38 a quinta, a 1.41 a sexta e a 1.43 a sétima). Tomada própria e **não** a do *handoff*, que é do mesmo papel e serviria em privilégio: o `kamba_core.tenant_guard` recusa uma segunda transacção na mesma ligação, e um `/internal/draft-decision` e um `/internal/resume` concorrentes rebentavam um ao outro. Papel `kamba_app`, que é quem a `0024` autoriza |
+
+**O que esta secção NÃO decide**, e cada um tem credor:
+
+* **nada sobre o custo por rascunho aprovado**, e isto deixou de ser uma decisão
+  em aberto: subiu e **ficou decidida** — aceita-se a vista sem coluna de custo, e
+  o critério 6 fica `parcial` com a medição escrita. Fica aqui porque o que **não**
+  se decidiu é o que fazer quando o custo fizer falta: as outras duas saídas
+  continuam escritas acima, e quem as medir de novo é o **KAM-109** (o H6), com o
+  preço do modelo já escolhido pelo **KAM-040**;
+* **o *eval-gate* do critério «Gate 13 verde com a política desligada e
+  ligada»**. O **gate 13 não existe**: não há alvo `ci-13` no `Makefile` nem
+  *job* no `.github/workflows/ci.yaml`, e mediu-se antes de se escrever código.
+  Quem o constrói é o **KAM-040**, que está aberto e bloqueado pelo KAM-035 e
+  pelo KAM-033. A caixa do DoD fica **vazia**;
+* **bloquear uma edição com número livre**, em vez de a sinalizar. O critério 4
+  devolve-o por escrito ao **Responsável de Produto**;
+* **o texto pré-aprovado para quando o HND está em baixo**, se alguém decidir que
+  o cliente não pode ficar sem resposta. Mesmo credor;
+* **o `handoff_seq` que reinicia em cada turno** (ver acima): **KAM-031** e
+  **KAM-034**;
+* **a mensagem nova do cliente com um rascunho pendente**, que abre um segundo
+  rascunho em vez de substituir o primeiro. Não sai mensagem nenhuma e o prazo
+  fecha o órfão, mas fechá-lo na hora pedia que a invariante do §11 soubesse de
+  rascunhos pendentes — e ela lê `conversations.mode` e `handoffs.status`, que
+  são do **KAM-025** e do **KAM-018**;
+* **a interface do operador**, que é o Chatwoot, e o `postDraft` do lado do HND:
+  **KAM-019** entrega o cliente HTTP do provedor, e até lá a porta por omissão
+  levanta `RascunhoIndisponivel` — que não é uma falha a fingir, é a linha que o
+  `../docs/tecnica/01` §11.5 escreve para «Chatwoot indisponível»;
+* **o agendador da varredura**, que é o **KAM-071**;
+* **a calibração dos valores *proposta***: os seis motivos, a medida da distância
+  e o alerta dos 10 minutos medem-se no **KAM-109**;
+* **a aprovação automática por limiar de risco**, que o próprio bloco põe fora de
+  âmbito (Fase 2), e **qualquer treino ou *fine-tuning* com as decisões**, que o
+  ADR-018 proíbe.
+
+---
+
 ## 4. Itens que continuam por decidir
 
 | Item | Estado | Ticket |
@@ -2166,3 +2354,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.41 | Outubro 2026 | **Emenda (*proposta*), KAM-034, e entra sem DDL.** §3.32: o `HandoffService` como porta **distinta** do `HandoffProvider` do §3.15 (aquela e a costura para o provedor, com seis operacoes do lado do HND; esta e o que o grafo chama, com **uma**), os tres campos de forma fechada do corpo de `/internal/resume`, os **tres** desfechos de uma chamada de retoma (`retomado`, `repetido`, `recusado`), o cabecalho `x-kamba-hnd-bot` e o segredo `chatwoot_bot_secret` com **dois** consumidores, os dois motivos de recusa, as **quatro** metricas da passagem, o prazo de 24 h, o *job* de lote `agr_handoff_prazos` e a sexta ligacao `kamba-agr:handoff`. **Fecha a divergencia que a emenda 1.22 deixou por resolver**, e eram **tres** posicoes e nao duas: segue-se a regra (3) do `../docs/tecnica/02` §11, que e a unica das tres que diz **onde** o *endpoint* vive e sob que *lock* corre, pelo que a `platform.handoffs` passa a ter dois escritores em duas linguagens — e a fronteira entre eles fica escrita. **Duas decisoes que sairam de escrever codigo contra o canon e nao de o ler.** A primeira: o `handoff_id` e `sha256(thread_id:handoff_seq)` e portanto **irreversivel**, pelo que o `tenant_id` no predicado nao chega — um `handoff_id` do mesmo *tenant* e de **outro contacto** retomava o *thread* errado, isto e, a conversa de outra pessoa com o desfecho desta; o CAS leva o vinculo ao `contact_id` da conversa, que compra a propriedade sem a coluna `thread_id` que obrigaria a uma migracao sobre DDL do KAM-019. A segunda: o `resumed_at` escreve-se nos **quatro** desfechos e nao so no `resumed`, contra o `SQL_FECHAR` do HND, porque as quatro saidas de `waiting` por esta rota retomam o grafo — e o SLA de 15 min continua a contar so as `resumed`, pelo predicado, pelo que a divergencia nao altera numero nenhum. **Uma regra de arquitectura estreitou-se, e nao em silencio:** o *lint* do `tool_schema` proibia **toda** a escrita no `platform` fora da ToolLayer e a regra que ele implementa (§6.1, ADR-015) diz «a unica via dos **agentes**» — as duas davam o mesmo resultado so enquanto nao houvesse uma escrita de plano de controlo; passa a haver uma lista de triplos `(ficheiro, tabela, verbo)` com quatro criterios por entrada, e seis canarios medem os tres eixos: a mesma tabela noutro ficheiro, outra tabela no mesmo ficheiro, e outro verbo na mesma tabela. **O verbo entrou pela revisao adversarial do ticket**, porque a `0011` concede `GRANT SELECT, INSERT` ao `kamba_app` e um `INSERT` escrito no `consultas.py` passava o *lint* **e** corria na base. **O que nao decide, com credor em cada:** a transicao `-> pausada` da degradacao e do KAM-018 (reescrever o `SQL_MUDAR_MODO` em Python dava um segundo dono para uma transicao e um modo a mudar **sem evento**), o cliente HTTP do `openHandoff` e do KAM-019, o aviso ao dono e do KAM-115, o *golden* de handoff e do KAM-040, e a varredura de passagens em `resumed` sem *checkpoint* retomado **nao esta atribuida a ticket nenhum**. | Equipa KAMBÁ |
 | 1.42 | Outubro 2026 | **Emenda (*proposta*), KAM-019, e entra sem DDL.** §3.32: **decide a fronteira que a emenda 1.41 deixou por decidir** — a sobreposição dos dois escritores da transição `waiting → resumed` da `platform.handoffs` —, pela **opção 1**, que é a que o `../docs/tecnica/01` §11.4 desenha, a que a regra (3) do `../docs/tecnica/02` §11 escolhe e a que a emenda **1.22** já tinha escrito contra o código do seu próprio ticket («a coluna `resumed_at` nasce e ninguém a escreve neste ticket»). O HND deixa de escrever o `status`, passa a chamar `POST /internal/resume`, e o AGR fica o escritor único de toda a saída de `waiting`. **E o que fica escrito é mais estreito do que a opção 1 pedia:** o `ESTADOS_QUE_FECHAM` do `hnd/estados.ts` passa a `["degraded"]` e não só «deixa de incluir `waiting` no `resolved`» — as **três** saídas de `waiting` retomam o grafo (a rota retoma com `resolved` e `cancelled`, a varredura dos prazos com `timeout`), pelo que um HND que saísse de `waiting` por qualquer delas matava um `Command(resume=…)` da mesma maneira. A partição passa a ser enunciável em duas frases: **o HND nunca tira uma passagem de `waiting`; o AGR nunca tira uma de `degraded`**. **Dois nomes de canon não mudam e um caminho de escrita nasce:** o `resolver` continua fora do corpo da retoma (ADR-010 — o AGR nunca aprende a identidade do agente), pelo que o HND passa a escrevê-lo numa instrução **separada** do `status`, com `status = 'waiting'` no predicado (é o que faz do *webhook* duplicado um *no-op* também aqui: o segundo não reescreve o `resolver` de quem respondeu) e **antes** do pedido de retoma, porque depois do CAS a passagem já não está em `waiting`. **Corrige um número da emenda 1.41:** o `resumed_at` escreve-se nos **três** desfechos e não nos quatro — o `DESFECHOS` do `handoff/maquina.py` tem três valores —, e o erro saiu de repetir uma contagem em vez de a ir ler. **O que não decide:** a varredura de passagens em `resumed` sem *checkpoint* retomado continua **sem ticket** (o que esta emenda fecha é a janela que as produzia no caminho feliz, não o resíduo da falha dupla), o *golden* de handoff é do **KAM-040**, o protocolo bot↔dono é do **KAM-018** e o aviso ao dono do **KAM-115**. **Duas coisas que saíram da revisão adversarial desta emenda, e as duas eram afirmações dela.** A primeira é um defeito que ela reintroduzia por outra porta: o `external_id` do *callback* no predicado da consulta do *thread*, justificado por «uma passagem `degraded` não existe no provedor, logo nenhum *callback* legítimo dele pode ser dela» — e o `abrirConversa` **cria** a conversa antes de a nota privada poder falhar, pelo que pode. Esse *callback* caía em silêncio, com o `interrupt()` pendente para sempre e sem varredura que o veja (a dos prazos filtra `waiting` e a passagem está `degraded`). A coluna sai do predicado, passa a sair no `SELECT`, e o chamador tem três saídas: a conversa bate, a linha ainda não tem conversa gravada (recupera-se pelo `SQL_MARCAR_ABERTA`), ou o atributo é de outra conversa — e só essa se recusa. A segunda é mais pequena e é de rigor: o *no-op* do `resolver` pelo `status = 'waiting'` só vale no duplicado **sequencial**; duas chegadas concorrentes escrevem as duas, e a nota dizia o contrário. **E o `cancelled` de `waiting` fica sem produtor**, dito acima. | Equipa KAMBÁ |
 | 1.43 | Outubro 2026 | **Emenda (*proposta*), KAM-038, e entra sem DDL.** §3.33: o `consumer` por vertical (`agr_vendedor`, `agr_servicos`, derivado do `id` do registo e não escrito à mão), a rota `/internal/event` e os quatro campos do seu corpo, os **seis** desfechos do consumo de um evento, os **quatro** motivos de uma entrada na DLQ, as **duas** acções com efeito externo (`notificar_cliente`, `notificar_dono`) e a chave `consumer:event_id:accao` que o §3.5 já tinha fixado em forma, os **três** desfechos de uma notificação ao cliente, o `turn_id` de um turno por evento, as **quatro** métricas da subscrição, o *lag* medido do `ocorrido_em`, a reserva `AGR_RESERVA_DE_PAGAMENTO`, a sétima ligação `kamba-agr:eventos` e o código de saída **8**. **Regista uma subscrição em vez de a propor:** o bloco pede `payment.manual_confirmed` nas duas verticais como *proposta* MINOR, e a emenda 1.35 já o tinha decidido pela linha «Evento do *gate* da Fase 0» do §3.5 — os dois `registry/*.yaml` entregues já o declaram, pelo que o que este ticket acrescenta é o **consumidor**, não a subscrição. **E fecha a contradição que o critério 3 manda registar sem precisar de a arbitrar:** a frase do `../docs/tecnica/03` §12 («ignoram versões desconhecidas») **já foi corrigida** e lê-se hoje «falham de forma visível», pelo que as três fontes — ela, o `06` §6.6 e a regra §5 dos *Standards* — concordam, e o consumidor abre DLQ com alerta. **Três decisões que saíram de escrever código e não de o ler.** A primeira: o `consumer` é **por vertical** e não por `(vertical, tipo)`, senão o mesmo `payment.confirmed` entregue às duas verticais dava quatro linhas em `events_consumed` e quatro efeitos, e a contagem «1 linha» do critério 2 era falsa por construção. A segunda: o `aplica_transicao` do KAM-006 — o `ESTADO_PRETENDIDO` é uma propriedade de **quem aplica** a transição e estava a ser lido como propriedade do tipo, e sem a distinção o primeiro consumidor Python levantava `MaquinaEmFalta` em **todos** os pagamentos ou, com uma máquina sobre a tabela de encomendas que o KAM-041 ainda não escreveu, adiava seis vezes e mandava para a DLQ todos os pagamentos confirmados. A terceira: o `agr_evt_lag_ms` é a **primeira medida com etiqueta** do repositório, porque «*lag* por consumidor» não cabe num valor sem eixo. **O que não decide, com credor em cada:** as linhas de `evt_subscricoes` que mandam o publicador entregar ao AGR (KAM-005), a casca BullMQ da rota (KAM-005/KAM-006), a decisão janela/*template* (KAM-015) e o catálogo de *templates* aprovados (KAM-024, e até lá a porta devolve `sem_template`, que é o estado honesto), a entrega do aviso ao dono (KAM-115 e KAM-019), a `evt_acoes` que continua sem escritor (KAM-006), e o grafo invocado a partir de um evento — o `ingest` pressupõe uma mensagem do cliente, e mudá-lo é do dono do grafo (KAM-031, KAM-035). | Equipa KAMBÁ |
+| 1.44 | Outubro 2026 | **Emenda (*proposta*), KAM-114.** §3.34: a política `concierge` como `modulo` de uma linha de `platform.entitlements` (**sem migração**, porque a coluna tem `CHECK` de forma e o §3.7 já escreve que «um módulo novo entra por configuração»), a `platform.draft_decisions` com as suas **treze** colunas e **nenhuma de texto livre**, o `draft_id = sha256(thread_id:turn_seq)`, os **cinco** valores de `decisao` e os **seis** de `motivo` (*proposta*, a calibrar no KAM-109), o `edicao_numero_livre`, a `razao_edicao`, os **três** desfechos de uma chamada de decisão, a rota `POST /internal/draft-decision` com três campos obrigatórios e dois opcionais, os **dois** nós (`draft_prepare`, `draft_wait`) e as **quatro** arestas, a `platform.v_draft_metrics`, as **quatro** métricas, o prazo de 24 h, os *jobs* `agr_draft_prazos` e `agr_golden_candidates`, e a oitava ligação `kamba-agr:concierge`. **Os três nomes saem do §3.8**, onde estavam pré-declarados sem conceito — o percurso do `owner_notices` na 1.32 e do `llm_call_log` na 1.38, e o *lint* recusa a redundância. **`pendente` não é um sexto valor de `decisao`:** o critério 2 pede um CAS `pendente → decidido` e o critério 6 fixa cinco valores sem ele, e a única leitura que faz os dois valerem é `decisao IS NULL`. **Três decisões saíram de medir e não de ler.** A primeira é um defeito que esta emenda corrige no seu próprio ticket: o `turno.py` passa o `estado_inicial` ao `ainvoke` em **cada** turno, pelo que toda a chave que nasça lá sobrescreve a do *checkpoint* — com o `turn_seq` lá, ele valia 1 em todos os turnos, o `draft_id` era o **mesmo** em toda a conversa, o rascunho do 2.º turno era engolido pelo `ON CONFLICT` e a conversa ficava **muda**; ele sai do `estado_inicial` e as chaves do §5.3 passam a **vinte e sete** e não vinte e oito. O mesmo defeito atinge o **`handoff_seq`** (medido: duas passagens, um `handoff_id`, contagem 2) e **não se corrige aqui** — credor KAM-031/KAM-034. A segunda: o custo do critério 6 **não é implementável como escrito**, e por duas razões medidas — a `dat.llm_call_log` não tem `turn_id` (tem `trace_id`, que é outro conceito) e o `kamba_app` não tem `SELECT` nela, por decisão deliberada do KAM-030 —, pelo que o critério fica **parcial** e a decisão subiu em vez de ser tomada pelo executor, porque uma das três saídas retira uma barreira de privilégio — e **ficou decidida: aceita-se a vista sem coluna de custo**. O critério continua `parcial`, porque o custo não é entregue. A terceira: as quatro métricas são uma **vista** e não séries, e agora por duas razões independentes — a gramática de etiqueta recusa `tenant_id` **e** `graph_version` (`1.1.0` começa por dígito), e esta biblioteca **não tem histogramas**, pelo que um p50 não é exprimível nela. **O `graph_version` ganhou `CHECK` de forma SemVer**, e isso veio da revisão adversarial: ele é a única coluna que **sai** na exportação do critério 7, e sem forma era um campo de texto livre a atravessar para fora — o canário do X-03 mudou-se para o `turn_id`. **O que não decide, com credor em cada:** o *eval-gate* do «Gate 13», que **não existe** (medido: sem `ci-13` no `Makefile` e sem *job* no CI) e é do **KAM-040**; bloquear a edição com número livre em vez de a sinalizar, e o texto pré-aprovado para o HND em baixo, que são do **Responsável de Produto**; a mensagem nova do cliente com um rascunho pendente, que abre um segundo em vez de substituir o primeiro (**KAM-025**/**KAM-018**, que são donos da invariante do §11); o `postDraft` do lado do HND (**KAM-019**); o agendador da varredura (**KAM-071**); e a calibração dos valores *proposta* (**KAM-109**). | Equipa KAMBÁ |

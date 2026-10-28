@@ -238,6 +238,52 @@ METRICA_RETOMA_NAO_AUTORIZADA: Final = "agr_resume_nao_autorizado_total"
 #: diferentes, e dar-lhes o mesmo nome fazia um painel somar maças com laranjas.
 METRICA_HANDOFF_DEGRADADO: Final = "agr_handoff_degradado_total"
 
+#: As quatro do modo concierge (KAM-114, dicionario §3.34).
+#:
+#: **Nenhuma leva `tenant_id` nem `graph_version`, e o criterio 6 pede as
+#: metricas «por tenant e `graph_version`».** A tensao e a mesma que as emendas
+#: 1.38, 1.39 e 1.41 resolveram tres vezes, e resolve-se igual: a gramatica de
+#: etiqueta recusa os dois pela **forma** — um UUID tem hifenes e `1.1.0` comeca
+#: por digito e tem pontos, pelo que as duas chamadas levantariam
+#: `EtiquetaInvalida` —, e uma serie por *tenant* explode a cardinalidade e
+#: re-identifica (`OBS-I`).
+#:
+#: A desagregacao faz-se por isso nas **colunas** de `platform.draft_decisions`
+#: e le-se na vista `platform.v_draft_metrics`, que e onde vivem as quatro
+#: medidas que o criterio nomeia (`draft_approved_ratio`,
+#: `draft_edit_ratio_p50`, `draft_decision_latency_s` e o custo por aprovado).
+#: **E tem de ser assim tambem por uma segunda razao, independente da etiqueta:**
+#: esta biblioteca nao implementa histogramas, pelo que um p50 e um p90 nao sao
+#: exprimiveis nela — esta escrito no `medir`, e e o que faz da vista a unica
+#: forma de os ter.
+#:
+#: O que fica aqui e o que um painel operacional precisa: quantas decisoes
+#: entraram e como acabaram, quantas vezes o rascunho nao chegou ao operador, e
+#: quantos estao a espera ha demasiado tempo.
+#:
+#: Desfechos de uma chamada a `/internal/draft-decision` (`decidido`, `repetido`,
+#: `recusado`). Fica em `outcome` por omissao, e ai o nome esta certo — os tres
+#: **sao** desfechos da chamada, como no `agr_resume_total`.
+METRICA_DRAFT_DECISAO: Final = "agr_draft_decisao_total"
+#: Como acabaram os rascunhos, pelos cinco valores de `decisao`. O eixo e
+#: **estado** e nao `outcome`, pela razao do `agr_handoff_total`: o `substituido`
+#: e o `expirado` nao sao desfechos de uma chamada, sao o estado em que o
+#: rascunho ficou sem que ninguem chamasse nada.
+METRICA_DRAFT_ESTADO: Final = "agr_draft_estado_total"
+#: Rascunhos que o HND nao aceitou publicar (`RascunhoIndisponivel`). **Sem
+#: etiqueta**, pela razao do `agr_handoff_degradado_total`: o que um painel
+#: precisa de saber e que houve rascunhos que nenhum operador viu.
+#:
+#: **E conta-se precisamente porque nessas o cliente nao recebe nada** — ver a
+#: nota do `concierge/portas.py`. Sem este contador, o unico sinal de uma
+#: conversa que morreu em silencio era a linha `expirado` 24 h depois.
+METRICA_DRAFT_INDISPONIVEL: Final = "agr_draft_indisponivel_total"
+#: Quantos rascunhos estao `pendente` ha mais de `ALERTA_MINUTOS` — o alerta
+#: (*proposta*) do criterio 6. **Medida e nao contador**: e um valor instantaneo
+#: que a varredura repoe, e um contador monotono nao responde a «quantos estao a
+#: espera agora».
+METRICA_DRAFT_PENDENTES: Final = "agr_draft_pendentes"
+
 #: As quatro da subscricao de eventos (KAM-038, dicionario §3.33).
 #:
 #: **Nenhuma leva `tenant_id`, `contact_id`, `conversation_id` nem `wamid`**, e
@@ -372,6 +418,28 @@ def _valores_derivados(metrica: str) -> tuple[str, ...]:
         from .handoff.autenticacao import MOTIVOS_DE_RECUSA
 
         return tuple(sorted(MOTIVOS_DE_RECUSA))
+    # As duas do concierge (KAM-114), e sao derivadas **por necessidade e nao
+    # por estilo**, como as tres do *handoff*. O ciclo e este, e mediu-se em vez
+    # de se supor — nao passa pelo `concierge/__init__.py`, que nao reexporta
+    # nada de proposito, mas pelo validador:
+    #
+    #   metricas -> concierge.maquina -> validador.veredicto -> metricas
+    #
+    # O `concierge.maquina` importa o `validar` do KAM-032 porque o sinal
+    # `edicao_numero_livre` do criterio 4 **e** o veredicto de citacao (uma
+    # segunda implementacao divergia da primeira), e o `veredicto.py` importa
+    # este modulo para contar as cinco metricas do validador. No corpo do modulo
+    # isso da `partially initialized module`; com o `lru_cache`, nada disto se
+    # importa enquanto ninguem contar uma metrica de rascunho, e nesse instante
+    # este modulo ja esta carregado.
+    if metrica == METRICA_DRAFT_DECISAO:
+        from .concierge.maquina import DESFECHOS
+
+        return tuple(sorted(DESFECHOS))
+    if metrica == METRICA_DRAFT_ESTADO:
+        from .concierge.maquina import DECISOES
+
+        return tuple(sorted(DECISOES))
     # As tres de eventos com dominio proprio (KAM-038), e a quarta — o eixo do
     # `agr_evt_lag_ms` — derivada das verticais pela mesma razao das cinco do
     # validador: o dia em que uma vertical nascer, o eixo segue sozinho.
@@ -418,6 +486,8 @@ _DERIVADAS: Final = (
     METRICA_EVT_CONSUMIDOS,
     METRICA_EVT_DLQ,
     METRICA_EVT_NOTIFICACOES,
+    METRICA_DRAFT_DECISAO,
+    METRICA_DRAFT_ESTADO,
 )
 
 #: As **medidas** com etiqueta (KAM-038). Fora do `_DERIVADAS` de proposito:
@@ -443,6 +513,7 @@ _CONTADORES_SEM_ETIQUETA: Final = (
     METRICA_LLM_SERVIDOR_DESCONHECIDO,
     METRICA_LLM_CONTAGEM_INCOERENTE,
     METRICA_HANDOFF_DEGRADADO,
+    METRICA_DRAFT_INDISPONIVEL,
 )
 _MEDIDAS: Final = (
     METRICA_DURACAO,
@@ -451,6 +522,7 @@ _MEDIDAS: Final = (
     METRICA_TAMANHO_DO_ESTADO,
     METRICA_TOOL_LATENCIA,
     METRICA_LLM_LATENCIA,
+    METRICA_DRAFT_PENDENTES,
 )
 
 _AJUDA: Final = {
@@ -563,6 +635,22 @@ _AJUDA: Final = {
     METRICA_EVT_LAG: (
         "gauge",
         "Lag do ultimo evento consumido, em milissegundos, por consumidor.",
+    ),
+    METRICA_DRAFT_DECISAO: (
+        "counter",
+        "Decisoes de rascunho pedidas por /internal/draft-decision, por desfecho.",
+    ),
+    METRICA_DRAFT_ESTADO: (
+        "counter",
+        "Rascunhos do concierge, pelo estado em que ficaram.",
+    ),
+    METRICA_DRAFT_INDISPONIVEL: (
+        "counter",
+        "Rascunhos que o HND nao aceitou publicar. Alerta: ninguem os viu.",
+    ),
+    METRICA_DRAFT_PENDENTES: (
+        "gauge",
+        "Rascunhos pendentes ha mais de 10 min na ultima varredura. Alerta.",
     ),
 }
 
@@ -720,6 +808,12 @@ _NOME_DO_EIXO: Final = {
     # `platform.events_consumed` e de `platform.events_dlq`: chamar-lhe
     # `outcome` dizia que `agr_vendedor` e um desfecho.
     METRICA_EVT_LAG: "consumer",
+    # O eixo do `agr_draft_estado_total` e o **estado** em que o rascunho ficou,
+    # pela razao do `agr_handoff_total`: o `substituido` e o `expirado` nao sao
+    # desfechos de chamada nenhuma — ninguem os pediu —, e chamar-lhes `outcome`
+    # dizia que houve uma chamada que nao houve. O `agr_draft_decisao_total`
+    # fica em `outcome` por omissao, e ai o nome esta certo.
+    METRICA_DRAFT_ESTADO: "estado",
 }
 
 
