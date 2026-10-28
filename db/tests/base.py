@@ -214,12 +214,20 @@ TABELAS_SERVICOS = ("availability_rules", "bookings", "resources", "services")
 #: **diferentes**: o catalogo e so de leitura para a aplicacao, a `bookings` e
 #: de leitura e escrita, e o `UPDATE` dela e por coluna.
 TABELAS_SERVICOS_COM_MATRIZ = TABELAS_SERVICOS
-
-#: A unica vista do esquema (KAM-022). Separada das tabelas porque a descoberta
-#: do catalogo tambem as separa, e porque o `verificar_vistas` do
-#: `db/tests_isolamento/catalogo.py` — que existe desde o KAM-004 — passa a ter
-#: a primeira coisa para ver: `security_invoker = true`.
-VISTAS = ("consent_actual",)
+#: As vistas do esquema. Separadas das tabelas porque a descoberta do catalogo
+#: tambem as separa, e porque o `verificar_vistas` do
+#: `db/tests_isolamento/catalogo.py` — que existe desde o KAM-004 — tem aqui o
+#: que ver: `security_invoker = true` em **todas**.
+#:
+#: A `consent_actual` e do KAM-022 e foi a primeira. A `v_draft_metrics` e do
+#: KAM-114 (revisao `0024`) e e a segunda: ela existe porque nem o `tenant_id`
+#: nem o `graph_version` podem ser etiqueta de metrica (a gramatica do
+#: `kamba_core.ten.metricas` recusa os dois pela forma) **e** porque esta
+#: biblioteca nao tem histogramas — um p50 nao e exprimivel nela. A
+#: desagregacao faz-se nas colunas e le-se aqui.
+#:
+#: **Por ordem alfabetica**, que e a que o `_vistas` devolve.
+VISTAS = ("consent_actual", "v_draft_metrics")
 
 #: KAM-028: o registo de invocacoes da ToolLayer (revisao `0021`).
 #:
@@ -239,21 +247,36 @@ TABELAS_0021 = ("tool_audit",)
 #: `db/tests_isolamento/sementes.py`: apaga-se com `DELETE`.
 TABELAS_0022 = ("tool_idempotency",)
 
+#: O que a revisao 0024 (KAM-114) acrescenta: as decisoes do modo concierge.
+#:
+#: **A `v_draft_metrics` nao entra aqui**: e uma **vista**, e o `pg_tables` que
+#: alimenta esta lista nao lista vistas (`relkind` 'v'). Quem a verifica e o
+#: `verificar_vistas` do *gate* 6, que exige `security_invoker` em todas.
+TABELAS_0024 = ("draft_decisions",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
         + TABELAS_0006 + TABELAS_0007 + TABELAS_0008 + TABELAS_0009
         + TABELAS_0010 + TABELAS_0011 + TABELAS_0012 + TABELAS_0013
         + TABELAS_0014 + TABELAS_0015 + TABELAS_0017 + TABELAS_0018
-        + TABELAS_0019 + TABELAS_0021 + TABELAS_0022
+        + TABELAS_0019 + TABELAS_0021 + TABELAS_0022 + TABELAS_0024
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0023`.
+#:
+#: A `0023` (KAM-030) cria o esquema `dat` e nao toca no `platform`, pelo que o
+#: conjunto do `platform` na `0023` e o da `0022`.
+TABELAS_ATE_0023 = tuple(sorted(set(TABELAS) - set(TABELAS_0024)))
 
 #: O que existe em `platform` quando a base esta na revisao `0021`.
 #:
 #: Pela mesma razao das outras: o `downgrade` da `0022` leva a base para aqui, e
 #: o teste do ciclo compara o conjunto com esta tupla.
-TABELAS_ATE_0021 = tuple(sorted(set(TABELAS) - set(TABELAS_0022)))
+TABELAS_ATE_0021 = tuple(
+    sorted(set(TABELAS) - set(TABELAS_0022) - set(TABELAS_0024))
+)
 
 #: O que existe em `platform` quando a base esta na revisao `0020`.
 #:

@@ -180,6 +180,7 @@ class ExecutorDeTurnos:
         reencaminhar: Callable[[list[InvocacaoDoAgente]], Awaitable[None]],
         admissao: Admissao | None = None,
         relogio: Callable[[], float] = time.monotonic,
+        substituir_rascunhos: Callable[[str], Awaitable[int]] | None = None,
     ) -> None:
         self._trancas = trancas
         self._ler_palavra = ler_palavra
@@ -187,10 +188,34 @@ class ExecutorDeTurnos:
         self._reencaminhar = reencaminhar
         self._admissao = admissao or Admissao()
         self._agora = relogio
+        # KAM-114, criterio 5. Por omissao `None`: um AGR sem concierge ligado
+        # nao tem rascunhos para substituir, e um `None` aqui **nao** desliga
+        # barreira nenhuma — quem nao tem rascunhos pendentes nao tem o que
+        # substituir. (E diferente do `deps.rascunho`, que com a politica activa
+        # e uma configuracao errada e levanta.)
+        self._substituir_rascunhos = substituir_rascunhos
         # A chave e `(thread_id, conversation_id)` e nao o `thread_id`: ver a
         # *docstring* do modulo. A da tranca continua a ser o `thread_id`.
         self._pendentes: dict[tuple[str, str], list[Pendente]] = {}
         self._drenos: dict[tuple[str, str], asyncio.Task] = {}
+
+    async def _substituir_pendentes(self, thread_id: str) -> None:
+        """O criterio 5 do KAM-114, com a porta por ligar como caso normal.
+
+        **Uma falha aqui nao impede o reencaminhamento.** O cliente ja esta a
+        falar com um humano, e deixar a mensagem na fila porque a substituicao
+        de um rascunho falhou era trocar uma perda pequena (um rascunho que o
+        prazo das 24 h fecha de qualquer maneira) por uma grande (a mensagem do
+        cliente nao chega a ninguem). Conta-se no *log* de quem liga a porta.
+        """
+        if self._substituir_rascunhos is None:
+            return
+        try:
+            await self._substituir_rascunhos(thread_id)
+        except asyncio.CancelledError:
+            raise
+        except BaseException:  # noqa: BLE001 — ver docstring
+            pass
 
     async def correr(self, invocacao: InvocacaoDoAgente) -> DesfechoDoTurno:
         """Poe a invocacao na fila da **sua conversa** e espera pelo desfecho.
@@ -309,6 +334,18 @@ class ExecutorDeTurnos:
                     # tenant; nas tres, o turno nao entra no grafo.
                     desfecho = "sem_conversa"
                 elif palavra.do_humano:
+                    # KAM-114, criterio 5: **antes** de reencaminhar. O humano
+                    # tomou a palavra (o *echo* do dono poe a conversa em `dono`,
+                    # ou ha um `handoffs` em `waiting`), pelo que um rascunho a
+                    # espera de aprovacao deixou de poder sair — marca-se
+                    # `substituido` e o grafo e retomado, senao o `interrupt`
+                    # ficava pendente e a conversa deixava de aceitar mensagens.
+                    #
+                    # **Antes e nao depois**, e a ordem importa: entre as duas
+                    # chamadas um operador pode carregar em «aprovar», e o CAS
+                    # decide quem vence. Reencaminhar primeiro alargava essa
+                    # janela pelo tempo de uma chamada ao HND.
+                    await self._substituir_pendentes(thread_id)
                     await self._reencaminhar(invocacoes)
                     desfecho = "entregue_ao_hnd"
                 else:

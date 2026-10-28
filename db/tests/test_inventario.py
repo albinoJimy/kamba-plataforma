@@ -1063,6 +1063,97 @@ INVENTARIO = {
         ),
         "created_at": ("timestamp with time zone", NAO, "now()", "nao"),
     },
+    # ------------------------------------------------- KAM-114 (0024)
+    #
+    # **Treze colunas e nenhuma de texto livre**, e isso e o produto e nao
+    # arrumacao: o texto do rascunho e da edicao vive no checkpointer (`lg`) e
+    # no HND. Das seis `text`, quatro tem forma e duas tem dominio fechado.
+    "draft_decisions": {
+        "draft_id": (
+            "text",
+            NAO,
+            None,
+            "nao — sha256 de `(thread_id, turn_seq)` em hexadecimal, com "
+            "`CHECK` de forma. Irreversivel por construcao",
+        ),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "thread_id": (
+            "text",
+            NAO,
+            None,
+            "nao — `tenant_id:contact_id` (§3.1). O `contact_id` e o "
+            "substituto, nunca o telefone (ADR-010)",
+        ),
+        "turn_seq": ("integer", NAO, None, "nao"),
+        "turn_id": (
+            "text",
+            NAO,
+            None,
+            "nao — o `wamid` da mensagem, que e um identificador da Meta e nao "
+            "do titular. **Nunca sai na exportacao** do criterio 7: e "
+            "`identificador` na classificacao do `db/golden_candidates.py`",
+        ),
+        "graph_version": (
+            "text",
+            SIM,
+            None,
+            "nao — SemVer, com `CHECK` de forma. **A forma importa e foi "
+            "acrescentada pela revisao adversarial**: e a unica coluna desta "
+            "tabela que sai na exportacao, e sem ela era um campo de texto "
+            "livre a atravessar para fora",
+        ),
+        "decisao": ("text", SIM, None, "nao — dominio fechado de cinco valores"),
+        "motivo": (
+            "text",
+            SIM,
+            None,
+            "nao — dominio fechado de seis valores, e **nao** texto livre: quem "
+            "o escreve e um operador humano num botao, e um campo livre numa "
+            "mao humana e por onde o nome de um cliente entra numa tabela que "
+            "jura nao ter nenhum",
+        ),
+        "razao_edicao": (
+            "numeric",
+            SIM,
+            None,
+            "nao — distancia normalizada 0-1 entre o rascunho e a edicao. Os "
+            "dois textos entram no `concierge/servico.py` e **nao saem**: para "
+            "aqui atravessa este numero",
+        ),
+        "edicao_numero_livre": ("boolean", NAO, "false", "nao"),
+        "latencia_ms": ("integer", SIM, None, "nao"),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "decidido_at": ("timestamp with time zone", SIM, None, "nao"),
+    },
+}
+
+#: **A segunda vista do esquema** (KAM-114), e esta no inventario pela razao da
+#: `consent_actual`: a descoberta do `information_schema.columns` apanha-a de
+#: qualquer forma. Como la, declara-se `SIM` e `None` em todas — numa vista o
+#: PostgreSQL nao prova `NOT NULL` nem guarda omissao.
+#:
+#: Escreve-se **a mao** e nao derivada da tabela, ao contrario da
+#: `consent_actual`: nenhuma destas colunas e uma coluna da `draft_decisions`.
+#: Sao contagens, uma razao e tres percentis — derivar daria os nomes errados.
+#:
+#: **Nenhuma responde `sim`, e e o desenho:** o que a vista mostra sao medidas
+#: agregadas por `(tenant_id, graph_version)`, que e onde o criterio 6 manda a
+#: desagregacao que a gramatica de etiqueta do `kamba_core.ten.metricas` recusa
+#: como serie — o `tenant_id` tem hifenes e o `1.1.0` comeca por digito.
+INVENTARIO["v_draft_metrics"] = {
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "graph_version": ("text", SIM, None, "nao"),
+    "draft_total": ("bigint", SIM, None, "nao"),
+    "draft_pendentes": ("bigint", SIM, None, "nao"),
+    "draft_approved_ratio": ("numeric", SIM, None, "nao"),
+    # Os tres percentis sao `double precision` e **nao** `numeric`: o
+    # `percentile_cont` nao tem variante `numeric`, pelo que a entrada e
+    # convertida para `float8` e o resultado sai assim. Nao contradiz a
+    # convencao do §2 — o que ela proibe e virgula flutuante a guardar
+    # **dinheiro**, e isto e dispersao sobre numeros ja gravados.
+    "draft_edit_ratio_p50": ("double precision", SIM, None, "nao"),
+    "draft_decision_latency_s_p50": ("double precision", SIM, None, "nao"),
+    "draft_decision_latency_s_p90": ("double precision", SIM, None, "nao"),
 }
 
 #: **A primeira vista do esquema** (KAM-022), e esta no inventario e nao fora
@@ -1405,6 +1496,14 @@ class TestInventario(ComBase):
                         # foi avisado.
                         "owner_contacts_tenant_fk",
                         "owner_notices_tenant_fk",
+                        # KAM-114: a unica FK da `draft_decisions`, e **nao**
+                        # composta — ela nao referencia conversa nenhuma. O
+                        # vinculo ao contacto e o `thread_id`, que e texto
+                        # derivado (§3.1) e nao uma FK, pela mesma razao que o
+                        # `handoff_id` do §3.15 e irreversivel. `NO ACTION`,
+                        # como todas: apagar um tenant com decisoes falha, que
+                        # e o que o soft delete do §2 quer.
+                        "draft_decisions_tenant_fk",
                         "handoffs_tenant_fk",
                         "handoffs_conversation_fk",
                         "handoff_accounts_tenant_fk",
@@ -1519,6 +1618,13 @@ class TestInventario(ComBase):
             # alerta e da metrica `evt_dlq_open`: so cobre o que esta aberto, e
             # uma DLQ saudavel tem zero linhas aqui.
             "events_dlq_abertas": False,
+            # KAM-114: os dois da `draft_decisions`, parciais e **nao** unicos.
+            # Cobrem so o que esta `pendente` (`decisao IS NULL`), que e a mesma
+            # ideia dos dois acima: depois de decidido, o rascunho sai do indice
+            # e nenhuma das duas varreduras cresce com o historico. Um indice
+            # total crescia com as decididas para sempre.
+            "draft_decisions_pendentes_idx": False,
+            "draft_decisions_thread_idx": False,
             # KAM-006: parcial e **unico**, e e o unico desta revisao. Impoe a
             # reentrada idempotente **entre as abertas**: o mesmo evento a
             # falhar outra vez nao abre uma segunda entrada aberta, mas um
@@ -1715,6 +1821,33 @@ class TestInventario(ComBase):
                     "tool_idempotency_tool_nome",
                     "tool_idempotency_args_hash_sha256",
                     "tool_idempotency_resultado_so_em_concluida",
+                    # ------------------------------------- KAM-114 (0024)
+                    # Catorze na `draft_decisions`, e as quatro coerencias sao
+                    # a parte que importa: o par `decisao`/`decidido_at` nao
+                    # pode divergir (uma linha decidida sem instante nao
+                    # responde a «quanto esperou o operador»), a `razao_edicao`
+                    # existe **so** no `editado` (senao um `rejeitado` dizia que
+                    # houve uma edicao que nao houve, e o `draft_edit_ratio_p50`
+                    # contava-a), o `edicao_numero_livre` so no `editado` pela
+                    # mesma razao, e o `graph_version` leva forma SemVer porque
+                    # e a unica coluna que sai na exportacao do criterio 7.
+                    "draft_decisions_pkey",
+                    # (A `draft_decisions_tenant_fk` **nao** entra aqui: esta
+                    # consulta filtra `contype IN ('c', 'u', 'p')` e uma FK e
+                    # `'f'`. Ela esta na lista do `test_as_fk_nao_apagam_em_cascata`,
+                    # que e a consulta das FK.)
+                    "draft_decisions_decisao_ck",
+                    "draft_decisions_motivo_ck",
+                    "draft_decisions_decidido_ck",
+                    "draft_decisions_razao_edicao_ck",
+                    "draft_decisions_razao_dominio_ck",
+                    "draft_decisions_numero_livre_ck",
+                    "draft_decisions_latencia_ck",
+                    "draft_decisions_turn_seq_ck",
+                    "draft_decisions_draft_id_ck",
+                    "draft_decisions_thread_id_ck",
+                    "draft_decisions_turn_id_ck",
+                    "draft_decisions_graph_version_ck",
                     # ------------------------------------- KAM-015 (0010)
                     # Os dois dominios da `outbound_messages`, as duas
                     # unicidades (a da chave de idempotencia e **por tenant**;

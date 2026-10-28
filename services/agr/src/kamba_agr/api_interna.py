@@ -85,6 +85,8 @@ from .contexto import InvocacaoInvalidaError, ler_invocacao
 from .eventos import EntregaInvalidaError, EntregaPorRepetir, ler_entrega
 from .handoff.autenticacao import CABECALHO_DO_BOT
 from .handoff.maquina import DESFECHOS, DesfechoInvalidoError
+from .concierge.maquina import DecisaoInvalidaError
+from .concierge.servico import TextoEditadoInvalidoError
 from .handoff.retoma import ThreadInvalidoError, partes
 from .metricas import (
     METRICA_RECUSADOS,
@@ -119,6 +121,30 @@ CORPO_MAXIMO: Final = 8 * 1024
 #: Os tres campos de `/internal/resume` (`docs/tecnica/02` §11 regra 3).
 CAMPOS_DA_RETOMA: Final = ("thread_id", "handoff_id", "outcome")
 
+#: Os campos **obrigatorios** do corpo de `/internal/draft-decision` (KAM-114).
+CAMPOS_DA_DECISAO: Final = ("thread_id", "draft_id", "decisao")
+
+#: Os campos **opcionais** do mesmo corpo. O `motivo` e obrigatorio no
+#: `rejeitado` e no `editado` e proibido no `aprovado`, e o `texto` so existe no
+#: `editado` — as duas regras vivem no `concierge.maquina` e no `Decisor`, e nao
+#: aqui: esta lista diz o que o corpo **pode** ter, e o dominio diz o que ele
+#: **tem de** ter.
+#:
+#: **Por isso a verificacao nao e `set(corpo) != set(CAMPOS)`**, como na retoma:
+#: ali os tres campos sao de forma fechada e um quarto e um corpo que nao
+#: conhecemos; aqui ha dois opcionais, e exigir igualdade obrigava o HND a
+#: mandar `"texto": null` num `aprovado`.
+CAMPOS_OPCIONAIS_DA_DECISAO: Final = ("motivo", "texto")
+
+#: O tecto do texto editado, em caracteres. O `CORPO_MAXIMO` de 8 KiB ja limita
+#: o pedido; isto limita o **campo**, que e o que atravessa para o
+#: `Command(resume=...)` e dali para o *checkpoint*.
+#:
+#: 4096 e *proposta*: a janela de uma mensagem do WhatsApp e de 4096 caracteres
+#: para texto (`docs/tecnica/01`), pelo que um rascunho maior do que isto nao
+#: cabia numa mensagem de qualquer maneira.
+TEXTO_MAXIMO: Final = 4096
+
 
 class RetomaNaoImplementadaError(NotImplementedError):
     """A porta da retoma nao foi ligada.
@@ -128,6 +154,16 @@ class RetomaNaoImplementadaError(NotImplementedError):
     `kamba_agr/handoff/retoma.py` e o `__main__.py` liga-os. A excepcao fica
     porque a porta continua a ser uma porta — quem monte estas rotas sem lhe dar
     um `retomar` tem de levantar, e nao devolver 200 a fingir que retomou.
+    """
+
+
+class DecisaoNaoImplementadaError(NotImplementedError):
+    """A porta da decisao de rascunho nao foi ligada (KAM-114).
+
+    O mesmo desenho do `RetomaNaoImplementadaError`, e aqui o custo de devolver
+    200 a fingir e maior: o HND marcava o rascunho como tratado, a mensagem
+    **nunca saia** e nem um `expirado` ficava registado — a conversa morria em
+    silencio e o painel contava uma decisao que nao houve.
     """
 
 
@@ -173,6 +209,7 @@ def rotas(
     verificar_bot: Callable[[str | None, str], str | None] | None = None,
     aviso: Callable[[str], None] | None = None,
     eventos: Any = None,
+    decidir: Callable[..., Awaitable[str]] | None = None,
 ) -> list[Route]:
     """As tres rotas internas, com as portas que elas precisam.
 
@@ -359,6 +396,133 @@ def rotas(
         estado = 404 if desfecho == "recusado" else 200
         return JSONResponse({"outcome": desfecho}, status_code=estado)
 
+    async def decisao_de_rascunho(pedido: Request) -> JSONResponse:
+        """`POST /internal/draft-decision` — a decisao do operador (KAM-114).
+
+        **O molde e o do `/internal/resume`, e a ordem das verificacoes e a
+        mesma pelas mesmas razoes** — estao escritas lá e nao se repetem aqui.
+        O que e proprio desta rota:
+
+        * o corpo tem **tres campos obrigatorios e dois opcionais**, pelo que a
+          verificacao e de inclusao e nao de igualdade (ver
+          `CAMPOS_OPCIONAIS_DA_DECISAO`);
+        * o `texto` tem tecto proprio (`TEXTO_MAXIMO`), porque e o unico campo
+          desta rota que atravessa para o *checkpoint*;
+        * os codigos sao os tres da retoma: 200 `decidido`, 200 `repetido` (o
+          duplo clique do criterio 2, que e *no-op*) e **404** `recusado` — e e
+          404 e nao 403 pela razao do §3.32, «existe mas nao e teu» confirmava a
+          existencia do rascunho de outro *tenant* (ADR-015).
+        """
+        if not autenticado(pedido, credencial):
+            return _nao_autorizado()
+        try:
+            corpo = await _corpo(pedido)
+        except InvocacaoInvalidaError as erro:
+            return JSONResponse(
+                {"outcome": "corpo_invalido", "error_code": erro.codigo},
+                status_code=400,
+            )
+        if not isinstance(corpo, dict):
+            return JSONResponse(
+                {"outcome": "corpo_invalido", "error_code": "campos_da_decisao"},
+                status_code=400,
+            )
+        chaves = set(corpo)
+        obrigatorios = set(CAMPOS_DA_DECISAO)
+        if not obrigatorios <= chaves or not chaves <= obrigatorios | set(
+            CAMPOS_OPCIONAIS_DA_DECISAO
+        ):
+            return JSONResponse(
+                {"outcome": "corpo_invalido", "error_code": "campos_da_decisao"},
+                status_code=400,
+            )
+        if not all(
+            isinstance(corpo[campo], str) and corpo[campo] for campo in CAMPOS_DA_DECISAO
+        ):
+            return JSONResponse(
+                {"outcome": "corpo_invalido", "error_code": "campos_da_decisao"},
+                status_code=400,
+            )
+        for opcional in CAMPOS_OPCIONAIS_DA_DECISAO:
+            if opcional in corpo and not isinstance(corpo[opcional], str):
+                return JSONResponse(
+                    {"outcome": "corpo_invalido", "error_code": "campos_da_decisao"},
+                    status_code=400,
+                )
+        if len(str(corpo.get("texto") or "")) > TEXTO_MAXIMO:
+            return JSONResponse(
+                {"outcome": "corpo_invalido", "error_code": "texto_grande"},
+                status_code=400,
+            )
+
+        # A segunda credencial, e **antes** de se validar o vocabulario da
+        # `decisao`, pela razao escrita na retoma: senao um pedido sem segredo
+        # valido descobria os valores aceites pela diferenca entre 400 e 401.
+        motivo = (
+            verificar_bot(pedido.headers.get(CABECALHO_DO_BOT), corpo["thread_id"])
+            if verificar_bot is not None
+            else "secret_errado"
+        )
+        if motivo is not None:
+            METRICAS.contar(METRICA_RETOMA_NAO_AUTORIZADA, motivo)
+            return _nao_autorizado()
+
+        # A forma do `thread_id` **antes** da tranca, pela razao da retoma: a
+        # tranca e um `pg_advisory_lock` por chave, e tomar uma chave que nao
+        # corresponde a conversa nenhuma era deixar quem tenha as duas
+        # credenciais prender chaves arbitrarias.
+        try:
+            partes(corpo["thread_id"])
+        except ThreadInvalidoError:
+            return JSONResponse(
+                {"outcome": "corpo_invalido", "error_code": "thread_id_invalido"},
+                status_code=400,
+            )
+        if decidir is None:
+            raise DecisaoNaoImplementadaError("decisao_sem_porta")
+
+        try:
+            async with trancas.tomar(corpo["thread_id"]):
+                resultado = await decidir(
+                    corpo["thread_id"],
+                    corpo["draft_id"],
+                    corpo["decisao"],
+                    corpo.get("motivo"),
+                    corpo.get("texto"),
+                )
+        except (DecisaoInvalidaError, TextoEditadoInvalidoError) as erro:
+            # O dominio da `decisao`, do `motivo` e do `texto` e validado **no
+            # servico** e nao aqui, de propósito: ele e que sabe que um
+            # `aprovado` nao leva motivo e que um `editado` sem texto nao e uma
+            # edicao, e duas leituras do mesmo dominio em dois sitios divergiam.
+            # 400 e nao 404: o corpo esta mal, e o rascunho nao esta em causa.
+            return JSONResponse(
+                {"outcome": "corpo_invalido", "error_code": type(erro).__name__},
+                status_code=400,
+            )
+        except GrafoNaoRegistadoError:
+            # A mesma linha da retoma: 503 com `Retry-After`, **e nada foi
+            # escrito** — o `servico.py` resolve o grafo antes do CAS, pelo que
+            # repetir e seguro porque nao ha nada para desfazer.
+            return JSONResponse(
+                {"outcome": "grafo_nao_registado"},
+                status_code=503,
+                headers={"Retry-After": str(ESPERAR_SEGUNDOS)},
+            )
+
+        # **O `numero_livre` volta no corpo**, e e a metade do criterio 4 que
+        # este ticket tem de entregar: «uma edicao com numero fora dos *facts*
+        # do turno e **sinalizada ao operador** e registada como
+        # `edicao_numero_livre`». Registada fica na coluna; sinalizada fica
+        # aqui — sem isto, o unico sitio onde o sinal existia era um painel que
+        # quem editou nao esta a ver. Bloquear em vez de sinalizar continua a
+        # ser decisao do Responsavel de Produto, e nao se faz aqui.
+        estado = 404 if resultado.desfecho == "recusado" else 200
+        return JSONResponse(
+            {"outcome": resultado.desfecho, "numero_livre": resultado.numero_livre},
+            status_code=estado,
+        )
+
     async def evento(pedido: Request) -> JSONResponse:
         """`POST /internal/event` — a entrega de um evento (KAM-038).
 
@@ -441,6 +605,11 @@ def rotas(
         Route("/internal/turn", turno, methods=["POST"]),
         Route("/internal/resume", retoma, methods=["POST"]),
         Route("/internal/event", evento, methods=["POST"]),
+        # KAM-114. **Por omissao a porta nao esta ligada e a rota levanta**, pelo
+        # molde do `retomar`: devolver 200 a fingir que decidiu era o pior dos
+        # desfechos possiveis nesta rota — o HND marcava o rascunho como tratado
+        # e nenhuma mensagem saia, nem um `expirado` ficava registado.
+        Route("/internal/draft-decision", decisao_de_rascunho, methods=["POST"]),
     ]
 
 

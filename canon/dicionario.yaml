@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.44"
+versao_dicionario: "1.45"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -1832,26 +1832,6 @@ entradas:
       - "quote.requested"
       - "quote.sent"
       - "content.approved"
-    nomes_nota: []
-    variantes_literais: []
-  - seccao: "3.8"
-    conceito: "Decisões do modo concierge (aprovado, editado, rejeitado)"
-    canonico: "draft_decisions e política concierge"
-    literais:
-      - "draft_decisions"
-      - "concierge"
-    nomes:
-      - "draft_decisions"
-      - "concierge"
-    nomes_nota: []
-    variantes_literais: []
-  - seccao: "3.8"
-    conceito: "Edição livre de número no rascunho do concierge"
-    canonico: "edicao_numero_livre"
-    literais:
-      - "edicao_numero_livre"
-    nomes:
-      - "edicao_numero_livre"
     nomes_nota: []
     variantes_literais: []
   - seccao: "3.8"
@@ -8094,6 +8074,469 @@ entradas:
       - "subscriptions"
       - "validar_subscriptions"
     variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Política por tenant do modo concierge"
+    canonico: "concierge"
+    literais:
+      - "concierge"
+    nomes:
+      - "concierge"
+    nomes_nota:
+      - "modulo"
+      - "platform.entitlements"
+      - "CHECK"
+      - "a"
+      - "z"
+      - "z0"
+      - "_"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Decisões sobre rascunhos"
+    canonico: "platform.draft_decisions(draft_id, tenant_id, thread_id, turn_seq, turn_id, graph_version, decisao, motivo, razao_edicao, edicao_numero_livre, latencia_ms, criado_at, decidido_at)"
+    literais:
+      - "platform.draft_decisions(draft_id, tenant_id, thread_id, turn_seq, turn_id, graph_version, decisao, motivo, razao_edicao, edicao_numero_livre, latencia_ms, criado_at, decidido_at)"
+    nomes:
+      - "platform.draft_decisions"
+      - "draft_id"
+      - "tenant_id"
+      - "thread_id"
+      - "turn_seq"
+      - "turn_id"
+      - "graph_version"
+      - "decisao"
+      - "motivo"
+      - "razao_edicao"
+      - "edicao_numero_livre"
+      - "latencia_ms"
+      - "criado_at"
+      - "decidido_at"
+    nomes_nota:
+      - "draft_id"
+      - "DELETE"
+      - "kamba_app"
+      - "kamba_batch"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Identificador de um rascunho"
+    canonico: "draft_id = sha256(thread_id:turn_seq)"
+    literais:
+      - "draft_id"
+      - "sha256(thread_id:turn_seq)"
+    nomes:
+      - "draft_id"
+      - "sha256"
+      - "thread_id"
+      - "turn_seq"
+    nomes_nota:
+      - "handoff_id"
+      - "tenant_id"
+      - "draft_id"
+      - "thread_id"
+      - "contact_id"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Estado pendente de um rascunho"
+    canonico: "decisao IS NULL"
+    literais:
+      - "decisao IS NULL"
+    nomes:
+      - "decisao"
+      - "IS"
+      - "NULL"
+    nomes_nota:
+      - "decisao"
+      - "pendente"
+      - "decidido"
+      - "draft_decisions_pendentes_idx"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Valores de draft_decisions.decisao"
+    canonico: "aprovado, editado, rejeitado, expirado, substituido"
+    literais:
+      - "aprovado"
+      - "editado"
+      - "rejeitado"
+      - "expirado"
+      - "substituido"
+    nomes:
+      - "draft_decisions.decisao"
+      - "aprovado"
+      - "editado"
+      - "rejeitado"
+      - "expirado"
+      - "substituido"
+    nomes_nota:
+      - "dat.llm_call_log.resultado"
+      - "decisao"
+      - "DECISOES_QUE_ENVIAM"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "As duas vias de decisão, e os seus domínios disjuntos"
+    canonico: "aprovado, editado, rejeitado (o operador) contra expirado, substituido (o sistema)"
+    literais:
+      - "aprovado"
+      - "editado"
+      - "rejeitado"
+      - "expirado"
+      - "substituido"
+    nomes:
+      - "aprovado"
+      - "editado"
+      - "rejeitado"
+      - "expirado"
+      - "substituido"
+    nomes_nota:
+      - "aprovado"
+      - "expirado"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Motivo de uma decisão"
+    canonico: "tom, preco_errado, stock_errado, fora_de_ambito, deveria_ir_a_humano, outro"
+    literais:
+      - "tom"
+      - "preco_errado"
+      - "stock_errado"
+      - "fora_de_ambito"
+      - "deveria_ir_a_humano"
+      - "outro"
+    nomes:
+      - "tom"
+      - "preco_errado"
+      - "stock_errado"
+      - "fora_de_ambito"
+      - "deveria_ir_a_humano"
+      - "outro"
+    nomes_nota:
+      - "rejeitado"
+      - "editado"
+      - "aprovado"
+      - "golden"
+      - "candidates"
+      - "handoffs.motivo"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Sinal de edição com número fora dos facts"
+    canonico: "edicao_numero_livre"
+    literais:
+      - "edicao_numero_livre"
+    nomes:
+      - "edicao_numero_livre"
+    nomes_nota:
+      - "motivo"
+      - "validar"
+      - "a"
+      - "partir"
+      - "de"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Razão de edição"
+    canonico: "razao_edicao"
+    literais:
+      - "razao_edicao"
+    nomes:
+      - "razao_edicao"
+    nomes_nota:
+      - "numeric"
+      - "difflib.SequenceMatcher.ratio"
+      - "editado"
+      - "CHECK"
+      - "rejeitado"
+      - "razao_edicao"
+      - "draft_edit_ratio_p50"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Desfecho de uma chamada de decisão"
+    canonico: "decidido, repetido, recusado"
+    literais:
+      - "decidido"
+      - "repetido"
+      - "recusado"
+    nomes:
+      - "decidido"
+      - "repetido"
+      - "recusado"
+    nomes_nota:
+      - "agr_draft_decisao_total"
+      - "decidido"
+      - "repetido"
+      - "recusado"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Rota da decisão"
+    canonico: "POST /internal/draft-decision"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "thread_id"
+      - "draft_id"
+      - "decisao"
+      - "motivo"
+      - "texto"
+      - "null"
+      - "aprovado"
+      - "outcome"
+      - "numero_livre"
+      - "x"
+      - "kamba"
+      - "interno"
+      - "hnd"
+      - "bot"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Nós do concierge"
+    canonico: "draft_prepare, draft_wait"
+    literais:
+      - "draft_prepare"
+      - "draft_wait"
+    nomes:
+      - "draft_prepare"
+      - "draft_wait"
+    nomes_nota:
+      - "interrupt"
+      - "handoff_wait"
+      - "draft_wait"
+      - "verificar"
+      - "politica_ast.py"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Arestas do concierge"
+    canonico: "40 (send → draft_prepare), 41 (draft_prepare → draft_wait), 42 (draft_wait → send), 43 (draft_wait → END)"
+    literais:
+      - "send → draft_prepare"
+      - "draft_prepare → draft_wait"
+      - "draft_wait → send"
+      - "draft_wait → END"
+    nomes:
+      - "send"
+      - "draft_prepare"
+      - "draft_wait"
+      - "END"
+    nomes_nota:
+      - "fonte"
+      - "LINHAS_DO_73"
+      - "send"
+      - "END"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "O ciclo send → draft_prepare → draft_wait → send"
+    canonico: "limitado pelo interrupt(), não por contador"
+    literais:
+      - "interrupt()"
+    nomes:
+      - "send"
+      - "draft_prepare"
+      - "draft_wait"
+      - "interrupt"
+    nomes_nota:
+      - "compose"
+      - "validate"
+      - "citation_retries"
+      - "draft_wait"
+      - "send"
+      - "enviado"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Campo novo do estado"
+    canonico: "concierge"
+    literais:
+      - "concierge"
+    nomes:
+      - "concierge"
+    nomes_nota:
+      - "draft_id"
+      - "estado"
+      - "publicado"
+      - "decisao"
+      - "numero_livre"
+      - "estado_inicial"
+      - "None"
+      - "interrupt"
+      - "Command"
+      - "resume"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Ordinal do turno na conversa"
+    canonico: "turn_seq"
+    literais:
+      - "turn_seq"
+    nomes:
+      - "turn_seq"
+    nomes_nota:
+      - "draft_id"
+      - "CAMPOS_DO_TURNO"
+      - "estado_inicial"
+      - "ingest"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Chave de idempotência do envio aprovado"
+    canonico: "{draft_id}:send"
+    literais:
+      - "{draft_id}:send"
+    nomes:
+      - "draft_id"
+      - "send"
+    nomes_nota:
+      - "turn_id"
+      - "seq"
+      - "draft_id"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Vista das métricas do concierge"
+    canonico: "platform.v_draft_metrics"
+    literais:
+      - "platform.v_draft_metrics"
+    nomes:
+      - "platform.v_draft_metrics"
+    nomes_nota:
+      - "tenant_id"
+      - "graph_version"
+      - "draft_approved_ratio"
+      - "draft_edit_ratio_p50"
+      - "draft_decision_latency_s_p50"
+      - "_p90"
+      - "security_invoker"
+      - "true"
+      - "verificar_vistas"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Métricas do concierge no AGR"
+    canonico: "agr_draft_decisao_total, agr_draft_estado_total, agr_draft_indisponivel_total, agr_draft_pendentes"
+    literais:
+      - "agr_draft_decisao_total"
+      - "agr_draft_estado_total"
+      - "agr_draft_indisponivel_total"
+      - "agr_draft_pendentes"
+    nomes:
+      - "agr_draft_decisao_total"
+      - "agr_draft_estado_total"
+      - "agr_draft_indisponivel_total"
+      - "agr_draft_pendentes"
+    nomes_nota:
+      - "tenant_id"
+      - "graph_version"
+      - "outcome"
+      - "agr_handoff_total"
+      - "substituido"
+      - "expirado"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Prazo sem decisão humana"
+    canonico: "24 h"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "expirado"
+      - "interrupt"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Alerta de rascunho à espera"
+    canonico: "10 minutos"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "agr_draft_pendentes"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Trabalho de lote da varredura dos rascunhos"
+    canonico: "agr_draft_prazos"
+    literais:
+      - "agr_draft_prazos"
+    nomes:
+      - "agr_draft_prazos"
+    nomes_nota:
+      - "tx_batch"
+      - "kamba_batch"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Substituição de um rascunho pendente"
+    canonico: "substituido, pelo Substituidor"
+    literais:
+      - "substituido"
+      - "Substituidor"
+    nomes:
+      - "substituido"
+      - "Substituidor"
+    nomes_nota:
+      - "Palavra.do_humano"
+      - "ExecutorDeTurnos"
+      - "dono"
+      - "handoffs"
+      - "waiting"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Trabalho de lote da exportação"
+    canonico: "agr_golden_candidates"
+    literais:
+      - "agr_golden_candidates"
+    nomes:
+      - "agr_golden_candidates"
+    nomes_nota:
+      - "tx_batch"
+      - "golden"
+      - "candidates"
+      - "kamba_batch"
+      - "kamba_audit"
+      - "NOBYPASSRLS"
+      - "tenant_id"
+      - "NULL"
+      - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Porta de publicação do rascunho"
+    canonico: "PortaDeRascunho com publicar"
+    literais:
+      - "PortaDeRascunho"
+      - "publicar"
+    nomes:
+      - "PortaDeRascunho"
+      - "publicar"
+    nomes_nota:
+      - "postDraft"
+      - "draft_id"
+      - "abrir"
+      - "ON"
+      - "CONFLICT"
+      - "_resumo"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Política activa sem serviço ligado"
+    canonico: "ConciergeSemServicoError"
+    literais:
+      - "ConciergeSemServicoError"
+    nomes:
+      - "ConciergeSemServicoError"
+    nomes_nota:
+      - "interrupt"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Exportação de candidatos ao golden"
+    canonico: "golden-candidates (db/golden_candidates.py), com origem=sintetico"
+    literais:
+      - "golden-candidates"
+      - "origem=sintetico"
+    nomes:
+      - "golden"
+      - "candidates"
+      - "origem"
+      - "sintetico"
+    nomes_nota:
+      - "editado"
+      - "rejeitado"
+    variantes_literais: []
+  - seccao: "3.34"
+    conceito: "Oitava ligação do AGR"
+    canonico: "kamba-agr:concierge"
+    literais:
+      - "kamba-agr:concierge"
+    nomes:
+      - "kamba"
+      - "agr"
+      - "concierge"
+    nomes_nota:
+      - "application_name"
+      - "kamba_core.tenant_guard"
+      - "kamba_app"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -8593,6 +9036,41 @@ tabelas:
     assinatura: "chamar(papel, mensagens, ctx)"
     seccao: "3.29"
     conceito: "Contrato do cliente"
+  - nome: "draft_decisions"
+    esquema: "platform"
+    colunas:
+      - "draft_id"
+      - "tenant_id"
+      - "thread_id"
+      - "turn_seq"
+      - "turn_id"
+      - "graph_version"
+      - "decisao"
+      - "motivo"
+      - "razao_edicao"
+      - "edicao_numero_livre"
+      - "latencia_ms"
+      - "criado_at"
+      - "decidido_at"
+    aberta: false
+    assinatura: "platform.draft_decisions(draft_id, tenant_id, thread_id, turn_seq, turn_id, graph_version, decisao, motivo, razao_edicao, edicao_numero_livre, latencia_ms, criado_at, decidido_at)"
+    seccao: "3.34"
+    conceito: "Decisões sobre rascunhos"
+  - nome: "sha256"
+    esquema: ""
+    colunas:
+      - "thread_id"
+    aberta: false
+    assinatura: "sha256(thread_id:turn_seq)"
+    seccao: "3.34"
+    conceito: "Identificador de um rascunho"
+  - nome: "interrupt"
+    esquema: ""
+    colunas: []
+    aberta: false
+    assinatura: "interrupt()"
+    seccao: "3.34"
+    conceito: "O ciclo send → draft_prepare → draft_wait → send"
 
 dominios:
   - coluna: "consent_event.purpose"

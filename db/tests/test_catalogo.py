@@ -377,6 +377,10 @@ class TestConvencoes(ComBase):
                 # `agent_invocation` deste, e uma chave de tres colunas
                 # obrigava cada um a carregar as tres.
                 ("conversations", "id", "uuid", "gen_random_uuid()"),
+                # KAM-114: o `draft_id` e `sha256(thread_id:turn_seq)`, com
+                # `CHECK` de forma hexadecimal. Chave primaria e nao indice
+                # unico, porque a idempotencia do `draft_prepare` e da base.
+                ("draft_decisions", "draft_id", "text", None),
                 ("entitlements", "modulo", "text", None),
                 ("entitlements", "tenant_id", "uuid", None),
                 ("events_consumed", "consumer", "text", None),
@@ -573,6 +577,15 @@ class TestConvencoes(ComBase):
              # contacto verificado — nao filtram por tenant, porque um lembrete
              # que venceu nao e problema de uma loja; e quem as faz tem
              # `BYPASSRLS`.
+             # KAM-114. A mesma forma das tres acima: chave primaria `draft_id`
+             # sem `tenant_id`, logo indice proprio a comecar por ele —
+             # `(tenant_id, graph_version)`, que e como a vista
+             # `v_draft_metrics` agrupa. Os outros dois indices da tabela
+             # **nao** comecam pelo `tenant_id`, e e decisao: a varredura dos
+             # prazos filtra por `criado_at` e atravessa *tenants* com
+             # `BYPASSRLS`, e a substituicao por *echo* do dono chega com o
+             # `thread_id` e nao com o *tenant*.
+             "draft_decisions",
              "owner_contacts",
              "owner_notices",
              # KAM-014. A conversa tem `(tenant_id, contact_id, channel_id)`,
@@ -756,7 +769,11 @@ class TestConvencoes(ComBase):
         # outra: o contacto existe sem aviso e o aviso sai sem contacto (pelo
         # painel), e uma FK entre elas tornava impossivel o caso que o criterio 6
         # manda tratar — o tenant sem contacto verificado.
-        self.assertEqual(len(linhas), 39)
+        # 40 desde o KAM-114: a `draft_decisions` tem **uma** FK, para
+        # `tenants`, e **nao** e composta — ela nao referencia conversa nenhuma.
+        # O vinculo ao contacto e o `thread_id`, que e texto derivado e nao uma
+        # FK, pela mesma razao que o `handoff_id` do §3.15 e irreversivel.
+        self.assertEqual(len(linhas), 40)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

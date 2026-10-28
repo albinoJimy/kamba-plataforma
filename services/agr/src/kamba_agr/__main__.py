@@ -63,10 +63,14 @@ from .app import create_app
 from .checkpointer import CheckpointerDoAgr
 from .conversa import leitor
 from .handoff.autenticacao import verificador
+from .concierge.politica import PoliticaDeConcierge
+from .concierge.servico import Decisor
+from .concierge.substituicao import Substituidor
 from .handoff.retoma import Retomador
 from .metricas import METRICAS
 from .ligacao import (
     ligar_para_checkpoint,
+    ligar_para_concierge,
     ligar_para_eventos,
     ligar_para_handoff,
     ligar_para_leitura,
@@ -520,6 +524,51 @@ def main() -> int:
     #   pediu.
     admissao = Admissao(tectos=tectos)
     trancas = TrancaDeConversas(ligar_para_tranca)
+    # KAM-114. O `Decisor` entra em `/internal/draft-decision` e o
+    # `Substituidor` entra no `ExecutorDeTurnos` (criterio 5): os dois sao
+    # usados **agora**.
+    #
+    # A varredura dos rascunhos nao se constroi aqui, pela mesma linha do
+    # `Prazos` do KAM-034 e do `retencao.py` do KAM-026: **nao ha agendador**
+    # nesta fase, o corpo e o `Varredura.varrer`, e o credor e o *scheduler* do
+    # EVT (KAM-071).
+    decisor_de_rascunhos = Decisor(
+        abrir_ligacao=ligar_para_concierge,
+        grafos=_grafo_da_thread,
+        metricas=METRICAS,
+    )
+    substituidor_de_rascunhos = Substituidor(
+        abrir_ligacao=ligar_para_concierge,
+        decidir_pelo_sistema=decisor_de_rascunhos.decidir_pelo_sistema,
+    )
+    # **As duas portas que o grafo precisa, e que ninguem lhe pode passar hoje.**
+    # A `PoliticaDeConcierge` le-se da base em **cada turno**, sem *cache*, e e
+    # isso que faz desactiva-la ter efeito no turno seguinte (criterio 8) em vez
+    # de «ate 60 s depois»; o leitor e o do KAM-038, que corre em
+    # `tenant_guard.tx` com o *tenant* de quem chama e **falha fechado**.
+    #
+    # Ficam aqui construidas e **nao ligadas**, porque o AGR nao constroi
+    # `Dependencias` nenhuma nesta fase — o `grafos` e o `sem_grafos` e o
+    # `/internal/turn` responde 503 ate o AgentRegistry existir (KAM-027). A
+    # primeira versao deixava a politica numa variavel sem segundo uso, o que
+    # era pior do que isto: nao dizia a ninguem o que falta ligar. **Quem ligar
+    # o AgentRegistry passa estas duas ao `build_graph`**, como
+    # `Dependencias(concierge=..., rascunho=...)` — e sem elas a
+    # `Dependencias.concierge` fica `SemPolitica()`, o concierge nunca liga, e
+    # ninguem o nota.
+    portas_do_concierge = {
+        "concierge": PoliticaDeConcierge(
+            evt.LeitorDeEntitlements(ligar_para_eventos).ler
+        ),
+        # O provedor do HND e o KAM-019; ate la a porta por omissao levanta
+        # `RascunhoIndisponivel`, que e a linha que o `docs/tecnica/01` §11.5
+        # escreve para «Chatwoot indisponivel».
+        "rascunho": None,
+    }
+    log.info(
+        outcome="concierge_por_ligar",
+        error_code=",".join(sorted(portas_do_concierge)),
+    )
     retomador = Retomador(
         abrir_ligacao=ligar_para_handoff,
         # **A porta tem outra forma, e isso e a parte que importa.** O
@@ -584,6 +633,10 @@ def main() -> int:
         # mede a **decisao** de reencaminhar, nao a entrega.
         reencaminhar=_hnd_por_ligar,
         admissao=admissao,
+        # KAM-114, criterio 5: o *echo* do dono ou o handoff fecham um rascunho
+        # pendente. Esta ligado **agora** — nao depende do AgentRegistry, porque
+        # o gatilho esta no `Palavra.do_humano` e nao no grafo.
+        substituir_rascunhos=substituidor_de_rascunhos.substituir,
     )
     aplicacao = create_app(
         rotas_internas=rotas(
@@ -606,6 +659,12 @@ def main() -> int:
             # A terceira rota (KAM-038). Sem ela, `/internal/event` responde 503
             # e o evento fica na fila — e o que a omissao de `rotas` faz.
             eventos=consumidor_de_eventos,
+            # A quarta rota (KAM-114). Sem ela, `/internal/draft-decision`
+            # levanta `DecisaoNaoImplementadaError` — e **nao** devolve 200 a
+            # fingir que decidiu, que ali e o pior desfecho possivel: o HND
+            # marcava o rascunho como tratado, nenhuma mensagem saia e nem um
+            # `expirado` ficava registado.
+            decidir=decisor_de_rascunhos.decidir,
         ),
         # As duas ligacoes fecham-se no encerramento do processo, e **havia aqui
         # uma lacuna**: o `TrancaDeConversas.fechar()` existia e nao tinha
@@ -640,7 +699,12 @@ def main() -> int:
 
 
 def _grafo_da_thread(_thread_id: str):
-    """A porta `grafos` da **retoma**, por ligar. Ver o comentario no `main`.
+    """A porta `grafos` da **retoma e da decisao de rascunho**, por ligar.
+
+    Ver o comentario no `main`. **Serve as duas** (KAM-034 e KAM-114) porque as
+    duas tem a mesma forma — recebem um `thread_id` — e resolvem a mesma
+    pergunta: «qual e o grafo que interrompeu este *thread*?». Quem ligar o
+    AgentRegistry substitui esta e a do executor.
 
     Chama o `sem_grafos` com `None` em vez de o passar directamente, e nao e
     cerimonia: as duas portas tem formas diferentes — aquela recebe uma

@@ -43,7 +43,7 @@
 # dicionario deixa de precisar de extensao, e a extensao que fica vira
 # duplicado.
 #
-# O `tenants.nome` saiu **pela mesma razao**, com a emenda 1.44 (KAM-047): o
+# O `tenants.nome` saiu **pela mesma razao**, com a emenda 1.45 (KAM-047): o
 # `nome` passou a ser nome do §3.3, como coluna de `servicos.services` e de
 # `servicos.resources`, porque um servico marcavel e um recurso tem os dois um
 # nome que o cliente ve. E a terceira vez que isto acontece, depois do

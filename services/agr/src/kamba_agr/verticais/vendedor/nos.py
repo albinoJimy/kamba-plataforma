@@ -48,6 +48,10 @@ from langgraph.types import interrupt
 
 from ... import metricas as metricas_mod
 from ...estado import reiniciar, versao_lida
+from ...concierge.maquina import DECISOES_QUE_ENVIAM, MOTIVOS
+from ...concierge.maquina import draft_id as derivar_draft_id
+from ...concierge.politica import SemPolitica
+from ...concierge.portas import ConciergeSemServicoError
 from ...handoff.portas import HandoffIndisponivel
 from ...tls.contexto import PREFIXO_DE_CONFIRMACAO, Confirmation, ToolContext
 from ...tls.erros import (
@@ -377,6 +381,18 @@ class Dependencias:
     ttl_do_carrinho_s: int = TTL_DO_CARRINHO_S
     tools_permitidas: Sequence[str] = TOOLS_DO_VENDEDOR
     checkpointer: Any | None = None
+    #: KAM-114. A politica `concierge` deste *tenant*. Por omissao a
+    #: `SemPolitica`, que responde `False` sempre: sem leitor ligado nao ha
+    #: *tenant* nenhum no Piloto concierge, e o grafo comporta-se como o
+    #: KAM-031 o entregou. **Nao e `None` por omissao** de proposito — um
+    #: `if deps.concierge is not None` espalhado pelos nos era a porta por onde
+    #: um `None` desligava a barreira em silencio.
+    concierge: Any = field(default_factory=SemPolitica)
+    #: KAM-114. O `ServicoDeRascunho`: grava a linha e publica no HND. `None`
+    #: enquanto ninguem o liga, e nesse caso o `draft_prepare` trata o rascunho
+    #: como nao publicado — o que **nao** deixa sair mensagem nenhuma, porque a
+    #: decisao continua a faltar.
+    rascunho: Any | None = None
 
     def __post_init__(self) -> None:
         if self.relogio is None:
@@ -838,6 +854,11 @@ def ingest(deps: Dependencias):
         # para o turno **nao** correr e a mensagem ficar na fila.
         versao_lida(estado)
         delta = reiniciar()
+        # KAM-114: o ordinal do turno sobe **aqui**, uma vez por turno, e e a
+        # segunda metade do `draft_id`. Sobe antes da recusa de propósito: um
+        # turno recusado na admissao e um turno que aconteceu, e dar o mesmo
+        # ordinal ao seguinte fazia dois turnos partilharem o `draft_id`.
+        delta["turn_seq"] = int(estado.get("turn_seq") or 0) + 1
         recusa = deps.admitir(estado)
         if recusa is not None:
             if recusa not in RECUSAS:
@@ -1455,7 +1476,17 @@ def com_apresentacao(deps: Dependencias, estado: Mapping[str, Any], texto: str) 
 
 
 def send(deps: Dependencias):
-    """Linha 35: o Outbound, com `idempotency_key = turn_id:seq`."""
+    """Linha 35: o Outbound, com `idempotency_key = turn_id:seq`.
+
+    **E tambem a porta do concierge (KAM-114, linha 40).** Com a politica ligada
+    e sem decisao humana no estado, este no **nao envia**: devolve o pedido de
+    aprovacao e o `r_send` desvia para o `draft_prepare`. Depois da decisao o
+    grafo volta aqui, agora com `concierge.decisao` no estado, e envia.
+
+    O desvio e aqui e nao a entrada de cada caminho porque sao **cinco** as
+    arestas que chegam a este no, e uma resposta estatica e uma mensagem ao
+    cliente tanto como uma composta — ver a nota da linha 35 em `arestas.py`.
+    """
 
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
         rascunho = estado.get("draft") or {}
@@ -1465,17 +1496,56 @@ def send(deps: Dependencias):
             # escrever o rascunho, e e melhor nao enviar nada do que enviar uma
             # mensagem em branco a um cliente.
             return {}
+
+        concierge = dict(estado.get("concierge") or {})
+        decisao = concierge.get("decisao")
+        if decisao is None:
+            # **A politica le-se aqui, uma vez por turno.** Sem *cache*: e o que
+            # faz desactiva-la ter efeito no turno seguinte (criterio 8). Se a
+            # leitura falhar, a excepcao **sobe** e o turno falha sem enviar —
+            # ver a nota do `concierge/politica.py`.
+            if deps.concierge.activa(estado["tenant_id"]):
+                return {"concierge": dict(concierge, estado="a_aprovar")}
+        elif decisao not in DECISOES_QUE_ENVIAM:
+            # Defesa em profundidade: o `r_draft` ja nao encaminha para ca uma
+            # decisao que nao envia. Se um dia encaminhar, **nao sai mensagem**.
+            return {}
+
         deps.saida.enfileirar(
             estado,
             com_apresentacao(deps, estado, texto),
-            chave=chave_do_turno(estado),
+            chave=_chave_de_envio(estado, concierge),
             botoes=tuple(rascunho.get("botoes") or ()),
         )
         # A resposta entra na janela: e o que faz o `_primeiro_turno` do turno
         # seguinte saber que ja falamos, e o que o §12 manda guardar.
-        return {"messages": [{"role": "assistant", "content": texto}]}
+        return {
+            "messages": [{"role": "assistant", "content": texto}],
+            "concierge": dict(concierge, estado="enviado"),
+        }
 
     return no
+
+
+def _chave_de_envio(
+    estado: Mapping[str, Any], concierge: Mapping[str, Any]
+) -> str:
+    """A chave de idempotencia do envio.
+
+    `{draft_id}:send` quando o envio veio de uma decisao (criterio 2), e
+    `turn_id:seq` no caminho normal (KAM-031, criterio 4).
+
+    **Sao duas chaves e nao uma, e a razao e a do KAM-029.** No concierge, o
+    envio e consequencia da **decisao** e nao do turno: dois cliques de aprovacao
+    concorrentes sao o mesmo `draft_id` e tem de dar **um** envio, e e o que a
+    chave do rascunho garante. A chave do turno tambem o daria aqui — o turno e
+    o mesmo —, mas deixava de o dar no dia em que uma decisao pudesse chegar
+    depois de o turno ter avancado, e e a chave que o criterio nomeia.
+    """
+    draft_id = concierge.get("draft_id")
+    if draft_id:
+        return f"{draft_id}:send"
+    return chave_do_turno(estado)
 
 
 # ---------------------------------------------------------------- o handoff
@@ -1614,7 +1684,111 @@ def handoff_close(deps: Dependencias):
     return no
 
 
-#: Os vinte e um nos pelo nome do §7.4. E a tabela que o `build_graph` percorre,
+# ------------------------------------------------- o concierge (KAM-114)
+
+
+def draft_prepare(deps: Dependencias):
+    """Linha 40: grava o rascunho e publica-o ao operador. Idempotente.
+
+    E o irmao do `handoff_prepare`: **todos os efeitos sao idempotentes por
+    `draft_id`**, porque o *worker* pode falhar a meio e repetir o no. O
+    `draft_id` e `sha256(thread_id:turn_seq)` e sai do estado, nao de um contador
+    deste processo — uma repeticao do *job* recalcula o **mesmo** valor.
+
+    **Nao envia nada ao cliente, em nenhum caminho.** Nem quando o HND esta em
+    baixo: uma mensagem de degradacao e uma mensagem, e o criterio 1 conta zero
+    mensagens sem decisao. Ver a nota do `concierge/portas.py`.
+    """
+
+    async def no(estado: dict[str, Any]) -> dict[str, Any]:
+        concierge = dict(estado.get("concierge") or {})
+        rascunho = estado.get("draft") or {}
+        texto = str(rascunho.get("texto") or "")
+        turn_seq = int(estado.get("turn_seq") or 0)
+
+        if deps.rascunho is None:
+            # **Levanta, e nao interrompe.** Sem servico nao ha linha gravada, e
+            # um `interrupt()` sem linha deixa a conversa morta em definitivo —
+            # a razao completa esta no `ConciergeSemServicoError`. O turno falha,
+            # a mensagem fica na fila, e **nao sai mensagem nenhuma**.
+            raise ConciergeSemServicoError(
+                "a politica `concierge` esta activa neste tenant e o "
+                "`ServicoDeRascunho` nao esta ligado ao grafo"
+            )
+
+        aberto = deps.rascunho.abrir(
+            tenant_id=estado["tenant_id"],
+            thread_id=estado["thread_id"],
+            turn_seq=turn_seq,
+            turn_id=str(estado.get("turn_id") or ""),
+            graph_version=VERSAO_DO_GRAFO,
+            contact_id=estado["contact_id"],
+            conversation_id=estado["conversation_id"],
+            texto=texto,
+            motivos=MOTIVOS,
+        )
+        return {
+            "concierge": dict(
+                concierge,
+                draft_id=aberto.draft_id,
+                estado="pendente",
+                publicado=aberto.publicado,
+            )
+        }
+
+    return no
+
+
+def draft_wait(deps: Dependencias):
+    """Linha 41: **so** o `interrupt`, na primeira linha e sem `try/except`.
+
+    A mesma politica AST do `handoff_wait` (KAM-034, criterio 2) corre sobre este
+    no — o `verificar` do `politica_ast.py` recebe o nome do no, pelo que nao
+    houve regra nova a escrever.
+
+    Na retoma o no reinicia do principio: um efeito antes do `interrupt` corria
+    duas vezes.
+    """
+
+    async def no(estado: dict[str, Any]) -> dict[str, Any]:
+        # **Primeira instrucao, e nada antes dela.**
+        decidido = interrupt(
+            {
+                "draft_id": (estado.get("concierge") or {}).get("draft_id"),
+                "texto": (estado.get("draft") or {}).get("texto"),
+                "motivos": list(MOTIVOS),
+            }
+        )
+        concierge = dict(estado.get("concierge") or {})
+        rascunho = dict(estado.get("draft") or {})
+
+        if isinstance(decidido, Mapping):
+            decisao = decidido.get("decisao")
+            editado = decidido.get("texto")
+            livre = bool(decidido.get("numero_livre"))
+        else:  # pragma: no cover — corpo de retoma ilegivel
+            decisao, editado, livre = None, None, False
+
+        delta: dict[str, Any] = {
+            "concierge": dict(
+                concierge,
+                decisao=decisao,
+                estado="decidido" if decisao else "pendente",
+                numero_livre=livre,
+            )
+        }
+        # **O texto editado substitui o rascunho**, e e por isso que o `send`
+        # nao precisa de saber que houve edicao: ele envia o `draft.texto`, que
+        # e agora o do operador. Guardar os dois no estado dava duas fontes para
+        # a mesma mensagem e um `if` em quem envia.
+        if decisao == "editado" and isinstance(editado, str) and editado.strip():
+            delta["draft"] = dict(rascunho, texto=editado)
+        return delta
+
+    return no
+
+
+#: Os vinte e tres nos pelo nome. E a tabela que o `build_graph` percorre,
 #: e e ela que faz «um no na tabela de arestas sem funcao» ser impossivel: o
 #: `build_graph` levanta se as duas listas nao baterem.
 NOS_DO_GRAFO: Final = {
@@ -1639,4 +1813,7 @@ NOS_DO_GRAFO: Final = {
     "handoff_prepare": handoff_prepare,
     "handoff_wait": handoff_wait,
     "handoff_close": handoff_close,
+    # KAM-114.
+    "draft_prepare": draft_prepare,
+    "draft_wait": draft_wait,
 }
