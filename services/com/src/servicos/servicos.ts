@@ -25,11 +25,20 @@
  *
  * ## O varrimento é oportunista, e isso é o que o torna mensurável
  *
- * `getAvailability` e `holdSlot` chamam `expireHolds` antes de decidir. Não é
- * uma optimização: é o que faz com que um intervalo cujo hold venceu esteja
- * livre para **o próximo que pergunte**, sem esperar por um agendador que este
- * repositório ainda não tem (KAM-071). O varrimento tem tecto de linhas e
- * repete-se; nunca segura a transacção de quem está a marcar.
+ * `getAvailability`, `holdSlot` e `rescheduleBooking` chamam `expireHolds` antes
+ * de decidir. Não é uma optimização: é o que faz com que um intervalo cujo hold
+ * venceu esteja livre para **o próximo que pergunte**, sem esperar por um
+ * agendador que este repositório ainda não tem (KAM-071). O varrimento tem
+ * tecto de linhas e repete-se até esgotar, com tecto de voltas; nunca segura a
+ * transacção de quem está a marcar.
+ *
+ * **O preço disto é que o `getAvailability` escreve**, e diz-se em vez de se
+ * esconder: o varrimento altera linhas e emite no *outbox* dentro do que o
+ * chamador lê como uma leitura. Três consequências — a consulta de
+ * disponibilidade falha se o outbox recusar a escrita, não corre numa réplica,
+ * e não corre numa transacção só de leitura. É escolha deliberada, e a
+ * alternativa era pior: sem ela, num tenant sem tráfego nocturno um intervalo
+ * cujo hold venceu às 23h10 ficava ocupado até ao primeiro pedido da manhã.
  */
 
 import {

@@ -1183,6 +1183,7 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     # tenants podem semear o mesmo canario — que e o que o X-03 precisa.
     ("servicos", "bookings"): Receita(
         _marcacao, "slot_id", "estado", "cancelada", semeador="admin"
+    ),
     # KAM-114. Semeia o administrador da instancia, como a receita da conversa e
     # a do handoff: o `INSERT` do `kamba_app` esta sob `WITH CHECK` e esta
     # receita nao define contexto.
