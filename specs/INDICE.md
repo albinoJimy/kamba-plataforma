@@ -3,7 +3,7 @@
 **Produto:** KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para o mercado angolano
 **Natureza:** Produto/plataforma standalone (sem cliente institucional)
 **Documentos-fonte:** conjunto técnico [`../docs/tecnica/`](../docs/tecnica/INDICE.md) e [`../docs/exploracao/14-tese-minima-e-plano-de-validacao.md`](../docs/exploracao/14-tese-minima-e-plano-de-validacao.md)
-**Versão do conjunto:** 1.33
+**Versão do conjunto:** 1.34
 **Data de emissão:** Outubro de 2026
 **Classificação:** Documento de Referência — Interno
 **Estado:** backlog **proposto** (nenhum ticket ratificado; ver `00_KAMBA_Carta.md` §6)
@@ -12,7 +12,7 @@
 
 ## 1. Propósito
 
-Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **165 tickets atómicos (KAM-001 a KAM-165)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
+Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **166 tickets atómicos (KAM-001 a KAM-166)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
 
 O que **não** está aqui: a Fase 2 (Clusters) e a Fase 3 (Escala). Esses epics (geo e logística, estafetas, analytics e Score, índice federado, AdsEngine, vitrine SEO, API pública, Fluxo B) só se escrevem quando o **Gate do Piloto (KAM-110)** for verde. Está declarado em §6.
 
@@ -39,7 +39,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | **EPIC-09 Onboarding e Governação** | Epic | onboarding-web, KYC K1 automático, screening, fila de excepções, saga, T&S, off-boarding | [EPIC-09_Onboarding_Governanca.md](EPIC-09_Onboarding_Governanca.md) |
 | **EPIC-10 Spikes, Validação e Gates** | Epic | Spikes (coexistência, voz), pedidos à Meta/bancos/jurídico, entrevistas, gates da Fase 0 e do Piloto | [EPIC-10_Spikes_Validacao_Gates.md](EPIC-10_Spikes_Validacao_Gates.md) |
 | **EPIC-11 Módulos de Entrada** | Epic | Canal do dono, Catálogo AI conversacional, Foto de produtos AI, Social AI (publicação manual), Orçamento expresso, planos e metering, experimento H10–H12 (ADR-020) | [EPIC-11_Modulos_Entrada.md](EPIC-11_Modulos_Entrada.md) |
-| **Tickets do EPIC-01** | Tickets | Um ficheiro por ticket (49 hoje): o bloco inteiro — campos, Contexto, Objectivo, Critérios, Detalhes, Testes, DoD, verificação e *handoff*. Convenção do KAM-155, por agora só neste epic | [tickets/](tickets/) |
+| **Tickets do EPIC-01** | Tickets | Um ficheiro por ticket (51 hoje): o bloco inteiro — campos, Contexto, Objectivo, Critérios, Detalhes, Testes, DoD, verificação e *handoff*. Convenção do KAM-155, por agora só neste epic | [tickets/](tickets/) |
 
 ---
 
@@ -49,7 +49,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 
 | Epic | Range | N.º tickets | Fase |
 |------|-------|-------------|------|
-| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-165 | 50 | 0–1 |
+| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-166 | 51 | 0–1 |
 | EPIC-02 Canais WhatsApp e Handoff | KAM-013 – KAM-024, KAM-115 | 13 | 0–1 |
 | EPIC-03 Agent Runtime e Verticais | KAM-025 – KAM-040, KAM-114 | 17 | 0–1 |
 | EPIC-04 Core de Comércio | KAM-041 – KAM-051 | 11 | 0–1 |
@@ -60,7 +60,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117 | 16 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
 | EPIC-11 Módulos de Entrada | KAM-118 – KAM-127 | 10 | 1 |
-| **TOTAL** | **KAM-001 – KAM-165** | **165** | — |
+| **TOTAL** | **KAM-001 – KAM-166** | **166** | — |
 
 ### 3.2 Fases
 
@@ -133,6 +133,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-163 | A chave do registo de transacções do `tenant_guard` é o endereço do objecto, e diverge do gémeo TypeScript | fix | S | P1 | 0 | KAM-004, KAM-006 |
 | KAM-164 | O título do PR é o assunto do *squash*, e ninguém o verifica | feature | S | P1 | 0 | KAM-002 |
 | KAM-165 | As duas dispensas do *gate* 3c que venciam: o buraco do 1.13 e a inversão de prioridade do KAM-130 | fix | S | P1 | 0 | — |
+| KAM-166 | A asserção de privacidade do KAM-018 procura três dígitos num texto de UUID, e falha ~1,5% das execuções | fix | S | P1 | 1 | KAM-018 |
 
 ### EPIC-02 — Canais WhatsApp e Handoff
 
@@ -370,3 +371,4 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.31 | Outubro 2026 | **KAM-163** acrescentado: o registo de transacções do `tenant_guard` do `libs/py-core` é indexado por `id(conexao)` — um endereço que o interpretador reutiliza —, enquanto o gémeo da **mesma** guarda, em `packages/core-ts/src/tenant_guard/index.ts`, indexa pelo próprio cliente com uma `WeakSet`. Uma entrada que fique para trás, ou que esteja viva para um objecto que quem espera já largou, passa a casar com outro objecto nascido no mesmo endereço e faz o `tx` recusar uma ligação **genuinamente livre**. Não é limitação da linguagem: o Python tem `weakref.WeakSet`. Apanhado pela investigação de uma falha do *gate* 4 no PR `#75` (KAM-038) que **não era do KAM-038**, e a amostra fecha a atribuição: **2 falhas em 100** execuções isoladas do teste no `publico/main` limpo e **2 em 100** no ramo do KAM-038 — taxas iguais, da ordem de **2%** por execução (IC 95% de ~0,2% a ~7%). A corrida **existe no `main`** e nenhum ramo a introduziu; o que as 100 não dão é distinguir 2% de 4%, nem a taxa no CI, que corre noutra máquina e com `coverage`. `Dependências` KAM-004 e KAM-006, cujas linhas de `Bloqueia` o ganham. O §3.1 passa a 48 tickets no EPIC-01 e 163 no total, e as contagens vivas foram actualizadas aqui, no `../README.md` e no `EPIC-07`. O cabeçalho deste documento passa a dizer a última linha do histórico e a sua dispensa sai de `../ci/backlog-allow.yaml`. Esta linha nasceu **1.30** e renumerou para **1.31**: o PR `#75` (KAM-038) fundiu primeiro e ficou com a 1.30, que é a regra de quem funde em segundo. | Equipa KAMBÁ |
 | 1.32 | Outubro 2026 | **KAM-164 acrescentado** ao EPIC-01, com a linha do §4, a linha do §3.1 e as contagens em prosa. Nasceu de provar na fonte que o PR #75 tinha fundido: o assunto do `29778f3` não casava com a forma dos cinco *squash* anteriores, porque o GitHub o escreve do **título do PR** quando há mais do que um *commit*, e o título do PR não é verificado por nada. O detalhe está na **1.42** do `EPIC-01`. Total: 164 tickets. O número é 164 e não 163 porque o PR #76 reclamou o anterior no mesmo dia e fundiu primeiro — e esta linha é a **1.32** e não a 1.31 pela mesma ordem. O vão que o *gate* 3 recusava fechou-se com essa fusão. | Equipa KAMBÁ |
 | 1.33 | Outubro 2026 | **KAM-165** acrescentado e entregue no mesmo PR. O §4 do EPIC-01 ganha a linha, o §3.1 passa a `KAM-150 – KAM-165` com 50 no epic e 165 no total, e o §1 acompanha. A linha do **KAM-130** passa de P2 a **P1**: era a inversão que o *gate* 3c tinha dispensada até 2026-10-29, e um ticket que bloqueia um P1 não pode ser P2. | Equipa KAMBÁ |
+| 1.34 | Outubro 2026 | **KAM-166 acrescentado e entregue no mesmo PR.** A última asserção do caso «o payload nao leva telefone, conteudo nem o id da conversa» do KAM-018 procurava a sequência `999` no JSON de um payload cujo `thread_id` são **dois UUID aleatórios** — 64 dígitos hexadecimais, onde `0`–`9` cabem —, pelo que falhava `1 - (1 - 16^-3)^62` ≈ **1,5% das execuções** por aritmética e não por defeito do código que mede. Custou um ciclo de diagnóstico ao PR #78 (KAM-041), onde o *gate* 8 ficou vermelho com o `main` verde e a reexecução do mesmo *commit* passou. **E não havia telefone para encontrar**: a plataforma não guarda telefone em claro em sítio nenhum — a `contacts` só tem `phone_hmac` (revisão `0003`) e o número vive cifrado em `contact_endpoints.phone_enc` —, logo a prova era vazia **e** intermitente. O canário passa a ser o valor inteiro, entra a asserção que faz a prova não ser vazia (o `conversation_id`, que está no `agregado_id` e não pode estar na carga) e o `thread_id` prova-se por igualdade exacta. **A classe foi varrida** em `packages/core-ts/tests_bd/` e em `db/tests*/` e não há outra instância, o que está escrito com o varrimento que o estabelece: é a **terceira** vez que a casa paga esta lição — `db/tests_agr/test_idempotencia.py` e `packages/core-ts/tests/logger.test.ts` já a tinham escrito. **O número é 166 e não 165, e esta linha é a 1.34 e não a 1.33**, porque o PR #79 reclamou o anterior no mesmo dia e fundiu primeiro (`2dbc2f0`); a renumeração não se podia fazer antes dessa fusão, porque o *gate* 3 recusa um vão na gama do §1. O §3.1 passa a 51 tickets no EPIC-01 e 166 no total, e as contagens vivas foram actualizadas aqui, no `../README.md` e no `EPIC-07`; a contagem de ficheiros de `tickets/` do §2 passa a **51** e corrige de passagem a contagem que o `2dbc2f0` deixou para trás (o `main` diz 49 com 50 ficheiros), porque a frase diz «49 hoje» e não «49 tickets», e por isso nenhum *gate* a apanha. O *gate* 8 **não** foi corrido nesta máquina (sem `node` e sem PostgreSQL) e isso está dito no bloco em vez de implícito. | Equipa KAMBÁ |
