@@ -96,22 +96,53 @@ mecanismo e os dois ficheiros de código que o impõem.
 | Escopo expandido para uma regra de bloqueio | `git diff --name-only` sobre `tools/`, `.github/`, `Makefile` e `ci/` devolve **apenas** `ci/backlog-allow.yaml` |
 | A afirmação sobre o `_PROPOSITO`, o `_INTERVALO` e a linha 1.43 do epic | As três verificam-se nos ficheiros citados |
 
-## O achado lateral que corrige uma dívida existente
+## O achado lateral: a dívida 44 está paga há oito dias e ninguém a riscou
 
-O revisor mediu, por sua conta, aquilo que o *briefing* lhe deu como facto: que
-o `lint_contagens` sai com código 2 de dentro de um *worktree*, pela **dívida
-44**. **Não reproduz.** Correu-o três vezes de `tools/` com `--root ..` e deu
-**0** nas três, com «13 contagem(ns) viva(s) ... Fontes: 167 tickets».
+O revisor mediu, por sua conta, aquilo que o seu *briefing* lhe dava como facto —
+e o *briefing* dava-o porque o **§1.5 da `software-factory`** o diz por escrito,
+citando a **dívida 44**: que o `lint_contagens` sai com código 2 de dentro de um
+*worktree*, porque o filtro do corpus exclui caminhos com `.claude` sobre o
+caminho **absoluto**. A atribuição é essa, e não a nenhuma sessão: a crença vem
+da skill e da linha 44, não de quem a repetiu.
 
-Fica como **INDÍCIO** e não como facto, porque a explicação não foi isolada: com
-uma raiz **relativa** o `glob` devolve caminhos sem segmento `.claude` para o
-filtro apanhar, e o defeito que a dívida descreve precisa de um caminho
-absoluto. Quem for pagar a dívida 44 deve medir os dois modos de invocação antes
-de escrever o diagnóstico — e, até lá, **não se desculpa um código 2 com ela sem
-o reproduzir**.
+**Não reproduz.** O revisor correu-o três vezes de `tools/` com `--root ..` e deu
+**0** nas três, com «13 contagem(ns) viva(s) ... Fontes: 167 tickets». E uma
+terceira sessão corroborou-o de forma independente, de dentro de
+`.claude/worktrees/cool-goldwasser-c67fbd` — um caminho **com** `.claude` —, com
+o mesmo 0 e as mesmas 13 contagens em 10 ficheiros, tanto no `main` como no seu
+ramo.
 
-Não foi corrigido aqui: é código, é do dono do *gate* 3, e está fora do âmbito
-deste ticket.
+**A explicação está medida, e a primeira que escrevi estava errada.** Eu atribuí
+o não-reproduzir à invocação com `--root` **relativo**, supondo que o `glob`
+devolvia caminhos sem segmento `.claude` para o filtro apanhar. É o contrário: o
+`ficheiros()` de `tools/lint_contagens/scan.py` **já filtra sobre o caminho
+relativo à raiz** (`rel = f.relative_to(raiz)`), pelo que não reproduz com
+invocação nenhuma. O próprio comentário da função descreve o defeito no
+**passado** e nomeia os *worktrees* do Claude Code como o caso que o revelava.
+
+Quem o corrigiu, e quando:
+
+| Evento | Data | Onde |
+|---|---|---|
+| A dívida 44 é escrita | **2026-10-19** | `ee930fc`, KAM-133 (PR `#24`) |
+| O defeito é corrigido | **2026-10-20** | `f4f63a6`, **KAM-158** (PR `#34`) — «a exclusao do corpus e relativa a raiz, nao ao caminho absoluto» |
+| A linha 44 continua **não riscada** | 2026-10-28 | `docs/dividas-documentais.md`:70 |
+
+A dívida era legítima quando foi escrita e foi paga **no dia seguinte**. O que
+ficou foi a linha, e com ela o §1.5 da skill a mandar não confiar num passo de
+*gate* que funciona. Custou a esta execução duas medições a mais e um indício
+errado escrito num ficheiro de análise.
+
+**Não é riscada aqui, e a razão é de âmbito, não de dúvida.** A própria linha 44
+atribui o trabalho ao dono do *gate* 3 e diz explicitamente que **não** é do
+KAM-158; riscá-la obriga a corrigir também o §1.5 da skill, que é alteração a
+doutrina e está a ser editada por outra sessão neste momento. Fica proposto como
+ticket próprio, com a medição acima pronta a usar.
+
+A consequência prática, que vale repetir porque é o contrário do que a dívida
+sugere: **o terceiro passo do *gate* 3 é verificável de dentro de um
+*worktree***, e um código 2 ali **não se desculpa com a dívida 44 sem o
+reproduzir**.
 
 ## Um achado sobre o leitor do próprio *gate* 3c, sem dono aqui
 
