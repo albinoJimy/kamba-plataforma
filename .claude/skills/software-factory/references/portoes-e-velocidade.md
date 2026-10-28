@@ -61,7 +61,7 @@ esse registo é o `ci/waivers.yaml`, não uma condição no *workflow*.
 ```
 
 O `2` é o que custa. O `make ruleset` sai 2 quando não consegue falar com a API; o
-`lint_contagens` sai 2 de dentro de um worktree porque o filtro do corpus exclui `.claude/`; e um
+`lint_arch` sai 2 com `check`, que não é subcomando dele; e um
 `make ci-2` numa máquina sem `pnpm` responde `command not found` com 127 — o que não é «o gate
 passa», é «o gate não correu». Lê o código de saída, não a última linha do output
 ([`evidencia-e-verificacao.md`](evidencia-e-verificacao.md)).

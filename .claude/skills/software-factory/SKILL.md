@@ -409,11 +409,14 @@ cd tools && python -m lint_handoff --root .. check   # 3: caminhos dos blocos de
 cd tools && python -m lint_contagens --root .. check # 3: contagens em prosa
 ```
 
-**O `lint_contagens` não corre de dentro de um worktree** e sai com código 2: o filtro do corpus
-exclui tudo o que tenha `.claude` no caminho, e os worktrees vivem em `.claude/worktrees/`. É
-defeito dele, registado como **dívida 44 de `docs/dividas-documentais.md`**, descoberto no
-KAM-133 e atribuído ao dono do gate 3 — **não** ao KAM-158, que está entregue e foi quem criou o
-passo. Até estar corrigido, confia no que o CI diz desse passo.
+**E o `lint_contagens` corre de dentro de um worktree.** Esta skill dizia o contrário — que o
+filtro do corpus excluía tudo o que tivesse `.claude` no caminho e que o passo saía com código 2
+—, e deixou de ser verdade a 2026-10-20, quando o `f4f63a6` (KAM-158) passou o filtro a correr
+sobre o caminho **relativo à raiz**, que é o remédio que a própria dívida prescrevia. Medido:
+`ficheiros()` com a raiz dentro de `.claude/worktrees/` devolve entre 62 e 142 ficheiros, nunca
+zero. A dívida 44 foi paga no dia seguinte a ser escrita, e esta página citou-a durante dez
+dias: **mandar desconfiar de um passo que funciona é pior do que não avisar nada**, porque
+ensina a ler um verde como inconclusivo.
 
 ```text
 [ ] Critérios de aceitação do ticket atendidos, um a um

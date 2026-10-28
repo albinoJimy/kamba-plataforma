@@ -46,12 +46,10 @@ Todos partilham o MESMO .git.
 E ramos que não se fundiram NÃO SE VÊEM.
 ```
 
-Há ainda uma particularidade desta máquina: **dentro de um worktree, o `lint_contagens` sai com
-código 2** e diz que três grandezas não casam nada. O filtro do corpus exclui tudo o que tenha
-`.claude` no caminho, e os worktrees vivem em `.claude/worktrees/`. É defeito dele, registado
-como **dívida 44 de `docs/dividas-documentais.md`** — descoberto no KAM-133, atribuído ao dono do
-gate 3, e **não** ao KAM-158, que está entregue e foi quem criou o passo. Até estar corrigido,
-confia no que o CI diz desse passo e não no que lês localmente.
+**O `lint_contagens` corre de dentro de um worktree**, e esta página afirmou o contrário durante
+dez dias. O filtro do corpus passou a correr sobre o caminho **relativo à raiz** no `f4f63a6`
+(KAM-158), e a dívida 44 fechou com ele — no dia seguinte a ser escrita. Medido: `ficheiros()`
+com a raiz dentro de `.claude/worktrees/` devolve entre 62 e 142 ficheiros, nunca zero.
 
 ---
 
