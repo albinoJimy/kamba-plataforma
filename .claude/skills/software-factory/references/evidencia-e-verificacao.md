@@ -149,16 +149,17 @@ Cinco armadilhas que custaram tempo, e todas na forma «passou» quando não pas
 1. **O código de saída tem de ser do comando, não do `tail`.** `python -c "..." 2>&1 | tail -5; echo $?`
    devolve o estado do `tail`, que é sempre 0. Três lints pareceram conformes assim, e um deles
    estava a sair com 2. Correr para um ficheiro e ler o `$?` **antes** do pipe.
-2. **O `lint_contagens` não corre de dentro de um *worktree* sob `.claude/`.** Exclui qualquer
-   ficheiro cujo caminho **absoluto** contenha `.claude`, e a árvore de trabalho vive lá: a
-   varredura vê **zero** ficheiros e sai com 2. É a dívida 44 de `docs/dividas-documentais.md`.
-   Mede-se chamando `varrer_arvore` com raiz **relativa**.
-3. **O `coverage_gate.py` não arranca em Python 3.14** (uma cadeia de ajuda com `%o` que o
+2. **O `coverage_gate.py` não arranca em Python 3.14** (uma cadeia de ajuda com `%o` que o
    `argparse` passou a validar). O contentor `node:24.21.0-alpine` traz 3.14; o CI usa 3.12 e não
    vê nada. Dívida 45.
-4. **O `pathlib.write_text` em Windows escreve CRLF.** O `.gitattributes` normaliza no *commit*,
+3. **O `pathlib.write_text` em Windows escreve CRLF.** O `.gitattributes` normaliza no *commit*,
    mas o `git diff` do teu trabalho mente até lá. Normaliza para LF os ficheiros tocados antes de
    commitar, ou lês um diff que não é o teu.
+4. **O `gh run view --log-failed` recusa-se enquanto a corrida não acaba**, e é quando
+   precisas dele. O *log* de um *job* em curso tira-se pela API:
+   `gh api --allow-escape-sequences repos/<owner>/<repo>/actions/jobs/<job_id>/logs`. Sem
+   isto, um PR fechado antes de a corrida terminar leva o *log* consigo e a causa fica por
+   estabelecer — aconteceu, e a causa era de uma linha.
 5. **O `lint_arch` não tem `check`.** Toma um subcomando — `deps`, `structure`,
    `tool-schema`, `aliases`, `all`, `commit-msg`, `branch` — e `lint_arch --root .. check` sai
    com **2**, `invalid choice`. É «não se conseguiu verificar», nunca verde, e ao lado de quatro
