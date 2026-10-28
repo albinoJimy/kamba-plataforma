@@ -377,9 +377,16 @@ class TestCatalogoReal(ComBase):
                 # `outbound_messages` («ou» < «ow»).
                 ("owner_contacts", "tenant_iso", "ALL", "{public}"),
                 ("owner_notices", "tenant_iso", "ALL", "{public}"),
-                ("tenant_channels", "resolver_leitura", "SELECT", "{kamba_resolver}"),
+                # KAM-047: as duas ultimas do `servicos`, e vem **antes** das
+                # duas de `tenant_channels` — a ordem e por nome de tabela, e
+                # `resources` < `services` < `tenant_channels`. A `tenant_channels`
+                # tem **duas** politicas (a `resolver_leitura` ordena antes da
+                # `tenant_iso` pelo nome), e a primeira versao desta lista pos
+                # estas duas entre elas: o `ORDER BY 1, 2` e por tabela **e**
+                # por politica, e so a suite contra a base o mostrou.
                 ("resources", "tenant_iso", "ALL", "{public}"),
                 ("services", "tenant_iso", "ALL", "{public}"),
+                ("tenant_channels", "resolver_leitura", "SELECT", "{kamba_resolver}"),
                 ("tenant_channels", "tenant_iso", "ALL", "{public}"),
                 # KAM-009. A ordem e a da coleccao `C` e nao a da base: o
                 # `pg_policies.tablename` e do tipo `name`, que tem colacao
