@@ -136,6 +136,27 @@ de paralelismo da estação 1.3 aplica-se depois dela, não antes.
 > para a dispensa que vais pagar: lêem-se da base, não do teu ficheiro. Uma delas pode já ter
 > sido paga por outro ticket, e então a tua correcção é uma declaração morta.
 >
+> **E o número mais alto espera pelo mais baixo.** A numeração do §4 tem de ser contígua em
+> `main`: o `lint_backlog` exige que as pontas da gama do §1 sejam o **mínimo e o máximo** do
+> §4 (`tools/lint_backlog/cli.py`), e o `lint_refs` expande essa gama e exige que cada número
+> dela exista. Logo um ticket novo **não pode ficar verde** enquanto um número abaixo dele
+> estiver num PR por fundir — medido: um 168 escrito sobre um 167 ainda aberto deu três achados
+> do token em falta. E não se dispensa: o `ci/refs-allow.yaml` diz por escrito que não é
+> mecanismo de dispensa genérico.
+>
+> Daí a regra, em duas metades que não se confundem:
+>
+> ```text
+> RECLAMAR   toma o menor número livre, medido pelas três fontes
+> FUNDIR     pela ordem dos números; quem tem o mais alto espera pelo mais baixo
+> ```
+>
+> Quem já tem um número empurrado e verde fica com ele, e quem chega depois toma o seguinte:
+> isso decide o **número**, e nada mais. A ordem de fusão não se negocia, porque é mecânica —
+> e quem a tentar contrariar está a pedir a alguém para deixar vermelho um PR que **não pode**
+> ficar verde. Foi o erro que esta regra corrige: trocar dois números entre duas sessões sem
+> ver que a troca não muda quem pode fundir primeiro.
+>
 > **E se entrares num worktree, confirma a base lá dentro.** O `EnterWorktree` ramifica de
 > `origin/<default-branch>`, e aqui o `origin` é o espelho privado, sem antepassado comum com o
 > `publico`: numa entrada medida, pôs a sessão em `f344990` — o merge de um PR dezenas de
