@@ -37,7 +37,7 @@ gate → alvo → dono é a do `docs/ci.md` §2 — consulta-a lá, não de mem�
 | 5 | Integração | `make ci-5` | **reservado, fail-closed** |
 | 6 | Isolamento de tenant (RLS, X-03/04/05) e X-11 | `make ci-6` | activo |
 | 7 | Contratos de evento, e webhooks da Meta | `make ci-7` | activo |
-| 8 | Migrações: aplicar, reverter, voltar a aplicar | `make ci-8` | activo |
+| 8 | **Primeiro** `db/mutacoes.py --aplicaveis`, depois migrações: aplicar, reverter, voltar a aplicar | `make ci-8` | activo |
 | 9 | Segredos (árvore **e** história do PR) | `make ci-9` | activo |
 | 10 | SAST | — | lacuna, sem ticket |
 | 11 | SCA, licenças, vulnerabilidades, SBOM, cadeia de abastecimento | `make ci-11` | activo |
@@ -150,6 +150,13 @@ máquina é `--aplicaveis` (segundos, sem Docker, dentro do gate 8): confirma qu
 antiga deixou de se aplicar. Correr à mão o subconjunto novo chega quando o diff só
 **acrescenta** testes e mutações; a lista inteira corre-se quando o diff toca num teste antigo
 **ou num ficheiro que alguma mutação altera**.
+
+> **E por isso o `gate` 8 não é «o das migrações».** O `--aplicaveis` é o **primeiro** passo
+> do alvo (`Makefile`, antes do `gate_bd.py`), pelo que **um PR sem uma única migração pode
+> pintar o `gate` 8 de vermelho** — basta tocar numa linha que alguma mutação aponte. Medido:
+> um PR de `tools/` e `docs/` falhou-o com `MUTACAO NAO APLICAVEL`, porque trocou as entradas
+> de um dicionário por uma compreensão e a mutação procurava a linha literal. A inferência
+> «não toquei em migrações, logo este vermelho não é meu» é **falsa**, e foi feita.
 
 ```bash
 python db/mutacoes.py --aplicaveis              # sempre, segundos

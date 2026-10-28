@@ -144,7 +144,7 @@ Medido a 2026-10-19, no KAM-013. As quatro vias, por ordem de quanto custam:
 | Gates de base de dados (6 e 8) | `.venv/Scripts/python.exe db/gate_bd.py --suite <nome>`. O `gate_bd.py` levanta os seus próprios contentores de PostgreSQL e Valkey e apaga-os no fim |
 | Cobertura (gate 4) | O LCOV produz-se em contentor; o `tools/coverage_gate.py` corre **fora** dele, com o Python do Windows |
 
-Cinco armadilhas que custaram tempo, e todas na forma «passou» quando não passou:
+Seis armadilhas que custaram tempo, e todas na forma «passou» quando não passou:
 
 1. **O código de saída tem de ser do comando, não do `tail`.** `python -c "..." 2>&1 | tail -5; echo $?`
    devolve o estado do `tail`, que é sempre 0. Três lints pareceram conformes assim, e um deles
@@ -159,7 +159,12 @@ Cinco armadilhas que custaram tempo, e todas na forma «passou» quando não pas
 4. **O `pathlib.write_text` em Windows escreve CRLF.** O `.gitattributes` normaliza no *commit*,
    mas o `git diff` do teu trabalho mente até lá. Normaliza para LF os ficheiros tocados antes de
    commitar, ou lês um diff que não é o teu.
-5. **O `lint_arch` não tem `check`.** Toma um subcomando — `deps`, `structure`,
+5. **O `gh run view --log-failed` recusa-se enquanto a corrida não acaba**, e é quando
+   precisas dele. O *log* de um *job* em curso tira-se pela API:
+   `gh api --allow-escape-sequences repos/<owner>/<repo>/actions/jobs/<job_id>/logs`. Sem
+   isto, um PR fechado antes de a corrida terminar leva o *log* consigo e a causa fica por
+   estabelecer — aconteceu, e a causa era de uma linha.
+6. **O `lint_arch` não tem `check`.** Toma um subcomando — `deps`, `structure`,
    `tool-schema`, `aliases`, `all`, `commit-msg`, `branch` — e `lint_arch --root .. check` sai
    com **2**, `invalid choice`. É «não se conseguiu verificar», nunca verde, e ao lado de quatro
    irmãos que todos tomam `check` passa por distracção de uma palavra numa lista. Corre-se
