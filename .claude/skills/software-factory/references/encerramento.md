@@ -313,7 +313,7 @@ Estado final: DONE / NEEDS ATTENTION
 Seis notas sobre como isto se lê:
 
 **«Verificações executadas»** com o que a verificação faz e o resultado vale mais do que uma
-lista de nomes. «161 tickets, 0 erros de consistência; segunda passagem 0 divergências» é
+lista de nomes. «N tickets, 0 erros de consistência; segunda passagem 0 divergências» é
 reproduzível; «backlog verificado» não é.
 
 **«Revisão»** tem de dizer o que a revisão *encontrou*, mesmo quando foi nada. «Revisão

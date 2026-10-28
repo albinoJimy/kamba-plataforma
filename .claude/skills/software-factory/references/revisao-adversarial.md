@@ -103,14 +103,15 @@ Cada afirmação relevante precisa de evidência nomeada.
 ```text
 AFIRMAÇÃO: "O backlog está consistente."
 EVIDÊNCIA:
-- script de consistência sobre specs/INDICE.md §4 → 161 tickets, 0 erros (ciclos,
+- script de consistência sobre specs/INDICE.md §4 → N tickets, 0 erros (ciclos,
   prioridade invertida, fase invertida, dependências inexistentes);
-- 161 blocos únicos `## KAM-NNN — ` nos 11 epics, 0 duplicados, 0 em falta;
+- N blocos únicos `## KAM-NNN — ` nos 11 epics, 0 duplicados, 0 em falta;
 - segunda passagem da sincronia mestre↔epics → 0 divergências.
 ```
 
 Cita a verificação **pelo que ela faz e pelo resultado**, não pelo nome. «Corri o script de
-verificação» não é evidência; «161 tickets, 0 erros de consistência» é.
+verificação» não é evidência; «N tickets, 0 erros de consistência» é. O **N** é literal: um exemplo que carrega
+a contagem viva fica errado ao ticket seguinte, e o que ele ensina é a forma.
 
 E separa o que verificaste do que não verificaste. Nesta sessão, o conjunto de specs foi
 verificado na estrutura (referências, grafo, unicidade, sincronia) e **não** foi lido linha a
