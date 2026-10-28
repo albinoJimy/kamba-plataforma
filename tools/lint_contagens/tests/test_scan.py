@@ -62,6 +62,82 @@ class TestOQueConta(unittest.TestCase):
         self.assertEqual(self._varrer('Ver KAM-158 tickets? nao: e um id.'), [])
 
 
+class TestContagemDepoisDoNome(unittest.TestCase):
+    """A segunda forma: o numero entre parenteses, logo apos o nome.
+
+    E a forma do §2 do `INDICE` («um ficheiro por ticket (N hoje)»), que
+    escapava ao padrao original por este exigir o numero **antes** do nome. Foi
+    assim que a frase derivou para 49 com 50 ficheiros na arvore.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = TemporaryDirectory()
+        self.raiz = Path(self._tmp.name)
+        (self.raiz / 'specs').mkdir()
+        self.addCleanup(self._tmp.cleanup)
+
+    def _varrer(self, texto: str, nome: str = 'specs/INDICE.md'):
+        alvo = self.raiz / nome
+        alvo.parent.mkdir(parents=True, exist_ok=True)
+        alvo.write_text(_doc(texto), encoding='utf-8')
+        return varrer_ficheiro(alvo, self.raiz, FONTES)
+
+    def test_a_contagem_certa_depois_do_nome_bate(self) -> None:
+        (x,) = self._varrer('Um ficheiro por ticket (158 hoje).')
+        self.assertTrue(x.bate)
+        self.assertEqual((x.grandeza, x.escrito), ('tickets', 158))
+
+    def test_a_contagem_errada_depois_do_nome_NAO_bate(self) -> None:
+        """A *fixture* negativa: e esta que prova que o gate morde.
+
+        Sem ela, o padrao novo podia deixar de casar e os testes continuavam
+        verdes — que e a falha que o aviso das grandezas sem ocorrencia do
+        `cli.py` existe para apanhar no corpus real.
+        """
+        (x,) = self._varrer('Um ficheiro por ticket (49 hoje).')
+        self.assertFalse(x.bate)
+        self.assertIn('está escrito 49', str(x))
+        self.assertIn('158', str(x))
+
+    def test_a_forma_com_negrito_tambem_se_le(self) -> None:
+        """O conjunto escreve a contagem em negrito mais vezes do que sem ele."""
+        (x,) = self._varrer('Um ficheiro por ticket (**158** hoje).')
+        self.assertTrue(x.bate)
+
+    def test_sem_palavra_pista_tambem_se_le(self) -> None:
+        """Exigir «hoje» perdia esta, e nao havia beneficio medido em exigi-la."""
+        (x,) = self._varrer('Um ficheiro por ticket (158 no total).')
+        self.assertEqual(x.escrito, 158)
+
+    def test_a_fonte_do_epic_vale_tambem_nesta_forma(self) -> None:
+        """A regra 2 do modulo nao muda com a forma: o epic onde esta escrito."""
+        (x,) = self._varrer('Um ficheiro por ticket (43 hoje).',
+                            nome='specs/EPIC-01_Fundacoes_Dados.md')
+        self.assertTrue(x.bate)
+        self.assertIn(43, x.aceitaveis)
+
+    def test_texto_entre_o_nome_e_o_parentese_nao_e_contagem(self) -> None:
+        """O parentese tem de vir logo apos o nome.
+
+        Medido: admitir texto pelo meio casava 14 ocorrencias no corpus, 13
+        delas falsas — identificadores de ADR e enumeracoes de regras.
+        """
+        self.assertEqual(self._varrer('Cada ADR relevante (004, 008, 010) aparece.'), [])
+        self.assertEqual(
+            self._varrer('Regras de todos os tickets: (1) aprovação do dono.'), [])
+
+    def test_numero_com_zero_a_esquerda_e_identificador(self) -> None:
+        """`001` nunca e «quantos» — e a mesma guarda do *lookbehind* da 1.ª forma."""
+        self.assertEqual(self._varrer('Os três ADRs (004 e 008) ficam.'), [])
+
+    def test_as_duas_formas_na_mesma_linha_dao_dois_achados(self) -> None:
+        """Sao duas contagens escritas, e as duas se verificam."""
+        achados = self._varrer('O backlog tem 158 tickets, um ficheiro por ticket (49 hoje).')
+        self.assertEqual(sorted(x.escrito for x in achados), [49, 158])
+        self.assertEqual([x.bate for x in sorted(achados, key=lambda a: a.escrito)],
+                         [False, True])
+
+
 class TestZonasDeHistoria(unittest.TestCase):
     """O que registra o que era verdade **entao** nao se le."""
 

@@ -33,7 +33,38 @@ VERIFICACAO = re.compile(r'^#{2,6}\s+Verificação d')
 CABECALHO = re.compile(r'^#{1,6}\s')
 CERCA = re.compile(r'^\s*```')
 
-#: As grandezas e o padrao que as reconhece. O numero e sempre o grupo 1.
+#: O nome de cada grandeza em prosa, e se a caixa conta. So o `ADRs` e sensivel
+#: a caixa: em minusculas nao e a sigla.
+NOMES: dict[str, tuple[str, int]] = {
+    'tickets': (r'tickets?', re.I),
+    'ADRs': (r'ADRs?', 0),
+    'epics': (r'epics?', re.I),
+}
+
+#: As grandezas e os padroes que as reconhecem. O numero e sempre o grupo 1.
+#:
+#: **Sao duas formas, porque o conjunto escreve as duas.** A primeira poe o
+#: numero antes do nome («164 tickets»); a segunda poe-o depois, entre
+#: parenteses («um ficheiro por ticket (50 hoje)», no §2 do `INDICE`). Durante
+#: tres meses so a primeira era lida, e a segunda derivou em silencio: no
+#: `2dbc2f0` dizia 49 com 50 ficheiros na arvore. O valor corrigia-se a mao; o
+#: ponto cego e que era o defeito, e e isto que o fecha.
+#:
+#: **Porque a segunda forma e tao estreita.** O parentese tem de vir logo apos o
+#: nome, so com espacos pelo meio. Medido sobre as 140 entradas do corpus:
+#: assim casa **1** ocorrencia, que e a verdadeira, e **0** falsas. Admitir
+#: texto entre o nome e o parentese — ate 25 caracteres — casava **14**, das
+#: quais **13** falsas: identificadores de ADR («cada ADR relevante (004, 008,
+#: 010, 013, 015)»), enumeracoes de regras («(1) aprovacao do dono», «(4) as
+#: `subscriptions`») e desdobramentos por epic. Era exactamente o enchimento de
+#: falsos positivos que a decisao 3 do cabecalho deste modulo recusa. Exigir
+#: uma palavra-pista («hoje») casava a mesma unica ocorrencia e perdia
+#: «(50 no total)», sem beneficio medido.
+#:
+#: O `(?!0\d)` recusa o numero com zero a esquerda: `001` e identificador e
+#: nunca e «quantos». E a mesma guarda do *lookbehind* da primeira forma, pelo
+#: mesmo motivo. Hoje a unica ocorrencia da forma vive em `docs/analises/`, que
+#: esta fora do corpus — a guarda e para quando entrar uma que nao viva lá.
 #:
 #: **A classe esta fechada, e duas ficaram deliberadamente de fora:**
 #:
@@ -48,10 +79,12 @@ CERCA = re.compile(r'^\s*```')
 #:
 #: O *lookbehind* recusa tambem o hifen: `KAM-158 tickets` nao e uma
 #: contagem de 158 tickets, e o numero de um identificador nunca e «quantos».
-PADROES: dict[str, re.Pattern[str]] = {
-    'tickets': re.compile(r'(?<![\w.-])(\d{1,4})\s+tickets?\b', re.I),
-    'ADRs': re.compile(r'(?<![\w.-])(\d{1,4})\s+ADRs?\b'),
-    'epics': re.compile(r'(?<![\w.-])(\d{1,4})\s+epics?\b', re.I),
+PADROES: dict[str, tuple[re.Pattern[str], ...]] = {
+    grandeza: (
+        re.compile(rf'(?<![\w.-])(\d{{1,4}})\s+{nome}\b', caixa),
+        re.compile(rf'{nome}\s*\(\s*\*{{0,2}}(?!0\d)(\d{{1,4}})\*{{0,2}}', caixa),
+    )
+    for grandeza, (nome, caixa) in NOMES.items()
 }
 
 #: Onde se procura. Os ficheiros de `.claude/` ficam de fora: a *skill* nao e
@@ -129,14 +162,15 @@ def varrer_ficheiro(caminho: Path, raiz: Path, fontes: Fontes,
             continue
         if any(e in linha for e in excepcoes):
             continue
-        for grandeza, padrao in PADROES.items():
-            for m in padrao.finditer(linha):
-                out.append(Achado(
-                    ficheiro=rel, linha=numero, grandeza=grandeza,
-                    escrito=int(m.group(1)),
-                    aceitaveis=aceitaveis(grandeza, rel, linha, fontes),
-                    excerto=linha.strip()[:160],
-                ))
+        for grandeza, padroes in PADROES.items():
+            for padrao in padroes:
+                for m in padrao.finditer(linha):
+                    out.append(Achado(
+                        ficheiro=rel, linha=numero, grandeza=grandeza,
+                        escrito=int(m.group(1)),
+                        aceitaveis=aceitaveis(grandeza, rel, linha, fontes),
+                        excerto=linha.strip()[:160],
+                    ))
     return out
 
 
