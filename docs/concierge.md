@@ -190,7 +190,7 @@ edições com `0,418` são provavelmente a mesma conversa vista duas vezes.
 | O que falta | Credor |
 |---|---|
 | **O *eval-gate* («Gate 13 verde com a política desligada e ligada»).** O gate 13 **não existe**: não há alvo `ci-13` no `Makefile` nem *job* no `.github/workflows/ci.yaml`, e mediu-se antes de se escrever código | **KAM-040**, aberto e bloqueado pelo KAM-035 e pelo KAM-033 |
-| **O custo por rascunho aprovado.** A `dat.llm_call_log` não tem `turn_id` (tem `trace_id`, que é outro conceito) e o `kamba_app` não tem `SELECT` nela, por decisão deliberada do KAM-030. As três saídas estão no dicionário §3.34 e uma delas retira uma barreira de privilégio | **quem escreveu o critério 6** |
+| **O custo por rascunho aprovado — decidido, e não entregue.** A `dat.llm_call_log` não tem `turn_id` (tem `trace_id`, que é outro conceito) e o `kamba_app` não tem `SELECT` nela, por decisão deliberada do KAM-030. Das três saídas do dicionário §3.34 — uma delas retirava aquela barreira de privilégio —, **aceitou-se a vista sem coluna de custo**. O critério 6 fica `parcial`: o custo não é entregue | **KAM-109** (o H6), se o custo fizer falta; o preço do modelo é do **KAM-040** |
 | **Bloquear** uma edição com número livre, em vez de a sinalizar | **Responsável de Produto** (o critério 4 devolve-o por escrito) |
 | **O texto pré-aprovado** para quando o HND está em baixo, se alguém decidir que o cliente não pode ficar sem resposta | **Responsável de Produto** |
 | **O `postDraft` do lado do HND** (o cliente HTTP do Chatwoot). Até lá a porta por omissão levanta `RascunhoIndisponivel`, que é a linha que o [`tecnica/01`](tecnica/01_Canais_WhatsApp_Fluxo_Dual.md) §11.5 escreve para «Chatwoot indisponível» | **KAM-019** |

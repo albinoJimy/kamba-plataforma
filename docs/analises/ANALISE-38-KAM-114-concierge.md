@@ -212,18 +212,28 @@ propriedade que ela pode quebrar **é o produto**. Fica como `PLAUSÍVEL` com o
 ensaio que falta nomeado, em vez de se escrever um paliativo sobre uma premissa
 não medida.
 
-## 4. O que esta revisão **não** resolveu, e sobe
+## 4. O que esta revisão **não** resolveu, e subiu — e já está decidido
 
 **A cláusula do custo do critério 6.** O revisor classificou-a `CONFIRMADO` e
 escreveu que «é o critério de aceitação a mudar, e a regra de bloqueio da casa é
 que alterar o critério de um gate é decisão do fundador: entrega-se a medição, não
 a implementação».
 
-É exactamente o que está feito: **a medição está entregue e a implementação não**.
+É exactamente o que foi feito: **entregou-se a medição e não a implementação**.
 As duas razões estão medidas (a `dat.llm_call_log` não tem `turn_id`; o
-`kamba_app` não tem `SELECT` nela, por desenho do KAM-030), as três saídas estão
-escritas no dicionário §3.34 e no bloco, e **nenhuma se tomou** — porque uma delas
-retira uma barreira de privilégio. A caixa fica por marcar e a decisão sobe.
+`kamba_app` não tem `SELECT` nela, por desenho do KAM-030), as três saídas ficaram
+escritas no dicionário §3.34 e no bloco, e nenhuma foi tomada pelo executor —
+porque uma delas retira uma barreira de privilégio.
+
+**A decisão subiu e foi tomada: aceita-se a vista sem coluna de custo.** O
+critério 6 fica `parcial` e a caixa por marcar, porque o custo não é entregue —
+«decidido» não é «feito», e marcar a caixa por a decisão existir era o defeito que
+esta análise existe para apanhar. Se o custo fizer falta, as outras duas saídas
+continuam escritas, e quem as mede de novo é o **KAM-109** (o H6) com o preço do
+modelo já escolhido pelo **KAM-040**.
+
+**Isto fecha o A11.** Ele era `CONFIRMADO` por ser «o critério a mudar», e o que o
+fecha não é código: é a decisão ter sido tomada por quem a podia tomar.
 
 ## 5. Os onze `MORTO`
 
