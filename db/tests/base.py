@@ -194,11 +194,20 @@ TABELAS_DAT = ("llm_call_log", "llm_call_log_default")
 #: ja afirma.
 TABELAS_DAT_COM_MATRIZ = ("llm_call_log",)
 
-#: A unica vista do esquema (KAM-022). Separada das tabelas porque a descoberta
-#: do catalogo tambem as separa, e porque o `verificar_vistas` do
-#: `db/tests_isolamento/catalogo.py` — que existe desde o KAM-004 — passa a ter
-#: a primeira coisa para ver: `security_invoker = true`.
-VISTAS = ("consent_actual",)
+#: As vistas do esquema. Separadas das tabelas porque a descoberta do catalogo
+#: tambem as separa, e porque o `verificar_vistas` do
+#: `db/tests_isolamento/catalogo.py` — que existe desde o KAM-004 — tem aqui o
+#: que ver: `security_invoker = true` em **todas**.
+#:
+#: A `consent_actual` e do KAM-022 e foi a primeira. A `v_draft_metrics` e do
+#: KAM-114 (revisao `0024`) e e a segunda: ela existe porque nem o `tenant_id`
+#: nem o `graph_version` podem ser etiqueta de metrica (a gramatica do
+#: `kamba_core.ten.metricas` recusa os dois pela forma) **e** porque esta
+#: biblioteca nao tem histogramas — um p50 nao e exprimivel nela. A
+#: desagregacao faz-se nas colunas e le-se aqui.
+#:
+#: **Por ordem alfabetica**, que e a que o `_vistas` devolve.
+VISTAS = ("consent_actual", "v_draft_metrics")
 
 #: KAM-028: o registo de invocacoes da ToolLayer (revisao `0021`).
 #:

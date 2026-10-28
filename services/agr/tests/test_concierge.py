@@ -1300,10 +1300,56 @@ class TestSubstituicao(unittest.IsolatedAsyncioTestCase):
                 "o grafo retomou com uma decisao diferente da que ficou gravada",
             )
         self.assertEqual(aprovadas + substituidas, 100)
-        # E as duas saidas ocorreram, senao o ensaio media uma ordem fixa e nao
-        # uma corrida.
-        self.assertGreater(aprovadas, 0, "a aprovacao nunca venceu")
-        self.assertGreater(substituidas, 0, "a substituicao nunca venceu")
+        # **Nao se afirma que as duas saidas ocorreram, e a primeira versao
+        # afirmava-o — era afirmar o escalonador.** Com `asyncio.gather`, quem
+        # chega primeiro ao CAS e quem precisa de menos `await`: o `decidir` faz
+        # uma ida a base (o CAS) e o `substituir` faz **duas** (listar, e so
+        # depois decidir). Num executor rapido a aprovacao ganha sempre, e foi o
+        # que o *runner* do CI mediu — `0 not greater than 0: a substituicao
+        # nunca venceu`, 100 de 100 —, enquanto nesta maquina a variacao do
+        # *pool* de *threads* produzia as duas e o ensaio passava.
+        #
+        # Um ensaio que depende disso e instavel por construcao. O que este mede
+        # e a **invariante**, que vale em qualquer ordem: uma das duas vence, a
+        # linha fica num dos dois estados, e o grafo retoma **uma** vez com a
+        # decisao que ficou gravada. Os dois ramos medem-se em separado e de
+        # forma determinista — `TestDecisao::test_a_aprovacao_vence_o_cas_e_...`
+        # e `test_um_pendente_do_thread_passa_a_substituido` —, que e onde a
+        # cobertura dos dois pertence.
+        self.assertEqual(aprovadas + substituidas, 100, "houve voltas sem desfecho")
+
+    async def test_a_substituicao_a_vencer_recusa_a_aprovacao_que_chega_depois(
+        self,
+    ) -> None:
+        """A ordem que o criterio 5 pede: **0 envios do bot depois** dela.
+
+        Determinista, e e o complemento do ensaio das 100 intercalacoes: ali
+        mede-se a invariante em qualquer ordem, e aqui forca-se a ordem que
+        importa — o humano tomou a palavra **primeiro**, e a aprovacao que chega
+        depois nao pode fazer sair mensagem nenhuma.
+        """
+        base = BaseDeRascunhos(um_pendente())
+        alvo, grafo = decisor(base)
+        substituidor = Substituidor(
+            abrir_ligacao=lambda: base,
+            decidir_pelo_sistema=alvo.decidir_pelo_sistema,
+        )
+        self.assertEqual(await substituidor.substituir(THREAD), 1)
+        self.assertEqual(base.linhas["d1"]["decisao"], "substituido")
+
+        # A aprovacao chega depois e **nao casa linha nenhuma**: o CAS exige
+        # `decisao IS NULL`. Devolve `repetido` (200, sem efeito) e nao
+        # `recusado`, porque o rascunho **e** deste *thread* — ele so ja foi
+        # decidido.
+        resultado = await alvo.decidir(THREAD, "d1", "aprovado")
+        self.assertEqual(resultado.desfecho, "repetido")
+        self.assertEqual(base.linhas["d1"]["decisao"], "substituido")
+        # E o grafo retomou **uma** vez, com a substituicao.
+        self.assertEqual(len(grafo.invocacoes), 1)
+        self.assertEqual(
+            grafo.invocacoes[0][0].resume,
+            {"decisao": "substituido", "numero_livre": False},
+        )
 
     async def test_uma_ligacao_quebrada_larga_se_em_vez_de_ficar_guardada(self) -> None:
         """A razão do `trancas.py` e do `Decisor`: uma ligação quebrada que fique

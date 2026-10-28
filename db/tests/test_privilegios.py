@@ -646,6 +646,31 @@ ESPERADO_POR_TABELA.update(
         # `kamba_audit` nao tem nada, pela razao que o `_uso` escreveu para os
         # contadores — quem audita le o `audit_log`.
         "tool_idempotency": _idempotencia(),
+        # KAM-114 (0024). **O `kamba_app` tem so `SELECT` ao nivel da tabela**, e
+        # isso nao e um privilegio a menos: o `INSERT` e o `UPDATE` dele sao
+        # **por coluna** (seis em cada), e o `has_table_privilege` que esta
+        # matriz usa nao conta privilegio de coluna — a mesma forma da
+        # `tool_idempotency` e da `dat.llm_call_log`. A leitura ele tem porque o
+        # *compare-and-set* precisa de classificar o seu proprio rascunho (o
+        # duplo clique contra a recusa) e a varredura precisa de o encontrar.
+        #
+        # **Sem `DELETE` para o `kamba_app`**, e com `DELETE` para o
+        # `kamba_batch`: a retencao e do lote (KAM-071) e uma decisao gravada nao
+        # se apaga a pedido de quem a produziu — a razao que a `0005` escreveu
+        # para o consumidor da DLQ. O lote tem tambem `UPDATE`, porque e ele que
+        # atravessa *tenants* na varredura dos prazos.
+        #
+        # O `kamba_audit` le, e e ele que le a vista `v_draft_metrics`: quem
+        # produz as decisoes nao e quem as audita (KAM-030).
+        "draft_decisions": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": {"SELECT", "UPDATE", "DELETE"},
+            "kamba_audit": {"SELECT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
     }
 )
 
