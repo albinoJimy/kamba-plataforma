@@ -1008,7 +1008,7 @@ O `../docs/seguranca/validar.py` é a **única verificação por máquina** dos 
 assert len(KAM) == 138 and len(ADR) == 20 and len(DEC) == 13, (len(KAM), len(ADR), len(DEC))
 ```
 
-O *backlog* tem 165 tickets, pelo que, da raiz do repositório:
+O *backlog* tem 166 tickets, pelo que, da raiz do repositório:
 
 ```text
 AssertionError: (143, 20, 13)
