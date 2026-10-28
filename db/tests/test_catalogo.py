@@ -12,6 +12,7 @@ from tests.base import (
     TABELAS,
     TABELAS_DAT,
     TABELAS_LG,
+    TABELAS_SERVICOS,
     ComBase,
 )
 
@@ -893,10 +894,16 @@ class TestPapeis(ComBase):
             #
             # O `dat` entra pela mesma razao (KAM-030, revisao `0023`) e vem
             # **antes** do `lg`, que e o que aquele `ORDER BY` manda.
+            #
+            # O `servicos` entra pela mesma razao (KAM-047, revisao `0025`) e vem
+            # **depois** do `public`: a ordem e alfabetica pelo esquema, e
+            # `public` < `servicos`. E a primeira vez que alguma coisa fica
+            # depois da `alembic_version` nesta lista.
             [("dat", tabela) for tabela in TABELAS_DAT]
             + [("lg", tabela) for tabela in TABELAS_LG]
             + [("platform", tabela) for tabela in TABELAS]
-            + [("public", "alembic_version")],
+            + [("public", "alembic_version")]
+            + [("servicos", tabela) for tabela in TABELAS_SERVICOS],
         )
 
     def test_public_nao_tem_create_no_schema_public(self) -> None:

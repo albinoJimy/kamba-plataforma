@@ -21,6 +21,7 @@ from tests.base import (
     TABELAS,
     TABELAS_0001,
     TABELAS_DAT_COM_MATRIZ,
+    TABELAS_SERVICOS_COM_MATRIZ,
     VIOLACAO_DE_CHECK,
     ComBase,
 )
@@ -667,6 +668,61 @@ ESPERADO_POR_TABELA = {
     for tabela, por_papel in ESPERADO_POR_TABELA.items()
 }
 
+
+def _agenda(*privilegios_da_app: str) -> dict[str, set[str]]:
+    """Matriz de uma tabela do `servicos` (KAM-047, revisao `0025`).
+
+    **O `kamba_app` escreve nesta agenda, e isso distingue este esquema do
+    `dat`.** Ali o papel da aplicacao insere e nao le, porque quem produz um
+    registo de custo nao e quem o audita. Aqui a agenda **e** o estado de
+    negocio que a TLS le e escreve a cada turno: sem `SELECT` nao havia
+    disponibilidade para calcular, e e a RLS que o limita as linhas do tenant —
+    o que faz dela uma barreira exercida e nao decoracao.
+
+    **Quatro papeis nao tem nada, nem `USAGE` no esquema**, e a ausencia e a
+    afirmacao: o `kamba_resolver` resolve canais, o `kamba_identity` guarda o
+    cofre de contactos, o `kamba_audit` le a `audit_log`, e o `kamba_agr` guarda
+    o estado das conversas. Nenhum deles tem razao para chegar a agenda de
+    ninguem, e e a mesma escolha que o KAM-026 fez ao deixar o `kamba_agr` sem
+    `USAGE` no `platform`.
+
+    **O `kamba_batch` tem `DELETE` e o `kamba_app` nao.** Cancelar e um `UPDATE`
+    do estado — a restricao de exclusao e parcial, pelo que a linha deixa de
+    ocupar o intervalo sem ser apagada —, e um `DELETE` concedido a aplicacao
+    tornava a agenda reescrevivel sem deixar rasto. Quem apaga e o papel da
+    retencao (KAM-071) e o semeador das baterias de isolamento.
+    """
+    return {
+        "kamba_app": set(privilegios_da_app),
+        "kamba_batch": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+        "kamba_resolver": set(),
+        "kamba_identity": set(),
+        "kamba_audit": set(),
+        "kamba_agr": set(),
+        "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+        "public": set(),
+    }
+
+
+ESPERADO_POR_TABELA.update(
+    {
+        # O catalogo e **so de leitura** para a aplicacao: quem cria a agenda de
+        # uma PME e o onboarding de retaguarda (KAM-091). E a mesma razao pela
+        # qual a `0007` tirou `INSERT` em `entitlements` a este papel — com
+        # `WITH CHECK (tenant_id = app.tenant_id)` um tenant criava as proprias
+        # linhas, e aqui isso significava inventar recursos para abrir
+        # intervalos que o dono nunca disponibilizou.
+        "services": _agenda("SELECT"),
+        "resources": _agenda("SELECT"),
+        "availability_rules": _agenda("SELECT"),
+        # **`SELECT, INSERT` e nao `UPDATE`.** O `UPDATE` existe, e e por
+        # coluna: `has_table_privilege(..., 'UPDATE')` devolve `false` com ou
+        # sem `GRANT UPDATE (coluna)`, e por isso a matriz de coluna cobre esta
+        # tabela (ver `TABELAS_COM_MATRIZ_DE_COLUNA`).
+        "bookings": _agenda("SELECT", "INSERT"),
+    }
+)
+
 #: (papel, tabela, privilegio) -> colunas concedidas **por coluna** nas tabelas
 #: da revisao 0003. O que nao esta aqui nao tem privilegio de coluna nenhum.
 COLUNAS_POR_PAPEL = {
@@ -970,6 +1026,16 @@ COLUNAS_POR_PAPEL = {
         "graph_version", "modelo", "fornecedor", "tokens_in", "tokens_out",
         "tokens_cache", "custo_usd", "latencia_ms", "resultado",
     },
+    # KAM-047: o `UPDATE` da aplicacao em `servicos.bookings` e **tres colunas**,
+    # e o que fica de fora e a afirmacao. Nao inclui `tenant_id`, `contact_id`,
+    # `service_id`, `resource_id`, `slot_id` nem `hold_id`: mudar qualquer um
+    # deles era transformar a marcacao de um contacto na marcacao de outro, ou
+    # reescrever a chave de idempotencia de uma confirmacao alheia. Nao inclui o
+    # `inicio_at`/`fim_at`, e essa e a que importa mais — remarcar **e** cancelar
+    # mais inserir, e um `UPDATE` do intervalo movia a linha de um intervalo para
+    # outro sem passar pela restricao de exclusao do novo, que e precisamente a
+    # barreira do criterio 1. Nao inclui o `criado_at`, que e historico.
+    ("kamba_app", "bookings", "UPDATE"): {"estado", "hold_expires_at", "version"},
 }
 PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
 
@@ -979,7 +1045,14 @@ PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
 #: `platform`, nao encontrava coluna nenhuma e a bateria falhava com
 #: «llm_call_log sem colunas» — o que e o comportamento certo de um inventario
 #: que nao sabe onde a tabela esta, e nao um falso negativo.
-ESQUEMA_DA_TABELA = {"llm_call_log": "dat"}
+ESQUEMA_DA_TABELA = {
+    "llm_call_log": "dat",
+    # KAM-047: as quatro da agenda (revisao `0025`).
+    "services": "servicos",
+    "resources": "servicos",
+    "availability_rules": "servicos",
+    "bookings": "servicos",
+}
 
 
 def esquema_de(tabela: str) -> str:
@@ -1097,6 +1170,18 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # A propria `0016` aponta para um ficheiro que nao existe —
     # «Medido em `db/tests/test_modos_privilegios.py`» — e e essa a raiz.
     "conversations",
+    # KAM-047: a `servicos.bookings` nasce com `UPDATE` **por coluna**, e entra
+    # aqui de inicio pela razao que a `llm_call_log` escreveu — e mais uma, que e
+    # desta tabela. O que uma coluna a mais daria: com `inicio_at` ou `fim_at` no
+    # `GRANT`, a aplicacao movia uma marcacao de um intervalo para outro com um
+    # `UPDATE`, e a restricao de exclusao do intervalo novo **nao** era
+    # confrontada pela via que o codigo usa — a barreira do criterio 1 cai por um
+    # `GRANT` de uma palavra, sem que matriz de tabela nenhuma o veja.
+    #
+    # As outras tres de `servicos` **nao** entram: nao tem privilegio de coluna
+    # nenhum, e uma linha de matriz de coluna para uma tabela cujos `GRANT` sao
+    # todos ao nivel da tabela repetia o que a matriz de tabela ja afirma.
+    "bookings",
 )
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.
@@ -1254,6 +1339,68 @@ class TestMatrizDePrivilegios(ComBase):
                         )
                         self.assertEqual(cursor.fetchone()[0], privilegio in esperados)
 
+    def test_privilegios_de_tabela_no_servicos(self) -> None:
+        """A matriz exacta das quatro da agenda (KAM-047), nos dois sentidos.
+
+        Num teste proprio e nao dentro do `test_privilegios_de_tabela`: aquele
+        itera `TABELAS` e qualifica com `platform.`, e as destas vivem noutro
+        esquema. O `esquema_de` ja sabe onde; o que faltava era quem iterasse.
+
+        Mede tambem o `USAGE` no esquema, que uma matriz de tabela nao ve: sem
+        ele um `GRANT SELECT` nao serve de nada, e **com** ele a mais um papel
+        ganha a lista de tabelas de um esquema que nao e dele.
+        """
+        cursor = self.ligar("admin").cursor()
+        for tabela in TABELAS_SERVICOS_COM_MATRIZ:
+            esquema = esquema_de(tabela)
+            for papel, esperados in ESPERADO_POR_TABELA[tabela].items():
+                for privilegio in PRIVILEGIOS_DE_TABELA:
+                    with self.subTest(papel=papel, tabela=tabela, privilegio=privilegio):
+                        cursor.execute(
+                            "SELECT has_table_privilege(%s, %s, %s)",
+                            (papel, f"{esquema}.{tabela}", privilegio),
+                        )
+                        self.assertEqual(cursor.fetchone()[0], privilegio in esperados)
+
+        # Só os dois papéis que escrevem ou leem a agenda têm `USAGE`.
+        for papel in (*sorted(ligacao.PAPEIS.values()), "public"):
+            with self.subTest(papel=papel, privilegio="USAGE no esquema"):
+                cursor.execute(
+                    "SELECT has_schema_privilege(%s, 'servicos', 'USAGE')", (papel,)
+                )
+                esperado = papel in ("kamba_app", "kamba_batch", "kamba_migrator")
+                self.assertEqual(cursor.fetchone()[0], esperado)
+            with self.subTest(papel=papel, privilegio="CREATE no esquema"):
+                cursor.execute(
+                    "SELECT has_schema_privilege(%s, 'servicos', 'CREATE')", (papel,)
+                )
+                self.assertEqual(cursor.fetchone()[0], papel == "kamba_migrator")
+
+    def test_so_a_app_executa_o_varrimento_dos_holds(self) -> None:
+        """`servicos.expirar_holds` e do `kamba_app`, e de ninguem mais.
+
+        **Nem do `kamba_batch`**, que seria o palpite natural para um
+        varrimento. A razao e o outbox: a funcao emite `booking.cancelled` por
+        `platform.evt_emitir`, e o `EXECUTE` dessa funcao e **so** do `kamba_app`
+        desde a `0004` (ele e o produtor). Um varrimento como `kamba_batch`
+        falhava no `evt_emitir` depois de ja ter alterado o estado — e ficavam
+        holds libertados sem evento nenhum, que e exactamente o que o criterio 3
+        pede que nao aconteca.
+
+        **E nao do `PUBLIC`**, que e a omissao do PostgreSQL para cada funcao
+        nova: deixa-la assim dava a um papel sem privilegio em `bookings` uma
+        forma de a tentar alterar — recusada pela RLS, mas o caminho nao tem de
+        existir.
+        """
+        linhas = self.consultar(
+            "SELECT r.papel, has_function_privilege("
+            "         r.papel, 'servicos.expirar_holds(integer)', 'EXECUTE') "
+            "  FROM unnest(%s::text[]) AS r(papel) ORDER BY r.papel",
+            (list((*sorted(ligacao.PAPEIS.values()), "public")),),
+        )
+        concedidos = {papel for papel, pode in linhas if pode}
+        self.assertEqual(concedidos, {"kamba_app", "kamba_migrator"})
+
     def test_a_matriz_cobre_todos_os_papeis_do_bootstrap(self) -> None:
         """Um papel novo que ninguem ponha na matriz e um papel por medir."""
         # **O inventario da matriz passou a ter duas origens** (KAM-030): as do
@@ -1261,8 +1408,18 @@ class TestMatrizDePrivilegios(ComBase):
         # coluna e por isso precisa de linha aqui — e a licao da divida 111, que
         # o `fix` do KAM-029 fechou para a `tool_audit` tres linhas de versao
         # antes. A particao nao entra: nao tem privilegio proprio nenhum.
+        # **E passou a ter tres** (KAM-047): as do `platform`, a do `dat` e as
+        # quatro do `servicos`. As quatro entram todas, ao contrario do `dat`
+        # onde a particao fica de fora: as quatro tem privilegios concedidos
+        # **por tabela**, e tres delas tem conjuntos diferentes (ver
+        # `_agenda`). Uma tabela nova de `servicos` sem linha aqui falha este
+        # teste, que e o proposito — «um papel novo que ninguem ponha na matriz
+        # e um papel por medir», e vale igual para uma tabela nova.
         self.assertEqual(
-            set(ESPERADO_POR_TABELA), set(TABELAS) | set(TABELAS_DAT_COM_MATRIZ)
+            set(ESPERADO_POR_TABELA),
+            set(TABELAS)
+            | set(TABELAS_DAT_COM_MATRIZ)
+            | set(TABELAS_SERVICOS_COM_MATRIZ),
         )
         for tabela, por_papel in ESPERADO_POR_TABELA.items():
             with self.subTest(tabela=tabela):

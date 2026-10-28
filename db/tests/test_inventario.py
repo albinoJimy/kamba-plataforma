@@ -1103,12 +1103,99 @@ INVENTARIO["consent_actual"] = {
 #: inventario**: a copia envelhecia e ninguem notava.
 INVENTARIO["events_log_default"] = dict(INVENTARIO["events_log"])
 
+#: O inventario fechado do esquema `servicos` (KAM-047, revisao `0025`).
+#:
+#: **Num dicionario proprio, e nao dentro do `INVENTARIO`.** Aquele e indexado
+#: por nome de tabela sem esquema e a sua consulta filtra `table_schema =
+#: 'platform'`: um nome solto la dentro fazia a asercao procurar
+#: `platform.bookings`, que nao existe, e o teste falhava por uma tabela a menos
+#: em vez de medir alguma coisa. E a mesma separacao que o `TABELAS_LG` e o
+#: `TABELAS_DAT` fazem em `tests/base.py`.
+#:
+#: **E e o primeiro inventario de colunas fora do `platform`.** O `lg` (KAM-026)
+#: e o `dat` (KAM-030) nunca ganharam um, e isso continua a ser uma lacuna — mas
+#: nao desta revisao: fecha-la para eles e mexer em tabelas de outros tickets.
+#: Fica em `docs/dividas-documentais.md`.
+#:
+#: tabela -> coluna -> (tipo, anulavel, omissao, guarda dados pessoais?)
+INVENTARIO_SERVICOS = {
+    "services": {
+        "service_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "nome": ("text", NAO, None, "nome do servico, nao de pessoa singular"),
+        "duracao_min": ("integer", NAO, None, "nao"),
+        "preco_tipo": ("text", NAO, None, "nao"),
+        "preco_minor": ("bigint", SIM, None, "nao"),
+        "currency": ("text", NAO, "'AOA'::text", "nao"),
+        "ativo": ("boolean", NAO, "true", "nao"),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
+    "resources": {
+        "resource_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        # **A unica coluna deste esquema que pode nomear uma pessoa**, e por isso
+        # a unica que a resposta nao despacha com «nao». E o nome de trabalho de
+        # um profissional da PME — o que o cliente ve na lista de opcoes —, nao
+        # um dado de identificacao: nao ha telefone, BI, morada nem e-mail nesta
+        # tabela, e o que a protege e a RLS `FORCE` mais a falta de qualquer
+        # privilegio para os papeis que nao sao o da aplicacao e o de lote.
+        "nome": (
+            "text",
+            NAO,
+            None,
+            "nome de trabalho do profissional, escrito pela PME; sem telefone, "
+            "BI nem morada",
+        ),
+        "ativo": ("boolean", NAO, "true", "nao"),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
+    "availability_rules": {
+        "rule_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "resource_id": ("uuid", NAO, None, "nao"),
+        "dia_semana": ("smallint", NAO, None, "nao"),
+        "inicio": ("time without time zone", NAO, None, "nao"),
+        "fim": ("time without time zone", NAO, None, "nao"),
+        "fuso": ("text", NAO, "'Africa/Luanda'::text", "nao"),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
+    "bookings": {
+        "booking_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "contact_id": (
+            "uuid",
+            NAO,
+            None,
+            "referencia opaca a platform.contacts (KAM-008); nunca um telefone",
+        ),
+        "service_id": ("uuid", NAO, None, "nao"),
+        "resource_id": ("uuid", NAO, None, "nao"),
+        # Token assinado do *slot* (`servicos/slots.ts`). Leva o servico, o
+        # recurso e o intervalo — nada de pessoa — e a assinatura e derivada por
+        # tenant, pelo que o token de um tenant nao verifica noutro.
+        "slot_id": (
+            "text",
+            NAO,
+            None,
+            "token assinado com servico, recurso e intervalo; sem dados de pessoa",
+        ),
+        "hold_id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "inicio_at": ("timestamp with time zone", NAO, None, "nao"),
+        "fim_at": ("timestamp with time zone", NAO, None, "nao"),
+        "estado": ("text", NAO, None, "nao"),
+        "hold_expires_at": ("timestamp with time zone", SIM, None, "nao"),
+        "version": ("integer", NAO, "1", "nao"),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
+}
+
 
 class TestInventario(ComBase):
-    def no_catalogo(self) -> dict[str, dict[str, tuple]]:
+    def no_catalogo(self, esquema: str = "platform") -> dict[str, dict[str, tuple]]:
         linhas = self.consultar(
             "SELECT table_name, column_name, data_type, is_nullable, column_default "
-            "FROM information_schema.columns WHERE table_schema = 'platform'"
+            "FROM information_schema.columns WHERE table_schema = %s",
+            (esquema,),
         )
         resultado: dict[str, dict[str, tuple]] = {}
         for tabela, coluna, tipo, anulavel, omissao in linhas:
@@ -1130,11 +1217,127 @@ class TestInventario(ComBase):
                 with self.subTest(coluna=f"{tabela}.{coluna}"):
                     self.assertEqual(catalogo[tabela][coluna], (tipo, anulavel, omissao))
 
+    def test_o_catalogo_do_servicos_e_exactamente_o_inventario(self) -> None:
+        """O mesmo trinco da `platform`, para o esquema `servicos` (KAM-047).
+
+        Sem isto, uma coluna nova em `servicos.bookings` entrava sem ninguem
+        responder «isto guarda dados pessoais?» — a pergunta que este ficheiro
+        existe para fazer. O `test_o_catalogo_e_exactamente_o_inventario`
+        **nao** a fazia: filtra `table_schema = 'platform'`, e um esquema novo
+        era invisivel para ele.
+        """
+        catalogo = self.no_catalogo("servicos")
+        self.assertEqual(
+            set(catalogo),
+            set(INVENTARIO_SERVICOS),
+            "tabelas a mais ou a menos no esquema servicos",
+        )
+        for tabela, colunas in INVENTARIO_SERVICOS.items():
+            self.assertEqual(
+                set(catalogo[tabela]),
+                set(colunas),
+                f"colunas de servicos.{tabela} diferem do inventario: uma coluna "
+                "nova tem de ser declarada em db/tests/test_inventario.py, com a "
+                "resposta a «guarda dados pessoais?»",
+            )
+            for coluna, (tipo, anulavel, omissao, _) in colunas.items():
+                with self.subTest(coluna=f"servicos.{tabela}.{coluna}"):
+                    self.assertEqual(catalogo[tabela][coluna], (tipo, anulavel, omissao))
+
     def test_toda_a_coluna_tem_a_pergunta_dos_dados_pessoais_respondida(self) -> None:
-        for tabela, colunas in INVENTARIO.items():
-            for coluna, (_, _, _, pessoal) in colunas.items():
-                with self.subTest(coluna=f"{tabela}.{coluna}"):
-                    self.assertTrue(pessoal.strip())
+        for inventario in (INVENTARIO, INVENTARIO_SERVICOS):
+            for tabela, colunas in inventario.items():
+                for coluna, (_, _, _, pessoal) in colunas.items():
+                    with self.subTest(coluna=f"{tabela}.{coluna}"):
+                        self.assertTrue(pessoal.strip())
+
+    def test_as_fk_do_servicos_nao_saem_do_esquema_nem_apagam_em_cascata(self) -> None:
+        """As tres FK do `servicos` ficam dentro dele, e nenhuma e `CASCADE`.
+
+        **Dentro do esquema**, e isso e uma regra e nao uma coincidencia: o
+        `servicos` e acedido so pela TLS, e o `contact_id` entra como referencia
+        opaca a `platform.contacts` — do mesmo modo que o `agregado_id` das
+        tabelas de eventos. Uma FK para `platform` fazia do `servicos` uma
+        extensao daquele esquema e dava ao papel que le a agenda uma razao para
+        ter `REFERENCES` nas tabelas de identidade.
+
+        **Nenhuma apaga em cascata** (`a` e `NO ACTION`): apagar um recurso nao
+        pode apagar em silencio as marcacoes que alguem tem com ele.
+
+        As duas para `resources` e a uma para `services` sao **compostas com o
+        `tenant_id`** — a forma que a `0009` fixou —, e assentam nos indices
+        unicos `resources_tenant_uq` e `services_tenant_uq` que a revisao `0025`
+        criou precisamente para isto.
+        """
+        linhas = self.consultar(
+            "SELECT conname, confdeltype, confupdtype, "
+            "       confrelid::regclass::text AS alvo "
+            "  FROM pg_constraint "
+            " WHERE contype = 'f' AND connamespace = 'servicos'::regnamespace "
+            " ORDER BY conname"
+        )
+        self.assertEqual(
+            linhas,
+            [
+                ("availability_rules_recurso_fk", "a", "a", "servicos.resources"),
+                ("bookings_recurso_fk", "a", "a", "servicos.resources"),
+                ("bookings_servico_fk", "a", "a", "servicos.services"),
+            ],
+        )
+
+    def test_a_restricao_de_exclusao_e_a_do_criterio_1(self) -> None:
+        """A barreira do critério 1, lida do catalogo e nao do DDL.
+
+        «1.000 tentativas concorrentes ... produzem **1** marcacao ... garantido
+        por restricao de exclusao na BD, nao por codigo aplicacional.» O que esta
+        aqui e a definicao que o PostgreSQL guardou, confrontada por extenso: uma
+        revisao futura que lhe tirasse o `tenant_id`, que alargasse o predicado,
+        ou que a trocasse por um indice unico, falha este teste.
+
+        As tres partes, e o que cada uma impede:
+
+        - `tenant_id WITH =` — sem ele, o recurso de um tenant bloqueava o
+          intervalo de outro, e a mensagem de conflito do PostgreSQL (que cita a
+          chave) tornava-se um canal de leitura entre vizinhos.
+        - `tstzrange(inicio_at, fim_at) WITH &&` — `[)`, pelo que adjacente nao
+          sobrepoe e a grelha de horas e possivel.
+        - o predicado dos dois estados activos — e o que deixa cancelar sem
+          apagar: a linha sai do indice e o intervalo volta a estar livre.
+        """
+        linhas = self.consultar(
+            "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint "
+            " WHERE contype = 'x' AND connamespace = 'servicos'::regnamespace"
+        )
+        self.assertEqual(
+            linhas,
+            [
+                (
+                    "bookings_sem_sobreposicao",
+                    "EXCLUDE USING gist (tenant_id WITH =, resource_id WITH =, "
+                    "tstzrange(inicio_at, fim_at) WITH &&) WHERE ((estado = ANY "
+                    "(ARRAY['hold'::text, 'confirmada'::text])))",
+                )
+            ],
+        )
+
+    def test_a_extensao_btree_gist_vive_no_esquema_servicos(self) -> None:
+        """A extensao que a restricao de exclusao precisa, e onde ela esta.
+
+        O ticket manda **validar** que `btree_gist` existe na versao fixada do
+        PostgreSQL 18 em vez de assumir. Esta e a validacao, e corre a cada
+        *gate* 8: a versao e o esquema lidos do catalogo.
+
+        No `servicos` e nao no `public`, por duas razoes que a revisao escreve:
+        o `kamba_migrator` nao tem `CREATE` no `public`, e no `servicos` o
+        `DROP EXTENSION` do `downgrade` cai com o resto do esquema em vez de
+        deixar uma extensao orfa numa base que desceu.
+        """
+        linhas = self.consultar(
+            "SELECT e.extname, n.nspname, e.extversion "
+            "  FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace "
+            " WHERE e.extname = 'btree_gist'"
+        )
+        self.assertEqual(linhas, [("btree_gist", "servicos", "1.8")])
 
     def test_as_fk_nao_apagam_em_cascata(self) -> None:
         """Um `ON DELETE CASCADE` transformava apagar um tenant em apagar os canais.

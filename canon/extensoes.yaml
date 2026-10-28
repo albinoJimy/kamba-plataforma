@@ -43,6 +43,22 @@
 # dicionario deixa de precisar de extensao, e a extensao que fica vira
 # duplicado.
 #
+# O `tenants.nome` saiu **pela mesma razao**, com a emenda 1.44 (KAM-047): o
+# `nome` passou a ser nome do §3.3, como coluna de `servicos.services` e de
+# `servicos.resources`, porque um servico marcavel e um recurso tem os dois um
+# nome que o cliente ve. E a terceira vez que isto acontece, depois do
+# `token_ref` e do `waac_id`, e a repeticao continua a ser o sinal de que a
+# regra funciona.
+#
+# **O que isto alarga, e diz-se:** a extensao era qualificada (`tenants.nome`) e
+# o nome do §3.3 nao e, pelo que uma coluna `nome` passa a ser aceite em
+# qualquer tabela. Nas tres onde existe hoje — `tenants`, `servicos.services` e
+# `servicos.resources` — e nome de negocio, de servico e de trabalho, nunca de
+# pessoa singular, e quem o prende coluna a coluna e o inventario fechado de
+# `db/tests/test_inventario.py`, que exige a resposta a «guarda dados
+# pessoais?». O gate 3b nao substitui esse inventario, e nenhum dos dois sozinho
+# chegava.
+#
 # As do KAM-008 sao o que a revisao `0003` (identidade de contacto) usa e o
 # §3.1 nao enumera: duas colunas de `contact_endpoints` — o dicionario escreve a
 # tabela com reticencias — e os valores dos tres dominios fechados. Eram tres:
@@ -60,10 +76,6 @@
 version: 1
 
 extensoes:
-  - nome: tenants.nome
-    tipo: coluna
-    ticket: KAM-003
-    data: 2026-10-11
   - nome: tenants.nif
     tipo: coluna
     ticket: KAM-003

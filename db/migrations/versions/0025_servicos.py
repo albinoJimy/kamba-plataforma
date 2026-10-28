@@ -316,9 +316,13 @@ def _disponibilidade() -> None:
             fim          time        NOT NULL,
             -- O fuso em que a regra se le. Omissao `Africa/Luanda`
             -- (dicionario secao 2: armazenamento em UTC, apresentacao em
-            -- Africa/Luanda). Validado contra o catalogo do servidor e nao
-            -- contra uma lista escrita a mao, que envelhecia a cada
-            -- actualizacao de `tzdata`.
+            -- Africa/Luanda). Validado contra o catalogo do servidor pelo
+            -- *trigger* `availability_rules_fuso_valido`, e nao contra uma
+            -- lista escrita a mao que envelhecia a cada actualizacao de
+            -- `tzdata`. **Nao e um `CHECK`**, e a razao mediu-se: um
+            -- `CHECK (EXISTS (SELECT 1 FROM pg_timezone_names ...))` e recusado
+            -- pelo PostgreSQL com `0A000 cannot use subquery in check
+            -- constraint`. Ver `_fuso_valido`.
             fuso         text        NOT NULL DEFAULT 'Africa/Luanda',
             criado_at    timestamptz NOT NULL DEFAULT now(),
             CONSTRAINT availability_rules_pkey PRIMARY KEY (rule_id),
@@ -332,12 +336,11 @@ def _disponibilidade() -> None:
             -- janela de zero minutos: nao produz slot nenhum e faz o dono
             -- pensar que marcou disponibilidade quando nao marcou.
             CONSTRAINT availability_rules_janela_ck CHECK (inicio < fim),
-            CONSTRAINT availability_rules_fuso_ck CHECK (
-                EXISTS (SELECT 1 FROM pg_timezone_names WHERE name = fuso)
-            )
+            CONSTRAINT availability_rules_fuso_ck CHECK (btrim(fuso) <> '')
         )
         """
     )
+    _fuso_valido()
     op.execute(
         f"COMMENT ON TABLE {AVAILABILITY} IS "
         "'Grelha semanal de disponibilidade por recurso (KAM-047). "
@@ -348,6 +351,67 @@ def _disponibilidade() -> None:
         f"CREATE INDEX availability_rules_recurso_idx ON {AVAILABILITY} "
         "(tenant_id, resource_id, dia_semana)"
     )
+
+
+def _fuso_valido() -> None:
+    """O fuso de uma regra existe no catalogo do servidor, por *trigger*.
+
+    **E um *trigger* e nao um `CHECK` porque o PostgreSQL recusa o `CHECK`.** A
+    primeira versao desta revisao escreveu
+    `CHECK (EXISTS (SELECT 1 FROM pg_timezone_names WHERE name = fuso))` e o
+    `upgrade` morreu com `0A000 cannot use subquery in check constraint` — um
+    `CHECK` tem de ser uma expressao sobre a propria linha, e o catalogo de
+    fusos e uma tabela. Medido, nao inferido.
+
+    **E nao e uma lista escrita a mao**, que era a outra saida: `tzdata`
+    actualiza-se, e uma lista literal transformava uma invariante num numero que
+    envelhece. A pergunta «este fuso existe?» tem uma fonte, e e o servidor.
+
+    O que isto impede: um `fuso` com uma gralha — `Africa/Luanda ` com espaco,
+    `Africa/Luana`, `WAT` — nao falha na escrita; falha na **leitura**, quando o
+    calculo da disponibilidade fizer `AT TIME ZONE fuso` e o PostgreSQL
+    levantar. Um dono que escreve a agenda uma vez e descobre o erro no primeiro
+    cliente que pede horas e o caso que este *trigger* fecha.
+
+    `SECURITY INVOKER` (a omissao): nao precisa de privilegio nenhum para
+    recusar.
+    """
+    op.execute(
+        """
+        CREATE FUNCTION servicos.validar_fuso() RETURNS trigger
+        LANGUAGE plpgsql AS $func$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_timezone_names WHERE name = NEW.fuso
+          ) THEN
+            RAISE EXCEPTION
+              'servicos.availability_rules: fuso desconhecido no servidor: %',
+              NEW.fuso
+              USING ERRCODE = 'invalid_parameter_value';
+          END IF;
+          RETURN NEW;
+        END $func$
+        """
+    )
+    op.execute(
+        "COMMENT ON FUNCTION servicos.validar_fuso() IS "
+        "'Recusa um fuso que nao exista em pg_timezone_names (KAM-047). "
+        "Trigger e nao CHECK: um CHECK nao aceita subconsulta (0A000).'"
+    )
+    op.execute(
+        """
+        CREATE TRIGGER availability_rules_fuso_valido
+          BEFORE INSERT OR UPDATE OF fuso ON servicos.availability_rules
+          FOR EACH ROW EXECUTE FUNCTION servicos.validar_fuso()
+        """
+    )
+    # `ENABLE ALWAYS` pela razao da `0023`: um *trigger* que e barreira e nao
+    # conveniencia tem de morder tambem quando a sessao e `replica`.
+    op.execute(
+        "ALTER TABLE servicos.availability_rules "
+        "ENABLE ALWAYS TRIGGER availability_rules_fuso_valido"
+    )
+    op.execute("REVOKE ALL ON FUNCTION servicos.validar_fuso() FROM PUBLIC")
 
 
 def _marcacoes() -> None:
@@ -471,6 +535,18 @@ def _expiracao() -> None:
     **O `UPDATE` tem `estado = 'hold'` no `WHERE` e nao so o prazo.** Sem ele,
     uma linha ja expirada por outra chamada concorrente voltava a emitir o
     evento — e o criterio 2 do KAM-048 conta mensagens.
+
+    **A selecao e uma CTE e nao um `IN (subconsulta)`, e isto foi medido.** A
+    primeira versao escrevia
+    `WHERE booking_id IN (SELECT ... LIMIT p_limite FOR UPDATE SKIP LOCKED)` e o
+    tecto **nao era respeitado**: com cinco holds vencidos, `expirar_holds(2)`
+    libertava os cinco. A razao e que um sublink nao correlacionado com `LIMIT` e
+    `FOR UPDATE` nao e um valor calculado uma vez — o planeador pode reexecuta-lo
+    por linha, e cada execucao devolve um conjunto diferente de dois. A CTE e
+    avaliada **uma** vez, e o tecto volta a ser um tecto.
+
+    Apanhado pelo `test_o_tecto_de_linhas_e_respeitado_e_o_varrimento_repete`, e
+    nao por leitura: o SQL parecia certo.
     """
     op.execute(
         """
@@ -486,17 +562,19 @@ def _expiracao() -> None:
               USING ERRCODE = 'check_violation';
           END IF;
           FOR v_linha IN
-            UPDATE servicos.bookings
+            WITH vencidos AS (
+              SELECT booking_id FROM servicos.bookings
+               WHERE estado = 'hold' AND hold_expires_at <= now()
+               ORDER BY hold_expires_at
+               LIMIT p_limite
+               FOR UPDATE SKIP LOCKED
+            )
+            UPDATE servicos.bookings AS b
                SET estado = 'expirada', hold_expires_at = NULL,
-                   version = version + 1
-             WHERE booking_id IN (
-                     SELECT booking_id FROM servicos.bookings
-                      WHERE estado = 'hold' AND hold_expires_at <= now()
-                      ORDER BY hold_expires_at
-                      LIMIT p_limite
-                      FOR UPDATE SKIP LOCKED)
-               AND estado = 'hold'
-            RETURNING booking_id, tenant_id
+                   version = b.version + 1
+              FROM vencidos AS v
+             WHERE b.booking_id = v.booking_id AND b.estado = 'hold'
+            RETURNING b.booking_id, b.tenant_id
           LOOP
             PERFORM platform.evt_emitir(
               'booking.cancelled', 1::smallint, v_linha.tenant_id,
@@ -604,7 +682,9 @@ def downgrade() -> None:
         rls.disable_tenant_rls(tabela, schema=ESQUEMA)
     op.execute("DROP FUNCTION servicos.expirar_holds(integer)")
     op.execute(f"DROP TABLE {BOOKINGS}")
+    # O *trigger* cai com a tabela; a funcao nao, e por isso vai a seguir.
     op.execute(f"DROP TABLE {AVAILABILITY}")
+    op.execute("DROP FUNCTION servicos.validar_fuso()")
     op.execute(f"DROP TABLE {RESOURCES}")
     op.execute(f"DROP TABLE {SERVICES}")
     op.execute("DROP EXTENSION btree_gist")
