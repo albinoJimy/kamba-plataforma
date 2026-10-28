@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Spikes, Validação e Gates |
-| Versão | 1.0 |
+| Versão | 1.4 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` |

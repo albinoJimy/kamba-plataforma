@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Pagamentos, Liquidação e Anti-Fraude (PAY): `PaymentProvider`, ledger, reconciliação, BNA, comissão, billing, e-factura |
-| Versão | 1.0 |
+| Versão | 1.4 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `00_Arquitectura_Solucao.md` (âncora), `../exploracao/11-arquitetura-detalhada-engenharia.md` §2, §5.1, §6; `../exploracao/14-tese-minima-e-plano-de-validacao.md` §4 |

@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Geo e Logística Federada (GEO) |
-| Versão | 1.0 |
+| Versão | 1.3 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../exploracao/06-expansao-plataforma.md` (§2.2), `../exploracao/07-pontos-cegos-2.md` (§9), `../exploracao/11-arquitetura-detalhada-engenharia.md` (§5.2), `../exploracao/13-big-picture-ecossistema.md` |

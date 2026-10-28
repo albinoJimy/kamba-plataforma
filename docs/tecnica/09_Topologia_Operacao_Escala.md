@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Topologia, Operação e Escala |
-| Versão | 1.0 |
+| Versão | 1.3 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `00_Arquitectura_Solucao.md`, `../exploracao/11-arquitetura-detalhada-engenharia.md` §1, §10, §11, `../exploracao/08-arquitetura-tecnica-v2.md` §7–§8 |

@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Dados, Eventos e Analytics (EVT e DAT) |
-| Versão | 1.0 |
+| Versão | 1.6 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../exploracao/11-arquitetura-detalhada-engenharia.md` §2, §3, §8; `../exploracao/13-big-picture-ecossistema.md` §9.5; `../exploracao/06-expansao-plataforma.md` §3, §5 |
