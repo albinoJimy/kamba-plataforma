@@ -1581,7 +1581,7 @@ Testes: fixtures do simulador, relógio acelerado, isolamento, 1 sync real. Abre
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-014, KAM-017 |
-| Bloqueia | KAM-034, KAM-109, KAM-114, KAM-117, KAM-118, KAM-123, KAM-165 |
+| Bloqueia | KAM-034, KAM-109, KAM-114, KAM-117, KAM-118, KAM-123, KAM-166 |
 | Responsável sugerido | Engenheiro de Canais |
 | Documentos de referência | `../docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md` (§10.2, §10.3, §19 proposta 01-C), `../docs/tecnica/00_Arquitectura_Solucao.md` (§12), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§12), ADR-001, ADR-010 |
 

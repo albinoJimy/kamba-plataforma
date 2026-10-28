@@ -795,7 +795,7 @@ describe("os modos da conversa contra a base", () => {
       const texto = JSON.stringify(payload);
 
       // **Os canários são valores inteiros, e não sequências de dígitos** — e é
-      // um defeito medido (KAM-165). A primeira versão desta asserção procurava
+      // um defeito medido (KAM-166). A primeira versão desta asserção procurava
       // `"999"` no texto do payload; o payload é `{channel_mode, thread_id}` e o
       // `thread_id` é `tenant_id:contact_id`, ou seja **64 dígitos
       // hexadecimais** vindos de dois `gen_random_uuid()`. A probabilidade de

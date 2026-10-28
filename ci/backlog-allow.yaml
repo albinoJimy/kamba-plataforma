@@ -53,58 +53,53 @@
 # prazo nao lhes atribui dono — **nenhum ticket os reclama hoje**, e e isso que
 # o KAM-138 devolve no PR. O que o prazo faz e obrigar a pergunta a ser feita
 # numa data em vez de nunca.
+#
+# **Duas foram reclamadas.** O KAM-165 pagou o buraco do `1.13` e a inversao de
+# prioridade, no dia em que as duas venciam, e as duas declaracoes sairam
+# daqui: uma declaracao que ja nao casa nada falha o gate com codigo 2. Ficam
+# as 19 de cabecalho - uma a vencer a 2026-11-04, oito a 2026-11-11 e dez a
+# 2026-11-18.
 version: 1
 
 # ---------------------------------------------------------------------------
-# Inversoes de prioridade e de fase
+# Inversoes de prioridade e de fase: **nenhuma declarada**
 # ---------------------------------------------------------------------------
 #
 # Medido a 2026-10-18 sobre `publico/main`, com `python -m lint_backlog check`:
-# **1** inversao de prioridade e **0** de fase, em 159 blocos.
+# **1** inversao de prioridade e **0** de fase, em 159 blocos. Era a
+# KAM-158 (P1) -> KAM-130 (P2), e **o KAM-165 pagou-a a 2026-10-28**, no dia em
+# que a dispensa vencia: o KAM-130 passou a P1 nas tres superficies. A pergunta
+# que o KAM-138 devolveu - rever a prioridade de um ticket de outro autor e
+# decisao de produto - foi respondida pelo fundador, e a resposta esta na linha
+# 1.44 do `specs/EPIC-01_Fundacoes_Dados.md`.
+#
+# A lista fica **vazia, e por isso ausente**: uma inversao que nao esteja
+# declarada falha desde o primeiro dia, que e o estado a que se queria chegar.
 #
 # NOTA SOBRE O R11, porque o DoD do KAM-138 manda remeter para ele e a medicao
 # nao lhe da razao. O risco R11 do `specs/EPIC-01_Fundacoes_Dados.md` diz que
 # «KAM-012 e KAM-010 sao P1 mas bloqueiam/servem tickets P0». Hoje os dois sao
-# **P0** no §4 e nos seus blocos, e nenhum aparece nesta lista: o R11 descreve
-# um estado que ja nao existe. A linha do risco nao se altera aqui — reescrever
-# o registo de riscos de um epic a partir de uma medicao de passagem e
-# precisamente o gesto que este gate existe para tornar desnecessario —, e a
-# divergencia fica dita no PR do KAM-138 e devolvida a quem mantem o epic.
-
-inversoes:
-  - de: KAM-158
-    para: KAM-130
-    genero: prioridade
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-10-28
-    razao: >-
-      O KAM-158 (gate das contagens em prosa) e P1 e depende do KAM-130
-      (reconciliacao das contagens herdadas), que e P2. A ordem tecnica esta
-      certa e a inversao e real: o gate so pode nascer verde depois de as
-      contagens herdadas estarem pagas, e foi assim que o KAM-158 entregou. O
-      que o numero diz e que a prioridade do KAM-130 esta por rever, nao que a
-      aresta esteja errada — e rever a prioridade de um ticket de outro autor e
-      decisao de produto, devolvida no PR do KAM-138.
+# **P0** no §4 e nos seus blocos: o R11 descreve um estado que ja nao existe. A
+# linha do risco nao se altera aqui - reescrever o registo de riscos de um epic
+# a partir de uma medicao de passagem e precisamente o gesto que este gate
+# existe para tornar desnecessario -, e a divergencia fica dita no PR do
+# KAM-138 e devolvida a quem mantem o epic.
 
 # ---------------------------------------------------------------------------
-# Buracos na sequencia do «Controlo de versoes»
+# Buracos na sequencia do «Controlo de versoes»: **nenhum declarado**
 # ---------------------------------------------------------------------------
 #
-# Medido a 2026-10-18: **1** buraco em 41 documentos com tabela.
-
-sequencias:
-  - ficheiro: specs/EPIC-01_Fundacoes_Dados.md
-    falta: "1.13"
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-10-28
-    razao: >-
-      Residuo da renumeracao do commit `80ab82b` («integra origin/main (KAM-136)
-      e renumera»): dois ramos tomaram o mesmo numero em paralelo e o 1.13 ficou
-      sem linha. Nada o cita, pelo que e residuo textual e nao defeito — esta na
-      linha 21 de `docs/dividas-documentais.md`, e corrigi-lo esta declarado
-      fora do ambito do KAM-138, que aqui so passa a medi-lo.
+# Medido a 2026-10-18: **1** buraco em 41 documentos com tabela - o `1.13` do
+# `specs/EPIC-01_Fundacoes_Dados.md`. **Pago pelo KAM-165 a 2026-10-28**, com
+# uma linha que o registra como vago em vez de renumerar as trinta e uma
+# seguintes: renumerar quebrava as citacoes que `docs/analises/` faz destes
+# numeros, e o buraco e residuo e nao defeito.
+#
+# E a `razao` que aqui estava atribuia o buraco a renumeracao do `80ab82b`, o
+# que **nao se sustenta**: os dois pais desse commit ja nao tinham o 1.13. O
+# buraco nasceu em `5b4cd8b` (KAM-131), que escreveu a 1.14 logo a seguir a
+# 1.12 do seu pai `6439fab`, porque o 1.13 estava tomado em dois outros ramos.
+# A lista fica vazia e ausente, pela mesma razao que a de cima.
 
 # ---------------------------------------------------------------------------
 # Cabecalhos de versao atrasados
