@@ -100,6 +100,23 @@ python .claude/skills/software-factory/scripts/vagas.py
 Devolve os tickets cujas dependências já estão fechadas. É uma lista de **candidatos**: a lista
 de paralelismo da estação 1.3 aplica-se depois dela, não antes.
 
+> **E o backlog que ele lê é o teu, não o da base.** O `main` funde por *squash* várias vezes
+> ao dia, e um ID livre no teu checkout pode já estar fundido. **Medido:** o ticket que fechou
+> as dispensas do *gate* 3c abriu como KAM-163, passou a KAM-164 e ficou **KAM-165** — os dois
+> primeiros foram tomados enquanto se escrevia, e a alteração mecânica fez-se **três vezes**.
+>
+> Mede a base e assenta nela antes da primeira edição:
+>
+> ```bash
+> git fetch publico main
+> git show refs/remotes/publico/main:specs/INDICE.md | grep -oE '^\| KAM-[0-9]{3} \|' | tail -1
+> git checkout -b fix/KAM-NNN-<slug> refs/remotes/publico/main
+> ```
+>
+> O mesmo vale para as contagens, para o número da próxima linha de «Controlo de versões» e
+> para a dispensa que vais pagar: lêem-se da base, não do teu ficheiro. Uma delas pode já ter
+> sido paga por outro ticket, e então a tua correcção é uma declaração morta.
+
 As seis linhas, com artefacto de entrada, artefacto de saída, portões e a tabela de autoridade
 completa — o que posso fazer sozinho e onde tenho de parar e pedir — estão em
 [`references/admissao-e-linhas.md`](references/admissao-e-linhas.md).
@@ -157,6 +174,11 @@ Lacunas de informação:
 
 **As lacunas são a parte que importa.** Uma discovery que não lista nada em falta ou não
 procurou, ou está a esconder incerteza.
+
+**Medições independentes vão numa só mensagem.** Entre dois comandos que não dependem um do
+outro não há ordem a respeitar, e mandá-los um a um é a maior fonte de lentidão deste ciclo:
+dezenas de idas e voltas por ticket, cada uma a pagar latência por nada. O ciclo é sequencial
+nas **estações**, não nos comandos — e isto vale em todas elas, não só na discovery.
 
 Quando o alvo é código que ninguém da sessão conhece, junta
 `Skill(skill: "ponytail:ponytail-audit", args: "services/<nome>")` — é read-only e o que sai
@@ -388,6 +410,14 @@ segundas leituras, sem terceiras passagens, sem configuração nova a cada ticke
 correm todos na **mesma passagem**, os achados juntam-se numa lista só, corrigem-se de uma vez,
 e o PR funde.
 
+**Lança-a assim que o diff existir, não no fim.** É read-only e não depende da tua
+self-validation, pelo que as duas correm ao mesmo tempo. Lançada no fim, é tempo de relógio
+somado em vez de sobreposto: **medido**, vinte minutos de revisão contra dois de
+self-validation, no ticket das dispensas do *gate* 3c. O que não se antecipa é a conclusão — não
+se funde antes de ela responder. E se a árvore mudou desde o lançamento, cada achado
+`CONFIRMADO` verifica-se outra vez contra a árvore que vai fundir: aconteceu, e cinco dos dez
+achados dessa revisão já estavam mortos quando ela respondeu.
+
 ```
 Skill(skill: "code-review", args: "high")
 Skill(skill: "ponytail:ponytail-review")   # + o eixo do que não devia existir
@@ -508,8 +538,8 @@ em menos tempo de relógio — nenhuma sobre fazer menos trabalho.
    `ci-8` inclui cinco minutos de carga de eventos; lança-os em background e continua. Não
    faças polling — a notificação chega.
 4. **Vagas, não fila.** Correm em paralelo os tickets cujas dependências já estão fechadas
-   (`vagas.py`), cada escritor no seu worktree, e os subagentes lançam-se **na mesma
-   mensagem** — senão correm em série e pagas a latência sem ganhar nada.
+   (`vagas.py`), cada escritor no seu worktree, e os subagentes lançam-se na mesma
+   mensagem, como todos os comandos independentes (§1.1).
 5. **Não refaças a discovery.** `KNOWN_FACTS` no contrato do agente é o campo que mais poupa:
    sem ele cada subagente redescobre o mesmo conjunto e chega a conclusões ligeiramente
    diferentes — o que produz conflitos que não existiam.
