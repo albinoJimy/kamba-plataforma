@@ -105,17 +105,33 @@ de paralelismo da estação 1.3 aplica-se depois dela, não antes.
 > as dispensas do *gate* 3c abriu como KAM-163, passou a KAM-164 e ficou **KAM-165** — os dois
 > primeiros foram tomados enquanto se escrevia, e a alteração mecânica fez-se **três vezes**.
 >
-> Mede a base e assenta nela antes da primeira edição:
+> São **três** medidas antes da primeira edição, e nenhuma substitui as outras:
 >
 > ```bash
-> git fetch publico main
-> git show refs/remotes/publico/main:specs/INDICE.md | grep -oE '^\| KAM-[0-9]{3} \|' | tail -1
+> git fetch publico main:refs/remotes/publico/main --force   # sem refspec só move o FETCH_HEAD
+> git show refs/remotes/publico/main:specs/INDICE.md \
+>   | grep -oE '^\| KAM-[0-9]{3} \|' | grep -oE '[0-9]{3}' | sort -n | tail -1
+> gh pr list --repo albinoJimy/kamba-plataforma --state open --json number,headRefName,title
+> git ls-remote --heads publico | grep -oE 'KAM-[0-9]{3}' | sort -u | tail -5
 > git checkout -b fix/KAM-NNN-<slug> refs/remotes/publico/main
 > ```
+>
+> **O `sort -n` não é enfeite.** O §4 está agrupado por epic, pelo que um `tail -1` sem ordenar
+> devolve o último ticket do EPIC-11 — `KAM-127` no dia em que o maior era o 165. A primeira
+> versão desta receita tinha esse defeito e mandou duas sessões para o mesmo número.
+>
+> **E a base não mostra um ID reclamado por um PR aberto**, que foi como nasceu a segunda
+> colisão do mesmo dia: dois PRs com o mesmo `KAM-165`, e o segundo em `CONFLICTING` quando o
+> primeiro fundiu. Daí o `gh pr list` e o `ls-remote`, que vêem o que a `main` ainda não tem.
 >
 > O mesmo vale para as contagens, para o número da próxima linha de «Controlo de versões» e
 > para a dispensa que vais pagar: lêem-se da base, não do teu ficheiro. Uma delas pode já ter
 > sido paga por outro ticket, e então a tua correcção é uma declaração morta.
+>
+> **E se entrares num worktree, confirma a base lá dentro.** O `EnterWorktree` ramifica de
+> `origin/<default-branch>`, e aqui o `origin` é o espelho privado, sem antepassado comum com o
+> `publico`: numa entrada medida, pôs a sessão em `f344990` — o merge de um PR dezenas de
+> commits atrás.
 
 As seis linhas, com artefacto de entrada, artefacto de saída, portões e a tabela de autoridade
 completa — o que posso fazer sozinho e onde tenho de parar e pedir — estão em
