@@ -52,7 +52,8 @@
 # correccao o KAM-138 declara fora de ambito: aqui so se passa a medi-los. O
 # prazo nao lhes atribui dono — **nenhum ticket os reclama hoje**, e e isso que
 # o KAM-138 devolve no PR. O que o prazo faz e obrigar a pergunta a ser feita
-# numa data em vez de nunca.#
+# numa data em vez de nunca.
+#
 # **Duas foram reclamadas.** O KAM-165 pagou o buraco do `1.13` e a inversao de
 # prioridade, no dia em que as duas venciam, e as duas declaracoes sairam
 # daqui: uma declaracao que ja nao casa nada falha o gate com codigo 2. Ficam
@@ -89,10 +90,15 @@ version: 1
 # ---------------------------------------------------------------------------
 #
 # Medido a 2026-10-18: **1** buraco em 41 documentos com tabela - o `1.13` do
-# `specs/EPIC-01_Fundacoes_Dados.md`, residuo da renumeracao do `80ab82b`.
-# **Pago pelo KAM-165 a 2026-10-28**, com uma linha que registra o numero vago
-# em vez de renumerar as vinte e oito seguintes: renumerar quebrava as citacoes
-# que `docs/analises/` faz destes numeros, e o buraco e residuo e nao defeito.
+# `specs/EPIC-01_Fundacoes_Dados.md`. **Pago pelo KAM-165 a 2026-10-28**, com
+# uma linha que o registra como vago em vez de renumerar as trinta e uma
+# seguintes: renumerar quebrava as citacoes que `docs/analises/` faz destes
+# numeros, e o buraco e residuo e nao defeito.
+#
+# E a `razao` que aqui estava atribuia o buraco a renumeracao do `80ab82b`, o
+# que **nao se sustenta**: os dois pais desse commit ja nao tinham o 1.13. O
+# buraco nasceu em `5b4cd8b` (KAM-131), que escreveu a 1.14 logo a seguir a
+# 1.12 do seu pai `6439fab`, porque o 1.13 estava tomado em dois outros ramos.
 # A lista fica vazia e ausente, pela mesma razao que a de cima.
 
 # ---------------------------------------------------------------------------
