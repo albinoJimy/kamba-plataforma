@@ -298,3 +298,13 @@ fontes_adicionais:
       Chama `docker compose -f infra/compose/docker-compose.chatwoot.yml`, que e
       onde as imagens e os digests estao declarados. O spike nao
       constroi nem puxa nada por conta propria.
+  # KAM-041: o harness do spike do Medusa levanta um PostgreSQL e corre o Medusa
+  # num contentor Node. **Nao traz imagem nova**: importa `IMAGEM` de
+  # `db/gate_bd.py` e `IMAGEM_NODE` de `db/tests_identidade/node.py`, que estao
+  # declaradas acima e sao conferidas contra este inventario. Daqui o
+  # `sem_imagem`: nao ha constante local a conferir, porque nao ha digest local.
+  - ficheiro: spikes/medusa-d3/contentor.py
+    sem_imagem: >-
+      As duas imagens vem das constantes ja declaradas de db/gate_bd.py
+      (IMAGEM) e db/tests_identidade/node.py (IMAGEM_NODE). Um digest proprio
+      aqui era um digest a mais para manter por causa de um spike.

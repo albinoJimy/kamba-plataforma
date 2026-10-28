@@ -14,7 +14,7 @@
 
 | Ferramenta | Versão estável / data | Licença (SPDX e nota) | SaaS multi-tenant OK? | Maturidade (manutenção, estrelas) | Risco | Fonte (estado) |
 |---|---|---|---|---|---|---|
-| **Medusa v2** | v2.21.2, 2026-09-28 | MIT para o repo, **excepto Enterprise Edition (RBAC e SSO/OIDC)**, proprietário desde 2026-08-11. SPDX do GitHub: NOASSERTION. | SIM no core MIT. NÃO usar os caminhos EE (RBAC, `auth-oidc`, `policies`) sem acordo comercial. | 36,7k estrelas, releases quinzenais, push diário | MÉDIO: mudança de licença recente (open core a deslizar); RBAC/SSO do admin passam a ser pagos | github.com/medusajs/medusa/blob/develop/LICENSE e ENTERPRISE-LICENSE.md (CONFIRMADO) |
+| **Medusa v2** | v2.21.2, 2026-09-28 | MIT para o repo, **excepto Enterprise Edition (RBAC e SSO/OIDC)**, proprietário desde 2026-08-11. SPDX do GitHub: NOASSERTION. **Precisão do KAM-041 (2026-10-27):** o `package.json` publicado declara `"license": "SEE LICENSE IN LICENSE"` — já não `MIT` — desde a **2.19.0** (2026-08-13); a **2.18.0** (2026-07-23) é a última a declarar `MIT`. O acto de licenciamento é de 2026-08-11 (PR #16110) e **não é retroactivo**: as versões anteriores mantêm os termos originais. | SIM no core MIT. NÃO usar os caminhos EE (RBAC, `auth-oidc`) sem acordo comercial. **Correcção do KAM-041:** `@medusajs/policies` **não existe no npm** (`policies` é um directório do `@medusajs/framework`); e `@medusajs/rbac` e `@medusajs/auth-oidc` são `dependencies` **directas** do `@medusajs/medusa`, pelo que instalam-se sempre — o que a licença condiciona é **activar** a *feature flag* (`MEDUSA_FF_RBAC`, `MEDUSA_FF_RBAC_FILTER_FIELDS`, ambas `default_val: false`), não possuir o código. | 36,7k estrelas, releases quinzenais, push diário | MÉDIO: mudança de licença recente (open core a deslizar); RBAC/SSO do admin passam a ser pagos | github.com/medusajs/medusa/blob/develop/LICENSE e ENTERPRISE-LICENSE.md (CONFIRMADO); `registry.npmjs.org/@medusajs/medusa/{2.18.0,2.19.0,2.21.2}` e o `package-lock.json` do spike (CONFIRMADO, `../../spikes/KAM-041-medusa.md` §7.4 e §7.5) |
 | **Mercur** (marketplace sobre Medusa) | v2.3.7, 2026-10-08 (v2.0.0 em 2026-03-18) | MIT (Copyright 2025 Rigby) | SIM (MIT). Requer `@medusajs/medusa >= 2.21.0`. | 1,8k estrelas, ~14 contribuidores no 1.º ano de v2, 10 issues abertas, cadência de várias releases/mês | MÉDIO-ALTO: jovem; fix de segurança "cross-seller authorization gaps in the vendor API" a 2026-10-08; só payout Stripe Connect | github.com/mercurjs/mercur (CONFIRMADO) |
 | **Chatwoot** | v4.18.0, 2026-09-18 | MIT ("MIT Expat") fora de `enterprise/`; `enterprise/` sob licença proprietária (subscrição + nº de lugares) | SIM com core MIT. NÃO usar código `enterprise/` em produção sem subscrição. | 37,6k estrelas, release mensal, push diário | MÉDIO: o que é EE cresce (custom roles, SAML, SLA, captain, audit); marca branca é EE | github.com/chatwoot/chatwoot/blob/develop/LICENSE e enterprise/LICENSE (CONFIRMADO) |
 | **Typebot** | v3.19.0, 2026-09-14 | **FSL-1.1-Apache-2.0** (Functional Source License). README ainda mostra badge AGPLv3 (desactualizado; o ficheiro LICENSE é FSL desde 2024-09-25). | **RESTRITO.** Uso interno OK; "Competing Use" proibido. Não oferecer o editor/runtime a tenants. | 10,5k estrelas, push 2026-10-07 | ALTO se usado como motor de fluxos para clientes; BAIXO para fluxos internos nossos | github.com/baptisteArno/typebot.io/blob/main/LICENSE (CONFIRMADO) |
@@ -272,7 +272,32 @@ Os modelos do doc 08 (GPT-4.1-nano e GPT-4.1-mini) ainda estão listados, mas j�
 
 ## 6. O que não consegui verificar (lista para a próxima ronda)
 
-- Multi-tenancy nativo do Medusa v2 (documentação não acessível no fetch).
+> **Emenda de 2026-10-27 (spike KAM-041).** A documentação oficial do Medusa
+> **está acessível**: `docs.medusajs.com` responde HTTP 200, qualquer página
+> serve Markdown acrescentando `.md` ao URL, e há um corpus completo em
+> `https://docs.medusajs.com/llms-full.txt`. A indisponibilidade registada nesta
+> secção a 2026-10-08 era conjuntural, não permanente — e isso importa, porque
+> três itens ficaram NÃO VERIFICADOS por causa dela quando eram verificáveis.
+> O que o spike apurou está em
+> [`../../spikes/KAM-041-medusa.md`](../../spikes/KAM-041-medusa.md):
+>
+> - **multi-tenancy nativa: não existe** — negação textual da documentação
+>   («While Medusa doesn't natively support multi-tenancy…»), CONFIRMADO;
+> - **reservas sem TTL:** o `ReservationItem` não tem campo de expiração e não
+>   há *scheduler* nativo, CONFIRMADO;
+> - **reserva atómica:** a camada do módulo é *read-then-write* sem lock nem
+>   constraint; a protecção vive no passo de *workflow*, cujo provider de
+>   locking por omissão é *in-memory* e, pela documentação, «only intended for
+>   use in a single-instance environment», CONFIRMADO.
+>
+> E duas correcções ao §2.1 desta mesma evidência, também CONFIRMADAS:
+> o `@medusajs/medusa` declara `SEE LICENSE IN LICENSE` desde a **2.19.0**
+> (a 2.18.0 é a última `MIT`), e **`@medusajs/policies` não existe no npm** —
+> `policies` é um directório do `@medusajs/framework`, e o interruptor real são
+> as *feature flags* `MEDUSA_FF_RBAC` e `MEDUSA_FF_RBAC_FILTER_FIELDS`.
+
+- ~~Multi-tenancy nativo do Medusa v2 (documentação não acessível no fetch).~~
+  **Resolvido** pela emenda acima: não existe (CONFIRMADO, 2026-10-27).
 - Disponibilidade do Stripe Connect em Angola e alternativas de payout (Mercur).
 - Documentação do BullMQ sobre garantias de entrega e do Keycloak sobre Organizations/realms.
 - Que versão do Embedded Signup usa a versão 4.18.0 do Chatwoot.

@@ -61,6 +61,9 @@ docs/                conjunto documental (ver docs/INDICE.md)
   analises/          análises adversariais
   adr/               ADRs locais (ADR-L###); os canónicos estão em docs/tecnica/00 §8
   evidencia/         evidência de execução por ticket
+  spikes/            relatórios de spike, com o resultado de cada critério
+spikes/              instrumentos de medição dos spikes — não é código de produção
+  medusa-d3/         KAM-041: harness do spike do Medusa (decisão D3)
 specs/               backlog executável (KAM-NNN) — na raiz, não é documentação
   tickets/           um ficheiro por ticket do EPIC-01 (43); os outros dez epics
                      mantêm os blocos no próprio ficheiro (KAM-155)

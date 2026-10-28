@@ -96,6 +96,51 @@ Saída verificável: relatório `docs/spikes/KAM-041-medusa.md`, repositório de
 - [ ] A decisão segue a árvore de §4.5: AC-1..AC-7 todos verdes e AC-9 ≤ 3 dias → **opção B**; AC-9 > 3 dias e o custo da C menor que o de reforçar B → **opção C**; qualquer bloqueante vermelho corrigível no COM em < 3 dias → corrigir e repetir ISO e AC-1 **uma vez**; senão → **opção C**.
 - [ ] A decisão está assinada pelo Arquitecto de Plataforma e pelo Responsável de Segurança e o custo da opção C está estimado em dias-pessoa (referência `../docs/tecnica/03`: 2–3 semanas de um engenheiro, estimativa nossa).
 
+### Verificação dos Critérios de Aceitação
+
+Medição de **2026-10-27**, harness em [`spikes/medusa-d3/`](../spikes/medusa-d3/),
+relatório em [`../docs/spikes/KAM-041-medusa.md`](../docs/spikes/KAM-041-medusa.md).
+Reproduz-se com `python spikes/medusa-d3/harness.py`, que sai `0` se os sete
+bloqueantes estiverem medidos e verdes, `1` se algum estiver vermelho e `2` se
+não se conseguiu medir. **Saiu `1`.**
+
+| ID | Resultado | O que se mediu, e com que comando |
+|---|---|---|
+| AC-1 | **vermelho** | `resultados/iso.json`: 60 casos da matriz do §4.4, **58 verdes**, **1 passe indevido** (ISO-15) e 1 não medido (ISO-14). O passe indevido é real e específico — ver a secção «o que não se cumpre», abaixo |
+| AC-2 | **verde** | `resultados/ac2-rede.json`: 0 portas do Medusa publicadas no anfitrião; um contentor noutra rede não alcança a 9000 **e alcança a 5432 publicada** (controlo positivo, sem o qual o silêncio não prova nada); 0 credenciais de admin no código da porta |
+| AC-3 | **verde** no mecanismo do desenho | 1.000 tentativas sobre stock 10, em vagas de 250, com **sobreposição máxima medida de 250 tentativas em voo**: 10 sucessos, 990 recusas por falta de stock, `reservada = 10/10`, **0 acima do stock**. O caminho do Medusa reprovou, e é o resultado que decide a D3: **117 reservas aceitas sobre stock 10** nesta execução (102 a 118 nas quatro medições — varia porque é uma corrida) pela camada do módulo (varia entre execuções, porque é uma corrida), com o contador `reserved_quantity` a acabar em `10` por *lost update* |
+| AC-4 | **verde** | 50 repetições **concorrentes** de `createOrder` com o mesmo `intent_key`, sincronizadas por barreira: **1** encomenda na base, 1 id distinto devolvido às 50 respostas, 0 erros |
+| AC-5 | **não verificado** | A metade `platform` da saga mediu-se (10 intenções órfãs; reconciliação em 1,5 s; 0 órfãos e 0 divergências abertas depois). **A metade que o critério nomeia — a falha entre o Registo e o espelho — não se mediu**: exige criar a encomenda no Medusa e interromper antes do espelho, que o harness não faz |
+| AC-6 | **não verificado** | p99 = 21,7 s em 199 amostras — **mas com um varredor a 0,2 s**, que é escolha do harness e não o mecanismo do §6.5 (*job* de 60 s + *delayed job* por reserva, nenhum implementado). O número mede o custo de processamento da libertação, não a cadência. O que ficou provado é a guarda do §6.5: a porta **recusou** libertar a reserva da encomenda paga, 50 vezes, pela consulta final a PAY |
+| AC-7 | **verde** | `python spikes/medusa-d3/ee.py` → 0, com a configuração, o fecho **e o ambiente do contentor** lidos. 0 flags Enterprise activas. Dois pacotes EE estão **na árvore** sem estarem activos (`@medusajs/rbac`, `@medusajs/auth-oidc`), arrastados pelo próprio `@medusajs/medusa`: a licença condiciona **activar**, não possuir |
+| AC-8 | **vermelho** | p95 = **1.344,8 ms** contra um limiar de 800 ms, em 1.200 amostras a 19,99/s alcançados de 20/s oferecidos, com a latência contada **desde a submissão** (p50 93,6 ms, max 2.524 ms). Variou entre 929 ms e 2.301 ms nas quatro medições. É um *Alvo*, não bloqueia. O relatório mostra o custo de abrir ligação, que é onde o tempo está: a porta do spike abre uma ligação por operação, de propósito |
+| AC-9 | **não verificado** | **Estimativa** de 2 a 3 dias-pessoa (*proposta*), que cumpre o limiar mas não o mede. Calibra-se no KAM-042 |
+| AC-10 | **não verificado** | Contaram-se 150 tabelas do Medusa em `public`, mas o *dry-run* da 2.22.1 não correu: exigia uma segunda árvore instalada |
+
+**O que não se cumpre, nomeado:**
+
+- **AC-1 (bloqueante) está vermelho por um passe indevido real.** O **ISO-15**
+  mostrou que a API *Store* do Medusa serve a encomenda de um tenant a uma
+  chave publicável de outro: `GET /store/orders/{id de B}` com a chave de A
+  devolveu HTTP 200 com a encomenda de B, enquanto o mesmo pedido com um id
+  inexistente foi recusado — logo não é um *endpoint* permissivo, é uma leitura
+  cruzada. A mitigação está no desenho (`../docs/tecnica/03` §1: «os agentes não
+  falam com o Medusa») e passa a ser explícita: a API *Store* tem de ficar
+  inalcançável como a Admin (AC-2). **O ISO-14 ficou não medido** (não se
+  conseguiu criar um *cart* com a chave de B).
+- **AC-5 e AC-6 (bloqueantes) não se mediram**, cada um pela razão da tabela.
+  Um bloqueante não medido não é verde, e por isso a **D3 não fecha** sobre eles.
+- **AC-8 (alvo) está vermelho**, 929 ms contra 800 ms.
+- **As duas caixas de Critérios de Aceitação ficam vazias.** A primeira porque a
+  árvore do §4.5 foi percorrida mas **não chega a um nó terminal**: tem «todos
+  verdes?» e «falha corrigível?», e não tem ramo para um bloqueante que não se
+  conseguiu medir — o que é, em si, um resultado deste spike, devolvido a quem
+  escreveu o critério (§8 do relatório). A segunda porque **não há assinaturas**:
+  o spike não assina pelo Arquitecto de Plataforma nem pelo Responsável de
+  Segurança. O custo da opção C fica estimado em **10 a 15 dias-pessoa**
+  (conversão das «2–3 semanas de um engenheiro» do §4.5, mantida como
+  *proposta*).
+
 ### Detalhes Técnicos
 
 - **Plano de 5 dias** (`../docs/tecnica/03` §4.2): D1 Medusa v2.21.x fixado em contentor, módulo `merchant`, 3 tenants fictícios, `CommerceRegistry` mínima (`getOfferView`, `createOrder`); D2 suite de isolamento (Store API, Admin API, *query graph*, SQL directo); D3 reservas e concorrência (1.000 paralelas, expiração, `intent_key`, falha a meio de *workflow*); D4 integração *outbox* → EVT, `orders_mirror`, carga 20 pedidos/s, *dry-run* de minor, migrações Alembic + Medusa na mesma *pipeline*; D5 relatório e decisão.
@@ -116,10 +161,21 @@ Saída verificável: relatório `docs/spikes/KAM-041-medusa.md`, repositório de
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis (relatório, evidência, decisão assinada).
 - [ ] **Isolamento de tenant:** resultados ISO-01..60 anexos; nenhum acesso cruzado indevido na opção escolhida (ADR-015).
-- [ ] **Idempotência:** AC-4 demonstrado com 50 repetições concorrentes (ADR-013).
-- [ ] **Plataforma sem fundos:** nenhum teste do spike toca em payout; Mercur/Stripe Connect fora do Piloto (ADR-004).
-- [ ] **Dependências:** versão do Medusa fixada; licença registada; nenhuma *flag* EE (ADR-003).
-- [ ] ADR-003 e `../docs/tecnica/03` actualizados com a decisão D3; itens NÃO VERIFICADOS actualizados.
+- [x] **Idempotência:** AC-4 demonstrado com 50 repetições concorrentes (ADR-013).
+- [x] **Plataforma sem fundos:** nenhum teste do spike toca em payout; Mercur/Stripe Connect fora do Piloto (ADR-004).
+- [x] **Dependências:** versão do Medusa fixada; licença registada; nenhuma *flag* EE (ADR-003).
+- [x] ADR-003 e `../docs/tecnica/03` actualizados com a decisão D3; itens NÃO VERIFICADOS actualizados.
+
+### Verificação da Definition of Done
+
+| Caixa | Estado | Evidência |
+|---|---|---|
+| Todos os CA satisfeitos e demonstráveis | **vazia** | AC-1 e AC-8 vermelhos; AC-5, AC-6, AC-9 e AC-10 não verificados. E a decisão **não está assinada** |
+| Isolamento de tenant: ISO-01..60 anexos; nenhum acesso cruzado indevido | **vazia** | Os 60 casos estão anexos (`resultados/iso.json`, 57 verdes), mas **houve um acesso cruzado indevido**: o ISO-15 na API *Store* do Medusa. A caixa diz «nenhum», e houve um |
+| Idempotência: AC-4 com 50 repetições concorrentes | **marcada** | 50 repetições sincronizadas por barreira sobre o mesmo `intent_key` → **1** encomenda, 1 id devolvido às 50 respostas, 0 erros. Implementa os quatro passos do §6.3, incluindo a espera de 3 s do passo 2 — sem ela, as 49 que perdem a corrida recebiam resposta diferente da do vencedor |
+| Plataforma sem fundos: nenhum teste toca em payout | **marcada** | `grep -rniE "payout\|stripe" spikes/ --include=*.py --include=*.ts --include=*.sql --include=*.mjs` → **0 ocorrências**. O Mercur não foi corrido (§10 do relatório) |
+| Dependências: versão fixada; licença registada; nenhuma *flag* EE | **marcada** | `@medusajs/medusa` **2.21.2** fixada por `package-lock.json` (1.158 pacotes); licença `SEE LICENSE IN LICENSE` registada com o texto do ficheiro, e a precisão de que a 2.18.0 é a última MIT; `ee.py` → 0 com configuração, fecho e ambiente do contentor lidos |
+| ADR-003 e `../docs/tecnica/03` actualizados; NÃO VERIFICADOS actualizados | **marcada** | ADR-003 e D3 em `../docs/tecnica/00` §8 e §13.3; `../docs/tecnica/03` §3.3, §3.4, §5.4, §6.4 e §15; `E4` §2.1 e §6; Carta §4.1 e §4.2; `08` §3.5. Três itens NÃO VERIFICADOS passaram a CONFIRMADO e dois novos entraram. **O STRIDE e os riscos residuais não se emendam aqui**: em `albinoJimy/kamba-plataforma` são remissões para o repositório privado, e é lá que o achado do ISO-58 tem de entrar no RR-01 |
 
 ### Handoff para Claude Code
 
