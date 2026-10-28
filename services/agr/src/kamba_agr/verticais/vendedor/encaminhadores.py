@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from typing import Any, Final
 
+from ...concierge.maquina import DECISOES_QUE_ENVIAM
 from ...tls.erros import UPSTREAM_DOWN, UPSTREAM_TIMEOUT
 from .arestas import INTENCOES, STALE_CONFIRMATION, VEREDICTOS_DE_GUARDA
 
@@ -196,6 +197,38 @@ def r_handoff(estado: dict[str, Any]) -> str:
     return "wait" if handoff.get("status") == "waiting" else "degraded"
 
 
+def r_send(estado: dict[str, Any]) -> str:
+    """Linhas 35 e 40: enviado, ou a caminho da aprovacao humana (KAM-114).
+
+    **A omissao e `enviado` e nao `aprovar`**, e isso e deliberado: sem
+    `concierge` no estado — que e o caso de todos os *tenants* fora do Piloto —
+    o turno acaba como o KAM-031 o entregou. Encaminhar por omissao para a
+    aprovacao punha **toda** a plataforma a espera de um operador que nao
+    existe.
+
+    A barreira do criterio 1 nao esta aqui: esta no `send`, que e quem decide
+    nao enfileirar. Este encaminhador le o que ele decidiu — `a_aprovar` — e nao
+    repete a leitura da politica, que e I/O e ja foi feita uma vez neste turno.
+    """
+    concierge = estado.get("concierge")
+    if not isinstance(concierge, dict):
+        return "enviado"
+    return "aprovar" if concierge.get("estado") == "a_aprovar" else "enviado"
+
+
+def r_draft(estado: dict[str, Any]) -> str:
+    """Linhas 42 e 43: a decisao manda enviar, ou acaba o turno (KAM-114).
+
+    **A omissao e `end`**, ao contrario do `r_send`, e e a direccao segura: uma
+    retoma com um corpo que esta classe nao entende **nao** faz sair uma
+    mensagem. E a barreira do criterio 1 outra vez, e aqui ela e a omissao.
+    """
+    concierge = estado.get("concierge")
+    if not isinstance(concierge, dict):
+        return "end"
+    return "enviar" if concierge.get("decisao") in DECISOES_QUE_ENVIAM else "end"
+
+
 #: Os encaminhadores pelo no que os usa. E o que o `grafo.py` percorre, e e
 #: tambem o que torna «um no condicional sem encaminhador» impossivel de
 #: escrever: o `build_graph` levanta se a tabela de arestas tiver um no
@@ -212,4 +245,7 @@ POR_NO: Final = {
     "validate": r_cite,
     "guard_out": r_out,
     "handoff_prepare": r_handoff,
+    # KAM-114.
+    "send": r_send,
+    "draft_wait": r_draft,
 }

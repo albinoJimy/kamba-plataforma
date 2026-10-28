@@ -116,6 +116,8 @@ NOME_DO_HANDOFF: Final = "kamba-agr:handoff"
 #: A setima, da subscricao de eventos (KAM-038): `platform.events_consumed`,
 #: `platform.events_dlq` e a leitura de `platform.conversations`.
 NOME_DOS_EVENTOS: Final = "kamba-agr:eventos"
+#: A oitava, do modo concierge (KAM-114): so `platform.draft_decisions`.
+NOME_DO_CONCIERGE: Final = "kamba-agr:concierge"
 
 
 class ConfiguracaoEmFalta(RuntimeError):
@@ -270,3 +272,27 @@ def ligar_para_checkpoint(ambiente: Any = None) -> Any:
         papel=PAPEL_DO_CHECKPOINTER,
         var_senha=VAR_SENHA_AGR,
     )
+
+
+def ligar_para_concierge(ambiente: Any = None) -> Any:
+    """A ligacao do modo concierge (KAM-114). Transaccional, `kamba_app`.
+
+    **A oitava tomada, e pela razao das quatro anteriores**: o
+    `kamba_core.tenant_guard` recusa uma segunda transaccao na mesma ligacao
+    (`LigacaoEmUso`), e uma decisao de rascunho corre **ao mesmo tempo** que
+    turnos de outras conversas — a tranca serializa por `thread_id`, nao o
+    processo.
+
+    **E nao se partilha com a do `handoff`**, que e do mesmo papel e serviria em
+    privilegio: um `/internal/draft-decision` e um `/internal/resume`
+    concorrentes rebentavam um ao outro, e as duas rotas existem ao mesmo tempo.
+
+    Papel `kamba_app`: o que ela toca e a `platform.draft_decisions`
+    (`SELECT`, `INSERT` e `UPDATE` por coluna, revisao `0024`), e o `kamba_agr`
+    **nao tem `USAGE` no `platform`**, de proposito (KAM-026).
+
+    A varredura dos prazos **nao** usa esta: atravessa *tenants*, corre como
+    `kamba_batch` e recebe a ligacao de quem a chama — a mesma linha que o
+    `ligar_para_handoff` escreveu, e pela mesma razao.
+    """
+    return _ligar(ambiente, autocommit=False, nome=NOME_DO_CONCIERGE)

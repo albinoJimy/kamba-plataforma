@@ -218,21 +218,36 @@ TABELAS_0021 = ("tool_audit",)
 #: `db/tests_isolamento/sementes.py`: apaga-se com `DELETE`.
 TABELAS_0022 = ("tool_idempotency",)
 
+#: O que a revisao 0024 (KAM-114) acrescenta: as decisoes do modo concierge.
+#:
+#: **A `v_draft_metrics` nao entra aqui**: e uma **vista**, e o `pg_tables` que
+#: alimenta esta lista nao lista vistas (`relkind` 'v'). Quem a verifica e o
+#: `verificar_vistas` do *gate* 6, que exige `security_invoker` em todas.
+TABELAS_0024 = ("draft_decisions",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
         + TABELAS_0006 + TABELAS_0007 + TABELAS_0008 + TABELAS_0009
         + TABELAS_0010 + TABELAS_0011 + TABELAS_0012 + TABELAS_0013
         + TABELAS_0014 + TABELAS_0015 + TABELAS_0017 + TABELAS_0018
-        + TABELAS_0019 + TABELAS_0021 + TABELAS_0022
+        + TABELAS_0019 + TABELAS_0021 + TABELAS_0022 + TABELAS_0024
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0023`.
+#:
+#: A `0023` (KAM-030) cria o esquema `dat` e nao toca no `platform`, pelo que o
+#: conjunto do `platform` na `0023` e o da `0022`.
+TABELAS_ATE_0023 = tuple(sorted(set(TABELAS) - set(TABELAS_0024)))
 
 #: O que existe em `platform` quando a base esta na revisao `0021`.
 #:
 #: Pela mesma razao das outras: o `downgrade` da `0022` leva a base para aqui, e
 #: o teste do ciclo compara o conjunto com esta tupla.
-TABELAS_ATE_0021 = tuple(sorted(set(TABELAS) - set(TABELAS_0022)))
+TABELAS_ATE_0021 = tuple(
+    sorted(set(TABELAS) - set(TABELAS_0022) - set(TABELAS_0024))
+)
 
 #: O que existe em `platform` quando a base esta na revisao `0020`.
 #:

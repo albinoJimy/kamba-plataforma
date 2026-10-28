@@ -179,6 +179,8 @@ class TestCatalogoReal(ComBase):
                 ("platform", "contacts", "tenant_id"),
                 # KAM-014: a conversa.
                 ("platform", "conversations", "tenant_id"),
+                # KAM-114: as decisoes do modo concierge.
+                ("platform", "draft_decisions", "tenant_id"),
                 ("platform", "entitlements", "tenant_id"),
                 # KAM-006: as tres do consumo. A `evt_dlq_aprovacoes` **nao**
                 # esta aqui, e nao e esquecimento: nao tem `tenant_id`, porque
@@ -320,6 +322,8 @@ class TestCatalogoReal(ComBase):
                 # KAM-014: a primeira tabela do caminho do webhook com
                 # `tenant_id`, e por isso a primeira com politica.
                 ("conversations", "tenant_iso", "ALL", "{public}"),
+                # KAM-114.
+                ("draft_decisions", "tenant_iso", "ALL", "{public}"),
                 ("entitlements", "tenant_iso", "ALL", "{public}"),
                 ("events_consumed", "tenant_iso", "ALL", "{public}"),
                 ("events_dlq", "tenant_iso", "ALL", "{public}"),
@@ -405,7 +409,8 @@ class TestCatalogoReal(ComBase):
              "consent_event",
              "contact_deks", "contact_endpoints", "contacts",
              # KAM-014: a conversa.
-             "conversations", "entitlements",
+             # KAM-114: as decisoes do modo concierge.
+             "conversations", "draft_decisions", "entitlements",
              # KAM-006: as tres do consumo com `tenant_id`.
              "events_consumed", "events_dlq",
              "events_log", "events_log_default", "events_outbox",

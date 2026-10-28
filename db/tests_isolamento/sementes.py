@@ -787,6 +787,60 @@ def _reserva_de_tool(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _rascunho(cursor, tenant_id: str, canario: str) -> None:
+    """Um rascunho do modo concierge (KAM-114). O canario vai no `turn_id`.
+
+    **E no `turn_id`, e as outras candidatas caem uma a uma.** O X-03 semeia o
+    **mesmo** canario nos dois tenants e exige que cada um veja so o seu, pelo
+    que ele tem de ir numa coluna de texto que os dois possam ter **igual** — e
+    esta tabela nao tem texto livre, de proposito (guarda hashes, numeros e
+    dominios fechados; o texto do rascunho vive no checkpointer e no HND):
+
+    * o `draft_id` e chave primaria **global**, como o `handoff_id`, pelo que
+      dois tenants nao podem semear o mesmo valor — e a licao que a receita do
+      `_handoff` escreveu, e a primeira versao dela pagou-a;
+    * o `thread_id` leva o `tenant_id` dentro (`tenant_id:contact_id`, §3.1),
+      logo nao e igual nos dois;
+    * o `motivo` e dominio fechado (seis valores) e o `CHECK` recusa o canario;
+    * o `graph_version` **tinha** a forma livre e era aqui que o canario estava
+      — e passou a ter `CHECK` de SemVer, porque e a unica destas colunas que
+      **sai** na exportacao do criterio 7 e um campo livre ali era texto livre a
+      atravessar para fora. Apanhado pela revisao adversarial.
+
+    Fica o `turn_id`, que e `text`, so exige nao-vazio, e e legitimamente igual
+    nos dois tenants num ensaio. Em producao e o `wamid`, que nunca sai da
+    tabela (e `identificador` na classificacao do `golden_candidates.py`).
+
+    **A coluna alteravel e o `motivo` e nao a `decisao`.** A `decisao` e a do
+    CAS e parecia a escolha obvia, e esta errada: o
+    `draft_decisions_decidido_ck` exige que `decisao` e `decidido_at` sejam as
+    duas nulas ou as duas nao-nulas, pelo que um `SET decisao = <valor>`
+    **sozinho** — que e o que o X-04 faz — viola a restricao **para qualquer
+    valor**, e nao so para o `editado` que a primeira versao desta receita
+    acautelava pelo `razao_edicao_ck`. Um `UPDATE` que rebenta com `23514` nao
+    mede isolamento: mede a restricao, e e o modo de falha que esta receita diz
+    que quer evitar. O `motivo` escreve-se sozinho numa linha pendente sem
+    violar nada, e e dominio fechado — que e o que um teste de escrita cruzada
+    precisa. Medido contra um PostgreSQL 18 pela revisao adversarial.
+
+    A linha nasce `pendente` (`decisao` nula), que e o estado em que um rascunho
+    nasce.
+    """
+    cursor.execute(
+        "INSERT INTO platform.draft_decisions "
+        "(draft_id, tenant_id, thread_id, turn_seq, turn_id, graph_version) "
+        "VALUES (%s, %s::uuid, %s, %s, %s, %s)",
+        (
+            hashlib.sha256((canario + tenant_id).encode("utf-8")).hexdigest(),
+            tenant_id,
+            f"{tenant_id}:00000000-0000-4000-8000-000000000001",
+            1,
+            canario,
+            "1.1.0",
+        ),
+    )
+
+
 #: (schema, tabela) -> receita. A ordem de insercao respeita as FK.
 RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "tenants"): Receita(_tenant, "nome", "nome", "Nome alterado"),
@@ -1009,6 +1063,12 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "tool_idempotency"): Receita(
         _reserva_de_tool, "tool", "estado", "falhada", semeador="admin"
     ),
+    # KAM-114. Semeia o administrador da instancia, como a receita da conversa e
+    # a do handoff: o `INSERT` do `kamba_app` esta sob `WITH CHECK` e esta
+    # receita nao define contexto.
+    ("platform", "draft_decisions"): Receita(
+        _rascunho, "turn_id", "motivo", "tom", semeador="admin"
+    ),
 }
 
 #: As duas tabelas da auditoria **nao** entram nas receitas, e nenhuma das
@@ -1121,6 +1181,9 @@ ORDEM = (
     # esta linha ao tenant e a RLS, que nao precisa de FK para valer. Fica no
     # fim porque ninguem a aponta.
     ("platform", "tool_idempotency"),
+    # KAM-114: tem FK para `tenants` e mais nenhuma, e ninguem a aponta. Fica no
+    # fim, como as do KAM-009.
+    ("platform", "draft_decisions"),
 )
 
 #: As identidades com que as receitas semeiam.
