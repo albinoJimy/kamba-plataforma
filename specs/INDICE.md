@@ -3,7 +3,7 @@
 **Produto:** KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para o mercado angolano
 **Natureza:** Produto/plataforma standalone (sem cliente institucional)
 **Documentos-fonte:** conjunto técnico [`../docs/tecnica/`](../docs/tecnica/INDICE.md) e [`../docs/exploracao/14-tese-minima-e-plano-de-validacao.md`](../docs/exploracao/14-tese-minima-e-plano-de-validacao.md)
-**Versão do conjunto:** 1.34
+**Versão do conjunto:** 1.35
 **Data de emissão:** Outubro de 2026
 **Classificação:** Documento de Referência — Interno
 **Estado:** backlog **proposto** (nenhum ticket ratificado; ver `00_KAMBA_Carta.md` §6)
@@ -12,7 +12,7 @@
 
 ## 1. Propósito
 
-Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **166 tickets atómicos (KAM-001 a KAM-166)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
+Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **167 tickets atómicos (KAM-001 a KAM-167)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
 
 O que **não** está aqui: a Fase 2 (Clusters) e a Fase 3 (Escala). Esses epics (geo e logística, estafetas, analytics e Score, índice federado, AdsEngine, vitrine SEO, API pública, Fluxo B) só se escrevem quando o **Gate do Piloto (KAM-110)** for verde. Está declarado em §6.
 
@@ -49,7 +49,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 
 | Epic | Range | N.º tickets | Fase |
 |------|-------|-------------|------|
-| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-166 | 51 | 0–1 |
+| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-167 | 52 | 0–1 |
 | EPIC-02 Canais WhatsApp e Handoff | KAM-013 – KAM-024, KAM-115 | 13 | 0–1 |
 | EPIC-03 Agent Runtime e Verticais | KAM-025 – KAM-040, KAM-114 | 17 | 0–1 |
 | EPIC-04 Core de Comércio | KAM-041 – KAM-051 | 11 | 0–1 |
@@ -60,7 +60,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117 | 16 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
 | EPIC-11 Módulos de Entrada | KAM-118 – KAM-127 | 10 | 1 |
-| **TOTAL** | **KAM-001 – KAM-166** | **166** | — |
+| **TOTAL** | **KAM-001 – KAM-167** | **167** | — |
 
 ### 3.2 Fases
 
@@ -134,6 +134,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-164 | O título do PR é o assunto do *squash*, e ninguém o verifica | feature | S | P1 | 0 | KAM-002 |
 | KAM-165 | As duas dispensas do *gate* 3c que venciam: o buraco do 1.13 e a inversão de prioridade do KAM-130 | fix | S | P1 | 0 | — |
 | KAM-166 | A asserção de privacidade do KAM-018 procura três dígitos num texto de UUID, e falha ~1,5% das execuções | fix | S | P1 | 1 | KAM-018 |
+| KAM-167 | As 19 dispensas de cabeçalho de versão, pagas: o *gate* 3c fica sem declarações | fix | S | P1 | 0 | — |
 
 ### EPIC-02 — Canais WhatsApp e Handoff
 
@@ -372,3 +373,4 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.32 | Outubro 2026 | **KAM-164 acrescentado** ao EPIC-01, com a linha do §4, a linha do §3.1 e as contagens em prosa. Nasceu de provar na fonte que o PR #75 tinha fundido: o assunto do `29778f3` não casava com a forma dos cinco *squash* anteriores, porque o GitHub o escreve do **título do PR** quando há mais do que um *commit*, e o título do PR não é verificado por nada. O detalhe está na **1.42** do `EPIC-01`. Total: 164 tickets. O número é 164 e não 163 porque o PR #76 reclamou o anterior no mesmo dia e fundiu primeiro — e esta linha é a **1.32** e não a 1.31 pela mesma ordem. O vão que o *gate* 3 recusava fechou-se com essa fusão. | Equipa KAMBÁ |
 | 1.33 | Outubro 2026 | **KAM-165** acrescentado e entregue no mesmo PR. O §4 do EPIC-01 ganha a linha, o §3.1 passa a `KAM-150 – KAM-165` com 50 no epic e 165 no total, e o §1 acompanha. A linha do **KAM-130** passa de P2 a **P1**: era a inversão que o *gate* 3c tinha dispensada até 2026-10-29, e um ticket que bloqueia um P1 não pode ser P2. | Equipa KAMBÁ |
 | 1.34 | Outubro 2026 | **KAM-166 acrescentado e entregue no mesmo PR.** A última asserção do caso «o payload nao leva telefone, conteudo nem o id da conversa» do KAM-018 procurava a sequência `999` no JSON de um payload cujo `thread_id` são **dois UUID aleatórios** — 64 dígitos hexadecimais, onde `0`–`9` cabem —, pelo que falhava `1 - (1 - 16^-3)^62` ≈ **1,5% das execuções** por aritmética e não por defeito do código que mede. Custou um ciclo de diagnóstico ao PR #78 (KAM-041), onde o *gate* 8 ficou vermelho com o `main` verde e a reexecução do mesmo *commit* passou. **E não havia telefone para encontrar**: a plataforma não guarda telefone em claro em sítio nenhum — a `contacts` só tem `phone_hmac` (revisão `0003`) e o número vive cifrado em `contact_endpoints.phone_enc` —, logo a prova era vazia **e** intermitente. O canário passa a ser o valor inteiro, entra a asserção que faz a prova não ser vazia (o `conversation_id`, que está no `agregado_id` e não pode estar na carga) e o `thread_id` prova-se por igualdade exacta. **A classe foi varrida** em `packages/core-ts/tests_bd/` e em `db/tests*/` e não há outra instância, o que está escrito com o varrimento que o estabelece: é a **terceira** vez que a casa paga esta lição — `db/tests_agr/test_idempotencia.py` e `packages/core-ts/tests/logger.test.ts` já a tinham escrito. **O número é 166 e não 165, e esta linha é a 1.34 e não a 1.33**, porque o PR #79 reclamou o anterior no mesmo dia e fundiu primeiro (`2dbc2f0`); a renumeração não se podia fazer antes dessa fusão, porque o *gate* 3 recusa um vão na gama do §1. O §3.1 passa a 51 tickets no EPIC-01 e 166 no total, e as contagens vivas foram actualizadas aqui, no `../README.md` e no `EPIC-07`; a contagem de ficheiros de `tickets/` do §2 passa a **51** e corrige de passagem a contagem que o `2dbc2f0` deixou para trás (o `main` diz 49 com 50 ficheiros), porque a frase diz «49 hoje» e não «49 tickets», e por isso nenhum *gate* a apanha. O *gate* 8 **não** foi corrido nesta máquina (sem `node` e sem PostgreSQL) e isso está dito no bloco em vez de implícito. | Equipa KAMBÁ |
+| 1.35 | Outubro 2026 | **KAM-167** acrescentado e entregue no mesmo PR: as **19** últimas dispensas do *gate* 3c, que eram cabeçalhos de versão atrasados. O §4 do EPIC-01 ganha a linha, o §3.1 passa a `KAM-150 – KAM-167` com 52 no epic e 167 no total, e o §1 acompanha. Os 19 documentos — o `01`, o `EPIC-04` a `EPIC-11` e dez de `../docs/tecnica/` — passam a ter o campo de versão do cabeçalho igual à última linha da sua própria tabela, lido da tabela e não da mensagem do *linter*; **nenhum deles ganha linha de histórico por causa disto**, porque o campo é metadado sobre a versão do documento e não conteúdo dele, e dezanove números novos tomados em paralelo são a contenção de onde nasceu o buraco do 1.13. Com as 19 declarações fora de `../ci/backlog-allow.yaml`, as **três** listas ficam vazias e a promessa escrita no KAM-138 cumpre-se: as verificações passam a falhar sem ninguém mexer no código — provado por dois canários, 1 para um cabeçalho atrasado sem dispensa e 2 para uma declaração morta. A **dívida 4** fica actualizada e não riscada: o cabeçalho deste documento foi pago pelo KAM-163, e o parágrafo de abertura continua em dívida, a enumerar até ao KAM-149. | Equipa KAMBÁ |
