@@ -23,6 +23,14 @@
 # daqui, no mesmo PR. Quando as listas esvaziarem, as duas verificacoes passam
 # a falha sem ninguem mexer no codigo.
 #
+# **AS TRES LISTAS ESTAO VAZIAS, e e esse o estado final.** As tres
+# verificacoes do «Controlo de versoes» e das inversoes falham agora desde o
+# primeiro dia, sem dispensa possivel e sem ninguem ter mexido no codigo do
+# gate - era a promessa escrita no paragrafo de cima, e cumpriu-se a
+# 2026-10-28. Este ficheiro fica como o registo de como se chegou aqui, e como
+# o sitio onde uma dispensa nova teria de ser declarada se algum dia houver
+# uma: com `criado_em`, `expira_em` e razao, pelas regras que se seguem.
+#
 # **Toda a entrada tem prazo**, como as `dividas` do `ci/contagens-allow.yaml`:
 # `criado_em`, `expira_em`, e no maximo **31 dias** entre os dois, contados da
 # criacao. Passada a data, a dispensa volta a ser achado e o gate falha.
@@ -33,7 +41,7 @@
 # a unica que passava tem **uma** linha de historico — a verificacao do
 # cabecalho nao validava um unico documento com emendas, e sem data nunca
 # viria a validar. «Passa a falha quando a lista esvaziar» so e um compromisso
-# se houver um dia em que a lista tem de estar vazia.
+# se houver um dia em que a lista tem de estar vazia. Houve: foi hoje.
 #
 # **O `criado_em` nao pode estar no futuro.** Sem isso o tecto de 31 dias e
 # relativo a uma ancora que ninguem ancora, e `criado_em` daqui a um ano da
@@ -41,24 +49,30 @@
 # desde o KAM-135, e a razao dele serve aqui: «nao se cria no futuro — e a
 # forma mais simples de esticar o prazo sem parecer que se esticou».
 #
-# **As datas estao escalonadas de proposito.** Se vencessem todas no mesmo dia,
-# o gate ficava vermelho com 26 achados de uma vez e a saida pratica era
+# **As datas estavam escalonadas de proposito.** Se vencessem todas no mesmo
+# dia, o gate ficava vermelho com 26 achados de uma vez e a saida pratica era
 # renovar as 26 num so commit — o carimbo automatico que o prazo existe para
-# impedir. Escalonadas, sao uma fila: cada grupo chega a sua vez, e renovar um
-# grupo e uma decisao pequena que se le no diff.
+# impedir. Escalonadas, eram uma fila: cada grupo chegava a sua vez, e renovar
+# um grupo era uma decisao pequena que se lia no diff.
 #
-# **O que esta aqui continua a ser trabalho de outro ticket.** Sao residuos de
-# renumeracao registados em `docs/dividas-documentais.md` (linhas 4 e 21), cuja
-# correccao o KAM-138 declara fora de ambito: aqui so se passa a medi-los. O
-# prazo nao lhes atribui dono — **nenhum ticket os reclama hoje**, e e isso que
-# o KAM-138 devolve no PR. O que o prazo faz e obrigar a pergunta a ser feita
-# numa data em vez de nunca.
+# **O escalonamento e sobre renovar, e nao sobre pagar — e foi a leitura que o
+# KAM-167 assumiu para as pagar as 19 de uma vez.** O que o escalonamento
+# impede e o carimbo: 26 `expira_em` adiados num commit sem ninguem olhar para
+# o defeito. Pagar e o contrario disso — a divida desaparece em vez de ser
+# adiada, e o diff mostra o valor novo de cada cabecalho, que e exactamente o
+# que a fila existia para forcar alguem a olhar. Dividir por grupos de data
+# daria tres PR com o mesmo diff mecanico, tres rondas de gates e duas semanas
+# com o ficheiro a meio - sem nenhuma decisao a mais para ler.
 #
-# **Duas foram reclamadas.** O KAM-165 pagou o buraco do `1.13` e a inversao de
-# prioridade, no dia em que as duas venciam, e as duas declaracoes sairam
-# daqui: uma declaracao que ja nao casa nada falha o gate com codigo 2. Ficam
-# as 19 de cabecalho - uma a vencer a 2026-11-04, oito a 2026-11-11 e dez a
-# 2026-11-18.
+# **O que esteve aqui era trabalho de outro ticket, e deixou de ser de
+# ninguem.** Eram residuos de renumeracao registados em
+# `docs/dividas-documentais.md` (linhas 4 e 21), cuja correccao o KAM-138
+# declarava fora de ambito: aqui so se passava a medi-los. O prazo nao lhes
+# atribuia dono — **nenhum ticket os reclamava**, e era isso que o KAM-138
+# devolvia no PR. O que o prazo fazia era obrigar a pergunta a ser feita numa
+# data em vez de nunca. E obrigou: o KAM-165 reclamou duas a 2026-10-28 e o
+# KAM-167 reclamou as 19 restantes no mesmo dia, sete dias antes de a primeira
+# vencer. Hoje nao esta aqui nada, e nao ha dono em falta.
 version: 1
 
 # ---------------------------------------------------------------------------
@@ -102,159 +116,63 @@ version: 1
 # A lista fica vazia e ausente, pela mesma razao que a de cima.
 
 # ---------------------------------------------------------------------------
-# Cabecalhos de versao atrasados
+# Cabecalhos de versao atrasados: **nenhum declarado**
 # ---------------------------------------------------------------------------
 #
-# Medido a 2026-10-18: **24** cabecalhos atrasados em 41 documentos com tabela
-# (16 dos 41 nao tem campo de versao nenhum, e para esses so vale a verificacao
-# da sequencia — a ausencia do campo nao e defeito e o gate nao a inventa).
+# Medido a 2026-10-18: **24** cabecalhos atrasados em 41 documentos com tabela,
+# dos quais 16 nao tinham campo de versao nenhum. O corpus cresceu desde entao e
+# os numeros de hoje sao outros — **58** documentos com tabela, **33** sem campo
+# —, pelo que estes tres ficam como a medicao datada que eram. O que nao muda e
+# a regra: para um documento sem campo so vale a verificacao da sequencia, e a
+# ausencia do campo nao e defeito nem o gate a inventa.
 #
-# Sao duas familias, e as duas tem a mesma causa:
+# Eram duas familias, e as duas tinham a mesma causa:
 #
 #   - os **onze epics**, o `specs/01` e os **onze** documentos de
 #     `docs/tecnica/`, que nasceram com `| Versao | 1.0 |` numa tabela de campos
 #     e nunca mais tiveram o campo tocado, enquanto o historico foi crescendo;
 #   - o `specs/INDICE.md`, que usa a outra forma (`**Versao do conjunto:**`) e
-#     esta em 1.2 com historico muito a frente.
+#     estava em 1.2 com historico muito a frente.
 #
-# O KAM-138 declara a correccao fora de ambito: este gate mede-a, e a divida
-# esta registada nas linhas 4 e 21 de `docs/dividas-documentais.md`. Quem
-# corrigir um destes cabecalhos apaga a sua linha daqui no mesmo PR — se nao o
-# fizer, o gate falha com codigo 2 por declaracao que ja nao casa nada.
+# **Pagas todas.** Das 24 medidas, cinco sairam antes, e cada uma com o ticket
+# que a pagou de passagem - lido do historico deste ficheiro, nao de memoria:
+# o `specs/EPIC-02` com o KAM-023 (PR #39), o `specs/EPIC-03` com o KAM-025
+# (PR #52), o `docs/tecnica/02` com o KAM-031 (PR #69), e o `specs/EPIC-01` e
+# o `specs/INDICE.md` com o KAM-163 (PR #76). Restavam 19, e **o KAM-167
+# pagou-as a 2026-10-28**, as 19 no mesmo PR e nenhuma de passagem: e o
+# primeiro ticket cujo objecto sao elas.
+#
+# Em cada uma, o campo do cabecalho passou a dizer o valor que a
+# ultima linha do proprio «Controlo de versoes» ja dizia, lido do documento:
+# o `specs/01` em 1.3, o EPIC-04 em 1.1, o EPIC-05 em 1.2, o EPIC-06 em 1.2, o
+# EPIC-07 em 1.7, o EPIC-08 em 1.2, o EPIC-09 em 1.1, o EPIC-10 em 1.4, o
+# EPIC-11 em 1.3, e em `docs/tecnica/` o 00 em 1.3, o 01 em 1.5, o 03 em 1.3,
+# o 04 em 1.4, o 05 em 1.4, o 06 em 1.6, o 07 em 1.3, o 08 em 1.4, o 09 em 1.3
+# e o 10 em 1.7.
+#
+# **Nenhum dos 19 ganhou linha de «Controlo de versoes» por causa disto**, e a
+# razao esta escrita no bloco do KAM-167: nenhum deles teve o **conteudo**
+# alterado. So lhes foi corrigido o campo de versao do cabecalho, que e metadado
+# sobre a versao do documento, e po-lo a dizer o que o historico ja regista nao
+# e uma emenda nova. A fronteira e essa, e o proprio PR a aplica dos dois lados:
+# os **quatro** documentos cujo conteudo mudou — o `specs/INDICE.md`, o
+# `specs/EPIC-01`, o `specs/EPIC-07` e o `docs/ci.md` — ganharam linha, e os 19
+# que so tiveram o campo corrigido nao. O `README.md` tambem mudou e nao ganhou,
+# porque nao tem tabela de «Controlo de versoes» nenhuma.
+#
+# **O precedente da casa e o KAM-163, com uma diferenca que importa dizer:** ele
+# pagou o cabecalho do `specs/EPIC-01` da mesma maneira, pondo-o em **1.42** —
+# a ultima linha de entao —, mas o seu PR alterava tambem o §3 do epic, pelo que
+# havia linha nova onde registar o pagamento, e registou-o. Aqui nao ha, porque
+# nao ha alteracao propria para registar; o registo fica no bloco do ticket e na
+# linha 1.46 do epic.
+#
+# O KAM-138 declarava a correccao fora de ambito: este gate media-a, e a divida
+# estava registada nas linhas 4 e 21 de `docs/dividas-documentais.md`. A **21**
+# fechou com o KAM-165. A **4 nao fecha**: e de duas metades, e so a do
+# cabecalho esta paga — o `specs/INDICE.md` pelo KAM-163 e a mesma classe nos 19
+# aqui; o paragrafo de abertura continua em divida e a linha continua aberta.
+# Quem voltar a declarar um cabecalho aqui apaga a sua linha no mesmo PR em que
+# o corrigir — se nao o fizer, o gate falha com codigo 2 por declaracao que ja
+# nao casa nada.
 
-cabecalhos:
-  - ficheiro: specs/01_Engineering_Standards_e_Handoff.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-04
-    razao: >-
-      Cabecalho em `| Versao | 1.0 |` com historico muito a frente; o campo nunca foi
-      tocado desde a emissao inicial. Mesma familia dos epics.
-
-
-  - ficheiro: specs/EPIC-04_Core_Comercio.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-11
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
-
-  - ficheiro: specs/EPIC-05_Pagamentos_Billing.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-11
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
-
-  - ficheiro: specs/EPIC-06_Indice_Pesquisa.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-11
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
-
-  - ficheiro: specs/EPIC-07_Seguranca_Conformidade.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-11
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
-
-  - ficheiro: specs/EPIC-08_Topologia_Operacao.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-11
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
-
-  - ficheiro: specs/EPIC-09_Onboarding_Governanca.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-11
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
-
-  - ficheiro: specs/EPIC-10_Spikes_Validacao_Gates.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-11
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
-
-  - ficheiro: specs/EPIC-11_Modulos_Entrada.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-11
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Mesma familia dos restantes epics.
-
-  - ficheiro: docs/tecnica/00_Arquitectura_Solucao.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-18
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Os onze documentos de
-      `docs/tecnica/` partilham a forma e o defeito.
-
-  - ficheiro: docs/tecnica/01_Canais_WhatsApp_Fluxo_Dual.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-18
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
-
-  - ficheiro: docs/tecnica/03_Core_Comercio_Medusa.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-18
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
-
-  - ficheiro: docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-18
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
-
-  - ficheiro: docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-18
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
-
-  - ficheiro: docs/tecnica/06_Dados_Eventos_Analytics.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-18
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
-
-  - ficheiro: docs/tecnica/07_Geo_Logistica_Federada.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-18
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
-
-  - ficheiro: docs/tecnica/08_Seguranca_Conformidade.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-18
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
-
-  - ficheiro: docs/tecnica/09_Topologia_Operacao_Escala.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-18
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.
-
-  - ficheiro: docs/tecnica/10_Onboarding_Governanca.md
-    origem: KAM-138
-    criado_em: 2026-10-18
-    expira_em: 2026-11-18
-    razao: >-
-      Cabecalho em 1.0, parado na emissao inicial. Mesma familia do `docs/tecnica/`.

@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Arquitectura de Solução — Documento de Arquitectura de Solução |
-| Versão | 1.0 |
+| Versão | 1.3 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../exploracao/13-big-picture-ecossistema.md`, `../exploracao/14-tese-minima-e-plano-de-validacao.md` |

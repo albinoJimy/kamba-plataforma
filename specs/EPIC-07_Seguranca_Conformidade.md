@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.0 |
+| Versão | 1.8 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -1008,7 +1008,7 @@ O `../docs/seguranca/validar.py` é a **única verificação por máquina** dos 
 assert len(KAM) == 138 and len(ADR) == 20 and len(DEC) == 13, (len(KAM), len(ADR), len(DEC))
 ```
 
-O *backlog* tem 166 tickets, pelo que, da raiz do repositório:
+O *backlog* tem 167 tickets, pelo que, da raiz do repositório:
 
 ```text
 AssertionError: (143, 20, 13)
@@ -1138,3 +1138,4 @@ Abre PR com o template do §7.
 | 1.5 | Outubro 2026 | KAM-068, seguimento: números da secção de verificação actualizados depois da primeira revisão adversarial, recebida com o PR já fundido (30 *fixtures* de forma no X-11, canário do *lint* com 29 negativas, prova por mutação). **As caixas não mudam.** | Equipa KAMBÁ |
 | 1.6 | Outubro 2026 | KAM-149 (`docs/seguranca/validar.py` aborta com a contagem do canon fixada) acrescentado como `fix`: a linha 43 fixa 138 tickets e o *backlog* tem 143, pelo que o validador rebenta antes das suas quatro verificações. Vinha da linha 6 de `../docs/dividas-documentais.md`, que o declara código e não resíduo textual, e nenhum ticket aberto o reclamava. O `Bloqueia` do KAM-065 actualizado. | Equipa KAMBÁ |
 | 1.7 | Outubro 2026 | KAM-145: os **25** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
+| 1.8 | Outubro 2026 | **KAM-167: a contagem viva do §«Contexto» passa a 167 tickets**, e o campo de versão do cabeçalho deste epic passa a dizer a última linha desta tabela. São as duas faces do mesmo ticket: a contagem muda porque o *backlog* ganhou o KAM-167, e o cabeçalho estava em `1.0` desde a emissão inicial, entre as **19** últimas dispensas de `../ci/backlog-allow.yaml`. Esta linha existe porque o **conteúdo** deste documento mudou — é a fronteira que o KAM-167 escreve: os documentos cujo conteúdo muda ganham linha, e os que só tiveram o campo do cabeçalho corrigido não, porque o campo é metadado e não conteúdo. | Equipa KAMBÁ |

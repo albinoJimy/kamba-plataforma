@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Índice, Pesquisa e Motor de Atenção (IDX) |
-| Versão | 1.0 |
+| Versão | 1.4 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../exploracao/11-arquitetura-detalhada-engenharia.md` §7, `../exploracao/13-big-picture-ecossistema.md` §9.1, `../exploracao/06-expansao-plataforma.md`, `../exploracao/03-modelo-plataforma-google-angola.md` |

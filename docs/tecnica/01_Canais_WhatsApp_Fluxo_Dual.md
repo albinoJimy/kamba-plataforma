@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Canais WhatsApp e Fluxo Dual |
-| Versão | 1.0 |
+| Versão | 1.5 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `00_Arquitectura_Solucao.md`, `evidencia/E1_Meta_WhatsApp.md`, `evidencia/E4_Stack_Licencas.md`, `../exploracao/11-arquitetura-detalhada-engenharia.md` §6 |
