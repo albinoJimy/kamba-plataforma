@@ -64,14 +64,15 @@
 # daria tres PR com o mesmo diff mecanico, tres rondas de gates e duas semanas
 # com o ficheiro a meio - sem nenhuma decisao a mais para ler.
 #
-# **O que esta aqui continua a ser trabalho de outro ticket.** Sao residuos de
-# renumeracao registados em `docs/dividas-documentais.md` (linhas 4 e 21), cuja
-# correccao o KAM-138 declara fora de ambito: aqui so se passa a medi-los. O
-# prazo nao lhes atribui dono — **nenhum ticket os reclama hoje**, e e isso que
-# o KAM-138 devolve no PR. O que o prazo faz e obrigar a pergunta a ser feita
-# numa data em vez de nunca. E obrigou: o KAM-165 reclamou duas a 2026-10-28 e
-# o KAM-167 reclamou as 19 restantes no mesmo dia, sete dias antes de a
-# primeira vencer.
+# **O que esteve aqui era trabalho de outro ticket, e deixou de ser de
+# ninguem.** Eram residuos de renumeracao registados em
+# `docs/dividas-documentais.md` (linhas 4 e 21), cuja correccao o KAM-138
+# declarava fora de ambito: aqui so se passava a medi-los. O prazo nao lhes
+# atribuia dono — **nenhum ticket os reclamava**, e era isso que o KAM-138
+# devolvia no PR. O que o prazo fazia era obrigar a pergunta a ser feita numa
+# data em vez de nunca. E obrigou: o KAM-165 reclamou duas a 2026-10-28 e o
+# KAM-167 reclamou as 19 restantes no mesmo dia, sete dias antes de a primeira
+# vencer. Hoje nao esta aqui nada, e nao ha dono em falta.
 version: 1
 
 # ---------------------------------------------------------------------------
@@ -118,9 +119,12 @@ version: 1
 # Cabecalhos de versao atrasados: **nenhum declarado**
 # ---------------------------------------------------------------------------
 #
-# Medido a 2026-10-18: **24** cabecalhos atrasados em 41 documentos com tabela
-# (16 dos 41 nao tem campo de versao nenhum, e para esses so vale a verificacao
-# da sequencia — a ausencia do campo nao e defeito e o gate nao a inventa).
+# Medido a 2026-10-18: **24** cabecalhos atrasados em 41 documentos com tabela,
+# dos quais 16 nao tinham campo de versao nenhum. O corpus cresceu desde entao e
+# os numeros de hoje sao outros — **58** documentos com tabela, **33** sem campo
+# —, pelo que estes tres ficam como a medicao datada que eram. O que nao muda e
+# a regra: para um documento sem campo so vale a verificacao da sequencia, e a
+# ausencia do campo nao e defeito nem o gate a inventa.
 #
 # Eram duas familias, e as duas tinham a mesma causa:
 #
@@ -147,17 +151,28 @@ version: 1
 # e o 10 em 1.7.
 #
 # **Nenhum dos 19 ganhou linha de «Controlo de versoes» por causa disto**, e a
-# razao esta escrita no bloco do KAM-167: o campo e metadado sobre a versao do
-# documento, nao conteudo dele, e por-lo a dizer o que o historico ja registra
-# nao e uma emenda nova. Dezanove linhas novas seriam dezanove numeros tomados
-# em paralelo com quem esta a escrever ao mesmo tempo - que e precisamente a
-# contencao de onde nasceu o buraco do 1.13 - e cada uma registraria «nenhuma
-# alteracao propria». E o precedente da casa: o KAM-163 pagou o cabecalho do
-# `specs/EPIC-01` da mesma maneira.
+# razao esta escrita no bloco do KAM-167: nenhum deles teve o **conteudo**
+# alterado. So lhes foi corrigido o campo de versao do cabecalho, que e metadado
+# sobre a versao do documento, e po-lo a dizer o que o historico ja regista nao
+# e uma emenda nova. A fronteira e essa, e o proprio PR a aplica dos dois lados:
+# os **quatro** documentos cujo conteudo mudou — o `specs/INDICE.md`, o
+# `specs/EPIC-01`, o `specs/EPIC-07` e o `docs/ci.md` — ganharam linha, e os 19
+# que so tiveram o campo corrigido nao. O `README.md` tambem mudou e nao ganhou,
+# porque nao tem tabela de «Controlo de versoes» nenhuma.
+#
+# **O precedente da casa e o KAM-163, com uma diferenca que importa dizer:** ele
+# pagou o cabecalho do `specs/EPIC-01` da mesma maneira, pondo-o em **1.42** —
+# a ultima linha de entao —, mas o seu PR alterava tambem o §3 do epic, pelo que
+# havia linha nova onde registar o pagamento, e registou-o. Aqui nao ha, porque
+# nao ha alteracao propria para registar; o registo fica no bloco do ticket e na
+# linha 1.46 do epic.
 #
 # O KAM-138 declarava a correccao fora de ambito: este gate media-a, e a divida
-# estava registada nas linhas 4 e 21 de `docs/dividas-documentais.md`. A 21
-# fechou com o KAM-165 e a 4 com o KAM-167. Quem voltar a declarar um
-# cabecalho aqui apaga a sua linha no mesmo PR em que o corrigir — se nao o
-# fizer, o gate falha com codigo 2 por declaracao que ja nao casa nada.
+# estava registada nas linhas 4 e 21 de `docs/dividas-documentais.md`. A **21**
+# fechou com o KAM-165. A **4 nao fecha**: e de duas metades, e so a do
+# cabecalho esta paga — o `specs/INDICE.md` pelo KAM-163 e a mesma classe nos 19
+# aqui; o paragrafo de abertura continua em divida e a linha continua aberta.
+# Quem voltar a declarar um cabecalho aqui apaga a sua linha no mesmo PR em que
+# o corrigir — se nao o fizer, o gate falha com codigo 2 por declaracao que ja
+# nao casa nada.
 
