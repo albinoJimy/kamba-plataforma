@@ -1411,6 +1411,50 @@ class TestInventario(ComBase):
             ],
         )
 
+    def test_os_indices_parciais_do_servicos_sao_os_esperados(self) -> None:
+        """O irmao do `test_os_indices_unicos_parciais_sao_os_esperados`, para o `servicos`.
+
+        Aquele filtra `schemaname = 'platform'`, pelo que os indices parciais de
+        um esquema novo **nao entram nele** — e o *gate* 8 fica verde sem eles.
+        Nao se alarga o dele: as tabelas de `platform` sao de outros tickets e a
+        lista e deles.
+
+        **A lista diz tambem se cada um e unico**, e aqui isso vale o que vale no
+        outro: um indice parcial unico impoe uma regra de negocio e um parcial
+        nao unico e so velocidade. Perder o `UNIQUE` do
+        `bookings_contacto_slot_uq` nao muda o plano de nenhuma consulta — nao se
+        ve em lado nenhum — e abre a porta a **duas** marcacoes activas do mesmo
+        contacto para o mesmo *slot*, que e metade do critério 4.
+
+        A restricao de exclusao **tambem** aparece no `pg_indexes` com um
+        `WHERE`, porque e imposta por um indice GiST. Entra na lista; o que
+        confronta a definicao dela por extenso e o
+        `test_a_restricao_de_exclusao_e_a_do_criterio_1`.
+        """
+        parciais = {
+            # Criterio 4: a idempotencia de `(contact_id, slot_id)`, **unico** e
+            # parcial pelos dois estados activos — parcial para que um hold
+            # expirado deixe o mesmo contacto voltar a pedir o mesmo *slot*.
+            "bookings_contacto_slot_uq": True,
+            # A restricao de exclusao do criterio 1, vista como indice.
+            "bookings_sem_sobreposicao": False,
+            # Velocidade: o calculo da disponibilidade e o varrimento.
+            "bookings_recurso_janela_idx": False,
+            "bookings_hold_vencido_idx": False,
+        }
+        linhas = self.consultar(
+            "SELECT indexname::text, indexdef FROM pg_indexes "
+            "WHERE schemaname = 'servicos' AND indexdef LIKE '%%WHERE%%' ORDER BY 1"
+        )
+        self.assertEqual(sorted(nome for nome, _ in linhas), sorted(parciais))
+        for nome, definicao in linhas:
+            with self.subTest(indice=nome):
+                self.assertEqual(
+                    "UNIQUE INDEX" in definicao,
+                    parciais[nome],
+                    f"{nome}: a unicidade deixou de ser a declarada",
+                )
+
     def test_a_extensao_btree_gist_vive_no_esquema_servicos(self) -> None:
         """A extensao que a restricao de exclusao precisa, e onde ela esta.
 
