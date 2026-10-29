@@ -1898,6 +1898,15 @@ class TestArquitectura(_Base):
         aqui: o acoplamento `metricas -> tls` fecha-se em triangulo com
         `camada -> metricas`, e o que impede o ciclo e o `tls/__init__.py` nao
         importar nada. Um terceiro importador e a altura de reler isso.
+
+        **E houve um terceiro, e releu-se: o `degradacao.py` (KAM-037).** Importa
+        **so** o `tls/disjuntor.py`, que nao importa nada do pacote — nem o
+        `metricas.py`, nem a `camada.py` —, pelo que nao acrescenta aresta
+        nenhuma ao triangulo. O ciclo que haveria era outro e esta cortado pelo
+        mesmo remedio do `metricas.py`: o `degradacao.py` importa o `metricas.py`
+        no topo e o `metricas.py` importa o `degradacao.py` **dentro** do
+        `_valores_derivados`, com `lru_cache`. Ha ensaio que importa os tres
+        ficheiros sozinhos.
         """
         import re
 
@@ -1909,7 +1918,54 @@ class TestArquitectura(_Base):
             if "tls" not in caminho.parts
             and padrao.search(caminho.read_text(encoding="utf-8"))
         )
-        self.assertEqual(importadores, ["__main__.py", "metricas.py"])
+        self.assertEqual(
+            importadores, ["__main__.py", "degradacao.py", "metricas.py"]
+        )
+
+    def test_o_degradacao_so_importa_o_disjuntor_da_tls(self) -> None:
+        """O terceiro importador nao alarga o acoplamento: e **um** modulo.
+
+        E a condicao sob a qual a lista fechada acima passou a ter tres nomes em
+        vez de dois: se o `degradacao.py` importasse a `camada.py` ou o
+        `catalogo.py`, o triangulo que a *docstring* descreve ganhava um lado.
+        """
+        import re
+
+        caminho = (
+            _RAIZ / "services" / "agr" / "src" / "kamba_agr" / "degradacao.py"
+        )
+        corpo = caminho.read_text(encoding="utf-8")
+        importados = sorted(
+            set(re.findall(r"^from \.tls\.(\w+) import", corpo, re.M))
+        )
+        self.assertEqual(importados, ["disjuntor"])
+
+    def test_os_tres_ficheiros_importam_se_sozinhos(self) -> None:
+        """O ciclo `metricas <-> degradacao` esta cortado, e mede-se a correr.
+
+        A forma de o medir e a do KAM-027: um subprocesso por ficheiro, a
+        importa-lo **sozinho**. Um ciclo de importacao funciona ou falha **pela
+        ordem** em que alguem importa primeiro, pelo que importar os tres no
+        mesmo processo nao o apanha.
+        """
+        import subprocess
+        import sys
+
+        for modulo in (
+            "kamba_agr.degradacao",
+            "kamba_agr.metricas",
+            "kamba_agr.verticais.vendedor.degradado.intencoes",
+        ):
+            with self.subTest(modulo=modulo):
+                acabado = subprocess.run(
+                    [sys.executable, "-c", f"import {modulo}"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(
+                    acabado.returncode, 0, acabado.stderr[-800:]
+                )
 
 
 # ------------------------------------------------------------ idempotencia

@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.45"
+versao_dicionario: "1.46"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -5516,14 +5516,15 @@ entradas:
     variantes_literais: []
   - seccao: "3.24"
     conceito: "Turnos em modo determinístico"
-    canonico: "agr_degraded_turns_total — pertence ao AGR e nasce com o KAM-037"
+    canonico: "agr_degraded_turns_total{motivo} — o conceito e o domínio vivem no §3.35 (emenda 1.46)"
     literais:
-      - "agr_degraded_turns_total"
+      - "agr_degraded_turns_total{motivo}"
     nomes:
       - "agr_degraded_turns_total"
+      - "motivo"
     nomes_nota:
       - "echo_latency_ms"
-      - "degraded_turns"
+      - "http_429"
       - "agr_backpressure_total"
     variantes_literais: []
   - seccao: "3.25"
@@ -7536,7 +7537,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.31"
     conceito: "Aviso de negócio para o compose"
-    canonico: "state.avisos ⊆ {NOT_FOUND, OUT_OF_STOCK, PRICE_CHANGED, LIMIT_EXCEEDED, VALIDATION_ERROR, UPSTREAM_TIMEOUT, UPSTREAM_DOWN, STALE_CONFIRMATION}"
+    canonico: "state.avisos ⊆ {NOT_FOUND, OUT_OF_STOCK, PRICE_CHANGED, LIMIT_EXCEEDED, VALIDATION_ERROR, UPSTREAM_TIMEOUT, UPSTREAM_DOWN, STALE_CONFIRMATION, REFERENCIA_EM_FALTA}"
     literais:
       - "state.avisos"
       - "NOT_FOUND"
@@ -7547,6 +7548,7 @@ entradas:
       - "UPSTREAM_TIMEOUT"
       - "UPSTREAM_DOWN"
       - "STALE_CONFIRMATION"
+      - "REFERENCIA_EM_FALTA"
     nomes:
       - "compose"
       - "state.avisos"
@@ -7558,7 +7560,21 @@ entradas:
       - "UPSTREAM_TIMEOUT"
       - "UPSTREAM_DOWN"
       - "STALE_CONFIRMATION"
-    nomes_nota: []
+      - "REFERENCIA_EM_FALTA"
+    nomes_nota:
+      - "order_status"
+    variantes_literais: []
+  - seccao: "3.31"
+    conceito: "Consulta de pedido sem referência dada"
+    canonico: "REFERENCIA_EM_FALTA"
+    literais:
+      - "REFERENCIA_EM_FALTA"
+    nomes:
+      - "REFERENCIA_EM_FALTA"
+    nomes_nota:
+      - "NOT_FOUND"
+      - "state.avisos"
+      - "tool_audit.error_code"
     variantes_literais: []
   - seccao: "3.31"
     conceito: "Confirmação antiga ou inválida"
@@ -7766,7 +7782,8 @@ entradas:
     nomes:
       - "agr_handoff_degradado_total"
       - "agr_degraded_turns_total"
-    nomes_nota: []
+    nomes_nota:
+      - "motivo"
     variantes_literais: []
   - seccao: "3.32"
     conceito: "Prazo sem resposta humana"
@@ -8536,6 +8553,214 @@ entradas:
       - "application_name"
       - "kamba_core.tenant_guard"
       - "kamba_app"
+    variantes_literais: []
+  - seccao: "3.35"
+    conceito: "Turnos em modo determinístico"
+    canonico: "agr_degraded_turns_total{motivo}"
+    literais:
+      - "agr_degraded_turns_total{motivo}"
+    nomes:
+      - "agr_degraded_turns_total"
+      - "motivo"
+    nomes_nota:
+      - "outcome"
+      - "breaker"
+      - "agr_handoff_total"
+      - "estado"
+      - "agr_draft_estado_total"
+      - "turn_id"
+    variantes_literais: []
+  - seccao: "3.35"
+    conceito: "Razão da degradação (etiqueta motivo)"
+    canonico: "timeout, http_429, budget, breaker, backpressure, destino_negado"
+    literais:
+      - "timeout"
+      - "http_429"
+      - "budget"
+      - "breaker"
+      - "backpressure"
+      - "destino_negado"
+    nomes:
+      - "motivo"
+      - "timeout"
+      - "http_429"
+      - "budget"
+      - "breaker"
+      - "backpressure"
+      - "destino_negado"
+    nomes_nota:
+      - "destino_negado"
+      - "DestinoNegado"
+      - "ErroDeLlm"
+      - "breaker"
+      - "prod"
+      - "http_429"
+      - "a"
+      - "z"
+      - "z0"
+      - "_"
+      - "EtiquetaInvalida"
+      - "tecto_do_tenant"
+    variantes_literais: []
+  - seccao: "3.35"
+    conceito: "Aberturas do disjuntor do LLM"
+    canonico: "agr_degraded_breaker_aberto_total"
+    literais:
+      - "agr_degraded_breaker_aberto_total"
+    nomes:
+      - "agr_degraded_breaker_aberto_total"
+    nomes_nota:
+      - "agr_tool_tenant_mismatch_total"
+      - "agr_draft_indisponivel_total"
+      - "agr_tls_disjuntor_aberto_total"
+    variantes_literais: []
+  - seccao: "3.35"
+    conceito: "Unidade do disjuntor do LLM"
+    canonico: "um por tenant (llm:{tenant_id})"
+    literais:
+      - "llm:{tenant_id}"
+    nomes:
+      - "llm"
+      - "tenant_id"
+    nomes_nota:
+      - "tenant_id"
+      - "allowed_fails"
+    variantes_literais: []
+  - seccao: "3.35"
+    conceito: "Limiares do disjuntor do LLM"
+    canonico: "allowed_fails: 3, cooldown_time: 30"
+    literais:
+      - "allowed_fails: 3"
+      - "cooldown_time: 30"
+    nomes:
+      - "allowed_fails"
+      - "cooldown_time"
+    nomes_nota:
+      - "router_settings"
+    variantes_literais: []
+  - seccao: "3.35"
+    conceito: "Passagem do limiar do alerta"
+    canonico: "agr_degraded_acima_do_limiar_total"
+    literais:
+      - "agr_degraded_acima_do_limiar_total"
+    nomes:
+      - "agr_degraded_acima_do_limiar_total"
+    nomes_nota:
+      - "agr_registry_denied_total"
+      - "agr_draft_pendentes"
+    variantes_literais: []
+  - seccao: "3.35"
+    conceito: "Limiar do alerta de degradação"
+    canonico: "> 5% dos turnos de um tenant em 15 min, com um mínimo de vinte turnos na janela"
+    literais: []
+    nomes: []
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.35"
+    conceito: "Desagregação por tenant"
+    canonico: "não é etiqueta; lê-se da janela do detector e do campo tenant_id do registo"
+    literais:
+      - "tenant_id"
+    nomes:
+      - "tenant_id"
+    nomes_nota:
+      - "draft_decisions"
+      - "handoffs"
+      - "tenant_id"
+    variantes_literais: []
+  - seccao: "3.35"
+    conceito: "Nó do sub-grafo determinístico"
+    canonico: "degraded_menu"
+    literais:
+      - "degraded_menu"
+    nomes:
+      - "degraded_menu"
+    nomes_nota:
+      - "draft_prepare"
+      - "draft_wait"
+      - "classify"
+      - "degraded_menu"
+      - "validate"
+      - "fonte"
+      - "KAM"
+    variantes_literais: []
+  - seccao: "3.35"
+    conceito: "Identificador de opção do menu"
+    canonico: "menu:pedido, menu:loja, menu:humano"
+    literais:
+      - "menu:pedido"
+      - "menu:loja"
+      - "menu:humano"
+    nomes:
+      - "menu"
+      - "pedido"
+      - "loja"
+      - "humano"
+    nomes_nota:
+      - "menu"
+      - "confirm"
+      - "cart_id"
+      - "falar_com_humano"
+      - "encomenda"
+      - "info_loja"
+      - "humano"
+      - "pagamento"
+      - "degradado"
+      - "_CANCELAMENTO"
+    variantes_literais: []
+  - seccao: "3.35"
+    conceito: "Rótulo de cada opção"
+    canonico: "O meu pedido, Horario e morada, Falar com um colega"
+    literais:
+      - "O meu pedido"
+      - "Horario e morada"
+      - "Falar com um colega"
+    nomes:
+      - "O"
+      - "meu"
+      - "pedido"
+      - "Horario"
+      - "e"
+      - "morada"
+      - "Falar"
+      - "com"
+      - "um"
+      - "colega"
+    nomes_nota:
+      - "pt"
+      - "PortaDeSaida.enfileirar"
+      - "Corpo"
+      - "id"
+      - "titulo"
+    variantes_literais: []
+  - seccao: "3.35"
+    conceito: "O tecto das opções"
+    canonico: "três"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "MAXIMO_DE_BOTOES"
+      - "TOO_MANY_BUTTONS"
+      - "buttons"
+    variantes_literais: []
+  - seccao: "3.35"
+    conceito: "Versão dos textos do modo"
+    canonico: "1.1.0, SemVer"
+    literais:
+      - "1.1.0"
+    nomes: []
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.35"
+    conceito: "Versão do grafo do Vendedor"
+    canonico: "1.2.0"
+    literais:
+      - "1.2.0"
+    nomes: []
+    nomes_nota:
+      - "degradado"
+      - "handoff_wait"
+      - "draft_wait"
     variantes_literais: []
 
 tabelas:

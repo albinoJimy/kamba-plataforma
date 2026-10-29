@@ -1696,10 +1696,21 @@ class TestContratoDoConcierge(unittest.TestCase):
         self.assertIn(alteradas[0], tabela.do_73())
 
     def test_a_versao_do_grafo_subiu_no_minor(self) -> None:
-        """A regra da constante: «sobe no *minor* quando um no entra ou sai»."""
-        maior, menor, _correccao = tabela.VERSAO_DO_GRAFO.split(".")
+        """A regra da constante: «sobe no *minor* quando um no entra ou sai».
+
+        **O que este ensaio mede e a regra, nao o numero.** A versao foi `1.1.0`
+        quando o KAM-114 acrescentou dois nos e e `1.2.0` desde que o KAM-037
+        acrescentou um; afirmar o `menor` exacto punha este ficheiro a falhar em
+        cada ticket que acrescente um no, o que o fazia medir a aritmetica de
+        outro ticket em vez da sua propria regra. O que tem de continuar
+        verdadeiro aqui e que o *major* nao subiu — o estado continua compativel
+        com um `interrupt` pendente — e que a *correccao* ficou a zero, porque um
+        no que entra nao e uma correccao.
+        """
+        maior, menor, correccao = tabela.VERSAO_DO_GRAFO.split(".")
         self.assertEqual(maior, "1")
-        self.assertEqual(menor, "1")
+        self.assertGreaterEqual(int(menor), 1)
+        self.assertEqual(correccao, "0")
 
     def test_os_dois_nos_estao_na_lista_e_no_grafo(self) -> None:
         for nome in ("draft_prepare", "draft_wait"):

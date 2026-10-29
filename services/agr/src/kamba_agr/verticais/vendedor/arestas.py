@@ -1,4 +1,9 @@
-"""Os nos e as arestas do grafo do Vendedor (§7.3, mais o concierge do KAM-114).
+"""Os nos e as arestas do grafo do Vendedor (§7.3, o concierge e o modo degradado).
+
+A tabela tem **tres** fontes, e cada aresta diz qual pelo campo `fonte`: o §7.3
+(KAM-031), o KAM-114 (concierge) e o KAM-037 (modo deterministico). E o que
+permite as contagens do §7.3 continuarem verificaveis sem inflacionar um
+documento que nenhum dos dois tickets abre.
 
 ## Porque e que a tabela vive em codigo, e nao so no documento
 
@@ -52,7 +57,19 @@ from langgraph.graph import END, START
 #: pendente: os campos que o concierge acrescenta sao novos e opcionais, e um
 #: *checkpoint* escrito pela 1.0.0 lê-se sem eles — o `handoff_wait` de um
 #: *thread* a espera retoma como antes.
-VERSAO_DO_GRAFO: Final = "1.1.0"
+#:
+#: **1.2.0 e nao 1.1.1:** o KAM-037 acrescenta **um** no (`degraded_menu`) e a
+#: regra e a mesma. Tambem nao e *major*, pela mesma leitura: o `degradado` que
+#: o modo escreve e um campo novo e opcional do `ConversaState`, reiniciado em
+#: cada turno pelo `CAMPOS_DO_TURNO`, e um *checkpoint* escrito pela 1.1.0 le-se
+#: sem ele — um `draft_wait` ou um `handoff_wait` a espera retoma como antes,
+#: porque nenhum dos dois o consulta.
+#:
+#: **O SemVer e a metade do «Eval-gate» do DoD que este ticket consegue
+#: entregar.** A outra metade — «casos degradados no *golden*» — depende do gate
+#: 13, que **nao existe** e nasce com o KAM-040; a caixa fica vazia, com a razao
+#: escrita na secção de verificacao do bloco.
+VERSAO_DO_GRAFO: Final = "1.2.0"
 
 #: O numero de linhas da tabela de §7.3. Afirma-se para que o numero do criterio
 #: 1 continue verificavel depois de alguem perceber que as arestas sao mais.
@@ -63,6 +80,19 @@ LINHAS_DO_73: Final = 39
 #: ter trinta e nove linhas, e inflacionar a constante era faze-la mentir sobre
 #: um ficheiro que este ticket nao abre.
 FONTE_DO_CONCIERGE: Final = "KAM-114"
+
+#: O valor de `Aresta.fonte` das arestas que o KAM-037 acrescenta. Pela razao do
+#: `FONTE_DO_CONCIERGE`: nao estao no §7.3 e nao contam para o `LINHAS_DO_73`.
+FONTE_DO_DEGRADADO: Final = "KAM-037"
+
+#: As fontes que **nao** sao o §7.3. E por esta lista que o `do_73` filtra, e nao
+#: por uma comparacao com o `FONTE_DO_CONCIERGE`: a primeira versao do `do_73`
+#: escrevia `a.fonte != FONTE_DO_CONCIERGE`, o que contava como sendo do §7.3
+#: **toda** a fonte futura que nao fosse o concierge — e a primeira a aparecer
+#: foi a deste ticket, que teria inflacionado a contagem das quarenta e duas
+#: para quarenta e quatro sem ninguem notar. Um filtro por negacao de **um**
+#: valor nao e um filtro: e uma lista de proibidos com um elemento.
+FONTES_FORA_DO_73: Final = (FONTE_DO_CONCIERGE, FONTE_DO_DEGRADADO)
 
 #: A `fonte` da **unica** aresta do §7.3 que o KAM-114 altera: a 35, que passou
 #: de incondicional («sempre») a condicional. Nao fica com a omissao, e a razao
@@ -75,7 +105,12 @@ FONTE_DO_CONCIERGE: Final = "KAM-114"
 #: e o que mudou foi a forma e nao a autoria.
 FONTE_ALTERADA_PELO_CONCIERGE: Final = "02 §7.3, alterada por KAM-114"
 
-#: Os vinte e um nos, pela ordem do §7.4. Lista **fechada**: e por ela que o
+#: Os **vinte e quatro** nos, pela ordem do §7.4 e depois pela dos dois tickets
+#: que a estenderam. O §7.4 fixa **vinte e um** e continua a fixa-los; os outros
+#: tres sao os dois do KAM-114 e o do KAM-037, cada um com a sua `fonte` na
+#: tabela de arestas. **A frase anterior dizia «os vinte e um nos» com vinte e
+#: tres na lista imediatamente abaixo**, e com vinte e quatro depois deste ticket
+#: — apanhado pela revisao adversarial (achado C12). Lista **fechada**: e por ela que o
 #: teste de contrato mede «nenhum no a mais, nenhum a menos», e cada nome e
 #: tambem etiqueta de nada — os nos nao sao etiqueta de metrica, e e de
 #: proposito (§9.2 do `docs/tecnica/08`: o nome de um no nao identifica ninguem,
@@ -108,6 +143,12 @@ NOS: Final = (
     # dicionario §3.34 declara-os. Ver o `FONTE_DO_CONCIERGE` abaixo.
     "draft_prepare",
     "draft_wait",
+    # KAM-037: o no do modo deterministico. **Um e nao tres**, e a contagem e o
+    # resultado de reutilizar: o `order_status`, o `tools_info`, o
+    # `confirm_gate`, o `create_order` e o `handoff_prepare` servem o modo
+    # degradado tal como estao (e o que o bloco manda), e o que nao existia era
+    # o menu. O dicionario §3.35 declara-o.
+    "degraded_menu",
 )
 
 #: As nove intencoes do Vendedor (§7.3 linhas 11 a 17; dicionario §3.31).
@@ -131,11 +172,22 @@ INTENCOES: Final = (
 #: dados para um valor que nenhuma linha de auditoria pode levar.
 STALE_CONFIRMATION: Final = "STALE_CONFIRMATION"
 
-#: O dominio fechado de `state.avisos` (emenda 1.40). Os sete primeiros sao
-#: erros tipados do §6.5 que o §6.5 manda o `compose` explicar; o oitavo e o de
-#: cima. **Fechado** porque o `compose` decide por valor conhecido: um aviso que
-#: ele nao conheca cai na explicacao de omissao, e a de omissao nao e a de uma
-#: recusa por regra.
+#: A consulta de um pedido sem o cliente ter dito qual (KAM-037). **Nao e um dos
+#: onze erros tipados do §6.5** e nao e `NOT_FOUND`, e a distincao e a correccao
+#: do achado C2 da revisao adversarial: «nao me disse qual» nao e «nao existe», e
+#: confundir os dois dizia «Nao encontrei esse **artigo** no **catalogo** da
+#: loja» a quem pediu o estado de um pedido. Nasce no `order_status`, como o
+#: `STALE_CONFIRMATION` nasce no `confirm_gate`, pelo que tambem nao entra no
+#: `CODIGOS` do `tls/erros.py` — entrava no `CHECK` fechado da
+#: `tool_audit.error_code`, que e uma revisao de base de dados para um valor que
+#: nenhuma linha de auditoria pode levar.
+REFERENCIA_EM_FALTA: Final = "REFERENCIA_EM_FALTA"
+
+#: O dominio fechado de `state.avisos` (emenda 1.40, mais o do KAM-037). Os sete
+#: primeiros sao erros tipados do §6.5 que o §6.5 manda o `compose` explicar; os
+#: dois ultimos nascem em nos nossos. **Fechado** porque o `compose` decide por
+#: valor conhecido: um aviso que ele nao conheca cai na explicacao de omissao, e
+#: a de omissao nao e a de uma recusa por regra.
 AVISOS: Final = (
     "NOT_FOUND",
     "OUT_OF_STOCK",
@@ -145,6 +197,7 @@ AVISOS: Final = (
     "UPSTREAM_TIMEOUT",
     "UPSTREAM_DOWN",
     STALE_CONFIRMATION,
+    REFERENCIA_EM_FALTA,
 )
 
 #: Os desfechos da linha 4 — porque e que um turno nao corre (§3.31).
@@ -297,17 +350,57 @@ ARESTAS: Final = (
         "decisao rejeitado, expirado ou substituido",
         fonte="KAM-114",
     ),
+    # ------------------------------------------- KAM-037, o modo deterministico
+    #
+    # **Duas arestas, e o resto do modo sao as que ja existem.** O sub-grafo
+    # deterministico entra pelo `classify`, que em modo degradado encaminha para
+    # o `degraded_menu` em vez de para o `retrieve` ou o `cart_build` — e sai
+    # pelo `validate`, como o `compose`, porque o criterio 5 manda o validador
+    # aplicar-se **tambem** aqui.
+    #
+    # O que **nao** se escreve sao arestas novas para o `order_status`, o
+    # `tools_info`, o `confirm_gate` e o `handoff_prepare`: as linhas 13, 14, 15
+    # e 16 do §7.3 ja ligam o `classify` aos quatro, e um turno degradado toma-as
+    # com a intencao que o `intencoes.serve` reconhece. Duplicar o destino com
+    # chave propria dava duas arestas para o mesmo par `(de, para)` e o conjunto
+    # que o teste de contrato compara era o mesmo — isto e, uma aresta a mais na
+    # tabela que o grafo compilado nao pode desmentir.
+    Aresta(
+        44,
+        "classify",
+        "degraded_menu",
+        "menu",
+        "degradado e a intencao nao e servida pelo modo",
+        fonte=FONTE_DO_DEGRADADO,
+    ),
+    Aresta(
+        45,
+        "degraded_menu",
+        "validate",
+        None,
+        "sempre; o validador aplica-se tambem ao modo deterministico",
+        fonte=FONTE_DO_DEGRADADO,
+    ),
 )
 
 
 def do_73() -> tuple["Aresta", ...]:
-    """So as arestas que o §7.3 autoriza. E o universo do `LINHAS_DO_73`."""
-    return tuple(a for a in ARESTAS if a.fonte != FONTE_DO_CONCIERGE)
+    """So as arestas que o §7.3 autoriza. E o universo do `LINHAS_DO_73`.
+
+    O filtro e por **lista de fontes de fora** e nao por negacao de uma: ver o
+    `FONTES_FORA_DO_73`.
+    """
+    return tuple(a for a in ARESTAS if a.fonte not in FONTES_FORA_DO_73)
 
 
 def do_concierge() -> tuple["Aresta", ...]:
     """So as arestas que o KAM-114 acrescenta."""
     return tuple(a for a in ARESTAS if a.fonte == FONTE_DO_CONCIERGE)
+
+
+def do_degradado() -> tuple["Aresta", ...]:
+    """So as arestas que o KAM-037 acrescenta."""
+    return tuple(a for a in ARESTAS if a.fonte == FONTE_DO_DEGRADADO)
 
 
 def pares() -> frozenset[tuple[str, str]]:

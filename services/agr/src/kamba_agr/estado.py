@@ -123,6 +123,10 @@ def estado_inicial(invocacao: InvocacaoDoAgente) -> dict[str, Any]:
         "citation_retries": 0,
         "handoff_seq": 0,
         "handoff": None,
+        # KAM-037. **Entra aqui**, como o `concierge` e ao contrario do
+        # `turn_seq`: e do turno, e e esta reposicao que faz o modo degradado de
+        # um turno nao valer no seguinte (criterio 7).
+        "degradado": None,
         # KAM-114. **O `concierge` entra aqui e o `turn_seq` NÃO**, e a
         # assimetria e o remedio de um defeito medido.
         #
@@ -235,6 +239,13 @@ CAMPOS_DO_TURNO: Final = {
     "guard": None,
     "intent": None,
     "stt": None,
+    # KAM-037. **E do turno, e isso e metade do criterio 7.** «Ao recuperar o
+    # LLM, o proximo turno volta ao modo normal»: com o `degradado` reiniciado
+    # aqui, voltar ao modo normal **nao e uma transicao** que alguem tenha de
+    # escrever — e a ausencia de estado. Um campo que sobrevivesse ao turno
+    # obrigava a um caminho de saida do modo degradado, e um caminho de saida
+    # que falhe deixa a conversa degradada para sempre.
+    "degradado": None,
 }
 
 
@@ -315,3 +326,15 @@ class ConversaState(TypedDict, total=False):
     #: `Command(resume=...)` e essa **nao** traz estado inicial nenhum — o canal
     #: guarda o que o *checkpoint* tem.
     concierge: dict[str, Any] | None
+    #: KAM-037. O motivo por que **este** turno corre em modo deterministico, ou
+    #: `None`. A forma e `{"motivo": <um dos cinco de `degradacao.MOTIVOS`>}`.
+    #:
+    #: **Reinicia-se em cada turno** (`CAMPOS_DO_TURNO` e `estado_inicial`), e e
+    #: por isso que a recuperacao do criterio 7 nao precisa de codigo: o turno
+    #: seguinte nasce sem ele e o `ingest` volta a perguntar ao detector.
+    #:
+    #: E um `dict` e nao uma cadeia porque o `r_intent` so precisa de saber **se**
+    #: ha degradacao e o no do menu nao precisa do motivo nenhum — mas o
+    #: *checkpoint* fica com ele, e e por ai que se sabe, ao ler um turno antigo,
+    #: porque e que o cliente recebeu um menu.
+    degradado: dict[str, Any] | None

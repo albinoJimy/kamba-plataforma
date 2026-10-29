@@ -200,19 +200,27 @@ class TestContratoDoGrafo(unittest.TestCase):
         self.assertEqual(sorted(tabela.pares() - do_compilado), [], "arestas em falta")
         self.assertEqual(sorted(do_compilado - tabela.pares()), [], "arestas a mais")
 
-    def test_os_nos_sao_vinte_e_tres_e_os_sentinelas_nao_contam(self) -> None:
-        """**Vinte e tres desde o KAM-114**, e a conta diz de onde vem cada um.
+    def test_os_nos_sao_vinte_e_quatro_e_os_sentinelas_nao_contam(self) -> None:
+        """**Vinte e quatro desde o KAM-037**, e a conta diz de onde vem cada um.
 
         O §7.4 fixa vinte e um e continua a fixa-los; os dois do concierge
-        (`draft_prepare`, `draft_wait`) vem do bloco do KAM-114, que os nomeia
-        nos Detalhes Tecnicos. Afirmam-se **em separado** para que acrescentar um
-        no ao §7.4 sem o documentar continue a falhar aqui.
+        (`draft_prepare`, `draft_wait`) vem do bloco do KAM-114 e o do modo
+        deterministico (`degraded_menu`) do bloco do KAM-037, que os nomeiam nos
+        Detalhes Tecnicos. Afirmam-se **em separado** para que acrescentar um no
+        ao §7.4 sem o documentar continue a falhar aqui.
         """
         nos = tabela.nos_do_compilado(self.grafo)
-        self.assertEqual(len(nos), 23)
+        self.assertEqual(len(nos), 24)
         do_concierge = ("draft_prepare", "draft_wait")
+        do_degradado = ("degraded_menu",)
         self.assertEqual(sorted(n for n in tabela.NOS if n.startswith("draft_")), sorted(do_concierge))
-        self.assertEqual(len([n for n in tabela.NOS if n not in do_concierge]), 21)
+        self.assertEqual(
+            sorted(n for n in tabela.NOS if n.startswith("degraded_")),
+            sorted(do_degradado),
+        )
+        self.assertEqual(
+            len([n for n in tabela.NOS if n not in do_concierge + do_degradado]), 21
+        )
         self.assertEqual(nos, frozenset(tabela.NOS))
         # A mutacao `os sentinelas do LangGraph passam a contar como nos` do
         # KAM-027, medida outra vez aqui porque este grafo e que os tem.
@@ -235,8 +243,13 @@ class TestContratoDoGrafo(unittest.TestCase):
         # estao no §7.3, e somar as duas contagens numa so fazia o
         # `LINHAS_DO_73` mentir sobre um documento que aquele ticket nao abre.
         self.assertEqual(len(tabela.do_concierge()), 4)
-        self.assertEqual(len(tabela.ARESTAS), 46)
-        self.assertEqual(len(tabela.pares()), 46, "ha duas arestas iguais na tabela")
+        # **E as duas do modo deterministico contam-se a parte** (KAM-037), pela
+        # mesma razao. O `do_73` filtra por **lista** de fontes de fora e nao por
+        # negacao de uma, e e isso que impede estas duas de entrarem na contagem
+        # do §7.3 — media-se em `test_degradacao`.
+        self.assertEqual(len(tabela.do_degradado()), 2)
+        self.assertEqual(len(tabela.ARESTAS), 48)
+        self.assertEqual(len(tabela.pares()), 48, "ha duas arestas iguais na tabela")
         multiplas = {
             linha: sorted((a.de, a.para) for a in tabela.ARESTAS if a.linha == linha)
             for linha in (27, 34)
@@ -316,14 +329,32 @@ class TestContratoDoGrafo(unittest.TestCase):
         """O `build_graph` confronta a tabela com as funcoes, e levanta."""
         from kamba_agr.verticais.vendedor import grafo as modulo
 
-        original = dict(modulo.NOS_DO_GRAFO)
+        # **O `NOS_COMPLETOS` e nao o `NOS_DO_GRAFO`**, desde o KAM-037: a
+        # juncao das duas tabelas de nos faz-se no `grafo.py`, e e ela que o
+        # `_conferir_coerencia` le. Tirar um no do `NOS_DO_GRAFO` depois do
+        # *import* deixava o `NOS_COMPLETOS` intacto e o ensaio passava a nao
+        # medir nada.
+        original = dict(modulo.NOS_COMPLETOS)
         try:
-            modulo.NOS_DO_GRAFO.pop("send")
+            modulo.NOS_COMPLETOS.pop("send")
             with self.assertRaises(modulo.GrafoIncoerenteError):
                 montar()
         finally:
-            modulo.NOS_DO_GRAFO.clear()
-            modulo.NOS_DO_GRAFO.update(original)
+            modulo.NOS_COMPLETOS.clear()
+            modulo.NOS_COMPLETOS.update(original)
+
+    def test_um_no_do_sub_grafo_sem_declaracao_reprova_a_construcao(self) -> None:
+        """A mesma barreira pelo outro lado: o no do KAM-037 tambem conta."""
+        from kamba_agr.verticais.vendedor import grafo as modulo
+
+        original = dict(modulo.NOS_COMPLETOS)
+        try:
+            modulo.NOS_COMPLETOS.pop("degraded_menu")
+            with self.assertRaises(modulo.GrafoIncoerenteError):
+                montar()
+        finally:
+            modulo.NOS_COMPLETOS.clear()
+            modulo.NOS_COMPLETOS.update(original)
 
     def test_o_grafo_tem_semver(self) -> None:
         """DoD: «SemVer do grafo atribuido»."""
@@ -975,15 +1006,28 @@ class TestIsolamentoX09(unittest.TestCase):
         self.assertNotIn(self.CANARIO, saida.textos[0])
 
     def test_a_encomenda_de_outro_contacto_nao_se_le(self) -> None:
+        """O X-09 na tool: o `get_order_status` so ve o **proprio** contacto (§6.2).
+
+        **A referencia tem de casar o `_REFERENCIA`, e a primeira versao deste
+        ensaio nao casava.** Ela usava `o-do-outro`, que nao tem digitos: o
+        `order_status` nao extraia referencia nenhuma, **nunca chamava a tool**, e
+        o ensaio passava com `NOT_FOUND` sem ter medido isolamento nenhum — media
+        «nao percebi o que me pediu». O defeito ficou visivel quando o KAM-037
+        separou «nao me disse qual» de «nao existe»; sem essa separacao, os dois
+        casos eram indistinguiveis **por desenho**, e e por isso que nenhuma
+        leitura o apanhou.
+        """
         backend = BackendDeEnsaio()
-        backend.encomendas["o-do-outro"] = ("outro-contacto", self.CANARIO)
+        backend.encomendas["ABC-999"] = ("outro-contacto", self.CANARIO)
 
         grafo, _deps, _backend, saida, _lig = montar(backend=backend)
-        final = correr(grafo, estado_de("qual o estado do pedido o-do-outro"))
+        final = correr(grafo, estado_de("qual o estado do pedido ABC-999"))
 
+        # A tool **foi** chamada, e e isso que faz deste ensaio uma prova.
+        self.assertEqual(backend.chamadas.get("get_order_status"), 1)
         self.assertIn("NOT_FOUND", final["avisos"])
         self.assertNotIn(self.CANARIO, saida.textos[0])
-        self.assertNotIn("o-do-outro", saida.textos[0])
+        self.assertNotIn("ABC-999", saida.textos[0])
 
     def test_a_propria_encomenda_le_se(self) -> None:
         """O controlo positivo do ensaio cruzado: o proprio contacto **ve**.
@@ -1204,10 +1248,20 @@ class TestOutrosNos(unittest.TestCase):
         self.assertIn("Nao encontrei nada no catalogo", saida.textos[0])
 
     def test_um_pedido_sem_referencia_no_texto_explica(self) -> None:
+        """**E o aviso e `REFERENCIA_EM_FALTA` e nao `NOT_FOUND`** (KAM-037).
+
+        O nome deste ensaio ja dizia «sem referencia no texto», e o aviso que ele
+        afirmava dizia «nao existe» — duas coisas diferentes com a mesma resposta.
+        O KAM-037 separou-as porque o menu do modo deterministico fazia a
+        confusao chegar ao cliente: um toque em «O meu pedido» recebia «Nao
+        encontrei esse artigo no catalogo da loja».
+        """
         grafo, _deps, backend, saida, _lig = montar()
         final = correr(grafo, estado_de("quero saber da minha encomenda"))
-        self.assertIn("NOT_FOUND", final["avisos"])
+        self.assertIn(tabela.REFERENCIA_EM_FALTA, final["avisos"])
+        self.assertNotIn("NOT_FOUND", final["avisos"])
         self.assertEqual(backend.chamadas.get("get_order_status"), None)
+        self.assertIn("referencia do pedido", saida.textos[0])
 
     def test_a_nota_de_voz_sem_stt_pede_texto(self) -> None:
         grafo, _deps, _backend, saida, _lig = montar()

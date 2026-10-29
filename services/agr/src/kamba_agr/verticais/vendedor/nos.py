@@ -1,4 +1,8 @@
-"""Os vinte e um nos do grafo do Vendedor (§7.3, §7.4).
+"""Os **vinte e quatro** nos do grafo do Vendedor (§7.3, §7.4) — e o §7.4 fixa
+vinte e um, que continuam a ser vinte e um: os outros tres sao os dois do
+KAM-114 e o do KAM-037, cada um com a sua `fonte` na tabela de arestas. A frase
+anterior dizia «os vinte e um nos» com vinte e tres no `NOS_DO_GRAFO` logo
+abaixo; apanhado pela revisao adversarial (achado C12).
 
 ## O que e Fase 0 aqui, e o que nao e atalho
 
@@ -51,6 +55,8 @@ from ...estado import reiniciar, versao_lida
 from ...concierge.maquina import DECISOES_QUE_ENVIAM, MOTIVOS
 from ...concierge.maquina import draft_id as derivar_draft_id
 from ...concierge.politica import SemPolitica
+from ...degradacao import MOTIVO_BREAKER, SemDegradacao
+from ...llm.erros import ErroDeLlm
 from ...concierge.portas import ConciergeSemServicoError
 from ...handoff.portas import HandoffIndisponivel
 from ...tls.contexto import PREFIXO_DE_CONFIRMACAO, Confirmation, ToolContext
@@ -66,7 +72,14 @@ from ...tls.erros import (
 from ...tls.vendedor import LIMITE_DA_QUERY
 from ...validador.render import BlocoInvalidoError, Oferta, renderizar
 from ...validador.veredicto import Policy, medir_validacao, validar
-from .arestas import AVISOS, INTENCOES, RECUSAS, STALE_CONFIRMATION, VERSAO_DO_GRAFO
+from .arestas import (
+    AVISOS,
+    INTENCOES,
+    RECUSAS,
+    REFERENCIA_EM_FALTA,
+    STALE_CONFIRMATION,
+    VERSAO_DO_GRAFO,
+)
 
 # --------------------------------------------------------------------- tectos
 
@@ -178,6 +191,9 @@ FRASE_DO_AVISO: Final = {
     UPSTREAM_DOWN: "O sistema da loja nao responde neste momento.",
     STALE_CONFIRMATION: (
         "Essa confirmacao ja nao esta valida. Vou mostrar-lhe o carrinho outra vez."
+    ),
+    REFERENCIA_EM_FALTA: (
+        "Diga-me a referencia do pedido e eu consulto-o."
     ),
 }
 
@@ -393,6 +409,15 @@ class Dependencias:
     #: como nao publicado — o que **nao** deixa sair mensagem nenhuma, porque a
     #: decisao continua a faltar.
     rascunho: Any | None = None
+    #: KAM-037. O `DetectorDeDegradacao`. Por omissao a `SemDegradacao`, que
+    #: responde «nao degrada» sempre: sem detector ligado nao ha sinal nenhum e o
+    #: grafo comporta-se como o KAM-031 e o KAM-114 o entregaram.
+    #:
+    #: **Nao e `None` por omissao**, pela razao do `concierge`: um
+    #: `if deps.degradacao is not None` espalhado pelos nos era a porta por onde
+    #: um `None` tirava o turno do modo degradado em silencio — e aqui o lado
+    #: errado de errar e **nao** degradar, porque e um cliente sem resposta.
+    degradacao: Any = field(default_factory=SemDegradacao)
 
     def __post_init__(self) -> None:
         if self.relogio is None:
@@ -868,9 +893,44 @@ def ingest(deps: Dependencias):
             delta["admissao"] = recusa
             return delta
         delta.update(_recorte_da_janela(estado))
+        delta.update(_degradacao_antes_do_turno(deps, estado))
         return delta
 
     return no
+
+
+def _degradacao_antes_do_turno(
+    deps: Dependencias, estado: Mapping[str, Any]
+) -> dict[str, Any]:
+    """O que o detector sabe **antes** de o turno correr (KAM-037).
+
+    Duas coisas acontecem aqui, e a ordem nao e indiferente:
+
+    1. pergunta-se o motivo que se sabe de antemao — o disjuntor do LLM aberto,
+       ou a contrapressao do criterio 8 — e, se houver, o turno nasce degradado;
+    2. **conta-se o turno**, degradado ou nao. O turno normal e o denominador do
+       alerta do criterio 6, e o `ingest` e o unico no por onde **todos** os
+       turnos que correm passam.
+
+    **Depois da recusa da linha 4 e nao antes**, e e deliberado: um turno
+    recusado por ritmo ou por contacto bloqueado nao corre, nao recebe resposta e
+    nao e uma oportunidade de degradar — contá-lo no denominador diluia a
+    proporcao com turnos que nenhum modo podia servir. O `return` da recusa, no
+    `ingest`, sai antes de chegar aqui.
+
+    **Nao apanha excepcoes.** O detector le memoria deste processo e nao abre
+    ligacao nenhuma; se levantar, e defeito nosso e o turno deve falhar — a mesma
+    direccao do `versao_lida` no topo do `ingest`.
+    """
+    tenant_id = estado["tenant_id"]
+    motivo = deps.degradacao.motivo_antes_do_turno(tenant_id)
+    # **`estado["turn_id"]` e nao `.get(...) or ""`**, e e a correccao do achado
+    # P1: a entrada da janela e identificada pelo `turn_id`, pelo que uma cadeia
+    # vazia fazia todos os turnos em voo de um *tenant* valerem como **um** e
+    # encolhia o denominador do criterio 6 em silencio. O `estado_inicial`
+    # garante o campo; se faltar, levanta — que e o lado certo de errar.
+    deps.degradacao.registar_turno(tenant_id, estado["turn_id"], motivo)
+    return {"degradado": {"motivo": motivo}} if motivo else {}
 
 
 def stt(deps: Dependencias):
@@ -920,6 +980,17 @@ def classify(deps: Dependencias):
             return {"intent": "confirmar"}
         if botao == BOTAO_HUMANO:
             return {"intent": "humano", "handoff_motivo": MOTIVO_PEDIDO}
+        # KAM-037. **Um `menu:*` decide em TODOS os turnos, degradado ou nao**, e
+        # a primeira versao so o lia no caminho degradado — o achado C1 da
+        # revisao adversarial, e critico. O `degradado` e um campo do turno e o
+        # botao **fica no ecra do WhatsApp**: o turno seguinte, com o modelo
+        # recuperado, deixava de reconhecer os identificadores que nos proprios
+        # emitimos — o `menu:humano` nao abria *handoff* e o identificador cru ia
+        # ao modelo como texto do cliente, contra a regra do §15.1 que o
+        # cabecalho deste modulo escreve para o `confirm:*`.
+        opcao = _intencao_da_opcao(botao)
+        if opcao is not None:
+            return _com_motivo_de_humano({"intent": opcao})
         texto_do_turno = _texto_do_cliente(estado)
         if botao == BOTAO_CANCELAR or pediu_cancelamento(texto_do_turno):
             # shortcut: o §7.3 **nao tem no de cancelamento** — nao esta nas
@@ -927,22 +998,138 @@ def classify(deps: Dependencias):
             # com texto estatico. O que nao se pode deixar e o carrinho de pe:
             # um `confirm:` que chegasse depois encontrava `awaiting_confirm` e
             # criava a encomenda que o cliente acabou de cancelar. Larga-se o
-            # carrinho. Credor: KAM-037, que desenha os menus por botoes.
+            # carrinho.
+            #
+            # **O credor era o KAM-037 e deixou de poder ser.** Aquele ticket
+            # fundiu e **nao** pagou este atalho, de proposito: os menus que ele
+            # desenha sao do modo **degradado** (`degradado/textos.py`) e um no
+            # de cancelamento no grafo **normal** nao e nenhum dos seus oito
+            # criterios. Deixar o credor a apontar para um ticket fechado era um
+            # ponteiro morto, que e a classe de defeito que este repositorio
+            # persegue. Limite: o cancelar continua a sair por texto estatico e o
+            # carrinho e largado; revê-se quando alguem acrescentar o no de
+            # cancelamento ao §7.3 — e e esse ticket o credor, porque e ele que
+            # muda o documento.
             return {"intent": "outro", "cart": None, "stage": "browsing"}
 
         texto = texto_do_turno
+        if estado.get("degradado"):
+            # KAM-037. **O turno ja nasceu degradado** (disjuntor aberto,
+            # contrapressao): nao se vai ao modelo nem para tentar. A intencao
+            # sai dos identificadores de botao/lista e das palavras-chave, que e
+            # o criterio 4 — e o botao decide antes do texto, pela razao escrita
+            # no `intencao_sem_llm`.
+            return _com_motivo_de_humano({"intent": _intencao_degradada(botao, texto)})
+
         intencao = intencao_por_regras(texto)
         if intencao is None and deps.classificador is not None:
-            escolhida = deps.classificador(texto)
+            tenant_id = estado["tenant_id"]
+            if not deps.degradacao.pode_chamar_o_llm(tenant_id):
+                # O disjuntor fechou a porta entre o `ingest` e aqui — ou
+                # abriu-a outro turno **deste tenant**. **Nao se chama**, e
+                # degrada-se: a pergunta e `pode_chamar_o_llm` e nao «esta
+                # aberto» porque e ela que consome a tentativa de meio-aberto.
+                return _degradar(deps, estado, MOTIVO_BREAKER, botao, texto)
+            decidido = False
+            try:
+                escolhida = deps.classificador(texto)
+            except ErroDeLlm as erro:
+                # **A degradacao a meio do turno, e e o criterio 1.** O turno
+                # **nao** falha e **nao** volta a fila: segue pelo caminho
+                # deterministico e responde no mesmo turno.
+                #
+                # Apanha-se o `ErroDeLlm` e **mais nada**: um erro do
+                # checkpointer ou da base sobe, porque nao e degradacao (§14,
+                # linha do checkpointer indisponivel). Ver o `degradacao.py`.
+                decidido = True
+                return _degradar(
+                    deps,
+                    estado,
+                    deps.degradacao.registar_falha(tenant_id, erro),
+                    botao,
+                    texto,
+                )
+            else:
+                decidido = True
+                deps.degradacao.registar_sucesso(tenant_id)
+            finally:
+                # **A tentativa de meio-aberto larga-se se ninguem a julgou**, e
+                # e a correccao do achado C7. O `pode_chamar_o_llm` marcou-a como
+                # entregue; se o classificador levantar algo que **nao** e um
+                # `ErroDeLlm` — um erro da base, um defeito nosso —, a excepcao
+                # sobe (e bem: nao e degradacao) mas o disjuntor ficava com a
+                # tentativa pendurada pelo prazo da pausa. Nesse intervalo o
+                # `aberto()` e falso, pelo que os turnos nasciam normais e
+                # degradavam aqui com `motivo="breaker"` — um erro que nao e do
+                # modelo a produzir turnos degradados contados como avaria dele.
+                #
+                # O `absolver` e exactamente isto: «a resposta chegou e **nao**
+                # diz nada sobre a saude do backend». Nao toca na contagem.
+                if not decidido:
+                    deps.degradacao.absolver(tenant_id)
             # Um valor fora das nove **nao** entra no estado: o `r_intent`
             # mandava-o a `other` de qualquer maneira, e escrever no estado uma
             # intencao que o dicionario nao tem punha-a a viajar no checkpoint.
             intencao = escolhida if escolhida in INTENCOES else None
-        if intencao == "humano":
-            return {"intent": "humano", "handoff_motivo": MOTIVO_PEDIDO}
-        return {"intent": intencao or "outro"}
+        return _com_motivo_de_humano({"intent": intencao or "outro"})
 
     return no
+
+
+def _intencao_da_opcao(botao: str) -> str | None:
+    """A intencao que um identificador `menu:*` abre, ou `None`.
+
+    O *import* e no corpo pela razao do `_intencao_degradada`.
+    """
+    from .degradado.intencoes import INTENCAO_DA_OPCAO
+
+    return INTENCAO_DA_OPCAO.get(botao)
+
+
+def _intencao_degradada(botao: str, texto: str) -> str:
+    """A intencao sem LLM. **O `import` e no corpo e nao no topo.**
+
+    E o idioma da casa — o `_valores_derivados` do `metricas.py`, o
+    `pediu_cancelamento` deste modulo — e aqui e necessidade e nao estilo: o
+    `degradado/intencoes.py` importa **este** ficheiro, pelo que um `import` no
+    topo fechava o ciclo. Ver a nota do `degradado/intencoes.py`.
+    """
+    from .degradado.intencoes import intencao_sem_llm
+
+    return intencao_sem_llm(botao, texto)
+
+
+def _com_motivo_de_humano(delta: dict[str, Any]) -> dict[str, Any]:
+    """Acrescenta o `handoff_motivo` quando a intencao e `humano`.
+
+    **Existe porque havia tres saidas do `classify` a repetir a mesma regra**, e
+    a quarta — a do modo degradado — ia ser a primeira a esquece-la: um cliente
+    que toque `menu:humano` com o LLM em baixo ia a *handoff* **sem motivo**, e o
+    `_resumo` que o colega recebe nomeia o motivo. Uma regra em quatro sitios e
+    uma regra que vai divergir.
+    """
+    if delta.get("intent") == "humano":
+        return dict(delta, handoff_motivo=MOTIVO_PEDIDO)
+    return delta
+
+
+def _degradar(
+    deps: Dependencias,
+    estado: Mapping[str, Any],
+    motivo: str,
+    botao: str,
+    texto: str,
+) -> dict[str, Any]:
+    """O delta de um turno que degradou **a meio**: o motivo e a intencao.
+
+    Promove a entrada deste turno na janela do detector de normal a degradada — o
+    `ingest` ja o contou como normal, e o `turn_id` e o que impede os dois
+    registos de valerem como dois turnos (ver o `registar_turno`).
+    """
+    deps.degradacao.registar_turno(estado["tenant_id"], estado["turn_id"], motivo)
+    return _com_motivo_de_humano(
+        {"degradado": {"motivo": motivo}, "intent": _intencao_degradada(botao, texto)}
+    )
 
 
 def retrieve(deps: Dependencias):
@@ -1121,7 +1308,18 @@ def order_status(deps: Dependencias):
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
         achado = _REFERENCIA.search(_texto_do_cliente(estado))
         if achado is None:
-            return {"avisos": _avisos_com(estado, NOT_FOUND)}
+            # **«Nao me disse qual» nao e «nao existe»**, e a primeira versao
+            # confundia os dois: devolvia `NOT_FOUND`, e o `compose` dizia «Nao
+            # encontrei esse **artigo** no **catalogo** da loja» a quem pediu o
+            # estado de um pedido. A revisao adversarial mediu a consequencia
+            # (achado C2): com o menu do modo deterministico, o texto do turno de
+            # um toque **e** o identificador do botao — que nao tem referencia
+            # nenhuma —, pelo que a capacidade «estado do pedido» do criterio 2
+            # era inalcancavel pelo menu, e sem saida.
+            #
+            # A correccao e um aviso proprio, e vale nos **dois** modos: o
+            # cliente ouve a pergunta em vez de uma frase de catalogo.
+            return {"avisos": _avisos_com(estado, REFERENCIA_EM_FALTA)}
         resultado = await _com_retry(
             lambda: _invocar(
                 deps, estado, "get_order_status", {"order_id": achado.group(1)}

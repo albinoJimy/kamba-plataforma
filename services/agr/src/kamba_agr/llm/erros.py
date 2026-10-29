@@ -65,9 +65,25 @@ class ErroDeLlm(RuntimeError):
     #: Um dos `RESULTADOS`. Subclasses fixam-no.
     resultado: str = RESULTADO_ERRO
 
-    def __init__(self, mensagem: str, papel: str = "") -> None:
+    def __init__(
+        self, mensagem: str, papel: str = "", estado_http: int | None = None
+    ) -> None:
         super().__init__(mensagem)
         self.papel = papel
+        #: O estado HTTP com que o proxy recusou, quando houve um.
+        #:
+        #: **Nao e um `resultado` novo, e a distincao e uma revisao de base de
+        #: dados.** O `RESULTADOS` e o dominio fechado de
+        #: `dat.llm_call_log.resultado`, com `CHECK` na revisao `0023`: dar tipo
+        #: proprio ao 429 obrigava a quatro sitios e a uma migracao, pela licao
+        #: que a `0022` pagou. Mas o criterio 1 do KAM-037 nomeia o **429** como
+        #: gatilho de degradacao ao lado do *timeout* e do orcamento, e sem este
+        #: campo a unica forma de o ver era ler a mensagem da excepcao — texto
+        #: formatado, que muda quando alguem lhe mexer.
+        #:
+        #: Fica aqui como atributo de diagnostico: nao vai para a tabela, nao
+        #: entra em etiqueta de metrica, e quem o le e o `degradacao.py`.
+        self.estado_http = estado_http
 
     def codigo(self) -> str:
         """O identificador para o `error_code` do *logger*.
@@ -83,9 +99,10 @@ class OrcamentoEsgotado(ErroDeLlm):
     """O `BUDGET_EXHAUSTED` do criterio 4.
 
     Quem o apanha e o grafo, e a resposta e degradar para o modo deterministico
-    (KAM-037, `docs/tecnica/02` §14) — que **nao existe**. Hoje o turno falha e o
-    *job* volta a fila, e e isso que esta escrito na secao de verificacao do
-    bloco: a degradacao e do KAM-037 e esta caixa fica por marcar nessa metade.
+    (KAM-037, `docs/tecnica/02` §14) — que **ja existe**: o `classify` do
+    Vendedor apanha-o, o `degradacao.py` da-lhe o motivo `budget`, e o turno
+    responde pelo menu em vez de falhar. A linha anterior desta *docstring*
+    dizia que o modo «nao existe», e deixou de ser verdade com o KAM-037.
     """
 
     resultado = RESULTADO_BUDGET
@@ -155,10 +172,15 @@ def classificar(estado: int, corpo: object, papel: str = "") -> ErroDeLlm:
 
     if tipo == TIPO_ORCAMENTO:
         return OrcamentoEsgotado(
-            f"o orcamento da chave virtual esgotou-se ({estado}, {seguro})", papel
+            f"o orcamento da chave virtual esgotou-se ({estado}, {seguro})",
+            papel,
+            estado,
         )
     # 408 e 504 sao tempo; o `httpx` trata o tempo do lado do cliente e nunca
     # chega aqui com estado, mas um proxy intermedio pode responder assim.
     if estado in (408, 504):
-        return TempoEsgotado(f"o proxy respondeu {estado} ({seguro})", papel)
-    return FornecedorFalhou(f"o proxy respondeu {estado} ({seguro})", papel)
+        return TempoEsgotado(f"o proxy respondeu {estado} ({seguro})", papel, estado)
+    # O **429** sai daqui como `FornecedorFalhou` e **nao** como tipo proprio:
+    # ver o `estado_http` do `ErroDeLlm`. Quem o distingue do resto das avarias
+    # do fornecedor e o `degradacao.py`, pelo estado.
+    return FornecedorFalhou(f"o proxy respondeu {estado} ({seguro})", papel, estado)

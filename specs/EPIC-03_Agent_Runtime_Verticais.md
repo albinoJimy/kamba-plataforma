@@ -2689,6 +2689,297 @@ Testes: unit, integração com LLM fake em falha, carga leve, renderer. PR com o
 
 ---
 
+---
+
+### Verificação dos Critérios de Aceitação
+
+**8 critérios: 5 satisfeitos, 3 parciais. 7 caixas de DoD: 4 marcadas, 3 vazias.**
+A bateria do AGR tem **1 161** testes verdes, **82** deles deste ticket
+(`services/agr/tests/test_degradacao.py`), corridos em contentor porque esta
+máquina não tem `langgraph`: o comando e o código de saída estão no fim desta
+secção.
+
+**Estes números são os de depois da revisão adversarial**
+(`../docs/analises/ANALISE-39-kam-037-modo-deterministico.md`), que deu **29
+achados, 12 `CONFIRMADO`**, e dez deles geraram trabalho — incluindo um que fez o
+critério 3 descer de `satisfeito` a `parcial`. O que ela mudou e o que ela matou
+está na sub-secção própria, no fim.
+
+| # | Critério | Estado | Prova |
+|---|---|---|---|
+| 1 | Com o LLM *fake* a dar *timeout* de 20 s (ou 429 ou `BUDGET_EXHAUSTED`) a mensagem recebe resposta determinística em ≤ 1 turno, sem excepção e sem mensagem em falta (0 turnos sem resposta em 100 execuções) | **satisfeito** | `TestCriterio1::test_os_tres_modos_de_falha_respondem_no_mesmo_turno` corre os três erros tipados do `llm/erros.py` (`TempoEsgotado`, `FornecedorFalhou` com `estado_http=429`, `OrcamentoEsgotado`) e mede **uma** mensagem enviada e o `degradado.motivo` certo em cada. O «100 execuções» é **à letra cem** em `test_zero_turnos_sem_resposta_em_cem_execucoes`, com os três modos por rotação e o disjuntor **desligado** de propósito — com ele a abrir à terceira falha, as outras noventa e sete nunca chegavam ao `except` e o critério media outra coisa. **A medição é com a política `concierge` desligada**, e isso é a **decisão do fundador de 2026-10-29** (`../docs/adr/ADR-L005-degradacao-e-concierge.md`): com a política activa, a resposta determinística também vai a aprovação, pelo que este critério é **falso por decisão** para esses *tenants*. Ver a sub-secção abaixo |
+| 2 | O modo serve: menu principal (≤ 3 botões), lista de opções (≤ 10 linhas), estado do pedido por `numero_publico`, horário/morada, referência de pagamento **já emitida**, e «falar com humano» | **parcial** | Cinco das seis estão medidas em `TestCriterio2`, e três desses ensaios **só o passaram a medir depois da revisão adversarial**: o do estado do pedido passava com o comportamento oposto ao nome (achado C9 — o `ABC-123` não existia no *fake* e o que saía era a frase de catálogo), e as duas portas do menu que iam ao `order_status` respondiam «Não encontrei esse **artigo** no **catálogo** da loja» a quem tocou em pagamentos ou pedidos (C2). **Os dois tectos do critério ficam satisfeitos por um conjunto de três opções e não por dois conjuntos**, e a razão é medida: o `packages/core-ts/src/outbound/contrato.ts` fixa `MAXIMO_DE_BOTOES = 3` com `TOO_MANY_BUTTONS` acima disso, e o bloco `buttons` do §9.1 não distingue *reply buttons* de lista — com quatro ids, o turno degradado mais comum ficava **sem resposta** (C6). O que fica em dívida é a **forma de lista** e os **rótulos** (o `Corpo` exige `{id, titulo}`), com credor **KAM-015**; os rótulos em `pt` de Angola já existem e estão versionados. **A referência de pagamento serve-se em espécie e não em detalhe**, e a razão é anterior a este ticket: uma referência é uma cadeia opaca com dígitos e **nenhum dos cinco blocos do §9.1 a leva** — um `text` com dígitos faz o `renderizar` levantar, de propósito (ADR-007). É a **dívida 124**, que já nomeia este caso por extenso («a referência de pagamento que o §14 manda repetir no modo determinístico»), com credor **KAM-032**. Aplicou-se a mesma leitura que o KAM-034 aplicou à `MSG_ALTERNATIVAS`. **E a pesquisa de catálogo fica fora** por a lista do critério não a enumerar — ver a leitura devolvida abaixo |
+| 3 | Toque em `confirm:{cart_id}` em modo degradado cria **1** pedido e responde com a referência por *template* estático e *facts*; nenhum texto livre sem *renderer* | **parcial** | **A primeira metade está satisfeita e a segunda não, e esta linha dizia `satisfeito`** — a revisão adversarial mediu-o (achado C8) e o ensaio que a sustentava chamava-se `…_e_cita_por_fact` sem olhar para *fact* nenhum: passaria inalterado com zero números no texto, que é o que acontece. O ensaio está renomeado para o que mede e afirma agora o contrário — `assertNotRegex(texto, r"\d")` —, porque a verdade é mais útil do que o nome antigo. **O pedido é um:** `len(backend.encomendas) - antes == 1`, `stage == "awaiting_payment"`, e o duplo toque dá **um** (`test_dois_toques_degradados_nao_criam_dois_pedidos`). **A citação não existe, e por duas razões que se somam:** o `total` do carrinho é um *fact* do turno **anterior** e os *facts* são só do turno (§5.3), pelo que não há o que citar sem revalidar no backend; e a referência tem dígitos e nenhum dos cinco blocos do §9.1 a leva — **dívida 124**, credor **KAM-032**. Nenhum texto livre, isso sim: o `create_order` e o `compose` são os do grafo normal e só produzem blocos |
+| 4 | A intenção é decidida sem LLM (identificadores de botão/lista e palavras-chave); texto livre não reconhecido devolve o menu, não inventa resposta | **satisfeito** | `TestIntencaoSemLlm`, sete ensaios. **O botão decide antes do texto**, e há ensaio para isso (`test_o_rotulo_do_botao_nao_decide_por_acidente`): uma mensagem interactiva traz o rótulo como texto, e a ler o texto primeiro «Falar com um colega» casava o padrão `humano` e dava a resposta certa pela razão errada. Não há segundo classificador por regras: reutiliza-se o `intencao_por_regras` do KAM-031, porque uma segunda cópia divergia dele. Em modo degradado o `classify` **não chama o modelo nem para tentar** — `test_o_turno_degradado_nao_vai_ao_modelo_quando_ja_nasceu_degradado` mede zero chamadas |
+| 5 | O validador (KAM-032) aplica-se também ao modo determinístico: 0 números fora de *facts* | **satisfeito** | O `degraded_menu` devolve `draft.blocos` e a aresta 45 leva-o ao `validate` — **não** à aresta 34, que passa ao lado dele. `TestCriterio5::test_o_menu_atravessa_o_validate_e_nao_a_aresta_34` lê `draft["ok"]`, `draft["erros"] == ()` e `citation_retries`, que só existe porque o `validate` correu; `test_o_no_do_menu_nao_devolve_texto_pronto` mede que o nó **não** escreve `texto`, que é o que o faria sair sem validação. E `test_todos_os_textos_renderizam_sem_facts` passa **todos** os textos do módulo pelo `renderizar`, que recusa dígitos e prosa numérica por extenso |
+| 6 | `degraded_turns` e o motivo (`timeout`, `429`, `budget`, `breaker`, `backpressure`) são métricas por tenant; alerta quando > 5% dos turnos de um tenant em 15 min (limiar *proposta*) | **parcial** | A métrica existe com o **motivo** por etiqueta — **seis** motivos e não cinco, porque o `DestinoNegado` do ADR-008 **é** um `ErroDeLlm` e sem ramo próprio caía no `breaker` (achado C4): o painel dizia «o modelo ficou inalcançável» sobre uma barreira de soberania a funcionar. **E o alerta tem efeito e não só valor de retorno**, que é o achado C5: a primeira versão devolvia um booleano que os dois chamadores descartavam, e o ensaio media o retorno de um método em vez de medir que alguma coisa acontece. Hoje a passagem do limiar conta em `agr_degraded_acima_do_limiar_total`, **dentro** do detector, e há ensaio que a mede **pelo grafo** (`test_o_alerta_conta_num_turno_que_corre_o_grafo`). **Duas divergências da letra, as duas medidas:** (a) **`429` não pode ser etiqueta** — a gramática é `^[a-z][a-z0-9_]{1,62}$` e um valor que comece por dígito levanta `EtiquetaInvalida`; o nome canónico é `http_429` e `test_todos_casam_a_gramatica_de_etiqueta` prova as duas metades; (b) **o `tenant` não entra em etiqueta**, pela mesma regra `OBS-I` que as emendas 1.38, 1.39 e 1.42 já resolveram — e aqui com uma diferença: **não há tabela onde desagregar**, porque o **KAM-160** já decidiu que um turno sem resposta não ganha registo próprio. A via é o campo `tenant_id` do *logger* (permitido em log pela *allowlist* de `../docs/tecnica/08` §7.3) mais a janela de quinze minutos do detector, que é de onde o alerta se lê. **O limiar fica *proposta*** e acrescentou-se um mínimo de **vinte** turnos na janela, que não está no critério e é nosso: sem ele um único turno degradado dá 100% |
+| 7 | Ao recuperar o LLM, o próximo turno volta ao modo normal; respostas antigas pendentes **não** são reenviadas fora da janela de 24 h | **parcial** | A primeira metade está medida e **não tem código**: o `degradado` entra no `CAMPOS_DO_TURNO`, o `ingest` reinicia-o, e `TestCriterio7::test_o_turno_seguinte_volta_ao_modo_normal` corre dois turnos com um *fake* que falha uma vez e recupera. Um campo que sobrevivesse ao turno obrigava a um **caminho de saída**, e um caminho de saída que falhe deixa a conversa degradada para sempre. A segunda metade está **parcial**: o que o AGR garante é que **não há resposta antiga para reenviar** (o `draft` é do turno, e `test_o_rascunho_do_turno_degradado_nao_e_reenviado_no_seguinte` mede a chave de idempotência a mudar entre turnos), mas **quem impõe a janela de 24 h é o Outbound (KAM-015)** e não há código dela no AGR: `grep -rn "WINDOW_CLOSED" services/agr/` sai com **1** e **zero** linhas, enquanto `grep -rln "WINDOW_CLOSED" packages/core-ts/src/` dá **cinco** ficheiros — o `outbound/contrato.ts`, o `adapter.ts`, o `decisao.ts`, o `index.ts` e o `hnd/resposta.ts`. **A primeira versão desta linha dizia que o `grep` em `services/ packages/` dava zero, e era falso** — a autovalidação mediu-o: o código existe, do lado do Outbound, que é onde tem de estar. O modo degradado não contorna a janela porque não tem como; afirmar que a impõe era afirmar o que não se mediu |
+| 8 | Tenant no tecto de concorrência com a fila acima do limiar é movido para o modo determinístico (teste de contrapressão) | **satisfeito** | `TestCriterio8` corre um turno com `em_curso == tecto` e `a_espera == limiar` e mede `degradado.motivo == "backpressure"`, **zero** chamadas ao modelo, e uma mensagem enviada. `TestContrapressao` mede as **duas** condições em separado e que **nenhuma sozinha** degrada — a fila cheia é carga da plataforma e o tecto cheio é o anti-vizinho-ruidoso a funcionar. Os dois limiares leem-se da `Admissao.tectos`, propriedade nova, e não do ambiente: `test_o_tecto_lido_e_o_da_admissao_e_nao_o_do_ambiente` |
+
+#### Verificação do Definition of Done
+
+| Caixa | Estado | Nota |
+|---|---|---|
+| Todos os Critérios de Aceitação satisfeitos e demonstráveis | **vazia** | Ficaram `parcial` **quatro** — o 2, o 3, o 6 e o 7 —, cada um com o que falta nomeado e com credor: a referência de pagamento e a citação na confirmação são a dívida 124 (**KAM-032**), a forma de lista e os rótulos do menu são do **KAM-015**, o `tenant` em etiqueta não é implementável pela gramática (e não há tabela onde desagregar, por decisão do **KAM-160**), e a janela de 24 h é do **KAM-015**. **O 3 desceu de `satisfeito` para `parcial` pela revisão adversarial**, e isso é o sistema a funcionar: a caixa estava marcada por um ensaio cujo nome afirmava o que ele não media |
+| **Idempotência:** confirmação em modo degradado produz 1 pedido (ADR-013) | **marcada** | **Esta caixa é a primeira metade do critério 3, e é a que está satisfeita**: um toque dá um pedido e dois toques dão **um**. A metade que desceu a `parcial` é a citação, que é outra caixa (ADR-007) e outra dívida. O que o garante é o que já existia — o `confirm_gate` e a chave `turn_id:seq` do KAM-031, mais o `INSERT … ON CONFLICT` da `tool_idempotency` (KAM-029) —, e o modo degradado **não lhe acrescenta nada**, que é o resultado de reutilizar os nós em vez de escrever outros |
+| **Números só de tools:** *renderer* e validador também aqui (ADR-007) | **marcada** | É o critério 5, e é estrutural e não uma regra: o único caminho de saída do modo passa pelo `validate`. `test_todos_os_textos_renderizam_sem_facts` é a prova do lado dos textos, e o `test_o_no_do_menu_nao_devolve_texto_pronto` do lado do nó |
+| **Custo e observabilidade:** `degraded_turns` por motivo e tenant (ADR-018) | **vazia** | Por **motivo**, sim, e medido — **seis** motivos, e o sexto saiu da revisão adversarial. O alerta também passou a ter efeito, que é o que esta caixa exige por «observabilidade»: antes era um booleano descartado. Por **tenant**, não: a gramática de etiqueta recusa um UUID pela forma e a chamada levanta — ver o critério 6. É a terceira vez que esta tensão aparece neste epic (KAM-030 no §13.4, KAM-032 no critério 8) e a resolução é a mesma, com a diferença de não haver tabela candidata. A caixa fica vazia e não `marcada`, porque metade de uma caixa não é uma caixa |
+| **Dependências:** nenhum Typebot, n8n ou Dify; sub-grafo em LangGraph (ADR-002) | **marcada** | `git diff refs/remotes/publico/main..HEAD` não acrescenta dependência nenhuma: `grep -niE "typebot|n8n|dify" services/agr/src/` fora do `egresso.py` sai com **1** e **zero** linhas, e dentro dele as três aparecem **como proibições** — são entradas da lista de distribuições vedadas do KAM-026, isto é, o contrário de uma dependência. (**A primeira versão desta linha dizia «dá zero» sobre `services/agr/` inteiro, e era falso**: a autovalidação encontrou as três no `egresso.py` e nos seus ensaios. A afirmação certa é mais forte, não mais fraca — o repositório **recusa-as por lint**.) E `git diff --stat refs/remotes/publico/main..HEAD -- services/agr/requirements/ db/` vem **vazio**: nenhuma dependência e nenhuma migração. O sub-grafo é um `StateGraph` do `langgraph`, construído pelo mesmo `build_graph` |
+| **Eval-gate:** o sub-grafo é artefacto comportamental; SemVer; casos degradados no golden | **vazia** | **Metade entrega-se e metade não existe.** O SemVer está feito: `VERSAO_DO_GRAFO` 1.1.0 → **1.2.0** (um nó entrou, e a regra da constante é «sobe no *minor* quando um nó entra ou sai»), com `test_o_semver_do_grafo_subiu_no_minor`, e os textos do modo têm `VERSAO_DOS_TEXTOS` 1.0.0. A outra metade depende do **gate 13, que não existe**, e mediu-se antes de se escrever código: `grep -n "ci-13" Makefile` → **exit 1, zero linhas**, e `grep -rn "ci-13" .github/workflows/` → **exit 1**; os alvos são `ci-1` a `ci-11`, com buracos no 10 e no 12. Quem o constrói é o **KAM-040** («Dataset golden PT-AO sintético e eval harness como gate»), **aberto** e bloqueado pelo KAM-033 e pelo KAM-035. Não se inventou um gate nem se declarou a caixa por espírito |
+| Documentação do runbook de degradação actualizada | **marcada** | **Não havia runbook de degradação** — medido: `ls docs/runbooks/` tinha um único ficheiro, o da rotação de chaves de LLM. Criou-se `../docs/runbooks/degradacao-do-agr.md`, com a forma do que já existia (cabeçalho, nota de **esboço** com o que ainda não existe, tabela de gatilhos, e a secção «o que esta página não cobre» com credor em cada). O `docs/agr.md` ganhou o §7-I e a linha **1.13** de controlo de versões, e o §6 dele fica **corrigido**: dizia que o `agr_degraded_turns_total` «não existe», e era verdade até este ticket |
+
+#### A decisão do fundador, e a leitura que continua devolvida
+
+O KAM-037 foi escrito **antes** do KAM-114, que fundiu a 2026-10-28 (`0baea39`), e
+nenhum dos dois blocos diz o que acontece com os **dois** em vigor: LLM em baixo e
+política `concierge` ligada no mesmo *tenant*. Os dois critérios 1 — «0 turnos sem
+resposta» e «0 mensagens ao cliente sem decisão» — **não podem ser os dois
+verdadeiros** para um *tenant* nessas condições, e qual deles cede não era decisão
+do executor.
+
+> **Decidido pelo fundador a 2026-10-29:** com a política `concierge` activa, a
+> resposta determinística do modo degradado **também vai a aprovação humana**. Os
+> dois mecanismos somam-se e não se substituem.
+
+Registada em **[`../docs/adr/ADR-L005-degradacao-e-concierge.md`](../docs/adr/ADR-L005-degradacao-e-concierge.md)**,
+com as três leituras pesadas, o que cada uma custa, e o que esta obriga — porque
+uma decisão sem as consequências escritas é uma decisão que o próximo ticket
+reabre. As outras duas — «o modo degradado passa à frente do concierge» e «o
+concierge fica suspenso enquanto houver degradação» — **retiram uma barreira**, e
+é a razão pela qual a leitura implementada era esta: *mínimo* nunca é retirar uma
+barreira.
+
+**O que isto torna verdadeiro, e fica dito onde dói:** o critério 1 deste ticket
+é **falso por decisão** para um *tenant* em concierge — o cliente não recebe nada
+até um operador aprovar, e é precisamente quando o sistema está degradado. O
+princípio 12 («o utilizador nunca fica sem resposta») cede aqui perante o critério
+1 do KAM-114, e cede **por decisão** e não por omissão. O sinal operacional que a
+distingue de uma avaria está no runbook: o `agr_degraded_turns_total` a subir **e**
+o `agr_draft_pendentes` a subir com ele; se o segundo subir sozinho, não é
+degradação — é falta de operador.
+
+**Não há código de interacção, e é isso que a torna segura.** O caminho degradado
+passa pelo `send` como qualquer outro, e o KAM-114 intercepta lá — nas cinco
+arestas que lhe chegam. Medida nos dois sentidos:
+`TestDegradadoComConcierge::test_o_menu_degradado_vai_a_aprovacao_e_nao_sai_ao_cliente`
+(zero mensagens ao cliente, um rascunho aberto, com o texto do menu e o
+`graph_version` novo) e `test_sem_a_politica_o_menu_degradado_sai_no_mesmo_turno`.
+
+**A segunda leitura continua devolvida, e essa não foi decidida:** a lista do critério 2 **não
+enumera a pesquisa de catálogo**, e seguiu-se a letra. O custo é real e declara-se:
+o IDX não é o LLM e **não** está em baixo quando o modelo está, pelo que servir
+pesquisa em modo degradado era tecnicamente possível e mais útil ao cliente. As
+intenções `produto`, `preco_stock` e `comprar` caem no menu, com uma mensagem
+própria (`MSG_SEM_CATALOGO`) para que o cliente saiba que o pedido não se perdeu.
+
+#### Três barreiras que não se simplificaram, e como se mediram
+
+| Barreira | Como está imposta | Como se mede |
+|---|---|---|
+| **Postgres ou *checkpointer* em baixo NÃO é degradação** | por **tipo**, e não por uma lista de excepções: o `motivo_do_erro` levanta `TypeError` com qualquer coisa que não seja um `ErroDeLlm`, e não há `except Exception` no `degradacao.py` | `TestNaoDegradaComOQueNaoEDoLlm`, três ensaios. O terceiro corre um turno inteiro com a base a levantar e mede **zero** mensagens enviadas e **zero** turnos contados como degradados. O turno falha, e é o que o §14 manda: a mensagem fica na fila |
+| **O validador aplica-se também aqui** | por **posição**: o `degraded_menu` escreve blocos e a única aresta que sai dele vai ao `validate`. Não há caminho alternativo | critério 5, três ensaios |
+| **A janela de 24 h não se contorna** | por **ausência**: não há `WINDOW_CLOSED` no AGR, e o `draft` é do turno | critério 7. **Parcial, e dito como tal**: quem impõe a janela é o KAM-015 |
+
+#### O limiar que é proposta, e os dois que foram medidos
+
+O critério 6 dá o alerta como *proposta* e os Detalhes Técnicos dão o *circuit
+breaker* como «a validar na versão fixada». **Mediram-se**, em vez de se copiarem:
+
+```text
+llm/litellm.config.yaml  §router_settings   allowed_fails: 3   cooldown_time: 30
+llm/aliases.yaml         §router_settings   allowed_fails: 3   cooldown_time: 30
+docs/evidencia/KAM-030-litellm.md §4        CONFIRMADO contra a imagem fixada
+```
+
+**Não divergem** do que o bloco escreve, e isso é o achado: a dúvida que o ticket
+levantava estava já respondida pelo KAM-030. `TestLimiaresDoDisjuntor` lê os dois
+ficheiros em execução e falha se divergirem — o que torna a afirmação verificável
+em vez de afirmada, e o que a fará falhar no dia em que alguém mexer num deles.
+
+O que fica *proposta* e com credor: **> 5% em 15 min** (critério 6) e o **mínimo
+de vinte turnos** na janela, que é nosso e não do critério, os dois a calibrar em
+**KAM-084**. E a janela é **por processo**: duas réplicas têm duas janelas, o que
+custa sensibilidade e não correcção, e está escrito no runbook.
+
+#### Portões e evidência
+
+Eixo tocado: `specs/` e `docs/` (prosa, referências, contagens), `specs/02` §3
+(nomes canónicos), e `services/agr` (Python). **O `ci-8` não está no eixo**: o
+diff não toca `db/`, e `git diff --stat refs/remotes/publico/main..HEAD -- db/`
+vem vazio — declarar o gate 8 verde sem correr as suas dezoito suites era
+declarar o que não se mediu.
+
+| Portão | Comando | Resultado |
+|---|---|---|
+| 3 (referências) | `cd tools && python -m lint_refs --root .. check` | **0** — conforme, 23 244 referências em 1 431 ficheiros |
+| 3 (handoff) | `cd tools && python -m lint_handoff --root .. check` | **0** — conforme, 686 caminhos em 167 blocos |
+| 3 (contagens) | `cd tools && python -m lint_contagens --root .. check` | **0** — conforme, 13 contagens vivas em 10 ficheiros |
+| 3b (nomes) | `cd tools && python -m canon_lint --root .. check` | **0** — conforme, depois de `dict-export` |
+| 3c (backlog) | `cd tools && python -m lint_backlog --root .. check` | **0** — conforme, 167 linhas no §4, 167 blocos, 11 epics |
+| 2 (`lint_arch`) | `cd tools && python -m lint_arch --root .. all` | **0** — lista de bloqueio, estrutura, esquemas de tool e aliases, os quatro conformes. **`all` e não `check`**: o `lint_arch` não tem `check` e sai com 2 |
+| 2 (`log-lint`) | `cd tools && python -m log_policy --root .. lint` e `… canario` | **0** e **0** — 0 achados em 298 ficheiros de serviço; 29 negativas e 6 positivas, 0 falhas |
+| — (`dict-export`) | `python -c "… dict_export.cli …"` | **0** — `canon/dicionario.yaml` regenerado, `versao_dicionario` 1.44 → **1.45** |
+| 9 (segredos) | *hook* de `pre-commit` no commit `94ee77a` | **limpo** — 19 ficheiros em *stage* |
+| 4 (suite do AGR) | `docker run … kamba-agr-tests python -m unittest discover -s services/agr/tests -t services/agr/tests` | **0** — **1 161** testes, `OK`. Corrida **depois** da última edição e depois das correcções da revisão adversarial |
+| 4 (cobertura, lado Python) | `python -m coverage run --branch --source=services/agr/src -m unittest discover …` | `degradacao.py` **97%**, `degradado/intencoes.py` **100%**, `degradado/textos.py` **100%**, `degradado/nos.py` **90%**, `encaminhadores.py` **100%**, `arestas.py` **97%**, `grafo.py` **87%**; pacote **91%**. O estrato é o `restante` do `ci/thresholds.yaml` (**75%**), e nenhum ficheiro desce abaixo dele |
+
+**Os gates 1, 2 (`typecheck`), 4 (lado Node), 6, 7 e 11 não correram**, e a razão
+é a mesma de sempre nesta máquina: não há `make`, `node` nem `pnpm` no `PATH`, e
+um `make ci-2` responde `command not found` — o que não é «o gate passa», é «o
+gate não correu». O diff não toca TypeScript nem `db/`, pelo que nenhum deles
+está no eixo; quem os corre é o CI do PR.
+
+**A bateria corre em contentor e o comando fica escrito**, porque o `.venv` desta
+árvore não tem `langgraph`:
+
+```bash
+docker run --rm -v "<arvore>:/w" -w /w \
+  -e PYTHONPATH=/w/services/agr/src:/w/libs/py-core/src:/w/tools \
+  kamba-agr-tests python -m unittest discover -s services/agr/tests -t services/agr/tests
+```
+
+#### O que esta entrega quebrou e emendou, e porquê
+
+Sete ensaios de outros tickets ficaram vermelhos com esta alteração, e **nenhum
+deles estava errado**: mediam contagens e ausências que este ticket muda. A
+emenda de cada um é parte do trabalho, e duas delas valem como achado próprio:
+
+- **`test_vendedor::test_um_no_sem_funcao_reprova_a_construcao`** tirava um nó do
+  `NOS_DO_GRAFO` para provar que o `build_graph` levanta. Com a junção das duas
+  tabelas de nós no `grafo.py`, isso deixou de medir nada — o `NOS_COMPLETOS`
+  ficava intacto. Passou a mexer no `NOS_COMPLETOS`, e acrescentou-se o simétrico
+  para o nó do sub-grafo;
+- **`test_concierge::test_a_versao_do_grafo_subiu_no_minor`** afirmava o `menor`
+  exacto (`"1"`), o que o punha a falhar em **cada** ticket que acrescente um nó —
+  isto é, a medir a aritmética de outro ticket em vez da sua própria regra. Passou
+  a medir a regra: o *major* não subiu e a *correcção* ficou a zero;
+- **`test_metricas::TestDegradedTurns::test_nao_existe_e_e_deliberado`** media a
+  **ausência** da métrica. A razão era boa e fica registada no ficheiro; o que a
+  desfez foi passar a haver caminho de degradação. Mede agora o que a ausência
+  protegia: a métrica existe, leva o motivo, e o `tenant` **levanta**;
+- **`test_tls::test_quem_importa_a_tls_e_uma_lista_fechada_de_dois`** diz na sua
+  própria *docstring* que «um terceiro importador é a altura de reler isso». Releu-se:
+  o `degradacao.py` importa **só** o `tls/disjuntor.py`, que não importa nada do
+  pacote, pelo que não acrescenta aresta ao triângulo. Acrescentaram-se dois
+  ensaios — um que mede que é só o disjuntor, e um que importa os três ficheiros
+  em subprocessos separados, porque um ciclo de importação funciona ou falha
+  **pela ordem** em que alguém importa primeiro.
+
+**E um defeito que este ticket encontrou no código do KAM-114**, corrigido no
+mesmo diff porque era condição de a contagem continuar a dizer a verdade: o
+`do_73()` filtrava por `a.fonte != FONTE_DO_CONCIERGE`, isto é, contava como
+sendo do §7.3 **toda** a fonte futura que não fosse o concierge. As duas arestas
+deste ticket teriam passado a contagem de 42 para 44 sem ninguém notar. Um filtro
+por negação de **um** valor não é um filtro: é uma lista de proibidos com um
+elemento. Passou a `FONTES_FORA_DO_73`, e
+`test_o_73_continua_a_ter_trinta_e_nove_linhas_e_quarenta_e_duas_arestas` mede-o.
+
+#### O que a revisão adversarial mudou, e o que ela matou
+
+Lançada assim que o diff existiu, sobre o commit `94ee77a` e sem o raciocínio de
+quem escreveu. **29 achados: 12 `CONFIRMADO`, 4 `PLAUSÍVEL`, 13 `MORTO`.** A
+árvore mexeu-se a meio da revisão — a entrega documental foi commitada enquanto
+ela media —, pelo que cada `CONFIRMADO` foi verificado outra vez contra a árvore
+que vai fundir.
+
+**A classe de defeito que ela nomeia é nova nesta série, e vale escrevê-la: o
+estado do mundo fora do turno.** Três dos achados graves são a mesma forma —
+
+* o **botão fica no ecrã do WhatsApp** e o `degradado` é um campo do turno (C1);
+* o **disjuntor** era um por processo e o **orçamento** é da chave do *tenant* (C3);
+* um bloco `buttons` de quatro ids é válido **aqui** e recusado pelo **Outbound** (C6);
+
+— isto é, peças corretas medidas contra o seu próprio contexto e não contra o do
+consumidor. Nenhuma delas falha num ensaio da unidade que a contém, e todas
+falham em produção.
+
+| # | Achado | Severidade | O que mudou |
+|---|---|---|---|
+| C1 | O mapa `menu:*` → intenção era lido **só** no caminho degradado, e o botão sobrevive ao turno: com o modelo recuperado, um `menu:humano` deixava de abrir *handoff* e o id cru ia ao modelo como texto do cliente | crítica | O `classify` consulta-o em **todos** os turnos, antes das regras. É a mesma lição que o `_CANCELAMENTO` do KAM-031 pagou, escrita no próprio ficheiro e não aplicada aos botões novos |
+| C2 | `menu:encomenda` e `menu:pagamento` iam ao `order_status`, que procura a referência **no texto do cliente** — e no turno de um toque o texto *é* o id do botão: a resposta era a frase de catálogo, e a capacidade era inalcançável pelo menu, em ciclo | alta | Aviso próprio `REFERENCIA_EM_FALTA` (nono de `state.avisos`), que separa «não me disse qual» de «não existe» e **vale nos dois modos**; e uma referência escrita sozinha passa a ser reconhecida como consulta de pedido |
+| C3 | Disjuntor global: três `OrcamentoEsgotado` de um *tenant* punham `motivo_antes_do_turno` de **qualquer** outro em `breaker` | alta | Disjuntor **por *tenant*** (`llm:{tenant_id}`). O que se paga é até `allowed_fails` idas por *tenant* numa avaria real do proxy; o que se compra é que a falha de um não atravessa |
+| C4 | `DestinoNegado` (ADR-008, **permanente** até ao KAM-069) caía no ramo de omissão e saía `breaker`, abrindo o disjuntor e contando como avaria do modelo | alta | Sexto motivo `destino_negado`, que degrada e **não** conta no disjuntor |
+| C5 | O alerta do critério 6 era calculado e descartado: os dois chamadores ignoravam o booleano, e o ensaio media o retorno do método | alta | `agr_degraded_acima_do_limiar_total`, contado **dentro** do detector, com ensaio que o mede pelo grafo |
+| C6 | A «lista» saía com quatro ids e o `contrato.ts` do Outbound fixa `MAXIMO_DE_BOTOES = 3` com `TOO_MANY_BUTTONS`: o turno degradado mais comum ficava **sem resposta** | alta | Um conjunto de **três** opções, que satisfaz os dois tectos do critério; o ensaio lê o tecto **do ficheiro do consumidor** e não de uma constante nossa. A forma de lista e os rótulos ficam em dívida, com credor KAM-015 |
+| C7 | O `pode_chamar_o_llm` consome a tentativa de meio-aberto; uma excepção que **não** é do modelo deixava-a pendurada 30 s, e os turnos desse intervalo degradavam com `motivo="breaker"` | média-alta | `absolver` num `finally`, que é exactamente o que o `absolver` do `tls/disjuntor.py` foi escrito para fazer |
+| C8 | `test_…_e_cita_por_fact` não olhava para *fact* nenhum, e a confirmação degradada não cita número algum | média | O ensaio está renomeado e afirma o contrário; o critério 3 desceu a `parcial` |
+| C9 | `test_o_estado_do_pedido_e_servido_pelo_order_status` passava com o comportamento oposto ao nome | média | O pedido existe no *fake* e mede-se o **texto**; e as três portas do menu que não tinham ensaio de ponta a ponta passaram a ter |
+| C12 | Três cabeçalhos mentiam nas contagens de nós e de encaminhadores | baixa | Corrigidos, e os dois que este ticket abre passam a dizer a conta e de onde vem cada nó |
+| P1 | `str(estado.get("turn_id") or "")` fazia todos os turnos em voo de um *tenant* valerem como **um**, encolhendo o denominador do alerta | plausível → corrigido | `estado["turn_id"]`, e o `registar_turno` **levanta** com `turn_id` vazio |
+| P2 | O relógio lia-se fora do trinco e o `_podar` assume a deque ordenada | plausível → corrigido | O relógio passou para dentro do trinco |
+
+**Um achado que não é deste ticket e ficou corrigido com ele**, porque este
+ticket foi o que o tornou visível: o X-09 do KAM-031
+(`test_a_encomenda_de_outro_contacto_nao_se_le`) usava a referência `o-do-outro`,
+que **não tem dígitos** — o `order_status` nunca extraía nada, **nunca chamava a
+tool**, e o ensaio passava com `NOT_FOUND` sem ter medido isolamento algum.
+Enquanto «não me disse qual» e «não existe» davam o mesmo aviso, os dois casos
+eram indistinguíveis **por desenho**, e é por isso que nenhuma leitura o apanhou.
+Hoje a tool é chamada e a chamada é afirmada.
+
+**O que a revisão matou, e fica registado para não voltar:** os limiares 3/30
+batem com os três sítios onde vivem (os dois YAML e a evidência do KAM-030), e o
+ensaio lê os ficheiros em vez de copiar os números; nenhum dos textos estáticos
+levanta no `renderizar` nem dispara a guarda de saída, medido a correr; o
+`r_intent` não tem intenção órfã nem ramo que siga em frente; o `estado_http` não
+parte chamador nenhum e o domínio fechado de `llm_call_log.resultado` está
+intocado; nenhum identificador entra em etiqueta e nenhum texto de cliente sai de
+lugar; a memória tem tecto; não há Typebot, n8n, Dify nem perfil de Serviços; o
+«100 execuções» é cem à letra; **nenhuma saída do modo passa ao lado do
+`validate`**; a janela de 24 h não é contornada; a recuperação do critério 7 é
+ausência de estado e funciona; e a contrapressão exige as duas condições.
+
+**E a barreira do KAM-114 no `send` aguenta.** A revisão procurou o furo — uma
+mensagem a sair sem aprovação precisamente quando o sistema está degradado — e
+não o encontrou: o `send` intercepta as cinco arestas que lhe chegam, e o menu
+degradado sai por uma delas. O que ela confirma é o outro lado, que é a hipótese
+devolvida acima: para um *tenant* em concierge, o critério 1 deste ticket é
+**falso por desenho**.
+
+**Dos quatro `PLAUSÍVEL`, dois foram corrigidos** (o `P1` e o `P2`, na tabela
+acima), **um fechou com a decisão do fundador** (o `P4`) e **um fica em aberto**,
+com o que falta para o decidir:
+
+* **P3** — com a política `concierge` activa e o `ServicoDeRascunho` por ligar, o
+  turno levanta `ConciergeSemServicoError` e repete para sempre. É comportamento
+  do **KAM-114** e não deste ticket, mas o modo degradado passa a ser o caminho
+  que mais vezes o atinge, porque com o LLM em baixo **todos** os turnos chegam ao
+  `draft_prepare`. Falta saber se a guarda de arranque cobre esse par — e isso é
+  leitura do `__main__.py` de quem ligar a porta `grafos`;
+* **P4** — **fechado pela decisão do fundador de 2026-10-29** (`ADR-L005`): o
+  critério 1 é falso para *tenants* em concierge, e é-o **por decisão**. A
+  barreira do KAM-114 estava respeitada, e era isso que faltava confirmar de que
+  lado se queria o custo. Fica registado aqui para não voltar na próxima
+  auditoria.
+
+#### O que ficou fora, e com credor
+
+* **o perfil de Serviços** do modo degradado, que o próprio bloco põe fora de
+  âmbito até o **KAM-035** estar `Done` (está bloqueado) e como ticket próprio;
+* **a referência de pagamento com os dígitos**: dívida **124**, credor **KAM-032**;
+* **os casos degradados no *golden*** e o *lock* dos textos: **KAM-040**, e o
+  gate 13 não existe;
+* **a calibração** do limiar do alerta e do mínimo da janela: **KAM-084**;
+* **o alerta como artefacto**: não há ficheiro de regras de alerta neste
+  repositório — medido — e a agregação contínua é o **KAM-080**;
+* **o `shortcut:` do `classify`** que nomeia este ticket como credor («o §7.3 não
+  tem nó de cancelamento … Credor: KAM-037, que desenha os menus por botões»)
+  fica **por pagar**, e de propósito: pagá-lo é acrescentar um nó de cancelamento
+  ao grafo **normal**, que não é nenhum dos oito critérios deste ticket — os menus
+  que este ticket desenha são do modo **degradado**. O que **não** se deixou ficar
+  foi o ponteiro: o comentário apontava o credor para o KAM-037, que ia fundir sem
+  o pagar, e um credor a apontar para um ticket fechado é um ponteiro morto. O
+  `shortcut:` ficou reescrito no mesmo PR, com o limite mantido e o credor novo —
+  quem acrescentar o nó de cancelamento ao §7.3, porque é esse ticket que muda o
+  documento;
+* **a ligação do detector ao serviço**: o `grafos` do `turno.py` continua a ser o
+  `sem_grafos` e o AGR responde 503 — como desde o KAM-025. Quem construir
+  `Dependencias` passa o `DetectorDeDegradacao` ao lado da política do concierge,
+  e sem ele a omissão é a `SemDegradacao`, que não degrada. Está escrito no
+  `__main__.py` do KAM-114 e vale igual aqui.
+
+---
+
 ## KAM-038 — Subscrição de eventos: as verticais acordam por evento
 
 | Campo | Valor |
