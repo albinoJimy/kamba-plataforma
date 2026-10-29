@@ -89,7 +89,26 @@ UNIDADES: Final = (
 #: **O espaco como separador de milhares esta aqui de proposito** («12 500 Kz»),
 #: e e tambem a forma de um telefone («912 345 678»). Nao ha conflito porque este
 #: padrao so reclama quando ha um **marcador** ao lado; sozinho nao reclama nada.
-_NUMERO: Final = r"\d{1,3}(?:[.\s]\d{3})*(?:,\d+)?|\d+(?:[.,]\d+)?"
+#:
+#: **O `+` da primeira alternativa era um `*`, e o `*` truncava numeros.** Com
+#: `*`, a primeira alternativa casava `\d{1,3}` e zero grupos de milhares — isto
+#: e, os **tres primeiros digitos** de qualquer numero —, e a alternancia da
+#: expressao regular prefere a primeira que case. Em `Kz 912500000`, o `PRECO`
+#: reclamava `kz 912` e nao `kz 912500000`: nove digitos de um total ficavam por
+#: reclamar, o detector via-os, e o total **saia mascarado como telefone** nos dez
+#: casos da familia `preco_que_parece_telefone` — exactamente o caso que o bloco
+#: nomeia por extenso.
+#:
+#: Com `+`, a primeira alternativa so casa um numero **com** separador de
+#: milhares (`12.500`, `12 500`, `912.500.000`) e o resto cai na segunda, que
+#: leva o grupo de digitos inteiro (`912500000`, `7,50`, `250,00`).
+#:
+#: **Quem revelou isto foi o `_na_fronteira`**, e vale dizer porque: a
+#: reclamacao truncada acabava a meio de um grupo de digitos, a regra de fronteira
+#: recusou-a, e a recusa apareceu como dez casos vermelhos no corpus. Sem a regra,
+#: a reclamacao curta era aceite, o `912` ficava protegido, o `500000` nao, e o
+#: resultado era um total meio mascarado — uma falha mais calada e pior.
+_NUMERO: Final = r"\d{1,3}(?:[.\s]\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?"
 
 #: Um numero com marcador de moeda, dos dois lados. A moeda pode vir antes
 #: («Kz 12.500») ou depois («12.500 Kz»), que e como as duas se escrevem em
@@ -107,20 +126,11 @@ PRECO: Final = re.compile(
 #: escreve. **O segundo numero entra no mesmo intervalo**: num «2 x 3.500» o
 #: 3.500 e o preco unitario, e reclamar so o «2 x» deixava-o ao detector.
 #:
-#: **O `(?<![a-z0-9.])` da terceira alternativa e a correccao de um defeito
-#: medido**, e e o mesmo defeito do `SKU` por outra porta: num BSUID
-#: `PT.x9k2m4p8q1`, a forma «`x` seguido de numero» casava o `x9` e reclamava-o —
-#: e um intervalo reclamado nunca se mascara, pelo que o BSUID **saia em claro
-#: para o modelo**. A guarda exige que o `x` nao venha depois de letra, digito ou
-#: ponto, isto e, que seja um `x` de multiplicacao e nao um `x` no meio de uma
-#: palavra ou de um codigo.
-#:
-#: As duas primeiras alternativas nao precisam da guarda porque comecam num
-#: numero: um `x` la esta sempre **depois** de digitos, que e a forma «2x».
+#: Tambem aqui as fronteiras sao do `_na_fronteira` e nao deste padrao.
 QUANTIDADE: Final = re.compile(
     rf"(?:{_NUMERO})\s*[x*]\s*(?:{_NUMERO})"
     rf"|(?:{_NUMERO})\s*[x*](?![a-z])"
-    rf"|(?<![a-z0-9.])[x*]\s*(?:{_NUMERO})",
+    rf"|[x*]\s*(?:{_NUMERO})",
     re.IGNORECASE,
 )
 
@@ -149,21 +159,10 @@ PERCENTAGEM: Final = re.compile(rf"(?:{_NUMERO})\s*%")
 #: barra. A exigencia de ter letras **e** digitos e o que o separa de um telefone
 #: — `912345678` nao casa, `SKU-912345678` casa.
 #:
-#: **A guarda `(?<!\.)` nao e enfeite: sem ela este padrao engolia os BSUID.**
-#: A primeira versao tinha so o `\b` e um comentario a afirmar que «nao casa um
-#: BSUID porque o separador aceito e o hifen e a barra». A afirmacao era
-#: verdadeira sobre o BSUID **inteiro** e falsa sobre o que importa: num
-#: `AO.abc123def456`, o `\b` depois do ponto deixava este padrao reclamar o
-#: `abc123def456` — e um intervalo reclamado nunca se mascara, pelo que o BSUID
-#: **saia em claro para o modelo**. Medido com os meus proprios casos antes de
-#: existir bateria, e e o modo de falha que o cabecalho deste modulo descreve
-#: como «reclamar e esconder».
-#:
-#: Com a guarda, nada imediatamente precedido de um ponto se reclama como `sku`.
-#: Nao se perde nada real: um `sku` com ponto nao esta nos separadores aceitos
-#: (hifen e barra), e um `500` de `12.500` nao tem letras e nunca casou.
+#: **Nao casa um BSUID**, e quem o garante e o `_na_fronteira` e nao este padrao.
+#: Ver a nota dele: as guardas por padrao foram tentadas e falharam tres vezes.
 SKU: Final = re.compile(
-    r"(?<!\.)\b(?=[a-z0-9\-/]*\d)(?=[a-z0-9\-/]*[a-z])[a-z0-9]+(?:[-/][a-z0-9]+)*\b",
+    r"\b(?=[a-z0-9\-/]*\d)(?=[a-z0-9\-/]*[a-z])[a-z0-9]+(?:[-/][a-z0-9]+)*\b",
     re.IGNORECASE,
 )
 
@@ -259,6 +258,53 @@ def _fundir(intervalos: list[Intervalo]) -> tuple[Intervalo, ...]:
     return tuple(fundidos)
 
 
+def _na_fronteira(dobrado: str, inicio: int, fim: int) -> bool:
+    """Este intervalo comeca e acaba num sitio onde um numero de negocio pode?
+
+    **E a barreira que substituiu tres remendos, e a historia e o argumento.** As
+    sete expressoes acima podem casar a **meio** de um simbolo que nao e numero
+    de negocio nenhum, e cada vez que isso acontece o intervalo reclamado
+    **esconde PII do detector** — o modo de falha que o cabecalho deste modulo
+    descreve. Aconteceu tres vezes, as tres sobre BSUID, as tres medidas contra o
+    corpus:
+
+    | Texto | Quem reclamava | O que saia em claro |
+    |---|---|---|
+    | `AO.abc123def456` | `SKU`, no `abc123def456` | o BSUID inteiro |
+    | `PT.x9k2m4p8q1` | `QUANTIDADE`, no `x9` | o BSUID inteiro |
+    | `PT.d4s3a2z1x0` | `QUANTIDADE`, no `1x0` | o BSUID inteiro |
+
+    As duas primeiras foram emendadas com uma guarda **no padrao**
+    (`(?<!\\.)` no `SKU`, `(?<![a-z0-9.])` numa alternativa da `QUANTIDADE`), e a
+    terceira apareceu logo a seguir noutra alternativa do mesmo padrao. Tres
+    defeitos da mesma familia e dois remendos que nao a cobriam e o sinal de que
+    o problema nao estava nos padroes: estava em **nao haver regra de fronteira**.
+    As guardas foram retiradas e isto ficou no lugar delas.
+
+    A regra, e porque e assimetrica:
+
+    * **a esquerda** recusa-se letra, digito **ou ponto**. Letra e digito porque
+      um numero de negocio nao comeca a meio de uma palavra nem de um numero
+      maior; o ponto porque e o separador do BSUID (`PT.`) — e e exactamente o
+      caracter que os tres defeitos atravessaram;
+    * **a direita** recusa-se letra ou digito, **mas nao pontuacao**. Um preco
+      acaba a toda a hora antes de um ponto final (`12.500 Kz.`) e recusar isso
+      deixava de reclamar o preco — que e o defeito simetrico e pior.
+
+    Nao se usa `\\b`: um `\\b` depois de um ponto e uma fronteira valida, que e
+    precisamente como os tres defeitos passaram.
+    """
+    if inicio > 0:
+        anterior = dobrado[inicio - 1]
+        if anterior.isalnum() or anterior in "._":
+            return False
+    if fim < len(dobrado):
+        seguinte = dobrado[fim]
+        if seguinte.isalnum():
+            return False
+    return True
+
+
 def reclamar(texto: str) -> tuple[Intervalo, ...]:
     """Os intervalos de `texto` que sao numeros de negocio e nao se mascaram.
 
@@ -274,6 +320,7 @@ def reclamar(texto: str) -> tuple[Intervalo, ...]:
         Intervalo(achado.start(), achado.end(), nome)
         for nome, expressao in REGRAS
         for achado in expressao.finditer(dobrado)
+        if _na_fronteira(dobrado, achado.start(), achado.end())
     ]
     intervalos = _fundir(encontrados)
     if len(texto) >= COMPRIMENTO_MINIMO_DO_TECTO:

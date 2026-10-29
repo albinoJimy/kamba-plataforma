@@ -1,0 +1,11 @@
+{
+  "ticket": "KAM-112",
+  "nota": "Sobrecarga do minimise. O alvo p95 <= 30 ms para 2.000 caracteres e proposta a calibrar no Piloto (KAM-109); nada falha por o exceder. Medido nesta maquina, nao no runner.",
+  "caracteres": 2000,
+  "execucoes": 40,
+  "alvo_p95_ms_proposto": 30,
+  "tecto_ms": 250,
+  "p50_ms": 5.34,
+  "p95_ms": 7.05,
+  "max_ms": 7.21
+}

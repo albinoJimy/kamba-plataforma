@@ -83,6 +83,7 @@ from .. import metricas as metricas_mod
 from ..llm.erros import FalhaDeMinimizacao
 from . import detector as detector_mod
 from . import negocio
+from . import catalogo as catalogo_mod
 from .catalogo import CatalogoVazio, PortaDeCatalogo
 from .dicionarios import dobrar
 
@@ -486,11 +487,19 @@ def nomes_dobrados(nomes: object) -> frozenset[str]:
     Conveniencia para quem tenha os nomes do catalogo em bruto — a
     `PortaDeCatalogo` ja os devolve dobrados, e esta funcao existe para os
     chamadores que os tenham de outra fonte.
+
+    **Aplica o mesmo `COMPRIMENTO_MINIMO` que a porta, e a primeira versao nao
+    aplicava.** Era uma lacuna e nao uma assimetria: esta funcao e o **segundo**
+    caminho para a mesma lista, e um nome de uma ou duas letras que entrasse por
+    aqui fazia qualquer «a» do texto cair na lista de nao mascarar — e com ele os
+    nomes proprios que o contivessem. A barreira tem de estar nos dois caminhos
+    ou nao esta em nenhum; apanhado pela bateria antes de haver chamador.
     """
     if not isinstance(nomes, (list, tuple, set, frozenset)):
         return frozenset()
     return frozenset(
         dobrado
         for nome in nomes
-        if isinstance(nome, str) and (dobrado := dobrar(nome).strip())
+        if isinstance(nome, str)
+        and len(dobrado := dobrar(nome).strip()) >= catalogo_mod.COMPRIMENTO_MINIMO
     )
