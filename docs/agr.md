@@ -1803,13 +1803,30 @@ classify --(degradado e a intenção não é servida)--> degraded_menu --> valid
 | `destino_negado` | o *gate* de destino recusou (ADR-008) | idem, e **não conta no disjuntor** |
 | `breaker` | três falhas consecutivas **deste *tenant***, pausa de 30 s | `ingest`, antes de o turno correr |
 | `backpressure` | *tenant* no tecto **e** fila acima do limiar | idem |
+| `minimizacao` | o detector de PII falhou ou passou o tecto de tempo (KAM-112) | `minimise`, **antes** de a chamada sair, e **não conta no disjuntor** |
 
-**São seis e o critério 6 nomeia cinco**, e o sexto saiu da revisão adversarial: o
-`DestinoNegado` **é** um `ErroDeLlm` e, sem ramo próprio, caía no `breaker` — o
-painel dizia «o modelo ficou inalcançável» sobre uma barreira de soberania a
-funcionar. Degrada, porque o cliente tem de receber resposta; não conta no
-disjuntor, porque não é avaria transitória — em `prod` a porta nega tudo até ao
-KAM-069, e três recusas abriam um disjuntor que nada fecharia.
+**São sete e o critério 6 nomeia cinco**, e os dois que ele não previa saíram
+das revisões adversariais — do mesmo defeito, pela mesma mecânica, em dois
+tickets diferentes.
+
+O `destino_negado` (KAM-037): o `DestinoNegado` **é** um `ErroDeLlm` e, sem ramo
+próprio, caía no `breaker` — o painel dizia «o modelo ficou inalcançável» sobre
+uma barreira de soberania a funcionar. Degrada, porque o cliente tem de receber
+resposta; não conta no disjuntor, porque não é avaria transitória — em `prod` a
+porta nega tudo até ao KAM-069, e três recusas abriam um disjuntor que nada
+fecharia.
+
+O `minimizacao` (KAM-112): a `FalhaDeMinimizacao` **também** é um `ErroDeLlm`, e
+herda o `RESULTADO_ERRO` de propósito — um valor novo em
+`dat.llm_call_log.resultado` é uma revisão de base de dados. Sem ramo próprio
+caía no `breaker` pela mesma razão, e o painel dizia o mesmo sobre o detector de
+PII a funcionar. Quem o distingue é um `isinstance` no `motivo_do_erro`, e não o
+`resultado`. **Não conta no disjuntor**: não diz nada sobre o fornecedor, porque
+acontece antes de haver chamada.
+
+**Os motivos dispensados do disjuntor são por isso dois** (`MOTIVOS_QUE_NAO_CONTAM`),
+e os dois pela mesma propriedade: acontecem **antes** da chamada, pelo que não
+são medida de o modelo estar em baixo.
 
 **E o disjuntor é por *tenant***. Era global na primeira versão, e isso era
 amplificação de falha entre *tenants*: todas as falhas que o detector vê chegam

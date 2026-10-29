@@ -74,7 +74,10 @@ neste mesmo caminho (o gancho do KAM-036).
 from __future__ import annotations
 
 import dataclasses
+import hashlib
+import hmac
 import re
+import secrets
 import time
 from collections.abc import Callable
 from typing import Any, Final
@@ -95,16 +98,35 @@ CHAVE_DO_MAPA: Final = "pii_map"
 #: **Nao e o limiar do criterio 7, e a diferenca importa.** O criterio da uma
 #: *sobrecarga p95 <= 30 ms para 2.000 caracteres* como ***proposta a calibrar no
 #: Piloto***: e um alvo de desenho que se **mede**, e nada falha por o exceder.
-#: Este `TECTO_MS` e outra coisa — e o ponto a partir do qual se desiste em vez de
-#: atrasar o turno, e esta muito acima do alvo de proposito, porque um detector a
-#: 40 ms e lento e nao esta avariado. O que ele apanha e a expressao regular que
-#: entrou em retrocesso catastrofico sobre uma mensagem patologica.
+#: Este `TECTO_MS` e outra coisa — e o ponto a partir do qual a minimizacao se
+#: **recusa**, e esta muito acima do alvo de proposito, porque um detector a
+#: 40 ms e lento e nao esta avariado.
+#:
+#: **E uma verificacao a posteriori e NAO um *timeout*, e a primeira versao desta
+#: nota afirmava o contrario.** Dizia «um detector que demore mais do que isso
+#: **falha** em vez de atrasar o turno» e que «o que ele apanha e a expressao
+#: regular que entrou em retrocesso catastrofico» — e as duas eram falsas: o
+#: `decorrido` mede-se **depois** de o detector ter corrido, pelo que o turno **e**
+#: atrasado o tempo inteiro e uma expressao em retrocesso bloquearia o
+#: trabalhador os trinta segundos que levasse. Medido pela revisao adversarial,
+#: com um detector a dormir 400 ms: levantou **depois** dos 400 ms.
+#:
+#: O que este tecto garante, e e o que o criterio 7 pede pela letra, e que uma
+#: minimizacao lenta **nao chega ao LLM**: a chamada nao sai e o turno degrada.
+#: O que ele **nao** garante e que o turno nao demore.
+#:
+#: Interromper a serio obrigava a um `signal.alarm` (que nao vale em *threads*,
+#: e o AGR corre um `asyncio.Task` por conversa) ou a correr o detector noutro
+#: processo — que e muito mais caro do que o problema, enquanto o p95 medido e de
+#: 5 ms contra um tecto de 250. Fica como lacuna declarada, nao como propriedade
+#: afirmada.
 #:
 #: *Proposta*. Calibra-se no Piloto (KAM-109) com a distribuicao real de
 #: comprimentos de mensagem.
 #:
-#: shortcut: tecto de 250 ms escolhido por folga sobre o alvo de 30 ms, nao por
-#: medicao de patologia; revê-se no KAM-109.
+#: shortcut: verificacao a posteriori e nao interrupcao — um detector patologico
+#: atrasa o turno antes de a chamada ser recusada; revê-se no KAM-109 se o p95
+#: medido se aproximar do tecto.
 TECTO_MS: Final = 250
 
 #: O comprimento de texto a que o alvo do criterio 7 se refere.
@@ -124,12 +146,45 @@ FORMA_DO_TOKEN: Final = re.compile(
     r"\b(?:" + "|".join(detector_mod.TIPOS) + r")_\d+\b"
 )
 
-#: O selo. **Privado do modulo, e e isto que faz o criterio 1 ser um tipo.**
+#: A chave do selo, nova a cada arranque do processo. **Privada do modulo.**
 #:
-#: Um objecto anonimo e nao uma cadeia: uma cadeia podia ser adivinhada e escrita
-#: a mao por quem quisesse contornar a barreira, e um `object()` novo a cada
-#: arranque nao se pode nomear de fora.
-_SELO: Final = object()
+#: **A primeira versao deste modulo tinha um `_SELO: Final = object()` passado
+#: como campo, e a revisao adversarial forjou um `MinimisedText` de tres
+#: maneiras.** Vale escreve-las, porque o remedio e desenhado contra elas:
+#:
+#: | Forja | Porque passava |
+#: |---|---|
+#: | `dataclasses.replace(m, texto=cru)` | o `replace` reinvoca o `__init__` com o selo **real** do objecto de partida, e o `__post_init__` aceitava-o |
+#: | `object.__setattr__(m, "texto", cru)` | o `frozen=True` protege o `__setattr__` da classe, nao o do `object` |
+#: | `MinimisedText(cru, m.selo)` | o selo era **campo publico**: o `repr=False` esconde-o do `repr`, nao do acesso |
+#:
+#: As tres tem a mesma causa: **o selo provava quem construiu, nao o que ficou
+#: construido.** Um selo que seja o mesmo valor para qualquer texto pode ser
+#: copiado de um objecto legitimo para um forjado.
+#:
+#: O remedio e **ligar o selo ao texto**: a `impressao` e um HMAC do texto com
+#: esta chave, pelo que copia-la para outro texto da uma impressao que nao
+#: corresponde. As tres forjas fecham de uma vez — as duas primeiras no
+#: `__post_init__`, a terceira porque nao ha impressao valida para um texto que
+#: nao passou aqui —, e a quarta (construir a mao um `MensagemMinimizada` com um
+#: pato qualquer) fecha no `__post_init__` dela.
+#:
+#: **Nao e criptografia a serio e nao precisa de ser.** O que esta barreira
+#: defende nao e contra um atacante: e contra o proximo programador desta casa a
+#: escrever, de boa-fe, a linha que parece funcionar. Contra isso, uma chave de
+#: processo e um HMAC de 32 octetos sao mais do que suficientes, e o custo e de
+#: microssegundos por chamada.
+_CHAVE_DO_SELO: Final = secrets.token_bytes(32)
+
+
+def _impressao(texto: str) -> str:
+    """O selo de um texto que passou pelo detector. **Privado do modulo.**
+
+    A politica AST recusa uma referencia a este nome fora do
+    `privacidade/minimizacao.py`, pela mesma razao que recusava a do `_SELO`:
+    e a unica via para construir um `MinimisedText` valido.
+    """
+    return hmac.new(_CHAVE_DO_SELO, texto.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 class TextoNaoMinimizado(TypeError):
@@ -151,24 +206,61 @@ class MinimisedText:
     a mesma regra que deixou `Verdict`, `Policy` e `handoff_wait` em ingles
     (`validador/__init__.py`).
 
-    O `selo` nao e dado: e a prova de origem. Fora deste modulo nao ha como
-    obter o `_SELO`, pelo que nao ha como construir um destes com texto cru.
+    A `impressao` nao e dado: e a prova de que **este texto** passou pelo
+    detector. Nao prova quem construiu — prova o que ficou construido, e e essa
+    a diferenca que fechou as tres forjas que a revisao adversarial encontrou
+    (ver a nota do `_CHAVE_DO_SELO`).
     """
 
     texto: str
-    #: `compare=False` e `repr=False` porque nao e dado: compara-lo fazia dois
-    #: textos iguais parecerem diferentes, e mostra-lo no `repr` convidava
-    #: alguem a copia-lo.
-    selo: Any = dataclasses.field(default=None, compare=False, repr=False)
+    #: O HMAC do `texto` com a chave do processo. `compare=False` porque nao e
+    #: dado — dois textos iguais tem a mesma impressao, e compara-la era compara
+    #: o texto duas vezes; `repr=False` porque nao serve a ninguem num registo.
+    impressao: str = dataclasses.field(default="", compare=False, repr=False)
 
     def __post_init__(self) -> None:
-        if self.selo is not _SELO:
+        self._exigir()
+
+    def _exigir(self) -> None:
+        """A impressao corresponde ao texto? Levanta se nao.
+
+        `compare_digest` e nao `==`: e a comparacao que nao vaza por tempo. Aqui
+        nao ha atacante a medir (ver a nota do `_CHAVE_DO_SELO`), e usa-se de
+        qualquer maneira porque e a forma certa de comparar um HMAC e porque
+        escrever `==` aqui ensinava a escreve-lo onde conta.
+        """
+        # `isinstance` antes do `compare_digest`: aquele levanta `TypeError`
+        # sobre um `None` ou um `int`, e o criterio 1 pede que isto falhe **no
+        # tipo** com a nossa excepcao e nao com a do `hmac`. Medido pela bateria.
+        if not isinstance(self.impressao, str) or not isinstance(self.texto, str):
+            raise TextoNaoMinimizado(
+                "um `MinimisedText` leva texto e uma impressao, os dois cadeias"
+            )
+        if not hmac.compare_digest(self.impressao, _impressao(self.texto)):
             raise TextoNaoMinimizado(
                 "um `MinimisedText` so se obtem de `minimise(texto, ctx)`: "
                 "chamar o gateway de LLM com texto nao minimizado e a "
                 "transferencia que o KAM-112 existe para fechar (ADR-008, "
                 "ADR-010, criterio 1)"
             )
+
+    def verificada(self) -> str:
+        """O texto, **re-verificado no momento de o usar**.
+
+        **Existe por causa de uma das tres forjas**, e e a unica que o
+        `__post_init__` nao pode apanhar: um `object.__setattr__(m, "texto",
+        cru)` reescreve o campo **sem** passar pelo construtor, pelo que a
+        validacao da construcao nunca corre outra vez. A impressao, porem,
+        continua a ser a do texto antigo — e por isso uma re-verificacao no
+        ponto de uso apanha-a.
+
+        Quem chama isto e o `MensagemMinimizada.para_esquema`, que e o ultimo
+        ponto antes do corpo HTTP. E o sitio certo: entre a construcao e a
+        chamada pode ter acontecido qualquer coisa, e o que importa e o que vai
+        **sair**.
+        """
+        self._exigir()
+        return self.texto
 
     def __str__(self) -> str:
         return self.texto
@@ -300,57 +392,17 @@ def _token(tipo: str, indice: int) -> str:
     return f"{tipo}_{indice}"
 
 
-def minimise(
-    texto: str,
-    ctx: ContextoDeMinimizacao,
-    *,
-    metricas: metricas_mod.MetricasDoAgr | None = None,
-    agora: Callable[[], float] = time.monotonic,
-) -> tuple[MinimisedText, Mapa]:
-    """Mascara a PII de `texto` e devolve o texto minimo e o mapa.
+def _aplicar(
+    texto: str, achados: tuple[detector_mod.Achado, ...], anterior: Mapa
+) -> tuple[str, dict[str, str], dict[str, int]]:
+    """Substitui os achados por tokens. Devolve `(texto, mapa, contagem)`.
 
-    E a **unica** via para o `ClienteDeLlm.chamar` (criterio 1) e para o gancho do
-    STT (KAM-036).
-
-    Levanta `FalhaDeMinimizacao` — que e um `ErroDeLlm` — quando o detector falha
-    ou passa o `TECTO_MS`. **Nao ha ramo que devolva o texto original**: o
-    criterio 7 e falha fechada, e a chamada ao LLM nao acontece.
-
-    O mapa devolvido **inclui** o que ja vinha de `ctx.mapa`, para que a
-    numeracao seja estavel no *thread* e para que a `reidentificar` de um turno
-    saiba dos tokens dos anteriores.
+    Extraido do `minimise` para que o `try` dele cubra **esta** parte tambem —
+    ver a nota la. A numeracao continua a de `anterior`, que e o mapa do
+    *checkpoint*: um valor que ja tem token mantem-no, e e isso que torna o
+    token estavel no *thread*.
     """
-    medidor = metricas or metricas_mod.METRICAS
-    inicio = agora()
-
-    if not isinstance(texto, str):
-        raise FalhaDeMinimizacao(
-            f"o `minimise` recebeu {type(texto).__name__} e nao texto"
-        )
-
-    try:
-        achados = detector_mod.detectar(
-            texto,
-            do_catalogo=ctx.do_catalogo,
-            padrao_de_nif=ctx.padrao_de_nif,
-        )
-    except negocio.ReclamouDemais as erro:
-        # Uma das sete expressoes do `negocio.py` esta errada. Falha fechada: a
-        # alternativa era devolver o texto quase intacto a dizer que estava
-        # minimizado, que e a pior falha deste ticket porque passa por sucesso.
-        raise FalhaDeMinimizacao(f"os numeros de negocio cobrem o texto: {erro}") from erro
-    except Exception as erro:  # noqa: BLE001 — criterio 7, e a razao vai na mensagem
-        # **O `except Exception` esta aqui de proposito e e o oposto do que o
-        # `degradacao.py` faz**, que nao tem nenhum. A diferenca: ali, engolir
-        # escondia um Postgres em baixo; aqui, **nao** engolir deixava um defeito
-        # do detector transformar-se num turno falhado em vez de um turno
-        # degradado — e o cliente nao recebia nada. O criterio 7 nomeia os dois
-        # desfechos aceitaveis (deterministico ou *handoff*) e nenhum deles e
-        # «o turno falha».
-        raise FalhaDeMinimizacao(f"o detector de PII falhou: {erro}") from erro
-
-    # A numeracao continua a do *thread*: um valor que ja tem token mantem-no.
-    valores = dict(ctx.mapa.valores)
+    valores = dict(anterior.valores)
     por_valor = {valor: token for token, valor in valores.items()}
     proximo: dict[str, int] = {}
     for token in valores:
@@ -383,7 +435,79 @@ def minimise(
     for achado, token in reversed(atribuido):
         pedacos[achado.inicio : achado.fim] = list(token)
 
-    minimo = "".join(pedacos)
+    return "".join(pedacos), valores, contagem
+
+
+def minimise(
+    texto: str,
+    ctx: ContextoDeMinimizacao,
+    *,
+    metricas: metricas_mod.MetricasDoAgr | None = None,
+    agora: Callable[[], float] = time.monotonic,
+) -> tuple[MinimisedText, Mapa]:
+    """Mascara a PII de `texto` e devolve o texto minimo e o mapa.
+
+    E a **unica** via para o `ClienteDeLlm.chamar` (criterio 1) e para o gancho do
+    STT (KAM-036).
+
+    Levanta `FalhaDeMinimizacao` — que e um `ErroDeLlm` — quando o detector falha
+    ou passa o `TECTO_MS`. **Nao ha ramo que devolva o texto original**: o
+    criterio 7 e falha fechada, e a chamada ao LLM nao acontece.
+
+    O mapa devolvido **inclui** o que ja vinha de `ctx.mapa`, para que a
+    numeracao seja estavel no *thread* e para que a `reidentificar` de um turno
+    saiba dos tokens dos anteriores.
+    """
+    medidor = metricas or metricas_mod.METRICAS
+    inicio = agora()
+
+    if not isinstance(texto, str):
+        raise FalhaDeMinimizacao(
+            f"o `minimise` recebeu {type(texto).__name__} e nao texto"
+        )
+
+    # **O `try` cobre o corpo inteiro e nao so o `detectar`, e e a correccao do
+    # achado 12 da revisao adversarial.** A primeira versao envolvia so a chamada
+    # ao detector, e tudo o que vem depois — a leitura do `ctx.mapa`, a
+    # atribuicao de tokens, a substituicao e as duas chamadas as metricas —
+    # corria fora dela. Isto e, metade da funcao podia levantar uma excepcao que
+    # **nao** era `FalhaDeMinimizacao`, e o comentario abaixo explicava porque e
+    # que isso nao podia acontecer.
+    #
+    # Medido pela revisao: um `ctx.mapa` que nao fosse um `Mapa` dava
+    # `AttributeError`, e um tipo fora da lista fechada dava `EtiquetaInvalida`.
+    # Nenhum dos dois era alcancavel hoje — o `TIPOS` e derivado e o contexto e
+    # um dataclass —, mas a barreira estava no sitio errado e pôr-la no sitio
+    # certo custa zero.
+    try:
+        achados = detector_mod.detectar(
+            texto,
+            do_catalogo=ctx.do_catalogo,
+            padrao_de_nif=ctx.padrao_de_nif,
+        )
+        minimo, valores, contagem = _aplicar(texto, achados, ctx.mapa)
+    except negocio.ReclamouDemais as erro:
+        # Uma das expressoes do `negocio.py` esta errada. Falha fechada: a
+        # alternativa era devolver o texto quase intacto a dizer que estava
+        # minimizado, que e a pior falha deste ticket porque passa por sucesso.
+        raise FalhaDeMinimizacao(f"os numeros de negocio cobrem o texto: {erro}") from erro
+    except FalhaDeMinimizacao:
+        # Ja e a nossa: nao se embrulha outra vez, senao a mensagem fica aninhada.
+        raise
+    except Exception as erro:  # noqa: BLE001 — criterio 7, e a razao vai na mensagem
+        # **O `except Exception` esta aqui de proposito e e o oposto do que o
+        # `degradacao.py` faz**, que nao tem nenhum. A diferenca: ali, engolir
+        # escondia um Postgres em baixo; aqui, **nao** engolir deixava um defeito
+        # do detector transformar-se num turno falhado em vez de um turno
+        # degradado — e o cliente nao recebia nada. O criterio 7 nomeia os dois
+        # desfechos aceitaveis (deterministico ou *handoff*) e nenhum deles e
+        # «o turno falha».
+        #
+        # **A mensagem nao leva o texto**, e isso e deliberado: seria PII numa
+        # excepcao, que e o caminho que o `llm/erros.py` fechou para o corpo do
+        # fornecedor. Ha um ensaio que o mede.
+        raise FalhaDeMinimizacao(f"o detector de PII falhou: {erro}") from erro
+
     decorrido = max(0, int((agora() - inicio) * 1000))
 
     if decorrido > TECTO_MS:
@@ -401,7 +525,7 @@ def minimise(
         medidor.contar(metricas_mod.METRICA_PII_MASCARADA, tipo.lower(), quantos)
     medidor.medir(metricas_mod.METRICA_MINIMISE_LATENCIA, decorrido)
 
-    return MinimisedText(minimo, _SELO), Mapa(valores)
+    return MinimisedText(minimo, _impressao(minimo)), Mapa(valores)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -424,9 +548,33 @@ class MensagemMinimizada:
     papel: str
     conteudo: MinimisedText
 
+    def __post_init__(self) -> None:
+        """**Valida o tipo do conteudo, e a primeira versao nao validava.**
+
+        Era a quarta forja da revisao adversarial, e a mais barata de todas:
+        `MensagemMinimizada("user", pato)` com qualquer objecto que tivesse um
+        `.texto` punha texto cru no esquema. A validacao estava na funcao
+        `mensagem()`, que se contorna construindo a classe directamente — e uma
+        barreira que se contorna por construir a classe nao e uma barreira.
+
+        A guarda do `chamar` verificava `isinstance(item, MensagemMinimizada)` e
+        **nao** o conteudo, pelo que esta via era suficiente por si so.
+        """
+        if not isinstance(self.conteudo, MinimisedText):
+            raise TextoNaoMinimizado(
+                "o conteudo de uma `MensagemMinimizada` tem de ser um "
+                "`MinimisedText` obtido de `minimise(texto, ctx)` e nao um "
+                f"{type(self.conteudo).__name__} (KAM-112, criterio 1)"
+            )
+
     def para_esquema(self) -> dict[str, str]:
-        """O `{"role": …, "content": …}` que o proxy espera."""
-        return {"role": self.papel, "content": self.conteudo.texto}
+        """O `{"role": …, "content": …}` que o proxy espera.
+
+        Chama `verificada()` e nao `.texto`: e o ultimo ponto antes do corpo
+        HTTP, e e aqui que um `object.__setattr__` entre a construcao e a chamada
+        se apanha. Ver a nota do `MinimisedText.verificada`.
+        """
+        return {"role": self.papel, "content": self.conteudo.verificada()}
 
 
 def mensagem(papel: str, conteudo: MinimisedText) -> MensagemMinimizada:

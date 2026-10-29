@@ -257,6 +257,36 @@ MOLDES_DE_NIF: Final = (
 # ---------------------------------------------------------------- os tipos
 
 
+#: Toponimos que **nao estao** no dicionario do detector, de proposito.
+#:
+#: Sao nomes de lugar plausiveis e inventados: a via que os apanha e o padrao de
+#: contexto («entregar em»), e nao a lista. Ver a nota onde entram no corpus.
+LOCAIS_FORA_DO_DICIONARIO: Final = (
+    "Quilometro Trinta",
+    "Bairro Novo Horizonte",
+    "Vila Esperanca",
+    "Zona Verde",
+    "Praia do Sol",
+    "Largo das Palmeiras",
+    "Monte Belo",
+    "Campo Grande",
+)
+
+#: Nomes proprios que **nao estao** em `NOMES_PROPRIOS` nem em `APELIDOS`.
+#:
+#: A via que os apanha e o gatilho **forte** de pessoa, que basta por si — e que
+#: so existe porque sem ele acrescentar estes casos fazia o limiar falhar em vez
+#: de medir melhor.
+NOMES_FORA_DO_DICIONARIO: Final = (
+    "Nduduzo",
+    "Kambuta",
+    "Yolanda",
+    "Chissola",
+    "Nelito",
+    "Wilson",
+)
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class CasoDePii:
     """Um caso do corpus de PII: o texto e **que valores** tem de ser mascarados.
@@ -363,9 +393,17 @@ def _com_pii() -> tuple[CasoDePii, ...]:
         )
 
     # --- e-mail: nomes locais x dominios.
+    # **Cinco das treze tem digito na parte local, e e a correccao do achado 2
+    # da revisao adversarial.** A primeira versao tinha oito locais e **zero**
+    # digitos, pelo que os casos de e-mail evitavam sistematicamente a unica
+    # forma que falhava: o `SKU` reclamava o `joao123` e o endereco inteiro saia
+    # em claro. O recall lia 100% sobre um corpus construido em volta do
+    # detector — e `joao123@gmail.com` e a forma mais comum de endereco de
+    # consumidor que ha.
     locais_de_email = (
         "joao.silva", "maria", "pedro_neto", "ana-pereira", "loja",
         "encomendas", "isabel.f", "c.sousa",
+        "joao123", "ana2024", "loja1", "pedro.n7", "m4ria",
     )
     for indice, local in enumerate(locais_de_email):
         for dominio in DOMINIOS:
@@ -405,6 +443,32 @@ def _com_pii() -> tuple[CasoDePii, ...]:
                     familia="nif",
                 )
             )
+
+    # --- **fora do dicionario, e e a correccao do achado 9 da revisao
+    #     adversarial.** O corpus nao tinha um unico toponimo fora de `LOCAIS`
+    #     nem um unico nome fora de `NOMES_PROPRIOS`, pelo que o limiar de 90%
+    #     media que o dicionario contem as suas proprias entradas — uma
+    #     tautologia. Estes sao apanhados (ou nao) **pela via do contexto**, que
+    #     e o unico mecanismo que ve o que a lista nao tem, e e a razao declarada
+    #     de o limiar ser 90 e nao 99.
+    for local in LOCAIS_FORA_DO_DICIONARIO:
+        casos.append(
+            CasoDePii(
+                nome=f"morada_fora_do_dicionario_{local.replace(' ', '_')}",
+                texto=f"Entregar em {local}, obrigado.",
+                espera=(("MORADA", local),),
+                familia="morada_fora_do_dicionario",
+            )
+        )
+    for nome in NOMES_FORA_DO_DICIONARIO:
+        casos.append(
+            CasoDePii(
+                nome=f"pessoa_fora_do_dicionario_{nome.replace(' ', '_')}",
+                texto=f"Fala com o {nome} sobre o pedido.",
+                espera=(("PESSOA", nome),),
+                familia="pessoa_fora_do_dicionario",
+            )
+        )
 
     # --- mistos: PII **e** numeros de negocio na mesma frase, que e a forma
     #     real de uma mensagem e o caso que exercita a tenaz dos dois criterios.
@@ -535,6 +599,45 @@ def _numeros() -> tuple[CasoDeNumero, ...]:
                 texto=f"Kz {numero} e o total.",
                 intactos=(numero,),
                 familia="preco_que_parece_telefone",
+            )
+        )
+
+    # --- **os mesmos, SEM marcador de moeda, e e a correccao do achado 5 da
+    #     revisao adversarial.** O corpus tinha trinta familias
+    #     `preco_que_parece_telefone` e **todas** levavam `Kz`: varrido, o unico
+    #     caso de nove digitos sem moeda era o `SKU-912345678`, protegido pelo
+    #     prefixo. Isto e, o `test_zero_alterados` lia 0/263 porque o corpus so
+    #     tinha a variante protegida, e um total escrito «O total da encomenda e
+    #     912500000.» saia mascarado como telefone.
+    #
+    #     Quem os reclama e o `CONTEXTO_DE_NEGOCIO`: a palavra de negocio colada
+    #     ao numero. São os casos que medem essa via.
+    sem_moeda = (
+        ("total_sem_moeda", "O total da encomenda e {}."),
+        ("total_fica_em", "Fica em {}, tudo incluido."),
+        ("stock_depois", "Tenho {} em stock."),
+        ("referencia", "A referencia de pagamento e {}."),
+        ("custa", "Custa {} a unidade."),
+        ("subtotal", "O subtotal e {} antes do IVA."),
+    )
+    for numero in parecem_telefone:
+        for sufixo, molde in sem_moeda:
+            casos.append(
+                CasoDeNumero(
+                    nome=f"{sufixo}_{numero}",
+                    texto=molde.format(numero),
+                    intactos=(numero,),
+                    familia="negocio_sem_marcador",
+                )
+            )
+    # E com separador de milhares, que e como um total grande se escreve.
+    for numero in ("950.000.000", "912.500.000", "1.234.567"):
+        casos.append(
+            CasoDeNumero(
+                nome=f"total_sem_moeda_pontuado_{numero}",
+                texto=f"O total e {numero} e pode pagar amanha.",
+                intactos=(numero,),
+                familia="negocio_sem_marcador",
             )
         )
 
@@ -773,6 +876,48 @@ LIMITES: Final = (
             "e o precedente e o `make x11 X11_NIF` do KAM-068. O corpus mede-o "
             "com o `PADRAO_DE_NIF_DE_ENSAIO`, que e parametro de medicao e nao "
             "canon"
+        ),
+    ),
+    Limite(
+        nome="iban_e_conta_bancaria",
+        texto="O meu IBAN e AO06 0040 0000 1234 5678 9101 5",
+        escapa="AO06 0040 0000 1234 5678 9101 5",
+        razao=(
+            "o criterio 2 enumera **seis** tipos — telefone, BSUID, e-mail, NIF, "
+            "moradas e nomes — e o IBAN nao esta la. Logo nao e violacao da letra, "
+            "e **e** PII directa que atravessa: um cliente angolano manda o IBAN "
+            "para pagar por transferencia com frequencia. Apanhado pela revisao "
+            "adversarial (achado 14) e declarado aqui em vez de ficar silencioso. "
+            "Acrescentar o tipo e alargar o escopo do bloco, que o proibe pelo "
+            "nome; o credor natural e o **KAM-033** (classificador de dados "
+            "sensiveis) ou um ticket proprio, e a decisao e de quem escreve o "
+            "ambito"
+        ),
+    ),
+    Limite(
+        nome="telefone_com_barras",
+        texto="O meu numero e 912/345/678",
+        escapa="912/345/678",
+        razao=(
+            "o criterio 2 nomeia as formas «com espacos, pontos ou hifenes» e a "
+            "barra nao esta la. O `_SEP` do detector segue a letra. Alargar e "
+            "barato — uma barra no `_SEP` — e nao se faz neste PR por uma razao "
+            "medida e nao por preguica: a barra e tambem o separador de data "
+            "(`12/03/2026`) e de `sku` (`CX-12/450`), os dois reclamados como "
+            "numeros de negocio, e mexer no `_SEP` sem medir o criterio 4 outra "
+            "vez era trocar um limiar por outro. Fica para o KAM-109, com "
+            "mensagens reais que digam se alguem escreve assim"
+        ),
+    ),
+    Limite(
+        nome="numero_de_bi",
+        texto="O meu BI e 003456789LA041",
+        escapa="003456789LA041",
+        razao=(
+            "o Bilhete de Identidade nao esta nos seis tipos do criterio 2 e nao "
+            "tem formato definido em documento nenhum deste repositorio — a "
+            "mesma ausencia do NIF, e o bloco manda nao inventar formatos. "
+            "Declarado para ficar medido"
         ),
     ),
     Limite(

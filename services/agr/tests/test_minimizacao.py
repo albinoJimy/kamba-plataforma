@@ -36,6 +36,7 @@ executa — nao se abriu *gate* novo, pela decisao do `politica_ast.py`.
 from __future__ import annotations
 
 import ast
+import dataclasses
 import json
 import re
 import time
@@ -119,11 +120,56 @@ class TestBarreiraDeTipo(unittest.TestCase):
         with self.assertRaises(TextoNaoMinimizado):
             MinimisedText("o meu numero e 912345678")
 
-    def test_nem_com_um_selo_inventado(self) -> None:
-        """Um selo adivinhado nao serve: o `_SELO` e um `object()` do modulo."""
-        for falso in (None, "_SELO", object(), 0, True):
+    def test_nem_com_uma_impressao_inventada(self) -> None:
+        """Um selo adivinhado nao serve: a impressao e um HMAC do proprio texto."""
+        for falso in (None, "", "_SELO", "0" * 64, object(), 0, True):
             with self.subTest(falso=falso), self.assertRaises(TextoNaoMinimizado):
-                MinimisedText("texto cru", falso)
+                MinimisedText("texto cru", falso)  # type: ignore[arg-type]
+
+    def test_as_quatro_forjas_da_revisao_adversarial(self) -> None:
+        """As quatro vias que forjavam um `MinimisedText`, uma asercao por via.
+
+        A revisao adversarial mediu-as (achado 3) e a primeira versao do modulo
+        passava nas quatro. A causa era comum: **o selo provava quem construiu,
+        nao o que ficou construido** — um `object()` igual para qualquer texto
+        copia-se de um objecto legitimo para um forjado. A impressao e um HMAC do
+        texto, pelo que copia-la para outro texto nao corresponde.
+        """
+        minimo, _mapa = minimise("ola", _ctx())
+        cru = "o meu numero e 912345678"
+
+        # 1. `dataclasses.replace` reinvoca o `__init__` com a impressao antiga.
+        with self.assertRaises(TextoNaoMinimizado):
+            dataclasses.replace(minimo, texto=cru)
+
+        # 2. A impressao e campo e pode ser copiada — para o **mesmo** texto.
+        with self.assertRaises(TextoNaoMinimizado):
+            MinimisedText(cru, minimo.impressao)
+
+        # 3. `object.__setattr__` fura o `frozen=True` e **nao** passa pelo
+        #    `__post_init__`. Quem o apanha e a re-verificacao no ponto de uso.
+        furado, _mapa2 = minimise("ola", _ctx())
+        object.__setattr__(furado, "texto", cru)
+        self.assertEqual(furado.texto, cru, "o furo existe")
+        with self.assertRaises(TextoNaoMinimizado):
+            furado.verificada()
+        with self.assertRaises(TextoNaoMinimizado):
+            MensagemMinimizada("user", furado).para_esquema()
+
+        # 4. Um `MensagemMinimizada` construido a mao com um pato qualquer.
+        class _Pato:
+            texto = cru
+
+        with self.assertRaises(TextoNaoMinimizado):
+            MensagemMinimizada("user", _Pato())  # type: ignore[arg-type]
+
+    def test_a_impressao_liga_se_ao_texto_e_nao_a_origem(self) -> None:
+        """Dois textos minimizados tem impressoes diferentes."""
+        um, _ = minimise("ola", _ctx())
+        outro, _ = minimise("bom dia", _ctx())
+        self.assertNotEqual(um.impressao, outro.impressao)
+        # E a mesma cadeia da a mesma impressao, pelo que o `verificada` e estavel.
+        self.assertEqual(um.verificada(), "ola")
 
     def test_o_minimise_constroi_um(self) -> None:
         minimo, _mapa = minimise("ola", _ctx())
@@ -238,6 +284,42 @@ class TestArquitectura(unittest.TestCase):
                 self.assertTrue(
                     any(achado.startswith(regra) for achado in achados),
                     f"o canario de `{regra}` nao foi recusado: {achados}",
+                )
+
+    def test_a_politica_recusa_cada_evasao_medida(self) -> None:
+        """As seis evasoes do achado 4 da revisao adversarial, uma a uma.
+
+        A primeira versao desta politica tinha canarios para as tres regras **na
+        forma mais ingenua de cada uma** e nenhuma evasao — e as quatro que a
+        revisao mediu passavam todas. A licao e a do `politica_ast.py` do
+        KAM-034: as evasoes nao se corrigem a olho, escrevem-se e poe-se a
+        politica a recusa-las.
+        """
+        for regra, nome, fonte in politica.EVASOES:
+            with self.subTest(evasao=nome):
+                achados = politica.verificar(fonte)
+                self.assertTrue(
+                    any(achado.startswith(regra) for achado in achados),
+                    f"a evasao `{nome}` nao foi recusada por `{regra}`: {achados}",
+                )
+
+    def test_a_politica_passa_o_caminho_correcto(self) -> None:
+        """O controlo positivo, e **sem ele o resto desta classe nao vale nada**.
+
+        Uma politica sem controlo positivo e satisfeita por uma que recuse tudo,
+        e foi exactamente o que aconteceu: o `argumento_literal` disparava sobre
+        `[mensagem("user", minimo)]`, que e a forma que a propria mensagem da
+        regra recomenda por escrito. Nao mordia **hoje** so porque o varrimento
+        le `services/agr/src/kamba_agr`, onde nao ha chamador nenhum — isto e,
+        estava a espera do dia em que o grafo chamasse o gateway de forma
+        idiomatica para avermelhar o *gate* 4 sobre codigo conforme.
+        """
+        for nome, fonte in politica.CONFORMES:
+            with self.subTest(conforme=nome):
+                self.assertEqual(
+                    politica.verificar(fonte),
+                    [],
+                    f"a forma correcta `{nome}` foi recusada",
                 )
 
     def test_o_modulo_do_selo_e_o_unico_que_o_pode_referir(self) -> None:

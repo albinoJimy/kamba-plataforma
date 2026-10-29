@@ -82,8 +82,12 @@ CHAMAR_SEM_MINIMISE: Final = "chamar_sem_minimise"
 
 #: O nome do metodo do gateway. Um so, e e o do `llm/cliente.py`.
 METODO: Final = "chamar"
-#: O nome do selo privado do `minimizacao.py`.
-SELO: Final = "_SELO"
+#: Os nomes privados do `minimizacao.py` que constroem um selo valido.
+#:
+#: **Eram um (`_SELO`) e sao tres**, porque o selo deixou de ser um objecto
+#: passado e passou a ser um HMAC do texto (ver a nota do `_CHAVE_DO_SELO`): quem
+#: tivesse a chave ou a funcao podia selar texto cru.
+PRIVADOS: Final = ("_SELO", "_CHAVE_DO_SELO", "_impressao")
 #: O nome do tipo selado.
 TIPO: Final = "MinimisedText"
 #: O pacote que tem de aparecer nos `import` de quem minimiza.
@@ -91,14 +95,16 @@ PACOTE: Final = "privacidade"
 
 MENSAGENS: Final = {
     ARGUMENTO_LITERAL: (
-        "o argumento `mensagens` do `chamar()` e um literal: o gateway de LLM "
-        "so aceita `MensagemMinimizada`, que se obtem de "
-        "`privacidade.mensagem(papel, minimise(texto, ctx)[0])`. Um literal "
-        "aqui e texto do cliente a sair para um fornecedor sem passar pelo "
-        "detector de PII (KAM-112 criterio 1; ADR-008, ADR-010)"
+        "o argumento `mensagens` do `chamar()` leva um dicionario literal: e a "
+        "forma `[{\"role\": ..., \"content\": texto}]` que a assinatura "
+        "aceitava antes do KAM-112, e e texto do cliente a sair para um "
+        "fornecedor sem passar pelo detector de PII. A forma certa e "
+        "`[privacidade.mensagem(papel, minimise(texto, ctx)[0])]` — uma **lista** "
+        "de `MensagemMinimizada` e conforme (KAM-112 criterio 1; ADR-008, ADR-010)"
     ),
     SELO_FORA_DO_MODULO: (
-        f"o `{SELO}` do `privacidade/minimizacao.py` e referido fora dele: o "
+        f"um nome privado do `privacidade/minimizacao.py` ({', '.join(PRIVADOS)}) "
+        "e referido fora dele: o "
         "selo e o que faz do `MinimisedText` um tipo e nao uma convencao, e "
         "uma referencia a ele noutro ficheiro e a unica forma de construir "
         "texto «minimizado» sem o detector correr"
@@ -157,11 +163,89 @@ def _desembrulhar(valor: ast.expr) -> ast.expr:
     return valor
 
 
+def _literais_atribuidos(arvore: ast.AST) -> dict[str, ast.expr]:
+    """Variaveis ligadas a um literal de coleccao, por nome.
+
+    **E a correccao da segunda evasao do achado 4 da revisao adversarial:**
+    atribuir o literal a uma variavel desarmava a politica inteira, porque o
+    `_mensagens_de` so olhava para o no passado na chamada.
+
+        cru = [{"role": "user", "content": texto}]
+        cliente.chamar("chat", cru, ctx)      # passava
+
+    E a mesma classe das seis evasoes que o `politica_ast.py` do KAM-034
+    documenta: a regra perguntava pela **forma do no** em vez de pelo **valor**.
+
+    Resolve-se por modulo e nao por *scope*, que e grosseiro de proposito: um
+    falso positivo aqui e um nome reutilizado, e o custo e uma mensagem a mais;
+    um falso negativo e texto cru no modelo.
+    """
+    ligados: dict[str, ast.expr] = {}
+    for no in ast.walk(arvore):
+        if isinstance(no, ast.Assign) and isinstance(no.value, _LITERAIS):
+            for alvo in no.targets:
+                if isinstance(alvo, ast.Name):
+                    ligados[alvo.id] = no.value
+        if (
+            isinstance(no, ast.AnnAssign)
+            and isinstance(no.target, ast.Name)
+            and no.value is not None
+            and isinstance(no.value, _LITERAIS)
+        ):
+            ligados[no.target.id] = no.value
+    return ligados
+
+
+def _tem_dicionario_de_mensagem(no: ast.expr) -> bool:
+    """Esta expressao contem um `{"role": ..., "content": ...}`?
+
+    **E a correccao da primeira metade do achado 4**, e era um falso positivo
+    sobre o caminho certo. A regra recusava **qualquer** `ast.List` na posicao
+    `mensagens` — incluindo `[mensagem("user", minimo)]`, que e a forma que a
+    propria mensagem desta regra recomenda por escrito e que a bateria usa. Hoje
+    nao mordia porque o varrimento le so `services/agr/src/kamba_agr`, onde nao
+    ha chamador nenhum; no dia em que o grafo chamasse o gateway de forma
+    idiomatica, o *gate* 4 ficava vermelho sobre codigo conforme — e um portao
+    que avermelha o caminho certo e um portao que alguem desliga.
+    """
+    for filho in ast.walk(no):
+        if not isinstance(filho, ast.Dict):
+            continue
+        chaves = {
+            chave.value
+            for chave in filho.keys
+            if isinstance(chave, ast.Constant) and isinstance(chave.value, str)
+        }
+        # O esquema OpenAI-compativel, que e o que o `para_esquema` produz. Um
+        # dicionario com estas chaves na posicao `mensagens` **e** a forma antiga.
+        if "content" in chaves or "role" in chaves:
+            return True
+    return False
+
+
+def _primeiro_e_self(chamada: ast.Call) -> bool:
+    """O primeiro argumento desta chamada e o nome `self`?"""
+    return bool(
+        chamada.args
+        and isinstance(chamada.args[0], ast.Name)
+        and chamada.args[0].id == "self"
+    )
+
+
+def _de_dataclasses(arvore: ast.AST) -> bool:
+    """O ficheiro faz `from dataclasses import replace`?"""
+    return any(
+        no.module == "dataclasses" and any(a.name == "replace" for a in no.names)
+        for no in ast.walk(arvore)
+        if isinstance(no, ast.ImportFrom)
+    )
+
+
 def verificar(fonte: str, *, e_o_modulo_do_selo: bool = False) -> list[str]:
     """Os achados sobre uma fonte. Lista vazia e conforme.
 
-    `e_o_modulo_do_selo` dispensa as regras do selo e da construcao: o
-    `privacidade/minimizacao.py` **tem** de referir o `_SELO` e de construir o
+    `e_o_modulo_do_selo` dispensa as regras dos nomes privados e da construcao: o
+    `privacidade/minimizacao.py` **tem** de os referir e de construir o
     `MinimisedText` — e o unico que pode.
     """
     try:
@@ -175,35 +259,85 @@ def verificar(fonte: str, *, e_o_modulo_do_selo: bool = False) -> list[str]:
         sufixo = f" ({onde})" if onde else ""
         achados.append(f"{regra}{sufixo} — {MENSAGENS[regra]}")
 
+    ligados = _literais_atribuidos(arvore)
     chamadas = [no for no in ast.walk(arvore) if _e_chamada_ao_gateway(no)]
     for chamada in chamadas:
         argumento = _mensagens_de(chamada)
         if argumento is None:
             continue
-        if isinstance(_desembrulhar(argumento), _LITERAIS):
+        alvo = _desembrulhar(argumento)
+        # Pelo **valor** e nao pela forma: um literal directo, ou uma variavel
+        # ligada a um literal mais atras.
+        if isinstance(alvo, ast.Name) and alvo.id in ligados:
+            alvo = ligados[alvo.id]
+        if _tem_dicionario_de_mensagem(alvo):
             apontar(ARGUMENTO_LITERAL, f"linha {chamada.lineno}")
 
-    if not e_o_modulo_do_selo:
-        for no in ast.walk(arvore):
-            if isinstance(no, ast.Name) and no.id == SELO:
-                apontar(SELO_FORA_DO_MODULO, f"linha {no.lineno}")
-            # `from .minimizacao import _SELO` tambem conta, e nao e um `Name`.
-            if isinstance(no, ast.ImportFrom):
-                for alias in no.names:
-                    if alias.name == SELO:
-                        apontar(SELO_FORA_DO_MODULO, f"linha {no.lineno}")
-            if (
-                isinstance(no, ast.Call)
-                and isinstance(no.func, ast.Name)
-                and no.func.id == TIPO
-            ):
-                apontar(CONSTRUCAO, f"linha {no.lineno}")
-            if (
-                isinstance(no, ast.Call)
-                and isinstance(no.func, ast.Attribute)
-                and no.func.attr == TIPO
-            ):
-                apontar(CONSTRUCAO, f"linha {no.lineno}")
+    if e_o_modulo_do_selo:
+        return achados
+
+    # Os nomes que este ficheiro deu ao `MinimisedText`, incluindo os alias de
+    # `import`. **Sem isto, `from .minimizacao import MinimisedText as _T`
+    # desarmava a regra da construcao** — a terceira evasao do achado 4.
+    nomes_do_tipo = {TIPO}
+    for no in ast.walk(arvore):
+        if isinstance(no, ast.ImportFrom):
+            for alias in no.names:
+                if alias.name == TIPO and alias.asname:
+                    nomes_do_tipo.add(alias.asname)
+                if alias.name in PRIVADOS:
+                    apontar(SELO_FORA_DO_MODULO, f"linha {no.lineno}")
+
+    for no in ast.walk(arvore):
+        if isinstance(no, ast.Name) and no.id in PRIVADOS:
+            apontar(SELO_FORA_DO_MODULO, f"linha {no.lineno}")
+        if isinstance(no, ast.Attribute) and no.attr in PRIVADOS:
+            apontar(SELO_FORA_DO_MODULO, f"linha {no.lineno}")
+        if not isinstance(no, ast.Call):
+            continue
+        # `MinimisedText(...)`, `mod.MinimisedText(...)`, `_T(...)` por alias, e
+        # **`dataclasses.replace(...)`**, que era a primeira forja: reinvoca o
+        # construtor com o selo do objecto de partida.
+        alvo = no.func
+        if isinstance(alvo, ast.Name) and alvo.id in nomes_do_tipo:
+            apontar(CONSTRUCAO, f"linha {no.lineno}")
+        elif isinstance(alvo, ast.Attribute) and alvo.attr == TIPO:
+            apontar(CONSTRUCAO, f"linha {no.lineno}")
+        # **`dataclasses.replace` e `object.__setattr__`, com o dono exigido.**
+        #
+        # A primeira versao perguntava so pelo nome do atributo (`attr in {TIPO,
+        # "replace"}`) e dava **doze** achados na fonte do AGR: `texto.replace(...)`
+        # e um metodo de cadeia e aparece em todo o lado. Um portao que avermelha
+        # doze sitios conformes e um portao que alguem desliga — a mesma licao que
+        # o `CONFORMES` desta politica paga pelo outro lado.
+        #
+        # Exige-se o dono: `dataclasses.replace` e `object.__setattr__`, que sao
+        # as duas formas que a revisao adversarial mediu.
+        elif (
+            isinstance(alvo, ast.Attribute)
+            and isinstance(alvo.value, ast.Name)
+            and (
+                (alvo.value.id == "dataclasses" and alvo.attr == "replace")
+                or (
+                    alvo.value.id == "object"
+                    and alvo.attr == "__setattr__"
+                    # **Excepto sobre o proprio `self`, e nao e cortesia.** Um
+                    # `object.__setattr__(self, ...)` dentro do `__post_init__`
+                    # de um dataclass `frozen` e **o** idioma para preencher um
+                    # campo derivado, e o `verticais/vendedor/nos.py` usa-o para
+                    # o relogio por omissao. A forja que a revisao mediu era
+                    # sobre **outro** objecto: `object.__setattr__(minimo,
+                    # "texto", cru)`. A regra distingue os dois pelo primeiro
+                    # argumento, que e a diferenca real entre preencher-se e
+                    # adulterar outra coisa.
+                    and not _primeiro_e_self(no)
+                )
+            )
+        ):
+            apontar(CONSTRUCAO, f"linha {no.lineno}")
+        # O `replace` importado directamente de `dataclasses`.
+        elif isinstance(alvo, ast.Name) and alvo.id == "replace" and _de_dataclasses(arvore):
+            apontar(CONSTRUCAO, f"linha {no.lineno}")
 
     return achados
 
@@ -243,10 +377,10 @@ CANARIOS: Final = {
         '    return cliente.chamar("chat", [{"role": "user", "content": "ola"}], ctx)\n'
     ),
     SELO_FORA_DO_MODULO: (
-        "from .minimizacao import _SELO, MinimisedText\n"
+        "from .minimizacao import _impressao, MinimisedText\n"
         "\n"
         "def fingir(texto):\n"
-        "    return _SELO\n"
+        "    return _impressao(texto)\n"
     ),
     CONSTRUCAO: (
         "from .minimizacao import MinimisedText\n"
@@ -255,3 +389,96 @@ CANARIOS: Final = {
         "    return MinimisedText(texto, None)\n"
     ),
 }
+
+#: **As evasoes, e sao canarios como os outros.**
+#:
+#: O achado 4 da revisao adversarial mediu quatro formas de desarmar a primeira
+#: versao desta politica, e a licao e a do `politica_ast.py` do KAM-034: as
+#: evasoes nao se corrigem a olho — escrevem-se, e poe-se a politica a recusa-las.
+#: Sem isto, os `CANARIOS` cobriam as tres regras **na forma mais ingenua de
+#: cada uma** e nenhuma evasao, que e um canario que nao morde onde interessa.
+#:
+#: Cada entrada e `(regra, nome, fonte)`: a fonte tem de ser recusada **por
+#: aquela** regra.
+EVASOES: Final = (
+    (
+        ARGUMENTO_LITERAL,
+        "o literal por variavel",
+        "def correr(cliente, ctx, texto):\n"
+        '    cru = [{"role": "user", "content": texto}]\n'
+        '    return cliente.chamar("chat", cru, ctx)\n',
+    ),
+    (
+        ARGUMENTO_LITERAL,
+        "o literal por palavra-chave",
+        "def correr(cliente, ctx, texto):\n"
+        '    return cliente.chamar("chat", mensagens=[{"role": "user", "content": texto}])\n',
+    ),
+    (
+        CONSTRUCAO,
+        "o `dataclasses.replace`",
+        "import dataclasses\n"
+        "\n"
+        "def fingir(minimo, cru):\n"
+        "    return dataclasses.replace(minimo, texto=cru)\n",
+    ),
+    (
+        CONSTRUCAO,
+        "o `object.__setattr__`",
+        "def fingir(minimo, cru):\n"
+        '    object.__setattr__(minimo, "texto", cru)\n'
+        "    return minimo\n",
+    ),
+    (
+        CONSTRUCAO,
+        "o `import ... as` do tipo",
+        "from .minimizacao import MinimisedText as _T\n"
+        "\n"
+        "def fingir(cru, impressao):\n"
+        "    return _T(cru, impressao)\n",
+    ),
+    (
+        SELO_FORA_DO_MODULO,
+        "a chave por atributo de modulo",
+        "from . import minimizacao\n"
+        "\n"
+        "def fingir(texto):\n"
+        "    return minimizacao._impressao(texto)\n",
+    ),
+)
+
+#: As fontes que **tem** de passar: o caminho correcto e as suas variantes.
+#:
+#: **Existe porque a primeira versao desta politica recusava o caminho certo.**
+#: Uma politica sem controlo positivo e satisfeita por uma que recuse tudo, e foi
+#: exactamente o que aconteceu: o `argumento_literal` disparava sobre
+#: `[mensagem("user", minimo)]`, que e a forma que a propria mensagem da regra
+#: recomenda por escrito. Nao mordia hoje so porque o varrimento le
+#: `services/agr/src/kamba_agr`, onde nao ha chamador nenhum — isto e, estava a
+#: espera do dia em que o grafo chamasse o gateway de forma idiomatica para
+#: avermelhar o *gate* 4 sobre codigo conforme.
+CONFORMES: Final = (
+    (
+        "a lista de `mensagem(...)`, que e a forma recomendada",
+        "from ..privacidade import mensagem, minimise\n"
+        "\n"
+        "def correr(cliente, ctx, texto, ctx_min):\n"
+        "    minimo, _mapa = minimise(texto, ctx_min)\n"
+        '    return cliente.chamar("chat", [mensagem("user", minimo)], ctx)\n',
+    ),
+    (
+        "a lista construida numa variavel",
+        "from ..privacidade import mensagem, minimise\n"
+        "\n"
+        "def correr(cliente, ctx, texto, ctx_min):\n"
+        "    minimo, _mapa = minimise(texto, ctx_min)\n"
+        '    msgs = [mensagem("system", minimo), mensagem("user", minimo)]\n'
+        '    return cliente.chamar("chat", msgs, ctx)\n',
+    ),
+    (
+        "um dicionario que nao e de mensagem",
+        "def correr(cliente, ctx, msgs):\n"
+        '    opcoes = {"temperatura": 0}\n'
+        '    return cliente.chamar("chat", msgs, ctx)\n',
+    ),
+)

@@ -201,9 +201,25 @@ CONTEXTO_DE_LOCAL: Final = (
     "zona ",
 )
 
-#: Palavras de contexto que indicam **pessoa** a seguir. O bloco nomeia-as
-#: («fala com»).
-CONTEXTO_DE_PESSOA: Final = (
+#: Gatilhos de pessoa **fortes**: o que vem depois e uma pessoa, esteja ou nao
+#: no dicionario.
+#:
+#: **A separacao entre fortes e fracos e a correccao do achado 9 da revisao
+#: adversarial**, que mediu o recall de `PESSOA` e de `MORADA` a ser uma
+#: tautologia: o corpus nao tinha **um unico** nome fora de `NOMES_PROPRIOS` nem
+#: um unico toponimo fora de `LOCAIS`, pelo que o limiar de 90% media que o
+#: dicionario contem as suas proprias entradas.
+#:
+#: Pôr nomes de fora no corpus obrigava a esta via, que e a simetrica da que o
+#: `_locais` ja tinha: um gatilho forte **basta**, e e o unico mecanismo que
+#: apanha um nome que a lista nao tem. Sem ela, acrescentar casos honestos ao
+#: corpus so fazia o limiar falhar — isto e, media-se melhor e detectava-se
+#: igual.
+#:
+#: São **fortes** estes e nao outros: cada um nomeia uma pessoa de forma
+#: inequivoca. O custo e mascarar um papel («fala com o Gerente» -> `PESSOA_1`),
+#: que e barato e do lado certo.
+CONTEXTO_DE_PESSOA_FORTE: Final = (
     "fala com",
     "falar com",
     "falei com",
@@ -220,16 +236,33 @@ CONTEXTO_DE_PESSOA: Final = (
     "dra.",
     "meu nome e",
     "chamo-me",
+    "diz ao",
+    "diz a",
+    "entregar ao",
+    "pedido e para a",
+    "pedido e para o",
+)
+
+#: Gatilhos **fracos**: so mascaram o que esta no dicionario.
+#:
+#: «com o», «para a» e «sou o» aparecem em texto portugues a toda a hora («com o
+#: desconto», «para a loja»), e um gatilho forte feito deles mascarava qualquer
+#: palavra capitalizada a seguir — que e o defeito que a nota do `_pessoas`
+#: descreve («Tenho Interesse Naquele Produto» com quatro `PESSOA_n`).
+CONTEXTO_DE_PESSOA_FRACO: Final = (
     "sou o",
     "sou a",
     "para o",
     "para a",
-    "diz ao",
-    "diz a",
     "com o",
     "com a",
-    "entregar ao",
     "entregar a",
+)
+
+#: Os dois juntos, para quem precise de saber se **ha** contexto de pessoa.
+CONTEXTO_DE_PESSOA: Final = (
+    *CONTEXTO_DE_PESSOA_FORTE,
+    *CONTEXTO_DE_PESSOA_FRACO,
 )
 
 

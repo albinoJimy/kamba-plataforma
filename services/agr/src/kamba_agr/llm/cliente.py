@@ -52,7 +52,11 @@ from decimal import Decimal
 from typing import Any, Callable, Final
 
 from .. import metricas as metricas_mod
-from ..privacidade.minimizacao import MensagemMinimizada, TextoNaoMinimizado
+from ..privacidade.minimizacao import (
+    MensagemMinimizada,
+    MinimisedText,
+    TextoNaoMinimizado,
+)
 from . import aliases as aliases_mod
 from . import destinos as destinos_mod
 from . import precos as precos_mod
@@ -198,6 +202,18 @@ class ClienteDeLlm:
                     "gateway de LLM so aceita texto que tenha passado por "
                     "`privacidade.minimise(texto, ctx)` (KAM-112, criterio 1; "
                     "ADR-008, ADR-010)"
+                )
+            # **E o `conteudo` tambem, e a primeira versao nao o verificava.**
+            # Era a quarta forja da revisao adversarial: um `MensagemMinimizada`
+            # construido a mao com qualquer objecto que tivesse `.texto` passava
+            # esta guarda, porque ela so olhava para o tipo do invólucro. Hoje o
+            # `__post_init__` da classe ja recusa, e isto fica como segunda
+            # barreira — pela razao do `log_policy`, que tem o *lint* e o X-11 e
+            # nao escolhe um dos dois.
+            if not isinstance(item.conteudo, MinimisedText):
+                raise TextoNaoMinimizado(
+                    f"o conteudo da mensagem {posicao} nao e um "
+                    f"`MinimisedText` mas um {type(item.conteudo).__name__}"
                 )
         try:
             alias = self._aliases[papel]

@@ -58,7 +58,8 @@ from . import negocio
 from .dicionarios import (
     APELIDOS,
     CONTEXTO_DE_LOCAL,
-    CONTEXTO_DE_PESSOA,
+    CONTEXTO_DE_PESSOA_FORTE,
+    CONTEXTO_DE_PESSOA_FRACO,
     DIGITOS_POR_EXTENSO,
     LOCAIS,
     NOMES_PROPRIOS,
@@ -328,6 +329,7 @@ def _pessoas(
     Produto» dava quatro `PESSOA_n`, e o primeiro cliente que escrevesse em
     maiusculas perdia a mensagem inteira.
     """
+    palavras_do_catalogo = palavras_de(do_catalogo)
     candidatos = list(_PALAVRA_CAPITALIZADA.finditer(original))
     for indice, encontrado in enumerate(candidatos):
         inicio, fim = encontrado.start(), encontrado.end()
@@ -336,7 +338,18 @@ def _pessoas(
         # **Criterio 5, e corre antes de tudo.** Um nome do catalogo nao e
         # candidato, e nao e so «nao se mascara»: nem sequer se considera, para
         # que um «Rosa» do catalogo nao entre em par com o apelido seguinte.
-        if palavra in do_catalogo:
+        #
+        # **A comparacao e por PALAVRA do catalogo e nao pelo nome inteiro, e e
+        # a correccao do achado 8 da revisao adversarial.** A primeira versao
+        # perguntava `palavra in do_catalogo` contra os nomes **inteiros e
+        # dobrados** (`"maria gourgel"`), pelo que um nome de catalogo com mais
+        # do que uma palavra **nao protegia nada** — nem o nome composto, nem os
+        # seus componentes. E um `servicos.resources.nome` e, tipicamente, nome e
+        # apelido: «Maria Gourgel». Pior, e precisamente a forma que a regra do
+        # **par** mascara sem precisar de gatilho, pelo que o profissional do
+        # catalogo virava `PESSOA_1` — o *fact* perdido, que e o dano que o
+        # criterio 5 existe para impedir.
+        if palavra in do_catalogo or palavra in palavras_do_catalogo:
             continue
 
         proximo = candidatos[indice + 1] if indice + 1 < len(candidatos) else None
@@ -347,10 +360,31 @@ def _pessoas(
             # isto, «Maria» no inicio e «Santos» no fim da mensagem formavam par.
             and _LIGACAO_DE_NOME.fullmatch(original[fim : proximo.start()]) is not None
         )
-        tem_gatilho = _contexto_antes(dobrado, inicio, CONTEXTO_DE_PESSOA)
+        forte = _contexto_antes(dobrado, inicio, CONTEXTO_DE_PESSOA_FORTE)
+        tem_gatilho = forte or _contexto_antes(
+            dobrado, inicio, CONTEXTO_DE_PESSOA_FRACO
+        )
 
         e_nome = palavra in NOMES_PROPRIOS
         e_apelido = palavra in APELIDOS
+
+        # **Um gatilho forte basta, esteja o nome no dicionario ou nao**, e e a
+        # via simetrica da que o `_locais` tem para os toponimos. Sem ela, o
+        # recall de `PESSOA` media so se o dicionario contem as suas proprias
+        # entradas — o achado 9 da revisao adversarial.
+        #
+        # **E o par entra aqui tambem**, para que «fala com a Lueji Kiluanje»
+        # mascare os dois nomes num token so e nao deixe o apelido de fora.
+        if forte and not (e_nome or e_apelido):
+            fim_do_achado = fim
+            if par:
+                assert proximo is not None
+                fim_do_achado = proximo.end()
+            if _aceitar(achados, reclamados, inicio, fim_do_achado):
+                achados.append(
+                    Achado(inicio, fim_do_achado, PESSOA, original[inicio:fim_do_achado])
+                )
+            continue
 
         if e_nome and par:
             # O par inteiro, num achado so: «Maria Gourgel» e **uma** pessoa, e
@@ -367,6 +401,39 @@ def _pessoas(
 
 #: O que pode estar **entre** um nome e um apelido para eles serem o mesmo nome.
 _LIGACAO_DE_NOME: Final = re.compile(r"\s(?:d[eao]s?\s)?")
+
+#: As ligacoes que **nao** contam como palavra de um nome de catalogo. Sem isto,
+#: um «Salao da Rosa» punha o `da` na lista de nao mascarar — inofensivo, mas
+#: tambem o `de` de qualquer outro nome, e a lista deixava de dizer nada.
+_LIGACOES: Final = frozenset({"de", "da", "do", "das", "dos", "e"})
+
+
+def palavras_de(do_catalogo: frozenset[str]) -> frozenset[str]:
+    """As palavras individuais dos nomes do catalogo (criterio 5).
+
+    Um nome de catalogo com mais do que uma palavra — «Maria Gourgel», «Salao da
+    Rosa» — tem de proteger os seus **componentes**, porque o detector decide
+    palavra a palavra. Ver a nota no `_pessoas`: sem isto, um profissional de
+    `servicos.resources.nome` virava `PESSOA_1`.
+
+    Descartam-se as ligacoes (`de`, `da`, `dos`) e as palavras abaixo do
+    comprimento minimo, pela razao do `catalogo.COMPRIMENTO_MINIMO`: uma palavra
+    de uma ou duas letras na lista de nao mascarar e uma dispensa geral.
+
+    **O efeito colateral e real e e o que o criterio pede:** um *tenant* com um
+    servico chamado «Corte da Maria» deixa de mascarar «Maria» nas mensagens
+    dele. Os nomes do catalogo sao *facts* (ADR-007) e e isso que o criterio 5
+    diz; o que se perde e recall de `PESSOA` **nesse tenant**, e o que se ganha e
+    o modelo poder citar o servico.
+    """
+    from .catalogo import COMPRIMENTO_MINIMO
+
+    return frozenset(
+        palavra
+        for nome in do_catalogo
+        for palavra in nome.split()
+        if len(palavra) >= COMPRIMENTO_MINIMO and palavra not in _LIGACOES
+    )
 
 
 def detectar(
@@ -385,11 +452,31 @@ def detectar(
     tudo — que e o sinal de uma expressao errada, e sobe para falhar fechado.
     """
     dobrado = dobrar(texto)
-    reclamados = negocio.reclamar(texto)
-    achados: list[Achado] = []
 
-    _por_expressao(dobrado, texto, EMAIL_PADRAO, EMAIL, achados, reclamados)
-    _por_expressao(dobrado, texto, BSUID_PADRAO, BSUID, achados, reclamados)
+    # **Duas fases, e a primeira e a correccao do achado 1 da revisao
+    # adversarial.** O e-mail e o BSUID tem **marcador proprio** — um `@`, um
+    # `XX.` — e por isso nao sao ambiguos: decidem-se **antes** de os numeros de
+    # negocio reclamarem o que quer que seja, e os seus intervalos entram no
+    # `reclamar` como protegidos.
+    #
+    # Sem isto, o `SKU` reclamava o `joao123` de `joao123@exemplo.co.ao`
+    # (letras e digitos num lance), o `_aceitar` via sobreposicao e **recusava o
+    # achado do e-mail** — que saia em claro para o modelo. A guarda do
+    # `_sem_digitos_colados` nao o apanha, porque `joao123` tem tres digitos e
+    # nao nove.
+    #
+    # A ordem **nao** se inverte para o telefone: um telefone sem prefixo e
+    # nove digitos, que e exactamente a forma de um total, e dar-lhe prioridade
+    # sobre os numeros de negocio era quebrar o criterio 4 — que e o mais duro
+    # do bloco. O e-mail e o BSUID podem vir primeiro **porque tem marcador**.
+    inequivocos: list[Achado] = []
+    _por_expressao(dobrado, texto, EMAIL_PADRAO, EMAIL, inequivocos, ())
+    _por_expressao(dobrado, texto, BSUID_PADRAO, BSUID, inequivocos, ())
+    protegidos = tuple((a.inicio, a.fim) for a in inequivocos)
+
+    reclamados = negocio.reclamar(texto, protegidos)
+    achados: list[Achado] = list(inequivocos)
+
     if padrao_de_nif is not None:
         _por_expressao(dobrado, texto, padrao_de_nif, NIF, achados, reclamados)
     _por_expressao(dobrado, texto, TELEFONE_PADRAO, TELEFONE, achados, reclamados)

@@ -30,9 +30,11 @@ transferência» — *(a confirmar por parecer; `E3` requisito 6)*. O gate de de
 as chamadas são negadas pela porta de destino e contadas em
 `agr_llm_destino_negado_total`.
 
-As limitações concretas estão **medidas e nomeadas**, não descritas: são os seis
-casos de `corpus_pii.LIMITES`, e há um teste que falha no dia em que algum deles
-deixar de escapar.
+As limitações concretas estão **medidas e nomeadas**, não descritas: são os
+**nove** casos de `corpus_pii.LIMITES`, e há um teste que falha no dia em que
+algum deles deixar de escapar. Três entraram com a revisão adversarial deste
+ticket — o IBAN e a conta bancária, o telefone com barras e o número de BI —, e
+nenhum dos três está nos seis tipos que o critério 2 enumera.
 
 ---
 
@@ -66,7 +68,8 @@ declarados.
 ### 3.1 O tipo (critério 1)
 
 `minimise(texto, ctx) → (MinimisedText, Mapa)` é a única via. O `MinimisedText` é
-uma **classe com um selo privado do módulo**, não um `NewType`:
+uma classe cujo selo é um **HMAC do próprio texto** com uma chave de processo,
+não um `NewType`:
 
 ```python
 MinimisedText("o meu numero e 912345678")   # TextoNaoMinimizado
@@ -78,12 +81,36 @@ cobre TypeScript; o `ci-2` corre `typecheck`, `lint-arch` e `log-lint`, e nenhum
 lê anotações de Python. Uma anotação sozinha seria a «convenção documentada» que
 o bloco recusa por escrito.
 
-São por isso **duas** verificações, e nenhuma substitui a outra:
+**A primeira versão tinha um selo que se forjava de quatro maneiras**, e a
+revisão adversarial mediu-as todas. A causa era comum: o selo provava **quem
+construiu**, não **o que ficou construído** — um `object()` igual para qualquer
+texto copia-se de um objecto legítimo para um forjado. As quatro:
+
+| Forja | Porque passava | Onde fecha agora |
+|---|---|---|
+| `dataclasses.replace(m, texto=cru)` | reinvoca o `__init__` com o selo real | a impressão não corresponde ao texto novo |
+| `object.__setattr__(m, "texto", cru)` | o `frozen=True` não protege do `object` | `verificada()`, no ponto de uso |
+| `MinimisedText(cru, m.selo)` | o selo era campo público | não há impressão válida para texto que não passou |
+| `MensagemMinimizada("user", pato)` | a classe não validava nada | `__post_init__` dela |
+
+Ligar o selo ao texto fecha as três primeiras; a quarta fecha na classe que a
+sofria. **Não é criptografia a sério e não precisa de ser:** o que isto defende
+não é contra um atacante, é contra o próximo programador desta casa a escrever,
+de boa-fé, a linha que parece funcionar.
+
+São por isso **três** verificações, e nenhuma substitui as outras:
 
 | Via | O que protege | Onde |
 |---|---|---|
-| `isinstance` no `chamar` | o que **corre** | `llm/cliente.py` |
+| `__post_init__` com HMAC | a construção | `privacidade/minimizacao.py` |
+| `verificada()` no `para_esquema` | o que **sai**, depois de construído | último ponto antes do corpo HTTP |
 | política AST | o **diff** — o caminho que ninguém exercitou | `tests/politica_llm_ast.py` |
+
+**E a política AST estava invertida**, o que também é da revisão (achado 4):
+recusava `[mensagem("user", minimo)]` — a forma correcta, que a sua própria
+mensagem recomenda — e aceitava as quatro forjas desde que se atribuísse a uma
+variável. Hoje olha para o **valor** e não para a forma do nó, e tem seis
+evasões medidas e três formas conformes como canários nos dois sentidos.
 
 A política tem quatro regras e três canários obrigatórios. Corre no
 `make test-py`, que o *gate* 4 já executa: **não se abriu *gate* novo**, pela
@@ -106,11 +133,21 @@ Dois tectos, e não são a mesma coisa:
 | Constante | Valor | O que é |
 |---|---|---|
 | `ALVO_P95_MS` | 30 ms / 2.000 caracteres | o alvo do critério 7, ***proposta***. **Nada falha por o exceder** |
-| `TECTO_MS` | 250 ms | o ponto a partir do qual se **desiste**. Falha fechado |
+| `TECTO_MS` | 250 ms | o ponto a partir do qual a minimização se **recusa**. Falha fechado |
 
-A folga de uma ordem de grandeza é deliberada: um detector a 40 ms é lento, não
-está avariado. O que o `TECTO_MS` apanha é uma expressão regular em retrocesso
-catastrófico sobre uma mensagem patológica.
+**O `TECTO_MS` é uma verificação a posteriori e não um *timeout*, e a primeira
+versão desta página afirmava o contrário.** Dizia que «um detector que demore
+mais do que isso falha em vez de atrasar o turno» — e isso é falso: a duração
+mede-se **depois** de o detector ter corrido, pelo que o turno **é** atrasado o
+tempo inteiro. Medido pela revisão adversarial (achado 11), com um detector a
+dormir 400 ms: levantou depois dos 400 ms.
+
+O que o tecto garante, e é o que o critério 7 pede pela letra, é que uma
+minimização lenta **não chega ao LLM**. O que ele não garante é que o turno não
+demore. Interromper a sério obrigava a um `signal.alarm` (que não vale em
+*threads*, e o AGR corre um `asyncio.Task` por conversa) ou a outro processo —
+muito mais caro do que o problema, com um p95 medido de 21,5 ms contra um tecto
+de 250. **Fica como lacuna declarada, não como propriedade afirmada.**
 
 ### 3.3 O mapa nunca sai do AGR (critério 6)
 
@@ -160,20 +197,30 @@ estão no `.gitignore` como o `ci/x11/`.
 |---|---|---|
 | `TELEFONE` | 165/165 — 100% | ≥ 99% *(proposta)* |
 | `BSUID` | 21/21 — 100% | ≥ 99% *(proposta)* |
-| `EMAIL` | 34/34 — 100% | ≥ 99% *(proposta)* |
+| `EMAIL` | 54/54 — 100% | ≥ 99% *(proposta)* |
 | `NIF` | 30/30 — 100% | ≥ 99% *(proposta)*, **com padrão de ensaio** — ver §5 |
-| `MORADA` | 62/62 — 100% | ≥ 90% *(proposta)* |
-| `PESSOA` | 34/34 — 100% | ≥ 90% *(proposta)* |
+| `MORADA` | 70/70 — 100% | ≥ 90% *(proposta)* |
+| `PESSOA` | 40/40 — 100% | ≥ 90% *(proposta)* |
+
+Corpus: **376** casos etiquetados, 0 dados reais (a letra pede ≥ 300).
 
 | Critério 4 | Resultado |
 |---|---|
-| Casos adversariais | 214 (a letra pede ≥ 200) |
-| Cadeias que tinham de sobreviver | 263 |
+| Casos adversariais | **277** (a letra pede ≥ 200) |
+| Cadeias que tinham de sobreviver | 326 |
 | **Alteradas** | **0** |
 
 | Critério 7 | Resultado |
 |---|---|
-| p50 / p95 / máx para 2.000 caracteres, 40 execuções | 4,4 / **5,0** / 5,1 ms |
+| p50 / p95 / máx para 2.000 caracteres, 40 execuções | 18,0 / **21,5** / 27,1 ms |
+
+**A margem do p95 encolheu, e vale dizê-lo.** A primeira versão media 5,0 ms; as
+correcções da revisão adversarial — a detecção em duas fases, o contexto de
+negócio com duas janelas, o contexto forte de pessoa — custaram quatro vezes
+isso, e o p95 passou a 21,5 ms contra um alvo *proposto* de 30. **Continua
+abaixo, e já não com uma ordem de grandeza de folga.** Quem calibrar no KAM-109
+tem aqui o número de partida; se o alvo passar a vinculativo, este é o sítio onde
+se paga.
 
 **O que estes números não dizem.** O recall é sobre um corpus **que o executor
 escreveu**: diz que o detector apanha o que **este corpus** tem, e não o que um
@@ -269,3 +316,4 @@ perguntadas:
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial, KAM-112. O pipeline, as quatro barreiras, as medições do corpus de 342 casos e dos 214 casos adversariais, o NIF sem padrão, a porta de catálogo e o que fica parcial. **Proposta.** | Equipa KAMBÁ |
+| 1.1 | Outubro 2026 | **KAM-112, revisão adversarial: catorze achados, todos reproduzidos antes de gerar trabalho.** Oito eram furos em critérios e estão corrigidos: o `sku` reclamava a parte local de um e-mail com dígitos e o endereço saía em claro (**critério 2 e 3**); um total de nove dígitos **sem** marcador de moeda era mascarado como telefone, e o corpus não tinha o caso (**critério 4**); o selo do `MinimisedText` forjava-se de quatro maneiras (**critério 1**); a política AST recusava a forma correcta e aceitava as evasões (**critério 1**); um nome de catálogo com mais do que uma palavra não protegia nada, que é precisamente a forma de um `servicos.resources.nome` (**critério 5**); e o recall de morada, pessoa e NIF era medido sobre o dicionário do próprio detector. O corpus passa a 376 casos de PII e 277 adversariais, com e-mails com dígitos, topónimos fora do dicionário, nomes fora da lista e totais sem moeda. Três limites novos declarados (IBAN, telefone com barras, BI). Duas afirmações falsas corrigidas no sítio: o tecto de tempo **não** interrompe nada, e a falha fechada cobria só a chamada ao detector. O p95 subiu de 5,0 para 21,5 ms, contra um alvo *proposto* de 30. | Equipa KAMBÁ |

@@ -116,10 +116,139 @@ _NUMERO: Final = r"\d{1,3}(?:[.\s]\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?"
 _MOEDAS_ALTERNATIVA: Final = "|".join(
     [*(re.escape(m) for m in MOEDAS_SIMBOLO), *(rf"{m}\b" for m in MOEDAS_PALAVRA)]
 )
+#: A moeda **antes** do numero, e aqui sem `\b`: «Kz912500000» escreve-se.
+#:
+#: **Sem esta forma, quem reclamava o «Kz912500000» era o `SKU`** — letras e
+#: digitos num lance —, e isso funcionava por acidente. Deixou de funcionar
+#: quando o `SKU` passou a recusar letra colada a nove digitos (ver o
+#: `_sem_digitos_colados`), e o total passava a sair mascarado como telefone.
+#: Apanhado pela revisao adversarial, que o tinha dado como MORTO 1 **antes** de
+#: a guarda do `SKU` existir — e e um bom exemplo de porque um achado se verifica
+#: outra vez contra a arvore que vai fundir.
+_MOEDAS_ANTES: Final = "|".join(
+    [*(re.escape(m) for m in MOEDAS_SIMBOLO), *MOEDAS_PALAVRA]
+)
 PRECO: Final = re.compile(
-    rf"(?:(?:{_MOEDAS_ALTERNATIVA})\s*(?:{_NUMERO}))"
+    rf"(?:(?:{_MOEDAS_ANTES})\s*(?:{_NUMERO}))"
     rf"|(?:(?:{_NUMERO})\s*(?:{_MOEDAS_ALTERNATIVA}))",
     re.IGNORECASE,
+)
+
+#: Palavras que fazem de um numero **sem marcador** um numero de negocio.
+#:
+#: **É a correcção do achado 5 da revisão adversarial, e era um furo no criterio
+#: 4.** O `negocio.py` so reclamava um numero quando havia marcador ao lado
+#: (moeda, unidade, `x`, hora, `%`, data); um total escrito «O total da encomenda
+#: e 912500000.» nao era reclamado, o `TELEFONE_PADRAO` casava-o, e **o total
+#: saia mascarado como telefone**. O corpus nao tinha o caso: as trinta familias
+#: `preco_que_parece_telefone` levavam todas `Kz`.
+#:
+#: A lista e **curta e forte de proposito**, e cada palavra aqui e PII que
+#: deixa de ser mascarada quando aparece ao lado de um numero. Nao entram
+#: «sao», «e», «por» nem «de»: um «sao 912345678» e indistinguivel de um
+#: telefone ditado, e uma lista generosa aqui e um buraco na minimizacao.
+#:
+#: *Proposta*: calibra-se no Piloto (KAM-109), com mensagens reais.
+CONTEXTO_DE_NEGOCIO: Final = (
+    "total",
+    "totais",
+    "preco",
+    "precos",
+    "custa",
+    "custam",
+    "custo",
+    "stock",
+    "referencia",
+    "factura",
+    "desconto",
+    "troco",
+    "fica em",
+    "fica por",
+    "sai a",
+    "importa em",
+    "subtotal",
+    "iva",
+)
+
+#: O enchimento permitido entre o numero e o marcador, no lado de depois.
+#: Preposicoes curtas e pontuacao, e mais nada. Ver o `_DEPOIS_ANCORADO`.
+_ENCHIMENTO: Final = ("em", "de", "do", "da", "no", "na", "por")
+
+#: A expressao ancorada do lado de depois. Ver a nota do `JANELA_DEPOIS`.
+_DEPOIS_ANCORADO: Final = re.compile(
+    r"^[\s,.:;]*(?:(?:" + "|".join(_ENCHIMENTO) + r")\s+)?(?:"
+    + "|".join(re.escape(marcador) for marcador in CONTEXTO_DE_NEGOCIO)
+    + r")",
+    re.IGNORECASE,
+)
+
+#: Quantos caracteres **antes** de um numero contam como contexto de negocio.
+#:
+#: 28 cobre «O total da encomenda e » mais folga. Uma janela larga fazia um
+#: «total» no inicio da mensagem proteger um telefone no fim dela.
+JANELA_ANTES: Final = 28
+
+#: Quantos caracteres **depois**. Muito mais curta do que a de antes.
+JANELA_DEPOIS: Final = 12
+
+#: O lado de **depois** nao e uma janela: e uma correspondencia **ancorada**.
+#:
+#: **A assimetria e uma barreira, e precisou de duas tentativas.** Com uma janela
+#: simples de 12 caracteres, «Liga ao 912345678, o total e 12.500 Kz.» punha o
+#: `total` a proteger o **telefone** — a cadeia `, o total e ` cabe nos doze —, e
+#: o recall de telefone caiu de 100% para 99,39%. Isto e, PII a sair em claro por
+#: causa de uma palavra de negocio a nove caracteres de distancia, numa frase
+#: perfeitamente banal.
+#:
+#: Com a ancora, o marcador tem de vir **imediatamente** depois do numero, com no
+#: maximo uma preposicao curta pelo meio: «912345678 em stock», «1.750 de
+#: troco». Um «, o total» nao casa, porque o `o` nao esta na lista de
+#: enchimento permitido.
+#:
+#: O lado de **antes** continua a ser uma janela larga, e a assimetria e
+#: deliberada: ali o marcador vem naturalmente antes com varias palavras pelo
+#: meio («O total da encomenda e 912500000»), e um marcador antes de um numero
+#: descreve-o; um marcador depois pode pertencer a frase seguinte.
+def _marcador_colado_depois(depois: str) -> bool:
+    """Ha um marcador de negocio **imediatamente** depois? Ver `_DEPOIS_ANCORADO`."""
+    return _DEPOIS_ANCORADO.match(depois) is not None
+
+#: Um numero **sozinho**, sem marcador nenhum: o que o contexto de negocio
+#: reclama. Pelo menos quatro digitos — abaixo disso nao e um total e reclamar
+#: «o 2» por causa de um «total» ao lado nao protege nada e esconde.
+NUMERO_SOZINHO: Final = re.compile(rf"(?<![0-9])(?:{_NUMERO})(?![0-9])")
+
+#: Palavras que dizem que o numero ao lado **e um identificador** e nao um valor.
+#:
+#: **É a correccao de uma regressao que o proprio `CONTEXTO_DE_NEGOCIO`
+#: introduziu**, e mediu-se no corpus: o molde «factura com o NIF 5417238690» tem
+#: `factura` na janela de antes, pelo que o contexto de negocio reclamava o NIF —
+#: e o recall de NIF caiu de 100% para 93%. Isto e, a correccao do achado 5
+#: abriu um furo no criterio 3 pelo outro lado, que e exactamente a simetria que
+#: o cabecalho deste modulo descreve: **reclamar e esconder**.
+#:
+#: A regra: quando a mensagem **diz** que o numero e um identificador, acredita-se
+#: nela e o contexto de negocio nao reclama. Um marcador de PII ganha a um
+#: marcador de negocio, e nao o contrario — porque o custo de errar para este
+#: lado e um *fact* perdido (que o validador apanha) e o custo de errar para o
+#: outro e PII a sair para um fornecedor estrangeiro.
+MARCADORES_DE_PII: Final = (
+    "nif",
+    "telefone",
+    "telemovel",
+    "telemóvel",
+    "contacto",
+    "numero",
+    "whatsapp",
+    "zap",
+    "bsuid",
+    "email",
+    "e-mail",
+    "mail",
+    "iban",
+    "conta",
+    "bi ",
+    "passaporte",
 )
 
 #: «2 x 3.500», «2x3500», «3x», «x 2». O `x` e o `*` sao os dois que alguem
@@ -179,6 +308,44 @@ REGRAS: Final = (
     ("unidade", UNIDADE),
     ("sku", SKU),
 )
+
+#: As regras que **nao** podem ter letra colada a um lance longo de digitos.
+#:
+#: **É a correcção dos achados 1 e 6 da revisão adversarial**, e os dois eram o
+#: quarto e o quinto membros da familia que o `_na_fronteira` existe para fechar:
+#:
+#: | Texto | Quem reclamava | O que saia em claro |
+#: |---|---|---|
+#: | `joao123@exemplo.co.ao` | `sku`, no `joao123` | o **e-mail inteiro** |
+#: | `tel912345678` | `sku`, no lance todo | o **telefone** |
+#: | `whatsapp912345678` | `sku`, no lance todo | o **telefone** |
+#: | `912345678x` | `quantidade`, pela forma «2x» | o **telefone** |
+#:
+#: A regra: um `sku` ou uma `quantidade` nao contem letra imediatamente seguida
+#: de nove ou mais digitos, nem nove ou mais digitos imediatamente seguidos de
+#: letra. **Nove e o comprimento de um movel angolano**, e e por isso que e esse
+#: o numero e nao outro.
+#:
+#: **O `SKU-912345678` continua a ser reclamado**, e e o que torna esta regra
+#: utilizavel: ali ha um hifen entre as letras e os digitos, pelo que nao ha
+#: letra **colada**. Um `sku` com nove digitos colados a letras e, caracter a
+#: caracter, um telefone com um prefixo — e o lado certo de errar e tratar isso
+#: como telefone.
+#:
+#: O `preco` e a `unidade` ficam **fora** desta guarda de proposito: um total de
+#: nove digitos e legitimo (`912500000 Kz`) e uma contagem de stock tambem
+#: (`912345678 unidades`), e e precisamente o caso que o criterio 4 nomeia.
+REGRAS_SEM_DIGITOS_COLADOS: Final = ("sku", "quantidade")
+
+#: Letra colada a nove ou mais digitos, ou o inverso.
+_COLADO = re.compile(r"[a-z]\d{9,}|\d{9,}[a-z]", re.IGNORECASE)
+
+
+def _sem_digitos_colados(regra: str, fragmento: str) -> bool:
+    """Este fragmento pode ser reclamado por esta regra? Ver `REGRAS_SEM_DIGITOS_COLADOS`."""
+    if regra not in REGRAS_SEM_DIGITOS_COLADOS:
+        return True
+    return _COLADO.search(fragmento) is None
 
 #: O tecto de texto que este modulo aceita reclamar, em fraccao do total. Acima
 #: disto, `reclamar` levanta.
@@ -305,7 +472,25 @@ def _na_fronteira(dobrado: str, inicio: int, fim: int) -> bool:
     return True
 
 
-def reclamar(texto: str) -> tuple[Intervalo, ...]:
+def _contexto_de_negocio(dobrado: str, inicio: int, fim: int) -> bool:
+    """Ha uma palavra de negocio colada a este numero, e nenhuma de PII?
+
+    Ver `CONTEXTO_DE_NEGOCIO` e `MARCADORES_DE_PII`. Um marcador de PII na mesma
+    janela **vence**: quando a mensagem diz que o numero e um identificador,
+    acredita-se nela.
+    """
+    antes = dobrado[max(0, inicio - JANELA_ANTES) : inicio]
+    depois = dobrado[fim : fim + JANELA_DEPOIS]
+    if any(marcador in antes or marcador in depois for marcador in MARCADORES_DE_PII):
+        return False
+    if any(marcador in antes for marcador in CONTEXTO_DE_NEGOCIO):
+        return True
+    return _marcador_colado_depois(depois)
+
+
+def reclamar(
+    texto: str, protegidos: tuple[tuple[int, int], ...] = ()
+) -> tuple[Intervalo, ...]:
     """Os intervalos de `texto` que sao numeros de negocio e nao se mascaram.
 
     Corre sobre a forma **dobrada** — que tem o mesmo comprimento que o original
@@ -313,15 +498,41 @@ def reclamar(texto: str) -> tuple[Intervalo, ...]:
     («١٢٥٠٠ Kz») seja reclamado pelos mesmos indices. Os indices devolvidos valem
     no texto original.
 
+    `protegidos` sao intervalos que **nao se reclamam, aconteca o que acontecer**:
+    e por onde o `detector.py` passa os achados de PII de forma inequivoca — o
+    e-mail e o BSUID, que tem marcador proprio (`@`, `XX.`). **Sem isto, o
+    `SKU` reclamava a parte local de `joao123@exemplo.co.ao` e o e-mail inteiro
+    saia em claro**; foi o achado 1 da revisao adversarial, e a guarda do
+    `_sem_digitos_colados` nao o apanhava (`joao123` tem tres digitos, nao nove).
+    E o desenho certo: um `@` nao e ambiguo, e quem tem marcador proprio decide
+    primeiro.
+
     Levanta `ReclamouDemais` quando a cobertura passa o `FRACCAO_MAXIMA`.
     """
     dobrado = dobrar(texto)
+
+    def livre(inicio: int, fim: int) -> bool:
+        return not any(inicio < p_fim and fim > p_inicio for p_inicio, p_fim in protegidos)
+
     encontrados = [
         Intervalo(achado.start(), achado.end(), nome)
         for nome, expressao in REGRAS
         for achado in expressao.finditer(dobrado)
         if _na_fronteira(dobrado, achado.start(), achado.end())
+        and livre(achado.start(), achado.end())
+        and _sem_digitos_colados(nome, achado.group(0))
     ]
+    # **O contexto de negocio, que e a correccao do achado 5.** Um numero sem
+    # marcador nenhum e um numero de negocio quando ha uma palavra de negocio
+    # colada a ele («O total da encomenda e 912500000.»). Corre **depois** das
+    # sete regras e nunca sobre um intervalo protegido.
+    encontrados.extend(
+        Intervalo(achado.start(), achado.end(), "contexto")
+        for achado in NUMERO_SOZINHO.finditer(dobrado)
+        if _na_fronteira(dobrado, achado.start(), achado.end())
+        and livre(achado.start(), achado.end())
+        and _contexto_de_negocio(dobrado, achado.start(), achado.end())
+    )
     intervalos = _fundir(encontrados)
     if len(texto) >= COMPRIMENTO_MINIMO_DO_TECTO:
         coberto = sum(i.fim - i.inicio for i in intervalos)
