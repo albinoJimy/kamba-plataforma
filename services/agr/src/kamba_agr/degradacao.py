@@ -96,6 +96,7 @@ from .llm.erros import (
     RESULTADO_DESTINO,
     RESULTADO_TIMEOUT,
     ErroDeLlm,
+    FalhaDeMinimizacao,
 )
 from .metricas import (
     METRICA_DEGRADACAO_ALERTA,
@@ -129,6 +130,21 @@ MOTIVO_CONTRAPRESSAO: Final = "backpressure"
 #: fecharia.
 MOTIVO_DESTINO: Final = "destino_negado"
 
+#: **O setimo, e o criterio 6 do KAM-037 tambem nao o previa.** E a falha fechada
+#: do criterio 7 do KAM-112: a `FalhaDeMinimizacao` do `llm/erros.py` **e** um
+#: `ErroDeLlm` — o detector de PII falhou ou passou o tecto de tempo, pelo que a
+#: chamada ao LLM nao pode sair — e sem ramo proprio caia no `MOTIVO_BREAKER`, o
+#: ramo que o comentario descreve como «avaria». O painel diria «o modelo ficou
+#: inalcancavel» e o que aconteceu foi **uma barreira de minimizacao a
+#: funcionar**. E o mesmo defeito que o `MOTIVO_DESTINO` corrigiu, pela mesma
+#: razao, e esta aqui porque a licao dele estava escrita.
+#:
+#: Degrada-se — o cliente tem de receber resposta (`docs/tecnica/00` principio
+#: 12, «degradar, nunca calar») —, mas **nao conta no disjuntor**: nao e uma
+#: avaria transitoria do modelo, e um defeito nosso ou uma mensagem patologica, e
+#: tres delas abriam um disjuntor que o fornecedor nada tem a ver com.
+MOTIVO_MINIMIZACAO: Final = "minimizacao"
+
 MOTIVOS: Final = (
     MOTIVO_TIMEOUT,
     MOTIVO_429,
@@ -136,12 +152,17 @@ MOTIVOS: Final = (
     MOTIVO_BREAKER,
     MOTIVO_CONTRAPRESSAO,
     MOTIVO_DESTINO,
+    MOTIVO_MINIMIZACAO,
 )
 
-#: Os motivos que **nao** alimentam o disjuntor. Lista fechada de um, e cada
+#: Os motivos que **nao** alimentam o disjuntor. Lista fechada de **dois**, e cada
 #: entrada precisa da razao escrita: o disjuntor mede «o modelo esta em baixo
 #: agora», e um motivo que nao seja isso suja a medida.
-MOTIVOS_QUE_NAO_CONTAM: Final = (MOTIVO_DESTINO,)
+#:
+#: O `MOTIVO_DESTINO` e a recusa do *gate* de destino; o `MOTIVO_MINIMIZACAO` e a
+#: falha do detector de PII. Nenhum dos dois diz nada sobre o fornecedor — os dois
+#: acontecem **antes** de haver chamada.
+MOTIVOS_QUE_NAO_CONTAM: Final = (MOTIVO_DESTINO, MOTIVO_MINIMIZACAO)
 
 #: O estado HTTP que o fornecedor devolve quando recusa por ritmo. O `classificar`
 #: do `llm/erros.py` nao lhe da tipo proprio — e `FornecedorFalhou`, porque o
@@ -217,6 +238,14 @@ def motivo_do_erro(erro: ErroDeLlm) -> str:
             "so um `ErroDeLlm` degrada: Postgres ou checkpointer em baixo "
             "nao e degradacao (bloco do KAM-037, `docs/tecnica/02` §14)"
         )
+    if isinstance(erro, FalhaDeMinimizacao):
+        # **Por `isinstance` e nao por `resultado`, e antes de todos os outros
+        # ramos.** A `FalhaDeMinimizacao` nao tem `resultado` proprio de
+        # proposito — um valor novo em `dat.llm_call_log.resultado` e uma revisao
+        # de base de dados —, pelo que herda o `RESULTADO_ERRO` e cairia no
+        # `breaker` tal como o `DestinoNegado` caia antes do achado C4. Ver o
+        # `MOTIVO_MINIMIZACAO` e a *docstring* da excepcao.
+        return MOTIVO_MINIMIZACAO
     if erro.resultado == RESULTADO_TIMEOUT:
         return MOTIVO_TIMEOUT
     if erro.resultado == RESULTADO_BUDGET:

@@ -134,6 +134,35 @@ class DestinoNegado(ErroDeLlm):
     resultado = RESULTADO_DESTINO
 
 
+class FalhaDeMinimizacao(ErroDeLlm):
+    """A minimizacao de PII falhou, e por isso a chamada **nao sai** (KAM-112).
+
+    E a falha fechada do criterio 7 do KAM-112: «erro ou *timeout* do detector
+    impede a chamada ao LLM e conduz ao modo deterministico (KAM-037) ou a
+    handoff».
+
+    **Vive aqui e nao em `privacidade/`, e e a mesma razao do `DestinoNegado`:**
+    nao e um erro do fornecedor, e uma barreira que impede a transferencia antes
+    de ela acontecer, e o que a torna util e **ser um `ErroDeLlm`** — o
+    `classify` do Vendedor ja apanha esse tipo (`verticais/vendedor/nos.py`), o
+    `degradacao.motivo_do_erro` ja o classifica, e o turno responde pelo menu em
+    vez de falhar. Posta em `privacidade/`, esta classe obrigava o `classify` a
+    um `except` novo e o `degradacao.py` a importar o pacote de privacidade —
+    duas alteracoes para nenhum ganho.
+
+    **Nao tem `resultado` proprio, e isso e deliberado.** O `RESULTADOS` e o
+    dominio fechado de `dat.llm_call_log.resultado`, com `CHECK` na revisao
+    `0023`: um valor novo e uma revisao de base de dados, e a licao esta escrita
+    no `estado_http` do `ErroDeLlm` («dar tipo proprio ao 429 obrigava a quatro
+    sitios e a uma migracao»). E aqui nao e preciso: esta falha acontece
+    **antes** do `chamar`, pelo que **nenhuma linha de `llm_call_log` se escreve
+    por causa dela** — o `resultado` nunca chega a ser lido. Quem a distingue e o
+    `degradacao.motivo_do_erro`, por `isinstance` e nao por `resultado`.
+    """
+
+    resultado = RESULTADO_ERRO
+
+
 #: A gramatica de um `error.type` que se pode repetir numa mensagem. E a mesma
 #: forma que a *allowlist* de `docs/tecnica/08` §7.3 aceita para um
 #: `error_code`: letras minusculas, digitos e sublinhado.

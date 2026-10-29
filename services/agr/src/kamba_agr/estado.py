@@ -383,3 +383,33 @@ class ConversaState(TypedDict, total=False):
     #: *checkpoint* fica com ele, e e por ai que se sabe, ao ler um turno antigo,
     #: porque e que o cliente recebeu um menu.
     degradado: dict[str, Any] | None
+    #: KAM-112. O mapa `token -> valor original` da minimizacao de PII, que e o
+    #: que permite a re-identificacao do criterio 6.
+    #:
+    #: **Persiste entre turnos**, e por isso fica fora de **duas** tabelas, como
+    #: o `turn_seq` do KAM-114 e ao contrario do `degradado`: fora do
+    #: `CAMPOS_DO_TURNO` (que o `reiniciar` devolve) e fora do `estado_inicial`
+    #: (que o `turno.py` passa ao `ainvoke` em **cada** turno, sobrescrevendo o
+    #: que o *checkpoint* tinha).
+    #:
+    #: A razao de ter de atravessar turnos e a janela de mensagens: o
+    #: `recortar_janela` leva as mensagens **minimizadas** dos turnos anteriores,
+    #: pelo que um `TELEFONE_1` escrito no turno 1 reaparece no *prompt* do turno
+    #: 3. Com um mapa por turno, o turno 3 nao sabia o que ele era e a
+    #: `reidentificar` **removia-o** — isto e, a resposta ao cliente perdia o
+    #: telefone que ele proprio tinha dado. A numeracao estavel vem da mesma
+    #: propriedade: o mesmo valor da o mesmo token na conversa inteira.
+    #:
+    #: **A retencao e a do *checkpointer* e nao uma nossa**, e nenhuma migracao
+    #: entra com este ticket: o `adelete_thread` apaga o *thread* e leva o mapa,
+    #: e a purga por classe de dados e o KAM-071. E a licao do KAM-160 — «um
+    #: terceiro sitio para o mesmo facto seria uma terceira verdade».
+    #:
+    #: **Nunca sai do AGR** (criterio 6): nao entra em `dat.llm_call_log` (que
+    #: nao tem coluna de texto), nao entra em metrica (as duas levam o **tipo**),
+    #: nao entra em log nem em evento. O `Mapa.__repr__` mostra contagens por
+    #: tipo para que um `f"{mapa}"` num log nao leve valores.
+    #:
+    #: O `total=False` trata a ausencia no primeiro turno, e quem le faz
+    #: `estado.get("pii_map") or {}` — nunca `estado["pii_map"]`.
+    pii_map: dict[str, str] | None

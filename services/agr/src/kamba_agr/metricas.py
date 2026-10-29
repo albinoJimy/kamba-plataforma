@@ -320,6 +320,46 @@ METRICA_DEGRADACAO_ALERTA: Final = "agr_degraded_breaker_aberto_total"
 #: por escrito («tres numeros, e nenhum substitui os outros»).
 METRICA_DEGRADADOS_ACIMA: Final = "agr_degraded_acima_do_limiar_total"
 
+#: As duas da minimizacao de PII (KAM-112, dicionario §3.37).
+#:
+#: **O bloco escreve `pii_masked_total{tipo}` e `minimise_latency_ms`, e aqui
+#: levam o prefixo `agr_`.** Nao e divergencia: e a mesma traducao que o
+#: `degraded_turns` do `docs/tecnica/02` §14 sofreu para
+#: `agr_degraded_turns_total` (§3.35) e que o `validate_fail_rate` do §9.2 sofreu
+#: (§3.30). O prefixo e o que agrupa as metricas deste servico num painel, e uma
+#: metrica sem ele era a unica das vinte e tantas a nao casar o resto. Registado
+#: no dicionario §3.37 com as duas formas.
+#:
+#: **O `pii_recall{tipo}` do criterio 3 NAO esta aqui, e nao e esquecimento.**
+#: Aquele nao e uma metrica de execucao — e uma medicao do **corpus** publicada
+#: pelo CI, e o criterio di-lo («publicada no CI e abaixo do limiar o build
+#: falha»). Um contador em memoria de um processo em producao nao sabe o que e o
+#: recall, porque nao tem as etiquetas do corpus; dar-lhe nome aqui era declarar
+#: uma metrica que ficava sempre a zero, que e precisamente o defeito que o
+#: `echo_latency_ms` do KAM-018 escreveu e que o `agr_degraded_turns_total`
+#: respeitou ao nascer com o KAM-037 e nao antes. Quem o publica e a bateria
+#: (`test_minimizacao.py`), para `ci/pii/recall.json`.
+#:
+#: A etiqueta de `agr_pii_mascarada_total` e o **tipo** de identificador, e os
+#: valores sao **derivados** do `privacidade.detector.TIPOS` pela razao das tres
+#: da ToolLayer: uma lista literal transformava uma invariante num numero. Em
+#: minusculas, porque a gramatica de etiqueta as exige e os tipos sao maiusculos
+#: (sao a raiz do token: `TELEFONE` -> `TELEFONE_1`).
+#:
+#: **Nunca o texto detectado**, e e o «metricas sem valores» do bloco: o que sai
+#: e o tipo e a contagem. O valor vive no `Mapa`, que nao sai do AGR (criterio 6).
+METRICA_PII_MASCARADA: Final = "agr_pii_mascarada_total"
+#: Duracao da **ultima** minimizacao, em milissegundos. `latency` e nao
+#: `latencia`, para casar as outras quatro do painel
+#: (`agr_turn_latency_ms`, `agr_checkpoint_latency_ms`, `agr_tool_latency_ms`,
+#: `agr_llm_latency_ms`).
+#:
+#: E **medida e nao contador**: o criterio 7 quer um p95, e esta biblioteca nao
+#: tem histogramas (ADR-018, observabilidade leve) — o que esta escrito no
+#: `medir` e o que fez o `draft_edit_ratio_p50` do §3.34 ir para uma vista. O p95
+#: do criterio 7 mede-se na bateria, sobre o corpus, e publica-se com o recall.
+METRICA_MINIMISE_LATENCIA: Final = "agr_minimise_latency_ms"
+
 #: As quatro da subscricao de eventos (KAM-038, dicionario §3.33).
 #:
 #: **Nenhuma leva `tenant_id`, `contact_id`, `conversation_id` nem `wamid`**, e
@@ -462,6 +502,14 @@ def _valores_derivados(metrica: str) -> tuple[str, ...]:
         from .degradacao import MOTIVOS
 
         return tuple(sorted(MOTIVOS))
+    if metrica == METRICA_PII_MASCARADA:
+        # KAM-112. Os seis tipos do criterio 2, **em minusculas**: sao a raiz do
+        # token (`TELEFONE` -> `TELEFONE_1`) e por isso maiusculos na fonte, e a
+        # gramatica de etiqueta exige minusculas. E a mesma traducao que o
+        # `METRICA_TOOL_ERROS` faz com os codigos do §6.5.
+        from .privacidade.detector import TIPOS
+
+        return tuple(sorted(tipo.lower() for tipo in TIPOS))
     # As duas do concierge (KAM-114), e sao derivadas **por necessidade e nao
     # por estilo**, como as tres do *handoff*. O ciclo e este, e mediu-se em vez
     # de se supor — nao passa pelo `concierge/__init__.py`, que nao reexporta
@@ -533,6 +581,7 @@ _DERIVADAS: Final = (
     METRICA_DRAFT_DECISAO,
     METRICA_DRAFT_ESTADO,
     METRICA_DEGRADADOS,
+    METRICA_PII_MASCARADA,
 )
 
 #: As **medidas** com etiqueta (KAM-038). Fora do `_DERIVADAS` de proposito:
@@ -570,6 +619,7 @@ _MEDIDAS: Final = (
     METRICA_TOOL_LATENCIA,
     METRICA_LLM_LATENCIA,
     METRICA_DRAFT_PENDENTES,
+    METRICA_MINIMISE_LATENCIA,
 )
 
 _AJUDA: Final = {
@@ -710,6 +760,14 @@ _AJUDA: Final = {
     METRICA_DEGRADADOS_ACIMA: (
         "counter",
         "Vezes que a proporcao de turnos degradados de um tenant passou o limiar. Alerta.",
+    ),
+    METRICA_PII_MASCARADA: (
+        "counter",
+        "Identificadores mascarados antes do LLM, por tipo. Nunca o valor detectado.",
+    ),
+    METRICA_MINIMISE_LATENCIA: (
+        "gauge",
+        "Duracao da ultima minimizacao de PII, em milissegundos.",
     ),
 }
 

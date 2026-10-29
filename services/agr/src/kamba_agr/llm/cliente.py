@@ -47,10 +47,12 @@ from __future__ import annotations
 
 import dataclasses
 import time
+from collections.abc import Sequence
 from decimal import Decimal
 from typing import Any, Callable, Final
 
 from .. import metricas as metricas_mod
+from ..privacidade.minimizacao import MensagemMinimizada, TextoNaoMinimizado
 from . import aliases as aliases_mod
 from . import destinos as destinos_mod
 from . import precos as precos_mod
@@ -170,10 +172,33 @@ class ClienteDeLlm:
     def chamar(
         self,
         papel: str,
-        mensagens: list[dict[str, str]],
+        mensagens: Sequence[MensagemMinimizada],
         ctx: ContextoDeChamada,
     ) -> Resposta:
-        """Chama o modelo do papel. Levanta `ErroDeLlm`; grava sempre uma linha."""
+        """Chama o modelo do papel. Levanta `ErroDeLlm`; grava sempre uma linha.
+
+        **`mensagens` sao `MensagemMinimizada` e nao `dict`, e e o criterio 1 do
+        KAM-112.** Um `MensagemMinimizada` traz um `MinimisedText`, e um
+        `MinimisedText` so se obtem de `privacidade.minimise(texto, ctx)`: nao ha
+        caminho que ponha texto de um cliente no corpo HTTP sem passar pelo
+        detector de PII. A assinatura era `list[dict[str, str]]` ate o KAM-112, e
+        com ela chamar o gateway com texto cru era uma linha que compilava e
+        passava.
+        """
+        # **A barreira tambem morde em execucao, e nao so no tipo.** Nao ha
+        # verificador de tipos para Python neste repositorio — medido: o
+        # `make typecheck` e `pnpm -r run typecheck` e o `ci-2` corre `typecheck`,
+        # `lint-arch` e `log-lint`, nenhum deles a ler anotacoes de Python. Uma
+        # anotacao sozinha era a «convencao documentada» que o bloco do KAM-112
+        # recusa por escrito. Com esta guarda, passar um `dict` levanta.
+        for posicao, item in enumerate(mensagens):
+            if not isinstance(item, MensagemMinimizada):
+                raise TextoNaoMinimizado(
+                    f"a mensagem {posicao} nao e um `MensagemMinimizada`: o "
+                    "gateway de LLM so aceita texto que tenha passado por "
+                    "`privacidade.minimise(texto, ctx)` (KAM-112, criterio 1; "
+                    "ADR-008, ADR-010)"
+                )
         try:
             alias = self._aliases[papel]
         except KeyError:
@@ -209,7 +234,14 @@ class ClienteDeLlm:
                     "Authorization": f"Bearer {self._chave_virtual(ctx.tenant_id)}",
                     "Content-Type": "application/json",
                 },
-                {"model": alias.nome, "messages": mensagens},
+                {
+                    "model": alias.nome,
+                    # A traducao para o esquema OpenAI-compativel faz-se **aqui**,
+                    # no ultimo momento antes do corpo HTTP. Ver a nota do
+                    # `MensagemMinimizada`: traduzir mais cedo devolvia um `dict`
+                    # a alguem e perdia a barreira do criterio 1.
+                    "messages": [item.para_esquema() for item in mensagens],
+                },
                 alias.timeout * TENTATIVAS_DO_PROXY + MARGEM_SEGUNDOS,
             )
         except TimeoutError as excepcao:
