@@ -589,14 +589,14 @@ Implementar o módulo `servicos` com esquema próprio, RLS, cálculo de disponib
 
 ### Critérios de Aceitação
 
-- [ ] 1.000 tentativas concorrentes de reservar/marcar o mesmo recurso e intervalo produzem **1** marcação `hold`/`confirmada` e as restantes `SLOT_TAKEN` (garantido por restrição de exclusão na BD, não por código aplicacional).
+- [x] 1.000 tentativas concorrentes de reservar/marcar o mesmo recurso e intervalo produzem **1** marcação `hold`/`confirmada` e as restantes `SLOT_TAKEN` (garantido por restrição de exclusão na BD, não por código aplicacional).
 - [ ] `getAvailability(ctx, servico, intervalo)` devolve no máximo **10** opções (limite de linhas de lista interactiva da Meta, CONFIRMADO, E1 §7), cada uma com `slot_id` opaco e instante UTC; a apresentação em `Africa/Luanda` é da camada de renderização.
 - [ ] `holdSlot` cria `hold` com `hold_expires_at` (TTL *proposta*: 10 min, a calibrar); hold vencido é libertado com p99 ≤ 60 s e emite evento; confirmar um hold expirado devolve `HOLD_EXPIRED`.
-- [ ] `confirmBooking` é idempotente por `(contact_id, slot_id)` e por `hold_id`: 50 confirmações concorrentes produzem 1 marcação confirmada; emite `booking.created` (payload: `booking_id`, `servico`, `inicio`; sem PII) pelo *outbox*.
-- [ ] `cancelBooking` liberta o intervalo imediatamente; `rescheduleBooking` é atómico (cancela e marca na mesma transacção): falha injectada deixa a marcação original intacta.
-- [ ] Todas as tabelas têm `tenant_id` e RLS `FORCE`; X-05 (catálogo RLS) cobre o esquema `servicos`; tenant A não lê marcações de B e contacto X não lê marcações de Y (X-02/ISO).
-- [ ] O entitlement `marcacoes_mes` é verificado no `holdSlot`; excedido devolve `LIMIT_EXCEEDED`.
-- [ ] Todas as migrações têm `downgrade` testado; operações sem `ctx.tenantId` falham fechadas.
+- [x] `confirmBooking` é idempotente por `(contact_id, slot_id)` e por `hold_id`: 50 confirmações concorrentes produzem 1 marcação confirmada; emite `booking.created` (payload: `booking_id`, `servico`, `inicio`; sem PII) pelo *outbox*.
+- [x] `cancelBooking` liberta o intervalo imediatamente; `rescheduleBooking` é atómico (cancela e marca na mesma transacção): falha injectada deixa a marcação original intacta.
+- [x] Todas as tabelas têm `tenant_id` e RLS `FORCE`; X-05 (catálogo RLS) cobre o esquema `servicos`; tenant A não lê marcações de B e contacto X não lê marcações de Y (X-02/ISO).
+- [x] O entitlement `marcacoes_mes` é verificado no `holdSlot`; excedido devolve `LIMIT_EXCEEDED`.
+- [x] Todas as migrações têm `downgrade` testado; operações sem `ctx.tenantId` falham fechadas.
 
 ### Detalhes Técnicos
 
@@ -628,11 +628,129 @@ CREATE TABLE servicos.bookings (
 ### Definition of Done
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
-- [ ] **Isolamento de tenant:** RLS `FORCE` e suite cruzada cobrem o módulo (ADR-015).
-- [ ] **Idempotência:** confirmação repetida e remarcação não duplicam marcações (ADR-009).
-- [ ] **Números só de tools:** datas e horas só saem como *facts* `datetime` (ADR-007).
-- [ ] **Privacidade:** `contact_id` e nenhum telefone; eventos sem PII (ADR-010).
+- [x] **Isolamento de tenant:** RLS `FORCE` e suite cruzada cobrem o módulo (ADR-015).
+- [x] **Idempotência:** confirmação repetida e remarcação não duplicam marcações (ADR-009).
+- [x] **Números só de tools:** datas e horas só saem como *facts* `datetime` (ADR-007).
+- [x] **Privacidade:** `contact_id` e nenhum telefone; eventos sem PII (ADR-010).
 - [ ] **Migrações reversíveis:** `downgrade` testado; DDL ratificado em `../docs/tecnica/03`; revisão por dois revisores.
+
+### Verificação dos Critérios de Aceitação
+
+**8 critérios; 6 marcados, 2 vazios. 6 caixas de DoD; 4 marcadas, 2 vazias.**
+Tudo medido contra o PostgreSQL 18.6 da imagem fixada por *digest*, com os
+papéis verdadeiros (`kamba_app` é `NOBYPASSRLS`) e não contra uma base falsa. O
+anexo com os comandos, as saídas e as datas é `../docs/evidencia/KAM-047-servicos.md`.
+
+**A barreira deste ticket é uma restrição de base de dados, e prova-se por
+negação.** O critério 1 diz «garantido por restrição de exclusão na BD, **não**
+por código aplicacional», e um teste que só conte marcações não distingue as
+duas coisas: passaria igual se o que impedisse a sobreposição fosse um bloqueio
+no código da suite. O que distingue é o passo de canário
+`test_sem_a_restricao_as_mil_dariam_mais_do_que_uma` — deixa cair a restrição,
+repete uma fracção das tentativas, e afirma que passam **mais do que uma**.
+
+### Os critérios, um a um
+
+| # | Critério | Evidência |
+|---|---|---|
+| 1 | 1.000 tentativas concorrentes → **1** marcação, as restantes `SLOT_TAKEN`, por restrição de exclusão | **Mil a sério, em 32 ligações concorrentes**: `aceites = 1`, `recusas = {23P01: 999}`, **zero** *deadlocks*, 47,8 s (`tests_servicos/test_concorrencia.py`). E na base, não só nas respostas: uma linha activa e mais nada. **A prova de que a barreira é a restrição** é o canário acima. O que a execução revelou e nenhuma leitura daria: **sem** a tranca por recurso as mil **não terminam** — 486 `deadlock detected` medidos em `pg_stat_database`, um por segundo, com as perdedoras a voltar com `40P01` em vez de `23P01`, o que tornava «as restantes `SLOT_TAKEN`» falso. A tranca serializa e não recusa; o canário continua a provar que quem recusa é a restrição. O delta de *deadlocks* é hoje uma asserção do teste |
+| 2 | `getAvailability` devolve ≤ **10** opções, cada uma com `slot_id` opaco e instante UTC | **Vazia, e é parcial.** As três partes que o critério nomeia estão feitas e medidas: o limite de **10** é constante com a fonte (`E1` §7, CONFIRMADO) e tem teste que o conta; o `slot_id` é um *token* assinado com onze casos de recusa, incluindo adulteração do corpo com a assinatura original; os instantes saem em UTC com `Z`, e a apresentação em `Africa/Luanda` nunca passa por este módulo. **O que falta é o conjunto de opções estar certo**, e a razão não é de implementação: **não existe ligação entre serviço e recurso** — nem no DDL *proposta* do bloco, nem no `../docs/tecnica/02` §8.3, nem no `00` §4 —, pelo que `getAvailability(servico)` oferece horas de **todos** os recursos activos do tenant. Numa PME com «corte de cabelo» e «massagem» em recursos distintos, isso oferece a Sala de massagem para um corte de cabelo, com o `slot_id` assinado a garanti-lo. Acrescentar a tabela era desenhar esquema que o ticket não especifica; a lacuna fica em `../docs/dividas-documentais.md` e no `../docs/tecnica/03` §5.7, e a decisão volta a quem desenhar a vertical. (Dois defeitos do conjunto **foram** corrigidos: o `ateAt` era ignorado, e o `generate_series` perdia um dia numa janela que atravessasse a meia-noite) |
+| 3 | `holdSlot` cria `hold` com TTL; hold vencido libertado com **p99 ≤ 60 s** e emite evento; confirmar vencido → `HOLD_EXPIRED` | **Vazia, e a razão não é o mecanismo.** O mecanismo está feito e medido: o prazo é coluna com `CHECK` que o amarra ao estado nos **dois** sentidos (um hold sem prazo e uma confirmada com prazo são recusados); o varrimento liberta, emite `booking.cancelled` com `motivo = 'hold_expirado'` na mesma transacção, é idempotente (o segundo varrimento liberta 0 e não emite segundo evento) e respeita o tecto de linhas; e o `HOLD_EXPIRED` **não depende do varrimento ter corrido** — o `hold_expires_at > now()` do `WHERE` recusa a confirmação com a linha ainda em `hold`, o que faz dele uma regra e não uma corrida com o relógio. **O que não está medido é o «p99 ≤ 60 s»**, que é uma propriedade da **cadência de quem chama** o varrimento, e não há agendador neste repositório — é o KAM-071. O que o módulo garante é mais fraco e diz-se: varre em cada `getAvailability` e `holdSlot`, pelo que um intervalo vencido está livre para o próximo que pergunte; num tenant sem tráfego nocturno, fica ocupado até ao pedido seguinte. Marcar esta caixa era chamar «cumprido» a um número que ninguém mediu |
+| 4 | `confirmBooking` idempotente por `(contact_id, slot_id)` e por `hold_id`: 50 concorrentes → 1 confirmada; emite `booking.created` pelo *outbox* | **50 a sério, em 16 ligações**: uma alteração, e a `version` a **dois** e não a cinquenta e um — a segunda metade é a que importa, porque com as cinquenta a alterar o estado final era o mesmo e só a `version` denunciava que a idempotência não era da base. O `(contact_id, slot_id)` é um **índice único parcial** pelos mesmos dois estados da restrição de exclusão, e é parcial para que um hold expirado deixe o mesmo contacto voltar a pedir o mesmo *slot* — senão o `HOLD_EXPIRED` era um beco. Pela superfície: `confirmou: true` numa e `false` nas outras, com **uma** emissão (`servicos.modulo.test.ts`). O payload é o do contrato v1 publicado (`booking_id`, `contact_id`, `service_id`, `resource_id`, `inicio_at`, `fim_at`), validado **antes** do SQL porque o `evt_emitir` não valida contra o catálogo. **A divergência com a letra do critério** — que escreve `servico` e `inicio` — resolve-se a favor do contrato e do dicionário, e fica em `../docs/dividas-documentais.md` (linha 138) |
+| 5 | `cancelBooking` liberta imediatamente; `rescheduleBooking` atómico: falha injectada deixa a original intacta | **«Imediatamente» é literal e mede-se sem confirmar a transacção**: a restrição de exclusão é parcial, a linha sai do índice no mesmo `UPDATE`, e o teste insere outra marcação no mesmo intervalo **antes** do `commit`. Não há `DELETE`: o histórico fica. **A falha injectada é do PostgreSQL e não um `raise` do teste** — o *slot* novo está ocupado por outro contacto, o `INSERT` devolve `23P01`, e o que se afirma é que a marcação original ficou em `hold` com `version = 1`: a `version` a dois significava que o cancelamento sobreviveu ao `ROLLBACK`. **Um defeito que a revisão adversarial encontrou e que nenhuma prova minha tocava:** a remarcação usava o SQL do hold, e por isso **degradava uma marcação confirmada num hold de dez minutos** que o varrimento expirava sozinho — quem remarcasse e não voltasse a carregar no botão perdia a marcação em silêncio. A nova nasce no estado da original, e há dois testes |
+| 6 | RLS `FORCE` em todas; X-05 cobre o esquema; tenant A não lê de B, contacto X não lê de Y | **As quatro bandeiras lidas do catálogo**: `ENABLE` e `FORCE` nas quatro, política `tenant_iso` com `USING` **e** `WITH CHECK` iguais — e o `WITH CHECK` não é redundante: é o que impede o `kamba_app` de **inserir** no nome de outro tenant, que é o que o X-04 ataca. O X-05 do *gate* 6 cobre o esquema **por construção**, porque a descoberta é pelo catálogo e não por lista. Cruzado com `kamba_app` e nunca com administrador: B não lê a marcação de A, **não vê o intervalo ocupado de A** (o `SQL_OCUPADO` não tem `tenant_id` no `WHERE`, pelo que se a política falhasse o recurso de A escondia horas a B), não cancela e não escreve no nome de A (`42501`). **O contacto X vs Y é de outra natureza e escreve-se por extenso:** a RLS isola tenants, não contactos — quem isola contactos é o `contact_id` no `WHERE` das consultas, e há um teste que afirma a assimetria em vez de a esconder, para que ninguém tire aquela comparação a pensar que é redundante. **E o `tenant_id` da restrição de exclusão não é exercitável hoje**: a `resources_pkey` é só `(resource_id)`, logo um recurso só existe num tenant; a coluna fica como defesa em profundidade e um teste prende a chave primária para que o dia em que ela mudar seja um dia em que alguém escreve o caso cruzado |
+| 7 | `marcacoes_mes` verificado no `holdSlot`; excedido → `LIMIT_EXCEEDED` | A aritmética **não está neste módulo**: está na `platform.ten_consumir` da revisão `0007` (KAM-009), e o que se prova é que o módulo a chama com a chave certa e que a recusa chega. Contra a base: sem entitlement nega (com `limite` nulo — «sem tecto» não quer dizer «sem limite»); com tecto de 2, a terceira nega e o contador **não passa do tecto**; a mesma chave de idempotência consome **uma** vez, que é o duplo toque no mesmo botão; e um tenant não consome o balde de outro — a recusa é silenciosa e não um erro, o que para um consumo é o lado certo (o atacante não fica a saber se o alvo tem entitlement). Pela superfície, `LIMIT_EXCEEDED` **sem escrever**, e a ordem é a do KAM-009: entitlement antes do limite, os dois antes da escrita — com a vertical inactiva não se cobra uma marcação que o tenant não pôde fazer. O `rescheduleBooking` passou a **verificar** o entitlement e deliberadamente **não** consome: remarcar move uma marcação, e cobrar uma por cada mudança de hora fazia do limite mensal um limite de indecisão |
+| 8 | `downgrade` testado; operações sem `ctx.tenantId` falham fechadas | **O ciclo completo contra a base**: `upgrade head` → `downgrade 0024` → `upgrade head` → `downgrade base`, os quatro a sair 0, mais o ciclo genérico da cadeia no *gate* 8. O `downgrade` não leva `CASCADE` (um objecto pendurado fá-lo falhar em vez de o apagar em silêncio) e tira a extensão **antes** do esquema, porque ela vive lá dentro. **«Falha fechada» nos dois sentidos**: sem contexto a leitura devolve zero linhas (o `NULLIF` reduz a ausência a `NULL`) e a escrita devolve `42501`. E antes da base: o `exigirCtx` recusa um `ctx` sem tenant ou sem contacto **antes de a ligação ser pedida**, e lança em vez de devolver um código — um `ctx` sem tenant é erro de quem montou a chamada, e silenciá-lo num código de retorno deixava uma operação correr sem isolamento a parecer um «não encontrei» |
+
+### As caixas de DoD
+
+| Caixa | Estado |
+|---|---|
+| Todos os Critérios de Aceitação satisfeitos | **Vazia.** Seis de oito. O 2 e o 3 estão acima, com a razão de cada um |
+| **Isolamento de tenant:** RLS `FORCE` e suite cruzada | Marcada. Critério 6 |
+| **Idempotência:** confirmação repetida e remarcação não duplicam | Marcada. Critério 4, mais a remarcação do 5 |
+| **Números só de tools:** datas e horas só como *facts* `datetime` | Marcada. O módulo **nunca formata uma hora para um humano** e por isso nunca escolhe um fuso: os instantes saem em UTC com `Z` e a apresentação em `Africa/Luanda` é de quem renderiza. O cálculo de horas livres é SQL mais uma função pura, nunca o modelo (ADR-007) |
+| **Privacidade:** `contact_id` e nenhum telefone; eventos sem PII | Marcada. Nenhuma coluna do esquema guarda telefone, BI ou morada, e o inventário fechado responde à pergunta **coluna a coluna** — incluindo a única que pode nomear uma pessoa (`resources.nome`, nome de trabalho). O `contact_id` é referência opaca **sem FK**. «Sem PII» no evento quer dizer sem telefone: o `contact_id` é obrigatório pelo contrato v1 e é precisamente a referência pseudonimizada que o ADR-010 manda usar, e o `evt_emitir` recusa um payload com padrão de telefone |
+| **Migrações reversíveis:** `downgrade` testado; DDL ratificado em `../docs/tecnica/03`; **revisão por dois revisores** | **Vazia**, e a razão é só a última metade. O `downgrade` está testado (critério 8) e o DDL está em `../docs/tecnica/03` §5.7, com os três eventos de marcação acrescentados ao mapa do §12 — e marcado *proposta*, porque a convenção deste conjunto é que **nada está ratificado até o fundador o dizer**. O que não se cumpre é **«revisão por dois revisores»**: na fase inicial funde-se com CI verde sem esperar revisão humana, e a revisão adversarial deste ticket (`../docs/analises/ANALISE-39-KAM-047-servicos.md`) é **evidência, não é um revisor** |
+
+### A revisão adversarial levantou 22 achados, e seis bloqueavam o merge
+
+Está inteira em `../docs/analises/ANALISE-39-KAM-047-servicos.md`, com os oito
+mortos e o que os matou. Os seis que bloqueavam dividem-se em dois grupos, e a
+divisão diz mais do que a contagem: **três eram do estado do diff e já estavam
+corrigidos** quando ela respondeu — encontrados pela *self-validation* a correr
+em paralelo, que é o desenho —, e **três eram defeitos reais que nenhuma prova
+minha tocava**, os três com a mesma assinatura: as 500 linhas das sete operações
+ctx-first não tinham chamador nem teste.
+
+O pior foi o da remarcação a degradar uma marcação confirmada. A lição vira
+teste e não nota: **uma função sem chamador não é código entregue**. Vinte dos
+vinte e dois achados ficaram corrigidos; os dois que ficam (o `p99` e a ligação
+serviço–recurso) estão nas caixas 3 e 2, com credor.
+
+E **dois escapes viraram portão**, sem *job* novo: o conversor de SQL da suite
+passou a recusar uma consulta com os parâmetros fora de ordem ou repetidos (e
+apanhou um defeito meu na primeira execução depois de escrito), e passou a
+exigir que **cada** consulta do módulo seja corrida contra a base — que é o que
+teria apanhado o `generate_series` antes de ele existir.
+
+### Os portões, com o comando e o resultado
+
+| Portão | Comando | Resultado |
+|---|---|---|
+| 3 (referências) | `python -m lint_refs --root .. check` | **0** |
+| 3 (caminhos de handoff) | `python -m lint_handoff --root .. check` | **0** |
+| 3 (contagens em prosa) | `python -m lint_contagens --root .. check` | **0** |
+| 3b (nomes canónicos) | `python -m canon_lint --root . check` | **0** — e exigiu a emenda **1.45** do dicionário: dez linhas novas no §3.3 |
+| 3c (backlog) | `python -m lint_backlog --root .. check` | **0** — apanhou o cabeçalho do `../docs/tecnica/03` em 1.3 com a última linha de versões em 1.4 |
+| 2 (arquitectura) | `python -m lint_arch --root .. all` | **0** (`all` e não `check`: este não tem `check` e sairia com 2) |
+| 1, 2, 4 (Node) | `pnpm run build`; `pnpm -r run typecheck`; `pnpm --filter @kamba/com run test`, em contentor | **0**, **0**, **0** — 53 testes |
+| 8 (mutações) | `python db/mutacoes.py --aplicaveis` | **0** |
+| 8 (migrações) | `python db/gate_bd.py --suite tests` | **0** — 624 testes |
+| 8 (agenda) | `python db/gate_bd.py --suite tests_servicos` | **0** — 38 testes, as mil paralelas em 33,8 s |
+| 8 (as outras suites) | `--suite` × 10, uma a uma | **0** — ver a nota abaixo |
+| 6 (isolamento) | `python db/gate_bd.py --suite tests_isolamento` | **0** — 79 testes |
+
+**O *gate* 8 não é uma suite, são dezoito.** O alvo `ci-8` chama o `gate_bd.py`
+dezoito vezes e o `make` **para na primeira falha**, pelo que um `ci-8` vermelho
+não diz nada sobre as restantes — e correr só a suite do ticket não é correr o
+*gate* 8. É um aviso que veio da sessão do KAM-114, que o pagou com dois CIs
+vermelhos, e apanhou esta verificação a afirmar «*gate* 8: 0» sobre **três**
+suites. O que correu aqui, uma a uma:
+
+| Suite | Resultado |
+|---|---|
+| `tests`, `tests_servicos`, `tests_agr` | **0** (624, 38 e 249 testes) |
+| `tests_identidade`, `tests_auditoria_carga`, `tests_ten`, `tests_chr`, `tests_outbound`, `tests_handoff`, `tests_media`, `tests_modos`, `tests_avisos` | **0**, as nove |
+| `tests_eventos_consumo` | **0** — 19 testes em **425 s**. A primeira tentativa deu dois vermelhos («o publicador nao publicou») e **não era uma medição**: a execução atravessou uma suspensão da máquina, 19 testes em **52.662 s** (14,6 horas). A suite lança o publicador TypeScript e, sem `node` no `PATH`, ele vai por contentor — o caminho que uma suspensão parte. O que fecha a questão é o relógio da segunda: 425 s contra 52.662 s, e verde |
+| `tests_eventos`, `tests_eventos_carga`, `tests_entrada`, `tests_entrada_carga` | **NÃO CORRIDAS**, por decisão: as quatro lançam processos Node pelo mesmo caminho de contentor e duas medem minutos de tráfego por desenho. Ficam para o CI, que corre num *runner* com `node` no `PATH`, onde esse caminho não se usa. Fica dito em vez de assumido |
+
+«Não correu» e «passa» não são a mesma coisa, e a diferença escreve-se.
+
+**E havia uma terceira coisa que não era nenhuma das duas: a suite que o CI não
+invocava.** A `tests_servicos` entrou no `SUITES` do `gate_bd.py` e no
+`correr_suite.py` — o que a torna **corrível** — e **não** no alvo `ci-8` do
+`Makefile`, que invoca as suites uma a uma, por nome. Durante quatro commits, as
+1.000 tentativas concorrentes que provam o critério 1 valeram **só** na máquina
+de quem as escreveu: o *gate* 8 do CI estava verde, a suite existia, e nada no
+PR o denunciava.
+
+É a mesma classe do `PACOTES_NODE`, com a diferença que a torna pior — ali um
+ficheiro que nenhum estrato classifique **falha** o *gate* 4 de propósito; aqui
+uma suite que nenhum alvo invoque **passa**. Corrigido, e virou portão no mesmo
+PR: o `test_toda_a_suite_de_base_de_dados_e_invocada_por_um_gate` exige que o
+`SUITES` e as invocações do `ci-8` e do `ci-6` sejam o mesmo conjunto, nos dois
+sentidos, com o canário feito (retirada a linha, o teste falha nomeando a
+suite).
+
+**Uma nota sobre o que estes números medem.** A revisão `0024` vem do PR #86 e
+esteve na árvore **sem estar committada**, só para a cadeia Alembic poder correr
+— a `0025` encaixa nela, e por isso **este PR só funde depois do #86**. Os
+números acima são da árvore sem ela; com ela na árvore e sem as emendas que o
+#86 traz aos mesmos inventários, o *gate* 3b dá 17 achados, **todos** em
+`0024_draft_decisions.py` e **zero** na `0025`.
+
+---
 
 ### Handoff para Claude Code
 

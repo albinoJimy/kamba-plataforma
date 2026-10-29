@@ -53,6 +53,9 @@ def main() -> int:
         "tests_avisos",
         # KAM-025: a tranca por conversa, quem tem a palavra, e a repeticao.
         "tests_agr",
+        # KAM-047: a agenda da vertical Servicos, com as mil tentativas
+        # paralelas do criterio 1.
+        "tests_servicos",
     ):
         print(f"suite desconhecida: {directorio!r}", file=sys.stderr)
         return 2

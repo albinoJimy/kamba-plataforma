@@ -41,6 +41,26 @@ import mutacoes
 NO_REPOSITORIO = (mutacoes.RAIZ / ".git").exists()
 
 
+
+def gate_bd_suites() -> tuple[str, ...]:
+    """O `SUITES` do `gate_bd.py`, lido sem importar o modulo.
+
+    Importa-lo aqui traria o `docker`, o `signal` e os efeitos de arranque dele
+    para dentro desta bateria, que corre tambem numa copia de mutacao. O
+    `SUITES` e uma tupla de literais no topo do ficheiro: le-se pelo AST, que e
+    o mesmo caminho que o *gate* 3b usa para ler as revisoes sem as executar.
+    """
+    import ast
+
+    fonte = (mutacoes.RAIZ / "db" / "gate_bd.py").read_text(encoding="utf-8")
+    for no in ast.parse(fonte).body:
+        if isinstance(no, ast.Assign) and any(
+            isinstance(alvo, ast.Name) and alvo.id == "SUITES" for alvo in no.targets
+        ):
+            return tuple(ast.literal_eval(no.value))
+    raise AssertionError("nao encontrei o SUITES no db/gate_bd.py")
+
+
 class TestClassificar(unittest.TestCase):
     FALHA = "FAIL: test_a_politica_e_a_tenant_iso (tests_isolamento.test_x05.Catalogo)\n"
     ERRO = "ERROR: test_resolve_o_tenant (tests_isolamento.test_resolver.TestResolver)\n"
@@ -488,6 +508,63 @@ class TestOQueSoORepositorioPodeAfirmar(unittest.TestCase):
         """Sem isto, uma suite nova corre sobre a copia de outra."""
         self.assertEqual(
             sorted(mutacoes.SUITES_DE_TOOLS), sorted(mutacoes.COPIA_DE_TOOLS)
+        )
+
+    def test_toda_a_suite_de_base_de_dados_e_invocada_por_um_gate(self) -> None:
+        """Uma suite declarada e **corrivel**; uma suite invocada e **corrida**.
+
+        O `gate_bd.py` tem a lista fechada do que ele **sabe** correr, e o
+        `Makefile` tem as invocacoes, uma a uma, por nome. Nao sao a mesma coisa,
+        e a diferenca e silenciosa: uma suite no `SUITES` que nenhum alvo invoque
+        nunca corre no CI, com o *gate* 8 verde e sem aviso nenhum.
+
+        **Medido, e no pior sitio possivel.** O KAM-047 acrescentou a
+        `tests_servicos` ao `SUITES` e ao `correr_suite.py`, correu-a a mao, e
+        **esqueceu-se do alvo** — ficou a um `git push` de ter as mil tentativas
+        concorrentes que provam o criterio 1 do ticket a valer so na maquina de
+        quem as escreveu. O *gate* 8 estava verde, a suite existia, e o que ela
+        prova nao entrava em lado nenhum.
+
+        E a mesma classe do `PACOTES_NODE` do `Makefile` e do `ci/thresholds.yaml`
+        — «um ficheiro que nenhum estrato classifique falha o gate 4 de
+        proposito» —, com a diferenca de que aqui nao falhava: passava.
+
+        **O `tests_isolamento` e do *gate* 6 e nao do 8**, e por isso a asercao e
+        sobre a uniao dos dois alvos. Repartir as suites por outros gates no
+        futuro continua a passar por aqui; acrescentar uma suite que nenhum gate
+        invoque, nao.
+        """
+        import re
+
+        caminho = mutacoes.RAIZ / "Makefile"
+        texto = caminho.read_text(encoding="utf-8")
+
+        def invocadas(alvo: str) -> set[str]:
+            """As suites que um alvo do `Makefile` invoca por nome."""
+            inicio = texto.index(f"\n{alvo}:")
+            resto = texto[inicio + 1 :]
+            # O alvo acaba na primeira linha que comece na coluna zero e nao
+            # seja uma receita (as receitas comecam por tabulacao ou `@`).
+            fim = len(resto)
+            for achado in re.finditer(r"\n(?=[^\t\n#])", resto):
+                if achado.start() > 0:
+                    fim = achado.start()
+                    break
+            return set(re.findall(r"--suite ([a-z_]+)", resto[:fim]))
+
+        declaradas = set(gate_bd_suites())
+        no_ci = invocadas("ci-8") | invocadas("ci-6")
+        self.assertEqual(
+            declaradas - no_ci,
+            set(),
+            "suites declaradas no `gate_bd.SUITES` que nenhum alvo do Makefile "
+            "invoca: existem, correm a mao, e **nao correm no CI**",
+        )
+        self.assertEqual(
+            no_ci - declaradas,
+            set(),
+            "o Makefile invoca uma suite que o `gate_bd.SUITES` nao declara: "
+            "o `gate_bd.py` recusa-a com `invalid choice` e o gate fica vermelho",
         )
 
 
