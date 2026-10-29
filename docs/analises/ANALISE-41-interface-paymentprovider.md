@@ -222,6 +222,21 @@ barreira continua onde vive, que é o `kamba_app` e o `kamba_audit` sem `DELETE`
 isolamento, e declarar a primeira (os inventários) sem a segunda (os privilégios
 que a limpeza precisa) dá um gate vermelho que parece ser da tabela e é da suite.
 
+**E o `GRANT` não fechou tudo: ficaram dois erros, e eram a receita.** Os dois
+ensaios de escrita cruzada do X-04 fazem `UPDATE` na `coluna_alteravel` **como o
+papel da aplicação**, e eu tinha posto `estado` lá, com o argumento de que é a
+única coluna que muda no ciclo de vida de uma conta. É verdade e é irrelevante: o
+`kamba_app` tem só `SELECT`, e quem escreve é o `kamba_batch`, que tem
+`BYPASSRLS` e portanto não é sujeito a política. O `Receita` já escrevia a regra —
+`coluna_alteravel = None` quando **nenhum** papel sujeito a RLS lhe pode escrever,
+como o `events_outbox` e o `events_log`.
+
+Com `None`, o X-03/X-04 troca «a política recusa a escrita» por «o privilégio nem
+existe», que é **mais forte**: não depende de a política estar certa. Isto é, a
+correcção do erro deu uma garantia melhor do que a versão que eu tinha escrito —
+e o caminho até lá foi ler o docstring da estrutura em vez de a preencher por
+analogia.
+
 ### E dois achados do gate 9 no meu próprio ficheiro de ensaio
 
 O padrão `atribuicao` do `scan_secrets` acusa uma atribuição a um nome que

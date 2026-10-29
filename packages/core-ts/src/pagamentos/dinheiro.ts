@@ -26,6 +26,18 @@
  * que passam, e volta a aparecer na **soma** (`0.1 + 0.2` da
  * `0.30000000000000004`), que e onde um acumulador de ledger vive.
  *
+ * ## E nao e um caso de canto: **falha num em vinte e dois**
+ *
+ * Contado em vez de estimado, e o numero e o que torna esta pagina
+ * proporcional ao risco em vez de zelo: dos primeiros **100 000** valores de
+ * centimos (0 a 999,99 Kz), `Math.trunc(parseFloat(t) * 100)` devolve o valor
+ * errado em **4 586** — **4,59%**, um em vinte e dois. Os primeiros sao `0.29`,
+ * `0.57` e `0.58`.
+ *
+ * Isto e o que justifica o `tools/money_lint` **falhar o build** e nao avisar:
+ * uma conversao errada neste modulo nao e um defeito que aparece raramente, e
+ * um defeito que aparece a cada vinte e duas encomendas.
+ *
  * **Uma correccao ao que esta pagina dizia antes**, porque apagar um erro sem o
  * nomear e o mesmo defeito ao contrario: a primeira versao afirmava que
  * `parseFloat("1234.57") * 100` dava `123456.99999999999`. **Nao da** — da

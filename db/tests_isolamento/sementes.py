@@ -977,13 +977,25 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     # tabela, portanto, o X-03/X-04 troca «a politica recusa a escrita» por «o
     # privilegio nem existe», que e mais forte.
     #
-    # A `coluna_alteravel` e o `estado`: e a unica que muda no ciclo de vida de
-    # uma conta (secao 10.2), e o `kamba_batch` tem `UPDATE`.
+    # A `coluna_alteravel` e **`None`**, e nao o `estado`. A primeira versao
+    # punha o `estado` com o argumento de que ele e a unica coluna que muda no
+    # ciclo de vida de uma conta — e o *gate* 6 recusou com `42501` nos dois
+    # ensaios de escrita cruzada do X-04. A razao esta escrita no proprio
+    # `Receita`: o `None` e para quando **nenhum papel sujeito a RLS** lhe pode
+    # escrever, e e este o caso — o `kamba_app` tem so `SELECT`, e quem escreve
+    # e o `kamba_batch`, que tem `BYPASSRLS` e portanto nao e sujeito a
+    # politica. O `UPDATE` do ciclo de vida existe, mas nao vem de um papel que
+    # a RLS limite.
+    #
+    # O que isso troca, e e mais forte: o X-03/X-04 passa a provar que o papel
+    # **nao tem o privilegio**, em vez de provar que a politica o recusa — e
+    # isso nao depende de a politica estar certa. E a mesma escolha do
+    # `events_outbox` e do `events_log`.
     ("platform", "payment_accounts"): Receita(
         _payment_account,
         "provider",
-        "estado",
-        "suspenso",
+        None,
+        None,
         escrita_do_papel=False,
     ),
     ("platform", "entitlements"): Receita(
