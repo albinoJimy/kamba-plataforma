@@ -511,6 +511,16 @@ class TestErros(_Base):
                 "ENTITLEMENT_DENIED", "TOOL_NOT_ALLOWED", "TENANT_MISMATCH",
                 "UPSTREAM_TIMEOUT", "UPSTREAM_DOWN", "VALIDATION_ERROR",
                 "INTENT_REUSED_WITH_DIFFERENT_CONTENT",
+                # KAM-035: os dois do modulo `servicos` (KAM-047), que o
+                # contrato dele deixou **por escrito** para este ticket — «quem
+                # precisa dos dois codigos no registo da ToolLayer e quem ligar
+                # o `book_slot` ao grafo». Entram com a revisao `0026`, que os
+                # poe no `CHECK` da `tool_audit.error_code`, e com a emenda 1.47
+                # do dicionario §3.28. **As duas listas movem-se juntas**: ha
+                # ensaio no `test_servicos.py` a confrontar esta com a da
+                # revisao, e o `db/tests_agr/test_tool_audit.py` insere cada
+                # valor desta numa base real.
+                "SLOT_TAKEN", "HOLD_EXPIRED",
             },
         )
 

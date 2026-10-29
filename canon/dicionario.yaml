@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.46"
+versao_dicionario: "1.47"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -1058,8 +1058,6 @@ entradas:
       - "HOLD_EXPIRED"
       - "ALTER"
       - "CHECK"
-      - "book_slot"
-      - "get_availability"
       - "LIMIT_EXCEEDED"
       - "ENTITLEMENT_DENIED"
       - "hook_de_tool"
@@ -6468,7 +6466,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.27"
     conceito: "Erros tipados da camada"
-    canonico: "tool_audit.error_code ∈ {NOT_FOUND, OUT_OF_STOCK, PRICE_CHANGED, LIMIT_EXCEEDED, ENTITLEMENT_DENIED, TOOL_NOT_ALLOWED, TENANT_MISMATCH, UPSTREAM_TIMEOUT, UPSTREAM_DOWN, VALIDATION_ERROR, INTENT_REUSED_WITH_DIFFERENT_CONTENT}"
+    canonico: "tool_audit.error_code ∈ {NOT_FOUND, OUT_OF_STOCK, PRICE_CHANGED, LIMIT_EXCEEDED, ENTITLEMENT_DENIED, TOOL_NOT_ALLOWED, TENANT_MISMATCH, UPSTREAM_TIMEOUT, UPSTREAM_DOWN, VALIDATION_ERROR, INTENT_REUSED_WITH_DIFFERENT_CONTENT, SLOT_TAKEN, HOLD_EXPIRED}"
     literais:
       - "tool_audit.error_code"
       - "NOT_FOUND"
@@ -6482,6 +6480,8 @@ entradas:
       - "UPSTREAM_DOWN"
       - "VALIDATION_ERROR"
       - "INTENT_REUSED_WITH_DIFFERENT_CONTENT"
+      - "SLOT_TAKEN"
+      - "HOLD_EXPIRED"
     nomes:
       - "tool_audit.error_code"
       - "NOT_FOUND"
@@ -6495,6 +6495,8 @@ entradas:
       - "UPSTREAM_DOWN"
       - "VALIDATION_ERROR"
       - "INTENT_REUSED_WITH_DIFFERENT_CONTENT"
+      - "SLOT_TAKEN"
+      - "HOLD_EXPIRED"
     nomes_nota:
       - "INTENT_REUSED_WITH_DIFFERENT_CONTENT"
       - "tool_audit.error_code"
@@ -6506,6 +6508,11 @@ entradas:
       - "ENTITLEMENT_DENIED"
       - "LIMIT_EXCEEDED"
       - "hook_de_tool"
+      - "SLOT_TAKEN"
+      - "HOLD_EXPIRED"
+      - "ServicosModule.erro"
+      - "book_slot"
+      - "INSERT"
     variantes_literais: []
   - seccao: "3.27"
     conceito: "Timeout por classe"
@@ -8762,6 +8769,201 @@ entradas:
       - "handoff_wait"
       - "draft_wait"
     variantes_literais: []
+  - seccao: "3.36"
+    conceito: "Nós do grafo de Serviços"
+    canonico: "vinte e dois: os do §8.1 mais draft_prepare e draft_wait"
+    literais:
+      - "draft_prepare"
+      - "draft_wait"
+    nomes:
+      - "draft_prepare"
+      - "draft_wait"
+    nomes_nota:
+      - "unknown_reply"
+      - "retrieve"
+    variantes_literais: []
+  - seccao: "3.36"
+    conceito: "Arestas do grafo de Serviços"
+    canonico: "quarenta e sete: 39 do diagrama de §8.1, 3 da prosa, 1 do §6.2, 4 do ADR-L005"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "do_81"
+      - "do_prosa"
+      - "do_62"
+      - "do_concierge"
+    variantes_literais: []
+  - seccao: "3.36"
+    conceito: "Intenções de Serviços"
+    canonico: "state.intent ∈ {marcar, remarcar, cancelar, disponibilidade, servicos_precos, info_loja, confirmar, humano, outro}"
+    literais:
+      - "state.intent"
+      - "marcar"
+      - "remarcar"
+      - "cancelar"
+      - "disponibilidade"
+      - "servicos_precos"
+      - "info_loja"
+      - "confirmar"
+      - "humano"
+      - "outro"
+    nomes:
+      - "state.intent"
+      - "marcar"
+      - "remarcar"
+      - "cancelar"
+      - "disponibilidade"
+      - "servicos_precos"
+      - "info_loja"
+      - "confirmar"
+      - "humano"
+      - "outro"
+    nomes_nota:
+      - "outro"
+      - "safe_reply"
+    variantes_literais: []
+  - seccao: "3.36"
+    conceito: "Slots de uma marcação"
+    canonico: "state.slots com servico, data, hora, profissional?"
+    literais:
+      - "state.slots"
+      - "servico"
+      - "data"
+      - "hora"
+      - "profissional?"
+    nomes:
+      - "state.slots"
+      - "servico"
+      - "data"
+      - "hora"
+      - "profissional"
+    nomes_nota:
+      - "profissional"
+      - "disponibilidade"
+      - "hora"
+    variantes_literais: []
+  - seccao: "3.36"
+    conceito: "Pergunta pendente do preenchimento"
+    canonico: "state.slots.pergunta ∈ {PEDIR_SERVICO, PEDIR_DATA, PEDIR_HORA, DESAMBIGUAR_HORA}"
+    literais:
+      - "state.slots.pergunta"
+      - "PEDIR_SERVICO"
+      - "PEDIR_DATA"
+      - "PEDIR_HORA"
+      - "DESAMBIGUAR_HORA"
+    nomes:
+      - "state.slots.pergunta"
+      - "PEDIR_SERVICO"
+      - "PEDIR_DATA"
+      - "PEDIR_HORA"
+      - "DESAMBIGUAR_HORA"
+    nomes_nota:
+      - "DESAMBIGUAR_HORA"
+    variantes_literais: []
+  - seccao: "3.36"
+    conceito: "Aviso de negócio para o compose (Serviços)"
+    canonico: "state.avisos ⊆ {NOT_FOUND, LIMIT_EXCEEDED, VALIDATION_ERROR, UPSTREAM_TIMEOUT, UPSTREAM_DOWN, SLOT_TAKEN, HOLD_EXPIRED, STALE_CONFIRMATION, REFERENCIA_EM_FALTA, SEM_DISPONIBILIDADE, SEM_VAGA_NENHUMA, HORA_AMBIGUA}"
+    literais:
+      - "state.avisos"
+      - "NOT_FOUND"
+      - "LIMIT_EXCEEDED"
+      - "VALIDATION_ERROR"
+      - "UPSTREAM_TIMEOUT"
+      - "UPSTREAM_DOWN"
+      - "SLOT_TAKEN"
+      - "HOLD_EXPIRED"
+      - "STALE_CONFIRMATION"
+      - "REFERENCIA_EM_FALTA"
+      - "SEM_DISPONIBILIDADE"
+      - "SEM_VAGA_NENHUMA"
+      - "HORA_AMBIGUA"
+    nomes:
+      - "compose"
+      - "state.avisos"
+      - "NOT_FOUND"
+      - "LIMIT_EXCEEDED"
+      - "VALIDATION_ERROR"
+      - "UPSTREAM_TIMEOUT"
+      - "UPSTREAM_DOWN"
+      - "SLOT_TAKEN"
+      - "HOLD_EXPIRED"
+      - "STALE_CONFIRMATION"
+      - "REFERENCIA_EM_FALTA"
+      - "SEM_DISPONIBILIDADE"
+      - "SEM_VAGA_NENHUMA"
+      - "HORA_AMBIGUA"
+    nomes_nota:
+      - "OUT_OF_STOCK"
+      - "PRICE_CHANGED"
+    variantes_literais: []
+  - seccao: "3.36"
+    conceito: "Sem vaga no intervalo, com alternativas"
+    canonico: "SEM_DISPONIBILIDADE"
+    literais:
+      - "SEM_DISPONIBILIDADE"
+    nomes:
+      - "SEM_DISPONIBILIDADE"
+    nomes_nota:
+      - "check_availability"
+      - "NOT_FOUND"
+    variantes_literais: []
+  - seccao: "3.36"
+    conceito: "Sem vaga nenhuma no dia"
+    canonico: "SEM_VAGA_NENHUMA"
+    literais:
+      - "SEM_VAGA_NENHUMA"
+    nomes:
+      - "SEM_VAGA_NENHUMA"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.36"
+    conceito: "Hora com mais do que uma leitura"
+    canonico: "HORA_AMBIGUA"
+    literais:
+      - "HORA_AMBIGUA"
+    nomes:
+      - "HORA_AMBIGUA"
+    nomes_nota:
+      - "slots_collect"
+    variantes_literais: []
+  - seccao: "3.36"
+    conceito: "Botão de confirmação de Serviços"
+    canonico: "confirm:{hold_id}"
+    literais:
+      - "confirm:{hold_id}"
+    nomes:
+      - "confirm"
+      - "hold_id"
+    nomes_nota:
+      - "hold_id"
+      - "booking_id"
+      - "campo_de_confirmacao"
+    variantes_literais:
+      - "confirm:{cart_id}"
+  - seccao: "3.36"
+    conceito: "Máximo de opções de disponibilidade"
+    canonico: "10"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "E1"
+      - "MAXIMO_DE_OPCOES"
+      - "servicos"
+      - "MAX_BOTOES"
+      - "MAXIMO_DE_LINHAS"
+    variantes_literais: []
+  - seccao: "3.36"
+    conceito: "Versão do grafo de Serviços"
+    canonico: "graph_version = 1.0.0"
+    literais:
+      - "graph_version"
+      - "1.0.0"
+    nomes:
+      - "graph_version"
+    nomes_nota:
+      - "graph_version"
+      - "tool_audit"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -9813,6 +10015,8 @@ dominios:
       - "UPSTREAM_DOWN"
       - "VALIDATION_ERROR"
       - "INTENT_REUSED_WITH_DIFFERENT_CONTENT"
+      - "SLOT_TAKEN"
+      - "HOLD_EXPIRED"
     seccao: "3.27"
     conceito: "Erros tipados da camada"
     so_no_registo: false
@@ -9913,6 +10117,29 @@ dominios:
       - "ritmo"
     seccao: "3.31"
     conceito: "Desfecho da admissao do turno"
+    so_no_registo: false
+  - coluna: "state.intent"
+    valores:
+      - "marcar"
+      - "remarcar"
+      - "cancelar"
+      - "disponibilidade"
+      - "servicos_precos"
+      - "info_loja"
+      - "confirmar"
+      - "humano"
+      - "outro"
+    seccao: "3.36"
+    conceito: "Intenções de Serviços"
+    so_no_registo: false
+  - coluna: "state.slots.pergunta"
+    valores:
+      - "PEDIR_SERVICO"
+      - "PEDIR_DATA"
+      - "PEDIR_HORA"
+      - "DESAMBIGUAR_HORA"
+    seccao: "3.36"
+    conceito: "Pergunta pendente do preenchimento"
     so_no_registo: false
 
 variantes:

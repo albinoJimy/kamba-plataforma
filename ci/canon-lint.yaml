@@ -389,6 +389,20 @@ dominios_historicos:
       ADD CONSTRAINT com o mesmo nome; o dicionario §3.28 passou a declarar os
       onze. A declaracao da 0021 fica a dizer dez, e e o que a base tinha
       naquela revisao.
+  - revisao: "db/migrations/versions/0022_tool_idempotency.py"
+    tabela: "tool_audit"
+    coluna: "error_code"
+    ticket: "KAM-035"
+    data: "2026-10-29"
+    razao: >-
+      O mesmo percurso, um degrau acima. A 0022 (KAM-029) deixou o dominio nos
+      onze; a 0026 (KAM-035) acrescenta-lhe o SLOT_TAKEN e o HOLD_EXPIRED, por
+      DROP CONSTRAINT mais ADD CONSTRAINT com o mesmo nome, e o dicionario
+      §3.28 passou a declarar os treze (emenda 1.47). A declaracao da 0022 fica
+      a dizer onze, que e o que a base tinha naquela revisao. Os dois codigos
+      sao os do ServicosModule.erro (§3.3) que nao se importavam de lado
+      nenhum, e o contrato do modulo servicos deixou por escrito que entravam
+      com este ticket.
 
 # ------------------------------------------------ unicidades que o §3 proibe
 #
