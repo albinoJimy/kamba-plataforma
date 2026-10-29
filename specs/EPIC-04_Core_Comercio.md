@@ -706,7 +706,7 @@ teria apanhado o `generate_series` antes de ele existir.
 | 2 (arquitectura) | `python -m lint_arch --root .. all` | **0** (`all` e não `check`: este não tem `check` e sairia com 2) |
 | 1, 2, 4 (Node) | `pnpm run build`; `pnpm -r run typecheck`; `pnpm --filter @kamba/com run test`, em contentor | **0**, **0**, **0** — 53 testes |
 | 8 (mutações) | `python db/mutacoes.py --aplicaveis` | **0** |
-| 8 (migrações) | `python db/gate_bd.py --suite tests` | **0** — 622 testes |
+| 8 (migrações) | `python db/gate_bd.py --suite tests` | **0** — 623 testes |
 | 8 (agenda) | `python db/gate_bd.py --suite tests_servicos` | **0** — 38 testes, as mil paralelas em 33,8 s |
 | 8 (as outras suites) | `--suite` × 12, uma a uma | ver a nota abaixo |
 | 6 (isolamento) | `python db/gate_bd.py --suite tests_isolamento` | **0** — 79 testes |
@@ -720,10 +720,10 @@ suites. O que correu aqui, uma a uma:
 
 | Suite | Resultado |
 |---|---|
-| `tests`, `tests_servicos`, `tests_agr` | **0** (622, 38 e 249 testes) |
+| `tests`, `tests_servicos`, `tests_agr` | **0** (623, 38 e 249 testes) |
 | `tests_identidade`, `tests_auditoria_carga`, `tests_ten`, `tests_chr`, `tests_outbound`, `tests_handoff`, `tests_media`, `tests_modos`, `tests_avisos` | **0**, as nove |
 | `tests_eventos_consumo` | **NÃO MEDIDO** na primeira tentativa: a execução atravessou uma suspensão da máquina (19 testes em 14,6 **horas** de relógio) e dois testes falharam com «o publicador nao publicou», sem diagnóstico. Esta suite lança o publicador TypeScript, e sem `node` no `PATH` ele vai por contentor — o caminho que a suspensão parte. O suite **não importa** nada deste ticket (nem o `db/tests/base.py`, cuja única alteração minha são duas constantes novas) e o que falha é o esvaziamento do `events_outbox` pelo BullMQ, que esta revisão não toca |
-| `tests_eventos`, `tests_eventos_carga`, `tests_entrada`, `tests_entrada_carga` | **NÃO CORRIDAS.** As quatro lançam processos Node pelo mesmo caminho de contentor, e as duas de carga medem minutos de tráfego por desenho. Fica dito em vez de assumido: o CI corre-as num *runner* com `node` no `PATH`, onde o caminho de contentor não se usa |
+| `tests_eventos`, `tests_eventos_carga`, `tests_entrada`, `tests_entrada_carga` | **NÃO CORRIDAS**, por decisão: as quatro lançam processos Node pelo mesmo caminho de contentor e duas medem minutos de tráfego por desenho. Ficam para o CI, que corre num *runner* com `node` no `PATH`, onde esse caminho não se usa. Fica dito em vez de assumido |
 
 «Não correu» e «passa» não são a mesma coisa, e a diferença escreve-se.
 
