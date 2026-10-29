@@ -36,7 +36,7 @@ esqueleto do serviço. Não há agente nenhum.
 | *Gateway* de LLM por *digest*, chaves virtuais e `dat.llm_call_log` | **KAM-030** |
 | Validador de citação: *renderer* por referência e vínculo `sku`↔preço | **KAM-032** |
 | Grafo do Vendedor / de Serviços | KAM-031 / KAM-035 |
-| Modo determinístico e `agr_degraded_turns_total` | KAM-037 |
+| Modo determinístico e `agr_degraded_turns_total` | **KAM-037** |
 | *Compare-and-set* da retoma do *handoff* | KAM-034 |
 
 **`/internal/turn` com uma invocação válida continua a responder 503 com
@@ -306,11 +306,25 @@ Quatro notas que valem mais do que a lista:
   correram em **modo determinístico** por o LLM estar em baixo (§14, linha do
   LLM).
 
-- **O `agr_degraded_turns_total` não existe**, e a caixa do DoD fica por marcar.
-  O modo determinístico é o KAM-037 e não há, neste ticket, caminho nenhum por
-  onde um turno possa ficar degradado; uma métrica declarada e sempre a zero
-  afirma o que ninguém mediu. É a mesma decisão que o KAM-018 tomou para o
-  `echo_latency_ms`.
+- **O `agr_degraded_turns_total` passou a existir com o KAM-037**, e a frase que
+  aqui estava — «não existe, e a caixa do DoD fica por marcar» — deixou de ser
+  verdade. A razão de ele faltar era boa e fica registada: «uma métrica declarada
+  e sempre a zero afirma o que ninguém mediu», a mesma decisão que o KAM-018 tomou
+  para o `echo_latency_ms`. O que a desfez foi passar a haver caminho por onde um
+  turno pode ficar degradado — ver o §7-I.
+- **E ele leva o `motivo` e não o `tenant`.** O critério 6 do KAM-037 pede
+  «métricas por tenant» e o DoD «por motivo e tenant»: a tensão é a das dívidas
+  54 e das emendas 1.38, 1.39 e 1.42, mas com uma diferença que importa — **aqui
+  não há tabela onde desagregar**. O concierge tinha a `draft_decisions` e a
+  passagem tinha a `handoffs`; um turno degradado não ganha registo durável, pela
+  decisão que o **KAM-160** já escreveu para o `pending_reply`. A via é o campo
+  `tenant_id` do *logger*, que a *allowlist* de `tecnica/08` §7.3 permite em log e
+  proíbe em etiqueta, mais a janela de quinze minutos do detector. A caixa fica
+  **parcial**.
+- **O `agr_degraded_breaker_aberto_total` não é o `agr_tls_disjuntor_aberto_total`.**
+  O eixo daquele são os backends de *tool* do §6.5, lista fechada, e o LLM não é
+  uma *tool*: uma etiqueta nova ali **levantava**. Duas métricas e não uma
+  etiqueta — a mesma razão que separou as duas degradações acima.
 
 ---
 
@@ -1485,6 +1499,12 @@ A topologia e as réplicas (`docs/tecnica/09`, KAM-088), a aplicação da
 `lockDuration` (KAM-084), a agregação de métricas (KAM-080), e tudo o que a
 tabela do §1 atribui a outro ticket.
 
+E, desde o KAM-037, **duas leituras que são do fundador e não deste documento**: o
+que acontece com o modo determinístico e a política `concierge` activos ao mesmo
+tempo, e se a pesquisa de catálogo deve ou não ser servida em modo degradado. As
+duas estão devolvidas na secção de verificação do bloco do KAM-037, com a leitura
+implementada e a razão.
+
 ---
 
 ## 7-H. A subscrição de eventos: as verticais acordam por evento (KAM-038)
@@ -1729,6 +1749,144 @@ VERIFICADAS** (L6) e não há fila em bateria nenhuma; o que cobre o risco são
 mede-se em *staging*: o ensaio de carga leve mede o caminho de decisão, que não é
 o sistema.
 
+## 7-I. O modo determinístico: degradar, nunca calar (KAM-037)
+
+«Falha de LLM, canal ou pagamento tem *fallback* determinístico ou fila; o
+utilizador nunca fica sem resposta» (`tecnica/00`, princípio 12). Este ticket
+entrega a metade do LLM: um sub-grafo sem modelo, o detector que decide quando se
+entra nele, e o `agr_degraded_turns_total`.
+
+### O que se mediu antes de escrever, e mudou o desenho
+
+**O grafo do Vendedor já era quase todo determinístico.** O bloco manda «só
+`classify` e `compose` mudam para versões sem LLM», e medido: o `compose` **não
+chama modelo nenhum** — monta blocos a partir dos *facts* e o *renderer*
+preenche-os —, e o único sítio por onde o LLM entra é o `deps.classificador` do
+`classify` (§15.1), que ainda está **por ligar**. Logo metade da frase do bloco
+estava satisfeita antes deste ticket, e a outra metade é uma condição no
+`classify`.
+
+O que **não** existia era o menu. É por isso que o sub-grafo tem **um** nó novo e
+não três: o `order_status`, o `tools_info`, o `confirm_gate`, o `create_order` e o
+`handoff_prepare` servem o modo degradado como estão, e é o que «reutiliza o grafo
+normal» quer dizer na prática.
+
+### Sub-grafo **do** grafo, e não um segundo grafo compilado
+
+«Sub-grafo LangGraph» lê-se como nós e arestas alcançáveis só em modo degradado,
+na mesma tabela de `arestas.py` e com `fonte: KAM-037`. Um segundo `build_graph`
+foi pesado e recusado, e a razão é o *checkpointer*: os dois grafos partilham o
+`thread_id` (§12), pelo que invocar o segundo depois de o primeiro ter escrito um
+*checkpoint* parcial punha dois esquemas de canais sobre o mesmo *thread* — e a
+degradação a meio de um turno (o `ErroDeLlm` que o `classify` apanha) obrigava
+exactamente a isso. Com os nós dentro do grafo, a degradação a meio é **uma
+aresta** e o turno responde em **um** turno, que é o critério 1.
+
+```text
+classify --(degradado e a intenção não é servida)--> degraded_menu --> validate
+         --(confirmar)---------------------------> confirm_gate --> create_order
+         --(encomenda, pagamento_estado)---------> order_status
+         --(info_loja)---------------------------> tools_info
+         --(humano)------------------------------> handoff_prepare
+```
+
+### O que degrada, e o que explicitamente não degrada
+
+| Motivo | Quando | Onde se decide |
+|---|---|---|
+| `timeout` | o `kamba-chat` passou o tecto de 20 s | `classify`, a apanhar o `ErroDeLlm` |
+| `http_429` | o fornecedor recusou por ritmo | idem, pelo `estado_http` |
+| `budget` | a chave virtual esgotou-se | idem |
+| `breaker` | três falhas consecutivas, pausa de 30 s | `ingest`, antes de o turno correr |
+| `backpressure` | *tenant* no tecto **e** fila acima do limiar | idem |
+
+**`http_429` e não `429`**, e a razão é uma barreira que já existia: a gramática de
+etiqueta é `^[a-z][a-z0-9_]{1,62}$` e um valor que comece por dígito **levanta**.
+O critério escreve o número cru; o nome canónico é `http_429` (dicionário §3.35), e
+há ensaio que mede as duas metades — que os cinco motivos passam, e que o `429` cru
+não passava.
+
+**E Postgres ou *checkpointer* indisponível não é nada disto.** O §14 dá-lhe linha
+própria — «o turno não corre; a mensagem permanece na fila; alerta crítico» — e o
+detector impõe-no **por tipo**: o `motivo_do_erro` levanta `TypeError` com qualquer
+coisa que não seja um `ErroDeLlm`, e não há `except Exception` no módulo. Degradar
+ali era responder sem carrinho, sem `stage` e sem janela de mensagens. Há ensaio
+que corre um turno com a base a levantar e mede **zero** mensagens enviadas e zero
+turnos contados como degradados.
+
+### Dois disjuntores para o mesmo backend, e porque é que este não é o que o
+### `llm/cliente.py` recusou
+
+O cabeçalho do `llm/cliente.py` recusa «o cliente a fazer o *fallback*», porque
+isso punha-o a reimplementar a contagem de falhas e o *cooldown* do router. A
+recusa é sobre **escolher fornecedor**, e continua de pé: nada no detector escolhe
+fornecedor nenhum. O que este disjuntor decide é outra pergunta — **vale a pena
+chamar o LLM neste turno?** — e o proxy não a pode responder: em *cooldown*, ele
+responde depressa e com erro, e três turnos a pagar esse erro são três clientes à
+espera por nada.
+
+Os limiares são os **do proxy**, e foram **medidos e não copiados** do bloco, que
+os dava como «a validar na versão fixada»: `allowed_fails: 3` e `cooldown_time: 30`
+em `llm/litellm.config.yaml` e em `llm/aliases.yaml`, CONFIRMADOS pelo KAM-030
+contra a imagem fixada. **Não divergem**, e há ensaio que lê os dois ficheiros e
+falha se divergirem — o que torna a afirmação verificável em vez de afirmada.
+
+### O alerta, o `tenant`, e a caixa que fica parcial
+
+> Mais de **5%** dos turnos de um *tenant* em **15 minutos**, com um mínimo de
+> **vinte** turnos na janela.
+
+Os dois primeiros números são do critério 6, que escreve «limiar *proposta*»; o
+mínimo é nosso, porque sem ele um único turno degradado dá 100%. A janela é em
+memória e **por processo**, e isso fica dito: duas réplicas têm duas janelas.
+
+**O denominador precisa dos turnos normais**, e por isso o `ingest` conta **todos**
+os turnos — com motivo `None` quando não há. Um turno pode ser registado duas
+vezes (o `ingest` com o motivo prévio e o `classify` quando o modelo falha a
+meio), e o que impede o denominador de inflacionar é o `turn_id`: a segunda chamada
+**promove** a entrada da primeira. Sem chave, as duas valiam como dois turnos — e
+«a última entrada» não serve, porque com o tecto de concorrência a três um *tenant*
+tem até três turnos em voo e a promoção ia ao turno do lado.
+
+Onde é que o alerta dispara: **em nenhum sítio automático**. Não há sistema de
+alertas neste repositório, medido, e a agregação contínua é o KAM-080. O
+`registar_turno` devolve `True` quando o limiar passa; o resto está no runbook
+(`runbooks/degradacao-do-agr.md`), que é a forma que o KAM-027 e o KAM-114 já
+usaram para os seus alertas.
+
+### O modo passa pelo validador, e o concierge passa à frente dele
+
+**Nada sai do modo degradado sem o `validate` o ver.** O `degraded_menu` escreve
+`draft.blocos` e a aresta leva-o ao `validate`, como o `compose` — ao contrário das
+respostas estáticas das arestas da linha 34, que passam ao lado. É o critério 5, e
+o custo é que os textos do modo têm de atravessar o `renderizar`: sem dígitos, e
+sem duas palavras de número seguidas, que o extractor conta como número. Há ensaio
+que renderiza **todos** os textos do módulo.
+
+**E com a política `concierge` activa, a resposta determinística vai a aprovação.**
+O KAM-114 intercepta no `send`, que é por onde as cinco arestas de saída passam, e
+o modo degradado passa por lá como qualquer outro caminho — pelo que a barreira
+«sem decisão humana não sai mensagem» aplica-se também aqui, **sem código novo**.
+Isto é uma leitura: nenhum dos dois blocos prevê os dois em vigor, as outras duas
+leituras possíveis retiram uma barreira, e a decisão está devolvida ao fundador.
+
+A consequência operacional fica escrita onde dói: num *tenant* concierge, o LLM em
+baixo **não** faz chegar nada ao cliente até um operador aprovar. É também por isso
+que o «≤ 1 turno» do critério 1 se mede com a política **desligada**, que é o caso
+de todos os *tenants* fora do Piloto concierge.
+
+### O que o modo não serve, e porquê
+
+A **pesquisa de catálogo** fica fora, pela letra do critério 2, que enumera o que o
+modo serve e não a inclui. É uma leitura com custo declarado: o IDX não é o LLM e
+não está em baixo quando o modelo está. A **construção de um carrinho** fica fora
+pela mesma via (o critério 3 nomeia o toque num carrinho **já construído**). E a
+**referência de pagamento já emitida** serve-se em espécie e não em detalhe — uma
+referência é uma cadeia opaca com dígitos e nenhum dos cinco blocos do §9.1 a leva:
+é a **dívida 124**, credor **KAM-032**, que já nomeia este caso por extenso.
+
+---
+
 ## 9. Controlo de versões
 
 | Versão | Data | Autor | Alterações |
@@ -1746,3 +1904,4 @@ o sistema.
 | 1.10 | 2026-10-27 | KAM-034 | **Revisao adversarial** (`analises/ANALISE-35`): REPROVADO, 3 *must fix* e 6 *should fix*. A classe que ela nomeia e nova nesta serie — **a propriedade esta medida, e o duplo que a mede e mais forte do que a peca que ele substitui** —, e os tres *must fix* sao todos dessa forma. Duas barreiras que este ticket afirmava em cinco e em tres sitios nao existiam: **a tranca da conversa nao excluia dentro do processo** (os *advisory locks* de sessao sao contados e a `TrancaDeConversas` tem uma ligacao por processo; os dois unicos chamadores que nao passam pelo dreno do `turno.py` sao os dois que este ticket acrescentou, e nem o `TrancaNaoLargadaError` o denunciava), e **a politica AST do criterio 2 evadia-se com uma linha, por seis formas** (o efeito na posicao de argumento, um tuplo, o `contextlib.suppress`, uma compreensao, o `except*` e o `async with`). As duas estao corrigidas, com ensaio contra a peca **real** e com mutacao; as duas *docstrings* da casa que se contradiziam sobre a tranca passaram a dizer o mesmo. **O terceiro nao se corrigiu, e e por isso que o criterio 3 ficou `parcial`:** a `platform.handoffs` tem dois escritores para `waiting -> resumed` e o do HND corre **primeiro** (o `#fechar` do `receber` antes do `onHumanEvent`), pelo que no caminho feliz o CAS da zero linhas e o `Command(resume=...)` nunca corre. A correccao e TypeScript nos ficheiros do KAM-019 e a emenda 1.22 ja tinha escrito que ele nao escreve esta transicao: e uma decisao de canon, e esta devolvida com as duas saidas no §3.32. **E tentou-se um paliativo e retirou-se** — um desfecho `conflito` proprio dispara tambem no *webhook* duplicado legitimo, pelo que nao separa nada. Dos *should fix*: a captura da tabela no *lint* tinha introduzido uma **regressao** (`platform."orders"` deixou de morder, num gate de bloqueio e para todas as tabelas), a dispensa passou a ser por **verbo** (a `0011` concede `INSERT` ao `kamba_app`, pelo que o argumento escrito era metade falso), o `partes` passou a exigir a forma **canonica** de UUID (um `contact_id` invalido dava `22P02`, 500, e o HND a repetir), a `MSG_ALTERNATIVAS` ganhou ensaio de **conteudo** (o que havia comparava-a com a propria constante), e o ramo degradado passou a subir o `handoff_seq` (sem isso o *handoff* seguinte reusava o `hid` de uma passagem que o HND pode ter deixado criada). |
 | 1.11 | 2026-10-27 | KAM-019 | **A fronteira dos dois escritores ficou decidida, e não foi aqui.** A emenda **1.42** do dicionário (§3.32) escolhe a opção 1 da 1.41: o `ESTADOS_QUE_FECHAM` do HND passa a `["degraded"]` — as **três** saídas de `waiting` e não só o `resolved`, porque as três retomam o grafo —, o HND passa a chamar `POST /internal/resume` e o `resolver` ganha instrução própria do lado dele (o ADR-010 mantém a identidade do agente fora deste serviço). O código deste serviço **não muda**; o que muda aqui é a §7-G, que deixa de descrever uma sobreposição, e a tabela do que fica por ligar, que perde duas linhas. A paridade passa a ter ensaio nesta bateria (`TestFronteiraComOHnd`, nove asserções que lêem os ficheiros TypeScript), e ela existe porque a prova de que ninguém olhara para o segundo escritor foi um `grep` sem resultados. **E corrige-se um número da 1.9:** o `resumed_at` escreve-se nos **três** desfechos e não nos quatro — o `DESFECHOS` do `handoff/maquina.py` tem três valores. |
 | 1.12 | 2026-10-27 | KAM-038 | §7-H: a subscricao de eventos — a rota `/internal/event` e os tres codigos que ela da a fila, o efeito **dentro** da transaccao do consumo e o que isso compra nos dois sentidos, a setima ligacao e a traducao do `BEGIN`/`COMMIT`/`ROLLBACK` para o condutor, o *handler* por `(vertical, tipo)` e o `sem_accao`, as duas portas que nao partilham caminho, as quatro metricas com a primeira **medida com etiqueta** da casa, o `aplica_transicao` do KAM-006, a reserva de prioridade acima do tecto, e a entrada da `events_dlq` no *lint* de arquitectura com so o `insert`. Os codigos de saida passam a oito (o `7` do KAM-030 tambem faltava nesta tabela). **A revisao adversarial reprovou o ticket com nove achados**, e os tres que mudaram desenho estao escritos na seccao: duas mensagens identicas ao mesmo cliente, o `sem_template` a marcar sem enviar, e o cancelamento a nao esperar pela *thread* — este ultimo e o defeito que o §7-A ja tinha pago. | Equipa KAMBA |
+| 1.13 | 2026-10-29 | KAM-037 | §7-I: o modo determinístico — o sub-grafo **do** grafo e não um segundo compilado (e porque é o *checkpointer* que decide isso), os cinco motivos e o `429` que teve de virar `http_429` pela gramática de etiqueta, o disjuntor do LLM com os limiares **medidos** na configuração do proxy em vez de copiados do bloco, a barreira que não se simplifica (Postgres em baixo **não** é degradação, imposta por tipo e medida a correr), o `turn_id` que impede o denominador do alerta de inflacionar com turnos em voo, e a interacção com o `concierge` que nenhum dos dois blocos previa — devolvida ao fundador com a leitura implementada. O §6 fica corrigido: o `agr_degraded_turns_total` **passou a existir**, e a frase que dizia o contrário era verdadeira até este ticket |
