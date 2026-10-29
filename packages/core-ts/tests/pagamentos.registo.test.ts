@@ -19,6 +19,9 @@ import { describe, it } from "node:test";
 import {
   ADAPTER_CANNOT_CONFIRM,
   AdapterCannotConfirm,
+  ETIQUETA_NAO_RECONHECIDA,
+  EtiquetaNaoReconhecida,
+  POLITICA_DE_PRODUCAO,
   CAPACIDADES_DO_FAKE,
   CONFORMANCE_REQUIRED,
   CONFORMIDADE_VAZIA,
@@ -31,8 +34,9 @@ import {
   RegistoDeProviders,
   activar,
   podeConfirmar,
+  suporta,
 } from "../src/pagamentos/index.ts";
-import { capturar } from "./apoio/capturar.ts";
+import { capturar, capturarAsync } from "./apoio/capturar.ts";
 
 /** Diz sempre que sim: isola a regra de activacao da suite de conformidade. */
 const SEMPRE_VERDE: Conformidade = { green: () => true };
@@ -50,6 +54,7 @@ function adaptador(id: string, capacidades: Partial<ProviderCapabilities> = {}):
     verifyCallback: async () => [],
     listUnacknowledged: async () => ({ eventos: [] }),
     acknowledge: async () => {},
+    cancelCharge: async () => {},
   };
 }
 
@@ -103,6 +108,40 @@ describe("pagamentos/registo: criterio 2 — ADAPTER_CANNOT_CONFIRM", () => {
     assert.doesNotThrow(() => activar(comConsulta, SEMPRE_VERDE));
   });
 
+  /**
+   * **A dispensa nao se auto-atribui**, e foi uma revisao adversarial a mostrar
+   * o caminho: qualquer adaptador com `humanOnly: true`, `callbackAuth: none` e
+   * `statusQuery: false` saltava a ADAPTER_CANNOT_CONFIRM e era activado — isto
+   * e, a guarda do ADR-013 desligava-se com uma linha nas capacidades do
+   * adaptador que ela devia medir.
+   */
+  it("recusa um humanOnly que a politica nao reconhece", () => {
+    const impostor = adaptador("impostor", {
+      callbackAuth: "none",
+      statusQuery: false,
+      reconciliationQueue: false,
+      humanOnly: true,
+    });
+    const erro = capturar<EtiquetaNaoReconhecida>(() => activar(impostor, SEMPRE_VERDE));
+    assert.equal(erro.codigo, ETIQUETA_NAO_RECONHECIDA);
+  });
+
+  it("e recusa um pspLicenciado que a politica nao reconhece", () => {
+    const impostor = adaptador("impostor2", { pspLicenciado: true });
+    const erro = capturar<EtiquetaNaoReconhecida>(() => activar(impostor, SEMPRE_VERDE));
+    assert.equal(erro.codigo, ETIQUETA_NAO_RECONHECIDA);
+  });
+
+  /** A G-2 na **declaracao** e nao so na chamada (§10.4: `payout=false`). */
+  it("recusa activar um adaptador que declare saber reembolsar ou pagar", () => {
+    for (const extra of [{ refund: true }, { payout: true }]) {
+      assert.throws(
+        () => activar(adaptador("mentiroso", extra), SEMPRE_VERDE),
+        EtiquetaNaoReconhecida,
+      );
+    }
+  });
+
   it("dispensa o humanOnly — o ManualProvider do §4", () => {
     const manual = adaptador("manual", {
       callbackAuth: "none",
@@ -124,7 +163,9 @@ describe("pagamentos/registo: criterio 2 — ADAPTER_CANNOT_CONFIRM", () => {
       { statusQuery: true },
       { reconciliationQueue: true },
     ]) {
-      const incoerente = adaptador("hibrido", {
+      // **O id tem de ser um que a politica reconheca**, senao a recusa vem
+      // antes, por ETIQUETA_NAO_RECONHECIDA — e seria outra propriedade.
+      const incoerente = adaptador("manual", {
         callbackAuth: "none",
         statusQuery: false,
         reconciliationQueue: false,
@@ -152,20 +193,25 @@ describe("pagamentos/registo: criterio 3 — refund e payout", () => {
   const registo = new RegistoDeProviders(SEMPRE_VERDE);
   registo.activar(adaptador("fake"));
 
-  it("recusa os dois com NOT_SUPPORTED, sem chamar o adaptador", () => {
-    for (const metodo of ["refund", "payout"] as const) {
-      const erro = capturar<ProviderError>(() => registo.chamar("fake", metodo));
-      assert.equal(erro.codigo, "NOT_SUPPORTED");
-    }
-  });
-
-  it("e recusa-os mesmo que um adaptador declare a capacidade", () => {
-    const atrevido = new RegistoDeProviders(SEMPRE_VERDE);
-    atrevido.activar(adaptador("atrevido", { refund: true, payout: true }));
-    for (const metodo of ["refund", "payout"] as const) {
-      const erro = capturar<ProviderError>(() => atrevido.chamar("atrevido", metodo));
-      assert.equal(erro.codigo, "NOT_SUPPORTED");
-    }
+  /**
+   * **Devolvem, e nao lancam.** O criterio 3 escreve «refund e payout de
+   * qualquer adaptador **devolvem** NOT_SUPPORTED» e o §3.1 tipa o retorno. A
+   * primeira versao lancava, e uma revisao adversarial apanhou a divergencia:
+   * quem escrevesse `await registo.chamar(id, "refund")(req)` apanhava uma
+   * excepcao onde o tipo promete um valor, e o `RefundResult` ficava
+   * inalcancavel pelo caminho que o proprio modulo recomenda.
+   */
+  it("devolvem NOT_SUPPORTED, sem chamar o adaptador", async () => {
+    const reembolsar = registo.chamar("fake", "refund");
+    assert.deepEqual(await reembolsar({ chargeId: "c", amount: 1n }), {
+      ok: false,
+      erro: "NOT_SUPPORTED",
+    });
+    const pagar = registo.chamar("fake", "payout");
+    assert.deepEqual(
+      await pagar({ tenantId: "t", accountId: "a", amount: 1n, currency: "AOA" }),
+      { ok: false, erro: "NOT_SUPPORTED" },
+    );
   });
 });
 
@@ -223,9 +269,110 @@ describe("pagamentos/registo: o psp_licenciado", () => {
     assert.equal(registo.temPspLicenciado, false);
   });
 
-  it("e reconhece-o quando existir", () => {
-    const registo = new RegistoDeProviders(SEMPRE_VERDE);
+  /**
+   * **Com a politica a reconhece-lo**, que e o que torna a G-2 satisfazivel sem
+   * o adaptador se declarar a si proprio licenciado. Em producao a lista esta
+   * vazia e so o D8 (parecer) a abre.
+   */
+  it("e reconhece-o quando a politica o reconhecer", () => {
+    const registo = new RegistoDeProviders(SEMPRE_VERDE, {
+      confirmacaoHumana: [],
+      licencaBna: ["psp"],
+    });
     registo.activar(adaptador("psp", { pspLicenciado: true }));
     assert.equal(registo.temPspLicenciado, true);
+  });
+
+  it("e a politica de producao nao reconhece nenhum", () => {
+    assert.deepEqual([...POLITICA_DE_PRODUCAO.licencaBna], []);
+    assert.deepEqual([...POLITICA_DE_PRODUCAO.confirmacaoHumana], ["manual"]);
+  });
+});
+
+describe("pagamentos/registo: criterio 2 — o metodo tem de ser declarado", () => {
+  /**
+   * **O `capabilities.metodos` nao era lido por linha nenhuma de producao.**
+   *
+   * Medido por uma revisao adversarial: o `FakeProvider` declara
+   * `metodos: ["referencia"]` e `createCharge` aceitava os quatro `Metodo`,
+   * devolvendo uma referencia Multicaixa a um pedido `metodo: "cod"`. O §3.1
+   * abre a enumeracao de `ProviderCapabilities` com «metodos suportados» e fecha
+   * com «o PAY recusa usar uma capacidade nao declarada» — era esta a capacidade
+   * que faltava, isto e, metade do criterio 2.
+   */
+  const pedido = (metodo: "referencia" | "express_push" | "manual" | "cod") => ({
+    chargeId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    tenantId: "11111111-1111-4111-8111-111111111111",
+    accountId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    numeroPublico: "P-0001",
+    amount: 102_409n,
+    currency: "AOA" as const,
+    metodo,
+    validUntil: "2026-10-30T12:00:00.000Z",
+    customFields: {},
+  });
+
+  it("suporta() le a lista declarada", () => {
+    const caps = { ...CAPACIDADES_DO_FAKE, metodos: ["referencia"] as const };
+    assert.equal(suporta(caps, "referencia"), true);
+    for (const metodo of ["express_push", "manual", "cod"] as const) {
+      assert.equal(suporta(caps, metodo), false, metodo);
+    }
+  });
+
+  it("cobrar() aceita o metodo declarado", async () => {
+    const registo = new RegistoDeProviders(SEMPRE_VERDE);
+    registo.activar(adaptador("so_referencia", { metodos: ["referencia"] }));
+    const r = await registo.cobrar("so_referencia", pedido("referencia"));
+    assert.equal(r.kind, "manual");
+  });
+
+  /**
+   * O `cod` e o caso concreto: o ADR-016 tem-no desligado por omissao, e um
+   * pedido de pagamento a entrega que receba uma referencia e um cliente a pagar
+   * adiantado uma encomenda que pediu para pagar na mao.
+   */
+  it("cobrar() recusa os tres metodos nao declarados, com NOT_SUPPORTED", async () => {
+    const registo = new RegistoDeProviders(SEMPRE_VERDE);
+    registo.activar(adaptador("so_referencia", { metodos: ["referencia"] }));
+    for (const metodo of ["express_push", "manual", "cod"] as const) {
+      const erro = await capturarAsync<ProviderError>(() =>
+        registo.cobrar("so_referencia", pedido(metodo)),
+      );
+      assert.equal(erro.codigo, "NOT_SUPPORTED", metodo);
+    }
+  });
+
+  it("cobrar() recusa um adaptador desconhecido", async () => {
+    const registo = new RegistoDeProviders(SEMPRE_VERDE);
+    const erro = await capturarAsync<ProviderError>(() =>
+      registo.cobrar("nao_existe", pedido("referencia")),
+    );
+    assert.equal(erro.codigo, "VALIDATION");
+  });
+});
+
+describe("pagamentos/registo: um opcional sem capacidade associada", () => {
+  /**
+   * O `cancelCharge` e opcional no §3.1 e **nao tem campo em
+   * `ProviderCapabilities`**, pelo que nunca entra no `CAPACIDADE_EXIGIDA`. A
+   * primeira versao caia no ramo final e dizia «declara cancelCharge mas nao
+   * implementa cancelCharge» — uma frase que afirma que o adaptador declarou o
+   * que nao declarou, e que manda quem depura procurar um bug onde ha uma
+   * capacidade que o adaptador legitimamente nao tem.
+   */
+  it("da NOT_SUPPORTED e nao VALIDATION", () => {
+    const registo = new RegistoDeProviders(SEMPRE_VERDE);
+    const sem = adaptador("sem_cancelar");
+    delete (sem as { cancelCharge?: unknown }).cancelCharge;
+    registo.activar(sem);
+    const erro = capturar<ProviderError>(() => registo.chamar("sem_cancelar", "cancelCharge"));
+    assert.equal(erro.codigo, "NOT_SUPPORTED");
+    // E a mensagem **nao** diz que ele declarou o que nao declarou.
+    assert.ok(
+      !/declara 'cancelCharge'/.test(erro.message),
+      `a mensagem contradiz-se: ${erro.message}`,
+    );
+    assert.match(erro.message, /nao-declaracao/);
   });
 });

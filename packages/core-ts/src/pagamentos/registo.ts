@@ -43,11 +43,67 @@
  */
 
 import {
+  type ChargeResult,
+  type CreateChargeReq,
+  type Metodo,
   type MetodoDoContrato,
   type PaymentProvider,
   type ProviderCapabilities,
   ProviderError,
+  type RecusaNaoSuportada,
 } from "./tipos.ts";
+
+/**
+ * Os adaptadores a quem o criterio 2 reconhece confirmacao humana auditada.
+ *
+ * **Lista fechada, e nao um booleano que o adaptador se atribui.** O criterio
+ * escreve a excepcao com um **nome** — «excepto adaptadores so de confirmacao
+ * humana (`ManualProvider`)» —, e a primeira versao deste modulo leu-a como uma
+ * propriedade que o proprio adaptador declara. Uma revisao adversarial mostrou o
+ * que isso abre: qualquer adaptador com `humanOnly: true`, `callbackAuth:
+ * 'none'` e `statusQuery: false` salta a `ADAPTER_CANNOT_CONFIRM` e e activado —
+ * isto e, a guarda do ADR-013 desliga-se com uma linha nas capacidades do
+ * adaptador que ela devia medir.
+ *
+ * O `manual` e o `ManualProvider` do §4, que o **KAM-054** entrega. Esta aqui
+ * antes de existir de propria decisao: a lista e o contrato, e um adaptador que
+ * nao esteja nela nao usa a dispensa.
+ */
+export const ADAPTADORES_DE_CONFIRMACAO_HUMANA: readonly string[] = ["manual"];
+
+/**
+ * Os adaptadores cujo operador tem licenca do BNA (G-2).
+ *
+ * **Vazia**, e pela mesma razao da lista acima: a primeira versao lia
+ * `capabilities.pspLicenciado`, que o adaptador se atribui, pelo que a guarda
+ * que impede o arranque com `payouts_enabled=true` era satisfeita por uma linha
+ * no adaptador guardado. O §10.4 linha C exige um parceiro **licenciado**, e uma
+ * licenca nao e uma propriedade que o software declare sobre si.
+ *
+ * Nenhum adaptador do catalogo do §3.2 esta aqui, e nenhum pode estar sem D8
+ * (parecer) — pelo que `payouts_enabled=true` recusa sempre. E o pretendido.
+ */
+export const ADAPTADORES_COM_LICENCA_BNA: readonly string[] = [];
+
+/**
+ * As duas listas que dispensam, como parametro do registo.
+ *
+ * **Porque e um parametro e nao so a constante:** a constante e a politica de
+ * **producao** e a omissao; passar outra e uma decisao visivel no sitio onde o
+ * servico arranca, que e codigo em revisao. E o oposto de a etiqueta vir do
+ * adaptador — ali a dispensa viajava dentro da coisa guardada, aqui esta no
+ * chamador. E a mesma forma que o `verificarG4` usa para a lista da G-4.
+ */
+export type PoliticaDeActivacao = {
+  readonly confirmacaoHumana: readonly string[];
+  readonly licencaBna: readonly string[];
+};
+
+/** A politica de producao: o `ManualProvider` e nenhum PSP licenciado. */
+export const POLITICA_DE_PRODUCAO: PoliticaDeActivacao = {
+  confirmacaoHumana: ADAPTADORES_DE_CONFIRMACAO_HUMANA,
+  licencaBna: ADAPTADORES_COM_LICENCA_BNA,
+};
 
 /** O codigo que o criterio 2 nomeia. */
 export const ADAPTER_CANNOT_CONFIRM = "ADAPTER_CANNOT_CONFIRM";
@@ -55,11 +111,14 @@ export const ADAPTER_CANNOT_CONFIRM = "ADAPTER_CANNOT_CONFIRM";
 export const CONFORMANCE_REQUIRED = "CONFORMANCE_REQUIRED";
 /** Um `humanOnly` que tambem declara via automatica (ver `_coerencia`). */
 export const HUMAN_ONLY_INCOERENTE = "HUMAN_ONLY_INCOERENTE";
+/** Uma etiqueta que dispensa, posta por um adaptador que a lista nao reconhece. */
+export const ETIQUETA_NAO_RECONHECIDA = "ETIQUETA_NAO_RECONHECIDA";
 
 export type CodigoDeRecusa =
   | typeof ADAPTER_CANNOT_CONFIRM
   | typeof CONFORMANCE_REQUIRED
-  | typeof HUMAN_ONLY_INCOERENTE;
+  | typeof HUMAN_ONLY_INCOERENTE
+  | typeof ETIQUETA_NAO_RECONHECIDA;
 
 export class AdapterCannotConfirm extends Error {
   readonly codigo = ADAPTER_CANNOT_CONFIRM;
@@ -91,6 +150,16 @@ export class HumanOnlyIncoerente extends Error {
   }
 }
 
+export class EtiquetaNaoReconhecida extends Error {
+  readonly codigo = ETIQUETA_NAO_RECONHECIDA;
+  readonly adaptador: string;
+  constructor(adaptador: string, mensagem: string) {
+    super(mensagem);
+    this.name = "EtiquetaNaoReconhecida";
+    this.adaptador = adaptador;
+  }
+}
+
 /**
  * «Este adaptador consegue confirmar um pagamento por si?»
  *
@@ -118,8 +187,48 @@ export function podeConfirmar(capacidades: ProviderCapabilities): boolean {
  * `reconciliationQueue: false` — a matriz do §3.2 escreve-lhe «n/a» nas tres
  * colunas.
  */
-function _coerencia(adaptador: PaymentProvider): void {
+function _coerencia(adaptador: PaymentProvider, politica: PoliticaDeActivacao): void {
   const c = adaptador.capabilities;
+  // **A etiqueta nao se atribui.** Ver `PoliticaDeActivacao`: um adaptador que
+  // ponha uma destas a `true` sem estar na lista esta a dispensar-se a si
+  // proprio de uma guarda.
+  if (c.humanOnly && !politica.confirmacaoHumana.includes(adaptador.id)) {
+    throw new EtiquetaNaoReconhecida(
+      adaptador.id,
+      `o adaptador '${adaptador.id}' declara humanOnly e nao esta em ` +
+        "ADAPTADORES_DE_CONFIRMACAO_HUMANA. O criterio 2 escreve a excepcao com " +
+        "um nome («excepto adaptadores so de confirmacao humana, " +
+        "ManualProvider»), e uma dispensa que o proprio adaptador se atribui " +
+        "desliga a guarda do ADR-013 com uma linha nas capacidades que ela " +
+        `devia medir. Reconhecidos: ${politica.confirmacaoHumana.join(", ") || "nenhum"}.`,
+    );
+  }
+  if (c.pspLicenciado && !politica.licencaBna.includes(adaptador.id)) {
+    throw new EtiquetaNaoReconhecida(
+      adaptador.id,
+      `o adaptador '${adaptador.id}' declara pspLicenciado e nao esta em ` +
+        "ADAPTADORES_COM_LICENCA_BNA. Uma licenca do BNA nao e uma propriedade " +
+        "que o software declare sobre si (§10.4, linha C), e esta etiqueta e o " +
+        "que permite `payouts_enabled=true`. A lista esta vazia e so D8 a abre.",
+    );
+  }
+  // **A G-2 na declaracao, e nao so na chamada.** O §10.4 tem dois mecanismos —
+  // «`capabilities.payout=false`» **e** «chamada devolve `NOT_SUPPORTED`» — e a
+  // primeira versao impunha so o segundo. Um adaptador que declare saber
+  // reembolsar poe uma afirmacao falsa na superficie que a plataforma usa para
+  // escolher adaptador por tenant (§3.2) e nos relatorios.
+  const promete: string[] = [];
+  if (c.refund) promete.push("refund=true");
+  if (c.payout) promete.push("payout=true");
+  if (promete.length > 0) {
+    throw new EtiquetaNaoReconhecida(
+      adaptador.id,
+      `o adaptador '${adaptador.id}' declara ${promete.join(" e ")}: a G-2 do ` +
+        "§10.4 exige `capabilities.payout=false`, e a plataforma nao detem " +
+        "fundos (ADR-004). O reembolso e processo manual (G-6) e o payout e " +
+        "executado pela PME a partir da conta dela.",
+    );
+  }
   if (!c.humanOnly) return;
   const automaticas: string[] = [];
   if (c.callbackAuth !== "none") automaticas.push(`callbackAuth='${c.callbackAuth}'`);
@@ -156,8 +265,12 @@ export const CONFORMIDADE_VAZIA: Conformidade = { green: () => false };
  * `false` ignorado era um servico a correr com um adaptador que nao confirma, e
  * e o caso que a G-2 e o ADR-013 existem para impedir.
  */
-export function activar(adaptador: PaymentProvider, conformidade: Conformidade): void {
-  _coerencia(adaptador);
+export function activar(
+  adaptador: PaymentProvider,
+  conformidade: Conformidade,
+  politica: PoliticaDeActivacao = POLITICA_DE_PRODUCAO,
+): void {
+  _coerencia(adaptador, politica);
   const c = adaptador.capabilities;
   if (!c.humanOnly && c.callbackAuth !== "hmac" && !c.statusQuery) {
     throw new AdapterCannotConfirm(
@@ -194,18 +307,43 @@ const CAPACIDADE_EXIGIDA: Partial<Record<MetodoDoContrato, keyof ProviderCapabil
   acknowledge: "reconciliationQueue",
 };
 
+/**
+ * «Este adaptador declara saber cobrar por este metodo?» — a primeira entrada da
+ * lista do §3.1.
+ *
+ * **O `capabilities.metodos` nao era lido por linha nenhuma de producao**, e foi
+ * uma revisao adversarial que o mediu: o `FakeProvider` declara
+ * `metodos: ['referencia']` e aceitava `createCharge` com os quatro `Metodo`,
+ * devolvendo uma referencia Multicaixa a um pedido `metodo: 'cod'`. O §3.1 abre a
+ * enumeracao de `ProviderCapabilities` com «**metodos suportados**» e fecha com
+ * «o PAY **recusa** usar uma capacidade nao declarada» — e esta era a capacidade
+ * que faltava, isto e, metade do criterio 2.
+ *
+ * O `cod` e o caso concreto: o ADR-016 tem-no desligado por omissao, e um pedido
+ * de pagamento a entrega que receba uma referencia e um cliente a pagar
+ * adiantado uma encomenda que pediu para pagar na mao.
+ */
+export function suporta(capacidades: ProviderCapabilities, metodo: Metodo): boolean {
+  return capacidades.metodos.includes(metodo);
+}
+
 /** O registo. Um adaptador so entra por `activar`. */
 export class RegistoDeProviders {
   readonly #porId = new Map<string, PaymentProvider>();
   readonly #conformidade: Conformidade;
+  readonly #politica: PoliticaDeActivacao;
 
-  constructor(conformidade: Conformidade = CONFORMIDADE_VAZIA) {
+  constructor(
+    conformidade: Conformidade = CONFORMIDADE_VAZIA,
+    politica: PoliticaDeActivacao = POLITICA_DE_PRODUCAO,
+  ) {
     this.#conformidade = conformidade;
+    this.#politica = politica;
   }
 
   /** Corre a regra de activacao e, se ela passar, registra. */
   activar(adaptador: PaymentProvider): void {
-    activar(adaptador, this.#conformidade);
+    activar(adaptador, this.#conformidade, this.#politica);
     this.#porId.set(adaptador.id, adaptador);
   }
 
@@ -217,24 +355,38 @@ export class RegistoDeProviders {
     return [...this.#porId.keys()];
   }
 
-  /** O adaptador marcado `psp_licenciado`, se houver (G-2). */
+  /**
+   * Ha um adaptador registado **com licenca do BNA** (G-2)?
+   *
+   * Le a lista fechada e **nao** a declaracao do adaptador: ver
+   * `ADAPTADORES_COM_LICENCA_BNA`. A conjuncao e deliberada — tem de estar
+   * registado (isto e, ter passado a activacao) **e** estar na lista.
+   */
   get temPspLicenciado(): boolean {
-    return [...this.#porId.values()].some((a) => a.capabilities.pspLicenciado);
+    return [...this.#porId.keys()].some((id) => this.#politica.licencaBna.includes(id));
   }
 
   /**
    * «Recusa chamar uma capacidade nao declarada» — a segunda recusa do §3.1.
    *
-   * Duas coisas que a assinatura esconde e que importam:
+   * Tres coisas que a assinatura esconde e que importam:
    *
-   * * o `refund` e o `payout` sao recusados **aqui**, com `NOT_SUPPORTED`, e o
+   * * o `refund` e o `payout` **devolvem** `NOT_SUPPORTED` em vez de lancar, e o
    *   adaptador nunca e chamado. E a G-2 a morder no registo e nao em cada
-   *   adaptador: um adaptador novo que se esquecesse de devolver
-   *   `NOT_SUPPORTED` nao abria caminho nenhum;
-   * * um metodo opcional **ausente** com a capacidade declarada e um defeito do
-   *   adaptador, nao uma capacidade nao declarada, e por isso levanta
-   *   `VALIDATION` e nao `NOT_SUPPORTED`. A diferenca importa para quem depura:
-   *   «nao suportado» e uma resposta de desenho, «declarou e nao tem» e um bug.
+   *   adaptador. A primeira versao **lancava**, e uma revisao adversarial
+   *   apanhou a divergencia: o criterio 3 escreve «`refund` e `payout` de
+   *   qualquer adaptador **devolvem** `NOT_SUPPORTED`» e o §3.1 tipa o retorno
+   *   (`RefundResult`), pelo que quem escrevesse
+   *   `await registo.chamar(id, 'refund')(req)` apanhava uma excepcao onde o
+   *   tipo promete um valor — e o `RefundResult` ficava inalcancavel pelo
+   *   caminho que este modulo recomenda;
+   * * uma **capacidade nao declarada** da `NOT_SUPPORTED`, e isso inclui agora os
+   *   metodos opcionais que nao tem campo em `ProviderCapabilities`
+   *   (`cancelCharge`): ausente e, por desenho, nao suportado;
+   * * «declarou e nao implementou» da `VALIDATION`, porque e um bug e nao um
+   *   desenho. A diferenca importa para quem depura — e a primeira versao dizia
+   *   `declara 'cancelCharge' mas nao implementa 'cancelCharge'` sobre um metodo
+   *   que o adaptador **nao** tinha declarado, que e uma frase que se contradiz.
    */
   chamar<N extends MetodoDoContrato>(id: string, metodo: N): PaymentProvider[N] {
     const adaptador = this.#porId.get(id);
@@ -242,12 +394,13 @@ export class RegistoDeProviders {
       throw new ProviderError("VALIDATION", `adaptador desconhecido: '${id}'`);
     }
     if (metodo === "refund" || metodo === "payout") {
-      throw new ProviderError(
-        "NOT_SUPPORTED",
-        `'${metodo}' nao e suportado (ADR-004, G-2): a plataforma nao detem ` +
-          "fundos. Reembolso e processo manual (refund_cases, G-6) e payout " +
-          "e executado pela PME a partir da conta dela.",
-      );
+      const recusa: RecusaNaoSuportada = { ok: false, erro: "NOT_SUPPORTED" };
+      // O `as unknown as` e inevitavel e fica dito: o `N` generico nao estreita
+      // para `'refund' | 'payout'` dentro do ramo, pelo que o compilador nao
+      // sabe que o retorno esperado e `Promise<RecusaNaoSuportada>`. A
+      // alternativa era tipar `chamar` com sobrecargas por metodo, que e muito
+      // aparato para a unica assinatura que o registo nao delega.
+      return (async () => recusa) as unknown as PaymentProvider[N];
     }
     const exigida = CAPACIDADE_EXIGIDA[metodo];
     if (exigida !== undefined && adaptador.capabilities[exigida] !== true) {
@@ -260,12 +413,48 @@ export class RegistoDeProviders {
     }
     const funcao = adaptador[metodo];
     if (typeof funcao !== "function") {
+      // Sem capacidade associada, a ausencia **e** a nao-declaracao.
+      if (exigida === undefined) {
+        throw new ProviderError(
+          "NOT_SUPPORTED",
+          `o adaptador '${id}' nao implementa '${metodo}', que e opcional no ` +
+            "docs/tecnica/04 §3.1 e nao tem campo em ProviderCapabilities: a " +
+            "ausencia e a nao-declaracao",
+        );
+      }
       throw new ProviderError(
         "VALIDATION",
-        `o adaptador '${id}' declara '${exigida ?? metodo}' mas nao implementa ` +
-          `'${metodo}'`,
+        `o adaptador '${id}' declara '${exigida}' mas nao implementa '${metodo}'`,
       );
     }
     return funcao.bind(adaptador) as PaymentProvider[N];
+  }
+
+  /**
+   * `createCharge` com o metodo confrontado contra `capabilities.metodos`.
+   *
+   * E o caminho que fecha a primeira entrada da lista do §3.1 — ver `suporta`
+   * para a medicao que mostrou que ela nao era lida. Quem chama `chamar(id,
+   * 'createCharge')` recebe a funcao crua e **nao** passa por aqui; este metodo
+   * existe para que o caminho recomendado seja o que verifica.
+   */
+  async cobrar(id: string, req: CreateChargeReq): Promise<ChargeResult> {
+    const adaptador = this.#porId.get(id);
+    if (adaptador === undefined) {
+      throw new ProviderError("VALIDATION", `adaptador desconhecido: '${id}'`);
+    }
+    if (!suporta(adaptador.capabilities, req.metodo)) {
+      throw new ProviderError(
+        "NOT_SUPPORTED",
+        `o adaptador '${id}' nao declara o metodo '${req.metodo}' ` +
+          `(declara: ${adaptador.capabilities.metodos.join(", ")}). O ` +
+          "docs/tecnica/04 §3.1 poe «metodos suportados» na primeira linha de " +
+          "ProviderCapabilities, e o PAY recusa usar uma capacidade nao " +
+          "declarada: sem isto, um pedido 'cod' recebia uma referencia " +
+          "Multicaixa, isto e, um cliente a pagar adiantado uma encomenda que " +
+          "pediu para pagar na mao (ADR-016)",
+      );
+    }
+    return adaptador.createCharge(req);
   }
 }

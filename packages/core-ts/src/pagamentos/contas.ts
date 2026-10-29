@@ -77,7 +77,15 @@ export function gerarWebhookToken(): string {
   return randomBytes(OCTETOS_DO_WEBHOOK_TOKEN).toString("base64url");
 }
 
-/** Comprimento de um `webhook_token` em `base64url`: `ceil(32 / 3) * 4` sem enchimento. */
+/**
+ * Comprimento de um `webhook_token` em `base64url`: `ceil(32 * 4 / 3)` = **43**.
+ *
+ * A formula escrita aqui antes era `ceil(32 / 3) * 4`, que da **44** — o valor da
+ * forma **com** enchimento, que o `base64url` nao usa. O numero sempre esteve
+ * certo (medido: 2 000 sorteios, todos de 43); a formula e que estava errada, e
+ * uma revisao adversarial apanhou-a. Fica dito porque uma formula errada ao lado
+ * de um valor certo e um convite a «corrigir» o valor.
+ */
 export const COMPRIMENTO_DO_WEBHOOK_TOKEN = 43;
 
 export class CredenciaisRefInvalida extends Error {

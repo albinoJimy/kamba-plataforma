@@ -134,6 +134,7 @@ export {
   type RecusaDeTransicao,
   type ResultadoDeTransicao,
   type Sinais,
+  estaActiva,
   podeCobrar,
   transitar,
 } from "./estados.ts";
@@ -147,18 +148,25 @@ export {
 } from "./fake.ts";
 
 export {
+  ADAPTADORES_COM_LICENCA_BNA,
+  ADAPTADORES_DE_CONFIRMACAO_HUMANA,
   ADAPTER_CANNOT_CONFIRM,
   CONFORMANCE_REQUIRED,
   CONFORMIDADE_VAZIA,
+  ETIQUETA_NAO_RECONHECIDA,
   HUMAN_ONLY_INCOERENTE,
   AdapterCannotConfirm,
   ConformanceRequired,
+  EtiquetaNaoReconhecida,
   HumanOnlyIncoerente,
+  POLITICA_DE_PRODUCAO,
   RegistoDeProviders,
   type CodigoDeRecusa,
   type Conformidade,
+  type PoliticaDeActivacao,
   activar,
   podeConfirmar,
+  suporta,
 } from "./registo.ts";
 
 export {

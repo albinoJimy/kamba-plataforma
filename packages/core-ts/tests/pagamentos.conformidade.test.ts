@@ -25,7 +25,7 @@ import { type Fraquezas, bancoDeEnsaio } from "./pagamentos.banco.ts";
 /** Os dez casos, transcritos do §3.5 pela ordem em que o documento os escreve. */
 const DO_DOCUMENTO: readonly Caso[] = [
   "assinatura_adulterada_rejeita",
-  "valor_mais_um_centimo_sobrevive_exacto",
+  "valor_mais_um_centimo_da_divergencia",
   "referencia_desconhecida_e_orfao",
   "callback_duplicado_dez_vezes_um_efeito",
   "callback_fora_de_ordem",
@@ -76,12 +76,24 @@ describe("pagamentos/conformidade: o canario — o harness morde", () => {
    * valor, e assim por diante. Uma fraqueza que matasse o caso errado — ou
    * nenhum — apareceria aqui.
    */
-  const CANARIOS: readonly [keyof Fraquezas, Caso][] = [
+const CANARIOS: readonly [keyof Fraquezas, Caso][] = [
     ["semVerificarAssinatura", "assinatura_adulterada_rejeita"],
-    ["valorPorFloat", "valor_mais_um_centimo_sobrevive_exacto"],
+    // **O adaptador que verifica HMAC a serio e ignora a conta.** Nenhuma
+    // mutacao de assinatura o apanha; o que o apanha e o callback cruzado do
+    // caso 1. Foi o segundo defeito que a revisao adversarial construiu.
+    ["chaveGlobal", "assinatura_adulterada_rejeita"],
+    ["valorPorFloat", "valor_mais_um_centimo_da_divergencia"],
+    ["descartaOrfao", "referencia_desconhecida_e_orfao"],
     ["eventIdPorContador", "callback_duplicado_dez_vezes_um_efeito"],
+    ["criaSempre", "criacao_com_resposta_perdida_e_idempotente"],
     ["semJanelaDeRotacao", "rotacao_de_chave"],
     ["rateLimitGenerico", "rate_limit_429"],
+    // Uma fraqueza pode matar mais do que um caso, e esta mata dois: sem o
+    // instante do evento ninguem pode comparar com o `valid_until` (caso 6) e a
+    // ordem passa a depender de quem chegou primeiro (caso 5).
+    ["instanteDaChegada", "callback_fora_de_ordem"],
+    ["instanteDaChegada", "pagamento_depois_de_valid_until"],
+    ["statusDiscordante", "status_concorda_com_o_callback"],
   ];
 
   for (const [fraqueza, caso] of CANARIOS) {
@@ -111,17 +123,78 @@ describe("pagamentos/conformidade: o canario — o harness morde", () => {
   it("o valorPorFloat perde o centimo por truncatura, e o caso 2 ve", async () => {
     const veredicto = await correr(bancoDeEnsaio({ valorPorFloat: true }));
     const resultado = veredicto.resultados.find(
-      (r) => r.caso === "valor_mais_um_centimo_sobrevive_exacto",
+      (r) => r.caso === "valor_mais_um_centimo_da_divergencia",
     );
     assert.ok(resultado !== undefined);
     assert.equal(resultado.ok, false);
-    assert.match(resultado.detalhe, /nao sobreviveu exacto/);
+    assert.match(resultado.detalhe, /diferenca face a cobranca/);
   });
 
   it("uma fraqueza nao estraga os casos que nao sao dela", async () => {
     const veredicto = await correr(bancoDeEnsaio({ semJanelaDeRotacao: true }));
     const vermelhos = veredicto.resultados.filter((r) => !r.ok).map((r) => r.caso);
     assert.deepEqual(vermelhos, ["rotacao_de_chave"]);
+  });
+
+  /**
+   * **Todos os dez casos tem canario.**
+   *
+   * A primeira versao tinha cinco, e os casos 3, 5, 6, 7 e 10 nao tinham
+   * nenhum — isto e, metade da suite estava sujeita ao argumento que o proprio
+   * ficheiro escreve contra ela. Apanhado pela revisao adversarial, que o
+   * cruzou com a cobertura: as linhas nao cobertas de `conformidade.ts` eram
+   * **exactamente** os ramos de falha dos casos sem canario.
+   *
+   * Este ensaio e o que impede a regressao: um caso novo sem canario falha
+   * aqui.
+   */
+  it("os dez casos tem canario", () => {
+    const cobertos = new Set(CANARIOS.map(([, caso]) => caso));
+    const sem = CASOS.filter((c) => !cobertos.has(c));
+    assert.deepEqual(
+      sem,
+      [],
+      `casos sem canario: ${sem.join(", ")} — um caso sem controlo positivo ` +
+        "pode estar verde por nao medir nada",
+    );
+  });
+});
+
+describe("pagamentos/conformidade: os dois adaptadores que a revisao construiu", () => {
+  /**
+   * **O defeito que esta suite existe para apanhar, e que ela deixava passar.**
+   *
+   * Uma revisao adversarial independente escreveu dois adaptadores obviamente
+   * defeituosos e mediu que os **dois** passavam os dez casos e eram activados:
+   *
+   *   A  `verifyCallback` nao verifica assinatura nenhuma — exige so um campo
+   *      `sig` nao vazio — e o `adulterar` do seu banco esvazia esse campo
+   *   B  verifica HMAC a serio e **ignora o `acct`**, com um conjunto global de
+   *      chaves
+   *
+   * O A passava porque o unico caso que media autenticidade recebia a mutacao
+   * **de quem estava a ser medido**. O B passava porque nenhum dos dez casos
+   * usava duas contas. Em producao, o A confirma um pagamento de 999 999,99 Kz
+   * a quem conheca o `webhook_token`, e o B aceita o callback da PME A entregue
+   * no `webhook_token` da PME B — contra o §3.3, «uma chave por conta de PME e
+   * nunca partilhada».
+   *
+   * Os dois ficam aqui como ensaio permanente, e nao so como nota no PR: um
+   * defeito que voltou a passar e um defeito que ninguem notou.
+   */
+  it("o que nao verifica assinatura nenhuma fica vermelho", async () => {
+    const veredicto = await correr(bancoDeEnsaio({ semVerificarAssinatura: true }));
+    assert.equal(veredicto.verde, false);
+    const caso1 = veredicto.resultados.find((r) => r.caso === "assinatura_adulterada_rejeita");
+    assert.equal(caso1?.ok, false);
+  });
+
+  it("o que verifica HMAC e ignora a conta fica vermelho", async () => {
+    const veredicto = await correr(bancoDeEnsaio({ chaveGlobal: true }));
+    assert.equal(veredicto.verde, false);
+    const caso1 = veredicto.resultados.find((r) => r.caso === "assinatura_adulterada_rejeita");
+    assert.equal(caso1?.ok, false);
+    assert.match(caso1?.detalhe ?? "", /OUTRA conta/);
   });
 });
 

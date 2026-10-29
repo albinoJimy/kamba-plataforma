@@ -66,7 +66,7 @@ import {
 /** Os dez casos do §3.5, pela ordem em que o documento os escreve. */
 export const CASOS = [
   "assinatura_adulterada_rejeita",
-  "valor_mais_um_centimo_sobrevive_exacto",
+  "valor_mais_um_centimo_da_divergencia",
   "referencia_desconhecida_e_orfao",
   "callback_duplicado_dez_vezes_um_efeito",
   "callback_fora_de_ordem",
@@ -87,28 +87,83 @@ export type FalhaProgramada = "rate_limit" | "resposta_perdida" | null;
  *
  * Tudo o que esta aqui e conhecimento **do adaptador** sobre o seu facilitador.
  * O harness nao sabe assinar nada.
+ *
+ * ## Duas contas, e nao uma — e e a correccao mais importante deste harness
+ *
+ * A primeira versao pedia **uma** conta e deixava a adulteracao ao adaptador
+ * (`adulterar`). Uma revisao adversarial independente mostrou que isso nao mede
+ * autenticidade nenhuma: escreveu um adaptador cujo `verifyCallback` so exige um
+ * campo `sig` nao vazio e cujo `adulterar` esvazia esse campo — e o adaptador
+ * passou os dez casos e foi activado. Reproduzido: um callback forjado por quem
+ * conheca o `webhook_token`, sem chave nenhuma, deu
+ * `['forjado:9999999999']`.
+ *
+ * O defeito e estrutural e nao um descuido: **o unico caso que mede
+ * autenticidade recebia a mutacao de quem estava a ser medido.** Um adaptador
+ * que escolhe a sua propria adulteracao escolhe o que o caso 1 prova.
+ *
+ * A `contaAlternativa` fecha-o, e fecha-o sem o harness saber assinar nada: um
+ * callback **genuinamente assinado para a conta B**, apresentado com as
+ * credenciais da conta A, tem de ser recusado. A propriedade e do §3.3 — «uma
+ * chave por conta de PME e **nunca** partilhada» — e e agnostica ao formato, o
+ * que a torna mais forte do que qualquer mutacao de bytes:
+ *
+ * * mata o adaptador que nao verifica nada, porque o callback de B e, para ele,
+ *   tao valido como o de A;
+ * * mata o adaptador que verifica HMAC a serio mas **ignora o `acct`** e usa uma
+ *   chave global — que foi o segundo defeito que a revisao construiu, e que
+ *   nenhuma mutacao de assinatura apanharia;
+ * * nao incomoda o adaptador honesto, que recusa porque a chave e outra.
  */
 export type BancoDeEnsaio = {
   readonly provider: PaymentProvider;
   /** As credenciais da conta de ensaio, com a referencia anterior preenchida. */
   readonly conta: AccountSecrets;
+  /**
+   * Uma **segunda** conta, com chave diferente. Ver o cabecalho deste tipo.
+   *
+   * Nao e opcional de propria decisao: um adaptador que nao consiga produzir
+   * duas contas de ensaio nao consegue ser medido na propriedade que mais
+   * importa, e «nao se consegue medir» nao e «passa».
+   */
+  readonly contaAlternativa: AccountSecrets;
   /** Um pedido valido, para o caso da idempotencia. */
   pedido(): CreateChargeReq;
   /**
-   * Um callback **genuino** para um evento, assinado com a chave indicada.
+   * Um callback **genuino** para um evento, assinado para uma conta.
    *
-   * `chave: 'anterior'` assina com a credencial anterior, que e o caso 8.
+   * `chave: 'anterior'` assina com a credencial anterior **da mesma conta**, que
+   * e o caso 8. `conta` escolhe para **que** conta se assina, e o seu valor por
+   * omissao e a `conta` do banco.
    */
   callback(
     evento: Pick<VerifiedEvent, "providerEventId" | "valor" | "ocorridoEm"> & {
       readonly referencia?: string;
     },
     chave?: "actual" | "anterior",
+    conta?: AccountSecrets,
   ): Promise<RawHttpCallback>;
   /** O mesmo callback com a assinatura estragada, e **so** a assinatura. */
   adulterar(callback: RawHttpCallback): RawHttpCallback;
   /** Programa a proxima chamada ao facilitador para falhar assim. */
   programar(falha: FalhaProgramada): void;
+  /**
+   * Quantas cobrancas o facilitador criou de facto, desde o inicio.
+   *
+   * O caso 7 compara **objectos devolvidos** e isso nao chega: um adaptador que
+   * derive a referencia do `chargeId` devolve sempre o mesmo objecto, mesmo que
+   * emita uma referencia nova no lado do facilitador a cada chamada. Medido pela
+   * revisao adversarial: o caso 7 ficava verde com **quatro** cobrancas criadas.
+   *
+   * O dano real sao duas referencias Multicaixa para a mesma encomenda, e a
+   * Multicaixa **nao admite devolucao** (§1.4) — um cliente que pague as duas
+   * nao tem como ser reembolsado dentro da plataforma.
+   *
+   * **E um numero que o banco reporta, e isso e uma limitacao dita:** so o
+   * facilitador sabe quantas cobrancas existem. Um banco que minta neste
+   * contador mente ao autor do proprio adaptador.
+   */
+  criacoesNoFacilitador(): number;
   /** A referencia pela qual se consulta o estado de um callback. */
   refDe(evento: VerifiedEvent): ProviderRef;
   /** Uma referencia que o facilitador nao conhece. */
@@ -141,26 +196,88 @@ function instante(deslocamentoMs: number): string {
   return new Date(Date.UTC(2026, 9, 29, 12, 0, 0) + deslocamentoMs).toISOString();
 }
 
-/** Caso 1: uma assinatura adulterada e recusada com `AuthError`. */
+/**
+ * Caso 1: uma assinatura que nao verifica e recusada com `AuthError`.
+ *
+ * **Tres sub-verificacoes, e a segunda e a terceira sao do harness.** Ver o
+ * cabecalho de `BancoDeEnsaio` para a razao: a primeira versao tinha so a
+ * primeira, e um adaptador que escolhe a sua propria adulteracao escolhe o que
+ * este caso prova.
+ *
+ *     1  a adulteracao do proprio adaptador (sabe onde a assinatura vive)
+ *     2  um callback genuino de **outra conta** com as credenciais desta
+ *     3  o corpo de um evento com os cabecalhos de outro
+ *
+ * A segunda e a que faz o trabalho, e e agnostica ao formato: nao precisa de
+ * saber onde a assinatura esta nem como se calcula. A terceira e aditiva e
+ * apanha o adaptador que verifica o cabecalho sem o ligar ao corpo.
+ */
 async function _caso1(banco: BancoDeEnsaio): Promise<ResultadoDoCaso> {
   const caso: Caso = "assinatura_adulterada_rejeita";
   const genuino = await banco.callback({
     providerEventId: "ev-1",
-    valor: 123_457n,
+    valor: 102_409n,
     ocorridoEm: instante(0),
   });
-  const adulterado = banco.adulterar(genuino);
-  try {
-    await banco.provider.verifyCallback(adulterado, banco.conta);
-  } catch (erro) {
-    if (erro instanceof AuthError) return ok(caso);
-    return falha(caso, `recusou, mas com ${(erro as Error).name} e nao AuthError`);
+
+  // 1. A adulteracao do adaptador.
+  const recusou1 = await _recusaComAuthError(banco, banco.adulterar(genuino));
+  if (recusou1 !== null) {
+    return falha(
+      caso,
+      `a assinatura adulterada ${recusou1}: um terceiro podia confirmar ` +
+        "pagamentos (ADR-013, docs/tecnica/04 §5)",
+    );
   }
-  return falha(
-    caso,
-    "aceitou um callback com a assinatura adulterada — um terceiro podia " +
-      "confirmar pagamentos (ADR-013, docs/tecnica/04 §5)",
+
+  // 2. **A verificacao que importa**: o callback de outra conta.
+  const deOutraConta = await banco.callback(
+    { providerEventId: "ev-1b", valor: 102_409n, ocorridoEm: instante(0) },
+    "actual",
+    banco.contaAlternativa,
   );
+  const recusou2 = await _recusaComAuthError(banco, deOutraConta);
+  if (recusou2 !== null) {
+    return falha(
+      caso,
+      `um callback genuinamente assinado para OUTRA conta ${recusou2}. ` +
+        "O §3.3 exige uma chave por conta de PME, nunca partilhada: sem esta " +
+        "recusa, o callback de uma loja confirma o pagamento de outra, e um " +
+        "adaptador que nao verifique assinatura nenhuma passa este caso.",
+    );
+  }
+
+  // 3. O corpo de um evento com os cabecalhos de outro.
+  const outro = await banco.callback({
+    providerEventId: "ev-1c",
+    valor: 50_000n,
+    ocorridoEm: instante(1_000),
+  });
+  const hibrido = { corpo: outro.corpo, cabecalhos: genuino.cabecalhos };
+  const recusou3 = await _recusaComAuthError(banco, hibrido);
+  if (recusou3 !== null) {
+    return falha(
+      caso,
+      `o corpo de um evento com os cabecalhos de outro ${recusou3}: a ` +
+        "assinatura tem de ser verificada **sobre o corpo cru** (§3.3), e nao " +
+        "apenas conferida como presente",
+    );
+  }
+  return ok(caso);
+}
+
+/** `null` se recusou com `AuthError`; a razao da falha se nao. */
+async function _recusaComAuthError(
+  banco: BancoDeEnsaio,
+  callback: RawHttpCallback,
+): Promise<string | null> {
+  try {
+    await banco.provider.verifyCallback(callback, banco.conta);
+  } catch (erro) {
+    if (erro instanceof AuthError) return null;
+    return `foi recusado com ${(erro as Error).name} e nao com AuthError`;
+  }
+  return "foi aceite";
 }
 
 /**
@@ -182,26 +299,45 @@ async function _caso1(banco: BancoDeEnsaio): Promise<ResultadoDoCaso> {
  * criterio 9 se pode marcar.
  */
 async function _caso2(banco: BancoDeEnsaio): Promise<ResultadoDoCaso> {
-  const caso: Caso = "valor_mais_um_centimo_sobrevive_exacto";
-  const esperado: Minor = 102_409n;
-  const cb = await banco.callback({
-    providerEventId: "ev-2",
-    valor: esperado,
-    ocorridoEm: instante(0),
-  });
-  const eventos = await banco.provider.verifyCallback(cb, banco.conta);
-  const primeiro = eventos[0];
-  if (primeiro === undefined) return falha(caso, "o callback genuino nao produziu evento nenhum");
-  if (typeof primeiro.valor !== "bigint") {
-    return falha(caso, `o valor veio como ${typeof primeiro.valor} e nao bigint`);
-  }
-  if (primeiro.valor !== esperado) {
-    return falha(
-      caso,
-      `o valor nao sobreviveu exacto: esperado ${esperado}, recebido ` +
-        `${primeiro.valor}. Um centimo perdido aqui torna a divergencia do §5 ` +
-        "indetectavel.",
-    );
+  const caso: Caso = "valor_mais_um_centimo_da_divergencia";
+  // **O montante da cobranca**, e nao um valor avulso: e com ele que a
+  // divergencia se mede. A primeira versao deste caso nunca chamava
+  // `banco.pedido()`, pelo que nao havia nada com que divergir — apanhado pela
+  // revisao adversarial.
+  const cobrado: Minor = banco.pedido().amount;
+
+  for (const [rotulo, pago] of [
+    ["mais um centimo", cobrado + 1n],
+    ["menos um centimo", cobrado - 1n],
+    ["exacto", cobrado],
+  ] as const) {
+    const cb = await banco.callback({
+      providerEventId: `ev-2-${rotulo.replace(/ /g, "-")}`,
+      valor: pago,
+      ocorridoEm: instante(0),
+    });
+    const eventos = await banco.provider.verifyCallback(cb, banco.conta);
+    const primeiro = eventos[0];
+    if (primeiro === undefined) {
+      return falha(caso, `o callback genuino de ${rotulo} nao produziu evento nenhum`);
+    }
+    if (typeof primeiro.valor !== "bigint") {
+      return falha(caso, `o valor de ${rotulo} veio como ${typeof primeiro.valor}, nao bigint`);
+    }
+    // A asercao do §3.5: a diferenca face a cobranca **chega intacta**, pelo que
+    // o §5 a pode classificar como divergencia. Um centimo perdido aqui torna a
+    // divergencia indetectavel — e um valor arredondado torna-a invisivel
+    // precisamente nos dois casos em que ela existe.
+    const diferenca = primeiro.valor - cobrado;
+    const esperada = pago - cobrado;
+    if (diferenca !== esperada) {
+      return falha(
+        caso,
+        `com ${rotulo}, a diferenca face a cobranca chegou como ${diferenca} e ` +
+          `devia ser ${esperada} (cobrado ${cobrado}, pago ${pago}, recebido ` +
+          `${primeiro.valor}). A divergencia do §5 passa a ser indetectavel.`,
+      );
+    }
   }
   return ok(caso);
 }
@@ -286,6 +422,29 @@ async function _caso5(banco: BancoDeEnsaio): Promise<ResultadoDoCaso> {
     ...(await banco.provider.verifyCallback(tarde, banco.conta)),
     ...(await banco.provider.verifyCallback(cedo, banco.conta)),
   ];
+  // **Primeiro: o instante vem do evento.** Esta asercao precede a de
+  // order-independence porque e ela que faz o trabalho, e a primeira versao nao
+  // a tinha — comparava so as duas ordens, e um adaptador que carimbasse a hora
+  // da **chegada** passava, porque as quatro verificacoes de um ensaio caem no
+  // mesmo milissegundo e as duas cadeias ficavam iguais. Apanhado pelo canario
+  // `instanteDaChegada`, que nao se manifestava.
+  const esperados = new Map([
+    ["ev-5a", instante(0)],
+    ["ev-5b", instante(60_000)],
+  ]);
+  for (const evento of [...porOrdem, ...invertido]) {
+    const esperado = esperados.get(evento.providerEventId);
+    if (esperado !== undefined && evento.ocorridoEm !== esperado) {
+      return falha(
+        caso,
+        `o instante de '${evento.providerEventId}' veio ${evento.ocorridoEm} e o ` +
+          `do evento e ${esperado}: o instante tem de vir do **evento** e nao ` +
+          "da chegada. Com a hora da chegada, dois callbacks reentregues fora " +
+          "de ordem (§3.3: «o mesmo pagamento pode chegar mais do que uma " +
+          "vez») ficam com a ordem trocada no ledger",
+      );
+    }
+  }
   const chave = (eventos: readonly VerifiedEvent[]): string =>
     [...eventos].map((e) => `${e.providerEventId}@${e.ocorridoEm}`).sort().join("|");
   if (chave(porOrdem) !== chave(invertido)) {
@@ -293,8 +452,7 @@ async function _caso5(banco: BancoDeEnsaio): Promise<ResultadoDoCaso> {
       caso,
       "a verificacao depende da ordem de chegada: " +
         `${chave(porOrdem)} contra ${chave(invertido)}. A ordem de um callback ` +
-        "nao e garantida (§3.3: reentregas e duplicados possiveis), e o " +
-        "instante tem de vir do evento e nao da chegada",
+        "nao e garantida (§3.3: reentregas e duplicados possiveis)",
     );
   }
   return ok(caso);
@@ -345,6 +503,7 @@ async function _caso6(banco: BancoDeEnsaio): Promise<ResultadoDoCaso> {
 async function _caso7(banco: BancoDeEnsaio): Promise<ResultadoDoCaso> {
   const caso: Caso = "criacao_com_resposta_perdida_e_idempotente";
   const pedido = banco.pedido();
+  const antes = banco.criacoesNoFacilitador();
   banco.programar("resposta_perdida");
   let primeiraFalhou = false;
   try {
@@ -372,6 +531,22 @@ async function _caso7(banco: BancoDeEnsaio): Promise<ResultadoDoCaso> {
       "duas criacoes com o mesmo chargeId deram cobrancas diferentes: o " +
         "chargeId e a chave de idempotencia (§3.1), e sem isto uma resposta " +
         "perdida produz duas referencias para a mesma encomenda",
+    );
+  }
+  // **E o facilitador criou UMA.** Comparar os objectos devolvidos nao chega: um
+  // adaptador que derive a referencia do `chargeId` devolve sempre o mesmo
+  // objecto e pode ter emitido tres referencias. Medido pela revisao
+  // adversarial — o caso ficava verde com quatro cobrancas criadas —, e o dano
+  // sao duas referencias Multicaixa para a mesma encomenda, que nao admite
+  // devolucao (§1.4).
+  const criadas = banco.criacoesNoFacilitador() - antes;
+  if (criadas !== 1) {
+    return falha(
+      caso,
+      `tres chamadas com o mesmo chargeId criaram ${criadas} cobrancas no ` +
+        "facilitador e devia ser 1. O chargeId e a chave de idempotencia " +
+        "(§3.1): duas referencias para a mesma encomenda deixam um cliente a " +
+        "pagar duas vezes sem via de devolucao (Multicaixa, §1.4)",
     );
   }
   return ok(caso);
@@ -458,7 +633,7 @@ async function _caso10(banco: BancoDeEnsaio): Promise<ResultadoDoCaso> {
 
 const EXECUTORES: Readonly<Record<Caso, (banco: BancoDeEnsaio) => Promise<ResultadoDoCaso>>> = {
   assinatura_adulterada_rejeita: _caso1,
-  valor_mais_um_centimo_sobrevive_exacto: _caso2,
+  valor_mais_um_centimo_da_divergencia: _caso2,
   referencia_desconhecida_e_orfao: _caso3,
   callback_duplicado_dez_vezes_um_efeito: _caso4,
   callback_fora_de_ordem: _caso5,

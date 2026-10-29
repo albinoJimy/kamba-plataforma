@@ -15,19 +15,29 @@ faz lá dentro.
 
 ## As seis regras, e o que cada uma impede
 
-    FLUTUANTE     um literal com ponto decimal (`0.14`, `1.0`). Nao ha valor de
-                  dinheiro que precise de um, e os que **nao** sao dinheiro
-                  (percentagens, factores) nao existem neste modulo
-    NUMBER        `number` numa declaracao cujo nome e de dinheiro
-                  (`amount`, `valor`, `minor`, `preco`, `fee`, `taxa`, `base`,
-                  `comissao`, `montante`, `saldo`)
-    CONVERSAO     `parseFloat`, `parseInt`, `Number(`, `.toFixed(`, `Math.round`,
-                  `Math.floor`, `Math.ceil`, `+valor` sobre dinheiro
-    DIVISAO       `/` ou `*` entre um nome de dinheiro e um literal decimal
+    FLUTUANTE     um literal nao inteiro: com ponto (`0.14`, `50_000.00`) ou com
+                  expoente (`1e2`). Nao ha valor de dinheiro que precise de um, e
+                  os que **nao** sao dinheiro (segundos, comprimentos) sao
+                  inteiros
+    NUMBER        um montante tipado `number`, em tres formas: declaracao
+                  (`amount: number`), tipo de retorno (`function total(…): number`)
+                  e asercao (`x as number`, `x as unknown as number`)
+    CONVERSAO     `parseFloat`, `parseInt`, `Number(`, `.toFixed(`, os
+                  arredondamentos de `Math` e o `+` unario (`= +x`, `return +x`)
+    DIVISAO       `/` ou `*` com um literal nao inteiro de um dos lados
     SEM_FUNDOS    `balance`, `wallet`, `escrow`, `saldo` — a G-3 do §10.4
                   («nao existe `balance`/`wallet`»), que e ADR-004 no vocabulario
     MINOR         o alias `Minor` declarado como algo que nao seja `bigint`
     ILEGIVEL      nao se conseguiu ler o ficheiro; o que nao se le nao passa
+
+**Cinco destas formas foram acrescentadas depois de uma revisao adversarial
+independente as medir a passar**, e vale dizer quais, porque todas elas sao o
+estilo normal de quem escreve TypeScript aqui: a conversao dentro de um literal
+de *template* (o lint apagava o literal inteiro, interpolacoes incluidas), o
+separador de milhares num decimal (`50_000.00`, e este repositorio escreve todos
+os literais com `_`), o expoente, o `+` unario — que estava escrito nesta lista e
+**nao** estava implementado — e o `number` por asercao e por tipo de retorno. O
+lint dizia 0 achados sobre cada uma.
 
 ## O ambito, e porque exclui os testes
 
@@ -97,26 +107,61 @@ NOMES_SEM_FUNDOS = ("balance", "wallet", "escrow", "saldo", "carteira", "custodi
 
 _DINHEIRO = "|".join(NOMES_DE_DINHEIRO)
 
-#: Um literal com ponto decimal. Exclui o que nao e numero: versoes em cadeia
-#: (`"1.2"`), caminhos de import e propriedades (`a.b`).
-_FLUTUANTE = re.compile(r"(?<![\w.\"'])\d+\.\d+(?![\w.\"'])")
+#: Um numero nao inteiro: com ponto decimal ou com expoente.
+#:
+#: **Consome `_`**, e isso nao e um detalhe: a primeira versao era
+#: `\d+\.\d+` e em `50_000.00` o encontro comecava em `000.00`, cujo caractere
+#: anterior e `_` — que e `\w` — pelo que o *lookbehind* o bloqueava. Este
+#: repositorio escreve **todos** os literais com separador (`123_457n`,
+#: `2_592_000`), isto e, o estilo da casa era exactamente o que cegava o lint:
+#: um `MANUAL_MAX = 50_000.00` passava o gate 2 sem um achado. Medido por uma
+#: revisao adversarial.
+#:
+#: **E apanha o expoente**, pela mesma razao: `kwanzas * 1e2` e a conversao
+#: kwanzas→centimos por `number`, com o mesmo erro IEEE-754 do `* 100`.
+_FLUTUANTE = re.compile(
+    r"(?<![\w.\"'])\d[\d_]*(?:\.\d[\d_]*(?:[eE][+-]?\d+)?|[eE][+-]?\d+)(?![\w.\"'])"
+)
 
-#: `number` numa declaracao cujo nome e de dinheiro. Apanha `let valor: number`,
-#: `readonly amount: number`, `fee?: number` e `(preco: number)`.
+#: `number` num montante. Tres formas, e as tres sao «um montante e `number`»:
+#:
+#:   1. declaracao  `amount: number`, `fee?: number`, `(preco: number)`
+#:   2. retorno     `function total(...): number`
+#:   3. asercao     `x as number`, `x as unknown as number`
+#:
+#: A 2 e a 3 faltavam, e a revisao adversarial mostrou o caminho que elas
+#: deixavam aberto: um `reduce` que soma `preco as unknown as number` e devolve
+#: `number` e literalmente um montante tipado `number`, e passava.
+#:
+#: A asercao nao exige nome de dinheiro: num modulo de dinheiro **nao ha**
+#: `as number` legitimo. O retorno exige, porque um ajudante que devolva uma
+#: contagem e legitimo.
 _NUMBER = re.compile(
-    rf"\b\w*(?:{_DINHEIRO})\w*\s*\??\s*:\s*number\b",
+    rf"\b\w*(?:{_DINHEIRO})\w*\s*\??\s*:\s*number\b"
+    rf"|\bfunction\s+\w*(?:{_DINHEIRO})\w*\s*\([^)]*\)\s*:\s*number\b"
+    rf"|\bas\s+(?:unknown\s+as\s+)?number\b",
     re.IGNORECASE,
 )
 
 #: Conversoes que passam por `float`. O `Number(` e o unico que precisa do
 #: parentesis: `Number.MAX_SAFE_INTEGER` e uma leitura legitima.
+#:
+#: O `+` unario entrava na *docstring* desta pagina e **nao estava
+#: implementado** — a revisao adversarial apanhou a divergencia. Entra agora,
+#: pelos contextos em que o `+` so pode ser unario (`= +x`, `( +x`, `, +x`,
+#: `: +x`, `return +x`), que e o que o separa do `a + b` binario.
 _CONVERSAO = re.compile(
     r"\b(?:parseFloat|parseInt)\s*\(|\bNumber\s*\(|\.toFixed\s*\(|"
-    r"\bMath\.(?:round|floor|ceil|trunc|abs)\s*\(",
+    r"\bMath\.(?:round|floor|ceil|trunc|abs)\s*\(|"
+    r"[=(,:]\s*\+\s*[A-Za-z_$]|\breturn\s+\+\s*[A-Za-z_$]",
 )
 
-#: `/` ou `*` com um literal decimal de um dos lados.
-_DIVISAO = re.compile(r"[*/]\s*\d+\.\d+|\d+\.\d+\s*[*/]")
+#: `/` ou `*` com um literal nao inteiro de um dos lados. Consome `_` e expoente
+#: pela mesma razao do `_FLUTUANTE`.
+_DIVISAO = re.compile(
+    r"[*/]\s*\d[\d_]*(?:\.\d[\d_]*|[eE][+-]?\d+)"
+    r"|\d[\d_]*(?:\.\d[\d_]*|[eE][+-]?\d+)\s*[*/]"
+)
 
 _SEM_FUNDOS = re.compile(
     r"\b\w*(?:" + "|".join(NOMES_SEM_FUNDOS) + r")\w*\b",
@@ -131,7 +176,28 @@ _MINOR = re.compile(r"\btype\s+Minor\s*=\s*([A-Za-z_][\w.<>\[\] |]*)")
 #: e um defeito, e um lint que o acusasse ensinava a nao escrever a explicacao.
 _COMENTARIO_BLOCO = re.compile(r"/\*.*?\*/", re.S)
 _COMENTARIO_LINHA = re.compile(r"//[^\n]*")
-_CADEIA = re.compile(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`", re.S)
+#: Cadeias com plicas e aspas. **O literal de *template* nao esta aqui** — ver
+#: `_LITERAL_DE_TEMPLATE` e a razao escrita la.
+_CADEIA = re.compile(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'", re.S)
+
+#: Um literal de *template*, com as suas interpolacoes.
+#:
+#: **Trata-se a parte, e e a correccao mais importante deste lint.** A primeira
+#: versao punha o `` ` `` no `_CADEIA` e apagava o literal **inteiro**, incluindo
+#: as expressoes `${…}` — que sao **codigo** e nao prosa. Medido por uma revisao
+#: adversarial: `` `${Number(minor) / 100}` `` contem um `Number(` e uma divisao
+#: por 100 — as duas regras que este lint existe para apanhar — e dava **0
+#: achados**, enquanto a mesma expressao fora do *template* era acusada.
+#:
+#: Importa porque e o idioma com que se formata um montante para apresentar, e o
+#: `dinheiro.ts` ja formata por *template* (`minorParaDecimal2`): era o sitio
+#: exacto onde a proxima pessoa escrevia a versao errada e passava o gate 2.
+_LITERAL_DE_TEMPLATE = re.compile(r"`(?:\\.|[^`\\])*`", re.S)
+#: As interpolacoes de dentro de um literal de *template*. Sem aninhamento: um
+#: `${a ? `${b}` : c}` nao se le por expressao regular, e o que isto faz nesse
+#: caso e **ver mais** (o texto de dentro continua a ser varrido), que e o lado
+#: certo para errar.
+_INTERPOLACAO = re.compile(r"\$\{([^{}]*)\}")
 
 MENSAGENS = {
     FLUTUANTE: (
@@ -182,19 +248,40 @@ class Achado:
         return f"{self.ficheiro}:{self.linha}: [{self.regra}] {MENSAGENS[self.regra]}"
 
 
+def _branco(texto: str) -> str:
+    """O mesmo texto com tudo em espacos, menos as mudancas de linha."""
+    return re.sub(r"[^\n]", " ", texto)
+
+
 def _sem_comentarios_nem_cadeias(fonte: str) -> str:
-    """Substitui comentarios e cadeias por espacos, **preservando as linhas**.
+    """Apaga comentarios e cadeias, **guardando as interpolacoes e as linhas**.
 
     Preservar o numero de linhas nao e detalhe: sem isso cada achado depois de um
     comentario de bloco aponta para a linha errada, e um lint que aponta para o
     sitio errado e um lint que se ignora.
+
+    **E um literal de *template* nao se apaga por inteiro**: o que esta dentro de
+    `${…}` e codigo. Ver `_LITERAL_DE_TEMPLATE`.
     """
 
     def _em_branco(encontro: re.Match[str]) -> str:
-        return re.sub(r"[^\n]", " ", encontro.group(0))
+        return _branco(encontro.group(0))
+
+    def _so_o_texto(encontro: re.Match[str]) -> str:
+        """Apaga o texto do *template* e **mantem** o que esta em `${…}`."""
+        literal = encontro.group(0)
+        pedacos: list[str] = []
+        fim = 0
+        for interpolacao in _INTERPOLACAO.finditer(literal):
+            pedacos.append(_branco(literal[fim : interpolacao.start(1)]))
+            pedacos.append(interpolacao.group(1))
+            fim = interpolacao.end(1)
+        pedacos.append(_branco(literal[fim:]))
+        return "".join(pedacos)
 
     sem = _COMENTARIO_BLOCO.sub(_em_branco, fonte)
     sem = _COMENTARIO_LINHA.sub(_em_branco, sem)
+    sem = _LITERAL_DE_TEMPLATE.sub(_so_o_texto, sem)
     return _CADEIA.sub(_em_branco, sem)
 
 

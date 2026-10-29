@@ -69,9 +69,27 @@ export class ValorDeDinheiroInvalido extends Error {
   }
 }
 
-/** `-?` nao e aceite: ver `_recusarNegativo`. Grupos: inteiro, fraccao. */
-const DECIMAL2 = /^([0-9]{1,15})(?:\.([0-9]{1,2}))?$/;
-const INTEIRO_KZ = /^([0-9]{1,15})$/;
+/**
+ * `-?` nao e aceite: ver `_recusarNegativo`. Grupos: inteiro, fraccao.
+ *
+ * ## O tecto de digitos, e porque ele subiu
+ *
+ * Era `{1,15}` e nao estava escrito em sitio nenhum do modulo nem vinha de fonte
+ * nenhuma. Uma revisao adversarial mostrou o que ele recusava:
+ * `"0000000000000001.00"` — 1,00 Kz com enchimento a zeros, 16 digitos — e
+ * **campos de montante de largura fixa com enchimento a zeros sao comuns em
+ * integracoes bancarias e EMIS**. Recusar um callback genuino e perder um
+ * pagamento, e a mensagem mandava quem depura procurar um erro de forma onde
+ * havia um limite arbitrario.
+ *
+ * Passa a `{1,30}`, que e folga larga sobre o tecto do facilitador
+ * (99.999.999,99 Kz, §3.3) e continua a ser um tecto — uma cadeia sem limite
+ * nenhum deixava um corpo de callback de megabytes a construir um `bigint`. E o
+ * `_LIMITE_DE_DIGITOS` fica nomeado, para que a mensagem o possa dizer.
+ */
+const LIMITE_DE_DIGITOS = 30;
+const DECIMAL2 = /^([0-9]{1,30})(?:\.([0-9]{1,2}))?$/;
+const INTEIRO_KZ = /^([0-9]{1,30})$/;
 
 /**
  * `"1234.57"` → `123457n`. Aceita `"1234"`, `"1234.5"` e `"1234.57"`.
@@ -85,9 +103,11 @@ export function minorDeDecimal2(texto: string): Minor {
   if (encontro === null) {
     throw new ValorDeDinheiroInvalido(
       texto,
-      "nao tem a forma decimal2 (digitos, opcionalmente um ponto e uma ou duas " +
+      "nao tem a forma decimal2 (ate " +
+        `${LIMITE_DE_DIGITOS} digitos, opcionalmente um ponto e uma ou duas ` +
         "casas). Tres casas sao erro de contrato do facilitador e nao se " +
-        "truncam aqui: truncar perde centimos em silencio",
+        "truncam aqui: truncar perde centimos em silencio. Se o valor tem a " +
+        "forma e mais digitos do que o limite, e o limite que esta errado",
     );
   }
   const inteiro = encontro[1] ?? "";
@@ -116,9 +136,9 @@ export function minorDeInteiroKz(texto: string): Minor {
   if (encontro === null) {
     throw new ValorDeDinheiroInvalido(
       texto,
-      "nao tem a forma inteiro_kz (so digitos). Um ponto num facilitador " +
-        "inteiro_kz deixa a unidade ambigua, e nao se adivinha num caminho de " +
-        "dinheiro",
+      `nao tem a forma inteiro_kz (ate ${LIMITE_DE_DIGITOS} digitos, sem ponto). ` +
+        "Um ponto num facilitador inteiro_kz deixa a unidade ambigua, e nao se " +
+        "adivinha num caminho de dinheiro",
     );
   }
   return BigInt(encontro[1] ?? "0") * MINOR_POR_KZ;

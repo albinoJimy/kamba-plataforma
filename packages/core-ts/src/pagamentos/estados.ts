@@ -189,10 +189,49 @@ export function transitar(
   return { ok: true, estado: seguinte };
 }
 
-/** Os estados em que a conta pode cobrar — o predicado do `payment_accounts_um_ativo`. */
+/**
+ * Os estados que ocupam o par `(tenant_id, provider)` no indice unico parcial.
+ *
+ * E o predicado do `payment_accounts_um_ativo` (§6.2). Uma conta em sandbox ja
+ * reserva o par, para que ninguem comece uma segunda integracao do mesmo
+ * facilitador enquanto a primeira esta a ser testada.
+ */
 export const ESTADOS_QUE_OCUPAM: readonly EstadoDaConta[] = ["ativo", "teste_sandbox_ok"];
 
-/** `true` se a conta pode emitir cobrancas reais. So o `ativo`. */
+/**
+ * `true` se a conta pode emitir cobrancas — **os dois** estados, nao so o `ativo`.
+ *
+ * ## A correccao, e o impasse que ela evita
+ *
+ * A primeira versao devolvia `estado === "ativo"`, duas linhas abaixo de uma
+ * constante que dizia o contrario, e uma revisao adversarial mostrou o beco: o
+ * §10.2 poe `credenciais_recebidas → teste_sandbox_ok` com o gatilho «sandbox **e
+ * pagamento real de teste**» e `teste_sandbox_ok → ativo` com «primeira cobranca
+ * **real** conciliada». Isto e, para sair de `teste_sandbox_ok` a conta tem de
+ * **cobrar** — e com a leitura antiga `podeCobrar` recusava-o nesse estado.
+ * Nenhuma conta chegava a `ativo`, e o defeito so aparecia com a primeira PME
+ * real.
+ *
+ * E e tambem porque o indice parcial do §6.2 inclui `teste_sandbox_ok` nos
+ * estados que ocupam o par `(tenant_id, provider)`: o esquema ja dizia que uma
+ * conta em sandbox e uma conta a usar o facilitador.
+ *
+ * **O que isto nao diz:** que uma cobranca em `teste_sandbox_ok` seja igual a
+ * uma em `ativo`. A diferenca — tecto de valor, aviso ao cliente, se conta para
+ * o negocio — e politica de produto e vive em quem chama, nao nesta funcao. Quem
+ * precisar de distinguir usa `estado === "ativo"` e di-lo onde o escreve.
+ */
 export function podeCobrar(estado: EstadoDaConta): boolean {
+  return ESTADOS_QUE_OCUPAM.includes(estado);
+}
+
+/**
+ * `true` se a conta esta em producao plena (§10.2: «primeira cobranca real
+ * conciliada»).
+ *
+ * E o que o `podeCobrar` **nao** e: a pergunta «esta activa?» tem uma resposta e
+ * a pergunta «pode cobrar?» tem outra, e fundi-las foi o defeito acima.
+ */
+export function estaActiva(estado: EstadoDaConta): boolean {
   return estado === "ativo";
 }

@@ -159,7 +159,13 @@ class TestCanario(unittest.TestCase):
     def test_o_canario_passa(self):
         falhas, numeros = lint.canario(RAIZ / cli.PASTA_DO_CANARIO)
         self.assertEqual(falhas, [])
-        self.assertEqual(numeros["negativas"], len(lint.REGRAS_OBRIGATORIAS))
+        # **Maior ou igual, e nao igual.** Havia uma negativa por regra; depois
+        # de uma revisao adversarial mostrar cinco formas a passar, ha mais do
+        # que uma por regra — uma por **forma** —, e exigir igualdade punha o
+        # ensaio a travar o acrescento de canarios, que e o contrario do que ele
+        # existe para fazer. Quem garante que nenhuma regra fica sem canario e o
+        # `test_ha_uma_negativa_por_regra_obrigatoria`, pelos prefixos.
+        self.assertGreaterEqual(numeros["negativas"], len(lint.REGRAS_OBRIGATORIAS))
         self.assertGreaterEqual(numeros["positivas"], 1)
 
     def test_ha_uma_negativa_por_regra_obrigatoria(self):

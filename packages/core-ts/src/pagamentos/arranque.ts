@@ -145,6 +145,25 @@ export const ENTIDADES_DA_KAMBA: EntidadesDaKamba = {
 };
 
 /**
+ * **O `verificarG4` nao tem omissao, e isso e deliberado.**
+ *
+ * Uma revisao adversarial apanhou o que a omissao escondia: o criterio 6 diz
+ * «lista de entidades da KAMBA **em configuracao**», e com
+ * `daKamba = ENTIDADES_DA_KAMBA` por omissao a guarda lia a **constante
+ * compilada**. Quando a KAMBA receber a sua Entidade EMIS (D4, KAM-103), o gesto
+ * natural de quem opera e editar `config/kamba_emis.yaml` — e isso nao mudava
+ * nada no servico a correr. A divergencia so aparecia no CI seguinte, e a janela
+ * entre a edicao e o *deploy* era precisamente o periodo em que a guarda era
+ * decorativa.
+ *
+ * Sem omissao, quem arranca o servico **tem** de dizer de onde veio a lista. O
+ * `ENTIDADES_DA_KAMBA` continua a ser o espelho do YAML (confrontado por ensaio)
+ * e passa-se explicitamente; quando houver leitor de configuracao no arranque do
+ * PAY — que e o ticket que ligar este modulo a um servico —, passa-se o que ele
+ * leu. A escolha fica no sitio onde se pode ver.
+ */
+
+/**
  * G-4: nenhuma conta de `pme` aponta para uma entidade EMIS da KAMBA.
  *
  * O que isto impede, em concreto: uma venda de uma PME a liquidar na conta da
@@ -159,7 +178,7 @@ export const ENTIDADES_DA_KAMBA: EntidadesDaKamba = {
  */
 export function verificarG4(
   contas: readonly ContaParaGuarda[],
-  daKamba: EntidadesDaKamba = ENTIDADES_DA_KAMBA,
+  daKamba: EntidadesDaKamba,
 ): void {
   const achados: string[] = [];
   for (const conta of contas) {
@@ -193,7 +212,7 @@ export function verificarArranque(
   flags: FlagsDeDinheiro,
   registo: RegistoDeProviders,
   contas: readonly ContaParaGuarda[],
-  daKamba: EntidadesDaKamba = ENTIDADES_DA_KAMBA,
+  daKamba: EntidadesDaKamba,
 ): void {
   verificarG2(flags, registo);
   verificarG4(contas, daKamba);

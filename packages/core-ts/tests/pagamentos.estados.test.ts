@@ -24,6 +24,7 @@ import {
   TRANSICAO_INEXISTENTE,
   type EstadoDaConta,
   type Gatilho,
+  estaActiva,
   podeCobrar,
   transitar,
 } from "../src/pagamentos/index.ts";
@@ -173,10 +174,41 @@ describe("pagamentos/estados: o terminal e a lacuna do diagrama", () => {
 });
 
 describe("pagamentos/estados: quem pode cobrar", () => {
-  it("so o ativo cobra", () => {
+  /**
+   * **Os dois estados cobram, e isto mudou com a revisao adversarial.**
+   *
+   * A primeira versao afirmava «so o ativo cobra», duas linhas abaixo de uma
+   * constante que dizia o contrario. O §10.2 faz de `teste_sandbox_ok -> ativo`
+   * uma transicao com o gatilho «primeira cobranca **real** conciliada», pelo
+   * que a conta tem de poder cobrar **antes** de ser `ativo` — senao nenhuma
+   * chega la, e o defeito so aparecia com a primeira PME real.
+   */
+  it("cobram os dois estados que ocupam o par (tenant_id, provider)", () => {
     for (const estado of ESTADOS_DA_CONTA) {
-      assert.equal(podeCobrar(estado), estado === "ativo");
+      assert.equal(
+        podeCobrar(estado),
+        estado === "ativo" || estado === "teste_sandbox_ok",
+        estado,
+      );
     }
+  });
+
+  it("e `estaActiva` e que distingue a producao plena", () => {
+    for (const estado of ESTADOS_DA_CONTA) {
+      assert.equal(estaActiva(estado), estado === "ativo");
+    }
+    // O par que o defeito confundia: em sandbox cobra-se e **nao** se esta activa.
+    assert.equal(podeCobrar("teste_sandbox_ok"), true);
+    assert.equal(estaActiva("teste_sandbox_ok"), false);
+  });
+
+  /** O impasse que a correccao evita, medido como percurso. */
+  it("o percurso ate ativo e possivel: cobra-se em sandbox e so dai se activa", () => {
+    assert.equal(podeCobrar("teste_sandbox_ok"), true);
+    const r = transitar("teste_sandbox_ok", "primeira_cobranca_conciliada", {
+      primeiraCobrancaRealConciliada: true,
+    });
+    assert.equal(r.ok && r.estado, "ativo");
   });
 
   /**

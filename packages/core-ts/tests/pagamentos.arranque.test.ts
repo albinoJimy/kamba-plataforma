@@ -70,6 +70,23 @@ describe("pagamentos/arranque: criterio 3 — G-2", () => {
     assert.doesNotThrow(() => verificarG2(FLAGS_OMISSAO, new RegistoDeProviders(SEMPRE_VERDE)));
   });
 
+  /**
+   * **A politica de producao nao reconhece PSP nenhum**, pelo que a G-2 com a
+   * flag ligada recusa sempre. O caminho positivo mede-se com uma politica
+   * explicita, que e uma decisao visivel no arranque e nao uma etiqueta que o
+   * adaptador se atribui.
+   */
+  it("arranca com a flag ligada e um PSP que a politica reconhece", () => {
+    const registo = new RegistoDeProviders(SEMPRE_VERDE, {
+      confirmacaoHumana: [],
+      licencaBna: ["psp"],
+    });
+    registo.activar(adaptador("psp", { pspLicenciado: true }));
+    assert.doesNotThrow(() =>
+      verificarG2({ payoutsEnabled: true, commissionEnabled: false }, registo),
+    );
+  });
+
   /** **O teste de arranque que o criterio 3 pede por nome.** */
   it("com payouts_enabled=true e sem psp_licenciado, o servico nao arranca", () => {
     const registo = new RegistoDeProviders(SEMPRE_VERDE);
@@ -89,13 +106,7 @@ describe("pagamentos/arranque: criterio 3 — G-2", () => {
     );
   });
 
-  it("arranca com a flag ligada **e** um psp_licenciado", () => {
-    const registo = new RegistoDeProviders(SEMPRE_VERDE);
-    registo.activar(adaptador("psp", { pspLicenciado: true }));
-    assert.doesNotThrow(() =>
-      verificarG2({ payoutsEnabled: true, commissionEnabled: false }, registo),
-    );
-  });
+
 });
 
 describe("pagamentos/arranque: criterio 6 — G-4", () => {

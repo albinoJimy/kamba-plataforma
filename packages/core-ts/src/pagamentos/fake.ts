@@ -109,11 +109,32 @@ export class FakeProvider implements PaymentProvider {
   readonly #resolver: ResolverChave;
   /** `chargeId` → cobranca. E **isto** que torna o `createCharge` idempotente. */
   readonly #cobrancas = new Map<string, ChargeResult>();
-  /** `referencia` → o ultimo evento verificado para ela. Serve o `status()`. */
-  readonly #pagos = new Map<string, VerifiedEvent>();
+  /**
+   * `referencia` → o pagamento **que o facilitador registou**. Serve o `status()`.
+   *
+   * ## Escreve-se no `corpoAssinado` e **nao** no `verifyCallback`
+   *
+   * E a correccao de um defeito que uma revisao adversarial apanhou: a primeira
+   * versao escrevia aqui dentro do `verifyCallback`, pelo que o `status()` era um
+   * **memorando do proprio callback** e a concordancia do caso 10 era
+   * tautologica. O caso 10 existe pela razao que ele proprio escreve — «e a
+   * discordancia que denuncia um callback forjado que passou a assinatura» —, e
+   * um `status()` que repete o callback nunca pode discordar dele, isto e, o caso
+   * nao conseguia detectar a unica coisa para que serve.
+   *
+   * Agora sao **dois caminhos independentes**: o `corpoAssinado` e o momento em
+   * que o facilitador *emite* o evento (e e ele que registra o pagamento), e o
+   * `verifyCallback` e o momento em que nos o *recebemos*. O caso 10 passa a
+   * comparar duas leituras que nao se copiam uma a outra.
+   *
+   * Importa alem do ensaio: o `FakeProvider` e o duplo que o KAM-045, o KAM-046
+   * e o KAM-053 vao usar, pelo que a propriedade propaga-se a esses tres.
+   */
+  readonly #noFacilitador = new Map<string, VerifiedEvent>();
   /** Eventos nao reconhecidos, para o `listUnacknowledged`. */
   readonly #fila = new Map<string, VerifiedEvent>();
-  #sequencia = 0;
+  /** Quantas cobrancas o «facilitador» criou de facto. Serve o caso 7. */
+  #criacoes = 0;
   #falha: FalhaProgramada = null;
 
   constructor(opcoes: OpcoesDoFake) {
@@ -141,6 +162,9 @@ export class FakeProvider implements PaymentProvider {
     // A cobranca **cria-se antes** de a resposta se perder, que e o que torna o
     // caso 7 um caso: o facilitador recebeu e gravou, e nos nao sabemos.
     const existente = this.#cobrancas.get(req.chargeId);
+    // Conta so quando a cobranca e **nova**: e esta linha que o caso 7 mede. Um
+    // adaptador sem a memoria do `chargeId` contava tres.
+    if (existente === undefined) this.#criacoes += 1;
     const resultado: ChargeResult =
       existente ??
       ({
@@ -166,7 +190,7 @@ export class FakeProvider implements PaymentProvider {
 
   async status(ref: ProviderRef): Promise<ProviderStatus> {
     const chave = ref.referencia ?? ref.providerChargeId ?? "";
-    const evento = this.#pagos.get(chave);
+    const evento = this.#noFacilitador.get(chave);
     if (evento === undefined) return { estado: "desconhecida" };
     return {
       estado: "paga",
@@ -229,7 +253,8 @@ export class FakeProvider implements PaymentProvider {
       ocorridoEm: corpo.payment_datetime,
       ...(corpo.fee === undefined ? {} : { fee: minorDeDecimal2(corpo.fee) }),
     };
-    this.#pagos.set(corpo.reference_id, evento);
+    // **Nao escreve no `#noFacilitador`**: ver a nota desse campo. O `status()`
+    // tem de ser um segundo caminho e nao um eco deste.
     this.#fila.set(corpo.provider_event_id, evento);
     return [evento];
   }
@@ -247,14 +272,28 @@ export class FakeProvider implements PaymentProvider {
 
   async cancelCharge(ref: ProviderRef): Promise<void> {
     const chave = ref.referencia ?? ref.providerChargeId ?? "";
-    this.#pagos.delete(chave);
+    this.#noFacilitador.delete(chave);
   }
 
-  /** Um corpo assinado, para o banco de ensaio. */
+  /**
+   * Um corpo assinado, para o banco de ensaio.
+   *
+   * **E aqui que o «facilitador» registra o pagamento**, e nao no
+   * `verifyCallback`: este e o momento em que ele emite o evento. Ver a nota do
+   * `#noFacilitador`.
+   */
   corpoAssinado(
     corpo: CorpoDoCallback,
     ref: string,
   ): RawHttpCallback {
+    this.#noFacilitador.set(corpo.reference_id, {
+      providerEventId: corpo.provider_event_id,
+      referencia: corpo.reference_id,
+      valor: minorDeDecimal2(corpo.amount),
+      currency: "AOA",
+      authnMethod: "hmac",
+      ocorridoEm: corpo.payment_datetime,
+    });
     const bytes = new TextEncoder().encode(JSON.stringify(corpo));
     return {
       corpo: bytes,
@@ -262,15 +301,14 @@ export class FakeProvider implements PaymentProvider {
     };
   }
 
+  /** Quantas cobrancas o «facilitador» criou de facto. Serve o caso 7. */
+  get criacoes(): number {
+    return this.#criacoes;
+  }
+
   /** A entidade EMIS deste adaptador de ensaio. */
   get entidade(): string {
     return this.#entidade;
-  }
-
-  /** O proximo numero de sequencia, para identificadores de ensaio. */
-  proximo(): number {
-    this.#sequencia += 1;
-    return this.#sequencia;
   }
 
   /** A forma `decimal2` de um montante, para o banco de ensaio escrever o corpo. */

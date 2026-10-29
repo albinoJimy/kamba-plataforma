@@ -19,6 +19,7 @@ import type {
   VerifiedEvent,
 } from "../src/pagamentos/index.ts";
 import {
+  AuthError,
   CABECALHO_DA_ASSINATURA,
   FakeProvider,
   ProviderError,
@@ -37,12 +38,22 @@ import {
 const CHAVES: Readonly<Record<string, Buffer>> = {
   "fake_api_key": Buffer.from("chave-de-ensaio-actual-kam-052", "utf8"),
   "fake_api_key/anterior": Buffer.from("chave-de-ensaio-anterior-kam-052", "utf8"),
+  // **A chave da segunda conta**, que e o que torna o caso 1 capaz de medir
+  // autenticidade. Ver o cabecalho de `BancoDeEnsaio`: «uma chave por conta de
+  // PME e nunca partilhada» (§3.3).
+  "fake_api_key_b": Buffer.from("chave-de-ensaio-da-conta-b-kam-052", "utf8"),
 };
 
 export const CONTA_DE_ENSAIO: AccountSecrets = {
   accountId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   credenciaisRef: "fake_api_key",
   credenciaisRefAnterior: "fake_api_key/anterior",
+};
+
+/** A segunda conta, de outra PME. Chave diferente e sem janela de rotacao. */
+export const CONTA_ALTERNATIVA: AccountSecrets = {
+  accountId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  credenciaisRef: "fake_api_key_b",
 };
 
 const VALID_UNTIL = "2026-10-30T12:00:00.000Z";
@@ -66,6 +77,23 @@ export type Fraquezas = {
   readonly semJanelaDeRotacao?: boolean;
   /** Devolve `UNAVAILABLE` em vez de `RATE_LIMIT`: mata o caso 9. */
   readonly rateLimitGenerico?: boolean;
+  /**
+   * Ignora o `acct` e usa uma chave global: mata o caso 1 pela via cruzada.
+   *
+   * E o segundo adaptador defeituoso que a revisao adversarial construiu, e
+   * **nenhuma mutacao de assinatura o apanharia**: ele verifica HMAC a serio. O
+   * que ele nao faz e ligar a chave a conta, pelo que aceita o callback da PME A
+   * entregue no `webhook_token` da PME B.
+   */
+  readonly chaveGlobal?: boolean;
+  /** Descarta um callback de referencia desconhecida: mata o caso 3. */
+  readonly descartaOrfao?: boolean;
+  /** Usa o instante da chegada e nao o do evento: mata os casos 5 e 6. */
+  readonly instanteDaChegada?: boolean;
+  /** Nao memoriza o `chargeId`: mata o caso 7 pelo contador do facilitador. */
+  readonly criaSempre?: boolean;
+  /** O `status()` diz sempre `pendente`: mata o caso 10. */
+  readonly statusDiscordante?: boolean;
 };
 
 export function bancoDeEnsaio(fraquezas: Fraquezas = {}): BancoDeEnsaio {
@@ -83,6 +111,7 @@ export function bancoDeEnsaio(fraquezas: Fraquezas = {}): BancoDeEnsaio {
   const banco: BancoDeEnsaio = {
     provider: _talvezEnfraquecido(provider, fraquezas),
     conta,
+    contaAlternativa: CONTA_ALTERNATIVA,
 
     pedido(): CreateChargeReq {
       return {
@@ -90,7 +119,9 @@ export function bancoDeEnsaio(fraquezas: Fraquezas = {}): BancoDeEnsaio {
         tenantId: "11111111-1111-4111-8111-111111111111",
         accountId: CONTA_DE_ENSAIO.accountId,
         numeroPublico: "P-0001",
-        amount: 123_457n,
+        // 1024,09 Kz: o montante em que o caminho por `float` perde um centimo,
+        // e portanto o valor contra o qual o caso 2 mede a divergencia de ±1.
+        amount: 102_409n,
         currency: "AOA",
         metodo: "referencia",
         validUntil: VALID_UNTIL,
@@ -98,9 +129,12 @@ export function bancoDeEnsaio(fraquezas: Fraquezas = {}): BancoDeEnsaio {
       };
     },
 
-    async callback(evento, chave = "actual"): Promise<RawHttpCallback> {
+    async callback(evento, chave = "actual", paraConta): Promise<RawHttpCallback> {
+      const destino = paraConta ?? conta;
       const ref =
-        chave === "anterior" ? "fake_api_key/anterior" : CONTA_DE_ENSAIO.credenciaisRef;
+        chave === "anterior"
+          ? (destino.credenciaisRefAnterior ?? destino.credenciaisRef)
+          : destino.credenciaisRef;
       return provider.corpoAssinado(
         {
           provider_event_id: evento.providerEventId,
@@ -111,6 +145,10 @@ export function bancoDeEnsaio(fraquezas: Fraquezas = {}): BancoDeEnsaio {
         },
         ref,
       );
+    },
+
+    criacoesNoFacilitador(): number {
+      return provider.criacoes;
     },
 
     adulterar(callback: RawHttpCallback): RawHttpCallback {
@@ -153,7 +191,7 @@ export function bancoDeEnsaio(fraquezas: Fraquezas = {}): BancoDeEnsaio {
  * **E delega por metodos ligados e nao por `Object.create`**, o que nao e
  * estetica: a primeira versao fazia `Object.create(provider)` e os **dez** casos
  * ficavam vermelhos de uma vez. A razao e que o `FakeProvider` guarda o estado
- * em campos privados (`#resolver`, `#cobrancas`, `#pagos`), e um objecto cuja
+ * em campos privados (`#resolver`, `#cobrancas`, `#noFacilitador`), e um objecto cuja
  * cadeia de prototipos aponta para a instancia **nao tem** esses campos: o
  * primeiro metodo que os toque levanta `TypeError: Cannot read private member`.
  * Um delegador que parece funcionar e nao funciona e pior do que nenhum, e foi
@@ -176,11 +214,14 @@ function _talvezEnfraquecido(provider: FakeProvider, fraquezas: Fraquezas): Paym
 
   const enfraquecido: PaymentProvider = { ...base };
   let entregas = 0;
-  if (
+  const mexeNoCallback =
     fraquezas.semVerificarAssinatura === true ||
     fraquezas.valorPorFloat === true ||
-    fraquezas.eventIdPorContador === true
-  ) {
+    fraquezas.eventIdPorContador === true ||
+    fraquezas.chaveGlobal === true ||
+    fraquezas.descartaOrfao === true ||
+    fraquezas.instanteDaChegada === true;
+  if (mexeNoCallback) {
     enfraquecido.verifyCallback = async (raw, acct) => {
       let eventos: readonly VerifiedEvent[];
       if (fraquezas.semVerificarAssinatura === true) {
@@ -196,6 +237,24 @@ function _talvezEnfraquecido(provider: FakeProvider, fraquezas: Fraquezas): Paym
             ocorridoEm: corpo["payment_datetime"] ?? "",
           },
         ];
+      } else if (fraquezas.chaveGlobal === true) {
+        // **Verifica HMAC a serio e ignora a conta.** Tenta as tres chaves de
+        // ensaio como se fossem um conjunto global. Nenhuma mutacao de
+        // assinatura apanha isto — o que o apanha e o callback cruzado.
+        let aceito: readonly VerifiedEvent[] | null = null;
+        for (const ref of ["fake_api_key", "fake_api_key/anterior", "fake_api_key_b"]) {
+          try {
+            aceito = await provider.verifyCallback(raw, {
+              accountId: acct.accountId,
+              credenciaisRef: ref,
+            });
+            break;
+          } catch {
+            continue;
+          }
+        }
+        if (aceito === null) throw new AuthError("nenhuma das chaves globais verifica");
+        eventos = aceito;
       } else {
         eventos = await provider.verifyCallback(raw, acct);
       }
@@ -212,20 +271,47 @@ function _talvezEnfraquecido(provider: FakeProvider, fraquezas: Fraquezas): Paym
           return { ...e, providerEventId: `entrega-${entregas}` };
         });
       }
+      if (fraquezas.descartaOrfao === true) {
+        // Descarta em silencio o que nao reconhece. O caso 3 existe porque isto
+        // **perde o pagamento de um cliente**: um orfao e para registar e
+        // investigar (§8), nao para deitar fora.
+        eventos = eventos.filter((e) => e.referencia === "000000001");
+      }
+      if (fraquezas.instanteDaChegada === true) {
+        // Usa a hora da chegada e nao a do evento. Mata o caso 6 (ninguem pode
+        // comparar com o `valid_until`) e o caso 5 (a ordem passa a depender de
+        // quem chegou primeiro).
+        eventos = eventos.map((e) => ({ ...e, ocorridoEm: new Date().toISOString() }));
+      }
       return eventos;
     };
   }
-  if (fraquezas.rateLimitGenerico === true) {
+  if (fraquezas.rateLimitGenerico === true || fraquezas.criaSempre === true) {
     enfraquecido.createCharge = async (req) => {
       try {
-        return await provider.createCharge(req);
+        // `criaSempre`: sem memoria do `chargeId`, cada chamada emite uma
+        // cobranca nova no facilitador. Dois `chargeId` diferentes por chamada
+        // fazem o `FakeProvider` contar cada uma.
+        const pedido = fraquezas.criaSempre === true
+          ? { ...req, chargeId: `${req.chargeId}-${Math.random()}` }
+          : req;
+        return await provider.createCharge(pedido);
       } catch (erro) {
-        if ((erro as { codigo?: string }).codigo === "RATE_LIMIT") {
+        if (
+          fraquezas.rateLimitGenerico === true &&
+          (erro as { codigo?: string }).codigo === "RATE_LIMIT"
+        ) {
           throw new ProviderError("UNAVAILABLE", "indisponivel (fraqueza do ensaio)");
         }
         throw erro;
       }
     };
+  }
+  if (fraquezas.statusDiscordante === true) {
+    // O `status()` nunca concorda com o callback. Mata o caso 10 — que existe
+    // precisamente porque «e a discordancia que denuncia um callback forjado
+    // que passou a assinatura».
+    enfraquecido.status = async () => ({ estado: "pendente" });
   }
   return enfraquecido;
 }
