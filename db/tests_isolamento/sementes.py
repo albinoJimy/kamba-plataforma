@@ -139,6 +139,32 @@ def _entitlement(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _payment_account(cursor, tenant_id: str, canario: str) -> None:
+    """Uma conta de pagamento de PME com o canario no `provider` (KAM-052).
+
+    **O canario vai no `provider` e nao no `entidade`**, e a escolha importa: o
+    `provider` e `NOT NULL` e tem `CHECK (btrim(provider) <> '')`, pelo que a
+    linha nao pode existir sem ele — um canario numa coluna anulavel podia ficar
+    nulo e o X-03 nao tinha o que procurar.
+
+    O `webhook_token` e `UNIQUE` e **global**, nao por tenant: duas contas de
+    dois tenants nao podem partilha-lo (§3.3, «uma chave por conta de PME e nunca
+    partilhada»). Deriva-se do canario, que ja e unico por tenant na bateria.
+
+    `beneficiary_kind = 'pme'` com `tenant_id` nao nulo: e a unica combinacao que
+    o `payment_accounts_beneficiario_ck` aceita para uma conta de tenant. A conta
+    de `plataforma_receita_propria` **nao** se semeia aqui — ela tem `tenant_id`
+    nulo e nao pertence a tenant nenhum, pelo que nao e material de uma bateria
+    de isolamento por tenant.
+    """
+    cursor.execute(
+        "INSERT INTO platform.payment_accounts "
+        "(beneficiary_kind, tenant_id, provider, webhook_token) "
+        "VALUES ('pme', %s, %s, %s)",
+        (tenant_id, canario, f"wt-{canario}"),
+    )
+
+
 # As tres receitas de identidade (KAM-008). O contacto e a DEK de que a linha
 # precisa vao buscar-se por subconsulta, com um UUID aleatorio de recurso: quando
 # a receita e usada para **atacar** (inserir uma linha de B com o contexto de A),
@@ -943,6 +969,35 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     # `escrita_do_papel=False`: o que se prova nesta tabela passou a ser que
     # os privilegios nem existem, que e mais forte do que a politica recusar
     # — nao depende de a politica estar certa. Quem escreve e o `kamba_batch`.
+    # KAM-052: a conta de pagamento. **O papel da aplicacao le e nao escreve**
+    # (`escrita_do_papel=False`), e nao e uma folga: quem cria uma conta de
+    # pagamento e o onboarding de retaguarda (KAM-091), nao um turno de conversa
+    # — com `INSERT` concedido, um tenant declarava para onde vai o dinheiro das
+    # suas vendas sem ninguem verificar os documentos da secao 10.2. Nesta
+    # tabela, portanto, o X-03/X-04 troca «a politica recusa a escrita» por «o
+    # privilegio nem existe», que e mais forte.
+    #
+    # A `coluna_alteravel` e **`None`**, e nao o `estado`. A primeira versao
+    # punha o `estado` com o argumento de que ele e a unica coluna que muda no
+    # ciclo de vida de uma conta — e o *gate* 6 recusou com `42501` nos dois
+    # ensaios de escrita cruzada do X-04. A razao esta escrita no proprio
+    # `Receita`: o `None` e para quando **nenhum papel sujeito a RLS** lhe pode
+    # escrever, e e este o caso — o `kamba_app` tem so `SELECT`, e quem escreve
+    # e o `kamba_batch`, que tem `BYPASSRLS` e portanto nao e sujeito a
+    # politica. O `UPDATE` do ciclo de vida existe, mas nao vem de um papel que
+    # a RLS limite.
+    #
+    # O que isso troca, e e mais forte: o X-03/X-04 passa a provar que o papel
+    # **nao tem o privilegio**, em vez de provar que a politica o recusa — e
+    # isso nao depende de a politica estar certa. E a mesma escolha do
+    # `events_outbox` e do `events_log`.
+    ("platform", "payment_accounts"): Receita(
+        _payment_account,
+        "provider",
+        None,
+        None,
+        escrita_do_papel=False,
+    ),
     ("platform", "entitlements"): Receita(
         _entitlement, "modulo", None, None, escrita_do_papel=False
     ),
@@ -1316,6 +1371,8 @@ ORDEM = (
     # KAM-114: tem FK para `tenants` e mais nenhuma, e ninguem a aponta. Fica no
     # fim, como as do KAM-009.
     ("platform", "draft_decisions"),
+    # KAM-052: depois de `tenants`, que e a sua unica FK.
+    ("platform", "payment_accounts"),
 )
 
 #: As identidades com que as receitas semeiam.

@@ -672,6 +672,44 @@ ESPERADO_POR_TABELA.update(
             "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
             "public": set(),
         },
+        # KAM-052: a conta de pagamento (revisao `0027`).
+        #
+        # **O `kamba_app` **le** e nao escreve**, e isso distingue esta tabela da
+        # `bookings` do `servicos`. Quem cria e altera uma conta de pagamento e o
+        # onboarding de retaguarda (KAM-091) e o fluxo de activacao do
+        # `docs/tecnica/04` secao 10.2, nao um turno de conversa. Com `INSERT`
+        # concedido e `WITH CHECK (tenant_id = app.tenant_id)`, um tenant criava
+        # as proprias contas — isto e, declarava para onde vai o dinheiro das
+        # suas vendas sem ninguem verificar os documentos que a secao 10.2
+        # recolhe. E a mesma escolha que a `0007` fez ao tirar `INSERT` em
+        # `entitlements` a este papel, e que a `0025` fez para o catalogo da
+        # agenda.
+        #
+        # **E ninguem apaga.** Encerrar uma conta e `estado = 'revogado'` (secao
+        # 10.2); um `DELETE` concedido tornava o historico de beneficiarios
+        # reescrivel, que e exactamente o que a G-1 existe para poder auditar.
+        #
+        # **O `kamba_batch` apaga**, e a primeira versao desta matriz nao lhe dava
+        # `DELETE`: o *gate* 6 recusou com `42501` em dez `tearDownClass`, porque
+        # o semeador da bateria de isolamento nao conseguia limpar o que semeou.
+        # Nao e uma folga — e a regra que a `0025` ja escreve por extenso («quem
+        # apaga e o `kamba_batch`, que e o papel da retencao (KAM-071) e o
+        # semeador das baterias de isolamento») e que o dicionario §2 ressalva
+        # («soft delete: estado, nunca `DELETE`, **salvo purga prevista**»).
+        #
+        # **O `kamba_audit` le**, porque «para onde foi o dinheiro desta venda» e
+        # uma pergunta de auditoria. O `GRANT` nao o poe acima da RLS: ele nao
+        # tem `BYPASSRLS` (so o `kamba_batch` tem), pelo que ve as contas do
+        # tenant cujo contexto tiver e **nao** ve a de `tenant_id` nulo.
+        "payment_accounts": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+            "kamba_audit": {"SELECT"},
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
     }
 )
 

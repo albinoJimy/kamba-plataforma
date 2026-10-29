@@ -216,6 +216,14 @@ class TestCatalogoReal(ComBase):
                 # proprio a comecar por ele.
                 ("platform", "owner_contacts", "tenant_id"),
                 ("platform", "owner_notices", "tenant_id"),
+                # KAM-052: a conta de pagamento, **depois** das do aviso ao
+                # dono e antes de `tenant_channels` ('o' < 'p' < 't'). E a
+                # unica desta lista com `tenant_id` **anulavel**, e entra
+                # como todas: a descoberta pergunta pela coluna e nao pela
+                # nulidade, e o que ela exige — `ENABLE`, `FORCE` e politica
+                # — vale igual. Ver o `ANULAVEIS` de
+                # `db/tests/test_catalogo.py` para a razao da nulidade.
+                ("platform", "payment_accounts", "tenant_id"),
                 ("platform", "tenant_channels", "tenant_id"),
                 # KAM-009: o contador de uso e o livro de idempotencia.
                 ("platform", "tenant_usage", "tenant_id"),
@@ -377,6 +385,15 @@ class TestCatalogoReal(ComBase):
                 # `outbound_messages` («ou» < «ow»).
                 ("owner_contacts", "tenant_iso", "ALL", "{public}"),
                 ("owner_notices", "tenant_iso", "ALL", "{public}"),
+                # KAM-052: **uma** politica e nao duas. O `docs/tecnica/04`
+                # secao 6.2 diz que a conta da KAMBA e «acessivel so ao papel
+                # de billing» e a tentacao era acrescentar uma segunda
+                # politica para esse papel, como a `resolver_leitura` da
+                # `tenant_channels`. Nao se faz: o papel nao existe (divida
+                # 154) e «politicas permissivas somam-se por OU», pelo que uma
+                # a mais abre o que a `tenant_iso` fecha — uma porta aberta
+                # sem ninguem a usar.
+                ("payment_accounts", "tenant_iso", "ALL", "{public}"),
                 # KAM-047: as duas ultimas do `servicos`, e vem **antes** das
                 # duas de `tenant_channels` — a ordem e por nome de tabela, e
                 # `resources` < `services` < `tenant_channels`. A `tenant_channels`
@@ -465,6 +482,10 @@ class TestCatalogoReal(ComBase):
              # corre o *gate* 6 **inteiro**, porque as quatro listas sao quatro
              # perguntas diferentes sobre a mesma tabela.
              "owner_contacts", "owner_notices",
+             # KAM-052: a coluna de isolamento e `tenant_id` como nas outras
+             # (nao e um caso de `ISOLADAS_POR_OUTRA_COLUNA`), e o predicado
+             # leva o `NULLIF` da `db/rls.py` como todos.
+             "payment_accounts",
              "tenant_channels",
              # KAM-009: o contador e o livro. `tenant_usage` antes de
              # `tenants` pela colacao `C` do tipo `name` (ver o teste acima).
