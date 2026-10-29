@@ -47,6 +47,7 @@ nunca havia uma decima primeira opcao para recusar.
 from __future__ import annotations
 
 import copy
+import datetime
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -110,6 +111,15 @@ class AgendaFalsa:
     #: O dia de Luanda que a grelha de ensaio oferece quando ninguem da
     #: intervalo.
     dia: str = "2026-11-16"
+    #: O recurso que executa. **Um so, e a lacuna e declarada:** nao existe
+    #: ligacao entre servico e recurso — nem no DDL do KAM-047, nem no
+    #: `docs/tecnica/02` §8.3, nem no `00` §4 —, pelo que o `getAvailability`
+    #: devolve horas de **todos** os recursos activos do tenant. Um duplo com
+    #: dois recursos modelava a lacuna melhor; com um, modela o caso em que ela
+    #: nao morde. E a divida **137**, e resolve-la e esquema novo: decisao do
+    #: fundador. O `_unica_na_hora` do `nos.py` ja cai para o lado seguro
+    #: quando duas opcoes batem a mesma hora.
+    recurso: str = "rec-1"
     #: `hold_id` -> `{slot_id, contact_id, expira_at}`.
     holds: dict[str, dict[str, Any]] = field(default_factory=dict)
     #: `booking_id` -> `{slot_id, contact_id, estado}`. O ambito do §6.2.
@@ -173,7 +183,7 @@ class AgendaFalsa:
         return tomados
 
     def _grelha(self, service_id: str, dia: str) -> list[tuple[str, int]]:
-        """Os `(slot_id, minutos_em_luanda)` livres de um dia.
+        """Os `(slot_id, minuto_do_dia_de_luanda)` livres de um dia.
 
         O `slot_id` e deterministico no *fake* — `s:{service}:{dia}:{minutos}` —
         e isso **nao** contradiz «o `slot_id` e opaco»: opaco e o que quem o
@@ -261,12 +271,25 @@ class AgendaFalsa:
             inicio = datas.instante_utc(dia, minuto)
             fact = self._fact("datetime", inicio)
             facts.append(fact)
+            # **Os campos sao os do `Opcao` do contrato, e nao mais.** O
+            # `services/com/src/servicos/contrato.ts` da-lhe `slotId`,
+            # `serviceId`, `resourceId`, `inicioAt` e `fimAt` — em
+            # `snake_case` na fronteira da tool, que e a forma do §6.2. O
+            # `fact_id` e o unico acrescento, e e nosso: e o que liga a opcao ao
+            # *fact* `datetime` que esta resposta traz, sem o qual o `compose`
+            # nao a pode citar (ADR-007).
+            #
+            # **Nao ha `minutos_em_luanda`**, e e de proposito: a primeira
+            # versao deste duplo inventava-o e o `check_availability` lia-o —
+            # isto e, o no estava escrito contra o *fake* e nao contra o
+            # contrato. Quem o deriva do `inicio_at` e o `_minuto_em_luanda` do
+            # `nos.py`. Apanhado pela nota do KAM-047 depois de o PR abrir.
             opcao: dict[str, Any] = {
                 "slot_id": slot_id,
                 "service_id": servico.service_id,
+                "resource_id": self.recurso,
                 "inicio_at": inicio,
                 "fim_at": datas.instante_utc(dia, minuto + servico.duracao_min),
-                "minutos_em_luanda": minuto,
                 "fact_id": fact.fact_id,
             }
             opcoes.append(opcao)
@@ -275,13 +298,22 @@ class AgendaFalsa:
             # Um intervalo que estreita a **um** passo: toma-se o *hold*.
             unica = opcoes[0]
             hold_id = self._proximo("h")
+            expira = self._agora(pedido) + TTL_DO_HOLD_S
             self.holds[hold_id] = {
                 "slot_id": unica["slot_id"],
                 "contact_id": pedido.ctx.contact_id,
-                "expira_at": self._agora(pedido) + TTL_DO_HOLD_S,
+                "expira_at": expira,
+                "inicio_at": unica["inicio_at"],
             }
             unica["hold_id"] = hold_id
-            unica["expira_at"] = self.holds[hold_id]["expira_at"]
+            # **ISO e nao epoca**, como o `Marcacao.holdExpiresAt` do contrato
+            # (`string | null`). Devolver um `float` era o duplo a facilitar a
+            # vida ao no: com a cadeia, o `float()` que ele fazia levantava.
+            unica["hold_expires_at"] = (
+                datetime.datetime.fromtimestamp(expira, tz=datetime.timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
 
         return Resposta(
             data={"opcoes": tuple(opcoes), "fora_do_intervalo": fora_do_intervalo},
@@ -373,6 +405,11 @@ class AgendaFalsa:
             "contact_id": pedido.ctx.contact_id,
             "estado": "confirmada",
             "hold_id": pedido.args.hold_id,
+            # **O instante guarda-se, nao se deriva do `slot_id`.** O `slot_id`
+            # real e um *token* assinado e opaco, e um duplo que o parta ensina
+            # a interpreta-lo — que e exactamente o que o KAM-047 pede que nao
+            # se faca. O modulo real le a coluna `inicio_at`; este le o campo.
+            "inicio_at": hold.get("inicio_at"),
         }
         del self.holds[pedido.args.hold_id]
         if pedido.chave:
@@ -433,6 +470,12 @@ class AgendaFalsa:
             "contact_id": pedido.ctx.contact_id,
             "estado": "confirmada",
             "hold_id": None,
+            # O modulo real le o `inicio_at` do *token* assinado; este duplo
+            # nao o sabe para um `slot_id` que nao tenha passado por uma oferta,
+            # e por isso deixa-o em `None` em vez de o adivinhar — com o efeito
+            # de o `compose` nao citar instante nenhum, que e o lado certo de
+            # errar (ADR-007: nao se cita o que nao veio de uma tool).
+            "inicio_at": None,
         }
         # A publicacao: as duas escritas entram juntas.
         self.marcacoes = marcacoes
@@ -474,11 +517,9 @@ class AgendaFalsa:
         """
         marcacao = self.marcacoes[booking_id]
         facts: tuple[Fact, ...] = ()
-        partes = str(marcacao["slot_id"]).split(":")
-        if len(partes) == 4 and partes[0] == "s" and partes[3].isdigit():
-            facts = (
-                self._fact("datetime", datas.instante_utc(partes[2], int(partes[3]))),
-            )
+        inicio = marcacao.get("inicio_at")
+        if isinstance(inicio, str) and inicio:
+            facts = (self._fact("datetime", inicio),)
         return Resposta(
             data={
                 "booking_id": booking_id,

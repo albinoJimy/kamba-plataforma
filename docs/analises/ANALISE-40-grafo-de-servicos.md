@@ -9,7 +9,7 @@
 | `CONFIRMADO` | 22 |
 | `PLAUSÍVEL` | 0 |
 | `MORTO` | 0 |
-| Corridos depois da correcção | 1 266 ensaios do AGR, 0 falhas |
+| Corridos depois da correcção | 1 271 ensaios do AGR, 0 falhas |
 
 ## O que esta análise é, e o que não é
 
@@ -114,6 +114,36 @@ usavam todos `14h` ou mais, pelo que a regra errada nunca se via. Fica escrito
 porque é a lição de sempre — **uma tabela de casos só mede o que lhe põem** —, e
 porque é a melhor prova de que corrigir um achado com um ensaio paga mais do que
 corrigi-lo sem.
+
+## Dois achados que esta revisão NÃO viu, e de onde vieram
+
+Chegaram **depois de o PR abrir**, por nota da sessão do KAM-047, e são os dois
+da mesma classe — a que o criterio 3 do KAM-027 já tinha escrito por extenso:
+«esse teste contra um objecto inventado prova que o nosso `nos_do_grafo` lê o
+nosso próprio duplo».
+
+| Achado | Medido |
+|---|---|
+| O `check_availability` lia `opcao["minutos_em_luanda"]`, e o `Opcao` do contrato **não tem** esse campo (`slotId`, `serviceId`, `resourceId`, `inicioAt`, `fimAt`) | O nó compilava contra o *fake*, que o inventava. O minuto passa a derivar-se do `inicio_at` |
+| O `Marcacao.holdExpiresAt` é `string \| null` e o duplo devolvia um `float` | O `float()` do nó **levanta** `ValueError` sobre `"2026-11-16T13:40:00Z"`. Passava na bateria porque o duplo facilitava |
+
+**Porque é que a revisão não os viu, e isso é a parte útil:** ela recebeu o diff
+e mediu o que o diff faz — e o diff é coerente **consigo mesmo**. O que faltava
+era confrontá-lo com um ficheiro que o diff não toca, noutro serviço e noutra
+linguagem. Nem o guião da revisão nem a bateria o pediam.
+
+O portão é a família `TestContratoDoModuloServicos`, e a forma importa: lê o
+`contrato.ts` e converte `camelCase` para `snake_case` na fronteira da tool, em
+vez de repetir os nomes numa lista — uma lista à mão divergiria do contrato no
+dia em que ele mudasse, que é o defeito que ela existiria para apanhar.
+
+**E uma terceira nota da mesma sessão não gerou trabalho, de propósito:** não
+existe ligação entre serviço e recurso, pelo que o `getAvailability` devolve
+horas de **todos** os recursos activos do tenant — e numa PME com duas salas o
+grafo oferece a errada, com o `slot_id` assinado a certificá-la. É a dívida
+**137**, declarada pelo KAM-047, e resolvê-la é esquema novo: decisão do
+fundador. O `_unica_na_hora` já cai para o lado seguro quando duas opções batem
+a mesma hora, e isso ficou escrito onde ele vive.
 
 ## Hipóteses devolvidas ao fundador
 

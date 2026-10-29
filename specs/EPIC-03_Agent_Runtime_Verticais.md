@@ -2542,10 +2542,21 @@ Commits: feat(KAM-035): …
 ### Verificação dos Critérios de Aceitação
 
 **8 critérios: 6 satisfeitos, 2 parciais. 6 caixas de DoD: 3 marcadas, 3 vazias.**
-A bateria do AGR tem **1 266** testes verdes, **104** deles deste ticket
+A bateria do AGR tem **1 271** testes verdes, **109** deles deste ticket
 (`services/agr/tests/test_servicos.py`), corridos em contentor porque esta
 máquina não tem `langgraph`: o comando e o código de saída estão no fim desta
 secção.
+
+**Cinco desses 109 entraram depois de o PR abrir**, por nota da sessão do
+KAM-047, e fecham um escape que a revisão adversarial não viu: o
+`check_availability` lia `opcao["minutos_em_luanda"]` e o `Opcao` do
+`services/com/src/servicos/contrato.ts` **não tem** esse campo — era invenção do
+duplo de ensaio. O nó estava escrito contra o nosso próprio *fake*. A mesma nota
+trouxe um segundo da mesma classe: o `Marcacao.holdExpiresAt` é `string | null` e
+o duplo devolvia um `float`, pelo que o `float()` do nó **levantava** contra o
+módulo real e passava contra o duplo. A família `TestContratoDoModuloServicos` é
+o portão: lê o **ficheiro do contrato** e confronta os nomes, em vez de os
+repetir numa lista à mão.
 
 **Estes números são os de depois da revisão adversarial**
 (`../docs/analises/ANALISE-40-grafo-de-servicos.md`), que deu **22 achados, 22
@@ -2627,7 +2638,7 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "<worktree>:/w" -w //w \
   kamba-agr-tests python -m unittest discover -s services/agr/tests -t services/agr/tests
 ```
 
-`Ran 1266 tests` / `OK`, código de saída **0**. O `tools` tem de estar no
+`Ran 1271 tests` / `OK`, código de saída **0**. O `tools` tem de estar no
 `PYTHONPATH`: o `kamba_yaml` que o `llm/aliases.py` importa vive em
 `tools/kamba_yaml.py`, e sem ele quatro ensaios do `test_arranque` falham com um
 `ModuleNotFoundError` que não é regressão.

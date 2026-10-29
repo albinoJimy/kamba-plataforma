@@ -925,9 +925,12 @@ class TestDisponibilidade(unittest.TestCase):
 
     def test_duas_opcoes_a_mesma_hora_nao_escolhem_uma(self) -> None:
         """«Nunca palpite»: escolher o primeiro da lista era escolher por ele."""
+        # **Os campos sao os do `Opcao` do contrato**: o minuto deriva-se do
+        # `inicio_at` e nao se le de um campo que o duplo invente.
+        as_nove = datas.instante_utc(DIA_DA_GRELHA, 9 * 60)
         opcoes = (
-            {"slot_id": "a", "minutos_em_luanda": 540, "hold_id": "h1"},
-            {"slot_id": "b", "minutos_em_luanda": 540, "hold_id": "h2"},
+            {"slot_id": "a", "inicio_at": as_nove, "hold_id": "h1"},
+            {"slot_id": "b", "inicio_at": as_nove, "hold_id": "h2"},
         )
         self.assertIsNone(nos_mod._unica_na_hora(opcoes, 540))
         self.assertIsNone(nos_mod._unica_na_hora(opcoes, None))
@@ -1844,6 +1847,126 @@ class TestAchadosDaRevisao(unittest.TestCase):
         self.assertEqual(datas.ler_hora("as 5 e meia").candidatas, (330, 1050))
         # E os minutos escritos vencem a fraccao por palavras.
         self.assertEqual(datas.ler_hora("as 14h30").minutos, 14 * 60 + 30)
+
+
+class TestContratoDoModuloServicos(unittest.TestCase):
+    """O duplo de ensaio publica os campos do contrato, e nao os que lhe convem.
+
+    **Esta familia e um portao e nao uma verificacao de estilo.** O escape que
+    ela fecha chegou depois de o PR abrir, por nota da sessao do KAM-047: o
+    `check_availability` lia `opcao["minutos_em_luanda"]` e o `Opcao` do
+    `services/com/src/servicos/contrato.ts` **nao tem** esse campo — era
+    invencao do duplo. O no estava escrito contra o nosso proprio *fake*, que e
+    a licao que o criterio 3 do KAM-027 ja tinha pago por escrito: «esse teste
+    contra um objecto inventado prova que o nosso `nos_do_grafo` le o nosso
+    proprio duplo».
+
+    A mesma classe trouxe um segundo: o `Marcacao.holdExpiresAt` e
+    `string | null` e o duplo devolvia um `float`, pelo que o `float()` que o no
+    fazia **levantava** contra o modulo real e passava contra o *fake*.
+
+    O portao le o **ficheiro do contrato** e confronta os nomes. Nao e uma lista
+    escrita a mao: uma lista a mao divergia do contrato no dia em que ele
+    mudasse, que e o defeito que ela existiria para apanhar.
+    """
+
+    @staticmethod
+    def _campos(interface: str) -> set[str]:
+        """Os campos de uma `interface` do contrato, em `snake_case`.
+
+        A fronteira da tool e `snake_case` (a forma do §6.2: `book_slot(slot_id,
+        servico)`) e o contrato e TypeScript em `camelCase`. A conversao e aqui,
+        num sitio, e e o que torna a comparacao possivel sem duas listas.
+        """
+        import pathlib as _p
+        import re as _re
+
+        raiz = _p.Path(__file__).resolve().parents[3]
+        fonte = (
+            raiz / "services" / "com" / "src" / "servicos" / "contrato.ts"
+        ).read_text(encoding="utf-8")
+        bloco = fonte.split(f"export interface {interface} {{")[1].split("}")[0]
+        nomes = _re.findall(r"readonly (\w+)", bloco)
+        return {_re.sub(r"(?<!^)(?=[A-Z])", "_", n).lower() for n in nomes}
+
+    def test_a_opcao_do_duplo_nao_inventa_campos(self) -> None:
+        """Os campos que o duplo publica sao os do contrato, mais dois nossos."""
+        agenda = AgendaFalsa(relogio=Relogio(), dia=DIA_DA_GRELHA)
+        grafo, deps, _, _, _ = montar(agenda=agenda)
+        estado = estado_de("")
+        estado["intent"] = "disponibilidade"
+        estado["slots"] = {"servico": "srv-corte", "data": DIA_DA_GRELHA}
+        opcoes = no("check_availability", deps, estado)["slots"]["opcoes"]
+        self.assertTrue(opcoes)
+
+        do_contrato = self._campos("Opcao")
+        # Os dois acrescentos **nossos**, e os dois tem razao escrita: o
+        # `fact_id` liga a opcao ao *fact* `datetime` (sem ele o `compose` nao a
+        # pode citar, ADR-007), e o par `hold_id`/`hold_expires_at` e o *hold*
+        # do §8.2 — que o `Marcacao` do contrato tambem nomeia.
+        nossos = {"fact_id", "hold_id", "hold_expires_at"}
+        for opcao in opcoes:
+            sobra = set(opcao) - do_contrato - nossos
+            self.assertEqual(sobra, set(), f"campos que o contrato nao tem: {sobra}")
+
+    def test_o_minuto_deriva_se_do_inicio_at_e_nao_de_um_campo(self) -> None:
+        """E o campo que o contrato **tem**: `inicioAt`."""
+        self.assertIn("inicio_at", self._campos("Opcao"))
+        self.assertNotIn("minutos_em_luanda", self._campos("Opcao"))
+        as_nove = datas.instante_utc(DIA_DA_GRELHA, 9 * 60)
+        self.assertEqual(nos_mod._minuto_em_luanda({"inicio_at": as_nove}), 9 * 60)
+        # E o que nao se consegue ler nao se adivinha.
+        for cru in ({}, {"inicio_at": ""}, {"inicio_at": "nao e uma data"}):
+            self.assertIsNone(nos_mod._minuto_em_luanda(cru), repr(cru))
+
+    def test_o_hold_expires_at_e_uma_cadeia_iso_e_nao_um_numero(self) -> None:
+        """`string | null` no contrato. Um `float()` sobre a cadeia levantava."""
+        self.assertIn("hold_expires_at", self._campos("Marcacao"))
+        iso = "2026-11-16T13:40:00Z"
+        self.assertAlmostEqual(
+            nos_mod._epoca_de(iso), em_luanda(iso).timestamp(), places=3
+        )
+        # **O lado seguro e o zero**: um `expira_at` ilegivel da um *hold*
+        # expirado no `confirm_gate`, e nao um que nunca expira.
+        for cru in (None, "", "nao e uma data", 17, {}):
+            self.assertEqual(nos_mod._epoca_de(cru), 0.0, repr(cru))
+
+    def test_um_hold_ilegivel_nao_passa_o_confirm_gate(self) -> None:
+        """A consequencia do zero, medida no no e nao so na utilitaria."""
+        grafo, deps, *_ = montar()
+        estado = estado_de(
+            f"{tabela.PREFIXO_DE_CONFIRMACAO}h-1", tipo="interactive"
+        )
+        estado["stage"] = "awaiting_confirm"
+        estado["slots"] = {"hold": {"hold_id": "h-1", "expira_at": 0.0}}
+        delta = no("confirm_gate", deps, estado)
+        self.assertIn(tabela.STALE_CONFIRMATION, delta["avisos"])
+
+    def test_o_grafo_nunca_monta_um_slot_id(self) -> None:
+        """O `slot_id` e um *token* assinado: devolve-se, nunca se constroi.
+
+        O `holdSlot` do modulo le os campos do proprio *token* e recusa com
+        `VALIDATION_ERROR` o que nao verifique — e o guardrail do §8.2 imposto
+        por criptografia. Este ensaio mede que o unico `slot_id` que sai do
+        grafo e **o que entrou**, e nao um derivado da data, da hora ou do
+        servico.
+        """
+        agenda = AgendaFalsa(relogio=Relogio(), dia=DIA_DA_GRELHA)
+        grafo, deps, _, _, _ = montar(agenda=agenda)
+        estado = estado_de("")
+        estado["intent"] = "marcar"
+        estado["slots"] = {
+            "servico": "srv-corte",
+            "data": DIA_DA_GRELHA,
+            "hora": 9 * 60,
+        }
+        delta = no("check_availability", deps, estado)
+        do_backend = {o["slot_id"] for o in delta["slots"]["opcoes"]}
+        self.assertIn(delta["slots"]["hold"]["slot_id"], do_backend)
+        # E o `book_slot` cita o `hold_id`, nao um `slot_id` reconstruido.
+        self.assertEqual(
+            sorted(nos_mod.referencia_a_confirmar(delta["slots"]) and ["ok"]), ["ok"]
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover

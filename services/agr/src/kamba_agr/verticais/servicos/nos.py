@@ -57,6 +57,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Final
 
 from ...tls.contexto import Confirmation, ToolContext
+from ...validador.render import em_luanda
 from ...tls.erros import (
     HOLD_EXPIRED,
     LIMIT_EXCEEDED,
@@ -748,10 +749,18 @@ def check_availability(deps: Dependencias):
         escolhida = _unica_na_hora(opcoes, slots.get("hora"))
         if escolhida is not None and escolhida.get("hold_id"):
             slots["hold"] = {
+                # **O `slot_id` devolve-se, nunca se monta.** E um *token*
+                # assinado (`base64url(versao|service_id|resource_id|inicio_at|
+                # fim_at)` mais HMAC-SHA256, segredo derivado por tenant), e o
+                # `holdSlot` do modulo le os campos do proprio *token* e recusa
+                # com `VALIDATION_ERROR` o que nao verifique. E o guardrail do
+                # §8.2 — «so tool; o modelo nao calcula horas livres» — imposto
+                # por criptografia e nao por confianca, pelo que o grafo nao tem
+                # como o contornar e nao deve tentar interpreta-lo.
                 "hold_id": str(escolhida["hold_id"]),
                 "slot_id": str(escolhida.get("slot_id") or ""),
                 "fact_id": escolhida.get("fact_id"),
-                "expira_at": float(escolhida.get("expira_at") or 0),
+                "expira_at": _epoca_de(escolhida.get("hold_expires_at")),
             }
             return {**delta, "stage": "awaiting_confirm"}
         return delta
@@ -759,19 +768,73 @@ def check_availability(deps: Dependencias):
     return no
 
 
+def _epoca_de(iso: Any) -> float:
+    """Um instante ISO-8601 em segundos desde a epoca, ou `0.0`.
+
+    **Existe porque o contrato da uma cadeia e o `confirm_gate` compara um
+    numero.** O `Marcacao.holdExpiresAt` do modulo `servicos` e um instante
+    ISO-8601 (`string | null`), e a primeira versao deste no fazia
+    `float(opcao["expira_at"])` — que **levanta** `ValueError` sobre
+    `"2026-11-16T13:40:00Z"`. Passava na bateria porque o duplo devolvia um
+    `float`: o no estava escrito contra o *fake* e nao contra o contrato.
+    Apanhado pela nota do KAM-047 depois de o PR abrir.
+
+    A conversao tem **um** sitio, e o lado seguro e o `0.0`: um `expira_at` que
+    nao se consiga ler da um *hold* **expirado** no `confirm_gate`, que recusa a
+    confirmacao — e nao um que nunca expira.
+    """
+    if not isinstance(iso, str) or not iso:
+        return 0.0
+    try:
+        return em_luanda(iso).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def _minuto_em_luanda(opcao: Mapping[str, Any]) -> int | None:
+    """O minuto do dia de Luanda em que uma opcao comeca, do `inicio_at` dela.
+
+    **Deriva-se e nao se le de um campo.** A primeira versao lia
+    `opcao["minutos_em_luanda"]`, que o `Opcao` do modulo `servicos`
+    **nao tem** — os campos dele sao `slotId`, `serviceId`, `resourceId`,
+    `inicioAt` e `fimAt`, e aquele era invencao do duplo de ensaio. O no
+    compilava contra o nosso proprio *fake*, que e a licao que o criterio 3 do
+    KAM-027 ja tinha pago.
+
+    A conversao e para **Luanda** e nao para UTC, pela razao do cabecalho do
+    `datas.py`: a hora que o cliente deu e um minuto do dia dele, e comparar
+    com minutos de UTC deslocava tudo uma hora.
+    """
+    quando = opcao.get("inicio_at")
+    if not isinstance(quando, str) or not quando:
+        return None
+    try:
+        local = em_luanda(quando)
+    except ValueError:
+        return None
+    return local.hour * 60 + local.minute
+
+
 def _unica_na_hora(
     opcoes: Sequence[Mapping[str, Any]], hora: Any
 ) -> Mapping[str, Any] | None:
     """A opcao que bate a hora pedida, **se for exactamente uma**.
 
-    Duas opcoes a mesma hora — dois profissionais livres — nao escolhem uma: o
-    criterio 3 diz «nunca palpite», e escolher o primeiro da lista era um
-    palpite sobre com quem o cliente quer ser atendido. Devolve `None`, e o
-    cliente ve as duas.
+    Duas opcoes a mesma hora nao escolhem uma: o criterio 3 diz «nunca
+    palpite», e escolher o primeiro da lista era um palpite. Devolve `None`, e
+    o cliente ve as duas.
+
+    **E este caminho e mais comum do que parece, por uma lacuna de esquema que
+    nao e nossa:** nao existe ligacao entre servico e recurso — nem no DDL do
+    KAM-047, nem no `docs/tecnica/02` §8.3, nem no `00` §4 —, pelo que o
+    `getAvailability` devolve horas de **todos** os recursos activos do tenant.
+    Duas salas livres as 14h30 dao duas opcoes, e a resposta certa e mostrar as
+    duas. E a divida **137**, declarada pelo KAM-047, e resolve-la e esquema
+    novo: decisao do fundador, nao coisa para se fazer de passagem.
     """
     if not isinstance(hora, int):
         return None
-    batem = [o for o in opcoes if o.get("minutos_em_luanda") == hora]
+    batem = [o for o in opcoes if _minuto_em_luanda(o) == hora]
     return batem[0] if len(batem) == 1 else None
 
 
