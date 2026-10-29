@@ -462,9 +462,20 @@ def _privilegios() -> None:
     mesma escolha que a `0007` fez ao tirar `INSERT` em `entitlements` a este
     papel, e que a `0025` fez para o catalogo da agenda.
 
-    **E nao apaga nada.** Encerrar uma conta e `estado = 'revogado'` (§10.2), e um
-    `DELETE` concedido tornava o historico de beneficiarios reescrivel — o que e
-    exactamente o que a G-1 existe para poder auditar.
+    **E o `kamba_app` nao apaga nada.** Encerrar uma conta e `estado = 'revogado'`
+    (§10.2), e um `DELETE` concedido ao papel da aplicacao tornava o historico de
+    beneficiarios reescrivel — o que e exactamente o que a G-1 existe para poder
+    auditar.
+
+    **O `kamba_batch` apaga, e a primeira versao desta revisao nao lhe concedia
+    `DELETE`.** O *gate* 6 recusou com `42501` em dez `tearDownClass` da bateria
+    de isolamento: o semeador nao conseguia limpar o que semeou. A correccao nao
+    afrouxa barreira nenhuma — repoe a regra que a `0025` ja escreve por extenso
+    («quem apaga e o `kamba_batch`, que e o papel da retencao (KAM-071) e o
+    semeador das baterias de isolamento»), e o dicionario §2 di-lo tambem: «soft
+    delete: estado, nunca `DELETE`, **salvo purga prevista** (KAM-071,
+    KAM-098)». O que nao se concede continua a nao se conceder: o `kamba_app` e o
+    `kamba_audit` ficam sem `DELETE`, e e ai que a barreira vive.
 
     **O `kamba_audit` le.** Entra porque «para onde foi o dinheiro desta venda» e
     uma pergunta de auditoria, e a resposta vive nesta tabela. Mas o `GRANT` nao
@@ -480,7 +491,7 @@ def _privilegios() -> None:
     """
     op.execute(f"GRANT SELECT ON {CONTAS} TO {PAPEL_DA_APP}")
     op.execute(f"GRANT SELECT ON {CONTAS} TO {PAPEL_DE_AUDITORIA}")
-    op.execute(f"GRANT SELECT, INSERT, UPDATE ON {CONTAS} TO {PAPEL_DE_LOTE}")
+    op.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON {CONTAS} TO {PAPEL_DE_LOTE}")
 
 
 def downgrade() -> None:

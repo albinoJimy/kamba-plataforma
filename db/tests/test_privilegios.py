@@ -688,8 +688,14 @@ ESPERADO_POR_TABELA.update(
         # **E ninguem apaga.** Encerrar uma conta e `estado = 'revogado'` (secao
         # 10.2); um `DELETE` concedido tornava o historico de beneficiarios
         # reescrivel, que e exactamente o que a G-1 existe para poder auditar.
-        # Nem o `kamba_batch` o tem — ao contrario do que ele tem na agenda, que
-        # e estado de negocio e nao prova.
+        #
+        # **O `kamba_batch` apaga**, e a primeira versao desta matriz nao lhe dava
+        # `DELETE`: o *gate* 6 recusou com `42501` em dez `tearDownClass`, porque
+        # o semeador da bateria de isolamento nao conseguia limpar o que semeou.
+        # Nao e uma folga — e a regra que a `0025` ja escreve por extenso («quem
+        # apaga e o `kamba_batch`, que e o papel da retencao (KAM-071) e o
+        # semeador das baterias de isolamento») e que o dicionario §2 ressalva
+        # («soft delete: estado, nunca `DELETE`, **salvo purga prevista**»).
         #
         # **O `kamba_audit` le**, porque «para onde foi o dinheiro desta venda» e
         # uma pergunta de auditoria. O `GRANT` nao o poe acima da RLS: ele nao
@@ -697,7 +703,7 @@ ESPERADO_POR_TABELA.update(
         # tenant cujo contexto tiver e **nao** ve a de `tenant_id` nulo.
         "payment_accounts": {
             "kamba_app": {"SELECT"},
-            "kamba_batch": {"SELECT", "INSERT", "UPDATE"},
+            "kamba_batch": {"SELECT", "INSERT", "UPDATE", "DELETE"},
             "kamba_audit": {"SELECT"},
             "kamba_resolver": set(),
             "kamba_identity": set(),

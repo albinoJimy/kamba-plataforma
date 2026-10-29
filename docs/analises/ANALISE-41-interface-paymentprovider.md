@@ -203,6 +203,25 @@ uma tabela que só existe na `0027`. Re-enraizou-se a cadeia no
   do TypeScript escreve `\/` onde a cadeia de Python escreve `/`. São a mesma
   expressão; o ensaio comparava a grafia.
 
+### G6 — o gate 6 recusou com `42501`: a matriz dizia quem pode, e faltava quem limpa
+
+Dez `tearDownClass` da bateria de isolamento falharam com
+`permission denied for table payment_accounts`. A tabela estava declarada nos
+inventários — era o que faltava não era a declaração, era o **`GRANT`**: concedi
+`SELECT, INSERT, UPDATE` ao `kamba_batch` e retive o `DELETE`, com o argumento de
+que «ninguém apaga uma conta de pagamento; encerrar é `estado = 'revogado'`».
+
+O argumento vale para o `kamba_app` e **não** para o `kamba_batch`, e a `0025` já
+o escreve por extenso: «quem apaga é o `kamba_batch`, que é o papel da retenção
+(KAM-071) e o **semeador das baterias de isolamento**». O dicionário §2 ressalva o
+mesmo: «soft delete: estado, nunca `DELETE`, **salvo purga prevista**». Conceder
+o `DELETE` ao papel de lote não afrouxa barreira nenhuma — repõe a regra; a
+barreira continua onde vive, que é o `kamba_app` e o `kamba_audit` sem `DELETE`.
+
+**A lição é a forma do erro, não o `GRANT`:** uma tabela nova tem duas metades no
+isolamento, e declarar a primeira (os inventários) sem a segunda (os privilégios
+que a limpeza precisa) dá um gate vermelho que parece ser da tabela e é da suite.
+
 ### E dois achados do gate 9 no meu próprio ficheiro de ensaio
 
 O padrão `atribuicao` do `scan_secrets` acusa uma atribuição a um nome que

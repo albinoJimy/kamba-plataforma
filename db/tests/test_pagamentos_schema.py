@@ -311,10 +311,28 @@ class TestContaDePagamento(ComBase):
         PMEs podiam ter o mesmo segmento de URL de callback e o PAY nao sabia a
         qual conta um callback pertencia.
         """
-        _conta(self.cursor, tenant_id=self.tenant_a, wt="partilhado")
-        with self.assertRaises(Exception) as apanhado:
-            _conta(self.cursor, tenant_id=self.tenant_b, wt="partilhado")
-        self.assertEqual(sqlstate(apanhado.exception), VIOLACAO_DE_UNICIDADE)
+        primeira = _conta(self.cursor, tenant_id=self.tenant_a)
+        # **Le-se o valor da primeira linha em vez de o escrever duas vezes.** O
+        # `_conta` gera um sufixo unico de proposito (para que duas contas de
+        # ensaio nunca colidam por acidente), pelo que passar o mesmo `wt` **nao**
+        # produz o mesmo identificador — o ensaio nao colidia e media «nao
+        # levantou». Apanhado pelo gate 8.
+        self.cursor.execute(
+            "SELECT webhook_token FROM platform.payment_accounts WHERE id = %s",
+            (primeira,),
+        )
+        o_mesmo = self.cursor.fetchone()[0]
+        with ComSavepoint(self.cursor, "sp_uq") as sp:
+            self.cursor.execute(
+                "INSERT INTO platform.payment_accounts "
+                "(beneficiary_kind, tenant_id, provider, webhook_token) "
+                "VALUES ('pme', %s, 'outro', %s)",
+                (self.tenant_b, o_mesmo),
+            )
+        self.assertIsNotNone(
+            sp.excepcao, "duas contas de dois tenants partilharam o identificador"
+        )
+        self.assertEqual(sqlstate(sp.excepcao), VIOLACAO_DE_UNICIDADE)
 
 
 class TestIndiceUnicoParcial(ComBase):
@@ -490,11 +508,18 @@ class TestGuardaDoBeneficiario(ComBase):
         asercao, um `admin` que deixasse de o ser punha os tres casos a passar
         por **invisibilidade** em vez de pela comparacao, e nenhum deles dizia-o.
         """
-        linhas = self.consultar(
+        # **No mesmo cursor**, e nao por `self.consultar`: aquele abre uma ligacao
+        # nova, que nao ve as linhas nao committadas desta transaccao. A primeira
+        # versao deste ensaio dava `0` e parecia dizer que o papel nao via as
+        # contas — quando o que ele nao via era a transaccao. Apanhado pelo gate 8,
+        # e vale dizer porque a leitura errada era alarmante: se fosse verdade,
+        # os tres casos da G-1 estariam a passar por invisibilidade e nao pela
+        # comparacao.
+        self.cursor.execute(
             "SELECT count(*) FROM platform.payment_accounts WHERE id IN (%s, %s)",
             (self.conta_a, self.conta_propria),
         )
-        self.assertEqual(linhas, [(2,)])
+        self.assertEqual(self.cursor.fetchone()[0], 2)
 
     def test_a_funcao_e_security_invoker_com_search_path_fixo(self) -> None:
         """**`INVOKER`, e este ensaio media o contrario — foi o gate 8 a corrigi-lo.**
@@ -527,33 +552,11 @@ class TestGuardaDoBeneficiario(ComBase):
             "que e NOBYPASSRLS, e o FORCE vincula-o — a guarda nao via conta "
             "nenhuma (medido no gate 8)",
         )
-        self.assertIn("search_path=platform,pg_catalog", list(proconfig or []))
-
-    def test_sob_rls_a_conta_de_outro_tenant_e_indistinguivel_de_inexistente(self) -> None:
-        """A propriedade que a RLS impoe, medida como propriedade e nao escondida.
-
-        Um chamador sujeito a RLS — o `kamba_app` — nao consegue distinguir «a
-        conta e de outro tenant» de «a conta nao existe»: nos dois casos o
-        `SELECT` da funcao devolve zero linhas. **Recusa nos dois**, que e o que
-        a G-1 exige, e a mensagem diz as duas possibilidades em vez de afirmar
-        uma.
-
-        Este ensaio existe para que a imprecisao fique **medida** e nao implicita:
-        quem ler a mensagem da guarda sabe porque e que ela e assim.
-        """
-        conexao = self.ligar("app")
-        cursor = conexao.cursor()
-        factories.contexto(cursor, self.tenant_b)
-        with self.assertRaises(Exception) as apanhado:
-            cursor.execute(
-                f"INSERT INTO {ENSAIO} (tenant_id, account_id, order_id) "
-                "VALUES (%s, %s, %s)",
-                (self.tenant_b, self.conta_a, str(uuid.uuid4())),
-            )
-        # A FK da tabela de ensaio tambem nao ve a conta de A com o contexto de
-        # B, pelo que o `23503` e tao legitimo como o `23514`. O que este ensaio
-        # afirma e que **nao passa**.
-        self.assertIn(sqlstate(apanhado.exception), ("23503", VIOLACAO_DE_CHECK))
+        # **Com espaco depois da virgula**, que e como o servidor o devolve
+        # (`search_path=platform, pg_catalog`) e nao como a revisao o escreve.
+        # Normaliza-se em vez de se fixar a grafia: o que importa e o conteudo.
+        config = [c.replace(" ", "") for c in (proconfig or [])]
+        self.assertIn("search_path=platform,pg_catalog", config)
 
     def test_public_nao_executa_a_funcao(self) -> None:
         """A omissao do PostgreSQL concede `EXECUTE` a `PUBLIC` em cada funcao.
@@ -567,6 +570,86 @@ class TestGuardaDoBeneficiario(ComBase):
             "'platform.assert_beneficiary()', 'EXECUTE')"
         )
         self.assertEqual(linhas, [(False,)])
+
+
+class TestAGuardaSobRLS(ComBase):
+    """A invisibilidade sob RLS, medida como propriedade e nao escondida.
+
+    Um chamador sujeito a RLS — o `kamba_app` — **nao consegue distinguir** «a
+    conta e de outro tenant» de «a conta nao existe»: nos dois casos o `SELECT`
+    da funcao devolve zero linhas. Recusa nos dois, que e o que a G-1 exige, e a
+    mensagem da guarda diz as duas possibilidades em vez de afirmar uma.
+
+    **Tem classe propria porque precisa de *fixtures* committadas.** A medicao
+    envolve uma **segunda** ligacao (a do `kamba_app`), e uma ligacao nao ve as
+    linhas nao committadas de outra — foi o gate 8 a dize-lo, com um `42P01`
+    sobre a tabela de ensaio. Commita-se o minimo e limpa-se no fim.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        conexao = ligacao.ligar("admin")
+        try:
+            cursor = conexao.cursor()
+            cls.tenant_a = factories.tenant(cursor)
+            cls.tenant_b = factories.tenant(cursor)
+            cls.conta_a = _conta(cursor, tenant_id=cls.tenant_a)
+            cursor.execute(CRIAR_ENSAIO)
+            cursor.execute(LIGAR_TRIGGER)
+            # O papel da aplicacao tem de poder tentar escrever, senao o que se
+            # media era a falta de privilegio e nao a RLS.
+            cursor.execute(f"GRANT INSERT, SELECT ON {ENSAIO} TO kamba_app")
+            conexao.commit()
+        finally:
+            conexao.close()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        conexao = ligacao.ligar("admin")
+        try:
+            cursor = conexao.cursor()
+            cursor.execute(f"DROP TABLE IF EXISTS {ENSAIO}")
+            cursor.execute(
+                "DELETE FROM platform.payment_accounts WHERE id = %s", (cls.conta_a,)
+            )
+            conexao.commit()
+        finally:
+            conexao.close()
+
+    def test_o_app_nao_cobra_na_conta_de_outro_tenant(self) -> None:
+        """A recusa, com o contexto do tenant B sobre a conta do tenant A."""
+        cursor = self.ligar("app").cursor()
+        factories.contexto(cursor, self.tenant_b)
+        with self.assertRaises(Exception) as apanhado:
+            cursor.execute(
+                f"INSERT INTO {ENSAIO} (tenant_id, account_id, order_id) "
+                "VALUES (%s, %s, %s)",
+                (self.tenant_b, self.conta_a, str(uuid.uuid4())),
+            )
+        # A FK da tabela de ensaio tambem nao ve a conta de A com o contexto de
+        # B, pelo que o `23503` e tao legitimo como o `23514`. O que este ensaio
+        # afirma e que **nao passa** — e a guarda e *fail closed* nos dois.
+        self.assertIn(sqlstate(apanhado.exception), ("23503", VIOLACAO_DE_CHECK))
+
+    def test_e_o_dono_tambem_nao_a_ve_sem_contexto(self) -> None:
+        """Sem contexto de tenant, zero linhas — e a terceira propriedade do `rls.py`.
+
+        E o controlo que mostra que a recusa acima vem da **RLS** e nao de um
+        acidente da *fixture*: com o contexto de A, a conta aparece.
+        """
+        cursor = self.ligar("app").cursor()
+        cursor.execute(
+            "SELECT count(*) FROM platform.payment_accounts WHERE id = %s",
+            (self.conta_a,),
+        )
+        self.assertEqual(cursor.fetchone()[0], 0)
+        factories.contexto(cursor, self.tenant_a)
+        cursor.execute(
+            "SELECT count(*) FROM platform.payment_accounts WHERE id = %s",
+            (self.conta_a,),
+        )
+        self.assertEqual(cursor.fetchone()[0], 1)
 
 
 class TestSemSegredosNasColunas(ComBase):
