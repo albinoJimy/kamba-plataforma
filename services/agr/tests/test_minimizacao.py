@@ -62,6 +62,7 @@ from kamba_agr.privacidade import (
     TIPOS,
     TIPOS_DE_DICIONARIO,
     TIPOS_DE_FORMA,
+    CatalogoDoTenant,
     CatalogoVazio,
     ContextoDeMinimizacao,
     Mapa,
@@ -656,6 +657,185 @@ class TestCatalogoDoTenant(unittest.TestCase):
         for _ in range(5):
             minimise("Fala com a Rosa.", ctx)
         self.assertEqual(chamadas, [TENANT], "o `minimise` leu o catalogo")
+
+
+class _CursorFalso:
+    """Um cursor que devolve o que lhe mandarem, ou levanta."""
+
+    def __init__(self, porta: "_LigacaoFalsa") -> None:
+        self._porta = porta
+
+    def execute(self, sql: str, parametros: tuple[object, ...]) -> None:
+        self._porta.sql.append((sql.strip().splitlines()[1].strip(), parametros))
+        for fragmento, erro in self._porta.levantar.items():
+            if fragmento in sql:
+                raise erro
+        for fragmento, linhas in self._porta.respostas.items():
+            if fragmento in sql:
+                self._resultado = linhas
+                return
+        self._resultado = []
+
+    def fetchall(self) -> list[tuple[object, ...]]:
+        return self._resultado
+
+
+class _LigacaoFalsa:
+    """A ligacao de ensaio do `CatalogoDoTenant`.
+
+    O `abrir_ligacao` do `catalogo.py` e a mesma costura do `llm/cliente.py`:
+    uma funcao sem argumentos que devolve uma ligacao, para que a bateria possa
+    dar um duplo sem levantar um PostgreSQL.
+    """
+
+    def __init__(
+        self,
+        respostas: dict[str, list[tuple[object, ...]]] | None = None,
+        levantar: dict[str, BaseException] | None = None,
+    ) -> None:
+        self.respostas = respostas or {}
+        self.levantar = levantar or {}
+        self.sql: list[tuple[str, tuple[object, ...]]] = []
+        self.fechada = False
+
+    def cursor(self) -> _CursorFalso:
+        return _CursorFalso(self)
+
+    def close(self) -> None:
+        self.fechada = True
+
+
+class TestCatalogoDoTenantLe(unittest.TestCase):
+    """A implementacao minima da porta: tres consultas, e o que falha nao leva as outras.
+
+    **A caixa do criterio 5 fica `parcial` e isto nao a fecha**: o que se mede
+    aqui e que o adaptador le as tres fontes que existem. Os produtos nao tem
+    fonte (KAM-042, KAM-043) e nao ha consulta para eles.
+    """
+
+    def _porta(self, **kwargs: object) -> tuple[CatalogoDoTenant, _LigacaoFalsa]:
+        ligacao = _LigacaoFalsa(**kwargs)  # type: ignore[arg-type]
+        return CatalogoDoTenant(abrir_ligacao=lambda: ligacao), ligacao
+
+    def test_le_as_tres_fontes(self) -> None:
+        porta, ligacao = self._porta(
+            respostas={
+                "platform.tenants": [("Salao da Rosa",)],
+                "servicos.services": [("Corte de cabelo",), ("Manicure",)],
+                "servicos.resources": [("Rosa",), ("Joao",)],
+            }
+        )
+        nomes = porta.nomes(TENANT)
+        self.assertEqual(
+            nomes,
+            {"salao da rosa", "corte de cabelo", "manicure", "rosa", "joao"},
+        )
+        # Tres consultas, e o `tenant_id` em todas.
+        self.assertEqual(len(ligacao.sql), 3)
+        for _sql, parametros in ligacao.sql:
+            self.assertEqual(parametros, (TENANT,))
+        self.assertTrue(ligacao.fechada)
+
+    def test_uma_fonte_que_falha_nao_leva_as_outras(self) -> None:
+        """O esquema `servicos` nasceu no KAM-035 e pode nao estar aplicado.
+
+        Com um `UNION`, a falha levava tambem o nome da loja — a fonte que
+        existe desde a revisao `0001`. Cada uma falha por si.
+        """
+        porta, _ligacao = self._porta(
+            respostas={"platform.tenants": [("Salao da Rosa",)]},
+            levantar={
+                "servicos.services": RuntimeError("relation does not exist"),
+                "servicos.resources": RuntimeError("relation does not exist"),
+            },
+        )
+        self.assertEqual(porta.nomes(TENANT), {"salao da rosa"})
+
+    def test_sem_ligacao_devolve_vazio(self) -> None:
+        """Nao levanta: um nome por mascarar e um *fact* perdido, nao uma fuga."""
+
+        def rebentar() -> object:
+            raise RuntimeError("base indisponivel (ensaio)")
+
+        porta = CatalogoDoTenant(abrir_ligacao=rebentar)
+        self.assertEqual(porta.nomes(TENANT), frozenset())
+
+    def test_um_nome_curto_nao_entra(self) -> None:
+        porta, _ = self._porta(respostas={"platform.tenants": [("A",), ("ab",), ("abc",)]})
+        self.assertEqual(porta.nomes(TENANT), {"abc"})
+
+    def test_uma_linha_vazia_ou_nula_nao_rebenta(self) -> None:
+        porta, _ = self._porta(respostas={"platform.tenants": [(), ("Loja",)]})
+        self.assertEqual(porta.nomes(TENANT), {"loja"})
+
+    def test_trunca_pelos_mais_longos(self) -> None:
+        """Um tecto de custo, e trunca-se para o lado que **mascara mais**.
+
+        O detector percorre esta lista por candidato: um *tenant* com dez mil
+        servicos punha o `minimise` muito acima dos 30 ms do criterio 7.
+        """
+        from kamba_agr.privacidade.catalogo import MAXIMO_DE_NOMES
+
+        muitos = [(f"servico numero {indice:06d}",) for indice in range(MAXIMO_DE_NOMES + 50)]
+        porta, _ = self._porta(respostas={"platform.tenants": muitos})
+        nomes = porta.nomes(TENANT)
+        self.assertEqual(len(nomes), MAXIMO_DE_NOMES)
+
+    def test_a_ligacao_fecha_mesmo_quando_tudo_falha(self) -> None:
+        porta, ligacao = self._porta(
+            levantar={"SELECT": RuntimeError("tudo falhou (ensaio)")}
+        )
+        self.assertEqual(porta.nomes(TENANT), frozenset())
+        self.assertTrue(ligacao.fechada)
+
+    def test_as_tres_consultas_sao_separadas_e_nomeadas(self) -> None:
+        """Um `UNION` era uma verdade; tres consultas sao tres falhas isoladas."""
+        from kamba_agr.privacidade.catalogo import CONSULTAS
+
+        self.assertEqual([nome for nome, _ in CONSULTAS], ["marca", "servicos", "recursos"])
+        # E nenhuma consulta a produtos: nao ha tabela (KAM-042, KAM-043).
+        junto = " ".join(sql for _nome, sql in CONSULTAS)
+        self.assertNotIn("product", junto)
+        self.assertNotIn("produto", junto)
+
+
+class TestDobrarNosExtremos(unittest.TestCase):
+    """Os ramos do `dobrar` que o corpus nao alcanca, e que preservam o comprimento."""
+
+    def test_um_acento_solto_fica_como_estava(self) -> None:
+        """Descarta-lo encolhia o texto, e os indices do detector deixavam de valer."""
+        solto = "́"  # acento agudo combinatorio, sozinho
+        self.assertEqual(len(dobrar(solto)), 1)
+        self.assertEqual(dobrar(solto), solto)
+
+    def test_um_digito_unicode_de_compatibilidade_reduz_se(self) -> None:
+        """Medido, e corrige uma afirmacao que a primeira versao deste ensaio fazia.
+
+        A primeira versao dizia que `unicodedata.digit('²')` levanta
+        `ValueError`. **Nao levanta: devolve 2.** Medido:
+
+            ²  isdigit=True   digit=2
+            ①  isdigit=True   digit=1
+            ٣  isdigit=True   digit=3
+            ½  isdigit=False  digit=ValueError
+            Ⅻ  isdigit=False  digit=ValueError
+
+        Isto e, o `except ValueError` do `dobrar` **nao se alcanca** por aquele
+        caminho — os que levantam nao passam o `isdigit()`. Fica como barreira
+        defensiva, com a razao escrita no `dicionarios.py`.
+
+        O que este ensaio mede e o que importa: o `m²` dobra para `m2`, o
+        comprimento preserva-se, e um preco ao lado continua intacto.
+        """
+        self.assertEqual(dobrar("m²"), "m2")
+        self.assertEqual(len(dobrar("m²")), 2)
+        minimo, _ = minimise("a area e 50 m² por 12.500 Kz", _ctx())
+        self.assertIn("12.500", minimo.texto)
+
+    def test_o_comprimento_preserva_se_em_todos_estes(self) -> None:
+        for texto in ("m²", "½", "́", "①", "ﬁ", "ß", "Ⅻ", "٣"):
+            with self.subTest(texto=texto):
+                self.assertEqual(len(dobrar(texto)), len(texto))
 
 
 # ------------------------------------------------------------- criterio 6

@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.47"
+versao_dicionario: "1.48"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -8579,7 +8579,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.35"
     conceito: "Razão da degradação (etiqueta motivo)"
-    canonico: "timeout, http_429, budget, breaker, backpressure, destino_negado"
+    canonico: "timeout, http_429, budget, breaker, backpressure, destino_negado, minimizacao"
     literais:
       - "timeout"
       - "http_429"
@@ -8587,6 +8587,7 @@ entradas:
       - "breaker"
       - "backpressure"
       - "destino_negado"
+      - "minimizacao"
     nomes:
       - "motivo"
       - "timeout"
@@ -8595,11 +8596,16 @@ entradas:
       - "breaker"
       - "backpressure"
       - "destino_negado"
+      - "minimizacao"
     nomes_nota:
-      - "destino_negado"
-      - "DestinoNegado"
+      - "minimizacao"
+      - "FalhaDeMinimizacao"
       - "ErroDeLlm"
       - "breaker"
+      - "destino_negado"
+      - "RESULTADO_ERRO"
+      - "llm_call_log.resultado"
+      - "DestinoNegado"
       - "prod"
       - "http_429"
       - "a"
@@ -8963,6 +8969,249 @@ entradas:
     nomes_nota:
       - "graph_version"
       - "tool_audit"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "A função que minimiza"
+    canonico: "minimise(texto, ctx) → (MinimisedText, Mapa)"
+    literais:
+      - "minimise(texto, ctx) → (MinimisedText, Mapa)"
+    nomes:
+      - "minimise"
+      - "texto"
+      - "ctx"
+      - "MinimisedText"
+      - "Mapa"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "O tipo selado do texto minimizado"
+    canonico: "MinimisedText"
+    literais:
+      - "MinimisedText"
+    nomes:
+      - "MinimisedText"
+    nomes_nota:
+      - "NewType"
+      - "make"
+      - "typecheck"
+      - "pnpm"
+      - "r"
+      - "run"
+      - "ci"
+      - "lint"
+      - "arch"
+      - "log"
+      - "MinimisedText"
+      - "texto"
+      - "cru"
+      - "TextoNaoMinimizado"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "A mensagem que o gateway aceita"
+    canonico: "MensagemMinimizada"
+    literais:
+      - "MensagemMinimizada"
+    nomes:
+      - "MensagemMinimizada"
+    nomes_nota:
+      - "ClienteDeLlm.chamar"
+      - "list"
+      - "dict"
+      - "str"
+      - "chamar"
+      - "cliente.py"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Os tokens de substituição"
+    canonico: "TELEFONE_n, BSUID_n, EMAIL_n, NIF_n, MORADA_n, PESSOA_n"
+    literais:
+      - "TELEFONE_n"
+      - "BSUID_n"
+      - "EMAIL_n"
+      - "NIF_n"
+      - "MORADA_n"
+      - "PESSOA_n"
+    nomes:
+      - "TELEFONE_n"
+      - "BSUID_n"
+      - "EMAIL_n"
+      - "NIF_n"
+      - "MORADA_n"
+      - "PESSOA_n"
+    nomes_nota:
+      - "a"
+      - "z"
+      - "z0"
+      - "_"
+      - "agr_tool_erros_total"
+      - "n"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "O mapa token → valor"
+    canonico: "Mapa, na chave de estado pii_map"
+    literais:
+      - "Mapa"
+      - "pii_map"
+    nomes:
+      - "Mapa"
+      - "pii_map"
+    nomes_nota:
+      - "dat.llm_call_log"
+      - "__repr__"
+      - "f"
+      - "mapa"
+      - "extra"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Onde o mapa vive"
+    canonico: 'ConversaState["pii_map"], com a retenção do checkpointer'
+    literais:
+      - 'ConversaState["pii_map"]'
+    nomes:
+      - "ConversaState"
+      - "pii_map"
+    nomes_nota:
+      - "CAMPOS_DO_TURNO"
+      - "estado_inicial"
+      - "turn_seq"
+      - "degradado"
+      - "TELEFONE_1"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Re-identificação"
+    canonico: "reidentificar(texto, mapa)"
+    literais:
+      - "reidentificar(texto, mapa)"
+    nomes:
+      - "reidentificar"
+      - "texto"
+      - "mapa"
+    nomes_nota:
+      - "TELEFONE_7"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "A falha fechada"
+    canonico: "FalhaDeMinimizacao, motivo minimizacao"
+    literais:
+      - "FalhaDeMinimizacao"
+      - "minimizacao"
+    nomes:
+      - "FalhaDeMinimizacao"
+      - "minimizacao"
+    nomes_nota:
+      - "ErroDeLlm"
+      - "DestinoNegado"
+      - "classify"
+      - "resultado"
+      - "RESULTADOS"
+      - "llm_call_log.resultado"
+      - "CHECK"
+      - "estado_http"
+      - "chamar"
+      - "motivo_do_erro"
+      - "isinstance"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Identificadores mascarados"
+    canonico: "agr_pii_mascarada_total{tipo}"
+    literais:
+      - "agr_pii_mascarada_total{tipo}"
+    nomes:
+      - "agr_pii_mascarada_total"
+      - "tipo"
+    nomes_nota:
+      - "pii_masked_total"
+      - "tipo"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Sobrecarga da minimização"
+    canonico: "agr_minimise_latency_ms"
+    literais:
+      - "agr_minimise_latency_ms"
+    nomes:
+      - "agr_minimise_latency_ms"
+    nomes_nota:
+      - "minimise_latency_ms"
+      - "latency"
+      - "latencia"
+      - "draft_edit_ratio_p50"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Cobertura do detector"
+    canonico: "pii_recall{tipo}"
+    literais:
+      - "pii_recall{tipo}"
+    nomes:
+      - "pii_recall"
+      - "tipo"
+    nomes_nota:
+      - "metricas.py"
+      - "echo_latency_ms"
+      - "gitignore"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Limiares de recall"
+    canonico: "≥ 99% em telefone, BSUID, e-mail e NIF; ≥ 90% em moradas e nomes"
+    literais: []
+    nomes: []
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Sobrecarga alvo"
+    canonico: "p95 ≤ 30 ms para 2.000 caracteres"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "TECTO_MS"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "A porta dos nomes do catálogo"
+    canonico: "PortaDeCatalogo.nomes(tenant_id)"
+    literais:
+      - "PortaDeCatalogo.nomes(tenant_id)"
+    nomes:
+      - "PortaDeCatalogo.nomes"
+      - "tenant_id"
+    nomes_nota:
+      - "CommerceRegistry"
+      - "getOfferView"
+      - "sku"
+      - "minimise"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "O que a porta lê hoje"
+    canonico: "platform.tenants.nome, servicos.services.nome, servicos.resources.nome"
+    literais:
+      - "platform.tenants.nome"
+      - "servicos.services.nome"
+      - "servicos.resources.nome"
+    nomes:
+      - "platform.tenants.nome"
+      - "servicos.services.nome"
+      - "servicos.resources.nome"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Padrão do NIF"
+    canonico: "parâmetro, None por omissão"
+    literais:
+      - "None"
+    nomes:
+      - "None"
+    nomes_nota:
+      - "None"
+      - "make"
+      - "x11"
+      - "X11_NIF"
+      - "regex"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Números de negócio"
+    canonico: "intervalos reclamados antes da detecção"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "sku"
     variantes_literais: []
 
 tabelas:
@@ -9498,6 +9747,25 @@ tabelas:
     assinatura: "interrupt()"
     seccao: "3.34"
     conceito: "O ciclo send → draft_prepare → draft_wait → send"
+  - nome: "minimise"
+    esquema: ""
+    colunas:
+      - "texto"
+      - "ctx"
+      - "Mapa"
+    aberta: false
+    assinatura: "minimise(texto, ctx) → (MinimisedText, Mapa)"
+    seccao: "3.37"
+    conceito: "A função que minimiza"
+  - nome: "reidentificar"
+    esquema: ""
+    colunas:
+      - "texto"
+      - "mapa"
+    aberta: false
+    assinatura: "reidentificar(texto, mapa)"
+    seccao: "3.37"
+    conceito: "Re-identificação"
 
 dominios:
   - coluna: "consent_event.purpose"

@@ -273,9 +273,23 @@ def dobrar(texto: str) -> str:
         if letra.isdigit():
             # `unicodedata.digit` resolve os digitos Unicode do criterio 2
             # (arabes-indicos, devanagari, de largura total) sem tabela nossa.
+            #
+            # **O `except` e defensivo e nao se consegue alcancar por aqui, e
+            # isso esta medido e nao suposto.** Em CPython, `str.isdigit()` e
+            # verdadeiro exactamente para os caracteres que tem valor decimal ou
+            # de digito, e para esses o `unicodedata.digit` responde: medi
+            # `²` (isdigit, digit=2), `①` (isdigit, digit=1) e `٣` (isdigit,
+            # digit=3); os que levantam — `½` e `Ⅻ` — **nao** passam o
+            # `isdigit()` e nunca chegam aqui.
+            #
+            # Fica porque o custo de o tirar nao e zero: a relacao entre os dois
+            # e detalhe de implementacao do CPython, nao contrato, e uma
+            # excepcao aqui **nao** da um `dobrar` errado — da uma
+            # `FalhaDeMinimizacao`, isto e, um turno degradado por um metro
+            # quadrado numa mensagem. Retirar uma barreira nunca e o minimo.
             try:
                 letra = str(unicodedata.digit(letra))
-            except ValueError:
+            except ValueError:  # pragma: no cover — ver a nota acima
                 pass
         saida.append(letra)
     return "".join(saida)
