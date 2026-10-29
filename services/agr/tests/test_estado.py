@@ -12,6 +12,7 @@ from kamba_agr.estado import (
     ESTAGIO_INICIAL,
     ESTAGIOS,
     SCHEMA_VERSION,
+    ConversaState,
     TIPOS_DE_ENTRADA,
     VersaoDeEstadoAFrenteError,
     estado_inicial,
@@ -61,8 +62,25 @@ CHAVES_DO_521 = (
     "avisos",
     "handoff_motivo",
     "cart",
-    "stage",
-    "slots",
+    # **O `stage` NAO esta aqui, e e a outra metade da correccao do KAM-035.**
+    # Ele continua a ser chave do `ConversaState` — o que saiu foi a
+    # inicializacao por turno, porque o botao de confirmacao chega **sempre** no
+    # turno seguinte e o `awaiting_confirm` escrito pelo turno anterior era
+    # apagado a entrada. **Toda** a confirmacao saia `STALE_CONFIRMATION`, nas
+    # duas verticais. Quem o estabelece agora e o `ingest`, quando o valor nao
+    # esta nos `ESTAGIOS`; medido pela revisao adversarial (`ANALISE-40`,
+    # achado 3).
+    # **O `slots` NAO esta aqui, e e a correccao do KAM-035.** Ele continua a ser
+    # chave do `ConversaState` (§5.3 da-lha, e o `test_as_chaves_do_estado`
+    # mede-o) — o que saiu foi a **inicializacao por turno**.
+    #
+    # O `turno.py` chama `estado_inicial` em cada turno e passa o resultado ao
+    # `ainvoke`, pelo que toda a chave que nasca aqui sobrescreve a do
+    # *checkpoint*. Com `slots: None` nesta tabela, o §8.2 — «slots preenchidos
+    # ao longo de varios turnos» — era impossivel: o servico que o cliente deu
+    # no turno 1 desaparecia no turno 2 e o `slots_collect` repetia a mesma
+    # pergunta para sempre. **Medido** com um `MemorySaver` e dois turnos, e e a
+    # mesma medicao que o KAM-114 fez para o `turn_seq`.
     "draft",
     "citation_retries",
     "handoff_seq",
@@ -86,6 +104,24 @@ class TestEstadoInicial(unittest.TestCase):
         estado = estado_inicial(ler_invocacao(invocacao_crua()))
         self.assertEqual(sorted(estado), sorted(CHAVES_DO_521))
 
+    def test_tres_chaves_do_estado_nao_nascem_no_estado_inicial(self) -> None:
+        """E o que as deixa atravessar turnos. Ver as notas no `estado.py`.
+
+        O `turn_seq` (KAM-114), o `slots` e o `stage` (KAM-035) sao chaves do
+        `ConversaState` e **nao** da tabela do `estado_inicial`: esta funcao
+        corre em cada turno e o que ela devolve sobrescreve o *checkpoint*.
+        """
+        estado = estado_inicial(ler_invocacao(invocacao_crua()))
+        fora = {"turn_seq", "slots", "stage"}
+        for chave in fora:
+            self.assertNotIn(chave, estado, chave)
+            self.assertIn(chave, ConversaState.__annotations__, chave)
+        # E o resto do `ConversaState` **esta** todo: a ausencia e das tres e de
+        # mais nenhuma.
+        self.assertEqual(
+            set(ConversaState.__annotations__) - set(estado), fora
+        )
+
     def test_as_chaves_sao_as_que_o_documento_escreve(self) -> None:
         # Nao de memoria: le-se o §5.3 do documento e confrontam-se os nomes.
         doc = (
@@ -101,7 +137,14 @@ class TestEstadoInicial(unittest.TestCase):
         # expressao acima nao apanha — por isso o teste e de inclusao num
         # sentido e a igualdade exacta fica no teste de cima.
         self.assertTrue(declaradas)
-        self.assertTrue(declaradas.issubset(set(CHAVES_DO_521)), declaradas)
+        # **Confronta-se com o `ConversaState` e nao com o `CHAVES_DO_521`.** O
+        # documento descreve o **estado**, e tres das chaves dele nao nascem no
+        # `estado_inicial` de proposito (ver o ensaio acima) — comparar com a
+        # tabela da inicializacao punha o documento a parecer errado por causa
+        # de uma decisao do codigo.
+        self.assertTrue(
+            declaradas.issubset(set(ConversaState.__annotations__)), declaradas
+        )
 
     def test_os_identificadores_vem_todos_da_invocacao(self) -> None:
         invocacao = ler_invocacao(invocacao_crua())
@@ -114,11 +157,13 @@ class TestEstadoInicial(unittest.TestCase):
         self.assertEqual(estado["turn_id"], invocacao.wamid)
         self.assertEqual(estado["thread_id"], invocacao.thread_id)
 
-    def test_nasce_com_a_versao_deste_codigo_e_no_estagio_inicial(self) -> None:
+    def test_nasce_com_a_versao_deste_codigo_e_sem_estagio(self) -> None:
+        """O `stage` nao nasce aqui — nasce no `ingest`. Ver o `estado.py`."""
         estado = estado_inicial(ler_invocacao(invocacao_crua()))
         self.assertEqual(estado["schema_version"], SCHEMA_VERSION)
-        self.assertEqual(estado["stage"], ESTAGIO_INICIAL)
-        self.assertIn(estado["stage"], ESTAGIOS)
+        self.assertNotIn("stage", estado)
+        # E o valor que o `ingest` estabelece continua a ser um dos conhecidos.
+        self.assertIn(ESTAGIO_INICIAL, ESTAGIOS)
 
     def test_os_facts_nascem_vazios_em_cada_turno(self) -> None:
         # §5.3: «so deste turno; reiniciado em `ingest`». Um *fact* de um turno

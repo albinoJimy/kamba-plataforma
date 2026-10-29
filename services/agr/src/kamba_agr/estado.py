@@ -9,9 +9,15 @@ persistir isto, continua a ser o AGR a ler e a escrever.
 
 ## As chaves sao as do §5.3, e nenhuma e nova
 
-O §5.3 e um bloco de canon citado: as dezenove chaves abaixo sao as dele, com
+O §5.3 e um bloco de canon citado: as chaves do `ConversaState` sao as dele, com
 os mesmos nomes. **Nao se acrescenta nenhuma** — e o §3 do dicionario a valer: um
 nome novo entra no dicionario antes de entrar em codigo.
+
+**O `estado_inicial` tem MENOS chaves do que o `ConversaState`, e isso e
+desenho.** Tres — o `turn_seq` (KAM-114), o `slots` e o `stage` (KAM-035) — nao
+nascem aqui, porque esta funcao corre em **cada** turno e o que ela devolve
+sobrescreve o *checkpoint*: uma chave que tenha de atravessar turnos nao pode
+estar nesta tabela. A razao de cada uma esta escrita no sitio onde ela saiu.
 
 O que se faz e deixar as sub-estruturas por tipar, como `dict` ou `list`:
 
@@ -117,8 +123,47 @@ def estado_inicial(invocacao: InvocacaoDoAgente) -> dict[str, Any]:
         "avisos": [],
         "handoff_motivo": None,
         "cart": None,
-        "stage": ESTAGIO_INICIAL,
-        "slots": None,
+        # KAM-035. **O `stage` sai desta tabela, pela mesma razao dos `slots` — e
+        # sem ele nenhum fluxo de dois turnos funciona em vertical nenhuma.**
+        #
+        # O `confirm_gate` (as duas verticais) pergunta
+        # `estado.get("stage") == "awaiting_confirm"`, e o botao de confirmacao
+        # chega **sempre** no turno seguinte — foi enviado no fim do anterior.
+        # Com `stage: ESTAGIO_INICIAL` nesta tabela, o turno do botao nascia em
+        # `browsing`, a primeira das tres perguntas do portao era sempre falsa, e
+        # **toda** a confirmacao saia `STALE_CONFIRMATION`: zero marcacoes e zero
+        # encomendas, em vez de uma.
+        #
+        # **Medido pela revisao adversarial** (`ANALISE-40`, achado 3): dois
+        # turnos sobre o mesmo `thread_id` dao `stage='awaiting_confirm'` no
+        # *checkpoint* e `browsing` a entrada do turno seguinte. A bateria nao o
+        # via porque os ensaios de no poem o `stage` a mao.
+        #
+        # **Toca no Vendedor e e tecnicamente necessario**: o `confirm_gate` e a
+        # mesma logica nas duas (§8.1), o defeito e o mesmo, e deixar metade
+        # corrigida era deixar a vertical que fundiu primeiro sem fluxo de dois
+        # turnos. Corre a suite inteira, e esta registado no relatorio.
+        #
+        # A ausencia no primeiro turno e tratada: todos os leitores fazem
+        # `estado.get("stage")` e o `ESTAGIO_INICIAL` continua a ser o valor que
+        # o `ingest` escreve — ver o `reiniciar`.
+        # KAM-035. **Os `slots` saem desta tabela, e e o que torna o criterio 3
+        # possivel.** O §8.2 pede slots «preenchidos ao longo de varios turnos»,
+        # e esta funcao e chamada em **cada** turno pelo `turno.py` (linha 352),
+        # cujo resultado vai ao `ainvoke`: toda a chave que nasca aqui
+        # sobrescreve a do *checkpoint*. Com `slots: None` nesta tabela, o
+        # servico que o cliente deu no turno 1 desaparecia no turno 2 e o
+        # `slots_collect` voltava a perguntar a mesma coisa para sempre.
+        #
+        # **Medido, nao deduzido** (`docs/analises/ANALISE-40-grafo-de-servicos.md`,
+        # secção da sonda): dois turnos sobre o mesmo `thread_id`, com um
+        # `MemorySaver`, dao `slots=None` no segundo quando a chave vem no input
+        # e dao o valor do *checkpoint* quando nao vem. E a mesma medicao que o
+        # KAM-114 fez para o `turn_seq`, e a razao por extenso esta na nota dele
+        # mais abaixo.
+        #
+        # O `total=False` do `ConversaState` trata a ausencia no primeiro turno,
+        # e quem le faz `estado.get("slots") or {}` — nunca `estado["slots"]`.
         "draft": None,
         "citation_retries": 0,
         "handoff_seq": 0,

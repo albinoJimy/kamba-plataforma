@@ -51,7 +51,7 @@ from typing import Any, Final, Protocol
 from langgraph.types import interrupt
 
 from ... import metricas as metricas_mod
-from ...estado import reiniciar, versao_lida
+from ...estado import ESTAGIO_INICIAL, ESTAGIOS, reiniciar, versao_lida
 from ...concierge.maquina import DECISOES_QUE_ENVIAM, MOTIVOS
 from ...concierge.maquina import draft_id as derivar_draft_id
 from ...concierge.politica import SemPolitica
@@ -884,6 +884,16 @@ def ingest(deps: Dependencias):
         # turno recusado na admissao e um turno que aconteceu, e dar o mesmo
         # ordinal ao seguinte fazia dois turnos partilharem o `draft_id`.
         delta["turn_seq"] = int(estado.get("turn_seq") or 0) + 1
+        # KAM-035: o `stage` nasce **aqui** e nao no `estado_inicial`, e e o que
+        # o deixa atravessar turnos. A razao por extenso esta no `estado.py`:
+        # inicializado por turno, o `awaiting_confirm` que o turno anterior
+        # escreveu era apagado a entrada do turno do botao, e **toda** a
+        # confirmacao saia `STALE_CONFIRMATION`.
+        #
+        # `or` e nao `is None`: um `stage` vazio ou fora dos valores conhecidos e
+        # tao inutilizavel como a ausencia dele, e o `ESTAGIOS` e lista fechada.
+        if estado.get("stage") not in ESTAGIOS:
+            delta["stage"] = ESTAGIO_INICIAL
         recusa = deps.admitir(estado)
         if recusa is not None:
             if recusa not in RECUSAS:

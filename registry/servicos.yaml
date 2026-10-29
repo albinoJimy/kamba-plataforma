@@ -19,7 +19,19 @@
 # escreve o `compose`.
 
 id: servicos
-version: 1.0.0
+# O SemVer do REGISTO desta vertical, e nao o do grafo. Sao duas linhas de
+# versao e nao uma: esta sobe quando o tuplo do §5.1 muda (persona, tools,
+# entitlements, subscricoes, modelos), e a do grafo
+# (`verticais/servicos/arestas.py`, `VERSAO_DO_GRAFO`) sobe quando um no entra
+# ou sai. O DoD do KAM-035 pede «SemVer do grafo **e** de `servicos.yaml`», e e
+# por isso que sao duas.
+#
+# **1.1.0 e nao 1.0.1**: o KAM-035 nao muda nenhuma chave deste ficheiro — o
+# `graph` ja apontava para ca e as tools ja estavam declaradas —, e o que muda e
+# que o alvo **resolve**. Uma vertical cujo `graph` passa de nao resolvivel a
+# resolvivel e uma capacidade nova no tuplo, que e *minor*; nao e *major* porque
+# nenhum consumidor deste registo tem de mudar.
+version: 1.1.0
 phase: P
 persona:
   nome: "Rececionista"

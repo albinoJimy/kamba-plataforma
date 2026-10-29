@@ -68,7 +68,30 @@ VALIDATION_ERROR: Final = "VALIDATION_ERROR"
 #: barreiras independentes da mesma intencao.
 INTENT_REUSED_WITH_DIFFERENT_CONTENT: Final = "INTENT_REUSED_WITH_DIFFERENT_CONTENT"
 
-#: Os **onze**, pela ordem do §6.5 mais o do §6.3. Lista **fechada**.
+#: Os dois codigos do modulo `servicos` (KAM-047), que entram no registo da
+#: ToolLayer com o grafo de Servicos (KAM-035).
+#:
+#: **O KAM-047 deixou isto escrito, e nao foi por preguica**: o
+#: `services/com/src/servicos/contrato.ts` diz, no cabecalho, «alargar aquele
+#: dominio obriga a um `ALTER` ao `CHECK` das revisoes `0021` e `0022`, que sao
+#: de outro ticket, e quem precisa dos dois codigos no registo da ToolLayer e
+#: quem ligar o `book_slot` ao grafo — **KAM-035**». E este ticket, e a revisao
+#: e a `0026`.
+#:
+#: **Nao se podem acrescentar aqui sem a revisao**, e nao e zelo: a
+#: `tool_audit.error_code` tem um `CHECK` fechado, o
+#: `db/tests_agr/test_tool_audit.py` percorre **este** `CODIGOS` e insere cada
+#: valor, e um codigo aqui sem o `ALTER` la e um `INSERT` recusado — isto e, uma
+#: invocacao que corre e nao se consegue auditar. As duas listas movem-se
+#: juntas, e ha ensaio a confronta-las.
+#:
+#: `SLOT_TAKEN` — o intervalo foi ocupado entre a oferta e o pedido.
+#: `HOLD_EXPIRED` — o *hold* venceu antes de alguem o confirmar.
+SLOT_TAKEN: Final = "SLOT_TAKEN"
+HOLD_EXPIRED: Final = "HOLD_EXPIRED"
+
+#: Os **treze**: os dez do §6.5, o do §6.3 (KAM-029) e os dois do modulo
+#: `servicos` (KAM-047, ligados pelo KAM-035). Lista **fechada**.
 CODIGOS: Final = (
     NOT_FOUND,
     OUT_OF_STOCK,
@@ -81,6 +104,8 @@ CODIGOS: Final = (
     UPSTREAM_DOWN,
     VALIDATION_ERROR,
     INTENT_REUSED_WITH_DIFFERENT_CONTENT,
+    SLOT_TAKEN,
+    HOLD_EXPIRED,
 )
 
 #: Os que o §6.5 classifica como **violacao**, e que por isso levantam alerta de
