@@ -90,7 +90,7 @@ export PYTHONPATH := $(PYTHONPATH_ALL)
         nuke ps psql queue-cli smoke test test-py \
         test-ts typecheck up \
         ci-3b ci-3c canon-lint chatwoot-spike dict-export supply-chain ruleset \
-        log-lint x11 storage-contrato mermaid
+        log-lint money-lint x11 storage-contrato mermaid
 
 ## help: lista os comandos disponiveis
 help:
@@ -350,6 +350,7 @@ ci-2:
 	@pnpm -r run typecheck
 	@$(MAKE) lint-arch
 	@$(MAKE) log-lint
+	@$(MAKE) money-lint
 	@# Nao ha linter de estilo: os gates de lint sao deste ticket, mas a escolha do
 	@# ESLint ficou declarada fora de ambito no KAM-001 (ADR-L001 §8) e nao se
 	@# decide aqui por conveniencia. `make ci-2` cobre tipos e arquitectura.
@@ -382,6 +383,31 @@ log-lint:
 	@echo "==> log_policy: nenhum servico escreve fora do logger"
 	@$(PYTHON) -m log_policy --root $(ROOT) lint
 	@$(PYTHON) -m log_policy --root $(ROOT) canario
+
+# --- Dinheiro em inteiros (KAM-052) -------------------------------------------
+#
+# **Entra no gate 2 e nao abre *job* novo**, pela mesma razao escrita acima para
+# o `log-lint`: um *job* novo acrescenta um contexto exigido ao *ruleset* de
+# `main`, e isso e alteracao de regra de bloqueio.
+#
+# O criterio 1 do KAM-052 pede «um *lint* falha o *build* se um montante for
+# `number` ou virgula flutuante em qualquer ficheiro de `pay-core`». O tipo
+# `Minor = bigint` protege as fronteiras; este passo protege o meio — nada
+# impede `Number(valor) / 100` dentro de uma funcao, e e la que o centimo se
+# perde (medido: `Math.trunc(parseFloat("1024.09") * 100)` da 102408).
+#
+# O segundo passo e o canario: as seis fixtures negativas **tem** de falhar,
+# cada uma pela sua regra, e as quatro positivas tem de passar. Sem ele, a prova
+# de que o lint morde vivia so num `unittest` — e um teste de `lint_refs` esteve
+# vermelho em sete PRs com o gate verde.
+#
+# So biblioteca padrao: corre com o Python do anfitriao, em segundos.
+
+## money-lint: nenhum montante por `number` nem por virgula flutuante (KAM-052)
+money-lint:
+	@echo "==> money_lint: dinheiro em unidade menor inteira"
+	@$(PYTHON) -m money_lint --root $(ROOT) lint
+	@$(PYTHON) -m money_lint --root $(ROOT) canario
 
 ## x11: X-11 — 1 030 fixtures com dados pessoais pelos dois loggers, 0 achados
 x11:

@@ -962,6 +962,57 @@ INVENTARIO = {
     #
     # Isto nao se prova por leitura: prova-se por varrimento com canarios, em
     # `db/tests_agr/test_tool_audit.py`.
+    # KAM-052: a conta de pagamento (revisao `0027`). **Catorze colunas, e
+    # nenhuma de dinheiro** — a G-3 do `docs/tecnica/04` secao 10.4 («nao
+    # existe balance/wallet») e o `test_nao_ha_colunas_de_dinheiro_nem_saldos`
+    # do `test_catalogo.py`, que recusa `%saldo%`, `%balance%`, `%_minor` e
+    # `%_kz` em `platform`. Os factos de dinheiro vivem no ledger (KAM-053).
+    "payment_accounts": {
+        "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "beneficiary_kind": ("text", NAO, None, "nao"),
+        # **Anulavel, e e a terceira excepcao do esquema.** Ver a nota de
+        # `TABELAS_0027` em `base.py` e o `ANULAVEIS` de `test_catalogo.py`.
+        "tenant_id": ("uuid", SIM, None, "nao"),
+        "provider": ("text", NAO, None, "nao"),
+        # Identificadores EMIS da **empresa**, emitidos pelo banco e pela
+        # EMIS (secao 10.2): uma Entidade Multicaixa, um POSID de TPA e um
+        # IEC de entidade credora. Nao sao dados de pessoa singular, e nao
+        # ha aqui nome, telefone nem morada de ninguem.
+        "entidade": ("text", SIM, None, "nao — Entidade Multicaixa da PME, identificador de empresa"),
+        "pos_id": ("text", SIM, None, "nao — POSID do TPA virtual da PME, identificador de empresa"),
+        "iec": ("text", SIM, None, "nao — IEC da PME como entidade credora de debito directo"),
+        # **Caminho no cofre, nunca o segredo** (criterio 7). A forma e a do
+        # `SecretRef` do KAM-010 e esta imposta por `CHECK`; o varrimento de
+        # `test_pagamentos_schema.py` confere que nenhuma coluna guarda um
+        # valor com forma de segredo, com os padroes do gate 9.
+        "credenciais_ref": (
+            "text",
+            SIM,
+            None,
+            "nao — referencia opaca ao cofre (KAM-010), nunca a credencial. O CHECK impoe a forma e recusa maiusculas, espacos e enchimento base64",
+        ),
+        # Identificador **publico** da conta no URL do callback: 32 octetos
+        # de CSPRNG em base64url. Opaco de proposito — nao leva o
+        # `tenant_id`, o `id` nem o `provider` —, porque um URL de webhook
+        # aparece em paineis de terceiros e em registos de proxy.
+        "webhook_token": ("text", NAO, None, "nao — token opaco, sem conteudo derivado"),
+        "liquidacao_destino": ("text", SIM, None, "nao"),
+        # Dados de pagamento que a PME da ao cliente no ManualProvider
+        # (secao 4): o nome do banco, o IBAN da **empresa** ou o numero de
+        # carteira. Texto que o dono escreve e que o cliente ve.
+        "manual_instrucoes": (
+            "text",
+            SIM,
+            None,
+            "dados de pagamento da empresa (IBAN ou carteira), escritos pelo dono para o cliente ver; nao e dado de pessoa singular",
+        ),
+        "estado": ("text", NAO, "'nao_iniciado'::text", "nao"),
+        # O caminho critico da secao 10.2, por conta. As chaves sao do
+        # KAM-091 (onboarding de retaguarda) e por isso nasce vazio — divida
+        # documental 155.
+        "checklist": ("jsonb", NAO, "'{}'::jsonb", "nao"),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
     "tool_audit": {
         "id": ("bigint", NAO, None, "nao"),
         "ts": ("timestamp with time zone", NAO, "now()", "nao"),
@@ -1548,6 +1599,17 @@ class TestInventario(ComBase):
                         # como todas: apagar um tenant com decisoes falha, que
                         # e o que o soft delete do §2 quer.
                         "draft_decisions_tenant_fk",
+                        # KAM-052: a **unica** FK da `payment_accounts`, e e por
+                        # desenho — o `docs/tecnica/04` secao 6 escreve que ela
+                        # «so referencia `tenants`», e que as FK para
+                        # `orders_mirror` sao do KAM-055 e a de `billing_cycles`
+                        # do KAM-059. **Simples e nao composta**, porque o
+                        # `tenant_id` e anulavel aqui e uma FK composta nao tem
+                        # segunda coluna para levar. `NO ACTION`, como todas:
+                        # apagar um tenant com contas de pagamento falha, e e o
+                        # que se quer — a conta diz para onde foi o dinheiro de
+                        # uma venda, e isso e prova.
+                        "payment_accounts_tenant_fk",
                         "handoffs_tenant_fk",
                         "handoffs_conversation_fk",
                         "handoff_accounts_tenant_fk",
@@ -1668,6 +1730,19 @@ class TestInventario(ComBase):
             # e nenhuma das duas varreduras cresce com o historico. Um indice
             # total crescia com as decididas para sempre.
             "draft_decisions_pendentes_idx": False,
+            # KAM-052: parcial e **unico**, e e o criterio 4 do ticket. Impede
+            # duas contas a ocupar o par `(tenant_id, provider)`, e o predicado
+            # sao **dois** estados e nao um: uma conta em `teste_sandbox_ok` ja
+            # reserva o facilitador, para que ninguem comece uma segunda
+            # integracao enquanto a primeira esta a ser testada. Depois de
+            # `revogado` o par fica livre — e tem de ficar, senao uma PME que
+            # trocou de facilitador e quer voltar nao podia.
+            #
+            # **Nao limita a KAMBA a uma conta propria por `provider`**: o
+            # `tenant_id` dela e nulo, e um indice unico do PostgreSQL nao
+            # considera dois NULL iguais. E o comportamento certo, e fica dito
+            # para nao parecer descuido.
+            "payment_accounts_um_ativo": True,
             "draft_decisions_thread_idx": False,
             # KAM-006: parcial e **unico**, e e o unico desta revisao. Impoe a
             # reentrada idempotente **entre as abertas**: o mesmo evento a
@@ -1723,6 +1798,22 @@ class TestInventario(ComBase):
                     # O `evidence_ck` exige **32 bytes**, nem mais nem menos:
                     # um resumo de outro tamanho nao e um sha256, e uma prova
                     # que nao se sabe reproduzir nao e prova.
+                    # KAM-052: as **oito** da conta de pagamento. A
+                    # `payment_accounts_beneficiario_ck` e a que faz o trabalho:
+                    # a equivalencia `(beneficiary_kind = 'pme') = (tenant_id IS
+                    # NOT NULL)` nos dois sentidos, que e o que torna o
+                    # `tenant_id` anulavel seguro em vez de frouxo. A
+                    # `payment_accounts_credenciais_ref_ck` e o criterio 7 na
+                    # base: a forma do `SecretRef` do KAM-010, nunca o segredo.
+                    "payment_accounts_pkey",
+                    "payment_accounts_webhook_token_uq",
+                    "payment_accounts_beneficiary_kind_ck",
+                    "payment_accounts_estado_ck",
+                    "payment_accounts_liquidacao_destino_ck",
+                    "payment_accounts_beneficiario_ck",
+                    "payment_accounts_credenciais_ref_ck",
+                    "payment_accounts_webhook_token_ck",
+                    "payment_accounts_provider_ck",
                     "consent_event_pkey",
                     "consent_event_prova_uq",
                     "consent_event_purpose_ck",

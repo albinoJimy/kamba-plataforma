@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.48"
+versao_dicionario: "1.49"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -8971,6 +8971,316 @@ entradas:
       - "tool_audit"
     variantes_literais: []
   - seccao: "3.37"
+    conceito: "Conta de pagamento"
+    canonico: "payment_accounts(id, beneficiary_kind, tenant_id, provider, entidade, pos_id, iec, credenciais_ref, webhook_token, liquidacao_destino, manual_instrucoes, estado, checklist, criado_at)"
+    literais:
+      - "payment_accounts(id, beneficiary_kind, tenant_id, provider, entidade, pos_id, iec, credenciais_ref, webhook_token, liquidacao_destino, manual_instrucoes, estado, checklist, criado_at)"
+    nomes:
+      - "payment_accounts"
+      - "id"
+      - "beneficiary_kind"
+      - "tenant_id"
+      - "provider"
+      - "entidade"
+      - "pos_id"
+      - "iec"
+      - "credenciais_ref"
+      - "webhook_token"
+      - "liquidacao_destino"
+      - "manual_instrucoes"
+      - "estado"
+      - "checklist"
+      - "criado_at"
+    nomes_nota:
+      - "test_nao_ha_colunas_de_dinheiro_nem_saldos"
+      - "saldo"
+      - "balance"
+      - "_minor"
+      - "_kz"
+      - "platform"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Estado da conta de pagamento"
+    canonico: "payment_accounts.estado ∈ {nao_iniciado, docs_recolhidos, banco_em_curso, facilitador_em_curso, credenciais_recebidas, teste_sandbox_ok, ativo, suspenso, revogado}"
+    literais:
+      - "payment_accounts.estado"
+      - "nao_iniciado"
+      - "docs_recolhidos"
+      - "banco_em_curso"
+      - "facilitador_em_curso"
+      - "credenciais_recebidas"
+      - "teste_sandbox_ok"
+      - "ativo"
+      - "suspenso"
+      - "revogado"
+    nomes:
+      - "payment_accounts.estado"
+      - "nao_iniciado"
+      - "docs_recolhidos"
+      - "banco_em_curso"
+      - "facilitador_em_curso"
+      - "credenciais_recebidas"
+      - "teste_sandbox_ok"
+      - "ativo"
+      - "suspenso"
+      - "revogado"
+    nomes_nota:
+      - "CHECK"
+      - "stateDiagram"
+      - "v2"
+      - "estado"
+      - "gatilho"
+      - "nao_iniciado"
+      - "ativo"
+      - "teste_sandbox_ok"
+      - "suspenso"
+      - "revogado"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Estados em que a conta cobra"
+    canonico: "ativo e teste_sandbox_ok"
+    literais:
+      - "ativo"
+      - "teste_sandbox_ok"
+    nomes:
+      - "ativo"
+      - "teste_sandbox_ok"
+    nomes_nota:
+      - "payment_accounts_um_ativo"
+      - "teste_sandbox_ok"
+      - "ativo"
+      - "estaActiva"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Destino da liquidação"
+    canonico: "payment_accounts.liquidacao_destino ∈ {conta_banco, carteira_unitel_money, conta_pme_fora_plataforma}"
+    literais:
+      - "payment_accounts.liquidacao_destino"
+      - "conta_banco"
+      - "carteira_unitel_money"
+      - "conta_pme_fora_plataforma"
+    nomes:
+      - "payment_accounts.liquidacao_destino"
+      - "conta_banco"
+      - "carteira_unitel_money"
+      - "conta_pme_fora_plataforma"
+    nomes_nota:
+      - "CHECK"
+      - "nao_iniciado"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Referência às credenciais do facilitador"
+    canonico: "credenciais_ref"
+    literais:
+      - "credenciais_ref"
+    nomes:
+      - "credenciais_ref"
+    nomes_nota:
+      - "SecretRef"
+      - "CHECK"
+      - "validarCredenciaisRef"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Identificador público da conta no URL do callback"
+    canonico: "webhook_token"
+    literais:
+      - "webhook_token"
+    nomes:
+      - "webhook_token"
+    nomes_nota:
+      - "base64url"
+      - "tenant_id"
+      - "id"
+      - "provider"
+      - "UNIQUE"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Identificadores EMIS da conta"
+    canonico: "entidade (referências), pos_id (GPO/Express), iec (débito directo)"
+    literais:
+      - "entidade"
+      - "pos_id"
+      - "iec"
+    nomes:
+      - "entidade"
+      - "pos_id"
+      - "iec"
+    nomes_nota:
+      - "E2"
+      - "account_id"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Lista de verificação da activação"
+    canonico: "checklist"
+    literais:
+      - "checklist"
+    nomes:
+      - "checklist"
+    nomes_nota:
+      - "jsonb"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Instruções de pagamento manual"
+    canonico: "manual_instrucoes"
+    literais:
+      - "manual_instrucoes"
+    nomes:
+      - "manual_instrucoes"
+    nomes_nota:
+      - "ManualProvider"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Unicidade da conta activa"
+    canonico: "payment_accounts_um_ativo em (tenant_id, provider) onde estado ∈ {ativo, teste_sandbox_ok}"
+    literais:
+      - "payment_accounts_um_ativo"
+      - "(tenant_id, provider)"
+      - "estado ∈ {ativo, teste_sandbox_ok}"
+    nomes:
+      - "payment_accounts_um_ativo"
+      - "tenant_id"
+      - "provider"
+      - "estado"
+      - "ativo"
+      - "teste_sandbox_ok"
+    nomes_nota:
+      - "revogado"
+      - "NULL"
+      - "provider"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Guarda do beneficiário"
+    canonico: "assert_beneficiary"
+    literais:
+      - "assert_beneficiary"
+    nomes:
+      - "assert_beneficiary"
+    nomes_nota:
+      - "SECURITY"
+      - "DEFINER"
+      - "search_path"
+      - "INVOKER"
+      - "tenant_id"
+      - "tenant_iso"
+      - "CREATE"
+      - "TRIGGER"
+      - "payment_charges"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Unidade de dinheiro em código"
+    canonico: "Minor, que é bigint"
+    literais:
+      - "Minor"
+      - "bigint"
+    nomes:
+      - "Minor"
+      - "bigint"
+    nomes_nota:
+      - "number"
+      - "Math.trunc"
+      - "parseFloat"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Capacidades declaradas de um adaptador"
+    canonico: "ProviderCapabilities com metodos, callbackAuth ∈ {hmac, none, desconhecido}, statusQuery, reconciliationQueue, refund, payout, chargeTtl, idempotencyWindow, amountFormat ∈ {decimal2, inteiro_kz}, refMaxLen, settlement, humanOnly, psp_licenciado"
+    literais:
+      - "ProviderCapabilities"
+      - "metodos"
+      - "callbackAuth"
+      - "hmac"
+      - "none"
+      - "desconhecido"
+      - "statusQuery"
+      - "reconciliationQueue"
+      - "refund"
+      - "payout"
+      - "chargeTtl"
+      - "idempotencyWindow"
+      - "amountFormat"
+      - "decimal2"
+      - "inteiro_kz"
+      - "refMaxLen"
+      - "settlement"
+      - "humanOnly"
+      - "psp_licenciado"
+    nomes:
+      - "ProviderCapabilities"
+      - "metodos"
+      - "callbackAuth"
+      - "hmac"
+      - "none"
+      - "desconhecido"
+      - "statusQuery"
+      - "reconciliationQueue"
+      - "refund"
+      - "payout"
+      - "chargeTtl"
+      - "idempotencyWindow"
+      - "amountFormat"
+      - "decimal2"
+      - "inteiro_kz"
+      - "refMaxLen"
+      - "settlement"
+      - "humanOnly"
+      - "psp_licenciado"
+    nomes_nota:
+      - "humanOnly"
+      - "psp_licenciado"
+      - "ManualProvider"
+      - "ADAPTER_CANNOT_CONFIRM"
+      - "PoliticaDeActivacao"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Adaptador que não consegue confirmar"
+    canonico: "ADAPTER_CANNOT_CONFIRM"
+    literais:
+      - "ADAPTER_CANNOT_CONFIRM"
+    nomes:
+      - "ADAPTER_CANNOT_CONFIRM"
+    nomes_nota:
+      - "callbackAuth"
+      - "hmac"
+      - "statusQuery"
+      - "none"
+      - "desconhecido"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Capacidade ou operação não suportada"
+    canonico: "NOT_SUPPORTED"
+    literais:
+      - "NOT_SUPPORTED"
+    nomes:
+      - "NOT_SUPPORTED"
+    nomes_nota:
+      - "ProviderErr"
+      - "refund"
+      - "payout"
+      - "ProviderCapabilities"
+      - "VALIDATION"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Autorização de payouts"
+    canonico: "payouts_enabled, e psp_licenciado no adaptador"
+    literais:
+      - "payouts_enabled"
+      - "psp_licenciado"
+    nomes:
+      - "payouts_enabled"
+      - "psp_licenciado"
+    nomes_nota:
+      - "false"
+      - "true"
+      - "psp_licenciado"
+    variantes_literais: []
+  - seccao: "3.37"
+    conceito: "Suite de conformidade de um adaptador"
+    canonico: "dez casos obrigatórios do §3.5, parametrizáveis por adaptador"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "CONFORMANCE_REQUIRED"
+    variantes_literais: []
+  - seccao: "3.38"
     conceito: "A função que minimiza"
     canonico: "minimise(texto, ctx) → (MinimisedText, Mapa)"
     literais:
@@ -8983,7 +9293,7 @@ entradas:
       - "Mapa"
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.37"
+  - seccao: "3.38"
     conceito: "O tipo selado do texto minimizado"
     canonico: "MinimisedText"
     literais:
@@ -9006,7 +9316,7 @@ entradas:
       - "cru"
       - "TextoNaoMinimizado"
     variantes_literais: []
-  - seccao: "3.37"
+  - seccao: "3.38"
     conceito: "A mensagem que o gateway aceita"
     canonico: "MensagemMinimizada"
     literais:
@@ -9021,7 +9331,7 @@ entradas:
       - "chamar"
       - "cliente.py"
     variantes_literais: []
-  - seccao: "3.37"
+  - seccao: "3.38"
     conceito: "Os tokens de substituição"
     canonico: "TELEFONE_n, BSUID_n, EMAIL_n, NIF_n, MORADA_n, PESSOA_n"
     literais:
@@ -9046,7 +9356,7 @@ entradas:
       - "agr_tool_erros_total"
       - "n"
     variantes_literais: []
-  - seccao: "3.37"
+  - seccao: "3.38"
     conceito: "O mapa token → valor"
     canonico: "Mapa, na chave de estado pii_map"
     literais:
@@ -9062,7 +9372,7 @@ entradas:
       - "mapa"
       - "extra"
     variantes_literais: []
-  - seccao: "3.37"
+  - seccao: "3.38"
     conceito: "Onde o mapa vive"
     canonico: 'ConversaState["pii_map"], com a retenção do checkpointer'
     literais:
@@ -9077,7 +9387,7 @@ entradas:
       - "degradado"
       - "TELEFONE_1"
     variantes_literais: []
-  - seccao: "3.37"
+  - seccao: "3.38"
     conceito: "Re-identificação"
     canonico: "reidentificar(texto, mapa)"
     literais:
@@ -9089,7 +9399,7 @@ entradas:
     nomes_nota:
       - "TELEFONE_7"
     variantes_literais: []
-  - seccao: "3.37"
+  - seccao: "3.38"
     conceito: "A falha fechada"
     canonico: "FalhaDeMinimizacao, motivo minimizacao"
     literais:
@@ -9111,7 +9421,7 @@ entradas:
       - "motivo_do_erro"
       - "isinstance"
     variantes_literais: []
-  - seccao: "3.37"
+  - seccao: "3.38"
     conceito: "Identificadores mascarados"
     canonico: "agr_pii_mascarada_total{tipo}"
     literais:
@@ -9123,7 +9433,7 @@ entradas:
       - "pii_masked_total"
       - "tipo"
     variantes_literais: []
-  - seccao: "3.37"
+  - seccao: "3.38"
     conceito: "Sobrecarga da minimização"
     canonico: "agr_minimise_latency_ms"
     literais:
@@ -9136,7 +9446,7 @@ entradas:
       - "latencia"
       - "draft_edit_ratio_p50"
     variantes_literais: []
-  - seccao: "3.37"
+  - seccao: "3.38"
     conceito: "Cobertura do detector"
     canonico: "pii_recall{tipo}"
     literais:
@@ -9149,14 +9459,14 @@ entradas:
       - "echo_latency_ms"
       - "gitignore"
     variantes_literais: []
-  - seccao: "3.37"
+  - seccao: "3.38"
     conceito: "Limiares de recall"
     canonico: "≥ 99% em telefone, BSUID, e-mail e NIF; ≥ 90% em moradas e nomes"
     literais: []
     nomes: []
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.37"
+  - seccao: "3.38"
     conceito: "Sobrecarga alvo"
     canonico: "p95 ≤ 30 ms para 2.000 caracteres"
     literais: []
@@ -9164,7 +9474,7 @@ entradas:
     nomes_nota:
       - "TECTO_MS"
     variantes_literais: []
-  - seccao: "3.37"
+  - seccao: "3.38"
     conceito: "A porta dos nomes do catálogo"
     canonico: "PortaDeCatalogo.nomes(tenant_id)"
     literais:
@@ -9178,7 +9488,7 @@ entradas:
       - "sku"
       - "minimise"
     variantes_literais: []
-  - seccao: "3.37"
+  - seccao: "3.38"
     conceito: "O que a porta lê hoje"
     canonico: "platform.tenants.nome, servicos.services.nome, servicos.resources.nome"
     literais:
@@ -9191,7 +9501,7 @@ entradas:
       - "servicos.resources.nome"
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.37"
+  - seccao: "3.38"
     conceito: "Padrão do NIF"
     canonico: "parâmetro, None por omissão"
     literais:
@@ -9205,7 +9515,7 @@ entradas:
       - "X11_NIF"
       - "regex"
     variantes_literais: []
-  - seccao: "3.37"
+  - seccao: "3.38"
     conceito: "Números de negócio"
     canonico: "intervalos reclamados antes da detecção"
     literais: []
@@ -9747,6 +10057,27 @@ tabelas:
     assinatura: "interrupt()"
     seccao: "3.34"
     conceito: "O ciclo send → draft_prepare → draft_wait → send"
+  - nome: "payment_accounts"
+    esquema: ""
+    colunas:
+      - "id"
+      - "beneficiary_kind"
+      - "tenant_id"
+      - "provider"
+      - "entidade"
+      - "pos_id"
+      - "iec"
+      - "credenciais_ref"
+      - "webhook_token"
+      - "liquidacao_destino"
+      - "manual_instrucoes"
+      - "estado"
+      - "checklist"
+      - "criado_at"
+    aberta: false
+    assinatura: "payment_accounts(id, beneficiary_kind, tenant_id, provider, entidade, pos_id, iec, credenciais_ref, webhook_token, liquidacao_destino, manual_instrucoes, estado, checklist, criado_at)"
+    seccao: "3.37"
+    conceito: "Conta de pagamento"
   - nome: "minimise"
     esquema: ""
     colunas:
@@ -9755,7 +10086,7 @@ tabelas:
       - "Mapa"
     aberta: false
     assinatura: "minimise(texto, ctx) → (MinimisedText, Mapa)"
-    seccao: "3.37"
+    seccao: "3.38"
     conceito: "A função que minimiza"
   - nome: "reidentificar"
     esquema: ""
@@ -9764,7 +10095,7 @@ tabelas:
       - "mapa"
     aberta: false
     assinatura: "reidentificar(texto, mapa)"
-    seccao: "3.37"
+    seccao: "3.38"
     conceito: "Re-identificação"
 
 dominios:
@@ -10408,6 +10739,43 @@ dominios:
       - "DESAMBIGUAR_HORA"
     seccao: "3.36"
     conceito: "Pergunta pendente do preenchimento"
+    so_no_registo: false
+  - coluna: "payment_accounts.estado"
+    valores:
+      - "nao_iniciado"
+      - "docs_recolhidos"
+      - "banco_em_curso"
+      - "facilitador_em_curso"
+      - "credenciais_recebidas"
+      - "teste_sandbox_ok"
+      - "ativo"
+      - "suspenso"
+      - "revogado"
+    seccao: "3.37"
+    conceito: "Estado da conta de pagamento"
+    so_no_registo: false
+  - coluna: "payment_accounts.liquidacao_destino"
+    valores:
+      - "conta_banco"
+      - "carteira_unitel_money"
+      - "conta_pme_fora_plataforma"
+    seccao: "3.37"
+    conceito: "Destino da liquidação"
+    so_no_registo: false
+  - coluna: "callbackAuth"
+    valores:
+      - "hmac"
+      - "none"
+      - "desconhecido"
+    seccao: "3.37"
+    conceito: "Capacidades declaradas de um adaptador"
+    so_no_registo: false
+  - coluna: "amountFormat"
+    valores:
+      - "decimal2"
+      - "inteiro_kz"
+    seccao: "3.37"
+    conceito: "Capacidades declaradas de um adaptador"
     so_no_registo: false
 
 variantes:
