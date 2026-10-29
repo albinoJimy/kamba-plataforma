@@ -15,16 +15,15 @@ Esta bateria mede os oito critérios do bloco pelo ângulo de cada um, e o que e
   mede a **regra** (tecto cheio **e** fila acima do limiar), com os contadores
   postos à mão, que é a mesma escolha do `test_admissao`.
 
-## O que a bateria devolve ao fundador, e não decide
+## Uma decisão do fundador medida aqui, e uma leitura que continua devolvida
 
-Duas leituras do bloco ficam escritas na secção de verificação e **não** se
-resolvem em código:
-
-1. **degradado × concierge.** O KAM-037 foi escrito antes do KAM-114 e nenhum dos
-   dois diz o que acontece com os dois em vigor. A leitura implementada é «a
-   resposta determinística **também** vai a aprovação», e há ensaio que a mede
-   (`TestDegradadoComConcierge`);
-2. **a pesquisa de catálogo fica fora do modo**, pela letra do critério 2.
+* **degradado × concierge** — o KAM-037 foi escrito antes do KAM-114 e nenhum dos
+  dois diz o que acontece com os dois em vigor. **Decidido pelo fundador a
+  2026-10-29** (`docs/adr/ADR-L005-degradacao-e-concierge.md`): os dois mecanismos
+  somam-se, e a resposta determinística também vai a aprovação. O
+  `TestDegradadoComConcierge` é a medida dessa decisão, nos dois sentidos;
+* **a pesquisa de catálogo fica fora do modo**, pela letra do critério 2. Essa
+  **continua** devolvida, na secção de verificação do bloco.
 
 ## O LLM *fake* falha nos três modos, e os três são os do critério 1
 
@@ -1176,17 +1175,22 @@ class TestCriterio8(unittest.TestCase):
 
 
 class TestDegradadoComConcierge(unittest.TestCase):
-    """**A hipótese do ticket, medida.** Os dois em vigor ao mesmo tempo.
+    """**A decisão do fundador, medida.** Os dois em vigor ao mesmo tempo.
 
     O KAM-037 foi escrito antes do KAM-114 e nenhum dos dois diz o que acontece
-    com o LLM em baixo **e** a política de concierge ligada. A leitura
-    implementada é a primeira das três: **a resposta determinística também vai a
-    aprovação**. As outras duas — o modo degradado passa à frente do concierge, e
-    o concierge fica suspenso enquanto houver degradação — retiravam uma
-    barreira, e a barreira do KAM-114 é «sem decisão humana não sai mensagem».
+    com o LLM em baixo **e** a política de concierge ligada — e os dois critérios
+    1 («0 turnos sem resposta» e «0 mensagens sem decisão») não podem ser os dois
+    verdadeiros para um *tenant* nessas condições.
 
-    A decisão está devolvida ao fundador na secção de verificação do bloco e no
-    corpo do PR.
+    **Decidido pelo fundador a 2026-10-29** (`docs/adr/ADR-L005`): os dois
+    mecanismos **somam-se** — a resposta determinística também vai a aprovação. As
+    outras duas leituras — o modo degradado passa à frente do concierge, e o
+    concierge fica suspenso enquanto houver degradação — retiravam uma barreira, e
+    a barreira do KAM-114 é «sem decisão humana não sai mensagem».
+
+    **O que esta classe mede é o custo da decisão e não só o seu efeito**: o
+    primeiro ensaio mede que nada sai ao cliente, que é precisamente o que se
+    aceitou. O ADR escreve o sinal que o distingue de uma avaria.
     """
 
     def _montar(self, politica_activa: bool = True):
@@ -1222,9 +1226,10 @@ class TestDegradadoComConcierge(unittest.TestCase):
     def test_sem_a_politica_o_menu_degradado_sai_no_mesmo_turno(self) -> None:
         """É o caso de todos os *tenants* fora do Piloto concierge.
 
-        E é **com a política desligada** que o critério 1 se mede: «≤ 1 turno»
-        é a resposta a chegar ao cliente, e com o concierge ligado ela espera
-        por um humano — por desenho do KAM-114, não por falha deste modo.
+        E é **com a política desligada** que o critério 1 se mede: «≤ 1 turno» é a
+        resposta a chegar ao cliente, e com o concierge ligado ela espera por um
+        humano — por **decisão** do fundador (`ADR-L005`), não por falha deste
+        modo nem por omissão de quem o escreveu.
         """
         grafo, saida, rascunho, _ = self._montar(politica_activa=False)
         estado = estado_de("bom dia", tenant_id=TENANT, contact_id=CONTACTO)

@@ -507,6 +507,22 @@ certa (sem ela a contagem teria passado de 42 para 44 em silêncio).
 
 ---
 
+## Nota posterior — o `P4` fechou
+
+**Acrescentada a 2026-10-29, depois da revisão, e não pelo revisor.** O `P4`
+apontava que o critério 1 fica falso para *tenants* em concierge e que faltava a
+decisão do fundador. Ela chegou no mesmo dia: **os dois mecanismos somam-se** — a
+resposta determinística também vai a aprovação —, e está registada em
+[`../adr/ADR-L005-degradacao-e-concierge.md`](../adr/ADR-L005-degradacao-e-concierge.md)
+com as três leituras pesadas e o que cada uma custa. O achado fica abaixo como foi
+escrito; o que mudou é que o que lhe faltava já não falta.
+
+O `P1` e o `P2` foram corrigidos (ver o commit `8b6ec4e`). O `P3` continua em
+aberto, com o credor nomeado: é comportamento do KAM-114, e quem o fecha é quem
+ligar a porta `grafos` do `turno.py`.
+
+---
+
 ## PLAUSÍVEL
 
 ### P1 — `turn_id` vazio colapsa turnos concorrentes numa única entrada da janela

@@ -49,7 +49,13 @@ nao uma segunda invocacao: o turno responde em **um** turno, que e o criterio 1.
 IDX nao e o LLM e nao esta em baixo quando o modelo esta; servir pesquisa aqui
 era mais util e **nao** era o que o criterio 2 enumera. As intencoes `produto`,
 `preco_stock` e `comprar` caem no menu, e a leitura esta devolvida ao fundador na
-secção de verificacao do bloco.
+secção de verificacao do bloco — **essa continua por decidir**.
+
+**O que ja esta decidido e a interacção com o modo concierge** (`docs/adr/ADR-L005`,
+decisao do fundador de 2026-10-29): com a politica activa, a resposta
+deterministica **tambem vai a aprovacao humana**. Nao ha codigo de interacção, e e
+isso que a torna segura — o caminho degradado sai pelo `send`, que e onde o
+KAM-114 intercepta as cinco arestas de saida.
 
 ## A referencia de pagamento e a divida 124, e nao se paga aqui
 

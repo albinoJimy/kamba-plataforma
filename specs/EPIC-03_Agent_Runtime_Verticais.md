@@ -2707,7 +2707,7 @@ está na sub-secção própria, no fim.
 
 | # | Critério | Estado | Prova |
 |---|---|---|---|
-| 1 | Com o LLM *fake* a dar *timeout* de 20 s (ou 429 ou `BUDGET_EXHAUSTED`) a mensagem recebe resposta determinística em ≤ 1 turno, sem excepção e sem mensagem em falta (0 turnos sem resposta em 100 execuções) | **satisfeito** | `TestCriterio1::test_os_tres_modos_de_falha_respondem_no_mesmo_turno` corre os três erros tipados do `llm/erros.py` (`TempoEsgotado`, `FornecedorFalhou` com `estado_http=429`, `OrcamentoEsgotado`) e mede **uma** mensagem enviada e o `degradado.motivo` certo em cada. O «100 execuções» é **à letra cem** em `test_zero_turnos_sem_resposta_em_cem_execucoes`, com os três modos por rotação e o disjuntor **desligado** de propósito — com ele a abrir à terceira falha, as outras noventa e sete nunca chegavam ao `except` e o critério media outra coisa. **A medição é com a política `concierge` desligada**, e isso é a hipótese devolvida ao fundador abaixo |
+| 1 | Com o LLM *fake* a dar *timeout* de 20 s (ou 429 ou `BUDGET_EXHAUSTED`) a mensagem recebe resposta determinística em ≤ 1 turno, sem excepção e sem mensagem em falta (0 turnos sem resposta em 100 execuções) | **satisfeito** | `TestCriterio1::test_os_tres_modos_de_falha_respondem_no_mesmo_turno` corre os três erros tipados do `llm/erros.py` (`TempoEsgotado`, `FornecedorFalhou` com `estado_http=429`, `OrcamentoEsgotado`) e mede **uma** mensagem enviada e o `degradado.motivo` certo em cada. O «100 execuções» é **à letra cem** em `test_zero_turnos_sem_resposta_em_cem_execucoes`, com os três modos por rotação e o disjuntor **desligado** de propósito — com ele a abrir à terceira falha, as outras noventa e sete nunca chegavam ao `except` e o critério media outra coisa. **A medição é com a política `concierge` desligada**, e isso é a **decisão do fundador de 2026-10-29** (`../docs/adr/ADR-L005-degradacao-e-concierge.md`): com a política activa, a resposta determinística também vai a aprovação, pelo que este critério é **falso por decisão** para esses *tenants*. Ver a sub-secção abaixo |
 | 2 | O modo serve: menu principal (≤ 3 botões), lista de opções (≤ 10 linhas), estado do pedido por `numero_publico`, horário/morada, referência de pagamento **já emitida**, e «falar com humano» | **parcial** | Cinco das seis estão medidas em `TestCriterio2`, e três desses ensaios **só o passaram a medir depois da revisão adversarial**: o do estado do pedido passava com o comportamento oposto ao nome (achado C9 — o `ABC-123` não existia no *fake* e o que saía era a frase de catálogo), e as duas portas do menu que iam ao `order_status` respondiam «Não encontrei esse **artigo** no **catálogo** da loja» a quem tocou em pagamentos ou pedidos (C2). **Os dois tectos do critério ficam satisfeitos por um conjunto de três opções e não por dois conjuntos**, e a razão é medida: o `packages/core-ts/src/outbound/contrato.ts` fixa `MAXIMO_DE_BOTOES = 3` com `TOO_MANY_BUTTONS` acima disso, e o bloco `buttons` do §9.1 não distingue *reply buttons* de lista — com quatro ids, o turno degradado mais comum ficava **sem resposta** (C6). O que fica em dívida é a **forma de lista** e os **rótulos** (o `Corpo` exige `{id, titulo}`), com credor **KAM-015**; os rótulos em `pt` de Angola já existem e estão versionados. **A referência de pagamento serve-se em espécie e não em detalhe**, e a razão é anterior a este ticket: uma referência é uma cadeia opaca com dígitos e **nenhum dos cinco blocos do §9.1 a leva** — um `text` com dígitos faz o `renderizar` levantar, de propósito (ADR-007). É a **dívida 124**, que já nomeia este caso por extenso («a referência de pagamento que o §14 manda repetir no modo determinístico»), com credor **KAM-032**. Aplicou-se a mesma leitura que o KAM-034 aplicou à `MSG_ALTERNATIVAS`. **E a pesquisa de catálogo fica fora** por a lista do critério não a enumerar — ver a leitura devolvida abaixo |
 | 3 | Toque em `confirm:{cart_id}` em modo degradado cria **1** pedido e responde com a referência por *template* estático e *facts*; nenhum texto livre sem *renderer* | **parcial** | **A primeira metade está satisfeita e a segunda não, e esta linha dizia `satisfeito`** — a revisão adversarial mediu-o (achado C8) e o ensaio que a sustentava chamava-se `…_e_cita_por_fact` sem olhar para *fact* nenhum: passaria inalterado com zero números no texto, que é o que acontece. O ensaio está renomeado para o que mede e afirma agora o contrário — `assertNotRegex(texto, r"\d")` —, porque a verdade é mais útil do que o nome antigo. **O pedido é um:** `len(backend.encomendas) - antes == 1`, `stage == "awaiting_payment"`, e o duplo toque dá **um** (`test_dois_toques_degradados_nao_criam_dois_pedidos`). **A citação não existe, e por duas razões que se somam:** o `total` do carrinho é um *fact* do turno **anterior** e os *facts* são só do turno (§5.3), pelo que não há o que citar sem revalidar no backend; e a referência tem dígitos e nenhum dos cinco blocos do §9.1 a leva — **dívida 124**, credor **KAM-032**. Nenhum texto livre, isso sim: o `create_order` e o `compose` são os do grafo normal e só produzem blocos |
 | 4 | A intenção é decidida sem LLM (identificadores de botão/lista e palavras-chave); texto livre não reconhecido devolve o menu, não inventa resposta | **satisfeito** | `TestIntencaoSemLlm`, sete ensaios. **O botão decide antes do texto**, e há ensaio para isso (`test_o_rotulo_do_botao_nao_decide_por_acidente`): uma mensagem interactiva traz o rótulo como texto, e a ler o texto primeiro «Falar com um colega» casava o padrão `humano` e dava a resposta certa pela razão errada. Não há segundo classificador por regras: reutiliza-se o `intencao_por_regras` do KAM-031, porque uma segunda cópia divergia dele. Em modo degradado o `classify` **não chama o modelo nem para tentar** — `test_o_turno_degradado_nao_vai_ao_modelo_quando_ja_nasceu_degradado` mede zero chamadas |
@@ -2728,45 +2728,44 @@ está na sub-secção própria, no fim.
 | **Eval-gate:** o sub-grafo é artefacto comportamental; SemVer; casos degradados no golden | **vazia** | **Metade entrega-se e metade não existe.** O SemVer está feito: `VERSAO_DO_GRAFO` 1.1.0 → **1.2.0** (um nó entrou, e a regra da constante é «sobe no *minor* quando um nó entra ou sai»), com `test_o_semver_do_grafo_subiu_no_minor`, e os textos do modo têm `VERSAO_DOS_TEXTOS` 1.0.0. A outra metade depende do **gate 13, que não existe**, e mediu-se antes de se escrever código: `grep -n "ci-13" Makefile` → **exit 1, zero linhas**, e `grep -rn "ci-13" .github/workflows/` → **exit 1**; os alvos são `ci-1` a `ci-11`, com buracos no 10 e no 12. Quem o constrói é o **KAM-040** («Dataset golden PT-AO sintético e eval harness como gate»), **aberto** e bloqueado pelo KAM-033 e pelo KAM-035. Não se inventou um gate nem se declarou a caixa por espírito |
 | Documentação do runbook de degradação actualizada | **marcada** | **Não havia runbook de degradação** — medido: `ls docs/runbooks/` tinha um único ficheiro, o da rotação de chaves de LLM. Criou-se `../docs/runbooks/degradacao-do-agr.md`, com a forma do que já existia (cabeçalho, nota de **esboço** com o que ainda não existe, tabela de gatilhos, e a secção «o que esta página não cobre» com credor em cada). O `docs/agr.md` ganhou o §7-I e a linha **1.13** de controlo de versões, e o §6 dele fica **corrigido**: dizia que o `agr_degraded_turns_total` «não existe», e era verdade até este ticket |
 
-#### A hipótese que este ticket devolve ao fundador
+#### A decisão do fundador, e a leitura que continua devolvida
 
 O KAM-037 foi escrito **antes** do KAM-114, que fundiu a 2026-10-28 (`0baea39`), e
 nenhum dos dois blocos diz o que acontece com os **dois** em vigor: LLM em baixo e
-política `concierge` ligada no mesmo *tenant*.
+política `concierge` ligada no mesmo *tenant*. Os dois critérios 1 — «0 turnos sem
+resposta» e «0 mensagens ao cliente sem decisão» — **não podem ser os dois
+verdadeiros** para um *tenant* nessas condições, e qual deles cede não era decisão
+do executor.
 
-```text
-HIPÓTESE
-- Hipótese: com a política `concierge` activa, a resposta determinística do modo
-  degradado **também** vai a aprovação humana — os dois mecanismos somam-se.
-- Evidência que a sustenta: o KAM-114 intercepta no nó `send`, e a nota da aresta
-  35 em `arestas.py` escreve por extenso porque é **ali** e não à entrada de cada
-  caminho: «são cinco as arestas que chegam ao `send` … uma resposta estática é
-  uma mensagem ao cliente tanto como uma composta». Uma resposta determinística é
-  textualmente dessa classe. A barreira do critério 1 do KAM-114 é «sem decisão
-  humana não sai mensagem», e o `concierge/__init__.py` lista três consequências
-  que já se recusou simplificar — incluindo que o HND em baixo **não** faz sair
-  uma mensagem de degradação.
-- Estado: INDÍCIO. Nenhum dos dois blocos a decide; a leitura é nossa.
-- Como validar: decisão escrita do fundador. As outras duas leituras possíveis
-  são «o modo degradado passa à frente do concierge» e «o concierge fica suspenso
-  enquanto houver degradação», e **ambas retiram uma barreira** — que é a razão
-  pela qual não se escolheram: *mínimo* nunca é retirar uma barreira.
-```
+> **Decidido pelo fundador a 2026-10-29:** com a política `concierge` activa, a
+> resposta determinística do modo degradado **também vai a aprovação humana**. Os
+> dois mecanismos somam-se e não se substituem.
 
-A leitura está implementada **sem código novo**, porque o caminho degradado passa
-pelo `send` como qualquer outro, e está medida nos dois sentidos:
+Registada em **[`../docs/adr/ADR-L005-degradacao-e-concierge.md`](../docs/adr/ADR-L005-degradacao-e-concierge.md)**,
+com as três leituras pesadas, o que cada uma custa, e o que esta obriga — porque
+uma decisão sem as consequências escritas é uma decisão que o próximo ticket
+reabre. As outras duas — «o modo degradado passa à frente do concierge» e «o
+concierge fica suspenso enquanto houver degradação» — **retiram uma barreira**, e
+é a razão pela qual a leitura implementada era esta: *mínimo* nunca é retirar uma
+barreira.
+
+**O que isto torna verdadeiro, e fica dito onde dói:** o critério 1 deste ticket
+é **falso por decisão** para um *tenant* em concierge — o cliente não recebe nada
+até um operador aprovar, e é precisamente quando o sistema está degradado. O
+princípio 12 («o utilizador nunca fica sem resposta») cede aqui perante o critério
+1 do KAM-114, e cede **por decisão** e não por omissão. O sinal operacional que a
+distingue de uma avaria está no runbook: o `agr_degraded_turns_total` a subir **e**
+o `agr_draft_pendentes` a subir com ele; se o segundo subir sozinho, não é
+degradação — é falta de operador.
+
+**Não há código de interacção, e é isso que a torna segura.** O caminho degradado
+passa pelo `send` como qualquer outro, e o KAM-114 intercepta lá — nas cinco
+arestas que lhe chegam. Medida nos dois sentidos:
 `TestDegradadoComConcierge::test_o_menu_degradado_vai_a_aprovacao_e_nao_sai_ao_cliente`
 (zero mensagens ao cliente, um rascunho aberto, com o texto do menu e o
 `graph_version` novo) e `test_sem_a_politica_o_menu_degradado_sai_no_mesmo_turno`.
 
-**A consequência que o fundador tem de ver antes de decidir:** num *tenant*
-concierge, o LLM em baixo **não faz chegar nada ao cliente** até um operador
-aprovar. É por isso que o «≤ 1 turno» do critério 1 se mede com a política
-desligada — que é o caso de todos os *tenants* fora do Piloto concierge —, e a
-alternativa a esta leitura seria aceitar que uma mensagem sai sem aprovação
-precisamente quando o sistema está degradado.
-
-**A segunda leitura devolvida, mais pequena:** a lista do critério 2 **não
+**A segunda leitura continua devolvida, e essa não foi decidida:** a lista do critério 2 **não
 enumera a pesquisa de catálogo**, e seguiu-se a letra. O custo é real e declara-se:
 o IDX não é o LLM e **não** está em baixo quando o modelo está, pelo que servir
 pesquisa em modo degradado era tecnicamente possível e mais útil ao cliente. As
@@ -2937,7 +2936,9 @@ degradado sai por uma delas. O que ela confirma é o outro lado, que é a hipót
 devolvida acima: para um *tenant* em concierge, o critério 1 deste ticket é
 **falso por desenho**.
 
-**Dois `PLAUSÍVEL` ficam em aberto**, com o que falta para os decidir:
+**Dos quatro `PLAUSÍVEL`, dois foram corrigidos** (o `P1` e o `P2`, na tabela
+acima), **um fechou com a decisão do fundador** (o `P4`) e **um fica em aberto**,
+com o que falta para o decidir:
 
 * **P3** — com a política `concierge` activa e o `ServicoDeRascunho` por ligar, o
   turno levanta `ConciergeSemServicoError` e repete para sempre. É comportamento
@@ -2945,8 +2946,11 @@ devolvida acima: para um *tenant* em concierge, o critério 1 deste ticket é
   que mais vezes o atinge, porque com o LLM em baixo **todos** os turnos chegam ao
   `draft_prepare`. Falta saber se a guarda de arranque cobre esse par — e isso é
   leitura do `__main__.py` de quem ligar a porta `grafos`;
-* **P4** — o critério 1 ser falso para *tenants* em concierge. A barreira está
-  respeitada; o que falta é a decisão do fundador, que está devolvida acima.
+* **P4** — **fechado pela decisão do fundador de 2026-10-29** (`ADR-L005`): o
+  critério 1 é falso para *tenants* em concierge, e é-o **por decisão**. A
+  barreira do KAM-114 estava respeitada, e era isso que faltava confirmar de que
+  lado se queria o custo. Fica registado aqui para não voltar na próxima
+  auditoria.
 
 #### O que ficou fora, e com credor
 

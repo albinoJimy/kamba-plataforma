@@ -127,11 +127,13 @@ Um *tenant* com a política `concierge` activa **não recebe a resposta
 determinística directamente**: ela vai a aprovação humana, como qualquer outra
 resposta daquele *tenant*. Os dois mecanismos somam-se e não se substituem.
 
-**Isto é uma leitura e não uma decisão fechada.** O KAM-037 foi escrito antes do
-KAM-114 e nenhum dos dois diz o que acontece com os dois em vigor; a leitura
-implementada é a que não retira a barreira do KAM-114 («sem decisão humana não sai
-mensagem»), e a decisão está devolvida ao fundador na secção de verificação do
-bloco do KAM-037.
+**Isto é uma decisão fechada, e não uma leitura nossa.** O KAM-037 foi escrito
+antes do KAM-114 e nenhum dos dois diz o que acontece com os dois em vigor; o
+fundador decidiu a **2026-10-29** que os dois mecanismos se somam, e está em
+[`../adr/ADR-L005-degradacao-e-concierge.md`](../adr/ADR-L005-degradacao-e-concierge.md)
+com o que ela custa. **O que ela custa é esta secção**: num *tenant* concierge, o
+LLM em baixo não faz chegar nada ao cliente até um operador aprovar — o princípio
+12 cede aqui perante o critério 1 do KAM-114, por decisão e não por omissão.
 
 A consequência operacional: num *tenant* concierge, o LLM em baixo **não** faz
 chegar nada ao cliente até um operador aprovar. O que se vê nos números é o
