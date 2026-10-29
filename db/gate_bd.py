@@ -206,6 +206,13 @@ SUITES = (
     # `handoffs`. Nao precisa de fila: o consumidor e um shim em TypeScript
     # (ADR-L004) e a porta do AGR e HTTP.
     "tests_agr",
+    # KAM-047: a agenda da vertical Servicos. As **mil tentativas paralelas** do
+    # criterio 1 no mesmo recurso e intervalo, mais a expiracao de holds, a
+    # remarcacao atomica, os limites e o isolamento por contacto. Suite propria
+    # e nao dentro de `tests`, pela mesma razao do `tests_ten` e do
+    # `tests_auditoria_carga`: as mil custam relogio, e uma suite paga isso por
+    # cada mutacao que a escolha.
+    "tests_servicos",
 )
 #: As que precisam tambem de uma fila.
 SUITES_COM_FILA = (

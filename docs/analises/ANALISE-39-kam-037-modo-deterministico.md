@@ -434,12 +434,12 @@ dá 19 ficheiros, todos sob `services/agr`. `git status --porcelain`:
 - `docs/runbooks/degradacao-do-agr.md` está **untracked** e é citado pelo
   `degradacao.py:83`. A caixa de DoD «documentação do runbook de degradação
   actualizada» não é satisfeita pelo commit.
-- `docs/dividas-documentais.md` (dívida 135, emenda 1.74) **já está** em
+- `docs/dividas-documentais.md` (dívida 139 — 135 quando se escreveu, emenda 1.74) **já está** em
   `publico/main` — logo a metade documental deste ticket foi fundida antes do
   código, e a referência que ela faz a `specs/02 §3.35` já estava pendurada.
 
 **Severidade.** Média, mas era a mais mecânica de todas: fundir `94ee77a` como
-estava perdia a emenda 1.45 e o runbook, e deixava cinco citações a apontar para
+estava perdia a emenda 1.46 (1.45 quando se escreveu) e o runbook, e deixava cinco citações a apontar para
 nada; e a 1.45 commitada como estava deixava o gate de canon vermelho.
 
 **Pago.** `d60aae2` commitou o runbook e o §3.35, `34bcf82` corrigiu o cabeçalho

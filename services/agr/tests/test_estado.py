@@ -72,7 +72,7 @@ CHAVES_DO_521 = (
     # `test_as_chaves_sao_as_que_o_documento_escreve` continua a passar porque e
     # de inclusao num sentido — o documento e subconjunto desta lista.
     "concierge",
-    # KAM-037, emenda 1.45. Pela mesma razao do `concierge`: **nao esta no bloco
+    # KAM-037, emenda 1.46. Pela mesma razao do `concierge`: **nao esta no bloco
     # do §5.3**, que este ticket tambem nao altera — vem do bloco do KAM-037 e
     # do dicionario §3.35.
     "degradado",

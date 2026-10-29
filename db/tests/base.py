@@ -194,6 +194,26 @@ TABELAS_DAT = ("llm_call_log", "llm_call_log_default")
 #: ja afirma.
 TABELAS_DAT_COM_MATRIZ = ("llm_call_log",)
 
+#: KAM-047: as do esquema `servicos` (revisao `0025`). Constante propria pela
+#: mesma razao do `TABELAS_LG` e do `TABELAS_DAT` — vivem noutro esquema e quem
+#: as consome diz qual.
+#:
+#: **Sao quatro, e nenhuma e particao.** Por ordem alfabetica, que e a que o
+#: `ORDER BY 1, 2` do `test_o_migrator_nao_e_dono_de_nada_fora_do_que_criou`
+#: espera dentro de um esquema. O esquema vem **depois** do `platform` nessa
+#: consulta: `dat` < `lg` < `platform` < `public` < `servicos`.
+TABELAS_SERVICOS = ("availability_rules", "bookings", "resources", "services")
+
+#: As do `servicos` que a **matriz de privilegios** cobre: as quatro.
+#:
+#: Ao contrario do `dat`, aqui nao fica nenhuma de fora — e a razao e a
+#: diferenca entre os dois esquemas. No `dat` a particao nao tem privilegio
+#: proprio nenhum (os `GRANT` da `0023` sao todos no pai), e uma linha de matriz
+#: de zeros afirmava o que o *gate* 6 ja afirma. No `servicos` as quatro tem
+#: privilegios concedidos **por tabela**, e tres delas tem conjuntos
+#: **diferentes**: o catalogo e so de leitura para a aplicacao, a `bookings` e
+#: de leitura e escrita, e o `UPDATE` dela e por coluna.
+TABELAS_SERVICOS_COM_MATRIZ = TABELAS_SERVICOS
 #: As vistas do esquema. Separadas das tabelas porque a descoberta do catalogo
 #: tambem as separa, e porque o `verificar_vistas` do
 #: `db/tests_isolamento/catalogo.py` — que existe desde o KAM-004 — tem aqui o

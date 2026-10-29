@@ -107,10 +107,18 @@ subsistema depende dela». **Esta governa dois tickets** (o KAM-037 e o KAM-114)
 uma invariante de segurança do produto, pelo que o critério aponta para cima.
 
 Fica **local** porque promovê-la é uma alteração ao canon que ninguém pediu: um
-`ADR-021` em `../tecnica/00` §8 obriga a actualizar a contagem de ADRs e o
-mapeamento ADR → documento em `../tecnica/INDICE.md` §5, e a classificação dos
-ADRs é proposta até o fundador a ratificar. O que falta para a promover está
-nomeado aqui; quem a promove é quem o fundador mandar.
+ADR canónico novo em `../tecnica/00` §8 toma o número seguinte ao último — hoje o
+**vigésimo**, que o fundador acrescentou a 2026-10-09 e a Carta marca FIXA — e
+obriga a actualizar a contagem de ADRs e o mapeamento ADR → documento em
+`../tecnica/INDICE.md` §5; a classificação dos ADRs é, ela própria, proposta até o
+fundador a ratificar. O que falta para a promover está nomeado aqui; quem a
+promove é quem o fundador mandar.
+
+(**Não se escreve aqui o número que ela teria.** O `lint_refs` recusa uma
+referência a um `ADR-NNN` que o §8 não tem — e recusou esta frase na primeira
+versão, com razão: um número de ADR escrito antes de o ADR existir lê-se como
+canon a quem passar por aqui. A dispensa em `ci/refs-allow.yaml` existe e **não**
+se usou: o próprio ficheiro diz que não é mecanismo de dispensa genérico.)
 
 ## Como se mede que isto é verdade
 

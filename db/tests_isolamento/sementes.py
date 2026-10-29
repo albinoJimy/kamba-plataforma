@@ -842,6 +842,92 @@ def _rascunho(cursor, tenant_id: str, canario: str) -> None:
 
 
 #: (schema, tabela) -> receita. A ordem de insercao respeita as FK.
+def _servico(cursor, tenant_id: str, canario: str) -> None:
+    """Um servico marcavel do tenant (KAM-047). O canario vai no `nome`.
+
+    `preco_tipo = 'sob_consulta'` e `preco_minor` nulo, que e o unico par que o
+    `services_preco_ck` aceita sem numero: a semente nao afirma um preco, e um
+    preco inventado numa semente de isolamento era um numero sem cotacao a
+    aparecer num teste que nao e sobre precos.
+
+    Semeia o `kamba_batch`, que e quem tem `INSERT` nesta tabela.
+    """
+    cursor.execute(
+        "INSERT INTO servicos.services "
+        "(tenant_id, nome, duracao_min, preco_tipo) "
+        "VALUES (%s, %s, 30, 'sob_consulta')",
+        (tenant_id, canario),
+    )
+
+
+def _recurso(cursor, tenant_id: str, canario: str) -> None:
+    """Um recurso do tenant (KAM-047). O canario vai no `nome`."""
+    cursor.execute(
+        "INSERT INTO servicos.resources (tenant_id, nome) VALUES (%s, %s)",
+        (tenant_id, canario),
+    )
+
+
+#: O recurso do tenant, para a FK composta da regra e da marcacao. Mesma forma
+#: do `_UM_CONTACTO` e do `_UM_CANAL`, e pela mesma razao: quando a receita e
+#: usada para **atacar**, a subconsulta nao ve o recurso do outro tenant, e o que
+#: tem de recusar a linha e a politica — que se avalia antes das FK — e nao um
+#: valor nulo.
+_UM_RECURSO = (
+    "COALESCE((SELECT resource_id FROM servicos.resources WHERE tenant_id = %s "
+    "ORDER BY criado_at, resource_id LIMIT 1), gen_random_uuid())"
+)
+
+_UM_SERVICO = (
+    "COALESCE((SELECT service_id FROM servicos.services WHERE tenant_id = %s "
+    "ORDER BY criado_at, service_id LIMIT 1), gen_random_uuid())"
+)
+
+
+def _regra(cursor, tenant_id: str, canario: str) -> None:
+    """Uma regra de disponibilidade do tenant (KAM-047). O canario vai no `rule_id`.
+
+    Segunda-feira (`dia_semana = 1`, a convencao do `EXTRACT(dow)`), das 9 as 17,
+    no fuso da omissao — que tem de existir no catalogo do servidor, por causa do
+    *trigger* `availability_rules_fuso_valido`.
+    """
+    cursor.execute(
+        "INSERT INTO servicos.availability_rules "
+        "(rule_id, tenant_id, resource_id, dia_semana, inicio, fim) "
+        f"VALUES (%s, %s, {_UM_RECURSO}, 1, '09:00', '17:00')",
+        (_uuid(canario), tenant_id, tenant_id),
+    )
+
+
+def _marcacao(cursor, tenant_id: str, canario: str) -> None:
+    """Uma marcacao confirmada do tenant (KAM-047). O canario vai no `slot_id`.
+
+    **`confirmada` e nao `hold`**, e a razao e o `bookings_hold_prazo_ck`: um
+    `hold` exige `hold_expires_at`, e uma semente com prazo ficava a merce do
+    varrimento — o `servicos.expirar_holds` apanhava-a a meio de uma bateria e o
+    canario mudava de estado sem ninguem o pedir.
+
+    O intervalo e no futuro e **unico por canario**: a restricao de exclusao e
+    por `(tenant_id, resource_id, intervalo)`, e duas sementes do mesmo tenant no
+    mesmo intervalo colidiam uma com a outra em vez de provarem isolamento. O
+    deslocamento sai do proprio canario, pelo que e deterministico.
+
+    Semeia o administrador da instancia, como as receitas de identidade e de
+    eventos: o `INSERT` do `kamba_app` esta sob `WITH CHECK` e esta receita nao
+    define contexto.
+    """
+    minutos = int(hashlib.sha256(canario.encode("ascii")).hexdigest()[:6], 16) % 20000
+    cursor.execute(
+        "INSERT INTO servicos.bookings "
+        "(tenant_id, contact_id, service_id, resource_id, slot_id, "
+        " inicio_at, fim_at, estado) "
+        f"VALUES (%s, {_UM_CONTACTO}, {_UM_SERVICO}, {_UM_RECURSO}, %s, "
+        "        now() + make_interval(mins => %s), "
+        "        now() + make_interval(mins => %s + 30), 'confirmada')",
+        (tenant_id, tenant_id, tenant_id, tenant_id, canario, minutos, minutos),
+    )
+
+
 RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "tenants"): Receita(_tenant, "nome", "nome", "Nome alterado"),
     ("platform", "tenant_channels"): Receita(_canal, "waba_id", "estado", "ativo"),
@@ -1063,6 +1149,41 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "tool_idempotency"): Receita(
         _reserva_de_tool, "tool", "estado", "falhada", semeador="admin"
     ),
+    # KAM-047: as quatro da agenda (revisao `0025`, esquema `servicos`).
+    #
+    # **As tres do catalogo sao so de leitura para o `kamba_app`**, pelo que
+    # `coluna_alteravel=None` **e** `escrita_do_papel=False`: o que se prova
+    # nelas e que os privilegios nem existem — mais forte do que a politica
+    # recusar, porque nao depende de a politica estar certa. E a mesma forma da
+    # `entitlements`, e pela mesma razao de fundo: quem cria a agenda de uma PME
+    # e a retaguarda (KAM-091), e um tenant que pudesse inserir recursos abria
+    # intervalos que o dono nunca disponibilizou.
+    ("servicos", "services"): Receita(
+        _servico, "nome", None, None, escrita_do_papel=False
+    ),
+    ("servicos", "resources"): Receita(
+        _recurso, "nome", None, None, escrita_do_papel=False
+    ),
+    # A `availability_rules` **nao tem coluna de texto livre** — o `fuso` tem de
+    # existir no catalogo do servidor —, pelo que o canario vai na chave
+    # primaria, como na `conversations` do KAM-014. Ver `_uuid`.
+    ("servicos", "availability_rules"): Receita(
+        _regra, "rule_id", None, None, escrita_do_papel=False, guardado=_uuid
+    ),
+    # **A `bookings` e a unica onde o `kamba_app` escreve**, e por isso a unica
+    # em que a RLS e a ultima barreira na escrita: o `INSERT` esta sob
+    # `WITH CHECK (tenant_id = app.tenant_id)` e e isso que o X-04 ataca. A
+    # coluna alteravel e o `estado` — uma das tres que a revisao `0025` lhe
+    # concede por coluna —, e `cancelada` e um valor valido que **liberta** o
+    # intervalo, pelo que a escrita cruzada nao deixa a tabela num estado que a
+    # proxima receita nao consiga semear.
+    #
+    # O canario vai no `slot_id`, que e `text` e cabe la tal e qual; a
+    # unicidade dele e `(tenant_id, contact_id, slot_id)` **parcial**, logo dois
+    # tenants podem semear o mesmo canario — que e o que o X-03 precisa.
+    ("servicos", "bookings"): Receita(
+        _marcacao, "slot_id", "estado", "cancelada", semeador="admin"
+    ),
     # KAM-114. Semeia o administrador da instancia, como a receita da conversa e
     # a do handoff: o `INSERT` do `kamba_app` esta sob `WITH CHECK` e esta
     # receita nao define contexto.
@@ -1181,6 +1302,17 @@ ORDEM = (
     # esta linha ao tenant e a RLS, que nao precisa de FK para valer. Fica no
     # fim porque ninguem a aponta.
     ("platform", "tool_idempotency"),
+    # KAM-047: as quatro do `servicos`, e aqui a ordem **nao** e arbitraria. As
+    # FK ficam todas dentro do esquema: a `availability_rules` aponta para a
+    # `resources`, e a `bookings` aponta para a `resources` **e** para a
+    # `services`. Pela ordem de inserir, as duas apontadas vem primeiro; a
+    # ordem inversa — que e a de apagar — tira a `bookings` e a
+    # `availability_rules` antes das duas que elas referenciam, que e
+    # exactamente o que as FK sem `CASCADE` exigem.
+    ("servicos", "services"),
+    ("servicos", "resources"),
+    ("servicos", "availability_rules"),
+    ("servicos", "bookings"),
     # KAM-114: tem FK para `tenants` e mais nenhuma, e ninguem a aponta. Fica no
     # fim, como as do KAM-009.
     ("platform", "draft_decisions"),

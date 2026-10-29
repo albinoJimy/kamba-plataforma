@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Core de Comércio (COM): Medusa v2 sujeito a spike, modelo de dados `platform`, encomendas, reservas, Catálogo AI, reviews |
-| Versão | 1.3 |
+| Versão | 1.4 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `00_Arquitectura_Solucao.md` (âncora), `../exploracao/11-arquitetura-detalhada-engenharia.md` §2–§5, `../exploracao/14-tese-minima-e-plano-de-validacao.md` §3A |
@@ -478,6 +478,103 @@ Nenhuma encomenda, reserva, review ou evento é apagado fisicamente: `deleted_at
 
 ---
 
+### 5.7 Módulo `servicos` — a agenda da vertical Serviços (KAM-047)
+
+O `00` §4 inclui o módulo `servicos` no COM e este documento **não o especificava**: a única descrição era a proposta do `02` §8.3, que esse documento regista como lacuna («onde vive a agenda»). Esta secção fecha-a. O DDL é o da revisão `0025`, aplicado e revertido contra um PostgreSQL 18.6 real pelo *gate* 8 — e continua **proposta** no sentido da convenção deste conjunto: nada está ratificado até o fundador o dizer.
+
+**Esquema próprio, e não tabelas em `platform`.** É a proposta do `02` §8.3 e tem duas razões que o DDL torna visíveis: o `servicos` é acedido **só pela TLS**, pelo que o `USAGE` no esquema é por si uma barreira (o `kamba_resolver`, o `kamba_identity`, o `kamba_audit` e o `kamba_agr` não o têm); e as marcações não têm chave estrangeira nenhuma para fora do esquema — o `contact_id` entra como referência opaca a `platform.contacts`, do mesmo modo que o `agregado_id` das tabelas de eventos.
+
+```sql
+CREATE SCHEMA servicos;
+CREATE EXTENSION btree_gist SCHEMA servicos;   -- `trusted`: dispensa superutilizador
+
+CREATE TABLE servicos.services (
+  service_id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL,
+  nome text NOT NULL, duracao_min integer NOT NULL CHECK (duracao_min > 0),
+  preco_tipo text NOT NULL CHECK (preco_tipo IN ('fixo','a_partir_de','sob_consulta')),
+  preco_minor bigint, currency text NOT NULL DEFAULT 'AOA',
+  ativo boolean NOT NULL DEFAULT true, criado_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, service_id),
+  CHECK ((preco_tipo = 'sob_consulta') = (preco_minor IS NULL)));
+
+CREATE TABLE servicos.resources (
+  resource_id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL,
+  nome text NOT NULL, ativo boolean NOT NULL DEFAULT true,
+  criado_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (tenant_id, resource_id));
+
+CREATE TABLE servicos.availability_rules (
+  rule_id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL,
+  resource_id uuid NOT NULL,
+  dia_semana smallint NOT NULL CHECK (dia_semana BETWEEN 0 AND 6),  -- 0 = domingo (dow)
+  inicio time NOT NULL, fim time NOT NULL CHECK (inicio < fim),
+  fuso text NOT NULL DEFAULT 'Africa/Luanda',                        -- trigger: pg_timezone_names
+  criado_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (tenant_id, resource_id)
+    REFERENCES servicos.resources (tenant_id, resource_id));
+
+CREATE TABLE servicos.bookings (
+  booking_id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL,
+  contact_id uuid NOT NULL,            -- referência opaca; sem FK, nunca um telefone
+  service_id uuid NOT NULL, resource_id uuid NOT NULL,
+  slot_id text NOT NULL,               -- token assinado da oferta
+  hold_id uuid NOT NULL DEFAULT gen_random_uuid(),   -- o do botão confirm:{hold_id}
+  inicio_at timestamptz NOT NULL, fim_at timestamptz NOT NULL CHECK (inicio_at < fim_at),
+  estado text NOT NULL CHECK (estado IN ('hold','confirmada','cancelada','expirada')),
+  hold_expires_at timestamptz,
+  version int NOT NULL DEFAULT 1, criado_at timestamptz NOT NULL DEFAULT now(),
+  CHECK ((estado = 'hold') = (hold_expires_at IS NOT NULL)),
+  UNIQUE (tenant_id, hold_id),
+  FOREIGN KEY (tenant_id, service_id)
+    REFERENCES servicos.services (tenant_id, service_id),
+  FOREIGN KEY (tenant_id, resource_id)
+    REFERENCES servicos.resources (tenant_id, resource_id),
+  EXCLUDE USING gist (tenant_id WITH =, resource_id WITH =,
+                      tstzrange(inicio_at, fim_at) WITH &&)
+    WHERE (estado IN ('hold','confirmada')));
+
+CREATE UNIQUE INDEX bookings_contacto_slot_uq ON servicos.bookings
+  (tenant_id, contact_id, slot_id) WHERE estado IN ('hold','confirmada');
+```
+
+#### A sobreposição é impossível por construção, e não por código
+
+É o critério 1 do KAM-047 e está escrito por extenso no ticket: «garantido por restrição de exclusão na BD, **não** por código aplicacional». Um `SELECT … FOR UPDATE` seguido de `INSERT` não é equivalente — entre os dois cabe outra transacção, e o que o impediria era o bloqueio e não a restrição. Três partes, cada uma a impedir uma coisa:
+
+| Parte | O que impede |
+|---|---|
+| `tenant_id WITH =` | Que o recurso de um tenant bloqueie o intervalo de outro — e que a mensagem de conflito, que cita a chave, seja um canal de leitura entre vizinhos. **Hoje é defesa em profundidade**: a `resources_pkey` é só `(resource_id)`, pelo que um recurso só existe num tenant e o caso cruzado não se monta. Deixa de o ser no dia em que essa chave passar a composta |
+| `tstzrange(inicio_at, fim_at) WITH &&` | A sobreposição, com semântica `[)`: duas marcações adjacentes — a segunda a começar quando a primeira acaba — **não** colidem, e sem isso não havia grelha de horas possível |
+| `WHERE (estado IN ('hold','confirmada'))` | Que cancelar ou expirar obrigue a apagar a linha: o predicado parcial tira-a do índice e o intervalo volta a estar livre **na mesma transacção**, com o histórico intacto |
+
+A extensão `btree_gist` é necessária para o `uuid WITH =` dentro de um índice GiST (o `tstzrange … WITH &&` é nativo). Está **validada e não assumida**: `btree_gist` 1.8 em PostgreSQL 18.6 na imagem fixada por digest, instalada pela própria revisão no esquema `servicos` — `trusted = true` desde o PostgreSQL 13, o que dispensa superutilizador a quem tenha `CREATE` no esquema de destino, e o `kamba_migrator` é `NOSUPERUSER`.
+
+**Uma tranca por `(tenant, recurso)` corre antes da inserção, e não substitui a restrição.** `pg_advisory_xact_lock(hashtextextended('servicos:' || tenant_id || ':' || resource_id, 0))`, a mesma forma do KAM-018 com um prefixo que a mantém fora do espaço de chaves dele. Uma tranca **serializa** tentativas e não recusa nenhuma: com a restrição removida, as tentativas passam a entrar todas. Existe por uma medição — sem ela, 1.000 tentativas concorrentes no mesmo intervalo produzem **486 `deadlock detected`** e não terminam, porque a verificação de uma restrição de exclusão espera pela transacção com que conflitua e com N inserções da mesma chave cada uma pode encontrar um conflito diferente. E o efeito no critério era pior do que a lentidão: as perdedoras voltavam com `40P01` em vez de `23P01`, e «as restantes `SLOT_TAKEN`» era falso.
+
+#### Disponibilidade, holds e marcações
+
+- **Disponibilidade** = `availability_rules` do recurso **menos** as marcações activas. O modelo nunca calcula horas livres (ADR-007): é tool, e sai como *facts* `datetime`. O máximo é **10 opções**, que é o limite de linhas de uma lista interactiva da Meta (CONFIRMADO, `evidencia/E1` §7) e não uma escolha nossa. Armazenamento em UTC; a apresentação em `Africa/Luanda` é da camada de renderização.
+- **Hold** com `hold_expires_at`. O TTL é **10 min, *proposta* a calibrar**, e vive no módulo e não no DDL: um número num `CHECK` obrigava a uma revisão de base de dados para o calibrar.
+- **Libertação** pela função `servicos.expirar_holds(p_limite)`, `SECURITY INVOKER`, chamada pelo `kamba_app` com contexto de tenant — e não pelo `kamba_batch`, porque o `EXECUTE` de `platform.evt_emitir` é só do produtor. Emite `booking.cancelled` com `motivo = 'hold_expirado'` pelo *outbox*, na mesma transacção. **O `p99 ≤ 60 s` do critério 3 é uma propriedade da cadência de quem a chama**: o módulo varre de forma oportunista em cada `getAvailability` e `holdSlot`, o que garante que um intervalo vencido está livre para o próximo que pergunte, mas a cadência garantida é de um agendador — **KAM-071**, que este repositório ainda não tem.
+- **Confirmação** idempotente: o `UPDATE … WHERE hold_id = $1 AND estado = 'hold' AND hold_expires_at > now()` é a barreira. A primeira de N confirmações concorrentes altera a linha e as outras não encontram nada para alterar; o `hold_expires_at > now()` é o `HOLD_EXPIRED` **na base**, pelo que não depende de o varrimento ter corrido.
+- **Remarcação atómica**: cancelar e marcar na mesma transacção. Uma falha na segunda metade desfaz a primeira pelo `ROLLBACK` — não há passo de compensação.
+- **Limites**: o entitlement `marcacoes_mes` é verificado no `holdSlot`, pela `platform.ten_consumir` (KAM-009), com chave de idempotência `servicos:hold:<contacto>:<slot>` — dois toques no mesmo botão gastam **uma** marcação.
+- **Sinal/depósito** é opcional e usa o PAY; a confirmação por `payment.confirmed`/`payment.manual_confirmed` é consumida em **KAM-038**. O lembrete `booking.reminder_due` é **KAM-048**.
+
+#### RLS e privilégios
+
+As quatro tabelas têm `tenant_id`, `ENABLE` + **`FORCE`** e a política `tenant_iso` do §5.5, com `USING` e `WITH CHECK` iguais. O X-05 do *gate* 6 descobre as tabelas pelo catálogo e cobre o esquema sem ninguém o declarar.
+
+| Papel | `services`, `resources`, `availability_rules` | `bookings` |
+|---|---|---|
+| `kamba_app` | `SELECT` | `SELECT`, `INSERT`, e `UPDATE` **por coluna** (`estado`, `hold_expires_at`, `version`) |
+| `kamba_batch` | `SELECT`, `INSERT`, `UPDATE`, `DELETE` | o mesmo |
+| `kamba_resolver`, `kamba_identity`, `kamba_audit`, `kamba_agr`, `PUBLIC` | nada, nem `USAGE` no esquema | o mesmo |
+
+O catálogo é **só de leitura** para a aplicação: quem cria a agenda de uma PME é a retaguarda (KAM-091), pela mesma razão que a revisão `0007` tirou o `INSERT` em `entitlements` ao `kamba_app` — com `WITH CHECK (tenant_id = app.tenant_id)`, um tenant que pudesse inserir recursos abria intervalos que o dono nunca disponibilizou. E o `UPDATE` de `bookings` é por coluna porque o `inicio_at`/`fim_at` **não** pode estar lá: um `UPDATE` do intervalo movia a linha de um intervalo para outro sem a via que confronta a restrição de exclusão do novo.
+
+---
+
 ## 6. Encomendas e reservas
 
 ### 6.1 Máquina de estados (canónica: documento 00 §6.1)
@@ -849,6 +946,11 @@ Envelope único versionado do documento 11 §3 (`id`, `tipo`, `versao`, `tenant_
 | `order.refund_requested` | COM | HND/ops, PAY (caso manual) | `order_id`, `motivo` | P |
 | `review.requested` / `review.created` | Reputação | AGR, IDX (C), DAT | `order_id`, `nota`, `peso_ranking` | P (ranking: C) |
 | `order.reconciliation_issue` | COM | OBS, ops | `order_id`, `tipo` | P |
+| `booking.created` | COM (`servicos`, ao confirmar um hold) | AGR (confirma ao cliente), *scheduler* de lembretes (KAM-048), DAT | `booking_id`, `contact_id`, `service_id`, `resource_id`, `inicio_at`, `fim_at` | P |
+| `booking.cancelled` | COM (`servicos`: cancelamento do cliente, ou `expirar_holds`) | AGR, DAT | `booking_id`, `motivo` (`hold_expirado`, …) | P |
+| `booking.reminder_due` | *scheduler* (KAM-048) | AGR (mensagem livre ou *template utility*) | `booking_id`, `inicio_at` | P (KAM-048) |
+
+**Os três de marcação entram com o KAM-047**, e o `06` §5 — que é quem dá produtor, consumidores, agregado, classe de PII e fase de cada tipo — **não os lista**: a falta fica em `../dividas-documentais.md`. O agregado dos três é `booking`, como os contratos v1 publicados pelo KAM-007 já fixam (`const: "booking"`). A classe de PII é *proposta*: **P1** para o `booking.created`, pela mesma propriedade que põe o `order.created` em P1 naquela tabela — o payload liga o evento a um contacto identificável na plataforma —, e **P0** para os outros dois, que levam só o identificador da marcação. Nenhum leva telefone, nome ou morada, e o `evt_emitir` recusa um payload com padrão de telefone.
 
 Convenção: nomes `dominio.acao` em minúsculas; versões `v1`; campos novos só aditivos; versões desconhecidas **falham de forma visível** (bloqueio com alerta, `06` §6.6), nunca são ignoradas em silêncio.
 
@@ -953,3 +1055,4 @@ Convenção: nomes `dominio.acao` em minúsculas; versões `v1`; campos novos s�
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §5.1–§5.2, D-08 (`restrito`); §5.3 e FK, D-01 (`contacts(contact_id)` + `contact_endpoints`); §12, D-05 (dois eventos de pagamento), D-07 (`tenant.approved`) e D-12 (versões desconhecidas falham de forma visível, ADR-009). | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | **Emenda KAM-139** (variantes vivas do dicionário): adopção de `expira_at` em §1.4, §3.3, §4.3, §5.4, §6.4, §6.5 e §13 (8 ocorrências) e de `preco_tipo` em §5.4, §7.1, §8.3 e §12 (8 ocorrências), dicionário §3.3 e emenda 1.12; em §5.5, o papel passa a `kamba_batch` (dicionário §3.2) e a política de RLS a `tenant_iso` (emenda 1.5). A citação histórica do DDL do documento 11 em §5.1 fica como está. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | KAM-140: §5.2 e §5.3 — **dois DDL inteiros saem** e remetem para `01` §7.1 e §6.2. O de `tenant_channels` era a forma morta completa (omitia dez colunas, duas com contrato escrito noutro sítio); o de `contacts`/`contact_endpoints` divergia da revisão `0003` em quatro pontos, um deles o `consentimento jsonb` que a própria revisão recusou por escrito. §2 (ADR-013), §6.1, §6.2, §6.6 e §10.1 — **um evento de pagamento por caminho**, como o `00` §6.2 manda: o `payment.confirmed` fecha `aguarda_pagamento → paga`, o `payment.manual_confirmed` fecha `pendente_confirmacao → paga`, que estava sem evento nenhum. §5.5 e §11 — o `contact_deks` entra nas tabelas sob RLS, e a ordem de FK passa a ser a que as revisões `0001` e `0003` seguem, que não era a escrita. | Equipa KAMBÁ |
+| 1.4 | Outubro 2026 | **KAM-047: o módulo `servicos` deixa de ser lacuna.** §5.7 nasce com o DDL das quatro tabelas do esquema próprio, a restrição de exclusão GiST que torna a sobreposição impossível por construção, a tranca por recurso que a acompanha, o ciclo do hold, a RLS `FORCE` e a matriz de privilégios — fechando a lacuna que o `02` §8.3 registava («onde vive a agenda»). §12 ganha as **três** linhas de marcação (`booking.created`, `booking.cancelled`, `booking.reminder_due`), que o §3.5 do dicionário já tinha entre os trinta e oito tipos do Piloto e que este mapa não tinha. **Três números vêm de execução e não de leitura:** `btree_gist` 1.8 existe na imagem fixada e instala-se sem superutilizador (é `trusted`); 1.000 tentativas concorrentes no mesmo intervalo dão **uma** marcação em ~57 s com zero *deadlocks*, e **486** sem a tranca; e um `CHECK` com subconsulta para validar o fuso é recusado pelo motor (`0A000`), pelo que a validação é um *trigger*. **Duas divergências com o DDL *proposta* do bloco KAM-047, resolvidas a favor do dicionário** (emenda 1.45): `booking_id`/`inicio_at`/`fim_at` contra `id`/`inicio`/`fim`, e `preco_tipo` contra a forma que a emenda 1.12 do dicionário já substituía. **O que fica por decidir:** a cadência do varrimento, e com ela o `p99 ≤ 60 s` do critério 3 (KAM-071); a classe de PII dos três eventos, que o `06` §5 não dá; e a ratificação, que é do fundador. | Equipa KAMBÁ |

@@ -231,6 +231,21 @@ class TestCatalogoReal(ComBase):
                 # e apaga-se com `DELETE`.
                 ("platform", "tool_idempotency", "tenant_id"),
                 ("platform", "usage_ledger", "tenant_id"),
+                # KAM-047: as quatro da agenda, no esquema `servicos`
+                # (revisao `0025`). Vem **todas depois** das de `platform`,
+                # porque o `ORDER BY 1, 2` da descoberta ordena primeiro por
+                # esquema e «platform» < «servicos» — e dentro do esquema por
+                # nome. Sao as primeiras desta lista a entrar em bloco: ate
+                # aqui cada ticket trazia uma ou duas.
+                #
+                # **As quatro tem receita de sementes**, ao contrario da
+                # `dat.llm_call_log` e da `tool_audit`: nenhuma e *append-only*,
+                # e todas se apagam com `DELETE`. A ordem de apagar e a inversa
+                # das chaves estrangeiras, e esta em `sementes.ORDEM`.
+                ("servicos", "availability_rules", "tenant_id"),
+                ("servicos", "bookings", "tenant_id"),
+                ("servicos", "resources", "tenant_id"),
+                ("servicos", "services", "tenant_id"),
             ],
         )
 
@@ -308,6 +323,13 @@ class TestCatalogoReal(ComBase):
                 ("audit_log", "tenant_iso", "ALL", "{public}"),
                 # KAM-017: o estado de coexistencia, antes da de onboarding
                 # («channel_c» < «channel_o»).
+                # KAM-047: as quatro do esquema `servicos`. **O `ORDER BY 1, 2`
+                # do `pg_policies` e por nome de tabela e nao por esquema**,
+                # pelo que elas entram misturadas com as de `platform` — ao
+                # contrario da lista da descoberta, aqui em cima, que ordena
+                # por esquema e as poe todas no fim.
+                ("availability_rules", "tenant_iso", "ALL", "{public}"),
+                ("bookings", "tenant_iso", "ALL", "{public}"),
                 ("channel_coexistence", "tenant_iso", "ALL", "{public}"),
                 # KAM-016: a tentativa de onboarding, antes da de qualidade
                 # («channel_o» < «channel_q»).
@@ -355,6 +377,15 @@ class TestCatalogoReal(ComBase):
                 # `outbound_messages` («ou» < «ow»).
                 ("owner_contacts", "tenant_iso", "ALL", "{public}"),
                 ("owner_notices", "tenant_iso", "ALL", "{public}"),
+                # KAM-047: as duas ultimas do `servicos`, e vem **antes** das
+                # duas de `tenant_channels` — a ordem e por nome de tabela, e
+                # `resources` < `services` < `tenant_channels`. A `tenant_channels`
+                # tem **duas** politicas (a `resolver_leitura` ordena antes da
+                # `tenant_iso` pelo nome), e a primeira versao desta lista pos
+                # estas duas entre elas: o `ORDER BY 1, 2` e por tabela **e**
+                # por politica, e so a suite contra a base o mostrou.
+                ("resources", "tenant_iso", "ALL", "{public}"),
+                ("services", "tenant_iso", "ALL", "{public}"),
                 ("tenant_channels", "resolver_leitura", "SELECT", "{kamba_resolver}"),
                 ("tenant_channels", "tenant_iso", "ALL", "{public}"),
                 # KAM-009. A ordem e a da coleccao `C` e nao a da base: o
