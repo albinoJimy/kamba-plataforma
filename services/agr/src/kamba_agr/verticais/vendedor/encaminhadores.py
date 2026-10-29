@@ -19,6 +19,7 @@ Cada um tem um ramo de omissao, e nenhum deles e «segue em frente»:
 
 * um `veredicto` de guarda que nao esteja nos seis vai a `safe_reply`;
 * uma `intent` que nao esteja nas nove vai a `safe_reply` (chave `other`);
+* uma `intent` que o modo deterministico nao serve vai ao menu, nunca em frente;
 * um `stt` ilegivel vai a `ask_repeat`;
 * um `validate` sem veredicto conta como falha.
 
@@ -33,6 +34,7 @@ from typing import Any, Final
 from ...concierge.maquina import DECISOES_QUE_ENVIAM
 from ...tls.erros import UPSTREAM_DOWN, UPSTREAM_TIMEOUT
 from .arestas import INTENCOES, STALE_CONFIRMATION, VEREDICTOS_DE_GUARDA
+from .degradado import intencoes
 
 #: Os codigos que mandam o turno ao *handoff* pelas arestas 22 e 26.
 CODIGOS_DE_UPSTREAM: Final = (UPSTREAM_TIMEOUT, UPSTREAM_DOWN)
@@ -119,10 +121,30 @@ def r_guard(estado: dict[str, Any]) -> str:
 
 
 def r_intent(estado: dict[str, Any]) -> str:
-    """Linhas 11 a 17, pelas nove intencoes."""
+    """Linhas 11 a 17 pelas nove intencoes, e a 44 em modo degradado (KAM-037).
+
+    **A degradacao decide-se antes da intencao, e nao em vez dela.** Um turno
+    degradado continua a ter intencao — e por ela que se sabe se ha no de
+    trabalho — e o que muda e o destino de quem **nao** tem: em modo normal uma
+    intencao de catalogo vai ao `retrieve`, e em modo degradado vai ao
+    `degraded_menu`.
+
+    As cinco intencoes que o modo serve (`intencoes.SERVIDAS`) tomam as linhas
+    13 a 16 do §7.3 como qualquer outro turno — o `confirm_gate`, o
+    `order_status`, o `tools_info` e o `handoff_prepare` nao sabem que estao a
+    correr degradados, e nao precisam de saber. E o que «reutiliza o grafo
+    normal» quer dizer na pratica.
+
+    **A omissao continua a ser `other` e nao `menu`**, e a assimetria tem razao:
+    um `intent` fora das nove e um estado que ninguem escreveu de proposito, e o
+    `safe_reply` e o unico caminho que nao arrisca nada. Degradado ou nao, um
+    valor desconhecido nao escolhe o caminho novo.
+    """
     intencao = estado.get("intent")
     if intencao not in INTENCOES:
         return "other"
+    if estado.get("degradado") and not intencoes.serve(intencao):
+        return "menu"
     return CHAVE_DA_INTENCAO[intencao]
 
 

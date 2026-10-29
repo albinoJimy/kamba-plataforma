@@ -135,20 +135,45 @@ class TestContagem(unittest.TestCase):
 
 
 class TestDegradedTurns(unittest.TestCase):
-    def test_nao_existe_e_e_deliberado(self) -> None:
-        # «Uma metrica declarada e sempre a zero e pior do que uma metrica
-        # ausente» — a licao do `echo_latency_ms` do KAM-018. O modo
-        # deterministico e o KAM-037; a metrica nasce com ele.
+    """A metrica que o KAM-025 deixou de fora **nasceu com o KAM-037**.
+
+    Este ensaio media a ausencia, e a razao era boa: «uma metrica declarada e
+    sempre a zero e pior do que uma metrica ausente» — a licao do
+    `echo_latency_ms` do KAM-018. Deixou de valer no instante em que passou a
+    existir caminho por onde um turno pode ficar degradado, e o que a ausencia
+    media agora mede-se pelo outro lado: a metrica existe, leva o **motivo** por
+    etiqueta, e **nao** leva o *tenant*.
+    """
+
+    def test_existe_desde_o_kam037_e_leva_o_motivo(self) -> None:
         import kamba_agr.metricas as modulo
+        from kamba_agr.degradacao import MOTIVOS
 
         nomes = [
             getattr(modulo, nome)
             for nome in dir(modulo)
             if nome.startswith("METRICA_")
         ]
-        self.assertNotIn("agr_degraded_turns_total", nomes)
-        # O que existe, e conta de verdade, e o sinal que o KAM-037 vai consumir.
+        self.assertIn("agr_degraded_turns_total", nomes)
+        # O sinal que o KAM-025 deixou no lugar continua a existir: e o gatilho
+        # de contrapressao do criterio 8, e nao foi substituido.
         self.assertIn(METRICA_CONTRAPRESSAO, nomes)
+        metricas = modulo.MetricasDoAgr()
+        for motivo in MOTIVOS:
+            metricas.contar(modulo.METRICA_DEGRADADOS, motivo)
+        exposicao = metricas.exposicao()
+        for motivo in MOTIVOS:
+            self.assertIn(f'motivo="{motivo}"', exposicao)
+
+    def test_o_tenant_nao_e_etiqueta_desta_metrica(self) -> None:
+        """A gramatica recusa-o pela **forma**, e nao por lista de proibidos."""
+        import kamba_agr.metricas as modulo
+
+        metricas = modulo.MetricasDoAgr()
+        with self.assertRaises(modulo.EtiquetaInvalida):
+            metricas.contar(
+                modulo.METRICA_DEGRADADOS, "11111111-1111-4111-8111-111111111111"
+            )
 
 
 if __name__ == "__main__":

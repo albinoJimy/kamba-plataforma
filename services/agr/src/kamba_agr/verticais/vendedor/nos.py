@@ -51,6 +51,8 @@ from ...estado import reiniciar, versao_lida
 from ...concierge.maquina import DECISOES_QUE_ENVIAM, MOTIVOS
 from ...concierge.maquina import draft_id as derivar_draft_id
 from ...concierge.politica import SemPolitica
+from ...degradacao import MOTIVO_BREAKER, SemDegradacao
+from ...llm.erros import ErroDeLlm
 from ...concierge.portas import ConciergeSemServicoError
 from ...handoff.portas import HandoffIndisponivel
 from ...tls.contexto import PREFIXO_DE_CONFIRMACAO, Confirmation, ToolContext
@@ -393,6 +395,15 @@ class Dependencias:
     #: como nao publicado — o que **nao** deixa sair mensagem nenhuma, porque a
     #: decisao continua a faltar.
     rascunho: Any | None = None
+    #: KAM-037. O `DetectorDeDegradacao`. Por omissao a `SemDegradacao`, que
+    #: responde «nao degrada» sempre: sem detector ligado nao ha sinal nenhum e o
+    #: grafo comporta-se como o KAM-031 e o KAM-114 o entregaram.
+    #:
+    #: **Nao e `None` por omissao**, pela razao do `concierge`: um
+    #: `if deps.degradacao is not None` espalhado pelos nos era a porta por onde
+    #: um `None` tirava o turno do modo degradado em silencio — e aqui o lado
+    #: errado de errar e **nao** degradar, porque e um cliente sem resposta.
+    degradacao: Any = field(default_factory=SemDegradacao)
 
     def __post_init__(self) -> None:
         if self.relogio is None:
@@ -868,9 +879,39 @@ def ingest(deps: Dependencias):
             delta["admissao"] = recusa
             return delta
         delta.update(_recorte_da_janela(estado))
+        delta.update(_degradacao_antes_do_turno(deps, estado))
         return delta
 
     return no
+
+
+def _degradacao_antes_do_turno(
+    deps: Dependencias, estado: Mapping[str, Any]
+) -> dict[str, Any]:
+    """O que o detector sabe **antes** de o turno correr (KAM-037).
+
+    Duas coisas acontecem aqui, e a ordem nao e indiferente:
+
+    1. pergunta-se o motivo que se sabe de antemao — o disjuntor do LLM aberto,
+       ou a contrapressao do criterio 8 — e, se houver, o turno nasce degradado;
+    2. **conta-se o turno**, degradado ou nao. O turno normal e o denominador do
+       alerta do criterio 6, e o `ingest` e o unico no por onde **todos** os
+       turnos que correm passam.
+
+    **Depois da recusa da linha 4 e nao antes**, e e deliberado: um turno
+    recusado por ritmo ou por contacto bloqueado nao corre, nao recebe resposta e
+    nao e uma oportunidade de degradar — contá-lo no denominador diluia a
+    proporcao com turnos que nenhum modo podia servir. O `return` da recusa, no
+    `ingest`, sai antes de chegar aqui.
+
+    **Nao apanha excepcoes.** O detector le memoria deste processo e nao abre
+    ligacao nenhuma; se levantar, e defeito nosso e o turno deve falhar — a mesma
+    direccao do `versao_lida` no topo do `ingest`.
+    """
+    tenant_id = estado["tenant_id"]
+    motivo = deps.degradacao.motivo_antes_do_turno(tenant_id)
+    deps.degradacao.registar_turno(tenant_id, str(estado.get("turn_id") or ""), motivo)
+    return {"degradado": {"motivo": motivo}} if motivo else {}
 
 
 def stt(deps: Dependencias):
@@ -931,18 +972,91 @@ def classify(deps: Dependencias):
             return {"intent": "outro", "cart": None, "stage": "browsing"}
 
         texto = texto_do_turno
+        if estado.get("degradado"):
+            # KAM-037. **O turno ja nasceu degradado** (disjuntor aberto,
+            # contrapressao): nao se vai ao modelo nem para tentar. A intencao
+            # sai dos identificadores de botao/lista e das palavras-chave, que e
+            # o criterio 4 — e o botao decide antes do texto, pela razao escrita
+            # no `intencao_sem_llm`.
+            return _com_motivo_de_humano({"intent": _intencao_degradada(botao, texto)})
+
         intencao = intencao_por_regras(texto)
         if intencao is None and deps.classificador is not None:
-            escolhida = deps.classificador(texto)
+            if not deps.degradacao.pode_chamar_o_llm():
+                # O disjuntor fechou a porta entre o `ingest` e aqui — ou
+                # abriu-a outro turno deste processo. **Nao se chama**, e
+                # degrada-se: a pergunta e `pode_chamar_o_llm` e nao «esta
+                # aberto» porque e ela que consome a tentativa de meio-aberto.
+                return _degradar(deps, estado, MOTIVO_BREAKER, botao, texto)
+            try:
+                escolhida = deps.classificador(texto)
+            except ErroDeLlm as erro:
+                # **A degradacao a meio do turno, e e o criterio 1.** O turno
+                # **nao** falha e **nao** volta a fila: segue pelo caminho
+                # deterministico e responde no mesmo turno.
+                #
+                # Apanha-se o `ErroDeLlm` e **mais nada**: um erro do
+                # checkpointer ou da base sobe, porque nao e degradacao (§14,
+                # linha do checkpointer indisponivel). Ver o `degradacao.py`.
+                return _degradar(
+                    deps, estado, deps.degradacao.registar_falha(erro), botao, texto
+                )
+            deps.degradacao.registar_sucesso()
             # Um valor fora das nove **nao** entra no estado: o `r_intent`
             # mandava-o a `other` de qualquer maneira, e escrever no estado uma
             # intencao que o dicionario nao tem punha-a a viajar no checkpoint.
             intencao = escolhida if escolhida in INTENCOES else None
-        if intencao == "humano":
-            return {"intent": "humano", "handoff_motivo": MOTIVO_PEDIDO}
-        return {"intent": intencao or "outro"}
+        return _com_motivo_de_humano({"intent": intencao or "outro"})
 
     return no
+
+
+def _intencao_degradada(botao: str, texto: str) -> str:
+    """A intencao sem LLM. **O `import` e no corpo e nao no topo.**
+
+    E o idioma da casa — o `_valores_derivados` do `metricas.py`, o
+    `pediu_cancelamento` deste modulo — e aqui e necessidade e nao estilo: o
+    `degradado/intencoes.py` importa **este** ficheiro, pelo que um `import` no
+    topo fechava o ciclo. Ver a nota do `degradado/intencoes.py`.
+    """
+    from .degradado.intencoes import intencao_sem_llm
+
+    return intencao_sem_llm(botao, texto)
+
+
+def _com_motivo_de_humano(delta: dict[str, Any]) -> dict[str, Any]:
+    """Acrescenta o `handoff_motivo` quando a intencao e `humano`.
+
+    **Existe porque havia tres saidas do `classify` a repetir a mesma regra**, e
+    a quarta — a do modo degradado — ia ser a primeira a esquece-la: um cliente
+    que toque `menu:humano` com o LLM em baixo ia a *handoff* **sem motivo**, e o
+    `_resumo` que o colega recebe nomeia o motivo. Uma regra em quatro sitios e
+    uma regra que vai divergir.
+    """
+    if delta.get("intent") == "humano":
+        return dict(delta, handoff_motivo=MOTIVO_PEDIDO)
+    return delta
+
+
+def _degradar(
+    deps: Dependencias,
+    estado: Mapping[str, Any],
+    motivo: str,
+    botao: str,
+    texto: str,
+) -> dict[str, Any]:
+    """O delta de um turno que degradou **a meio**: o motivo e a intencao.
+
+    Promove a entrada deste turno na janela do detector de normal a degradada — o
+    `ingest` ja o contou como normal, e o `turn_id` e o que impede os dois
+    registos de valerem como dois turnos (ver o `registar_turno`).
+    """
+    deps.degradacao.registar_turno(
+        estado["tenant_id"], str(estado.get("turn_id") or ""), motivo
+    )
+    return _com_motivo_de_humano(
+        {"degradado": {"motivo": motivo}, "intent": _intencao_degradada(botao, texto)}
+    )
 
 
 def retrieve(deps: Dependencias):

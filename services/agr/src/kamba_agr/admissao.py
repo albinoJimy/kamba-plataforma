@@ -380,6 +380,21 @@ class Admissao:
     def a_espera(self) -> int:
         return self._a_espera
 
+    @property
+    def tectos(self) -> Tectos:
+        """Os cinco numeros com que esta admissao arrancou.
+
+        **Publico porque o criterio 8 do KAM-037 precisa de dois deles.** A
+        contrapressao que move um *tenant* para o modo deterministico e «no
+        tecto de concorrencia **e** com a fila acima do limiar», e os dois
+        limiares vivem aqui — le-los do ambiente outra vez no detector dava-lhe
+        um `Tectos` que podia nao ser **este**, porque quem constroi a
+        `Admissao` pode passar-lhe um proprio (e a bateria passa).
+
+        Devolve o `dataclass` `frozen`, pelo que quem le nao pode mexer.
+        """
+        return self._tectos
+
     def em_curso(self, tenant_id: str) -> int:
         return self._em_curso.get(tenant_id, 0)
 

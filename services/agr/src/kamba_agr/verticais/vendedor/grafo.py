@@ -30,14 +30,35 @@ LangGraph, que levanta no `interrupt`.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Final
 
 from langgraph.graph import StateGraph
 
 from ...estado import ConversaState
 from . import arestas as tabela
+from .degradado.nos import NOS_DEGRADADOS
 from .encaminhadores import POR_NO
 from .nos import NOS_DO_GRAFO, Dependencias
+
+#: Os nos do grafo: os do §7.4 e do concierge (`nos.py`) mais os do sub-grafo
+#: deterministico (`degradado/nos.py`). **A juncao faz-se aqui e nao no
+#: `NOS_DO_GRAFO`**, e e o que mantem o pacote sem ciclo: o `nos.py` nao importa
+#: o `degradado/`, porque o `degradado/` importa o `nos.py` (ver a nota do
+#: `degradado/intencoes.py`).
+#:
+#: **Uma colisao de nome levanta aqui e nao sobrescreve em silencio.** Com um
+#: `{**a, **b}`, um no do sub-grafo com o nome de um do §7.4 substituia-o e o
+#: grafo compilava: o `_conferir_coerencia` compara **conjuntos** de nomes, e os
+#: dois conjuntos continuavam a bater. O efeito seria o `order_status` do modo
+#: degradado a correr em todos os turnos.
+NOS_COMPLETOS: Final = {}
+for _tabela in (NOS_DO_GRAFO, NOS_DEGRADADOS):
+    for _nome, _fabrica in _tabela.items():
+        if _nome in NOS_COMPLETOS:
+            raise RuntimeError(
+                f"o no `{_nome}` esta declarado em duas tabelas de nos"
+            )
+        NOS_COMPLETOS[_nome] = _fabrica
 
 
 class GrafoIncoerenteError(RuntimeError):
@@ -54,7 +75,7 @@ def build_graph(deps: Dependencias) -> Any:
     _conferir_coerencia()
 
     g = StateGraph(ConversaState)
-    for nome, fabrica in NOS_DO_GRAFO.items():
+    for nome, fabrica in NOS_COMPLETOS.items():
         g.add_node(nome, fabrica(deps))
 
     for de, para in tabela.directas():
@@ -75,7 +96,7 @@ def build_graph(deps: Dependencias) -> Any:
 def _conferir_coerencia() -> None:
     """As tres listas — nos, tabela e encaminhadores — tem de bater."""
     declarados = set(tabela.NOS)
-    com_funcao = set(NOS_DO_GRAFO)
+    com_funcao = set(NOS_COMPLETOS)
     if declarados != com_funcao:
         raise GrafoIncoerenteError(
             f"nos sem funcao: {sorted(declarados - com_funcao)}; "

@@ -29,24 +29,29 @@ e os motivos sao deste codigo e nao crescem com o registo nem com o trafego. A
 gramatica fica de qualquer forma, porque e ela que apanha um identificador que
 alguem passe por engano.
 
-## O `agr_degraded_turns_total` **nao** esta aqui, e nao e esquecimento
+## O `agr_degraded_turns_total` **nasceu com o KAM-037**, e nao antes
 
-O DoD deste ticket pede «metricas de fila, latencia de turno e
-`degraded_turns`». As duas primeiras estao; a terceira nao, e a razao e a que o
-`modos/metricas.ts` do KAM-018 escreveu para o `echo_latency_ms`: **uma metrica
-declarada e sempre a zero e pior do que uma metrica ausente** — um painel que a
-mostre a zero diz «nao houve turnos degradados» quando o que se passa e que
-ninguem os mede.
+O KAM-025 deixou-o de fora por escrito, e a razao era a que o `modos/metricas.ts`
+do KAM-018 escreveu para o `echo_latency_ms`: **uma metrica declarada e sempre a
+zero e pior do que uma metrica ausente** — um painel que a mostre a zero diz
+«nao houve turnos degradados» quando o que se passa e que ninguem os mede. Nao
+havia modo deterministico, pelo que nao havia caminho por onde um turno pudesse
+ficar degradado.
 
-O `degraded_turns` do `docs/tecnica/02` §14 conta turnos que correram em **modo
-deterministico** por o LLM estar indisponivel, lento ou sem orcamento. O modo
-deterministico e o KAM-037 e nao existe; nao ha, neste ticket, caminho nenhum
-por onde um turno possa ficar degradado. Nasce com o ticket que o consegue
-medir, e fica declarada no dicionario §3.24 como pertencendo ao AGR.
+**O KAM-037 traz o caminho, e por isso traz a metrica.** O `degraded_turns` do
+`docs/tecnica/02` §14 conta turnos que correram em modo deterministico, com o
+**motivo** por etiqueta: `timeout`, `http_429`, `budget`, `breaker`,
+`backpressure` (dicionario §3.35). Os valores derivam-se do `degradacao.py` e
+nao se escrevem aqui, pela licao das listas literais do KAM-027.
 
-O que **existe** aqui, e e o que o DoD quer ver, e o `agr_backpressure_total`: as
-vezes que a fila de admissao passou o limiar que, com o KAM-037 feito, passa a
-ser o gatilho do modo deterministico. Conta de verdade, e a *suite* mede-o.
+**O `tenant` do criterio 6 nao entra, e nao e esquecimento.** «`degraded_turns` e
+o motivo ... sao metricas por tenant» colide com a regra `OBS-I`, que este
+modulo impoe pela **gramatica**: um UUID tem hifenes, nao casa `ETIQUETA`, e a
+chamada levanta. E a mesma tensao que o KAM-030 resolveu para o §13.4, o KAM-032
+para o criterio 8 e a divida 54 para o `meta_cost_usd_total{tenant}`, com o
+mesmo desfecho: a desagregacao por *tenant* faz-se onde tem significado — aqui,
+a janela deslizante de quinze minutos do `DetectorDeDegradacao`, que e de onde o
+alerta do criterio 6 se le — e a caixa do criterio fica **parcial**.
 """
 
 from __future__ import annotations
@@ -284,6 +289,23 @@ METRICA_DRAFT_INDISPONIVEL: Final = "agr_draft_indisponivel_total"
 #: espera agora».
 METRICA_DRAFT_PENDENTES: Final = "agr_draft_pendentes"
 
+#: As duas do modo deterministico (KAM-037, dicionario §3.35).
+#:
+#: A etiqueta e o **motivo** — lista fechada de cinco, derivada do
+#: `degradacao.py` e nao escrita aqui. O `tenant` nao entra: ver a nota do
+#: modulo.
+METRICA_DEGRADADOS: Final = "agr_degraded_turns_total"
+#: Vezes que o disjuntor do LLM **abriu**. **Sem etiqueta**, pela razao do
+#: `agr_tool_tenant_mismatch_total` e do `agr_draft_indisponivel_total`: o que um
+#: painel precisa de saber e que o modelo ficou inalcancavel, e durante quanto
+#: tempo le-se no `cooldown_time` do proxy.
+#:
+#: **Nao e o `agr_tls_disjuntor_aberto_total`**, que e por backend de *tool* e
+#: tem o `BACKENDS` do §6.5 por etiqueta — o LLM nao e uma *tool* e nao esta
+#: nessa lista. Duas metricas e nao uma etiqueta nova: por um valor fora da
+#: lista fechada, o `contar` levanta.
+METRICA_DEGRADACAO_ALERTA: Final = "agr_degraded_breaker_aberto_total"
+
 #: As quatro da subscricao de eventos (KAM-038, dicionario §3.33).
 #:
 #: **Nenhuma leva `tenant_id`, `contact_id`, `conversation_id` nem `wamid`**, e
@@ -418,6 +440,14 @@ def _valores_derivados(metrica: str) -> tuple[str, ...]:
         from .handoff.autenticacao import MOTIVOS_DE_RECUSA
 
         return tuple(sorted(MOTIVOS_DE_RECUSA))
+    if metrica == METRICA_DEGRADADOS:
+        # KAM-037. **Derivada por necessidade e nao por estilo**, como as tres
+        # do *handoff*: o `degradacao.py` importa **este** modulo, pelo que uma
+        # lista literal aqui obrigava a um segundo lugar onde os cinco motivos
+        # vivem, e um `import` no corpo fechava o ciclo.
+        from .degradacao import MOTIVOS
+
+        return tuple(sorted(MOTIVOS))
     # As duas do concierge (KAM-114), e sao derivadas **por necessidade e nao
     # por estilo**, como as tres do *handoff*. O ciclo e este, e mediu-se em vez
     # de se supor — nao passa pelo `concierge/__init__.py`, que nao reexporta
@@ -488,6 +518,7 @@ _DERIVADAS: Final = (
     METRICA_EVT_NOTIFICACOES,
     METRICA_DRAFT_DECISAO,
     METRICA_DRAFT_ESTADO,
+    METRICA_DEGRADADOS,
 )
 
 #: As **medidas** com etiqueta (KAM-038). Fora do `_DERIVADAS` de proposito:
@@ -514,6 +545,7 @@ _CONTADORES_SEM_ETIQUETA: Final = (
     METRICA_LLM_CONTAGEM_INCOERENTE,
     METRICA_HANDOFF_DEGRADADO,
     METRICA_DRAFT_INDISPONIVEL,
+    METRICA_DEGRADACAO_ALERTA,
 )
 _MEDIDAS: Final = (
     METRICA_DURACAO,
@@ -652,6 +684,14 @@ _AJUDA: Final = {
         "gauge",
         "Rascunhos pendentes ha mais de 10 min na ultima varredura. Alerta.",
     ),
+    METRICA_DEGRADADOS: (
+        "counter",
+        "Turnos em modo deterministico, por motivo da degradacao.",
+    ),
+    METRICA_DEGRADACAO_ALERTA: (
+        "counter",
+        "Aberturas do disjuntor do LLM: o modelo ficou inalcancavel. Alerta.",
+    ),
 }
 
 
@@ -781,6 +821,10 @@ _COM_MOTIVO: Final = (
     # O `agr_evt_dlq_total` conta **porque** um evento deixou de ser tentado, e
     # `tentativas_esgotadas` nao e um desfecho: e a razao de um.
     METRICA_EVT_DLQ,
+    # KAM-037. O eixo do `agr_degraded_turns_total` e o **motivo** por que o
+    # turno degradou, e o criterio 6 chama-lhe isso por extenso («`degraded_turns`
+    # e o motivo»). `breaker` nao e um desfecho: e a razao de um.
+    METRICA_DEGRADADOS,
 )
 
 #: O nome do eixo de cada metrica com etiqueta, quando nao e `outcome` nem

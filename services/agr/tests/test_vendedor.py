@@ -200,19 +200,27 @@ class TestContratoDoGrafo(unittest.TestCase):
         self.assertEqual(sorted(tabela.pares() - do_compilado), [], "arestas em falta")
         self.assertEqual(sorted(do_compilado - tabela.pares()), [], "arestas a mais")
 
-    def test_os_nos_sao_vinte_e_tres_e_os_sentinelas_nao_contam(self) -> None:
-        """**Vinte e tres desde o KAM-114**, e a conta diz de onde vem cada um.
+    def test_os_nos_sao_vinte_e_quatro_e_os_sentinelas_nao_contam(self) -> None:
+        """**Vinte e quatro desde o KAM-037**, e a conta diz de onde vem cada um.
 
         O §7.4 fixa vinte e um e continua a fixa-los; os dois do concierge
-        (`draft_prepare`, `draft_wait`) vem do bloco do KAM-114, que os nomeia
-        nos Detalhes Tecnicos. Afirmam-se **em separado** para que acrescentar um
-        no ao §7.4 sem o documentar continue a falhar aqui.
+        (`draft_prepare`, `draft_wait`) vem do bloco do KAM-114 e o do modo
+        deterministico (`degraded_menu`) do bloco do KAM-037, que os nomeiam nos
+        Detalhes Tecnicos. Afirmam-se **em separado** para que acrescentar um no
+        ao §7.4 sem o documentar continue a falhar aqui.
         """
         nos = tabela.nos_do_compilado(self.grafo)
-        self.assertEqual(len(nos), 23)
+        self.assertEqual(len(nos), 24)
         do_concierge = ("draft_prepare", "draft_wait")
+        do_degradado = ("degraded_menu",)
         self.assertEqual(sorted(n for n in tabela.NOS if n.startswith("draft_")), sorted(do_concierge))
-        self.assertEqual(len([n for n in tabela.NOS if n not in do_concierge]), 21)
+        self.assertEqual(
+            sorted(n for n in tabela.NOS if n.startswith("degraded_")),
+            sorted(do_degradado),
+        )
+        self.assertEqual(
+            len([n for n in tabela.NOS if n not in do_concierge + do_degradado]), 21
+        )
         self.assertEqual(nos, frozenset(tabela.NOS))
         # A mutacao `os sentinelas do LangGraph passam a contar como nos` do
         # KAM-027, medida outra vez aqui porque este grafo e que os tem.
@@ -235,8 +243,13 @@ class TestContratoDoGrafo(unittest.TestCase):
         # estao no §7.3, e somar as duas contagens numa so fazia o
         # `LINHAS_DO_73` mentir sobre um documento que aquele ticket nao abre.
         self.assertEqual(len(tabela.do_concierge()), 4)
-        self.assertEqual(len(tabela.ARESTAS), 46)
-        self.assertEqual(len(tabela.pares()), 46, "ha duas arestas iguais na tabela")
+        # **E as duas do modo deterministico contam-se a parte** (KAM-037), pela
+        # mesma razao. O `do_73` filtra por **lista** de fontes de fora e nao por
+        # negacao de uma, e e isso que impede estas duas de entrarem na contagem
+        # do §7.3 — media-se em `test_degradacao`.
+        self.assertEqual(len(tabela.do_degradado()), 2)
+        self.assertEqual(len(tabela.ARESTAS), 48)
+        self.assertEqual(len(tabela.pares()), 48, "ha duas arestas iguais na tabela")
         multiplas = {
             linha: sorted((a.de, a.para) for a in tabela.ARESTAS if a.linha == linha)
             for linha in (27, 34)
@@ -316,14 +329,32 @@ class TestContratoDoGrafo(unittest.TestCase):
         """O `build_graph` confronta a tabela com as funcoes, e levanta."""
         from kamba_agr.verticais.vendedor import grafo as modulo
 
-        original = dict(modulo.NOS_DO_GRAFO)
+        # **O `NOS_COMPLETOS` e nao o `NOS_DO_GRAFO`**, desde o KAM-037: a
+        # juncao das duas tabelas de nos faz-se no `grafo.py`, e e ela que o
+        # `_conferir_coerencia` le. Tirar um no do `NOS_DO_GRAFO` depois do
+        # *import* deixava o `NOS_COMPLETOS` intacto e o ensaio passava a nao
+        # medir nada.
+        original = dict(modulo.NOS_COMPLETOS)
         try:
-            modulo.NOS_DO_GRAFO.pop("send")
+            modulo.NOS_COMPLETOS.pop("send")
             with self.assertRaises(modulo.GrafoIncoerenteError):
                 montar()
         finally:
-            modulo.NOS_DO_GRAFO.clear()
-            modulo.NOS_DO_GRAFO.update(original)
+            modulo.NOS_COMPLETOS.clear()
+            modulo.NOS_COMPLETOS.update(original)
+
+    def test_um_no_do_sub_grafo_sem_declaracao_reprova_a_construcao(self) -> None:
+        """A mesma barreira pelo outro lado: o no do KAM-037 tambem conta."""
+        from kamba_agr.verticais.vendedor import grafo as modulo
+
+        original = dict(modulo.NOS_COMPLETOS)
+        try:
+            modulo.NOS_COMPLETOS.pop("degraded_menu")
+            with self.assertRaises(modulo.GrafoIncoerenteError):
+                montar()
+        finally:
+            modulo.NOS_COMPLETOS.clear()
+            modulo.NOS_COMPLETOS.update(original)
 
     def test_o_grafo_tem_semver(self) -> None:
         """DoD: «SemVer do grafo atribuido»."""
