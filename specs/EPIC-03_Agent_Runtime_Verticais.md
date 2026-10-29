@@ -2882,8 +2882,13 @@ elemento. Passou a `FONTES_FORA_DO_73`, e
 * **o `shortcut:` do `classify`** que nomeia este ticket como credor («o §7.3 não
   tem nó de cancelamento … Credor: KAM-037, que desenha os menus por botões»)
   fica **por pagar**, e de propósito: pagá-lo é acrescentar um nó de cancelamento
-  ao grafo **normal**, que não é nenhum dos oito critérios deste ticket. O atalho
-  continua com limite escrito e o credor passa a ser quem acrescentar esse nó;
+  ao grafo **normal**, que não é nenhum dos oito critérios deste ticket — os menus
+  que este ticket desenha são do modo **degradado**. O que **não** se deixou ficar
+  foi o ponteiro: o comentário apontava o credor para o KAM-037, que ia fundir sem
+  o pagar, e um credor a apontar para um ticket fechado é um ponteiro morto. O
+  `shortcut:` ficou reescrito no mesmo PR, com o limite mantido e o credor novo —
+  quem acrescentar o nó de cancelamento ao §7.3, porque é esse ticket que muda o
+  documento;
 * **a ligação do detector ao serviço**: o `grafos` do `turno.py` continua a ser o
   `sem_grafos` e o AGR responde 503 — como desde o KAM-025. Quem construir
   `Dependencias` passa o `DetectorDeDegradacao` ao lado da política do concierge,

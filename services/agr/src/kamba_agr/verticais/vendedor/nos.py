@@ -968,7 +968,18 @@ def classify(deps: Dependencias):
             # com texto estatico. O que nao se pode deixar e o carrinho de pe:
             # um `confirm:` que chegasse depois encontrava `awaiting_confirm` e
             # criava a encomenda que o cliente acabou de cancelar. Larga-se o
-            # carrinho. Credor: KAM-037, que desenha os menus por botoes.
+            # carrinho.
+            #
+            # **O credor era o KAM-037 e deixou de poder ser.** Aquele ticket
+            # fundiu e **nao** pagou este atalho, de proposito: os menus que ele
+            # desenha sao do modo **degradado** (`degradado/textos.py`) e um no
+            # de cancelamento no grafo **normal** nao e nenhum dos seus oito
+            # criterios. Deixar o credor a apontar para um ticket fechado era um
+            # ponteiro morto, que e a classe de defeito que este repositorio
+            # persegue. Limite: o cancelar continua a sair por texto estatico e o
+            # carrinho e largado; revê-se quando alguem acrescentar o no de
+            # cancelamento ao §7.3 — e e esse ticket o credor, porque e ele que
+            # muda o documento.
             return {"intent": "outro", "cart": None, "stage": "browsing"}
 
         texto = texto_do_turno
