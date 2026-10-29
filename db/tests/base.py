@@ -254,6 +254,22 @@ TABELAS_0022 = ("tool_idempotency",)
 #: `verificar_vistas` do *gate* 6, que exige `security_invoker` em todas.
 TABELAS_0024 = ("draft_decisions",)
 
+#: KAM-052: a conta de pagamento com beneficiario explicito (revisao `0027`).
+#:
+#: **Uma tabela, no `platform`, e a primeira do esquema com `tenant_id`
+#: anulavel que guarda dados de tenant.** Nula se e so se
+#: `beneficiary_kind = 'plataforma_receita_propria'` — a conta com que a
+#: KAMBA cobra a propria assinatura (`docs/tecnica/04` secao 11.2), que
+#: existe para nao activar o tenant `platform`, vedado por D2. A
+#: equivalencia esta no `CHECK`, pelo que uma conta de PME **nunca** tem
+#: `tenant_id` nulo. Entra no `ANULAVEIS` de `test_catalogo.py` com a razao;
+#: decisao do fundador, 2026-10-29.
+#:
+#: A `payment_charges` e a `payment_events` **nao** estao aqui: a ordem do
+#: `docs/tecnica/04` secao 6 e `orders_mirror -> payment_accounts ->
+#: payment_charges -> payment_events`, e a `0027` entrega a segunda.
+TABELAS_0027 = ("payment_accounts",)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -261,21 +277,38 @@ TABELAS = tuple(
         + TABELAS_0010 + TABELAS_0011 + TABELAS_0012 + TABELAS_0013
         + TABELAS_0014 + TABELAS_0015 + TABELAS_0017 + TABELAS_0018
         + TABELAS_0019 + TABELAS_0021 + TABELAS_0022 + TABELAS_0024
+        + TABELAS_0027
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0026`.
+#:
+#: Pela mesma razao das outras: o `downgrade` da `0027` leva a base para
+#: aqui, e o teste do ciclo compara o conjunto com esta tupla. A `0025`
+#: (KAM-047) cria o esquema `servicos` e a `0026` (KAM-035) alarga um
+#: `CHECK`; nenhuma das duas cria tabela no `platform`, pelo que o conjunto
+#: do `platform` na `0026` e o da `0024`.
+TABELAS_ATE_0026 = tuple(sorted(set(TABELAS) - set(TABELAS_0027)))
 
 #: O que existe em `platform` quando a base esta na revisao `0023`.
 #:
 #: A `0023` (KAM-030) cria o esquema `dat` e nao toca no `platform`, pelo que o
 #: conjunto do `platform` na `0023` e o da `0022`.
-TABELAS_ATE_0023 = tuple(sorted(set(TABELAS) - set(TABELAS_0024)))
+#:
+#: **Deriva do `TABELAS_ATE_0026` e nao do `TABELAS`**, e a diferenca nao e
+#: estilo: derivar do conjunto inteiro punha toda a tabela de uma revisao
+#: **posterior** nas tuplas de revisoes anteriores. Medido pelo *gate* 8 ao
+#: acrescentar a `payment_accounts` (`0027`): **quinze** ensaios de
+#: `downgrade` de outros modulos passaram a esperar, na `0018`, uma tabela
+#: que so existe na `0027`. E a forma que o `TABELAS_ATE_0020` ja usava.
+TABELAS_ATE_0023 = tuple(sorted(set(TABELAS_ATE_0026) - set(TABELAS_0024)))
 
 #: O que existe em `platform` quando a base esta na revisao `0021`.
 #:
 #: Pela mesma razao das outras: o `downgrade` da `0022` leva a base para aqui, e
 #: o teste do ciclo compara o conjunto com esta tupla.
 TABELAS_ATE_0021 = tuple(
-    sorted(set(TABELAS) - set(TABELAS_0022) - set(TABELAS_0024))
+    sorted(set(TABELAS_ATE_0026) - set(TABELAS_0022) - set(TABELAS_0024))
 )
 
 #: O que existe em `platform` quando a base esta na revisao `0020`.

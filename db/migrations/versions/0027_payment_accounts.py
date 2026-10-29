@@ -219,9 +219,16 @@ def _contas() -> None:
                 CHECK (beneficiary_kind IN ({", ".join(BENEFICIARIOS)})),
             CONSTRAINT payment_accounts_estado_ck
                 CHECK (estado IN ({", ".join(ESTADOS)})),
+            -- **Sem `IS NULL OR`**, e nao e descuido: num `CHECK` do PostgreSQL
+            -- um `NULL IN (…)` avalia a `NULL`, que conta como satisfeito. A
+            -- primeira versao escrevia `liquidacao_destino IS NULL OR …`, que e
+            -- semanticamente **igual** e torna o dominio ilegivel para o
+            -- `canon_lint` — ele exige a forma `CHECK (coluna IN (…))` para
+            -- reconhecer um dominio fechado, e com a disjuncao dava achado. A
+            -- forma sem a disjuncao e a que a `0013` usa para o
+            -- `motivo_restricao`, que e a mesma situacao.
             CONSTRAINT payment_accounts_liquidacao_destino_ck
-                CHECK (liquidacao_destino IS NULL
-                       OR liquidacao_destino IN ({", ".join(DESTINOS)})),
+                CHECK (liquidacao_destino IN ({", ".join(DESTINOS)})),
             -- **A equivalencia nos dois sentidos, e nao so num.** E ela que faz
             -- de «e de uma PME» e «tem tenant» o mesmo facto: uma conta de `pme`
             -- sem tenant nao tem beneficiario, e uma de
@@ -232,9 +239,11 @@ def _contas() -> None:
                 (beneficiary_kind = 'pme') = (tenant_id IS NOT NULL)
             ),
             -- O criterio 7 na base, e nao so no codigo.
+            -- Pela mesma razao da linha acima: `NULL ~ '…'` avalia a `NULL`, que
+            -- o `CHECK` aceita. Uma conta em `nao_iniciado` ainda nao tem
+            -- credenciais, e uma que tenha **tem** de ter a forma do cofre.
             CONSTRAINT payment_accounts_credenciais_ref_ck
-                CHECK (credenciais_ref IS NULL
-                       OR credenciais_ref ~ '{FORMA_DO_COFRE}'),
+                CHECK (credenciais_ref ~ '{FORMA_DO_COFRE}'),
             CONSTRAINT payment_accounts_webhook_token_ck
                 CHECK (btrim(webhook_token) <> ''),
             CONSTRAINT payment_accounts_provider_ck CHECK (btrim(provider) <> '')
@@ -297,21 +306,51 @@ def _beneficiario() -> None:
     `tenant_id` por linha, «partilhada» quer dizer dois tenants a cobrar contra o
     mesmo `account_id`, e cada uma dessas cobrancas e, uma a uma, o caso 1.
 
-    `SECURITY DEFINER` e **nao** `INVOKER`, e a razao e a RLS: a funcao tem de
-    poder ler a `payment_accounts` para comparar o `tenant_id`, e uma cobranca de
-    billing aponta para uma conta de `tenant_id` **nulo**, que a politica
-    `tenant_iso` esconde de quem chama. Com `INVOKER`, o `SELECT` devolvia zero
-    linhas e a guarda recusava **toda** a cobranca de billing — isto e, a guarda
-    que existe para permitir o billing da plataforma impedia-o.
+    ## `SECURITY INVOKER`, e a primeira versao desta revisao escrevia o contrario
 
-    O `search_path` fica fixo na funcao, que e a defesa obrigatoria de um
-    `SECURITY DEFINER`: sem ele, quem chama escolhe o que `payment_accounts`
-    significa.
+    Esta funcao foi escrita `SECURITY DEFINER` com um argumento que parecia
+    solido: ela tem de ler a `payment_accounts` para comparar o `tenant_id`, e
+    uma cobranca de billing aponta para uma conta de `tenant_id` **nulo**, que a
+    politica `tenant_iso` esconde de quem chama — pelo que com `INVOKER` a guarda
+    recusaria toda a cobranca de billing.
+
+    **O argumento estava errado, e foi o *gate* 8 a dize-lo** com cinco ensaios
+    vermelhos e um `23503` onde se esperava um `23514`. A razao: **`SECURITY
+    DEFINER` nao contorna `FORCE ROW LEVEL SECURITY`.** Ele troca o
+    `current_user` pelo **dono** da funcao, e o dono e o `kamba_migrator`, que e
+    `NOBYPASSRLS` — e o `FORCE` vincula o dono da tabela tambem (e isso e metade
+    da razao de o `FORCE` existir, ver `db/rls.py`). Resultado: a funcao nao via
+    conta **nenhuma**, e recusava tudo com «conta inexistente».
+
+    A saida obvia — ter a funcao dona por um papel com `BYPASSRLS` — **nao
+    existe aqui**: o `kamba_batch` tem o atributo, mas o `db/bootstrap.py`
+    **revoga activamente** toda a pertenca entre papeis («nenhum dos papeis
+    pertence a outro papel, nem tem membros»), pelo que o `kamba_migrator` nao
+    pode fazer `SET ROLE kamba_batch` nem passar-lhe a propriedade. E uma
+    barreira deliberada, e nao se afrouxa para isto.
+
+    `INVOKER` resolve, e resolve **melhor do que o argumento original supunha**:
+
+    * uma cobranca de **encomenda** e inserida pelo `kamba_app` com o contexto do
+      seu tenant, pelo que a conta desse tenant **e** visivel e a comparacao
+      corre;
+    * uma cobranca de **billing** e inserida pelo processo de billing, que corre
+      como `kamba_batch` — e esse **tem** `BYPASSRLS`, pelo que ve a conta de
+      `tenant_id` nulo. O caso que se temia e exactamente o que funciona.
+
+    ## O que a RLS tira a precisao da mensagem, e fica dito
+
+    Com `INVOKER`, um chamador sujeito a RLS **nao consegue distinguir** «a conta
+    nao existe» de «a conta e de outro tenant»: nos dois casos o `SELECT` devolve
+    zero linhas. A guarda recusa nos dois — *fail closed*, que e o que importa —
+    e a mensagem diz as duas possibilidades em vez de afirmar uma. A comparacao
+    explicita `v_tenant <> NEW.tenant_id` continua a existir e a disparar onde o
+    chamador ve as duas contas (um papel com `BYPASSRLS`), e e la que ela se mede.
     """
     op.execute(
         """
         CREATE FUNCTION platform.assert_beneficiary() RETURNS trigger
-        LANGUAGE plpgsql SECURITY DEFINER SET search_path = platform, pg_catalog
+        LANGUAGE plpgsql SET search_path = platform, pg_catalog
         AS $func$
         DECLARE
           v_kind   text;
@@ -320,10 +359,16 @@ def _beneficiario() -> None:
           SELECT beneficiary_kind, tenant_id INTO v_kind, v_tenant
             FROM platform.payment_accounts WHERE id = NEW.account_id;
           IF NOT FOUND THEN
+            -- **Duas leituras, e a funcao nao as distingue** — ver o cabecalho.
+            -- Para um chamador sujeito a RLS, a conta de outro tenant e
+            -- indistinguivel de uma conta que nao existe. Recusa nos dois casos,
+            -- e o `check_violation` e deliberado: isto nao e uma FK em falta, e
+            -- uma cobranca cujo beneficiario nao se consegue verificar.
             RAISE EXCEPTION
-              'assert_beneficiary: conta de pagamento inexistente: %',
-              NEW.account_id
-              USING ERRCODE = 'foreign_key_violation';
+              'assert_beneficiary: a conta % nao existe ou nao e visivel no '
+              'contexto desta transaccao (RLS); em qualquer dos casos o '
+              'beneficiario nao se consegue verificar (G-1)', NEW.account_id
+              USING ERRCODE = 'check_violation';
           END IF;
 
           -- Uma cobranca e de encomenda ou de billing, e exactamente uma
@@ -375,14 +420,15 @@ def _beneficiario() -> None:
         "'Guarda G-1 do docs/tecnica/04 secao 10.4 (KAM-052): o beneficiario de "
         "uma cobranca de encomenda e a PME que vendeu, e o de uma de billing e a "
         "KAMBA. O CREATE TRIGGER sobre payment_charges e do KAM-055. SECURITY "
-        "DEFINER porque tem de ler uma conta de tenant_id nulo, que a RLS "
-        "esconde de quem chama.'"
+        "INVOKER: o DEFINER nao contorna FORCE ROW LEVEL SECURITY (corre como o "
+        "dono, que e NOBYPASSRLS), e o billing corre como kamba_batch, que tem "
+        "BYPASSRLS e ve a conta de tenant_id nulo.'"
     )
     # `PUBLIC` nao executa nada: a omissao do PostgreSQL concede `EXECUTE` a
-    # `PUBLIC` em cada funcao nova, e numa `SECURITY DEFINER` isso e uma porta
-    # para ler a tabela com os privilegios do dono. E a licao que a `0004`, a
-    # `0023` e a `0025` escreveram — e aqui e mais grave do que la, porque esta
-    # corre como o dono.
+    # `PUBLIC` em cada funcao nova, e deixa-la assim dava a um papel sem
+    # privilegio em `payment_accounts` um caminho para a tentar ler. Com
+    # `INVOKER` a RLS ainda o recusaria, mas o caminho nao tem de existir — e a
+    # licao que a `0004`, a `0023` e a `0025` escreveram.
     op.execute("REVOKE ALL ON FUNCTION platform.assert_beneficiary() FROM PUBLIC")
 
 

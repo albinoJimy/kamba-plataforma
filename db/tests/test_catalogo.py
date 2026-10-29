@@ -240,6 +240,12 @@ class TestConvencoes(ComBase):
                 # que o `channel_onboarding` protege.
                 "owner_contacts",
                 "owner_notices",
+                # KAM-052: `id uuid DEFAULT gen_random_uuid()`, como a regra
+                # geral. **Nao e derivada do negocio**, e a razao e o
+                # `tenant_id` anulavel: uma chave composta com ele recusava a
+                # conta propria da KAMBA, porque uma chave primaria nao
+                # aceita NULL.
+                "payment_accounts",
             }
             | por_identidade,
         )
@@ -455,6 +461,15 @@ class TestConvencoes(ComBase):
                 ("outbound_messages", "id", "uuid", "gen_random_uuid()"),
                 ("owner_contacts", "id", "uuid", "gen_random_uuid()"),
                 ("owner_notices", "id", "uuid", "gen_random_uuid()"),
+                # KAM-052: a chave e um `uuid` gerado, e a chave de negocio
+                # esta ao lado, no indice unico parcial
+                # `payment_accounts_um_ativo` sobre `(tenant_id, provider)`.
+                # Uma chave primaria composta com o `tenant_id` nao servia:
+                # ele e **anulavel** nesta tabela, e uma chave primaria
+                # recusa NULL — foi o que obrigou a `audit_heads` a ter uma
+                # coluna gerada por COALESCE. A posicao e por `ORDER BY 1, 2`:
+                # depois de `owner_notices` ('ow' < 'pa').
+                ("payment_accounts", "id", "uuid", "gen_random_uuid()"),
                 ("tenant_channels", "id", "uuid", "gen_random_uuid()"),
                 # KAM-009: as duas tabelas de uso tem chave **composta e de
                 # negocio**, e nao um `uuid` gerado. E deliberado: a chave de
@@ -518,16 +533,45 @@ class TestConvencoes(ComBase):
         )
         self.assertEqual(linhas, [])
 
-    #: As unicas tabelas com `tenant_id` **anulavel**, e a razao (KAM-012).
+    #: As tabelas com `tenant_id` **anulavel**, e a razao de cada uma.
     #:
-    #: Uma accao de plataforma — `batch.run`, `breakglass.open` — nao tem
-    #: tenant, e inventar-lhe um era pior: punha prova de operacao dentro da
-    #: cadeia de um cliente. O `tenant_id` nulo e invisivel a politica
-    #: `tenant_iso` para toda a gente, e quem escreve e le essas linhas e o
-    #: `kamba_batch`, que tem `BYPASSRLS`. **Nao e um furo no isolamento: e o
-    #: isolamento a funcionar** — o papel da aplicacao nao consegue escrever
-    #: uma accao de plataforma nem ve que ela existe.
-    ANULAVEIS = frozenset({"audit_log", "audit_heads"})
+    #: **As duas da auditoria (KAM-012).** Uma accao de plataforma —
+    #: `batch.run`, `breakglass.open` — nao tem tenant, e inventar-lhe um era
+    #: pior: punha prova de operacao dentro da cadeia de um cliente. O
+    #: `tenant_id` nulo e invisivel a politica `tenant_iso` para toda a gente,
+    #: e quem escreve e le essas linhas e o `kamba_batch`, que tem
+    #: `BYPASSRLS`. **Nao e um furo no isolamento: e o isolamento a
+    #: funcionar** — o papel da aplicacao nao consegue escrever uma accao de
+    #: plataforma nem ve que ela existe.
+    #:
+    #: **E a `payment_accounts` (KAM-052), que e diferente das duas e por isso
+    #: tem razao propria.** Ela **guarda dados de tenant** — as contas de
+    #: pagamento das PMEs — e por isso nao e dispensada de RLS: tem
+    #: `tenant_iso` com `FORCE`, como todas. O que e anulavel e a linha de
+    #: **uma** conta: a de `beneficiary_kind = 'plataforma_receita_propria'`,
+    #: com que a KAMBA cobra a propria assinatura (`docs/tecnica/04` secao
+    #: 11.2). Ela existe precisamente para nao se activar um tenant de tipo
+    #: `platform`, que esta vedado em producao por D2.
+    #:
+    #: **A nulidade e condicional e a condicao esta na base**, o que a
+    #: distingue de uma coluna frouxa: o
+    #: `payment_accounts_beneficiario_ck` impoe
+    #: `(beneficiary_kind = 'pme') = (tenant_id IS NOT NULL)` nos **dois**
+    #: sentidos, pelo que uma conta de PME nunca tem `tenant_id` nulo e a da
+    #: plataforma nunca tem tenant. Sem essa equivalencia isto seria um furo;
+    #: com ela, «e de uma PME» e «tem tenant» sao o mesmo facto.
+    #:
+    #: Consequencia, e fica dita: sob `FORCE` a conta propria da KAMBA e
+    #: invisivel a todos os papeis sujeitos a RLS e e alcancada so pelo
+    #: `kamba_batch`. O `docs/tecnica/04` secao 6.2 diz «acessivel so ao papel
+    #: de billing» e **esse papel nao existe** nos sete de `db/ligacao.py`;
+    #: quem o vai precisar e o KAM-059. Divida documental 154.
+    #:
+    #: **Decisao do fundador, 2026-10-29**, depois de esta lista ter sido
+    #: devolvida como barreira que o desenho do ticket contrariava. A
+    #: alternativa medida era um UUID sentinela com `NOT NULL`, que nenhum
+    #: documento nomeia.
+    ANULAVEIS = frozenset({"audit_log", "audit_heads", "payment_accounts"})
 
     def test_tenant_id_e_not_null_e_vem_primeiro_num_indice(self) -> None:
         """DoD: `tenant_id` presente e indexado, pronto para a RLS do KAM-004.
@@ -605,10 +649,20 @@ class TestConvencoes(ComBase):
              # `tenant_id`, porque o isolamento do que se aprova vem da linha
              # da DLQ que ela referencia.
              "events_consumed", "events_dlq", "evt_acoes",
-             # KAM-012. As duas da auditoria, e sao as **unicas** com
-             # `tenant_id` anulavel em todo o schema — ver `ANULAVEIS` logo
-             # abaixo e a razao que la esta escrita.
+             # KAM-012. As duas da auditoria, com `tenant_id` anulavel — ver
+             # `ANULAVEIS` logo abaixo e a razao que la esta escrita.
+             # **Deixaram de ser as unicas com a `payment_accounts`**, e esta
+             # frase diz-se por extenso porque era aqui que estava escrito o
+             # contrario.
              "audit_log", "audit_heads",
+             # KAM-052. O `tenant_id` vem primeiro no
+             # `payment_accounts_tenant_idx` (`(tenant_id, estado)`), que e a
+             # leitura «as contas deste tenant», e tambem no indice unico
+             # parcial `payment_accounts_um_ativo`. A leitura por
+             # `webhook_token` e a unica **sem** `tenant_id`, e nao pode ter:
+             # quem chega num callback nao o sabe. E servida pelo indice
+             # unico dessa coluna.
+             "payment_accounts",
              # KAM-009. O `tenant_id` vem em primeiro lugar na chave primaria
              # das duas, que e o indice que a serve — nao foi preciso indice
              # proprio para esta regra. O `usage_ledger` tem alem disso
@@ -773,7 +827,11 @@ class TestConvencoes(ComBase):
         # `tenants`, e **nao** e composta — ela nao referencia conversa nenhuma.
         # O vinculo ao contacto e o `thread_id`, que e texto derivado e nao uma
         # FK, pela mesma razao que o `handoff_id` do §3.15 e irreversivel.
-        self.assertEqual(len(linhas), 40)
+        # **41 e nao 40** desde a `0027`: a `payment_accounts_tenant_fk`, que
+        # e a unica FK da conta de pagamento — o `docs/tecnica/04` secao 6
+        # escreve que ela «so referencia `tenants`», e as FK para
+        # `orders_mirror` sao do KAM-055 e a de `billing_cycles` do KAM-059.
+        self.assertEqual(len(linhas), 41)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)
