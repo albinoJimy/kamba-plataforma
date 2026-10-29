@@ -2821,8 +2821,8 @@ declarar o que não se mediu.
 | 2 (`log-lint`) | `cd tools && python -m log_policy --root .. lint` e `… canario` | **0** e **0** — 0 achados em 298 ficheiros de serviço; 29 negativas e 6 positivas, 0 falhas |
 | — (`dict-export`) | `python -c "… dict_export.cli …"` | **0** — `canon/dicionario.yaml` regenerado, `versao_dicionario` 1.44 → **1.45** |
 | 9 (segredos) | *hook* de `pre-commit` no commit `94ee77a` | **limpo** — 19 ficheiros em *stage* |
-| 4 (suite do AGR) | `docker run … kamba-agr-tests python -m unittest discover -s services/agr/tests -t services/agr/tests` | **0** — **1 147** testes, `OK` |
-| 4 (cobertura, lado Python) | `python -m coverage run --branch --source=services/agr/src -m unittest discover …` | `degradacao.py` **97%**, `degradado/intencoes.py` **100%**, `degradado/textos.py` **100%**, `degradado/nos.py` **90%**, `encaminhadores.py` **100%**, `estado.py` **100%**, `metricas.py` **99%**, `arestas.py` **97%**, `grafo.py` **87%**, `nos.py` **95%**; pacote **91%**. O estrato é o `restante` do `ci/thresholds.yaml` (**75%**), e nenhum ficheiro desce abaixo dele |
+| 4 (suite do AGR) | `docker run … kamba-agr-tests python -m unittest discover -s services/agr/tests -t services/agr/tests` | **0** — **1 161** testes, `OK`. Corrida **depois** da última edição e depois das correcções da revisão adversarial |
+| 4 (cobertura, lado Python) | `python -m coverage run --branch --source=services/agr/src -m unittest discover …` | `degradacao.py` **97%**, `degradado/intencoes.py` **100%**, `degradado/textos.py` **100%**, `degradado/nos.py` **90%**, `encaminhadores.py` **100%**, `arestas.py` **97%**, `grafo.py` **87%**; pacote **91%**. O estrato é o `restante` do `ci/thresholds.yaml` (**75%**), e nenhum ficheiro desce abaixo dele |
 
 **Os gates 1, 2 (`typecheck`), 4 (lado Node), 6, 7 e 11 não correram**, e a razão
 é a mesma de sempre nesta máquina: não há `make`, `node` nem `pnpm` no `PATH`, e
