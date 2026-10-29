@@ -305,6 +305,20 @@ METRICA_DEGRADADOS: Final = "agr_degraded_turns_total"
 #: nessa lista. Duas metricas e nao uma etiqueta nova: por um valor fora da
 #: lista fechada, o `contar` levanta.
 METRICA_DEGRADACAO_ALERTA: Final = "agr_degraded_breaker_aberto_total"
+#: Vezes que a proporcao de turnos degradados de um *tenant* passou o limiar na
+#: janela de quinze minutos. **E o «alerta» do criterio 6 do KAM-037**, na forma
+#: que esta casa usa: o KAM-027 fez o mesmo com o `agr_registry_denied_total` e o
+#: KAM-114 com o `agr_draft_pendentes`, porque **nao ha sistema de alertas** neste
+#: repositorio e um alerta e uma metrica com nome mais a pagina do runbook.
+#:
+#: **Sem etiqueta**, e aqui a razao e dupla: o eixo que faria sentido era o
+#: *tenant*, e esse e precisamente o que a gramatica recusa (`OBS-I`). Qual
+#: *tenant* passou o limiar le-se do campo `tenant_id` do *logger*.
+#:
+#: **Nao e o `agr_degraded_breaker_aberto_total`.** Aquele conta o modelo a ficar
+#: inalcancavel; este conta a proporcao a passar o limiar — e o runbook separa-os
+#: por escrito («tres numeros, e nenhum substitui os outros»).
+METRICA_DEGRADADOS_ACIMA: Final = "agr_degraded_acima_do_limiar_total"
 
 #: As quatro da subscricao de eventos (KAM-038, dicionario §3.33).
 #:
@@ -546,6 +560,7 @@ _CONTADORES_SEM_ETIQUETA: Final = (
     METRICA_HANDOFF_DEGRADADO,
     METRICA_DRAFT_INDISPONIVEL,
     METRICA_DEGRADACAO_ALERTA,
+    METRICA_DEGRADADOS_ACIMA,
 )
 _MEDIDAS: Final = (
     METRICA_DURACAO,
@@ -691,6 +706,10 @@ _AJUDA: Final = {
     METRICA_DEGRADACAO_ALERTA: (
         "counter",
         "Aberturas do disjuntor do LLM: o modelo ficou inalcancavel. Alerta.",
+    ),
+    METRICA_DEGRADADOS_ACIMA: (
+        "counter",
+        "Vezes que a proporcao de turnos degradados de um tenant passou o limiar. Alerta.",
     ),
 }
 

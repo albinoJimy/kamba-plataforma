@@ -6,11 +6,22 @@
 | Worktree | `C:\Jimy\Ideias\.claude\worktrees\suspicious-mahavira-4b20e2` |
 | Diff | 19 ficheiros, 2475 inserções — **todos** em `services/agr` |
 | Papel | revisão adversarial: procurar razões para o resultado estar errado |
-| Canon lido | bloco KAM-037 de `specs/EPIC-03_Agent_Runtime_Verticais.md` (linhas 2618-2718), `docs/tecnica/02` §7.3, §13.3, §14, §15.2, `docs/tecnica/00` princípio 12, `docs/dividas-documentais.md` 124 e 135 |
-| Suite | `docker run … python -m unittest discover -s services/agr/tests` → **código de saída 1** (ver C10) |
+| Canon lido | bloco KAM-037 de `specs/EPIC-03_Agent_Runtime_Verticais.md`, `docs/tecnica/02` §7.3, §13.3, §14, §15.2, `docs/tecnica/00` princípio 12, `docs/dividas-documentais.md` 124 e 135 |
+| Suite em `94ee77a` + árvore de trabalho | **código de saída 1** (ver C10) |
+| Suite em `34bcf82` | **código de saída 0** — `Ran 1147 tests … OK` |
 
-**29 achados: 12 `CONFIRMADO`, 4 `PLAUSÍVEL`, 13 `MORTO`.** Ordenados por severidade
-dentro de cada classe.
+**29 achados: 12 `CONFIRMADO` (10 em aberto, 2 pagos durante a revisão), 4
+`PLAUSÍVEL`, 13 `MORTO`.** Ordenados por severidade dentro de cada classe.
+
+> **O worktree mexeu-se a meio desta revisão.** O alvo declarado é `94ee77a`.
+> Enquanto media, outra sessão commitou `d60aae2` («a secção de verificação, o
+> dicionário §3.35 e o runbook»), `683b1b5` e `34bcf82`, deixando o worktree
+> limpo e a suite verde. **C10 e C11 ficam escritos porque eram defeitos reais do
+> commit em revisão, e marcam-se como pagos.** Reverifiquei **todos** os outros
+> achados contra `34bcf82`: C1 a C9 e P1 a P4 **mantêm-se**, com as mesmas
+> reproduções. A nova secção de verificação não nomeia nenhum deles — e em dois
+> casos (C5 e C8) afirma o contrário do que eu medi, o que os reforça em vez de
+> os matar.
 
 Todas as reproduções correram no contentor `kamba-agr-tests`, com
 `PYTHONPATH=/w/services/agr/src:/w/libs/py-core/src:/w/tools` e
@@ -207,6 +218,13 @@ outros». A proporcão de 5% em 15 min por tenant não aparece em sítio nenhum.
 retorno de um método, não que alguma coisa aconteça por causa dele. Passaria
 inalterado se os dois chamadores não existissem.
 
+**E a secção de verificação afirma o contrário.** A linha do critério 6 (acrescentada
+em `d60aae2`) escreve «a métrica existe com o **motivo** por etiqueta e **o alerta
+mede-se** (`TestJanelaEAlerta`, oito ensaios)». O que esses oito ensaios medem é o
+**valor de retorno de um método**; não há alerta, porque não há consumidor. As duas
+divergências que a linha confessa são outras (o `429`→`http_429` e o `tenant` em
+etiqueta) — esta não está confessada.
+
 **Severidade.** Alta: é metade do critério 6 («alerta quando > 5% dos turnos de um
 tenant em 15 min») sem nenhum caminho de execução. O runbook assume-o escrito
 («§1. Como se vê que há degradação»). O limiar ser *proposta* não dispensa o
@@ -337,9 +355,18 @@ afirmações são: `degradado` verdade, `+1` encomenda, `stage == awaiting_payme
 `draft["ok"]`. Nenhuma olha para um *fact* citado. Passaria inalterado com zero
 facts no texto — que é o que acontece.
 
+**E a secção de verificação marca este critério como «satisfeito».** A linha
+(acrescentada em `d60aae2`) prova três coisas — um pedido, `awaiting_payment`,
+`draft["ok"]` — e acrescenta «nenhum texto livre: o `create_order` e o `compose`
+são os do grafo normal e só produzem blocos». Isso responde à **terceira** cláusula
+do critério e não à segunda. A segunda («responde com a referência por *template*
+estático e *facts*») não tem prova e não está cumprida; o critério 2 está marcado
+`parcial` pela mesma dívida 124 e o 3 está marcado `satisfeito`, o que é
+incoerente entre si.
+
 **Severidade.** Média. A dívida 124 cobre **não poder mostrar os dígitos da
 referência**; não cobre a ausência de qualquer *fact*, nem o nome do ensaio
-afirmar o contrário do que ele mede.
+afirmar o contrário do que ele mede, nem a caixa ficar `satisfeito`.
 
 ---
 
@@ -375,7 +402,7 @@ do modo não têm ensaio de ponta a ponta.
 
 ---
 
-### C10 — Médio. A suite não passa no worktree, e o `§3.35` que o código cita cinco vezes não está no commit
+### C10 — Médio. **PAGO em `d60aae2`..`34bcf82`.** A suite não passava no worktree, e o `§3.35` que o código cita cinco vezes não estava no commit
 
 **A suite.** Comando do briefing, código de saída lido:
 
@@ -411,13 +438,23 @@ dá 19 ficheiros, todos sob `services/agr`. `git status --porcelain`:
   `publico/main` — logo a metade documental deste ticket foi fundida antes do
   código, e a referência que ela faz a `specs/02 §3.35` já estava pendurada.
 
-**Severidade.** Média, mas é a mais mecânica de todas: fundir `94ee77a` como está
-perde a emenda 1.45 e o runbook, e deixa cinco citações a apontar para nada. E se
-a 1.45 for commitada como está, o gate de canon fica vermelho.
+**Severidade.** Média, mas era a mais mecânica de todas: fundir `94ee77a` como
+estava perdia a emenda 1.45 e o runbook, e deixava cinco citações a apontar para
+nada; e a 1.45 commitada como estava deixava o gate de canon vermelho.
+
+**Pago.** `d60aae2` commitou o runbook e o §3.35, `34bcf82` corrigiu o cabeçalho
+do dicionário, e a suite em `34bcf82` sai com **0** (`Ran 1147 tests … OK`).
+Reverificado: `git show HEAD:specs/02_Dicionario_de_Dados_Canonico.md | grep -c
+"### 3.35"` → 1, `git log -1 -- docs/runbooks/degradacao-do-agr.md` → `d60aae2`,
+`git status --porcelain` → vazio. Fica escrito porque a lição é de processo e não
+de código: a metade documental do KAM-037 (dívida 135, emenda 1.74) já estava em
+`publico/main` **antes** do código, com uma referência a um `§3.35` que ainda não
+existia — a ordem de fusão deixou uma citação pendurada em `main` durante dois
+commits.
 
 ---
 
-### C11 — Médio. A «secção de verificação do bloco», citada cinco vezes pelo código novo, não existe
+### C11 — Médio. **PAGO em `d60aae2`.** A «secção de verificação do bloco», citada cinco vezes pelo código novo, não existia
 
 **Onde.** `arestas.py:71`, `degradado/intencoes.py:35`, `degradado/nos.py:22`,
 `degradado/__init__.py:52`, `__main__.py:726`; mais quatro citações na bateria
@@ -442,6 +479,13 @@ estar escritas:
 
 **Severidade.** Média. Um ticket que fecha com decisões devolvidas e sem o sítio
 onde as devolver é um ticket que as perde.
+
+**Pago.** `d60aae2` acrescentou a secção (linha 2694), com a tabela dos oito
+critérios, a do DoD e a hipótese `degradado × concierge` em forma de HIPÓTESE. As
+três decisões têm agora onde estar. **O que a secção não nomeia** são os achados
+C1 a C9 desta análise: o critério 2 fica `parcial` só pela referência de pagamento
+e pela pesquisa de catálogo, o 3 fica `satisfeito`, e o 6 diz que o alerta se
+mede. Ver C5 e C8.
 
 ---
 
@@ -666,14 +710,23 @@ a razão certa para ela existir. Os ensaios medem as quatro combinações.
 
 | Critério | Estado medido |
 |---|---|
-| 1 — resposta em ≤ 1 turno, 0 sem resposta em 100 | cumprido com a política concierge desligada (M9); falso com ela ligada (P4); em risco pelo C6 |
-| 2 — o modo serve menu, lista, estado do pedido, loja, referência, humano | **2 das 5 capacidades respondem com a frase errada** (C2); a lista excede o contrato do Outbound (C6) |
-| 3 — confirmação degradada cria 1 pedido e cita por *template* e *facts* | 1 pedido: cumprido. **Cita zero** (C8) |
-| 4 — intenção sem LLM; texto livre devolve o menu | cumprido **dentro** do turno degradado; os identificadores morrem fora dele (C1) |
-| 5 — o validador aplica-se também aqui | cumprido (M10) |
-| 6 — `degraded_turns` por motivo e tenant; alerta > 5% | métrica por motivo: cumprida. Por tenant: `OBS-I`, parcial e declarada. **Alerta: inexistente** (C5) |
-| 7 — recuperar volta ao modo normal; nada antigo reenviado | cumprido (M12, M11) |
-| 8 — contrapressão move o tenant para o modo | cumprido (M13) |
+A coluna «declarado» é o que a secção de verificação de `d60aae2` escreve; a
+coluna «medido» é o que eu medi a correr.
 
-E, fora dos critérios: o commit não leva o runbook nem a emenda do dicionário que
-cinco citações do código pressupõem, e a suite no worktree está vermelha (C10).
+| Critério | Declarado | Medido |
+|---|---|---|
+| 1 — resposta em ≤ 1 turno, 0 sem resposta em 100 | satisfeito | cumprido com a política concierge desligada (M9); falso com ela ligada, e isso está declarado (P4); em risco pelo C6 |
+| 2 — o modo serve menu, lista, estado do pedido, loja, referência, humano | parcial (só a referência e a pesquisa) | **2 das 5 capacidades respondem com a frase errada quando se toca no botão** (C2); a lista de 4 excede o contrato do Outbound (C6) |
+| 3 — confirmação degradada cria 1 pedido e cita por *template* e *facts* | **satisfeito** | 1 pedido: cumprido. **Cita zero** *facts* e nenhuma referência (C8) |
+| 4 — intenção sem LLM; texto livre devolve o menu | satisfeito | cumprido **dentro** do turno degradado; os identificadores morrem no turno seguinte (C1) |
+| 5 — o validador aplica-se também aqui | satisfeito | cumprido (M10) |
+| 6 — `degraded_turns` por motivo e tenant; alerta > 5% | parcial, «o alerta mede-se» | métrica por motivo: cumprida. Por tenant: `OBS-I`, parcial e bem declarada. **Alerta: sem consumidor** (C5) |
+| 7 — recuperar volta ao modo normal; nada antigo reenviado | parcial (a janela é do KAM-015) | cumprido na parte do AGR (M12, M11) |
+| 8 — contrapressão move o tenant para o modo | satisfeito | cumprido (M13) |
+
+**O que eu mudaria antes de fundir**, por ordem: C1 (tirar o `INTENCAO_DA_OPCAO`
+do caminho degradado), C2 (o toque no botão de encomenda/pagamento tem de pedir a
+referência em vez de responder com a frase do catálogo), C3+C4 (disjuntor por
+tenant, ou pelo menos não contar `budget` e `destino_negado` num disjuntor
+global), C6 (decidir como é que a lista de quatro atravessa o Outbound), C5 (dar
+consumidor ao alerta, ou declarar a caixa vazia em vez de dizer que se mede).

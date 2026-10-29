@@ -105,7 +105,12 @@ FONTES_FORA_DO_73: Final = (FONTE_DO_CONCIERGE, FONTE_DO_DEGRADADO)
 #: e o que mudou foi a forma e nao a autoria.
 FONTE_ALTERADA_PELO_CONCIERGE: Final = "02 §7.3, alterada por KAM-114"
 
-#: Os vinte e um nos, pela ordem do §7.4. Lista **fechada**: e por ela que o
+#: Os **vinte e quatro** nos, pela ordem do §7.4 e depois pela dos dois tickets
+#: que a estenderam. O §7.4 fixa **vinte e um** e continua a fixa-los; os outros
+#: tres sao os dois do KAM-114 e o do KAM-037, cada um com a sua `fonte` na
+#: tabela de arestas. **A frase anterior dizia «os vinte e um nos» com vinte e
+#: tres na lista imediatamente abaixo**, e com vinte e quatro depois deste ticket
+#: — apanhado pela revisao adversarial (achado C12). Lista **fechada**: e por ela que o
 #: teste de contrato mede «nenhum no a mais, nenhum a menos», e cada nome e
 #: tambem etiqueta de nada — os nos nao sao etiqueta de metrica, e e de
 #: proposito (§9.2 do `docs/tecnica/08`: o nome de um no nao identifica ninguem,
@@ -167,11 +172,22 @@ INTENCOES: Final = (
 #: dados para um valor que nenhuma linha de auditoria pode levar.
 STALE_CONFIRMATION: Final = "STALE_CONFIRMATION"
 
-#: O dominio fechado de `state.avisos` (emenda 1.40). Os sete primeiros sao
-#: erros tipados do §6.5 que o §6.5 manda o `compose` explicar; o oitavo e o de
-#: cima. **Fechado** porque o `compose` decide por valor conhecido: um aviso que
-#: ele nao conheca cai na explicacao de omissao, e a de omissao nao e a de uma
-#: recusa por regra.
+#: A consulta de um pedido sem o cliente ter dito qual (KAM-037). **Nao e um dos
+#: onze erros tipados do §6.5** e nao e `NOT_FOUND`, e a distincao e a correccao
+#: do achado C2 da revisao adversarial: «nao me disse qual» nao e «nao existe», e
+#: confundir os dois dizia «Nao encontrei esse **artigo** no **catalogo** da
+#: loja» a quem pediu o estado de um pedido. Nasce no `order_status`, como o
+#: `STALE_CONFIRMATION` nasce no `confirm_gate`, pelo que tambem nao entra no
+#: `CODIGOS` do `tls/erros.py` — entrava no `CHECK` fechado da
+#: `tool_audit.error_code`, que e uma revisao de base de dados para um valor que
+#: nenhuma linha de auditoria pode levar.
+REFERENCIA_EM_FALTA: Final = "REFERENCIA_EM_FALTA"
+
+#: O dominio fechado de `state.avisos` (emenda 1.40, mais o do KAM-037). Os sete
+#: primeiros sao erros tipados do §6.5 que o §6.5 manda o `compose` explicar; os
+#: dois ultimos nascem em nos nossos. **Fechado** porque o `compose` decide por
+#: valor conhecido: um aviso que ele nao conheca cai na explicacao de omissao, e
+#: a de omissao nao e a de uma recusa por regra.
 AVISOS: Final = (
     "NOT_FOUND",
     "OUT_OF_STOCK",
@@ -181,6 +197,7 @@ AVISOS: Final = (
     "UPSTREAM_TIMEOUT",
     "UPSTREAM_DOWN",
     STALE_CONFIRMATION,
+    REFERENCIA_EM_FALTA,
 )
 
 #: Os desfechos da linha 4 — porque e que um turno nao corre (§3.31).

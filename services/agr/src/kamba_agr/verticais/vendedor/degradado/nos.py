@@ -43,13 +43,7 @@ from typing import Any
 
 from ..nos import Dependencias, _primeiro_turno
 from .intencoes import DE_CATALOGO
-from .textos import (
-    LISTA_DE_OPCOES,
-    MENU_PRINCIPAL,
-    MSG_LISTA,
-    MSG_MENU,
-    MSG_SEM_CATALOGO,
-)
+from .textos import MSG_LISTA, MSG_MENU, MSG_SEM_CATALOGO, OPCOES
 
 
 def degraded_menu(deps: Dependencias):
@@ -57,9 +51,16 @@ def degraded_menu(deps: Dependencias):
 
     | Quando | O que sai |
     |---|---|
-    | a intencao e de catalogo (`produto`, `preco_stock`, `comprar`) | `MSG_SEM_CATALOGO` + a lista |
-    | e o primeiro turno da conversa | `MSG_MENU` + o **menu principal** (tres botoes) |
-    | ja se falou e nao se reconheceu o pedido | `MSG_LISTA` + a lista |
+    | a intencao e de catalogo (`produto`, `preco_stock`, `comprar`) | `MSG_SEM_CATALOGO` |
+    | e o primeiro turno da conversa | `MSG_MENU` |
+    | ja se falou e nao se reconheceu o pedido | `MSG_LISTA` |
+
+    **As tres levam as mesmas `OPCOES`**, e sao **tres**: o que muda e o texto e
+    nao o conjunto. A primeira versao tinha quatro numa superficie e tres na
+    outra, e a revisao adversarial mediu o que isso custava (achado C6) — o
+    Outbound fixa `MAXIMO_DE_BOTOES = 3` e recusa o corpo acima disso, pelo que o
+    turno degradado mais comum ficava **sem resposta**. Ver o cabecalho do
+    `textos.py`.
 
     **A primeira condicao vem antes da segunda**, e a ordem e a decisao: um
     cliente que abre a conversa a perguntar por um produto tem de ouvir que o
@@ -75,11 +76,11 @@ def degraded_menu(deps: Dependencias):
 
     async def no(estado: dict[str, Any]) -> dict[str, Any]:
         if estado.get("intent") in DE_CATALOGO:
-            texto, opcoes = MSG_SEM_CATALOGO, LISTA_DE_OPCOES
+            texto = MSG_SEM_CATALOGO
         elif _primeiro_turno(estado):
-            texto, opcoes = MSG_MENU, MENU_PRINCIPAL
+            texto = MSG_MENU
         else:
-            texto, opcoes = MSG_LISTA, LISTA_DE_OPCOES
+            texto = MSG_LISTA
         # **O rascunho substitui-se e nao se preserva**, ao contrario do que o
         # `compose` faz com o `draft`: um turno que chega ao menu nao tem
         # `dados` de tool nenhuma para dizer — se tivesse, tinha ido ao
@@ -89,7 +90,7 @@ def degraded_menu(deps: Dependencias):
             "draft": {
                 "blocos": (
                     {"type": "text", "text": texto},
-                    {"type": "buttons", "ids": list(opcoes)},
+                    {"type": "buttons", "ids": list(OPCOES)},
                 )
             }
         }

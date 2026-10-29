@@ -93,10 +93,16 @@ from typing import Any, Final
 
 from .llm.erros import (
     RESULTADO_BUDGET,
+    RESULTADO_DESTINO,
     RESULTADO_TIMEOUT,
     ErroDeLlm,
 )
-from .metricas import METRICA_DEGRADACAO_ALERTA, METRICA_DEGRADADOS, METRICAS
+from .metricas import (
+    METRICA_DEGRADACAO_ALERTA,
+    METRICA_DEGRADADOS,
+    METRICA_DEGRADADOS_ACIMA,
+    METRICAS,
+)
 from .tls.disjuntor import Disjuntor
 
 #: Os cinco motivos do criterio 6. Lista **fechada**: e etiqueta de
@@ -109,13 +115,33 @@ MOTIVO_BUDGET: Final = "budget"
 MOTIVO_BREAKER: Final = "breaker"
 MOTIVO_CONTRAPRESSAO: Final = "backpressure"
 
+#: **O sexto, e o criterio 6 nao o previa.** O `DestinoNegado` do `llm/erros.py`
+#: **e** um `ErroDeLlm` — a recusa do *gate* de destino por transferencia de
+#: dados pessoais para fora de Angola sem autorizacao (ADR-008) — e a primeira
+#: versao deste modulo deixava-o cair no `MOTIVO_BREAKER`, o ramo que o
+#: comentario descreve como «avaria». O painel dizia «o modelo ficou
+#: inalcancavel» e o que acontecera era **uma barreira de soberania a
+#: funcionar**. Apanhado pela revisao adversarial (achado C4).
+#:
+#: Degrada-se — o cliente tem de receber resposta —, mas **nao conta no
+#: disjuntor**: nao e uma avaria transitoria, e em `prod` a porta nega **tudo**
+#: ate o KAM-069 existir, pelo que tres turnos abriam um disjuntor que nada
+#: fecharia.
+MOTIVO_DESTINO: Final = "destino_negado"
+
 MOTIVOS: Final = (
     MOTIVO_TIMEOUT,
     MOTIVO_429,
     MOTIVO_BUDGET,
     MOTIVO_BREAKER,
     MOTIVO_CONTRAPRESSAO,
+    MOTIVO_DESTINO,
 )
+
+#: Os motivos que **nao** alimentam o disjuntor. Lista fechada de um, e cada
+#: entrada precisa da razao escrita: o disjuntor mede «o modelo esta em baixo
+#: agora», e um motivo que nao seja isso suja a medida.
+MOTIVOS_QUE_NAO_CONTAM: Final = (MOTIVO_DESTINO,)
 
 #: O estado HTTP que o fornecedor devolve quando recusa por ritmo. O `classificar`
 #: do `llm/erros.py` nao lhe da tipo proprio — e `FornecedorFalhou`, porque o
@@ -123,11 +149,33 @@ MOTIVOS: Final = (
 #: novo e uma revisao de base de dados. Quem o distingue e o `estado_http`.
 ESTADO_DE_RITMO: Final = 429
 
-#: O backend do disjuntor. **Um e nao um por alias**: o que esta em baixo e o
-#: proxy, e abrir por alias deixava o `kamba-chat` a bater na porta fechada
-#: depois de o `kamba-router` ja ter medido que ela esta. E a mesma leitura que
-#: o `tls/disjuntor.py` escreveu para o COM, o PAY e o IDX.
-BACKEND_DO_LLM: Final = "llm"
+#: O prefixo do backend do disjuntor. **Um por *tenant* e nao um global**, e a
+#: primeira versao deste modulo tinha um so — o que era um defeito de
+#: amplificacao entre *tenants*, apanhado pela revisao adversarial (achado C3).
+#:
+#: A razao e que **todas** as falhas que este detector ve chegam por uma chave
+#: virtual **do *tenant***: o `llm/cliente.py` manda
+#: `Authorization: Bearer {chave_virtual(ctx.tenant_id)}`, o §13.3 fixa
+#: «orcamento mensal da **chave** = 15% x mensalidade», o ritmo e por chave, e o
+#: *gate* de destino decide por `autorizar(ctx.tenant_id, ...)`. Com um
+#: disjuntor global, tres turnos de um *tenant* sem orcamento punham **toda** a
+#: replica em modo deterministico durante trinta segundos — e o ciclo repetia-se
+#: a cada tentativa dele. E o oposto do anti-vizinho-ruidoso do §15.2 regra 2.
+#:
+#: **O que se paga por abrir por *tenant*** e, numa avaria real do proxy, ate
+#: `allowed_fails` idas por *tenant* em vez de tres no total. E um tecto
+#: pequeno, conhecido, e proporcional ao numero de *tenants* activos; o que se
+#: compra e que a falha de um nao chega aos outros.
+#:
+#: **Nao se abre por alias**, e essa parte da leitura original mantem-se: o que
+#: esta em baixo e o proxy, e abrir por alias deixava o `kamba-chat` a bater na
+#: porta fechada depois de o `kamba-router` ja ter medido que ela esta.
+PREFIXO_DO_BACKEND: Final = "llm"
+
+
+def backend_de(tenant_id: str) -> str:
+    """A chave do disjuntor deste *tenant*. Ver o `PREFIXO_DO_BACKEND`."""
+    return f"{PREFIXO_DO_BACKEND}:{tenant_id}"
 
 #: `allowed_fails` do proxy. **Medido** em `llm/litellm.config.yaml` §55 e
 #: `llm/aliases.yaml` §44; CONFIRMADO contra a versao fixada em
@@ -173,10 +221,17 @@ def motivo_do_erro(erro: ErroDeLlm) -> str:
         return MOTIVO_TIMEOUT
     if erro.resultado == RESULTADO_BUDGET:
         return MOTIVO_BUDGET
+    if erro.resultado == RESULTADO_DESTINO:
+        # **Antes do ramo de omissao, e e a correccao do achado C4.** Um
+        # `DestinoNegado` cai no `else` com o `estado_http` a `None`, e o `else`
+        # e o `breaker` — que diz «o modelo ficou inalcancavel» sobre uma recusa
+        # de conformidade. Ver o `MOTIVO_DESTINO`.
+        return MOTIVO_DESTINO
     if getattr(erro, "estado_http", None) == ESTADO_DE_RITMO:
         return MOTIVO_429
-    # Um erro de fornecedor que nao e tempo, nem orcamento, nem ritmo conta como
-    # **avaria**, e a avaria e o que o disjuntor existe para medir.
+    # Um erro de fornecedor que nao e tempo, nem orcamento, nem ritmo, nem
+    # destino conta como **avaria**, e a avaria e o que o disjuntor existe para
+    # medir.
     return MOTIVO_BREAKER
 
 
@@ -252,7 +307,7 @@ class DetectorDeDegradacao:
           funcionar — degradar nesse caso punha um *tenant* ocupado a receber
           menus com a plataforma folgada.
         """
-        if self._disjuntor.aberto(BACKEND_DO_LLM):
+        if self._disjuntor.aberto(backend_de(tenant_id)):
             return MOTIVO_BREAKER
         if self._admissao is not None and self._contrapressao(tenant_id):
             return MOTIVO_CONTRAPRESSAO
@@ -271,15 +326,34 @@ class DetectorDeDegradacao:
             and self._admissao.a_espera >= tectos.limiar_de_contrapressao
         )
 
-    def pode_chamar_o_llm(self) -> bool:
-        """Se vale a pena ir ao proxy. **Consome** a tentativa de meio-aberto.
+    def pode_chamar_o_llm(self, tenant_id: str) -> bool:
+        """Se vale a pena ir ao proxy **por este *tenant***. Consome a tentativa.
 
         E o `permite()` do disjuntor, com o nome que diz o que a resposta
         significa aqui. Chama-se **imediatamente antes** da chamada, e nao num
         encaminhador: um encaminhador e uma funcao pura do estado, e esta
         pergunta muta o disjuntor.
+
+        **Quem a chama tem de fechar o ciclo**, e e o achado C7 da revisao
+        adversarial: esta chamada marca a tentativa de meio-aberto como
+        entregue, e se quem a levou nao chamar depois `registar_falha` ou
+        `registar_sucesso` ou `absolver`, a porta fica fechada pelo prazo da
+        pausa — e os turnos desse intervalo degradam com `motivo="breaker"` por
+        causa de uma excepcao que **nao era do modelo**. O `absolver` existe
+        para esse caso e o `classify` chama-o num `finally`.
         """
-        return self._disjuntor.permite(BACKEND_DO_LLM)
+        return self._disjuntor.permite(backend_de(tenant_id))
+
+    def absolver(self, tenant_id: str) -> None:
+        """A chamada acabou e **nao** diz nada sobre a saude do modelo.
+
+        Larga a tentativa de meio-aberto sem tocar na contagem. E o caminho de
+        uma excepcao que nao e um `ErroDeLlm` — um erro da base, um defeito
+        nosso —, que **nao** e degradacao e por isso tambem nao e prova de
+        avaria do modelo. Ver o `absolver` do `tls/disjuntor.py`, que foi escrito
+        para esta distincao.
+        """
+        self._disjuntor.absolver(backend_de(tenant_id))
 
     # --------------------------------------------------------- o que falhou
 
@@ -287,29 +361,39 @@ class DetectorDeDegradacao:
         """O motivo de um `ErroDeLlm`. Ver o `motivo_do_erro` do modulo."""
         return motivo_do_erro(erro)
 
-    def registar_falha(self, erro: ErroDeLlm) -> str:
-        """Conta a falha no disjuntor e devolve o motivo.
+    def registar_falha(self, tenant_id: str, erro: ErroDeLlm) -> str:
+        """Conta a falha no disjuntor **deste *tenant*** e devolve o motivo.
 
-        **O orcamento esgotado tambem conta**, e isso foi uma escolha: um
+        **O orcamento esgotado conta**, e isso foi uma escolha: um
         `BUDGET_EXHAUSTED` nao e o proxy em baixo, mas e uma condicao que o
         turno seguinte vai encontrar igual — e tres turnos a pagar a ida para
-        descobrir o mesmo sao tres clientes a esperar por nada. O disjuntor
-        fecha-se ao primeiro sucesso, pelo que uma chave recarregada volta ao
-        modo normal no turno seguinte (criterio 7).
+        descobrir o mesmo sao tres clientes a esperar por nada. **E conta no
+        disjuntor do *tenant* e nao num global**, que e o que torna isto
+        defensavel: o orcamento e da chave virtual dele (ver o
+        `PREFIXO_DO_BACKEND`). O disjuntor fecha-se ao primeiro sucesso, pelo que
+        uma chave recarregada volta ao modo normal no turno seguinte (criterio 7).
+
+        **O `destino_negado` nao conta**, e e a unica excepcao: ver o
+        `MOTIVOS_QUE_NAO_CONTAM`. Mesmo assim larga-se a tentativa de
+        meio-aberto, porque a chamada **aconteceu** e nao respondeu nada sobre a
+        saude do modelo.
         """
         motivo = self.motivo_do_erro(erro)
-        if self._disjuntor.registar_falha(BACKEND_DO_LLM):
+        if motivo in MOTIVOS_QUE_NAO_CONTAM:
+            self._disjuntor.absolver(backend_de(tenant_id))
+            return motivo
+        if self._disjuntor.registar_falha(backend_de(tenant_id)):
             self._metricas.contar(METRICA_DEGRADACAO_ALERTA)
         return motivo
 
-    def registar_sucesso(self) -> None:
-        """O modelo respondeu. Fecha o disjuntor e poe o contador a zero.
+    def registar_sucesso(self, tenant_id: str) -> None:
+        """O modelo respondeu a este *tenant*. Fecha o disjuntor dele.
 
         E a metade do criterio 7 que vive aqui: a contagem e de falhas
         **consecutivas** (ver o `tls/disjuntor.py`), pelo que uma resposta boa
         apaga as anteriores e o turno seguinte nao encontra `breaker`.
         """
-        self._disjuntor.registar_sucesso(BACKEND_DO_LLM)
+        self._disjuntor.registar_sucesso(backend_de(tenant_id))
 
     # ------------------------------------------------- contagem e proporcao
 
@@ -346,9 +430,22 @@ class DetectorDeDegradacao:
         """
         if motivo is not None and motivo not in MOTIVOS:
             raise ValueError(f"{motivo!r} nao e um motivo de degradacao: {list(MOTIVOS)}")
-        agora = self._relogio()
+        if not turn_id:
+            # **Levanta em vez de aceitar um `turn_id` vazio** (achado P1 da
+            # revisao adversarial). A entrada da janela e identificada pelo
+            # `turn_id`, pelo que uma cadeia vazia fazia **todos** os turnos em
+            # voo de um *tenant* valerem como **um** — e com o tecto de
+            # concorrencia a tres isso encolhia o denominador do criterio 6 em
+            # silencio. Um valor de omissao que transporta uma colisao e pior do
+            # que um erro.
+            raise ValueError("um turno sem `turn_id` nao se pode contar na janela")
         contar = False
         with self._trinco:
+            # **O relogio le-se dentro do trinco** (achado P2): lido fora, duas
+            # corrotinas do mesmo *tenant* podiam anexar fora de ordem, e o
+            # `_podar` para na primeira entrada nao expirada — deixando presas
+            # atras dela entradas mais velhas. A deque tem de ficar ordenada.
+            agora = self._relogio()
             fila = self._turnos.setdefault(tenant_id, collections.deque())
             entrada = next((e for e in fila if e[1] == turn_id), None)
             if entrada is None:
@@ -364,7 +461,22 @@ class DetectorDeDegradacao:
             self._metricas.contar(METRICA_DEGRADADOS, motivo)
         if total < self._minimo:
             return False
-        return degradados / total > self._limiar
+        acima = degradados / total > self._limiar
+        if acima:
+            # **O alerta conta-se aqui e nao em quem chama**, e e a correccao do
+            # achado C5 da revisao adversarial: a primeira versao devolvia o
+            # booleano e os dois chamadores descartavam-no — o alerta do criterio
+            # 6 era calculado e atirado fora, e o ensaio media o valor de retorno
+            # de um metodo em vez de medir que alguma coisa acontece. Um efeito
+            # que depende de quem chama se lembrar nao e um efeito.
+            #
+            # E a mesma forma que o KAM-027 deu ao «emite alerta» do seu criterio
+            # 6 (`agr_registry_denied_total`) e o KAM-114 ao dele
+            # (`agr_draft_pendentes`): nao ha sistema de alertas neste
+            # repositorio, pelo que um alerta e uma metrica com nome mais a
+            # pagina do runbook.
+            self._metricas.contar(METRICA_DEGRADADOS_ACIMA)
+        return acima
 
     def proporcao(self, tenant_id: str) -> float:
         """A proporcao de turnos degradados deste *tenant* na janela.
@@ -425,8 +537,11 @@ class SemDegradacao:
     def motivo_antes_do_turno(self, tenant_id: str) -> str | None:  # noqa: ARG002
         return None
 
-    def pode_chamar_o_llm(self) -> bool:
+    def pode_chamar_o_llm(self, tenant_id: str) -> bool:  # noqa: ARG002
         return True
+
+    def absolver(self, tenant_id: str) -> None:  # noqa: ARG002
+        return None
 
     def motivo_do_erro(self, erro: ErroDeLlm) -> str:
         # **Nao devolve `None`.** Um erro de LLM tem motivo mesmo com o detector
@@ -435,10 +550,10 @@ class SemDegradacao:
         # escrever um `degradado` sem motivo no estado.
         return motivo_do_erro(erro)
 
-    def registar_falha(self, erro: ErroDeLlm) -> str:
+    def registar_falha(self, tenant_id: str, erro: ErroDeLlm) -> str:  # noqa: ARG002
         return motivo_do_erro(erro)
 
-    def registar_sucesso(self) -> None:
+    def registar_sucesso(self, tenant_id: str) -> None:  # noqa: ARG002
         return None
 
     def registar_turno(
@@ -451,8 +566,11 @@ class SemDegradacao:
 
 
 __all__ = [
+    "backend_de",
     "motivo_do_erro",
-    "BACKEND_DO_LLM",
+    "MOTIVOS_QUE_NAO_CONTAM",
+    "MOTIVO_DESTINO",
+    "PREFIXO_DO_BACKEND",
     "FALHAS_PARA_ABRIR",
     "JANELA_DO_ALERTA_S",
     "LIMIAR_DO_ALERTA",

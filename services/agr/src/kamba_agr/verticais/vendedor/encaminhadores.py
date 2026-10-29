@@ -1,4 +1,10 @@
-"""Os dez encaminhadores do §7.4 — e os dez sao funcoes puras do estado.
+"""Os encaminhadores do §7.4 — e todos sao funcoes puras do estado.
+
+**Sao treze entradas no `POR_NO` e doze funcoes**, porque o `r_upstream` serve
+dois nos. O cabecalho dizia «os dez encaminhadores … e os dez sao funcoes puras»,
+o que era verdade no KAM-031 e deixou de ser com o KAM-114 (o `r_send` e o
+`r_draft`); a contagem fica agora na lista do fim, que e onde se pode medir, e
+nao numa frase que ninguem confronta. Apanhado pela revisao adversarial (C12).
 
 ## Puras, e porque e que isso e a propriedade que importa
 

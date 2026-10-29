@@ -7306,7 +7306,7 @@ entradas:
     variantes_literais: []
   - seccao: "3.31"
     conceito: "Aviso de negócio para o compose"
-    canonico: "state.avisos ⊆ {NOT_FOUND, OUT_OF_STOCK, PRICE_CHANGED, LIMIT_EXCEEDED, VALIDATION_ERROR, UPSTREAM_TIMEOUT, UPSTREAM_DOWN, STALE_CONFIRMATION}"
+    canonico: "state.avisos ⊆ {NOT_FOUND, OUT_OF_STOCK, PRICE_CHANGED, LIMIT_EXCEEDED, VALIDATION_ERROR, UPSTREAM_TIMEOUT, UPSTREAM_DOWN, STALE_CONFIRMATION, REFERENCIA_EM_FALTA}"
     literais:
       - "state.avisos"
       - "NOT_FOUND"
@@ -7317,6 +7317,7 @@ entradas:
       - "UPSTREAM_TIMEOUT"
       - "UPSTREAM_DOWN"
       - "STALE_CONFIRMATION"
+      - "REFERENCIA_EM_FALTA"
     nomes:
       - "compose"
       - "state.avisos"
@@ -7328,7 +7329,21 @@ entradas:
       - "UPSTREAM_TIMEOUT"
       - "UPSTREAM_DOWN"
       - "STALE_CONFIRMATION"
-    nomes_nota: []
+      - "REFERENCIA_EM_FALTA"
+    nomes_nota:
+      - "order_status"
+    variantes_literais: []
+  - seccao: "3.31"
+    conceito: "Consulta de pedido sem referência dada"
+    canonico: "REFERENCIA_EM_FALTA"
+    literais:
+      - "REFERENCIA_EM_FALTA"
+    nomes:
+      - "REFERENCIA_EM_FALTA"
+    nomes_nota:
+      - "NOT_FOUND"
+      - "state.avisos"
+      - "tool_audit.error_code"
     variantes_literais: []
   - seccao: "3.31"
     conceito: "Confirmação antiga ou inválida"
@@ -8326,13 +8341,14 @@ entradas:
     variantes_literais: []
   - seccao: "3.35"
     conceito: "Razão da degradação (etiqueta motivo)"
-    canonico: "timeout, http_429, budget, breaker, backpressure"
+    canonico: "timeout, http_429, budget, breaker, backpressure, destino_negado"
     literais:
       - "timeout"
       - "http_429"
       - "budget"
       - "breaker"
       - "backpressure"
+      - "destino_negado"
     nomes:
       - "motivo"
       - "timeout"
@@ -8340,7 +8356,13 @@ entradas:
       - "budget"
       - "breaker"
       - "backpressure"
+      - "destino_negado"
     nomes_nota:
+      - "destino_negado"
+      - "DestinoNegado"
+      - "ErroDeLlm"
+      - "breaker"
+      - "prod"
       - "http_429"
       - "a"
       - "z"
@@ -8362,6 +8384,18 @@ entradas:
       - "agr_tls_disjuntor_aberto_total"
     variantes_literais: []
   - seccao: "3.35"
+    conceito: "Unidade do disjuntor do LLM"
+    canonico: "um por tenant (llm:{tenant_id})"
+    literais:
+      - "llm:{tenant_id}"
+    nomes:
+      - "llm"
+      - "tenant_id"
+    nomes_nota:
+      - "tenant_id"
+      - "allowed_fails"
+    variantes_literais: []
+  - seccao: "3.35"
     conceito: "Limiares do disjuntor do LLM"
     canonico: "allowed_fails: 3, cooldown_time: 30"
     literais:
@@ -8372,6 +8406,17 @@ entradas:
       - "cooldown_time"
     nomes_nota:
       - "router_settings"
+    variantes_literais: []
+  - seccao: "3.35"
+    conceito: "Passagem do limiar do alerta"
+    canonico: "agr_degraded_acima_do_limiar_total"
+    literais:
+      - "agr_degraded_acima_do_limiar_total"
+    nomes:
+      - "agr_degraded_acima_do_limiar_total"
+    nomes_nota:
+      - "agr_registry_denied_total"
+      - "agr_draft_pendentes"
     variantes_literais: []
   - seccao: "3.35"
     conceito: "Limiar do alerta de degradação"
@@ -8410,16 +8455,14 @@ entradas:
     variantes_literais: []
   - seccao: "3.35"
     conceito: "Identificador de opção do menu"
-    canonico: "menu:encomenda, menu:pagamento, menu:loja, menu:humano"
+    canonico: "menu:pedido, menu:loja, menu:humano"
     literais:
-      - "menu:encomenda"
-      - "menu:pagamento"
+      - "menu:pedido"
       - "menu:loja"
       - "menu:humano"
     nomes:
       - "menu"
-      - "encomenda"
-      - "pagamento"
+      - "pedido"
       - "loja"
       - "humano"
     nomes_nota:
@@ -8428,24 +8471,52 @@ entradas:
       - "cart_id"
       - "falar_com_humano"
       - "encomenda"
-      - "pagamento_estado"
       - "info_loja"
       - "humano"
+      - "pagamento"
+      - "degradado"
+      - "_CANCELAMENTO"
     variantes_literais: []
   - seccao: "3.35"
-    conceito: "Menu principal contra lista de opções"
-    canonico: "três botões contra quatro linhas"
+    conceito: "Rótulo de cada opção"
+    canonico: "O meu pedido, Horario e morada, Falar com um colega"
+    literais:
+      - "O meu pedido"
+      - "Horario e morada"
+      - "Falar com um colega"
+    nomes:
+      - "O"
+      - "meu"
+      - "pedido"
+      - "Horario"
+      - "e"
+      - "morada"
+      - "Falar"
+      - "com"
+      - "um"
+      - "colega"
+    nomes_nota:
+      - "pt"
+      - "PortaDeSaida.enfileirar"
+      - "Corpo"
+      - "id"
+      - "titulo"
+    variantes_literais: []
+  - seccao: "3.35"
+    conceito: "O tecto das opções"
+    canonico: "três"
     literais: []
     nomes: []
     nomes_nota:
-      - "MAX_BOTOES"
+      - "MAXIMO_DE_BOTOES"
+      - "TOO_MANY_BUTTONS"
       - "buttons"
     variantes_literais: []
   - seccao: "3.35"
     conceito: "Versão dos textos do modo"
-    canonico: "1.0.0, SemVer"
+    canonico: "1.1.0, SemVer"
     literais:
-      - "1.0.0"
+      - "1.1.0"
     nomes: []
     nomes_nota: []
     variantes_literais: []

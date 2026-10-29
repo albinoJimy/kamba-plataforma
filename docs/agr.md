@@ -1797,8 +1797,25 @@ classify --(degradado e a intenção não é servida)--> degraded_menu --> valid
 | `timeout` | o `kamba-chat` passou o tecto de 20 s | `classify`, a apanhar o `ErroDeLlm` |
 | `http_429` | o fornecedor recusou por ritmo | idem, pelo `estado_http` |
 | `budget` | a chave virtual esgotou-se | idem |
-| `breaker` | três falhas consecutivas, pausa de 30 s | `ingest`, antes de o turno correr |
+| `destino_negado` | o *gate* de destino recusou (ADR-008) | idem, e **não conta no disjuntor** |
+| `breaker` | três falhas consecutivas **deste *tenant***, pausa de 30 s | `ingest`, antes de o turno correr |
 | `backpressure` | *tenant* no tecto **e** fila acima do limiar | idem |
+
+**São seis e o critério 6 nomeia cinco**, e o sexto saiu da revisão adversarial: o
+`DestinoNegado` **é** um `ErroDeLlm` e, sem ramo próprio, caía no `breaker` — o
+painel dizia «o modelo ficou inalcançável» sobre uma barreira de soberania a
+funcionar. Degrada, porque o cliente tem de receber resposta; não conta no
+disjuntor, porque não é avaria transitória — em `prod` a porta nega tudo até ao
+KAM-069, e três recusas abriam um disjuntor que nada fecharia.
+
+**E o disjuntor é por *tenant***. Era global na primeira versão, e isso era
+amplificação de falha entre *tenants*: todas as falhas que o detector vê chegam
+por uma chave virtual **do *tenant*** — o orçamento é da chave (§13.3), o ritmo é
+por chave, o *gate* de destino decide por `tenant_id` —, pelo que três turnos de
+um *tenant* sem orçamento punham **toda** a réplica em modo determinístico. É o
+oposto do anti-vizinho-ruidoso do §15.2 regra 2. O que se paga é até
+`allowed_fails` idas por *tenant* numa avaria real do proxy, em vez de três no
+total: um tecto pequeno e conhecido, contra uma falha que não atravessa.
 
 **`http_429` e não `429`**, e a razão é uma barreira que já existia: a gramática de
 etiqueta é `^[a-z][a-z0-9_]{1,62}$` e um valor que comece por dígito **levanta**.
@@ -1848,11 +1865,15 @@ meio), e o que impede o denominador de inflacionar é o `turn_id`: a segunda cha
 «a última entrada» não serve, porque com o tecto de concorrência a três um *tenant*
 tem até três turnos em voo e a promoção ia ao turno do lado.
 
-Onde é que o alerta dispara: **em nenhum sítio automático**. Não há sistema de
-alertas neste repositório, medido, e a agregação contínua é o KAM-080. O
-`registar_turno` devolve `True` quando o limiar passa; o resto está no runbook
-(`runbooks/degradacao-do-agr.md`), que é a forma que o KAM-027 e o KAM-114 já
-usaram para os seus alertas.
+Onde é que o alerta dispara: **numa métrica, e em mais nada automático**. Não há
+sistema de alertas neste repositório, medido, e a agregação contínua é o KAM-080;
+a passagem do limiar conta em `agr_degraded_acima_do_limiar_total`, que é a forma
+que o KAM-027 e o KAM-114 já usaram para os seus alertas. **E conta dentro do
+detector**, não em quem o chama: a primeira versão devolvia um booleano que os
+dois chamadores descartavam — o alerta era calculado e atirado fora, e o ensaio
+media o valor de retorno de um método em vez de medir que alguma coisa acontece.
+Um efeito que depende de alguém se lembrar não é um efeito. Apanhado pela revisão
+adversarial.
 
 ### O modo passa pelo validador, e o concierge passa à frente dele
 
@@ -1874,6 +1895,45 @@ A consequência operacional fica escrita onde dói: num *tenant* concierge, o LL
 baixo **não** faz chegar nada ao cliente até um operador aprovar. É também por isso
 que o «≤ 1 turno» do critério 1 se mede com a política **desligada**, que é o caso
 de todos os *tenants* fora do Piloto concierge.
+
+### O menu: três opções, e os identificadores valem sempre
+
+**Três e não quatro, e um conjunto e não dois.** O critério 2 dá dois tectos («≤ 3
+botões», «≤ 10 linhas») e serve-se um conjunto de três, que satisfaz os dois. A
+razão é medida e vem da revisão adversarial: o
+`packages/core-ts/src/outbound/contrato.ts` fixa `MAXIMO_DE_BOTOES = 3` e o
+`decisao.ts` devolve `TOO_MANY_BUTTONS` acima disso, e o bloco `buttons` do §9.1
+**não distingue** *reply buttons* de lista — pelo que três é o único número válido
+nos dois mapeamentos possíveis, e com quatro o turno degradado mais comum ficava
+**sem resposta**. O que fica em dívida é a **forma de lista** e não o tecto dela,
+com credor **KAM-015**, que tem a superfície do Outbound — e com ela os rótulos,
+que já existem aqui em `pt` de Angola e versionados porque um identificador cru no
+ecrã do cliente não é um texto.
+
+**E os identificadores valem em qualquer turno, degradado ou não.** Foi o achado
+mais grave da revisão: o mapa era consultado só no caminho degradado, e o
+`degradado` é um campo **do turno** enquanto o botão **fica no ecrã do WhatsApp**.
+O turno seguinte, com o modelo recuperado, deixava de reconhecer os
+identificadores que nós próprios emitimos — um `menu:humano` não abria *handoff* e
+o id cru ia ao modelo como texto do cliente, contra a regra do §15.1 que o
+`nos.py` escreve para o `confirm:*`. É a mesma lição que o `_CANCELAMENTO` pagou,
+escrita no próprio ficheiro: «o botão da mensagem anterior continua no ecrã».
+
+**Um toque em «O meu pedido» pergunta a referência.** O `order_status` procura-a
+no texto do cliente, e no turno de um toque o texto do turno *é* o identificador
+do botão: a resposta era «Não encontrei esse **artigo** no **catálogo** da loja» a
+quem pediu um pedido, e a capacidade era inalcançável pelo menu. A correcção é um
+aviso próprio — `REFERENCIA_EM_FALTA`, o nono de `state.avisos` — que separa «não
+me disse qual» de «não existe», e **vale nos dois modos**. No turno seguinte, uma
+referência escrita sozinha é reconhecida como consulta de pedido.
+
+**E essa confusão escondia um ensaio que não media nada.** O X-09 do KAM-031
+afirmava que a encomenda de outro contacto não se lê, com a referência
+`o-do-outro` — que não tem dígitos, pelo que o `order_status` nunca extraía nada e
+**nunca chamava a tool**: o ensaio passava com `NOT_FOUND` sem ter medido
+isolamento nenhum. Enquanto os dois casos davam o mesmo aviso, eram
+indistinguíveis por desenho, e é por isso que nenhuma leitura o apanhou. Ficou
+corrigido no mesmo PR, com a tool a ser chamada e a chamada afirmada.
 
 ### O que o modo não serve, e porquê
 
@@ -1904,4 +1964,5 @@ referência é uma cadeia opaca com dígitos e nenhum dos cinco blocos do §9.1 
 | 1.10 | 2026-10-27 | KAM-034 | **Revisao adversarial** (`analises/ANALISE-35`): REPROVADO, 3 *must fix* e 6 *should fix*. A classe que ela nomeia e nova nesta serie — **a propriedade esta medida, e o duplo que a mede e mais forte do que a peca que ele substitui** —, e os tres *must fix* sao todos dessa forma. Duas barreiras que este ticket afirmava em cinco e em tres sitios nao existiam: **a tranca da conversa nao excluia dentro do processo** (os *advisory locks* de sessao sao contados e a `TrancaDeConversas` tem uma ligacao por processo; os dois unicos chamadores que nao passam pelo dreno do `turno.py` sao os dois que este ticket acrescentou, e nem o `TrancaNaoLargadaError` o denunciava), e **a politica AST do criterio 2 evadia-se com uma linha, por seis formas** (o efeito na posicao de argumento, um tuplo, o `contextlib.suppress`, uma compreensao, o `except*` e o `async with`). As duas estao corrigidas, com ensaio contra a peca **real** e com mutacao; as duas *docstrings* da casa que se contradiziam sobre a tranca passaram a dizer o mesmo. **O terceiro nao se corrigiu, e e por isso que o criterio 3 ficou `parcial`:** a `platform.handoffs` tem dois escritores para `waiting -> resumed` e o do HND corre **primeiro** (o `#fechar` do `receber` antes do `onHumanEvent`), pelo que no caminho feliz o CAS da zero linhas e o `Command(resume=...)` nunca corre. A correccao e TypeScript nos ficheiros do KAM-019 e a emenda 1.22 ja tinha escrito que ele nao escreve esta transicao: e uma decisao de canon, e esta devolvida com as duas saidas no §3.32. **E tentou-se um paliativo e retirou-se** — um desfecho `conflito` proprio dispara tambem no *webhook* duplicado legitimo, pelo que nao separa nada. Dos *should fix*: a captura da tabela no *lint* tinha introduzido uma **regressao** (`platform."orders"` deixou de morder, num gate de bloqueio e para todas as tabelas), a dispensa passou a ser por **verbo** (a `0011` concede `INSERT` ao `kamba_app`, pelo que o argumento escrito era metade falso), o `partes` passou a exigir a forma **canonica** de UUID (um `contact_id` invalido dava `22P02`, 500, e o HND a repetir), a `MSG_ALTERNATIVAS` ganhou ensaio de **conteudo** (o que havia comparava-a com a propria constante), e o ramo degradado passou a subir o `handoff_seq` (sem isso o *handoff* seguinte reusava o `hid` de uma passagem que o HND pode ter deixado criada). |
 | 1.11 | 2026-10-27 | KAM-019 | **A fronteira dos dois escritores ficou decidida, e não foi aqui.** A emenda **1.42** do dicionário (§3.32) escolhe a opção 1 da 1.41: o `ESTADOS_QUE_FECHAM` do HND passa a `["degraded"]` — as **três** saídas de `waiting` e não só o `resolved`, porque as três retomam o grafo —, o HND passa a chamar `POST /internal/resume` e o `resolver` ganha instrução própria do lado dele (o ADR-010 mantém a identidade do agente fora deste serviço). O código deste serviço **não muda**; o que muda aqui é a §7-G, que deixa de descrever uma sobreposição, e a tabela do que fica por ligar, que perde duas linhas. A paridade passa a ter ensaio nesta bateria (`TestFronteiraComOHnd`, nove asserções que lêem os ficheiros TypeScript), e ela existe porque a prova de que ninguém olhara para o segundo escritor foi um `grep` sem resultados. **E corrige-se um número da 1.9:** o `resumed_at` escreve-se nos **três** desfechos e não nos quatro — o `DESFECHOS` do `handoff/maquina.py` tem três valores. |
 | 1.12 | 2026-10-27 | KAM-038 | §7-H: a subscricao de eventos — a rota `/internal/event` e os tres codigos que ela da a fila, o efeito **dentro** da transaccao do consumo e o que isso compra nos dois sentidos, a setima ligacao e a traducao do `BEGIN`/`COMMIT`/`ROLLBACK` para o condutor, o *handler* por `(vertical, tipo)` e o `sem_accao`, as duas portas que nao partilham caminho, as quatro metricas com a primeira **medida com etiqueta** da casa, o `aplica_transicao` do KAM-006, a reserva de prioridade acima do tecto, e a entrada da `events_dlq` no *lint* de arquitectura com so o `insert`. Os codigos de saida passam a oito (o `7` do KAM-030 tambem faltava nesta tabela). **A revisao adversarial reprovou o ticket com nove achados**, e os tres que mudaram desenho estao escritos na seccao: duas mensagens identicas ao mesmo cliente, o `sem_template` a marcar sem enviar, e o cancelamento a nao esperar pela *thread* — este ultimo e o defeito que o §7-A ja tinha pago. | Equipa KAMBA |
+| 1.14 | 2026-10-29 | KAM-037 | **Revisão adversarial** (`analises/ANALISE-39`): **29 achados, 12 `CONFIRMADO`** — dois deles pagos durante a revisão, pela própria entrega documental. A classe que ela nomeia é nova nesta série: **o estado do mundo fora do turno**. Três dos achados graves são a mesma forma — o botão fica no ecrã do WhatsApp e o `degradado` é um campo do turno (C1); o disjuntor era global e o orçamento é da chave do *tenant* (C3); o `buttons` de quatro ids é válido aqui e recusado pelo Outbound (C6) —, isto é, **peças corretas medidas contra o seu próprio contexto e não contra o do consumidor**. E dois achados são de confiança e não de produto: um ensaio chamado «…cita por fact» que não olhava para nenhum *fact*, e outro que passava com o comportamento oposto ao nome. O §6 e o §7-I ficam reescritos onde a correcção mudou o que estava escrito |
 | 1.13 | 2026-10-29 | KAM-037 | §7-I: o modo determinístico — o sub-grafo **do** grafo e não um segundo compilado (e porque é o *checkpointer* que decide isso), os cinco motivos e o `429` que teve de virar `http_429` pela gramática de etiqueta, o disjuntor do LLM com os limiares **medidos** na configuração do proxy em vez de copiados do bloco, a barreira que não se simplifica (Postgres em baixo **não** é degradação, imposta por tipo e medida a correr), o `turn_id` que impede o denominador do alerta de inflacionar com turnos em voo, e a interacção com o `concierge` que nenhum dos dois blocos previa — devolvida ao fundador com a leitura implementada. O §6 fica corrigido: o `agr_degraded_turns_total` **passou a existir**, e a frase que dizia o contrário era verdadeira até este ticket |

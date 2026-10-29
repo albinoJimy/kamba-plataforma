@@ -46,6 +46,7 @@ cliente nao pode ter visto neste turno.
 
 from __future__ import annotations
 
+import re
 from typing import Final
 
 # **Este modulo importa o `..nos`, e o `..nos` nao importa este.** E a regra que
@@ -55,18 +56,24 @@ from typing import Final
 # deste mesmo `nos.py`). Os nos do sub-grafo entram no grafo pelo `grafo.py`, que
 # junta as duas tabelas — e nao pelo `NOS_DO_GRAFO`, que e do `nos.py`.
 from ..nos import BOTAO_HUMANO, PREFIXO_DE_CONFIRMACAO, intencao_por_regras
-from .textos import (
-    OPCAO_ENCOMENDA,
-    OPCAO_HUMANO,
-    OPCAO_LOJA,
-    OPCAO_PAGAMENTO,
-)
+from .textos import OPCAO_HUMANO, OPCAO_LOJA, OPCAO_PEDIDO
 
 #: Cada identificador de opcao, na intencao do §7.3 que ele abre. **Nenhuma
 #: intencao nova**: ver o cabecalho do `textos.py`.
+#:
+#: **E consultado pelo `classify` em TODOS os turnos, degradado ou nao**, e a
+#: primeira versao so o consultava em modo degradado — o que era o achado C1 da
+#: revisao adversarial, e critico: o `degradado` e um campo **do turno** e o
+#: botao **fica no ecra do WhatsApp**, pelo que o turno em que o menu sai
+#: reconhecia os identificadores e o turno seguinte, com o modelo recuperado,
+#: nao os reconhecia. Um `menu:humano` deixava de abrir *handoff* e o
+#: identificador cru ia ao modelo como se fosse texto do cliente.
+#:
+#: E a mesma licao que o `_CANCELAMENTO` do `nos.py` pagou, escrita no proprio
+#: ficheiro: «o botao `confirm:{cart_id}` da mensagem anterior continua no ecra
+#: do WhatsApp». Um identificador nosso nao depende da saude do modelo.
 INTENCAO_DA_OPCAO: Final = {
-    OPCAO_ENCOMENDA: "encomenda",
-    OPCAO_PAGAMENTO: "pagamento_estado",
+    OPCAO_PEDIDO: "encomenda",
     OPCAO_LOJA: "info_loja",
     OPCAO_HUMANO: "humano",
 }
@@ -82,6 +89,20 @@ SERVIDAS: Final = (
     "humano",
 )
 
+#: A referencia de um pedido, sozinha num turno. **E a segunda metade do achado
+#: C2**: sem ela, um cliente que respondesse `ABC-123` a pergunta do
+#: `REFERENCIA_EM_FALTA` caia em `outro` e voltava ao menu — a capacidade «estado
+#: do pedido» ficava inalcancavel pelo menu, em ciclo.
+#:
+#: **Vive aqui e nao no `_REGRAS_DE_INTENCAO` do `nos.py`**, e e deliberado: no
+#: modo normal o modelo trata um turno destes, e acrescentar o padrao as regras
+#: do §15.1 era «um caso que o modelo deixa de ver, e tambem um caso que ninguem
+#: reve» — a razao que a lista de regras tem escrita.
+#:
+#: O padrao e **ancorado** e exige um digito: sem a ancora, qualquer frase com
+#: uma palavra curta seguida de numero virava consulta de pedido.
+_SO_REFERENCIA: Final = re.compile(r"^\s*([A-Za-z]{1,4}-?\d{1,12})\s*[?.!]?\s*$")
+
 #: As intencoes que o modo **nao** serve e que pedem explicacao propria: o
 #: cliente perguntou pelo catalogo, e tem de saber que o pedido nao se perdeu.
 #: As outras (`outro`) recebem a lista de opcoes.
@@ -91,6 +112,11 @@ DE_CATALOGO: Final = ("produto", "preco_stock", "comprar")
 def serve(intencao: str | None) -> bool:
     """Se o modo deterministico tem no de trabalho para esta intencao."""
     return intencao in SERVIDAS
+
+
+def so_uma_referencia(texto: str) -> bool:
+    """Se o turno e **so** a referencia de um pedido. Ver o `_SO_REFERENCIA`."""
+    return bool(_SO_REFERENCIA.match(texto))
 
 
 def intencao_sem_llm(botao: str, texto: str) -> str:
@@ -118,7 +144,10 @@ def intencao_sem_llm(botao: str, texto: str) -> str:
         return INTENCAO_DA_OPCAO[botao]
     if botao == BOTAO_HUMANO:
         return "humano"
-    return intencao_por_regras(texto) or "outro"
+    decidida = intencao_por_regras(texto)
+    if decidida is None and so_uma_referencia(texto):
+        return "encomenda"
+    return decidida or "outro"
 
 
 __all__ = [
@@ -127,4 +156,5 @@ __all__ = [
     "SERVIDAS",
     "intencao_sem_llm",
     "serve",
+    "so_uma_referencia",
 ]

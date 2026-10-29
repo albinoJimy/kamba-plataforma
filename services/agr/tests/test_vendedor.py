@@ -1006,15 +1006,28 @@ class TestIsolamentoX09(unittest.TestCase):
         self.assertNotIn(self.CANARIO, saida.textos[0])
 
     def test_a_encomenda_de_outro_contacto_nao_se_le(self) -> None:
+        """O X-09 na tool: o `get_order_status` so ve o **proprio** contacto (§6.2).
+
+        **A referencia tem de casar o `_REFERENCIA`, e a primeira versao deste
+        ensaio nao casava.** Ela usava `o-do-outro`, que nao tem digitos: o
+        `order_status` nao extraia referencia nenhuma, **nunca chamava a tool**, e
+        o ensaio passava com `NOT_FOUND` sem ter medido isolamento nenhum — media
+        «nao percebi o que me pediu». O defeito ficou visivel quando o KAM-037
+        separou «nao me disse qual» de «nao existe»; sem essa separacao, os dois
+        casos eram indistinguiveis **por desenho**, e e por isso que nenhuma
+        leitura o apanhou.
+        """
         backend = BackendDeEnsaio()
-        backend.encomendas["o-do-outro"] = ("outro-contacto", self.CANARIO)
+        backend.encomendas["ABC-999"] = ("outro-contacto", self.CANARIO)
 
         grafo, _deps, _backend, saida, _lig = montar(backend=backend)
-        final = correr(grafo, estado_de("qual o estado do pedido o-do-outro"))
+        final = correr(grafo, estado_de("qual o estado do pedido ABC-999"))
 
+        # A tool **foi** chamada, e e isso que faz deste ensaio uma prova.
+        self.assertEqual(backend.chamadas.get("get_order_status"), 1)
         self.assertIn("NOT_FOUND", final["avisos"])
         self.assertNotIn(self.CANARIO, saida.textos[0])
-        self.assertNotIn("o-do-outro", saida.textos[0])
+        self.assertNotIn("ABC-999", saida.textos[0])
 
     def test_a_propria_encomenda_le_se(self) -> None:
         """O controlo positivo do ensaio cruzado: o proprio contacto **ve**.
@@ -1235,10 +1248,20 @@ class TestOutrosNos(unittest.TestCase):
         self.assertIn("Nao encontrei nada no catalogo", saida.textos[0])
 
     def test_um_pedido_sem_referencia_no_texto_explica(self) -> None:
+        """**E o aviso e `REFERENCIA_EM_FALTA` e nao `NOT_FOUND`** (KAM-037).
+
+        O nome deste ensaio ja dizia «sem referencia no texto», e o aviso que ele
+        afirmava dizia «nao existe» — duas coisas diferentes com a mesma resposta.
+        O KAM-037 separou-as porque o menu do modo deterministico fazia a
+        confusao chegar ao cliente: um toque em «O meu pedido» recebia «Nao
+        encontrei esse artigo no catalogo da loja».
+        """
         grafo, _deps, backend, saida, _lig = montar()
         final = correr(grafo, estado_de("quero saber da minha encomenda"))
-        self.assertIn("NOT_FOUND", final["avisos"])
+        self.assertIn(tabela.REFERENCIA_EM_FALTA, final["avisos"])
+        self.assertNotIn("NOT_FOUND", final["avisos"])
         self.assertEqual(backend.chamadas.get("get_order_status"), None)
+        self.assertIn("referencia do pedido", saida.textos[0])
 
     def test_a_nota_de_voz_sem_stt_pede_texto(self) -> None:
         grafo, _deps, _backend, saida, _lig = montar()

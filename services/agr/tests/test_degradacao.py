@@ -38,6 +38,7 @@ exige é precisamente que ele **não** apanhe tudo.
 from __future__ import annotations
 
 import asyncio
+import re
 import unittest
 from typing import Any
 
@@ -46,7 +47,6 @@ from test_vendedor import Handoff, Relogio, Saida, correr, estado_de, montar
 from kamba_agr import degradacao as deg
 from kamba_agr.admissao import Admissao, Tectos
 from kamba_agr.degradacao import (
-    BACKEND_DO_LLM,
     FALHAS_PARA_ABRIR,
     JANELA_DO_ALERTA_S,
     LIMIAR_DO_ALERTA,
@@ -55,14 +55,18 @@ from kamba_agr.degradacao import (
     MOTIVO_BREAKER,
     MOTIVO_BUDGET,
     MOTIVO_CONTRAPRESSAO,
+    MOTIVO_DESTINO,
     MOTIVO_TIMEOUT,
     MOTIVOS,
+    MOTIVOS_QUE_NAO_CONTAM,
     PAUSA_MS,
     DetectorDeDegradacao,
     SemDegradacao,
+    backend_de,
 )
 from kamba_agr.estado import CAMPOS_DO_TURNO, estado_inicial
 from kamba_agr.llm.erros import (
+    DestinoNegado,
     FornecedorFalhou,
     OrcamentoEsgotado,
     TempoEsgotado,
@@ -71,10 +75,12 @@ from kamba_agr.llm.erros import (
 from kamba_agr.metricas import (
     METRICA_DEGRADACAO_ALERTA,
     METRICA_DEGRADADOS,
+    METRICA_DEGRADADOS_ACIMA,
     MetricasDoAgr,
 )
-from kamba_agr.validador.render import MAX_BOTOES, renderizar
+from kamba_agr.validador.render import renderizar
 from kamba_agr.verticais.vendedor import arestas as tabela
+from kamba_agr.verticais.vendedor import nos as nos_mod
 from kamba_agr.verticais.vendedor.degradado import intencoes as int_deg
 from kamba_agr.verticais.vendedor.degradado import nos as nos_deg
 from kamba_agr.verticais.vendedor.degradado import textos as txt
@@ -268,9 +274,11 @@ class TestLimiaresDoDisjuntor(unittest.TestCase):
 class TestMotivos(unittest.TestCase):
     """Os cinco motivos do critério 6, e o que o `429` teve de virar."""
 
-    def test_sao_cinco(self) -> None:
-        self.assertEqual(len(MOTIVOS), 5)
-        self.assertEqual(len(set(MOTIVOS)), 5)
+    def test_sao_seis(self) -> None:
+        """Cinco do critério 6, e o `destino_negado` que ele não previa."""
+        self.assertEqual(len(MOTIVOS), 6)
+        self.assertEqual(len(set(MOTIVOS)), 6)
+        self.assertIn(MOTIVO_DESTINO, MOTIVOS)
 
     def test_todos_casam_a_gramatica_de_etiqueta(self) -> None:
         """É por isto que o `429` do critério é `http_429`.
@@ -304,6 +312,29 @@ class TestMotivos(unittest.TestCase):
             MOTIVO_BREAKER,
         )
 
+    def test_o_destino_negado_nao_e_avaria_do_modelo(self) -> None:
+        """Achado C4: caía no ramo de omissão e saía `breaker`.
+
+        Um `DestinoNegado` é a recusa do *gate* de destino (ADR-008) — uma
+        barreira de soberania a funcionar, e **permanente** até ao KAM-069, não
+        uma avaria transitória. Dizer `breaker` punha o painel a afirmar «o
+        modelo ficou inalcançável» sobre uma recusa de conformidade.
+        """
+        erro = DestinoNegado("destino nao autorizado", "router")
+        self.assertEqual(deg.motivo_do_erro(erro), MOTIVO_DESTINO)
+        self.assertIn(MOTIVO_DESTINO, MOTIVOS_QUE_NAO_CONTAM)
+
+    def test_o_destino_negado_nao_abre_o_disjuntor(self) -> None:
+        """E a segunda metade: não conta no disjuntor, por muitas que sejam."""
+        det, metricas, _ = detector()
+        for _ in range(FALHAS_PARA_ABRIR * 2):
+            self.assertEqual(
+                det.registar_falha(TENANT, DestinoNegado("nao autorizado", "router")),
+                MOTIVO_DESTINO,
+            )
+        self.assertIsNone(det.motivo_antes_do_turno(TENANT))
+        self.assertNotIn(METRICA_DEGRADACAO_ALERTA, metricas.exposicao())
+
     def test_o_classificar_do_gateway_poe_o_estado_na_excepcao(self) -> None:
         """O 429 chega aqui pelo `estado_http`, e não por um `resultado` novo.
 
@@ -329,7 +360,7 @@ class TestNaoDegradaComOQueNaoEDoLlm(unittest.TestCase):
                 with self.assertRaises(TypeError):
                     det.motivo_do_erro(erro)
                 with self.assertRaises(TypeError):
-                    det.registar_falha(erro)
+                    det.registar_falha(TENANT, erro)
 
     def test_o_sem_degradacao_recusa_o_mesmo(self) -> None:
         """A omissão não é a porta larga: recusa pela mesma regra."""
@@ -352,6 +383,31 @@ class TestNaoDegradaComOQueNaoEDoLlm(unittest.TestCase):
             "a base em baixo foi contada como turno degradado",
         )
 
+    def test_um_erro_da_base_nao_deixa_a_porta_fechada_para_o_turno_seguinte(
+        self,
+    ) -> None:
+        """**Achado C7**, medido pelo grafo e não pelo detector sozinho.
+
+        O `pode_chamar_o_llm` consome a tentativa de meio-aberto; se o
+        classificador levantar algo que não é do modelo, a excepção sobe — e
+        bem — mas a tentativa ficava pendurada pelo prazo da pausa, e os turnos
+        desse intervalo degradavam com `motivo="breaker"`.
+        """
+        det, metricas, relogio = detector()
+        for _ in range(FALHAS_PARA_ABRIR):
+            det.registar_falha(TENANT, TempoEsgotado("tempo", "router"))
+        relogio.avancar(PAUSA_MS / 1000 + 1)
+        mau = LlmQueFalha(BaseEmBaixo("a base caiu"))
+        grafo, _, _, _, _ = montar(classificador=mau, degradacao=det)
+        with self.assertRaises(BaseEmBaixo):
+            correr(grafo, estado_de("bom dia", tenant_id=TENANT))
+        # A porta tem de ficar aberta para o turno seguinte: o que falhou não
+        # disse nada sobre a saúde do modelo.
+        self.assertTrue(
+            det.pode_chamar_o_llm(TENANT),
+            "a tentativa de meio-aberto ficou pendurada por um erro da base",
+        )
+
 
 class TestDisjuntorDoLlm(unittest.TestCase):
     """O *circuit breaker*: abre às três falhas, fecha ao primeiro sucesso."""
@@ -359,9 +415,9 @@ class TestDisjuntorDoLlm(unittest.TestCase):
     def test_abre_as_falhas_do_proxy_e_nao_antes(self) -> None:
         det, metricas, _ = detector()
         for _ in range(FALHAS_PARA_ABRIR - 1):
-            det.registar_falha(TempoEsgotado("tempo", "router"))
+            det.registar_falha(TENANT, TempoEsgotado("tempo", "router"))
             self.assertIsNone(det.motivo_antes_do_turno(TENANT))
-        det.registar_falha(TempoEsgotado("tempo", "router"))
+        det.registar_falha(TENANT, TempoEsgotado("tempo", "router"))
         self.assertEqual(det.motivo_antes_do_turno(TENANT), MOTIVO_BREAKER)
         self.assertIn(METRICA_DEGRADACAO_ALERTA, metricas.exposicao())
 
@@ -369,28 +425,69 @@ class TestDisjuntorDoLlm(unittest.TestCase):
         """Critério 7, a metade que vive no disjuntor."""
         det, _, _ = detector()
         for _ in range(FALHAS_PARA_ABRIR):
-            det.registar_falha(TempoEsgotado("tempo", "router"))
+            det.registar_falha(TENANT, TempoEsgotado("tempo", "router"))
         self.assertEqual(det.motivo_antes_do_turno(TENANT), MOTIVO_BREAKER)
-        det.registar_sucesso()
+        det.registar_sucesso(TENANT)
         self.assertIsNone(det.motivo_antes_do_turno(TENANT))
 
     def test_a_pausa_acaba_e_deixa_passar_uma_tentativa(self) -> None:
         det, _, relogio = detector()
         for _ in range(FALHAS_PARA_ABRIR):
-            det.registar_falha(TempoEsgotado("tempo", "router"))
-        self.assertFalse(det.pode_chamar_o_llm())
+            det.registar_falha(TENANT, TempoEsgotado("tempo", "router"))
+        self.assertFalse(det.pode_chamar_o_llm(TENANT))
         relogio.avancar(PAUSA_MS / 1000 + 1)
-        self.assertTrue(det.pode_chamar_o_llm(), "a pausa acabou e a porta ficou fechada")
+        self.assertTrue(det.pode_chamar_o_llm(TENANT), "a pausa acabou e a porta ficou fechada")
+
+    def test_o_disjuntor_de_um_tenant_nao_degrada_outro(self) -> None:
+        """Achado C3: era um disjuntor global e o orçamento é por chave do tenant.
+
+        Três `OrcamentoEsgotado` de um *tenant* punham **toda** a réplica em modo
+        determinístico durante a pausa — o oposto do anti-vizinho-ruidoso do
+        §15.2 regra 2. O orçamento é da chave virtual dele (§13.3), o ritmo é por
+        chave, e o *gate* de destino decide por `tenant_id`: todas as falhas que
+        este detector vê são do *tenant*.
+        """
+        det, _, _ = detector()
+        for _ in range(FALHAS_PARA_ABRIR):
+            det.registar_falha(TENANT, OrcamentoEsgotado("sem orcamento", "router"))
+        self.assertEqual(det.motivo_antes_do_turno(TENANT), MOTIVO_BREAKER)
+        self.assertIsNone(
+            det.motivo_antes_do_turno("99999999-9999-4999-8999-999999999999"),
+            "o disjuntor de um tenant degradou outro",
+        )
+
+    def test_a_chave_do_disjuntor_leva_o_tenant(self) -> None:
+        outro = "99999999-9999-4999-8999-999999999999"
+        self.assertNotEqual(backend_de(TENANT), backend_de(outro))
+        self.assertTrue(backend_de(TENANT).endswith(TENANT))
+
+    def test_o_absolver_larga_a_tentativa_sem_tocar_na_contagem(self) -> None:
+        """Achado C7: o `pode_chamar_o_llm` consome a tentativa de meio-aberto.
+
+        Se quem a levou não a julgar — uma excepção que **não** é do modelo —, a
+        porta ficava fechada pelo prazo da pausa, e os turnos desse intervalo
+        nasciam normais e degradavam com `motivo="breaker"`.
+        """
+        det, _, relogio = detector()
+        for _ in range(FALHAS_PARA_ABRIR):
+            det.registar_falha(TENANT, TempoEsgotado("tempo", "router"))
+        relogio.avancar(PAUSA_MS / 1000 + 1)
+        self.assertTrue(det.pode_chamar_o_llm(TENANT))
+        self.assertFalse(det.pode_chamar_o_llm(TENANT), "a segunda passou")
+        det.absolver(TENANT)
+        self.assertTrue(
+            det.pode_chamar_o_llm(TENANT), "o absolver nao largou a tentativa"
+        )
 
     def test_o_aberto_nao_consome_a_tentativa_de_meio_aberto(self) -> None:
         """Ler o painel não é decidir: o `motivo_antes_do_turno` não muta."""
         det, _, relogio = detector()
         for _ in range(FALHAS_PARA_ABRIR):
-            det.registar_falha(TempoEsgotado("tempo", "router"))
+            det.registar_falha(TENANT, TempoEsgotado("tempo", "router"))
         relogio.avancar(PAUSA_MS / 1000 + 1)
         for _ in range(3):
             self.assertIsNone(det.motivo_antes_do_turno(TENANT))
-        self.assertTrue(det.pode_chamar_o_llm())
+        self.assertTrue(det.pode_chamar_o_llm(TENANT))
 
 
 class TestContrapressao(unittest.TestCase):
@@ -471,14 +568,53 @@ class TestJanelaEAlerta(unittest.TestCase):
         self.assertEqual(det.proporcao(TENANT), 1.0)
 
     def test_alerta_acima_do_limiar_na_janela(self) -> None:
-        det, _, _ = detector()
+        det, metricas, _ = detector()
         for indice in range(MINIMO_PARA_ALERTAR - 1):
             self.assertFalse(det.registar_turno(TENANT, f"n{indice}", None))
         # O primeiro degradado fecha o mínimo: 1/20 = 5%, que **não** é > 5%.
         self.assertFalse(det.registar_turno(TENANT, "d0", MOTIVO_TIMEOUT))
         self.assertAlmostEqual(det.proporcao(TENANT), 1 / MINIMO_PARA_ALERTAR)
+        self.assertNotIn(METRICA_DEGRADADOS_ACIMA, metricas.exposicao())
         # O segundo passa: 2/21 > 5%.
         self.assertTrue(det.registar_turno(TENANT, "d1", MOTIVO_TIMEOUT))
+
+    def test_o_alerta_tem_efeito_e_nao_so_valor_de_retorno(self) -> None:
+        """Achado C5: o booleano era calculado e descartado pelos dois chamadores.
+
+        **O ensaio anterior media o valor de retorno de um método**, e passaria
+        inalterado se nenhum caminho de execução o chamasse. O que se mede agora
+        é que a passagem do limiar **conta** — a forma que o KAM-027 deu ao
+        «emite alerta» do seu critério 6 e o KAM-114 ao dele, porque não há
+        sistema de alertas neste repositório.
+        """
+        det, metricas, _ = detector()
+        for indice in range(MINIMO_PARA_ALERTAR):
+            det.registar_turno(TENANT, f"d{indice}", MOTIVO_TIMEOUT)
+        self.assertIn(f"{METRICA_DEGRADADOS_ACIMA} 1", metricas.exposicao())
+
+    def test_o_alerta_conta_num_turno_que_corre_o_grafo(self) -> None:
+        """E o efeito mede-se **pelo grafo**, não pelo detector sozinho.
+
+        É a diferença entre «a função devolve True» e «alguém a chama»: o
+        `ingest` é o único nó por onde todos os turnos passam.
+        """
+        det, metricas, _ = detector(minimo_para_alertar=2)
+        classificador = LlmQueFalha(TempoEsgotado("tempo", "router"))
+        for indice in range(3):
+            grafo, _, _, _, _ = montar(
+                classificador=classificador, degradacao=det
+            )
+            correr(
+                grafo,
+                estado_de("bom dia", tenant_id=TENANT, wamid=f"wamid.a{indice}"),
+            )
+        self.assertIn(METRICA_DEGRADADOS_ACIMA, metricas.exposicao())
+
+    def test_um_turno_sem_turn_id_levanta(self) -> None:
+        """Achado P1: o `or ""` colapsava os turnos em voo numa entrada."""
+        det, _, _ = detector()
+        with self.assertRaises(ValueError):
+            det.registar_turno(TENANT, "", None)
 
     def test_a_janela_desliza_e_o_que_saiu_deixa_de_contar(self) -> None:
         det, _, relogio = detector()
@@ -561,10 +697,33 @@ class TestContratoDoSubGrafo(unittest.TestCase):
 class TestTextosEIdentificadores(unittest.TestCase):
     """Critério 2 e critério 5 sobre os textos: limites e renderização."""
 
-    def test_o_menu_principal_tem_tres_opcoes_e_a_lista_cabe_em_dez(self) -> None:
-        self.assertLessEqual(len(txt.MENU_PRINCIPAL), txt.MAX_BOTOES_DO_MENU)
-        self.assertEqual(len(txt.MENU_PRINCIPAL), 3)
-        self.assertLessEqual(len(txt.LISTA_DE_OPCOES), MAX_BOTOES)
+    def test_as_opcoes_sao_tres_e_cabem_no_tecto_do_outbound(self) -> None:
+        """Achado C6: eram quatro, e o Outbound recusa acima de três.
+
+        Lê-se o `MAXIMO_DE_BOTOES` do `contrato.ts` **do ficheiro** e não de uma
+        constante nossa: é o consumidor que fixa o tecto, e uma cópia aqui
+        divergia dele no dia em que a Meta mudasse de limite.
+        """
+        from pathlib import Path
+
+        raiz = Path(__file__).resolve().parents[3]
+        contrato = (
+            raiz / "packages" / "core-ts" / "src" / "outbound" / "contrato.ts"
+        ).read_text(encoding="utf-8")
+        achado = re.search(r"MAXIMO_DE_BOTOES\s*=\s*(\d+)", contrato)
+        self.assertIsNotNone(achado, "o contrato do Outbound mudou de forma")
+        tecto = int(achado.group(1))
+        self.assertEqual(tecto, txt.MAX_BOTOES_DO_MENU)
+        self.assertEqual(len(txt.OPCOES), 3)
+        self.assertLessEqual(len(txt.OPCOES), tecto)
+
+    def test_cada_opcao_tem_rotulo_em_pt_sem_digitos(self) -> None:
+        """A outra metade do C6: o `Corpo` do Outbound exige `{id, titulo}`."""
+        self.assertEqual(set(txt.ROTULO_DA_OPCAO), set(txt.OPCOES))
+        for opcao, rotulo in txt.ROTULO_DA_OPCAO.items():
+            with self.subTest(opcao=opcao):
+                self.assertTrue(rotulo.strip())
+                self.assertNotRegex(rotulo, r"\d")
 
     def test_todos_os_textos_renderizam_sem_facts(self) -> None:
         """Critério 5: **0 números fora de *facts***, medido e não afirmado.
@@ -588,18 +747,17 @@ class TestTextosEIdentificadores(unittest.TestCase):
         self.assertEqual(declarados, set(txt.TEXTOS))
 
     def test_os_identificadores_levam_o_prefixo_e_sao_distintos(self) -> None:
-        todos = set(txt.MENU_PRINCIPAL) | set(txt.LISTA_DE_OPCOES)
-        for opcao in todos:
+        for opcao in txt.OPCOES:
             with self.subTest(opcao=opcao):
                 self.assertTrue(opcao.startswith(txt.PREFIXO_DA_OPCAO))
-        self.assertEqual(len(txt.LISTA_DE_OPCOES), len(set(txt.LISTA_DE_OPCOES)))
+        self.assertEqual(len(txt.OPCOES), len(set(txt.OPCOES)))
 
     def test_cada_opcao_abre_uma_das_nove_intencoes_e_nao_uma_decima(self) -> None:
         """O modo não acrescenta vocabulário ao classificador."""
         for opcao, intencao in int_deg.INTENCAO_DA_OPCAO.items():
             with self.subTest(opcao=opcao):
                 self.assertIn(intencao, tabela.INTENCOES)
-        self.assertEqual(set(int_deg.INTENCAO_DA_OPCAO), set(txt.LISTA_DE_OPCOES))
+        self.assertEqual(set(int_deg.INTENCAO_DA_OPCAO), set(txt.OPCOES))
 
     def test_as_servidas_sao_intencoes_e_estao_na_lista_do_criterio(self) -> None:
         for intencao in int_deg.SERVIDAS:
@@ -645,6 +803,50 @@ class TestIntencaoSemLlm(unittest.TestCase):
     def test_texto_livre_nao_reconhecido_da_outro_e_nao_inventa(self) -> None:
         self.assertEqual(int_deg.intencao_sem_llm("", "obrigado"), "outro")
         self.assertFalse(int_deg.serve("outro"))
+
+    def test_a_opcao_do_menu_vale_com_o_modelo_de_pe(self) -> None:
+        """**Achado C1, e era crítico.** O botão fica no ecrã do WhatsApp.
+
+        O `degradado` é um campo do turno; o botão não. Com o mapa consultado só
+        no caminho degradado, o turno seguinte — com o modelo recuperado — não
+        reconhecia os identificadores que nós próprios emitimos: o `menu:humano`
+        deixava de abrir *handoff* e o id cru ia ao modelo como texto do cliente.
+
+        Aqui o detector **não** degrada e o classificador está ligado: mede-se
+        que ele nunca é chamado e que a intenção sai certa.
+        """
+        for opcao, esperada in int_deg.INTENCAO_DA_OPCAO.items():
+            with self.subTest(opcao=opcao):
+                classificador = LlmQueFalha(
+                    AssertionError("o modelo nao devia ser chamado")
+                )
+                hnd = Handoff()
+                grafo, _, _, saida, _ = montar(
+                    classificador=classificador, hnd=hnd
+                )
+                final = correr(
+                    grafo,
+                    estado_de(opcao, tipo="interactive", tenant_id=TENANT),
+                )
+                self.assertIsNone(final["degradado"])
+                self.assertEqual(final["intent"], esperada)
+                self.assertEqual(classificador.chamadas, 0)
+                if esperada == "humano":
+                    self.assertEqual(final["handoff_motivo"], "pedido_humano")
+                    self.assertTrue(hnd.abertos)
+                else:
+                    self.assertEqual(len(saida.enviadas), 1)
+
+    def test_a_referencia_sozinha_e_uma_consulta_de_pedido(self) -> None:
+        """A segunda metade do C2: sem isto o menu era um ciclo fechado."""
+        self.assertTrue(int_deg.so_uma_referencia("ABC-123"))
+        self.assertTrue(int_deg.so_uma_referencia(" ABC-123? "))
+        self.assertEqual(int_deg.intencao_sem_llm("", "ABC-123"), "encomenda")
+        self.assertTrue(int_deg.serve("encomenda"))
+        # E **não** apanha uma frase qualquer com um número dentro.
+        for inocente in ("quero 2 camisas", "bom dia", "o A-1 e o B-2"):
+            with self.subTest(texto=inocente):
+                self.assertFalse(int_deg.so_uma_referencia(inocente))
 
     def test_o_falar_com_humano_antigo_continua_a_valer(self) -> None:
         from kamba_agr.verticais.vendedor.nos import BOTAO_HUMANO
@@ -723,7 +925,7 @@ class TestCriterio1(unittest.TestCase):
 def _abrir_o_disjuntor(det: DetectorDeDegradacao) -> None:
     """Põe o disjuntor do LLM aberto: o turno seguinte nasce degradado."""
     for _ in range(FALHAS_PARA_ABRIR):
-        det.registar_falha(TempoEsgotado("tempo", "router"))
+        det.registar_falha(TENANT, TempoEsgotado("tempo", "router"))
 
 
 def _disjuntor_que_nunca_abre():
@@ -745,7 +947,7 @@ class TestCriterio2(unittest.TestCase):
         correr(grafo, estado_de("bom dia", tenant_id=TENANT))
         texto, _, botoes = saida.enviadas[0]
         self.assertIn(txt.MSG_MENU, texto)
-        self.assertEqual(botoes, txt.MENU_PRINCIPAL)
+        self.assertEqual(botoes, txt.OPCOES)
         self.assertLessEqual(len(botoes), txt.MAX_BOTOES_DO_MENU)
 
     def test_um_pedido_de_catalogo_recebe_a_explicacao_e_a_lista(self) -> None:
@@ -753,7 +955,8 @@ class TestCriterio2(unittest.TestCase):
         correr(grafo, estado_de("tem camisas azuis?", tenant_id=TENANT))
         texto, _, botoes = saida.enviadas[0]
         self.assertIn(txt.MSG_SEM_CATALOGO, texto)
-        self.assertEqual(botoes, txt.LISTA_DE_OPCOES)
+        self.assertEqual(botoes, txt.OPCOES)
+        self.assertLessEqual(len(botoes), txt.MAX_BOTOES_DO_MENU)
 
     def test_o_horario_e_a_morada_passam_pelo_tools_info(self) -> None:
         grafo, _, _, saida, _ = self._grafo_degradado()
@@ -776,18 +979,65 @@ class TestCriterio2(unittest.TestCase):
         self.assertTrue(hnd.abertos, "o handoff nao abriu em modo degradado")
 
     def test_o_estado_do_pedido_e_servido_pelo_order_status(self) -> None:
+        """**Achado C9: este ensaio passava com o comportamento oposto ao nome.**
+
+        Afirmava a `intent` e que *alguma* mensagem saiu, e o que saía era «Não
+        encontrei esse artigo no catálogo da loja» — porque `ABC-123` não existe
+        no *fake*. Agora o pedido existe, e mede-se o **texto**.
+        """
         grafo, _, backend, saida, _ = self._grafo_degradado()
+        backend.encomendas["ABC-123"] = (CONTACTO, "pago")
         final = correr(
-            grafo, estado_de("o meu pedido ABC-123 ja saiu?", tenant_id=TENANT)
+            grafo,
+            estado_de(
+                "o meu pedido ABC-123 ja saiu?",
+                tenant_id=TENANT,
+                contact_id=CONTACTO,
+            ),
         )
         self.assertEqual(final["intent"], "encomenda")
+        self.assertEqual(final["avisos"], ())
         self.assertEqual(len(saida.enviadas), 1)
+        self.assertIn("pago", saida.enviadas[0][0])
+
+    def test_um_toque_em_o_meu_pedido_pergunta_a_referencia(self) -> None:
+        """**Achado C2, e era a opção mais visível do menu.**
+
+        O `order_status` procura a referência **no texto do cliente**, e no turno
+        de um toque o texto do turno *é* o identificador do botão. Antes disto, a
+        resposta era a frase de catálogo — «Não encontrei esse artigo no catálogo
+        da loja» — a quem tocou em «O meu pedido».
+        """
+        grafo, _, _, saida, _ = self._grafo_degradado()
+        final = correr(
+            grafo,
+            estado_de(txt.OPCAO_PEDIDO, tipo="interactive", tenant_id=TENANT),
+        )
+        self.assertEqual(final["intent"], "encomenda")
+        self.assertEqual(final["avisos"], (tabela.REFERENCIA_EM_FALTA,))
+        self.assertEqual(len(saida.enviadas), 1)
+        texto = saida.enviadas[0][0]
+        self.assertIn("referencia do pedido", texto)
+        self.assertNotIn("catalogo", texto)
+
+    def test_o_ciclo_do_menu_fecha_se_com_a_referencia(self) -> None:
+        """Toque, pergunta, referência, resposta. Era um ciclo sem saída."""
+        det, _, _ = detector()
+        _abrir_o_disjuntor(det)
+        conversa = _ConversaDegradada(degradacao=det)
+        conversa.backend.encomendas["ABC-123"] = (CONTACTO, "pendente")
+        primeiro = conversa.turno(txt.OPCAO_PEDIDO, tipo="interactive")
+        self.assertEqual(primeiro["avisos"], (tabela.REFERENCIA_EM_FALTA,))
+        segundo = conversa.turno("ABC-123")
+        self.assertEqual(segundo["intent"], "encomenda")
+        self.assertEqual(segundo["avisos"], ())
+        self.assertIn("pendente", conversa.saida.enviadas[-1][0])
 
 
 class TestCriterio3(unittest.TestCase):
     """O toque em `confirm:{cart_id}` em modo degradado cria **um** pedido."""
 
-    def test_a_confirmacao_degradada_cria_um_pedido_e_cita_por_fact(self) -> None:
+    def test_a_confirmacao_degradada_cria_um_pedido_e_nao_cita_numeros(self) -> None:
         det, _, _ = detector()
         conversa = _ConversaDegradada(degradacao=det)
         # **O carrinho constrói-se com o modo normal e só depois se degrada**, e
@@ -807,6 +1057,16 @@ class TestCriterio3(unittest.TestCase):
         )
         self.assertEqual(segundo["stage"], "awaiting_payment")
         self.assertTrue(segundo["draft"]["ok"], "a resposta nao passou o validador")
+        # **O nome deste ensaio dizia «cita por fact» e ele não o media** — achado
+        # C8. Mede-se o que é verdade, e é menos do que o critério 3 pede: a
+        # resposta **não cita número nenhum**. O `total` do carrinho é um *fact*
+        # do turno **anterior** e os *facts* são só do turno (§5.3), pelo que não
+        # há o que citar; e a referência tem dígitos e nenhum dos cinco blocos do
+        # §9.1 a leva — a dívida 124, credor KAM-032. O critério 3 fica
+        # `parcial` na secção de verificação por esta metade.
+        texto = segundo["draft"]["texto"]
+        self.assertIn(nos_mod.MSG_PEDIDO_REGISTADO, texto)
+        self.assertNotRegex(texto, r"\d", "citou um número sem *fact* deste turno")
 
     def test_dois_toques_degradados_nao_criam_dois_pedidos(self) -> None:
         det, _, _ = detector()
@@ -834,7 +1094,7 @@ class TestCriterio5(unittest.TestCase):
         # O `citation_retries` só sobe quando o `validate` corre: é a prova de
         # que o menu passou por ele e não pela aresta 34.
         self.assertEqual(final["citation_retries"], 0)
-        self.assertEqual(rascunho["botoes"], txt.MENU_PRINCIPAL)
+        self.assertEqual(rascunho["botoes"], txt.OPCOES)
 
     def test_o_no_do_menu_nao_devolve_texto_pronto(self) -> None:
         """Se devolvesse `texto`, o `send` enviava-o sem o `validate` o ver."""

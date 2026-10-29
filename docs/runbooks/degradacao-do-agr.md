@@ -14,8 +14,9 @@
 | LLM lento (*timeout* de 20 s do `kamba-chat`) | `ErroDeLlm` do tipo `TempoEsgotado` no `classify` | modo determinístico, motivo `timeout` |
 | LLM a recusar por ritmo (HTTP 429) | `estado_http == 429` no erro tipado | modo determinístico, motivo `http_429` |
 | Orçamento da chave virtual esgotado | `error.type == "budget_exceeded"` (HTTP 422, não 400 — ver `../evidencia/KAM-030-litellm.md` §4) | modo determinístico, motivo `budget` |
-| Disjuntor do LLM aberto | três falhas consecutivas, pausa de 30 s | modo determinístico, motivo `breaker`, **sem ir ao proxy** |
+| Disjuntor do LLM aberto | três falhas consecutivas **deste *tenant***, pausa de 30 s | modo determinístico, motivo `breaker`, **sem ir ao proxy** |
 | Contrapressão | *tenant* no tecto de concorrência **e** fila acima do limiar | modo determinístico, motivo `backpressure` |
+| Destino não autorizado (ADR-008) | o *gate* de destino recusou antes da chamada | modo determinístico, motivo `destino_negado`, e **não conta no disjuntor** |
 | **Postgres ou *checkpointer* indisponível** | erro de ligação | **não degrada**: o turno não corre, a mensagem fica na fila, 503 com `Retry-After`. Alerta crítico |
 
 A última linha é a que se perde primeiro, e é a mais importante desta página.
@@ -33,6 +34,7 @@ Três números, e nenhum substitui os outros:
 ```text
 agr_degraded_turns_total{motivo}        quantos turnos correram em modo determinístico
 agr_degraded_breaker_aberto_total       quantas vezes o modelo ficou inalcançável
+agr_degraded_acima_do_limiar_total      quantas vezes a proporção de um tenant passou o limiar
 agr_turns_total{outcome="falhou"}       turnos que NÃO correram
 ```
 
@@ -63,22 +65,47 @@ ao limiar mais tarde em cada uma. O que se perde é sensibilidade, não correcç
 fechar isso pedia estado partilhado — Redis ou uma tabela — para um limiar que
 ainda é proposta.
 
-**Onde é que o alerta dispara hoje: em nenhum sítio automático.** Não há sistema
-de alertas (ver a nota de topo). O `registar_turno` devolve `True` quando o limiar
-passa, e quem o chamar liga isso ao que existir. É a mesma situação do
-`agr_registry_denied_total` (KAM-027) e do `agr_draft_pendentes` (KAM-114): uma
-métrica com nome mais esta página.
+**Onde é que o alerta dispara hoje: numa métrica, e em mais nada automático.**
+Não há sistema de alertas (ver a nota de topo), pelo que a passagem do limiar
+conta em `agr_degraded_acima_do_limiar_total` — e **conta dentro do detector**,
+não em quem o chama. A primeira versão deste ticket devolvia um booleano que os
+dois chamadores descartavam: o alerta era calculado e atirado fora, e o ensaio
+media o valor de retorno de um método em vez de medir que alguma coisa acontece.
+Apanhado pela revisão adversarial. É a mesma forma do `agr_registry_denied_total`
+(KAM-027) e do `agr_draft_pendentes` (KAM-114): uma métrica com nome mais esta
+página.
+
+**Qual *tenant* passou o limiar não está na métrica**, por desenho: o eixo que
+faria sentido é o único que a gramática recusa. Lê-se do campo `tenant_id` do
+*logger*.
 
 ## 3. O que o modo determinístico serve, e o que não serve
 
 | Serve | Por onde |
 |---|---|
-| menu principal, até três botões | `degraded_menu` |
-| lista de opções, quatro linhas | `degraded_menu` |
-| estado do pedido | `order_status`, o do grafo normal |
+| três opções — «O meu pedido», «Horario e morada», «Falar com um colega» | `degraded_menu` |
+| estado do pedido, **depois de o cliente dar a referência** | `order_status`, o do grafo normal |
 | horário e morada da loja | `tools_info`, o do grafo normal |
 | confirmação de um carrinho **já construído** | `confirm_gate` → `create_order` |
 | «falar com um colega» | `handoff_prepare` |
+
+**Três opções e não quatro, e um conjunto e não dois.** O critério 2 dá dois
+tectos («≤ 3 botões», «≤ 10 linhas») e serve-se um conjunto de três, que satisfaz
+os dois. A razão é medida: o `packages/core-ts/src/outbound/contrato.ts` fixa
+`MAXIMO_DE_BOTOES = 3` e recusa o corpo acima disso, e o bloco `buttons` do §9.1
+**não distingue** *reply buttons* de lista — pelo que três é o único número
+válido nos dois mapeamentos possíveis. Com quatro, o turno degradado mais comum
+ficava **sem resposta**. Apanhado pela revisão adversarial.
+
+**Um toque em «O meu pedido» pergunta a referência e não consulta nada.** O
+`order_status` procura a referência no texto do cliente, e no turno de um toque o
+texto do turno *é* o identificador do botão: sem a pergunta, a resposta era «Não
+encontrei esse artigo no catálogo da loja» a quem pediu um pedido. O aviso é o
+`REFERENCIA_EM_FALTA`, e vale também no modo normal.
+
+**Os identificadores `menu:*` valem em qualquer turno, degradado ou não.** O
+botão fica no ecrã do WhatsApp e a degradação é do turno: um cliente que toque no
+menu depois de o modelo recuperar tem de ser atendido pelo que tocou.
 
 | **Não** serve | Porquê |
 |---|---|
@@ -120,6 +147,9 @@ detector volta a ser consultado. O disjuntor fecha-se ao **primeiro** sucesso
 tentativa. Logo:
 
 * **LLM recuperado** → o turno seguinte vai ao modelo e sai do modo sozinho;
+* **destino não autorizado** → **não** sai sozinho: é permanente até alguém
+  autorizar o destino (KAM-069), e é por isso que não conta no disjuntor. Em
+  `prod`, hoje, a porta nega tudo;
 * **orçamento recarregado** → idem, porque a chave volta a responder;
 * **contrapressão** → sai quando a fila desce ou o *tenant* liberta vagas.
 
@@ -145,6 +175,15 @@ só por *template*.
 5. **Se for `backpressure`:** é a regra 4 do §15.2 a funcionar. Subir a escala
    horizontal dos *workers*; o tecto por *tenant* e o limiar da fila são
    `AGR_TECTO_POR_TENANT` e `AGR_LIMIAR_DE_CONTRAPRESSAO`, os dois *proposta*.
+6. **Se for `destino_negado`:** não é avaria. É o ADR-008 a recusar uma
+   transferência de dados pessoais para fora de Angola sem destino autorizado, e
+   resolve-se com o procedimento da APD (**KAM-069**) e não com um reinício. Em
+   `prod` **todos** os turnos caem aqui hoje.
+
+**E uma leitura que engana nos dois sentidos:** o disjuntor é **por *tenant***, e
+não global. Um *tenant* em `breaker` não diz nada sobre os outros — e era isso que
+dizia na primeira versão deste ticket, o que punha uma réplica inteira em modo
+determinístico por causa de um *tenant* sem orçamento.
 
 ## 7. O que esta página não cobre
 
