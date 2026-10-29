@@ -129,7 +129,7 @@ lacuna. (Lido à mão a partir desta análise, como o `SKILL.md` §3 manda dizer
 **Escapes por portão.** Nenhum dos cinco *linters* documentais, nem o *gate* 8,
 nem o *gate* 6 apanhavam o A5, o A7, o A9, o A10 ou o A11 — e nenhum podia: são
 sobre comportamento que nenhum teste criava, que é o mesmo padrão dos oito
-achados do KAM-013. Dois deles **viraram portão** sem *job* novo, que é a forma
+achados do KAM-013. **Três** deles viraram portão sem *job* novo, que é a forma
 que esta casa usa:
 
 - o conversor de `db/tests_servicos/consultas.py` passou a **recusar** uma
@@ -138,3 +138,32 @@ que esta casa usa:
 - o `test_a_lista_de_exercitadas_e_a_do_modulo` passou a exigir que **cada**
   consulta do módulo seja corrida contra a base, que é o que teria apanhado o
   A10 antes de ele existir.
+- o `test_toda_a_suite_de_base_de_dados_e_invocada_por_um_gate` exige que o
+  `SUITES` do `gate_bd.py` e as invocações do `ci-8` e do `ci-6` sejam o **mesmo
+  conjunto**, nos dois sentidos. Ver abaixo: é o escape que o CI verde escondia.
+
+### O terceiro escape apareceu depois do PR aberto, e com o CI verde
+
+Nenhum dos vinte e dois achados acima o apanhou, e nenhum podia — não é um
+defeito de comportamento, é uma **declaração em falta**.
+
+Acrescentei a `tests_servicos` ao `SUITES` do `gate_bd.py` e ao
+`correr_suite.py`, corri-a à mão uma dúzia de vezes, e **esqueci-me do alvo
+`ci-8` do `Makefile`**, que invoca as suites uma a uma, por nome.
+
+A consequência era exacta e silenciosa: as **1.000 tentativas concorrentes que
+provam o critério 1 deste ticket** valiam só na máquina de quem as escreveu. O
+*gate* 8 do CI estava **verde**, a suite existia, o `gate_bd.py` sabia correr, e
+nada no PR o denunciava. Descobriu-se por acidente — a ler o registo do *gate* 8
+de uma corrida verde para confirmar outra coisa, a `tests_servicos` não estava
+entre as dezesseis invocadas.
+
+É a mesma classe do `PACOTES_NODE` e do `ci/thresholds.yaml`, com a diferença
+que a torna pior: ali um ficheiro que nenhum estrato classifique **falha** o
+*gate* 4 de propósito; aqui uma suite que nenhum alvo invoque **passa**.
+
+O portão entra num *gate* que já existe — a bateria do que só o repositório pode
+afirmar — e lê o `SUITES` pelo AST em vez de importar o módulo, pelo mesmo
+caminho que o *gate* 3b usa para ler as revisões sem as executar. **E a prova de
+que morde está feita**: retirada a linha do `Makefile`, o teste falha nomeando a
+suite; reposta, passa.

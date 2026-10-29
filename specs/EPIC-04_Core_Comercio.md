@@ -706,7 +706,7 @@ teria apanhado o `generate_series` antes de ele existir.
 | 2 (arquitectura) | `python -m lint_arch --root .. all` | **0** (`all` e não `check`: este não tem `check` e sairia com 2) |
 | 1, 2, 4 (Node) | `pnpm run build`; `pnpm -r run typecheck`; `pnpm --filter @kamba/com run test`, em contentor | **0**, **0**, **0** — 53 testes |
 | 8 (mutações) | `python db/mutacoes.py --aplicaveis` | **0** |
-| 8 (migrações) | `python db/gate_bd.py --suite tests` | **0** — 623 testes |
+| 8 (migrações) | `python db/gate_bd.py --suite tests` | **0** — 624 testes |
 | 8 (agenda) | `python db/gate_bd.py --suite tests_servicos` | **0** — 38 testes, as mil paralelas em 33,8 s |
 | 8 (as outras suites) | `--suite` × 10, uma a uma | **0** — ver a nota abaixo |
 | 6 (isolamento) | `python db/gate_bd.py --suite tests_isolamento` | **0** — 79 testes |
@@ -720,12 +720,28 @@ suites. O que correu aqui, uma a uma:
 
 | Suite | Resultado |
 |---|---|
-| `tests`, `tests_servicos`, `tests_agr` | **0** (623, 38 e 249 testes) |
+| `tests`, `tests_servicos`, `tests_agr` | **0** (624, 38 e 249 testes) |
 | `tests_identidade`, `tests_auditoria_carga`, `tests_ten`, `tests_chr`, `tests_outbound`, `tests_handoff`, `tests_media`, `tests_modos`, `tests_avisos` | **0**, as nove |
 | `tests_eventos_consumo` | **0** — 19 testes em **425 s**. A primeira tentativa deu dois vermelhos («o publicador nao publicou») e **não era uma medição**: a execução atravessou uma suspensão da máquina, 19 testes em **52.662 s** (14,6 horas). A suite lança o publicador TypeScript e, sem `node` no `PATH`, ele vai por contentor — o caminho que uma suspensão parte. O que fecha a questão é o relógio da segunda: 425 s contra 52.662 s, e verde |
 | `tests_eventos`, `tests_eventos_carga`, `tests_entrada`, `tests_entrada_carga` | **NÃO CORRIDAS**, por decisão: as quatro lançam processos Node pelo mesmo caminho de contentor e duas medem minutos de tráfego por desenho. Ficam para o CI, que corre num *runner* com `node` no `PATH`, onde esse caminho não se usa. Fica dito em vez de assumido |
 
 «Não correu» e «passa» não são a mesma coisa, e a diferença escreve-se.
+
+**E havia uma terceira coisa que não era nenhuma das duas: a suite que o CI não
+invocava.** A `tests_servicos` entrou no `SUITES` do `gate_bd.py` e no
+`correr_suite.py` — o que a torna **corrível** — e **não** no alvo `ci-8` do
+`Makefile`, que invoca as suites uma a uma, por nome. Durante quatro commits, as
+1.000 tentativas concorrentes que provam o critério 1 valeram **só** na máquina
+de quem as escreveu: o *gate* 8 do CI estava verde, a suite existia, e nada no
+PR o denunciava.
+
+É a mesma classe do `PACOTES_NODE`, com a diferença que a torna pior — ali um
+ficheiro que nenhum estrato classifique **falha** o *gate* 4 de propósito; aqui
+uma suite que nenhum alvo invoque **passa**. Corrigido, e virou portão no mesmo
+PR: o `test_toda_a_suite_de_base_de_dados_e_invocada_por_um_gate` exige que o
+`SUITES` e as invocações do `ci-8` e do `ci-6` sejam o mesmo conjunto, nos dois
+sentidos, com o canário feito (retirada a linha, o teste falha nomeando a
+suite).
 
 **Uma nota sobre o que estes números medem.** A revisão `0024` vem do PR #86 e
 esteve na árvore **sem estar committada**, só para a cadeia Alembic poder correr

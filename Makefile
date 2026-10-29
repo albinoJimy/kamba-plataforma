@@ -1034,6 +1034,31 @@ ci-8:
 	@# consumidor e um shim em TypeScript (ADR-L004).
 	@echo "==> gate 8: AGR contra PostgreSQL 18.6 (KAM-025)"
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_agr
+	@# KAM-047: a agenda da vertical Servicos. O que so aqui se prova e o que o
+	@# objecto da prova obriga — o servidor: que a restricao de exclusao
+	@# `bookings_sem_sobreposicao` deixa **uma** marcacao em 1.000 tentativas
+	@# concorrentes no mesmo recurso e intervalo, com as outras 999 a voltar
+	@# `23P01`; que a barreira e **ela** e nao a tranca por recurso que a
+	@# acompanha (o passo de canario deixa cair a restricao e afirma que passam
+	@# mais do que uma — e nenhuma base falsa o pode medir, porque o que se mede
+	@# e o indice GiST a serializar); que as mil **terminam**, o que sem a tranca
+	@# nao acontecia (486 `deadlock detected` medidos); que o `LIMIT` do
+	@# varrimento e um tecto a serio (um sublink com `FOR UPDATE` nao o e, e
+	@# `expirar_holds(2)` libertava cinco de cinco); e que as doze cadeias de
+	@# `services/com/src/servicos/consultas.ts` **correm** — a suite le-as do
+	@# proprio ficheiro TypeScript, pelo que o que o gate exercita e o texto que
+	@# o modulo envia e nao uma copia dele.
+	@#
+	@# **Entrou aqui tarde, e a licao e a razao deste comentario.** Acrescentar a
+	@# suite ao `SUITES` do `gate_bd.py` e ao `correr_suite.py` torna-a
+	@# **corrivel**, nao **corrida**: o `ci-8` invoca as suites uma a uma, por
+	@# nome, e uma que nao esteja nesta lista nunca corre no CI — em silencio, com
+	@# o gate 8 verde. O KAM-047 fundiu-se a um `git push` de ter as mil paralelas
+	@# a provar o criterio 1 **so na maquina de quem as escreveu**. E a mesma
+	@# classe do `PACOTES_NODE`: a declaracao e enumerada de proposito, e e melhor
+	@# que seja uma alteracao visivel do que uma deteccao silenciosa.
+	@echo "==> gate 8: agenda da vertical Servicos (KAM-047)"
+	@$(VENV_PYTHON) db/gate_bd.py --suite tests_servicos
 
 # -----------------------------------------------------------------------------
 # Limpeza
