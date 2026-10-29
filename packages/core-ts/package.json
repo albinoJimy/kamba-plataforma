@@ -95,6 +95,10 @@
       "types": "./dist/onboarding/index.d.ts",
       "default": "./dist/onboarding/index.js"
     },
+    "./pagamentos": {
+      "types": "./dist/pagamentos/index.d.ts",
+      "default": "./dist/pagamentos/index.js"
+    },
     "./chr/fila": {
       "types": "./dist/chr/fila.d.ts",
       "default": "./dist/chr/fila.js"

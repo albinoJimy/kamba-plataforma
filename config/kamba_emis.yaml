@@ -1,0 +1,70 @@
+# Identificadores EMIS da propria KAMBA — a guarda G-4 (KAM-052)
+#
+# A G-4 do `docs/tecnica/04` §10.4 diz: «Sem contas da KAMBA como beneficiarias
+# de vendas — verificacao de configuracao em CI/arranque: nenhuma
+# `payment_account` de `tenant` aponta para entidade da KAMBA.» Esta lista e
+# essa configuracao.
+#
+# O QUE A GUARDA IMPEDE, em concreto: uma venda de uma PME a liquidar na conta
+# da KAMBA. Seria o desenho B do §10.4 — «plataforma como comerciante unico que
+# recebe e repassa» —, que e **Nao** por ADR-004 e que aproxima a plataforma de
+# sub-adquirente (art. 3, aa do Aviso n.º 2/22), com autorizacao do BNA,
+# segregacao e KYC/AML. (A leitura juridica e INDICIO ate parecer, D8 —
+# *a confirmar por parecer*.)
+#
+# O USO LEGITIMO destes mesmos identificadores e a assinatura: e com eles que a
+# KAMBA cobra as PMEs (§11.2), numa conta com
+# `beneficiary_kind='plataforma_receita_propria'`. Por isso a guarda olha **so**
+# para as contas de `pme`.
+#
+# ---------------------------------------------------------------------------
+# AS TRES LISTAS ESTAO VAZIAS, E ISSO NAO E UM DESCUIDO
+# ---------------------------------------------------------------------------
+#
+# Estado: **NAO VERIFICADO**. O `entidade` (referencias), o `pos_id`
+# (GPO/Express) e o `iec` (debito directo) sao emitidos pelo banco e pela EMIS
+# (§10.2, CONFIRMADO: «POSID + supervisor card, Entidade, IEC»). A KAMBA **ainda
+# nao os tem**: o contrato bancario tambem lhe e exigido (§11.2), e o prazo e os
+# requisitos bancarios para os obter sao NAO VERIFICADO — e a decisao aberta
+# **D4**, com ticket **KAM-103**.
+#
+# Obtem-se por: abertura de conta colectiva e contrato de servicos EMIS, que e
+# trabalho de papel e nao de engenharia (§10.2, «arrancam na semana 1»).
+#
+# CONSEQUENCIA, dita por extenso para que ninguem leia o verde como garantia:
+# **com as listas vazias a G-4 passa sempre.** E um zero que nao diz nada. A
+# guarda nao fica por isso sem prova — o
+# `pagamentos.arranque.test.ts` enche as listas e exige que ela recuse, que e o
+# controlo positivo sem o qual este ficheiro vazio tornaria a verificacao
+# decorativa. E a mesma disciplina do `canon_lint`, que imprime quantos
+# ficheiros leu em cada superficie porque «uma superficie com zero ficheiros
+# passa sempre».
+#
+# ---------------------------------------------------------------------------
+#
+# ESTE FICHEIRO E ESPELHADO EM TypeScript, e as duas fontes nao divergem por
+# acidente: o `ENTIDADES_DA_KAMBA` de
+# `packages/core-ts/src/pagamentos/arranque.ts` tem os mesmos valores, e o
+# `pagamentos.arranque.test.ts` compara-os **como texto**. E o mesmo desenho do
+# `config/meta_rates.yaml` e do `outbound/tarifas.ts` (KAM-015), e pela mesma
+# razao escrita la: nao ha leitor de YAML em `packages/core-ts`, e acrescentar um
+# era trazer uma dependencia de terceiros ao caminho de producao para ler uma
+# lista que muda uma vez.
+#
+# Quem acrescentar um identificador aqui acrescenta-o nos dois sitios, ou o
+# ensaio fica vermelho.
+
+version: 1
+
+# Entidades Multicaixa da KAMBA (referencias). Uma referencia e
+# **Entidade + Referencia**: duas PMEs podem ter o mesmo numero de referencia
+# com entidades diferentes (`evidencia/E2` §2).
+entidades: []
+
+# POSID dos TPA virtuais da KAMBA (GPO/Express).
+pos_ids: []
+
+# IEC da KAMBA como entidade credora (debito directo). O mandato tem validade
+# por omissao de 1 ano (CONFIRMADO, `evidencia/E2` §7); o debito directo
+# recorrente e Clusters, e a alternativa no Piloto e referencia mensal (§11.2).
+iecs: []
