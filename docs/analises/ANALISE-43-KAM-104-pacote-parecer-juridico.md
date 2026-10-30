@@ -364,7 +364,7 @@ número lê-se à mão e é **INDÍCIO**, não `CONFIRMADO`.
 
 | Item | Razão |
 |---|---|
-| **A tensão do canon sobre a origem do *golden set*** — quatro linhas dizem só reescrita sintética, três admitem material real com consentimento, todas a citar o ADR-018, e duas delas são o `00`:354 e o `00`:413 | Fora de escopo: toca um ADR e quatro documentos, um deles o bloco KAM-109 deste próprio epic. Fica medida no achado 1, com ficheiro e linha dos sete, e **nomeada no contexto de F-03** para que o advogado a veja. Quem a fechar decide qual dos lados vale |
+| **A tensão do canon sobre a origem do *golden set*** — quatro afirmações dizem só reescrita sintética, três admitem material real com consentimento, todas a citar o ADR-018 | **Decidida pelo fundador a 2026-10-30: valem as três origens do KAM-040** (`sintetico`, `t2_anonimizado`, `real_consentido`), com registo de consentimento obrigatório para os reais. Uma das quatro afirmações divergentes estava **dentro do diff deste PR** — o bloco KAM-109 do `EPIC-10` — e passou de decisão a **correcção**: está corrigida, com a decisão citada. As outras três (`../tecnica/00`:354, `../logs.md`:579, `../tecnica/10`:740) estão fora deste eixo e vão a ticket próprio |
 | **O fornecedor de imagem sem linha em `08` §8.3.2** | Lacuna real, e **já tem credor**: o `08` §18 atribui-a ao **KAM-069** («inventário e `apd_ref` antes de produção»). Abrir ticket duplicava-lhe o âmbito. Fica declarada no anexo |
 | **A opção do caminho de webhooks atrás do proxy** | Não é defeito: é a pergunta **N1**, que o pacote leva ao advogado como E-04. Decidi-la era o erro. Ficou **fora** da lista de assunções do §4, de propósito — essa lista diz o que a KAMBÁ assume *enquanto espera*, e uma pergunta não decidida não é uma assunção |
 | **A afirmação sem marca em `08` §8.3.2 e §8.3.1** | É a fonte interna de onde os achados 2 e 3 vinham. Corrigiu-se o pacote e o anexo, que é o escopo deste ticket; emendar o `08` é alteração de documento técnico, fora do diff |
@@ -397,6 +397,68 @@ a linha inteira antes de concluir pela ausência.**
 Cada `CONFIRMADO` foi **reverificado contra a árvore pós-merge** (`b04522a`), que
 não é a árvore sobre a qual a revisão foi lançada (`0cd4b2d`) — o `fd0a32d`
 fundiu pelo meio. Nenhum morreu nessa passagem.
+
+---
+
+## 6. As duas decisões do fundador, de 2026-10-30
+
+A revisão deixou duas coisas que não eram desta sessão. O fundador decidiu-as, e
+elas mudam o estado deste ticket.
+
+### 6.1 A origem do *golden set*: valem as três do KAM-040
+
+**Decisão:** `sintetico`, `t2_anonimizado` e `real_consentido`, com **registo de
+consentimento obrigatório** para os reais. Logo as quatro afirmações que diziam
+«só reescrita sintética» é que estavam erradas, e não o critério do KAM-040.
+
+**O que isso mudou aqui, e é a parte que importa para a doutrina.** Uma das
+quatro estava **dentro do diff deste PR**: a linha dos casos T2 no bloco KAM-109
+do `EPIC-10`. Eu tinha-me recusado a corrigi-la, e a recusa estava certa
+**enquanto não havia decisão** — mudá-la para concordar com o KAM-040 seria
+decidir de passagem qual dos lados do canon valia. Com a decisão tomada, a
+mesma alteração deixa de ser decisão e passa a **correcção**, e deixá-la como
+estava passaria a ser o defeito: fundir, no mesmo PR que mediu a divergência, um
+documento que contradiz o que acabou de ser decidido. Está corrigida, a citar o
+KAM-040 e a decisão.
+
+**As outras três não são deste eixo** e vão a ticket próprio: `../tecnica/00`:354
+(a célula do ADR-018), `../logs.md`:579 e `../tecnica/10`:740.
+
+**E a pergunta ao advogado ficou mais forte.** Deixou de ser «há uma tensão,
+diga-nos qual vale» — que era pedir ao advogado uma decisão de produto — e passou
+a «a KAMBÁ decidiu admitir casos reais com consentimento registado; confirme se
+o consentimento recolhido pela PME basta perante os Termos da Meta §4.7 e a Lei
+22/11». Uma decisão tomada é mais fácil de validar do que uma dúvida, e se o
+parecer a recusar a KAMBÁ recua para o conjunto inteiramente sintético — o que
+está escrito nas opções de F-03.
+
+### 6.2 A extensão do anexo: medir uma vez, com o renderizador nomeado
+
+**Decisão:** medir em contentor, uma vez. A razão é melhor do que escolher entre
+seis e sete páginas à mão: **«≤ 6 páginas» sem renderizador nomeado não é um
+critério, é uma estimativa** — e era esse o defeito de fundo, não a minha conta.
+
+**O que a medição deu, e o que isso me obrigou a fazer.** Renderizador:
+`pandoc/latex:3.1` em contentor, `--pdf-engine=xelatex`, com
+`-V geometry:a4paper -V geometry:margin=2.5cm -V fontsize=11pt --from=gfm`.
+Contagem de páginas do PDF por **três vias independentes** — objectos
+`/Type /Page` soltos, o `/Count` do nó raiz, e os `/Type /Page` dentro dos
+*object streams* descomprimidos — porque uma contagem por uma via só repetia o
+erro de confiar num instrumento que pode não ver tudo. As três concordam.
+
+**Primeira medição: 7 páginas.** E 7 não é ≤ 6, pelo que a caixa continuava a não
+poder ser marcada. Isto é o ponto: a estimativa anterior dizia «5,2 a 6,8», e o
+intervalo escondia que o valor real caía **fora** do limite. Movi então a secção
+«o que ainda não existe» do anexo para o **§6.1 do pacote** — escolhida porque
+não é um dos seis itens que o critério 3 enumera, e porque nenhuma informação se
+perde: os dois ficheiros viajam juntos para o advogado. **Segunda medição: 6
+páginas.** A caixa fecha, e fecha com o renderizador e as opções nomeados, que é
+o que faltava desde o início.
+
+**Três entradas no cabeçalho do anexo para o mesmo campo, e isso é o registo
+honesto de um erro corrigido duas vezes:** primeiro «6 páginas» por uma conta que
+não pagava os espaçamentos; depois «não demonstrada, 5,2 a 6,8»; agora «6
+páginas, medidas» com o instrumento nomeado.
 
 ---
 

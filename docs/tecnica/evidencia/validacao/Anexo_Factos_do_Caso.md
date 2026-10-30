@@ -10,7 +10,7 @@
 | Ticket | KAM-104 (EPIC-10) |
 | Pacote que acompanha | [`Pacote_Parecer_Juridico.md`](Pacote_Parecer_Juridico.md) — as 40 perguntas |
 | Gerado a partir de | `../../00_Arquitectura_Solucao.md` e `../../01` a `../../10` |
-| Extensão | **Não demonstrada em páginas, e a razão está dita.** Linhas de tabela a uma linha e prosa a 95 caracteres por linha: **251** linhas se o espaçamento entre parágrafos não ocupar linha, **311** se ocupar — ou seja **5,2 a 6,8 páginas** entre as densidades de 48 e 46 linhas por página (A4, 11 pt). Nenhum conversor correu nesta máquina, pelo que **nenhuma página foi medida**; quem tiver um renderizador fecha a conta numa passagem. Ver o critério 3 do KAM-104, cuja caixa fica vazia por isto |
+| Extensão | **6 páginas, medidas.** Renderizado com pandoc/latex:3.1 em contentor, `--pdf-engine=xelatex`, `-V geometry:a4paper -V geometry:margin=2.5cm -V fontsize=11pt --from=gfm`; contagem de páginas do PDF por três vias independentes, que concordam. Esta é a medição que o critério 3 do KAM-104 exige, e substitui a estimativa por linhas que a versão anterior deste cabeçalho trazia |
 
 > **Descritivo, sem dados pessoais, e sem leitura jurídica da KAMBÁ.** Cada
 > afirmação que toca a Lei 22/11, a APD, o BNA, a AGT, a defesa do consumidor ou
@@ -313,21 +313,12 @@ entidade de serviços interbancários, pelo que fica fora do pagamento integrado
 
 ---
 
-## 8. O que ainda não existe
+## 8. Ausência de dados pessoais
 
-Para que o parecer saiba o que **não** pode apreciar. Não existe: **mapa de
-tratamentos** (desenhado como pré-requisito — as §3, §4 e §5 deste anexo são a
-matéria-prima, não o produto); **contrato de subcontratação** redigido;
-**avaliação de impacto** completa (esqueleto de duas linhas); **texto do aviso
-de privacidade**; **base legal de seis das dez finalidades**; **parecer sobre o
-enquadramento no sistema de pagamentos**; **resposta escrita da Meta** sobre a
-classificação do caso de uso e o número agregador, que não é matéria deste
-parecer mas condiciona o produto; **lista de países adequados e cláusulas-tipo
-da APD**; e **validação da certificação** do parceiro de facturação.
-
----
-
-## 9. Ausência de dados pessoais
+O que **ainda não existe** no sistema, e que o parecer por isso não pode
+apreciar, está no §6.1 do [`Pacote_Parecer_Juridico.md`](Pacote_Parecer_Juridico.md)
+— saiu deste anexo para o pacote, para o manter dentro das seis páginas que o
+KAM-104 exige, e não se perdeu: os dois ficheiros viajam juntos.
 
 Varredura automática **deste anexo e do pacote que ele acompanha** — que são os
 dois ficheiros que saem da casa: zero números de telefone, zero NIF com valor,
@@ -341,7 +332,7 @@ antecipar.
 
 ---
 
-## 10. Tabela de aprovação
+## 9. Tabela de aprovação
 
 | Papel | Nome | Data | Assinatura |
 |---|---|---|---|

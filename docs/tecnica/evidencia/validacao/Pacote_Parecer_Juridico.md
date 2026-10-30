@@ -953,9 +953,9 @@ P0 (A-04, B-01, B-02, C-06) bloqueiam dados reais ou pagamentos, não a região.
   não-treino contratados por fornecedor e evidência arquivada — o estado actual;
   (b) golden dataset com as três origens que o **KAM-040** especifica
   (`sintetico`, `t2_anonimizado`, `real_consentido`), nenhuma entrando sem
-  registo de consentimento — e **não** «sem conversa real», que é como a célula
-  curta do ADR-018 se lê; ver F-03; (c) pedir à Meta autorização escrita para um
-  uso mais largo, que é matéria de KAM-101 e não deste pacote.
+  registo de consentimento — **decidido pelo fundador a 2026-10-30**, e é a
+  decisão que F-03 pede que seja validada; (c) pedir à Meta autorização escrita
+  para um uso mais largo, que é matéria de KAM-101 e não deste pacote.
 - **Resposta pedida.** Parecer escrito que (i) cite a cláusula na versão inglesa
   integral, (ii) diga se a inferência com LLM de terceiros cabe nela, e (iii)
   indique que cláusulas o contrato com cada fornecedor tem de conter.
@@ -1214,36 +1214,36 @@ P0 (A-04, B-01, B-02, C-06) bloqueiam dados reais ou pagamentos, não a região.
   pseudonimizadas, (ii) só se guardarem as perguntas e não as respostas, (iii) a
   avaliação for manual e não automatizada, (iv) o conjunto de referência for
   **sintético**, inspirado em conversas reais mas não derivado literalmente?
-- **Contexto, e uma contradição no próprio canon da KAMBÁ que convém conhecer.**
-  O **ADR-018** é citado em `../../00_Arquitectura_Solucao.md` de duas formas que
-  não dizem o mesmo: a célula do registo de ADRs resume-o a «golden set por
-  reescrita sintética», mas o corpo do mesmo documento escreve «o dataset de
-  avaliação é construído por reescrita sintética **e por casos autorizados pela
-  PME**». E o ticket que o implementa, o **KAM-040**, é mais explícito do que
-  ambos: exige que cada caso tenha `origem ∈ {sintetico, t2_anonimizado,
-  real_consentido}` e que **nenhum caso `real_consentido` entre sem registo de
-  consentimento**. Ou seja: **o estado especificado não é «nada de material
-  real»** — são três origens, duas delas com material real sob condições, e a
-  barreira que hoje as governa é o registo de consentimento por caso, não a
-  ausência de material real. Esta pergunta existe para saber se os Termos da
-  Meta **permitem** essas duas origens, ou se a reescrita sintética é a única
-  via: a diferença decide se a qualidade medida é a do produto ou a de um proxy.
-  A leitura do texto dos Termos é **CONFIRMADO com ressalva** de leitura
-  automática, e D-01 pede o texto exacto — esta pergunta depende dessa
+- **Contexto, e uma decisão já tomada que torna a pergunta mais precisa.**
+  A KAMBÁ **decidiu** que o conjunto de avaliação admite três origens —
+  `sintetico`, `t2_anonimizado` (reescrita sintética sem dados pessoais) e
+  `real_consentido` —, e que **nenhum caso real entra sem registo de
+  consentimento**. É o que o **KAM-040** especifica como critério de aceitação, e
+  é **decisão do fundador de 2026-10-30**, tomada depois de o KAM-104 medir que
+  sete afirmações do conjunto documental invocavam o ADR-018 e não diziam o
+  mesmo: quatro davam só a reescrita sintética, três admitiam material real com
+  consentimento. A divergência está resolvida a favor das três origens, e os
+  documentos que diziam «só sintético» estão a ser corrigidos.
+  **O que se pede ao advogado já não é «qual dos lados vale»** — isso era
+  decisão da KAMBÁ e está tomada — **mas se a decisão se sustenta**: o
+  consentimento recolhido do titular pela PME basta, perante os Termos da Meta
+  §4.7 e perante a Lei 22/11, para que uma conversa real entre num conjunto de
+  avaliação? A leitura do texto dos Termos é **CONFIRMADO com ressalva** de
+  leitura automática, e D-01 pede o texto exacto — esta pergunta depende dessa
   resposta.
 - **Por que importa.** Bloqueia **KAM-040** (dataset golden sintético e eval
   harness como gate) na parte em que define o que pode entrar no conjunto.
   Contribui para **D9**. É a pergunta cuja falta de resposta deixou a caixa do
   gate de avaliação por preencher em tickets já entregues.
-- **Opções propostas pela KAMBÁ.** (a) conjunto inteiramente **sintético**, sem
-  material real — a leitura mais restritiva, e a única que a célula curta do
-  ADR-018 descreve; (b) as três origens que o **KAM-040 já especifica**
-  (`sintetico`, `t2_anonimizado`, `real_consentido`), com o registo de
-  consentimento por caso como barreira e sem nenhum caso a entrar sem ele —
-  é o estado **especificado**, e é por isso que a pergunta não é hipotética;
-  (c) material real pseudonimizado para além do que o KAM-040 admite, o que
-  exigiria também resposta da Meta (KAM-101). **A KAMBÁ não sabe qual destas
-  os Termos permitem**, e é o que pede.
+- **Opções propostas pela KAMBÁ.** A opção **(b) está decidida**: as três
+  origens do KAM-040, com o registo de consentimento por caso como barreira e
+  sem nenhum caso real a entrar sem ele. O que se pede é a validação dela, e as
+  alternativas existem para o caso de o parecer a recusar: **(a)** recuar para
+  conjunto inteiramente sintético, se o consentimento da PME não bastar perante
+  os Termos; **(c)** material real pseudonimizado para além do que o KAM-040
+  admite, que exigiria também resposta da Meta (KAM-101). **Se o parecer
+  recusar (b), a KAMBÁ recua para (a)** — e é por isso que a resposta importa
+  antes de o conjunto ser construído, não depois.
 - **Resposta pedida.** Parecer escrito que responda às quatro variantes, e diga
   se a distinção entre «treinar/melhorar» e «avaliar» tem apoio no texto da
   cláusula ou se é leitura.
@@ -1440,7 +1440,7 @@ apanhou a barreira do consentimento por caso de avaliação a faltar aqui.
 | 14 | **Áudio bruto não sai sem gate de destino** | Transcrever cedo, apagar o blob em ≤ 24 horas (limite de erro 72 h), não enviar áudio bruto a transcrição no estrangeiro sem gate | `08` §7.5 | A-02, F-01 | Responsável de Segurança |
 | 15 | **Fluxo B e número agregador diferidos** | Só Fluxo A no Piloto; isolamento entre PMEs | ADR-011, D2, `E1` §4 | — (é KAM-101, resposta da Meta) | Responsável de Produto |
 | 16 | **Kambá Score não é informação de crédito** | Score não usado nem apresentado como informação de crédito | D11 (CONDICIONAL, gatilho Escala) | G-02 | Responsável de Produto, com jurídico |
-| 17 | **Nenhum caso real entra no conjunto de avaliação sem registo de consentimento** | O KAM-040 exige `origem ∈ {sintetico, t2_anonimizado, real_consentido}` e nenhum `real_consentido` sem registo de consentimento; a barreira é o registo, não a ausência de material real | ADR-018, KAM-040 | D-01, F-03 | Responsável de Segurança (privacidade), com o dono do KAM-040 |
+| 17 | **Nenhum caso real entra no conjunto de avaliação sem registo de consentimento** | O KAM-040 exige `origem ∈ {sintetico, t2_anonimizado, real_consentido}` e nenhum `real_consentido` sem registo de consentimento; a barreira é o registo, não a ausência de material real. **Decisão do fundador, 2026-10-30**, que fechou a divergência a favor das três origens | ADR-018, KAM-040 | D-01, F-03 | Responsável de Segurança (privacidade), com o dono do KAM-040 |
 
 > **Dois itens desta lista não se libertam com este pacote**, e estão aqui para
 > que ninguém os confunda com itens jurídicos: o 15 depende de resposta escrita
@@ -1488,6 +1488,26 @@ visível.
 | **Respostas registadas, com data, autor e classificação «CONFIRMADO (jurídico)»** | Não há respostas: o pacote não foi enviado. O que existe é a **tabela vazia com as colunas certas** e a lista de decisões e tickets que cada resposta afectará, no artefacto interno de selecção e registo, §3 — não anexado. O critério 6 fica **não satisfeito** |
 | **Qualquer leitura jurídica definitiva da KAMBÁ** | Por desenho. É o que o pacote vai pedir; escrevê-lo como se já se soubesse retirava-lhe a razão de existir |
 | **Exportação em formato de documento** | Nenhum conversor correu aqui. A exportação é este pacote e o anexo, sem nada retirado; produzi-la é acto de quem envia, e viaja com o critério 4 |
+
+---
+
+### 6.1 O que ainda não existe no sistema
+
+Esta secção estava no anexo e passou para cá, para manter o anexo dentro das
+seis páginas que o critério 3 do KAM-104 exige. O conteúdo não se perdeu: os dois
+ficheiros viajam juntos.
+
+Para que o parecer saiba o que **não** pode apreciar. Não existe: **mapa de
+tratamentos** (desenhado como pré-requisito — as §3, §4 e §5 do anexo são a
+matéria-prima, não o produto); **contrato de subcontratação** redigido;
+**avaliação de impacto** completa (esqueleto de duas linhas); **texto do aviso
+de privacidade**; **base legal de seis das dez finalidades**; **parecer sobre o
+enquadramento no sistema de pagamentos**; **resposta escrita da Meta** sobre a
+classificação do caso de uso e o número agregador, que não é matéria deste
+parecer mas condiciona o produto; **lista de países adequados e cláusulas-tipo
+da APD**; e **validação da certificação** do parceiro de facturação.
+
+---
 
 ---
 
