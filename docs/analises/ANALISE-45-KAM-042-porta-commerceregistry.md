@@ -1,4 +1,4 @@
-# ANÁLISE 43 — KAM-042: porta `CommerceRegistry`, repo-base e adaptador da opção B
+# ANÁLISE 45 — KAM-042: porta `CommerceRegistry`, repo-base e adaptador da opção B
 
 | Campo | Valor |
 |---|---|
@@ -249,7 +249,7 @@ produza — lê-se desta análise contra o PR, à mão.
 
 ---
 
-## 5. Dois escapes, e o que fazer com eles
+## 5. Três escapes, e o que fazer com eles
 
 > **Um escape que um portão podia ter apanhado vira portão.** Não vira aviso e
 > não vira nota de rodapé.
@@ -269,6 +269,43 @@ em código sem nenhuma máquina o ver.
 e escapou porque as `RAIZES` dele são `packages/core-ts/src/pagamentos`. Alargar
 as raízes é a mesma classe de alteração, e vai pelo mesmo caminho: **medição
 entregue, decisão devolvida**.
+
+**Escape 3 — o número desta análise colidiu, e isso já tinha acontecido sem
+ninguém dar por ele.** Esta análise nasceu `ANALISE-43` e é a **45**. O número
+mediu-se contra `docs/analises/` do worktree, que estava na base `fd0a32d`; o
+PR #93 fundiu depois e levou o 43 (`ANALISE-43-KAM-104-pacote-parecer-juridico`),
+e o PR #94 reclama o 44 sem ter fundido. Os nomes diferem no *slug*, pelo que
+**não há conflito de ficheiro e nenhum gate o apanha** — e a colisão sobrevive à
+fusão. Foi um par a medi-la, não um portão.
+
+É a mesma corrida que queimou quatro identificadores de ticket esta semana, com
+uma diferença que a torna pior: **um ticket tem três instrumentos a apanhar a
+colisão e uma análise não tem nenhum.** A numeração do §4 do backlog é contígua
+e o `lint_backlog` e o `lint_refs` recusam o buraco; um número de análise
+repetido passa por todos os portões.
+
+**E não é hipotético — já escapou.** Medido no `publico/main` de hoje:
+
+```bash
+git ls-tree --name-only refs/remotes/publico/main docs/analises/ \
+  | grep -oE 'ANALISE-[0-9]+' | sort -t- -k2 -n | uniq -c
+#       2 ANALISE-39
+docs/analises/ANALISE-39-KAM-047-servicos.md
+docs/analises/ANALISE-39-kam-037-modo-deterministico.md
+```
+
+**Duas análises com o número 39 estão em `main` neste momento**, de dois tickets
+diferentes, e nenhum gate as viu entrar. A memória das revisões deste conjunto
+já tem um «39» ambíguo.
+
+A medição vai entregue e a implementação **não**, pela mesma razão dos outros
+dois: pôr a unicidade de `docs/analises/` num *lint* é acrescentar
+verificação a um gate, e o critério de um gate é regra de bloqueio. A forma
+barata existe e fica nomeada — o `lint_refs` já varre a árvore inteira à procura
+de citações e já conta ficheiros, pelo que um passo que recuse dois ficheiros com
+o mesmo `ANALISE-NN` entra num gate que já corre, sem *job* novo. **Decide o
+fundador**, e a dívida do «39» duplicado tem de ser paga por quem o fizer, senão
+o passo nasce vermelho.
 
 ---
 
@@ -297,4 +334,4 @@ acaba recusada por quem ela irrita.
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
-| 1.0 | Outubro 2026 | Primeira versão. Revisão adversarial do KAM-042: 17 `CONFIRMADO` corrigidos, 12 `MORTO` registados com evidência, 2 escapes de portão devolvidos ao fundador com a medição. | Equipa KAMBÁ |
+| 1.0 | Outubro 2026 | Primeira versão. Revisão adversarial do KAM-042: 17 `CONFIRMADO` corrigidos, 12 `MORTO` registados com evidência, **três** escapes de portão devolvidos ao fundador com a medição — e o terceiro é o número desta própria análise, que colidiu e cuja classe de colisão já estava em `main` sem nenhum gate a ter visto (duas `ANALISE-39`). | Equipa KAMBÁ |
