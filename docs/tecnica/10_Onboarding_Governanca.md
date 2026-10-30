@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Onboarding e Governação (GOV e TEN/onboarding) |
-| Versão | 1.7 |
+| Versão | 1.8 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../exploracao/13-big-picture-ecossistema.md` (§5, §9.3), `../exploracao/11-arquitetura-detalhada-engenharia.md` (§5.3), `../exploracao/05-estrategia-loja-no-whatsapp.md`, `../exploracao/06-expansao-plataforma.md`, `../exploracao/07-pontos-cegos-2.md` (§2, §8, §9, §11), `../exploracao/14-tese-minima-e-plano-de-validacao.md` |
@@ -567,11 +567,11 @@ Há dois suportes distintos: o **da PME ao seu cliente** (a própria PME, com o 
 
 ### 11.2 Dataset golden PT-AO
 
-Cada caso T2 resolvido é candidato ao *golden set* que gateia deploys (`00` §9: handoff correcto ≥ 85%; H7). Pipeline: caso resolvido → **reescrita sintética sem dados pessoais** (nomes, números, moradas, valores trocados) → rótulo (intenção, resposta esperada, handoff sim/não, risco) → revisão por duas pessoas → entrada no repositório versionado. Meta do Piloto: ≥ 100 conversas (H7); crescimento contínuo (*proposta*: +20/semana).
+Cada caso T2 resolvido é candidato ao *golden set* que gateia deploys (`00` §9: handoff correcto ≥ 85%; H7). O conjunto admite as **três origens que o KAM-040 especifica** — `sintetico`, `t2_anonimizado` e `real_consentido` —, e este pipeline é o da segunda: caso resolvido → **reescrita sintética sem dados pessoais** (nomes, números, moradas, valores trocados) → rótulo (intenção, resposta esperada, handoff sim/não, risco) → revisão por duas pessoas → entrada no repositório versionado. Um caso `real_consentido` percorre o mesmo pipeline **mais** o registo de consentimento, sem o qual não entra; a barreira é do KAM-040 e vale para os três (decisão do fundador a 2026-10-30, `../adr/ADR-L006-origem-do-golden-set.md`). Meta do Piloto: ≥ 100 conversas (H7); crescimento contínuo (*proposta*: +20/semana).
 
 ### 11.3 Risco: Termos da Meta sobre dados e ML
 
-Os Termos proíbem usar dados da plataforma para criar, desenvolver, treinar ou melhorar sistemas de ML/IA (E1; leitura automática do texto PT, **verificar a cláusula integral**). Usar conversas reais para *avaliar* pode ser lido como «melhorar». Por isso: (a) o golden set contém **reescritas sintéticas**, não conversas; (b) nenhum modelo é treinado ou afinado com dados WhatsApp; (c) o fornecedor de LLM tem retenção zero/sem treino (E3 requisito 8); (d) pedir parecer sobre o texto exacto (E1 Q7). **PA-GOV-4.**
+Os Termos proíbem usar dados da plataforma para criar, desenvolver, treinar ou melhorar sistemas de ML/IA (E1; leitura automática do texto PT, **verificar a cláusula integral**). Usar conversas reais para *avaliar* pode ser lido como «melhorar». Por isso: (a) o golden set é predominantemente **reescrita sintética**, e um caso de conversa real só entra como `real_consentido`, com **registo de consentimento** — a barreira é a defesa, e não a exclusão do material real (decisão do fundador a 2026-10-30, `../adr/ADR-L006-origem-do-golden-set.md`); (b) nenhum modelo é treinado ou afinado com dados WhatsApp; (c) o fornecedor de LLM tem retenção zero/sem treino (E3 requisito 8); (d) pedir parecer sobre o texto exacto (E1 Q7) — e é esta a premissa que o **KAM-104** leva ao parecer jurídico contra os Termos da Meta §4.7. **PA-GOV-4.**
 
 ---
 
@@ -737,7 +737,7 @@ Legenda: **R** executa, **A** responde, **C** consultado, **I** informado.
 | **Registo falso em self-service** (lojas ou documentos falsos, sem agente presencial) | burlas, quality rating, base envenenada | OTP, duplicados, anti-bot, OCR + consistência, tecto inicial baixo com subida por histórico, reavaliação contínua, fila humana por excepção (§4.1) |
 | **Gargalo da Meta** (10 clientes/7 dias) com procura automática | espera longa, abandono | lista de espera automática com posição; Business Verification e App Review cedo; pedido de Access Verification |
 | **KYC automático sem validação oficial do NIF** (NÃO VERIFICADO) | documento falso passa | tectos baixos, confiança gradual, auditoria por amostragem, K2 opcional para selo |
-| Golden set contamina-se com dados reais | violação dos Termos Meta / Lei 22/11 | reescrita sintética; parecer |
+| Golden set contamina-se com dados reais **sem consentimento registado** | violação dos Termos Meta / Lei 22/11 | registo de consentimento obrigatório em cada caso `real_consentido` (barreira do KAM-040), mais a reescrita sintética das outras duas origens; parecer |
 | Prometer invisibilidade ao segmento B | dano reputacional e legal | guião, auditoria, segmento A no Piloto |
 | Saga deixa recursos órfãos | custo e fuga de dados | idempotência, compensação, reconciliação |
 | Retenção fiscal vs. apagamento | incumprimento de uma das leis | pseudonimização do ledger; prazos parametrizados; parecer |
@@ -782,7 +782,7 @@ Legenda: **R** executa, **A** responde, **C** consultado, **I** informado.
 | **PA-GOV-1** | Desdobrar `tenant.activated` em `tenant.approved` (dispara a saga), `tenant.provisioned` e `tenant.activated` (go-live) | `00` §6.2 exige gates anteriores a `ativo` que dependem dos recursos da saga |
 | **PA-GOV-2** | Lista de bloqueio de categorias = **Meta ∪ lei angolana**, como *policy-as-code* versionada; só se pode tornar mais restritiva por tenant | E1: a Meta proíbe independentemente de licenças locais |
 | **PA-GOV-3** | Comissões de agentes e revendedores só após 1.ª venda **paga por evento autenticado** de comprador independente, com janela anti-fraude e *clawback* | ADR-013; fraude de rede (`../exploracao/07-pontos-cegos-2.md` §8) |
-| **PA-GOV-4** | *Golden set* feito de **reescritas sintéticas**; nenhum treino/afinação com dados WhatsApp | Termos Meta (E1) e Lei 22/11 |
+| **PA-GOV-4** | *Golden set* pelas **três origens do KAM-040** (`sintetico`, `t2_anonimizado`, `real_consentido`), com **registo de consentimento obrigatório** nos reais; nenhum treino/afinação com dados WhatsApp | Termos Meta (E1) e Lei 22/11; `../adr/ADR-L006-origem-do-golden-set.md` |
 | **PA-GOV-5** | Canal operacional da KAMBÁ para prestadores e PMEs (ver **PA-GEO-4**, `07`) | lacuna comum a GEO e GOV |
 | **PA-GOV-6** | Sub-estados de `onboarding` e `encerrado` (§15.1), sem alterar os estados canónicos | retenção fiscal e disputas não cabem em `encerrado → [*]` |
 | **PA-GOV-8** | **Onboarding self-service automático no Piloto** (web + ES v4 + KYC K1 automático), com revisão humana só por excepção e confiança gradual por histórico; K2 vira upgrade opcional | decisão do fundador; promovida a **ADR-019** em `00` |
@@ -834,3 +834,4 @@ Legenda: **R** executa, **A** responde, **C** consultado, **I** informado.
 | 1.5 | Outubro 2026 | KAM-159: §7.2 — o domínio de `purpose` deixa de estar «por fixar» e passa a ter `CHECK` com as **dez** finalidades, que são a união das duas listas que existiam (decisão do fundador, 2026-10-18). Acrescenta-se a tabela da **base legal de cada uma**, com o que o `E3` diz e «nada» onde ele não diz — e não diz nada sobre cinco delas, duas das quais as de maior risco. | Equipa KAMBÁ |
 | 1.6 | Outubro 2026 | KAM-159: §7.2 — a prosa sob a tabela da base legal dizia «**cinco** não têm uma linha no `E3`» e a tabela tem **seis**; e nomeava entre as de maior risco a `partilha_parceiros`, que é a única das partilhas **com** fonte (Art. 23.º, INDÍCIO). Numa tabela de base legal de consentimento, a contagem errada e a finalidade errada na lista de risco não são erro de estilo: é a lista que alguém vai usar para decidir o que pode ligar antes do parecer. Encontrado pela revisão adversarial. | Equipa KAMBÁ |
 | 1.7 | Outubro 2026 | KAM-130: a **L-GOV-1** deixa de acusar a contagem de ADRs do `INDICE.md`. Os percursos e o ADR-004/ADR-008 mantêm-se. | Equipa KAMBÁ |
+| 1.8 | Outubro 2026 | KAM-169: as **quatro** afirmações deste documento sobre a origem do *golden set* passam a nomear as **três origens do KAM-040** (`sintetico`, `t2_anonimizado`, `real_consentido`), por decisão do fundador a 2026-10-30 (`../adr/ADR-L006-origem-do-golden-set.md`). O §11.2 diz que o seu pipeline é o da **segunda** origem e não o do conjunto todo; a cláusula (a) do §11.3 deixa de excluir conversas reais e passa a exigir o **registo de consentimento**, nomeando o KAM-104 como quem leva a premissa ao parecer; a **PA-GOV-4** do §16 acompanha. O **risco** da tabela do §12 não se apaga — passa a nomear o que hoje o produz, `dados reais **sem consentimento registado**`, e a mitigação passa a ser o registo mais a reescrita, em vez da exclusão do material real. As três linhas que não mudam ficam ditas: `nenhum modelo é treinado ou afinado com dados WhatsApp` (b), a retenção zero do fornecedor (c) e o parecer (d) — a proibição dos Termos é sobre **treino**, e continua verdadeira. | Equipa KAMBÁ |

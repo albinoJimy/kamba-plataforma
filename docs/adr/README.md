@@ -45,8 +45,12 @@ depende dela, ou porque contradiz um ADR em vigor. Nesse caso entra em
 | [ADR-L003](ADR-L003-verificacao-do-ruleset.md) | O *ruleset* de `main` verifica-se com um *token* de **leitura** (`administration: read`), que compara e nunca aplica, fora do CI deste repositório | KAM-137 | Aceite |
 | [ADR-L004](ADR-L004-fila-e-tranca-do-agr.md) | A fila `agr-inbound` consome-se em **TypeScript**, por um *shim* que chama `/internal/turn`; e um turno por conversa serializa-se por *advisory lock* de **sessão** | KAM-025 | Aceite |
 | [ADR-L005](ADR-L005-degradacao-e-concierge.md) | Com a política `concierge` activa, a resposta do **modo determinístico também vai a aprovação humana**: os dois mecanismos somam-se e não se substituem | KAM-037 | Aceite |
-| [ADR-L004](ADR-L004-fila-e-tranca-do-agr.md) | A fila `agr-inbound` consome-se em **TypeScript**, por um *shim* que chama `/internal/turn`; e um turno por conversa serializa-se por *advisory lock* de **sessão** | KAM-025 | Aceite |
-| [ADR-L005](ADR-L005-degradacao-e-concierge.md) | Com a política `concierge` activa, a resposta do **modo determinístico também vai a aprovação humana**: os dois mecanismos somam-se e não se substituem | KAM-037 | Aceite |
+| [ADR-L006](ADR-L006-origem-do-golden-set.md) | O *golden set* admite as **três origens do KAM-040** — `sintetico`, `t2_anonimizado` e `real_consentido` —, com **registo de consentimento obrigatório** nos reais; a barreira passa a ser a defesa em vez da exclusão | KAM-169 | Aceite |
+
+As linhas do `ADR-L004` e do `ADR-L005` estavam **duplicadas** nesta tabela, e as
+duas cópias saíram ao acrescentar a do `ADR-L006` (KAM-169). Era resíduo de dois
+PRs a acrescentarem no mesmo sítio, não dois ADRs distintos: as quatro linhas
+tinham texto idêntico, incluindo o ticket.
 
 ## Emenda pedida ao canon
 
