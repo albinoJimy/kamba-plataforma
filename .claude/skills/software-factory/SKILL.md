@@ -230,6 +230,64 @@ Quando o alvo é código que ninguém da sessão conhece, junta
 dela entra como **riscos e hipóteses**, nunca como trabalho a fazer
 ([`references/ponytail.md`](references/ponytail.md)).
 
+#### CodeGraph
+
+**Este repositório está indexado desde 2026-10-30**, por decisão do fundador — indexar é dele,
+e não gesto de sessão. O que o índice cobre, medido no `codegraph status` do dia: **1027 dos
+1515 ficheiros versionados**, 24 289 nós e 71 578 arestas, construído em 11,7 s, 84 MB em
+`.codegraph/` (ignorado pelo `git`, porque é derivado e reconstrói-se com `codegraph index`).
+
+A regra de ordem, que é a parte que não depende de medição nenhuma:
+
+> Onde houver `.codegraph/`, **uma chamada ao `explore` vem antes do `grep`, do `find` e de
+> abrir ficheiros.** Quem o chama é quem conduz a estação; um subagente `Explore` continua a
+> servir para o que o índice não vê, e leva no contrato o que a chamada já devolveu, para não
+> redescobrir o mesmo (§2, regra 5).
+
+```text
+mcp__codegraph__codegraph_explore   query + projectPath   (obrigatório: o servidor não tem
+                                                           projecto por omissão)
+codegraph explore "<símbolos ou pergunta>"                 a mesma saída, pela shell
+codegraph sync                                             depois de o código mudar
+```
+
+**Há uma terceira via, e não é uma escolha tua:** está instalado um `prompt-hook` que corre a
+cada *prompt* e injecta contexto estrutural. **Contexto injectado por um hook não é uma consulta
+que alguém fez** — medido a 2026-10-30, ele disparou sobre uma nota de sistema e devolveu 58
+símbolos e um raio de alcance sobre ficheiros sem relação nenhuma com o assunto. Lê-se como
+sugestão, nunca como «estes são os símbolos em risco».
+
+Três limites. Os dois primeiros são medidos; o terceiro é a doutrina que já existia:
+
+1. **Indexa código, não o conjunto documental.** Dos 1515 ficheiros versionados, **238 são
+   `.md`** — e nenhum entra no índice. É nesses que vivem o §4 do backlog, o dicionário, as
+   tabelas-resumo e as linhas de «Controlo de versões», que é o modo de falha dominante desta
+   casa. O CodeGraph ajuda no eixo de **código** e não vê o outro. (A primeira versão desta
+   secção sustentava isto com um *ranking* de portões; duas contagens honestas deram ordens
+   diferentes, pelo que a afirmação saiu e ficou o número de ficheiros, que não se discute.)
+2. **A fonte é fresca; o grafo é que pode estar atrasado.** A saída diz, no rodapé, que a fonte
+   é relida do disco na própria chamada — por isso **conta como lida** e não se reabrem esses
+   ficheiros. O que envelhece é a **selecção**: que símbolos ele julga relevantes e que arestas
+   os ligam, lidos de um índice que só acompanha a árvore depois de um `sync`. Logo confirma-se
+   o que ele **não** mostrou, não o que mostrou.
+3. **Uma negativa dele é uma afirmação como as outras.** «Isso não existe no repositório»
+   confirma-se com comando próprio, pela razão do ponto 2.
+
+**O que ele é, na ordem das fontes de verdade: o nível 14.** Mostra o código que existe, e o
+código é fonte sobre o que **acontece**, não sobre o que devia acontecer. **O que ele não é é o
+nível 15** — a verdade sobre comportamento continua a vir da execução, e um caminho de chamada
+não é um teste.
+
+**O que vale e o que está por medir.** As capacidades acima vêm da auto-descrição da ferramenta
+e são **INDÍCIO**. O que medi em uso próprio, e é **CONFIRMADO**: uma chamada sobre o
+`lint_backlog` devolveu `cli.py:561`, o corpo inteiro do `verificar` e os ficheiros de teste de
+cada símbolo — o que no dia anterior me custou três buscas separadas — e trouxe de passagem um
+defeito que eu tinha avistado e deixado passar: o `fechados()` do `vagas.py` conta um ticket como
+fechado quando o bloco tem secção de «Verificação dos Critérios de Aceitação», e não quando o PR
+funde, o que explica um ticket entregue continuar a aparecer como vaga. **Por medir:** o ganho
+agregado por ticket, e onde a selecção se engana. Como validar: correr a estação 1.1 de um
+ticket de código com e sem a ferramenta, e comparar idas e voltas e achados.
+
 #### Fontes de verdade neste repositório, por ordem
 
 Quando duas fontes discordam, **não escolhas em silêncio**. Regista o conflito no formato de
@@ -298,6 +356,12 @@ Neste repositório o impacto indirecto tem cinco sítios que escapam quase sempr
 - **`ci/thresholds.yaml` e o `Makefile`.** Um pacote Node novo entra no `PACOTES_NODE` **e** no
   `ci/thresholds.yaml`; um ficheiro que nenhum estrato classifique falha o gate 4 de propósito,
   e o `coverage_gate` injecta a 0% o que nenhum relatório mediu.
+
+
+**Onde houver índice, o impacto INDIRECTO mede-se melhor do que com `grep`.** Os caminhos de
+chamada e o resumo de raio de alcance do `codegraph_explore` são a resposta directa a «quem
+consome isto», e apanham o despacho dinâmico que uma busca textual perde. Não substituem as
+cinco superfícies documentais acima, que não têm símbolos — ver o §1.1.
 
 O eixo que identificares aqui é o que escolhe os portões na estação 1.7. Impacto e portões são
 a mesma pergunta feita duas vezes.

@@ -144,7 +144,7 @@ Medido a 2026-10-19, no KAM-013. As quatro vias, por ordem de quanto custam:
 | Gates de base de dados (6 e 8) | `.venv/Scripts/python.exe db/gate_bd.py --suite <nome>`. O `gate_bd.py` levanta os seus próprios contentores de PostgreSQL e Valkey e apaga-os no fim |
 | Cobertura (gate 4) | O LCOV produz-se em contentor; o `tools/coverage_gate.py` corre **fora** dele, com o Python do Windows |
 
-Cinco armadilhas que custaram tempo, e todas na forma «passou» quando não passou:
+Seis armadilhas que custaram tempo, e todas na forma «passou» quando não passou:
 
 1. **O código de saída tem de ser do comando, não do `tail`.** `python -c "..." 2>&1 | tail -5; echo $?`
    devolve o estado do `tail`, que é sempre 0. Três lints pareceram conformes assim, e um deles
@@ -165,6 +165,13 @@ Cinco armadilhas que custaram tempo, e todas na forma «passou» quando não pas
    com **2**, `invalid choice`. É «não se conseguiu verificar», nunca verde, e ao lado de quatro
    irmãos que todos tomam `check` passa por distracção de uma palavra numa lista. Corre-se
    `all`.
+6. **O `codegraph status` sem índice sai com 0.** É o verde falso desta família, e foi medido
+   num directório limpo: `status` imprime «Not initialized» e **devolve 0**, pelo que um
+   `status && ...` prossegue e quem lê o `$?` conclui que há índice. Quem responde pelo estado
+   real é o `explore`, que sai com **1** — e as duas vias não dizem o mesmo: a ferramenta MCP
+   devolve «don't call codegraph for it again this session» e a da shell devolve «CodeGraph
+   isn't available here», sem essa instrução. Medido nas duas pontas a 2026-10-30. Para saber se
+   há índice, testa a pasta (`ls -d .codegraph`), não o código de saída do `status`.
 
 E a disciplina que fecha a secção: **o `.venv` e o `node_modules` não existem numa árvore nova.**
 Um *worktree* recém-criado precisa de `python -m venv .venv` com os três `pip install

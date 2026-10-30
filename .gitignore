@@ -81,3 +81,10 @@ ci/pii/
 # `docs/spikes/KAM-041-medusa.md` — com os numeros ja lidos. Guardar isto
 # versionaria megabytes de registo por cada medicao repetida.
 spikes/medusa-d3/resultados/
+# Indice do CodeGraph (`codegraph init`), uma base SQLite com os simbolos, as
+# arestas e os ficheiros da arvore. E **derivado** e reconstroi-se com
+# `codegraph index`, ou actualiza-se com `codegraph sync` — committa-lo
+# versionaria megabytes de artefacto binario que ficam velhos ao commit
+# seguinte, e cada arvore de trabalho tem o seu. A decisao de indexar e do
+# fundador; o que esta decidido aqui e so que o resultado nao entra no git.
+.codegraph/
