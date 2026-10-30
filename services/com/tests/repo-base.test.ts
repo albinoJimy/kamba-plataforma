@@ -248,6 +248,33 @@ test("CANARIO: o predicado dentro de um literal ou comentario nao conta", async 
   assert.equal(vistas.length, 0);
 });
 
+test("CANARIO: o predicado antes do WHERE nao e um filtro", async () => {
+  // O ramo que a cobertura mostrou a descoberto, e é alcançável por duas vias
+  // que nada têm de artificial:
+  //
+  //   * na lista do `SELECT`, onde `merchant_id = $1` é uma **coluna booleana**
+  //     e não um filtro: a consulta devolve as linhas de todos os merchants com
+  //     uma coluna a dizer quais são deste;
+  //   * num `JOIN … ON`, que filtra o lado juntado e não o de fora.
+  //
+  // O `ON` **filtra alguma coisa**, e recusá-lo é a escolha fechada: quem o
+  // precisa move o predicado para o `WHERE`, que custa nada e fica legível em
+  // revisão.
+  const { repo: r, vistas } = repo();
+  for (const sql of [
+    "SELECT (merchant_id = $1) AS meu FROM product WHERE sku = $2",
+    "SELECT * FROM product p JOIN linha l ON l.merchant_id = $1 WHERE p.sku = $2",
+  ]) {
+    await assert.rejects(
+      () => r.noMerchant(sql, ["x"]),
+      (e: unknown) =>
+        e instanceof FiltroEmFaltaError && /antes do WHERE/.test(String(e)),
+      sql,
+    );
+  }
+  assert.equal(vistas.length, 0);
+});
+
 // ---------------------------------------------------------------- o inserir
 
 test("o inserir escreve a coluna do filtro, e e o $1", async () => {

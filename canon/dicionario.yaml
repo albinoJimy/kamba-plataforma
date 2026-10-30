@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.49"
+versao_dicionario: "1.61"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -9522,6 +9522,151 @@ entradas:
     nomes: []
     nomes_nota:
       - "sku"
+    variantes_literais: []
+  - seccao: "3.39"
+    conceito: "A porta entre agentes e Registo"
+    canonico: "CommerceRegistry"
+    literais:
+      - "CommerceRegistry"
+    nomes:
+      - "CommerceRegistry"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.39"
+    conceito: "Os doze métodos"
+    canonico: "upsertProductDraft, publishProduct, getOfferView, createOrder, requestOwnerConfirmation, reserveStock, extendReservation, commitReservation, releaseReservation, transition, getOrder, listOrders"
+    literais:
+      - "upsertProductDraft"
+      - "publishProduct"
+      - "getOfferView"
+      - "createOrder"
+      - "requestOwnerConfirmation"
+      - "reserveStock"
+      - "extendReservation"
+      - "commitReservation"
+      - "releaseReservation"
+      - "transition"
+      - "getOrder"
+      - "listOrders"
+    nomes:
+      - "upsertProductDraft"
+      - "publishProduct"
+      - "getOfferView"
+      - "createOrder"
+      - "requestOwnerConfirmation"
+      - "reserveStock"
+      - "extendReservation"
+      - "commitReservation"
+      - "releaseReservation"
+      - "transition"
+      - "getOrder"
+      - "listOrders"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.39"
+    conceito: "O contexto obrigatório"
+    canonico: "Ctx — {tenantId, actor: {kind, id}, traceId}"
+    literais:
+      - "Ctx"
+      - "{tenantId, actor: {kind, id}, traceId}"
+    nomes:
+      - "Ctx"
+      - "tenantId"
+      - "actor"
+      - "kind"
+      - "id"
+      - "traceId"
+    nomes_nota:
+      - "traceId"
+      - "Ctx"
+      - "ServicosModule"
+      - "null"
+    variantes_literais: []
+  - seccao: "3.39"
+    conceito: "Quem chama"
+    canonico: "Ctx.actor.kind ∈ {agente, dono, sistema, ops}"
+    literais:
+      - "Ctx.actor.kind ∈ {agente, dono, sistema, ops}"
+    nomes:
+      - "Ctx.actor.kind"
+      - "agente"
+      - "dono"
+      - "sistema"
+      - "ops"
+    nomes_nota:
+      - "kind"
+      - "order_state_log.actor_kind"
+    variantes_literais: []
+  - seccao: "3.39"
+    conceito: "Ausência de implementação"
+    canonico: "NOT_IMPLEMENTED"
+    literais:
+      - "NOT_IMPLEMENTED"
+    nomes:
+      - "NOT_IMPLEMENTED"
+    nomes_nota:
+      - "tool_audit.error_code"
+      - "NOT_FOUND"
+      - "TENANT_MISMATCH"
+      - "VALIDATION_ERROR"
+      - "UPSTREAM_DOWN"
+    variantes_literais: []
+  - seccao: "3.39"
+    conceito: "Cabeçalho do tenant na API interna do COM"
+    canonico: "x-kamba-tenant"
+    literais:
+      - "x-kamba-tenant"
+    nomes:
+      - "x"
+      - "kamba"
+      - "tenant"
+    nomes_nota:
+      - "x"
+      - "kamba"
+      - "interno"
+      - "hnd"
+      - "bot"
+      - "lint_arch"
+      - "medusa"
+    variantes_literais: []
+  - seccao: "3.39"
+    conceito: "O filtro que o repositório base injecta"
+    canonico: "merchant_id no Registo, tenant_id no platform"
+    literais:
+      - "merchant_id"
+      - "tenant_id"
+      - "platform"
+    nomes:
+      - "merchant_id"
+      - "tenant_id"
+      - "platform"
+    nomes_nota:
+      - "merchant_id"
+      - "platform.tenants.medusa_merchant_id"
+      - "ctx"
+    variantes_literais: []
+  - seccao: "3.39"
+    conceito: "O módulo custom do Medusa"
+    canonico: "merchant"
+    literais:
+      - "merchant"
+    nomes:
+      - "merchant"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.39"
+    conceito: "Contadores da barreira do repo-base"
+    canonico: "com_repo_filtro_em_falta_total, com_repo_consultas_total"
+    literais:
+      - "com_repo_filtro_em_falta_total"
+      - "com_repo_consultas_total"
+    nomes:
+      - "com_repo_filtro_em_falta_total"
+      - "com_repo_consultas_total"
+    nomes_nota:
+      - "tenant"
+      - "merchant"
+      - "exposicao"
     variantes_literais: []
 
 tabelas:

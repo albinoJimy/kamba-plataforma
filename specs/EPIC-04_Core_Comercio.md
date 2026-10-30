@@ -213,7 +213,43 @@ A porta `CommerceRegistry` é a única costura entre agentes e Registo (PA-03-1)
 
 ### Objectivo
 
-Implementar a porta `CommerceRegistry` (11 métodos, `ctx` obrigatório, falha fechada) e o adaptador da opção decidida em KAM-041 (B: Medusa puro + módulo `merchant`; C: esquema `commerce` com RLS), com o repositório base que injecta `merchant_id`/`tenant_id` em todas as consultas, a *pipeline* de migrações e a suite ISO ligada ao CI.
+Implementar a porta `CommerceRegistry` (**doze** métodos, `ctx` obrigatório, falha fechada) e o adaptador da opção **recomendada** em KAM-041 (B: Medusa puro + módulo `merchant`; C: esquema `commerce` com RLS, se a D3 fechar nela), com o repositório base que injecta `merchant_id`/`tenant_id` em todas as consultas, a *pipeline* de migrações e a suite ISO ligada ao CI.
+
+> **Duas correcções a este objectivo, feitas pelo PR deste ticket e não lidas de
+> memória.**
+>
+> **«11 métodos» eram doze.** O `../docs/tecnica/03` §3.2, que é a fonte do
+> contrato, lista doze, e o critério 1 abaixo nomeia-os um a um. A contagem
+> errada estava aqui e na linha da `PortaDeCatalogo` do dicionário §3.38; está
+> corrigida nos dois sítios, presa em
+> `services/com/tests/port.contrato.test.ts` e repetida em
+> `../docs/com/port-coverage.md` §2.
+>
+> **«a opção decidida em KAM-041» não está decidida.** A linha da **D3** em
+> `../docs/tecnica/00` §13.3 diz, por escrito: «Spike de 5 dias com testes de
+> isolamento — feito (KAM-041, 2026-10-27). Recomendação: **opção B**, com a
+> autoridade da reserva no `platform`. **Falta a assinatura do Arquitecto de
+> Plataforma e do Responsável de Segurança, e a ratificação do fundador**». Há
+> recomendação e não há decisão, e por isso:
+>
+> ```text
+> HIPÓTESE
+> - Hipótese: o Registo do Piloto é um Medusa v2 único com um módulo custom
+>   `merchant`, e o isolamento entre vendedores é imposto pelo COM (opção B).
+> - Evidência que a sustenta: o spike KAM-041 percorreu a árvore do
+>   `../docs/tecnica/03` §4.5 e recomenda a opção B. O harness saiu `1`: AC-1 e
+>   AC-8 vermelhos; AC-5, AC-6, AC-9 e AC-10 não medidos.
+> - Estado: NÃO VERIFICADO como decisão.
+> - Como validar: as duas assinaturas que a D3 nomeia, e a ratificação do
+>   fundador. **Devolve-se-lhe a assinatura que falta.**
+> ```
+>
+> **O que isto não limita:** a porta, o `ctx` com falha fechada, o repositório
+> base e o *lint* de arquitectura são iguais na opção B e na C — é a propriedade
+> do PA-03-1 — e são entregues completos. O que depende da opção é só o
+> adaptador. **E não contradiz o ADR-003**, cujo *fallback* nomeado **é** a
+> opção B (a opção C é o «Fallback 2» do `../docs/tecnica/03` §4.5, e não
+> aparece no ADR).
 
 ### Critérios de Aceitação
 
@@ -225,6 +261,41 @@ Implementar a porta `CommerceRegistry` (11 métodos, `ctx` obrigatório, falha f
 - [ ] Métodos cuja implementação pertence a tickets posteriores devolvem `NOT_IMPLEMENTED` e estão listados em `docs/com/port-coverage.md` com o ticket dono; cada um tem teste de isolamento marcado *xfail strict* que falha quando a implementação chegar sem teste.
 - [ ] A *pipeline* corre, por esta ordem: Alembic `upgrade` (expand) → migrações Medusa → deploy → *smoke* + suite ISO → `contract` na release seguinte; o `downgrade` de cada revisão está testado.
 - [ ] Papéis Postgres `kamba_app` (RLS, sem `BYPASSRLS`), `kamba_ops` (auditado) e `kamba_migrator` (DDL) em uso; o COM acede com `kamba_app`.
+
+### Verificação dos Critérios de Aceitação
+
+Medição de **2026-10-30**, sobre `refs/remotes/publico/main` em `fd0a32d`.
+Reproduz-se com, nesta máquina, Docker em vez de `make` (não há `make`, `node`
+nem `pnpm` no `PATH`, e um `make ci-2` responde `command not found`, o que não é
+«o gate passa»):
+
+```bash
+docker run --rm -v "<arvore>:/w" -w /w node:24.21.0-alpine sh -c \
+  "cd services/com && ../../node_modules/.bin/tsc -p tsconfig.json && \
+   node --test --experimental-test-coverage --test-coverage-include='src/**' tests/*.test.ts"
+cd tools && python -m lint_arch --root .. all
+cd tools && python -m unittest lint_arch.tests.test_medusa
+```
+
+**Resultado: `tsc` → 0; 108 testes, 108 verdes; `lint_arch all` → 0 nos cinco
+passos; 22 baterias do `lint_arch medusa` verdes.** Cobertura de linha dos cinco
+ficheiros novos: `port/contrato.ts` **100%** (ramos 90,91%), `port/index.ts`
+100%, `repo-base/index.ts` **100%** (ramos 96,15%), `adapters/medusa/index.ts`
+100%, `adapters/medusa/provisionamento.ts` 100%.
+
+**Duas caixas marcadas de oito.** As outras seis ficam vazias, nomeadas, com a
+razão — e duas delas dependem da **ratificação da D3**, que é do fundador.
+
+| # | Critério | Estado | O que se mediu, e com que comando |
+|---|---|---|---|
+| 1 | Doze métodos com `ctx`; sem `ctx.tenantId` ou com tenant inexistente falha fechada (ISO-09) | **vazia**, `parcial` | A porta expõe os doze, com os nomes e a ordem do `../docs/tecnica/03` §3.2 presos em `port.contrato.test.ts` («a porta tem doze metodos»). **A primeira metade está verde**: as doze operações com `ctx` sem `tenantId` lançam `CtxEmFaltaError`, e lançam **antes de pedirem ligação** — o cliente de ensaio explode se lhe falarem, pelo que doze rejeições pela classe certa provam que nenhuma chegou à base (`port.iso.test.ts`, «ISO-09: as doze operacoes»). O `exigirCtx` verifica também o `actor.kind` fora dos quatro, o `actor.id` vazio e o `traceId`. **A segunda metade não se cumpre à letra**: «tenant inexistente falha fechada» mede-se contra a base, vive no `comRegisto` (`TenantDesconhecidoError`, teste «criterio 1: um tenant bem formado e inexistente») e **nenhum dos doze métodos chama o `comRegisto`** — com um tenant bem formado e inexistente, a resposta de qualquer um deles é `NOT_IMPLEMENTED`, que é o que o critério 6 manda. As duas metades do critério só podem ficar verdes ao mesmo tempo quando houver uma implementação, e isso é do **KAM-043/044**. Fica devolvido a quem escreveu o critério |
+| 2 | ISO-01..08 e ISO-10 com 0 acessos cruzados; ISO-11..32 na opção B; ISO-57..60 ignorados | **vazia**, `não satisfeito` | ISO-57..60 ignorados, pela letra do critério. **ISO-01..08 e ISO-10 não se medem**, e não é omissão: «operações da porta com `ctx` de A sobre ids de B» precisa de uma operação que leia algo, e as doze devolvem `NOT_IMPLEMENTED`. Ficam como os treze `xfail strict` de `port.iso.test.ts`, que **falham no dia em que a implementação chegar sem o teste de isolamento ao lado** — ver o critério 6. **ISO-11..32 exigem um Medusa a correr e não há nenhum**: o `infra/compose/` não tem serviço Medusa, só a base `kamba_medusa` que o `initdb` cria. A única medição que existe é a do KAM-041 (`spikes/medusa-d3/resultados/iso.json`, 2026-10-27), **e o ISO-15 está vermelho lá**: a API *Store* serviu a encomenda de um tenant a uma chave publicável de outro. Este PR não o mitiga |
+| 3 | `medusa-config` com `rbac`, `auth-oidc` ou `policies` reprova o CI (AC-7); credenciais do admin não alcançáveis da rede da aplicação (AC-2, teste de rede) | **vazia**, `parcial` | **A primeira metade está verde e medida**: `tools/lint_arch/medusa.py`, no `all` do `lint_arch` e portanto nos gates 2 e 11, com cinco canários — um por *flag* — a provar que morde (`test_medusa.py::TestCanariosDasFlagsEE`). Cobre **cinco** *flags* onde o critério nomeia três: as outras duas são as da correcção 3 do `../docs/tecnica/03` §3.4 (`MEDUSA_FF_RBAC`, `MEDUSA_FF_RBAC_FILTER_FIELDS`, «a segunda não nomeada em nenhum critério»). As *flags* em comentário **não** falham, e há canário para isso: o `medusa-config.ts` do spike nomeia-as para documentar o controlo. **A segunda metade não se mediu**: um teste de rede precisa de uma «rede da aplicação» com um Medusa nela, e não há. O que o *lint* impõe é o que se pode impor sem ele — nenhuma referência à base `kamba_medusa` fora do COM (canário com uma cadeia de ligação). A única medição de rede é a do KAM-041 (`resultados/ac2-rede.json`, com controlo positivo na 5432). **É um achado para devolver:** o AC-2 do KAM-042 pressupõe um Medusa implantado que este repositório não tem |
+| 4 | Lint de arquitectura: nenhum import do SDK nem acesso à BD `medusa` fora de `services/com/`; a TLS só chama a API interna do COM com `tenant_id` em cabeçalho | **vazia**, `parcial` | **Duas das três metades estão verdes e medidas.** Import do SDK: `lint_arch medusa` recusa `import`/`require`/`import()`/`export … from` de `@medusajs/*` fora de `services/com/`, **e um `@medusajs/*` declarado num `package.json`** — um pacote declarado é um import que amanhã ninguém vê no *diff*. Base do Registo: recusa `kamba_medusa` fora do COM. Nove canários, mais quatro a provar que **não** morde onde não deve (o nome em prosa, o manifesto do COM, a árvore do spike, o comentário que explica a regra). **Correcção que isto trouxe:** o esquema do Medusa é o `public` e não um esquema `medusa` — o próprio `medusa-config.ts` do spike di-lo —, pelo que um *lint* que procurasse `medusa.` ficava verde sobre nada, para sempre. **A terceira metade é uma sentinela sobre zero ficheiros**: a API interna do COM não existe (`services/com/src/app.ts` tem o `/healthz` e nada mais), pelo que não há rota `/internal/*` a verificar nem chamador a restringir. O *lint* exige o `x-kamba-tenant` em qualquer rota `/internal/*` do COM e dispara no dia em que a primeira nascer sem ele (dois canários). **E o lado do chamador não se impõe por *lint***: um *lint* sobre chamadores é um aviso — quem escreve o cliente noutro ficheiro, com outro nome, passa. O que morde é a rota a recusar. Credor da API interna: **KAM-044** |
+| 5 | Canal de vendas e localização de stock próprios por tenant; `tenants.medusa_sales_channel_id`/`medusa_merchant_id` preenchidos por comando de provisioning | **vazia**, `parcial` | **Não precisou de migração**: as duas colunas existem em `platform.tenants` desde a revisão `0001`, e o `kamba_app` tem `GRANT UPDATE` nelas desde lá (`0001_schema_platform.py`) — medido, não suposto. **O que está entregue e provado** é a parte que é nossa: `provisionarTenant` com a ordem que sobrevive a uma falha a meio (criar no Registo → ligar → **só então** escrever em `platform.tenants`, com a última escrita afirmada por asserção), idempotente (um tenant já provisionado não toca no Registo), com o `UPDATE` guardado por `medusa_merchant_id IS NULL` e a corrida perdida a dar erro próprio. **O que não está**: o `RegistoAdmin` é uma **porta** e o cliente HTTP contra a Admin API do Medusa **não está escrito** — não há Medusa contra o que o correr, e as rotas não foram lidas em fonte primária; escrevê-las de memória era inventar. Logo **nada cria canal nem localização hoje**, e não há *script* de Fase 0 por onde correr o comando. O evento `tenant.activated` é KAM-092, pela letra do critério |
+| 6 | Métodos de tickets posteriores devolvem `NOT_IMPLEMENTED`, listados em `docs/com/port-coverage.md` com o ticket dono, cada um com teste de isolamento *xfail strict* | **marcada** | Os doze devolvem `NOT_IMPLEMENTED` (verificado um a um em `port.iso.test.ts`). Os doze estão em [`../docs/com/port-coverage.md`](../docs/com/port-coverage.md) §2 com o ticket dono e com o que falta a cada um para deixar de o devolver — KAM-043 (3), KAM-044 (5), KAM-045 (4) —, e a mesma tabela está no teste, porque um documento não falha um *build*. **O *xfail strict* é o do critério, construído no que o `node:test` tem**: o `{ todo: true }` de um teste que passa é reportado como *todo* e **não** falha a suite, que é o contrário de «strict»; a forma com a semântica certa é **afirmar o `NOT_IMPLEMENTED`**, e a asserção fica vermelha no dia em que a implementação chegar — com a mensagem a dizer o ticket dono e o que a substitui. Treze casos (os doze mais o ISO-10) |
+| 7 | *Pipeline* por esta ordem: Alembic `upgrade` (expand) → migrações Medusa → deploy → *smoke* + suite ISO → `contract` na release seguinte; `downgrade` de cada revisão testado | **vazia**, `não satisfeito` | **Este PR não acrescenta revisão nenhuma**, e isso é um resultado da medição e não um corte: as duas colunas que o critério 5 pede existem desde a `0001`, nenhuma tabela nova é precisa para a porta, e a cabeça da cadeia continua a ser a `0027_payment_accounts`. Logo não há `downgrade` novo para testar. **E a *pipeline* não se constrói aqui**: ordenar os cinco passos exige um passo de migrações Medusa (que precisa de um Medusa implantado), um de *deploy* e um de *smoke* — e os três pressupõem a opção B **ratificada**, porque uma *pipeline* montada sobre a opção C não tem o passo 2. Fica devolvido com a D3 |
+| 8 | Papéis `kamba_app` (RLS, sem `BYPASSRLS`), `kamba_ops` (auditado) e `kamba_migrator` (DDL) em uso; o COM acede com `kamba_app` | **vazia**, `não satisfeito` | **O `kamba_ops` não existe**, e a divergência já estava resolvida contra o critério: o dicionário §3.2 fixa `kamba_batch` (`BYPASSRLS`, auditado) e nomeia `kamba_ops` como a forma substituída, «a favor do `../docs/tecnica/08` §3.3, que é o documento de isolamento e a autoridade sobre papéis»; a Carta §7 (emenda E-01) registou-a como «não coberta pelas 12 do KAM-111». Medido: `grep -rhoE "kamba_(app|ops|batch|migrator|resolver)" db/` dá 585 `kamba_app`, 328 `kamba_batch`, 114 `kamba_resolver`, 65 `kamba_migrator` e **zero** `kamba_ops`. **Escreve-se a leitura e devolve-se a decisão**, em vez de marcar a caixa com o papel trocado. A segunda metade — «o COM acede com `kamba_app`» — também não se demonstra: o papel chega ao adaptador dentro do `ComTenant` injectado, e nada no código, na configuração ou num teste o prende ao `kamba_app`; está afirmado em comentário, que não é evidência |
 
 ### Detalhes Técnicos
 
@@ -250,6 +321,17 @@ Implementar a porta `CommerceRegistry` (11 métodos, `ctx` obrigatório, falha f
 - [ ] **Dependências:** Medusa fixado; nenhuma *flag* EE; licenças permitidas (ADR-003).
 - [ ] **Migrações reversíveis:** `downgrade` testado; `orders_mirror` sem `downgrade` destrutivo.
 - [ ] Revisão por dois revisores (isolamento de tenant); documentação da porta e de `port-coverage.md`.
+
+### Verificação da Definition of Done
+
+| Caixa | Estado | Evidência |
+|---|---|---|
+| Todos os Critérios de Aceitação satisfeitos e demonstráveis | **vazia** | Dois marcados de oito. Seis ficam vazios com a razão nomeada acima: dois `não satisfeito` (ISO-01..32; *pipeline* de migrações) e quatro `parcial` ou dependentes da **ratificação da D3** |
+| **Isolamento de tenant:** `tenant_id` do `ctx`; RLS `FORCE` no `platform`; suite ISO no CI falha o *build* (ADR-015) | **vazia**, `parcial` | O `tenant_id` vem do `ctx` e de nada mais, e o repo-base não deixa sair consulta sem ele — é a parte entregue, e é a maior do ticket. **A RLS `FORCE` não é tocada por este PR**: está nas revisões `0002` e seguintes para as tabelas que existem, e as tabelas da porta (`orders_mirror`, `order_intents`, `stock_reservations`, `offer_terms`) **não existem** — são do KAM-044 e do KAM-045, que herdam a regra do `../docs/tecnica/03` §5.5 e a FK composta do §5.4. **A suite ISO no CI falha o *build* só em parte**: os 108 testes correm no gate 4 (`pnpm -r run test` → `node --test tests/*.test.ts`) e o ISO-09 falha o *build* se alguém o partir; o ISO-01..32 que o critério nomeia não existe como suite, pela razão do critério 2 |
+| **Plataforma sem fundos:** nenhum método da porta move dinheiro (ADR-004) | **marcada** | Nenhum dos doze move valor. `grep -rniE "payout\|stripe\|transfer" services/com/src/{port,repo-base,adapters}` → **0 ocorrências**. O único campo de dinheiro é o `OrderView.totalMinor`, de **leitura**, e passou de `number` a **`bigint`** pela revisão adversarial, contra o `type Minor = bigint` de `packages/core-ts/src/pagamentos/tipos.ts` — o `money_lint` do KAM-052 não morde aqui, porque as `RAIZES` dele são `packages/core-ts/src/pagamentos` |
+| **Dependências:** Medusa fixado; nenhuma *flag* EE; licenças permitidas (ADR-003) | **vazia**, `parcial` | **Nenhuma *flag* EE: verde e imposto por máquina** — `lint_arch medusa`, cinco canários, nos gates 2 e 11. **O Medusa não está fixado por este PR**, e é coerente e não cumprido ao mesmo tempo: nenhum manifesto é tocado, não há `@medusajs/*` em `services/com/package.json`, e por isso também não há versão nem licença novas a registar. A versão medida e a licença registada são as do KAM-041 (`@medusajs/medusa` **2.21.2**, `SEE LICENSE IN LICENSE`, com a precisão de que a **2.18.0** é a última MIT). Fixá-la aqui significava instalar o SDK antes de a D3 fechar |
+| **Migrações reversíveis:** `downgrade` testado; `orders_mirror` sem `downgrade` destrutivo | **vazia**, `não satisfeito` | **Não há migração neste PR.** As colunas `medusa_sales_channel_id` e `medusa_merchant_id` existem desde a revisão `0001` e a porta não precisa de tabela nova; a cabeça da cadeia continua na `0027_payment_accounts`. O `orders_mirror` é do **KAM-044** e é lá que esta caixa se cumpre — a regra «sem `downgrade` destrutivo» está no `../docs/tecnica/03` §11 e herda-se de lá |
+| Revisão por dois revisores (isolamento de tenant); documentação da porta e de `port-coverage.md` | **vazia** | **A metade da documentação está feita**: [`../docs/com/port-coverage.md`](../docs/com/port-coverage.md) (os doze com dono, as quatro propriedades que não são adiadas, a forma do *xfail strict*, o estado medido de cada gama ISO), o §3.39 do dicionário, e o `docs/ci.md` com o quinto passo do `lint_arch`. **A metade dos dois revisores fica vazia, por regra da casa e não por esquecimento**: nesta fase funde-se com CI verde, por decisão escrita do fundador, e **uma revisão adversarial é evidência, não é um revisor**. Houve uma, está em [`../docs/analises/ANALISE-43-KAM-042-porta-commerceregistry.md`](../docs/analises/ANALISE-43-KAM-042-porta-commerceregistry.md): 17 achados `CONFIRMADO`, todos corrigidos, 12 `MORTO` com a evidência que os matou. Dois dos bloqueantes dela eram **escrita cruzada medida por execução** na primeira versão da barreira |
 
 ### Handoff para Claude Code
 
