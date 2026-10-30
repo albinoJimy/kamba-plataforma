@@ -8,7 +8,7 @@
 | Âmbito | Local (ver [`README.md`](README.md)): **qual dos dois lados do canon vale** sobre a origem dos casos do *golden set* do KAM-040. Não especifica o dataset (é o **KAM-040**), não constrói o *gate* 13 (é o **KAM-040**), não decide o enquadramento legal (é o parecer do **KAM-104**) e não emenda o ADR-018 |
 | Decisores | **O fundador, a 2026-10-30**, sobre a divergência que a revisão adversarial do KAM-104 mediu |
 | ADRs canónicos aplicáveis | ADR-018 (observabilidade leve e proibição de treino com dados do WhatsApp), ADR-008 (transferências) |
-| Documentos aplicáveis | [`../tecnica/00_Arquitectura_Solucao.md`](../tecnica/00_Arquitectura_Solucao.md) §8 e §11; [`../tecnica/10_Onboarding_Governanca.md`](../tecnica/10_Onboarding_Governanca.md) §11.2, §11.3, §12 e §16; [`../logs.md`](../logs.md) §9; [`../tecnica/02_Agent_Runtime_Verticais.md`](../tecnica/02_Agent_Runtime_Verticais.md) §16.2; [`../../specs/00_KAMBA_Carta.md`](../../specs/00_KAMBA_Carta.md) §4.1; [`../../specs/EPIC-03_Agent_Runtime_Verticais.md`](../../specs/EPIC-03_Agent_Runtime_Verticais.md) bloco KAM-040; [`../../specs/EPIC-06_Indice_Pesquisa.md`](../../specs/EPIC-06_Indice_Pesquisa.md) bloco KAM-064; [`../../specs/EPIC-10_Spikes_Validacao_Gates.md`](../../specs/EPIC-10_Spikes_Validacao_Gates.md) bloco KAM-109 |
+| Documentos aplicáveis | [`../tecnica/00_Arquitectura_Solucao.md`](../tecnica/00_Arquitectura_Solucao.md) §8 e §11; [`../tecnica/10_Onboarding_Governanca.md`](../tecnica/10_Onboarding_Governanca.md) §11.2, §11.3, §18 e §20.1; [`../logs.md`](../logs.md) §9; [`../concierge.md`](../concierge.md); [`../tecnica/02_Agent_Runtime_Verticais.md`](../tecnica/02_Agent_Runtime_Verticais.md) §16.2; [`../../specs/00_KAMBA_Carta.md`](../../specs/00_KAMBA_Carta.md) §4.1; [`../../specs/EPIC-03_Agent_Runtime_Verticais.md`](../../specs/EPIC-03_Agent_Runtime_Verticais.md) bloco KAM-040; [`../../specs/EPIC-06_Indice_Pesquisa.md`](../../specs/EPIC-06_Indice_Pesquisa.md) bloco KAM-064; [`../../specs/EPIC-10_Spikes_Validacao_Gates.md`](../../specs/EPIC-10_Spikes_Validacao_Gates.md) bloco KAM-109 |
 | Substitui | — (**não** substitui o ADR-018; ver «Isto não é substituição de ADR») |
 
 ## Contexto
@@ -41,12 +41,22 @@ precisamente o que está **NÃO VERIFICADO** e que este conjunto existe para med
 (`../tecnica/02` §19, L1–L3). A **B** mede isso e paga-o com uma barreira que tem
 de ser imposta por máquina, não por intenção.
 
-### As dezassete linhas, medidas
+### As vinte linhas, medidas em três passagens
 
-Medido em `main` (`fd0a32d`), **antes** deste PR. O enunciado que chegou a este
-ticket falava de **sete** linhas; a medição deu **dezassete**, e a diferença não é
-detalhe — é a mesma classe de erro que criou a divergência, instrumento parcial
-lido como leitura. As três buscas que falharam, e porquê:
+Medido em `main` (`fd0a32d`) e, para as duas últimas, na árvore depois de o PR #93
+fundir (`7426abf`). **E a contagem subiu em cada passagem, o que é o assunto deste
+ADR a repetir-se sobre si próprio:**
+
+```text
+o enunciado que chegou ao ticket          7 linhas
+a medição deste ticket                   17   (buscas melhores; ver abaixo)
+a revisão adversarial + a base a mexer   20   (duas reclassificadas, uma nova)
+```
+
+Nenhum dos três números estava a esconder nada: os três eram o que o instrumento
+daquela passagem via. **A lição não é «conta melhor», é que uma enumeração que se
+declara completa envelhece** — e esta declara-se completa à data acima, não para
+sempre. As três buscas que falharam na primeira passagem, e porquê:
 
 ```text
 grep -rnE "golden.{0,120}reescrita sint|reescrita sint.{0,120}golden"
@@ -55,21 +65,24 @@ grep -rnE "golden.{0,120}reescrita sint|reescrita sint.{0,120}golden"
   perde a Carta e as glosas         — dizem «golden sintético», sem «reescrita»
 ```
 
-**Afirmam só reescrita sintética (onze):**
+**Afirmam só reescrita sintética (catorze):**
 
 | Onde | Estado |
 |---|---|
 | `../tecnica/00` §8, célula do ADR-018 | corrigida neste PR |
 | `../logs.md` §9, última regra | corrigida neste PR |
-| `../tecnica/10` §12, linha de risco | corrigida neste PR (o risco **mantém-se**; muda a mitigação) |
-| `../tecnica/10` §11.2, o pipeline | corrigida neste PR — lia-se como o pipeline do conjunto e é o da **segunda** origem |
+| `../tecnica/10` §18, linha de risco | corrigida neste PR (o risco **mantém-se**; muda a mitigação) |
+| `../tecnica/10` §11.2, o pipeline | corrigida neste PR — lia-se como o pipeline do conjunto, e passa a dizer que é o da reescrita sintética de casos T2 **sem fechar** o rótulo de `origem`, porque o canon tem duas respostas: o KAM-109 do `../../specs/EPIC-10` (fundido no #93) diz `t2_anonimizado` e três linhas mais antigas dizem `sintetico`. Fecha-o o **KAM-040** |
 | `../tecnica/10` §11.3, cláusula (a) | corrigida neste PR |
-| `../tecnica/10` §16, **PA-GOV-4** | corrigida neste PR |
+| `../tecnica/10` §20.1, **PA-GOV-4** | corrigida neste PR |
 | `../../specs/00_KAMBA_Carta.md` §4.1, linha do ADR-018 | corrigida neste PR; é a fonte de verdade de **nível 1** e repetia a abreviação um nível acima |
-| `../../specs/EPIC-10` bloco KAM-109, «Detalhes Técnicos» | **PR #93** (KAM-104) — não tocada aqui |
-| `../../specs/EPIC-03` §1, glosa «ADR-018 (golden sintético…)» | dívida documental: resíduo textual, fora do âmbito |
-| `../../specs/EPIC-10` §1, glosa «ADR-018 (golden sintético…)» | dívida documental; o PR #93 não a toca |
-| `../../specs/EPIC-06` bloco KAM-064, glosa no *handoff* | dívida documental |
+| `../concierge.md`, «O *golden*, e o que a Meta proíbe» | corrigida neste PR — atribuía ao §11.3 do `10` a conclusão **oposta** à que ele passou a tirar. A primeira versão desta página classificou-a entre as que «não são contradição», e **é**: achado da revisão adversarial |
+| `../../specs/EPIC-10` bloco KAM-109, «Detalhes Técnicos» | **PR #93** (KAM-104), fundido em `7426abf` — não tocada aqui |
+| `../../specs/EPIC-03` §1, glosa «ADR-018 (golden sintético…)» | dívida documental **157**: resíduo textual, fora do âmbito |
+| `../../specs/EPIC-10` §1, glosa «ADR-018 (golden sintético…)» | dívida documental **157**; o PR #93 não a toca |
+| `../../specs/EPIC-06` bloco KAM-064, glosa no *handoff* | dívida documental **157** |
+| `../../specs/EPIC-03` bloco KAM-114, Contexto | dívida documental **157** — «o dataset golden recebe reescritas sintéticas das decisões, **nunca cópias de conversas**»: «das decisões» circunscreve a frase à exportação do concierge, mas o universal que sobra lê-se como contrário à decisão. Achado da revisão adversarial |
+| `../tecnica/evidencia/validacao/Pacote_Parecer_Juridico.md`, «Por que importa» do KAM-040 | dívida documental **157** — glosa «dataset **golden sintético** e eval harness como gate», que **chegou com o PR #93** depois de esta página ser escrita |
 
 **Admitem material real com consentimento (seis), e nenhuma muda:**
 
@@ -82,12 +95,21 @@ grep -rnE "golden.{0,120}reescrita sint|reescrita sint.{0,120}golden"
 | `../../specs/EPIC-06` bloco KAM-064, Contexto | conversas reais entram «**pseudonimizadas e reescritas sinteticamente**, com consentimento específico para avaliação» |
 | `../tecnica/02` §16.2, regra (4) | as três origens em prosa, com a cláusula §4.7 marcada «a confirmar por parecer (L-G1)» |
 
-**Quatro sítios dizem `sintetico` e não são contradição**, porque falam de uma
-origem concreta e não do conjunto: a exportação de candidatos do concierge
-(`../concierge.md`, `../../specs/EPIC-03` bloco KAM-114 e
-`../../specs/02_Dicionario_de_Dados_Canonico.md` §3.34, que exportam **só
-metadados** e entram com `origem=sintetico` por desenho) e o *golden* dos módulos
-do dono (`../../specs/EPIC-11`), que é um dataset distinto do KAM-040.
+**Dois sítios dizem `sintetico` e não são contradição**, porque falam de uma
+origem concreta e não do conjunto: a **exportação de candidatos do concierge** (o
+critério 7 do KAM-114 em `../../specs/EPIC-03` e a sua verificação, o
+`../../specs/02_Dicionario_de_Dados_Canonico.md` §3.34, e o trecho do
+`../concierge.md` que descreve o comando — exportam **só metadados** e entram com
+`origem=sintetico` por desenho) e o ***golden* dos módulos do dono**
+(`../../specs/EPIC-11`), que é um dataset distinto do KAM-040.
+
+**Esta tabela foi corrigida pela revisão adversarial, e isso fica dito.** A
+primeira versão contava **dezassete** linhas e **quatro** sítios não
+contraditórios; a revisão mostrou que dois desses sítios — a linha do
+`../concierge.md` e o Contexto do KAM-114 — são afirmações sobre o **conjunto** e
+não sobre uma origem, e a fusão do PR #93 trouxe uma glosa nova. Classificar uma
+contradição como «não sendo uma» é pior do que não a medir, porque fecha a
+pergunta.
 
 ## Decisão
 
@@ -113,7 +135,13 @@ factos medidos sustentam-no:
    dados do WhatsApp. É uma proibição sobre **treino**, e nenhuma das três origens
    treina ou afina modelo nenhum — o que a decisão muda é a origem do conjunto de
    **avaliação**. As cláusulas (b), (c) e (d) do §11.3 de `../tecnica/10` ficam
-   intactas por isso mesmo.
+   intactas por isso mesmo. **Mas esta leitura é nossa, e leva marcador:** que
+   «avaliar com consentimento» não caia dentro de «melhorar» é
+   **(a confirmar por parecer)** e continua **NÃO VERIFICADO** (L-G1, E1 Q7). O
+   que esta alínea estabelece é que a razão do ADR-018 é **compatível** com as
+   três origens, não que o enquadramento está resolvido — a primeira versão desta
+   página escrevia-a sem marcador, e isso é pôr uma defesa jurídica no canon como
+   facto (achado da revisão adversarial).
 3. **O estado do ADR-018 não muda.** Continua **FIXA** na Carta §4.1, sem gatilho
    de reabertura, e não entra nem sai nenhum ADR de `../tecnica/00` §8 — pelo que
    a contagem de ADRs e o mapeamento ADR → documento de `../tecnica/INDICE.md` §5
@@ -148,9 +176,31 @@ conformidade do conjunto todo. O que isso implica, com credor nomeado:
   decisão escolhe **qual lado do canon vale**; não torna a leitura jurídica
   verificada, que continua **NÃO VERIFICADO** e leva `(a confirmar por parecer)`
   onde aparece. Credor: **KAM-104**;
-* **se o parecer vier contra**, o que cai é a origem `real_consentido` e não as
-  outras duas: o conjunto reduz-se a `sintetico` e `t2_anonimizado`, e o *gate*
-  13 continua a existir. Credor: **KAM-040**, com o pivô registado no bloco.
+* **se o parecer vier contra, há dois recuos escritos e não são o mesmo — e
+  escolher entre eles não é desta estação.** Medido na árvore depois de o PR #93
+  fundir (`7426abf`):
+
+  ```text
+  a primeira versão desta página   «cai a origem real_consentido e não as outras
+                                    duas: o conjunto reduz-se a sintetico e
+                                    t2_anonimizado»
+  o pacote do KAM-104, fundido     «(a) recuar para conjunto INTEIRAMENTE
+  (../tecnica/evidencia/validacao/  sintético […] Se o parecer recusar (b), a
+   Pacote_Parecer_Juridico.md)      KAMBÁ recua para (a)»
+  ```
+
+  A diferença é **se um caso `t2_anonimizado` sobrevive a um parecer que recuse o
+  consentimento**: uma conversa real de suporte T2 anonimizada não é sintética, e
+  «inteiramente sintético» exclui-a. O pacote confirma que lê assim, porque nomeia
+  à parte a opção **(c)**, «material real pseudonimizado para além do que o
+  KAM-040 admite». **A pergunta fica aberta e é do fundador**, pelas duas razões
+  da casa: o recuo é a premissa que vai ao advogado, e decidir qual vale é decidir
+  o alcance do *gate* 13. Esta página **não escolhe**, e o `ADR-L006` não é
+  autoridade sobre o recuo até ela ser respondida — o que vale hoje é o que o
+  pacote fundido escreve, por ser canon e não por ser melhor. Achado da revisão
+  adversarial, que o apanhou por correr sobre a árvore depois do *merge* e não
+  sobre a que eu tinha. Credor da resposta: **o fundador**; credor do registo:
+  **KAM-040**.
 
 **O custo assumido.** Um conjunto de avaliação que admite material real é mais
 exposto: um caso mal consentido é uma violação, onde antes era impossível por
@@ -167,24 +217,48 @@ para cima — e o caminho natural não é um ADR canónico novo, é a **emenda �
 do ADR-018**, que é o que este PR faz.
 
 Fica **local** porque é o registo da decisão e do seu alcance, não a decisão em
-si: a decisão é do fundador e está datada. Promover isto a `ADR-021` tomaria o
-número seguinte ao último canónico, obrigaria a actualizar a contagem e o
-mapeamento de `../tecnica/INDICE.md` §5, e acrescentaria um ADR canónico que
-ninguém pediu para dizer o que a célula do ADR-018 passou a dizer.
+si: a decisão é do fundador e está datada. Promovê-lo tomaria o número seguinte ao
+último canónico, obrigaria a actualizar a contagem e o mapeamento de
+`../tecnica/INDICE.md` §5, e acrescentaria um ADR canónico que ninguém pediu para
+dizer o que a célula do ADR-018 passou a dizer.
+
+(**Não se escreve aqui o número que ele teria**, pela razão que o `ADR-L005` já
+registou: o `lint_refs` recusa uma referência a um `ADR-NNN` que o §8 não tem.
+A primeira versão desta página escrevia-o, e o *lint* **apanhou-o — mas só depois
+do `git commit`**, porque varre os ficheiros versionados e um ficheiro novo ainda
+não o é. Logo: num ticket que cria ficheiros, os seis *linters* valem depois do
+`git add`, e correr antes dá um verde que não cobre o que é novo. A dispensa em
+`ci/refs-allow.yaml` existe e **não** se usou: o próprio ficheiro diz que não é
+mecanismo de dispensa genérico.)
 
 ## Como se mede que o canon ficou sem a divergência
 
-```text
-# Nenhuma afirmação de origem exclusiva sobre o golden do KAM-040, nas três
-# formas que a medição apanhou (a 120 caracteres, o plural e a glosa):
+Corre-se da **raiz do repositório**. As duas buscas cobrem as três formas que a
+medição apanhou (a janela de 120 caracteres, o plural e a glosa), e os três filtros
+não são enfeite: **sem eles a receita devolve a prosa deste próprio PR** —
+dezassete linhas, oito delas linhas de «Controlo de versões», o bloco do ticket e
+esta página, nenhuma delas nas tabelas acima. Foi o achado da revisão adversarial
+sobre a primeira versão desta receita, e é o defeito mais insidioso dos catorze:
+uma receita que devolve ruído obriga a próxima auditoria a re-derivar a
+classificação, que é exactamente o trabalho que esta página existe para poupar.
+
+```bash
+EXCLUIR='/analises/|/dividas-documentais|^specs/tickets/|^docs/adr/|:[0-9]+:\| 1\.[0-9]'
 grep -rniE "golden.{0,200}reescritas? sint|reescritas? sint.{0,200}golden" \
-  specs/ docs/ --include=*.md | grep -v '/analises/'
-grep -rniE "golden sintético" specs/ docs/ --include=*.md | grep -v '/analises/'
+  specs/ docs/ --include=*.md | grep -vE "$EXCLUIR"
+grep -rniE "golden sintético" specs/ docs/ --include=*.md | grep -vE "$EXCLUIR"
 ```
 
-Depois deste PR as ocorrências que sobram são, uma a uma, as que esta página
-classifica: a de `../../specs/EPIC-10` (PR #93), as **três** glosas em dívida, as
-**quatro** que falam de uma origem concreta, e as linhas corrigidas, que passam a
-nomear as três origens no mesmo sítio onde dizem «reescrita sintética». A
-verificação completa é a revisão adversarial deste ticket, em
-[`../analises/ANALISE-43-KAM-169-origem-do-golden-set.md`](../analises/ANALISE-43-KAM-169-origem-do-golden-set.md).
+Depois deste PR as ocorrências que sobram são, uma a uma, as que as tabelas desta
+página classificam: a de `../../specs/EPIC-10` bloco KAM-109 (corrigida no PR #93,
+e por isso já não aparece), as **cinco** glosas na dívida **157**, os **dois**
+sítios que falam de uma origem concreta, e as linhas corrigidas, que passam a
+nomear as três origens no mesmo sítio onde dizem «reescrita sintética». Qualquer
+linha que apareça e não esteja nas tabelas é divergência nova, e não resíduo
+deste PR.
+
+A verificação completa é a revisão adversarial deste ticket, em
+[`../analises/ANALISE-44-KAM-169-origem-do-golden-set.md`](../analises/ANALISE-44-KAM-169-origem-do-golden-set.md)
+— **44 e não 43**, porque o `ANALISE-43` é do KAM-104 e veio com o PR #93: o
+número tinha sido assumido em vez de medido, que é o defeito que o próprio
+critério 7 desta página manda não cometer com a numeração dos ADRs locais.
