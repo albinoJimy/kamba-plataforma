@@ -7,7 +7,7 @@
  * que faz da porta uma porta.
  *
  * **Os doze métodos, e não onze.** O objectivo do bloco KAM-042 e o §3.38 do
- * dicionário dizem «onze métodos»; o `../docs/tecnica/03` §3.2, que é a fonte
+ * dicionário dizem «onze métodos»; o `docs/tecnica/03` §3.2, que é a fonte
  * do contrato, lista **doze**, e o critério de aceitação nomeia os doze um a
  * um. A contagem errada corrige-se nos dois sítios no PR deste ticket; fica
  * aqui registada porque uma contagem que anda em três documentos é o modo de
@@ -49,7 +49,7 @@ export type ComTenant = <T>(
   trabalho: (cliente: ClienteSql) => Promise<T>,
 ) => Promise<T>;
 
-/** Quem está a chamar. `../docs/tecnica/03` §3.2 e Detalhes Técnicos do bloco. */
+/** Quem está a chamar. `docs/tecnica/03` §3.2 e Detalhes Técnicos do bloco. */
 export const ACTOR_KINDS = ["agente", "dono", "sistema", "ops"] as const;
 export type ActorKind = (typeof ACTOR_KINDS)[number];
 
@@ -61,7 +61,7 @@ export interface Actor {
 /**
  * O contexto, obrigatório em todas as doze chamadas.
  *
- * O `traceId` é **obrigatório** no §3.2 do `../docs/tecnica/03`
+ * O `traceId` é **obrigatório** no §3.2 do `docs/tecnica/03`
  * (`traceId: string`), e é obrigatório aqui. É a diferença face ao `Ctx` do
  * módulo `servicos`, onde é opcional: ali o envelope do evento aceita `null`,
  * aqui a porta é a fronteira de uma *saga* de várias escritas (§6.3) e uma
@@ -124,30 +124,57 @@ export function naoImplementado<T>(): Resultado<T> {
 // --------------------------------------------------------------- vocabulário
 //
 // Os tipos abaixo são a **forma** dos argumentos e das respostas, não o modelo
-// de dados. O modelo vive no esquema `platform` (`../docs/tecnica/03` §5.4) e
+// de dados. O modelo vive no esquema `platform` (`docs/tecnica/03` §5.4) e
 // as tabelas são dos tickets que as criam. Aqui está o que atravessa a porta,
 // e está em aberto o que esses tickets ainda vão fixar — por isso os campos
 // são os que o §3.2 nomeia, e nem um a mais.
 
-/** Os três modos de preço (`offer_terms.preco_tipo`, dicionário §3.3). */
-export const PRECO_MODOS = ["fixo", "a_partir_de", "sob_consulta"] as const;
-export type PrecoModo = (typeof PRECO_MODOS)[number];
+/**
+ * Os três modos de preço. O nome canónico é **`preco_tipo`**, não `preco_modo`.
+ *
+ * **E é uma divergência resolvida, não uma escolha.** O `docs/tecnica/03` §3.2
+ * escreve `precoModo` no retorno de `getOfferView`, e o critério 2 do KAM-043
+ * repete-o; o dicionário §3.3 fixa `preco_tipo` e põe `preco_modo` na coluna
+ * «Substitui» desde a emenda 1.12. O dicionário é a fonte 4 e o
+ * `docs/tecnica/03` é a 9, pelo que ganha o dicionário — e é exactamente o que
+ * a emenda 1.45 decidiu para o KAM-047, cujo bloco também escrevia
+ * `preco_modo`. O `servicos/contrato.ts` já usa `precoTipo` ao lado.
+ */
+export const PRECO_TIPOS = ["fixo", "a_partir_de", "sob_consulta"] as const;
+export type PrecoTipo = (typeof PRECO_TIPOS)[number];
 
 /** Os três modos de stock (`offer_terms.stock_modo`). */
 export const STOCK_MODOS = ["garantido", "indicativo", "confirmar_dono"] as const;
 export type StockModo = (typeof STOCK_MODOS)[number];
 
-/** Os nove estados de uma encomenda (`orders_mirror.estado`, §6.1). */
+/**
+ * Os **doze** estados de uma encomenda, pela ordem do dicionário §3.3.
+ *
+ * **A fonte é o `docs/tecnica/00` §6.1 e não o `docs/tecnica/03` §6.1**, e a
+ * diferença não é de estilo: o dicionário §3.3 marca a máquina do `03` como
+ * «Máquina incompleta», e ela tem nove — falta-lhe o `entrega_falhada`, o
+ * `em_disputa` e o `reembolsada`. Com nove, o KAM-050 («pagamento tardio,
+ * disputa, entrega falhada, reembolso») não conseguia chamar
+ * `transition(ctx, id, "em_disputa", …)` sem alterar o tipo da porta — isto é, a
+ * costura do PA-03-1 partia-se num ticket que depende do KAM-044 e não numa
+ * troca de Registo, que é precisamente o que ela existe para impedir.
+ *
+ * O `CHECK` de `orders_mirror` não existe ainda: a tabela é do **KAM-044**.
+ * Quando ele nascer, é desta lista que sai.
+ */
 export const ORDER_STATES = [
   "criada",
   "aguarda_pagamento",
   "pendente_confirmacao",
   "paga",
-  "em_entrega",
-  "entregue",
   "expirada",
-  "cancelada",
+  "em_entrega",
+  "entrega_falhada",
+  "entregue",
+  "em_disputa",
   "reembolso_pendente",
+  "reembolsada",
+  "cancelada",
 ] as const;
 export type OrderState = (typeof ORDER_STATES)[number];
 
@@ -197,7 +224,7 @@ export interface OwnerConfirmation {
 /** O que o agente pode dizer sobre uma oferta (§7.1). */
 export interface OfferView {
   readonly sku: string;
-  readonly precoModo: PrecoModo;
+  readonly precoTipo: PrecoTipo;
   /** Já formatado para apresentação, ou `null` em `sob_consulta`. */
   readonly precoDisplay: string | null;
   readonly stockModo: StockModo;
@@ -244,7 +271,17 @@ export interface Cause {
 
 export interface OrderView extends OrderRef {
   readonly contactId: string;
-  readonly totalMinor: number;
+  /**
+   * O total em unidade menor. **`bigint`, e não `number`.**
+   *
+   * `packages/core-ts/src/pagamentos/tipos.ts` declara `type Minor = bigint`, e
+   * o KAM-052 escreveu um *lint* inteiro para isto — que **não morde aqui**,
+   * porque as `RAIZES` do `tools/money_lint` são
+   * `packages/core-ts/src/pagamentos` e o `services/com` está fora delas. É a
+   * fronteira por onde o `bigint` do PAY entra na porta, e um `number` perdia
+   * precisão acima de 2^53 cêntimos sem avisar.
+   */
+  readonly totalMinor: bigint;
   readonly currency: string;
   readonly linhas: readonly Readonly<Record<string, unknown>>[];
   readonly criadoAt: string;
@@ -269,7 +306,7 @@ export type Duration = number;
 // -------------------------------------------------------------------- a porta
 
 /**
- * A porta `CommerceRegistry` — os doze métodos do `../docs/tecnica/03` §3.2.
+ * A porta `CommerceRegistry` — os doze métodos do `docs/tecnica/03` §3.2.
  *
  * Todos recebem `ctx`. Todos devolvem `Resultado`, incluindo os que o §3.2
  * escreve como `Promise<void>`: um `void` não distingue «fiz» de «não está

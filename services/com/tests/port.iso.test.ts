@@ -48,7 +48,10 @@ import {
   comRegisto,
   type Dependencias,
 } from "../src/adapters/medusa/index.ts";
-import { MerchantEmFaltaError } from "../src/repo-base/index.ts";
+import {
+  MerchantEmFaltaError,
+  TenantDesconhecidoError,
+} from "../src/repo-base/index.ts";
 
 const TENANT_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const TENANT_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -187,6 +190,31 @@ test("criterio 5: um tenant por provisionar nao abre operacao no Registo", async
   assert.equal(correu, false);
 });
 
+test("criterio 1: um tenant bem formado e inexistente falha fechado", async () => {
+  // **A lacuna que a revisao adversarial nomeou.** O criterio 1 pede «chamada
+  // sem `ctx.tenantId` **ou com tenant inexistente** falha fechada», e sao duas
+  // coisas: a primeira e do `exigirCtx` e vale nos doze metodos; a segunda
+  // precisa de ir a base, e por isso vive no `comRegisto`. **Nenhum dos doze
+  // metodos chama o `comRegisto` hoje** — com um tenant bem formado e
+  // inexistente, a resposta de qualquer um deles e `NOT_IMPLEMENTED` e nao uma
+  // recusa por tenant. E isto que a fecha no caminho onde ela existe, e a
+  // metade que falta esta escrita na verificacao do bloco.
+  let correu = false;
+  const cliente: ClienteSql = {
+    async query() {
+      return { rows: [] };
+    },
+  };
+  await assert.rejects(
+    () =>
+      comRegisto(deps(cliente), ctx(TENANT_B), async () => {
+        correu = true;
+      }),
+    TenantDesconhecidoError,
+  );
+  assert.equal(correu, false);
+});
+
 test("criterio 5: com merchant provisionado, o repo nasce ligado a ele", async () => {
   const cliente: ClienteSql = {
     async query() {
@@ -199,11 +227,17 @@ test("criterio 5: com merchant provisionado, o repo nasce ligado a ele", async (
     tenant: r.repo.tenantId,
     merchant: r.ids.merchantId,
     actor: r.ctx.actor.kind,
+    // **O `ClienteSql` cru nao esta no `Registo`**, e a revisao adversarial
+    // mostrou porque: com ele ao lado do `repo`, o KAM-043 escrevia
+    // `r.cliente.query("SELECT * FROM product")` — sem filtro, sem recusa, sem
+    // contador — e a frase «nao ha caminho» era a unica barreira.
+    temClienteCru: "cliente" in r,
   }));
   assert.deepEqual(visto, {
     tenant: TENANT_A,
     merchant: "merch_A",
     actor: "agente",
+    temClienteCru: false,
   });
 });
 

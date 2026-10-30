@@ -8,19 +8,30 @@
  * - Hipótese: o Registo do Piloto é um Medusa v2 único com um módulo custom
  *   `merchant`, e o isolamento entre vendedores é imposto pelo COM (opção B).
  * - Evidência que a sustenta: o spike KAM-041 (2026-10-27) percorreu a árvore
- *   do `../docs/tecnica/03` §4.5 e **recomenda** a opção B, com a autoridade da
+ *   do `docs/tecnica/03` §4.5 e **recomenda** a opção B, com a autoridade da
  *   reserva no `platform`. O harness saiu `1`: AC-1 e AC-8 vermelhos; AC-5,
  *   AC-6, AC-9 e AC-10 não medidos.
- * - Estado: NÃO VERIFICADO como decisão. A D3 em `../docs/tecnica/00` §13.3
+ * - Estado: NÃO VERIFICADO como decisão. A D3 em `docs/tecnica/00` §13.3
  *   diz, por escrito, que «falta a assinatura do Arquitecto de Plataforma e do
  *   Responsável de Segurança, e a ratificação do fundador».
- * - Como validar: as duas assinaturas e a ratificação do fundador. Até lá este
- *   adaptador é a implementação da recomendação, e o ADR-003 continua a nomear
- *   a opção C como fallback — que este ficheiro não contradiz e não substitui.
+ * - Como validar: as duas assinaturas e a ratificação do fundador.
  * ```
  *
- * É por isso que a porta (`../../port/contrato.ts`) e o repo-base
- * (`../../repo-base/`) **não** vivem aqui: nada neles muda entre a opção B e a
+ * **E o ADR-003 não nomeia a opção C como fallback — nomeia a B.** A primeira
+ * versão deste cabeçalho dizia o contrário, e a revisão adversarial foi ler:
+ * o texto do ADR-003 (`docs/tecnica/00` §8) é «Medusa v2 como registo de
+ * comércio, condicionado a spike de 5 dias com testes de isolamento entre
+ * vendedores; **fallback Medusa puro + `merchant_id`**», mais «Spike feito
+ * (KAM-041, 2026-10-27): a recomendação é a opção B (...). **Ratificação
+ * pendente do fundador**». Logo o *fallback* do ADR-003 **é** a opção B, que é
+ * o que este adaptador implementa; a opção C é o «Fallback 2» do
+ * `docs/tecnica/03` §4.5 e não aparece no ADR. A conclusão não muda — este
+ * ficheiro não contradiz nem substitui o ADR-003 — mas a razão era falsa, e uma
+ * razão falsa a sustentar uma conclusão certa é um defeito, porque o próximo
+ * leitor confia nela.
+ *
+ * É por isso que a porta (`services/com/src/port/contrato.ts`) e o repo-base
+ * (`services/com/src/repo-base/`) **não** vivem aqui: nada neles muda entre a opção B e a
  * C, e é onde está o valor que sobrevive à decisão. O que está neste ficheiro é
  * o que a opção B custa.
  *
@@ -39,17 +50,18 @@
  *   3. nenhuma consulta ao Registo sai sem `merchant_id = $1` — e isso é do
  *      repo-base, que recusa a consulta que não o nomeie (critério 4).
  *
- * **Não importa o SDK do Medusa**, e é verificado por máquina: o
- * `lint_arch medusa` recusa um import de `@medusajs/*` fora de
- * `services/com/`, e aqui dentro ainda não há nenhum porque o que falta é a
- * ratificação, não o pacote.
+ * **Não importa o SDK do Medusa**, e aqui dentro ainda não há nenhum import
+ * porque o que falta é a ratificação e não o pacote. O que a máquina verifica é
+ * outra coisa, e a distinção é da revisão adversarial: o `lint_arch medusa`
+ * recusa um `@medusajs/*` **fora** de `services/com/` — o dia em que este
+ * ficheiro importar o SDK, nenhum *gate* o impede, porque é ele o dono. A
+ * ausência de hoje é uma escolha, não uma propriedade imposta.
  */
 
 import {
   exigirCtx,
   naoImplementado,
   type Cause,
-  type ClienteSql,
   type CommerceRegistry,
   type ComTenant,
   type Ctx,
@@ -100,9 +112,23 @@ export interface Dependencias {
 export interface Registo {
   readonly repo: RepoBase;
   readonly ids: IdsDoRegisto;
-  readonly cliente: ClienteSql;
   readonly ctx: ReturnType<typeof exigirCtx>;
 }
+
+/*
+ * **O `ClienteSql` cru não está aqui, e esteve.** A primeira versão passava-o
+ * ao lado do `repo`, e a revisão adversarial mostrou o que isso vale: o KAM-043
+ * escrevia `r.cliente.query("SELECT * FROM product")` — sem filtro, sem recusa,
+ * sem contador — e a frase «não há caminho por onde uma implementação futura
+ * chegue à base sem passar por aqui» passava a ser a única barreira. Uma
+ * barreira que é uma frase não é uma barreira. Quem precisar do cliente cru
+ * tem de o pedir ao `comTenant`, que é uma linha visível em revisão.
+ *
+ * O que fica ao alcance é o `repoBase`, exportado do `repo-base/` porque os
+ * testes dele o constroem. Chamá-lo com um `merchant_id` que não venha do
+ * `idsDoRegisto` é possível e é o que a prosa daquele ficheiro proíbe — e isso
+ * é disciplina, não tipo. Fica dito em vez de ser dado por fechado.
+ */
 
 /**
  * Abre uma operação: valida o `ctx`, entra na transacção, resolve o Registo.
@@ -121,7 +147,6 @@ export async function comRegisto<T>(
   return deps.comTenant(validado.tenantId, async (cliente) => {
     const ids = await idsDoRegisto(cliente, validado.tenantId);
     return trabalho({
-      cliente,
       ids,
       ctx: validado,
       repo: repoBase(cliente, validado.tenantId, ids.merchantId),

@@ -22,7 +22,7 @@ import {
   METODOS_DA_PORTA,
   MOTIVOS_DE_LIBERTACAO,
   ORDER_STATES,
-  PRECO_MODOS,
+  PRECO_TIPOS,
   STOCK_MODOS,
   erro,
   eUuid,
@@ -68,7 +68,7 @@ test("a porta tem doze metodos, e sao os do docs/tecnica/03 §3.2", () => {
 
 test("os dominios fechados sao os do dicionario", () => {
   assert.deepEqual([...ACTOR_KINDS], ["agente", "dono", "sistema", "ops"]);
-  assert.deepEqual([...PRECO_MODOS], ["fixo", "a_partir_de", "sob_consulta"]);
+  assert.deepEqual([...PRECO_TIPOS], ["fixo", "a_partir_de", "sob_consulta"]);
   assert.deepEqual(
     [...STOCK_MODOS],
     ["garantido", "indicativo", "confirmar_dono"],
@@ -77,11 +77,30 @@ test("os dominios fechados sao os do dicionario", () => {
     [...MOTIVOS_DE_LIBERTACAO],
     ["expirada", "cancelada", "recusada_dono"],
   );
-  // Os nove estados do §6.1. As duas transições «extensão proposta» do §6.1
-  // não acrescentam estados — acrescentam arestas —, pelo que a lista é a
-  // mesma do `CHECK` de `orders_mirror`.
-  assert.equal(ORDER_STATES.length, 9);
-  assert.ok(ORDER_STATES.includes("reembolso_pendente"));
+  // **Os doze estados, comparados pelos nomes e não pela contagem.** A
+  // primeira versão deste caso afirmava `length === 9` e
+  // `includes("reembolso_pendente")`, e a revisão adversarial mostrou as duas
+  // coisas que isso esconde: a lista estava errada (nove, da máquina que o
+  // dicionário §3.3 marca como «incompleta») e o teste não a comparava com
+  // nada, pelo que não podia dar por isso. O comentário citava ainda «o `CHECK`
+  // de `orders_mirror`» — tabela que **não existe**, porque é do KAM-044.
+  assert.deepEqual(
+    [...ORDER_STATES],
+    [
+      "criada",
+      "aguarda_pagamento",
+      "pendente_confirmacao",
+      "paga",
+      "expirada",
+      "em_entrega",
+      "entrega_falhada",
+      "entregue",
+      "em_disputa",
+      "reembolso_pendente",
+      "reembolsada",
+      "cancelada",
+    ],
+  );
 });
 
 test("NOT_IMPLEMENTED esta na lista fechada de erros, e e o unico nome novo", () => {

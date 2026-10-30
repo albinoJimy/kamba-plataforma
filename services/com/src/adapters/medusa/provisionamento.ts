@@ -44,7 +44,10 @@
 
 import { eUuid } from "../../port/contrato.ts";
 import type { ClienteSql, ComTenant } from "../../port/contrato.ts";
-import { MerchantEmFaltaError, SQL_MERCHANT_DO_TENANT } from "../../repo-base/index.ts";
+import {
+  TenantDesconhecidoError,
+  SQL_MERCHANT_DO_TENANT,
+} from "../../repo-base/index.ts";
 
 /**
  * O que o Registo tem de saber criar, por tenant.
@@ -79,14 +82,25 @@ export interface Provisionamento {
   readonly criou: boolean;
 }
 
-/** O tenant não existe, ou está `deleted_at`. */
-export class TenantDesconhecidoError extends Error {
-  override readonly name = "TenantDesconhecidoError";
+/**
+ * Outra corrida provisionou este tenant entre a leitura e a escrita.
+ *
+ * **Erro próprio, e não o `MerchantEmFaltaError`.** A primeira versão lançava
+ * aquele, e a revisão adversarial apanhou-o: a mensagem dele diz «o tenant X
+ * não tem `medusa_merchant_id`», que é o **oposto** do que acabou de acontecer
+ * — outra corrida escreveu-o. Quem opera o *script* da Fase 0 lia uma mensagem
+ * que mentia sobre o estado da base. Não é falha de integridade: o
+ * `merchant_id` que vale é o que está na base, e os objectos que esta corrida
+ * criou no Registo são os mesmos, porque as três criações são idempotentes por
+ * `tenantId`.
+ */
+export class CorridaPerdidaError extends Error {
+  override readonly name = "CorridaPerdidaError";
   constructor(tenantId: string) {
     super(
-      `nao existe platform.tenants com id = ${tenantId} e deleted_at IS NULL: ` +
-        "provisionar um tenant que nao existe criava um merchant orfao no " +
-        "Registo, que nenhuma consulta do COM voltaria a alcancar (KAM-042)",
+      `outra corrida provisionou o tenant ${tenantId} entre a leitura e a ` +
+        "escrita: o medusa_merchant_id que vale e o que esta na base, nao o " +
+        "que esta corrida criou. Repete para ler o estado final (KAM-042)",
     );
   }
 }
@@ -94,17 +108,28 @@ export class TenantDesconhecidoError extends Error {
 /**
  * O `UPDATE` que escreve os dois ids.
  *
- * **Só preenche o que está vazio** (`IS NULL`), e o `RETURNING` diz se
- * escreveu. Sem o `IS NULL`, uma segunda corrida do *script* sobrescrevia o
- * `merchant_id` de um tenant já a operar — e todas as linhas do Registo
- * ficavam penduradas num `merchant` que o COM deixou de nomear, o que é perder
- * o catálogo de uma loja sem apagar uma linha.
+ * **Só escreve se o `merchant_id` estiver vazio**, e o `RETURNING` diz se
+ * escreveu. Sem essa guarda, uma segunda corrida do *script* sobrescrevia o
+ * `merchant_id` de um tenant já a operar — e todas as linhas do Registo ficavam
+ * penduradas num `merchant` que o COM deixou de nomear, o que é perder o
+ * catálogo de uma loja sem apagar uma linha.
+ *
+ * **A guarda é só sobre o `merchant_id`, e isso é uma correcção.** A primeira
+ * versão exigia também `medusa_sales_channel_id IS NULL`, e a revisão
+ * adversarial mostrou o estado que isso tornava insalvável: um tenant com o
+ * canal escrito e o `merchant_id` a `NULL` — alcançável com um único `UPDATE`,
+ * porque o `kamba_app` tem `GRANT UPDATE` nas duas colunas desde a revisão
+ * `0001` — criava o `merchant`, o canal e a localização no Registo, não casava
+ * linha nenhuma, e falhava. Para sempre, a cada repetição. Quem manda é o
+ * `merchant_id`: é ele que o repo-base usa para filtrar, e um tenant sem ele
+ * não está a operar, pelo que escrever por cima de um canal órfão é o acto
+ * certo e não uma perda.
  */
 export const SQL_FIXAR_IDS =
   "UPDATE platform.tenants " +
   "SET medusa_merchant_id = $2, medusa_sales_channel_id = $3 " +
   "WHERE id = $1 AND deleted_at IS NULL " +
-  "AND medusa_merchant_id IS NULL AND medusa_sales_channel_id IS NULL " +
+  "AND medusa_merchant_id IS NULL " +
   "RETURNING medusa_merchant_id, medusa_sales_channel_id";
 
 /** O nome do tenant, para dar nome ao canal e à localização no Registo. */
@@ -168,10 +193,10 @@ export async function provisionarTenant(
       salesChannelId,
     ]);
     if (escrito.rows.length === 0) {
-      // Outra corrida ganhou entre a leitura e a escrita. Não é erro — é a
-      // corrida que o `IS NULL` existe para resolver —, mas o que há na base é
-      // o que vale, e não o que esta corrida criou.
-      throw new MerchantEmFaltaError(canonico);
+      // Outra corrida ganhou entre a leitura e a escrita. É a corrida que o
+      // `IS NULL` existe para resolver, e o que há na base é o que vale — não
+      // o que esta corrida criou.
+      throw new CorridaPerdidaError(canonico);
     }
 
     return {
