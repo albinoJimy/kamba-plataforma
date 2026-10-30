@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Validação — Pacote de perguntas para o parecer jurídico (APD, BNA, AGT, Termos da Meta) |
-| Versão | 1.0 |
+| Versão | 1.1 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno, destinado a transmissão a advogado sob compromisso de confidencialidade |
 | Ticket | KAM-104 (EPIC-10) |
@@ -1213,17 +1213,35 @@ P0 (A-04, B-01, B-02, C-06) bloqueiam dados reais ou pagamentos, não a região.
   alteração) cai nessa proibição? A resposta muda se (i) as conversas forem
   pseudonimizadas, (ii) só se guardarem as perguntas e não as respostas, (iii) a
   avaliação for manual e não automatizada, (iv) o conjunto de referência for
-  **sintético**, inspirado em conversas reais mas não derivado literalmente?
+  **sintético**, inspirado em conversas reais mas não derivado literalmente, (v)
+  o caso for **uma conversa real concreta reescrita**, com os dados pessoais
+  substituídos (nomes, números de telefone, moradas e valores trocados por outros
+  inventados), de modo que a forma da pergunta se mantém e nada no texto remete
+  para o titular?
+
+  **A variante (v) é a que falta decidir, e é por isso que foi acrescentada.** Não
+  é a (i), porque a pseudonimização conserva a conversa e troca só os
+  identificadores; não é a (iv), porque não é inspiração — é uma conversa concreta
+  reescrita. É a origem `t2_anonimizado`, que é o que o pipeline de suporte T2
+  produz (`../../10_Onboarding_Governanca.md` §11.2) e a única fonte de casos
+  escritos por clientes reais em português de Angola, que é precisamente o que
+  está **NÃO VERIFICADO** e que este conjunto existe para medir.
 - **Contexto, e uma decisão já tomada que torna a pergunta mais precisa.**
   A KAMBÁ **decidiu** que o conjunto de avaliação admite três origens —
   `sintetico`, `t2_anonimizado` (reescrita sintética sem dados pessoais) e
   `real_consentido` —, e que **nenhum caso real entra sem registo de
   consentimento**. É o que o **KAM-040** especifica como critério de aceitação, e
   é **decisão do fundador de 2026-10-30**, tomada depois de o KAM-104 medir que
-  sete afirmações do conjunto documental invocavam o ADR-018 e não diziam o
-  mesmo: quatro davam só a reescrita sintética, três admitiam material real com
-  consentimento. A divergência está resolvida a favor das três origens, e os
-  documentos que diziam «só sintético» estão a ser corrigidos.
+  afirmações do conjunto documental invocavam o ADR-018 e não diziam o mesmo. **A
+  contagem subiu em cada passagem, e as três ficam escritas** porque o número não
+  é o que importa aqui — importa que nenhuma passagem escondia nada, e cada uma
+  era o que o seu instrumento via: **sete** quando o KAM-104 as mediu (quatro só a
+  reescrita sintética, três a admitir material real com consentimento),
+  **dezassete** quando o KAM-169 refez a medição com buscas que apanham o plural e
+  a glosa, e **vinte** depois da revisão adversarial desse ticket e da fusão deste
+  pacote. A divergência está resolvida a favor das três origens: o KAM-169 alinhou
+  oito afirmações, este pacote uma, e as cinco que sobram são glosas de uma linha,
+  registadas em `../../../dividas-documentais.md` (linha 157).
   **O que se pede ao advogado já não é «qual dos lados vale»** — isso era
   decisão da KAMBÁ e está tomada — **mas se a decisão se sustenta**: o
   consentimento recolhido do titular pela PME basta, perante os Termos da Meta
@@ -1231,8 +1249,9 @@ P0 (A-04, B-01, B-02, C-06) bloqueiam dados reais ou pagamentos, não a região.
   avaliação? A leitura do texto dos Termos é **CONFIRMADO com ressalva** de
   leitura automática, e D-01 pede o texto exacto — esta pergunta depende dessa
   resposta.
-- **Por que importa.** Bloqueia **KAM-040** (dataset golden sintético e eval
-  harness como gate) na parte em que define o que pode entrar no conjunto.
+- **Por que importa.** Bloqueia **KAM-040** (dataset *golden* PT-AO pelas três
+  origens e eval harness como gate) na parte em que define o que pode entrar no
+  conjunto.
   Contribui para **D9**. É a pergunta cuja falta de resposta deixou a caixa do
   gate de avaliação por preencher em tickets já entregues.
 - **Opções propostas pela KAMBÁ.** A opção **(b) está decidida**: as três
@@ -1244,9 +1263,24 @@ P0 (A-04, B-01, B-02, C-06) bloqueiam dados reais ou pagamentos, não a região.
   admite, que exigiria também resposta da Meta (KAM-101). **Se o parecer
   recusar (b), a KAMBÁ recua para (a)** — e é por isso que a resposta importa
   antes de o conjunto ser construído, não depois.
-- **Resposta pedida.** Parecer escrito que responda às quatro variantes, e diga
-  se a distinção entre «treinar/melhorar» e «avaliar» tem apoio no texto da
-  cláusula ou se é leitura.
+
+  **E o alcance da (a) depende da variante (v), que é a razão de ela estar na
+  pergunta.** «Inteiramente sintético» exclui ou não um caso `t2_anonimizado`? Os
+  dois textos do conjunto divergiram exactamente aqui — este pacote escrevia
+  «inteiramente sintético», e o `../../../adr/ADR-L006-origem-do-golden-set.md`
+  escrevia, na sua primeira versão, que cairia só o `real_consentido` e sobrariam
+  `sintetico` **e** `t2_anonimizado`. **A KAMBÁ não escolhe entre os dois e não
+  recomenda nenhum:** a diferença é se uma conversa reescrita sem dados pessoais
+  continua a ser, para efeitos do §4.7, uma conversa real — o que é leitura
+  jurídica e não decisão de produto. Decisão do fundador a 2026-10-30, ao ser-lhe
+  apresentada a divergência: **a pergunta vai ao parecer em vez de ser decidida
+  internamente**. Até haver resposta, vale o recuo escrito acima, por ser o que
+  está no canon.
+- **Resposta pedida.** Parecer escrito que responda às **cinco** variantes — e,
+  na (v), que diga se uma conversa reescrita sem dados pessoais conta como
+  conversa real para efeitos da cláusula, porque é essa resposta que fixa o
+  alcance do recuo (a). E que diga se a distinção entre «treinar/melhorar» e
+  «avaliar» tem apoio no texto da cláusula ou se é leitura.
 - **Prioridade.** **P1**.
 - **Prazo pedido.** Parecer escrito até à **semana 10** *(proposta)*, depois de
   D-01.
@@ -1527,3 +1561,4 @@ da APD**; e **validação da certificação** do parceiro de facturação.
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial, KAM-104. As 40 perguntas (20 de `E3`, 12 de `E2` §9, 1 de `E1`, 4 das linhas «Novas» de `../../08_Seguranca_Conformidade.md` §13, e 3 novas deste pacote), cada uma com os oito campos do critério 2; o mapa pergunta → decisão → ticket; a secção do que o KAM-105 precisa de resposta; os 16 itens assumidos por precaução jurídica com dono; as quatro divergências face à letra do critério 2; e o que o pacote não contém. O bloco G foi acrescentado à estrutura proposta nos «Detalhes Técnicos» do ticket, porque cinco das vinte perguntas de `E3` não cabiam nos seis blocos propostos. | Equipa KAMBÁ |
+| 1.1 | Outubro 2026 | KAM-169: a pergunta **F-03** ganha a **quinta variante** — uma conversa real concreta **reescrita**, com os dados pessoais substituídos, que é a origem `t2_anonimizado` do KAM-040 e o que o pipeline de suporte T2 produz (`../../10_Onboarding_Governanca.md` §11.2). Não é a (i), porque a pseudonimização conserva a conversa; não é a (iv), porque não é inspiração. **O que a torna necessária é uma divergência medida entre dois textos do canon:** este pacote escrevia que um parecer contrário faz recuar para conjunto «inteiramente sintético», e o `../../../adr/ADR-L006-origem-do-golden-set.md` escrevia que cairia só o `real_consentido`, sobrando `sintetico` **e** `t2_anonimizado` — e os dois não podem valer, porque a diferença é se os casos de suporte T2 sobrevivem ao recuo. **Decisão do fundador a 2026-10-30, ao ser-lhe apresentada a divergência: a pergunta vai ao parecer em vez de ser decidida internamente**, porque é leitura jurídica e não decisão de produto; até haver resposta vale o recuo que já estava escrito, por ser o que está no canon. «Resposta pedida» passa a quatro→**cinco** variantes. De passagem, duas correcções no mesmo bloco: a glosa «dataset golden sintético» do «Por que importa» passa a nomear as três origens (era a quinta das cinco que o KAM-169 registou na linha 157 de `../../../dividas-documentais.md`, e fica paga), e a contagem de afirmações divergentes deixa de dizer «sete» — passa a escrever as **três** passagens (7 → 17 → 20), porque o que importa não é o número mas que nenhuma delas escondia nada: cada uma era o que o seu instrumento via. As 40 perguntas não mudam. | Equipa KAMBÁ |
