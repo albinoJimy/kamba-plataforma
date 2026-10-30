@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.61"
+versao_dicionario: "1.50"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
