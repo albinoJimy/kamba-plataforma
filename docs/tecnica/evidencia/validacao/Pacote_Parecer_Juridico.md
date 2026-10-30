@@ -10,14 +10,24 @@
 | Ticket | KAM-104 (EPIC-10) |
 | Documento-fonte | `../E3_Regulatorio_Dados.md`, `../E2_Pagamentos_Angola.md`, `../E1_Meta_WhatsApp.md`, `../../08_Seguranca_Conformidade.md` (§7, §8, §13) |
 | Anexo | [`Anexo_Factos_do_Caso.md`](Anexo_Factos_do_Caso.md) — factos do caso, sem dados pessoais |
-| Artefactos internos | [`Seleccao_e_Registo_Juridico.md`](Seleccao_e_Registo_Juridico.md) — molde de selecção do advogado e registo de respostas (**não** acompanha o pacote) |
+| Artefactos internos | Molde de selecção do advogado e registo de respostas, num ficheiro interno que **não acompanha o pacote** e cujas secções são citadas pelo número, sem ligação |
 
 > **Este documento não é aconselhamento jurídico e não contém nenhuma leitura
-> jurídica definitiva da KAMBÁ.** É um pedido de parecer. Toda a afirmação sobre
-> direito angolano ou sobre os Termos da Meta que aqui apareça leva a marca
-> *(a confirmar por parecer)* — incluindo as que a KAMBÁ apresenta como
-> «opções propostas». As opções existem para que o advogado tenha algo concreto
-> para corrigir, não para que o confirme.
+> jurídica definitiva da KAMBÁ.** É um pedido de parecer. Cada afirmação sobre
+> direito angolano ou sobre os Termos da Meta aparece de uma de duas formas, e
+> nunca de outra: **com o estado de verificação** com que foi lida na evidência
+> da KAMBÁ — CONFIRMADO, INDÍCIO ou NÃO VERIFICADO, e também «interpretação» ou
+> «inferência» quando é raciocínio nosso —, ou **com a marca
+> *(a confirmar por parecer)*** quando é conclusão da KAMBÁ sem fonte que a
+> sustente. As «opções propostas pela KAMBÁ» são sempre **propostas**: existem
+> para que o advogado tenha algo concreto para corrigir, não para que o confirme.
+>
+> A primeira versão deste aviso prometia a marca *(a confirmar por parecer)* em
+> **toda** a afirmação, e o documento não cumpria a promessa — a revisão
+> adversarial contou-a: 3 ocorrências no corpo e 37 das 40 perguntas sem
+> nenhuma. O aviso passou a descrever o que o documento faz, em vez de o
+> contrário, porque um advogado que confie numa ressalva universal baixa a
+> guarda onde ela falta.
 
 ---
 
@@ -171,7 +181,7 @@ bloqueados por falta de resposta.
 
 | N.º | Origem | Tema em uma linha | Prio | Decisão | Tickets bloqueados |
 |---|---|---|---|---|---|
-| A-01 | `E3` 1 | Subcontratada ou co-responsável; quem notifica a APD | P0 | D9 | KAM-090, KAM-069 |
+| A-01 | `E3` 1 | Subcontratada ou co-responsável; quem notifica a APD | P0 | **D1**, D9 | KAM-090, KAM-069 |
 | A-02 | `E3` 2 | Enviar a um LLM é transferência? A pseudonimização muda isso? | P0 | D1, D9 | KAM-069, KAM-112 |
 | A-03 | `E3` 5 | Prazos, silêncio positivo, taxas e formulários da APD | P0 | D1 | KAM-105, KAM-069 |
 | A-04 | `E3` 6 | Saúde e vida privada: regime de dados sensíveis | P0 | — | KAM-033, KAM-088 |
@@ -599,7 +609,7 @@ P0 (A-04, B-01, B-02, C-06) bloqueiam dados reais ou pagamentos, não a região.
 - **Resposta pedida.** Parecer escrito do advogado **e** minuta de pedido de
   interpretação escrita ao Departamento de Sistema de Pagamentos do BNA, com a
   descrição do desenho A tal como está no
-  [`Anexo_Factos_do_Caso.md`](Anexo_Factos_do_Caso.md) §6.
+  [`Anexo_Factos_do_Caso.md`](Anexo_Factos_do_Caso.md) §7.
 - **Prioridade.** **P0** (critério 2 do KAM-104: «BNA Q19–Q20 e Q30 propostos P0»).
 - **Prazo pedido.** Parecer escrito até à **semana 6**.
 
@@ -941,9 +951,11 @@ P0 (A-04, B-01, B-02, C-06) bloqueiam dados reais ou pagamentos, não a região.
   e condiciona **KAM-112**. Contribui para **D9**.
 - **Opções propostas pela KAMBÁ.** (a) inferência apenas, com retenção zero e
   não-treino contratados por fornecedor e evidência arquivada — o estado actual;
-  (b) golden dataset **sintético**, sem conversa real, para avaliação — é o que
-  **ADR-018** já estabelece; (c) pedir à Meta autorização escrita para um uso
-  mais largo, que é matéria de KAM-101 e não deste pacote.
+  (b) golden dataset com as três origens que o **KAM-040** especifica
+  (`sintetico`, `t2_anonimizado`, `real_consentido`), nenhuma entrando sem
+  registo de consentimento — e **não** «sem conversa real», que é como a célula
+  curta do ADR-018 se lê; ver F-03; (c) pedir à Meta autorização escrita para um
+  uso mais largo, que é matéria de KAM-101 e não deste pacote.
 - **Resposta pedida.** Parecer escrito que (i) cite a cláusula na versão inglesa
   integral, (ii) diga se a inferência com LLM de terceiros cabe nela, e (iii)
   indique que cláusulas o contrato com cada fornecedor tem de conter.
@@ -1036,10 +1048,12 @@ P0 (A-04, B-01, B-02, C-06) bloqueiam dados reais ou pagamentos, não a região.
   D1»).
 - **Opções propostas pela KAMBÁ.** As mesmas três de E-01, com os custos
   conhecidos de cada lado: Luanda reduz o número de destinos a autorizar mas
-  **não dispensa o procedimento**, porque LLM, STT e a própria Meta continuam a
-  ser transferências (`08` §8.3.1); JNB/CPT acrescenta o alojamento à lista de
-  transferências, com latência e custo diferentes, medidos em `09`. **A escolha
-  é do fundador.**
+  **não dispensa o procedimento**, porque LLM, STT e a própria Meta seriam
+  transferências — **INDÍCIO**, não facto: é a inferência que `E3` §2 marca
+  assim e é exactamente o que **A-02** pergunta, pelo que a premissa desta
+  opção depende da resposta a A-02 *(a confirmar por parecer)*. JNB/CPT
+  acrescenta o alojamento à lista de transferências, com latência e custo
+  diferentes, medidos em `09`. **A escolha é do fundador.**
 - **Resposta pedida.** Parecer escrito sobre a existência de exigência de
   residência, a prática da APD, e a qualificação da África do Sul.
 - **Prioridade.** **P0**.
@@ -1053,9 +1067,12 @@ P0 (A-04, B-01, B-02, C-06) bloqueiam dados reais ou pagamentos, não a região.
   de constar da notificação à APD e da lista de subprocessadores do DPA?
 - **Contexto.** É uma **lacuna identificada na própria documentação da KAMBÁ**: o
   documento de topologia põe o fornecedor «à frente (TLS, WAF)», o que significa
-  que o proxy termina TLS e vê o corpo dos webhooks, logo é subprocessador com
-  acesso a conteúdo. No inventário de subprocessadores aparece com destino
-  «Global» e com a nota de lacuna (`08` §8.3.2). As duas opções estão escritas e
+  que o proxy **termina TLS e vê o corpo dos webhooks em claro**. Esse é o facto
+  técnico, e é verificável. **Se isso o torna subprocessador com acesso a
+  conteúdo é precisamente o que esta pergunta pede** *(a confirmar por
+  parecer)*: a documentação interna da KAMBÁ afirma-o sem ressalva, e o pacote
+  não herda essa afirmação. No inventário de subprocessadores aparece com
+  destino «Global» e com a nota de lacuna (`08` §8.3.2). As duas opções estão escritas e
   **nenhuma está decidida**: (a) assumir como subprocessador e incluir na
   notificação; (b) **não** colocar o caminho de webhooks atrás do proxy — a
   assinatura da Meta já autentica o pedido — e proteger a origem com limitação de
@@ -1197,23 +1214,36 @@ P0 (A-04, B-01, B-02, C-06) bloqueiam dados reais ou pagamentos, não a região.
   pseudonimizadas, (ii) só se guardarem as perguntas e não as respostas, (iii) a
   avaliação for manual e não automatizada, (iv) o conjunto de referência for
   **sintético**, inspirado em conversas reais mas não derivado literalmente?
-- **Contexto.** A KAMBÁ já decidiu, por **ADR-018**, que o conjunto de referência
-  é **sintético** — é a decisão que o KAM-040 implementa, e a que ADR-018 associa
-  justamente aos Termos da Meta sobre aprendizagem automática. Esta pergunta
-  existe para saber se essa decisão é **exigida** pelos Termos ou se foi
-  precaução: a diferença decide se a avaliação pode algum dia usar material real,
-  e portanto se a qualidade medida é a do produto ou a de um proxy. A leitura do
-  texto dos Termos é **CONFIRMADO com ressalva** de leitura automática, e D-01
-  pede o texto exacto — esta pergunta depende dessa resposta.
+- **Contexto, e uma contradição no próprio canon da KAMBÁ que convém conhecer.**
+  O **ADR-018** é citado em `../../00_Arquitectura_Solucao.md` de duas formas que
+  não dizem o mesmo: a célula do registo de ADRs resume-o a «golden set por
+  reescrita sintética», mas o corpo do mesmo documento escreve «o dataset de
+  avaliação é construído por reescrita sintética **e por casos autorizados pela
+  PME**». E o ticket que o implementa, o **KAM-040**, é mais explícito do que
+  ambos: exige que cada caso tenha `origem ∈ {sintetico, t2_anonimizado,
+  real_consentido}` e que **nenhum caso `real_consentido` entre sem registo de
+  consentimento**. Ou seja: **o estado especificado não é «nada de material
+  real»** — são três origens, duas delas com material real sob condições, e a
+  barreira que hoje as governa é o registo de consentimento por caso, não a
+  ausência de material real. Esta pergunta existe para saber se os Termos da
+  Meta **permitem** essas duas origens, ou se a reescrita sintética é a única
+  via: a diferença decide se a qualidade medida é a do produto ou a de um proxy.
+  A leitura do texto dos Termos é **CONFIRMADO com ressalva** de leitura
+  automática, e D-01 pede o texto exacto — esta pergunta depende dessa
+  resposta.
 - **Por que importa.** Bloqueia **KAM-040** (dataset golden sintético e eval
   harness como gate) na parte em que define o que pode entrar no conjunto.
   Contribui para **D9**. É a pergunta cuja falta de resposta deixou a caixa do
   gate de avaliação por preencher em tickets já entregues.
 - **Opções propostas pela KAMBÁ.** (a) conjunto inteiramente **sintético**, sem
-  material real — o que ADR-018 já estabelece e o estado assumido; (b) conjunto
-  sintético com casos **inspirados** em padrões observados, documentando que
-  nenhuma conversa foi copiada; (c) material real pseudonimizado, se o parecer e
-  a Meta o permitirem, o que exigiria também resposta da Meta (KAM-101).
+  material real — a leitura mais restritiva, e a única que a célula curta do
+  ADR-018 descreve; (b) as três origens que o **KAM-040 já especifica**
+  (`sintetico`, `t2_anonimizado`, `real_consentido`), com o registo de
+  consentimento por caso como barreira e sem nenhum caso a entrar sem ele —
+  é o estado **especificado**, e é por isso que a pergunta não é hipotética;
+  (c) material real pseudonimizado para além do que o KAM-040 admite, o que
+  exigiria também resposta da Meta (KAM-101). **A KAMBÁ não sabe qual destas
+  os Termos permitem**, e é o que pede.
 - **Resposta pedida.** Parecer escrito que responda às quatro variantes, e diga
   se a distinção entre «treinar/melhorar» e «avaliar» tem apoio no texto da
   cláusula ou se é leitura.
@@ -1318,7 +1348,8 @@ P0 (A-04, B-01, B-02, C-06) bloqueiam dados reais ou pagamentos, não a região.
 - **Texto.** Existe lei específica de controlo do tabaco em vigor? Como se aplica
   a Lei n.º 12/25 (álcool) a vendas online e a entregas, em particular a
   restrição de distância a determinados locais? Qual o diploma das armas de fogo?
-  Que prova de licença deve a PME exibir para operar jogos?
+  Que prova de licença, emitida pelo Instituto de Supervisão de Jogos (ISJ),
+  deve a PME exibir para operar jogos?
 - **Contexto. Álcool:** a Lei n.º 12/25, de 3 de Outubro — proibição a menores
   de 18 anos, proibição de venda e consumo a menos de 300 metros de hospitais,
   escolas, quartéis, esquadras, locais de culto e cemitérios, e horários — é
@@ -1330,8 +1361,10 @@ P0 (A-04, B-01, B-02, C-06) bloqueiam dados reais ou pagamentos, não a região.
   controlo do tabaco é **NÃO VERIFICADO**. **Armas:** a lei angolana das armas de
   fogo **não foi encontrada** — **NÃO VERIFICADO**. **Jogos:** a Lei n.º 17/24,
   de 28 de Outubro, que sujeita os jogos de fortuna ou azar, incluindo online, a
-  licença de sociedade anónima por concurso público, com regulador próprio,
-  proibição a menores, identificação do jogador e eliminação de dados depois da
+  licença de sociedade anónima por concurso público, com o **Instituto de
+  Supervisão de Jogos (ISJ)** como regulador e supervisor — que aceita pedidos
+  de licença desde 18 de Fevereiro de 2025 (**INDÍCIO**) —, proibição a
+  menores, identificação do jogador e eliminação de dados depois da
   finalidade, é **CONFIRMADO** (uma leitura do texto).
 - **Por que importa.** Hoje as quatro categorias estão fora do Piloto, por
   bloqueio absoluto (armas) ou exclusão (álcool, tabaco, jogos sem licença) —
@@ -1357,7 +1390,7 @@ P0 (A-04, B-01, B-02, C-06) bloqueiam dados reais ou pagamentos, não a região.
 - **Contexto.** Que a lei esteja **em vigor desde 6 de Agosto de 2026**, após
   publicação em Diário da República, e que abranja conteúdos criados no
   estrangeiro dirigidos ao público angolano, é **CONFIRMADO** (várias notícias);
-  os detalhes das obrigações — definições de «contas inauténticas»,
+  os detalhes das obrigações — definições de «contas inautênticas»,
   «disseminadores artificiais» e «redes artificiais de disseminação», relatórios
   mensais das plataformas, coimas por múltiplos do salário mínimo nacional — são
   **INDÍCIO**, e o **número da lei não foi encontrado**. A leitura registada é de
@@ -1386,12 +1419,13 @@ Esta é a lista do que está **desligado ou restringido por precaução jurídic
 Não é a lista do que falta construir: cada item tem hoje uma barreira — técnica,
 contratual ou de política — e a barreira só se remove com a resposta à pergunta
 que a coluna nomeia. **O dono é quem mantém a barreira e quem a reavalia quando
-a resposta chegar**, e são 16.
+a resposta chegar**, e são 17 — o 17.º entrou pela revisão adversarial, que
+apanhou a barreira do consentimento por caso de avaliação a faltar aqui.
 
 | # | Item assumido | Barreira hoje | Fonte | Pergunta que o liberta | Dono |
 |---|---|---|---|---|---|
 | 1 | **Comissão sobre transacção desligada** | Sem cobrança de comissão sobre valor transaccionado no Piloto | ADR-017, D8 | B-01, B-08 | Responsável de Produto |
-| 2 | **Finalidades próprias da KAMBÁ desligadas** (sinal de procura agregado, Kambá Score) | Tratamentos de finalidade própria não corrididos no Piloto | `08` §8.2, D9 | A-01, A-12 | Responsável de Segurança (privacidade) |
+| 2 | **Finalidades próprias da KAMBÁ desligadas** (sinal de procura agregado, Kambá Score) | Tratamentos de finalidade própria não corridos no Piloto | `08` §8.2, D9 | A-01, A-12 | Responsável de Segurança (privacidade) |
 | 3 | **Payouts inexistentes** | `PaymentProvider.payout` sem implementação nem rota; bandeira fail-closed; CI falha se existir implementação | `08` §8.10, ADR-004 | B-03 | Responsável de Pagamentos |
 | 4 | **Escrow inexistente** | Não existe estado «retido»; disputa de entrega tratada fora do gateway | `08` §8.10 | B-04 | Responsável de Pagamentos |
 | 5 | **Sem saldos nem carteira** | Nenhuma tabela de saldos; vocabulário «carteira», «saldo» e «escrow» proibido na interface e no código | `08` §8.10 | B-04, B-05 | Arquitecto de Plataforma |
@@ -1406,6 +1440,7 @@ a resposta chegar**, e são 16.
 | 14 | **Áudio bruto não sai sem gate de destino** | Transcrever cedo, apagar o blob em ≤ 24 horas (limite de erro 72 h), não enviar áudio bruto a transcrição no estrangeiro sem gate | `08` §7.5 | A-02, F-01 | Responsável de Segurança |
 | 15 | **Fluxo B e número agregador diferidos** | Só Fluxo A no Piloto; isolamento entre PMEs | ADR-011, D2, `E1` §4 | — (é KAM-101, resposta da Meta) | Responsável de Produto |
 | 16 | **Kambá Score não é informação de crédito** | Score não usado nem apresentado como informação de crédito | D11 (CONDICIONAL, gatilho Escala) | G-02 | Responsável de Produto, com jurídico |
+| 17 | **Nenhum caso real entra no conjunto de avaliação sem registo de consentimento** | O KAM-040 exige `origem ∈ {sintetico, t2_anonimizado, real_consentido}` e nenhum `real_consentido` sem registo de consentimento; a barreira é o registo, não a ausência de material real | ADR-018, KAM-040 | D-01, F-03 | Responsável de Segurança (privacidade), com o dono do KAM-040 |
 
 > **Dois itens desta lista não se libertam com este pacote**, e estão aqui para
 > que ninguém os confunda com itens jurídicos: o 15 depende de resposta escrita
@@ -1449,8 +1484,8 @@ visível.
 | O que falta | Razão |
 |---|---|
 | **Confirmação de que o pacote foi enviado, e protocolo de recepção** | Enviar é acto humano. Esta sessão produz o pacote pronto a enviar; o critério 4 do KAM-104 fica **não satisfeito** e a sua caixa vazia |
-| **Duas ou mais propostas de honorários, e carta de compromisso assinada** | Pedir honorários a advogados e assinar não é acto de sessão. O que existe é o **molde**: critérios de selecção, âmbito por prioridade, formato de parecer, prazos e minuta da carta de compromisso, em [`Seleccao_e_Registo_Juridico.md`](Seleccao_e_Registo_Juridico.md) §1 e §2. O critério 5 fica **não satisfeito** |
-| **Respostas registadas, com data, autor e classificação «CONFIRMADO (jurídico)»** | Não há respostas: o pacote não foi enviado. O que existe é a **tabela vazia com as colunas certas** e a lista de decisões e tickets que cada resposta afectará, em [`Seleccao_e_Registo_Juridico.md`](Seleccao_e_Registo_Juridico.md) §3. O critério 6 fica **não satisfeito** |
+| **Duas ou mais propostas de honorários, e carta de compromisso assinada** | Pedir honorários a advogados e assinar não é acto de sessão. O que existe é o **molde**: critérios de selecção, âmbito por prioridade, formato de parecer, prazos e minuta da carta de compromisso, no artefacto interno de selecção e registo, §1 e §2 — não anexado. O critério 5 fica **não satisfeito** |
+| **Respostas registadas, com data, autor e classificação «CONFIRMADO (jurídico)»** | Não há respostas: o pacote não foi enviado. O que existe é a **tabela vazia com as colunas certas** e a lista de decisões e tickets que cada resposta afectará, no artefacto interno de selecção e registo, §3 — não anexado. O critério 6 fica **não satisfeito** |
 | **Qualquer leitura jurídica definitiva da KAMBÁ** | Por desenho. É o que o pacote vai pedir; escrevê-lo como se já se soubesse retirava-lhe a razão de existir |
 | **Exportação em formato de documento** | Nenhum conversor correu aqui. A exportação é este pacote e o anexo, sem nada retirado; produzi-la é acto de quem envia, e viaja com o critério 4 |
 

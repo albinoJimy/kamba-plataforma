@@ -10,11 +10,13 @@
 | Ticket | KAM-104 (EPIC-10) |
 | Pacote que acompanha | [`Pacote_Parecer_Juridico.md`](Pacote_Parecer_Juridico.md) — as 40 perguntas |
 | Gerado a partir de | `../../00_Arquitectura_Solucao.md` e `../../01` a `../../10` |
-| Extensão | 290 linhas renderizadas, contadas com as linhas de tabela a uma linha e a prosa a 95 caracteres por linha: **6 páginas** à densidade de 48 linhas por página (A4, 11 pt), 6,3 à densidade de 46 |
+| Extensão | **Não demonstrada em páginas, e a razão está dita.** Linhas de tabela a uma linha e prosa a 95 caracteres por linha: **251** linhas se o espaçamento entre parágrafos não ocupar linha, **311** se ocupar — ou seja **5,2 a 6,8 páginas** entre as densidades de 48 e 46 linhas por página (A4, 11 pt). Nenhum conversor correu nesta máquina, pelo que **nenhuma página foi medida**; quem tiver um renderizador fecha a conta numa passagem. Ver o critério 3 do KAM-104, cuja caixa fica vazia por isto |
 
-> **Descritivo, sem dados pessoais, e sem leitura jurídica da KAMBÁ.** Toda a
+> **Descritivo, sem dados pessoais, e sem leitura jurídica da KAMBÁ.** Cada
 > afirmação que toca a Lei 22/11, a APD, o BNA, a AGT, a defesa do consumidor ou
-> os Termos da Meta leva *(a confirmar por parecer)*. **CONFIRMADO**,
+> os Termos da Meta aparece **com o estado de verificação** com que foi lida na
+> evidência da KAMBÁ, ou **com a marca *(a confirmar por parecer)*** quando é
+> conclusão nossa sem fonte que a sustente — e não de outra forma. **CONFIRMADO**,
 > **INDÍCIO** e **NÃO VERIFICADO** têm o sentido da evidência de pesquisa da
 > KAMBÁ, de 8 de Outubro de 2026, e **não são promovidos** aqui. Os textos de
 > lei que a KAMBÁ leu vieram de repositórios não oficiais: **verificar no Diário
@@ -87,7 +89,10 @@ detector (telefone, NIF, e-mail, morada, nomes)
 contratos com fornecedores exigem retenção zero e não-treino. A razão invocada é
 a cláusula dos Termos da Meta sobre aprendizagem automática, cujo texto a KAMBÁ
 leu por extracção automática e pede que seja confirmado (pergunta D-01). Por
-isso o conjunto de casos para avaliar o sistema é **sintético** (pergunta F-03).
+isso o conjunto de casos para avaliar o sistema admite três origens — sintética,
+anonimizada e real **com registo de consentimento por caso**, sem o qual nenhum
+caso real entra (KAM-040). Se os Termos permitem as duas últimas é a pergunta
+F-03.
 
 **Voz.** Nota de voz → transcrição por fornecedor no estrangeiro → o áudio é
 apagado (proposta: ≤ 24 h, limite de erro 72 h). Áudio bruto não sai sem o
@@ -132,13 +137,6 @@ responde de forma neutra e passa a humano — até haver autorização da APD
 Piloto por dupla razão: a política da Meta proíbe a categoria, e os dados de
 compra seriam dados de saúde.
 
-**Registos técnicos.** Lista fechada de campos permitidos; **proibidos** texto
-de mensagem, transcrição, telefone, morada e nome. O controlo é um registador
-tipado que recusa campos fora da lista, mais um teste que varre os registos por
-padrões de telefone angolano e de NIF, com amostragem semanal em produção.
-Excepção declarada: os registos de diagnóstico dos modelos contêm conteúdo; no
-Piloto não existem em produção e, em pré-produção, só com dados sintéticos.
-
 ---
 
 ## 4. Inventário de subprocessadores
@@ -163,8 +161,9 @@ Estado: **Piloto; países a confirmar contratualmente.**
 > corrigidas antes de o inventário ir para a APD:
 >
 > 1. **O CDN e firewall termina TLS**, logo vê o corpo dos pedidos em claro,
->    incluindo o dos eventos da Meta: é subprocessador **com acesso a
->    conteúdo**. Há duas opções e **nenhuma está decidida**: (a) assumi-lo como
+>    incluindo o dos eventos da Meta. Esse é o facto técnico; **se o torna
+>    subprocessador com acesso a conteúdo é o que a pergunta E-04 pede**
+>    *(a confirmar por parecer)*. Há duas opções e **nenhuma está decidida**: (a) assumi-lo como
 >    subprocessador e incluí-lo na notificação; (b) **não** pôr o caminho dos
 >    eventos atrás do proxy — a assinatura da Meta já autentica o pedido.
 >    Pergunta E-04.
@@ -185,8 +184,10 @@ Angola, CDN, observação, e correio ou SMS, com evidência arquivada por destin
 cláusulas-tipo oficiais da APD **não foram encontradas** (NÃO VERIFICADO), e a
 KAMBÁ **não** assume as da União Europeia. Alojar em Joanesburgo ou na Cidade do
 Cabo é **também** transferência (INDÍCIO), e **alojar em Luanda não dispensa o
-procedimento**, porque os modelos, a transcrição e a própria Meta já são
-transferências.
+procedimento**, porque os modelos, a transcrição e a própria Meta seriam
+transferências — **INDÍCIO** também, pela mesma inferência, e é o que a pergunta
+A-02 pede *(a confirmar por parecer)*. A premissa de que «Luanda não dispensa
+nada», que é o fundamento de **D1**, vale o que valer essa inferência.
 
 ---
 
@@ -312,31 +313,7 @@ entidade de serviços interbancários, pelo que fica fora do pagamento integrado
 
 ---
 
-## 8. Alojamento, cópias de segurança e chaves
-
-**Decisão em aberto — D1:** Luanda desde o início, ou Joanesburgo / Cidade do
-Cabo com procedimento APD; prazo **antes de dados reais**. Há capacidade em
-Luanda (um data center Tier III privado desde Outubro de 2025 e um data center e
-nuvem nacionais desde Abril de 2026 — CONFIRMADO), mas base de dados e
-armazenamento **geridos** são NÃO VERIFICADO. A arquitectura é portável desde o
-primeiro dia. As **cópias de segurança** vivem em repositório cifrado **noutro
-domínio de falha**, idealmente um segundo local angolano, com recuperação a um
-ponto no tempo de 7 dias e retenção de 35 dias; a chave de cifra está no cofre
-com **cópia offline**, e é isso que torna concreta a pergunta **E-05**. Os
-segredos vivem em cofre dedicado, **nunca em imagem, repositório ou registo**.
-
-Entre PMEs há isolamento em profundidade: a camada de ferramentas do assistente
-recebe a identidade da PME do estado e nunca como parâmetro, **e** há segurança
-por linha forçada na base de dados por baixo dela, com uma suite de testes
-cruzados que **faz falhar a construção** e cujo alvo medido é **zero** leituras
-cruzadas. O **go-live que a KAMBÁ se impôs** depende deste parecer: mapa de
-tratamentos, decisão sobre papéis, notificação ou autorização **por destino**,
-taxas, e contrato de subcontratação e aviso publicados — e os prazos da APD e a
-existência de silêncio positivo são **NÃO VERIFICADOS** (pergunta A-03).
-
----
-
-## 9. O que ainda não existe
+## 8. O que ainda não existe
 
 Para que o parecer saiba o que **não** pode apreciar. Não existe: **mapa de
 tratamentos** (desenhado como pré-requisito — as §3, §4 e §5 deste anexo são a
@@ -350,16 +327,21 @@ da APD**; e **validação da certificação** do parceiro de facturação.
 
 ---
 
-## 10. Ausência de dados pessoais
+## 9. Ausência de dados pessoais
 
-Varredura automática dos documentos de origem e deste anexo: zero números de
-telefone, zero NIF com valor, zero endereços de correio electrónico, zero nomes
-de pessoas e zero moradas concretas. Se o parecer precisar de um exemplo
-concreto, pede-se que o **solicite**, em vez de a KAMBÁ o antecipar.
+Varredura automática **deste anexo e do pacote que ele acompanha** — que são os
+dois ficheiros que saem da casa: zero números de telefone, zero NIF com valor,
+zero endereços de correio electrónico, zero nomes de pessoas e zero moradas
+concretas. **A varredura não se estende aos documentos de origem, e a primeira
+versão desta secção dizia que sim, o que era falso:** a evidência de pesquisa
+interna da KAMBÁ contém pelo menos um número de telefone público real, e é
+precisamente por isso que este anexo foi redigido e não copiado. Se o parecer
+precisar de um exemplo concreto, pede-se que o **solicite**, em vez de a KAMBÁ o
+antecipar.
 
 ---
 
-## 11. Tabela de aprovação
+## 10. Tabela de aprovação
 
 | Papel | Nome | Data | Assinatura |
 |---|---|---|---|
@@ -373,4 +355,4 @@ concreto, pede-se que o **solicite**, em vez de a KAMBÁ o antecipar.
 
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
-| 1.0 | Outubro 2026 | Emissão inicial, KAM-104. Factos do caso gerados a partir de `../../00` a `../../10`: fluxos de dados, identidade em duas camadas, classes de dados, inventário de subprocessadores com as duas lacunas assinaladas, retenção proposta, papéis e a lacuna da base legal de seis finalidades, arquitectura de pagamentos com as seis barreiras técnicas, alojamento e cópias de segurança, facturação, e o que ainda não existe. Sem dados pessoais, verificado por varredura. Nomes de fornecedores substituídos pela função. | Equipa KAMBÁ |
+| 1.0 | Outubro 2026 | Emissão inicial, KAM-104. Factos do caso gerados a partir de `../../00` a `../../10`: fluxos de dados, identidade em duas camadas, classes de dados, inventário de subprocessadores com as duas lacunas assinaladas, retenção proposta, papéis e a lacuna da base legal de seis finalidades, arquitectura de pagamentos com as seis barreiras técnicas, alojamento e cópias de segurança, facturação, e o que ainda não existe. Sem dados pessoais neste anexo e no pacote, verificado por varredura dos dois. Nomes de fornecedores substituídos pela função. | Equipa KAMBÁ |
