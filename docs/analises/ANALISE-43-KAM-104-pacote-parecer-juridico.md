@@ -67,12 +67,44 @@ exactamente o modo de falha que este pacote existe para evitar.
 o critério está lá; `sed -n '413p' docs/tecnica/00_Arquitectura_Solucao.md` → a
 frase está lá. **Mantém-se na árvore pós-merge.**
 
-**Nota que vale mais do que o achado.** Há **contradição no próprio canon**: a
-célula do registo de ADRs em `00` resume o ADR-018 a «golden set por reescrita
-sintética», e o corpo do mesmo documento diz «e por casos autorizados pela PME».
-Eu citei o lado curto tendo o KAM-040 à mão, o que explica o erro e não o
-desculpa. A contradição é anterior a este ticket e **fica registada aqui** — não
-se corrigiu, por ser fora de escopo e por mexer num ADR.
+**Nota que vale mais do que o achado: há tensão no canon, e é mais larga do que
+«uma célula-resumo».** Sete afirmações sobre a origem do *golden set*, todas a
+invocar o **ADR-018**, e não dizem o mesmo. **Quatro dizem só reescrita
+sintética:**
+
+| Ficheiro e linha | O que diz |
+|---|---|
+| `../tecnica/00_Arquitectura_Solucao.md`:354 | A célula do **ADR-018** no registo de ADRs: «Golden set por **reescrita sintética**: os Termos da Meta proíbem treinar ou melhorar ML com dados do WhatsApp» |
+| `../../specs/EPIC-10_Spikes_Validacao_Gates.md`:730 | «Casos T2 resolvidos alimentam o golden **só por reescrita sintética sem dados pessoais** (ADR-018)» — e está **no próprio epic deste ticket** |
+| `../logs.md`:579 | «O *golden set* é feito por reescrita sintética \| ADR-018; Termos da Meta» |
+| `../tecnica/10_Onboarding_Governanca.md`:740 | Linha de risco: «Golden set contamina-se com dados reais \| violação dos Termos Meta / Lei 22/11 \| reescrita sintética; parecer» |
+
+**Três admitem material real com consentimento:**
+
+| Ficheiro e linha | O que diz |
+|---|---|
+| `../tecnica/00_Arquitectura_Solucao.md`:413 | «o dataset de avaliação é construído por reescrita sintética **e por casos autorizados pela PME** (ADR-018)» |
+| `../../specs/EPIC-03_Agent_Runtime_Verticais.md`:3799 | Critério de aceitação do **KAM-040**: `origem ∈ {sintetico, t2_anonimizado, real_consentido}`, e nenhum `real_consentido` sem registo de consentimento |
+| `../../specs/EPIC-06_Indice_Pesquisa.md`:296 | «conversas do concierge/H7, **só depois da reescrita sintética e com consentimento** (a confirmar por parecer, `E3`)» |
+
+**A tensão está dentro do `00`, entre duas linhas que citam o mesmo ADR:** a 354
+dá uma origem, a 413 dá duas. Não é «observabilidade contra dataset» — a célula
+da 354 é de observabilidade **e** fixa a origem do *golden set* na mesma frase.
+
+**E uma correcção minha, que importa mais do que o achado.** O primeiro `grep`
+que corri — `grep -n "Golden set por reescrita" docs/tecnica/00` — **voltou
+vazio**, porque a frase real tem os marcadores de negrito dentro
+(`por **reescrita sintética**`). Registei a contradição a partir do relatório do
+revisor **depois de a minha própria medição ter falhado em confirmá-la**, e isso
+é exactamente o que o §1.4 proíbe: uma afirmação de um subagente verifica-se com
+comando próprio, e um comando que volta vazio é um comando por corrigir, não uma
+confirmação pela negativa. A tensão existe — as sete linhas acima medem-na — mas
+eu cheguei a ela pelo caminho errado, e por pouco teria registado no canon um
+defeito que não tinha medido.
+
+A tensão é anterior a este ticket e **fica registada aqui**; não se corrigiu, por
+ser fora de escopo e por tocar um ADR e quatro documentos. O que se corrigiu foi
+o pacote, que citava um dos lados como se fosse o único.
 
 **Corrigido:** o contexto de F-03 passa a dizer as três origens e a nomear a
 contradição do canon; as opções passam a (a) só sintético, (b) as três origens
@@ -332,7 +364,7 @@ número lê-se à mão e é **INDÍCIO**, não `CONFIRMADO`.
 
 | Item | Razão |
 |---|---|
-| **A contradição do `00` sobre o ADR-018** — célula-resumo «reescrita sintética» contra corpo «e por casos autorizados pela PME» | Fora de escopo e mexe num ADR. Fica registada aqui e no contexto de F-03, que a nomeia para o advogado |
+| **A tensão do canon sobre a origem do *golden set*** — quatro linhas dizem só reescrita sintética, três admitem material real com consentimento, todas a citar o ADR-018, e duas delas são o `00`:354 e o `00`:413 | Fora de escopo: toca um ADR e quatro documentos, um deles o `EPIC-10`:730 deste próprio epic. Fica medida no achado 1, com ficheiro e linha dos sete, e **nomeada no contexto de F-03** para que o advogado a veja. Quem a fechar decide qual dos lados vale |
 | **O fornecedor de imagem sem linha em `08` §8.3.2** | Lacuna real, e **já tem credor**: o `08` §18 atribui-a ao **KAM-069** («inventário e `apd_ref` antes de produção»). Abrir ticket duplicava-lhe o âmbito. Fica declarada no anexo |
 | **A opção do caminho de webhooks atrás do proxy** | Não é defeito: é a pergunta **N1**, que o pacote leva ao advogado como E-04. Decidi-la era o erro. Ficou **fora** da lista de assunções do §4, de propósito — essa lista diz o que a KAMBÁ assume *enquanto espera*, e uma pergunta não decidida não é uma assunção |
 | **A afirmação sem marca em `08` §8.3.2 e §8.3.1** | É a fonte interna de onde os achados 2 e 3 vinham. Corrigiu-se o pacote e o anexo, que é o escopo deste ticket; emendar o `08` é alteração de documento técnico, fora do diff |
