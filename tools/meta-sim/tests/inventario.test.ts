@@ -111,8 +111,20 @@ describe("o inventario deste repositorio", () => {
     // contagem num sítio só obriga quem acrescenta um ficheiro a dizê-lo aqui
     // também, e é o que distingue isto de uma pasta isenta — que cresceria em
     // silêncio.
-    assert.equal(totalDeclarado(), 91);
-    assert.equal(INVENTARIO.length, 24);
+    // **94 em 26 ficheiros desde o KAM-112**, e as tres que entram sao das
+    // docstrings do detector de PII daquele ticket: duas das dez formas de
+    // telefone que o criterio 2 enumera — o `+244` junto e o `00244` — tem a
+    // forma que este scan procura, e tinham de ter, porque um exemplo que nao
+    // casasse o padrao que ilustra enganava quem o lesse. A terceira esta no
+    // comentario do ensaio que explica porque e que um `\d{9}` deslizante
+    // conta janelas de nove digitos **dentro** de um numero com prefixo.
+    //
+    // **E este gate apanhou-as antes de mim**, que e o que ele existe para
+    // fazer: o KAM-112 abriu PR com os tres numeros por declarar e o gate 7
+    // ficou vermelho. Uma pasta `tests/` isenta — a tentacao que o
+    // `inventario.ts` recusa por extenso — tinha deixado passar os tres.
+    assert.equal(totalDeclarado(), 94);
+    assert.equal(INVENTARIO.length, 26);
   });
 
   it("nenhuma entrada e de uma pasta inteira", () => {
