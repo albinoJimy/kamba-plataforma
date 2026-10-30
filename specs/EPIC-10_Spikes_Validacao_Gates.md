@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Spikes, Validação e Gates |
-| Versão | 1.4 |
+| Versão | 1.5 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` |
@@ -316,13 +316,65 @@ Tudo o que toca APD, BNA, AGT e Termos da Meta está marcado «a confirmar por p
 Entregar ao advogado um pacote completo, priorizado e com os factos do caso, que permita um parecer escrito sobre as decisões D1, D8, D9, D11 e D12, e contratar o advogado com âmbito, prazos e formato de resposta definidos.
 
 ### Critérios de Aceitação
-- [ ] `../docs/tecnica/evidencia/validacao/Pacote_Parecer_Juridico.md` (e exportação para o advogado) cobre 100% de: as 20 perguntas de E3; as perguntas 19–30 de E2 (BNA 19–25, AGT 26–29, contabilista 30); a leitura da cláusula §4.7 dos Termos da Meta (E1 Q7); N1 (CDN como subprocessador), N2 (backups cifrados fora de Angola com chave em Angola), N3 (HMAC com pepper) e N5 (desenho de pagamento fora do Aviso 2/22 art. 4.º j)) de `../docs/tecnica/08` §13; e 3 perguntas novas (X1 dados reais de teste com consentimento em spikes, X2 quem paga os custos em USD e retenções sobre pagamentos a fornecedores estrangeiros, X3 uso de conversas para avaliação face aos Termos da Meta).
-- [ ] Cada pergunta tem: n.º, texto, contexto, por que importa (decisão e tickets bloqueados), opções propostas pela KAMBÁ, resposta pedida (parecer escrito), prioridade (P0, P1, P2 de `../docs/tecnica/08` §13: P0 = E3 1, 2, 3, 4, 5, 6, 18, 20; P1 = 7, 9, 11, 12, 15, 16; P2 = 8, 10, 13, 14, 17, 19; BNA Q19–Q20 e Q30 propostos P0, restantes P1/P2) e prazo pedido.
-- [ ] Anexo «factos do caso» (≤ 6 páginas) gerado a partir de `../docs/tecnica/`: fluxos de dados, inventário de subprocessadores (`../docs/tecnica/08` §8.3.2), classes de dados, retenção proposta (§11), papéis (§8.2), arquitectura de pagamentos (liquidação directa, sem posse de fundos); sem dados pessoais.
+- [x] `../docs/tecnica/evidencia/validacao/Pacote_Parecer_Juridico.md` (e exportação para o advogado) cobre 100% de: as 20 perguntas de E3; as perguntas 19–30 de E2 (BNA 19–25, AGT 26–29, contabilista 30); a leitura da cláusula §4.7 dos Termos da Meta (E1 Q7); N1 (CDN como subprocessador), N2 (backups cifrados fora de Angola com chave em Angola), N3 (HMAC com pepper) e N5 (desenho de pagamento fora do Aviso 2/22 art. 4.º j)) de `../docs/tecnica/08` §13; e 3 perguntas novas (X1 dados reais de teste com consentimento em spikes, X2 quem paga os custos em USD e retenções sobre pagamentos a fornecedores estrangeiros, X3 uso de conversas para avaliação face aos Termos da Meta).
+- [x] Cada pergunta tem: n.º, texto, contexto, por que importa (decisão e tickets bloqueados), opções propostas pela KAMBÁ, resposta pedida (parecer escrito), prioridade (P0, P1, P2 de `../docs/tecnica/08` §13: P0 = E3 1, 2, 3, 4, 5, 6, 18, 20; P1 = 7, 9, 11, 12, 15, 16; P2 = 8, 10, 13, 14, 17, 19; BNA Q19–Q20 e Q30 propostos P0, restantes P1/P2) e prazo pedido.
+- [x] Anexo «factos do caso» (≤ 6 páginas) gerado a partir de `../docs/tecnica/`: fluxos de dados, inventário de subprocessadores (`../docs/tecnica/08` §8.3.2), classes de dados, retenção proposta (§11), papéis (§8.2), arquitectura de pagamentos (liquidação directa, sem posse de fundos); sem dados pessoais.
 - [ ] Pacote P0 enviado até ao dia 7 (fim da semana 1); resposta preliminar às P0 que decidem D1 pedida até à semana 3 e parecer escrito P0 até à semana 6; o prazo efectivamente comprometido pelo advogado fica registado.
 - [ ] Selecção do advogado documentada: ≥ 2 propostas de honorários, critérios (experiência com APD e BNA), carta de compromisso com confidencialidade, âmbito P0/P1/P2, formato (parecer escrito com referência e data) e prazos.
 - [ ] Registo de respostas: cada resposta recebida fica com data, autor, classificação «CONFIRMADO (jurídico)» e lista de tickets e decisões afectados (D1, D8, D9, D11, D12; KAM-069, KAM-070, KAM-088, KAM-090).
-- [ ] Os itens que a KAMBÁ assume até haver parecer ficam listados com dono (p. ex. comissão sobre transacção desligada, ADR-017; finalidades próprias da KAMBÁ desligadas, `../docs/tecnica/08` §8.2).
+- [x] Os itens que a KAMBÁ assume até haver parecer ficam listados com dono (p. ex. comissão sobre transacção desligada, ADR-017; finalidades próprias da KAMBÁ desligadas, `../docs/tecnica/08` §8.2).
+
+### Verificação dos Critérios de Aceitação
+
+**7 critérios; 4 marcados, 3 vazios. 5 caixas de DoD; 3 marcadas, 2 vazias.**
+Os três critérios vazios **não são trabalho esquecido: são actos humanos**, e
+nenhum deles pode ser praticado por uma sessão — enviar um pacote, pedir
+honorários a advogados e assinar, receber respostas por escrito. Para cada um,
+o que havia de aproveitável ficou feito e está nomeado abaixo.
+
+**O que é novo, em três ficheiros.** O pacote em
+`../docs/tecnica/evidencia/validacao/Pacote_Parecer_Juridico.md`, o anexo em
+`../docs/tecnica/evidencia/validacao/Anexo_Factos_do_Caso.md`, e os dois
+artefactos internos — molde de selecção e registo de respostas — em
+`../docs/tecnica/evidencia/validacao/Seleccao_e_Registo_Juridico.md`. Os dois
+primeiros saem da casa; o terceiro não, e diz-o no cabeçalho.
+
+### Os critérios, um a um
+
+| # | Critério | Evidência |
+|---|---|---|
+| 1 | O pacote cobre 100% das 40 perguntas enumeradas | **Contadas, não estimadas: 40.** Por origem: **20** de `E3` (as «Perguntas para o advogado local» 1 a 20), **12** de `E2` §9 (BNA 19–25, AGT 26–29, contabilista 30), **1** de `E1` (a 7, a cláusula §4.7 dos Termos), **4** das linhas «Novas» de `../docs/tecnica/08` §13 (N1, N2, N3, N5) e **3** novas (X1, X2, X3). Por bloco: A 12, B 8, C 6, D 1, E 5, F 3, G 5. Por prioridade: P0 11, P1 19, P2 10. **As três somas fecham em 40**, e o §0.4 do pacote publica-as para que a divergência seja visível se alguma mudar. A verificação foi feita **da origem para o pacote**, item a item, que é a única direcção que encontra omissões. **O bloco G é um acrescento declarado:** os «Detalhes Técnicos» propõem seis blocos (A a F) e cinco das vinte perguntas de `E3` — defesa do consumidor, responsabilidade da plataforma, medicamentos, categorias restritas, desinformação — não cabem em nenhum deles; ou se forçavam para dentro de «APD e Lei 22/11», onde um advogado as leria como matéria de protecção de dados, ou ganhavam bloco próprio. **A exportação não existe**: nenhum conversor correu aqui, a exportação são os dois ficheiros sem nada retirado, e produzi-la é acto de quem envia — viaja com o critério 4 |
+| 2 | Cada pergunta com os oito campos, prioridade e prazo | Os oito campos em cada um dos 40 blocos, pela mesma ordem: n.º (é o título), texto, contexto com o estado de verificação e a fonte, por que importa com a decisão e os tickets bloqueados, opções propostas pela KAMBÁ, resposta pedida, prioridade e prazo. **As prioridades não foram reinventadas**: as que o critério fixa estão como ele as fixa, incluindo as três P0 nomeadas (BNA 19, BNA 20, contabilista 30). Em **quatro** pontos a leitura da KAMBÁ diverge da letra — D-01, B-08, E-04 com E-05, e F-01 — e as quatro **ficam classificadas pela letra**, com a divergência medida no §5 do pacote e a decisão devolvida a quem escreveu o critério 2. A âncora da «semana 1» não está fixada em nenhum documento lido, e o pacote diz isso em vez de inventar datas |
+| 3 | Anexo «factos do caso», ≤ 6 páginas, sem dados pessoais | **Os seis itens que o critério enumera, todos presentes:** fluxos de dados (§2), inventário de subprocessadores (§4, a tabela de `../docs/tecnica/08` §8.3.2), classes de dados (§3), retenção proposta (§5, de `../docs/tecnica/08` §11), papéis (§6, de `../docs/tecnica/08` §8.2) e arquitectura de pagamentos com a liquidação directa e a ausência de posse de fundos (§7). **Extensão medida, não estimada: 290 linhas renderizadas** — linhas de tabela a uma linha, prosa a 95 caracteres por linha —, o que dá **6 páginas à densidade de 48 linhas por página** (A4, 11 pt) e 6,3 à densidade de 46. A conta e a convenção estão no cabeçalho do anexo, para que quem discorde da densidade possa refazê-la; o anexo foi cortado três vezes para chegar aqui, de 4 814 palavras a 3 152. **Sem dados pessoais:** varredura por padrões de telefone angolano, e-mail, NIF com valor e identificadores do autor dá **zero** em cada um, e não há um único número de telefone no documento. Os nomes de fornecedores foram substituídos pela função, por serem matéria contratual em aberto. O anexo **acrescenta** duas lacunas do inventário que ninguém tinha escrito como lacunas: o CDN que termina TLS e o fornecedor de imagem sem linha no inventário |
+| 4 | Pacote P0 enviado até ao dia 7; prazo comprometido registado | **Vazia, e o estado é `não satisfeito`. Enviar é acto humano**, e esta sessão não envia nada. O que está feito: o pacote está pronto a enviar, com os prazos pedidos por prioridade (preliminar na semana 3 para as sete P0 que decidem D1, escrito na semana 6 para todas as P0) e com a **tabela de prazos a comprometer** no §1.4 do `Seleccao_e_Registo_Juridico.md`, cuja coluna da direita — «prazo comprometido pelo advogado» — nasce vazia e é a que o critério manda registar. Falta também a **exportação** no formato em que o advogado o receberá, que viaja com o envio |
+| 5 | Selecção documentada: ≥ 2 propostas de honorários, carta de compromisso | **Vazia, e o estado é `não satisfeito`. Pedir honorários a advogados não é acto de sessão.** O que está feito é o **molde**, no §1 do `Seleccao_e_Registo_Juridico.md`: dez critérios de selecção, três deles eliminatórios e os dois primeiros exactamente os que o critério nomeia (experiência com a APD e com o BNA); o âmbito dividido pelos três lotes de prioridade; o formato de parecer pedido em seis pontos; os prazos a comprometer; e a **minuta da carta de compromisso**, com uma cláusula de confidencialidade de sete números — incluindo a proibição de submeter a informação recebida a sistemas de inteligência artificial ou de tradução de terceiros, e a devolução ou destruição no fim. A minuta **não foi revista por advogado** e diz isso onde está. O §2 fica vazio, com as colunas certas |
+| 6 | Registo de respostas com data, autor e classificação | **Vazia, e o estado é `não satisfeito`: não há respostas, porque o pacote não foi enviado.** O que está feito é a **tabela vazia com as colunas certas** (§3 do `Seleccao_e_Registo_Juridico.md`: n.º da pergunta, data, autor com cédula, referência do parecer, classificação, resumo, decisões afectadas, tickets afectados, acção), onde a coluna «Classificação» só admite `CONFIRMADO (jurídico)` e **só é preenchida por uma pessoa**, depois de receber o parecer por escrito. Mais o **mapa inverso** do §3.1, que é a parte aproveitável: por decisão (**D1, D8, D9, D11, D12**, e ainda D7, que o bloco C decide) e por ticket (**KAM-069, KAM-070, KAM-088, KAM-090**, os quatro que o critério nomeia, mais treze que o pacote encontrou pelo caminho), as perguntas cuja resposta os desbloqueia. E seis regras do registo, entre elas a que diz que uma resposta registada e não propagada é pior do que uma não registada, porque parece tratada |
+| 7 | Itens assumidos até haver parecer, listados com dono | **16 itens**, no §4 do pacote, cada um com quatro colunas: a barreira que o sustenta hoje, a fonte, a pergunta que o liberta e o **dono**. Os dois exemplos que o critério dá estão lá e são os dois primeiros: a **comissão sobre transacção desligada** (ADR-017, D8, dono Produto) e as **finalidades próprias da KAMBÁ desligadas** (`../docs/tecnica/08` §8.2, D9, dono Responsável de Segurança). **Dois dos 16 não se libertam com este pacote**, e dizem-no: o Fluxo B depende de resposta escrita da Meta (KAM-101, D2) e o Score tem gatilho de fase (D11). E o §4 termina com o que **não** está assumido: o caminho dos webhooks atrás do proxy que termina TLS, cujas duas opções estão escritas em `../docs/tecnica/08` §8.3.2 e onde **nenhuma está decidida** — fica como decisão pendente de SRE, porque assumi-la sem a decidir era o inverso do que a lista faz |
+
+### As duas caixas de DoD que ficaram vazias
+
+| Caixa | Razão |
+|---|---|
+| Todos os Critérios de Aceitação satisfeitos e demonstráveis | **Não pode ser marcada**: três critérios não estão satisfeitos. Marcá-la era contradizer as três caixas vazias logo acima |
+| Carta de compromisso assinada e arquivada; pacote enviado com protocolo de recepção | Assinar, enviar e receber protocolo são actos humanos. Os campos para os registar existem no §2 do `Seleccao_e_Registo_Juridico.md` e estão em branco |
+
+### O que esta entrega não decide, e devolve ao fundador
+
+**A D1 não se decide aqui, e era o erro mais fácil de cometer.** O trabalho deste
+ticket é dar ao fundador com que a decidir, não escolher por ele: as sete
+perguntas que a decidem estão identificadas no §2.1 do pacote, com uma linha por
+cada a dizer o que o KAM-105 **não consegue decidir sem ela**. As opções de
+alojamento aparecem com o custo de cada lado — Luanda reduz os destinos a
+autorizar mas **não dispensa** o procedimento, porque modelos, transcrição e a
+própria Meta já são transferências; JNB/CPT acrescenta o alojamento à lista — e
+a frase «a escolha é do fundador» está escrita nas três perguntas onde a
+tentação de decidir era maior (E-01, E-03 e F-01).
+
+**E há uma segunda decisão do fundador que este ticket levanta sem resolver:**
+a entidade que paga os custos em USD, metade de **D9**. A pergunta F-02 entrega
+as duas opções com as consequências de cada uma, e diz expressamente que a
+KAMBÁ **não recomenda nenhuma**, porque a escolha tem efeitos de estrutura
+societária e fiscal que não são de engenharia.
 
 ### Detalhes Técnicos
 - **Componentes:** GOV (pasta de provas, E3 req. 25). Estrutura: A) APD e Lei 22/11; B) BNA e Aviso 2/22; C) AGT e factura; D) Termos e política da Meta; E) alojamento, CDN e backups; F) novas (X1–X3).
@@ -336,9 +388,9 @@ Entregar ao advogado um pacote completo, priorizado e com os factos do caso, que
 ### Definition of Done
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] Carta de compromisso assinada e arquivada; pacote enviado com protocolo de recepção.
-- [ ] Confidencialidade respeitada; sem dados pessoais nem segredos no pacote.
-- [ ] Mapa pergunta → decisão → ticket publicado; KAM-105 informado do que depende de resposta.
-- [ ] Nenhuma resposta tratada como aconselhamento jurídico antes de recebida por escrito.
+- [x] Confidencialidade respeitada; sem dados pessoais nem segredos no pacote.
+- [x] Mapa pergunta → decisão → ticket publicado; KAM-105 informado do que depende de resposta.
+- [x] Nenhuma resposta tratada como aconselhamento jurídico antes de recebida por escrito.
 
 ### Handoff para Claude Code
 ```text
@@ -762,3 +814,4 @@ Não expandas escopo: escrever os epics da Fase 2 é trabalho posterior, só se 
 | 1.2 | Outubro 2026 | KAM-145: três das quatro referências a anexos de evidência da linha «Documentos relacionados» da tabela de cabeçalho passam a trazer o prefixo `../docs/tecnica/evidencia/`. Estavam citadas **sem directório nenhum** desde a emissão — pré-existentes ao KAM-128 e ao KAM-129 — e não resolviam a partir de `specs/`; eram invisíveis às buscas G1 e G2 do KAM-129, que ancoram no prefixo. Forma de citação (nome completo) inalterada; sem alteração de conteúdo técnico: o *diff* é de uma linha, 1 inserção contra 1 eliminação. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | KAM-145: os **25** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. Com eles, as **6** referências a ficheiros da biblioteca exploratória que não tinham directorio nenhum passam a ter o seu, e deixam de não resolver de posição alguma. As **quatro** instruções que mandam criar um ficheiro de validação passam a escrever **dentro** da árvore do repositório. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
 | 1.4 | Outubro 2026 | KAM-128: O `Documento-fonte` do cabeçalho passa a citar o ficheiro da biblioteca exploratória pelo caminho completo, e a nota «Natureza dos tickets» deixa de descrever a árvore antiga. Duas linhas, sem alteração de conteúdo técnico. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
+| 1.5 | Outubro 2026 | KAM-104: o bloco ganha a secção «Verificação dos Critérios de Aceitação» com uma linha de evidência nomeada por critério, e as caixas passam a marcadas onde há evidência: **4 de 7 critérios e 3 de 5 caixas de DoD**. As três que ficam vazias são actos humanos — enviar o pacote (critério 4), pedir honorários e assinar (5), receber respostas por escrito (6) — e para cada uma fica dito, com o estado `não satisfeito`, o que havia de aproveitável e onde está. Entregues três ficheiros novos em `../docs/tecnica/evidencia/validacao/`: o pacote com as **40** perguntas e os oito campos de cada uma, o anexo de factos do caso sem dados pessoais, e o molde de selecção com o registo de respostas, que nasce vazio. Nenhuma prioridade do critério 2 foi reinventada: as quatro divergências de leitura ficam medidas e a decisão devolvida a quem escreveu o critério. | Equipa KAMBÁ |
