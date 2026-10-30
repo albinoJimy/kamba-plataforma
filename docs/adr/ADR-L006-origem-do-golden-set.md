@@ -82,7 +82,7 @@ grep -rnE "golden.{0,120}reescrita sint|reescrita sint.{0,120}golden"
 | `../../specs/EPIC-10` §1, glosa «ADR-018 (golden sintético…)» | dívida documental **157**; o PR #93 não a toca |
 | `../../specs/EPIC-06` bloco KAM-064, glosa no *handoff* | dívida documental **157** |
 | `../../specs/EPIC-03` bloco KAM-114, Contexto | dívida documental **157** — «o dataset golden recebe reescritas sintéticas das decisões, **nunca cópias de conversas**»: «das decisões» circunscreve a frase à exportação do concierge, mas o universal que sobra lê-se como contrário à decisão. Achado da revisão adversarial |
-| `../tecnica/evidencia/validacao/Pacote_Parecer_Juridico.md`, «Por que importa» do KAM-040 | dívida documental **157** — glosa «dataset **golden sintético** e eval harness como gate», que **chegou com o PR #93** depois de esta página ser escrita |
+| `../tecnica/evidencia/validacao/Pacote_Parecer_Juridico.md`, «Por que importa» do KAM-040 | **corrigida neste PR** — glosa «dataset **golden sintético** e eval harness como gate», que chegou com o PR #93 depois de esta página ser escrita. Passou a nomear as três origens no mesmo PR que lhe acrescentou a quinta variante da pergunta F-03 |
 
 **Admitem material real com consentimento (seis), e nenhuma muda:**
 
@@ -193,14 +193,27 @@ conformidade do conjunto todo. O que isso implica, com credor nomeado:
   consentimento**: uma conversa real de suporte T2 anonimizada não é sintética, e
   «inteiramente sintético» exclui-a. O pacote confirma que lê assim, porque nomeia
   à parte a opção **(c)**, «material real pseudonimizado para além do que o
-  KAM-040 admite». **A pergunta fica aberta e é do fundador**, pelas duas razões
-  da casa: o recuo é a premissa que vai ao advogado, e decidir qual vale é decidir
-  o alcance do *gate* 13. Esta página **não escolhe**, e o `ADR-L006` não é
-  autoridade sobre o recuo até ela ser respondida — o que vale hoje é o que o
-  pacote fundido escreve, por ser canon e não por ser melhor. Achado da revisão
+  KAM-040 admite». E a diferença não é teórica: o pipeline do §11.2 de
+  `../tecnica/10` é a **única** fonte de casos escritos por clientes reais em
+  português de Angola, que é o que está NÃO VERIFICADO e o que este conjunto
+  existe para medir — pelo recuo do pacote, o conjunto fica só com o que a equipa
+  inventou.
+
+  **Decisão do fundador a 2026-10-30, ao ser-lhe apresentada a divergência: a
+  pergunta vai ao parecer, e não se decide internamente.** A razão é que a
+  diferença entre os dois recuos é se uma conversa reescrita sem dados pessoais
+  continua a ser, para o §4.7, uma conversa real — leitura jurídica, não decisão
+  de produto. Executada: a pergunta **F-03** do
+  `../tecnica/evidencia/validacao/Pacote_Parecer_Juridico.md` ganhou a **quinta
+  variante** (a conversa real concreta reescrita, que é a `t2_anonimizado`), e a
+  «Resposta pedida» passou a exigir que o parecer diga se ela conta como conversa
+  real — porque é essa resposta que fixa o alcance do recuo (a). **Se a resposta
+  for «não conta», os dois recuos convergem sozinhos** e esta divergência fecha-se
+  sem ninguém escolher. Até lá, **vale o que o pacote escreve**, por ser canon e
+  não por ser melhor; esta página não é autoridade sobre o recuo. Achado da revisão
   adversarial, que o apanhou por correr sobre a árvore depois do *merge* e não
-  sobre a que eu tinha. Credor da resposta: **o fundador**; credor do registo:
-  **KAM-040**.
+  sobre a que eu tinha. Credor da resposta: **o parecer (KAM-104)**; credor do
+  registo: **KAM-040**.
 
 **O custo assumido.** Um conjunto de avaliação que admite material real é mais
 exposto: um caso mal consentido é uma violação, onde antes era impossível por
@@ -251,7 +264,7 @@ grep -rniE "golden sintético" specs/ docs/ --include=*.md | grep -vE "$EXCLUIR"
 
 Depois deste PR as ocorrências que sobram são, uma a uma, as que as tabelas desta
 página classificam: a de `../../specs/EPIC-10` bloco KAM-109 (corrigida no PR #93,
-e por isso já não aparece), as **cinco** glosas na dívida **157**, os **dois**
+e por isso já não aparece), as **quatro** glosas na dívida **157**, os **dois**
 sítios que falam de uma origem concreta, e as linhas corrigidas, que passam a
 nomear as três origens no mesmo sítio onde dizem «reescrita sintética». Qualquer
 linha que apareça e não esteja nas tabelas é divergência nova, e não resíduo
