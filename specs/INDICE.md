@@ -39,7 +39,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | **EPIC-09 Onboarding e Governação** | Epic | onboarding-web, KYC K1 automático, screening, fila de excepções, saga, T&S, off-boarding | [EPIC-09_Onboarding_Governanca.md](EPIC-09_Onboarding_Governanca.md) |
 | **EPIC-10 Spikes, Validação e Gates** | Epic | Spikes (coexistência, voz), pedidos à Meta/bancos/jurídico, entrevistas, gates da Fase 0 e do Piloto | [EPIC-10_Spikes_Validacao_Gates.md](EPIC-10_Spikes_Validacao_Gates.md) |
 | **EPIC-11 Módulos de Entrada** | Epic | Canal do dono, Catálogo AI conversacional, Foto de produtos AI, Social AI (publicação manual), Orçamento expresso, planos e metering, experimento H10–H12 (ADR-020) | [EPIC-11_Modulos_Entrada.md](EPIC-11_Modulos_Entrada.md) |
-| **Tickets do EPIC-01** | Tickets | Um ficheiro por ticket (51 hoje): o bloco inteiro — campos, Contexto, Objectivo, Critérios, Detalhes, Testes, DoD, verificação e *handoff*. Convenção do KAM-155, por agora só neste epic | [tickets/](tickets/) |
+| **Tickets do EPIC-01** | Tickets | Um ficheiro por ticket (53 hoje): o bloco inteiro — campos, Contexto, Objectivo, Critérios, Detalhes, Testes, DoD, verificação e *handoff*. Convenção do KAM-155, por agora só neste epic | [tickets/](tickets/) |
 
 ---
 
