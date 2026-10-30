@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.49 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.50 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -2595,7 +2595,7 @@ quatro taxas do §9.2 sofreram (§3.30).
 | Cobertura do detector | `pii_recall{tipo}` | **Não é métrica de execução, e não entra no `metricas.py`.** É a medição do **corpus**, e o critério di-lo («publicada no CI»): um processo em produção não sabe o que é recall, porque não tem as etiquetas do corpus. Um contador declarado e sempre a zero é pior do que nenhum — a lição do `echo_latency_ms` do KAM-018. Publica-se em `ci/pii/recall.json`, que é **gerado** e está no `.gitignore` como o `ci/x11/` |
 | Limiares de recall | ≥ 99% em telefone, BSUID, e-mail e NIF; ≥ 90% em moradas e nomes | ***Propostas***, e o próprio critério 3 o diz; calibram-se em **KAM-109**. A assimetria é real e não arbitrária: os quatro primeiros têm **forma** (nove dígitos a começar por 9, um `@`, um prefixo), os dois últimos têm **dicionário e contexto**, e um dicionário escrito à mão não é uma forma. **Medidos a 100% nos seis** sobre um corpus de 342 casos que o executor escreveu — o que diz que o detector apanha o que **este corpus** tem, não o que um cliente angolano escreve |
 | Sobrecarga alvo | p95 ≤ 30 ms para 2.000 caracteres | ***Proposta***, e **nada falha por a exceder**. Medida: p95 de 5,0 ms em 40 execuções, nesta máquina e não no *runner*. O que falha é o `TECTO_MS` (250 ms, *proposta*), que é outra coisa — o ponto a partir do qual se desiste em vez de atrasar o turno, com folga de uma ordem de grandeza de propósito: um detector a 40 ms é lento, não está avariado |
-| A porta dos nomes do catálogo | `PortaDeCatalogo.nomes(tenant_id)` | **Não é o `CommerceRegistry`, não se chama assim, e não decide o contrato dele.** É uma porta **do lado do consumidor**, com a pergunta que o detector precisa de fazer e que nenhum dos onze métodos do `../docs/tecnica/03` §3.2 responde — o `getOfferView` é **por `sku`**. Credor: **KAM-042**, que substitui o adaptador e não a assinatura. Os nomes entram no `minimise` pelo **contexto**, já carregados: uma consulta por mensagem não cabe nos 30 ms e punha o detector a falhar quando a base falhasse |
+| A porta dos nomes do catálogo | `PortaDeCatalogo.nomes(tenant_id)` | **Não é o `CommerceRegistry`, não se chama assim, e não decide o contrato dele.** É uma porta **do lado do consumidor**, com a pergunta que o detector precisa de fazer e que nenhum dos doze métodos do `../docs/tecnica/03` §3.2 responde — o `getOfferView` é **por `sku`**. Credor: **KAM-042**, que substitui o adaptador e não a assinatura. Os nomes entram no `minimise` pelo **contexto**, já carregados: uma consulta por mensagem não cabe nos 30 ms e punha o detector a falhar quando a base falhasse |
 | O que a porta lê hoje | `platform.tenants.nome`, `servicos.services.nome`, `servicos.resources.nome` | **Três das quatro classes** que o critério 5 enumera: marcas, serviços e recursos/profissionais. Os **produtos não têm fonte** — sem tabela e sem porta (KAM-042, KAM-043) —, e é por isso que a caixa do critério 5 fica **parcial**. Uma fonte que falhe não leva as outras duas nem o turno: um nome do catálogo por mascarar é um *fact* perdido, não uma transferência |
 | Padrão do NIF | **parâmetro, `None` por omissão** | O bloco manda **não o inventar** («`../docs/tecnica/08` não o define e não se inventa»), e o `../docs/tecnica/08` continua a não o definir. **Com `None`, o NIF não é detectado por padrão próprio e o recall dele é 0%** — e isso diz-se em voz alta em vez de se esconder. O precedente exacto é o `make x11 X11_NIF='<regex>'` do KAM-068, que resolveu a mesma ausência no mesmo documento. O corpus mede-o com um padrão **de ensaio**, que é parâmetro de medição e não canon |
 | Números de negócio | intervalos **reclamados antes** da detecção | É o critério 4, e a ordem é a barreira: o detector nunca vê um preço, pelo que «0 preços alterados» é propriedade da **construção** e não resultado de medição. Preços, totais, quantidades, horas e `sku` são *facts* (ADR-007) e um preço mascarado destrói o produto — o validador de citação (§3.30) recusa uma resposta que cite o que não veio de uma tool. O risco é **simétrico e declarado**: um intervalo reclamado a mais **esconde PII do detector**, e os limites estão medidos no corpus |
@@ -2626,6 +2626,110 @@ quatro taxas do §9.2 sofreram (§3.30).
   **não prova** que deixou de haver transferência *(a confirmar por parecer)*.
 
 ---
+
+### 3.39 Porta `CommerceRegistry`: os doze métodos, o `ctx` e o `NOT_IMPLEMENTED` (KAM-042)
+
+*Emenda 1.50, **proposta**.* A fonte do desenho é o bloco do KAM-042 em
+`EPIC-04_Core_Comercio.md`, o `../docs/tecnica/03` §3.1 (a posição no sistema),
+§3.2 (o contrato da porta), §3.3 (o mapeamento para o Medusa, com os estados que
+o KAM-041 mediu) e §3.4 (o licenciamento), com o ADR-003, o ADR-006, o ADR-015 e
+a proposta PA-03-1.
+
+**O Registo activo é a *recomendação* do KAM-041 e não uma decisão.** A linha da
+**D3** em `../docs/tecnica/00` §13.3 di-lo por escrito: «Recomendação: opção B,
+com a autoridade da reserva no `platform`. Falta a assinatura do Arquitecto de
+Plataforma e do Responsável de Segurança, e a ratificação do fundador». O que
+está implementado é a opção B; o ADR-003 — cujo *fallback* nomeado **é** a opção
+B, e não a C — continua condicionado, e esta emenda não o substitui. Nenhum nome
+desta secção muda entre as duas opções: é essa a propriedade do PA-03-1.
+
+**Os nomes de contrato ficam em inglês** — `CommerceRegistry`, os doze métodos,
+`Ctx`, `OfferView`, `OrderIntent` —, pela regra que deixou `Verdict`, `Policy` e
+`MinimisedText` em inglês (§3.30, §3.32, §3.38): o critério nomeia-os assim, e
+traduzi-los era divergir do ticket. Os nomes de módulo e de ficheiro são os que o
+bloco fixa — `port`, `adapters/medusa`, `repo-base` — e o `policies` não existe
+(ver o que esta secção não decide).
+
+**São doze métodos, e o objectivo do bloco diz onze.** Esta emenda corrige a
+contagem em dois sítios: no objectivo do bloco KAM-042 e na linha da
+`PortaDeCatalogo` do §3.38 desta página, que escreveu «os onze métodos do
+`../docs/tecnica/03` §3.2». O §3.2 lista **doze** e o critério 1 do KAM-042
+nomeia-os um a um; a contagem está presa em
+`services/com/tests/port.contrato.test.ts` e repetida em
+`../docs/com/port-coverage.md` §2. Nenhuma afirmação sobre a `PortaDeCatalogo`
+muda: ela continua a não ser o `CommerceRegistry`, e o `getOfferView` continua a
+ser **por `sku`**.
+
+| Conceito | Nome canónico | Substitui | Nota |
+|---|---|---|---|
+| A porta entre agentes e Registo | `CommerceRegistry` | — | *proposta* (emenda 1.50, KAM-042). A única costura do PA-03-1: trocar de Registo não altera agentes, PAY nem EVT. Vive em `services/com/src/port/contrato.ts` e **não importa nada do Medusa** |
+| Os doze métodos | `upsertProductDraft`, `publishProduct`, `getOfferView`, `createOrder`, `requestOwnerConfirmation`, `reserveStock`, `extendReservation`, `commitReservation`, `releaseReservation`, `transition`, `getOrder`, `listOrders` | «onze métodos» (objectivo do bloco KAM-042 e §3.38 desta página) | *proposta* (emenda 1.50, KAM-042). Lista **fechada** e por esta ordem. O ticket dono de cada implementação está em `../docs/com/port-coverage.md` §2 |
+| O contexto obrigatório | `Ctx` — `{tenantId, actor: {kind, id}, traceId}` | — | *proposta* (emenda 1.50, KAM-042). Vem sempre do estado do agente ou da sessão autenticada, **nunca do texto do cliente**. O `traceId` é obrigatório aqui e opcional no `Ctx` do `ServicosModule` (§3.3): ali o envelope do evento aceita `null`, aqui a porta é a fronteira de uma *saga* de várias escritas (§6.3 do `../docs/tecnica/03`) e uma correlação em falta tira a quem reconcilia o único fio entre a intenção e a encomenda |
+| Quem chama | `Ctx.actor.kind ∈ {agente, dono, sistema, ops}` | — | *proposta* (emenda 1.50, KAM-042). Os quatro são os dos Detalhes Técnicos do bloco. Um `kind` fora dos quatro **falha fechado**: aceitá-lo deixava o `order_state_log.actor_kind` (§5.4 do `../docs/tecnica/03`) com um valor que nenhuma consulta de auditoria sabe interpretar |
+| Ausência de implementação | `NOT_IMPLEMENTED` | — | *proposta* (emenda 1.50, KAM-042), e é o **único** nome novo de erro. **Não é um `tool_audit.error_code`** e não entra na lista fechada de treze do §3.27: aqueles descrevem uma recusa sobre dados e uma tool devolve-os a um cliente; este descreve a ausência da implementação, pára na API interna do COM e traduz-se para 501. Os outros quatro erros da porta — `NOT_FOUND`, `TENANT_MISMATCH`, `VALIDATION_ERROR`, `UPSTREAM_DOWN` — importam-se do §3.27 pelo nome em vez de serem redeclarados com significado novo |
+| Cabeçalho do tenant na API interna do COM | `x-kamba-tenant` | — | *proposta* (emenda 1.50, KAM-042). Em minúsculas, pela razão do `x-kamba-interno` do §3.24: os cabeçalhos ASGI chegam em minúsculas. **Ao lado** do `x-kamba-interno` e não em vez dele, pela distinção que o §3.32 escreveu para o `x-kamba-hnd-bot`: aquele prova «vem de dentro da rede» e este prova «é este tenant». O `lint_arch medusa` tem a sentinela que o exige em qualquer rota `/internal/*` do COM — e hoje **não há nenhuma**, pelo que ela está verde sobre zero ficheiros |
+| O filtro que o repositório base injecta | `merchant_id` no Registo, `tenant_id` no `platform` | — | *proposta* (emenda 1.50, KAM-042). O `merchant_id` é o `platform.tenants.medusa_merchant_id` (coluna da revisão `0001`), lido da base **uma vez por operação e nunca de um argumento** — com ele a vir do chamador, a porta aceitava o do tenant B com o `ctx` de A, e o *link* do Medusa não tem FK que o impeça (§3.3, CONFIRMADO no KAM-041). São operações separadas e não uma com parâmetro de filtro: o sítio onde se escolhe o filtro era o sítio onde se podia escolher o errado |
+| O módulo custom do Medusa | `merchant` | — | *proposta* (emenda 1.50, KAM-042). O nome do módulo da opção B (§3.3). **Não dá isolamento**: «o módulo e o *link* funcionam; o isolamento não vem deles» é a leitura CONFIRMADA do KAM-041 |
+| Contadores da barreira do repo-base | `com_repo_filtro_em_falta_total`, `com_repo_consultas_total` | — | *proposta* (emenda 1.50, KAM-042). Etiquetados pelo filtro (`tenant`, `merchant`). **Hoje vivem em memória e nenhum *endpoint* os lê**, e isso é lacuna nomeada e não desenho: o COM não serve métricas (`services/com/src/app.ts` tem o `/healthz` e nada mais), e o padrão da casa é um módulo com `exposicao()` em formato Prometheus (`packages/core-ts/src/ten/metricas.ts`). Entram aqui para que nasçam com estes nomes e não com outros no dia em que o COM ganhar essa superfície; quem os lê hoje são os testes, e é isso que torna a recusa uma asserção |
+
+**O domínio dos estados de encomenda não é novo e não se redeclara.** O §3.3
+desta página já fixa os **doze** (`criada`, `aguarda_pagamento`,
+`pendente_confirmacao`, `paga`, `expirada`, `em_entrega`, `entrega_falhada`,
+`entregue`, `em_disputa`, `reembolso_pendente`, `reembolsada`, `cancelada`) com
+fonte no `../docs/tecnica/00` §6.1, e marca a máquina do `../docs/tecnica/03`
+§6.1 como «Máquina incompleta». **A primeira versão do `ORDER_STATES` do código
+tinha nove**, lidos dessa máquina, e a revisão adversarial apanhou-o: com nove, o
+KAM-050 não conseguia chamar `transition(ctx, id, 'em_disputa', …)` sem alterar o
+tipo da porta — isto é, a costura do PA-03-1 partia-se num ticket que depende do
+KAM-044 e **não** numa troca de Registo, que é precisamente o que ela existe para
+impedir. O mesmo vale para o `preco_tipo`: o `../docs/tecnica/03` §3.2 escreve
+`precoModo` no retorno do `getOfferView` e o §3.3 desta página já põe
+`preco_modo` na coluna «Substitui» desde a emenda 1.12 — **resolve-se a favor
+desta página**, como a emenda 1.45 resolveu para o KAM-047, e o código usa
+`precoTipo`.
+
+**Três afirmações desta secção herdam o estado da fonte, e nenhuma é CONFIRMADO
+sobre a decisão:** que o Medusa não é multi-tenant nativo é **CONFIRMADO**
+(negação textual da documentação oficial, §3.3 do `../docs/tecnica/03`); que o
+*link* não dá integridade referencial nem filtragem é **CONFIRMADO** (citação
+directa, mesmo sítio); que a opção B é o Registo do Piloto é **NÃO VERIFICADO**
+enquanto a D3 não fechar.
+
+**O que esta secção não decide, com credor em cada:**
+
+* **a ratificação da D3**, que é do fundador, mais as duas assinaturas que a
+  linha da D3 nomeia. Até lá o adaptador é a implementação de uma recomendação;
+* **o módulo `policies`** dos Detalhes Técnicos do bloco, que **não existe na
+  árvore**: as políticas que o `../docs/tecnica/03` §3.1 lá põe são preço e stock
+  (**KAM-043**) e limites e entitlements (**KAM-009**, que já os tem em
+  `libs/py-core` e `packages/core-ts/src/ten/`). Uma matriz de permissões por
+  `actor.kind` não está em critério nenhum do KAM-042, e inventá-la obrigava a um
+  código de erro que o §3.27 não tem;
+* **o módulo `adapters/own`** dos mesmos Detalhes, que também não existe: é a
+  **opção C**, e escrevê-lo era implementar o *fallback* de uma decisão que não
+  foi tomada. A suite de contrato é agnóstica do adaptador, que é a propriedade
+  que o critério 2 pede («deve passar também no outro quando existir»);
+* **o nome do papel com `BYPASSRLS`.** O critério 8 do bloco escreve
+  `kamba_ops`; o §3.2 desta página já resolveu a divergência a favor de
+  **`kamba_batch`**, e `kamba_ops` não existe em migração nenhuma. A caixa do
+  critério 8 fica **vazia** por isso, e a divergência está registada na Carta §7
+  (emenda E-01) como «não coberta pelas 12 do KAM-111»;
+* **o cliente HTTP do `RegistoAdmin`**, que o provisionamento consome como
+  **porta** e que não está escrito: não há Medusa em `infra/compose/` contra o
+  que o correr, e as rotas da Admin API não foram lidas em fonte primária.
+  Credor: **KAM-042** no dia em que a D3 fechar, ou o ticket de implantação;
+* **a API interna do COM**, que não existe — o `services/com/src/app.ts` tem o
+  `/healthz` e nada mais —, pelo que a porta não é consumida por nada fora dos
+  seus próprios testes e a sentinela do `x-kamba-tenant` está verde sobre zero
+  rotas. Credor: **KAM-044**, que é o primeiro a precisar dela;
+* **a exposição dos dois contadores**, pela razão da linha deles. Sem credor
+  atribuído hoje;
+* **o estrato de cobertura do `repo-base`.** Pela taxonomia do `specs/01` §4.1
+  ele é código de isolamento de tenant, que é o estrato `critico` a 90%; o
+  `ci/thresholds.yaml` põe `services/*/src/**` no `restante`, a 75%. Acrescentar
+  um padrão a esse ficheiro é alteração de regra de bloqueio e **é decisão do
+  fundador** — como na emenda 1.49. O que este ticket entrega é a cobertura
+  **medida**.
 
 ## 4. Itens que continuam por decidir
 
@@ -2697,3 +2801,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.47 | Outubro 2026 | **Emenda (*proposta*), KAM-035.** §3.36 novo: o grafo de Serviços — vinte e dois nós, quarenta e sete arestas em quatro fontes separadas, as nove intenções do §8.2, os slots e a `pergunta` pendente, os **doze** avisos do domínio próprio, o botão `confirm:{hold_id}` e o SemVer `1.0.0` do grafo. **A tabela de arestas é derivada e não citada**, e é a primeira vez neste documento: o §8.1 dá um diagrama e não dá tabela, e o critério 1 do ticket manda derivá-la. §3.28: os onze erros tipados passam a **treze** — o `SLOT_TAKEN` e o `HOLD_EXPIRED` entram em `tool_audit.error_code` com a revisão **`0026`**, cumprindo o que a linha do `ServicosModule.erro` (emenda 1.45) deixou escrito para este ticket; sem eles a primeira recusa de `book_slot` era um `INSERT` violado. §3.3: essa linha passa a registar o que foi feito em vez do que faltava fazer. **Duas chaves saíram do `estado_inicial`** — o `slots` e o `stage` —, pela razão que o `turn_seq` do §3.34 já tinha pago: a função corre em cada turno e o que ela devolve sobrescreve o *checkpoint*, pelo que com o `stage` lá dentro **toda** a confirmação saía `STALE_CONFIRMATION`, nas duas verticais. Quatro nomes nascem em nós nossos (`SEM_DISPONIBILIDADE`, `SEM_VAGA_NENHUMA`, `HORA_AMBIGUA`, e o `REFERENCIA_EM_FALTA` reutilizado do §3.31) e **nenhum** é erro de tool. O que não se declara está escrito no fim do §3.36, com as dívidas **140** a **147**. | Equipa KAMBÁ |
 | 1.48 | Outubro 2026 | **Emenda (*proposta*), KAM-052.** §3.37 novo: a `payment_accounts` com as suas **catorze** colunas (revisão `0027`), os **nove** estados do §10.2 e os **dois** que ocupam o índice parcial, os três destinos de liquidação, o `credenciais_ref` como `SecretRef` do KAM-010, o `webhook_token` de 32 octetos, os três identificadores EMIS, o `checklist`, o `assert_beneficiary`, o `Minor = bigint`, as `ProviderCapabilities` com o `humanOnly` e o `psp_licenciado`, o `ADAPTER_CANNOT_CONFIRM`, o `NOT_SUPPORTED`, o `payouts_enabled` e os dez casos da suite de conformidade. **O `beneficiary_kind` não entra, porque o §3.4 já o tinha** — e é a linha mais consequente: o `../docs/tecnica/04` §6.2, o §10.4 e o próprio critério 6 do bloco escrevem `tenant`, e o domínio fechado deste dicionário diz `pme`. Resolve-se a favor do dicionário, e não só pela ordem das fontes: o `canon_lint` do *gate* 3b devolve **dezanove** achados sobre uma revisão copiada à letra do §6.2. O `tenant` **não** entra na coluna «Substitui», porque isso tornava a palavra uma variante proibida em todo o conjunto. **O `tenant_id` anulável é decisão do fundador (2026-10-29)** e entra no `ANULAVEIS` de `../db/tests/test_catalogo.py` com a razão: é a terceira excepção do esquema e a primeira numa tabela que guarda dados de tenant; sob RLS `FORCE` a conta própria da KAMBÁ fica alcançável só pelo `kamba_batch`, porque o papel de billing que o §6.2 nomeia **não existe** (credor KAM-059). **Cinco decisões saíram de medir e não de ler**, e quatro delas de uma revisão adversarial independente que reprovou o ramo com 23 achados CONFIRMADO: o harness dava verde a um adaptador que **não verifica assinatura nenhuma**, porque o único caso que media autenticidade recebia a mutação de quem estava a ser medido — passa a medir a recusa **cruzada entre contas**, que é agnóstica ao formato; as etiquetas `humanOnly` e `psp_licenciado` eram **auto-atribuídas**, isto é, a guarda do ADR-013 desligava-se com uma linha nas capacidades do adaptador que ela devia medir; o `capabilities.metodos` **não era lido por linha nenhuma**, pelo que um pedido `cod` recebia uma referência Multicaixa; o `podeCobrar` lia «só o `ativo`» e deixava o *onboarding* num impasse em que nenhuma conta chegava a `ativo`; e o exemplo de perda por `float` que este ticket escreveu primeiro **estava errado** — `1234.57` converte exacto, e o valor medido é `1024.09`. **O que não decide, com credor em cada:** a `payment_charges` e as FK para `orders_mirror` (**KAM-055**), o ledger (**KAM-053**), o `ManualProvider` (**KAM-054**), o ProxyPay (**KAM-056**), o papel de billing e a FK de `billing_cycles` (**KAM-059**), a comissão (**KAM-058**), os identificadores EMIS da KAMBÁ (**D4**, **KAM-103**) e as chaves do `checklist` (**KAM-091**). As dívidas são as **148** a **155**. | Equipa KAMBÁ |
 | 1.49 | Outubro 2026 | **Emenda (*proposta*), KAM-112, e entra sem DDL e sem migração.** §3.38 novo: a minimização de PII antes do LLM — o `minimise(texto, ctx) → (MinimisedText, Mapa)`, o tipo selado `MinimisedText` e a `MensagemMinimizada` que o gateway (§3.29) passou a exigir em vez de `list[dict[str, str]]`, os **seis** tokens (`TELEFONE_n`, `BSUID_n`, `EMAIL_n`, `NIF_n`, `MORADA_n`, `PESSOA_n`), a chave de estado `pii_map`, o `agr_pii_mascarada_total{tipo}` e o `agr_minimise_latency_ms`, a `FalhaDeMinimizacao` e a `PortaDeCatalogo`. **O `MinimisedText` é uma classe com selo e não um `NewType`, e isso sai de uma medição:** não há verificador de tipos para Python neste repositório — o `make typecheck` é `pnpm -r run typecheck` —, pelo que uma anotação era a «convenção documentada» que o bloco recusa por escrito; a barreira morde em execução e uma política AST morde na fonte. **Corrige o §3.35**, cuja lista fechada de motivos passa de **seis** para **sete** (`minimizacao`) e cujos motivos dispensados do disjuntor passam de um para dois. **Três nomes do bloco entram traduzidos, e nenhum é divergência:** o `pii_masked_total` e o `minimise_latency_ms` ganham o prefixo `agr_` pela tradução que o `degraded_turns` já sofreu (§3.35), e o `pii_recall{tipo}` **não entra no `metricas.py`** porque não é métrica de execução — um processo em produção não tem as etiquetas do corpus, e um contador sempre a zero é pior do que nenhum (a lição do `echo_latency_ms` do KAM-018): publica-se em `ci/pii/recall.json`, gerado e no `.gitignore` como o `ci/x11/`. **Medido:** recall de 100% nos seis tipos sobre 342 casos sintéticos, 0 de 263 cadeias de negócio alteradas em 214 casos adversariais, p95 de 5,0 ms para 2.000 caracteres — e os limiares e o p95 são ***propostas a calibrar no KAM-109***, sobre um corpus que o executor escreveu. **O que não decide:** o contrato do `CommerceRegistry` (KAM-042, cuja porta proposta **não tem** operação que devolva uma lista de nomes, pelo que o critério 5 não se cumpre à letra hoje nem no dia em que ele fundir — a caixa fica `parcial` porque os **produtos** não têm fonte), o formato do NIF (que o `../docs/tecnica/08` continua a não definir: o padrão é parâmetro e nasce `None`, e com `None` o recall de NIF é 0% por desenho, como o `X11_NIF` do KAM-068), o *gate* 13 (KAM-040, que não existe), o estrato de cobertura do módulo (alterar o `ci/thresholds.yaml` é regra de bloqueio e é do fundador) e se a minimização basta para o Art. 33.º/34.º *(a confirmar por parecer)*. | Equipa KAMBÁ |
+| 1.50 | Outubro 2026 | **Emenda (*proposta*), KAM-042.** §3.39 nova: a porta `CommerceRegistry` com os **doze** métodos do `../docs/tecnica/03` §3.2, o `Ctx` obrigatório (com o `traceId` **não** opcional, ao contrário do `Ctx` do §3.3), os quatro `actor.kind`, o `NOT_IMPLEMENTED`, o cabeçalho `x-kamba-tenant`, os dois filtros do repositório base, o módulo `merchant` e os dois contadores da barreira. **Corrige a contagem em dois sítios**: o objectivo do bloco KAM-042 e a linha da `PortaDeCatalogo` do §3.38 diziam «onze métodos», e o §3.2 lista doze — o critério 1 do bloco nomeia-os um a um, e a contagem fica presa num teste. **O `NOT_IMPLEMENTED` é o único nome novo de erro e não entra na lista fechada de treze do §3.27**: aqueles descrevem uma recusa sobre dados que uma tool devolve a um cliente, e este descreve a ausência da implementação — pára na API interna do COM e traduz-se para 501. **Duas divergências resolvidas a favor desta página, as duas apanhadas por revisão adversarial sobre código já escrito**, e nenhuma por leitura: o `ORDER_STATES` nasceu com **nove** estados, lidos da máquina do `../docs/tecnica/03` §6.1 que o §3.3 marca como «Máquina incompleta» — e com nove o KAM-050 não podia chamar `transition(..., 'em_disputa', ...)` sem alterar o tipo da porta, isto é, a costura do PA-03-1 partia-se num ticket que **não** troca de Registo, que é o contrário do que ela existe para garantir; e o `precoModo` do §3.2 daquele documento voltou a entrar no código como `PRECO_MODOS`, quando o §3.3 põe `preco_modo` na coluna «Substitui» desde a emenda 1.12 — passa a `precoTipo`, como a emenda 1.45 já decidiu para o KAM-047. **Nada está ratificado, e aqui isso é a substância e não a fórmula:** a opção B é a **recomendação** do KAM-041 e a D3 do `../docs/tecnica/00` §13.3 diz por escrito que falta a assinatura do Arquitecto de Plataforma e do Responsável de Segurança, e a ratificação do fundador. **O que não decide, com credor em cada:** a ratificação da D3 (**fundador**); os módulos `policies` e `adapters/own` dos Detalhes Técnicos, que não existem — aquele é preço e stock (**KAM-043**) e limites (**KAM-009**), e este é a opção C, cuja escrita seria implementar o *fallback* de uma decisão que não foi tomada; o `kamba_ops` do critério 8, que não existe em migração nenhuma e cuja divergência o §3.2 já resolveu a favor do `kamba_batch` (a caixa fica **vazia**); o cliente HTTP do `RegistoAdmin`, porque não há Medusa em `infra/compose/` contra o que o correr e as rotas da Admin API não foram lidas em fonte primária; a API interna do COM, que não existe (**KAM-044**), pelo que a porta não é consumida por nada fora dos seus testes e a sentinela do `x-kamba-tenant` está verde sobre zero rotas; a exposição dos dois contadores, **sem credor**; e o estrato de cobertura do `repo-base`, que pela taxonomia do `specs/01` §4.1 é isolamento de tenant e pelo `ci/thresholds.yaml` está no `restante` a 75% — alterar aquele ficheiro é regra de bloqueio e **é decisão do fundador**, como na emenda 1.49. | Equipa KAMBÁ |
