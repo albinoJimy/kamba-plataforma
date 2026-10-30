@@ -75,7 +75,7 @@ sintética:**
 | Ficheiro e linha | O que diz |
 |---|---|
 | `../tecnica/00_Arquitectura_Solucao.md`:354 | A célula do **ADR-018** no registo de ADRs: «Golden set por **reescrita sintética**: os Termos da Meta proíbem treinar ou melhorar ML com dados do WhatsApp» |
-| `../../specs/EPIC-10_Spikes_Validacao_Gates.md`:730 | «Casos T2 resolvidos alimentam o golden **só por reescrita sintética sem dados pessoais** (ADR-018)» — e está **no próprio epic deste ticket** |
+| `../../specs/EPIC-10_Spikes_Validacao_Gates.md`, bloco **KAM-109**, «Detalhes Técnicos» | «Casos T2 resolvidos alimentam o golden **só por reescrita sintética sem dados pessoais** (ADR-018)» — e está **no próprio epic deste ticket**. Citado pelo bloco e não pelo número de linha de propósito: é a **632** em `main` e a **730** neste ramo, porque este diff acrescenta linhas acima dela — um número de linha num ficheiro que o próprio PR toca mente a quem o ler da outra ponta |
 | `../logs.md`:579 | «O *golden set* é feito por reescrita sintética \| ADR-018; Termos da Meta» |
 | `../tecnica/10_Onboarding_Governanca.md`:740 | Linha de risco: «Golden set contamina-se com dados reais \| violação dos Termos Meta / Lei 22/11 \| reescrita sintética; parecer» |
 
@@ -364,7 +364,7 @@ número lê-se à mão e é **INDÍCIO**, não `CONFIRMADO`.
 
 | Item | Razão |
 |---|---|
-| **A tensão do canon sobre a origem do *golden set*** — quatro linhas dizem só reescrita sintética, três admitem material real com consentimento, todas a citar o ADR-018, e duas delas são o `00`:354 e o `00`:413 | Fora de escopo: toca um ADR e quatro documentos, um deles o `EPIC-10`:730 deste próprio epic. Fica medida no achado 1, com ficheiro e linha dos sete, e **nomeada no contexto de F-03** para que o advogado a veja. Quem a fechar decide qual dos lados vale |
+| **A tensão do canon sobre a origem do *golden set*** — quatro linhas dizem só reescrita sintética, três admitem material real com consentimento, todas a citar o ADR-018, e duas delas são o `00`:354 e o `00`:413 | Fora de escopo: toca um ADR e quatro documentos, um deles o bloco KAM-109 deste próprio epic. Fica medida no achado 1, com ficheiro e linha dos sete, e **nomeada no contexto de F-03** para que o advogado a veja. Quem a fechar decide qual dos lados vale |
 | **O fornecedor de imagem sem linha em `08` §8.3.2** | Lacuna real, e **já tem credor**: o `08` §18 atribui-a ao **KAM-069** («inventário e `apd_ref` antes de produção»). Abrir ticket duplicava-lhe o âmbito. Fica declarada no anexo |
 | **A opção do caminho de webhooks atrás do proxy** | Não é defeito: é a pergunta **N1**, que o pacote leva ao advogado como E-04. Decidi-la era o erro. Ficou **fora** da lista de assunções do §4, de propósito — essa lista diz o que a KAMBÁ assume *enquanto espera*, e uma pergunta não decidida não é uma assunção |
 | **A afirmação sem marca em `08` §8.3.2 e §8.3.1** | É a fonte interna de onde os achados 2 e 3 vinham. Corrigiu-se o pacote e o anexo, que é o escopo deste ticket; emendar o `08` é alteração de documento técnico, fora do diff |
@@ -382,6 +382,17 @@ parte-se por linhas e um `grep` simples subconta; reimplementar em quatro
 variantes a convenção de contagem de linhas do anexo; e resolver os sete links
 Markdown. Nada foi escrito no repositório pelo revisor. **O codegraph não foi
 usado**, e com razão: o índice cobre código, e todo o eixo deste ticket é `.md`.
+
+**Uma nota sobre números de linha, que esta revisão pagou duas vezes.** Os
+achados citam ficheiro e linha, e **um número de linha num ficheiro que o próprio
+PR toca mente a quem o ler da outra ponta**: a linha do `EPIC-10` é a 632 em
+`main` e a 730 neste ramo. Pior do que isso, duas conclusões erradas nesta
+revisão vieram de **comandos que não mostraram o que havia** — um `grep` meu que
+voltou vazio porque a frase tinha ênfase no meio (achado 1), e uma leitura
+truncada por `cut -c1-260` numa célula de 346 caracteres, que cortou exactamente
+antes da metade que importava. São a mesma classe de erro: tirar conclusão de um
+instrumento que não viu tudo. **A defesa é citar pelo bloco ou pela secção, e ler
+a linha inteira antes de concluir pela ausência.**
 
 Cada `CONFIRMADO` foi **reverificado contra a árvore pós-merge** (`b04522a`), que
 não é a árvore sobre a qual a revisão foi lançada (`0cd4b2d`) — o `fd0a32d`
