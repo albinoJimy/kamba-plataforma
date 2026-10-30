@@ -144,7 +144,7 @@ Medido a 2026-10-19, no KAM-013. As quatro vias, por ordem de quanto custam:
 | Gates de base de dados (6 e 8) | `.venv/Scripts/python.exe db/gate_bd.py --suite <nome>`. O `gate_bd.py` levanta os seus próprios contentores de PostgreSQL e Valkey e apaga-os no fim |
 | Cobertura (gate 4) | O LCOV produz-se em contentor; o `tools/coverage_gate.py` corre **fora** dele, com o Python do Windows |
 
-Cinco armadilhas que custaram tempo, e todas na forma «passou» quando não passou:
+Seis armadilhas que custaram tempo, e todas na forma «passou» quando não passou:
 
 1. **O código de saída tem de ser do comando, não do `tail`.** `python -c "..." 2>&1 | tail -5; echo $?`
    devolve o estado do `tail`, que é sempre 0. Três lints pareceram conformes assim, e um deles
@@ -165,6 +165,11 @@ Cinco armadilhas que custaram tempo, e todas na forma «passou» quando não pas
    com **2**, `invalid choice`. É «não se conseguiu verificar», nunca verde, e ao lado de quatro
    irmãos que todos tomam `check` passa por distracção de uma palavra numa lista. Corre-se
    `all`.
+6. **O `codegraph` sem índice não é um erro de uso, e a resposta diz o que fazer.** Chamado
+   num projecto sem `.codegraph/`, devolve que não o pode consultar e **manda não voltar a
+   chamá-lo nessa sessão** para esse projecto. Medido a 2026-10-30: nenhum repositório desta
+   máquina tem índice, e o servidor não tem projecto por omissão — o `projectPath` é
+   obrigatório em cada chamada. Insistir com outra formulação gasta uma ida e volta por nada.
 
 E a disciplina que fecha a secção: **o `.venv` e o `node_modules` não existem numa árvore nova.**
 Um *worktree* recém-criado precisa de `python -m venv .venv` com os três `pip install

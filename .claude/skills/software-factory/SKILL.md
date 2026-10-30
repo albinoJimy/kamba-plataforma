@@ -230,6 +230,44 @@ Quando o alvo é código que ninguém da sessão conhece, junta
 dela entra como **riscos e hipóteses**, nunca como trabalho a fazer
 ([`references/ponytail.md`](references/ponytail.md)).
 
+#### CodeGraph, onde o projecto estiver indexado
+
+Um projecto com `.codegraph/` à raiz responde a «como funciona isto» numa chamada: a fonte
+verbatim dos símbolos relevantes, agrupada por ficheiro, mais os caminhos de chamada entre eles
+— incluindo saltos de despacho dinâmico que o `grep` não segue. Onde existe, **vem antes do
+`grep`, do `find` e de abrir ficheiros**, e a fonte que devolve **conta como lida**: não se
+reabrem esses ficheiros, que é o ciclo que ela substitui.
+
+```text
+mcp__codegraph__codegraph_explore   query + projectPath          (o servidor aqui não tem
+codegraph explore "<símbolos ou pergunta>"                        projecto por omissão:
+codegraph status                                                  o projectPath é obrigatório)
+```
+
+**Neste repositório não há índice**, medido a 2026-10-30: não existe `.codegraph/` na raiz nem
+em sub-projecto nenhum, e nenhum outro repositório desta máquina tem um. Chamada assim, a
+ferramenta devolve a mensagem de que o projecto não está indexado e **manda não voltar a
+chamá-la na mesma sessão** — o que se respeita, em vez de se tentar outra formulação. A
+discovery aqui corre com `Explore`, `Grep` e `Read`, e **indexar é decisão do fundador**
+(`codegraph init`), não gesto de sessão.
+
+E três limites que valem mais, para esta casa, do que a capacidade:
+
+1. **Indexa símbolos, não o conjunto documental.** O modo de falha dominante aqui é
+   documental — o §4 do backlog, o dicionário, as tabelas-resumo, as linhas de «Controlo de
+   versões» —, e nada disso tem símbolos. Os portões que mais morderam este mês foram o 3, o 3b
+   e o 3c. O CodeGraph ajuda no eixo de **código** e é irrelevante no eixo que custa mais.
+2. **O índice atrasa-se, e o `grep` nunca.** Existe um `codegraph sync` precisamente porque o
+   índice não é a árvore: uma resposta pode descrever código que já mudou. Antes de decidir
+   escopo a partir dela, confirma contra a árvore.
+3. **Uma negativa dele é uma afirmação como as outras.** «Isso não existe no repositório»
+   confirma-se com comando próprio — e aqui há uma razão a mais do que com um subagente, que é
+   a do ponto 2.
+
+**O que ele não é:** o nível 14 das fontes de verdade. O CodeGraph mostra o código que existe,
+e o código é fonte sobre o que **acontece**, não sobre o que devia acontecer; a verdade sobre
+comportamento continua a vir do nível 15, da execução. Um caminho de chamada não é um teste.
+
 #### Fontes de verdade neste repositório, por ordem
 
 Quando duas fontes discordam, **não escolhas em silêncio**. Regista o conflito no formato de
@@ -298,6 +336,12 @@ Neste repositório o impacto indirecto tem cinco sítios que escapam quase sempr
 - **`ci/thresholds.yaml` e o `Makefile`.** Um pacote Node novo entra no `PACOTES_NODE` **e** no
   `ci/thresholds.yaml`; um ficheiro que nenhum estrato classifique falha o gate 4 de propósito,
   e o `coverage_gate` injecta a 0% o que nenhum relatório mediu.
+
+
+**Onde houver índice, o impacto INDIRECTO mede-se melhor do que com `grep`.** Os caminhos de
+chamada e o resumo de raio de alcance do `codegraph_explore` são a resposta directa a «quem
+consome isto», e apanham o despacho dinâmico que uma busca textual perde. Não substituem as
+cinco superfícies documentais abaixo, que não têm símbolos — ver o §1.1.
 
 O eixo que identificares aqui é o que escolhe os portões na estação 1.7. Impacto e portões são
 a mesma pergunta feita duas vezes.
