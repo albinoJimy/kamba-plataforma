@@ -17,9 +17,35 @@
 | Disjuntor do LLM aberto | três falhas consecutivas **deste *tenant***, pausa de 30 s | modo determinístico, motivo `breaker`, **sem ir ao proxy** |
 | Contrapressão | *tenant* no tecto de concorrência **e** fila acima do limiar | modo determinístico, motivo `backpressure` |
 | Destino não autorizado (ADR-008) | o *gate* de destino recusou antes da chamada | modo determinístico, motivo `destino_negado`, e **não conta no disjuntor** |
+| Minimização de PII falhou (KAM-112) | o detector levantou, ou passou o `TECTO_MS` de 250 ms | modo determinístico, motivo `minimizacao`, e **não conta no disjuntor** |
 | **Postgres ou *checkpointer* indisponível** | erro de ligação | **não degrada**: o turno não corre, a mensagem fica na fila, 503 com `Retry-After`. Alerta crítico |
 
-A última linha é a que se perde primeiro, e é a mais importante desta página.
+**O `minimizacao` é o motivo mais recente e o que menos se parece com os
+outros, e é por isso que tem esta nota.** Todos os de cima dizem algo sobre o
+**fornecedor** — está lento, recusou, esgotou, está em baixo. Este diz algo sobre
+**nós**: o detector de PII do KAM-112 não conseguiu minimizar o texto, e por isso
+a chamada não saiu. O cliente recebe o menu determinístico; nenhum dado pessoal
+foi transferido.
+
+O que fazer quando ele aparece, por ordem:
+
+1. **Não é incidente de privacidade.** A barreira funcionou: a falha fechada
+   impediu a chamada. Não há notificação de violação a considerar (KAM-113).
+2. **Ver se é latência ou excepção.** O `agr_minimise_latency_ms` dá a duração da
+   última minimização. Perto do `TECTO_MS` (250 ms) é uma expressão regular em
+   dificuldade sobre uma mensagem longa ou patológica; muito abaixo é uma
+   excepção no detector.
+3. **A mensagem do *logger* não leva o texto** — por desenho, porque seria PII
+   numa excepção. O que leva é a razão. Para reproduzir, é preciso o
+   `thread_id` e o *checkpoint*, e isso é acesso a dados de conversa: segue o
+   procedimento do `../seguranca/` e não se faz por curiosidade.
+4. **Se for sistemático num *tenant***, é quase certamente o catálogo dele: um
+   nome muito longo ou muitos milhares de nomes (ver o `MAXIMO_DE_NOMES`).
+5. **Não conta no disjuntor**, pelo que não abre nem fecha nada — e não há
+   *cooldown* a esperar. Corrigido o defeito, o turno seguinte minimiza.
+
+A última linha da tabela é a que se perde primeiro, e é a mais importante desta
+página.
 Degradar com o estado indisponível era responder **sem carrinho, sem `stage` e
 sem janela de mensagens** — o oposto do que o modo existe para fazer. O
 `docs/tecnica/02` §14 dá-lhe linha própria e o detector impõe-no por tipo: só um

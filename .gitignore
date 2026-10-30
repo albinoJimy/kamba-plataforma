@@ -61,6 +61,13 @@ ci/prova-canario/
 # Fixtures e logs do X-11, gerados pelo `make x11` (gate 6). As fixtures tem
 # mil valores com forma de telefone, de IBAN e de token: geram-se, nao se guardam.
 ci/x11/
+# Medicoes da minimizacao de PII (KAM-112), escritas pela bateria do AGR: o
+# `pii_recall{tipo}` do criterio 3 e a sobrecarga p95 do criterio 7. Mesma regra
+# do `ci/x11/` e pela mesma razao — sao **geradas**, e uma medicao committada fica
+# a afirmar um numero que deixou de ser verdade no commit seguinte. Quem as quer
+# ler corre a bateria; o que fica por escrito e a medicao **datada** no corpo do
+# PR, que e onde a evidencia de um ticket pertence.
+ci/pii/
 
 # Dados brutos do `coverage.py`. Nasceram na raiz e em `tools/` ao correr os
 # alvos de cobertura e apareceram num `git add -A` — a mesma classe de defeito

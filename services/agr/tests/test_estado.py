@@ -104,15 +104,23 @@ class TestEstadoInicial(unittest.TestCase):
         estado = estado_inicial(ler_invocacao(invocacao_crua()))
         self.assertEqual(sorted(estado), sorted(CHAVES_DO_521))
 
-    def test_tres_chaves_do_estado_nao_nascem_no_estado_inicial(self) -> None:
+    def test_quatro_chaves_do_estado_nao_nascem_no_estado_inicial(self) -> None:
         """E o que as deixa atravessar turnos. Ver as notas no `estado.py`.
 
-        O `turn_seq` (KAM-114), o `slots` e o `stage` (KAM-035) sao chaves do
-        `ConversaState` e **nao** da tabela do `estado_inicial`: esta funcao
-        corre em cada turno e o que ela devolve sobrescreve o *checkpoint*.
+        O `turn_seq` (KAM-114), o `slots` e o `stage` (KAM-035) e o `pii_map`
+        (KAM-112) sao chaves do `ConversaState` e **nao** da tabela do
+        `estado_inicial`: esta funcao corre em cada turno e o que ela devolve
+        sobrescreve o *checkpoint*.
+
+        O `pii_map` entrou com o KAM-112 e pela mesma razao mecanica, com uma
+        consequencia propria: a janela de mensagens leva as mensagens
+        **minimizadas** dos turnos anteriores, pelo que um `TELEFONE_1` do turno
+        1 reaparece no *prompt* do turno 3. Com o mapa no `estado_inicial`, o
+        turno 3 nascia sem ele e a `reidentificar` **removia** o token — isto e,
+        a resposta ao cliente perdia o telefone que ele proprio tinha dado.
         """
         estado = estado_inicial(ler_invocacao(invocacao_crua()))
-        fora = {"turn_seq", "slots", "stage"}
+        fora = {"turn_seq", "slots", "stage", "pii_map"}
         for chave in fora:
             self.assertNotIn(chave, estado, chave)
             self.assertIn(chave, ConversaState.__annotations__, chave)

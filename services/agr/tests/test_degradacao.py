@@ -55,6 +55,7 @@ from kamba_agr.degradacao import (
     MOTIVO_BUDGET,
     MOTIVO_CONTRAPRESSAO,
     MOTIVO_DESTINO,
+    MOTIVO_MINIMIZACAO,
     MOTIVO_TIMEOUT,
     MOTIVOS,
     MOTIVOS_QUE_NAO_CONTAM,
@@ -62,6 +63,7 @@ from kamba_agr.degradacao import (
     DetectorDeDegradacao,
     SemDegradacao,
     backend_de,
+    motivo_do_erro,
 )
 from kamba_agr.estado import CAMPOS_DO_TURNO, estado_inicial
 from kamba_agr.llm.erros import (
@@ -273,11 +275,34 @@ class TestLimiaresDoDisjuntor(unittest.TestCase):
 class TestMotivos(unittest.TestCase):
     """Os cinco motivos do critério 6, e o que o `429` teve de virar."""
 
-    def test_sao_seis(self) -> None:
-        """Cinco do critério 6, e o `destino_negado` que ele não previa."""
-        self.assertEqual(len(MOTIVOS), 6)
-        self.assertEqual(len(set(MOTIVOS)), 6)
+    def test_sao_sete(self) -> None:
+        """Cinco do critério 6, e os dois que ele não previa.
+
+        O `destino_negado` (KAM-037) e o `minimizacao` (KAM-112). Os dois são
+        barreiras que acontecem **antes** de haver chamada — o *gate* de destino
+        e o detector de PII —, os dois são `ErroDeLlm` para que o `classify` os
+        apanhe pelo tipo que já apanha, e **nenhum dos dois conta no disjuntor**:
+        não dizem nada sobre o fornecedor estar em baixo.
+        """
+        self.assertEqual(len(MOTIVOS), 7)
+        self.assertEqual(len(set(MOTIVOS)), 7)
         self.assertIn(MOTIVO_DESTINO, MOTIVOS)
+        self.assertIn(MOTIVO_MINIMIZACAO, MOTIVOS)
+
+    def test_a_falha_de_minimizacao_nao_cai_no_breaker(self) -> None:
+        """KAM-112, critério 7. É o defeito C4 do KAM-037 por outra porta.
+
+        A `FalhaDeMinimizacao` herda o `RESULTADO_ERRO` de propósito — um valor
+        novo em `dat.llm_call_log.resultado` é uma revisão de base de dados —,
+        pelo que sem ramo próprio caía no `MOTIVO_BREAKER` e o painel dizia «o
+        modelo ficou inalcançável» sobre uma barreira de minimização a funcionar.
+        """
+        from kamba_agr.llm.erros import FalhaDeMinimizacao
+
+        erro = FalhaDeMinimizacao("o detector de PII falhou (ensaio)")
+        self.assertEqual(motivo_do_erro(erro), MOTIVO_MINIMIZACAO)
+        self.assertNotEqual(motivo_do_erro(erro), MOTIVO_BREAKER)
+        self.assertIn(MOTIVO_MINIMIZACAO, MOTIVOS_QUE_NAO_CONTAM)
 
     def test_todos_casam_a_gramatica_de_etiqueta(self) -> None:
         """É por isto que o `429` do critério é `http_429`.

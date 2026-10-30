@@ -881,13 +881,13 @@ O requisito 6 de `E3` (minimização antes do LLM) está desenhado em `../docs/t
 Implementar o pipeline que, antes de qualquer chamada ao LLM ou ao STT, remove ou mascara telefone, BSUID, moradas, NIF e nomes de terceiros, substitui o contacto por «Cliente», mede a cobertura e preserva os números de negócio.
 
 ### Critérios de Aceitação
-- [ ] `minimise(texto, ctx) → (texto_mínimo, mapa)` é a única via para o cliente LLM de KAM-030: chamar o gateway com texto não minimizado falha no tipo (`MinimisedText`) e num teste de arquitectura; o STT recebe só blob e indicação de língua.
-- [ ] Substitui por tokens (`TELEFONE_n`, `BSUID_n`, `EMAIL_n`, `NIF_n`, `MORADA_n`, `PESSOA_n`) o telefone `+244` (formas `+244 9XX XXX XXX`, `00244…`, `9XXXXXXXX` com espaços, pontos ou hífenes, dígitos Unicode, por extenso), BSUID (`PT.…`), e-mail, NIF (padrão parametrizável: `../docs/tecnica/08` não o define e não se inventa), moradas e referências de local, e nomes de terceiros; o contacto do turno é sempre «Cliente».
+- [x] `minimise(texto, ctx) → (texto_mínimo, mapa)` é a única via para o cliente LLM de KAM-030: chamar o gateway com texto não minimizado falha no tipo (`MinimisedText`) e num teste de arquitectura; o STT recebe só blob e indicação de língua.
+- [x] Substitui por tokens (`TELEFONE_n`, `BSUID_n`, `EMAIL_n`, `NIF_n`, `MORADA_n`, `PESSOA_n`) o telefone `+244` (formas `+244 9XX XXX XXX`, `00244…`, `9XXXXXXXX` com espaços, pontos ou hífenes, dígitos Unicode, por extenso), BSUID (`PT.…`), e-mail, NIF (padrão parametrizável: `../docs/tecnica/08` não o define e não se inventa), moradas e referências de local, e nomes de terceiros; o contacto do turno é sempre «Cliente».
 - [ ] Cobertura medida num corpus sintético PT-AO de ≥ 300 casos etiquetados (0 dados reais): recall ≥ 99% em telefone, BSUID, e-mail e NIF e ≥ 90% em moradas e nomes de terceiros (*propostas*, a calibrar no Piloto); a métrica `pii_recall{tipo}` é publicada no CI e abaixo do limiar o build falha.
 - [ ] Números de negócio intactos: em ≥ 200 casos adversariais, 0 preços, totais, quantidades, horas ou `sku` alterados («12.500 Kz», «2 x 3.500», «às 15h30», total de 9 dígitos junto a «Kz» que parece telefone); com o pipeline activo o gate 13 mantém 0 números divergentes e qualidade ≥ baseline.
 - [ ] Nomes que são *facts* do catálogo do tenant (marcas, produtos, recursos e profissionais de Serviços) não se mascaram (lista lida da porta `CommerceRegistry`); os restantes nomes próprios viram `PESSOA_n`.
-- [ ] Re-identificação só no AGR, dentro da região aprovada: um token devolvido pelo modelo e ausente do mapa é removido (teste); o mapa vive no estado do thread com a retenção do checkpointer e nunca em `llm_call_log`, logs, traces ou eventos.
-- [ ] Falha fechada: erro ou *timeout* do detector impede a chamada ao LLM e conduz ao modo determinístico (KAM-037) ou a handoff; sobrecarga p95 ≤ 30 ms para 2.000 caracteres (*proposta*).
+- [x] Re-identificação só no AGR, dentro da região aprovada: um token devolvido pelo modelo e ausente do mapa é removido (teste); o mapa vive no estado do thread com a retenção do checkpointer e nunca em `llm_call_log`, logs, traces ou eventos.
+- [x] Falha fechada: erro ou *timeout* do detector impede a chamada ao LLM e conduz ao modo determinístico (KAM-037) ou a handoff; sobrecarga p95 ≤ 30 ms para 2.000 caracteres (*proposta*).
 
 ### Detalhes Técnicos
 - **Componentes:** AGR, LLM; módulo `kamba/privacy/minimise.py`, o mesmo gancho para a transcrição de KAM-036. Contacto por `contact_id` e `thread_id = tenant_id:contact_id`; o mapa não contém o telefone do contacto, que continua só em `contact_endpoints` cifrado (KAM-008).
@@ -904,9 +904,68 @@ Implementar o pipeline que, antes de qualquer chamada ao LLM ou ao STT, remove o
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] Código revisto por 2 revisores (dados pessoais, transferência); testes verdes; cobertura do módulo ≥ 90%.
 - [ ] **Eval-gate** — altera o prompt efectivo: Gate 13 verde; SemVer atribuída.
-- [ ] **Privacidade** — payload ao LLM e ao STT sem identificadores directos; mapa fora de logs; limites (nomes em texto livre) documentados no PR (ADR-008, ADR-010).
-- [ ] **Isolamento de tenant** — mapa por `thread_id`; teste cruzado do novo caminho.
-- [ ] **Custo e observabilidade** — métricas acima; documentação actualizada (`docs/minimizacao.md`).
+- [x] **Privacidade** — payload ao LLM e ao STT sem identificadores directos; mapa fora de logs; limites (nomes em texto livre) documentados no PR (ADR-008, ADR-010).
+- [x] **Isolamento de tenant** — mapa por `thread_id`; teste cruzado do novo caminho.
+- [x] **Custo e observabilidade** — métricas acima; documentação actualizada (`docs/minimizacao.md`).
+
+### Verificação dos Critérios de Aceitação
+
+**7 critérios; 4 marcados, 3 `parcial`. 6 caixas de DoD; 3 marcadas, 3 vazias.**
+Medido no PR [#91](https://github.com/albinoJimy/kamba-plataforma/pull/91),
+contra a árvore **fundida com o `main`**, que é a que vai fundir. Nesta máquina
+não há `make`, `node` nem `pnpm`: os gates que deles dependem correram no CI e
+não aqui, e os que correram vão abaixo com o código de saída lido.
+
+**A medição mais importante desta secção não é um número, é um aviso.** A bateria
+esteve **verde com oito furos de critério abertos** — critérios 1, 2, 3, 4 e 5 —
+porque o corpus foi escrito por quem escreveu o detector, e por isso media
+concordância e não cobertura. Os oito saíram da revisão adversarial
+(`../docs/analises/ANALISE-42-KAM-112-minimizacao-de-pii.md`) e estão corrigidos;
+quem ler os 100% de recall abaixo lê também esta frase.
+
+### Os critérios, um a um
+
+| # | Critério | Estado | Evidência |
+|---|---|---|---|
+| 1 | `minimise` é a única via para o cliente LLM; falha no tipo e em teste de arquitectura | **cumprido** | O `ClienteDeLlm.chamar` exige `MensagemMinimizada` e **não** `list[dict[str, str]]`. Três barreiras, porque **não há verificador de tipos para Python** neste repositório (o `make typecheck` é `pnpm -r run typecheck`): o `__post_init__` com HMAC do próprio texto, o `verificada()` no último ponto antes do corpo HTTP, e a política AST do `politica_llm_ast.py` com 3 canários e **6 evasões medidas** e 3 formas conformes. `test_as_quatro_forjas_da_revisao_adversarial` fecha as quatro vias que a revisão abriu. O STT não existe no AGR (KAM-036) |
+| 2 | Tokens para telefone, BSUID, e-mail, NIF, moradas e nomes; contacto é «Cliente» | **cumprido** | `test_as_dez_formas_de_telefone`, uma asserção por forma: nu, espaços, pontos, hífenes, `+244`, `+244` junto, `00244`, `244` nu, **dígitos Unicode** e **por extenso**. O contacto é «Cliente» **por construção**: o `ContextoDeMinimizacao` não tem `contact_id`, telefone nem BSUID, verificado em `test_o_contacto_do_turno_e_sempre_cliente` |
+| 3 | Corpus ≥ 300 com recall ≥ 99% / ≥ 90%; `pii_recall{tipo}` no CI; abaixo do limiar o build falha | **parcial** | **376** casos, 0 dados reais. Recall: telefone 165/165, BSUID 21/21, e-mail 54/54, morada 70/70, pessoa 40/40 — **100%**. Publica-se em `ci/pii/recall.json` e os limiares são asserções que o `make test-py` corre, pelo que o *gate* 4 **já** faz o build falhar. **O NIF é a razão do `parcial`:** mede 30/30 **com um padrão de ensaio**, e sem padrão o recall dele é **0% por desenho** — o `../docs/tecnica/08` não define o formato e o critério 2 manda não o inventar. Em produção, hoje, nenhum padrão está configurado. É uma tensão interna ao bloco e a leitura devolve-se |
+| 4 | Números de negócio intactos em ≥ 200 casos; gate 13 com 0 divergentes | **parcial** | **277** casos adversariais, **0 alteradas** de 326 cadeias (`test_zero_alterados`). Inclui as três formas do caso que o bloco nomeia por extenso e as seis **sem marcador de moeda**, que a revisão mostrou estarem a ser mascaradas. **O `parcial` é o gate 13, que não existe:** sem alvo `ci-13` no `Makefile` nem *job* no `ci.yaml` — medido —, e quem o constrói é o **KAM-040** |
+| 5 | Nomes que são *facts* do catálogo não se mascaram, lidos da porta `CommerceRegistry` | **parcial** | Porta `PortaDeCatalogo.nomes` com adaptador sobre as três fontes que existem: `platform.tenants.nome` (marcas), `servicos.services.nome` e `servicos.resources.nome` (KAM-035). **Os produtos não têm fonte** — sem tabela e sem porta (KAM-042, KAM-043) —, e **o `CommerceRegistry` do `../docs/tecnica/03` §3.2 não tem operação que devolva uma lista de nomes**: o `getOfferView` é por `sku`. O critério não se cumpre à letra hoje **nem no dia em que o KAM-042 fundir**, sem lhe acrescentar um método. A comparação é por **palavra** do catálogo desde a revisão, que mostrou que um nome composto — a forma típica de um `resources.nome` — não protegia nada |
+| 6 | Re-identificação só no AGR; token ausente do mapa é removido; mapa fora de logs e registo | **cumprido** | `test_um_token_que_o_modelo_invente_e_removido`: `TELEFONE_7` sai, não se adivinha. O mapa repõe o original nos **376** casos (`test_o_mapa_repoe_o_texto_original`). O `Mapa.__repr__` mostra contagens por tipo e nem os tokens; `test_o_mapa_nao_entra_na_linha_de_llm_call_log` com canário, e `test_a_exposicao_nao_leva_nenhum_valor_detectado` sobre o texto do `/metrics`. A `dat.llm_call_log` não tem coluna de texto, verificado |
+| 7 | Falha fechada conduz ao determinístico ou handoff; sobrecarga p95 ≤ 30 ms | **cumprido** | A `FalhaDeMinimizacao` **é** um `ErroDeLlm`, pelo que o `classify` do Vendedor a apanha pelo tipo que já apanha; motivo `minimizacao`, o **sétimo**, e **não conta no disjuntor**. Não há ramo que devolva o texto original, e o `try` cobre o corpo inteiro desde a revisão. p95 **21,5 ms** para 2.000 caracteres, 40 execuções, contra um alvo *proposto* de 30 — **a margem era de 5,0 ms antes das correcções e encolheu quatro vezes**. O `TECTO_MS` é uma verificação **a posteriori e não um *timeout***: garante que uma minimização lenta não chega ao LLM, não que o turno não demore. Lacuna declarada, não propriedade afirmada |
+
+### As caixas de DoD
+
+| Caixa | Estado | Razão |
+|---|---|---|
+| Todos os critérios satisfeitos e demonstráveis | **vazia** | Três ficam `parcial` (3, 4 e 5), pelas razões acima. E «demonstráveis» tem uma segunda leitura que a revisão expôs e que eu não escondo: **nenhum turno minimiza nada hoje** — o `cliente_de_llm` é construído e nunca injectado no grafo, e o `__main__.py` di-lo por escrito («quem o invoca é o grafo, que é o KAM-031 e o KAM-035»). O pipeline está completo para todos os sítios de chamada que existem — **zero** — e a barreira garante que os futuros passam por ele; é o que o critério 1 pede, e é verdadeiro em parte **por vacuidade**. Ligar o grafo era alargar escopo para dentro de dois tickets fechados |
+| Revisto por 2 revisores; testes verdes; cobertura ≥ 90% | **vazia** | Testes verdes (**1361**, exit 0) e cobertura do módulo **96%** medida (negócio 100, dicionários 100, minimização 98, catálogo 95, detector 91). **Os dois revisores não:** a regra da casa é fundir com CI verde na fase inicial, e uma revisão adversarial é evidência e não é um revisor. **Mas este critério pede-os explicitamente por ser de dados pessoais e de transferência**, e não é a fórmula genérica do DoD — fica à decisão do fundador. E os 90% **não estão impostos por máquina**: o `ci/thresholds.yaml` põe `services/*/src/**` no estrato `restante`, a 75%, e alterá-lo pede dois revisores — é regra de bloqueio, e não lhe toquei |
+| **Eval-gate** — Gate 13 verde; SemVer atribuída | **vazia**, `não satisfeito` | O **gate 13 não existe** (sem `ci-13` no `Makefile`, sem *job* no `ci.yaml`; a única menção em todo o conjunto é prosa em `../ci/llm-aliases.lock`). Quem o constrói é o **KAM-040**. O mesmo vale para «Regressão: gate 13 com e sem pipeline» dos Testes Requeridos — **não corri o que não existe**. A **SemVer atribui-se**, que essa metade não depende do gate: dicionário **1.49** (§3.38), `../docs/minimizacao.md` **1.1**, `../docs/dividas-documentais.md` **1.78** |
+| **Privacidade** — payload sem identificadores; mapa fora de logs; limites documentados | **cumprida** | LiteLLM falso que captura o corpo: 0 correspondências aos quatro identificadores plantados, com o controlo positivo de que o número de negócio **está** lá. Os limites são **nove** casos em `corpus_pii.LIMITES`, cada um com a razão escrita e um teste que falha se deixar de escapar; três entraram com a revisão (IBAN e conta bancária, telefone com barras, BI) e nenhum está nos seis tipos do critério 2 |
+| **Isolamento de tenant** — mapa por `thread_id`; teste cruzado do novo caminho | **cumprida** | `test_dois_threads_nao_partilham_o_mapa` e `test_o_token_de_um_thread_nao_se_repoe_no_outro`. Sem estado de módulo: o mapa vem do estado do *thread* e o `minimise` é função do contexto que lhe passam. **O que se mede é o mapa e não um turno ponta a ponta**, pela razão da primeira caixa |
+| **Custo e observabilidade** — métricas; `docs/minimizacao.md` | **cumprida** | `agr_pii_mascarada_total{tipo}` e `agr_minimise_latency_ms`, com etiqueta derivada dos seis tipos e teste de que a exposição não leva nenhum valor detectado. `../docs/minimizacao.md` em **1.1**, com as medições, o que elas **não** dizem, e as duas afirmações falsas que a revisão corrigiu |
+
+### Os gates, com o comando e o código de saída
+
+Corridos contra a árvore fundida. **Lido o código de saída, não a última linha.**
+
+| Comando | Exit |
+|---|---|
+| suite do AGR (1361 testes) | 0 |
+| suite do `money_lint` (veio do KAM-052) | 0 |
+| `python -m lint_refs --root .. check` | 0 |
+| `python -m lint_backlog --root .. check` | 0 |
+| `python -m lint_handoff --root .. check` | 0 |
+| `python -m lint_contagens --root .. check` | 0 |
+| `python -m lint_arch --root .. all` | 0 |
+| `dict_export --root . --check` | 0 |
+| `canon_lint --root . check` | 0 |
+| `canon_lint --root . canario` | 0 |
+
+**Não corridos aqui, e é o CI que os diz:** `ci-1`, `ci-2` (precisam de `pnpm`),
+`ci-4` por inteiro, `ci-6`, `ci-7`, `ci-8` (Docker e PostgreSQL), `ci-9`,
+`ci-11`. O `ci-13` **não existe**.
 
 ### Handoff para Claude Code
 

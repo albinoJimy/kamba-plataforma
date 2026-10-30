@@ -23,6 +23,7 @@ from kamba_agr.llm import destinos as destinos_mod
 from kamba_agr.llm import precos as precos_mod
 from kamba_agr.llm import registo as registo_mod
 from kamba_agr.llm.cliente import ClienteDeLlm, ContextoDeChamada
+from kamba_agr.privacidade import minimizacao
 from kamba_agr.llm.erros import (
     RESULTADO_BUDGET,
     RESULTADO_DESTINO,
@@ -45,6 +46,26 @@ CTX = ContextoDeChamada(
     no_grafo="compose",
     graph_version="1.0.0",
 )
+
+
+#: O `ClienteDeLlm.chamar` deixou de aceitar `list[dict[str, str]]` com o
+#: KAM-112: exige `MensagemMinimizada`, e um `MensagemMinimizada` so se obtem de
+#: `minimise`. Este apoio e a traducao dos trinta e tres sitios desta bateria que
+#: construiam o `dict` a mao — e **passa pelo detector a serio**, nao por um
+#: duplo, para que os ensaios exercitem o caminho que producao vai correr.
+#:
+#: O `thread_id` e fixo: esta bateria nao mede o mapa (isso e o
+#: `test_minimizacao.py`), e um contexto por chamada bastava para o que aqui se
+#: pede ao `chamar`.
+_CTX_DE_MINIMIZACAO = minimizacao.ContextoDeMinimizacao(
+    tenant_id=TENANT, thread_id=f"{TENANT}:contacto"
+)
+
+
+def _msg(conteudo: str) -> list[minimizacao.MensagemMinimizada]:
+    """Uma mensagem de utilizador minimizada, que e o que o `chamar` aceita."""
+    minimo, _mapa = minimizacao.minimise(conteudo, _CTX_DE_MINIMIZACAO)
+    return [minimizacao.mensagem("user", minimo)]
 
 
 class _Cursor:
@@ -210,12 +231,12 @@ class TestUmaLinhaPorChamada(unittest.TestCase):
 
     def test_uma_chamada_uma_linha(self) -> None:
         cliente, lig, _ = _cliente()
-        cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+        cliente.chamar("chat", _msg("ola"), CTX)
         self.assertEqual(len(lig.linhas()), 1)
 
     def test_a_linha_leva_os_valores_e_nao_nulos(self) -> None:
         cliente, lig, _ = _cliente()
-        cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+        cliente.chamar("chat", _msg("ola"), CTX)
         linha = lig.linhas()[0]
         self.assertEqual(linha["tenant_id"], TENANT)
         self.assertEqual(linha["trace_id"], CTX.trace_id)
@@ -246,7 +267,7 @@ class TestUmaLinhaPorChamada(unittest.TestCase):
                    "usage": {"prompt_tokens": 10, "completion_tokens": 2}}, {})
         )
         cliente, lig, _ = _cliente(transporte)
-        cliente.chamar("chat", [{"role": "user", "content": canario_pedido}], CTX)
+        cliente.chamar("chat", _msg(canario_pedido), CTX)
         tudo = " ".join(str(v) for linha in lig.linhas() for v in linha.values())
         self.assertNotIn(canario_pedido, tudo)
         self.assertNotIn(canario_resposta, tudo)
@@ -254,13 +275,13 @@ class TestUmaLinhaPorChamada(unittest.TestCase):
 
     def test_o_contexto_de_tenant_e_o_do_pedido(self) -> None:
         cliente, lig, _ = _cliente()
-        cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+        cliente.chamar("chat", _msg("ola"), CTX)
         self.assertEqual(lig.tenants_do_contexto(), [TENANT])
 
     def test_o_registo_que_falha_nao_rebenta_a_chamada(self) -> None:
         """Repetir a chamada custava uma segunda transferencia e um segundo custo."""
         cliente, lig, met = _cliente(ligacao=_Ligacao(levantar=True))
-        resposta = cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+        resposta = cliente.chamar("chat", _msg("ola"), CTX)
         self.assertEqual(resposta.resultado, RESULTADO_OK)
         self.assertEqual(
             met.ler().get(metricas_mod.METRICA_LLM_REGISTO_FALHOU), 1,
@@ -355,7 +376,7 @@ class TestDuasChamadasConcorrentes(unittest.TestCase):
 
         def correr() -> None:
             try:
-                cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+                cliente.chamar("chat", _msg("ola"), CTX)
             except BaseException as excepcao:  # noqa: BLE001
                 erros.append(excepcao)
 
@@ -400,7 +421,7 @@ class TestOPrecoExpirado(unittest.TestCase):
             abrir_ligacao=lambda: lig, chave_virtual=lambda t: "sk-x",
             metricas=met, transporte=_Transporte(),
         )
-        resposta = cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+        resposta = cliente.chamar("chat", _msg("ola"), CTX)
         self.assertEqual(resposta.resultado, RESULTADO_OK)
         self.assertIsNone(resposta.custo_usd)
         self.assertEqual(len(lig.linhas()), 1, "a linha nao se perde")
@@ -442,7 +463,7 @@ class TestOMapeamentoDoOrcamento(unittest.TestCase):
                            "type": "budget_exceeded", "code": "422"}}
         cliente, lig, met = _cliente(_Transporte((422, corpo, {})))
         with self.assertRaises(OrcamentoEsgotado):
-            cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+            cliente.chamar("chat", _msg("ola"), CTX)
         self.assertEqual(lig.linhas()[0]["resultado"], RESULTADO_BUDGET)
         self.assertEqual(
             met.ler().get(f"{metricas_mod.METRICA_LLM_ERROS}:{RESULTADO_BUDGET}"), 1
@@ -454,7 +475,7 @@ class TestOMapeamentoDoOrcamento(unittest.TestCase):
                            "type": "bad_request_error", "code": "400"}}
         cliente, _, _ = _cliente(_Transporte((400, corpo, {})))
         with self.assertRaises(FornecedorFalhou) as apanhado:
-            cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+            cliente.chamar("chat", _msg("ola"), CTX)
         self.assertNotIsInstance(apanhado.exception, OrcamentoEsgotado)
 
     def test_a_recusa_por_orcamento_conta_como_chamada(self) -> None:
@@ -462,7 +483,7 @@ class TestOMapeamentoDoOrcamento(unittest.TestCase):
         corpo = {"error": {"type": "budget_exceeded", "message": "Budget has been exceeded!"}}
         cliente, lig, _ = _cliente(_Transporte((422, corpo, {})))
         with self.assertRaises(OrcamentoEsgotado):
-            cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+            cliente.chamar("chat", _msg("ola"), CTX)
         linha = lig.linhas()[0]
         self.assertEqual(len(lig.linhas()), 1, "uma recusa e uma chamada (criterio 5)")
         self.assertIsNone(linha["custo_usd"], "nao houve consumo a cobrar")
@@ -479,7 +500,7 @@ class TestOGateDeDestino(unittest.TestCase):
     def test_em_prod_nega(self) -> None:
         cliente, lig, met = _cliente(ambiente=destinos_mod.AMBIENTE_PROD)
         with self.assertRaises(DestinoNegado):
-            cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+            cliente.chamar("chat", _msg("ola"), CTX)
         self.assertEqual(lig.linhas()[0]["resultado"], RESULTADO_DESTINO)
         self.assertEqual(met.ler().get(metricas_mod.METRICA_LLM_DESTINO_NEGADO), 1)
 
@@ -488,24 +509,24 @@ class TestOGateDeDestino(unittest.TestCase):
         transporte = _Transporte()
         cliente, _, _ = _cliente(transporte, ambiente=destinos_mod.AMBIENTE_PROD)
         with self.assertRaises(DestinoNegado):
-            cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+            cliente.chamar("chat", _msg("ola"), CTX)
         self.assertEqual(transporte.chamadas, [], "nada saiu para o proxy")
 
     def test_um_ambiente_desconhecido_e_tratado_como_prod(self) -> None:
         cliente, _, _ = _cliente(ambiente="producao")
         with self.assertRaises(DestinoNegado):
-            cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+            cliente.chamar("chat", _msg("ola"), CTX)
 
     def test_em_staging_passa(self) -> None:
         cliente, _, _ = _cliente(ambiente=destinos_mod.AMBIENTE_STAGING)
-        resposta = cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+        resposta = cliente.chamar("chat", _msg("ola"), CTX)
         self.assertEqual(resposta.resultado, RESULTADO_OK)
 
     def test_a_recusa_nao_leva_custo_nem_tokens(self) -> None:
         """O `CHECK llm_call_log_negado_sem_consumo` da revisao `0023` recusa-a se levar."""
         cliente, lig, _ = _cliente(ambiente=destinos_mod.AMBIENTE_PROD)
         with self.assertRaises(DestinoNegado):
-            cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+            cliente.chamar("chat", _msg("ola"), CTX)
         linha = lig.linhas()[0]
         for coluna in ("tokens_in", "tokens_out", "tokens_cache", "custo_usd"):
             self.assertIsNone(linha[coluna], coluna)
@@ -530,7 +551,7 @@ class TestOGateDeDestino(unittest.TestCase):
             abrir_ligacao=lambda: lig, chave_virtual=lambda t: "sk-x",
             metricas=metricas_mod.MetricasDoAgr(), transporte=_Transporte(),
         )
-        cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+        cliente.chamar("chat", _msg("ola"), CTX)
         self.assertEqual(consultados, ["anthropic", "openai"])
 
     def test_um_papel_sem_finalidade_nega_e_grava(self) -> None:
@@ -545,7 +566,7 @@ class TestOGateDeDestino(unittest.TestCase):
             metricas=met, transporte=_Transporte(),
         )
         with self.assertRaises(DestinoNegado):
-            cliente.chamar("papel_invalido", [{"role": "user", "content": "x"}], CTX)
+            cliente.chamar("papel_invalido", _msg("x"), CTX)
         self.assertEqual(len(lig.linhas()), 1)
         self.assertEqual(met.ler().get(metricas_mod.METRICA_LLM_DESTINO_NEGADO), 1)
 
@@ -570,7 +591,7 @@ class TestAMensagemDoFornecedorNaoVaza(unittest.TestCase):
         }
         cliente, _, _ = _cliente(_Transporte((400, corpo, {})))
         with self.assertRaises(FornecedorFalhou) as apanhado:
-            cliente.chamar("chat", [{"role": "user", "content": self.CANARIO}], CTX)
+            cliente.chamar("chat", _msg(self.CANARIO), CTX)
         texto = str(apanhado.exception)
         self.assertNotIn("923000000", texto)
         self.assertNotIn("Bom dia", texto)
@@ -583,7 +604,7 @@ class TestAMensagemDoFornecedorNaoVaza(unittest.TestCase):
         corpo = {"error": {"type": f"recusado: {self.CANARIO}", "message": "x"}}
         cliente, _, _ = _cliente(_Transporte((400, corpo, {})))
         with self.assertRaises(FornecedorFalhou) as apanhado:
-            cliente.chamar("chat", [{"role": "user", "content": "x"}], CTX)
+            cliente.chamar("chat", _msg("x"), CTX)
         self.assertNotIn("923000000", str(apanhado.exception))
         self.assertIn("sem_tipo", str(apanhado.exception))
 
@@ -592,7 +613,7 @@ class TestAMensagemDoFornecedorNaoVaza(unittest.TestCase):
             _Transporte((502, {"error": {"type": "resposta_nao_json"}}, {}))
         )
         with self.assertRaises(FornecedorFalhou) as apanhado:
-            cliente.chamar("chat", [{"role": "user", "content": "x"}], CTX)
+            cliente.chamar("chat", _msg("x"), CTX)
         self.assertIn("resposta_nao_json", str(apanhado.exception))
 
 
@@ -608,7 +629,7 @@ class TestQuemServiu(unittest.TestCase):
         cliente, lig, _ = _cliente(
             _Transporte((200, _resposta("anthropic/claude-haiku-5-5"), {}))
         )
-        resposta = cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+        resposta = cliente.chamar("chat", _msg("ola"), CTX)
         self.assertEqual(resposta.resultado, RESULTADO_OK)
         self.assertFalse(resposta.usou_fallback)
         self.assertEqual(lig.linhas()[0]["fornecedor"], "anthropic")
@@ -618,7 +639,7 @@ class TestQuemServiu(unittest.TestCase):
         cliente, lig, _ = _cliente(
             _Transporte((200, _resposta("openai/gpt-6-luna"), {}))
         )
-        resposta = cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+        resposta = cliente.chamar("chat", _msg("ola"), CTX)
         self.assertEqual(resposta.resultado, RESULTADO_OK_FALLBACK)
         self.assertTrue(resposta.usou_fallback)
         linha = lig.linhas()[0]
@@ -630,13 +651,13 @@ class TestQuemServiu(unittest.TestCase):
             _Transporte((200, _resposta("por_decidir"),
                          {"x-litellm-model-group": "kamba-chat-fallback2"}))
         )
-        resposta = cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+        resposta = cliente.chamar("chat", _msg("ola"), CTX)
         self.assertEqual(resposta.fornecedor, "openai")
         self.assertEqual(lig.linhas()[0]["resultado"], RESULTADO_OK_FALLBACK)
 
     def test_sem_nenhuma_das_duas_vias_conta_a_incerteza(self) -> None:
         cliente, _, met = _cliente(_Transporte((200, _resposta("por_decidir"), {})))
-        cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+        cliente.chamar("chat", _msg("ola"), CTX)
         self.assertEqual(
             met.ler().get(metricas_mod.METRICA_LLM_SERVIDOR_DESCONHECIDO), 1
         )
@@ -648,7 +669,7 @@ class TestOsOutrosDesfechos(unittest.TestCase):
         transporte.levantar = TimeoutError("sem resposta")
         cliente, lig, _ = _cliente(transporte)
         with self.assertRaises(TempoEsgotado):
-            cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+            cliente.chamar("chat", _msg("ola"), CTX)
         self.assertEqual(lig.linhas()[0]["resultado"], RESULTADO_TIMEOUT)
 
     def test_o_proxy_inalcancavel(self) -> None:
@@ -656,19 +677,19 @@ class TestOsOutrosDesfechos(unittest.TestCase):
         transporte.levantar = OSError("ligacao recusada")
         cliente, lig, _ = _cliente(transporte)
         with self.assertRaises(FornecedorFalhou):
-            cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+            cliente.chamar("chat", _msg("ola"), CTX)
         self.assertEqual(lig.linhas()[0]["resultado"], RESULTADO_ERRO)
 
     def test_um_papel_que_nao_existe(self) -> None:
         cliente, _, _ = _cliente()
         with self.assertRaises(FornecedorFalhou):
-            cliente.chamar("embed", [{"role": "user", "content": "ola"}], CTX)
+            cliente.chamar("embed", _msg("ola"), CTX)
 
     def test_o_tecto_do_cliente_excede_o_do_proxy(self) -> None:
         """Desistir antes do proxy fazia o *fallback* do criterio 6 nunca acontecer."""
         transporte = _Transporte()
         cliente, _, _ = _cliente(transporte)
-        cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+        cliente.chamar("chat", _msg("ola"), CTX)
         _, _, _, timeout = transporte.chamadas[0]
         self.assertGreater(timeout, ALIAS_CHAT.timeout)
         self.assertGreaterEqual(timeout, ALIAS_CHAT.timeout * 3)
@@ -676,7 +697,7 @@ class TestOsOutrosDesfechos(unittest.TestCase):
     def test_a_chave_virtual_do_tenant_vai_no_cabecalho(self) -> None:
         transporte = _Transporte()
         cliente, _, _ = _cliente(transporte)
-        cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+        cliente.chamar("chat", _msg("ola"), CTX)
         _, cabecalhos, corpo, _ = transporte.chamadas[0]
         self.assertEqual(cabecalhos["Authorization"], f"Bearer sk-virtual-{TENANT}")
         self.assertEqual(corpo["model"], "kamba-chat", "chama-se o alias, nao o modelo")
@@ -702,7 +723,7 @@ class TestOsOutrosDesfechos(unittest.TestCase):
             metricas=met,
             transporte=_Transporte((200, _resposta("anthropic/por_decidir"), {})),
         )
-        cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+        cliente.chamar("chat", _msg("ola"), CTX)
         self.assertEqual(met.ler().get(metricas_mod.METRICA_LLM_SEM_PRECO), 1)
         self.assertIsNone(
             lig.linhas()[0]["custo_usd"], "nulo e nao zero: zero dizia que foi gratis"
@@ -716,7 +737,7 @@ class TestAsContagensDeTokens(unittest.TestCase):
         cliente, lig, _ = _cliente(
             _Transporte((200, _resposta(entrada=3000, saida=300, cache=1000), {}))
         )
-        cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+        cliente.chamar("chat", _msg("ola"), CTX)
         linha = lig.linhas()[0]
         self.assertEqual(linha["tokens_in"], 2000, "3000 menos os 1000 de cache")
         self.assertEqual(linha["tokens_cache"], 1000)
@@ -735,7 +756,7 @@ class TestAsContagensDeTokens(unittest.TestCase):
         cliente, lig, met = _cliente(
             _Transporte((200, _resposta(entrada=100, saida=10, cache=500), {}))
         )
-        cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+        cliente.chamar("chat", _msg("ola"), CTX)
         self.assertEqual(lig.linhas()[0]["tokens_in"], 0)
         self.assertEqual(
             met.ler().get(metricas_mod.METRICA_LLM_CONTAGEM_INCOERENTE), 1
@@ -746,7 +767,7 @@ class TestAsContagensDeTokens(unittest.TestCase):
         cliente, _, met = _cliente(
             _Transporte((200, _resposta(entrada=3000, saida=300, cache=1000), {}))
         )
-        cliente.chamar("chat", [{"role": "user", "content": "ola"}], CTX)
+        cliente.chamar("chat", _msg("ola"), CTX)
         self.assertIsNone(met.ler().get(metricas_mod.METRICA_LLM_CONTAGEM_INCOERENTE))
 
 

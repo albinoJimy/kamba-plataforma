@@ -96,6 +96,27 @@ export const INVENTARIO: readonly Entrada[] = [
       "prova que o detector o ve, e um zero sobre uma entrada limpa nao diz nada",
   },
   {
+    ficheiro: "services/agr/src/kamba_agr/privacidade/detector.py",
+    ocorrencias: 2,
+    razao:
+      "os exemplos na docstring do TELEFONE_PADRAO do KAM-112, que lista as dez " +
+      "formas de escrever um movel angolano que o criterio 2 enumera. Duas das " +
+      "dez — o `+244` junto e o `00244` — tem a forma que este scan procura, e " +
+      "tinham de ter: um exemplo que nao casasse o padrao que ilustra enganava " +
+      "quem o lesse, que e a mesma razao da entrada do `eventos/pii.ts`. " +
+      "Sequenciais, como os das outras entradas desta lista",
+  },
+  {
+    ficheiro: "services/agr/tests/test_minimizacao.py",
+    ocorrencias: 1,
+    razao:
+      "o exemplo no comentario do `test_zero_dados_reais` do KAM-112, que " +
+      "explica porque e que a primeira versao daquele ensaio acusava quarenta e " +
+      "dois numeros «nao declarados» que eram os declarados vistos a meio: um " +
+      "`\d{9}` deslizante apanha janelas de nove digitos **dentro** de um " +
+      "numero com prefixo. Sem o exemplo, o comentario nao se podia verificar",
+  },
+  {
     ficheiro: "packages/core-ts/tests/avisos.test.ts",
     ocorrencias: 2,
     razao:
