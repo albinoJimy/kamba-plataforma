@@ -8,7 +8,7 @@
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Ticket | KAM-105 (EPIC-10) |
-| Documento-fonte | `../../08_Seguranca_Conformidade.md` §8.2, §8.3, §8.6; `../E3_Regulatorio_Dados.md` §1, §2; `specs/00_KAMBA_Carta.md` §4.2; ADR-008, D9 |
+| Documento-fonte | `../../08_Seguranca_Conformidade.md` §8.2, §8.3, §8.6; `../E3_Regulatorio_Dados.md` §1, §2; o registo de decisões da Carta, §4.2; ADR-008, D9 |
 | Relacionados | [`Mapa_Tratamentos_v1.md`](Mapa_Tratamentos_v1.md), [`GoLive_Gate.md`](GoLive_Gate.md), [`Pacote_Parecer_Juridico.md`](Pacote_Parecer_Juridico.md) |
 
 > **A folha de seguimento nasce vazia.** Submeter à APD, pagar taxas e receber um

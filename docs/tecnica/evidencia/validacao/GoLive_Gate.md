@@ -8,7 +8,7 @@
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno; **regra de bloqueio operacional** |
 | Ticket | KAM-105 (EPIC-10) |
-| Documento-fonte | `../../08_Seguranca_Conformidade.md` §8.5, §8.6, §8.3; `../../09_Topologia_Operacao_Escala.md` §6; `specs/00_KAMBA_Carta.md` §4.2 |
+| Documento-fonte | `../../08_Seguranca_Conformidade.md` §8.5, §8.6, §8.3; `../../09_Topologia_Operacao_Escala.md` §6; o registo de decisões da Carta, §4.2 |
 | Relacionados | [`Mapa_Tratamentos_v1.md`](Mapa_Tratamentos_v1.md), [`Seguimento_APD.md`](Seguimento_APD.md), [`Alojamento_Cotacoes.md`](Alojamento_Cotacoes.md) |
 
 > **Este documento não decide nada: mede.** Cada linha é uma condição objectiva
