@@ -115,7 +115,7 @@ A segunda razão é de operação, e é a que importaria mesmo que as licenças 
 iguais: o cloud-init corre **uma vez, no primeiro arranque, sem nada do lado de
 fora**. O Ansible precisa de um canal SSH aberto de uma máquina de controlo até
 ao *host* novo — que é exactamente a superfície que o
-`../tecnica/08_Seguranca_Conformidade.md` §9 fecha («Sem SSH por palavra-passe»,
+`../tecnica/08_Seguranca_Conformidade.md` §5 fecha («Sem SSH por palavra-passe»,
 admin só por VPN WireGuard). Provisionar um *host* com o WireGuard por configurar
 através de um canal que só existe depois do WireGuard é uma dependência circular;
 o cloud-init não a tem, porque corre de dentro.

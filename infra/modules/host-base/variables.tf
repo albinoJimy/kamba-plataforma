@@ -20,8 +20,8 @@ variable "ambiente" {
 variable "utilizador" {
   description = <<-EOT
     O utilizador nao-root que corre os servicos. Nao e o utilizador de
-    administracao: ninguem entra por SSH com este (`docs/tecnica/08` §9: «Sem
-    SSH por palavra-passe», admin so por VPN WireGuard).
+    administracao: ninguem entra por SSH com este (`docs/tecnica/08` §5, linha
+    «Acesso humano»: «Sem SSH por palavra-passe», admin so por VPN WireGuard).
   EOT
   type        = string
   default     = "kamba"
