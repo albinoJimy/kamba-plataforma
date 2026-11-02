@@ -54,6 +54,34 @@ class TestNumerosDeSeccao(unittest.TestCase):
             frozenset(),
         )
 
+    def test_le_o_titulo_que_leva_o_proprio_paragrafo(self) -> None:
+        """`## §6 — Quando reverter` e como dois ADRs locais numeram.
+
+        Sem o `§?` no padrao, o `docs/adr/ADR-L002` e o `ADR-L003` nao tinham
+        titulo numerado nenhum e **o documento inteiro ficava inenderecavel** —
+        o que escondia um `§5` quebrado citado de
+        `libs/py-core/src/kamba_core/secrets/port.py`.
+        """
+        self.assertEqual(
+            seccoes.numeros_de_seccao(
+                "# ADR\n\n## Contexto\n\n## §6 — Quando reverter, e o que falta\n"
+            ),
+            frozenset({"6"}),
+        )
+
+    def test_os_adrs_locais_que_numeram_assim_ficam_enderecaveis(self) -> None:
+        """Contra a arvore real, nao contra uma *fixture*."""
+        for rel in (
+            "docs/adr/ADR-L002-injeccao-de-segredos.md",
+            "docs/adr/ADR-L003-verificacao-do-ruleset.md",
+        ):
+            with self.subTest(documento=rel):
+                numeros = seccoes.numeros_de_seccao(
+                    (ROOT / rel).read_text(encoding="utf-8")
+                )
+                self.assertIn("6", numeros)
+                self.assertFalse(seccoes.resolve("5", numeros))
+
 
 class TestResolveONumero(unittest.TestCase):
     def test_um_numero_de_titulo_resolve(self) -> None:
@@ -97,16 +125,42 @@ class TestResolvedorDeDocumento(unittest.TestCase):
         )
 
     def test_um_prefixo_ambiguo_nao_designa_nada(self) -> None:
-        """`docs/tecnica/0` casa seis ficheiros; nao se escolhe um deles."""
+        """`docs/tecnica/0` nao designa nenhum dos documentos que comecam por 0."""
         resolver = _resolvedor(
             "docs/tecnica/00_Arquitectura.md", "docs/tecnica/01_Canais.md"
         )
         self.assertIsNone(resolver("docs/tecnica/0", "specs/INDICE.md"))
 
-    def test_o_prefixo_casa_o_nome_e_nao_so_o_caminho(self) -> None:
-        """`docs/tecnica/1` nao pode casar o `10` **e** o `11` e escolher um."""
-        resolver = _resolvedor("docs/tecnica/10_Onboarding.md", "docs/tecnica/11_Op.md")
+    def test_o_prefixo_tem_de_acabar_numa_fronteira_do_nome(self) -> None:
+        """`docs/tecnica/1` nao designa o `10_Onboarding`, nem que seja o unico.
+
+        Quem escreve «doc 1» quer o `01_Canais`; resolver para o documento
+        errado e pior do que nao resolver. O teste anterior usava uma *fixture*
+        com um `11_*.md` que este repositorio **nao tem**, pelo que a proteccao
+        era sintetica: contra a arvore real, `docs/tecnica/1` era o unico `1*` e
+        resolvia em silencio.
+        """
+        resolver = _resolvedor("docs/tecnica/10_Onboarding.md")
         self.assertIsNone(resolver("docs/tecnica/1", "specs/INDICE.md"))
+        self.assertEqual(
+            resolver("docs/tecnica/10", "specs/INDICE.md"),
+            "docs/tecnica/10_Onboarding.md",
+        )
+
+    def test_a_fronteira_aceita_as_tres_formas_da_casa(self) -> None:
+        """`10_Onboarding…`, `05-estrategia…` e `concierge.md`."""
+        resolver = _resolvedor(
+            "docs/tecnica/10_Onboarding.md",
+            "docs/exploracao/05-estrategia.md",
+            "docs/concierge.md",
+        )
+        for designador, esperado in (
+            ("docs/tecnica/10", "docs/tecnica/10_Onboarding.md"),
+            ("docs/exploracao/05", "docs/exploracao/05-estrategia.md"),
+            ("docs/concierge", "docs/concierge.md"),
+        ):
+            with self.subTest(designador=designador):
+                self.assertEqual(resolver(designador, "specs/INDICE.md"), esperado)
 
     def test_um_designador_sem_pasta_nao_e_enderecavel(self) -> None:
         """O cuneo abreviado do conjunto — `` `00` §12 `` — e ambiguo.
@@ -168,6 +222,50 @@ class TestGramaticaDasCitacoes(unittest.TestCase):
             [("docs/tecnica/10_Onboarding.md", "4")],
         )
 
+    def test_a_preposicao_locativa_nao_atribui_o_paragrafo(self) -> None:
+        """«§N **em** `Y`» nao e uma citacao de `Y`: o `§` e de outro documento.
+
+        «a regra do `docs/tecnica/09` §5.3 **em** `…/Alojamento_Cotacoes.md`»
+        cita o §5.3 **do 09**, escrito **no** Alojamento_Cotacoes. Com `em` na
+        ordem B, o gate atribuia-o ao segundo documento e acusava um §5.3 que
+        ele nao tem — falso positivo sobre prosa valida.
+        """
+        citacoes = seccoes.citacoes(
+            "a regra do `docs/tecnica/10_Onboarding.md` §4 em `specs/INDICE.md`",
+            "specs/EPIC-01.md",
+            self.resolver,
+        )
+        self.assertEqual(
+            [(c.destino, c.seccao) for c in citacoes],
+            [("docs/tecnica/10_Onboarding.md", "4")],
+        )
+
+    def test_a_corrida_aceita_o_travessao(self) -> None:
+        """«§8.3–§8.4» expande as **pontas escritas**, nao o interior."""
+        self.assertEqual(
+            self._secs("`specs/INDICE.md` §4–§7"), ["4", "7"]
+        )
+
+    def test_uma_citacao_partida_por_mudanca_de_linha(self) -> None:
+        """O designador fecha uma linha e o `§` abre a seguinte.
+
+        Com a prosa a mudar de linha a ~80 colunas, e forma corrente — e
+        deixava passar a gemea exacta de uma citacao corrigida neste ticket
+        (`specs/EPIC-03_Agent_Runtime_Verticais.md:391-392`).
+        """
+        texto = "E o `docs/tecnica/10_Onboarding.md`\n§4 diz que sim.\n"
+        citacoes = seccoes.citacoes(texto, "specs/EPIC-01.md", self.resolver)
+        self.assertEqual(
+            [(c.linha, c.destino, c.seccao) for c in citacoes],
+            [(2, "docs/tecnica/10_Onboarding.md", "4")],
+        )
+
+    def test_a_fronteira_nao_atravessa_uma_linha_vazia(self) -> None:
+        """Uma linha vazia separa paragrafos, e juntar atraves dela emparelhava
+        um documento de um paragrafo com um `§` do seguinte."""
+        texto = "fim do paragrafo com `docs/tecnica/10_Onboarding.md`\n\n§4 abre outro.\n"
+        self.assertEqual(self._secs(texto), [])
+
     def test_um_paragrafo_nu_nao_e_enderecavel(self) -> None:
         """«o §8» dentro do proprio documento nao nomeia documento nenhum."""
         self.assertEqual(self._secs("como se ve no §8 acima"), [])
@@ -198,6 +296,65 @@ class TestGramaticaDasCitacoes(unittest.TestCase):
 
     def test_um_texto_sem_paragrafo_nenhum_nao_e_percorrido(self) -> None:
         self.assertEqual(self._secs("`specs/INDICE.md` linha 4"), [])
+
+
+class TestBlocosDeHandoff(unittest.TestCase):
+    """O bloco de *handoff* e cercado, e e o unico sitio onde um `§` da uma ordem.
+
+    A condicao 3 saltava-os todos — e a ocorrencia que motivou este portao vivia
+    exactamente ali: «NAO apagues a linha de risco do §12», dentro da cerca de
+    `specs/tickets/KAM-169.md`. Um portao que nomeia o bloco de *handoff* como o
+    caso que o motiva e nao o le promete o que nao faz.
+    """
+
+    BLOCO = (
+        "## KAM-999 — exemplo\n"
+        "\n"
+        "### Handoff para Claude Code\n"
+        "\n"
+        "```text\n"
+        "NAO apagues a linha de risco do §99 do `docs/tecnica/10_Onboarding.md`.\n"
+        "```\n"
+    )
+
+    def setUp(self) -> None:
+        self.resolver = _resolvedor("docs/tecnica/10_Onboarding.md")
+
+    def test_dentro_de_um_bloco_de_handoff_varre_se(self) -> None:
+        no_handoff = seccoes.linhas_de_handoff(self.BLOCO)
+        citacoes = seccoes.citacoes(
+            self.BLOCO, "specs/tickets/KAM-999.md", self.resolver, no_handoff
+        )
+        self.assertEqual([c.seccao for c in citacoes], ["99"])
+
+    def test_sem_as_linhas_do_handoff_a_cerca_esconde_a_citacao(self) -> None:
+        """O controlo: e a cerca que a escondia, e nao outra coisa."""
+        citacoes = seccoes.citacoes(
+            self.BLOCO, "specs/tickets/KAM-999.md", self.resolver
+        )
+        self.assertEqual(citacoes, [])
+
+    def test_um_bloco_de_codigo_comum_continua_fora(self) -> None:
+        """Alargar ao *handoff* nao alarga a todas as cercas."""
+        texto = (
+            "## 1. Exemplo\n"
+            "\n"
+            "```python\n"
+            "# ver o §99 do `docs/tecnica/10_Onboarding.md`\n"
+            "```\n"
+        )
+        no_handoff = seccoes.linhas_de_handoff(texto)
+        self.assertEqual(no_handoff, frozenset())
+        self.assertEqual(
+            seccoes.citacoes(texto, "specs/EPIC-01.md", self.resolver, no_handoff), []
+        )
+
+    def test_a_arvore_tem_blocos_de_handoff_e_eles_sao_varridos(self) -> None:
+        """Se a deteccao se partir, isto apanha-o: sao 170 blocos em 65 ficheiros."""
+        total = 0
+        for rel in ROOT.glob("specs/tickets/*.md"):
+            total += len(seccoes.linhas_de_handoff(rel.read_text(encoding="utf-8")))
+        self.assertGreater(total, 500, "os blocos de handoff deixaram de ser vistos")
 
 
 class TestTokenDeDispensa(unittest.TestCase):

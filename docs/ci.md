@@ -159,22 +159,28 @@ Excepções em [`ci/refs-allow.yaml`](../ci/refs-allow.yaml), cada uma com
 ficheiro, token e razão.
 
 **E resolve as citações de secção** (`§N`, KAM-170), que eram a **quinta** família
-de citação deste conjunto e a única sem portão — **8 157** ocorrências nos 153
-documentos de `specs/`, `docs/` e `README.md`. Uma
+de citação deste conjunto e a única sem portão — **8 431** ocorrências nos 158
+documentos de `specs/`, `docs/` e `README.md`, e 12 671 na árvore inteira. Uma
 citação é verificada quando é **endereçável**, e isso exige quatro coisas: um
 designador de documento ao lado dela **com separador de directório** (um caminho
 para um `.md` seguido pelo git, ou truncado ao prefixo do nome — `docs/tecnica/10`
-— a resolver para exactamente um ficheiro); que esse documento **numere títulos**;
-que a citação esteja fora de um bloco cercado; e o número resolve se for um número
-de título **ou o prefixo de um** (o `docs/exploracao/06` numera `### 3.1` sob um
+— a acabar numa fronteira do nome e a resolver para exactamente um ficheiro); que
+esse documento **numere títulos** (com ou sem `§` no título, porque dois ADRs
+locais numeram `## §6 — …`); que a citação esteja fora de um bloco cercado —
+**excepto dentro de um `### Handoff para Claude Code`, que se varre**, porque são
+170 blocos cercados por construção e é o único sítio onde um `§N` dá uma **ordem**
+ao executor seguinte; e o número resolve se for um número de título **ou o
+prefixo de um**. Varre-se também a **fronteira entre duas linhas**, porque a prosa
+muda de linha a ~80 colunas e um designador no fim de uma linha com o `§` no
+começo da outra é forma corrente (o `docs/exploracao/06` numera `### 3.1` sob um
 `## Camada 3` sem número, pelo que o `§3` é a secção-contentor e existe). O que não
 for endereçável **não dá falso positivo**, e é essa fronteira que o torna um
 portão: ficam de fora o `§8` nu dentro do próprio documento, o cunho abreviado
 sem pasta (`` `00` §12 ``, ambíguo entre três documentos) e os *stubs* de
 documentos que vivem no `albinoJimy/kamba` privado — `isolamento.md` e
 `seguranca/*`, cujo caminho é igual de propósito «para que as citações espalhadas
-pelo conjunto continuem a resolver». São **5 489 das 8 157**, e o número está
-escrito em vez de implícito.
+pelo conjunto continuem a resolver». São **5 045 das 8 431** — 60% —, e o número
+está escrito em vez de implícito.
 
 **O que este passo não apanha, que é a parte que importa dizer.** A família tem
 duas sub-classes, e só uma é mecanizável:
@@ -194,10 +200,13 @@ precisa de dispensas para passar é uma nota, não um portão. A origem da liç�
 achado C-03 de
 [`ANALISE-44`](analises/ANALISE-44-KAM-169-origem-do-golden-set.md).
 
-Corpus: tudo o que o git segue, **menos** `analises/` e `evidencia/` — registos
-datados, pela mesma razão do `lint_contagens`. Medido na `main`: **3 629**
-citações endereçáveis e **nove** que não resolviam, todas corrigidas no PR do
-KAM-170, **sem uma única dispensa**. A dispensa existe e tem a forma
+Corpus: tudo o que o git segue, **menos** `analises/` e `evidencia/` como
+**origem** — registos datados, pela mesma razão do `lint_contagens`; como
+**destino** entram, e cinco citações para eles caem na condição dos títulos
+numerados. Medido na `main` em `9c5fa60`, com o portão corrido contra uma árvore
+limpa: **4 500** citações endereçáveis e **dez** que não resolviam (onze a contar
+a que a área `tools/lint_refs/**` já dispensava), todas corrigidas no PR do
+KAM-170, **sem uma única dispensa nova**. A dispensa existe e tem a forma
 `§N@<destino>` — a secção **e** o documento, porque o mesmo `§7.14` está certo
 num e errado noutro.
 

@@ -38,9 +38,14 @@ apanharia as seis do «PA-GOV-4 do §16» — foi medida sobre a arvore e
 Uma verificacao que precisa de dispensas para passar nao e um portao; e uma
 nota, e vale mais dize-lo.
 
-O que o portao fecha, medido na `main` de 2026-11-02: **nove** citacoes que nao
-resolvem, em 3 629 enderecaveis. Todas corrigidas no PR deste ticket, sem uma
-unica dispensa em `ci/refs-allow.yaml`.
+O que o portao fecha, medido na `main` em `9c5fa60` correndo-o contra uma
+arvore limpa (`git archive refs/remotes/publico/main`, com estes dois modulos
+por cima): **dez** citacoes que nao resolvem, em **4 500** enderecaveis. Sao
+onze a contar a que a area `tools/lint_refs/**` do `ci/refs-allow.yaml` ja
+dispensava desde o KAM-002 — o varrimento ve-a, o portao nao, e foi corrigida
+na mesma, porque uma citacao quebrada dentro do ficheiro que explica o *gate*
+nao deixa de o ser por estar dispensada. As onze estao corrigidas no PR deste
+ticket, **sem uma unica dispensa nova**.
 
 ## A regra de enderecabilidade
 
@@ -51,31 +56,92 @@ que e a fronteira que torna isto um portao e nao um incomodo.
 1. **Ha um designador de documento ao lado**, e ele tem separador de
    directorio: um caminho para um `.md` seguido pelo git, ou um caminho
    truncado ao prefixo do nome (`docs/tecnica/10`, `../specs/EPIC-07`) que
-   resolva para **exactamente um** ficheiro seguido. Resolve-se primeiro
-   relativo a pasta do ficheiro citante, depois relativo a raiz.
+   acabe numa **fronteira** do nome — `_`, `-` ou `.` — e resolva para
+   **exactamente um** ficheiro seguido. Resolve-se primeiro relativo a pasta do
+   ficheiro citante, depois relativo a raiz. A fronteira existe porque
+   `docs/tecnica/1` resolvia em silencio para o `10_Onboarding…`, por ser o
+   unico `1*` daquela pasta, quando quem escreve «doc 1» quer o `01_Canais…`;
+   com ela, `docs/tecnica/0` e `docs/tecnica/1` nao designam **nada** nesta
+   arvore, e a guarda do «exactamente um» fica sem instancia viva — e cinto e
+   suspensorios, nao a regra que decide.
 
    Fora, de proposito: o `§8` nu dentro do proprio documento (nao nomeia
    documento nenhum), e o cuneo abreviado sem pasta — `` `00` §12 `` —, que
    e ambiguo entre `docs/tecnica/00`, `specs/00_KAMBA_Carta.md` e
    `specs/00_System_Spec.md` e so se resolveria com um mapa de apelidos escrito
-   a mao. Sao **5 489 das 8 157** ocorrencias de `§N` do conjunto documental da
-   `main` (153 ficheiros de `specs/`, `docs/` e `README.md`, menos os dois
-   registos datados); ficam sem portao, e isso esta dito.
+   a mao. Sao **5 045 das 8 431** ocorrencias de `§N` do conjunto documental
+   desta arvore (158 ficheiros de `specs/`, `docs/` e `README.md`, menos os dois
+   registos datados) — 60%; ficam sem portao, e isso esta dito. Sobre a arvore
+   inteira o portao enderenca 4 500 de 12 671.
 
-2. **O documento citado tem titulos numerados** (`^#{2,4} N[.N[.N]]`). Um que
-   nao tenha e um *stub* de um documento que vive noutro repositorio —
-   `docs/isolamento.md` e `docs/seguranca/*` apontam para o `albinoJimy/kamba`
-   privado, com o caminho de proposito igual «para que as citacoes espalhadas
-   pelo conjunto continuem a resolver». As onze citacoes para eles nao sao
-   defeito: a seccao existe, nao e aqui que ela esta.
+2. **O documento citado tem titulos numerados** (`^#{2,4} §?N[.N[.N]]`; o `§`
+   no titulo e opcional porque dois ADRs locais numeram `## §6 — …`). Sao **30**
+   as citacoes que caem aqui, e nao e um grupo so:
 
-3. **A citacao esta fora de um bloco de codigo cercado**, com a mesma reserva do
+   - **25** vao para tres *stubs* de documentos que vivem noutro repositorio —
+     `docs/isolamento.md` (19), `docs/seguranca/ameacas_stride.md` (5) e
+     `docs/seguranca/lacunas.md` (1) apontam para o `albinoJimy/kamba` privado,
+     com o caminho de proposito igual «para que as citacoes espalhadas pelo
+     conjunto continuem a resolver». Nao sao defeito: a seccao existe, nao e
+     aqui que ela esta.
+   - **5** vao para ficheiros de `docs/analises/`, que nao numeram titulos. Sao
+     registos datados, e o corpus nao os varre como **origem**; como **destino**
+     ficam de fora por esta condicao, e nao por uma regra propria.
+
+   A razao escrita desta condicao era so a primeira metade, e dizia menos do que
+   a condicao fazia: **oito** das citacoes isentas iam para documentos que nao
+   eram *stub* de nada, entre eles o `docs/adr/ADR-L002`, que e um ADR **deste**
+   repositorio. Era esse o buraco que escondia um `§5` quebrado citado de
+   `libs/py-core/src/kamba_core/secrets/port.py` — fechado com o `§?` no padrao
+   do titulo. Achado A-07 da revisao adversarial.
+
+3. **A citacao esta fora de um bloco de codigo cercado** — **excepto** dentro
+   de um `### Handoff para Claude Code`, que se varre. Com a mesma reserva do
    `scan.py`: um numero impar de cercas desliga a dispensa e varre-se tudo.
+
+   A excepcao do *handoff* nao e conveniencia: sao 170 blocos em 65 ficheiros,
+   cercados **por construcao**, e e o unico sitio do conjunto onde um `§N` da
+   uma **ordem** ao executor seguinte. A ocorrencia que motivou este portao
+   vivia exactamente ali. Um portao que nomeia o bloco de *handoff* como o caso
+   que o motiva e nao o le promete o que nao faz; era o achado de bloqueio
+   (A-02) da revisao adversarial. A deteccao vem do `lint_handoff`, que ja entra
+   nesses blocos para resolver caminhos.
+
+   E varre-se tambem a **fronteira entre duas linhas**: o designador fecha uma
+   linha e o `§` abre a seguinte. Com a prosa deste conjunto a mudar de linha a
+   ~80 colunas e forma corrente, e deixava passar a gemea exacta de uma das
+   citacoes que este ticket corrige (achado A-03). Nao se atravessa uma linha
+   vazia, que separa paragrafos.
 
 4. **O numero resolve** se for um numero de titulo **ou o prefixo de um**. O
    `docs/exploracao/06` numera `### 3.1` sob um `## Camada 3 — Dinheiro` que
    nao leva numero: o `§3` e a seccao-contentor, e existe. Sem esta regra as
-   duas citacoes para ele eram falsos positivos.
+   duas citacoes para ele eram falsos positivos — duas, medidas, e nao uma
+   suposicao.
+
+## O custo, e a ressalva que ele merece
+
+Medido com o metodo da revisao adversarial — trocar o `cli.verificar_seccoes`
+por um `stub` e cronometrar o `cli.verificar` inteiro, varias corridas, com a
+cache quente:
+
+```text
+com a passagem de seccoes   [8,76  6,84  8,23]   min 6,84 s
+sem a passagem de seccoes   [5,30  5,13  4,37]   min 4,37 s
+```
+
+Da **+2,5 s** sobre uma base de 4,4 s. **E e uma medicao fraca, e vale dize-lo:**
+as corridas variam quase duas vezes entre si, esta maquina nao e o CI, e o
+*checkout* e partilhado com outras sessoes a ler a arvore ao mesmo tempo. Uma
+medicao independente sobre a mesma arvore, pelo mesmo metodo, deu **+7,55 s**
+sobre uma base de 4,67 s — o que cai fora do meu intervalo e nao se reconcilia
+com ele.
+
+O que sobrevive as duas medicoes, e e o que importa decidir: **a passagem de
+seccoes custa a mesma ordem de grandeza que todo o resto do `lint_refs`
+junto**, pelo que aproximadamente duplica esse passo. Com o *gate* 3 a correr em
+~8 s no CI, continua a ser dos baratos — mas nao se escreva aqui um numero
+preciso que nenhuma das duas medicoes sustenta.
 
 ## Corpus
 
@@ -97,8 +163,13 @@ import re
 #: mesma coisa era a forma garantida de as duas discordarem.
 from lint_handoff.scan import blocos as lint_handoff_blocos
 
-#: `§4`, `§20.1`, `§7.6.2`. Tres niveis, que e o que o conjunto usa
-#: (`#### 7.6.2` existe tres vezes).
+#: `§4`, `§20.1`, `§7.6.2`. Tres niveis, que e o que o conjunto usa: ha tres
+#: titulos de tres niveis no corpus varrido — `#### 8.3.1` e `#### 8.3.2` do
+#: `docs/tecnica/08` e `#### 5.3.1` do `docs/ten.md` — e mais tres em
+#: `docs/evidencia/KAM-137.md`, que nao se varre. **Nenhum e `7.6.2`:** a
+#: primeira versao deste comentario dizia «`#### 7.6.2` existe tres vezes» e
+#: confundia a **citacao** `§7.6.2` (que existia, e estava quebrada) com um
+#: titulo. Achado A-06 da revisao adversarial.
 _SEC = r"§[0-9]+(?:\.[0-9]+){0,2}"
 
 #: Designador de documento. **Exige separador de directorio** — e essa exigencia
@@ -120,8 +191,18 @@ _ORDEM_A = re.compile(rf"(?P<doc>{_DESIGNADOR})(?P<ruido>{_RUIDO})(?P<sec>{_SEC}
 
 #: Ordem B — o `§` primeiro: «o §12 do `docs/tecnica/10`». E a forma em que as
 #: dez do KAM-169 foram escritas.
+#:
+#: **So preposicoes possessivas** — `do`, `da`, `de`. As locativas (`em`, `no`,
+#: `na`) diziam a coisa errada: «a regra do `../docs/tecnica/09` §5.3 **em**
+#: `../docs/tecnica/evidencia/validacao/Alojamento_Cotacoes.md`»
+#: (`specs/00_KAMBA_Carta.md:91`) cita o §5.3 **do 09**, escrito **no**
+#: Alojamento_Cotacoes — e a ordem B atribuia-o ao segundo documento, que nao
+#: tem §5.3 nenhum. Era um falso positivo sobre prosa valida, apanhado quando a
+#: `main` trouxe essa linha a meio deste ticket. Custo de as tirar, medido na
+#: arvore: **zero** — nesta posicao ha 66 `do`, 15 `de` e **um** `em`, que era
+#: este.
 _ORDEM_B = re.compile(
-    rf"(?P<sec>{_SEC})\s+(?:do|da|de|em|no|na)\s+[`\[]*(?P<doc>{_DESIGNADOR})"
+    rf"(?P<sec>{_SEC})\s+(?:do|da|de)\s+[`\[]*(?P<doc>{_DESIGNADOR})"
 )
 
 #: Corrida de `§` depois do primeiro, separados so por virgula, «e», «ou» ou um
@@ -304,7 +385,9 @@ def citacoes(
     encontradas: list[Citacao] = []
     # Sem um `§` nao ha nada a emparelhar, e os padroes do designador tem
     # quantificadores encaixados que retrocedem muito em ficheiros de codigo
-    # cheios de caminhos. O numero esta na secao «O custo» da docstring.
+    # cheios de caminhos. Nao e cosmetica: tirar este corte foi o que fez a
+    # passagem passar de segundos a dezenas deles. O custo esta na seccao «O
+    # custo» da docstring, com a ressalva de medicao que ele merece.
     if "§" not in texto:
         return encontradas
     linhas = texto.split("\n")
@@ -352,6 +435,16 @@ def citacoes(
         def aceita(inicio: int, fim: int) -> bool:
             return corte is None or (inicio < corte < fim)
 
+        def linha_do(inicio_do_sec: int) -> int:
+            """A linha onde o `§` esta escrito, que e o token a corrigir.
+
+            Numa unidade de duas linhas, o `§` pode estar em qualquer das duas:
+            «`X`\\n§4» tem-no na segunda, «§4\\ndo `X`» na primeira.
+            """
+            if corte is None or inicio_do_sec < corte:
+                return numero_linha
+            return numero_linha + 1
+
         # A ordem B corre **primeiro**, e o que ela emparelhar fica-lhe.
         #
         # «`specs/02` §7.6.2 do `tecnica/06`» casa as duas ordens com o mesmo
@@ -370,7 +463,7 @@ def citacoes(
             if destino is None:
                 continue
             juntar(
-                numero_linha, designador, destino,
+                linha_do(correspondencia.start("sec")), designador, destino,
                 correspondencia.group("sec")[1:], contexto,
             )
 
@@ -383,7 +476,7 @@ def citacoes(
                 continue
             if aceita(correspondencia.start(), correspondencia.end()):
                 juntar(
-                    numero_linha, designador, destino,
+                    linha_do(correspondencia.start("sec")), designador, destino,
                     correspondencia.group("sec")[1:], contexto,
                 )
             # A corrida: os `§` seguintes pertencem ao mesmo documento.
@@ -393,7 +486,7 @@ def citacoes(
                     break
                 if aceita(correspondencia.start(), seguinte.end()):
                     juntar(
-                        numero_linha, designador, destino,
+                        linha_do(seguinte.start("sec")), designador, destino,
                         seguinte.group("sec")[1:], contexto,
                     )
                 posicao = seguinte.end()
