@@ -20,10 +20,30 @@ de `main` — alteração de regra de bloqueio, que é decisão do fundador.
 | 5 — mapeamento ambiente → projecto, e um segredo de `prod` em `staging` falha | Os três projectos são distintos; uma referência `<projecto>/<ID>` dentro de `infra/envs/<e>/` tem de ser do projecto de `<e>` | `projecto-repetido`, `projecto-local-fora-de-dev`, `projecto-em-falta`, `chave-partilhada-entre-ambientes`, `segredo-de-outro-ambiente`, `segredo-fora-de-um-ambiente`, `segredo-fora-do-inventario`, `segredo-nao-existe-no-ambiente` |
 | 6 — 0 recursos proprietários sem equivalente | Nenhum `.tf` fora de `infra/modules/provider-*/` declara `resource`, `data` ou `provider` | `recurso-fora-da-costura` |
 | (Detalhes Técnicos) DNS com TTL baixo | `dns.ttl_segundos` presente e ≤ 300 (***proposta***, não medição) | `ttl-ausente`, `ttl-acima-do-proposto` |
-| (transversal) Esquema e estrutura | Os três `env.yaml` existem, declaram o ambiente da sua pasta, e não têm chaves que ninguém verifique — uma chave a mais era a forma de a D1 entrar por um campo que nenhuma regra lê | `ambiente-em-falta`, `ambiente-mal-declarado`, `chave-desconhecida`, `dados-ausente`, `segredo-nomeado-ausente-do-inventario` |
+| (transversal) Esquema e estrutura | Os três `env.yaml` existem, declaram o ambiente da sua pasta, e não têm chaves que o leitor não conheça. E **só existem três pastas** em `infra/envs/`: uma quarta era invisível a quatro das cinco verificações | `ambiente-em-falta`, `ambiente-mal-declarado`, `ambiente-desconhecido`, `chave-desconhecida`, `dados-ausente`, `segredo-nomeado-ausente-do-inventario`, `versao-desconhecida` |
+| (transversal) Coerência interna — as folhas que a matriz **não** compara | O `env.yaml` tem 24 folhas e a matriz compara 12. As outras nove ficam amarradas a uma que a matriz vê: a `forma` deriva de `vcpu`+`memoria_gb`, o `proxypay_base` do `facilitador.modo`, o `budget` do `llm.modo`, o `cofre` do `segredos.projecto` | `forma-divergente-do-compute`, `compute-local-com-host`, `disco-sem-nvme`, `meta-sem-assinatura`, `facilitador-fora-da-sandbox`, `facilitador-com-endpoint-a-mais`, `facilitador-modo-desconhecido`, `appypay-com-estado-errado`, `budget-divergente-do-modo`, `llm-modo-desconhecido`, `cofre-divergente-do-projecto` |
+| (transversal) Formas nativas do OpenTofu | O `.tf.json` conta como o `.tf` — é a segunda forma que o OpenTofu carrega —, e um `.tf.json` que não se interpreta também não passa | `configuracao-nativa-ilegivel` (e `recurso-fora-da-costura` na forma JSON) |
 
-**São 30 códigos, e todos estão nesta tabela** — não por disciplina, mas porque
+**São 44 códigos, e todos estão nesta tabela** — não por disciplina, mas porque
 `tests/test_cobertura_dos_achados.py` falha quando um não está.
+
+### As quatro linhas transversais nasceram de uma revisão adversarial
+
+Vale dizer de onde vêm, porque a lição é sobre **onde** estava o defeito. As
+nove regras originais eram sólidas e o canário provava que mordiam; o que não
+estava provado era que **a camada de leitura entregasse às regras tudo o que
+conta**. Quatro decisões de recolha tinham furos, e o canário — que muta um
+`Dados` já carregado — não podia tocar em nenhuma:
+
+| Furo | Medido assim | Fechado por |
+|---|---|---|
+| O filtro `.tf` da regra de portabilidade | um `resource` de fornecedor num `infra/envs/prod/fornecedor.tf.json` dava **zero achados**, com `tofu validate` a confirmar que o ficheiro é configuração | `EXTENSOES_DE_CONFIGURACAO_NATIVA` |
+| A lista de extensões varridas | `prod/META_APP_SECRET` num `infra/envs/staging/terraform.tfvars` (auto-carregado pelo OpenTofu) dava **zero achados** | `.tfvars` em `EXTENSOES_DE_CONFIGURACAO` |
+| As 12 chaves comparadas com a matriz | `vcpu: 64` em `staging` dava zero achados, e o `tofu plan` imprimia `forma = "64vcpu-256gb"` com a matriz a dizer `4vcpu-16gb`. Pior: o `proxypay_base` trocado pelo *host* de **produção** passava | `_regra_coerencia_interna` |
+| A lista fixa de três ambientes | `infra/envs/staging-dr/env.yaml` com `dados.classe: real` e `restauro_de: [prod]` dava zero achados e imprimia «3 ambientes» | `_regra_pastas_de_ambiente` |
+
+As quatro mutações são hoje casos de canário, com as palavras da revisão. Um
+escape vira portão.
 
 **O critério 2 não está aqui**, e isso é a coisa mais importante desta página:
 «um *host* novo em ≤ 30 min, mediana de 3 execuções» não se verifica a ler
@@ -52,6 +72,21 @@ Dizer isto faz parte do resultado. Um número sozinho não é uma medição.
   Verifica-se o **mapeamento**, que é o que o critério 5 pede deste ticket.
 - **Não valida que um `apd_ref` existe na APD.** Valida a forma. São **0 de 14**
   os destinos com protocolo (`GoLive_Gate.md` linha B2).
+- **Nem que a D1 foi decidida.** Pela mesma razão, e dita com as mesmas
+  palavras porque a omissão enganava: um `decisao_d1: "D1/2026-11-02/inventada"`
+  passa. O que o gate recusa é a **ausência** de duas cadeias bem formadas, e
+  isso vale contra a distracção — uma linha mudada sem ninguém ver, que é o modo
+  de falha real — e não contra quem queira contorná-la. O que impede a entrada
+  de dados reais é o `GoLive_Gate.md`, que é um acto humano com assinatura.
+- **Não compara `infra/ENVIRONMENTS.md` com o doc 09 §6.** O critério 1 pede a
+  matriz «com as 7 linhas do doc 09 §6» **e** um teste que a compare com a
+  configuração; o segundo está feito, o primeiro é conferência humana. Se um
+  valor da matriz se afastar do documento-fonte e o `env.yaml` for mudado a par,
+  o gate fica verde. Não se automatizou porque as células do doc 09 §6 são prosa
+  com estados (`CONFIRMADO`, `INDÍCIO`) e não tokens — fazer o lint lê-las era
+  construir um segundo analisador de prosa sobre um documento que muda por
+  outras razões. As sete linhas foram conferidas à mão, e a revisão adversarial
+  conferiu-as outra vez.
 - **Não lê `services/`, `libs/`, `packages/` nem `ops/`.** O varrimento é sobre
   `infra/`. O uso de segredos em código tem o seu verificador, que é o
   `secrets_inventory` do KAM-010 (eixo `uso`).
@@ -75,11 +110,28 @@ Cada caso declara a sua **precondição**: se o campo já não estiver no estado
 que o caso parte, o caso **falha** em vez de passar — que é o que fecha o modo
 de falha desta forma (uma mutação que não muda nada passaria sempre).
 
-### «19 de 19 casos» não é cobertura total, e vale dizê-lo
+### A linha de saída diz o que mediu, e isso levou duas correcções
 
-O canário tem **19** casos e o lint produz **30** códigos. Ler a linha de saída
-como cobertura total era um erro à espera de acontecer, e foi encontrado na
-auto-validação deste ticket. A divisão é esta:
+Hoje imprime:
+
+```
+env_lint canario: 25 de 25 casos a morder (23 achados distintos), a exercitar 11 de 11 regras
+```
+
+Os três números são medidos, e nenhum deles era antes. A primeira versão dizia
+«19 de 19 casos a morder, **sobre 9 regras**», onde o 9 era `len(REGRAS)` — não
+uma medição — e **uma das nove não tinha caso nenhum**. O segundo número passou
+a sair de correr cada regra isoladamente por cada caso, e há um teste
+(`test_cada_regra_e_exercitada_por_um_caso`) que exige que seja igual ao total.
+
+A segunda correcção foi contar **casos** e não códigos distintos: dois códigos
+têm dois casos cada de propósito (o `.tf` e o `.tf.json`; o `.tf` e o
+`.tfvars`), e um contador de códigos imprimia «23 de 25» com zero falhas — um
+número que parece dizer «dois casos falharam» quando nenhum falhou.
+
+### Cobertura: o canário não chega, e o que o completa
+
+O canário tem **25** casos e o lint produz **44** códigos. A divisão é esta:
 
 - **canário** — as regras que os critérios de aceitação nomeiam, provadas
   contra a árvore **real**, que é a que o gate verifica;

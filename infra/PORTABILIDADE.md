@@ -41,9 +41,9 @@ tiver a forma portátil.
 |---|---|---|---|---|---|
 | 1 | **Compute** | O *host* do Compose reduzido (doc 09 §4.4: 8 vCPU/32 GB em `prod`, 4/16 em `staging`) | VM ou *bare metal* com imagem Linux e cloud-init | Instalação manual pelo procedimento de `README.md` §5 (mais lenta, mesmo resultado) | **Não** |
 | 2 | **Disco de blocos** | O volume do Postgres e do WAL (NVMe ≥ 200 GB) | Disco anexo, montado por **etiqueta** de sistema de ficheiros e não por nome de dispositivo | Disco local do *host* | **Não** |
-| 3 | **Rede e firewall** | Só 443 e a porta UDP do WireGuard abertas (doc 09 §3.2 regra 5) | Regras de *firewall* do *host* (`nftables`), aplicadas pelo próprio *host* | `nftables` é o caminho por omissão; um grupo de segurança do fornecedor é um reforço, nunca a única barreira | **Não** |
+| 3 | **Rede e firewall** | Só 443 e a porta UDP do WireGuard abertas (doc 09 §3.2 regra 5) | Regras de *firewall* do *host* (`nftables`), aplicadas pelo próprio *host* | `nftables` é o caminho por omissão; um grupo de segurança do fornecedor é um reforço, nunca a única barreira. **Não entregue aqui: é o KAM-077** — ver §3.1 | **Não** |
 | 4 | **DNS** | O passo «DNS» do orçamento de RTO, com TTL baixo (*proposta*: 300 s) | Zona com registos A/AAAA e TTL configurável — o que qualquer servidor de DNS faz | Qualquer operador de DNS; a zona é um ficheiro | **Não** |
-| 5 | **Identidade para o CI** | Autenticação sem chave estática (ADR-L007 §4a) | OIDC do GitHub trocado por credenciais de curta duração | **Nenhum equivalente portátil.** Ver §3 — é a única linha com um problema real | **Não, mas ver §3** |
+| 5 | **Identidade para o CI** | Autenticação sem chave estática (ADR-L007 §4a) | OIDC do GitHub trocado por credenciais de curta duração | **Nenhum equivalente portátil.** Ver §3.2 | **Não, mas ver §3.2** |
 | 6 | **Armazenamento de objectos** | Imagens de catálogo e anexos | API compatível com S3, atrás da porta `StorageProvider` | SeaweedFS no próprio *host* (`compose/docker-compose.storage.yml`) — já existe e já corre | **Não** |
 | 7 | **Base de dados** | Postgres 18.6 com pgvector | Contentor no *host*, sem acoplamento a região | É já a forma por omissão; um Postgres gerido seria a excepção, não a regra | **Não** |
 | 8 | **Repositório de cópias de segurança** | pgBackRest noutro domínio de falha | Qualquer destino compatível com S3 ou SFTP | **Fora de âmbito deste ticket** — é o KAM-079 | — |
@@ -52,9 +52,31 @@ tiver a forma portátil.
 de um serviço gerido de um fornecedor específico. Sete têm equivalente escrito;
 a oitava é de outro ticket.
 
+**E duas das sete têm o equivalente escrito e não entregue**, o que é diferente
+de o ter: a classe 3 (ver §3.1) e a classe 5 (ver §3.2).
+
 ---
 
-## 3. A linha que não fecha, e é a única
+## 3. As linhas que não fecham
+
+### 3.1 A classe 3 tem forma portátil escrita e **não implementada**
+
+A coluna «forma portátil» da classe 3 diz `nftables` no próprio *host*. **Não há
+uma linha de `nftables` em `infra/`**, e nada neste ticket fecha a porta 22 nem
+toca no `sshd`. A revisão adversarial mediu-o:
+`grep -rniE "nftables|iptables|ufw|firewall|sshd|port 22" infra/` devolve **uma
+única** linha, que é a desta tabela.
+
+Isto não é um furo a tapar aqui: as regras de *firewall* e o ***scan* externo
+que as prova** são critérios do **KAM-077**, que é quem tem o *edge*. O que
+mudou com a revisão foi a honestidade do registo — o `/etc/kamba/LEIA-ME` que o
+*host* escreve dizia «Acesso: só por WireGuard», que era uma **afirmação sem
+mecanismo**, e passou a dizer o que o *host* não faz e de quem é. Vale notar a
+consequência que estava escondida: o `users: [default, …]` do cloud-init mantém
+o utilizador por omissão da imagem, que nas imagens dos fornecedores **traz a
+chave que o fornecedor injecta**.
+
+### 3.2 A classe 5 não tem equivalente portátil nenhum
 
 A linha 5 — **identidade para o CI** — não tem equivalente portátil, e isso
 escreve-se em vez de se arredondar.
@@ -92,4 +114,4 @@ a D1 escolher.
 
 | Versão | Data | Alteração | Autor |
 |---|---|---|---|
-| 1.0 | Novembro de 2026 | Emissão inicial, KAM-075. Oito classes de recurso com forma portátil e equivalente documentado; contagem de recursos geridos proprietários a **0**, com a distinção escrita entre o zero de um conjunto vazio e o zero mantido pela regra verificada por máquina (§1). A linha 5 (identidade federada para o CI) fica **sem** equivalente portátil e é devolvida como critério de aceitação da D1 (§3). O que esta página não prova, com estado, em §4. | Equipa KAMBÁ |
+| 1.0 | Novembro de 2026 | Emissão inicial, KAM-075. Oito classes de recurso com forma portátil e equivalente documentado; contagem de recursos geridos proprietários a **0**, com a distinção escrita entre o zero de um conjunto vazio e o zero mantido pela regra verificada por máquina (§1). A linha 5 (identidade federada para o CI) fica **sem** equivalente portátil e é devolvida como critério de aceitação da D1 (§3.2). O que esta página não prova, com estado, em §4. **Depois da revisão adversarial:** a §3.1 passa a registar que a forma portátil da classe 3 (`nftables`) está escrita e **não implementada** — é do KAM-077 —, e que o `users: default` do cloud-init mantém o utilizador por omissão da imagem do fornecedor, com a chave que ele injecta. A afirmação «Acesso: só por WireGuard» que o *host* escrevia era afirmação sem mecanismo, e foi corrigida no próprio `LEIA-ME`. | Equipa KAMBÁ |

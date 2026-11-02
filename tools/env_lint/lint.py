@@ -40,6 +40,7 @@ uma matriz conforme.
 from __future__ import annotations
 
 import fnmatch
+import json
 import re
 import subprocess
 from dataclasses import dataclass, field
@@ -113,11 +114,57 @@ _PADRAO_DA_COSTURA = "infra/modules/provider-*/*"
 #: exemplo. A primeira versao resolveu-o excluindo o nome de um ficheiro, que e
 #: o inicio de uma lista de excepcoes; isto resolve a classe.
 #:
+#: O `.tfvars` ENTROU DEPOIS, e por um furo medido: a revisao adversarial
+#: escreveu `referencia_meta = "prod/META_APP_SECRET"` num
+#: `infra/envs/staging/terraform.tfvars` e o lint deu **zero achados**, enquanto
+#: o mesmo conteudo num `.tf` dava `segredo-de-outro-ambiente`. O
+#: `terraform.tfvars` e **auto-carregado** pelo OpenTofu: esta do lado da
+#: configuracao desta fronteira, e a lista que o deixava de fora fazia da caixa
+#: do criterio 5 uma caixa evitavel por mudar a extensao de um ficheiro.
+#:
 #: O que se perde: uma referencia cruzada escrita em Markdown passa. E o certo:
 #: o OpenTofu nao le `.md`, pelo que uma referencia ali **nao muda
 #: comportamento nenhum**. Um *valor* de segredo em Markdown e outra coisa, e
 #: quem responde por ele e o gate 9 (`scan_secrets`), que varre a arvore toda.
-EXTENSOES_DE_CONFIGURACAO = (".tf", ".tftpl", ".hcl", ".yaml", ".yml", ".sh", ".json", ".env")
+EXTENSOES_DE_CONFIGURACAO = (
+    ".tf",
+    ".tf.json",
+    ".tfvars",
+    ".tfvars.json",
+    ".tftpl",
+    ".hcl",
+    ".yaml",
+    ".yml",
+    ".sh",
+    ".json",
+    ".env",
+)
+
+#: As duas formas em que o OpenTofu aceita configuracao nativa. A segunda
+#: entrou pela revisao adversarial: um `infra/envs/prod/fornecedor.tf.json` com
+#: um `resource` dentro **e configuracao valida, cria recursos, e passava** —
+#: medido, com `tofu validate` a dizer «Success!» sobre o mesmo ficheiro.
+#: Filtrar por `.tf` deixava a regra do criterio 6 a ver metade dos formatos.
+EXTENSOES_DE_CONFIGURACAO_NATIVA = (".tf", ".tf.json")
+
+#: Os blocos de topo que so podem existir atras da costura, na forma JSON.
+_BLOCOS_PROIBIDOS = ("resource", "data", "provider")
+
+#: O *endpoint* da sandbox do facilitador. **CONFIRMADO** no doc 09 §6 e no
+#: bloco do KAM-075. Esta aqui, e nao so no `env.yaml`, porque a revisao
+#: adversarial trocou o `proxypay_base` de `staging` pelo *host* de **producao**
+#: e o lint nao disse nada: nove das vinte e quatro folhas do `env.yaml` nao
+#: eram comparadas com coisa nenhuma, e esta era a mais perigosa das nove.
+SANDBOX_DO_FACILITADOR = "api.sandbox.proxypay.co.ao"
+
+#: `llm.modo` -> `llm.budget`. Os tres pares sao a linha «LLM» do doc 09 §6:
+#: «Chave de teste com *budget* minimo», «Chave propria, *budget* baixo»,
+#: «Chaves virtuais por tenant».
+BUDGET_POR_MODO_DE_LLM = {
+    "chave-de-teste": "minimo",
+    "chave-propria": "baixo",
+    "chaves-virtuais-por-tenant": "por-tenant",
+}
 
 _CHAVES_DE_TOPO = {
     "versao",
@@ -191,6 +238,10 @@ class Dados:
     inventario: dict[str, tuple[str, ...]] = field(default_factory=dict)
     #: `caminho relativo` -> texto, para os ficheiros de `infra/`.
     ficheiros: dict[str, str] = field(default_factory=dict)
+    #: As pastas que existem em `infra/envs/`, lidas do DISCO e nao de
+    #: `AMBIENTES`. Sem isto, uma pasta a mais era invisivel — ver
+    #: `_regra_pastas_de_ambiente`.
+    pastas_de_ambiente: tuple[str, ...] = ()
 
 
 # --- Leitura -----------------------------------------------------------------
@@ -280,12 +331,20 @@ def carregar(raiz: Path) -> Dados:
     if not ficheiros:
         raise ConfiguracaoInvalida("nenhum ficheiro legivel em infra/ — o varrimento seria vazio")
 
+    pasta_dos_ambientes = raiz / "infra" / "envs"
+    pastas = (
+        tuple(sorted(p.name for p in pasta_dos_ambientes.iterdir() if p.is_dir()))
+        if pasta_dos_ambientes.is_dir()
+        else ()
+    )
+
     return Dados(
         ambientes=ambientes,
         linhas_da_matriz=linhas,
         linhas_acrescentadas=acrescentadas,
         inventario=_ler_inventario(raiz),
         ficheiros=ficheiros,
+        pastas_de_ambiente=pastas,
     )
 
 
@@ -688,13 +747,52 @@ def _regra_referencias_de_segredo(dados: Dados) -> list[Achado]:
 
 
 def _regra_portabilidade(dados: Dados) -> list[Achado]:
-    """O criterio 6: nenhum recurso de fornecedor fora da costura."""
+    """O criterio 6: nenhum recurso de fornecedor fora da costura.
+
+    **As DUAS formas nativas do OpenTofu**, e nao so o HCL. A primeira versao
+    filtrava por `.tf` e a revisao adversarial passou um `resource` de
+    fornecedor num `infra/envs/prod/fornecedor.tf.json` sem um unico achado —
+    com `tofu validate` a confirmar que o ficheiro e configuracao a valer.
+    """
     achados = []
     for caminho, texto in sorted(dados.ficheiros.items()):
-        if not caminho.endswith(".tf"):
+        if not caminho.endswith(EXTENSOES_DE_CONFIGURACAO_NATIVA):
             continue
         if fnmatch.fnmatchcase(caminho, _PADRAO_DA_COSTURA):
             continue
+
+        if caminho.endswith(".tf.json"):
+            # A forma JSON nao se le com a mesma expressao: os blocos sao
+            # chaves de topo. Um ficheiro que nao se interpreta tambem e
+            # achado — o OpenTofu tambem nao o interpretaria, e um `.tf.json`
+            # ilegivel nao e um `.tf.json` inofensivo.
+            try:
+                documento = json.loads(texto)
+            except ValueError as erro:
+                achados.append(
+                    Achado(
+                        "configuracao-nativa-ilegivel",
+                        caminho,
+                        f"nao e JSON valido ({erro}); o OpenTofu carrega `.tf.json` "
+                        "como configuracao e recusaria este ficheiro",
+                    )
+                )
+                continue
+            if isinstance(documento, dict):
+                for bloco in _BLOCOS_PROIBIDOS:
+                    if bloco in documento:
+                        achados.append(
+                            Achado(
+                                "recurso-fora-da-costura",
+                                f"{caminho}:1",
+                                f"chave de topo `{bloco}` num `.tf.json` fora de "
+                                "`infra/modules/provider-*/`. O OpenTofu carrega as duas "
+                                "formas nativas, e a regra do criterio 6 vale nas duas "
+                                "(ADR-L007 §2)",
+                            )
+                        )
+            continue
+
         for achado in _BLOCO_DE_RECURSO.finditer(texto):
             numero = texto[: achado.start()].count("\n") + 1
             achados.append(
@@ -708,6 +806,186 @@ def _regra_portabilidade(dados: Dados) -> list[Achado]:
                 )
             )
     return achados
+
+
+def _regra_coerencia_interna(dados: Dados) -> list[Achado]:
+    """As folhas do `env.yaml` que a matriz **nao** compara.
+
+    ESTA REGRA NASCEU DE UM ACHADO, e vale dizer qual. A revisao adversarial
+    contou as folhas: o `env.yaml` tem **24** e o conjunto comparado com a
+    matriz tinha **12**. Nove ficavam sem regra nenhuma — e duas delas,
+    `compute.vcpu` e `compute.memoria_gb`, sao as que o HCL **realmente
+    consome** (o `provider-pendente` deriva a sua forma delas). Medido: com
+    `vcpu: 64` e `memoria_gb: 256` em `staging`, o lint dava zero achados e o
+    `tofu plan` imprimia `forma = "64vcpu-256gb"` com a matriz a dizer
+    `4vcpu-16gb`. Verificava-se a etiqueta e nao o valor.
+
+    A pior das nove era outra: `facilitador.proxypay_base` trocado pelo *host*
+    de **producao** em `staging` passava sem uma palavra.
+
+    A forma da regra e deliberada: em vez de alargar a matriz a nove linhas
+    novas — que a faria crescer sem ninguem a ler —, cada folha fica amarrada a
+    uma que a matriz **ja** compara. `forma` deriva de `vcpu` e `memoria_gb`,
+    `proxypay_base` deriva de `facilitador.modo`, `budget` deriva de `llm.modo`,
+    `cofre` deriva de `segredos.projecto`. Assim as 24 folhas ficam cobertas
+    pelas 12 comparadas mais estas derivacoes.
+    """
+    achados = []
+    for ambiente, bruto in sorted(dados.ambientes.items()):
+        onde = f"infra/envs/{ambiente}/env.yaml"
+
+        if bruto.get("versao") != 1:
+            achados.append(
+                Achado("versao-desconhecida", onde, f"`versao` e {bruto.get('versao')!r}, nao 1")
+            )
+
+        compute = bruto.get("compute") or {}
+        forma, vcpu = compute.get("forma"), compute.get("vcpu")
+        memoria, disco = compute.get("memoria_gb"), compute.get("disco")
+        if forma == "compose-local":
+            # Sem *host*: um `vcpu: 4` em `dev` seria dizer que ha um host que
+            # nao ha, e a matriz nao o mostraria.
+            if (vcpu, memoria, disco) != (None, None, None):
+                achados.append(
+                    Achado(
+                        "compute-local-com-host",
+                        onde,
+                        f"`compute.forma` e `compose-local` e ha "
+                        f"vcpu={vcpu!r}, memoria_gb={memoria!r}, disco={disco!r}",
+                    )
+                )
+        else:
+            esperada = f"{vcpu}vcpu-{memoria}gb"
+            if forma != esperada:
+                achados.append(
+                    Achado(
+                        "forma-divergente-do-compute",
+                        onde,
+                        f"`compute.forma` e {forma!r} e de `vcpu`/`memoria_gb` sai "
+                        f"{esperada!r}. A forma e o que a matriz compara; o `vcpu` e o "
+                        "`memoria_gb` sao o que o HCL passa a costura — divergirem e a "
+                        "matriz a dizer uma coisa e o `apply` a fazer outra",
+                    )
+                )
+            if disco != "nvme":
+                achados.append(
+                    Achado(
+                        "disco-sem-nvme",
+                        onde,
+                        f"`compute.disco` e {disco!r}; o perfil P0 do doc 09 §4.4 pede NVMe",
+                    )
+                )
+
+        if (bruto.get("meta") or {}).get("assina_corpo") is not True:
+            achados.append(
+                Achado(
+                    "meta-sem-assinatura",
+                    onde,
+                    "`meta.assina_corpo` tem de ser `true` nos tres. Um ambiente que "
+                    "salte a verificacao da assinatura esconde o defeito que ela apanha",
+                )
+            )
+
+        facilitador = bruto.get("facilitador") or {}
+        modo_f, base = facilitador.get("modo"), facilitador.get("proxypay_base")
+        appypay = facilitador.get("sandbox_appypay")
+        if modo_f == "sandbox":
+            if base != SANDBOX_DO_FACILITADOR:
+                achados.append(
+                    Achado(
+                        "facilitador-fora-da-sandbox",
+                        onde,
+                        f"`facilitador.modo` e `sandbox` e `proxypay_base` e {base!r}; "
+                        f"a sandbox CONFIRMADA no doc 09 §6 e {SANDBOX_DO_FACILITADOR!r}. "
+                        "Um *endpoint* de producao num ambiente sintetico cobra a alguem",
+                    )
+                )
+            if appypay != "indicio":
+                achados.append(
+                    Achado(
+                        "appypay-com-estado-errado",
+                        onde,
+                        f"`sandbox_appypay` e {appypay!r}; o doc 09 §6 afirma-a como "
+                        "INDICIO, e promover o estado e o defeito mais comum desta casa",
+                    )
+                )
+        elif modo_f in ("mock", "producao"):
+            if base is not None:
+                achados.append(
+                    Achado(
+                        "facilitador-com-endpoint-a-mais",
+                        onde,
+                        f"`facilitador.modo` e {modo_f!r} e ha `proxypay_base` ({base!r})",
+                    )
+                )
+            if appypay != "nao-aplicavel":
+                achados.append(
+                    Achado(
+                        "appypay-com-estado-errado",
+                        onde,
+                        f"`facilitador.modo` e {modo_f!r} e `sandbox_appypay` e {appypay!r}",
+                    )
+                )
+        else:
+            achados.append(
+                Achado("facilitador-modo-desconhecido", onde, f"`facilitador.modo` e {modo_f!r}")
+            )
+
+        llm = bruto.get("llm") or {}
+        esperado_budget = BUDGET_POR_MODO_DE_LLM.get(llm.get("modo"))
+        if esperado_budget is None:
+            achados.append(
+                Achado("llm-modo-desconhecido", onde, f"`llm.modo` e {llm.get('modo')!r}")
+            )
+        elif llm.get("budget") != esperado_budget:
+            achados.append(
+                Achado(
+                    "budget-divergente-do-modo",
+                    onde,
+                    f"`llm.modo` e {llm.get('modo')!r} e pede `budget: {esperado_budget}`; "
+                    f"esta {llm.get('budget')!r} (doc 09 §6, linha «LLM»)",
+                )
+            )
+
+        segredos = bruto.get("segredos") or {}
+        cofre_esperado = "nenhum" if segredos.get("projecto") == PROJECTO_LOCAL else "doppler"
+        if segredos.get("cofre") != cofre_esperado:
+            achados.append(
+                Achado(
+                    "cofre-divergente-do-projecto",
+                    onde,
+                    f"`segredos.projecto` e {segredos.get('projecto')!r} e pede "
+                    f"`cofre: {cofre_esperado}`; esta {segredos.get('cofre')!r}",
+                )
+            )
+    return achados
+
+
+def _regra_pastas_de_ambiente(dados: Dados) -> list[Achado]:
+    """Uma quarta pasta em `infra/envs/` nao escapa a quatro das cinco regras.
+
+    A revisao adversarial escreveu `infra/envs/staging-dr/env.yaml` com
+    `dados.classe: real`, sem `decisao_d1`, sem `apd_refs` e com
+    `restauro_de: [prod]`, e o lint deu **zero achados** e imprimiu «3
+    ambientes»: o `carregar` iterava `AMBIENTES` e nunca olhava para o disco.
+    Quatro das cinco verificacoes eram invisiveis a esse ambiente, e a pior
+    delas era a do criterio 4.
+
+    O teste que a `specs/02` §3.41 cita compara as **duas constantes de
+    codigo**; nada verificava o que esta na arvore. Agora verifica.
+    """
+    desconhecidas = sorted(set(dados.pastas_de_ambiente) - set(AMBIENTES))
+    return [
+        Achado(
+            "ambiente-desconhecido",
+            f"infra/envs/{pasta}/",
+            f"a pasta {pasta!r} nao e um dos ambientes {AMBIENTES}. Nenhuma regra de "
+            "matriz, de classe de dados, de restauro ou de projecto de segredos a le — "
+            "um ambiente novo entra em `AMBIENTES` (aqui e no `secrets_inventory`), no "
+            "dicionario §3.41 e na matriz, ou nao existe",
+        )
+        for pasta in desconhecidas
+    ]
 
 
 def _regra_dns(dados: Dados) -> list[Achado]:
@@ -739,7 +1017,9 @@ def _regra_dns(dados: Dados) -> list[Achado]:
 #: le o `Dados` e nao escreve nada —, e esta e a dos criterios de aceitacao.
 REGRAS = (
     _regra_ambientes_existem,
+    _regra_pastas_de_ambiente,
     _regra_esquema,
+    _regra_coerencia_interna,
     _regra_matriz,
     _regra_classe_de_dados,
     _regra_restauro,

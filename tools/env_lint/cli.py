@@ -64,9 +64,13 @@ def _comando_canario(argumentos) -> int:
         return 2
     for falha in falhas:
         print(f"env_lint canario: {falha}", file=sys.stderr)
+    # «sobre N regras» era `len(REGRAS)` e lia-se como cobertura. Agora o
+    # segundo numero e **medido**: quantas regras um caso de canario de facto
+    # exercita.
     print(
-        f"env_lint canario: {numeros['cobertos']} de {numeros['casos']} casos a morder, "
-        f"sobre {numeros['regras']} regras"
+        f"env_lint canario: {numeros['cobertos']} de {numeros['casos']} casos a morder "
+        f"({numeros['codigos']} achados distintos), a exercitar "
+        f"{numeros['regras_exercitadas']} de {numeros['regras']} regras"
     )
     if numeros["casos"] == 0:
         print(

@@ -161,14 +161,17 @@ Até lá, corre-se à mão, em contentor (nesta máquina não há `tofu` no `PAT
 
 ```bash
 docker run --rm -v "$PWD:/w" -w /w/infra/envs/staging \
-  --entrypoint /usr/local/bin/tofu ghcr.io/opentofu/opentofu:1.10.6 \
+  --entrypoint /usr/local/bin/tofu ghcr.io/opentofu/opentofu@sha256:879a73a0ee45132abf1b26583e3ab3a1e5443157a13b460114578d13dbe40b6e \
   init -backend=false
 docker run --rm -v "$PWD:/w" -w /w/infra/envs/staging \
-  --entrypoint /usr/local/bin/tofu ghcr.io/opentofu/opentofu:1.10.6 validate
+  --entrypoint /usr/local/bin/tofu ghcr.io/opentofu/opentofu@sha256:879a73a0ee45132abf1b26583e3ab3a1e5443157a13b460114578d13dbe40b6e validate
 docker run --rm -v "$PWD:/w" -w /w/infra \
-  --entrypoint /usr/local/bin/tofu ghcr.io/opentofu/opentofu:1.10.6 \
+  --entrypoint /usr/local/bin/tofu ghcr.io/opentofu/opentofu@sha256:879a73a0ee45132abf1b26583e3ab3a1e5443157a13b460114578d13dbe40b6e \
   fmt -check -recursive
 ```
+
+A imagem vai por **`@sha256:`** e não por etiqueta: uma etiqueta é mutável, e esta
+imagem é hoje o único artefacto de IaC que de facto se executa (ADR-L007 §5).
 
 Corre **offline**: sem bloco `provider` não há nada para descarregar, que é uma
 consequência útil da costura (`modules/README.md`).

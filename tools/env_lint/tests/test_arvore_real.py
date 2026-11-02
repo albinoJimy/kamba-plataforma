@@ -44,9 +44,23 @@ class TestCanarioNaArvore(unittest.TestCase):
         self.assertGreaterEqual(numeros_de_casos := len(canario.CASOS), len(lint.REGRAS))
         self.assertGreater(numeros_de_casos, 0)
 
-    def test_os_codigos_dos_casos_nao_se_repetem(self) -> None:
-        codigos = [caso.codigo for caso in canario.CASOS]
-        self.assertEqual(sorted(codigos), sorted(set(codigos)))
+    def test_as_descricoes_dos_casos_nao_se_repetem(self) -> None:
+        # Os **códigos** podem repetir-se, e repetem-se de propósito: o mesmo
+        # `recurso-fora-da-costura` tem um caso para o `.tf` e outro para o
+        # `.tf.json`, e o `segredo-de-outro-ambiente` tem um para o `.tf` e
+        # outro para o `.tfvars`. Foi a revisão adversarial a mostrar que um
+        # código com um formato coberto e outro não é um código que engana.
+        # O que não pode repetir-se é a **descrição**: duas iguais seriam duas
+        # cópias do mesmo caso.
+        descricoes = [caso.descricao for caso in canario.CASOS]
+        self.assertEqual(sorted(descricoes), sorted(set(descricoes)))
+
+    def test_cada_regra_e_exercitada_por_um_caso(self) -> None:
+        # O número que a linha de saída imprime passou a ser **medido**, e este
+        # teste é o que o prende: antes dizia `len(REGRAS)` ao lado de «19 de 19
+        # casos», e uma das nove regras não tinha caso nenhum.
+        _, numeros = canario.correr(RAIZ)
+        self.assertEqual(numeros["regras_exercitadas"], numeros["regras"])
 
 
 class TestCli(unittest.TestCase):

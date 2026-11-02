@@ -41,7 +41,7 @@ compara byte a byte não pode depender de como alguém escreveu «não-root».
 |---|---|---|---|---|
 | Dados | `dados.classe` | `synthetic` | `synthetic` — **nunca** cópia de `prod` | `synthetic` — passa a `real` só com D1 **e** `apd_ref` (§5) |
 | Compute | `compute.forma` | `compose-local` | `4vcpu-16gb` — a pedido | `8vcpu-32gb` — NVMe ≥ 200 GB (doc 09 §4.4) |
-| Meta | `meta.modo` | `mock` — *webhook* com corpo assinado por segredo de teste | `numero-de-teste` — WABA de teste da app Meta de *staging* | `producao` — números dos clientes via Embedded Signup v4 |
+| Meta | `meta.modo` | `mock` — *webhook* com corpo assinado por segredo de teste | `numero-de-teste` — WABA de teste da app Meta de *staging*; **e, na semana 1–3, 1–3 números +244 reais** para o *spike* de coexistência (H3) — ver §5.1 | `producao` — números dos clientes via Embedded Signup v4 |
 | Facilitador | `facilitador.modo` | `mock` | `sandbox` — ProxyPay em `api.sandbox.proxypay.co.ao` (§4) | `producao` — por PME |
 | LLM | `llm.modo` | `chave-de-teste` — *budget* mínimo | `chave-propria` — *budget* baixo | `chaves-virtuais-por-tenant` |
 | Segredos | `segredos.projecto` | `local` — não reutilizáveis, sem projecto remoto | `staging` — projecto Doppler | `prod` — projecto Doppler |
@@ -115,6 +115,36 @@ acrescenta é que passar a `real` por distracção deixou de ser possível.
 > do `GoLive_Gate.md`). Aqui recusa-se o **ambiente**; lá recusa-se o
 > **destino**. Marcar a linha D1t com este trabalho seria promover uma coisa a
 > outra.
+
+> **E o que este mecanismo verifica é a FORMA, não a existência da decisão.** O
+> gate recusa a **ausência** de duas cadeias bem formadas; não sabe se a D1 foi
+> decidida nem se o protocolo existe na APD. Um `decisao_d1:
+> "D1/2026-11-02/inventada"` com um `apd_ref` inventado passa — medido em
+> revisão adversarial. A barreira vale contra a **distracção**, que é o modo de
+> falha real (uma linha mudada sem ninguém ver), e não contra quem queira
+> contorná-la. O que impede a entrada de dados reais de verdade é o
+> `GoLive_Gate.md`, que é um acto humano com assinatura, e nada em `infra/` o
+> substitui. Isto está dito pela mesma razão por que o lint diz que o `apd_ref`
+> é validado na forma: uma barreira cuja força não está escrita lê-se como mais
+> forte do que é.
+
+### 5.1 A cláusula dos números +244 reais, e a tensão que ela cria
+
+A linha «Meta» do doc 09 §6 prevê, para `staging`, «na semana 1–3, **1–3
+números +244 reais** para o *spike* de coexistência (H3)». Um número +244 real é
+**dado pessoal**.
+
+Isso está em tensão com a linha «Dados» do mesmo §6, que dá `staging` como
+**sintético**, e com o DoD deste ticket («`dev`/`staging` sintéticos»). As duas
+afirmações vivem na mesma tabela do documento-fonte.
+
+**Não se resolve aqui, e não se esconde.** O que este ticket entrega é
+`dados.classe: synthetic` em `staging`, verificado por máquina; o que não tem é
+onde declarar a excepção das três semanas, porque declará-la seria decidir que
+`staging` pode ter dados pessoais — e isso atravessa o ADR-008, a Lei 22/11
+(Arts. 33.º–34.º) e a D5 (a disponibilidade dos números +244 é **INDÍCIO**, com
+confirmação escrita pendente). É pergunta para quem conduzir o *spike* H3 e para
+o parecer jurídico, não para a infraestrutura.
 
 ---
 

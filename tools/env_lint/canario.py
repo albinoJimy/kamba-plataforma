@@ -77,6 +77,10 @@ def _tirar_a_primeira_linha_da_matriz(dados: lint.Dados) -> None:
     dados.linhas_da_matriz.pop(0)
 
 
+def _apagar_o_staging(dados: lint.Dados) -> None:
+    del dados.ambientes["staging"]
+
+
 CASOS: tuple[Caso, ...] = (
     Caso(
         "restauro-de-prod",
@@ -241,6 +245,70 @@ CASOS: tuple[Caso, ...] = (
         lambda d: _exige(len(d.linhas_da_matriz) >= 1, "a matriz nao tem linhas"),
         _tirar_a_primeira_linha_da_matriz,
     ),
+    # --- Os seis que a revisao adversarial acrescentou ----------------------
+    #
+    # Os cinco primeiros sao as mutacoes **exactas** com que a revisao passou o
+    # lint, uma a uma. Ficam aqui para que o furo que ela encontrou nao possa
+    # voltar sem o canario o dizer — que e a regra da casa: um escape vira
+    # portao, nao vira nota.
+    Caso(
+        "recurso-fora-da-costura",
+        "um `resource` num `.tf.json`, que e a segunda forma nativa do OpenTofu",
+        lambda d: _exige(
+            "infra/envs/prod/fornecedor.tf.json" not in d.ficheiros,
+            "ja existe um fornecedor.tf.json em prod",
+        ),
+        lambda d: d.ficheiros.__setitem__(
+            "infra/envs/prod/fornecedor.tf.json",
+            '{"resource": {"qualquer_vm": {"host": {"etiqueta": "kamba"}}}}\n',
+        ),
+    ),
+    Caso(
+        "segredo-de-outro-ambiente",
+        "um segredo de `prod` num `terraform.tfvars` de `staging`, que o OpenTofu auto-carrega",
+        lambda d: _exige(
+            "infra/envs/staging/terraform.tfvars" not in d.ficheiros,
+            "ja existe um terraform.tfvars em staging",
+        ),
+        lambda d: d.ficheiros.__setitem__(
+            "infra/envs/staging/terraform.tfvars",
+            'referencia_meta = "prod/META_APP_SECRET"\n',
+        ),
+    ),
+    Caso(
+        "forma-divergente-do-compute",
+        "o `vcpu` que o HCL consome a crescer sem a `forma` que a matriz compara",
+        lambda d: _exige(
+            d.ambientes["staging"]["compute"]["vcpu"] == 4, "staging ja nao tem 4 vcpu"
+        ),
+        lambda d: d.ambientes["staging"]["compute"].__setitem__("vcpu", 64),
+    ),
+    Caso(
+        "facilitador-fora-da-sandbox",
+        "o *endpoint* de **producao** do facilitador num ambiente sintetico",
+        lambda d: _exige(
+            d.ambientes["staging"]["facilitador"]["proxypay_base"] == lint.SANDBOX_DO_FACILITADOR,
+            "staging ja nao aponta para a sandbox",
+        ),
+        lambda d: d.ambientes["staging"]["facilitador"].__setitem__(
+            "proxypay_base", "api.proxypay.co.ao"
+        ),
+    ),
+    Caso(
+        "ambiente-desconhecido",
+        "uma quarta pasta em `infra/envs/`, que nenhuma regra de ambiente leria",
+        lambda d: _exige(
+            set(d.pastas_de_ambiente) <= set(lint.AMBIENTES),
+            "ja ha uma pasta de ambiente a mais",
+        ),
+        lambda d: setattr(d, "pastas_de_ambiente", d.pastas_de_ambiente + ("staging-dr",)),
+    ),
+    Caso(
+        "ambiente-em-falta",
+        "um `env.yaml` que desapareceu — a unica regra que nao tinha caso",
+        lambda d: _exige("staging" in d.ambientes, "staging ja nao esta carregado"),
+        _apagar_o_staging,
+    ),
 )
 
 
@@ -261,7 +329,14 @@ def correr(raiz: Path) -> tuple[list[str], dict[str, int]]:
             f"sobre uma arvore limpa (primeiro: {limpos[0]})"
         )
 
-    codigos_cobertos = set()
+    # CONTAM-SE CASOS, nao codigos distintos. A primeira versao contava um
+    # `set` de codigos e imprimia «23 de 25 casos a morder» com zero falhas,
+    # porque dois codigos tem dois casos cada (o `.tf` e o `.tf.json`; o `.tf` e
+    # o `.tfvars`). Um numero que parece dizer «dois casos falharam» quando
+    # nenhum falhou e pior do que nao ter numero.
+    casos_a_morder = 0
+    codigos_cobertos: set[str] = set()
+    regras_exercitadas: set[str] = set()
     for caso in CASOS:
         mutados = copy.deepcopy(base)
         razao = caso.precondicao(mutados)
@@ -279,11 +354,29 @@ def correr(raiz: Path) -> tuple[list[str], dict[str, int]]:
                 f"{caso.codigo}: a mutacao ({caso.descricao}) nao produziu o achado; "
                 f"obtive {obtidos or ['nenhum']}"
             )
-        else:
-            codigos_cobertos.add(caso.codigo)
+            continue
+        casos_a_morder += 1
+        codigos_cobertos.add(caso.codigo)
+        # QUAL a regra que mordeu, e nao quantas regras existem. A primeira
+        # versao imprimia `len(lint.REGRAS)` ao lado de «19 de 19 casos», o que
+        # se lia como cobertura das regras — e a revisao adversarial mostrou que
+        # uma das nove nao tinha caso nenhum. O numero era verdade e nao era a
+        # pergunta. Mede-se correndo cada regra sozinha.
+        for regra in lint.REGRAS:
+            if any(achado.codigo == caso.codigo for achado in regra(mutados)):
+                regras_exercitadas.add(regra.__name__)
+
+    nao_exercitadas = sorted({r.__name__ for r in lint.REGRAS} - regras_exercitadas)
+    if nao_exercitadas:
+        falhas.append(
+            f"regras sem nenhum caso de canario a exercita-las: {nao_exercitadas}. "
+            "Uma regra sem caso e uma regra que o canario nao prova"
+        )
 
     return falhas, {
         "casos": len(CASOS),
-        "cobertos": len(codigos_cobertos),
+        "cobertos": casos_a_morder,
+        "codigos": len(codigos_cobertos),
         "regras": len(lint.REGRAS),
+        "regras_exercitadas": len(regras_exercitadas),
     }

@@ -87,8 +87,11 @@ decidida». Não é um esboço à espera de ser preenchido — é a decisão em 
 posta onde um `apply` tropeça nela em vez de a adivinhar.
 
 Quem verifica a regra é `tools/env_lint` (`make env-lint`, dentro do gate 2),
-que falha com `recurso-no-modulo-de-raiz` quando ela é violada, e tem uma
-*fixture* negativa a provar que morde.
+que falha com `recurso-fora-da-costura` quando ela é violada — nas **duas** formas
+nativas do OpenTofu, o `.tf` e o `.tf.json` —, e tem casos de canário a provar
+que morde. (O canário desta ferramenta é **por mutação** e não por *fixtures*,
+ao contrário do `log-lint` e do `money-lint`; a razão está em
+`tools/env_lint/canario.py`.)
 
 ## 3. Porque cloud-init e não Ansible
 
@@ -156,7 +159,8 @@ Isto está escrito em `infra/README.md` §6 e é **NÃO VERIFICADO** — nunca h
 
 | Componente | Versão | Onde está fixada | Estado |
 |---|---|---|---|
-| OpenTofu | `1.10.6` | `required_version = "1.10.6"` em `infra/envs/*/versoes.tf` | **CONFIRMADO** — `tofu version` na imagem `ghcr.io/opentofu/opentofu:1.10.6`, 2026-11-02 |
+| OpenTofu (o binário) | `1.10.6` | `required_version = "1.10.6"` em `infra/envs/*/versoes.tf` — versão **exacta**, não gama | **CONFIRMADO** — `tofu version` na imagem, 2026-11-02 |
+| A imagem com que se verifica à mão | `@sha256:879a73a0…40b6e` | `infra/README.md` §7 e `docs/evidencia/KAM-075.md` §1.4 | **CONFIRMADO** — `docker inspect --format '{{index .RepoDigests 0}}'`, 2026-11-02. Entrou por *digest* depois de uma revisão notar que uma **etiqueta é mutável**, e que esta imagem é hoje o único artefacto de IaC que de facto se executa. **Não está em `ci/supply-chain/imagens.yaml`**: esse inventário é lido por um eixo que varre compose, Dockerfile, *workflow* e `.env*`, não `.md`, e acrescentar-lhe uma entrada é mexer em `ci/` — fica registado como dívida, credor **KAM-078** |
 | Fornecedores (*providers*) | **nenhum** | `required_providers` está vazio | Por desenho: não há fornecedor até a D1 |
 
 Não há *provider* fixado porque não há *provider*. É a consequência directa de

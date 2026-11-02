@@ -29,7 +29,14 @@ def _ambiente(nome: str, **sobrepor) -> dict:
             "apd_refs": [],
             "restauro_de": [],
         },
-        "compute": {"forma": f"{nome}-forma", "vcpu": None, "memoria_gb": None, "disco": None},
+        # O `compute` tem de ser **coerente** com a regra de derivacao: a
+        # `forma` sai do `vcpu` e do `memoria_gb`, ou e `compose-local` com os
+        # tres nulos. Uma fixture incoerente fazia os outros testes medir ruido.
+        "compute": (
+            {"forma": "compose-local", "vcpu": None, "memoria_gb": None, "disco": None}
+            if nome == "dev"
+            else {"forma": "4vcpu-16gb", "vcpu": 4, "memoria_gb": 16, "disco": "nvme"}
+        ),
         "meta": {"modo": "mock", "assina_corpo": True},
         "facilitador": {
             "modo": "mock",
@@ -37,7 +44,10 @@ def _ambiente(nome: str, **sobrepor) -> dict:
             "sandbox_appypay": "nao-aplicavel",
         },
         "llm": {"modo": "chave-de-teste", "budget": "minimo"},
-        "segredos": {"projecto": "local" if nome == "dev" else nome, "cofre": "nenhum"},
+        "segredos": {
+            "projecto": "local" if nome == "dev" else nome,
+            "cofre": "nenhum" if nome == "dev" else "doppler",
+        },
         "acesso": {"modo": "equipa"},
         "dns": {"ttl_segundos": 300},
         "custo": {
@@ -83,6 +93,7 @@ def _dados(**sobrepor_por_ambiente) -> lint.Dados:
             "vpn_wireguard_admin": ("staging", "prod"),
         },
         ficheiros={"infra/envs/dev/env.yaml": "# nada\n"},
+        pastas_de_ambiente=lint.AMBIENTES,
     )
 
 
@@ -279,8 +290,13 @@ class TestPortabilidade(unittest.TestCase):
 
 class TestMatriz(unittest.TestCase):
     def test_configuracao_que_muda_sem_a_matriz(self) -> None:
+        # Muda-se o trio inteiro, e nao so a `forma`: assim o achado que se
+        # procura e o da matriz, e nao o `forma-divergente-do-compute` que a
+        # regra de coerencia daria por ter mudado so uma das tres.
         dados = _dados()
-        dados.ambientes["staging"]["compute"]["forma"] = "2vcpu-8gb"
+        dados.ambientes["staging"]["compute"].update(
+            {"forma": "2vcpu-8gb", "vcpu": 2, "memoria_gb": 8}
+        )
         self.assertIn("matriz-divergente", _codigos(dados))
 
     def test_linha_em_falta(self) -> None:
@@ -319,6 +335,158 @@ class TestEsquemaEEstrutura(unittest.TestCase):
         dados = _dados()
         dados.ambientes["dev"]["ambiente"] = "staging"
         self.assertIn("ambiente-mal-declarado", _codigos(dados))
+
+
+class TestCoerenciaInterna(unittest.TestCase):
+    """As folhas que a matriz não compara.
+
+    Esta classe nasceu de um achado da revisão adversarial: o `env.yaml` tem 24
+    folhas e a matriz compara 12. Nove ficavam sem regra, e duas delas —
+    `compute.vcpu` e `compute.memoria_gb` — são as que o HCL **consome**.
+    Cada teste aqui é uma dessas folhas a ficar amarrada a uma que a matriz vê.
+    """
+
+    def test_forma_que_nao_deriva_do_vcpu(self) -> None:
+        dados = _dados(staging={"compute__forma": "4vcpu-16gb", "compute__vcpu": 64})
+        self.assertIn("forma-divergente-do-compute", _codigos(dados))
+
+    def test_forma_que_deriva_do_vcpu_passa(self) -> None:
+        dados = _dados(staging={"compute__forma": "64vcpu-256gb", "compute__vcpu": 64,
+                                "compute__memoria_gb": 256, "compute__disco": "nvme"})
+        self.assertNotIn("forma-divergente-do-compute", _codigos(dados))
+
+    def test_compose_local_com_host(self) -> None:
+        dados = _dados(dev={"compute__vcpu": 4})
+        self.assertIn("compute-local-com-host", _codigos(dados))
+
+    def test_disco_que_nao_e_nvme(self) -> None:
+        dados = _dados(staging={"compute__forma": "4vcpu-16gb", "compute__vcpu": 4,
+                                "compute__memoria_gb": 16, "compute__disco": "hdd"})
+        self.assertIn("disco-sem-nvme", _codigos(dados))
+
+    def test_versao_desconhecida(self) -> None:
+        dados = _dados()
+        dados.ambientes["dev"]["versao"] = 2
+        self.assertIn("versao-desconhecida", _codigos(dados))
+
+    def test_ambiente_sem_verificacao_de_assinatura(self) -> None:
+        dados = _dados(dev={"meta__assina_corpo": False})
+        self.assertIn("meta-sem-assinatura", _codigos(dados))
+
+    def test_endpoint_de_producao_num_ambiente_sintetico(self) -> None:
+        # O pior dos nove, e o que a revisão usou: um `staging` a cobrar a
+        # alguém de verdade porque ninguém comparava este campo.
+        dados = _dados(staging={"facilitador__modo": "sandbox",
+                                "facilitador__proxypay_base": "api.proxypay.co.ao",
+                                "facilitador__sandbox_appypay": "indicio"})
+        self.assertIn("facilitador-fora-da-sandbox", _codigos(dados))
+
+    def test_sandbox_correcta_passa(self) -> None:
+        dados = _dados(staging={"facilitador__modo": "sandbox",
+                                "facilitador__proxypay_base": lint.SANDBOX_DO_FACILITADOR,
+                                "facilitador__sandbox_appypay": "indicio"})
+        codigos = _codigos(dados)
+        self.assertNotIn("facilitador-fora-da-sandbox", codigos)
+        self.assertNotIn("appypay-com-estado-errado", codigos)
+
+    def test_endpoint_a_mais_num_mock(self) -> None:
+        dados = _dados(dev={"facilitador__proxypay_base": lint.SANDBOX_DO_FACILITADOR})
+        self.assertIn("facilitador-com-endpoint-a-mais", _codigos(dados))
+
+    def test_appypay_promovida_a_confirmada(self) -> None:
+        # Promover um estado é o defeito mais comum desta casa, e aqui tem gate.
+        dados = _dados(staging={"facilitador__modo": "sandbox",
+                                "facilitador__proxypay_base": lint.SANDBOX_DO_FACILITADOR,
+                                "facilitador__sandbox_appypay": "confirmado"})
+        self.assertIn("appypay-com-estado-errado", _codigos(dados))
+
+    def test_facilitador_com_modo_inventado(self) -> None:
+        dados = _dados(dev={"facilitador__modo": "quase-mock"})
+        self.assertIn("facilitador-modo-desconhecido", _codigos(dados))
+
+    def test_budget_que_nao_deriva_do_modo(self) -> None:
+        dados = _dados(dev={"llm__budget": "ilimitado"})
+        self.assertIn("budget-divergente-do-modo", _codigos(dados))
+
+    def test_llm_com_modo_inventado(self) -> None:
+        dados = _dados(dev={"llm__modo": "chave-emprestada"})
+        self.assertIn("llm-modo-desconhecido", _codigos(dados))
+
+    def test_cofre_que_nao_deriva_do_projecto(self) -> None:
+        dados = _dados(dev={"segredos__cofre": "doppler"})
+        self.assertIn("cofre-divergente-do-projecto", _codigos(dados))
+
+    def test_projecto_remoto_sem_cofre(self) -> None:
+        dados = _dados(staging={"segredos__cofre": "nenhum"})
+        self.assertIn("cofre-divergente-do-projecto", _codigos(dados))
+
+
+class TestFormasNativasDoOpenTofu(unittest.TestCase):
+    """O `.tf.json`, que é a segunda forma que o OpenTofu carrega.
+
+    A revisão adversarial passou um `resource` de fornecedor num módulo de raiz
+    por esta via, com `tofu validate` a confirmar que o ficheiro é configuração
+    a valer. A regra do critério 6 via metade dos formatos.
+    """
+
+    def test_resource_num_tf_json_de_um_modulo_de_raiz(self) -> None:
+        dados = _dados()
+        dados.ficheiros["infra/envs/prod/fornecedor.tf.json"] = (
+            '{"resource": {"aws_instance": {"kamba_prod": {"ami": "x"}}}}\n'
+        )
+        self.assertIn("recurso-fora-da-costura", _codigos(dados))
+
+    def test_provider_num_tf_json(self) -> None:
+        dados = _dados()
+        dados.ficheiros["infra/modules/host-base/p.tf.json"] = '{"provider": {"aws": {}}}\n'
+        self.assertIn("recurso-fora-da-costura", _codigos(dados))
+
+    def test_tf_json_dentro_da_costura_passa(self) -> None:
+        dados = _dados()
+        dados.ficheiros["infra/modules/provider-raxio/r.tf.json"] = (
+            '{"resource": {"vm": {"host": {}}}}\n'
+        )
+        self.assertEqual(_codigos(dados), set())
+
+    def test_tf_json_sem_blocos_proibidos_passa(self) -> None:
+        dados = _dados()
+        dados.ficheiros["infra/envs/prod/variaveis.tf.json"] = (
+            '{"variable": {"ambiente": {"type": "string"}}}\n'
+        )
+        self.assertEqual(_codigos(dados), set())
+
+    def test_tf_json_ilegivel_e_achado(self) -> None:
+        # Um `.tf.json` que não se interpreta também não é inofensivo: o
+        # OpenTofu recusa-o, e um ficheiro que o gate não consegue ler não pode
+        # passar por ficheiro limpo.
+        dados = _dados()
+        dados.ficheiros["infra/envs/prod/roto.tf.json"] = "{nao e json\n"
+        self.assertIn("configuracao-nativa-ilegivel", _codigos(dados))
+
+    def test_segredo_cruzado_num_tfvars(self) -> None:
+        # O `terraform.tfvars` é auto-carregado pelo OpenTofu: está do lado da
+        # configuração, e deixá-lo fora tornava a caixa do critério 5 evitável
+        # por mudar a extensão de um ficheiro.
+        dados = _dados()
+        dados.ficheiros["infra/envs/staging/terraform.tfvars"] = (
+            'referencia_meta = "prod/META_APP_SECRET"\n'
+        )
+        self.assertIn("segredo-de-outro-ambiente", _codigos(dados))
+
+
+class TestPastasDeAmbiente(unittest.TestCase):
+    def test_uma_quarta_pasta_e_achado(self) -> None:
+        # Sem esta regra, um `infra/envs/staging-dr/env.yaml` com
+        # `dados.classe: real` e `restauro_de: [prod]` era invisível a quatro
+        # das cinco verificações — medido pela revisão adversarial.
+        dados = _dados()
+        dados.pastas_de_ambiente = (*lint.AMBIENTES, "staging-dr")
+        self.assertIn("ambiente-desconhecido", _codigos(dados))
+
+    def test_as_tres_pastas_conhecidas_passam(self) -> None:
+        dados = _dados()
+        dados.pastas_de_ambiente = lint.AMBIENTES
+        self.assertNotIn("ambiente-desconhecido", _codigos(dados))
 
 
 class TestDns(unittest.TestCase):
