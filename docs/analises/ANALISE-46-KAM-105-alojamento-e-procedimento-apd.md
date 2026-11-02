@@ -189,8 +189,75 @@ e nenhum renumerou» — e passou a `1.4`. É o portão a funcionar.
 
 ---
 
+## 7. Retractação: a dívida 158 estava errada, e foi retirada
+
+Esta secção foi escrita **depois** do merge do `#96`, e retira uma coisa que esse
+merge pôs em `main`.
+
+**O que a dívida 158 afirmava.** Que oito citações do `EPIC-10`, fora dos blocos
+de *handoff*, usavam «caminhos relativos à raiz dentro de um ficheiro que já está
+em `specs/`, pelo que não resolvem de posição nenhuma».
+
+**Porque é falso.** A segunda metade da frase é que está errada: **um caminho
+relativo à raiz resolve — da raiz.** O `specs/00_KAMBA_Carta.md`, o
+`specs/01_Engineering_Standards_e_Handoff.md` e o `specs/INDICE.md` existem todos
+a partir da raiz do repositório, e a raiz é **a posição de leitura que este
+conjunto adopta**: o `../../specs/01_Engineering_Standards_e_Handoff.md` §5
+declara que «o executor corre na raiz do repositório» e fixa os caminhos dos
+blocos de *handoff* como relativos a ela. Citar `specs/X.md` de dentro de
+`specs/` não é um caminho quebrado — é a outra das duas convenções que o
+ficheiro usa.
+
+**Como cheguei ao erro.** O script que escrevi para verificar as citações de
+secção resolvia o ficheiro citado **só relativo à pasta do ficheiro citante**.
+Lido de `specs/`, o `specs/00_KAMBA_Carta.md` dá `specs/specs/00_KAMBA_Carta.md`
+e não existe — e o script reportou «ficheiro não resolve». Não lhe acrescentei a
+segunda tentativa, relativa à raiz, que é a que o conjunto usa. **O instrumento
+tinha uma cobertura mais estreita do que a convenção que media**, e eu li o seu
+silêncio como ausência.
+
+Soube-o ao ler o **portão de citações de secção que está a ser construído** para
+esta mesma família — em ramo, ainda não fundido, pelo que não o cito pelo número
+do ticket: o  recusa uma referência a um ticket que o backlog ainda
+não tem, e tem razão. A sua regra de endereçabilidade diz o que o meu script não fazia:
+*«resolve-se primeiro relativo à pasta do ficheiro citante, **depois relativo à
+raiz**»*. Duas tentativas, não uma.
+
+**E a oitava não era uma citação.** A linha do critério E do KAM-110 escreve
+«**E. Decisão assinada** (`Gate_Piloto_Decisao.md`): `CONTINUAR`, `PIVÔ` (qual
+linha de `14` §6 …)». O `§6` pertence ao `14`, não ao ficheiro — e o
+`Gate_Piloto_Decisao.md` aparece **sem secção nenhuma** e como o **entregável que
+aquele critério manda produzir**, não como fonte citada. O meu padrão apanhou um
+`§` que estava a 40 caracteres de distância e atribuiu-lho. **Um critério que
+nomeia o seu próprio entregável não é uma referência quebrada**; se fosse, todo
+o entregável por fazer era um defeito.
+
+**O que sobra.** Das oito, zero são defeito. A única citação genuinamente
+irresolúvel que o script encontrou era **minha** — um `Seguimento_APD.md` nu, sem
+directório, que não resolve nem da pasta nem da raiz — e foi corrigida antes do
+merge. A dívida ficou, portanto, a descrever uma população vazia, e **uma dívida
+que descreve um problema inexistente é pior do que nenhuma**: manda a próxima
+pessoa procurar o que não está lá, e uma dispensa declarada sobre ela seria uma
+dispensa falsa. Retirada.
+
+**A colisão de número, de passagem.** O ticket desse portão tomou o **158** para
+outra dívida — o intervalo de identificadores desactualizado no `../ci.md` §3 —,
+porque o seu ramo foi cortado antes do `#96` fundir. Retirar a minha resolve a
+colisão a favor da dele, sem ninguém ter de renumerar.
+
+**A quarta do dia, e é a mesma.** Quatro defeitos desta sessão vieram de
+instrumentos cuja cobertura era mais estreita do que a pergunta: um `grep` vazio
+porque a frase tinha ênfase no meio; um `cut` a truncar antes da metade que
+importava; um padrão que não via as citações dentro de ligações Markdown; e agora
+um resolvedor com uma tentativa em vez de duas. **A defesa não é mais cuidado:**
+é perguntar, antes de confiar num silêncio, o que o instrumento **não** cobre — e
+dizê-lo junto com o resultado.
+
+---
+
 ## Controlo de versões
 
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
+| 1.1 | Novembro 2026 | **Retractação da dívida 158** (§7), escrita depois do merge do `#96` e a retirar o que ele pôs em `main`: as sete citações `specs/…` do `EPIC-10` são **relativas à raiz e resolvem de lá**, e a oitava não era citação — era o entregável que o critério nomeia. O erro foi do meu resolvedor, que tentava **uma** posição onde a convenção usa duas. A dívida descrevia população vazia e foi retirada. | Equipa KAMBÁ |
 | 1.0 | Novembro 2026 | Revisão adversarial do KAM-105: **17 achados**, todos corrigidos. O grave foi a afirmação central do mapa — correcta na conclusão, **invertida na inferência** —, que contradizia uma linha do meu próprio gate escrita no mesmo dia; mais a base declarada de 6 em 13 listas de saída e a finalidade sobre-declarada em dois dos três destinos de modelos, que é coluna do formulário da APD. Registado o que saiu limpo e com que verificação, o que não se corrigiu e porquê, e duas lacunas de instrumento: nenhum linter verifica referências de secção, e o meu primeiro script para as verificar tinha ele próprio uma lacuna de cobertura. | Equipa KAMBÁ |
