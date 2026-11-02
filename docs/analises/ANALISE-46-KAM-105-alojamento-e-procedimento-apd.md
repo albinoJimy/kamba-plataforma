@@ -189,8 +189,128 @@ e nenhum renumerou» — e passou a `1.4`. É o portão a funcionar.
 
 ---
 
+## 7. Retractação: a dívida 158 estava errada, e foi retirada
+
+Esta secção foi escrita **depois** do merge do `#96`, e retira uma coisa que esse
+merge pôs em `main`.
+
+**O que a dívida 158 afirmava.** Que oito citações do `EPIC-10`, fora dos blocos
+de *handoff*, usavam «caminhos relativos à raiz dentro de um ficheiro que já está
+em `specs/`, pelo que não resolvem de posição nenhuma».
+
+**Porque é falso.** A segunda metade da frase é que está errada: **um caminho
+relativo à raiz resolve — da raiz.** O `specs/00_KAMBA_Carta.md`, o
+`specs/01_Engineering_Standards_e_Handoff.md` e o `specs/INDICE.md` existem todos
+a partir da raiz do repositório, e a raiz é **a posição de leitura que este
+conjunto adopta**: o `../../specs/01_Engineering_Standards_e_Handoff.md` §5
+declara que «o executor corre na raiz do repositório» e fixa os caminhos dos
+blocos de *handoff* como relativos a ela. Citar `specs/X.md` de dentro de
+`specs/` não é um caminho quebrado — é a outra das duas convenções que o
+ficheiro usa.
+
+**Como cheguei ao erro.** O script que escrevi para verificar as citações de
+secção resolvia o ficheiro citado **só relativo à pasta do ficheiro citante**.
+Lido de `specs/`, o `specs/00_KAMBA_Carta.md` dá `specs/specs/00_KAMBA_Carta.md`
+e não existe — e o script reportou «ficheiro não resolve». Não lhe acrescentei a
+segunda tentativa, relativa à raiz, que é a que o conjunto usa. **O instrumento
+tinha uma cobertura mais estreita do que a convenção que media**, e eu li o seu
+silêncio como ausência.
+
+Soube-o ao ler o **portão de citações de secção que está a ser construído** para
+esta mesma família — em ramo, ainda não fundido, pelo que não o cito pelo número
+do ticket: o  recusa uma referência a um ticket que o backlog ainda
+não tem, e tem razão. A sua regra de endereçabilidade diz o que o meu script não fazia:
+*«resolve-se primeiro relativo à pasta do ficheiro citante, **depois relativo à
+raiz**»*. Duas tentativas, não uma.
+
+**E a oitava não era uma citação.** A linha do critério E do KAM-110 escreve
+«**E. Decisão assinada** (`Gate_Piloto_Decisao.md`): `CONTINUAR`, `PIVÔ` (qual
+linha de `14` §6 …)». O `§6` pertence ao `14`, não ao ficheiro — e o
+`Gate_Piloto_Decisao.md` aparece **sem secção nenhuma** e como o **entregável que
+aquele critério manda produzir**, não como fonte citada. O meu padrão apanhou um
+`§` que estava a 40 caracteres de distância e atribuiu-lho. **Um critério que
+nomeia o seu próprio entregável não é uma referência quebrada**; se fosse, todo
+o entregável por fazer era um defeito.
+
+**O que sobra.** Das oito, zero são defeito. A única citação genuinamente
+irresolúvel que o script encontrou era **minha** — um `Seguimento_APD.md` nu, sem
+directório, que não resolve nem da pasta nem da raiz — e foi corrigida antes do
+merge. A dívida ficou, portanto, a descrever uma população vazia, e **uma dívida
+que descreve um problema inexistente é pior do que nenhuma**: manda a próxima
+pessoa procurar o que não está lá, e uma dispensa declarada sobre ela seria uma
+dispensa falsa. Retirada.
+
+**A colisão de número, e como ela se resolveu de facto.** O ticket desse portão
+ia tomar o **158** para outra dívida — o intervalo de identificadores
+desactualizado no `../ci.md` §3 —, porque o seu ramo foi cortado antes do `#96`
+fundir. **Mas ele chegou a `main` primeiro e renumerou-se para 159**, vendo lá a
+minha 158. Logo retirar a minha **não liberta um número: deixa um buraco no 158**,
+e o buraco fica — renumerar a dele para o tapar era reescrever o trabalho de
+outro ticket para arrumar um defeito meu. Um buraco na numeração é o registo mais
+honesto que isto pode ter: diz que houve ali uma dívida e que foi retirada.
+
+**E depois medi a população, porque retirar uma dívida também é uma afirmação.**
+Três medições sobre a `main`, 254 ficheiros `.md`, **com o predicado declarado
+antes de contar** — que foi a metade que me faltou da primeira vez:
+
+> **Defeito** é uma referência que **algo resolve** e que não resolve. Uma
+> **ligação** markdown `[texto](destino)` é resolvida — por um leitor, por um
+> renderizador. **Código inline** `` `caminho` `` não é resolvido por nada: é um
+> **nome** que uma pessoa lê. Contar as duas juntas é o que produz uma população
+> inventada.
+
+| Medição | Resultado |
+|---|---|
+| **Ligações** markdown com destino relativo à raiz, em ficheiros fora da raiz | **zero**, em todo o conjunto. Nenhuma ligação do repositório quebra ao ser seguida |
+| Código inline `` `specs/<f>.md` `` em ficheiros de `specs/` | **268** ocorrências em **49** ficheiros |
+| Código inline `` `../specs/<f>.md` `` — a forma que a dívida implicava como correcta | **zero** ocorrências, em zero ficheiros |
+| Código inline com nome nu, sem pasta | **19** em 8 ficheiros |
+| Linhas que **misturam** `../docs/tecnica/…` com `specs/…` | **26**, em **onze** ficheiros de epic — incluindo a linha 11 de **todos** eles |
+
+**As três conclusões, e a terceira é a que mata a dívida de vez.** As oito não
+são ligações, logo nada as resolve e nada quebra. A forma que eu chamei defeito é
+a **esmagadoramente maioritária**, e a forma «corrigida» que a dívida
+pressupunha **não existe uma única vez no conjunto** — reescrever as oito faria
+do `EPIC-10` o único ficheiro fora da prática. E a mistura das duas formas na
+mesma linha, que eu podia ter salvado como «incoerência interna», é o **padrão
+da tabela de cabeçalho de todos os onze epics**: o `EPIC-10` faz exactamente o
+que os outros dez fazem.
+
+> **Daí a decisão de retirar em vez de reescrever.** Chegou-me a sugestão de
+> reescrever a linha com estes números, transformando-a numa dívida que diz a
+> verdade. Medi e recusei: **os números não deixam dívida nenhuma para dizer.**
+> Uma linha a registar «268 contra zero, e é o padrão de onze ficheiros» não é
+> uma dívida — é uma convenção documentada, e o sítio dela é o
+> `../../specs/01_Engineering_Standards_e_Handoff.md`, se alguém a quiser lá, não
+> a tabela de dívidas.
+
+> **E ha confirmação empírica, que chegou depois.** O portão de citações de
+> secção fundiu em  enquanto este PR estava aberto, e entrou no
+> . Corrido sobre a árvore com as minhas sete lá: **conforme**, com
+> **4801 citações de secção resolvidas em 1486 ficheiros**. O portão construído
+> para exactamente esta família **resolve as sete e passa-as** — o que fecha a
+> questão melhor do que qualquer argumento meu, e melhor do que a minha própria
+> medição: não é a minha conta a dizer que não são defeito, é o gate.
+
+**O aviso que fica, e é o único resíduo útil:** quem notar a mistura e for
+«harmonizar» o conjunto para `../specs/…` está a reescrever 268 ocorrências para
+uma forma que não ocorre nenhuma vez. Fica aqui para que a próxima pessoa que
+tropece nisto meça antes de corrigir — que é exactamente o que eu não fiz.
+
+**A quarta do dia, e é a mesma.** Quatro defeitos desta sessão vieram de
+instrumentos cuja cobertura era mais estreita do que a pergunta: um `grep` vazio
+porque a frase tinha ênfase no meio; um `cut` a truncar antes da metade que
+importava; um padrão que não via as citações dentro de ligações Markdown; e agora
+um resolvedor com uma tentativa em vez de duas. **A defesa não é mais cuidado:**
+é perguntar, antes de confiar num silêncio, o que o instrumento **não** cobre — e
+dizê-lo junto com o resultado.
+
+---
+
 ## Controlo de versões
 
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
+| 1.2 | Novembro 2026 | A §7 ganha as **três medições** que fecham a questão, com o predicado declarado antes de contar: **zero** ligações quebradas no conjunto, **268** ocorrências da forma que a dívida chamava defeito contra **zero** da forma que ela implicava como correcta, e a mistura das duas na mesma linha a ser o padrão da tabela de cabeçalho de **todos os onze epics**. Recusada a sugestão de reescrever a linha com os números: eles não deixam dívida para dizer. | Equipa KAMBÁ |
+| 1.1 | Novembro 2026 | **Retractação da dívida 158** (§7), escrita depois do merge do `#96` e a retirar o que ele pôs em `main`: as sete citações `specs/…` do `EPIC-10` são **relativas à raiz e resolvem de lá**, e a oitava não era citação — era o entregável que o critério nomeia. O erro foi do meu resolvedor, que tentava **uma** posição onde a convenção usa duas. A dívida descrevia população vazia e foi retirada. | Equipa KAMBÁ |
 | 1.0 | Novembro 2026 | Revisão adversarial do KAM-105: **17 achados**, todos corrigidos. O grave foi a afirmação central do mapa — correcta na conclusão, **invertida na inferência** —, que contradizia uma linha do meu próprio gate escrita no mesmo dia; mais a base declarada de 6 em 13 listas de saída e a finalidade sobre-declarada em dois dos três destinos de modelos, que é coluna do formulário da APD. Registado o que saiu limpo e com que verificação, o que não se corrigiu e porquê, e duas lacunas de instrumento: nenhum linter verifica referências de secção, e o meu primeiro script para as verificar tinha ele próprio uma lacuna de cobertura. | Equipa KAMBÁ |
