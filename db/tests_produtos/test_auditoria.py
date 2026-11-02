@@ -303,6 +303,26 @@ class TestOsEventosDeCatalogoEDeStock(ComOfertas):
         sobre este ticket: esta aqui porque e a barreira que torna «sem PII nos
         eventos» uma propriedade e nao uma intencao, e porque este ticket emite
         quatro tipos novos atraves dela.
+
+        **O numero e do intervalo ficticio (`999`), e isso nao afrouxa o caso.**
+        A primeira versao usava um numero com a forma angolana real, e o *gate* 7
+        do CI recusou-a: a ferramenta do KAM-024 varre o repositorio e exige que
+        cada ocorrencia de forma real esteja declarada num inventario, porque
+        «uma fixture com um numero real e um dado pessoal no repositorio, para
+        sempre, no historico do git». Declara-la era a saida errada — o ticket
+        entrega **0 telefones reais** —, e o sitio certo e o indicativo que a UIT
+        nao atribui a pais nenhum. **Esta razao tambem nao escreve o numero que
+        saiu**, pela mesma regra: um exemplo do que nao se deve gravar, gravado
+        no comentario, e a mesma ocorrencia noutro sitio (medido: a primeira
+        versao desta nota citava-o, e o varrimento voltou a apanhar).
+
+        E o caso continua a provar o que provava, por uma razao que se verifica:
+        o guarda do `evt_emitir` tem **dois** padroes, o angolano e o de E.164
+        entre aspas com 9 a 15 algarismos, e `"+999123456789"` casa o **segundo**
+        — sao doze. E a mesma propriedade que obriga o `telefonesReais()` do
+        `meta-sim` a excluir o intervalo ficticio explicitamente, e o comentario
+        dele di-lo: sem a excepcao, «a ferramenta recusava gravar as suas
+        proprias fixtures».
         """
         consulta = consultas.SQL_EMITIR
         self.assertErroSql(
@@ -312,7 +332,7 @@ class TestOsEventosDeCatalogoEDeStock(ComOfertas):
             consulta.args(
                 "catalog.product_changed", 1, self.tenant, "product",
                 SKU_PARTILHADO,
-                json.dumps({"sku": "+244923456789", "estado": "publicado"}),
+                json.dumps({"sku": "+999123456789", "estado": "publicado"}),
                 "P0", ["transacao"],
             ),
         )
