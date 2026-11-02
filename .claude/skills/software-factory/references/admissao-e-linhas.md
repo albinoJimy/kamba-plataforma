@@ -195,8 +195,15 @@ gh pr checks <n>
 gh pr merge <n> --squash
 ```
 
-**Três armadilhas desta linha:**
+**Quatro armadilhas desta linha:**
 
+- **O estado do PR lê-se por nome, não por contagem.** `UNSTABLE` é a palavra do GitHub para «só
+  falham contextos não-obrigatórios», e aqui é o estado normal: o *gate* 5 e a
+  `vigia — prova nocturna` têm `continue-on-error` e ficam **fora do `needs`** da porta final, pelo
+  que avermelham sempre. E **o 4 e o 8 são os dois mais lentos do conjunto** — o 8 sozinho levou
+  16 min 17 s num PR de 2026-11-01 —, logo «dois pendentes» quase nunca é um PR a meio: é um PR à
+  espera dos dois últimos a chegar. Ler a contagem em vez dos nomes faz parecer progresso o que é
+  espera, e falha o que é desenho.
 - **«no checks reported»** não é CI lenta — é o PR em conflito com a base.
 - **Dois PRs em cadeia fundem-se pela ordem, não em paralelo.** Fundir a base por squash deixa
   o encadeado em `CONFLICTING`.
