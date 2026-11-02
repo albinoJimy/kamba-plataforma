@@ -11,7 +11,7 @@ assincrona porque nao ha alternativa; aqui seria preciso arrastar um cliente
 HTTP assincrono para dentro de `libs/py-core`, que nao tem dependencia nenhuma
 por decisao do KAM-001. O AGR le segredos **ao arranque** (onde bloquear e o que
 se quer) e, depois disso, o que precise de os reler fa-lo com
-`asyncio.to_thread`. A razao esta escrita em `docs/adr/ADR-L002-injeccao-de-segredos.md` §5.
+`asyncio.to_thread`. A razao esta escrita em `docs/adr/ADR-L002-injeccao-de-segredos.md` §6.
 
 Tres regras atravessam este modulo:
 

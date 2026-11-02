@@ -93,6 +93,14 @@ def _blocos(linhas: list[str]) -> list[tuple[int, int]]:
     return out
 
 
+#: Publico desde o KAM-170, pela razao da `LINHA_BACKLOG` e do `seccao` do
+#: `lint_refs` (KAM-138): o passo das citacoes de seccao do *gate* 3 tem de
+#: varrer **dentro** dos blocos de *handoff*, que sao cercados e que a regra
+#: geral salta — e duas gramaticas para «o que e um bloco de handoff» era a
+#: forma garantida de os dois passos discordarem sobre o mesmo bloco.
+blocos = _blocos
+
+
 def _classificar(prefixo: str, resto: str) -> str:
     """A classe de um caminho, decidida pela normalizacao e nao pela forma.
 

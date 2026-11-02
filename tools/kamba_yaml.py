@@ -13,7 +13,7 @@ instalacao**:
   clone nao tem `.venv` nem `node_modules`.
 
 PyYAML com *hash* resolveria a leitura e perderia as duas propriedades. Esta e a
-troca, registada em `docs/adr/ADR-L001-toolchain.md` §6 e §12: ~380 linhas
+troca, registada em `docs/adr/ADR-L001-toolchain.md` §6 e §7: ~380 linhas
 nossas em vez de uma dependencia na camada que existe para controlar
 dependencias.
 
