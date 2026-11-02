@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.52"
+versao_dicionario: "1.53"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -10004,6 +10004,127 @@ entradas:
     nomes_nota:
       - "TTL_DO_HOLD_MS"
     variantes_literais: []
+  - seccao: "3.41"
+    conceito: "Ambiente"
+    canonico: "ambiente ∈ {dev, staging, prod}"
+    literais:
+      - "ambiente"
+      - "dev"
+      - "staging"
+      - "prod"
+    nomes:
+      - "ambiente"
+      - "dev"
+      - "staging"
+      - "prod"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.41"
+    conceito: "Classe de dados de um ambiente"
+    canonico: "kamba_data_class ∈ {synthetic, real}"
+    literais:
+      - "kamba_data_class"
+      - "synthetic"
+      - "real"
+    nomes:
+      - "kamba_data_class"
+      - "synthetic"
+      - "real"
+    nomes_nota:
+      - "EPIC"
+      - "dados.classe"
+      - "env.yaml"
+    variantes_literais: []
+  - seccao: "3.41"
+    conceito: "Referência de uma decisão D1"
+    canonico: "decisao_d1, na forma D1/<AAAA-MM-DD>/<slug> — p. ex. D1/2026-12-01/jnb-cpt"
+    literais:
+      - "decisao_d1"
+    nomes:
+      - "decisao_d1"
+    nomes_nota:
+      - "a"
+      - "z0"
+      - "null"
+    variantes_literais: []
+  - seccao: "3.41"
+    conceito: "Passagem a dados reais"
+    canonico: "dados.classe: real exige decisao_d1 e ≥ 1 apd_ref"
+    literais:
+      - "dados.classe: real"
+      - "decisao_d1"
+      - "apd_ref"
+    nomes:
+      - "dados.classe"
+      - "real"
+      - "decisao_d1"
+      - "apd_ref"
+    nomes_nota:
+      - "apd_ref"
+      - "real"
+      - "sem"
+      - "d1"
+      - "apd"
+      - "ref"
+      - "tenant_destinations"
+    variantes_literais: []
+  - seccao: "3.41"
+    conceito: "Projecto de segredos por ambiente"
+    canonico: "dev → local; staging → staging; prod → prod"
+    literais:
+      - "dev"
+      - "local"
+      - "staging"
+      - "staging"
+      - "prod"
+      - "prod"
+    nomes:
+      - "dev"
+      - "local"
+      - "staging"
+      - "prod"
+    nomes_nota:
+      - "staging"
+      - "prod"
+      - "local"
+    variantes_literais: []
+  - seccao: "3.41"
+    conceito: "Referência a um segredo, na infraestrutura"
+    canonico: "<projecto_de_segredos>/<ID_EM_MAIÚSCULAS> — p. ex. staging/META_APP_SECRET"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "ID"
+      - "id"
+    variantes_literais: []
+  - seccao: "3.41"
+    conceito: "Ambientes de que um ambiente aceita restauro"
+    canonico: "restauro_de, lista de ambientes"
+    literais:
+      - "restauro_de"
+    nomes:
+      - "restauro_de"
+    nomes_nota:
+      - "prod"
+      - "restauro"
+      - "de"
+      - "GoLive_Gate.md"
+    variantes_literais: []
+  - seccao: "3.41"
+    conceito: "Etiquetas de custo por ambiente"
+    canonico: "kamba_env e kamba_data_class"
+    literais:
+      - "kamba_env"
+      - "kamba_data_class"
+    nomes:
+      - "kamba_env"
+      - "kamba_data_class"
+    nomes_nota:
+      - "kamba_env"
+      - "ambiente"
+      - "kamba_data_class"
+      - "dados.classe"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -11323,6 +11444,21 @@ dominios:
       - "cotacao_dono"
     seccao: "3.40"
     conceito: "Origem de um preço de linha"
+    so_no_registo: false
+  - coluna: "ambiente"
+    valores:
+      - "dev"
+      - "staging"
+      - "prod"
+    seccao: "3.41"
+    conceito: "Ambiente"
+    so_no_registo: false
+  - coluna: "kamba_data_class"
+    valores:
+      - "synthetic"
+      - "real"
+    seccao: "3.41"
+    conceito: "Classe de dados de um ambiente"
     so_no_registo: false
 
 variantes:

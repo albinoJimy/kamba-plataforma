@@ -1,0 +1,144 @@
+#cloud-config
+# -----------------------------------------------------------------------------
+# host-base — primeiro arranque de um host da KAMBA (KAM-075, criterio 2)
+#
+# ESTE DOCUMENTO NUNCA ARRANCOU UM HOST. Estado: **NAO VERIFICADO**. Nao houve
+# conta, nao houve fornecedor, nao houve `apply` — ver `infra/README.md` §5. O
+# que esta aqui e o procedimento escrito, nao uma medicao.
+#
+# As quatro coisas que o criterio 2 nomeia, e nada mais:
+#   1. Docker                     -> `packages` + `runcmd`
+#   2. Utilizador nao-root        -> `users`
+#   3. WireGuard                  -> `packages` + `write_files` + `runcmd`
+#   4. Disco NVMe                 -> `mounts` + `runcmd`
+#
+# NENHUM SEGREDO AQUI, e isso e verificado: o gate 9 varre a arvore versionada.
+# A chave privada do WireGuard entra do cofre no arranque, pela referencia
+# ${referencia_do_segredo_wireguard} — a REFERENCIA, nao o valor.
+# -----------------------------------------------------------------------------
+
+package_update: true
+package_upgrade: false
+
+packages:
+  - docker.io
+  - docker-compose-v2
+  - wireguard
+  - wireguard-tools
+  # `jq` e `curl` sao para o passo que vai buscar a chave ao cofre.
+  - jq
+  - curl
+
+# --- 2. Utilizador nao-root --------------------------------------------------
+#
+# Corre os servicos e NAO e o utilizador de administracao: `sudo` so com
+# palavra-passe, e nenhuma chave de SSH neste utilizador. Quem administra entra
+# por WireGuard, no utilizador `admin`.
+users:
+  - default
+  - name: ${utilizador}
+    shell: /bin/bash
+    # No grupo `docker` porque corre o Compose; sem `sudo`.
+    groups: [docker]
+    lock_passwd: true
+    # Sem `ssh_authorized_keys`: este utilizador nao se alcanca de fora.
+  - name: admin
+    shell: /bin/bash
+    groups: [sudo]
+    lock_passwd: true
+    sudo: ["ALL=(ALL) ALL"]
+    ssh_authorized_keys:
+%{ for chave in chaves_ssh_de_administracao ~}
+      - ${chave}
+%{ endfor ~}
+
+# --- 4. Disco NVMe ----------------------------------------------------------
+#
+# Por ETIQUETA (`LABEL=`) e nao por nome de dispositivo. O nome e do fornecedor
+# — `/dev/nvme0n1` num, `/dev/vdb` noutro — e usa-lo aqui trazia o fornecedor
+# para dentro de um modulo que nao o conhece (criterio 6).
+mounts:
+  - ["LABEL=${etiqueta_do_disco_nvme}", "${ponto_de_montagem_nvme}", "ext4", "defaults,noatime,nofail", "0", "2"]
+
+write_files:
+  # A interface do WireGuard, SEM a chave privada. O `PrivateKey` entra no
+  # arranque, do cofre (ver `runcmd`). Um `wg0.conf` com a chave dentro era um
+  # segredo em codigo, e o gate 9 apanhava-o — como deve.
+  - path: /etc/wireguard/wg0.conf.modelo
+    permissions: "0600"
+    owner: root:root
+    content: |
+      [Interface]
+      Address = 10.90.0.1/24
+      ListenPort = ${porta_wireguard}
+      # PrivateKey injectada no arranque a partir de
+      # ${referencia_do_segredo_wireguard}
+      PostUp = sysctl -w net.ipv4.ip_forward=1
+      SaveConfig = false
+
+  # O que este host e, para quem chegar a ele as 3 da manha. O ficheiro e lido
+  # pelo runbook RB-K08 e pela sonda.
+  - path: /etc/kamba/ambiente
+    permissions: "0644"
+    owner: root:root
+    content: |
+      KAMBA_ENV=${ambiente}
+      KAMBA_DADOS=${ponto_de_montagem_nvme}
+      KAMBA_UTILIZADOR=${utilizador}
+
+  - path: /etc/kamba/LEIA-ME
+    permissions: "0644"
+    owner: root:root
+    content: |
+      Host da KAMBA, ambiente ${ambiente}.
+
+      Provisionado por infra/modules/host-base (KAM-075). O que corre em cima
+      nao vem daqui: o Compose de producao e o KAM-076, o TLS e o proxy de
+      saida sao o KAM-077, a observabilidade e o KAM-080.
+
+      Acesso: so por WireGuard, no utilizador `admin`. O utilizador
+      ${utilizador} corre os servicos e nao se alcanca de fora.
+
+runcmd:
+  # --- 1. Docker ------------------------------------------------------------
+  - [systemctl, enable, --now, docker]
+
+  # --- 4. Disco NVMe: formata so se nao tiver ja a etiqueta ----------------
+  #
+  # IDEMPOTENTE, e tem de ser: o criterio 2 pede que um segundo `apply` nao
+  # altere nada. Um `mkfs` incondicional aqui apagava a base de dados num
+  # re-arranque — e seria um `apply` destrutivo com ar de idempotente.
+  - |
+    set -euo pipefail
+    if ! blkid -L '${etiqueta_do_disco_nvme}' >/dev/null 2>&1; then
+      alvo="$(lsblk -dnpo NAME,TYPE | awk '$2=="disk"{print $1}' | tail -1)"
+      # `$${...}` escapa a interpolacao: isto e expansao da *shell*, nao do
+      # OpenTofu. Sem o `$$` o `templatefile` recusa o ficheiro — medido.
+      echo "host-base: a formatar $${alvo:-<nenhum>} com a etiqueta ${etiqueta_do_disco_nvme}"
+      mkfs.ext4 -L '${etiqueta_do_disco_nvme}' "$alvo"
+    else
+      echo "host-base: a etiqueta ${etiqueta_do_disco_nvme} ja existe; nao se formata nada"
+    fi
+    mkdir -p '${ponto_de_montagem_nvme}'
+    mount -a
+    chown ${utilizador}:${utilizador} '${ponto_de_montagem_nvme}'
+
+  # --- 3. WireGuard: a chave entra do cofre, nunca do disco ----------------
+  #
+  # O `doppler run` e o mecanismo do ADR-L002 (variaveis de ambiente no
+  # arranque). A referencia e ${referencia_do_segredo_wireguard}; o valor nao
+  # passa por nenhum ficheiro versionado nem pelo estado do OpenTofu.
+  #
+  # NAO VERIFICADO: os subcomandos do Doppler estao marcados NAO VERIFICADO em
+  # `ops/runbooks/secrets-export.md` §7, e nenhum destes correu.
+  - |
+    set -euo pipefail
+    install -m 0600 /etc/wireguard/wg0.conf.modelo /etc/wireguard/wg0.conf
+    chave="$(doppler secrets get --plain "$(echo '${referencia_do_segredo_wireguard}' | cut -d/ -f2)")"
+    printf 'PrivateKey = %s\n' "$chave" >> /etc/wireguard/wg0.conf
+    unset chave
+    systemctl enable --now wg-quick@wg0
+
+  # O host fica a dizer que acabou. E o sinal que o cronometro dos 30 min para —
+  # quando houver um cronometro (`infra/README.md` §5).
+  - [touch, /etc/kamba/arranque-concluido]
