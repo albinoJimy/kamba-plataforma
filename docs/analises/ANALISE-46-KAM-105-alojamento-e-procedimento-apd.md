@@ -245,6 +245,46 @@ outra dívida — o intervalo de identificadores desactualizado no `../ci.md` §
 porque o seu ramo foi cortado antes do `#96` fundir. Retirar a minha resolve a
 colisão a favor da dele, sem ninguém ter de renumerar.
 
+**E depois medi a população, porque retirar uma dívida também é uma afirmação.**
+Três medições sobre a `main`, 254 ficheiros `.md`, **com o predicado declarado
+antes de contar** — que foi a metade que me faltou da primeira vez:
+
+> **Defeito** é uma referência que **algo resolve** e que não resolve. Uma
+> **ligação** markdown `[texto](destino)` é resolvida — por um leitor, por um
+> renderizador. **Código inline** `` `caminho` `` não é resolvido por nada: é um
+> **nome** que uma pessoa lê. Contar as duas juntas é o que produz uma população
+> inventada.
+
+| Medição | Resultado |
+|---|---|
+| **Ligações** markdown com destino relativo à raiz, em ficheiros fora da raiz | **zero**, em todo o conjunto. Nenhuma ligação do repositório quebra ao ser seguida |
+| Código inline `` `specs/<f>.md` `` em ficheiros de `specs/` | **268** ocorrências em **49** ficheiros |
+| Código inline `` `../specs/<f>.md` `` — a forma que a dívida implicava como correcta | **zero** ocorrências, em zero ficheiros |
+| Código inline com nome nu, sem pasta | **19** em 8 ficheiros |
+| Linhas que **misturam** `../docs/tecnica/…` com `specs/…` | **26**, em **onze** ficheiros de epic — incluindo a linha 11 de **todos** eles |
+
+**As três conclusões, e a terceira é a que mata a dívida de vez.** As oito não
+são ligações, logo nada as resolve e nada quebra. A forma que eu chamei defeito é
+a **esmagadoramente maioritária**, e a forma «corrigida» que a dívida
+pressupunha **não existe uma única vez no conjunto** — reescrever as oito faria
+do `EPIC-10` o único ficheiro fora da prática. E a mistura das duas formas na
+mesma linha, que eu podia ter salvado como «incoerência interna», é o **padrão
+da tabela de cabeçalho de todos os onze epics**: o `EPIC-10` faz exactamente o
+que os outros dez fazem.
+
+> **Daí a decisão de retirar em vez de reescrever.** Chegou-me a sugestão de
+> reescrever a linha com estes números, transformando-a numa dívida que diz a
+> verdade. Medi e recusei: **os números não deixam dívida nenhuma para dizer.**
+> Uma linha a registar «268 contra zero, e é o padrão de onze ficheiros» não é
+> uma dívida — é uma convenção documentada, e o sítio dela é o
+> `../../specs/01_Engineering_Standards_e_Handoff.md`, se alguém a quiser lá, não
+> a tabela de dívidas.
+
+**O aviso que fica, e é o único resíduo útil:** quem notar a mistura e for
+«harmonizar» o conjunto para `../specs/…` está a reescrever 268 ocorrências para
+uma forma que não ocorre nenhuma vez. Fica aqui para que a próxima pessoa que
+tropece nisto meça antes de corrigir — que é exactamente o que eu não fiz.
+
 **A quarta do dia, e é a mesma.** Quatro defeitos desta sessão vieram de
 instrumentos cuja cobertura era mais estreita do que a pergunta: um `grep` vazio
 porque a frase tinha ênfase no meio; um `cut` a truncar antes da metade que
@@ -259,5 +299,6 @@ dizê-lo junto com o resultado.
 
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
+| 1.2 | Novembro 2026 | A §7 ganha as **três medições** que fecham a questão, com o predicado declarado antes de contar: **zero** ligações quebradas no conjunto, **268** ocorrências da forma que a dívida chamava defeito contra **zero** da forma que ela implicava como correcta, e a mistura das duas na mesma linha a ser o padrão da tabela de cabeçalho de **todos os onze epics**. Recusada a sugestão de reescrever a linha com os números: eles não deixam dívida para dizer. | Equipa KAMBÁ |
 | 1.1 | Novembro 2026 | **Retractação da dívida 158** (§7), escrita depois do merge do `#96` e a retirar o que ele pôs em `main`: as sete citações `specs/…` do `EPIC-10` são **relativas à raiz e resolvem de lá**, e a oitava não era citação — era o entregável que o critério nomeia. O erro foi do meu resolvedor, que tentava **uma** posição onde a convenção usa duas. A dívida descrevia população vazia e foi retirada. | Equipa KAMBÁ |
 | 1.0 | Novembro 2026 | Revisão adversarial do KAM-105: **17 achados**, todos corrigidos. O grave foi a afirmação central do mapa — correcta na conclusão, **invertida na inferência** —, que contradizia uma linha do meu próprio gate escrita no mesmo dia; mais a base declarada de 6 em 13 listas de saída e a finalidade sobre-declarada em dois dos três destinos de modelos, que é coluna do formulário da APD. Registado o que saiu limpo e com que verificação, o que não se corrigiu e porquê, e duas lacunas de instrumento: nenhum linter verifica referências de secção, e o meu primeiro script para as verificar tinha ele próprio uma lacuna de cobertura. | Equipa KAMBÁ |
