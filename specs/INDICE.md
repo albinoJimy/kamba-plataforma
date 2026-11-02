@@ -3,7 +3,7 @@
 **Produto:** KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para o mercado angolano
 **Natureza:** Produto/plataforma standalone (sem cliente institucional)
 **Documentos-fonte:** conjunto técnico [`../docs/tecnica/`](../docs/tecnica/INDICE.md) e [`../docs/exploracao/14-tese-minima-e-plano-de-validacao.md`](../docs/exploracao/14-tese-minima-e-plano-de-validacao.md)
-**Versão do conjunto:** 1.38
+**Versão do conjunto:** 1.39
 **Data de emissão:** Outubro de 2026
 **Classificação:** Documento de Referência — Interno
 **Estado:** backlog **proposto** (nenhum ticket ratificado; ver `00_KAMBA_Carta.md` §6)
@@ -12,7 +12,7 @@
 
 ## 1. Propósito
 
-Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **170 tickets atómicos (KAM-001 a KAM-170)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
+Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **171 tickets atómicos (KAM-001 a KAM-171)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
 
 O que **não** está aqui: a Fase 2 (Clusters) e a Fase 3 (Escala). Esses epics (geo e logística, estafetas, analytics e Score, índice federado, AdsEngine, vitrine SEO, API pública, Fluxo B) só se escrevem quando o **Gate do Piloto (KAM-110)** for verde. Está declarado em §6.
 
@@ -39,7 +39,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | **EPIC-09 Onboarding e Governação** | Epic | onboarding-web, KYC K1 automático, screening, fila de excepções, saga, T&S, off-boarding | [EPIC-09_Onboarding_Governanca.md](EPIC-09_Onboarding_Governanca.md) |
 | **EPIC-10 Spikes, Validação e Gates** | Epic | Spikes (coexistência, voz), pedidos à Meta/bancos/jurídico, entrevistas, gates da Fase 0 e do Piloto | [EPIC-10_Spikes_Validacao_Gates.md](EPIC-10_Spikes_Validacao_Gates.md) |
 | **EPIC-11 Módulos de Entrada** | Epic | Canal do dono, Catálogo AI conversacional, Foto de produtos AI, Social AI (publicação manual), Orçamento expresso, planos e metering, experimento H10–H12 (ADR-020) | [EPIC-11_Modulos_Entrada.md](EPIC-11_Modulos_Entrada.md) |
-| **Tickets do EPIC-01** | Tickets | Um ficheiro por ticket (55 hoje): o bloco inteiro — campos, Contexto, Objectivo, Critérios, Detalhes, Testes, DoD, verificação e *handoff*. Convenção do KAM-155, por agora só neste epic | [tickets/](tickets/) |
+| **Tickets do EPIC-01** | Tickets | Um ficheiro por ticket (56 hoje): o bloco inteiro — campos, Contexto, Objectivo, Critérios, Detalhes, Testes, DoD, verificação e *handoff*. Convenção do KAM-155, por agora só neste epic | [tickets/](tickets/) |
 
 ---
 
@@ -49,7 +49,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 
 | Epic | Range | N.º tickets | Fase |
 |------|-------|-------------|------|
-| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-170 | 55 | 0–1 |
+| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-171 | 56 | 0–1 |
 | EPIC-02 Canais WhatsApp e Handoff | KAM-013 – KAM-024, KAM-115 | 13 | 0–1 |
 | EPIC-03 Agent Runtime e Verticais | KAM-025 – KAM-040, KAM-114 | 17 | 0–1 |
 | EPIC-04 Core de Comércio | KAM-041 – KAM-051 | 11 | 0–1 |
@@ -60,7 +60,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117 | 16 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
 | EPIC-11 Módulos de Entrada | KAM-118 – KAM-127 | 10 | 1 |
-| **TOTAL** | **KAM-001 – KAM-170** | **170** | — |
+| **TOTAL** | **KAM-001 – KAM-171** | **171** | — |
 
 ### 3.2 Fases
 
@@ -138,6 +138,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-168 | O CodeGraph na *discovery*: quando vem antes do `grep`, e os três limites que tem nesta casa | chore | S | P2 | 0 | — |
 | KAM-169 | A origem do *golden set* no canon: as três do KAM-040, e a barreira do consentimento | fix | S | P1 | 0 | — |
 | KAM-170 | As citações de secção (`§N`) passam a resolver-se por máquina, dentro do *gate* 3 | fix | S | P1 | 0 | — |
+| KAM-171 | A cobertura do instrumento e o predicado: as duas armadilhas de medição que a *skill* não avisava | fix | S | P1 | 0 | — |
 
 ### EPIC-02 — Canais WhatsApp e Handoff
 
@@ -380,3 +381,4 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.36 | Outubro 2026 | **KAM-168** acrescentado e entregue no mesmo PR: a `software-factory` passa a dizer quando o CodeGraph vem antes do `grep` e onde não serve. O §4 do EPIC-01 ganha a linha, o §3.1 passa a `KAM-150 – KAM-168` com 53 no epic e 168 no total, e o §1 acompanha. | Equipa KAMBÁ |
 | 1.37 | Outubro 2026 | **KAM-169** acrescentado e entregue no mesmo PR: a origem do *golden set* no canon passa a ser **uma só** — as três origens do KAM-040 (`sintetico`, `t2_anonimizado`, `real_consentido`), por decisão do fundador a 2026-10-30. O §4 do EPIC-01 ganha a linha, o §3.1 passa a `KAM-150 – KAM-169` com 54 no epic e 169 no total, o §1 acompanha, e a contagem de ficheiros de `tickets/` do §2 passa a **54**. | Equipa KAMBÁ |
 | 1.38 | Novembro 2026 | **KAM-170** acrescentado e entregue no mesmo PR: as citações de secção (`§N`) passam a resolver-se por máquina dentro do `lint_refs`, que já corre no *gate* 3 — era a **quinta** família de citação deste conjunto e a única sem portão, com **8 157** ocorrências. O §4 ganha a linha, o §3.1 passa a `KAM-150 – KAM-170` com 55 no epic e 170 no total, o §1 acompanha, e a contagem de ficheiros de `tickets/` do §2 passa a **55**. | Equipa KAMBÁ |
+| 1.39 | Novembro 2026 | **KAM-171** acrescentado e entregue no mesmo PR: as **três** armadilhas de medição do dia 2026-11-02 passam a estar escritas na `software-factory`. Duas são de construção do instrumento e vão para as disciplinas sobre os *scripts* do `evidencia-e-verificacao.md`, que passam de duas a **quatro**: **dizer o que o instrumento não cobre** — os quatro desse dia ficam nomeados, e o pior foi um resolvedor que tentava uma posição onde a convenção usa duas, do que saiu uma dívida escrita sobre população vazia — e **definir o predicado antes de contar**, com os números que a `../docs/analises/ANALISE-46-KAM-105-alojamento-e-procedimento-apd.md` §7 arquiva: **zero** ligações com destino relativo à raiz em todo o conjunto, **268** ocorrências em **49** ficheiros da forma que a dívida chamava defeito, e **zero** da forma que ela implicava como correcta. A terceira é de leitura e vai para a linha **L3** do `admissao-e-linhas.md`, que passa de três a **quatro** armadilhas: `UNSTABLE` é o estado normal aqui, porque o *gate* 5 e a `vigia — prova nocturna` têm `continue-on-error` e ficam fora do `needs` da porta final, e os *gates* 4 e 8 são os dois últimos a chegar — o 8 sozinho levou 16 min 17 s no PR `#95`. **Nenhum portão novo e nenhuma dispensa**: o que falhou foi um instrumento do *scratchpad*, que não é ficheiro versionado e não tem superfície para um *linter* varrer. **A revisão adversarial reprovou a primeira versão com 22 achados — 10 CONFIRMADO, 2 PLAUSÍVEL, 10 MORTO — e os dez estão corrigidos**: o grave era da classe exacta do ticket, que escrevia «existiam oito citações» a promover a **reclamação** da dívida 158 a medição, quando as duas análises que ele cita dizem que das oito **zero** são defeito. O §4 do EPIC-01 ganha a linha, o §3.1 passa a `KAM-150 – KAM-171` com 56 no epic e 171 no total, o §1 acompanha, e a contagem de ficheiros de `tickets/` do §2 passa a **56**. | Equipa KAMBÁ |
