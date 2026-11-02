@@ -158,6 +158,13 @@ class TestRestauro(unittest.TestCase):
         dados = _dados(dev={"dados__restauro_de": "prod"})
         self.assertIn("restauro-mal-formado", _codigos(dados))
 
+    def test_seccao_dados_em_falta(self) -> None:
+        # Sem a secção não há classe de dados, e sem classe de dados o critério
+        # 4 não tem nada para verificar. Falha, em vez de passar por omissão.
+        dados = _dados()
+        del dados.ambientes["staging"]["dados"]
+        self.assertIn("dados-ausente", _codigos(dados))
+
 
 class TestSegredos(unittest.TestCase):
     def test_dois_ambientes_no_mesmo_projecto(self) -> None:
@@ -171,6 +178,14 @@ class TestSegredos(unittest.TestCase):
     def test_projecto_local_so_em_dev(self) -> None:
         dados = _dados(prod={"segredos__projecto": "local"})
         self.assertIn("projecto-local-fora-de-dev", _codigos(dados))
+
+    def test_ambiente_sem_projecto_declarado(self) -> None:
+        # O mapeamento do critério 5 é o `segredos.projecto`. Um ambiente sem
+        # ele não tem mapeamento, e um mapeamento em falta não se distingue de
+        # um mapeamento correcto se ninguém o exigir.
+        dados = _dados()
+        del dados.ambientes["prod"]["segredos"]["projecto"]
+        self.assertIn("projecto-em-falta", _codigos(dados))
 
     def test_segredo_de_prod_referenciado_em_staging(self) -> None:
         dados = _dados()

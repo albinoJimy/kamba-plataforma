@@ -20,6 +20,10 @@ de `main` — alteração de regra de bloqueio, que é decisão do fundador.
 | 5 — mapeamento ambiente → projecto, e um segredo de `prod` em `staging` falha | Os três projectos são distintos; uma referência `<projecto>/<ID>` dentro de `infra/envs/<e>/` tem de ser do projecto de `<e>` | `projecto-repetido`, `projecto-local-fora-de-dev`, `projecto-em-falta`, `chave-partilhada-entre-ambientes`, `segredo-de-outro-ambiente`, `segredo-fora-de-um-ambiente`, `segredo-fora-do-inventario`, `segredo-nao-existe-no-ambiente` |
 | 6 — 0 recursos proprietários sem equivalente | Nenhum `.tf` fora de `infra/modules/provider-*/` declara `resource`, `data` ou `provider` | `recurso-fora-da-costura` |
 | (Detalhes Técnicos) DNS com TTL baixo | `dns.ttl_segundos` presente e ≤ 300 (***proposta***, não medição) | `ttl-ausente`, `ttl-acima-do-proposto` |
+| (transversal) Esquema e estrutura | Os três `env.yaml` existem, declaram o ambiente da sua pasta, e não têm chaves que ninguém verifique — uma chave a mais era a forma de a D1 entrar por um campo que nenhuma regra lê | `ambiente-em-falta`, `ambiente-mal-declarado`, `chave-desconhecida`, `dados-ausente`, `segredo-nomeado-ausente-do-inventario` |
+
+**São 30 códigos, e todos estão nesta tabela** — não por disciplina, mas porque
+`tests/test_cobertura_dos_achados.py` falha quando um não está.
 
 **O critério 2 não está aqui**, e isso é a coisa mais importante desta página:
 «um *host* novo em ≤ 30 min, mediana de 3 execuções» não se verifica a ler
@@ -70,6 +74,24 @@ Por mutação parte-se da árvore **real**, muda-se uma coisa, e exige-se o acha
 Cada caso declara a sua **precondição**: se o campo já não estiver no estado de
 que o caso parte, o caso **falha** em vez de passar — que é o que fecha o modo
 de falha desta forma (uma mutação que não muda nada passaria sempre).
+
+### «19 de 19 casos» não é cobertura total, e vale dizê-lo
+
+O canário tem **19** casos e o lint produz **30** códigos. Ler a linha de saída
+como cobertura total era um erro à espera de acontecer, e foi encontrado na
+auto-validação deste ticket. A divisão é esta:
+
+- **canário** — as regras que os critérios de aceitação nomeiam, provadas
+  contra a árvore **real**, que é a que o gate verifica;
+- **testes unitários** — as regras de esquema e de estrutura, provadas contra um
+  `Dados` construído à mão, porque mutá-las na árvore real exigia uma árvore
+  inválida.
+
+O que fecha o buraco não é a divisão escrita: é
+`tests/test_cobertura_dos_achados.py`, que lê os códigos da fonte do `lint.py` e
+**falha** quando um deles não tem prova no canário nem num teste — e também
+quando um deles não está na tabela da §1. Um achado sem prova de que morde é um
+achado que pode nascer morto.
 
 ## 5. Domínios partilhados
 
