@@ -282,7 +282,7 @@ acabou de lhe dar, e as linhas de versão são escritas uma vez e lidas muitas.
 | M-07 | Convenções de língua | Zero PT-BR nos ficheiros novos; comentários de `tools/` sem acentos. Um lapso de concordância, corrigido |
 | M-08 | A secção-contentor | `docs/exploracao/06` tem `## Camada 3` sem número com `### 3.1`–`### 3.4` por baixo, e **exactamente 2** citações resolvem só por essa regra — o que o *docstring* diz |
 | M-09 | As outras quatro correcções de prosa | Verificadas uma a uma contra o alvo: `logs.md` §7 ponto 14 é o `[k: string]: never`; pontos 5 e 6 são «O *lint* é um *lint*» e «O que as dependências escrevem»; `tecnica/06` §7.6 ponto 2 é o *crypto-shredding*; `ADR-L001` §7 parafraseia-se na frase citante; `tecnica/04:378` tem `valor_declarado_minor bigint`; `EPIC-07:559` é a linha do consentimento |
-| M-10 | «19 pares, 7 falsos positivos» | **NÃO VERIFICADO**, e é justo: a implementação candidata não está no diff, pelo que não há nada para correr. O método está na secção 5 |
+| M-10 | «19 pares, 7 falsos positivos» | **NÃO VERIFICADO**, e é justo: a implementação candidata não está no diff, pelo que não há nada para correr. O método está na secção 6 |
 
 ---
 
@@ -314,7 +314,49 @@ contra a base todas as vezes, e não só contra a árvore em que foi escrito.
 
 ---
 
-## 5. O que fica por mecanizar, e o método para quem o tentar
+## 5. As «oito citações erradas do EPIC-10», que chegaram três vezes e não são defeito
+
+Esta reclamação chegou de uma sessão par **três vezes**, cada uma com uma classe
+diferente, e fica aqui porque uma quarta é provável e o instrumento já a
+resolveu. O histórico, porque a forma como a afirmação mudou é a parte útil:
+
+| Passagem | O que foi afirmado | O que a árvore diz |
+|---|---|---|
+| 1.ª | oito citações `§` erradas do `EPIC-10`, na Carta, no `01` e no `INDICE` | não reproduz: nenhuma linha desses três ficheiros cita `EPIC-10` com um `§` |
+| 2.ª | a direcção era a inversa — o `EPIC-10` a citá-los — e o defeito é do **prefixo do caminho** | as seis linhas existem; o defeito de caminho não se sustenta |
+| 3.ª | retirada: não são defeito nenhum | confirmado, por medição própria |
+
+**A medição que fecha a questão**, feita com o módulo deste PR sobre as seis
+linhas nomeadas (`specs/EPIC-10_Spikes_Validacao_Gates.md`, linhas 471, 724,
+785, 846, 859 e 936):
+
+```text
+citacoes enderecaveis no EPIC-10: 135
+nas seis linhas nomeadas:          27, e as 27 resolvem
+```
+
+As 27 resolvem **todas**, e a razão está no `_resolver` do
+`tools/lint_refs/seccoes.py`: ele tenta `for base in (pasta, "")` — primeiro
+relativo à pasta do ficheiro citante, **depois relativo à raiz**. Um
+`specs/00_KAMBA_Carta.md` escrito dentro de `specs/` falha a primeira tentativa
+(daria `specs/specs/…`) e acerta na segunda. **Não é defeito de secção nem de
+caminho.** Nenhuma destas citações é população deste ticket, e o âmbito não se
+alarga para as cobrir.
+
+E a linha 859 não produz citação endereçável nenhuma, o que também é correcto:
+ela nomeia um `Gate_Piloto_Decisao.md` como **artefacto a produzir** num critério
+de aceitação, e esse ficheiro não existe na árvore — o designador não resolve,
+pelo que a citação não é endereçável. Um critério que nomeia o entregável que o
+ticket tem de criar não é uma referência quebrada, e o portão não a trata como
+tal.
+
+**A lição de processo, que é a que vale guardar.** Três passagens de uma
+reclamação, duas delas erradas em classes diferentes, resolvidas pelo mesmo
+comando. Um relato de outra sessão é uma afirmação como as outras: verifica-se
+com instrumento próprio antes de mudar âmbito. Nenhuma das três mudou uma linha
+deste PR.
+
+## 6. O que fica por mecanizar, e o método para quem o tentar
 
 **A sub-classe «a secção existe e é a errada»** continua sem instrumento. A única
 candidata foi medida e recusada, e o método está aqui para ser reproduzido, já
@@ -342,7 +384,7 @@ falta, e que decide: quantas resolvem, e quantas resolvem para o documento
 
 ---
 
-## 6. O que esta revisão custou, e o que ela vale
+## 7. O que esta revisão custou, e o que ela vale
 
 **Oito achados confirmados, oito corrigidos**, e dois deles — A-02 e A-07 —
 fechavam pontos cegos que faziam o portão prometer mais do que fazia. Nenhum dos
