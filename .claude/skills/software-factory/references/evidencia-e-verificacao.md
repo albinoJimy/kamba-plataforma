@@ -115,29 +115,41 @@ O que compensa sempre verificar neste conjunto:
 | **Contagens** | «20 ADRs», «N tickets», «11 epics», totais por epic, números nos índices |
 | **Nomes canónicos** | tabelas, colunas, eventos e estados fora do dicionário — gate 3b activo: `make ci-3b`, ou `python -m canon_lint --root .. check` |
 
-Quatro disciplinas sobre os scripts. As duas primeiras são sobre o que o instrumento mede, e
-custaram um dia inteiro — **2026-11-02, quatro instrumentos meus falharam na mesma família e
-nenhum deu erro: todos devolveram um número**:
+Quatro disciplinas sobre os scripts. As duas primeiras são sobre **o que o instrumento cobre**, e
+custaram um dia inteiro — 2026-11-02, quatro instrumentos falharam na mesma família e nenhum deu
+erro: todos devolveram um número (KAM-171):
 
-- **Diz a direcção.** «A cita B» e «B cita A» são medições diferentes, e o `grep` não avisa qual
-  fizeste. Procurei `EPIC-10` **dentro** da Carta e do `specs/01` quando a afirmação era o EPIC-10
-  a citá-los, li o zero como «essas citações não existem», e existiam oito. A direcção escreve-se
-  ao lado do resultado — se não cabe numa frase, o instrumento não é o que pensas que é.
-- **Define o predicado antes de contar.** Uma varredura que não sabe o que conta como defeito
-  devolve a população errada com toda a confiança: a minha deu **4034 ocorrências em 159
-  ficheiros** por tratar como quebrado todo o caminho relativo à raiz escrito em prosa — e o
-  resolvedor do `lint_refs` tenta **duas** bases (`for base in (pasta, "")`), e as 286 do
-  `docs/ci.md` são legítimas. Com o predicado certo — resolve-se o que é ligação; o que está em
-  código é um nome que uma pessoa lê — a população colapsou para **zero**.
+- **Diz o que o instrumento não cobre.** Os quatro desse dia foram: um `grep` vazio porque a frase
+  tinha ênfase no meio; um `cut` a truncar antes da metade que importava; um padrão que não via as
+  citações dentro de ligações Markdown; e um resolvedor que tentava **uma** posição onde a
+  convenção da casa usa **duas** — lido de `specs/`, um `specs/00_KAMBA_Carta.md` dá
+  `specs/specs/…`, não existe, e o *script* disse «não resolve». O `lint_refs` faz o certo:
+  `for base in (pasta, "")`. Daí saiu uma dívida escrita sobre população vazia, retirada depois
+  (`docs/analises/ANALISE-46-KAM-105-alojamento-e-procedimento-apd.md` §7).
+- **Define o predicado antes de contar.** A mesma varredura contava como defeito todo o caminho
+  relativo à raiz escrito em prosa, sem distinguir o que alguma coisa resolve do que ninguém
+  resolve. Declarado o predicado primeiro — uma **ligação** `[texto](destino)` é resolvida por um
+  leitor ou por um renderizador; **código inline** `` `caminho` `` é um **nome** que uma pessoa lê
+  e nada o resolve —, as três medições deram **zero** ligações com destino relativo à raiz em todo
+  o conjunto, **268** ocorrências em **49** ficheiros da forma que a dívida chamava defeito, e
+  **zero** da forma que ela implicava como correcta. Quem for «harmonizar» aquilo reescreve 268
+  ocorrências para uma forma que não ocorre nenhuma vez.
+- **E uma resposta verdadeira a uma pergunta mal-dirigida é indistinguível de uma resposta útil.**
+  A reclamação dizia «oito citações erradas do `EPIC-10`, na Carta e no `01`». Procurar `EPIC-10`
+  **dentro** desses ficheiros devolveu zero, e o zero estava **certo** — nenhuma linha deles o
+  cita. A afirmação que valia a pena testar era a inversa, e dá seis linhas com **27** citações
+  que resolvem todas. Nada se perdeu; faltou perguntar qual das duas medições respondia à
+  pergunta (`docs/analises/ANALISE-47-KAM-170-citacoes-de-seccao.md` §5).
 - **Corre em modo de verificação antes de escrever.** Um script que corrige e verifica ao mesmo
   tempo esconde o que estava errado. Primeiro lista os erros; só depois aplica.
 - **Repete até estabilizar.** Uma verificação que muda alguma coisa na segunda passagem não é
   uma verificação, é uma edição. A sincronia mestre↔epics tem de dar zero divergências à segunda.
 
-> **A direcção e o predicado escrevem-se junto com o resultado.** Um número sozinho não é uma
-> medição: é um número. E uma contagem feita antes de se definir o que conta produz números
-> errados com a mesma firmeza com que produziria os certos — por isso nenhuma das duas falhas
-> acima apareceu como erro, e as duas foram ditas ao fundador antes de serem medidas.
+> **A defesa não é mais cuidado:** é perguntar, antes de confiar num silêncio, o que o
+> instrumento **não** cobre — e dizê-lo junto com o resultado. Um número sozinho não é uma
+> medição; e uma contagem feita antes de se definir o que conta produz números errados com a
+> mesma firmeza com que produziria os certos, que é por que nenhuma das falhas acima apareceu
+> como erro.
 
 Os scripts vivem no scratchpad da sessão enquanto são *ad-hoc*. Um que se mostre útil mais de uma
 vez pertence ao repositório — é o que KAM-002 e KAM-111 prometem.

@@ -201,7 +201,8 @@ gh pr merge <n> --squash
   falham contextos não-obrigatórios», e aqui é o estado normal: o *gate* 5 e a
   `vigia — prova nocturna` têm `continue-on-error` e ficam **fora do `needs`** da porta final, pelo
   que avermelham sempre. E **o 4 e o 8 são os dois mais lentos do conjunto** — o 8 sozinho levou
-  16 min 17 s num PR de 2026-11-01 —, logo «dois pendentes» quase nunca é um PR a meio: é um PR à
+  16 min 17 s no PR `#95`, medido a 2026-11-02 —, logo «dois pendentes» quase nunca é um PR a
+  meio: é um PR à
   espera dos dois últimos a chegar. Ler a contagem em vez dos nomes faz parecer progresso o que é
   espera, e falha o que é desenho.
 - **«no checks reported»** não é CI lenta — é o PR em conflito com a base.
