@@ -279,26 +279,109 @@ class TestOsPrivilegios(ComOfertas):
                     )
                     self.assertEqual(linhas[0][0], esperado)
 
-    def test_o_update_da_cotacao_e_so_do_estado(self) -> None:
-        """Mudar o total de uma cotacao emitida era reescrever o que o dono
-        cotou depois de o cliente o ter visto."""
-        permitidas = {"estado"}
-        for coluna in (
-            "estado",
-            "preco_total_minor",
-            "qty",
-            "sku",
-            "valida_ate",
-            "contact_id",
-            "emitida_por",
-        ):
-            with self.subTest(coluna=coluna):
-                linhas = self.consultar(
-                    "SELECT has_column_privilege('kamba_app', "
-                    "'platform.price_quotes', %s, 'UPDATE')",
-                    (coluna,),
+    def test_o_update_e_por_coluna_nas_duas(self) -> None:
+        """Nenhuma das duas da `UPDATE` de tabela inteira ao `kamba_app`.
+
+        Na cotacao e so o `estado`: mudar o `preco_total_minor`, o `qty`, o
+        `sku` ou o `valida_ate` de uma emitida era reescrever o que o dono cotou
+        depois de o cliente o ter visto.
+
+        Na oferta sao dez, e ficam de fora a chave (`tenant_id`, `sku`), a
+        `currency` (dominio de um valor), o `criado_at` (historia), o
+        `categoria_restrita` (e do *screening* do KAM-049, e a aplicacao a
+        escrever desbloqueava a publicacao que ele existe para travar) e o
+        `medusa_variant_id` (e do Registo).
+
+        **A primeira versao da `0028` dava `UPDATE` de tabela inteira na
+        oferta**, e a assimetria com a cotacao ao lado foi um achado da revisao
+        adversarial: o argumento que restringia uma aplicava-se a outra, e so uma
+        o tinha escrito. Este caso percorre as duas **nos dois sentidos**.
+        """
+        permitidas = {
+            "price_quotes": {"estado"},
+            "offer_terms": {
+                "nome",
+                "preco_tipo",
+                "preco_minor",
+                "preco_atualizado_at",
+                "preco_valido_ate",
+                "stock_modo",
+                "stock_verificado_at",
+                "estado",
+                "atualizado_at",
+                "deleted_at",
+            },
+        }
+        todas = {
+            "price_quotes": (
+                "id",
+                "tenant_id",
+                "contact_id",
+                "sku",
+                "qty",
+                "preco_total_minor",
+                "currency",
+                "valida_ate",
+                "estado",
+                "emitida_por",
+                "criado_at",
+            ),
+            "offer_terms": (
+                "tenant_id",
+                "sku",
+                "nome",
+                "medusa_variant_id",
+                "preco_tipo",
+                "preco_minor",
+                "currency",
+                "preco_atualizado_at",
+                "preco_valido_ate",
+                "stock_modo",
+                "stock_verificado_at",
+                "estado",
+                "categoria_restrita",
+                "criado_at",
+                "atualizado_at",
+                "deleted_at",
+            ),
+        }
+        for tabela, colunas in todas.items():
+            # **O inventario desta lista confronta-se com o catalogo**, senao uma
+            # coluna nova entrava sem ninguem decidir se a aplicacao a escreve.
+            no_catalogo = {
+                str(linha[0])
+                for linha in self.consultar(
+                    "SELECT column_name FROM information_schema.columns "
+                    " WHERE table_schema = 'platform' AND table_name = %s",
+                    (tabela,),
                 )
-                self.assertEqual(linhas[0][0], coluna in permitidas)
+            }
+            self.assertEqual(set(colunas), no_catalogo, tabela)
+            for coluna in colunas:
+                with self.subTest(coluna=f"{tabela}.{coluna}"):
+                    linhas = self.consultar(
+                        "SELECT has_column_privilege('kamba_app', %s, %s, 'UPDATE')",
+                        (f"platform.{tabela}", coluna),
+                    )
+                    self.assertEqual(
+                        linhas[0][0], coluna in permitidas[tabela]
+                    )
+
+    def test_nenhuma_das_duas_da_update_de_tabela_inteira(self) -> None:
+        """O `has_table_privilege` so ve concessoes de tabela — e nao ha.
+
+        Sem este caso, um `GRANT UPDATE ON platform.offer_terms` acrescentado
+        por distraccao passava: ele daria `has_column_privilege` verdadeiro em
+        **todas** as colunas, e o caso de cima ficava vermelho — mas com a
+        mensagem a apontar para a coluna errada em vez de para o `GRANT`.
+        """
+        for tabela in ("offer_terms", "price_quotes"):
+            with self.subTest(tabela=tabela):
+                linhas = self.consultar(
+                    "SELECT has_table_privilege('kamba_app', %s, 'UPDATE')",
+                    (f"platform.{tabela}",),
+                )
+                self.assertEqual(linhas[0][0], False)
 
     def test_o_audit_append_e_executavel_pela_aplicacao_e_a_tabela_nao_e_legivel(
         self,
@@ -352,6 +435,11 @@ class TestOContratoComOModulo(ComOfertas):
         plausiveis = {
             "SQL_TERMOS": (tenant, SKU_PARTILHADO),
             "SQL_TERMOS_PARA_ESCRITA": (tenant, SKU_PARTILHADO),
+            # Oito e nao sete: o `preco_atualizado_at` passou a vir como
+            # argumento (`$8`) em vez de ser `now()` na instrucao. A razao esta
+            # na consulta: era reescrito numa repeticao byte-a-byte, e a coluna
+            # que significa «quando o preco foi posto» passava a significar
+            # «quando alguem reescreveu o rascunho».
             "SQL_ACTUALIZAR_TERMOS": (
                 tenant,
                 SKU_PARTILHADO,
@@ -360,12 +448,18 @@ class TestOContratoComOModulo(ComOfertas):
                 PRECO,
                 None,
                 "indicativo",
+                agora,
             ),
             "SQL_PUBLICAR": (tenant, SKU_PARTILHADO),
             "SQL_AJUSTAR_STOCK": (tenant, SKU_PARTILHADO, "garantido"),
             "SQL_PESQUISAR": (tenant, "arroz", "arroz", 5),
             "SQL_COTACAO_VALIDA": (tenant, SKU_PARTILHADO, 10, agora),
-            "SQL_ACEITAR_COTACAO": (tenant, cotacao),
+            # Tres e nao dois: o `valida_ate > $3` entrou com um achado da
+            # revisao adversarial — «cotacao expirada nao e aceite» e o
+            # criterio 6, e filtrar so por `estado = 'emitida'` nao bastava,
+            # porque a expiracao e por `valida_ate` e um estado so muda
+            # quando alguem o muda.
+            "SQL_ACEITAR_COTACAO": (tenant, cotacao, agora),
             "SQL_AUDITAR": (
                 tenant,
                 "owner",

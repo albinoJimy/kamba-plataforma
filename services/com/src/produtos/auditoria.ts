@@ -49,8 +49,28 @@
  * mudou de `fixo|1200` para `nada` tinha o mesmo texto que um que mudou de
  * `fixo` para `1200|nada`.
  *
- * O `\x1f` não aparece em nenhum dos campos: o `sku` e a origem são
- * identificadores, e o antes/depois são números e valores de domínios fechados.
+ * **A razão pela qual isto é injectivo não é a que esta nota dizia.** Dizia que
+ * «o `\x1f` não aparece em nenhum dos campos: o `sku` e a origem são
+ * identificadores» — e o `sku` **não** é validado na forma: o
+ * `offer_terms_sku_ck` da `0028` exige só não-vazio, de propósito (um padrão
+ * inventado recusava SKUs reais de PMEs angolanas, que não seguem nenhum), e o
+ * `validarRascunho` só faz `trim()`. Um `sku` com um `\x1f` dentro é aceite pela
+ * base.
+ *
+ * A propriedade sustenta-se à mesma, e a revisão adversarial estabeleceu-a: a
+ * cadeia tem **exactamente** `4 + k` separadores, onde `k` é o número de `\x1f`
+ * no `sku`; a acção e a origem vêm de domínios fechados sem `\x1f`, e o
+ * antes/depois são números, instantes e valores de domínios fechados. Para duas
+ * triplas distintas darem a mesma cadeia, o antes ou o depois teriam de absorver
+ * um número diferente de separadores, e não podem. Dentro de um segmento o `,` e
+ * o `=` do `canonico` não são escapados, mas os prefixos `campo=` são fixos e as
+ * chaves estão ordenadas, pelo que a leitura é injectiva nos quatro sítios de
+ * chamada deste módulo.
+ *
+ * Fica escrita a razão certa porque uma razão falsa a sustentar uma conclusão
+ * certa é um defeito: o próximo leitor confia nela, e o dia em que alguém
+ * acrescentar um campo de texto livre ao instantâneo, é esta contagem que tem de
+ * ser refeita — não a suposição de que o `sku` é um identificador.
  */
 
 import {

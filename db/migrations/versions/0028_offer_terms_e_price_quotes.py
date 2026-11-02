@@ -116,10 +116,17 @@ um `DELETE` concedido tornava-a reescrivel sem deixar rasto. Quem apaga e o
 `kamba_batch`, que e o papel da retencao (KAM-071) e o semeador das baterias de
 isolamento.
 
-**O `UPDATE` de `price_quotes` e por coluna**, e so o `estado`: mudar o
-`preco_total_minor`, o `qty`, o `sku` ou o `valida_ate` de uma cotacao emitida
-era reescrever o que o dono cotou depois de o cliente o ter visto. E a mesma
-forma do `UPDATE_DA_APP_EM_BOOKINGS` da `0025`, e pela mesma razao.
+**O `UPDATE` e por coluna nas duas**, e e a forma do
+`UPDATE_DA_APP_EM_BOOKINGS` da `0025`, pela mesma razao. Na cotacao e so o
+`estado`: mudar o `preco_total_minor`, o `qty`, o `sku` ou o `valida_ate` de uma
+cotacao emitida era reescrever o que o dono cotou depois de o cliente o ter
+visto. Na oferta sao as dez do `UPDATE_DA_APP_EM_OFERTAS`, e ficam de fora a
+chave (`tenant_id`, `sku`), a `currency`, o `criado_at`, o `categoria_restrita`
+e o `medusa_variant_id` — ver a razao de cada uma na constante.
+
+**A primeira versao desta revisao dava `UPDATE` de tabela inteira na oferta**, e
+a assimetria com a cotacao ao lado foi um achado da revisao adversarial: o
+argumento que restringia uma aplicava-se a outra, e so uma o tinha escrito.
 
 O `kamba_resolver`, o `kamba_identity`, o `kamba_audit` e o `kamba_agr` **nao
 ganham nada**: o resolvedor resolve canais, a identidade guarda o cofre de
@@ -181,6 +188,43 @@ PAPEL_DE_LOTE = "kamba_batch"
 #: O que o `kamba_app` pode alterar numa cotacao. **So o `estado`**: ver a nota
 #: dos privilegios no topo.
 UPDATE_DA_APP_EM_COTACOES = ("estado",)
+
+#: O que o `kamba_app` pode alterar numa oferta, coluna a coluna.
+#:
+#: **Nao e `UPDATE` de tabela inteira, e a primeira versao desta revisao era.** A
+#: revisao adversarial apanhou a assimetria: a cotacao tinha `UPDATE (estado)`
+#: com o argumento escrito («mudar o `preco_total_minor` era reescrever o que o
+#: dono cotou»), e a oferta tinha a tabela toda — com o mesmo argumento a
+#: aplicar-se as colunas que o modulo nunca escreve.
+#:
+#: **Nao inclui o `tenant_id` nem o `sku`**: sao a chave primaria, e alterar
+#: qualquer um deles era transformar a oferta de uma PME na oferta de outra, ou
+#: mudar a referencia do produto por baixo de um cliente que a citou. Nao inclui
+#: a `currency`, que tem dominio de um valor e nao se altera; nem o `criado_at`,
+#: que e historia; nem o `categoria_restrita`, que e do *screening* (KAM-049) e
+#: cuja escrita pela aplicacao desbloqueava a publicacao que ele existe para
+#: travar; nem o `medusa_variant_id`, que e do Registo e nao do COM.
+#:
+#: O `estado` **esta** aqui, e tem de estar: e o `SQL_PUBLICAR` que o escreve. O
+#: que impede o `upsertProductDraft` de o tocar nao e o `GRANT` — e a coluna nao
+#: estar na instrucao dele, que e uma barreira mais forte do que um privilegio
+#: partilhado pelos dois caminhos.
+#:
+#: O `deleted_at` esta aqui porque o soft delete do secao 5.6 e um `UPDATE`; o
+#: ticket que o escrever (retencao, KAM-071) nao precisa de uma revisao para o
+#: poder fazer.
+UPDATE_DA_APP_EM_OFERTAS = (
+    "nome",
+    "preco_tipo",
+    "preco_minor",
+    "preco_atualizado_at",
+    "preco_valido_ate",
+    "stock_modo",
+    "stock_verificado_at",
+    "estado",
+    "atualizado_at",
+    "deleted_at",
+)
 
 
 def upgrade() -> None:
@@ -391,7 +435,11 @@ def _privilegios() -> None:
     """
     # O `USAGE` em `platform` ja esta concedido desde a `0001`: nao se repete,
     # para que esta revisao nao pareca ser dona de uma concessao que nao criou.
-    op.execute(f"GRANT SELECT, INSERT, UPDATE ON {OFFER_TERMS} TO {PAPEL_DA_APP}")
+    op.execute(f"GRANT SELECT, INSERT ON {OFFER_TERMS} TO {PAPEL_DA_APP}")
+    op.execute(
+        f"GRANT UPDATE ({', '.join(UPDATE_DA_APP_EM_OFERTAS)}) ON {OFFER_TERMS} "
+        f"TO {PAPEL_DA_APP}"
+    )
     op.execute(
         f"GRANT SELECT, INSERT, UPDATE, DELETE ON {OFFER_TERMS} TO {PAPEL_DE_LOTE}"
     )

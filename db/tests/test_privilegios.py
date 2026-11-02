@@ -710,6 +710,53 @@ ESPERADO_POR_TABELA.update(
             "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
             "public": set(),
         },
+        # ------------------------------------------------- KAM-043 (0028)
+        #
+        # **O `kamba_app` escreve, e isso distingue estas duas da
+        # `payment_accounts` acima e das tabelas do `dat`.** Ali o papel da
+        # aplicacao le (ou insere e nao le), porque quem produz um registo de
+        # custo ou quem consome uma conta nao e quem a cria. Aqui os termos de
+        # uma oferta **sao** o estado de negocio que a porta
+        # `CommerceRegistry` le e escreve — o `upsertProductDraft`, o
+        # `publishProduct` e o ajuste de preco e de stock sao todos dele —, e
+        # e a RLS `FORCE` que o limita as linhas do tenant.
+        #
+        # **E nao apaga em nenhuma das duas.** Em `offer_terms` apagar e
+        # escrever `deleted_at` (o secao 5.6 manda soft delete nas ofertas), e
+        # em `price_quotes` uma cotacao emitida e **prova** do preco que o dono
+        # deu: revoga-se pelo `estado`, e um `DELETE` concedido tornava-a
+        # reescrivel sem deixar rasto. Quem apaga e o `kamba_batch`, que e o
+        # papel da retencao (KAM-071).
+        #
+        # O `kamba_audit` nao ganha nada: ele le o `audit_log`, e o que este
+        # modulo escreve la ja o cobre. Um `SELECT` no catalogo dava-lhe o
+        # preco de cada loja, que nao e o que ele audita.
+        "offer_terms": {
+            # **Sem `UPDATE` aqui, e nao e falta:** o `UPDATE` das duas tabelas
+            # e **por coluna** (ver a revisao `0028`), e o
+            # `has_table_privilege` so ve concessoes de tabela. O que prende as
+            # colunas e o `test_o_update_e_por_coluna_nas_duas` de
+            # `db/tests_produtos/test_contrato.py`, que as percorre uma a uma
+            # nos dois sentidos.
+            "kamba_app": {"SELECT", "INSERT"},
+            "kamba_batch": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+            "kamba_audit": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        # O `UPDATE` da cotacao e **por coluna**, e so o `estado` — ver a
+        # revisao `0028`.
+        "price_quotes": {
+            "kamba_app": {"SELECT", "INSERT"},
+            "kamba_batch": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+            "kamba_audit": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
     }
 )
 

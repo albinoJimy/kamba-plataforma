@@ -92,6 +92,8 @@ import {
 } from "../../repo-base/index.ts";
 import {
   RELOGIO_DO_SISTEMA,
+  SQL_AUDITAR,
+  SQL_EMITIR,
   confirmacaoValida,
   getOfferView as getOfferViewDoModulo,
   publishProduct as publishProductDoModulo,
@@ -99,6 +101,44 @@ import {
   type RascunhoDeProduto,
   type Relogio,
 } from "../../produtos/index.ts";
+
+/** As duas únicas cadeias que o `Registo.emitir` aceita. Lista **fechada**. */
+const CHAMADAS_PERMITIDAS: readonly string[] = [SQL_EMITIR, SQL_AUDITAR];
+
+/** Uma consulta chegou ao `Registo.emitir` que não é uma das duas chamadas. */
+export class ChamadaNaoPermitidaError extends Error {
+  override readonly name = "ChamadaNaoPermitidaError";
+  constructor(sql: string) {
+    super(
+      "o Registo.emitir aceita duas cadeias e mais nenhuma: a do " +
+        "platform.evt_emitir e a do platform.audit_append. Nao e um cliente " +
+        "SQL — e a porta estreita para as duas chamadas de funcao que o " +
+        "repo-base nao pode verificar, porque nao tem WHERE. Uma leitura de " +
+        "tabela por aqui saia sem filtro de tenant, sem o contador de recusas " +
+        "e, no Registo da opcao B, sem RLS atras (KAM-043; KAM-042 criterio 4). " +
+        `Usa o r.repo. SQL recusado: ${sql.replace(/\s+/g, " ").trim().slice(0, 120)}`,
+    );
+  }
+}
+
+/**
+ * O cliente embrulhado: só as duas chamadas de função passam.
+ *
+ * A comparação é por **igualdade com a constante** e não por padrão: um
+ * `includes("evt_emitir")` deixava passar
+ * `SELECT * FROM product; -- evt_emitir`, e o que se quer afirmar é que o texto
+ * é exactamente um dos dois que este repositório escreveu.
+ */
+function chamadasDeFuncao(cliente: ClienteSql): ClienteSql {
+  return {
+    async query(sql: string, parametros?: readonly unknown[]) {
+      if (!CHAMADAS_PERMITIDAS.includes(sql)) {
+        throw new ChamadaNaoPermitidaError(sql);
+      }
+      return cliente.query(sql, parametros);
+    },
+  };
+}
 
 /**
  * O `ProductDraft` da porta como rascunho do módulo, ou `null` se não serve.
@@ -236,15 +276,22 @@ export interface Registo {
    * escrita de negócio — e então o preço mudava sem evento, ou o evento saía sem
    * o preço ter mudado, que é precisamente o que o outbox existe para impedir.
    *
-   * **O que a mantém estreita é a revisão**, e fica dito em vez de ser dado por
-   * fechado: o tipo é o mesmo `ClienteSql`, e nada no compilador impede alguém
-   * de lhe passar `SELECT * FROM product`. O que impede é esta nota e o facto de
-   * cada uso ser uma linha visível — e as cadeias que o módulo `produtos` lhe
-   * envia são **duas**, as duas constantes (`SQL_EMITIR`, `SQL_AUDITAR`), as
-   * duas chamadas de função, e as duas lidas pelo *gate* 8 do próprio ficheiro
-   * TypeScript. A revisão adversarial do KAM-042 recusou o cliente cru ao lado
-   * do `repo` por este caminho ser mais largo do que o necessário; este é o
-   * estreito que ele obriga a abrir, com o nome do que faz.
+   * **E é estreito por execução, não por nota.** A primeira versão deste
+   * ticket punha aqui o `cliente` cru e dizia que o que a mantinha estreita era
+   * «esta nota e a revisão» — e a revisão adversarial respondeu o que era
+   * preciso responder: um ticket futuro escreve
+   * `r.emitir.query("SELECT * FROM product WHERE sku = $1", [sku])`, sem filtro
+   * de tenant, sem o contador `com_repo_filtro_em_falta_total` a disparar e,
+   * no Registo da opção B, **sem RLS atrás**. Era reabrir com outro nome o
+   * caminho que a revisão adversarial do KAM-042 fechou — «uma barreira que é
+   * uma frase não é uma barreira», e esta era uma frase.
+   *
+   * Agora o `comRegisto` passa um `ClienteSql` **embrulhado** que recusa
+   * qualquer SQL que não seja uma das duas constantes (`chamadasDeFuncao`), e a
+   * recusa é uma excepção com a razão escrita. O tipo continua a ser
+   * `ClienteSql` de propósito: é o que o `evt_emitir` e o `audit_append` do
+   * módulo `produtos` precisam, e mudá-lo obrigava aqueles dois ficheiros a
+   * conhecer esta fronteira. O que mudou é que a fronteira passou a morder.
    */
   readonly emitir: ClienteSql;
 }
@@ -284,7 +331,7 @@ export async function comRegisto<T>(
       ids,
       ctx: validado,
       repo: repoBase(cliente, validado.tenantId, ids.merchantId),
-      emitir: cliente,
+      emitir: chamadasDeFuncao(cliente),
     });
   });
 }

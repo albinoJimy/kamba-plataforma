@@ -44,6 +44,19 @@
  * repetir `$2` — o operador `%` e o `similarity()` querem o mesmo texto, e a
  * consulta pede-o duas vezes em vez de o reutilizar.
  *
+ * ## O `ON CONFLICT` do upsert, e porque é que ele não estava aqui
+ *
+ * O `INSERT` em `offer_terms` leva
+ * `ON CONFLICT (tenant_id, sku) DO NOTHING RETURNING …`, e o sufixo vive no
+ * módulo porque é o `inserirNoTenant` do repo-base que **constrói** a
+ * instrução. A primeira versão deste ticket não o tinha — e afirmava, em dois
+ * comentários, que o tinha. A revisão adversarial mediu a consequência: dois
+ * `upsertProductDraft` concorrentes do mesmo SKU **novo** viam os dois
+ * `antes === null` (um `FOR UPDATE` não tranca uma linha que não existe), os
+ * dois inseriam, e um recebia `23505` **como excepção** — fora do `Resultado`
+ * que a porta promete. Com o `DO NOTHING`, o segundo recebe zero linhas e
+ * relê: a outra transacção criou-a, e o caminho segue para a actualização.
+ *
  * ## O `INSERT` não está aqui, e não é esquecimento
  *
  * O repo-base não **verifica** um `INSERT`: constrói-o (`inserirNoTenant`), com
@@ -77,12 +90,20 @@ export const SQL_TERMOS = `
 /**
  * O mesmo, com a linha trancada, para o caminho de escrita.
  *
- * **O `FOR UPDATE` é o que torna a idempotência do critério 5 verdadeira sob
- * concorrência.** O ajuste de preço e de stock lê o valor anterior, compara, e
- * só escreve, audita e emite se mudou. Com duas transacções a fazer isso ao
- * mesmo tempo e sem tranca, as duas leem o mesmo «antes», as duas concluem que
- * mudou, e saem **dois** eventos para uma alteração — que é exactamente o que o
- * DoD proíbe («ajustes de stock repetidos não duplicam efeitos nem eventos»).
+ * **O `FOR UPDATE` é o que a idempotência precisa, e não é o que a prova.** O
+ * caminho de escrita lê o valor anterior, compara, e só escreve, audita e emite
+ * se mudou; com duas transacções a fazer isso ao mesmo tempo e **sem** tranca,
+ * as duas leem o mesmo «antes», as duas concluem que mudou, e saem dois eventos
+ * para uma alteração.
+ *
+ * Duas coisas que esta nota afirmava e não eram verdade, as duas achados da
+ * revisão adversarial: ela dizia que isto tornava a idempotência «verdadeira sob
+ * concorrência», e a concorrência **não está medida** — a prova pede duas
+ * ligações a um PostgreSQL real, e este ticket entrega a repetição em série; e
+ * dizia-o do «critério 5», quando o `ajustarStock` não comparava nada. Compara
+ * agora, na parte que esta tabela permite, e a parte que falta — a mesma
+ * quantidade repetida, que não tem coluna onde ser comparada — deixa a caixa do
+ * DoD **vazia**.
  */
 export const SQL_TERMOS_PARA_ESCRITA = `
   SELECT sku, nome, preco_tipo, preco_minor, currency,
@@ -106,6 +127,14 @@ export const SQL_TERMOS_PARA_ESCRITA = `
  *
  * O `atualizado_at` é escrito aqui e não por *trigger* — ver a nota da revisão
  * `0028`.
+ *
+ * **O `preco_atualizado_at` vem como argumento (`$8`) e não é `now()`.** Era
+ * `now()`, e a revisão adversarial mostrou o que isso fazia: uma repetição
+ * byte-a-byte do mesmo rascunho reescrevia-o, e a coluna que a `0028` e o §7.1
+ * documentam como «quando o preço foi posto» passava a significar «quando
+ * alguém reescreveu o rascunho». Quem decide é o módulo, que compara o antes
+ * com o pedido e passa o instante novo **só se o preço mudou** — senão passa o
+ * que já lá estava.
  */
 export const SQL_ACTUALIZAR_TERMOS = `
   UPDATE platform.offer_terms
@@ -114,7 +143,7 @@ export const SQL_ACTUALIZAR_TERMOS = `
          preco_minor = $5,
          preco_valido_ate = $6,
          stock_modo = $7,
-         preco_atualizado_at = now(),
+         preco_atualizado_at = $8,
          atualizado_at = now()
    WHERE tenant_id = $1 AND sku = $2 AND deleted_at IS NULL
   RETURNING sku, preco_tipo, preco_minor, currency, stock_modo, atualizado_at
@@ -240,11 +269,28 @@ export const SQL_COTACAO_VALIDA = `
    LIMIT 1
 `;
 
-/** Marca uma cotação como aceite. O único `UPDATE` que o `kamba_app` pode. */
+/**
+ * Marca uma cotação como aceite. O único `UPDATE` que o `kamba_app` pode.
+ *
+ * **O `valida_ate > $3` é o critério 6 e faltava.** «Cotação expirada não é
+ * aceite», diz o critério; a primeira versão desta instrução filtrava só por
+ * `estado = 'emitida'`, e isso não bastava **pela razão que este módulo escreve
+ * em todo o lado**: a expiração é por `valida_ate` e não pelo estado, e um
+ * estado só muda quando alguém o muda. Uma cotação de Janeiro com
+ * `estado='emitida'` passava a `aceite` em Novembro — o `getValidQuote` já não
+ * a oferecia, e a transição que o critério proíbe acontecia pelo lado. Apanhado
+ * pela revisão adversarial, que usou contra a instrução o argumento que o
+ * comentário ao lado dela já fazia.
+ *
+ * O instante vai como argumento e não é `now()`, pela razão do
+ * `SQL_COTACAO_VALIDA`: para que o teste possa pôr a fronteira numa igualdade
+ * exacta em vez de dormir.
+ */
 export const SQL_ACEITAR_COTACAO = `
   UPDATE platform.price_quotes
      SET estado = 'aceite'
    WHERE tenant_id = $1 AND id = $2 AND estado = 'emitida'
+     AND valida_ate > $3
   RETURNING id, estado
 `;
 

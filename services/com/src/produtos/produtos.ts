@@ -37,7 +37,7 @@
  * ## A idempotência do critério 5 é uma leitura trancada, e não uma comparação
  *
  * O DoD pede que «`publishProduct` e ajustes de stock repetidos não dupliquem
- * efeitos nem eventos». A forma é sempre a mesma nas três escritas:
+ * efeitos nem eventos». A forma é a mesma nas três escritas:
  *
  * ```text
  * 1. ler a linha com FOR UPDATE        (SQL_TERMOS_PARA_ESCRITA)
@@ -46,9 +46,23 @@
  * 4. se muda, escrever + auditar + emitir, na mesma transacção
  * ```
  *
- * O passo 1 é o que a torna verdadeira **sob concorrência**, e não só na
+ * O passo 1 é o que a tornaria verdadeira **sob concorrência**, e não só na
  * repetição em série: sem a tranca, duas transacções leem o mesmo «antes», as
  * duas concluem que mudou, e saem dois eventos para uma alteração.
+ *
+ * **Duas ressalvas, as duas medidas, e as duas na verificação do bloco:**
+ *
+ *   * o passo 1 **não tranca uma linha que não existe**, pelo que o caminho de
+ *     inserção do `upsertProductDraft` se defende com
+ *     `ON CONFLICT … DO NOTHING` e uma releitura, e não com a tranca;
+ *   * o `ajustarStock` cumpre os passos 2 e 3 **só na parte que esta tabela
+ *     permite** — o modo e a conferência. A mesma quantidade repetida não é
+ *     detectada, porque `offer_terms` não tem coluna de quantidade: o stock é do
+ *     Registo (§5.4). A caixa de DoD fica **vazia** por causa disso.
+ *
+ * E a concorrência em si **não está medida**: um `Promise.all` sobre um objecto
+ * em memória não tem transacções para serializar, e a prova pede duas ligações a
+ * um PostgreSQL real. É **NÃO VERIFICADO**, e está escrito onde se afirma.
  */
 
 import {
@@ -75,6 +89,9 @@ import {
   type VistaDaOferta,
 } from "./contrato.ts";
 import {
+  SQLSTATE_CHECK,
+  SQLSTATE_FK,
+  SQLSTATE_UNICIDADE,
   SQL_ACEITAR_COTACAO,
   SQL_ACTUALIZAR_TERMOS,
   SQL_AJUSTAR_STOCK,
@@ -84,7 +101,11 @@ import {
   SQL_TERMOS,
   SQL_TERMOS_PARA_ESCRITA,
 } from "./consultas.ts";
-import { auditarPreco, auditarStock } from "./auditoria.ts";
+import {
+  auditarPreco,
+  auditarStock,
+  type Instantaneo,
+} from "./auditoria.ts";
 import {
   emitirPrecoAlterado,
   emitirProdutoAlterado,
@@ -181,7 +202,13 @@ function emInstante(valor: unknown): string | null {
  * que é o comportamento certo, e é por isso que esta operação também audita e
  * emite quando o preço muda.
  *
- * O `ON CONFLICT` desempata por `(tenant_id, sku)`, que é a chave primária.
+ * O `ON CONFLICT (tenant_id, sku) DO NOTHING` desempata com quem inserir ao
+ * mesmo tempo o **mesmo SKU novo**: um `FOR UPDATE` não tranca uma linha que não
+ * existe, pelo que duas chamadas concorrentes viam as duas `antes === null`. Sem
+ * ele, uma recebia `23505` como **excepção** — fora do `Resultado` que a porta
+ * promete. Com ele, recebe zero linhas, relê e segue pelo caminho da
+ * actualização. Achado da revisão adversarial, que também notou que dois
+ * comentários afirmavam o `ON CONFLICT` que não existia.
  */
 export async function upsertProductDraft(
   r: Registo,
@@ -190,78 +217,151 @@ export async function upsertProductDraft(
   const invalido = validarRascunho(rascunho);
   if (invalido !== null) return erro(invalido);
 
-  const antes = await lerParaEscrita(r, rascunho.sku);
   const precoMinor = rascunho.precoMinor ?? null;
   const stockModo = rascunho.stockModo ?? "indicativo";
+  const antes = await lerParaEscrita(r, rascunho.sku);
 
   if (antes === null) {
     // Linha nova. O `estado` **não** vai: nasce `rascunho` pela omissão.
-    const linhas = await r.repo.inserirNoTenant({
-      tabela: TABELA,
-      valores: {
-        sku: rascunho.sku,
-        nome: rascunho.nome,
-        preco_tipo: rascunho.precoTipo,
-        preco_minor: precoMinor,
-        preco_valido_ate: rascunho.precoValidoAte ?? null,
-        stock_modo: stockModo,
-        preco_atualizado_at: new Date().toISOString(),
-      },
-      sufixo: "RETURNING sku, medusa_variant_id",
-    });
-    const linha = linhas[0];
-    if (linha === undefined) {
-      throw new Error(
-        "o INSERT em offer_terms nao devolveu linha: sem ON CONFLICT, isto " +
-          "significa que a politica tenant_iso recusou o WITH CHECK — o " +
-          "app.tenant_id da transaccao nao e o do ctx (KAM-043)",
-      );
-    }
-    // Um rascunho novo é um produto novo: o evento de produto sai, com o estado
-    // que a linha tem. **Sem preço nem stock no payload** (critério 5).
-    await emitirProdutoAlterado(r.emitir, r.ctx.tenantId, rascunho.sku, "rascunho");
-    await registarAlteracaoDePreco(
-      r,
-      rascunho.sku,
-      null,
-      { preco_tipo: rascunho.precoTipo, preco_minor: precoMinor },
-      "upsert_rascunho",
+    const linhas = await comRecusaDeDominio(() =>
+      r.repo.inserirNoTenant({
+        tabela: TABELA,
+        valores: {
+          sku: rascunho.sku,
+          nome: rascunho.nome,
+          preco_tipo: rascunho.precoTipo,
+          preco_minor: precoMinor,
+          preco_valido_ate: rascunho.precoValidoAte ?? null,
+          stock_modo: stockModo,
+          preco_atualizado_at: new Date().toISOString(),
+        },
+        sufixo:
+          "ON CONFLICT (tenant_id, sku) DO NOTHING " +
+          "RETURNING sku, medusa_variant_id",
+      }),
     );
-    return ok({
-      sku: rascunho.sku,
-      // `medusa_variant_id`, que e texto e nao instante: nulo em toda a Fase 0,
-      // porque o Registo da opcao B nao existe em `infra/compose/`.
-      registoId: emTexto(linha["medusa_variant_id"]),
-    });
+    if (linhas.tipo === "erro") return erro(linhas.erro);
+    const linha = linhas.valor[0];
+    if (linha !== undefined) {
+      // Um rascunho novo é um produto novo: o evento de produto sai, com o
+      // estado que a linha tem. **Sem preço nem stock no payload** (critério 5).
+      await emitirProdutoAlterado(
+        r.emitir,
+        r.ctx.tenantId,
+        rascunho.sku,
+        "rascunho",
+      );
+      await registarAlteracaoDePreco(
+        r,
+        rascunho.sku,
+        null,
+        { preco_tipo: rascunho.precoTipo, preco_minor: precoMinor },
+        "upsert_rascunho",
+      );
+      return ok({
+        sku: rascunho.sku,
+        // `medusa_variant_id`, que é texto e não instante: nulo em toda a Fase
+        // 0, porque o Registo da opção B não existe em `infra/compose/`.
+        registoId: emTexto(linha["medusa_variant_id"]),
+      });
+    }
+    // Zero linhas com `DO NOTHING`: outra transacção criou-a entre o
+    // `lerParaEscrita` e o `INSERT`. Relê — agora com a tranca a servir — e
+    // segue pelo caminho da actualização.
+    const criadaPorOutro = await lerParaEscrita(r, rascunho.sku);
+    if (criadaPorOutro === null) {
+      // Inalcançável sem uma terceira transacção a apagar a linha no intervalo.
+      // `UPSTREAM_DOWN` e não `NOT_FOUND`: o chamador pediu uma escrita que a
+      // base aceitou e desfez, e repetir é a resposta certa — um `NOT_FOUND`
+      // dizia-lhe que o produto não existe, que é falso.
+      return erro("UPSTREAM_DOWN");
+    }
+    return actualizarTermos(r, criadaPorOutro, rascunho, precoMinor, stockModo);
   }
 
-  // Linha existente. O `estado` fica onde está — ver a nota acima.
-  const linhas = await r.repo.noTenant(SQL_ACTUALIZAR_TERMOS, [
-    rascunho.sku,
-    rascunho.nome,
-    rascunho.precoTipo,
-    precoMinor,
-    rascunho.precoValidoAte ?? null,
-    stockModo,
-  ]);
-  if (linhas.length === 0) return erro("NOT_FOUND");
+  return actualizarTermos(r, antes, rascunho, precoMinor, stockModo);
+}
 
+/**
+ * O caminho da actualização, e a sua idempotência.
+ *
+ * **Se nada muda, não escreve.** Era o passo 3 que o cabeçalho deste módulo
+ * prometia e que a primeira versão não cumpria: o `UPDATE` corria sempre, pelo
+ * que uma repetição byte-a-byte reescrevia o `atualizado_at` e o
+ * `preco_atualizado_at` — e o `OfferView.atualizadoAt` mudava sem nada ter
+ * mudado. Agora a comparação é anterior à escrita, e a repetição exacta é
+ * **inteiramente** sem efeito: sem `UPDATE`, sem auditoria e sem evento.
+ *
+ * **O `preco_valido_ate` entra na comparação do preço**, e faltava. Sem ele,
+ * passar a validade de futuro para passado mudava a linha, fazia o
+ * `getOfferView` ler `a_partir_de` com aviso (critério 3) e **não** emitia
+ * `catalog.price_changed` nem escrevia `audit_log` — uma alteração do preço
+ * citável sem rasto, contra o critério 5. Achado da revisão adversarial.
+ */
+async function actualizarTermos(
+  r: Registo,
+  antes: TermosDaOferta,
+  rascunho: RascunhoDeProduto,
+  precoMinor: bigint | null,
+  stockModo: TermosDaOferta["stockModo"],
+): Promise<Resultado<ProductRef>> {
+  const validoAte = rascunho.precoValidoAte ?? null;
   const mudouOPreco =
-    antes.precoTipo !== rascunho.precoTipo || antes.precoMinor !== precoMinor;
+    antes.precoTipo !== rascunho.precoTipo ||
+    antes.precoMinor !== precoMinor ||
+    antes.precoValidoAte !== validoAte;
+  const mudouAlgo =
+    mudouOPreco ||
+    antes.nome !== rascunho.nome ||
+    antes.stockModo !== stockModo;
+
+  if (!mudouAlgo) {
+    // Nada muda: sai sem escrever, sem auditar e sem emitir.
+    return ok({ sku: antes.sku, registoId: null });
+  }
+
+  // O `preco_atualizado_at` só avança se o preço mudou — senão a coluna que
+  // significa «quando o preço foi posto» passava a significar «quando alguém
+  // reescreveu o rascunho». O `estado` não vai na instrução, e é isso que faz
+  // do «nunca publica» uma propriedade e não um `if`.
+  const precoAtualizadoAt = mudouOPreco
+    ? new Date().toISOString()
+    : antes.precoAtualizadoAt;
+
+  const escrita = await comRecusaDeDominio(() =>
+    r.repo.noTenant(SQL_ACTUALIZAR_TERMOS, [
+      rascunho.sku,
+      rascunho.nome,
+      rascunho.precoTipo,
+      precoMinor,
+      validoAte,
+      stockModo,
+      precoAtualizadoAt,
+    ]),
+  );
+  if (escrita.tipo === "erro") return erro(escrita.erro);
+  if (escrita.valor.length === 0) return erro("NOT_FOUND");
+
   if (mudouOPreco) {
     await registarAlteracaoDePreco(
       r,
       rascunho.sku,
-      { preco_tipo: antes.precoTipo, preco_minor: antes.precoMinor },
-      { preco_tipo: rascunho.precoTipo, preco_minor: precoMinor },
+      {
+        preco_tipo: antes.precoTipo,
+        preco_minor: antes.precoMinor,
+        preco_valido_ate: antes.precoValidoAte,
+      },
+      {
+        preco_tipo: rascunho.precoTipo,
+        preco_minor: precoMinor,
+        preco_valido_ate: validoAte,
+      },
       "upsert_rascunho",
     );
   }
-  // **O evento de produto só sai se algo do produto mudou.** Uma repetição
-  // exacta do mesmo rascunho não emite nada — é a idempotência do DoD.
-  if (antes.nome !== rascunho.nome || mudouOPreco || antes.stockModo !== stockModo) {
-    await emitirProdutoAlterado(r.emitir, r.ctx.tenantId, rascunho.sku, antes.estado);
-  }
+  // O evento de produto sai com o estado que a linha **tem** — esta operação
+  // nunca o muda.
+  await emitirProdutoAlterado(r.emitir, r.ctx.tenantId, rascunho.sku, antes.estado);
   return ok({ sku: rascunho.sku, registoId: null });
 }
 
@@ -291,8 +391,13 @@ function validarRascunho(
 async function registarAlteracaoDePreco(
   r: Registo,
   sku: string,
-  antes: { preco_tipo: string; preco_minor: bigint | null } | null,
-  depois: { preco_tipo: string; preco_minor: bigint | null },
+  // O instantâneo é um `Instantaneo` e não uma forma fixa: o que entra nele
+  // depende do que mudou, e o `canonico()` ordena as chaves para que dois
+  // objectos com os mesmos pares em ordem diferente dêem o mesmo *hash*. Fixar
+  // dois campos aqui obrigava a mentir no terceiro — o `preco_valido_ate` entrou
+  // na comparação do preço com um achado da revisão adversarial, e não cabia.
+  antes: Instantaneo | null,
+  depois: Instantaneo & { preco_tipo: string; preco_minor: bigint | null },
   origem: "upsert_rascunho" | "publicacao" | "cotacao_do_dono",
 ): Promise<void> {
   await auditarPreco(
@@ -357,17 +462,31 @@ export async function publishProduct(
     return erro("VALIDATION_ERROR");
   }
 
+  // **O actor da linha é quem chamou; a confirmação vai no instantâneo.**
+  //
+  // A primeira versão passava `confirmacao.actor` como actor da auditoria, com o
+  // argumento de que quem responde pela publicação é o dono que a confirmou. A
+  // revisão adversarial mostrou o que isso custava, e o argumento era errado por
+  // uma razão concreta: o `actor.id` de uma `OwnerConfirmation` é o **id da
+  // mensagem** que confirmou — é como o critério 4 pede «id da mensagem» —, pelo
+  // que a linha ficava com `actor_id = <id de mensagem>` e **quem efectivamente
+  // chamou não era gravado em sítio nenhum**. Quem auditasse «as acções do actor
+  // X» não encontrava publicações.
+  //
+  // O `actor` é agora o do `ctx` e a confirmação entra no `depois`, que é onde um
+  // id de mensagem pertence: a linha passa a responder às duas perguntas — quem
+  // publicou, e com que confirmação.
   await auditarPreco(
     r.emitir,
     r.ctx.tenantId,
-    // **O actor da auditoria é o que confirmou, e não o que chamou.** É a
-    // diferença que o critério 4 quer guardar: a publicação é o acto que põe um
-    // preço à frente de um cliente, e quem responde por ele é o dono que a
-    // confirmou — não o agente que carregou no botão.
-    confirmacao.actor,
+    r.ctx.actor,
     ref.sku,
     { estado: antes.estado },
-    { estado: "publicado", confirmado_em: confirmacao.em },
+    {
+      estado: "publicado",
+      confirmado_em: confirmacao.em,
+      confirmado_por: confirmacao.actor.id,
+    },
     "publicacao",
   );
   await emitirProdutoAlterado(r.emitir, r.ctx.tenantId, ref.sku, "publicado");
@@ -461,12 +580,36 @@ export async function vistaDaOfertaCompleta(
  * quem a leva ao DAT — e é por isso que um ajuste é auditável e emitido sem haver
  * coluna para ele.
  *
- * Isso tem uma consequência que fica dita: **a idempotência deste caminho é
- * parcial**. O que esta função não duplica é o efeito na tabela
- * (`stock_verificado_at` e `stock_modo`, com a tranca) e o `stock.adjusted` de um
- * ajuste que não muda o modo nem a quantidade pedida. O que ela não pode afirmar
- * é que a **quantidade** no Registo não foi aplicada duas vezes, porque o Registo
- * não existe. Quem o fechar é o ticket que ligar o inventário.
+ * ## A idempotência deste caminho é **parcial**, e a parte que falta é medida
+ *
+ * O `qty` é o **nível** de stock e não um delta — é o que o payload do
+ * `stock.adjusted` e do `stock.low` significa —, pelo que «pôr o nível a 3» duas
+ * vezes **devia** ser sem efeito à segunda. Não é, e a razão é que não há onde
+ * comparar: `offer_terms` não tem coluna de quantidade, porque o §5.4 põe o
+ * stock no Registo e dá a esta tabela só o **modo** e o instante da última
+ * conferência.
+ *
+ * **Esta operação não desduplica, e a escolha é deliberada.** Dois ajustes
+ * iguais seguidos escrevem duas vezes, auditam duas vezes e emitem duas vezes.
+ *
+ * O caminho que não se tomou, e porquê: cortar quando o `stock_modo` não muda
+ * engolia em silêncio o caso **comum** — o dono a corrigir a quantidade sem
+ * mudar o modo —, porque a quantidade não está nesta tabela para ser comparada.
+ * **Suprimir sem poder comparar é pior do que duplicar:** um nível emitido duas
+ * vezes é visível a jusante e o consumidor é idempotente por `evento.id`
+ * (ADR-009); um ajuste engolido não é visível em sítio nenhum, e o agente passa
+ * a citar um stock que o dono já corrigiu.
+ *
+ * O que fecha isto é uma coluna de quantidade em `offer_terms` ou uma chave de
+ * idempotência por ajuste — e nenhuma das duas é deste ticket: o §5.4 põe o
+ * stock no Registo, e esta tabela tem o **modo** e o instante da conferência. A
+ * caixa de DoD «ajustes de stock repetidos não duplicam efeitos nem eventos»
+ * fica **vazia** por isto, com a razão escrita na verificação do bloco.
+ *
+ * A primeira versão deste ticket não comparava nada **e dois docstrings
+ * afirmavam que comparava**. O achado é da revisão adversarial; o que mudou foi
+ * a caixa e a prosa, não o comportamento — porque o comportamento estava certo
+ * e a afirmação sobre ele estava errada.
  */
 export async function ajustarStock(
   r: Registo,
@@ -480,8 +623,20 @@ export async function ajustarStock(
   if (antes === null) return erro("NOT_FOUND");
 
   const modo = stockModo ?? antes.stockModo;
-  const linhas = await r.repo.noTenant(SQL_AJUSTAR_STOCK, [ajuste.sku, modo]);
-  if (linhas.length === 0) return erro("NOT_FOUND");
+
+  // **Não há passo 2 aqui, e a tentativa de o haver foi retirada.** Ver a nota
+  // desta função: a quantidade não tem coluna onde ser comparada, e **suprimir
+  // sem a poder comparar é pior do que duplicar**. Uma versão intermédia deste
+  // ticket cortava quando o modo não mudava e o motivo não era `conferencia` — e
+  // isso engolia em silêncio um ajuste do dono que mudou a quantidade, que é o
+  // caso comum desta operação. Perder um ajuste real é um defeito maior do que
+  // emitir duas vezes o mesmo nível, porque o segundo é visível a jusante e o
+  // primeiro não.
+  const escrita = await comRecusaDeDominio(() =>
+    r.repo.noTenant(SQL_AJUSTAR_STOCK, [ajuste.sku, modo]),
+  );
+  if (escrita.tipo === "erro") return erro(escrita.erro);
+  if (escrita.valor.length === 0) return erro("NOT_FOUND");
 
   await auditarStock(
     r.emitir,
@@ -575,20 +730,28 @@ export async function emitirCotacao(
     return erro("VALIDATION_ERROR");
   }
 
-  const linhas = await r.repo.inserirNoTenant({
-    tabela: TABELA_DE_COTACOES,
-    valores: {
-      contact_id: pedido.contactId,
-      sku: pedido.sku,
-      qty: pedido.qty,
-      preco_total_minor: pedido.precoTotalMinor.toString(),
-      valida_ate: pedido.validaAte,
-      emitida_por: r.ctx.actor.id,
-    },
-    sufixo:
-      "RETURNING id, sku, qty, preco_total_minor, currency, valida_ate, estado",
-  });
-  const linha = linhas[0];
+  // O `contactId` **não** se valida aqui, e é a FK composta que o recusa: a
+  // `price_quotes_contacto_do_mesmo_tenant_fk` da `0028` existe exactamente para
+  // isto (ISO-58), e uma verificação em código ao lado dela era uma segunda
+  // fonte para a mesma regra — a mais fraca das duas. O que faltava era
+  // **traduzir** o `23503` dela, que saía da porta como excepção.
+  const inserido = await comRecusaDeDominio(() =>
+    r.repo.inserirNoTenant({
+      tabela: TABELA_DE_COTACOES,
+      valores: {
+        contact_id: pedido.contactId,
+        sku: pedido.sku,
+        qty: pedido.qty,
+        preco_total_minor: pedido.precoTotalMinor.toString(),
+        valida_ate: pedido.validaAte,
+        emitida_por: r.ctx.actor.id,
+      },
+      sufixo:
+        "RETURNING id, sku, qty, preco_total_minor, currency, valida_ate, estado",
+    }),
+  );
+  if (inserido.tipo === "erro") return erro(inserido.erro);
+  const linha = inserido.valor[0];
   if (linha === undefined) {
     throw new Error(
       "o INSERT em price_quotes nao devolveu linha: a politica tenant_iso " +
@@ -621,12 +784,29 @@ export async function emitirCotacao(
   });
 }
 
-/** Marca uma cotação como aceite. Só sai de `emitida`. */
+/**
+ * Marca uma cotação como aceite. Só sai de `emitida` **e só se não venceu**.
+ *
+ * **O instante é um argumento e faltava.** O critério 6 diz «cotação expirada
+ * não é aceite», e a primeira versão filtrava só por `estado = 'emitida'` — o
+ * que não basta precisamente pela razão que este módulo escreve em todo o lado:
+ * a expiração é por `valida_ate` e não pelo estado. Uma cotação de Janeiro com
+ * `estado='emitida'` passava a `aceite` em Novembro. Achado da revisão
+ * adversarial, que usou contra o código o argumento do comentário ao lado dele.
+ *
+ * `NOT_FOUND` cobre os três casos em que não há o que aceitar — não existe, já
+ * não está `emitida`, ou venceu — e isso é deliberado: distingui-los dava a quem
+ * chama um oráculo sobre cotações que a RLS já esconde.
+ */
 export async function aceitarCotacao(
   r: Registo,
   id: string,
+  agora: Date,
 ): Promise<Resultado<void>> {
-  const linhas = await r.repo.noTenant(SQL_ACEITAR_COTACAO, [id]);
+  const linhas = await r.repo.noTenant(SQL_ACEITAR_COTACAO, [
+    id,
+    agora.toISOString(),
+  ]);
   return linhas.length === 0 ? erro("NOT_FOUND") : ok(undefined);
 }
 
@@ -670,6 +850,49 @@ export async function searchOffers(
 }
 
 // ------------------------------------------------------------------ auxiliares
+
+/**
+ * Corre uma escrita e traduz as recusas **de domínio** da base em `Resultado`.
+ *
+ * **Isto faltava, e a sua falta quebrava o contrato da porta.** O módulo
+ * declarava os três `SQLSTATE` (`consultas.ts`) e não os usava em sítio nenhum —
+ * medido por busca pela revisão adversarial —, pelo que uma violação de `CHECK`,
+ * de chave estrangeira ou de unicidade saía da porta como **excepção**, e não
+ * como o `Resultado` que o `contrato.ts` promete a quem chama. Dois caminhos
+ * alcançáveis: um `contactId` de outro tenant numa cotação (`23503`, a FK
+ * composta que a `0028` existe para impor) e dois upserts concorrentes do mesmo
+ * SKU novo (`23505`).
+ *
+ * **Só estes três, e deliberadamente.** Uma ligação em baixo, um `40001` ou um
+ * `42501` **não** são recusas de domínio: o primeiro é infra-estrutura, o
+ * segundo pede retentativa e o terceiro é um privilégio que falta — e traduzir
+ * qualquer deles para `VALIDATION_ERROR` dizia ao chamador que os dados dele
+ * estavam mal quando o problema era outro. Esses continuam a subir, que é a
+ * forma do `CtxEmFaltaError`: um erro de quem montou a chamada ou do ambiente
+ * não é uma resposta de domínio que o grafo deva mostrar a um cliente.
+ *
+ * O `42501` da política `tenant_iso` sobre um `INSERT` é o caso de fronteira, e
+ * sobe por desenho: um `WITH CHECK` recusado significa que o `app.tenant_id` da
+ * transacção não é o do `ctx`, o que é um defeito de montagem e não um dado
+ * inválido.
+ */
+async function comRecusaDeDominio<T>(
+  trabalho: () => Promise<T>,
+): Promise<Resultado<T>> {
+  try {
+    return ok(await trabalho());
+  } catch (excepcao) {
+    const codigo = (excepcao as { code?: unknown })?.code;
+    if (
+      codigo === SQLSTATE_CHECK ||
+      codigo === SQLSTATE_FK ||
+      codigo === SQLSTATE_UNICIDADE
+    ) {
+      return erro("VALIDATION_ERROR");
+    }
+    throw excepcao;
+  }
+}
 
 /** A linha trancada, ou `null`. É o passo 1 da idempotência — ver o módulo. */
 async function lerParaEscrita(

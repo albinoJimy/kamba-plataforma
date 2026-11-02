@@ -165,6 +165,62 @@ def _payment_account(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _oferta(cursor, tenant_id: str, canario: str) -> None:
+    """Os termos comerciais de um SKU (KAM-043, revisao `0028`).
+
+    O canario vai no `sku`, que e **parte da chave primaria composta**
+    `(tenant_id, sku)` — e e por isso que esta receita e a que prova, de graca,
+    que a colisao de SKU entre tenants nao e um problema: a bateria semeia o
+    mesmo canario em dois tenants e as duas linhas coexistem.
+
+    O par `preco_tipo`/`preco_minor` tem de satisfazer o `offer_terms_preco_ck`
+    nos dois sentidos: `sob_consulta` **exige** `preco_minor` nulo, e e o unico
+    par que se escreve sem inventar um numero.
+    """
+    cursor.execute(
+        "INSERT INTO platform.offer_terms "
+        "(tenant_id, sku, nome, preco_tipo) "
+        "VALUES (%s, %s, %s, 'sob_consulta')",
+        (tenant_id, canario, f"produto {canario}"),
+    )
+
+
+def _cotacao(cursor, tenant_id: str, canario: str) -> None:
+    """A cotacao do dono (KAM-043, revisao `0028`).
+
+    **O contacto vai pelo `_UM_CONTACTO`**, que e o `COALESCE(subconsulta,
+    gen_random_uuid())` das receitas de identidade — e a razao e a mesma, medida
+    aqui outra vez. A primeira versao desta receita usava um
+    `INSERT ... SELECT ... WHERE c.tenant_id = %s`: quando a bateria a usa para
+    **atacar** (inserir uma linha de B com o contexto de A), a subconsulta nao ve
+    o contacto de B, o `SELECT` devolve zero linhas, e um `INSERT` de zero linhas
+    **nao da erro** — o teste do `WITH CHECK` ficava vermelho a espera de uma
+    recusa que nao acontecia, porque nao houve linha para recusar.
+
+    Com o `COALESCE`, a linha constroi-se sempre: no ataque leva um UUID
+    aleatorio, e o que a recusa e a **politica**, que se avalia antes das FK. E o
+    que esta bateria existe para medir.
+
+    A FK do contacto e **composta**
+    (`price_quotes_contacto_do_mesmo_tenant_fk`), pela correccao de 2026-10-27
+    do `docs/tecnica/03` secao 5.4 e pelo ISO-58 do spike KAM-041: e por isso que
+    a subconsulta filtra por `tenant_id` — para que a semente legitima a
+    satisfaca com o contacto certo.
+
+    O canario vai no `sku`, que e texto livre nesta tabela — a `price_quotes` nao
+    tem `UNIQUE` sobre ele, e nao precisa: duas cotacoes do mesmo SKU sao
+    legitimas e vale a mais recente.
+    """
+    cursor.execute(
+        "INSERT INTO platform.price_quotes "
+        "(tenant_id, contact_id, sku, qty, preco_total_minor, valida_ate, "
+        " emitida_por) "
+        f"VALUES (%s, {_UM_CONTACTO}, %s, 1, 1000, "
+        "        now() + interval '24 hours', %s)",
+        (tenant_id, tenant_id, canario, tenant_id),
+    )
+
+
 # As tres receitas de identidade (KAM-008). O contacto e a DEK de que a linha
 # precisa vao buscar-se por subconsulta, com um UUID aleatorio de recurso: quando
 # a receita e usada para **atacar** (inserir uma linha de B com o contexto de A),
@@ -1001,6 +1057,26 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "entitlements"): Receita(
         _entitlement, "modulo", None, None, escrita_do_papel=False
     ),
+    # KAM-043. As duas do preco opaco, e as duas **escritas pelo papel**: o
+    # `kamba_app` insere nas duas, pelo que a RLS e a ultima barreira na escrita
+    # e os testes de escrita cruzada medem a politica e nao a falta de
+    # privilegio. E a diferenca face a `payment_accounts` ao lado, onde a
+    # aplicacao so le.
+    #
+    # A coluna alteravel e o `nome` na oferta e o `estado` na cotacao — as duas
+    # estao no `GRANT UPDATE (...)` por coluna da revisao `0028`, e tinham de
+    # estar: uma coluna fora dele fazia os testes de escrita cruzada falharem
+    # por privilegio onde deviam falhar por politica.
+    ("platform", "offer_terms"): Receita(_oferta, "sku", "nome", "nome alterado"),
+    # **Semeia o administrador da instancia, e nao o `kamba_batch`.** A receita
+    # vai buscar o contacto por subconsulta, e o `kamba_batch` **nao tem
+    # `SELECT` em `platform.contacts`** — as tabelas de identidade sao do
+    # `kamba_identity` (KAM-008), e o `42501` que isso da e
+    # `permission denied for table contacts`, medido. E a mesma razao pela qual
+    # as tres receitas de identidade usam `semeador="admin"`.
+    ("platform", "price_quotes"): Receita(
+        _cotacao, "sku", "estado", "revogada", semeador="admin"
+    ),
     ("platform", "contacts"): _identidade(
         _contacto, "phone_hmac", "hmac_kid", KID_DE_SEMENTE, _resumo
     ),
@@ -1373,6 +1449,12 @@ ORDEM = (
     ("platform", "draft_decisions"),
     # KAM-052: depois de `tenants`, que e a sua unica FK.
     ("platform", "payment_accounts"),
+    # KAM-043: a oferta depois de `tenants`, que e a sua unica FK. A cotacao
+    # **depois de `contacts`**, que ela referencia por FK composta — e por isso
+    # fica aqui e nao ao lado da oferta: na ordem inversa, apaga-se antes do
+    # contacto que a subconsulta da receita foi buscar.
+    ("platform", "offer_terms"),
+    ("platform", "price_quotes"),
 )
 
 #: As identidades com que as receitas semeiam.

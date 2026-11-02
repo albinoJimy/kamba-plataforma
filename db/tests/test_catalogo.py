@@ -246,6 +246,16 @@ class TestConvencoes(ComBase):
                 # conta propria da KAMBA, porque uma chave primaria nao
                 # aceita NULL.
                 "payment_accounts",
+                # KAM-043: `id uuid DEFAULT gen_random_uuid()` na
+                # `price_quotes`, pela razao das outras — o `kamba_app`
+                # **le** esta tabela (o `getValidQuote` devolve o `id`, que
+                # o `aceitarCotacao` usa), e com um `id` sequencial o papel
+                # que atende um cliente media quantas cotacoes a plataforma
+                # emite. A `offer_terms` **nao** esta aqui e nao e
+                # esquecimento: nao tem coluna `id`, porque a sua chave e
+                # natural e composta (`tenant_id`, `sku`) — e e isso que faz
+                # da colisao de SKU entre tenants um nao-problema.
+                "price_quotes",
             }
             | por_identidade,
         )
@@ -458,6 +468,17 @@ class TestConvencoes(ComBase):
                 # razao — a unicidade de negocio (a chave de idempotencia) e
                 # uma `UNIQUE` ao lado, e varios tickets a jusante vao referir
                 # uma mensagem enviada por um identificador so.
+                # KAM-043: a **primeira chave primaria composta do esquema**
+                # que nao e de contadores nem de chave natural de texto —
+                # `(tenant_id, sku)` — e nao e estilo: e o que faz do mesmo
+                # texto de `sku` em dois tenants duas linhas independentes,
+                # que e a colisao de SKU entre tenants (ISO-33..38) resolvida
+                # por construcao em vez de por predicado. O `ORDER BY 1, 2`
+                # poe o `sku` antes do `tenant_id` ("sk" < "te"), e nao a
+                # ordem da chave; e poe a tabela antes de `outbound_messages`
+                # ("of" < "ou").
+                ("offer_terms", "sku", "text", None),
+                ("offer_terms", "tenant_id", "uuid", None),
                 ("outbound_messages", "id", "uuid", "gen_random_uuid()"),
                 ("owner_contacts", "id", "uuid", "gen_random_uuid()"),
                 ("owner_notices", "id", "uuid", "gen_random_uuid()"),
@@ -470,6 +491,10 @@ class TestConvencoes(ComBase):
                 # coluna gerada por COALESCE. A posicao e por `ORDER BY 1, 2`:
                 # depois de `owner_notices` ('ow' < 'pa').
                 ("payment_accounts", "id", "uuid", "gen_random_uuid()"),
+                # KAM-043: a cotacao segue a regra geral, `uuid` gerado. A
+                # posicao e por `ORDER BY 1, 2`: depois de `payment_accounts`
+                # ("pa" < "pr") e antes de `tenant_channels`.
+                ("price_quotes", "id", "uuid", "gen_random_uuid()"),
                 ("tenant_channels", "id", "uuid", "gen_random_uuid()"),
                 # KAM-009: as duas tabelas de uso tem chave **composta e de
                 # negocio**, e nao um `uuid` gerado. E deliberado: a chave de
@@ -726,7 +751,29 @@ class TestConvencoes(ComBase):
              # unica pergunta por tenant que se faz a esta tabela: a leitura do
              # caminho quente e pela chave primaria, e a varredura da retencao
              # corre como `kamba_batch` sem tenant nenhum.
-             "tool_idempotency"},
+             "tool_idempotency",
+             # KAM-043. As duas do preco opaco, e cada uma satisfaz a regra
+             # por um caminho diferente. A `offer_terms` tem o `tenant_id`
+             # em primeiro lugar na **chave primaria composta**
+             # `(tenant_id, sku)`, que e o indice que a serve — nao foi
+             # preciso indice proprio —, e tem alem disso
+             # `(tenant_id, estado)` parcial em `deleted_at IS NULL`, que e
+             # a leitura do catalogo publicado. O terceiro indice dela, o
+             # `offer_terms_nome_trgm_idx`, **nao** comeca pelo `tenant_id`
+             # e nao pode comecar: e um GIN de trigramas, e um GIN nao
+             # aceita uma coluna `btree` a frente sem o `btree_gin`. A
+             # asercao pede que **algum** indice comece pelo `tenant_id`, e
+             # a chave primaria comeca; o que impoe o tenant na pesquisa e a
+             # RLS mais o `tenant_id = $1` que o repo-base exige.
+             #
+             # A `price_quotes` e a **sexta** desta classe a nao satisfazer
+             # a convencao de graca, pela razao das outras cinco: a chave
+             # primaria e o `id` aleatorio. Levou indice proprio,
+             # `(tenant_id, sku, valida_ate DESC)` parcial em
+             # `estado = 'emitida'`, e a segunda e a terceira colunas sao a
+             # pergunta do `getValidQuote`: «a cotacao viva deste SKU, a
+             # mais recente primeiro».
+             "offer_terms", "price_quotes"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -749,16 +796,82 @@ class TestConvencoes(ComBase):
                 # indice que nenhuma consulta usa.
                 esperada = ("chave",) if tabela == "audit_heads" else ("tenant_id",)
                 self.assertIn(esperada, primeiras)
+    #: As colunas em unidade menor que `platform` tem, com a razao de cada uma.
+    #:
+    #: **Esta lista nasceu vazia, e isso era o teste e nao a regra.** Ate a
+    #: revisao `0028` (KAM-043) nenhuma tabela de `platform` tinha coluna de
+    #: dinheiro, pelo que a asercao «nao ha nenhuma» passava — e passava por
+    #: vazio. O que o DoD do KAM-003 proibe, e o que o ADR-004 funda, e a
+    #: plataforma **deter fundos**: saldos. Um preco de catalogo nao e um saldo.
+    #:
+    #: A distincao nao e de conveniencia, e verifica-se a seguir: `saldo`,
+    #: `balance` e `_kz` continuam **proibidos sem excepcao** — os dois
+    #: primeiros porque sao a coisa que o ADR-004 recusa, e o `_kz` porque e a
+    #: variante que o dicionario §3.3 substitui (dinheiro e sempre `*_minor`
+    #: inteiro, nunca virgula flutuante). O que passa a ter allowlist e so o
+    #: `_minor`, coluna a coluna e com a razao escrita.
+    #:
+    #: **Isto afrouxa uma caixa de DoD de outro ticket, e o KAM-043 nao tem
+    #: autoridade para o decidir sozinho.** Fica escrito aqui e na verificacao
+    #: do bloco KAM-043 para o fundador ratificar ou recusar; o que o ticket
+    #: entrega e a medicao e a distincao, nao a decisao. Se for recusado, o que
+    #: sai e o criterio 1 do KAM-043 («valores em `bigint` minor»), e isso e um
+    #: conflito entre dois tickets que so o fundador fecha.
+    EM_UNIDADE_MENOR = {
+        # KAM-043, revisao `0028`. O preco de catalogo de um SKU: `fixo` leva o
+        # preco, `a_partir_de` o minimo, `sob_consulta` e nulo (e o
+        # `offer_terms_preco_ck` impoe a equivalencia nos dois sentidos). **Nao
+        # e um saldo**: e um numero que o dono publica para o agente citar, e a
+        # plataforma nao detem nada por causa dele.
+        ("offer_terms", "preco_minor"),
+        # KAM-043, idem. O total que o dono cotou para um `(sku, qty)`, com
+        # validade. Tambem nao e um saldo, pela mesma razao.
+        ("price_quotes", "preco_total_minor"),
+    }
 
     def test_nao_ha_colunas_de_dinheiro_nem_saldos(self) -> None:
-        """DoD: o DDL nao modela saldos — a plataforma nao detem fundos."""
-        linhas = self.consultar(
+        """DoD: o DDL nao modela **saldos** — a plataforma nao detem fundos.
+
+        Ver o `EM_UNIDADE_MENOR` acima para o que mudou nesta asercao com o
+        KAM-043, e porque e que a mudanca precisa do fundador.
+        """
+        # `saldo`, `balance` e `_kz`: **proibidos sem excepcao**. Os dois
+        # primeiros sao a coisa que o ADR-004 recusa; o terceiro e a variante
+        # que o dicionario §3.3 substitui, e uma coluna `*_kz` e dinheiro em
+        # kwanzas inteiros ou — pior — em virgula flutuante.
+        proibidas = self.consultar(
             "SELECT table_name, column_name FROM information_schema.columns "
             "WHERE table_schema = 'platform' AND (column_name LIKE '%%saldo%%' "
-            " OR column_name LIKE '%%balance%%' OR column_name LIKE '%%\\_minor' "
-            " OR column_name LIKE '%%\\_kz')"
+            " OR column_name LIKE '%%balance%%' OR column_name LIKE '%%\_kz')"
         )
-        self.assertEqual(linhas, [])
+        self.assertEqual(proibidas, [])
+
+        # `_minor`: so as declaradas, e **nos dois sentidos**. Uma coluna nova
+        # obriga a escrever a razao no `EM_UNIDADE_MENOR`; uma entrada que a
+        # base nao tem e uma declaracao morta.
+        em_minor = self.consultar(
+            "SELECT table_name, column_name FROM information_schema.columns "
+            "WHERE table_schema = 'platform' AND column_name LIKE '%%\_minor'"
+        )
+        self.assertEqual(
+            set(em_minor),
+            self.EM_UNIDADE_MENOR,
+            "uma coluna em unidade menor nova tem de ser declarada em "
+            "EM_UNIDADE_MENOR, com a razao pela qual nao e um saldo",
+        )
+
+        # E as declaradas sao **inteiras**: o dicionario §2 manda unidade menor
+        # inteira e nunca virgula flutuante, e um `numeric` aqui era o defeito
+        # que o nome `_minor` existe para impedir.
+        for tabela, coluna in sorted(self.EM_UNIDADE_MENOR):
+            with self.subTest(coluna=f"{tabela}.{coluna}"):
+                tipo = self.consultar(
+                    "SELECT data_type FROM information_schema.columns "
+                    "WHERE table_schema = 'platform' AND table_name = %s "
+                    "  AND column_name = %s",
+                    (tabela, coluna),
+                )
+                self.assertEqual(tipo, [("bigint",)])
 
     def test_nao_ha_fk_para_fora_de_platform(self) -> None:
         """As FK entre `platform` e `medusa` sao logicas (texto), nunca de base."""
@@ -831,7 +944,22 @@ class TestConvencoes(ComBase):
         # e a unica FK da conta de pagamento — o `docs/tecnica/04` secao 6
         # escreve que ela «so referencia `tenants`», e as FK para
         # `orders_mirror` sao do KAM-055 e a de `billing_cycles` do KAM-059.
-        self.assertEqual(len(linhas), 41)
+        # **44 e nao 41** desde a `0028` (KAM-043): a
+        # `offer_terms_tenant_fk`, a `price_quotes_tenant_fk` e a
+        # `price_quotes_contacto_do_mesmo_tenant_fk`. Tres, e a terceira e
+        # **composta** com o `tenant_id` — e e a correccao de 2026-10-27 do
+        # `docs/tecnica/03` secao 5.4, que nomeia esta tabela por escrito:
+        # com a FK simples que o bloco SQL daquele secao escreve, uma
+        # cotacao de A podia apontar para um contacto de B, porque a FK e
+        # satisfeita pela chave primaria de `contacts` (que nao inclui o
+        # tenant) e a politica olha para o `tenant_id` da linha da cotacao,
+        # que esta correcto. Medido no ISO-58 do spike KAM-041.
+        #
+        # A `offer_terms` tem **uma** so, e nao e falta: ela referencia o
+        # tenant e mais nada. O produto vive no Registo, e o `sku` e o
+        # `medusa_variant_id` sao referencias logicas (texto), nunca FK de
+        # base — e a regra que o nome deste teste afirma.
+        self.assertEqual(len(linhas), 44)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

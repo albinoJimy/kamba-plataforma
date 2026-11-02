@@ -207,6 +207,11 @@ class TestCatalogoReal(ComBase):
                 # KAM-015: as duas da saida de canal. A ordem e a do
                 # `sorted()`, que compara por ponto de codigo.
                 ("platform", "message_templates", "tenant_id"),
+                # KAM-043: a oferta, antes de `outbound_messages`
+                # («of» < «ou»). E a primeira tabela do esquema em que o
+                # `tenant_id` e **parte da chave primaria** e nao uma
+                # coluna ao lado dela.
+                ("platform", "offer_terms", "tenant_id"),
                 ("platform", "outbound_messages", "tenant_id"),
                 # KAM-115: as duas do aviso ao dono, e a posicao e **depois**
                 # de `outbound_messages`: no `sorted()` por ponto de codigo,
@@ -224,6 +229,10 @@ class TestCatalogoReal(ComBase):
                 # — vale igual. Ver o `ANULAVEIS` de
                 # `db/tests/test_catalogo.py` para a razao da nulidade.
                 ("platform", "payment_accounts", "tenant_id"),
+                # KAM-043: a cotacao, depois de `payment_accounts`
+                # («pa» < «pr»). A oferta esta acima, antes de
+                # `outbound_messages`.
+                ("platform", "price_quotes", "tenant_id"),
                 ("platform", "tenant_channels", "tenant_id"),
                 # KAM-009: o contador de uso e o livro de idempotencia.
                 ("platform", "tenant_usage", "tenant_id"),
@@ -380,6 +389,11 @@ class TestCatalogoReal(ComBase):
                 ("media_assets", "tenant_iso", "ALL", "{public}"),
                 # KAM-015: as duas da saida de canal.
                 ("message_templates", "tenant_iso", "ALL", "{public}"),
+                # KAM-043: a oferta, antes de `outbound_messages`. `ALL` e
+                # `{public}` como todas as outras — o
+                # `rls.enable_tenant_rls` e o unico sitio onde a politica se
+                # escreve, e nao toma parametros de papel.
+                ("offer_terms", "tenant_iso", "ALL", "{public}"),
                 ("outbound_messages", "tenant_iso", "ALL", "{public}"),
                 # KAM-115: as duas do aviso ao dono, depois de
                 # `outbound_messages` («ou» < «ow»).
@@ -394,6 +408,8 @@ class TestCatalogoReal(ComBase):
                 # a mais abre o que a `tenant_iso` fecha — uma porta aberta
                 # sem ninguem a usar.
                 ("payment_accounts", "tenant_iso", "ALL", "{public}"),
+                # KAM-043: a cotacao, depois de `payment_accounts`.
+                ("price_quotes", "tenant_iso", "ALL", "{public}"),
                 # KAM-047: as duas ultimas do `servicos`, e vem **antes** das
                 # duas de `tenant_channels` — a ordem e por nome de tabela, e
                 # `resources` < `services` < `tenant_channels`. A `tenant_channels`
@@ -474,7 +490,13 @@ class TestCatalogoReal(ComBase):
              # que o proximo nao as descubra uma a uma.
              "media_assets",
              # KAM-015: as duas da saida de canal.
-             "message_templates", "outbound_messages",
+             # KAM-043: a oferta entra **entre as duas** — «me» < «of» < «ou» —,
+             # e e a **quinta** lista deste ficheiro a precisar de uma tabela
+             # nova. As outras quatro ja estavam feitas quando esta falhou,
+             # exactamente como a nota do KAM-115 tres entradas abaixo avisa: as
+             # listas sao perguntas diferentes sobre a mesma tabela, e quem
+             # acrescenta uma corre o *gate* 6 **inteiro**. Medido outra vez.
+             "message_templates", "offer_terms", "outbound_messages",
              # KAM-115: as duas do aviso ao dono. **Quarta lista deste ficheiro
              # a precisar delas**, e as outras tres ja estavam feitas quando esta
              # falhou — exactamente como o KAM-017 avisou duas notas acima. A
@@ -486,6 +508,10 @@ class TestCatalogoReal(ComBase):
              # (nao e um caso de `ISOLADAS_POR_OUTRA_COLUNA`), e o predicado
              # leva o `NULLIF` da `db/rls.py` como todos.
              "payment_accounts",
+             # KAM-043: a cotacao, depois de `payment_accounts` («pa» < «pr»).
+             # A oferta esta acima, entre `message_templates` e
+             # `outbound_messages`.
+             "price_quotes",
              "tenant_channels",
              # KAM-009: o contador e o livro. `tenant_usage` antes de
              # `tenants` pela colacao `C` do tipo `name` (ver o teste acima).
