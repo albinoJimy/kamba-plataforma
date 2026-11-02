@@ -297,7 +297,7 @@ Quando duas fontes discordam, **não escolhas em silêncio**. Regista o conflito
 |---|---|
 | 1 | `specs/00_KAMBA_Carta.md` — forma do produto, registo de decisões e DoD do Piloto (hoje **proposta**) |
 | 2 | `docs/tecnica/00_Arquitectura_Solucao.md` §8 — ADR-001…ADR-020; §13.3 — decisões abertas D1…D13 |
-| 3 | `docs/adr/ADR-L001`…`ADR-L004` — **ADRs locais**, numeração própria; decisões de execução já tomadas (o `ADR-L003` regista uma decisão do fundador de 2026-10-18) |
+| 3 | `docs/adr/ADR-L001`…`ADR-L006` — **ADRs locais**, numeração própria; decisões de execução já tomadas (o `ADR-L003` regista uma decisão do fundador de 2026-10-18, o `ADR-L006` uma de 2026-10-30) |
 | 4 | `specs/02_Dicionario_de_Dados_Canonico.md` §3 — nomes canónicos, com `canon/dicionario.yaml` derivado dele |
 | 5 | `specs/00_System_Spec.md` — Foundation: capacidades, mapeamento capacidade → componente → epic, KPIs, SLOs e critérios de aceitação sistémicos |
 | 6 | `specs/01_Engineering_Standards_e_Handoff.md` — DoR, DoD, os 18 gates do §4, convenções |
