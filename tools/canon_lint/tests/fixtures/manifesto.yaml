@@ -49,7 +49,7 @@ casos:
     superficie: migracoes
     negativa: negativas/D-04_callback_hmac_ok.py
     positiva: positivas/D-04_authn.py
-    espera: "`callback_hmac_ok` → `payment_events.authn_ok boolean + authn_method ∈ {hmac, manual, consulta}`, dicionário §3.4"
+    espera: "`callback_hmac_ok` → `payment_events.authn_ok boolean + authn_method ∈ {hmac, manual, consulta, sistema}`, dicionário §3.4"
 
   - divergencia: D-05
     superficie: registo
