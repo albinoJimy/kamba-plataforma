@@ -66,7 +66,7 @@ type Montagem = {
   readonly marcacoes: {
     recibo: bigint;
     estado: EstadoDaEntrega;
-    authnOk?: boolean;
+    authnOk?: boolean | undefined;
   }[];
   readonly encaminhados: TrabalhoDoWorker[];
   readonly alertas: string[];
@@ -76,7 +76,7 @@ type Montagem = {
 function montar(opcoes: {
   readonly conta?: ContaDoToken | null;
   readonly adaptador?: AdaptadorDoHook | null;
-  readonly relogio?: () => number;
+  readonly relogio?: (() => number) | undefined;
 } = {}): Montagem {
   const ordem: OrdemObservada = [];
   const inseridas: Montagem["inseridas"] = [];

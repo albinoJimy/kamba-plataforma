@@ -84,7 +84,9 @@ export type RelatorioDoLedger = {
   readonly cabecas: number;
   /** A chave onde a âncora ficou, ou `null` se a exportação falhou. */
   readonly ancora: string | null;
-  readonly erroDaAncora?: string;
+  // `| undefined` explicito, pela razao do `hooks.ts`:
+  // `exactOptionalPropertyTypes`.
+  readonly erroDaAncora?: string | undefined;
   readonly conforme: boolean;
 };
 
@@ -123,7 +125,7 @@ export type DependenciasDoJob = {
   readonly armazenamento: EscritaDaAncora;
   alertar?(alerta: string, detalhe: Record<string, unknown>): void;
   /** A data da âncora. Injectada para o ensaio não depender do relógio. */
-  hoje?(): Date;
+  readonly hoje?: (() => Date) | undefined;
 };
 
 /**

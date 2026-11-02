@@ -111,7 +111,11 @@ export type Inbox = {
     readonly corpo: Uint8Array;
     readonly corpoHash: Uint8Array;
     readonly cabecalhos: Readonly<Record<string, string>>;
-    readonly sourceIp?: string;
+    // `| undefined` explicito: o `exactOptionalPropertyTypes` do
+    // `tsconfig` desta arvore distingue «ausente» de «presente e
+    // undefined», e quem chama passa o `sourceIp` de um pedido que pode
+    // nao o ter. Medido no gate 1.
+    readonly sourceIp?: string | undefined;
     readonly estado: EstadoDaEntrega;
   }): Promise<bigint>;
   marcar(
@@ -153,7 +157,8 @@ export type DependenciasDoHook = {
   medir?(metrica: string, valor: number, etiquetas?: Record<string, string>): void;
   alertar?(alerta: string, detalhe: Record<string, unknown>): void;
   sha256(corpo: Uint8Array): Uint8Array;
-  agora?(): number;
+  /** `| undefined` explicito: `exactOptionalPropertyTypes` (ver `Inbox`). */
+  readonly agora?: (() => number) | undefined;
 };
 
 export type PedidoDoHook = {
