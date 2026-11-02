@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Spikes, Validação e Gates |
-| Versão | 1.7 |
+| Versão | 1.8 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` |
@@ -479,12 +479,84 @@ Decidir D1 com cotações reais, registar D6 (consequência) e D9 (papel e quem 
 ### Critérios de Aceitação
 - [ ] `../docs/tecnica/evidencia/validacao/Alojamento_Cotacoes.md` com ≥ 3 cotações (≥ 2 de Luanda entre Raxio, Paratus, Angola Cables e Cloud Nacional, e ≥ 1 de JNB/CPT) para produção (8 vCPU/32 GB, NVMe ≥ 200 GB) e *staging* (4 vCPU/16 GB), com: tipo (colocation ou IaaS), preço mensal em Kz e USD, SLA, 2.º local para backups, IXP, contrato mínimo, facturação em Kz (S/N), Postgres e objectos geridos (S/N), prazo de provisionamento; cada linha com o documento de origem ou «sem resposta».
 - [ ] A regra do doc 09 §5.3 aplicada em tabela: cotação de Luanda ≤ 2× a de JNB (S/N), VMs com SLA (S/N), 2.º local angolano para backups (S/N); resultado: **D1 = Luanda** (as 3 em S) ou **D1 = JNB/CPT com procedimento concluído**; decisão com dono, data e assinatura do Responsável de Produto e do de Segurança.
-- [ ] Teste de latência RTT com VM ou *trial* quando o fornecedor o oferecer; sem oferta fica «NÃO MEDIDO» e o KAM-077 mede.
-- [ ] D6 registada como recomendação dependente de D1 (SeaweedFS 4.48 *single node* ou S3 gerido), com a lista de testes pendentes (KAM-076); a decisão final fica em KAM-011.
-- [ ] D9 registada com base na resposta do advogado a E3-1: papel da KAMBÁ (subcontratada por defeito, `../docs/tecnica/08` §8.2), quem notifica a APD (plataforma, PME ou ambas) e a entidade que paga os custos em USD; se o parecer ainda não chegou, a decisão é **provisória**, marcada como tal.
-- [ ] `Mapa_Tratamentos_v1.md` gerado do inventário de subprocessadores: por destino (Meta, LLM, STT, alojamento, backups, CDN se existir, e-mail/SMS, sonda, facilitador), país, finalidade, categorias de dados, retenção proposta, garantias (retenção zero, sem treino) e estado do `apd_ref`; o número de destinos de produção do Piloto é reduzido ao mínimo (*proposta*: 1 LLM, 1 STT).
+- [x] Teste de latência RTT com VM ou *trial* quando o fornecedor o oferecer; sem oferta fica «NÃO MEDIDO» e o KAM-077 mede.
+- [x] D6 registada como recomendação dependente de D1 (SeaweedFS 4.48 *single node* ou S3 gerido), com a lista de testes pendentes (KAM-076); a decisão final fica em KAM-011.
+- [x] D9 registada com base na resposta do advogado a E3-1: papel da KAMBÁ (subcontratada por defeito, `../docs/tecnica/08` §8.2), quem notifica a APD (plataforma, PME ou ambas) e a entidade que paga os custos em USD; se o parecer ainda não chegou, a decisão é **provisória**, marcada como tal.
+- [x] `Mapa_Tratamentos_v1.md` gerado do inventário de subprocessadores: por destino (Meta, LLM, STT, alojamento, backups, CDN se existir, e-mail/SMS, sonda, facilitador), país, finalidade, categorias de dados, retenção proposta, garantias (retenção zero, sem treino) e estado do `apd_ref`; o número de destinos de produção do Piloto é reduzido ao mínimo (*proposta*: 1 LLM, 1 STT).
 - [ ] Submissão à APD feita por destino com taxas pagas e **número de protocolo**, ou decisão escrita do advogado de que não é exigida; folha de seguimento (`submetido`, `em apreciação`, `autorizado`, `negado`) com os prazos reais decorridos.
-- [ ] `GoLive_Gate.md` com a checklist objectiva de entrada de dados reais: D1 decidida; cada destino de produção com `apd_ref` válido; mapa aprovado; DPA e aviso publicados (KAM-090); D9 decidida; checklist de segurança de `../docs/tecnica/08` §8.5 #11; cada linha com estado e data.
+- [x] `GoLive_Gate.md` com a checklist objectiva de entrada de dados reais: D1 decidida; cada destino de produção com `apd_ref` válido; mapa aprovado; DPA e aviso publicados (KAM-090); D9 decidida; checklist de segurança de `../docs/tecnica/08` §8.5 #11; cada linha com estado e data.
+
+### Verificação dos Critérios de Aceitação
+
+**8 critérios; 5 marcados, 3 vazios. 5 caixas de DoD; nenhuma marcada.**
+As três caixas vazias de critério e as cinco de DoD têm a mesma causa, e
+convinha dizê-la antes dos detalhes: **este ticket depende de dois actos que
+ninguém desta casa praticou ainda** — pedir cotações a fornecedores e enviar o
+pacote de perguntas ao advogado — e de uma decisão que é do fundador. O que
+estava ao alcance ficou feito; o que não estava ficou **vazio e nomeado**.
+
+**Quatro ficheiros novos**, todos em `../docs/tecnica/evidencia/validacao/`:
+`Mapa_Tratamentos_v1.md`, `GoLive_Gate.md`, `Alojamento_Cotacoes.md` e
+`Seguimento_APD.md`.
+
+### Os critérios, um a um
+
+| # | Critério | Evidência |
+|---|---|---|
+| 1 | Cotações: ≥ 3, com ≥ 2 de Luanda e ≥ 1 de JNB/CPT | **Vazia, estado `não satisfeito`. Pedir uma cotação a um fornecedor é acto humano**, e foram pedidas **zero**. O que está feito é o molde: um **modelo de pedido com dez pontos** que fixa as capacidades do critério (produção 8 vCPU/32 GB com NVMe ≥ 200 GB, pré-produção 4 vCPU/16 GB) e uma **tabela de dezasseis colunas** que contém as dez que o critério enumera, com seis linhas vazias para três fornecedores × dois ambientes e a coluna **Fonte** a impor «documento de origem ou "sem resposta"». **Nenhuma célula estimada**, que é o 1.º Teste Requerido: medido por varredura, os números herdados do `../docs/tecnica/09` — «~52 ms», «$300–400/mês», «×1–2 de JNB» — ou estão fora das tabelas e declarados hipótese/ESTIMATIVA, ou expressamente recusados |
+| 2 | Regra do `../docs/tecnica/09` §5.3 em tabela e **decisão D1** | **Vazia, estado `parcial`.** A regra está em tabela e fiel à fonte: R1 (cotação de Luanda ≤ 2× a de JNB), R2 (VMs com SLA), R3 (2.º local angolano), com a conclusão certa — Luanda se as três forem `S`, senão JNB/CPT com procedimento concluído — e o bloco de decisão com dono, prazo da Carta, data e as duas assinaturas. **O que falta é o resultado**, e não se pode fabricar: R1, R2 e R3 leem-se das cotações do critério 1, que são zero. **E a decisão é do fundador** (Carta §4.2), não desta sessão |
+| 3 | Latência RTT, ou «NÃO MEDIDO» e o KAM-077 mede | **Três medições `NÃO MEDIDO`**, cada uma com a razão, pelo caminho que o próprio critério prevê — «sem oferta fica "NÃO MEDIDO" e o KAM-077 mede» — e com o **ponto 9 do pedido de cotação** a pedir a máquina de ensaio que torna a medição possível. **Uma divergência de leitura, declarada:** o critério escreve o caminho para «sem oferta», e o que há é «sem contacto» — que é um caso mais largo, não o mesmo. **Não usei o «~52 ms» do `../docs/tecnica/09` §5.2**, por ser INDÍCIO da biblioteca exploratória e não uma medição |
+| 4 | D6 como recomendação dependente de D1, testes pendentes, decisão em KAM-011 | Recomendação **por cenário de D1**: Luanda → SeaweedFS em nó único, porque os objectos geridos em Luanda são NÃO VERIFICADO; JNB/CPT → S3 gerido. Quatro testes pendentes, e a atribuição está correcta depois da revisão: **T1 a T3 são os que o `../docs/tecnica/09` §19 lista**, e o **T4 é acrescento nosso**, da cobertura de cópias do §8.1 — a primeira versão atribuía os quatro ao §19, que só tem três. Decisão final em **KAM-011**, dito onde está. E uma consequência que o critério não pedia: um nó único **sem** segundo local angolano fica com ponto de perda total de objectos, o que faz da R3 mais do que um critério de preço |
+| 5 | D9 registada; **provisória** se o parecer não chegou | Registo **PROVISÓRIO**, pelo caminho que o critério prevê por escrito, em `../docs/tecnica/evidencia/validacao/Seguimento_APD.md` §3 e agora também no registo da Carta §4.2 com dono e data. **Duas das quatro linhas põem por escrito o que o desenho já assume** — subcontratada por defeito e finalidades próprias desligadas — e **duas ficam vazias**: quem notifica a APD (pergunta A-01) e a **entidade que paga os custos em USD, que é decisão do fundador** (pergunta F-02). O registo **não desbloqueia nada**: as linhas A2 e A3 do gate continuam em branco, e é essa a prova de que não foi tratado como decisão |
+| 6 | `Mapa_Tratamentos_v1.md` do inventário, por destino, com seis campos; destinos reduzidos ao mínimo | **Catorze destinos**, cada um com os seis campos que o critério nomeia — país, finalidade, categorias de dados, **retenção proposta**, garantias e estado do `apd_ref` (a retenção por destino entrou depois da revisão; faltava). Os nove destinos que o critério enumera estão todos cobertos, **a sonda incluída**. A redução ao mínimo está como **proposta** com o que se perde — 1 modelo e 1 transcrição significa que uma falha de fornecedor degrada para o modo determinístico, e não para outro fornecedor. **O mapa saiu de três fontes e a terceira é código:** as treze listas de saída da pilha, porque o `tenant_destinations` que o `../docs/tecnica/08` §8.6 manda usar **não existe** (KAM-069). Da reconciliação das três saíram **sete divergências**, duas delas destinos sem linha no inventário |
+| 7 | Submissão à APD por destino, com taxas e **número de protocolo** | **Vazia, estado `não satisfeito`. Submeter, pagar taxas e receber protocolo são actos humanos**, e nenhum se faz sem o parecer que o KAM-104 vai pedir. O que está feito é a folha com as colunas certas e os quatro estados do critério — catorze linhas, **zero submetidas** — mais **Dono** e **Prazo-limite**, que a caixa 5 de DoD pede e que faltavam. A coluna «via» fica **em branco de propósito**: decidir se um país é adequado era usurpar a pergunta E-01. E os sete passos que antecedem a primeira mudança de estado, o primeiro dos quais é enviar o pacote |
+| 8 | `GoLive_Gate.md` com as condições objectivas, cada linha com estado e data | **38 linhas** em cinco blocos, e as seis condições que o critério nomeia estão todas: D1 → A1; `apd_ref` por destino → B2 **e o bloco E, uma linha por destino**, que entrou depois da revisão para cumprir o 2.º Teste Requerido («nenhum destino fica sem linha»); mapa aprovado → B1; DPA e aviso → C1 e C2; D9 → A2 e A3; checklist do `../docs/tecnica/08` §8.5 #11 → D3t. **Cada estado é exactamente um dos quatro do §0** — medido, 38 linhas e 38 estados — e a contagem reproduz-se por máquina: **5 satisfeitas de 36 obrigatórias**, com as datas só nas satisfeitas |
+
+### As cinco caixas de DoD, e porque nenhuma fecha
+
+| Caixa | Razão |
+|---|---|
+| Todos os Critérios satisfeitos e demonstráveis | Três não estão. Marcá-la contradizia as três caixas vazias acima |
+| D1, D6 e D9 no registo da Carta com dono e data; **KAM-077 e KAM-069 desbloqueados** | A primeira metade está feita — a Carta §4.2 ganhou, nas três linhas, o apontador para o que este ticket produziu, com dono e data, **sem mudar nenhum estado**. A segunda metade **não**: o KAM-077 e o KAM-069 dependem de **D1**, que não foi decidida, e continuam bloqueados |
+| Nenhum dado real tratado antes do gate; **documentos contratuais em arquivo controlado** | A primeira metade é verdadeira e verificável — não há produção, e o gate existe e mede. A segunda **não tem objecto**: não há contrato nenhum assinado, logo não há arquivo controlado. Marcar por vacuidade era o contrário do que esta caixa serve |
+| Itens NÃO VERIFICADOS do `../docs/tecnica/09` §19 com **estado final** | Os três que o DoD nomeia — cotações, latência e serviços geridos — continuam **NÃO VERIFICADO**, e o §19 não foi tocado. É consequência honesta de não haver cotações: um estado final exigia resposta de fornecedor |
+| Autorização da APD em seguimento com **prazo-limite e dono**; o estado entra no KAM-108 e no KAM-110 | As colunas **Dono** e **Prazo-limite** existem agora na folha, e nascem vazias — o dono só se atribui depois de **A-01** dizer quem submete. Sem submissão nenhuma, não há autorização em seguimento |
+
+### O que a revisão adversarial mudou, e o achado que importava
+
+Uma passagem, read-only, sem ver o meu raciocínio: **17 achados**, e a análise
+está em
+[`ANALISE-46`](../docs/analises/ANALISE-46-KAM-105-alojamento-e-procedimento-apd.md).
+
+**O grave era a afirmação mais forte do mapa, e estava errada na razão que
+dava.** Eu escrevera que «não existe caminho pelo qual dados pessoais de
+produção saiam da plataforma» porque as saídas que os levariam não estão
+declaradas. **A inferência estava invertida:** as listas de `egress` são
+**contratos**, não aplicação — a aplicação na rede é o KAM-076 e não está
+feita, o que a **minha própria linha D2t** registava duas seccões adiante. Com a
+aplicação em falta, «não declarado» significa «não governado», não «fechado». E
+havia contra-exemplo: o `packages/core-ts` fixa `graph.facebook.com` numa
+constante e monta um corpo que leva o telefone — e **`packages/` e `libs/` estão
+fora do regime de `egress`**, medido, zero ficheiros. O que ficou escrito é mais
+estreito e verdadeiro: **nenhum serviço em execução instancia hoje um cliente de
+saída para terceiros**, pelo que a contenção é de **ausência de ligação** e não
+de controlo.
+
+**Dois outros eram de substância.** As listas de saída são **treze** e não seis
+— `infra/egress/` tem oito ficheiros —, e o Medusa e a pilha de observação não
+têm lista nenhuma. E a coluna **`finalidade`** sobre-declarava em dois dos três
+destinos de modelos: derivada do `llm/aliases.yaml` com o `destinos.py`, o
+primeiro serve só `conversa` e o outro serve `visao` e `embeddings`. **`purpose`
+é coluna do formulário da APD**, e declarar uma finalidade a mais é pedir
+autorização para uma transferência que não existe.
+
+**E um que não foi da revisão.** Nenhum dos seis linters verifica referências de
+secção nem caminhos fora dos blocos de *handoff*. Escrevi um script que extrai
+as citações `<ficheiro> §N` destes ficheiros e confirma que a secção existe no
+alvo: apanhou **dois caminhos que não resolviam**, e depois de corrigido apanhou
+uma classe que lhe escapava — as citações dentro de ligações Markdown, onde
+vivia uma remissão quebrada que a revisão encontrou à mão. **92 citações, 92
+válidas.**
 
 ### Detalhes Técnicos
 - **Componentes:** GOV, TEN; consumidores: KAM-069 (inventário e gate), KAM-077 (alojamento). `tenant_destinations(tenant_id, provider, country, purpose, apd_ref, status)` por omissão negado.
@@ -866,3 +938,4 @@ Não expandas escopo: escrever os epics da Fase 2 é trabalho posterior, só se 
 | 1.5 | Outubro 2026 | KAM-104: o bloco ganha a secção «Verificação dos Critérios de Aceitação» com uma linha de evidência nomeada por critério, e as caixas passam a marcadas onde há evidência: **3 de 7 critérios e 3 de 5 caixas de DoD**. Três das quatro vazias são actos humanos — enviar o pacote (critério 4), pedir honorários e assinar (5), receber respostas por escrito (6) — e para cada uma fica dito, com o estado `não satisfeito`, o que havia de aproveitável e onde está. **A quarta foi a revisão adversarial que a abriu:** o critério 3 estava marcado e desmarcou-se, porque o limite de «≤ 6 páginas» é duro e a conta que o sustentava só dava 6 se o espaçamento entre parágrafos não ocupasse linha — com ele, o anexo dá cerca de 6,8 páginas; os seis itens enumerados estão todos presentes e a ausência de dados pessoais está verificada, e o que falha é só a medida. Entregues três ficheiros novos em `../docs/tecnica/evidencia/validacao/`: o pacote com as **40** perguntas e os oito campos de cada uma, o anexo de factos do caso sem dados pessoais, e o molde de selecção com o registo de respostas, que nasce vazio. Nenhuma prioridade do critério 2 foi reinventada: as quatro divergências de leitura ficam medidas e a decisão devolvida a quem escreveu o critério. A revisão adversarial devolveu **11 achados — 9 `CONFIRMADO` corrigidos, 1 `PLAUSÍVEL` aceite, 1 `MORTO` registado** — e está em [`ANALISE-43`](../docs/analises/ANALISE-43-KAM-104-pacote-parecer-juridico.md); o mais grave era de conteúdo e não de forma: o pacote dizia que o conjunto de avaliação é inteiramente sintético quando o KAM-040 especifica três origens, duas delas com material real sob registo de consentimento. | Equipa KAMBÁ |
 | 1.6 | Outubro 2026 | KAM-104: a linha dos casos T2 do bloco **KAM-109** deixa de dizer que o golden se alimenta «só por reescrita sintética» e passa a nomear as **três origens do KAM-040** (`sintetico`, `t2_anonimizado`, `real_consentido`), com o registo de consentimento obrigatório para os reais. Não é emenda de prosa: era uma das **sete** afirmações sobre a origem do *golden set* que invocam o ADR-018 e não dizem o mesmo — quatro davam uma origem, três davam as outras duas —, medidas e nomeadas no KAM-104 e na [`ANALISE-43`](../docs/analises/ANALISE-43-KAM-104-pacote-parecer-juridico.md). **O fundador decidiu a 2026-10-30 que valem as três origens**, pelo que esta passou de decisão a correcção. As outras três afirmações divergentes estão fora deste epic e vão a ticket próprio. | Equipa KAMBÁ |
 | 1.7 | Outubro 2026 | KAM-104: a caixa do critério 3 **fecha**, com o anexo medido em **6 páginas** por um renderizador nomeado (pandoc/latex:3.1 em contentor, `--pdf-engine=xelatex`, `-V geometry:a4paper -V geometry:margin=2.5cm -V fontsize=11pt --from=gfm`) e a contagem de páginas confirmada por três vias independentes que concordam. O fundador autorizou medir uma vez em contentor, a 2026-10-30, porque «≤ 6 páginas» sem renderizador nomeado é uma estimativa e não um critério. A primeira medição deu **7**: a secção «o que ainda não existe» passou do anexo para o §6.1 do pacote, sem perda de informação por os dois ficheiros viajarem juntos, e a segunda deu **6**. Caixas: **4 de 7 critérios e 3 de 5 de DoD**; as três que ficam vazias são actos humanos. | Equipa KAMBÁ |
+| 1.8 | Novembro 2026 | KAM-105: o bloco ganha a secção «Verificação dos Critérios de Aceitação», e as caixas passam a marcadas onde há evidência: **5 de 8 critérios e 0 de 5 caixas de DoD**. Quatro ficheiros novos em `../docs/tecnica/evidencia/validacao/`. As três caixas vazias de critério e as cinco de DoD têm a mesma causa: o ticket depende de pedir cotações, de enviar o pacote ao advogado e da decisão **D1**, que é do fundador. O mapa de tratamentos saiu de três fontes, e a terceira é código — as treze listas de saída da pilha — porque o `tenant_destinations` que o `../docs/tecnica/08` §8.6 manda usar não existe. A revisão adversarial devolveu **17 achados** e está na [`ANALISE-46`](../docs/analises/ANALISE-46-KAM-105-alojamento-e-procedimento-apd.md); o grave foi a afirmação central do mapa, correcta na conclusão e **invertida na inferência**. | Equipa KAMBÁ |
