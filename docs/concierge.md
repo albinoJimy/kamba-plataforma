@@ -167,7 +167,11 @@ Os Termos da Meta §4.7 proíbem usar dados da plataforma para criar, desenvolve
 treinar ou melhorar sistemas de ML/IA
 ([`tecnica/evidencia/E1`](tecnica/evidencia/E1_Meta_WhatsApp.md) §4, **NÃO
 VERIFICADO** na íntegra; ADR-018), e o [`tecnica/10`](tecnica/10_Onboarding_Governanca.md)
-§11.3 tira a conclusão: o *golden* leva **reescritas sintéticas**, nunca cópias.
+§11.3 tira a conclusão: uma conversa real só entra no *golden* como
+`real_consentido`, com **registo de consentimento** (as três origens do KAM-040,
+decisão do fundador a 2026-10-30; [`adr/ADR-L006`](adr/ADR-L006-origem-do-golden-set.md)).
+**Desta exportação não sai conversa nenhuma:** o que sai são reescritas
+sintéticas, nunca cópias.
 
 ```bash
 python db/golden_candidates.py esquema      # o teste de esquema do critério 7
@@ -222,3 +226,4 @@ minutos** e o `make test-py` triplicava; assim levam segundos.
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial. O modo concierge do KAM-114: a política por *tenant*, os nós `draft_prepare` e `draft_wait`, a `platform.draft_decisions` (revisão `0024`), o CAS de `/internal/draft-decision`, a varredura dos prazos, a substituição por *echo* do dono ou handoff, e a exportação `golden-candidates`. | Equipa KAMBÁ |
+| 1.1 | Outubro 2026 | KAM-169: a secção «O *golden*, e o que a Meta proíbe» atribuía ao `tecnica/10` §11.3 a conclusão «o *golden* leva reescritas sintéticas, nunca cópias», que é a **oposta** à que esse §11.3 passou a tirar — uma conversa real entra como `real_consentido` com registo de consentimento, pelas três origens do KAM-040 (decisão do fundador a 2026-10-30, `adr/ADR-L006-origem-do-golden-set.md`). A frase sobre **esta exportação** mantém-se e ganha o sujeito explícito: dela não sai conversa nenhuma, saem reescritas sintéticas. Achado da revisão adversarial do KAM-169, que mostrou que esta linha fala do **conjunto** e não da exportação, e que o ADR-L006 a tinha classificado entre as que «não são contradição». | Equipa KAMBÁ |

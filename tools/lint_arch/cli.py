@@ -5,7 +5,8 @@
     python -m lint_arch commit-msg <ficheiro>    mensagem de commit
     python -m lint_arch branch [<nome>]          nome de ramo
     python -m lint_arch tool-schema [--root .]   esquemas de tool (KAM-028)
-    python -m lint_arch all [--root .]           deps + structure + tool-schema
+    python -m lint_arch medusa [--root .]        Registo de comercio (KAM-042)
+    python -m lint_arch all [--root .]           deps + structure + tool-schema + medusa
 
 Codigo de saida 0 = conforme, 1 = achados, 2 = erro de configuracao. A distincao
 importa: um ficheiro de bloqueio malformado nao pode parecer um repositorio limpo.
@@ -20,7 +21,7 @@ from pathlib import Path
 
 from . import blocklist as blocklist_module
 from . import conventions as conventions_module
-from . import manifests, names, structure, tool_schema, versions
+from . import manifests, medusa, names, structure, tool_schema, versions
 
 
 def _default_root() -> Path:
@@ -195,7 +196,11 @@ def main(argv: list[str] | None = None) -> int:
         "aliases",
         help="llm/aliases.yaml com SemVer, lock em dia e config gerada (KAM-030)",
     )
-    sub.add_parser("all", help="deps, structure, tool-schema e aliases")
+    sub.add_parser(
+        "medusa",
+        help="SDK e base do Registo so no COM, e nenhuma flag Enterprise (KAM-042)",
+    )
+    sub.add_parser("all", help="deps, structure, tool-schema, aliases e medusa")
     commit = sub.add_parser("commit-msg", help="valida uma mensagem de commit")
     commit.add_argument("path", type=Path, help="ficheiro com a mensagem (COMMIT_EDITMSG)")
     branch = sub.add_parser("branch", help="valida um nome de ramo")
@@ -211,16 +216,19 @@ def main(argv: list[str] | None = None) -> int:
             return _report("estrutura", structure.check(root))
         if args.command == "tool-schema":
             return _report("esquemas de tool", tool_schema.check(root))
+        if args.command == "medusa":
+            return _report("Registo de comercio", medusa.check(root))
         if args.command == "aliases":
             return _report("aliases de LLM", _check_aliases(root))
         if args.command == "all":
-            # Os quatro correm **sempre**, e o codigo de saida e o maximo: parar
+            # Os cinco correm **sempre**, e o codigo de saida e o maximo: parar
             # no primeiro achado escondia os outros, e quem corre `all` quer a
             # lista toda de uma vez.
             status = _report("lista de bloqueio", check_dependencies(root))
             status = max(status, _report("estrutura", structure.check(root)))
             status = max(status, _report("esquemas de tool", tool_schema.check(root)))
-            return max(status, _report("aliases de LLM", _check_aliases(root)))
+            status = max(status, _report("aliases de LLM", _check_aliases(root)))
+            return max(status, _report("Registo de comercio", medusa.check(root)))
 
         rules = conventions_module.load(_conventions_path(root))
         if args.command == "commit-msg":
