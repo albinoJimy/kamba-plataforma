@@ -113,7 +113,7 @@ FONTE_ALTERADA_PELO_CONCIERGE: Final = "02 §7.3, alterada por KAM-114"
 #: — apanhado pela revisao adversarial (achado C12). Lista **fechada**: e por ela que o
 #: teste de contrato mede «nenhum no a mais, nenhum a menos», e cada nome e
 #: tambem etiqueta de nada — os nos nao sao etiqueta de metrica, e e de
-#: proposito (§9.2 do `docs/tecnica/08`: o nome de um no nao identifica ninguem,
+#: proposito (§7.3 do `docs/tecnica/08`: o nome de um no nao identifica ninguem,
 #: mas tambem nao se mede por no sem alguem decidir).
 NOS: Final = (
     "ingest",
