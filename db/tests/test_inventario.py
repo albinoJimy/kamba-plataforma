@@ -1176,6 +1176,136 @@ INVENTARIO = {
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
         "decidido_at": ("timestamp with time zone", SIM, None, "nao"),
     },
+    # ---------------------------------------------------------------- KAM-043
+    #
+    # Os termos comerciais de um SKU: o preco opaco e o stock nao-garantido
+    # (revisao `0028`). **Nenhuma coluna guarda dado pessoal**, e a unica de
+    # texto livre e o `nome`, que e o nome comercial do produto — a mesma
+    # resposta do `servicos.resources.nome` e do `tenants.nome`.
+    "offer_terms": {
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "sku": (
+            "text",
+            NAO,
+            None,
+            "nao — a referencia do produto na loja. **Escrita pelo dono**, e e "
+            "por isso que leva `CHECK` de nao-vazio e nao de forma: um padrao "
+            "inventado recusava SKUs reais de PMEs angolanas, que nao seguem "
+            "nenhum",
+        ),
+        "nome": (
+            "text",
+            NAO,
+            None,
+            "nao — nome comercial do produto, nunca de pessoa singular. E o "
+            "campo que o `searchOffers` pesquisa por trigramas; o que impede um "
+            "telefone aqui nao e o schema (nenhum o faz) mas o validador de "
+            "entrada e o KAM-068, como diz o cabecalho deste ficheiro",
+        ),
+        "medusa_variant_id": (
+            "text",
+            SIM,
+            None,
+            "nao — id opaco no Registo. Nulo em toda a Fase 0: nao ha Medusa em "
+            "`infra/compose/`",
+        ),
+        "preco_tipo": (
+            "text",
+            NAO,
+            None,
+            "nao — dominio fechado de tres valores. **`preco_tipo` e nao "
+            "`preco_modo`**, que o dicionario §3.3 substitui desde a emenda 1.12",
+        ),
+        "preco_minor": (
+            "bigint",
+            SIM,
+            None,
+            "nao — unidade menor inteira. **Anulavel so em `sob_consulta`**, e a "
+            "equivalencia esta no `offer_terms_preco_ck` nos dois sentidos",
+        ),
+        "currency": (
+            "text",
+            NAO,
+            "'AOA'::text",
+            "nao — dominio de um valor. `text` com `CHECK` e nao `char(3)`: um "
+            "`char(3)` sem `CHECK` aceita `'USD'` em silencio e nenhum gate o le",
+        ),
+        "preco_atualizado_at": ("timestamp with time zone", SIM, None, "nao"),
+        "preco_valido_ate": (
+            "timestamp with time zone",
+            SIM,
+            None,
+            "nao — passado o prazo o preco **le-se** como `a_partir_de`; a "
+            "coluna `preco_tipo` nao muda",
+        ),
+        "stock_modo": ("text", NAO, "'indicativo'::text", "nao"),
+        "stock_verificado_at": (
+            "timestamp with time zone",
+            SIM,
+            None,
+            "nao — acima de 24 h o `indicativo` sai com aviso (§7.3)",
+        ),
+        "estado": ("text", NAO, "'rascunho'::text", "nao"),
+        "categoria_restrita": (
+            "text",
+            SIM,
+            None,
+            "nao — categoria de produto, preenchida pelo *screening* (KAM-049). "
+            "Nao nula bloqueia a publicacao",
+        ),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "atualizado_at": (
+            "timestamp with time zone",
+            NAO,
+            "now()",
+            "nao — escrito pelo modulo em cada `UPDATE`, nao por *trigger*",
+        ),
+        "deleted_at": ("timestamp with time zone", SIM, None, "nao"),
+    },
+    # A cotacao do dono: e por aqui que um `sob_consulta` ganha numero. O
+    # `contact_id` e a referencia pseudonimizada do ADR-010 — nunca o telefone —,
+    # e a FK que a liga e **composta**, pela correccao de 2026-10-27 do
+    # `docs/tecnica/03` §5.4.
+    "price_quotes": {
+        "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "contact_id": (
+            "uuid",
+            NAO,
+            None,
+            "nao — referencia opaca a `contacts` (KAM-008, ADR-010). E o "
+            "substituto, nunca o telefone",
+        ),
+        "sku": ("text", NAO, None, "nao — a referencia do produto cotado"),
+        "qty": ("integer", NAO, None, "nao"),
+        "preco_total_minor": (
+            "bigint",
+            NAO,
+            None,
+            "nao — o total da linha para `(sku, qty)`, e nao o unitario: "
+            "dividir por `qty` perdia o desconto de quantidade, que e a razao de "
+            "existir a cotacao",
+        ),
+        "currency": ("text", NAO, "'AOA'::text", "nao — dominio de um valor"),
+        "valida_ate": (
+            "timestamp with time zone",
+            NAO,
+            None,
+            "nao — a expiracao e por este instante e **nao** pelo `estado`: um "
+            "estado so muda quando alguem o muda",
+        ),
+        "estado": ("text", NAO, "'emitida'::text", "nao"),
+        "emitida_por": (
+            "uuid",
+            NAO,
+            None,
+            "nao — o id do actor dono que a emitiu, que pode ser o "
+            "`owner_contact_id` do tenant ou um operador. **Sem FK**: um actor "
+            "nao e uma linha de `contacts`, e inventar-lhe uma tabela era escopo "
+            "de outro ticket",
+        ),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
 }
 
 #: **A segunda vista do esquema** (KAM-114), e esta no inventario pela razao da
@@ -1557,6 +1687,21 @@ class TestInventario(ComBase):
                         # `ON DELETE CASCADE` escrito de passagem.
                         "consent_event_tenant_fk",
                         "consent_event_contact_fk",
+                        # KAM-043: as **tres** da revisao `0028`. A do
+                        # contacto da cotacao e **composta** com o
+                        # `tenant_id`, pela correccao de 2026-10-27 do
+                        # `docs/tecnica/03` secao 5.4 — que nomeia esta
+                        # tabela por escrito — e pelo ISO-58 do spike
+                        # KAM-041, que mediu o que a FK simples permite:
+                        # uma cotacao de A a apontar para um contacto de B.
+                        # Nenhuma apaga em cascata, e na `offer_terms` isso
+                        # vale duas vezes: apagar um tenant nao pode apagar
+                        # o catalogo dele em silencio, porque a retencao e
+                        # explicita (KAM-071) e o soft delete da tabela e o
+                        # `deleted_at` do secao 5.6.
+                        "offer_terms_tenant_fk",
+                        "price_quotes_tenant_fk",
+                        "price_quotes_contacto_do_mesmo_tenant_fk",
                         # KAM-016: as duas da tentativa de onboarding. A do
                         # canal e **composta** com o `tenant_id`, pela razao que
                         # a `0009` fixou e as cinco revisoes seguintes
@@ -1743,6 +1888,19 @@ class TestInventario(ComBase):
             # considera dois NULL iguais. E o comportamento certo, e fica dito
             # para nao parecer descuido.
             "payment_accounts_um_ativo": True,
+            # KAM-043: os dois da revisao `0028`, parciais e **nao** unicos.
+            # O `offer_terms_tenant_estado_idx` cobre so o que nao esta
+            # apagado (`deleted_at IS NULL`), que e a leitura do catalogo; o
+            # `price_quotes_vivas_idx` cobre so o que esta `emitida`, que e a
+            # pergunta do `getValidQuote` — depois de aceite, expirada ou
+            # revogada a cotacao sai do indice e ele nao cresce com o
+            # historico. **Nao unicos, e nenhum devia ser:** um tenant tem
+            # muitos SKU publicados, e um dono pode cotar o mesmo `(sku, qty)`
+            # duas vezes — vale a ultima, e e o `ORDER BY criado_at DESC` da
+            # consulta que o decide, nao um indice unico que recusava a
+            # segunda cotacao.
+            "offer_terms_tenant_estado_idx": False,
+            "price_quotes_vivas_idx": False,
             "draft_decisions_thread_idx": False,
             # KAM-006: parcial e **unico**, e e o unico desta revisao. Impoe a
             # reentrada idempotente **entre as abertas**: o mesmo evento a
@@ -1792,6 +1950,45 @@ class TestInventario(ComBase):
             sorted(nome for (nome,) in linhas),
             sorted(
                 [
+                    # ------------------------------------- KAM-043 (0028)
+                    # Onze da `offer_terms` e oito da `price_quotes`. As
+                    # duas chaves, os cinco dominios fechados, os dois
+                    # `CHECK` de forma do texto e os de dinheiro.
+                    #
+                    # O `offer_terms_preco_ck` e o criterio 1 a letra, e a
+                    # equivalencia esta **nos dois sentidos**: um
+                    # `sob_consulta` com preco afirmava um numero que
+                    # ninguem cotou, e um `fixo` sem preco deixava o agente
+                    # sem *fact* para citar — e e o segundo que faz falta
+                    # mais vezes, e o que uma leitura distraida do `CHECK`
+                    # deixa passar.
+                    #
+                    # O `offer_terms_categoria_restrita_ck` recusa texto em
+                    # branco, e nao e cosmetica: vazio nao e «sem categoria
+                    # restrita», e o `publishProduct` lia-o como presente e
+                    # bloqueava a publicacao sem dizer qual.
+                    #
+                    # Os dois `currency_ck` existem porque a coluna e `text`
+                    # e nao `char(3)` como o secao 5.4 escreve: um `char(3)`
+                    # sem `CHECK` aceita `'USD'` em silencio e gate nenhum o
+                    # le, e o `canon_lint` do *gate* 3b le os valores de um
+                    # `CHECK` contra o dominio fechado do dicionario §3.4.
+                    "offer_terms_pkey",
+                    "offer_terms_sku_ck",
+                    "offer_terms_nome_ck",
+                    "offer_terms_preco_tipo_ck",
+                    "offer_terms_stock_modo_ck",
+                    "offer_terms_estado_ck",
+                    "offer_terms_currency_ck",
+                    "offer_terms_preco_ck",
+                    "offer_terms_preco_nao_negativo_ck",
+                    "offer_terms_categoria_restrita_ck",
+                    "price_quotes_pkey",
+                    "price_quotes_sku_ck",
+                    "price_quotes_qty_ck",
+                    "price_quotes_preco_ck",
+                    "price_quotes_estado_ck",
+                    "price_quotes_currency_ck",
                     # ------------------------------------- KAM-022 (0015)
                     # A prova: a chave, a unicidade que da a idempotencia do
                     # criterio 2, os dois dominios e os dois `CHECK` de forma.

@@ -59,9 +59,13 @@
  */
 
 import {
+  erro,
   exigirCtx,
   naoImplementado,
+  PRECO_TIPOS,
+  STOCK_MODOS,
   type Cause,
+  type ClienteSql,
   type CommerceRegistry,
   type ComTenant,
   type Ctx,
@@ -86,6 +90,148 @@ import {
   type IdsDoRegisto,
   type RepoBase,
 } from "../../repo-base/index.ts";
+import {
+  RELOGIO_DO_SISTEMA,
+  SQL_AUDITAR,
+  SQL_EMITIR,
+  confirmacaoValida,
+  getOfferView as getOfferViewDoModulo,
+  publishProduct as publishProductDoModulo,
+  upsertProductDraft as upsertProductDraftDoModulo,
+  type RascunhoDeProduto,
+  type Relogio,
+} from "../../produtos/index.ts";
+
+/** As duas únicas cadeias que o `Registo.emitir` aceita. Lista **fechada**. */
+const CHAMADAS_PERMITIDAS: readonly string[] = [SQL_EMITIR, SQL_AUDITAR];
+
+/** Uma consulta chegou ao `Registo.emitir` que não é uma das duas chamadas. */
+export class ChamadaNaoPermitidaError extends Error {
+  override readonly name = "ChamadaNaoPermitidaError";
+  constructor(sql: string) {
+    super(
+      "o Registo.emitir aceita duas cadeias e mais nenhuma: a do " +
+        "platform.evt_emitir e a do platform.audit_append. Nao e um cliente " +
+        "SQL — e a porta estreita para as duas chamadas de funcao que o " +
+        "repo-base nao pode verificar, porque nao tem WHERE. Uma leitura de " +
+        "tabela por aqui saia sem filtro de tenant, sem o contador de recusas " +
+        "e, no Registo da opcao B, sem RLS atras (KAM-043; KAM-042 criterio 4). " +
+        `Usa o r.repo. SQL recusado: ${sql.replace(/\s+/g, " ").trim().slice(0, 120)}`,
+    );
+  }
+}
+
+/**
+ * O cliente embrulhado: só as duas chamadas de função passam.
+ *
+ * A comparação é por **igualdade com a constante** e não por padrão: um
+ * `includes("evt_emitir")` deixava passar
+ * `SELECT * FROM product; -- evt_emitir`, e o que se quer afirmar é que o texto
+ * é exactamente um dos dois que este repositório escreveu.
+ */
+function chamadasDeFuncao(cliente: ClienteSql): ClienteSql {
+  return {
+    async query(sql: string, parametros?: readonly unknown[]) {
+      if (!CHAMADAS_PERMITIDAS.includes(sql)) {
+        throw new ChamadaNaoPermitidaError(sql);
+      }
+      return cliente.query(sql, parametros);
+    },
+  };
+}
+
+/**
+ * O `ProductDraft` da porta como rascunho do módulo, ou `null` se não serve.
+ *
+ * **Os termos de preço vêm do `atributos`**, que é o único campo aberto que o
+ * `ProductDraft` do §3.2 dá. É deliberado e não um atalho: o §3.39 do dicionário
+ * fecha a porta em doze métodos e o `ProductDraft` em cinco campos, pinados por
+ * `port.contrato.test.ts`; acrescentar `precoTipo` e `precoMinor` ao tipo era
+ * alargar um contrato que outro ticket fechou, por um ticket que é dono da
+ * implementação e não da forma.
+ *
+ * O que fica dito, porque é uma fronteira e não um detalhe: um `atributos` sem
+ * `preco_tipo` é recusado em vez de assumir `sob_consulta`. Assumir punha «preço
+ * sob consulta» num produto que o dono queria publicar com preço — e o dono só
+ * descobria quando um cliente perguntasse.
+ *
+ * O `preco_minor` aceita `bigint`, `number` inteiro e `string` de dígitos, e
+ * **recusa** um `number` com parte decimal: a coluna é `bigint` e 1200,5
+ * cêntimos não existe. `BigInt(1200.5)` lança sozinho, mas lança sem dizer de
+ * onde veio.
+ */
+export function rascunhoDoDraft(d: ProductDraft): RascunhoDeProduto | null {
+  if (d === null || d === undefined) return null;
+  const atributos = (d.atributos ?? {}) as Readonly<Record<string, unknown>>;
+
+  const precoTipo = atributos["preco_tipo"];
+  if (
+    typeof precoTipo !== "string" ||
+    !(PRECO_TIPOS as readonly string[]).includes(precoTipo)
+  ) {
+    return null;
+  }
+
+  const stockBruto = atributos["stock_modo"];
+  if (
+    stockBruto !== undefined &&
+    (typeof stockBruto !== "string" ||
+      !(STOCK_MODOS as readonly string[]).includes(stockBruto))
+  ) {
+    return null;
+  }
+
+  let precoMinor: bigint | null;
+  try {
+    precoMinor = emMinorDoAtributo(atributos["preco_minor"]);
+  } catch {
+    return null;
+  }
+
+  const validoAte = atributos["preco_valido_ate"];
+  if (validoAte !== undefined && validoAte !== null) {
+    if (typeof validoAte !== "string" || !Number.isFinite(Date.parse(validoAte))) {
+      return null;
+    }
+  }
+
+  // O `stockModo` entra **só se vier**, e não como `undefined` explícito: o
+  // `tsconfig` deste repositório tem `exactOptionalPropertyTypes: true`, pelo
+  // que `{stockModo: undefined}` e `{}` são tipos diferentes — e o certo aqui é
+  // o segundo, porque quem decide a omissão (`indicativo`) é o módulo e não o
+  // adaptador, e passar `undefined` obrigava-o a tratar os dois casos.
+  const base = {
+    sku: String(d.sku ?? ""),
+    nome: String(d.nome ?? ""),
+    precoTipo: precoTipo as RascunhoDeProduto["precoTipo"],
+    precoMinor,
+    precoValidoAte: typeof validoAte === "string" ? validoAte : null,
+  };
+  return stockBruto === undefined
+    ? base
+    : {
+        ...base,
+        // `NonNullable` e nao o tipo da propriedade: ela e opcional, pelo que
+        // `RascunhoDeProduto["stockModo"]` inclui `undefined` — e com
+        // `exactOptionalPropertyTypes` isso nao e atribuivel a si mesmo neste
+        // ramo, onde ja sabemos que ha valor.
+        stockModo: stockBruto as NonNullable<RascunhoDeProduto["stockModo"]>,
+      };
+}
+
+/** O `preco_minor` de um atributo, ou `null`. Lança sobre o que não serve. */
+function emMinorDoAtributo(valor: unknown): bigint | null {
+  if (valor === null || valor === undefined) return null;
+  if (typeof valor === "bigint") return valor;
+  if (typeof valor === "number") {
+    if (!Number.isInteger(valor)) {
+      throw new TypeError("preco_minor nao inteiro");
+    }
+    return BigInt(valor);
+  }
+  if (typeof valor === "string" && /^[0-9]+$/.test(valor)) return BigInt(valor);
+  throw new TypeError("preco_minor nao e um inteiro em unidade menor");
+}
 
 /** O nome do módulo custom do Medusa que a opção B exige (§3.3). */
 export const MODULO_MERCHANT = "merchant";
@@ -113,6 +259,41 @@ export interface Registo {
   readonly repo: RepoBase;
   readonly ids: IdsDoRegisto;
   readonly ctx: ReturnType<typeof exigirCtx>;
+  /**
+   * A porta estreita para as **chamadas de função** da transacção.
+   *
+   * **Não é o `ClienteSql` cru de volta**, e a diferença é o que ela deixa
+   * fazer. O repo-base recusa, por desenho, uma consulta sem `WHERE` — e
+   * `SELECT platform.evt_emitir(...)` e `SELECT platform.audit_append(...)` não
+   * têm `WHERE` nenhum, porque não leem tabela: são chamadas a funções que
+   * escrevem no outbox e na cadeia de auditoria, as duas com a sua própria
+   * barreira de tenant. O `evt_emitir` é `SECURITY INVOKER` de propósito, para
+   * que o `WITH CHECK` da política `tenant_iso` do `events_outbox` continue a
+   * aplicar-se; o `audit_append` escreve numa tabela com RLS `FORCE`, e o
+   * `audit_encadear` é quem escreve a cadeia.
+   *
+   * Sem isto, as três escritas deste ticket tinham de sair da transacção da
+   * escrita de negócio — e então o preço mudava sem evento, ou o evento saía sem
+   * o preço ter mudado, que é precisamente o que o outbox existe para impedir.
+   *
+   * **E é estreito por execução, não por nota.** A primeira versão deste
+   * ticket punha aqui o `cliente` cru e dizia que o que a mantinha estreita era
+   * «esta nota e a revisão» — e a revisão adversarial respondeu o que era
+   * preciso responder: um ticket futuro escreve
+   * `r.emitir.query("SELECT * FROM product WHERE sku = $1", [sku])`, sem filtro
+   * de tenant, sem o contador `com_repo_filtro_em_falta_total` a disparar e,
+   * no Registo da opção B, **sem RLS atrás**. Era reabrir com outro nome o
+   * caminho que a revisão adversarial do KAM-042 fechou — «uma barreira que é
+   * uma frase não é uma barreira», e esta era uma frase.
+   *
+   * Agora o `comRegisto` passa um `ClienteSql` **embrulhado** que recusa
+   * qualquer SQL que não seja uma das duas constantes (`chamadasDeFuncao`), e a
+   * recusa é uma excepção com a razão escrita. O tipo continua a ser
+   * `ClienteSql` de propósito: é o que o `evt_emitir` e o `audit_append` do
+   * módulo `produtos` precisam, e mudá-lo obrigava aqueles dois ficheiros a
+   * conhecer esta fronteira. O que mudou é que a fronteira passou a morder.
+   */
+  readonly emitir: ClienteSql;
 }
 
 /*
@@ -150,6 +331,7 @@ export async function comRegisto<T>(
       ids,
       ctx: validado,
       repo: repoBase(cliente, validado.tenantId, ids.merchantId),
+      emitir: chamadasDeFuncao(cliente),
     });
   });
 }
@@ -167,36 +349,73 @@ export async function comRegisto<T>(
  * à base para devolver um erro que não depende dela. Corre no `comRegisto`, que
  * é por onde cada implementação entra, e prova-se no seu próprio teste.
  */
-export function adaptadorMedusa(deps: Dependencias): CommerceRegistry {
-  // O `deps` fica capturado para as implementações que chegarem; hoje o que o
-  // usa é o `comRegisto`, exportado acima e exercitado pelos testes.
-  void deps;
-
+export function adaptadorMedusa(
+  deps: Dependencias,
+  agora: Relogio = RELOGIO_DO_SISTEMA,
+): CommerceRegistry {
   return {
+    /**
+     * KAM-043, critério 4. **Implementado** — já não é `NOT_IMPLEMENTED`.
+     *
+     * O `ProductDraft` da porta tem `sku`, `nome`, `descricao`, `categoria` e
+     * `atributos`; o módulo escreve os três primeiros campos que a
+     * `offer_terms` tem e os termos de preço e de stock. A `descricao`, a
+     * `categoria` e os `atributos` **não têm coluna** na revisão `0028` e não se
+     * perdem em silêncio: pertencem ao Registo, que é quem guarda o produto
+     * (§3.3), e o perfil de completude que os valida é o **KAM-049**. Ver a
+     * verificação do bloco.
+     *
+     * Os termos de preço entram pelo `d.atributos`, que é o único campo aberto
+     * que a porta dá — e é assim e não com um método novo porque o §3.39 fecha a
+     * porta em doze. Um `atributos` sem `preco_tipo` é `VALIDATION_ERROR`: o
+     * `offer_terms_preco_ck` exige o par, e adivinhar `sob_consulta` punha
+     * preço nenhum num produto que o dono queria publicar com preço.
+     */
     async upsertProductDraft(
       ctx: Ctx,
       d: ProductDraft,
     ): Promise<Resultado<ProductRef>> {
-      exigirCtx(ctx);
-      void d;
-      return naoImplementado();
+      const rascunho = rascunhoDoDraft(d);
+      if (rascunho === null) {
+        // O `exigirCtx` corre primeiro de qualquer modo (dentro do
+        // `comRegisto`), e corre aqui também para que um `ctx` mal montado
+        // **não** se esconda atrás de um erro de validação do `d`: a ordem das
+        // duas barreiras é a do ISO-09, e é a que o teste afirma.
+        exigirCtx(ctx);
+        return erro("VALIDATION_ERROR");
+      }
+      return comRegisto(deps, ctx, (r) =>
+        upsertProductDraftDoModulo(r, rascunho),
+      );
     },
 
+    /**
+     * KAM-043, critério 4. **Implementado.**
+     *
+     * A confirmação verifica-se **antes** do `comRegisto`, pela razão que este
+     * ficheiro já escreveu para o `exigirCtx`: «o que falha, falha antes de
+     * custar uma ligação». O módulo repete a verificação por dentro, para quem
+     * o use sem a porta — é uma função e duas chamadas, não duas regras.
+     */
     async publishProduct(
       ctx: Ctx,
       ref: ProductRef,
       c: OwnerConfirmation,
     ): Promise<Resultado<void>> {
-      exigirCtx(ctx);
-      void ref;
-      void c;
-      return naoImplementado();
+      if (!confirmacaoValida(c)) {
+        // O `ctx` primeiro, pela ordem do ISO-09: um `ctx` mal montado não se
+        // esconde atrás de um erro de validação do argumento.
+        exigirCtx(ctx);
+        return erro("VALIDATION_ERROR");
+      }
+      return comRegisto(deps, ctx, (r) => publishProductDoModulo(r, ref, c));
     },
 
+    /** KAM-043, critérios 2 e 3. **Implementado.** */
     async getOfferView(ctx: Ctx, sku: string): Promise<Resultado<OfferView>> {
-      exigirCtx(ctx);
-      void sku;
-      return naoImplementado();
+      return comRegisto(deps, ctx, (r) =>
+        getOfferViewDoModulo(r, sku, agora()),
+      );
     },
 
     async createOrder(ctx: Ctx, i: OrderIntent): Promise<Resultado<OrderRef>> {

@@ -213,6 +213,20 @@ SUITES = (
     # `tests_auditoria_carga`: as mil custam relogio, e uma suite paga isso por
     # cada mutacao que a escolha.
     "tests_servicos",
+    # KAM-043: o preco opaco e o stock nao-garantido. O que so aqui se prova
+    # e o que uma base falsa nao pode provar, porque o objecto da prova e o
+    # motor: que o `offer_terms_preco_ck` do criterio 1 **recusa** as duas
+    # metades da equivalencia (um `sob_consulta` com numero e um `fixo` sem
+    # ele), que a RLS `FORCE` esconde a oferta de A do contexto de B e falha
+    # fechada sem contexto (ISO-39..42 na forma das tabelas novas), que a
+    # chave composta `(tenant_id, sku)` faz da colisao de SKU entre tenants um
+    # nao-problema (ISO-33..38), que a FK composta do contacto **recusa** uma
+    # cotacao de A sobre um contacto de B — a simples aceita-a, e esta medido
+    # (ISO-58) —, e que as cadeias de
+    # `services/com/src/produtos/consultas.ts` **correm**: a suite le-as do
+    # proprio ficheiro TypeScript, pelo que o que o gate exercita e o texto
+    # que o modulo envia e nao uma copia dele.
+    "tests_produtos",
 )
 #: As que precisam tambem de uma fila.
 SUITES_COM_FILA = (

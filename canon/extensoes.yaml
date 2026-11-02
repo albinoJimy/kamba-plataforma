@@ -59,6 +59,23 @@
 # pessoais?». O gate 3b nao substitui esse inventario, e nenhum dos dois sozinho
 # chegava.
 #
+# O `tenants.deleted_at` saiu **pela mesma razao**, com a emenda 1.52 (KAM-043):
+# o `deleted_at` passou a ser nome do §3.40, como coluna de
+# `platform.offer_terms`, porque o §5.6 do `docs/tecnica/03` manda soft delete
+# nas ofertas e o §5.4 da-lhe a coluna. E a **quarta** vez que isto acontece,
+# depois do `token_ref`, do `waac_id` e do `tenants.nome`, e o lint recusou o
+# ficheiro na primeira execucao do *gate* 3b depois da emenda — com a mesma
+# mensagem das outras tres. A repeticao continua a ser o sinal de que a regra
+# funciona: um nome que um ticket poe no dicionario deixa de precisar de
+# extensao, e a extensao que fica vira duplicado.
+#
+# **O que isto alarga, e diz-se:** a extensao era qualificada
+# (`tenants.deleted_at`) e o nome do §3.40 nao e, pelo que uma coluna
+# `deleted_at` passa a ser aceite em qualquer tabela. Nas duas onde existe hoje
+# — `tenants` e `offer_terms` — e o marcador de soft delete do §5.6, com a mesma
+# semantica, e quem o prende coluna a coluna e o inventario fechado de
+# `db/tests/test_inventario.py`.
+#
 # As do KAM-008 sao o que a revisao `0003` (identidade de contacto) usa e o
 # §3.1 nao enumera: duas colunas de `contact_endpoints` — o dicionario escreve a
 # tabela com reticencias — e os valores dos tres dominios fechados. Eram tres:
@@ -109,10 +126,6 @@ extensoes:
     ticket: KAM-003
     data: 2026-10-11
   - nome: tenants.fuso_horario
-    tipo: coluna
-    ticket: KAM-003
-    data: 2026-10-11
-  - nome: tenants.deleted_at
     tipo: coluna
     ticket: KAM-003
     data: 2026-10-11

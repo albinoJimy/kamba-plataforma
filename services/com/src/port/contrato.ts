@@ -225,7 +225,19 @@ export interface OwnerConfirmation {
 export interface OfferView {
   readonly sku: string;
   readonly precoTipo: PrecoTipo;
-  /** Já formatado para apresentação, ou `null` em `sob_consulta`. */
+  /**
+   * Já formatado para apresentação, **com o modo**.
+   *
+   * **Corrigido pelo KAM-043.** Esta linha dizia «ou `null` em `sob_consulta`»,
+   * e era uma previsão e não um contrato: o KAM-042 não implementou o
+   * `getOfferView` e escreveu que «a implementação é deles». O critério 2 do
+   * KAM-043 enumera as três formas e põe «preço sob consulta» entre elas, como
+   * valor deste campo — e a outra metade do critério continua verdadeira,
+   * porque esse texto não tem dígito nenhum.
+   *
+   * O tipo mantém o `| null`: o adaptador do KAM-043 nunca o devolve, e outro,
+   * contra outro Registo, pode não ter display para dar. Quem consome trata-o.
+   */
   readonly precoDisplay: string | null;
   readonly stockModo: StockModo;
   readonly disponibilidade: string;

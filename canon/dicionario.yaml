@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.51"
+versao_dicionario: "1.52"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -9668,6 +9668,342 @@ entradas:
       - "merchant"
       - "exposicao"
     variantes_literais: []
+  - seccao: "3.40"
+    conceito: "Termos comerciais de um SKU"
+    canonico: "offer_terms(tenant_id, sku, nome, medusa_variant_id, preco_tipo, preco_minor, currency, preco_atualizado_at, preco_valido_ate, stock_modo, stock_verificado_at, estado, categoria_restrita, criado_at, atualizado_at, deleted_at)"
+    literais:
+      - "offer_terms(tenant_id, sku, nome, medusa_variant_id, preco_tipo, preco_minor, currency, preco_atualizado_at, preco_valido_ate, stock_modo, stock_verificado_at, estado, categoria_restrita, criado_at, atualizado_at, deleted_at)"
+    nomes:
+      - "offer_terms"
+      - "tenant_id"
+      - "sku"
+      - "nome"
+      - "medusa_variant_id"
+      - "preco_tipo"
+      - "preco_minor"
+      - "currency"
+      - "preco_atualizado_at"
+      - "preco_valido_ate"
+      - "stock_modo"
+      - "stock_verificado_at"
+      - "estado"
+      - "categoria_restrita"
+      - "criado_at"
+      - "atualizado_at"
+      - "deleted_at"
+    nomes_nota:
+      - "nome"
+      - "criado_at"
+      - "atualizado_at"
+      - "platform"
+      - "PRIMARY"
+      - "KEY"
+      - "tenant_id"
+      - "sku"
+    variantes_literais:
+      - "catalog_items(preco_modo)"
+  - seccao: "3.40"
+    conceito: "Cotação do dono"
+    canonico: "price_quotes(id, tenant_id, contact_id, sku, qty, preco_total_minor, currency, valida_ate, estado, emitida_por, criado_at)"
+    literais:
+      - "price_quotes(id, tenant_id, contact_id, sku, qty, preco_total_minor, currency, valida_ate, estado, emitida_por, criado_at)"
+    nomes:
+      - "price_quotes"
+      - "id"
+      - "tenant_id"
+      - "contact_id"
+      - "sku"
+      - "qty"
+      - "preco_total_minor"
+      - "currency"
+      - "valida_ate"
+      - "estado"
+      - "emitida_por"
+      - "criado_at"
+    nomes_nota:
+      - "currency"
+      - "tenant_id"
+      - "contact_id"
+      - "REFERENCES"
+      - "platform.contacts"
+      - "contacts"
+      - "emitida_por"
+    variantes_literais: []
+  - seccao: "3.40"
+    conceito: "Estado de uma oferta"
+    canonico: "offer_terms.estado ∈ {rascunho, publicado, pausado, arquivado}"
+    literais:
+      - "offer_terms.estado"
+      - "rascunho"
+      - "publicado"
+      - "pausado"
+      - "arquivado"
+    nomes:
+      - "offer_terms.estado"
+      - "rascunho"
+      - "publicado"
+      - "pausado"
+      - "arquivado"
+    nomes_nota:
+      - "payload.estado"
+      - "catalog.product_changed"
+      - "upsertProductDraft"
+      - "rascunho"
+    variantes_literais: []
+  - seccao: "3.40"
+    conceito: "Estado de uma cotação"
+    canonico: "price_quotes.estado ∈ {emitida, aceite, expirada, revogada}"
+    literais:
+      - "price_quotes.estado"
+      - "emitida"
+      - "aceite"
+      - "expirada"
+      - "revogada"
+    nomes:
+      - "price_quotes.estado"
+      - "emitida"
+      - "aceite"
+      - "expirada"
+      - "revogada"
+    nomes_nota:
+      - "valida_ate"
+      - "getValidQuote"
+    variantes_literais: []
+  - seccao: "3.40"
+    conceito: "Categoria que bloqueia publicação"
+    canonico: "offer_terms.categoria_restrita"
+    literais:
+      - "offer_terms.categoria_restrita"
+    nomes:
+      - "offer_terms.categoria_restrita"
+    nomes_nota:
+      - "publishProduct"
+    variantes_literais: []
+  - seccao: "3.40"
+    conceito: "A vista da oferta"
+    canonico: "getOfferView(ctx, sku) → OfferView{sku, precoTipo, precoDisplay, stockModo, disponibilidade, atualizadoAt}"
+    literais:
+      - "getOfferView(ctx, sku) → OfferView{sku, precoTipo, precoDisplay, stockModo, disponibilidade, atualizadoAt}"
+    nomes:
+      - "getOfferView"
+      - "ctx"
+      - "sku"
+      - "OfferView"
+      - "precoTipo"
+      - "precoDisplay"
+      - "stockModo"
+      - "disponibilidade"
+      - "atualizadoAt"
+    nomes_nota:
+      - "precoTipo"
+      - "precoDisplay"
+      - "sob_consulta"
+      - "null"
+      - "disponibilidade"
+    variantes_literais:
+      - "OfferView{precoModo}"
+  - seccao: "3.40"
+    conceito: "Preço apresentado, por modo"
+    canonico: "fixo → «12 500 Kz»; a_partir_de → «a partir de 12 500 Kz»; sob_consulta → «preço sob consulta»"
+    literais:
+      - "fixo"
+      - "«12 500 Kz»"
+      - "a_partir_de"
+      - "«a partir de 12 500 Kz»"
+      - "sob_consulta"
+      - "«preço sob consulta»"
+    nomes:
+      - "fixo"
+      - "Kz"
+      - "a_partir_de"
+      - "a"
+      - "partir"
+      - "de"
+      - "sob_consulta"
+      - "pre"
+      - "o"
+      - "sob"
+      - "consulta"
+    nomes_nota:
+      - "OfferView"
+      - "null"
+      - "sob_consulta"
+      - "getOfferView"
+      - "Kz"
+      - "AOA"
+      - "currency"
+    variantes_literais:
+      - "precoDisplay"
+      - "sob_consulta"
+  - seccao: "3.40"
+    conceito: "Preço vencido"
+    canonico: "preco_valido_ate < now() → lê-se como a_partir_de, e avisos leva preco_vencido"
+    literais:
+      - "preco_valido_ate < now()"
+      - "a_partir_de"
+      - "avisos"
+      - "preco_vencido"
+    nomes:
+      - "preco_valido_ate"
+      - "now"
+      - "a_partir_de"
+      - "avisos"
+      - "preco_vencido"
+    nomes_nota:
+      - "a_partir_de"
+      - "preco_tipo"
+    variantes_literais: []
+  - seccao: "3.40"
+    conceito: "Stock indicativo vencido"
+    canonico: "stock_verificado_at > 24 h → avisos leva stock_por_confirmar"
+    literais:
+      - "stock_verificado_at"
+      - "avisos"
+      - "stock_por_confirmar"
+    nomes:
+      - "stock_verificado_at"
+      - "avisos"
+      - "stock_por_confirmar"
+    nomes_nota:
+      - "stock_modo"
+      - "indicativo"
+    variantes_literais: []
+  - seccao: "3.40"
+    conceito: "Avisos da vista da oferta"
+    canonico: "OfferView.avisos ⊆ {preco_vencido, stock_por_confirmar, confirmacao_dono_necessaria}"
+    literais:
+      - "OfferView.avisos"
+      - "preco_vencido"
+      - "stock_por_confirmar"
+      - "confirmacao_dono_necessaria"
+    nomes:
+      - "OfferView.avisos"
+      - "preco_vencido"
+      - "stock_por_confirmar"
+      - "confirmacao_dono_necessaria"
+    nomes_nota:
+      - "state.avisos"
+      - "ServicosModule"
+      - "tool_audit.error_code"
+    variantes_literais: []
+  - seccao: "3.40"
+    conceito: "Disponibilidade apresentada"
+    canonico: "garantido → «em stock»; indicativo → «disponível, a confirmar»; confirmar_dono → «a confirmar com a loja»"
+    literais:
+      - "garantido"
+      - "«em stock»"
+      - "indicativo"
+      - "«disponível, a confirmar»"
+      - "confirmar_dono"
+      - "«a confirmar com a loja»"
+    nomes:
+      - "garantido"
+      - "em"
+      - "stock"
+      - "indicativo"
+      - "dispon"
+      - "vel"
+      - "a"
+      - "confirmar"
+      - "confirmar_dono"
+      - "com"
+      - "loja"
+    nomes_nota:
+      - "precoDisplay"
+      - "sob_consulta"
+      - "confirmacao_dono"
+      - "pendente"
+    variantes_literais: []
+  - seccao: "3.40"
+    conceito: "Pesquisa lexical mínima"
+    canonico: "searchOffers(ctx, q) sobre pg_trgm, ≤ 5 resultados, só do tenant e só estado='publicado'"
+    literais:
+      - "searchOffers(ctx, q)"
+      - "pg_trgm"
+      - "estado='publicado'"
+    nomes:
+      - "searchOffers"
+      - "ctx"
+      - "q"
+      - "pg_trgm"
+      - "estado"
+      - "publicado"
+    nomes_nota:
+      - "idx.candidatos"
+      - "CommerceRegistry"
+      - "produtos"
+      - "pg_trgm"
+    variantes_literais: []
+  - seccao: "3.40"
+    conceito: "Cotação válida"
+    canonico: "getValidQuote(ctx, sku, qty) → PriceQuote \| null"
+    literais:
+      - "getValidQuote(ctx, sku, qty) → PriceQuote \| null"
+    nomes:
+      - "getValidQuote"
+      - "ctx"
+      - "sku"
+      - "qty"
+      - "PriceQuote"
+      - "null"
+    nomes_nota:
+      - "createOrder"
+    variantes_literais: []
+  - seccao: "3.40"
+    conceito: "Origem de um preço de linha"
+    canonico: "origem_preco ∈ {offer_terms, cotacao_dono}"
+    literais:
+      - "origem_preco"
+      - "offer_terms"
+      - "cotacao_dono"
+    nomes:
+      - "origem_preco"
+      - "offer_terms"
+      - "cotacao_dono"
+    nomes_nota:
+      - "origem_preco"
+      - "cotacao_dono"
+      - "lines_snapshot"
+    variantes_literais: []
+  - seccao: "3.40"
+    conceito: "Actor da porta → actor da auditoria"
+    canonico: "agente→agent, dono→owner, sistema→system, ops→staff"
+    literais:
+      - "agente"
+      - "agent"
+      - "dono"
+      - "owner"
+      - "sistema"
+      - "system"
+      - "ops"
+      - "staff"
+    nomes:
+      - "agente"
+      - "agent"
+      - "dono"
+      - "owner"
+      - "sistema"
+      - "system"
+      - "ops"
+      - "staff"
+    nomes_nota:
+      - "actor.kind"
+      - "actor_type"
+      - "audit_log"
+      - "CHECK"
+      - "contact"
+    variantes_literais: []
+  - seccao: "3.40"
+    conceito: "Limiar de stock.low"
+    canonico: "stock_baixo_limiar, omissão 5 unidades"
+    literais:
+      - "stock_baixo_limiar"
+    nomes:
+      - "stock.low"
+      - "stock_baixo_limiar"
+    nomes_nota:
+      - "TTL_DO_HOLD_MS"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -10242,6 +10578,47 @@ tabelas:
     assinatura: "reidentificar(texto, mapa)"
     seccao: "3.38"
     conceito: "Re-identificação"
+  - nome: "offer_terms"
+    esquema: ""
+    colunas:
+      - "tenant_id"
+      - "sku"
+      - "nome"
+      - "medusa_variant_id"
+      - "preco_tipo"
+      - "preco_minor"
+      - "currency"
+      - "preco_atualizado_at"
+      - "preco_valido_ate"
+      - "stock_modo"
+      - "stock_verificado_at"
+      - "estado"
+      - "categoria_restrita"
+      - "criado_at"
+      - "atualizado_at"
+      - "deleted_at"
+    aberta: false
+    assinatura: "offer_terms(tenant_id, sku, nome, medusa_variant_id, preco_tipo, preco_minor, currency, preco_atualizado_at, preco_valido_ate, stock_modo, stock_verificado_at, estado, categoria_restrita, criado_at, atualizado_at, deleted_at)"
+    seccao: "3.40"
+    conceito: "Termos comerciais de um SKU"
+  - nome: "price_quotes"
+    esquema: ""
+    colunas:
+      - "id"
+      - "tenant_id"
+      - "contact_id"
+      - "sku"
+      - "qty"
+      - "preco_total_minor"
+      - "currency"
+      - "valida_ate"
+      - "estado"
+      - "emitida_por"
+      - "criado_at"
+    aberta: false
+    assinatura: "price_quotes(id, tenant_id, contact_id, sku, qty, preco_total_minor, currency, valida_ate, estado, emitida_por, criado_at)"
+    seccao: "3.40"
+    conceito: "Cotação do dono"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -10921,6 +11298,31 @@ dominios:
       - "inteiro_kz"
     seccao: "3.37"
     conceito: "Capacidades declaradas de um adaptador"
+    so_no_registo: false
+  - coluna: "offer_terms.estado"
+    valores:
+      - "rascunho"
+      - "publicado"
+      - "pausado"
+      - "arquivado"
+    seccao: "3.40"
+    conceito: "Estado de uma oferta"
+    so_no_registo: false
+  - coluna: "price_quotes.estado"
+    valores:
+      - "emitida"
+      - "aceite"
+      - "expirada"
+      - "revogada"
+    seccao: "3.40"
+    conceito: "Estado de uma cotação"
+    so_no_registo: false
+  - coluna: "origem_preco"
+    valores:
+      - "offer_terms"
+      - "cotacao_dono"
+    seccao: "3.40"
+    conceito: "Origem de um preço de linha"
     so_no_registo: false
 
 variantes:

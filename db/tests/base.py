@@ -270,6 +270,20 @@ TABELAS_0024 = ("draft_decisions",)
 #: payment_charges -> payment_events`, e a `0027` entrega a segunda.
 TABELAS_0027 = ("payment_accounts",)
 
+#: O que a revisao 0028 (KAM-043) acrescenta: os termos comerciais de um SKU e
+#: a cotacao do dono — o preco opaco e o stock nao-garantido.
+#:
+#: Duas, e nenhuma referencia a outra: a `offer_terms` referencia so a
+#: `tenants` da `0001`, e a `price_quotes` referencia a `tenants` e a
+#: `contacts` da `0003`, esta por FK **composta** com o `tenant_id` (a
+#: correccao de 2026-10-27 do `docs/tecnica/03` secao 5.4). E por isso que a
+#: revisao pode vir antes da `orders_mirror`, que e do **KAM-044**.
+#:
+#: A `offer_terms` e a primeira tabela do esquema com **chave primaria
+#: composta** — `(tenant_id, sku)` —, e nao e estilo: e o que faz da colisao de
+#: SKU entre tenants (ISO-33..38) um nao-problema por construcao.
+TABELAS_0028 = ("offer_terms", "price_quotes")
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -277,9 +291,15 @@ TABELAS = tuple(
         + TABELAS_0010 + TABELAS_0011 + TABELAS_0012 + TABELAS_0013
         + TABELAS_0014 + TABELAS_0015 + TABELAS_0017 + TABELAS_0018
         + TABELAS_0019 + TABELAS_0021 + TABELAS_0022 + TABELAS_0024
-        + TABELAS_0027
+        + TABELAS_0027 + TABELAS_0028
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0027`.
+#:
+#: Pela mesma razao das outras: o `downgrade` da `0028` leva a base para aqui, e
+#: o teste do ciclo compara o conjunto com esta tupla.
+TABELAS_ATE_0027 = tuple(sorted(set(TABELAS) - set(TABELAS_0028)))
 
 #: O que existe em `platform` quando a base esta na revisao `0026`.
 #:
@@ -288,7 +308,14 @@ TABELAS = tuple(
 #: (KAM-047) cria o esquema `servicos` e a `0026` (KAM-035) alarga um
 #: `CHECK`; nenhuma das duas cria tabela no `platform`, pelo que o conjunto
 #: do `platform` na `0026` e o da `0024`.
-TABELAS_ATE_0026 = tuple(sorted(set(TABELAS) - set(TABELAS_0027)))
+#:
+#: **Deriva do `TABELAS_ATE_0027` e nao do `TABELAS`**, pela razao que a nota do
+#: `TABELAS_ATE_0023` ja escreve e que este ticket voltou a medir: derivar do
+#: conjunto inteiro punha as duas tabelas da `0028` nas tuplas de todas as
+#: revisoes anteriores, e **tres** ensaios de `downgrade` de outros modulos
+#: ficaram vermelhos a espera delas na revisao a que desciam. E a terceira vez
+#: que esta armadilha morde — a `0027` custou-lhe quinze ensaios.
+TABELAS_ATE_0026 = tuple(sorted(set(TABELAS_ATE_0027) - set(TABELAS_0027)))
 
 #: O que existe em `platform` quando a base esta na revisao `0023`.
 #:
@@ -619,7 +646,17 @@ class ConsultaDoTypeScript:
         self.nome = nome
         self.fonte = achado.group(1)
         self.ordem = [int(n) for n in re.findall(r"\$(\d+)", self.fonte)]
-        self.sql = re.sub(r"\$\d+", "%s", self.fonte)
+        # **O `%` literal duplica-se, e isto nao e cosmetica.** O `paramstyle`
+        # do pg8000 e `format`: um `%` que nao seja `%s` ou `%%` levanta
+        # `InterfaceError: Only %s and %% are supported in the query`. O
+        # `SQL_PESQUISAR` do KAM-043 e o primeiro a trazer um — `nome % $2`, o
+        # operador de semelhanca de trigramas do `pg_trgm`, que e o unico que
+        # usa o indice GIN (o `similarity()` na clausula nao o usa). O SQL do
+        # modulo esta correcto; o que precisa de escape e o driver desta suite,
+        # e o escape e aqui para que o modulo nao tenha de saber que ela existe.
+        #
+        # **Antes** do `$n -> %s`, senao duplicava os `%s` que acabou de criar.
+        self.sql = re.sub(r"\$\d+", "%s", self.fonte.replace("%", "%%"))
 
     def args(self, *valores: object) -> tuple[object, ...]:
         """Os `valores` — na numeracao do documento — pela ordem do texto."""

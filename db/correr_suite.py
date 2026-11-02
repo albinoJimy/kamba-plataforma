@@ -56,6 +56,9 @@ def main() -> int:
         # KAM-047: a agenda da vertical Servicos, com as mil tentativas
         # paralelas do criterio 1.
         "tests_servicos",
+        # KAM-043: o preco opaco, o stock nao-garantido e os dois CHECK que
+        # so o motor recusa.
+        "tests_produtos",
     ):
         print(f"suite desconhecida: {directorio!r}", file=sys.stderr)
         return 2
