@@ -835,10 +835,22 @@ def _row_hash() -> None:
 
     `IMMUTABLE STRICT`, pela razao da `0006`: a mesma entrada da sempre o mesmo
     *hash*, e um argumento nulo da nulo em vez de um *hash* de uma cadeia com um
-    buraco. O `STRICT` e o que faz do `coalesce(p_provider_event_id, '')` da
-    concatenacao uma decisao e nao um descuido — sem ele, um evento gerado pela
-    plataforma (sem `provider_event_id`) teria `row_hash` nulo e o `NOT NULL`
-    recusava-o.
+    buraco.
+
+    ## O `STRICT` obriga quem **chama** a tratar o nulo, e nao esta funcao
+
+    O `coalesce(p_provider_event_id, '')` da concatenacao **nao basta**, e a
+    primeira versao desta revisao supunha que bastava: o `STRICT` e avaliado
+    **antes** do corpo, pelo que um `provider_event_id` nulo devolve nulo sem o
+    `coalesce` chegar a correr. Medido — os 62 ensaios da suite deram, todos, o
+    mesmo `23502 null value in column "row_hash"`, porque quase todo o evento
+    gerado pela plataforma nao tem identificador de entrega.
+
+    Por isso o nulo trata-se **nos dois chamadores** — a `append_payment_event`
+    e o `verify_ledger_chain` —, e nos dois com o mesmo `coalesce(…, '')`, que e
+    o que faz o elo de um evento sem entrega ser recalculavel. O `coalesce` do
+    corpo fica: nao e redundancia inutil, e o que garante que um terceiro
+    chamador que se esqueca do molde produza o mesmo elo em vez de um diferente.
 
     O `id` e o `recebido_at` **nao** entram no elo, e e deliberado: o `id` e
     `GENERATED ALWAYS AS IDENTITY` e so se conhece depois do `INSERT`, pelo que
@@ -1003,8 +1015,11 @@ def _next_state() -> None:
 def _append() -> None:
     """`append_payment_event`: a porta. A unica entrada do allowlist.
 
-    Os sete passos do contrato do §6.2, nesta ordem e numa transaccao:
+    Os sete passos do contrato do §6.2, nesta ordem e numa transaccao, mais um
+    passo zero que o contrato nao numera e o DoD exige:
 
+        0  recusa um payload (ou um motivo) com padrao de telefone — a caixa de
+           privacidade do bloco, com os padroes do `evt_emitir` da `0004`
         1  SELECT … FROM payment_charges WHERE id = :charge FOR UPDATE
         2  sequencia = 1 + count(*) do mesmo (provider, account_id, referencia,
            tipo_evento)
@@ -1042,7 +1057,7 @@ def _append() -> None:
     nao encontra a cobranca, e recusa.
     """
     op.execute(
-        f"""
+        rf"""
         CREATE FUNCTION platform.append_payment_event(
           p_charge_id uuid,
           p_tipo_evento text,
@@ -1097,6 +1112,42 @@ def _append() -> None:
               USING ERRCODE = 'check_violation';
           END IF;
 
+          -- (0) A guarda de privacidade, antes de tudo o resto.
+          --
+          -- O §6.2 escreve «payload redigido: sem PII» e o DoD do bloco faz
+          -- disso uma caixa. Uma caixa que se marca por convencao de quem
+          -- escreve o codigo nao e uma barreira: o ledger e **append-only**,
+          -- pelo que um telefone que entre aqui nao sai mais — nem com um
+          -- `UPDATE`, que o `deny_mutation` recusa.
+          --
+          -- Os dois padroes sao **os mesmos** do `evt_emitir` da `0004`, e e
+          -- deliberado que sejam os mesmos e nao melhores: o que esta guarda
+          -- apanha e o que essa apanha, e um ledger que fosse mais permissivo
+          -- do que o *outbox* deixava passar o que o evento de dominio recusa.
+          -- O que nenhuma das duas apanha e um telefone escrito de outra forma;
+          -- isso diz-se, e e a razao de a redaccao continuar a ser
+          -- responsabilidade de quem constroi o payload.
+          --
+          -- O `motivo` entra na verificacao: ele viaja para o *outbox* no
+          -- `jsonb_build_object` do passo (7), pelo que um telefone ali era PII
+          -- num evento de dominio.
+          -- As chaves do quantificador vao **duplicadas**: este SQL esta numa
+          -- f-string, e `{{8}}` simples era um campo de substituicao — o *gate*
+          -- 3b recusou-o com «f-string com um valor que nao e texto», que e a
+          -- mesma leitura que o Python faz. A cadeia e `rf` pela razao da
+          -- `0004`: `\+` nao e sequencia de escape de Python, e numa cadeia
+          -- normal escrevia-se `\+` — o ficheiro deixava de se poder ler
+          -- contra o `docs/tecnica/06` §6.1 a olho.
+          IF p_payload::text ~ '\+?244 ?9[0-9]{{8}}'
+             OR p_payload::text ~ '"\+[0-9]{{9,15}}"'
+             OR coalesce(p_motivo, '') ~ '\+?244 ?9[0-9]{{8}}' THEN
+            RAISE EXCEPTION
+              'append_payment_event: o payload ou o motivo do evento % contem '
+              'padrao de telefone (PII P2, ADR-010); o ledger e append-only e '
+              'nao se corrige', p_tipo_evento
+              USING ERRCODE = 'check_violation';
+          END IF;
+
           -- (3b) As tres recusas do contrato do §6.2, sobre o CHECK e nao em
           -- vez dele. O `CHECK` nao pode fazer esta: nao ve a cobranca.
           IF p_tipo_evento = 'pagamento_confirmado' THEN
@@ -1146,8 +1197,9 @@ def _append() -> None:
             v_prev, p_charge_id, v_charge.provider, v_charge.account_id,
             coalesce(v_charge.referencia,
               v_charge.id::text || '#' || v_charge.tentativa::text),
-            p_tipo_evento, v_seq, p_provider_event_id, p_valor_minor,
-            v_charge.currency, p_authn_method, p_authn_ok, p_decisao, v_payload);
+            p_tipo_evento, v_seq, coalesce(p_provider_event_id, ''),
+            p_valor_minor, v_charge.currency, p_authn_method, p_authn_ok,
+            p_decisao, v_payload);
 
           -- (5) O INSERT. O `tenant_id`, o sujeito, o `provider` e a
           -- `referencia` vem da cobranca e nao do chamador.
@@ -1309,8 +1361,9 @@ def _verificacao_da_cadeia() -> None:
               WHEN c.row_hash <> platform.payment_event_row_hash(
                      c.prev_hash, c.charge_id, c.provider, c.account_id,
                      c.referencia, c.tipo_evento, c.sequencia,
-                     c.provider_event_id, c.valor_minor, c.currency,
-                     c.authn_method, c.authn_ok, c.decisao, c.payload_hash)
+                     coalesce(c.provider_event_id, ''), c.valor_minor,
+                     c.currency, c.authn_method, c.authn_ok, c.decisao,
+                     c.payload_hash)
                 THEN 'row_hash nao corresponde aos campos canonicos'
               WHEN c.payload_hash
                    <> sha256(convert_to(c.payload::text, 'UTF8'))
@@ -1460,6 +1513,16 @@ def _privilegios() -> None:
 
     **O `kamba_resolver`, o `kamba_identity` e o `kamba_agr` nao ganham nada.**
     """
+    # **O `USAGE` no esquema, primeiro.** Um papel novo nao o tem, e sem ele
+    # todo o `GRANT` por tabela e letra morta: o `SELECT` seguinte falha com
+    # `42501 permission denied for schema platform`, que nao nomeia a tabela
+    # nenhuma e parece um `GRANT` em falta onde o que falta e o esquema. Cada
+    # papel desta base o recebeu na revisao que o estreou — a `0001` para o
+    # `kamba_app` e o `kamba_batch`, a `0002` para o `kamba_resolver`, a `0003`
+    # para o `kamba_identity`, a `0006` para o `kamba_audit` —, e este recebe-o
+    # aqui. Medido: os cinco ensaios do papel estreito falharam todos nele.
+    op.execute(f"GRANT USAGE ON SCHEMA platform TO {PAPEL_DOS_HOOKS}")
+
     # ------------------------------------------------------------ payment_charges
     op.execute(f"GRANT SELECT, INSERT ON {COBRANCAS} TO {PAPEL_DA_APP}")
     op.execute(f"GRANT SELECT ON {COBRANCAS} TO {PAPEL_DE_AUDITORIA}")

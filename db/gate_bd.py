@@ -10,6 +10,7 @@
     python db/gate_bd.py --suite tests_modos         # gate 8, os modos (KAM-018)
     python db/gate_bd.py --suite tests_avisos        # gate 8, o aviso ao dono (KAM-115)
     python db/gate_bd.py --suite tests_agr           # gate 8, o AGR (KAM-025)
+    python db/gate_bd.py --suite tests_pagamentos    # gate 8, o ledger (KAM-053)
     python db/gate_bd.py --suite tests --bd-existente
 
 Os dois gates precisam do mesmo: um PostgreSQL real, vazio e descartavel. Este
@@ -227,6 +228,32 @@ SUITES = (
     # proprio ficheiro TypeScript, pelo que o que o gate exercita e o texto
     # que o modulo envia e nao uma copia dele.
     "tests_produtos",
+    # KAM-053: o ledger de pagamentos. O que so aqui se prova e o que o objecto
+    # da prova obriga — o servidor, e nao um duplo: que um `INSERT` directo em
+    # `payment_events` falha por **privilegio** (`42501`) antes de chegar a
+    # qualquer `CHECK`, que o `deny_mutation` recusa um `UPDATE` **ao
+    # superutilizador** (o unico que os `REVOKE` nao prendem, e nenhuma matriz
+    # de privilegios o consegue), que as **vinte** sessoes concorrentes do
+    # criterio 3 dao sequencias 1..20 sem lacunas — em serie o `1 + count(*)` da
+    # sempre o numero certo e o ensaio ficava verde sem `FOR UPDATE` nenhum, e e
+    # por isso que ha um passo de canario que troca o `FOR UPDATE` por um
+    # `SELECT` simples numa copia da funcao e exige que elas colidam —, que a
+    # `append_payment_event` corre `SECURITY DEFINER` e **nao** contorna o
+    # `FORCE` (a afirmacao central do `db/rls.py`, que nomeia este ticket como
+    # credor: com o contexto de B sobre uma cobranca de A, a porta recusa), que
+    # uma falha forcada no `evt_emitir` reverte tambem a linha do ledger — a
+    # guarda de PII da `0004`, e nao um duplo, porque uma falha injectada provava
+    # que a injeccao funciona —, e que um byte alterado com superutilizador faz o
+    # `verify_ledger_chain` apontar o elo. Mais a propriedade do criterio 5: mil
+    # sequencias validas aleatorias em que o `rebuild_charge_state` da o mesmo
+    # que a projeccao.
+    #
+    # Suite propria e nao dentro de `tests`, pela razao do `tests_ten`, do
+    # `tests_servicos` e do `tests_produtos`: as vinte concorrentes e as mil
+    # sequencias custam relogio, e uma suite paga isso por cada mutacao que a
+    # escolha. **Nao** precisa de fila: o *outbox* escreve-se na transaccao, e
+    # quem o publica e o KAM-005.
+    "tests_pagamentos",
 )
 #: As que precisam tambem de uma fila.
 SUITES_COM_FILA = (

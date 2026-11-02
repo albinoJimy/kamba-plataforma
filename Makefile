@@ -1104,6 +1104,31 @@ ci-8:
 	@# fora desta lista nunca corre no CI — em silencio, com o gate 8 verde.
 	@echo "==> gate 8: preco opaco e stock nao-garantido (KAM-043)"
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_produtos
+	@#
+	@# ------------------------------------------------- KAM-053: o ledger de pagamentos
+	@#
+	@# O que esta suite prova, e o que nenhum duplo de teste pode: que um
+	@# `INSERT` directo em `payment_events` falha por **privilegio** (`42501`)
+	@# antes de chegar a qualquer `CHECK` — uma base falsa nao tem papeis, logo
+	@# nao pode falhar por privilegio nenhum; que o `deny_mutation` recusa
+	@# `UPDATE`, `DELETE` e `TRUNCATE` **ao superutilizador**, que e o unico que
+	@# os `REVOKE` nao prendem; que ninguem tem `UPDATE` em `payment_charges`,
+	@# que e a caixa do DoD («nao existe caminho de codigo que escreva `paga`
+	@# fora de `append_payment_event`») medida por privilegio e nao por `grep`;
+	@# que as **vinte** sessoes concorrentes do criterio 3 dao sequencias 1..20
+	@# sem lacunas, com o passo de canario que troca o `FOR UPDATE` por um
+	@# `SELECT` simples numa copia da funcao e exige que elas colidam — sem ele,
+	@# em serie o `1 + count(*)` da sempre o numero certo e o criterio ficava por
+	@# provar; que a porta corre `SECURITY DEFINER` e **nao** contorna o `FORCE`
+	@# (a afirmacao central do `db/rls.py`, que nomeia este ticket como credor);
+	@# que uma falha forcada no `evt_emitir` reverte tambem a linha do ledger; e
+	@# que um byte alterado com superutilizador faz o `verify_ledger_chain`
+	@# apontar o elo. Mais o criterio 5: mil sequencias validas aleatorias em que
+	@# o `rebuild_charge_state` da o mesmo que a projeccao.
+	@#
+	@# **Esta linha e que a faz correr.** Ver a licao do `tests_servicos` acima.
+	@echo "==> gate 8: ledger de pagamentos append-only (KAM-053)"
+	@$(VENV_PYTHON) db/gate_bd.py --suite tests_pagamentos
 
 # -----------------------------------------------------------------------------
 # Limpeza
