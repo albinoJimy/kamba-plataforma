@@ -206,6 +206,19 @@ export const INVENTARIO: readonly Entrada[] = [
     ocorrencias: 2,
     razao: "o mesmo, pelo lado do publicador a correr contra a base",
   },
+  {
+    ficheiro: "db/tests_pagamentos/test_porta.py",
+    ocorrencias: 5,
+    razao:
+      "a guarda de PII da platform.append_payment_event, que e a caixa de " +
+      "privacidade do KAM-053 e tem de morder no payload **e** no motivo — o " +
+      "motivo viaja para o outbox. Cinco: tres formas no payload (o +244 com " +
+      "prefixo, o 244 sem ele e um internacional que casa pelo segundo padrao), " +
+      "uma no motivo, e a sonda positiva de um payload redigido ao lado, sem a " +
+      "qual uma guarda que recusasse tudo deixava as outras quatro verdes. Num " +
+      "ledger append-only isto conta mais do que noutra tabela: um telefone que " +
+      "entre nao sai, nem com UPDATE, porque o deny_mutation recusa",
+  },
   // --- A entrada de canal --------------------------------------------------
   {
     ficheiro: "packages/core-ts/tests/entrada.explosao.test.ts",
