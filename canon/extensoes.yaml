@@ -100,10 +100,6 @@ extensoes:
     tipo: coluna
     ticket: KAM-003
     data: 2026-10-11
-  - nome: tenants.medusa_merchant_id
-    tipo: coluna
-    ticket: KAM-003
-    data: 2026-10-11
   - nome: tenants.chatwoot_account_id
     tipo: coluna
     ticket: KAM-003
