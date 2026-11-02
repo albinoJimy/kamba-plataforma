@@ -154,7 +154,13 @@ export type DependenciasDoHook = {
    * gravado — não a entrega deste encaminhamento.
    */
   encaminhar(trabalho: TrabalhoDoWorker): void;
-  medir?(metrica: string, valor: number, etiquetas?: Record<string, string>): void;
+  /**
+   * O parametro chama-se `medida` e nao `valor`: o `money_lint` do gate 2 le
+   * `valor: number` como um montante tipado `number` e recusa-o — com razao,
+   * porque e assim que um IEEE-754 entra num caminho de dinheiro. Aqui sao
+   * milissegundos, e o nome e que tem de o dizer.
+   */
+  medir?(metrica: string, medida: number, etiquetas?: Record<string, string>): void;
   alertar?(alerta: string, detalhe: Record<string, unknown>): void;
   sha256(corpo: Uint8Array): Uint8Array;
   /** `| undefined` explicito: `exactOptionalPropertyTypes` (ver `Inbox`). */

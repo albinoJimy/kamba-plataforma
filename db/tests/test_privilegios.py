@@ -773,10 +773,173 @@ ESPERADO_POR_TABELA.update(
 #: KAM-026, nao aqui: esta matriz e de `platform`.
 PAPEIS_SEM_NADA_EM_PLATFORM = ("kamba_agr",)
 
+#: O `kamba_pay_hooks` (KAM-053) nao tem privilegio nenhum em **nenhuma** das
+#: tabelas declaradas acima — tem-nos so nas da revisao `0029`, que se declaram
+#: depois desta compreensao.
+#:
+#: **Numa constante propria e nao dentro do `PAPEIS_SEM_NADA_EM_PLATFORM`**, e a
+#: diferenca nao e estilo: aquela linha afirma «este papel nao alcanca o
+#: `platform`», que e o criterio 4 do KAM-026 e continua a ser verdade; esta
+#: afirma «este papel alcanca o `platform` **so** pelas tabelas de pagamento».
+#: Juntar os dois numa so fazia a primeira afirmacao falsa a partir do momento
+#: em que a segunda tabela aparecesse, e a excepcao do `kamba_pay_hooks` ficava
+#: indistinguivel de uma distraccao.
+#:
+#: O que ele alcanca esta tres blocos abaixo, e e pouco de proposito: `SELECT,
+#: INSERT` e `UPDATE` de quatro colunas no `payment_callbacks_inbox` — que nao
+#: tem `tenant_id` —, `SELECT` de sete colunas na `payment_accounts` (em
+#: `COLUNAS_POR_PAPEL`, porque um `GRANT` por coluna nao aparece nesta matriz),
+#: e nada na `payment_charges`, no `payment_events` nem na `payment_outbox_map`
+#: — e as quatro entram em `TABELAS_COM_MATRIZ_DE_COLUNA`, que e onde a
+#: ausencia se afirma coluna a coluna, para os oito papeis.
+#: **Nao executa a porta do ledger**: ele corre antes de haver contexto de
+#: tenant, a RLS recusar-lhe-ia a cobranca de qualquer forma, e dar-lhe
+#: `EXECUTE` era deixar na matriz um privilegio que nao se pode usar.
+PAPEIS_SO_NAS_TABELAS_DE_PAGAMENTO = ("kamba_pay_hooks",)
+
 ESPERADO_POR_TABELA = {
-    tabela: dict(por_papel, **{p: set() for p in PAPEIS_SEM_NADA_EM_PLATFORM})
+    tabela: dict(
+        por_papel,
+        **{
+            p: set()
+            for p in (
+                *PAPEIS_SEM_NADA_EM_PLATFORM,
+                *PAPEIS_SO_NAS_TABELAS_DE_PAGAMENTO,
+            )
+        },
+    )
     for tabela, por_papel in ESPERADO_POR_TABELA.items()
 }
+
+
+def _pagamentos(**por_papel: set[str]) -> dict[str, set[str]]:
+    """Matriz de uma tabela da revisao `0029` (KAM-053).
+
+    Helper proprio e nao o `_uso` nem o `_auditoria`, e a razao e o papel novo:
+    as duas familias acima foram escritas antes de o `kamba_pay_hooks` existir e
+    nao o nomeiam, e as quatro tabelas desta revisao sao as unicas do esquema em
+    que ele aparece com algo. Declara-se **depois** da compreensao do
+    `PAPEIS_SO_NAS_TABELAS_DE_PAGAMENTO`, que e o que faz dele o zero em todas
+    as outras — pela mesma forma que o `_agenda` do `servicos`.
+
+    Omissoes: ninguem tem nada, e o que cada papel tem escreve-se por extenso em
+    cada tabela. **O `kamba_migrator` tem tudo porque e o dono**, como em todas
+    as matrizes, e isso nao mostra o *append-only* do ledger: quem o impoe e o
+    `deny_mutation` com `ENABLE ALWAYS`, que esta bateria nao ve e que recusa
+    tambem ao dono e ao superutilizador.
+    """
+    return {
+        "kamba_app": set(),
+        "kamba_batch": set(),
+        "kamba_resolver": set(),
+        "kamba_identity": set(),
+        "kamba_audit": set(),
+        "kamba_agr": set(),
+        "kamba_pay_hooks": set(),
+        "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+        "public": set(),
+        **por_papel,
+    }
+
+
+ESPERADO_POR_TABELA.update(
+    {
+        # ------------------------------------------------- KAM-053 (0029)
+        #
+        # **Ninguem tem `UPDATE` em `payment_charges`, e e a barreira que o DoD
+        # do bloco mede.** O `estado` muda **so** pela projeccao da
+        # `append_payment_event`, que e `SECURITY DEFINER` e corre como o dono.
+        # Com `UPDATE` concedido a qualquer papel havia um caminho para escrever
+        # `paga` sem passar pela porta — isto e, o ticket inteiro deixava de ter
+        # objecto. A ausencia aqui nao e uma folga a preencher: e a afirmacao.
+        #
+        # **Esta linha so a afirma a meias, e e por isso que a tabela esta
+        # tambem em `TABELAS_COM_MATRIZ_DE_COLUNA`:** o
+        # `has_table_privilege(..., 'UPDATE')` devolve `false` com ou sem um
+        # `GRANT UPDATE (estado)` por coluna, pelo que a barreira caia por um
+        # `GRANT` de uma palavra que esta matriz nao ve. E ali que ela se
+        # afirma, coluna a coluna e nos dois sentidos.
+        #
+        # **O `kamba_app` tem `INSERT`, ao contrario da `payment_accounts` da
+        # `0027`.** Uma cobranca nasce num turno de conversa (o `createOrder` do
+        # COM) e uma conta de pagamento nasce no onboarding de retaguarda — e e
+        # essa a diferenca. O que prende a escrita sao duas coisas que esta
+        # matriz nao ve: o `WITH CHECK` da `tenant_iso`, que prende o
+        # `tenant_id` ao contexto, e o *trigger* `assert_beneficiary` (G-1), que
+        # prende o beneficiario e recusa **antes** da politica.
+        #
+        # **O `kamba_batch` apaga e o `kamba_app` nao**, pela regra que a `0025`
+        # escreveu e a `0027` repetiu: quem apaga e o papel da retencao
+        # (KAM-071) e o semeador das baterias. **O `kamba_audit` le**, porque
+        # «quanto se pediu e em que estado ficou» e pergunta de auditoria.
+        #
+        # **O `kamba_pay_hooks` nao tem nada aqui**, e isso e o secao 5.1: ele
+        # grava a entrega e devolve 2xx; quem toca na cobranca e o *worker*, que
+        # corre como `kamba_app` com o contexto resolvido.
+        "payment_charges": _pagamentos(
+            kamba_app={"SELECT", "INSERT"},
+            kamba_batch={"SELECT", "INSERT", "DELETE"},
+            kamba_audit={"SELECT"},
+        ),
+        # O inbox. **O `kamba_app` nao entra, e e a unica tabela de `platform` em
+        # que isso acontece por causa da RLS que ela nao tem**: sem `tenant_id`
+        # nao ha politica, pelo que um `SELECT` do papel da aplicacao lia os
+        # callbacks de **todas** as PMEs. O que a isola e o papel, e nao a
+        # politica — e por isso o papel e estreito.
+        #
+        # **O `UPDATE` nao esta nesta matriz e existe**: e por coluna, quatro
+        # colunas, e esta em `COLUNAS_POR_PAPEL`. O que fica de fora delas e a
+        # afirmacao — o `body`, o `body_hash`, os `headers`, o `source_ip` e o
+        # `recebido_at` nao se reescrevem, e e isso que faz do inbox uma prova
+        # em vez de um registo de trabalho.
+        #
+        # **O `kamba_pay_hooks` insere e o `kamba_batch` nao**, e e deliberado:
+        # quem grava a entrega e quem a recebe. O lote le, marca o desfecho do
+        # que processou e apaga na retencao.
+        #
+        # O `kamba_audit` nao ganha nada: ele le o `audit_log` e o ledger, e o
+        # corpo cru de um callback nao e o que ele audita — e a mesma razao
+        # pela qual ele nao le o catalogo da `0028`.
+        "payment_callbacks_inbox": _pagamentos(
+            kamba_pay_hooks={"SELECT", "INSERT"},
+            kamba_batch={"SELECT", "DELETE"},
+        ),
+        # O ledger. **Ninguem tem `INSERT`, e e metade da porta**: sem
+        # privilegio, um `INSERT` directo falha com `42501` antes de chegar a um
+        # `CHECK`. A outra metade e o `deny_mutation`, que recusa
+        # `UPDATE`/`DELETE`/`TRUNCATE` **a todos** incluindo ao dono e ao
+        # superutilizador — e e a razao de a imutabilidade nao ser so uma matriz
+        # de privilegios. Esta linha prende o que a matriz **pode** prender: que
+        # nao apareca um `INSERT` concedido a alguem.
+        #
+        # Os tres que leem leem por tres razoes diferentes: o `kamba_app`
+        # porque o *worker* precisa de ver o que ja registou (a sequencia, o
+        # ultimo estado), o `kamba_batch` porque a reconciliacao do secao 8 e
+        # dele, e o `kamba_audit` porque «esta cadeia esta intacta» e uma
+        # pergunta de auditoria.
+        #
+        # O `kamba_pay_hooks` **nao** le: ele nao sabe de que tenant e o
+        # callback no instante em que o grava, e um papel sem contexto a ler um
+        # ledger com RLS lia zero linhas — um privilegio que nao se pode usar.
+        "payment_events": _pagamentos(
+            kamba_app={"SELECT"},
+            kamba_batch={"SELECT"},
+            kamba_audit={"SELECT"},
+        ),
+        # O mapeamento `(tipo_evento, authn_method) -> tipo EVT`. Configuracao
+        # **global**, como a `evt_subscricoes` da `0004`, e com a mesma forma de
+        # matriz: a aplicacao le (e ela que decide se publica evento de dominio)
+        # e o lote escreve, porque encher a tabela e provisionamento.
+        #
+        # **Fica vazia nesta revisao** — o conteudo e do KAM-055 —, e a matriz
+        # declara-se igual: um privilegio que so se concede quando a tabela
+        # tiver linhas e um privilegio que ninguem reve.
+        "payment_outbox_map": _pagamentos(
+            kamba_app={"SELECT"},
+            kamba_batch={"SELECT", "INSERT", "DELETE"},
+        ),
+    }
+)
 
 
 def _agenda(*privilegios_da_app: str) -> dict[str, set[str]]:
@@ -809,6 +972,13 @@ def _agenda(*privilegios_da_app: str) -> dict[str, set[str]]:
         "kamba_identity": set(),
         "kamba_audit": set(),
         "kamba_agr": set(),
+        # KAM-053: a mao e nao pela compreensao do
+        # `PAPEIS_SO_NAS_TABELAS_DE_PAGAMENTO`, que corre **antes** deste
+        # helper — a mesma razao pela qual o `kamba_agr` tambem esta escrito
+        # aqui. O papel dos *webhooks* de pagamento nao tem `USAGE` no
+        # `servicos`, pelo que nao alcanca a agenda de ninguem: o que ele
+        # atende e um callback de pagamento, e uma marcacao nao e um pagamento.
+        "kamba_pay_hooks": set(),
         "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
         "public": set(),
     }
@@ -1146,6 +1316,61 @@ COLUNAS_POR_PAPEL = {
     # outro sem passar pela restricao de exclusao do novo, que e precisamente a
     # barreira do criterio 1. Nao inclui o `criado_at`, que e historico.
     ("kamba_app", "bookings", "UPDATE"): {"estado", "hold_expires_at", "version"},
+    # KAM-053: as **quatro** colunas do `UPDATE_DO_INBOX` da revisao `0029`, e a
+    # lista e exacta nos dois sentidos. As duas entradas sao iguais de proposito
+    # — o `kamba_pay_hooks` marca o desfecho do que acabou de receber e o
+    # `kamba_batch` marca o do que processou —, e o que importa e o que **nao**
+    # esta nelas: o `body`, o `body_hash`, os `headers`, o `source_ip` e o
+    # `recebido_at`. O que entrou pela rede nao se reescreve, e e isso que faz
+    # do inbox uma prova em vez de um registo de trabalho.
+    #
+    # Um `GRANT UPDATE (body)` a mais era invisivel em qualquer matriz de
+    # tabela — ali o inbox diz `{"SELECT", "INSERT"}` para o papel dos hooks —,
+    # e com ele quem atende a rede reescrevia o corpo **depois** de o HMAC ter
+    # sido verificado: a assinatura passava a valer sobre um corpo que ja nao e
+    # o que chegou. E a razao medida no KAM-015 com outro nome de coluna, e aqui
+    # a consequencia e pior do que reescrever uma chave de idempotencia.
+    #
+    # O `id` tambem nao esta: e `GENERATED ALWAYS AS IDENTITY` e e a ordem por
+    # que o *worker* varre o que falta processar.
+    ("kamba_pay_hooks", "payment_callbacks_inbox", "UPDATE"): {
+        "estado", "processado_at", "erro", "authn_ok",
+    },
+    ("kamba_batch", "payment_callbacks_inbox", "UPDATE"): {
+        "estado", "processado_at", "erro", "authn_ok",
+    },
+    # KAM-053: as **sete** colunas da `payment_accounts` que o papel dos
+    # *webhooks* le, e e tudo o que ele precisa para resolver
+    # `webhook_token -> conta` antes de existir contexto de tenant (secao 5.1).
+    #
+    # **O que fica de fora e a afirmacao, e aqui ela e a razao de o `GRANT` ser
+    # por coluna:** o `credenciais_ref` e o `manual_instrucoes` nao estao. O
+    # primeiro e o caminho no cofre para as credenciais do facilitador daquela
+    # PME; o segundo e o IBAN ou a carteira que o dono escreveu. O papel que
+    # atende a rede nao tem razao para ver nenhum dos dois, e tambem nao ve o
+    # `liquidacao_destino`, o `iec` nem o `checklist`.
+    #
+    # **E a entrada que substitui uma segunda `SECURITY DEFINER`**, e isso e o
+    # DoD do bloco por extenso. A `payment_accounts` esta em `FORCE`, este papel
+    # e `NOBYPASSRLS` e no instante do callback nao ha contexto: um `SELECT`
+    # devolvia zero linhas. A primeira versao da revisao resolveu-o com uma
+    # funcao `DEFINER`, que corre como o dono e alcanca a tabela **inteira** por
+    # dentro — todas as colunas, incluindo o `credenciais_ref` —, limitada so
+    # pelo corpo que alguem escreveu. O que esta aqui e mais estreito e e do
+    # servidor: a politica `pay_hooks_token` (`TO kamba_pay_hooks`, que nao se
+    # soma a `tenant_iso` dos outros papeis) mais estas sete colunas, com a
+    # funcao `resolve_webhook_token` em `SECURITY INVOKER` — sujeita as duas em
+    # vez de as contornar.
+    #
+    # Dito sem eufemismo, porque e o que esta lista existe para nao esconder:
+    # este papel le sete colunas das contas de **todos** os tenants. E a leitura
+    # que o secao 5.1 exige — resolver um *token* opaco sem saber de quem e — e o
+    # papel nao chega a mais nada: nao le cobrancas, nao le o ledger, e nao
+    # executa a porta.
+    ("kamba_pay_hooks", "payment_accounts", "SELECT"): {
+        "id", "tenant_id", "provider", "entidade", "pos_id", "estado",
+        "webhook_token",
+    },
 }
 PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
 
@@ -1292,6 +1517,50 @@ TABELAS_COM_MATRIZ_DE_COLUNA = (
     # nenhum, e uma linha de matriz de coluna para uma tabela cujos `GRANT` sao
     # todos ao nivel da tabela repetia o que a matriz de tabela ja afirma.
     "bookings",
+    # KAM-053: as **tres** tabelas que a revisao `0029` traz a esta lista, e
+    # cada uma por uma razao diferente.
+    #
+    # O `payment_callbacks_inbox` tem `UPDATE` **por coluna** para dois papeis,
+    # e o que uma coluna a mais daria esta escrito em `COLUNAS_POR_PAPEL`: com
+    # o `body` no `GRANT`, quem atende a rede reescrevia o corpo depois de o
+    # HMAC ter sido verificado. Nenhuma matriz de tabela ve isso.
+    #
+    # A `payment_accounts` **entra agora e nao na `0027`**, e e a divida 111
+    # outra vez: ali os `GRANT` eram todos ao nivel da tabela e a linha nao
+    # fazia falta; a `0029` da-lhe o primeiro `GRANT` por coluna — as sete do
+    # `kamba_pay_hooks` —, e sem esta entrada um `GRANT SELECT
+    # (credenciais_ref)` a mais era invisivel em qualquer matriz. E a coluna
+    # que guarda o caminho das credenciais do facilitador, lida pelo papel que
+    # atende a rede.
+    #
+    # A `payment_events` entra **sem ter privilegio de coluna nenhum**, pela
+    # razao das de eventos e com a forca com que ela aqui vale mais: o que se
+    # prende e a **ausencia**. Ninguem tem `INSERT` nesta tabela, e um
+    # `GRANT INSERT (tenant_id, charge_id, ...)` por coluna a `kamba_app` nao
+    # aparecia no `has_table_privilege` — abria uma segunda porta de escrita no
+    # ledger sem que a matriz de tabela, o `deny_mutation` ou o
+    # `secdef_allowlist` dissessem nada. E a porta que este ticket existe para
+    # nao ter.
+    #
+    # A `payment_charges` entra pela **mesma** razao da `payment_events`, e a
+    # primeira versao desta lista deixou-a de fora a escrever que a matriz de
+    # tabela bastava. Nao basta, e e o defeito exacto que esta lista existe para
+    # apanhar: um `GRANT UPDATE (estado) ON payment_charges TO kamba_app` nao
+    # aparece no `has_table_privilege`, e com ele a aplicacao escrevia `paga`
+    # sem passar pela `append_payment_event` — a barreira que o DoD do bloco
+    # mede («nao existe caminho de codigo que escreva `paga` fora de
+    # `append_payment_event`») cai por um `GRANT` de uma palavra, e nenhuma das
+    # tres camadas da revisao a ve (o `deny_mutation` e da `payment_events`,
+    # nao desta).
+    #
+    # A `payment_outbox_map` entra pela razao das de eventos: nenhum papel tem
+    # `UPDATE` nela — encher a tabela e `INSERT` do lote, corrigir uma linha e
+    # apagar e inserir — e um privilegio de coluna a mais era invisivel.
+    "payment_callbacks_inbox",
+    "payment_accounts",
+    "payment_charges",
+    "payment_events",
+    "payment_outbox_map",
 )
 
 #: Colunas que `kamba_app` **nao** pode alterar depois do insert, e porque.

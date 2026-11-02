@@ -46,6 +46,9 @@
  *                   deste ficheiro em vez de uma copia
  *     ledger        a verificacao diaria da cadeia e a ancora externa no
  *                   `StorageProvider` (§8)
+ *     gates         G2-G7, a parte **avaliar** do *worker* do §5.1, pura. A
+ *                   orquestracao — ler o *inbox*, abrir transacção, chamar a
+ *                   porta — e I/O e vive no servico `pay`, que nao existe
  *
  * O ledger `payment_events` e o KAM-053; o `ManualProvider` e o KAM-054; a
  * `payment_charges` e as FK para `orders_mirror` sao o KAM-055; o ProxyPay e o
@@ -121,6 +124,22 @@ export {
   validarCredenciaisRef,
   verificarBeneficiario,
 } from "./contas.ts";
+
+export {
+  ESTADOS_QUE_ACEITAM,
+  ESTADO_TARDIO,
+  GATES_DO_WORKER,
+  type CobrancaParaGates,
+  type ContaParaGates,
+  type DestinoDoEvento,
+  type EntradaDosGates,
+  type GateDoWorker,
+  type MotivoDeDivergencia,
+  type VeredictoDosGates,
+  avaliarGates,
+  escritasDoVeredicto,
+  reciboDoVeredicto,
+} from "./gates.ts";
 
 export {
   ALERTA_HMAC,

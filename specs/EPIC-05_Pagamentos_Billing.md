@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Pagamentos e Billing |
-| Versão | 1.3 |
+| Versão | 1.4 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md` |
@@ -171,14 +171,14 @@ O DDL do doc 11 tinha `UNIQUE (provider, referencia)` (mistura *dedupe* com esta
 Implementar `payment_charges`, `payment_callbacks_inbox` e `payment_events` com imutabilidade por privilégios e *triggers*, a função `append_payment_event` (único caminho de escrita, projecta o estado e escreve no *outbox*), `next_state`, `rebuild_charge_state`, a cadeia de *hashes* com verificação diária e o *handler* genérico `POST /hooks/pay/{provider}/{webhook_token}` que grava no *inbox* antes de qualquer 2xx.
 
 ### Critérios de Aceitação
-- [ ] `UPDATE`, `DELETE` e `TRUNCATE` em `payment_events` falham como `kamba_app` e como `kamba_ops` (3 testes); `INSERT` directo como `kamba_app` falha por permissão e `SELECT * FROM append_payment_event(...)` funciona.
-- [ ] Inserir `pagamento_confirmado` com `authn_ok=false`, ou com `decisao='rejeitada'`, é rejeitado pelo `CHECK`; a função recusa também se `valor_minor ≠ amount_minor` ou `account_id` difere da cobrança, mesmo que o `CHECK` passe.
-- [ ] Dois eventos do mesmo `(provider, account_id, referencia, tipo_evento)` recebem `sequencia` 1 e 2; 20 chamadas concorrentes sobre a mesma cobrança produzem sequências 1..20 sem lacunas (`FOR UPDATE`).
-- [ ] O mesmo `provider_event_id` num `pagamento_recebido` duas vezes produz 1 linha no ledger e o recibo `duplicado` (G7); a mesma referência em duas contas (entidades) distintas é aceite.
-- [ ] `next_state` cobre todas as transições de `../docs/tecnica/04` §7.1 e rejeita as restantes; um teste de propriedade com 1 000 sequências aleatórias válidas mostra `rebuild_charge_state(c)` igual a `payment_charges.estado`.
-- [ ] `row_hash = sha256(prev_hash ‖ campos canónicos)`; alterar um byte com superutilizador num teste faz o *job* `verify_ledger_chain` falhar e alertar; a cabeça da cadeia é exportada diariamente via `StorageProvider` (*fake* em teste).
-- [ ] Token desconhecido devolve 404 uniforme com recibo `token_desconhecido`; HMAC inválido devolve 401, deixa `payment_callbacks_inbox.estado='hmac_invalido'` e `sig_ok=false` e escreve 0 linhas em `payment_events`; o corpo é durável antes do 2xx; ack p99 < 500 ms a 50 pedidos/s.
-- [ ] A escrita no `events_outbox` ocorre na mesma transacção: uma falha forçada no *outbox* reverte também a linha do ledger.
+- [x] `UPDATE`, `DELETE` e `TRUNCATE` em `payment_events` falham como `kamba_app` e como `kamba_ops` (3 testes); `INSERT` directo como `kamba_app` falha por permissão e `SELECT * FROM append_payment_event(...)` funciona.
+- [x] Inserir `pagamento_confirmado` com `authn_ok=false`, ou com `decisao='rejeitada'`, é rejeitado pelo `CHECK`; a função recusa também se `valor_minor ≠ amount_minor` ou `account_id` difere da cobrança, mesmo que o `CHECK` passe.
+- [x] Dois eventos do mesmo `(provider, account_id, referencia, tipo_evento)` recebem `sequencia` 1 e 2; 20 chamadas concorrentes sobre a mesma cobrança produzem sequências 1..20 sem lacunas (`FOR UPDATE`).
+- [x] O mesmo `provider_event_id` num `pagamento_recebido` duas vezes produz 1 linha no ledger e o recibo `duplicado` (G7); a mesma referência em duas contas (entidades) distintas é aceite.
+- [x] `next_state` cobre todas as transições de `../docs/tecnica/04` §7.1 e rejeita as restantes; um teste de propriedade com 1 000 sequências aleatórias válidas mostra `rebuild_charge_state(c)` igual a `payment_charges.estado`.
+- [x] `row_hash = sha256(prev_hash ‖ campos canónicos)`; alterar um byte com superutilizador num teste faz o *job* `verify_ledger_chain` falhar e alertar; a cabeça da cadeia é exportada diariamente via `StorageProvider` (*fake* em teste).
+- [x] Token desconhecido devolve 404 uniforme com recibo `token_desconhecido`; HMAC inválido devolve 401, deixa `payment_callbacks_inbox.estado='hmac_invalido'` e `sig_ok=false` e escreve 0 linhas em `payment_events`; o corpo é durável antes do 2xx; ack p99 < 500 ms a 50 pedidos/s.
+- [x] A escrita no `events_outbox` ocorre na mesma transacção: uma falha forçada no *outbox* reverte também a linha do ledger.
 - [ ] A vista `v_payment_events_audit` expõe `callback_hmac_ok = (authn_method='hmac_sha256' AND authn_ok)` para os alvos de `../docs/tecnica/08` §14.
 
 ### Detalhes Técnicos
@@ -198,12 +198,123 @@ Implementar `payment_charges`, `payment_callbacks_inbox` e `payment_events` com 
 
 ### Definition of Done
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
-- [ ] Pagamento só por evento autenticado: não existe caminho de código que escreva `paga` fora de `append_payment_event`.
-- [ ] Idempotência: duplicados ×10 produzem 1 efeito; chaves `provider_event_id` e `sequencia` testadas.
-- [ ] Isolamento: RLS `FORCE` e caso novo na suite cruzada; `SECURITY DEFINER` apenas em `append_payment_event`, na lista aprovada.
+- [x] Pagamento só por evento autenticado: não existe caminho de código que escreva `paga` fora de `append_payment_event`.
+- [x] Idempotência: duplicados ×10 produzem 1 efeito; chaves `provider_event_id` e `sequencia` testadas.
+- [x] Isolamento: RLS `FORCE` e caso novo na suite cruzada; `SECURITY DEFINER` apenas em `append_payment_event`, na lista aprovada.
 - [ ] Privacidade: `payload` redigido sem PII; referências mascaradas em logs; sem telefone.
 - [ ] Observabilidade: métricas `callback_ack_ms`, `payment_events_total{tipo}`, alerta de HMAC inválido por conta.
 - [ ] Migração reversível; cobertura ≥ 90%; dois revisores.
+
+### Verificação dos Critérios de Aceitação
+
+Uma linha por critério, com a prova nomeada. Os comandos e os resultados estão no
+corpo do PR; o que esta tabela dá é **onde** a propriedade se mede.
+
+| # | Critério | Estado | Prova |
+|---|---|---|---|
+| 1 | `UPDATE`, `DELETE` e `TRUNCATE` em `payment_events` falham como `kamba_app` e como `kamba_ops` (3 testes); `INSERT` directo como `kamba_app` falha por permissão e `SELECT * FROM append_payment_event(...)` funciona | **satisfeito, com uma substituição declarada** | `TestPrivilegiosDoLedger` e `TestNemOSuperutilizador` em `db/tests_pagamentos/test_porta.py`, contra PostgreSQL real. **O `kamba_ops` não existe nesta base** — os papéis são oito (`db/bootstrap.py`) e o dicionário §3.2 registra `kamba_ops` como **variante proibida**, pelo que criá-lo contradizia o canon. As três mutações correm contra `kamba_app`, `kamba_batch` (que tem `BYPASSRLS`, e é portanto o mais forte dos três) e `kamba_audit` (o papel de ops que existe), e **mais uma via que o critério não pede**: o superutilizador, que é o único que os `REVOKE` não prendem e que o `deny_mutation` recusa na mesma. O `INSERT` directo dá `42501` **antes** de qualquer `CHECK`, e a linha do ensaio é deliberadamente válida em tudo o mais para que a razão da recusa seja o privilégio e não o conteúdo. A chamada legítima é `SELECT * FROM`, como o critério escreve, em `test_a_porta_funciona_como_app` |
+| 2 | Inserir `pagamento_confirmado` com `authn_ok=false`, ou com `decisao='rejeitada'`, é rejeitado pelo `CHECK`; a função recusa também se `valor_minor ≠ amount_minor` ou `account_id` difere da cobrança, mesmo que o `CHECK` passe | **satisfeito** | **As duas metades têm ensaio separado, e é o que o «mesmo que o `CHECK` passe» exige.** A função: `TestNaoHaSegundaPorta`, com `test_a_porta_recusa_confirmar_sem_autenticacao`, `test_a_porta_recusa_valor_diferente_do_da_cobranca` e `test_a_porta_recusa_conta_diferente_da_da_cobranca` — esta última é a mais importante das três, porque **nenhum `CHECK` a pode fazer**: nenhuma restrição de `payment_events` consegue ler o `amount_minor` da `payment_charges`. O `CHECK` sozinho: `TestOsCheckMordemSozinhos`, com `INSERT` directo pelo superutilizador, que é a única via que resta — sem `INSERT` concedido, nenhum caminho da aplicação chega lá, e um `CHECK` nunca exercitado é um `CHECK` que ninguém sabe se está a valer. Inclui o `humano_exige_actor` e o `payment_events_um_sujeito`, com a sonda positiva de cada um |
+| 3 | Dois eventos do mesmo `(provider, account_id, referencia, tipo_evento)` recebem `sequencia` 1 e 2; 20 chamadas concorrentes sobre a mesma cobrança produzem sequências 1..20 sem lacunas (`FOR UPDATE`) | **satisfeito** | `TestSequenciaSobConcorrencia` em `test_concorrencia.py`: vinte ligações próprias (na mesma ligação a segunda tomada da tranca é concedida de imediato e não haveria disputa), `sequencias == list(range(1, 21))` e **zero** falhas — com a tranca na cobrança elas esperam-se umas pelas outras em vez de colidirem. **Mais um passo de canário**, que é o que torna o resto honesto: copia a função para uma com outro nome **sem** o `FOR UPDATE`, repete as vinte, e exige que colidam com `23505`. Sem ele, em série o `1 + count(*)` dá sempre o número certo e o critério ficava por provar. E `test_duas_sequencias_de_tipos_diferentes_contam_a_parte`, porque um `count(*)` sobre a cobrança inteira — o erro fácil de escrever — passava o primeiro ensaio |
+| 4 | O mesmo `provider_event_id` num `pagamento_recebido` duas vezes produz 1 linha no ledger e o recibo `duplicado` (G7); a mesma referência em duas contas (entidades) distintas é aceite | **satisfeito** | `TestIdempotenciaDaEntrega`: a segunda chamada dá `23505` e o ledger fica com **uma** linha; `test_dez_duplicados_dao_um_efeito` é a caixa do DoD («duplicados ×10 produzem 1 efeito») medida com dez tentativas. A mesma referência em duas contas: `test_a_mesma_referencia_em_duas_contas_e_aceite`, que é o defeito que o §6.1 corrige no documento 11 (uma referência Multicaixa é Entidade + Referência, `evidencia/E2` §2). O recibo `duplicado` é decidido por `reciboDoVeredicto` em `packages/core-ts/src/pagamentos/gates.ts` e medido em `pagamentos.gates.test.ts`; **a escrita dele no `payment_callbacks_inbox` é do adaptador do *worker*, que não existe** — ver a nota de escopo abaixo |
+| 5 | `next_state` cobre todas as transições de `../docs/tecnica/04` §7.1 e rejeita as restantes; um teste de propriedade com 1 000 sequências aleatórias válidas mostra `rebuild_charge_state(c)` igual a `payment_charges.estado` | **satisfeito** | `TestNextState` transcreve as arestas do diagrama do §7.1 e afirma as três coisas: que todas estão, que os seis factos sem transição devolvem o mesmo estado, e que **todo o resto do produto `(estado × tipo × decisão)`** dá `NULL` — é esta terceira que o «rejeita as restantes» pede, e uma máquina que devolvesse o estado de entrada por omissão passava as duas primeiras. Mais `test_para_paga_ha_um_caminho_so`, varrido sobre o produto inteiro. A propriedade: `TestReconstrucao`, **mil** sequências com semente fixa, cada uma uma cobrança com os seus eventos, e a reconstrução comparada com a projecção **e** com o que o §7.1 diz — mais a asserção de que as mil chegam a pelo menos cinco estados distintos e uma delas a `paga`, porque mil cobranças que nunca saíssem de `iniciada` concordavam sempre e o ensaio não media transição nenhuma |
+| 6 | `row_hash = sha256(prev_hash ‖ campos canónicos)`; alterar um byte com superutilizador num teste faz o *job* `verify_ledger_chain` falhar e alertar; a cabeça da cadeia é exportada diariamente via `StorageProvider` (*fake* em teste) | **satisfeito** | A fórmula: `TestFormulaDoElo`, com `test_cada_campo_canonico_muda_o_elo` a varrer **cada** posição — um campo que não entra no elo é um campo que se pode adulterar, e é a lição que a `0006` pagou. A detecção: `test_um_byte_alterado_com_superutilizador_e_apanhado`, pela única via de adulteração que existe (o `deny_mutation` recusa a todos, pelo que o ensaio tem de desligar o *trigger* como dono), e `test_uma_linha_removida_no_meio_e_apanhada_pelo_encadeamento`, que a fórmula sozinha não veria. O `ENABLE ALWAYS` dos dois *triggers* lê-se do catálogo em `TestTriggersSaoAlways`. A âncora: `pagamentos.ledger.test.ts` com armazenamento *fake*, e **`test_sem_ancora_nao_e_conforme_mesmo_com_a_cadeia_intacta`** é o ensaio mais importante desse ficheiro — uma cadeia de *hashes* detecta adulteração de quem não a recalcula, e o que a torna uma prova contra quem tem a base é a cabeça estar fora do *host* |
+| 7 | Token desconhecido devolve 404 uniforme com recibo `token_desconhecido`; HMAC inválido devolve 401, deixa `payment_callbacks_inbox.estado='hmac_invalido'` e `sig_ok=false` e escreve 0 linhas em `payment_events`; o corpo é durável antes do 2xx; ack p99 < 500 ms a 50 pedidos/s | **satisfeito, com um limite nomeado** | `pagamentos.hooks.test.ts`. O 404: medido com **quatro** *tokens* diferentes, mesmo corpo e mesmo recibo — um corpo que distinguisse «mal formado» de «não existe» era um oráculo —, e a entrega grava-se com `account_id` nulo **antes** do 404, que é o que torna um varrimento de *tokens* auditável. O 401: `estado='hmac_invalido'` e `authn_ok=false` (**`sig_ok` é o nome substituído**: o dicionário §3.4 põe-no na coluna «Substitui» e o canónico é `authn_ok`), e **zero** escritas no ledger como propriedade do caminho — nada é encaminhado, pelo que o *worker* nunca é chamado. O «antes do 2xx» mede-se pela **ordem** das chamadas às portas, comparada com a do §5.1: `test_o_corpo_e_gravado_antes_de_verificar_e_antes_do_2xx`. **O limite:** o p99 é medido no caminho deste módulo, a 50 pedidos/s em lotes de um segundo, com as portas a custarem 1 ms cada — **não** num *endpoint* HTTP, porque `services/pay/` não existe nesta árvore (dívida 148). O alvo do §14 mede-se no GWY com a métrica `callback_ack_ms`, que este módulo emite em todos os códigos de resposta |
+| 8 | A escrita no `events_outbox` ocorre na mesma transacção: uma falha forçada no *outbox* reverte também a linha do ledger | **satisfeito** | `TestOutboxNaMesmaTransaccao`, com a sonda positiva primeiro (o caminho que funciona, antes de o partir) e a falha forçada por um *trigger* `BEFORE INSERT` sobre o `events_outbox` criado e apagado pelo próprio ensaio, com asserção de que caiu. **A primeira versão forçava-a com um `payload` que tinha padrão de telefone, contando com a guarda de PII do `evt_emitir`, e não funcionou** — o `payload` que vai para o *outbox* não é o do evento, é uma projecção que a função constrói. Desse achado saiu a guarda de PII da própria porta (`TestPrivacidadeDoPayload`). E `test_sem_mapeamento_nao_ha_evento_de_dominio_e_o_ledger_grava`, que é o que deixa esta revisão fundir antes do KAM-055 |
+| 9 | A vista `v_payment_events_audit` expõe `callback_hmac_ok = (authn_method='hmac_sha256' AND authn_ok)` para os alvos de `../docs/tecnica/08` §14 | *(caixa vazia)* — **não satisfeito, e a medição está entregue** | A vista existe, com `security_invoker = true`, e expõe o predicado — **com a coluna chamada `authn_hmac_ok`**. Os dois nomes que o critério escreve estão os dois na coluna «Substitui» do dicionário §3.4, e são dois casos diferentes: `hmac_sha256 → hmac` é uma tradução que a emenda 1.13 (KAM-141, linha 4) escreveu **com este ticket nomeado**, e está feita; `callback_hmac_ok` é **variante de nível 1** do *gate* 3b e não se traduz, porque é o nome da coluna que o critério pede. **Medido:** a primeira versão da revisão escrevia-o e o `canon_lint` devolveu dois achados `[variante]` (na vista e no `COMMENT ON`), porque o nível 1 varre todos os tokens, incluindo o interior das cadeias. Nenhuma entrada de `canon/extensoes.yaml` o salva — o leitor recusa-a com erro de configuração —, e o `ci/canon-allow.yaml` cobre só a superfície `documentos`, que é porque o nome **pode** aparecer no §6.1 do doc 04 e não numa migração. Mudar o que o *gate* 3b aceita é alteração de regra de bloqueio: a decisão é do fundador, e o que este ticket entrega é a medição e não a implementação |
+
+#### Verificação do Definition of Done
+
+| Caixa | Estado | Nota |
+|---|---|---|
+| Todos os Critérios de Aceitação satisfeitos e demonstráveis | *(caixa vazia)* — **não satisfeito** | Oito dos nove. O critério 9 não se cumpre porque o nome que ele pede é proibido por uma fonte acima dele, e a medição está na linha 9 acima. Dois critérios ficam **satisfeitos com limite declarado** e não escondido: o `kamba_ops` do critério 1 não existe e está registado como variante proibida, e o p99 do critério 7 é do caminho do *handler* e não de um *endpoint* |
+| Pagamento só por evento autenticado: não existe caminho de código que escreva `paga` fora de `append_payment_event` | **satisfeito** | **Provado por privilégio e não por `grep`.** Um `grep` mostra o que o código de hoje faz; o que se quer é que o de amanhã também não consiga. `TestNaoHaSegundaPorta` tenta as quatro vias que um papel de aplicação tem — `UPDATE` directo na cobrança, `INSERT` no ledger, a porta com `authn_ok=false`, a porta com `decisao='rejeitada'` — e exige o `SQLSTATE` de cada recusa, com a via que **passa** ao lado, porque uma função que recusasse tudo deixava o ficheiro verde e a `paga` inalcançável. **Ninguém tem `UPDATE` em `payment_charges`**, o `kamba_batch` incluído, e é aí que a barreira vive: o `estado` muda só pela projecção da porta. Do outro lado, `test_nenhuma_escrita_e_um_update_de_estado` em `pagamentos.gates.test.ts` afirma que nenhum veredicto do *worker* produz um estado — só tipos de evento |
+| Idempotência: duplicados ×10 produzem 1 efeito; chaves `provider_event_id` e `sequencia` testadas | **satisfeito** | Critérios 3 e 4 acima. O `payment_events_entrega_uq` é **parcial com o tipo no predicado**, que é o §6.2 à letra, e `test_o_mesmo_provider_event_id_noutra_conta_e_aceite` mostra porque é que a conta faz parte da chave: dois facilitadores podem numerar as entregas a partir de 1 |
+| Isolamento: RLS `FORCE` e caso novo na suite cruzada; `SECURITY DEFINER` apenas em `append_payment_event`, na lista aprovada | **satisfeito** | `rls.enable_tenant_rls` nas duas tabelas com `tenant_id`, com as bandeiras lidas do catálogo em `TestRlsDasDuasTabelas` e a sonda positiva antes das leituras cruzadas. **O ensaio que este ticket acrescenta ao que o X-03/X-04 já fazem** é `TestADefinerSobRls`: a porta corre `SECURITY DEFINER` e **não** contorna o `FORCE` — uma chamada com o contexto de B sobre uma cobrança de A recusa, e o ledger de A fica vazio. É a única forma de medir a afirmação central do `db/rls.py`, que nomeia este ticket como credor. `SECURITY DEFINER` **uma só**: a resolução do `webhook_token`, que tem o mesmo problema de contexto, resolve-se com a política `pay_hooks_token` por papel mais um `GRANT` por coluna — mais estreito do que uma segunda `DEFINER`, que por dentro alcançava a tabela inteira incluindo o `credenciais_ref` |
+| Privacidade: `payload` redigido sem PII; referências mascaradas em logs; sem telefone | *(caixa vazia)* — **parcial** | **A primeira metade está feita e é uma barreira**, não uma convenção: a porta recusa um `payload` ou um `motivo` com padrão de telefone, com os **mesmos** dois padrões do `evt_emitir` da `0004` e um ensaio de paridade que lê os dois corpos do catálogo (`TestPrivacidadeDoPayload`). Num ledger *append-only* isto conta mais do que noutra tabela: um telefone que entre não sai, nem com `UPDATE`. A `payment_callbacks_inbox` guarda o corpo cru — tem de guardar, porque o HMAC é sobre ele — e os cabeçalhos passam por uma lista de **inclusão**. **A segunda metade não está feita:** «referências mascaradas em logs» exigiria um redactor de `referencia` no logger, e este ticket não escreve registo nenhum — o `log_policy` do gate 2 passa a 0 achados porque nenhum ficheiro novo escreve fora do logger, o que é diferente de mascarar. Fica para quem escrever o serviço `pay` |
+| Observabilidade: métricas `callback_ack_ms`, `payment_events_total{tipo}`, alerta de HMAC inválido por conta | *(caixa vazia)* — **parcial** | O `callback_ack_ms` é **emitido** pelo *handler* em todos os códigos de resposta, com ensaio (`test_a_metrica_do_ack_e_emitida_em_todos_os_codigos`), e o alerta de HMAC inválido por conta também (`ALERTA_HMAC`, com o `account_id` e o `provider`). O `payment_events_total{tipo}` está **declarado e não emitido**: quem o emitiria é o *worker*, por tipo de evento escrito, e o *worker* não existe. E nenhuma das três chega a um colector: as portas `medir` e `alertar` são opcionais e nesta árvore não há quem as ligue, porque não há `services/pay/` |
+| Migração reversível; cobertura ≥ 90%; dois revisores | *(caixa vazia)* — **não satisfeito** | **Duas de três.** A reversibilidade é o `TestDowngradeDa0029`, que afirma as três partes que o ciclo do *gate* 8 é cego para ver: que o papel **não** se apaga, que a política `pay_hooks_token` sobre a tabela da `0027` **cai** (deixá-la pendurada estraga o `downgrade` da revisão **anterior**), e que a função `assert_beneficiary` fica. A cobertura: `hooks.ts` 98,5%, `ledger.ts` 100% e `gates.ts` medido no mesmo LCOV, contra o mínimo de 90% do estrato `critico`, que o `ci/thresholds.yaml` já aplicava a `*/pagamentos/*` desde o KAM-052 — nenhum padrão novo. **Os dois revisores não se cumprem:** nesta fase funde-se com CI verde sem esperar revisão humana (instrução do fundador), e uma revisão adversarial é evidência e não um revisor. Fica dito, como no KAM-052, que este é um ticket **P0 de dinheiro** e que o critério pede dois revisores **explicitamente** — é informação que o fundador pode querer usar para abrir excepção |
+
+#### O que fica para os tickets que este bloqueia
+
+Nomeado porque uma lacuna nomeada é informação e uma lacuna silenciosa é um
+defeito à espera:
+
+* **o processo do *worker*.** A parte **avaliar** do §5.1 está feita e medida —
+  `avaliarGates` em `gates.ts`, G2 a G7 pela ordem do §5, com dezanove ensaios —
+  e a parte **orquestrar** não: ler o *inbox*, abrir a transacção, chamar a
+  porta por cada escrita do veredicto, marcar o recibo. É I/O e vive no serviço
+  `pay`, que **não existe nesta árvore** (dívida documental 148, aberta pelo
+  KAM-052). O que não fica frouxo é a barreira: mesmo um *worker* mal escrito
+  não consegue escrever `paga` sem passar pela porta;
+* **as duas FK** — `payment_charges.order_id` → `orders_mirror` (KAM-055) e
+  `billing_cycle_id` → `billing_cycles` (KAM-059). O `CHECK` de exclusividade
+  fica nesta revisão, porque não depende de tabela nenhuma;
+* **o conteúdo da `payment_outbox_map`** (KAM-055). A tabela fica **vazia**, e um
+  `tipo_evento` sem linha nela não produz evento de domínio e o ledger grava-se
+  na mesma — é isso que deixa esta revisão fundir primeiro;
+* **o `EXECUTE` da porta para o `kamba_batch`.** A reconciliação do §8 vai
+  precisar dele (KAM-056); nesta revisão não há quem a chame como lote, e um
+  privilégio sem chamador é uma porta aberta sem ninguém a usar;
+* **o G8** (limites da confirmação humana, M-2..M-5) é do **KAM-054**: só se
+  aplica ao `ManualProvider` e os tectos que ele mede são *propostas* a calibrar
+  no Piloto. Avaliá-lo aqui era inventar os valores.
+
+#### Três divergências com o `../docs/tecnica/04`, e o que se fez com cada uma
+
+1. **O quarto valor de `authn_method` era uma pergunta escrita para este
+   ticket**, e fica respondida. O §6.2 fixa quatro valores no `CHECK` e anota que
+   o `sistema` «não tem contrapartida no dicionário» e que «a decisão pertence a
+   quem escrever o KAM-053». A resposta é que a pergunta do documento — «um
+   pagamento confirmado pela própria plataforma é `consulta` ou exige um valor
+   novo?» — tem a premissa errada: um `pagamento_confirmado` **nunca** é
+   `sistema`, porque a restrição `confirmar_exige_autenticacao` não o inclui e a
+   base recusa (medido em `test_o_check_recusa_confirmado_autenticado_por_sistema`).
+   O `sistema` serve os factos de ciclo de vida que não vêm de fora, e entra no
+   dicionário §3.4 pela emenda 1.53.
+2. **Três arestas do §7.1 não têm evento que as accione, e ficam recusadas.** A
+   `paga --> reembolso_pendente: disputa` não tem tipo de evento nos dezassete do
+   §6.2 — abrir um caso é `refund_cases` (§6.3, KAM-054) —, e a divergência a
+   partir de `aguarda_cliente` e de `pendente_confirmacao` não está desenhada,
+   embora o G4 possa bater nos dois estados. O critério 5 manda seguir o §7.1 à
+   letra, e é o que o `next_state` faz; a lacuna é do §7.1 e está em
+   `../docs/dividas-documentais.md`.
+3. **«Confirmação humana auditada» é um `authn_method`, não um tipo de evento.**
+   O §7.1 desenha `pendente_confirmacao --> paga: confirmacao humana auditada`, e
+   ler a frase como um tipo de evento (o `confirmacao_manual_registada`) criava um
+   segundo caminho para `paga` que **não passa** pela restrição
+   `confirmar_exige_autenticacao` — a segunda porta que este ticket existe para
+   não ter. Para `paga` há um caminho só, varrido sobre o produto inteiro em
+   `test_para_paga_ha_um_caminho_so`.
+
+#### Uma divergência com o §6.2 que é aditiva, e um *trigger* que se antecipa
+
+* **`CONSTRAINT payment_events_hashes_sha256`** não está no §6.2: exige que os
+  três *hashes* tenham 32 octetos. É um desvio **aditivo**, pela razão da `0006`
+  — sem ele um `prev_hash` de outro comprimento passava, e a verificação da
+  cadeia deixava de poder afirmar que compara `sha256` com `sha256`.
+* **O `CREATE TRIGGER payment_charges_beneficiario` liga-se nesta revisão**, e o
+  comentário da `0027` escreve que seria do KAM-055. É a única coisa que contraria
+  o que ficou escrito, e a razão é que a `payment_charges` nasce **aqui**: deixar
+  uma tabela de dinheiro dois tickets sem a guarda G-1 do §10.4 não é «não
+  alargar o escopo», é tirar uma barreira que já existe, construída e testada,
+  por causa de uma frase escrita quando se supunha que a tabela nasceria mais
+  tarde. O que fica para o KAM-055 é o que ele tem de ser: a FK para
+  `orders_mirror`.
+
+#### Um achado sobre uma barreira que não se consegue exercitar
+
+O `WITH CHECK` da política `tenant_iso` sobre a `payment_charges` **é
+inalcançável** pelo `kamba_app`, e as duas formas de o tentar estão medidas em
+`test_o_with_check_da_cobranca_e_inalcancavel_e_isso_fica_medido`: com o contexto
+de A e o `tenant_id` de B, o *trigger* `assert_beneficiary` compara os dois e
+recusa; com o contexto de C e o `tenant_id` de A, ele não vê a conta e recusa. Nos
+dois casos o *trigger* corre `BEFORE INSERT` e ganha.
+
+Não é um defeito — são duas barreiras independentes e a primeira dá a mensagem
+mais útil —, mas **é preciso que alguém o saiba**: quem ler «a tabela tem
+`tenant_iso` com `WITH CHECK`» supõe que há um ensaio a prová-lo, e não há nesta
+tabela. Onde o `WITH CHECK` **é** medido é no `payment_events`, pela porta
+(`TestADefinerSobRls`).
 
 ### Handoff para Claude Code
 
@@ -735,3 +846,4 @@ Testes: unit por regra, integração com ManualProvider, cenários sintéticos, 
 | 1.1 | Outubro 2026 | KAM-129: as 3 referências ao anexo E2 e ao directório de evidência passam a `../docs/tecnica/evidencia/…`; antes não resolviam de posição nenhuma. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-145: os **16** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | **KAM-052 entregue.** Secção «Verificação dos Critérios de Aceitação» no bloco, com os **nove** critérios e as **seis** caixas do DoD, cada um com prova nomeada. **Catorze caixas marcadas e uma vazia**, e a vazia é a dos **dois revisores**: metade cumpre-se (a decisão sobre o `humanOnly` está no PR) e a outra não — nesta fase funde-se com CI verde sem esperar revisão humana, e uma revisão adversarial é evidência e não um revisor. Fica dito no PR que este é um ticket **P0 de dinheiro** e que o critério pede dois revisores **explicitamente**, porque é informação que o fundador pode querer usar para abrir excepção. **Duas divergências face à letra, declaradas:** a regra de activação segue os *Detalhes Técnicos* e não o critério 2 (o `desconhecido` do AppyPay activava-se pela letra, dívida 151), e o `beneficiary_kind` segue o dicionário §3.4 e não o §6.2 (o gate 3b devolve dezanove achados sobre uma migração copiada à letra, dívida 149). **O `tenant_id` anulável foi decidido pelo fundador** (2026-10-29) contra uma lista fechada que dizia que as duas da auditoria eram as únicas. **E uma revisão adversarial independente reprovou o ramo** com 23 achados CONFIRMADO, 5 deles *must fix* — três eram barreiras que não podiam falhar nas condições em que tinham sido declaradas satisfeitas: o *harness* dava verde a um adaptador que não verifica assinatura nenhuma, o *lint* de dinheiro não via o idioma da casa, e o `capabilities.metodos` não era lido por linha nenhuma. Todos corrigidos; registo em `../docs/analises/ANALISE-41-interface-paymentprovider.md`. | Equipa KAMBÁ |
+| 1.4 | Novembro 2026 | **KAM-053 entregue.** Secção «Verificação dos Critérios de Aceitação» no bloco, com os **nove** critérios e as **sete** caixas do DoD, cada um com prova nomeada. **Onze caixas marcadas e cinco vazias**, e as cinco têm razão escrita: o critério 9 pede uma coluna com um nome que é **variante de nível 1** do *gate* 3b (`callback_hmac_ok`) e nenhuma excepção o salva — a vista existe com `authn_hmac_ok` e o que este ticket entrega é a medição, porque mudar o que o *gate* aceita é regra de bloqueio; a privacidade cumpre-se numa metade (a porta recusa um `payload` ou um `motivo` com padrão de telefone, com os mesmos padrões do `evt_emitir`) e não na outra (mascarar referências em logs, que exige o serviço `pay`); a observabilidade emite duas das três métricas e nenhuma chega a um colector; e os **dois revisores** não se cumprem, como no KAM-052 — fica dito que é um **P0 de dinheiro** e que o critério os pede explicitamente. **Decide a pergunta que o `../docs/tecnica/04` §6.2 deixou escrita para este ticket:** o `authn_method` fica com quatro valores, e a premissa da pergunta era falsa — um `pagamento_confirmado` **nunca** é `sistema`, porque a restrição `confirmar_exige_autenticacao` não o inclui e a base recusa (medido). **Quatro defeitos que a suite apanhou na própria revisão**, todos corrigidos: o `STRICT` do `payment_event_row_hash` com o `coalesce` no corpo em vez de nos chamadores (62 ensaios no mesmo `23502`); o papel novo sem `USAGE` no esquema; a guarda de PII do `evt_emitir` que **não vê** o `payload` do ledger, de onde saiu a guarda da própria porta; e a chave do `ci/secdef_allowlist.yaml` sem os nomes dos parâmetros, que o `pg_get_function_identity_arguments` inclui — a `audit_encadear()` escondeu-o desde o KAM-004 por não ter argumentos, e a primeira entrada com argumentos deu seis falhas no X-05. **Um achado sobre uma barreira que não se consegue exercitar:** o `WITH CHECK` da `tenant_iso` sobre a `payment_charges` é inalcançável pelo `kamba_app`, porque o `assert_beneficiary` corre `BEFORE INSERT` e recusa primeiro nas duas formas de o tentar — fica medido em vez de suposto. | Equipa KAMBÁ |

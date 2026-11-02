@@ -166,10 +166,37 @@ class TestConvencoes(ComBase):
         # coluna. E a ordem de insercao e o que torna a cobertura do critero 5
         # ponderavel: «uma linha por invocacao `write`/`money`» le-se seguindo
         # o `id`, nao adivinhando por `ts`.
-        por_identidade = {"events_outbox", "events_dlq", "audit_log", "tool_audit"}
+        # KAM-053: as duas do ledger, e as duas pela razao do `audit_log` com a
+        # forca com que ela aqui vale mais — **nenhum papel escreve nelas pelo
+        # `INSERT`**. No `payment_callbacks_inbox` escreve so o
+        # `kamba_pay_hooks`, que nao ve dado de tenant nenhum (a tabela nao tem
+        # `tenant_id`), pelo que nao ha papel sujeito a RLS a quem a sequencia
+        # revele volume; e o `id` sequencial e o que o *worker* varre por ordem
+        # de chegada, que e o que o secao 5.1 manda. Na `payment_events` nenhum
+        # papel tem `INSERT` de todo — quem escreve e a `append_payment_event`,
+        # que corre como o dono — e a **ordem de insercao** e o que torna a
+        # cadeia de *hashes* verificavel de cima a baixo: e a razao da
+        # `audit_log`, e um UUIDv4 nao tem ordem.
+        por_identidade = {
+            "events_outbox", "events_dlq", "audit_log", "tool_audit",
+            "payment_callbacks_inbox", "payment_events",
+        }
+        # **So tabelas de base**, e a restricao entrou no KAM-053 pela razao que
+        # o `test_tenant_id_e_not_null_e_vem_primeiro_num_indice` ja escreve: o
+        # `information_schema.columns` inclui as colunas das **vistas**, e a
+        # `v_payment_events_audit` — a terceira vista do esquema — projecta o
+        # `id` da `payment_events`. Uma vista nao tem chave primaria nem
+        # omissao de coluna, pelo que as duas asercoes deste teste nao se lhe
+        # aplicam; o `id` que ela mostra e o da tabela por baixo, e esse esta
+        # afirmado duas linhas abaixo. A divisao de trabalho e a mesma: tabelas
+        # aqui, vistas no `verificar_vistas` do X-05 e no `INVENTARIO`.
         linhas = self.consultar(
-            "SELECT table_name, data_type, column_default FROM information_schema.columns "
-            "WHERE table_schema = 'platform' AND column_name = 'id'"
+            "SELECT c.table_name, c.data_type, c.column_default "
+            "FROM information_schema.columns AS c "
+            "JOIN information_schema.tables AS t "
+            "  ON t.table_schema = c.table_schema AND t.table_name = c.table_name "
+            "WHERE c.table_schema = 'platform' AND c.column_name = 'id' "
+            "AND t.table_type = 'BASE TABLE'"
         )
         self.assertEqual(
             {t for t, _, _ in linhas},
@@ -256,6 +283,16 @@ class TestConvencoes(ComBase):
                 # natural e composta (`tenant_id`, `sku`) — e e isso que faz
                 # da colisao de SKU entre tenants um nao-problema.
                 "price_quotes",
+                # KAM-053: a cobranca, `uuid` gerado **e nao de identidade**, e
+                # aqui a razao nao e a das outras — e o contrario delas. O
+                # secao 6.2 escreve `id = chargeId = Idempotency-Key`: **quem
+                # cria a cobranca escolhe o `id`**, e e isso que torna a criacao
+                # retentavel com a mesma chave (F-09). Um `bigint` de identidade
+                # tirava essa escolha ao chamador e a idempotencia da criacao
+                # com ela. A `payment_callbacks_inbox` e a `payment_events`
+                # **nao** estao aqui, e estao no `por_identidade`: ali o que
+                # importa e a ordem, aqui e a chave que o chamador traz.
+                "payment_charges",
             }
             | por_identidade,
         )
@@ -272,8 +309,8 @@ class TestConvencoes(ComBase):
         """Uma `GENERATED AS IDENTITY` a mais era uma chave sequencial nova.
 
         Chaves sequenciais vazam volume (quantos pedidos tem o vizinho) e por
-        isso o dicionario §2 manda `uuid`. Sao **quatro** as excepcoes, e as
-        quatro tem a mesma propriedade: nenhum papel sujeito a RLS le a coluna.
+        isso o dicionario §2 manda `uuid`. As excepcoes tem todas a mesma
+        propriedade: nenhum papel sujeito a RLS le a coluna.
         O outbox porque a tabela nao e exposta a nenhum tenant e a ordem e o que
         o publicador precisa; a `events_dlq` porque `kamba_app` tem so `INSERT`
         nela e quem a le e a operacao (KAM-006, §6.4); a `audit_log`
@@ -282,6 +319,14 @@ class TestConvencoes(ComBase):
         verificavel por quem a le de cima a baixo; e a `tool_audit` (KAM-028)
         pela razao da `audit_log`, com a cobertura do critero 5 em vez da
         cadeia.
+
+        **As duas do KAM-053 levam a propriedade ao limite** e por isso entram
+        sem afrouxar nada: no `payment_callbacks_inbox` nenhum papel sujeito a
+        RLS chega a tabela (ela nao tem `tenant_id` e so o `kamba_pay_hooks` lhe
+        toca), e na `payment_events` nenhum papel tem `INSERT` de todo — quem
+        escreve e a `append_payment_event`, que corre como o dono. A razao
+        positiva e a da `audit_log`: a ordem de insercao e o que torna a cadeia
+        de *hashes* verificavel de cima a baixo, e um UUIDv4 nao tem ordem.
 
         **O nome deste teste nao leva o numero, e isso e deliberado.** Levava —
         `..._sao_as_tres_declaradas` — e cada tabela nova obrigava a renomear um
@@ -297,8 +342,14 @@ class TestConvencoes(ComBase):
         )
         self.assertEqual(
             linhas,
+            # `ORDER BY 1, 2`: as duas do KAM-053 entram entre `events_outbox`
+            # e `tool_audit` («e» < «p» < «t»), e entre elas decide o nono
+            # caracter — `payment_c` antes de `payment_e`.
             [("audit_log", "id", "a"), ("events_dlq", "id", "a"),
-             ("events_outbox", "id", "a"), ("tool_audit", "id", "a")],
+             ("events_outbox", "id", "a"),
+             ("payment_callbacks_inbox", "id", "a"),
+             ("payment_events", "id", "a"),
+             ("tool_audit", "id", "a")],
         )
 
     def test_as_chaves_primarias_sao_as_declaradas(self) -> None:
@@ -491,6 +542,31 @@ class TestConvencoes(ComBase):
                 # coluna gerada por COALESCE. A posicao e por `ORDER BY 1, 2`:
                 # depois de `owner_notices` ('ow' < 'pa').
                 ("payment_accounts", "id", "uuid", "gen_random_uuid()"),
+                # KAM-053: as quatro do ledger, e cada uma com uma forma
+                # diferente — e as quatro diferencas sao decisoes.
+                #
+                # O `payment_callbacks_inbox` e a `payment_events` tem `id` de
+                # identidade, pela razao escrita no teste da coluna de
+                # identidade: o que se precisa delas e a **ordem**.
+                #
+                # A `payment_charges` tem `uuid` gerado e e o **contrario** das
+                # duas: o secao 6.2 escreve `id = chargeId = Idempotency-Key`,
+                # pelo que quem cria a cobranca escolhe o `id` e e isso que
+                # torna a criacao retentavel (F-09). O `gen_random_uuid()` e a
+                # omissao para quem nao escolhe, nao a regra.
+                #
+                # A `payment_outbox_map` tem chave **natural e composta**,
+                # `(tipo_evento, authn_method)`, como a `evt_subscricoes` da
+                # `0004` e pela mesma razao: e uma tabela de mapeamento, e a sua
+                # identidade e o par que ela mapeia. Um `uuid` ao lado era um
+                # identificador que nenhuma consulta citaria. O `ORDER BY 1, 2`
+                # poe o `authn_method` antes do `tipo_evento`, e nao a ordem da
+                # chave.
+                ("payment_callbacks_inbox", "id", "bigint", None),
+                ("payment_charges", "id", "uuid", "gen_random_uuid()"),
+                ("payment_events", "id", "bigint", None),
+                ("payment_outbox_map", "authn_method", "text", None),
+                ("payment_outbox_map", "tipo_evento", "text", None),
                 # KAM-043: a cotacao segue a regra geral, `uuid` gerado. A
                 # posicao e por `ORDER BY 1, 2`: depois de `payment_accounts`
                 # ("pa" < "pr") e antes de `tenant_channels`.
@@ -688,6 +764,29 @@ class TestConvencoes(ComBase):
              # quem chega num callback nao o sabe. E servida pelo indice
              # unico dessa coluna.
              "payment_accounts",
+             # KAM-053. **Duas das quatro tabelas da revisao, e as outras duas
+             # nao estao aqui por desenho.** A `payment_callbacks_inbox` nao tem
+             # `tenant_id` porque quem chega ainda nao o revelou (secao 5.1) — o
+             # que a isola e o papel estreito `kamba_pay_hooks` —, e a
+             # `payment_outbox_map` e configuracao global, como a
+             # `evt_subscricoes`. A descoberta pergunta pela coluna, e elas nao
+             # a tem.
+             #
+             # As duas que estao tem `tenant_id NOT NULL` (ao contrario da
+             # `payment_accounts` tres linhas acima) e chave primaria que **nao**
+             # o leva — o `id`, pela razao do F-09 numa e da ordem na outra —,
+             # logo indice proprio a comecar por ele: `(tenant_id, estado)` na
+             # cobranca, que e a leitura «as cobrancas deste tenant neste
+             # estado», e `(tenant_id, recebido_at DESC)` no ledger, que e o
+             # historico. Os outros indices das duas **nao** comecam pelo
+             # `tenant_id`, e e decisao: o `payment_charges_ref_uq` e por
+             # `(account_id, referencia)` e nao pode levar o tenant a frente —
+             # quem chega num callback nao o sabe, que e a mesma razao do
+             # `webhook_token` da `payment_accounts` —, o
+             # `payment_charges_activa_uq` e sobre o `COALESCE` dos dois
+             # sujeitos, e o `payment_events_charge_idx` serve a leitura da
+             # cadeia, que e por cobranca e nao por tenant.
+             "payment_charges", "payment_events",
              # KAM-009. O `tenant_id` vem em primeiro lugar na chave primaria
              # das duas, que e o indice que a serve — nao foi preciso indice
              # proprio para esta regra. O `usage_ledger` tem alem disso
@@ -817,6 +916,24 @@ class TestConvencoes(ComBase):
     #: entrega e a medicao e a distincao, nao a decisao. Se for recusado, o que
     #: sai e o criterio 1 do KAM-043 («valores em `bigint` minor»), e isso e um
     #: conflito entre dois tickets que so o fundador fecha.
+    #
+    #: **O KAM-053 acrescenta tres entradas e a mesma pergunta fica em aberto,
+    #: agora mais perto do que o ADR-004 recusa.** As duas do KAM-043 sao preco
+    #: de catalogo; estas sao dinheiro de **pagamento** — o montante de uma
+    #: cobranca, o valor de um facto do ledger e a projeccao daquele na vista de
+    #: auditoria. A distincao que as deixa passar continua a ser a mesma, e esta
+    #: escrita entrada a entrada: um saldo e quantia que a plataforma **detem**
+    #: e que se soma ao longo do tempo, e nenhuma destas o e — a cobranca nao
+    #: muda depois de emitida (nenhum papel tem `UPDATE`), o evento e
+    #: *append-only*, e o dinheiro vai da conta do cliente para a da PME, que e
+    #: o que a G-1 da `0027` existe para garantir.
+    #:
+    #: O que **nao** mudou: `saldo`, `balance` e `_kz` continuam proibidos sem
+    #: excepcao, e a asercao sobre `_minor` continua a valer **nos dois
+    #: sentidos**. O KAM-053 entrega a medicao e a razao coluna a coluna, nao a
+    #: decisao: se o fundador recusar a allowlist, o que sai e o criterio 1 do
+    #: KAM-043 **e** o `amount_minor`/`valor_minor` do `docs/tecnica/04` secao
+    #: 6.2 — e isso e uma emenda ao documento, nao um ajuste a este ficheiro.
     EM_UNIDADE_MENOR = {
         # KAM-043, revisao `0028`. O preco de catalogo de um SKU: `fixo` leva o
         # preco, `a_partir_de` o minimo, `sob_consulta` e nulo (e o
@@ -827,6 +944,36 @@ class TestConvencoes(ComBase):
         # KAM-043, idem. O total que o dono cotou para um `(sku, qty)`, com
         # validade. Tambem nao e um saldo, pela mesma razao.
         ("price_quotes", "preco_total_minor"),
+        # KAM-053, revisao `0029`. O valor **desta cobranca**: o que se pediu a
+        # este cliente por esta encomenda ou por este ciclo de billing.
+        # **Nao e um saldo**, e aqui a distincao e a propria G-3 do
+        # `docs/tecnica/04` secao 10.4 («nao existe `balance`/`wallet`»): um
+        # saldo e uma quantia que a plataforma **detem** e que se soma e subtrai
+        # ao longo do tempo; isto e o montante de um pedido de pagamento, que
+        # nao muda depois de emitido (`payment_charges` nao tem `UPDATE` para
+        # papel nenhum) e cujo dinheiro vai directo da conta do cliente para a
+        # conta da PME — o que a `payment_accounts` da `0027` e a guarda G-1
+        # existem para garantir. A plataforma nao fica com nada por causa desta
+        # coluna, e e isso que o ADR-004 recusa.
+        ("payment_charges", "amount_minor"),
+        # KAM-053, idem. O valor do **facto** registado no ledger: quanto o
+        # callback declarou, quanto se confirmou, quanto se reembolsou. Nao e um
+        # saldo pela mesma razao, e por uma segunda que e desta tabela: uma
+        # linha do ledger e *append-only* — nao se soma a nada, registra-se — e
+        # a soma de eventos de uma cobranca **nao** e um saldo da plataforma, e
+        # a reconstrucao de um estado (`rebuild_charge_state`).
+        #
+        # O `CHECK` e `>= 0` e nao `> 0` como na cobranca, de proposito: um
+        # `cobranca_expirada` ou um `pagamento_orfao` sao factos de valor zero.
+        ("payment_events", "valor_minor"),
+        # KAM-053. **A vista, e nao e redundante com a tabela.** O
+        # `information_schema.columns` lista as colunas das vistas, pelo que o
+        # varrimento de `%_minor` apanha o `valor_minor` que a
+        # `v_payment_events_audit` projecta — e apanha-o com razao: uma vista
+        # nova que exponha uma coluna de dinheiro tem de responder a esta
+        # pergunta como uma tabela. E a mesma coluna do ledger, pela mesma
+        # razao, vista por quem audita.
+        ("v_payment_events_audit", "valor_minor"),
     }
 
     def test_nao_ha_colunas_de_dinheiro_nem_saldos(self) -> None:
@@ -959,7 +1106,32 @@ class TestConvencoes(ComBase):
         # tenant e mais nada. O produto vive no Registo, e o `sku` e o
         # `medusa_variant_id` sao referencias logicas (texto), nunca FK de
         # base — e a regra que o nome deste teste afirma.
-        self.assertEqual(len(linhas), 44)
+        #
+        # **50 e nao 44** desde a `0029` (KAM-053): as **seis** do ledger — duas
+        # da `payment_charges` (`tenants` e `payment_accounts`), uma do
+        # `payment_callbacks_inbox` (`payment_accounts`, e a coluna e anulavel,
+        # porque um *token* que nao resolve deixa a conta em branco) e tres da
+        # `payment_events` (`tenants`, `payment_charges` e `payment_accounts`).
+        #
+        # **Seis e nao oito**, e as duas que faltam faltam de proposito: a de
+        # `order_id` para `orders_mirror` e do KAM-055 e a de `billing_cycle_id`
+        # para `billing_cycles` do KAM-059, e nenhuma das duas tabelas existe. O
+        # que fica **nesta** revisao e o `CHECK` de exclusividade entre os dois
+        # sujeitos, que nao depende de tabela nenhuma.
+        #
+        # **Nenhuma das seis e composta com o `tenant_id`**, e nas tres que
+        # apontam para a `payment_accounts` isso nao e uma falta mas uma
+        # impossibilidade: o `tenant_id` dela e **anulavel**
+        # (a conta propria da KAMBA), pelo que nao existe a unicidade
+        # `(id, tenant_id)` sobre que uma FK composta assentasse. O que prende o
+        # beneficiario ao tenant da cobranca e o *trigger* `assert_beneficiary`,
+        # a guarda G-1 do secao 10.4, que compara os dois e recusa — e e a
+        # `0029` que o liga a `payment_charges`.
+        #
+        # A `payment_outbox_map` nao tem FK nenhuma: e configuracao global, nao
+        # tem `tenant_id`, e o `tipo_evento` e o `authn_method` sao dominios
+        # fechados por `CHECK` e nao tabelas.
+        self.assertEqual(len(linhas), 50)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)
@@ -975,13 +1147,34 @@ class TestPapeis(ComBase):
         )
         return {linha[0]: linha[1:] for linha in linhas}
 
-    def test_existem_os_sete_e_so_os_sete(self) -> None:
+    def test_existem_os_oito_e_so_os_oito(self) -> None:
         """Os tres do KAM-003, o `kamba_resolver` do KAM-004, o `kamba_identity`
-        do KAM-008, o `kamba_audit` do KAM-012 e o `kamba_agr` do KAM-026."""
+        do KAM-008, o `kamba_audit` do KAM-012, o `kamba_agr` do KAM-026 e o
+        `kamba_pay_hooks` do KAM-053.
+
+        **O nome deste teste mudou de «sete» para «oito», e nao se tirou o
+        numero.** A licao que o KAM-027 escreveu para as listas literais — um
+        numero no nome transforma a invariante «as excepcoes sao as declaradas»
+        em «as excepcoes sao tres» — vale para uma lista de **excepcoes**, que
+        cresce quando alguem tem razao para a fazer crescer. Aqui a lista nao e
+        de excepcoes: e o conjunto dos papeis da plataforma, e o numero **e** a
+        afirmacao. Um papel novo nao e um caso particular de nada; e um sujeito
+        novo na matriz de privilegios, e quem o acrescenta renomeia este teste
+        de proposito, porque e isso que obriga a olhar para as oito linhas que
+        passam a existir em cada tabela.
+
+        O `kamba_pay_hooks` existe por uma razao de **ordem** e nao de
+        conveniencia: resolve `webhook_token -> account` antes de existir
+        contexto de tenant, porque no instante em que um callback chega ainda
+        nao se sabe de quem ele e (`docs/tecnica/04` secao 5.1). Ver o
+        `db/bootstrap.py` para os atributos e o `ESPERADO_POR_TABELA` de
+        `test_privilegios.py` para o que ele alcanca — que e o inbox, sem
+        `tenant_id`, e sete colunas da `payment_accounts`, e nada mais.
+        """
         self.assertEqual(
             set(self.atributos()),
             {"kamba_migrator", "kamba_app", "kamba_batch", "kamba_resolver",
-             "kamba_identity", "kamba_audit", "kamba_agr"},
+             "kamba_identity", "kamba_audit", "kamba_agr", "kamba_pay_hooks"},
         )
 
     def test_nenhum_e_superutilizador_nem_cria_bases_ou_papeis(self) -> None:
@@ -1012,6 +1205,18 @@ class TestPapeis(ComBase):
                 # nao ha nada para contornar. O que isola o checkpointer e nao
                 # ter `USAGE` no `platform` — revisao `0020`.
                 "kamba_agr": False,
+                # KAM-053: **`NOBYPASSRLS`, e isso parece contradizer a razao
+                # pela qual ele existe — nao contradiz.** Ele resolve o
+                # `webhook_token` antes de haver contexto de tenant, e a
+                # tentacao era dar-lhe `BYPASSRLS` para que o `SELECT` na
+                # `payment_accounts` (RLS `FORCE`) nao devolvesse zero linhas.
+                # Resolveu-se de outra forma e mais estreita: a politica
+                # `pay_hooks_token`, **por papel**, mais um `GRANT` de sete
+                # colunas que nao inclui o `credenciais_ref` nem o
+                # `manual_instrucoes`. Com `BYPASSRLS` ele via as cobrancas e o
+                # ledger de todos os tenants; assim ve sete colunas das contas e
+                # o inbox, que nao tem `tenant_id`.
+                "kamba_pay_hooks": False,
             },
         )
 

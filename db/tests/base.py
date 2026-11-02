@@ -226,8 +226,20 @@ TABELAS_SERVICOS_COM_MATRIZ = TABELAS_SERVICOS
 #: biblioteca nao tem histogramas — um p50 nao e exprimivel nela. A
 #: desagregacao faz-se nas colunas e le-se aqui.
 #:
+#: As duas do KAM-053 (revisao `0029`) sao a terceira e a quarta, e nascem com
+#: `security_invoker = true` como as outras — para vistas nao ha lista de
+#: excepcoes. A `v_payment_events_audit` expoe o predicado de HMAC do
+#: `docs/tecnica/08` secao 14 como expressao derivada; a
+#: `v_payment_ledger_heads` e a cabeca da cadeia de *hashes* por cobranca, que
+#: o *job* diario exporta para STO como ancora externa.
+#:
 #: **Por ordem alfabetica**, que e a que o `_vistas` devolve.
-VISTAS = ("consent_actual", "v_draft_metrics")
+VISTAS = (
+    "consent_actual",
+    "v_draft_metrics",
+    "v_payment_events_audit",
+    "v_payment_ledger_heads",
+)
 
 #: KAM-028: o registo de invocacoes da ToolLayer (revisao `0021`).
 #:
@@ -267,7 +279,9 @@ TABELAS_0024 = ("draft_decisions",)
 #:
 #: A `payment_charges` e a `payment_events` **nao** estao aqui: a ordem do
 #: `docs/tecnica/04` secao 6 e `orders_mirror -> payment_accounts ->
-#: payment_charges -> payment_events`, e a `0027` entrega a segunda.
+#: payment_charges -> payment_events`, e a `0027` entrega a segunda. As duas
+#: nascem na `0029` (KAM-053) — ver `TABELAS_0029` —, e a `orders_mirror`
+#: continua a faltar: e do KAM-044.
 TABELAS_0027 = ("payment_accounts",)
 
 #: O que a revisao 0028 (KAM-043) acrescenta: os termos comerciais de um SKU e
@@ -284,6 +298,34 @@ TABELAS_0027 = ("payment_accounts",)
 #: SKU entre tenants (ISO-33..38) um nao-problema por construcao.
 TABELAS_0028 = ("offer_terms", "price_quotes")
 
+#: O que a revisao 0029 (KAM-053) acrescenta: o ledger de pagamentos.
+#:
+#: **Quatro — tantas como as da `0005`, e so a `0004` trouxe mais** (cinco, e
+#: uma delas e particao). A primeira versao desta nota escrevia «a revisao que
+#: traz mais tabelas de uma vez», e era falso: conta-se nas tuplas acima.
+#: Por ordem alfabetica, que e a do `pg_tables ORDER BY 1` desta lista — e nao
+#: a de criacao, que e `payment_charges -> payment_callbacks_inbox ->
+#: payment_events -> payment_outbox_map` (a ordem das FK: o ledger referencia a
+#: cobranca).
+#:
+#: **Duas delas nao tem `tenant_id`, e isso e desenho e nao lapso.** A
+#: `payment_callbacks_inbox` guarda a entrega HTTP **antes** de se saber de quem
+#: ela e (`docs/tecnica/04` secao 5.1): uma coluna de isolamento preenchida
+#: depois era uma chave que o atacante controla no instante em que e escrita, e
+#: o que a isola e o papel estreito `kamba_pay_hooks`. A `payment_outbox_map` e
+#: configuracao **global**, como a `evt_subscricoes` da `0004`. Nenhuma das duas
+#: entra no X-05 do *gate* 6 nem em `ci/rls_exceptions.yaml`: a descoberta
+#: pergunta pela coluna, e elas nao a tem.
+#:
+#: As outras duas — `payment_charges` e `payment_events` — tem `tenant_id
+#: NOT NULL`, RLS `FORCE` e politica `tenant_iso`, e entram no X-05 sozinhas.
+TABELAS_0029 = (
+    "payment_callbacks_inbox",
+    "payment_charges",
+    "payment_events",
+    "payment_outbox_map",
+)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -291,15 +333,28 @@ TABELAS = tuple(
         + TABELAS_0010 + TABELAS_0011 + TABELAS_0012 + TABELAS_0013
         + TABELAS_0014 + TABELAS_0015 + TABELAS_0017 + TABELAS_0018
         + TABELAS_0019 + TABELAS_0021 + TABELAS_0022 + TABELAS_0024
-        + TABELAS_0027 + TABELAS_0028
+        + TABELAS_0027 + TABELAS_0028 + TABELAS_0029
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0028`.
+#:
+#: Pela mesma razao das outras: o `downgrade` da `0029` leva a base para aqui, e
+#: o teste do ciclo compara o conjunto com esta tupla.
+TABELAS_ATE_0028 = tuple(sorted(set(TABELAS) - set(TABELAS_0029)))
 
 #: O que existe em `platform` quando a base esta na revisao `0027`.
 #:
 #: Pela mesma razao das outras: o `downgrade` da `0028` leva a base para aqui, e
 #: o teste do ciclo compara o conjunto com esta tupla.
-TABELAS_ATE_0027 = tuple(sorted(set(TABELAS) - set(TABELAS_0028)))
+#:
+#: **Deriva do `TABELAS_ATE_0028` e nao do `TABELAS`**, pela razao que a nota do
+#: `TABELAS_ATE_0023` escreve e que a `0029` voltou a pagar o aviso: derivar do
+#: conjunto inteiro punha as **quatro** tabelas da `0029` em todas as tuplas de
+#: revisoes anteriores, e os ensaios de `downgrade` de outros modulos ficavam
+#: vermelhos a espera delas na revisao a que descem. E a quarta vez que esta
+#: armadilha morde — a `0027` custou quinze ensaios e a `0028` tres.
+TABELAS_ATE_0027 = tuple(sorted(set(TABELAS_ATE_0028) - set(TABELAS_0028)))
 
 #: O que existe em `platform` quando a base esta na revisao `0026`.
 #:

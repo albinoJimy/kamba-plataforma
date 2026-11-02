@@ -13,7 +13,18 @@
 #
 # Campos, todos obrigatorios:
 #
-#   funcao   `schema.nome(tipos dos argumentos)`, como `pg_get_function_identity_arguments`
+#   funcao   exactamente o que o `pg_get_function_identity_arguments` devolve, que
+#            inclui os **nomes** dos parametros: `platform.f(p_x uuid, p_y text)` e
+#            nao `platform.f(uuid, text)`. A comparacao do verificador e textual.
+#
+#            **Esta linha dizia «`schema.nome(tipos dos argumentos)`, como
+#            `pg_get_function_identity_arguments`», e as duas metades da frase
+#            nao diziam o mesmo.** A `audit_encadear()` escondeu-o desde o
+#            KAM-004 porque nao tem argumentos; a primeira entrada com
+#            argumentos (KAM-053) seguiu a primeira metade e deu **seis**
+#            falhas no X-05 do gate 6 — duas simetricas («e SECURITY DEFINER e
+#            nao esta na lista» e «esta na lista e nao existe») mais os quatro
+#            ensaios de regressao que contam problemas.
 #   adr      `ADR-NNN` ou `ADR-LNNN` que a fundamenta
 #   razao    o que a funcao faz que nao se consegue fazer como `SECURITY INVOKER`
 #
@@ -35,7 +46,7 @@ funcoes:
       cadeia, que e precisamente o que quem escreve a linha nao pode poder
       fazer.
 
-  - funcao: platform.append_payment_event(uuid, text, uuid, bigint, text, boolean, text, text, text, uuid, text, jsonb, timestamp with time zone)
+  - funcao: platform.append_payment_event(p_charge_id uuid, p_tipo_evento text, p_account_id uuid, p_valor_minor bigint, p_authn_method text, p_authn_ok boolean, p_decisao text, p_motivo text, p_actor_kind text, p_actor_id uuid, p_provider_event_id text, p_payload jsonb, p_ocorrido_at timestamp with time zone)
     adr: ADR-015
     razao: >-
       E a unica porta de escrita do ledger `payment_events` (KAM-053): nenhum

@@ -630,3 +630,165 @@ class TestPrivacidadeDoPayload(ComLedger):
             for nome, corpo in corpos.items():
                 with self.subTest(funcao=nome, padrao=padrao):
                     self.assertIn(padrao, corpo)
+
+class TestOsCheckMordemSozinhos(ComLedger):
+    """O criterio 2 diz «**e rejeitado pelo `CHECK`**», e e isso que falta provar.
+
+    Os ensaios do `TestNaoHaSegundaPorta` mostram que a **funcao** recusa, e
+    recusa primeiro — o contrato do §6.2 chama-lhe «cinto-e-suspensorios sobre
+    o `CHECK`». Mas «sobre» significa que ha duas barreiras, e a segunda nunca e
+    exercitada por nenhum caminho que a aplicacao tenha: sem `INSERT` concedido,
+    ninguem chega ao `CHECK`.
+
+    Logo a unica forma de o medir e a unica via que resta: o **superutilizador**,
+    que tem `INSERT` por atributo. E a mesma via do ensaio da cadeia, e pela
+    mesma razao — e o que os `REVOKE` nao prendem.
+
+    **Nao e um ensaio redundante.** Se a funcao perdesse uma destas recusas num
+    refactor, o `CHECK` continuava a segurar o ledger; se o `CHECK` nunca
+    tivesse sido exercitado, ninguem saberia se ele estava la a valer. Um dos
+    dois tinha de ser medido sozinho, e e este.
+    """
+
+    COLUNAS = (
+        "tenant_id, charge_id, order_id, provider, account_id, referencia, "
+        "tipo_evento, sequencia, valor_minor, authn_method, authn_ok, decisao, "
+        "actor_kind, actor_id, payload_hash, prev_hash, row_hash"
+    )
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.tenant = self.criar_tenant()
+        self.conta = self.criar_conta(self.tenant)
+        self.cobranca = self.criar_cobranca(self.tenant, self.conta)
+        self.conexao = self.ligar("admin")
+        self.cursor = self.conexao.cursor()
+
+    def inserir(self, **campos):
+        """Um `INSERT` directo, valido em tudo menos no que o ensaio ataca."""
+        valores = {
+            "tenant_id": self.tenant,
+            "charge_id": self.cobranca,
+            "order_id": str(uuid.uuid4()),
+            "provider": "fakeprovider",
+            "account_id": self.conta,
+            "referencia": "REF1",
+            "tipo_evento": "pagamento_confirmado",
+            "sequencia": 1,
+            "valor_minor": VALOR,
+            "authn_method": "hmac",
+            "authn_ok": True,
+            "decisao": "aceite",
+            "actor_kind": "provider",
+            "actor_id": None,
+        }
+        valores.update(campos)
+        marcas = ", ".join(["%s"] * len(valores))
+        return (
+            f"INSERT INTO platform.payment_events ({self.COLUNAS}) "
+            f"VALUES ({marcas}, sha256('{{}}'::bytea), "
+            f"  '\\x{'00' * 32}'::bytea, sha256('x'::bytea))",
+            tuple(valores.values()),
+        )
+
+    def test_a_linha_valida_entra_como_superutilizador(self) -> None:
+        """A sonda positiva. **Sem ela, os tres casos abaixo nao dizem nada.**
+
+        Se o `INSERT` directo falhasse por outra razao — uma coluna em falta, um
+        `NOT NULL`, o comprimento de um *hash* —, os casos negativos ficavam
+        verdes sobre uma instrucao que nunca podia ter entrado.
+        """
+        sql, args = self.inserir()
+        self.cursor.execute(sql, args)
+        self.semente.execute(
+            "SELECT count(*) FROM platform.payment_events WHERE charge_id = %s",
+            (self.cobranca,),
+        )
+        # A ligacao do `ComBase.ligar` nao confirma: a leitura e pela semente,
+        # que nao ve o que esta ligacao ainda nao confirmou. O que se mede e a
+        # ausencia de erro acima.
+        self.conexao.rollback()
+
+    def test_o_check_recusa_confirmado_com_authn_ok_false(self) -> None:
+        sql, args = self.inserir(authn_ok=False)
+        self.assertErroSql(VIOLACAO_DE_CHECK, self.cursor, sql, args)
+
+    def test_o_check_recusa_confirmado_com_decisao_rejeitada(self) -> None:
+        sql, args = self.inserir(decisao="rejeitada")
+        self.assertErroSql(VIOLACAO_DE_CHECK, self.cursor, sql, args)
+
+    def test_o_check_recusa_confirmado_autenticado_por_sistema(self) -> None:
+        """**A decisao deste ticket, medida.**
+
+        O `sistema` e o quarto valor de `authn_method` e **nao** esta na
+        restricao `confirmar_exige_autenticacao` — e e isso que lhe da o
+        dominio: os factos de ciclo de vida que ninguem autentica. Sem este
+        ensaio, a decisao que o §6.2 atribuiu ao KAM-053 ficava escrita no
+        dicionario e por medir na base.
+        """
+        sql, args = self.inserir(authn_method="sistema")
+        self.assertErroSql(VIOLACAO_DE_CHECK, self.cursor, sql, args)
+
+    def test_o_check_recusa_authn_method_manual_sem_actor(self) -> None:
+        """O `humano_exige_actor`: uma confirmacao humana sem humano.
+
+        E a outra restricao do §6.2, e e a que torna o `actor_id` do §4.1 uma
+        propriedade da base: o KAM-054 vai escrever confirmacoes manuais, e uma
+        sem actor nao se consegue auditar.
+        """
+        sql, args = self.inserir(authn_method="manual", actor_id=None)
+        self.assertErroSql(VIOLACAO_DE_CHECK, self.cursor, sql, args)
+
+    def test_o_check_aceita_manual_com_actor(self) -> None:
+        """A sonda positiva da restricao acima."""
+        sql, args = self.inserir(authn_method="manual", actor_id=str(uuid.uuid4()))
+        self.cursor.execute(sql, args)
+        self.conexao.rollback()
+
+    def test_o_check_recusa_um_sujeito_a_mais_e_um_a_menos(self) -> None:
+        """O `payment_events_um_sujeito`: encomenda ou billing, exactamente um.
+
+        As duas metades, porque um `CHECK` escrito com `OR` onde devia estar o
+        `<>` aceitava as duas. A porta nunca produz nenhuma delas — copia o
+        sujeito da cobranca —, e e por isso que so aqui se consegue medir.
+        """
+        for extra in (
+            {"order_id": None},
+            {"order_id": str(uuid.uuid4()), "billing_cycle_id": str(uuid.uuid4())},
+        ):
+            with self.subTest(sujeito=sorted(extra)):
+                if "billing_cycle_id" in extra:
+                    colunas = self.COLUNAS.replace(
+                        "order_id,", "order_id, billing_cycle_id,", 1
+                    )
+                    valores = {
+                        "tenant_id": self.tenant,
+                        "charge_id": self.cobranca,
+                        "order_id": extra["order_id"],
+                        "billing_cycle_id": extra["billing_cycle_id"],
+                        "provider": "fakeprovider",
+                        "account_id": self.conta,
+                        "referencia": "REF1",
+                        "tipo_evento": "pagamento_recebido",
+                        "sequencia": 1,
+                        "valor_minor": VALOR,
+                        "authn_method": "hmac",
+                        "authn_ok": True,
+                        "decisao": "informativo",
+                        "actor_kind": "provider",
+                        "actor_id": None,
+                    }
+                    marcas = ", ".join(["%s"] * len(valores))
+                    sql = (
+                        f"INSERT INTO platform.payment_events ({colunas}) "
+                        f"VALUES ({marcas}, sha256('{{}}'::bytea), "
+                        f"  '\\x{'00' * 32}'::bytea, sha256('x'::bytea))"
+                    )
+                    args = tuple(valores.values())
+                else:
+                    sql, args = self.inserir(
+                        tipo_evento="pagamento_recebido",
+                        decisao="informativo",
+                        **extra,
+                    )
+                self.assertErroSql(VIOLACAO_DE_CHECK, self.cursor, sql, args)
