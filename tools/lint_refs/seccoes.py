@@ -58,8 +58,9 @@ que e a fronteira que torna isto um portao e nao um incomodo.
    documento nenhum), e o cuneo abreviado sem pasta — `` `00` §12 `` —, que
    e ambiguo entre `docs/tecnica/00`, `specs/00_KAMBA_Carta.md` e
    `specs/00_System_Spec.md` e so se resolveria com um mapa de apelidos escrito
-   a mao. Sao 2 270 das 7 905 ocorrencias de `§` no conjunto; ficam sem portao,
-   e isso esta dito.
+   a mao. Sao **5 489 das 8 157** ocorrencias de `§N` do conjunto documental da
+   `main` (153 ficheiros de `specs/`, `docs/` e `README.md`, menos os dois
+   registos datados); ficam sem portao, e isso esta dito.
 
 2. **O documento citado tem titulos numerados** (`^#{2,4} N[.N[.N]]`). Um que
    nao tenha e um *stub* de um documento que vive noutro repositorio —

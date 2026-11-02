@@ -159,7 +159,8 @@ Excepções em [`ci/refs-allow.yaml`](../ci/refs-allow.yaml), cada uma com
 ficheiro, token e razão.
 
 **E resolve as citações de secção** (`§N`, KAM-170), que eram a **quinta** família
-de citação deste conjunto e a única sem portão — **7 905** ocorrências. Uma
+de citação deste conjunto e a única sem portão — **8 157** ocorrências nos 153
+documentos de `specs/`, `docs/` e `README.md`. Uma
 citação é verificada quando é **endereçável**, e isso exige quatro coisas: um
 designador de documento ao lado dela **com separador de directório** (um caminho
 para um `.md` seguido pelo git, ou truncado ao prefixo do nome — `docs/tecnica/10`
@@ -172,7 +173,7 @@ portão: ficam de fora o `§8` nu dentro do próprio documento, o cunho abreviad
 sem pasta (`` `00` §12 ``, ambíguo entre três documentos) e os *stubs* de
 documentos que vivem no `albinoJimy/kamba` privado — `isolamento.md` e
 `seguranca/*`, cujo caminho é igual de propósito «para que as citações espalhadas
-pelo conjunto continuem a resolver». São **2 270 das 7 905**, e o número está
+pelo conjunto continuem a resolver». São **5 489 das 8 157**, e o número está
 escrito em vez de implícito.
 
 **O que este passo não apanha, que é a parte que importa dizer.** A família tem
