@@ -283,6 +283,22 @@ ficheiros novos: `port/contrato.ts` **100%** (ramos 90,91%), `port/index.ts`
 100%, `repo-base/index.ts` **100%** (ramos 96,15%), `adapters/medusa/index.ts`
 100%, `adapters/medusa/provisionamento.ts` 100%.
 
+**E o que esta máquina não consegue correr correu no CI, a 2026-11-02.** Fica
+registado porque a primeira versão desta secção dizia que o *gate* 6 e o *gate*
+8 «não correram, e não se declaram» — era verdade quando se escreveu, e deixou
+de ser. Na corrida
+[41045402583](https://github.com/albinoJimy/kamba-plataforma/actions/runs/41045402583)
+do PR #95, **doze verificações passam e nenhuma fica pendente**, incluindo as
+duas que faltavam: o *gate* 6 (isolamento de tenant, 47 s) e o ***gate* 8
+(migrações, 15 min 58 s)** — este último é o que corre 17 *suites* mais o passo
+`db/mutacoes.py --aplicaveis`, e era o único que podia ficar vermelho por um
+ficheiro sem relação com migrações. As duas vermelhas são o *gate* 5 (reservado)
+e a vigia da prova nocturna, que têm `continue-on-error: true` e **não** estão no
+`needs` da porta final (`.github/workflows/ci.yaml`, linhas 305 e 340): falham de
+propósito, como o `../docs/ci.md` §7 declara. **Nenhuma caixa abaixo muda por
+isto** — nenhuma delas dependia destes dois *gates* —, e é por isso que esta nota
+é um acréscimo de evidência e não uma reavaliação.
+
 **Duas caixas marcadas de oito.** As outras seis ficam vazias, nomeadas, com a
 razão — e duas delas dependem da **ratificação da D3**, que é do fundador.
 
