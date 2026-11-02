@@ -1085,6 +1085,25 @@ ci-8:
 	@# que seja uma alteracao visivel do que uma deteccao silenciosa.
 	@echo "==> gate 8: agenda da vertical Servicos (KAM-047)"
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_servicos
+	@# KAM-043: o preco opaco e o stock nao-garantido. O que so aqui se prova,
+	@# e nenhuma base falsa pode, porque o objecto da prova e o motor: que o
+	@# `offer_terms_preco_ck` recusa as **duas** metades da equivalencia do
+	@# criterio 1 (um `sob_consulta` com numero **e** um `fixo` sem ele — e e a
+	@# segunda que uma leitura distraida do CHECK deixa passar); que a RLS
+	@# `FORCE` esconde a oferta de A do contexto de B e falha fechada **sem**
+	@# contexto, com a sonda positiva ao lado, porque quatro zeros contra uma
+	@# tabela vazia nao provam nada; que a chave composta `(tenant_id, sku)`
+	@# resolve a colisao de SKU entre tenants por construcao (ISO-33..38); que
+	@# a FK **composta** do contacto recusa uma cotacao de A sobre um contacto
+	@# de B, que a simples aceita (ISO-58, medido no spike KAM-041); e que as
+	@# cadeias de `services/com/src/produtos/consultas.ts` **correm** — a suite
+	@# le-as do proprio ficheiro TypeScript, como a do KAM-047.
+	@#
+	@# **Esta linha e que a faz correr.** Ver a licao do `tests_servicos` acima:
+	@# por o `SUITES` e o `correr_suite.py` so a tornam corrivel, e uma suite
+	@# fora desta lista nunca corre no CI — em silencio, com o gate 8 verde.
+	@echo "==> gate 8: preco opaco e stock nao-garantido (KAM-043)"
+	@$(VENV_PYTHON) db/gate_bd.py --suite tests_produtos
 
 # -----------------------------------------------------------------------------
 # Limpeza

@@ -4,8 +4,8 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.51 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
-| Data | Outubro de 2026 |
+| Versão | 1.52 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
 | Documentos relacionados | `specs/00_KAMBA_Carta.md`, `specs/01_Engineering_Standards_e_Handoff.md`, `specs/EPIC-01_Fundacoes_Dados.md` (KAM-111) |
@@ -2731,6 +2731,128 @@ enquanto a D3 não fechar.
   fundador** — como na emenda 1.49. O que este ticket entrega é a cobertura
   **medida**.
 
+### 3.40 Preço opaco e stock não-garantido: `offer_terms`, `price_quotes` e a vista da oferta (KAM-043)
+
+As duas tabelas do `../docs/tecnica/03` §5.4 que o preço opaco exige, os três
+domínios fechados que governam o que o agente pode dizer, e a forma com que o
+`getOfferView` da porta `CommerceRegistry` (§3.39) a devolve. Criadas pela
+revisão `0028` no esquema `platform`, as duas com RLS `FORCE` e a política
+`tenant_iso` (§3.2).
+
+**O `preco_tipo` não é uma escolha deste ticket: é a divergência que a emenda
+1.12 já resolveu.** O bloco KAM-043 escreve `preco_modo` no critério 1 e nas
+Enumerações dos Detalhes Técnicos; o §3.3 desta página põe `preco_modo` na
+coluna «Substitui» desde a 1.12, e as emendas 1.45 (KAM-047) e 1.50 (KAM-042)
+resolveram o mesmo conflito a favor do `preco_tipo` nos seus blocos. O DDL do
+§5.4 e as tabelas do §7.1/§7.3 daquele documento já escrevem `preco_tipo`, e o
+`docs/com/port-coverage.md` também. **O lado errado é o bloco do ticket**, e
+corrige-se nele — uma migração com `preco_modo` ficava **vermelha** no *gate*
+3b por um nome que a coluna «Substitui» registou precisamente para isso.
+
+**Os cinco eventos do critério 5 não são nomes novos, e por isso não entram
+aqui.** O critério escreve `price.changed`, `stock.changed`, `stock.low`,
+`product.published` e `product.updated`, e o §12 do `../docs/tecnica/03`
+repete-os. O §3.5 desta página fixa os **trinta e oito** tipos do Piloto desde a
+emenda 1.11, e os que cobrem este ticket chamam-se `catalog.price_changed`,
+`stock.adjusted`, `stock.low`, `catalog.product_changed` — cada um com
+`contratos/eventos/<tipo>/v1.schema.json` publicado pelo KAM-007, com
+`additionalProperties: false`. Resolve-se a favor desta página (fonte 4) contra
+o bloco (fonte 8) e o §12 (fonte 9), e **não é só pela ordem**: emitir com os
+nomes do bloco produzia um envelope que o próprio *gate* 7 recusa, e o
+`validarPayload` recusa antes dele. É a mesma resolução que o `eventos.ts` do
+KAM-047 registou para o `booking.created`. A divergência fica em
+`../docs/dividas-documentais.md`.
+
+**Quatro colunas que o §5.4 não tem e esta revisão acrescenta**, cada uma com a
+razão, porque acrescentar a um DDL que um critério manda seguir é divergência e
+não arrumação:
+
+* `offer_terms.nome` — **o critério 8 manda pesquisar «sobre o nome» e o §5.4 não
+  dá à `offer_terms` nenhum**: o §3.3 daquele documento põe o produto no Registo,
+  e o Registo da opção B é um Medusa que **não existe em `infra/compose/`** — o
+  KAM-042 registou-o ao deixar o `RegistoAdmin` sem cliente HTTP. Um
+  `searchOffers` da Fase 0 contra o Registo não tinha onde procurar, e o
+  `upsertProductDraft` já recebe o `nome` no `ProductDraft` (§3.39). É o nome
+  comercial que o cliente lê, **nunca de pessoa singular** — a mesma propriedade
+  do `servicos.resources.nome`, e quem a prende coluna a coluna é o inventário
+  fechado de `db/tests/test_inventario.py`. O `nome` já é nome do §3.3 desde a
+  emenda 1.45, pelo que não alarga o dicionário;
+* `offer_terms.criado_at` e `offer_terms.atualizado_at` — o critério 2 exige
+  `atualizadoAt` na `OfferView`, e os dois instantes que o §5.4 dá
+  (`preco_atualizado_at`, `stock_verificado_at`) são **anuláveis** e significam
+  coisas específicas: quando o preço foi posto, e quando o stock foi conferido.
+  Nenhum serve de «quando esta oferta mudou», e um `greatest` de dois nulos
+  devolvia nulo para um campo que o critério não declara anulável. O `criado_at`
+  é a convenção de todas as outras tabelas do esquema;
+* `price_quotes.currency` — o §2 desta página exige moeda explícita ao lado de
+  toda a unidade menor, e o §5.4 dá `preco_total_minor` sem nenhuma. Sem ela a
+  cotação do dono era o único valor em minor do conjunto sem moeda ao lado.
+
+**E `currency` é `text` com `CHECK`, não `char(3)`.** O §5.4 escreve `char(3)`
+nas duas tabelas; o §3.4 desta página fecha o domínio em `{AOA}`, e o
+`canon_lint` do *gate* 3b lê os valores de um `CHECK` contra o domínio fechado —
+um `char(3)` sem `CHECK` aceita `'USD'` em silêncio e não é lido por *gate*
+nenhum. A revisão `0025` já fixou esta forma (`services.currency`), e esta
+segue-a.
+
+**A auditoria não traz nome novo, e a tentativa de o trazer foi um defeito
+medido.** O critério 5 manda gravar `audit_log`, e as duas acções que ele precisa
+— `price.update` e `stock.adjust` — já são domínio fechado do §3.2 desde a emenda
+1.14 (KAM-012), no `CHECK` da revisão `0006`, onde são **sete**. A primeira versão
+desta secção repetia-as numa linha de tabela como `` `action` ∈ {`price.update`,
+`stock.adjust`} ``, e o `canon_lint` do *gate* 3b ficou **vermelho** na primeira
+execução: ele lê o `CHECK` da `0006` contra o domínio desta página, encontrou o de
+dois em vez do de sete e deu as outras cinco como «a mais». Um domínio fechado tem
+**um** sítio, e declarar um subconjunto noutro não é documentar — é partir o que o
+*gate* verifica. Fica em prosa: quem escreve as duas é o módulo `produtos` deste
+ticket, que é o **primeiro chamador do `platform.audit_append` em produção** (o
+KAM-012 registou que nada o chamava); o `payload_hash` é o SHA-256 do par
+antes/depois mais a origem; a `entity`/`entity_id` são `offer_terms`/`sku`. E
+corre em `READ COMMITTED`, que é a omissão: o `audit_append` serializa a cadeia por
+tenant e sob `REPEATABLE READ` duas escritas concorrentes dão `40001`.
+
+| Conceito | Nome canónico | Substitui | Nota |
+|---|---|---|---|
+| Termos comerciais de um SKU | `offer_terms(tenant_id, sku, nome, medusa_variant_id, preco_tipo, preco_minor, currency, preco_atualizado_at, preco_valido_ate, stock_modo, stock_verificado_at, estado, categoria_restrita, criado_at, atualizado_at, deleted_at)` | `catalog_items(preco_modo)` | *proposta* (emenda 1.52, KAM-043). **Dezasseis** colunas: as treze do `../docs/tecnica/03` §5.4 mais o `nome`, o `criado_at` e o `atualizado_at`, pela razão acima. Criada pela revisão `0028` no esquema `platform`, com `PRIMARY KEY (tenant_id, sku)` — é a chave composta que faz da **colisão de SKU entre tenants** (ISO-33..38) um não-problema por construção: o mesmo texto de `sku` em dois tenants são duas linhas, e a RLS só mostra uma. O preço vive aqui e no Registo, **nunca em embedding nem em prompt** (ADR-007) |
+| Cotação do dono | `price_quotes(id, tenant_id, contact_id, sku, qty, preco_total_minor, currency, valida_ate, estado, emitida_por, criado_at)` | — | *proposta* (emenda 1.52, KAM-043). **Onze** colunas: as dez do §5.4 mais a `currency`. A FK do contacto é **composta** — `(tenant_id, contact_id) REFERENCES platform.contacts (tenant_id, contact_id)` —, como a correcção de 2026-10-27 do §5.4 manda para toda a FK entre duas tabelas com `tenant_id`: a FK simples é satisfeita pela PK de `contacts`, que não inclui o tenant, e o ISO-58 do spike KAM-041 mostrou **por execução** o que isso permite. O `emitida_por` é o actor dono autenticado, e o critério 6 fecha a criação a ele |
+| Estado de uma oferta | `offer_terms.estado` ∈ {`rascunho`, `publicado`, `pausado`, `arquivado`} | — | *proposta* (emenda 1.52, KAM-043). O mesmo domínio que o `payload.estado` do contrato `catalog.product_changed` v1 já fecha, e é de propósito: o evento que anuncia a publicação e a coluna que a guarda não podem ter domínios diferentes. `upsertProductDraft` escreve só `rascunho` (critério 4) |
+| Estado de uma cotação | `price_quotes.estado` ∈ {`emitida`, `aceite`, `expirada`, `revogada`} | — | *proposta* (emenda 1.52, KAM-043). Do DDL do §5.4. **A expiração é por `valida_ate` e não por este estado**: o `getValidQuote` compara o instante, porque um estado só muda quando alguém o muda e uma cotação vencida não espera por varrimento para deixar de valer |
+| Categoria que bloqueia publicação | `offer_terms.categoria_restrita` | — | *proposta* (emenda 1.52, KAM-043). Texto, preenchido pelo *screening* (§8.2 do `../docs/tecnica/03`). **Não nulo bloqueia `publishProduct`** (critério 4); o domínio dos valores é do **KAM-049**, que é quem corre o *screening* — este ticket impõe a barreira e não a lista |
+| A vista da oferta | `getOfferView(ctx, sku) → OfferView{sku, precoTipo, precoDisplay, stockModo, disponibilidade, atualizadoAt}` | `OfferView{precoModo}` | *proposta* (emenda 1.52, KAM-043). A forma é a do §3.39, que já a declara com `precoTipo`. O `precoDisplay` vem **já formatado com o modo**, nas três formas do critério 2, e em `sob_consulta` é o texto «preço sob consulta» e **não** `null` — ver a linha seguinte. A `disponibilidade` é só sobre stock |
+| Preço apresentado, por modo | `fixo` → `«12 500 Kz»`; `a_partir_de` → `«a partir de 12 500 Kz»`; `sob_consulta` → `«preço sob consulta»` | `precoDisplay` nulo em `sob_consulta` | *proposta* (emenda 1.52, KAM-043). As três formas do critério 2, à letra. **Uma divergência resolvida a favor do critério:** o comentário do `OfferView` em `services/com/src/port/contrato.ts` dizia «ou `null` em `sob_consulta`», e era uma **previsão** e não um contrato — o KAM-042 não implementou o `getOfferView` e escreveu que «a implementação é deles». A outra metade do critério continua verdadeira, e é a que importa: «`sob_consulta` nunca devolve número», e este texto não tem dígito nenhum, pelo que o validador de citação (KAM-032) não encontra lá número para confrontar. O tipo da porta mantém o `\| null` e **não se estreita**: este adaptador nunca o devolve, e outro, contra outro Registo, pode não ter display para dar. O separador de milhares é o **espaço fino inquebrável** (U+202F), que é a convenção PT-AO, e o sufixo é `Kz` e não `AOA`: o código ISO é para a coluna `currency`, e o que o cliente lê é `Kz` |
+| Preço vencido | `preco_valido_ate < now()` → lê-se como `a_partir_de`, e `avisos` leva `preco_vencido` | — | *proposta* (emenda 1.52, KAM-043). A regra 2 do §7.1: «passado o prazo, o agente trata o preço como `a_partir_de` e pede confirmação ao dono». **A coluna não muda** — é a leitura que muda, e por isso o `preco_tipo` gravado continua a ser o que o dono escolheu |
+| Stock indicativo vencido | `stock_verificado_at` > 24 h → `avisos` leva `stock_por_confirmar` | — | *proposta* (emenda 1.52, KAM-043). O tecto de 24 h é do §7.3 e é ***proposta***: calibra-se com a auditoria de divergências (H8). Só se aplica a `stock_modo='indicativo'` |
+| Avisos da vista da oferta | `OfferView.avisos` ⊆ {`preco_vencido`, `stock_por_confirmar`, `confirmacao_dono_necessaria`} | — | *proposta* (emenda 1.52, KAM-043). Lista **fechada**, e **qualificada pela superfície** como o `state.avisos` do §3.31 e os seis erros do `ServicosModule` (§3.3, emenda 1.45): não entra em `tool_audit.error_code`, cuja lista o §3.27 declara fechada. São sinais de leitura e não recusas |
+| Disponibilidade apresentada | `garantido` → `«em stock»`; `indicativo` → `«disponível, a confirmar»`; `confirmar_dono` → `«a confirmar com a loja»` | — | *proposta* (emenda 1.52, KAM-043). **Só sobre stock, nos três modos, e não muda com o preço**: «preço sob consulta» é o `precoDisplay` e não a disponibilidade — um produto `sob_consulta` pode estar em stock, e pôr o texto do preço neste campo escondia-o. As duas primeiras são a letra do §7.3; a terceira é ***proposta*** — o §7.3 dá o comportamento (`confirmacao_dono='pendente'`, sem referência) e não dá o texto, e o diagrama de sequência do mesmo §7.3 escreve «a confirmar com a loja» na resposta ao cliente, que é de onde este vem |
+| Pesquisa lexical mínima | `searchOffers(ctx, q)` sobre `pg_trgm`, ≤ **5** resultados, só do tenant e só `estado='publicado'` | — | *proposta* (emenda 1.52, KAM-043). ***Descartável***: é o *stand-in* da Fase 0 até ao `idx.candidatos` (**KAM-061**), e o critério 8 e os Detalhes Técnicos dizem por escrito que o contrato da porta **não** a expõe a longo prazo. Por isso **não** é um décimo-terceiro método do `CommerceRegistry` (§3.39, que fecha a porta em doze): vive no módulo `produtos` e não na porta. A extensão `pg_trgm` nasce nesta revisão — nenhuma das vinte e sete anteriores a cria |
+| Cotação válida | `getValidQuote(ctx, sku, qty) → PriceQuote \| null` | — | *proposta* (emenda 1.52, KAM-043). Critério 6. Devolve **nada** e não um erro quando não há: «não há cotação» é uma resposta e não uma falha, e o chamador que precisa de uma recusa é o `createOrder` (**KAM-046**) |
+| Origem de um preço de linha | `origem_preco` ∈ {`offer_terms`, `cotacao_dono`} | — | *proposta* (emenda 1.52, KAM-043). O §7.2 e o §5.4 nomeiam o `origem_preco='cotacao_dono'` no `lines_snapshot`; o par fica fechado aqui porque é este ticket que cria as duas origens. Quem o escreve no `lines_snapshot` é o **KAM-046** |
+| Actor da porta → actor da auditoria | `agente`→`agent`, `dono`→`owner`, `sistema`→`system`, `ops`→`staff` | — | *proposta* (emenda 1.52, KAM-043). **Dois domínios fechados que não coincidem, e nenhum se alarga:** o `actor.kind` da porta tem quatro valores portugueses (§3.39) e o `actor_type` do `audit_log` tem cinco em inglês (§3.2, `CHECK` na revisão `0006`). O mapa é total nos quatro e deixa o `contact` de fora, que é o correcto — um cliente nunca altera preço nem stock |
+| Limiar de `stock.low` | `stock_baixo_limiar`, omissão **5** unidades | — | ***proposta*** (emenda 1.52, KAM-043), e o critério 5 di-lo («*proposta*»). Por tenant quando houver entitlement que o leve; hoje é a omissão do módulo e não uma coluna, pela razão do `TTL_DO_HOLD_MS` do §3.3: um número no DDL obrigava a uma revisão de base de dados para o calibrar |
+
+**O que esta emenda não decide, com credor em cada:**
+
+* **o domínio de `categoria_restrita`** — quem corre o *screening* é o
+  **KAM-049**; aqui só existe a barreira que um valor não nulo impõe;
+* **o fluxo conversacional de pedido de cotação ao dono** (o *handoff* curto por
+  HND do §7.2) e o de `confirmar_dono`: **KAM-046**, e os Detalhes Técnicos do
+  bloco dizem-no por escrito;
+* **o `origem_preco` no `lines_snapshot`** — a coluna é da `orders_mirror`, que é
+  do **KAM-044**;
+* **a vista `v_oferta_viva`** que lê estas duas tabelas: **KAM-051**, e continua
+  na lista do §4 desta página;
+* **o `idx.candidatos`** que substitui o `searchOffers`: **KAM-061**;
+* **a redução automática de `stock_modo` para `confirmar_dono`** por auditoria de
+  divergências. Os Detalhes Técnicos do bloco chamam-lhe «indicador» e não
+  critério, e nenhum critério a pede. **Sem credor atribuído hoje**;
+* **a calibração do limiar de `stock.low` e do tecto de 24 h do stock
+  indicativo** — as duas são *propostas* e medem-se no Piloto (H8);
+* **o estrato de cobertura do módulo `produtos`.** Pela taxonomia do `specs/01`
+  §4.1 o caminho de preço é código de dinheiro; o `ci/thresholds.yaml` põe
+  `services/*/src/**` no `restante`, a 75%. Acrescentar um padrão a esse ficheiro
+  é alteração de regra de bloqueio e **é decisão do fundador** — como nas emendas
+  1.49 e 1.50. O que este ticket entrega é a cobertura **medida**.
+
 ## 4. Itens que continuam por decidir
 
 | Item | Estado | Ticket |
@@ -2803,3 +2925,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.49 | Outubro 2026 | **Emenda (*proposta*), KAM-112, e entra sem DDL e sem migração.** §3.38 novo: a minimização de PII antes do LLM — o `minimise(texto, ctx) → (MinimisedText, Mapa)`, o tipo selado `MinimisedText` e a `MensagemMinimizada` que o gateway (§3.29) passou a exigir em vez de `list[dict[str, str]]`, os **seis** tokens (`TELEFONE_n`, `BSUID_n`, `EMAIL_n`, `NIF_n`, `MORADA_n`, `PESSOA_n`), a chave de estado `pii_map`, o `agr_pii_mascarada_total{tipo}` e o `agr_minimise_latency_ms`, a `FalhaDeMinimizacao` e a `PortaDeCatalogo`. **O `MinimisedText` é uma classe com selo e não um `NewType`, e isso sai de uma medição:** não há verificador de tipos para Python neste repositório — o `make typecheck` é `pnpm -r run typecheck` —, pelo que uma anotação era a «convenção documentada» que o bloco recusa por escrito; a barreira morde em execução e uma política AST morde na fonte. **Corrige o §3.35**, cuja lista fechada de motivos passa de **seis** para **sete** (`minimizacao`) e cujos motivos dispensados do disjuntor passam de um para dois. **Três nomes do bloco entram traduzidos, e nenhum é divergência:** o `pii_masked_total` e o `minimise_latency_ms` ganham o prefixo `agr_` pela tradução que o `degraded_turns` já sofreu (§3.35), e o `pii_recall{tipo}` **não entra no `metricas.py`** porque não é métrica de execução — um processo em produção não tem as etiquetas do corpus, e um contador sempre a zero é pior do que nenhum (a lição do `echo_latency_ms` do KAM-018): publica-se em `ci/pii/recall.json`, gerado e no `.gitignore` como o `ci/x11/`. **Medido:** recall de 100% nos seis tipos sobre 342 casos sintéticos, 0 de 263 cadeias de negócio alteradas em 214 casos adversariais, p95 de 5,0 ms para 2.000 caracteres — e os limiares e o p95 são ***propostas a calibrar no KAM-109***, sobre um corpus que o executor escreveu. **O que não decide:** o contrato do `CommerceRegistry` (KAM-042, cuja porta proposta **não tem** operação que devolva uma lista de nomes, pelo que o critério 5 não se cumpre à letra hoje nem no dia em que ele fundir — a caixa fica `parcial` porque os **produtos** não têm fonte), o formato do NIF (que o `../docs/tecnica/08` continua a não definir: o padrão é parâmetro e nasce `None`, e com `None` o recall de NIF é 0% por desenho, como o `X11_NIF` do KAM-068), o *gate* 13 (KAM-040, que não existe), o estrato de cobertura do módulo (alterar o `ci/thresholds.yaml` é regra de bloqueio e é do fundador) e se a minimização basta para o Art. 33.º/34.º *(a confirmar por parecer)*. | Equipa KAMBÁ |
 | 1.50 | Outubro 2026 | **Emenda (*proposta*), KAM-042.** §3.39 nova: a porta `CommerceRegistry` com os **doze** métodos do `../docs/tecnica/03` §3.2, o `Ctx` obrigatório (com o `traceId` **não** opcional, ao contrário do `Ctx` do §3.3), os quatro `actor.kind`, o `NOT_IMPLEMENTED`, o cabeçalho `x-kamba-tenant`, os dois filtros do repositório base, o módulo `merchant` e os dois contadores da barreira. **Corrige a contagem em dois sítios**: o objectivo do bloco KAM-042 e a linha da `PortaDeCatalogo` do §3.38 diziam «onze métodos», e o §3.2 lista doze — o critério 1 do bloco nomeia-os um a um, e a contagem fica presa num teste. **O `NOT_IMPLEMENTED` é o único nome novo de erro e não entra na lista fechada de treze do §3.27**: aqueles descrevem uma recusa sobre dados que uma tool devolve a um cliente, e este descreve a ausência da implementação — pára na API interna do COM e traduz-se para 501. **Duas divergências resolvidas a favor desta página, as duas apanhadas por revisão adversarial sobre código já escrito**, e nenhuma por leitura: o `ORDER_STATES` nasceu com **nove** estados, lidos da máquina do `../docs/tecnica/03` §6.1 que o §3.3 marca como «Máquina incompleta» — e com nove o KAM-050 não podia chamar `transition(..., 'em_disputa', ...)` sem alterar o tipo da porta, isto é, a costura do PA-03-1 partia-se num ticket que **não** troca de Registo, que é o contrário do que ela existe para garantir; e o `precoModo` do §3.2 daquele documento voltou a entrar no código como `PRECO_MODOS`, quando o §3.3 põe `preco_modo` na coluna «Substitui» desde a emenda 1.12 — passa a `precoTipo`, como a emenda 1.45 já decidiu para o KAM-047. **Nada está ratificado, e aqui isso é a substância e não a fórmula:** a opção B é a **recomendação** do KAM-041 e a D3 do `../docs/tecnica/00` §13.3 diz por escrito que falta a assinatura do Arquitecto de Plataforma e do Responsável de Segurança, e a ratificação do fundador. **O que não decide, com credor em cada:** a ratificação da D3 (**fundador**); os módulos `policies` e `adapters/own` dos Detalhes Técnicos, que não existem — aquele é preço e stock (**KAM-043**) e limites (**KAM-009**), e este é a opção C, cuja escrita seria implementar o *fallback* de uma decisão que não foi tomada; o `kamba_ops` do critério 8, que não existe em migração nenhuma e cuja divergência o §3.2 já resolveu a favor do `kamba_batch` (a caixa fica **vazia**); o cliente HTTP do `RegistoAdmin`, porque não há Medusa em `infra/compose/` contra o que o correr e as rotas da Admin API não foram lidas em fonte primária; a API interna do COM, que não existe (**KAM-044**), pelo que a porta não é consumida por nada fora dos seus testes e a sentinela do `x-kamba-tenant` está verde sobre zero rotas; a exposição dos dois contadores, **sem credor**; e o estrato de cobertura do `repo-base`, que pela taxonomia do `specs/01` §4.1 é isolamento de tenant e pelo `ci/thresholds.yaml` está no `restante` a 75% — alterar aquele ficheiro é regra de bloqueio e **é decisão do fundador**, como na emenda 1.49. | Equipa KAMBÁ |
 | 1.51 | Novembro 2026 | **Citação corrigida, KAM-170** — sem emenda ao dicionário: a nota «O que esta emenda não decide» do §3.38 citava o `../docs/tecnica/06` **§7.6.2**, que não existe; a afirmação («mensagens e *checkpoints* do AGR são cifrados com a DEK do contacto, incluindo nos *backups*») é o **ponto 2 da lista do §7.6**, e a citação passa a dizer isso. Nenhum nome, estado ou contrato muda, e o `canon/dicionario.yaml` não se regenera. | Equipa KAMBÁ |
+| 1.52 | Novembro 2026 | **Emenda (*proposta*), KAM-043.** §3.40 nova: o preço opaco e o stock não-garantido — a `offer_terms` com as suas **quinze** colunas e a `price_quotes` com as suas **onze** (revisão `0028`), os **quatro** estados de uma oferta, os **quatro** de uma cotação, as **três** formas de `precoDisplay`, as **três** de `disponibilidade`, a lista fechada de **três** `OfferView.avisos`, o `searchOffers` descartável, o `getValidQuote`, o par `origem_preco` e o mapa do `actor.kind` da porta para o `actor_type` da auditoria. **Três divergências resolvidas a favor desta página**, e nenhuma por gosto: o `preco_modo` que o bloco escreve no critério 1 e nas Enumerações — o §3.3 põe-no na coluna «Substitui» desde a emenda 1.12, e as 1.45 e 1.50 já resolveram o mesmo conflito nos blocos do KAM-047 e do KAM-042, pelo que o lado errado é o bloco e é nele que se corrige (uma migração com ele ficava **vermelha** no *gate* 3b); os **cinco nomes de evento** do critério 5 (`price.changed`, `stock.changed`, `product.published`, `product.updated` e o `stock.low`, que é o único que coincide), contra os tipos que o §3.5 fixa desde a emenda 1.11 e que o KAM-007 publicou com `additionalProperties: false` — `catalog.price_changed`, `stock.adjusted`, `catalog.product_changed` e `stock.low` —, e aqui a ordem das fontes não é o argumento mais forte: emitir com os nomes do bloco produzia um envelope que o `validarPayload` recusa antes de o *gate* 7 chegar a vê-lo, que é a mesma resolução que o `eventos.ts` do KAM-047 registou; e o `char(3)` do `currency` nas duas tabelas do §5.4, contra o domínio `{AOA}` que o §3.4 fecha — um `char(3)` sem `CHECK` aceita `'USD'` em silêncio e não é lido por *gate* nenhum, e a revisão `0025` já fixou a forma `text` + `CHECK`. **Quatro colunas acrescentadas ao DDL do §5.4, com a razão de cada uma:** o `nome` da `offer_terms`, porque o critério 8 manda pesquisar «sobre o nome» e aquele DDL não lhe dá nenhum — o §3.3 põe o produto no Registo, e o Registo da opção B é um Medusa que não existe em `infra/compose/`, pelo que um `searchOffers` da Fase 0 não tinha onde procurar; o `criado_at` e o `atualizado_at` da mesma tabela, porque o critério 2 exige `atualizadoAt` na `OfferView` e os dois instantes que o §5.4 dá são anuláveis e significam outra coisa; e a `price_quotes.currency`, porque o §2 exige moeda explícita ao lado de toda a unidade menor. **E uma linha que saiu da tabela por o *gate* a ter recusado:** as acções `price.update` e `stock.adjust` já são domínio fechado do §3.2 (sete valores, `CHECK` da revisão `0006`), e repeti-las aqui como domínio de dois pôs o `canon_lint` vermelho — um domínio fechado tem um sítio, e o que este ticket acrescenta é só quem as escreve, em prosa. **A FK do contacto da `price_quotes` é composta**, pela correcção de 2026-10-27 do §5.4 e pelo ISO-58 do spike KAM-041, que mostrou por execução o que a FK simples permite. **Uma quarta divergência, e o lado errado era um comentário de código:** o `OfferView.precoDisplay` do `port/contrato.ts` dizia «ou `null` em `sob_consulta`» e o critério 2 põe «preço sob consulta» entre as três formas deste campo — ganha o critério, porque o comentário era uma previsão do KAM-042 sobre um método que ele não implementou e deferiu por escrito, e porque esse texto não tem dígito nenhum, pelo que «`sob_consulta` nunca devolve número» continua verdadeiro; o tipo mantém o `\| null`, que este adaptador não devolve e outro pode precisar. **O `searchOffers` não é um décimo-terceiro método da porta**: o §3.39 fecha-a em doze, e o critério 8 diz por escrito que o contrato não a expõe a longo prazo — vive no módulo `produtos`. **O que não decide, com credor em cada:** o domínio de `categoria_restrita` (**KAM-049**); o pedido de cotação ao dono e o fluxo de `confirmar_dono` (**KAM-046**); o `origem_preco` no `lines_snapshot`, cuja coluna é da `orders_mirror` (**KAM-044**); a vista `v_oferta_viva` (**KAM-051**); o `idx.candidatos` (**KAM-061**); a redução automática de `stock_modo` por auditoria de divergências, que os Detalhes Técnicos chamam «indicador» e nenhum critério pede, **sem credor**; a calibração do limiar de `stock.low` e do tecto de 24 h, as duas *propostas* a medir no Piloto (H8); e o estrato de cobertura do módulo, que é alteração de regra de bloqueio e **é decisão do fundador**, como nas emendas 1.49 e 1.50. | Equipa KAMBÁ |

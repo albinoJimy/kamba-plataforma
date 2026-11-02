@@ -388,7 +388,7 @@ Implementar `offer_terms` e `price_quotes`, `getOfferView`, o rascunho e a publi
 
 ### Critérios de Aceitação
 
-- [ ] `offer_terms` aplica `CHECK` `(preco_modo='sob_consulta' AND preco_minor IS NULL) OR (preco_modo<>'sob_consulta' AND preco_minor IS NOT NULL)`; valores em `bigint` minor (1 Kz = 100 cêntimos) com `currency='AOA'`; inserir violação falha na BD.
+- [ ] `offer_terms` aplica `CHECK` `(preco_tipo='sob_consulta' AND preco_minor IS NULL) OR (preco_tipo<>'sob_consulta' AND preco_minor IS NOT NULL)`; valores em `bigint` minor (1 Kz = 100 cêntimos) com `currency='AOA'`; inserir violação falha na BD.
 - [ ] `getOfferView` devolve `{precoModo, precoDisplay, stockModo, disponibilidade, atualizadoAt}` com `precoDisplay` formatado **com o modo** («12 500 Kz», «a partir de 12 500 Kz», «preço sob consulta»); `sob_consulta` nunca devolve número.
 - [ ] Preço com `preco_valido_ate` ultrapassado é tratado como `a_partir_de` e marca pedido de confirmação ao dono; `stock_modo='indicativo'` devolve «disponível, a confirmar» e sinal de aviso se `stock_verificado_at` > 24 h.
 - [ ] `upsertProductDraft` nunca publica; `publishProduct` sem `OwnerConfirmation` válida (id da mensagem, hora, versão do texto) falha; produto com `categoria_restrita` não publica.
@@ -400,7 +400,8 @@ Implementar `offer_terms` e `price_quotes`, `getOfferView`, o rascunho e a publi
 ### Detalhes Técnicos
 
 - **Componentes:** COM, TLS (`search_catalog`, `get_price_stock`), EVT, `audit_log` (KAM-012). Tabelas de `../docs/tecnica/03` §5.4: `platform.offer_terms`, `platform.price_quotes`; Registo (Medusa ou `commerce.*`) guarda o produto e o stock.
-- Enumerações: `preco_modo ∈ {fixo, a_partir_de, sob_consulta}`; `stock_modo ∈ {garantido, indicativo(omissão), confirmar_dono}`; `estado ∈ {rascunho, publicado, pausado, arquivado}`.
+- Enumerações: `preco_tipo ∈ {fixo, a_partir_de, sob_consulta}`; `stock_modo ∈ {garantido, indicativo(omissão), confirmar_dono}`; `estado ∈ {rascunho, publicado, pausado, arquivado}`.
+- **Conflito de nomes, resolvido e registado: é `preco_tipo`, não `preco_modo`.** Este bloco escrevia `preco_modo` no critério 1 e nesta linha; o `specs/02_Dicionario_de_Dados_Canonico.md` §3.3 põe `preco_modo` na coluna «Substitui» desde a emenda 1.12 (KAM-007), e o DDL do `../docs/tecnica/03` §5.4 e as tabelas do §7.1/§7.3 já escrevem `preco_tipo`. O dicionário é a fonte 4 e o bloco é a 8, pelo que **o lado errado era este** — e as emendas 1.45 (KAM-047) e 1.50 (KAM-042) já tinham resolvido o mesmo conflito do mesmo modo nos seus blocos. Não é só a ordem das fontes: uma migração com `preco_modo` fica **vermelha** no *gate* 3b, porque o `canon_lint` procura as variantes registadas — medido. Corrigido nas duas linhas pelo PR do KAM-043 (emenda 1.52, §3.40). A ocorrência que resta no bloco KAM-047 é desse ticket e não deste.
 - `confirmar_dono`: a encomenda fica `criada` com `confirmacao_dono='pendente'`, sem referência até o dono confirmar (fluxo em KAM-046). Tempo de espera do dono e escalada são parâmetros (KAM-046).
 - Auditoria de divergências de stock por tenant pode reduzir o modo para `confirmar_dono` automaticamente (indicador; H8 ≥ 60% de catálogos correctos).
 - O pedido de cotação ao dono é um *handoff* curto via HND; esse fluxo conversacional é follow-up (fora deste ticket).

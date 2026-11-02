@@ -1176,6 +1176,136 @@ INVENTARIO = {
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
         "decidido_at": ("timestamp with time zone", SIM, None, "nao"),
     },
+    # ---------------------------------------------------------------- KAM-043
+    #
+    # Os termos comerciais de um SKU: o preco opaco e o stock nao-garantido
+    # (revisao `0028`). **Nenhuma coluna guarda dado pessoal**, e a unica de
+    # texto livre e o `nome`, que e o nome comercial do produto — a mesma
+    # resposta do `servicos.resources.nome` e do `tenants.nome`.
+    "offer_terms": {
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "sku": (
+            "text",
+            NAO,
+            None,
+            "nao — a referencia do produto na loja. **Escrita pelo dono**, e e "
+            "por isso que leva `CHECK` de nao-vazio e nao de forma: um padrao "
+            "inventado recusava SKUs reais de PMEs angolanas, que nao seguem "
+            "nenhum",
+        ),
+        "nome": (
+            "text",
+            NAO,
+            None,
+            "nao — nome comercial do produto, nunca de pessoa singular. E o "
+            "campo que o `searchOffers` pesquisa por trigramas; o que impede um "
+            "telefone aqui nao e o schema (nenhum o faz) mas o validador de "
+            "entrada e o KAM-068, como diz o cabecalho deste ficheiro",
+        ),
+        "medusa_variant_id": (
+            "text",
+            SIM,
+            None,
+            "nao — id opaco no Registo. Nulo em toda a Fase 0: nao ha Medusa em "
+            "`infra/compose/`",
+        ),
+        "preco_tipo": (
+            "text",
+            NAO,
+            None,
+            "nao — dominio fechado de tres valores. **`preco_tipo` e nao "
+            "`preco_modo`**, que o dicionario §3.3 substitui desde a emenda 1.12",
+        ),
+        "preco_minor": (
+            "bigint",
+            SIM,
+            None,
+            "nao — unidade menor inteira. **Anulavel so em `sob_consulta`**, e a "
+            "equivalencia esta no `offer_terms_preco_ck` nos dois sentidos",
+        ),
+        "currency": (
+            "text",
+            NAO,
+            "'AOA'::text",
+            "nao — dominio de um valor. `text` com `CHECK` e nao `char(3)`: um "
+            "`char(3)` sem `CHECK` aceita `'USD'` em silencio e nenhum gate o le",
+        ),
+        "preco_atualizado_at": ("timestamp with time zone", SIM, None, "nao"),
+        "preco_valido_ate": (
+            "timestamp with time zone",
+            SIM,
+            None,
+            "nao — passado o prazo o preco **le-se** como `a_partir_de`; a "
+            "coluna `preco_tipo` nao muda",
+        ),
+        "stock_modo": ("text", NAO, "'indicativo'::text", "nao"),
+        "stock_verificado_at": (
+            "timestamp with time zone",
+            SIM,
+            None,
+            "nao — acima de 24 h o `indicativo` sai com aviso (§7.3)",
+        ),
+        "estado": ("text", NAO, "'rascunho'::text", "nao"),
+        "categoria_restrita": (
+            "text",
+            SIM,
+            None,
+            "nao — categoria de produto, preenchida pelo *screening* (KAM-049). "
+            "Nao nula bloqueia a publicacao",
+        ),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "atualizado_at": (
+            "timestamp with time zone",
+            NAO,
+            "now()",
+            "nao — escrito pelo modulo em cada `UPDATE`, nao por *trigger*",
+        ),
+        "deleted_at": ("timestamp with time zone", SIM, None, "nao"),
+    },
+    # A cotacao do dono: e por aqui que um `sob_consulta` ganha numero. O
+    # `contact_id` e a referencia pseudonimizada do ADR-010 — nunca o telefone —,
+    # e a FK que a liga e **composta**, pela correccao de 2026-10-27 do
+    # `docs/tecnica/03` §5.4.
+    "price_quotes": {
+        "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "contact_id": (
+            "uuid",
+            NAO,
+            None,
+            "nao — referencia opaca a `contacts` (KAM-008, ADR-010). E o "
+            "substituto, nunca o telefone",
+        ),
+        "sku": ("text", NAO, None, "nao — a referencia do produto cotado"),
+        "qty": ("integer", NAO, None, "nao"),
+        "preco_total_minor": (
+            "bigint",
+            NAO,
+            None,
+            "nao — o total da linha para `(sku, qty)`, e nao o unitario: "
+            "dividir por `qty` perdia o desconto de quantidade, que e a razao de "
+            "existir a cotacao",
+        ),
+        "currency": ("text", NAO, "'AOA'::text", "nao — dominio de um valor"),
+        "valida_ate": (
+            "timestamp with time zone",
+            NAO,
+            None,
+            "nao — a expiracao e por este instante e **nao** pelo `estado`: um "
+            "estado so muda quando alguem o muda",
+        ),
+        "estado": ("text", NAO, "'emitida'::text", "nao"),
+        "emitida_por": (
+            "uuid",
+            NAO,
+            None,
+            "nao — o id do actor dono que a emitiu, que pode ser o "
+            "`owner_contact_id` do tenant ou um operador. **Sem FK**: um actor "
+            "nao e uma linha de `contacts`, e inventar-lhe uma tabela era escopo "
+            "de outro ticket",
+        ),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
 }
 
 #: **A segunda vista do esquema** (KAM-114), e esta no inventario pela razao da

@@ -619,7 +619,17 @@ class ConsultaDoTypeScript:
         self.nome = nome
         self.fonte = achado.group(1)
         self.ordem = [int(n) for n in re.findall(r"\$(\d+)", self.fonte)]
-        self.sql = re.sub(r"\$\d+", "%s", self.fonte)
+        # **O `%` literal duplica-se, e isto nao e cosmetica.** O `paramstyle`
+        # do pg8000 e `format`: um `%` que nao seja `%s` ou `%%` levanta
+        # `InterfaceError: Only %s and %% are supported in the query`. O
+        # `SQL_PESQUISAR` do KAM-043 e o primeiro a trazer um — `nome % $2`, o
+        # operador de semelhanca de trigramas do `pg_trgm`, que e o unico que
+        # usa o indice GIN (o `similarity()` na clausula nao o usa). O SQL do
+        # modulo esta correcto; o que precisa de escape e o driver desta suite,
+        # e o escape e aqui para que o modulo nao tenha de saber que ela existe.
+        #
+        # **Antes** do `$n -> %s`, senao duplicava os `%s` que acabou de criar.
+        self.sql = re.sub(r"\$\d+", "%s", self.fonte.replace("%", "%%"))
 
     def args(self, *valores: object) -> tuple[object, ...]:
         """Os `valores` — na numeracao do documento — pela ordem do texto."""
