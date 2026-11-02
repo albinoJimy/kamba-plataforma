@@ -15,7 +15,7 @@ confia e um gate que alguem desliga:
 | Forma | Exemplo real | Porque nao e uma referencia |
 |---|---|---|
 | dias | `D+30`, `D0`, `D60` | prazos, nao decisoes |
-| intervalo de outro doc | `D1–D9` em `docs/exploracao/05` §6.1 | enumeracao local |
+| intervalo de prazos | `D0–D30` em `specs/EPIC-09` | prazos; expandi-lo inventava `D14`…`D29` |
 | divergencias do KAM-111 | `D-01`…`D-12` | outra serie, com travessao |
 | ADRs locais | `ADR-L001` | sequencia separada (`docs/adr/README.md`) |
 | placeholders | `KAM-NNN`, `ADR-NNN`, `D#` | a forma, nao uma referencia |

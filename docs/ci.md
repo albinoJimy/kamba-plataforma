@@ -158,6 +158,58 @@ pedida num ticket próprio.
 Excepções em [`ci/refs-allow.yaml`](../ci/refs-allow.yaml), cada uma com
 ficheiro, token e razão.
 
+**E resolve as citações de secção** (`§N`, KAM-170), que eram a **quinta** família
+de citação deste conjunto e a única sem portão — **8 431** ocorrências nos 158
+documentos de `specs/`, `docs/` e `README.md`, e 12 671 na árvore inteira. Uma
+citação é verificada quando é **endereçável**, e isso exige quatro coisas: um
+designador de documento ao lado dela **com separador de directório** (um caminho
+para um `.md` seguido pelo git, ou truncado ao prefixo do nome — `docs/tecnica/10`
+— a acabar numa fronteira do nome e a resolver para exactamente um ficheiro); que
+esse documento **numere títulos** (com ou sem `§` no título, porque dois ADRs
+locais numeram `## §6 — …`); que a citação esteja fora de um bloco cercado —
+**excepto dentro de um `### Handoff para Claude Code`, que se varre**, porque são
+170 blocos cercados por construção e é o único sítio onde um `§N` dá uma **ordem**
+ao executor seguinte; e o número resolve se for um número de título **ou o
+prefixo de um**. Varre-se também a **fronteira entre duas linhas**, porque a prosa
+muda de linha a ~80 colunas e um designador no fim de uma linha com o `§` no
+começo da outra é forma corrente (o `docs/exploracao/06` numera `### 3.1` sob um
+`## Camada 3` sem número, pelo que o `§3` é a secção-contentor e existe). O que não
+for endereçável **não dá falso positivo**, e é essa fronteira que o torna um
+portão: ficam de fora o `§8` nu dentro do próprio documento, o cunho abreviado
+sem pasta (`` `00` §12 ``, ambíguo entre três documentos) e os *stubs* de
+documentos que vivem no `albinoJimy/kamba` privado — `isolamento.md` e
+`seguranca/*`, cujo caminho é igual de propósito «para que as citações espalhadas
+pelo conjunto continuem a resolver». São **5 045 das 8 431** — 60% —, e o número
+está escrito em vez de implícito.
+
+**O que este passo não apanha, que é a parte que importa dizer.** A família tem
+duas sub-classes, e só uma é mecanizável:
+
+| Sub-classe | Exemplo | Apanhada? |
+|---|---|---|
+| **a secção não existe** | `logs.md` §7.14, quando o `logs.md` tem §7 e não tem §7.14 | **sim** |
+| **a secção existe e é a errada** | «a linha de risco do §12», quando o risco está no §18 | **não** |
+
+O escape que motivou o portão era da **segunda**: o KAM-169 escreveu dez citações
+a dizer «§12» e «§16» do `tecnica/10` onde o risco está no §18 e a PA-GOV-4 no
+§20.1 — e os dois números **existem** naquele documento, pelo que resolvem. A
+única verificação candidata para essa metade, exigir que um identificador citado
+ao lado de um `§N` ocorra dentro dessa secção, foi medida sobre a árvore e
+**recusada**: 19 pares verificáveis e **7 falsos positivos**. Uma verificação que
+precisa de dispensas para passar é uma nota, não um portão. A origem da lição é o
+achado C-03 de
+[`ANALISE-44`](analises/ANALISE-44-KAM-169-origem-do-golden-set.md).
+
+Corpus: tudo o que o git segue, **menos** `analises/` e `evidencia/` como
+**origem** — registos datados, pela mesma razão do `lint_contagens`; como
+**destino** entram, e cinco citações para eles caem na condição dos títulos
+numerados. Medido na `main` em `9c5fa60`, com o portão corrido contra uma árvore
+limpa: **4 500** citações endereçáveis e **dez** que não resolviam (onze a contar
+a que a área `tools/lint_refs/**` já dispensava), todas corrigidas no PR do
+KAM-170, **sem uma única dispensa nova**. A dispensa existe e tem a forma
+`§N@<destino>` — a secção **e** o documento, porque o mesmo `§7.14` está certo
+num e errado noutro.
+
 **Segundo passo: os caminhos dentro dos blocos de *handoff*** (`lint_handoff`, KAM-145). O
 primeiro passo lê **identificadores** em todo o conjunto; este lê **caminhos**, e só
 dentro dos blocos `### Handoff para Claude Code`, onde a regra é outra: esse bloco fala a
@@ -2479,3 +2531,4 @@ sobrevivem ao PR.
 | 1.59 | Outubro 2026 | **A prova por mutação nocturna nunca mediu nada, e passa a medir.** Correu todas as noites desde 2026-10-16 e falhou em todas — onze —, sem uma única das 783 mutações medida. O *job* das fatias instalava só `db/requirements/migrations.txt`, e a lista mede também a *suite* `agr_unit` e sete *suites* de `tools/`: sem o `langgraph`, o `pydantic` e o fecho de `tools/` a cópia sem mutação não carregava e o corredor **recusava-se a medir**, que é o comportamento certo. Passa a instalar os três fechos, nas duas chamadas do `$(VENV)/.stamp` do `Makefile`. Tirado esse obstáculo, apareceram mais quatro, cada um escondido pelo anterior: a cópia da *suite* `cosign` não levava o `lint_arch`, o `sbom` e o `ci_waivers`; a dos `contratos` não levava o `registry/`; o `tools/llm_config/cli.py` procurava o `kamba_agr` na árvore que *linta* e não na árvore onde a ferramenta vive; e o `test_aplicaveis_sai_com_zero_sobre_a_lista_real` — **anterior a tudo isto** — afirma coisas do repositório e corria dentro de uma cópia parcial, pondo a linha de base da própria *suite* `tests` vermelha e as suas 174 mutações fora de alcance. **A guarda nova** (`db/tests/test_mutacoes.py`) faz a cópia de cada uma das oito *suites* de `tools/` e corre-lhe a bateria com a árvore real fora do `sys.path`: mede num PR o que antes só se media às 02:10, e está medido que fica vermelha com qualquer das receitas antigas. Não usa `skipUnless` — «num gate, saltar é falhar» —, define-se só quando há `.git`. **A sexta falha era de ambiente outra vez:** a `tests_avisos` (69 mutações) corre uma bateria **Node** contra a base, e o *job* instalava só Python, por uma decisão escrita no ficheiro — «eram minutos de Node × seis *runners*, por noite». As fatias passam a usar a acção `preparar`, a mesma dos *gates* 4, 6 e 8, o que também tira de lá a segunda receita: foi uma segunda receita que divergiu da primeira sem ninguém notar durante onze noites. **E a vigia de `ci.yaml` passa a exigir `success`**: media só a **idade** da última noite concluída, e uma noite vermelha também conclui, pelo que passou verde onze vezes enquanto o alarme que abriu o *issue* #3 na primeira noite ficava aberto, sozinho e sem leitor. O alarme estava feito para a falha que se imaginou — a noite que deixa de correr — e a falha real foi a noite que corre e falha. Sem *gate* novo: o `esperados` do resumo não muda, e a vigia continua `continue-on-error`. **A primeira medição, a 2026-10-26: 783 mutações corridas, 35 não apanhadas** — 32 sobreviventes e 3 `PROVA INVALIDA`, 4,1% de sobrevivência. Uma das sobreviventes é do KAM-030 e fica corrigida; as outras 31 são trabalho dos seus tickets, e são o que onze noites de silêncio escondiam. **E o custo ficou medido**, que era a caixa vazia do DoD do KAM-143: 43, 46, 51, 52, 54 e **75** minutos nas seis fatias, contra um `timeout-minutes` de 90 — a pior ia a 83% do tecto, a uma noite mais lenta de morrer por tempo sem ninguém saber porquê. Recalibrado para 150, o dobro da pior fatia medida. | Equipa KAMBÁ |
 | 1.60 | Outubro 2026 | **As listas de `../ci/backlog-allow.yaml` esvaziaram, e a descrição do *gate* 3c passa a dizê-lo.** O terceiro ponto das decisões do *gate* afirmava, no presente, que o estado conhecido está declarado naquele ficheiro; desde o KAM-167 não está — as três chaves estão ausentes e as duas verificações falham desde o primeiro dia, sem dispensa possível. É a promessa que o KAM-138 escreveu («quando as listas esvaziarem, as duas passam a falha sem ninguém mexer no código») a cumprir-se, pelo que a linha não se apaga: passa ao passado e ganha o registo de quem pagou o quê. As 26 declarações iniciais fecharam-se **todas** por pagamento, nenhuma por renovação. Nenhuma regra de bloqueio muda aqui. | Equipa KAMBÁ |
 | 1.61 | Outubro 2026 | **KAM-042: o `lint_arch` passa a correr cinco passos.** O novo e `medusa` (`tools/lint_arch/medusa.py`), e sao os criterios 3 e 4 desse ticket — «o `medusa-config` com `rbac`, `auth-oidc` ou `policies` reprova o CI» e «nenhum import do SDK do Medusa nem acesso a BD `medusa` fora de `services/com/`». Entra no *gate* 2 (e no 11, que ja chamava o `lint_arch`) e **nao abre *gate* novo**: o `esperados` do resumo nao muda. Das 22 baterias novas, **dezenove sao canarios**, e metade deles prova que o *lint* **nao** morde onde nao deve — nomear uma *flag* EE num comentario e documentar o controlo, e o `medusa-config.ts` do spike fa-lo de proposito. **Tres precisoes que sairam de ler as fontes e nao de as supor:** o esquema do Medusa e o `public` e nao um esquema `medusa` (o proprio `medusa-config.ts` do spike di-lo), pelo que «acesso a BD medusa» e a **base** `kamba_medusa` — um *lint* que procurasse `medusa.` ficava verde sobre nada, para sempre; as *flags* em comentario nao falham, pela mesma razao que o `ee.py` do spike salta comentarios; e cobrem-se **cinco** *flags* onde o criterio nomeia tres, porque as outras duas sao as da correccao 3 do `tecnica/03` §3.4 (`MEDUSA_FF_RBAC` e `MEDUSA_FF_RBAC_FILTER_FIELDS`, a segunda «nao nomeada em nenhum criterio»). **E um canario pagou-se no primeiro minuto:** o despojador de comentarios aplicava `#`, `//` e `/* */` a tudo, e o `//` dentro de `postgresql://host/kamba_medusa` abria um «comentario» que comia o nome da base — o *lint* ficava verde sobre uma cadeia de ligacao ao Registo, que e exactamente o que ele existe para apanhar. Passou a ser por linguagem. **O que ele nao impoe esta escrito:** a metade do criterio 4 que e sobre **quem chama** (a TLS com o `tenant_id` em cabecalho), porque um *lint* sobre chamadores e um aviso; e as cadeias de ligacao do `infra/compose/`, porque um `DATABASE_URL` para o `kamba_medusa` e legitimo sob o bloco `com:` e nao o e sob o `agr:`, e um *lint* por linha nao sabe em que bloco esta. | Equipa KAMBÁ |
+| 1.62 | Novembro 2026 | **KAM-170: o *gate* 3 passa a resolver as citações de secção (`§N`).** A descrição do §3 ganha o passo e, com ele, **o que o passo não apanha** — porque prometer cobertura a mais é pior do que não ter portão. A origem da lição é o achado **C-03** da `analises/ANALISE-44-KAM-169-origem-do-golden-set.md`, que fica como registo datado e não se reescreve. | Equipa KAMBÁ |

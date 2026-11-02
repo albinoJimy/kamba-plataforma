@@ -240,10 +240,14 @@ que descreve um problema inexistente é pior do que nenhuma**: manda a próxima
 pessoa procurar o que não está lá, e uma dispensa declarada sobre ela seria uma
 dispensa falsa. Retirada.
 
-**A colisão de número, de passagem.** O ticket desse portão tomou o **158** para
-outra dívida — o intervalo de identificadores desactualizado no `../ci.md` §3 —,
-porque o seu ramo foi cortado antes do `#96` fundir. Retirar a minha resolve a
-colisão a favor da dele, sem ninguém ter de renumerar.
+**A colisão de número, e como ela se resolveu de facto.** O ticket desse portão
+ia tomar o **158** para outra dívida — o intervalo de identificadores
+desactualizado no `../ci.md` §3 —, porque o seu ramo foi cortado antes do `#96`
+fundir. **Mas ele chegou a `main` primeiro e renumerou-se para 159**, vendo lá a
+minha 158. Logo retirar a minha **não liberta um número: deixa um buraco no 158**,
+e o buraco fica — renumerar a dele para o tapar era reescrever o trabalho de
+outro ticket para arrumar um defeito meu. Um buraco na numeração é o registo mais
+honesto que isto pode ter: diz que houve ali uma dívida e que foi retirada.
 
 **E depois medi a população, porque retirar uma dívida também é uma afirmação.**
 Três medições sobre a `main`, 254 ficheiros `.md`, **com o predicado declarado
@@ -279,6 +283,14 @@ que os outros dez fazem.
 > uma dívida — é uma convenção documentada, e o sítio dela é o
 > `../../specs/01_Engineering_Standards_e_Handoff.md`, se alguém a quiser lá, não
 > a tabela de dívidas.
+
+> **E ha confirmação empírica, que chegou depois.** O portão de citações de
+> secção fundiu em  enquanto este PR estava aberto, e entrou no
+> . Corrido sobre a árvore com as minhas sete lá: **conforme**, com
+> **4801 citações de secção resolvidas em 1486 ficheiros**. O portão construído
+> para exactamente esta família **resolve as sete e passa-as** — o que fecha a
+> questão melhor do que qualquer argumento meu, e melhor do que a minha própria
+> medição: não é a minha conta a dizer que não são defeito, é o gate.
 
 **O aviso que fica, e é o único resíduo útil:** quem notar a mistura e for
 «harmonizar» o conjunto para `../specs/…` está a reescrever 268 ocorrências para

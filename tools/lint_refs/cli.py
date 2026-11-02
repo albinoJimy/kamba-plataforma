@@ -23,7 +23,7 @@ from kamba_yaml import YamlSubsetError, exigir_chaves, load_file
 #: canonico, e a lista nunca foi lida. A razao esta no proprio ficheiro.
 CHAVES = {"version", "placeholders", "areas", "excepcoes"}
 
-from . import scan
+from . import scan, seccoes
 from .sets import Conjuntos, FonteCanonicaAusente, ler
 
 #: Extensoes **nao** varridas: binarios e artefactos. A lista e de exclusao, e
@@ -208,12 +208,86 @@ def verificar(raiz: Path) -> tuple[list[str], dict]:
                 f"ci/refs-allow.yaml com a razao."
             )
 
+    achados_de_seccao, estatisticas_de_seccao = verificar_seccoes(
+        raiz, ficheiros, excepcoes
+    )
+    achados.extend(achados_de_seccao)
+
     return achados, {
         "ficheiros": len(ficheiros),
         "ocorrencias": total_ocorrencias,
         "por_serie": por_serie,
         "conjuntos": conjuntos,
         "avisos": avisos,
+        "seccoes": estatisticas_de_seccao,
+    }
+
+
+def verificar_seccoes(
+    raiz: Path, ficheiros: list[Path], excepcoes: Excepcoes
+) -> tuple[list[str], dict]:
+    """Resolve as citacoes `§N` contra os titulos do documento citado.
+
+    A regra de enderecabilidade, o que este portao apanha e o que nao apanha —
+    e a medicao que recusou a verificacao candidata para a outra sub-classe —
+    estao em `seccoes.py`.
+    """
+    relativos = [c.relative_to(raiz).as_posix() for c in ficheiros]
+    varriveis = [r for r in relativos if not r.startswith(seccoes.EXCLUIDOS)]
+    resolvedor = seccoes.Resolvedor(set(relativos))
+
+    # Os titulos de cada documento lem-se **uma vez**: um documento e citado
+    # por dezenas de outros.
+    titulos: dict[str, frozenset[str]] = {}
+
+    def numeros(destino: str) -> frozenset[str]:
+        if destino not in titulos:
+            try:
+                texto = (raiz / destino).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                texto = ""
+            titulos[destino] = seccoes.numeros_de_seccao(texto)
+        return titulos[destino]
+
+    achados: list[str] = []
+    enderecaveis = 0
+    sem_titulos_numerados = 0
+
+    for relativo in varriveis:
+        try:
+            texto = (raiz / relativo).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+
+        no_handoff = seccoes.linhas_de_handoff(texto)
+        for citacao in seccoes.citacoes(texto, relativo, resolvedor, no_handoff):
+            alvo = numeros(citacao.destino)
+            if not alvo:
+                # Documento sem titulos numerados: um *stub* de um documento que
+                # vive noutro repositorio. Nao e enderecavel — ver `seccoes.py`.
+                sem_titulos_numerados += 1
+                continue
+            enderecaveis += 1
+            if seccoes.resolve(citacao.seccao, alvo):
+                continue
+            if excepcoes.permite(relativo, seccoes.token(citacao)):
+                continue
+
+            achados.append(
+                f"{relativo}:{citacao.linha}: §{citacao.seccao} nao existe em "
+                f"{citacao.destino}, citado como `{citacao.designador}`.\n"
+                f"    {citacao.contexto}\n"
+                f"    Os titulos reais lem-se com "
+                f'`grep -nE "^#{{2,4}} " {citacao.destino}`. Se o `§` nao e uma '
+                f"seccao — um numero de linha, um ponto de uma lista —, escreva-o "
+                f"por extenso; se a citacao e deliberada, declare "
+                f"`{seccoes.token(citacao)}` em ci/refs-allow.yaml com a razao."
+            )
+
+    return achados, {
+        "enderecaveis": enderecaveis,
+        "sem_titulos_numerados": sem_titulos_numerados,
+        "varridos": len(varriveis),
     }
 
 
@@ -280,12 +354,19 @@ def main(argv: list[str] | None = None) -> int:
             if len(estatisticas["avisos"]) > 5:
                 print(f"  . (e mais {len(estatisticas['avisos']) - 5})")
 
+        secs = estatisticas["seccoes"]
         print(
             f"lint_refs: conforme — {estatisticas['ocorrencias']} referencias em "
             f"{estatisticas['ficheiros']} ficheiros "
             f"(KAM {estatisticas['por_serie']['KAM']}, "
             f"ADR {estatisticas['por_serie']['ADR']}, "
             f"D {estatisticas['por_serie']['D']}); {conjuntos.resumo()}"
+        )
+        print(
+            f"lint_refs: {secs['enderecaveis']} citacoes de seccao resolvidas em "
+            f"{secs['varridos']} ficheiros "
+            f"({secs['sem_titulos_numerados']} para documentos sem titulos "
+            "numerados, nao enderecaveis)"
         )
         return 0
 
