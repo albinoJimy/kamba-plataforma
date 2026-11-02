@@ -143,8 +143,10 @@ fornecedor não responder, escreve-se **«sem resposta»** — nunca uma estimat
 
 ### 3.1 Resposta ao ponto 10, por fornecedor
 
-Separada da tabela de preços de propósito: é a coluna que decide se a cotação
-serve, e não quanto custa.
+Separada da tabela de preços de propósito: é a coluna que a **R4 proposta**
+faria decidir se a cotação serve. **A R4 não está aplicada** — a regra em vigor
+é a do `../../09` §5.3 ponto 4, com três condições —, pelo que hoje esta tabela
+é informação que a decisão não usa. É isso que a proposta da §4 quer mudar.
 
 | Fornecedor | Localidade exacta dos dados | Suporte, cópias ou monitorização acedem aos dados? De onde? | Aceita cláusulas de subcontratação? | Fonte |
 |---|---|---|---|---|
@@ -223,15 +225,16 @@ decisão final é do **KAM-011**; aqui fica a recomendação.
 | **D1 = JNB/CPT** | **S3 gerido** | Existe, é maduro, e retira à equipa a operação do armazenamento — que, com uma equipa pequena, vale mais do que a diferença de preço |
 | **D1 = Luanda com objectos geridos confirmados** | **Reavaliar**, a favor do gerido | A coluna «Objectos geridos» da §3 é que o diz; hoje está vazia |
 
-**Testes pendentes antes de a decisão fechar** (KAM-076, e o `../../09` §19
-lista-os como NÃO VERIFICADO):
+**Testes pendentes antes de a decisão fechar.** Os três primeiros são os que o
+`../../09` §19 lista como **NÃO VERIFICADO**; o **T4 é acrescento nosso**, pela
+cobertura de cópias do `../../09` §8.1 — não o atribuo ao §19, que não o tem:
 
 | # | Teste | Estado |
 |---|---|---|
 | T1 | Carregamento em várias partes (*multipart*) | **NÃO VERIFICADO** |
 | T2 | URLs assinadas com expiração | **NÃO VERIFICADO** |
 | T3 | Bloqueio de objecto (*object lock*), para o que precise de ser imutável | **NÃO VERIFICADO** |
-| T4 | Replicação do contentor para o repositório de cópias | **NÃO VERIFICADO** |
+| T4 | Replicação do contentor para o repositório de cópias | **NÃO VERIFICADO** — *acrescento nosso, do `../../09` §8.1* |
 
 > **Uma consequência que convém não perder:** se D1 for Luanda e o
 > armazenamento de objectos for auto-alojado em nó único, **o armazenamento

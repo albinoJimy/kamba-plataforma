@@ -27,26 +27,36 @@ Estados: **`por submeter`** → `submetido` → `em apreciação` → `autorizad
 
 A coluna **«via»** diz o que o Art. 33.º ou o 34.º exige: **notificação** para
 destino adequado, **autorização** para destino não adequado. **Qual se aplica a
-cada país é NÃO VERIFICADO** — não há lista pública de países adequados, e é a
-pergunta **E-01** do pacote. Por isso a coluna nasce em branco: preenchê-la
+cada país é NÃO VERIFICADO**: não encontrámos lista pública de países adequados
+**nas fontes consultadas** (`../E3_Regulatorio_Dados.md` §2, que marca a ausência
+nessas fontes como CONFIRMADA e a inexistência de lista oficial como
+**NÃO VERIFICADO** — são dois graus, e o segundo não é nosso para afirmar). É a
+pergunta **E-01** do pacote, e por isso a coluna nasce em branco: preenchê-la
 agora era decidir a adequação de um país por conta própria.
 
-| # | Destino | País (hipótese) | Via (notificação / autorização) | Estado | Data de submissão | Taxa paga | N.º de protocolo | Dias decorridos | Resultado |
-|---|---|---|---|---|---|---|---|---|---|
-| 1 | Meta (WhatsApp Cloud API) | EUA/UE (NÃO VERIFICADO) | | **por submeter** | | | | | |
-| 2 | Fornecedor de modelo e transcrição | EUA | | **por submeter** | | | | | |
-| 3 | Fornecedor de modelo | EUA | | **por submeter** | | | | | |
-| 4 | Fornecedor de modelo e visão | EUA/UE | | **por submeter** | | | | | |
-| 5 | Fornecedor de transcrição | EUA | | **por submeter** | | | | | |
-| 6 | Alojamento de produção | **D1 não decidida** | | **por submeter** | | | | | |
-| 7 | Repositório de cópias de segurança | **a decidir com D1** | | **por submeter** | | | | | |
-| 8 | CDN e firewall aplicacional | Global | | **por submeter** | | | | | |
-| 9 | Facilitador de pagamentos | Angola | **nenhuma?** — destino nacional | **por submeter** | | | | | |
-| 10 | Software de facturação certificado | Angola (a confirmar) | **nenhuma?** — destino nacional | **por submeter** | | | | | |
-| 11 | Cofre de segredos | EUA | **nenhuma?** — sem dados pessoais, por regra | **por submeter** | | | | | |
-| 12 | Correio ou SMS transaccional | a decidir | | **por submeter** | | | | | |
-| 13 | Sonda sintética externa | a decidir | **a confirmar** | **por submeter** | | | | | |
-| 14 | Fornecedor de melhoramento de imagem | estrangeiro, a decidir | | **por submeter** | | | | | |
+| # | Destino | País (hipótese) | Via (notificação / autorização) | Estado | **Dono** | **Prazo-limite** | Data de submissão | Taxa paga | N.º de protocolo | Dias decorridos | Resultado |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | Meta (WhatsApp Cloud API) | EUA/UE (NÃO VERIFICADO) | | **por submeter** | | |  |  | | | |
+| 2 | Fornecedor de modelo e transcrição | EUA | | **por submeter** | | |  |  | | | |
+| 3 | Fornecedor de modelo | EUA | | **por submeter** | | |  |  | | | |
+| 4 | Fornecedor de modelo e visão | EUA/UE | | **por submeter** | | |  |  | | | |
+| 5 | Fornecedor de transcrição | EUA | | **por submeter** | | |  |  | | | |
+| 6 | Alojamento de produção | **D1 não decidida** | | **por submeter** | | |  |  | | | |
+| 7 | Repositório de cópias de segurança | **a decidir com D1** | | **por submeter** | | |  |  | | | |
+| 8 | CDN e firewall aplicacional | Global | | **por submeter** | | |  |  | | | |
+| 9 | Facilitador de pagamentos | Angola | **nenhuma?** — destino nacional | **por submeter** |  |  | | | | | |
+| 10 | Software de facturação certificado | Angola (a confirmar) | **nenhuma?** — destino nacional | **por submeter** |  |  | | | | | |
+| 11 | Cofre de segredos | EUA | **nenhuma?** — sem dados pessoais, por regra | **por submeter** |  |  | | | | | |
+| 12 | Correio ou SMS transaccional | a decidir | | **por submeter** | | |  |  | | | |
+| 13 | Sonda sintética externa | a decidir | **a confirmar** | **por submeter** |  |  | | | | | |
+| 14 | Fornecedor de melhoramento de imagem | estrangeiro, a decidir | | **por submeter** | | |  |  | | | |
+
+> **As colunas «Dono» e «Prazo-limite» nascem vazias e existem porque a caixa 5
+> de DoD do KAM-105 as pede** — «a autorização da APD fica em seguimento com
+> prazo-limite e dono». Sem elas a folha registava o estado e não registava
+> **quem** o move nem **até quando**, que é o que faz de uma folha um
+> seguimento em vez de uma fotografia. O dono só se atribui depois de A-01
+> dizer quem submete.
 
 | Contagem | Valor |
 |---|---|
@@ -106,7 +116,7 @@ chegou, a decisão é **provisória**, marcada como tal». **Está marcada.**
 
 | Elemento de D9 | Posição provisória | Fundamento | O que a torna definitiva |
 |---|---|---|---|
-| **Papel da KAMBÁ** | **Subcontratada** de cada PME, com contrato de subcontratação como pré-condição do onboarding | Defeito documentado do `../../08` §8.2, a partir dos Arts. 5.º e 23.º (**CONFIRMADO** quanto aos artigos; como a APD qualifica plataformas de software como serviço é **NÃO VERIFICADO**) | Resposta a **A-01** |
+| **Papel da KAMBÁ** | **Subcontratada** de cada PME, com contrato de subcontratação como pré-condição do onboarding | Defeito documentado do `../../08` §8.2, a partir dos Arts. 5.º e 23.º. **O Art. 5.º é CONFIRMADO** (texto em portal); **o Art. 23.º — o subcontratado não comunica dados sem autorização — é INDÍCIO** (resumo único, `../E3_Regulatorio_Dados.md` §1), e é ele que sustenta o papel. Como a APD qualifica plataformas de software como serviço é **NÃO VERIFICADO** | Resposta a **A-01** |
 | **Co-responsabilidade** | Apenas nos tratamentos de finalidade própria da KAMBÁ — sinal de procura agregado e índice de reputação —, que ficam **desligados no Piloto** | `../../08` §8.2 | Resposta a **A-01**, e a decisão de ligar alguma dessas finalidades |
 | **Quem notifica a APD** | **NÃO DECIDIDO** | Nenhuma fonte o diz. Três hipóteses na pergunta A-01: a plataforma, cada PME, ou ambas | Resposta a **A-01** |
 | **Entidade que paga os custos em USD** | **NÃO DECIDIDO — decisão do fundador** | Pergunta **F-02**; a KAMBÁ entrega as duas opções e **não recomenda nenhuma**, por terem efeitos de estrutura societária e fiscal | Decisão do fundador, informada por F-02 e C-06 |
