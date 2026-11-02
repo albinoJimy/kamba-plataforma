@@ -389,7 +389,7 @@ tem 30 dias de inactividade no `../docs/tecnica/02` §12 e 90 dias após o fecho
 no `../docs/tecnica/08` §7.1, e «fecho de conversa» não está definido em
 documento nenhum. O `E4` §2.6 dá o `langgraph-checkpoint-postgres` como «MIT,
 sem restrições» porque olhou o pacote e não o fecho. E o `../docs/tecnica/06`
-§7.6.2 diz que os *checkpoints* são cifrados com a DEK do contacto, o que nem o
+§7.6, no seu ponto 2, diz que os *checkpoints* são cifrados com a DEK do contacto, o que nem o
 §12 nem este bloco nomeiam — o `SerializerProtocol` do LangGraph tem um
 `CipherProtocol`, pelo que o sítio existe, e a decisão fica por tomar com dono.
 

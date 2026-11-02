@@ -90,6 +90,13 @@ import dataclasses
 import posixpath
 import re
 
+#: A deteccao do bloco de *handoff* vem do `lint_handoff`, que ja corre no mesmo
+#: *gate* 3 e ja entra nesses blocos para resolver caminhos. O precedente de
+#: importar entre ferramentas e o `lint_backlog`, que le o §4 pelo
+#: `lint_refs.sets` desde o KAM-138, e pela mesma razao: duas gramaticas para a
+#: mesma coisa era a forma garantida de as duas discordarem.
+from lint_handoff.scan import blocos as lint_handoff_blocos
+
 #: `§4`, `§20.1`, `§7.6.2`. Tres niveis, que e o que o conjunto usa
 #: (`#### 7.6.2` existe tres vezes).
 _SEC = r"§[0-9]+(?:\.[0-9]+){0,2}"
@@ -117,16 +124,28 @@ _ORDEM_B = re.compile(
     rf"(?P<sec>{_SEC})\s+(?:do|da|de|em|no|na)\s+[`\[]*(?P<doc>{_DESIGNADOR})"
 )
 
-#: Corrida de `§` depois do primeiro, separados so por virgula, «e» ou «ou»:
-#: `` `08` (§4, §8.5, §9, §12) `` e «§11.2, §11.3, §18 e §20.1» sao os dois a
-#: forma normal de citar varias seccoes do mesmo documento. Sem isto perdia-se
-#: tudo menos a primeira de cada lista.
-_CORRIDA = re.compile(rf"\s*(?:,|\be\b|\bou\b)?\s*(?P<sec>{_SEC})")
+#: Corrida de `§` depois do primeiro, separados so por virgula, «e», «ou» ou um
+#: travessao: `` `08` (§4, §8.5, §9, §12) ``, «§11.2, §11.3, §18 e §20.1» e
+#: «§8.3–§8.4» sao as formas normais de citar varias seccoes do mesmo
+#: documento. Sem isto perdia-se tudo menos a primeira de cada lista — e o
+#: travessao sozinho valia **70** linhas do conjunto, medidas pela revisao
+#: adversarial do KAM-170 (achado A-10). Expandem-se as **pontas escritas**, nao
+#: o interior: «§8.3–§8.4» da o 8.3 e o 8.4, e um intervalo nao diz quais sao os
+#: numeros entre eles.
+_CORRIDA = re.compile(rf"\s*(?:,|\be\b|\bou\b|–|—|-)?\s*(?P<sec>{_SEC})")
 
 #: `## 18. Riscos e mitigacoes`, `### 20.1 Propostas de ADR`, `#### 7.6.2 …`.
 #: O ponto final depois do numero e opcional: o conjunto escreve `## 4.` e
 #: `### 4.1` (sem ponto) e os dois contam.
-_CABECALHO = re.compile(r"^#{2,4}\s+(?P<numero>[0-9]+(?:\.[0-9]+){0,2})\.?\s")
+#:
+#: E o proprio `§` no titulo e opcional, porque dois ADRs locais numeram assim:
+#: `## §6 — Quando reverter, e o que falta nesta porta`
+#: (`docs/adr/ADR-L002` e `ADR-L003`). Sem o `§?`, esses dois documentos nao
+#: tinham titulo numerado nenhum e **o documento inteiro ficava inenderecavel**
+#: pela condicao 2 — o que escondia um `§5` quebrado citado de
+#: `libs/py-core/src/kamba_core/secrets/port.py`. Achado A-07 da revisao
+#: adversarial do KAM-170.
+_CABECALHO = re.compile(r"^#{2,4}\s+§?(?P<numero>[0-9]+(?:\.[0-9]+){0,2})\.?\s")
 
 _CERCA = re.compile(r"^\s*```")
 
@@ -221,28 +240,71 @@ class Resolvedor:
     def _por_prefixo(self, truncado: str) -> list[str]:
         """`docs/tecnica/10` -> `docs/tecnica/10_Onboarding_Governanca.md`.
 
-        Exige-se que o prefixo case o **nome do ficheiro** e nao so o caminho,
-        senao `docs/tecnica/1` casava o `10` e o `11`. E exige-se **um** so
-        resultado: `docs/tecnica/0` casa seis ficheiros e nao designa nenhum.
+        Exige-se que o prefixo case o **nome do ficheiro** e nao so o caminho, e
+        que acabe numa **fronteira** do nome — `_`, `-` ou `.`. Sem a fronteira,
+        `docs/tecnica/1` resolvia em silencio para o `10_Onboarding…`, por ser o
+        unico `1*` daquela pasta, quando quem escreve «doc 1» quer o
+        `01_Canais…`: resolver para o documento errado e pior do que nao
+        resolver. A fronteira cobre as tres formas que a casa usa —
+        `10_Onboarding…`, `05-estrategia…` e `concierge.md`. Achado A-10 da
+        revisao adversarial do KAM-170; o teste que protegia isto era sintetico,
+        com um `11_*.md` que este repositorio nao tem.
+
+        E exige-se **um** so resultado: `docs/tecnica/0` casa dez ficheiros e
+        nao designa nenhum.
         """
         pasta, _, caule = truncado.rpartition("/")
         if not pasta or not caule:
             return []
-        return [
-            s
-            for s in self._seguidos
-            if s.startswith(pasta + "/") and posixpath.basename(s).startswith(caule)
-        ]
+        iguais = []
+        for s in self._seguidos:
+            if not s.startswith(pasta + "/"):
+                continue
+            nome = posixpath.basename(s)
+            if not nome.startswith(caule):
+                continue
+            if nome[len(caule) : len(caule) + 1] not in ("_", "-", "."):
+                continue
+            iguais.append(s)
+        return iguais
 
 
-def citacoes(texto: str, ficheiro: str, resolvedor: Resolvedor) -> list[Citacao]:
+def linhas_de_handoff(texto: str) -> frozenset[int]:
+    """Os numeros de linha que caem dentro de um bloco `### Handoff para Claude Code`.
+
+    Estes blocos sao cercados por construcao — sao 170 em 65 ficheiros — e a
+    condicao 3 saltava-os todos. Era o **pior** ponto cego possivel: e o unico
+    sitio onde um `§N` da uma **ordem** ao executor seguinte, e a ocorrencia que
+    motivou este portao vivia exactamente ali («NAO apagues a linha de risco do
+    §12», `specs/tickets/KAM-169.md`, dentro da cerca). Um portao que nomeia o
+    bloco de *handoff* como o caso que o motiva e nao o le e um portao que
+    promete o que nao faz. Achado A-02 da revisao adversarial do KAM-170.
+
+    A deteccao vem do `lint_handoff`, que ja entra nestes blocos para resolver
+    os caminhos, e nao de uma gramatica propria: duas leituras de «o que e um
+    bloco de *handoff*» era a forma garantida de os dois passos do *gate* 3
+    discordarem sobre o mesmo bloco.
+    """
+    linhas = texto.split("\n")
+    dentro: set[int] = set()
+    for inicio, fim in lint_handoff_blocos(linhas):
+        # `blocos` devolve indices de linha base-0, [inicio, fim); as linhas
+        # contam-se de 1.
+        dentro.update(range(inicio + 1, fim + 1))
+    return frozenset(dentro)
+
+
+def citacoes(
+    texto: str,
+    ficheiro: str,
+    resolvedor: Resolvedor,
+    dentro_do_handoff: frozenset[int] = frozenset(),
+) -> list[Citacao]:
     """As citacoes de seccao enderecaveis de um texto."""
     encontradas: list[Citacao] = []
     # Sem um `§` nao ha nada a emparelhar, e os padroes do designador tem
     # quantificadores encaixados que retrocedem muito em ficheiros de codigo
-    # cheios de caminhos. Medido sobre os 1 545 ficheiros que o git segue: o
-    # `check` inteiro passou de 25,8 s para 15,4 s, sobre uma base de 11,7 s
-    # sem esta passagem — a passagem de seccoes custa 3,7 s em vez de 14 s.
+    # cheios de caminhos. O numero esta na secao «O custo» da docstring.
     if "§" not in texto:
         return encontradas
     linhas = texto.split("\n")
@@ -251,61 +313,114 @@ def citacoes(texto: str, ficheiro: str, resolvedor: Resolvedor) -> list[Citacao]
     # resto do ficheiro, e um `.md` com cercas desequilibradas produz isto por
     # acidente. Com um numero impar, varre-se tudo.
     ignorar_cercas = sum(1 for linha in linhas if _CERCA.match(linha)) % 2 == 0
-    dentro_de_cerca = False
 
+    # Que linhas se varrem, decidido primeiro: a varredura por fronteira (mais
+    # abaixo) precisa de saber se a linha **seguinte** tambem se varre, e um
+    # interruptor consumido a meio do ciclo nao da essa resposta.
+    varrer: list[bool] = []
+    dentro_de_cerca = False
     for numero_linha, linha in enumerate(linhas, start=1):
         if _CERCA.match(linha):
             dentro_de_cerca = not dentro_de_cerca
+            varrer.append(False)
             continue
-        if dentro_de_cerca and ignorar_cercas:
-            continue
+        oculta = dentro_de_cerca and ignorar_cercas
+        varrer.append(not oculta or numero_linha in dentro_do_handoff)
 
-        if "§" not in linha:
-            continue
+    vistos: set[tuple[int, str, str]] = set()
 
-        contexto = linha.strip()[:120]
-        vistos: set[tuple[str, str]] = set()
+    def juntar(
+        numero_linha: int, designador: str, destino: str, seccao: str, contexto: str
+    ) -> None:
+        if (numero_linha, destino, seccao) in vistos:
+            return
+        vistos.add((numero_linha, destino, seccao))
+        encontradas.append(Citacao(numero_linha, designador, destino, seccao, contexto))
 
-        def juntar(designador: str, destino: str, seccao: str) -> None:
-            if (destino, seccao) in vistos:
-                return
-            vistos.add((destino, seccao))
-            encontradas.append(
-                Citacao(numero_linha, designador, destino, seccao, contexto)
-            )
+    def varrer_unidade(
+        unidade: str, numero_linha: int, corte: int | None = None
+    ) -> None:
+        """Empareha designadores e `§` numa unidade de texto.
+
+        `corte` restringe aos pares que **atravessam** essa posicao, e e como se
+        varre a fronteira entre duas linhas sem repetir o que cada uma ja deu.
+        """
+        if "§" not in unidade:
+            return
+        contexto = " ".join(unidade.split())[:120]
+
+        def aceita(inicio: int, fim: int) -> bool:
+            return corte is None or (inicio < corte < fim)
 
         # A ordem B corre **primeiro**, e o que ela emparelhar fica-lhe.
         #
         # «`specs/02` §7.6.2 do `tecnica/06`» casa as duas ordens com o mesmo
-        # `§`, e dão documentos **diferentes**: a A junta-o ao `specs/02` que
-        # esta antes, a B ao `tecnica/06` que a preposicao nomeia. A B e que
-        # tem razao — «do» nomeia o documento, a A so tem a vizinhanca — e sem
-        # esta precedencia o gate acusava a seccao no documento errado. Medido
-        # sobre o bloco deste ticket, que escreve essa frase.
+        # `§`, e dao documentos **diferentes**: a A junta-o ao `specs/02` que
+        # esta antes, a B ao `tecnica/06` que a preposicao nomeia. A B e que tem
+        # razao — «do» nomeia o documento, a A so tem a vizinhanca — e sem esta
+        # precedencia o gate acusava a seccao no documento errado. Medido sobre
+        # o bloco deste ticket, que escreve essa frase.
         reclamados: set[int] = set()
-        for correspondencia in _ORDEM_B.finditer(linha):
-            designador = correspondencia.group("doc")
+        for correspondencia in _ORDEM_B.finditer(unidade):
             reclamados.add(correspondencia.start("sec"))
+            if not aceita(correspondencia.start(), correspondencia.end()):
+                continue
+            designador = correspondencia.group("doc")
             destino = resolvedor(designador, ficheiro)
             if destino is None:
                 continue
-            juntar(designador, destino, correspondencia.group("sec")[1:])
+            juntar(
+                numero_linha, designador, destino,
+                correspondencia.group("sec")[1:], contexto,
+            )
 
-        for correspondencia in _ORDEM_A.finditer(linha):
+        for correspondencia in _ORDEM_A.finditer(unidade):
             if correspondencia.start("sec") in reclamados:
                 continue
             designador = correspondencia.group("doc")
             destino = resolvedor(designador, ficheiro)
             if destino is None:
                 continue
-            juntar(designador, destino, correspondencia.group("sec")[1:])
+            if aceita(correspondencia.start(), correspondencia.end()):
+                juntar(
+                    numero_linha, designador, destino,
+                    correspondencia.group("sec")[1:], contexto,
+                )
             # A corrida: os `§` seguintes pertencem ao mesmo documento.
             posicao = correspondencia.end()
-            while seguinte := _CORRIDA.match(linha, posicao):
+            while seguinte := _CORRIDA.match(unidade, posicao):
                 if seguinte.start("sec") in reclamados:
                     break
-                juntar(designador, destino, seguinte.group("sec")[1:])
+                if aceita(correspondencia.start(), seguinte.end()):
+                    juntar(
+                        numero_linha, designador, destino,
+                        seguinte.group("sec")[1:], contexto,
+                    )
                 posicao = seguinte.end()
+
+    for indice, linha in enumerate(linhas):
+        if not varrer[indice]:
+            continue
+        varrer_unidade(linha, indice + 1)
+
+        # A fronteira entre esta linha e a seguinte. A prosa deste conjunto
+        # muda de linha a ~80 colunas, pelo que um designador no fim de uma
+        # linha e o `§` no inicio da outra e forma corrente e nao exotica:
+        # `specs/EPIC-03_Agent_Runtime_Verticais.md:391` fecha com
+        # `` `../docs/tecnica/06` `` e a 392 abre com `§7.6.2`, que nao existe
+        # nesse documento — a gemea exacta de uma das citacoes que este ticket
+        # corrige, a uma mudanca de linha de distancia, e o portao saia 0 com
+        # ela. Achado A-03 da revisao adversarial do KAM-170.
+        #
+        # Duas linhas bastam: um designador mais um `§` nao atravessa tres.
+        # Uma linha vazia nao se junta — separa paragrafos, e juntar atraves
+        # dela emparelhava um documento de um paragrafo com um `§` do seguinte.
+        if indice + 1 >= len(linhas) or not varrer[indice + 1]:
+            continue
+        if not linha.strip() or not linhas[indice + 1].strip():
+            continue
+        juncao = linha + " " + linhas[indice + 1]
+        varrer_unidade(juncao, indice + 1, corte=len(linha))
 
     return encontradas
 

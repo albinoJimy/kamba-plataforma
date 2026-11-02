@@ -259,7 +259,8 @@ def verificar_seccoes(
         except (OSError, UnicodeDecodeError):
             continue
 
-        for citacao in seccoes.citacoes(texto, relativo, resolvedor):
+        no_handoff = seccoes.linhas_de_handoff(texto)
+        for citacao in seccoes.citacoes(texto, relativo, resolvedor, no_handoff):
             alvo = numeros(citacao.destino)
             if not alvo:
                 # Documento sem titulos numerados: um *stub* de um documento que
