@@ -929,8 +929,9 @@ class TestConvencoes(ComBase):
     #: a metade rigida passava **pelo mesmo vazio** que esta, porque nunca
     #: houve coluna nenhuma com `saldo`, `balance` ou `_kz` em `platform`.
     #
-    #: **O KAM-053 acrescenta tres entradas e a mesma pergunta fica em aberto,
-    #: agora mais perto do que o ADR-004 recusa.** As duas do KAM-043 sao preco
+    #: **O KAM-053 acrescentou tres entradas com a mesma pergunta ainda em
+    #: aberto, e mais perto do que o ADR-004 recusa** (fechou-a a ratificacao de
+    #: 2026-11-03, no fim deste paragrafo). As duas do KAM-043 sao preco
     #: de catalogo; estas sao dinheiro de **pagamento** — o montante de uma
     #: cobranca, o valor de um facto do ledger e a projeccao daquele na vista de
     #: auditoria. A distincao que as deixa passar continua a ser a mesma, e esta
