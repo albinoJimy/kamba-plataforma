@@ -185,6 +185,70 @@ def _oferta(cursor, tenant_id: str, canario: str) -> None:
     )
 
 
+def _encomenda(cursor, tenant_id: str, canario: str) -> None:
+    """O espelho de uma encomenda (KAM-044, revisao `0030`).
+
+    O canario vai no `intent_key`, que e texto livre e **unico por tenant**
+    (`orders_mirror_intent_uq`) — e por isso esta receita prova, de graca, que a
+    mesma chave de intencao em dois tenants sao duas encomendas.
+
+    **O contacto vai pelo `_UM_CONTACTO`**, pela razao medida na `_cotacao`: com
+    um `INSERT ... SELECT`, o ataque (inserir a linha de B com o contexto de A)
+    nao encontrava o contacto de B, o `SELECT` devolvia zero linhas, e um
+    `INSERT` de zero linhas **nao da erro** — o teste do `WITH CHECK` ficava
+    vermelho a espera de uma recusa que nao acontecia. A FK do contacto e
+    composta (`orders_mirror_contacto_do_mesmo_tenant_fk`), pela correccao de
+    2026-10-27 do `docs/tecnica/03` secao 5.4 e pelo ISO-58 do spike KAM-041.
+
+    O `estado` nao entra: nasce `criada` pela omissao, e o *trigger*
+    `order_nasce_criada` recusa qualquer outro. O `numero_publico` tambem nao: e
+    `DEFAULT platform.order_numero_publico()`.
+    """
+    cursor.execute(
+        "INSERT INTO platform.orders_mirror "
+        "(tenant_id, contact_id, intent_key, total_minor, lines_snapshot) "
+        f"VALUES (%s, {_UM_CONTACTO}, %s, 0, '[]'::jsonb)",
+        (tenant_id, tenant_id, canario),
+    )
+
+
+def _recibo_de_intencao(cursor, tenant_id: str, canario: str) -> None:
+    """O recibo de idempotencia da criacao (KAM-044, revisao `0030`).
+
+    O canario vai no `intent_key`, que e **parte da chave primaria composta**
+    `(tenant_id, intent_key)`. O `order_id` fica nulo — que e o estado
+    `em_curso`, e e o unico que o `order_intents_concluida_exige_encomenda_ck`
+    aceita sem encomenda. O `draft_hash` tem de ter 32 octetos.
+    """
+    cursor.execute(
+        "INSERT INTO platform.order_intents "
+        "(tenant_id, intent_key, draft_hash) "
+        "VALUES (%s, %s, sha256(%s::bytea))",
+        (tenant_id, canario, canario.encode("ascii")),
+    )
+
+
+def _divergencia(cursor, tenant_id: str, canario: str) -> None:
+    """Uma divergencia de reconciliacao (KAM-044, revisao `0030`).
+
+    **Sem coluna de texto livre**, como a `conversations` do KAM-014: o `tipo` e
+    o `estado` sao dominios fechados e o `detalhe` e `jsonb`. O canario vai na
+    chave primaria (`id uuid`), que e a unica coluna que aceita um valor
+    arbitrario — e continua unico por tenant e por tabela, que e o que o oraculo
+    precisa. E por isso que esta receita leva `guardado=_uuid`.
+
+    O `order_id` fica **nulo**, e e legitimo: duas das cinco regras do secao
+    10.3 falam de uma encomenda que o espelho ainda nao tem. Com ele nulo a FK
+    composta nao e imposta (`MATCH SIMPLE`), pelo que a receita nao depende da
+    `orders_mirror` — mas o `_uuid` do canario, sim, tem de caber na chave.
+    """
+    cursor.execute(
+        "INSERT INTO platform.order_reconciliation_issues "
+        "(id, tenant_id, tipo) VALUES (%s, %s, 'estado_divergente')",
+        (_uuid(canario), tenant_id),
+    )
+
+
 def _cotacao(cursor, tenant_id: str, canario: str) -> None:
     """A cotacao do dono (KAM-043, revisao `0028`).
 
@@ -1077,6 +1141,51 @@ RECEITAS: dict[tuple[str, str], Receita] = {
     ("platform", "price_quotes"): Receita(
         _cotacao, "sku", "estado", "revogada", semeador="admin"
     ),
+    # KAM-044. As quatro das encomendas, e as quatro **escritas pelo papel**: o
+    # `kamba_app` insere nas quatro, pelo que a RLS e a ultima barreira na
+    # escrita e os testes de escrita cruzada medem a politica e nao a falta de
+    # privilegio.
+    #
+    # A coluna alteravel e diferente em cada uma, e nenhuma escolha e livre:
+    #
+    #   orders_mirror   o `medusa_order_id`, que nao tem `CHECK` nenhum. O
+    #                   `estado` estava na primeira versao e nao serve: o
+    #                   `test_update_sem_where_so_toca_nas_linhas_de_a` escreve
+    #                   o valor **nas linhas de A**, e mudar o estado por
+    #                   `UPDATE` directo levanta o *trigger* diferido (`KA005`,
+    #                   sem registo na mesma transaccao) — o ensaio falhava por
+    #                   uma barreira que nao e a que ele mede.
+    #   order_intents   o `estado`, com `falhada`: o
+    #                   `..._concluida_exige_encomenda_ck` so recusa o
+    #                   `concluida` sem `order_id`, e este recibo nao tem
+    #                   encomenda.
+    #   order_reconciliation_issues
+    #                   o `resolvida_at`, com `None`. O `estado` nao serve pela
+    #                   razao do ensaio sem `WHERE`: poe-lo em `resolvida` nas
+    #                   linhas de A viola o `..._resolvida_ck`, que exige o
+    #                   instante no mesmo passo. Um `resolvida_at` nulo numa
+    #                   divergencia aberta satisfaz a equivalencia nos dois
+    #                   sentidos, e e por isso que o valor e nulo.
+    #
+    # **Sao tres e nao quatro**: o `order_state_log` esta em
+    # `SEM_RECEITA_COM_RAZAO`, pela razao da `audit_log` — estas receitas
+    # limpam com `DELETE`, e o `deny_mutation` com `ENABLE ALWAYS` recusa-o. Ver
+    # a entrada dele nessa lista.
+    #
+    # A primeira semeia pelo **administrador**: a receita da encomenda vai
+    # buscar o contacto por subconsulta, e o `kamba_batch` nao tem `SELECT` em
+    # `platform.contacts` (as tabelas de identidade sao do `kamba_identity`). E
+    # a mesma razao da `price_quotes`.
+    ("platform", "orders_mirror"): Receita(
+        _encomenda, "intent_key", "medusa_order_id", "ord_cruzado",
+        semeador="admin",
+    ),
+    ("platform", "order_intents"): Receita(
+        _recibo_de_intencao, "intent_key", "estado", "falhada",
+    ),
+    ("platform", "order_reconciliation_issues"): Receita(
+        _divergencia, "id", "resolvida_at", None, guardado=_uuid,
+    ),
     ("platform", "contacts"): _identidade(
         _contacto, "phone_hmac", "hmac_kid", KID_DE_SEMENTE, _resumo
     ),
@@ -1372,6 +1481,27 @@ SEM_RECEITA_COM_RAZAO = {
     # esta bateria nao sabe fazer: com o contexto de B sobre uma cobranca de A,
     # a porta `DEFINER` **recusa**, porque o `FORCE` prende tambem o dono.
     ("platform", "payment_events"),
+    # KAM-044: o registo de transicoes, pela razao da `audit_log` — e so por
+    # essa. Tem RLS `FORCE` e politica `tenant_iso`, e o `kamba_app` **insere**
+    # nele (ao contrario da `payment_events`, onde ninguem tem `INSERT`): o que
+    # esta bateria nao consegue e **limpa-lo**, porque o `deny_mutation` com
+    # `ENABLE ALWAYS` recusa o `DELETE` a todos, incluindo ao dono e ao
+    # superutilizador. Semea-lo aqui obrigava a desligar o *trigger* na limpeza,
+    # que e o defeito que a nota da `audit_log` descreve: DDL confirmado numa
+    # limpeza repara o esquema na base viva e esconde regressoes de tudo o que
+    # corre a seguir.
+    #
+    # Medido antes de esta entrada existir: o `DELETE` do `apagar_tenant`
+    # levantava `42501` e **envenenava a transaccao da bateria**, com 31 erros
+    # em tabelas que nada tinham a ver — oito deles no `tearDown`.
+    #
+    # O isolamento prova-se em `db/tests_encomendas/test_isolamento.py`, que faz
+    # as perguntas do X-03/X-04 sobre esta tabela sem precisar de apagar nada: o
+    # registo de A nao se le do contexto de B (com a sonda positiva ao lado), o
+    # `UPDATE` do `kamba_app` falha por **privilegio** e nao por politica, e o
+    # `deny_mutation` recusa `UPDATE`, `DELETE` e `TRUNCATE` ao superutilizador —
+    # incluindo um `DELETE` que nao casa linha nenhuma.
+    ("platform", "order_state_log"),
     # KAM-053: a cobranca, e aqui a razao **nao** e a do ledger — ela e mutavel,
     # o `kamba_app` tem `INSERT` e o `kamba_batch` apaga com `DELETE`. Uma
     # receita escrevia-se e limpava-se sem problema. O que a tira desta bateria
@@ -1516,6 +1646,16 @@ ORDEM = (
     # contacto que a subconsulta da receita foi buscar.
     ("platform", "offer_terms"),
     ("platform", "price_quotes"),
+    # KAM-044: a encomenda **depois de `contacts`**, que ela referencia por FK
+    # composta — e por isso fica aqui e nao antes: na ordem inversa, apaga-se
+    # antes do contacto que a subconsulta da receita foi buscar.
+    #
+    # E as outras duas **depois da encomenda**, porque a **referenciam** (com
+    # `order_id` nulo nesta bateria, mas a FK existe) e a ordem inversa e a de
+    # apagar. O `order_state_log` nao entra: esta em `SEM_RECEITA_COM_RAZAO`.
+    ("platform", "orders_mirror"),
+    ("platform", "order_intents"),
+    ("platform", "order_reconciliation_issues"),
 )
 
 #: As identidades com que as receitas semeiam.
