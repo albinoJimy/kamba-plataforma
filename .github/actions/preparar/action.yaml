@@ -24,6 +24,7 @@ runs:
       run: corepack enable
 
     - name: Python
+      id: python
       uses: actions/setup-python@v6
       with:
         python-version: "3.12"
@@ -39,7 +40,22 @@ runs:
       uses: actions/cache@v4
       with:
         path: .venv
-        key: venv-${{ runner.os }}-${{ hashFiles('tools/requirements/tools.txt', 'services/agr/requirements/runtime.txt') }}
+        # **A versao de patch do interpretador faz parte da chave**, e nao e
+        # zelo: um `.venv` leva o `bin/python3` como symlink para o
+        # `/opt/hostedtoolcache/Python/<versao>/x64`, logo uma entrada
+        # construida com um patch e um symlink pendurado em qualquer runner que
+        # sirva outro. O `python-version: "3.12"` flutua no patch de proposito —
+        # a imagem dos runners rola sozinha — e sem isto a entrada envenena-se
+        # na rolagem e **nao se cura**: o `actions/cache` so escreve quando ha
+        # *miss*, e com *hit* restaura o veneno execucao apos execucao.
+        #
+        # Medido a 2026-11-03, na corrida 41636240093: os sete jobs que usam
+        # esta accao apanharam a rolagem a meio — seis em CPython 3.12.15
+        # passaram e o unico em 3.12.16 falhou com
+        # `[Errno 2] ... '.venv/bin/python3'`, sobre um cache restaurado a 100%.
+        # Apagar a entrada nao corrigia nada: durante a rolagem **nenhuma**
+        # entrada unica serve os dois lados, so muda quem fica partido.
+        key: venv-${{ runner.os }}-py${{ steps.python.outputs.python-version }}-${{ hashFiles('tools/requirements/tools.txt', 'services/agr/requirements/runtime.txt') }}
 
     - name: bootstrap
       shell: bash
