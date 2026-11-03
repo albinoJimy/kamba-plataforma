@@ -757,6 +757,77 @@ ESPERADO_POR_TABELA.update(
             "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
             "public": set(),
         },
+        # ------------------------------------------------- KAM-044 (0030)
+        #
+        # As cinco das encomendas. **Sem `UPDATE` de tabela em tres delas**, e
+        # nao e falta: o `UPDATE` da `orders_mirror`, do `order_intents` e do
+        # `order_reconciliation_issues` e **por coluna** (ver a revisao `0030`),
+        # e o `has_table_privilege` so ve concessoes de tabela — quem as prende
+        # uma a uma e o `test_o_update_e_por_coluna` da classe
+        # `TestPrivilegiosPorColuna` de `db/tests_encomendas/test_isolamento.py`
+        # — **o caminho que esta nota dava nao existia**, e foi a revisao
+        # adversarial que o mediu.
+        "orders_mirror": {
+            "kamba_app": {"SELECT", "INSERT"},
+            "kamba_batch": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+            "kamba_audit": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        "order_intents": {
+            "kamba_app": {"SELECT", "INSERT"},
+            "kamba_batch": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+            "kamba_audit": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        # **`SELECT` e `INSERT` e mais nada, nos dois papeis**, e e o criterio 6
+        # a letra («so `INSERT` para `kamba_app`»). O `kamba_batch` tambem nao
+        # tem `UPDATE` nem `DELETE` aqui, ao contrario das outras quatro: o
+        # `deny_mutation` da `0029` recusa-os de qualquer forma, e conceder um
+        # privilegio que um *trigger* anula escrevia no catalogo uma permissao
+        # que nao existe.
+        #
+        # O `SELECT` do `kamba_app` **nao e um alargamento**: e o *trigger*
+        # diferido `order_estado_exige_log` que le esta tabela, como invocador,
+        # e sem o privilegio nenhuma transicao confirmava. Vale tambem a razao
+        # que a `0004` escreveu para o outbox — sem um papel sujeito a RLS que a
+        # leia, a politica nunca e exercida.
+        "order_state_log": {
+            "kamba_app": {"SELECT", "INSERT"},
+            "kamba_batch": {"SELECT", "INSERT"},
+            "kamba_audit": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        # O grafo e **referencia**: a aplicacao le-o e quem o escreve e uma
+        # revisao. As transicoes validas de um sistema nao sao configuracao de
+        # tenant, e um `INSERT` concedido aqui deixava o caminho da aplicacao
+        # declarar valida uma transicao que o §6.2 nao tem.
+        "order_state_graph": {
+            "kamba_app": {"SELECT"},
+            "kamba_batch": {"SELECT"},
+            "kamba_audit": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
+        "order_reconciliation_issues": {
+            "kamba_app": {"SELECT", "INSERT"},
+            "kamba_batch": {"SELECT", "INSERT", "UPDATE", "DELETE"},
+            "kamba_audit": set(),
+            "kamba_resolver": set(),
+            "kamba_identity": set(),
+            "kamba_migrator": set(PRIVILEGIOS_DE_TABELA),
+            "public": set(),
+        },
     }
 )
 

@@ -1,0 +1,111 @@
+/**
+ * Módulo `orders` do COM — encomendas: máquina de estados e espelho (KAM-044).
+ *
+ *     contrato.ts     o vocabulário: tipos, causas, eventos, SQLSTATE
+ *     consultas.ts    as cadeias SQL, confrontadas pelo gate 8
+ *     graph.ts        o grafo, lido da base, e o predicado
+ *     eventos.ts      os cinco eventos de encomenda, pelo outbox
+ *     mirror.ts       a criação do espelho e o `order.created`
+ *     transition.ts   a primitiva `transition` com CAS por `version`
+ *     reconcile.ts    as cinco regras de §10.3 (decisão pura + escrita local)
+ *
+ * **Uma operação é método da porta `CommerceRegistry`** — a `transition` —, e o
+ * adaptador (`../adapters/medusa/`) é que a liga; o `mirror` é a primitiva de
+ * escrita que a `createOrder` do **KAM-046** vai usar, e não a `createOrder`.
+ * As outras não estão na porta e não vão estar: o dicionário §3.39 fecha-a em
+ * doze métodos, pinados por `port.contrato.test.ts`.
+ *
+ * O esquema é da revisão `0030`; o grafo, os `CHECK`, a RLS `FORCE` e os três
+ * *triggers* vivem lá, e **é lá que as regras são impostas** — não aqui. Este
+ * módulo chega-lhes com erros de domínio em vez de SQLSTATE, e é a única coisa
+ * que acrescenta.
+ */
+
+export {
+  ACTOR_DO_PAGAMENTO,
+  AGREGADO_ORDER,
+  CAUSAS_QUE_PAGAM,
+  CAUSA_DA_RECONCILIACAO,
+  CHAVE_DO_TECTO_MANUAL,
+  CLASSE_PII_ENCOMENDA,
+  EVENTO_POR_ESTADO,
+  FINALIDADES_ENCOMENDA,
+  SQLSTATE_AUTENTICIDADE,
+  SQLSTATE_CHECK,
+  SQLSTATE_FK,
+  SQLSTATE_REGISTO,
+  SQLSTATE_SNAPSHOT,
+  SQLSTATE_TECTO_MANUAL,
+  SQLSTATE_TRANSICAO,
+  SQLSTATE_UNICIDADE,
+  TIPO_CANCELLED,
+  TIPO_CREATED,
+  TIPO_DELIVERED,
+  TIPO_EXPIRED,
+  TIPO_PAID,
+  VERSAO_CANCELLED,
+  VERSAO_CREATED,
+  VERSAO_DELIVERED,
+  VERSAO_EXPIRED,
+  VERSAO_PAID,
+  VIA_POR_CAUSA,
+  type CausaDaTransicao,
+  type CausaQuePaga,
+  type ClienteSql,
+  type EspelhoNovo,
+  type EstadoDaEncomenda,
+  type LinhaDaEncomenda,
+  type Transicao,
+} from "./contrato.ts";
+
+export {
+  SQL_DIVERGENCIAS_ABERTAS,
+  SQL_EMITIR,
+  SQL_FECHAR_DIVERGENCIA,
+  SQL_GRAFO,
+  SQL_LER,
+  SQL_TRANSITAR,
+} from "./consultas.ts";
+
+export { destinosDe, lerGrafo, transicaoPermitida } from "./graph.ts";
+
+export {
+  EMISSOES,
+  emitir,
+  linhasDoPayload,
+  payloadDeCancelada,
+  payloadDeCriada,
+  payloadDeEntregue,
+  payloadDeExpirada,
+  payloadDePaga,
+} from "./eventos.ts";
+
+export { TABELA_DO_ESPELHO, registar } from "./mirror.ts";
+
+export {
+  TABELA_DO_REGISTO,
+  comoResultadoDaPorta,
+  lerEncomenda,
+  pagamentoAutenticado,
+  transition,
+  type Encomendas,
+  type PedidoDeTransicao,
+  type RepoDoTenant,
+  type ResultadoDaTransicao,
+} from "./transition.ts";
+
+export {
+  TABELA_DAS_DIVERGENCIAS,
+  TIPOS_DE_DIVERGENCIA,
+  abertas,
+  aplicar,
+  fechar,
+  reconciliar,
+  type Aplicacao,
+  type Divergencia,
+  type EncomendaNoEspelho,
+  type EncomendaNoRegisto,
+  type Fotografia,
+  type ReservaNoRegisto,
+  type TipoDeDivergencia,
+} from "./reconcile.ts";
