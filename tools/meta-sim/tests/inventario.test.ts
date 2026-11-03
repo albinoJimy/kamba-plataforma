@@ -123,8 +123,21 @@ describe("o inventario deste repositorio", () => {
     // fazer: o KAM-112 abriu PR com os tres numeros por declarar e o gate 7
     // ficou vermelho. Uma pasta `tests/` isenta — a tentacao que o
     // `inventario.ts` recusa por extenso — tinha deixado passar os tres.
-    assert.equal(totalDeclarado(), 94);
-    assert.equal(INVENTARIO.length, 26);
+    //
+    // **99 em 27 ficheiros desde o KAM-053**, e as cinco que entram sao da
+    // guarda de PII da `platform.append_payment_event`: tres formas no payload
+    // (o `+244` com prefixo, o `244` sem ele e um internacional que casa pelo
+    // segundo padrao), uma no `motivo` — que viaja para o *outbox* e por isso
+    // entra na guarda — e a sonda positiva de um payload redigido ao lado, sem
+    // a qual uma guarda que recusasse tudo deixava as outras quatro verdes.
+    //
+    // **E este gate apanhou-as outra vez, e a mim**: o PR do KAM-053 abriu com
+    // as cinco por declarar e o gate 7 ficou vermelho na primeira corrida, com
+    // a mensagem a nomear o ficheiro. E a terceira vez que a mesma salvaguarda
+    // morde um ticket que nao a estava a pensar — o KAM-115, o KAM-112 e este —
+    // e e por isso que a contagem fica aqui e nao numa pasta isenta.
+    assert.equal(totalDeclarado(), 99);
+    assert.equal(INVENTARIO.length, 27);
   });
 
   it("nenhuma entrada e de uma pasta inteira", () => {

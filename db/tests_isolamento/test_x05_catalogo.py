@@ -229,8 +229,32 @@ class TestCatalogoReal(ComBase):
                 # — vale igual. Ver o `ANULAVEIS` de
                 # `db/tests/test_catalogo.py` para a razao da nulidade.
                 ("platform", "payment_accounts", "tenant_id"),
-                # KAM-043: a cotacao, depois de `payment_accounts`
-                # («pa» < «pr»). A oferta esta acima, antes de
+                # KAM-053: a cobranca e o ledger, depois da conta e antes da
+                # cotacao — no `sorted()` por ponto de codigo decide o nono
+                # caractere, `payment_a` < `payment_c` < `payment_e`.
+                #
+                # **Duas das quatro tabelas da revisao, e as outras duas ficam
+                # de fora sem ninguem as dispensar:** o
+                # `payment_callbacks_inbox` nao tem `tenant_id` (quem chega
+                # ainda nao o revelou, `docs/tecnica/04` secao 5.1) e a
+                # `payment_outbox_map` e configuracao global, como a
+                # `evt_subscricoes`. A descoberta pergunta pela **coluna**, e
+                # nenhuma das duas a tem — por isso nao entram aqui nem precisam
+                # de entrada em `ci/rls_exceptions.yaml`. O que isola o inbox e
+                # um **papel**, o `kamba_pay_hooks`, e nao uma politica.
+                #
+                # **Nenhuma das duas tem receita de sementes**, e as razoes
+                # estao em `sementes.SEM_RECEITA_COM_RAZAO`, uma por tabela: no
+                # ledger ninguem tem `INSERT` e o `deny_mutation` recusa o
+                # `DELETE` com que estas receitas limpam (a razao da
+                # `audit_log`, a dobrar); na cobranca o *trigger*
+                # `assert_beneficiary` recusa **antes** de a politica ser
+                # avaliada, e o X-04 ficava a medir a guarda G-1 em vez do
+                # `WITH CHECK`. As duas provam-se em `db/tests_pagamentos/`.
+                ("platform", "payment_charges", "tenant_id"),
+                ("platform", "payment_events", "tenant_id"),
+                # KAM-043: a cotacao, depois das de pagamento
+                # («pay» < «pri»). A oferta esta acima, antes de
                 # `outbound_messages`.
                 ("platform", "price_quotes", "tenant_id"),
                 ("platform", "tenant_channels", "tenant_id"),
@@ -407,8 +431,52 @@ class TestCatalogoReal(ComBase):
                 # 154) e «politicas permissivas somam-se por OU», pelo que uma
                 # a mais abre o que a `tenant_iso` fecha — uma porta aberta
                 # sem ninguem a usar.
+                #
+                # **E a `0029` acrescenta-lhe a segunda, que a nota acima dizia
+                # nao se fazer — e a diferenca nao e de opiniao.** A
+                # `pay_hooks_token` nao e a politica de billing que o secao 6.2
+                # pedia (essa continua a nao existir, divida 154): e a leitura
+                # que o secao 5.1 **exige** e que nenhuma outra forma dava — no
+                # instante em que um callback chega, resolver
+                # `webhook_token -> conta` sem saber de que tenant e. A razao de
+                # nao ser uma funcao `SECURITY DEFINER`, que era a alternativa
+                # medida, esta no comentario de `_privilegios` da revisao: uma
+                # `DEFINER` corre como o dono e alcanca a tabela **inteira** por
+                # dentro, e punha uma segunda entrada na lista aprovada contra o
+                # DoD do bloco.
+                #
+                # **O «somam-se por OU» continua a valer, e e exactamente por
+                # isso que esta politica leva `TO`:** uma politica com `TO`
+                # aplica-se **so** ao papel que nomeia, e o `OR` de que a `0027`
+                # avisa junta politicas **do mesmo papel**. Nenhum outro papel e
+                # nomeado aqui, pelo que a `tenant_iso` dos outros fica
+                # intacta — a mesma forma da `resolver_leitura` da
+                # `tenant_channels` e da `tenants`, e o que a limita e o `GRANT`
+                # por coluna (sete, sem o `credenciais_ref`), nao o `USING
+                # (true)`.
+                #
+                # `FOR SELECT` e nao `ALL`, e ordena **antes** da `tenant_iso`
+                # pelo nome («pay» < «ten»).
+                ("payment_accounts", "pay_hooks_token", "SELECT", "{kamba_pay_hooks}"),
                 ("payment_accounts", "tenant_iso", "ALL", "{public}"),
-                # KAM-043: a cotacao, depois de `payment_accounts`.
+                # KAM-053: a cobranca e o ledger. **Uma politica cada e nenhuma
+                # com `TO`**: ao contrario da conta, aqui nao ha papel que leia
+                # sem contexto de tenant — quem escreve no ledger e o *worker*,
+                # que corre como `kamba_app` com o contexto ja resolvido (a
+                # ordem do secao 5.1, `inbox.insert -> 2xx -> worker`), e o
+                # `kamba_pay_hooks` nao tem privilegio nenhum nestas duas.
+                #
+                # A `tenant_iso` da `payment_events` e a afirmacao central deste
+                # ticket, e nao e redundante com o `SECURITY DEFINER` da porta:
+                # o `DEFINER` da **privilegio** e nao da **isolamento**, porque
+                # o `FORCE` prende tambem o dono (`db/rls.py`, que nomeia este
+                # ticket como credor da licao do KAM-052). Logo a
+                # `append_payment_event` avalia a politica com o `app.tenant_id`
+                # de quem chamou, e nao escreve um evento de outro tenant
+                # **mesmo sendo `DEFINER`**.
+                ("payment_charges", "tenant_iso", "ALL", "{public}"),
+                ("payment_events", "tenant_iso", "ALL", "{public}"),
+                # KAM-043: a cotacao, depois das de pagamento.
                 ("price_quotes", "tenant_iso", "ALL", "{public}"),
                 # KAM-047: as duas ultimas do `servicos`, e vem **antes** das
                 # duas de `tenant_channels` — a ordem e por nome de tabela, e
@@ -508,7 +576,21 @@ class TestCatalogoReal(ComBase):
              # (nao e um caso de `ISOLADAS_POR_OUTRA_COLUNA`), e o predicado
              # leva o `NULLIF` da `db/rls.py` como todos.
              "payment_accounts",
-             # KAM-043: a cotacao, depois de `payment_accounts` («pa» < «pr»).
+             # KAM-053: a cobranca e o ledger, e as duas com a coluna
+             # `tenant_id` e o predicado da `db/rls.py` como todas — o
+             # `NULLIF` incluido. **Sexta lista deste ficheiro a precisar de
+             # uma tabela nova**, e a licao que o KAM-043 mediu repetiu-se: as
+             # cinco de cima ja estavam feitas quando esta falhou. Quem
+             # acrescentar uma tabela isolada corre o *gate* 6 **inteiro**.
+             #
+             # Aqui o `NULLIF` vale uma frase propria: e ele que faz um
+             # contexto **vazio** nao casar com linha nenhuma em vez de
+             # rebentar, e e o que torna a `append_payment_event` segura sendo
+             # `DEFINER` — sem contexto, a porta nao encontra a cobranca e
+             # recusa, em vez de escrever no tenant errado.
+             "payment_charges",
+             "payment_events",
+             # KAM-043: a cotacao, depois das de pagamento («pay» < «pri»).
              # A oferta esta acima, entre `message_templates` e
              # `outbound_messages`.
              "price_quotes",
@@ -872,6 +954,35 @@ class TestFicheirosDePolitica(unittest.TestCase):
         with self.assertRaises(catalogo.PoliticaInvalida):
             catalogo.funcoes_permitidas(raiz)
 
+    #: A chave da `append_payment_event` na allowlist, escrita **como o
+    #: `pg_get_function_identity_arguments` a devolve** — isto e, com o **nome**
+    #: de cada parametro antes do tipo.
+    #:
+    #: **E aqui que esta a armadilha que a `audit_encadear()` escondeu durante
+    #: tres epics.** O comentario do `ci/secdef_allowlist.yaml` diz «`schema.
+    #: nome(tipos dos argumentos)`, como `pg_get_function_identity_arguments`»,
+    #: e as duas metades da frase nao dizem o mesmo: aquela funcao devolve `p_x
+    #: integer`, com o nome, e nao `integer`. A primeira entrada do ficheiro nao
+    #: tem argumentos nenhuns, pelo que as duas leituras coincidiam e ninguem
+    #: teve de escolher; a segunda tem treze, e a diferenca passa a custar duas
+    #: falhas — a funcao real «nao esta na lista» e a entrada da lista «nao
+    #: existe».
+    #:
+    #: Nao se escreve aqui o que o ficheiro tem hoje, e a escolha e deliberada:
+    #: este teste afirma o que a allowlist **tem de** conter para o
+    #: `verificar_security_definer` casar com o catalogo. Escrever o que ela tem
+    #: punha esta linha a passar e a deixar o X-05 vermelho, e armava a
+    #: inversa — o dia em que a entrada fosse corrigida, era este teste a
+    #: falhar.
+    APPEND_NA_ALLOWLIST = (
+        "platform.append_payment_event("
+        "p_charge_id uuid, p_tipo_evento text, p_account_id uuid, "
+        "p_valor_minor bigint, p_authn_method text, p_authn_ok boolean, "
+        "p_decisao text, p_motivo text, p_actor_kind text, p_actor_id uuid, "
+        "p_provider_event_id text, p_payload jsonb, "
+        "p_ocorrido_at timestamp with time zone)"
+    )
+
     def test_os_ficheiros_reais_leem_se_e_tem_o_que_esta_declarado(self) -> None:
         """Os dois nasceram vazios e deixaram de o estar no KAM-012.
 
@@ -880,10 +991,28 @@ class TestFicheirosDePolitica(unittest.TestCase):
         pelo mesmo desenho: a cabeca da cadeia de hash e escrita por um trigger
         que corre como o dono, e tem de ser, porque quem escreve a linha de
         auditoria nao pode poder escrever a cabeca.
+
+        **A segunda funcao da allowlist e do KAM-053**, e e a unica que aquele
+        ticket acrescenta — o DoD do bloco exige que seja unica. A
+        `append_payment_event` e a unica porta de escrita do ledger
+        `payment_events`: nenhum papel de aplicacao tem `INSERT` nessa tabela, e
+        e o `DEFINER` que lhe da o privilegio que o chamador nao tem. Ela da
+        privilegio e **nao** da isolamento — o `FORCE` prende tambem o dono —, e
+        e por isso que a excepcao e estreita.
+
+        A **resolucao do `webhook_token`**, que tem o mesmo problema de
+        contexto, nao e uma terceira entrada: resolve-se com a politica
+        `pay_hooks_token` por papel mais um `GRANT` por coluna, e a
+        `resolve_webhook_token` fica `SECURITY INVOKER`. Esta lista fechada e o
+        que impede que ela mude de ideias em silencio.
+
+        Ver `APPEND_NA_ALLOWLIST` acima para a forma exacta da chave, que nao e
+        a que o comentario do ficheiro parece prometer.
         """
         self.assertEqual(set(catalogo.excepcoes_rls()), {"platform.audit_heads"})
         self.assertEqual(
-            set(catalogo.funcoes_permitidas()), {"platform.audit_encadear()"}
+            set(catalogo.funcoes_permitidas()),
+            {"platform.audit_encadear()", self.APPEND_NA_ALLOWLIST},
         )
 
 

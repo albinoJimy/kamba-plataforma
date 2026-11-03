@@ -1306,6 +1306,363 @@ INVENTARIO = {
         ),
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
     },
+    # ------------------------------------------------------- KAM-053 (0029)
+    #
+    # A cobranca: o estado **derivado** do ledger, e a unica tabela mutavel de
+    # PAY — mutavel so pela `append_payment_event`, porque nenhum papel tem
+    # `UPDATE`. **Tem a primeira coluna de dinheiro de `platform` que nao e de
+    # catalogo**, o `amount_minor`, e nao e um saldo: e o que se pediu a este
+    # cliente nesta cobranca, nao o que a plataforma detem (G-3 do
+    # `docs/tecnica/04` secao 10.4). Ver o `EM_UNIDADE_MENOR` de
+    # `test_catalogo.py`, onde a razao se escreve coluna a coluna.
+    "payment_charges": {
+        "id": (
+            "uuid",
+            NAO,
+            "gen_random_uuid()",
+            "nao — `= chargeId = Idempotency-Key` (secao 6.2): quem cria a "
+            "cobranca escolhe o `id`, e e isso que torna a criacao retentavel "
+            "com a mesma chave (F-09)",
+        ),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "order_id": (
+            "uuid",
+            SIM,
+            None,
+            "nao — **sem FK**: a `orders_mirror` e do KAM-044 e a FK do "
+            "KAM-055. Anulavel porque exactamente um dos dois sujeitos existe, "
+            "e o `payment_charges_um_sujeito` impoe-no",
+        ),
+        "billing_cycle_id": (
+            "uuid",
+            SIM,
+            None,
+            "nao — idem, e a FK e do KAM-059. A facturacao da propria KAMBA usa "
+            "o mesmo PAY (secao 11.2), e e por isso que o `order_id` nao podia "
+            "ser obrigatorio",
+        ),
+        "tentativa": ("smallint", NAO, "1", "nao"),
+        "account_id": ("uuid", NAO, None, "nao"),
+        "provider": ("text", NAO, None, "nao"),
+        "metodo": ("text", NAO, None, "nao — dominio fechado de quatro valores"),
+        "referencia": (
+            "text",
+            SIM,
+            None,
+            "nao — Entidade + Referencia Multicaixa, identificador de "
+            "pagamento e nao de pessoa. Anulavel: um `express_push` nao tem "
+            "referencia",
+        ),
+        "provider_charge_id": ("text", SIM, None, "nao — id opaco do facilitador"),
+        "amount_minor": (
+            "bigint",
+            NAO,
+            None,
+            "nao — unidade menor inteira, e **nao e um saldo**: e o valor desta "
+            "cobranca. Ver `EM_UNIDADE_MENOR` em `test_catalogo.py`",
+        ),
+        "currency": (
+            "character",
+            NAO,
+            "'AOA'::bpchar",
+            "nao — dominio de um valor. `char(3)` **com** `CHECK`, ao contrario "
+            "do `text` da `0028`: aqui o DDL do secao 6.2 escreve `char(3)` e o "
+            "`payment_charges_currency_ck` e que fecha o dominio",
+        ),
+        "estado": (
+            "text",
+            NAO,
+            "'iniciada'::text",
+            "nao — projeccao de `next_state` sobre o ledger; o "
+            "`rebuild_charge_state` reconstroi-o a partir dos eventos",
+        ),
+        "motivo_falha": ("text", SIM, None, "nao — dominio fechado de nove valores"),
+        "requer_humano": ("boolean", NAO, "false", "nao"),
+        "valid_until": ("timestamp with time zone", NAO, None, "nao"),
+        "payer_hmac": (
+            "bytea",
+            SIM,
+            None,
+            "**e um HMAC e nao o numero**: o msisdn Express do pagador e PII P2 "
+            "(ADR-010), e o que se guarda e o resumo com segredo do cofre, pelo "
+            "anti-auto-compra do secao 9. `bytea`, como o `phone_hmac` da "
+            "`contacts`",
+        ),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
+    # Toda a entrega HTTP de callback, incluindo as rejeitadas. **Sem
+    # `tenant_id`**, e nao e lapso: quando o corpo chega nao se sabe de quem e
+    # (secao 5.1), e uma coluna de isolamento preenchida depois era uma chave
+    # que o atacante controla. O que a isola e o papel estreito
+    # `kamba_pay_hooks` — ver `TABELAS_0029` em `base.py`.
+    #
+    # **E a tabela de `platform` com mais superficie de dado de fora**, e por
+    # isso a que mais precisa desta pergunta respondida linha a linha: guarda o
+    # corpo cru e os cabecalhos de um pedido que qualquer um pode enviar.
+    "payment_callbacks_inbox": {
+        "id": ("bigint", NAO, None, "nao"),
+        "account_id": (
+            "uuid",
+            SIM,
+            None,
+            "nao — nulo quando o `webhook_token` nao resolve (recibo "
+            "`token_desconhecido`): guardar a entrega e o que torna o 404 "
+            "uniforme auditavel",
+        ),
+        "recebido_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "source_ip": (
+            "inet",
+            SIM,
+            None,
+            "o IP de origem do callback e de um **servidor do facilitador** e "
+            "nao de uma pessoa: o cliente paga no Multicaixa ou no Express, e "
+            "quem entrega o callback e a EMIS ou o banco. Nao e dado de "
+            "navegacao de ninguem",
+        ),
+        "headers": (
+            "jsonb",
+            NAO,
+            "'{}'::jsonb",
+            "nao — **sem segredos** (secao 6.2): quem escreve aqui redige o "
+            "`Authorization` e a assinatura antes de gravar",
+        ),
+        "body": (
+            "bytea",
+            NAO,
+            None,
+            "o corpo **cru** de um callback de pagamento, em octetos, porque o "
+            "HMAC e sobre ele e guardar texto descodificado perdia a "
+            "capacidade de o reverificar. Um payload da EMIS leva referencia, "
+            "valor e instante — identificadores de pagamento, nao de pessoa —, "
+            "e o telefone do pagador, quando o provedor o envia, e PII P2 que "
+            "nao se promove a coluna: fica no corpo que o `verifyCallback` le "
+            "e o `append_payment_event` **nao** copia para o ledger (a guarda "
+            "de PII da `0004` recusa um payload com padrao de telefone). A "
+            "retencao desta tabela e do KAM-071",
+        ),
+        "body_hash": (
+            "bytea",
+            NAO,
+            None,
+            "nao — sha256 do corpo, com `CHECK` de 32 octetos",
+        ),
+        "authn_ok": (
+            "boolean",
+            SIM,
+            None,
+            "nao — anulavel: `NULL` enquanto o `verifyCallback` nao correu, "
+            "porque o secao 5.1 grava a linha **antes** de haver veredicto",
+        ),
+        "estado": (
+            "text",
+            NAO,
+            "'recebido'::text",
+            "nao — dominio fechado de sete recibos",
+        ),
+        "processado_at": ("timestamp with time zone", SIM, None, "nao"),
+        "erro": (
+            "text",
+            SIM,
+            None,
+            "nao — mensagem de diagnostico escrita pelo *worker*, nao pelo que "
+            "chegou pela rede",
+        ),
+    },
+    # O ledger. `INSERT` so por `append_payment_event`; `UPDATE`, `DELETE` e
+    # `TRUNCATE` recusados pelo `deny_mutation` **a todos**, incluindo ao dono e
+    # ao superutilizador. O `payload` e redigido (secao 6.2, ADR-010) e a guarda
+    # da `0004` recusa um padrao de telefone.
+    "payment_events": {
+        "id": ("bigint", NAO, None, "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "charge_id": ("uuid", NAO, None, "nao"),
+        "order_id": (
+            "uuid",
+            SIM,
+            None,
+            "nao — copiado da cobranca pela funcao, nunca enviado pelo "
+            "chamador: um evento nao aponta para um sujeito diferente do da "
+            "cobranca a que pertence. Sem FK, pela razao da `payment_charges`",
+        ),
+        "billing_cycle_id": ("uuid", SIM, None, "nao — idem"),
+        "provider": ("text", NAO, None, "nao"),
+        "account_id": ("uuid", NAO, None, "nao"),
+        "referencia": (
+            "text",
+            NAO,
+            None,
+            "nao — `NOT NULL` aqui e anulavel na cobranca: um provedor sem "
+            "referencia usa `numero_publico#tentativa`, o que mantem a "
+            "unicidade por conta",
+        ),
+        "tipo_evento": (
+            "text",
+            NAO,
+            None,
+            "nao — dominio fechado de dezassete tipos. Factos e decisoes na "
+            "mesma coluna: o que os distingue e a `decisao`",
+        ),
+        "sequencia": (
+            "integer",
+            NAO,
+            None,
+            "nao — n-esima ocorrencia deste tipo para esta referencia, "
+            "calculada sob `FOR UPDATE` na cobranca",
+        ),
+        "provider_event_id": (
+            "text",
+            SIM,
+            None,
+            "nao — id de entrega do facilitador. Anulavel: um facto que a "
+            "plataforma gera nao tem identificador de entrega",
+        ),
+        "valor_minor": (
+            "bigint",
+            NAO,
+            None,
+            "nao — unidade menor inteira, e **nao e um saldo**: e o valor do "
+            "facto registado. Ver `EM_UNIDADE_MENOR` em `test_catalogo.py`",
+        ),
+        "currency": (
+            "character",
+            NAO,
+            "'AOA'::bpchar",
+            "nao — dominio de um valor, pela razao da `payment_charges`",
+        ),
+        "authn_method": (
+            "text",
+            NAO,
+            None,
+            "nao — **quatro** valores, e o quarto (`sistema`) ganhou dominio "
+            "escrito neste ticket: os factos de ciclo de vida que ninguem "
+            "autentica. Nunca autentica um `pagamento_confirmado`, porque a "
+            "`confirmar_exige_autenticacao` nao o inclui",
+        ),
+        "authn_ok": ("boolean", NAO, None, "nao"),
+        "decisao": ("text", NAO, None, "nao — dominio fechado de tres valores"),
+        "motivo": ("text", SIM, None, "nao — diagnostico escrito pela plataforma"),
+        "actor_kind": ("text", NAO, None, "nao — dominio fechado de quatro valores"),
+        "actor_id": (
+            "uuid",
+            SIM,
+            None,
+            "nao — o id do operador de ops que registou o acto, e nao o nome "
+            "dele. Exigido quando `authn_method = 'manual'` pelo "
+            "`humano_exige_actor`: uma confirmacao humana sem actor nao e "
+            "auditavel",
+        ),
+        "payload_hash": ("bytea", NAO, None, "nao — sha256, com `CHECK` de 32 octetos"),
+        "payload": (
+            "jsonb",
+            NAO,
+            "'{}'::jsonb",
+            "nao — **redigido** (secao 6.2, ADR-010), e nao e so convencao: o "
+            "`evt_emitir` da `0004` tem uma guarda que recusa um payload com "
+            "padrao de telefone, e e ela que o criterio 8 do bloco usa para "
+            "forcar a falha no *outbox*. O corpo cru do callback fica no "
+            "`payment_callbacks_inbox` e nao e copiado para ca",
+        ),
+        "ocorrido_at": (
+            "timestamp with time zone",
+            SIM,
+            None,
+            "nao — o instante que o facilitador declara; anulavel porque nem "
+            "todos o enviam",
+        ),
+        "recebido_at": (
+            "timestamp with time zone",
+            NAO,
+            "now()",
+            "nao — o instante da plataforma. **Nao entra no `row_hash`**: a "
+            "verificacao da cadeia le-o da linha e nao o reconstroi",
+        ),
+        "prev_hash": (
+            "bytea",
+            NAO,
+            "'\\x0000000000000000000000000000000000000000000000000000000000000000'::bytea",
+            "nao — o elo anterior da cadeia por cobranca. A omissao sao trinta "
+            "e dois zeros e **nao** `NULL`, pela razao da `0006`: com `NULL` o "
+            "`sha256(NULL || ...)` e `NULL` e o `row_hash NOT NULL` recusava a "
+            "primeira linha de cada cobranca",
+        ),
+        "row_hash": (
+            "bytea",
+            NAO,
+            None,
+            "nao — `sha256(prev_hash || campos canonicos)`, pela formula de "
+            "`payment_event_row_hash`. Sem o `id` nem o `recebido_at`: um elo "
+            "tem de se poder recalcular, e o `id` so existe depois do `INSERT`",
+        ),
+    },
+    # `(tipo_evento, authn_method) -> tipo EVT`. Fica **vazia**: o conteudo
+    # definitivo e do KAM-055, e um tipo sem mapeamento nao produz evento de
+    # dominio. Configuracao **global** e nao dado de tenant, como a
+    # `evt_subscricoes` da `0004` — e e por isso que nao tem `tenant_id` nem RLS.
+    "payment_outbox_map": {
+        "tipo_evento": ("text", NAO, None, "nao"),
+        "authn_method": ("text", NAO, None, "nao"),
+        "evt_tipo": ("text", NAO, None, "nao — nome de tipo de evento de dominio"),
+        "evt_versao": ("smallint", NAO, "1", "nao"),
+    },
+}
+
+#: **A terceira vista do esquema** (KAM-053, revisao `0029`), e esta aqui pela
+#: razao da `consent_actual` e da `v_draft_metrics`: a descoberta do
+#: `information_schema.columns` apanha-a de qualquer forma, e numa vista o
+#: PostgreSQL nao prova `NOT NULL` nem guarda omissao — logo `SIM` e `None` em
+#: todas.
+#:
+#: Escreve-se **derivada** da tabela, como a `consent_actual` e pela mesma
+#: razao: uma copia de dezoito colunas envelhece e ninguem nota. O que ela
+#: acrescenta e **uma** coluna que a tabela nao tem — o `authn_hmac_ok` —, e o
+#: que deixa de fora sao sete, cada uma por uma razao:
+#:
+#:   order_id, billing_cycle_id  o sujeito da cobranca, nao do evento. Quem
+#:                               audita o ledger segue o `charge_id`
+#:   provider_event_id           o id de entrega do facilitador: serve a
+#:                               deduplicacao (G7) e nao a leitura de auditoria
+#:   payload_hash, payload       o conteudo da entrega. A vista responde «o que
+#:                               aconteceu», nao «o que veio no corpo»
+#:   prev_hash, row_hash         a cadeia. Quem a verifica chama o
+#:                               `verify_ledger_chain`, e a cabeca le-se na
+#:                               `v_payment_ledger_heads`
+#:
+#: **A coluna chama-se `authn_hmac_ok` e nao o que o criterio 9 do bloco pede**:
+#: o nome daquele criterio e variante de nivel 1 do *gate* 3b e falha em
+#: qualquer superficie, incluindo dentro de uma cadeia. O predicado e o mesmo.
+#: Ver o comentario de `_vistas` na revisao `0029`.
+EXCLUIDAS_DA_VISTA_DO_LEDGER = (
+    "order_id",
+    "billing_cycle_id",
+    "provider_event_id",
+    "payload_hash",
+    "payload",
+    "prev_hash",
+    "row_hash",
+)
+
+INVENTARIO["v_payment_events_audit"] = {
+    coluna: (tipo, SIM, None, pessoal)
+    for coluna, (tipo, _, _, pessoal) in INVENTARIO["payment_events"].items()
+    if coluna not in EXCLUIDAS_DA_VISTA_DO_LEDGER
+}
+#: O predicado de HMAC do `docs/tecnica/08` secao 14, derivado e nao guardado.
+INVENTARIO["v_payment_events_audit"]["authn_hmac_ok"] = ("boolean", SIM, None, "nao")
+
+#: **A quarta vista** (KAM-053): a cabeca da cadeia de *hashes* por cobranca,
+#: que o *job* diario exporta para STO como ancora externa (secao 8) — uma
+#: cadeia cuja cabeca esta fora do *host* nao se reescreve sem se notar.
+#:
+#: Escreve-se **a mao** e nao derivada, ao contrario da vista acima: o
+#: `event_id` e um `AS` sobre o `id` da tabela, e derivar daria o nome errado.
+INVENTARIO["v_payment_ledger_heads"] = {
+    "charge_id": ("uuid", SIM, None, "nao"),
+    "tenant_id": ("uuid", SIM, None, "nao"),
+    "event_id": ("bigint", SIM, None, "nao"),
+    "sequencia": ("integer", SIM, None, "nao"),
+    "row_hash": ("bytea", SIM, None, "nao"),
+    "recebido_at": ("timestamp with time zone", SIM, None, "nao"),
 }
 
 #: **A segunda vista do esquema** (KAM-114), e esta no inventario pela razao da
@@ -1755,6 +2112,45 @@ class TestInventario(ComBase):
                         # que se quer — a conta diz para onde foi o dinheiro de
                         # uma venda, e isso e prova.
                         "payment_accounts_tenant_fk",
+                        # KAM-053: as **seis** da revisao `0029`, e sao seis e
+                        # nao oito porque duas nao existem de proposito — a de
+                        # `order_id` para `orders_mirror` e do **KAM-055** e a
+                        # de `billing_cycle_id` para `billing_cycles` do
+                        # **KAM-059**, e as duas tabelas ainda nao existem (o
+                        # `CHECK` de exclusividade entre os dois sujeitos fica
+                        # na `0029`, porque nao depende de tabela nenhuma).
+                        #
+                        # **Nenhuma e composta com o `tenant_id`**, e nas
+                        # tres que apontam para a `payment_accounts` isso nao e
+                        # uma falta mas uma impossibilidade: o `tenant_id` dela
+                        # e **anulavel** (a conta propria da KAMBA), pelo que
+                        # nao existe a unicidade `(id, tenant_id)` sobre que uma
+                        # FK composta assentasse. O que prende o beneficiario ao
+                        # tenant da cobranca e o *trigger* `assert_beneficiary`
+                        # (a guarda G-1 do secao 10.4), que compara os dois e
+                        # recusa com `check_violation` — e e ligado **nesta**
+                        # revisao, nao no KAM-055: a `payment_charges` nasce
+                        # aqui, e deixar uma tabela de dinheiro dois tickets
+                        # sem a G-1 era tirar uma barreira que ja existe.
+                        #
+                        # A `payment_events_charge_fk` liga duas tabelas que
+                        # **a mesma revisao** cria — como a
+                        # `contact_endpoints_dek_fk` da `0003` —, e e a
+                        # primeira a fazer isso entre uma tabela mutavel e uma
+                        # *append-only*.
+                        # `NO ACTION`, como todas, e aqui isso vale mais do que
+                        # em qualquer outra linha desta lista: um
+                        # `ON DELETE CASCADE` da cobranca para o ledger fazia de
+                        # um `DELETE` numa tabela mutavel o apagamento de prova
+                        # *append-only* — o `deny_mutation` recusa o `DELETE`
+                        # directo, e uma cascata entrava por uma porta que ele
+                        # nao guarda.
+                        "payment_charges_tenant_fk",
+                        "payment_charges_account_fk",
+                        "payment_callbacks_inbox_account_fk",
+                        "payment_events_tenant_fk",
+                        "payment_events_charge_fk",
+                        "payment_events_account_fk",
                         "handoffs_tenant_fk",
                         "handoffs_conversation_fk",
                         "handoff_accounts_tenant_fk",
@@ -1901,6 +2297,40 @@ class TestInventario(ComBase):
             # segunda cotacao.
             "offer_terms_tenant_estado_idx": False,
             "price_quotes_vivas_idx": False,
+            # KAM-053: os **quatro** parciais da revisao `0029`, e tres deles
+            # sao unicos — o que faz desta a revisao que acrescenta mais regras
+            # de negocio por indice parcial.
+            #
+            # `payment_charges_ref_uq`: o criterio 4 do secao 6.2. O par
+            # `(account_id, referencia)` e unico **com a conta**, e nao sem ela:
+            # uma referencia Multicaixa e Entidade + Referencia, e duas PMEs
+            # podem ter o mesmo numero (`evidencia/E2` secao 2). Parcial em
+            # `referencia IS NOT NULL` porque um `express_push` nao tem
+            # referencia, e um indice total recusava a segunda cobranca sem ela.
+            #
+            # `payment_charges_activa_uq`: uma cobranca activa por sujeito. O
+            # predicado sao **quatro** estados, e depois de um terminal o par
+            # liberta-se — e **tem** de libertar-se, senao o `tentativa + 1` do
+            # F-06 nao podia existir. Perder o `UNIQUE` aqui dava duas cobrancas
+            # a correr para a mesma encomenda, que e o cliente a pagar duas
+            # vezes: e o caso em que a perda do `UNIQUE` num parcial custa
+            # dinheiro, e e por isso que esta lista diz se cada um e unico.
+            #
+            # `payment_events_entrega_uq`: a deduplicacao de entregas (G7), e
+            # **com o tipo de evento no predicado**, que e o secao 6.2 a letra.
+            # Nao e global por uma razao medida: o mesmo `provider_event_id`
+            # aparece num `pagamento_confirmado` que decorre do
+            # `pagamento_recebido` que o trouxe, e um indice sobre todos os
+            # tipos recusava a decisao por causa do facto.
+            #
+            # `payment_callbacks_inbox_pendentes`: parcial e **nao** unico, pela
+            # ideia do `events_outbox_pendentes` — cobre so o que falta
+            # processar, e o varrimento do *worker* nao cresce com o arquivo das
+            # entregas ja tratadas.
+            "payment_charges_ref_uq": True,
+            "payment_charges_activa_uq": True,
+            "payment_events_entrega_uq": True,
+            "payment_callbacks_inbox_pendentes": False,
             "draft_decisions_thread_idx": False,
             # KAM-006: parcial e **unico**, e e o unico desta revisao. Impoe a
             # reentrada idempotente **entre as abertas**: o mesmo evento a
@@ -1950,6 +2380,80 @@ class TestInventario(ComBase):
             sorted(nome for (nome,) in linhas),
             sorted(
                 [
+                    # ------------------------------------- KAM-053 (0029)
+                    #
+                    # **Trinta e duas**: onze da `payment_charges`, tres do
+                    # `payment_callbacks_inbox`, treze da `payment_events` e
+                    # cinco da `payment_outbox_map`. E a revisao que acrescenta
+                    # mais restricoes a esta lista, e a razao esta no que ela
+                    # cria: seis dominios fechados, uma cadeia de *hashes* e as
+                    # duas regras que o secao 14 cita como mecanismo.
+                    #
+                    # As duas que fazem o trabalho sao as que **nao** levam o
+                    # nome da tabela, e e deliberado — o DDL do secao 6.2
+                    # nomeia-as assim e elas descrevem uma regra e nao uma
+                    # coluna:
+                    #
+                    #   confirmar_exige_autenticacao  o alvo «100% das `paga`
+                    #     com evento autenticado» (secao 14). Um
+                    #     `pagamento_confirmado` exige `authn_ok`, `decisao =
+                    #     'aceite'` e um `authn_method` **dos tres** que
+                    #     autenticam — o `sistema` nao esta na lista, e e esse o
+                    #     dominio do quarto valor que este ticket decidiu.
+                    #   humano_exige_actor  um `manual` sem `actor_id` nao e
+                    #     auditavel: «quem confirmou?» nao tem resposta.
+                    #
+                    # O `payment_events_hashes_sha256` e **aditivo ao DDL do
+                    # documento** (desvio registado no PR), pela razao da
+                    # `0006`: sem ele um `prev_hash` de outro comprimento
+                    # passava, e a verificacao da cadeia deixava de poder
+                    # afirmar que compara sha256 com sha256. O
+                    # `payment_callbacks_inbox_body_hash_sha256` e o mesmo para
+                    # o corpo que entrou pela rede.
+                    #
+                    # Os dois `currency_ck` existem porque a coluna e `char(3)`:
+                    # um `char(3)` **sem** `CHECK` aceita `'USD'` em silencio, e
+                    # o `canon_lint` do *gate* 3b le os valores de um `CHECK`
+                    # contra o dominio fechado do dicionario — e e por isso que
+                    # o dominio de um valor se escreve e nao se presume.
+                    #
+                    # Os dois `um_sujeito` sao a exclusividade do secao 6.1 —
+                    # uma cobranca e de encomenda **ou** de ciclo de billing,
+                    # exactamente um — e ficam aqui, e nao no KAM-055, porque
+                    # nao dependem de tabela nenhuma: e o `CHECK` que as FK em
+                    # falta nao podem substituir.
+                    "payment_charges_pkey",
+                    "payment_charges_order_tentativa_uq",
+                    "payment_charges_billing_tentativa_uq",
+                    "payment_charges_um_sujeito",
+                    "payment_charges_estado_ck",
+                    "payment_charges_metodo_ck",
+                    "payment_charges_motivo_falha_ck",
+                    "payment_charges_amount_ck",
+                    "payment_charges_currency_ck",
+                    "payment_charges_tentativa_ck",
+                    "payment_charges_provider_ck",
+                    "payment_callbacks_inbox_pkey",
+                    "payment_callbacks_inbox_estado_ck",
+                    "payment_callbacks_inbox_body_hash_sha256",
+                    "payment_events_pkey",
+                    "payment_events_uq",
+                    "payment_events_um_sujeito",
+                    "payment_events_tipo_evento_ck",
+                    "payment_events_sequencia_ck",
+                    "payment_events_valor_ck",
+                    "payment_events_currency_ck",
+                    "payment_events_authn_method_ck",
+                    "payment_events_decisao_ck",
+                    "payment_events_actor_kind_ck",
+                    "confirmar_exige_autenticacao",
+                    "humano_exige_actor",
+                    "payment_events_hashes_sha256",
+                    "payment_outbox_map_pkey",
+                    "payment_outbox_map_tipo_evento_ck",
+                    "payment_outbox_map_authn_method_ck",
+                    "payment_outbox_map_evt_tipo_ck",
+                    "payment_outbox_map_evt_versao_ck",
                     # ------------------------------------- KAM-043 (0028)
                     # Onze da `offer_terms` e oito da `price_quotes`. As
                     # duas chaves, os cinco dominios fechados, os dois

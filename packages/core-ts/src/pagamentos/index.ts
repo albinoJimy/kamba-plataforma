@@ -36,6 +36,20 @@
  *     conformidade  os dez casos do §3.5, parametrizaveis por adaptador
  *     fake          o adaptador de referencia que os passa
  *
+ * E, desde o **KAM-053**, as duas pecas de aplicacao do ledger — o resto dele
+ * vive na revisao `0029`, porque um ledger cuja imutabilidade dependesse de
+ * codigo de aplicacao nao era imutavel:
+ *
+ *     hooks         o *handler* `POST /hooks/pay/{provider}/{webhook_token}`,
+ *                   com a ordem do §5.1 (`inbox.insert -> verifyCallback ->
+ *                   2xx`) e as cadeias de SQL que a suite de base de dados le
+ *                   deste ficheiro em vez de uma copia
+ *     ledger        a verificacao diaria da cadeia e a ancora externa no
+ *                   `StorageProvider` (§8)
+ *     gates         G2-G7, a parte **avaliar** do *worker* do §5.1, pura. A
+ *                   orquestracao — ler o *inbox*, abrir transacção, chamar a
+ *                   porta — e I/O e vive no servico `pay`, que nao existe
+ *
  * O ledger `payment_events` e o KAM-053; o `ManualProvider` e o KAM-054; a
  * `payment_charges` e as FK para `orders_mirror` sao o KAM-055; o ProxyPay e o
  * KAM-056; o billing e o KAM-059. **Nenhum deles esta aqui**, e o `refund` e o
@@ -110,6 +124,73 @@ export {
   validarCredenciaisRef,
   verificarBeneficiario,
 } from "./contas.ts";
+
+export {
+  ESTADOS_QUE_ACEITAM,
+  ESTADO_TARDIO,
+  GATES_DO_WORKER,
+  type CobrancaParaGates,
+  type ContaParaGates,
+  type DestinoDoEvento,
+  type EntradaDosGates,
+  type GateDoWorker,
+  type MotivoDeDivergencia,
+  type VeredictoDosGates,
+  avaliarGates,
+  escritasDoVeredicto,
+  reciboDoVeredicto,
+} from "./gates.ts";
+
+export {
+  ALERTA_HMAC,
+  CABECALHOS_GUARDADOS,
+  CADEIAS_EXERCITADAS,
+  CAMINHO_DO_HOOK,
+  CORPO_DO_404,
+  EVENTOS_DO_WORKER,
+  METRICA_ACK,
+  METRICA_EVENTOS,
+  PRAZO_DA_VERIFICACAO_MS,
+  PrazoEsgotado,
+  SQL_APPEND_PAYMENT_EVENT,
+  SQL_INBOX_INSERT,
+  SQL_INBOX_MARK,
+  SQL_OUTBOX_MAP,
+  SQL_RESOLVE_WEBHOOK_TOKEN,
+  TECTO_DO_CORPO,
+  type AdaptadorDoHook,
+  type ContaDoToken,
+  type DependenciasDoHook,
+  type EstadoDaEntrega,
+  type Inbox,
+  type PedidoDoHook,
+  type RespostaDoHook,
+  type TrabalhoDoWorker,
+  type VeredictoDoWorker,
+  atenderCallback,
+  redigir,
+} from "./hooks.ts";
+
+export {
+  ALERTA_DA_CADEIA,
+  ALERTA_DA_PROJECCAO,
+  ALERTA_DE_LEITURA,
+  CADEIAS_DO_JOB,
+  PREFIXO_DA_ANCORA,
+  SQL_CABECAS,
+  SQL_ELOS_PARTIDOS,
+  SQL_PROJECCOES_DIVERGENTES,
+  type CabecaDaCadeia,
+  type DependenciasDoJob,
+  type EloPartido,
+  type EscritaDaAncora,
+  type LeituraDoLedger,
+  type ProjeccaoDivergente,
+  type RelatorioDoLedger,
+  chaveDaAncora,
+  serializarAncora,
+  verificarLedgerDiariamente,
+} from "./ledger.ts";
 
 export {
   CASAS_DO_DECIMAL2,

@@ -42,6 +42,7 @@ PAPEIS = {
     "identity": "kamba_identity",
     "audit": "kamba_audit",
     "agr": "kamba_agr",
+    "pay_hooks": "kamba_pay_hooks",
 }
 
 #: Variavel de ambiente da palavra-passe de cada identidade.
@@ -54,6 +55,7 @@ VARIAVEL_DA_SENHA = {
     "identity": "KAMBA_SECRET_DB_IDENTITY_PASSWORD",
     "audit": "KAMBA_SECRET_DB_AUDIT_PASSWORD",
     "agr": "KAMBA_SECRET_DB_AGR_PASSWORD",
+    "pay_hooks": "KAMBA_SECRET_DB_PAY_HOOKS_PASSWORD",
 }
 
 

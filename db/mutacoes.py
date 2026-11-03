@@ -179,6 +179,8 @@ EV_ACCOES = "packages/core-ts/src/eventos/accoes.ts"
 #: que a cadeia partida ja faz falhar em `tests` nao precisa de as pagar. A de
 #: carga existe para provar a concorrencia uma vez, no gate.
 REV6 = "db/migrations/versions/0006_audit_log.py"
+#: KAM-053: o ledger de pagamentos. A revisao, e a suite que a prova.
+REV29 = "db/migrations/versions/0029_ledger_de_pagamentos.py"
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -5592,6 +5594,138 @@ MUTACOES = [
     # O AGR nao aplica transicao nenhuma — quem transita a encomenda e o COM
     # (`03` §6) —, e com isto **todos** os pagamentos levantam `MaquinaEmFalta`
     # e acabam na DLQ (dicionario §3.33).
+    # ------------------------------------------- KAM-053, o ledger de pagamentos
+    #
+    # Nove, e cada uma ataca **uma** barreira do ticket. A ordem e a do que custa
+    # mais se nao morder: primeiro as que deixariam escrever `paga` por fora,
+    # depois as que deixariam o ledger mutavel, por fim as que deixariam a cadeia
+    # e a sequencia inconsistentes.
+    #
+    # Correm na suite `tests_pagamentos`, que e quem as mata.
+    ('revisao 0029: a aplicacao ganha UPDATE na cobranca', REV29,
+     'op.execute(f"GRANT SELECT, INSERT ON {COBRANCAS} TO {PAPEL_DA_APP}")',
+     'op.execute(f"GRANT SELECT, INSERT, UPDATE ON {COBRANCAS} TO {PAPEL_DA_APP}")',
+     "tests_pagamentos"),
+    # **A mutacao mais importante da lista.** Com `UPDATE` concedido, o
+    # `kamba_app` escreve `estado = 'paga'` sem passar pela porta — e a caixa do
+    # DoD («nao existe caminho de codigo que escreva `paga` fora de
+    # `append_payment_event`») passa a ser uma convencao de quem escreve o
+    # codigo. O `TestNaoHaSegundaPorta` tem de a matar pelo `42501`.
+    ('revisao 0029: a aplicacao ganha INSERT no ledger', REV29,
+     f'op.execute(f"GRANT SELECT ON {{EVENTOS}} TO {{PAPEL_DA_APP}}")',
+     f'op.execute(f"GRANT SELECT, INSERT ON {{EVENTOS}} TO {{PAPEL_DA_APP}}")',
+     "tests_pagamentos"),
+    # A outra metade da porta: com `INSERT`, escreve-se um evento com a
+    # `sequencia`, o `prev_hash` e o `row_hash` a escolha. O
+    # `test_insert_directo_no_ledger_falha_por_privilegio` tem de morder — e
+    # tem de morder **por privilegio**, nao por `CHECK`: a linha que ele tenta e
+    # deliberadamente valida em tudo o mais.
+    ('revisao 0029: o trigger de imutabilidade deixa de cobrir o DELETE', REV29,
+     'BEFORE UPDATE OR DELETE ON {EVENTOS}',
+     'BEFORE UPDATE ON {EVENTOS}',
+     "tests_pagamentos"),
+    # Um `DELETE` no ledger passa a correr para quem tiver o privilegio — o
+    # superutilizador, que e quem o `deny_mutation` existe para prender. E a
+    # mutacao que a `0006` ja tinha na sua forma (`o audit_log deixa de ter
+    # trigger de UPDATE`), aqui pelo outro verbo.
+    ('revisao 0029: os triggers do ledger deixam de ser ALWAYS', REV29,
+     'op.execute("ALTER TABLE " + EVENTOS + " ENABLE ALWAYS TRIGGER payment_events_imutavel")',
+     'pass  # sem ENABLE ALWAYS',
+     "tests_pagamentos"),
+    # Um `SET session_replication_role = replica` salta os *triggers* de
+    # omissao, e com ele um `UPDATE` no ledger passa. O
+    # `TestTriggersSaoAlways` le o `tgenabled` do catalogo e tem de recusar o
+    # `'O'`.
+    ('revisao 0029: o sistema passa a poder confirmar um pagamento', REV29,
+     'AUTENTICACOES_QUE_CONFIRMAM = ("\'hmac\'", "\'consulta\'", "\'manual\'")',
+     'AUTENTICACOES_QUE_CONFIRMAM = ("\'hmac\'", "\'consulta\'", "\'manual\'", "\'sistema\'")',
+     "tests_pagamentos"),
+    # **A decisao deste ticket, atacada.** Com o `sistema` na restricao, a
+    # plataforma confirma um pagamento sem ninguem o ter autenticado — que e
+    # exactamente o que o dominio do quarto valor existe para impedir. O
+    # `test_o_check_recusa_confirmado_autenticado_por_sistema` tem de o matar.
+    ('revisao 0029: a porta deixa de comparar o valor com a cobranca', REV29,
+     'IF p_valor_minor <> v_charge.amount_minor THEN',
+     'IF false THEN',
+     "tests_pagamentos"),
+    # O G4 desaparece do unico sitio onde pode viver: **nenhum `CHECK` o pode
+    # fazer**, porque nenhuma restricao de `payment_events` le o `amount_minor`
+    # da `payment_charges`. Um pagamento a menos passa a confirmar a cobranca.
+    ('revisao 0029: a porta deixa de comparar a conta com a cobranca', REV29,
+     '''IF p_account_id IS NULL
+             OR p_account_id IS DISTINCT FROM v_charge.account_id THEN''',
+     'IF false THEN',
+     "tests_pagamentos"),
+    # O G2 do §5: um evento de outra conta (outra entidade EMIS) passa a
+    # confirmar esta cobranca.
+    ('revisao 0029: o G2 volta ao <>, e um account_id nulo salta-o', REV29,
+     '''IF p_account_id IS NULL
+             OR p_account_id IS DISTINCT FROM v_charge.account_id THEN''',
+     'IF p_account_id <> v_charge.account_id THEN',
+     "tests_pagamentos"),
+    # **A mutacao que a revisao adversarial pagou.** `NULL <> x` avalia a
+    # `NULL`, o `IF` nao dispara, e o `INSERT` grava o `account_id` **da
+    # cobranca** — pelo que nao ha `NOT NULL` que o apanhe depois. Isto e,
+    # `p_account_id => NULL` saltava o G2 em silencio e confirmava o pagamento.
+    # O `TestOG2ComContaNula` tem de a matar.
+    ('revisao 0029: a cobranca volta a poder nascer paga', REV29,
+     """          IF NEW.estado <> 'iniciada' THEN""",
+     '          IF false THEN',
+     "tests_pagamentos"),
+    # **A quinta via**, que e o achado mais grave da revisao adversarial: o
+    # `kamba_app` tem `INSERT` na `payment_charges`, e sem este *trigger* um
+    # `INSERT` com `estado = 'paga'` passava e deixava uma cobranca paga com
+    # **zero** eventos no ledger — que o *job* do §8 nao detecta, porque so
+    # compara cobrancas **com** eventos. O `TestAQuintaVia` tem de a matar.
+    ('revisao 0029: as vistas voltam a nao ter GRANT', REV29,
+     '''    for papel in (PAPEL_DA_APP, PAPEL_DE_LOTE, PAPEL_DE_AUDITORIA):
+        op.execute(f"GRANT SELECT ON platform.v_payment_events_audit TO {papel}")''',
+     '    pass  # sem GRANT nas vistas',
+     "tests_pagamentos"),
+    # Sem `GRANT`, uma vista nao e lida por papel nenhum (`42501 permission
+    # denied for view`) — e a ancora externa do §8 falhava na primeira execucao
+    # real. Nenhum ensaio o via antes do `TestPrivilegiosDasVistas`: os de
+    # catalogo inspeccionam como administrador e o `test_privilegios.py` nao tem
+    # matriz para vistas.
+    ('revisao 0029: o elo perde as colunas de atribuicao', REV29,
+     '''    "decisao",
+    "motivo",
+    "actor_kind",
+    "actor_id",
+    "payload_hash",''',
+     '''    "decisao",
+    "payload_hash",''',
+     "tests_pagamentos"),
+    # Com o `motivo`, o `actor_kind` e o `actor_id` fora do elo, reescreve-se a
+    # **atribuicao do acto humano** sem a cadeia dar por nada — e «confirmacao
+    # humana **auditada**» do §7.1 e precisamente isso. O
+    # `test_toda_a_coluna_esta_no_elo_ou_declarada_fora` tem de a matar, porque
+    # compara a lista com o catalogo e nao com a assinatura da funcao.
+    ('revisao 0029: a politica do token volta ao USING (true)', REV29,
+     '          USING (webhook_token = {PREDICADO_DO_TOKEN})',
+     '          USING (true)',
+     "tests_pagamentos"),
+    # Com `USING (true)`, o papel dos *webhooks* passa a ver **todas** as contas
+    # — e o `resolve_webhook_token` devolve a primeira que a tabela der em vez
+    # da que o *token* nomeia. E a forma que a revisao adversarial mediu como
+    # enumeravel; aqui o que a mata e o
+    # `test_um_token_desconhecido_resolve_a_zero_linhas`.
+    ('revisao 0029: a porta perde o FOR UPDATE da cobranca', REV29,
+     'WHERE id = p_charge_id FOR UPDATE;',
+     'WHERE id = p_charge_id;',
+     "tests_pagamentos"),
+    # As vinte sessoes concorrentes deixam de ser serializadas: `1 + count(*)`
+    # le o mesmo numero em todas e dezanove levam `23505`. **E a mutacao que o
+    # passo de canario do `test_concorrencia.py` ja constroi a mao** — esta
+    # ataca a revisao de producao, e o `test_vinte_chamadas_concorrentes_dao_1_a_20`
+    # tem de a matar.
+    ('revisao 0029: o payload do evento deixa de passar pela guarda de PII', REV29,
+     "IF p_payload::text ~ '\\+?244 ?9[0-9]{{8}}'",
+     "IF false AND p_payload::text ~ '\\+?244 ?9[0-9]{{8}}'",
+     "tests_pagamentos"),
+    # A caixa de privacidade do DoD deixa de ser uma barreira e volta a ser uma
+    # convencao. Num ledger *append-only* isso e pior do que noutra tabela: um
+    # telefone que entre nao sai, nem com `UPDATE`.
 ]
 
 

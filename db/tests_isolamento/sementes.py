@@ -1345,10 +1345,71 @@ RECEITAS: dict[tuple[str, str], Receita] = {
 #: limpam. O isolamento dela prova-se em `db/tests_agr/test_tool_audit.py`, que
 #: faz as perguntas do X-04 — ler e escrever no tenant de outro, e sem contexto
 #: nenhum — sem precisar de apagar linha nenhuma.
+#:
+#: **As duas do KAM-053 trazem uma razao nova a esta lista, e vale a pena
+#: separa-la das de cima.** Todas as entradas anteriores dizem «esta bateria nao
+#: consegue **limpar** a tabela»; a `payment_charges` diz outra coisa — esta
+#: bateria consegue semea-la e limpa-la, e o que ela nao consegue e **medir a
+#: politica**, porque um `BEFORE INSERT` recusa antes de o `WITH CHECK` ser
+#: avaliado. A razao esta por extenso na entrada, com a medicao. A distincao
+#: importa para quem ler esta lista a procura de um padrao: «sem receita» nao
+#: significa sempre «append-only».
 SEM_RECEITA_COM_RAZAO = {
     ("platform", "audit_heads"),
     ("platform", "audit_log"),
     ("platform", "tool_audit"),
+    # KAM-053: o ledger, pela razao da `audit_log` **a dobrar**. Nao e so que o
+    # `deny_mutation` com `ENABLE ALWAYS` recusa o `DELETE` com que estas
+    # receitas limpam: e que **nenhum papel tem `INSERT`** nesta tabela, pelo
+    # que nao ha receita para escrever — a unica porta de escrita e a
+    # `append_payment_event`, que e `SECURITY DEFINER`, exige uma cobranca
+    # existente e visivel, calcula a `sequencia` sob `FOR UPDATE` e encadeia o
+    # `row_hash`. Uma semente que a chamasse nao semeava uma linha: corria o
+    # ticket inteiro.
+    #
+    # O isolamento prova-se em `db/tests_pagamentos/`, que faz as perguntas do
+    # X-03/X-04 sobre esta tabela sem precisar de apagar nada — e faz uma que
+    # esta bateria nao sabe fazer: com o contexto de B sobre uma cobranca de A,
+    # a porta `DEFINER` **recusa**, porque o `FORCE` prende tambem o dono.
+    ("platform", "payment_events"),
+    # KAM-053: a cobranca, e aqui a razao **nao** e a do ledger — ela e mutavel,
+    # o `kamba_app` tem `INSERT` e o `kamba_batch` apaga com `DELETE`. Uma
+    # receita escrevia-se e limpava-se sem problema. O que a tira desta bateria
+    # e o *trigger* `assert_beneficiary` — a guarda G-1 do `docs/tecnica/04`
+    # secao 10.4, que a `0029` liga a esta tabela —, e e uma questao de **ordem
+    # de avaliacao** e nao de privilegio:
+    #
+    #   um `BEFORE INSERT` corre **antes** de o `WITH CHECK` da politica ser
+    #   avaliado, porque o *trigger* pode alterar o `NEW`.
+    #
+    # Medido contra o PostgreSQL 18.6: com o contexto de A e uma linha de B, o
+    # `assert_beneficiary` nao encontra a conta de B (a RLS da
+    # `payment_accounts` esconde-a) e recusa com `23514`
+    # («nao existe ou nao e visivel no contexto desta transaccao»), antes de a
+    # politica desta tabela dizer nada. O `_inserir_tem_de_falhar` da
+    # `tests_isolamento/base.py` exige `42501` **e** a cadeia
+    # «row-level security» de proposito — aceitar qualquer erro passava se
+    # alguem tirasse o `INSERT` ao papel, pela razao errada —, e o
+    # `_inserir_sem_privilegio` exige «permission denied», que o `kamba_app`
+    # nao da porque **tem** `INSERT`.
+    #
+    # Nao ha terceira forma, e as duas que se tentaram estao medidas: nenhuma
+    # linha passa o *trigger* e falha a politica, porque o *trigger* exige
+    # `conta.tenant_id = NEW.tenant_id` e a conta so e visivel se for do
+    # contexto — pelo que toda a linha que ele aceita e uma linha que a politica
+    # tambem aceita.
+    #
+    # Declarar uma receita aqui nao era medir melhor: era deixar o X-04 a medir
+    # a G-1 **com o nome do `WITH CHECK`**, e a afirmacao que a bateria faz
+    # passava a ser sobre outra barreira. O isolamento desta tabela prova-se em
+    # `db/tests_pagamentos/`, onde as duas barreiras se medem separadas — e o
+    # proprio achado tem ensaio proprio la,
+    # `test_o_with_check_da_cobranca_e_inalcancavel_e_isso_fica_medido`, que
+    # tenta as **duas** formas de o alcancar (contexto A com linha de B, e um
+    # terceiro contexto com linha de A) e mostra que o *trigger* ganha nas duas.
+    # Esta linha e a consequencia desse achado nesta bateria, nao uma segunda
+    # opiniao sobre ele.
+    ("platform", "payment_charges"),
     # KAM-030. Pela razao da `audit_log` e da `tool_audit`: as receitas semeiam
     # **e apagam**, e o *trigger* `ENABLE ALWAYS` da revisao `0023` recusa o
     # `DELETE`. O isolamento prova-se em `db/tests_agr/test_llm_call_log.py`,

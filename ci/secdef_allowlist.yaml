@@ -13,7 +13,18 @@
 #
 # Campos, todos obrigatorios:
 #
-#   funcao   `schema.nome(tipos dos argumentos)`, como `pg_get_function_identity_arguments`
+#   funcao   exactamente o que o `pg_get_function_identity_arguments` devolve, que
+#            inclui os **nomes** dos parametros: `platform.f(p_x uuid, p_y text)` e
+#            nao `platform.f(uuid, text)`. A comparacao do verificador e textual.
+#
+#            **Esta linha dizia «`schema.nome(tipos dos argumentos)`, como
+#            `pg_get_function_identity_arguments`», e as duas metades da frase
+#            nao diziam o mesmo.** A `audit_encadear()` escondeu-o desde o
+#            KAM-004 porque nao tem argumentos; a primeira entrada com
+#            argumentos (KAM-053) seguiu a primeira metade e deu **seis**
+#            falhas no X-05 do gate 6 — duas simetricas («e SECURITY DEFINER e
+#            nao esta na lista» e «esta na lista e nao existe») mais os quatro
+#            ensaios de regressao que contam problemas.
 #   adr      `ADR-NNN` ou `ADR-LNNN` que a fundamenta
 #   razao    o que a funcao faz que nao se consegue fazer como `SECURITY INVOKER`
 #
@@ -34,3 +45,26 @@ funcoes:
       estreita: a funcao nao escreve a linha de auditoria, escreve a cabeca da
       cadeia, que e precisamente o que quem escreve a linha nao pode poder
       fazer.
+
+  - funcao: platform.append_payment_event(p_charge_id uuid, p_tipo_evento text, p_account_id uuid, p_valor_minor bigint, p_authn_method text, p_authn_ok boolean, p_decisao text, p_motivo text, p_actor_kind text, p_actor_id uuid, p_provider_event_id text, p_payload jsonb, p_ocorrido_at timestamp with time zone)
+    adr: ADR-015
+    razao: >-
+      E a unica porta de escrita do ledger `payment_events` (KAM-053): nenhum
+      papel de aplicacao tem `INSERT` nessa tabela, e e o `DEFINER` que lhe da o
+      privilegio que o chamador nao tem. Com `SECURITY INVOKER` a excepcao nao
+      desaparecia — mudava de sitio: era preciso conceder `INSERT` ao
+      `kamba_app`, e com esse privilegio escreve-se um evento com a `sequencia`,
+      o `prev_hash` e o `row_hash` a escolha, sem passar por aqui. Isto e, a
+      imutabilidade do ledger deixava de ser uma propriedade da base e passava a
+      ser uma convencao de quem escreve o codigo.
+      A excepcao e **estreita, e nao cega**: o `DEFINER` nao contorna o `FORCE
+      ROW LEVEL SECURITY` (a funcao corre como o `kamba_migrator`, que e
+      `NOBYPASSRLS`, e o `FORCE` vincula o dono — `db/rls.py`), pelo que a
+      politica `tenant_iso` continua a avaliar com o `app.tenant_id` de quem
+      chamou: uma chamada com o contexto do tenant A sobre uma cobranca de B nao
+      encontra a cobranca e recusa. Ela da privilegio e nao da isolamento, e e
+      esse o desenho.
+      A resolucao do `webhook_token`, que tem o mesmo problema de contexto,
+      **nao** e uma segunda entrada: resolve-se com a politica `pay_hooks_token`
+      por papel mais um `GRANT` por coluna, que o DoD do bloco exige ao escrever
+      «SECURITY DEFINER apenas em append_payment_event».

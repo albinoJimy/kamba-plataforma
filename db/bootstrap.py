@@ -46,6 +46,10 @@ O que cada papel pode, e a razao:
     kamba_identity  CONNECT. O unico que le `contact_endpoints` e
                     `contact_deks` (revisao 0003); nao contorna a RLS — o
                     modulo de identidade trabalha um tenant de cada vez.
+    kamba_pay_hooks CONNECT. O papel que atende os callbacks de pagamento
+                    (revisao 0029): grava no `payment_callbacks_inbox`, que nao
+                    tem `tenant_id`, e resolve o `webhook_token` por funcao.
+                    Nao contorna a RLS e nao le cobrancas nem o ledger.
 
 Nenhum e superutilizador, nenhum cria bases nem papeis.
 """
@@ -78,6 +82,17 @@ ATRIBUTOS = {
     # que nao ha nada para contornar. O que o isola e nao ter `USAGE` no
     # `platform` — ver a nota da revisao `0020`.
     "kamba_agr": "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS",
+    # O papel estreito dos *webhooks* de pagamento (KAM-053). Existe por uma
+    # razao de ordem e nao de conveniencia: resolve `webhook_token -> account`
+    # **antes de existir contexto de tenant**, porque no instante em que um
+    # callback chega ainda nao se sabe de quem ele e (`docs/tecnica/04` §5.1).
+    #
+    # `NOBYPASSRLS`, e isso parece contradizer o paragrafo acima — nao
+    # contradiz. Ele nao le dado de tenant nenhum: o que alcanca e o
+    # `payment_callbacks_inbox`, que **nao tem** `tenant_id`, e a resolucao do
+    # *token*, que passa pela `resolve_webhook_token` e nao pela tabela. Dar-lhe
+    # `BYPASSRLS` era dar-lhe tudo o mais de que ele nao precisa.
+    "kamba_pay_hooks": "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS",
 }
 
 

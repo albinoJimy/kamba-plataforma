@@ -84,6 +84,11 @@ class TestCredenciais(unittest.TestCase):
                 "KAMBA_SECRET_DB_AUDIT_PASSWORD",
                 # KAM-026: o papel do checkpointer, o setimo.
                 "KAMBA_SECRET_DB_AGR_PASSWORD",
+                # KAM-053: o papel estreito dos callbacks de pagamento, o
+                # oitavo. O id do inventario e `db_pay_hooks_password`, e o
+                # nome da variavel e ele em maiusculas com o prefixo — como os
+                # sete acima, e nao um nome escolhido aqui.
+                "KAMBA_SECRET_DB_PAY_HOOKS_PASSWORD",
             },
         )
 

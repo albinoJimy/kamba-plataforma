@@ -59,6 +59,9 @@ def main() -> int:
         # KAM-043: o preco opaco, o stock nao-garantido e os dois CHECK que
         # so o motor recusa.
         "tests_produtos",
+        # KAM-053: o ledger append-only, a porta unica de escrita e a cadeia de
+        # hashes.
+        "tests_pagamentos",
     ):
         print(f"suite desconhecida: {directorio!r}", file=sys.stderr)
         return 2
