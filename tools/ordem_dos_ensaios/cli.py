@@ -18,7 +18,7 @@ registos quando algo corre mal.
 
 1. **Uma ordem a mais nao prova independencia de ordem.** Prova que a ordem
    inversa tambem passa. Provar independencia era correr cada teste sozinho —
-   537 processos para o `libs/py-core` — e isso e isolamento, nao ordem: outro
+   551 processos para o `libs/py-core` — e isso e isolamento, nao ordem: outro
    problema, muito maior, e nao e este ticket.
 2. **Nao cobre as suites de `tools/`** — esta inclusive — nem as de `db/`. A
    razao e o custo, medido: as 18 de `tools/` que existiam antes deste modulo

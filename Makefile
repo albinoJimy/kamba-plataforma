@@ -180,9 +180,24 @@ check: lint-arch lint-branch lock-check test-py typecheck test-ts
 	@echo "make check: verde."
 
 ## lint-arch: lista de bloqueio e estrutura da arvore
+#
+# O segundo passo e o canario da verificacao do titulo do PR (KAM-164), e entra
+# **aqui** e nao num *job* novo, pela razao escrita para o `log-lint`, o
+# `money-lint` e o `env-lint`: um *job* novo acrescenta um contexto exigido ao
+# *ruleset* de `main`, e isso e alteracao de regra de bloqueio.
+#
+# A verificacao do titulo em si **nao** pode viver aqui — o titulo chega pelo
+# evento do PR e nao pelo ramo, e por isso tem *workflow* proprio
+# (`.github/workflows/titulo-do-pr.yaml`), que e o unico sitio onde ele existe.
+# Mas o canario nao precisa de titulo nenhum: prova, com dezassete casos reais e
+# cinco assuntos que estao no `main`, que a verificacao recusa o que tem de
+# recusar. Correndo aqui, essa prova entra no *gate* 2 — que ja e contexto
+# exigido — e `make ci` passa a corre-la sem passar pelo GitHub, que e o que o §1
+# do `docs/ci.md` pede de todo o portao desta casa.
 lint-arch:
 	@echo "==> lint_arch"
 	@$(PYTHON) -m lint_arch --root $(ROOT) all
+	@$(PYTHON) -m lint_arch --root $(ROOT) pr-title-canario
 
 ## lint-branch: nome do ramo actual
 lint-branch:
@@ -617,9 +632,9 @@ ci-4: coverage-node coverage-python ordem-dos-ensaios
 # existiam antes deste alvo levam **1 911 s** numa passagem nesta maquina, e
 # **1 422 desses sao da `supply_chain`** — tres quartos do total numa suite so.
 # A execucao a mais nao duplicava o lado Python do gate 4: multiplicava-o.
-# Mediram-se mesmo assim, para a divida ser informada e nao cega: 17 das 18 sem
-# nenhuma mudanca de resultado, e a `supply_chain` NAO VERIFICADO, porque
-# 2 x 1 422 s nao couberam na janela da medicao.
+# Mediram-se mesmo assim, para a divida ser informada e nao cega: **as 18** sem
+# nenhuma mudanca de resultado, a `supply_chain` incluida (262 testes, 2 x
+# 1 422 s de relogio).
 #
 # shortcut: cobre `libs/py-core/tests` e `services/agr/tests`, e deixa de fora
 # as suites de `tools/*/tests` (esta inclusive) e as de `db/`; revisto ate
