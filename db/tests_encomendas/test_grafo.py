@@ -19,19 +19,31 @@ Nem todos se medem da mesma forma, e isso esta escrito aqui em vez de ficar
 escondido numa contagem:
 
 ```text
-12 pares `X -> X`    nao sao transicoes. O grafo tem `CHECK (de <> para)`, que
-                     os torna inrepresentaveis, e o *trigger* so dispara quando
-                     o estado **muda**. Medem-se: o `UPDATE` passa e o estado
-                     fica o mesmo.
 88 pares com `de`    medidos **por execucao**: a encomenda e levada ao estado de
-alcancavel           partida pelo caminho do grafo e tenta-se cada destino.
-44 pares com `de`    medidos **por construcao**: `entrega_falhada`,
+alcancavel           partida pelo caminho do grafo e tenta-se cada destino. Sao
+                     as **oito** origens alcancaveis vezes os 11 destinos: as
+                     seis do nucleo sem bandeira, o `entregue` (que e terminal,
+                     e tem ensaio proprio) e o `em_entrega`, que so se alcanca
+                     com a bandeira ligada e por isso tem o seu.
+ 8 pares `X -> X`    nao sao transicoes, e medem-se nas **oito** origens
+                     alcancaveis: o `UPDATE` passa, o estado fica o mesmo e o
+                     *trigger* diferido nao exige registo nenhum. O grafo tem
+                     `CHECK (de <> para)`, que os torna inrepresentaveis.
+48 pares com `de`    medidos **por construcao**: `entrega_falhada`,
 inalcancavel         `em_disputa`, `reembolso_pendente` e `reembolsada` nao sao
                      destino de transicao nenhuma do nucleo, pelo que nenhuma
-                     encomenda pode estar neles. Prova-se que nao sao
-                     alcancaveis, e que o grafo nao tem linha nenhuma a sair
-                     deles — que e a **unica** entrada que o *trigger* le.
+                     encomenda pode estar neles — nem para transitar (44 pares)
+                     nem para nao transitar (os 4 `X -> X` deles). Prova-se que
+                     nao sao alcancaveis, e que o grafo nao tem linha nenhuma a
+                     sair deles ou a chegar-lhes — que e a **unica** entrada que
+                     o *trigger* le.
 ```
+
+88 + 8 + 48 = 144, e a conta esta aqui porque a primeira versao desta nota
+**estava errada**: dizia 88 por execucao quando o laco exercitava 77 (faltava o
+`em_entrega` como origem, que ninguem exercitava), e dizia 12 pares `X -> X`
+medidos quando era um. Medido antes da revisao adversarial, com a conta feita
+sobre o proprio ficheiro.
 
 A alternativa para os 44 era semear o estado com o *trigger* desligado, e isso
 e medir uma barreira com a barreira fora: o que o ensaio diria e «com o
@@ -114,7 +126,12 @@ class TestATabelaDoGrafo(ComEncomendas):
         self.assertEqual(linhas, [])
 
     def test_nenhuma_transicao_sai_dos_quatro_do_kam_050(self) -> None:
-        """A medicao «por construcao» dos 44 pares. Ver a nota do modulo."""
+        """A medicao «por construcao» dos 48 pares. Ver a nota do modulo.
+
+        Os 44 em que um dos quatro e origem ou destino, mais os 4 `X -> X`
+        deles: nenhuma encomenda pode estar num estado que transicao nenhuma
+        alcanca, e o que o *trigger* le e so esta tabela.
+        """
         linhas = self.consultar(
             "SELECT de, para FROM platform.order_state_graph "
             "WHERE de = ANY(%s) OR para = ANY(%s)",
@@ -209,6 +226,70 @@ class TestTodosOsParesDeEstados(ComEncomendas):
             "ligada: a mesma transicao passa, e sem migracao nenhuma",
         )
 
+    def test_a_partir_de_em_entrega_so_sai_o_entregue(self) -> None:
+        """Os 11 pares com `em_entrega` como origem, com a bandeira ligada.
+
+        **So se alcanca com a bandeira**, e e por isso que tem ensaio proprio:
+        o laco de cima corre com ela desligada, onde `em_entrega` nao e
+        alcancavel. Com ela ligada, a unica saida e `entregue` — e o
+        `paga -> em_entrega` da entrada mede-se no ensaio da bandeira.
+        """
+        # **Uma encomenda por destino**, e a razao foi medida: o caso
+        # `em_entrega -> entregue` **passa** e confirma, pelo que a encomenda
+        # muda de estado e de versao — e os destinos seguintes do laco deixavam
+        # de casar o CAS, falhando por «a semente nao conseguiu transitar» em
+        # vez de pelo *trigger*. Quatro subTests vermelhos a prova-lo.
+        for para in ESTADOS:
+            if para == "em_entrega":
+                continue
+            with self.subTest(para=para):
+                encomenda = self.criar_encomenda(self.tenant, self.contacto)
+                versao = self.levar_a(self.tenant, encomenda, "paga")
+                self.ensaio.execute(
+                    "SELECT set_config(%s, 'on', true)", (GUC_DA_ENTREGA,)
+                )
+                self.ensaio.fetchone()
+                versao = self.transitar(
+                    self.tenant, encomenda, "paga", "em_entrega", versao, "dispatch"
+                )
+                self.ensaio.execute(
+                    "SELECT set_config(%s, 'on', true)", (GUC_DA_ENTREGA,)
+                )
+                self.ensaio.fetchone()
+                erro = self.tentar_transicao(
+                    self.tenant, encomenda, "em_entrega", para, versao, "ensaio"
+                )
+                if para == "entregue":
+                    self.assertIsNone(erro, "em_entrega -> entregue esta no nucleo")
+                else:
+                    self.assertEqual(
+                        erro,
+                        TRANSICAO_INVALIDA,
+                        f"em_entrega -> {para} nao esta no grafo",
+                    )
+
+    def test_com_a_bandeira_desligada_nem_a_saida_do_em_entrega_passa(self) -> None:
+        """A bandeira guarda as **duas** linhas, e nao so a de entrada.
+
+        Uma encomenda que entrou em `em_entrega` com a bandeira ligada e depois a
+        encontra desligada **nao sai** por ela — e e o comportamento certo: o
+        `order_state_graph` poe a bandeira nas duas linhas, e desligar a entrega
+        a meio e uma decisao de operacao, nao um estado novo.
+        """
+        encomenda = self.criar_encomenda(self.tenant, self.contacto)
+        versao = self.levar_a(self.tenant, encomenda, "paga")
+        self.ensaio.execute("SELECT set_config(%s, 'on', true)", (GUC_DA_ENTREGA,))
+        self.ensaio.fetchone()
+        versao = self.transitar(
+            self.tenant, encomenda, "paga", "em_entrega", versao, "dispatch"
+        )
+        self.assertEqual(
+            self.tentar_transicao(
+                self.tenant, encomenda, "em_entrega", "entregue", versao, "codigo"
+            ),
+            TRANSICAO_INVALIDA,
+        )
+
     def test_a_partir_de_entregue_nao_sai_nada(self) -> None:
         """`entregue` e terminal no nucleo: a disputa e o reembolso sao do KAM-050."""
         encomenda = self.criar_encomenda(self.tenant, self.contacto)
@@ -228,29 +309,65 @@ class TestTodosOsParesDeEstados(ComEncomendas):
                     f"entregue -> {para} nao devia passar",
                 )
 
-    def test_um_par_x_para_x_nao_e_transicao_e_passa_sem_mudar_estado(self) -> None:
-        """Os 12 pares `X -> X`. Ver a nota do modulo.
+    def test_os_pares_x_para_x_nao_sao_transicoes(self) -> None:
+        """Os **oito** pares `X -> X` alcancaveis. Ver a nota do modulo.
 
         O `UPDATE` passa — e tem de passar, porque e por ele que o `expira_at` e
         o `deleted_at` se escrevem —, o estado fica o mesmo e o *trigger*
         diferido nao exige registo nenhum: nao houve transicao para registar.
+
+        **Oito e nao doze**: os quatro do KAM-050 sao inalcancaveis, pelo que o
+        par `X -> X` deles nao se consegue medir por execucao. Entram na conta
+        por construcao, com os outros 44.
+
+        O `em_entrega` entra com a bandeira ligada, que e a unica forma de uma
+        encomenda estar nele.
         """
-        encomenda = self.criar_encomenda(self.tenant, self.contacto)
-        self.semente.execute(
-            "UPDATE platform.orders_mirror SET estado = 'criada', "
-            "       expira_at = now() + interval '1 hour' "
-            " WHERE tenant_id = %s AND id = %s",
-            (self.tenant, encomenda),
-        )
-        estado, versao = self.estado_de(encomenda)
-        self.assertEqual((estado, versao), ("criada", 1))
-        self.assertEqual(
-            self.consultar(
-                "SELECT count(*) FROM platform.order_state_log WHERE order_id = %s",
-                (encomenda,),
-            ),
-            [(0,)],
-        )
+        for estado in (*ALCANCAVEIS_SEM_BANDEIRA, "entregue", "em_entrega"):
+            with self.subTest(estado=estado):
+                encomenda = self.criar_encomenda(self.tenant, self.contacto)
+                if estado == "em_entrega":
+                    versao = self.levar_a(self.tenant, encomenda, "paga")
+                    self.ensaio.execute(
+                        "SELECT set_config(%s, 'on', true)", (GUC_DA_ENTREGA,)
+                    )
+                    self.ensaio.fetchone()
+                    versao = self.transitar(
+                        self.tenant, encomenda, "paga", "em_entrega", versao,
+                        "dispatch",
+                    )
+                elif estado == "entregue":
+                    versao = self.levar_a(self.tenant, encomenda, "paga")
+                    versao = self.transitar(
+                        self.tenant, encomenda, "paga", "entregue", versao,
+                        "levantamento",
+                    )
+                else:
+                    versao = self.levar_a(self.tenant, encomenda, estado)
+
+                antes = self.consultar(
+                    "SELECT count(*) FROM platform.order_state_log "
+                    " WHERE order_id = %s",
+                    (encomenda,),
+                )
+                # O `UPDATE` poe o estado no valor que ele ja tem, e mexe numa
+                # coluna que a encomenda deixa mexer em qualquer estado.
+                self.semente.execute(
+                    "UPDATE platform.orders_mirror SET estado = %s, "
+                    "       expira_at = now() + interval '1 hour' "
+                    " WHERE tenant_id = %s AND id = %s",
+                    (estado, self.tenant, encomenda),
+                )
+                self.assertEqual(self.estado_de(encomenda), (estado, versao))
+                self.assertEqual(
+                    self.consultar(
+                        "SELECT count(*) FROM platform.order_state_log "
+                        " WHERE order_id = %s",
+                        (encomenda,),
+                    ),
+                    antes,
+                    "um par X -> X nao e transicao: nao grava registo nenhum",
+                )
 
 
 class TestCanarioDoTrigger(ComEncomendas):

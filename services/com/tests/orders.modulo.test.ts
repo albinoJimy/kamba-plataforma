@@ -85,7 +85,10 @@ function clienteFalso(respostas: Record<string, unknown>[][] = []) {
     cliente: {
       async query(sql: string, valores: readonly unknown[] = []) {
         vistas.push({ sql, valores });
-        return { rows: respostas[n++] ?? [] };
+        const rows = respostas[n++] ?? [];
+        // O `rowCount` vai porque o `ClienteSql` o declara — e declara-o porque
+        // o `checkCeiling` do `ten` o exige. Ver a nota do `contrato.ts`.
+        return { rows, rowCount: rows.length };
       },
     },
   };
@@ -283,21 +286,29 @@ test("uma transição para `paga` por `dono` é recusada antes de chegar à base
 });
 
 test("uma versão antiga devolve `conflito` com o estado relido, e não erro", async () => {
-  const { e } = encomendas([
+  // **O actor é `sistema`**, e não é detalhe: o destino é `paga`, e com um actor
+  // `ops` a recusa vinha do critério 3 — `VALIDATION_ERROR` antes de a leitura
+  // sair — e o ensaio media a guarda do pagamento em vez do conflito de versão.
+  // Medido no *gate* 4, que o apanhou vermelho.
+  const { e } = encomendas(
     [
-      {
-        id: ENCOMENDA,
-        numero_publico: "K7H3Q9",
-        estado: "aguarda_pagamento",
-        version: 5,
-        total_minor: "1250000",
-        currency: "AOA",
-        expira_at: null,
-        paga_via: null,
-        entrega_confirmada_por: null,
-      },
+      [
+        {
+          id: ENCOMENDA,
+          numero_publico: "K7H3Q9",
+          estado: "aguarda_pagamento",
+          version: 5,
+          total_minor: "1250000",
+          currency: "AOA",
+          expira_at: null,
+          paga_via: null,
+          entrega_confirmada_por: null,
+        },
+      ],
     ],
-  ]);
+    [],
+    "sistema",
+  );
   const r = await transition(e, {
     orderId: ENCOMENDA,
     para: "paga",

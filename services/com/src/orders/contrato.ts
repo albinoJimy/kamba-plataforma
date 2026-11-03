@@ -19,14 +19,24 @@
 import type { ActorKind, Ctx, OrderState } from "../port/contrato.ts";
 
 /**
- * O cliente SQL mínimo. A mesma forma do `produtos/contrato.ts`, e pela mesma
- * razão: o módulo não escolhe o *driver*.
+ * O cliente SQL mínimo, e a forma é a do `ten` e não a do `produtos`.
+ *
+ * **Leva o `rowCount`**, que o `produtos/contrato.ts` não leva, e a razão é
+ * concreta: este módulo passa o mesmo cliente ao `checkCeiling` de
+ * `@kamba/core-ts/ten` (a guarda do `pendente_confirmacao`), e o `ClienteSql`
+ * declarado lá tem `rows` **e** `rowCount`. Com a forma mais estreita, o
+ * `tsc` recusa a passagem — medido no *gate* 2, `TS2345`. O `pg` devolve as
+ * duas, pelo que a forma larga é a verdadeira; a estreita era uma omissão que
+ * só não doía enquanto ninguém atravessasse a fronteira.
  */
 export interface ClienteSql {
   query(
     sql: string,
     valores?: readonly unknown[],
-  ): Promise<{ rows: Record<string, unknown>[] }>;
+  ): Promise<{
+    rows: Record<string, unknown>[];
+    rowCount: number | null;
+  }>;
 }
 
 // ------------------------------------------------------------------- eventos
