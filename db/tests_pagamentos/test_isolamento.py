@@ -210,7 +210,7 @@ class TestADefinerSobRls(ComLedger):
         self.assertErroSql(VIOLACAO_DE_CHECK, cursor, sql, args)
         self.confirmar(cursor, self.tenant_b)
         self.assertEqual(
-            self.eventos_da_cobranca(self.cobranca_a),
+            self.eventos_do_ensaio(self.cobranca_a),
             [],
             "o DEFINER nao escreveu no tenant de A com o contexto de B",
         )

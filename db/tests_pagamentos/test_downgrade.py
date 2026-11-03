@@ -50,7 +50,9 @@ FUNCOES = (
     "append_payment_event",
     "deny_mutation",
     "next_state",
+    "payment_charge_nasce_iniciada",
     "payment_event_row_hash",
+    "payment_instante",
     "rebuild_charge_state",
     "resolve_webhook_token",
     "verify_ledger_chain",
@@ -136,6 +138,21 @@ class TestDowngradeDa0029(unittest.TestCase):
             (tabela,),
         )
         return [str(linha[0]) for linha in self.cursor.fetchall()]
+
+    def triggers_sempre_activos(self) -> list[tuple[str, str]]:
+        """Os *triggers* da `payment_events` e o seu `tgenabled`.
+
+        `A` e `ENABLE ALWAYS`; `O` e a omissao, que o
+        `session_replication_role = replica` salta.
+        """
+        self.cursor.execute(
+            "SELECT t.tgname::text, t.tgenabled::text FROM pg_trigger t "
+            "  JOIN pg_class c ON c.oid = t.tgrelid "
+            "  JOIN pg_namespace n ON n.oid = c.relnamespace "
+            " WHERE n.nspname = 'platform' AND c.relname = 'payment_events' "
+            "   AND NOT t.tgisinternal ORDER BY t.tgname"
+        )
+        return [(str(a), str(b)) for a, b in self.cursor.fetchall()]
 
     def tem_papel(self) -> bool:
         self.cursor.execute(
@@ -226,6 +243,36 @@ class TestDowngradeDa0029(unittest.TestCase):
         self.assertEqual(self.indices_existentes(), sorted(INDICES))
         self.assertEqual(
             self.politicas("payment_accounts"), ["pay_hooks_token", "tenant_iso"]
+        )
+        # **O `ENABLE ALWAYS` medido onde nenhum vizinho lhe chega.**
+        #
+        # Esta classe acabou de reaplicar a revisao, pelo que o que o catalogo
+        # diz aqui foi escrito pela **migracao** e por mais nada. E a correccao
+        # de um ensaio que passava pela razao errada: o `TestTriggersSaoAlways`
+        # le o estado vivo no fim da suite, e enquanto o
+        # `TestCadeiaEscritaPelaPorta` repunha o *trigger* com `ENABLE ALWAYS`
+        # fixo, ele lia um `A` que tinha sido escrito por esse vizinho. A
+        # mutacao «os triggers do ledger deixam de ser ALWAYS» **sobreviveu** a
+        # suite inteira por causa disso.
+        self.assertEqual(
+            self.triggers_sempre_activos(),
+            [("payment_events_imutavel", "A"), ("payment_events_sem_truncate", "A")],
+            "a revisao tem de criar os dois triggers com ENABLE ALWAYS: sem "
+            "isso, um SET session_replication_role = replica salta-os e a "
+            "imutabilidade do ledger passa a depender de ninguem o escrever",
+        )
+
+    def test_em_head_os_triggers_do_ledger_sao_always(self) -> None:
+        """O mesmo no ponto de partida, antes de qualquer `downgrade`.
+
+        Os dois juntos distinguem «a revisao escreve o `ALWAYS`» de «o `ALWAYS`
+        sobrevive ao ciclo», que sao afirmacoes diferentes: um `downgrade` que
+        deixasse o *trigger* pendurado e um `upgrade` que o recriasse sem o
+        `ALTER` davam o mesmo resultado no ensaio de cima.
+        """
+        self.assertEqual(
+            self.triggers_sempre_activos(),
+            [("payment_events_imutavel", "A"), ("payment_events_sem_truncate", "A")],
         )
 
     def test_o_downgrade_nao_toca_na_auditoria_nem_no_outbox(self) -> None:

@@ -1339,37 +1339,53 @@ COLUNAS_POR_PAPEL = {
     ("kamba_batch", "payment_callbacks_inbox", "UPDATE"): {
         "estado", "processado_at", "erro", "authn_ok",
     },
-    # KAM-053: as **sete** colunas da `payment_accounts` que o papel dos
-    # *webhooks* le, e e tudo o que ele precisa para resolver
-    # `webhook_token -> conta` antes de existir contexto de tenant (secao 5.1).
+    # KAM-053: as **seis** colunas da `payment_accounts` que o papel dos
+    # *webhooks* le. E tudo o que a `resolve_webhook_token` devolve, e e tudo o
+    # que ele precisa para resolver `webhook_token -> conta` antes de existir
+    # contexto de tenant (secao 5.1).
     #
-    # **O que fica de fora e a afirmacao, e aqui ela e a razao de o `GRANT` ser
-    # por coluna:** o `credenciais_ref` e o `manual_instrucoes` nao estao. O
-    # primeiro e o caminho no cofre para as credenciais do facilitador daquela
-    # PME; o segundo e o IBAN ou a carteira que o dono escreveu. O papel que
-    # atende a rede nao tem razao para ver nenhum dos dois, e tambem nao ve o
-    # `liquidacao_destino`, o `iec` nem o `checklist`.
+    # **O `webhook_token` nao esta aqui, e e a correccao mais consequente desta
+    # entrada.** Ele esteve, e a revisao adversarial mediu o que isso custava:
+    # com `SELECT` na coluna do segredo e uma politica `USING (true)` — que e o
+    # que o `SECURITY INVOKER` obriga a ter —, este papel fazia
+    # `SELECT webhook_token FROM platform.payment_accounts` e **enumerava** o
+    # segredo de callback de todas as PMEs. Medido: 36 linhas e 36 *tokens*, sem
+    # contexto de tenant. Para os facilitadores sem assinatura (OPG, EMIS,
+    # MoMenu) o *token* e a **unica** credencial do callback (secao 5).
     #
-    # **E a entrada que substitui uma segunda `SECURITY DEFINER`**, e isso e o
-    # DoD do bloco por extenso. A `payment_accounts` esta em `FORCE`, este papel
-    # e `NOBYPASSRLS` e no instante do callback nao ha contexto: um `SELECT`
-    # devolvia zero linhas. A primeira versao da revisao resolveu-o com uma
-    # funcao `DEFINER`, que corre como o dono e alcanca a tabela **inteira** por
-    # dentro — todas as colunas, incluindo o `credenciais_ref` —, limitada so
-    # pelo corpo que alguem escreveu. O que esta aqui e mais estreito e e do
-    # servidor: a politica `pay_hooks_token` (`TO kamba_pay_hooks`, que nao se
-    # soma a `tenant_iso` dos outros papeis) mais estas sete colunas, com a
-    # funcao `resolve_webhook_token` em `SECURITY INVOKER` — sujeita as duas em
-    # vez de as contornar.
+    # ## Como se compara uma coluna sem ter `SELECT` nela
+    #
+    # A politica `pay_hooks_token` passou a carregar o predicado:
+    #
+    #     USING (webhook_token = NULLIF(current_setting('app.webhook_token',
+    #                                                   true), ''))
+    #
+    # A expressao de uma politica e definida pelo **dono** da tabela, e os
+    # privilegios de coluna conferem-se contra as colunas que a **consulta**
+    # referencia — nao contra as que a politica referencia. Logo o papel compara
+    # o `webhook_token` sem o poder ler: sem *token*, zero linhas; com um
+    # *token*, uma. Nao ha enumeracao porque nao ha consulta que devolva mais do
+    # que a linha que quem pergunta ja identificou.
+    #
+    # **Tres versoes, e as duas primeiras falharam por razoes opostas:** uma
+    # segunda `SECURITY DEFINER` nao funciona (corre como o dono, que e
+    # `NOBYPASSRLS`, e o `FORCE` prende-o — zero linhas), e o `INVOKER` com
+    # `USING (true)` funciona e abre a enumeracao. A terceira resolve as duas, e
+    # deixa a lista aprovada de `ci/secdef_allowlist.yaml` com **uma** entrada,
+    # que e o que o DoD do bloco pede.
+    #
+    # O que continua de fora pela mesma razao de sempre: o `credenciais_ref` (o
+    # caminho no cofre para as credenciais do facilitador daquela PME), o
+    # `manual_instrucoes` (o IBAN ou a carteira que o dono escreveu), o
+    # `liquidacao_destino`, o `iec` e o `checklist`.
     #
     # Dito sem eufemismo, porque e o que esta lista existe para nao esconder:
-    # este papel le sete colunas das contas de **todos** os tenants. E a leitura
-    # que o secao 5.1 exige — resolver um *token* opaco sem saber de quem e — e o
-    # papel nao chega a mais nada: nao le cobrancas, nao le o ledger, e nao
-    # executa a porta.
+    # com um *token* valido, este papel le seis colunas da conta **desse**
+    # *token*, seja de que tenant for. E a leitura que o secao 5.1 exige —
+    # resolver um *token* opaco sem saber de quem e — e o papel nao chega a mais
+    # nada: nao le cobrancas, nao le o ledger, e nao executa a porta.
     ("kamba_pay_hooks", "payment_accounts", "SELECT"): {
         "id", "tenant_id", "provider", "entidade", "pos_id", "estado",
-        "webhook_token",
     },
 }
 PRIVILEGIOS_DE_COLUNA = ("SELECT", "INSERT", "UPDATE", "REFERENCES")

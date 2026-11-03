@@ -169,7 +169,7 @@ class TestNemOSuperutilizador(ComLedger):
         administrador nem consegue abrir.
         """
         self.assertEqual(
-            len(self.eventos_da_cobranca(self.cobranca)),
+            len(self.eventos_do_ensaio(self.cobranca)),
             1,
             "o evento semeado tem de estar la para o UPDATE ter o que mutar",
         )
@@ -233,7 +233,7 @@ class TestNaoHaSegundaPorta(ComLedger):
         )
         self.assertErroSql(VIOLACAO_DE_CHECK, cursor, sql, args)
         self.assertEqual(self.estado_da_cobranca(self.cobranca), "emitida")
-        self.assertEqual(self.eventos_da_cobranca(self.cobranca), [])
+        self.assertEqual(self.eventos_do_ensaio(self.cobranca), [])
 
     def test_a_porta_recusa_confirmar_com_decisao_rejeitada(self) -> None:
         """Via 4: `decisao = 'rejeitada'` num `pagamento_confirmado`.
@@ -250,7 +250,7 @@ class TestNaoHaSegundaPorta(ComLedger):
             p_decisao="rejeitada",
         )
         self.assertErroSql(VIOLACAO_DE_CHECK, cursor, sql, args)
-        self.assertEqual(self.eventos_da_cobranca(self.cobranca), [])
+        self.assertEqual(self.eventos_do_ensaio(self.cobranca), [])
 
     def test_a_porta_recusa_valor_diferente_do_da_cobranca(self) -> None:
         """Criterio 2: o G4, **na funcao**, porque o `CHECK` nao ve a cobranca.
@@ -343,7 +343,7 @@ class TestIdempotenciaDaEntrega(ComLedger):
         self.assertErroSql(VIOLACAO_DE_UNICIDADE, cursor, sql, args)
         self.confirmar(cursor, self.tenant)
         self.assertEqual(
-            [(t, s) for t, s, _, _ in self.eventos_da_cobranca(self.cobranca)],
+            [(t, s) for t, s, _, _ in self.eventos_do_ensaio(self.cobranca)],
             [("pagamento_recebido", 1)],
             "o segundo callback nao escreve nada: uma linha no ledger (G7)",
         )
@@ -367,7 +367,7 @@ class TestIdempotenciaDaEntrega(ComLedger):
         for tentativa in range(10):
             with self.subTest(tentativa=tentativa):
                 self.assertErroSql(VIOLACAO_DE_UNICIDADE, cursor, sql, args)
-        self.assertEqual(len(self.eventos_da_cobranca(self.cobranca)), 1)
+        self.assertEqual(len(self.eventos_do_ensaio(self.cobranca)), 1)
 
     def test_a_mesma_referencia_em_duas_contas_e_aceite(self) -> None:
         """Criterio 4, segunda metade: a entidade faz parte da identidade.
@@ -498,7 +498,7 @@ class TestOutboxNaMesmaTransaccao(ComLedger):
             p_decisao="informativo",
         )
         self.confirmar(cursor, self.tenant)
-        antes = len(self.eventos_da_cobranca(self.cobranca))
+        antes = len(self.eventos_do_ensaio(self.cobranca))
 
         self.semente.execute(
             "CREATE FUNCTION platform." + self.TRIGGER + "() RETURNS trigger "
@@ -535,7 +535,7 @@ class TestOutboxNaMesmaTransaccao(ComLedger):
         )
 
         self.assertEqual(
-            len(self.eventos_da_cobranca(self.cobranca)),
+            len(self.eventos_do_ensaio(self.cobranca)),
             antes,
             "a linha do ledger tem de ter sido revertida com o outbox",
         )
@@ -580,7 +580,7 @@ class TestPrivacidadeDoPayload(ComLedger):
                     p_payload=json.dumps(payload),
                 )
                 self.assertErroSql(VIOLACAO_DE_CHECK, cursor, sql, args)
-        self.assertEqual(self.eventos_da_cobranca(self.cobranca), [])
+        self.assertEqual(self.eventos_do_ensaio(self.cobranca), [])
 
     def test_um_telefone_no_motivo_e_recusado(self) -> None:
         """O `motivo` viaja para o *outbox*, e por isso entra na guarda."""

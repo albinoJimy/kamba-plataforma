@@ -99,6 +99,15 @@ export type VeredictoDosGates =
       readonly tipo: "divergente";
       readonly gate: GateDoWorker;
       readonly motivo: MotivoDeDivergencia;
+      /**
+       * O estado da cobrança quando a divergência foi vista.
+       *
+       * Vai no veredicto porque o `escritasDoVeredicto` precisa dele: o §7.1
+       * desenha a aresta do `pagamento_divergente` **só** a partir de
+       * `emitida`, e escrevê-la de outro estado faz a porta reverter a
+       * transacção inteira — ver o `escritasDoVeredicto`.
+       */
+      readonly estadoDaCobranca: string;
     }
   /** G6 num estado terminal ou já pago. */
   | { readonly tipo: "duplo"; readonly gate: "G6" };
@@ -157,25 +166,35 @@ export function avaliarGates(entrada: EntradaDosGates): VeredictoDosGates {
   // entidade/POS do evento tem de bater com a conta — quando o facilitador os
   // devolve. Quando não os devolve, **não se inventa um veredicto**: a primeira
   // metade do G2 (a conta) basta-se, e a segunda não se pode avaliar.
+  const divergente = (
+    gate: GateDoWorker,
+    motivo: MotivoDeDivergencia,
+  ): VeredictoDosGates => ({
+    tipo: "divergente",
+    gate,
+    motivo,
+    estadoDaCobranca: cobranca.estado,
+  });
+
   if (conta.accountId !== cobranca.accountId) {
-    return { tipo: "divergente", gate: "G2", motivo: "entidade_divergente" };
+    return divergente("G2", "entidade_divergente");
   }
   if (
     destino?.entidade != null &&
     conta.entidade != null &&
     destino.entidade !== conta.entidade
   ) {
-    return { tipo: "divergente", gate: "G2", motivo: "entidade_divergente" };
+    return divergente("G2", "entidade_divergente");
   }
   if (destino?.posId != null && conta.posId != null && destino.posId !== conta.posId) {
-    return { tipo: "divergente", gate: "G2", motivo: "entidade_divergente" };
+    return divergente("G2", "entidade_divergente");
   }
 
   // G4: valor exacto e moeda `AOA`. **Exacto nos dois sentidos** — a mais
   // também é divergência (F-02: «a menos ou a mais»), e é a parte que uma
   // comparação `>=` deixava passar.
   if (evento.valor !== cobranca.amountMinor || evento.currency !== cobranca.currency) {
-    return { tipo: "divergente", gate: "G4", motivo: "valor_divergente" };
+    return divergente("G4", "valor_divergente");
   }
 
   // G5: referência bate com a cobrança. Quando a cobrança não tem referência
@@ -185,7 +204,7 @@ export function avaliarGates(entrada: EntradaDosGates): VeredictoDosGates {
     evento.referencia != null &&
     evento.referencia !== cobranca.referencia
   ) {
-    return { tipo: "divergente", gate: "G5", motivo: "referencia_divergente" };
+    return divergente("G5", "referencia_divergente");
   }
 
   // G6: estado compatível.
@@ -221,15 +240,46 @@ export function escritasDoVeredicto(
       // chama a porta outra vez com `pagamento_confirmado` se re-reservar.
       return [{ tipo: "pagamento_recebido", decisao: "informativo" }];
     case "divergente":
-      return [
-        { tipo: "pagamento_recebido", decisao: "informativo" },
-        { tipo: "pagamento_divergente", decisao: "rejeitada" },
-      ];
+      // **A decisão só se escreve de onde o §7.1 a desenha.**
+      //
+      // O `pagamento_divergente` é aresta a partir de `emitida` e de mais
+      // nenhum estado (dívida 163). A primeira versão prescrevia-o sempre, e a
+      // revisão adversarial mediu a consequência: a partir de
+      // `aguarda_cliente` ou de `pendente_confirmacao` a porta levanta
+      // `check_violation` e **reverte a transacção inteira**, incluindo o
+      // `pagamento_recebido` que a precede — isto é, o facto perdia-se por
+      // causa da decisão.
+      //
+      // Onde a aresta não existe, fica o **facto** (que é o que o §5.1 manda
+      // escrever primeiro, e nunca falha) e a cobrança não se move. O veredicto
+      // continua a dizer `divergente`, pelo que ops é alertado do mesmo modo;
+      // o que não acontece é perder o registo.
+      return veredicto.estadoDaCobranca === "emitida"
+        ? [
+            { tipo: "pagamento_recebido", decisao: "informativo" },
+            { tipo: "pagamento_divergente", decisao: "rejeitada" },
+          ]
+        : [{ tipo: "pagamento_recebido", decisao: "informativo" }];
     case "orfao":
-      // G3: «não confirma, **não reconhece** no facilitador» (§8). O facto fica
-      // para ops, e sem cobrança não há `pagamento_recebido` que o preceda —
-      // o `charge_id` do ledger é `NOT NULL`.
-      return [{ tipo: "pagamento_orfao", decisao: "informativo" }];
+      // **Nada vai para o ledger, e a revisão adversarial mostrou porquê.**
+      //
+      // A primeira versão prescrevia aqui `pagamento_orfao`, e esse evento é
+      // **impossível de escrever**: um órfão é, por definição, um pagamento
+      // *sem* cobrança (G3), e a única porta exige um `charge_id` que exista e
+      // seja visível, numa coluna `NOT NULL` com FK. Medido: a chamada devolve
+      // `23514 … a cobranca … nao existe ou nao e visivel`.
+      //
+      // Prescrever uma escrita impossível é pior do que não prescrever
+      // nenhuma: o *worker* que a seguisse à letra abortava a transacção e
+      // repetia o callback para sempre.
+      //
+      // O que o §8 manda fazer com um órfão é o que fica: **não reconhecer no
+      // facilitador** (a fila dele reentrega, e o G7 absorve) e **alertar
+      // ops**. O registo é o recibo `ignorado` no `payment_callbacks_inbox` —
+      // que não tem `tenant_id` e por isso não precisa de cobrança — e o
+      // alerta. O `tipo_evento` `pagamento_orfao` fica no domínio do §6.2 sem
+      // caminho de escrita, e está na dívida documental 166.
+      return [];
     case "duplo":
       // F-08: o segundo pagamento autenticado sobre uma cobrança já paga.
       return [

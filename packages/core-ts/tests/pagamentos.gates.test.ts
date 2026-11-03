@@ -125,10 +125,13 @@ describe("gates do worker: a ordem do G7 antes do G6", () => {
       entrada({ cobranca: null, jaRegistado: true }),
     );
     assert.deepEqual(veredicto, { tipo: "orfao" });
-    assert.deepEqual(
-      escritasDoVeredicto(veredicto).map((e) => e.tipo),
-      ["pagamento_orfao"],
-    );
+    // **Nada vai para o ledger**, e a revisão adversarial mostrou porquê: o
+    // `pagamento_orfao` é impossível de escrever (um órfão não tem cobrança, e
+    // a porta exige um `charge_id` visível numa coluna `NOT NULL` com FK).
+    // Prescrever uma escrita impossível era pior do que não prescrever
+    // nenhuma: o *worker* que a seguisse abortava a transacção e repetia o
+    // callback para sempre. O registo é o recibo e o alerta.
+    assert.deepEqual(escritasDoVeredicto(veredicto), []);
     assert.equal(reciboDoVeredicto(veredicto), "ignorado");
   });
 });
@@ -141,15 +144,22 @@ describe("gates do worker: as divergências", () => {
           conta: { ...CONTA, accountId: "9c3d1a7e-0000-4000-8000-00000000000f" },
         }),
       ),
-      { tipo: "divergente", gate: "G2", motivo: "entidade_divergente" },
+      {
+        tipo: "divergente",
+        gate: "G2",
+        motivo: "entidade_divergente",
+        estadoDaCobranca: "emitida",
+      },
     );
   });
 
   it("test_g2_entidade_do_evento_diferente_da_conta", () => {
-    assert.deepEqual(
-      avaliarGates(entrada({ destino: { entidade: "00999" } })),
-      { tipo: "divergente", gate: "G2", motivo: "entidade_divergente" },
-    );
+    assert.deepEqual(avaliarGates(entrada({ destino: { entidade: "00999" } })), {
+      tipo: "divergente",
+      gate: "G2",
+      motivo: "entidade_divergente",
+      estadoDaCobranca: "emitida",
+    });
   });
 
   it("test_g2_sem_entidade_no_evento_nao_se_avalia_a_segunda_metade", () => {
@@ -184,7 +194,12 @@ describe("gates do worker: as divergências", () => {
     for (const valor of [1_249_999n, 1_250_001n]) {
       assert.deepEqual(
         avaliarGates(entrada({ evento: { ...EVENTO, valor } })),
-        { tipo: "divergente", gate: "G4", motivo: "valor_divergente" },
+        {
+          tipo: "divergente",
+          gate: "G4",
+          motivo: "valor_divergente",
+          estadoDaCobranca: "emitida",
+        },
         `o valor ${valor} tem de ser divergencia`,
       );
     }
@@ -195,14 +210,24 @@ describe("gates do worker: as divergências", () => {
       avaliarGates(
         entrada({ evento: { ...EVENTO, currency: "USD" as never } }),
       ),
-      { tipo: "divergente", gate: "G4", motivo: "valor_divergente" },
+      {
+        tipo: "divergente",
+        gate: "G4",
+        motivo: "valor_divergente",
+        estadoDaCobranca: "emitida",
+      },
     );
   });
 
   it("test_g5_referencia_diferente_e_divergencia", () => {
     assert.deepEqual(
       avaliarGates(entrada({ evento: { ...EVENTO, referencia: "REF000000000" } })),
-      { tipo: "divergente", gate: "G5", motivo: "referencia_divergente" },
+      {
+        tipo: "divergente",
+        gate: "G5",
+        motivo: "referencia_divergente",
+        estadoDaCobranca: "emitida",
+      },
     );
   });
 
@@ -229,6 +254,33 @@ describe("gates do worker: as divergências", () => {
     );
   });
 
+  it("test_fora_de_emitida_a_divergencia_escreve_so_o_facto", () => {
+    // **Uma correcção da revisão adversarial.** O `pagamento_divergente` é
+    // aresta do §7.1 **só** a partir de `emitida` (dívida 163). A primeira
+    // versão prescrevia-o sempre, e a consequência está medida: a partir de
+    // `aguarda_cliente` ou de `pendente_confirmacao` a porta levanta
+    // `check_violation` e **reverte a transacção inteira** — incluindo o
+    // `pagamento_recebido` que a precede. Isto é, o facto perdia-se por causa
+    // da decisão.
+    //
+    // Onde a aresta não existe, fica o facto. O veredicto continua a dizer
+    // `divergente`, pelo que ops é alertado do mesmo modo.
+    for (const estado of ["aguarda_cliente", "pendente_confirmacao"]) {
+      const veredicto = avaliarGates(
+        entrada({
+          cobranca: { ...COBRANCA, estado },
+          evento: { ...EVENTO, valor: 1n },
+        }),
+      );
+      assert.equal(veredicto.tipo, "divergente");
+      assert.deepEqual(
+        escritasDoVeredicto(veredicto).map((e) => e.tipo),
+        ["pagamento_recebido"],
+        `a partir de ${estado} o §7.1 não desenha a aresta da divergência`,
+      );
+    }
+  });
+
   it("test_os_motivos_sao_os_nomes_do_motivo_falha", () => {
     // Os três são valores do domínio `payment_charges.motivo_falha` do §6.2, e
     // não uma lista paralela: o que o *worker* decide é o que a porta escreve
@@ -241,7 +293,14 @@ describe("gates do worker: as divergências", () => {
       entrada({ destino: { entidade: "00999" } }),
     ]) {
       const veredicto = avaliarGates(entradaMa);
-      if (veredicto.tipo === "divergente") motivos.add(veredicto.motivo);
+      if (veredicto.tipo === "divergente") {
+        motivos.add(veredicto.motivo);
+        assert.equal(
+          veredicto.estadoDaCobranca,
+          "emitida",
+          "o veredicto leva o estado, que é o que decide se a decisão se escreve",
+        );
+      }
     }
     assert.deepEqual(
       [...motivos].sort(),
@@ -295,6 +354,12 @@ describe("gates do worker: nenhum veredicto escreve paga directamente", () => {
       avaliarGates(entrada({ evento: { ...EVENTO, valor: 1n } })),
       avaliarGates(entrada({ cobranca: { ...COBRANCA, estado: "expirada" } })),
       avaliarGates(entrada({ cobranca: { ...COBRANCA, estado: "paga" } })),
+      avaliarGates(
+        entrada({
+          cobranca: { ...COBRANCA, estado: "aguarda_cliente" },
+          evento: { ...EVENTO, valor: 1n },
+        }),
+      ),
     ];
     for (const veredicto of todos) {
       for (const escrita of escritasDoVeredicto(veredicto)) {

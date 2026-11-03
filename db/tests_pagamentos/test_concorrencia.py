@@ -133,6 +133,9 @@ class TestSequenciaSobConcorrencia(ComLedger):
             {
                 "pagamento_orfao": list(range(1, CHAMADAS // 2 + 1)),
                 "pagamento_recebido": list(range(1, CHAMADAS // 2 + 1)),
+                # O da semente: a cobranca nasce `iniciada` e chega a `emitida`
+                # pela porta.
+                "referencia_emitida": [1],
             },
         )
 

@@ -22,6 +22,15 @@ porta de escrita do ledger:
     append_payment_event     `SECURITY DEFINER`, a porta. `FOR UPDATE`,
                              sequencia, cadeia de hashes, projeccao do estado e
                              *outbox* na mesma transaccao
+    payment_charge_nasce_iniciada
+                             o *trigger* que fecha a **quinta via**: uma
+                             cobranca nasce em `iniciada`, para ninguem a
+                             inserir ja `paga`
+    resolve_webhook_token    resolve o *token* sem contexto de tenant e **sem
+                             permitir enumeracao**: a politica `pay_hooks_token`
+                             carrega o predicado, pelo que o papel compara a
+                             coluna do segredo sem ter `SELECT` nela
+    payment_instante         a serializacao de um instante para o elo, em UTC
     next_state               a maquina do §7.1, pura
     rebuild_charge_state     reconstroi o estado a partir dos eventos
     verify_ledger_chain      recalcula a cadeia e devolve os elos partidos
@@ -62,11 +71,14 @@ diferentes, e o PostgreSQL da-lhas por caminhos diferentes:
   contexto de quem chamou.
 
 Resultado medivel: a funcao nao escreve um evento de outro tenant **mesmo sendo
-`DEFINER`**, porque o `WITH CHECK` da `tenant_iso` o recusa. E a **unica**
-entrada que esta revisao acrescenta ao `ci/secdef_allowlist.yaml`, e o DoD do
-bloco exige que seja unica — a resolucao do *token* do *webhook*, que tem o
-mesmo problema de contexto, resolve-se com uma politica por papel e nao com uma
-segunda `DEFINER`. Ver `_privilegios`.
+`DEFINER`**, porque o `WITH CHECK` da `tenant_iso` o recusa.
+
+E a **unica** entrada que esta revisao acrescenta ao
+`ci/secdef_allowlist.yaml`, como o DoD do bloco exige — e chegar la custou tres
+tentativas na resolucao do `webhook_token`, que tem o mesmo problema de
+contexto e **nao** se resolve com uma segunda `DEFINER`. As tres estao escritas
+em `_privilegios`, porque a terceira so se entende contra as duas que
+falharam.
 
 ## O que esta revisao **nao** cria, e e deliberado
 
@@ -249,7 +261,10 @@ ESTADOS_DO_INBOX = (
 #: le-o da linha, nao o reconstroi.
 CAMPOS_DO_ROW_HASH = (
     "prev_hash",
+    "tenant_id",
     "charge_id",
+    "order_id",
+    "billing_cycle_id",
     "provider",
     "account_id",
     "referencia",
@@ -261,8 +276,31 @@ CAMPOS_DO_ROW_HASH = (
     "authn_method",
     "authn_ok",
     "decisao",
+    "motivo",
+    "actor_kind",
+    "actor_id",
     "payload_hash",
+    "ocorrido_at",
+    "recebido_at",
 )
+
+#: As colunas da tabela que **nao** entram no elo, cada uma com a razao.
+#: A revisao adversarial mostrou que a primeira versao deixava **nove** de
+#: fora — o `actor_id`, o `actor_kind`, o `motivo`, o `ocorrido_at`, o
+#: `tenant_id`, o `order_id` e o `billing_cycle_id` entre elas — e mediu o
+#: que isso permitia: reescrever a atribuicao do acto humano, ou reatribuir
+#: um evento a outro tenant, **sem a cadeia dar por nada**.
+#:
+#: O `test_o_elo_cobre_todas_as_colunas` compara esta lista com o catalogo,
+#: nos dois sentidos. O ensaio anterior varria as **posicoes de argumento**
+#: da funcao e era, por construcao, tautologico quanto a pergunta «que
+#: coluna fica de fora».
+FORA_DO_ROW_HASH = {
+    "id": "identidade: so existe depois do INSERT, e um elo recalcula-se",
+    "payload": "coberto pelo payload_hash, que entra no elo",
+    "prev_hash": "e a entrada do elo",
+    "row_hash": "e a saida do elo",
+}
 
 #: A expressao SQL que concatena os campos do `row_hash`, pela razao da `0006`:
 #: escrita uma vez, usada na funcao e no comentario. `chr(31)` e o separador de
@@ -271,7 +309,10 @@ CAMPOS_DO_ROW_HASH = (
 #: fronteira).
 CONCATENACAO_DO_ROW_HASH = (
     "encode(p_prev_hash, 'hex') || chr(31) || "
+    "p_tenant_id::text || chr(31) || "
     "p_charge_id::text || chr(31) || "
+    "coalesce(p_order_id::text, '') || chr(31) || "
+    "coalesce(p_billing_cycle_id::text, '') || chr(31) || "
     "p_provider || chr(31) || "
     "p_account_id::text || chr(31) || "
     "p_referencia || chr(31) || "
@@ -283,15 +324,21 @@ CONCATENACAO_DO_ROW_HASH = (
     "p_authn_method || chr(31) || "
     "p_authn_ok::text || chr(31) || "
     "p_decisao || chr(31) || "
-    "encode(p_payload_hash, 'hex')"
+    "coalesce(p_motivo, '') || chr(31) || "
+    "p_actor_kind || chr(31) || "
+    "coalesce(p_actor_id::text, '') || chr(31) || "
+    "encode(p_payload_hash, 'hex') || chr(31) || "
+    "coalesce(platform.payment_instante(p_ocorrido_at), '') || chr(31) || "
+    "platform.payment_instante(p_recebido_at)"
 )
 
 #: A assinatura de `payment_event_row_hash`, para o `GRANT`, o `COMMENT` e o
 #: `DROP`. Escrita uma vez: os tipos tem de ser os mesmos nos tres sitios ou o
 #: `DROP` nao a encontra.
 ARGUMENTOS_DE_ROW_HASH = (
-    "bytea, uuid, text, uuid, text, text, integer, text, bigint, character, "
-    "text, boolean, text, bytea"
+    "bytea, uuid, uuid, uuid, uuid, text, uuid, text, text, integer, text, "
+    "bigint, character, text, boolean, text, text, text, uuid, bytea, "
+    "timestamp with time zone, timestamp with time zone"
 )
 
 #: A assinatura de `append_payment_event`, idem.
@@ -332,6 +379,21 @@ PAPEL_DE_AUDITORIA = "kamba_audit"
 #: nesse instante ainda nao se sabe de quem e o callback.
 PAPEL_DOS_HOOKS = "kamba_pay_hooks"
 
+#: A variavel de sessao que leva o `webhook_token` a politica
+#: `pay_hooks_token`. O padrao e o do `app.tenant_id` da `tenant_iso`
+#: (`db/rls.py`): uma variavel que o chamador poe e a politica le.
+VARIAVEL_DO_TOKEN = "app.webhook_token"
+
+#: O predicado da politica. Escrito uma vez: entra no `CREATE POLICY` e o
+#: `test_privilegios_do_token` compara-o com o que o catalogo devolve.
+#:
+#: O `NULLIF` esta la pela razao do `db/rls.py`: uma variavel nunca
+#: definida da `NULL` e uma que expirou da `''`, e as duas tem de dar zero
+#: linhas em vez de todas.
+PREDICADO_DO_TOKEN = (
+    "NULLIF(current_setting('app.webhook_token', true), '')"
+)
+
 #: As colunas do inbox que o papel dos hooks e o lote podem alterar. O `body`,
 #: o `body_hash`, os `headers`, o `source_ip` e o `recebido_at` **nao** estao
 #: aqui: o que entrou pela rede nao se reescreve. E o que faz do inbox uma
@@ -342,6 +404,7 @@ UPDATE_DO_INBOX = ("estado", "processado_at", "erro", "authn_ok")
 def upgrade() -> None:
     _papel_dos_hooks()
     _cobrancas()
+    _nasce_iniciada()
     _inbox()
     _eventos()
     _mapa_do_outbox()
@@ -517,6 +580,102 @@ def _cobrancas() -> None:
           BEFORE INSERT ON {COBRANCAS}
           FOR EACH ROW EXECUTE FUNCTION platform.assert_beneficiary()
         """
+    )
+
+
+def _nasce_iniciada() -> None:
+    """A cobranca nasce em `iniciada`, e isto fecha a **quinta via**.
+
+    ## O defeito que esta funcao corrige, medido pela revisao adversarial
+
+    A primeira versao desta revisao afirmava, no DoD e em tres comentarios, que
+    «nao existe caminho de codigo que escreva `paga` fora de
+    `append_payment_event`», e provava-o com quatro vias: `UPDATE` na cobranca,
+    `INSERT` no ledger, a porta sem autenticacao e a porta com decisao
+    rejeitada. **Faltava a quinta, que e a obvia:** o `kamba_app` tem `INSERT`
+    nesta tabela, e o `estado` tinha dominio mas nao tinha valor inicial
+    imposto — pelo que um
+
+        INSERT INTO platform.payment_charges (..., estado, ...)
+        VALUES (..., 'paga', ...)
+
+    passava, com o contexto do proprio tenant, e deixava uma cobranca **paga com
+    zero eventos no ledger**. Medido. Qualquer um dos dez estados entrava,
+    incluindo o `reembolso_pendente` que esta revisao declara inalcancavel pelo
+    ledger.
+
+    **E o que o agravava:** o unico detector seria o *job* do §8, e ele excluia
+    esta forma **por construcao** — compara a projeccao com a reconstrucao so
+    para cobrancas **com** eventos, e uma cobranca forjada nao tem nenhum.
+
+    A barreira existia so para o `UPDATE`. Conflui-se «ninguem tem `UPDATE`» com
+    «nao ha caminho para escrever `paga`», e as duas coisas nao sao a mesma.
+
+    ## Porque e um *trigger* e nao um `CHECK`
+
+    Um `CHECK (estado = 'iniciada')` e avaliado em **toda** a versao da linha,
+    incluindo a que a projeccao da porta escreve — isto e, impedia a cobranca de
+    sair de `iniciada` e o ledger deixava de servir para nada. O `BEFORE INSERT`
+    vincula **o nascimento** e deixa a transicao em paz.
+
+    E vincula-o a **todos**: ao `kamba_app`, ao `kamba_batch` (que tem
+    `BYPASSRLS`), ao dono e ao superutilizador. A unica forma de o contornar e
+    desliga-lo, que e privilegio de dono — a mesma via que a cadeia de *hashes*
+    existe para denunciar.
+    """
+    op.execute(
+        """
+        CREATE FUNCTION platform.payment_charge_nasce_iniciada() RETURNS trigger
+        LANGUAGE plpgsql SET search_path = pg_catalog, platform AS $func$
+        BEGIN
+          IF NEW.estado <> 'iniciada' THEN
+            RAISE EXCEPTION
+              'uma cobranca nasce em iniciada e nao em %: o estado e projeccao '
+              'do ledger e muda so por append_payment_event (docs/tecnica/04 '
+              'secao 5)', NEW.estado
+              USING ERRCODE = 'check_violation';
+          END IF;
+          -- O `motivo_falha` e o `requer_humano` descrevem o resultado de uma
+          -- decisao que ainda nao houve. Nascerem preenchidos era a mesma
+          -- falsificacao por outra coluna: um painel de ops a mostrar uma
+          -- cobranca que exige humano sem nada no ledger a justifica-lo.
+          IF NEW.motivo_falha IS NOT NULL OR NEW.requer_humano THEN
+            RAISE EXCEPTION
+              'uma cobranca nasce sem motivo_falha e sem requer_humano: as duas '
+              'colunas sao resultado de uma decisao do ledger'
+              USING ERRCODE = 'check_violation';
+          END IF;
+          RETURN NEW;
+        END $func$
+        """
+    )
+    op.execute(
+        "COMMENT ON FUNCTION platform.payment_charge_nasce_iniciada() IS "
+        "'Uma cobranca nasce em iniciada, sem motivo_falha e sem requer_humano "
+        "(KAM-053). Fecha a quinta via de escrever paga sem passar pela porta: o "
+        "kamba_app tem INSERT nesta tabela, e sem isto um INSERT com estado=paga "
+        "passava e deixava uma cobranca paga com zero eventos no ledger — que o "
+        "job do secao 8 nao detecta, porque so compara cobrancas COM eventos. "
+        "Trigger e nao CHECK, porque um CHECK impediria a projeccao de mover o "
+        "estado.'"
+    )
+    op.execute(
+        "REVOKE ALL ON FUNCTION platform.payment_charge_nasce_iniciada() FROM PUBLIC"
+    )
+    op.execute(
+        f"""
+        CREATE TRIGGER payment_charges_nasce_iniciada
+          BEFORE INSERT ON {COBRANCAS}
+          FOR EACH ROW EXECUTE FUNCTION platform.payment_charge_nasce_iniciada()
+        """
+    )
+    # `ALWAYS`, pela razao dos dois *triggers* do ledger: um
+    # `session_replication_role = replica` salta os de omissao, e com ele a
+    # quinta via voltava a abrir.
+    op.execute(
+        "ALTER TABLE "
+        + COBRANCAS
+        + " ENABLE ALWAYS TRIGGER payment_charges_nasce_iniciada"
     )
 
 
@@ -857,15 +1016,45 @@ def _row_hash() -> None:
     um elo que o incluisse nao se podia recalcular com esta formula — que e
     exactamente o que o `verify_ledger_chain` faz.
     """
+    # A serializacao de um instante, num sitio so.
+    #
+    # `to_char` em UTC e **nao** `::text`: a saida de `::text` de um
+    # `timestamptz` depende do `TimeZone` e do `DateStyle` da sessao, e um elo
+    # que dependesse da sessao de quem o verifica nao e um elo — o
+    # `verify_ledger_chain` recalcula-o noutra sessao, por definicao. Em UTC,
+    # pela convencao do dicionario §2.
+    op.execute(
+        """
+        CREATE FUNCTION platform.payment_instante(p_quando timestamptz)
+        RETURNS text LANGUAGE sql IMMUTABLE STRICT
+        SET search_path = pg_catalog, platform AS $func$
+          SELECT to_char(p_quando AT TIME ZONE 'UTC',
+                         'YYYY-MM-DD"T"HH24:MI:SS.US')
+        $func$
+        """
+    )
+    op.execute(
+        "COMMENT ON FUNCTION platform.payment_instante(timestamptz) IS "
+        "'Serializa um instante para o elo da cadeia, em UTC e com "
+        "microssegundos (KAM-053). Existe porque o ::text de um timestamptz "
+        "depende do TimeZone e do DateStyle da sessao, e o verify_ledger_chain "
+        "recalcula o elo noutra sessao.'"
+    )
+    op.execute(
+        "REVOKE ALL ON FUNCTION platform.payment_instante(timestamptz) FROM PUBLIC"
+    )
     op.execute(
         f"""
         CREATE FUNCTION platform.payment_event_row_hash(
-          p_prev_hash bytea, p_charge_id uuid, p_provider text, p_account_id uuid,
-          p_referencia text, p_tipo_evento text, p_sequencia integer,
-          p_provider_event_id text, p_valor_minor bigint, p_currency char(3),
-          p_authn_method text, p_authn_ok boolean, p_decisao text,
-          p_payload_hash bytea)
-        RETURNS bytea LANGUAGE sql IMMUTABLE STRICT
+          p_prev_hash bytea, p_tenant_id uuid, p_charge_id uuid,
+          p_order_id uuid, p_billing_cycle_id uuid, p_provider text,
+          p_account_id uuid, p_referencia text, p_tipo_evento text,
+          p_sequencia integer, p_provider_event_id text, p_valor_minor bigint,
+          p_currency char(3), p_authn_method text, p_authn_ok boolean,
+          p_decisao text, p_motivo text, p_actor_kind text, p_actor_id uuid,
+          p_payload_hash bytea, p_ocorrido_at timestamptz,
+          p_recebido_at timestamptz)
+        RETURNS bytea LANGUAGE sql IMMUTABLE
         SET search_path = pg_catalog, platform AS $func$
           SELECT sha256(convert_to({CONCATENACAO_DO_ROW_HASH}, 'UTF8'))
         $func$
@@ -1083,6 +1272,7 @@ def _append() -> None:
           v_prev        bytea;
           v_hash        bytea;
           v_payload     bytea;
+          v_agora       timestamptz;
           v_estado      text;
           v_id          bigint;
           v_evt_tipo    text;
@@ -1105,7 +1295,17 @@ def _append() -> None:
 
           -- (3a) G2 do §5, e para **todos** os tipos: um evento de uma conta
           -- que nao e a da cobranca nao e um evento desta cobranca.
-          IF p_account_id <> v_charge.account_id THEN
+          --
+          -- **`IS DISTINCT FROM` e nao `<>`**, e a revisao adversarial mediu
+          -- porque: `NULL <> x` avalia a `NULL`, o `IF` nao disparava, e o
+          -- `INSERT` gravava o `account_id` **da cobranca** — pelo que nao
+          -- havia `NOT NULL` que o apanhasse depois, ao contrario do
+          -- `p_valor_minor` e do `p_authn_ok`, que as colunas apanham. Isto e,
+          -- `p_account_id => NULL` saltava o G2 **em silencio** e confirmava o
+          -- pagamento. E o nulo nao e hipotetico: o recibo
+          -- `token_desconhecido` do `hooks.ts` grava `accountId: null`.
+          IF p_account_id IS NULL
+             OR p_account_id IS DISTINCT FROM v_charge.account_id THEN
             RAISE EXCEPTION
               'append_payment_event: o evento e da conta % e a cobranca % e da '
               'conta % (G2)', p_account_id, p_charge_id, v_charge.account_id
@@ -1193,13 +1393,21 @@ def _append() -> None:
             WHERE e.charge_id = p_charge_id ORDER BY e.id DESC LIMIT 1;
           v_prev := coalesce(v_prev, '{GENESE}'::bytea);
           v_payload := sha256(convert_to(p_payload::text, 'UTF8'));
+          -- O `recebido_at` fixa-se **aqui** e nao pelo `DEFAULT now()` da
+          -- coluna, porque passou a entrar no elo: um campo que a coluna
+          -- preenchesse depois do calculo nao podia ser recalculado pelo
+          -- verificador. Dentro de uma transaccao o `now()` e estavel, pelo
+          -- que o valor e o mesmo — o que muda e haver **um** sitio a fixa-lo.
+          v_agora := now();
           v_hash := platform.payment_event_row_hash(
-            v_prev, p_charge_id, v_charge.provider, v_charge.account_id,
+            v_prev, v_charge.tenant_id, p_charge_id, v_charge.order_id,
+            v_charge.billing_cycle_id, v_charge.provider, v_charge.account_id,
             coalesce(v_charge.referencia,
               v_charge.id::text || '#' || v_charge.tentativa::text),
             p_tipo_evento, v_seq, coalesce(p_provider_event_id, ''),
             p_valor_minor, v_charge.currency, p_authn_method, p_authn_ok,
-            p_decisao, v_payload);
+            p_decisao, p_motivo, p_actor_kind, p_actor_id, v_payload,
+            p_ocorrido_at, v_agora);
 
           -- (5) O INSERT. O `tenant_id`, o sujeito, o `provider` e a
           -- `referencia` vem da cobranca e nao do chamador.
@@ -1208,7 +1416,7 @@ def _append() -> None:
               account_id, referencia, tipo_evento, sequencia, provider_event_id,
               valor_minor, currency, authn_method, authn_ok, decisao, motivo,
               actor_kind, actor_id, payload_hash, payload, ocorrido_at,
-              prev_hash, row_hash)
+              recebido_at, prev_hash, row_hash)
             VALUES (
               v_charge.tenant_id, p_charge_id, v_charge.order_id,
               v_charge.billing_cycle_id, v_charge.provider, v_charge.account_id,
@@ -1217,7 +1425,7 @@ def _append() -> None:
               p_tipo_evento, v_seq, p_provider_event_id, p_valor_minor,
               v_charge.currency, p_authn_method, p_authn_ok, p_decisao, p_motivo,
               p_actor_kind, p_actor_id, v_payload, p_payload, p_ocorrido_at,
-              v_prev, v_hash)
+              v_agora, v_prev, v_hash)
             RETURNING id INTO v_id;
 
           -- (6b) Projecta. O `atualizado_at` e o `motivo_falha` acompanham: uma
@@ -1359,11 +1567,13 @@ def _verificacao_da_cadeia() -> None:
                    <> coalesce(c.anterior, '{GENESE}'::bytea)
                 THEN 'prev_hash nao e o row_hash do elo anterior'
               WHEN c.row_hash <> platform.payment_event_row_hash(
-                     c.prev_hash, c.charge_id, c.provider, c.account_id,
+                     c.prev_hash, c.tenant_id, c.charge_id, c.order_id,
+                     c.billing_cycle_id, c.provider, c.account_id,
                      c.referencia, c.tipo_evento, c.sequencia,
                      coalesce(c.provider_event_id, ''), c.valor_minor,
                      c.currency, c.authn_method, c.authn_ok, c.decisao,
-                     c.payload_hash)
+                     c.motivo, c.actor_kind, c.actor_id, c.payload_hash,
+                     c.ocorrido_at, c.recebido_at)
                 THEN 'row_hash nao corresponde aos campos canonicos'
               WHEN c.payload_hash
                    <> sha256(convert_to(c.payload::text, 'UTF8'))
@@ -1549,54 +1759,65 @@ def _privilegios() -> None:
 
     # -------------------------------------------------- payment_accounts (leitura)
     #
-    # O par de que o papel estreito precisa, e nada mais: resolver
-    # `webhook_token -> account` antes de existir contexto de tenant. **Por
-    # coluna**, porque a `payment_accounts` tem `credenciais_ref` e
-    # `manual_instrucoes`, e o papel que atende a rede nao tem razao para ver
-    # nenhum dos dois.
+    # ## Tres versoes, e o que cada uma mediu
     #
-    # A RLS da `payment_accounts` esta em `FORCE` e este papel nao tem
-    # `BYPASSRLS`: sem contexto de tenant, o `SELECT` devolveria **zero linhas**.
-    # Por isso a resolucao do *token* nao passa por aqui — passa pela funcao
-    # abaixo, que e a unica coisa que este papel pode fazer com a tabela.
+    # Esta e a parte do ticket que custou mais a acertar, e as duas primeiras
+    # tentativas falharam por razoes **opostas**. Fica escrito porque a terceira
+    # so se entende contra elas.
+    #
+    #     1.ª  `SECURITY DEFINER` na funcao, sem politica.
+    #          **Nao funciona.** O `DEFINER` corre como o dono — o
+    #          `kamba_migrator`, que e `NOBYPASSRLS` — e o `FORCE` vincula o
+    #          dono: sem contexto de tenant a funcao ve **zero linhas**. E a
+    #          licao que o `db/rls.py` escreve e que nomeia este ticket como
+    #          credor; eu re-aprendi-a aqui, com o ensaio do papel estreito a
+    #          devolver lista vazia.
+    #
+    #     2.ª  `SECURITY INVOKER` + politica `USING (true)` + `GRANT SELECT` por
+    #          coluna, **incluindo o `webhook_token`** (a coluna entra porque a
+    #          funcao a compara, e sob `INVOKER` quem chama precisa de `SELECT`
+    #          em toda a coluna que a consulta referencia).
+    #          **Funciona e abre um buraco.** A revisao adversarial mediu-o: o
+    #          papel passava a poder `SELECT webhook_token FROM
+    #          payment_accounts` — 36 linhas e 36 *tokens* — isto e, enumerar o
+    #          segredo de callback de **todas** as PMEs. Para os facilitadores
+    #          sem assinatura (OPG, EMIS, MoMenu) o *token* e a unica credencial
+    #          do callback (§5).
+    #
+    #     3.ª  **A politica carrega o predicado.** `SECURITY INVOKER`, `GRANT
+    #          SELECT` **sem** o `webhook_token`, e a politica a comparar o
+    #          *token* com uma variavel de sessao que quem chama poe:
+    #
+    #              USING (webhook_token = NULLIF(current_setting(
+    #                       'app.webhook_token', true), ''))
+    #
+    # ## Porque e que a terceira resolve as duas coisas
+    #
+    # A expressao de uma politica e **definida pelo dono** da tabela, e os
+    # privilegios de coluna sao conferidos contra as colunas que a **consulta**
+    # referencia — nao contra as que a politica referencia. Logo o papel compara
+    # o `webhook_token` sem ter `SELECT` nele.
+    #
+    # O efeito: sem saber um *token*, o papel ve **zero linhas**; sabendo um, ve
+    # **uma**. Nao ha enumeracao porque nao ha consulta que devolva mais do que
+    # a linha do *token* que quem pergunta ja tem. E nao ha segunda
+    # `SECURITY DEFINER`, pelo que a caixa do DoD («`SECURITY DEFINER` apenas em
+    # `append_payment_event`») fica satisfeita **sem** se pagar com uma
+    # enumeracao de segredos.
+    #
+    # O padrao e o mesmo do `app.tenant_id` da `tenant_iso`: uma variavel de
+    # sessao que o chamador poe e a politica le. O `NULLIF` esta la pela mesma
+    # razao do `db/rls.py` — uma variavel nunca definida da `NULL` e uma que
+    # expirou da `''`, e as duas tem de dar zero linhas em vez de todas.
     op.execute(
-        f"GRANT SELECT (id, tenant_id, provider, entidade, pos_id, estado, "
-        f"webhook_token) ON platform.payment_accounts TO {PAPEL_DOS_HOOKS}"
+        f"GRANT SELECT (id, tenant_id, provider, entidade, pos_id, estado) "
+        f"ON platform.payment_accounts TO {PAPEL_DOS_HOOKS}"
     )
-    # ## A politica por papel, e porque **nao** e uma segunda `SECURITY DEFINER`
-    #
-    # O problema e real: a `payment_accounts` esta em `FORCE` com a `tenant_iso`,
-    # o `kamba_pay_hooks` e `NOBYPASSRLS`, e no instante em que o callback chega
-    # nao ha contexto de tenant — pelo que um `SELECT` deste papel devolveria
-    # **zero linhas**. A primeira versao desta revisao resolveu-o com uma segunda
-    # funcao `SECURITY DEFINER`, e isso contraria o DoD do bloco por extenso:
-    # «`SECURITY DEFINER` **apenas** em `append_payment_event`, na lista
-    # aprovada».
-    #
-    # A politica por papel resolve o mesmo e e **mais estreita** do que a funcao
-    # que substitui. Uma `SECURITY DEFINER` corre como o dono e, por dentro,
-    # alcanca a tabela inteira — todas as colunas, incluindo o
-    # `credenciais_ref`; o que a limita e o corpo que alguem escreveu. Aqui o que
-    # limita e o `GRANT` por coluna, que e do servidor:
-    #
-    #     politica   `TO kamba_pay_hooks USING (true)` — **nao** se soma a
-    #                `tenant_iso` para os outros papeis: uma politica com `TO`
-    #                aplica-se so ao papel que nomeia. O `OR` de que a `0027`
-    #                avisa junta politicas **do mesmo papel**, e nenhum outro
-    #                papel e nomeado aqui
-    #     GRANT      sete colunas, e o `credenciais_ref` e o `manual_instrucoes`
-    #                nao estao entre elas
-    #     funcao     `SECURITY INVOKER`, que e o que a torna sujeita as duas
-    #                linhas acima em vez de as contornar
-    #
-    # O que isto concede, dito sem eufemismo: o papel dos hooks le sete colunas
-    # das contas de **todos** os tenants. E a leitura que o §5.1 exige — resolver
-    # um *token* opaco sem saber de quem ele e — e o papel nao chega a mais nada:
-    # nao le cobrancas, nao le o ledger, e nao executa a porta.
     op.execute(
         f"""
         CREATE POLICY pay_hooks_token ON platform.payment_accounts
-          FOR SELECT TO {PAPEL_DOS_HOOKS} USING (true)
+          FOR SELECT TO {PAPEL_DOS_HOOKS}
+          USING (webhook_token = {PREDICADO_DO_TOKEN})
         """
     )
     op.execute(
@@ -1604,23 +1825,44 @@ def _privilegios() -> None:
         CREATE FUNCTION platform.resolve_webhook_token(p_token text)
         RETURNS TABLE (account_id uuid, tenant_id uuid, provider text,
                        entidade text, pos_id text, estado text)
-        LANGUAGE sql STABLE
+        LANGUAGE plpgsql
         SET search_path = pg_catalog, platform AS $func$
-          SELECT a.id, a.tenant_id, a.provider, a.entidade, a.pos_id, a.estado
-            FROM platform.payment_accounts a
-           WHERE a.webhook_token = p_token
-        $func$
+        BEGIN
+          -- **`VOLATILE` (a omissao) e nao `STABLE`**, e e uma correccao de
+          -- honestidade: ela chama o `set_config`, que e `VOLATILE`. O
+          -- PostgreSQL nao recusa um `STABLE` que chame um `VOLATILE` — a
+          -- marca e uma promessa de quem escreve, nao uma verificacao —, e uma
+          -- promessa falsa sobre volatilidade e um convite a que o planeador a
+          -- avalie uma vez por consulta onde ela tem efeito de sessao.
+          --
+          -- O *token* vai para a variavel de sessao que a politica le, e nao
+          -- para um `WHERE` — porque e a politica que o compara, e e isso que
+          -- dispensa dar `SELECT` na coluna do segredo a quem pergunta.
+          --
+          -- `true` no terceiro argumento do `set_config`: **local a
+          -- transaccao**. Um *token* que sobrevivesse a transaccao ficava a
+          -- valer para a consulta seguinte da mesma ligacao, que e um conjunto
+          -- de ligacoes reutilizadas por um servidor HTTP.
+          PERFORM set_config('{VARIAVEL_DO_TOKEN}', coalesce(p_token, ''), true);
+          RETURN QUERY
+            SELECT a.id, a.tenant_id, a.provider, a.entidade, a.pos_id, a.estado
+              FROM platform.payment_accounts a;
+          -- A variavel limpa-se a seguir: o que a politica precisava dela,
+          -- precisou agora.
+          PERFORM set_config('{VARIAVEL_DO_TOKEN}', '', true);
+        END $func$
         """
     )
     op.execute(
         "COMMENT ON FUNCTION platform.resolve_webhook_token(text) IS "
         "'Resolve webhook_token -> conta ANTES de existir contexto de tenant "
-        "(KAM-053): no instante em que o callback chega, ainda nao se sabe de "
-        "quem ele e. SECURITY INVOKER de proposito — o que a deixa ver as contas "
-        "e a politica pay_hooks_token, por papel, e o que a limita e o GRANT por "
-        "coluna, que nao inclui credenciais_ref nem manual_instrucoes. Uma "
-        "SECURITY DEFINER aqui alcancava a tabela inteira por dentro e punha uma "
-        "segunda entrada na lista aprovada, contra o DoD do bloco.'"
+        "(KAM-053): no instante em que o callback chega ainda nao se sabe de quem "
+        "ele e. SECURITY INVOKER, e o que a torna possivel e a politica "
+        "pay_hooks_token, que compara o token com a variavel de sessao "
+        "app.webhook_token — a expressao de uma politica e do dono da tabela, "
+        "pelo que o papel compara a coluna sem ter SELECT nela. Sem token, zero "
+        "linhas; com token, uma. Nao ha enumeracao e nao ha segunda SECURITY "
+        "DEFINER: as duas alternativas foram tentadas e medidas (ver a revisao).'"
     )
     op.execute(
         "REVOKE ALL ON FUNCTION platform.resolve_webhook_token(text) FROM PUBLIC"
@@ -1641,6 +1883,30 @@ def _privilegios() -> None:
     op.execute(f"GRANT SELECT ON {EVENTOS} TO {PAPEL_DA_APP}")
     op.execute(f"GRANT SELECT ON {EVENTOS} TO {PAPEL_DE_LOTE}")
     op.execute(f"GRANT SELECT ON {EVENTOS} TO {PAPEL_DE_AUDITORIA}")
+
+    # ------------------------------------------------------------- as vistas
+    #
+    # **Faltavam, e a revisao adversarial mediu o que isso custava:** uma
+    # vista sem `GRANT` nao e lida por papel nenhum (`42501 permission denied
+    # for view`). A `v_payment_ledger_heads` e o que o *job* diario exporta
+    # para STO, pelo que a ancora externa **falhava na primeira execucao
+    # real**; a `v_payment_events_audit` existe para os alvos do
+    # `docs/tecnica/08` §14 e o `kamba_audit` nao a conseguia abrir.
+    #
+    # Nenhum ensaio o via: os de catalogo inspeccionam como administrador, o
+    # `test_privilegios.py` nao tem matriz para vistas, e o ensaio do
+    # `ledger.ts` usa uma porta falsa. O `TestPrivilegiosDasVistas` da suite
+    # passa a le-las **como papel**, que e a unica forma de o medir.
+    #
+    # `security_invoker = true` nas duas: o `GRANT` da acesso a vista, e a
+    # RLS da tabela continua a decidir **que linhas** cada papel ve.
+    for papel in (PAPEL_DA_APP, PAPEL_DE_LOTE, PAPEL_DE_AUDITORIA):
+        op.execute(f"GRANT SELECT ON platform.v_payment_events_audit TO {papel}")
+    # A cabeca da cadeia e de plataforma: le-a quem verifica (lote) e quem
+    # audita. O `kamba_app` **nao** entra — um turno de conversa nao tem razao
+    # para ver a cabeca da cadeia de cobranca nenhuma.
+    for papel in (PAPEL_DE_LOTE, PAPEL_DE_AUDITORIA):
+        op.execute(f"GRANT SELECT ON platform.v_payment_ledger_heads TO {papel}")
 
     # --------------------------------------------------------- payment_outbox_map
     op.execute(f"GRANT SELECT ON {MAPA} TO {PAPEL_DA_APP}")
@@ -1705,12 +1971,13 @@ def downgrade() -> None:
     op.execute("DROP FUNCTION platform.verify_ledger_chain(uuid)")
     op.execute("DROP FUNCTION platform.rebuild_charge_state(uuid)")
     op.execute("DROP FUNCTION platform.resolve_webhook_token(text)")
-    # A politica e sobre uma tabela da `0027`, que esta revisao nao apaga: por
-    # isso cai aqui a mao. Deixa-la pendurada fazia o `downgrade` da `0027`
-    # encontrar uma politica que nao criou.
+    # A politica e sobre uma tabela da `0027`, que esta revisao nao apaga:
+    # por isso cai aqui a mao. Deixa-la pendurada fazia o `downgrade` da
+    # `0027` encontrar uma politica que nao criou.
     op.execute("DROP POLICY pay_hooks_token ON platform.payment_accounts")
     op.execute(f"DROP FUNCTION platform.next_state({ARGUMENTOS_DE_NEXT_STATE})")
     op.execute(f"DROP FUNCTION platform.payment_event_row_hash({ARGUMENTOS_DE_ROW_HASH})")
+    op.execute("DROP FUNCTION platform.payment_instante(timestamptz)")
     rls.disable_tenant_rls("payment_events")
     rls.disable_tenant_rls("payment_charges")
     # Os *triggers* e os indices caem com as tabelas. O `deny_mutation` cai
@@ -1720,6 +1987,9 @@ def downgrade() -> None:
     op.execute(f"DROP TABLE {INBOX}")
     op.execute(f"DROP TABLE {COBRANCAS}")
     op.execute("DROP FUNCTION platform.deny_mutation()")
+    # O *trigger* do nascimento cai com a `payment_charges`; a funcao nao, e
+    # por isso vai a seguir.
+    op.execute("DROP FUNCTION platform.payment_charge_nasce_iniciada()")
     # O `kamba_pay_hooks` **nao** se apaga: e criado pelo `db/bootstrap.py`,
     # como os outros sete, e uma revisao que o apagasse deixava a base sem um
     # papel que o bootstrap desta versao declara.

@@ -43,13 +43,25 @@
  *
  * ## Os três códigos, e porque são estes
  *
- *     404   *token* desconhecido. **Uniforme**: o mesmo corpo e o mesmo tempo
- *           que um *token* conhecido levaria, porque a diferença é um oráculo
- *           para quem varre *tokens*. A entrega grava-se com `account_id` nulo
+ *     404   *token* desconhecido. **Uniforme na forma**: o mesmo corpo e o
+ *           mesmo recibo para todo o *token* que não resolve, porque uma
+ *           resposta que distinguisse «mal formado» de «não existe» era um
+ *           oráculo. **Não é uniforme no tempo**, e vale dizê-lo: este caminho
+ *           não passa pelo `verifyCallback`, pelo que é mais curto do que o de
+ *           um *token* conhecido. Igualar os tempos exigiria um atraso
+ *           calibrado, que não está feito e não está medido; a revisão
+ *           adversarial apanhou a afirmação anterior, que dizia «o mesmo
+ *           tempo» sem nada no módulo a igualar. A entrega grava-se com
+ *           `account_id` nulo
  *     401   HMAC inválido. `inbox.estado = 'hmac_invalido'`, `authn_ok = false`,
  *           e **zero** linhas no ledger
- *     200   tudo o resto, incluindo um corpo que o adaptador não entende: o
+ *     200   tudo o resto, incluindo um corpo que o adaptador não entende, um
+ *           provider sem adaptador e um `verifyCallback` que esgota o prazo: o
  *           facilitador não tem de repetir o que já ficou durável
+ *     413   o corpo acima do tecto, e **é o único caso em que a entrega não
+ *           fica gravada** — um corpo de megabytes não é uma entrega de um
+ *           facilitador, e guardá-lo era usar a própria prova como munição. O
+ *           §5.1 não tem este código; é um acrescento, e fica declarado
  */
 
 import { AuthError } from "./tipos.ts";
@@ -73,6 +85,41 @@ export const CORPO_DO_404 = { recibo: "token_desconhecido" } as const;
 
 /** Tecto do corpo, em octetos. Acima disto nem se grava: ver `TECTO_DO_CORPO`. */
 export const TECTO_DO_CORPO = 64 * 1024;
+
+/**
+ * Prazo do `verifyCallback`, em milissegundos (*proposta*).
+ *
+ * 300 ms deixa margem dentro do alvo de «ack p99 < 500 ms» do §14 para a
+ * gravação no *inbox* e para o enquadramento HTTP. É **proposta** e não
+ * medição: calibra-se com um adaptador real (KAM-056), e o número está aqui
+ * para que exista um prazo em vez de nenhum.
+ */
+export const PRAZO_DA_VERIFICACAO_MS = 300;
+
+/** Marca um `verifyCallback` que não respondeu dentro do prazo. */
+export class PrazoEsgotado extends Error {
+  constructor(ms: number) {
+    super(`verifyCallback nao respondeu em ${ms} ms`);
+    this.name = "PrazoEsgotado";
+  }
+}
+
+async function comPrazo<T>(promessa: Promise<T>, ms: number): Promise<T> {
+  let temporizador: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promessa,
+      new Promise<never>((_, rejeitar) => {
+        temporizador = setTimeout(() => rejeitar(new PrazoEsgotado(ms)), ms);
+      }),
+    ]);
+  } finally {
+    // **Sem isto o processo não termina**: um temporizador pendente mantém o
+    // *event loop* vivo, e um ensaio que corra o caminho rápido ficava a
+    // esperar o prazo inteiro no fim.
+    if (temporizador !== undefined) clearTimeout(temporizador);
+  }
+}
 
 /**
  * Os estados de `payment_callbacks_inbox` que este *handler* escreve.
@@ -165,6 +212,20 @@ export type DependenciasDoHook = {
   sha256(corpo: Uint8Array): Uint8Array;
   /** `| undefined` explicito: `exactOptionalPropertyTypes` (ver `Inbox`). */
   readonly agora?: (() => number) | undefined;
+  /**
+   * Prazo do `verifyCallback`, em milissegundos.
+   *
+   * **Existe porque a revisão adversarial o pediu, e a razão é o alvo do §14:**
+   * um `verifyCallback` que nunca resolva pendura o pedido para sempre, e o
+   * alvo é «ack p99 < 500 ms». Um adaptador que fale com o facilitador — o
+   * `status()` de um sem assinatura, por exemplo — tem rede pelo meio.
+   *
+   * Esgotado o prazo, a entrega fica em `erro` (já é durável) e a resposta é
+   * **200**: o corpo está guardado e o facilitador não tem de repetir. Não é
+   * 401 — não se mediu assinatura nenhuma — nem 5xx, que geraria reentregas de
+   * algo que já ficou.
+   */
+  readonly prazoDaVerificacao?: number | undefined;
 };
 
 export type PedidoDoHook = {
@@ -268,9 +329,12 @@ export async function atenderCallback(
   // ---------------------------------------------------------------- G1
   let eventos: readonly VerifiedEvent[];
   try {
-    eventos = await adaptador.verifyCallback(
-      { corpo: pedido.corpo, cabecalhos: pedido.cabecalhos },
-      conta,
+    eventos = await comPrazo(
+      adaptador.verifyCallback(
+        { corpo: pedido.corpo, cabecalhos: pedido.cabecalhos },
+        conta,
+      ),
+      deps.prazoDaVerificacao ?? PRAZO_DA_VERIFICACAO_MS,
     );
   } catch (erro) {
     if (erro instanceof AuthError) {

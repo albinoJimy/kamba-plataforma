@@ -31,6 +31,7 @@ import {
   CORPO_DO_404,
   EVENTOS_DO_WORKER,
   METRICA_ACK,
+  PRAZO_DA_VERIFICACAO_MS,
   TECTO_DO_CORPO,
   type AdaptadorDoHook,
   type ContaDoToken,
@@ -67,6 +68,7 @@ type Montagem = {
     recibo: bigint;
     estado: EstadoDaEntrega;
     authnOk?: boolean | undefined;
+    erro?: string | undefined;
   }[];
   readonly encaminhados: TrabalhoDoWorker[];
   readonly alertas: string[];
@@ -94,7 +96,12 @@ function montar(opcoes: {
     },
     async marcar(recibo, estado, campos) {
       ordem.push(`inbox.marcar:${estado}`);
-      marcacoes.push({ recibo, estado, authnOk: campos?.authnOk });
+      marcacoes.push({
+        recibo,
+        estado,
+        authnOk: campos?.authnOk,
+        erro: campos?.erro,
+      });
     },
   };
 
@@ -202,9 +209,15 @@ describe("hooks de pagamento: os três códigos", () => {
     assert.equal(m.encaminhados.length, 0, "nada vai para o worker");
   });
 
-  it("test_o_404_e_uniforme_para_tokens_diferentes", async () => {
+  it("test_o_404_e_uniforme_na_forma_para_tokens_diferentes", async () => {
     // O corpo é o mesmo e não nomeia o que falhou. Um corpo que distinguisse
     // «*token* mal formado» de «*token* que não existe» era um oráculo.
+    //
+    // **Uniforme na forma, e não no tempo** — a revisão adversarial apanhou a
+    // afirmação anterior, que dizia «o mesmo tempo» sem nada no módulo a
+    // igualar os caminhos: o do *token* desconhecido não passa pelo
+    // `verifyCallback` e é mais curto. Este ensaio mede a forma; o tempo não
+    // está medido nem igualado, e o módulo di-lo.
     const respostas = [];
     for (const token of ["", "x", TOKEN, "z".repeat(200)]) {
       const m = montar({ conta: null });
@@ -229,7 +242,7 @@ describe("hooks de pagamento: os três códigos", () => {
 
     assert.equal(resposta.estado, 401);
     assert.deepEqual(m.marcacoes, [
-      { recibo: 1n, estado: "hmac_invalido", authnOk: false },
+      { recibo: 1n, estado: "hmac_invalido", authnOk: false, erro: undefined },
     ]);
     // **Zero linhas no ledger**, e é uma propriedade do caminho: nada é
     // encaminhado, pelo que o *worker* nunca é chamado. Se o `encaminhar`
@@ -257,7 +270,7 @@ describe("hooks de pagamento: os três códigos", () => {
     assert.deepEqual(m.marcacoes, [
       // `authn_ok` fica **nulo** e não `false`: `false` diria «foi verificado e
       // falhou». A diferença conta no alerta do F-05.
-      { recibo: 1n, estado: "ignorado", authnOk: undefined },
+      { recibo: 1n, estado: "ignorado", authnOk: undefined, erro: undefined },
     ]);
     assert.equal(m.encaminhados[0]?.porConsulta, true);
     assert.equal(m.encaminhados[0]?.eventos.length, 0);
@@ -370,6 +383,59 @@ describe("hooks de pagamento: o ack p99 (§14)", () => {
       p99 < 500,
       `p99 do caminho do handler = ${p99.toFixed(1)} ms (alvo < 500 ms)`,
     );
+  });
+});
+
+describe("hooks de pagamento: o prazo do verifyCallback", () => {
+  it("test_um_verifycallback_que_nunca_resolve_nao_pendura_o_pedido", async () => {
+    // **Uma correcção da revisão adversarial.** Sem prazo, um `verifyCallback`
+    // que nunca resolva pendura o pedido indefinidamente — e o alvo do §14 é
+    // «ack p99 < 500 ms». Um adaptador que fale com o facilitador (o `status()`
+    // de um sem assinatura) tem rede pelo meio.
+    const m = montar({
+      adaptador: {
+        callbackAuth: "hmac",
+        verifyCallback() {
+          return new Promise<never>(() => {});
+        },
+      },
+    });
+    const resposta = await atenderCallback(pedido(), {
+      ...m.deps,
+      prazoDaVerificacao: 20,
+    });
+
+    // 200 e não 401: não se mediu assinatura nenhuma. E não 5xx: o corpo já
+    // está durável, e um 5xx gerava reentregas de algo que já ficou.
+    assert.equal(resposta.estado, 200);
+    assert.equal(m.marcacoes[0]?.estado, "erro");
+    assert.match(String(m.marcacoes[0]?.erro ?? ""), /nao respondeu em 20 ms/);
+    assert.equal(m.encaminhados.length, 0, "nada vai para o worker");
+  });
+
+  it("test_o_caminho_rapido_nao_espera_o_prazo", async () => {
+    // A sonda positiva: com o `verifyCallback` a resolver, a resposta não fica
+    // à espera do temporizador — que é o que o `clearTimeout` do `finally`
+    // garante. Sem ele, o processo nem terminava.
+    const m = montar();
+    const inicio = performance.now();
+    const resposta = await atenderCallback(pedido(), {
+      ...m.deps,
+      prazoDaVerificacao: 5_000,
+    });
+    assert.equal(resposta.estado, 200);
+    assert.ok(
+      performance.now() - inicio < 1_000,
+      "a resposta esperou pelo prazo em vez de pelo adaptador",
+    );
+  });
+
+  it("test_o_prazo_por_omissao_fica_dentro_do_alvo_do_§14", () => {
+    // É *proposta* e não medição — calibra-se com um adaptador real (KAM-056) —
+    // mas tem de deixar margem dentro dos 500 ms do alvo para a gravação no
+    // *inbox* e para o enquadramento HTTP.
+    assert.ok(PRAZO_DA_VERIFICACAO_MS < 500);
+    assert.ok(PRAZO_DA_VERIFICACAO_MS >= 100);
   });
 });
 

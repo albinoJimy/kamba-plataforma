@@ -47,6 +47,15 @@ export const ALERTA_DA_CADEIA = "pay_ledger_cadeia_partida";
 /** O alerta da divergência entre a projecção e a reconstrução (§8). */
 export const ALERTA_DA_PROJECCAO = "pay_ledger_projeccao_divergente";
 
+/**
+ * O alerta de uma **leitura** que não correu.
+ *
+ * É diferente dos outros dois: eles dizem «a cadeia está partida», e este diz
+ * «não se conseguiu verificar». Confundi-los era o pior dos dois mundos — um
+ * *job* que não corre a parecer um *job* que passou.
+ */
+export const ALERTA_DE_LEITURA = "pay_ledger_leitura_falhou";
+
 /** Um elo que a `verify_ledger_chain` apontou. */
 export type EloPartido = {
   readonly chargeId: Uuid;
@@ -82,6 +91,11 @@ export type RelatorioDoLedger = {
   readonly elosPartidos: readonly EloPartido[];
   readonly projeccoesDivergentes: readonly ProjeccaoDivergente[];
   readonly cabecas: number;
+  /** As leituras que não correram, com o erro de cada uma. */
+  readonly leiturasFalhadas: readonly {
+    readonly leitura: string;
+    readonly erro: string;
+  }[];
   /** A chave onde a âncora ficou, ou `null` se a exportação falhou. */
   readonly ancora: string | null;
   // `| undefined` explicito, pela razao do `hooks.ts`:
@@ -138,15 +152,37 @@ export type DependenciasDoJob = {
 export async function verificarLedgerDiariamente(
   deps: DependenciasDoJob,
 ): Promise<RelatorioDoLedger> {
-  const elosPartidos = await deps.leitura.elosPartidos();
-  const projeccoesDivergentes = await deps.leitura.projeccoes();
-  const cabecas = await deps.leitura.cabecas();
+  // **Cada leitura dentro do seu `try`, e a revisão adversarial mediu porquê.**
+  //
+  // A primeira versão esperava as três sem guarda, e a docstring prometia «não
+  // lança». O `SQL_PROJECCOES_DIVERGENTES` chama o `rebuild_charge_state` para
+  // todas as cobranças com eventos, e essa função **levanta** `data_corrupted`
+  // num ledger que não reproduz — o que é o alarme certo e a razão de ela
+  // levantar. Mas levantava aqui: uma cobrança corrompida abortava a consulta
+  // inteira, o *job* lançava contra a sua própria docstring, e **a âncora, que
+  // se escreve depois, nunca chegava a ser escrita** — isto é, o alarme de uma
+  // cadeia apagava a prova das outras.
+  //
+  // Agora cada falha vira uma linha do relatório. `conforme` fica falso, ops é
+  // alertado, e as outras duas verificações e a âncora correm.
+  const elosPartidos = await proteger(deps, "elosPartidos", () =>
+    deps.leitura.elosPartidos(),
+  );
+  const projeccoesDivergentes = await proteger(deps, "projeccoes", () =>
+    deps.leitura.projeccoes(),
+  );
+  const cabecas = await proteger(deps, "cabecas", () => deps.leitura.cabecas());
 
   let ancora: string | null = null;
   let erroDaAncora: string | undefined;
   const chave = chaveDaAncora(deps.hoje?.() ?? new Date());
   try {
-    await deps.armazenamento.put(chave, serializarAncora(cabecas), {
+    // A âncora escreve-se com o que se conseguiu ler. Se a leitura das cabeças
+    // falhou, escreve-se uma âncora **vazia** e a falha vai no relatório — e
+    // não se deixa de escrever: o `leiturasFalhadas` é o que diz que o dia não
+    // está verificado, e uma âncora que falta é indistinguível de um dia sem
+    // eventos.
+    await deps.armazenamento.put(chave, serializarAncora(cabecas.valor ?? []), {
       contentType: "application/json",
     });
     ancora = chave;
@@ -154,35 +190,66 @@ export async function verificarLedgerDiariamente(
     erroDaAncora = erro instanceof Error ? erro.message : String(erro);
   }
 
-  if (elosPartidos.length > 0) {
+  const leiturasFalhadas = [elosPartidos, projeccoesDivergentes, cabecas]
+    .filter((r) => r.erro !== undefined)
+    .map((r) => ({ leitura: r.nome, erro: r.erro as string }));
+  if (leiturasFalhadas.length > 0) {
+    deps.alertar?.(ALERTA_DE_LEITURA, { leituras: leiturasFalhadas });
+  }
+
+  const elos = elosPartidos.valor ?? [];
+  const projeccoes = projeccoesDivergentes.valor ?? [];
+  if (elos.length > 0) {
     deps.alertar?.(ALERTA_DA_CADEIA, {
-      elos: elosPartidos.length,
+      elos: elos.length,
       // O primeiro basta para ops abrir o caso; a lista inteira vai no
       // relatorio. Um alerta com mil elos e um alerta que ninguem le.
-      primeiro: elosPartidos[0],
+      primeiro: elos[0],
     });
   }
-  if (projeccoesDivergentes.length > 0) {
+  if (projeccoes.length > 0) {
     deps.alertar?.(ALERTA_DA_PROJECCAO, {
-      cobrancas: projeccoesDivergentes.length,
-      primeira: projeccoesDivergentes[0],
+      cobrancas: projeccoes.length,
+      primeira: projeccoes[0],
     });
   }
 
   return {
-    elosPartidos,
-    projeccoesDivergentes,
-    cabecas: cabecas.length,
+    elosPartidos: elosPartidos.valor ?? [],
+    projeccoesDivergentes: projeccoesDivergentes.valor ?? [],
+    cabecas: cabecas.valor?.length ?? 0,
+    leiturasFalhadas,
     ancora,
     erroDaAncora,
     // **A âncora conta para a conformidade.** Um dia sem âncora é um dia em que
     // a cadeia só se pode verificar contra ela própria, e isso não é uma prova
     // contra quem tem a base — ver o cabeçalho.
+    // **Uma leitura que falhou não é uma verificação que passou.**
     conforme:
-      elosPartidos.length === 0 &&
-      projeccoesDivergentes.length === 0 &&
+      leiturasFalhadas.length === 0 &&
+      elos.length === 0 &&
+      projeccoes.length === 0 &&
       ancora !== null,
   };
+}
+
+/** O resultado de uma leitura: o valor, ou o erro que a impediu. */
+type Leitura<T> = {
+  readonly nome: string;
+  readonly valor?: T;
+  readonly erro?: string;
+};
+
+async function proteger<T>(
+  deps: DependenciasDoJob,
+  nome: string,
+  ler: () => Promise<T>,
+): Promise<Leitura<T>> {
+  try {
+    return { nome, valor: await ler() };
+  } catch (erro) {
+    return { nome, erro: erro instanceof Error ? erro.message : String(erro) };
+  }
 }
 
 /** `ledger/pagamentos/AAAA-MM-DD.json`, em UTC (dicionário §2). */

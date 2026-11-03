@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.53"
+versao_dicionario: "1.54"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -1164,7 +1164,6 @@ entradas:
       - "cobranca_cancelada"
       - "pagamento_confirmado"
       - "confirmar_exige_autenticacao"
-      - "CHECK"
     variantes_literais:
       - "callback_hmac_ok"
       - "sig_ok"
@@ -10559,21 +10558,33 @@ entradas:
     variantes_literais: []
   - seccao: "3.41"
     conceito: "Resolução do token do webhook"
-    canonico: "resolve_webhook_token(p_token)"
+    canonico: "resolve_webhook_token(p_token), com a política pay_hooks_token e a variável de sessão app.webhook_token"
     literais:
       - "resolve_webhook_token(p_token)"
+      - "pay_hooks_token"
+      - "app.webhook_token"
     nomes:
       - "resolve_webhook_token"
       - "p_token"
+      - "pay_hooks_token"
+      - "app.webhook_token"
     nomes_nota:
       - "SECURITY"
-      - "DEFINER"
+      - "INVOKER"
       - "STABLE"
       - "webhook_token"
-      - "FORCE"
-      - "payment_accounts"
+      - "DEFINER"
+      - "USING"
+      - "NULLIF"
+      - "current_setting"
+      - "app.webhook_token"
+      - "true"
+      - "SELECT"
+      - "GRANT"
       - "credenciais_ref"
       - "manual_instrucoes"
+      - "NOBYPASSRLS"
+      - "FORCE"
     variantes_literais: []
   - seccao: "3.41"
     conceito: "Papel dos webhooks de pagamento"

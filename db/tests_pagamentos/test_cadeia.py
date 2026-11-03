@@ -30,23 +30,35 @@ class TestFormulaDoElo(ComLedger):
 
     GENESE = bytes(32)
 
+    #: Os vinte e dois argumentos da formula, por omissao, pela ordem da
+    #: assinatura. Escritos uma vez: os tres ensaios desta classe partem deles.
+    ARGUMENTOS = (
+        bytes(32),  # 0  prev_hash
+        "00000000-0000-0000-0000-000000000001",  # 1  tenant_id
+        "00000000-0000-0000-0000-000000000002",  # 2  charge_id
+        "00000000-0000-0000-0000-000000000003",  # 3  order_id
+        None,  # 4  billing_cycle_id (exclusivo do order_id)
+        "fakeprovider",  # 5  provider
+        "00000000-0000-0000-0000-000000000004",  # 6  account_id
+        "REF1",  # 7  referencia
+        "pagamento_recebido",  # 8  tipo_evento
+        1,  # 9  sequencia
+        "ev-1",  # 10 provider_event_id
+        1_250_000,  # 11 valor_minor
+        "AOA",  # 12 currency
+        "hmac",  # 13 authn_method
+        True,  # 14 authn_ok
+        "informativo",  # 15 decisao
+        "um motivo",  # 16 motivo
+        "provider",  # 17 actor_kind
+        "00000000-0000-0000-0000-000000000005",  # 18 actor_id
+        bytes(32),  # 19 payload_hash
+        "2026-11-02T10:00:00.000000+00",  # 20 ocorrido_at
+        "2026-11-02T11:00:00.000000+00",  # 21 recebido_at
+    )
+
     def test_o_elo_e_determinista_e_de_32_octetos(self) -> None:
-        argumentos = (
-            self.GENESE,
-            "00000000-0000-0000-0000-000000000001",
-            "fakeprovider",
-            "00000000-0000-0000-0000-000000000002",
-            "REF1",
-            "pagamento_recebido",
-            1,
-            "ev-1",
-            1_250_000,
-            "AOA",
-            "hmac",
-            True,
-            "informativo",
-            bytes(32),
-        )
+        argumentos = self.ARGUMENTOS
         marcas = ", ".join(["%s"] * len(argumentos))
         self.semente.execute(
             f"SELECT platform.payment_event_row_hash({marcas}), "
@@ -64,27 +76,15 @@ class TestFormulaDoElo(ComLedger):
         sai do `row_hash`» existe porque alguem o podia tirar e tudo continuava
         verde. Aqui varre-se **cada** posicao.
         """
-        base = [
-            self.GENESE,
-            "00000000-0000-0000-0000-000000000001",
-            "fakeprovider",
-            "00000000-0000-0000-0000-000000000002",
-            "REF1",
-            "pagamento_recebido",
-            1,
-            "ev-1",
-            1_250_000,
-            "AOA",
-            "hmac",
-            True,
-            "informativo",
-            bytes(32),
-        ]
+        base = list(self.ARGUMENTOS)
         alteracoes = [
             bytes([1] + [0] * 31),
-            "00000000-0000-0000-0000-00000000000f",
+            "00000000-0000-0000-0000-0000000000aa",  # tenant_id
+            "00000000-0000-0000-0000-0000000000ab",  # charge_id
+            "00000000-0000-0000-0000-0000000000ac",  # order_id
+            "00000000-0000-0000-0000-0000000000ad",  # billing_cycle_id
             "outroprovider",
-            "00000000-0000-0000-0000-00000000000e",
+            "00000000-0000-0000-0000-0000000000ae",  # account_id
             "REF2",
             "pagamento_confirmado",
             2,
@@ -94,8 +94,16 @@ class TestFormulaDoElo(ComLedger):
             "consulta",
             False,
             "aceite",
+            "outro motivo",
+            "ops",
+            "00000000-0000-0000-0000-0000000000af",  # actor_id
             bytes([1] + [0] * 31),
+            "2026-11-03T10:00:00.000000+00",
+            "2026-11-03T11:00:00.000000+00",
         ]
+        self.assertEqual(
+            len(alteracoes), len(base), "uma alteracao por argumento, sem excepcao"
+        )
         marcas = ", ".join(["%s"] * len(base))
         self.semente.execute(
             f"SELECT platform.payment_event_row_hash({marcas})", tuple(base)
@@ -118,32 +126,60 @@ class TestFormulaDoElo(ComLedger):
                     f"o campo na posicao {posicao} nao entra no elo",
                 )
 
-    def test_um_argumento_nulo_da_nulo(self) -> None:
-        """`STRICT`, e e o que torna o `coalesce` do `provider_event_id` uma
-        decisao e nao um descuido: sem ele, um evento gerado pela plataforma
-        tinha `row_hash` nulo e o `NOT NULL` recusava-o.
+    def test_os_argumentos_anulaveis_por_desenho_nao_dao_nulo(self) -> None:
+        """**A funcao deixou de ser `STRICT`, e isto e o que mudou.**
+
+        O elo passou a cobrir vinte e duas colunas, e metade das que entraram
+        sao anulaveis **por desenho**: o `order_id` e o `billing_cycle_id` sao
+        exclusivos (exactamente um e nulo, sempre), o `motivo` so existe numa
+        divergencia, o `actor_id` so numa confirmacao humana, e o `ocorrido_at`
+        so quando o facilitador o da. Com `STRICT`, o elo de **todo** o evento
+        era nulo — e e por isso que o `STRICT` saiu e os `coalesce` do corpo
+        passaram a ser a defesa.
+
+        Este ensaio e o que o fixa: cada um desses argumentos a nulo, um a um, e
+        o elo continua a ser um `sha256`.
         """
-        argumentos = [
-            None,
-            "00000000-0000-0000-0000-000000000001",
-            "fakeprovider",
-            "00000000-0000-0000-0000-000000000002",
-            "REF1",
-            "pagamento_recebido",
-            1,
-            "ev-1",
-            1_250_000,
-            "AOA",
-            "hmac",
-            True,
-            "informativo",
-            bytes(32),
-        ]
+        anulaveis = {
+            3: "order_id",
+            4: "billing_cycle_id",
+            10: "provider_event_id",
+            16: "motivo",
+            18: "actor_id",
+            20: "ocorrido_at",
+        }
+        marcas = ", ".join(["%s"] * len(self.ARGUMENTOS))
+        for posicao, nome in anulaveis.items():
+            with self.subTest(argumento=nome):
+                argumentos = list(self.ARGUMENTOS)
+                argumentos[posicao] = None
+                self.semente.execute(
+                    f"SELECT platform.payment_event_row_hash({marcas})",
+                    tuple(argumentos),
+                )
+                elo = self.semente.fetchone()[0]
+                self.assertIsNotNone(elo, f"o {nome} nulo nao pode anular o elo")
+                self.assertEqual(len(elo), 32)
+
+    def test_um_prev_hash_nulo_da_nulo(self) -> None:
+        """O `prev_hash` **continua** a dar nulo, e isso e deliberado.
+
+        Nao e um argumento anulavel por desenho: toda a linha do ledger tem
+        `prev_hash` (a genese sao trinta e dois zeros, nao `NULL`). Um nulo aqui
+        e um chamador a passar o que nao existe, e o elo tem de ser nulo para o
+        `NOT NULL` da coluna o recusar.
+        """
+        argumentos = list(self.ARGUMENTOS)
+        argumentos[0] = None  # o `prev_hash`
         marcas = ", ".join(["%s"] * len(argumentos))
         self.semente.execute(
             f"SELECT platform.payment_event_row_hash({marcas})", tuple(argumentos)
         )
-        self.assertIsNone(self.semente.fetchone()[0])
+        self.assertIsNone(
+            self.semente.fetchone()[0],
+            "um `prev_hash` nulo nao e uma cadeia com um buraco: e nenhuma "
+            "cadeia, e o elo tem de ser nulo",
+        )
 
 
 class TestCadeiaEscritaPelaPorta(ComLedger):
@@ -171,11 +207,16 @@ class TestCadeiaEscritaPelaPorta(ComLedger):
             (self.cobranca,),
         )
         elos = [tuple(linha) for linha in self.semente.fetchall()]
-        self.assertEqual(len(elos), 2)
+        # Tres: o `referencia_emitida` da semente (a cobranca nasce `iniciada` e
+        # chega a `emitida` pela porta) e os dois deste ensaio.
+        self.assertEqual(len(elos), 3)
         self.assertEqual(elos[0][0], bytes(32), "o primeiro parte da genese")
-        self.assertEqual(
-            elos[1][0], elos[0][1], "o segundo parte do row_hash do primeiro"
-        )
+        for anterior, seguinte in zip(elos, elos[1:]):
+            self.assertEqual(
+                seguinte[0],
+                anterior[1],
+                "cada elo parte do row_hash do anterior",
+            )
 
     def test_a_verificacao_de_uma_cadeia_intacta_devolve_zero_linhas(self) -> None:
         self.semente.execute(
@@ -200,9 +241,7 @@ class TestCadeiaEscritaPelaPorta(ComLedger):
         )
         alvo, valor = tuple(self.semente.fetchone())
 
-        self.semente.execute(
-            "ALTER TABLE platform.payment_events DISABLE TRIGGER payment_events_imutavel"
-        )
+        estado_do_trigger = self._desligar_trigger()
         try:
             self.semente.execute(
                 "UPDATE platform.payment_events SET valor_minor = %s WHERE id = %s",
@@ -213,10 +252,7 @@ class TestCadeiaEscritaPelaPorta(ComLedger):
                 for linha in self._verificar()
             ]
         finally:
-            self.semente.execute(
-                "ALTER TABLE platform.payment_events "
-                "ENABLE ALWAYS TRIGGER payment_events_imutavel"
-            )
+            self._repor_trigger(estado_do_trigger)
 
         self.assertEqual(
             [(str(c), e) for c, e, _, _ in partidos],
@@ -236,26 +272,23 @@ class TestCadeiaEscritaPelaPorta(ComLedger):
         seguinte que denuncia o buraco.
         """
         terceiro = self._terceiro_evento()
+        # O **penultimo**: remover um elo do meio e o que a formula sozinha nao
+        # veria, e o `terceiro` acima garante que ha um depois dele.
         self.semente.execute(
             "SELECT id FROM platform.payment_events WHERE charge_id = %s "
-            " ORDER BY id OFFSET 1 LIMIT 1",
+            " ORDER BY id DESC OFFSET 1 LIMIT 1",
             (self.cobranca,),
         )
         meio = self.semente.fetchone()[0]
 
-        self.semente.execute(
-            "ALTER TABLE platform.payment_events DISABLE TRIGGER payment_events_imutavel"
-        )
+        estado_do_trigger = self._desligar_trigger()
         try:
             self.semente.execute(
                 "DELETE FROM platform.payment_events WHERE id = %s", (meio,)
             )
             partidos = [tuple(linha) for linha in self._verificar()]
         finally:
-            self.semente.execute(
-                "ALTER TABLE platform.payment_events "
-                "ENABLE ALWAYS TRIGGER payment_events_imutavel"
-            )
+            self._repor_trigger(estado_do_trigger)
         self.assertEqual(
             [(e, f) for _, e, _, f in partidos],
             [(terceiro, "prev_hash nao e o row_hash do elo anterior")],
@@ -279,6 +312,61 @@ class TestCadeiaEscritaPelaPorta(ComLedger):
         self.assertEqual(linhas[0][2], ultimo)
 
     # ------------------------------------------------------------- auxiliares
+
+    def _desligar_trigger(self) -> str:
+        """Desliga o `payment_events_imutavel` e **devolve o que ele era**.
+
+        Devolver o estado anterior nao e zelo: e o que impede este ensaio de
+        contaminar o `TestTriggersSaoAlways`. Ver o `_repor_trigger`.
+        """
+        self.semente.execute(
+            "SELECT t.tgenabled FROM pg_trigger t "
+            "  JOIN pg_class c ON c.oid = t.tgrelid "
+            "  JOIN pg_namespace n ON n.oid = c.relnamespace "
+            " WHERE n.nspname = 'platform' AND c.relname = 'payment_events' "
+            "   AND t.tgname = 'payment_events_imutavel'"
+        )
+        anterior = str(self.semente.fetchone()[0])
+        self.semente.execute(
+            "ALTER TABLE platform.payment_events "
+            "DISABLE TRIGGER payment_events_imutavel"
+        )
+        return anterior
+
+    def _repor_trigger(self, anterior: str) -> None:
+        """Repoe **o que estava**, e nao o que devia estar.
+
+        ## Porque e que isto nao e `ENABLE ALWAYS` fixo
+
+        Era, e foi um defeito — apanhado por uma mutacao que **sobreviveu**: a
+        que tira o `ENABLE ALWAYS` da revisao `0029`. Com o restauro fixo em
+        `ENABLE ALWAYS`, estes ensaios **punham** o *trigger* em `A` a seguir a
+        cada caso, e o `TestTriggersSaoAlways` — que corre depois, no mesmo
+        ficheiro — lia um `A` que tinha sido escrito por **eles** e nao pela
+        migracao. Isto e, a asercao passava com a revisao a criar o *trigger*
+        sem `ALWAYS`: um ensaio a passar pela razao errada, e sobre a barreira
+        que o `session_replication_role = replica` existe para contornar.
+
+        Medido: a mutacao «os triggers do ledger deixam de ser ALWAYS»
+        sobreviveu a suite inteira, e o diagnostico imprimiu
+        `[('payment_events_imutavel', 'A'), …]` numa base onde a migracao nunca
+        correu o `ALTER`.
+
+        Com o restauro a repor o valor anterior, estes ensaios deixam de
+        escrever o estado que outro ensaio afirma. E a mesma disciplina do passo
+        de canario do `test_concorrencia.py`, que repoe a restricao que largou.
+        """
+        if anterior == "A":
+            instrucao = "ENABLE ALWAYS TRIGGER"
+        elif anterior == "R":
+            instrucao = "ENABLE REPLICA TRIGGER"
+        elif anterior == "D":
+            instrucao = "DISABLE TRIGGER"
+        else:
+            instrucao = "ENABLE TRIGGER"
+        self.semente.execute(
+            f"ALTER TABLE platform.payment_events {instrucao} payment_events_imutavel"
+        )
 
     def _verificar(self):
         self.semente.execute(
@@ -311,6 +399,22 @@ class TestTriggersSaoAlways(ComLedger):
     sessao com privilegio pode fazer — saltava os dois *triggers*, e a
     imutabilidade do ledger passava a depender de ninguem o escrever. E a licao
     que a `0006` pagou, e aqui ha duas tabelas a herda-la.
+
+    ## O que este ensaio mede, e o que **nao** mede
+
+    Mede o estado **vivo** do catalogo, no fim da suite. Nao mede que a
+    **migracao** o escreveu, e a diferenca nao e academica: enquanto o restauro
+    do `TestCadeiaEscritaPelaPorta` punha o *trigger* em `ENABLE ALWAYS` a
+    seguir a cada caso, este ensaio passava mesmo com a revisao a criar o
+    *trigger* sem `ALWAYS` — lia o que o vizinho tinha escrito. Esta corrigido
+    (ver o `_repor_trigger`), e a prova de que a **migracao** o escreve esta
+    onde nenhum vizinho lhe chega: no
+    `TestDowngradeDa0029.test_depois_de_voltar_a_subir_tudo_volta`, que reaplica
+    a revisao ele proprio.
+
+    Os dois ficam, porque medem coisas diferentes — este apanha quem desligue
+    um *trigger* e se esqueca de o repor, e o outro apanha quem lhe tire o
+    `ALWAYS` na revisao.
     """
 
     def test_os_dois_triggers_do_ledger_sao_always(self) -> None:

@@ -24,6 +24,7 @@ import { describe, it } from "node:test";
 import {
   ALERTA_DA_CADEIA,
   ALERTA_DA_PROJECCAO,
+  ALERTA_DE_LEITURA,
   PREFIXO_DA_ANCORA,
   type CabecaDaCadeia,
   type EloPartido,
@@ -98,6 +99,7 @@ describe("job da cadeia: o caminho conforme", () => {
     });
 
     assert.equal(relatorio.conforme, true);
+    assert.deepEqual(relatorio.leiturasFalhadas, []);
     assert.equal(relatorio.cabecas, 2);
     assert.equal(relatorio.ancora, `${PREFIXO_DA_ANCORA}/2026-11-02.json`);
     assert.equal(escritas.length, 1);
@@ -186,6 +188,76 @@ describe("job da cadeia: a âncora conta para a conformidade", () => {
 
     assert.deepEqual(alertas, [ALERTA_DA_PROJECCAO]);
     assert.equal(relatorio.conforme, false);
+  });
+
+  it("test_uma_leitura_que_levanta_nao_aborta_o_job_nem_a_ancora", async () => {
+    // **A correcção do achado 2 da revisão adversarial.**
+    //
+    // O `SQL_PROJECCOES_DIVERGENTES` chama o `rebuild_charge_state`, e essa
+    // função **levanta** `data_corrupted` num ledger que não reproduz — que é
+    // o alarme certo. Mas levantava para fora: uma cobrança corrompida abortava
+    // a consulta inteira, o *job* lançava contra a sua própria docstring, e **a
+    // âncora, que se escreve depois, nunca chegava a ser escrita**. Isto é, o
+    // alarme de uma cadeia apagava a prova das outras.
+    const { armazenamento, escritas } = armazenamentoFake();
+    const alertas: string[] = [];
+    const relatorio = await verificarLedgerDiariamente({
+      leitura: {
+        async elosPartidos() {
+          return [];
+        },
+        async projeccoes(): Promise<readonly ProjeccaoDivergente[]> {
+          throw new Error("data_corrupted: o evento 9 nao e transicao");
+        },
+        async cabecas() {
+          return CABECAS;
+        },
+      },
+      armazenamento,
+      hoje: HOJE,
+      alertar: (alerta) => alertas.push(alerta),
+    });
+
+    assert.equal(escritas.length, 1, "a ancora escreve-se mesmo assim");
+    assert.equal(relatorio.ancora, `${PREFIXO_DA_ANCORA}/2026-11-02.json`);
+    assert.deepEqual(
+      relatorio.leiturasFalhadas.map((f) => f.leitura),
+      ["projeccoes"],
+    );
+    assert.ok(alertas.includes(ALERTA_DE_LEITURA));
+    // **Uma leitura que falhou não é uma verificação que passou.**
+    assert.equal(relatorio.conforme, false);
+  });
+
+  it("test_uma_leitura_que_levanta_nao_apaga_as_outras", async () => {
+    // A leitura dos elos corre e o seu resultado conta, mesmo com a das
+    // projecções em baixo: o relatório diz as duas coisas em vez de uma.
+    const { armazenamento } = armazenamentoFake();
+    const relatorio = await verificarLedgerDiariamente({
+      leitura: {
+        async elosPartidos() {
+          return [
+            {
+              chargeId: "aaaaaaaa-0000-4000-8000-000000000001",
+              eventId: 3n,
+              sequencia: 1,
+              falha: "row_hash nao corresponde aos campos canonicos",
+            },
+          ];
+        },
+        async projeccoes(): Promise<readonly ProjeccaoDivergente[]> {
+          throw new Error("42501 permission denied");
+        },
+        async cabecas() {
+          return CABECAS;
+        },
+      },
+      armazenamento,
+      hoje: HOJE,
+    });
+    assert.equal(relatorio.elosPartidos.length, 1);
+    assert.equal(relatorio.leiturasFalhadas.length, 1);
+    assert.equal(relatorio.cabecas, 2);
   });
 
   it("test_o_job_nao_lanca_e_devolve_o_relatorio", async () => {

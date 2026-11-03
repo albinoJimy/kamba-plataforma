@@ -343,7 +343,7 @@ class TestARecusaDaTransicao(ComLedger):
         )
         self.assertErroSql(VIOLACAO_DE_CHECK, cursor, sql, args)
         self.confirmar(cursor, self.tenant)
-        self.assertEqual(self.eventos_da_cobranca(self.cobranca), [])
+        self.assertEqual(self.eventos_do_ensaio(self.cobranca), [])
         self.assertEqual(self.estado_da_cobranca(self.cobranca), "emitida")
 
     def test_depois_de_paga_uma_segunda_confirmacao_e_recusada(self) -> None:

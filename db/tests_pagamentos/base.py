@@ -88,6 +88,12 @@ class ComLedger(ComBase):
         self._tenants: list[str] = []
         self._contas: list[str] = []
         self._papeis: dict[str, object] = {}
+        #: Quantos eventos a semente deixou em cada cobranca. Uma cobranca que
+        #: nasce `iniciada` e chega a `emitida` **pela porta** leva um
+        #: `referencia_emitida`; os ensaios que afirmam «zero eventos» ou uma
+        #: contagem exacta querem dizer «zero/N **meus**», e e o
+        #: `eventos_do_ensaio` que lhes da isso.
+        self._semeados: dict[str, int] = {}
         self.addCleanup(self._limpar)
 
     def _limpar(self) -> None:
@@ -195,10 +201,22 @@ class ComLedger(ComBase):
     def criar_cobranca(self, tenant: str, conta: str, **campos) -> str:
         """Uma `payment_charges` em `emitida`. Devolve o `id`.
 
-        Nasce em `emitida` e nao em `iniciada` porque e desse estado que partem
-        quase todas as arestas do §7.1 — e porque chegar a `emitida` pela porta
-        exige um `referencia_emitida`, que e o que os ensaios da maquina de
-        estados fazem de proposito e os outros nao devem ter de fazer.
+        **Nasce em `iniciada` e chega a `emitida` pela porta.**
+
+        A primeira versao inseria `estado='emitida'` directamente, e isso
+        deixou de ser possivel — e deixou de ser possivel por causa de um
+        defeito que a revisao adversarial apanhou: o `estado` nao tinha valor
+        inicial imposto, pelo que um `INSERT` com `estado='paga'` passava. O
+        *trigger* `payment_charges_nasce_iniciada` fechou essa via, e esta
+        semente paga o preco de a fechar: duas chamadas em vez de uma.
+
+        E o preco e **ganho**, nao perda: a cobranca das sementes passa a chegar
+        a `emitida` pelo mesmo caminho que em producao, com um
+        `referencia_emitida` no ledger. A primeira versao semeava um estado que
+        nenhum evento explicava — isto e, toda a suite corria contra cobrancas
+        que a `rebuild_charge_state` nao conseguia reproduzir, e foi assim que o
+        achado 2 da revisao (o *job* a levantar `data_corrupted`) se tornou
+        possivel de todo.
         """
         valores = {
             "id": str(uuid.uuid4()),
@@ -209,20 +227,87 @@ class ComLedger(ComBase):
             "metodo": "referencia",
             "referencia": f"REF{uuid.uuid4().hex[:12]}",
             "amount_minor": VALOR,
-            "estado": "emitida",
             # `NOT NULL` no §6.2: uma cobranca sem prazo nao expira nunca, e o
             # F-06 precisa de saber quando emitir a tentativa seguinte.
             "valid_until": datetime.datetime.now(datetime.timezone.utc)
             + datetime.timedelta(hours=24),
         }
         valores.update(campos)
+        # O estado pedido, se houver: a cobranca nasce sempre `iniciada` e
+        # chega ao resto **pela porta**.
+        destino = valores.pop("estado", "emitida")
         colunas = ", ".join(valores)
         marcas = ", ".join(["%s"] * len(valores))
         self.semente.execute(
             f"INSERT INTO platform.payment_charges ({colunas}) VALUES ({marcas})",
             tuple(valores.values()),
         )
+        if destino != "iniciada":
+            self._semeados[valores["id"]] = self._levar_a(
+                valores["tenant_id"], valores["id"], valores["account_id"], destino
+            )
         return valores["id"]
+
+    #: Como se chega a cada estado a partir de `iniciada`, pela porta. As
+    #: arestas sao as do §7.1; o `authn_method` e `sistema` nos factos de ciclo
+    #: de vida que ninguem autentica, e `hmac` no que vem do facilitador.
+    CAMINHOS: dict[str, tuple[tuple[str, str, str], ...]] = {
+        "emitida": (("referencia_emitida", "informativo", "sistema"),),
+        "aguarda_cliente": (("push_enviado", "informativo", "sistema"),),
+        "pendente_confirmacao": (
+            ("referencia_emitida", "informativo", "sistema"),
+            ("confirmacao_manual_pedida", "informativo", "sistema"),
+        ),
+        "paga": (
+            ("referencia_emitida", "informativo", "sistema"),
+            ("pagamento_confirmado", "aceite", "hmac"),
+        ),
+        "expirada": (
+            ("referencia_emitida", "informativo", "sistema"),
+            ("cobranca_expirada", "informativo", "sistema"),
+        ),
+        "falhada": (
+            ("referencia_emitida", "informativo", "sistema"),
+            ("pagamento_divergente", "rejeitada", "hmac"),
+        ),
+        "cancelada": (
+            ("referencia_emitida", "informativo", "sistema"),
+            ("cobranca_cancelada", "informativo", "sistema"),
+        ),
+    }
+
+    def _levar_a(
+        self, tenant: str, cobranca: str, conta: str, destino: str
+    ) -> int:
+        """Leva a cobranca de `iniciada` ao estado pedido, **pela porta**.
+
+        Semear um estado directamente deixou de ser possivel (o *trigger* do
+        nascimento), e e melhor assim: o que a suite semeia passa a ser
+        reproduzivel pela `rebuild_charge_state`, que e a propriedade que o
+        criterio 5 mede.
+
+        **O `tenant` vem por argumento e nao se le da tabela**, e isto custou 67
+        erros na primeira versao: a leitura era `SELECT tenant_id FROM
+        payment_charges WHERE id = …` como `kamba_app` **sem contexto** — isto
+        e, a politica `tenant_iso` escondia a linha, o `set_config` recebia
+        `NULL`, e a porta recusava com «a cobranca nao existe ou nao e visivel».
+        E um galo-e-ovo: nao se pode descobrir o tenant de uma linha que so se
+        ve com o tenant no contexto.
+        """
+        caminho = self.CAMINHOS.get(destino)
+        if caminho is None:
+            raise AssertionError(
+                f"nao ha caminho conhecido de iniciada para {destino!r}; "
+                "o §7.1 pode nao ter aresta nenhuma"
+            )
+        cursor = self.cursor_papel("app", tenant)
+        for tipo, decisao, metodo in caminho:
+            self.appendar(
+                cursor, cobranca, conta, tipo,
+                p_decisao=decisao, p_authn_method=metodo,
+            )
+        self.confirmar(cursor, tenant)
+        return len(caminho)
 
     def mapear_outbox(
         self,
@@ -333,6 +418,17 @@ class ComLedger(ComBase):
             (cobranca,),
         )
         return [tuple(linha) for linha in self.semente.fetchall()]
+
+    def eventos_do_ensaio(self, cobranca: str) -> list[tuple]:
+        """Os eventos que **o ensaio** escreveu, sem os da semente.
+
+        Existe porque a cobranca passou a nascer `iniciada` e a chegar ao estado
+        pedido **pela porta** — ver o `_levar_a` —, pelo que ha um
+        `referencia_emitida` no ledger antes de o ensaio comecar. Um ensaio que
+        afirma «zero eventos» quer dizer «zero **meus**», e escrever `[:1]` a
+        mao em cada um era deixar o numero a envelhecer em dez sitios.
+        """
+        return self.eventos_da_cobranca(cobranca)[self._semeados.get(cobranca, 0) :]
 
     def estado_da_cobranca(self, cobranca: str) -> str:
         self.semente.execute(
