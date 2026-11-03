@@ -208,14 +208,51 @@ sem correcção possível para quem tem um PR grande, o que é pior do que pagar
 clone. **O custo, medido a 2026-11-03** sobre o `albinoJimy/kamba-plataforma`
 (144 *commits* em `main`): o clone passa de **1 895 para 5 905 objectos** e de
 **8,2 para 16,5 MiB** de *pack* — 3,1× os objectos e 2,0× os bytes, mais 8,3 MiB
-por execução. Em tempo de relógio do *runner*, o *gate* 2 levava **29 s** com a
-profundidade 1 (medido na corrida `41649947908`); o valor com a profundidade 0
-fica registado na linha de versão deste documento, medido na primeira corrida
-deste ticket. As duas variáveis em bruto (`GATE2_EVENTO`, `GATE2_MERGE_REF`) e o
+por execução.
+
+Em tempo de relógio do *runner*, medido **por passo** nas duas corridas — a
+`41649947908` com a profundidade 1 e a `41668266259` com a 0 —, porque o número
+do *job* inteiro mistura o que este ticket mudou com o que não mudou:
+
+| Passo | profundidade 1 | profundidade 0 | Delta |
+|---|---|---|---|
+| `actions/checkout@v5` | 2 s | 4 s | **+2 s** — é o custo do clone mais profundo |
+| `./.github/actions/preparar` | 15 s | 19 s | +4 s — instala Node, Python e o `.venv`; este ticket não o toca |
+| `make ci-2` | 8 s | 8 s | **0 s** — os dois passos novos ficam abaixo da resolução de 1 s |
+| *job* inteiro | 29 s | 36 s | +7 s |
+
+Os dois passos novos custam **~0,14 s** lidos dos carimbos do registo (57 ms a
+leitura e 87 ms o canário), e por isso não movem o passo que os contém. O que o
+clone mais profundo custa são os **2 s** do `checkout`; os 4 s do `preparar` são
+variância entre corridas e não deste ticket. **São duas observações, uma de cada
+lado** — não uma distribuição —, e é o que há: o *gate* 2 corre uma vez por
+*commit*.
+
+As duas variáveis em bruto (`GATE2_EVENTO`, `GATE2_MERGE_REF`) e o
 `fetch-depth` são confrontados linha a linha por
 [`tools/lint_arch/tests/test_ci_gate2.py`](../tools/lint_arch/tests/test_ci_gate2.py)
 — não há *lint* de *workflows*, pelo que uma condição escrita no YAML não seria
 verificável por teste nenhum.
+
+**No registo do *gate* 2 o `lint-arch` aparece duas vezes, e a linha que conta é
+a segunda.** Não é defeito nem duplicação nova: o `./.github/actions/preparar`
+corre `make bootstrap`, e o `bootstrap` já depende de `lint-arch` — o canário do
+título do PR (KAM-164) também aparece duas vezes, pela mesma razão. A diferença é
+que a passagem das mensagens **declara o modo em que corre**, e na primeira
+aparição declara o modo local:
+
+```text
+lint_arch: mensagens dos commits: NAO verificadas (execucao local: …)   <- bootstrap
+lint_arch: mensagens dos commits: conforme                              <- make ci-2
+lint_arch: mensagens dos commits: 1 commit(s) do intervalo do PR
+```
+
+O `env:` com as duas variáveis está no passo `make ci-2` e **não** no `preparar`,
+pelo que a invocação do `bootstrap` não tem intervalo — e di-lo, em vez de passar
+em silêncio. **Quem lê o registo tem de ler a segunda**: é a que diz quantos
+*commits* varreu. Se o `env:` desaparecesse do YAML, as duas diriam «NAO
+verificadas» e o *gate* 2 ficava **verde sem ter lido nada** — o que torna o
+`test_ci_gate2.py` a peça que sustenta isto, e ele corre no *gate* 4, não no 2.
 
 **O que esta verificação não cobre**, e fica escrito para não se confundir
 cobertura com alcance:
@@ -2716,4 +2753,4 @@ sobrevivem ao PR.
 | 1.63 | Novembro 2026 | **KAM-164: o §7 ganha a lacuna 30 — uma verificação que existe e não bloqueia.** A verificação do título do PR (`../.github/workflows/titulo-do-pr.yaml`, contexto `titulo do PR — forma convencional`) corre em `pull_request` com `types: [opened, edited, reopened, synchronize]` e tem canário próprio, mas **não** entra nos `required_status_checks` nem no espelho: pelas razões das lacunas 17 e 28, escrevê-la só no espelho tornava-o falso e aplicá-la no GitHub precisa de `administration: write`. Também não bloqueia pelo *job* de resumo, ao contrário dos *gates* 3b, 3c, 6, 7 e 8 — vive em *workflow* próprio porque precisa do `edited`, e pô-lo no `ci.yaml` faria os doze *jobs* bloqueantes correrem a cada emenda de título. **Não é *gate* e não entra no §2:** a numeração do §2 é a do `../specs/01_Engineering_Standards_e_Handoff.md` §4, e esta verificação não tem número lá; o `esperados` do resumo também não muda. | Equipa KAMBÁ |
 | 1.64 | Novembro 2026 | **KAM-002: a chave do cache do `.venv` passa a levar a versão de patch do interpretador, e o escape ganha portão.** A chave de [`../.github/actions/preparar/action.yaml`](../.github/actions/preparar/action.yaml) era `venv-<os>-<hash dos requirements>` e não dizia nada sobre o Python, enquanto o `python-version: "3.12"` flutua no patch de propósito. Um `.venv` leva o `bin/python3` como *symlink* para `/opt/hostedtoolcache/Python/<versão>/x64`, pelo que uma entrada construída com um patch fica pendurada em qualquer *runner* que sirva outro — e **não se cura**, porque o `actions/cache` só escreve quando há *miss*. **Medido a 2026-11-03, na corrida `41636240093`:** os sete *jobs* do `ci.yaml` que usam a acção apanharam a rolagem da imagem a meio — os *gates* 1, 4, 6, 7, 8 e 11 em CPython **3.12.15** passaram e o *gate* 2, em **3.12.16**, falhou com `[Errno 2] ... '.venv/bin/python3'` sobre um cache restaurado a 100%. **A acção tem oito consumidores e não sete** — o oitavo é o `fatias` do `mutacoes.yaml`, que é um bloco e uma matriz de seis —, pelo que são **13 *jobs*** a partilhar a entrada; a primeira versão desta linha dizia «os sete», e foi a revisão adversarial que o apanhou. Completada a rolagem, a entrada de 25 de Outubro partiria os treze em todos os PRs e na `main`; e **durante a rolagem** apagar a entrada não corrigia nada, porque enquanto há dois patches em serviço nenhuma entrada única serve os dois lados (completada a rolagem já bastaria, e a primeira versão afirmava-o sem esse âmbito). O portão é o [`../tools/lint_arch/tests/test_ci_preparar.py`](../tools/lint_arch/tests/test_ci_preparar.py), **seis** ensaios: a chave na forma inteira, com os ficheiros do `hashFiles` lidos dos pré-requisitos do `$(VENV)/.stamp` do `Makefile` em vez de escritos no ensaio; o `id` citado é mesmo o do passo do `setup-python` — uma expressão que não resolve rende **cadeia vazia** e degradaria a chave em silêncio; **a ausência de `restore-keys`**, que sustenta tudo o resto e cuja reintrodução passava 4/4 verde na primeira versão, com a linha pronta a copiar do `cache do pnpm` três linhas acima; a acção é o único sítio que define este cache, varrendo `*.yaml`, `*.yml` e outras acções compostas; e os consumidores contam ***jobs*** e não blocos de YAML, que era a mesma falha de denominador dentro do portão que a devia impedir. Verificado nos dois sentidos: 6/6 verdes com a correcção, e **oito variantes de regressão todas vermelhas** — incluindo as quatro que a primeira versão deixava passar. | Equipa KAMBÁ |
 | 1.65 | Novembro 2026 | **KAM-173: o *gate* 4 ganha um passo e nao um *job*.** O `ci-4` passa a depender de `ordem-dos-ensaios`, que corre `libs/py-core/tests` e `services/agr/tests` outra vez na ordem inversa e exige verde — cada ordem no seu processo, porque duas no mesmo mediam a passagem anterior e nao a ordem. O `.github/workflows/ci.yaml` **nao** e tocado, pelo que nenhum contexto novo entra no *ruleset* de `main`. Medido antes: **um** teste de `libs/py-core` mudava de resultado com a ordem invertida (e **zero** em `services/agr`), e o escape que o motiva esta no KAM-163, onde o ensaio da correccao passava por acidente da ordem alfabetica das classes. Com canario de **duas** metades, uma a morder e uma a distinguir. **As suites de `tools/` ficam de fora**, com o custo medido — as **18** de antes deste alvo levam **1 911 s** numa passagem, **1 422** deles da `supply_chain` so — e com a medicao feita de qualquer modo: **as 18** sem mudanca de resultado, a `supply_chain` incluida. | Equipa KAMBÁ |
-| 1.66 | Novembro 2026 | **KAM-174: o *gate* 2 passa a ler as mensagens dos *commits* que o PR acrescenta, e sem *job* novo.** O alvo `lint-arch` ganha dois passos — `commit-range` e `commit-range-canario` —, pelo caminho do `log-lint`, do `money-lint` e do `env-lint`: um *job* novo acrescentava um contexto exigido ao *ruleset* de `main`. O `esperados` continua em **11** e os `needs:` não mudam. Até aqui a forma do assunto era imposta só pelo *hook* local, que se dispensa com `--no-verify` e não existe antes de `make hooks` — e com `squash_merge_commit_title: COMMIT_OR_PR_TITLE` um PR de um só *commit* leva esse assunto para o `main` sem nada do lado do servidor o ler (dívida 173, **riscada aqui**). Reusa o `check_commit_message` e a fonte única `../tools/conventions.json`; nenhuma segunda cópia da expressão regular, e o `test_conventions.py::TestFonteUnicaDaForma` continua verde sobre os ficheiros novos. **O intervalo é do primeiro ao segundo pai do *merge ref***, medido em `refs/pull/112/merge` (pai 1 = base, pai 2 = cabeça) e **não** o do *gate* 9, cuja base cresce quando a `main` anda e avermelharia PRs alheios; o *merge* sintético fica fora **por construção** e o canário prova-o com as `exemptHeaderPatterns` retiradas. Os cinco accionamentos estão escritos numa função pura com testes, e um accionamento não escrito é vermelho; em `push` e em `workflow_dispatch` a passagem **não corre**, em modo declarado. O *job* ganha `fetch-depth: 0` — tinha a profundidade 1 por omissão —, e o custo está medido: o clone passa de **1 895 para 5 905 objectos** e de **8,2 para 16,5 MiB** de *pack*. **Critério 9 decidido:** o `commitlint` fica como via local, porque o `config-conventional` traz o seu próprio *parser* e ligá-lo ao CI punha lá uma segunda implementação da forma; a paridade das duas vias já tem portão (`TestFonteUnica`). As 22 a 30 linhas de `main` fora da forma ficam como estão e a dívida 170 **não** foi reescrita. | Equipa KAMBÁ |
+| 1.66 | Novembro 2026 | **KAM-174: o *gate* 2 passa a ler as mensagens dos *commits* que o PR acrescenta, e sem *job* novo.** O alvo `lint-arch` ganha dois passos — `commit-range` e `commit-range-canario` —, pelo caminho do `log-lint`, do `money-lint` e do `env-lint`: um *job* novo acrescentava um contexto exigido ao *ruleset* de `main`. O `esperados` continua em **11** e os `needs:` não mudam. Até aqui a forma do assunto era imposta só pelo *hook* local, que se dispensa com `--no-verify` e não existe antes de `make hooks` — e com `squash_merge_commit_title: COMMIT_OR_PR_TITLE` um PR de um só *commit* leva esse assunto para o `main` sem nada do lado do servidor o ler (dívida 173, **riscada aqui**). Reusa o `check_commit_message` e a fonte única `../tools/conventions.json`; nenhuma segunda cópia da expressão regular, e o `test_conventions.py::TestFonteUnicaDaForma` continua verde sobre os ficheiros novos. **O intervalo é do primeiro ao segundo pai do *merge ref***, medido em `refs/pull/112/merge` (pai 1 = base, pai 2 = cabeça) e **não** o do *gate* 9, cuja base cresce quando a `main` anda e avermelharia PRs alheios; o *merge* sintético fica fora **por construção** e o canário prova-o com as `exemptHeaderPatterns` retiradas. Os cinco accionamentos estão escritos numa função pura com testes, e um accionamento não escrito é vermelho; em `push` e em `workflow_dispatch` a passagem **não corre**, em modo declarado. O *job* ganha `fetch-depth: 0` — tinha a profundidade 1 por omissão —, e o custo está medido dos dois lados: o clone passa de **1 895 para 5 905 objectos** e de **8,2 para 16,5 MiB** de *pack*, e em tempo de relógio o passo `checkout` passa de **2 s para 4 s** enquanto o `make ci-2` fica nos **8 s** (os dois passos novos custam ~0,14 s, abaixo da resolução); o *job* inteiro vai de 29 s a 36 s, com os restantes 4 s no `preparar`, que este ticket não toca. Medido nas corridas `41649947908` e `41668266259`, uma observação de cada lado. **Critério 9 decidido:** o `commitlint` fica como via local, porque o `config-conventional` traz o seu próprio *parser* e ligá-lo ao CI punha lá uma segunda implementação da forma; a paridade das duas vias já tem portão (`TestFonteUnica`). As 22 a 30 linhas de `main` fora da forma ficam como estão e a dívida 170 **não** foi reescrita. | Equipa KAMBÁ |

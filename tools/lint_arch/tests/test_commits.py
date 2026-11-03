@@ -14,14 +14,16 @@ Dois eixos, e o segundo e o que da substancia ao ticket:
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
+import io
 import re
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
-from lint_arch import canario_commits, commits, conventions
+from lint_arch import canario_commits, cli, commits, conventions
 
 ROOT = Path(__file__).resolve().parents[3]
 CONVENTIONS = ROOT / "tools" / "conventions.json"
@@ -430,6 +432,123 @@ class TestOsDoisIntervalos(_ComArvore):
         self.assertNotIn(
             self.merge, {achado.sha for achado in pelo_criterio_3.achados}
         )
+
+
+class TestCliDoCommitRange(_ComArvore):
+    """O **CLI**, e nao so o `verificar_intervalo`.
+
+    Existe por um buraco medido: trocar
+    `[str(achado) for achado in resultado.achados]` por `[]` no `cli.py`
+    sobrevivia a **todos** os outros ensaios deste ficheiro e ao canario, porque
+    todos chamam o `verificar_intervalo` **directamente** e nenhum passava pela
+    ligacao entre ele e o `_report`. Com essa mutacao o portao dava 0 — «conforme»
+    — sobre um intervalo com um assunto fora da forma, que e exactamente o verde
+    que nao significa nada.
+
+    O que se verifica aqui e o **codigo de saida**, que e o que o `make` le:
+    0 = conforme, 1 = achados, 2 = configuracao quebrada.
+    """
+
+    base: str
+    merge_bom: str
+    merge_mau: str
+
+    @classmethod
+    def construir(cls) -> None:
+        cls.base = _commit(cls.raiz, "historia.txt", "chore(KAM-174): o commit da base")
+        # O `cli` le as convencoes de `<root>/tools/conventions.json`, e a raiz que
+        # ele usa para o `git` e a mesma. A arvore descartavel leva uma copia da
+        # fonte real, para que o ensaio exercite as regras do repositorio e nao um
+        # conjunto inventado.
+        (cls.raiz / "tools").mkdir(exist_ok=True)
+        with (cls.raiz / "tools" / "conventions.json").open(
+            "w", encoding="utf-8", newline="\n"
+        ) as destino:
+            with CONVENTIONS.open(encoding="utf-8") as origem:
+                destino.write(origem.read())
+        _git(cls.raiz, "add", "tools/conventions.json")
+        _git(cls.raiz, "commit", "--no-verify", "-m", "chore(KAM-174): a fonte da forma")
+        cls.base = _git(cls.raiz, "rev-parse", "HEAD")
+
+        _git(cls.raiz, "checkout", "--quiet", "-b", "ramo-bom")
+        bom = _commit(cls.raiz, "bom.txt", "fix(KAM-174): o commit conforme do ramo")
+        _git(cls.raiz, "checkout", "--quiet", "main")
+        _git(
+            cls.raiz, "merge", "--no-ff", "--no-verify",
+            "-m", f"Merge {bom} into {cls.base}", "ramo-bom",
+        )
+        cls.merge_bom = _git(cls.raiz, "rev-parse", "HEAD")
+
+        _git(cls.raiz, "checkout", "--quiet", "-b", "ramo-mau", cls.base)
+        mau = _commit(cls.raiz, "mau.txt", FORA_DA_FORMA)
+        _git(cls.raiz, "checkout", "--quiet", "main")
+        _git(
+            cls.raiz, "merge", "--no-ff", "--no-verify",
+            "-m", f"Merge {mau} into {cls.merge_bom}", "ramo-mau",
+        )
+        cls.merge_mau = _git(cls.raiz, "rev-parse", "HEAD")
+
+    def _correr(self, *argumentos: str) -> tuple[int, str]:
+        """O `cli.main`, com a saida capturada. Devolve `(codigo, texto)`."""
+        saida, erro = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(saida), contextlib.redirect_stderr(erro):
+            codigo = cli.main(["--root", str(self.raiz), "commit-range", *argumentos])
+        return codigo, saida.getvalue() + erro.getvalue()
+
+    def test_um_assunto_fora_da_forma_da_codigo_1(self) -> None:
+        """A mutacao que sobrevivia a todo o resto: aqui fica vermelha."""
+        codigo, texto = self._correr(
+            "--evento", "pull_request", "--merge-ref", self.merge_mau
+        )
+        self.assertEqual(codigo, 1, texto)
+        # E o relatorio diz **qual** e o commit, que e o que o criterio pede.
+        self.assertIn("1 achado(s)", texto)
+        self.assertIn(FORA_DA_FORMA, texto)
+
+    def test_um_intervalo_conforme_da_codigo_0(self) -> None:
+        codigo, texto = self._correr(
+            "--evento", "pull_request", "--merge-ref", self.merge_bom
+        )
+        self.assertEqual(codigo, 0, texto)
+        self.assertIn("1 commit(s) do intervalo", texto)
+
+    def test_o_relatorio_diz_quantos_commits_varreu(self) -> None:
+        """Um portao que nao diz o que varreu nao se distingue de um que nao varreu."""
+        _, texto = self._correr(
+            "--evento", "pull_request", "--merge-ref", self.merge_mau
+        )
+        self.assertIn("commit(s) do intervalo do PR", texto)
+
+    def test_push_da_codigo_0_e_declara_que_nao_verificou(self) -> None:
+        codigo, texto = self._correr("--evento", "push", "--merge-ref", self.merge_mau)
+        self.assertEqual(codigo, 0, texto)
+        self.assertIn("NAO verificadas", texto)
+
+    def test_execucao_local_da_codigo_0_e_declara_o_modo(self) -> None:
+        codigo, texto = self._correr("--evento", "", "--merge-ref", "")
+        self.assertEqual(codigo, 0, texto)
+        self.assertIn("NAO verificadas", texto)
+
+    def test_accionamento_nao_escrito_da_codigo_2(self) -> None:
+        """2 e nao 1: configuracao quebrada nao pode parecer um PR conforme."""
+        codigo, texto = self._correr("--evento", "schedule", "--merge-ref", "")
+        self.assertEqual(codigo, 2, texto)
+
+    def test_pull_request_sem_merge_ref_da_codigo_2(self) -> None:
+        codigo, texto = self._correr("--evento", "pull_request", "--merge-ref", "")
+        self.assertEqual(codigo, 2, texto)
+
+    def test_um_merge_ref_com_um_so_pai_da_codigo_2(self) -> None:
+        """O `^2` nao resolve, e isso e vermelho e nao passagem em silencio.
+
+        E o caso de alguem passar `github.sha` de um evento que nao traz merge
+        ref — num `push` sobre `main`, o commit de um squash tem **um** pai.
+        """
+        codigo, texto = self._correr(
+            "--evento", "pull_request", "--merge-ref", self.base
+        )
+        self.assertEqual(codigo, 2, texto)
+        self.assertIn("segundo pai", texto)
 
 
 class TestCloneRaso(unittest.TestCase):
