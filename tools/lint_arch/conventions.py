@@ -134,9 +134,13 @@ def _check_header(header: str, rules: Conventions, rotulo: str = "cabecalho") ->
 
     scope = match.group("scope")
     if not re.match(rules.scope_pattern, scope):
+        # O substantivo acompanha o `rotulo`: um achado sobre o titulo de um PR
+        # que mandasse olhar para «todo o commit» remetia quem o le para a
+        # superficie errada. Achado da revisao adversarial do KAM-164.
+        sujeito = "todo o PR" if rotulo == "titulo" else "todo o commit"
         problems.append(
             f"ambito {scope!r} fora de {rules.scope_pattern}; "
-            "todo o commit cita o ticket que o justifica (specs/01 §5)"
+            f"{sujeito} cita o ticket que o justifica (specs/01 §5)"
         )
 
     subject = match.group("subject").strip()
@@ -198,6 +202,29 @@ def _check_body_and_footer(lines: list[str], rules: Conventions) -> list[str]:
     return problems
 
 
+#: O que o GitHub acrescenta ao assunto do *squash*: ` (#NNNN)`. Os seis assuntos
+#: que estao no `main` trazem-no todos — de ` (#70)` a ` (#75)`. Reserva-se o
+#: comprimento de **quatro** digitos (`#9999`) e nao o do numero do PR em curso,
+#: que o evento traz mas que esta funcao nao recebe: uma reserva fixa e mais
+#: estrita do que a conta exacta, e errar para o lado estrito e o que se quer num
+#: limite. Hoje o repositorio esta no #107.
+SUFIXO_DO_SQUASH = len(" (#9999)")
+
+
+def normalizar_titulo(title: str) -> str:
+    """O titulo como a verificacao o le: espaco em branco colapsado.
+
+    Existe como funcao propria porque **duas** superficies precisam do mesmo
+    valor: a verificacao e o bloco de ajuda que ecoa o titulo recusado. Ecoar o
+    valor cru punha no registo do *runner*, no inicio de linha, o que quem
+    escreveu o titulo quisesse — e no GitHub Actions uma linha que comece por
+    `::error`, `::add-mask` ou `::stop-commands` e um *workflow command*, nao
+    texto. Colapsar o espaco em branco tira as novas linhas, e com elas o inicio
+    de linha. Achado da revisao adversarial do KAM-164.
+    """
+    return " ".join(title.split())
+
+
 def check_pr_title(title: str, rules: Conventions) -> list[str]:
     """Devolve a lista de problemas do titulo de um PR. Lista vazia = conforme.
 
@@ -206,22 +233,26 @@ def check_pr_title(title: str, rules: Conventions) -> list[str]:
     (medido a 2026-11-03 em `gh api repos/albinoJimy/kamba-plataforma`), que
     significa: o assunto do commit quando o PR tem **um so**, e o **titulo do
     PR** quando tem mais do que um. Logo o titulo de um PR desta linha e, metade
-    das vezes, o assunto que fica no `main` — e nem o `tools/githooks/commit-msg`
-    nem o `lint_arch` do *gate* 2 lhe chegam, porque ele nao vive no ramo. O
-    `29778f3` (PR #75) e a prova de que isso aconteceu.
+    das vezes, o assunto que fica no `main` — e o `tools/githooks/commit-msg` nao
+    lhe chega, porque ele nao vive no ramo. O `29778f3` (PR #75) e a prova de que
+    isso aconteceu. (E nenhum portao de CI le mensagens de *commit*: medido a
+    2026-11-03, o `make ci-2` corre `lint_arch all`, que nao as inclui, e nenhum
+    *workflow* invoca o `commitlint`. Divida 173.)
 
     Tres diferencas face a `check_commit_message`, todas deliberadas:
 
     - **Verifica-se sempre**, tambem num PR com um so commit, onde o assunto nao
-      vem do titulo. E a decisao aberta do KAM-164, e fecha-se assim por tres
+      vem do titulo. E a decisao aberta do KAM-164, e fecha-se assim por quatro
       razoes: o numero de commits nao vem no evento (exigiria uma chamada a API
       cuja resposta pode mudar entre a verificacao e a fusao); `allow_auto_merge`
       esta ligado desde 2026-10-27, pelo que um commit acrescentado depois de os
-      portoes ficarem verdes transforma o titulo em assunto sem nada reavaliar; e
-      a regra fica mais simples de escrever no `specs/01` §5 — «o titulo do PR
-      obedece a mesma forma», sem condicao. O custo e um falso vermelho a quem
-      titule de outra forma um PR de um commit, e esse custo e a regra, nao um
-      defeito dela.
+      portoes ficarem verdes transforma o titulo em assunto sem nada reavaliar;
+      **nada do lado do servidor verifica o assunto de um commit** (ver acima),
+      pelo que a alternativa nao e «ja esta coberto» mas «nao esta coberto por
+      ninguem»; e a regra fica mais simples de escrever no `specs/01` §5 — «o
+      titulo do PR obedece a mesma forma», sem condicao. O custo e um falso
+      vermelho a quem titule de outra forma um PR de um commit, e esse custo e a
+      regra, nao um defeito dela.
     - **Sem dispensas.** `exemptHeaderPatterns` dispensa o que o *git* gera
       sozinho (`Merge `, `Revert "`, `fixup! `, `squash! `). Nada no GitHub gera
       um titulo de PR dessas formas — quem o escreve e uma pessoa —, e um
@@ -232,11 +263,29 @@ def check_pr_title(title: str, rules: Conventions) -> list[str]:
       em branco normaliza-se antes de verificar, para que um titulo colado com um
       espaco duplo ou com uma nova linha a mais falhe — se falhar — pela forma, e
       nao por um caractere invisivel que ninguem ve no diff.
+    - **Uma regra a mais, que o cabecalho de um commit nao tem.** O que fica no
+      `main` e o titulo **mais** o ` (#NNNN)` que o GitHub acrescenta, pelo que o
+      limite de comprimento se verifica contra o assunto projectado e nao contra
+      o titulo (`SUFIXO_DO_SQUASH`).
     """
-    title = " ".join(title.split())
+    title = normalizar_titulo(title)
     if not title:
         return ["titulo de PR vazio"]
-    return _check_header(title, rules, rotulo="titulo")
+    problems = _check_header(title, rules, rotulo="titulo")
+    # **O que a verificacao mede e o titulo; o que fica no `main` e o titulo mais
+    # o ` (#NNNN)`.** Sem esta conta havia uma gama de titulos — 113 a 120
+    # caracteres — que esta verificacao aprovava e que deixavam no `main`
+    # exactamente a classe de assunto que o `check_commit_message` recusa: medido
+    # com um titulo de 119, o assunto do *squash* fica em 126 e o maximo e 120.
+    # Achado da revisao adversarial do KAM-164.
+    projectado = len(title) + SUFIXO_DO_SQUASH
+    if projectado > rules.header_max_length:
+        problems.append(
+            f"o assunto do squash ficaria com {projectado} caracteres "
+            f"({len(title)} do titulo mais os {SUFIXO_DO_SQUASH} do ' (#NNNN)' "
+            f"que o GitHub acrescenta); o maximo e {rules.header_max_length}"
+        )
+    return problems
 
 
 def check_branch_name(name: str, rules: Conventions) -> list[str]:

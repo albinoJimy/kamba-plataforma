@@ -21,14 +21,20 @@ variaveis de sitio, e as asercoes continuaram verdes.
 
 from __future__ import annotations
 
+import io
+import os
 import re
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+
+from lint_arch import cli
 
 ROOT = Path(__file__).resolve().parents[3]
 WORKFLOW = ROOT / ".github" / "workflows" / "titulo-do-pr.yaml"
 CI = ROOT / ".github" / "workflows" / "ci.yaml"
 ESPELHO = ROOT / ".github" / "rulesets" / "main.json"
+MAKEFILE = ROOT / "Makefile"
 
 #: O nome do contexto de CI, escrito aqui tambem. **Nao e redundancia**: e o
 #: terceiro ponto que torna um erro de copia visivel, no padrao do KAM-157. Os
@@ -78,9 +84,12 @@ class TestOEventoDoTitulo(unittest.TestCase):
         )
 
     def test_nao_corre_em_push(self) -> None:
-        # Em `push` nao ha `github.event.pull_request.title`: o passo ficaria a
-        # sair 2 por falta de titulo, ou — pior — alguem poria um default e ele
-        # ficava verde sem verificar nada.
+        # Em `push` nao ha `github.event.pull_request.title`: a expressao avalia
+        # a cadeia **vazia** e a variavel de ambiente fica definida, pelo que o
+        # passo sairia **1** («titulo de PR vazio») e nao 2 — tambem
+        # fail-closed, mas por outro caminho. O `exit=2` e o caso de a variavel
+        # nao existir, que a partir deste *workflow* e inalcancavel. A primeira
+        # versao deste comentario dizia 2, e a revisao adversarial mediu-o.
         self.assertNotIn("\n  push:\n", _texto())
 
 
@@ -152,9 +161,14 @@ class TestOTituloNaoPassaPeloShell(unittest.TestCase):
     """
 
     def test_o_titulo_chega_por_variavel_de_ambiente(self) -> None:
+        # O nome vem da constante do `cli`, e nao escrito a mao: escrito a mao,
+        # renomear a constante no Python deixava este teste verde e o *workflow*
+        # a passar o nome velho. Achado da revisao adversarial do KAM-164.
         bloco = _job(JOB)
         self.assertIn(
-            "          KAMBA_PR_TITLE: ${{ github.event.pull_request.title }}\n", bloco
+            f"          {cli.AMBIENTE_TITULO_PR}: "
+            "${{ github.event.pull_request.title }}\n",
+            bloco,
         )
 
     def test_nenhum_run_interpola_uma_expressao(self) -> None:
@@ -181,3 +195,137 @@ class TestOTituloNaoPassaPeloShell(unittest.TestCase):
             1,
             f"o titulo le-se uma vez, para a variavel de ambiente: {leituras}",
         )
+
+
+class TestOCanarioCorreNoGate2(unittest.TestCase):
+    """O canario prova que a verificacao morde; isto prova que ele e chamado.
+
+    E a camada de cima, no molde de
+    `tools/supply_chain/tests/test_revisao_adversarial.py`. O canario entra no
+    alvo `lint-arch`, que o `make ci-2` corre: assim a prova de que a verificacao
+    morde **nao** depende do GitHub, que e o que o §1 do `docs/ci.md` pede, e
+    entra num *gate* que ja e contexto exigido em vez de abrir *job* novo.
+    Achado da revisao adversarial do KAM-164.
+    """
+
+    def setUp(self) -> None:
+        self.texto = MAKEFILE.read_text(encoding="utf-8")
+
+    def receita(self, alvo: str) -> str:
+        correspondencia = re.search(
+            rf"(?m)^{re.escape(alvo)}:[^\n]*\n((?:\t[^\n]*\n)+)", self.texto
+        )
+        self.assertIsNotNone(correspondencia, f"alvo {alvo} sem receita")
+        assert correspondencia is not None
+        return "\n".join(
+            linha
+            for linha in correspondencia.group(1).split("\n")
+            if not linha.strip().startswith("@#")
+        )
+
+    def test_o_lint_arch_corre_o_all_e_o_canario(self) -> None:
+        receita = self.receita("lint-arch")
+        self.assertIn("-m lint_arch --root $(ROOT) all", receita)
+        self.assertIn("-m lint_arch --root $(ROOT) pr-title-canario", receita)
+
+    def test_o_gate_2_chama_o_lint_arch(self) -> None:
+        self.assertIn("$(MAKE) lint-arch", self.receita("ci-2"))
+
+    def test_o_gate_2_nao_verifica_o_titulo_do_PR(self) -> None:
+        """O titulo **nao** cabe no *gate* 2, e isso tem de continuar verdade.
+
+        O titulo chega pelo evento do PR e nao pelo ramo: um `pr-title` dentro do
+        `make ci-2` sairia 2 por falta de titulo em `main`, ou — pior — alguem
+        punha-lhe um valor por omissao e o *gate* ficava verde sem verificar
+        nada.
+        """
+        receita = self.receita("lint-arch")
+        self.assertNotIn("pr-title\n", receita)
+        self.assertNotIn("pr-title ", receita)
+
+
+class TestASuperficieDaLinhaDeComando(unittest.TestCase):
+    """O `pr-title` e o `pr-title-canario`, pela CLI e com o codigo de saida.
+
+    Sem isto, trocar o `return 2` por `return 0` — ou dar um valor por omissao a
+    variavel de ambiente — deixava os testes **e** o passo de CI verdes tendo
+    verificado nada, que e a definicao do defeito que este ticket abre. Era o
+    unico sitio do diff onde a logica nova nao estava presa por nada. Achado da
+    revisao adversarial do KAM-164.
+    """
+
+    CONFORME = "feat(KAM-164): verifica o titulo do PR contra a convencao"
+    #: O assunto que o `29778f3` deixou no `main`, sem o ` (#75)` do GitHub.
+    RECUSADO = "KAM-038 — Subscricao de eventos: as verticais acordam por evento"
+
+    def correr(self, argv: list[str], ambiente: str | None) -> tuple[int, str, str]:
+        anterior = os.environ.get(cli.AMBIENTE_TITULO_PR)
+        if ambiente is None:
+            os.environ.pop(cli.AMBIENTE_TITULO_PR, None)
+        else:
+            os.environ[cli.AMBIENTE_TITULO_PR] = ambiente
+        saida, erro = io.StringIO(), io.StringIO()
+        try:
+            with redirect_stdout(saida), redirect_stderr(erro):
+                codigo = cli.main(["--root", str(ROOT), *argv])
+        finally:
+            if anterior is None:
+                os.environ.pop(cli.AMBIENTE_TITULO_PR, None)
+            else:
+                os.environ[cli.AMBIENTE_TITULO_PR] = anterior
+        return codigo, saida.getvalue(), erro.getvalue()
+
+    def test_titulo_conforme_no_ambiente_sai_0(self) -> None:
+        codigo, saida, _ = self.correr(["pr-title"], self.CONFORME)
+        self.assertEqual(codigo, 0)
+        self.assertIn("titulo do PR: conforme", saida)
+
+    def test_titulo_conforme_no_argumento_sai_0(self) -> None:
+        # O argumento ganha ao ambiente: e a via de quem corre isto a mao.
+        codigo, _, _ = self.correr(["pr-title", self.CONFORME], "lixo que nao conta")
+        self.assertEqual(codigo, 0)
+
+    def test_titulo_fora_da_forma_sai_1_com_a_ajuda_inteira(self) -> None:
+        codigo, _, erro = self.correr(["pr-title"], self.RECUSADO)
+        self.assertEqual(codigo, 1)
+        for pedaco in (
+            "titulo fora de",
+            "Titulo recusado:",
+            "Formato esperado:",
+            "Exemplo:",
+            "Tipos:",
+            "squash_merge_commit_title",
+            "tools/conventions.json",
+        ):
+            with self.subTest(pedaco=pedaco):
+                self.assertIn(pedaco, erro)
+
+    def test_sem_variavel_sai_2_e_nao_0(self) -> None:
+        # Fail-closed. Um passo de CI a que a variavel falhasse ficaria verde sem
+        # ter verificado nada.
+        codigo, _, erro = self.correr(["pr-title"], None)
+        self.assertEqual(codigo, 2)
+        self.assertIn("titulo do PR em falta", erro)
+        self.assertIn(cli.AMBIENTE_TITULO_PR, erro)
+
+    def test_variavel_vazia_sai_1_e_nao_0(self) -> None:
+        # E o caso real de um evento sem `pull_request`: a expressao avalia a
+        # cadeia vazia e a variavel **fica** definida.
+        codigo, _, erro = self.correr(["pr-title"], "")
+        self.assertEqual(codigo, 1)
+        self.assertIn("titulo de PR vazio", erro)
+
+    def test_a_ajuda_ecoa_o_titulo_normalizado_e_nao_o_cru(self) -> None:
+        # Um titulo com nova linha seguida de `::error` chegava ao registo do
+        # *runner* no inicio de linha, onde o GitHub o le como *workflow command*.
+        cru = "KAM-038 titulo mau\n::error title=INJECTADO::o canario foi desligado"
+        codigo, _, erro = self.correr(["pr-title"], cru)
+        self.assertEqual(codigo, 1)
+        self.assertNotIn("\n::error", erro)
+        self.assertIn("KAM-038 titulo mau ::error", erro)
+
+    def test_o_canario_corre_pela_cli_e_sai_0(self) -> None:
+        codigo, saida, _ = self.correr(["pr-title-canario"], None)
+        self.assertEqual(codigo, 0)
+        self.assertIn("pr-title canario:", saida)
+        self.assertIn("0 falha(s)", saida)

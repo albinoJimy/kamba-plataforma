@@ -189,7 +189,19 @@ def _ajuda_do_titulo(title: str, rules: conventions_module.Conventions) -> str:
     titulo que foi recusado, um exemplo, e o sitio onde a regra esta escrita. Os
     tipos saem de `rules` e nao de uma lista escrita aqui, para que acrescentar um
     tipo ao `tools/conventions.json` nao deixe esta ajuda a mentir.
+
+    **O titulo ecoa-se normalizado, e nao cru.** Um titulo de PR e texto que
+    qualquer pessoa escreve; ecoado cru, uma nova linha seguida de `::error`,
+    `::add-mask` ou `::stop-commands` chegava ao registo do *runner* no inicio de
+    linha, onde o GitHub Actions a le como *workflow command* e nao como texto
+    (medido: as anotacoes fabricadas apareciam). Nao ha escalada — `::set-env` e
+    `::add-path` estao desligados desde 2020 e este *job* nao escreve em
+    `GITHUB_OUTPUT` nem em `GITHUB_ENV` —, mas o registo e as anotacoes mentiam.
+    Normalizar o espaco em branco tira o inicio de linha, e de passagem faz a
+    ajuda ecoar **o que foi verificado**. Achado da revisao adversarial do
+    KAM-164.
     """
+    title = conventions_module.normalizar_titulo(title)
     return (
         "\n"
         f"  Titulo recusado:   {title}\n"

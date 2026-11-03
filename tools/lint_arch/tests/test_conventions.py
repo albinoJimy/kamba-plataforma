@@ -365,6 +365,63 @@ class TestTituloDePR(unittest.TestCase):
                     [],
                 )
 
+    def test_o_sufixo_do_squash_entra_na_conta_do_comprimento(self) -> None:
+        """O que fica no `main` e o titulo **mais** o ` (#NNNN)`.
+
+        Sem esta conta havia uma gama de titulos que esta verificacao aprovava e
+        que deixavam no `main` a classe de assunto que o `check_commit_message`
+        recusa. O caso e real e mediu-se: um titulo de 119 caracteres passa pelas
+        regras do cabecalho e o assunto do *squash* fica em 127. Achado da
+        revisao adversarial do KAM-164.
+        """
+        titulo = "refactor(KAM-164): " + "ab " * 33 + "a"
+        normalizado = conventions.normalizar_titulo(titulo)
+        self.assertEqual(len(normalizado), 119)
+        self.assertLessEqual(len(normalizado), self.rules.header_max_length)
+
+        problemas = conventions.check_pr_title(titulo, self.rules)
+        self.assertEqual(len(problemas), 1, problemas)
+        self.assertIn("o assunto do squash ficaria com 127 caracteres", problemas[0])
+
+        # E a prova de que a gama recusada e a gama certa: o assunto projectado
+        # seria mesmo recusado como mensagem de commit.
+        self.assertNotEqual(
+            conventions.check_commit_message(f"{normalizado} (#108)", self.rules), []
+        )
+
+    def test_um_titulo_no_limite_com_folga_para_o_sufixo_passa(self) -> None:
+        # O controlo negativo: a regra nova nao pode recusar o que cabe.
+        limite = self.rules.header_max_length - conventions.SUFIXO_DO_SQUASH
+        titulo = "fix(KAM-164): " + "a" * (limite - len("fix(KAM-164): "))
+        self.assertEqual(len(titulo), limite)
+        self.assertEqual(conventions.check_pr_title(titulo, self.rules), [])
+
+    def test_o_achado_de_ambito_fala_de_PR_e_nao_de_commit(self) -> None:
+        # O `rotulo` chega a duas das oito mensagens, e esta e a segunda: um
+        # achado sobre um titulo de PR que mandasse olhar para «todo o commit»
+        # remetia quem o le para a superficie errada. Achado da revisao
+        # adversarial do KAM-164.
+        (problema,) = conventions.check_pr_title(
+            "feat(monorepo): verifica o titulo do PR contra a convencao", self.rules
+        )
+        self.assertIn("todo o PR cita o ticket", problema)
+        self.assertNotIn("commit", problema)
+        # E o caminho do commit continua a dizer «commit».
+        problemas = conventions.check_commit_message(
+            "feat(monorepo): verifica o titulo do PR contra a convencao", self.rules
+        )
+        self.assertTrue(any("todo o commit cita o ticket" in p for p in problemas))
+
+    def test_normalizar_titulo_tira_as_novas_linhas(self) -> None:
+        # O valor normalizado e o que o bloco de ajuda ecoa: uma nova linha
+        # seguida de `::error` chegava ao registo do *runner* no inicio de linha,
+        # onde o GitHub a le como *workflow command*. Achado da revisao
+        # adversarial do KAM-164.
+        cru = "KAM-038 titulo mau\n::error title=INJECTADO::o canario foi desligado"
+        normalizado = conventions.normalizar_titulo(cru)
+        self.assertNotIn("\n", normalizado)
+        self.assertTrue(normalizado.startswith("KAM-038 titulo mau ::error"))
+
 
 class TestCanarioDoTitulo(unittest.TestCase):
     """Criterio 5 do KAM-164: o canario fica verde quando a verificacao morde…
@@ -389,12 +446,68 @@ class TestCanarioDoTitulo(unittest.TestCase):
             self.rules, subject_starts_lowercase=False, subject_ends_without_period=False
         )
         falhas, _ = canario_titulo.canario(mudadas)
-        for regra in ("descricao comeca em minuscula", "descricao nao termina em ponto"):
+        for regra in ("minuscula", "ponto final"):
             with self.subTest(regra=regra):
                 self.assertTrue(
                     any(f"sem caso negativo que prove {regra!r}" in f for f in falhas),
                     f"o canario nao deu pela regra {regra!r}: {falhas}",
                 )
+
+    def test_cada_regra_mutada_sozinha_deixa_o_canario_vermelho(self) -> None:
+        """A asercao que o canario nao conseguia fazer sobre si proprio.
+
+        A revisao adversarial do KAM-164 encontrou que, com `subjectMaxLength`
+        desligada, o canario ficava **verde**: o seu unico negativo dessa regra
+        estourava tambem o limite do cabecalho, e os dois achados partilhavam o
+        pedaco de texto `"o maximo e"`, pelo que a regra ficava marcada como
+        provada pela regra errada. Os padroes passaram a ser ancorados, e este
+        teste e a guarda que impede a classe de voltar: **cada** regra, desligada
+        sozinha, tem de deixar o canario vermelho. Uma regra nova que entre no
+        `check_pr_title` sem negativo proprio aparece aqui.
+        """
+        mutacoes = {
+            "subject_max_length": {"subject_max_length": 100_000},
+            "subject_min_length": {"subject_min_length": 0},
+            "header_max_length": {"header_max_length": 100_000},
+            "subject_starts_lowercase": {"subject_starts_lowercase": False},
+            "subject_ends_without_period": {"subject_ends_without_period": False},
+            "scope_pattern": {"scope_pattern": "^.*$"},
+            "types": {"types": self.rules.types + ("build",)},
+        }
+        for nome, campos in mutacoes.items():
+            with self.subTest(regra=nome):
+                falhas, _ = canario_titulo.canario(
+                    dataclasses.replace(self.rules, **campos)
+                )
+                self.assertNotEqual(
+                    falhas, [], f"desligar {nome} deixou o canario verde"
+                )
+
+    def test_cada_regra_e_reconhecida_por_um_padrao_ancorado(self) -> None:
+        # Sem a ancora, duas mensagens diferentes podem satisfazer o mesmo padrao
+        # — que foi o defeito. A ancora nao e opcional.
+        for regra, padrao in canario_titulo.REGRAS_DO_TITULO:
+            with self.subTest(regra=regra):
+                self.assertTrue(padrao.startswith("^"), f"{regra}: {padrao}")
+
+    def test_nenhum_padrao_reconhece_a_mensagem_de_outra_regra(self) -> None:
+        """Dois padroes nunca batem na mesma mensagem.
+
+        E a propriedade que substitui a isolacao caso a caso: com padroes
+        disjuntos, um negativo que estoure duas regras continua a ser contado
+        para a regra certa.
+        """
+        mensagens: set[str] = set()
+        for titulo, _ in canario_titulo.NEGATIVOS:
+            mensagens.update(conventions.check_pr_title(titulo, self.rules))
+        for mensagem in mensagens:
+            batem = [
+                regra
+                for regra, padrao in canario_titulo.REGRAS_DO_TITULO
+                if re.match(padrao, mensagem)
+            ]
+            with self.subTest(mensagem=mensagem):
+                self.assertEqual(len(batem), 1, f"{mensagem!r} bate em {batem}")
 
     def test_vermelho_quando_a_forma_deixa_de_morder(self) -> None:
         # Todos os tipos aceites e um ambito que aceita tudo: a verificacao passa
@@ -426,10 +539,10 @@ class TestCanarioDoTitulo(unittest.TestCase):
         produzidas: set[str] = set()
         for titulo, _ in canario_titulo.NEGATIVOS:
             produzidas.update(conventions.check_pr_title(titulo, self.rules))
-        for regra in canario_titulo.REGRAS_DO_TITULO:
+        for regra, padrao in canario_titulo.REGRAS_DO_TITULO:
             with self.subTest(regra=regra):
                 self.assertTrue(
-                    any(regra in p for p in produzidas),
+                    any(re.match(padrao, p) for p in produzidas),
                     f"a regra {regra!r} nao e produzida por nenhum negativo",
                 )
 
@@ -438,7 +551,7 @@ class TestCanarioDoTitulo(unittest.TestCase):
         # esta no `main`, sem o ` (#75)` que o GitHub acrescenta na fusao.
         titulo, regra = canario_titulo.NEGATIVOS[0]
         self.assertEqual(titulo, ASSUNTO_RECUSADO[1].removesuffix(" (#75)"))
-        self.assertEqual(regra, "titulo fora de")
+        self.assertEqual(regra, "forma")
 
     def test_os_positivos_sao_os_cinco_assuntos_reais(self) -> None:
         esperados = tuple(

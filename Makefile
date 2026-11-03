@@ -179,9 +179,24 @@ check: lint-arch lint-branch lock-check test-py typecheck test-ts
 	@echo "make check: verde."
 
 ## lint-arch: lista de bloqueio e estrutura da arvore
+#
+# O segundo passo e o canario da verificacao do titulo do PR (KAM-164), e entra
+# **aqui** e nao num *job* novo, pela razao escrita para o `log-lint`, o
+# `money-lint` e o `env-lint`: um *job* novo acrescenta um contexto exigido ao
+# *ruleset* de `main`, e isso e alteracao de regra de bloqueio.
+#
+# A verificacao do titulo em si **nao** pode viver aqui — o titulo chega pelo
+# evento do PR e nao pelo ramo, e por isso tem *workflow* proprio
+# (`.github/workflows/titulo-do-pr.yaml`), que e o unico sitio onde ele existe.
+# Mas o canario nao precisa de titulo nenhum: prova, com dezassete casos reais e
+# cinco assuntos que estao no `main`, que a verificacao recusa o que tem de
+# recusar. Correndo aqui, essa prova entra no *gate* 2 — que ja e contexto
+# exigido — e `make ci` passa a corre-la sem passar pelo GitHub, que e o que o §1
+# do `docs/ci.md` pede de todo o portao desta casa.
 lint-arch:
 	@echo "==> lint_arch"
 	@$(PYTHON) -m lint_arch --root $(ROOT) all
+	@$(PYTHON) -m lint_arch --root $(ROOT) pr-title-canario
 
 ## lint-branch: nome do ramo actual
 lint-branch:
