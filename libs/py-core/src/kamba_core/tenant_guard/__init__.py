@@ -52,6 +52,7 @@ import contextlib
 import re
 import threading
 import uuid
+import weakref
 
 VARIAVEL = "app.tenant_id"
 
@@ -149,29 +150,43 @@ def _exigir_transaccional(conexao) -> None:
         )
 
 
-#: Ligacoes com uma transaccao deste modulo aberta, por identidade do objecto.
-_EM_USO: set[int] = set()
+#: Ligacoes com uma transaccao deste modulo aberta, pelo **proprio objecto**.
+#:
+#: Fraco, e nao um `set[int]` com `id(conexao)` (KAM-163). O `id()` de um objecto
+#: libertado volta a ser atribuido a outro, e um registo que guarde o numero nao
+#: tem como saber que o dono do endereco mudou: uma entrada que ficasse para tras
+#: — o `discard` do `finally` que nao correu — passava a casar com uma ligacao
+#: **diferente** nascida no mesmo endereco, e o `tx` recusava uma ligacao
+#: genuinamente livre. Numa `WeakSet` a entrada e o objecto e morre com ele, que
+#: e tambem o que o gemeo desta guarda faz
+#: (`packages/core-ts/src/tenant_guard/index.ts`, `EM_USO`) — e as duas
+#: implementacoes da mesma regra ficam presas por um teste de paridade.
+#:
+#: Uma ligacao que nao seja fracamente referenciavel levanta `TypeError` no
+#: `add`; a `psycopg` nao e desse caso.
+_EM_USO: weakref.WeakSet = weakref.WeakSet()
+#: O trinco **fica**: a `WeakSet` resolve a identidade, nao a corrida entre
+#: *threads*. Sao duas coisas, e so uma delas mudou.
 _TRINCO_EM_USO = threading.Lock()
 
 
 @contextlib.contextmanager
 def _exclusiva(conexao):
     """Reserva a ligacao ate a transaccao acabar; a segunda entrada levanta."""
-    chave = id(conexao)
     with _TRINCO_EM_USO:
-        if chave in _EM_USO:
+        if conexao in _EM_USO:
             raise LigacaoEmUso(
                 "esta ligacao ja esta dentro de uma transaccao de `tenant_guard`: "
                 "uma segunda sobrepunha o contexto de tenant da primeira e "
                 "confirmava o trabalho dela. Uma ligacao por pedido, e uma "
                 "transaccao de cada vez por ligacao."
             )
-        _EM_USO.add(chave)
+        _EM_USO.add(conexao)
     try:
         yield
     finally:
         with _TRINCO_EM_USO:
-            _EM_USO.discard(chave)
+            _EM_USO.discard(conexao)
 
 
 @contextlib.contextmanager
