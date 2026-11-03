@@ -94,16 +94,33 @@ def check_commit_message(message: str, rules: Conventions) -> list[str]:
     if any(re.match(pattern, header) for pattern in rules.exempt_header_patterns):
         return []
 
+    problems = _check_header(header, rules)
+    problems += _check_body_and_footer(lines, rules)
+    return problems
+
+
+def _check_header(header: str, rules: Conventions, rotulo: str = "cabecalho") -> list[str]:
+    """As regras da linha `tipo(KAM-NNN): descricao`, e so dela.
+
+    Esta funcao existe porque a mesma linha e verificada em **duas** superficies:
+    o cabecalho de uma mensagem de commit e o titulo de um PR
+    (`check_pr_title`). Duas copias das regras divergiriam, e a divergencia e o
+    defeito que `tools/conventions.json` existe para impedir — vale para a forma
+    e vale igualmente para o que se faz com ela.
+
+    `rotulo` so muda o substantivo das mensagens, para que quem le um achado
+    sobre o titulo de um PR nao leia a palavra «cabecalho».
+    """
     problems: list[str] = []
     if len(header) > rules.header_max_length:
         problems.append(
-            f"cabecalho com {len(header)} caracteres; o maximo e {rules.header_max_length}"
+            f"{rotulo} com {len(header)} caracteres; o maximo e {rules.header_max_length}"
         )
 
     match = rules.header_pattern.match(header)
     if not match:
         problems.append(
-            "cabecalho fora de 'tipo(KAM-NNN): descricao'; "
+            f"{rotulo} fora de 'tipo(KAM-NNN): descricao'; "
             f"tipos aceites: {', '.join(rules.types)}"
         )
         return problems
@@ -135,7 +152,6 @@ def check_commit_message(message: str, rules: Conventions) -> list[str]:
     if letras and all(c.isupper() for c in letras):
         problems.append("descricao inteira em maiusculas")
 
-    problems += _check_body_and_footer(lines, rules)
     return problems
 
 
@@ -173,6 +189,47 @@ def _check_body_and_footer(lines: list[str], rules: Conventions) -> list[str]:
                 )
                 break
     return problems
+
+
+def check_pr_title(title: str, rules: Conventions) -> list[str]:
+    """Devolve a lista de problemas do titulo de um PR. Lista vazia = conforme.
+
+    **Porque e que o titulo de um PR tem a forma de um assunto de commit.** A
+    definicao do repositorio e `squash_merge_commit_title: COMMIT_OR_PR_TITLE`
+    (medido a 2026-11-03 em `gh api repos/albinoJimy/kamba-plataforma`), que
+    significa: o assunto do commit quando o PR tem **um so**, e o **titulo do
+    PR** quando tem mais do que um. Logo o titulo de um PR desta linha e, metade
+    das vezes, o assunto que fica no `main` — e nem o `tools/githooks/commit-msg`
+    nem o `lint_arch` do *gate* 2 lhe chegam, porque ele nao vive no ramo. O
+    `29778f3` (PR #75) e a prova de que isso aconteceu.
+
+    Tres diferencas face a `check_commit_message`, todas deliberadas:
+
+    - **Verifica-se sempre**, tambem num PR com um so commit, onde o assunto nao
+      vem do titulo. E a decisao aberta do KAM-164, e fecha-se assim por tres
+      razoes: o numero de commits nao vem no evento (exigiria uma chamada a API
+      cuja resposta pode mudar entre a verificacao e a fusao); `allow_auto_merge`
+      esta ligado desde 2026-10-27, pelo que um commit acrescentado depois de os
+      portoes ficarem verdes transforma o titulo em assunto sem nada reavaliar; e
+      a regra fica mais simples de escrever no `specs/01` §5 — «o titulo do PR
+      obedece a mesma forma», sem condicao. O custo e um falso vermelho a quem
+      titule de outra forma um PR de um commit, e esse custo e a regra, nao um
+      defeito dela.
+    - **Sem dispensas.** `exemptHeaderPatterns` dispensa o que o *git* gera
+      sozinho (`Merge `, `Revert "`, `fixup! `, `squash! `). Nada no GitHub gera
+      um titulo de PR dessas formas — quem o escreve e uma pessoa —, e um
+      `Merge ...` dispensado acabaria no `main` como assunto, que e exactamente
+      o que esta funcao existe para impedir.
+    - **Uma linha.** Um titulo nao tem corpo nem rodape, pelo que as regras
+      `body-leading-blank` e `footer-leading-blank` nao se lhe aplicam. O espaco
+      em branco normaliza-se antes de verificar, para que um titulo colado com um
+      espaco duplo ou com uma nova linha a mais falhe — se falhar — pela forma, e
+      nao por um caractere invisivel que ninguem ve no diff.
+    """
+    title = " ".join(title.split())
+    if not title:
+        return ["titulo de PR vazio"]
+    return _check_header(title, rules, rotulo="titulo")
 
 
 def check_branch_name(name: str, rules: Conventions) -> list[str]:

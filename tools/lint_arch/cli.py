@@ -3,6 +3,8 @@
     python -m lint_arch deps [--root .]          lista de bloqueio
     python -m lint_arch structure [--root .]     arvore obrigatoria
     python -m lint_arch commit-msg <ficheiro>    mensagem de commit
+    python -m lint_arch pr-title [<titulo>]      titulo de PR (KAM-164)
+    python -m lint_arch pr-title-canario         prova que o pr-title morde
     python -m lint_arch branch [<nome>]          nome de ramo
     python -m lint_arch tool-schema [--root .]   esquemas de tool (KAM-028)
     python -m lint_arch medusa [--root .]        Registo de comercio (KAM-042)
@@ -15,11 +17,13 @@ importa: um ficheiro de bloqueio malformado nao pode parecer um repositorio limp
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 from . import blocklist as blocklist_module
+from . import canario_titulo
 from . import conventions as conventions_module
 from . import manifests, medusa, names, structure, tool_schema, versions
 
@@ -170,6 +174,40 @@ def _check_aliases(root: Path) -> list[str]:
         return [f"llm/aliases.yaml invalido: {excepcao}"]
 
 
+#: Variavel de ambiente de onde o `pr-title` le o titulo quando nenhum e passado
+#: na linha de comando. **Existe por seguranca, nao por conveniencia**: um titulo
+#: de PR e texto que qualquer pessoa escreve, e interpola-lo num `run:` do
+#: GitHub Actions (`${{ github.event.pull_request.title }}`) e injeccao de
+#: *shell* na maquina do CI. Pelo ambiente, o titulo nunca passa pelo *shell*.
+AMBIENTE_TITULO_PR = "KAMBA_PR_TITLE"
+
+
+def _ajuda_do_titulo(title: str, rules: conventions_module.Conventions) -> str:
+    """O bloco de ajuda de um titulo recusado, no padrao do `tools/githooks/commit-msg`.
+
+    Diz as quatro coisas que o criterio 6 do KAM-164 exige: a forma esperada, o
+    titulo que foi recusado, um exemplo, e o sitio onde a regra esta escrita. Os
+    tipos saem de `rules` e nao de uma lista escrita aqui, para que acrescentar um
+    tipo ao `tools/conventions.json` nao deixe esta ajuda a mentir.
+    """
+    return (
+        "\n"
+        f"  Titulo recusado:   {title}\n"
+        "\n"
+        "  Formato esperado:  tipo(KAM-NNN): descricao no imperativo\n"
+        "  Exemplo:           feat(KAM-164): verifica o titulo do PR contra a convencao\n"
+        f"  Tipos:             {', '.join(rules.types)}\n"
+        "\n"
+        "  Porque e que o titulo conta: o GitHub usa-o como assunto do squash quando o\n"
+        "  PR traz mais do que um commit (squash_merge_commit_title:\n"
+        "  COMMIT_OR_PR_TITLE), pelo que e ele — e nao a mensagem do commit — que fica\n"
+        "  no main. Edita o titulo do PR no GitHub; nao e preciso tocar no ramo, e esta\n"
+        "  verificacao corre outra vez no evento `edited`.\n"
+        "\n"
+        "  As regras estao em tools/conventions.json (specs/01 §5 e §7).\n"
+    )
+
+
 def _report(title: str, findings: list[str]) -> int:
     if not findings:
         print(f"lint_arch: {title}: conforme")
@@ -203,6 +241,19 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("all", help="deps, structure, tool-schema, aliases e medusa")
     commit = sub.add_parser("commit-msg", help="valida uma mensagem de commit")
     commit.add_argument("path", type=Path, help="ficheiro com a mensagem (COMMIT_EDITMSG)")
+    pr_title = sub.add_parser(
+        "pr-title",
+        help="valida o titulo de um PR, que e o assunto do squash (KAM-164)",
+    )
+    pr_title.add_argument(
+        "title",
+        nargs="?",
+        help=f"o titulo (omitido: le-se de ${AMBIENTE_TITULO_PR})",
+    )
+    sub.add_parser(
+        "pr-title-canario",
+        help="prova que o pr-title recusa o que tem de recusar (KAM-164)",
+    )
     branch = sub.add_parser("branch", help="valida um nome de ramo")
     branch.add_argument("name", nargs="?", help="nome do ramo (omitido: o ramo actual)")
 
@@ -234,6 +285,32 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "commit-msg":
             message = args.path.read_text(encoding="utf-8")
             return _report("mensagem de commit", conventions_module.check_commit_message(message, rules))
+        if args.command == "pr-title":
+            # Fail-closed: sem titulo nenhum, isto e erro de configuracao (2) e
+            # nao «conforme» (0). Um passo de CI a que a variavel de ambiente
+            # falhasse ficaria verde sem ter verificado nada — que e o modo de
+            # falha que esta verificacao existe para fechar, nao para repetir.
+            title = args.title if args.title is not None else os.environ.get(AMBIENTE_TITULO_PR)
+            if title is None:
+                print(
+                    f"lint_arch: titulo do PR em falta: passe-o como argumento ou em "
+                    f"${AMBIENTE_TITULO_PR}",
+                    file=sys.stderr,
+                )
+                return 2
+            status = _report("titulo do PR", conventions_module.check_pr_title(title, rules))
+            if status != 0:
+                print(_ajuda_do_titulo(title, rules), file=sys.stderr)
+            return status
+        if args.command == "pr-title-canario":
+            falhas, numeros = canario_titulo.canario(rules)
+            for falha in falhas:
+                print(f"canario: {falha}", file=sys.stderr)
+            print(
+                f"lint_arch pr-title canario: {numeros['negativos']} negativos e "
+                f"{numeros['positivos']} positivos; {len(falhas)} falha(s)"
+            )
+            return 1 if falhas else 0
         if args.command == "branch":
             name = args.name or _current_branch(root)
             if name is None:
