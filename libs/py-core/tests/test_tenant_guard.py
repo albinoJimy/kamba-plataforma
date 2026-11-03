@@ -440,9 +440,14 @@ class TestChaveDoRegisto(unittest.TestCase):
     gemeo TypeScript da mesma guarda nunca teve o problema: a entrada e o
     objecto, e desaparece com ele.
 
-    O ensaio **forca** a reutilizacao do endereco em vez de esperar por ela:
-    «de vez em quando falha» nao se consegue provar, e por isso nao e o
-    criterio deste ticket.
+    A prova e **determinista e nao depende do alocador**: o que se afirma e que
+    uma entrada nao sobrevive ao seu dono, que e a condicao de que a recusa de
+    uma ligacao livre nasce. A reocupacao do endereco exercita a recusa de ponta
+    a ponta quando o interpretador colabora, e nao e o que decide o veredicto —
+    duas versoes anteriores decidiram-no assim e as duas ficaram vermelhas sem
+    nada ter mudado no codigo, uma pela ordem das classes e outra no `coverage`
+    do *gate* 4. «De vez em quando falha» nao se consegue provar, e um ensaio
+    que de vez em quando falha tambem nao prova.
     """
 
     def setUp(self) -> None:
@@ -478,37 +483,57 @@ class TestChaveDoRegisto(unittest.TestCase):
         gc.collect()
         return endereco
 
-    def _ligacao_que_herdou_um_endereco_registado(self) -> _Conexao:
-        """Uma ligacao nova no endereco de uma que ficou registada e morreu.
+    def _ligacao_no_endereco(self, endereco: int) -> _Conexao | None:
+        """Uma ligacao nova no endereco que vagou, ou `None` se nao vagar.
 
-        **Repete-se o ciclo inteiro, e nao a alocacao da candidata.** O
-        `obmalloc` devolve o bloco libertado a cabeca da *pool* (LIFO): se a
-        candidata nao acertar, larga-la e alocar outra devolve **o mesmo**
-        endereco, pelo que cem tentativas sobre a mesma perda valem uma.
-        Medido: com a *pool* agitada por outra bateria antes desta — basta o
-        `unittest` carregar a `TestLigacaoEmUso` primeiro —, as cem tentativas
-        davam sete enderecos distintos e o ensaio ficava vermelho **10 vezes em
-        10**. Apanhado pela revisao adversarial deste ticket. Perder uma ligacao
-        nova a cada volta e o que faz de uma tentativa uma tentativa nova.
+        A rajada esta **dentro de uma compreensao**, que e uma linha tracada so:
+        sob o `coverage` do *gate* 4 cada linha de Python da ao rastreador uma
+        oportunidade de ficar com o bloco libertado, e um ciclo que alocasse uma
+        candidata por linha dava-lhe essa oportunidade a cada volta.
 
-        O `clear` depois de um desacerto e o que mantem a invariante do
-        `_registar_e_perder_a_ligacao` (uma entrada, nao duas) na volta
-        seguinte.
+        Devolve `None` em vez de levantar: quem chama ja provou o que havia a
+        provar sem o alocador. Ver o ensaio.
         """
-        for _ in range(20):
-            endereco = self._registar_e_perder_a_ligacao()
-            candidata = _Conexao()
+        candidatas = [_Conexao() for _ in range(256)]
+        for candidata in candidatas:
             if id(candidata) == endereco:
                 return candidata
-            del candidata
-            tenant_guard._EM_USO.clear()
-        self.fail(
-            "o interpretador nao reutilizou o endereco em 20 ciclos: este "
-            "ensaio nao mediu nada, e um verde dele nao prova a correccao"
-        )
+        return None
 
     def test_uma_ligacao_livre_nao_e_recusada_por_reutilizacao_de_endereco(self) -> None:
-        nova = self._ligacao_que_herdou_um_endereco_registado()
+        """Duas metades, e a ordem importa.
+
+        **1. A metade que prova, e nao depende do alocador.** Deixada uma
+        entrada para tras e morto o seu dono, o registo fica **vazio**. Com a
+        chave antiga ficava com o numero do endereco — uma entrada a sobreviver
+        ao dono e exactamente a condicao de que a recusa de uma ligacao livre
+        nasce —, pelo que esta assercao sozinha mata a chave por endereco.
+
+        **2. A metade ponta-a-ponta, que exercita a recusa.** Uma ligacao nova
+        no endereco que vagou tem de entrar na `tx`. Esta depende de o
+        interpretador reocupar o endereco, e **nao se pode exigir**: a primeira
+        versao exigia-o e o *gate* 4 do PR #105 ficou vermelho com «nao
+        reutilizou o endereco em 20 ciclos» — 551 testes, uma falha, num
+        `coverage run --branch` em Linux. Nesta maquina acerta 100/100, com e
+        sem `coverage`; no *runner* nao acertou nenhuma vez. Um ensaio que
+        depende do alocador para dar um veredicto nao e uma prova, e esta e a
+        licao do achado C1 da revisao adversarial levada ao fim.
+
+        Quando o endereco e reocupado, a metade 2 mede a recusa de ponta a
+        ponta; quando nao, a metade 1 ja provou. **Nunca passa por engano:**
+        contra a chave antiga a metade 1 falha sempre, em qualquer ambiente.
+        """
+        endereco = self._registar_e_perder_a_ligacao()
+        self.assertEqual(
+            set(tenant_guard._EM_USO),
+            set(),
+            "a entrada sobreviveu ao seu dono: o registo guarda uma chave que "
+            "nao e o objecto, e uma ligacao nova nascida neste endereco passa a "
+            "ser recusada sem nunca ter entrado em transaccao nenhuma",
+        )
+        nova = self._ligacao_no_endereco(endereco)
+        if nova is None:
+            return
         # A ligacao e outra: nunca esteve dentro de transaccao nenhuma. So o
         # endereco e o mesmo — e o endereco nao e a identidade.
         with tx(nova, TENANT):
