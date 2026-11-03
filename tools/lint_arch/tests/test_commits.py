@@ -432,8 +432,16 @@ class TestOsDoisIntervalos(_ComArvore):
         cls.merge = _git(cls.raiz, "rev-parse", "HEAD")
 
     def test_o_intervalo_do_criterio_3_nao_ve_o_commit_de_outro(self) -> None:
+        """As referencias vem do `decidir_intervalo`, e nao cravadas a mao.
+
+        E a ressalva que a revisao adversarial mediu: com as referencias cravadas
+        no ensaio, uma mutacao ao `decidir_intervalo` (`pai2 = ref` em vez de
+        `ref^2`) deixava **esta** classe verde, e quem a apanhava era so o
+        canario. Passando pela funcao, o ensaio cobre o caminho de producao.
+        """
+        intervalo = commits.decidir_intervalo("pull_request", self.merge)
         resultado = commits.verificar_intervalo(
-            self.raiz, f"{self.merge}^1", f"{self.merge}^2", self.rules
+            self.raiz, intervalo.pai1, intervalo.pai2, self.rules
         )
         self.assertEqual(resultado.achados, (), resultado.achados)
         self.assertEqual(resultado.commits, 1)
@@ -497,6 +505,7 @@ class TestCliDoCommitRange(_ComArvore):
     base: str
     merge_bom: str
     merge_mau: str
+    merge_cardinal: str
 
     @classmethod
     def construir(cls) -> None:
@@ -532,6 +541,22 @@ class TestCliDoCommitRange(_ComArvore):
             "-m", f"Merge {mau} into {cls.merge_bom}", "ramo-mau",
         )
         cls.merge_mau = _git(cls.raiz, "rev-parse", "HEAD")
+
+        # O caso do achado A1, construido aqui e nao dentro de um ensaio: um
+        # ensaio que acrescente commits a arvore da classe poe o resultado a
+        # depender da ordem de execucao, que foi a licao do KAM-173.
+        _git(cls.raiz, "checkout", "--quiet", "-b", "ramo-cardinal", cls.base)
+        cardinal = _commit(
+            cls.raiz,
+            "cardinal.txt",
+            "#123 arrumacoes no modulo\n\nfix(KAM-174): le as mensagens",
+        )
+        _git(cls.raiz, "checkout", "--quiet", "main")
+        _git(
+            cls.raiz, "merge", "--no-ff", "--no-verify",
+            "-m", f"Merge {cardinal} into {cls.merge_mau}", "ramo-cardinal",
+        )
+        cls.merge_cardinal = _git(cls.raiz, "rev-parse", "HEAD")
 
     def _correr(self, *argumentos: str) -> tuple[int, str]:
         """O `cli.main`, com a saida capturada. Devolve `(codigo, texto)`."""
@@ -614,6 +639,66 @@ class TestCliDoCommitRange(_ComArvore):
         codigo, texto = self._correr("--evento", "pull_request", "--merge-ref", "")
         self.assertEqual(codigo, 2, texto)
 
+    def _fabricar_merge(self, *pais: str) -> str:
+        """Um *commit* de *merge* com os pais que se pedir, via `commit-tree`.
+
+        O `git merge` nao constroi nem um *merge* degenerado (o segundo pai ja
+        antepassado do primeiro) nem um de tres pais a pedido, e os dois casos
+        precisam de ensaio. O `commit-tree` constroi.
+        """
+        arvore = _git(self.raiz, "rev-parse", f"{pais[0]}^{{tree}}")
+        argumentos = ["commit-tree", arvore]
+        for pai in pais:
+            argumentos += ["-p", pai]
+        return _git(self.raiz, *argumentos, "-m", "Merge fabricado para o ensaio")
+
+    def test_um_intervalo_de_zero_commits_da_codigo_2(self) -> None:
+        """Achado A3: a chamada a `exigir_commits` nao tinha ensaio pelo CLI.
+
+        Ela era exercitada so como funcao pura, pelo que podia sair do `cli.py`
+        sem custo — e com ela fora, um `pull_request` cujo intervalo desse zero
+        *commits* devolvia **0** («conforme») em vez de 2. E o modo de falha A3 do
+        KAM-131 — varrer nada e dizer-se limpo — no sitio onde o `make` le o
+        codigo de saida.
+        """
+        # Pai 2 ja antepassado do pai 1: `pai1..pai2` e vazio por construcao.
+        degenerado = self._fabricar_merge(self.merge_mau, self.base)
+        codigo, texto = self._correr(
+            "--evento", "pull_request", "--merge-ref", degenerado
+        )
+        self.assertEqual(codigo, 2, texto)
+        self.assertIn("zero", texto)
+
+    def test_um_merge_ref_com_tres_pais_da_codigo_2(self) -> None:
+        """Achado A7: com tres pais, `pai1..pai2` nao ve o terceiro ramo.
+
+        Um assunto fora da forma no terceiro ramo passava em silencio. O
+        `refs/pull/N/merge` do GitHub tem sempre dois pais, pelo que isto nao se
+        alcanca hoje por `pull_request`; entra fail-closed porque o criterio 5
+        escreve o `merge_group` por antecipacao, com o mesmo `github.sha`.
+        """
+        polvo = self._fabricar_merge(self.base, self.merge_bom, self.merge_mau)
+        codigo, texto = self._correr("--evento", "pull_request", "--merge-ref", polvo)
+        self.assertEqual(codigo, 2, texto)
+        self.assertIn("pai(s) e nao dois", texto)
+
+    def test_um_assunto_que_comeca_por_cardinal_da_codigo_1(self) -> None:
+        """Achado A1, o bloqueador: pelo CLI, e com um commit real.
+
+        Com `-m` o *cleanup* do `git` e `whitespace`, que nao tira comentarios,
+        pelo que a mensagem fica guardada como esta e o `git` usa a primeira
+        linha como `%s`. A funcao julgava a **segunda** — a conforme — e dava a
+        mensagem por conforme; num PR de um so *commit* esse assunto ia para o
+        `main` fora da forma.
+        """
+        codigo, texto = self._correr(
+            "--evento", "pull_request", "--merge-ref", self.merge_cardinal
+        )
+        self.assertEqual(codigo, 1, texto)
+        # E o relatorio nomeia a linha que foi julgada, que e a do cardinal — e
+        # nao a linha conforme que vem depois.
+        self.assertIn("#123 arrumacoes no modulo", texto)
+
     def test_um_merge_ref_com_um_so_pai_da_codigo_2(self) -> None:
         """O `^2` nao resolve, e isso e vermelho e nao passagem em silencio.
 
@@ -683,10 +768,17 @@ class TestCanario(unittest.TestCase):
                 )
 
     def test_cada_padrao_e_satisfeito_por_uma_regra_so(self) -> None:
-        """Dois padroes que a mesma mensagem satisfaz nao distinguem nada."""
+        """Dois padroes que a mesma mensagem satisfaz nao distinguem nada.
+
+        No **modo do portao**, que e o que o canario corre: no modo do *hook* as
+        mensagens que comecam por `#` sao julgadas pela linha seguinte, e o
+        ensaio media outra coisa.
+        """
         rules = _rules()
         for mensagem, regra in canario_commits.NEGATIVOS:
-            problemas = conventions.check_commit_message(mensagem, rules)
+            problemas = conventions.check_commit_message(
+                mensagem, rules, tirar_comentarios=False
+            )
             batem = {
                 nome
                 for nome, padrao in canario_commits.REGRAS_DA_MENSAGEM
@@ -724,6 +816,63 @@ class TestCanario(unittest.TestCase):
                     [],
                     f"a mutacao {nome!r} sobreviveu ao canario",
                 )
+
+    def test_a_metade_do_intervalo_do_canario_nao_pode_ser_esvaziada(self) -> None:
+        """Achado A2: nada provava que a **segunda** metade do canario morde.
+
+        As guardas de cima cobrem a metade da funcao (regras prendidas, padroes
+        ancorados, mutacoes as regras). A metade do intervalo podia ser trocada
+        por `return [], {"commits": 4}` e o *gate* 2 imprimia a mesma linha, com
+        o mesmo numero, e o criterio 6 («provado **no portao**») ficava sem prova
+        nenhuma da leitura do intervalo. E a irma directa do buraco do `cli.py`.
+
+        Prova-se por substituicao do varrimento: se o canario estiver mesmo a
+        **olhar** para o resultado, um varrimento que nao devolve nada tem de o
+        fazer falhar.
+        """
+        vazio = commits.Resultado(commits=0, achados=())
+        with unittest.mock.patch.object(
+            canario_commits.commits_module, "verificar_intervalo", return_value=vazio
+        ):
+            falhas, _ = canario_commits.canario(_rules())
+        self.assertNotEqual(
+            falhas,
+            [],
+            "o canario deu verde sobre um varrimento que nao devolveu nada: a "
+            "metade do intervalo nao esta a olhar para o resultado",
+        )
+
+    def test_o_canario_conta_os_commits_do_ramo_e_diz_quantos_esperava(self) -> None:
+        """A contagem escrita e o que apanha os dois pais trocados ou iguais."""
+        self.assertEqual(canario_commits.COMMITS_DO_RAMO, 4)
+        _, numeros = canario_commits.canario(_rules())
+        self.assertEqual(numeros["commits"], canario_commits.COMMITS_DO_RAMO)
+
+    def test_o_caso_do_cardinal_esta_nos_negativos_e_nos_dois_modos(self) -> None:
+        """Achado A1: o unico caso em que os dois modos divergem.
+
+        Se o `tirar_comentarios` deixasse de fazer algo, os dois modos davam o
+        mesmo e o assunto que comeca por `#` voltava a passar.
+        """
+        rules = _rules()
+        self.assertIn(
+            canario_commits.A1_CARDINAL,
+            [mensagem for mensagem, _ in canario_commits.NEGATIVOS],
+        )
+        self.assertEqual(
+            conventions.check_commit_message(canario_commits.A1_CARDINAL, rules),
+            [],
+            "no modo do hook esta mensagem e conforme, porque a linha do cardinal "
+            "e tratada como comentario",
+        )
+        self.assertNotEqual(
+            conventions.check_commit_message(
+                canario_commits.A1_CARDINAL, rules, tirar_comentarios=False
+            ),
+            [],
+            "no modo do portao esta mensagem tem de ser recusada: a linha do "
+            "cardinal e o assunto que o git usa como %s",
+        )
 
     def test_o_merge_por_omissao_do_git_esta_nos_positivos(self) -> None:
         """A isencao `^Merge ` e o que mantem esta regra pequena.

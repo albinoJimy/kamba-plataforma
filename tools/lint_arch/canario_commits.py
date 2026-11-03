@@ -71,6 +71,16 @@ REGRAS_DA_MENSAGEM: tuple[tuple[str, str], ...] = (
 
 _PADROES = {nome: re.compile(padrao) for nome, padrao in REGRAS_DA_MENSAGEM}
 
+#: A mensagem do achado A1 da revisao adversarial do KAM-174, e o unico caso em
+#: que os dois modos de `tirar_comentarios` divergem — por isso vive numa
+#: constante: serve de caso negativo **e** de prova de que o parametro faz algo.
+#:
+#: Com `-m` o *cleanup* do `git` e `whitespace`, que nao tira comentarios: esta
+#: mensagem fica guardada como esta, e o `git` usa a **primeira** linha como
+#: `%s`. A funcao julgava a segunda — a conforme — pelo que num PR de um so
+#: *commit* o `#123 …` ia para o `main` fora da forma.
+A1_CARDINAL = "#123 arrumacoes no modulo\n\nfix(KAM-174): le as mensagens dos commits"
+
 #: As mensagens que **tem** de ser recusadas, cada uma pela sua regra.
 #:
 #: A primeira e o caso real: o assunto que o PR #75 deixou no `main` no
@@ -82,8 +92,15 @@ NEGATIVOS: tuple[tuple[str, str], ...] = (
     ("KAM-038 — Subscricao de eventos: as verticais acordam por evento", "forma"),
     ("", "mensagem vazia"),
     ("   \n  \n", "mensagem vazia"),
-    ("# so comentarios do git\n# e mais nada", "mensagem vazia"),
     ("arrumacoes", "forma"),
+    # **Achado A1 da revisao adversarial.** Com `-m` o *cleanup* do `git` e
+    # `whitespace`, que nao tira comentarios: esta mensagem fica guardada como
+    # esta, e o `git` usa a **primeira** linha como `%s`. A funcao julgava a
+    # segunda — a conforme — e dava a mensagem por conforme, pelo que num PR de
+    # um so *commit* o `#123 …` ia para o `main`. O canario corre a funcao no
+    # modo do portao (`tirar_comentarios=False`), que e onde isto se recusa.
+    (A1_CARDINAL, "forma"),
+    ("# arrumacoes sem cardinal a seguir", "forma"),
     # O caso que uma sessao desta casa escreveu a mao a trazer a `main` para
     # dentro do ramo, e que o *hook* recusou: minuscula e com dois pontos, pelo
     # que nao casa a isencao `^Merge ` **nem** casa tipo nenhum. Nao confundir
@@ -145,13 +162,21 @@ POSITIVOS: tuple[str, ...] = (
 
 
 def _canario_da_funcao(rules: conventions.Conventions) -> tuple[list[str], dict[str, int]]:
-    """A primeira metade: cada regra do `check_commit_message` continua a morder."""
+    """A primeira metade: cada regra do `check_commit_message` continua a morder.
+
+    Corre a funcao **no modo do portao** (`tirar_comentarios=False`), que e o que
+    o *gate* 2 usa sobre mensagens lidas da historia. Um canario que corresse o
+    modo do *hook* nao provava nada sobre o caminho que morde — e era por ali que
+    o achado A1 passava.
+    """
     falhas: list[str] = []
     vistas: set[str] = set()
 
     for mensagem, regra in NEGATIVOS:
         padrao = _PADROES[regra]
-        problemas = conventions.check_commit_message(mensagem, rules)
+        problemas = conventions.check_commit_message(
+            mensagem, rules, tirar_comentarios=False
+        )
         amostra = " ".join(mensagem.split())[:60]
         if not problemas:
             falhas.append(
@@ -167,12 +192,51 @@ def _canario_da_funcao(rules: conventions.Conventions) -> tuple[list[str], dict[
         vistas.add(regra)
 
     for mensagem in POSITIVOS:
-        problemas = conventions.check_commit_message(mensagem, rules)
+        problemas = conventions.check_commit_message(
+            mensagem, rules, tirar_comentarios=False
+        )
         if problemas:
             amostra = " ".join(mensagem.split())[:60]
             falhas.append(
                 f"a mensagem conforme {amostra!r} foi recusada: {problemas}"
             )
+
+    # O modo do *hook* tambem tem de continuar a morder e a nao morder: ele le o
+    # `COMMIT_EDITMSG` **antes** do *cleanup*, com o bloco de comentarios que o
+    # editor escreve, e esse bloco nao pode fazer uma mensagem conforme falhar.
+    # Sem este par, a distincao entre os dois modos ficava sem prova nenhuma e
+    # qualquer um deles podia desaparecer em silencio.
+    com_bloco_do_editor = (
+        "fix(KAM-174): le as mensagens dos commits do intervalo\n"
+        "\n"
+        "# Please enter the commit message for your changes. Lines starting\n"
+        "# with '#' will be ignored, and an empty message aborts the commit.\n"
+    )
+    if conventions.check_commit_message(com_bloco_do_editor, rules):
+        falhas.append(
+            "no modo do hook, o bloco de comentarios do editor fez uma mensagem "
+            "conforme falhar: a remocao de comentarios deixou de funcionar"
+        )
+    # E a prova de que os dois modos sao mesmo **diferentes**, na mensagem onde
+    # eles divergem — que e a do achado A1. No modo do hook ela e conforme (a
+    # linha do cardinal e tratada como comentario e salta-se); no modo do portao
+    # nao e (essa linha e o assunto). Se os dois dessem o mesmo, o parametro nao
+    # estaria a fazer nada e o A1 voltava sem ninguem dar por isso.
+    como_hook = conventions.check_commit_message(A1_CARDINAL, rules)
+    como_portao = conventions.check_commit_message(
+        A1_CARDINAL, rules, tirar_comentarios=False
+    )
+    if como_hook:
+        falhas.append(
+            "no modo do hook a mensagem do A1 passou a ser recusada: a remocao "
+            f"de comentarios deixou de funcionar ({como_hook})"
+        )
+    if not como_portao:
+        falhas.append(
+            "no modo do portao a mensagem do A1 passou: `tirar_comentarios` "
+            "deixou de distinguir a entrada do hook da entrada da historia, e um "
+            "assunto que comeca por `#` volta a ir para o main fora da forma"
+        )
 
     for regra, _ in REGRAS_DA_MENSAGEM:
         if regra not in vistas:
@@ -197,6 +261,19 @@ ASSUNTO_MAU = "arrumacoes no modulo dos commits"
 #: O assunto conforme que o acompanha no mesmo intervalo: o canario tem de
 #: distinguir, nao de recusar tudo.
 ASSUNTO_BOM = "fix(KAM-174): le as mensagens dos commits do intervalo"
+
+#: Assunto **conforme** com o corpo colado ao cabecalho, isto e, mensagem fora
+#: da forma. Existe para que as regras do corpo tenham prova **no portao**: sem
+#: ele, trocar `%B` por `%s` deixava o canario verde (achado A11).
+ASSUNTO_COM_CORPO_COLADO = (
+    "fix(KAM-174): o assunto esta conforme e o corpo esta colado\n"
+    "o corpo sem linha em branco antes"
+)
+
+#: Quantos *commits* o ramo da arvore descartavel acrescenta. Escrito aqui e
+#: confrontado com o que o varrimento conta: se os dois pais vierem trocados ou
+#: iguais, a contagem nao bate e o canario diz qual era.
+COMMITS_DO_RAMO = 4
 
 #: O assunto do *commit* que fica em `main`, isto e, **antes** da base do
 #: intervalo. Esta fora da forma de proposito: se o varrimento o encontrasse,
@@ -255,6 +332,15 @@ def _arvore_descartavel(raiz: Path) -> str:
     _git(raiz, "checkout", "--quiet", "-b", "ramo")
     _commit(raiz, "ramo.txt", ASSUNTO_BOM)
     _commit(raiz, "ramo.txt", ASSUNTO_MAU)
+    # **Achado A11.** Sem um *commit* com corpo na arvore, as regras do corpo
+    # ficavam provadas so por `unittest` e nao pelo portao: trocar `%B` por `%s`
+    # em `mensagens_do_intervalo` deixava o canario **verde**, porque nenhum dos
+    # outros *commits* tem corpo e o assunto bastava. Este tem, e esta colado ao
+    # cabecalho de proposito.
+    _commit(raiz, "ramo.txt", ASSUNTO_COM_CORPO_COLADO)
+    # **Achado A1.** O assunto que comeca por `#`, na arvore e nao so em memoria:
+    # prova no portao que a leitura da historia o recusa.
+    _commit(raiz, "ramo.txt", A1_CARDINAL)
     cabeca = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=raiz,
@@ -338,16 +424,25 @@ def _canario_do_intervalo(rules: conventions.Conventions) -> tuple[list[str], di
     )
     assuntos = {achado.assunto for achado in resultado.achados}
 
-    if resultado.commits != 2:
+    if resultado.commits != COMMITS_DO_RAMO:
         falhas.append(
-            f"o intervalo tinha de ter os 2 commits do ramo e teve "
+            f"o intervalo tinha de ter os {COMMITS_DO_RAMO} commits do ramo e teve "
             f"{resultado.commits}: pai 1 e pai 2 vieram trocados, ou iguais"
         )
-    if ASSUNTO_MAU not in assuntos:
-        falhas.append(
-            f"o assunto fora da forma {ASSUNTO_MAU!r} nao foi encontrado no "
-            "intervalo: a verificacao deixou de morder"
-        )
+    # Cada assunto mau tem de ser encontrado **pela sua propria razao**: um deles
+    # prova a forma, outro as regras do corpo (A11) e o terceiro o assunto que
+    # comeca por `#` (A1). Agrupa-los numa contagem deixava qualquer um deles
+    # desaparecer sem o canario dar por isso.
+    for esperado, porque in (
+        (ASSUNTO_MAU, "a forma do assunto"),
+        (ASSUNTO_COM_CORPO_COLADO.split("\n")[0], "as regras do corpo (%B e nao %s)"),
+        (A1_CARDINAL.split("\n")[0], "o assunto que comeca por `#` (achado A1)"),
+    ):
+        if esperado not in assuntos:
+            falhas.append(
+                f"o assunto {esperado[:50]!r} nao foi encontrado no intervalo: "
+                f"deixou de haver prova no portao de {porque}"
+            )
     if ASSUNTO_BOM in assuntos:
         falhas.append(
             f"o assunto conforme {ASSUNTO_BOM!r} foi recusado: uma verificacao "

@@ -249,6 +249,46 @@ def _recusar_clone_raso(raiz: Path) -> None:
         )
 
 
+def _exigir_dois_pais(raiz: Path, pai1: str, pai2: str) -> None:
+    """O *merge ref* tem de ter **exactamente** dois pais.
+
+    Com tres ou mais — um *merge* em polvo —, `pai1..pai2` le o ramo do segundo
+    pai e **nao ve** os outros: um assunto fora da forma no terceiro ramo passava
+    em silencio. Medido na revisao adversarial (achado A7): com tres pais, o
+    *commit* fora da forma do terceiro ramo nao aparece nos achados.
+
+    O `refs/pull/N/merge` do GitHub tem sempre dois pais, pelo que isto **nao se
+    alcanca hoje** por `pull_request`. Entra como *fail-closed* porque o modulo
+    afirma que «o conjunto e exacto» e porque o criterio 5 escreve o
+    `merge_group` por antecipacao, com o mesmo `github.sha`: no dia em que a fila
+    de *merge* se ligar, um conjunto parcial seria um verde que nao significa
+    nada. Vermelho e caro de ignorar; um varrimento parcial nao se nota.
+    """
+    # Os dois pais vem da **mesma** referencia, pelo que basta contar os dela.
+    # Tira-se o sufixo `^1`/`^2` para chegar ao proprio merge ref.
+    for referencia in (pai1, pai2):
+        if not referencia.endswith(("^1", "^2")):
+            # Intervalo dado a mao (ensaios, ou o `--merge-ref` de alguem): nao ha
+            # merge ref de onde contar pais, e nao se inventa um.
+            return
+    merge_ref = pai1[:-2]
+    if merge_ref != pai2[:-2]:
+        return
+    linha = _git(raiz, "rev-list", "-1", "--parents", merge_ref).strip()
+    pais = len(linha.split()) - 1
+    if pais == 2:
+        return
+    raise IntervaloInvalido(
+        f"o merge ref {merge_ref!r} tem {pais} pai(s) e nao dois.\n"
+        "    O intervalo `pai1..pai2` le o ramo do segundo pai e nao ve os "
+        "outros, pelo que um\n"
+        "    assunto fora da forma nos restantes passaria em silencio.\n"
+        "    O refs/pull/N/merge do GitHub tem sempre dois; se chegou outra "
+        "coisa, o valor em\n"
+        "    GATE2_MERGE_REF nao e um merge ref de PR."
+    )
+
+
 def _resolver(raiz: Path, referencia: str, papel: str) -> str:
     try:
         return _git(
@@ -356,21 +396,32 @@ def verificar_intervalo(
     _recusar_clone_raso(raiz)
     base = _resolver(raiz, pai1, "o primeiro pai do merge ref")
     cabeca = _resolver(raiz, pai2, "o segundo pai do merge ref")
+    _exigir_dois_pais(raiz, pai1, pai2)
 
     achados: list[AchadoNoCommit] = []
     mensagens = mensagens_do_intervalo(raiz, base, cabeca)
     for sha, mensagem in mensagens:
-        problemas = conventions.check_commit_message(mensagem, rules)
+        # `tirar_comentarios=False`: a mensagem vem da **historia**, pelo que ja
+        # passou pelo *cleanup* do `git` e uma linha `#` que sobreviva ali e
+        # conteudo — e, se for a primeira, e o assunto que o `git` usa como `%s`.
+        # Com a remocao activa, um `git commit -m '#123 arrumacoes'` passava o
+        # portao e o assunto ia para o `main` fora da forma. Achado A1 da revisao
+        # adversarial; a razao por extenso esta em `conventions.check_commit_message`.
+        problemas = conventions.check_commit_message(
+            mensagem, rules, tirar_comentarios=False
+        )
         if not problemas:
             continue
-        # O assunto que se mostra e o que o `check_commit_message` leu: a primeira
-        # linha que nao e comentario nem vazia. Mostrar a linha 1 crua punha no
-        # registo do *runner* o que um `git commit` tivesse prefixado.
+        # O assunto que se mostra e o **mesmo** que o `check_commit_message` leu:
+        # a primeira linha nao vazia, sem saltar as que comecam por `#`. Saltar
+        # `#` aqui faria o relatorio nomear uma linha diferente da que foi
+        # julgada — e, no caso do achado A1, apontar para a linha conforme
+        # enquanto o assunto a jusante era a outra.
         assunto = next(
             (
                 linha.strip()
                 for linha in mensagem.replace("\r\n", "\n").split("\n")
-                if linha.strip() and not linha.startswith("#")
+                if linha.strip()
             ),
             "",
         )

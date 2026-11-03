@@ -109,7 +109,10 @@ seja do próprio autor e reparável por ele:
   fora da forma.
 - **Nenhum *merge* de integração**, pela isenção. Os 12 dos últimos 300 passam.
 - **Nenhum PR recente**: corrido sobre `refs/pull/112/merge`, 4 *commits* no
-  intervalo, conforme. O próprio PR #113 tem 1 *commit* e passa.
+  intervalo, conforme. O próprio PR #113 passa, com os *commits* que tiver — a
+  contagem não se escreve aqui de propósito, porque sobe a cada *commit* novo e
+  uma linha que a cite fica errada no *push* seguinte (a primeira versão desta
+  linha dizia «1 *commit*» e tinha dois; achado A12 da revisão adversarial).
 - O que fica vermelho é um *commit* não-*merge* do ramo de quem abriu o PR, que
   ele reescreve com `git rebase -i` ou `git commit --amend`. A ajuda impressa pelo
   portão diz o comando.

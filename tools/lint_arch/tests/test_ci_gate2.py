@@ -177,7 +177,14 @@ class TestAlvoLintArch(unittest.TestCase):
         self.receita = resto[: seguinte.start()] if seguinte else resto
 
     def test_corre_a_leitura_das_mensagens_e_o_seu_canario(self) -> None:
-        self.assertIn("commit-range", self.receita)
+        """Achado A10: a asserção genérica era satisfeita pela linha do canário.
+
+        `assertIn("commit-range", …)` passava com a linha do
+        `commit-range-canario` sozinha, pelo que apagar a linha da **leitura**
+        nao a fazia falhar — a asserção que o nome promete nao era a que prendia.
+        Agora cada passo e exigido pela sua propria linha.
+        """
+        self.assertIn("commit-range --evento", self.receita)
         self.assertIn("commit-range-canario", self.receita)
 
     def test_passa_as_duas_variaveis_ao_subcomando(self) -> None:
