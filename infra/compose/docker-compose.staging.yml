@@ -21,7 +21,7 @@
 #    falha se alguem escrever `real` aqui (`staging-obs-com-dados-reais`).
 #    `staging` nunca tem dados pessoais reais (doc 09 §6, E3 req. 24).
 # 3. **O perfil de maquina e menor**: 4 vCPU/16 GB (doc 09 §4.4, perfil P0),
-#    contra os 8/32 de producao. Os `mem_limit` sao os **mesmos** de propósito:
+#    contra os 8/32 de producao. Os `mem_limit` sao os **mesmos** de proposito:
 #    um *staging* com limites mais largos nao reproduz o OOM que producao teria.
 #    Com o Langfuse ligado a soma passa os 16 GB da maquina de *staging*, e e
 #    por isso que o perfil se liga para um ensaio e se desliga a seguir — esta
@@ -586,7 +586,7 @@ services:
       <<: *saida
       # Criterio 8: `ee/` inactivo. Sem chave de licenca, as funcionalidades
       # Enterprise do Langfuse ficam desligadas — e esta variavel fica vazia de
-      # propósito, nao por omissao.
+      # proposito, nao por omissao.
       LANGFUSE_EE_LICENSE_KEY: ""
       DATABASE_URL: postgresql://${POSTGRES_USER:?do cofre (KAM-010), projecto staging}:${POSTGRES_PASSWORD:?do cofre (KAM-010), projecto staging}@postgres:5432/kamba_langfuse
       REDIS_CONNECTION_STRING: redis://queue:6379/2

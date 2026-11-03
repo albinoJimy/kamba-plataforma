@@ -21,7 +21,7 @@ exige-se o achado. Prova-se que a regra morde **nesta** configuracao.
 
 1. **Uma mutacao que deixou de se aplicar.** A arvore muda, o texto que a
    mutacao trocava desaparece, e o caso passa a verde por nao ter medido nada.
-   Daí cada mutacao ter de **encontrar o texto** que troca: se nao encontra,
+   Dai cada mutacao ter de **encontrar o texto** que troca: se nao encontra,
    e falha com `nao se aplica`, nunca um verde.
 2. **Vermelho pela regra errada.** Ser apanhada por outra regra qualquer e
    sorte, nao cobertura. Cada caso declara as regras que espera, e exige-se que
