@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Engineering Standards e Handoff |
-| Versão | 1.3 |
+| Versão | 1.4 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/00_Arquitectura_Solucao.md`, `../docs/exploracao/14-tese-minima-e-plano-de-validacao.md` |
@@ -115,7 +115,8 @@ Regra transversal: nenhum gate pode ser marcado *skip* sem ADR ou aprovação re
 ## 5. Convenções de código e versionamento
 
 - **SemVer para artefactos comportamentais.** Registo de vertical (`registry/*.yaml`), grafos, prompts, schemas de tool, schemas de evento e tabelas de política seguem `MAJOR.MINOR.PATCH`. *MAJOR* = quebra de contrato; *MINOR* = capacidade retro-compatível; *PATCH* = correcção. Trocar o modelo por trás de um alias é um *release* e passa o gate golden.
-- **Conventional Commits com ID de ticket.** `tipo(KAM-NNN): descrição no imperativo`. Tipos: `feat`, `fix`, `chore`, `refactor`, `test`, `docs`, `spike`.
+- **Conventional Commits com ID de ticket.** `tipo(KAM-NNN): descrição no imperativo`. Tipos: `feat`, `fix`, `chore`, `refactor`, `test`, `docs`, `spike`. A forma vive em **`../tools/conventions.json`** e só lá: o `../commitlint.config.cjs` e o `../tools/githooks/commit-msg` leem-na desse ficheiro, e uma segunda cópia da expressão regular é defeito, não redundância. **Os dois são locais**, e dispensam-se com `--no-verify`: nenhum portão de CI lê mensagens de *commit* (medido a 2026-11-03; dívida 173 de `../docs/dividas-documentais.md`).
+- **O título do PR obedece à mesma forma.** `tipo(KAM-NNN): descrição no imperativo`, lido da mesma fonte. A razão é que **é ele que fica no `main`**: a definição do repositório é `squash_merge_commit_title: COMMIT_OR_PR_TITLE`, pelo que o GitHub usa o assunto do *commit* quando o PR tem um só e o **título do PR** quando tem mais do que um — e o título não vive no ramo, pelo que o *hook* não lhe chega. Verifica-se em `../.github/workflows/titulo-do-pr.yaml`, em `pull_request` com `types: [opened, edited, reopened, synchronize]`, porque o título muda sem o ramo mudar — e é, hoje, **a única verificação de assunto que corre do lado do servidor**. **O que ela não cobre:** um PR fundido por `merge` ou por `rebase`, onde o assunto não vem do título; e um PR com um só *commit*, onde o assunto vem do *commit* e nada do lado do servidor o lê. Nesse último caso a verificação corre de qualquer modo, por decisão do **KAM-164** — o número de *commits* não chega no evento, e um *commit* acrescentado depois dos portões transforma o título em assunto sem nada reavaliar. Decidido no **KAM-164**, que nasceu do `29778f3` (PR #75): o assunto que lá está não tem tipo.
 - **Branches.** `feature/KAM-NNN-<slug>`; correcções `fix/KAM-NNN-<slug>`. Um *bug* fora do escopo abre ticket novo, não commit oportunista.
 - **ADRs em formato MADR.** Novos ADRs numeram-se após o último canónico (`../docs/tecnica/00` §8; actualmente ADR-019). Nenhum ADR canónico é contradito sem *superseding* explícito.
 - **Eventos.** Envelope versionado; campos novos só aditivos; consumidores falham de forma visível perante versões desconhecidas (não as ignoram em silêncio).
@@ -143,6 +144,8 @@ Regra transversal: nenhum gate pode ser marcado *skip* sem ADR ou aprovação re
 ---
 
 ## 7. Template de Pull Request
+
+**O título do PR é `tipo(KAM-NNN): descrição no imperativo`** — a mesma forma do assunto de um *commit* (§5), e pela razão que lá está escrita: é o título que o GitHub põe no `main` quando o PR funde por *squash* com mais do que um *commit*. O `## KAM-NNN — <título do ticket>` abaixo é o cabeçalho do **corpo** do PR e não o título; copiá-lo para o campo do título é exactamente o defeito que o `29778f3` deixou no histórico, e a verificação de `../.github/workflows/titulo-do-pr.yaml` recusa-o.
 
 ```markdown
 ## KAM-NNN — <título do ticket>
@@ -221,3 +224,4 @@ template da §7. Conventional Commits: tipo(KAM-NNN): descrição.
 | 1.1 | Outubro 2026 | §6, princípio 1: excepção para resíduos textuais, que vão para `../docs/dividas-documentais.md` (KAM-142). *Proposta*, como o resto do documento, até ratificação. | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-145: o §5 passa a declarar que o executor de um bloco de *handoff* corre na raiz do repositório e que os caminhos dentro desse bloco são relativos à raiz, deixando explícito que a regra de referência entre documentos (KAM-128) continua a valer fora deles. Os **três** caminhos `../docs/…` do próprio §8 passam à forma nova. Sem alteração de nenhum gate, DoR ou DoD. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | KAM-130: decisões abertas `D1–D13`. | Equipa KAMBÁ |
+| 1.4 | Novembro 2026 | KAM-164: o §5 e o §7 passam a dizer que o título do PR obedece à forma do assunto de um *commit*, e porquê. A razão é mecânica e não estética: com `squash_merge_commit_title: COMMIT_OR_PR_TITLE`, é o título do PR que fica no `main` quando o PR traz mais do que um *commit* — e ele não vive no ramo, pelo que o `../tools/githooks/commit-msg` não lhe chega. A revisão adversarial do ticket mediu, de passagem, que **nenhum portão de CI lê mensagens de *commit*** (o `make ci-2` corre `lint_arch all`, que é «deps, structure, tool-schema, aliases e medusa», e nenhum *workflow* invoca o `commitlint`): o §5 deixa de dizer o contrário, e a lacuna fica na dívida 173. O §5 ganha a declaração de que a forma vive só em `../tools/conventions.json`, nomeia a verificação nova (`../.github/workflows/titulo-do-pr.yaml`, em `pull_request` com `types: [opened, edited, reopened, synchronize]`) e escreve o que ela **não** cobre. O §7 passa a instruir o título antes do template, e a dizer que o `## KAM-NNN — <título>` de dentro dele é o cabeçalho do corpo e não o título — que foi como o `29778f3` (PR #75) ficou no histórico com um assunto sem tipo. A caixa do critério 4 do ticket fica **vazia**: pôr o contexto nos *required checks* é alteração de regra de bloqueio, e é do fundador. | Equipa KAMBÁ |
