@@ -83,6 +83,12 @@ BOOT = "db/bootstrap.py"
 RLS = "db/rls.py"
 REV2 = "db/migrations/versions/0002_rls_por_tenant.py"
 GUARD_PY = "libs/py-core/src/kamba_core/tenant_guard/__init__.py"
+#: KAM-163: a bateria de unidade da guarda, em `libs/py-core/tests`, sem base de
+#: dados. A chave do registo de transaccoes e interna ao modulo — nenhuma
+#: ligacao e aberta para a provar —, e a suite de isolamento (gate 6) nao a ve:
+#: com a chave de volta ao `id(conexao)` o comportamento contra um PostgreSQL
+#: real e o mesmo. Quem mede e o ensaio de reutilizacao de endereco.
+PYCORE_UNIT = "pycore_unit"
 CATALOGO = "db/tests_isolamento/catalogo.py"
 ISOLAMENTO = "tests_isolamento"
 REV3 = "db/migrations/versions/0003_identidade_de_contacto.py"
@@ -720,6 +726,61 @@ MUTACOES = [
      """SQL_DEFINIR_CONTEXTO = "SELECT set_config('app.tenant_id', %s, true)\"""",
      """SQL_DEFINIR_CONTEXTO = "SELECT set_config('app.tenant_id', %s, false)\"""",
      ISOLAMENTO),
+    # KAM-163: a chave do registo de volta ao `id(conexao)`, que e o texto
+    # exacto deste bloco antes da correccao. Nao e uma mutacao de um sitio
+    # so: a chave aparece na declaracao, na verificacao, no `add` e no
+    # `discard`, e uma mutacao que mudasse um deles sozinho media outra
+    # coisa — um registo que nunca casa, ou um `TypeError` em todo o lado.
+    #
+    # A suite e a `pycore_unit` e nao a de isolamento: contra um PostgreSQL
+    # real as duas chaves comportam-se igual, e e por isso que esta divergiu
+    # sem ninguem notar durante dois meses.
+    ("helper: a chave do registo volta a ser o endereco do objecto", GUARD_PY,
+     '_EM_USO: weakref.WeakSet = weakref.WeakSet()\n'
+     '#: O trinco **fica**: a `WeakSet` resolve a identidade, nao a corrida entre\n'
+     '#: *threads*. Sao duas coisas, e so uma delas mudou.\n'
+     '_TRINCO_EM_USO = threading.Lock()\n'
+     '\n'
+     '\n'
+     '@contextlib.contextmanager\n'
+     'def _exclusiva(conexao):\n'
+     '    """Reserva a ligacao ate a transaccao acabar; a segunda entrada levanta."""\n'
+     '    with _TRINCO_EM_USO:\n'
+     '        if conexao in _EM_USO:\n'
+     '            raise LigacaoEmUso(\n'
+     '                "esta ligacao ja esta dentro de uma transaccao de `tenant_guard`: "\n'
+     '                "uma segunda sobrepunha o contexto de tenant da primeira e "\n'
+     '                "confirmava o trabalho dela. Uma ligacao por pedido, e uma "\n'
+     '                "transaccao de cada vez por ligacao."\n'
+     '            )\n'
+     '        _EM_USO.add(conexao)\n'
+     '    try:\n'
+     '        yield\n'
+     '    finally:\n'
+     '        with _TRINCO_EM_USO:\n'
+     '            _EM_USO.discard(conexao)\n',
+     '_EM_USO: set[int] = set()\n'
+     '_TRINCO_EM_USO = threading.Lock()\n'
+     '\n'
+     '\n'
+     '@contextlib.contextmanager\n'
+     'def _exclusiva(conexao):\n'
+     '    """Reserva a ligacao ate a transaccao acabar; a segunda entrada levanta."""\n'
+     '    chave = id(conexao)\n'
+     '    with _TRINCO_EM_USO:\n'
+     '        if chave in _EM_USO:\n'
+     '            raise LigacaoEmUso(\n'
+     '                "esta ligacao ja esta dentro de uma transaccao de `tenant_guard`: "\n'
+     '                "uma segunda sobrepunha o contexto de tenant da primeira e "\n'
+     '                "confirmava o trabalho dela. Uma ligacao por pedido, e uma "\n'
+     '                "transaccao de cada vez por ligacao."\n'
+     '            )\n'
+     '        _EM_USO.add(chave)\n'
+     '    try:\n'
+     '        yield\n'
+     '    finally:\n'
+     '        with _TRINCO_EM_USO:\n'
+     '            _EM_USO.discard(chave)\n', PYCORE_UNIT),
     ("catalogo: a descoberta ignora o schema platform", CATALOGO,
      'SCHEMAS_DE_SISTEMA = ("pg_catalog", "information_schema", "pg_toast")',
      'SCHEMAS_DE_SISTEMA = ("pg_catalog", "information_schema", "pg_toast", "platform")',
@@ -6355,9 +6416,49 @@ def _gate_do_agr(copia: Path) -> tuple[int, str]:
     return r.returncode, r.stdout + r.stderr
 
 
+#: KAM-163: as baterias de unidade de `libs/py-core`. **Uma lista literal, e nao
+#: um `discover`**: as outras baterias de `libs/py-core/tests` nao se corriam
+#: aqui antes deste ticket, e correr todas de uma vez punha nesta prova
+#: afirmacoes que nao sao da mutacao que se esta a medir. Quem acrescentar uma
+#: bateria que uma mutacao precise de ver acrescenta-a **aqui** — e a licao que
+#: o `MODULOS_DO_AGR_UNIT` acima pagou quatro vezes.
+MODULOS_DO_PYCORE_UNIT = (
+    "test_tenant_guard",
+)
+
+
+def _gate_do_pycore(copia: Path) -> tuple[int, str]:
+    """A bateria da guarda de tenant, sem base de dados.
+
+    A chave do registo e estado de modulo e nenhuma ligacao e aberta para a
+    medir: levantar um contentor por mutacao nao mediria nada a mais. O
+    `PYTHONPATH` tem de ser explicito, pela razao escrita no `_gate_do_agr`, e
+    leva `libs/py-core/tests` para os modulos se importarem pelo nome.
+    """
+    env = dict(
+        os.environ,
+        PYTHONPATH=os.pathsep.join(
+            str(copia / caminho)
+            for caminho in ("libs/py-core/src", "libs/py-core/tests")
+        ),
+    )
+    r = subprocess.run(
+        [PY, "-m", "unittest", *MODULOS_DO_PYCORE_UNIT],
+        cwd=copia,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+    )
+    return r.returncode, r.stdout + r.stderr
+
+
 def _gate(copia: Path, suite: str) -> tuple[int, str]:
     if suite == AGR_UNIT:
         return _gate_do_agr(copia)
+    if suite == PYCORE_UNIT:
+        return _gate_do_pycore(copia)
     if suite in SUITES_DE_TOOLS:
         return _gate_de_tools(copia, *SUITES_DE_TOOLS[suite])
     r = subprocess.run(
