@@ -200,6 +200,8 @@ EV_ACCOES = "packages/core-ts/src/eventos/accoes.ts"
 REV6 = "db/migrations/versions/0006_audit_log.py"
 #: KAM-053: o ledger de pagamentos. A revisao, e a suite que a prova.
 REV29 = "db/migrations/versions/0029_ledger_de_pagamentos.py"
+#: KAM-044: as encomendas. A revisao, e a suite que a prova.
+REV30 = "db/migrations/versions/0030_encomendas_e_estados.py"
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -5668,6 +5670,70 @@ MUTACOES = [
     # O AGR nao aplica transicao nenhuma — quem transita a encomenda e o COM
     # (`03` §6) —, e com isto **todos** os pagamentos levantam `MaquinaEmFalta`
     # e acabam na DLQ (dicionario §3.33).
+    # ------------------------------------------------ KAM-044, as encomendas
+    #
+    # **Sete, e a lista nasceu de uma revisao adversarial que a pediu.** Ela
+    # mediu que o `ENABLE ALWAYS` dos cinco *triggers* desta revisao nao tinha
+    # ensaio nenhum nem mutacao nenhuma — e que a `0029` tem quinze. Cada uma
+    # ataca **uma** barreira do ticket, pela ordem do que custa mais se nao
+    # morder: primeiro as que deixariam escrever `paga` por fora, depois as que
+    # deixariam o estado mudar sem registo, por fim as que deixariam o espelho
+    # mutavel.
+    #
+    # Correm na suite `tests_encomendas`, que e quem as mata.
+    ('revisao 0030: paga deixa de exigir o recibo de consumo do evento', REV30,
+     "                 SELECT 1 FROM platform.events_consumed c",
+     "                 SELECT 1 FROM platform.events_consumed c WHERE false OR true -- ",
+     "tests_encomendas"),
+    # **A mutacao mais importante da lista**, e e o achado 1 da revisao
+    # adversarial feito portao: sem a ancora, o `evento_id` do registo e texto
+    # que ninguem verifica, e o `kamba_app` escreve `paga` com
+    # `evento_id = 'inventado'`. O `test_um_evento_inventado_e_recusado` e o
+    # `test_um_evento_consumido_por_outro_tenant_e_recusado` tem de a matar.
+    ('revisao 0030: paga deixa de exigir actor sistema', REV30,
+     "            IF v_log.actor_kind <> 'sistema'",
+     "            IF false",
+     "tests_encomendas"),
+    # O criterio 3 a letra: «actor `agente` ou `dono` sem evento e recusado». Com
+    # a condicao sempre falsa, um `dono` escreve `paga`. Quatro ensaios do
+    # `TestPagaExigeEventoAutenticado` tem de morder.
+    ('revisao 0030: o trigger do registo deixa de ser diferido', REV30,
+     "          DEFERRABLE INITIALLY DEFERRED",
+     "          DEFERRABLE INITIALLY IMMEDIATE",
+     "tests_encomendas"),
+    # Com `IMMEDIATE`, o *trigger* corre no fim da instrucao e **nenhuma**
+    # transicao passa: o registo e escrito depois do CAS. E a mutacao que prova
+    # que a ordem importa, e o `test_diferido_a_falha_aparece_no_commit_e_nao_antes`
+    # e quem a vê.
+    ('revisao 0030: os triggers das encomendas deixam de ser ALWAYS', REV30,
+     'op.execute(\n        f"ALTER TABLE {ENCOMENDAS} ENABLE ALWAYS TRIGGER order_transicao_valida"\n    )',
+     "pass  # sem ENABLE ALWAYS",
+     "tests_encomendas"),
+    # Um `SET session_replication_role = replica` salta os *triggers* de
+    # omissao, e com ele um `UPDATE` escreve qualquer estado. O
+    # `TestOsTriggersSaoSempreActivos` le o `tgenabled` do catalogo e corre a
+    # transicao invalida nesse modo: tem de recusar o `'O'`.
+    ('revisao 0030: o grafo deixa de ser consultado na transicao', REV30,
+     "            IF NOT COALESCE(v_existe, false) THEN",
+     "            IF false THEN",
+     "tests_encomendas"),
+    # Sem a consulta ao `order_state_graph`, **todas** as 144 combinacoes
+    # passam. O `test_so_os_pares_do_grafo_passam_e_os_restantes_sao_recusados`
+    # tem de morder em 67 subTests.
+    ('revisao 0030: o snapshot deixa de congelar depois de criada', REV30,
+     "          IF OLD.estado <> {CRIADA} AND (",
+     "          IF false AND (",
+     "tests_encomendas"),
+    # O criterio 4: com a guarda desligada, o `lines_snapshot` e o `total_minor`
+    # de uma encomenda que o cliente ja confirmou reescrevem-se. O
+    # `TestSnapshotImutavel` tem de morder.
+    ('revisao 0030: a encomenda deixa de nascer em criada', REV30,
+     "          IF NEW.estado <> {CRIADA} THEN",
+     "          IF false THEN",
+     "tests_encomendas"),
+    # A quinta via: sem o `order_nasce_criada`, uma encomenda nasce `paga` por
+    # `INSERT` directo, sem transicao, sem registo e sem evento. O
+    # `TestAQuintaVia` tem de a matar.
     # ------------------------------------------- KAM-053, o ledger de pagamentos
     #
     # Nove, e cada uma ataca **uma** barreira do ticket. A ordem e a do que custa
@@ -5862,6 +5928,23 @@ def _copiar(destino: Path, suite: str = "tests") -> None:
     # Encontrado pelo proprio corredor, na primeira execucao das oito.
     shutil.copytree(
         RAIZ / "services" / "agr", destino / "services" / "agr", ignore=ignorar
+    )
+    # KAM-044: o **src** do COM, e e a mesma regra do fim desta funcao a ser
+    # cumprida outra vez. A `tests_encomendas` le as cadeias SQL do proprio
+    # TypeScript (`services/com/src/orders/consultas.ts`, pelo
+    # `ConsultaDoTypeScript`), como a `tests_produtos` e a `tests_servicos` ja
+    # faziam — e **e por isso que nenhuma delas tinha mutacoes**: sem esta
+    # linha, a linha de base da suite fica vermelha com
+    # `FileNotFoundError: ...\services\com\src\orders\consultas.ts` e
+    # nenhuma mutacao se pode provar. Encontrado pelo proprio corredor, na
+    # primeira execucao das sete mutacoes da `0030`.
+    #
+    # So o `src`: os `node_modules` do worktree sao *symlinks* e a copia deles
+    # custaria minutos por mutacao, e a suite nao os abre.
+    shutil.copytree(
+        RAIZ / "services" / "com" / "src",
+        destino / "services" / "com" / "src",
+        ignore=ignorar,
     )
     shutil.copytree(RAIZ / "ci", destino / "ci", ignore=shutil.ignore_patterns("coverage", "sbom"))
     # KAM-028: **um** ficheiro de `docs/`, e nao a pasta. O

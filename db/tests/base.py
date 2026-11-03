@@ -326,6 +326,34 @@ TABELAS_0029 = (
     "payment_outbox_map",
 )
 
+#: O que a revisao 0030 (KAM-044) acrescenta: as encomendas.
+#:
+#: **Cinco — e a revisao que traz mais tabelas de uma vez.** As quatro de
+#: `docs/tecnica/03` secao 5.4 que faltavam (`orders_mirror`, `order_intents`,
+#: `order_state_log` e, fora daquele bloco, o `order_reconciliation_issues` dos
+#: Detalhes Tecnicos do bloco) mais o `order_state_graph`, que o secao 6.2 manda
+#: existir como **dados**. Por ordem alfabetica, que e a do `pg_tables ORDER BY
+#: 1` desta lista — e nao a de criacao, que e `orders_mirror ->
+#: order_intents -> order_state_log -> order_state_graph ->
+#: order_reconciliation_issues` (a ordem das FK: as tres ultimas referenciam a
+#: primeira).
+#:
+#: A `stock_reservations` do mesmo bloco SQL **nao** esta aqui: e do KAM-045.
+#:
+#: **Uma delas nao tem `tenant_id`, e isso e desenho e nao lapso.** O
+#: `order_state_graph` e tabela de **referencia**, como a `evt_subscricoes` da
+#: `0004` e a `payment_outbox_map` da `0029`: as transicoes validas de um
+#: sistema nao sao configuracao de tenant, e quem lhe escreve e uma revisao. Nao
+#: entra no X-05 do *gate* 6 nem em `ci/rls_exceptions.yaml` — a descoberta
+#: pergunta pela coluna, e ela nao a tem.
+TABELAS_0030 = (
+    "order_intents",
+    "order_reconciliation_issues",
+    "order_state_graph",
+    "order_state_log",
+    "orders_mirror",
+)
+
 TABELAS = tuple(
     sorted(
         TABELAS_0001 + TABELAS_0003 + TABELAS_0004 + TABELAS_0005
@@ -333,15 +361,26 @@ TABELAS = tuple(
         + TABELAS_0010 + TABELAS_0011 + TABELAS_0012 + TABELAS_0013
         + TABELAS_0014 + TABELAS_0015 + TABELAS_0017 + TABELAS_0018
         + TABELAS_0019 + TABELAS_0021 + TABELAS_0022 + TABELAS_0024
-        + TABELAS_0027 + TABELAS_0028 + TABELAS_0029
+        + TABELAS_0027 + TABELAS_0028 + TABELAS_0029 + TABELAS_0030
     )
 )
+
+#: O que existe em `platform` quando a base esta na revisao `0029`.
+#:
+#: Pela mesma razao das outras: o `downgrade` da `0030` leva a base para aqui, e
+#: o teste do ciclo compara o conjunto com esta tupla.
+TABELAS_ATE_0029 = tuple(sorted(set(TABELAS) - set(TABELAS_0030)))
 
 #: O que existe em `platform` quando a base esta na revisao `0028`.
 #:
 #: Pela mesma razao das outras: o `downgrade` da `0029` leva a base para aqui, e
 #: o teste do ciclo compara o conjunto com esta tupla.
-TABELAS_ATE_0028 = tuple(sorted(set(TABELAS) - set(TABELAS_0029)))
+#: **Deriva do `TABELAS_ATE_0029` e nao do `TABELAS`**, e e a quinta vez que
+#: esta nota se escreve: derivar do conjunto inteiro punha as **cinco** tabelas
+#: da `0030` em todas as tuplas de revisoes anteriores, e os ensaios de
+#: `downgrade` de outros modulos ficavam vermelhos a espera delas na revisao a
+#: que descem. Mediu-se: trinta e um ensaios do *gate* 8 a falhar de uma vez.
+TABELAS_ATE_0028 = tuple(sorted(set(TABELAS_ATE_0029) - set(TABELAS_0029)))
 
 #: O que existe em `platform` quando a base esta na revisao `0027`.
 #:

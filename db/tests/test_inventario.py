@@ -1306,6 +1306,227 @@ INVENTARIO = {
         ),
         "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
     },
+    # ------------------------------------------------------- KAM-044 (0030)
+    #
+    # As encomendas. **A resposta que esta tabela existe para dar e a do
+    # ADR-010**: `orders_mirror` nao tem `msisdn`, nao tem nome, nao tem morada
+    # e nao tem texto livre nenhum — o cliente entra por `contact_id`, que e uma
+    # referencia opaca a `contacts`, e o `docs/tecnica/03` secao 5.1 n.o 3
+    # registou que o `cliente_msisdn text NOT NULL` do documento 11 violava o
+    # ADR-010 e a minimizacao da Lei 22/11. O `lines_snapshot` tem o `nome` do
+    # **produto**, que e a mesma resposta do `offer_terms.nome`.
+    "orders_mirror": {
+        "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "contact_id": (
+            "uuid",
+            NAO,
+            None,
+            "nao — referencia opaca a `contacts` (KAM-008, ADR-010). E o "
+            "substituto do telefone, nunca o telefone, e a FK e **composta** "
+            "com o `tenant_id` (correccao de 2026-10-27 do secao 5.4, ISO-58)",
+        ),
+        "origem": ("text", NAO, "'pme'::text", "nao"),
+        "numero_publico": (
+            "text",
+            NAO,
+            "platform.order_numero_publico()",
+            "nao — base32 de Crockford de oito caracteres, gerado pela base. "
+            "Serve de referencia curta no PAY, e e por isso que a entropia e de "
+            "`gen_random_uuid()` e nao de `random()`: um numero previsivel "
+            "deixava adivinhar a referencia de outra encomenda",
+        ),
+        "intent_key": (
+            "text",
+            NAO,
+            None,
+            "nao — a chave de idempotencia da criacao (secao 6.3), escolhida "
+            "pelo COM e nao pelo cliente",
+        ),
+        "medusa_order_id": (
+            "text",
+            SIM,
+            None,
+            "nao — referencia **logica** ao Registo (secao 5.1 n.o 7), nunca FK "
+            "de base. Nula em toda a Fase 0",
+        ),
+        "estado": ("text", NAO, "'criada'::text", "nao"),
+        "confirmacao_dono": ("text", NAO, "'nao_aplicavel'::text", "nao"),
+        "total_minor": (
+            "bigint",
+            NAO,
+            None,
+            "nao — unidade menor inteira (secao 5.1 n.o 2). **Nao e um saldo**: "
+            "congela com o `lines_snapshot` depois de `criada`, pelo que e "
+            "historia e nao posicao. Declarado em `EM_UNIDADE_MENOR` de "
+            "`test_catalogo.py` com a razao por extenso (ADR-L008)",
+        ),
+        "currency": ("text", NAO, "'AOA'::text", "nao — dominio de um valor"),
+        "lines_snapshot": (
+            "jsonb",
+            NAO,
+            None,
+            "nao — as linhas da encomenda: `sku`, `qty`, preco e o **nome do "
+            "produto**, que e a mesma resposta do `offer_terms.nome` (nome "
+            "comercial, nunca de pessoa singular). Imutavel depois de `criada`, "
+            "pelo *trigger* `order_transicao_valida`",
+        ),
+        "entrega_modo": ("text", NAO, "'levantamento'::text", "nao"),
+        "expira_at": (
+            "timestamp with time zone",
+            SIM,
+            None,
+            "nao — fim da reserva activa. Nulo enquanto nao houver cobranca "
+            "emitida, e e o payload obrigatorio do `order.expired`",
+        ),
+        "paga_at": ("timestamp with time zone", SIM, None, "nao"),
+        "paga_via": (
+            "text",
+            SIM,
+            None,
+            "nao — como o pagamento foi dado por bom. O dominio da coluna tem "
+            "tres valores (secao 5.4) e o `CHECK` do estado aceita **dois** "
+            "para `paga`: o `cod_manual` fica alcancavel para quem implementar "
+            "a cobranca a entrega, com a razao escrita",
+        ),
+        "excepcao": ("text", SIM, None, "nao — quem a escreve e o KAM-050"),
+        "entregue_at": ("timestamp with time zone", SIM, None, "nao"),
+        "entrega_confirmada_por": (
+            "text",
+            SIM,
+            None,
+            "nao — **o papel e nao a pessoa**: `cliente`, `dono` ou `estafeta`. "
+            "Quem confirmou pelo `id` esta no `order_state_log.actor_id`",
+        ),
+        "version": (
+            "integer",
+            NAO,
+            "1",
+            "nao — concorrencia optimista. O *trigger* exige que suba de um em "
+            "cada mudanca de estado, e e a ela que o `order_state_log.version` "
+            "se refere",
+        ),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "atualizado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "deleted_at": ("timestamp with time zone", SIM, None, "nao"),
+    },
+    "order_intents": {
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "intent_key": ("text", NAO, None, "nao — ver `orders_mirror.intent_key`"),
+        "draft_hash": (
+            "bytea",
+            NAO,
+            None,
+            "nao — `sha256` do conteudo do rascunho confirmado, 32 octetos pelo "
+            "`CHECK`. E um resumo e nao o conteudo: do *hash* nao se le o que o "
+            "cliente escreveu",
+        ),
+        "estado": ("text", NAO, "'em_curso'::text", "nao"),
+        "order_id": (
+            "uuid",
+            SIM,
+            None,
+            "nao — nulo enquanto a encomenda nao existe. A FK composta com uma "
+            "metade nula **nao e imposta** (`MATCH SIMPLE`), e o "
+            "`order_intents_concluida_exige_encomenda_ck` e que liga o estado "
+            "ao `order_id` nos dois sentidos",
+        ),
+        "criado_at": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
+    "order_state_log": {
+        "id": (
+            "uuid",
+            NAO,
+            "gen_random_uuid()",
+            "nao — `uuid` e **nao** `bigint` de identidade como o secao 5.4 "
+            "escreve: o `kamba_app` tem de ler esta tabela (e o *trigger* "
+            "diferido que a le, como invocador), pelo que uma chave sequencial "
+            "media as transicoes de toda a plataforma a quem atende um cliente",
+        ),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "order_id": ("uuid", NAO, None, "nao"),
+        "de": ("text", NAO, None, "nao"),
+        "para": ("text", NAO, None, "nao"),
+        "version": (
+            "integer",
+            NAO,
+            None,
+            "nao — a `version` **de depois** da transicao. Coluna que o secao "
+            "5.4 nao tem, e e ela que liga esta linha a transicao exacta: sem "
+            "ela o ciclo `expirada -> aguarda_pagamento -> expirada` deixava "
+            "uma linha de uma volta anterior satisfazer a verificacao de uma "
+            "volta nova",
+        ),
+        "causa": (
+            "text",
+            NAO,
+            None,
+            "nao — o nome do evento ou do gesto que causou a transicao "
+            "(`payment.confirmed`, `ttl`, `dono_confirma`, `reconciliacao`). "
+            "**Nao e texto do cliente**: e um identificador de caminho, e o "
+            "dominio nao esta fechado porque o secao 5.4 da exemplos e nao uma "
+            "lista",
+        ),
+        "evento_id": (
+            "text",
+            SIM,
+            None,
+            "nao — o `id` do evento que a causou. **Obrigatorio para `paga`**, "
+            "pelo *trigger* diferido: e a prova do criterio 3 e do ADR-013",
+        ),
+        "actor_kind": (
+            "text",
+            NAO,
+            None,
+            "nao — um dos quatro do dicionario §3.2 (`agente`, `dono`, "
+            "`sistema`, `ops`). E um papel e nao uma pessoa",
+        ),
+        "actor_id": (
+            "text",
+            SIM,
+            None,
+            "nao — o identificador do actor dentro do papel. Opaco: nunca um "
+            "telefone nem um nome, como no `audit_log.actor_id`",
+        ),
+        "em": ("timestamp with time zone", NAO, "now()", "nao"),
+    },
+    "order_state_graph": {
+        "de": ("text", NAO, None, "nao"),
+        "para": ("text", NAO, None, "nao"),
+        "flag": (
+            "text",
+            SIM,
+            None,
+            "nao — o nome da bandeira que a transicao exige, ou nulo quando "
+            "esta sempre activa. Dominio fechado por `CHECK` num valor "
+            "(`COM_DELIVERY_ENABLED`): um nome vindo da linha deixava quem "
+            "escreve no grafo escolher que GUC a base consulta",
+        ),
+    },
+    "order_reconciliation_issues": {
+        "id": ("uuid", NAO, "gen_random_uuid()", "nao"),
+        "tenant_id": ("uuid", NAO, None, "nao"),
+        "order_id": (
+            "uuid",
+            SIM,
+            None,
+            "nao — anulavel porque duas das cinco regras do secao 10.3 falam de "
+            "uma encomenda que o espelho ainda **nao** tem",
+        ),
+        "tipo": ("text", NAO, None, "nao — uma das cinco regras do secao 10.3"),
+        "detalhe": (
+            "jsonb",
+            NAO,
+            "'{}'::jsonb",
+            "nao — o que divergia, para quem reconcilia ler sem reabrir o "
+            "Registo: `intent_key`, `sku`, totais e estados. **Sem dado "
+            "pessoal**, e e o `reconcile.ts` que o constroi campo a campo, nao "
+            "um despejo de linha",
+        ),
+        "estado": ("text", NAO, "'aberta'::text", "nao"),
+        "aberta_at": ("timestamp with time zone", NAO, "now()", "nao"),
+        "resolvida_at": ("timestamp with time zone", SIM, None, "nao"),
+    },
     # ------------------------------------------------------- KAM-053 (0029)
     #
     # A cobranca: o estado **derivado** do ledger, e a unica tabela mutavel de
@@ -2059,6 +2280,28 @@ class TestInventario(ComBase):
                         "offer_terms_tenant_fk",
                         "price_quotes_tenant_fk",
                         "price_quotes_contacto_do_mesmo_tenant_fk",
+                        # KAM-044: as **sete** das encomendas, e quatro delas
+                        # compostas com o `tenant_id` — a correccao de
+                        # 2026-10-27 do secao 5.4, que nomeia este ticket. As
+                        # tres para `orders_mirror` assentam na
+                        # `orders_mirror_tenant_id_uq`, que a revisao `0030`
+                        # acrescenta so para isso.
+                        #
+                        # **Nenhuma apaga em cascata, e aqui isso vale mais do
+                        # que em qualquer outra tabela**: um `ON DELETE CASCADE`
+                        # no `order_state_log` fazia apagar uma encomenda apagar
+                        # a prova de que ela foi paga por evento autenticado — o
+                        # `deny_mutation` recusa o `DELETE` directo, e uma
+                        # cascata nao e um `DELETE` que ele veja. Apagar uma
+                        # encomenda e escrever `deleted_at` (secao 5.6), e a
+                        # purga fisica e da retencao (KAM-071).
+                        "order_intents_encomenda_do_mesmo_tenant_fk",
+                        "order_intents_tenant_fk",
+                        "order_reconciliation_issues_encomenda_do_mesmo_tenant_fk",
+                        "order_reconciliation_issues_tenant_fk",
+                        "order_state_log_encomenda_do_mesmo_tenant_fk",
+                        "orders_mirror_contacto_do_mesmo_tenant_fk",
+                        "orders_mirror_tenant_fk",
                         # KAM-016: as duas da tentativa de onboarding. A do
                         # canal e **composta** com o `tenant_id`, pela razao que
                         # a `0009` fixou e as cinco revisoes seguintes
@@ -2357,6 +2600,22 @@ class TestInventario(ComBase):
             # por canal.
             "owner_contacts_verificado_idx": False,
             "owner_notices_pendentes_idx": False,
+            # KAM-044: **um** parcial na revisao `0030`, e nao e unico. O
+            # `orders_mirror_expira_idx` cobre so os dois estados que expiram
+            # (`aguarda_pagamento`, `pendente_confirmacao`), que e a mesma ideia
+            # do `events_outbox_pendentes`: depois de paga, expirada ou
+            # cancelada a encomenda sai do indice e o varrimento da expiracao
+            # (KAM-045) nao cresce com o historico.
+            #
+            # **Nao comeca pelo `tenant_id`, e nao deve**: esse varrimento corre
+            # como `kamba_batch` sobre a base toda e procura por instante. O
+            # indice que serve o tenant e o `orders_mirror_estado_idx`, que nao
+            # e parcial e por isso nao esta nesta lista.
+            #
+            # Nao unico, e seria errado se o fosse: duas encomendas do mesmo
+            # tenant expiram no mesmo instante sempre que a mesma cobranca
+            # define a validade das duas.
+            "orders_mirror_expira_idx": False,
         }
         linhas = self.consultar(
             "SELECT indexname::text, indexdef FROM pg_indexes "
@@ -2384,10 +2643,12 @@ class TestInventario(ComBase):
                     #
                     # **Trinta e duas**: onze da `payment_charges`, tres do
                     # `payment_callbacks_inbox`, treze da `payment_events` e
-                    # cinco da `payment_outbox_map`. E a revisao que acrescenta
-                    # mais restricoes a esta lista, e a razao esta no que ela
-                    # cria: seis dominios fechados, uma cadeia de *hashes* e as
-                    # duas regras que o secao 14 cita como mecanismo.
+                    # cinco da `payment_outbox_map`. **Era** a revisao que
+                    # acrescentava mais restricoes a esta lista — a `0030`
+                    # (KAM-044) traz quarenta e duas —, e a razao de serem tantas
+                    # esta no que ela cria: seis dominios fechados, uma cadeia de
+                    # *hashes* e as duas regras que o secao 14 cita como
+                    # mecanismo.
                     #
                     # As duas que fazem o trabalho sao as que **nao** levam o
                     # nome da tabela, e e deliberado — o DDL do secao 6.2
@@ -2493,6 +2754,108 @@ class TestInventario(ComBase):
                     "price_quotes_preco_ck",
                     "price_quotes_estado_ck",
                     "price_quotes_currency_ck",
+                    # ------------------------------------- KAM-044 (0030)
+                    #
+                    # **Quarenta e duas**, e e agora esta a revisao que
+                    # acrescenta mais restricoes a esta lista — a nota da
+                    # `0029` dizia «trinta e duas» e era verdade quando foi
+                    # escrita. Dezanove da `orders_mirror`, cinco do
+                    # `order_intents`, oito do `order_state_log`, cinco do
+                    # `order_state_graph` e cinco do
+                    # `order_reconciliation_issues`.
+                    #
+                    # Nove dominios fechados, cinco chaves, tres unicidades e
+                    # seis regras. **As regras sao o que distingue esta
+                    # revisao**, e cada uma delas e um criterio de aceitacao
+                    # feito restricao em vez de convencao:
+                    #
+                    #   orders_mirror_paga_exige_via_ck
+                    #       o criterio 3 na coluna: `paga` exige instante e uma
+                    #       das **duas** vias autenticadas. O que a coluna nao
+                    #       alcanca — o actor e o `evento_id` — e o *trigger*
+                    #       diferido que o exige, porque esses vivem na linha do
+                    #       `order_state_log` e um `CHECK` nao ve outra tabela.
+                    #       O `cod_manual` fica no dominio da coluna
+                    #       (`orders_mirror_paga_via_ck`, tres valores) e fora
+                    #       deste: nenhuma transicao do nucleo o escreve.
+                    #
+                    #   orders_mirror_entregue_exige_quem_ck
+                    #       entregue sem quem confirmou era uma entrega que
+                    #       ninguem assume — e o payload do `order.delivered`
+                    #       exige o campo, pelo que a alternativa era descobri-lo
+                    #       no `validarPayload` depois de a linha estar escrita.
+                    #
+                    #   orders_mirror_numero_ck
+                    #       a forma do base32 de Crockford, sem `I`, `L`, `O`
+                    #       nem `U`, ate oito caracteres. A unicidade e por
+                    #       tenant (`orders_mirror_numero_uq`), e a geracao e a
+                    #       omissao da coluna.
+                    #
+                    #   order_intents_concluida_exige_encomenda_ck
+                    #       nos dois sentidos, como o `offer_terms_preco_ck`: um
+                    #       recibo `concluida` sem encomenda nao e recibo de
+                    #       nada, e uma encomenda num recibo `em_curso` dizia
+                    #       que a saga nao acabou com a prova de que acabou.
+                    #
+                    #   order_state_log_version_ck  (`>= 2`)
+                    #       uma encomenda nasce na versao 1 e a primeira
+                    #       transicao leva-a a 2: um registo na versao 1
+                    #       descrevia uma transicao que nao houve.
+                    #
+                    #   order_reconciliation_issues_resolvida_ck
+                    #       tambem nos dois sentidos: sem instante nao se mede a
+                    #       divergencia contra os 5 min da metrica, e um
+                    #       instante numa divergencia aberta dizia que ela
+                    #       fechou.
+                    #
+                    # A unicidade `order_state_log_version_uq` nao esta la para
+                    # indexar: e **a idempotencia do DoD** — a mesma transicao
+                    # gravada duas vezes e um `23505` e nao uma duplicacao
+                    # silenciosa. E a `orders_mirror_tenant_id_uq` nao serve
+                    # consulta nenhuma: existe para que as tres FK compostas
+                    # para a `orders_mirror` possam existir.
+                    "orders_mirror_pkey",
+                    "orders_mirror_tenant_id_uq",
+                    "orders_mirror_origem_ck",
+                    "orders_mirror_estado_ck",
+                    "orders_mirror_confirmacao_ck",
+                    "orders_mirror_total_ck",
+                    "orders_mirror_currency_ck",
+                    "orders_mirror_snapshot_ck",
+                    "orders_mirror_entrega_modo_ck",
+                    "orders_mirror_paga_via_ck",
+                    "orders_mirror_paga_exige_via_ck",
+                    "orders_mirror_excepcao_ck",
+                    "orders_mirror_entrega_confirmada_ck",
+                    "orders_mirror_entregue_exige_quem_ck",
+                    "orders_mirror_version_ck",
+                    "orders_mirror_numero_ck",
+                    "orders_mirror_intent_key_ck",
+                    "orders_mirror_intent_uq",
+                    "orders_mirror_numero_uq",
+                    "order_intents_pkey",
+                    "order_intents_intent_key_ck",
+                    "order_intents_draft_hash_ck",
+                    "order_intents_estado_ck",
+                    "order_intents_concluida_exige_encomenda_ck",
+                    "order_state_log_pkey",
+                    "order_state_log_de_ck",
+                    "order_state_log_para_ck",
+                    "order_state_log_sem_laco_ck",
+                    "order_state_log_version_ck",
+                    "order_state_log_causa_ck",
+                    "order_state_log_actor_kind_ck",
+                    "order_state_log_version_uq",
+                    "order_state_graph_pkey",
+                    "order_state_graph_de_ck",
+                    "order_state_graph_para_ck",
+                    "order_state_graph_sem_laco_ck",
+                    "order_state_graph_flag_ck",
+                    "order_reconciliation_issues_pkey",
+                    "order_reconciliation_issues_tipo_ck",
+                    "order_reconciliation_issues_detalhe_ck",
+                    "order_reconciliation_issues_estado_ck",
+                    "order_reconciliation_issues_resolvida_ck",
                     # ------------------------------------- KAM-022 (0015)
                     # A prova: a chave, a unicidade que da a idempotencia do
                     # criterio 2, os dois dominios e os dois `CHECK` de forma.

@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.55 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.56 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -2994,6 +2994,150 @@ nomeada é informação e uma lacuna silenciosa é um defeito à espera:
   precisar dele (KAM-056); nesta revisão não há quem a chame como lote, e um
   privilégio sem chamador é uma porta aberta sem ninguém a usar.
 
+### 3.43 Encomendas: `orders_mirror`, o grafo de estados e o registo de transições (KAM-044)
+
+O KAM-044 implementa o **núcleo** da máquina de estados da encomenda e o espelho
+que é a autoridade do ciclo de vida (`../docs/tecnica/03` §10.1). A revisão
+`0030` cria cinco tabelas, quatro funções e cinco *triggers*; o que esta página
+fixa são os nomes, os domínios e as três contagens que um *gate* pode ler.
+
+A fonte do DDL é o `../docs/tecnica/03` §5.4, com as divergências abaixo; a dos
+estados é o §3.3 desta página, que já os fixa em **doze** e marca a máquina do
+§6.1 daquele documento como «Máquina incompleta»; a das transições é a tabela do
+§6.2.
+
+**Os domínios desta página vêm qualificados pela tabela** (`orders_mirror.estado`
+e não `estado`), e isso não é cosmética: o `canon_lint` do *gate* 3b indexa um
+domínio pelo **nome da coluna**, pelo que um `estado` sem tabela à frente passava
+a valer para o `events_dlq.estado` da revisão `0005` e para o `evt_acoes.estado`
+— e um `tipo` sem tabela para o `evt_subscricoes.tipo`. Medido na primeira
+passagem deste ticket: dezoito achados, seis deles em revisões que ele não toca.
+É a forma que o §3.42 já usa (`payment_charges.estado`).
+
+| Conceito | Nome canónico | Substitui | Nota |
+|---|---|---|---|
+| Espelho da encomenda | `orders_mirror(id, tenant_id, contact_id, origem, numero_publico, intent_key, medusa_order_id, estado, confirmacao_dono, total_minor, currency, lines_snapshot, entrega_modo, expira_at, paga_at, paga_via, excepcao, entregue_at, entrega_confirmada_por, version, criado_at, atualizado_at, deleted_at)` | — | *proposta* (emenda 1.56, KAM-044). **Vinte e três** colunas, as do §5.4 sem acrescento nenhum. **Sem `msisdn`** (ADR-010): o cliente entra por `contact_id`, e a FK é **composta** — `(tenant_id, contact_id) REFERENCES platform.contacts (tenant_id, contact_id)` —, como a correcção de 2026-10-27 do §5.4 manda e nomeia este ticket. O `estado` leva os **doze** do §3.3 e não os nove do `CHECK` daquele bloco: ver a nota das divergências |
+| Recibo de intenção | `order_intents(tenant_id, intent_key, draft_hash, estado, order_id, criado_at)` | — | *proposta* (emenda 1.56, KAM-044). **Seis** colunas, as do §5.4. A chave é natural e composta, e é ela o recibo; o `draft_hash` é `sha256` (32 octetos pelo `CHECK`), como o `payload_hash` do `audit_log`. O fluxo que o escreve é o **KAM-046** |
+| Registo de transições | `order_state_log(id, tenant_id, order_id, de, para, version, causa, evento_id, actor_kind, actor_id, em)` | — | *proposta* (emenda 1.56, KAM-044). **Onze** colunas: as dez do §5.4 mais a `version`, que é a **de depois** da transição. Sem ela não há forma exacta de ligar a linha à transição que a provocou — o ciclo legítimo `expirada → aguarda_pagamento → expirada` deixava a linha de uma volta anterior satisfazer a verificação de uma volta nova —, e é dela que sai a unicidade `(tenant_id, order_id, version)` que faz da idempotência uma restrição. *Append-only*: só `INSERT` para `kamba_app`, e o `deny_mutation` da `0029` recusa `UPDATE`, `DELETE` e `TRUNCATE` a todos |
+| Grafo de transições | `order_state_graph(de, para, flag)` | — | *proposta* (emenda 1.56, KAM-044). **Três** colunas, e a tabela não está no §5.4: o §6.2 manda-a existir como **dados** («validados por *trigger* `BEFORE UPDATE`») e não dá DDL. Tabela de **referência**, sem `tenant_id`, como a `evt_subscricoes`: as transições válidas de um sistema não são configuração de tenant, e quem lhe escreve é uma revisão |
+| Divergências de reconciliação | `order_reconciliation_issues(id, tenant_id, order_id, tipo, detalhe, estado, aberta_at, resolvida_at)` | — | *proposta* (emenda 1.56, KAM-044). **Oito** colunas; a tabela é dos *Detalhes Técnicos* do bloco e não do §5.4. O `order_id` é anulável porque duas das cinco regras do §10.3 falam de uma encomenda que o espelho ainda não tem |
+| Transições do núcleo | **doze**: `criada`→{`aguarda_pagamento`, `cancelada`}; `aguarda_pagamento`→{`paga`, `pendente_confirmacao`, `expirada`}; `pendente_confirmacao`→{`paga`, `aguarda_pagamento`}; `expirada`→{`aguarda_pagamento`, `cancelada`}; `paga`→{`entregue`, `em_entrega`}; `em_entrega`→`entregue` | — | *proposta* (emenda 1.56, KAM-044). São as do §6.2 menos as que o KAM-050 acrescenta. As **duas** últimas ficam atrás de `COM_DELIVERY_ENABLED`, desligada no Piloto. O que **não** está aqui: `expirada`→`paga` (pagamento tardio), `paga`/`entregue`→`reembolso_pendente` (disputa) e tudo o que passe por `entrega_falhada`, `em_disputa` ou `reembolsada` — **KAM-050** |
+| Bandeira da entrega | `COM_DELIVERY_ENABLED`, lida de `app.com_delivery_enabled` ∈ {`on`, `off`} | — | *proposta* (emenda 1.56, KAM-044). O nome é o do critério 1; a variável de sessão é a forma, e é ela que faz «activá-lo não exige migração» ser verdade. O `CHECK` da coluna `flag` fecha-a **neste** nome: um nome vindo da linha deixava quem escreve no grafo escolher que GUC a base consulta |
+| Subestado da confirmação do dono | `orders_mirror.confirmacao_dono` ∈ {`nao_aplicavel`, `pendente`, `confirmada`, `recusada`, `expirada`} | — | *proposta* (emenda 1.56, KAM-044). Os cinco do §5.4. É subestado de `criada` e **não** um estado da encomenda; o fluxo é do **KAM-046** |
+| Via do pagamento | `orders_mirror.paga_via` ∈ {`provider_autenticado`, `manual_auditado`, `cod_manual`} | — | *proposta* (emenda 1.56, KAM-044). Os três do §5.4. **Só os dois primeiros alcançam `paga`** (critério 3, ADR-013), e isso é um segundo `CHECK` sobre o estado e não um domínio mais curto: o `cod_manual` fica no domínio da coluna para quem implementar a cobrança à entrega, e nenhuma transição do núcleo o escreve |
+| Excepção da encomenda | `orders_mirror.excepcao` ∈ {`pagamento_tardio_sem_stock`, `pagamento_duplicado`, `valor_divergente`} | — | *proposta* (emenda 1.56, KAM-044). As três do §5.4. A coluna nasce aqui e **quem a escreve é o KAM-050**: as três descrevem casos que o núcleo não tem |
+| Quem confirma a entrega | `orders_mirror.entrega_confirmada_por` ∈ {`cliente`, `dono`, `estafeta`} | — | *proposta* (emenda 1.56, KAM-044). Os três do §5.4. É o **papel** e não a pessoa; quem confirmou pelo `id` fica no `order_state_log.actor_id` |
+| Tipo de divergência | `order_reconciliation_issues.tipo` ∈ {`orfao_no_registo`, `espelho_sem_encomenda`, `divergencia_de_linhas`, `reserva_sem_encomenda`, `estado_divergente`} | — | *proposta* (emenda 1.56, KAM-044). **Cinco**, um por regra do §10.3 e pela ordem em que aquele parágrafo as escreve. Os nomes são deste ticket: o §10.3 descreve as regras em prosa e não lhes dá nome |
+| Estado de uma divergência | `order_reconciliation_issues.estado` ∈ {`aberta`, `resolvida`} | — | *proposta* (emenda 1.56, KAM-044). Dois, e a métrica do bloco («divergências abertas > 5 min = 0») é sobre a passagem de um ao outro |
+| Guarda do `pendente_confirmacao` | `total_minor <= platform.ten_tecto(tenant_id, 'manual_max_minor')` | — | *proposta* (emenda 1.56, KAM-044). É a guarda que o §6.2 escreve («`total_minor <= limite_manual` do tenant»), com o nome que o §5.2 daquele documento dá à chave no exemplo do registo. **Lê-se por `platform.ten_tecto`** — a função da revisão `0007` que o `checkCeiling` do `ten` chama —, e não de `entitlements.limites` directamente: o tecto efectivo é o **mínimo** entre os módulos activos que declaram a chave, e uma leitura directa perdia essa regra. Sem entitlement activo que a declare, a `ten_tecto` devolve `NULL` e a transição é **recusada**: «sem tecto» não quer dizer «sem limite» (critério 2 do KAM-009), e no *trigger* isso é o `COALESCE(…, -1)` — sem ele, a comparação com `NULL` não é verdadeira para valor nenhum, o `IF` não dispara e a transição passava sem tecto. O `registry/entitlement_keys.schema.json` classifica a chave como `tecto_por_pedido` e `consumivel: false`, que é o que a distingue de um balde |
+| Estado da encomenda, na coluna | `orders_mirror.estado` ∈ {`criada`, `aguarda_pagamento`, `pendente_confirmacao`, `paga`, `expirada`, `em_entrega`, `entrega_falhada`, `entregue`, `em_disputa`, `reembolso_pendente`, `reembolsada`, `cancelada`} | — | *proposta* (emenda 1.56, KAM-044). **São os doze do §3.3, e esta linha existe para que o `CHECK` seja lido por máquina**: aquela linha enumera-os em prosa (sem `∈`), pelo que o *gate* 3b não tinha nada para comparar com o `orders_mirror_estado_ck`. O domínio da coluna são os doze; o **grafo** tem só o núcleo, e é essa distinção que torna o KAM-050 aditivo |
+| Estado do recibo de intenção | `order_intents.estado` ∈ {`em_curso`, `concluida`, `falhada`} | — | *proposta* (emenda 1.56, KAM-044). Os três do §5.4. O `order_intents_concluida_exige_encomenda_ck` liga o `concluida` ao `order_id` nos dois sentidos |
+| Origem de uma encomenda | `orders_mirror.origem` ∈ {`pme`, `plataforma`} | — | *proposta* (emenda 1.56, KAM-044). Os dois do §5.4, e são os mesmos valores que a `tenant_channels.origem` da revisão `0001` usa para a mesma ideia: de quem é o canal por onde a encomenda entrou. O `plataforma` é **Diferido** (ADR-011) e nenhum caminho o escreve hoje |
+| Modo de entrega | `orders_mirror.entrega_modo` ∈ {`levantamento`, `entrega`} | — | *proposta* (emenda 1.56, KAM-044). Os dois do §5.4. O `entrega` existe como valor e não como caminho: a entrega está atrás de `COM_DELIVERY_ENABLED`, desligada no Piloto, e o dispatch é dos Clusters |
+| Bandeira de uma transição | `order_state_graph.flag` ∈ {`COM_DELIVERY_ENABLED`} | — | *proposta* (emenda 1.56, KAM-044). Domínio de **um** valor, e fechado de propósito: um nome de bandeira vindo da linha deixava quem escreve no grafo escolher que variável de sessão a base consulta. Nulo quando a transição está sempre activa |
+| Colunas de duas letras do registo | `de`, `para`, `em` | — | *proposta* (emenda 1.56, KAM-044). As três são do `order_state_log` e vêm do §5.4. **Esta linha existe por uma razão de ferramenta, e fica dita:** o `canon_lint` descarta nomes com menos de três caracteres, a não ser que apareçam como literal próprio numa entrada — sem ela, `de` e `em` eram «coluna fora do dicionário» e a saída era declará-las em `canon/extensoes.yaml`, que é para nomes **novos** e estas não são |
+| Causa da reconciliação | `causa = 'reconciliacao'` | — | *proposta* (emenda 1.56, KAM-044). É o §10.3 à letra («todas as correcções gravadas em `order_state_log` com `causa='reconciliacao'`»). A `causa` **não** tem domínio fechado: o §5.4 dá exemplos e não uma lista, e fechá-la aqui travava o KAM-050 |
+| Número público da encomenda | `numero_publico`: base32 de Crockford, **oito** caracteres, único por `(tenant_id, numero_publico)` | — | *proposta* (emenda 1.56, KAM-044). O critério 5 pede «≤ 8» e dá `K7H3Q9` como exemplo, que tem seis: entre os dois decide a aritmética, e com seis a probabilidade de colisão em 10 000 gerações é **4,6%** (32⁶ = 1 073 741 824) contra **4,5 × 10⁻⁵** com oito. O alfabeto é o de Crockford — sem `I`, `L`, `O` nem `U` —, e a entropia vem de `gen_random_uuid()` e não de `random()`, porque o número é também a referência curta que o PAY mostra ao cliente |
+| Gerador do número | `platform.order_numero_publico()` | — | *proposta* (emenda 1.56, KAM-044). Função `VOLATILE`, e é **`DEFAULT` da coluna**: todo o caminho de inserção recebe um número válido, incluindo o repo-base (que constrói o `INSERT` e não aceita expressões). Não repete em caso de colisão — quem insere é que sabe se vale a pena, e a unicidade é do índice |
+| Recusas da revisão `0030` | `KA003` transição fora do grafo, bandeira desligada ou `version` que não sobe de um; `KA004` `lines_snapshot`, `total_minor` ou `currency` depois de `criada`; `KA005` mudança de estado sem `order_state_log` na mesma transacção; `KA006` `paga` sem evento autenticado do PAY com actor `sistema`; `KA007` `pendente_confirmacao` com `total_minor` acima do tecto manual do tenant, ou sem entitlement activo que declare a chave | — | *proposta* (emenda 1.56, KAM-044). Seguem o `KA001`/`KA002` da revisão `0007`. Códigos próprios e não `check_violation` nos cinco: a porta `CommerceRegistry` traduz cada recusa para um erro diferente, e com um código único não há como as distinguir sem ler texto |
+| Resultado da `transition` | união de três: `{tipo: ok, estado}`, `{tipo: conflito, estado}`, `{tipo: erro, erro}` | — | *proposta* (emenda 1.56, KAM-044). **Não é o `Resultado` de dois do §3.39**, e a razão é o §6.2 («falha de CAS ⇒ reler e reavaliar, nunca forçar»): um conflito não é um pedido inválido — é um pedido que chegou tarde —, e o `conflito` traz a **releitura** para que quem chama reavalie sem segunda viagem. Os cinco erros da porta ficam intactos; quem a ligar à porta é que traduz |
+
+**Quatro divergências resolvidas a favor desta página, e nenhuma por gosto.**
+
+1. **Os doze estados contra os nove do `CHECK` do §5.4.** O §3.3 fixa doze desde
+   o início e marca a máquina do `../docs/tecnica/03` §6.1 como «Máquina
+   incompleta»; o `ORDER_STATES` do `port/contrato.ts` (KAM-042) já tem doze e
+   escreve por que razão — com nove, o KAM-050 não podia chamar
+   `transition(ctx, id, 'em_disputa', …)` sem alterar o tipo da porta. O mesmo
+   comentário nomeia este ticket: «o `CHECK` de `orders_mirror` não existe ainda:
+   a tabela é do KAM-044. Quando ele nascer, é desta lista que sai.» **O domínio
+   da coluna é doze; o grafo tem o núcleo** — e é essa distinção que torna o
+   KAM-050 aditivo, porque ele acrescenta *linhas* a uma tabela de dados em vez
+   de alterar um `CHECK` de uma tabela com encomendas vivas.
+2. **`currency` é `text` com `CHECK` e não `char(3)`**, como nas revisões `0025`
+   e `0028`: o §3.4 fecha o domínio em `{AOA}` e o `canon_lint` lê os valores de
+   um `CHECK`; um `char(3)` sem `CHECK` aceita `'USD'` em silêncio e não é lido
+   por *gate* nenhum.
+3. **A chave do `order_state_log` é `uuid` e não `bigint GENERATED ALWAYS AS
+   IDENTITY`**, que é o que o §5.4 escreve. O §2 manda chaves `uuid` porque uma
+   chave sequencial vaza volume, e as excepções que o `test_catalogo` aceita têm
+   **todas** a mesma propriedade: «nenhum papel sujeito a RLS lê a coluna». Aqui
+   ela não se verifica — o `kamba_app` tem de ter `SELECT` nesta tabela, porque é
+   o *trigger* diferido que a lê, como invocador (uma `SECURITY DEFINER` leria
+   zero linhas sob `FORCE`; ver `../db/rls.py`). Com `bigint` de identidade, o
+   papel que atende um cliente mede as transições de toda a plataforma.
+4. **São cinco eventos e não seis.** O critério 8 enumera `order.created`,
+   `order.paid`, `order.expired`, `order.cancelled`, `order.delivered` e
+   `order.reconciliation_issue`. Os cinco primeiros são dos **trinta e oito**
+   tipos que o §3.5 fixa e têm contrato em `../contratos/eventos/`; o sexto não
+   tem contrato, não está no §3.5 e não está no `../docs/tecnica/06` §5 — está só
+   no §12 do `../docs/tecnica/03`, que é o documento que a dívida documental 37
+   descreve como «um segundo catálogo de eventos, paralelo ao do
+   `../docs/tecnica/06` §5, e discorda dele em nomes e em payloads». Resolve-se a
+   favor desta página, como o `eventos.ts` do KAM-043 e o do KAM-047 fizeram pelo
+   mesmo motivo, e a ordem das fontes não é o argumento mais forte: emitir esse
+   tipo levantava `TipoDesconhecidoError` no `validarPayload` antes de o *gate* 7
+   ver o envelope e, se passasse, pararia no publicador, que faz falhar de forma
+   visível uma versão que não conhece. **O que fica no lugar dele é a linha de
+   `order_reconciliation_issues`**, que é o que os *Detalhes Técnicos* pedem e o
+   que a métrica lê. Publicar o trigésimo-nono contrato é emenda ao §3.5 e
+   tem de vir com a contagem corrigida.
+
+**E uma decisão que não é transcrição:** o `paga` é verificado **duas vezes**, e
+as duas são necessárias. No módulo, para que a recusa chegue como erro de domínio
+e não como `KA006`; e na base, por um `CONSTRAINT TRIGGER` **diferido** que no
+`COMMIT` exige a linha de `order_state_log` da transição e, quando o destino é
+`paga`, exige que ela tenha `actor_kind = 'sistema'`, `causa` num dos dois
+eventos autenticados do PAY, e um `evento_id` **com recibo de consumo** em
+`platform.events_consumed` (KAM-006) **deste tenant**.
+
+**O recibo é a parte que a revisão adversarial obrigou a acrescentar, e vale
+dizer o que ele prova e o que não prova.** A primeira versão exigia só que o
+`evento_id` não fosse vazio — e um `evento_id` que ninguém verifica não é uma
+prova: medido, o `kamba_app` escreveu `paga` com `evento_id='inventado-pelo-app'`
+e com o *outbox* e o `payment_events` a zero. Com o recibo, o que fica provado é
+que a transição correu **dentro do consumo de um evento que entrou pela fila**.
+O que **não** fica provado é que o PAY o autenticou: quem decide isso é o PAY
+(§10.1, «PAY decide; COM só aplica»), e verificar o `authn_ok` contra
+`platform.payment_events` exige a FK `payment_charges.order_id → orders_mirror`,
+que é do **KAM-055** e não existe. A caixa do DoD diz «nenhuma via
+leva a `paga` sem evento ou confirmação manual auditada», e uma verificação em
+TypeScript só cobre a via que passa pelo TypeScript — um `UPDATE` à mão de quem
+tem o privilégio é uma via. O mesmo *trigger* é o que torna «na mesma
+transacção» uma imposição: quem muda o estado e não grava o registo **não
+confirma**.
+
+**O que esta emenda não decide, com credor em cada:**
+
+* **a `stock_reservations`** do mesmo bloco SQL do §5.4 — **KAM-045**, e com ela
+  a metade local da regra 4 do §10.3;
+* **a `createOrder` e o fluxo do recibo de intenção** (§6.3), incluindo quem
+  escreve o `draft_hash`, o `lines_snapshot` e o `origem_preco` — **KAM-046**.
+  Este ticket entrega a tabela e a primitiva de escrita do espelho, não a saga;
+* **os estados adicionais e as transições que levam a eles** — `expirada→paga`,
+  a disputa, a entrega falhada e o reembolso: **KAM-050**, que acrescenta linhas
+  ao `order_state_graph` e não altera `CHECK` nenhum;
+* **o consumo de `payment.confirmed` e `payment.manual_confirmed`** e a FK de
+  `payment_charges.order_id` — **KAM-055**;
+* **a verificação humana e a dupla verificação do `ManualProvider`** —
+  **KAM-054**. O que aqui existe é a exigência de que o evento venha do
+  `sistema` com `evento_id`;
+* **o trigésimo-nono contrato de evento** (`order.reconciliation_issue`) e a
+  contagem do §3.5 — **sem credor atribuído hoje**, e o lugar dele é um ticket
+  de canon, não este;
+* **a API interna do COM** (`POST /internal/...`), que o §3.39 já registou como
+  inexistente e atribuiu a este ticket. **Continua a não existir**: nenhum
+  critério de aceitação do bloco a pede, e os oito descrevem base de dados,
+  primitiva, eventos e *job*. Fica em aberto, com o §3.39 a apontar para cá;
+* **as correcções da reconciliação que tocam o Registo** — a projecção do estado
+  da regra 5 e a libertação da reserva da regra 4 — passam pela porta
+  `CommerceRegistry`, e ficam **NÃO VERIFICADAS** enquanto não houver Medusa em
+  `../infra/compose/` contra o que as correr (o KAM-042 registou-o, o KAM-043
+  repetiu-o). A **decisão** das cinco regras é função pura e está medida;
+* **o agendamento do *job*** de 5 min por tenant activo: o varrimento é do
+  **KAM-071**, como o `expirar_holds` do KAM-047. O que este ticket entrega é a
+  decisão, a escrita da divergência e a consulta da métrica.
+
 ---
 
 ## 4. Itens que continuam por decidir
@@ -3072,3 +3216,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.53 | Novembro 2026 | **Emenda (*proposta*), KAM-075, e entra sem DDL e sem migração.** §3.41 nova: os ambientes, a classe de dados e o projecto de segredos — o domínio **fechado** de `ambiente` (`dev`, `staging`, `prod`), que o código do KAM-010 já fixava sozinho em `tools/secrets_inventory/inventario.py` e nenhuma página declarava; o `kamba_data_class` ∈ {`synthetic`, `real`}, que vivia em três blocos de epic e em página nenhuma; a forma de uma **referência de decisão D1** (`D1/<AAAA-MM-DD>/<slug>`), que **não existia** — os dois critérios que a exigem escrevem-na sem formato, e nenhum valor dela existe ainda porque a D1 está em branco; o mapeamento ambiente → projecto de segredos, com o `local` do `dev` a ser a ausência de um projecto e não o nome de um; a forma derivada de uma referência de segredo (`<projecto>/<ID>`), que é o que torna «chaves distintas por ambiente» uma consequência em vez de disciplina; o `restauro_de`; e as duas etiquetas de custo. **O que a emenda não decide** fica escrito: nenhum nome de fornecedor, região, conta ou recurso, porque a D1 é acto do fundador. E registra-se a divergência entre o runbook de segredos (um projecto `kamba` com três configurações) e o doc 09 §6 mais o código (três projectos), resolvida a favor dos segundos porque o comando do runbook está NÃO VERIFICADO. | Equipa KAMBÁ |
 | 1.54 | Novembro 2026 | **Emenda (*proposta*), KAM-053.** §3.42 nova: o ledger de pagamentos — a `payment_charges` (dezanove colunas), o `payment_callbacks_inbox` (onze, **sem `tenant_id`**), o `payment_events` (vinte e cinco), o `payment_outbox_map`, as seis funções (`append_payment_event`, `next_state`, `rebuild_charge_state`, `verify_ledger_chain`, `payment_event_row_hash`, `resolve_webhook_token`), a `deny_mutation`, as duas vistas e o papel estreito `kamba_pay_hooks`, criados pela revisão `0029`. **Decide a pergunta que o `../docs/tecnica/04` §6.2 deixou escrita para este ticket:** o `authn_method` fica com **quatro** valores e o `sistema` ganha domínio — os factos de ciclo de vida que ninguém autentica —, e nunca autentica um `pagamento_confirmado`, porque a restrição `confirmar_exige_autenticacao` não o inclui. O §3.4 passa a quatro na mesma linha. A vista de auditoria usa `hmac` e não `hmac_sha256`: o lado errado é o critério 9 do bloco, e o `hmac_sha256` está na coluna «Substitui» desde a 1.13 com este ticket nomeado. | Equipa KAMBÁ |
 | 1.55 | Novembro 2026 | **Correcção, KAM-053, da revisão adversarial — sem emenda ao domínio.** Duas células estavam erradas e nenhum *gate* as via. O §3.4 dizia, no mesmo parágrafo, que o quarto valor de `authn_method` entra pela emenda 1.53 **e** que «fica por decidir»: o texto novo foi acrescentado sem retirar o antigo, e o antigo era a pergunta que a 1.53 existe para fechar. O §3.42 descrevia a `resolve_webhook_token` como `SECURITY DEFINER` e ela é `SECURITY INVOKER`, o que punha a fonte 4 a contradizer o código e a sugerir que a lista aprovada de `ci/secdef_allowlist.yaml` estava incompleta — e a caixa do DoD que limita o `DEFINER` a uma função depende disso. O `canon_lint` e o `dict_export` passavam nas duas, porque o domínio já tinha os quatro valores e a prosa não é lida por máquina: as duas contradições eram legíveis **só por um humano**, que é o leitor que o dicionário serve. | Equipa KAMBÁ |
+| 1.56 | Novembro 2026 | **Emenda (*proposta*), KAM-044.** §3.43 nova: as encomendas — a `orders_mirror` com as suas **vinte e três** colunas, o `order_intents` com **seis**, o `order_state_log` com **onze**, o `order_state_graph` com **três** e o `order_reconciliation_issues` com **oito** (revisão `0030`), as **doze** transições do núcleo com as duas atrás de `COM_DELIVERY_ENABLED`, os cinco `confirmacao_dono`, os três `paga_via` (dos quais **dois** alcançam `paga`), as três `excepcao`, os três `entrega_confirmada_por`, os **cinco** tipos de divergência do §10.3, os **cinco** SQLSTATE `KA003`–`KA007`, o `numero_publico` de **oito** caracteres e o resultado de três formas da `transition`. **Quatro divergências resolvidas a favor desta página:** os **doze** estados contra os nove do `CHECK` do §5.4 — o §3.3 fixa doze e marca aquela máquina como «incompleta», e o `ORDER_STATES` do KAM-042 nomeia este ticket por escrito; o `currency` `text` + `CHECK` contra o `char(3)`, como nas `0025` e `0028`; a chave do `order_state_log` em `uuid` contra o `bigint` de identidade do §5.4, porque o `kamba_app` **lê** esta tabela (é o *trigger* diferido que a lê, como invocador) e a propriedade que justifica as excepções de identidade não se verifica aqui; e **cinco eventos e não seis**, porque o `order.reconciliation_issue` do critério 8 não tem contrato, não está no §3.5 e não está no `../docs/tecnica/06` §5 — está só no §12 do `../docs/tecnica/03`, que é a dívida documental 37, e emiti-lo levantava `TipoDesconhecidoError` antes de o *gate* 7 ver o envelope. **Uma coluna acrescentada ao DDL do §5.4 com a razão escrita:** a `order_state_log.version`, que é a de depois da transição e sem a qual o ciclo `expirada → aguarda_pagamento → expirada` deixava a linha de uma volta anterior satisfazer a verificação de uma volta nova — e é dela que sai a unicidade que faz da idempotência uma restrição. **E uma decisão que não é transcrição:** `paga` verifica-se duas vezes, e a segunda é um `CONSTRAINT TRIGGER` **diferido** que no `COMMIT` exige o registo da transição com actor `sistema` e `evento_id` — porque «nenhuma via» do DoD inclui um `UPDATE` à mão de quem tem o privilégio. **O que não decide, com credor em cada:** a `stock_reservations` (**KAM-045**), a `createOrder` e o fluxo do recibo (**KAM-046**), os estados adicionais (**KAM-050**), o consumo de `payment.*` e a FK da cobrança (**KAM-055**), a dupla verificação do `ManualProvider` (**KAM-054**), o trigésimo-nono contrato de evento (**sem credor**), a API interna do COM, que o §3.39 atribuiu a este ticket e que **nenhum critério pede**, e as correcções da reconciliação que tocam o Registo, **NÃO VERIFICADAS** por não haver Medusa em `../infra/compose/`. | Equipa KAMBÁ |

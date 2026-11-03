@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.55"
+versao_dicionario: "1.56"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -10755,6 +10755,528 @@ entradas:
       - "row_hash"
       - "StorageProvider"
     variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Espelho da encomenda"
+    canonico: "orders_mirror(id, tenant_id, contact_id, origem, numero_publico, intent_key, medusa_order_id, estado, confirmacao_dono, total_minor, currency, lines_snapshot, entrega_modo, expira_at, paga_at, paga_via, excepcao, entregue_at, entrega_confirmada_por, version, criado_at, atualizado_at, deleted_at)"
+    literais:
+      - "orders_mirror(id, tenant_id, contact_id, origem, numero_publico, intent_key, medusa_order_id, estado, confirmacao_dono, total_minor, currency, lines_snapshot, entrega_modo, expira_at, paga_at, paga_via, excepcao, entregue_at, entrega_confirmada_por, version, criado_at, atualizado_at, deleted_at)"
+    nomes:
+      - "orders_mirror"
+      - "id"
+      - "tenant_id"
+      - "contact_id"
+      - "origem"
+      - "numero_publico"
+      - "intent_key"
+      - "medusa_order_id"
+      - "estado"
+      - "confirmacao_dono"
+      - "total_minor"
+      - "currency"
+      - "lines_snapshot"
+      - "entrega_modo"
+      - "expira_at"
+      - "paga_at"
+      - "paga_via"
+      - "excepcao"
+      - "entregue_at"
+      - "entrega_confirmada_por"
+      - "version"
+      - "criado_at"
+      - "atualizado_at"
+      - "deleted_at"
+    nomes_nota:
+      - "msisdn"
+      - "contact_id"
+      - "tenant_id"
+      - "REFERENCES"
+      - "platform.contacts"
+      - "estado"
+      - "CHECK"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Recibo de intenção"
+    canonico: "order_intents(tenant_id, intent_key, draft_hash, estado, order_id, criado_at)"
+    literais:
+      - "order_intents(tenant_id, intent_key, draft_hash, estado, order_id, criado_at)"
+    nomes:
+      - "order_intents"
+      - "tenant_id"
+      - "intent_key"
+      - "draft_hash"
+      - "estado"
+      - "order_id"
+      - "criado_at"
+    nomes_nota:
+      - "draft_hash"
+      - "sha256"
+      - "CHECK"
+      - "payload_hash"
+      - "audit_log"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Registo de transições"
+    canonico: "order_state_log(id, tenant_id, order_id, de, para, version, causa, evento_id, actor_kind, actor_id, em)"
+    literais:
+      - "order_state_log(id, tenant_id, order_id, de, para, version, causa, evento_id, actor_kind, actor_id, em)"
+    nomes:
+      - "order_state_log"
+      - "id"
+      - "tenant_id"
+      - "order_id"
+      - "de"
+      - "para"
+      - "version"
+      - "causa"
+      - "evento_id"
+      - "actor_kind"
+      - "actor_id"
+      - "em"
+    nomes_nota:
+      - "version"
+      - "expirada"
+      - "aguarda_pagamento"
+      - "tenant_id"
+      - "order_id"
+      - "INSERT"
+      - "kamba_app"
+      - "deny_mutation"
+      - "UPDATE"
+      - "DELETE"
+      - "TRUNCATE"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Grafo de transições"
+    canonico: "order_state_graph(de, para, flag)"
+    literais:
+      - "order_state_graph(de, para, flag)"
+    nomes:
+      - "order_state_graph"
+      - "de"
+      - "para"
+      - "flag"
+    nomes_nota:
+      - "BEFORE"
+      - "UPDATE"
+      - "tenant_id"
+      - "evt_subscricoes"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Divergências de reconciliação"
+    canonico: "order_reconciliation_issues(id, tenant_id, order_id, tipo, detalhe, estado, aberta_at, resolvida_at)"
+    literais:
+      - "order_reconciliation_issues(id, tenant_id, order_id, tipo, detalhe, estado, aberta_at, resolvida_at)"
+    nomes:
+      - "order_reconciliation_issues"
+      - "id"
+      - "tenant_id"
+      - "order_id"
+      - "tipo"
+      - "detalhe"
+      - "estado"
+      - "aberta_at"
+      - "resolvida_at"
+    nomes_nota:
+      - "order_id"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Transições do núcleo"
+    canonico: "doze: criada→{aguarda_pagamento, cancelada}; aguarda_pagamento→{paga, pendente_confirmacao, expirada}; pendente_confirmacao→{paga, aguarda_pagamento}; expirada→{aguarda_pagamento, cancelada}; paga→{entregue, em_entrega}; em_entrega→entregue"
+    literais:
+      - "criada"
+      - "aguarda_pagamento"
+      - "cancelada"
+      - "aguarda_pagamento"
+      - "paga"
+      - "pendente_confirmacao"
+      - "expirada"
+      - "pendente_confirmacao"
+      - "paga"
+      - "aguarda_pagamento"
+      - "expirada"
+      - "aguarda_pagamento"
+      - "cancelada"
+      - "paga"
+      - "entregue"
+      - "em_entrega"
+      - "em_entrega"
+      - "entregue"
+    nomes:
+      - "criada"
+      - "aguarda_pagamento"
+      - "cancelada"
+      - "paga"
+      - "pendente_confirmacao"
+      - "expirada"
+      - "entregue"
+      - "em_entrega"
+    nomes_nota:
+      - "COM_DELIVERY_ENABLED"
+      - "expirada"
+      - "paga"
+      - "entregue"
+      - "reembolso_pendente"
+      - "entrega_falhada"
+      - "em_disputa"
+      - "reembolsada"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Bandeira da entrega"
+    canonico: "COM_DELIVERY_ENABLED, lida de app.com_delivery_enabled ∈ {on, off}"
+    literais:
+      - "COM_DELIVERY_ENABLED"
+      - "app.com_delivery_enabled"
+      - "on"
+      - "off"
+    nomes:
+      - "COM_DELIVERY_ENABLED"
+      - "app.com_delivery_enabled"
+      - "on"
+      - "off"
+    nomes_nota:
+      - "CHECK"
+      - "flag"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Subestado da confirmação do dono"
+    canonico: "orders_mirror.confirmacao_dono ∈ {nao_aplicavel, pendente, confirmada, recusada, expirada}"
+    literais:
+      - "orders_mirror.confirmacao_dono"
+      - "nao_aplicavel"
+      - "pendente"
+      - "confirmada"
+      - "recusada"
+      - "expirada"
+    nomes:
+      - "orders_mirror.confirmacao_dono"
+      - "nao_aplicavel"
+      - "pendente"
+      - "confirmada"
+      - "recusada"
+      - "expirada"
+    nomes_nota:
+      - "criada"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Via do pagamento"
+    canonico: "orders_mirror.paga_via ∈ {provider_autenticado, manual_auditado, cod_manual}"
+    literais:
+      - "orders_mirror.paga_via"
+      - "provider_autenticado"
+      - "manual_auditado"
+      - "cod_manual"
+    nomes:
+      - "orders_mirror.paga_via"
+      - "provider_autenticado"
+      - "manual_auditado"
+      - "cod_manual"
+    nomes_nota:
+      - "paga"
+      - "CHECK"
+      - "cod_manual"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Excepção da encomenda"
+    canonico: "orders_mirror.excepcao ∈ {pagamento_tardio_sem_stock, pagamento_duplicado, valor_divergente}"
+    literais:
+      - "orders_mirror.excepcao"
+      - "pagamento_tardio_sem_stock"
+      - "pagamento_duplicado"
+      - "valor_divergente"
+    nomes:
+      - "orders_mirror.excepcao"
+      - "pagamento_tardio_sem_stock"
+      - "pagamento_duplicado"
+      - "valor_divergente"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Quem confirma a entrega"
+    canonico: "orders_mirror.entrega_confirmada_por ∈ {cliente, dono, estafeta}"
+    literais:
+      - "orders_mirror.entrega_confirmada_por"
+      - "cliente"
+      - "dono"
+      - "estafeta"
+    nomes:
+      - "orders_mirror.entrega_confirmada_por"
+      - "cliente"
+      - "dono"
+      - "estafeta"
+    nomes_nota:
+      - "id"
+      - "order_state_log.actor_id"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Tipo de divergência"
+    canonico: "order_reconciliation_issues.tipo ∈ {orfao_no_registo, espelho_sem_encomenda, divergencia_de_linhas, reserva_sem_encomenda, estado_divergente}"
+    literais:
+      - "order_reconciliation_issues.tipo"
+      - "orfao_no_registo"
+      - "espelho_sem_encomenda"
+      - "divergencia_de_linhas"
+      - "reserva_sem_encomenda"
+      - "estado_divergente"
+    nomes:
+      - "order_reconciliation_issues.tipo"
+      - "orfao_no_registo"
+      - "espelho_sem_encomenda"
+      - "divergencia_de_linhas"
+      - "reserva_sem_encomenda"
+      - "estado_divergente"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Estado de uma divergência"
+    canonico: "order_reconciliation_issues.estado ∈ {aberta, resolvida}"
+    literais:
+      - "order_reconciliation_issues.estado"
+      - "aberta"
+      - "resolvida"
+    nomes:
+      - "order_reconciliation_issues.estado"
+      - "aberta"
+      - "resolvida"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Guarda do pendente_confirmacao"
+    canonico: "total_minor <= platform.ten_tecto(tenant_id, 'manual_max_minor')"
+    literais:
+      - "total_minor <= platform.ten_tecto(tenant_id, 'manual_max_minor')"
+    nomes:
+      - "pendente_confirmacao"
+      - "total_minor"
+      - "platform.ten_tecto"
+      - "tenant_id"
+      - "manual_max_minor"
+    nomes_nota:
+      - "total_minor"
+      - "limite_manual"
+      - "platform.ten_tecto"
+      - "checkCeiling"
+      - "ten"
+      - "entitlements.limites"
+      - "ten_tecto"
+      - "NULL"
+      - "COALESCE"
+      - "IF"
+      - "tecto_por_pedido"
+      - "consumivel"
+      - "false"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Estado da encomenda, na coluna"
+    canonico: "orders_mirror.estado ∈ {criada, aguarda_pagamento, pendente_confirmacao, paga, expirada, em_entrega, entrega_falhada, entregue, em_disputa, reembolso_pendente, reembolsada, cancelada}"
+    literais:
+      - "orders_mirror.estado"
+      - "criada"
+      - "aguarda_pagamento"
+      - "pendente_confirmacao"
+      - "paga"
+      - "expirada"
+      - "em_entrega"
+      - "entrega_falhada"
+      - "entregue"
+      - "em_disputa"
+      - "reembolso_pendente"
+      - "reembolsada"
+      - "cancelada"
+    nomes:
+      - "orders_mirror.estado"
+      - "criada"
+      - "aguarda_pagamento"
+      - "pendente_confirmacao"
+      - "paga"
+      - "expirada"
+      - "em_entrega"
+      - "entrega_falhada"
+      - "entregue"
+      - "em_disputa"
+      - "reembolso_pendente"
+      - "reembolsada"
+      - "cancelada"
+    nomes_nota:
+      - "CHECK"
+      - "orders_mirror_estado_ck"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Estado do recibo de intenção"
+    canonico: "order_intents.estado ∈ {em_curso, concluida, falhada}"
+    literais:
+      - "order_intents.estado"
+      - "em_curso"
+      - "concluida"
+      - "falhada"
+    nomes:
+      - "order_intents.estado"
+      - "em_curso"
+      - "concluida"
+      - "falhada"
+    nomes_nota:
+      - "order_intents_concluida_exige_encomenda_ck"
+      - "concluida"
+      - "order_id"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Origem de uma encomenda"
+    canonico: "orders_mirror.origem ∈ {pme, plataforma}"
+    literais:
+      - "orders_mirror.origem"
+      - "pme"
+      - "plataforma"
+    nomes:
+      - "orders_mirror.origem"
+      - "pme"
+      - "plataforma"
+    nomes_nota:
+      - "tenant_channels.origem"
+      - "plataforma"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Modo de entrega"
+    canonico: "orders_mirror.entrega_modo ∈ {levantamento, entrega}"
+    literais:
+      - "orders_mirror.entrega_modo"
+      - "levantamento"
+      - "entrega"
+    nomes:
+      - "orders_mirror.entrega_modo"
+      - "levantamento"
+      - "entrega"
+    nomes_nota:
+      - "entrega"
+      - "COM_DELIVERY_ENABLED"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Bandeira de uma transição"
+    canonico: "order_state_graph.flag ∈ {COM_DELIVERY_ENABLED}"
+    literais:
+      - "order_state_graph.flag"
+      - "COM_DELIVERY_ENABLED"
+    nomes:
+      - "order_state_graph.flag"
+      - "COM_DELIVERY_ENABLED"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Colunas de duas letras do registo"
+    canonico: "de, para, em"
+    literais:
+      - "de"
+      - "para"
+      - "em"
+    nomes:
+      - "de"
+      - "para"
+      - "em"
+    nomes_nota:
+      - "order_state_log"
+      - "canon_lint"
+      - "de"
+      - "em"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Causa da reconciliação"
+    canonico: "causa = 'reconciliacao'"
+    literais:
+      - "causa = 'reconciliacao'"
+    nomes:
+      - "causa"
+      - "reconciliacao"
+    nomes_nota:
+      - "order_state_log"
+      - "causa"
+      - "reconciliacao"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Número público da encomenda"
+    canonico: "numero_publico: base32 de Crockford, oito caracteres, único por (tenant_id, numero_publico)"
+    literais:
+      - "numero_publico"
+      - "(tenant_id, numero_publico)"
+    nomes:
+      - "numero_publico"
+      - "tenant_id"
+    nomes_nota:
+      - "K7H3Q9"
+      - "I"
+      - "L"
+      - "O"
+      - "U"
+      - "gen_random_uuid"
+      - "random"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Gerador do número"
+    canonico: "platform.order_numero_publico()"
+    literais:
+      - "platform.order_numero_publico()"
+    nomes:
+      - "platform.order_numero_publico"
+    nomes_nota:
+      - "VOLATILE"
+      - "DEFAULT"
+      - "INSERT"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Recusas da revisão 0030"
+    canonico: "KA003 transição fora do grafo, bandeira desligada ou version que não sobe de um; KA004 lines_snapshot, total_minor ou currency depois de criada; KA005 mudança de estado sem order_state_log na mesma transacção; KA006 paga sem evento autenticado do PAY com actor sistema; KA007 pendente_confirmacao com total_minor acima do tecto manual do tenant, ou sem entitlement activo que declare a chave"
+    literais:
+      - "KA003"
+      - "version"
+      - "KA004"
+      - "lines_snapshot"
+      - "total_minor"
+      - "currency"
+      - "criada"
+      - "KA005"
+      - "order_state_log"
+      - "KA006"
+      - "paga"
+      - "sistema"
+      - "KA007"
+      - "pendente_confirmacao"
+      - "total_minor"
+    nomes:
+      - "KA003"
+      - "version"
+      - "KA004"
+      - "lines_snapshot"
+      - "total_minor"
+      - "currency"
+      - "criada"
+      - "KA005"
+      - "order_state_log"
+      - "KA006"
+      - "paga"
+      - "sistema"
+      - "KA007"
+      - "pendente_confirmacao"
+    nomes_nota:
+      - "KA001"
+      - "KA002"
+      - "check_violation"
+      - "CommerceRegistry"
+    variantes_literais: []
+  - seccao: "3.43"
+    conceito: "Resultado da transition"
+    canonico: "união de três: {tipo: ok, estado}, {tipo: conflito, estado}, {tipo: erro, erro}"
+    literais:
+      - "{tipo: ok, estado}"
+      - "{tipo: conflito, estado}"
+      - "{tipo: erro, erro}"
+    nomes:
+      - "transition"
+      - "tipo"
+      - "ok"
+      - "estado"
+      - "conflito"
+      - "erro"
+    nomes_nota:
+      - "Resultado"
+      - "conflito"
+    variantes_literais: []
 
 tabelas:
   - nome: "contacts"
@@ -11549,6 +12071,99 @@ tabelas:
     assinatura: "resolve_webhook_token(p_token)"
     seccao: "3.42"
     conceito: "Resolução do token do webhook"
+  - nome: "orders_mirror"
+    esquema: ""
+    colunas:
+      - "id"
+      - "tenant_id"
+      - "contact_id"
+      - "origem"
+      - "numero_publico"
+      - "intent_key"
+      - "medusa_order_id"
+      - "estado"
+      - "confirmacao_dono"
+      - "total_minor"
+      - "currency"
+      - "lines_snapshot"
+      - "entrega_modo"
+      - "expira_at"
+      - "paga_at"
+      - "paga_via"
+      - "excepcao"
+      - "entregue_at"
+      - "entrega_confirmada_por"
+      - "version"
+      - "criado_at"
+      - "atualizado_at"
+      - "deleted_at"
+    aberta: false
+    assinatura: "orders_mirror(id, tenant_id, contact_id, origem, numero_publico, intent_key, medusa_order_id, estado, confirmacao_dono, total_minor, currency, lines_snapshot, entrega_modo, expira_at, paga_at, paga_via, excepcao, entregue_at, entrega_confirmada_por, version, criado_at, atualizado_at, deleted_at)"
+    seccao: "3.43"
+    conceito: "Espelho da encomenda"
+  - nome: "order_intents"
+    esquema: ""
+    colunas:
+      - "tenant_id"
+      - "intent_key"
+      - "draft_hash"
+      - "estado"
+      - "order_id"
+      - "criado_at"
+    aberta: false
+    assinatura: "order_intents(tenant_id, intent_key, draft_hash, estado, order_id, criado_at)"
+    seccao: "3.43"
+    conceito: "Recibo de intenção"
+  - nome: "order_state_log"
+    esquema: ""
+    colunas:
+      - "id"
+      - "tenant_id"
+      - "order_id"
+      - "de"
+      - "para"
+      - "version"
+      - "causa"
+      - "evento_id"
+      - "actor_kind"
+      - "actor_id"
+      - "em"
+    aberta: false
+    assinatura: "order_state_log(id, tenant_id, order_id, de, para, version, causa, evento_id, actor_kind, actor_id, em)"
+    seccao: "3.43"
+    conceito: "Registo de transições"
+  - nome: "order_state_graph"
+    esquema: ""
+    colunas:
+      - "de"
+      - "para"
+      - "flag"
+    aberta: false
+    assinatura: "order_state_graph(de, para, flag)"
+    seccao: "3.43"
+    conceito: "Grafo de transições"
+  - nome: "order_reconciliation_issues"
+    esquema: ""
+    colunas:
+      - "id"
+      - "tenant_id"
+      - "order_id"
+      - "tipo"
+      - "detalhe"
+      - "estado"
+      - "aberta_at"
+      - "resolvida_at"
+    aberta: false
+    assinatura: "order_reconciliation_issues(id, tenant_id, order_id, tipo, detalhe, estado, aberta_at, resolvida_at)"
+    seccao: "3.43"
+    conceito: "Divergências de reconciliação"
+  - nome: "order_numero_publico"
+    esquema: "platform"
+    colunas: []
+    aberta: false
+    assinatura: "platform.order_numero_publico()"
+    seccao: "3.43"
+    conceito: "Gerador do número"
 
 dominios:
   - coluna: "consent_event.purpose"
@@ -12364,6 +12979,109 @@ dominios:
       - "sistema"
     seccao: "3.42"
     conceito: "Autor do evento"
+    so_no_registo: false
+  - coluna: "app.com_delivery_enabled"
+    valores:
+      - "on"
+      - "off"
+    seccao: "3.43"
+    conceito: "Bandeira da entrega"
+    so_no_registo: false
+  - coluna: "orders_mirror.confirmacao_dono"
+    valores:
+      - "nao_aplicavel"
+      - "pendente"
+      - "confirmada"
+      - "recusada"
+      - "expirada"
+    seccao: "3.43"
+    conceito: "Subestado da confirmação do dono"
+    so_no_registo: false
+  - coluna: "orders_mirror.paga_via"
+    valores:
+      - "provider_autenticado"
+      - "manual_auditado"
+      - "cod_manual"
+    seccao: "3.43"
+    conceito: "Via do pagamento"
+    so_no_registo: false
+  - coluna: "orders_mirror.excepcao"
+    valores:
+      - "pagamento_tardio_sem_stock"
+      - "pagamento_duplicado"
+      - "valor_divergente"
+    seccao: "3.43"
+    conceito: "Excepção da encomenda"
+    so_no_registo: false
+  - coluna: "orders_mirror.entrega_confirmada_por"
+    valores:
+      - "cliente"
+      - "dono"
+      - "estafeta"
+    seccao: "3.43"
+    conceito: "Quem confirma a entrega"
+    so_no_registo: false
+  - coluna: "order_reconciliation_issues.tipo"
+    valores:
+      - "orfao_no_registo"
+      - "espelho_sem_encomenda"
+      - "divergencia_de_linhas"
+      - "reserva_sem_encomenda"
+      - "estado_divergente"
+    seccao: "3.43"
+    conceito: "Tipo de divergência"
+    so_no_registo: false
+  - coluna: "order_reconciliation_issues.estado"
+    valores:
+      - "aberta"
+      - "resolvida"
+    seccao: "3.43"
+    conceito: "Estado de uma divergência"
+    so_no_registo: false
+  - coluna: "orders_mirror.estado"
+    valores:
+      - "criada"
+      - "aguarda_pagamento"
+      - "pendente_confirmacao"
+      - "paga"
+      - "expirada"
+      - "em_entrega"
+      - "entrega_falhada"
+      - "entregue"
+      - "em_disputa"
+      - "reembolso_pendente"
+      - "reembolsada"
+      - "cancelada"
+    seccao: "3.43"
+    conceito: "Estado da encomenda, na coluna"
+    so_no_registo: false
+  - coluna: "order_intents.estado"
+    valores:
+      - "em_curso"
+      - "concluida"
+      - "falhada"
+    seccao: "3.43"
+    conceito: "Estado do recibo de intenção"
+    so_no_registo: false
+  - coluna: "orders_mirror.origem"
+    valores:
+      - "pme"
+      - "plataforma"
+    seccao: "3.43"
+    conceito: "Origem de uma encomenda"
+    so_no_registo: false
+  - coluna: "orders_mirror.entrega_modo"
+    valores:
+      - "levantamento"
+      - "entrega"
+    seccao: "3.43"
+    conceito: "Modo de entrega"
+    so_no_registo: false
+  - coluna: "order_state_graph.flag"
+    valores:
+      - "COM_DELIVERY_ENABLED"
+    seccao: "3.43"
+    conceito: "Bandeira de uma transição"
     so_no_registo: false
 
 variantes:

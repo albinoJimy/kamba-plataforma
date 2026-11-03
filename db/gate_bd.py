@@ -254,6 +254,27 @@ SUITES = (
     # escolha. **Nao** precisa de fila: o *outbox* escreve-se na transaccao, e
     # quem o publica e o KAM-005.
     "tests_pagamentos",
+    # KAM-044: as encomendas. O que so aqui se prova, e nenhuma base falsa
+    # pode, porque o objecto da prova e o motor: que o *trigger*
+    # `BEFORE UPDATE` recusa **78 dos 88** pares medidos por execucao — os
+    # outros 56 dos 144 sao os 8 `X -> X` (que nao sao transicoes) e os 48
+    # dos quatro estados do KAM-050, inalcancaveis por construcao; a
+    # primeira versao desta nota dizia «cento e vinte» e a revisao
+    # adversarial contou 67 (com o canario que o desliga e exige que a transicao
+    # invalida passe, sem o qual o ensaio nao distingue o *trigger* de um
+    # `CHECK` de dominio); que vinte transicoes concorrentes sobre a mesma
+    # versao deixam **uma** a escrever e dezanove a reler, com o canario que
+    # tira o `version = $3` e exige que ganhem mais do que uma; que o
+    # `CONSTRAINT TRIGGER` **diferido** recusa no `COMMIT` uma mudanca de
+    # estado sem registo e um `paga` sem evento autenticado do PAY — a
+    # barreira do criterio 3, que uma verificacao em TypeScript so cobre pela
+    # via do TypeScript; que o `deny_mutation` recusa `UPDATE`, `DELETE` e
+    # `TRUNCATE` no registo **ao superutilizador**; que o gerador do
+    # `numero_publico` da dez mil valores distintos (com oito caracteres e nao
+    # seis, e a conta esta no ensaio); e que uma falha injectada depois da
+    # emissao reverte **as duas** escritas, porque o `evt_emitir` corre na
+    # transaccao de quem chama.
+    "tests_encomendas",
 )
 #: As que precisam tambem de uma fila.
 SUITES_COM_FILA = (
