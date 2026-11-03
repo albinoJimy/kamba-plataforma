@@ -47,6 +47,7 @@ depende dela, ou porque contradiz um ADR em vigor. Nesse caso entra em
 | [ADR-L005](ADR-L005-degradacao-e-concierge.md) | Com a política `concierge` activa, a resposta do **modo determinístico também vai a aprovação humana**: os dois mecanismos somam-se e não se substituem | KAM-037 | Aceite |
 | [ADR-L006](ADR-L006-origem-do-golden-set.md) | O *golden set* admite as **três origens do KAM-040** — `sintetico`, `t2_anonimizado` e `real_consentido` —, com **registo de consentimento obrigatório** nos reais; a barreira passa a ser a defesa em vez da exclusão | KAM-169 | Aceite |
 | [ADR-L007](ADR-L007-ferramenta-de-iac.md) | Infraestrutura como código em **OpenTofu 1.10.6** (MPL-2.0; Terraform fica fora por BUSL) mais **cloud-init** no primeiro arranque (Ansible fica fora por GPL-3.0 e por exigir SSH antes do WireGuard); o fornecedor entra por uma costura `infra/modules/provider-<nome>/` que o gate 2 verifica | KAM-075 | Aceite |
+| [ADR-L008](ADR-L008-allowlist-de-colunas-em-unidade-menor.md) | Uma coluna `*_minor` pode existir em `platform` desde que esteja declarada em `EM_UNIDADE_MENOR` com a razão pela qual **não é um saldo**, verificada nos dois sentidos e com o tipo `bigint` afirmado; `saldo`, `balance` e `_kz` continuam proibidos **sem excepção**, com canário que o prova. Ratificada pelo fundador a 2026-11-03 | KAM-172 | Aceite |
 
 As linhas do `ADR-L004` e do `ADR-L005` estavam **duplicadas** nesta tabela, e as
 duas cópias saíram ao acrescentar a do `ADR-L006` (KAM-169). Era resíduo de dois

@@ -6,6 +6,9 @@ privacidade do DoD.
 
 from __future__ import annotations
 
+import unittest.mock
+
+import ligacao
 from tests import factories
 from tests.base import (
     PRIVILEGIO_INSUFICIENTE,
@@ -910,12 +913,21 @@ class TestConvencoes(ComBase):
     #: inteiro, nunca virgula flutuante). O que passa a ter allowlist e so o
     #: `_minor`, coluna a coluna e com a razao escrita.
     #:
-    #: **Isto afrouxa uma caixa de DoD de outro ticket, e o KAM-043 nao tem
-    #: autoridade para o decidir sozinho.** Fica escrito aqui e na verificacao
-    #: do bloco KAM-043 para o fundador ratificar ou recusar; o que o ticket
-    #: entrega e a medicao e a distincao, nao a decisao. Se for recusado, o que
-    #: sai e o criterio 1 do KAM-043 («valores em `bigint` minor»), e isso e um
-    #: conflito entre dois tickets que so o fundador fecha.
+    #: **Isto afrouxou uma caixa de DoD de outro ticket, e a decisao esta
+    #: tomada: o fundador ratificou-a a 2026-11-03.** Fica vinculativa em
+    #: `docs/adr/ADR-L008-allowlist-de-colunas-em-unidade-menor.md` (KAM-172),
+    #: que e o sitio a emendar se um dia o criterio mudar outra vez. A pergunta
+    #: foi «Ratificas o afrouxamento da caixa do DoD que o KAM-172 descreve?» e
+    #: a resposta, textual, foi «Ratifico». O que ela autoriza e **so** isto:
+    #: uma coluna `*_minor` pode existir em `platform` desde que esteja
+    #: declarada aqui, com a razao escrita pela qual nao e um saldo, verificada
+    #: nos dois sentidos e com o tipo `bigint` afirmado. O KAM-043 entregou a
+    #: medicao e a distincao; a decisao nao era dele, e deixou de estar aberta.
+    #:
+    #: **A ratificacao nao abre a porta ao `_kz`**, e o canario desta classe
+    #: (`test_canario_os_tres_proibidos_fazem_o_teste_falhar`) e o que o prova:
+    #: a metade rigida passava **pelo mesmo vazio** que esta, porque nunca
+    #: houve coluna nenhuma com `saldo`, `balance` ou `_kz` em `platform`.
     #
     #: **O KAM-053 acrescenta tres entradas e a mesma pergunta fica em aberto,
     #: agora mais perto do que o ADR-004 recusa.** As duas do KAM-043 sao preco
@@ -930,10 +942,10 @@ class TestConvencoes(ComBase):
     #:
     #: O que **nao** mudou: `saldo`, `balance` e `_kz` continuam proibidos sem
     #: excepcao, e a asercao sobre `_minor` continua a valer **nos dois
-    #: sentidos**. O KAM-053 entrega a medicao e a razao coluna a coluna, nao a
-    #: decisao: se o fundador recusar a allowlist, o que sai e o criterio 1 do
-    #: KAM-043 **e** o `amount_minor`/`valor_minor` do `docs/tecnica/04` secao
-    #: 6.2 — e isso e uma emenda ao documento, nao um ajuste a este ficheiro.
+    #: sentidos**. O KAM-053 entregou a medicao e a razao coluna a coluna com a
+    #: pergunta **ainda em aberto** — fundiu a 2026-11-03, no mesmo dia e antes
+    #: da decisao —, e por isso o ADR-L008 cobre as tres entradas dele
+    #: retroactivamente. Nenhuma se mexe por causa da ratificacao.
     EM_UNIDADE_MENOR = {
         # KAM-043, revisao `0028`. O preco de catalogo de um SKU: `fixo` leva o
         # preco, `a_partir_de` o minimo, `sob_consulta` e nulo (e o
@@ -980,7 +992,8 @@ class TestConvencoes(ComBase):
         """DoD: o DDL nao modela **saldos** — a plataforma nao detem fundos.
 
         Ver o `EM_UNIDADE_MENOR` acima para o que mudou nesta asercao com o
-        KAM-043, e porque e que a mudanca precisa do fundador.
+        KAM-043, e para a decisao do fundador que a ratificou (ADR-L008,
+        2026-11-03). Que ela morde prova-se nos dois canarios abaixo.
         """
         # `saldo`, `balance` e `_kz`: **proibidos sem excepcao**. Os dois
         # primeiros sao a coisa que o ADR-004 recusa; o terceiro e a variante
@@ -1019,6 +1032,95 @@ class TestConvencoes(ComBase):
                     (tabela, coluna),
                 )
                 self.assertEqual(tipo, [("bigint",)])
+
+    #: A tabela de ensaio dos canarios do KAM-172. Nome proprio e nao
+    #: `nao_devia_existir` (o das recusas de privilegio deste ficheiro):
+    #: aquela nunca chega a ser criada, e esta e.
+    TABELA_DE_ENSAIO = "canario_kam172"
+
+    #: As tres colunas de ensaio do lado **rigido**, uma por metade da
+    #: consulta: `saldo_x` cai no `%saldo%`, `x_balance` no `%balance%` e
+    #: `x_kz` no `%\_kz` — este ultimo com o sufixo no fim, porque o padrao
+    #: esta ancorado e um `kz_x` passaria de proposito.
+    CANARIOS_PROIBIDOS = ("saldo_x", "x_balance", "x_kz")
+
+    def ensaiar_coluna(self, coluna: str) -> None:
+        """Cria `platform.<TABELA_DE_ENSAIO>(<coluna>)`, corre o teste e limpa.
+
+        Corre **o teste** e nao uma copia da consulta dele: uma copia prova que
+        a copia morde. E a tabela de ensaio **committa**, e tem de ser — cada
+        `self.consultar` abre a sua propria ligacao, e um DDL por confirmar nao
+        se ve de fora da transaccao que o escreveu. O padrao e o da
+        `encomendas_de_ensaio` de `test_identidade_schema.py`; a base e
+        descartavel por desenho, e o trinco de `base.py` exige `kamba_gate8`.
+
+        A limpeza esta no `finally` e e um `DROP ... IF EXISTS`: o teste falha
+        de proposito no meio, e sem isso o ensaio ficava na base a avermelhar
+        tudo o que corresse depois — incluindo a lista fechada de tabelas.
+        """
+        admin = ligacao.ligar("admin")
+        admin.autocommit = True
+        try:
+            admin.cursor().execute(
+                f"CREATE TABLE platform.{self.TABELA_DE_ENSAIO} ({coluna} bigint)"
+            )
+            self.test_nao_ha_colunas_de_dinheiro_nem_saldos()
+        finally:
+            for conexao in self._conexoes:
+                conexao.rollback()
+            admin.cursor().execute(
+                f"DROP TABLE IF EXISTS platform.{self.TABELA_DE_ENSAIO}"
+            )
+            admin.close()
+
+    def test_canario_os_tres_proibidos_fazem_o_teste_falhar(self) -> None:
+        """KAM-172: `saldo`, `balance` e `_kz` continuam proibidos, e morde.
+
+        **Sem isto, a metade que continua rigida tambem passa por vazio** —
+        nunca houve coluna nenhuma com estes nomes em `platform`, pelo que o
+        `assertEqual(proibidas, [])` nunca disse nada sobre o que acontece
+        quando uma aparecer. Era o defeito que levou ao KAM-172, no lado que a
+        ratificacao de 2026-11-03 (ADR-L008) deixou de pe.
+
+        Afirma-se tambem **porque** falhou: um `assertRaises` nu ficava verde se
+        o teste rebentasse por outra razao, e e nessa forma que um canario
+        parece provar o que nao prova.
+        """
+        for coluna in self.CANARIOS_PROIBIDOS:
+            with self.subTest(coluna=coluna):
+                with self.assertRaises(AssertionError) as capturado:
+                    self.ensaiar_coluna(coluna)
+                mensagem = str(capturado.exception)
+                self.assertIn(self.TABELA_DE_ENSAIO, mensagem)
+                self.assertIn(coluna, mensagem)
+        # E depois dos tres, o teste volta a passar. Nao e cerimonia: afirma que
+        # a limpeza do `finally` correu, e uma limpeza falhada daria um canario
+        # verde sobre uma base suja.
+        self.test_nao_ha_colunas_de_dinheiro_nem_saldos()
+
+    def test_canario_a_allowlist_morde_nos_dois_sentidos(self) -> None:
+        """KAM-172, «Testes Requeridos»: confirma-se que continua a morder.
+
+        O KAM-043 escreveu a asercao nos dois sentidos; o que faltava era a
+        prova de que **cada** sentido falha quando devia. Nao e redundante com o
+        canario de cima: um `*_minor` nao cai na consulta dos proibidos.
+        """
+        # Sentido 1: coluna na base sem entrada declarada.
+        with self.assertRaises(AssertionError) as capturado:
+            self.ensaiar_coluna("ensaio_minor")
+        self.assertIn("ensaio_minor", str(capturado.exception))
+
+        # Sentido 2: entrada declarada sem coluna na base — a declaracao morta.
+        # Mede-se por mutacao do proprio conjunto; criar a coluna e nao a
+        # declarar e o sentido 1, e nao este.
+        morta = self.EM_UNIDADE_MENOR | {("tabela_de_ensaio", "valor_minor")}
+        with unittest.mock.patch.object(type(self), "EM_UNIDADE_MENOR", morta):
+            with self.assertRaises(AssertionError) as capturado:
+                self.test_nao_ha_colunas_de_dinheiro_nem_saldos()
+        self.assertIn("tabela_de_ensaio", str(capturado.exception))
+
+        # E com o conjunto reposto, passa.
+        self.test_nao_ha_colunas_de_dinheiro_nem_saldos()
 
     def test_nao_ha_fk_para_fora_de_platform(self) -> None:
         """As FK entre `platform` e `medusa` sao logicas (texto), nunca de base."""
