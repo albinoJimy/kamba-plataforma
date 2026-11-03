@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Core de Comércio |
-| Versão | 1.1 |
+| Versão | 1.2 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/03_Core_Comercio_Medusa.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -1239,19 +1239,29 @@ Testes: table-driven, integração com PAY fake, estática, isolamento. PR com o
 
 O IDX encontra candidatos por texto (`idx.candidatos`, por tenant, sem preço nem stock nos embeddings) e a tool `search_products` junta-os à **oferta viva** do COM para obter `sku`, preço e disponibilidade no momento. `com.v_oferta_viva` é um **contrato de leitura do COM** (nome ilustrativo e dependente do spike D3, `../docs/tecnica/05` §6.3), não DDL do índice. O validador de citação aceita só `sku` e números presentes nesse *output*. Há divergências de nomenclatura a resolver aqui: `../docs/tecnica/05` usa `preco_kz int` e `preco_tipo ('exato'|'a_partir_de'|'sob_consulta')`, enquanto `../docs/tecnica/03` usa `preco_minor bigint` e `preco_modo ('fixo'|'a_partir_de'|'sob_consulta')`; e o filtro `stock_disp > 0` exclui `confirmar_dono` e `sob_consulta`. O `INDICE` não declara que KAM-061 (EPIC-06) depende deste ticket.
 
+**Emenda de Novembro de 2026: quatro critérios caducaram, e o que os caduca é fonte acima deste bloco.** O ticket foi escrito antes do KAM-043 e antes das emendas 1.11, 1.12 e 1.52 do dicionário. A divergência que o parágrafo acima manda «resolver aqui» já está resolvida — e **contra os dois documentos que ele cita**, não a favor de um deles: o §3.3 do `specs/02_Dicionario_de_Dados_Canonico.md` fixa `preco_minor` e `preco_tipo` como canónicos e põe `preco_kz`, `'exato'` e `preco_modo` na coluna «Substitui». O dicionário é fonte acima de um bloco de ticket, pelo que o mapeamento `fixo→exato` e a coluna `preco_kz` dos critérios 1 e 5 deixaram de ser desenho e passaram a ser nomes preteridos.
+
+**E o `preco_kz` não é só preterido: é vermelho num portão.** O `test_nao_ha_colunas_de_dinheiro_nem_saldos` de `db/tests/test_catalogo.py`, que corre no *gate* 8, recusa `saldo`, `balance` e qualquer coluna terminada em `_kz` no esquema `platform` — «proibidos sem excepção», e a razão escrita no ficheiro é a própria substituição do §3.3. A consulta é sobre `information_schema.columns`, que inclui vistas (**INDÍCIO**: é semântica do PostgreSQL e não foi medida aqui). E **não existe esquema `com`** — a única `CREATE SCHEMA` das vinte e nove revisões é `platform` —, pelo que uma vista chamada `com.v_oferta_viva` ou cai em `platform`, onde o portão morde, ou obriga a criar um esquema que o dicionário não tem.
+
+**O nome `disponibilidade` foi gasto pelo KAM-043, com outro domínio.** A emenda 1.52 e o `DISPONIBILIDADE` de `services/com/src/produtos/formato.ts` fixaram-no como **texto de apresentação** em três valores — `garantido` → «em stock», `indicativo` → «disponível, a confirmar», `confirmar_dono` → «a confirmar com a loja» — e o mesmo bloco escreve que a disponibilidade «é só sobre stock, nos três modos, e não muda com o preço». O critério 3 deste ticket pede quatro valores de máquina, um dos quais (`sem_stock`) não tem correspondente do outro lado: é o mesmo nome com dois domínios incompatíveis, e quem chegou primeiro está fundido.
+
+**E o critério 7 não tem premissa.** Manda ler o stock «do Registo decidido em D3», e o D3 continua aberto: o §13.3 do `../docs/tecnica/00_Arquitectura_Solucao.md` registra o *spike* como **feito** (KAM-041) com recomendação pela opção B, e diz que falta a assinatura do Arquitecto de Plataforma e do Responsável de Segurança e a ratificação do fundador. A projecção que a opção B pressupõe também não existe: a `platform.offer_terms` da revisão `0028` tem `stock_modo` e `stock_verificado_at` e **nenhuma quantidade**, e quem cria as reservas é o KAM-045, que depende do KAM-044 e do KAM-052 e está aberto. Logo o `stock_disp` dos critérios 1, 3 e 6 não tem origem, e o campo «Dependências» deste bloco e do §4 do `INDICE` está incompleto — o que **não se corrige aqui**, pela razão que o R14 deste epic já dá para as outras dependências em falta: comunica-se ao dono do backlog.
+
+**O que fica em aberto é decisão do fundador**, e é uma só: se o contrato da vista leva um `preco_kz` para conveniência do IDX — o que obriga a afrouxar o `test_nao_ha_colunas_de_dinheiro_nem_saldos`, que é regra de bloqueio, no mesmo terreno da *allowlist* `EM_UNIDADE_MENOR` que esse ficheiro declara — ou se o IDX passa a consumir `preco_minor` e divide onde apresenta. Até essa decisão os critérios abaixo ficam na forma canónica, e **nenhuma caixa deste ticket se marca**.
+
 ### Objectivo
 
-Publicar a vista `com.v_oferta_viva` (`security_invoker`) com o contrato de colunas e de saída da tool, o mapeamento explícito de nomenclatura e testes de contrato, isolamento e plano de execução.
+Publicar a vista `v_oferta_viva` (`security_invoker`) com o contrato de colunas e de saída da tool, nos nomes canónicos do dicionário, e testes de contrato, isolamento e plano de execução.
 
 ### Critérios de Aceitação
 
-- [ ] A vista expõe, no mínimo, `tenant_id`, `product_ref`, `sku`, `nome`, `preco_minor`, `preco_kz`, `preco_tipo`, `stock_disp`, `disponibilidade`, `publicado`, `lido_em`; `preco_tipo` mapeia `fixo→exato`, `a_partir_de→a_partir_de`, `sob_consulta→sob_consulta`; `preco_kz = preco_minor / 100` para preços em Kz inteiros e `NULL` quando houver cêntimos ou `sob_consulta`.
+- [ ] A vista expõe, no mínimo, `tenant_id`, `product_ref`, `sku`, `nome`, `preco_minor`, `preco_tipo`, `stock_modo`, `publicado`, `lido_em`, nos nomes canónicos do §3.3 do `specs/02_Dicionario_de_Dados_Canonico.md`. **Sem `preco_kz` e sem o mapeamento `fixo→exato`** — os dois estão na coluna «Substitui» desse §, e uma coluna terminada em `_kz` é recusada pelo *gate* 8 sem excepção (ver a emenda no Contexto). Quem apresenta em Kz divide por cem onde apresenta; a vista não transporta a divisão, que é onde um preço se perde por um factor de cem. O `stock_disp` sai do critério até existir a projecção de stock (critério 7).
 - [ ] `publicado` é verdadeiro só para `offer_terms.estado='publicado'`, `deleted_at IS NULL` e `categoria_restrita IS NULL`; produto `pausado`, `arquivado`, restrito ou apagado devolve 0 linhas.
-- [ ] `disponibilidade ∈ {em_stock, a_confirmar, confirmar_dono, sem_stock}` deriva de `stock_modo` e do nível; a regra de filtro do índice passa a `disponibilidade <> 'sem_stock'` (a alteração em `../docs/tecnica/05` §6.3 fica registada para KAM-061); `sob_consulta` e `confirmar_dono` não desaparecem por `stock_disp > 0`.
+- [ ] A vista expõe o `stock_modo` canónico (`garantido`, `indicativo`, `confirmar_dono`) e **não** uma coluna `disponibilidade`: esse nome é, desde o KAM-043, o texto de apresentação derivado do modo (emenda 1.52 do dicionário e `DISPONIBILIDADE` de `services/com/src/produtos/formato.ts`), e duplicar o mapeamento em SQL dava duas respostas para a mesma pergunta. **Não há `sem_stock`** — não existe nível de stock que o produza —, pelo que a regra de filtro do índice **não** passa a `disponibilidade <> 'sem_stock'` e o §6.3 do `../docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md` fica por decidir com o KAM-061. O `sob_consulta` continua a não desaparecer por filtro de stock: é modo de preço e não de stock.
 - [ ] A vista tem `security_invoker = true` e RLS herdada: com `app.tenant_id` de A, linhas de B = 0; sem `app.tenant_id` = 0 linhas (X-04); X-05 verifica a vista.
-- [ ] O contrato de saída da tool `[{sku, product_ref, nome, preco_kz, preco_tipo, disponivel, fonte:'registo', lido_em}]` é coberto por teste de contrato com o consumidor (`search_products` de KAM-061, com *fake* até existir).
+- [ ] O contrato de saída da tool é `[{sku, product_ref, nome, preco_minor, preco_tipo, stock_modo, fonte:'registo', lido_em}]` — `preco_minor` e `preco_tipo` em lugar de `preco_kz`, e `stock_modo` em lugar de `disponivel`, pela emenda do Contexto — e é coberto por teste de contrato com o consumidor (`search_products` de KAM-061, com *fake* até existir).
 - [ ] A vista não contém PII nem texto de descrição; o *join* por `(tenant_id, product_ref)` usa o índice de chave primária (teste de plano com 10.000 SKUs de um tenant: sem *seq scan* em `offer_terms`).
-- [ ] O stock lido vem do Registo decidido em D3 através de uma tabela/projecção com RLS do esquema `platform`/`commerce`; a vista nunca lê o esquema `medusa` directamente.
+- [ ] **Bloqueado por decisão aberta, e por isso esta caixa não se marca neste ticket.** O stock lido vem do Registo decidido em D3 através de uma tabela/projecção com RLS do esquema `platform`; a vista nunca lê o esquema `medusa` directamente. O D3 não está ratificado e a projecção não existe (ver a emenda no Contexto), pelo que, até o D3 ser assinado e o KAM-045 entregar as reservas, a vista publica-se **sem stock** e o `stock_disp` não entra no contrato.
 - [ ] Migração com `downgrade` testado; qualquer alteração de colunas segue *expand → migrate → contract* com SemVer do contrato.
 
 ### Detalhes Técnicos
@@ -1260,12 +1270,13 @@ Publicar a vista `com.v_oferta_viva` (`security_invoker`) com o contrato de colu
 - O índice recebe `catalog.product_changed` e referencia produtos por `product_ref` opaco (não depende do modelo interno do Medusa): mudar D3 não muda o índice nem a vista.
 - Origem: `platform.offer_terms` (preço, modos) + stock do Registo; na opção B (Medusa) o stock disponível entra por projecção mantida pelo adaptador (decisão a registar nos Detalhes de KAM-043/045); na opção C, `commerce.stock_levels`.
 - O validador (KAM-032) compara `sku` e valores contra este *output*; resposta com `sku` ausente é rejeitada (cobre «produto errado com preço certo»).
-- Ordenação `c.o_score DESC, v.preco_kz ASC` do SQL de `../docs/tecnica/05` precisa de tratamento de `NULL` em `sob_consulta`; documentar (`NULLS LAST`).
+- Ordenação `c.o_score DESC, v.preco_minor ASC` — o SQL de `../docs/tecnica/05` escreve `v.preco_kz`, nome preterido pelo §3.3 — precisa de tratamento de `NULL` em `sob_consulta`; documentar (`NULLS LAST`).
+- **O esquema da vista é ponto aberto, e sai da mesma decisão do Contexto.** Não existe esquema `com`; retirado o `preco_kz`, `platform.v_oferta_viva` passa a ser viável sem tocar no *gate* 8, e é a forma que o executor deve propor. O nome qualificado fica por fixar no §3.40 do dicionário, que hoje registra o contrato como «por definir».
 - Preços desactualizados (`preco_valido_ate` ultrapassado) saem como `a_partir_de` (regra de KAM-043).
 
 ### Testes Requeridos
 
-- Contrato: colunas, tipos, mapeamento de modos e regra de `disponibilidade`.
+- Contrato: colunas, tipos e domínio do `preco_tipo` e do `stock_modo`, nos nomes canónicos.
 - Isolamento: X-04, X-05, ISO-39..42 por analogia; canários por tenant.
 - Plano de execução (`EXPLAIN`) com volume sintético.
 - Integração: `idx.candidatos` (*fake*) → *join* → saída da tool → validador.
@@ -1285,10 +1296,16 @@ Publicar a vista `com.v_oferta_viva` (`security_invoker`) com o contrato de colu
 És o executor do ticket KAM-051 da KAMBÁ.
 Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-051), docs/tecnica/05_Indice_Pesquisa_Motor_Atencao.md (§6.3)
 e docs/tecnica/03_Core_Comercio_Medusa.md (§7, §10.1).
-Objectivo: vista com.v_oferta_viva (security_invoker) com contrato de colunas e de saída da tool search_products,
-mapeamento fixo→exato, preco_minor→preco_kz, disponibilidade derivada e testes de contrato/isolamento/plano.
+LÊ A EMENDA DO CONTEXTO ANTES DOS CRITÉRIOS: quatro deles caducaram e estão reescritos na forma canónica.
+Objectivo: vista v_oferta_viva (security_invoker) com contrato de colunas e de saída da tool search_products,
+nos nomes canónicos preco_minor e preco_tipo, e testes de contrato/isolamento/plano.
+- NÃO escrevas preco_kz nem o mapeamento fixo→exato: estão na coluna «Substitui» do dicionário §3.3, e uma
+  coluna terminada em _kz é recusada pelo gate 8 sem excepção.
+- NÃO crias uma coluna disponibilidade: esse nome é o texto de apresentação do KAM-043. Expõe o stock_modo.
+- Não existe esquema com; propõe platform.v_oferta_viva e fixa o nome no dicionário §3.40.
 - Nunca ler o esquema medusa directamente; só tabelas/projecções com RLS.
-- sob_consulta e confirmar_dono não desaparecem por stock_disp > 0; regista a alteração para KAM-061.
+- O critério 7 está bloqueado pelo D3 e pelo KAM-045: a vista sai SEM stock, e essa caixa não se marca.
+- sob_consulta não desaparece por filtro de stock; regista a alteração do §6.3 para KAM-061.
 Não expandas escopo: pesquisa híbrida e RRF (KAM-061), normalização (KAM-062).
 Testes: contrato, isolamento, EXPLAIN, integração com idx fake. PR com o template §7. Commits: feat(KAM-051): …
 ```
@@ -1332,3 +1349,4 @@ Testes: contrato, isolamento, EXPLAIN, integração com idx fake. PR com o templ
 |---|---|---|---|
 | 1.0 | Outubro 2026 | Emissão inicial: 11 tickets (KAM-041 a KAM-051) do Core de Comércio. | Equipa KAMBÁ |
 | 1.1 | Outubro 2026 | KAM-145: os **16** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
+| 1.2 | Novembro 2026 | **KAM-051: quatro dos oito critérios de aceitação caducaram e passam à forma canónica, sem que o ticket seja entregue.** O bloco foi escrito antes do KAM-043 e das emendas 1.11, 1.12 e 1.52 do dicionário, e pedia vocabulário que o §3.3 do `specs/02_Dicionario_de_Dados_Canonico.md` já põe em «Substitui»: o `preco_kz` e o mapeamento `fixo→exato` (critérios 1 e 5), que o `test_nao_ha_colunas_de_dinheiro_nem_saldos` do *gate* 8 recusa «sem excepção»; e uma coluna `disponibilidade` com quatro valores de máquina (critério 3), nome que o KAM-043 fundiu como texto de apresentação em três. O critério 7 fica **bloqueado e por marcar**: manda ler o stock do Registo «decidido em D3», e o D3 não está ratificado (§13.3 do `../docs/tecnica/00_Arquitectura_Solucao.md`) nem existe projecção de stock — a `platform.offer_terms` da `0028` não tem quantidade e as reservas são do KAM-045, aberto. A dependência em falta no §4 do `INDICE` **não** é corrigida aqui, pela razão que o R14 deste epic dá para as outras. Fica uma decisão do fundador, nomeada no Contexto: `preco_kz` no contrato da vista com afrouxamento do *gate* 8, ou `preco_minor` com a divisão onde se apresenta. **Nenhuma caixa do KAM-051 é marcada.** | Equipa KAMBÁ |
