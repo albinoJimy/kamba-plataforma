@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Core de Comércio |
-| Versão | 1.3 |
+| Versão | 1.4 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/03_Core_Comercio_Medusa.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -18,7 +18,7 @@ O **Core de Comércio (COM)** é o registo de produtos, encomendas, stock e rese
 
 O epic abre com um **spike de 5 dias** (KAM-041) com critérios de aceitação numéricos e uma matriz de 60 testes de isolamento entre vendedores, porque o Medusa v2 não é multi-tenant nativo (NÃO VERIFICADO) e o Mercur teve falhas de autorização entre vendedores corrigidas a 2026-10-08 (CONFIRMADO, E4). O Mercur fica fora do Piloto. O resto do epic constrói sobre a decisão D3: porta e adaptador (KAM-042), preço opaco e stock não-garantido (KAM-043), encomendas (KAM-044), reservas com expiração (KAM-045), criação idempotente de pedido (KAM-046), módulo `servicos` (KAM-047), lembretes (KAM-048), Catálogo AI (KAM-049), estados adicionais (KAM-050) e o contrato de leitura para o índice (KAM-051). Nunca há fundos de terceiros no COM (ADR-004): reembolsos são manuais.
 
-Concretiza ADR-003, ADR-004, ADR-006, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-014. São **11 tickets**: 7 na **Fase 0** (KAM-041 a KAM-047, esqueleto andante) e 4 na **Fase 1** (KAM-048 a KAM-051). Piloto = só Fluxo A: `origem = 'plataforma'`, PME light e encomendas multi-vendedor ficam no DDL mas não entram em produção (ADR-011). A documentação oficial do Medusa v2 não foi acessível na pesquisa de 8 de Outubro de 2026 (E4 §6): o que é dito sobre capacidades do Medusa é hipótese a validar no spike, não facto.
+Concretiza ADR-003, ADR-004, ADR-006, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-014. São **12 tickets**: 8 na **Fase 0** (KAM-041 a KAM-047, esqueleto andante, e o KAM-176, acrescentado depois) e 4 na **Fase 1** (KAM-048 a KAM-051). Piloto = só Fluxo A: `origem = 'plataforma'`, PME light e encomendas multi-vendedor ficam no DDL mas não entram em produção (ADR-011). A documentação oficial do Medusa v2 não foi acessível na pesquisa de 8 de Outubro de 2026 (E4 §6): o que é dito sobre capacidades do Medusa é hipótese a validar no spike, não facto.
 
 ---
 
@@ -51,6 +51,7 @@ Concretiza ADR-003, ADR-004, ADR-006, ADR-007, ADR-009, ADR-010, ADR-012, ADR-01
 | KAM-049 | Catálogo AI: foto → produto, normalização PT-AO e perguntas de completude | feature | L | P0 | KAM-042, KAM-020, KAM-030, KAM-043, KAM-088, KAM-069, ext:KAM-101 |
 | KAM-050 | Estados adicionais da encomenda: pagamento tardio, disputa, entrega falhada, reembolso | feature | M | P1 | KAM-044 |
 | KAM-051 | Contrato `v_oferta_viva` e leitura para o índice | feature | S | P0 | KAM-043 |
+| KAM-176 | Um `UPDATE` sem linhas no `order_state_log` não é recusado: o *trigger* por instrução cobre o `DELETE` e não o `UPDATE` | fix | S | P1 | KAM-044 |
 
 ---
 
@@ -590,7 +591,7 @@ Commits: feat(KAM-043): …
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-042, KAM-005, KAM-008, KAM-004 |
-| Bloqueia | KAM-045, KAM-046, KAM-050, KAM-055, KAM-096, KAM-097, KAM-099, KAM-117 |
+| Bloqueia | KAM-045, KAM-046, KAM-050, KAM-055, KAM-096, KAM-097, KAM-099, KAM-117, KAM-176 |
 | Responsável sugerido | Engenheiro de Comércio |
 | Documentos de referência | `../docs/tecnica/03_Core_Comercio_Medusa.md` (§5.4, §6.1, §6.2, §10), `../docs/tecnica/00_Arquitectura_Solucao.md` (§6.1), ADR-009, ADR-013, ADR-010 |
 
@@ -1346,6 +1347,292 @@ Testes: contrato, isolamento, EXPLAIN, integração com idx fake. PR com o templ
 
 ---
 
+## KAM-176 — Um `UPDATE` sem linhas no `order_state_log` não é recusado: o *trigger* por instrução cobre o `DELETE` e não o `UPDATE`
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-04 — Core de Comércio |
+| Fase | 0 |
+| Tipo | fix |
+| Prioridade | P1 |
+| Estimativa | S |
+| Dependências | KAM-044 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Comércio |
+| Documentos de referência | `../db/migrations/versions/0030_encomendas_e_estados.py` (a função `_registo()` e a nota dos *triggers*), `../db/migrations/versions/0029_ledger_de_pagamentos.py`, `../db/tests_encomendas/test_isolamento.py`, `../db/tests_encomendas/test_grafo.py` (o `TestCanarioDoTrigger`), `../db/mutacoes.py`, `../docs/dividas-documentais.md` (dívidas 175 e 176), `../docs/tecnica/08_Seguranca_Conformidade.md` §6, `EPIC-05_Pagamentos_Billing.md` (bloco KAM-175), ADR-013 |
+
+### Contexto
+
+**A barreira que torna o registo `append-only` fecha o `DELETE` sem linhas e
+deixa o `UPDATE` sem linhas passar — e o argumento que fecha um está escrito ao
+lado do outro.** A revisão `../db/migrations/versions/0030_encomendas_e_estados.py`
+protege a `platform.order_state_log` com dois *triggers* sobre a mesma função
+`platform.deny_mutation()`, os dois `ENABLE ALWAYS`:
+
+* `order_state_log_sem_mutacao` — `BEFORE UPDATE OR DELETE … FOR EACH ROW`;
+* `order_state_log_sem_truncate` — `BEFORE TRUNCATE OR DELETE … FOR EACH STATEMENT`.
+
+Um *trigger* por linha **não dispara quando não há linha nenhuma**. O do
+`DELETE` sem linhas está fechado, porque o por instrução inclui `DELETE`. O do
+`UPDATE` não: `UPDATE platform.order_state_log SET … WHERE <predicado que não
+casa>` não é recusado por nenhum dos dois, devolve `UPDATE 0` e passa.
+
+**Medido, e não deduzido.** A 2026-11-03, ao escrever o KAM-175, contra um
+PostgreSQL **18.6** real (`pgvector/pgvector:0.8.7-pg18`, a mesma imagem do
+`../infra/compose/docker-compose.dev.yml`), com as três formas reproduzidas em
+tabelas de ensaio:
+
+| Instrução | Forma da `0029` | Forma da `0030` (hoje) | Forma que este ticket impõe |
+|---|---|---|---|
+| `DELETE` **com** linhas | recusado (`42501`) | recusado | recusado |
+| `DELETE` **sem** linhas | `DELETE 0` | recusado | recusado |
+| `UPDATE` **com** linhas | recusado | recusado | recusado |
+| `UPDATE` **sem** linhas | `UPDATE 0` | **`UPDATE 0`** | recusado |
+| `TRUNCATE` | recusado | recusado | recusado |
+
+E confirma-se na própria revisão, sem levantar base nenhuma: o
+`CREATE TRIGGER order_state_log_sem_truncate` diz `BEFORE TRUNCATE OR DELETE` e
+para ali.
+
+**A ironia, que é a parte que importa guardar.** O comentário imediatamente
+acima daquele `CREATE TRIGGER`, no KAM-044, escreve o argumento inteiro — «um
+`BEFORE DELETE … FOR EACH ROW` não dispara quando não há linhas», «com o
+`FOR EACH STATEMENT`, a recusa vem antes de haver linhas e é a mesma para o caso
+que apaga e para o que não apaga». O argumento não tem nada de particular ao
+`DELETE`: vale letra por letra para o `UPDATE`, que está no *trigger* por linha
+pela mesma razão. O KAM-044 seguiu-o até metade. Não é uma gralha de digitação,
+é uma dedução deixada a meio, e é por isso que o ticket vale uma linha de
+*backlog* em vez de uma correcção silenciosa.
+
+**Quem alcança o caso, e porque é que continua a ser um defeito.** O
+`kamba_app` não chega lá: ele tem `INSERT` e `SELECT` no registo e mais nada, e
+um `UPDATE` dele falha por privilégio (`../db/tests_encomendas/test_isolamento.py`,
+`test_o_kamba_app_nao_tem_update_nem_delete_no_registo`). Quem alcança é quem
+tem o privilégio — o dono da tabela, o migrador, um superutilizador. É
+exactamente contra esses que a barreira existe, e é essa a razão pela qual o
+`DELETE` sem linhas se fechou: o ensaio que o prova corre na ligação de semente,
+que é o dono, e espera `42501` vindo do *trigger* e não do `GRANT`. Nenhuma
+linha se perde — o que falha é a **propriedade**, não os dados. Quem audita a
+tabela, como o `../docs/tecnica/08_Seguranca_Conformidade.md` §6 manda, corre a
+instrução proibida e lê `UPDATE 0` sem erro, indistinguível de «a tabela aceita
+`UPDATE` e não havia nada para actualizar».
+
+**Como apareceu.** Ao escrever o KAM-175, que é o credor da metade gémea na
+`platform.payment_events`. A medição desse ticket varreu as revisões todas e
+encontrou a classe: está na **dívida 176** de `../docs/dividas-documentais.md`
+(linha de versões 1.91), que atribui quatro credores, um por tabela. Este ticket
+é o credor de **uma** delas.
+
+**As três tabelas irmãs não são deste ticket.** A `platform.audit_log` (`0006`,
+**KAM-012**), a `platform.tool_audit` (`0021`, **KAM-028**) e a
+`dat.llm_call_log` (`0023`, **KAM-030**) escrevem o par da `0029` e têm as
+**duas** metades abertas. Não se tocam aqui, e a razão é a fronteira que a
+dívida 175 desenhou e que a 176 herdou: a barreira de uma tabela *append-only*
+decide-se em quem a tem. A `dat.llm_call_log` leva ainda uma pergunta própria,
+por ser **particionada**: a `0023` mediu que o por linha e o
+`BEFORE TRUNCATE … FOR EACH STATEMENT` no pai são aceites e que uma partição
+nova os herda, e não diz nada sobre um `BEFORE UPDATE … FOR EACH STATEMENT` no
+pai. Mede-se no ticket dela.
+
+### Objectivo
+
+Fazer com que a `platform.order_state_log` recuse `UPDATE`, `DELETE` e
+`TRUNCATE` **independentemente de quantas linhas a instrução toca**, pela mesma
+função `deny_mutation` e sem *trigger* novo nem função nova: o que muda é a
+lista de eventos do *trigger* por instrução que já existe. E deixar escrito, no
+ficheiro, qual dos dois *triggers* dá a propriedade — porque depois desta
+alteração o por linha já não é o que a dá.
+
+### Critérios de Aceitação
+
+- [ ] 1. O `order_state_log_sem_truncate` passa a
+  `BEFORE TRUNCATE OR DELETE OR UPDATE … FOR EACH STATEMENT`, continua
+  `ENABLE ALWAYS` e continua a chamar a `platform.deny_mutation()`. **Não há
+  *trigger* novo e não há função nova**, e os dois nomes ficam como estão: é o
+  que mantém verdes os três ensaios do `ENABLE ALWAYS` do
+  `../db/tests_encomendas/test_isolamento.py` — dois deles a correr em
+  `session_replication_role = replica` — e o inventário de
+  `../db/tests/test_inventario.py`, que prende os nomes dos objectos da `0030`.
+  Medido: um `UPDATE` sem linhas passa a ser recusado com `42501`
+  (`insufficient_privilege`), que é o `SQLSTATE` que a função já levanta e que a
+  suite já afirma.
+- [ ] 2. **A metade que falta, sem desfazer a que está feita.** Entra um ensaio
+  para o `UPDATE … WHERE <predicado que não casa>`, e o
+  `test_o_delete_sem_linhas_tambem_e_recusado` que já existe fica como está e
+  continua verde. São duas asserções separadas de propósito: uma barreira que
+  cobre os dois casos com um ensaio só não distingue qual deles regrediu.
+- [ ] 3. **O que a barreira não impede continua a não impedir**, e há ensaio que
+  o prova em vez de o supor: o `INSERT` do `kamba_app` no registo passa (é a
+  única escrita que ele tem), o `SELECT` passa — e tem de passar, porque é o
+  *trigger* diferido `order_transicao_registada` que lê esta tabela como
+  invocador —, e o `DROP TABLE` do `downgrade` passa: um `DROP TABLE` não é um
+  `UPDATE`. Sem este critério, a prova de que a barreira morde é indistinguível
+  de uma tabela que ninguém consegue usar.
+- [ ] 4. **Canário obrigatório, e nos dois sentidos.** Desligado **só** o
+  `order_state_log_sem_truncate` — com o `order_state_log_sem_mutacao` ligado —,
+  o `UPDATE` sem linhas tem de **passar** (`UPDATE 0`). É isso, e só isso, que
+  prova que quem recusa o caso sem linhas é o *trigger* por instrução: com os
+  dois ligados, o caso é recusado e nenhum ensaio distingue qual deles mordeu. O
+  `ALTER TABLE` do canário corre na ligação **transaccional** e é revertido,
+  pela razão escrita no `TestCanarioDoTrigger` do
+  `../db/tests_encomendas/test_grafo.py`: um `ALTER TABLE` confirmado deixava a
+  base do *gate* 8 sem barreira para os ensaios seguintes, e a suite passava a
+  medir uma tabela sem *trigger*.
+- [ ] 5. **Revisão nova, e não edição da `0030` — e a razão é uma medição, não
+  uma preferência.** A pergunta é a mesma que o critério 7 do KAM-175 faz:
+  existe base onde a revisão já foi aplicada e que não se reconstrói de zero? Na
+  `0030` a resposta **já está dada e é sim**: ela fundiu na `main` a 2026-11-03
+  no `84f3169`, pelo que qualquer clone que tenha corrido `alembic upgrade head`
+  desde então a tem, e o `alembic` guarda uma linha em `alembic_version` e mais
+  nada — uma edição no sítio é **invisível** para essas bases. Entra uma revisão
+  nova com `DROP TRIGGER` e `CREATE TRIGGER`, com `down_revision` a apontar para
+  a última, e com `downgrade` a repor a forma antiga (que é aditiva no sentido
+  que importa: nenhuma linha se perde, e a revisão não larga a tabela).
+- [ ] 6. **A barreira nova entra na prova por mutação.** O
+  `../db/mutacoes.py` leva sete mutações para a `0030`, uma por barreira; esta
+  alteração acrescenta uma — retirar o `OR UPDATE` do *trigger* por instrução
+  tem de matar o ensaio do critério 2. Sem isso, a metade nova fica com a mesma
+  cobertura que a antiga tinha antes de alguém olhar para ela, que é nenhuma.
+- [ ] 7. **As duas notas da `0030` passam a dizer a verdade.** O comentário do
+  `_registo()` que explica porque é que são dois *triggers* descreve a forma
+  antiga, e uma nota que descreve a forma antiga é pior do que nenhuma: passa a
+  dizer o que cada um cobre depois desta alteração e qual deles dá a
+  propriedade. E a nota que aponta a lacuna da `0029` para a dívida 175 passa a
+  dizer que ela tem credor — o **KAM-175**.
+- [ ] 8. **Risca-se uma metade da dívida 176 e mais nada.** A linha 176 fica,
+  com a metade do `order_state_log` riscada e as três tabelas irmãs intactas,
+  cada uma ao seu credor (KAM-012, KAM-028, KAM-030). A **dívida 175 não se
+  risca aqui**: ela é do KAM-175 e risca-se no PR que mexer no *trigger* da
+  `0029`.
+
+### Detalhes Técnicos
+
+- **Onde.** Uma revisão nova em `../db/migrations/versions/`, com
+  `down_revision` na última (a `0030` à data deste ticket). Mais os ensaios de
+  `../db/tests_encomendas/test_isolamento.py` (a classe das recusas e o canário)
+  e a entrada em `../db/mutacoes.py`. O `../specs/02_Dicionario_de_Dados_Canonico.md`
+  §3.43 **não muda**: ele fixa a tabela e a propriedade *append-only*, não a
+  lista de eventos do *trigger*.
+- **Porque é que o `UPDATE` cabe no mesmo *trigger*.** O PostgreSQL aceita
+  `BEFORE UPDATE … FOR EACH STATEMENT`; o que um *trigger* por instrução não tem
+  é `OLD` e `NEW`, e a `platform.deny_mutation` não os usa — ela levanta excepção
+  com o `TG_OP` e o `TG_TABLE_NAME`, disponíveis nos dois níveis. É por isso que
+  a alteração é à lista de eventos e não à função, e é a mesma razão que o
+  KAM-175 escreveu para a `payment_events`.
+- **O `FOR EACH ROW` para `TRUNCATE` não existe**, o que é a razão original de
+  serem dois *triggers* e não um: o `TRUNCATE` só admite por instrução. O que
+  esta alteração faz é notar que o por instrução, existindo, cobre também os
+  outros dois — e que o custo é nulo, porque uma instrução que fosse passar já
+  era recusada.
+- **O que a alteração não pode quebrar, e já está medido.** Nenhuma FK da `0030`
+  tem `ON DELETE CASCADE` — as sete são restritivas, medido no ficheiro —, pelo
+  que nenhum `DELETE` legítimo noutra tabela cai aqui; e a `order_state_log`
+  está em `SEM_RECEITA_COM_RAZAO` na bateria de
+  `../db/tests_isolamento/sementes.py`, precisamente porque a limpeza por
+  `DELETE` já é recusada. O que **tem** de se confirmar antes de aplicar é o
+  caminho do `UPDATE`: nenhum código do `services/com/src/orders/` actualiza o
+  registo — ele é escrito por `inserirNoTenant` e mais nada —, e um `UPDATE`
+  legítimo que aparecesse passaria a ser recusado no sítio certo mas com uma
+  mensagem que fala de imutabilidade.
+- **O caminho pelo qual isto não se apanha hoje.** Os ensaios do `UPDATE` no
+  registo correm **com linhas** (`test_o_kamba_app_nao_tem_update_nem_delete_no_registo`
+  usa uma encomenda semeada) ou medem **privilégio por coluna**, e nos dois
+  casos a asserção é satisfeita por quem não é o *trigger* por instrução. É a
+  armadilha que o KAM-171 nomeia: o instrumento está certo e o predicado é que
+  não cobre a população — e o caso que falta é precisamente o que não toca linha
+  nenhuma.
+
+### Testes Requeridos
+
+- Integração (`db/tests_encomendas/`): `UPDATE platform.order_state_log SET … WHERE <predicado que não casa>`
+  é recusado com `42501`, na ligação de semente (o dono).
+- Integração: o `test_o_delete_sem_linhas_tambem_e_recusado` continua verde, sem
+  alteração.
+- Integração: os casos que já existiam continuam verdes — `UPDATE`, `DELETE` e
+  `TRUNCATE` com linhas, para o `kamba_app` (por privilégio) e para o dono (pelo
+  *trigger*).
+- Sonda positiva: o `INSERT` do `kamba_app` e o `SELECT` passam depois da
+  alteração, e o `SELECT` é obrigatório — o *trigger* diferido lê a tabela como
+  invocador.
+- Canário: desligado **só** o `order_state_log_sem_truncate`, o `UPDATE` sem
+  linhas passa; o `ALTER TABLE` é revertido na mesma transacção.
+- Catálogo: os cinco *triggers* da `0030` continuam a reportar `A` em
+  `pg_trigger.tgenabled` depois da migração, depois do `downgrade` e depois de
+  novo `upgrade`.
+- Mutação: retirar o `OR UPDATE` do *trigger* por instrução mata o ensaio novo —
+  `0 não apanhadas` em `db/mutacoes.py`.
+- *Gate* 8: a revisão sobe, desce e volta a subir numa base limpa, sem objectos
+  residuais.
+
+### Definition of Done
+
+- [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
+- [ ] **O `UPDATE` sem linhas recusado**, com ensaio próprio e separado do do
+  `DELETE`.
+- [ ] **Canário verde quando a barreira morde e vermelho quando deixa de
+  morder**, com o `ALTER TABLE` revertido.
+- [ ] Revisão nova e não edição da `0030`, pela pergunta do critério 5.
+- [ ] A mutação nova **apanhada**, e a linha de base da suite verde.
+- [ ] As duas notas da `0030` descrevem a forma nova, e dizem qual dos dois
+  *triggers* dá a propriedade.
+- [ ] *Gate* 8 verde: `upgrade`, `downgrade`, `upgrade` sem resíduos.
+- [ ] *Gate* 6 verde: a bateria de isolamento não muda de forma, e a
+  `order_state_log` continua em `SEM_RECEITA_COM_RAZAO`.
+- [ ] **A metade do `order_state_log` riscada na dívida 176**, e as outras três
+  intactas.
+- [ ] **A dívida 175 não riscada** — é do KAM-175.
+- [ ] Linha de «Controlo de versões» em cada documento formal tocado, e o campo
+  `Versão` do cabeçalho a condizer.
+- [ ] Revisão adversarial independente, com os achados fechados por teste.
+
+### Handoff para Claude Code
+
+```text
+Es o executor do ticket KAM-176 da KAMBA.
+Le specs/EPIC-04_Core_Comercio.md (bloco KAM-176 e bloco KAM-044),
+db/migrations/versions/0030_encomendas_e_estados.py (a funcao _registo e a nota
+dos triggers), db/tests_encomendas/test_isolamento.py,
+db/tests_encomendas/test_grafo.py (o TestCanarioDoTrigger), db/mutacoes.py,
+db/tests_isolamento/sementes.py e specs/EPIC-05_Pagamentos_Billing.md (bloco
+KAM-175, que e a metade gemea na payment_events).
+Objectivo: a platform.order_state_log recusa UPDATE, DELETE e TRUNCATE
+independentemente de quantas linhas a instrucao toca.
+- O order_state_log_sem_truncate passa a BEFORE TRUNCATE OR DELETE OR UPDATE ...
+  FOR EACH STATEMENT, ENABLE ALWAYS, com a mesma funcao deny_mutation. Sem
+  trigger novo e sem funcao nova: os dois nomes ficam como estao, senao partes os
+  tres ensaios do ENABLE ALWAYS e o inventario de db/tests/test_inventario.py.
+- O DELETE sem linhas JA esta fechado. O que falta e o UPDATE sem linhas, que
+  hoje devolve UPDATE 0 e passa. Medido contra o PostgreSQL 18.6 ao escrever o
+  KAM-175. Nao desfacas o ensaio do DELETE: entra um segundo, separado.
+- REVISAO NOVA, nao edicao da 0030: ela fundiu na main a 2026-11-03 (84f3169), e
+  uma edicao no sitio e invisivel para uma base que ja a correu. DROP TRIGGER mais
+  CREATE TRIGGER, down_revision na ultima, e downgrade a repor a forma antiga.
+- Canario obrigatorio: desligado SO o order_state_log_sem_truncate, o UPDATE sem
+  linhas tem de passar. Com os dois ligados nenhum ensaio distingue quem mordeu.
+  O ALTER TABLE corre na ligacao transaccional e e revertido.
+- Acrescenta a mutacao: retirar o OR UPDATE tem de matar o ensaio novo. O
+  db/mutacoes.py ja leva sete mutacoes para a 0030 e o corredor chama-se com o
+  interpretador como primeiro argumento.
+- O SELECT do kamba_app no registo tem de continuar a passar: e o trigger
+  diferido order_transicao_registada que le a tabela, como invocador.
+- As duas notas da 0030 passam a descrever a forma nova, e a que aponta a lacuna
+  da 0029 para a divida 175 passa a dizer que tem credor (KAM-175).
+- Risca SO a metade do order_state_log na divida 176 de
+  docs/dividas-documentais.md. A divida 175 nao se risca aqui.
+Nao expandas escopo: as tres tabelas irmas da divida 176 (platform.audit_log do
+KAM-012, platform.tool_audit do KAM-028, dat.llm_call_log do KAM-030) NAO se
+tocam -- a barreira de uma tabela decide-se em quem a tem, e a llm_call_log e
+particionada e tem uma pergunta propria. O dicionario 02 section 3.43 nao muda.
+Testes: a recusa nova, as recusas que ja existiam, as duas sondas positivas, o
+canario nos dois sentidos, o catalogo depois do downgrade, a mutacao, gate 8 e
+gate 6.
+PR com o template da seccao 7 de specs/01_Engineering_Standards_e_Handoff.md, e com
+o titulo na forma tipo(KAM-176): descricao no imperativo.
+Commits: fix(KAM-176): ...
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | # | Risco / item | Estado | Ligação | Tratamento no epic |
@@ -1385,3 +1672,4 @@ Testes: contrato, isolamento, EXPLAIN, integração com idx fake. PR com o templ
 | 1.1 | Outubro 2026 | KAM-145: os **16** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
 | 1.2 | Novembro 2026 | **KAM-172:** a decisão que o bloco KAM-043 devolveu ao fundador está tomada — **ratificada a 2026-11-03**, em [`../docs/adr/ADR-L008-allowlist-de-colunas-em-unidade-menor.md`](../docs/adr/ADR-L008-allowlist-de-colunas-em-unidade-menor.md). O critério 1 do KAM-043 **não sai nem muda** e a revisão `0028` fica como está; a caixa do critério e o parágrafo que a explicava passam a citar a decisão em vez de a pedir. O bloco **KAM-044** leva a nota do que ela lhe obriga: o `orders_mirror.total_minor` paga uma linha na allowlist com a razão pela qual não é um saldo, em `bigint`, e um `total_kz` avermelha o *gate* 8. | Equipa KAMBÁ |
 | 1.3 | Novembro 2026 | **KAM-051: quatro dos oito critérios de aceitação caducaram e passam à forma canónica, sem que o ticket seja entregue.** O bloco foi escrito antes do KAM-043 e das emendas 1.11, 1.12 e 1.52 do dicionário, e pedia vocabulário que o §3.3 do `specs/02_Dicionario_de_Dados_Canonico.md` já põe em «Substitui»: o `preco_kz` e o mapeamento `fixo→exato` (critérios 1 e 5), que o `test_nao_ha_colunas_de_dinheiro_nem_saldos` do *gate* 8 recusa «sem excepção»; e uma coluna `disponibilidade` com quatro valores de máquina (critério 3), nome que o KAM-043 fundiu como texto de apresentação em três. O critério 7 fica **bloqueado e por marcar**: manda ler o stock do Registo «decidido em D3», e o D3 não está ratificado (§13.3 do `../docs/tecnica/00_Arquitectura_Solucao.md`) nem existe projecção de stock — a `platform.offer_terms` da `0028` não tem quantidade e as reservas são do KAM-045, aberto. A dependência em falta, `KAM-051 → KAM-045`, fica declarada nos Detalhes Técnicos e **não** no §4 do `INDICE`, que é onde o «Tratamento» do R14 manda declará-las. A decisão que o Contexto punha ao fundador — `preco_kz` no contrato da vista, ou `preco_minor` com a divisão onde se apresenta — **foi tomada na mesma data, a favor do `preco_minor`**, e o mecanismo de *allowlist* do KAM-172 foi ratificado, pelo que a vista vai para `platform` e paga uma entrada em `EM_UNIDADE_MENOR` quando existir. **Nenhuma caixa do KAM-051 é marcada.** **Três correcções à primeira versão desta emenda, todas achados da revisão adversarial:** ela afirmava que o `../docs/tecnica/05` escrevia `preco_kz` e que o `../docs/tecnica/03` escrevia `preco_modo` — os dois estão em nomes canónicos desde o KAM-139, e o vocabulário preterido vive neste bloco e no do KAM-061 de `EPIC-06_Indice_Pesquisa.md`; afirmava que `platform` era o único esquema, quando há quatro, e invertia o sinal do efeito — é **fora** de `platform` que a vista escapa ao *gate* 8; e classificava como INDÍCIO que o `information_schema.columns` inclua vistas, quando a entrada `("v_payment_events_audit", "valor_minor")` da *allowlist* já é a medição. **Fica por pagar, e é de outro epic:** os critérios do KAM-061 em `EPIC-06_Indice_Pesquisa.md` ainda pedem `preco_kz`, `max_preco_kz` e `fixo→exato`, e a alínea (c) da dívida 39 de `../docs/dividas-documentais.md` continua aberta. **E esta tabela tem um buraco de entradas que não é meu:** o KAM-041, o KAM-042, o KAM-043 e o KAM-047 alteraram o conteúdo deste documento e nenhum acrescentou linha. | Equipa KAMBÁ |
+| 1.4 | Novembro 2026 | **KAM-176** acrescentado, e **não entregue no mesmo PR**: o que se entrega é o ticket, não a correcção. Fecha a metade do `platform.order_state_log` da dívida 176 de [`../docs/dividas-documentais.md`](../docs/dividas-documentais.md) — a barreira *append-only* que o KAM-044 escreveu tem um `FOR EACH STATEMENT` em `BEFORE TRUNCATE OR DELETE`, pelo que o `DELETE` sem linhas é recusado e o `UPDATE` sem linhas devolve `UPDATE 0` e **passa**. **O defeito é uma dedução deixada a meio e não uma gralha**: o comentário imediatamente acima daquele `CREATE TRIGGER` escreve o argumento inteiro — um *trigger* por linha não dispara quando não há linhas — e o argumento vale letra por letra para o `UPDATE`. Medido a 2026-11-03 contra um PostgreSQL **18.6** real ao escrever o **KAM-175**, que é o credor da metade gémea na `platform.payment_events`. O ticket impõe `BEFORE TRUNCATE OR DELETE OR UPDATE … FOR EACH STATEMENT` numa **revisão nova** e não por edição da `0030`, e a razão está medida: a `0030` fundiu na `main` a 2026-11-03 (`84f3169`), pelo que uma edição no sítio é invisível para qualquer base que já a tenha corrido. **Três tabelas irmãs da dívida 176 não são deste ticket** — `platform.audit_log` (KAM-012), `platform.tool_audit` (KAM-028) e `dat.llm_call_log` (KAM-030), esta com uma pergunta própria por ser particionada. O `Bloqueia` do **KAM-044** passa a nomear o KAM-176, que é a reciprocidade da dependência. Nenhuma caixa do KAM-176 é marcada. | Equipa KAMBÁ |
