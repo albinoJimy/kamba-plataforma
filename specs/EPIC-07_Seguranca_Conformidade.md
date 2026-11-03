@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.10 |
+| Versão | 1.12 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -1067,7 +1067,7 @@ O `../docs/seguranca/validar.py` é a **única verificação por máquina** dos 
 assert len(KAM) == 138 and len(ADR) == 20 and len(DEC) == 13, (len(KAM), len(ADR), len(DEC))
 ```
 
-O *backlog* tem 172 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
+O *backlog* tem 174 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
 
 ```text
 AssertionError: (143, 20, 13)
@@ -1200,3 +1200,5 @@ Abre PR com o template do §7.
 | 1.8 | Outubro 2026 | **KAM-167: a contagem viva do §«Contexto» passa a 167 tickets**, e o campo de versão do cabeçalho deste epic passa a dizer a última linha desta tabela. São as duas faces do mesmo ticket: a contagem muda porque o *backlog* ganhou o KAM-167, e o cabeçalho estava em `1.0` desde a emissão inicial, entre as **19** últimas dispensas de `../ci/backlog-allow.yaml`. Esta linha existe porque o **conteúdo** deste documento mudou — é a fronteira que o KAM-167 escreve: os documentos cujo conteúdo muda ganham linha, e os que só tiveram o campo do cabeçalho corrigido não, porque o campo é metadado e não conteúdo. | Equipa KAMBÁ |
 | 1.9 | Novembro 2026 | **KAM-170: a contagem viva do §«Contexto» passa a 170 tickets**, e o campo de versão do cabeçalho acompanha, pela fronteira «conteúdo contra metadado» do KAM-167. E três citações de secção deste documento ficam corrigidas pelo portão novo: `../docs/logs.md` «§7.14» e «§7.5 e §7.6» referiam-se aos **pontos 14, 5 e 6 da lista do §7**, e o `logs.md` §7 não tem subsecções — passam a «§7, ponto 14» e «§7, pontos 5 e 6». | Equipa KAMBÁ |
 | 1.10 | Novembro 2026 | **KAM-171: a contagem viva do §«Contexto» passa a 171 tickets**, e o campo de versão do cabeçalho acompanha, pela fronteira «conteúdo contra metadado» do KAM-167. A frase que introduz o *traceback* do `../docs/seguranca/validar.py` passa a dizer que a saída foi capturada quando o `assert` ainda batia com a contagem da época: o primeiro elemento do tuplo é a contagem viva, pelo que a contagem desta secção desmentia o número citado no bloco logo abaixo. **O defeito do `assert` não é tocado aqui** — é o KAM-149, que está em aberto e tem dono. | Equipa KAMBÁ |
+| 1.11 | Novembro 2026 | **KAM-173: a contagem viva do §«Contexto» passa a 173 tickets**, e o campo de versao do cabecalho acompanha, pela fronteira «conteudo contra metadado» do KAM-167. **E a passagem anterior nao deixou linha**: o KAM-172 mudou a contagem de 171 para 172 sem acrescentar linha de versao nem mexer no cabecalho, que ficou em 1.10 — fica dito aqui em vez de corrigido em silencio, que e a classe de achado que a revisao adversarial do KAM-171 levantou sobre este mesmo documento. | Equipa KAMBÁ |
+| 1.12 | Novembro 2026 | Contagem viva do *backlog* actualizada de 172 para 173 tickets (**KAM-174** acrescentado ao EPIC-01), na frase do bloco do KAM-149 que cita o `assert` do verificador. É contagem derivada e não emenda de conteúdo: o número cresce a cada ticket novo, que é o defeito estrutural que a própria frase descreve. | Equipa KAMBÁ |

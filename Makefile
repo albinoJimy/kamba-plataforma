@@ -90,7 +90,8 @@ export PYTHONPATH := $(PYTHONPATH_ALL)
         nuke ps psql queue-cli smoke test test-py \
         test-ts typecheck up \
         ci-3b ci-3c canon-lint chatwoot-spike dict-export supply-chain ruleset \
-        log-lint money-lint env-lint x11 storage-contrato mermaid
+        log-lint money-lint env-lint x11 storage-contrato mermaid \
+        ordem-dos-ensaios
 
 ## help: lista os comandos disponiveis
 help:
@@ -599,10 +600,63 @@ dict-export:
 	@$(PYTHON) -c "import sys; sys.path.insert(0, 'tools'); from dict_export.cli import main; sys.exit(main(['--root', '$(ROOT)']))"
 
 ## ci-4: gate 4 — testes unitarios e cobertura
-ci-4: coverage-node coverage-python
+#
+# O `ordem-dos-ensaios` (KAM-173) entra aqui como pre-requisito e **nao como
+# job novo** no `.github/workflows/ci.yaml`: um job novo acrescenta um contexto
+# exigido ao *ruleset* de `main`, e isso e alteracao de regra de bloqueio, que
+# e decisao do fundador. E a mesma forma com que o `log-lint` entrou no gate 2
+# e o X-11 no gate 6. Vem **depois** do `coverage-python` de proposito: e esse
+# que exige a ordem de omissao verde, e sem essa metade um vermelho na ordem
+# inversa nao distingue «dependente da ordem» de «teste quebrado».
+ci-4: coverage-node coverage-python ordem-dos-ensaios
 	@echo "==> gate 4: cobertura contra ci/thresholds.yaml"
 	@if [ -x "$(VENV_PYTHON)" ]; then PY="$(VENV_PYTHON)"; else PY="$(PYTHON)"; fi; \
 	  "$$PY" tools/coverage_gate.py --root $(ROOT)
+
+## ordem-dos-ensaios: nenhuma suite passa pela ordem de carregamento (KAM-173)
+#
+# Duas metades, e a segunda e que faz dele portao:
+#
+#   canario   duas fixtures — uma **tem** de ficar vermelha na ordem inversa, e
+#             a outra **tem** de ficar verde nas duas. Sem a segunda, um
+#             verificador que declarasse tudo dependente da ordem passava o
+#             canario e nunca deixava fundir nada.
+#   check     cada suite outra vez, na ordem inversa, e exige verde.
+#
+# O canario corre **primeiro**, e com o Python do anfitriao: so biblioteca
+# padrao, e falha em milissegundos. Nao vale correr as suites para provar uma
+# propriedade cujo verificador nao se provou.
+#
+# As suites sao **duas**, e nao todas as que o `coverage-python` corre. A razao
+# esta medida em `specs/tickets/KAM-173.md`: as 18 de `$(SUITES_DE_TOOLS)` que
+# existiam antes deste alvo levam **1 911 s** numa passagem nesta maquina, e
+# **1 422 desses sao da `supply_chain`** — tres quartos do total numa suite so.
+# A execucao a mais nao duplicava o lado Python do gate 4: multiplicava-o.
+# Mediram-se mesmo assim, para a divida ser informada e nao cega: **as 18** sem
+# nenhuma mudanca de resultado, a `supply_chain` incluida (262 testes, 2 x
+# 1 422 s de relogio).
+#
+# shortcut: cobre `libs/py-core/tests` e `services/agr/tests`, e deixa de fora
+# as suites de `tools/*/tests` (esta inclusive) e as de `db/`; revisto ate
+# 2026-12-03 pelo Engenheiro de Plataforma, com a pergunta escrita no bloco do
+# KAM-173 — se os 1 911 s compram o que, e se a resposta e cobri-las aqui, numa
+# prova nocturna, ou nao as cobrir.
+#
+# **Um interpretador so, e a guarda do .venv vem primeiro.** A primeira versao
+# corria o canario com o $(PYTHON) do anfitriao e as suites com o
+# $(VENV_PYTHON): a prova de que o portao morde era feita num interpretador e a
+# medicao noutro, e nesta maquina os dois nem sao o mesmo (o .venv foi
+# construido em contentor). Achado da revisao adversarial.
+ordem-dos-ensaios:
+	@echo "==> ordem dos ensaios: as duas ordens, em processos proprios (KAM-173)"
+	@if [ ! -x "$(VENV_PYTHON)" ]; then \
+	  echo "    ERRO: $(VENV) nao existe. Corra 'make bootstrap'." >&2; exit 1; \
+	fi
+	@$(VENV_PYTHON) -m ordem_dos_ensaios canario
+	@$(VENV_PYTHON) -m ordem_dos_ensaios --root $(ROOT) check \
+	  --suite libs/py-core/tests --nome libs/py-core
+	@$(VENV_PYTHON) -m ordem_dos_ensaios --root $(ROOT) check \
+	  --suite services/agr/tests --nome services/agr
 
 ## coverage-node: mede cobertura dos pacotes e servicos Node (LCOV)
 coverage-node:
