@@ -3,7 +3,7 @@
 **Produto:** KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para o mercado angolano
 **Natureza:** Produto/plataforma standalone (sem cliente institucional)
 **Documentos-fonte:** conjunto técnico [`../docs/tecnica/`](../docs/tecnica/INDICE.md) e [`../docs/exploracao/14-tese-minima-e-plano-de-validacao.md`](../docs/exploracao/14-tese-minima-e-plano-de-validacao.md)
-**Versão do conjunto:** 1.40
+**Versão do conjunto:** 1.41
 **Data de emissão:** Outubro de 2026
 **Classificação:** Documento de Referência — Interno
 **Estado:** backlog **proposto** (nenhum ticket ratificado; ver `00_KAMBA_Carta.md` §6)
@@ -12,7 +12,7 @@
 
 ## 1. Propósito
 
-Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **172 tickets atómicos (KAM-001 a KAM-172)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
+Este conjunto materializa o **backlog executável** da KAMBÁ para a **Fase 0 (Fundação / esqueleto andante)** e a **Fase 1 (Piloto)**. Decompõe o trabalho em **173 tickets atómicos (KAM-001 a KAM-173)** distribuídos por **11 epics** (KAM-111 a KAM-117 foram acrescentados na consolidação, e o KAM-128 a KAM-148, e o KAM-149 depois dela; todos pertencem aos epics indicados no §3.1), cada um com critérios de aceitação SMART, Definition of Done, testes requeridos e prompt de handoff para o **Claude Code (CLI)**.
 
 O que **não** está aqui: a Fase 2 (Clusters) e a Fase 3 (Escala). Esses epics (geo e logística, estafetas, analytics e Score, índice federado, AdsEngine, vitrine SEO, API pública, Fluxo B) só se escrevem quando o **Gate do Piloto (KAM-110)** for verde. Está declarado em §6.
 
@@ -49,7 +49,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 
 | Epic | Range | N.º tickets | Fase |
 |------|-------|-------------|------|
-| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-172 | 57 | 0–1 |
+| EPIC-01 Fundações e Dados | KAM-001 – KAM-012, KAM-111, KAM-128 – KAM-148, KAM-150 – KAM-173 | 58 | 0–1 |
 | EPIC-02 Canais WhatsApp e Handoff | KAM-013 – KAM-024, KAM-115 | 13 | 0–1 |
 | EPIC-03 Agent Runtime e Verticais | KAM-025 – KAM-040, KAM-114 | 17 | 0–1 |
 | EPIC-04 Core de Comércio | KAM-041 – KAM-051 | 11 | 0–1 |
@@ -60,7 +60,7 @@ O backlog é a interface entre o conjunto técnico (`../docs/tecnica/`) e a exec
 | EPIC-09 Onboarding e Governação | KAM-086 – KAM-099, KAM-116, KAM-117 | 16 | 1 |
 | EPIC-10 Spikes, Validação e Gates | KAM-100 – KAM-110 | 11 | 0–1 |
 | EPIC-11 Módulos de Entrada | KAM-118 – KAM-127 | 10 | 1 |
-| **TOTAL** | **KAM-001 – KAM-172** | **172** | — |
+| **TOTAL** | **KAM-001 – KAM-173** | **173** | — |
 
 ### 3.2 Fases
 
@@ -140,6 +140,7 @@ Itens com tempo de espera externo (arrancam na **semana 1**, em paralelo ao cód
 | KAM-170 | As citações de secção (`§N`) passam a resolver-se por máquina, dentro do *gate* 3 | fix | S | P1 | 0 | — |
 | KAM-171 | A cobertura do instrumento e o predicado: as duas armadilhas de medição que a *skill* não avisava | fix | S | P1 | 0 | — |
 | KAM-172 | A allowlist de colunas `*_minor` em `platform`: ratificar ou recusar o afrouxamento de uma caixa do DoD | chore | S | P0 | 0 | — |
+| KAM-173 | Nenhum portão lê as mensagens dos *commits*, e o `commitlint` não corre em sítio nenhum | fix | S | P1 | 0 | KAM-002 |
 
 ### EPIC-02 — Canais WhatsApp e Handoff
 
@@ -384,3 +385,4 @@ Um defeito encontrado fora do escopo não é corrigido no meio de outro ticket: 
 | 1.38 | Novembro 2026 | **KAM-170** acrescentado e entregue no mesmo PR: as citações de secção (`§N`) passam a resolver-se por máquina dentro do `lint_refs`, que já corre no *gate* 3 — era a **quinta** família de citação deste conjunto e a única sem portão, com **8 157** ocorrências. O §4 ganha a linha, o §3.1 passa a `KAM-150 – KAM-170` com 55 no epic e 170 no total, o §1 acompanha, e a contagem de ficheiros de `tickets/` do §2 passa a **55**. | Equipa KAMBÁ |
 | 1.39 | Novembro 2026 | **KAM-171** acrescentado e entregue no mesmo PR: as **três** armadilhas de medição do dia 2026-11-02 passam a estar escritas na `software-factory`. Duas são de construção do instrumento e vão para as disciplinas sobre os *scripts* do `evidencia-e-verificacao.md`, que passam de duas a **quatro**: **dizer o que o instrumento não cobre** — os quatro desse dia ficam nomeados, e o pior foi um resolvedor que tentava uma posição onde a convenção usa duas, do que saiu uma dívida escrita sobre população vazia — e **definir o predicado antes de contar**, com os números que a `../docs/analises/ANALISE-46-KAM-105-alojamento-e-procedimento-apd.md` §7 arquiva: **zero** ligações com destino relativo à raiz em todo o conjunto, **268** ocorrências em **49** ficheiros da forma que a dívida chamava defeito, e **zero** da forma que ela implicava como correcta. A terceira é de leitura e vai para a linha **L3** do `admissao-e-linhas.md`, que passa de três a **quatro** armadilhas: `UNSTABLE` é o estado normal aqui, porque o *gate* 5 e a `vigia — prova nocturna` têm `continue-on-error` e ficam fora do `needs` da porta final, e os *gates* 4 e 8 são os dois últimos a chegar — o 8 sozinho levou 16 min 17 s no PR `#95`. **Nenhum portão novo e nenhuma dispensa**: o que falhou foi um instrumento do *scratchpad*, que não é ficheiro versionado e não tem superfície para um *linter* varrer. **A revisão adversarial reprovou a primeira versão com 22 achados — 10 CONFIRMADO, 2 PLAUSÍVEL, 10 MORTO — e os dez estão corrigidos**: o grave era da classe exacta do ticket, que escrevia «existiam oito citações» a promover a **reclamação** da dívida 158 a medição, quando as duas análises que ele cita dizem que das oito **zero** são defeito. O §4 do EPIC-01 ganha a linha, o §3.1 passa a `KAM-150 – KAM-171` com 56 no epic e 171 no total, o §1 acompanha, e a contagem de ficheiros de `tickets/` do §2 passa a **56**. | Equipa KAMBÁ |
 | 1.40 | Novembro 2026 | **KAM-172** acrescentado, e **não entregue no mesmo PR** — ao contrário do KAM-170 e do KAM-171, porque este não é de implementação. É um achado do KAM-043 que precisa do **fundador**: o `test_nao_ha_colunas_de_dinheiro_nem_saldos` de `../db/tests/test_catalogo.py`, caixa do DoD do **KAM-003**, afirmava que o esquema `platform` não tem coluna nenhuma terminada em `_minor` — e **passava por vazio**, porque nenhuma tabela de `platform` tinha dinheiro (o único `preco_minor` do repositório vivia em `servicos.services`, noutro esquema, que a consulta do teste não vê). O critério 1 do KAM-043 manda «valores em `bigint` minor», e as duas coisas não podem ser verdade ao mesmo tempo. O KAM-043 entregou a distinção (o ADR-004 proíbe **deter fundos** — saldos; um preço de catálogo não é um saldo) e a medição, com `saldo`, `balance` e `_kz` proibidos sem excepção e o `_minor` em allowlist declarada nos dois sentidos; **a decisão de a aceitar é de quem assina as regras de bloqueio**. P0 num ticket que não escreve código porque **três** tickets ficam atrás dele — o KAM-044 (`orders_mirror.total_minor`), o KAM-053 (o *ledger*, onde a distinção é mais difícil) e o KAM-055 (`payment_charges`) —, e uma recusa torna quatro tickets em conflito em vez de um. | Equipa KAMBÁ |
+| 1.41 | Novembro 2026 | **KAM-173** acrescentado, e **não entregue no mesmo PR**: é linha L1 — o ticket é o que se entrega, não a correcção. Fecha a dívida 173 de `../docs/dividas-documentais.md`, que a revisão adversarial do KAM-164 mediu de passagem: **nenhum portão de CI lê mensagens de *commit***. Os quatro factos, medidos a 2026-11-03 — o `make ci-2` corre `typecheck`, `lint-arch`, `log-lint`, `money-lint` e `env-lint`; o `lint-arch` corre `lint_arch --root . all`, que é «deps, structure, tool-schema, aliases e medusa»; o `commitlint` existe no `../package.json` e no `../commitlint.config.cjs`; e nenhum *workflow* nem alvo `make` o invoca. Com `squash_merge_commit_title: COMMIT_OR_PR_TITLE`, num PR de um **só** *commit* o assunto que vai para o `main` é o do *commit*, e a única imposição da forma é o *hook* local, que se dispensa com `--no-verify` e não existe antes de `make hooks` — pelo que o KAM-164 fecha o caminho do título e deixa este aberto. O ticket decide, sem implementar: entra no *gate* 2 pelo `lint-arch` e **sem *job* novo** (um *job* novo é contexto exigido no *ruleset*, e isso é regra de bloqueio); reusa o subcomando `commit-msg` e o `check_commit_message`, com a forma só no `../tools/conventions.json`; e o **intervalo não é o do *gate* 9**, porque o `base.sha` do evento faz o intervalo incluir *commits* de `main` quando `main` anda — varrer a mais é falso alarme para segredos e é fatal aqui, por o `main` conter o `29778f3`, que não se reescreve. P1, `fix`, depende do KAM-002. Total: 173 tickets (KAM-001 a KAM-173). | Equipa KAMBÁ |
