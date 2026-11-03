@@ -73,9 +73,60 @@ class TestArvoreReal(unittest.TestCase):
         """Criterio 4: «a soma dos `mem_limit` <= 80% da RAM (<= 25,6 GB)»."""
         dados = lint.ler(RAIZ)
         soma = sum(s.memoria_mib for s in dados.manifesto.values())
-        tecto = dados.host_ram_mib * dados.fraccao_maxima_pct / 100
+        tecto = lint.HOST_RAM_MIB * lint.FRACCAO_MAXIMA_PCT / 100
         self.assertLessEqual(soma, tecto)
         self.assertEqual(tecto, 26214.4, "80% de 32 GiB")
+
+    def test_o_tecto_vem_do_codigo_e_nao_do_manifesto(self) -> None:
+        """A prova deixou de ser circular.
+
+        A revisão adversarial mediu que subir `fraccao_maxima_pct` de 80 para
+        95, ou `host_ram_mib` de 32768 para 65536, punha o *lint* verde: os dois
+        lados da comparação vinham do **mesmo ficheiro** que a regra lê. Hoje o
+        tecto está em código e o manifesto tem de concordar com ele.
+        """
+        self.assertEqual(lint.HOST_RAM_MIB, 32768, "perfil P0 do doc 09 §4.4")
+        self.assertEqual(lint.FRACCAO_MAXIMA_PCT, 80, "o critério 4 fixa 80%")
+        dados = lint.ler(RAIZ)
+        self.assertEqual(dados.host_ram_mib, lint.HOST_RAM_MIB)
+        self.assertEqual(dados.fraccao_maxima_pct, lint.FRACCAO_MAXIMA_PCT)
+
+    def test_a_reserva_real_conta_as_replicas(self) -> None:
+        """O `mem_limit` é **por contentor**, e o `deploy.replicas` é honrado.
+
+        Este é o teste que faltava quando a revisão adversarial encontrou o
+        defeito: a soma contava o total de cada serviço **uma vez**, e o GWY
+        reservava 2×512 MiB onde o bloco propõe «2×0,25 GB». Prende-se a
+        reconciliação nos três sentidos — o total do manifesto, o total só dos
+        presentes, e `mem_limit × replicas` lido do compose.
+        """
+        dados = lint.ler(RAIZ)
+        presentes = {n: s for n, s in dados.manifesto.items() if s.estado == "presente"}
+
+        do_compose = 0
+        for nome, (_no, chaves) in dados.prod.servicos.items():
+            bruto = lint._valor(dados.prod, chaves, "mem_limit")
+            self.assertIsNotNone(bruto, nome)
+            por_contentor = lint._memoria_mb(bruto or "")
+            self.assertIsNotNone(por_contentor, f"{nome}: {bruto!r}")
+            replicas = lint._replicas(dados, chaves)
+            do_compose += int(por_contentor or 0) * replicas
+            # E cada serviço, um a um: total do manifesto == limite × réplicas.
+            self.assertAlmostEqual(
+                (por_contentor or 0) * replicas,
+                float(presentes[nome].memoria_mib),
+                delta=0.5,
+                msg=f"{nome}: {bruto} x {replicas} != {presentes[nome].memoria_mib} MiB",
+            )
+
+        self.assertEqual(do_compose, 20736, "a reserva real dos 14 presentes, em MiB")
+        self.assertEqual(sum(s.memoria_mib for s in presentes.values()), 20736)
+        self.assertLessEqual(do_compose, 26214.4)
+
+    def test_o_gwy_e_o_agr_tem_duas_replicas_no_manifesto(self) -> None:
+        dados = lint.ler(RAIZ)
+        for nome in sorted(lint.DUAS_REPLICAS):
+            self.assertEqual(dados.manifesto[nome].replicas, 2, nome)
 
     def test_a_configuracao_do_proxy_esta_em_dia_face_a_allowlist(self) -> None:
         """O gerado e versionado: divergir e um achado, nao uma surpresa."""

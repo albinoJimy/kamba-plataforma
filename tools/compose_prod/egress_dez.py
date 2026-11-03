@@ -344,9 +344,39 @@ def correr(raiz: Path, manter: bool = False) -> int:
                     "ser `internal: true` (doc 09 §3.2 regra 2)."
                 )
 
+        # ------------------------- `edge` tem rota, e isso **mede-se** tambem
+        #
+        # O criterio 3 nomeia **quatro** redes e a primeira versao deste guiao
+        # sondava duas. A `edge` tem rota de saida por desenho — e dela que o
+        # `proxy-saida` sai e e nela que o `proxy-tls` publica 443 —, pelo que
+        # nao se exige que esteja fechada. Mede-se e diz-se, porque o que nao
+        # se mede fica a parecer fechado: um contentor em `edge` alcanca a
+        # Internet **sem passar pela allowlist e sem deixar linha no
+        # `access_log`**. Achado da revisao adversarial.
+        #
+        # O que **garante** que isso nao se espalha e a regra `servico-em-edge`
+        # do lint, que so la deixa estar o `proxy-tls` e o `proxy-saida`.
+        de_edge = _sonda("edge", _SONDA_DATA, nomes)
+        abertos_em_edge = [f for f in nomes if de_edge.get(f, {}).get("tcp") == "ABERTO"]
+        print(
+            "\n-- de um contentor em `edge` (sem proxy): tem rota, por desenho — "
+            "e e por isso que so dois servicos podem estar la"
+        )
+        print(
+            f"   medido  {len(abertos_em_edge)} de {len(nomes)} destinos abertos "
+            f"directamente, sem allowlist e sem registo: {abertos_em_edge or 'nenhum'}"
+        )
+        print(
+            "   nota    quem garante que isto nao se espalha e a regra "
+            "`servico-em-edge` do lint (so `proxy-tls` e `proxy-saida`), e nao esta "
+            "sonda"
+        )
+
         # -------------------------------------- `app` sai so pela allowlist
         de_app = _sonda("app", _SONDA_APP, nomes)
         print("\n-- de `app`, pelo proxy: so a allowlist passa")
+        alcancados = 0
+        inalcancaveis: list[str] = []
         for destino in DESTINOS:
             fqdn = destino["fqdn"]
             registo = de_app.get(fqdn, {})
@@ -362,11 +392,47 @@ def correr(raiz: Path, manter: bool = False) -> int:
                     f"`{fqdn}` **nao** esta na allowlist e o proxy respondeu "
                     f"{estado} em vez de 403. {destino['razao']}"
                 )
-            esperado = "passa" if destino["permitido"] else "403"
-            correcto = (not recusado) if destino["permitido"] else recusado
+            # **200 nao e o mesmo que «nao-403», e a diferenca importa.** Um 503
+            # (`dns_resolution_failure`, `connection_timeout`) tambem nao e 403,
+            # e com a regra antiga contava como «permitido» — pelo que o guiao
+            # dava verde sobre um destino que o proxy **nao alcanca**. Foi a
+            # revisao adversarial a medi-lo: `graph.facebook.com` a 503 por
+            # cache de DNS fria, com o relatorio a dizer «4 permitidos, todos
+            # com o veredicto esperado».
+            if destino["permitido"]:
+                if estado == 200:
+                    alcancados += 1
+                elif not recusado:
+                    inalcancaveis.append(f"{fqdn} ({estado})")
+            esperado = "200" if destino["permitido"] else "403"
+            if destino["permitido"]:
+                marca = "ok    " if estado == 200 else ("FALHA " if recusado else "INALC.")
+            else:
+                marca = "ok    " if recusado else "FALHA "
             print(
-                f"   {'ok    ' if correcto else 'FALHA '} {fqdn:40s} "
+                f"   {marca} {fqdn:40s} "
                 f"esperado={esperado:5s} obtido={estado} ({registo.get('linha', '')[:40]})"
+            )
+
+        permitidos_total = sum(1 for d in DESTINOS if d["permitido"])
+        if inalcancaveis:
+            print(
+                f"\n   AVISO: {len(inalcancaveis)} destino(s) da allowlist nao foram "
+                f"alcancados (nao e 403, mas tambem nao e 200): {inalcancaveis}.\n"
+                "   O proxy deixou passar e a ligacao nao chegou. Em producao isto e "
+                "uma mensagem perdida."
+            )
+        # O controlo que torna a metade positiva significativa: se **nenhum**
+        # destino da allowlist foi alcancado, nao se distingue «a allowlist
+        # permite» de «esta maquina nao tem saida». Nesse caso o guiao diz
+        # `inconclusivo` em vez de verde — a mesma regra que o KAM-078 aplica
+        # as falhas da Meta no *smoke*.
+        if permitidos_total and alcancados == 0:
+            falhas.append(
+                "INCONCLUSIVO na metade positiva: nenhum dos "
+                f"{permitidos_total} destinos da allowlist devolveu 200. Nao se "
+                "distingue «a allowlist permite» de «esta maquina nao tem saida», e "
+                "um verde aqui afirmaria o que nao se mediu."
             )
 
         # ------------------------------- e as recusas ficaram **registadas**
@@ -440,8 +506,11 @@ def correr(raiz: Path, manter: bool = False) -> int:
         return 1
     permitidos = sum(1 for d in DESTINOS if d["permitido"])
     print(
-        f"compose_prod egress-dez: {len(DESTINOS)} destinos, {permitidos} permitidos e "
-        f"{len(DESTINOS) - permitidos} recusados, todos com o veredicto esperado e "
-        "cada recusa registada"
+        f"compose_prod egress-dez: {len(DESTINOS)} destinos, {permitidos} permitidos "
+        f"(**{alcancados} alcancados com 200**) e {len(DESTINOS) - permitidos} "
+        "recusados com 403, cada recusa registada no access_log. De `data` nenhuma "
+        f"ligacao passa; de `edge` passam {len(abertos_em_edge)} de {len(nomes)} "
+        "directamente, por desenho e sem registo — so o `proxy-tls` e o `proxy-saida` "
+        "podem estar la, e e o lint que o garante."
     )
     return 0

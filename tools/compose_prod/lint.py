@@ -97,6 +97,55 @@ CAPACIDADES_PERMITIDAS: dict[str, frozenset[str]] = {
     "proxy-tls": frozenset({"NET_BIND_SERVICE"}),
 }
 
+#: Chaves que, num servico, desfazem o isolamento que os criterios 3 e 4
+#: constroem. **Nenhuma pode aparecer**, e nao ha excepcao nomeada: se alguma
+#: vier a ser necessaria, entra aqui com a razao, como as capacidades.
+#:
+#: NASCEU DE UM BURACO MEDIDO. A primeira versao deste lint verificava o
+#: utilizador, os limites e as capacidades acrescentadas — e **passava em
+#: silencio** por `privileged: true`, por `network_mode: host`, por `pid: host`
+#: e pelo `cap_drop: ALL` simplesmente apagado. O `network_mode: host` e o pior
+#: dos quatro: um contentor com ele nao esta em rede nenhuma do compose, pelo
+#: que as quatro redes do criterio 3 deixam de o conter — e o guiao dos dez
+#: destinos continuaria verde, porque mede o proxy e nao aquele servico.
+CHAVES_DE_FUGA: dict[str, str] = {
+    "privileged": "um contentor privilegiado tem todas as capacidades e acesso aos dispositivos do *host*",
+    "network_mode": "tira o servico das redes do compose; com `host` as quatro redes do criterio 3 deixam de o conter",
+    "pid": "partilhar o espaco de PIDs do *host* deixa o contentor ver e sinalizar processos de fora",
+    "ipc": "partilhar o IPC do *host* abre memoria partilhada entre o contentor e a maquina",
+    "userns_mode": "desfaz o mapeamento de utilizadores, e com ele o valor de correr nao-root",
+    "cgroup": "partilhar o cgroup do *host* desfaz os limites do criterio 4",
+    "devices": "expor um dispositivo do *host* e expor o *host*",
+    "device_cgroup_rules": "idem, pela regra de cgroup",
+    # As tres seguintes vieram da revisao adversarial, que as atravessou todas.
+    "dns": "um resolvedor proprio contorna o DNS do compose, e com ele a allowlist por FQDN do proxy",
+    "extra_hosts": "fixar um IP para um FQDN engana a allowlist: o `:authority` continua permitido e o destino e outro",
+    "dns_search": "um dominio de busca proprio muda o que um nome curto resolve",
+}
+
+#: O que **tem** de estar em todos os servicos, e o valor que conta.
+#: `read_only` nao esta aqui: ja e `fs-so-de-leitura` do `supply_chain runtime`.
+CAP_DROP_EXIGIDO = "ALL"
+SECURITY_OPT_EXIGIDO = "no-new-privileges:true"
+
+#: Montar isto num contentor e dar-lhe o *daemon* do Docker, e com ele a
+#: maquina inteira. Nenhum servico do conjunto reduzido precisa.
+SOCKET_DO_DOCKER = "/var/run/docker.sock"
+
+#: O tecto do criterio 4, **em codigo**, para que os dois lados da comparacao
+#: nao venham do mesmo ficheiro que a regra le.
+#:
+#: NASCEU DE UMA PROVA CIRCULAR MEDIDA. O manifesto declara `host_ram_mib` e
+#: `fraccao_maxima_pct`, e a regra comparava a soma contra eles: subir
+#: `fraccao_maxima_pct` de 80 para 95, ou `host_ram_mib` de 32768 para 65536,
+#: punha o lint verde sobre uma pilha que nao cabe. Os numeros do criterio —
+#: «<= 80% da RAM do *host* (<= 25,6 GB em 32 GB)» e o perfil P0 de 32 GB do
+#: `docs/tecnica/09` §4.4 — passam a estar aqui, e o manifesto tem de concordar
+#: com eles. Mudar o tecto deixa de ser uma linha de YAML: e uma alteracao de
+#: codigo, que se ve numa revisao.
+HOST_RAM_MIB = 32 * 1024
+FRACCAO_MAXIMA_PCT = 80
+
 #: ADR-001: o Chatwoot nunca fala com a Meta; o GWY e o unico endpoint. Estas
 #: tres variaveis dao-lhe um caminho proprio para o mesmo numero.
 META_NO_CHATWOOT = ("WHATSAPP_APP_ID", "WHATSAPP_CONFIGURATION_ID", "WHATSAPP_APP_SECRET")
@@ -139,13 +188,19 @@ class Achado:
 
 @dataclass(frozen=True)
 class Servico:
-    """Um servico do manifesto `conjunto-reduzido.yaml`."""
+    """Um servico do manifesto `conjunto-reduzido.yaml`.
+
+    `memoria_mib` e o **total do servico**; `replicas` diz por quantos
+    contentores esse total se divide. A distincao custou um defeito: ver a nota
+    no cabecalho do manifesto.
+    """
 
     nome: str
     estado: str
     memoria_mib: int
     rede: str | None
     ticket: str | None
+    replicas: int = 1
 
 
 @dataclass
@@ -212,7 +267,23 @@ def _ler_manifesto(raiz: Path) -> tuple[dict[str, Servico], dict[str, str], floa
             raise ConfiguracaoInvalida(
                 f"{MANIFESTO}: `{nome}` sem `memoria_mib` legivel (inteiro, em MiB)"
             ) from excepcao
-        servicos[nome] = Servico(nome, estado, memoria, item.get("rede"), item.get("ticket"))
+        try:
+            replicas = int(item.get("replicas") or 1)
+        except (TypeError, ValueError) as excepcao:
+            raise ConfiguracaoInvalida(
+                f"{MANIFESTO}: `{nome}` tem `replicas` ilegivel"
+            ) from excepcao
+        if replicas < 1:
+            raise ConfiguracaoInvalida(f"{MANIFESTO}: `{nome}` tem `replicas` < 1")
+        if memoria % replicas:
+            raise ConfiguracaoInvalida(
+                f"{MANIFESTO}: `{nome}` tem {memoria} MiB para {replicas} replicas, "
+                "que nao divide em inteiros — o `mem_limit` por contentor nao daria "
+                "um numero exacto e a soma deixaria de fechar."
+            )
+        servicos[nome] = Servico(
+            nome, estado, memoria, item.get("rede"), item.get("ticket"), replicas
+        )
 
     proibidos: dict[str, str] = {}
     for item in dados.get("proibidos") or []:
@@ -371,6 +442,18 @@ def _ambiente(ficheiro: compose_mod.Compose, chaves: dict) -> dict[str, str]:
 def _linha(chaves: dict, chave: str, por_omissao: int) -> int:
     no = chaves.get(chave)
     return no.linha if no is not None else por_omissao
+
+
+def _replicas(dados: Dados, chaves: dict) -> int:
+    """`deploy.replicas` do compose, ou 1. **E honrado fora de swarm** (medido)."""
+    deploy = _submapa(dados.prod, chaves, "deploy")
+    if "replicas" not in deploy:
+        return 1
+    texto = dados.prod.documento.resolver(deploy["replicas"]).texto()
+    try:
+        return int(texto)
+    except ValueError:
+        return 1
 
 
 # -------------------------------------------------------------------- regras
@@ -535,6 +618,19 @@ def r_redes_declaradas(dados: Dados) -> list[Achado]:
                     "nao tem por onde sair.",
                 )
             )
+
+    # E **nenhuma** alem das quatro. A revisao adversarial atravessou isto: uma
+    # quinta rede sem `internal`, com um servico de `app` dentro, dava-lhe saida
+    # directa — e o guiao dos dez destinos continuava verde, porque sonda `app`.
+    for rede in sorted(set(declaradas) - set(REDES)):
+        achados.append(
+            Achado(
+                "rede-nao-declarada", dados.prod.ficheiro, declaradas[rede].linha,
+                f"a rede `{rede}` nao e uma das quatro do `docs/tecnica/09` §3.2 "
+                "regra 2. Uma rede a mais e um caminho de saida que nenhuma regra "
+                "verifica e que o guiao dos dez destinos nao sonda.",
+            )
+        )
     return achados
 
 
@@ -560,6 +656,28 @@ def r_redes_por_servico(dados: Dados) -> list[Achado]:
                     f"o servico `{nome}` esta em `edge`, que e a unica rede com rota "
                     f"para fora. So {', '.join(sorted(SO_EM_EDGE))} podem estar la: "
                     "qualquer outro ganha um caminho de saida que o proxy nao registar.",
+                )
+            )
+        # Uma rede que o topo nao declara, num servico. A `r_redes_declaradas`
+        # olha para o topo; esta olha para quem as usa.
+        for rede in sorted(redes - set(REDES)):
+            achados.append(
+                Achado(
+                    "rede-nao-declarada", dados.prod.ficheiro, linha,
+                    f"o servico `{nome}` esta na rede `{rede}`, que nao e uma das "
+                    "quatro. Uma rede a mais e um caminho que nenhuma regra verifica.",
+                )
+            )
+        # O manifesto diz em que rede o servico vive; se disser uma e o compose
+        # nao a tiver, uma das duas esta errada e vale saber qual.
+        esperada = dados.manifesto.get(nome).rede if nome in dados.manifesto else None
+        if esperada and esperada not in redes:
+            achados.append(
+                Achado(
+                    "rede-divergente-do-manifesto", dados.prod.ficheiro, linha,
+                    f"o manifesto poe `{nome}` em `{esperada}` e o compose tem-no em "
+                    f"{sorted(redes)}. O manifesto e a fonte do criterio 1: divergir "
+                    "aqui faz a leitura dele descrever outra topologia.",
                 )
             )
         if nome in SO_EM_DATA and redes != {"data"}:
@@ -589,6 +707,21 @@ def r_saida_pelo_proxy(dados: Dados) -> list[Achado]:
                     f"o servico `{nome}` declara destinos em egress.yaml e o seu "
                     f"`{VARIAVEL_DE_SAIDA}` e {valor!r} e nao {PROXY_ESPERADO!r}. "
                     "O contrato ficava num ficheiro e a rota noutro.",
+                )
+            )
+        # `NO_PROXY: "*"` tira **tudo** do proxy, e e uma linha. A revisao
+        # adversarial atravessou-a: o `saida-sem-proxy` ve o `HTTPS_PROXY`
+        # correcto ao lado e nao olha para o que o desliga.
+        sem_proxy = ambiente.get("NO_PROXY", "")
+        entradas = {e.strip() for e in sem_proxy.split(",")}
+        if "*" in entradas:
+            achados.append(
+                Achado(
+                    "no-proxy-aberto", dados.prod.ficheiro,
+                    _linha(chaves, "environment", no.linha),
+                    f"o `NO_PROXY` de `{nome}` tem `*`, o que tira **todos** os "
+                    "destinos do proxy de saida. O `HTTPS_PROXY` ao lado passa a ser "
+                    "decoracao, e a allowlist do criterio 3 deixa de se aplicar.",
                 )
             )
 
@@ -681,6 +814,60 @@ def r_endurecimento(dados: Dados) -> list[Achado]:
                     "razao, ou nao entra.",
                 )
             )
+
+        # O que tem de estar, e que a primeira versao deste lint nao exigia:
+        # apagar o `cap_drop: ALL` ou o `no-new-privileges` passava em silencio.
+        largadas = {c.strip().upper() for c in _lista(dados.prod, chaves, "cap_drop")}
+        if CAP_DROP_EXIGIDO not in largadas:
+            achados.append(
+                Achado(
+                    "sem-cap-drop", dados.prod.ficheiro, no.linha,
+                    f"o servico `{nome}` nao tem `cap_drop: [{CAP_DROP_EXIGIDO}]`. Sem "
+                    "isso corre com o conjunto de capacidades por omissao do Docker, e "
+                    "o `capacidade-acrescentada` ao lado nao serve de nada: nao e "
+                    "preciso **acrescentar** uma capacidade que nunca foi largada.",
+                )
+            )
+        opcoes = {o.strip() for o in _lista(dados.prod, chaves, "security_opt")}
+        if SECURITY_OPT_EXIGIDO not in opcoes:
+            achados.append(
+                Achado(
+                    "sem-no-new-privileges", dados.prod.ficheiro, no.linha,
+                    f"o servico `{nome}` nao tem `security_opt: [{SECURITY_OPT_EXIGIDO}]`. "
+                    "Sem isso um binario com `setuid` dentro da imagem pode elevar "
+                    "privilegio a partir de um processo nao-root.",
+                )
+            )
+
+        # E o que nao pode estar. Cada uma destas desfaz o isolamento que os
+        # criterios 3 e 4 constroem, e nenhuma e apanhada por outra regra.
+        for chave, razao in sorted(CHAVES_DE_FUGA.items()):
+            if chave not in chaves:
+                continue
+            valor = _valor(dados.prod, chaves, chave) or "(presente)"
+            achados.append(
+                Achado(
+                    "fuga-de-isolamento", dados.prod.ficheiro,
+                    _linha(chaves, chave, no.linha),
+                    f"o servico `{nome}` declara `{chave}: {valor}`. {razao}. Nenhum "
+                    "servico do conjunto reduzido precisa desta chave; se algum vier "
+                    "a precisar, entra em CHAVES_DE_FUGA com a razao, como as "
+                    "capacidades.",
+                )
+            )
+
+        # O socket do Docker: dar o *daemon* a um contentor e dar-lhe a maquina.
+        for montagem in _lista(dados.prod, chaves, "volumes"):
+            if SOCKET_DO_DOCKER in montagem:
+                achados.append(
+                    Achado(
+                        "fuga-de-isolamento", dados.prod.ficheiro,
+                        _linha(chaves, "volumes", no.linha),
+                        f"o servico `{nome}` monta `{SOCKET_DO_DOCKER}`. Quem fala com "
+                        "o *daemon* do Docker pode levantar um contentor privilegiado, "
+                        "e com ele sair de todo o isolamento deste ficheiro.",
+                    )
+                )
     return achados
 
 
@@ -705,21 +892,53 @@ def r_memoria(dados: Dados) -> list[Achado]:
                 )
             )
             continue
-        esperado = float(dados.manifesto[nome].memoria_mib)
+        servico = dados.manifesto[nome]
+        # O `mem_limit` e **por contentor**; o manifesto declara o total do
+        # servico. Multiplicar pelas replicas e o que o defeito do §4 da
+        # evidencia ensinou: sem isto, o GWY reservava o dobro do que o bloco
+        # propoe e a soma nao dava por isso.
+        replicas_do_compose = _replicas(dados, chaves)
+        if replicas_do_compose != servico.replicas:
+            achados.append(
+                Achado(
+                    "replicas-divergentes", dados.prod.ficheiro, no.linha,
+                    f"`{nome}` corre com {replicas_do_compose} replica(s) no compose e "
+                    f"o manifesto diz {servico.replicas}. A soma do criterio 4 "
+                    "multiplica o `mem_limit` pelas replicas do **manifesto**: "
+                    "divergir aqui faz a soma medir outra pilha.",
+                )
+            )
+        esperado = servico.memoria_mib / servico.replicas
         if abs(medido - esperado) > 0.5:
             achados.append(
                 Achado(
                     "memoria-divergente", dados.prod.ficheiro,
                     _linha(chaves, "mem_limit", no.linha),
-                    f"o `mem_limit` de `{nome}` e `{bruto}` ({medido:.0f} MiB) e o "
-                    f"manifesto diz {dados.manifesto[nome].memoria_mib} MiB "
-                    f"({esperado:.0f} MiB). A soma do criterio 4 conta-se do "
-                    "manifesto: divergir aqui faz a soma medir outra pilha.",
+                    f"o `mem_limit` de `{nome}` e `{bruto}` ({medido:.0f} MiB por "
+                    f"contentor) e o manifesto diz {servico.memoria_mib} MiB para "
+                    f"{servico.replicas} replica(s), ou seja {esperado:.0f} MiB cada. "
+                    "O `mem_limit` do compose e **por contentor**, e o "
+                    "`deploy.replicas` e honrado fora de swarm: contar o total uma "
+                    "vez por servico subestima a reserva no *host*.",
                 )
             )
 
+    # O manifesto tem de concordar com os numeros do criterio, que estao em
+    # codigo. Sem isto, subir uma linha de YAML punha o tecto onde se quisesse.
+    if (dados.host_ram_mib, dados.fraccao_maxima_pct) != (HOST_RAM_MIB, FRACCAO_MAXIMA_PCT):
+        achados.append(
+            Achado(
+                "tecto-alterado", MANIFESTO, 0,
+                f"o manifesto diz `host_ram_mib: {dados.host_ram_mib}` e "
+                f"`fraccao_maxima_pct: {dados.fraccao_maxima_pct}`, e o criterio 4 fixa "
+                f"{HOST_RAM_MIB} MiB (perfil P0, doc 09 §4.4) e {FRACCAO_MAXIMA_PCT}%. "
+                "Os dois lados da comparacao nao podem vir do mesmo ficheiro que a "
+                "regra le: mudar o tecto e alteracao de codigo, nao de YAML.",
+            )
+        )
+
     soma = sum(s.memoria_mib for s in dados.manifesto.values())
-    tecto = dados.host_ram_mib * dados.fraccao_maxima_pct / 100
+    tecto = HOST_RAM_MIB * FRACCAO_MAXIMA_PCT / 100
     if soma > tecto + 1e-9:
         achados.append(
             Achado(

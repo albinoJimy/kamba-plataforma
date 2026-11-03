@@ -67,7 +67,7 @@ divergem da árvore real sem que nada avise, deixando o canário verde sobre uma
 configuração que já não se parece com a que o *gate* verifica.
 
 Por mutação parte-se da árvore **real**, muda-se uma coisa e exige-se o achado.
-Trinta e quatro casos, e cada um tem de:
+Quarenta e cinco casos, e cada um tem de:
 
 1. **aplicar-se** — se o texto que troca já não existe, é falha (`NaoSeAplica`),
    nunca um verde. É a armadilha própria desta forma, e é esta a rede;

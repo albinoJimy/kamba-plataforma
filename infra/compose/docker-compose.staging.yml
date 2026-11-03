@@ -166,7 +166,7 @@ services:
     networks:
       - app
       - data
-    mem_limit: 512m
+    mem_limit: 256m
     cpus: 1.0
     healthcheck:
       test:
@@ -240,7 +240,7 @@ services:
     networks:
       - app
       - data
-    mem_limit: 2560m
+    mem_limit: 1280m
     cpus: 2.0
     healthcheck:
       test:
@@ -523,7 +523,11 @@ services:
     mem_limit: 1024m
     cpus: 1.0
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9333/cluster/status || exit 1"]
+      # **As duas portas, e nao so a do master.** A sonda antiga interrogava
+      # so o `9333` (master) e o gateway S3 do `8333` podia estar morto com o
+      # contentor `healthy` — e o S3 e a unica coisa que o `StorageProvider`
+      # usa. Achado da revisao adversarial.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9333/cluster/status && wget -q -O /dev/null http://127.0.0.1:8333/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12

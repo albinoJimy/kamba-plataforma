@@ -105,11 +105,22 @@ class Caso:
 # aqui para que a mutacao mude **uma** coisa: um servico acrescentado sem
 # `user`, `mem_limit` e `cpus` disparava quatro regras e nao provava nenhuma.
 def _servico(nome: str, extra: str = "") -> str:
+    """Um servico **completo e endurecido**, para a mutacao mudar uma coisa so.
+
+    O `cap_drop` e o `security_opt` entraram depois: sem eles, acrescentar um
+    servico disparava tambem `sem-cap-drop` e `sem-no-new-privileges`, e tres
+    casos deixavam de provar o que diziam provar. Foi o proprio canario a
+    apanha-lo, com a regra de «as regras que declarou, e so essas».
+    """
     return f"""
   {nome}:
     image: caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
     read_only: true
     user: "1000:1000"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     networks:
       - app
     mem_limit: 512m
@@ -196,7 +207,9 @@ CASOS: tuple[Caso, ...] = (
     # --------------------------------------------------- criterio 3: redes
     Caso(
         "rede-em-falta",
-        frozenset({"rede-em-falta"}),
+        # Renomear a rede faz as duas coisas, e as duas sao verdade: a `ops`
+        # desaparece **e** aparece uma rede que nao e das quatro.
+        frozenset({"rede-em-falta", "rede-nao-declarada"}),
         "a rede `ops` deixa de estar declarada",
         lambda c: c.trocar(lint.PROD, r"^  ops:$", "  ops-desligada:"),
     ),
@@ -315,6 +328,95 @@ CASOS: tuple[Caso, ...] = (
             "    cap_add:\n      - SYS_ADMIN\n    mem_limit: 1024m",
         ),
     ),
+    # ------------------------------------------------- as fugas de isolamento
+    #
+    # Os cinco casos seguintes nasceram de um **buraco medido**: a primeira
+    # versao deste lint passava em silencio por todos eles. O `network_mode:
+    # host` e o pior — um contentor com ele nao esta em rede nenhuma do
+    # compose, pelo que as quatro redes do criterio 3 deixam de o conter, e o
+    # guiao dos dez destinos continuaria verde porque mede o proxy e nao aquele
+    # servico.
+    Caso(
+        "sem-cap-drop",
+        frozenset({"sem-cap-drop"}),
+        "o `cap_drop: ALL` e simplesmente apagado",
+        lambda c: c.trocar(lint.PROD, r"^  cap_drop:\n    - ALL\n", ""),
+    ),
+    Caso(
+        "sem-no-new-privileges",
+        frozenset({"sem-no-new-privileges"}),
+        "o `no-new-privileges` e apagado e um setuid volta a poder elevar",
+        lambda c: c.trocar(lint.PROD, r"^  security_opt:\n    - no-new-privileges:true\n", ""),
+    ),
+    Caso(
+        "fuga-privileged",
+        frozenset({"fuga-de-isolamento"}),
+        "um servico passa a `privileged: true`",
+        lambda c: c.trocar(
+            lint.PROD, r"^    mem_limit: 1024m$", "    privileged: true\n    mem_limit: 1024m"
+        ),
+    ),
+    Caso(
+        "fuga-network-mode",
+        frozenset({"fuga-de-isolamento"}),
+        "um servico sai das quatro redes com `network_mode: host`",
+        lambda c: c.trocar(
+            lint.PROD, r"^    mem_limit: 1024m$", "    network_mode: host\n    mem_limit: 1024m"
+        ),
+    ),
+    # Os cinco casos seguintes vieram todos da **revisao adversarial**, que os
+    # atravessou. O mais caro era o primeiro: o `mem_limit` e por contentor e a
+    # soma contava-o uma vez por servico, pelo que o GWY reservava o dobro do
+    # que o bloco propoe e o conjunto passava o tecto em 922 MiB **com o lint a
+    # zero achados**.
+    Caso(
+        "replicas-divergentes",
+        frozenset({"replicas-divergentes", "sem-duas-replicas"}),
+        "as replicas do compose deixam de bater com as do manifesto",
+        lambda c: c.trocar(lint.PROD, r"^      replicas: 2$", "      replicas: 3"),
+    ),
+    Caso(
+        "memoria-por-contentor",
+        frozenset({"memoria-divergente"}),
+        "o `mem_limit` passa a ser o total do servico em cada replica",
+        lambda c: c.trocar(
+            lint.PROD, r"^    mem_limit: 256m\n    cpus: 1\.0$", "    mem_limit: 512m\n    cpus: 1.0"
+        ),
+    ),
+    Caso(
+        "tecto-alterado",
+        frozenset({"tecto-alterado"}),
+        "o tecto do criterio 4 e aberto numa linha de YAML",
+        # A prova circular que a revisao encontrou: os dois lados da comparacao
+        # vinham do mesmo ficheiro que a regra le.
+        lambda c: c.trocar(lint.MANIFESTO, r"^fraccao_maxima_pct: 80$", "fraccao_maxima_pct: 95"),
+    ),
+    Caso(
+        "rede-nao-declarada",
+        frozenset({"rede-nao-declarada"}),
+        "uma quinta rede, com rota, aparece no compose",
+        lambda c: c.trocar(
+            lint.PROD,
+            r"^  ops:\n    driver: bridge\n    internal: true$",
+            "  ops:\n    driver: bridge\n    internal: true\n  fuga:\n    driver: bridge",
+        ),
+    ),
+    Caso(
+        "no-proxy-aberto",
+        frozenset({"no-proxy-aberto"}),
+        "um `NO_PROXY: \"*\"` tira tudo do proxy de saida",
+        lambda c: c.trocar(lint.PROD, r"^  NO_PROXY: localhost.*$", '  NO_PROXY: "*"'),
+    ),
+    Caso(
+        "fuga-socket-do-docker",
+        frozenset({"fuga-de-isolamento"}),
+        "um servico monta o socket do Docker e com ele a maquina",
+        lambda c: c.trocar(
+            lint.PROD,
+            r"^      - prometheus-data:/prometheus$",
+            "      - prometheus-data:/prometheus\n      - /var/run/docker.sock:/var/run/docker.sock",
+        ),
+    ),
     Caso(
         "memoria-divergente",
         frozenset({"memoria-divergente"}),
@@ -333,7 +435,9 @@ CASOS: tuple[Caso, ...] = (
     # ------------------------------------------ criterio 5: replicas, rotas
     Caso(
         "sem-duas-replicas",
-        frozenset({"sem-duas-replicas"}),
+        # Baixar as replicas no compose faz as duas: o criterio 5 pede 2, e o
+        # manifesto (que a soma do criterio 4 usa) passa a discordar.
+        frozenset({"sem-duas-replicas", "replicas-divergentes"}),
         "o GWY ou o AGR fica com uma replica so",
         lambda c: c.trocar(lint.PROD, r"^      replicas: 2$", "      replicas: 1"),
     ),
@@ -457,10 +561,12 @@ MINIMO_POR_REGRA: dict[str, frozenset[str]] = {
     ),
     "r_denylist": frozenset({"denylist"}),
     "r_imagens": frozenset({"imagem-por-etiqueta", "imagem-nao-resolvida"}),
-    "r_redes_declaradas": frozenset({"rede-em-falta", "rede-com-rota", "rede-sem-rota"}),
+    "r_redes_declaradas": frozenset(
+        {"rede-em-falta", "rede-com-rota", "rede-sem-rota", "rede-nao-declarada"}
+    ),
     "r_redes_por_servico": frozenset({"servico-em-edge", "dados-fora-de-data"}),
     "r_saida_pelo_proxy": frozenset(
-        {"saida-sem-proxy", "allowlist-em-falta", "allowlist-sem-dono"}
+        {"saida-sem-proxy", "allowlist-em-falta", "allowlist-sem-dono", "no-proxy-aberto"}
     ),
     "r_endurecimento": frozenset(
         {
@@ -469,9 +575,14 @@ MINIMO_POR_REGRA: dict[str, frozenset[str]] = {
             "sem-limite-de-memoria",
             "sem-limite-de-cpu",
             "capacidade-acrescentada",
+            "sem-cap-drop",
+            "sem-no-new-privileges",
+            "fuga-de-isolamento",
         }
     ),
-    "r_memoria": frozenset({"memoria-divergente", "soma-de-memoria"}),
+    "r_memoria": frozenset(
+        {"memoria-divergente", "soma-de-memoria", "replicas-divergentes", "tecto-alterado"}
+    ),
     "r_replicas_e_healthz": frozenset(
         {"sem-duas-replicas", "healthcheck-sem-healthz", "sem-healthcheck"}
     ),

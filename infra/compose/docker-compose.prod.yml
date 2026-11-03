@@ -44,7 +44,7 @@
 #   KAM-080.
 # * **Nao tem backups.** pgBackRest e o KAM-079.
 # * **Nao decide a D1 nem a D6.** O alojamento e o KAM-105/KAM-077. O
-#   armazenamento de objectos entra atras de `KAMBA_STO_MODO`.
+#   armazenamento de objectos entra atras do perfil `sto-proprio`.
 # * **Nao ajusta os limites.** Os `mem_limit` sao a coluna `memoria_gb` de
 #   `conjunto-reduzido.yaml`, que e **ESTIMATIVA** do bloco e nao medicao. Medir
 #   sob carga e corrigi-los e o KAM-084.
@@ -224,7 +224,10 @@ services:
     networks:
       - app
       - data
-    mem_limit: 512m
+    # 256 MiB **por replica**: o bloco propoe «GWY 2x0,25 GB», e o `mem_limit`
+    # do compose e por contentor. O lint exige `mem_limit x replicas` == o
+    # total do manifesto (512 MiB).
+    mem_limit: 256m
     cpus: 1.0
     healthcheck:
       test:
@@ -300,7 +303,8 @@ services:
     networks:
       - app
       - data
-    mem_limit: 2560m
+    # 1280 MiB **por replica**: o bloco propoe 2,5 GB para os «AGR workers x2».
+    mem_limit: 1280m
     cpus: 2.0
     healthcheck:
       test:
@@ -623,8 +627,11 @@ services:
     # `StorageProvider`, sem MinIO (ADR-014). SeaweedFS 4.48 (Apache-2.0).
     #
     # **A D6 esta ABERTA** (SeaweedFS ou S3 gerido) e este ticket nao a decide.
-    # O servico entra atras de um perfil: com `KAMBA_STO_MODO=s3-gerido` nao
-    # arranca, e quem fala com ele e o `StorageProvider`, que ja e a costura.
+    # O servico entra atras do perfil `sto-proprio`: sem `--profile sto-proprio`
+    # (ou `COMPOSE_PROFILES`) nao e levantado, e quem fala com ele e o
+    # `StorageProvider`, que ja e a costura. **Nao** ha variavel
+    # `KAMBA_STO_MODO`: uma versao anterior deste ficheiro prometia-a e nada a
+    # lia — o perfil e o mecanismo, e e o que o gate ve.
     image: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
     <<: *endurecido
     user: "1000:1000"
@@ -640,7 +647,11 @@ services:
     mem_limit: 1024m
     cpus: 1.0
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9333/cluster/status || exit 1"]
+      # **As duas portas, e nao so a do master.** A sonda antiga interrogava
+      # so o `9333` (master) e o gateway S3 do `8333` podia estar morto com o
+      # contentor `healthy` — e o S3 e a unica coisa que o `StorageProvider`
+      # usa. Achado da revisao adversarial.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9333/cluster/status && wget -q -O /dev/null http://127.0.0.1:8333/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12

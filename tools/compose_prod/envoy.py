@@ -194,6 +194,18 @@ def compor(raiz: Path) -> str:
     linhas.append("                      dns_cache_config:")
     linhas.append("                        name: saida")
     linhas.append("                        dns_lookup_family: V4_ONLY")
+    # `preresolve_hostnames` resolve a allowlist **no arranque**. Sem isto o
+    # primeiro pedido a cada FQDN apanha a cache fria e pode voltar `503
+    # dns_resolution_failure{resolve_timeout}` — medido pela revisao
+    # adversarial, que viu o `graph.facebook.com` a dar 503 tres vezes e o
+    # `api.anthropic.com` a falhar a frio e a passar na segunda tentativa.
+    # Um 503 no primeiro webhook da Meta e uma mensagem perdida.
+    linhas.append("                        dns_refresh_rate: 60s")
+    linhas.append("                        dns_query_timeout: 5s")
+    linhas.append("                        preresolve_hostnames:")
+    for fqdn, porta in destinos:
+        linhas.append(f"                          - address: {fqdn}")
+        linhas.append(f"                            port_value: {porta}")
     linhas.append("                  - name: envoy.filters.http.router")
     linhas.append("                    typed_config:")
     linhas.append(
@@ -218,6 +230,15 @@ def compor(raiz: Path) -> str:
     linhas.append("          dns_cache_config:")
     linhas.append("            name: saida")
     linhas.append("            dns_lookup_family: V4_ONLY")
+    # As mesmas tres chaves do filtro: o nome da cache e partilhado, e o Envoy
+    # exige que a configuracao bata **dos dois lados** — se divergir, sao duas
+    # caches e o *cluster* nao encontra o endereco que o filtro resolveu.
+    linhas.append("            dns_refresh_rate: 60s")
+    linhas.append("            dns_query_timeout: 5s")
+    linhas.append("            preresolve_hostnames:")
+    for fqdn, porta in destinos:
+        linhas.append(f"              - address: {fqdn}")
+        linhas.append(f"                port_value: {porta}")
     linhas.append("")
     return "\n".join(linhas)
 

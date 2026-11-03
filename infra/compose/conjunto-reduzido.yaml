@@ -21,9 +21,19 @@
 # Um nome que nao esteja em nenhuma das tres listas tambem falha: um servico
 # novo no compose de producao passa por este ficheiro ou nao passa.
 #
-# `memoria_mib` e o `mem_limit` proposto do bloco KAM-076, em MiB inteiros (o
-# leitor de `tools/kamba_yaml.py` so converte inteiros, e MiB e a unidade em que
-# o `mem_limit` do compose se escreve: compara-se sem converter) («Limites propostos
+# `memoria_mib` e o **total do servico**, em MiB inteiros, e `replicas` diz por
+# quantos contentores esse total se divide (1 quando a chave falta).
+#
+# A DISTINCAO NAO E COSMETICA, E CUSTOU UM DEFEITO. O `mem_limit` do compose e
+# **por contentor**, e o `deploy.replicas` e honrado pelo `docker compose` fora
+# de swarm (medido: `docker compose config` resolve `gwy` com `replicas: 2` e
+# um `mem_limit` proprio). A primeira versao deste ficheiro punha o total do
+# bloco no `mem_limit` de cada replica, e a soma do criterio 4 contava-o **uma**
+# vez: o GWY reservava 2x512 MiB onde o bloco propoe «2x0,25 GB», o AGR 2x2560
+# onde propoe 2,5 GB, e o conjunto passava o tecto em 922 MiB sem que o lint
+# dissesse nada. Hoje o lint exige `mem_limit x replicas == memoria_mib`.
+#
+# Os valores sao os limites propostos do bloco KAM-076 («Limites propostos
 # (ESTIMATIVA, ~1,25x o doc 09 §4.2)»). **E ESTIMATIVA, e nao medicao.** O
 # ajuste e o KAM-084; a soma e a que o criterio 4 limita a 80% da RAM do *host*.
 
@@ -60,6 +70,7 @@ servicos:
     estado: presente
     rede: app
     memoria_mib: 512
+    replicas: 2
     razao: >-
       Entrada unica do trafego externo (ADR-001). Duas replicas, criterio 5.
       O limite do bloco e «2x0,25 GB»; aqui e por servico e nao por replica.
@@ -78,6 +89,7 @@ servicos:
     estado: presente
     rede: app
     memoria_mib: 2560
+    replicas: 2
     razao: >-
       Runtime de agentes, LangGraph como biblioteca (ADR-002). Duas replicas,
       criterio 5.
@@ -148,7 +160,9 @@ servicos:
     razao: >-
       `StorageProvider`, sem MinIO (ADR-014). **A D6 esta aberta** (SeaweedFS
       ou S3 gerido) e este ticket nao a decide: o servico entra atras da
-      *flag* `KAMBA_STO_MODO`, e com `s3-gerido` nao arranca.
+      *flag* do Compose `profiles: [sto-proprio]`: uma pilha levantada sem
+      `--profile sto-proprio` nao o traz. **Nao** ha variavel `KAMBA_STO_MODO`
+      — a primeira versao deste ficheiro prometia uma, e nada a lia.
 
   # -------------------------------------------------------------- operacao
   - nome: prometheus

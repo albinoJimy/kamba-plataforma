@@ -89,6 +89,17 @@ static_resources:
                       dns_cache_config:
                         name: saida
                         dns_lookup_family: V4_ONLY
+                        dns_refresh_rate: 60s
+                        dns_query_timeout: 5s
+                        preresolve_hostnames:
+                          - address: api.anthropic.com
+                            port_value: 443
+                          - address: api.openai.com
+                            port_value: 443
+                          - address: generativelanguage.googleapis.com
+                            port_value: 443
+                          - address: graph.facebook.com
+                            port_value: 443
                   - name: envoy.filters.http.router
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
@@ -102,3 +113,14 @@ static_resources:
           dns_cache_config:
             name: saida
             dns_lookup_family: V4_ONLY
+            dns_refresh_rate: 60s
+            dns_query_timeout: 5s
+            preresolve_hostnames:
+              - address: api.anthropic.com
+                port_value: 443
+              - address: api.openai.com
+                port_value: 443
+              - address: generativelanguage.googleapis.com
+                port_value: 443
+              - address: graph.facebook.com
+                port_value: 443
