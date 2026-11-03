@@ -1,0 +1,171 @@
+# O titulo do PR obedece a convencao de assunto — KAM-164
+#
+# **Porque e um ficheiro separado do `ci.yaml`**, duas razoes independentes, e
+# qualquer uma delas bastava:
+#
+# 1. **O evento.** O titulo de um PR muda sem o ramo mudar, e o `on.pull_request`
+#    do `ci.yaml` nao tem `types:` — usa o default (`opened`, `synchronize`,
+#    `reopened`), que nao inclui `edited`. Acrescentar `edited` la faria os doze
+#    *jobs* bloqueantes correrem de novo a cada emenda de titulo ou de descricao,
+#    incluindo os que levantam PostgreSQL e os que correm SCA. Aqui corre um *job*
+#    de segundos.
+# 2. **A conta do agregador.** O `gates-em-ambito` do `ci.yaml` conta os `needs`
+#    (`esperados=11`) e um *job* que entrasse na lista obrigava a mexer nesse
+#    numero — a mesma razao pela qual o `mutacoes.yaml` tambem vive fora.
+#
+# **Porque nao cabe no *gate* 2.** O titulo de um PR nao vive no ramo: chega pelo
+# evento, em `github.event.pull_request.title`, e nenhum `git log` o alcanca. O
+# `tools/githooks/commit-msg`, que protege o assunto antes do *push*, tambem nao
+# o ve, e e um *hook* **local** — dispensa-se com `--no-verify`.
+#
+# **E uma correccao ao que o bloco deste ticket afirma, medida a 2026-11-03.** O
+# `specs/tickets/KAM-164.md` diz que «o `lint_arch` do *gate* 2 verifica as
+# mensagens dos *commits* do ramo». **Nao verifica.** O `make ci-2` corre
+# `pnpm -r run typecheck`, `make lint-arch`, `log-lint`, `money-lint` e
+# `env-lint`; o `lint-arch` corre `python -m lint_arch --root . all`, que e
+# «deps, structure, tool-schema, aliases e medusa». O `commitlint` existe em
+# `package.json` e em `commitlint.config.cjs` mas **nenhum** *workflow* e
+# **nenhum** alvo `make` o invoca. Logo nada do lado do servidor verifica o
+# assunto de um *commit*: a forma do assunto e imposta so pelo *hook* local.
+# Achado da revisao adversarial deste ticket, registado na divida 173 — e e a
+# razao mais forte para esta verificacao correr **tambem** num PR de um so
+# *commit*, onde o assunto vem do *commit*.
+#
+# **O que isto esta a impedir.** A definicao do repositorio e
+# `squash_merge_commit_title: COMMIT_OR_PR_TITLE` (medido a 2026-11-03), que
+# significa: o assunto do *commit* quando o PR tem um so, e o **titulo do PR**
+# quando tem mais do que um. Ja aconteceu e esta no `main`: o `29778f3` (PR #75,
+# KAM-038) tem por assunto `KAM-038 — Subscricao de eventos: …`, que nao tem
+# tipo, e os dois *commits* que o PR trazia estavam ambos conformes (verificados
+# pelo *hook* local de quem os escreveu, que e o que ha). O
+# `squash_merge_commit_message: COMMIT_MESSAGES`
+# **nao se muda**: e ela que faz o corpo do *squash* ser a concatenacao das
+# mensagens, e foi o que preservou nesse *squash* a ordem «emenda primeiro,
+# codigo depois».
+#
+# **A logica nao vive aqui.** Vive no `lint_arch`, que le a forma de
+# `tools/conventions.json` — a mesma fonte do `commitlint.config.cjs` e do
+# *gate* 2 — e corre igual nesta maquina e no *runner*, com o mesmo comando:
+#
+#     cd tools && KAMBA_PR_TITLE='<titulo>' python -m lint_arch --root .. pr-title
+#
+# So biblioteca padrao do Python, pelo que este *job* **nao** usa a action
+# `./.github/actions/preparar`, pela mesma razao dos *gates* 3, 3b, 3c e 9: dar-
+# lhe a *toolchain* inteira esconderia essa propriedade (`ADR-L001` §6).
+#
+# **O titulo passa pelo ambiente e nunca pelo `run:`.** Um titulo de PR e texto
+# que qualquer pessoa escreve, e interpolar `${{ github.event.pull_request.title }}`
+# dentro de um comando e injeccao de *shell* na maquina do CI. Pelo ambiente, o
+# *shell* nunca o ve.
+#
+# **O que esta verificacao NAO cobre** (criterio 8 do KAM-164):
+#
+#   - **Um PR fundido por `merge` ou por `rebase`.** O `allowed_merge_methods` do
+#     *ruleset* permite `merge` e `squash`, e o repositorio tem `allow_merge_commit`
+#     e `allow_rebase_merge` ligados (medido a 2026-11-03). Por essas vias o
+#     assunto que fica no `main` nao e o titulo do PR, e esta verificacao nao diz
+#     nada sobre ele.
+#   - **Um PR com um so *commit*.** Nessa fusao o assunto vem do *commit*, e
+#     **nenhuma maquina do lado do servidor o verifica** (ver a correccao acima:
+#     o *gate* 2 nao le mensagens de *commit*). A verificacao corre nele de
+#     qualquer modo, o que nao fecha a lacuna — quem comitar com `--no-verify`
+#     poe no `main` um assunto sem tipo com esta verificacao verde sobre um
+#     titulo impecavel. Fica na divida 173. A decisao de correr sempre esta
+#     escrita em `tools/lint_arch/conventions.py`, em
+#     `check_pr_title`: o numero de *commits* nao vem no evento, e com
+#     `allow_auto_merge` ligado desde 2026-10-27 um *commit* acrescentado depois
+#     de os portoes ficarem verdes transforma o titulo em assunto sem nada
+#     reavaliar.
+#   - **O titulo depois de este *job* terminar.** O `edited` fecha a janela
+#     normal, mas nao ha garantia transaccional entre a ultima execucao e a
+#     fusao. Quem o fecharia e o *ruleset* com `strict_required_status_checks_policy`
+#     — que e configuracao do repositorio e nao deste ficheiro.
+#   - **O codigo que o canario corre e o do PR, nao o do `main`.** O
+#     `actions/checkout@v5` sob `on: pull_request` traz a arvore do PR, pelo que
+#     um PR que afrouxe o `tools/conventions.json` e tire negativos ao canario
+#     fica verde nos dois passos: o canario prova que a verificacao morde **neste
+#     PR**, nao que morde no `main`. Nao e propriedade deste *job* — os *gates* 3,
+#     3b, 3c e 9 tem-na igual —, e fecha-la e decisao de arquitectura de CI
+#     (`pull_request_target`, ou um passo que corra o `lint_arch` do `main`), nao
+#     deste ticket. Achado da revisao adversarial do KAM-164.
+#
+# **O que falta para isto bloquear, e que nao e acto de uma sessao** (criterio 4
+# do KAM-164): o contexto `titulo do PR — forma convencional` tem de ser
+# acrescentado aos `required_status_checks` do *ruleset* `main: gates fail-closed
+# do KAM-002`, nos dois alvos de `ci/ruleset.yaml`, e ao espelho
+# `.github/rulesets/main.json` no mesmo movimento. Acrescentar um contexto ao
+# *ruleset* precisa de `administration: write`, que o `GITHUB_TOKEN` das Actions
+# nao tem (`ADR-L003` §6, e a lacuna 28 de `docs/ci.md` §7), e alterar uma regra
+# de bloqueio e decisao do fundador. Escrever o contexto so no espelho poria o
+# `make ruleset` vermelho com `contexto-so-no-ficheiro` e tornaria o espelho
+# falso, que e pior do que a lacuna — foi a escolha dos *gates* 3b e 3c, pela
+# mesma razao (lacuna 17). Ate la, este *job* corre e fica vermelho, e nao
+# impede a fusao.
+
+name: titulo do PR
+
+on:
+  pull_request:
+    branches: [main]
+    # O titulo muda sem o ramo mudar: sem `edited`, esta verificacao ficava a
+    # aprovar um titulo que ja nao e o que vai para o `main`. Com
+    # `allow_auto_merge` ligado, essa janela fecha-se sozinha com a fusao.
+    types: [opened, edited, reopened, synchronize]
+
+# Fail-closed por omissao: o titulo chega pelo evento e nada aqui precisa de
+# escrever no repositorio.
+permissions:
+  contents: read
+
+concurrency:
+  # Duas emendas seguidas ao titulo nao precisam de duas execucoes: o que
+  # interessa e o ultimo titulo.
+  group: titulo-do-pr-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  forma-do-titulo:
+    # Este nome **e** o nome do contexto de CI, byte a byte, e e ele que o
+    # fundador acrescenta aos `required_status_checks`. Nao se renomeia: um
+    # contexto exigido com nome antigo nunca mais fica verde.
+    name: "titulo do PR — forma convencional"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: o titulo obedece a forma de tools/conventions.json
+        working-directory: tools
+        env:
+          KAMBA_PR_TITLE: ${{ github.event.pull_request.title }}
+        run: python -m lint_arch --root .. pr-title
+
+      # O canario, e corre **sempre**. A condicao implicita de um passo e
+      # `success()`, pelo que sem o `if: always()` o canario ficava sem correr
+      # exactamente quando o passo de cima falha — isto e, no unico caso em que
+      # um vermelho e ambiguo. Com os dois passos a correr, o registo diz **qual**
+      # dos dois deu o vermelho: um titulo fora da forma, ou a verificacao a ter
+      # deixado de morder. Medido no PR #107: na execucao `41617557001` o passo do
+      # titulo deu `failure` e este deu `success`.
+      #
+      # **Isto diverge do `log-lint` e do `money-lint`, de propriedade.** La o
+      # canario e o segundo comando de uma receita `make`, que para no primeiro
+      # erro: se o *lint* falha, o canario nao corre. La isso e aceitavel, porque
+      # um *lint* vermelho e sempre defeito do codigo. Aqui o vermelho e o
+      # **produto** — um titulo fora da forma e o que esta verificacao existe para
+      # dar —, pelo que o canario tem de continuar a reportar por baixo dele. O
+      # que se herda daqueles dois e a *forma* do canario (fixtures negativas que
+      # tem de falhar, cada uma pela sua regra); a *invocacao* segue o
+      # `mutacoes.yaml`, que chama o modulo Python directamente por nao ser *gate*.
+      - name: canario — a verificacao recusa o que tem de recusar
+        if: always()
+        working-directory: tools
+        run: python -m lint_arch --root .. pr-title-canario
