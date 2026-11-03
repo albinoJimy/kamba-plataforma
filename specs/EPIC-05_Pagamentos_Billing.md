@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Pagamentos e Billing |
-| Versão | 1.6 |
+| Versão | 1.7 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md` |
@@ -50,6 +50,7 @@ Concretiza os ADRs **ADR-004** (plataforma sem fundos; guardas G-1..G-6), **ADR-
 | KAM-058 | Régua de cobrança D+3/D+7/D+10 | feature | M | P1 | KAM-055, KAM-015, KAM-059, ext:KAM-101 |
 | KAM-059 | Billing da plataforma: assinatura via PaymentProvider (beneficiário próprio) | feature | L | P1 | KAM-052, KAM-054, KAM-009 |
 | KAM-060 | Detecção de anomalias de pagamento (valor divergente, duplicados, padrões) | feature | M | P1 | KAM-053, KAM-054 |
+| KAM-175 | Um `DELETE` sem linhas no *ledger* `payment_events` não é recusado: o *trigger* por instrução só cobre o `TRUNCATE` | fix | S | P1 | KAM-053 |
 
 ---
 
@@ -160,7 +161,7 @@ Testes: unit, integração (trigger, RLS, migração), contrato (FakeProvider). 
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-052, KAM-004, KAM-008 |
-| Bloqueia | KAM-054, KAM-056, KAM-060 |
+| Bloqueia | KAM-054, KAM-056, KAM-060, KAM-175 |
 | Responsável sugerido | Engenheiro de Pagamentos |
 | Documentos de referência | `../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md` (§5, §6, §7, §8), `../docs/tecnica/06_Dados_Eventos_Analytics.md` (§6.1), `../docs/tecnica/08_Seguranca_Conformidade.md` (§3.3, §4.5), ADR-009, ADR-013, ADR-015 |
 
@@ -876,6 +877,310 @@ Testes: unit por regra, integração com ManualProvider, cenários sintéticos, 
 
 ---
 
+## KAM-175 — Um `DELETE` sem linhas no *ledger* `payment_events` não é recusado: o *trigger* por instrução só cobre o `TRUNCATE`
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-05 — Pagamentos e Billing |
+| Fase | 0 |
+| Tipo | fix |
+| Prioridade | P1 |
+| Estimativa | S |
+| Dependências | KAM-053 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Pagamentos |
+| Documentos de referência | `../db/migrations/versions/0029_ledger_de_pagamentos.py`, `../db/migrations/versions/0030_encomendas_e_estados.py` (a nota dos *triggers*), `../db/tests_pagamentos/test_porta.py`, `../db/tests_pagamentos/test_cadeia.py`, `../db/tests_pagamentos/test_downgrade.py`, `../db/tests_encomendas/test_isolamento.py`, `../docs/dividas-documentais.md` (dívidas 175 e 176), `../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md` §6.2, `../docs/tecnica/08_Seguranca_Conformidade.md` §6, ADR-013, ADR-015 |
+
+### Contexto
+
+**A barreira que torna o *ledger* `append-only` tem um caso que passa, e o caso
+é o que não apaga nada.** A revisão `../db/migrations/versions/0029_ledger_de_pagamentos.py`
+protege a `platform.payment_events` com dois *triggers* sobre a mesma função
+`platform.deny_mutation()`, os dois `ENABLE ALWAYS`:
+
+* `payment_events_imutavel` — `BEFORE UPDATE OR DELETE … FOR EACH ROW`;
+* `payment_events_sem_truncate` — `BEFORE TRUNCATE … FOR EACH STATEMENT`.
+
+Um *trigger* por linha **não dispara quando não há linha nenhuma**. Logo um
+`DELETE FROM platform.payment_events WHERE <predicado que não casa>` não é
+recusado por nenhum dos dois: devolve `DELETE 0` a quem o escreveu e passa.
+
+**Medido, e não deduzido.** A 2026-11-03, contra um PostgreSQL **18.6** real
+(`pgvector/pgvector:0.8.7-pg18`, a mesma imagem do `../infra/compose/docker-compose.dev.yml`),
+com a forma da `0029` reproduzida numa tabela de ensaio:
+
+| Instrução | Forma da `0029` | Forma da `0030` (KAM-044) | Forma que este ticket impõe |
+|---|---|---|---|
+| `DELETE` **com** linhas | recusado (`42501`) | recusado | recusado |
+| `DELETE` **sem** linhas | **`DELETE 0`** | recusado | recusado |
+| `UPDATE` **sem** linhas | **`UPDATE 0`** | **`UPDATE 0`** | recusado |
+| `TRUNCATE` | recusado | recusado | recusado |
+
+**São duas metades e a dívida 175 só nomeia uma.** A dívida descreve o `DELETE`;
+a mesma medição mostra que o `UPDATE` sem linhas **também** passa, pela mesma
+razão e sem nada de novo — um `UPDATE … WHERE <predicado que não casa>` devolve
+`UPDATE 0`. E mostra mais: a forma que o KAM-044 escreveu para o
+`platform.order_state_log` (`BEFORE TRUNCATE OR DELETE … FOR EACH STATEMENT`)
+fecha o `DELETE` e **deixa o `UPDATE` aberto**. Fechar aqui só o `DELETE` seria
+repetir um nível abaixo a omissão que este ticket existe para fechar, pelo que
+as duas metades entram nos critérios.
+
+**A consequência, que é o que torna isto um defeito e não arrumação.** Nenhuma
+linha se perde: o que falha é a **propriedade**, não os dados. Quem audita a
+tabela — e é o que o `../docs/tecnica/08_Seguranca_Conformidade.md` §6 e o
+critério de saída deste epic mandam fazer — corre a instrução proibida e lê
+`DELETE 0` sem erro, que é indistinguível de «a tabela aceita `DELETE` e não
+havia nada para apagar». A afirmação «`UPDATE`, `DELETE` e `TRUNCATE` sobre
+`payment_events` falham» passa a ter de ser lida com uma ressalva que não está
+escrita em sítio nenhum, e um *ledger* de dinheiro é o pior sítio para uma
+ressalva tácita.
+
+**O que fecha, e a prova de que é o `FOR EACH STATEMENT` que fecha.** Um
+`BEFORE … FOR EACH STATEMENT` corre **uma vez por instrução**, antes de haver
+linhas, pelo que a recusa é a mesma para o caso que apaga e para o que não
+apaga. Medido nas duas direcções: com os dois *triggers* ligados, o `DELETE`
+sem linhas é recusado; desligado **só** o por instrução, o mesmo `DELETE`
+devolve `DELETE 0`. É esse par que torna o critério 4 um canário e não uma
+afirmação.
+
+**Como apareceu.** Na revisão adversarial do KAM-044 (PR #112), que ao escrever
+a barreira do `order_state_log` reparou que a tabela anterior tem a mesma
+lacuna. A nota da revisão dizia que a lacuna «fica registada no PR deste», e a
+revisão respondeu o que era preciso responder: **o corpo de um PR não é
+versionado**, pelo que registar ali é não registar. Está na **dívida 175** de
+`../docs/dividas-documentais.md` (linha de versões 1.90), e este ticket é o
+credor dela.
+
+**Três tabelas irmãs têm a mesma lacuna e não são deste ticket.** Medido no
+mesmo varrimento das revisões: a `platform.audit_log` (`0006`, KAM-012), a
+`platform.tool_audit` (`0021`, KAM-028) e a `dat.llm_call_log` (`0023`,
+KAM-030) escrevem todas o par «por linha para `UPDATE`/`DELETE`, por instrução
+só para `TRUNCATE`» — a forma da `0029`, com as duas metades abertas. Não se
+tocam aqui, e a razão é a fronteira que a própria dívida 175 desenhou: a
+barreira de uma tabela decide-se em quem a tem. Ficam registadas na **dívida
+176**, com credor por tabela. A `dat.llm_call_log` tem ainda uma pergunta
+própria, porque é **particionada**: a `0023` mediu que o `BEFORE UPDATE OR
+DELETE … FOR EACH ROW` e o `BEFORE TRUNCATE … FOR EACH STATEMENT` no pai são
+aceites e que uma partição nova os herda, e **nada ali diz** se um
+`BEFORE DELETE … FOR EACH STATEMENT` no pai se comporta do mesmo modo. Isso
+mede-se no ticket dela, não neste.
+
+### Objectivo
+
+Fazer com que a `platform.payment_events` recuse `UPDATE`, `DELETE` e
+`TRUNCATE` **independentemente de quantas linhas a instrução toca**, pela mesma
+função `deny_mutation` e sem *trigger* novo: o que muda é a lista de eventos do
+*trigger* por instrução que já existe. E deixar escrito, no ficheiro, qual dos
+dois *triggers* passa a dar a propriedade — porque depois desta alteração o por
+linha já não é o que a dá.
+
+### Critérios de Aceitação
+
+- [ ] 1. O `payment_events_sem_truncate` da `0029` passa a
+  `BEFORE TRUNCATE OR DELETE OR UPDATE … FOR EACH STATEMENT`, continua
+  `ENABLE ALWAYS` e continua a chamar a `platform.deny_mutation()`. **Não há
+  *trigger* novo e não há função nova**: os dois nomes de *trigger* ficam como
+  estão, que é o que mantém verdes o `TestTriggersSaoAlways` do
+  `../db/tests_pagamentos/test_cadeia.py` e os dois confrontos do
+  `../db/tests_pagamentos/test_downgrade.py`, que prendem o par
+  `[('payment_events_imutavel', 'A'), ('payment_events_sem_truncate', 'A')]`.
+  Medido: um `DELETE` sem linhas e um `UPDATE` sem linhas passam a ser recusados
+  com `42501` (`insufficient_privilege`), que é o `SQLSTATE` que a função já
+  levanta e que a suite já afirma.
+- [ ] 2. **As duas metades, e não só a do `DELETE`.** O ensaio cobre os quatro
+  casos, cada um com a sua asserção: `DELETE` sem linhas, `UPDATE` sem linhas,
+  `DELETE` com linhas e `TRUNCATE`. Fechar só o `DELETE` satisfazia a dívida 175
+  à letra e deixava aberta a metade que a medição deste ticket encontrou — e que
+  é a metade que o KAM-044 deixou aberta no `order_state_log`.
+- [ ] 3. **O que a barreira não impede continua a não impedir**, e há ensaio que
+  o prova em vez de o supor: o `INSERT` pela `platform.append_payment_event`
+  passa, o `SELECT` passa, e o `DROP TABLE` do `downgrade` da `0029` passa — um
+  `DROP TABLE` não é um `DELETE`, o que a `0029` já escreve e que aqui se mede
+  (confirmado contra o PostgreSQL 18.6). Sem este critério, a prova de que a
+  barreira morde é indistinguível de uma tabela que ninguém consegue abrir.
+- [ ] 4. **Canário obrigatório, e nos dois sentidos.** Desligado **só** o
+  `payment_events_sem_truncate` — com o `payment_events_imutavel` ligado —, o
+  `DELETE` sem linhas tem de **passar** (`DELETE 0`) e o `UPDATE` sem linhas
+  também. É isso, e só isso, que prova que quem recusa o caso sem linhas é o
+  *trigger* por instrução: com os dois ligados, os dois casos são recusados e
+  nenhum dos dois ensaios distingue qual deles mordeu. O `ALTER TABLE` do
+  canário corre na ligação **transaccional** e é revertido, pela razão escrita
+  no `TestCanarioDoTrigger` do `../db/tests_encomendas/test_grafo.py`: um
+  `ALTER TABLE` confirmado deixava a base do *gate* 8 sem barreira para os
+  ensaios seguintes, e a suite passava a medir uma tabela sem *trigger*.
+- [ ] 5. **O `payment_events_imutavel` fica ou sai, com a razão escrita.**
+  Medido: depois do critério 1 ele é **estritamente redundante** — com o por
+  linha desligado e o por instrução ligado, um `DELETE` com linhas continua a
+  ser recusado. A recomendação é **ficar**, e a razão não é defesa em
+  profundidade: é que o `_desligar_trigger` do `../db/tests_pagamentos/test_cadeia.py`
+  o desliga **pelo nome** para forjar um elo partido, e o
+  `../db/tests_pagamentos/test_downgrade.py` prende os dois nomes. Qualquer das
+  duas decisões serve; o que não serve é ficar sem a frase, porque quem ler a
+  `0029` depois desta alteração vai ler o *trigger* por linha como a origem da
+  propriedade, e já não é.
+- [ ] 6. **O `_desligar_trigger` do `../db/tests_pagamentos/test_cadeia.py`
+  passa a desligar os dois**, e isto não é arrumação: é o único ensaio existente
+  que esta alteração **quebra**. Ele desliga só o `payment_events_imutavel` e
+  depois corre `DELETE FROM platform.payment_events WHERE id = %s` para partir
+  um elo da cadeia de *hashes*; medido que, com o critério 1 aplicado, o
+  *trigger* por instrução passa a recusar esse `DELETE`. O `_repor_trigger`
+  continua a repor **o que estava** e não o que devia estar, pela razão que já
+  está escrita nele.
+- [ ] 7. **A alteração entra na `0029` ou numa revisão nova, e a escolha está
+  medida.** O que a decide é uma pergunta de facto: existe algum ambiente onde a
+  `0029` já foi aplicada e que não se reconstrói de zero? O `alembic` guarda uma
+  linha em `alembic_version` e mais nada, pelo que uma edição à `0029` é
+  **invisível** para uma base que já a correu — se houver uma, a forma certa é
+  uma revisão nova com `DROP TRIGGER` e `CREATE TRIGGER`, com `down_revision` a
+  apontar para a última. Se não houver (e o *gate* 8 reconstrói sempre de zero),
+  a edição no sítio é a forma certa, porque uma revisão nova para corrigir uma
+  linha deixa duas verdades na cadeia. A resposta escreve-se no ticket; o que não
+  se aceita é escolher sem a pergunta.
+- [ ] 8. A nota da `0029` passa a dizer o que os dois *triggers* fazem **depois**
+  desta alteração, e porque é que são dois: o bloco do `_eventos()` que hoje diz
+  «um *trigger* `BEFORE UPDATE OR DELETE` e outro `BEFORE TRUNCATE`» descreve a
+  forma antiga, e uma nota que descreve a forma antiga é pior do que nenhuma. A
+  nota do `../db/migrations/versions/0030_encomendas_e_estados.py` que aponta
+  esta lacuna para a dívida 175 passa a dizer que ela tem credor.
+- [ ] 9. **O critério de saída do epic não se emenda aqui.** O segundo da lista
+  diz «`UPDATE`, `DELETE` e `TRUNCATE` sobre `payment_events` falham para
+  `kamba_app` e **`kamba_ops`**», e o `kamba_ops` não existe — é a **dívida
+  167**, com credor KAM-053, e emendar a letra de um critério é de quem o
+  escreveu. Fica dito, e fica como está: este ticket toca no *trigger*, não na
+  redacção do critério.
+
+### Detalhes Técnicos
+
+- **Onde.** `../db/migrations/versions/0029_ledger_de_pagamentos.py`, a função
+  `_eventos()` (o `CREATE TRIGGER payment_events_sem_truncate` e a nota do
+  *docstring*), ou a revisão nova que o critério 7 decidir. Mais os ensaios de
+  `../db/tests_pagamentos/` — `test_porta.py` (as recusas) e `test_cadeia.py`
+  (o `_desligar_trigger`). O `../docs/tecnica/04_Pagamentos_Liquidacao_AntiFraude.md`
+  **não muda**: o §6.2 prescreve a tabela e a imutabilidade, não a lista de
+  eventos do *trigger*.
+- **A medição completa, para quem a quiser repetir.** Numa tabela de ensaio com
+  a função `deny_mutation` e o par de *triggers* da `0029`, contra o PostgreSQL
+  18.6: `DELETE` sem linhas → `DELETE 0`; `UPDATE` sem linhas → `UPDATE 0`;
+  `DELETE` com linhas → `42501`. Com o por instrução em
+  `BEFORE TRUNCATE OR DELETE OR UPDATE`: os quatro casos recusados, `INSERT` e
+  `SELECT` intactos, `DROP TABLE` intacto. Com `SET session_replication_role =
+  replica` e os dois `ENABLE ALWAYS`: recusado — o `ALWAYS` continua a valer
+  para o por instrução, pela mesma razão da `0006` que a `0029` cita.
+- **Porque é que o `UPDATE` cabe no mesmo *trigger*.** O PostgreSQL aceita
+  `BEFORE UPDATE … FOR EACH STATEMENT`; o que um *trigger* por instrução não tem
+  é `OLD` e `NEW`, e a `deny_mutation` não os usa — ela levanta excepção com o
+  `TG_OP` e o `TG_TABLE_NAME`, que estão disponíveis nos dois níveis. É por isso
+  que a alteração é à lista de eventos e não à função.
+- **O `FOR EACH ROW` para `TRUNCATE` não existe**, o que é a razão original de
+  serem dois *triggers* e não um: o `TRUNCATE` só admite por instrução. O que
+  esta alteração faz é notar que o por instrução, existindo, cobre também os
+  outros dois — e que o custo é nulo, porque uma instrução que fosse passar já
+  era recusada.
+- **O que a alteração não pode quebrar, e onde se verifica.** O
+  `../db/tests_pagamentos/base.py` **não** apaga do `payment_events` na limpeza,
+  de propósito e com a razão escrita; a FK `payment_events_charge_fk` é
+  restritiva e não há `ON DELETE CASCADE` a entrar na tabela, pelo que nenhum
+  `DELETE` legítimo noutra tabela cai aqui. Confirmar os dois antes de aplicar:
+  um `DELETE` em cascata sobre uma tabela *append-only* passava a ser recusado,
+  e a recusa aparecia no sítio errado.
+- **O caminho pelo qual isto não se apanha hoje.** O
+  `../db/tests_pagamentos/test_porta.py` corre `DELETE FROM platform.payment_events`
+  **sem** `WHERE` sobre uma tabela com linhas, pelo que o *trigger* por linha
+  morde e o ensaio fica verde. É a armadilha que o KAM-171 nomeia: o instrumento
+  está certo e o predicado é que não cobre a população — e o caso que falta é
+  precisamente o que não toca linha nenhuma.
+
+### Testes Requeridos
+
+- Integração (`db/tests_pagamentos/`): `DELETE FROM platform.payment_events
+  WHERE <predicado que não casa>` é recusado com `42501`, como semente e como
+  administrador.
+- Integração: o mesmo para `UPDATE … WHERE <predicado que não casa>`.
+- Integração: os casos que já existiam continuam verdes — `UPDATE`, `DELETE` e
+  `TRUNCATE` com linhas, para os papéis de aplicação (por privilégio) e para o
+  superutilizador (pelo *trigger*).
+- Sonda positiva: `INSERT` pela `append_payment_event` e `SELECT` passam depois
+  da alteração.
+- Canário: desligado **só** o `payment_events_sem_truncate`, o `DELETE` sem
+  linhas passa e o `UPDATE` sem linhas passa; o `ALTER TABLE` é revertido na
+  mesma transacção.
+- Catálogo: os dois *triggers* continuam a reportar `A` em
+  `pg_trigger.tgenabled` depois da migração e depois do `downgrade` e novo
+  `upgrade` — os dois confrontos do `test_downgrade.py` ficam como estão.
+- *Gate* 8: a revisão (ou a edição) sobe, desce e volta a subir numa base limpa,
+  sem objectos residuais.
+- Não-regressão do `test_cadeia.py`: o ensaio do elo removido no meio continua a
+  partir a cadeia, agora com os dois *triggers* desligados.
+
+### Definition of Done
+
+- [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
+- [ ] **As duas metades fechadas** — `DELETE` e `UPDATE` sem linhas —, cada uma
+  com ensaio próprio.
+- [ ] **Canário verde quando a barreira morde e vermelho quando deixa de
+  morder**, com o `ALTER TABLE` revertido.
+- [ ] A escolha entre editar a `0029` e abrir revisão nova **respondida pela
+  pergunta do critério 7**, e não por preferência.
+- [ ] A nota da `0029` descreve a forma nova, e diz qual dos dois *triggers* dá
+  a propriedade.
+- [ ] O `_desligar_trigger` do `test_cadeia.py` desliga os dois, e o ensaio do
+  elo removido continua a provar o que provava.
+- [ ] *Gate* 8 verde: `upgrade`, `downgrade`, `upgrade` sem resíduos.
+- [ ] **A dívida 175 riscada** em `../docs/dividas-documentais.md`, neste PR.
+- [ ] **A dívida 176 não é riscada** — as três tabelas irmãs ficam aos seus
+  credores — e a `0029` não ganha nenhuma alteração que lhes diga respeito.
+- [ ] Linha de «Controlo de versões» em cada documento formal tocado, e o campo
+  `Versão` do cabeçalho a condizer.
+- [ ] Revisão adversarial independente, com os achados fechados por teste.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-175 da KAMBÁ.
+Lê specs/EPIC-05_Pagamentos_Billing.md (bloco KAM-175 e bloco KAM-053),
+db/migrations/versions/0029_ledger_de_pagamentos.py (a funcao _eventos),
+db/migrations/versions/0030_encomendas_e_estados.py (a nota dos triggers),
+db/tests_pagamentos/test_porta.py, db/tests_pagamentos/test_cadeia.py,
+db/tests_pagamentos/test_downgrade.py, db/tests_pagamentos/base.py,
+db/tests_encomendas/test_isolamento.py e db/tests_encomendas/test_grafo.py.
+Objectivo: a platform.payment_events recusa UPDATE, DELETE e TRUNCATE
+independentemente de quantas linhas a instrucao toca.
+- O payment_events_sem_truncate passa a BEFORE TRUNCATE OR DELETE OR UPDATE ...
+  FOR EACH STATEMENT, ENABLE ALWAYS, com a mesma funcao deny_mutation. Sem
+  trigger novo e sem funcao nova: os dois nomes ficam como estao, senao partes o
+  TestTriggersSaoAlways e os dois confrontos do test_downgrade.py.
+- SAO DUAS METADES. A divida 175 fala do DELETE; o UPDATE sem linhas tambem
+  passa hoje, pela mesma razao. Fecha as duas. Medido contra o PostgreSQL 18.6:
+  com a forma da 0029, DELETE sem linhas da DELETE 0 e UPDATE sem linhas da
+  UPDATE 0; com a forma do KAM-044 (TRUNCATE OR DELETE), o UPDATE continua a
+  passar -- nao copies essa forma, que e meia.
+- Canario obrigatorio: desligado SO o payment_events_sem_truncate, o DELETE sem
+  linhas tem de passar. Com os dois ligados nenhum ensaio distingue quem mordeu.
+  O ALTER TABLE corre na ligacao transaccional e e revertido -- ver o
+  TestCanarioDoTrigger de db/tests_encomendas/test_grafo.py.
+- O _desligar_trigger de db/tests_pagamentos/test_cadeia.py passa a desligar os
+  dois. E o unico ensaio que esta alteracao quebra: ele apaga uma linha para
+  partir a cadeia de hashes, e o trigger por instrucao passa a recusar isso.
+- Antes de escolher onde a alteracao entra, responde: existe ambiente onde a 0029
+  ja foi aplicada e que nao se reconstroi de zero? Se existir, revisao nova com
+  DROP TRIGGER e CREATE TRIGGER. Se nao, edicao no sitio. Escreve a resposta.
+- Sonda positiva: INSERT pela append_payment_event e SELECT continuam a passar, e
+  o DROP TABLE do downgrade tambem (um DROP TABLE nao e um DELETE).
+- Risca a divida 175 de docs/dividas-documentais.md neste PR.
+Nao expandas escopo: as tres tabelas irmas da divida 176 (platform.audit_log do
+KAM-012, platform.tool_audit do KAM-028, dat.llm_call_log do KAM-030) NAO se
+tocam -- a barreira de uma tabela decide-se em quem a tem, e a llm_call_log e
+particionada e tem uma pergunta propria. O kamba_ops do segundo criterio de saida
+do epic e a divida 167, com credor KAM-053: nao o emendes.
+Testes: as quatro recusas, as duas sondas positivas, o canario nos dois sentidos,
+o catalogo depois do downgrade, gate 8, e a nao-regressao do test_cadeia.py.
+PR com o template da seccao 7 de specs/01_Engineering_Standards_e_Handoff.md, e com
+o titulo na forma tipo(KAM-175): descricao no imperativo.
+Commits: fix(KAM-175): …
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | Risco / item | Estado | Impacto | Mitigação ou critério de saída | Decisão |
@@ -915,3 +1220,4 @@ Testes: unit por regra, integração com ManualProvider, cenários sintéticos, 
 | 1.4 | Novembro 2026 | **KAM-053 entregue.** Secção «Verificação dos Critérios de Aceitação» no bloco, com os **nove** critérios e as **sete** caixas do DoD, cada um com prova nomeada. **Onze caixas marcadas e cinco vazias**, e as cinco têm razão escrita: o critério 9 pede uma coluna com um nome que é **variante de nível 1** do *gate* 3b (`callback_hmac_ok`) e nenhuma excepção o salva — a vista existe com `authn_hmac_ok` e o que este ticket entrega é a medição, porque mudar o que o *gate* aceita é regra de bloqueio; a privacidade cumpre-se numa metade (a porta recusa um `payload` ou um `motivo` com padrão de telefone, com os mesmos padrões do `evt_emitir`) e não na outra (mascarar referências em logs, que exige o serviço `pay`); a observabilidade emite duas das três métricas e nenhuma chega a um colector; e os **dois revisores** não se cumprem, como no KAM-052 — fica dito que é um **P0 de dinheiro** e que o critério os pede explicitamente. **Decide a pergunta que o `../docs/tecnica/04` §6.2 deixou escrita para este ticket:** o `authn_method` fica com quatro valores, e a premissa da pergunta era falsa — um `pagamento_confirmado` **nunca** é `sistema`, porque a restrição `confirmar_exige_autenticacao` não o inclui e a base recusa (medido). **Quatro defeitos que a suite apanhou na própria revisão**, todos corrigidos: o `STRICT` do `payment_event_row_hash` com o `coalesce` no corpo em vez de nos chamadores (62 ensaios no mesmo `23502`); o papel novo sem `USAGE` no esquema; a guarda de PII do `evt_emitir` que **não vê** o `payload` do ledger, de onde saiu a guarda da própria porta; e a chave do `ci/secdef_allowlist.yaml` sem os nomes dos parâmetros, que o `pg_get_function_identity_arguments` inclui — a `audit_encadear()` escondeu-o desde o KAM-004 por não ter argumentos, e a primeira entrada com argumentos deu seis falhas no X-05. **Um achado sobre uma barreira que não se consegue exercitar:** o `WITH CHECK` da `tenant_iso` sobre a `payment_charges` é inalcançável pelo `kamba_app`, porque o `assert_beneficiary` corre `BEFORE INSERT` e recusa primeiro nas duas formas de o tentar — fica medido em vez de suposto. | Equipa KAMBÁ |
 | 1.5 | Novembro 2026 | **KAM-053, revisão adversarial: o ramo foi reprovado e corrigido.** Doze classes procuradas, doze achados, onze confirmados por medição, três `must fix` — e os três tinham a mesma assinatura, que é o modo de falha que esta casa nomeia: **a caixa estava marcada e o ensaio que a apoiava media outra coisa.** O mais grave: o `kamba_app` criava uma cobrança **já em `paga`** com zero eventos no ledger, porque o `estado` tinha domínio e não tinha valor inicial imposto — a caixa do DoD dizia «não existe caminho de código que escreva `paga` fora de `append_payment_event`» e tentava quatro vias, e a quinta era a óbvia; e o único detector, o *job* do §8, excluía-a por construção, porque só compara cobranças **com** eventos. Os outros dois: as duas vistas sem `GRANT` (a âncora externa falhava na primeira execução real, e nenhum ensaio o via porque os de catálogo inspeccionam como administrador), e **nove** das vinte e três colunas do ledger fora da cadeia de *hashes* — o `actor_id` e o `tenant_id` incluídos —, com o ensaio nomeado a varrer as posições de argumento da função, isto é, só os campos que já estavam dentro. Todos corrigidos com ensaio próprio, mais seis `should fix` (o `p_account_id => NULL` a saltar o G2, a enumeração do `webhook_token` pelo papel dos *webhooks*, o `pagamento_orfao` que a sua própria tabela torna impossível de escrever, duas células do dicionário erradas e a afirmação de que o 404 é uniforme no tempo). **E catorze mutações, com uma que sobreviveu** e que era um ensaio a escrever o estado que outro ensaio afirma — hoje as catorze são apanhadas. As caixas marcadas continuam onze e as vazias cinco; o que mudou foi o que as apoia. | Equipa KAMBÁ |
 | 1.6 | Novembro 2026 | **KAM-172:** a allowlist `EM_UNIDADE_MENOR` do *gate* 8 está **ratificada** (2026-11-03, [`../docs/adr/ADR-L008-allowlist-de-colunas-em-unidade-menor.md`](../docs/adr/ADR-L008-allowlist-de-colunas-em-unidade-menor.md)). O **KAM-053** fundiu **no mesmo dia** da decisão e inscreveu as suas três entradas com a pergunta escrita como aberta (a ordem dentro do dia é INDICIO: o *commit* tem hora, a decisão tem data) — o ADR-L008 cobre-as, e nenhuma se mexe. O bloco leva a nota; o **KAM-055** leva a sua, que é outra: ele não acrescenta coluna de dinheiro nenhuma a `platform` (a `payment_charges` e a `payment_events` já vieram com o KAM-053) e a divergência do doc 06 §4, que exemplifica `valor_kz`, continua a resolver-se contra o sufixo `_kz`, agora com canário que o prova. | Equipa KAMBÁ |
+| 1.7 | Novembro 2026 | **KAM-175** acrescentado, e **não entregue no mesmo PR**: o que se entrega é o ticket, não a correcção. Fecha a dívida 175 de [`../docs/dividas-documentais.md`](../docs/dividas-documentais.md), que a revisão adversarial do KAM-044 mediu de passagem: a barreira *append-only* da `platform.payment_events` tem um caso que passa, e é o que não apaga nada. O `payment_events_imutavel` da `0029` é `FOR EACH ROW` e **não dispara quando não há linhas**; o `payment_events_sem_truncate` é `FOR EACH STATEMENT` mas só em `BEFORE TRUNCATE`. Logo um `DELETE` com um predicado que não casa devolve `DELETE 0` e passa. **Medido a 2026-11-03 contra um PostgreSQL 18.6 real** (`pgvector/pgvector:0.8.7-pg18`, a imagem do `../infra/compose/docker-compose.dev.yml`), com a forma da `0029` reproduzida numa tabela de ensaio — e a medição acrescentou à dívida **duas coisas que ela não dizia**. Primeira: o `UPDATE` sem linhas **também** passa (`UPDATE 0`), pela mesma razão, pelo que são duas metades e não uma. Segunda: a forma que o KAM-044 escreveu para o `order_state_log` — `BEFORE TRUNCATE OR DELETE … FOR EACH STATEMENT` — fecha o `DELETE` e **deixa o `UPDATE` aberto**, pelo que copiá-la era repetir um nível abaixo a omissão que este ticket fecha. O ticket impõe `BEFORE TRUNCATE OR DELETE OR UPDATE … FOR EACH STATEMENT`, sem *trigger* novo e sem função nova: os dois nomes ficam como estão, que é o que mantém verdes o `TestTriggersSaoAlways` e os dois confrontos do `test_downgrade.py`. Três coisas ficam escritas por medição e não por suposição: o canário tem de desligar **só** o *trigger* por instrução (com os dois ligados, nenhum ensaio distingue qual deles mordeu); o `payment_events_imutavel` passa a ser **estritamente redundante** e a recomendação é ficar, porque o `_desligar_trigger` do `test_cadeia.py` o desliga pelo nome; e esse mesmo `_desligar_trigger` é **o único ensaio que a alteração quebra**, pelo que passa a desligar os dois. A escolha entre editar a `0029` e abrir revisão nova fica decidida por uma pergunta de facto — existe ambiente onde a `0029` já foi aplicada e que não se reconstrói de zero? — e não por preferência. P1, `fix`, S, depende do KAM-053, que ganha o recíproco no `Bloqueia`. **E três tabelas irmãs ficam de fora de propósito**: a `platform.audit_log` (KAM-012), a `platform.tool_audit` (KAM-028) e a `dat.llm_call_log` (KAM-030) escrevem a mesma forma da `0029` com as duas metades abertas, e a barreira de uma tabela decide-se em quem a tem — ficam na **dívida 176**, com credor por tabela. O segundo critério de saída deste epic **não se emenda aqui**: o `kamba_ops` que ele nomeia é a dívida 167, com credor KAM-053. | Equipa KAMBÁ |
