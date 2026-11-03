@@ -194,10 +194,36 @@ check: lint-arch lint-branch lock-check test-py typecheck test-ts
 # recusar. Correndo aqui, essa prova entra no *gate* 2 — que ja e contexto
 # exigido — e `make ci` passa a corre-la sem passar pelo GitHub, que e o que o §1
 # do `docs/ci.md` pede de todo o portao desta casa.
+# --- Mensagens dos commits do PR (KAM-174) ------------------------------------
+#
+# O terceiro e o quarto passo deste alvo leem as mensagens dos *commits* que o PR
+# acrescenta, e entram **aqui** pela mesma razao dos dois de cima: um *job* novo
+# acrescenta um contexto exigido ao *ruleset* de `main`, e isso e alteracao de
+# regra de bloqueio, que e decisao do fundador.
+#
+# **E um subcomando proprio, e nao um passo dentro do `all`.** O `all` corre em
+# `make check` e em cada execucao local; meter-lhe dentro um varrimento que
+# precisa de um intervalo de *commits* faria um comando local depender de estado
+# de CI. Como subcomando separado, a execucao local cai no modo declarado — diz
+# «NAO verificadas» e passa — e so o *gate* 2 lhe da um intervalo.
+#
+# As duas variaveis vao **em bruto**, como o evento as traz, e este alvo **nao
+# decide nada** sobre elas: quem decide e
+# `tools/lint_arch/commits.py:decidir_intervalo`, que e uma funcao pura com
+# testes. Nao ha *lint* de *workflows* neste repositorio, pelo que uma condicao
+# escrita em YAML ou aqui no `make` nao seria verificavel por teste nenhum. Sem
+# as variaveis — `make ci-2` na maquina de quem desenvolve, e tambem os outros
+# alvos que chamam este — o modo e local, e o comando di-lo em voz alta em vez de
+# dar a passagem por satisfeita.
+GATE2_EVENTO ?=
+GATE2_MERGE_REF ?=
+
 lint-arch:
 	@echo "==> lint_arch"
 	@$(PYTHON) -m lint_arch --root $(ROOT) all
 	@$(PYTHON) -m lint_arch --root $(ROOT) pr-title-canario
+	@$(PYTHON) -m lint_arch --root $(ROOT) commit-range --evento '$(GATE2_EVENTO)' --merge-ref '$(GATE2_MERGE_REF)'
+	@$(PYTHON) -m lint_arch --root $(ROOT) commit-range-canario
 
 ## lint-branch: nome do ramo actual
 lint-branch:

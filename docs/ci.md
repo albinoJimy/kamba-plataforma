@@ -44,7 +44,7 @@ Cada gate é um alvo `make ci-<n>`. O *workflow* só os orquestra. Três razões
 | # | Gate | Alvo | Dono | Origem do dono |
 |---|---|---|---|---|
 | 1 | Build a partir dos lockfiles | `make ci-1` | Plataforma | **proposta** |
-| 2 | Lint, formato e tipos — e, desde o KAM-068, nenhum serviço a escrever fora do *logger* | `make ci-2` | Plataforma | **proposta** |
+| 2 | Lint, formato e tipos — desde o KAM-068, nenhum serviço a escrever fora do *logger*; e desde o KAM-174, as **mensagens dos *commits* que o PR acrescenta** | `make ci-2` | Plataforma | **proposta** |
 | 3 | Referências cruzadas (`KAM`, `ADR`, `D#`) e caminhos dentro dos blocos de *handoff* | `make ci-3` | Plataforma | **proposta** |
 | 3b | Nomes canónicos | `make ci-3b` | Arquitecto de Plataforma | KAM-111 (activo desde o KAM-111) |
 | 3c | Coerência do backlog: o §4 do `specs/INDICE.md`, o bloco de cada ticket e a tabela-resumo do §3 de cada epic | `make ci-3c` | Arquitecto de Plataforma | KAM-138 (activo desde o KAM-138) |
@@ -132,6 +132,130 @@ uma pela regra do seu nome e só por ela, com as regras obrigatórias fixas no
 código. A
 política, o âmbito e o que o *lint* não apanha estão em [`logs.md`](logs.md) §4.1
 e §7.
+
+**Desde o KAM-174 o `lint-arch` tem um quarto e um quinto passo: as mensagens
+dos *commits* que o PR acrescenta, e o canário delas.** Até aqui a forma do
+assunto de um *commit* era imposta pelo *hook* local
+[`tools/githooks/commit-msg`](../tools/githooks/commit-msg) e por mais nada — e
+ele dispensa-se com `--no-verify` e não existe num clone antes de `make hooks`.
+Com `squash_merge_commit_title: COMMIT_OR_PR_TITLE`, num PR de **um só**
+*commit* o GitHub leva o assunto desse *commit* para o `main`: o KAM-164 fechou
+o caminho do **título do PR**, que é o que conta quando há vários, e este fecha
+o caminho do **assunto do *commit***, que é o que conta quando há um. São os dois
+caminhos que existem.
+
+Entrou **neste *gate* e não num *job* novo**, pela razão escrita para o
+`log-lint`, o `money-lint` e o `env-lint`: um *job* novo acrescenta um contexto
+exigido ao *ruleset* de `main`, e isso é alteração de regra de bloqueio. O
+`esperados` do resumo continua em **11** e os `needs:` do agregador não mudam.
+Reusa o `check_commit_message` de
+[`tools/lint_arch/conventions.py`](../tools/lint_arch/conventions.py) e a fonte
+única da forma, [`tools/conventions.json`](../tools/conventions.json) — a mesma
+função e o mesmo ficheiro que o *hook* lê, para que o *gate* não possa recusar o
+que o *hook* aceita.
+
+**O intervalo é do primeiro ao segundo pai do *merge ref*, e não o do *gate* 9.**
+São os *commits* próprios do PR. A ordem dos pais foi medida e não suposta: em
+`refs/pull/112/merge`, a 2026-11-03, o pai 1 é a ponta de `main` e o pai 2 é a
+cabeça do ramo. **A medição tem de ser sobre o *merge ref* do GitHub**, porque um
+*merge* feito à mão de dentro do ramo tem a ordem inversa — há um desses no
+próprio repositório (`33af7f5`) — e tomar um pelo outro daria um intervalo
+invertido, isto é, zero *commits* e um verde que não significa nada.
+
+A razão para divergir do *gate* 9 não é preferência. Nenhum dos dois intervalos
+vê os assuntos históricos de `main`: são todos alcançáveis da base, e o
+`rev-list base..head` exclui o alcançável da base por construção. O que torna o
+do *gate* 9 inaceitável aqui é **o que funde enquanto o PR está aberto** — a base
+dele é a ponta de `main` no momento do evento, pelo que um assunto fora da forma
+que chegue a `main` nesse intervalo de tempo avermelhava um PR alheio, cujo autor
+não pode corrigir um *commit* de `main` nem dispensá-lo. Com 22 a 30 dos últimos
+140 assuntos fora da forma — o número depende do predicado, e é por isso que o
+que conta é o raciocínio — não é hipótese remota. Um portão que avermelha por
+acto de terceiro é um portão que se aprende a ignorar.
+
+Com este intervalo o *commit* de *merge* sintético fica fora **por construção**:
+é a cabeça do `rev-list`, não um elemento dele. Não depende da isenção `^Merge `,
+e o canário prova-o correndo a mesma passagem com as `exemptHeaderPatterns`
+**retiradas**.
+
+**Cada accionamento está escrito pelo nome**, em
+[`tools/lint_arch/commits.py`](../tools/lint_arch/commits.py) e não em YAML, e um
+accionamento que não esteja escrito é vermelho:
+
+| Accionamento | O que faz | Porquê |
+|---|---|---|
+| `pull_request` | intervalo **obrigatório**; sem *merge ref* resolúvel, vermelho | é o ponto de imposição: o único momento em que o autor ainda pode reescrever os seus *commits* |
+| `push` em `main` | a passagem **não corre**, em modo declarado | o que chega por `push` já fundiu, e um *commit* de `main` não se reescreve. O *gate* 2 é contexto obrigatório do *ruleset*: um vermelho aqui travava o repositório depois de cada *merge*, sem autor que o corrigisse |
+| `workflow_dispatch` | não corre, em modo declarado | é o caminho que o `ci.yaml` documenta para reexecutar sem abrir PR, e não traz *merge ref* |
+| `merge_group` | intervalo obrigatório | decide um *merge*. Nomeado **por antecipação**: é a precaução que o *gate* 9 escreveu no YAML, sem a qual o portão ficava vermelho em todas as execuções no dia em que a fila de *merge* se ligasse |
+| `pull_request_target` | intervalo obrigatório | idem |
+| execução local | não corre, e **di-lo em voz alta** | `make ci-2` na máquina de quem desenvolve, onde não existe PR. Declarar o modo em vez de passar em silêncio é o que impede «não varri nada» de se ler como «está conforme» |
+
+Quem decide é o **accionamento** e não a presença do SHA — e aqui a função
+divergir do `decidir_intervalo` do *gate* 9 é deliberado. Em `push` o
+`github.sha` é um SHA perfeitamente válido; se a presença de um SHA decidisse, a
+passagem corria sobre `main` depois de cada *merge*, onde o *commit* de um
+*squash* tem **um** pai e não há segundo pai para resolver.
+
+**O *job* ganhou `fetch-depth: 0`** — tinha `actions/checkout@v5` sem `with:`,
+isto é, a profundidade 1 por omissão, e nesse clone não há história de ramo
+nenhuma para ler. A profundidade é 0 e não finita porque o `rev-list` precisa de
+todos os *commits* que o PR acrescenta **e** do ponto onde os dois pais
+convergem: uma profundidade finita que um PR grande estoure não dá erro, dá um
+intervalo truncado. O `commits.py` recusa um clone raso de propósito, pelo que
+uma profundidade finita poria o *gate* vermelho em vez de mentir — mas vermelho
+sem correcção possível para quem tem um PR grande, o que é pior do que pagar o
+clone. **O custo, medido a 2026-11-03** sobre o `albinoJimy/kamba-plataforma`
+(144 *commits* em `main`): o clone passa de **1 895 para 5 905 objectos** e de
+**8,2 para 16,5 MiB** de *pack* — 3,1× os objectos e 2,0× os bytes, mais 8,3 MiB
+por execução. Em tempo de relógio do *runner*, o *gate* 2 levava **29 s** com a
+profundidade 1 (medido na corrida `41649947908`); o valor com a profundidade 0
+fica registado na linha de versão deste documento, medido na primeira corrida
+deste ticket. As duas variáveis em bruto (`GATE2_EVENTO`, `GATE2_MERGE_REF`) e o
+`fetch-depth` são confrontados linha a linha por
+[`tools/lint_arch/tests/test_ci_gate2.py`](../tools/lint_arch/tests/test_ci_gate2.py)
+— não há *lint* de *workflows*, pelo que uma condição escrita no YAML não seria
+verificável por teste nenhum.
+
+**O que esta verificação não cobre**, e fica escrito para não se confundir
+cobertura com alcance:
+
+- Um *commit* que chegue a `main` por um caminho que **não passa por um PR** —
+  um *push* directo, onde a passagem não corre de propósito.
+- Um PR fundido por `merge` ou por `rebase` em vez de `squash`: aí vão para
+  `main` os *commits* próprios, e o que o *gate* leu foi a forma de cada um, não
+  o assunto que o `main` acaba por mostrar.
+- Os assuntos que o `tools/conventions.json` isenta por `exemptHeaderPatterns`
+  (`^Merge `, `^Revert "`, `^fixup! `, `^squash! `). **Não se reimplementam nem
+  se endurecem aqui**, e é o que mantém a regra pequena: o `Merge branch …` que o
+  *git* escreve ao trazer a `main` para dentro do ramo é isento, pelo que trazer
+  a `main` para dentro de um PR **não** passa a exigir baptizar o *merge* à mão.
+  Medido a 2026-11-03: há 12 *merges* de forma por omissão nos últimos 300
+  *commits* de `main`, e nenhum deles avermelharia.
+- Os **22 a 30 assuntos de `main` que já estão fora da forma**. Ficam como estão:
+  reescrever um *commit* de `main` troca um defeito de forma por um defeito de
+  história, e o *ruleset* proíbe `non_fast_forward` precisamente para isso. A
+  dívida 170 continua registada e **não** foi reescrita.
+
+**O `commitlint` continua a ser só a via local, e a decisão é escrita.** Ele
+existe — [`package.json`](../package.json) tem o *script* e as dependências, e
+[`commitlint.config.cjs`](../commitlint.config.cjs) estende o
+`config-conventional` e lê o `tools/conventions.json` — e o *hook* corre-o
+**quando há `node` e `node_modules`**. Não passa a correr num portão, por duas
+razões que se somam. A primeira é a tensão com a fonte única: o
+`@commitlint/config-conventional` traz o seu **próprio *parser***, pelo que
+ligá-lo ao CI punha lá uma segunda implementação da forma — mesmo com a
+configuração a vir de um ficheiro só —, e é exactamente a divergência que o
+`$comment` do `tools/conventions.json` existe para impedir. A segunda é que não
+acrescenta cobertura: o caminho Python verifica as mesmas regras, no mesmo
+intervalo, e a paridade das duas vias já tem portão próprio —
+`test_conventions.py::TestFonteUnica` lê as regras activas do `.cjs` e falha se
+alguma não tiver implementação do lado Python. Ligar o `commitlint` ao CI sem
+medir essa paridade abria a divergência; medi-la é o que aquele teste já faz, do
+lado que não precisa de `node`. O que deixa de ser verdade é o facto 4 do
+KAM-174 — «uma dependência instalada, configurada e invocada por ninguém»: é
+invocada pelo *hook*, e o seu papel é ser a segunda opinião local de quem tem a
+*toolchain* instalada.
 
 ### Gate 3 — referências cruzadas
 
@@ -2592,3 +2716,4 @@ sobrevivem ao PR.
 | 1.63 | Novembro 2026 | **KAM-164: o §7 ganha a lacuna 30 — uma verificação que existe e não bloqueia.** A verificação do título do PR (`../.github/workflows/titulo-do-pr.yaml`, contexto `titulo do PR — forma convencional`) corre em `pull_request` com `types: [opened, edited, reopened, synchronize]` e tem canário próprio, mas **não** entra nos `required_status_checks` nem no espelho: pelas razões das lacunas 17 e 28, escrevê-la só no espelho tornava-o falso e aplicá-la no GitHub precisa de `administration: write`. Também não bloqueia pelo *job* de resumo, ao contrário dos *gates* 3b, 3c, 6, 7 e 8 — vive em *workflow* próprio porque precisa do `edited`, e pô-lo no `ci.yaml` faria os doze *jobs* bloqueantes correrem a cada emenda de título. **Não é *gate* e não entra no §2:** a numeração do §2 é a do `../specs/01_Engineering_Standards_e_Handoff.md` §4, e esta verificação não tem número lá; o `esperados` do resumo também não muda. | Equipa KAMBÁ |
 | 1.64 | Novembro 2026 | **KAM-002: a chave do cache do `.venv` passa a levar a versão de patch do interpretador, e o escape ganha portão.** A chave de [`../.github/actions/preparar/action.yaml`](../.github/actions/preparar/action.yaml) era `venv-<os>-<hash dos requirements>` e não dizia nada sobre o Python, enquanto o `python-version: "3.12"` flutua no patch de propósito. Um `.venv` leva o `bin/python3` como *symlink* para `/opt/hostedtoolcache/Python/<versão>/x64`, pelo que uma entrada construída com um patch fica pendurada em qualquer *runner* que sirva outro — e **não se cura**, porque o `actions/cache` só escreve quando há *miss*. **Medido a 2026-11-03, na corrida `41636240093`:** os sete *jobs* do `ci.yaml` que usam a acção apanharam a rolagem da imagem a meio — os *gates* 1, 4, 6, 7, 8 e 11 em CPython **3.12.15** passaram e o *gate* 2, em **3.12.16**, falhou com `[Errno 2] ... '.venv/bin/python3'` sobre um cache restaurado a 100%. **A acção tem oito consumidores e não sete** — o oitavo é o `fatias` do `mutacoes.yaml`, que é um bloco e uma matriz de seis —, pelo que são **13 *jobs*** a partilhar a entrada; a primeira versão desta linha dizia «os sete», e foi a revisão adversarial que o apanhou. Completada a rolagem, a entrada de 25 de Outubro partiria os treze em todos os PRs e na `main`; e **durante a rolagem** apagar a entrada não corrigia nada, porque enquanto há dois patches em serviço nenhuma entrada única serve os dois lados (completada a rolagem já bastaria, e a primeira versão afirmava-o sem esse âmbito). O portão é o [`../tools/lint_arch/tests/test_ci_preparar.py`](../tools/lint_arch/tests/test_ci_preparar.py), **seis** ensaios: a chave na forma inteira, com os ficheiros do `hashFiles` lidos dos pré-requisitos do `$(VENV)/.stamp` do `Makefile` em vez de escritos no ensaio; o `id` citado é mesmo o do passo do `setup-python` — uma expressão que não resolve rende **cadeia vazia** e degradaria a chave em silêncio; **a ausência de `restore-keys`**, que sustenta tudo o resto e cuja reintrodução passava 4/4 verde na primeira versão, com a linha pronta a copiar do `cache do pnpm` três linhas acima; a acção é o único sítio que define este cache, varrendo `*.yaml`, `*.yml` e outras acções compostas; e os consumidores contam ***jobs*** e não blocos de YAML, que era a mesma falha de denominador dentro do portão que a devia impedir. Verificado nos dois sentidos: 6/6 verdes com a correcção, e **oito variantes de regressão todas vermelhas** — incluindo as quatro que a primeira versão deixava passar. | Equipa KAMBÁ |
 | 1.65 | Novembro 2026 | **KAM-173: o *gate* 4 ganha um passo e nao um *job*.** O `ci-4` passa a depender de `ordem-dos-ensaios`, que corre `libs/py-core/tests` e `services/agr/tests` outra vez na ordem inversa e exige verde — cada ordem no seu processo, porque duas no mesmo mediam a passagem anterior e nao a ordem. O `.github/workflows/ci.yaml` **nao** e tocado, pelo que nenhum contexto novo entra no *ruleset* de `main`. Medido antes: **um** teste de `libs/py-core` mudava de resultado com a ordem invertida (e **zero** em `services/agr`), e o escape que o motiva esta no KAM-163, onde o ensaio da correccao passava por acidente da ordem alfabetica das classes. Com canario de **duas** metades, uma a morder e uma a distinguir. **As suites de `tools/` ficam de fora**, com o custo medido — as **18** de antes deste alvo levam **1 911 s** numa passagem, **1 422** deles da `supply_chain` so — e com a medicao feita de qualquer modo: **as 18** sem mudanca de resultado, a `supply_chain` incluida. | Equipa KAMBÁ |
+| 1.66 | Novembro 2026 | **KAM-174: o *gate* 2 passa a ler as mensagens dos *commits* que o PR acrescenta, e sem *job* novo.** O alvo `lint-arch` ganha dois passos — `commit-range` e `commit-range-canario` —, pelo caminho do `log-lint`, do `money-lint` e do `env-lint`: um *job* novo acrescentava um contexto exigido ao *ruleset* de `main`. O `esperados` continua em **11** e os `needs:` não mudam. Até aqui a forma do assunto era imposta só pelo *hook* local, que se dispensa com `--no-verify` e não existe antes de `make hooks` — e com `squash_merge_commit_title: COMMIT_OR_PR_TITLE` um PR de um só *commit* leva esse assunto para o `main` sem nada do lado do servidor o ler (dívida 173, **riscada aqui**). Reusa o `check_commit_message` e a fonte única `../tools/conventions.json`; nenhuma segunda cópia da expressão regular, e o `test_conventions.py::TestFonteUnicaDaForma` continua verde sobre os ficheiros novos. **O intervalo é do primeiro ao segundo pai do *merge ref***, medido em `refs/pull/112/merge` (pai 1 = base, pai 2 = cabeça) e **não** o do *gate* 9, cuja base cresce quando a `main` anda e avermelharia PRs alheios; o *merge* sintético fica fora **por construção** e o canário prova-o com as `exemptHeaderPatterns` retiradas. Os cinco accionamentos estão escritos numa função pura com testes, e um accionamento não escrito é vermelho; em `push` e em `workflow_dispatch` a passagem **não corre**, em modo declarado. O *job* ganha `fetch-depth: 0` — tinha a profundidade 1 por omissão —, e o custo está medido: o clone passa de **1 895 para 5 905 objectos** e de **8,2 para 16,5 MiB** de *pack*. **Critério 9 decidido:** o `commitlint` fica como via local, porque o `config-conventional` traz o seu próprio *parser* e ligá-lo ao CI punha lá uma segunda implementação da forma; a paridade das duas vias já tem portão (`TestFonteUnica`). As 22 a 30 linhas de `main` fora da forma ficam como estão e a dívida 170 **não** foi reescrita. | Equipa KAMBÁ |
