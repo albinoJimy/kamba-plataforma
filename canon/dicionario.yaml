@@ -12,7 +12,7 @@
 
 version: 1
 fonte: "specs/02_Dicionario_de_Dados_Canonico.md"
-versao_dicionario: "1.54"
+versao_dicionario: "1.55"
 entradas:
   - seccao: "3.1"
     conceito: "Contacto"
@@ -10014,6 +10014,127 @@ entradas:
       - "TTL_DO_HOLD_MS"
     variantes_literais: []
   - seccao: "3.41"
+    conceito: "Ambiente"
+    canonico: "ambiente ∈ {dev, staging, prod}"
+    literais:
+      - "ambiente"
+      - "dev"
+      - "staging"
+      - "prod"
+    nomes:
+      - "ambiente"
+      - "dev"
+      - "staging"
+      - "prod"
+    nomes_nota: []
+    variantes_literais: []
+  - seccao: "3.41"
+    conceito: "Classe de dados de um ambiente"
+    canonico: "kamba_data_class ∈ {synthetic, real}"
+    literais:
+      - "kamba_data_class"
+      - "synthetic"
+      - "real"
+    nomes:
+      - "kamba_data_class"
+      - "synthetic"
+      - "real"
+    nomes_nota:
+      - "EPIC"
+      - "dados.classe"
+      - "env.yaml"
+    variantes_literais: []
+  - seccao: "3.41"
+    conceito: "Referência de uma decisão D1"
+    canonico: "decisao_d1, na forma D1/<AAAA-MM-DD>/<slug> — p. ex. D1/2026-12-01/jnb-cpt"
+    literais:
+      - "decisao_d1"
+    nomes:
+      - "decisao_d1"
+    nomes_nota:
+      - "a"
+      - "z0"
+      - "null"
+    variantes_literais: []
+  - seccao: "3.41"
+    conceito: "Passagem a dados reais"
+    canonico: "dados.classe: real exige decisao_d1 e ≥ 1 apd_ref"
+    literais:
+      - "dados.classe: real"
+      - "decisao_d1"
+      - "apd_ref"
+    nomes:
+      - "dados.classe"
+      - "real"
+      - "decisao_d1"
+      - "apd_ref"
+    nomes_nota:
+      - "apd_ref"
+      - "real"
+      - "sem"
+      - "d1"
+      - "apd"
+      - "ref"
+      - "tenant_destinations"
+    variantes_literais: []
+  - seccao: "3.41"
+    conceito: "Projecto de segredos por ambiente"
+    canonico: "dev → local; staging → staging; prod → prod"
+    literais:
+      - "dev"
+      - "local"
+      - "staging"
+      - "staging"
+      - "prod"
+      - "prod"
+    nomes:
+      - "dev"
+      - "local"
+      - "staging"
+      - "prod"
+    nomes_nota:
+      - "staging"
+      - "prod"
+      - "local"
+    variantes_literais: []
+  - seccao: "3.41"
+    conceito: "Referência a um segredo, na infraestrutura"
+    canonico: "<projecto_de_segredos>/<ID_EM_MAIÚSCULAS> — p. ex. staging/META_APP_SECRET"
+    literais: []
+    nomes: []
+    nomes_nota:
+      - "ID"
+      - "id"
+    variantes_literais: []
+  - seccao: "3.41"
+    conceito: "Ambientes de que um ambiente aceita restauro"
+    canonico: "restauro_de, lista de ambientes"
+    literais:
+      - "restauro_de"
+    nomes:
+      - "restauro_de"
+    nomes_nota:
+      - "prod"
+      - "restauro"
+      - "de"
+      - "GoLive_Gate.md"
+    variantes_literais: []
+  - seccao: "3.41"
+    conceito: "Etiquetas de custo por ambiente"
+    canonico: "kamba_env e kamba_data_class"
+    literais:
+      - "kamba_env"
+      - "kamba_data_class"
+    nomes:
+      - "kamba_env"
+      - "kamba_data_class"
+    nomes_nota:
+      - "kamba_env"
+      - "ambiente"
+      - "kamba_data_class"
+      - "dados.classe"
+    variantes_literais: []
+  - seccao: "3.42"
     conceito: "Cobrança (estado derivado do ledger)"
     canonico: "payment_charges(id, tenant_id, order_id, billing_cycle_id, tentativa, account_id, provider, metodo, referencia, provider_charge_id, amount_minor, currency, estado, motivo_falha, requer_humano, valid_until, payer_hmac, criado_at, atualizado_at)"
     literais:
@@ -10051,7 +10172,7 @@ entradas:
       - "orders_mirror"
       - "billing_cycles"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Estado da cobrança"
     canonico: "payment_charges.estado ∈ {iniciada, emitida, aguarda_cliente, pendente_confirmacao, paga, expirada, falhada, cancelada, reembolso_pendente, reembolsada}"
     literais:
@@ -10081,7 +10202,7 @@ entradas:
     nomes_nota:
       - "rebuild_charge_state"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Método de cobrança"
     canonico: "payment_charges.metodo ∈ {referencia, express_push, manual, cod}"
     literais:
@@ -10101,7 +10222,7 @@ entradas:
       - "manual"
       - "ManualProvider"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Motivo de falha da cobrança"
     canonico: "payment_charges.motivo_falha ∈ {valor_divergente, referencia_divergente, entidade_divergente, rejeitada_provider, recusada_cliente, timeout_cliente, provider_indisponivel, criacao_incerta, manual_rejeitada}"
     literais:
@@ -10129,7 +10250,7 @@ entradas:
     nomes_nota:
       - "falhada"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Montante da cobrança"
     canonico: "payment_charges.amount_minor bigint + currency ∈ {AOA}"
     literais:
@@ -10147,7 +10268,7 @@ entradas:
       - "valor_minor"
     variantes_literais:
       - "valor_kz"
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Tranca da cobrança"
     canonico: "payment_charges.atualizado_at timestamptz"
     literais:
@@ -10160,7 +10281,7 @@ entradas:
       - "FOR"
       - "UPDATE"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Inbox de callbacks"
     canonico: "payment_callbacks_inbox(id, account_id, recebido_at, source_ip, headers, body, body_hash, authn_ok, estado, processado_at, erro)"
     literais:
@@ -10182,7 +10303,7 @@ entradas:
       - "tenant_id"
       - "kamba_pay_hooks"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Estado da entrega"
     canonico: "payment_callbacks_inbox.estado ∈ {recebido, processado, duplicado, hmac_invalido, token_desconhecido, ignorado, erro}"
     literais:
@@ -10210,7 +10331,7 @@ entradas:
       - "authn_ok"
     variantes_literais:
       - "sig_ok"
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Corpo cru da entrega"
     canonico: "payment_callbacks_inbox.body bytea + body_hash bytea"
     literais:
@@ -10225,7 +10346,7 @@ entradas:
       - "sha256"
       - "CHECK"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Ledger de pagamentos"
     canonico: "payment_events(id, tenant_id, charge_id, order_id, billing_cycle_id, provider, account_id, referencia, tipo_evento, sequencia, provider_event_id, valor_minor, currency, authn_method, authn_ok, decisao, motivo, actor_kind, actor_id, payload_hash, payload, ocorrido_at, recebido_at, prev_hash, row_hash)"
     literais:
@@ -10266,7 +10387,7 @@ entradas:
       - "deny_mutation"
       - "payment_charges"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Tipo de evento do ledger"
     canonico: "tipo_evento ∈ {cobranca_criada, referencia_emitida, push_enviado, pagamento_recebido, pagamento_confirmado, pagamento_divergente, pagamento_orfao, pagamento_duplicado, pagamento_rejeitado_provider, cobranca_expirada, cobranca_cancelada, confirmacao_manual_pedida, confirmacao_manual_registada, confirmacao_manual_rejeitada, confirmacao_manual_revertida, reembolso_manual_registado, ajuste_reconciliacao}"
     literais:
@@ -10314,7 +10435,7 @@ entradas:
       - "CHECK"
       - "tests_pagamentos"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Unicidade de entrega (G7)"
     canonico: "payment_events(provider, account_id, provider_event_id) único quando provider_event_id não é nulo e tipo_evento é pagamento_recebido"
     literais:
@@ -10334,7 +10455,7 @@ entradas:
       - "provider_event_id"
     variantes_literais:
       - "UNIQUE(provider, referencia)"
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Ordem de um tipo numa referência"
     canonico: "payment_events.sequencia integer"
     literais:
@@ -10344,7 +10465,7 @@ entradas:
       - "integer"
     nomes_nota: []
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Autenticação do evento (ver §3.4)"
     canonico: "payment_events.authn_ok + payment_events.authn_method"
     literais:
@@ -10360,7 +10481,7 @@ entradas:
       - "payment_outbox_map"
       - "CHECK"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Decisão do evento"
     canonico: "payment_events.decisao ∈ {aceite, rejeitada, informativo}"
     literais:
@@ -10377,7 +10498,7 @@ entradas:
       - "next_state"
       - "paga"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Autor do evento"
     canonico: "payment_events.actor_kind ∈ {provider, dono, ops, sistema}"
     literais:
@@ -10398,7 +10519,7 @@ entradas:
       - "actor_id"
       - "humano_exige_actor"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Elo da cadeia do ledger"
     canonico: "payment_events.row_hash bytea + prev_hash bytea + payload_hash bytea"
     literais:
@@ -10421,7 +10542,7 @@ entradas:
       - "NULL"
       - "NOT"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Mapeamento para o outbox"
     canonico: "payment_outbox_map(tipo_evento, authn_method, evt_tipo, evt_versao)"
     literais:
@@ -10437,7 +10558,7 @@ entradas:
       - "tenant_id"
       - "tipo_evento"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Porta de escrita do ledger"
     canonico: "append_payment_event(p_charge_id, p_tipo_evento, p_account_id, p_valor_minor, p_authn_method, p_authn_ok, p_decisao, p_motivo, p_actor_kind, p_actor_id, p_provider_event_id, p_payload, p_ocorrido_at)"
     literais:
@@ -10467,7 +10588,7 @@ entradas:
       - "provider"
       - "referencia"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Máquina de estados da cobrança"
     canonico: "next_state(p_estado, p_tipo_evento, p_decisao)"
     literais:
@@ -10482,7 +10603,7 @@ entradas:
       - "STRICT"
       - "NULL"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Reconstrução do estado"
     canonico: "rebuild_charge_state(p_charge_id)"
     literais:
@@ -10495,7 +10616,7 @@ entradas:
       - "id"
       - "data_corrupted"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Verificação da cadeia"
     canonico: "verify_ledger_chain(p_charge_id)"
     literais:
@@ -10506,7 +10627,7 @@ entradas:
     nomes_nota:
       - "payload_hash"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Fórmula de um elo"
     canonico: "payment_event_row_hash(p_prev_hash, p_charge_id, p_provider, p_account_id, p_referencia, p_tipo_evento, p_sequencia, p_provider_event_id, p_valor_minor, p_currency, p_authn_method, p_authn_ok, p_decisao, p_payload_hash)"
     literais:
@@ -10539,7 +10660,7 @@ entradas:
       - "IDENTITY"
       - "INSERT"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Recusa de mutação"
     canonico: "deny_mutation()"
     literais:
@@ -10556,7 +10677,7 @@ entradas:
       - "session_replication_role"
       - "replica"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Resolução do token do webhook"
     canonico: "resolve_webhook_token(p_token), com a política pay_hooks_token e a variável de sessão app.webhook_token"
     literais:
@@ -10586,7 +10707,7 @@ entradas:
       - "NOBYPASSRLS"
       - "FORCE"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Papel dos webhooks de pagamento"
     canonico: "kamba_pay_hooks"
     literais:
@@ -10603,7 +10724,7 @@ entradas:
       - "append_payment_event"
       - "kamba_app"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Vista de auditoria do ledger"
     canonico: "v_payment_events_audit, com a coluna derivada authn_hmac_ok"
     literais:
@@ -10623,7 +10744,7 @@ entradas:
       - "security_invoker"
       - "true"
     variantes_literais: []
-  - seccao: "3.41"
+  - seccao: "3.42"
     conceito: "Cabeça da cadeia por cobrança"
     canonico: "v_payment_ledger_heads"
     literais:
@@ -11273,7 +11394,7 @@ tabelas:
       - "atualizado_at"
     aberta: false
     assinatura: "payment_charges(id, tenant_id, order_id, billing_cycle_id, tentativa, account_id, provider, metodo, referencia, provider_charge_id, amount_minor, currency, estado, motivo_falha, requer_humano, valid_until, payer_hmac, criado_at, atualizado_at)"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Cobrança (estado derivado do ledger)"
   - nome: "payment_callbacks_inbox"
     esquema: ""
@@ -11291,7 +11412,7 @@ tabelas:
       - "erro"
     aberta: false
     assinatura: "payment_callbacks_inbox(id, account_id, recebido_at, source_ip, headers, body, body_hash, authn_ok, estado, processado_at, erro)"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Inbox de callbacks"
   - nome: "payment_events"
     esquema: ""
@@ -11323,7 +11444,7 @@ tabelas:
       - "row_hash"
     aberta: false
     assinatura: "payment_events(id, tenant_id, charge_id, order_id, billing_cycle_id, provider, account_id, referencia, tipo_evento, sequencia, provider_event_id, valor_minor, currency, authn_method, authn_ok, decisao, motivo, actor_kind, actor_id, payload_hash, payload, ocorrido_at, recebido_at, prev_hash, row_hash)"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Ledger de pagamentos"
   - nome: "payment_events"
     esquema: ""
@@ -11333,7 +11454,7 @@ tabelas:
       - "provider_event_id"
     aberta: false
     assinatura: "payment_events(provider, account_id, provider_event_id)"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Unicidade de entrega (G7)"
   - nome: "payment_outbox_map"
     esquema: ""
@@ -11344,7 +11465,7 @@ tabelas:
       - "evt_versao"
     aberta: false
     assinatura: "payment_outbox_map(tipo_evento, authn_method, evt_tipo, evt_versao)"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Mapeamento para o outbox"
   - nome: "append_payment_event"
     esquema: ""
@@ -11364,7 +11485,7 @@ tabelas:
       - "p_ocorrido_at"
     aberta: false
     assinatura: "append_payment_event(p_charge_id, p_tipo_evento, p_account_id, p_valor_minor, p_authn_method, p_authn_ok, p_decisao, p_motivo, p_actor_kind, p_actor_id, p_provider_event_id, p_payload, p_ocorrido_at)"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Porta de escrita do ledger"
   - nome: "next_state"
     esquema: ""
@@ -11374,7 +11495,7 @@ tabelas:
       - "p_decisao"
     aberta: false
     assinatura: "next_state(p_estado, p_tipo_evento, p_decisao)"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Máquina de estados da cobrança"
   - nome: "rebuild_charge_state"
     esquema: ""
@@ -11382,7 +11503,7 @@ tabelas:
       - "p_charge_id"
     aberta: false
     assinatura: "rebuild_charge_state(p_charge_id)"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Reconstrução do estado"
   - nome: "verify_ledger_chain"
     esquema: ""
@@ -11390,7 +11511,7 @@ tabelas:
       - "p_charge_id"
     aberta: false
     assinatura: "verify_ledger_chain(p_charge_id)"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Verificação da cadeia"
   - nome: "payment_event_row_hash"
     esquema: ""
@@ -11411,14 +11532,14 @@ tabelas:
       - "p_payload_hash"
     aberta: false
     assinatura: "payment_event_row_hash(p_prev_hash, p_charge_id, p_provider, p_account_id, p_referencia, p_tipo_evento, p_sequencia, p_provider_event_id, p_valor_minor, p_currency, p_authn_method, p_authn_ok, p_decisao, p_payload_hash)"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Fórmula de um elo"
   - nome: "deny_mutation"
     esquema: ""
     colunas: []
     aberta: false
     assinatura: "deny_mutation()"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Recusa de mutação"
   - nome: "resolve_webhook_token"
     esquema: ""
@@ -11426,7 +11547,7 @@ tabelas:
       - "p_token"
     aberta: false
     assinatura: "resolve_webhook_token(p_token)"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Resolução do token do webhook"
 
 dominios:
@@ -12134,6 +12255,21 @@ dominios:
     seccao: "3.40"
     conceito: "Origem de um preço de linha"
     so_no_registo: false
+  - coluna: "ambiente"
+    valores:
+      - "dev"
+      - "staging"
+      - "prod"
+    seccao: "3.41"
+    conceito: "Ambiente"
+    so_no_registo: false
+  - coluna: "kamba_data_class"
+    valores:
+      - "synthetic"
+      - "real"
+    seccao: "3.41"
+    conceito: "Classe de dados de um ambiente"
+    so_no_registo: false
   - coluna: "payment_charges.estado"
     valores:
       - "iniciada"
@@ -12146,7 +12282,7 @@ dominios:
       - "cancelada"
       - "reembolso_pendente"
       - "reembolsada"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Estado da cobrança"
     so_no_registo: false
   - coluna: "payment_charges.metodo"
@@ -12155,7 +12291,7 @@ dominios:
       - "express_push"
       - "manual"
       - "cod"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Método de cobrança"
     so_no_registo: false
   - coluna: "payment_charges.motivo_falha"
@@ -12169,13 +12305,13 @@ dominios:
       - "provider_indisponivel"
       - "criacao_incerta"
       - "manual_rejeitada"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Motivo de falha da cobrança"
     so_no_registo: false
   - coluna: "currency"
     valores:
       - "AOA"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Montante da cobrança"
     so_no_registo: false
   - coluna: "payment_callbacks_inbox.estado"
@@ -12187,7 +12323,7 @@ dominios:
       - "token_desconhecido"
       - "ignorado"
       - "erro"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Estado da entrega"
     so_no_registo: false
   - coluna: "tipo_evento"
@@ -12209,7 +12345,7 @@ dominios:
       - "confirmacao_manual_revertida"
       - "reembolso_manual_registado"
       - "ajuste_reconciliacao"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Tipo de evento do ledger"
     so_no_registo: false
   - coluna: "payment_events.decisao"
@@ -12217,7 +12353,7 @@ dominios:
       - "aceite"
       - "rejeitada"
       - "informativo"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Decisão do evento"
     so_no_registo: false
   - coluna: "payment_events.actor_kind"
@@ -12226,7 +12362,7 @@ dominios:
       - "dono"
       - "ops"
       - "sistema"
-    seccao: "3.41"
+    seccao: "3.42"
     conceito: "Autor do evento"
     so_no_registo: false
 

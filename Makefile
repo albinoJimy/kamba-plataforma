@@ -90,7 +90,7 @@ export PYTHONPATH := $(PYTHONPATH_ALL)
         nuke ps psql queue-cli smoke test test-py \
         test-ts typecheck up \
         ci-3b ci-3c canon-lint chatwoot-spike dict-export supply-chain ruleset \
-        log-lint money-lint x11 storage-contrato mermaid
+        log-lint money-lint env-lint x11 storage-contrato mermaid
 
 ## help: lista os comandos disponiveis
 help:
@@ -351,6 +351,7 @@ ci-2:
 	@$(MAKE) lint-arch
 	@$(MAKE) log-lint
 	@$(MAKE) money-lint
+	@$(MAKE) env-lint
 	@# Nao ha linter de estilo: os gates de lint sao deste ticket, mas a escolha do
 	@# ESLint ficou declarada fora de ambito no KAM-001 (ADR-L001 §8) e nao se
 	@# decide aqui por conveniencia. `make ci-2` cobre tipos e arquitectura.
@@ -408,6 +409,39 @@ money-lint:
 	@echo "==> money_lint: dinheiro em unidade menor inteira"
 	@$(PYTHON) -m money_lint --root $(ROOT) lint
 	@$(PYTHON) -m money_lint --root $(ROOT) canario
+
+# --- Ambientes dev/staging/prod (KAM-075) -------------------------------------
+#
+# **Entra no gate 2 e nao abre *job* novo**, pela mesma razao escrita acima para
+# o `log-lint` e o `money-lint`: um *job* novo acrescenta um contexto exigido ao
+# *ruleset* de `main`, e isso e alteracao de regra de bloqueio, que precisa do
+# fundador.
+#
+# Verifica cinco coisas que, antes do KAM-075, so existiam em prosa:
+#
+#   criterio 1  a matriz de `infra/ENVIRONMENTS.md` bate com os tres `env.yaml`
+#   criterio 3  nenhum ambiente aceita restauro de copias de `prod`
+#   criterio 4  `kamba_data_class=real` exige referencia de D1 **e** `apd_ref`
+#   criterio 5  um segredo de um ambiente nao e referenciado noutro
+#   criterio 6  nenhum `.tf` fora de `infra/modules/provider-*/` cria recursos
+#
+# O criterio 2 (host novo em <= 30 min, mediana de 3 execucoes) **nao esta aqui
+# e nao foi medido**: nao se mede por leitura de ficheiros, e nao houve conta
+# nem fornecedor para o medir — `infra/README.md` §5.
+#
+# O segundo passo e o canario, e aqui e **por mutacao e nao por fixtures**, ao
+# contrario do `log-lint` e do `money-lint`. A razao esta escrita em
+# `tools/env_lint/canario.py`: as regras sao sobre relacoes entre tres
+# ambientes e uma tabela, pelo que uma fixture por regra era uma copia da
+# arvore inteira — e dezenove copias divergem da arvore real sem aviso.
+#
+# So biblioteca padrao: corre com o Python do anfitriao, em segundos.
+
+## env-lint: a matriz de ambientes bate com a configuracao (KAM-075)
+env-lint:
+	@echo "==> env_lint: ambientes dev/staging/prod"
+	@$(PYTHON) -m env_lint --root $(ROOT) lint
+	@$(PYTHON) -m env_lint --root $(ROOT) canario
 
 ## x11: X-11 — 1 030 fixtures com dados pessoais pelos dois loggers, 0 achados
 x11:

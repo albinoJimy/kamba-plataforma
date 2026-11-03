@@ -276,7 +276,7 @@ defeito à espera:
    `sistema`, porque a restrição `confirmar_exige_autenticacao` não o inclui e a
    base recusa (medido em `test_o_check_recusa_confirmado_autenticado_por_sistema`).
    O `sistema` serve os factos de ciclo de vida que não vêm de fora, e entra no
-   dicionário §3.4 pela emenda 1.53.
+   dicionário §3.4 pela emenda 1.54.
 2. **Três arestas do §7.1 não têm evento que as accione, e ficam recusadas.** A
    `paga --> reembolso_pendente: disputa` não tem tipo de evento nos dezassete do
    §6.2 — abrir um caso é `refund_cases` (§6.3, KAM-054) —, e a divergência a
@@ -327,14 +327,14 @@ coisa.**
 
 Os `should fix`, todos corrigidos no mesmo PR: o `p_account_id => NULL` a saltar
 o G2 (critério 2 acima); o `pagamento_orfao` que a sua própria tabela torna
-impossível de escrever (dívida 166); a enumeração do `webhook_token` (caixa do
-isolamento acima); a célula do §3.41 a dizer `SECURITY DEFINER` onde o código
+impossível de escrever (dívida 169); a enumeração do `webhook_token` (caixa do
+isolamento acima); a célula do §3.42 a dizer `SECURITY DEFINER` onde o código
 diz `INVOKER`, e a do §3.4 a afirmar no mesmo parágrafo que o quarto valor está
-decidido e que fica por decidir (emenda 1.54 do dicionário); e a afirmação de
+decidido e que fica por decidir (emenda 1.55 do dicionário); e a afirmação de
 que o 404 é uniforme **no tempo**, que nada no módulo garantia (critério 7).
 
 Dos `nice to have`: o `confirmacao_manual_revertida`, recusado em todo o produto
-`(estado × tipo × decisão)`, entra na dívida 163, e o código `413` fica
+`(estado × tipo × decisão)`, entra na dívida 166, e o código `413` fica
 declarado. O que **não** se mexeu: a revisão leu o *trigger* `assert_beneficiary`
 ligado nesta revisão como «defensável» e não como achado, e confirmou que não há
 colisão de ficheiros com o PR #102.

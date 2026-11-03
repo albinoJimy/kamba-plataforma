@@ -256,7 +256,7 @@ describe("gates do worker: as divergências", () => {
 
   it("test_fora_de_emitida_a_divergencia_escreve_so_o_facto", () => {
     // **Uma correcção da revisão adversarial.** O `pagamento_divergente` é
-    // aresta do §7.1 **só** a partir de `emitida` (dívida 163). A primeira
+    // aresta do §7.1 **só** a partir de `emitida` (dívida 166). A primeira
     // versão prescrevia-o sempre, e a consequência está medida: a partir de
     // `aguarda_cliente` ou de `pendente_confirmacao` a porta levanta
     // `check_violation` e **reverte a transacção inteira** — incluindo o

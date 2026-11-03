@@ -539,7 +539,7 @@ def _cobrancas() -> None:
         f"COMMENT ON TABLE {COBRANCAS} IS "
         "'Cobranca: o estado **derivado** do ledger payment_events (KAM-053). "
         "Unica tabela mutavel de PAY, e mutavel so por append_payment_event: "
-        "nenhum papel tem UPDATE. docs/tecnica/04 secao 6.2; dicionario 3.38.'"
+        "nenhum papel tem UPDATE. docs/tecnica/04 secao 6.2; dicionario 3.42.'"
     )
     op.execute(
         f"COMMENT ON COLUMN {COBRANCAS}.estado IS "
@@ -872,7 +872,7 @@ def _eventos() -> None:
         "pagamento_divergente) em linhas separadas; o estado e derivado e vive "
         "em payment_charges. INSERT so por append_payment_event; UPDATE, "
         "DELETE e TRUNCATE recusados por deny_mutation a todos, incluindo ao "
-        "superutilizador. docs/tecnica/04 secao 6.2; dicionario 3.38.'"
+        "superutilizador. docs/tecnica/04 secao 6.2; dicionario 3.42.'"
     )
     op.execute(
         f"COMMENT ON COLUMN {EVENTOS}.sequencia IS "
@@ -985,7 +985,7 @@ def _mapa_do_outbox() -> None:
         "'Mapeamento (tipo_evento, authn_method) -> tipo de evento EVT "
         "(KAM-053). Configuracao global, como evt_subscricoes. Fica vazia: o "
         "conteudo definitivo e do KAM-055, e um tipo sem mapeamento nao produz "
-        "evento de dominio. dicionario 3.38.'"
+        "evento de dominio. dicionario 3.42.'"
     )
 
 

@@ -243,7 +243,7 @@ export function escritasDoVeredicto(
       // **A decisão só se escreve de onde o §7.1 a desenha.**
       //
       // O `pagamento_divergente` é aresta a partir de `emitida` e de mais
-      // nenhum estado (dívida 163). A primeira versão prescrevia-o sempre, e a
+      // nenhum estado (dívida 166). A primeira versão prescrevia-o sempre, e a
       // revisão adversarial mediu a consequência: a partir de
       // `aguarda_cliente` ou de `pendente_confirmacao` a porta levanta
       // `check_violation` e **reverte a transacção inteira**, incluindo o
@@ -278,7 +278,7 @@ export function escritasDoVeredicto(
       // ops**. O registo é o recibo `ignorado` no `payment_callbacks_inbox` —
       // que não tem `tenant_id` e por isso não precisa de cobrança — e o
       // alerta. O `tipo_evento` `pagamento_orfao` fica no domínio do §6.2 sem
-      // caminho de escrita, e está na dívida documental 166.
+      // caminho de escrita, e está na dívida documental 169.
       return [];
     case "duplo":
       // F-08: o segundo pagamento autenticado sobre uma cobrança já paga.
