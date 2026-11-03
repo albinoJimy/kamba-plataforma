@@ -123,7 +123,8 @@ Dois `make bootstrap` consecutivos produzem o mesmo `pnpm-lock.yaml` byte a byte
 
 | Convenção | Imposta por |
 |---|---|
-| `tipo(KAM-NNN): descrição no imperativo` | `commitlint` + hook `commit-msg` |
+| `tipo(KAM-NNN): descrição no imperativo`, no assunto de um *commit* | `commitlint` + hook `commit-msg` — os dois **locais**, e dispensáveis com `--no-verify`; nenhum portão de CI lê mensagens de *commit* (dívida 170 e 173) |
+| A mesma forma, no **título do PR** — é ele que fica no `main` quando o *squash* traz mais do que um *commit* | [`titulo-do-pr.yaml`](.github/workflows/titulo-do-pr.yaml) (KAM-164) |
 | `feature/KAM-NNN-<slug>` ou `fix/KAM-NNN-<slug>` | hook `pre-push` |
 | Quarentena de ≥ 7 dias para versões novas | [`renovate.json5`](renovate.json5) |
 | Revisão por dono de área | [`CODEOWNERS`](CODEOWNERS) |

@@ -2380,6 +2380,29 @@ resposta seria pior do que nomeá-las:
     «conforme» — uma máquina a certificar a protecção de um repositório que não
     tinha nenhuma. Foi a revisão adversarial independente a apanhá-lo, e é o
     caso-tipo do que o §1 deste documento chama um *gate* que mente.
+30. **A verificação do título do PR existe, corre, morde — e não bloqueia.** O
+    KAM-164 acrescentou
+    [`titulo-do-pr.yaml`](../.github/workflows/titulo-do-pr.yaml), que recusa um
+    título de PR fora de `tipo(KAM-NNN): descrição` — a forma que fica no `main`
+    como assunto do *squash* quando o PR traz mais do que um *commit*. O contexto
+    chama-se **`titulo do PR — forma convencional`** e **não** está nos
+    `required_status_checks` do *ruleset* nem no espelho
+    [`main.json`](../.github/rulesets/main.json), pela razão da lacuna 17: um
+    contexto escrito só no espelho põe o `make ruleset` vermelho com
+    `contexto-so-no-ficheiro` e torna o espelho **falso**, que é pior do que a
+    lacuna; e aplicá-lo no GitHub precisa de `administration: write`, que o
+    `GITHUB_TOKEN` das Actions não tem (lacuna 28 e
+    [`adr/ADR-L003`](adr/ADR-L003-verificacao-do-ruleset.md) §6). Ao contrário
+    dos *gates* 3b, 3c, 6, 7 e 8, **não bloqueia pelo *job* de resumo**: vive em
+    *workflow* próprio e não nos `needs` de `gates do KAM-002`, porque precisa de
+    `types: [edited]` — o título muda sem o ramo mudar — e pôr esse `type` no
+    `ci.yaml` faria os doze *jobs* bloqueantes correrem a cada emenda de título
+    ou de descrição. O que fica em risco enquanto o contexto não for exigido é
+    exactamente o que o *gate* 5 e a `vigia` demonstram todos os dias: um *job*
+    vermelho que não impede fusão nenhuma. **Fechá-la é acto do fundador** —
+    acrescentar o contexto aos dois alvos de
+    [`../ci/ruleset.yaml`](../ci/ruleset.yaml) e ao espelho, no mesmo movimento.
+    A caixa do critério 4 do KAM-164 fica por marcar.
 
 > As lacunas 9 a 14 vêm da revisão adversarial, e cada uma está reproduzida com
 > um comando em [`ANALISE-02`](analises/ANALISE-02-KAM-002-pipeline-ci.md).
@@ -2532,3 +2555,4 @@ sobrevivem ao PR.
 | 1.60 | Outubro 2026 | **As listas de `../ci/backlog-allow.yaml` esvaziaram, e a descrição do *gate* 3c passa a dizê-lo.** O terceiro ponto das decisões do *gate* afirmava, no presente, que o estado conhecido está declarado naquele ficheiro; desde o KAM-167 não está — as três chaves estão ausentes e as duas verificações falham desde o primeiro dia, sem dispensa possível. É a promessa que o KAM-138 escreveu («quando as listas esvaziarem, as duas passam a falha sem ninguém mexer no código») a cumprir-se, pelo que a linha não se apaga: passa ao passado e ganha o registo de quem pagou o quê. As 26 declarações iniciais fecharam-se **todas** por pagamento, nenhuma por renovação. Nenhuma regra de bloqueio muda aqui. | Equipa KAMBÁ |
 | 1.61 | Outubro 2026 | **KAM-042: o `lint_arch` passa a correr cinco passos.** O novo e `medusa` (`tools/lint_arch/medusa.py`), e sao os criterios 3 e 4 desse ticket — «o `medusa-config` com `rbac`, `auth-oidc` ou `policies` reprova o CI» e «nenhum import do SDK do Medusa nem acesso a BD `medusa` fora de `services/com/`». Entra no *gate* 2 (e no 11, que ja chamava o `lint_arch`) e **nao abre *gate* novo**: o `esperados` do resumo nao muda. Das 22 baterias novas, **dezenove sao canarios**, e metade deles prova que o *lint* **nao** morde onde nao deve — nomear uma *flag* EE num comentario e documentar o controlo, e o `medusa-config.ts` do spike fa-lo de proposito. **Tres precisoes que sairam de ler as fontes e nao de as supor:** o esquema do Medusa e o `public` e nao um esquema `medusa` (o proprio `medusa-config.ts` do spike di-lo), pelo que «acesso a BD medusa» e a **base** `kamba_medusa` — um *lint* que procurasse `medusa.` ficava verde sobre nada, para sempre; as *flags* em comentario nao falham, pela mesma razao que o `ee.py` do spike salta comentarios; e cobrem-se **cinco** *flags* onde o criterio nomeia tres, porque as outras duas sao as da correccao 3 do `tecnica/03` §3.4 (`MEDUSA_FF_RBAC` e `MEDUSA_FF_RBAC_FILTER_FIELDS`, a segunda «nao nomeada em nenhum criterio»). **E um canario pagou-se no primeiro minuto:** o despojador de comentarios aplicava `#`, `//` e `/* */` a tudo, e o `//` dentro de `postgresql://host/kamba_medusa` abria um «comentario» que comia o nome da base — o *lint* ficava verde sobre uma cadeia de ligacao ao Registo, que e exactamente o que ele existe para apanhar. Passou a ser por linguagem. **O que ele nao impoe esta escrito:** a metade do criterio 4 que e sobre **quem chama** (a TLS com o `tenant_id` em cabecalho), porque um *lint* sobre chamadores e um aviso; e as cadeias de ligacao do `infra/compose/`, porque um `DATABASE_URL` para o `kamba_medusa` e legitimo sob o bloco `com:` e nao o e sob o `agr:`, e um *lint* por linha nao sabe em que bloco esta. | Equipa KAMBÁ |
 | 1.62 | Novembro 2026 | **KAM-170: o *gate* 3 passa a resolver as citações de secção (`§N`).** A descrição do §3 ganha o passo e, com ele, **o que o passo não apanha** — porque prometer cobertura a mais é pior do que não ter portão. A origem da lição é o achado **C-03** da `analises/ANALISE-44-KAM-169-origem-do-golden-set.md`, que fica como registo datado e não se reescreve. | Equipa KAMBÁ |
+| 1.63 | Novembro 2026 | **KAM-164: o §7 ganha a lacuna 30 — uma verificação que existe e não bloqueia.** A verificação do título do PR (`../.github/workflows/titulo-do-pr.yaml`, contexto `titulo do PR — forma convencional`) corre em `pull_request` com `types: [opened, edited, reopened, synchronize]` e tem canário próprio, mas **não** entra nos `required_status_checks` nem no espelho: pelas razões das lacunas 17 e 28, escrevê-la só no espelho tornava-o falso e aplicá-la no GitHub precisa de `administration: write`. Também não bloqueia pelo *job* de resumo, ao contrário dos *gates* 3b, 3c, 6, 7 e 8 — vive em *workflow* próprio porque precisa do `edited`, e pô-lo no `ci.yaml` faria os doze *jobs* bloqueantes correrem a cada emenda de título. **Não é *gate* e não entra no §2:** a numeração do §2 é a do `../specs/01_Engineering_Standards_e_Handoff.md` §4, e esta verificação não tem número lá; o `esperados` do resumo também não muda. | Equipa KAMBÁ |

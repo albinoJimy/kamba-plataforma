@@ -2,7 +2,7 @@
 
 | Ferramenta | O que faz | Dependências |
 |---|---|---|
-| [`lint_arch/`](lint_arch/) | Lista de bloqueio, convenções de commit e de ramo, estrutura da árvore | **Apenas biblioteca padrão do Python** |
+| [`lint_arch/`](lint_arch/) | Lista de bloqueio, convenções de commit, de ramo e de **título de PR**, estrutura da árvore | **Apenas biblioteca padrão do Python** |
 | [`pip_lock.py`](pip_lock.py) | Gera `requirements/*.txt` com `--hash=sha256:` a partir dos `.in`, e verifica que o fecho está completo | Apenas biblioteca padrão |
 | [`healthz_check.py`](healthz_check.py) | Sonda `/healthz` de cada serviço e valida contra o contrato | `jsonschema` (de `requirements/tools.txt`) |
 | [`supply_chain/`](supply_chain/) | Imagens por *digest*, instalação só do *lockfile*, lista de saídas por serviço, registo de licenças por versão, quarentena do Renovate — e o canário que prova que cada uma morde (KAM-067; [`docs/supply-chain.md`](../docs/supply-chain.md)) | Apenas biblioteca padrão |
@@ -31,6 +31,8 @@ python -m lint_arch all                 # lista de bloqueio + estrutura
 python -m lint_arch deps                # só a lista de bloqueio
 python -m lint_arch branch              # nome do ramo actual
 python -m lint_arch commit-msg FICHEIRO # uma mensagem de commit
+python -m lint_arch pr-title "TITULO"   # o título de um PR (ou $KAMBA_PR_TITLE)
+python -m lint_arch pr-title-canario    # prova que o pr-title morde
 
 python tools/pip_lock.py --check services/agr/requirements/runtime.in
 python tools/healthz_check.py gwy=3000 agr=8000
