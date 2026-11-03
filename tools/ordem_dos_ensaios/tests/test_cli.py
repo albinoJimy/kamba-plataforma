@@ -8,6 +8,7 @@ por distraccao.
 
 from __future__ import annotations
 
+import inspect
 import io
 import re
 import unittest
@@ -15,6 +16,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 from ordem_dos_ensaios import canario
+from ordem_dos_ensaios import cli
 from ordem_dos_ensaios.cli import main
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -44,7 +46,7 @@ class TestCheck(unittest.TestCase):
             ]
         )
         self.assertEqual(codigo, 0)
-        self.assertIn('0 vermelhos', fora)
+        self.assertIn('0 mudancas de resultado', fora)
 
     def test_uma_suite_dependente_da_ordem_falha_com_1(self) -> None:
         codigo, _, erro = _correr(
@@ -59,8 +61,9 @@ class TestCheck(unittest.TestCase):
             ]
         )
         self.assertEqual(codigo, 1)
-        self.assertIn('ordem inversa', erro)
+        self.assertIn('vermelho(s) na inversa', erro)
         self.assertIn('test_o_registo_comeca_vazio', erro)
+        self.assertIn('a unica coisa que difere entre elas e a ordem', erro)
 
     def test_a_queixa_nomeia_o_remedio(self) -> None:
         """Quem ve o portao vermelho tem de saber o que fazer com ele."""
@@ -93,6 +96,80 @@ class TestCheck(unittest.TestCase):
         self.assertIn('nenhum teste', erro)
 
 
+class TestAsDuasOrdens(unittest.TestCase):
+    def test_as_duas_ordens_correm_em_processos_proprios(self) -> None:
+        """O `check` corre as duas, e cada uma noutro processo.
+
+        A primeira versao corria so a inversa e dava a de omissao por verde
+        porque o `coverage-python` a exige antes. Isso nao media a ordem: as
+        duas passagens diferiam no rastreador do `coverage` e nao so na ordem.
+        Este caso prende as duas metades — que sao duas, e que sao `run` de um
+        `sys.executable` e nao chamadas em processo.
+        """
+        chamadas = []
+        original = cli._correr_fora
+
+        def espiar(start_dir, topo, padrao, ordem):
+            chamadas.append(ordem)
+            return original(start_dir, topo, padrao, ordem)
+
+        self.addCleanup(setattr, cli, '_correr_fora', original)
+        cli._correr_fora = espiar
+        codigo, _, _ = _correr(
+            [
+                '--root',
+                str(canario.FIXTURES),
+                'check',
+                '--suite',
+                'independente',
+                '--padrao',
+                canario.PADRAO,
+            ]
+        )
+        self.assertEqual(codigo, 0)
+        self.assertEqual(chamadas, ['normal', 'inversa'])
+
+    def test_o_filho_e_um_processo_e_nao_uma_chamada(self) -> None:
+        fonte = inspect.getsource(cli._correr_fora)
+        self.assertIn('subprocess.run', fonte)
+        self.assertIn('sys.executable', fonte)
+        self.assertIn('timeout=TECTO_SEGUNDOS', fonte)
+
+
+class TestOCheckDistingueOsTresAchados(unittest.TestCase):
+    """Um teste quebrado nao e um teste dependente da ordem.
+
+    E a distincao que a primeira versao deste portao nao fazia, e o motivo pelo
+    qual ele passou a correr as duas ordens: com uma passagem so, um vermelho
+    era atribuido a ordem sem nada o provar.
+    """
+
+    def correr(self, pasta: str) -> tuple[int, str, str]:
+        return _correr(
+            [
+                '--root',
+                str(canario.FIXTURES),
+                'check',
+                '--suite',
+                pasta,
+                '--padrao',
+                canario.PADRAO,
+            ]
+        )
+
+    def test_vermelho_nas_duas_ordens_nao_e_dependencia_de_ordem(self) -> None:
+        codigo, _, erro = self.correr('vermelha')
+        self.assertEqual(codigo, 1)
+        self.assertIn('vermelho(s) nas **duas** ordens', erro)
+        self.assertIn('Nao e dependencia de ordem', erro)
+        self.assertIn('coverage-python', erro)
+        self.assertNotIn('acidente da ordem de carregamento', erro)
+
+    def test_a_queixa_da_ordem_nao_aparece_para_um_teste_quebrado(self) -> None:
+        _, _, erro = self.correr('vermelha')
+        self.assertNotIn('reposto por quem o suja', erro)
+
+
 class TestCanario(unittest.TestCase):
     def test_o_canario_do_repositorio_passa(self) -> None:
         codigo, fora, erro = _correr(['canario'])
@@ -117,8 +194,15 @@ class TestCablagemNoMakefile(unittest.TestCase):
         self.assertIn('ordem-dos-ensaios', linha.group(0))
 
     def test_corre_depois_do_coverage_python(self) -> None:
-        """Sem a ordem de omissao exigida verde antes, um vermelho na inversa
-        nao distingue «dependente da ordem» de «teste quebrado»."""
+        """Fail-fast, e **nao** correccao: o alvo mede as duas ordens por si.
+
+        A primeira versao punha o `coverage-python` antes por **necessidade** —
+        era ele que exigia a ordem de omissao verde. Isso nao media a ordem: as
+        duas passagens diferiam no rastreador do `coverage` e nao so na ordem.
+        Hoje o `check` corre as duas ordens nas mesmas condicoes, e esta ordem
+        no `Makefile` so poupa 100 s quando ha um teste quebrado, que o
+        `coverage-python` apanha primeiro e mais depressa.
+        """
         linha = re.search(r'^ci-4:(.*)$', self.texto, flags=re.MULTILINE)
         pre = linha.group(1).split()
         self.assertLess(

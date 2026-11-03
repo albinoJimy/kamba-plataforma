@@ -14,6 +14,25 @@ O `corredor` e o subcomando **interno**: e o processo filho que corre uma
 ordem. Nao se chama a mao; esta documentado porque aparece no `ps` e nos
 registos quando algo corre mal.
 
+## O `check` corre as DUAS ordens, e isso custa o dobro de proposito
+
+A primeira versao corria so a inversa, e dava a ordem de omissao por verde
+porque o `coverage-python` a exige verde antes deste alvo. **A revisao
+adversarial mostrou que isso nao mede a ordem**, e a prova ja estava escrita no
+ticket de onde este herda: o `specs/tickets/KAM-163.md` registra que **duas
+versoes do mesmo ensaio ficaram vermelhas sem nada ter mudado no codigo — uma
+pela ordem das classes, outra pelo rastreador do `coverage`**. O
+`coverage-python` corre sob `coverage run --branch`; este alvo nao. Com as duas
+passagens a diferir no rastreador **e** na ordem, um vermelho na inversa nao
+distinguia «dependente da ordem» de «vermelho sob o rastreador» — que e
+exactamente a confusao que este portao existe para desfazer.
+
+Agora as duas ordens correm aqui, no mesmo interpretador, com as mesmas
+variaveis e sem `coverage` em nenhuma. **A unica coisa que difere entre elas e
+a ordem**, pelo que uma diferenca de resultado e dela. O preco e uma execucao a
+mais por suite (~12 s no `libs/py-core`, ~86 s no `services/agr`), e paga-se:
+sem ela o portao afirmava mais do que media.
+
 ## O que este portao nao cobre, dito junto com o resultado
 
 1. **Uma ordem a mais nao prova independencia de ordem.** Prova que a ordem
@@ -40,12 +59,20 @@ from pathlib import Path
 
 from . import canario as mod_canario
 from . import corredor as mod_corredor
-from .corredor import Resultado
+from .corredor import VERDE, Resultado
 
 #: O padrao do `unittest discover`, que e tambem o que o alvo `coverage-python`
 #: usa nas suites reais. As *fixtures* do canario usam outro, de proposito
 #: (ver `canario.PADRAO`).
 PADRAO_PADRAO = 'test*.py'
+
+#: Tecto por passagem. A suite mais lenta que este alvo corre leva ~86 s, pelo
+#: que 1 800 s e folga de vinte vezes e nunca aborta um verde. Existe porque a
+#: ordem inversa muda **que** estado de processo existe quando cada teste
+#: corre, e e essa a condicao que transforma um trinco latente em bloqueio: sem
+#: tecto, o filho pendura, o *job* morre no relogio do GitHub e nao fica nada
+#: para ler. Com tecto, sai 2 com o nome da suite e da ordem.
+TECTO_SEGUNDOS = 1800
 
 
 def _ambiente_do_filho() -> dict[str, str]:
@@ -91,20 +118,33 @@ def _correr_fora(
             '--saida',
             str(saida),
         ]
-        processo = subprocess.run(
-            comando,
-            capture_output=True,
-            text=True,
-            check=False,
-            env=_ambiente_do_filho(),
-        )
+        try:
+            processo = subprocess.run(
+                comando,
+                capture_output=True,
+                text=True,
+                check=False,
+                env=_ambiente_do_filho(),
+                timeout=TECTO_SEGUNDOS,
+            )
+        except subprocess.TimeoutExpired as expirou:
+            raise RuntimeError(
+                f'o corredor passou do tecto de {TECTO_SEGUNDOS} s na ordem '
+                f'{ordem} sobre {start_dir}. Um teste que pendura so nesta '
+                'ordem e acoplamento de ordem a bloquear — nao e um verde.'
+            ) from expirou
         if not saida.exists():
             raise RuntimeError(
                 f'o corredor nao escreveu {saida} (ordem {ordem}, codigo '
                 f'{processo.returncode}):\n{processo.stdout}\n{processo.stderr}'
             )
         dados = json.loads(saida.read_text(encoding='utf-8'))
-    return Resultado(dados['estado'], dados['corridos'])
+    return Resultado(
+        estado=dados['estado'],
+        corridos=dados['corridos'],
+        sucesso=dados['sucesso'],
+        relato=dados['relato'],
+    )
 
 
 def _check(args: argparse.Namespace) -> int:
@@ -117,45 +157,138 @@ def _check(args: argparse.Namespace) -> int:
         print(f'ordem_dos_ensaios: {start_dir} nao existe.', file=sys.stderr)
         return 2
 
-    try:
-        resultado = _correr_fora(start_dir, topo, args.padrao, 'inversa')
-    except (RuntimeError, json.JSONDecodeError) as erro:
-        print(f'ordem_dos_ensaios: {erro}', file=sys.stderr)
-        return 2
+    resultados = {}
+    for ordem in mod_corredor.ORDENS:
+        try:
+            resultados[ordem] = _correr_fora(
+                start_dir, topo, args.padrao, ordem
+            )
+        except (RuntimeError, json.JSONDecodeError) as erro:
+            print(f'ordem_dos_ensaios: {erro}', file=sys.stderr)
+            return 2
 
-    if resultado.corridos == 0:
+    for ordem, resultado in resultados.items():
+        if resultado.corridos == 0:
+            print(
+                f'ordem_dos_ensaios: {nome} — nenhum teste foi descoberto na '
+                f'ordem {ordem}. Um portao que nao corre nada nao verifica '
+                'nada.',
+                file=sys.stderr,
+            )
+            return 2
+
+    normal, inversa = resultados['normal'], resultados['inversa']
+
+    # Os quatro achados sao distintos, e so o primeiro e deste portao.
+    # Dizem-se separados porque o remedio de cada um e outro, e um relatorio
+    # que os misture manda corrigir a coisa errada — foi o que a revisao
+    # adversarial apanhou na primeira versao.
+    pela_ordem = sorted(
+        i
+        for i, estado in inversa.estado.items()
+        if estado not in VERDE and normal.estado.get(i) in VERDE
+    )
+    nas_duas = sorted(
+        i
+        for i, estado in inversa.estado.items()
+        if estado not in VERDE and normal.estado.get(i) not in VERDE
+    )
+    so_numa = sorted(set(normal.estado) ^ set(inversa.estado))
+
+    if pela_ordem:
         print(
-            f'ordem_dos_ensaios: {nome} — nenhum teste foi descoberto na '
-            'ordem inversa. Um portao que nao corre nada nao verifica nada.',
+            f'ordem_dos_ensaios: {nome} — {len(pela_ordem)} de '
+            f'{inversa.corridos} teste(s) verde(s) na ordem de omissao do '
+            'unittest e vermelho(s) na inversa. As duas passagens correram no '
+            'mesmo interpretador, sem coverage em nenhuma, e a unica coisa '
+            'que difere entre elas e a ordem; logo estes passam por acidente '
+            'da ordem de carregamento:',
             file=sys.stderr,
         )
-        return 2
-
-    vermelhos = resultado.vermelhos()
-    if vermelhos:
-        print(
-            f'ordem_dos_ensaios: {nome} — {len(vermelhos)} de '
-            f'{resultado.corridos} teste(s) vermelho(s) na ordem inversa. A '
-            'ordem de omissao do unittest ja foi exigida verde pelo '
-            'coverage-python, que corre antes deste alvo no gate 4; logo '
-            'estes passam por acidente da ordem de carregamento:',
-            file=sys.stderr,
-        )
-        for identificador in vermelhos[:20]:
-            estado = resultado.estado[identificador]
-            print(f'  - {identificador}: {estado}', file=sys.stderr)
+        for identificador in pela_ordem[:20]:
+            estado = inversa.estado[identificador]
+            print(f'  - {identificador}: ok -> {estado}', file=sys.stderr)
         print(
             '\nA correccao e no teste, nao no portao: o estado de processo que '
             'ele toca (um registo a nivel de modulo, uma variavel de ambiente, '
             'o nivel de um logger com nome, uma entrada do sys.modules) tem de '
-            'ser reposto por quem o suja.',
+            'ser reposto por quem o suja.\n',
             file=sys.stderr,
         )
+        if inversa.relato:
+            print(inversa.relato[:8000], file=sys.stderr)
         return 1
 
+    if so_numa:
+        print(
+            f'ordem_dos_ensaios: {nome} — {len(so_numa)} teste(s) existem numa '
+            f'passagem e nao na outra ({normal.corridos} contra '
+            f'{inversa.corridos} corridos). A descoberta nao e deterministica '
+            '— um SkipTest de modulo ou de classe faz desaparecer os testes '
+            'que ele cobre —, e sem inventario igual nao ha comparacao que '
+            'valha:',
+            file=sys.stderr,
+        )
+        for identificador in so_numa[:20]:
+            onde = 'so na ordem de omissao' if identificador in normal.estado \
+                else 'so na ordem inversa'
+            print(f'  - {identificador}: {onde}', file=sys.stderr)
+        return 1
+
+    if nas_duas:
+        # Nao e achado deste portao — o `coverage-python` ja o devia ter
+        # apanhado —, mas calar-se aqui dava a entender que a suite esta verde.
+        print(
+            f'ordem_dos_ensaios: {nome} — {len(nas_duas)} teste(s) '
+            'vermelho(s) nas **duas** ordens. Nao e dependencia de ordem: e '
+            'um teste quebrado, e o lugar de o apanhar e o coverage-python:',
+            file=sys.stderr,
+        )
+        for identificador in nas_duas[:20]:
+            print(
+                f'  - {identificador}: {inversa.estado[identificador]}',
+                file=sys.stderr,
+            )
+        if inversa.relato:
+            print('\n' + inversa.relato[:8000], file=sys.stderr)
+        return 1
+
+    # A rede, e e a parte que nao se pode tirar. O `estado` e um dicionario com
+    # perdas (ver o `corredor`); o `wasSuccessful()` vem do proprio
+    # `TestResult`. Se os dois discordarem, o instrumento perdeu informacao, e
+    # isso e falha do instrumento — nunca verde da suite. Sem esta verificacao,
+    # um sinal do `unittest` que ninguem derrube volta a dar falso verde, que
+    # foi o que aconteceu com o `addSubTest` e os seus 332 usos.
+    discordam = [
+        ordem
+        for ordem, resultado in resultados.items()
+        if not resultado.sucesso
+    ]
+    if discordam:
+        print(
+            f'ordem_dos_ensaios: {nome} — o unittest diz que a(s) ordem(ns) '
+            f'{", ".join(discordam)} NAO passaram, e a classificacao por teste '
+            'nao nomeia um unico vermelho. O instrumento perdeu informacao: '
+            'ha um sinal do unittest que o Registo nao derruba, ou dois testes '
+            'com o mesmo id(). Isto e falha do portao, nao da suite, e '
+            'corrige-se no corredor:',
+            file=sys.stderr,
+        )
+        for ordem in discordam:
+            resultado = resultados[ordem]
+            print(
+                f'  - {ordem}: corridos={resultado.corridos}, '
+                f'classificados={len(resultado.estado)}, '
+                f'sucesso={resultado.sucesso}',
+                file=sys.stderr,
+            )
+            if resultado.relato:
+                print(resultado.relato[:4000], file=sys.stderr)
+        return 2
+
     print(
-        f'ordem_dos_ensaios: {nome} — {resultado.corridos} testes na ordem '
-        'inversa, 0 vermelhos'
+        f'ordem_dos_ensaios: {nome} — {normal.corridos} testes nas duas '
+        'ordens, 0 mudancas de resultado'
     )
     return 0
 
@@ -192,20 +325,23 @@ def _canario(args: argparse.Namespace) -> int:
 
 
 def _corredor(args: argparse.Namespace) -> int:
-    """O filho: corre uma ordem e escreve o estado de cada teste."""
-    resultado, relato = mod_corredor.correr(
+    """O filho: corre uma ordem e escreve o resultado."""
+    resultado = mod_corredor.correr(
         args.suite, args.topo, args.padrao, args.ordem
     )
     Path(args.saida).write_text(
         json.dumps(
-            {'estado': resultado.estado, 'corridos': resultado.corridos},
+            {
+                'estado': resultado.estado,
+                'corridos': resultado.corridos,
+                'sucesso': resultado.sucesso,
+                'relato': resultado.relato[:20000],
+            },
             indent=0,
             sort_keys=True,
         ),
         encoding='utf-8',
     )
-    if resultado.vermelhos():
-        sys.stderr.write(relato[-8000:])
     return 0
 
 

@@ -27,11 +27,17 @@ def _corredor(por_ordem: dict[str, Resultado]):
 
 
 def _verde(n: int = 2) -> Resultado:
-    return Resultado({f'caso.T.test_{i}': 'ok' for i in range(n)}, n)
+    estado = {f'caso.T.test_{i}': 'ok' for i in range(n)}
+    return Resultado(estado=estado, corridos=n, sucesso=True, relato='')
 
 
 def _com_vermelho(identificador: str) -> Resultado:
-    return Resultado({identificador: 'failure', 'caso.T.test_outro': 'ok'}, 2)
+    return Resultado(
+        estado={identificador: 'failure', 'caso.T.test_outro': 'ok'},
+        corridos=2,
+        sucesso=False,
+        relato='FALHA: ' + identificador,
+    )
 
 
 class TestOsCasosDeclarados(unittest.TestCase):
@@ -111,7 +117,7 @@ class TestOCanarioRecusaOVerificadorQuebrado(unittest.TestCase):
 
     def test_uma_fixture_vazia_e_precondicao(self) -> None:
         """Zero testes descobertos nunca e uma *fixture* limpa."""
-        vazio = Resultado({}, 0)
+        vazio = Resultado(estado={}, corridos=0, sucesso=True, relato='')
         queixas = canario.verificar(
             DEPENDENTE, _corredor({'normal': vazio, 'inversa': vazio})
         )

@@ -1,10 +1,14 @@
 """Uma suite nao pode passar por causa da ordem em que o `unittest` a carrega.
 
-O `unittest` carrega os modulos pela ordem do disco e, dentro de cada modulo,
-as classes e os metodos pela ordem alfabetica de `dir()`. **Nada promete essa
-ordem** — e nenhum teste deste repositorio a pede de proposito. Um teste que so
-passa nela passa por acidente, e o acidente desfaz-se sozinho: basta renomear
-uma classe, acrescentar um ficheiro ou mudar de versao do interpretador.
+O `unittest` carrega tudo por ordem alfabetica: os modulos porque o
+`TestLoader._find_tests` faz `sorted(os.listdir(start_dir))`, e as classes e os
+metodos dentro de cada modulo porque o `dir()` vem ordenado. (A primeira versao
+desta pagina dizia «os modulos pela ordem do disco», e a revisao adversarial
+mostrou o `sorted` no `unittest` — era a frase de abertura do modulo em que todo
+o portao assenta.) **Nada promete essa ordem** — e nenhum teste deste
+repositorio a pede de proposito. Um teste que so passa nela passa por acidente,
+e o acidente desfaz-se sozinho: basta renomear uma classe, acrescentar um
+ficheiro ou mudar de versao do interpretador.
 
 Aconteceu, medido, no **KAM-163**: o ensaio que provava a troca da chave do
 `tenant_guard` forcava a reutilizacao de um endereco de objecto, e passava
@@ -24,8 +28,9 @@ E tem canario: duas *fixtures* em `tests/fixtures/`, uma que **tem** de ficar
 vermelha na ordem inversa e uma que **tem** de ficar verde nas duas. Sem a
 segunda, um verificador que declarasse tudo dependente da ordem passava o
 canario e nao servia para nada.
+
+Nao ha re-exports aqui de proposito: os submodulos importam-se pelo nome
+(`from ordem_dos_ensaios import canario, corredor`), e duas linhas de `__all__`
+sem consumidor eram duas linhas para manter sincronizadas com nada — achado da
+revisao adversarial.
 """
-
-from .corredor import ORDENS, Resultado, achatar, correr, ordenar
-
-__all__ = ['ORDENS', 'Resultado', 'achatar', 'correr', 'ordenar']

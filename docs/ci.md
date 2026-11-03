@@ -48,7 +48,7 @@ Cada gate é um alvo `make ci-<n>`. O *workflow* só os orquestra. Três razões
 | 3 | Referências cruzadas (`KAM`, `ADR`, `D#`) e caminhos dentro dos blocos de *handoff* | `make ci-3` | Plataforma | **proposta** |
 | 3b | Nomes canónicos | `make ci-3b` | Arquitecto de Plataforma | KAM-111 (activo desde o KAM-111) |
 | 3c | Coerência do backlog: o §4 do `specs/INDICE.md`, o bloco de cada ticket e a tabela-resumo do §3 de cada epic | `make ci-3c` | Arquitecto de Plataforma | KAM-138 (activo desde o KAM-138) |
-| 4 | Unit e cobertura | `make ci-4` | Plataforma | **proposta** |
+| 4 | Unit e cobertura — e, desde o KAM-173, as suites Python outra vez na ordem inversa | `make ci-4` | Plataforma | **proposta** |
 | 5 | Integração | `make ci-5` *(reservado)* | — | **lacuna**: nenhum ticket o reclama |
 | 6 | Isolamento de tenant (camada SQL: RLS, X-03, X-04, X-05) e *logs* sem identificadores (X-11) | `make ci-6` | Segurança | `docs/tecnica/09` §7 (activo desde o KAM-004; o X-11 entrou com o KAM-068; a suite ponta a ponta é KAM-066) |
 | 7 | Contratos | `make ci-7` | Plataforma | KAM-007 (eventos); KAM-024 (webhooks da Meta, por fazer) |

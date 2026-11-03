@@ -72,8 +72,7 @@ class TestCorrerAFixtureDependente(unittest.TestCase):
 
     def correr(self, pasta: str, ordem: str) -> corredor.Resultado:
         caminho = str(FIXTURES / pasta)
-        resultado, _ = corredor.correr(caminho, caminho, canario.PADRAO, ordem)
-        return resultado
+        return corredor.correr(caminho, caminho, canario.PADRAO, ordem)
 
     def test_descobre_os_dois_casos(self) -> None:
         self.assertEqual(self.correr('dependente', 'normal').corridos, 2)
@@ -97,24 +96,97 @@ class TestCorrerAFixtureDependente(unittest.TestCase):
         self.assertEqual(self.correr('independente', 'inversa').vermelhos(), [])
 
 
+class TestOsSinaisDoUnittest(unittest.TestCase):
+    """Cada sinal do `unittest`, passado **atraves** do `Registo`.
+
+    E o caso que faltava, e a sua ausencia e a razao pela qual o buraco do
+    `addSubTest` escapou: nenhum teste deste modulo produzia um vermelho pelo
+    caminho real. Os que havia corriam combinacoes verdes ou construiam um
+    `Resultado` a mao, pelo que um `hook` em falta nao dava erro — dava um
+    teste classificado `ok` que tinha falhado.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        caminho = str(FIXTURES / 'sinais')
+        cls.resultado = corredor.correr(
+            caminho, caminho, canario.PADRAO, 'normal'
+        )
+
+    def estado(self, sufixo: str) -> str:
+        casa = [i for i in self.resultado.estado if i.endswith(sufixo)]
+        self.assertEqual(len(casa), 1, f'{sufixo}: {casa}')
+        return self.resultado.estado[casa[0]]
+
+    def test_classifica_os_sete_sinais(self) -> None:
+        self.assertEqual(self.estado('TestOk.test_passa'), 'ok')
+        self.assertEqual(self.estado('TestFalha.test_falha'), 'failure')
+        self.assertEqual(self.estado('TestErro.test_erro'), 'error')
+        self.assertEqual(self.estado('TestSaltado.test_saltado'), 'skip')
+        self.assertEqual(
+            self.estado('TestFalhaEsperada.test_falha_esperada'),
+            'expected-failure',
+        )
+        self.assertEqual(
+            self.estado('TestSucessoInesperado.test_sucesso_inesperado'),
+            'unexpected-success',
+        )
+
+    def test_uma_falha_dentro_de_subtest_nao_fica_ok(self) -> None:
+        """O buraco medido: o `unittest` entrega isto a `addSubTest`, e sem ele
+        derrubado o teste saia `ok` com a suite a dizer `FAILED`."""
+        self.assertEqual(
+            self.estado('TestSubTest.test_falha_dentro_de_subtest'),
+            'subtest-failure',
+        )
+        self.assertIn('FALHA (subTest)', self.resultado.relato)
+
+    def test_o_veredicto_vem_do_testresult_e_nao_do_dicionario(self) -> None:
+        """`sucesso` e `corridos` sao do `TestResult`, nao do `estado`."""
+        self.assertFalse(self.resultado.sucesso)
+        self.assertEqual(self.resultado.corridos, 7)
+        self.assertEqual(len(self.resultado.estado), 7)
+
+    def test_o_relato_leva_o_traceback_e_nao_a_cadeia_de_pontos(self) -> None:
+        """A primeira versao devolvia `'.F'`: o `printErrors` so e chamado pelo
+        `TextTestRunner`, que este corredor nao usa."""
+        self.assertIn('Traceback', self.resultado.relato)
+        self.assertIn('vermelho de proposito', self.resultado.relato)
+        self.assertIn('erro de proposito', self.resultado.relato)
+        self.assertNotEqual(self.resultado.relato.strip(), '.F')
+
+
 class TestRegisto(unittest.TestCase):
     def test_classifica_cada_estado(self) -> None:
         caminho = str(FIXTURES / 'independente')
-        resultado, _ = corredor.correr(
+        resultado = corredor.correr(
             caminho, caminho, canario.PADRAO, 'normal'
         )
         self.assertEqual(set(resultado.estado.values()), {'ok'})
 
     def test_vermelhos_ignora_os_estados_verdes(self) -> None:
         resultado = corredor.Resultado(
-            {'a': 'ok', 'b': 'skip', 'c': 'expected-failure', 'd': 'failure'}, 4
+            estado={
+                'a': 'ok',
+                'b': 'skip',
+                'c': 'expected-failure',
+                'd': 'failure',
+            },
+            corridos=4,
+            sucesso=False,
+            relato='',
         )
         self.assertEqual(resultado.vermelhos(), ['d'])
 
     def test_um_sucesso_inesperado_conta_como_vermelho(self) -> None:
         """`unexpected-success` e um `expectedFailure` que passou: o teste
         deixou de medir o que diz medir."""
-        resultado = corredor.Resultado({'a': 'unexpected-success'}, 1)
+        resultado = corredor.Resultado(
+            estado={'a': 'unexpected-success'},
+            corridos=1,
+            sucesso=False,
+            relato='',
+        )
         self.assertEqual(resultado.vermelhos(), ['a'])
 
 
@@ -141,4 +213,20 @@ class TestAsFixturesNaoEntramNaSuiteDeTools(unittest.TestCase):
         for pasta in (FIXTURES, *[p for p in FIXTURES.iterdir() if p.is_dir()]):
             self.assertFalse(
                 (pasta / '__init__.py').exists(), f'{pasta} e um pacote'
+            )
+
+    def test_as_fixtures_vivem_debaixo_de_tests(self) -> None:
+        """E a terceira propriedade, e sem este caso nao estava presa.
+
+        O `coverage-python` mede `tools/` com `--omit="*/tests/*"`. Fora de
+        `tests/`, estas *fixtures* entravam no denominador do estrato
+        `restante` a 0% — correm em processos filhos, que a medicao do pai nao
+        ve — e afundavam a cobertura sem nada avisar. A revisao adversarial
+        apanhou o bloco a afirmar que esta classe prendia duas propriedades
+        quando prendia a outra.
+        """
+        for ficheiro in FIXTURES.rglob('*.py'):
+            partes = ficheiro.relative_to(FIXTURES.parents[1]).parts
+            self.assertIn(
+                'tests', partes, f'{ficheiro} esta fora de tests/'
             )

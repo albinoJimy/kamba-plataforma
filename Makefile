@@ -641,12 +641,18 @@ ci-4: coverage-node coverage-python ordem-dos-ensaios
 # 2026-12-03 pelo Engenheiro de Plataforma, com a pergunta escrita no bloco do
 # KAM-173 — se os 1 911 s compram o que, e se a resposta e cobri-las aqui, numa
 # prova nocturna, ou nao as cobrir.
+#
+# **Um interpretador so, e a guarda do .venv vem primeiro.** A primeira versao
+# corria o canario com o $(PYTHON) do anfitriao e as suites com o
+# $(VENV_PYTHON): a prova de que o portao morde era feita num interpretador e a
+# medicao noutro, e nesta maquina os dois nem sao o mesmo (o .venv foi
+# construido em contentor). Achado da revisao adversarial.
 ordem-dos-ensaios:
-	@echo "==> ordem dos ensaios: as suites na ordem inversa (KAM-173)"
-	@$(PYTHON) -m ordem_dos_ensaios canario
+	@echo "==> ordem dos ensaios: as duas ordens, em processos proprios (KAM-173)"
 	@if [ ! -x "$(VENV_PYTHON)" ]; then \
 	  echo "    ERRO: $(VENV) nao existe. Corra 'make bootstrap'." >&2; exit 1; \
 	fi
+	@$(VENV_PYTHON) -m ordem_dos_ensaios canario
 	@$(VENV_PYTHON) -m ordem_dos_ensaios --root $(ROOT) check \
 	  --suite libs/py-core/tests --nome libs/py-core
 	@$(VENV_PYTHON) -m ordem_dos_ensaios --root $(ROOT) check \

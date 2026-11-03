@@ -120,9 +120,15 @@ def verificar(caso: Caso, correr_fora: Corredor) -> list[str]:
                 f'{caso.codigo}/{ordem}: prova — esperava vermelho e a '
                 'fixture passou. O portao deixou de morder.'
             )
-        elif not esperado_verde and caso.vermelho_esperado not in vermelhos:
+        elif not esperado_verde and vermelhos != [caso.vermelho_esperado]:
+            # Igualdade e nao pertenca. Com pertenca, uma *fixture* que
+            # degradasse — um *helper* renomeado, um `import` que so afectasse
+            # uma classe — podia ficar vermelha em **mais** testes alem do
+            # declarado e passar calada, contra o que esta escrito no
+            # cabecalho deste modulo. Apanhado pela revisao adversarial.
             queixas.append(
                 f'{caso.codigo}/{ordem}: prova invalida — ficou vermelho em '
-                f'{vermelhos}, e o caso declara {caso.vermelho_esperado!r}'
+                f'{vermelhos}, e o caso declara exactamente '
+                f'[{caso.vermelho_esperado!r}]'
             )
     return queixas
