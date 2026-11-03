@@ -88,3 +88,17 @@ spikes/medusa-d3/resultados/
 # seguinte, e cada arvore de trabalho tem o seu. A decisao de indexar e do
 # fundador; o que esta decidido aqui e so que o resultado nao entra no git.
 .codegraph/
+
+# Trabalho local do OpenTofu (KAM-075). O `.terraform/` e cache do `init`; o
+# `.terraform.lock.hcl` fixa *hashes* de *providers* e **ha de ser versionado**
+# no dia em que houver *providers* — hoje `required_providers` esta vazio
+# (ADR-L007 §5) e o ficheiro nem se cria, pelo que nao se declara aqui uma
+# excepcao para um ficheiro que nao existe.
+#
+# O estado e os planos nunca entram: levam valores sensiveis, e o DoD do
+# KAM-075 exige estado cifrado e fora do repositorio.
+infra/envs/*/.terraform/
+infra/envs/*/terraform.tfstate
+infra/envs/*/terraform.tfstate.*
+infra/envs/*/*.tfplan
+infra/envs/*/.terraform.tfstate.lock.info

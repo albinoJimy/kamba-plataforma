@@ -1,0 +1,251 @@
+#cloud-config
+# -----------------------------------------------------------------------------
+# host-base — primeiro arranque de um host da KAMBA (KAM-075, criterio 2)
+#
+# ESTE DOCUMENTO NUNCA ARRANCOU UM HOST. Estado: **NAO VERIFICADO**. Nao houve
+# conta, nao houve fornecedor, nao houve `apply` — ver `infra/README.md` §5. O
+# que esta aqui e o procedimento escrito, nao uma medicao.
+#
+# As quatro coisas que o criterio 2 nomeia, e nada mais:
+#   1. Docker                     -> `packages` + `runcmd`
+#   2. Utilizador nao-root        -> `users`
+#   3. WireGuard                  -> `packages` + `write_files` + `runcmd`
+#   4. Disco NVMe                 -> `mounts` + `runcmd`
+#
+# NENHUM SEGREDO AQUI, e isso e verificado: o gate 9 varre a arvore versionada.
+# A chave privada do WireGuard entra do cofre no arranque, pela referencia
+# ${referencia_do_segredo_wireguard} — a REFERENCIA, nao o valor.
+# -----------------------------------------------------------------------------
+
+package_update: true
+package_upgrade: false
+
+packages:
+  - docker.io
+  - docker-compose-v2
+  - wireguard
+  - wireguard-tools
+  # `jq` e `curl` sao para o passo que vai buscar a chave ao cofre.
+  - jq
+  - curl
+
+# --- 2. Utilizador nao-root --------------------------------------------------
+#
+# O `${utilizador}` corre os servicos e NAO e o utilizador de administracao:
+# nenhuma chave de SSH, nenhum `sudo`. Quem administra entra pelo `admin`.
+#
+# O `default` fica na lista, e isso tem uma consequencia que se diz em vez de se
+# esconder: nas imagens dos fornecedores o utilizador por omissao traz a **chave
+# que o fornecedor injecta**. Logo o acesso ao host nao e so o que este ficheiro
+# declara. Fechar a porta 22 ao mundo e deixar so a do WireGuard e o *scan*
+# externo que o prova sao do **KAM-077** — ver `infra/PORTABILIDADE.md` classe 3.
+users:
+  - default
+  - name: ${utilizador}
+    shell: /bin/bash
+    # No grupo `docker` porque corre o Compose; sem `sudo`.
+    groups: [docker]
+    lock_passwd: true
+    # Sem `ssh_authorized_keys`: este utilizador nao se alcanca de fora.
+  - name: admin
+    shell: /bin/bash
+    groups: [sudo]
+    # Sem palavra-passe: entra-se por chave, pelo tunel. E por isso que o `sudo`
+    # tem de ser `NOPASSWD`.
+    #
+    # A PRIMEIRA VERSAO ESCREVIA `ALL=(ALL) ALL` COM `lock_passwd: true`, o que
+    # e `sudo` **nunca**: com a palavra-passe bloqueada, um `sudo` que a exige
+    # nao pode suceder. Medido num Debian 13 com `sudo` instalado —
+    # `useradd admin; passwd -l admin; echo 'admin ALL=(ALL) ALL' > sudoers.d`,
+    # e `su - admin -c 'sudo -n true'` responde **«sudo: a password is
+    # required»**. O comentario do bloco dizia «`sudo` so com palavra-passe» e
+    # descrevia uma intencao que a configuracao tornava impossivel.
+    #
+    # A troca que isto faz, dita por extenso: com `NOPASSWD`, uma chave de SSH
+    # comprometida escala a root sem segundo factor. E a escolha normal para uma
+    # conta de administracao so por chave — a alternativa seria uma palavra-passe
+    # vinda do cofre, que acrescenta um segredo por host para proteger contra
+    # quem ja esta dentro do tunel. O que torna isto aceitavel e o acesso ser
+    # auditado (`acesso.modo: break-glass-auditado` em `prod`, com registo em
+    # `audit_log`), e quem o audita e o **KAM-080**.
+    lock_passwd: true
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    ssh_authorized_keys:
+%{ for chave in chaves_ssh_de_administracao ~}
+      - ${chave}
+%{ endfor ~}
+
+# --- 4. Disco NVMe ----------------------------------------------------------
+#
+# Por ETIQUETA (`LABEL=`) e nao por nome de dispositivo. O nome e do fornecedor
+# — `/dev/nvme0n1` num, `/dev/vdb` noutro — e usa-lo aqui trazia o fornecedor
+# para dentro de um modulo que nao o conhece (criterio 6).
+mounts:
+  - ["LABEL=${etiqueta_do_disco_nvme}", "${ponto_de_montagem_nvme}", "ext4", "defaults,noatime,nofail", "0", "2"]
+
+write_files:
+  # A interface do WireGuard, SEM a chave privada. O `PrivateKey` entra no
+  # arranque, do cofre (ver `runcmd`). Um `wg0.conf` com a chave dentro era um
+  # segredo em codigo, e o gate 9 apanhava-o — como deve.
+  - path: /etc/wireguard/wg0.conf.modelo
+    permissions: "0600"
+    owner: root:root
+    content: |
+      [Interface]
+      Address = 10.90.0.1/24
+      ListenPort = ${porta_wireguard}
+      # PrivateKey injectada no arranque a partir de
+      # ${referencia_do_segredo_wireguard}
+      PostUp = sysctl -w net.ipv4.ip_forward=1
+      SaveConfig = false
+
+  # O que este host e, para quem chegar a ele as 3 da manha. O ficheiro e lido
+  # pelo runbook RB-K08 e pela sonda.
+  - path: /etc/kamba/ambiente
+    permissions: "0644"
+    owner: root:root
+    content: |
+      KAMBA_ENV=${ambiente}
+      KAMBA_DADOS=${ponto_de_montagem_nvme}
+      KAMBA_UTILIZADOR=${utilizador}
+
+  - path: /etc/kamba/LEIA-ME
+    permissions: "0644"
+    owner: root:root
+    content: |
+      Host da KAMBA, ambiente ${ambiente}.
+
+      Provisionado por infra/modules/host-base (KAM-075). O que corre em cima
+      nao vem daqui: o Compose de producao e o KAM-076, o TLS e o proxy de
+      saida sao o KAM-077, a observabilidade e o KAM-080.
+
+      Acesso PREVISTO: pelo tunel WireGuard, no utilizador `admin`. O
+      ${utilizador} corre os servicos e nao tem chave nem sudo.
+
+      O QUE ESTE HOST NAO FAZ, e convem saber antes de o tratar como fechado:
+      nada aqui fecha a porta 22 nem toca no sshd, e o utilizador por omissao
+      da imagem do fornecedor traz a chave que ele injecta. As regras de
+      firewall (nftables) e o scan externo que prova que so 443 e a porta UDP
+      do WireGuard estao abertas sao do KAM-077.
+
+runcmd:
+  # --- 1. Docker ------------------------------------------------------------
+  - [systemctl, enable, --now, docker]
+
+  # --- 4. Disco NVMe: so um disco vazio, e so se houver exactamente um ------
+  #
+  # DUAS PROPRIEDADES, e a primeira versao tinha so uma.
+  #
+  # (a) IDEMPOTENTE: so formata se a etiqueta nao existir. O criterio 2 pede
+  #     que um segundo `apply` nao altere nada, e um `mkfs` incondicional
+  #     apagava a base de dados num re-arranque.
+  #
+  # (b) NAO DESTRUTIVO — e esta faltava. A primeira versao escolhia o alvo com
+  #     `lsblk ... | tail -1`, «o ultimo disco que o lsblk listar», sem
+  #     verificar que nao era o disco de arranque. Com a raiz em `/dev/sda` e
+  #     os dados em `/dev/nvme0n1` acertava; com a raiz em NVMe e os dados em
+  #     `sd*` **formatava o host**. E a guarda (a) nao protegia desse caso: a
+  #     etiqueta nao existe precisamente quando o `mkfs` corre. Apanhado em
+  #     revisao adversarial, antes do primeiro `apply` — nenhum host esteve em
+  #     risco, porque nunca houve host.
+  #
+  # A escolha passa a ser por eliminacao e **fail-closed**. Candidato e um disco
+  # que (1) nao contem a raiz, (2) nao tem nada montado, e (3) nao tem sistema
+  # de ficheiros nem particoes. Sem exactamente **um** candidato, o arranque
+  # PARA com a razao: adivinhar o alvo de um `mkfs` nao e uma opcao que valha a
+  # pena ter.
+  #
+  # `$${...}` escapa a interpolacao do OpenTofu: a expansao e da *shell*. Sem o
+  # `$$` o `templatefile` recusa o ficheiro — medido.
+  - |
+    set -euo pipefail
+    etiqueta='${etiqueta_do_disco_nvme}'
+    if blkid -L "$etiqueta" >/dev/null 2>&1; then
+      echo "host-base: a etiqueta $etiqueta ja existe; nao se formata nada"
+    else
+      origem_da_raiz="$(findmnt -no SOURCE /)"
+      raiz="$(lsblk -no PKNAME "$origem_da_raiz" 2>/dev/null | head -1 || true)"
+      if [ -z "$raiz" ]; then
+        raiz="$(echo "$origem_da_raiz" | sed 's#^/dev/##; s/p\?[0-9]*$//')"
+      fi
+      echo "host-base: a raiz vive no disco $${raiz:-<desconhecido>}; esse nunca e alvo"
+      candidatos=""
+      for disco in $(lsblk -dno NAME,TYPE | awk '$2=="disk"{print $1}'); do
+        if [ "$disco" = "$raiz" ]; then
+          continue
+        fi
+        if lsblk -no MOUNTPOINT "/dev/$disco" | grep -q '[^[:space:]]'; then
+          echo "host-base: /dev/$disco tem algo montado; nao e candidato"
+          continue
+        fi
+        if blkid "/dev/$disco" >/dev/null 2>&1; then
+          echo "host-base: /dev/$disco ja tem sistema de ficheiros; nao e candidato"
+          continue
+        fi
+        if [ "$(lsblk -no NAME "/dev/$disco" | wc -l)" -gt 1 ]; then
+          echo "host-base: /dev/$disco tem particoes; nao e candidato"
+          continue
+        fi
+        candidatos="$candidatos /dev/$disco"
+      done
+      set -- $candidatos
+      if [ "$#" -ne 1 ]; then
+        echo "host-base: ERRO - esperava 1 disco vazio para os dados e encontrei $#:$candidatos" >&2
+        echo "host-base: nao se adivinha o alvo de um mkfs. Anexe um disco vazio, ou" >&2
+        echo "host-base: formate-o a mao com a etiqueta $etiqueta, e repita o apply." >&2
+        exit 1
+      fi
+      echo "host-base: a formatar $1 com a etiqueta $etiqueta"
+      mkfs.ext4 -L "$etiqueta" "$1"
+    fi
+    mkdir -p '${ponto_de_montagem_nvme}'
+    mount -a
+    chown ${utilizador}:${utilizador} '${ponto_de_montagem_nvme}'
+
+  # --- 3. WireGuard: a chave entra do cofre, nunca do disco ----------------
+  #
+  # O mecanismo e o do ADR-L002 (o valor chega por ambiente no arranque). A
+  # referencia e ${referencia_do_segredo_wireguard}; o valor nao passa por
+  # nenhum ficheiro versionado nem pelo estado do OpenTofu.
+  #
+  # DUAS CORRECCOES DE REVISAO, e as duas valem a pena nomear:
+  #
+  # (a) O PROJECTO NAO SE DEITA FORA. A primeira versao fazia `cut -d/ -f2` e
+  #     usava so a segunda metade da referencia — ou seja, deitava fora
+  #     exactamente o **projecto**, que e a metade que todo o criterio 5
+  #     existe para preservar («tres projectos distintos dao tres referencias
+  #     distintas»). O comando ficava a depender de um projecto implicito
+  #     configurado fora da IaC, que e a forma de um host de `staging` ler um
+  #     segredo de `prod` sem ninguem notar. Agora passam-se as duas metades.
+  #
+  # (b) FALHA FECHADO SE A CLI NAO EXISTIR. O `doppler` **nao esta** na lista de
+  #     `packages`, e nao esta de proposito: instalar um binario de terceiros
+  #     sem versao fixada e sem checksum e o oposto do que o `docs/tecnica/08`
+  #     §4.8 manda, e escolher **como** se instala a CLI do cofre e do KAM-010 e
+  #     nao deste ticket. Sem a guarda, o `set -e` matava o passo com «command
+  #     not found» e o WireGuard — uma das quatro coisas do criterio 2 — ficava
+  #     por subir com uma mensagem que nao explica nada.
+  #
+  # NAO VERIFICADO: os subcomandos do Doppler estao marcados NAO VERIFICADO em
+  # `ops/runbooks/secrets-export.md` §7, e nenhum destes correu.
+  - |
+    set -euo pipefail
+    referencia='${referencia_do_segredo_wireguard}'
+    projecto="$${referencia%%/*}"
+    nome="$${referencia##*/}"
+    if ! command -v doppler >/dev/null 2>&1; then
+      echo "host-base: ERRO - a CLI do cofre (doppler) nao esta instalada." >&2
+      echo "host-base: o segredo $referencia nao se le, e o WireGuard nao sobe." >&2
+      echo "host-base: instalar a CLI fixada por versao e checksum e do KAM-010;" >&2
+      echo "host-base: ver ops/runbooks/secrets-export.md §7 (subcomandos NAO VERIFICADOS)." >&2
+      exit 1
+    fi
+    install -m 0600 /etc/wireguard/wg0.conf.modelo /etc/wireguard/wg0.conf
+    chave="$(doppler secrets get --project "$projecto" --config '${ambiente}' --plain "$nome")"
+    printf 'PrivateKey = %s\n' "$chave" >> /etc/wireguard/wg0.conf
+    unset chave
+    systemctl enable --now wg-quick@wg0
+
+  # O host fica a dizer que acabou. E o sinal que o cronometro dos 30 min para —
+  # quando houver um cronometro (`infra/README.md` §5).
+  - [touch, /etc/kamba/arranque-concluido]
