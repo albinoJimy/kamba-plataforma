@@ -1,0 +1,726 @@
+# Compose de **producao** do conjunto reduzido — KAM-076.
+#
+# O conjunto que corre aqui esta declarado em `conjunto-reduzido.yaml`, que e a
+# fonte do criterio 1, e verificado nos dois sentidos por
+# `python -m compose_prod --root .. lint` (gate 2).
+#
+# AS QUATRO REDES, E A QUE FAZ O TRABALHO
+#
+# `docs/tecnica/09` §3.2 regra 2 pede quatro redes e duas propriedades: «`data`
+# sem rota de saida; `app` so sai pelo proxy de saida com allowlist». As duas
+# obtem-se com `internal: true` — e nao com regras de *firewall* no *host*, que
+# nao estariam neste ficheiro nem seriam verificaveis por quem o le.
+#
+# Medido a 2026-11-03 nesta maquina, numa arvore de ensaio com as quatro redes
+# (`docs/evidencia/KAM-076.md` §2): num contentor ligado **so** a uma rede
+# `internal: true` nao ha rota por omissao **nem DNS** — um `nslookup` da
+# SERVFAIL e o `wget` morre em «bad address». Num contentor que tambem esta numa
+# rede nao-interna ha rota, e o pedido chega ao servidor. **Nao e so o trafego
+# que para: e a resolucao de nomes.** Um pacote comprometido dentro do AGR nao
+# tem para onde exfiltrar, e nao descobre sequer o endereco.
+#
+#   edge   NAO e interna. E a unica com rota para fora. Dois membros, e so dois:
+#          o `proxy-tls`, que recebe 443 do exterior, e o `proxy-saida`, que e
+#          por onde `app` sai. Nenhum servico de aplicacao esta aqui.
+#   app    `internal: true`. Toda a aplicacao. Sem rota propria para fora: quem
+#          precisa de sair usa `HTTPS_PROXY` e passa pelo `proxy-saida`.
+#   data   `internal: true`. Postgres, fila e armazenamento de objectos. Os
+#          servicos de aplicacao que precisam de base estao em `app` **e** em
+#          `data`; os de `data` nunca estao em `app`.
+#   ops    `internal: true`. Operacao. Hoje tem um membro, o `prometheus`.
+#
+# **Uma rede declarada e sem membros nao e criada** — medido na mesma arvore de
+# ensaio: com o `ops` sem servicos, `docker network ls` mostrava tres redes e
+# nao quatro. E por isso que o `ops` nasce com o `prometheus` dentro, e nao como
+# declaracao a espera do KAM-080.
+#
+# O QUE ESTE FICHEIRO **NAO** FAZ, POR DESENHO
+#
+# * **Nao termina TLS a serio.** O `proxy-tls` tem uma configuracao minima e
+#   fala HTTP interno; certificados, cadeia validada pela Meta, renovacao e WAF
+#   sao o KAM-077. O que aqui esta e a forma da rede e o unico 443.
+# * **Nao tem observabilidade.** O `prometheus` arranca com uma configuracao que
+#   so se raspa a si proprio. Metricas, paineis, logs e os 12 alertas sao o
+#   KAM-080.
+# * **Nao tem backups.** pgBackRest e o KAM-079.
+# * **Nao decide a D1 nem a D6.** O alojamento e o KAM-105/KAM-077. O
+#   armazenamento de objectos entra atras de `KAMBA_STO_MODO`.
+# * **Nao ajusta os limites.** Os `mem_limit` sao a coluna `memoria_gb` de
+#   `conjunto-reduzido.yaml`, que e **ESTIMATIVA** do bloco e nao medicao. Medir
+#   sob carga e corrigi-los e o KAM-084.
+#
+# A IMAGEM DOS NOSSOS CINCO SERVICOS, E PORQUE ESTA POR `build:`
+#
+# Os «Detalhes Tecnicos» do bloco dizem «`release.lock` (lista de *digests*) e a
+# unica fonte do Compose». O `release.lock` e produzido pelo **KAM-078**, que
+# depende deste ticket: hoje nao existe digest publicado de nenhuma imagem
+# nossa, e escrever um era inventar um numero. Os cinco servicos nossos ficam
+# por `build:`, como no compose de desenvolvimento — o que **e** verificado e
+# que a imagem de base de cada Dockerfile vem por digest e consta do
+# inventario.
+#
+# A inversao esta registada como achado em `docs/evidencia/KAM-076.md` §5 e o
+# criterio 2 fica cumprido para as **nove** imagens que este ficheiro referencia
+# e **nao** cumprido para as cinco nossas. Nao se marca o criterio como feito.
+
+name: kamba-prod
+
+# ---------------------------------------------------------------- endurecimento
+#
+# O criterio 4 pede quatro coisas em **todos** os contentores: FS so de leitura,
+# utilizador nao-root, `mem_limit` e `cpus`. As tres primeiras ficam aqui; o
+# `mem_limit` e o `cpus` sao por servico, porque sao numeros diferentes.
+#
+# `no-new-privileges` e `cap_drop: ALL` nao estao em nenhum criterio e ficam
+# porque o compose de desenvolvimento ja os tem: um contentor de producao nao
+# pode estar menos fechado do que o de quem o escreve.
+x-endurecido: &endurecido
+  restart: unless-stopped
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+# O ambiente de quem sai para fora. `HTTPS_PROXY` e o que faz a aplicacao
+# passar pelo `proxy-saida`; `NO_PROXY` tira as ligacoes internas do caminho,
+# que de outro modo tambem iam pedir CONNECT ao proxy.
+x-saida: &saida
+  HTTP_PROXY: http://proxy-saida:3128
+  HTTPS_PROXY: http://proxy-saida:3128
+  NO_PROXY: localhost,127.0.0.1,postgres,queue,seaweedfs,litellm,gwy,agr,com,chatwoot,onboarding-web,worker-canal,prometheus,proxy-tls,.internal
+
+x-node: &node
+  <<: *endurecido
+  user: "node"
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  environment: &node-env
+    NODE_ENV: production
+    HOST: 0.0.0.0
+    KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    KAMBA_DATA_CLASS: ${KAMBA_DATA_CLASS:-synthetic}
+
+services:
+  # ================================================================= borda
+  proxy-tls:
+    # Caddy 2.10.2 (Apache-2.0). Verificado por execucao a 2026-11-03:
+    # `caddy version` dentro desta imagem deu `v2.10.2`.
+    #
+    # **O unico servico com `ports:`, e so 443.** O criterio 5 diz «no exterior
+    # so 443 e a porta UDP do WireGuard»: o WireGuard corre no *host* e nao em
+    # contentor (KAM-075, `infra/modules/host-base/`), pelo que aqui 443 e a
+    # unica publicacao que existe. O *scan* externo e o KAM-077.
+    image: caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    <<: *endurecido
+    # Nao-root, e o Caddy escuta em **8443** dentro do contentor: o binario traz
+    # uma *file capability* e com `cap_drop: ALL` nem **executa** (medido a
+    # 2026-11-03: `exec /usr/bin/caddy: operation not permitted`, em ciclo). A
+    # porta externa continua 443 — a razao completa esta no `caddy/Caddyfile`.
+    user: "1000:1000"
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+      # O Caddy escreve a configuracao normalizada e o estado dos certificados.
+      # Em producao a serio isto e um volume (KAM-077, para os certificados
+      # sobreviverem a um reinicio); aqui e `tmpfs` porque nao ha certificados.
+      - /data:size=32m
+      - /config:size=16m
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    # A **unica** capacidade concedida em toda a pilha, e e para o `exec`
+    # funcionar e nao para ser usada: `/usr/bin/caddy` traz
+    # `cap_net_bind_service=ep` como capacidade de **ficheiro**, e com
+    # `cap_drop: ALL` o kernel recusa executar o binario (medido a
+    # 2026-11-03: `exec /usr/bin/caddy: operation not permitted`, com e sem
+    # `no-new-privileges`). O Caddy escuta em 8443, acima de 1024, pelo que
+    # a capacidade fica concedida e **nunca exercida**. O `compose_prod`
+    # falha se qualquer outro servico acrescentar capacidades.
+    cap_add:
+      - NET_BIND_SERVICE
+    ports:
+      - "443:8443"
+    networks:
+      - edge
+      - app
+    mem_limit: 512m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  proxy-saida:
+    # Envoy 1.36.3 (Apache-2.0). Verificado por execucao a 2026-11-03:
+    # `--version` dentro desta imagem deu `.../1.36.3/Clean/RELEASE/BoringSSL`.
+    #
+    # **PORQUE ENVOY, E NAO SQUID.** O proxy de saida obvio seria o Squid, e
+    # nao pode ser: o Squid e GPL-2.0 e o `ci/licenses.yaml` nega o prefixo
+    # `GPL-`, que so passa com um waiver que cite um ADR. O mesmo vale para o
+    # HAProxy (GPL-2.0 + LGPL) e para o tinyproxy (GPL-2.0). O Envoy e
+    # Apache-2.0, que esta na allowlist, e faz as duas coisas que o criterio 3
+    # pede: allowlist por FQDN e **registo** do que recusa.
+    image: envoyproxy/envoy:v1.36.3@sha256:d68fc27a15a17ae3b13df8c8631523a2fe1192b39ec867dffe870b666c55c2dd
+    <<: *endurecido
+    user: "101:101"
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    volumes:
+      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - ./envoy/sonda.sh:/etc/envoy/sonda.sh:ro
+    command:
+      - "--config-path"
+      - "/etc/envoy/envoy.yaml"
+      # Sem `--log-level debug`: o corpo dos pedidos nao vai para os logs
+      # (ADR-010, `docs/logs.md`). O log de acesso que o criterio 3 pede
+      # registar **metodo, autoridade e veredicto**, e nunca corpo.
+      - "--log-level"
+      - "info"
+    networks:
+      # Os dois lados do proxy, e e esta a razao de ele existir: `app` nao tem
+      # rota para fora e `edge` tem.
+      - app
+      - edge
+    mem_limit: 512m
+    cpus: 0.5
+    healthcheck:
+      # A sonda vive em `envoy/sonda.sh` e nao nesta linha: as duas razoes —
+      # a imagem nao traz `curl` nem `wget`, e um `/dev/tcp` escrito aqui faz
+      # o `supply_chain runtime` falhar com `arranque-nao-verificavel` — estao
+      # escritas no proprio ficheiro.
+      # Invocada por `bash` e nao pelo bit de execucao: o `git` guardou o
+      # ficheiro como 100755, mas uma montagem que nao preserve o modo
+      # deixava o contentor **permanentemente** unhealthy — e foi o que
+      # esta maquina quase esconder, porque as montagens do Docker em
+      # Windows dao modos permissivos. Com `bash` a frente, o modo nao
+      # entra na equacao.
+      test: ["CMD", "bash", "/etc/envoy/sonda.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  # ============================================================= aplicacao
+  gwy:
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: services/gwy/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    environment:
+      <<: [*node-env, *saida]
+      PORT: "3000"
+    # Duas replicas, criterio 5. Sem `ports:`: quem publica e o `proxy-tls`, e e
+    # ele que reparte entre as replicas pelo DNS do compose.
+    deploy:
+      replicas: 2
+    networks:
+      - app
+      - data
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3000/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+
+  worker-canal:
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: services/worker-canal/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    environment:
+      <<: [*node-env, *saida]
+      PORT: "3001"
+    networks:
+      - app
+      - data
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3001/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      queue:
+        condition: service_healthy
+
+  agr:
+    <<: *endurecido
+    # O AGR corre `python:3.12-slim`, onde nao existe o utilizador `node`.
+    user: "nobody"
+    build:
+      context: ../..
+      dockerfile: services/agr/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    environment:
+      <<: *saida
+      HOST: 0.0.0.0
+      PORT: "8000"
+      KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+      KAMBA_DATA_CLASS: ${KAMBA_DATA_CLASS:-synthetic}
+    # Duas replicas, criterio 5.
+    deploy:
+      replicas: 2
+    networks:
+      - app
+      - data
+    mem_limit: 2560m
+    cpus: 2.0
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import os, sys, urllib.request;
+          porta = os.environ.get('PORT', '8000');
+          sys.exit(0 if urllib.request.urlopen(
+          f'http://127.0.0.1:{porta}/healthz', timeout=4).status == 200 else 1)
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+
+  com:
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: services/com/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    environment:
+      <<: [*node-env, *saida]
+      PORT: "3002"
+    networks:
+      - app
+      - data
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3002/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  onboarding-web:
+    <<: *node
+    build:
+      context: ../..
+      dockerfile: services/onboarding-web/Dockerfile
+      args:
+        KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
+    environment:
+      <<: [*node-env, *saida]
+      PORT: "3003"
+    networks:
+      - app
+    mem_limit: 768m
+    cpus: 0.5
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3003/healthz')
+          .then(r => process.exit(r.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  chatwoot:
+    # Chatwoot 4.18.0, MIT fora de `enterprise/` (E4 §2.2). Digest ja fixado no
+    # inventario pelo KAM-019.
+    #
+    # **Nunca fala com a Meta** (ADR-001, criterio do KAM-019): nao ha
+    # `WHATSAPP_APP_ID`, `WHATSAPP_CONFIGURATION_ID` nem `WHATSAPP_APP_SECRET`.
+    # O GWY e o unico endpoint; o Chatwoot recebe espelho por inbox de tipo API.
+    # A ausencia das tres e verificada pelo `compose_prod` e nao so por leitura.
+    #
+    # `ENABLE_ACCOUNT_SIGNUP: "false"`: um painel de producao alcancavel em 443
+    # com registo aberto e uma conta de administrador a espera de quem passar.
+    image: chatwoot/chatwoot:v4.18.0@sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1
+    <<: *endurecido
+    user: "1001:1001"
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+      - /app/tmp:size=256m
+      - /app/log:size=64m
+      - /app/storage:size=256m
+    environment:
+      <<: *saida
+      RAILS_ENV: production
+      NODE_ENV: production
+      INSTALLATION_ENV: docker
+      # Criterio 8: `enterprise/` inactivo. A imagem traz o codigo da edicao
+      # Enterprise e e esta variavel que o desliga (E4 §2.2).
+      DISABLE_ENTERPRISE: "true"
+      ENABLE_ACCOUNT_SIGNUP: "false"
+      POSTGRES_HOST: postgres
+      POSTGRES_DATABASE: ${CHATWOOT_DB:-kamba_chatwoot}
+      POSTGRES_USERNAME: ${CHATWOOT_DB_USER:?do cofre (KAM-010)}
+      POSTGRES_PASSWORD: ${CHATWOOT_DB_PASSWORD:?do cofre (KAM-010)}
+      REDIS_URL: redis://queue:6379/1
+      SECRET_KEY_BASE: ${CHATWOOT_SECRET_KEY_BASE:?do cofre (KAM-010)}
+      FRONTEND_URL: ${CHATWOOT_FRONTEND_URL:?o FQDN publico do painel}
+    command: ["bundle", "exec", "rails", "server", "-b", "0.0.0.0", "-p", "3000"]
+    networks:
+      - app
+      - data
+    mem_limit: 3072m
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+
+  chatwoot-worker:
+    # O Sidekiq, na mesma imagem e com o mesmo ambiente. Em contentor proprio
+    # para ter limite proprio: «Sidekiq pode exceder 1 GB em carga» e INDICIO
+    # (doc 09 §4.1), e um Sidekiq a crescer dentro do contentor do painel
+    # derrubava o painel.
+    image: chatwoot/chatwoot:v4.18.0@sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1
+    <<: *endurecido
+    user: "1001:1001"
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+      - /app/tmp:size=256m
+      - /app/log:size=64m
+      - /app/storage:size=256m
+    environment:
+      <<: *saida
+      RAILS_ENV: production
+      NODE_ENV: production
+      INSTALLATION_ENV: docker
+      DISABLE_ENTERPRISE: "true"
+      ENABLE_ACCOUNT_SIGNUP: "false"
+      POSTGRES_HOST: postgres
+      POSTGRES_DATABASE: ${CHATWOOT_DB:-kamba_chatwoot}
+      POSTGRES_USERNAME: ${CHATWOOT_DB_USER:?do cofre (KAM-010)}
+      POSTGRES_PASSWORD: ${CHATWOOT_DB_PASSWORD:?do cofre (KAM-010)}
+      REDIS_URL: redis://queue:6379/1
+      SECRET_KEY_BASE: ${CHATWOOT_SECRET_KEY_BASE:?do cofre (KAM-010)}
+      FRONTEND_URL: ${CHATWOOT_FRONTEND_URL:?o FQDN publico do painel}
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+    networks:
+      - app
+      - data
+    mem_limit: 2048m
+    cpus: 1.5
+    healthcheck:
+      # O Sidekiq nao serve HTTP. A sonda pergunta ao proprio processo se esta
+      # vivo; sem isto o `depends_on: service_healthy` de quem dele depende nao
+      # teria o que esperar.
+      test: ["CMD-SHELL", "pgrep -f sidekiq > /dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+
+  litellm:
+    # LiteLLM 1.104.2 por digest, com cosign verificado (ADR-005, KAM-030).
+    # Digest e chave publica ja no inventario.
+    #
+    # Esta em `app` e **nao** em `edge`: a saida para os fornecedores de modelo
+    # passa pelo `proxy-saida`, como a de todos os outros. Era a tentacao obvia
+    # dar-lhe rota propria — e seria o unico servico da pilha com um caminho
+    # para fora que ninguem registava.
+    image: ghcr.io/berriai/litellm:v1.104.2@sha256:3d88bd757134a00e8c00237b85a021ab1f6d54abb9c1df750f411dbe7256a500
+    <<: *endurecido
+    user: "1000:1000"
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - ../../llm/litellm.config.yaml:/etc/litellm/config.yaml:ro
+    command:
+      - "--config"
+      - "/etc/litellm/config.yaml"
+      - "--port"
+      - "4000"
+      - "--num_workers"
+      - "1"
+    environment:
+      <<: *saida
+      # **Os nomes sao os que o `llm/litellm.config.yaml` **gerado** le**, e nao
+      # os do `docker-compose.llm.yml`: aquele ficheiro define
+      # `LITELLM_MASTER_KEY` e `LLM_KEY_P1..P3`, que o config gerado **nao**
+      # procura. Medido a 2026-11-03: com aqueles nomes o proxy recusa arrancar
+      # com `UnsafeMasterKeyError: no master key is set` e fica a 100% de CPU em
+      # ciclo de reinicio. Os quatro nomes certos saem de
+      # `grep -o 'os.environ/[A-Z_]*' llm/litellm.config.yaml` e estao no
+      # runbook `docs/runbooks/rotacao-de-chaves-de-llm.md`.
+      KAMBA_SECRET_LITELLM_MASTER_KEY: ${KAMBA_SECRET_LITELLM_MASTER_KEY:?do cofre (KAM-010)}
+      KAMBA_SECRET_LLM_PROVIDER_KEY__anthropic: ${KAMBA_SECRET_LLM_PROVIDER_KEY__anthropic:?do cofre (KAM-010)}
+      KAMBA_SECRET_LLM_PROVIDER_KEY__openai: ${KAMBA_SECRET_LLM_PROVIDER_KEY__openai:?do cofre (KAM-010)}
+      KAMBA_SECRET_LLM_PROVIDER_KEY__google: ${KAMBA_SECRET_LLM_PROVIDER_KEY__google:?do cofre (KAM-010)}
+      # Sem isto o proxy sai para `raw.githubusercontent.com` no arranque, para
+      # descarregar o mapa de precos — medido no KAM-030. Aquele FQDN **nao**
+      # esta na allowlist do `proxy-saida` e nao vai estar: fecha-se desligando
+      # a saida, nao declarando o destino.
+      LITELLM_LOCAL_MODEL_COST_MAP: "True"
+    networks:
+      - app
+    mem_limit: 2048m
+    cpus: 1.5
+    healthcheck:
+      # O `/health/liveliness` nao exige a *master key*; o `/health` exige.
+      # A imagem nao traz `curl` — traz o Python da propria aplicacao, e e
+      # a sonda que o KAM-030 ja provou em `docker-compose.llm.yml`.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=2).status==200 else 1)\""]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 60s
+
+  # ================================================================== dados
+  postgres:
+    # PostgreSQL 18.6 + pgvector 0.8.7 (ADR-006). Bases `platform`, `medusa` e
+    # `chatwoot` criadas pelo `initdb`; a RLS e o KAM-004.
+    image: pgvector/pgvector:0.8.7-pg18@sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11
+    <<: *endurecido
+    # A imagem corre como `postgres` (uid 999) depois do entrypoint; dizer-lhe
+    # o uid explicitamente salta a parte do entrypoint que corre como root.
+    user: "999:999"
+    tmpfs:
+      - /var/run/postgresql:mode=0775,uid=999,gid=999
+      - /tmp:size=64m,mode=1777
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?do cofre (KAM-010)}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?do cofre (KAM-010)}
+      POSTGRES_DB: ${POSTGRES_DB:-kamba_platform}
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      # O ponto de montagem e `/var/lib/postgresql` e **nao**
+      # `/var/lib/postgresql/data`: as imagens do PostgreSQL 18+ guardam os
+      # dados num subdirectorio com o nome da versao maior e recusam arrancar se
+      # encontrarem dados no caminho antigo (docker-library/postgres#1259).
+      # Medido no KAM-001 e outra vez no spike do KAM-019.
+      - postgres-data:/var/lib/postgresql
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
+    # Sem `ports:`, e sem possibilidade de ter: `data` e `internal: true` e o
+    # Docker nao publica portas de um contentor ligado so a uma rede interna.
+    networks:
+      - data
+    mem_limit: 5120m
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kamba} -d ${POSTGRES_DB:-kamba_platform}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  queue:
+    # A fila (ADR-009). **A D12 esta ABERTA** e o nome do servico nao a carrega:
+    # nem `redis` nem `valkey`. A omissao e o Valkey 9.1.2 (BSD-3-Clause);
+    # trocar e mudar duas variaveis de ambiente, nao editar este ficheiro.
+    #
+    # O ensaio de compatibilidade do criterio 6 esta em
+    # `docs/adr/ADR-L009-ensaio-da-valkey.md`. **Nao fecha a D12**: a decisao e
+    # do fundador e o ensaio e so a medicao que ela precisava.
+    image: ${KAMBA_QUEUE_IMAGE:-valkey/valkey:9.1.2-trixie@sha256:418652cfb58ef879d4978c33553735d7147016032d5aefaa14c828e611eb9dfd}
+    <<: *endurecido
+    user: "999:1000"
+    command:
+      # AOF, exigido pelo BullMQ: sem persistencia, uma reinicializacao perde
+      # trabalhos aceites (E4 §2.10).
+      - "--appendonly"
+      - "yes"
+      - "--appendfsync"
+      - "everysec"
+      - "--dir"
+      - "/data"
+      - "--save"
+      - ""
+      # A fila nao e fonte de verdade (ADR-009): o que ela perde volta pelo
+      # *outbox*. Mas um `maxmemory` ausente deixa-a crescer ate ao
+      # `mem_limit` e morrer por OOM, o que e pior do que recusar escrita.
+      - "--maxmemory"
+      - "600mb"
+      - "--maxmemory-policy"
+      - "noeviction"
+    volumes:
+      - queue-data:/data
+    networks:
+      - data
+    mem_limit: 768m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD-SHELL", "${KAMBA_QUEUE_CLI:-valkey-cli} ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  seaweedfs:
+    # `StorageProvider`, sem MinIO (ADR-014). SeaweedFS 4.48 (Apache-2.0).
+    #
+    # **A D6 esta ABERTA** (SeaweedFS ou S3 gerido) e este ticket nao a decide.
+    # O servico entra atras de um perfil: com `KAMBA_STO_MODO=s3-gerido` nao
+    # arranca, e quem fala com ele e o `StorageProvider`, que ja e a costura.
+    image: chrislusf/seaweedfs:4.48@sha256:4e61d15fd35994cb1e43e1e553dff106794841fd9a99ade2fc8c8bfce4d7872d
+    <<: *endurecido
+    user: "1000:1000"
+    profiles:
+      - sto-proprio
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-master.volumeSizeLimitMB=256"]
+    volumes:
+      - seaweedfs-data:/data
+    networks:
+      - data
+    mem_limit: 1024m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9333/cluster/status || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # =============================================================== operacao
+  prometheus:
+    # Prometheus 3.7.3 (Apache-2.0). Verificado por execucao a 2026-11-03:
+    # `prometheus --version` dentro desta imagem deu `version 3.7.3`.
+    #
+    # **E o unico membro de `ops`, e esta aqui para que `ops` exista.** Uma rede
+    # declarada e sem membros nao e criada pelo Docker (medido, §2 da
+    # evidencia), e o criterio 3 pede quatro redes.
+    #
+    # A configuracao so se raspa a si proprio. **As metricas da plataforma, os
+    # paineis, os logs e os 12 alertas do doc 09 §9.2 sao o KAM-080**, que
+    # depende deste ticket. Nao se afirma que ha observabilidade.
+    #
+    # O Alertmanager, o Grafana e o Loki ficam `pendente` em
+    # `conjunto-reduzido.yaml`: os dois ultimos sao **AGPL-3.0**, que o
+    # `ci/licenses.yaml` nega por prefixo, e fechar essa licenca e decisao com
+    # ADR — nao e deste ticket.
+    image: prom/prometheus:v3.7.3@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038
+    <<: *endurecido
+    user: "65534:65534"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      # Sem interface de administracao e sem recarga por HTTP: um Prometheus
+      # com `--web.enable-admin-api` apaga series por pedido HTTP.
+      - "--web.listen-address=127.0.0.1:9090"
+    # Sem `ports:`. O criterio 5 diz «Grafana so por VPN»; o Prometheus nao tem
+    # sequer caminho para a VPN — escuta em `127.0.0.1` dentro do contentor e
+    # `ops` e `internal: true`. Quem o abrir ao *host* e o KAM-080, e a regra
+    # do `compose_prod` morde se o fizer sem VPN.
+    networks:
+      - ops
+      - app
+    mem_limit: 1024m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9090/-/healthy || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 30s
+
+networks:
+  # A unica rede com rota para fora. Dois membros: `proxy-tls` (entrada) e
+  # `proxy-saida` (saida). Um servico de aplicacao aqui era um caminho para
+  # fora que ninguem registava, e o `compose_prod` falha se algum aparecer.
+  edge:
+    driver: bridge
+
+  # `internal: true`: sem rota por omissao e **sem DNS** para fora (medido).
+  # Quem precisa de sair usa `HTTPS_PROXY` e passa pelo `proxy-saida`.
+  app:
+    driver: bridge
+    internal: true
+
+  # `internal: true`, `docs/tecnica/09` §3.2 regra 2: «`data` sem rota de
+  # saida». De um contentor daqui nenhuma ligacao externa passa — e o primeiro
+  # dos dez destinos do criterio 3.
+  data:
+    driver: bridge
+    internal: true
+
+  # `internal: true`. Operacao: hoje o `prometheus`; com o KAM-079 o pgBackRest
+  # e com o KAM-080 o resto. O pgBackRest vai precisar de sair para o
+  # repositorio fora do *host*, e ha-de sair pelo `proxy-saida` como os outros.
+  ops:
+    driver: bridge
+    internal: true
+
+volumes:
+  postgres-data:
+  queue-data:
+  seaweedfs-data:
+  prometheus-data:

@@ -1,0 +1,104 @@
+# Proxy de saida de producao — KAM-076, criterio 3.
+#
+# ********** FICHEIRO GERADO. NAO EDITAR A MAO. **********
+#
+# Gerado de `infra/egress/proxy-saida.yaml` por `python -m compose_prod gerar`.
+# O gate 2 corre `gerar --verificar` e falha se este ficheiro divergir da
+# allowlist — a razao esta em `tools/compose_prod/envoy.py`.
+#
+# Para acrescentar um destino: escreva-o em `infra/egress/<servico>.yaml` (o
+# servico que o vai alcancar) **e** em `infra/egress/proxy-saida.yaml`, e corra
+# o gerador. O `lint` recusa um destino na allowlist que nenhum servico declare.
+
+
+admin:
+  address:
+    socket_address:
+      address: 127.0.0.1
+      port_value: 9901
+
+static_resources:
+  listeners:
+    - name: saida
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 3128
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: saida
+                upgrade_configs:
+                  - upgrade_type: CONNECT
+                access_log:
+                  - name: envoy.access_loggers.stdout
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                      log_format:
+                        json_format:
+                          hora: "%START_TIME%"
+                          metodo: "%REQ(:METHOD)%"
+                          autoridade: "%REQ(:AUTHORITY)%"
+                          veredicto: "%RESPONSE_CODE%"
+                          motivo: "%RESPONSE_CODE_DETAILS%"
+                          bytes_para_fora: "%BYTES_SENT%"
+                          duracao_ms: "%DURATION%"
+                route_config:
+                  name: saida
+                  virtual_hosts:
+                    - name: permitidos
+                      domains:
+                        - "api.anthropic.com"
+                        - "api.anthropic.com:443"
+                        - "api.openai.com"
+                        - "api.openai.com:443"
+                        - "generativelanguage.googleapis.com"
+                        - "generativelanguage.googleapis.com:443"
+                        - "graph.facebook.com"
+                        - "graph.facebook.com:443"
+                      routes:
+                        - match:
+                            connect_matcher: {}
+                          route:
+                            cluster: saida-dinamica
+                            upgrade_configs:
+                              - upgrade_type: CONNECT
+                                connect_config: {}
+                    - name: negados
+                      domains:
+                        - "*"
+                      routes:
+                        - match:
+                            connect_matcher: {}
+                          direct_response:
+                            status: 403
+                            body:
+                              inline_string: "destino fora da allowlist do proxy de saida (KAM-076): declare-o em infra/egress/ e corra compose_prod gerar"
+                        - match:
+                            prefix: "/"
+                          direct_response:
+                            status: 403
+                            body:
+                              inline_string: "destino fora da allowlist do proxy de saida (KAM-076)"
+                http_filters:
+                  - name: envoy.filters.http.dynamic_forward_proxy
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.dynamic_forward_proxy.v3.FilterConfig
+                      dns_cache_config:
+                        name: saida
+                        dns_lookup_family: V4_ONLY
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+  clusters:
+    - name: saida-dinamica
+      lb_policy: CLUSTER_PROVIDED
+      cluster_type:
+        name: envoy.clusters.dynamic_forward_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig
+          dns_cache_config:
+            name: saida
+            dns_lookup_family: V4_ONLY

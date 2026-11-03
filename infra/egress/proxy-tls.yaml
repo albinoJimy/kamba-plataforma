@@ -1,0 +1,23 @@
+# Lista de saidas de `proxy-tls` — KAM-067, criterio 9; servico do KAM-076.
+#
+# Negado por omissao: o que nao esta em `destinos` nao sai. Este ficheiro e o
+# contrato; a aplicacao na rede e a allowlist de `proxy-saida.yaml`.
+#
+# Proxy inverso de entrada (Caddy). **Nao abre ligacao para fora**: recebe 443 e
+# encaminha para `gwy`, `chatwoot` e `onboarding-web`, que sao redes do compose
+# e nao saidas. Esta em `edge` para poder publicar a porta — o Docker nao
+# publica portas de um contentor ligado so a uma rede interna (medido no
+# KAM-001) —, e ter rota nao e o mesmo que usa-la.
+#
+# **Isto muda com o KAM-077.** O TLS a serio precisa de ACME: a emissao e a
+# renovacao automatica de certificados saem para o FQDN da autoridade
+# certificadora, e esse destino entra aqui com aquele ticket. Hoje o Caddy corre
+# com `auto_https off` (ver `infra/compose/caddy/Caddyfile`) e por isso a lista
+# esta vazia e nao a espera.
+#
+# Cada destino: `fqdn`, `porta`, `protocolo`, `razao` e `ticket` (KAM-NNN).
+
+version: 1
+servico: proxy-tls
+por_omissao: negar
+destinos: []
