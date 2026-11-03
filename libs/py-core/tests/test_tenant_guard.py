@@ -10,10 +10,16 @@ Este modulo esta no estrato `critico` de `ci/thresholds.yaml` (90%).
 
 from __future__ import annotations
 
+import ast
+import gc
 import logging
+import re
 import threading
 import unittest
 import uuid
+import warnings
+import weakref
+from pathlib import Path
 
 from kamba_core import tenant_guard
 from kamba_core.tenant_guard import (
@@ -32,6 +38,11 @@ from kamba_core.tenant_guard import (
 )
 
 TENANT = "0b6f1d2e-3c4a-4b5c-8d6e-7f8091a2b3c4"
+
+RAIZ = Path(__file__).resolve().parents[3]
+#: Os dois lados da **mesma** guarda. O teste de paridade prende-os como texto.
+GUARDA_PY = RAIZ / "libs" / "py-core" / "src" / "kamba_core" / "tenant_guard" / "__init__.py"
+GUARDA_TS = RAIZ / "packages" / "core-ts" / "src" / "tenant_guard" / "index.ts"
 
 
 class _Cursor:
@@ -254,7 +265,12 @@ class TestLigacaoEmUso(unittest.TestCase):
                     pass
         with tx(conexao, self.OUTRO):
             pass
-        self.assertEqual(tenant_guard._EM_USO, set())
+        # `set(...)` a volta: desde o KAM-163 o registo e uma `weakref.WeakSet`,
+        # que nao se compara por igualdade com um `set` — intacta, a linha
+        # falhava por artefacto de comparacao de tipos e nao por comportamento
+        # da guarda. A afirmacao e a mesma, e assim a falha ainda diz **qual** a
+        # ligacao que ficou no registo em vez de «1 != 0».
+        self.assertEqual(set(tenant_guard._EM_USO), set())
 
     def test_ligacoes_diferentes_nao_se_bloqueiam(self) -> None:
         a, b = _Conexao(), _Conexao()
@@ -384,6 +400,424 @@ class TestContadores(unittest.TestCase):
         self.assertEqual(contadores.ler(), {"x": 1})
         contadores.repor()
         self.assertEqual(contadores.ler(), {})
+
+
+class _LimpezaNaoCorreu(RuntimeError):
+    """Sinal deste ensaio: o `finally` da guarda nao chegou ao `discard`."""
+
+
+class _TrincoQueFalhaAoLargar:
+    """Um trinco que rebenta na **segunda** tomada, e so nela.
+
+    E a condicao que o bloco do KAM-163 nomeia por extenso — «o `discard` do
+    `finally` nao correu» — posta de pe sem tocar no modulo: a entrada entra
+    pelo caminho verdadeiro (`tx` → `_exclusiva`) e a limpeza nao chega a
+    acontecer. O registo (`_EM_USO`) fica o **verdadeiro**: e dele que se quer
+    saber se uma entrada sobrevive ao seu dono, e substitui-lo por um duplo era
+    medir o duplo.
+    """
+
+    def __init__(self) -> None:
+        self._real = threading.Lock()
+        self.tomadas = 0
+
+    def __enter__(self):
+        self.tomadas += 1
+        if self.tomadas > 1:
+            raise _LimpezaNaoCorreu("o `finally` da guarda nao chegou ao `discard`")
+        return self._real.__enter__()
+
+    def __exit__(self, *erro):
+        return self._real.__exit__(*erro)
+
+
+class TestChaveDoRegisto(unittest.TestCase):
+    """A chave do registo e o objecto, e nao o seu endereco (KAM-163).
+
+    O `id()` de um objecto libertado volta a ser atribuido a outro. Um registo
+    que guarde o numero e nao o objecto nao tem como saber que o dono do
+    endereco mudou, e passa a recusar uma ligacao **genuinamente livre**. O
+    gemeo TypeScript da mesma guarda nunca teve o problema: a entrada e o
+    objecto, e desaparece com ele.
+
+    A prova e **determinista e nao depende do alocador**: o que se afirma e que
+    uma entrada nao sobrevive ao seu dono, que e a condicao de que a recusa de
+    uma ligacao livre nasce. A reocupacao do endereco exercita a recusa de ponta
+    a ponta quando o interpretador colabora, e nao e o que decide o veredicto —
+    duas versoes anteriores decidiram-no assim e as duas ficaram vermelhas sem
+    nada ter mudado no codigo, uma pela ordem das classes e outra no `coverage`
+    do *gate* 4. «De vez em quando falha» nao se consegue provar, e um ensaio
+    que de vez em quando falha tambem nao prova.
+    """
+
+    def setUp(self) -> None:
+        # Uma entrada deixada para tras por este ensaio nao pode seguir para o
+        # teste seguinte: a guarda e estado de modulo.
+        self.addCleanup(tenant_guard._EM_USO.clear)
+
+    def _registar_e_perder_a_ligacao(self) -> int:
+        """Registar uma ligacao, nao a limpar, perde-la; devolve o endereco.
+
+        A entrada entra pela `tx` e fica para tras porque o `finally` rebenta
+        antes do `discard`. Nada em `_EM_USO` e simulado.
+        """
+        real = tenant_guard._TRINCO_EM_USO
+        tenant_guard._TRINCO_EM_USO = _TrincoQueFalhaAoLargar()
+        try:
+            conexao = _Conexao()
+            endereco = id(conexao)
+            try:
+                with tx(conexao, TENANT):
+                    pass
+            except _LimpezaNaoCorreu:
+                # Sem `as`: a excepcao guardava o *traceback*, o *traceback*
+                # guardava a *frame* da `_exclusiva`, e a *frame* guardava a
+                # ligacao — que tem de morrer para o endereco vagar.
+                pass
+            else:
+                self.fail("a limpeza correu: o ensaio nao pos a entrada para tras")
+        finally:
+            tenant_guard._TRINCO_EM_USO = real
+        self.assertEqual(len(tenant_guard._EM_USO), 1, "a entrada tinha de ficar")
+        del conexao
+        gc.collect()
+        return endereco
+
+    def _ligacao_no_endereco(self, endereco: int) -> _Conexao | None:
+        """Uma ligacao nova no endereco que vagou, ou `None` se nao vagar.
+
+        A rajada esta **dentro de uma compreensao**, que e uma linha tracada so:
+        sob o `coverage` do *gate* 4 cada linha de Python da ao rastreador uma
+        oportunidade de ficar com o bloco libertado, e um ciclo que alocasse uma
+        candidata por linha dava-lhe essa oportunidade a cada volta.
+
+        Devolve `None` em vez de levantar: quem chama ja provou o que havia a
+        provar sem o alocador. Ver o ensaio.
+        """
+        candidatas = [_Conexao() for _ in range(256)]
+        for candidata in candidatas:
+            if id(candidata) == endereco:
+                return candidata
+        return None
+
+    def test_uma_ligacao_livre_nao_e_recusada_por_reutilizacao_de_endereco(self) -> None:
+        """Duas metades, e a ordem importa.
+
+        **1. A metade que prova, e nao depende do alocador.** Deixada uma
+        entrada para tras e morto o seu dono, o registo fica **vazio**. Com a
+        chave antiga ficava com o numero do endereco — uma entrada a sobreviver
+        ao dono e exactamente a condicao de que a recusa de uma ligacao livre
+        nasce —, pelo que esta assercao sozinha mata a chave por endereco.
+
+        **2. A metade ponta-a-ponta, que exercita a recusa.** Uma ligacao nova
+        no endereco que vagou tem de entrar na `tx`. Esta depende de o
+        interpretador reocupar o endereco, e **nao se pode exigir**: a primeira
+        versao exigia-o e o *gate* 4 do PR #105 ficou vermelho com «nao
+        reutilizou o endereco em 20 ciclos» — 551 testes, uma falha, num
+        `coverage run --branch` em Linux. Nesta maquina acerta 100/100, com e
+        sem `coverage`; no *runner* nao acertou nenhuma vez. Um ensaio que
+        depende do alocador para dar um veredicto nao e uma prova, e esta e a
+        licao do achado C1 da revisao adversarial levada ao fim.
+
+        Quando o endereco e reocupado, a metade 2 mede a recusa de ponta a
+        ponta; quando nao, a metade 1 ja provou. **Nunca passa por engano:**
+        contra a chave antiga a metade 1 falha sempre, em qualquer ambiente.
+        """
+        endereco = self._registar_e_perder_a_ligacao()
+        self.assertEqual(
+            set(tenant_guard._EM_USO),
+            set(),
+            "a entrada sobreviveu ao seu dono: o registo guarda uma chave que "
+            "nao e o objecto, e uma ligacao nova nascida neste endereco passa a "
+            "ser recusada sem nunca ter entrado em transaccao nenhuma",
+        )
+        nova = self._ligacao_no_endereco(endereco)
+        if nova is None:
+            return
+        # A ligacao e outra: nunca esteve dentro de transaccao nenhuma. So o
+        # endereco e o mesmo — e o endereco nao e a identidade.
+        with tx(nova, TENANT):
+            pass
+        self.assertEqual(nova.verbos().count("commit"), 1)
+
+    def test_a_entrada_nao_sobrevive_a_ligacao_que_a_pediu(self) -> None:
+        """A mesma propriedade, sem depender do alocador do interpretador."""
+        self._registar_e_perder_a_ligacao()
+        self.assertEqual(len(tenant_guard._EM_USO), 0)
+
+
+class TestSemanticaDaChave(unittest.TestCase):
+    """O que a `WeakSet` indexa, e o que isso custa (KAM-163).
+
+    A troca fechou o defeito do endereco e abriu uma diferenca com o gemeo que
+    **nao se esconde**: o `WeakSet` do JavaScript indexa por identidade, o
+    `weakref.WeakSet` do Python indexa por `__eq__`/`__hash__`. Os dois lados
+    indexam «pelo objecto» e nao tem a mesma semantica, e o teste de paridade
+    do ficheiro — que compara texto — passaria sem ver isto. Estes ensaios sao
+    o que o ve.
+
+    A decisao de ficar com a `WeakSet` e de quem escreveu o ticket: a falha e
+    *fail-closed* (recusa uma ligacao livre, nunca deixa passar uma ocupada), e
+    a janela e incomparavelmente mais estreita do que a do `id()`, que se
+    reutiliza sozinho. O que estes ensaios garantem e que a premissa em que
+    essa decisao assenta — ninguem redefinir a igualdade de uma ligacao — deixa
+    de ser uma afirmacao de quem escreveu e passa a ser medida.
+    """
+
+    #: As pastas com codigo Python deste repositorio. A copia da prova por
+    #: mutacao leva as quatro, pelo que o varrimento mede lá o mesmo.
+    PASTAS = ("libs", "services", "db", "tools")
+    #: O `tenant_guard` exige de uma ligacao exactamente isto. Uma classe que
+    #: defina os tres **e** uma ligacao DB-API, chame-se ela como se chamar — e
+    #: varrer por forma e o que torna este teste independente dos nomes.
+    FORMA_DB_API = frozenset({"cursor", "commit", "rollback"})
+
+    def setUp(self) -> None:
+        self.addCleanup(tenant_guard._EM_USO.clear)
+
+    def test_a_weakset_indexa_por_igualdade_e_nao_por_identidade(self) -> None:
+        """A diferenca com o gemeo, medida em vez de suposta.
+
+        Nao e a propriedade que se quer: e a que se tem, e esta aqui para que
+        ninguem a redescubra a pensar que os dois lados sao equivalentes.
+        """
+
+        class ComIgualdade:
+            def __init__(self, nome: str) -> None:
+                self.nome = nome
+
+            def __eq__(self, outro: object) -> bool:
+                return isinstance(outro, ComIgualdade) and self.nome == outro.nome
+
+            def __hash__(self) -> int:
+                return hash(self.nome)
+
+        registo = weakref.WeakSet()
+        primeira = ComIgualdade("x")
+        registo.add(primeira)
+        segunda = ComIgualdade("x")
+        self.assertIsNot(primeira, segunda)
+        # O `WeakSet` do JavaScript daria `False` aqui, e o `set[int]` com
+        # `id()` que isto substituiu tambem.
+        self.assertIn(segunda, registo)
+        self.assertNotIn(id(segunda), {id(primeira)})
+
+    def _ligacoes_db_api(self) -> list[tuple[str, str, bool, bool]]:
+        """As classes deste repositorio que tem a forma de uma ligacao DB-API."""
+        achadas = []
+        for pasta in self.PASTAS:
+            raiz = RAIZ / pasta
+            if not raiz.is_dir():
+                continue
+            for caminho in raiz.rglob("*.py"):
+                if any(p in {".venv", "__pycache__", "node_modules"} for p in caminho.parts):
+                    continue
+                try:
+                    # `simplefilter` porque o `ast.parse` de ficheiros alheios
+                    # imprime os `SyntaxWarning` deles (duas sequencias de
+                    # escape invalidas em `db/tests/test_catalogo.py`, antigas),
+                    # e um varrimento novo nao tem de poluir o gate com avisos
+                    # que nao sao do que ele mede.
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", SyntaxWarning)
+                        arvore = ast.parse(caminho.read_text(encoding="utf-8"))
+                except SyntaxError:
+                    continue
+                for no in ast.walk(arvore):
+                    if not isinstance(no, ast.ClassDef):
+                        continue
+                    metodos = {
+                        m.name
+                        for m in no.body
+                        if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    }
+                    if not self.FORMA_DB_API <= metodos:
+                        continue
+                    achadas.append((
+                        f"{caminho.relative_to(RAIZ).as_posix()}:{no.lineno}",
+                        no.name,
+                        "__eq__" in metodos,
+                        "__hash__" in metodos,
+                    ))
+        return achadas
+
+    def test_o_varrimento_das_ligacoes_morde(self) -> None:
+        """Sem isto, um varrimento que nao encontrasse nada saía verde."""
+        achadas = self._ligacoes_db_api()
+        nomes = {nome for _, nome, _, _ in achadas}
+        self.assertIn(
+            "_Conexao", nomes, "o varrimento nao encontrou o duplo deste ficheiro"
+        )
+        self.assertGreaterEqual(len(achadas), 2, achadas)
+
+    def test_nenhuma_ligacao_db_api_deste_repositorio_redefine_a_igualdade(self) -> None:
+        """A premissa em que a escolha da `WeakSet` assenta, medida.
+
+        O que isto **nao** cobre: uma ligacao vinda de uma biblioteca de
+        terceiros, que nao se define aqui. Dessas, a unica que este repositorio
+        usa e a `pg8000`, e tem ensaio proprio a seguir.
+        """
+        culpadas = [
+            (onde, nome)
+            for onde, nome, tem_eq, tem_hash in self._ligacoes_db_api()
+            if tem_eq or tem_hash
+        ]
+        self.assertEqual(
+            culpadas,
+            [],
+            "uma ligacao DB-API deste repositorio passou a redefinir a igualdade: "
+            "na `weakref.WeakSet` do `_EM_USO` duas ligacoes distintas que se "
+            "digam iguais colidem, e a guarda recusa uma ligacao livre",
+        )
+
+    def test_o_controlador_real_esta_fixado_nas_duas_listas(self) -> None:
+        """Sem `import`, logo sem salto: o ensaio a seguir salta, este nao.
+
+        «Num gate, saltar e falhar» — a regra esta escrita no
+        `db/tests/test_mutacoes.py`. O ensaio que mede a semantica da `pg8000`
+        precisa dela instalada e salta num Python pelado; este prende, por
+        texto, que a biblioteca medida e a que o repositorio fixa, e corre
+        sempre. A revisao adversarial deste ticket pediu-o.
+        """
+        for lista in (
+            RAIZ / "db" / "requirements" / "migrations.txt",
+            RAIZ / "services" / "agr" / "requirements" / "runtime.txt",
+        ):
+            with self.subTest(lista=lista.name):
+                self.assertTrue(lista.is_file(), lista)
+                self.assertIn("pg8000==1.31.5", lista.read_text(encoding="utf-8"))
+
+    def test_o_controlador_real_nao_redefine_a_igualdade(self) -> None:
+        """A `pg8000` do `db/ligacao.py` — a unica ligacao real deste repositorio.
+
+        Salta sem a biblioteca, que e o caso do `make test-py` com um Python
+        pelado; no *gate* 4 corre, porque a cobertura usa o `.venv` e a
+        `pg8000==1.31.5` esta fixada em `db/requirements/migrations.txt` e em
+        `services/agr/requirements/runtime.txt`.
+        """
+        try:
+            import pg8000.dbapi
+        except ImportError:  # pragma: no cover - medido pela ausencia
+            self.skipTest("pg8000 nao instalada neste interpretador")
+        ligacao = pg8000.dbapi.Connection
+        self.assertIs(ligacao.__eq__, object.__eq__)
+        self.assertIs(ligacao.__hash__, object.__hash__)
+        self.assertTrue(hasattr(ligacao, "__weakref__"), "nao e fracamente referenciavel")
+
+    def test_uma_ligacao_que_o_registo_nao_pode_indexar_levanta_e_nao_suja(self) -> None:
+        """O `TypeError` e alto, e a guarda fica fechada e limpa.
+
+        Sao os dois unicos modos em que a `WeakSet` recusa indexar, e nenhum e
+        silencioso: um `tx` que nao consiga reservar a ligacao nao abre
+        transaccao nenhuma.
+        """
+
+        class SemHash:
+            """`__eq__` sem `__hash__`: o Python poe o `__hash__` a `None`."""
+
+            def __eq__(self, outro: object) -> bool:
+                return True
+
+            def cursor(self):  # pragma: no cover - nunca se chega aqui
+                raise AssertionError("a guarda nao podia ter aberto cursor")
+
+        for ligacao, fragmento in (
+            ((), "weak reference"),          # um tuplo nao e fracamente referenciavel
+            (SemHash(), "unhashable"),
+        ):
+            with self.subTest(ligacao=type(ligacao).__name__):
+                with self.assertRaises(TypeError) as capturado:
+                    with tx(ligacao, TENANT):
+                        self.fail("a transaccao nao podia ter aberto")
+                self.assertIn(fragmento, str(capturado.exception))
+                self.assertEqual(len(tenant_guard._EM_USO), 0)
+
+
+def _so_codigo(texto: str, *marcas: str) -> str:
+    """O texto sem as linhas que sao **so** comentario.
+
+    A paridade e sobre o codigo. Sem isto, um comentario que explique a chave
+    antiga falhava o teste — e o comentario do modulo explica-a, porque e a
+    razao do KAM-163. Um teste que proibisse documentar o defeito que fechou
+    estava a medir a prosa.
+    """
+    return "\n".join(
+        linha for linha in texto.splitlines() if not linha.lstrip().startswith(marcas)
+    )
+
+
+class TestParidadeDoTypeScript(unittest.TestCase):
+    """As duas implementacoes da mesma guarda indexam pelo objecto (KAM-163).
+
+    O padrao e o do `TestParidadeDoTypeScript` de `test_ten.py` e o das
+    paridades de `test_logger.py`: duas implementacoes do mesmo contrato so se
+    mantem honestas se houver uma maquina a confronta-las. O que se prende aqui
+    e a **chave do registo** — foi nela que divergiram, e e para la que
+    qualquer dos dois lados pode voltar sem que mais nada se queixe.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.py = _so_codigo(GUARDA_PY.read_text(encoding="utf-8"), "#")
+        cls.ts = _so_codigo(GUARDA_TS.read_text(encoding="utf-8"), "//", "*", "/*")
+
+    def test_os_dois_ficheiros_existem(self) -> None:
+        for ficheiro in (GUARDA_PY, GUARDA_TS):
+            with self.subTest(ficheiro=ficheiro.name):
+                self.assertTrue(ficheiro.is_file(), ficheiro)
+
+    def test_os_dois_lados_declaram_um_registo_de_referencias_fracas(self) -> None:
+        self.assertRegex(
+            self.py, r"_EM_USO:\s*weakref\.WeakSet\s*=\s*weakref\.WeakSet\(\)"
+        )
+        self.assertRegex(self.ts, r"const EM_USO = new WeakSet<object>\(\);")
+
+    def test_nenhum_dos_lados_indexa_por_identidade_numerica(self) -> None:
+        """A divergencia que este ticket fechou, e o caminho de volta a ela."""
+        # `id(` e nao `id(conexao)`: a revisao adversarial deste ticket mostrou
+        # que um segundo registo numerico — `chave = id(alvo)`, com toda a
+        # fachada da `WeakSet` intacta a seu lado — passava os seis ensaios
+        # desta classe. O nome da variavel nao e a propriedade.
+        for proibido in ("id(", "set[int]", "dict[int", "WeakValueDictionary"):
+            with self.subTest(lado="python", proibido=proibido):
+                self.assertNotIn(proibido, self.py)
+        for proibido in ("WeakSet<number>", "Set<number>", "Map<number"):
+            with self.subTest(lado="typescript", proibido=proibido):
+                self.assertNotIn(proibido, self.ts)
+
+    def test_os_dois_lados_dao_a_ligacao_ao_registo_e_nao_uma_chave(self) -> None:
+        for esperado in (
+            "conexao in _EM_USO",
+            "_EM_USO.add(conexao)",
+            "_EM_USO.discard(conexao)",
+        ):
+            with self.subTest(lado="python", esperado=esperado):
+                self.assertIn(esperado, self.py)
+        for esperado in (
+            "EM_USO.has(cliente)",
+            "EM_USO.add(cliente)",
+            "EM_USO.delete(cliente)",
+        ):
+            with self.subTest(lado="typescript", esperado=esperado):
+                self.assertIn(esperado, self.ts)
+
+    def test_o_registo_e_mesmo_uma_weakset_em_execucao(self) -> None:
+        """O texto diz o que esta escrito; isto diz o que esta a correr."""
+        self.assertIsInstance(tenant_guard._EM_USO, weakref.WeakSet)
+
+    def test_a_corrida_entre_threads_continua_a_ter_quem_a_resolva(self) -> None:
+        """A `WeakSet` resolve a identidade, **nao** a corrida: o trinco fica.
+
+        Do lado TypeScript nao ha trinco por nao haver *threads*: o que o
+        substitui e a marcacao acontecer antes do primeiro `await`, e e essa
+        adjacencia que se prende.
+        """
+        self.assertIn("_TRINCO_EM_USO = threading.Lock()", self.py)
+        self.assertRegex(
+            self.ts,
+            r"if \(EM_USO\.has\(cliente\)\) \{\s*throw new LigacaoEmUsoError\(\);"
+            r"\s*\}\s*EM_USO\.add\(cliente\);",
+        )
 
 
 if __name__ == "__main__":
