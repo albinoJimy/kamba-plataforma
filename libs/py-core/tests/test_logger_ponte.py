@@ -207,6 +207,14 @@ class TestLoggingDaBibliotecaPadrao(_ComPonte):
 
     def test_os_niveis(self) -> None:
         biblioteca = logging.getLogger("x")
+        # KAM-173: o nivel de um *logger* com nome e estado de processo — vive
+        # no `logging.Logger.manager.loggerDict` do inicio ao fim — e o
+        # `tearDown` desta classe so repoe a raiz. Sem este `addCleanup`, este
+        # teste deixava o "x" em DEBUG e o
+        # `test_abaixo_de_info_nao_sai_por_omissao` ficava vermelho em qualquer
+        # ordem que o corresse depois deste. Na ordem alfabetica o "abaixo_de"
+        # vem primeiro, pelo que passava — por acidente.
+        self.addCleanup(biblioteca.setLevel, biblioteca.level)
         biblioteca.setLevel(logging.DEBUG)
         logging.getLogger().setLevel(logging.DEBUG)
         biblioteca.debug("d")
