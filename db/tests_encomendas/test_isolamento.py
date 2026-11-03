@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pg8000.dbapi
 from tests.base import PRIVILEGIO_INSUFICIENTE, sqlstate
-from tests_encomendas.base import ComEncomendas
+from tests_encomendas.base import TRANSICAO_INVALIDA, ComEncomendas
 
 #: As quatro tabelas com `tenant_id` da revisao. O grafo nao entra: nao a tem.
 COM_TENANT = (
@@ -170,6 +170,91 @@ class TestRlsDasEncomendas(ComEncomendas):
             (self.encomenda,),
         )
         self.assertEqual(cursor_b.fetchone()[0], 0)
+
+
+class TestOsTriggersSaoSempreActivos(ComEncomendas):
+    """Os cinco *triggers* sao `ENABLE ALWAYS`, e **nenhum ensaio o media**.
+
+    **O achado 4 da revisao adversarial**: a revisao poe os cinco em `ALWAYS` e
+    escreve a razao — a omissao (`O`) e saltada por
+    `session_replication_role = replica`, e com ela um `UPDATE` escrevia `paga`
+    sem evento nenhum e sem registo nenhum. A barreira estava certa (a propria
+    revisao mediu-a a mao) e **nao tinha teste**: `grep tgenabled`
+    em `db/tests_encomendas/` devolvia zero, enquanto a suite do ledger
+    (`db/tests_pagamentos/`) o tem em quatro ficheiros.
+
+    `A` e `ENABLE ALWAYS`; `O` e a omissao.
+    """
+
+    #: Os cinco, com o nome e a tabela.
+    TRIGGERS = (
+        ("orders_mirror", "order_nasce_criada"),
+        ("orders_mirror", "order_transicao_valida"),
+        ("orders_mirror", "order_estado_exige_log"),
+        ("order_state_log", "order_state_log_sem_mutacao"),
+        ("order_state_log", "order_state_log_sem_truncate"),
+    )
+
+    def test_os_cinco_sao_enable_always(self) -> None:
+        linhas = self.consultar(
+            "SELECT c.relname::text, t.tgname::text, t.tgenabled::text "
+            "  FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid "
+            " WHERE c.relnamespace = 'platform'::regnamespace "
+            "   AND NOT t.tgisinternal "
+            "   AND c.relname IN ('orders_mirror', 'order_state_log') "
+            " ORDER BY 1, 2"
+        )
+        self.assertEqual(
+            linhas,
+            [(tabela, nome, "A") for tabela, nome in sorted(self.TRIGGERS)],
+            "os cinco em `A`, e **so** os cinco: um *trigger* novo nestas duas "
+            "tabelas entra por aqui, e um que perca o `ALWAYS` aparece como `O`",
+        )
+
+    def test_em_modo_replica_a_transicao_invalida_continua_recusada(self) -> None:
+        """A prova de que o `ALWAYS` serve para alguma coisa, por execucao.
+
+        `session_replication_role = replica` e o modo em que corre quem **aplica**
+        replicacao logica, e salta os *triggers* de omissao. Com os cinco em
+        `ALWAYS`, o grafo continua a recusar.
+        """
+        tenant = self.criar_tenant()
+        encomenda = self.criar_encomenda(tenant)
+        self.ensaio.execute("SET session_replication_role = replica")
+        try:
+            erro = self.tentar(
+                "UPDATE platform.orders_mirror SET estado = 'entregue', "
+                "       version = version + 1, entregue_at = now(), "
+                "       entrega_confirmada_por = 'cliente' "
+                " WHERE tenant_id = %s AND id = %s",
+                (tenant, encomenda),
+            )
+            self.assertEqual(
+                erro,
+                TRANSICAO_INVALIDA,
+                "em modo replica o *trigger* do grafo continua a recusar: e o "
+                "que o `ENABLE ALWAYS` compra",
+            )
+        finally:
+            self.ensaio.execute("SET session_replication_role = origin")
+            self._ensaio.commit()
+
+    def test_em_modo_replica_o_registo_continua_append_only(self) -> None:
+        tenant = self.criar_tenant()
+        encomenda = self.criar_encomenda(tenant)
+        self.levar_a(tenant, encomenda, "aguarda_pagamento")
+        self.ensaio.execute("SET session_replication_role = replica")
+        try:
+            self.assertEqual(
+                self.tentar(
+                    "DELETE FROM platform.order_state_log WHERE tenant_id = %s",
+                    (tenant,),
+                ),
+                PRIVILEGIO_INSUFICIENTE,
+            )
+        finally:
+            self.ensaio.execute("SET session_replication_role = origin")
+            self._ensaio.commit()
 
 
 class TestRegistoAppendOnly(ComEncomendas):

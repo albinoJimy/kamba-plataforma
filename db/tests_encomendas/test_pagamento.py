@@ -6,16 +6,24 @@ pelo TypeScript; o DoD diz «nenhuma via leva a `paga` sem evento ou confirmacao
 manual auditada», e «nenhuma» inclui um `UPDATE` a mao de quem tem o privilegio
 e um `INSERT` que nasca ja pago.
 
-## As quatro vias, e o que recusa cada uma
+## As **sete** vias, e o que recusa cada uma
 
 ```text
 transicao com actor `dono`/`agente`   trigger diferido, KA006
 transicao sem `evento_id`             trigger diferido, KA006
 transicao com causa que nao e do PAY  trigger diferido, KA006
+`evento_id` inventado                 trigger diferido, KA006 — **o achado 1
+                                      da revisao adversarial**: sem o recibo de
+                                      consumo do KAM-006, as tres de cima
+                                      aceitavam um texto qualquer
+`evento_id` consumido noutro tenant   trigger diferido, KA006
 `INSERT` directo em `paga`            trigger `order_nasce_criada`, KA003
 `UPDATE` de estado sem registo        trigger diferido, KA005
 `paga` sem `paga_via` das duas        CHECK `orders_mirror_paga_exige_via_ck`
 ```
+
+Sao oito linhas para sete vias: as duas primeiras sao a mesma via vista de dois
+lados (quem nao e o `sistema`, e quem nao traz evento).
 
 A quinta via e a que o KAM-053 ensinou a procurar («ha outro caminho que escreva
 `paga`?»), e a resposta desta revisao e o `order_nasce_criada`: o §6.2 tem uma
@@ -73,7 +81,7 @@ class TestPagaExigeEventoAutenticado(ComEncomendas):
             versao,
             CAUSA_PROVIDER,
             actor_kind="sistema",
-            evento_id=f"evt-{uuid.uuid4().hex[:12]}",
+            evento_id=self.registar_consumo(self.tenant),
         )
         self.assertEqual(self.estado_de(encomenda), ("paga", 3))
         self.assertEqual(
@@ -97,7 +105,7 @@ class TestPagaExigeEventoAutenticado(ComEncomendas):
             versao,
             CAUSA_MANUAL,
             actor_kind="sistema",
-            evento_id=f"evt-{uuid.uuid4().hex[:12]}",
+            evento_id=self.registar_consumo(self.tenant),
         )
         self.assertEqual(
             self.consultar(
@@ -142,7 +150,10 @@ class TestPagaExigeEventoAutenticado(ComEncomendas):
                     versao,
                     CAUSA_PROVIDER,
                     actor_kind="agente",
-                    evento_id=f"evt-{uuid.uuid4().hex[:12]}",
+                    # Um evento **com recibo**: o que recusa aqui e o actor, e
+                    # nao a falta do recibo. Sem isto, o ensaio ficava verde
+                    # pela razao errada.
+                    evento_id=self.registar_consumo(self.tenant),
             ),
             PAGA_SEM_EVENTO,
         )
@@ -159,7 +170,7 @@ class TestPagaExigeEventoAutenticado(ComEncomendas):
                     versao,
                     "reconciliacao",
                     actor_kind="sistema",
-                    evento_id=f"evt-{uuid.uuid4().hex[:12]}",
+                    evento_id=self.registar_consumo(self.tenant),
             ),
             PAGA_SEM_EVENTO,
         )
@@ -177,6 +188,57 @@ class TestPagaExigeEventoAutenticado(ComEncomendas):
                     CAUSA_PROVIDER,
                     actor_kind="sistema",
                     evento_id="   ",
+            ),
+            PAGA_SEM_EVENTO,
+        )
+
+    def test_um_evento_inventado_e_recusado(self) -> None:
+        """**O achado 1 da revisão adversarial**, e é o ensaio que faltava.
+
+        As três verificações originais — actor `sistema`, `evento_id` não vazio
+        e uma causa do PAY — **não ligavam aquele texto a evento nenhum**. A
+        revisão mediu-o como `kamba_app`: escreveu `paga` com
+        `evento_id='inventado-pelo-app'`, com o *outbox* a zero e o
+        `payment_events` a zero.
+
+        O que fecha a via é o recibo de consumo do KAM-006: o `evento_id` tem de
+        existir em `platform.events_consumed` **deste tenant**.
+        """
+        encomenda, versao = self._encomenda_a_aguardar()
+        self.assertEqual(
+            self.tentar_transicao(
+                self.tenant,
+                encomenda,
+                "aguarda_pagamento",
+                "paga",
+                versao,
+                CAUSA_PROVIDER,
+                actor_kind="sistema",
+                evento_id="inventado-pelo-app",
+            ),
+            PAGA_SEM_EVENTO,
+        )
+
+    def test_um_evento_consumido_por_outro_tenant_e_recusado(self) -> None:
+        """O recibo é **por tenant**, e é isso que a condição do `EXISTS` diz.
+
+        Sem o `c.tenant_id = NEW.tenant_id`, um evento consumido no tenant B
+        autorizava um `paga` no tenant A — a classe de defeito do ISO-58 noutra
+        coluna.
+        """
+        outro = self.criar_tenant()
+        evento = self.registar_consumo(outro)
+        encomenda, versao = self._encomenda_a_aguardar()
+        self.assertEqual(
+            self.tentar_transicao(
+                self.tenant,
+                encomenda,
+                "aguarda_pagamento",
+                "paga",
+                versao,
+                CAUSA_PROVIDER,
+                actor_kind="sistema",
+                evento_id=evento,
             ),
             PAGA_SEM_EVENTO,
         )

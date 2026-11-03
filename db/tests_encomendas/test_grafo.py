@@ -61,8 +61,6 @@ recusa»: os doze estados estao todos no dominio da coluna, pelo que nenhum
 
 from __future__ import annotations
 
-import uuid
-
 from tests_encomendas.base import (
     CAUSA_PROVIDER,
     ESTADOS,
@@ -179,9 +177,12 @@ class TestTodosOsParesDeEstados(ComEncomendas):
         # que ele aceita. Medido na segunda corrida da suite.
         extra: dict[str, object] = {}
         if para == "paga":
+            # O `evento_id` tem de ter **recibo de consumo** (KAM-006): desde o
+            # achado 1 da revisao adversarial, um texto inventado e recusado com
+            # `KA006` — e este ficheiro mede o **grafo**, nao aquela barreira.
             extra = {
                 "actor_kind": "sistema",
-                "evento_id": f"evt-{uuid.uuid4().hex[:12]}",
+                "evento_id": self.registar_consumo(self.tenant),
             }
         return self.tentar_transicao(
             self.tenant,

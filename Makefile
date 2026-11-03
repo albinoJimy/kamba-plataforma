@@ -1236,8 +1236,13 @@ ci-8:
 	@# ------------------------------------------- KAM-044: as encomendas
 	@#
 	@# O que esta suite prova, e o que nenhum duplo de teste pode: que o
-	@# *trigger* `BEFORE UPDATE` recusa cento e vinte dos cento e quarenta e
-	@# quatro pares de estados — com o canario que o desliga e exige que a
+	@# *trigger* `BEFORE UPDATE` recusa **78 dos 88** pares que se medem por
+	@# execucao — os outros 56 dos 144 sao os 8 `X -> X`, que nao sao
+	@# transicoes, e os 48 em que um dos quatro estados do KAM-050 entra,
+	@# inalcancaveis por construcao. **A primeira versao deste comentario dizia
+	@# «cento e vinte» e a revisao adversarial contou: eram 67, porque o laco
+	@# nem exercitava o `em_entrega` como origem.** Com o canario que o desliga
+	@# e exige que a
 	@# transicao invalida **passe**, sem o qual o ensaio nao distingue o
 	@# *trigger* de um `CHECK` de dominio; que vinte transicoes concorrentes
 	@# sobre a mesma versao deixam **uma** a escrever e dezanove a reler, com o

@@ -19,39 +19,59 @@
  * de um cliente HTTP que ninguém pode correr era uma regra não medida.
  *
  * `aplicar` escreve o que é **local**: abre a divergência em
- * `order_reconciliation_issues` e, na regra 1, completa o espelho. As
- * correcções que tocam o Registo — a projecção do estado da regra 5, a
- * libertação da reserva da regra 4 — passam pela porta `CommerceRegistry`, e
- * ficam **NÃO VERIFICADAS** enquanto não houver Registo contra o que as correr.
- * Está dito aqui e na verificação do bloco.
+ * `order_reconciliation_issues`. **E hoje é só isso**, em todas as cinco
+ * regras.
  *
- * ## A regra 1 não pode escrever `paga`, e isso é a regra e não um limite
+ * ## Nenhuma regra tem correcção local, e a razão é por regra
  *
- * «Completar» o espelho de uma encomenda que o Registo tem e o espelho não é
- * inserir a linha e levá-la ao estado que o Registo implica. Só que o espelho é
+ * A primeira versão deste ficheiro dizia «e, na regra 1, completa o espelho», e
+ * tinha um `corrigir` que **nunca corria**: a regra 1 empurra sempre
+ * `orderId: null` — é a regra do espelho que **não tem** a linha —, e o
+ * `corrigir` saía antes de chegar à `transition`. Código morto, e três sítios a
+ * afirmar o contrário. Apanhado pela revisão adversarial; o ramo morto saiu.
+ *
+ * Regra a regra, e com o credor de cada correcção:
+ *
+ * ```text
+ * 1 orfao_no_registo      completar o espelho é **criar a encomenda** a partir
+ *                         das linhas do Registo: é a `createOrder` do §6.3, com
+ *                         o recibo de intenção e os preços resolvidos — KAM-046.
+ *                         Inventá-la aqui era escrever um `lines_snapshot` que
+ *                         nenhum cliente confirmou, e o snapshot é imutável a
+ *                         partir daí
+ * 2 espelho_sem_encomenda alerta crítico, e **não** correcção: apagar o espelho
+ *                         porque o Registo não o tem era deixar o Registo
+ *                         decidir o que o §10.1 lhe recusa
+ * 3 divergencia_de_linhas vence o `lines_snapshot`, que já está escrito: a
+ *                         correcção é do lado do Registo
+ * 4 reserva_sem_encomenda libertar ou refazer a reserva é `releaseReservation` /
+ *                         `reserveStock` — KAM-045
+ * 5 estado_divergente     vence `orders_mirror`, que já está escrito: o que se
+ *                         actualiza é o **Registo**
+ * ```
+ *
+ * As quatro correcções que sobram tocam todas o Registo, passam pela porta
+ * `CommerceRegistry` e ficam **NÃO VERIFICADAS** enquanto não houver Medusa em
+ * `infra/compose/` contra o que as correr. O que este ticket entrega da AC-7 é
+ * a **decisão** das cinco regras (medida, função pura), a escrita da
+ * divergência e a consulta da métrica.
+ *
+ * ## E a reconciliação nunca poderia escrever `paga`
+ *
+ * Vale a pena deixar dito, porque é o que alguém tentaria a seguir: o espelho é
  * **a autoridade do ciclo de vida** (§10.1) e `paga` só é alcançável por evento
- * autenticado do PAY (ADR-013, critério 3): um Registo a dizer «esta encomenda
- * está paga» não é um pagamento autenticado — é uma projecção, e a matriz de
- * §10.1 diz que o estado de pagamento é do PAY e que «o COM só aplica».
- *
- * Por isso a reconciliação completa até onde o grafo a deixa com causa
- * `reconciliacao` e, se o Registo reclamar `paga` ou um estado a jusante,
- * **pára e deixa a divergência aberta**. É o *trigger* diferido que o garante —
- * uma tentativa de escrever `paga` com `causa='reconciliacao'` levanta `KA006` —,
- * e o `test_reconciliacao` mede as duas metades.
+ * autenticado do PAY (ADR-013, critério 3). Um Registo a dizer «esta encomenda
+ * está paga» é uma projecção, não um pagamento. O *trigger* diferido garante-o
+ * — uma transição para `paga` com `causa='reconciliacao'` levanta `KA006` —, e o
+ * `test_reconciliacao` mede-o.
  */
 
-import {
-  CAUSA_DA_RECONCILIACAO,
-  type LinhaDaEncomenda,
-  type OrderState,
-} from "./contrato.ts";
+import type { LinhaDaEncomenda, OrderState } from "./contrato.ts";
 import {
   SQL_DIVERGENCIAS_ABERTAS,
   SQL_FECHAR_DIVERGENCIA,
 } from "./consultas.ts";
 import type { Encomendas } from "./transition.ts";
-import { transition } from "./transition.ts";
 
 /** A tabela das divergências. */
 export const TABELA_DAS_DIVERGENCIAS = "order_reconciliation_issues";
@@ -73,7 +93,20 @@ export interface EncomendaNoRegisto {
   /** O estado que o Registo projecta, ou `null` se não projectar nenhum. */
   readonly estado: OrderState | null;
   readonly totalMinor: bigint;
-  readonly linhas: readonly { readonly sku: string; readonly qty: number }[];
+  /**
+   * As linhas **com preço**, e a primeira versão não o tinha.
+   *
+   * Sem o `precoMinor`, duas linhas com os mesmos `sku`/`qty`, preços unitários
+   * diferentes e um total que coincide passavam sem divergência — e a regra 3 é
+   * precisamente a que decide **em dinheiro** a favor do `lines_snapshot`. O
+   * §10.3 diz «divergência de total **ou de linhas**», e o preço é parte da
+   * linha. Apanhado pela revisão adversarial.
+   */
+  readonly linhas: readonly {
+    readonly sku: string;
+    readonly qty: number;
+    readonly precoMinor: bigint;
+  }[];
 }
 
 /** A encomenda como o espelho a tem. */
@@ -109,26 +142,40 @@ export interface Fotografia {
   readonly reservas: readonly ReservaNoRegisto[];
 }
 
-/** O estado em que uma encomenda tem reserva activa (§10.3, regra 4). */
-const COM_RESERVA: OrderState = "aguarda_pagamento";
-
-/** Os estados que já não são alcançáveis por reconciliação. Ver a nota. */
-const ALEM_DA_RECONCILIACAO: readonly OrderState[] = [
-  "paga",
-  "em_entrega",
-  "entrega_falhada",
-  "entregue",
-  "em_disputa",
-  "reembolso_pendente",
-  "reembolsada",
+/**
+ * Os estados em que uma encomenda tem reserva activa (§10.3, regra 4).
+ *
+ * **Dois e não um**, e a primeira versão tinha um — o que punha **toda**
+ * encomenda em `pendente_confirmacao` com reserva viva a produzir uma
+ * `reserva_sem_encomenda`, contra uma métrica que é «divergências abertas > 5
+ * min = 0». A própria revisão `0030` diz quais são, no índice parcial do
+ * varrimento de expiração: `WHERE estado IN ('aguarda_pagamento',
+ * 'pendente_confirmacao')`. E o grafo tem `pendente_confirmacao →
+ * aguarda_pagamento`, isto é, a encomenda vai e volta sem perder a reserva.
+ *
+ * Apanhado pela revisão adversarial, como inconsistência interna ao próprio
+ * diff.
+ */
+const COM_RESERVA: readonly OrderState[] = [
+  "aguarda_pagamento",
+  "pendente_confirmacao",
 ];
 
-/** As linhas de uma encomenda como par ordenado `(sku, qty)`, para comparar. */
+/**
+ * As linhas como `(sku, qty, preço)` ordenado, para comparar.
+ *
+ * **O preço entra na assinatura**, pela razão escrita no `EncomendaNoRegisto`:
+ * sem ele, a regra 3 não via a divergência que é só de dinheiro.
+ */
 function assinaturaDasLinhas(
-  linhas: readonly { readonly sku: string; readonly qty: number }[],
+  linhas: readonly {
+    readonly sku: string;
+    readonly qty: number;
+    readonly precoMinor: bigint;
+  }[],
 ): string {
   return [...linhas]
-    .map((l) => `${l.sku}:${l.qty}`)
+    .map((l) => `${l.sku}:${l.qty}:${l.precoMinor}`)
     .sort()
     .join("|");
 }
@@ -232,7 +279,7 @@ export function reconciliar(foto: Fotografia): readonly Divergencia[] {
   const comReserva = new Set(foto.reservas.map((r) => r.orderId));
   for (const reserva of foto.reservas) {
     const encomenda = porOrderId.get(reserva.orderId);
-    if (encomenda === undefined || encomenda.estado !== COM_RESERVA) {
+    if (encomenda === undefined || !COM_RESERVA.includes(encomenda.estado)) {
       divergencias.push({
         tipo: "reserva_sem_encomenda",
         orderId: encomenda === undefined ? null : encomenda.orderId,
@@ -246,7 +293,7 @@ export function reconciliar(foto: Fotografia): readonly Divergencia[] {
     }
   }
   for (const encomenda of foto.espelho) {
-    if (encomenda.estado === COM_RESERVA && !comReserva.has(encomenda.orderId)) {
+    if (COM_RESERVA.includes(encomenda.estado) && !comReserva.has(encomenda.orderId)) {
       divergencias.push({
         tipo: "reserva_sem_encomenda",
         orderId: encomenda.orderId,
@@ -266,12 +313,6 @@ export interface Aplicacao {
   readonly divergencia: Divergencia;
   /** O id da linha de `order_reconciliation_issues`. */
   readonly issueId: string;
-  /**
-   * `true` quando a correcção local correu; `false` quando ficou só a
-   * divergência aberta — o que é o caso das regras 2, 3, 4 e 5, e da 1 quando o
-   * Registo reclama um estado que a reconciliação não pode escrever.
-   */
-  readonly corrigida: boolean;
 }
 
 /**
@@ -303,48 +344,9 @@ export async function aplicar(
       },
       sufixo: "RETURNING id",
     });
-    const issueId = String(linhas[0]?.["id"]);
-    feitas.push({
-      divergencia,
-      issueId,
-      corrigida: await corrigir(e, divergencia),
-    });
+    feitas.push({ divergencia, issueId: String(linhas[0]?.["id"]) });
   }
   return feitas;
-}
-
-/**
- * A correcção local de uma divergência, quando existe.
- *
- * Só a regra 5 tem correcção local possível hoje, e é a **inversa** do que o
- * nome sugere: «vence `orders_mirror`» quer dizer que é o **Registo** que se
- * actualiza, e isso é do outro lado da porta. O que esta função faz é o caso da
- * regra 1 descrito na nota do módulo.
- */
-async function corrigir(e: Encomendas, divergencia: Divergencia): Promise<boolean> {
-  if (divergencia.tipo !== "orfao_no_registo") return false;
-  const alvo = divergencia.detalhe["estado_no_registo"];
-  if (typeof alvo !== "string") return false;
-  if (ALEM_DA_RECONCILIACAO.includes(alvo as OrderState)) {
-    // O Registo reclama um estado que a reconciliação não pode escrever. A
-    // divergência fica aberta e é a métrica do bloco que a vê.
-    return false;
-  }
-  const orderId = divergencia.orderId;
-  if (orderId === null) {
-    // A linha ainda não existe: quem a cria é a `createOrder` do KAM-046, com
-    // as linhas resolvidas pelo Registo. A reconciliação **não** inventa
-    // linhas de encomenda — inventá-las era escrever um `lines_snapshot` que
-    // nenhum cliente confirmou, e o snapshot é imutável a partir daí.
-    return false;
-  }
-  const r = await transition(e, {
-    orderId,
-    para: alvo as OrderState,
-    expectedVersion: 1,
-    causa: { causa: CAUSA_DA_RECONCILIACAO },
-  });
-  return r.tipo === "ok";
 }
 
 /**

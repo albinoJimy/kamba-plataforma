@@ -162,7 +162,16 @@ export const ACTOR_DO_PAGAMENTO: ActorKind = "sistema";
  */
 export const CHAVE_DO_TECTO_MANUAL = "manual_max_minor";
 
-/** A causa que a reconciliação grava (§10.3, última frase). */
+/**
+ * A causa que a reconciliação grava (§10.3, última frase).
+ *
+ * **Fica declarada e sem chamador neste ticket**, e isso é dito em vez de a
+ * constante sair: o §10.3 manda que «todas as correcções» a gravem, e as
+ * correcções que sobram tocam todas o Registo — passam pela porta e são do
+ * KAM-045 e do KAM-046 (ver o `reconcile.ts`). O que a usa hoje é o
+ * `test_reconciliacao`, que mede a causa na linha de registo e mede que a
+ * reconciliação **não** alcança `paga` com ela.
+ */
 export const CAUSA_DA_RECONCILIACAO = "reconciliacao";
 
 // ------------------------------------------------------- SQLSTATE da revisão

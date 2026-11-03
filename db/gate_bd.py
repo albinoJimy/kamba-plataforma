@@ -256,8 +256,11 @@ SUITES = (
     "tests_pagamentos",
     # KAM-044: as encomendas. O que so aqui se prova, e nenhuma base falsa
     # pode, porque o objecto da prova e o motor: que o *trigger*
-    # `BEFORE UPDATE` recusa **cento e vinte** dos cento e quarenta e quatro
-    # pares de estados (com o canario que o desliga e exige que a transicao
+    # `BEFORE UPDATE` recusa **78 dos 88** pares medidos por execucao — os
+    # outros 56 dos 144 sao os 8 `X -> X` (que nao sao transicoes) e os 48
+    # dos quatro estados do KAM-050, inalcancaveis por construcao; a
+    # primeira versao desta nota dizia «cento e vinte» e a revisao
+    # adversarial contou 67 (com o canario que o desliga e exige que a transicao
     # invalida passe, sem o qual o ensaio nao distingue o *trigger* de um
     # `CHECK` de dominio); que vinte transicoes concorrentes sobre a mesma
     # versao deixam **uma** a escrever e dezanove a reler, com o canario que

@@ -71,7 +71,7 @@ interface Emissao {
  * `Number.MAX_SAFE_INTEGER` são ~90 mil bilhões de kwanzas — mas «é seguro na
  * prática» não é uma propriedade, pelo que se verifica.
  */
-function emInteiroSeguro(valor: bigint, onde: string): number {
+export function emInteiroSeguro(valor: bigint, onde: string): number {
   if (valor > BigInt(Number.MAX_SAFE_INTEGER)) {
     throw new RangeError(
       `${onde} acima de Number.MAX_SAFE_INTEGER (${valor}): o contrato do ` +

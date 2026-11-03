@@ -7,7 +7,7 @@ no processo com a do executavel. Com acentos, as duas divergem na codificacao.
 
 ## O que esta revisao cria, e o que **nao** cria
 
-Cria as quatro tabelas de encomendas de `docs/tecnica/03` §5.4 que faltavam —
+Cria as **tres** tabelas de encomendas de `docs/tecnica/03` §5.4 que faltavam —
 `platform.orders_mirror` (a autoridade do **ciclo de vida**), `order_intents`
 (o recibo de idempotencia do §6.3), `order_state_log` (o registo *append-only*
 das transicoes) —, mais duas que o §5.4 nao tem e que os criterios exigem: o
@@ -132,10 +132,26 @@ dava:
    estado e nao grava o registo **nao confirma**. O criterio 2 pede os dois na
    mesma transaccao; isto e o que o verifica.
 2. **Fecha a quinta via.** Qualquer caminho que escreva `paga` — o modulo, um
-   `UPDATE` a mao de quem tem privilegio, uma migracao futura — tem de deixar a
-   prova do evento autenticado atras de si. O DoD diz «nenhuma via leva a `paga`
-   sem evento ou confirmacao manual auditada», e uma verificacao em TypeScript
-   so cobre a via que passa pelo TypeScript.
+   `UPDATE` a mao de quem tem privilegio, uma migracao futura — tem de deixar
+   atras de si a linha de registo **e** o recibo de consumo do evento que ela
+   cita. O DoD diz «nenhuma via leva a `paga` sem evento ou confirmacao manual
+   auditada», e uma verificacao em TypeScript so cobre a via que passa pelo
+   TypeScript.
+
+   **O que esta barreira prova, exactamente:** que a transicao correu com actor
+   `sistema`, com uma das duas causas autenticadas do §12, e que o `evento_id`
+   que ela cita tem recibo de consumo em `platform.events_consumed` (KAM-006)
+   **neste tenant**. O que ela **nao** prova e que esse evento foi autenticado
+   pelo PAY: quem decide isso e o PAY (§10.1, «PAY decide; COM so aplica»), e a
+   verificacao do `authn_ok` contra `platform.payment_events` exige a FK
+   `payment_charges.order_id -> orders_mirror`, que e do **KAM-055** e nao
+   existe. Ate la, o que o espelho exige e que o evento tenha entrado pela fila
+   e sido consumido.
+
+   A primeira versao desta revisao exigia so que o `evento_id` nao fosse vazio,
+   e a revisao adversarial mostrou o que isso vale: como `kamba_app`, escreveu
+   `paga` com `evento_id = 'inventado-pelo-app'` e com o outbox e o
+   `payment_events` a zero.
 3. **A idempotencia fica numa restricao.** A unicidade
    `(tenant_id, order_id, version)` do registo torna «a mesma transicao gravada
    duas vezes» um `23505` em vez de uma duplicacao silenciosa, que e a linha de
@@ -239,7 +255,7 @@ Tecnicos* do bloco repetem-no. A revisao e aditiva — antes dela nao havia
 encomendas —, mas o passo apaga tabelas que, com linhas dentro, sao o ciclo de
 vida de encomendas reais e o rasto auditado de cada mudanca. **Uma perda dessas
 nao pode ser silenciosa**, e por isso o `downgrade` segue a `0004`: com linhas
-em qualquer das cinco tabelas de tenant, so avanca se
+em qualquer das **quatro** tabelas de tenant (o grafo e referencia, e e a revisao que o semeia), so avanca se
 `KAMBA_DOWNGRADE_0030_COPIA` apontar para um ficheiro novo, onde ficam todas as
 linhas, uma por linha de JSON.
 
@@ -1134,6 +1150,37 @@ def _funcoes() -> None:
                 v_log.causa, v_log.actor_kind, v_log.evento_id
                 USING ERRCODE = '{SQLSTATE_AUTENTICIDADE}';
             END IF;
+            -- **E o evento tem de existir.** As tres verificacoes acima nao
+            -- ligam aquele texto a evento nenhum: a primeira versao desta
+            -- revisao aceitava `evento_id = 'inventado'` com actor `sistema` e
+            -- causa `payment.confirmed`, e a revisao adversarial mediu-o — o
+            -- `paga` escrito, o outbox a zero e o `payment_events` a zero.
+            --
+            -- A ancora e o recibo de consumo do KAM-006
+            -- (`platform.events_consumed`, revisao `0005`): o consumidor
+            -- idempotente registra ali o `evento.id` **antes** de agir, pelo que
+            -- exigir a linha e exigir que a transicao corra dentro do consumo de
+            -- um evento que entrou de facto pela fila. Nao e o
+            -- `payment_events` da `0029` porque o `payment_charges.order_id`
+            -- **nao tem FK** — e do KAM-055 — e uma barreira que assentasse numa
+            -- coluna que ninguem impoe nao e uma barreira.
+            --
+            -- Compara-se em **texto** e nao com um `::uuid`: um `evento_id` que
+            -- nao seja um UUID levantaria `22P02` em vez da recusa com o codigo
+            -- desta revisao, e o que se quer dizer a quem chama e «esse evento
+            -- nao existe», nao «esse texto nao e um UUID».
+            IF NOT EXISTS (
+                 SELECT 1 FROM platform.events_consumed c
+                  WHERE c.tenant_id = NEW.tenant_id
+                    AND c.event_id::text = btrim(v_log.evento_id)) THEN
+              RAISE EXCEPTION
+                'orders_mirror: paga cita o evento % e nao ha recibo de consumo '
+                'dele neste tenant (events_consumed, KAM-006); o consumidor '
+                'registra o evento antes de transitar (criterio 3 do KAM-044, '
+                'ADR-013)',
+                v_log.evento_id
+                USING ERRCODE = '{SQLSTATE_AUTENTICIDADE}';
+            END IF;
           END IF;
           RETURN NULL;
         END $$
@@ -1184,7 +1231,9 @@ def _triggers() -> None:
     #
     # A `payment_events` da `0029` tem a mesma lacuna (o `FOR EACH STATEMENT`
     # dela e so `BEFORE TRUNCATE`). Nao se corrige aqui: e outra revisao e outro
-    # ticket, e fica registado no PR deste.
+    # ticket. Fica na **divida documental 175** e nao «no PR deste», que e o que
+    # esta nota dizia: o corpo de um PR nao e versionado, pelo que registar ali e
+    # nao registar. Apanhado pela revisao adversarial.
     op.execute(
         f"""
         CREATE TRIGGER order_state_log_sem_mutacao
@@ -1312,9 +1361,24 @@ def _contar() -> dict[str, int]:
 
 
 def _celula(valor):
-    """Um valor de coluna em JSON: os `bytea` em base64, o resto como texto."""
+    """Um valor de coluna em JSON: os `bytea` em base64, o `jsonb` como JSON.
+
+    **O `jsonb` nao passa por `str()`, e a razao foi medida pela revisao
+    adversarial.** O `pg8000` descodifica `jsonb` para objecto de Python, pelo
+    que um `str()` dava a representacao de Python — `[{'qty': 2, ...}]`, com
+    apostrofos — e a copia **deixava de ser JSON valido**. O `lines_snapshot` e
+    a unica prova das linhas de uma encomenda real; uma copia que nao se volta a
+    carregar nao e uma copia.
+
+    O `_celula` da `0004` tem a mesma forma e a mesma classe de defeito; ali o
+    que se copia nao tem `jsonb` de negocio (o `envelope` sai pelo
+    `json.dumps` de fora), e aqui tem duas colunas — o `lines_snapshot` e o
+    `detalhe` da divergencia.
+    """
     if isinstance(valor, (bytes, bytearray, memoryview)):
         return {"b64": base64.b64encode(bytes(valor)).decode("ascii")}
+    if isinstance(valor, (dict, list)):
+        return valor
     return None if valor is None else str(valor)
 
 

@@ -763,8 +763,10 @@ ESPERADO_POR_TABELA.update(
         # nao e falta: o `UPDATE` da `orders_mirror`, do `order_intents` e do
         # `order_reconciliation_issues` e **por coluna** (ver a revisao `0030`),
         # e o `has_table_privilege` so ve concessoes de tabela — quem as prende
-        # uma a uma e o `test_o_update_e_por_coluna` de
-        # `db/tests_encomendas/test_privilegios_de_encomenda.py`.
+        # uma a uma e o `test_o_update_e_por_coluna` da classe
+        # `TestPrivilegiosPorColuna` de `db/tests_encomendas/test_isolamento.py`
+        # — **o caminho que esta nota dava nao existia**, e foi a revisao
+        # adversarial que o mediu.
         "orders_mirror": {
             "kamba_app": {"SELECT", "INSERT"},
             "kamba_batch": {"SELECT", "INSERT", "UPDATE", "DELETE"},

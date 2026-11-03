@@ -30,6 +30,8 @@ import { validarPayload } from "@kamba/core-ts/eventos";
 import {
   EMISSOES,
   SQL_TRANSITAR,
+  TABELA_DAS_DIVERGENCIAS,
+  aplicar,
   pagamentoAutenticado,
   payloadDeCancelada,
   payloadDeCriada,
@@ -459,7 +461,9 @@ function fotografiaConsistente(): Fotografia {
         registoId: "ord_1",
         estado: "aguarda_pagamento",
         totalMinor: 1_250_000n,
-        linhas: [{ sku: "arroz-5kg", qty: 1 }],
+        // **Com preço**: sem ele, a regra 3 não via a divergência que é só de
+        // dinheiro. Ver a nota do `EncomendaNoRegisto`.
+        linhas: [{ sku: "arroz-5kg", qty: 1, precoMinor: 1_250_000n }],
       },
     ],
     espelho: [
@@ -513,12 +517,58 @@ test("regra 3 também morde quando só as linhas divergem", () => {
   const base = fotografiaConsistente();
   const foto: Fotografia = {
     ...base,
-    registo: [{ ...base.registo[0]!, linhas: [{ sku: "arroz-5kg", qty: 7 }] }],
+    registo: [
+      {
+        ...base.registo[0]!,
+        linhas: [{ sku: "arroz-5kg", qty: 7, precoMinor: 1_250_000n }],
+      },
+    ],
   };
   const tipos = reconciliar(foto).map((d) => d.tipo);
   assert.ok(
     tipos.includes("divergencia_de_linhas"),
     "o total igual com as linhas diferentes é o caso que uma comparação só de totais deixa passar",
+  );
+});
+
+test("regra 3 morde quando só o preço difere e o total coincide", () => {
+  // **O achado 9 da revisão adversarial.** Duas linhas com o mesmo `sku` e a
+  // mesma `qty`, preços unitários diferentes e um total que coincide passavam
+  // sem divergência — e a regra 3 é a que decide **em dinheiro** a favor do
+  // `lines_snapshot`.
+  const base = fotografiaConsistente();
+  const foto: Fotografia = {
+    ...base,
+    registo: [
+      {
+        ...base.registo[0]!,
+        linhas: [{ sku: "arroz-5kg", qty: 1, precoMinor: 999_999n }],
+      },
+    ],
+  };
+  assert.equal(
+    reconciliar(foto).some((d) => d.tipo === "divergencia_de_linhas"),
+    true,
+    "o total é o mesmo e o preço da linha não: é divergência de linhas",
+  );
+});
+
+test("regra 4 não dá falso positivo em `pendente_confirmacao`", () => {
+  // **O achado 8 da revisão adversarial**, e era uma inconsistência com a
+  // própria revisão `0030`: o índice parcial da expiração diz que **dois**
+  // estados têm reserva viva, e o grafo tem `pendente_confirmacao →
+  // aguarda_pagamento`. Com um estado só, toda encomenda em
+  // `pendente_confirmacao` com reserva produzia uma divergência — contra uma
+  // métrica que é «abertas > 5 min = 0».
+  const base = fotografiaConsistente();
+  const foto: Fotografia = {
+    ...base,
+    registo: [{ ...base.registo[0]!, estado: "pendente_confirmacao" }],
+    espelho: [{ ...base.espelho[0]!, estado: "pendente_confirmacao" }],
+  };
+  assert.deepEqual(
+    reconciliar(foto).filter((d) => d.tipo === "reserva_sem_encomenda"),
+    [],
   );
 });
 
@@ -565,6 +615,47 @@ test("o Registo sem estado projectado não dá divergência de estado", () => {
     false,
     "«o Registo não projecta nada» não é «o Registo discorda»",
   );
+});
+
+test("`aplicar` abre uma linha por divergência, e não corrige nada", async () => {
+  // **O achado 2 da revisão adversarial**: `grep aplicar` nos ensaios devolvia
+  // zero, pelo que o ramo morto do `corrigir` não era visível de lado nenhum.
+  // O que `aplicar` faz hoje é abrir a divergência — e nenhuma das cinco regras
+  // tem correcção local, com o credor de cada uma escrito no módulo.
+  const base = fotografiaConsistente();
+  const foto: Fotografia = { ...base, espelho: [], reservas: [] };
+  const divergencias = reconciliar(foto);
+  assert.equal(divergencias.length, 1);
+
+  const inseridos: Record<string, unknown>[] = [];
+  const e: Encomendas = {
+    ctx: { tenantId: TENANT, actor: { kind: "sistema", id: "s" }, traceId: "t" },
+    repo: {
+      tenantId: TENANT,
+      async noTenant() {
+        throw new Error("o `aplicar` nao le nem actualiza nada");
+      },
+      async inserirNoTenant(insercao) {
+        inseridos.push({ tabela: insercao.tabela, ...insercao.valores });
+        return [{ id: "issue-1" }];
+      },
+    },
+    emitir: {
+      async query() {
+        throw new Error("o `aplicar` nao chama funcao nenhuma");
+      },
+    },
+  };
+
+  const feitas = await aplicar(e, divergencias);
+  assert.deepEqual(
+    feitas.map((f) => f.issueId),
+    ["issue-1"],
+  );
+  assert.equal(inseridos.length, 1);
+  assert.equal(inseridos[0]?.["tabela"], TABELA_DAS_DIVERGENCIAS);
+  assert.equal(inseridos[0]?.["tipo"], "orfao_no_registo");
+  assert.equal(inseridos[0]?.["order_id"], null);
 });
 
 test("nenhum `detalhe` de divergência leva dado pessoal", () => {

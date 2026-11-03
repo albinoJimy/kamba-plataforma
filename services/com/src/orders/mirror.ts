@@ -32,6 +32,7 @@
 
 import {
   EMISSOES,
+  emInteiroSeguro,
   emitir,
   payloadDeCriada,
 } from "./eventos.ts";
@@ -71,12 +72,25 @@ export async function registar(
       confirmacao_dono: espelho.confirmacaoDono ?? "nao_aplicavel",
       total_minor: espelho.totalMinor.toString(),
       currency: espelho.currency,
+      // **O `preco_minor` vai como número e não como cadeia**, e a primeira
+      // versão escrevia `.toString()`. A forma declarada é inteira em três
+      // sítios — o comentário da coluna na revisão `0030`, o §3.43 do
+      // dicionário e a própria fixture da suite —, e o `lines_snapshot` é
+      // **imutável** desde que a encomenda sai de `criada`: o erro seria
+      // permanente e caía no KAM-046 e no KAM-050. Apanhado pela revisão
+      // adversarial.
+      //
+      // A conversão é a mesma do payload (`emInteiroSeguro`): o `JSON.stringify`
+      // lança sobre um `bigint`, e acima do inteiro seguro não se adivinha.
       lines_snapshot: JSON.stringify(
         espelho.linhas.map((linha) => ({
           sku: linha.sku,
           nome: linha.nome,
           qty: linha.qty,
-          preco_minor: linha.precoMinor.toString(),
+          preco_minor: emInteiroSeguro(
+            linha.precoMinor,
+            `preco_minor de ${linha.sku}`,
+          ),
           preco_tipo: linha.precoTipo,
           origem_preco: linha.origemPreco,
         })),

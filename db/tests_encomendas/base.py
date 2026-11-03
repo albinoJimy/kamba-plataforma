@@ -166,6 +166,7 @@ class ComEncomendas(ComBase):
                     "order_reconciliation_issues",
                     "order_intents",
                     "events_outbox",
+                    "events_consumed",
                     # O entitlement do tecto manual, que o `criar_tenant`
                     # semeia: a FK dele recusa apagar o tenant enquanto ele
                     # existir, e foi isso que a terceira corrida da suite
@@ -324,7 +325,12 @@ class ComEncomendas(ComBase):
         if actor_kind is None:
             actor_kind = "sistema" if para == "paga" else "ops"
         if evento_id is None and para == "paga":
-            evento_id = f"evt-{uuid.uuid4().hex[:12]}"
+            # **Um evento com recibo de consumo**, e nao uma cadeia qualquer: o
+            # *trigger* diferido exige que o `evento_id` exista em
+            # `platform.events_consumed` (KAM-006). A primeira versao desta
+            # semente gerava `evt-<hex>` e o ensaio passava — foi o que a
+            # revisao adversarial mediu, e o que o achado 1 fechou.
+            evento_id = self.registar_consumo(tenant)
         alvo.execute(
             "UPDATE platform.orders_mirror "
             "   SET estado = %s, version = version + 1, atualizado_at = now(), "
@@ -407,6 +413,23 @@ class ComEncomendas(ComBase):
             return sqlstate(erro)
 
     # ---------------------------------------------------------------- leituras
+
+    def registar_consumo(self, tenant: str, consumer: str = "com") -> str:
+        """Um recibo de consumo de evento, e devolve o `event_id`.
+
+        E o que o consumidor idempotente do KAM-006 escreve **antes** de agir
+        sobre o evento: o `transition` para `paga` exige a linha, porque sem ela
+        o `evento_id` do registo era texto que ninguem verifica.
+        """
+        evento = str(uuid.uuid4())
+        self.semente.execute(
+            "INSERT INTO platform.events_consumed "
+            "       (consumer, event_id, tenant_id, agregado_tipo, agregado_id, "
+            "        agregado_seq) "
+            "VALUES (%s, %s, %s, 'order', %s, 1)",
+            (consumer, evento, tenant, evento),
+        )
+        return evento
 
     def estado_de(self, encomenda: str) -> tuple[str, int]:
         self.semente.execute(
