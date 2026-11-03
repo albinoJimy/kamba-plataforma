@@ -48,7 +48,7 @@ Cada gate é um alvo `make ci-<n>`. O *workflow* só os orquestra. Três razões
 | 3 | Referências cruzadas (`KAM`, `ADR`, `D#`) e caminhos dentro dos blocos de *handoff* | `make ci-3` | Plataforma | **proposta** |
 | 3b | Nomes canónicos | `make ci-3b` | Arquitecto de Plataforma | KAM-111 (activo desde o KAM-111) |
 | 3c | Coerência do backlog: o §4 do `specs/INDICE.md`, o bloco de cada ticket e a tabela-resumo do §3 de cada epic | `make ci-3c` | Arquitecto de Plataforma | KAM-138 (activo desde o KAM-138) |
-| 4 | Unit e cobertura | `make ci-4` | Plataforma | **proposta** |
+| 4 | Unit e cobertura — e, desde o KAM-173, as suites Python outra vez na ordem inversa | `make ci-4` | Plataforma | **proposta** |
 | 5 | Integração | `make ci-5` *(reservado)* | — | **lacuna**: nenhum ticket o reclama |
 | 6 | Isolamento de tenant (camada SQL: RLS, X-03, X-04, X-05) e *logs* sem identificadores (X-11) | `make ci-6` | Segurança | `docs/tecnica/09` §7 (activo desde o KAM-004; o X-11 entrou com o KAM-068; a suite ponta a ponta é KAM-066) |
 | 7 | Contratos | `make ci-7` | Plataforma | KAM-007 (eventos); KAM-024 (webhooks da Meta, por fazer) |
@@ -496,6 +496,40 @@ Mede com `node --test --experimental-test-coverage` (sem dependência: o Node 24
 já traz) e com `coverage.py`, ambos em **LCOV** — o único formato que as duas
 ferramentas emitem sem tradução nossa. Depois aplica
 [`ci/thresholds.yaml`](../ci/thresholds.yaml).
+
+#### E corre as suites Python outra vez, na ordem inversa (KAM-173)
+
+O `ci-4` depende de `make ordem-dos-ensaios`, que corre `libs/py-core/tests` e
+`services/agr/tests` **outra vez**, com a lista de testes invertida, e exige
+verde. É um passo e não um *job*: o `.github/workflows/ci.yaml` não é tocado,
+pelo que nenhum contexto novo entra no *ruleset* de `main` — a forma com que o
+`log-lint` entrou no *gate* 2 e o X-11 no 6.
+
+Três propriedades, e as três são a razão de o passo existir em vez de ser uma
+nota:
+
+- **Cada ordem no seu processo.** Duas ordens no mesmo processo mediam a
+  passagem anterior — o `sys.modules` cheio, os registos a nível de módulo
+  sujos — e não a ordem.
+- **A ordem é determinística.** Um embaralhamento por semente de relógio
+  apanhava mais acoplamentos e tornava este *gate* intermitente, o que ensina a
+  reexecutar em vez de corrigir.
+- **Tem canário com duas metades**, uma *fixture* que **tem** de ficar vermelha
+  na ordem inversa e uma que **tem** de ficar verde nas duas. Com só a primeira,
+  um verificador que declarasse tudo dependente da ordem passava o canário e
+  nunca deixava fundir nada.
+
+> **Uma ordem a mais não prova independência de ordem.** Prova que esta ordem
+> também passa. Provar independência era correr cada teste sozinho — 551
+> processos do lado `libs/py-core` e 1 361 do `services/agr` — e isso é
+> **isolamento**, não ordem. **E as suites de `tools/*/tests` ficam de fora**,
+> por custo medido: as **18** que existiam antes deste alvo levam **1 911 s**
+> numa passagem, e **1 422 desses são da `supply_chain`** — três quartos do
+> total numa suite só. A execução a mais não duplicava o lado Python deste
+> *gate*: multiplicava-o. Mediram-se mesmo assim, para a dívida ser informada e
+> não cega — **as 18** sem nenhuma mudança de resultado, a `supply_chain`
+> incluída (262 testes, 2 × 1 422 s de relógio). O prazo de revisão está no
+> `Makefile`, no comentário `shortcut:` do alvo.
 
 #### Os dois lados passam a medir o mesmo universo (KAM-132)
 
@@ -2557,3 +2591,4 @@ sobrevivem ao PR.
 | 1.62 | Novembro 2026 | **KAM-170: o *gate* 3 passa a resolver as citações de secção (`§N`).** A descrição do §3 ganha o passo e, com ele, **o que o passo não apanha** — porque prometer cobertura a mais é pior do que não ter portão. A origem da lição é o achado **C-03** da `analises/ANALISE-44-KAM-169-origem-do-golden-set.md`, que fica como registo datado e não se reescreve. | Equipa KAMBÁ |
 | 1.63 | Novembro 2026 | **KAM-164: o §7 ganha a lacuna 30 — uma verificação que existe e não bloqueia.** A verificação do título do PR (`../.github/workflows/titulo-do-pr.yaml`, contexto `titulo do PR — forma convencional`) corre em `pull_request` com `types: [opened, edited, reopened, synchronize]` e tem canário próprio, mas **não** entra nos `required_status_checks` nem no espelho: pelas razões das lacunas 17 e 28, escrevê-la só no espelho tornava-o falso e aplicá-la no GitHub precisa de `administration: write`. Também não bloqueia pelo *job* de resumo, ao contrário dos *gates* 3b, 3c, 6, 7 e 8 — vive em *workflow* próprio porque precisa do `edited`, e pô-lo no `ci.yaml` faria os doze *jobs* bloqueantes correrem a cada emenda de título. **Não é *gate* e não entra no §2:** a numeração do §2 é a do `../specs/01_Engineering_Standards_e_Handoff.md` §4, e esta verificação não tem número lá; o `esperados` do resumo também não muda. | Equipa KAMBÁ |
 | 1.64 | Novembro 2026 | **KAM-002: a chave do cache do `.venv` passa a levar a versão de patch do interpretador, e o escape ganha portão.** A chave de [`../.github/actions/preparar/action.yaml`](../.github/actions/preparar/action.yaml) era `venv-<os>-<hash dos requirements>` e não dizia nada sobre o Python, enquanto o `python-version: "3.12"` flutua no patch de propósito. Um `.venv` leva o `bin/python3` como *symlink* para `/opt/hostedtoolcache/Python/<versão>/x64`, pelo que uma entrada construída com um patch fica pendurada em qualquer *runner* que sirva outro — e **não se cura**, porque o `actions/cache` só escreve quando há *miss*. **Medido a 2026-11-03, na corrida `41636240093`:** os sete *jobs* do `ci.yaml` que usam a acção apanharam a rolagem da imagem a meio — os *gates* 1, 4, 6, 7, 8 e 11 em CPython **3.12.15** passaram e o *gate* 2, em **3.12.16**, falhou com `[Errno 2] ... '.venv/bin/python3'` sobre um cache restaurado a 100%. **A acção tem oito consumidores e não sete** — o oitavo é o `fatias` do `mutacoes.yaml`, que é um bloco e uma matriz de seis —, pelo que são **13 *jobs*** a partilhar a entrada; a primeira versão desta linha dizia «os sete», e foi a revisão adversarial que o apanhou. Completada a rolagem, a entrada de 25 de Outubro partiria os treze em todos os PRs e na `main`; e **durante a rolagem** apagar a entrada não corrigia nada, porque enquanto há dois patches em serviço nenhuma entrada única serve os dois lados (completada a rolagem já bastaria, e a primeira versão afirmava-o sem esse âmbito). O portão é o [`../tools/lint_arch/tests/test_ci_preparar.py`](../tools/lint_arch/tests/test_ci_preparar.py), **seis** ensaios: a chave na forma inteira, com os ficheiros do `hashFiles` lidos dos pré-requisitos do `$(VENV)/.stamp` do `Makefile` em vez de escritos no ensaio; o `id` citado é mesmo o do passo do `setup-python` — uma expressão que não resolve rende **cadeia vazia** e degradaria a chave em silêncio; **a ausência de `restore-keys`**, que sustenta tudo o resto e cuja reintrodução passava 4/4 verde na primeira versão, com a linha pronta a copiar do `cache do pnpm` três linhas acima; a acção é o único sítio que define este cache, varrendo `*.yaml`, `*.yml` e outras acções compostas; e os consumidores contam ***jobs*** e não blocos de YAML, que era a mesma falha de denominador dentro do portão que a devia impedir. Verificado nos dois sentidos: 6/6 verdes com a correcção, e **oito variantes de regressão todas vermelhas** — incluindo as quatro que a primeira versão deixava passar. | Equipa KAMBÁ |
+| 1.65 | Novembro 2026 | **KAM-173: o *gate* 4 ganha um passo e nao um *job*.** O `ci-4` passa a depender de `ordem-dos-ensaios`, que corre `libs/py-core/tests` e `services/agr/tests` outra vez na ordem inversa e exige verde — cada ordem no seu processo, porque duas no mesmo mediam a passagem anterior e nao a ordem. O `.github/workflows/ci.yaml` **nao** e tocado, pelo que nenhum contexto novo entra no *ruleset* de `main`. Medido antes: **um** teste de `libs/py-core` mudava de resultado com a ordem invertida (e **zero** em `services/agr`), e o escape que o motiva esta no KAM-163, onde o ensaio da correccao passava por acidente da ordem alfabetica das classes. Com canario de **duas** metades, uma a morder e uma a distinguir. **As suites de `tools/` ficam de fora**, com o custo medido — as **18** de antes deste alvo levam **1 911 s** numa passagem, **1 422** deles da `supply_chain` so — e com a medicao feita de qualquer modo: **as 18** sem mudanca de resultado, a `supply_chain` incluida. | Equipa KAMBÁ |
