@@ -17,6 +17,7 @@ import re
 import threading
 import unittest
 import uuid
+import warnings
 import weakref
 from pathlib import Path
 
@@ -264,10 +265,12 @@ class TestLigacaoEmUso(unittest.TestCase):
                     pass
         with tx(conexao, self.OUTRO):
             pass
-        # `len`, e nao `== set()`: desde o KAM-163 o registo e uma
-        # `weakref.WeakSet`, que nao se compara por igualdade com um `set`. O
-        # que se afirma e o mesmo — o registo ficou vazio.
-        self.assertEqual(len(tenant_guard._EM_USO), 0)
+        # `set(...)` a volta: desde o KAM-163 o registo e uma `weakref.WeakSet`,
+        # que nao se compara por igualdade com um `set` — intacta, a linha
+        # falhava por artefacto de comparacao de tipos e nao por comportamento
+        # da guarda. A afirmacao e a mesma, e assim a falha ainda diz **qual** a
+        # ligacao que ficou no registo em vez de «1 != 0».
+        self.assertEqual(set(tenant_guard._EM_USO), set())
 
     def test_ligacoes_diferentes_nao_se_bloqueiam(self) -> None:
         a, b = _Conexao(), _Conexao()
@@ -475,25 +478,37 @@ class TestChaveDoRegisto(unittest.TestCase):
         gc.collect()
         return endereco
 
-    def _ligacao_no_endereco(self, endereco: int) -> _Conexao:
-        """Uma ligacao **nova** no endereco que vagou.
+    def _ligacao_que_herdou_um_endereco_registado(self) -> _Conexao:
+        """Uma ligacao nova no endereco de uma que ficou registada e morreu.
 
-        O CPython devolve o bloco libertado a proxima instancia do mesmo
-        tamanho; a candidata que nao acerte larga-se, para nao ficar com ele.
+        **Repete-se o ciclo inteiro, e nao a alocacao da candidata.** O
+        `obmalloc` devolve o bloco libertado a cabeca da *pool* (LIFO): se a
+        candidata nao acertar, larga-la e alocar outra devolve **o mesmo**
+        endereco, pelo que cem tentativas sobre a mesma perda valem uma.
+        Medido: com a *pool* agitada por outra bateria antes desta — basta o
+        `unittest` carregar a `TestLigacaoEmUso` primeiro —, as cem tentativas
+        davam sete enderecos distintos e o ensaio ficava vermelho **10 vezes em
+        10**. Apanhado pela revisao adversarial deste ticket. Perder uma ligacao
+        nova a cada volta e o que faz de uma tentativa uma tentativa nova.
+
+        O `clear` depois de um desacerto e o que mantem a invariante do
+        `_registar_e_perder_a_ligacao` (uma entrada, nao duas) na volta
+        seguinte.
         """
-        for _ in range(100):
+        for _ in range(20):
+            endereco = self._registar_e_perder_a_ligacao()
             candidata = _Conexao()
             if id(candidata) == endereco:
                 return candidata
             del candidata
+            tenant_guard._EM_USO.clear()
         self.fail(
-            "o interpretador nao reutilizou o endereco em 100 tentativas: este "
+            "o interpretador nao reutilizou o endereco em 20 ciclos: este "
             "ensaio nao mediu nada, e um verde dele nao prova a correccao"
         )
 
     def test_uma_ligacao_livre_nao_e_recusada_por_reutilizacao_de_endereco(self) -> None:
-        endereco = self._registar_e_perder_a_ligacao()
-        nova = self._ligacao_no_endereco(endereco)
+        nova = self._ligacao_que_herdou_um_endereco_registado()
         # A ligacao e outra: nunca esteve dentro de transaccao nenhuma. So o
         # endereco e o mesmo — e o endereco nao e a identidade.
         with tx(nova, TENANT):
@@ -573,7 +588,14 @@ class TestSemanticaDaChave(unittest.TestCase):
                 if any(p in {".venv", "__pycache__", "node_modules"} for p in caminho.parts):
                     continue
                 try:
-                    arvore = ast.parse(caminho.read_text(encoding="utf-8"))
+                    # `simplefilter` porque o `ast.parse` de ficheiros alheios
+                    # imprime os `SyntaxWarning` deles (duas sequencias de
+                    # escape invalidas em `db/tests/test_catalogo.py`, antigas),
+                    # e um varrimento novo nao tem de poluir o gate com avisos
+                    # que nao sao do que ele mede.
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", SyntaxWarning)
+                        arvore = ast.parse(caminho.read_text(encoding="utf-8"))
                 except SyntaxError:
                     continue
                 for no in ast.walk(arvore):
@@ -622,6 +644,23 @@ class TestSemanticaDaChave(unittest.TestCase):
             "na `weakref.WeakSet` do `_EM_USO` duas ligacoes distintas que se "
             "digam iguais colidem, e a guarda recusa uma ligacao livre",
         )
+
+    def test_o_controlador_real_esta_fixado_nas_duas_listas(self) -> None:
+        """Sem `import`, logo sem salto: o ensaio a seguir salta, este nao.
+
+        «Num gate, saltar e falhar» — a regra esta escrita no
+        `db/tests/test_mutacoes.py`. O ensaio que mede a semantica da `pg8000`
+        precisa dela instalada e salta num Python pelado; este prende, por
+        texto, que a biblioteca medida e a que o repositorio fixa, e corre
+        sempre. A revisao adversarial deste ticket pediu-o.
+        """
+        for lista in (
+            RAIZ / "db" / "requirements" / "migrations.txt",
+            RAIZ / "services" / "agr" / "requirements" / "runtime.txt",
+        ):
+            with self.subTest(lista=lista.name):
+                self.assertTrue(lista.is_file(), lista)
+                self.assertIn("pg8000==1.31.5", lista.read_text(encoding="utf-8"))
 
     def test_o_controlador_real_nao_redefine_a_igualdade(self) -> None:
         """A `pg8000` do `db/ligacao.py` — a unica ligacao real deste repositorio.
@@ -710,7 +749,11 @@ class TestParidadeDoTypeScript(unittest.TestCase):
 
     def test_nenhum_dos_lados_indexa_por_identidade_numerica(self) -> None:
         """A divergencia que este ticket fechou, e o caminho de volta a ela."""
-        for proibido in ("id(conexao)", "set[int]", "dict[int", "WeakValueDictionary"):
+        # `id(` e nao `id(conexao)`: a revisao adversarial deste ticket mostrou
+        # que um segundo registo numerico — `chave = id(alvo)`, com toda a
+        # fachada da `WeakSet` intacta a seu lado — passava os seis ensaios
+        # desta classe. O nome da variavel nao e a propriedade.
+        for proibido in ("id(", "set[int]", "dict[int", "WeakValueDictionary"):
             with self.subTest(lado="python", proibido=proibido):
                 self.assertNotIn(proibido, self.py)
         for proibido in ("WeakSet<number>", "Set<number>", "Map<number"):

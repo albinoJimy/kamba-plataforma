@@ -88,6 +88,19 @@ GUARD_PY = "libs/py-core/src/kamba_core/tenant_guard/__init__.py"
 #: ligacao e aberta para a provar —, e a suite de isolamento (gate 6) nao a ve:
 #: com a chave de volta ao `id(conexao)` o comportamento contra um PostgreSQL
 #: real e o mesmo. Quem mede e o ensaio de reutilizacao de endereco.
+#:
+#: shortcut: esta suite cai no caminho de copia **completo** do `_copiar` —
+#: `db/`, `services/agr`, `packages/`, `canon/`, `registry/`, `contratos/` — e
+#: precisa de `libs/py-core`, de `packages/core-ts/src/tenant_guard/index.ts`
+#: (a paridade) e das duas listas de `requirements` (a `pg8000`). As suites de
+#: `tools/` tem receita propria pela razao escrita no `_copiar` — «cada mutacao
+#: pagava megabytes de copia para nada» —, e esta e uma excepcao declarada a
+#: essa regra. Limite: vale enquanto for **uma** mutacao. Reve-se quando a
+#: `pycore_unit` passar de tres mutacoes, ou quando alguem acrescentar uma
+#: bateria ao `MODULOS_DO_PYCORE_UNIT` — que e tambem a altura de lhe dar a
+#: guarda que o `test_cada_suite_de_tools_corre_verde_so_com_o_que_a_receita_copia`
+#: da as de `tools/`, e que esta ainda nao tem. Apanhado pela revisao
+#: adversarial do KAM-163.
 PYCORE_UNIT = "pycore_unit"
 CATALOGO = "db/tests_isolamento/catalogo.py"
 ISOLAMENTO = "tests_isolamento"
