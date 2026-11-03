@@ -49,13 +49,28 @@ runs:
         # na rolagem e **nao se cura**: o `actions/cache` so escreve quando ha
         # *miss*, e com *hit* restaura o veneno execucao apos execucao.
         #
-        # Medido a 2026-11-03, na corrida 41636240093: os sete jobs que usam
-        # esta accao apanharam a rolagem a meio — seis em CPython 3.12.15
-        # passaram e o unico em 3.12.16 falhou com
+        # Medido a 2026-11-03, na corrida 41636240093: os sete jobs do `ci.yaml`
+        # que usam esta accao apanharam a rolagem a meio — seis em CPython
+        # 3.12.15 passaram e o unico em 3.12.16 falhou com
         # `[Errno 2] ... '.venv/bin/python3'`, sobre um cache restaurado a 100%.
-        # Apagar a entrada nao corrigia nada: durante a rolagem **nenhuma**
-        # entrada unica serve os dois lados, so muda quem fica partido.
-        key: venv-${{ runner.os }}-py${{ steps.python.outputs.python-version }}-${{ hashFiles('tools/requirements/tools.txt', 'services/agr/requirements/runtime.txt') }}
+        # (A accao tem um oitavo consumidor, o `fatias` do `mutacoes.yaml`, que
+        # e uma matriz de seis: 13 jobs ao todo partilham esta entrada.)
+        # Apagar a entrada nao corrigia nada **durante a rolagem**: enquanto ha
+        # dois patches em servico, nenhuma entrada unica serve os dois lados.
+        #
+        # **E NAO SE PODE POR `restore-keys` AQUI.** O cache do `pnpm`, logo
+        # acima, tem um — e copiar essa linha para ca desfaz tudo isto: a
+        # correspondencia por prefixo voltaria a restaurar uma entrada
+        # construida noutro patch, que e exactamente o defeito. A ausencia
+        # sustenta a correccao, e por isso tem portao proprio no
+        # `tools/lint_arch/tests/test_ci_preparar.py`. Achado da revisao
+        # adversarial, que a reintroduziu e passou 4/4 antes de haver portao.
+        #
+        # Os tres ficheiros do `hashFiles` sao os tres pre-requisitos da regra
+        # `$(VENV)/.stamp` do `Makefile`, e o portao le-os de la: uma chave que
+        # diz indexar «os requirements» e indexa dois de tres e uma chave que
+        # mente.
+        key: venv-${{ runner.os }}-py${{ steps.python.outputs.python-version }}-${{ hashFiles('services/agr/requirements/runtime.txt', 'tools/requirements/tools.txt', 'db/requirements/migrations.txt') }}
 
     - name: bootstrap
       shell: bash

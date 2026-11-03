@@ -1,10 +1,11 @@
-"""A chave do cache do `.venv` leva a versao de patch do interpretador.
+"""A chave do cache do `.venv` distingue a versao de patch do interpretador.
 
 Isto existe pela razao de sempre neste repositorio: **nao ha *lint* de
 *workflows*** (`docs/ci.md` §7, lacuna 15), e a accao
-`.github/actions/preparar/action.yaml` e o arranque de **sete** *jobs* — os
-*gates* 1, 2, 4, 6, 7, 8 e 11 — mais as seis fatias da prova nocturna. Uma
-alteracao de uma linha ali apaga o arranque de todos eles e nada o acusa.
+`.github/actions/preparar/action.yaml` e o arranque de **treze** *jobs* — os
+sete *gates* do `ci.yaml` mais as seis fatias do `mutacoes.yaml`, que sao um
+bloco so e uma matriz de seis. Uma alteracao de uma linha ali apaga o arranque
+de todos eles e nada o acusa.
 
 **O escape que o paga, medido a 2026-11-03 na corrida `41636240093`.** A chave
 era `venv-<os>-<hash dos requirements>` e nao dizia nada sobre o interpretador,
@@ -12,23 +13,35 @@ enquanto o `python-version: "3.12"` flutua no patch de proposito. Um `.venv`
 leva o `bin/python3` como symlink para `/opt/hostedtoolcache/Python/<versao>/x64`:
 quando a imagem dos runners rolou de `3.12.15` para `3.12.16`, a entrada de 25 de
 Outubro passou a ser um symlink pendurado em qualquer runner ja rolado. Nessa
-corrida os sete *jobs* apanharam a rolagem a meio — **seis em 3.12.15 passaram e
-o unico em 3.12.16 falhou**, com `[Errno 2] ... '.venv/bin/python3'` sobre um
-cache restaurado a 100%.
+corrida os sete *jobs* do `ci.yaml` apanharam a rolagem a meio — **seis em
+3.12.15 passaram e o unico em 3.12.16 falhou**, com
+`[Errno 2] ... '.venv/bin/python3'` sobre um cache restaurado a 100%.
 
 E nao se cura sozinho: o `actions/cache` so escreve quando ha *miss*, pelo que
-com *hit* restaura o mesmo veneno execucao apos execucao. Apagar a entrada
-tambem nao corrige — durante a rolagem **nenhuma** entrada unica serve os dois
-lados, so muda quem fica partido. A correccao tem de ser na chave.
+com *hit* restaura o mesmo veneno execucao apos execucao. **Durante a rolagem**,
+apagar a entrada tambem nao corrige — enquanto ha dois patches em servico,
+nenhuma entrada unica serve os dois lados, so muda quem fica partido.
 
 Verifica-se por **texto** e nao por um leitor de YAML, pela mesma medicao do
 `test_ci_titulo_do_pr.py`: o `tools/kamba_yaml.py` e um subconjunto e nao le
 estes ficheiros.
 
-E asserta-se a **linha inteira**, com o nome da chave. A licao esta paga no
-`test_ci_gate9.py`: a primeira versao procurava as expressoes «em qualquer sitio
-do bloco», a revisao adversarial trocou duas variaveis de sitio, e as asercoes
-continuaram verdes.
+## O que a revisao adversarial mudou aqui
+
+A primeira versao deste ficheiro tinha quatro ensaios e **deixava passar a
+regressao mais provavel do `action.yaml`**: acrescentar `restore-keys:
+venv-<os>-` ao lado da chave nova reintroduz o defeito inteiro — a
+correspondencia por prefixo volta a restaurar uma entrada de outro patch — e os
+quatro ficavam verdes. O passo do `pnpm`, **imediatamente acima no mesmo
+ficheiro**, tem essa linha para copiar. A ausencia de `restore-keys` e
+*load-bearing*, e agora tem ensaio proprio.
+
+E o *docstring* afirmava assertar «a linha inteira, com o nome da chave»,
+invocando a licao do `test_ci_gate9.py`, enquanto a asercao era um `assertIn` de
+subcadeia — pelo que um `hashFiles` degradado passava verde. A afirmacao era
+falsa e a licao nao estava aplicada; a asercao passou a ser sobre a linha
+inteira, e os ficheiros do `hashFiles` **leem-se do `Makefile`** em vez de
+estarem escritos aqui.
 """
 
 from __future__ import annotations
@@ -39,21 +52,77 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 ACCAO = ROOT / ".github" / "actions" / "preparar" / "action.yaml"
+MAKEFILE = ROOT / "Makefile"
 
-#: Os *jobs* que arrancam por esta accao, escritos aqui tambem. **Nao e
-#: redundancia**: e o terceiro ponto que torna visivel quem fica sem arranque se
-#: alguem mexer na accao, no padrao do KAM-157.
-CONSUMIDORES = ("gate 1", "gate 2", "gate 4", "gate 6", "gate 7", "gate 8", "gate 11")
+#: Os *jobs* que arrancam por esta accao: ficheiro -> {chave do job: quantos
+#: *jobs* ele gera}. **Nao e redundancia**: e o terceiro ponto que torna visivel
+#: quem fica sem arranque se alguem mexer na accao, no padrao do KAM-157.
+#:
+#: A coluna da direita e a parte que a primeira versao deste ficheiro nao tinha,
+#: e que a revisao adversarial apanhou: o `fatias` e **um** bloco de YAML e
+#: **seis** *jobs*. Contar blocos dava sete consumidores onde ha treze *jobs*, e
+#: um denominador errado foi precisamente o que custou duas inversoes de
+#: raciocinio no dia em que isto se escreveu.
+CONSUMIDORES: dict[str, dict[str, int]] = {
+    ".github/workflows/ci.yaml": {
+        "gate-1-build": 1,
+        "gate-2-tipos": 1,
+        "gate-4-unit": 1,
+        "gate-6-isolamento": 1,
+        "gate-7-contratos": 1,
+        "gate-8-migracoes": 1,
+        "gate-11-supply-chain": 1,
+    },
+    ".github/workflows/mutacoes.yaml": {"fatias": 6},
+}
+
+TOTAL_DE_JOBS = 13
 
 
-class TestChaveDoCacheDoVenv(unittest.TestCase):
-    """A chave tem de distinguir a versao de patch do interpretador."""
+def _blocos_de_jobs(texto: str) -> dict[str, str]:
+    """`{chave do job: corpo}` para um *workflow*, a dois espacos de indentacao."""
+    seccao = texto[texto.index("\njobs:"):]
+    blocos: dict[str, str] = {}
+    actual: str | None = None
+    linhas: list[str] = []
+    for linha in seccao.splitlines(keepends=True):
+        cabeca = re.match(r"^  ([a-z0-9][a-z0-9_-]*):\s*$", linha)
+        if cabeca:
+            if actual:
+                blocos[actual] = "".join(linhas)
+            actual, linhas = cabeca.group(1), []
+        elif actual:
+            linhas.append(linha)
+    if actual:
+        blocos[actual] = "".join(linhas)
+    return blocos
 
+
+def _jobs_da_matriz(bloco: str) -> int:
+    """Quantos *jobs* um bloco gera. Sem `matrix`, um."""
+    matriz = re.search(r"(?m)^      matrix:\n((?:        .*\n|\n)*)", bloco)
+    if not matriz:
+        return 1
+    total = 1
+    for eixo in re.finditer(r"(?m)^        [a-z0-9_-]+: \[([^\]]*)\]\s*$", matriz.group(1)):
+        total *= len([v for v in eixo.group(1).split(",") if v.strip()])
+    return total
+
+
+class _ComAccao(unittest.TestCase):
     def setUp(self) -> None:
         self.texto = ACCAO.read_text(encoding="utf-8")
         self.linhas = self.texto.splitlines()
 
-    def _linha_da_chave(self) -> str:
+    def passo_do_cache_do_venv(self) -> str:
+        """O bloco do passo `cache do venv`, do `- name:` ao passo seguinte."""
+        bloco = re.search(
+            r"(?m)^( +)- name: cache do venv\n((?:\1  .*\n|\n)*)", self.texto
+        )
+        self.assertIsNotNone(bloco, "nao encontrei o passo `cache do venv`")
+        return bloco.group(0)
+
+    def linha_da_chave(self) -> str:
         chaves = [l for l in self.linhas if l.strip().startswith("key: venv-")]
         self.assertEqual(
             len(chaves), 1,
@@ -62,17 +131,59 @@ class TestChaveDoCacheDoVenv(unittest.TestCase):
         )
         return chaves[0].strip()
 
-    def test_a_chave_do_venv_leva_a_versao_do_interpretador(self) -> None:
-        """Sem isto, a entrada envenena-se na rolagem da imagem dos runners."""
-        chave = self._linha_da_chave()
-        self.assertIn(
-            "${{ steps.python.outputs.python-version }}", chave,
-            "a chave do cache do `.venv` nao distingue a versao de patch do "
-            "interpretador. Uma entrada construida com um patch e um symlink "
-            "pendurado em qualquer runner que sirva outro, e o `actions/cache` "
-            "nunca a reescreve enquanto houver *hit*. Medido a 2026-11-03: "
-            f"chave actual -> {chave!r}",
+
+class TestChaveDoCacheDoVenv(_ComAccao):
+    """A chave tem de distinguir a versao de patch do interpretador."""
+
+    def test_a_chave_e_exactamente_a_forma_esperada(self) -> None:
+        """A **linha inteira**, e nao uma subcadeia dela.
+
+        A primeira versao fazia `assertIn` da expressao da versao, o que deixava
+        passar um `hashFiles` degradado — menos um ficheiro, ou nenhum — com a
+        expressao da versao intacta. Achado da revisao adversarial, e a licao ja
+        estava paga no `test_ci_gate9.py`: procurar «em qualquer sitio» deixa
+        trocar o resto de sitio sem acusar.
+        """
+        chave = self.linha_da_chave()
+        forma = re.fullmatch(
+            r"key: venv-\$\{\{ runner\.os \}\}"
+            r"-py\$\{\{ steps\.([A-Za-z0-9_-]+)\.outputs\.python-version \}\}"
+            r"-\$\{\{ hashFiles\(([^)]*)\) \}\}",
+            chave,
         )
+        self.assertIsNotNone(
+            forma,
+            "a chave do cache do `.venv` nao esta na forma esperada. Tem de "
+            "levar a versao de patch do interpretador — sem ela, uma entrada "
+            "construida com um patch e um symlink pendurado em qualquer runner "
+            f"que sirva outro. Li: {chave!r}",
+        )
+        # A **ordem** dos ficheiros do `hashFiles` nao e verificada de
+        # proposito: o `hashFiles` ordena os caminhos que resolve, logo trocar
+        # dois nao muda o digest e nao e um defeito. O **conjunto** e.
+        ficheiros = sorted(f.strip().strip("'\"") for f in forma.group(2).split(","))
+        self.assertEqual(
+            ficheiros, self.requisitos_do_stamp(),
+            "o `hashFiles` da chave deixou de indexar exactamente os "
+            "pre-requisitos da regra `$(VENV)/.stamp`. Os dois conjuntos tem de "
+            "ser o mesmo: a chave existe para invalidar quando eles mudam, e "
+            "uma chave que diz indexar «os requirements» e indexa dois de tres "
+            "e uma chave que mente",
+        )
+
+    def requisitos_do_stamp(self) -> list[str]:
+        """Os pre-requisitos da regra `$(VENV)/.stamp`, lidos do `Makefile`.
+
+        Nao estao escritos neste ficheiro de proposito: a chave existe para
+        invalidar quando eles mudam, logo as duas listas **tem** de ser a mesma,
+        e escrever a segunda aqui era deixa-las divergir. A chave antiga
+        indexava dois de tres, e ninguem o notou.
+        """
+        regra = re.search(
+            r"(?m)^\$\(VENV\)/\.stamp:(.*)$", MAKEFILE.read_text(encoding="utf-8")
+        )
+        self.assertIsNotNone(regra, "nao encontrei a regra `$(VENV)/.stamp` no Makefile")
+        return sorted(regra.group(1).split())
 
     def test_o_passo_do_python_declara_o_id_que_a_chave_cita(self) -> None:
         """A chave cita um `steps.<id>`; esse `id` tem de existir no passo certo.
@@ -83,15 +194,12 @@ class TestChaveDoCacheDoVenv(unittest.TestCase):
         silencio para a forma antiga, que e exactamente o defeito que este
         ficheiro fecha.
         """
-        chave = self._linha_da_chave()
+        chave = self.linha_da_chave()
         citados = re.findall(r"steps\.([A-Za-z0-9_-]+)\.outputs\.python-version", chave)
         self.assertEqual(
             len(citados), 1, f"esperava um `steps.<id>.outputs.python-version`; {chave!r}"
         )
         alvo = citados[0]
-
-        # O `id` tem de ser o do passo que corre o `setup-python`, e nao o de um
-        # passo qualquer: procura-se dentro do bloco desse passo.
         bloco = re.search(
             r"(?m)^( +)- name: .*\n(?:\1  .*\n|\n)*?\1  uses: actions/setup-python@[^\n]*\n"
             r"(?:\1  .*\n|\n)*",
@@ -105,48 +213,108 @@ class TestChaveDoCacheDoVenv(unittest.TestCase):
             "vazia, e a chave volta em silencio a nao distinguir o patch",
         )
 
-    def test_a_accao_continua_a_ser_o_unico_sitio_que_define_este_cache(self) -> None:
-        """Se alguem copiar o passo para um workflow, esta guarda deixa de bastar."""
-        outros = []
-        for ficheiro in sorted((ROOT / ".github" / "workflows").glob("*.yaml")):
-            if "path: .venv" in ficheiro.read_text(encoding="utf-8"):
-                outros.append(str(ficheiro.relative_to(ROOT)))
-        self.assertEqual(
-            outros, [],
-            "ha um cache do `.venv` definido fora da accao `preparar`; esta "
-            "guarda so le a accao, pelo que a copia ficaria sem verificacao",
+    def test_o_cache_do_venv_nao_tem_restore_keys(self) -> None:
+        """A ausencia de `restore-keys` e o que sustenta tudo o resto.
+
+        **O achado de maior valor da revisao adversarial.** Acrescentar
+        `restore-keys: venv-${{ runner.os }}-` ao lado da chave nova reintroduz
+        o defeito **inteiro**: a correspondencia por prefixo volta a restaurar
+        uma entrada construida noutro patch, e a versao na chave deixa de
+        decidir coisa nenhuma. Com os quatro ensaios da primeira versao, essa
+        variante passava **4/4 verde**.
+
+        E e a regressao mais provavel deste ficheiro, porque o passo `cache do
+        pnpm` — tres linhas acima — tem exactamente essa linha para copiar. La
+        e segura (armazem enderecado por conteudo, sem symlinks para a
+        toolcache); aqui nao.
+        """
+        passo = self.passo_do_cache_do_venv()
+        self.assertNotRegex(
+            passo, r"(?m)^ +restore-keys:",
+            "o passo `cache do venv` ganhou `restore-keys`. Isso desfaz a "
+            "correccao: a correspondencia por prefixo restaura uma entrada de "
+            "outro patch do interpretador, que e o defeito que a versao na "
+            "chave existe para fechar. O `restore-keys` do `cache do pnpm` "
+            "logo acima e seguro porque o armazem do pnpm e enderecado por "
+            "conteudo; este nao e",
         )
 
-    def test_os_consumidores_da_accao_estao_todos_no_ci(self) -> None:
-        """Conta os consumidores, que e a parte que se esquece.
 
-        A hipotese que explicou o escape de 2026-11-03 so se conseguiu testar
-        por se saber **quantos** *jobs* partilham esta entrada: uma previsao
-        sobre infraestrutura partilhada e uma previsao sobre todos os seus
-        consumidores. Se este numero andar sem ninguem reparar, o proximo
-        raciocinio da mesma familia parte de um denominador errado.
+class TestSuperficieDaGuarda(_ComAccao):
+    """Esta guarda le um ficheiro so; tem de acusar se deixar de bastar."""
+
+    def test_a_accao_e_o_unico_sitio_que_define_um_cache_do_venv(self) -> None:
+        """Varre *workflows* **e** outras accoes compostas, `.yaml` e `.yml`.
+
+        A primeira versao varria so `.github/workflows/*.yaml`, e passava verde
+        com uma copia em `*.yml` ou noutra accao composta. A segunda nao e
+        hipotetica: o proprio `mutacoes.yaml` documenta que «uma segunda receita
+        **divergiu** da primeira sem ninguem notar durante onze noites».
         """
-        ci = (ROOT / ".github" / "workflows" / "ci.yaml").read_text(encoding="utf-8")
-        blocos = re.split(r"(?m)^  (?=[a-z0-9][a-z0-9_-]*:$)", ci)
-        com_accao = [
-            b for b in blocos if "uses: ./.github/actions/preparar" in b
+        alheios = []
+        candidatos = [
+            *(ROOT / ".github" / "workflows").glob("*.yaml"),
+            *(ROOT / ".github" / "workflows").glob("*.yml"),
+            *(ROOT / ".github" / "actions").glob("*/action.yaml"),
+            *(ROOT / ".github" / "actions").glob("*/action.yml"),
         ]
-        nomes = []
-        for bloco in com_accao:
-            nome = re.search(r'(?m)^    name: "?([^"\n]+)"?$', bloco)
-            if nome:
-                nomes.append(nome.group(1))
-        for esperado in CONSUMIDORES:
-            with self.subTest(gate=esperado):
-                self.assertTrue(
-                    any(n.startswith(esperado + " ") for n in nomes),
-                    f"o {esperado} deixou de usar a accao `preparar`; se foi "
-                    f"deliberado, corrija a lista deste ficheiro. Vi: {nomes}",
-                )
+        for ficheiro in sorted(set(candidatos)):
+            if ficheiro == ACCAO:
+                continue
+            if re.search(r"(?m)^ +path: \.venv\s*$", ficheiro.read_text(encoding="utf-8")):
+                alheios.append(str(ficheiro.relative_to(ROOT)).replace("\\", "/"))
         self.assertEqual(
-            len(com_accao), len(CONSUMIDORES),
-            f"a accao `preparar` passou a ter {len(com_accao)} consumidores no "
-            f"`ci.yaml` e a lista deste ficheiro tem {len(CONSUMIDORES)}: {nomes}",
+            alheios, [],
+            "ha um cache do `.venv` definido fora da accao `preparar`; os "
+            "ensaios deste ficheiro so leem a accao, pelo que a copia ficaria "
+            "sem verificacao nenhuma",
+        )
+
+
+class TestConsumidoresDaAccao(unittest.TestCase):
+    """Conta os consumidores **e os jobs**, que e a parte que se esquece.
+
+    A hipotese que explicou o escape de 2026-11-03 so se conseguiu testar por se
+    saber quantos *jobs* partilham esta entrada: uma previsao sobre
+    infraestrutura partilhada e uma previsao sobre **todos** os consumidores
+    dela. Se este numero andar sem ninguem reparar, o proximo raciocinio da
+    mesma familia parte de um denominador errado — que foi o que aconteceu duas
+    vezes no dia em que isto se escreveu, uma em cada sentido.
+    """
+
+    def test_os_consumidores_sao_os_declarados(self) -> None:
+        vistos: dict[str, dict[str, int]] = {}
+        for ficheiro in sorted(
+            set(
+                [*(ROOT / ".github" / "workflows").glob("*.yaml"),
+                 *(ROOT / ".github" / "workflows").glob("*.yml")]
+            )
+        ):
+            texto = ficheiro.read_text(encoding="utf-8")
+            if "\njobs:" not in texto:
+                continue
+            nome = str(ficheiro.relative_to(ROOT)).replace("\\", "/")
+            for chave, bloco in _blocos_de_jobs(texto).items():
+                # Linhas comentadas nao contam: um `uses:` dentro de um
+                # comentario nao arranca nada.
+                vivas = "\n".join(
+                    l for l in bloco.splitlines() if not l.lstrip().startswith("#")
+                )
+                if "uses: ./.github/actions/preparar" in vivas:
+                    vistos.setdefault(nome, {})[chave] = _jobs_da_matriz(bloco)
+        self.assertEqual(
+            vistos, CONSUMIDORES,
+            "a lista de consumidores da accao `preparar` mudou. Se foi "
+            "deliberado, corrija o `CONSUMIDORES` e o `TOTAL_DE_JOBS` deste "
+            "ficheiro — e corrija tambem qualquer texto que cite o numero",
+        )
+
+    def test_o_total_de_jobs_e_o_declarado(self) -> None:
+        """Um bloco pode ser seis *jobs*: e o caso do `fatias`."""
+        self.assertEqual(
+            sum(n for job in CONSUMIDORES.values() for n in job.values()),
+            TOTAL_DE_JOBS,
+            "o `TOTAL_DE_JOBS` deixou de bater com o `CONSUMIDORES`",
         )
 
 
