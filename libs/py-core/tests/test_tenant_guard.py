@@ -10,6 +10,7 @@ Este modulo esta no estrato `critico` de `ci/thresholds.yaml` (90%).
 
 from __future__ import annotations
 
+import ast
 import gc
 import logging
 import re
@@ -503,6 +504,169 @@ class TestChaveDoRegisto(unittest.TestCase):
         """A mesma propriedade, sem depender do alocador do interpretador."""
         self._registar_e_perder_a_ligacao()
         self.assertEqual(len(tenant_guard._EM_USO), 0)
+
+
+class TestSemanticaDaChave(unittest.TestCase):
+    """O que a `WeakSet` indexa, e o que isso custa (KAM-163).
+
+    A troca fechou o defeito do endereco e abriu uma diferenca com o gemeo que
+    **nao se esconde**: o `WeakSet` do JavaScript indexa por identidade, o
+    `weakref.WeakSet` do Python indexa por `__eq__`/`__hash__`. Os dois lados
+    indexam «pelo objecto» e nao tem a mesma semantica, e o teste de paridade
+    do ficheiro — que compara texto — passaria sem ver isto. Estes ensaios sao
+    o que o ve.
+
+    A decisao de ficar com a `WeakSet` e de quem escreveu o ticket: a falha e
+    *fail-closed* (recusa uma ligacao livre, nunca deixa passar uma ocupada), e
+    a janela e incomparavelmente mais estreita do que a do `id()`, que se
+    reutiliza sozinho. O que estes ensaios garantem e que a premissa em que
+    essa decisao assenta — ninguem redefinir a igualdade de uma ligacao — deixa
+    de ser uma afirmacao de quem escreveu e passa a ser medida.
+    """
+
+    #: As pastas com codigo Python deste repositorio. A copia da prova por
+    #: mutacao leva as quatro, pelo que o varrimento mede lá o mesmo.
+    PASTAS = ("libs", "services", "db", "tools")
+    #: O `tenant_guard` exige de uma ligacao exactamente isto. Uma classe que
+    #: defina os tres **e** uma ligacao DB-API, chame-se ela como se chamar — e
+    #: varrer por forma e o que torna este teste independente dos nomes.
+    FORMA_DB_API = frozenset({"cursor", "commit", "rollback"})
+
+    def setUp(self) -> None:
+        self.addCleanup(tenant_guard._EM_USO.clear)
+
+    def test_a_weakset_indexa_por_igualdade_e_nao_por_identidade(self) -> None:
+        """A diferenca com o gemeo, medida em vez de suposta.
+
+        Nao e a propriedade que se quer: e a que se tem, e esta aqui para que
+        ninguem a redescubra a pensar que os dois lados sao equivalentes.
+        """
+
+        class ComIgualdade:
+            def __init__(self, nome: str) -> None:
+                self.nome = nome
+
+            def __eq__(self, outro: object) -> bool:
+                return isinstance(outro, ComIgualdade) and self.nome == outro.nome
+
+            def __hash__(self) -> int:
+                return hash(self.nome)
+
+        registo = weakref.WeakSet()
+        primeira = ComIgualdade("x")
+        registo.add(primeira)
+        segunda = ComIgualdade("x")
+        self.assertIsNot(primeira, segunda)
+        # O `WeakSet` do JavaScript daria `False` aqui, e o `set[int]` com
+        # `id()` que isto substituiu tambem.
+        self.assertIn(segunda, registo)
+        self.assertNotIn(id(segunda), {id(primeira)})
+
+    def _ligacoes_db_api(self) -> list[tuple[str, str, bool, bool]]:
+        """As classes deste repositorio que tem a forma de uma ligacao DB-API."""
+        achadas = []
+        for pasta in self.PASTAS:
+            raiz = RAIZ / pasta
+            if not raiz.is_dir():
+                continue
+            for caminho in raiz.rglob("*.py"):
+                if any(p in {".venv", "__pycache__", "node_modules"} for p in caminho.parts):
+                    continue
+                try:
+                    arvore = ast.parse(caminho.read_text(encoding="utf-8"))
+                except SyntaxError:
+                    continue
+                for no in ast.walk(arvore):
+                    if not isinstance(no, ast.ClassDef):
+                        continue
+                    metodos = {
+                        m.name
+                        for m in no.body
+                        if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    }
+                    if not self.FORMA_DB_API <= metodos:
+                        continue
+                    achadas.append((
+                        f"{caminho.relative_to(RAIZ).as_posix()}:{no.lineno}",
+                        no.name,
+                        "__eq__" in metodos,
+                        "__hash__" in metodos,
+                    ))
+        return achadas
+
+    def test_o_varrimento_das_ligacoes_morde(self) -> None:
+        """Sem isto, um varrimento que nao encontrasse nada saía verde."""
+        achadas = self._ligacoes_db_api()
+        nomes = {nome for _, nome, _, _ in achadas}
+        self.assertIn(
+            "_Conexao", nomes, "o varrimento nao encontrou o duplo deste ficheiro"
+        )
+        self.assertGreaterEqual(len(achadas), 2, achadas)
+
+    def test_nenhuma_ligacao_db_api_deste_repositorio_redefine_a_igualdade(self) -> None:
+        """A premissa em que a escolha da `WeakSet` assenta, medida.
+
+        O que isto **nao** cobre: uma ligacao vinda de uma biblioteca de
+        terceiros, que nao se define aqui. Dessas, a unica que este repositorio
+        usa e a `pg8000`, e tem ensaio proprio a seguir.
+        """
+        culpadas = [
+            (onde, nome)
+            for onde, nome, tem_eq, tem_hash in self._ligacoes_db_api()
+            if tem_eq or tem_hash
+        ]
+        self.assertEqual(
+            culpadas,
+            [],
+            "uma ligacao DB-API deste repositorio passou a redefinir a igualdade: "
+            "na `weakref.WeakSet` do `_EM_USO` duas ligacoes distintas que se "
+            "digam iguais colidem, e a guarda recusa uma ligacao livre",
+        )
+
+    def test_o_controlador_real_nao_redefine_a_igualdade(self) -> None:
+        """A `pg8000` do `db/ligacao.py` — a unica ligacao real deste repositorio.
+
+        Salta sem a biblioteca, que e o caso do `make test-py` com um Python
+        pelado; no *gate* 4 corre, porque a cobertura usa o `.venv` e a
+        `pg8000==1.31.5` esta fixada em `db/requirements/migrations.txt` e em
+        `services/agr/requirements/runtime.txt`.
+        """
+        try:
+            import pg8000.dbapi
+        except ImportError:  # pragma: no cover - medido pela ausencia
+            self.skipTest("pg8000 nao instalada neste interpretador")
+        ligacao = pg8000.dbapi.Connection
+        self.assertIs(ligacao.__eq__, object.__eq__)
+        self.assertIs(ligacao.__hash__, object.__hash__)
+        self.assertTrue(hasattr(ligacao, "__weakref__"), "nao e fracamente referenciavel")
+
+    def test_uma_ligacao_que_o_registo_nao_pode_indexar_levanta_e_nao_suja(self) -> None:
+        """O `TypeError` e alto, e a guarda fica fechada e limpa.
+
+        Sao os dois unicos modos em que a `WeakSet` recusa indexar, e nenhum e
+        silencioso: um `tx` que nao consiga reservar a ligacao nao abre
+        transaccao nenhuma.
+        """
+
+        class SemHash:
+            """`__eq__` sem `__hash__`: o Python poe o `__hash__` a `None`."""
+
+            def __eq__(self, outro: object) -> bool:
+                return True
+
+            def cursor(self):  # pragma: no cover - nunca se chega aqui
+                raise AssertionError("a guarda nao podia ter aberto cursor")
+
+        for ligacao, fragmento in (
+            ((), "weak reference"),          # um tuplo nao e fracamente referenciavel
+            (SemHash(), "unhashable"),
+        ):
+            with self.subTest(ligacao=type(ligacao).__name__):
+                with self.assertRaises(TypeError) as capturado:
+                    with tx(ligacao, TENANT):
+                        self.fail("a transaccao nao podia ter aberto")
+                self.assertIn(fragmento, str(capturado.exception))
+                self.assertEqual(len(tenant_guard._EM_USO), 0)
 
 
 def _so_codigo(texto: str, *marcas: str) -> str:

@@ -32,8 +32,10 @@ E uma quarta, que nao e sobre o que se pede mas sobre **onde**:
   tenant de dentro — e o `commit` de dentro confirma o trabalho de fora. O mesmo
   vale para duas *threads* a partilhar uma ligacao. A revisao adversarial do
   KAM-004 reproduziu-o contra um PostgreSQL real. Reconhece-se o **mesmo
-  objecto**; um *wrapper* diferente a volta da mesma ligacao nao e reconhecido —
-  a regra e de quem chama (uma ligacao por pedido), e isto e a rede.
+  objecto** — e desde o KAM-163 e mesmo o objecto, e nao o seu endereco, com a
+  ressalva de igualdade escrita no comentario do `_EM_USO`; um *wrapper*
+  diferente a volta da mesma ligacao nao e reconhecido — a regra e de quem
+  chama (uma ligacao por pedido), e isto e a rede.
 
 `tx_batch` e a outra porta, para o papel `kamba_batch` (`BYPASSRLS`): nao define
 contexto, exige o **nome do job** e conta cada uso. «Jobs nomeados e auditados»
@@ -162,8 +164,24 @@ def _exigir_transaccional(conexao) -> None:
 #: (`packages/core-ts/src/tenant_guard/index.ts`, `EM_USO`) — e as duas
 #: implementacoes da mesma regra ficam presas por um teste de paridade.
 #:
-#: Uma ligacao que nao seja fracamente referenciavel levanta `TypeError` no
-#: `add`; a `psycopg` nao e desse caso.
+#: **E a semantica nao e exactamente a do gemeo, e isso fica escrito.** O
+#: `WeakSet` do JavaScript indexa por **identidade**; o `weakref.WeakSet` do
+#: Python indexa por `__eq__`/`__hash__`. Os dois lados passam a indexar pelo
+#: objecto, mas duas ligacoes **distintas** que se digam iguais colidem aqui e
+#: nao colidiriam la (medido: com `__eq__` definido, `d in registo` da `True`
+#: onde o `set[int]` com `id()` dava sempre `False`). A direccao da falha e a
+#: mesma do defeito que isto substitui — recusar uma ligacao livre, nunca deixar
+#: passar uma ocupada —, e a janela e incomparavelmente mais estreita: o `id()`
+#: reutiliza-se sozinho, a igualdade so colide se alguem a definir. Nenhuma
+#: ligacao DB-API deste repositorio a define, e ha um teste a varrer por forma
+#: (`cursor`/`commit`/`rollback`) que falha se alguma passar a definir.
+#:
+#: Uma ligacao que o registo nao consiga indexar levanta `TypeError` no `add`, e
+#: isso e alto e nao silencioso: sem referencia fraca («cannot create weak
+#: reference»), ou sem `__hash__` por ter `__eq__` definido sem ele
+#: («unhashable type»). O controlador real deste repositorio e a `pg8000`
+#: (`db/ligacao.py`), e nao e desse caso — `__eq__`, `__hash__` e `__weakref__`
+#: todos por omissao, medido na 1.31.5.
 _EM_USO: weakref.WeakSet = weakref.WeakSet()
 #: O trinco **fica**: a `WeakSet` resolve a identidade, nao a corrida entre
 #: *threads*. Sao duas coisas, e so uma delas mudou.
