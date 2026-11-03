@@ -95,7 +95,14 @@ def check_commit_message(message: str, rules: Conventions) -> list[str]:
         return []
 
     problems = _check_header(header, rules)
-    problems += _check_body_and_footer(lines, rules)
+    # **O corpo so se verifica se o cabecalho tiver forma.** Antes da extraccao
+    # do `_check_header` isto era um `return` a seguir ao achado da forma, e
+    # perdeu-se na extraccao: a saida do *hook* passou a trazer um
+    # `body-leading-blank` por cima do «cabecalho fora de …», o que e ruido numa
+    # mensagem que ainda nao tem cabecalho. Achado da revisao adversarial do
+    # KAM-164, e preso por `test_cabecalho_sem_forma_nao_traz_achado_de_corpo`.
+    if rules.header_pattern.match(header):
+        problems += _check_body_and_footer(lines, rules)
     return problems
 
 

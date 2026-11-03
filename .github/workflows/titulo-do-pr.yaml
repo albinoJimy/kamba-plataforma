@@ -123,10 +123,23 @@ jobs:
           KAMBA_PR_TITLE: ${{ github.event.pull_request.title }}
         run: python -m lint_arch --root .. pr-title
 
-      # O canario, e corre **sempre**: um titulo conforme deixava este passo sem
-      # correr se ele fosse condicional, e a prova de que a verificacao morde
-      # voltava a viver so num `unittest` — que foi como o *gate* 9 esteve sete
-      # PR sem nada que o provasse.
+      # O canario, e corre **sempre**. A condicao implicita de um passo e
+      # `success()`, pelo que sem o `if: always()` o canario ficava sem correr
+      # exactamente quando o passo de cima falha — isto e, no unico caso em que
+      # um vermelho e ambiguo. Com os dois passos a correr, o registo diz **qual**
+      # dos dois deu o vermelho: um titulo fora da forma, ou a verificacao a ter
+      # deixado de morder. Medido no PR #107: na execucao `41617557001` o passo do
+      # titulo deu `failure` e este deu `success`.
+      #
+      # **Isto diverge do `log-lint` e do `money-lint`, de propriedade.** La o
+      # canario e o segundo comando de uma receita `make`, que para no primeiro
+      # erro: se o *lint* falha, o canario nao corre. La isso e aceitavel, porque
+      # um *lint* vermelho e sempre defeito do codigo. Aqui o vermelho e o
+      # **produto** — um titulo fora da forma e o que esta verificacao existe para
+      # dar —, pelo que o canario tem de continuar a reportar por baixo dele. O
+      # que se herda daqueles dois e a *forma* do canario (fixtures negativas que
+      # tem de falhar, cada uma pela sua regra); a *invocacao* segue o
+      # `mutacoes.yaml`, que chama o modulo Python directamente por nao ser *gate*.
       - name: canario — a verificacao recusa o que tem de recusar
         if: always()
         working-directory: tools

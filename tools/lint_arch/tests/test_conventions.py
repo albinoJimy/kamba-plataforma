@@ -220,6 +220,22 @@ class TestCorpoERodape(unittest.TestCase):
             [],
         )
 
+    def test_cabecalho_sem_forma_nao_traz_achado_de_corpo(self) -> None:
+        """Um cabecalho sem forma da **um** achado, e nao dois.
+
+        Prende as duas direccoes de um defeito que a revisao adversarial do
+        KAM-164 apanhou: extrair o `_check_header` de dentro desta funcao
+        perdeu o `return` que havia depois do achado da forma, e a saida do
+        *hook* passou a juntar um `body-leading-blank` a uma mensagem que ainda
+        nao tem cabecalho. Nenhum teste prendia o comportamento antigo — e e
+        por isso que ele se perdeu sem ninguem dar por isso.
+        """
+        problemas = conventions.check_commit_message(
+            "mensagem sem forma\nlinha de corpo sem linha em branco", self.rules
+        )
+        self.assertEqual(len(problemas), 1, problemas)
+        self.assertIn("cabecalho fora de", problemas[0])
+
 
 # ---------------------------------------------------------------------------
 # O titulo do PR — KAM-164
