@@ -215,6 +215,14 @@ check: lint-arch lint-branch lock-check test-py typecheck test-ts
 # as variaveis — `make ci-2` na maquina de quem desenvolve, e tambem os outros
 # alvos que chamam este — o modo e local, e o comando di-lo em voz alta em vez de
 # dar a passagem por satisfeita.
+# A bandeira que distingue **a invocacao do portao** das outras. Vazia por
+# omissao, e so o alvo `ci-2` a liga: o `bootstrap` tambem depende de `lint-arch`
+# — e corre dentro de todos os *jobs* que usam a accao `preparar` —, pelo que uma
+# guarda que nao os distinguisse punha o *gate* 2 vermelho em todas as execucoes.
+# Medido na corrida `41668266259`: a invocacao do `bootstrap` imprime «NAO
+# verificadas (execucao local…)» com `CI=true` definido.
+LINT_ARCH_EXIGIR_INTERVALO ?=
+
 GATE2_EVENTO ?=
 GATE2_MERGE_REF ?=
 
@@ -222,7 +230,7 @@ lint-arch:
 	@echo "==> lint_arch"
 	@$(PYTHON) -m lint_arch --root $(ROOT) all
 	@$(PYTHON) -m lint_arch --root $(ROOT) pr-title-canario
-	@$(PYTHON) -m lint_arch --root $(ROOT) commit-range --evento '$(GATE2_EVENTO)' --merge-ref '$(GATE2_MERGE_REF)'
+	@$(PYTHON) -m lint_arch --root $(ROOT) commit-range --evento '$(GATE2_EVENTO)' --merge-ref '$(GATE2_MERGE_REF)' $(LINT_ARCH_EXIGIR_INTERVALO)
 	@$(PYTHON) -m lint_arch --root $(ROOT) commit-range-canario
 
 ## lint-branch: nome do ramo actual
@@ -390,7 +398,11 @@ ci-1: doctor
 ci-2:
 	@echo "==> gate 2: tipos"
 	@pnpm -r run typecheck
-	@$(MAKE) lint-arch
+	@# `--exigir-intervalo` **so aqui**: esta e a invocacao que e o portao. Sem a
+	@# distincao, a guarda apanhava tambem o `lint-arch` que o `make bootstrap`
+	@# corre dentro da accao `preparar`, que nao tem as variaveis e corre em
+	@# todos os *jobs* que a usam.
+	@$(MAKE) lint-arch LINT_ARCH_EXIGIR_INTERVALO=--exigir-intervalo
 	@$(MAKE) log-lint
 	@$(MAKE) money-lint
 	@$(MAKE) env-lint

@@ -184,26 +184,42 @@ class TestAlvoLintArch(unittest.TestCase):
         for variavel in ("$(GATE2_EVENTO)", "$(GATE2_MERGE_REF)"):
             self.assertIn(variavel, self.receita)
 
+    def test_reencaminha_a_bandeira_do_portao(self) -> None:
+        """Sem isto, o `ci-2` liga a bandeira e ela morre a meio do caminho.
+
+        O `TestAlvoCi2` verifica que o `ci-2` a passa; esta e a outra metade, e
+        sem ela a guarda do `commits.py` nunca era accionada e a mutacao que
+        retirasse esta expansao nao tinha quem a apanhasse.
+        """
+        self.assertIn("$(LINT_ARCH_EXIGIR_INTERVALO)", self.receita)
+
     def test_a_leitura_nao_entra_no_all(self) -> None:
         """O `all` corre em `make check` e em cada execucao local.
 
         Meter-lhe dentro um varrimento que precisa de um intervalo de commits
         faria um comando local depender de estado de CI. E um subcomando proprio,
         e a decisao esta escrita no `Makefile`.
+
+        **Verifica-se o despacho e nao a *docstring*.** A primeira versao deste
+        ensaio lia a linha de ajuda do `all`, e uma alteracao que acrescentasse o
+        varrimento ao **codigo** do `all` sem tocar na ajuda sobrevivia-lhe — a
+        mesma classe de buraco que o `TestCliDoCommitRange` existe para fechar.
+        Le-se o corpo do ramo `if args.command == "all":` da fonte.
         """
         from lint_arch import cli
 
-        self.assertIn("commit-range", cli.__doc__ or "")
-        # O `all` nao o inclui: a sua linha de ajuda enumera o que ele corre.
-        linha_do_all = next(
-            (
-                linha
-                for linha in (cli.__doc__ or "").splitlines()
-                if " all " in linha and "lint_arch" in linha
-            ),
-            "",
+        fonte = Path(cli.__file__).read_text(encoding="utf-8")
+        inicio = fonte.index('if args.command == "all":')
+        fim = fonte.index("\n", fonte.index("return max(status", inicio))
+        corpo_do_all = fonte[inicio:fim]
+        self.assertNotIn(
+            "commit",
+            corpo_do_all,
+            "o `all` passou a tocar na leitura das mensagens, e isso faz o "
+            "`make check` depender de estado de CI",
         )
-        self.assertNotIn("commit-range", linha_do_all)
+        # E a ajuda continua a nomear o subcomando, para quem o procura.
+        self.assertIn("commit-range", cli.__doc__ or "")
 
     def test_os_quatro_passos_correm_todos(self) -> None:
         """Uma falha em qualquer um deles falha o alvo: sao quatro receitas."""
@@ -226,6 +242,52 @@ class TestAlvoCi2(unittest.TestCase):
     def test_o_ci_2_continua_a_chamar_o_lint_arch(self) -> None:
         """E por aqui que a leitura das mensagens entra no gate 2."""
         self.assertIn("$(MAKE) lint-arch", self.receita)
+
+    def test_so_o_ci_2_exige_o_intervalo(self) -> None:
+        """A bandeira que distingue a invocacao do portao das outras.
+
+        O `bootstrap` tambem depende de `lint-arch` e corre dentro de **todos** os
+        *jobs* que usam a accao `preparar`, sem as variaveis e com `CI=true`. Sem
+        esta distincao a guarda punha o *gate* 2 vermelho em todas as execucoes —
+        medido na corrida `41668266259`, onde a invocacao do `bootstrap` imprime
+        «NAO verificadas (execucao local…)».
+        """
+        self.assertIn(
+            "$(MAKE) lint-arch LINT_ARCH_EXIGIR_INTERVALO=--exigir-intervalo",
+            self.receita,
+        )
+        texto = MAKEFILE.read_text(encoding="utf-8")
+        # O `bootstrap` **nao** a liga, e e isso que o mantem verde.
+        inicio = texto.index("\nbootstrap:")
+        linha_do_bootstrap = texto[inicio : texto.index("\n", inicio + 1)]
+        self.assertNotIn("EXIGIR_INTERVALO", linha_do_bootstrap)
+
+
+class TestPropagacaoDasVariaveis(unittest.TestCase):
+    """Nada no `Makefile` pode impedir as duas variaveis de chegar ao subcomando.
+
+    O `test_ci_gate2` acima confronta o YAML, e a guarda do `commits.py` recusa um
+    accionamento vazio na invocacao do portao. Falta a peca do meio: as variaveis
+    sao declaradas com `?=` para que o ambiente ganhe, e nada as `unexport`.
+    """
+
+    def setUp(self) -> None:
+        self.texto = MAKEFILE.read_text(encoding="utf-8")
+
+    def test_as_variaveis_sao_declaradas_com_atribuicao_condicional(self) -> None:
+        """`?=` e nao `=`: com `=`, o valor do ficheiro ganhava ao do ambiente."""
+        for variavel in ("GATE2_EVENTO", "GATE2_MERGE_REF"):
+            with self.subTest(variavel=variavel):
+                self.assertIn(f"{variavel} ?=", self.texto)
+                self.assertNotIn(f"\n{variavel} =", self.texto)
+                self.assertNotIn(f"\n{variavel}:=", self.texto)
+
+    def test_nada_desexporta_as_variaveis(self) -> None:
+        """Um `unexport` deixaria o sub-`make` do `ci-2` sem elas, e verde."""
+        for variavel in ("GATE2_EVENTO", "GATE2_MERGE_REF"):
+            with self.subTest(variavel=variavel):
+                self.assertNotIn(f"unexport {variavel}", self.texto)
+        self.assertNotIn("unexport GATE2", self.texto)
 
 
 if __name__ == "__main__":

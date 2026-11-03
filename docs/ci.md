@@ -250,9 +250,27 @@ lint_arch: mensagens dos commits: 1 commit(s) do intervalo do PR
 O `env:` com as duas variáveis está no passo `make ci-2` e **não** no `preparar`,
 pelo que a invocação do `bootstrap` não tem intervalo — e di-lo, em vez de passar
 em silêncio. **Quem lê o registo tem de ler a segunda**: é a que diz quantos
-*commits* varreu. Se o `env:` desaparecesse do YAML, as duas diriam «NAO
-verificadas» e o *gate* 2 ficava **verde sem ter lido nada** — o que torna o
-`test_ci_gate2.py` a peça que sustenta isto, e ele corre no *gate* 4, não no 2.
+*commits* varreu.
+
+**E a segunda recusa-se a correr em modo local, que é o que fecha o único caminho
+que dava verde sem ter lido nada.** Se as duas variáveis deixassem de chegar — o
+`env:` sai do *job*, ou o `make` deixa de as passar ao sub-`make` — o
+accionamento chegava vazio, a passagem caía no modo local e o *gate* ficava verde
+sobre um PR que ninguém leu. O `ci-2` chama o `lint-arch` com
+`--exigir-intervalo`, e aí um accionamento vazio **dentro do CI** é erro de
+configuração (código 2) em vez de modo local.
+
+**A guarda não se pendura na variável `CI`, e a razão foi medida.** O
+`preparar` corre `make bootstrap`, que já depende de `lint-arch`: dentro de
+**todos** os *jobs* que usam a acção, este subcomando corre uma vez sem as
+variáveis e com `CI=true`. Uma guarda pendurada só no `CI` punha o *gate* 2
+vermelho em todas as execuções, e com ele os outros *jobs* que partilham a acção.
+Quem exige o intervalo é a bandeira que **só o `ci-2`** liga; e a bandeira
+sozinha também não basta, porque `make ci-2` na máquina de quem desenvolve
+leva-a e não tem PR. É a conjunção das duas. Oito mutações a este caminho — tirar
+a bandeira do `ci-2`, tirá-la do `lint-arch`, passar o `?=` a `=`, tirar a
+guarda, tirar cada metade da conjunção, pôr o `all` a correr a leitura, e trocar
+os achados por lista vazia — ficam **todas** vermelhas, nenhuma sobrevivente.
 
 **O que esta verificação não cobre**, e fica escrito para não se confundir
 cobertura com alcance:

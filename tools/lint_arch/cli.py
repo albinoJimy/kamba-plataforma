@@ -332,6 +332,14 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help=f"o merge ref do evento, em bruto (omitido: ${AMBIENTE_MERGE_REF})",
     )
+    commit_range.add_argument(
+        "--exigir-intervalo",
+        action="store_true",
+        help=(
+            "esta invocacao e a do portao: dentro do CI, um accionamento vazio "
+            "passa a ser erro em vez de modo local (passa-a so o alvo `ci-2`)"
+        ),
+    )
     sub.add_parser(
         "commit-range-canario",
         help="prova que o commit-range recusa o que tem de recusar (KAM-174)",
@@ -409,7 +417,16 @@ def main(argv: list[str] | None = None) -> int:
                 if args.merge_ref is not None
                 else os.environ.get(AMBIENTE_MERGE_REF, "")
             )
-            intervalo = commits_module.decidir_intervalo(evento, merge_ref)
+            # **A conjuncao das duas, e nenhuma delas sozinha.** A bandeira diz
+            # «esta invocacao e a do portao» — o `ci-2` passa-a, o `bootstrap`
+            # nao —, e o `CI` diz «ha um accionamento a chegar». Sem a bandeira,
+            # a guarda punha vermelha a invocacao que o `make bootstrap` faz
+            # dentro de **todos** os jobs que usam a accao `preparar`; sem o
+            # `CI`, punha vermelho o `make ci-2` de quem desenvolve, que nao tem
+            # PR. Juntas, restam os casos em que as variaveis deviam ter chegado
+            # e nao chegaram.
+            exigir = args.exigir_intervalo and bool(os.environ.get("CI", "").strip())
+            intervalo = commits_module.decidir_intervalo(evento, merge_ref, exigir)
             if intervalo.modo == commits_module.MODO_SEM_PASSAGEM:
                 # Declara-se o modo em vez de passar em silencio: uma execucao
                 # local que nao varre nada nao pode ler-se como «os commits estao

@@ -131,11 +131,33 @@ class Intervalo:
     razao: str = ""
 
 
-def decidir_intervalo(evento: str | None, merge_ref: str | None) -> Intervalo:
+def decidir_intervalo(
+    evento: str | None, merge_ref: str | None, exigir_intervalo: bool = False
+) -> Intervalo:
     """O intervalo a varrer, ou o modo em que se corre quando nao existe.
 
     Funcao pura: o *workflow* passa os valores em bruto do evento e **nao decide
     nada**.
+
+    **`exigir_intervalo` fecha o unico caminho que dava verde sem ter lido
+    nada.** Se as duas variaveis deixarem de chegar — o `env:` sai do *job*, ou
+    o `make` deixa de as passar ao sub-`make` — o accionamento chega **vazio**, a
+    passagem cai no modo local, diz «NAO verificadas» e o *gate* fica **verde
+    sobre um PR que ninguem leu**. O `test_ci_gate2.py` confronta o YAML, mas
+    corre no *gate* 4 e nao ve a propagacao pelo `make`.
+
+    **Nao se pode deduzir isto da variavel `CI` sozinha**, e a razao foi medida:
+    o `./.github/actions/preparar` corre `make bootstrap`, que ja depende de
+    `lint-arch`, pelo que dentro de **todos** os *jobs* que usam a accao este
+    subcomando corre uma vez **sem** as variaveis — e com `CI=true`. Uma guarda
+    pendurada no `CI` punha o *gate* 2 vermelho em todas as execucoes, e com ele
+    os outros *jobs* que partilham a accao. Medido na corrida `41668266259`: a
+    invocacao do `bootstrap` imprime «NAO verificadas (execucao local…)».
+
+    Quem exige o intervalo e o alvo que **e** o portao: o `ci-2` chama o
+    `lint-arch` com `--exigir-intervalo`, e o `bootstrap` nao. A bandeira sozinha
+    tambem nao basta — `make ci-2` na maquina de quem desenvolve leva-a e nao tem
+    PR —, pelo que quem a liga e a conjuncao dela com o `CI`, feita no `cli`.
 
     **Quem decide primeiro e o accionamento, nao a presenca do *merge ref*** — e
     e aqui que esta funcao divergir do `decidir_intervalo` do *gate* 9 e
@@ -147,6 +169,20 @@ def decidir_intervalo(evento: str | None, merge_ref: str | None) -> Intervalo:
     accionamento mandar.
     """
     nome = (evento or "").strip()
+    if exigir_intervalo and not nome:
+        raise IntervaloInvalido(
+            "o alvo do gate correu sem o accionamento chegar.\n"
+            "    Isto e o `ci-2` dentro do CI, onde ha sempre um accionamento: um "
+            "accionamento\n"
+            "    vazio aqui significa que as variaveis deixaram de chegar ao "
+            "subcomando.\n"
+            "    Confira o `env:` do job `gate-2-tipos` (GATE2_EVENTO, "
+            "GATE2_MERGE_REF) e as\n"
+            "    linhas `--evento`/`--merge-ref` do alvo `lint-arch` do Makefile.\n"
+            "    Sem esta recusa, a passagem corria em modo local e o gate ficava "
+            "verde sobre\n"
+            "    um PR que ninguem leu."
+        )
     if nome not in ACCIONAMENTOS:
         raise IntervaloInvalido(
             f"accionamento {nome!r} e o que fazer nele nao esta escrito.\n"

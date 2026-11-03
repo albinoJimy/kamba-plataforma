@@ -17,10 +17,12 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import io
+import os
 import re
 import subprocess
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from lint_arch import canario_commits, cli, commits, conventions
@@ -125,6 +127,49 @@ class TestDecidirIntervalo(unittest.TestCase):
         intervalo = commits.decidir_intervalo("", "")
         self.assertEqual(intervalo.modo, commits.MODO_SEM_PASSAGEM)
         self.assertIn("local", intervalo.razao)
+
+    def test_na_invocacao_do_portao_o_accionamento_vazio_e_vermelho(self) -> None:
+        """O unico caminho que dava verde sem ter lido nada, fechado.
+
+        Se as duas variaveis deixarem de chegar — o `env:` sai do *job*, ou o
+        `make` deixa de as passar ao sub-`make` — o accionamento chega vazio, a
+        passagem cai no modo local, diz «NAO verificadas» e o *gate* fica verde
+        sobre um PR que ninguem leu. O `test_ci_gate2.py` confronta o YAML, mas
+        corre no *gate* 4 e nao ve a propagacao pelo `make`.
+        """
+        with self.assertRaises(commits.IntervaloInvalido) as capturado:
+            commits.decidir_intervalo("", "", exigir_intervalo=True)
+        self.assertIn("sem o accionamento chegar", str(capturado.exception))
+
+    def test_fora_da_invocacao_do_portao_o_modo_local_continua_a_passar(self) -> None:
+        """A guarda nao pode quebrar o `lint-arch` que o `bootstrap` corre.
+
+        **E a razao por que a guarda nao se pendura na variavel `CI`.** A accao
+        `preparar` corre `make bootstrap`, que ja depende de `lint-arch`, pelo que
+        este subcomando corre uma vez **sem** as variaveis dentro de todos os
+        *jobs* que usam a accao — e com `CI=true`. Uma guarda pendurada no `CI`
+        punha o *gate* 2 vermelho em todas as execucoes, e com ele os outros
+        *jobs* que partilham a accao. Medido na corrida `41668266259`.
+        """
+        intervalo = commits.decidir_intervalo("", "", exigir_intervalo=False)
+        self.assertEqual(intervalo.modo, commits.MODO_SEM_PASSAGEM)
+
+    def test_a_guarda_apanha_so_o_accionamento_vazio(self) -> None:
+        """Os accionamentos declarados nao mudam de comportamento com a bandeira."""
+        for accionamento in ("push", "workflow_dispatch"):
+            with self.subTest(accionamento=accionamento):
+                self.assertEqual(
+                    commits.decidir_intervalo(
+                        accionamento, "", exigir_intervalo=True
+                    ).modo,
+                    commits.MODO_SEM_PASSAGEM,
+                )
+        self.assertEqual(
+            commits.decidir_intervalo(
+                "pull_request", "a" * 40, exigir_intervalo=True
+            ).modo,
+            commits.MODO_INTERVALO,
+        )
 
     def test_accionamento_nao_escrito_fica_vermelho(self) -> None:
         """Fail-closed, no padrao do `SEM_INTERVALO` do gate 9."""
@@ -533,6 +578,37 @@ class TestCliDoCommitRange(_ComArvore):
         """2 e nao 1: configuracao quebrada nao pode parecer um PR conforme."""
         codigo, texto = self._correr("--evento", "schedule", "--merge-ref", "")
         self.assertEqual(codigo, 2, texto)
+
+    def test_a_bandeira_e_o_ci_juntos_recusam_o_accionamento_vazio(self) -> None:
+        """A conjuncao, pelo CLI, e nao so pela funcao pura.
+
+        E o que prende a ligacao: a funcao sabe recusar, mas se o CLI nao lhe
+        passasse o `exigir_intervalo` a recusa nunca acontecia. E a mesma classe
+        de buraco que esta classe existe para fechar.
+        """
+        with unittest.mock.patch.dict(os.environ, {"CI": "true"}):
+            codigo, texto = self._correr(
+                "--evento", "", "--merge-ref", "", "--exigir-intervalo"
+            )
+        self.assertEqual(codigo, 2, texto)
+        self.assertIn("sem o accionamento chegar", texto)
+
+    def test_a_bandeira_sozinha_nao_recusa_fora_do_ci(self) -> None:
+        """`make ci-2` na maquina de quem desenvolve leva a bandeira e nao tem PR."""
+        ambiente = {k: v for k, v in os.environ.items() if k != "CI"}
+        with unittest.mock.patch.dict(os.environ, ambiente, clear=True):
+            codigo, texto = self._correr(
+                "--evento", "", "--merge-ref", "", "--exigir-intervalo"
+            )
+        self.assertEqual(codigo, 0, texto)
+        self.assertIn("NAO verificadas", texto)
+
+    def test_o_ci_sozinho_nao_recusa_sem_a_bandeira(self) -> None:
+        """E a invocacao que o `make bootstrap` faz dentro de cada *job*."""
+        with unittest.mock.patch.dict(os.environ, {"CI": "true"}):
+            codigo, texto = self._correr("--evento", "", "--merge-ref", "")
+        self.assertEqual(codigo, 0, texto)
+        self.assertIn("NAO verificadas", texto)
 
     def test_pull_request_sem_merge_ref_da_codigo_2(self) -> None:
         codigo, texto = self._correr("--evento", "pull_request", "--merge-ref", "")
