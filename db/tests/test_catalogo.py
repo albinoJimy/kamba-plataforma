@@ -931,7 +931,7 @@ class TestConvencoes(ComBase):
     #
     #: **O KAM-053 acrescentou tres entradas com a mesma pergunta ainda em
     #: aberto, e mais perto do que o ADR-004 recusa** (fechou-a a ratificacao de
-    #: 2026-11-03, no fim deste paragrafo). As duas do KAM-043 sao preco
+    #: 2026-11-03, no paragrafo **seguinte** a este). As duas do KAM-043 sao preco
     #: de catalogo; estas sao dinheiro de **pagamento** — o montante de uma
     #: cobranca, o valor de um facto do ledger e a projeccao daquele na vista de
     #: auditoria. A distincao que as deixa passar continua a ser a mesma, e esta
@@ -944,9 +944,10 @@ class TestConvencoes(ComBase):
     #: O que **nao** mudou: `saldo`, `balance` e `_kz` continuam proibidos sem
     #: excepcao, e a asercao sobre `_minor` continua a valer **nos dois
     #: sentidos**. O KAM-053 entregou a medicao e a razao coluna a coluna com a
-    #: pergunta **ainda em aberto** — fundiu a 2026-11-03, no mesmo dia e antes
-    #: da decisao —, e por isso o ADR-L008 cobre as tres entradas dele
-    #: retroactivamente. Nenhuma se mexe por causa da ratificacao.
+    #: pergunta **ainda escrita como aberta aqui** — fundiu a 2026-11-03, no
+    #: mesmo dia da decisao —, e o ADR-L008 cobre as tres entradas dele. A ordem
+    #: dentro do dia e INDICIO e nao se afirma: o commit tem hora, a decisao tem
+    #: data. Nenhuma entrada se mexe por causa da ratificacao.
     EM_UNIDADE_MENOR = {
         # KAM-043, revisao `0028`. O preco de catalogo de um SKU: `fixo` leva o
         # preco, `a_partir_de` o minimo, `sob_consulta` e nulo (e o
@@ -1045,8 +1046,29 @@ class TestConvencoes(ComBase):
     #: esta ancorado e um `kz_x` passaria de proposito.
     CANARIOS_PROIBIDOS = ("saldo_x", "x_balance", "x_kz")
 
-    def ensaiar_coluna(self, coluna: str) -> None:
-        """Cria `platform.<TABELA_DE_ENSAIO>(<coluna>)`, corre o teste e limpa.
+    def correr_o_teste_isolado(self) -> str:
+        """Corre o teste guardado com `TestResult` proprio, e devolve as falhas.
+
+        **Nao se usa `assertRaises` sobre uma chamada directa, e a razao custou
+        uma corrida do gate inteiro.** O laco do tipo do teste guardado corre
+        dentro de um `subTest`, e um `subTest` **nao propaga** a falha: regista-a
+        no `TestResult` corrente. Chamado de dentro de outro teste, isso dava
+        duas coisas erradas ao mesmo tempo — o `assertRaises` nao via excepcao
+        nenhuma **e** a falha do ensaio era contada contra o canario. Medido: a
+        primeira versao do canario do tipo falhou nas duas pontas de uma so vez
+        (`AssertionError not raised`, mais um `FAIL` com a mensagem do ensaio).
+
+        Com resultado proprio, as falhas do ensaio ficam aqui — e apanham-se as
+        dos `subTest` tambem, que e precisamente o que faltava.
+        """
+        resultado = unittest.TestResult()
+        type(self)("test_nao_ha_colunas_de_dinheiro_nem_saldos").run(resultado)
+        return "\n".join(
+            texto for _, texto in resultado.failures + resultado.errors
+        )
+
+    def ensaiar_coluna(self, coluna: str, tipo: str = "bigint") -> str:
+        """Cria `platform.<TABELA_DE_ENSAIO>(<coluna> <tipo>)`, corre o teste e limpa.
 
         Corre **o teste** e nao uma copia da consulta dele: uma copia prova que
         a copia morde. E a tabela de ensaio **committa**, e tem de ser — cada
@@ -1063,9 +1085,9 @@ class TestConvencoes(ComBase):
         admin.autocommit = True
         try:
             admin.cursor().execute(
-                f"CREATE TABLE platform.{self.TABELA_DE_ENSAIO} ({coluna} bigint)"
+                f"CREATE TABLE platform.{self.TABELA_DE_ENSAIO} ({coluna} {tipo})"
             )
-            self.test_nao_ha_colunas_de_dinheiro_nem_saldos()
+            return self.correr_o_teste_isolado()
         finally:
             for conexao in self._conexoes:
                 conexao.rollback()
@@ -1083,17 +1105,21 @@ class TestConvencoes(ComBase):
         quando uma aparecer. Era o defeito que levou ao KAM-172, no lado que a
         ratificacao de 2026-11-03 (ADR-L008) deixou de pe.
 
-        Afirma-se tambem **porque** falhou: um `assertRaises` nu ficava verde se
-        o teste rebentasse por outra razao, e e nessa forma que um canario
-        parece provar o que nao prova.
+        Afirma-se tambem **porque** falhou — a mensagem tem de nomear a tabela
+        de ensaio e a coluna. Sem isso, um canario fica verde com o teste a
+        rebentar por outra razao, e e nessa forma que ele parece provar o que
+        nao prova.
         """
         for coluna in self.CANARIOS_PROIBIDOS:
             with self.subTest(coluna=coluna):
-                with self.assertRaises(AssertionError) as capturado:
-                    self.ensaiar_coluna(coluna)
-                mensagem = str(capturado.exception)
-                self.assertIn(self.TABELA_DE_ENSAIO, mensagem)
-                self.assertIn(coluna, mensagem)
+                falhas = self.ensaiar_coluna(coluna)
+                self.assertTrue(
+                    falhas,
+                    f"a coluna de ensaio `{coluna}` nao fez o teste falhar: "
+                    "a metade rigida nao morde",
+                )
+                self.assertIn(self.TABELA_DE_ENSAIO, falhas)
+                self.assertIn(coluna, falhas)
         # E depois dos tres, o teste volta a passar. Nao e cerimonia: afirma que
         # a limpeza do `finally` correu, e uma limpeza falhada daria um canario
         # verde sobre uma base suja.
@@ -1107,20 +1133,53 @@ class TestConvencoes(ComBase):
         canario de cima: um `*_minor` nao cai na consulta dos proibidos.
         """
         # Sentido 1: coluna na base sem entrada declarada.
-        with self.assertRaises(AssertionError) as capturado:
-            self.ensaiar_coluna("ensaio_minor")
-        self.assertIn("ensaio_minor", str(capturado.exception))
+        falhas = self.ensaiar_coluna("ensaio_minor")
+        self.assertTrue(falhas, "um `*_minor` por declarar passou")
+        self.assertIn("ensaio_minor", falhas)
 
         # Sentido 2: entrada declarada sem coluna na base — a declaracao morta.
         # Mede-se por mutacao do proprio conjunto; criar a coluna e nao a
         # declarar e o sentido 1, e nao este.
         morta = self.EM_UNIDADE_MENOR | {("tabela_de_ensaio", "valor_minor")}
         with unittest.mock.patch.object(type(self), "EM_UNIDADE_MENOR", morta):
-            with self.assertRaises(AssertionError) as capturado:
-                self.test_nao_ha_colunas_de_dinheiro_nem_saldos()
-        self.assertIn("tabela_de_ensaio", str(capturado.exception))
+            falhas = self.correr_o_teste_isolado()
+        self.assertTrue(falhas, "uma entrada sem coluna na base passou")
+        self.assertIn("tabela_de_ensaio", falhas)
 
         # E com o conjunto reposto, passa.
+        self.test_nao_ha_colunas_de_dinheiro_nem_saldos()
+
+    def test_canario_uma_coluna_declarada_mas_numeric_tambem_falha(self) -> None:
+        """A terceira perna da decisao ratificada: o tipo.
+
+        O ADR-L008 vende a forma como **tres** garantias conjuntas — declarada na
+        allowlist, verificada nos dois sentidos, e `bigint` e nao `numeric` —, e
+        as outras duas ja tinham canario. Esta nao tinha: os ensaios criam a
+        coluna como `bigint`, e a asercao do conjunto rebenta antes de o laco do
+        tipo correr. **Apagar o laco do tipo inteiro nao avermelhava nada**, que
+        e o defeito que este ticket existe para nao repetir, na perna que
+        faltava. Achado da revisao adversarial.
+
+        O ensaio tem de ser declarado **e** `numeric` ao mesmo tempo: declarado,
+        para passar a igualdade de conjuntos e chegar ao laco; `numeric`, para o
+        laco o recusar. Um `numeric` nao declarado so prova o que o canario dos
+        dois sentidos ja prova.
+
+        **E e este canario que obriga ao `correr_o_teste_isolado`:** o laco do
+        tipo corre dentro de um `subTest`, que nao propaga a falha. Ver o
+        docstring daquele metodo — custou uma corrida do gate inteiro a
+        descobrir, e e a razao de nenhum dos tres usar `assertRaises`.
+        """
+        entrada = (self.TABELA_DE_ENSAIO, "ensaio_minor")
+        declarada = self.EM_UNIDADE_MENOR | {entrada}
+        with unittest.mock.patch.object(type(self), "EM_UNIDADE_MENOR", declarada):
+            falhas = self.ensaiar_coluna("ensaio_minor", tipo="numeric")
+        self.assertTrue(falhas, "um `*_minor` declarado mas `numeric` passou")
+        # Falhou no laco do tipo, e nao na igualdade de conjuntos: a mensagem
+        # traz o tipo medido. Sem esta linha, uma entrada mal escrita dava um
+        # canario verde pela razao errada.
+        self.assertIn("numeric", falhas)
+
         self.test_nao_ha_colunas_de_dinheiro_nem_saldos()
 
     def test_nao_ha_fk_para_fora_de_platform(self) -> None:

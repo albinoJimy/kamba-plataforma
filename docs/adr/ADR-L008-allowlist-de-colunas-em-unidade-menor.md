@@ -66,46 +66,68 @@ o agente citar, e a plataforma não detém nada por causa dele.
 ## Onde é que isto fica vinculativo, e porque é aqui
 
 O critério 2 do KAM-172 dá duas hipóteses e manda escolher com razão: um `ADR-L`
-novo, **se for decisão de execução**, ou uma emenda ao `specs/01` §4, **se mudar o
-critério de um *gate***. A escolha é a primeira, e a razão é que nada em §4 muda:
+novo, **se for decisão de execução**, ou uma emenda ao
+[`../../specs/01_Engineering_Standards_e_Handoff.md`](../../specs/01_Engineering_Standards_e_Handoff.md)
+§4, **se mudar o critério de um *gate***. A escolha é a primeira.
 
-1. **A linha do *gate* 8 em §4 continua inteiramente verdadeira.** Ela diz
-   «Migrações — aplicar e reverter; sem perda em dados de teste», e «Falha
-   bloqueia: Merge». O *gate* continua a validar as migrações e continua a
-   bloquear o *merge*. O que mudou foi a forma de **uma asserção dentro de um dos
-   seus testes** — a que implementa uma caixa do DoD do KAM-003.
-2. **Não há nada em §4 para emendar: haveria de se lhe acrescentar.** §4 não
-   nomeia esta asserção, nem o esquema `platform`, nem o sufixo `_minor` — a
-   granularidade da tabela é «que *gates* existem, o que cada um valida, e o que
-   a vermelho bloqueia». Pôr uma asserção de um ticket na tabela canónica dos
-   *gates* é o erro que o [`README.md`](README.md) descreve ao contrário: fazer
-   uma decisão local parecer canónica.
-3. **O critério que mudou é de um ticket, não de §4.** A caixa vive em
-   `specs/tickets/KAM-003.md`, é reavaliada no próprio bloco por este PR, e a
-   regra transversal de §4 — «nenhum *gate* pode ser marcado *skip* sem ADR ou
-   aprovação registada» — é sobre dispensas, e aqui não se dispensa nada: a
-   asserção fica, com o lado rígido intacto e com um canário novo a prová-lo.
+**Primeiro, a contradição aparente, porque o próprio ticket a cria.** Os Detalhes
+Técnicos do KAM-172, a linha 1.51 do `EPIC-01` e o bloco KAM-043 do `EPIC-04`
+dizem todos que isto é «alterar o critério de uma verificação que bloqueia», e é
+dessa frase que o ticket tira a sua autoridade (linha **L6**: a decisão é do
+fundador) e a sua prioridade **P0**. Essa frase é verdadeira, e é sobre **quem
+decide**. A pergunta do critério 2 é outra: **que documento carrega o critério**.
+As duas respostas não se anulam — o fundador decidiu, e §4 não é onde este
+critério vive.
 
-**O contrapeso, dito por inteiro, porque não é pequeno.** O
-[`README.md`](README.md) fixa que uma decisão local sobe a canónica «quando passa
-a governar mais do que o seu ticket», e **esta governa quatro** — KAM-043 (que a
-levantou), KAM-053 (que já escreveu três entradas debaixo dela), KAM-044 e
-KAM-055. O caminho que o README dá para esse caso **não é o `specs/01` §4**: é
-`../tecnica/00` §8, com o número canónico seguinte, a contagem e o mapeamento de
-[`../tecnica/INDICE.md`](../tecnica/INDICE.md) §5 actualizados. Fica local por três
-razões, e a terceira é a que decide:
+**E isso mede-se, em vez de se afirmar.** O *gate* 8 corre 27 asserções de
+catálogo só em `../../db/tests/test_catalogo.py` — telefone nunca em claro, chaves
+primárias `uuid`, toda a coluna `_at` em `timestamptz`, nenhuma FK para fora de
+`platform`, oito papéis e só oito, e esta. **O §4 não nomeia nenhuma delas:** zero
+ocorrências de `saldo`, `_minor`, `phone_hmac`, `timestamptz` ou `platform.` no
+documento inteiro. A linha do *gate* 8 diz «Migrações — aplicar e reverter; sem
+perda em dados de teste» e «Falha bloqueia: Merge», e as duas continuam
+inteiramente verdadeiras. A granularidade de §4 é «que *gates* existem, o que cada
+um valida, e o que a vermelho bloqueia» — não é, e nunca foi, o registo das
+asserções de cada suite. Emendá-lo para esta e só para esta punha-o em desacordo
+com a sua própria granularidade, e fazia uma decisão de um ticket parecer canon.
 
-* não contradiz o ADR-004: **lê-o**. Um ADR canónico novo diria, com um número
-  novo, o que o ADR-004 já diz — que a plataforma não detém fundos;
-* o que esta página registra é a decisão e o seu **alcance**, não uma regra de
-  produto nova;
-* **e há um gatilho escrito para subir.** No dia em que um ticket precisar de uma
-  entrada que **não** seja um preço de catálogo, o montante de uma cobrança ou um
-  facto de *ledger* — uma coluna cujo valor a plataforma **acumule** —, a pergunta
-  deixa de ser sobre o nome da coluna e passa a ser sobre o próprio ADR-004. Essa
-  é canónica, e não se decide aqui nem num `ADR-L`.
+O critério que mudou é de um ticket: a caixa vive em
+[`../../specs/tickets/KAM-003.md`](../../specs/tickets/KAM-003.md) e é reavaliada
+no próprio bloco por este PR. E a regra transversal de §4 — «nenhum *gate* pode
+ser marcado *skip* sem ADR ou aprovação registada» — é sobre dispensas: aqui não
+se dispensa nada, a asserção fica, o lado rígido fica intacto, e ganha canário.
 
-(**Não se escreve aqui o número canónico que ele teria**, pela razão que o
+## Esta decisão é candidata a subir a canónica, e isso não se decide aqui
+
+O [`README.md`](README.md) deste directório fixa o critério: uma decisão local sobe
+a canónica «quando passa a governar mais do que o seu ticket — porque outro
+subsistema depende dela, **ou** porque contradiz um ADR em vigor». São duas causas
+em **disjunção**, e **a primeira está cumprida**: esta governa quatro tickets —
+KAM-043 (que a levantou), KAM-053 (que já escreveu três entradas debaixo dela),
+KAM-044 e KAM-055 — em **dois subsistemas**, o Core de Comércio e os Pagamentos.
+**Pelo que o critério aponta para cima**, e negar o segundo disjunto — esta não
+contradiz o ADR-004, lê-o — não o desfaz. A primeira versão desta página concluía
+«fica local por três razões», e essa conclusão era inválida na forma: fechava, à
+mesa do executor, a pergunta que os dois precedentes desta casa deixam
+explicitamente de fora dela (`ADR-L005` e `ADR-L006`, ambos com esta secção e a
+mesma conclusão). Achado da revisão adversarial deste ticket.
+
+Fica **local** pela razão que o `ADR-L005` escreve, e não por outra: **promovê-la é
+uma alteração ao canon que ninguém pediu.** Um ADR canónico novo em
+[`../tecnica/00_Arquitectura_Solucao.md`](../tecnica/00_Arquitectura_Solucao.md) §8
+toma o número seguinte ao último — hoje o **vigésimo**, que o fundador acrescentou
+a 2026-10-09 e a Carta marca FIXA —, obriga a actualizar a contagem de ADRs e o
+mapeamento ADR → documento em [`../tecnica/INDICE.md`](../tecnica/INDICE.md) §5, e
+diria com um número novo o que o ADR-004 já diz. **O que falta para a promover está
+nomeado aqui; quem a promove é quem o fundador mandar.**
+
+**E há um gatilho que torna a pergunta inevitável.** No dia em que um ticket
+precisar de uma entrada que **não** seja um preço de catálogo, o montante de uma
+cobrança ou um facto de *ledger* — uma coluna cujo valor a plataforma **acumule** —,
+a pergunta deixa de ser sobre o nome da coluna e passa a ser sobre o próprio
+ADR-004. Essa é canónica, e não se decide num `ADR-L`.
+
+(**Não se escreve aqui o número canónico que ela teria**, pela razão que o
 `ADR-L005` e o `ADR-L006` já registaram: o `lint_refs` recusa uma referência a um
 `ADR-NNN` que o §8 não tem.)
 
@@ -187,11 +209,20 @@ quatro tickets em conflito em vez de um.
 
 **E a tabela de credores do ticket envelheceu entre a sua abertura e a decisão,
 o que fica dito porque muda o alcance do aviso.** O KAM-172 atribuía a
-`payment_charges` ao KAM-055; ela chegou com o **KAM-053**, na revisão `0029`,
-fundido a 2026-11-03 (`94bd634`, PR #104) — antes desta ratificação. Logo o aviso
-ao KAM-053 é **retroactivo**: ele escreveu três entradas com a pergunta ainda
-aberta, e o que esta decisão faz é cobri-las. As cinco entradas da allowlist à
-data desta página são as duas do KAM-043 e as três do KAM-053.
+`payment_charges` ao KAM-055; ela chegou com o **KAM-053**, na revisão `0029` —
+**CONFIRMADO**: `db/migrations/versions/0029_ledger_de_pagamentos.py` cria-a, e
+nenhuma revisão é atribuível ao KAM-055. O KAM-053 fundiu **no mesmo dia** desta
+ratificação: `94bd634` (PR #104), `2026-11-03 09:25:39 +0100`.
+
+**A ordem dentro do dia é INDÍCIO, e não se afirma como medida.** O *commit* tem
+hora; esta decisão tem **data e não hora**, pelo que nada no registo a ordena
+contra ele. O que se sabe sem a ordem é o que importa, e basta: o KAM-053 escreveu
+as suas três entradas enquanto a pergunta estava **escrita como aberta** no
+próprio `EM_UNIDADE_MENOR` — isso lê-se no ficheiro que ele fundiu —, e esta
+decisão cobre-as. Se alguém quiser fechar a ordem, o que falta é a hora da
+resposta do fundador, e o sítio é a secção «Decisão» desta página. As cinco
+entradas da allowlist à data desta página são as duas do KAM-043 e as três do
+KAM-053.
 
 **O que a ratificação não fecha.** A caixa do DoD do KAM-003 continua **não
 satisfeita**, e por uma razão que não é esta: o DDL aceita um tenant
