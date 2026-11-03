@@ -612,18 +612,20 @@ ci-4: coverage-node coverage-python ordem-dos-ensaios
 # padrao, e falha em milissegundos. Nao vale correr as suites para provar uma
 # propriedade cujo verificador nao se provou.
 #
-# As suites sao **duas**, e nao as 21 que o `coverage-python` corre. A razao
-# esta medida em `specs/tickets/KAM-173.md`: as 19 de `tools/` levam ~490 s
-# nesta maquina, pelo que a execucao a mais quase duplicava o lado Python do
-# gate 4. Mediram-se mesmo assim, para a divida ser informada e nao cega: 18
-# sem nenhuma mudanca de resultado, e a `meta-sim` NAO VERIFICADO por nao ser
-# importavel pelo `unittest discover`.
+# As suites sao **duas**, e nao todas as que o `coverage-python` corre. A razao
+# esta medida em `specs/tickets/KAM-173.md`: as 18 de `$(SUITES_DE_TOOLS)` que
+# existiam antes deste alvo levam **1 911 s** numa passagem nesta maquina, e
+# **1 422 desses sao da `supply_chain`** — tres quartos do total numa suite so.
+# A execucao a mais nao duplicava o lado Python do gate 4: multiplicava-o.
+# Mediram-se mesmo assim, para a divida ser informada e nao cega: 17 das 18 sem
+# nenhuma mudanca de resultado, e a `supply_chain` NAO VERIFICADO, porque
+# 2 x 1 422 s nao couberam na janela da medicao.
 #
 # shortcut: cobre `libs/py-core/tests` e `services/agr/tests`, e deixa de fora
-# as 19 suites de `tools/*/tests` e as de `db/`; revisto ate 2026-12-03 pelo
-# Engenheiro de Plataforma, com a pergunta escrita no bloco do KAM-173 — se os
-# ~490 s compram o que, e se a resposta e cobri-las aqui, numa prova nocturna,
-# ou nao as cobrir.
+# as suites de `tools/*/tests` (esta inclusive) e as de `db/`; revisto ate
+# 2026-12-03 pelo Engenheiro de Plataforma, com a pergunta escrita no bloco do
+# KAM-173 — se os 1 911 s compram o que, e se a resposta e cobri-las aqui, numa
+# prova nocturna, ou nao as cobrir.
 ordem-dos-ensaios:
 	@echo "==> ordem dos ensaios: as suites na ordem inversa (KAM-173)"
 	@$(PYTHON) -m ordem_dos_ensaios canario

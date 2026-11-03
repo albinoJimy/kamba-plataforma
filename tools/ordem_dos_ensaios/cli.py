@@ -20,8 +20,10 @@ registos quando algo corre mal.
    inversa tambem passa. Provar independencia era correr cada teste sozinho —
    537 processos para o `libs/py-core` — e isso e isolamento, nao ordem: outro
    problema, muito maior, e nao e este ticket.
-2. **Nao cobre as suites de `tools/`** nem as de `db/`. A razao e o custo,
-   medido, e esta escrita em `specs/tickets/KAM-173.md`.
+2. **Nao cobre as suites de `tools/`** — esta inclusive — nem as de `db/`. A
+   razao e o custo, medido: as 18 de `tools/` que existiam antes deste modulo
+   levam 1 911 s numa passagem, 1 422 deles da `supply_chain` so. Esta escrita
+   em `specs/tickets/KAM-173.md`, com dono e prazo.
 3. **Nao ve acoplamento entre processos** — ficheiros deixados no disco, portas,
    contentores. Isso e o *gate* 8 e o `db/mutacoes.py`.
 """
