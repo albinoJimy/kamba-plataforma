@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Core de Comércio |
-| Versão | 1.3 |
+| Versão | 1.5 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/03_Core_Comercio_Medusa.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -18,7 +18,7 @@ O **Core de Comércio (COM)** é o registo de produtos, encomendas, stock e rese
 
 O epic abre com um **spike de 5 dias** (KAM-041) com critérios de aceitação numéricos e uma matriz de 60 testes de isolamento entre vendedores, porque o Medusa v2 não é multi-tenant nativo (NÃO VERIFICADO) e o Mercur teve falhas de autorização entre vendedores corrigidas a 2026-10-08 (CONFIRMADO, E4). O Mercur fica fora do Piloto. O resto do epic constrói sobre a decisão D3: porta e adaptador (KAM-042), preço opaco e stock não-garantido (KAM-043), encomendas (KAM-044), reservas com expiração (KAM-045), criação idempotente de pedido (KAM-046), módulo `servicos` (KAM-047), lembretes (KAM-048), Catálogo AI (KAM-049), estados adicionais (KAM-050) e o contrato de leitura para o índice (KAM-051). Nunca há fundos de terceiros no COM (ADR-004): reembolsos são manuais.
 
-Concretiza ADR-003, ADR-004, ADR-006, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-014. São **11 tickets**: 7 na **Fase 0** (KAM-041 a KAM-047, esqueleto andante) e 4 na **Fase 1** (KAM-048 a KAM-051). Piloto = só Fluxo A: `origem = 'plataforma'`, PME light e encomendas multi-vendedor ficam no DDL mas não entram em produção (ADR-011). A documentação oficial do Medusa v2 não foi acessível na pesquisa de 8 de Outubro de 2026 (E4 §6): o que é dito sobre capacidades do Medusa é hipótese a validar no spike, não facto.
+Concretiza ADR-003, ADR-004, ADR-006, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-014. São **12 tickets**: 8 na **Fase 0** (KAM-041 a KAM-047, esqueleto andante, e o KAM-176, acrescentado depois) e 4 na **Fase 1** (KAM-048 a KAM-051). Piloto = só Fluxo A: `origem = 'plataforma'`, PME light e encomendas multi-vendedor ficam no DDL mas não entram em produção (ADR-011). A documentação oficial do Medusa v2 não foi acessível na pesquisa de 8 de Outubro de 2026 (E4 §6): o que é dito sobre capacidades do Medusa é hipótese a validar no spike, não facto.
 
 ---
 
@@ -51,6 +51,7 @@ Concretiza ADR-003, ADR-004, ADR-006, ADR-007, ADR-009, ADR-010, ADR-012, ADR-01
 | KAM-049 | Catálogo AI: foto → produto, normalização PT-AO e perguntas de completude | feature | L | P0 | KAM-042, KAM-020, KAM-030, KAM-043, KAM-088, KAM-069, ext:KAM-101 |
 | KAM-050 | Estados adicionais da encomenda: pagamento tardio, disputa, entrega falhada, reembolso | feature | M | P1 | KAM-044 |
 | KAM-051 | Contrato `v_oferta_viva` e leitura para o índice | feature | S | P0 | KAM-043 |
+| KAM-176 | Um `UPDATE` sem linhas no `order_state_log` não é recusado: o *trigger* por instrução cobre o `DELETE` e não o `UPDATE` | fix | S | P1 | KAM-044 |
 
 ---
 
@@ -590,7 +591,7 @@ Commits: feat(KAM-043): …
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-042, KAM-005, KAM-008, KAM-004 |
-| Bloqueia | KAM-045, KAM-046, KAM-050, KAM-055, KAM-096, KAM-097, KAM-099, KAM-117 |
+| Bloqueia | KAM-045, KAM-046, KAM-050, KAM-055, KAM-096, KAM-097, KAM-099, KAM-117, KAM-176 |
 | Responsável sugerido | Engenheiro de Comércio |
 | Documentos de referência | `../docs/tecnica/03_Core_Comercio_Medusa.md` (§5.4, §6.1, §6.2, §10), `../docs/tecnica/00_Arquitectura_Solucao.md` (§6.1), ADR-009, ADR-013, ADR-010 |
 
@@ -604,14 +605,72 @@ Implementar `orders_mirror`, `order_state_log`, `order_state_graph`, a função 
 
 ### Critérios de Aceitação
 
-- [ ] A tabela `order_state_graph(de, para)` contém as transições do núcleo de `../docs/tecnica/03` §6.2 (criada, aguarda_pagamento, pendente_confirmacao, paga, expirada, cancelada, entregue por levantamento; `em_entrega` atrás de `COM_DELIVERY_ENABLED`, desligado no Piloto); um teste *table-driven* sobre todos os pares de estados prova que só os pares do grafo passam e os restantes são rejeitados pelo *trigger* `BEFORE UPDATE`.
-- [ ] `transition(ctx, id, to, expectedVersion, causa)` faz `UPDATE … WHERE id=$1 AND version=$2 AND estado=$de RETURNING *`, grava `order_state_log` e `events_outbox` na **mesma transacção**; 20 transições concorrentes sobre a mesma versão produzem 1 vencedora e 19 conflitos que releem e reavaliam (nunca forçam).
+- [x] A tabela `order_state_graph(de, para)` contém as transições do núcleo de `../docs/tecnica/03` §6.2 (criada, aguarda_pagamento, pendente_confirmacao, paga, expirada, cancelada, entregue por levantamento; `em_entrega` atrás de `COM_DELIVERY_ENABLED`, desligado no Piloto); um teste *table-driven* sobre todos os pares de estados prova que só os pares do grafo passam e os restantes são rejeitados pelo *trigger* `BEFORE UPDATE`.
+- [x] `transition(ctx, id, to, expectedVersion, causa)` faz `UPDATE … WHERE id=$1 AND version=$2 AND estado=$de RETURNING *`, grava `order_state_log` e `events_outbox` na **mesma transacção**; 20 transições concorrentes sobre a mesma versão produzem 1 vencedora e 19 conflitos que releem e reavaliam (nunca forçam).
 - [ ] `transition` para `paga` só é aceite com `causa.evento_id` de evento autenticado do PAY (`paga_via ∈ {provider_autenticado, manual_auditado}`) e actor `sistema`; actor `agente` ou `dono` sem evento é recusado (teste).
-- [ ] `lines_snapshot` é imutável depois de `aguarda_pagamento` (*trigger* rejeita `UPDATE`); `total_minor ≥ 0` e `currency` explícita.
-- [ ] `numero_publico` base32 sem ambíguos (≤ 8 caracteres, por exemplo `K7H3Q9`), único por tenant; 10.000 gerações sem colisão no teste.
-- [ ] `orders_mirror`, `order_state_log` e `order_intents` têm RLS `FORCE`; `order_state_log` é *append-only* (só `INSERT` para `kamba_app`); consulta com `tenant_id` de outro tenant devolve 0 linhas (ISO-39..42).
+- [x] `lines_snapshot` é imutável depois de `aguarda_pagamento` (*trigger* rejeita `UPDATE`); `total_minor ≥ 0` e `currency` explícita.
+- [x] `numero_publico` base32 sem ambíguos (≤ 8 caracteres, por exemplo `K7H3Q9`), único por tenant; 10.000 gerações sem colisão no teste.
+- [x] `orders_mirror`, `order_state_log` e `order_intents` têm RLS `FORCE`; `order_state_log` é *append-only* (só `INSERT` para `kamba_app`); consulta com `tenant_id` de outro tenant devolve 0 linhas (ISO-39..42).
 - [ ] O *job* de reconciliação (cada 5 min por tenant activo e após falha de *saga*) cobre as 5 regras de §10.3 (órfão no Registo → completa; espelho sem encomenda → alerta crítico; divergência de total/linhas → vence o `lines_snapshot`; reserva sem encomenda → corrige pelo COM; estado divergente → vence o espelho) e grava `causa='reconciliacao'`.
 - [ ] Eventos `order.created`, `order.paid`, `order.expired`, `order.cancelled`, `order.delivered`, `order.reconciliation_issue` saem pelo *outbox* com envelope validado (ISO-43..46) e sem PII.
+
+### Verificação dos Critérios de Aceitação
+
+**Cinco caixas marcadas de oito, e quatro de seis na Definition of Done.** As três
+que ficam vazias estão nomeadas, com a razão e com o credor — e nenhuma delas é
+trabalho que este ticket possa fazer: duas pedem uma coisa que **não existe no
+canon** (um contrato de evento, uma FK), e a terceira pede um *job* agendado e
+correcções do lado do Registo, que é software que não está em
+`../infra/compose/`.
+
+**O código foi fundido na `main` a 2026-11-03 (`84f3169`, PR #112) com os treze
+portões bloqueantes verdes, e esta secção chega depois.** Isso é um defeito de
+processo e fica dito: entre a fusão e esta secção, o `vagas.py` da fábrica contou
+o KAM-044 como **vaga pronta** — ele decide pela **existência** deste cabeçalho e
+não pelas caixas —, pelo que durante umas horas outra sessão podia ter
+reimplementado o que já estava fundido. Quem fundir código sem escrever a
+verificação deixa o ticket aberto no *backlog* com o trabalho feito.
+
+**As medições desta secção, nesta máquina e contra um PostgreSQL 18.6 em Docker.**
+A suite nova foi corrida **outra vez** ao escrever esta secção, contra a árvore
+que está na `main`, para que os números não sejam de uma execução antiga:
+`python db/gate_bd.py --suite tests_encomendas` → **`Ran 90 tests in 120.683s`
+/ `OK`**. As outras, da entrega: `--suite tests` → `Ran 657 tests / OK`;
+`--suite tests_isolamento` → `Ran 79 tests / OK`; as sete mutações da revisão
+`0030` → `7 corridas, 0 não apanhadas`, com a linha de base verde; os cinco
+*linters* documentais a 0; e os **treze portões bloqueantes** verdes no `84f3169`
+(os dois que falham — `gate 5 — reservado` e `vigia — prova nocturna` — têm «não
+bloqueia» no nome e falham **também na `main`**, medido na corrida
+`41658768999`). Os ensaios **TypeScript não correm nesta máquina** (não há
+`node`): correm no *gate* 7, verde.
+
+**A revisão adversarial mudou a barreira central do ticket**, e vale mais do que
+qualquer outra linha desta secção. Ela correu contra o `33af7f5`, sem o meu
+raciocínio, e levantou **doze achados: 11 CONFIRMADO, 1 declarado, 0 mortos**.
+Verifiquei cada um; nenhum caiu na verificação, e um precisou de ser confrontado
+com o *commit* exacto que ela leu — onde ela tinha razão. Os que mudaram o
+resultado:
+
+| O que ela encontrou | O que mudou |
+|---|---|
+| **O `paga` alcançava-se sem evento autenticado.** As três condições do *trigger* diferido — actor `sistema`, `evento_id` não vazio, causa do PAY — **não ligavam aquele texto a evento nenhum**; ela escreveu `paga` como `kamba_app` com `evento_id='inventado-pelo-app'`, com o *outbox* e o `payment_events` a zero | A âncora passou a ser o **recibo de consumo** do KAM-006 (`platform.events_consumed`), **deste tenant**. Dois ensaios novos e uma mutação que os mata. E a própria semente da suite gerava `evt-<hex>`: **os meus ensaios passavam com um evento que não existe** |
+| A reconciliação **nunca corrigia**: o `corrigir` era código morto, e três sítios afirmavam que completava o espelho | O ramo morto saiu, e o módulo passa a dizer **regra a regra, com o credor de cada uma**, porque é que nenhuma tem correcção local |
+| A cópia lógica do `downgrade` gravava `jsonb` como `repr` de Python, e **não recarregava** | `dict` e `list` passam sem `str()`. Era a única prova das linhas de uma encomenda real |
+| A regra 4 da reconciliação dava **falso positivo** em `pendente_confirmacao`, contra o índice parcial da própria revisão | `COM_RESERVA` passa a dois estados, com ensaio |
+| O `mirror.ts` gravava `preco_minor` como **cadeia** num `lines_snapshot` que congela a seguir — o erro seria permanente | Vai pelo `emInteiroSeguro`, como o *payload* |
+| A `0030` **não estava na prova por mutação**, e o `ENABLE ALWAYS` dos cinco *triggers* ficava sem teste | Sete mutações, `7 corridas, 0 não apanhadas`, e três ensaios novos do `ENABLE ALWAYS`. E apareceu a razão pela qual nenhuma suite que lê TypeScript tinha mutações: o `_copiar` do corredor não levava `services/com/src` |
+| A contagem dos pares de estados estava **inflacionada** em quatro sítios | São **78 dos 88** medidos por execução, e a mutação do grafo confirmou-o por fora: 77 ensaios vermelhos |
+
+| # | Critério | Estado | O que se mediu, e com que comando |
+|---|---|---|---|
+| 1 | `order_state_graph(de, para)` com as transições do núcleo; teste *table-driven* sobre **todos** os pares prova que só os do grafo passam | **marcada** | A tabela tem **exactamente as doze** do núcleo, afirmado por igualdade de conjunto, e as duas atrás de `COM_DELIVERY_ENABLED` são as do `em_entrega` — `test_a_tabela_tem_exactamente_as_doze_do_nucleo`, `test_as_duas_atras_da_bandeira_sao_as_do_em_entrega`. Os pares medem-se em três grupos e a soma é a matriz inteira: **88 por execução** (`test_so_os_pares_do_grafo_passam_e_os_restantes_sao_recusados`, com 78 recusados pelo *trigger*), **8 pares `X → X`** que não são transições (`test_os_pares_x_para_x_nao_sao_transicoes`) e **48 por construção**, em que entra um dos quatro estados do KAM-050, inalcançáveis porque o grafo não tem aresta para lá (`test_nenhuma_transicao_sai_dos_quatro_do_kam_050`). Mais as saídas do `em_entrega` nos dois sentidos da bandeira. **E o canário, sem o qual nada disto distingue o *trigger* de um `CHECK` de domínio:** desligado o `order_transicao_valida`, a transição inválida tem de **passar** — `TestCanarioDoTrigger`, com o `ALTER TABLE` revertido na mesma transacção. **A primeira versão desta caixa dizia «120 dos 144» e estava errada em quatro sítios:** eu próprio o encontrei a contar o ficheiro, e a revisão adversarial acrescentou os dois comentários de *gate* que me faltavam. A contagem agora é por execução e não por aritmética |
+| 2 | `transition` faz o CAS, grava `order_state_log` e `events_outbox` na **mesma transacção**; 20 concorrentes dão 1 vencedora e 19 conflitos que releem | **marcada** | Vinte ligações na mesma versão: **uma vencedora, dezanove conflitos**, e nenhuma forçou — `test_vinte_na_mesma_versao_dao_uma_vencedora_e_dezanove_conflitos`. A «mesma transacção» é **imposta e não combinada**: um `CONSTRAINT TRIGGER … DEFERRABLE INITIALLY DEFERRED` corre no `COMMIT` e levanta `KA005` se a transição não trouxer registo (`test_mudar_de_estado_sem_gravar_o_registo_nao_passa`), e uma falha depois da emissão reverte as duas escritas (`test_uma_falha_depois_da_emissao_reverte_as_duas_escritas`). **E uma medição que corrigiu a minha própria premissa:** o canário dizia que sem `version = $3` as vinte ganhariam mais do que uma, e **ganha uma** — a reavaliação do `WHERE` sob `READ COMMITTED` serializa pelo predicado do estado sozinho. O canário ficou **invertido** (`test_o_predicado_do_estado_sozinho_tambem_da_uma_vencedora`) e o que mede o que o `version` acrescenta passou a ser o **ciclo** `aguarda_pagamento → expirada → aguarda_pagamento`, onde o estado repete e só a versão distingue (`test_canario_o_que_o_version_acrescenta_e_apanhar_o_ciclo`) |
+| 3 | `transition` para `paga` só com `causa.evento_id` de evento **autenticado do PAY** e actor `sistema`; `agente` ou `dono` sem evento é recusado | **vazia**, `parcial` | **O que está medido, e é a parte que a revisão adversarial reconstruiu:** nove caminhos de recusa em `TestPagaExigeEventoAutenticado` — actor `dono` sem evento, actor `agente` **mesmo com** evento, `sistema` com causa que não é do PAY, `evento_id` vazio, **um evento inventado**, **um evento consumido por outro tenant**, e `paga` sem `paga_via` das duas. Mais as cinco outras vias, todas fechadas: `INSERT` directo em `paga`, versão ≠ 1 ao nascer, `session_replication_role = replica`, e um registo que descreve outra transição (`TestAQuintaVia`, `test_em_modo_replica_a_transicao_invalida_continua_recusada`). A barreira assenta no **recibo de consumo** do KAM-006, e isso prova que a transição correu **dentro do consumo de um evento que entrou pela fila**. **O que não se cumpre à letra:** que o evento seja **autenticado pelo PAY**. Verificar o `authn_ok` contra `platform.payment_events` exige a FK `payment_charges.order_id → orders_mirror`, que **não existe** — e uma barreira assente numa coluna que ninguém impõe não é uma barreira. **Credor: KAM-055**, que consome `payment.confirmed` e que esta entrega passa a obrigar por contrato novo: **tem de inserir em `events_consumed` antes de chamar `transition`**. A caixa não se marca enquanto a FK não existir |
+| 4 | `lines_snapshot` imutável depois de `aguarda_pagamento`; `total_minor ≥ 0`; `currency` explícita | **marcada** | As três metades, e a fronteira nos dois sentidos: em `criada` as linhas **ainda mudam**, depois de `aguarda_pagamento` **não** (`test_em_criada_as_linhas_ainda_mudam`, `test_depois_de_aguarda_pagamento_as_linhas_nao_mudam`), o total **congela com as linhas e não sozinho**, e as outras colunas continuam a mudar — sem este último, um *trigger* que congelasse a linha inteira passava o ensaio e partia o ticket. Total negativo e moeda fora do domínio dão `23514`; a moeda tem omissão e **não fica por dizer**; um `lines_snapshot` que não é lista é recusado. `TestSnapshotImutavel`, oito casos. A revisão adversarial mediu ainda que nada disto muda **nem como superutilizador** |
+| 5 | `numero_publico` base32 sem ambíguos, ≤ 8 caracteres, único por tenant; 10 000 gerações sem colisão | **marcada** | **Dez mil gerações, zero colisões** (`test_dez_mil_geracoes_sem_colisao`), oito dígitos de 40 *bits* exactos, alfabeto Crockford de 32 símbolos **sem `I`, `L`, `O` nem `U`** (`test_o_alfabeto_nao_tem_ambiguos`), e os trinta e dois aparecem todos — este último é o que apanha um gerador que nunca alcança parte do alfabeto. A unicidade é **por tenant e não global** (`test_e_unico_por_tenant_e_nao_global`), um número com caractere ambíguo é recusado pelo `CHECK`, e o exemplo que o critério escreve (`K7H3Q9`) passa. A revisão adversarial confirmou por fora: 40 *bits*, nenhum símbolo inalcançável em **20 000** gerações, e as duas probabilidades escritas na revisão estão certas (32⁸ dá 4,5 × 10⁻⁵ de colisão em 10 000 extracções; 32⁶ daria 4,6 %) |
+| 6 | RLS `FORCE` nas três tabelas; `order_state_log` *append-only* (só `INSERT` para `kamba_app`); ISO-39..42 | **marcada** | As bandeiras lidas do catálogo: `relrowsecurity` **e** `relforcerowsecurity` verdadeiras nas **quatro** tabelas com `tenant_id`, com política `tenant_iso` (`test_as_quatro_tem_enable_force_e_politica`), e o `order_state_graph` **sem** RLS, que não é falta — não tem `tenant_id`, como a `evt_subscricoes` da `0004`. A gama ISO-39..42 na forma do §4.4, como `kamba_app` e nunca como administrador, com a sonda positiva primeiro. O *append-only* está medido pelos **dois** lados: por privilégio (`test_o_kamba_app_nao_tem_update_nem_delete_no_registo`) e pelo *trigger*, que recusa **também ao superutilizador** (`test_o_deny_mutation_recusa_tambem_ao_superutilizador`) — e em `session_replication_role = replica` continua a recusar, porque os cinco são `ENABLE ALWAYS`. Mais o `DELETE` **sem linhas**, que um *trigger* por linha não apanha e que levou um `FOR EACH STATEMENT` próprio. `db/tests_encomendas/test_isolamento.py`, e o *gate* 6 inteiro em `Ran 79 tests / OK`. **Uma ressalva que é agora um ticket, e fica escrita em vez de descoberta por outro:** aquele `FOR EACH STATEMENT` é `BEFORE TRUNCATE OR DELETE` e **não cobre o `UPDATE`**, pelo que um `UPDATE` sem linhas devolve `UPDATE 0` a quem tem o privilégio (o dono, não o `kamba_app`). A letra deste critério — «só `INSERT` para `kamba_app`» — cumpre-se; a propriedade tem meia porta aberta para quem tem privilégio. Está na **dívida 176** com credor **KAM-176**, aberto e fundido a 2026-11-03 |
+| 7 | *Job* de reconciliação (cada 5 min por tenant activo e após falha de *saga*) com as **5 regras** de §10.3, e `causa='reconciliacao'` | **vazia**, `parcial` | **O que está medido:** as cinco regras existem como função pura, cada uma com tipo próprio, e **abrem divergência** em `platform.order_reconciliation_issues` (`test_as_cinco_regras_tem_tipo_e_abrem_divergencia`); um tipo fora das cinco é recusado pelo `CHECK`; a divergência fecha-se **e só uma vez**; e o `causa='reconciliacao'` entra no registo e está afirmado (`test_uma_correccao_grava_causa_reconciliacao`). Mais a metade negativa que importa mais do que as outras: **a reconciliação não leva uma encomenda a `paga`** (`test_a_reconciliacao_nao_leva_uma_encomenda_a_paga`) — sem ela, a regra 1 fazia do `paga` um estado alcançável por uma projecção do Registo, contra o ADR-013. **O que não se cumpre à letra, e são três coisas:** (a) **nenhuma regra tem correcção local** — a 1 é o `createOrder` (**KAM-046**), a 4 é o `releaseReservation` (**KAM-045**), e a 2, 3 e 5 corrigem-se do lado do Registo; o `corrigir` que eu tinha escrito era código morto e a revisão adversarial apanhou-o; (b) **o agendamento «cada 5 min por tenant activo e após falha de *saga*» não existe** — credor **KAM-071**; (c) as correcções que tocam o Registo são **NÃO VERIFICADAS**, porque não há Medusa em `../infra/compose/`, o que o KAM-042 já registou ao deixar o `RegistoAdmin` sem cliente HTTP. O ensaio «falha injectada entre Registo e espelho recupera ≤ 5 min» dos Testes Requeridos **não corre** pela mesma razão. **Devolvido**, com os três credores nomeados |
+| 8 | Os **seis** eventos saem pelo *outbox* com envelope validado (ISO-43..46) e sem PII | **vazia**, `parcial` | **Saem cinco, e o sexto não existe.** O `order.reconciliation_issue` **não tem contrato publicado**: `../contratos/eventos/` tem 38 pastas, o `contract_diff` prende `ESPERADOS = 38`, o §3.5 do dicionário fixa os trinta e oito tipos do Piloto e o `../docs/tecnica/06` §5 não o lista — emiti-lo levanta `TipoDesconhecidoError` no `validarPayload` **antes** de o *gate* 7 ver o envelope. **A ausência está medida e não suposta** (`test_o_sexto_tipo_nao_tem_contrato_publicado`), e a divergência entra como **dívida documental 174**, **sem credor**: o que falta decidir é se o evento existe — se existir, é um contrato novo, a contagem corrigida em três ficheiros e o `FORA_DO_CINCO` daquele teste; se não existir, sai do §12 do `../docs/tecnica/03`. A divergência de reconciliação fica em `platform.order_reconciliation_issues`, que são os *Detalhes Técnicos* deste bloco à letra. **O que está medido para os cinco:** entram no *outbox* com agregado `order`, o envelope leva classe PII `P0` e finalidade de transacção, **nenhum *payload* leva nome, morada nem `msisdn`** (afirmado por ausência explícita e não por inspecção), um *payload* com telefone é recusado pela guarda da `0004`, e o envelope de outro tenant é recusado. `db/tests_encomendas/test_outbox.py`. **Devolvido a quem decide se o evento existe** |
 
 ### Detalhes Técnicos
 
@@ -634,11 +693,22 @@ Implementar `orders_mirror`, `order_state_log`, `order_state_graph`, a função 
 ### Definition of Done
 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
-- [ ] **Isolamento de tenant:** RLS `FORCE` e suite cruzada cobrem o novo caminho (ADR-015).
-- [ ] **Pagamento só por evento autenticado:** nenhuma via leva a `paga` sem evento ou confirmação manual auditada (ADR-013).
-- [ ] **Idempotência:** `transition` repetida não duplica `order_state_log` nem eventos (CAS + chave do evento).
-- [ ] **Privacidade:** sem `msisdn` em tabela de pedidos; lint de colunas no CI (ADR-010).
+- [x] **Isolamento de tenant:** RLS `FORCE` e suite cruzada cobrem o novo caminho (ADR-015).
+- [x] **Pagamento só por evento autenticado:** nenhuma via leva a `paga` sem evento ou confirmação manual auditada (ADR-013).
+- [x] **Idempotência:** `transition` repetida não duplica `order_state_log` nem eventos (CAS + chave do evento).
+- [x] **Privacidade:** sem `msisdn` em tabela de pedidos; lint de colunas no CI (ADR-010).
 - [ ] **Migrações reversíveis:** `downgrade` aditivo testado; revisão por dois revisores (dinheiro e isolamento).
+
+### Verificação da Definition of Done
+
+| # | Item | Estado | O que se mediu |
+|---|---|---|---|
+| 1 | Todos os Critérios de Aceitação satisfeitos e demonstráveis | **vazia** | Cinco de oito. Os critérios 3, 7 e 8 ficam `parcial`, e as três razões são do mesmo tipo: pedem uma FK, um *job* agendado e um contrato de evento que **não existem**, e cuja criação é de outro ticket ou de uma decisão em aberto — **KAM-055**, **KAM-071**/**KAM-045**/**KAM-046**, e a **dívida 174**. Esta caixa não se marca enquanto essas três não fecharem |
+| 2 | **Isolamento de tenant:** RLS `FORCE` e suite cruzada cobrem o novo caminho (ADR-015) | **marcada** | Ver o critério 6 para as bandeiras e a gama ISO. **E o X-03/X-04/X-05 do *gate* 6 cobre as tabelas novas a sério, o que custou mais do que declarar quatro linhas:** a bateria exige **receita de sementes** por tabela com `tenant_id` e sem ela nem arranca, e a `order_state_log` teve de ir para `SEM_RECEITA_COM_RAZAO` — a bateria limpa com `DELETE` e o `deny_mutation` recusa-o, como na `audit_log`. Seis listas fechadas precisaram de entrada: `tests/base.py`, `test_catalogo.py` (quatro), `test_inventario.py` (quatro), `test_privilegios.py`, `tests_isolamento/sementes.py` e `test_x05_catalogo.py` (duas). `python db/gate_bd.py --suite tests_isolamento` → `Ran 79 tests / OK`; `--suite tests` → `Ran 657 tests / OK`. `ci/rls_exceptions.yaml` **não** ganhou entrada nenhuma |
+| 3 | **Pagamento só por evento autenticado:** nenhuma via leva a `paga` sem evento ou confirmação manual auditada (ADR-013) | **marcada** | **Esta caixa marca-se e o critério 3 não, e a diferença é exacta:** o critério pede que o evento seja **autenticado pelo PAY**, que não se prova sem a FK do KAM-055; esta caixa pede que **nenhuma via** leve a `paga` sem evento ou confirmação manual auditada, e isso está medido e fechado. As vias procuradas e fechadas: `transition` sem recibo de consumo, com actor que não é `sistema`, com causa fora de `{payment.confirmed, payment.manual_confirmed}`, com `evento_id` vazio ou inventado, com recibo de outro tenant; `INSERT` directo em `paga`; `UPDATE` em `session_replication_role = replica`; um registo que descreve outra transição; e a reconciliação. A guarda do tecto manual do `pendente_confirmacao` lê pelo caminho canónico (`platform.ten_tecto`) nas duas camadas e **falha fechada** quando o entitlement não declara a chave ou está inactivo — `TestGuardaDoTectoManual`, seis casos |
+| 4 | **Idempotência:** `transition` repetida não duplica `order_state_log` nem eventos | **marcada** | A idempotência está na **restrição e não no código**: `UNIQUE (tenant_id, order_id, version)` no registo, pelo que a mesma transição gravada duas vezes dá `23505` (`test_a_mesma_transicao_gravada_duas_vezes_e_unicidade`), e o CAS garante que a segunda tentativa na mesma versão é **conflito** e relê em vez de forçar. Uma versão antiga é conflito e **não erro** (`test_uma_versao_antiga_e_conflito_e_nao_erro`), que é a distinção de que o chamador precisa para decidir se relê ou desiste |
+| 5 | **Privacidade:** sem `msisdn` em tabela de pedidos; *lint* de colunas no CI (ADR-010) | **marcada** | Nenhuma das cinco tabelas da revisão `0030` tem `msisdn`: a encomenda aponta para `contact_id` por **FK composta** `(tenant_id, contact_id)`, que é a lição ISO-58 do *spike* KAM-041. Medido pelo inventário coluna a coluna das cinco tabelas em `db/tests/test_inventario.py` e pelo *lint* de colunas que corre no CI — o *gate* 8 verde no `84f3169` é a medição. E nenhum dos cinco *payloads* leva nome, morada nem `msisdn`, com a guarda de PII da `0004` a recusar um telefone no envelope |
+| 6 | **Migrações reversíveis:** `downgrade` aditivo testado; revisão por **dois revisores** (dinheiro e isolamento) | **vazia**, `parcial` | **A metade do `downgrade` está medida e é mais do que o critério pede:** `TestDowngradeDa0030`, quatro casos — com as tabelas vazias desce e sobe **sem pedir cópia**; com linhas e sem a variável **recusa e não apaga nada**; com a variável escreve a cópia lógica e desce; e a cópia **não vai por cima** de uma anterior (`O_EXCL`, 0600). Não é um `downgrade` destrutivo: ele **recusa-se** a correr antes de perder o rasto de auditoria, que é a forma que o ticket escolheu para «aditivo» numa tabela *append-only*. O *gate* 8 corre `upgrade`, `downgrade` e `upgrade` numa base limpa. **O que não se cumpre à letra:** «revisão por **dois revisores** (dinheiro e isolamento)». Houve **uma** revisão adversarial independente, com os doze achados verificados um a um e fechados por teste. Duas leituras humanas não aconteceram, e a razão não é minha para escrever: a decisão em vigor nesta fase é uma revisão adversarial por ticket e fusão com CI verde **sem revisão humana até produção**. **Devolvido a quem escreveu o critério** — emendar a letra de um critério é de quem o escreveu —, com a metade do `downgrade` medida e a outra nomeada |
 
 ### Handoff para Claude Code
 
@@ -1346,6 +1416,292 @@ Testes: contrato, isolamento, EXPLAIN, integração com idx fake. PR com o templ
 
 ---
 
+## KAM-176 — Um `UPDATE` sem linhas no `order_state_log` não é recusado: o *trigger* por instrução cobre o `DELETE` e não o `UPDATE`
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-04 — Core de Comércio |
+| Fase | 0 |
+| Tipo | fix |
+| Prioridade | P1 |
+| Estimativa | S |
+| Dependências | KAM-044 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Comércio |
+| Documentos de referência | `../db/migrations/versions/0030_encomendas_e_estados.py` (a função `_registo()` e a nota dos *triggers*), `../db/migrations/versions/0029_ledger_de_pagamentos.py`, `../db/tests_encomendas/test_isolamento.py`, `../db/tests_encomendas/test_grafo.py` (o `TestCanarioDoTrigger`), `../db/mutacoes.py`, `../docs/dividas-documentais.md` (dívidas 175 e 176), `../docs/tecnica/08_Seguranca_Conformidade.md` §6, `EPIC-05_Pagamentos_Billing.md` (bloco KAM-175), ADR-013 |
+
+### Contexto
+
+**A barreira que torna o registo `append-only` fecha o `DELETE` sem linhas e
+deixa o `UPDATE` sem linhas passar — e o argumento que fecha um está escrito ao
+lado do outro.** A revisão `../db/migrations/versions/0030_encomendas_e_estados.py`
+protege a `platform.order_state_log` com dois *triggers* sobre a mesma função
+`platform.deny_mutation()`, os dois `ENABLE ALWAYS`:
+
+* `order_state_log_sem_mutacao` — `BEFORE UPDATE OR DELETE … FOR EACH ROW`;
+* `order_state_log_sem_truncate` — `BEFORE TRUNCATE OR DELETE … FOR EACH STATEMENT`.
+
+Um *trigger* por linha **não dispara quando não há linha nenhuma**. O do
+`DELETE` sem linhas está fechado, porque o por instrução inclui `DELETE`. O do
+`UPDATE` não: `UPDATE platform.order_state_log SET … WHERE <predicado que não
+casa>` não é recusado por nenhum dos dois, devolve `UPDATE 0` e passa.
+
+**Medido, e não deduzido.** A 2026-11-03, ao escrever o KAM-175, contra um
+PostgreSQL **18.6** real (`pgvector/pgvector:0.8.7-pg18`, a mesma imagem do
+`../infra/compose/docker-compose.dev.yml`), com as três formas reproduzidas em
+tabelas de ensaio:
+
+| Instrução | Forma da `0029` | Forma da `0030` (hoje) | Forma que este ticket impõe |
+|---|---|---|---|
+| `DELETE` **com** linhas | recusado (`42501`) | recusado | recusado |
+| `DELETE` **sem** linhas | `DELETE 0` | recusado | recusado |
+| `UPDATE` **com** linhas | recusado | recusado | recusado |
+| `UPDATE` **sem** linhas | `UPDATE 0` | **`UPDATE 0`** | recusado |
+| `TRUNCATE` | recusado | recusado | recusado |
+
+E confirma-se na própria revisão, sem levantar base nenhuma: o
+`CREATE TRIGGER order_state_log_sem_truncate` diz `BEFORE TRUNCATE OR DELETE` e
+para ali.
+
+**A ironia, que é a parte que importa guardar.** O comentário imediatamente
+acima daquele `CREATE TRIGGER`, no KAM-044, escreve o argumento inteiro — «um
+`BEFORE DELETE … FOR EACH ROW` não dispara quando não há linhas», «com o
+`FOR EACH STATEMENT`, a recusa vem antes de haver linhas e é a mesma para o caso
+que apaga e para o que não apaga». O argumento não tem nada de particular ao
+`DELETE`: vale letra por letra para o `UPDATE`, que está no *trigger* por linha
+pela mesma razão. O KAM-044 seguiu-o até metade. Não é uma gralha de digitação,
+é uma dedução deixada a meio, e é por isso que o ticket vale uma linha de
+*backlog* em vez de uma correcção silenciosa.
+
+**Quem alcança o caso, e porque é que continua a ser um defeito.** O
+`kamba_app` não chega lá: ele tem `INSERT` e `SELECT` no registo e mais nada, e
+um `UPDATE` dele falha por privilégio (`../db/tests_encomendas/test_isolamento.py`,
+`test_o_kamba_app_nao_tem_update_nem_delete_no_registo`). Quem alcança é quem
+tem o privilégio — o dono da tabela, o migrador, um superutilizador. É
+exactamente contra esses que a barreira existe, e é essa a razão pela qual o
+`DELETE` sem linhas se fechou: o ensaio que o prova corre na ligação de semente,
+que é o dono, e espera `42501` vindo do *trigger* e não do `GRANT`. Nenhuma
+linha se perde — o que falha é a **propriedade**, não os dados. Quem audita a
+tabela, como o `../docs/tecnica/08_Seguranca_Conformidade.md` §6 manda, corre a
+instrução proibida e lê `UPDATE 0` sem erro, indistinguível de «a tabela aceita
+`UPDATE` e não havia nada para actualizar».
+
+**Como apareceu.** Ao escrever o KAM-175, que é o credor da metade gémea na
+`platform.payment_events`. A medição desse ticket varreu as revisões todas e
+encontrou a classe: está na **dívida 176** de `../docs/dividas-documentais.md`
+(linha de versões 1.91), que atribui quatro credores, um por tabela. Este ticket
+é o credor de **uma** delas.
+
+**As três tabelas irmãs não são deste ticket.** A `platform.audit_log` (`0006`,
+**KAM-012**), a `platform.tool_audit` (`0021`, **KAM-028**) e a
+`dat.llm_call_log` (`0023`, **KAM-030**) escrevem o par da `0029` e têm as
+**duas** metades abertas. Não se tocam aqui, e a razão é a fronteira que a
+dívida 175 desenhou e que a 176 herdou: a barreira de uma tabela *append-only*
+decide-se em quem a tem. A `dat.llm_call_log` leva ainda uma pergunta própria,
+por ser **particionada**: a `0023` mediu que o por linha e o
+`BEFORE TRUNCATE … FOR EACH STATEMENT` no pai são aceites e que uma partição
+nova os herda, e não diz nada sobre um `BEFORE UPDATE … FOR EACH STATEMENT` no
+pai. Mede-se no ticket dela.
+
+### Objectivo
+
+Fazer com que a `platform.order_state_log` recuse `UPDATE`, `DELETE` e
+`TRUNCATE` **independentemente de quantas linhas a instrução toca**, pela mesma
+função `deny_mutation` e sem *trigger* novo nem função nova: o que muda é a
+lista de eventos do *trigger* por instrução que já existe. E deixar escrito, no
+ficheiro, qual dos dois *triggers* dá a propriedade — porque depois desta
+alteração o por linha já não é o que a dá.
+
+### Critérios de Aceitação
+
+- [ ] 1. O `order_state_log_sem_truncate` passa a
+  `BEFORE TRUNCATE OR DELETE OR UPDATE … FOR EACH STATEMENT`, continua
+  `ENABLE ALWAYS` e continua a chamar a `platform.deny_mutation()`. **Não há
+  *trigger* novo e não há função nova**, e os dois nomes ficam como estão: é o
+  que mantém verdes os três ensaios do `ENABLE ALWAYS` do
+  `../db/tests_encomendas/test_isolamento.py` — dois deles a correr em
+  `session_replication_role = replica` — e o inventário de
+  `../db/tests/test_inventario.py`, que prende os nomes dos objectos da `0030`.
+  Medido: um `UPDATE` sem linhas passa a ser recusado com `42501`
+  (`insufficient_privilege`), que é o `SQLSTATE` que a função já levanta e que a
+  suite já afirma.
+- [ ] 2. **A metade que falta, sem desfazer a que está feita.** Entra um ensaio
+  para o `UPDATE … WHERE <predicado que não casa>`, e o
+  `test_o_delete_sem_linhas_tambem_e_recusado` que já existe fica como está e
+  continua verde. São duas asserções separadas de propósito: uma barreira que
+  cobre os dois casos com um ensaio só não distingue qual deles regrediu.
+- [ ] 3. **O que a barreira não impede continua a não impedir**, e há ensaio que
+  o prova em vez de o supor: o `INSERT` do `kamba_app` no registo passa (é a
+  única escrita que ele tem), o `SELECT` passa — e tem de passar, porque é o
+  *trigger* diferido `order_transicao_registada` que lê esta tabela como
+  invocador —, e o `DROP TABLE` do `downgrade` passa: um `DROP TABLE` não é um
+  `UPDATE`. Sem este critério, a prova de que a barreira morde é indistinguível
+  de uma tabela que ninguém consegue usar.
+- [ ] 4. **Canário obrigatório, e nos dois sentidos.** Desligado **só** o
+  `order_state_log_sem_truncate` — com o `order_state_log_sem_mutacao` ligado —,
+  o `UPDATE` sem linhas tem de **passar** (`UPDATE 0`). É isso, e só isso, que
+  prova que quem recusa o caso sem linhas é o *trigger* por instrução: com os
+  dois ligados, o caso é recusado e nenhum ensaio distingue qual deles mordeu. O
+  `ALTER TABLE` do canário corre na ligação **transaccional** e é revertido,
+  pela razão escrita no `TestCanarioDoTrigger` do
+  `../db/tests_encomendas/test_grafo.py`: um `ALTER TABLE` confirmado deixava a
+  base do *gate* 8 sem barreira para os ensaios seguintes, e a suite passava a
+  medir uma tabela sem *trigger*.
+- [ ] 5. **Revisão nova, e não edição da `0030` — e a razão é uma medição, não
+  uma preferência.** A pergunta é a mesma que o critério 7 do KAM-175 faz:
+  existe base onde a revisão já foi aplicada e que não se reconstrói de zero? Na
+  `0030` a resposta **já está dada e é sim**: ela fundiu na `main` a 2026-11-03
+  no `84f3169`, pelo que qualquer clone que tenha corrido `alembic upgrade head`
+  desde então a tem, e o `alembic` guarda uma linha em `alembic_version` e mais
+  nada — uma edição no sítio é **invisível** para essas bases. Entra uma revisão
+  nova com `DROP TRIGGER` e `CREATE TRIGGER`, com `down_revision` a apontar para
+  a última, e com `downgrade` a repor a forma antiga (que é aditiva no sentido
+  que importa: nenhuma linha se perde, e a revisão não larga a tabela).
+- [ ] 6. **A barreira nova entra na prova por mutação.** O
+  `../db/mutacoes.py` leva sete mutações para a `0030`, uma por barreira; esta
+  alteração acrescenta uma — retirar o `OR UPDATE` do *trigger* por instrução
+  tem de matar o ensaio do critério 2. Sem isso, a metade nova fica com a mesma
+  cobertura que a antiga tinha antes de alguém olhar para ela, que é nenhuma.
+- [ ] 7. **As duas notas da `0030` passam a dizer a verdade.** O comentário do
+  `_registo()` que explica porque é que são dois *triggers* descreve a forma
+  antiga, e uma nota que descreve a forma antiga é pior do que nenhuma: passa a
+  dizer o que cada um cobre depois desta alteração e qual deles dá a
+  propriedade. E a nota que aponta a lacuna da `0029` para a dívida 175 passa a
+  dizer que ela tem credor — o **KAM-175**.
+- [ ] 8. **Risca-se uma metade da dívida 176 e mais nada.** A linha 176 fica,
+  com a metade do `order_state_log` riscada e as três tabelas irmãs intactas,
+  cada uma ao seu credor (KAM-012, KAM-028, KAM-030). A **dívida 175 não se
+  risca aqui**: ela é do KAM-175 e risca-se no PR que mexer no *trigger* da
+  `0029`.
+
+### Detalhes Técnicos
+
+- **Onde.** Uma revisão nova em `../db/migrations/versions/`, com
+  `down_revision` na última (a `0030` à data deste ticket). Mais os ensaios de
+  `../db/tests_encomendas/test_isolamento.py` (a classe das recusas e o canário)
+  e a entrada em `../db/mutacoes.py`. O `../specs/02_Dicionario_de_Dados_Canonico.md`
+  §3.43 **não muda**: ele fixa a tabela e a propriedade *append-only*, não a
+  lista de eventos do *trigger*.
+- **Porque é que o `UPDATE` cabe no mesmo *trigger*.** O PostgreSQL aceita
+  `BEFORE UPDATE … FOR EACH STATEMENT`; o que um *trigger* por instrução não tem
+  é `OLD` e `NEW`, e a `platform.deny_mutation` não os usa — ela levanta excepção
+  com o `TG_OP` e o `TG_TABLE_NAME`, disponíveis nos dois níveis. É por isso que
+  a alteração é à lista de eventos e não à função, e é a mesma razão que o
+  KAM-175 escreveu para a `payment_events`.
+- **O `FOR EACH ROW` para `TRUNCATE` não existe**, o que é a razão original de
+  serem dois *triggers* e não um: o `TRUNCATE` só admite por instrução. O que
+  esta alteração faz é notar que o por instrução, existindo, cobre também os
+  outros dois — e que o custo é nulo, porque uma instrução que fosse passar já
+  era recusada.
+- **O que a alteração não pode quebrar, e já está medido.** Nenhuma FK da `0030`
+  tem `ON DELETE CASCADE` — as sete são restritivas, medido no ficheiro —, pelo
+  que nenhum `DELETE` legítimo noutra tabela cai aqui; e a `order_state_log`
+  está em `SEM_RECEITA_COM_RAZAO` na bateria de
+  `../db/tests_isolamento/sementes.py`, precisamente porque a limpeza por
+  `DELETE` já é recusada. O que **tem** de se confirmar antes de aplicar é o
+  caminho do `UPDATE`: nenhum código do `services/com/src/orders/` actualiza o
+  registo — ele é escrito por `inserirNoTenant` e mais nada —, e um `UPDATE`
+  legítimo que aparecesse passaria a ser recusado no sítio certo mas com uma
+  mensagem que fala de imutabilidade.
+- **O caminho pelo qual isto não se apanha hoje.** Os ensaios do `UPDATE` no
+  registo correm **com linhas** (`test_o_kamba_app_nao_tem_update_nem_delete_no_registo`
+  usa uma encomenda semeada) ou medem **privilégio por coluna**, e nos dois
+  casos a asserção é satisfeita por quem não é o *trigger* por instrução. É a
+  armadilha que o KAM-171 nomeia: o instrumento está certo e o predicado é que
+  não cobre a população — e o caso que falta é precisamente o que não toca linha
+  nenhuma.
+
+### Testes Requeridos
+
+- Integração (`db/tests_encomendas/`): `UPDATE platform.order_state_log SET … WHERE <predicado que não casa>`
+  é recusado com `42501`, na ligação de semente (o dono).
+- Integração: o `test_o_delete_sem_linhas_tambem_e_recusado` continua verde, sem
+  alteração.
+- Integração: os casos que já existiam continuam verdes — `UPDATE`, `DELETE` e
+  `TRUNCATE` com linhas, para o `kamba_app` (por privilégio) e para o dono (pelo
+  *trigger*).
+- Sonda positiva: o `INSERT` do `kamba_app` e o `SELECT` passam depois da
+  alteração, e o `SELECT` é obrigatório — o *trigger* diferido lê a tabela como
+  invocador.
+- Canário: desligado **só** o `order_state_log_sem_truncate`, o `UPDATE` sem
+  linhas passa; o `ALTER TABLE` é revertido na mesma transacção.
+- Catálogo: os cinco *triggers* da `0030` continuam a reportar `A` em
+  `pg_trigger.tgenabled` depois da migração, depois do `downgrade` e depois de
+  novo `upgrade`.
+- Mutação: retirar o `OR UPDATE` do *trigger* por instrução mata o ensaio novo —
+  `0 não apanhadas` em `db/mutacoes.py`.
+- *Gate* 8: a revisão sobe, desce e volta a subir numa base limpa, sem objectos
+  residuais.
+
+### Definition of Done
+
+- [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
+- [ ] **O `UPDATE` sem linhas recusado**, com ensaio próprio e separado do do
+  `DELETE`.
+- [ ] **Canário verde quando a barreira morde e vermelho quando deixa de
+  morder**, com o `ALTER TABLE` revertido.
+- [ ] Revisão nova e não edição da `0030`, pela pergunta do critério 5.
+- [ ] A mutação nova **apanhada**, e a linha de base da suite verde.
+- [ ] As duas notas da `0030` descrevem a forma nova, e dizem qual dos dois
+  *triggers* dá a propriedade.
+- [ ] *Gate* 8 verde: `upgrade`, `downgrade`, `upgrade` sem resíduos.
+- [ ] *Gate* 6 verde: a bateria de isolamento não muda de forma, e a
+  `order_state_log` continua em `SEM_RECEITA_COM_RAZAO`.
+- [ ] **A metade do `order_state_log` riscada na dívida 176**, e as outras três
+  intactas.
+- [ ] **A dívida 175 não riscada** — é do KAM-175.
+- [ ] Linha de «Controlo de versões» em cada documento formal tocado, e o campo
+  `Versão` do cabeçalho a condizer.
+- [ ] Revisão adversarial independente, com os achados fechados por teste.
+
+### Handoff para Claude Code
+
+```text
+Es o executor do ticket KAM-176 da KAMBA.
+Le specs/EPIC-04_Core_Comercio.md (bloco KAM-176 e bloco KAM-044),
+db/migrations/versions/0030_encomendas_e_estados.py (a funcao _registo e a nota
+dos triggers), db/tests_encomendas/test_isolamento.py,
+db/tests_encomendas/test_grafo.py (o TestCanarioDoTrigger), db/mutacoes.py,
+db/tests_isolamento/sementes.py e specs/EPIC-05_Pagamentos_Billing.md (bloco
+KAM-175, que e a metade gemea na payment_events).
+Objectivo: a platform.order_state_log recusa UPDATE, DELETE e TRUNCATE
+independentemente de quantas linhas a instrucao toca.
+- O order_state_log_sem_truncate passa a BEFORE TRUNCATE OR DELETE OR UPDATE ...
+  FOR EACH STATEMENT, ENABLE ALWAYS, com a mesma funcao deny_mutation. Sem
+  trigger novo e sem funcao nova: os dois nomes ficam como estao, senao partes os
+  tres ensaios do ENABLE ALWAYS e o inventario de db/tests/test_inventario.py.
+- O DELETE sem linhas JA esta fechado. O que falta e o UPDATE sem linhas, que
+  hoje devolve UPDATE 0 e passa. Medido contra o PostgreSQL 18.6 ao escrever o
+  KAM-175. Nao desfacas o ensaio do DELETE: entra um segundo, separado.
+- REVISAO NOVA, nao edicao da 0030: ela fundiu na main a 2026-11-03 (84f3169), e
+  uma edicao no sitio e invisivel para uma base que ja a correu. DROP TRIGGER mais
+  CREATE TRIGGER, down_revision na ultima, e downgrade a repor a forma antiga.
+- Canario obrigatorio: desligado SO o order_state_log_sem_truncate, o UPDATE sem
+  linhas tem de passar. Com os dois ligados nenhum ensaio distingue quem mordeu.
+  O ALTER TABLE corre na ligacao transaccional e e revertido.
+- Acrescenta a mutacao: retirar o OR UPDATE tem de matar o ensaio novo. O
+  db/mutacoes.py ja leva sete mutacoes para a 0030 e o corredor chama-se com o
+  interpretador como primeiro argumento.
+- O SELECT do kamba_app no registo tem de continuar a passar: e o trigger
+  diferido order_transicao_registada que le a tabela, como invocador.
+- As duas notas da 0030 passam a descrever a forma nova, e a que aponta a lacuna
+  da 0029 para a divida 175 passa a dizer que tem credor (KAM-175).
+- Risca SO a metade do order_state_log na divida 176 de
+  docs/dividas-documentais.md. A divida 175 nao se risca aqui.
+Nao expandas escopo: as tres tabelas irmas da divida 176 (platform.audit_log do
+KAM-012, platform.tool_audit do KAM-028, dat.llm_call_log do KAM-030) NAO se
+tocam -- a barreira de uma tabela decide-se em quem a tem, e a llm_call_log e
+particionada e tem uma pergunta propria. O dicionario 02 section 3.43 nao muda.
+Testes: a recusa nova, as recusas que ja existiam, as duas sondas positivas, o
+canario nos dois sentidos, o catalogo depois do downgrade, a mutacao, gate 8 e
+gate 6.
+PR com o template da seccao 7 de specs/01_Engineering_Standards_e_Handoff.md, e com
+o titulo na forma tipo(KAM-176): descricao no imperativo.
+Commits: fix(KAM-176): ...
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | # | Risco / item | Estado | Ligação | Tratamento no epic |
@@ -1385,3 +1741,5 @@ Testes: contrato, isolamento, EXPLAIN, integração com idx fake. PR com o templ
 | 1.1 | Outubro 2026 | KAM-145: os **16** caminhos dentro dos blocos de *handoff* passam a ser relativos à raiz do repositório, que é onde o executor corre; lidos de lá, antes apontavam para **fora** da árvore. A regra ficou declarada em `specs/01_Engineering_Standards_e_Handoff.md` §5, e o gate `lint_handoff` passa a recusá-los. Fora dos blocos de *handoff* nada muda. Sem alteração de conteúdo técnico. | Equipa KAMBÁ |
 | 1.2 | Novembro 2026 | **KAM-172:** a decisão que o bloco KAM-043 devolveu ao fundador está tomada — **ratificada a 2026-11-03**, em [`../docs/adr/ADR-L008-allowlist-de-colunas-em-unidade-menor.md`](../docs/adr/ADR-L008-allowlist-de-colunas-em-unidade-menor.md). O critério 1 do KAM-043 **não sai nem muda** e a revisão `0028` fica como está; a caixa do critério e o parágrafo que a explicava passam a citar a decisão em vez de a pedir. O bloco **KAM-044** leva a nota do que ela lhe obriga: o `orders_mirror.total_minor` paga uma linha na allowlist com a razão pela qual não é um saldo, em `bigint`, e um `total_kz` avermelha o *gate* 8. | Equipa KAMBÁ |
 | 1.3 | Novembro 2026 | **KAM-051: quatro dos oito critérios de aceitação caducaram e passam à forma canónica, sem que o ticket seja entregue.** O bloco foi escrito antes do KAM-043 e das emendas 1.11, 1.12 e 1.52 do dicionário, e pedia vocabulário que o §3.3 do `specs/02_Dicionario_de_Dados_Canonico.md` já põe em «Substitui»: o `preco_kz` e o mapeamento `fixo→exato` (critérios 1 e 5), que o `test_nao_ha_colunas_de_dinheiro_nem_saldos` do *gate* 8 recusa «sem excepção»; e uma coluna `disponibilidade` com quatro valores de máquina (critério 3), nome que o KAM-043 fundiu como texto de apresentação em três. O critério 7 fica **bloqueado e por marcar**: manda ler o stock do Registo «decidido em D3», e o D3 não está ratificado (§13.3 do `../docs/tecnica/00_Arquitectura_Solucao.md`) nem existe projecção de stock — a `platform.offer_terms` da `0028` não tem quantidade e as reservas são do KAM-045, aberto. A dependência em falta, `KAM-051 → KAM-045`, fica declarada nos Detalhes Técnicos e **não** no §4 do `INDICE`, que é onde o «Tratamento» do R14 manda declará-las. A decisão que o Contexto punha ao fundador — `preco_kz` no contrato da vista, ou `preco_minor` com a divisão onde se apresenta — **foi tomada na mesma data, a favor do `preco_minor`**, e o mecanismo de *allowlist* do KAM-172 foi ratificado, pelo que a vista vai para `platform` e paga uma entrada em `EM_UNIDADE_MENOR` quando existir. **Nenhuma caixa do KAM-051 é marcada.** **Três correcções à primeira versão desta emenda, todas achados da revisão adversarial:** ela afirmava que o `../docs/tecnica/05` escrevia `preco_kz` e que o `../docs/tecnica/03` escrevia `preco_modo` — os dois estão em nomes canónicos desde o KAM-139, e o vocabulário preterido vive neste bloco e no do KAM-061 de `EPIC-06_Indice_Pesquisa.md`; afirmava que `platform` era o único esquema, quando há quatro, e invertia o sinal do efeito — é **fora** de `platform` que a vista escapa ao *gate* 8; e classificava como INDÍCIO que o `information_schema.columns` inclua vistas, quando a entrada `("v_payment_events_audit", "valor_minor")` da *allowlist* já é a medição. **Fica por pagar, e é de outro epic:** os critérios do KAM-061 em `EPIC-06_Indice_Pesquisa.md` ainda pedem `preco_kz`, `max_preco_kz` e `fixo→exato`, e a alínea (c) da dívida 39 de `../docs/dividas-documentais.md` continua aberta. **E esta tabela tem um buraco de entradas que não é meu:** o KAM-041, o KAM-042, o KAM-043 e o KAM-047 alteraram o conteúdo deste documento e nenhum acrescentou linha. | Equipa KAMBÁ |
+| 1.4 | Novembro 2026 | **KAM-176** acrescentado, e **não entregue no mesmo PR**: o que se entrega é o ticket, não a correcção. Fecha a metade do `platform.order_state_log` da dívida 176 de [`../docs/dividas-documentais.md`](../docs/dividas-documentais.md) — a barreira *append-only* que o KAM-044 escreveu tem um `FOR EACH STATEMENT` em `BEFORE TRUNCATE OR DELETE`, pelo que o `DELETE` sem linhas é recusado e o `UPDATE` sem linhas devolve `UPDATE 0` e **passa**. **O defeito é uma dedução deixada a meio e não uma gralha**: o comentário imediatamente acima daquele `CREATE TRIGGER` escreve o argumento inteiro — um *trigger* por linha não dispara quando não há linhas — e o argumento vale letra por letra para o `UPDATE`. Medido a 2026-11-03 contra um PostgreSQL **18.6** real ao escrever o **KAM-175**, que é o credor da metade gémea na `platform.payment_events`. O ticket impõe `BEFORE TRUNCATE OR DELETE OR UPDATE … FOR EACH STATEMENT` numa **revisão nova** e não por edição da `0030`, e a razão está medida: a `0030` fundiu na `main` a 2026-11-03 (`84f3169`), pelo que uma edição no sítio é invisível para qualquer base que já a tenha corrido. **Três tabelas irmãs da dívida 176 não são deste ticket** — `platform.audit_log` (KAM-012), `platform.tool_audit` (KAM-028) e `dat.llm_call_log` (KAM-030), esta com uma pergunta própria por ser particionada. O `Bloqueia` do **KAM-044** passa a nomear o KAM-176, que é a reciprocidade da dependência. Nenhuma caixa do KAM-176 é marcada. | Equipa KAMBÁ |
+| 1.5 | Novembro 2026 | **KAM-044: as duas secções de verificação, depois de o código ter fundido — e isso é um defeito de processo que fica dito.** O PR #112 fundiu a 2026-11-03 (`84f3169`) com os treze portões bloqueantes verdes e **sem tocar neste ficheiro**, pelo que o bloco ficou com as catorze caixas por marcar e sem secção de verificação; nesse intervalo o `vagas.py` da fábrica contou o KAM-044 como **vaga pronta**, porque decide pela existência do cabeçalho «Verificação dos Critérios de Aceitação» e não pelas caixas. **Cinco critérios marcados de oito e quatro itens de seis na DoD**, cada um com nome de ensaio e saída de execução. **Os três critérios devolvidos não são trabalho deste ticket, e o credor de cada um está nomeado:** o 3 pede que o evento seja autenticado pelo PAY, o que exige a FK `payment_charges.order_id` que não existe (**KAM-055**, a quem esta entrega impõe um contrato novo — inserir em `events_consumed` antes de chamar `transition`); o 7 pede um *job* agendado (**KAM-071**) e correcções que são do `createOrder` (**KAM-046**), do `releaseReservation` (**KAM-045**) e do lado do Registo, que é **NÃO VERIFICADO** por não haver Medusa em `../infra/compose/`; e o 8 pede seis eventos quando o sexto **não tem contrato publicado** — saem cinco, a ausência está medida em ensaio e a divergência é a **dívida 174**, sem credor. Na DoD ficam vazios o 1, que é a soma dos outros, e o 6, cuja segunda metade pede «revisão por dois revisores»: houve **uma** revisão adversarial independente, com os doze achados verificados um a um, e emendar a letra de um critério é de quem o escreveu. **Uma ressalva do critério 6 é agora um ticket:** o `FOR EACH STATEMENT` do registo é `BEFORE TRUNCATE OR DELETE` e deixa passar um `UPDATE` sem linhas a quem tem o privilégio — dívida 176, credor **KAM-176**. Nenhuma linha de código é tocada por esta emenda. | Equipa KAMBÁ |
