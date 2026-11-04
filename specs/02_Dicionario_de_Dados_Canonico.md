@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.56 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.57 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -3080,8 +3080,12 @@ passagem deste ticket: dezoito achados, seis deles em revisões que ele não toc
    ver o envelope e, se passasse, pararia no publicador, que faz falhar de forma
    visível uma versão que não conhece. **O que fica no lugar dele é a linha de
    `order_reconciliation_issues`**, que é o que os *Detalhes Técnicos* pedem e o
-   que a métrica lê. Publicar o trigésimo-nono contrato é emenda ao §3.5 e
-   tem de vir com a contagem corrigida.
+   que a métrica lê. Publicar o trigésimo-nono contrato era emenda ao §3.5 e
+   tinha de vir com a contagem corrigida — **e deixou de estar em aberto: a
+   2026-11-04 o fundador decidiu que o evento não existe** (resposta directa dele
+   a quem executou o KAM-044, nessa data), e a linha dele saiu
+   do §12 do `../docs/tecnica/03` (versão 1.5 desse documento). O §3.5 fica nos
+   **trinta e oito** tipos e esta contagem não se toca.
 
 **E uma decisão que não é transcrição:** o `paga` é verificado **duas vezes**, e
 as duas são necessárias. No módulo, para que a recusa chegue como erro de domínio
@@ -3122,9 +3126,13 @@ confirma**.
 * **a verificação humana e a dupla verificação do `ManualProvider`** —
   **KAM-054**. O que aqui existe é a exigência de que o evento venha do
   `sistema` com `evento_id`;
-* **o trigésimo-nono contrato de evento** (`order.reconciliation_issue`) e a
-  contagem do §3.5 — **sem credor atribuído hoje**, e o lugar dele é um ticket
-  de canon, não este;
+* ~~**o trigésimo-nono contrato de evento** (`order.reconciliation_issue`) e a
+  contagem do §3.5~~ — **decidido a 2026-11-04** por resposta directa do fundador
+  a quem executou o KAM-044: o evento **não existe** e a linha dele saiu do §12 do
+  `../docs/tecnica/03`. O §3.5 fica nos trinta e oito tipos, e a dívida documental
+  174 está riscada. **O que o fecho dela deixou em aberto tem número e credor:** a
+  regra (2) do §10.3 fica sem veículo de alerta escrito, o que é a dívida **177**,
+  com credor **KAM-080**;
 * **a API interna do COM** (`POST /internal/...`), que o §3.39 já registou como
   inexistente e atribuiu a este ticket. **Continua a não existir**: nenhum
   critério de aceitação do bloco a pede, e os oito descrevem base de dados,
@@ -3217,3 +3225,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.54 | Novembro 2026 | **Emenda (*proposta*), KAM-053.** §3.42 nova: o ledger de pagamentos — a `payment_charges` (dezanove colunas), o `payment_callbacks_inbox` (onze, **sem `tenant_id`**), o `payment_events` (vinte e cinco), o `payment_outbox_map`, as seis funções (`append_payment_event`, `next_state`, `rebuild_charge_state`, `verify_ledger_chain`, `payment_event_row_hash`, `resolve_webhook_token`), a `deny_mutation`, as duas vistas e o papel estreito `kamba_pay_hooks`, criados pela revisão `0029`. **Decide a pergunta que o `../docs/tecnica/04` §6.2 deixou escrita para este ticket:** o `authn_method` fica com **quatro** valores e o `sistema` ganha domínio — os factos de ciclo de vida que ninguém autentica —, e nunca autentica um `pagamento_confirmado`, porque a restrição `confirmar_exige_autenticacao` não o inclui. O §3.4 passa a quatro na mesma linha. A vista de auditoria usa `hmac` e não `hmac_sha256`: o lado errado é o critério 9 do bloco, e o `hmac_sha256` está na coluna «Substitui» desde a 1.13 com este ticket nomeado. | Equipa KAMBÁ |
 | 1.55 | Novembro 2026 | **Correcção, KAM-053, da revisão adversarial — sem emenda ao domínio.** Duas células estavam erradas e nenhum *gate* as via. O §3.4 dizia, no mesmo parágrafo, que o quarto valor de `authn_method` entra pela emenda 1.53 **e** que «fica por decidir»: o texto novo foi acrescentado sem retirar o antigo, e o antigo era a pergunta que a 1.53 existe para fechar. O §3.42 descrevia a `resolve_webhook_token` como `SECURITY DEFINER` e ela é `SECURITY INVOKER`, o que punha a fonte 4 a contradizer o código e a sugerir que a lista aprovada de `ci/secdef_allowlist.yaml` estava incompleta — e a caixa do DoD que limita o `DEFINER` a uma função depende disso. O `canon_lint` e o `dict_export` passavam nas duas, porque o domínio já tinha os quatro valores e a prosa não é lida por máquina: as duas contradições eram legíveis **só por um humano**, que é o leitor que o dicionário serve. | Equipa KAMBÁ |
 | 1.56 | Novembro 2026 | **Emenda (*proposta*), KAM-044.** §3.43 nova: as encomendas — a `orders_mirror` com as suas **vinte e três** colunas, o `order_intents` com **seis**, o `order_state_log` com **onze**, o `order_state_graph` com **três** e o `order_reconciliation_issues` com **oito** (revisão `0030`), as **doze** transições do núcleo com as duas atrás de `COM_DELIVERY_ENABLED`, os cinco `confirmacao_dono`, os três `paga_via` (dos quais **dois** alcançam `paga`), as três `excepcao`, os três `entrega_confirmada_por`, os **cinco** tipos de divergência do §10.3, os **cinco** SQLSTATE `KA003`–`KA007`, o `numero_publico` de **oito** caracteres e o resultado de três formas da `transition`. **Quatro divergências resolvidas a favor desta página:** os **doze** estados contra os nove do `CHECK` do §5.4 — o §3.3 fixa doze e marca aquela máquina como «incompleta», e o `ORDER_STATES` do KAM-042 nomeia este ticket por escrito; o `currency` `text` + `CHECK` contra o `char(3)`, como nas `0025` e `0028`; a chave do `order_state_log` em `uuid` contra o `bigint` de identidade do §5.4, porque o `kamba_app` **lê** esta tabela (é o *trigger* diferido que a lê, como invocador) e a propriedade que justifica as excepções de identidade não se verifica aqui; e **cinco eventos e não seis**, porque o `order.reconciliation_issue` do critério 8 não tem contrato, não está no §3.5 e não está no `../docs/tecnica/06` §5 — está só no §12 do `../docs/tecnica/03`, que é a dívida documental 37, e emiti-lo levantava `TipoDesconhecidoError` antes de o *gate* 7 ver o envelope. **Uma coluna acrescentada ao DDL do §5.4 com a razão escrita:** a `order_state_log.version`, que é a de depois da transição e sem a qual o ciclo `expirada → aguarda_pagamento → expirada` deixava a linha de uma volta anterior satisfazer a verificação de uma volta nova — e é dela que sai a unicidade que faz da idempotência uma restrição. **E uma decisão que não é transcrição:** `paga` verifica-se duas vezes, e a segunda é um `CONSTRAINT TRIGGER` **diferido** que no `COMMIT` exige o registo da transição com actor `sistema` e `evento_id` — porque «nenhuma via» do DoD inclui um `UPDATE` à mão de quem tem o privilégio. **O que não decide, com credor em cada:** a `stock_reservations` (**KAM-045**), a `createOrder` e o fluxo do recibo (**KAM-046**), os estados adicionais (**KAM-050**), o consumo de `payment.*` e a FK da cobrança (**KAM-055**), a dupla verificação do `ManualProvider` (**KAM-054**), o trigésimo-nono contrato de evento (**sem credor**), a API interna do COM, que o §3.39 atribuiu a este ticket e que **nenhum critério pede**, e as correcções da reconciliação que tocam o Registo, **NÃO VERIFICADAS** por não haver Medusa em `../infra/compose/`. | Equipa KAMBÁ |
+| 1.57 | Novembro 2026 | **Emenda (*proposta*): o trigésimo-nono contrato de evento deixa de estar em aberto, porque o evento não existe.** O §3.43 escrevia, no que a emenda 1.56 **não** decidia, que o `order.reconciliation_issue` e a contagem do §3.5 ficavam «sem credor atribuído hoje». A 2026-11-04 o fundador decidiu a favor da segunda das duas saídas que a dívida 174 tinha escrito: o evento **não existe** e a linha dele sai do §12 do `../docs/tecnica/03`. **O §3.5 não se toca** — fica nos trinta e oito tipos, que é a contagem que o `contract_diff` prende em `ESPERADOS = 38` e que três ficheiros repetem. Mudam duas frases do §3.43: o ponto 4, que passa a dizer que a escolha foi feita, e o item da lista do que não se decidia, que fica riscado com a decisão. | Equipa KAMBÁ |
