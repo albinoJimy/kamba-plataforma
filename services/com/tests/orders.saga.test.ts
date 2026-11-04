@@ -38,8 +38,11 @@ import { SQL_TECTO } from "@kamba/core-ts/ten";
 
 import {
   SQL_CONCLUIR_INTENCAO,
+  SQL_CONFIRMACAO_DO_DONO,
   SQL_EMITIR,
+  SQL_FALHAR_INTENCAO,
   SQL_LER,
+  SQL_LER_CONFIRMACAO,
   SQL_LER_INTENCAO,
   SQL_PEDIDO_POR_PAGAR,
   SQL_RETOMAR_INTENCAO,
@@ -54,6 +57,10 @@ import {
 // As duas leituras de preço são as do módulo `produtos` (KAM-043), e o
 // `cart.ts` importa-as de lá: reuso e não cópia. Ver a nota daquele ficheiro.
 import { SQL_COTACAO_VALIDA, SQL_TERMOS } from "../src/produtos/consultas.ts";
+import {
+  FiltroEmFaltaError,
+  repoBase,
+} from "../src/repo-base/index.ts";
 
 const TENANT = "3f1c2a9e-0d4b-4e55-9a7c-1b2c3d4e5f60";
 const CONTACTO = "7c1d5e3a-2b4f-4a6c-8d0e-1f2a3b4c5d6e";
@@ -674,4 +681,93 @@ test("as 14:04:59 e as 14:05:01 produzem uma encomenda, e a segunda repete", asy
     false,
     "a segunda nao cria: uma encomenda e nao duas",
   );
+});
+
+// ------------------------------------------- a barreira do repo-base, a sério
+
+test("as sete cadeias novas passam pelo repo-base a sério, e não por um duplo", async () => {
+  // **O que este caso fecha, e é uma lacuna que os outros deixavam.** Em
+  // produção estas cadeias entram na base por `repo.noTenant`, que é o
+  // repo-base do KAM-042 — e ele **recusa por execução** uma consulta sem
+  // `tenant_id = $1` depois do primeiro `WHERE`, com `UNION`, ou com a coluna
+  // do filtro num `SET`. Os duplos deste ficheiro não correm essa verificação,
+  // e a suite do *gate* 8 fala com o `pg8000` directamente: uma cadeia que o
+  // repo-base recusasse só rebentava em execução, no primeiro chamador real.
+  //
+  // O `SQL_PEDIDO_POR_PAGAR` é o que mais vale medir: tem um `JOIN` cujo `ON`
+  // contém `tenant_id =` **antes** do `WHERE`, e é precisamente o padrão que a
+  // regra 2 daquele ficheiro existe para apanhar.
+  const vistas: string[] = [];
+  const cliente = {
+    async query(sql: string) {
+      vistas.push(sql);
+      return { rows: [] as Record<string, unknown>[] };
+    },
+  };
+  const r = repoBase(cliente, TENANT, "merch_A");
+  const cadeias: readonly [string, string][] = [
+    ["SQL_LER_INTENCAO", SQL_LER_INTENCAO],
+    ["SQL_CONCLUIR_INTENCAO", SQL_CONCLUIR_INTENCAO],
+    ["SQL_FALHAR_INTENCAO", SQL_FALHAR_INTENCAO],
+    ["SQL_RETOMAR_INTENCAO", SQL_RETOMAR_INTENCAO],
+    ["SQL_PEDIDO_POR_PAGAR", SQL_PEDIDO_POR_PAGAR],
+    ["SQL_CONFIRMACAO_DO_DONO", SQL_CONFIRMACAO_DO_DONO],
+    ["SQL_LER_CONFIRMACAO", SQL_LER_CONFIRMACAO],
+  ];
+  for (const [nome, sql] of cadeias) {
+    await r.noTenant(sql, []);
+    assert.ok(
+      vistas.includes(sql),
+      `o repo-base recusou a ${nome}: ela não chegou à base`,
+    );
+  }
+  assert.equal(vistas.length, cadeias.length);
+});
+
+test("o canário: a mesma consulta sem o filtro de tenant é recusada", async () => {
+  // Sem isto, o caso acima ficava verde com um repo-base que aceitasse tudo.
+  const cliente = {
+    async query() {
+      return { rows: [] as Record<string, unknown>[] };
+    },
+  };
+  const r = repoBase(cliente, TENANT, "merch_A");
+  await assert.rejects(
+    () =>
+      r.noTenant(
+        SQL_PEDIDO_POR_PAGAR.replace("WHERE i.tenant_id = $1", "WHERE true"),
+        [],
+      ),
+    FiltroEmFaltaError,
+  );
+});
+
+test("cada marcador aparece uma só vez: o pg8000 da suite não repete um $n", async () => {
+  // O `ConsultaDoTypeScript` de `db/tests/base.py` **recusa** um marcador
+  // repetido — não há equivalente posicional para o mesmo argumento usado duas
+  // vezes no `pg8000`. Uma cadeia com `$2` duas vezes passava aqui e rebentava
+  // no gate 8, longe de quem a escreveu.
+  for (const [nome, sql] of [
+    ["SQL_LER_INTENCAO", SQL_LER_INTENCAO],
+    ["SQL_CONCLUIR_INTENCAO", SQL_CONCLUIR_INTENCAO],
+    ["SQL_FALHAR_INTENCAO", SQL_FALHAR_INTENCAO],
+    ["SQL_RETOMAR_INTENCAO", SQL_RETOMAR_INTENCAO],
+    ["SQL_PEDIDO_POR_PAGAR", SQL_PEDIDO_POR_PAGAR],
+    ["SQL_CONFIRMACAO_DO_DONO", SQL_CONFIRMACAO_DO_DONO],
+    ["SQL_LER_CONFIRMACAO", SQL_LER_CONFIRMACAO],
+  ] as const) {
+    const marcadores = [...sql.matchAll(/\$(\d+)/g)].map((m) => m[1]);
+    assert.equal(
+      new Set(marcadores).size,
+      marcadores.length,
+      `${nome} repete um marcador: ${marcadores.join(", ")}`,
+    );
+    // E a numeração é contígua a partir de 1, senão o `args()` recusa.
+    const numeros = [...new Set(marcadores)].map(Number).sort((a, b) => a - b);
+    assert.deepEqual(
+      numeros,
+      Array.from({ length: numeros.length }, (_, i) => i + 1),
+      `${nome} tem buracos na numeração: ${numeros.join(", ")}`,
+    );
+  }
 });
