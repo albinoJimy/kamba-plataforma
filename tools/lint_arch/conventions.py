@@ -214,15 +214,38 @@ def _check_body_and_footer(lines: list[str], rules: Conventions) -> list[str]:
         # exigia linha em branco antes dele.
         alternativas = "|".join(re.escape(t) for t in rules.footer_tokens)
         rodape = re.compile(rf"^(?:{alternativas})(?::\s|\s#)", re.IGNORECASE)
+        # A linha em branco exige-se antes do **primeiro** rodape do bloco, e nao
+        # antes de cada um. Dois rodapes seguidos sao a forma normal e correcta
+        # de os escrever — dois `Co-authored-by`, ou `Refs:` mais
+        # `Signed-off-by:` —, e e assim que o `git` os gera: a mensagem de
+        # *squash* que o GitHub compos para o proprio KAM-174 (`c75d5234`) leva
+        # dois `Co-authored-by` em linhas consecutivas.
+        #
+        # **Era um falso positivo, e o KAM-174 tornou-o bloqueante.** Ate ele,
+        # nenhum portao lia mensagens de *commit*, pelo que isto so mordia a quem
+        # tivesse o *hook* instalado; desde que o *gate* 2 as le, qualquer PR com
+        # dois co-autores ficava vermelho sobre uma mensagem correcta. Um portao
+        # que recusa o que esta certo e o que se aprende a ignorar, que e
+        # precisamente o que o criterio 3 daquele ticket existia para evitar.
+        #
+        # **E era divergencia face ao `commitlint`**, que e a classe que
+        # `tools/conventions.json` existe para impedir: o `footer-leading-blank`
+        # dele verifica a **seccao** de rodape, nao cada linha dela.
         for index, line in enumerate(corpo):
             if index == 0 or not rodape.match(line.strip()):
                 continue
-            if corpo[index - 1].strip():
-                problems.append(
-                    f"falta uma linha em branco antes do rodape {line.strip()[:30]!r} "
-                    "(footer-leading-blank)"
-                )
-                break
+            anterior = corpo[index - 1].strip()
+            if not anterior:
+                continue
+            if rodape.match(anterior):
+                # Rodape depois de rodape: o mesmo bloco, e a linha em branco ja
+                # foi exigida ao primeiro deles.
+                continue
+            problems.append(
+                f"falta uma linha em branco antes do rodape {line.strip()[:30]!r} "
+                "(footer-leading-blank)"
+            )
+            break
     return problems
 
 

@@ -220,6 +220,80 @@ class TestCorpoERodape(unittest.TestCase):
             [],
         )
 
+    def test_dois_rodapes_seguidos_passam(self) -> None:
+        """A linha em branco exige-se antes do **primeiro** rodape do bloco.
+
+        Dois rodapes seguidos sao a forma normal e correcta de os escrever, e e
+        assim que o `git` e o GitHub os geram. Isto era um **falso positivo**, e o
+        KAM-174 tornou-o bloqueante: ate ele nenhum portao lia mensagens de
+        *commit*, pelo que so mordia a quem tivesse o *hook* instalado; desde que
+        o *gate* 2 as le, qualquer PR com dois co-autores ficava vermelho sobre
+        uma mensagem correcta.
+        """
+        self.assertEqual(
+            conventions.check_commit_message(
+                "chore(KAM-001): cria a arvore do monorepo\n\n"
+                "Fixa Node 24 LTS.\n\n"
+                "Co-authored-by: Armando Albino <a@b.c>\n"
+                "Co-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+                self.rules,
+            ),
+            [],
+        )
+
+    def test_rodapes_de_tokens_diferentes_seguidos_passam(self) -> None:
+        self.assertEqual(
+            conventions.check_commit_message(
+                "chore(KAM-001): cria a arvore do monorepo\n\n"
+                "Fixa Node 24 LTS.\n\n"
+                "Refs: ADR-002\nSigned-off-by: Alguem <a@b.c>",
+                self.rules,
+            ),
+            [],
+        )
+
+    def test_o_bloco_de_rodape_continua_a_exigir_a_linha_em_branco(self) -> None:
+        """A regra nao se desligou: so o **primeiro** do bloco e que a exige.
+
+        Sem esta, a correccao do falso positivo podia ter sido «deixar de
+        verificar», que passava os dois ensaios de cima e nao verificava nada.
+        """
+        problemas = conventions.check_commit_message(
+            "chore(KAM-001): cria a arvore do monorepo\n\n"
+            "Fixa Node 24 LTS.\n"
+            "Co-authored-by: Armando Albino <a@b.c>\n"
+            "Co-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+            self.rules,
+        )
+        self.assertTrue(
+            any("footer-leading-blank" in p for p in problemas), problemas
+        )
+        # E nomeia o **primeiro** do bloco, que e o que esta mal colocado.
+        self.assertTrue(
+            any("Armando" in p for p in problemas),
+            f"devia nomear o primeiro rodape do bloco: {problemas}",
+        )
+
+    def test_a_mensagem_de_squash_do_kam_174_e_conforme(self) -> None:
+        """O caso real que revelou o defeito, preso como *fixture*.
+
+        E a mensagem que o GitHub compos ao fundir o `c75d5234`: dois
+        `Co-authored-by` em linhas consecutivas, que a versao anterior recusava.
+        """
+        self.assertEqual(
+            conventions.check_commit_message(
+                "fix(KAM-174): le as mensagens dos commits do PR dentro do gate 2 (#113)\n"
+                "\n"
+                "O alvo lint-arch ganha dois passos.\n"
+                "\n"
+                "Co-authored-by: Armando Albino <armandoalbino.jimy@gmail.com>\n"
+                "Co-authored-by: Claude Opus 5 <noreply@anthropic.com>",
+                self.rules,
+                tirar_comentarios=False,
+            ),
+            [],
+        )
+
     def test_cabecalho_sem_forma_nao_traz_achado_de_corpo(self) -> None:
         """Um cabecalho sem forma da **um** achado, e nao dois.
 
