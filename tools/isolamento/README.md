@@ -37,7 +37,7 @@ enumeracao nao o conseguiu resolver — e precisa de caso como qualquer outro.
 
 | Bateria | O que ataca | Modulo |
 |---|---|---|
-| X-01 | rotas (IDOR autenticado) e filas | `baterias/x01_rotas.py`, `baterias/jobs_filas.py` |
+| X-01 | rotas (IDOR autenticado) | `baterias/x01_rotas.py` |
 | X-02 | *tools* do REG, pela ToolLayer | `baterias/x02_tools.py` |
 | X-03 / X-04 / X-05 | a base: contexto, falha fechada, catalogo | `baterias/x03_x04_x05_base.py` |
 | X-06 | vectores (IDX) | **por escrever** — credor KAM-061 |
@@ -48,6 +48,7 @@ enumeracao nao o conseguiu resolver — e precisa de caso como qualquer outro.
 | X-11 | *logs* | ja existe, no `make x11` (KAM-068) |
 | C-01 | isolamento de contacto, no mesmo tenant | `baterias/c01_contacto.py` |
 | P-01 | *pooling* em modo transaccao | `baterias/p01_pooling.py` |
+| J-01 | filas BullMQ: o que o corpo do *job* transporta | `baterias/jobs_filas.py` |
 
 Um modulo novo entra em `baterias/__init__.py`, na lista `MODULOS`. E uma lista
 e nao uma varredura do directorio de proposito: um ficheiro deixado a meio nao
@@ -115,8 +116,15 @@ if canario_de_b in o_que_a_leu:
 ```
 
 O `Oraculo` tem a sua propria sonda (`confirmar_que_morde`), e o corredor
-corre-a **uma vez antes do primeiro caso**: se o oraculo nao encontrar um
-canario que esta mesmo la, nenhuma bateria chega a correr.
+corre-a **uma vez antes do primeiro caso**, sobre **todos** os oraculos que o
+contexto traz: se um deles nao encontrar um canario que esta mesmo la, nenhuma
+bateria chega a correr.
+
+**O que o corredor nao verifica, e vale saber:** ele nao inspecciona o que o teu
+`fn` fez por dentro. O `origens` que declaras e verificado **so na forma** (que
+nenhuma origem esta fora das cinco); se declarares `logs` e nao varreres nada, o
+corredor nao o apanha. A sonda positiva ao lado de cada «zero» e, por isso, tua
+— e e a unica coisa neste pacote que nao tem portao a cobri-la.
 
 ### 5. Corra, e veja a cobertura fechar
 

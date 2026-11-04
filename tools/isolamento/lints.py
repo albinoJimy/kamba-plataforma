@@ -101,9 +101,23 @@ CORPUS = (
     "packages/*/src/**/*.ts",
     "services/*/src/**/*.py",
     "services/*/src/**/*.ts",
+    # **Todo o `db/*.py`, e nao tres ficheiros escolhidos a mao.** A primeira
+    # versao desta lista levava `rls.py`, `bootstrap.py` e as revisoes, e
+    # dizia-se «codigo que corre contra a base, e so esse» — mas `db/` tem mais
+    # codigo que corre contra a base do que isso, e a revisao adversarial
+    # mediu-o: `db/auditoria.py` tem um `set_config('app.tenant_id', %s,
+    # false)` **escrito a letra**, que e a regra 1 deste *lint*, e ficava fora
+    # da varredura. O «0 achados» media quatro *globs* e nao a arvore.
+    #
+    # Uma lista a mao de ficheiros a **incluir** falha para o lado errado: o
+    # ficheiro novo fica de fora em silencio. Varre-se a pasta, e o que nao
+    # pertence sai pelo `FORA_DO_CORPUS`, que falha para o lado certo — a
+    # entrada tem de ser escrita.
+    "db/*.py",
     "db/migrations/versions/*.py",
-    "db/rls.py",
-    "db/bootstrap.py",
+    # O proprio *harness*: a `semente.py` escreve contra a base, e um `SET` de
+    # sessao numa semente contaminava a ligacao que os casos reutilizam.
+    "tools/isolamento/*.py",
 )
 
 #: **O que fica de fora, e porque.** Nao e uma lista de conveniencia: cada
@@ -128,6 +142,15 @@ class Excepcao:
     sitio: str
     credor: str
     razao: str
+    #: Quantos sitios esta entrada cobre. **Existe porque a chave sozinha era um
+    #: alvara**, e a revisao adversarial mediu-o: com a chave a ser
+    #: `(ficheiro, sitio)` e sem contagem, uma segunda chamada com
+    #: `is_local = false` na **mesma** constante e no mesmo ficheiro passava em
+    #: silencio — e os dois documentos que descrevem este *lint* prometiam o
+    #: contrario («um segundo `set_config(..., false)` no mesmo ficheiro e
+    #: achado novo»). Com a contagem declarada, acrescentar um sitio faz a
+    #: entrada deixar de bater e o *gate* diz qual e o numero novo.
+    ocorrencias: int = 1
 
     @property
     def chave(self) -> str:
@@ -155,15 +178,22 @@ def ler_excepcoes(raiz: Path = RAIZ) -> dict[str, Excepcao]:
     for indice, entrada in enumerate(dados.get("excepcoes") or [], start=1):
         exigir_chaves(
             entrada,
-            {"ficheiro", "sitio", "credor", "razao"},
+            {"ficheiro", "sitio", "credor", "razao", "ocorrencias"},
             f"{caminho.name}: entrada {indice}",
             erro=LintInvalido,
         )
+        quantas = entrada.get("ocorrencias", 1)
+        if not isinstance(quantas, int) or quantas < 1:
+            raise LintInvalido(
+                f"{caminho.name}: entrada {indice}: `ocorrencias` tem de ser um "
+                f"inteiro >= 1, nao {quantas!r}"
+            )
         excepcao = Excepcao(
             ficheiro=str(entrada["ficheiro"]),
             sitio=str(entrada["sitio"]),
             credor=str(entrada["credor"]),
             razao=str(entrada["razao"]),
+            ocorrencias=quantas,
         )
         if not _TICKET.match(excepcao.credor):
             raise LintInvalido(
@@ -237,6 +267,24 @@ def _sem_comentarios_ts(fonte: str) -> str:
         flags=re.DOTALL,
     )
     return re.sub(r"//[^\n]*", "", sem_bloco)
+
+
+def _funcao_que_contem(arvore: ast.Module, linha: int) -> str | None:
+    """A funcao mais interior que contem `linha`, ou `None`.
+
+    Serve o `sitio` de uma excepcao quando o SQL **nao** esta numa constante
+    nomeada: `db/auditoria.py#main` diz onde, e `#literal` nao dizia nada — e
+    com `#literal` a entrada cobria qualquer literal daquele ficheiro, que e o
+    alvara que o achado 6 da revisao descreve.
+    """
+    candidatas = [
+        (no.end_lineno - no.lineno, no.name)
+        for no in ast.walk(arvore)
+        if isinstance(no, ast.FunctionDef | ast.AsyncFunctionDef)
+        and no.end_lineno is not None
+        and no.lineno <= linha <= no.end_lineno
+    ]
+    return min(candidatas)[1] if candidatas else None
 
 
 def _literais_python(arvore: ast.Module) -> list[tuple[int, str, str | None]]:
@@ -353,6 +401,16 @@ def verificar(raiz: Path = RAIZ, excepcoes: dict[str, Excepcao] | None = None) -
     limpar_cache()
     achados: list[str] = []
     usadas: set[str] = set()
+    #: Os **sitios distintos** que cada excepcao cobriu. Confronta-se com o
+    #: `ocorrencias` declarado: e o que faz do «um segundo `false` no mesmo
+    #: ficheiro e achado novo» uma verdade e nao uma promessa.
+    #:
+    #: Sitios e nao suspensoes, e a diferenca mediu-se: a mesma constante
+    #: `SQL_DEFINIR_TENANT` existe em Python **e** em TypeScript, com o
+    #: `is_local` por parametro nas duas, pelo que a regra 3 corre duas vezes e
+    #: encontra o mesmo chamador nas duas — contar suspensoes dava dois para um
+    #: sitio so, e a entrada correcta aparecia como desactualizada.
+    vistas: dict[str, set[str]] = {}
 
     for caminho in _ficheiros(raiz):
         relativo = caminho.relative_to(raiz).as_posix()
@@ -392,11 +450,14 @@ def verificar(raiz: Path = RAIZ, excepcoes: dict[str, Excepcao] | None = None) -
                     nome = constante or (
                         _constante_que_contem(texto, achado.start())
                         if not relativo.endswith(".py")
+                        else _funcao_que_contem(arvore, linha)
+                        if relativo.endswith(".py")
                         else None
                     )
                     sitio = nome or "literal"
                     chave = f"{relativo}#{sitio}"
                     if chave in excepcoes:
+                        vistas.setdefault(chave, set()).add(f"{relativo}:{linha}")
                         usadas.add(chave)
                         continue
                     achados.append(
@@ -457,6 +518,7 @@ def verificar(raiz: Path = RAIZ, excepcoes: dict[str, Excepcao] | None = None) -
                         # excepcao que morre sozinha reabre a porta em silencio.
                         chave = f"{sitio.rsplit(':', 1)[0]}#{nome}"
                         if chave in excepcoes:
+                            vistas.setdefault(chave, set()).add(sitio)
                             usadas.add(chave)
                             continue
                         achados.append(
@@ -480,6 +542,18 @@ def verificar(raiz: Path = RAIZ, excepcoes: dict[str, Excepcao] | None = None) -
             f"{chave}: esta em ci/isolamento-set-sessao.yaml e ja nao passa um "
             "`is_local` falso — a excepcao esta morta, retire-a."
         )
+    for chave in sorted(usadas):
+        declaradas = excepcoes[chave].ocorrencias
+        encontradas = len(vistas.get(chave, set()))
+        if encontradas != declaradas:
+            achados.append(
+                f"{chave}: a excepcao declara {declaradas} sitio(s) e o lint "
+                f"encontrou {encontradas}.\n"
+                "    Uma excepcao sem contagem era um alvara para o ficheiro "
+                "inteiro: um `is_local` falso novo entrava debaixo dela em "
+                "silencio. Se o sitio novo e deliberado, suba o `ocorrencias` "
+                "**e** escreva a razao dele; se nao e, corrija-o."
+            )
     return achados
 
 

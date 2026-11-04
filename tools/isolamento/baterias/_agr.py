@@ -147,6 +147,8 @@ def _montar(ctx) -> tuple[Any, dict[str, _Registador]]:  # noqa: ANN001
 
     duplos = {
         "executar": _Registador(),
+        # O duplo da admissao entra no registo para a sonda positiva o poder
+        # ler: e nele que se ve se o corpo coerente de A chegou tao longe.
         "retomar": _Registador(devolver="retomado"),
         "decidir": _Registador(devolver="aprovado"),
         "eventos": _Registador(),
@@ -233,6 +235,7 @@ def _montar(ctx) -> tuple[Any, dict[str, _Registador]]:  # noqa: ANN001
             return permissivo
 
     admissao = _Admissao()
+    duplos["admissao"] = admissao
     rotas = api_interna.rotas(
         credencial=lambda: CREDENCIAL,
         executar=duplos["executar"],
@@ -320,6 +323,59 @@ def _corpos_com_ids_de_b(ctx) -> dict[str, list[dict]]:  # noqa: ANN001
     }
 
 
+def _corpo_inexistente(caminho: str) -> dict:
+    """Um corpo que difere dos ataques **so** na existencia dos identificadores.
+
+    O controlo do achado 19, e a primeira versao dele estava errada — a
+    execucao do *gate* mostrou-o. Ela mandava um corpo **coerente** (tenant,
+    contacto e `thread_id` do mesmo tenant inventado), e a `/internal/turn`
+    respondeu-lhe **200 `descartado`** contra os 400 dos ataques. A diferenca
+    era real e nao era a que se queria medir: media **coerencia contra
+    incoerencia**, nao existencia contra inexistencia, e fazia o caso acusar um
+    oraculo de existencia que nao existe.
+
+    Um controlo so serve se diferir do ataque numa variavel. Os ataques misturam
+    o tenant de A com o `thread_id` de B; este mistura **dois tenants
+    inventados** — o `thread_id` deriva de um par que nao e o que vai no
+    `tenant_id` —, pelo que e incoerente da mesma maneira. O que sobra como
+    diferenca e a unica coisa que interessa: os identificadores do ataque
+    existem e os deste nao.
+    """
+    tenant = str(uuid.uuid4())
+    contacto = str(uuid.uuid4())
+    # O `thread_id` de **outro** par inventado: a mesma incoerencia dos ataques.
+    thread = f"{uuid.uuid4()}:{uuid.uuid4()}"
+    comuns = {
+        "/internal/turn": {
+            "tenant_id": tenant,
+            "contact_id": contacto,
+            "conversation_id": str(uuid.uuid4()),
+            "channel_id": str(uuid.uuid4()),
+            "wamid": "wamid.HBgMMjQ0OTAwMDAwMDAwFQIAEhgg" + uuid.uuid4().hex[:8],
+            "type": "text",
+            "modo": "bot",
+            "thread_id": thread,
+            "vertical": "vendedor",
+        },
+        "/internal/resume": {
+            "thread_id": thread,
+            "handoff_id": str(uuid.uuid4()),
+            "outcome": "resolved",
+        },
+        "/internal/event": {
+            "event_id": str(uuid.uuid4()),
+            "tenant_id": tenant,
+            "tipo": "payment.confirmed",
+        },
+        "/internal/draft-decision": {
+            "thread_id": thread,
+            "draft_id": uuid.uuid4().hex,
+            "decisao": "aprovado",
+        },
+    }
+    return comuns[caminho]
+
+
 #: Caminho -> o identificador do item enumerado. Uma so fonte para os dois.
 ITEM_DE = {
     "/internal/turn": "rota:agr:kamba_agr/api_interna:rotas:POST:/internal/turn",
@@ -336,6 +392,7 @@ def atacar_rotas_internas(ctx) -> list[str]:  # noqa: ANN001
     from .x01_rotas import _uniformidade  # noqa: PLC0415
 
     app, duplos = _montar(ctx)
+    admissao = duplos["admissao"]
     achados: list[str] = []
 
     for caminho, corpos in _corpos_com_ids_de_b(ctx).items():
@@ -357,7 +414,36 @@ def atacar_rotas_internas(ctx) -> list[str]:  # noqa: ANN001
                     {"corpo": texto, "cabecalhos": cabecalhos, "logs": ctx.logs}
                 )
             )
+        # **O controlo: um identificador que nao existe em tenant nenhum.**
+        #
+        # E o que faltava, e a revisao adversarial apontou-o: o oraculo de
+        # existencia que importa nao e a diferenca entre duas rotas, e a
+        # diferenca entre **o identificador de B (que existe)** e um que nao
+        # existe. Uma rota que devolvesse 403 a todos os de B e 404 a um UUID
+        # inventado passava a uniformidade — um so estado distinto entre os
+        # ataques — e entregava, pela diferenca, exactamente o que o criterio
+        # existe para esconder.
+        estado_de_controlo, _, _, _ = _pedir_com_logs(
+            app,
+            "POST",
+            caminho,
+            json.dumps(_corpo_inexistente(caminho)).encode(),
+            {"content-type": "application/json", "x-kamba-interno": CREDENCIAL},
+        )
+        # A uniformidade mede-se **entre os ataques**; o controlo compara-se a
+        # parte. Metê-lo no mesmo conjunto juntava duas perguntas diferentes num
+        # achado so, e a mensagem dizia «identificadores de B» sobre um estado
+        # que nao vinha de nenhum.
         achados.extend(_uniformidade(item, estados))
+        if estados and estado_de_controlo not in estados:
+            achados.append(
+                f"{item}: os identificadores de B deram {sorted(set(estados))} e "
+                f"um identificador que **nao existe** deu {estado_de_controlo}, "
+                "com a mesma forma de corpo. A diferenca e um oraculo de "
+                "existencia: quem ataca aprende, por ela, que o recurso de B "
+                "existe — que e o que o criterio 3 pede para esconder ao exigir "
+                "recusas uniformes."
+            )
 
     # A afirmacao que a resposta nao da: o executor nao recebeu nada.
     for nome in ("executar", "retomar", "decidir"):
@@ -394,11 +480,26 @@ def atacar_rotas_internas(ctx) -> list[str]:  # noqa: ANN001
         json.dumps(corpo_de_a).encode(),
         {"content-type": "application/json", "x-kamba-interno": CREDENCIAL},
     )
+    # **A sonda afirma que o corpo de A **chega a admissao**, e nao so que
+    # nao deu 404.** A primeira versao verificava `estado == 404` e mais
+    # nada: uma regressao de validacao que recusasse todo o corpo com 400
+    # deixava os quatro ataques a dar 400 uniforme (que esta em
+    # `RECUSAS_ACEITAVEIS`), os duplos nunca chamados (que passa a asserção
+    # acima) e a sonda verde porque 400 != 404 — caso verde, zero medicao.
+    # Achado 11 da revisao adversarial. O duplo da admissao registra, e e
+    # nele que se le se o corpo chegou la.
     if estado == 404:
         achados.append(
             "X-01/agr: a sonda positiva falhou — um corpo coerente de A tambem "
             "deu 404. A rota nao esta montada, e as recusas acima nao provam "
             "isolamento nenhum."
+        )
+    elif not admissao.chamadas:
+        achados.append(
+            f"X-01/agr: a sonda positiva falhou — um corpo coerente de A deu "
+            f"{estado} e **nao chegou a admissao**. As recusas dos ataques "
+            "podem ser da mesma causa que esta, e nesse caso nao medem "
+            "isolamento nenhum: medem que a rota recusa tudo."
         )
     return achados
 

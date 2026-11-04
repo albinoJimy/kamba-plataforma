@@ -22,6 +22,12 @@ from pathlib import Path
 from isolamento import enumeracao
 from isolamento.tests import apoio
 
+#: Um corte de linha, para as arvores de ensaio que se escrevem por
+#: concatenacao. Em constante porque estes ficheiros sao editados por
+#: guioes, e uma sequencia de escape dentro de um literal nao sobrevive a
+#: todos eles.
+CORTE = chr(10)
+
 
 class ComArvore(unittest.TestCase):
     def setUp(self) -> None:
@@ -114,6 +120,55 @@ class TestNaoInventa(ComArvore):
         """
         for item in enumeracao.rotas(self.raiz):
             self.assertNotIn("meta_verify_token", item.id)
+
+    def test_uma_rota_comentada_nao_e_uma_rota(self) -> None:
+        """O que a bateria das filas tinha e a das rotas nao tinha.
+
+        A revisao adversarial mediu-o numa arvore de ensaio: o `_rotas_ts`
+        varria a fonte **bruta** enquanto o `jobs()` lhe tirava os comentarios,
+        pelo que uma rota comentada durante um *refactor* entrava na enumeracao.
+        O efeito e o inverso do que o ticket fecha e custa o mesmo: o *gate*
+        exige caso para uma rota que nao existe, ou a «cobertura de 100%» passa
+        a contar superficies fantasma — e quem o ve aprende a tratar a lista
+        como ruido.
+        """
+        app = self.raiz / "services" / "svc" / "src" / "app.ts"
+        vivo = '  app.get("/healthz", (c) => c.json({}));'
+        comentadas = (
+            vivo
+            + CORTE
+            + '  // app.get("/morta", (c) => c.json({}));'
+            + CORTE
+            + '  /* app.post("/morta-em-bloco", (c) => c.json({})); */'
+        )
+        app.write_text(
+            app.read_text(encoding="utf-8").replace(vivo, comentadas), encoding="utf-8"
+        )
+        ids = self.ids(enumeracao.rotas(self.raiz))
+        self.assertIn("rota:svc:app:createApp:GET:/healthz", ids)
+        juntos = " ".join(ids)
+        for fantasma in ("/morta", "/morta-em-bloco"):
+            with self.subTest(fantasma=fantasma):
+                self.assertNotIn(fantasma, juntos)
+
+    def test_duas_superficies_na_mesma_chave_sao_erro_e_nao_uma(self) -> None:
+        """Um `id` repetido nao se cala: uma das duas nunca seria atacada.
+
+        A *docstring* do `enumerar()` dizia que «a repeticao e reportada pela
+        cobertura», e era falso — a `cobertura()` recebe a lista **ja
+        deduplicada** e nunca ve a repeticao. A chave foi alargada duas vezes
+        por esta classe de colapso (o nome da funcao, depois o modulo); o
+        terceiro nivel nao tinha sentinela. Achado 17 da revisao adversarial.
+        """
+        app = self.raiz / "services" / "svc" / "src" / "app.ts"
+        vivo = '  app.get("/healthz", (c) => c.json({}));'
+        duas = vivo + CORTE + '  app.get("/healthz", (c) => c.json({ b: 1 }));'
+        app.write_text(
+            app.read_text(encoding="utf-8").replace(vivo, duas), encoding="utf-8"
+        )
+        with self.assertRaises(enumeracao.EnumeracaoInvalida) as apanhado:
+            enumeracao.enumerar(self.raiz)
+        self.assertIn("mesma chave", str(apanhado.exception))
 
     def test_um_comentario_sobre_new_queue_nao_e_uma_fila(self) -> None:
         filas = self.raiz / "packages" / "core" / "src" / "filas.ts"

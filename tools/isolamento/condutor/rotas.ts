@@ -2,14 +2,14 @@
  * O condutor das rotas Hono: ataca-as **em processo** e escreve um relatorio
  * que o lado Python le (KAM-066, criterio 3 e criterio 6).
  *
- *     node security/isolation/condutor/rotas.ts <grupo> <ficheiro-de-saida.json>
+ *     node tools/isolamento/condutor/rotas.ts <grupo> <ficheiro-de-saida.json>
  *
  * ## Porque e que isto e um guiao de `node` e nao um caso de Python
  *
  * As dezassete rotas de TypeScript sao Hono, e uma aplicacao Hono responde pelo
  * `app.request()` sem nenhum servidor levantado — e a forma que os testes do GWY
  * ja usam. Nenhuma porta, nenhum `fetch` sobre `localhost`, nenhuma espera: o
- * ataque e deterministico e o `fn` do caso em `security/isolation/baterias/`
+ * ataque e deterministico e o `fn` do caso em `tools/isolamento/baterias/`
  * limita-se a ler o JSON. A fronteira entre as duas linguagens e este ficheiro,
  * e e de proposito que ela e um ficheiro e nao uma convencao: o Python nao
  * importa Hono e este guiao nao decide se ha achado.
@@ -17,7 +17,7 @@
  * ## O que este guiao **nao** decide
  *
  * Nao decide se houve fuga, nem se as recusas foram uniformes. Reporta o que
- * mediu — estado, corpo, cabecalhos — e o oraculo de `security/isolation/`
+ * mediu — estado, corpo, cabecalhos — e o oraculo de `tools/isolamento/`
  * procura nele os canarios de B. Por isso o processo **sai com 0 sempre que
  * conseguiu escrever o relatorio**, mesmo que todas as rotas tenham respondido
  * o pior possivel: um codigo de saida diferente de zero aqui era este guiao a
@@ -62,7 +62,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
-/** A raiz do repositorio: `security/isolation/condutor/` esta tres niveis abaixo. */
+/** A raiz do repositorio: `tools/isolamento/condutor/` esta tres niveis abaixo. */
 const RAIZ = resolve(AQUI, "..", "..", "..");
 
 // ------------------------------------------------------------------- relatorio
@@ -1247,7 +1247,7 @@ async function main(): Promise<number> {
   const [grupo, saida] = process.argv.slice(2);
   if (grupo === undefined || saida === undefined) {
     diagnostico(
-      "uso: node security/isolation/condutor/rotas.ts <grupo> <saida.json>\n" +
+      "uso: node tools/isolamento/condutor/rotas.ts <grupo> <saida.json>\n" +
         `grupos: ${Object.keys(GRUPOS).join(", ")}\n`,
     );
     return 1;

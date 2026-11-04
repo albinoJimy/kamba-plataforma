@@ -1,7 +1,7 @@
 """O corredor: chama os `fn` dos casos registados e junta os achados.
 
 Separado do registo porque sao duas responsabilidades diferentes, e porque
-quem o chama sao dois sitios: o `python -m isolation` corre os casos que nao
+quem o chama sao dois sitios: o `python -m isolamento` corre os casos que nao
 precisam de nada, e `db/tests_isolamento/test_casos_cruzados.py` corre os que
 precisam da base e do `node`.
 
@@ -21,14 +21,24 @@ tudo, e falha o corredor inteiro. Deixa-la a cada caso era repeti-la dezenas de
 vezes; nao a correr era deixar todas as afirmacoes de «zero canarios» a valer
 tanto quanto um `varrer` que devolvesse `[]`.
 
-## As origens declaradas confrontam-se com as varridas
+## As origens declaradas: o que o corredor verifica, e o que nao
 
 O criterio 9 pede que «o oraculo varra **tambem** logs e traces OTel de cada
-caso». Um caso declara em `origens` o que varre; o corredor nao consegue
-inspeccionar o que o `fn` fez por dentro, pelo que verifica o que pode: que um
-caso que declara `logs` tem onde os buscar (`ctx.logs`) e que nenhum caso
-declara uma origem fora das cinco. O resto e revisao de codigo, e esta dito em
-vez de ficar por dizer.
+caso». Um caso declara em `origens` o que varre, e o corredor **nao consegue
+inspeccionar o que o `fn` fez por dentro**: o que ele verifica e uma coisa so —
+que nenhum caso declara uma origem fora das cinco.
+
+Esta escrito assim porque a versao anterior prometia mais: dizia que verificava
+«que um caso que declara `logs` tem onde os buscar (`ctx.logs`)». Nao
+verificava, e a verificacao seria vazia de qualquer modo — o `Contexto.logs`
+nasce sempre como lista. Pior: dois dos tres casos que declaram `logs` nao
+escrevem nada la (o X-02 invoca a ToolLayer, que registra pelo seu *logger* e
+nao pelo contexto), pelo que a origem `logs` deles e varrida sobre lista vazia.
+Quem varre *logs* a serio e o caso do AGR, que captura o `stdout` e o `stderr`
+do servico durante cada pedido. Achado 13 da revisao adversarial.
+
+A declaracao de `origens` e, portanto, **documentacao verificada so na forma**:
+diz o que o caso pretende varrer, e o que ele varre de facto le-se no `fn`.
 """
 
 from __future__ import annotations
@@ -67,8 +77,13 @@ def correr(
     saltados: list[str] = []
     duracao: dict[str, float] = {}
 
-    if ctx.oraculo is not None:
-        ctx.oraculo.confirmar_que_morde()
+    # **Todos os oraculos do contexto, e nao so o principal.** O do eixo do
+    # contacto (`oraculo_de_y`) nunca passava pela sonda, pelo que as
+    # afirmacoes do C-01 sobre ele valiam tanto quanto um `varrer` que
+    # devolvesse `[]`. Achado 12 da revisao adversarial.
+    for oraculo in (ctx.oraculo, ctx.oraculo_de_y):
+        if oraculo is not None:
+            oraculo.confirmar_que_morde()
 
     for identificador in sorted(casos):
         caso = casos[identificador]

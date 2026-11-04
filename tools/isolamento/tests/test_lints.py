@@ -173,21 +173,54 @@ class TestORepositorio(unittest.TestCase):
     def test_conforme(self) -> None:
         self.assertEqual(lints.verificar(self.RAIZ), [])
 
-    def test_a_unica_excepcao_e_a_do_trabalhador_do_evt(self) -> None:
-        """Ha **uma**, e e a leitura do envelope fora de transaccao (KAM-038).
+    def test_as_duas_excepcoes_sao_as_medidas_e_cada_uma_conta_um_sitio(self) -> None:
+        """Ha **duas**, e as duas apareceram por medicao e nao por conveniencia.
 
-        Este teste existe para que uma segunda entrada seja uma alteracao
-        visivel: o `is_local` falso e a unica forma de `app.tenant_id` neste
-        conjunto que atravessa uma fronteira de transaccao, e a lista nao deve
-        crescer sem alguem dar por isso.
+        A primeira e a leitura do envelope fora de transaccao (KAM-038). A
+        segunda e o verificador da cadeia de auditoria (KAM-012), e **so entrou
+        quando o corpus deixou de ser quatro globs**: a revisao adversarial
+        mediu que `db/auditoria.py` tem um `set_config(..., false)` escrito a
+        letra e ficava fora da varredura, pelo que o «0 achados» media menos do
+        que dizia.
+
+        Este ensaio existe para que uma terceira entrada seja uma alteracao
+        visivel, e para que o `ocorrencias` de cada uma nao cresca sem ninguem
+        dar por isso — e com ele que «um segundo `false` no mesmo sitio e achado
+        novo» passa de promessa a verdade.
         """
         excepcoes = lints.ler_excepcoes(self.RAIZ)
-        self.assertEqual(len(excepcoes), 1, sorted(excepcoes))
-        unica = next(iter(excepcoes.values()))
         self.assertEqual(
-            unica.ficheiro, "packages/core-ts/src/eventos/trabalhador_bullmq.ts"
+            {chave: entrada.credor for chave, entrada in excepcoes.items()},
+            {
+                "packages/core-ts/src/eventos/trabalhador_bullmq.ts"
+                "#SQL_DEFINIR_TENANT": "KAM-038",
+                "db/auditoria.py#main": "KAM-012",
+            },
         )
-        self.assertEqual(unica.credor, "KAM-038")
+        for chave, entrada in excepcoes.items():
+            with self.subTest(excepcao=chave):
+                self.assertEqual(entrada.ocorrencias, 1)
+
+    def test_o_corpus_ve_o_db_inteiro_e_nao_tres_ficheiros(self) -> None:
+        """O `db/auditoria.py` **tem** de estar no corpus: e la o segundo `false`.
+
+        A primeira versao do `CORPUS` levava `rls.py`, `bootstrap.py` e as
+        revisoes, debaixo da frase «codigo que corre contra a base, e so esse» —
+        e `db/` tem mais codigo que corre contra a base do que isso. Uma lista a
+        mao de ficheiros a **incluir** falha para o lado errado: o ficheiro novo
+        fica de fora em silencio.
+        """
+        no_corpus = {
+            caminho.relative_to(self.RAIZ).as_posix()
+            for caminho in lints._ficheiros(self.RAIZ)
+        }
+        for ficheiro in (
+            "db/auditoria.py",
+            "db/ligacao.py",
+            "tools/isolamento/semente.py",
+        ):
+            with self.subTest(ficheiro=ficheiro):
+                self.assertIn(ficheiro, no_corpus)
 
     def test_o_corpus_nao_varre_a_lista_de_mutacoes(self) -> None:
         """`db/mutacoes.py` contem `…, %s, false)` como **dado**.

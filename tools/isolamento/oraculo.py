@@ -28,10 +28,21 @@ existencia que o criterio 3 nomeia ao pedir «403/404 **uniformes**».
 Quatro afirmacoes de «zero canarios» passam todas contra uma tabela vazia, um
 oraculo que procure a cadeia errada ou um `varrer` que devolva sempre `[]`. A
 casa tem padrao para isto — o `RLS-CONTROLO` fora da contagem, as metades
-positivas de `test_x03_x04_isolamento.py` — e aqui ele e o `confirmar_que_morde`:
-**cada caso chama-o**, e ele falha se o oraculo nao encontrar um canario que
-esta mesmo la. Um caso que se esqueca de o chamar e apanhado pelo registo
-(`baterias/` declara `sonda=True` por omissao e o corredor exige a prova).
+positivas de `test_x03_x04_isolamento.py` — e aqui ele e o `confirmar_que_morde`.
+
+**Quem o corre e o corredor, uma vez, antes do primeiro caso** (`corredor.py`),
+e nao cada caso. A primeira versao deste paragrafo descrevia outra coisa: «cada
+caso chama-o» e «o registo declara `sonda=True` por omissao e o corredor exige a
+prova». Nada disso existia — o `Caso` nao tem campo `sonda` e `grep sonda=True`
+dava vazio. Dois ficheiros do mesmo pacote descreviam o mesmo mecanismo de duas
+maneiras incompativeis, e quem lesse este concluia que havia um trinco de
+registo que nao ha. Achado 12 da revisao adversarial.
+
+Correr uma vez chega para o que ele prova — que **este** oraculo encontra o que
+esta la —, e por isso o corredor corre-o sobre **todos** os oraculos que o
+contexto traz, e nao so sobre o principal: o do eixo do contacto
+(`ctx.oraculo_de_y`) ficava sem sonda nenhuma, e as afirmacoes do C-01 sobre ele
+valiam tanto quanto um `varrer` que devolvesse `[]`.
 
 ## Normaliza antes de procurar, e isso nao e cosmetico
 

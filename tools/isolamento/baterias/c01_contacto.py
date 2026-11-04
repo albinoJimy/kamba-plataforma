@@ -36,8 +36,18 @@ def _base(ctx) -> list[str]:  # noqa: ANN001
     achados: list[str] = []
     for schema, tabela in TABELAS:
         coluna = COLUNA_DO_CANARIO[(schema, tabela)]
-        canario_de_y = ctx.y.canarios[(schema, tabela)]
-        canario_de_x = ctx.x.canarios[(schema, tabela)]
+        # **A marca de cada tabela e a da sua coluna**, e nao sempre o canario
+        # de texto. Na `price_quotes` o `sku` passou a ser partilhado por X e Y
+        # (para o cenario do criterio 6 ser alcancavel), pelo que o que
+        # distingue as duas linhas e o `id` — e comparar o canario de texto ali
+        # fazia a sonda positiva falhar sobre uma leitura que estava certa.
+        # Medido na execucao do *gate* 6 que seguiu os achados.
+        if coluna == "id":
+            canario_de_y = ctx.y.ids[(schema, tabela)]
+            canario_de_x = ctx.x.ids[(schema, tabela)]
+        else:
+            canario_de_y = ctx.y.canarios[(schema, tabela)]
+            canario_de_x = ctx.x.canarios[(schema, tabela)]
         cursor = ctx.cursor_de("app", ctx.x.tenant_id)
 
         # A leitura como o repositorio a faz: tenant **e** contacto.
@@ -96,14 +106,18 @@ TABELA_DA_LEITURA = {
 #: faz a mesma afirmacao: a linha de Y nao sai na leitura de X.
 MARCA_DA_LEITURA = {
     "encomendas": "id",
-    "cotacoes": "canario",
+    # Partilha o `(sku, qty)` com o outro contacto, de proposito (ver
+    # `semente.SKU_PARTILHADO`): o canario nao pode viver numa coluna que os
+    # dois partilham, e o que distingue as linhas e o `id`, que a
+    # `SQL_COTACAO_VALIDA` projecta.
+    "cotacoes": "id",
     "consentimentos": "canario",
 }
 
 #: A leitura que **nao** tem predicado de contacto no repositorio, e o ticket a
 #: quem isso pertence.
 #:
-#: Ver `_cotacoes_sem_predicado` para o que se mediu e porque e que esta bateria
+#: Ver `_fixacao_das_cotacoes` para o que se mediu e porque e que esta bateria
 #: fixa o estado em vez de afirmar a propriedade.
 SEM_PREDICADO_DE_CONTACTO = {"cotacoes": "KAM-043"}
 
@@ -188,7 +202,11 @@ def _consultas(ctx) -> list[str]:  # noqa: ANN001
         texto_de_y = achatar(como_y.get("corpo", ""))
 
         if leitura in SEM_PREDICADO_DE_CONTACTO:
-            achados.extend(_cotacoes_sem_predicado(ctx, leitura))
+            achados.extend(
+                _fixacao_das_cotacoes(
+                    ctx, leitura, texto_de_x, marca_de_x, marca_de_y
+                )
+            )
             continue
 
         if marca_de_y in texto_de_x:
@@ -212,64 +230,85 @@ def _consultas(ctx) -> list[str]:  # noqa: ANN001
     return achados
 
 
-def _cotacoes_sem_predicado(ctx, leitura: str) -> list[str]:  # noqa: ANN001
-    """O estado medido da leitura de cotacoes, fixado para nao mudar em silencio.
+def _fixacao_das_cotacoes(
+    ctx,  # noqa: ANN001
+    leitura: str,
+    texto_de_x: str,
+    marca_de_x: str,
+    marca_de_y: str,
+) -> list[str]:
+    """Fixa o **comportamento medido** da leitura de cotacoes, nao o texto do SQL.
 
-    ## O que se mediu, e porque e que esta bateria nao afirma a propriedade
+    ## O que se mede, e porque e que esta bateria nao afirma a propriedade
 
     O criterio 6 do KAM-066 diz que «o contacto X, com o estado de X, nao le
     encomendas, consentimentos nem `price_quotes` de Y». Das tres leituras, a
-    das cotacoes **nao tem predicado de contacto**:
-    `SQL_COTACAO_VALIDA` (`services/com/src/produtos/consultas.ts`) filtra
-    `tenant_id`, `sku`, `qty`, `estado` e `valida_ate`, e mais nada — e a
-    `platform.price_quotes` tem `contact_id uuid NOT NULL` com FK composta
-    desde a revisao `0028`. Logo, dentro do mesmo tenant, o contacto X que peca
-    o mesmo `(sku, qty)` recebe a cotacao de Y, com o preco de Y.
+    das cotacoes **nao tem predicado de contacto**: a `SQL_COTACAO_VALIDA`
+    (`services/com/src/produtos/consultas.ts`) filtra `tenant_id`, `sku`, `qty`,
+    `estado` e `valida_ate`, e mais nada — e a `platform.price_quotes` tem
+    `contact_id uuid NOT NULL` com FK composta desde a revisao `0028`. Dentro do
+    mesmo tenant, X e Y com cotacao para o mesmo `(sku, qty)` leem **a mesma
+    linha**: a mais recente.
 
     **E um achado deste ticket e nao um defeito deste ticket.** O
     `docs/tecnica/03` §7.2 descreve a cotacao como um preco «para `(sku, qty)`»
-    e nao diz que e por cliente; o esquema diz que e. As duas leituras
-    divergem, e acrescentar o predicado muda que cotacao um cliente recebe —
-    comportamento do COM, nao do *harness*. Fica atribuido ao **KAM-043**, que e
-    o dono de `produtos/`, e a caixa do criterio 6 fica **vazia** no bloco, com
-    esta medicao escrita.
+    e nao diz que e por cliente; o esquema diz que e. As duas leituras divergem,
+    e acrescentar o predicado muda que cotacao um cliente recebe —
+    comportamento do COM, nao do *harness*. Fica atribuido ao **KAM-043**, e a
+    caixa do criterio 6 fica **vazia** no bloco, com esta medicao escrita.
 
-    ## Porque e uma afirmacao e nao um comentario
+    ## Porque e sobre o comportamento e nao sobre o texto
 
-    Afirma-se o estado: o SQL **nao** nomeia `contact_id`. No dia em que alguem
-    lho acrescentar, este caso fica **vermelho** e obriga quem o fez a vir aqui
-    trocar a fixacao pela propriedade real (tirar a leitura de
-    `SEM_PREDICADO_DE_CONTACTO` basta). E o mesmo mecanismo da dispensa morta:
-    a excepcao morre em voz alta em vez de ficar a cobrir o que ja esta
-    corrigido.
+    A primeira versao desta fixacao fazia `if "contact_id" in sql` sobre o
+    *template literal* inteiro — projeccao e comentarios incluidos — e saltava
+    **antes** das duas sondas positivas. A revisao adversarial mostrou a cadeia
+    inteira: bastava o KAM-043 acrescentar `contact_id` a **lista do `SELECT`**,
+    sem predicado, para a fixacao anunciar «o credor pagou a divida»; quem
+    seguisse a instrucao da mensagem tirava a leitura de
+    `SEM_PREDICADO_DE_CONTACTO` e passava a correr uma asserção que ficava verde
+    por outra razao — a semente dava a X e a Y `sku` **distintos**, pelo que X
+    pedia o seu proprio `sku` e recebia a sua propria linha. A fixacao,
+    desenhada para avisar, era o que fazia a caixa fechar errado.
+
+    Agora: a semente da aos dois o **mesmo** `(sku, qty)`
+    (`semente.SKU_PARTILHADO`), o que torna o cenario do criterio alcancavel, e
+    o que se afirma e o que a leitura **devolveu**. Duas direccoes:
+
+    * hoje, a leitura de X devolve a linha de **Y** — a mais recente das duas —
+      e e isso que se fixa;
+    * no dia em que ela devolver a linha de **X**, o predicado apareceu: o caso
+      fica vermelho e diz o que fazer.
+
+    Um `in` sobre texto nao distinguia estas duas coisas; uma comparacao de
+    identificadores distingue.
     """
     credor = SEM_PREDICADO_DE_CONTACTO[leitura]
     relativo, constante = SQL_DA_LEITURA[leitura]
-    caminho = ctx.raiz / relativo
-    if not caminho.is_file():
+
+    if marca_de_x in texto_de_x and marca_de_y not in texto_de_x:
         return [
-            f"C-01/consultas {leitura}: {relativo} nao existe. A leitura mudou "
-            "de sitio e esta fixacao deixou de medir o que diz medir."
+            f"C-01/consultas {leitura}: a leitura do contacto X devolveu a linha "
+            f"de X e **nao** a de Y, com o `(sku, qty)` partilhado. O predicado "
+            f"do contacto apareceu na `{constante}` ({relativo}) e o credor "
+            f"{credor} pagou a divida — **esta e a boa noticia**, e esta bateria "
+            "esta a dar o aviso que existe para dar: tire "
+            f"{leitura!r} de `SEM_PREDICADO_DE_CONTACTO` em "
+            "`baterias/c01_contacto.py`, e o caso passa a afirmar a propriedade "
+            "do criterio 6 em vez de fixar a ausencia dela. Marque entao a caixa."
         ]
-    fonte = caminho.read_text(encoding="utf-8")
-    inicio = fonte.find(f"{constante} = `")
-    if inicio < 0:
-        return [
-            f"C-01/consultas {leitura}: nao se encontrou `{constante}` em "
-            f"{relativo}. A fixacao nao sabe sobre que SQL esta a afirmar."
-        ]
-    fim = fonte.find("`", inicio + len(constante) + 4)
-    sql = fonte[inicio:fim]
-    if "contact_id" in sql:
-        return [
-            f"C-01/consultas {leitura}: a `{constante}` passou a filtrar por "
-            f"`contact_id` — o credor {credor} pagou a divida. **Esta e a boa "
-            "noticia**, e esta bateria esta a dar o aviso que existe para dar: "
-            f"tire {leitura!r} de `SEM_PREDICADO_DE_CONTACTO` em "
-            "`baterias/c01_contacto.py` e o caso passa a afirmar a propriedade "
-            "do criterio 6 em vez de fixar a ausencia dela."
-        ]
-    return []
+    if marca_de_y in texto_de_x:
+        # O estado medido: a leitura cruza. Nao e achado **aqui** — e o achado
+        # do bloco, com credor — mas fica dito na saida do *gate*, para que
+        # ninguem leia este verde como «o isolamento de contacto esta provado».
+        return []
+    return [
+        f"C-01/consultas {leitura}: a leitura do contacto X nao devolveu **nem** "
+        f"a linha de X nem a de Y. O caso nao mediu nada: ou a semente nao "
+        f"escreveu as duas cotacoes com o `(sku, qty)` partilhado, ou a "
+        f"`{constante}` deixou de devolver linha a quem pede. Sem uma das duas "
+        "marcas na resposta, nada do que esta bateria afirma sobre as cotacoes "
+        "tem suporte."
+    ]
 
 
 registar_caso(

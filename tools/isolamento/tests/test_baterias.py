@@ -137,87 +137,74 @@ class TestAsListasCoincidemComAEnumeracao(unittest.TestCase):
 
 
 class TestAFixacaoDasCotacoes(unittest.TestCase):
-    """A leitura de cotacoes nao filtra por contacto, e isso esta fixado.
+    """A fixacao e sobre o que a leitura devolveu, nao sobre o texto do SQL.
 
-    O que esta bateria tem de garantir e o aviso: no dia em que o predicado
-    aparecer, o caso fica **vermelho** e obriga quem o acrescentou a trocar a
-    fixacao pela propriedade do criterio 6. Um comentario nao faz isso.
+    A revisao adversarial mostrou a cadeia que a versao por texto permitia: o
+    KAM-043 acrescenta `contact_id` a **projeccao** (sem predicado), a fixacao
+    anuncia «o credor pagou a divida», quem le tira a leitura de
+    `SEM_PREDICADO_DE_CONTACTO`, e a asserção que passa a correr fica verde por
+    outra razao. Estas tres baterias fecham as tres direccoes.
     """
 
-    def test_hoje_a_arvore_real_nao_tem_o_predicado(self) -> None:
-        self.assertEqual(
-            c01_contacto._cotacoes_sem_predicado(Contexto(raiz=RAIZ), "cotacoes"),
-            [],
-            "a `SQL_COTACAO_VALIDA` passou a filtrar por contacto: tire "
-            "'cotacoes' de SEM_PREDICADO_DE_CONTACTO e afirme a propriedade",
+    X = "11111111-1111-1111-1111-111111111111"
+    Y = "22222222-2222-2222-2222-222222222222"
+
+    def fixar(self, texto_de_x: str) -> list[str]:
+        return c01_contacto._fixacao_das_cotacoes(
+            Contexto(raiz=RAIZ), "cotacoes", texto_de_x, self.X, self.Y
         )
 
-    def test_com_o_predicado_a_fixacao_avisa(self) -> None:
-        import tempfile  # noqa: PLC0415
+    def test_a_leitura_de_x_a_devolver_y_e_o_estado_fixado(self) -> None:
+        """Hoje: com o `(sku, qty)` partilhado, X recebe a linha de Y."""
+        self.assertEqual(self.fixar(f'{{"id":"{self.Y}"}}'), [])
 
-        with tempfile.TemporaryDirectory() as temporario:
-            raiz = Path(temporario)
-            relativo, constante = c01_contacto.SQL_DA_LEITURA["cotacoes"]
-            caminho = raiz / relativo
-            caminho.parent.mkdir(parents=True)
-            caminho.write_text(
-                f"export const {constante} = `\n"
-                "  SELECT id FROM platform.price_quotes\n"
-                "   WHERE tenant_id = $1 AND contact_id = $2\n"
-                "`;\n",
-                encoding="utf-8",
-            )
-            achados = c01_contacto._cotacoes_sem_predicado(
-                Contexto(raiz=raiz), "cotacoes"
-            )
+    def test_a_leitura_de_x_a_devolver_x_avisa_e_diz_o_que_fazer(self) -> None:
+        """O predicado apareceu: o caso fica vermelho e nomeia o credor."""
+        achados = self.fixar(f'{{"id":"{self.X}"}}')
         self.assertEqual(len(achados), 1, achados)
         self.assertIn("KAM-043", achados[0])
         self.assertIn("SEM_PREDICADO_DE_CONTACTO", achados[0])
 
-    def test_um_sql_que_desapareca_e_achado(self) -> None:
-        import tempfile  # noqa: PLC0415
-
-        with tempfile.TemporaryDirectory() as temporario:
-            achados = c01_contacto._cotacoes_sem_predicado(
-                Contexto(raiz=Path(temporario)), "cotacoes"
-            )
+    def test_uma_leitura_vazia_e_achado_e_nao_silencio(self) -> None:
+        """Sem nenhuma das duas marcas, a bateria nao mediu nada."""
+        achados = self.fixar('{"id":null}')
         self.assertEqual(len(achados), 1, achados)
-        self.assertIn("nao existe", achados[0])
+        self.assertIn("nao mediu nada", achados[0])
 
 
-class TestOsCasosDeFilas(unittest.TestCase):
-    """Os dois casos que correm no passo a seco do *gate* 6."""
+class TestOSkuPartilhado(unittest.TestCase):
+    """O `(sku, qty)` tem de ser o mesmo nos dois contactos, ou o cenario nao ocorre."""
 
-    def test_as_filas_nomeadas_passam_na_arvore_real(self) -> None:
-        self.assertEqual(jobs_filas._nomeadas(Contexto(raiz=RAIZ)), [])
+    def test_a_semente_partilha_o_sku_e_a_qty(self) -> None:
+        from isolamento import semente  # noqa: PLC0415
 
-    def test_as_filas_de_evento_passam_na_arvore_real(self) -> None:
-        self.assertEqual(jobs_filas._de_evento(Contexto(raiz=RAIZ)), [])
+        self.assertTrue(semente.SKU_PARTILHADO)
+        self.assertEqual(semente.QTY_PARTILHADA, 1)
 
-    def test_a_entrada_nao_pode_levar_tenant_id(self) -> None:
-        """O canario do caso: o campo proibido na `wa-inbound` e o `tenant_id`.
+    def test_a_marca_das_cotacoes_e_o_id_e_nao_o_canario(self) -> None:
+        """Com o `sku` partilhado, o canario naquela coluna nao distinguia nada."""
+        self.assertEqual(c01_contacto.MARCA_DA_LEITURA["cotacoes"], "id")
+        self.assertEqual(
+            semente_coluna_do_canario()[("platform", "price_quotes")], "id"
+        )
 
-        E a assimetria que a primeira versao do caso nao tinha — exigia
-        `tenant_id` nas duas filas, e a `wa-inbound` ficou vermelha com razao: o
-        CHR e o unico ponto que mapeia `phone_number_id -> tenant`
-        (`docs/tecnica/08` §3.1), e o *job* da entrada e **antes** dele.
-        """
-        _, _, exigido, proibido = jobs_filas.CONTRATO_DA_FILA["job:wa-inbound"]
-        self.assertEqual(exigido, "phone_number_id")
-        self.assertEqual(proibido, "tenant_id")
-        _, _, exigido_do_agr, proibido_do_agr = jobs_filas.CONTRATO_DA_FILA[
-            "job:agr-inbound"
-        ]
-        self.assertEqual(exigido_do_agr, "tenant_id")
-        self.assertIsNone(proibido_do_agr)
 
-    def test_um_contrato_que_desapareca_e_achado(self) -> None:
-        import tempfile  # noqa: PLC0415
+def semente_coluna_do_canario() -> dict:
+    from isolamento.semente import COLUNA_DO_CANARIO  # noqa: PLC0415
 
-        with tempfile.TemporaryDirectory() as temporario:
-            achados = jobs_filas._nomeadas(Contexto(raiz=Path(temporario)))
-        self.assertEqual(len(achados), 2, achados)
-        self.assertTrue(all("nao existe" in achado for achado in achados))
+    return COLUNA_DO_CANARIO
+
+
+class TestOsConsumidoresDoEvt(unittest.TestCase):
+    """As marcas de consumo usam os `consumer` **reais**, ou a contagem e vazia."""
+
+    def test_os_consumidores_da_semente_sao_os_que_a_enumeracao_encontra(self) -> None:
+        from isolamento import semente  # noqa: PLC0415
+
+        enumerados = {
+            item.id.split(":")[1] for item in enumeracao.consumidores(RAIZ)
+        }
+        self.assertEqual(set(semente.CONSUMIDORES), enumerados)
 
 
 if __name__ == "__main__":

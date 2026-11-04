@@ -447,8 +447,11 @@ reproduzidos, não se corrigiram, e ficam aqui em vez de num comentário.
 8. **O X-11 sobre a suite cruzada ponta a ponta.** O ticket pede o varrimento
    também «sobre os logs de uma execução ponta a ponta da suite cruzada». Essa
    suite **passou a existir** com o KAM-066 (`tools/isolamento/`), e tem oráculo
-   próprio que varre os *logs* de cada caso — o do AGR captura o `stdout` e o
-   `stderr` do serviço durante cada pedido. O que continua em aberto é o X-11
+   próprio com uma origem `logs`. Varre-a **em dois dos dezasseis casos** — os
+   do AGR, que capturam o `stdout` e o `stderr` do serviço durante cada pedido;
+   os outros declaram a origem e o corredor só lhes verifica a forma. A primeira
+   versão desta linha dizia «de cada caso», e a revisão adversarial do KAM-066
+   mediu que não era verdade. O que continua em aberto é o X-11
    **como caso registado** daquela suite: a bateria `X-11` existe em
    `casos.BATERIAS` com zero casos, e quem a inscrever chama o `registar_caso`
    do pacote. São duas medições diferentes e nenhuma substitui a outra — o X-11

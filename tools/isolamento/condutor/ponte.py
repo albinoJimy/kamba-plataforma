@@ -83,7 +83,7 @@ IMAGEM_NODE = (
 #: Segundos. O condutor nao faz I/O de rede e as leituras por contacto sao tres
 #: consultas por contacto; isto e folga para um *runner* lento a arrancar um
 #: contentor, nao alvo.
-TEMPO_MAXIMO = 300
+TEMPO_MAXIMO = 150
 
 #: O nome do contentor do PostgreSQL, posto por `db/gate_bd.py`.
 VARIAVEL_DO_CONTENTOR = "KAMBA_GATE_CONTENTOR"

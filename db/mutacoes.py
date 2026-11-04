@@ -6431,6 +6431,16 @@ def _copiar_para_o_isolamento(destino: Path, ignorar) -> None:
             ignore=ignorar,
             dirs_exist_ok=True,
         )
+        # **E o `package.json` de cada um.** E ele que declara
+        # `"type": "module"`, e o `node` resolve o tipo de um `.ts` subindo a
+        # arvore ate encontrar um: sem ele, `services/com/src/produtos/…` era
+        # tratado como CommonJS e o `import` rebentava com `Cannot use import
+        # statement outside a module` — que os `catch` do condutor transformam
+        # em `executado: false`. E o candidato que a revisao adversarial
+        # apontou para o `executado: false` da copia (achado 21).
+        alvo = destino / "services" / servico / "package.json"
+        if not alvo.exists():
+            shutil.copy(RAIZ / "services" / servico / "package.json", alvo)
     for pacote in ("contracts", "core-ts"):
         shutil.copytree(
             RAIZ / "packages" / pacote / "src",

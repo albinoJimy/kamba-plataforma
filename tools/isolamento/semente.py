@@ -54,7 +54,10 @@ from .contexto import Contacto
 #:   consent_event.text_version texto livre com `CHECK` de nao vazio
 COLUNA_DO_CANARIO = {
     ("platform", "orders_mirror"): "intent_key",
-    ("platform", "price_quotes"): "sku",
+    # **Sem coluna de canario**: o `sku` e partilhado por X e Y (ver
+    # `SKU_PARTILHADO`) e por isso nao distingue as linhas. O que as
+    # distingue e o `id`, em `Contacto.ids`.
+    ("platform", "price_quotes"): "id",
     ("platform", "consent_event"): "text_version",
 }
 
@@ -181,14 +184,41 @@ def _encomenda(cursor: Any, tenant_id: str, contact_id: str, marca: str) -> str:
     return order_id
 
 
+#: O `(sku, qty)` que X **e** Y partilham nas cotacoes, e a razao pela qual ele
+#: tem de ser o mesmo nos dois.
+#:
+#: O criterio 6 descreve o cenario: «o contacto X ... nao le ... `price_quotes`
+#: de Y». Para um contacto ler a cotacao do outro, os dois tem de ter cotacao
+#: para o **mesmo** `(sku, qty)` — e a `SQL_COTACAO_VALIDA` filtra por `sku` e
+#: `qty` e mais nada. Com `sku` distinto por contacto, que e o que esta semente
+#: fazia, X pedia o seu proprio `sku` e recebia a sua propria linha: o cenario
+#: do criterio **nao podia ocorrer**, e a afirmacao «X nao ve Y» era verde por
+#: construcao. Achado 8 da revisao adversarial.
+#:
+#: Com o `sku` partilhado, o canario deixa de poder viver nessa coluna — seria
+#: o mesmo nos dois — e o que distingue as duas linhas passa a ser o **`id`**,
+#: que aquela consulta projecta. Ver `COLUNA_DO_CANARIO` e `Contacto.ids`.
+SKU_PARTILHADO = "canario_c01_sku_partilhado"
+
+#: A quantidade, tambem partilhada: entra no predicado como o `sku`.
+QTY_PARTILHADA = 1
+
+
 def _cotacao(cursor: Any, tenant_id: str, contact_id: str, marca: str) -> str:
+    """A cotacao do contacto, com o `(sku, qty)` **partilhado** com o outro.
+
+    O `marca` nao vai para o `sku` (ver `SKU_PARTILHADO`): vai para o
+    `emitida_por`? Nao — esse e um UUID. Fica **sem canario de texto**, e e o
+    `id` devolvido que identifica a linha. E a unica das tres tabelas onde isso
+    acontece, e a razao esta no comentario do `SKU_PARTILHADO`.
+    """
     cursor.execute(
         "INSERT INTO platform.price_quotes "
         "(tenant_id, contact_id, sku, qty, preco_total_minor, valida_ate, "
         " emitida_por) "
-        "VALUES (%s, %s, %s, 1, 1000, now() + interval '24 hours', %s) "
+        "VALUES (%s, %s, %s, %s, 1000, now() + interval '24 hours', %s) "
         "RETURNING id::text",
-        (tenant_id, contact_id, marca, tenant_id),
+        (tenant_id, contact_id, SKU_PARTILHADO, QTY_PARTILHADA, tenant_id),
     )
     return str(cursor.fetchone()[0])
 
@@ -233,6 +263,47 @@ def semear_contactos(cursor: Any, tenant_id: str) -> ParDeContactos:
             )
         )
     return ParDeContactos(x=par[0], y=par[1])
+
+
+#: Os `consumer` que o registo deriva (`eventos/subscricoes.py`: `"agr_" + id`).
+#: Repetidos aqui e nao importados porque este modulo nao importa o AGR; ha um
+#: ensaio que os confronta com a enumeracao.
+CONSUMIDORES = ("agr_vendedor", "agr_servicos")
+
+
+def semear_marcas_de_consumo(cursor: Any, tenant_id: str, rotulo: str) -> dict[str, str]:
+    """Uma marca de `events_consumed` por consumidor **real**, para este tenant.
+
+    **Sem isto a bateria dos consumidores EVT passava por ausencia**, e a
+    revisao adversarial mediu-o: a receita de semente da suite da base escreve
+    `consumer = 'ensaio-iso'`, pelo que a pergunta «ha marca de B com
+    `consumer = 'agr_vendedor'`?» contava **zero** — com a RLS ligada,
+    desligada, ou com a politica apagada. A metade positiva que devia fechar
+    isso deixava cair o predicado do `consumer`, e por isso nao o fechava.
+
+    Devolve `{consumer: canario}` — o canario vai no `agregado_id`, que e texto
+    e e o que o oraculo procura.
+    """
+    canarios: dict[str, str] = {}
+    for consumer in CONSUMIDORES:
+        marca = canario(f"{rotulo}_{consumer}")
+        canarios[consumer] = marca
+        cursor.execute(
+            "INSERT INTO platform.events_consumed "
+            "(consumer, event_id, tenant_id, agregado_tipo, agregado_id, "
+            " agregado_seq) "
+            "VALUES (%s, gen_random_uuid(), %s::uuid, 'order', %s::text, 1)",
+            (consumer, tenant_id, marca),
+        )
+    return canarios
+
+
+def apagar_marcas_de_consumo(cursor: Any, tenant_id: str) -> None:
+    cursor.execute(
+        "DELETE FROM platform.events_consumed "
+        "WHERE tenant_id = %s AND consumer = ANY(%s)",
+        (tenant_id, list(CONSUMIDORES)),
+    )
 
 
 def apagar_contactos(cursor: Any, par: ParDeContactos) -> None:

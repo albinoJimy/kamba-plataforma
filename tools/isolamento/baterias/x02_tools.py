@@ -87,6 +87,37 @@ def _contexto_de_a(ctx):  # noqa: ANN001, ANN202
     )
 
 
+def _esquema_da_tool(nome: str, especificacao) -> dict | None:  # noqa: ANN001
+    """O esquema de argumentos da tool, **mesmo quando ela e `declarada`**.
+
+    E a correccao do achado 2 da revisao adversarial, e e a que torna esta
+    bateria um ataque. Medido antes: as onze tools eram invocadas com `{}` —
+    as dez `declaradas` porque a entrada do catalogo nao tem `modelo`, e a
+    `get_store_info` porque o modelo dela **nao tem um unico campo**. Logo
+    «argumentos que referem entidades de B», que e o que o criterio 3 pede, nao
+    era exercitado em sitio nenhum: uma tool que ecoasse o seu argumento de
+    texto numa mensagem de erro passava este caso, porque nenhum argumento de
+    texto lhe chegava.
+
+    Os modelos das dez existem — `tls/vendedor.py` e `tls/servicos.py`
+    declaram-nos em `MODELOS` — e o que falta e a **ligacao** ao catalogo, que e
+    dos tickets que ligam cada *backend* (KAM-043, KAM-046, KAM-061, KAM-035).
+    Esta funcao le-os de onde eles estao: pelo catalogo quando a entrada esta
+    `ligada`, pelos `MODELOS` da vertical quando nao esta.
+
+    **O que isto nao finge ser:** invocar a tool com o modelo dela nao a liga.
+    A camada continua a recusar uma entrada `declarada` no passo 1, e e isso que
+    o caso afirma. O que muda e que a recusa passa a ser medida **com o canario
+    de B dentro dos argumentos**, que e onde a fuga sairia.
+    """
+    if especificacao.ligada:
+        return especificacao.esquema()
+    from kamba_agr.tls import servicos, vendedor  # noqa: PLC0415
+
+    modelo = vendedor.MODELOS.get(nome) or servicos.MODELOS.get(nome)
+    return modelo.model_json_schema() if modelo is not None else None
+
+
 def _argumentos_de_b(ctx, esquema: dict | None) -> list[dict]:  # noqa: ANN001
     """Argumentos que nomeiam entidades de B, moldados ao esquema da tool.
 
@@ -122,12 +153,26 @@ def _argumentos_de_b(ctx, esquema: dict | None) -> list[dict]:  # noqa: ANN001
 
 
 def _varrer_resultado(ctx, rotulo: str, resultado) -> list[str]:  # noqa: ANN001
-    """O oraculo sobre `data`, `facts` e `error` — as tres saidas de `invoke`."""
+    """O oraculo sobre `data`, **`facts`** e `error` — as saidas de `invoke`.
+
+    **Os `facts` faltavam, e sao o campo que volta ao modelo.** O `ToolResult`
+    tem quatro saidas (`tls/erros.py`) e este varredor olhava para tres; a
+    *docstring* do modulo e a desta funcao diziam as duas que os `facts`
+    entravam. Era a resposta directa a pergunta «em que forma e que um canario
+    atravessa sem ser encontrado»: por ali. Achado 3 da revisao adversarial.
+
+    Vao numa origem propria (`corpo`) e nao concatenados ao `data`: um `Fact` e
+    uma estrutura, o `achatar` sabe percorre-la, e separar as origens faz a
+    mensagem do achado dizer **onde** vazou.
+    """
     return [
         f"{rotulo}: {fuga}"
         for fuga in ctx.oraculo.varrer_tudo(
             {
-                "corpo": getattr(resultado, "data", {}),
+                "corpo": (
+                    getattr(resultado, "data", {}),
+                    getattr(resultado, "facts", ()),
+                ),
                 "erro": getattr(resultado, "error", None),
                 "logs": ctx.logs,
             }
@@ -161,6 +206,20 @@ def _atacar(ctx, nomes: tuple[str, ...], abrir_ligacao) -> list[str]:  # noqa: A
     contexto = _contexto_de_a(ctx)
     permitidas = [nome.split(":", 1)[1] for nome in nomes]
     achados: list[str] = []
+    #: Quantas tools foram atacadas com **algum** argumento, e quantas **tem**
+    #: campos no esquema. A comparacao entre os dois e que e o sentinela: zero
+    #: atacadas **havendo** tools com campos e um achado — era o estado medido
+    #: antes do achado 2 da revisao adversarial, e um caso que invoca tudo com
+    #: `{}` nao mede a metade do criterio 3 que fala de «argumentos que referem
+    #: entidades de B».
+    #:
+    #: **Mas zero atacadas e zero com campos nao e achado**, e a execucao do
+    #: *gate* mostrou porque: a `get_store_info` e a `list_services` tem esquema
+    #: **sem um unico campo**, por desenho — a loja e os servicos leem-se do
+    #: contexto. Nelas o ataque e o contexto de A sozinho, e exigir-lhes um
+    #: argumento era exigir o que o desenho nao tem.
+    com_argumentos = 0
+    com_campos = 0
 
     for item in nomes:
         nome = item.split(":", 1)[1]
@@ -173,8 +232,13 @@ def _atacar(ctx, nomes: tuple[str, ...], abrir_ligacao) -> list[str]:  # noqa: A
                 "nunca responderia, e nenhum ensaio a cobria."
             )
             continue
-        esquema = especificacao.esquema() if especificacao.ligada else None
-        for argumentos in _argumentos_de_b(ctx, esquema):
+        esquema = _esquema_da_tool(nome, especificacao)
+        if (esquema or {}).get("properties"):
+            com_campos += 1
+        tentativas = _argumentos_de_b(ctx, esquema)
+        if any(tentativa for tentativa in tentativas):
+            com_argumentos += 1
+        for argumentos in tentativas:
             try:
                 resultado = _invocar(camada, contexto, nome, argumentos, permitidas)
             except Exception as erro:  # noqa: BLE001 — a excepcao tambem e saida
@@ -189,13 +253,23 @@ def _atacar(ctx, nomes: tuple[str, ...], abrir_ligacao) -> list[str]:  # noqa: A
                 )
                 continue
             achados.extend(_varrer_resultado(ctx, item, resultado))
-            if not especificacao.ligada and resultado.ok:
+            if not especificacao.ligada and resultado.ok:  # noqa: SIM102
                 achados.append(
                     f"{item}: e uma entrada `declarada` (credor "
                     f"{especificacao.credor}) e `invoke` devolveu `ok=True`. Ou "
                     "o executor foi ligado sem passar pelo ticket dele, ou a "
                     "camada parou de distinguir declarada de ligada."
                 )
+    if com_campos and not com_argumentos:
+        achados.append(
+            f"X-02: {com_campos} das {len(nomes)} tool(s) tem campos no esquema e "
+            "**nenhuma** foi atacada com argumentos. Todas foram invocadas com "
+            "`{}`, pelo que a metade do criterio 3 que fala de «argumentos que "
+            "referem entidades de B» nao foi exercitada. Era o estado medido "
+            "antes do achado 2 da revisao adversarial: os modelos das "
+            "`declaradas` estao em `tls/vendedor.py` e `tls/servicos.py` "
+            "(`MODELOS`) e e de la que `_esquema_da_tool` os le."
+        )
     return achados
 
 

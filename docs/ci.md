@@ -1432,8 +1432,11 @@ Três coisas a saber antes de mexer nele:
   documento o define, e sem ele a saída diz que o NIF não é medido por padrão
   próprio;
 - **não varre a suite cruzada ponta a ponta.** Desde o KAM-066 ela existe (ver
-  logo abaixo) e tem oráculo próprio, que varre as cinco origens do critério 9
-  — corpo, cabeçalhos, erros, *logs* e *spans* — por caso. O X-11 continua a
+  logo abaixo) e tem oráculo próprio, com as cinco origens do critério 9 —
+  corpo, cabeçalhos, erros, *logs* e *spans*. **Cada caso varre as que declara,
+  e o corredor verifica-lhes só a forma**: os *logs* são varridos a sério em
+  dois dos dezasseis casos (os do AGR) e nenhum caso alimenta *spans*, porque
+  nada neste repositório emite *traces*. O X-11 continua a
   ser o varrimento do *logger* em si, com as suas 1 030 *fixtures*; são duas
   medições diferentes e nenhuma substitui a outra.
 

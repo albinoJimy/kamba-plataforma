@@ -85,6 +85,13 @@ BATERIAS = (
     "X-11",  # logs (KAM-068; corre no `make x11`, dentro do gate 6)
     "C-01",  # isolamento de contacto: X nao le Y, no mesmo tenant
     "P-01",  # pooling em modo transaccao
+    # **As filas tem bateria propria, e nao sao X-01.** Elas estavam
+    # registadas como `X-01`/`rotas`, e o relatorio do *gate* imprimia
+    # «X-01: 7 caso(s)» debaixo de «rotas: IDOR autenticado» quando so
+    # cinco atacavam rotas. Um relatorio que conta uma coisa debaixo do
+    # nome de outra e pior do que nao contar. Achado 18 da revisao
+    # adversarial.
+    "J-01",  # filas BullMQ: o que o corpo do *job* transporta
 )
 
 #: O X-07 nao tem, e nao pode ter, caso. Esta aqui para que a lacuna seja
@@ -331,7 +338,7 @@ def cobertura(
         problemas.append(
             f"{item.id} ({item.tipo}, {item.onde}): superficie enumerada sem "
             f"caso registado.{indicacao} Escreva o caso em "
-            "`security/isolation/baterias/`, ou declare a dispensa em "
+            "`tools/isolamento/baterias/`, ou declare a dispensa em "
             "`ci/isolamento-dispensas.yaml` com o credor e a razao."
         )
 

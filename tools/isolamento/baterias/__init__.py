@@ -5,7 +5,7 @@ nao executa nada: o `fn` corre quando o corredor lhe chama, com o `Contexto`
 que a suite construiu. E isso que permite a cobertura ser medida a seco, sem
 PostgreSQL e sem `node`.
 
-Para acrescentar um caso, ver `security/isolation/README.md`.
+Para acrescentar um caso, ver `tools/isolamento/README.md`.
 """
 
 from __future__ import annotations

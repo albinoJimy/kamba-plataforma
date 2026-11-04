@@ -1,7 +1,7 @@
 """P-01 — cem transaccoes intercaladas de A e B pelo *pool* nao cruzam linhas.
 
 Criterio 7 do KAM-066, primeira metade. A segunda metade — o *lint* que recusa
-um `SET app.tenant_id` de sessao — esta em `security/isolation/lints.py`, e corre
+um `SET app.tenant_id` de sessao — esta em `tools/isolamento/lints.py`, e corre
 antes desta: um `SET` de sessao e um defeito que se ve na fonte, e nao vale
 levantar um PostgreSQL para descobrir o que um `grep` com regra diz.
 

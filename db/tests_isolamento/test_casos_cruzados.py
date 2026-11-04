@@ -102,6 +102,13 @@ class ComHarness(ComDoisTenants):
         # **nenhuma** tool responde, e o X-02 fica verde sem medir nada.
         semente.activar_tenant(administrador, cls.a.id)
         semente.semear_entitlement(administrador, cls.a.id)
+        # As marcas de consumo com os `consumer` **reais** (`agr_vendedor`,
+        # `agr_servicos`), nos dois tenants. Sem elas a bateria dos
+        # consumidores EVT contava zero por ausencia e nao por isolamento: a
+        # receita da suite da base escreve `consumer = 'ensaio-iso'`. Achado 4
+        # da revisao adversarial.
+        for tenant, rotulo in ((cls.a, "a"), (cls.b, "b")):
+            semente.semear_marcas_de_consumo(administrador, tenant.id, rotulo)
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -109,6 +116,8 @@ class ComHarness(ComDoisTenants):
         # apontam para contactos que ele apaga.
         semente.apagar_contactos(cls._cursores["admin"], cls.par)
         semente.retirar_entitlement(cls._cursores["admin"], cls.a.id)
+        for tenant in (cls.a, cls.b):
+            semente.apagar_marcas_de_consumo(cls._cursores["admin"], tenant.id)
         super().tearDownClass()
 
     def contexto(self) -> Contexto:

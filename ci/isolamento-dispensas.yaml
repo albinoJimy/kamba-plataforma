@@ -2,7 +2,7 @@
 #
 # O gate 6 falha se uma superficie enumerada — uma rota, uma tool do REG, uma
 # fila BullMQ, um consumidor EVT — nao tiver caso registado em
-# `security/isolation/baterias/`. Este ficheiro e a unica forma de dispensar
+# `tools/isolamento/baterias/`. Este ficheiro e a unica forma de dispensar
 # uma superficie, e **esta vazio**, e deve continuar vazio enquanto puder.
 #
 # Porque e que ele existe, se esta vazio: para que a unica alternativa a
@@ -10,11 +10,11 @@
 # que nao se quer e a que o criterio 2 fecha — «nao existe "sem teste"
 # silencioso». Uma superficie sem caso e sem dispensa nao passa.
 #
-# Campos, todos obrigatorios (`security/isolation/casos.py` recusa o ficheiro
+# Campos, todos obrigatorios (`tools/isolamento/casos.py` recusa o ficheiro
 # sem eles):
 #
 #   item     o identificador do item, exactamente como a enumeracao o imprime
-#            (`python -m isolation --listar`)
+#            (`python -m isolamento --listar`)
 #   credor   `KAM-NNN` — o ticket que escreve o caso. **Tem de existir no §4 do
 #            specs/INDICE.md**: uma dispensa cujo credor nao existe nunca e paga
 #   razao    o que o caso teria de levantar, e porque e que ainda nao pode.

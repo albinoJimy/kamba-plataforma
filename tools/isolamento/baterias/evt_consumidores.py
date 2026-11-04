@@ -120,6 +120,16 @@ def _consumidores(ctx) -> list[str]:  # noqa: ANN001
 
     # A pergunta que so esta bateria faz: a marca de B, procurada pela chave
     # `(consumer, event_id)` **do consumidor**, com o contexto de A.
+    #
+    # **E a metade positiva leva o mesmo predicado `consumer`**, que e a
+    # correccao do achado 4 da revisao adversarial. Media-se antes com
+    # `WHERE tenant_id = A` e mais nada, e por isso nao distinguia «a politica
+    # separa» de «nao existe linha com este `consumer`» — e nao existia: a
+    # receita da suite da base escreve `consumer = 'ensaio-iso'`, pelo que a
+    # contagem para B dava zero com a RLS ligada, desligada, ou com a politica
+    # apagada. A afirmacao que justifica esta bateria passava por **ausencia**.
+    # As marcas com os `consumer` reais vem agora de
+    # `semente.semear_marcas_de_consumo`.
     for consumer in _nomes_dos_consumidores():
         cursor = ctx.cursor_de("app", ctx.a.id)
         cursor.execute(
@@ -137,18 +147,37 @@ def _consumidores(ctx) -> list[str]:  # noqa: ANN001
                 "so a politica, e ela deixou de separar."
             )
 
-        # A metade positiva: o mesmo `consumer`, o mesmo contexto, as linhas de
-        # A. Sem ela, a contagem de zero acima passava com uma tabela a que o
-        # papel nao chega.
         cursor.execute(
-            "SELECT count(*) FROM platform.events_consumed WHERE tenant_id = %s",
-            (ctx.a.id,),
+            "SELECT count(*) FROM platform.events_consumed "
+            "WHERE consumer = %s AND tenant_id = %s",
+            (consumer, ctx.a.id),
         )
         if cursor.fetchone()[0] == 0:
             achados.append(
                 f"EVT consumidor {consumer}: o contexto de A nao ve marca "
-                "nenhuma de A. A contagem de zero para B nao prova isolamento."
+                f"nenhuma **deste** `consumer` em A. A contagem de zero para B "
+                "nao prova isolamento: prova que nao ha linha com este "
+                "`consumer`. E a semente que tem de a escrever "
+                "(`semente.semear_marcas_de_consumo`)."
             )
+
+        # E o canario: a marca de B deste `consumer` **existe**, e e o
+        # administrador que o confirma. Sem isto, as duas contagens acima
+        # podiam estar as duas certas sobre uma tabela onde B nao tem nada.
+        if ctx.cursores is not None:
+            admin = ctx.cursores["admin"]
+            admin.execute(
+                "SELECT count(*) FROM platform.events_consumed "
+                "WHERE consumer = %s AND tenant_id = %s",
+                (consumer, ctx.b.id),
+            )
+            if admin.fetchone()[0] == 0:
+                achados.append(
+                    f"EVT consumidor {consumer}: nao existe marca de B com este "
+                    "`consumer`, lido pelo administrador. A contagem de zero com "
+                    "o contexto de A e verde por ausencia, que e exactamente o "
+                    "defeito que esta bateria tinha antes do achado 4."
+                )
     return achados
 
 

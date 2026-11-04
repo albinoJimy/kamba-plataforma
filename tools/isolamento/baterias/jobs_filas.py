@@ -1,5 +1,18 @@
 """Os *jobs* BullMQ — o que uma fila transporta, e o que o trabalhador faz com ele.
 
+Bateria **J-01**, e nao X-01: estes dois casos estiveram registados como
+X-01/`rotas`, e o relatorio do *gate* contava-os debaixo de «rotas: IDOR
+autenticado». Um relatorio que conta uma coisa com o nome de outra e pior do
+que nao contar.
+
+**E o que estes dois casos afirmam e menos do que um ataque**, o que fica dito
+aqui em vez de ficar implicito: sao verificacoes sobre o **contrato escrito**
+do corpo do *job* (que campo ele leva, e qual nao pode levar) e sobre a
+derivacao do nome de fila. O isolamento em execucao de cada consumidor e o
+caso `EVT/consumidores`, contra a base; o do turno e o X-01 da
+`/internal/turn`. Quatro dos 45 itens enumerados tem, portanto, casos que
+medem o contrato e nao a fuga — e e por isso que eles nao contam como X-01.
+
 Criterio 2 do KAM-066 nomeia os «*jobs* BullMQ» entre as quatro superficies
 enumeradas. A enumeracao encontra quatro itens: duas filas com nome literal e
 dois sitios onde o nome e calculado em execucao.
@@ -170,8 +183,8 @@ def _de_evento(ctx) -> list[str]:  # noqa: ANN001
 
 registar_caso(
     id="JOB/filas-nomeadas",
-    bateria="X-01",
-    camada="rotas",
+    bateria="J-01",
+    camada="filas",
     enumeravel=FILAS_NOMEADAS,
     fn=_nomeadas,
     precisa="nada",
@@ -180,8 +193,8 @@ registar_caso(
 
 registar_caso(
     id="JOB/filas-de-evento",
-    bateria="X-01",
-    camada="rotas",
+    bateria="J-01",
+    camada="filas",
     enumeravel=FILAS_DE_EVENTO,
     fn=_de_evento,
     precisa="nada",

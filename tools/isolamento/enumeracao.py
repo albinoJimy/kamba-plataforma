@@ -322,7 +322,13 @@ def _rotas_ts(raiz: Path) -> list[Item]:
         relativo = _relativo(raiz, caminho)
         servico = _servico_de(relativo)
         modulo = _modulo_de(relativo)
-        fonte = caminho.read_text(encoding="utf-8")
+        # **Sem comentarios**, como em `jobs()`. A primeira versao varria a
+        # fonte bruta, e a revisao adversarial mediu o resultado numa arvore
+        # de ensaio: uma rota comentada (`// app.get("/morta", …)`) entrava
+        # na enumeracao. O efeito e o inverso do que o ticket fecha e tem o
+        # mesmo custo: o *gate* exige caso para uma rota que nao existe, ou
+        # a «cobertura de 100%» passa a contar superficies fantasma.
+        fonte = _sem_comentarios(caminho.read_text(encoding="utf-8"))
         apps = _apps_hono(fonte)
         funcoes = _funcoes_ts(fonte)
         for achado in _ROTA_HONO.finditer(fonte):
@@ -657,9 +663,32 @@ def enumerar(raiz: Path = RAIZ) -> list[Item]:
     # rotas com o mesmo metodo e caminho em servicos diferentes **nao** colidem,
     # porque o servico esta na chave). Fica com o primeiro sitio, e a repeticao
     # e reportada pela cobertura.
+    #: Um `id` repetido **nao se cala**. A *docstring* desta funcao dizia que
+    #: «a repeticao e reportada pela cobertura», e era falso: a `cobertura()`
+    #: recebe a lista ja deduplicada e nunca a ve. Duas superficies distintas
+    #: que colapsem na mesma chave contavam como um item, um caso cobria as
+    #: duas, e uma delas nunca era atacada — com a cobertura a dizer 100%. A
+    #: chave foi alargada duas vezes por esta classe de colapso (o nome da
+    #: funcao, depois o modulo); o terceiro nivel nao tinha sentinela.
+    #: Achado 17 da revisao adversarial.
     por_id: dict[str, Item] = {}
+    repetidos: dict[str, list[str]] = {}
     for item in itens:
-        por_id.setdefault(item.id, item)
+        if item.id in por_id:
+            repetidos.setdefault(item.id, [por_id[item.id].onde]).append(
+                item.onde
+            )
+            continue
+        por_id[item.id] = item
+    if repetidos:
+        linhas = "; ".join(
+            f"{chave} em {sitios}" for chave, sitios in sorted(repetidos.items())
+        )
+        raise EnumeracaoInvalida(
+            f"duas ou mais superficies colapsaram na mesma chave: {linhas}. "
+            "Uma delas nunca seria atacada, e a cobertura diria 100%. Alargue "
+            "a chave em `enumeracao.py` para as distinguir."
+        )
     return sorted(por_id.values(), key=lambda item: (item.tipo, item.id))
 
 
