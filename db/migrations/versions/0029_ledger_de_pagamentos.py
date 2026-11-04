@@ -771,10 +771,23 @@ def _eventos() -> None:
     * **privilegio**: nenhum papel de aplicacao tem `INSERT`. Um `INSERT`
       directo como `kamba_app` falha com `42501` antes de chegar a qualquer
       `CHECK`;
-    * **`deny_mutation`**: um *trigger* `BEFORE UPDATE OR DELETE` e outro
-      `BEFORE TRUNCATE`. Recusam **a todos** — ao dono, e ao superutilizador,
-      que e o unico que os `REVOKE` nao prendem. E a razao de a imutabilidade
-      nao ser so uma matriz de privilegios.
+    * **`deny_mutation`**: dois *triggers*, e quem **da a propriedade** e o por
+      instrucao. O `payment_events_sem_truncate` e
+      `BEFORE TRUNCATE OR DELETE OR UPDATE ... FOR EACH STATEMENT` e corre
+      **uma vez por instrucao, antes de haver linhas**, pelo que recusa do
+      mesmo modo a instrucao que toca linhas e a que nao toca nenhuma. O
+      `payment_events_imutavel` e `BEFORE UPDATE OR DELETE ... FOR EACH ROW` e,
+      depois do KAM-175, e **estritamente redundante** (medido: com ele
+      desligado e o por instrucao ligado, um `UPDATE` e um `DELETE` com linhas
+      continuam recusados); fica pela razao escrita ao lado do
+      `CREATE TRIGGER`. Os dois recusam **a todos** — ao dono, e ao
+      superutilizador, que e o unico que os `REVOKE` nao prendem. E a razao de
+      a imutabilidade nao ser so uma matriz de privilegios.
+
+    **Porque e que sao dois e nao um:** o `FOR EACH ROW` nao admite `TRUNCATE`,
+    pelo que o `TRUNCATE` obriga a um *trigger* por instrucao. O que o KAM-175
+    notou e que esse, existindo, cobre tambem o `UPDATE` e o `DELETE` — e com
+    custo nulo, porque uma instrucao que fosse passar ja era recusada.
     """
     op.execute(
         f"""
@@ -934,10 +947,48 @@ def _eventos() -> None:
         """
     )
     op.execute("ALTER TABLE " + EVENTOS + " ENABLE ALWAYS TRIGGER payment_events_imutavel")
+    # **O por instrucao leva `DELETE` e `UPDATE`, e nao so `TRUNCATE` (KAM-175).**
+    #
+    # Um *trigger* `FOR EACH ROW` **nao dispara quando nao ha linhas**, pelo que
+    # com o por instrucao so em `BEFORE TRUNCATE` um
+    # `DELETE FROM payment_events WHERE <predicado que nao casa>` devolvia
+    # `DELETE 0` e **passava** — e um `UPDATE ... WHERE <predicado que nao casa>`
+    # devolvia `UPDATE 0`. Nenhuma linha se perdia; o que falhava era a
+    # **propriedade**, e quem audita a tabela lia a ausencia de erro como «a
+    # tabela aceita `DELETE`». Medido a 2026-11-03 contra o PostgreSQL 18.6.
+    #
+    # Com o `FOR EACH STATEMENT`, a recusa vem **antes de haver linhas** e e a
+    # mesma para a instrucao que toca linhas e para a que nao toca nenhuma. O
+    # `UPDATE` cabe aqui porque um *trigger* por instrucao nao tem `OLD` nem
+    # `NEW` e a `deny_mutation` **nao os usa**: ela levanta a excepcao com o
+    # `TG_OP` e o `TG_TABLE_NAME`, que existem nos dois niveis. E por isso que a
+    # alteracao e a lista de eventos e nao a funcao.
+    #
+    # **Depois disto, quem da a propriedade e este e nao o
+    # `payment_events_imutavel`**, que fica estritamente redundante — medido:
+    # com o por linha desligado e este ligado, um `UPDATE` e um `DELETE` com
+    # linhas continuam recusados com `42501`. **Fica, e a razao nao e defesa em
+    # profundidade:** o `_desligar_trigger` do `tests_pagamentos/test_cadeia.py`
+    # desliga-o **pelo nome** para forjar um elo partido, e os dois confrontos
+    # do `tests_pagamentos/test_downgrade.py` prendem o par
+    # `[('payment_events_imutavel', 'A'), ('payment_events_sem_truncate', 'A')]`.
+    # Remove-lo era mexer em tres ensaios para nao ganhar barreira nenhuma.
+    #
+    # **A alteracao entra aqui e nao numa revisao nova** (criterio 7 do
+    # KAM-175), e a pergunta que o decide e de facto: existe base onde a `0029`
+    # ja foi aplicada e que nao se reconstroi de zero? Medido, nao: o *gate* 8
+    # corre contra a base descartavel que o `db/gate_bd.py` cria e destroi
+    # (`exigir_base_descartavel` recusa qualquer nome que nao seja o dela, e a
+    # suite faz `downgrade base`); nao ha alvo de `Makefile` nem *script* de
+    # `initdb` que corra `alembic` contra a base do `infra/compose/`; e os
+    # `infra/envs/{staging,prod}` apontam para o modulo `provider-pendente`,
+    # com `chaves_ssh_de_administracao = []` e a nota «nao ha host», sem estado
+    # de Terraform no repositorio. Sem base nessas condicoes, uma revisao nova
+    # para corrigir uma linha deixava duas verdades na cadeia.
     op.execute(
         f"""
         CREATE TRIGGER payment_events_sem_truncate
-          BEFORE TRUNCATE ON {EVENTOS}
+          BEFORE TRUNCATE OR DELETE OR UPDATE ON {EVENTOS}
           FOR EACH STATEMENT EXECUTE FUNCTION platform.deny_mutation()
         """
     )

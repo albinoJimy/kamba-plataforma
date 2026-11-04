@@ -1229,11 +1229,18 @@ def _triggers() -> None:
     # aceita `DELETE`. Com o `FOR EACH STATEMENT`, a recusa vem antes de haver
     # linhas e e a mesma para o caso que apaga e para o que nao apaga.
     #
-    # A `payment_events` da `0029` tem a mesma lacuna (o `FOR EACH STATEMENT`
-    # dela e so `BEFORE TRUNCATE`). Nao se corrige aqui: e outra revisao e outro
-    # ticket. Fica na **divida documental 175** e nao «no PR deste», que e o que
-    # esta nota dizia: o corpo de um PR nao e versionado, pelo que registar ali e
-    # nao registar. Apanhado pela revisao adversarial.
+    # A `payment_events` da `0029` tinha a mesma lacuna (o `FOR EACH STATEMENT`
+    # dela era so `BEFORE TRUNCATE`). Nao se corrigiu aqui: era outra revisao e
+    # outro ticket. Ficou na **divida documental 175** e nao «no PR deste», que
+    # e o que esta nota dizia: o corpo de um PR nao e versionado, pelo que
+    # registar ali e nao registar. Apanhado pela revisao adversarial.
+    #
+    # **A divida 175 tem credor, e esta paga: o KAM-175.** A `0029` passou a
+    # `BEFORE TRUNCATE OR DELETE OR UPDATE ... FOR EACH STATEMENT`, e a medicao
+    # dele acrescentou a metade que esta nota nao via: um `UPDATE` sem linhas
+    # tambem passava, pela mesma razao. **E essa metade continua aberta aqui**,
+    # porque o `order_state_log_sem_truncate` abaixo e `BEFORE TRUNCATE OR
+    # DELETE` e para ali — divida **176**, credor **KAM-176**.
     op.execute(
         f"""
         CREATE TRIGGER order_state_log_sem_mutacao
