@@ -9,6 +9,13 @@
  *     transition.ts   a primitiva `transition` com CAS por `version`
  *     reconcile.ts    as cinco regras de §10.3 (decisão pura + escrita local)
  *
+ * e, do KAM-046, a saga da criação de pedido:
+ *
+ *     intents.ts            a `intent_key` e o `draft_hash` (critério 2)
+ *     cart.ts               o `propose_cart`, leitura e total no backend
+ *     create_order.ts       a saga em duas transacções, idempotente pela chave
+ *     owner_confirmation.ts o fluxo do dono para itens críticos
+ *
  * **Uma operação é método da porta `CommerceRegistry`** — a `transition` —, e o
  * adaptador (`../adapters/medusa/`) é que a liga; o `mirror` é a primitiva de
  * escrita que a `createOrder` do **KAM-046** vai usar, e não a `createOrder`.
@@ -59,11 +66,19 @@ export {
 } from "./contrato.ts";
 
 export {
+  SQL_CONCLUIR_INTENCAO,
+  SQL_CONFIRMACAO_DO_DONO,
   SQL_DIVERGENCIAS_ABERTAS,
   SQL_EMITIR,
+  SQL_FALHAR_INTENCAO,
   SQL_FECHAR_DIVERGENCIA,
   SQL_GRAFO,
   SQL_LER,
+  SQL_ENCOMENDA_DA_CHAVE,
+  SQL_LER_CONFIRMACAO,
+  SQL_LER_INTENCAO,
+  SQL_PEDIDO_POR_PAGAR,
+  SQL_RETOMAR_INTENCAO,
   SQL_TRANSITAR,
 } from "./consultas.ts";
 
@@ -109,3 +124,87 @@ export {
   type ReservaNoRegisto,
   type TipoDeDivergencia,
 } from "./reconcile.ts";
+
+// ------------------------------------------------------------------- KAM-046
+
+export {
+  ALFABETO,
+  CARACTERES_DA_CHAVE,
+  OCTETOS_DO_SEGREDO,
+  ParteInvalidaError,
+  REF_SEGREDO_DE_INTENTS,
+  SegredoMalFormadoError,
+  cartId,
+  cartIdValido,
+  chavesDoAnel,
+  concatenar,
+  draftHash,
+  emBase32,
+  intentKey,
+  lerSegredo,
+  linhasCanonicas,
+  mesmoDraftHash,
+  type AnelDoSegredo,
+  type LinhaDoRascunho,
+  type PartesDaIntencao,
+  type Rascunho,
+  type SegredoVersionado,
+} from "./intents.ts";
+
+export {
+  MOEDA,
+  ORIGENS_DE_PRECO,
+  STOCK_QUE_EXIGE_O_DONO,
+  precoValido,
+  proposeCart,
+  resolverLinha,
+  totalDaProposta,
+  type Leitura,
+  type LinhaResolvida,
+  type OrigemDePreco,
+  type PedidoDeProposta,
+  type Proposta,
+  type RascunhoDoCarrinho,
+} from "./cart.ts";
+
+export {
+  CONFIRMACOES_DO_DONO,
+  ERROS_DA_CRIACAO,
+  ESTADOS_POR_PAGAR,
+  INTERVALO_DE_ESPERA_MS,
+  MINUTOS_DO_PEDIDO_POR_PAGAR,
+  MINUTOS_PARA_RETOMAR,
+  TABELA_DAS_INTENCOES,
+  TECTO_DE_ESPERA_MS,
+  concluirIntencao,
+  createOrder,
+  decidirSobreRecibo,
+  lerRecibos,
+  pedidoPorPagar,
+  reservarIntencao,
+  type AbrirTransaccao,
+  type AutoridadeDeStock,
+  type ConfirmacaoDoDono,
+  type EncomendaCriada,
+  type ErroDaCriacao,
+  type MontagemDaCriacao,
+  type PedidoDeCriacao,
+  type PedidoPorPagar,
+  type Recibo,
+  type ResultadoDaCriacao,
+} from "./create_order.ts";
+
+export {
+  CAUSA_DA_RECUSA,
+  CAUSA_DO_SILENCIO,
+  MINUTOS_PARA_O_DONO,
+  MINUTOS_PARA_O_LEMBRETE,
+  confirmarPeloDono,
+  decidirPorSilencio,
+  expirarConfirmacao,
+  recusarPeloDono,
+  requestOwnerConfirmation,
+  type AccaoPorSilencio,
+  type CancelamentoPeloDono,
+  type ResultadoDaConfirmacao,
+} from "./owner_confirmation.ts";

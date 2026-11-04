@@ -56,6 +56,17 @@ SQL_FECHAR_DIVERGENCIA = exigir("SQL_FECHAR_DIVERGENCIA")
 SQL_DIVERGENCIAS_ABERTAS = exigir("SQL_DIVERGENCIAS_ABERTAS")
 SQL_EMITIR = exigir("SQL_EMITIR")
 
+# As oito do KAM-046: a saga do recibo de intencao e o fluxo do dono. Corridas
+# em `test_idempotencia.py`, contra o mesmo motor e com o mesmo texto.
+SQL_LER_INTENCAO = exigir("SQL_LER_INTENCAO")
+SQL_CONCLUIR_INTENCAO = exigir("SQL_CONCLUIR_INTENCAO")
+SQL_FALHAR_INTENCAO = exigir("SQL_FALHAR_INTENCAO")
+SQL_RETOMAR_INTENCAO = exigir("SQL_RETOMAR_INTENCAO")
+SQL_PEDIDO_POR_PAGAR = exigir("SQL_PEDIDO_POR_PAGAR")
+SQL_CONFIRMACAO_DO_DONO = exigir("SQL_CONFIRMACAO_DO_DONO")
+SQL_LER_CONFIRMACAO = exigir("SQL_LER_CONFIRMACAO")
+SQL_ENCOMENDA_DA_CHAVE = exigir("SQL_ENCOMENDA_DA_CHAVE")
+
 #: As que a suite exercita contra a base, para o teste de cobertura do contrato.
 #:
 #: **Nos dois sentidos**, como o `test_contrato` do KAM-047 e do KAM-043: uma
@@ -69,4 +80,12 @@ EXERCITADAS = (
     "SQL_FECHAR_DIVERGENCIA",
     "SQL_DIVERGENCIAS_ABERTAS",
     "SQL_EMITIR",
+    "SQL_LER_INTENCAO",
+    "SQL_CONCLUIR_INTENCAO",
+    "SQL_FALHAR_INTENCAO",
+    "SQL_RETOMAR_INTENCAO",
+    "SQL_PEDIDO_POR_PAGAR",
+    "SQL_CONFIRMACAO_DO_DONO",
+    "SQL_LER_CONFIRMACAO",
+    "SQL_ENCOMENDA_DA_CHAVE",
 )
