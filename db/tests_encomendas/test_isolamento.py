@@ -243,15 +243,63 @@ class TestOsTriggersSaoSempreActivos(ComEncomendas):
         tenant = self.criar_tenant()
         encomenda = self.criar_encomenda(tenant)
         self.levar_a(tenant, encomenda, "aguarda_pagamento")
-        self.ensaio.execute("SET session_replication_role = replica")
         try:
-            self.assertEqual(
-                self.tentar(
+            # **As quatro instrucoes, e as duas sem linhas entraram com o
+            # KAM-176.** O `replica` salta os *triggers* de omissao, pelo que
+            # este ensaio mede o `ENABLE ALWAYS` — e media-o so para o `DELETE`.
+            # O *trigger* por instrucao da `0031` passou a cobrir o `UPDATE`, e
+            # o `ENABLE ALWAYS` dele tem de valer para a metade nova tambem:
+            # sem estes casos, a revisao podia criar o *trigger* sem `ALWAYS` e
+            # a suite ficava verde sobre uma barreira que o `replica` saltava.
+            #
+            # **O `SET` corre dentro do ciclo, e nao uma vez antes dele.** Um
+            # `SET` cru e **desfeito por um `ROLLBACK`**, e o `tentar` faz
+            # `rollback` em cada recusa: posto antes do ciclo, a partir da
+            # segunda iteracao a sessao estava de volta em `origin` e as tres
+            # restantes mediam o modo errado — verde pela razao errada, e sobre
+            # a barreira que o `replica` existe para contornar. Nao mordia
+            # enquanto este ensaio tinha uma instrucao so.
+            for instrucao, parametros in (
+                (
                     "DELETE FROM platform.order_state_log WHERE tenant_id = %s",
                     (tenant,),
                 ),
-                PRIVILEGIO_INSUFICIENTE,
-            )
+                (
+                    "UPDATE platform.order_state_log SET causa = 'reescrita' "
+                    " WHERE tenant_id = %s",
+                    (tenant,),
+                ),
+                (
+                    "DELETE FROM platform.order_state_log "
+                    " WHERE causa = 'nao-existe'",
+                    (),
+                ),
+                (
+                    "UPDATE platform.order_state_log SET causa = 'reescrita' "
+                    " WHERE causa = 'nao-existe'",
+                    (),
+                ),
+            ):
+                with self.subTest(
+                    instrucao=instrucao.split()[0], com_linhas=bool(parametros)
+                ):
+                    self.ensaio.execute("SET session_replication_role = replica")
+                    # **Le-se o modo na mesma ligacao, antes de cada tentativa.**
+                    # E a asercao que impede o defeito descrito acima de voltar:
+                    # se um `ROLLBACK` tiver reposto o `origin`, este
+                    # `assertEqual` falha em vez de a suite ficar verde a medir
+                    # o modo errado.
+                    self.ensaio.execute("SHOW session_replication_role")
+                    self.assertEqual(
+                        str(self.ensaio.fetchone()[0]),
+                        "replica",
+                        "o modo tem de estar activo no momento da instrucao, "
+                        "senao este ensaio nao mede o ENABLE ALWAYS",
+                    )
+                    self.assertEqual(
+                        self.tentar(instrucao, parametros),
+                        PRIVILEGIO_INSUFICIENTE,
+                    )
         finally:
             self.ensaio.execute("SET session_replication_role = origin")
             self._ensaio.commit()
@@ -318,6 +366,149 @@ class TestRegistoAppendOnly(ComEncomendas):
         except pg8000.dbapi.DatabaseError as erro:
             self.assertEqual(sqlstate(erro), PRIVILEGIO_INSUFICIENTE)
 
+    def test_o_update_sem_linhas_tambem_e_recusado(self) -> None:
+        """A metade que o KAM-044 deixou aberta, fechada pelo KAM-176.
+
+        O `order_state_log_sem_mutacao` e `FOR EACH ROW` e nao dispara quando
+        nao ha linhas; o `order_state_log_sem_truncate` era
+        `BEFORE TRUNCATE OR DELETE` e parava ali. Logo um
+        `UPDATE ... WHERE <predicado que nao casa>` devolvia `UPDATE 0` e
+        passava, e quem auditasse lia a ausencia de erro como «a tabela aceita
+        `UPDATE` e nao havia nada para actualizar».
+
+        **Ensaio separado do do `DELETE`, de proposito** (criterio 2 do
+        KAM-176): uma asercao que cobrisse os dois casos nao distinguia qual
+        deles regrediu, e o do `DELETE` acima fica como estava.
+
+        **Dois predicados, e sao dois pela licao da revisao adversarial do
+        KAM-175** (achado 11): o `causa = 'nao-existe'` e o caso real, e o
+        `false` e o degenerado, onde o planeador sabe de antemao que nao ha
+        linhas (`One-Time Filter: false`). Medido: o *trigger* por instrucao
+        dispara nos dois.
+        """
+        for predicado in (" WHERE causa = 'nao-existe'", " WHERE false"):
+            with self.subTest(predicado=predicado.strip()):
+                try:
+                    self.semente.execute(
+                        "UPDATE platform.order_state_log SET causa = 'reescrita'"
+                        + predicado
+                    )
+                    self.fail("um UPDATE sem linhas tambem devia ser recusado")
+                except pg8000.dbapi.DatabaseError as erro:
+                    self.assertEqual(sqlstate(erro), PRIVILEGIO_INSUFICIENTE)
+
+    def test_a_lista_de_eventos_dos_triggers_do_registo_esta_no_catalogo(self) -> None:
+        """O `tgtype`, e nao so o nome e o `tgenabled`.
+
+        O `TestOsTriggersSaoSempreActivos` deste ficheiro compara pares
+        `(tabela, trigger)` com o `tgenabled`, e o `db/tests/test_inventario.py`
+        prende os nomes. **Nenhum dos dois diz que eventos cada *trigger*
+        cobre**, pelo que a forma so se confirmava por comportamento — e e por
+        isso que o `DELETE` fechado e o `UPDATE` aberto conviveram aqui sem
+        ninguem notar. Aqui prende-se, pelo `pg_get_triggerdef`, que e o que o
+        servidor reconstroi da sua propria tabela de catalogo.
+
+        E a licao do achado 10 da revisao adversarial do KAM-175, aplicada a
+        tabela irma: um escape que um portao podia ter apanhado vira portao.
+        """
+        definicoes = {
+            nome: texto
+            for nome, texto in self.consultar(
+                "SELECT t.tgname::text, pg_get_triggerdef(t.oid) FROM pg_trigger t "
+                "  JOIN pg_class c ON c.oid = t.tgrelid "
+                "  JOIN pg_namespace n ON n.oid = c.relnamespace "
+                " WHERE n.nspname = 'platform' "
+                "   AND c.relname = 'order_state_log' AND NOT t.tgisinternal"
+            )
+        }
+        # **Nao se compara a frase inteira**: o `pg_get_triggerdef` reordena os
+        # eventos pela ordem canonica do catalogo, que nao e a ordem em que a
+        # revisao os escreveu. O que se prende e o **conjunto** de verbos e o
+        # nivel, que e a propriedade; a ordem do texto nao e.
+        por_linha = definicoes["order_state_log_sem_mutacao"]
+        por_instrucao = definicoes["order_state_log_sem_truncate"]
+
+        self.assertIn("FOR EACH ROW", por_linha)
+        self.assertIn("FOR EACH STATEMENT", por_instrucao)
+        self.assertNotIn(
+            "TRUNCATE",
+            por_linha,
+            "o FOR EACH ROW nao admite TRUNCATE, e e a razao de serem dois",
+        )
+        # **A funcao tambem, e nao so os verbos e o nivel.** O criterio 1 pede
+        # «continua a chamar a `platform.deny_mutation()`», e sem esta asercao
+        # uma revisao que apontasse o *trigger* para outra funcao ficava verde
+        # aqui e verde no `test_os_cinco_sao_enable_always`. Apanhado pela
+        # revisao adversarial do KAM-176.
+        for nome, definicao in (("sem_mutacao", por_linha), ("sem_truncate", por_instrucao)):
+            with self.subTest(trigger=nome, parte="funcao"):
+                self.assertIn(
+                    "EXECUTE FUNCTION platform.deny_mutation()", definicao
+                )
+        for verbo in ("UPDATE", "DELETE"):
+            with self.subTest(trigger="sem_mutacao", verbo=verbo):
+                self.assertIn(verbo, por_linha.split(" ON ")[0])
+        for verbo in ("TRUNCATE", "DELETE", "UPDATE"):
+            with self.subTest(trigger="sem_truncate", verbo=verbo):
+                self.assertIn(
+                    verbo,
+                    por_instrucao.split(" ON ")[0],
+                    "o por instrucao tem de cobrir os tres eventos: e ele que "
+                    "da a propriedade para a instrucao que nao toca linha "
+                    "nenhuma (KAM-176)",
+                )
+
+    def test_o_insert_no_registo_com_on_conflict_do_update_e_recusado(self) -> None:
+        """Uma consequencia do `FOR EACH STATEMENT` que vale declarar.
+
+        Um *trigger* `BEFORE UPDATE ... FOR EACH STATEMENT` dispara num
+        `INSERT ... ON CONFLICT DO UPDATE` **mesmo quando nao ha conflito** e o
+        ramo de `UPDATE` nunca e tomado. Medido no KAM-175 para a
+        `payment_events`; vale aqui pela mesma razao, e desde esta revisao
+        tambem para o `UPDATE` e nao so para o `DELETE`.
+
+        **Nao quebra caminho nenhum hoje**: o registo e escrito pelo
+        `inserirNoTenant` e por mais nada, e a idempotencia dele vive na
+        restricao `order_state_log_version_uq` — o ensaio a seguir — e nao num
+        `ON CONFLICT`. Fica medido para quem escrever o proximo escritor, em vez
+        de aparecer como uma recusa que fala de imutabilidade num `INSERT`
+        legitimo.
+
+        **O alvo do `ON CONFLICT` sao as tres colunas e nao duas.** A
+        `order_state_log_version_uq` e `UNIQUE (tenant_id, order_id, version)`;
+        com `(order_id, version)` o PostgreSQL recusa com `42P10` — «no unique or
+        exclusion constraint matching the ON CONFLICT specification» — **no
+        planeador**, antes de qualquer *trigger*, e o ensaio passava a medir um
+        defeito do proprio ensaio em vez da barreira. Medido na primeira
+        execucao desta suite.
+
+        **E a `version` tem de ser uma que NAO exista.** Com `version = 2` havia
+        **sempre** conflito — o `setUp` leva a encomenda a `aguarda_pagamento` e
+        o `transitar` escreve o registo com `version = 2` —, pelo que o ramo de
+        `UPDATE` era tomado e o `order_state_log_sem_mutacao` (`FOR EACH ROW`) ja
+        bastava para recusar: o ensaio ficava verde **com a barreira nova
+        retirada** e nao media nada do que o seu nome diz. Medido pela revisao
+        adversarial, que correu a suite com a mutacao aplicada e viu este ensaio
+        **sobreviver**. Com uma `version` livre nao ha conflito, o ramo de
+        `UPDATE` nunca e tomado, e so o *trigger* por instrucao pode recusar — e
+        e isso que torna esta asercao uma medicao da barreira da `0031`.
+        """
+        try:
+            self.ensaio.execute(
+                "INSERT INTO platform.order_state_log "
+                "       (tenant_id, order_id, de, para, version, causa, actor_kind) "
+                "VALUES (%s, %s, 'criada', 'aguarda_pagamento', 99, 'sem-conflito',"
+                "        'ops') "
+                " ON CONFLICT (tenant_id, order_id, version) "
+                "   DO UPDATE SET causa = 'adulterada'",
+                (self.tenant, self.encomenda),
+            )
+            self.fail("um ON CONFLICT DO UPDATE no registo devia ser recusado")
+        except pg8000.dbapi.DatabaseError as erro:
+            self.assertEqual(sqlstate(erro), PRIVILEGIO_INSUFICIENTE)
+        finally:
+            self._ensaio.rollback()
+
     def test_a_mesma_transicao_gravada_duas_vezes_e_unicidade(self) -> None:
         """A idempotencia do DoD, na restricao e nao no codigo."""
         try:
@@ -330,6 +521,132 @@ class TestRegistoAppendOnly(ComEncomendas):
             self.fail("a mesma `(order_id, version)` nao devia passar duas vezes")
         except pg8000.dbapi.DatabaseError as erro:
             self.assertEqual(sqlstate(erro), "23505")
+
+
+class TestCanarioDoTriggerPorInstrucaoDoRegisto(ComEncomendas):
+    """Criterio 4 do KAM-176: **qual** dos dois *triggers* recusa o caso sem linhas.
+
+    Com os dois ligados, o caso e recusado e nenhum ensaio distingue quem
+    mordeu. Desligado **so** o `order_state_log_sem_truncate` — com o
+    `order_state_log_sem_mutacao` ligado —, o `UPDATE` sem linhas tem de
+    **passar**: e isso, e so isso, que prova que quem da a propriedade e o
+    *trigger* por instrucao.
+
+    **E corre nos dois sentidos**, que e a licao do achado 3 da revisao
+    adversarial do KAM-175: um canario que desligue sempre o mesmo *trigger*
+    prova uma proposicao e deixa a irma por medir — e la a celula que afirmava a
+    redundancia citava justamente o ensaio da proposicao inversa. Os dois
+    ensaios desta classe desligam um *trigger* de cada vez.
+
+    **O `ALTER TABLE` corre na ligacao transaccional (`self.ensaio`) e e
+    revertido**, pela razao escrita no `TestCanarioDoTrigger` do
+    `test_grafo.py`: um `ALTER TABLE` confirmado deixava a base do *gate* 8 sem
+    barreira para os ensaios seguintes, e a suite passava a medir uma tabela sem
+    *trigger*.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.tenant = self.criar_tenant()
+        self.encomenda = self.criar_encomenda(self.tenant)
+        self.levar_a(self.tenant, self.encomenda, "aguarda_pagamento")
+
+    def test_sem_o_trigger_por_instrucao_o_update_sem_linhas_passa(self) -> None:
+        try:
+            self.ensaio.execute(
+                "ALTER TABLE platform.order_state_log DISABLE TRIGGER "
+                "order_state_log_sem_truncate"
+            )
+            # O por linha fica **ligado**: e o que torna isto um canario do por
+            # instrucao e nao de «a tabela nao tem triggers».
+            self.assertEqual(self._tgenabled("order_state_log_sem_mutacao"), "A")
+            self.ensaio.execute(
+                "UPDATE platform.order_state_log SET causa = 'reescrita' "
+                " WHERE causa = 'nao-existe'"
+            )
+            self.assertEqual(
+                self.ensaio.rowcount,
+                0,
+                "com o por instrucao desligado o UPDATE passa, e nao toca linha "
+                "nenhuma: e esse par que prova quem recusa",
+            )
+        finally:
+            self._ensaio.rollback()
+
+    def test_sem_o_por_linha_o_update_com_linhas_continua_recusado(self) -> None:
+        """O sentido simetrico, e o que mede a redundancia do por linha.
+
+        Desligado so ele, com o por instrucao ligado, um `UPDATE` **com** linhas
+        continua recusado. O `setUp` deixou uma linha de registo, e sem ela o por
+        instrucao recusaria de qualquer forma — a asercao deixava de medir «com
+        linhas», que e o defeito que o achado 3 do KAM-175 apanhou.
+
+        ## «Redundante» tem um limite, e nao e «estritamente»
+
+        O por linha e redundante para **toda a instrucao SQL** — e o que este
+        ensaio mede. **Nao** e redundante para um `UPDATE` aplicado por
+        **replicacao logica**: o aplicador dispara *triggers* por linha marcados
+        `ALWAYS`/`REPLICA` e **nao** dispara os por instrucao, porque nao ha
+        instrucao a disparar. Nesse caminho o por linha e a **unica** barreira.
+
+        Esta distincao nao se mede aqui, e di-lo: um `SET
+        session_replication_role = replica` com um `UPDATE` SQL — que e o que o
+        `test_em_modo_replica_o_registo_continua_append_only` faz — **tem**
+        instrucao, logo dispara o por instrucao. Medir o outro caminho exigia
+        uma publicacao e uma subscricao reais, que este repositorio nao tem.
+        Estado: **NAO VERIFICADO** por execucao; a semantica do PostgreSQL e
+        documentada. Apanhado pela revisao adversarial do KAM-176.
+
+        **Logo o por linha fica por ter um caminho proprio**, e nao por
+        contabilidade de ensaios. Que dois ensaios o prendam pelo nome — o
+        `test_os_cinco_sao_enable_always` desta mesma suite e o
+        `test_a_lista_de_eventos_dos_triggers_do_registo_esta_no_catalogo` — e
+        consequencia, nao razao. (O `db/tests/test_inventario.py` **nao** prende
+        o nome destes dois *triggers*: prende as restricoes do
+        `order_state_log`. A primeira versao deste docstring dizia o contrario.)
+        """
+        self.assertGreater(
+            self.consultar(
+                "SELECT count(*) FROM platform.order_state_log WHERE order_id = %s",
+                (self.encomenda,),
+            )[0][0],
+            0,
+            "o ensaio precisa de linhas para medir o caso «com linhas»",
+        )
+        try:
+            self.ensaio.execute(
+                "ALTER TABLE platform.order_state_log DISABLE TRIGGER "
+                "order_state_log_sem_mutacao"
+            )
+            self.assertEqual(self._tgenabled("order_state_log_sem_truncate"), "A")
+            with self.assertRaises(pg8000.dbapi.DatabaseError) as capturado:
+                self.ensaio.execute(
+                    "UPDATE platform.order_state_log SET causa = 'reescrita' "
+                    " WHERE order_id = %s",
+                    (self.encomenda,),
+                )
+            self.assertEqual(
+                sqlstate(capturado.exception), PRIVILEGIO_INSUFICIENTE
+            )
+        finally:
+            self._ensaio.rollback()
+
+    def _tgenabled(self, trigger: str) -> str:
+        """O estado do *trigger* **na mesma ligacao** que largou o outro.
+
+        Le-se do `self.ensaio` e nao do `self.consultar`: o `ALTER TABLE` ainda
+        nao esta confirmado, pelo que outra ligacao veria o estado antigo e a
+        asercao passava sem medir nada.
+        """
+        self.ensaio.execute(
+            "SELECT t.tgenabled::text FROM pg_trigger t "
+            "  JOIN pg_class c ON c.oid = t.tgrelid "
+            "  JOIN pg_namespace n ON n.oid = c.relnamespace "
+            " WHERE n.nspname = 'platform' AND c.relname = 'order_state_log' "
+            "   AND t.tgname = %s",
+            (trigger,),
+        )
+        return str(self.ensaio.fetchone()[0])
 
 
 class TestPrivilegiosPorColuna(ComEncomendas):

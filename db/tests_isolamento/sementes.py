@@ -1500,7 +1500,9 @@ SEM_RECEITA_COM_RAZAO = {
     # registo de A nao se le do contexto de B (com a sonda positiva ao lado), o
     # `UPDATE` do `kamba_app` falha por **privilegio** e nao por politica, e o
     # `deny_mutation` recusa `UPDATE`, `DELETE` e `TRUNCATE` ao superutilizador —
-    # incluindo um `DELETE` que nao casa linha nenhuma.
+    # incluindo um `DELETE` **e um `UPDATE`** que nao casam linha nenhuma. O
+    # `UPDATE` sem linhas passava ate a revisao `0031` (KAM-176), e a assimetria
+    # nesta nota era a ressalva tacita que esse ticket existiu para fechar.
     ("platform", "order_state_log"),
     # KAM-053: a cobranca, e aqui a razao **nao** e a do ledger — ela e mutavel,
     # o `kamba_app` tem `INSERT` e o `kamba_batch` apaga com `DELETE`. Uma

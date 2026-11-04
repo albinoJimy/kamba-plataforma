@@ -921,7 +921,11 @@ a mesma medição mostra que o `UPDATE` sem linhas **também** passa, pela mesma
 razão e sem nada de novo — um `UPDATE … WHERE <predicado que não casa>` devolve
 `UPDATE 0`. E mostra mais: a forma que o KAM-044 escreveu para o
 `platform.order_state_log` (`BEFORE TRUNCATE OR DELETE … FOR EACH STATEMENT`)
-fecha o `DELETE` e **deixa o `UPDATE` aberto**. Fechar aqui só o `DELETE` seria
+fechava o `DELETE` e **deixava o `UPDATE` aberto** — medido a **2026-11-03**,
+antes da revisão `0031`, que o **KAM-176** entregou a 2026-11-04 e que fechou
+essa metade. A frase fica no passado porque é um registo de medição, e ficava a
+descrever a forma antiga em presente (achado 15 da revisão adversarial do
+KAM-176). Fechar aqui só o `DELETE` seria
 repetir um nível abaixo a omissão que este ticket existe para fechar, pelo que
 as duas metades entram nos critérios.
 
