@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Core de Comércio |
-| Versão | 1.9 |
+| Versão | 1.10 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/03_Core_Comercio_Medusa.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -18,7 +18,7 @@ O **Core de Comércio (COM)** é o registo de produtos, encomendas, stock e rese
 
 O epic abre com um **spike de 5 dias** (KAM-041) com critérios de aceitação numéricos e uma matriz de 60 testes de isolamento entre vendedores, porque o Medusa v2 não é multi-tenant nativo (NÃO VERIFICADO) e o Mercur teve falhas de autorização entre vendedores corrigidas a 2026-10-08 (CONFIRMADO, E4). O Mercur fica fora do Piloto. O resto do epic constrói sobre a decisão D3: porta e adaptador (KAM-042), preço opaco e stock não-garantido (KAM-043), encomendas (KAM-044), reservas com expiração (KAM-045), criação idempotente de pedido (KAM-046), módulo `servicos` (KAM-047), lembretes (KAM-048), Catálogo AI (KAM-049), estados adicionais (KAM-050) e o contrato de leitura para o índice (KAM-051). Nunca há fundos de terceiros no COM (ADR-004): reembolsos são manuais.
 
-Concretiza ADR-003, ADR-004, ADR-006, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-014. São **12 tickets**: 8 na **Fase 0** (KAM-041 a KAM-047, esqueleto andante, e o KAM-176, acrescentado depois) e 4 na **Fase 1** (KAM-048 a KAM-051). Piloto = só Fluxo A: `origem = 'plataforma'`, PME light e encomendas multi-vendedor ficam no DDL mas não entram em produção (ADR-011). A documentação oficial do Medusa v2 não foi acessível na pesquisa de 8 de Outubro de 2026 (E4 §6): o que é dito sobre capacidades do Medusa é hipótese a validar no spike, não facto.
+Concretiza ADR-003, ADR-004, ADR-006, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-014. São **13 tickets**: 9 na **Fase 0** (KAM-041 a KAM-047, esqueleto andante, e o KAM-176, acrescentado depois) e 4 na **Fase 1** (KAM-048 a KAM-051). Piloto = só Fluxo A: `origem = 'plataforma'`, PME light e encomendas multi-vendedor ficam no DDL mas não entram em produção (ADR-011). A documentação oficial do Medusa v2 não foi acessível na pesquisa de 8 de Outubro de 2026 (E4 §6): o que é dito sobre capacidades do Medusa é hipótese a validar no spike, não facto.
 
 ---
 
@@ -52,6 +52,7 @@ Concretiza ADR-003, ADR-004, ADR-006, ADR-007, ADR-009, ADR-010, ADR-012, ADR-01
 | KAM-050 | Estados adicionais da encomenda: pagamento tardio, disputa, entrega falhada, reembolso | feature | M | P1 | KAM-044 |
 | KAM-051 | Contrato `v_oferta_viva` e leitura para o índice | feature | S | P0 | KAM-043 |
 | KAM-176 | Um `UPDATE` sem linhas no `order_state_log` não é recusado: o *trigger* por instrução cobre o `DELETE` e não o `UPDATE` | fix | S | P1 | KAM-044 |
+| KAM-178 | API interna do COM, ligação dos doze métodos da porta e os executores das tools de comércio | feature | L | P0 | KAM-042, KAM-046, KAM-031 |
 
 ---
 
@@ -204,7 +205,7 @@ Entrega: relatório, repositório de testes, ADR-003 actualizado. PR com o templ
 | Prioridade | P0 |
 | Estimativa | L |
 | Dependências | KAM-041, KAM-003 |
-| Bloqueia | KAM-043, KAM-044, KAM-049, KAM-061, KAM-091 |
+| Bloqueia | KAM-043, KAM-044, KAM-049, KAM-061, KAM-091, KAM-178 |
 | Responsável sugerido | Engenheiro de Comércio |
 | Documentos de referência | `../docs/tecnica/03_Core_Comercio_Medusa.md` (§3, §4.5, §5.5, §11), `../docs/tecnica/08_Seguranca_Conformidade.md` (§3.1, §3.5), ADR-003, ADR-006, ADR-015, proposta PA-03-1 |
 
@@ -811,7 +812,7 @@ Commits: feat(KAM-045): …
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-044, KAM-029, KAM-052 |
-| Bloqueia | KAM-039, KAM-108 |
+| Bloqueia | KAM-039, KAM-108, KAM-178 |
 | Responsável sugerido | Engenheiro de Comércio |
 | Documentos de referência | `../docs/tecnica/03_Core_Comercio_Medusa.md` (§6.3, §7.3, §10.2), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§6.2, §6.3), ADR-013, proposta PA-03-2 |
 
@@ -1929,6 +1930,178 @@ Commits: fix(KAM-176): ...
 
 ---
 
+## KAM-178 — API interna do COM, ligação dos doze métodos da porta e os executores das tools de comércio
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-04 — Core de Comércio |
+| Fase | 0 |
+| Tipo | feature |
+| Prioridade | P0 |
+| Estimativa | L |
+| Dependências | KAM-042, KAM-046, KAM-031 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Comércio |
+| Documentos de referência | `../docs/com/port-coverage.md` §2, `../docs/tecnica/03_Core_Comercio_Medusa.md` (§3.2, §6.2, §6.3), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§6.2, §6.3, §6.5), `../specs/02_Dicionario_de_Dados_Canonico.md` (§3.27, §3.28, §3.39, §3.44), `EPIC-03_Agent_Runtime_Verticais.md` (blocos KAM-025, KAM-028, KAM-029, KAM-031), ADR-007, ADR-010, ADR-013, ADR-015 |
+
+### Contexto
+
+**Três tickets fechados nomearam um credor que não existe, e este ticket é esse
+credor.** Não é uma inferência: as três linhas estão escritas, e as três dizem a
+mesma coisa por outras palavras.
+
+O **KAM-042** deferiu a API interna do COM — «a API interna do COM não existe»,
+e o `../docs/com/port-coverage.md` §2 repete-o — e deixou os doze métodos da
+porta a devolver `NOT_IMPLEMENTED` com o ticket dono de cada um. O **KAM-044**
+implementou o que o método `transition` precisa e **não** o ligou, por uma razão
+que escreveu por extenso: o módulo devolve um terceiro resultado (`conflito`)
+que o `Resultado` de dois casos da porta não expressa, e decidir como a porta o
+expressa «é alterar o §3.39 do dicionário e isso não é deste ticket». O
+**KAM-031** escreveu os modelos das cinco tools do Vendedor — o
+`ArgumentosDeProposeCart` existe em `../services/agr/src/kamba_agr/tls/vendedor.py`
+— e deferiu os **executores**, com a razão também escrita: «entregar as cinco
+`ligadas` com executores de ensaio punha o… e o `invoke` não tem como distinguir
+um executor de ensaio de um real», deixando-os «com o credor que **liga o
+backend**».
+
+Nenhum dos três nomeia um `KAM-NNN`. Medido a 2026-11-04: `grep` pelo §4 do
+`INDICE.md` por «liga o backend», «ligar a porta» e «API interna do COM» devolve
+**zero** tickets. O resultado é que **três caixas do KAM-046 não têm quem as
+feche**, e uma quarta fica dependente: o critério 1 e a caixa 3 da *Definition of
+Done* pedem o envelope `Fact` do §3.27, que é da ToolLayer; o critério 2 pede um
+chamador do cofre, que não existe porque nada monta o módulo `orders`; e a caixa
+2 do DoD («re-execução de nó») não é observável porque o grafo não chama o COM.
+
+**E a Fase 0 não fecha sem isto.** O KAM-108 é a «demonstração do esqueleto
+andante», e um esqueleto em que o grafo não alcança o COM não anda. O **`Bloqueia`
+deste bloco fica `—` de propósito:** declarar a aresta para o KAM-108 e para o
+KAM-039 obriga a escrever `KAM-178` nas dependências deles, nas três superfícies,
+e a ordem do backlog é decisão de quem o governa — não de quem abre o ticket. A
+dependência real está descrita aqui e quem a declarar fá-lo com conhecimento.
+
+### Objectivo
+
+Dar ao COM uma superfície HTTP interna, ligar os doze métodos da porta
+`CommerceRegistry` ao adaptador, e ligar os executores das tools de comércio da
+ToolLayer a essa superfície — fechando a cadeia grafo → TLS → COM → base que hoje
+está partida em dois sítios.
+
+### Critérios de Aceitação
+
+- [ ] A porta expressa o que os módulos devolvem, pela decisão que o fundador tomou a 2026-11-04 e que são **dois movimentos**: o `ERROS` de `../services/com/src/port/contrato.ts` alarga-se aos nove códigos do `OrdersModule.erro` (§3.44), e o `Resultado<T>` ganha um terceiro caso **só para o conflito de CAS**. **Não é deste ticket entregá-la:** o contrato é do **KAM-042**, que o pinou num teste, e a alteração abre em ticket próprio. O que este critério exige é que o KAM-178 **consuma** a porta já alargada — ver os Detalhes Técnicos para o que a decisão diz e o que ela não é.
+- [ ] O COM serve `POST /internal/...` com o cabeçalho `x-kamba-interno` (a forma do KAM-025) e o `x-kamba-tenant` que o KAM-042 já desenhou e que hoje está **verde sobre zero rotas**; uma rota sem `ctx` utilizável responde **fail-closed** e nunca com uma resposta que pareça legítima (ISO-09).
+- [ ] Os **doze** métodos da porta deixam de devolver `NOT_IMPLEMENTED`: `createOrder` e `requestOwnerConfirmation` pelo `create_order.ts`/`owner_confirmation.ts` do KAM-046, `transition`, `getOrder` e `listOrders` pelo módulo do KAM-044, e os de reserva pelo KAM-045 quando ele fundir. O `../docs/com/port-coverage.md` §2 passa a dizer **doze implementados, zero com ticket dono**, e os casos de `xfail strict` do `port.iso.test.ts` são substituídos pelos testes de isolamento a sério — `ctx` do tenant A sobre um id de B dá `TENANT_MISMATCH` ou `NOT_FOUND`, nunca a linha de B.
+- [ ] O `listOrders` ganha o **cursor opaco** e os filtros do ISO-10: filtro vazio, cursor forjado e `OR` injectado são `VALIDATION_ERROR` e nunca devolvem a linha de outro tenant.
+- [ ] Os executores das **cinco** tools do Vendedor ligam-se (`especificacoes` do KAM-031 + `invoke` do KAM-028), e o `propose_cart` e o `criar_pedido` chamam o COM pela API interna. O total do `propose_cart` chega ao `compose` como **`Fact`** do §3.27 — `kind` dos quatro do §6.2, com proveniência — construído **na TLS** a partir do número e do `origem_preco` que o COM devolve, e o modelo nunca soma (ADR-007).
+- [ ] O `segredo_intents` (§3.44) é lido do cofre pelo `Secrets.getRing` do KAM-010 no arranque do COM, com a entrada de `../ops/secrets-inventory.yaml` a passar a `obrigatorio_em: [dev, staging, prod]`; o anel `[actual, anterior]` chega ao módulo `orders` e um arranque sem o segredo **não serve pedidos**.
+- [ ] Um duplo toque do mesmo botão `confirm:{cart_id}` **através do grafo** — isto é, com o nó a re-executar sobre o mesmo *checkpoint* — produz **uma** encomenda, e as duas barreiras do §6.3 ficam medidas de ponta a ponta: a da TLS por `cart_id` (KAM-029) e a do COM por `intent_key` (KAM-046).
+- [ ] O COM serve métricas em formato Prometheus, e os dois contadores do repo-base que o KAM-042 declarou **sem credor** (`com_repo_filtro_em_falta_total`, `com_repo_consultas_total`) passam a ser lidos por algo que não é um teste.
+
+### Detalhes Técnicos
+
+- **A decisão da porta, tomada a 2026-11-04, e o que ela corrige numa premissa
+  deste bloco.** A primeira versão deste ticket dizia que alargar os erros era
+  «uma alteração ao dicionário **e decisão do fundador**». **Toca o dicionário e
+  não é do fundador**, e a distinção é a que importa: o §3.39 declara o contrato
+  da porta, pelo que alargar o `ERROS` pede emenda — mas é uma emenda de linha
+  **L5** que *segue* a regra que o §3.39 já escreve, e não uma escolha de canon.
+  A medição que o mostra está no próprio ficheiro: o `ERROS` de `../services/com/src/port/contrato.ts` é que
+  fecha os cinco, e o §3.39 do dicionário declara **um** nome — o
+  `NOT_IMPLEMENTED`, «o único nome novo de erro» — e diz dos outros quatro que
+  «importam-se do §3.27 pelo nome em vez de serem redeclarados com significado
+  novo». Os cinco nunca foram o universo dos erros da porta: eram o
+  **subconjunto** de que os doze precisavam quando os doze devolviam todos
+  `NOT_IMPLEMENTED`. Logo alargá-los aos nove do `OrdersModule.erro` — que são
+  nomes do §3.27 — **cumpre** a regra escrita acima da lista em vez de a alterar,
+  e o que muda é a lista no código e a contagem que o `port.contrato.test.ts`
+  pina. É para isso que a contagem existe: quem a mexer vem ler porquê.
+- **E são dois movimentos e não um, porque o `conflito` não é um código de erro.**
+  Uma falha de CAS **não é uma recusa sobre dados** — é «relê e reavalia», e o
+  critério 2 do KAM-044 escreve-o à letra: as dezanove perdedoras «releem e
+  reavaliam (nunca forçam)». Codificá-la como erro é o mesmo erro de categoria
+  que o comentário do `NOT_IMPLEMENTED` avisa, porque «todos descrevem uma recusa
+  sobre dados» e nenhum consegue dizer «tenta outra vez com o que leres agora».
+  Por isso o `Resultado<T>` ganha um terceiro caso **só para o conflito**, e não
+  a tríade genérica: essa mudava a semântica dos doze sem necessidade. O caso
+  novo é o que os módulos já têm.
+- **A terceira saída está excluída, e não por preferência.** Traduzir no
+  adaptador diz a quem chama que o pedido dele não serve quando o que mudou foi o
+  preço. O KAM-044 e o KAM-046 recusaram-na **por escrito e independentemente**,
+  cada um no seu ficheiro; isso é evidência e não gosto.
+- **Rotas:** a forma é a do `POST /internal/turn` e `/internal/resume` do
+  KAM-025 — credencial no cabeçalho, comparação em tempo constante, e o segredo
+  no inventário. Reaproveita-se o `agr_internal_token`? **Não:** uma credencial
+  por serviço, porque quem a tem alcança tudo o que o serviço serve. Entra uma
+  entrada nova no inventário.
+- O `comTenant` do `tenant_guard` é que abre a transacção, e a `AbrirTransaccao`
+  do `create_order.ts` é a peça que o adaptador tem de fornecer: a *saga* do
+  §6.3 precisa de **duas** transacções que confirmem em instantes diferentes, e
+  uma rota que abra uma só não a serve.
+- **Uma armadilha medida, e que esta ligação vai encontrar:** o `comTenant`
+  **confirma** quando o trabalho devolve um valor e só desfaz num `throw`. Toda
+  a recusa que uma rota devolva depois de uma escrita **confirma** essa escrita.
+  O KAM-046 pagou-a — uma recusa de preço deixava um recibo `em_curso` a fechar o
+  carrinho por dois minutos — e está escrita no `reservarIntencao`.
+- As três constantes de tabela do KAM-044 (`TABELA_DO_ESPELHO`,
+  `TABELA_DO_REGISTO`, `TABELA_DAS_DIVERGENCIAS`) **não estão qualificadas pelo
+  esquema**, e nada neste repositório põe o `search_path` — o `comTenant` só põe
+  o `app.tenant_id` e o `../db/bootstrap.py` registra que um
+  `ALTER ROLE … SET search_path` é apagado pelo `RESET ALL`. O `inserir` do
+  repo-base **constrói** o `INSERT` com esse nome: as três morrem em `42P01` no
+  dia em que alguém as chamar, e esse dia é este ticket. O KAM-046 qualificou a
+  sua (`platform.order_intents`) e relatou as outras três.
+- O `vistaDaOfertaCompleta` do KAM-043 **não tem chamador** e leva os avisos que
+  o `getOfferView` da porta descarta. Quem os consome é o `get_price_stock`
+  (`../docs/tecnica/02` §6.2) e o grafo do Vendedor — isto é, este ticket.
+
+### Testes Requeridos
+
+- Contrato da porta: os doze métodos com `ctx` de A sobre ids de B (ISO-01..08) e sem `tenantId` (ISO-09); o `listOrders` com filtro vazio, cursor forjado e `OR` (ISO-10).
+- Rotas: credencial ausente, errada e de outro serviço; `ctx` sem tenant; corpo que não valida.
+- Ponta a ponta: o duplo toque através do grafo, com o nó a re-executar sobre o mesmo *checkpoint*, a dar **uma** encomenda — e o `idempotent_replay=True` na segunda.
+- `Fact`: o total do `propose_cart` chega ao `compose` com `kind` e proveniência, e o validador de citação do KAM-032 encontra o número para confrontar.
+- Arranque: o COM sem `segredo_intents` em `prod` **não arranca**.
+
+### Definition of Done
+
+- [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
+- [ ] **Isolamento de tenant:** as gamas ISO-01..10 medidas nos doze métodos, com sonda positiva ao lado (ADR-015).
+- [ ] **Números só de tools:** o `Fact` construído na TLS a partir do número do backend; o modelo nunca soma (ADR-007).
+- [ ] **Sem segredos:** a credencial da API interna e o `segredo_intents` no cofre, com entrada no inventário.
+- [ ] **Idempotência:** o duplo toque através do grafo dá uma encomenda, com as duas barreiras do §6.3 medidas (ADR-013).
+- [ ] **A porta alargada já fundiu** pelo ticket do KAM-042, e este consome-a: nenhum método traduz um `PRICE_CHANGED` para `VALIDATION_ERROR` nem um conflito de CAS para um erro.
+- [ ] Linha de «Controlo de versões» em cada documento formal tocado, e o campo `Versão` do cabeçalho a condizer.
+- [ ] Revisão adversarial independente, com os achados verificados.
+
+### Handoff para Claude Code
+
+```text
+Es o executor do ticket KAM-178 da KAMBA.
+Le specs/EPIC-04_Core_Comercio.md (bloco KAM-178, e os blocos KAM-042, KAM-044 e
+KAM-046), docs/com/port-coverage.md, docs/tecnica/03_Core_Comercio_Medusa.md
+(secoes 3.2, 6.2 e 6.3), docs/tecnica/02_Agent_Runtime_Verticais.md (secoes 6.2,
+6.3 e 6.5) e specs/EPIC-03_Agent_Runtime_Verticais.md (blocos KAM-025, KAM-028,
+KAM-029 e KAM-031).
+Objectivo: a API interna do COM, os doze metodos da porta ligados ao adaptador, e
+os executores das tools de comercio da ToolLayer a chamar essa API.
+- A porta alargada (nove codigos no ERROS, mais um terceiro caso no Resultado
+  so para o conflito de CAS) e decisao tomada e NAO e deste ticket: e do
+  KAM-042, em ticket proprio. Consome-a; nao a entregues aqui.
+- O comTenant CONFIRMA quando o trabalho devolve um valor: uma recusa depois de
+  uma escrita confirma essa escrita. Ver o reservarIntencao do KAM-046.
+- A saga do §6.3 precisa de DUAS transaccoes que confirmem em instantes
+  diferentes: uma rota que abra uma so nao a serve.
+- As tres constantes de tabela do KAM-044 nao tem esquema e nada poe o
+  search_path: qualifica-as, ou elas morrem em 42P01 neste ticket.
+- O Fact do §3.27 constroi-se na TLS, nunca no COM: o COM devolve o numero e a
+  proveniencia.
+Nao expandas escopo: as reservas sao o KAM-045 e o PAY e o EPIC-05.
+Testes: contrato da porta com as gamas ISO, rotas com credencial, ponta a ponta do
+duplo toque pelo grafo. PR com o template §7. Commits: feat(KAM-178): ...
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | # | Risco / item | Estado | Ligação | Tratamento no epic |
@@ -1974,3 +2147,4 @@ Commits: fix(KAM-176): ...
 | 1.7 | Novembro 2026 | **KAM-046: as duas secções de verificação, com três critérios de oito e duas caixas de DoD.** O bloco ganha a «Verificação dos Critérios de Aceitação» e a «Verificação da Definition of Done», com os critérios 3, 4 e 8 **marcados** e as caixas 4 (privacidade) e 5 (isolamento) do DoD. **Os cinco que ficam `parcial` ficam pela mesma família de razão, e cada um com o credor escrito:** o critério 1 e a caixa 3 do DoD pedem o envelope `Fact`, que é do contrato da ToolLayer e vive em Python (**KAM-029/KAM-031**); o critério 2 pede que o segredo «venha do cofre» e não há quem monte o módulo, porque a API interna do COM não existe (**o ticket que ligar a porta**); o critério 5 pede a reconciliação «≤ 5 min» e o estado que a falha produz — um recibo sem encomenda — **não é** nenhum dos cinco tipos de divergência do §10.3, nem há agendador (**KAM-071**); o critério 6 pede `OUT_OF_STOCK` e a `offer_terms` não tem coluna de quantidade, com o Registo da opção B a não existir em `../infra/compose/` (**KAM-045**); e o critério 7 pede o `charge.requested`, que **não existe** no catálogo publicado nem no §3.5 — vive só no §12 do `../docs/tecnica/03`, que é a dívida **37** (**KAM-054/055**, mais um ticket de canon), além do horário comercial do tenant (**Produto**, calibração no **KAM-096**) e do agendador do prazo (**KAM-071**, com o aviso ao dono no **KAM-115**). **Uma caixa do DoD é devolvida a quem a escreveu:** «revisão por dois revisores (dinheiro)» foi escrita antes da decisão do fundador de Outubro de 2026, que fixou **uma** revisão adversarial por ticket; o que o ticket entrega é uma revisão independente, com os achados verificados. **E duas decisões do ticket ficam registadas aqui porque mudam o que o bloco afirma:** a *saga* é de **duas** transacções e não de uma — com uma só, o `order_intents` nunca ficava `em_curso` e a retoma dos dois minutos do critério 5 guardava um estado inalcançável —, e o `cart_id` **não** é a `intent_key`, porque ele sai no botão `confirm:{cart_id}` que o cliente vê e devolve, e uma chave de idempotência que o cliente conhece é uma chave que o cliente pode citar. O ticket **não escreveu revisão de base de dados**: as cinco tabelas, os três *triggers* e as duas unicidades são da `0030` (KAM-044). | Equipa KAMBÁ |
 | 1.8 | Novembro 2026 | **KAM-176 entregue.** Secção «Verificação dos Critérios de Aceitação» no bloco, com os **oito** critérios e as **doze** caixas do DoD, cada um com ensaio nomeado e saída de execução. **Vinte caixas marcadas e nenhuma devolvida.** Numa delas — a do critério 5 — o que se cumpre é a **letra** («revisão nova e não edição da `0030`»), e a **razão** que o critério dá para ela fica registada como falsa e devolvida a quem a escreveu. Não é uma caixa devolvida: é uma caixa cumprida à letra com a justificação do critério refutada por medição, e a distinção está escrita porque a primeira versão desta linha dizia «marcada com a razão do critério devolvida», que no vocabulário desta casa é uma contradição (achado 12 da revisão adversarial). O `order_state_log_sem_truncate` passa a `BEFORE TRUNCATE OR DELETE OR UPDATE … FOR EACH STATEMENT` na revisão nova [`0031`](../db/migrations/versions/0031_registo_sem_mutacao_sem_linhas.py), sem *trigger* novo e sem função nova: o `DELETE` sem linhas já estava fechado e o `UPDATE` não, porque o argumento que o KAM-044 escreveu imediatamente acima do `CREATE TRIGGER` — «um `BEFORE DELETE … FOR EACH ROW` não dispara quando não há linhas» — vale letra por letra para o `UPDATE` e ele seguiu-o até metade. Não é gralha: é uma dedução deixada a meio. A suite passou de **90** para **97** ensaios, `OK`; o *gate* 6 ficou em 79 e a suite `tests` em **657**, as duas `OK`. **O critério 5 cumpre-se à letra e a razão dele fica devolvida a quem a escreveu:** ele decide «revisão nova» por «a `0030` fundiu na `main`, logo qualquer clone que tenha corrido `alembic upgrade head` a tem», e a premissa é falsa nas duas pontas — a `0029` também fundiu (`94bd634`, #104) e o KAM-175 editou-a no sítio, e **nenhuma** base pode ter corrido aquele comando, porque o `../db/migrations/README.md` diz que não há forma de aplicar migrações ao PostgreSQL do compose (rede interna, serviço `db` sem `ports:`). A conclusão mantém-se, e por uma razão melhor, escrita na própria revisão: «ninguém pode ter aplicado a `0030`» é propriedade da infraestrutura **de hoje**, e hoje é o dia em que o KAM-076 fundiu o compose de produção — uma revisão editada no sítio só é segura enquanto ninguém a aplicou, e uma revisão nova é correcta com a premissa e sem ela. **O canário corre nos dois sentidos** e o segundo sentido entrou pela lição do achado 3 da revisão adversarial do KAM-175, onde a célula que afirmava a redundância do *trigger* por linha citava justamente o ensaio da proposição inversa. **Duas alterações fora dos critérios, as duas declaradas:** uma cláusula de comentário no `../db/tests_isolamento/sementes.py` (dizia «incluindo um `DELETE` que não casa linha nenhuma», e a assimetria fazia inferir que o `UPDATE` sem linhas não estava coberto — a ressalva tácita que este ticket existe para fechar), e o alargamento do ensaio de modo `replica` às quatro instruções, porque ele media o `ENABLE ALWAYS` só para o `DELETE`. **E esse alargamento trouxe um defeito que vale guardar:** o `SET session_replication_role = replica` estava uma vez antes do ciclo e o auxiliar `tentar` faz `rollback` em cada recusa — um `SET` cru **é desfeito por um `ROLLBACK`**, pelo que da segunda iteração em diante a sessão estava em `origin` e as três instruções restantes mediam o modo errado, verde sobre a barreira que o `replica` existe para contornar. Não mordia com uma instrução só. Corrigido com o `SET` dentro do ciclo e um `SHOW` a confirmá-lo antes de cada tentativa. **Meia dívida 176 riscada** — a do `order_state_log` —, com as três tabelas irmãs intactas aos seus credores (KAM-012, KAM-028, KAM-030); a **175 continua riscada** pelo PR do KAM-175 e a **178** continua aberta, com credor KAM-053. | Equipa KAMBÁ |
 | 1.9 | Novembro 2026 | **KAM-176, revisão adversarial: quinze achados, catorze `CONFIRMADO`, três `must fix`.** Nenhum sobre o DDL — a `0031` passou intacta e o eixo «caminhos legítimos que a barreira passa a morder» ficou `MORTO` por varrimento do revisor. O que a revisão mostrou foi o **aparelho de prova**, e o pior era real: **um dos quatro ensaios que a secção de verificação, o corpo do PR e a dívida 176 citavam como prova da barreira nova sobrevivia à mutação.** O ensaio do `ON CONFLICT DO UPDATE` inseria `version = 2`, que é exactamente a linha que o `setUp` deixa — havia **sempre** conflito, o ramo de `UPDATE` era tomado e o *trigger* por linha já bastava para recusar; corrigido com uma `version` livre, e passou a morrer com a mutação. **E o `downgrade` da `0031` nunca era observado:** todos os `downgrade` desta casa descem a `0029`, e nessa descida a `0030` larga a tabela no passo seguinte, pelo que uma `0031` que não desfizesse nada passava a suite inteira — entrou um ensaio que desce à **`0030`** e lê o `pg_get_triggerdef`, mais um que mede o que acontece a meio de um `downgrade` de duas revisões (com `transaction_per_migration=True` a `0031` desce e confirma antes de a `0030` recusar, pelo que a base fica na `0030`; não é inconsistência, mas a leitura «o comando falhou, logo nada mudou» é falsa). A suite passa de 95 para **97**, e a suite `tests` foi corrida — **657, `OK`** —, porque a caixa da cabeça única e a do ciclo sem resíduos estavam marcadas com suites que não contêm nenhum dos dois ensaios. **Três afirmações desta secção não valiam o que diziam**, e as três eram fontes citadas: o `test_inventario.py` prende **restrições** e não os nomes dos *triggers*; o `levar_a` escreve por **administrador** e não pelo `kamba_app` (a prova do critério 3 passou para os dois ensaios que escrevem por `ligar_app`); e «apanhada por cinco ensaios» eram quatro — agora medido, **seis ensaios e sete entradas**, porque um contribui com dois `subTest`. **A caixa da própria revisão adversarial estava marcada antes de a revisão existir**, em lote com as outras dezanove, que é o defeito que o SKILL nomeia por extenso. **E o argumento da «janela a fechar-se» não estava medido:** o compose de produção do KAM-076 também não tem `ports:` nem `alembic`, pelo que reproduz a propriedade que ele usava para provar o contrário — passou a previsão declarada `NÃO VERIFICADO`, e a razão suficiente ficou a simples, «uma revisão nova é correcta com a premissa e sem ela». Mais a célula do critério 6 do **KAM-044**, mil linhas acima neste mesmo ficheiro, que continuava a dizer em presente que o `FOR EACH STATEMENT` não cobre o `UPDATE` — a dívida 178 reproduzida um epic ao lado, riscada aqui com o credor; o `estritamente redundante` qualificado, porque num `UPDATE` aplicado por **replicação lógica** o *trigger* por linha é o único a disparar (`PLAUSÍVEL`, `NÃO VERIFICADO` por execução, e é a justificação de o manter); a função presa no ensaio do catálogo, que prendia os verbos e o nível e não ela; a coluna «Onde» da dívida 176 riscada na metade paga; e o verbo da `0023` alinhado nos dois sítios — são **os dois**, porque ali as duas metades estão abertas. | Equipa KAMBÁ |
+| 1.10 | Novembro 2026 | **KAM-178** acrescentado, e **não entregue no mesmo PR** — a mesma forma do KAM-176. **O número leu-se da base e mudou, e isso estava previsto em vez de ser descoberto:** esta linha abriu como 1.7, passou a 1.8 quando o KAM-046 fundiu, e está em **1.10** porque o KAM-176 fundiu depois com a 1.8 e a 1.9. Deixar-lhe os dois números de antemão **não era alcançável**: o `lint_backlog` recusa um buraco na sequência, pelo que um ramo verde não pode reservar números para outro — só re-integrar depois de o mais baixo fundir. Três renumerações no mesmo ramo é a medição de que o número se lê da base e nunca do ficheiro. O que se entrega: o que se entrega é o ticket. Fecha a lacuna que o KAM-046 nomeou ao entregar: o **credor que liga o backend** não existia em ticket nenhum, apesar de o KAM-042 (API interna do COM), o KAM-044 (ligação do `transition` à porta) e o KAM-031 (executores das cinco tools) o terem deferido por escrito, cada um com outras palavras e nenhum com um `KAM-NNN`. Sem ele, três caixas do KAM-046 ficam sem quem as feche. **A decisão da porta foi tomada a 2026-11-04**, e corrige uma premissa da primeira versão deste bloco: alargar os erros **não** é alterar o dicionário — o `ERROS` de `../services/com/src/port/contrato.ts` é que fecha os cinco, e o §3.39 declara **um** nome e manda importar os outros do §3.27 pelo nome, pelo que alargá-los aos nove **cumpre** a regra. São dois movimentos (os nove códigos, e um terceiro caso no `Resultado<T>` só para o conflito de CAS), o credor é o **KAM-042** e abre em ticket próprio; o critério 1 deste bloco passa a **consumir** a porta alargada. **A tabela do §3 e a contagem do §2 acompanham** (12 → **13** tickets, 8 → 9 na Fase 0), e o `Bloqueia` do KAM-042 e do KAM-046 ganha a aresta recíproca que a dependência obriga. | Equipa KAMBÁ |
