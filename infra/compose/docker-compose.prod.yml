@@ -297,6 +297,10 @@ services:
       PORT: "8000"
       KAMBA_COMMIT_SHA: ${KAMBA_COMMIT_SHA:?o deploy passa o SHA da release}
       KAMBA_DATA_CLASS: ${KAMBA_DATA_CLASS:-synthetic}
+      # KAM-178. O AGR apresenta a credencial da API interna do COM e o COM
+      # verifica-a: tem de ser o mesmo valor, e e obrigatoria ao arranque dos dois.
+      KAMBA_SECRET_COM_INTERNAL_TOKEN: ${KAMBA_SECRET_COM_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do COM}
+      KAMBA_COM_URL: ${KAMBA_COM_URL:-http://com:3002}
     # Duas replicas, criterio 5.
     deploy:
       replicas: 2
@@ -336,6 +340,14 @@ services:
     environment:
       <<: [*node-env, *saida]
       PORT: "3002"
+      # KAM-178. Em `prod` os tres sao `:?`: um cofre que nao entregue um deles
+      # **nao** arranca o servico (KAM-010), e um `:-` aqui era um COM a servir
+      # pedidos sem a credencial da API interna.
+      KAMBA_ENV: prod
+      KAMBA_SECRET_COM_INTERNAL_TOKEN: ${KAMBA_SECRET_COM_INTERNAL_TOKEN:?o cofre entrega a credencial da API interna do COM}
+      KAMBA_SECRET_SEGREDO_INTENTS: ${KAMBA_SECRET_SEGREDO_INTENTS:?o cofre entrega o segredo das intencoes}
+      KAMBA_SECRET_SEGREDO_INTENTS_ANTERIOR: ${KAMBA_SECRET_SEGREDO_INTENTS_ANTERIOR:-}
+      KAMBA_COM_DB_URL: ${KAMBA_COM_DB_URL:?o deploy passa a cadeia de ligacao do kamba_app}
     networks:
       - app
       - data
