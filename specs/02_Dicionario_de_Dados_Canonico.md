@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Foundation — Dicionário de Dados Canónico |
-| Versão | 1.57 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
+| Versão | 1.58 — **PROPOSTA** (a do §6; o cabeçalho ficou em 1.0 durante treze emendas, e é a linha 7 do KAM-141) |
 | Data | Novembro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/` (docs 00–10), `specs/EPIC-*.md` |
@@ -3148,6 +3148,89 @@ confirma**.
 
 ---
 
+### 3.44 Criação idempotente de pedido: `intent_key`, `draft_hash` e o `propose_cart` (KAM-046)
+
+O KAM-046 implementa a *saga* de `createOrder` do `../docs/tecnica/03` §6.3 e o
+`propose_cart` do `../docs/tecnica/02` §6.2. **Não cria tabela nenhuma e não leva
+revisão:** as cinco tabelas e os três *triggers* são da revisão `0030` (KAM-044,
+§3.43), e esta página fixa o que falta — a **derivação** das duas chaves, o
+domínio dos códigos que a operação devolve, e os valores de desenho que ela
+introduz.
+
+**O que esta emenda substitui, e é a razão de ela existir:** a chave do
+documento exploratório, `hash(msisdn + sku + janela_5min)`. O Contexto do bloco
+enumera as três consequências dela, e as três são defeitos e não preferências —
+duplica a encomenda na **fronteira** da janela (as 14:04:59 e as 14:05:01 são
+duas janelas), **bloqueia a recompra** dentro da janela (o mesmo SKU 30 s depois
+é a mesma chave), e usa **telefone**, contra o ADR-010. A chave adoptada é por
+**intenção**: as quatro partes são `(tenant_id, contact_id, draft_id,
+draft_version)` e **nenhuma delas é tempo nem telefone**.
+
+| Conceito | Nome canónico | Substitui | Notas |
+|---|---|---|---|
+| Chave de idempotência da criação de pedido | `intent_key` = `base32(HMAC-SHA256(segredo_intents, tenant_id` ⟂ `contact_id` ⟂ `draft_id` ⟂ `draft_version))[:26]` | `hash(msisdn + sku + janela_5min)` | *proposta* (emenda 1.58, KAM-046). As colunas `orders_mirror.intent_key` e `order_intents.intent_key` já existem (§3.43); o que esta linha fixa é a **derivação**. **Vinte e seis** caracteres do alfabeto de Crockford, o mesmo do `numero_publico` (§3.43), que é o que põe as duas cadeias legíveis lado a lado em quem opera. O `⟂` **não é um caractere separador** — é a mesma decisão da emenda 1.37 para a chave da TLS (§3.28), e pela mesma razão: a derivação prefixa cada parte com o comprimento em octetos, porque com um separador literal duas partições diferentes das mesmas partes davam a mesma chave, que numa operação de dinheiro é a encomenda de um cliente a responder pela de outro |
+| *Hash* do rascunho confirmado | `draft_hash` = `SHA-256(linhas canonicalizadas` ⟂ `entrega_modo)` | — | *proposta* (emenda 1.58, KAM-046). A coluna é `bytea` de 32 octetos pelo `CHECK` da revisão `0030`. **`SHA-256` e não HMAC**, e é o que o critério 2 escreve: a pergunta que ele responde é «é o mesmo rascunho?», e essa não precisa de ser inforjável — quem a faz já provou o tenant pelo `ctx`. **Canonicalizadas** quer dizer **ordenadas** por `sku` e, com `sku` igual, por `qty`: duas ordens das mesmas linhas são o mesmo carrinho, e com a ordem a contar o segundo toque parecia conteúdo novo e levava `INTENT_REUSED_WITH_DIFFERENT_CONTENT` numa repetição legítima. Linhas repetidas do mesmo `sku` **não se somam** — a ordenação compra a comutatividade e não normaliza o conteúdo |
+| Segredo da derivação | `segredo_intents` | — | *proposta* (emenda 1.58, KAM-046). Entrada de `../ops/secrets-inventory.yaml`, com `anel: true` e `kid: true`: valor na forma `<kid>:<base64 de 32 octetos>`, como o `pepper_contact_hmac` (§3.9). **O anel é obrigatório e não é conveniência:** a escrita deriva com o `actual` e a leitura do recibo procura pelas **duas** versões, porque sem isso rodar o segredo mudava a `intent_key` do mesmo rascunho e um toque repetido com a rotação pelo meio criava **duas** encomendas — a idempotência partia-se no acto de rodar. **LIMITE:** não há coluna de `kid` em `orders_mirror.intent_key`, pelo que uma chave derivada com uma versão já fora do anel não se volta a alcançar; dar-lhe uma coluna é alterar a revisão `0030` |
+| Identificador opaco do carrinho | `cart_id` = `base32(HMAC-SHA256(segredo_intents, "cart"` ⟂ `tenant_id` ⟂ `contact_id` ⟂ `draft_id` ⟂ `draft_version))[:26]` | — | *proposta* (emenda 1.58, KAM-046). O §3.28 já declara o `cart_id` **opaco** e produzido pelo `propose_cart`; esta linha diz **como**, e a parte que importa é que ele **não é** a `intent_key`. Os dois derivam das mesmas quatro partes, e o `cart_id` leva uma parte de **domínio** à cabeça porque ele sai para fora: vai no botão `confirm:{cart_id}` (§3.31), que o cliente vê no WhatsApp e devolve. Uma chave de idempotência que o cliente conhece é uma chave que o cliente pode citar. **E nenhum dos dois se aceita do chamador:** o `createOrder` recebe `(draft_id, draft_version)` e deriva; um `cart_id` que chegue de fora confronta-se por **re-derivação** e nunca se usa como chave — era o caminho pelo qual o carrinho de outro contacto resolvia a intenção deste (ISO-57..60) |
+| Códigos de recusa da criação de pedido | `OrdersModule.erro` ∈ {`NOT_FOUND`, `VALIDATION_ERROR`, `TENANT_MISMATCH`, `PRICE_CHANGED`, `OUT_OF_STOCK`, `LIMIT_EXCEEDED`, `INTENT_REUSED_WITH_DIFFERENT_CONTENT`, `UPSTREAM_TIMEOUT`, `UPSTREAM_DOWN`} | — | *proposta* (emenda 1.58, KAM-046). Lista **fechada**, **nove**, e **nenhum nome é novo**: os nove são valores do `tool_audit.error_code` do §3.27, que fecha em treze desde a emenda 1.47, e **importam-se** de lá pelo nome em vez de serem redeclarados com significado novo. **Qualificada pela superfície**, como o `ServicosModule.erro` (§3.3, emenda 1.45) e o `OfferView.avisos` (§3.40, emenda 1.52): o *gate* 3b qualifica um valor pela coluna ou pela superfície a que pertence. **E não são os cinco `ERROS` da porta `CommerceRegistry`** (§3.39): nenhum dos quatro que os critérios 4 e 6 nomeiam cabe naquela lista, e traduzir um `PRICE_CHANGED` para `VALIDATION_ERROR` dizia ao cliente que o pedido dele não serve quando o que mudou foi o preço — é a mesma tensão que o KAM-044 encontrou com o `conflito` do CAS |
+| Origem do preço de uma linha | `origem_preco` ∈ {`offer_terms`, `cotacao_dono`} | — | Já fixado na emenda 1.52 (§3.40). **Quem o escreve é este ticket**, e é o que o §3.43 lhe deixou atribuído por escrito. A resolução é por linha: uma cotação válida **ganha** ao `offer_terms` quando existe, porque é o dono a dar um preço para aquela quantidade. E o `qty` **multiplica o `offer_terms` e não a cotação** — o `preco_minor` da `offer_terms` é unitário e o `preco_total_minor` da cotação é o total da linha (§7.2), pelo que multiplicar a cotação cobrava dez vezes o preço de dez |
+| Prazo do dono para confirmar | `MINUTOS_PARA_O_DONO` (15) | — | ***proposta***, do critério 7, que o declara omissão. Calibra-se com o tempo real de resposta de um dono a um aviso de WhatsApp — **KAM-096** |
+| Lembrete ao dono | `MINUTOS_PARA_O_LEMBRETE` (5) | — | ***proposta***, mesma fonte e mesmo ticket de calibração |
+| Janela do «pedido por pagar semelhante» | `MINUTOS_DO_PEDIDO_POR_PAGAR` (30) | — | ***proposta***, do critério 8. **Trinta e não outro número:** é a validade do carrinho do §3.31 (emenda 1.40), e passados trinta minutos o pedido anterior já não é confirmável — perguntar por ele era oferecer ao cliente algo que ele não consegue pagar sem recomeçar |
+| Estados em que uma encomenda está «por pagar» | `ESTADOS_POR_PAGAR` = {`criada`, `aguarda_pagamento`, `pendente_confirmacao`} | — | *proposta* (emenda 1.58, KAM-046). **Três e não «`estado <> paga`»:** uma encomenda `cancelada` ou `expirada` não é um pedido por pagar, e dizer ao cliente que tem um pedido que já caducou era pior do que não dizer nada. São os três estados do §6.2 antes do dinheiro, e subconjunto dos doze do §3.3 |
+| Retoma de uma intenção abandonada | `MINUTOS_PARA_RETOMAR` (2) | — | Já fixado na emenda 1.37 para a TLS (§3.28). É o mesmo número e o mesmo conceito do lado do COM, e o §6.3 escreve-o para os dois: «intenções `em_curso` > 2 min são retomadas ou marcadas `falhada`». **Importa-se, não se redeclara** |
+| Tecto de espera por uma intenção de outro | `TECTO_DE_ESPERA_MS` (3000) | — | Já fixado na emenda 1.37 (§3.28), e vale igual aqui: é o «poll ≤ 3 s» do §6.3, que aquela linha já cita. Esgotado, devolve `UPSTREAM_TIMEOUT` **sem criar** |
+
+**A *saga* são duas transacções e não uma, e isso é desenho e não detalhe de
+implementação.** Com uma transacção só, o recibo e o espelho entravam juntos e o
+`order_intents` **nunca** ficava `em_curso`: o processo que morresse a meio
+abortava a transacção e o recibo desaparecia com ela — e então o estado
+`em_curso` do `CHECK` da revisão `0030`, a retoma dos dois minutos do critério 5
+e a regra 2 da reconciliação do §10.3 descreviam um estado inalcançável, três
+mecanismos a guardar uma porta que não existe. O passo do meio do §6.3 é **fora
+da base** (criar a encomenda no Registo), e é por isso que o recibo confirma
+primeiro, só.
+
+**O que serializa a criação é o `ON CONFLICT (tenant_id, intent_key) DO
+NOTHING`**, e não um `SELECT` antes do `INSERT`: cinquenta leituras concorrentes
+vêem todas zero linhas e inserem todas. Com `DO NOTHING` o PostgreSQL **espera**
+pela transacção que inseriu a linha em conflito e só depois decide, pelo que as
+quarenta e nove que perdem leem o recibo já no estado final. É a mesma
+propriedade que o `upsertProductDraft` do KAM-043 comprou para o SKU novo (um
+`FOR UPDATE` não tranca uma linha que não existe), e são **duas barreiras
+independentes** como o Contexto do bloco diz: esta e a unicidade da revisão
+`0030`.
+
+**O que esta emenda não decide, com credor em cada:**
+
+* **a ligação dos métodos 4 e 5 da porta** (`createOrder`,
+  `requestOwnerConfirmation`): continuam `NOT_IMPLEMENTED`, e a razão é a mesma
+  que o KAM-044 escreveu para o método 10 — o módulo tem um domínio de erros que
+  o `Resultado` de dois casos e os cinco `ERROS` do §3.39 não expressam. Decidir
+  como a porta os expressa é alterar aquela linha, que é **canon**, e está
+  registado em `../docs/com/port-coverage.md` §2;
+* **o `charge.requested`**, que o critério 7 nomeia e que **não existe** no
+  catálogo publicado nem no §3.5: vive só no §12 do `../docs/tecnica/03`, que é o
+  «segundo catálogo de eventos» da dívida documental **37**. O mesmo vale para o
+  `order.owner_confirmation_requested`, o `order.owner_confirmed` e o
+  `order.owner_rejected`, que os *Detalhes Técnicos* do bloco atribuem a este
+  ticket. Credor: **KAM-054/055**, donos do consumidor, mais o ticket de canon
+  que acrescente os contratos e emende a contagem do §3.5;
+* **a reserva de stock** e a autoridade que sustenta o `OUT_OF_STOCK`: a
+  `offer_terms` **não tem coluna de quantidade** (o §5.4 põe o stock no Registo),
+  e o Registo da opção B é um Medusa que não existe em `../infra/compose/`. A
+  **passagem** do código está implementada e medida; a **fonte** falta —
+  **KAM-045**, mais o ticket que ligar o inventário do Registo;
+* **o horário comercial do tenant** no prazo do dono: a janela de funcionamento
+  vive no módulo `servicos` (§3.3, KAM-047), e trazê-la para a encomenda era
+  acoplar as duas por uma regra que ninguém calibrou. O que existe é tempo de
+  relógio — **Responsável de Produto**, com a calibração no **KAM-096**;
+* **quem corre o prazo**: não há agendador. A decisão do silêncio é função pura e
+  está medida; o varrimento é do **KAM-071**, como o `expirar_holds` do KAM-047,
+  e o aviso ao dono é do **KAM-115**.
+
+---
+
 ## 4. Itens que continuam por decidir
 
 | Item | Estado | Ticket |
@@ -3226,3 +3309,4 @@ Qualquer alteração a um nome canónico é uma emenda a este documento (linha e
 | 1.55 | Novembro 2026 | **Correcção, KAM-053, da revisão adversarial — sem emenda ao domínio.** Duas células estavam erradas e nenhum *gate* as via. O §3.4 dizia, no mesmo parágrafo, que o quarto valor de `authn_method` entra pela emenda 1.53 **e** que «fica por decidir»: o texto novo foi acrescentado sem retirar o antigo, e o antigo era a pergunta que a 1.53 existe para fechar. O §3.42 descrevia a `resolve_webhook_token` como `SECURITY DEFINER` e ela é `SECURITY INVOKER`, o que punha a fonte 4 a contradizer o código e a sugerir que a lista aprovada de `ci/secdef_allowlist.yaml` estava incompleta — e a caixa do DoD que limita o `DEFINER` a uma função depende disso. O `canon_lint` e o `dict_export` passavam nas duas, porque o domínio já tinha os quatro valores e a prosa não é lida por máquina: as duas contradições eram legíveis **só por um humano**, que é o leitor que o dicionário serve. | Equipa KAMBÁ |
 | 1.56 | Novembro 2026 | **Emenda (*proposta*), KAM-044.** §3.43 nova: as encomendas — a `orders_mirror` com as suas **vinte e três** colunas, o `order_intents` com **seis**, o `order_state_log` com **onze**, o `order_state_graph` com **três** e o `order_reconciliation_issues` com **oito** (revisão `0030`), as **doze** transições do núcleo com as duas atrás de `COM_DELIVERY_ENABLED`, os cinco `confirmacao_dono`, os três `paga_via` (dos quais **dois** alcançam `paga`), as três `excepcao`, os três `entrega_confirmada_por`, os **cinco** tipos de divergência do §10.3, os **cinco** SQLSTATE `KA003`–`KA007`, o `numero_publico` de **oito** caracteres e o resultado de três formas da `transition`. **Quatro divergências resolvidas a favor desta página:** os **doze** estados contra os nove do `CHECK` do §5.4 — o §3.3 fixa doze e marca aquela máquina como «incompleta», e o `ORDER_STATES` do KAM-042 nomeia este ticket por escrito; o `currency` `text` + `CHECK` contra o `char(3)`, como nas `0025` e `0028`; a chave do `order_state_log` em `uuid` contra o `bigint` de identidade do §5.4, porque o `kamba_app` **lê** esta tabela (é o *trigger* diferido que a lê, como invocador) e a propriedade que justifica as excepções de identidade não se verifica aqui; e **cinco eventos e não seis**, porque o `order.reconciliation_issue` do critério 8 não tem contrato, não está no §3.5 e não está no `../docs/tecnica/06` §5 — está só no §12 do `../docs/tecnica/03`, que é a dívida documental 37, e emiti-lo levantava `TipoDesconhecidoError` antes de o *gate* 7 ver o envelope. **Uma coluna acrescentada ao DDL do §5.4 com a razão escrita:** a `order_state_log.version`, que é a de depois da transição e sem a qual o ciclo `expirada → aguarda_pagamento → expirada` deixava a linha de uma volta anterior satisfazer a verificação de uma volta nova — e é dela que sai a unicidade que faz da idempotência uma restrição. **E uma decisão que não é transcrição:** `paga` verifica-se duas vezes, e a segunda é um `CONSTRAINT TRIGGER` **diferido** que no `COMMIT` exige o registo da transição com actor `sistema` e `evento_id` — porque «nenhuma via» do DoD inclui um `UPDATE` à mão de quem tem o privilégio. **O que não decide, com credor em cada:** a `stock_reservations` (**KAM-045**), a `createOrder` e o fluxo do recibo (**KAM-046**), os estados adicionais (**KAM-050**), o consumo de `payment.*` e a FK da cobrança (**KAM-055**), a dupla verificação do `ManualProvider` (**KAM-054**), o trigésimo-nono contrato de evento (**sem credor**), a API interna do COM, que o §3.39 atribuiu a este ticket e que **nenhum critério pede**, e as correcções da reconciliação que tocam o Registo, **NÃO VERIFICADAS** por não haver Medusa em `../infra/compose/`. | Equipa KAMBÁ |
 | 1.57 | Novembro 2026 | **Emenda (*proposta*): o trigésimo-nono contrato de evento deixa de estar em aberto, porque o evento não existe.** O §3.43 escrevia, no que a emenda 1.56 **não** decidia, que o `order.reconciliation_issue` e a contagem do §3.5 ficavam «sem credor atribuído hoje». A 2026-11-04 o fundador decidiu a favor da segunda das duas saídas que a dívida 174 tinha escrito: o evento **não existe** e a linha dele sai do §12 do `../docs/tecnica/03`. **O §3.5 não se toca** — fica nos trinta e oito tipos, que é a contagem que o `contract_diff` prende em `ESPERADOS = 38` e que três ficheiros repetem. Mudam duas frases do §3.43: o ponto 4, que passa a dizer que a escolha foi feita, e o item da lista do que não se decidia, que fica riscado com a decisão. | Equipa KAMBÁ |
+| 1.58 | Novembro 2026 | **Emenda (*proposta*), KAM-046, e entra sem DDL e sem revisão.** §3.44 nova: a criação idempotente de pedido — a derivação da `intent_key` (`base32(HMAC-SHA256(segredo_intents, …))[:26]`, vinte e seis caracteres de Crockford), o `draft_hash` (`SHA-256` das linhas **canonicalizadas**), o `segredo_intents` com anel e `kid`, o `cart_id` com a parte de domínio que o separa da chave de idempotência, o `OrdersModule.erro` **fechado em nove**, os `ESTADOS_POR_PAGAR` e os três valores de desenho (**15 min**, **5 min**, **30 min**, os três *propostas*). **Nenhum nome novo de erro entra no dicionário:** os nove do `OrdersModule.erro` são valores do `tool_audit.error_code` do §3.27 e importam-se de lá pelo nome, qualificados pela superfície como o `ServicosModule.erro` da 1.45 e o `OfferView.avisos` da 1.52; o `MINUTOS_PARA_RETOMAR` e o `TECTO_DE_ESPERA_MS` importam-se do §3.28 (emenda 1.37), onde o §6.3 já os escreve para os dois lados. **Quatro decisões que não são transcrição, e nenhuma saiu de uma leitura.** A primeira é a que o critério 2 esconde: a canonicalização das linhas tem de **ordenar**, porque o rascunho vive no *checkpoint* pela ordem em que o cliente falou e «dois quilos de arroz e um sabão» e «um sabão e dois quilos de arroz» são o mesmo carrinho — com a ordem a contar, o segundo toque dava `draft_hash` diferente e uma repetição legítima recebia `INTENT_REUSED_WITH_DIFFERENT_CONTENT`. A segunda é o `cart_id` **não** ser a `intent_key`: os dois derivam das mesmas quatro partes e a tentação é fazê-los um só, mas o `cart_id` sai no botão `confirm:{cart_id}` que o cliente vê e devolve, e uma chave de idempotência que o cliente conhece é uma chave que o cliente pode citar — daí a parte de domínio, e daí o `createOrder` receber `(draft_id, draft_version)` e **derivar** em vez de aceitar chave nenhuma de fora. A terceira é o **anel obrigatório**: sem ele, rodar o segredo mudava a `intent_key` do mesmo rascunho e a idempotência partia-se no próprio acto de rodar — um toque repetido com a rotação pelo meio criava duas encomendas; o limite fica dito, porque não há coluna de `kid` em `orders_mirror.intent_key` e uma versão que saia do anel não se volta a alcançar. A quarta é a *saga* ser de **duas** transacções: com uma só, o `order_intents` nunca ficava `em_curso` e o estado do `CHECK` da `0030`, a retoma dos dois minutos e a regra 2 da reconciliação do §10.3 guardavam uma porta inalcançável. **O que não decide, com credor em cada:** a ligação dos métodos 4 e 5 da porta `CommerceRegistry`, que continuam `NOT_IMPLEMENTED` porque os códigos deste domínio não cabem nos cinco `ERROS` do §3.39 e alargá-los é alterar essa linha (**canon**, registado em `../docs/com/port-coverage.md` §2); o `charge.requested` e os três eventos de confirmação do dono, que **não existem** no catálogo nem no §3.5 e vivem só no §12 do `../docs/tecnica/03` — a dívida **37** (**KAM-054/055**, mais um ticket de canon); a autoridade de stock que sustenta o `OUT_OF_STOCK`, porque a `offer_terms` não tem coluna de quantidade e o Registo não existe em `../infra/compose/` (**KAM-045**); o horário comercial do tenant no prazo do dono (**Responsável de Produto**, calibração no **KAM-096**); e o agendador que corre o prazo (**KAM-071**, com o aviso ao dono no **KAM-115**). | Equipa KAMBÁ |
