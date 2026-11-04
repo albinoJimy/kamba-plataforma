@@ -304,12 +304,24 @@ function recusar(codigo: ErroDaCriacao): ResultadoDaCriacao {
  *
  * Escreve-se como um `switch` e não com um `as`: um `as` deixava um
  * `NOT_IMPLEMENTED` atravessar sem o `tsc` ver nada.
+ *
+ * **E agora são nove e não quatro**, pela emenda 1.59 do dicionário (KAM-178):
+ * o `ERROS` da porta passou a ter os nove deste domínio, pelo que a tradução é
+ * a identidade em nove casos e o `switch` cobre a lista inteira. **O `switch`
+ * fica**, e é o que importa: ele é que faz o `tsc` recusar a lista no dia em que
+ * um décimo-primeiro nome entrar na porta sem alguém decidir o que ele quer
+ * dizer aqui.
  */
 function doDominio(erroDaPorta: Erro): ErroDaCriacao {
   switch (erroDaPorta) {
     case "NOT_FOUND":
     case "VALIDATION_ERROR":
     case "TENANT_MISMATCH":
+    case "PRICE_CHANGED":
+    case "OUT_OF_STOCK":
+    case "LIMIT_EXCEEDED":
+    case "INTENT_REUSED_WITH_DIFFERENT_CONTENT":
+    case "UPSTREAM_TIMEOUT":
     case "UPSTREAM_DOWN":
       return erroDaPorta;
     case "NOT_IMPLEMENTED":
