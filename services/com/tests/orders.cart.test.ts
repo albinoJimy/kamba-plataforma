@@ -75,6 +75,7 @@ function termos(campos: Record<string, unknown> = {}): Record<string, unknown> {
 function cotacao(campos: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: "c0ffee00-0000-4000-8000-000000000001",
+    contact_id: CONTACTO,
     sku: "arroz-5kg",
     qty: 2,
     preco_total_minor: 200_000,
@@ -189,7 +190,7 @@ test("o preço sem validade declarada não caduca, e o instante igual é vencido
 
 test("um fixo publicado com preço válido resolve por offer_terms", async () => {
   const { l } = leitura([[termos()], []]);
-  const r = await resolverLinha(l, { sku: "arroz-5kg", qty: 2 }, AGORA);
+  const r = await resolverLinha(l, CONTACTO, { sku: "arroz-5kg", qty: 2 }, AGORA);
   assert.equal(r.tipo, "ok");
   if (r.tipo !== "ok") return;
   assert.equal(r.valor.origemPreco, "offer_terms");
@@ -200,7 +201,7 @@ test("um fixo publicado com preço válido resolve por offer_terms", async () =>
 test("um sob_consulta sem cotação é recusado e não devolve número", async () => {
   // O critério 1, à letra: «item `sob_consulta` sem cotação é recusado».
   const { l } = leitura([[termos({ preco_tipo: "sob_consulta", preco_minor: null })], []]);
-  const r = await resolverLinha(l, { sku: "arroz-5kg", qty: 2 }, AGORA);
+  const r = await resolverLinha(l, CONTACTO, { sku: "arroz-5kg", qty: 2 }, AGORA);
   assert.deepEqual(r, { tipo: "erro", erro: "VALIDATION_ERROR" });
 });
 
@@ -209,7 +210,7 @@ test("um sob_consulta com cotação válida resolve por cotacao_dono", async () 
     [termos({ preco_tipo: "sob_consulta", preco_minor: null })],
     [cotacao()],
   ]);
-  const r = await resolverLinha(l, { sku: "arroz-5kg", qty: 2 }, AGORA);
+  const r = await resolverLinha(l, CONTACTO, { sku: "arroz-5kg", qty: 2 }, AGORA);
   assert.equal(r.tipo, "ok");
   if (r.tipo !== "ok") return;
   assert.equal(r.valor.origemPreco, "cotacao_dono");
@@ -220,7 +221,7 @@ test("um a_partir_de sem cotação é recusado, como o sob_consulta", async () =
   // A decisão está escrita no módulo: um «a partir de» é um **mínimo** que o
   // dono declarou, e somá-lo dava ao cliente um número que o dono não prometeu.
   const { l } = leitura([[termos({ preco_tipo: "a_partir_de" })], []]);
-  const r = await resolverLinha(l, { sku: "arroz-5kg", qty: 1 }, AGORA);
+  const r = await resolverLinha(l, CONTACTO, { sku: "arroz-5kg", qty: 1 }, AGORA);
   assert.deepEqual(r, { tipo: "erro", erro: "VALIDATION_ERROR" });
 });
 
@@ -229,7 +230,7 @@ test("um fixo com preço vencido é recusado e não soma", async () => {
     [termos({ preco_valido_ate: "2026-11-04T09:59:59.000Z" })],
     [],
   ]);
-  const r = await resolverLinha(l, { sku: "arroz-5kg", qty: 1 }, AGORA);
+  const r = await resolverLinha(l, CONTACTO, { sku: "arroz-5kg", qty: 1 }, AGORA);
   assert.deepEqual(r, { tipo: "erro", erro: "VALIDATION_ERROR" });
 });
 
@@ -240,7 +241,7 @@ test("um fixo com preço vencido mas com cotação válida resolve pela cotaçã
     [termos({ preco_valido_ate: "2026-11-04T09:59:59.000Z" })],
     [cotacao()],
   ]);
-  const r = await resolverLinha(l, { sku: "arroz-5kg", qty: 2 }, AGORA);
+  const r = await resolverLinha(l, CONTACTO, { sku: "arroz-5kg", qty: 2 }, AGORA);
   assert.equal(r.tipo, "ok");
   if (r.tipo !== "ok") return;
   assert.equal(r.valor.origemPreco, "cotacao_dono");
@@ -249,14 +250,49 @@ test("um fixo com preço vencido mas com cotação válida resolve pela cotaçã
 test("um rascunho não publicado e um sku que não existe dão NOT_FOUND", async () => {
   const semLinha = leitura([[], []]);
   assert.deepEqual(
-    await resolverLinha(semLinha.l, { sku: "nao-existe", qty: 1 }, AGORA),
+    await resolverLinha(semLinha.l, CONTACTO, { sku: "nao-existe", qty: 1 }, AGORA),
     { tipo: "erro", erro: "NOT_FOUND" },
   );
   const rascunho = leitura([[termos({ estado: "rascunho" })], []]);
   assert.deepEqual(
-    await resolverLinha(rascunho.l, { sku: "arroz-5kg", qty: 1 }, AGORA),
+    await resolverLinha(rascunho.l, CONTACTO, { sku: "arroz-5kg", qty: 1 }, AGORA),
     { tipo: "erro", erro: "NOT_FOUND" },
   );
+});
+
+// ------------- KAM-179: a cotação que resolve a linha é a do próprio contacto
+
+test("KAM-179: o contacto desce à leitura da cotação, como $1 depois do tenant", async () => {
+  // Este é **o caminho que cobra**: a cotação ganha ao `offer_terms`, pelo que
+  // sem o predicado o contacto X pagava o total negociado para Y, e o
+  // `origem_preco='cotacao_dono'` da linha dizia que o dono o prometeu. O `repo`
+  // de ensaio **é** o repo-base, pelo que o `tenant_id` não aparece nos
+  // `valores`: o contacto é o primeiro que a chamada passa.
+  const { l, vistas } = leitura([[termos()], [cotacao()]]);
+  const r = await resolverLinha(l, CONTACTO, { sku: "arroz-5kg", qty: 2 }, AGORA);
+  assert.equal(r.tipo, "ok");
+  assert.equal(vistas.length, 2);
+  assert.deepEqual(vistas[1]?.valores, [
+    CONTACTO,
+    "arroz-5kg",
+    2,
+    AGORA.toISOString(),
+  ]);
+});
+
+test("KAM-179: um contactId vazio não chega à base", async () => {
+  // A mesma propriedade do `sku` vazio, e pela mesma razão: recusa-se antes de
+  // falar com a base, e um `contact_id` vazio na consulta era um `WHERE` que
+  // não casava com nada por acaso em vez de por desenho.
+  const { l, vistas } = leitura([]);
+  for (const mau of ["", "   "]) {
+    assert.deepEqual(
+      await resolverLinha(l, mau, { sku: "arroz-5kg", qty: 2 }, AGORA),
+      { tipo: "erro", erro: "VALIDATION_ERROR" },
+      JSON.stringify(mau),
+    );
+  }
+  assert.equal(vistas.length, 0, "nenhuma consulta devia ter saído");
 });
 
 test("um sku vazio e um qty que não é inteiro positivo não chegam à base", async () => {
@@ -267,7 +303,7 @@ test("um sku vazio e um qty que não é inteiro positivo não chegam à base", a
     { sku: "x", qty: -2 },
     { sku: "x", qty: 1.5 },
   ]) {
-    assert.deepEqual(await resolverLinha(l, mau, AGORA), {
+    assert.deepEqual(await resolverLinha(l, CONTACTO, mau, AGORA), {
       tipo: "erro",
       erro: "VALIDATION_ERROR",
     });

@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Core de Comércio |
-| Versão | 1.10 |
+| Versão | 1.11 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/03_Core_Comercio_Medusa.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -18,7 +18,7 @@ O **Core de Comércio (COM)** é o registo de produtos, encomendas, stock e rese
 
 O epic abre com um **spike de 5 dias** (KAM-041) com critérios de aceitação numéricos e uma matriz de 60 testes de isolamento entre vendedores, porque o Medusa v2 não é multi-tenant nativo (NÃO VERIFICADO) e o Mercur teve falhas de autorização entre vendedores corrigidas a 2026-10-08 (CONFIRMADO, E4). O Mercur fica fora do Piloto. O resto do epic constrói sobre a decisão D3: porta e adaptador (KAM-042), preço opaco e stock não-garantido (KAM-043), encomendas (KAM-044), reservas com expiração (KAM-045), criação idempotente de pedido (KAM-046), módulo `servicos` (KAM-047), lembretes (KAM-048), Catálogo AI (KAM-049), estados adicionais (KAM-050) e o contrato de leitura para o índice (KAM-051). Nunca há fundos de terceiros no COM (ADR-004): reembolsos são manuais.
 
-Concretiza ADR-003, ADR-004, ADR-006, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-014. São **13 tickets**: 9 na **Fase 0** (KAM-041 a KAM-047, esqueleto andante, e o KAM-176, acrescentado depois) e 4 na **Fase 1** (KAM-048 a KAM-051). Piloto = só Fluxo A: `origem = 'plataforma'`, PME light e encomendas multi-vendedor ficam no DDL mas não entram em produção (ADR-011). A documentação oficial do Medusa v2 não foi acessível na pesquisa de 8 de Outubro de 2026 (E4 §6): o que é dito sobre capacidades do Medusa é hipótese a validar no spike, não facto.
+Concretiza ADR-003, ADR-004, ADR-006, ADR-007, ADR-009, ADR-010, ADR-012, ADR-013 e ADR-014. São **14 tickets**: 10 na **Fase 0** (KAM-041 a KAM-047, esqueleto andante, e o KAM-176, o KAM-178 e o KAM-179, acrescentados depois) e 4 na **Fase 1** (KAM-048 a KAM-051). Piloto = só Fluxo A: `origem = 'plataforma'`, PME light e encomendas multi-vendedor ficam no DDL mas não entram em produção (ADR-011). A documentação oficial do Medusa v2 não foi acessível na pesquisa de 8 de Outubro de 2026 (E4 §6): o que é dito sobre capacidades do Medusa é hipótese a validar no spike, não facto.
 
 ---
 
@@ -53,6 +53,7 @@ Concretiza ADR-003, ADR-004, ADR-006, ADR-007, ADR-009, ADR-010, ADR-012, ADR-01
 | KAM-051 | Contrato `v_oferta_viva` e leitura para o índice | feature | S | P0 | KAM-043 |
 | KAM-176 | Um `UPDATE` sem linhas no `order_state_log` não é recusado: o *trigger* por instrução cobre o `DELETE` e não o `UPDATE` | fix | S | P1 | KAM-044 |
 | KAM-178 | API interna do COM, ligação dos doze métodos da porta e os executores das tools de comércio | feature | L | P0 | KAM-042, KAM-046, KAM-031 |
+| KAM-179 | A cotação do dono não tem predicado de contacto: X recebe o preço negociado para Y dentro do mesmo tenant | fix | S | P0 | KAM-043 |
 
 ---
 
@@ -376,7 +377,7 @@ Testes: contrato da porta, ISO, arquitectura, integração. PR com o template §
 | Prioridade | P0 |
 | Estimativa | M |
 | Dependências | KAM-042 |
-| Bloqueia | KAM-049, KAM-051, KAM-061, KAM-099, KAM-119, KAM-123 |
+| Bloqueia | KAM-049, KAM-051, KAM-061, KAM-099, KAM-119, KAM-123, KAM-179 |
 | Responsável sugerido | Engenheiro de Comércio |
 | Documentos de referência | `../docs/tecnica/03_Core_Comercio_Medusa.md` (§5.4, §7, §12), `../docs/tecnica/02_Agent_Runtime_Verticais.md` (§6.2), ADR-007, hipótese H2, `../docs/tecnica/evidencia/E3_Regulatorio_Dados.md` (§4) |
 
@@ -2102,6 +2103,134 @@ duplo toque pelo grafo. PR com o template §7. Commits: feat(KAM-178): ...
 
 ---
 
+## KAM-179 — A cotação do dono não tem predicado de contacto: X recebe o preço negociado para Y dentro do mesmo tenant
+
+| Campo | Valor |
+|---|---|
+| Epic | EPIC-04 — Core de Comércio |
+| Fase | 0 |
+| Tipo | fix |
+| Prioridade | P0 |
+| Estimativa | S |
+| Dependências | KAM-043 |
+| Bloqueia | — |
+| Responsável sugerido | Engenheiro de Comércio |
+| Documentos de referência | `../docs/tecnica/03_Core_Comercio_Medusa.md` (§5.4, §7.2), `../specs/02_Dicionario_de_Dados_Canonico.md` (§3.40), `../db/migrations/versions/0028_offer_terms_e_price_quotes.py`, `EPIC-07_Seguranca_Conformidade.md` (bloco KAM-066, critério 6), `../docs/seguranca/riscos_residuais.md` (RR-01), ADR-010, ADR-015 |
+
+### Contexto
+
+**O `SQL_COTACAO_VALIDA` filtra o tenant e não filtra o contacto.** Em
+`../services/com/src/produtos/consultas.ts`, a consulta que o critério 6 do
+KAM-043 entregou filtra `tenant_id`, `sku`, `qty`, `estado = 'emitida'` e
+`valida_ate` — e a `platform.price_quotes` tem `contact_id uuid NOT NULL` com FK
+composta `(tenant_id, contact_id) REFERENCES platform.contacts` desde a revisão
+`0028`. Dentro do **mesmo tenant**, o contacto X que peça o mesmo `(sku, qty)`
+recebe a cotação emitida para Y, com o preço que o dono negociou com Y dentro
+dela.
+
+**A RLS não apanha isto, e é o ponto.** Os dois contactos são do mesmo tenant,
+pelo que a política `tenant_iso` deixa passar os dois e as quatro bandeiras do
+critério 7 do KAM-043 continuam verdes enquanto a fuga acontece. É o **RR-01**
+de `../docs/seguranca/riscos_residuais.md` outra vez — «a RLS protege de um
+`WHERE` esquecido, não de código que escolha o tenant errado» —, aqui com o
+contacto no lugar do tenant.
+
+**São dois leitores, e o segundo é o que cobra.** O `getValidQuote` é a leitura
+que o critério 6 nomeia; o `resolverLinha` de
+`../services/com/src/orders/cart.ts`, chamado pelo `proposeCart` do KAM-046, lê a
+mesma consulta e é o caminho que põe o preço na encomenda. O comentário ao lado
+dele diz, por escrito, que a cotação **ganha** ao `offer_terms` quando existe —
+logo o total negociado para Y entrava na linha de X com
+`origem_preco='cotacao_dono'` a dizer que o dono o prometeu. O `contactId` estava
+à mão nesse caminho desde sempre (`RascunhoDoCarrinho.contactId`); o que faltava
+era descê-lo.
+
+**E escala de leitura para escrita.** O `SQL_ACEITAR_COTACAO` filtra `tenant_id` e
+`id`, e o `getValidQuote` **devolve o `id`**: X lia a cotação de Y, ficava com o
+`id` dela e punha-a a `aceite`. Não é só fuga de leitura dentro do tenant; é
+transição de estado cruzada. Corrigir só a leitura deixava a escrita a depender de
+o `id` nunca chegar a X por outra via, e uma barreira que depende disso não é uma
+barreira.
+
+**Quatro fontes, duas leituras, e a divergência foi decidida pelo fundador.** O
+§7.2 do `../docs/tecnica/03` descreve a cotação como «um preço total para
+`(sku, qty)`» e **não** diz que é por cliente; o DDL do §5.4 escreve o
+`contact_id` sem comentário; o §3.40 do dicionário fixava a assinatura **sem**
+contacto; e o critério 6 do KAM-066 (`EPIC-07_Seguranca_Conformidade.md`) exige
+que X não leia as `price_quotes` de Y. **Decisão do fundador de 2026-11-04: a
+cotação é por contacto.** A razão que a sustenta está na própria tabela — o
+`emitida_por` já é a coluna de quem a emitiu, pelo que o `contact_id` ao lado dele
+é o cliente **para quem** o preço foi dado, e a razão de existir a cotação,
+escrita em três sítios deste repositório, é o desconto de quantidade e a
+negociação. Uma negociação é com alguém.
+
+**Quem encontrou isto foi o KAM-066**, ao escrever o caso `C-01/consultas` da sua
+bateria de isolamento de contacto: das três leituras do critério 6 daquele ticket,
+duas cumpriam e a das cotações não. O KAM-066 **não** o corrige de propósito —
+muda comportamento do COM e não do *harness* —, e fixou a ausência num dicionário
+`SEM_PREDICADO_DE_CONTACTO` escrito para ficar **vermelho** no dia em que o
+predicado aparecesse. **O `Bloqueia` deste bloco fica `—` de propósito**, pela
+razão que o KAM-178 escreveu dois blocos acima: declarar a aresta para o KAM-066
+é escrever nas dependências dele, nas três superfícies, e a ordem do backlog é de
+quem o governa. A dependência está descrita aqui para quem a declarar o fazer com
+conhecimento.
+
+### Objectivo
+
+Pôr o predicado de contacto nas duas leituras e no `UPDATE` da
+`platform.price_quotes`, para que uma cotação só seja lida e aceite pelo contacto
+a quem foi dada, e emendar o §3.40 do dicionário com a assinatura que a decisão
+do fundador fixa.
+
+### Critérios de Aceitação
+
+- [ ] O `SQL_COTACAO_VALIDA` filtra `contact_id`, e o `getValidQuote` recebe o contacto como argumento: dois contactos **do mesmo tenant**, uma cotação `emitida`, não vencida, do mesmo `(sku, qty)` e emitida para Y — a leitura como X devolve **0 linhas** e a leitura como Y devolve **1**, medidas contra um PostgreSQL real com o papel `kamba_app` (`NOBYPASSRLS`).
+- [ ] O `resolverLinha` do `orders/cart.ts` passa o `contactId` do rascunho à leitura da cotação, e o `proposeCart` passa-lhe o `RascunhoDoCarrinho.contactId`: o contacto chega à consulta como argumento, medido, e não se perde a caminho.
+- [ ] O `SQL_ACEITAR_COTACAO` filtra `contact_id`: com o `id` da cotação de Y na mão, a aceitação como X não altera linha nenhuma e a linha de Y **continua `emitida`** depois da tentativa; como Y, a mesma instrução aceita-a. As duas direcções medidas contra a base.
+- [ ] Um `contactId` vazio ou só com espaços é `VALIDATION_ERROR` nas três operações e **não chega à base**: «não há cotação para este cliente» e «o chamador não disse de que cliente se trata» são respostas diferentes, e devolver `null` à segunda escondia o defeito de quem chama.
+- [ ] O §3.40 do dicionário leva a assinatura nova, com a de quatro argumentos na coluna «Substitui», e o `canon/dicionario.yaml` regenerado por `make dict-export`.
+- [ ] A base de ensaio dos testes de unidade **honra** o predicado em vez de devolver a linha a quem a peça: uma base que a devolvesse ficava verde com o predicado e continuava verde se alguém o apagasse.
+
+### Detalhes Técnicos
+
+- **Componentes:** `services/com` (`produtos/consultas.ts`, `produtos/produtos.ts`, `orders/cart.ts`), `db/tests_produtos`, `specs/02_Dicionario_de_Dados_Canonico.md`, `canon/dicionario.yaml`.
+- **A assinatura, e porque é que o contacto não vai no `ctx`:** o `Ctx` da porta leva `tenantId`, `actor` e `traceId`, e o contacto chega **por chamada** — é o que o `OrderIntent.contactId`, o `OrderFilter.contactId` e o `PedidoDeCotacao.contactId` já fazem. Pôr o contacto no `ctx` mudava a forma do contexto de doze métodos para resolver um.
+- **Nenhuma revisão de base de dados.** O esquema já tem a coluna e a FK composta: o que faltava era o predicado na consulta. O `price_quotes_vivas_idx` da `0028` é `(tenant_id, sku, valida_ate DESC) WHERE estado = 'emitida'`, e o `contact_id` entra como **filtro** sobre o prefixo `(tenant_id, sku)` em vez de entrar na chave — acrescentá-lo pedia uma revisão nova sobre uma migração já fundida, e o número de cotações vivas por `(tenant, sku)` no Piloto não o justifica. O custo disto é **NÃO VERIFICADO**: calibra-se no Piloto, e o sítio onde se mede é o `price_quotes_vivas_idx`.
+- **O que este ticket não toca:** o `emitirCotacao` já leva o `contactId` no `PedidoDeCotacao` e já escreve a coluna, e a FK composta já recusa o contacto de outro tenant (ISO-58). O `emitida_por` continua a ser o `actor.id` do `ctx` e não um argumento.
+- **A fixação do KAM-066 sai no PR dele, e não neste.** O `tools/isolamento/baterias/c01_contacto.py` não existe em `main`: vive no ramo do KAM-066. Retirar `"cotacoes"` do `SEM_PREDICADO_DE_CONTACTO` — o que põe o caso `C-01/consultas` a afirmar a propriedade em vez de fixar a ausência dela — e marcar a caixa do critério 6 daquele bloco são **do KAM-066**, avisado por escrito.
+
+### Testes Requeridos
+
+- Contra um PostgreSQL real (`db/tests_produtos`, *gate* 6): X não lê a cotação de Y no mesmo tenant, com sonda positiva ao lado na mesma ligação e com o mesmo papel; X não põe a cotação de Y a `aceite`, com o estado relido depois da tentativa e a sonda positiva ao lado.
+- Nos testes de unidade do COM: o contacto chega à consulta como argumento, na posição certa; um `contactId` vazio não chega à base; a cotação de outro contacto não resolve a linha do carrinho.
+- As consultas novas entram no `EXERCITADAS` de `db/tests_produtos/consultas.py` com os argumentos plausíveis actualizados — a lista é verificada nos dois sentidos, pelo que uma consulta com aridade nova e sem argumento novo fica vermelha.
+
+### Definition of Done
+
+- [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
+- [ ] Isolamento de contacto medido contra a base com o papel da aplicação, nas duas direcções (a recusa **e** o caminho legítimo).
+- [ ] Nenhum nome novo: a assinatura emendada está no §3.40 e o `canon/dicionario.yaml` regenerado.
+- [ ] Os portões do eixo verdes, com o comando e o resultado registados.
+- [ ] Revisão adversarial independente, com os achados verificados um a um.
+
+### Handoff para Claude Code
+
+```text
+És o executor do ticket KAM-179 da KAMBÁ. Lê specs/EPIC-04_Core_Comercio.md (bloco KAM-179),
+specs/02_Dicionario_de_Dados_Canonico.md §3.40, docs/tecnica/03_Core_Comercio_Medusa.md §7.2 e
+db/migrations/versions/0028_offer_terms_e_price_quotes.py.
+Objectivo: o predicado de contacto nas duas leituras da price_quotes e no UPDATE que a aceita.
+- services/com/src/produtos/consultas.ts: contact_id no SQL_COTACAO_VALIDA e no SQL_ACEITAR_COTACAO.
+- services/com/src/produtos/produtos.ts: getValidQuote e aceitarCotacao recebem o contactId.
+- services/com/src/orders/cart.ts: resolverLinha recebe-o e o proposeCart passa-lhe o do rascunho.
+- A cotação é por contacto por decisão do fundador de 2026-11-04. Emenda o §3.40 e corre make dict-export.
+- Sem revisão de base de dados: a coluna e a FK composta já existem na 0028.
+Testes: db/tests_produtos contra PostgreSQL real (X não lê nem aceita a de Y, com sonda positiva ao
+lado) + os de unidade do COM, com a base de ensaio a honrar o predicado. PR com o template (§7).
+```
+
+---
+
 ## Riscos do Epic e itens NÃO VERIFICADOS
 
 | # | Risco / item | Estado | Ligação | Tratamento no epic |
@@ -2148,3 +2277,4 @@ duplo toque pelo grafo. PR com o template §7. Commits: feat(KAM-178): ...
 | 1.8 | Novembro 2026 | **KAM-176 entregue.** Secção «Verificação dos Critérios de Aceitação» no bloco, com os **oito** critérios e as **doze** caixas do DoD, cada um com ensaio nomeado e saída de execução. **Vinte caixas marcadas e nenhuma devolvida.** Numa delas — a do critério 5 — o que se cumpre é a **letra** («revisão nova e não edição da `0030`»), e a **razão** que o critério dá para ela fica registada como falsa e devolvida a quem a escreveu. Não é uma caixa devolvida: é uma caixa cumprida à letra com a justificação do critério refutada por medição, e a distinção está escrita porque a primeira versão desta linha dizia «marcada com a razão do critério devolvida», que no vocabulário desta casa é uma contradição (achado 12 da revisão adversarial). O `order_state_log_sem_truncate` passa a `BEFORE TRUNCATE OR DELETE OR UPDATE … FOR EACH STATEMENT` na revisão nova [`0031`](../db/migrations/versions/0031_registo_sem_mutacao_sem_linhas.py), sem *trigger* novo e sem função nova: o `DELETE` sem linhas já estava fechado e o `UPDATE` não, porque o argumento que o KAM-044 escreveu imediatamente acima do `CREATE TRIGGER` — «um `BEFORE DELETE … FOR EACH ROW` não dispara quando não há linhas» — vale letra por letra para o `UPDATE` e ele seguiu-o até metade. Não é gralha: é uma dedução deixada a meio. A suite passou de **90** para **97** ensaios, `OK`; o *gate* 6 ficou em 79 e a suite `tests` em **657**, as duas `OK`. **O critério 5 cumpre-se à letra e a razão dele fica devolvida a quem a escreveu:** ele decide «revisão nova» por «a `0030` fundiu na `main`, logo qualquer clone que tenha corrido `alembic upgrade head` a tem», e a premissa é falsa nas duas pontas — a `0029` também fundiu (`94bd634`, #104) e o KAM-175 editou-a no sítio, e **nenhuma** base pode ter corrido aquele comando, porque o `../db/migrations/README.md` diz que não há forma de aplicar migrações ao PostgreSQL do compose (rede interna, serviço `db` sem `ports:`). A conclusão mantém-se, e por uma razão melhor, escrita na própria revisão: «ninguém pode ter aplicado a `0030`» é propriedade da infraestrutura **de hoje**, e hoje é o dia em que o KAM-076 fundiu o compose de produção — uma revisão editada no sítio só é segura enquanto ninguém a aplicou, e uma revisão nova é correcta com a premissa e sem ela. **O canário corre nos dois sentidos** e o segundo sentido entrou pela lição do achado 3 da revisão adversarial do KAM-175, onde a célula que afirmava a redundância do *trigger* por linha citava justamente o ensaio da proposição inversa. **Duas alterações fora dos critérios, as duas declaradas:** uma cláusula de comentário no `../db/tests_isolamento/sementes.py` (dizia «incluindo um `DELETE` que não casa linha nenhuma», e a assimetria fazia inferir que o `UPDATE` sem linhas não estava coberto — a ressalva tácita que este ticket existe para fechar), e o alargamento do ensaio de modo `replica` às quatro instruções, porque ele media o `ENABLE ALWAYS` só para o `DELETE`. **E esse alargamento trouxe um defeito que vale guardar:** o `SET session_replication_role = replica` estava uma vez antes do ciclo e o auxiliar `tentar` faz `rollback` em cada recusa — um `SET` cru **é desfeito por um `ROLLBACK`**, pelo que da segunda iteração em diante a sessão estava em `origin` e as três instruções restantes mediam o modo errado, verde sobre a barreira que o `replica` existe para contornar. Não mordia com uma instrução só. Corrigido com o `SET` dentro do ciclo e um `SHOW` a confirmá-lo antes de cada tentativa. **Meia dívida 176 riscada** — a do `order_state_log` —, com as três tabelas irmãs intactas aos seus credores (KAM-012, KAM-028, KAM-030); a **175 continua riscada** pelo PR do KAM-175 e a **178** continua aberta, com credor KAM-053. | Equipa KAMBÁ |
 | 1.9 | Novembro 2026 | **KAM-176, revisão adversarial: quinze achados, catorze `CONFIRMADO`, três `must fix`.** Nenhum sobre o DDL — a `0031` passou intacta e o eixo «caminhos legítimos que a barreira passa a morder» ficou `MORTO` por varrimento do revisor. O que a revisão mostrou foi o **aparelho de prova**, e o pior era real: **um dos quatro ensaios que a secção de verificação, o corpo do PR e a dívida 176 citavam como prova da barreira nova sobrevivia à mutação.** O ensaio do `ON CONFLICT DO UPDATE` inseria `version = 2`, que é exactamente a linha que o `setUp` deixa — havia **sempre** conflito, o ramo de `UPDATE` era tomado e o *trigger* por linha já bastava para recusar; corrigido com uma `version` livre, e passou a morrer com a mutação. **E o `downgrade` da `0031` nunca era observado:** todos os `downgrade` desta casa descem a `0029`, e nessa descida a `0030` larga a tabela no passo seguinte, pelo que uma `0031` que não desfizesse nada passava a suite inteira — entrou um ensaio que desce à **`0030`** e lê o `pg_get_triggerdef`, mais um que mede o que acontece a meio de um `downgrade` de duas revisões (com `transaction_per_migration=True` a `0031` desce e confirma antes de a `0030` recusar, pelo que a base fica na `0030`; não é inconsistência, mas a leitura «o comando falhou, logo nada mudou» é falsa). A suite passa de 95 para **97**, e a suite `tests` foi corrida — **657, `OK`** —, porque a caixa da cabeça única e a do ciclo sem resíduos estavam marcadas com suites que não contêm nenhum dos dois ensaios. **Três afirmações desta secção não valiam o que diziam**, e as três eram fontes citadas: o `test_inventario.py` prende **restrições** e não os nomes dos *triggers*; o `levar_a` escreve por **administrador** e não pelo `kamba_app` (a prova do critério 3 passou para os dois ensaios que escrevem por `ligar_app`); e «apanhada por cinco ensaios» eram quatro — agora medido, **seis ensaios e sete entradas**, porque um contribui com dois `subTest`. **A caixa da própria revisão adversarial estava marcada antes de a revisão existir**, em lote com as outras dezanove, que é o defeito que o SKILL nomeia por extenso. **E o argumento da «janela a fechar-se» não estava medido:** o compose de produção do KAM-076 também não tem `ports:` nem `alembic`, pelo que reproduz a propriedade que ele usava para provar o contrário — passou a previsão declarada `NÃO VERIFICADO`, e a razão suficiente ficou a simples, «uma revisão nova é correcta com a premissa e sem ela». Mais a célula do critério 6 do **KAM-044**, mil linhas acima neste mesmo ficheiro, que continuava a dizer em presente que o `FOR EACH STATEMENT` não cobre o `UPDATE` — a dívida 178 reproduzida um epic ao lado, riscada aqui com o credor; o `estritamente redundante` qualificado, porque num `UPDATE` aplicado por **replicação lógica** o *trigger* por linha é o único a disparar (`PLAUSÍVEL`, `NÃO VERIFICADO` por execução, e é a justificação de o manter); a função presa no ensaio do catálogo, que prendia os verbos e o nível e não ela; a coluna «Onde» da dívida 176 riscada na metade paga; e o verbo da `0023` alinhado nos dois sítios — são **os dois**, porque ali as duas metades estão abertas. | Equipa KAMBÁ |
 | 1.10 | Novembro 2026 | **KAM-178** acrescentado, e **não entregue no mesmo PR** — a mesma forma do KAM-176. **O número leu-se da base e mudou, e isso estava previsto em vez de ser descoberto:** esta linha abriu como 1.7, passou a 1.8 quando o KAM-046 fundiu, e está em **1.10** porque o KAM-176 fundiu depois com a 1.8 e a 1.9. Deixar-lhe os dois números de antemão **não era alcançável**: o `lint_backlog` recusa um buraco na sequência, pelo que um ramo verde não pode reservar números para outro — só re-integrar depois de o mais baixo fundir. Três renumerações no mesmo ramo é a medição de que o número se lê da base e nunca do ficheiro. O que se entrega: o que se entrega é o ticket. Fecha a lacuna que o KAM-046 nomeou ao entregar: o **credor que liga o backend** não existia em ticket nenhum, apesar de o KAM-042 (API interna do COM), o KAM-044 (ligação do `transition` à porta) e o KAM-031 (executores das cinco tools) o terem deferido por escrito, cada um com outras palavras e nenhum com um `KAM-NNN`. Sem ele, três caixas do KAM-046 ficam sem quem as feche. **A decisão da porta foi tomada a 2026-11-04**, e corrige uma premissa da primeira versão deste bloco: alargar os erros **não** é alterar o dicionário — o `ERROS` de `../services/com/src/port/contrato.ts` é que fecha os cinco, e o §3.39 declara **um** nome e manda importar os outros do §3.27 pelo nome, pelo que alargá-los aos nove **cumpre** a regra. São dois movimentos (os nove códigos, e um terceiro caso no `Resultado<T>` só para o conflito de CAS), o credor é o **KAM-042** e abre em ticket próprio; o critério 1 deste bloco passa a **consumir** a porta alargada. **A tabela do §3 e a contagem do §2 acompanham** (12 → **13** tickets, 8 → 9 na Fase 0), e o `Bloqueia` do KAM-042 e do KAM-046 ganha a aresta recíproca que a dependência obriga. | Equipa KAMBÁ |
+| 1.11 | Novembro 2026 | **KAM-179 acrescentado e entregue no mesmo PR.** A cotação do dono não tinha predicado de contacto: dentro do mesmo tenant, o contacto X que pedisse o mesmo `(sku, qty)` recebia a cotação emitida para Y, com o preço negociado com Y dentro dela. **Achado do KAM-066**, ao escrever o caso `C-01/consultas` da bateria de isolamento de contacto; **credor o KAM-043**, que escreveu a consulta, e o `Bloqueia` dele ganha a aresta recíproca. **A RLS não apanhava nada disto**, e é o que torna o defeito interessante: os dois contactos são do mesmo tenant, pelo que a política `tenant_iso` deixa passar os dois e as quatro bandeiras do critério 7 do KAM-043 ficam verdes enquanto a fuga acontece — o **RR-01** com o contacto no lugar do tenant. **Eram dois leitores e não um, e o segundo é o que cobra:** o `resolverLinha` do `orders/cart.ts`, chamado pelo `proposeCart` do KAM-046, lê a mesma consulta e é o caminho que põe o preço na encomenda, com a cotação a **ganhar** ao `offer_terms` por desenho — o total de Y entrava na linha de X com `origem_preco='cotacao_dono'` a dizer que o dono o prometeu. O `contactId` estava à mão ali desde sempre (`RascunhoDoCarrinho.contactId`); faltava descê-lo. **E escalava de leitura para escrita:** o `SQL_ACEITAR_COTACAO` filtrava `tenant_id` e `id`, e a leitura devolve o `id` — X punha a cotação de Y a `aceite`. **A divergência entre quatro fontes foi decidida pelo fundador a 2026-11-04**: a cotação é por contacto, o que emenda o §3.40 do dicionário (emenda 1.59) em vez de o contradizer. **Sem revisão de base de dados:** a coluna e a FK composta são da `0028`, e o `price_quotes_vivas_idx` fica como está com o `contact_id` a filtrar sobre o prefixo `(tenant_id, sku)` — o custo disso é **NÃO VERIFICADO**, a calibrar no Piloto. **A tabela do §3 e a contagem do §1 acompanham** (13 → **14** tickets, 9 → **10** na Fase 0), e a parentética da Fase 0 passa a nomear os três acrescentados depois, porque já omitia o KAM-178. **A fixação do KAM-066 não sai neste PR:** o `tools/isolamento/baterias/c01_contacto.py` não existe em `main` — vive no ramo daquele ticket —, pelo que retirar `"cotacoes"` do `SEM_PREDICADO_DE_CONTACTO` e marcar a caixa do critério 6 são de lá, avisados por escrito. | Equipa KAMBÁ |

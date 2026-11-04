@@ -243,12 +243,23 @@ export const SQL_PESQUISAR = `
 `;
 
 /**
- * A cotação válida de um `(sku, qty)`, ou nada (critério 6).
+ * A cotação válida de um `(contacto, sku, qty)`, ou nada (critério 6).
+ *
+ * **O `contact_id = $2` é o KAM-179, e faltava.** A cotação é **por contacto**,
+ * por decisão do fundador de 2026-11-04: o `emitida_por` já é a coluna de quem a
+ * emitiu, pelo que o `contact_id` ao lado dele é o cliente **para quem** o preço
+ * foi dado, e não registo de quem o pediu. Sem este predicado, dentro do mesmo
+ * tenant o contacto X que pedisse o mesmo `(sku, qty)` recebia o total negociado
+ * para Y — e recebia-o no caminho que cobra, porque o `resolverLinha` do
+ * `orders/cart.ts` faz a cotação **ganhar** ao `offer_terms`. A RLS não o
+ * apanhava: os dois contactos são do mesmo tenant e a `tenant_iso` deixa passar
+ * os dois. É o RR-01 outra vez — «a RLS protege de um `WHERE` esquecido, não de
+ * código que escolha o contacto errado».
  *
  * **A expiração é por `valida_ate` e não pelo `estado`**: uma cotação vencida
  * não espera por varrimento para deixar de valer, e um estado só muda quando
  * alguém o muda. Por isso o predicado compara o instante — e compara-o com um
- * argumento (`$4`) e não com `now()`, para que o teste do critério 6 possa pôr a
+ * argumento (`$5`) e não com `now()`, para que o teste do critério 6 possa pôr a
  * fronteira numa igualdade exacta em vez de dormir.
  *
  * `qty` exacto e não `>=`: uma cotação é para uma quantidade, porque o
@@ -256,15 +267,23 @@ export const SQL_PESQUISAR = `
  * existir a cotação. Dez unidades cotadas não dizem nada sobre três.
  *
  * A mais recente primeiro: se o dono cotou duas vezes, vale a última.
+ *
+ * **O índice não muda, e é deliberado.** O `price_quotes_vivas_idx` da revisão
+ * `0028` é `(tenant_id, sku, valida_ate DESC) WHERE estado = 'emitida'`, e o
+ * `contact_id` entra como filtro sobre o prefixo `(tenant_id, sku)` em vez de
+ * entrar na chave: acrescentá-lo pedia uma revisão nova sobre uma migração já
+ * fundida, e o número de cotações vivas por `(tenant, sku)` no Piloto não o
+ * justifica. O custo disto é **NÃO VERIFICADO** — ver o KAM-179.
  */
 export const SQL_COTACAO_VALIDA = `
   SELECT id, sku, qty, preco_total_minor, currency, valida_ate, estado
     FROM platform.price_quotes
    WHERE tenant_id = $1
-     AND sku = $2
-     AND qty = $3
+     AND contact_id = $2
+     AND sku = $3
+     AND qty = $4
      AND estado = 'emitida'
-     AND valida_ate > $4
+     AND valida_ate > $5
    ORDER BY criado_at DESC
    LIMIT 1
 `;
@@ -282,6 +301,14 @@ export const SQL_COTACAO_VALIDA = `
  * pela revisão adversarial, que usou contra a instrução o argumento que o
  * comentário ao lado dela já fazia.
  *
+ * **O `contact_id = $2` é o KAM-179, e aqui fecha uma escalada de leitura para
+ * escrita.** O `getValidQuote` devolve o `id` da cotação; sem este predicado, o
+ * contacto X que lesse a cotação de Y ficava com o `id` dela e punha-a a
+ * `aceite` — não é só fuga de leitura dentro do tenant, é transição de estado
+ * cruzada. Corrigir a leitura sozinha deixava a escrita a depender de o `id`
+ * nunca chegar a X por outra via (um registo, uma sessão anterior), e uma
+ * barreira que depende disso não é uma barreira.
+ *
  * O instante vai como argumento e não é `now()`, pela razão do
  * `SQL_COTACAO_VALIDA`: para que o teste possa pôr a fronteira numa igualdade
  * exacta em vez de dormir.
@@ -289,8 +316,9 @@ export const SQL_COTACAO_VALIDA = `
 export const SQL_ACEITAR_COTACAO = `
   UPDATE platform.price_quotes
      SET estado = 'aceite'
-   WHERE tenant_id = $1 AND id = $2 AND estado = 'emitida'
-     AND valida_ate > $3
+   WHERE tenant_id = $1 AND contact_id = $2 AND id = $3
+     AND estado = 'emitida'
+     AND valida_ate > $4
   RETURNING id, estado
 `;
 
