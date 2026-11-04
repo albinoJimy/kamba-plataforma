@@ -5,7 +5,7 @@
 | Ticket | KAM-113 |
 | Runbook | [`../resposta_incidentes.md`](../resposta_incidentes.md) §9 e §7.2 |
 | Prazo interno | PRZ-3 do runbook §2 — *boa prática; obrigação a confirmar por parecer*. A cláusula correspondente a prever no DPA é o KAM-090 |
-| Estado | **Modelo. Não enviar sem revisão do advogado** *(a confirmar por parecer)* |
+| Estado | **Modelo. Não enviar sem revisão do advogado, salvo a excepção do fundador do §9.4 do runbook** *(a confirmar por parecer)* |
 
 > **Canal.** Por **e-mail** ou pela **notificação do painel**, a partir do contacto verificado
 > do dono (KAM-115). **Nunca pelo WhatsApp se o incidente envolver o canal** — o canal que
@@ -64,7 +64,7 @@ hora ou data].
 
 | Antes de enviar | Feito |
 |---|---|
-| Revisto pelo advogado (ADV) | ☐ |
+| Revisto pelo advogado (ADV), ou registada a excepção do fundador (runbook §9.4) | ☐ |
 | Aprovado pelo Responsável de Segurança (SEG) | ☐ |
 | Enviado por canal que **não** é o WhatsApp da loja | ☐ |
 | Nenhum `[A PREENCHER` por substituir | ☐ |

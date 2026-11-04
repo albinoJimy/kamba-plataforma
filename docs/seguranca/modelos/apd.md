@@ -5,7 +5,7 @@
 | Ticket | KAM-113 |
 | Runbook | [`../resposta_incidentes.md`](../resposta_incidentes.md) §9 |
 | Prazo interno | PRZ-4 do runbook §2 — *boa prática; obrigação a confirmar por parecer* |
-| Estado | **Modelo. Não enviar sem revisão do advogado** *(a confirmar por parecer)*. A APD pode ter formulário próprio (NÃO VERIFICADO): este modelo é o **conteúdo** a levar, não o formulário |
+| Estado | **Modelo. Não enviar sem revisão do advogado, salvo a excepção do fundador do §9.4 do runbook** *(a confirmar por parecer)*. A APD pode ter formulário próprio (NÃO VERIFICADO): este modelo é o **conteúdo** a levar, não o formulário |
 
 > **Antes de preencher.**
 > 1. **Quem notifica é a decisão D9** e está aberta: este modelo está escrito **do ponto de vista
@@ -81,7 +81,7 @@ declaradas é melhor do que uma tardia por esperar pela certeza.]
 
 | Antes de enviar | Feito |
 |---|---|
-| Revisto pelo advogado (ADV) | ☐ |
+| Revisto pelo advogado (ADV), ou registada a excepção do fundador (runbook §9.4) | ☐ |
 | Aprovado pelo Responsável de Segurança (SEG) | ☐ |
 | Nenhum `[A PREENCHER` por substituir | ☐ |
 | Nenhum dado pessoal, conteúdo de mensagem ou segredo | ☐ |

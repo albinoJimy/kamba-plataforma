@@ -5,7 +5,7 @@
 | Ticket | KAM-113 |
 | Runbook | [`../resposta_incidentes.md`](../resposta_incidentes.md) §9.2 |
 | Prazo interno | PRZ-5 do runbook §2 — *boa prática; obrigação a confirmar por parecer* |
-| Estado | **Modelo. Não enviar sem revisão do advogado** *(a confirmar por parecer)* |
+| Estado | **Modelo. Não enviar sem revisão do advogado, salvo a excepção do fundador do §9.4 do runbook** *(a confirmar por parecer)* |
 
 > **O canal para avisar o titular é decisão aberta, ligada a D9, e este modelo não a toma.**
 > Tem **dois blocos de abertura** — escolhe-se um — e o corpo é comum. Quem escolhe, e quando,
@@ -61,7 +61,7 @@ parecer — direitos do titular, KAM-070)*.
 | Antes de enviar | Feito |
 |---|---|
 | Escolhida **uma** abertura (A ou B) e apagada a outra | ☐ |
-| Revisto pelo advogado (ADV) | ☐ |
+| Revisto pelo advogado (ADV), ou registada a excepção do fundador (runbook §9.4) | ☐ |
 | Aprovado pelo Responsável de Segurança (SEG) e por PRIV | ☐ |
 | Nenhum `[A PREENCHER` por substituir | ☐ |
 | Nenhum nome, número, conteúdo de mensagem ou segredo | ☐ |

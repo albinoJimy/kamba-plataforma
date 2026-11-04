@@ -370,7 +370,7 @@ não se notifica; **a decisão de não notificar assina-a o SEG e fica no regist
 ## 9. Notificação
 
 **Nada sai sem ADV ter lido** o texto (critério do ticket: «revisto pelo advogado antes de
-qualquer uso externo»). O tempo corre: o rascunho prepara-se enquanto a avaliação decorre,
+qualquer uso externo»), **salvo a excepção do fundador do §9.4**. O tempo corre: o rascunho prepara-se enquanto a avaliação decorre,
 a partir dos [modelos](modelos/).
 
 ### 9.1 Quem notifica quem — assumindo, até haver parecer
@@ -403,9 +403,23 @@ mais do que precisa para se proteger.
 ### 9.4 Se o advogado não responder
 
 PRZ-3 a PRZ-5 correm quer o ADV responda quer não, e **hoje não há ADV contratado** (KAM-104,
-critério 5 por cumprir). **Este documento não decide quem autoriza o envio sem revisão do
-advogado**; é uma decisão do fundador, registada em §13. Até lá, o rascunho fica pronto e o
-SEG escala ao fundador no PRZ-3.
+critério 5 por cumprir).
+
+**Decisão do fundador (Novembro de 2026, dada em sessão; é do fundador e não de parecer):** quando
+não há ADV contratado, ou ele não responde a tempo, **o SEG autoriza o envio** sem revisão do
+advogado. As condições abaixo são a forma que este runbook dá à decisão, *proposta* e a confirmar
+pelo fundador:
+
+- o SEG regista na linha temporal (§4.2) que não houve revisão do ADV, e porquê;
+- o texto sai tal como o modelo, **sem afirmar obrigação legal nem coima**, e com a marca
+  «(a confirmar por parecer)» onde o modelo a tem;
+- o texto enviado e o registo vão ao repositório de provas, e a revisão do advogado faz-se
+  **depois**, assim que existir, e alimenta a revisão sem culpa (§10);
+- a excepção vale **enquanto não houver ADV**; contratado o advogado, a regra do §9 volta a valer.
+
+Isto **afasta** a frase do ticket «revisto pelo advogado antes de qualquer uso externo» para este
+caso, por decisão de quem a escreveu; o critério 8 fica `parcial` pela pergunta que falta no
+pacote, e não por isto.
 
 ---
 
@@ -453,7 +467,7 @@ O ticket manda entregar ao pacote cinco questões. O pacote
 | 3 | Prazo legal de notificação, e desde quando se conta (T0 do §2) | A-05 (`E3` 7); a parte «desde quando se conta» **não** está escrita na pergunta | Coberta em parte |
 | 4 | Coimas (Art. 51.º) | A-06 (`E3` 8) | Coberta |
 | 5 | **Canal para avisar os titulares** (§9.2) | — | **Sem pergunta.** Credor: o pacote do KAM-104; texto abaixo |
-| 6 | **Quem autoriza o envio quando o ADV não responde** (§9.4) | — | **Sem pergunta, e é decisão do fundador**, não de parecer |
+| 6 | **Quem autoriza o envio quando o ADV não responde** (§9.4) | — | **Sem pergunta: decidido pelo fundador** (o SEG autoriza), não é matéria de parecer |
 
 **Texto proposto para a pergunta em falta** (os oito campos de `Pacote_Parecer_Juridico.md` §0.6), a
 acrescentar por quem detém o pacote, *(a confirmar por parecer)*:
