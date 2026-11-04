@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Segurança e Conformidade |
-| Versão | 1.4 |
+| Versão | 1.5 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `00_Arquitectura_Solucao.md`, `../exploracao/11-arquitetura-detalhada-engenharia.md` §9 |
@@ -590,7 +590,7 @@ flowchart TD
 | P2 | Webhook secret exposto; falha de RLS sem exploração | Rotação e correcção em 24 h |
 | P3/P4 | Tentativa de injecção sem efeito; anomalia sem impacto | Ajuste de filtros e registo |
 
-Notas: o alvo de **72 h** à APD vem do projecto de revisão (INDÍCIO) e de boa prática; a Lei 22/11 pode não obrigar o responsável geral, mas a Circular 02 da APD e as multas «por não notificação» (Expansão 2026) apontam o contrário → assumir obrigação (`E3` Q7). Como subcontratada, a KAMBÁ notifica as PMEs **sem demora e em ≤ 24 h** (cláusula do DPA). Modelo de notificação, lista de contactos (APD, Meta, facilitador, advogado) e exercício anual no repositório de provas. Evidência preservada: *snapshots*, `audit_log` e logs imutáveis.
+Notas: o alvo de **72 h** à APD vem do projecto de revisão (INDÍCIO) e de boa prática; a Lei 22/11 pode não obrigar o responsável geral, mas a Circular 02 da APD e as multas «por não notificação» (Expansão 2026) apontam o contrário → assumir obrigação (`E3` Q7). Como subcontratada, a KAMBÁ notifica as PMEs **sem demora e em ≤ 24 h** (cláusula do DPA). Modelo de notificação, lista de contactos (APD, Meta, facilitador, advogado) e exercício anual no repositório de provas. Evidência preservada: *snapshots*, `audit_log` e logs imutáveis. O procedimento executável, a árvore de classificação, os modelos e os contactos estão em [`../seguranca/resposta_incidentes.md`](../seguranca/resposta_incidentes.md) (KAM-113; esboço, *a confirmar por parecer*).
 
 ---
 
@@ -743,3 +743,4 @@ Não fazem parte do cânone até aprovação.
 | 1.2 | Outubro 2026 | KAM-128: As **13** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | KAM-012: o esboço de DDL do §6 passa a `criado_at` e a `IDENTITY`, e ganha a nota dos quatro pontos em que a revisão `0006` entregue difere dele. | Equipa KAMBÁ |
 | 1.4 | Outubro 2026 | KAM-140: §8.1 — a assinatura de `consent_event` escrevia `contact`, `ts` e `channel`, que não são os nomes de nenhuma das cinco formas do conjunto; passa a remeter para `10` §7.2. §4.2 (PAY) — «só consumer de `payment.confirmed`» era a quinta afirmação de exclusividade, e o ticket só nomeava quatro. | Equipa KAMBÁ |
+| 1.5 | Novembro 2026 | KAM-113: §10 remete para o runbook de resposta a incidentes (`docs/seguranca/resposta_incidentes.md`), que passa a ser o conteúdo do RB-K10. Nenhum prazo nem exemplo do §10 muda. | Equipa KAMBÁ |

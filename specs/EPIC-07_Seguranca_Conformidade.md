@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.14 |
+| Versão | 1.15 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -1004,12 +1004,12 @@ O requisito 12 de `E3` exige um runbook de resposta a incidentes, com contactos 
 Produzir o runbook de resposta a incidentes e os modelos de notificação (APD, PMEs afectadas, titulares), com classificação de gravidade, contactos, prazos propostos e um exercício de simulação realizado e registado.
 
 ### Critérios de Aceitação
-- [ ] `docs/seguranca/resposta_incidentes.md` cobre detecção (alerta, PME, titular, fornecedor, Meta), triagem, contenção (revogar chaves, isolar tenant, suspender destino), avaliação, notificação, recuperação e revisão sem culpa, com um dono por papel (SEG, PRIV, ADV, OPS, AP).
+- [x] `docs/seguranca/resposta_incidentes.md` cobre detecção (alerta, PME, titular, fornecedor, Meta), triagem, contenção (revogar chaves, isolar tenant, suspender destino), avaliação, notificação, recuperação e revisão sem culpa, com um dono por papel (SEG, PRIV, ADV, OPS, AP).
 - [ ] Classificação P1 a P4 com árvore de decisão (dados pessoais afectados? n.º de titulares? tenants? exploração confirmada?) e os exemplos de `../docs/tecnica/08` §10 (P1: fuga cruzada entre tenants, chave de fornecedor comprometida, confirmação de pagamento forjada); 10 cenários fictícios classificados por 2 revisores com concordância ≥ 90% (*proposta*).
-- [ ] Prazos *proposta*, cada um marcado «boa prática; obrigação a confirmar por parecer»: triagem ≤ 1 h, avaliação ≤ 24 h, PMEs afectadas ≤ 24 h (cláusula a prever no DPA, KAM-090), APD e titulares ≤ 72 h; pedidos da APD tratados por T3 em ≤ 5 dias úteis (`../docs/tecnica/10` §11.1, valor sugerido).
+- [x] Prazos *proposta*, cada um marcado «boa prática; obrigação a confirmar por parecer»: triagem ≤ 1 h, avaliação ≤ 24 h, PMEs afectadas ≤ 24 h (cláusula a prever no DPA, KAM-090), APD e titulares ≤ 72 h; pedidos da APD tratados por T3 em ≤ 5 dias úteis (`../docs/tecnica/10` §11.1, valor sugerido).
 - [ ] 3 modelos em `docs/seguranca/modelos/` (APD, PME afectada, titular) com: o que aconteceu, categorias e n.º aproximado de titulares, consequências prováveis, medidas, ponto de contacto; sem dados pessoais de titulares nem conteúdo de mensagens; preenchíveis em ≤ 30 min no exercício (*proposta*).
 - [ ] Lista de contactos por papel (APD, Meta, facilitador, alojamento, advogado, equipa interna), cada entrada com dono e data de verificação ≤ 90 dias; sem números pessoais no repositório.
-- [ ] Preservação de evidência: *snapshots*, extracto do `audit_log` com a cadeia verificada (KAM-012) e logs; exportação em ≤ 24 h, dentro da retenção de logs de 30 dias (`../docs/tecnica/08` §7.1). A PME é avisada por canal alternativo (KAM-115, quando existir) e nunca pelo WhatsApp se o incidente envolver o canal.
+- [x] Preservação de evidência: *snapshots*, extracto do `audit_log` com a cadeia verificada (KAM-012) e logs; exportação em ≤ 24 h, dentro da retenção de logs de 30 dias (`../docs/tecnica/08` §7.1). A PME é avisada por canal alternativo (KAM-115, quando existir) e nunca pelo WhatsApp se o incidente envolver o canal.
 - [ ] Exercício de simulação (*tabletop* de 2 h, cenário P1 de fuga cruzada em `staging` com dados sintéticos) feito antes do primeiro tenant com dados reais, com linha temporal registada: triagem ≤ 1 h, rascunho às PMEs ≤ 24 h, rascunho à APD ≤ 72 h; cada falha vira ticket `fix`; repetição anual.
 - [ ] Questões entregues ao pacote de KAM-104: quem notifica (D9), âmbito da Circular 02, prazo legal, coimas, canal para avisar titulares; todo o texto jurídico do runbook e dos modelos leva a marca «(a confirmar por parecer)» e é revisto pelo advogado antes de qualquer uso externo.
 
@@ -1026,8 +1026,73 @@ Produzir o runbook de resposta a incidentes e os modelos de notificação (APD, 
 - [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
 - [ ] Runbook, modelos e acta do exercício no repositório de provas (requisito 25 de `E3`); aprovados pelo Responsável de Segurança.
 - [ ] Parecer jurídico pendente registado em KAM-104; nenhum prazo apresentado como obrigação legal sem confirmação.
-- [ ] Privacidade: sem dados pessoais nem segredos nos modelos, na acta ou nos anexos.
-- [ ] Documentação ligada aos alertas P1 de `../docs/tecnica/09` §9.2 (alerta sem runbook é removido).
+- [x] Privacidade: sem dados pessoais nem segredos nos modelos, na acta ou nos anexos.
+- [x] Documentação ligada aos alertas P1 de `../docs/tecnica/09` §9.2 (alerta sem runbook é removido).
+
+### Verificação dos Critérios de Aceitação
+
+**8 critérios; 3 marcados, 5 vazios. 5 caixas de DoD; 2 marcadas, 3 vazias.**
+(O pedido de execução falava em «três caixas» de DoD; o bloco tem **cinco**, e as cinco estão
+tratadas.) Medido no ramo `claude/resposta-a-incidentes-b6c374`, sobre a árvore de `publico/main`
+em `c75d523`. Nesta máquina não há `make`, `node` nem `pnpm`: os linters correram directamente
+(`python -m <lint> --root .. check`, da pasta `tools/`) e o diagrama Mermaid correu no contentor
+de `make mermaid`.
+
+**Nada neste ticket é código, e o que depende de pessoas ficou por fazer.** Cinco critérios
+dependem de actos humanos ou de um parecer — classificar os cenários com dois revisores, medir o
+preenchimento dos modelos, verificar contactos, correr o exercício, entregar uma pergunta ao
+pacote do KAM-104. Cada um fica com o **credor** escrito e o que havia de aproveitável feito.
+O exercício (critério 7) é o caso exemplar: o guião está pronto, a acta está em branco, e **não
+se marcou**.
+
+### Os critérios, um a um
+
+| # | Critério | Estado | Evidência |
+|---|---|---|---|
+| 1 | Runbook cobre detecção (5 origens), triagem, contenção, avaliação, notificação, recuperação e revisão sem culpa, com dono por papel | **cumprido** | [`resposta_incidentes.md`](../docs/seguranca/resposta_incidentes.md): detecção §4 (alerta, PME, titular, fornecedor, Meta; linhas 113–117), triagem §5, contenção §6 (revogar chaves, isolar tenant, suspender destino), avaliação §8, notificação §9, recuperação e revisão sem culpa §10; um dono por papel SEG, PRIV, ADV, OPS, AP no §3. **Ressalva:** o papel ADV está vago — não há advogado contratado (KAM-104, critério 5) — e três acções de contenção dependem do que ainda não existe (KAM-069, KAM-072, KAM-079), marcado em cada linha |
+| 2 | P1 a P4 com árvore e os exemplos de `08` §10; 10 cenários classificados por 2 revisores, concordância ≥ 90% | **parcial** | A árvore e os exemplos estão (`resposta_incidentes.md` §5 e §5.3: os 3 exemplos P1, os 2 P2 e os P3/P4 caem pelo caminho, não por intuição). **Medição:** dois agentes independentes classificaram os 10 cenários do Anexo A **às cegas**, sem a coluna da classe, só com o §5. **Coincidiram nos 10 entre si e com a chave (10/10).** O que a medição valeu mais do que o número: os dois apontaram ambiguidades reais — as perguntas 1 e 5 sobrepunham-se, a «falha para cima» não tinha âmbito, o insider, o P4 sem definição, o que conta como tenant afectado —, **corrigidas no §5**. A medição foi feita sobre a versão **anterior** à correcção e não se repetiu. **Não cumpre a letra:** os dois classificadores são agentes, não os revisores SEG e PRIV que os Testes Requeridos pedem, e o mesmo autor escreveu a árvore e a chave. **Credor: SEG e PRIV**, que preenchem a última tabela do Anexo A |
+| 3 | Cada prazo leva «boa prática; obrigação a confirmar por parecer» | **cumprido** | Sete prazos PRZ-1 a PRZ-7 em `resposta_incidentes.md` §2 (linhas 74–80), cada um com a marca na coluna da direita. PRZ-7, a exportação de evidência em ≤ 24 h, leva em vez dela «proposta de engenharia, não é prazo legal», porque decorre da retenção de 30 dias de `08` §7.1 e não de lei nenhuma. **Verificado por máquina e não por leitura:** uma varredura de todos os ficheiros novos por `≤ N h`, `N h` e `5 dias úteis` deu **0 linhas sem a marca** depois de corrigidas 9; no resto do texto os prazos citam-se pelo ID. O mesmo vale para o exercício (`exercicio_simulacao.md` §4 e §7). O prazo de T3 em 5 dias úteis é PRZ-6 |
+| 4 | 3 modelos (APD, PME, titular) com o conteúdo pedido, sem dados pessoais, preenchíveis em ≤ 30 min no exercício | **parcial** | Os três existem: [`apd.md`](../docs/seguranca/modelos/apd.md), [`pme_afectada.md`](../docs/seguranca/modelos/pme_afectada.md), [`titular.md`](../docs/seguranca/modelos/titular.md), cada um com o que aconteceu, categorias e n.º aproximado de titulares, consequências prováveis, medidas e ponto de contacto, e uma lista «Antes de enviar». Varredura por telefone angolano e e-mail: **0** nos três. O do titular prevê as duas opções de canal sem escolher. **Fica `parcial` por ≤ 30 min:** só se mede preenchendo, com pessoas, no exercício. **Credor: o exercício (critério 7), logo SEG** |
+| 5 | Lista de contactos por papel, cada entrada com dono e data de verificação ≤ 90 dias; sem números pessoais | **parcial** | [`contactos_incidentes.md`](../docs/seguranca/contactos_incidentes.md): 14 entradas por papel (APD, Meta, facilitador, alojamento, advogado, equipa interna), cada uma com dono, tipo de canal e onde está o valor; **0 números ou e-mails** (varredura). **Nenhuma data de verificação existe**: verificar é contactar de facto, e esta sessão não contacta ninguém. Duas entradas não são verificáveis hoje — alojamento (D1 aberta) e advogado (KAM-104) — e os suplentes estão vagos. **Credor: os donos de cada entrada (PRIV, OPS, AP, SEG)**, e o KAM-104 para o advogado |
+| 6 | Preservação de evidência: *snapshots*, extracto do `audit_log` com a cadeia verificada, logs, exportação ≤ 24 h dentro dos 30 dias, PME avisada por canal alternativo | **cumprido** | `resposta_incidentes.md` §7 (tabela de evidência e selo `sha256`), §7.1 (verificar a cadeia na base viva com `python db/auditoria.py verificar --tenant <uuid>` — a CLI e o argumento existem em `db/auditoria.py` —, exportar a cadeia **inteira** e não só a janela, porque sem ela não se refaz a verificação) e §7.2 (e-mail ou painel de KAM-115, nunca o WhatsApp se o canal está envolvido). PRZ-7 liga ao `08` §7.1. **Uma descoberta que o texto regista:** o módulo do KAM-115 só tem cinco gatilhos de falha de canal e «um gatilho fora da lista não envia nada» (`docs/avisos-ao-dono.md`), pelo que o aviso de incidente se envia à mão; um sexto gatilho seria alteração de contrato do KAM-115 e fica fora do âmbito. **Não existe script de recolha**, e o texto di-lo |
+| 7 | Exercício *tabletop* de 2 h, P1 de fuga cruzada em `staging`, com linha temporal registada | **vazio, `não satisfeito`** | **Não se correu: exige pessoas e 2 h.** Feito: [`exercicio_simulacao.md`](../docs/seguranca/exercicio_simulacao.md) com o cenário P1, 12 *injects* com hora simulada e o que cada um testa, o guião de 2 h, os quadros da linha temporal, das medidas (PRZ-1, PRZ-3, PRZ-4, PRZ-7, tempo dos modelos), das falhas → tickets `fix` e a acta-modelo — **todos em branco**, e o cabeçalho diz «NÃO REALIZADO». **Credor: o Responsável de Segurança**, que reúne a equipa antes do primeiro tenant com dados reais |
+| 8 | Cinco questões entregues ao pacote do KAM-104; texto jurídico com a marca; revisto por advogado antes de uso externo | **parcial** | `resposta_incidentes.md` §13 mapeia as cinco: **quatro já estão no pacote** — quem notifica (D9) em A-01; âmbito da Circular 02 e prazo legal em A-05; coimas em A-06 (`Pacote_Parecer_Juridico.md`, linhas 184, 188 e 189) — e **uma não tem pergunta: o canal para avisar os titulares**, mais uma sexta que não é parecer mas decisão do fundador (quem autoriza o envio quando o advogado não responde, §9.4). **A parte «desde quando se conta» do prazo (T0) também não está escrita em A-05.** O texto da pergunta em falta está escrito no §13, pronto a colar; **não alterei o pacote**, porque acrescentar uma 41.ª pergunta muda as três somas que o pacote publica (40) e o anexo, e esse ficheiro é do KAM-104. A marca «(a confirmar por parecer)» está em todo o texto jurídico; a revisão por advogado é um *gate* nas listas «Antes de enviar» dos três modelos e **não aconteceu**. **Credor: quem detém o pacote do KAM-104** (a pergunta nova) e o ADV, quando existir |
+
+### As caixas de DoD
+
+| Caixa | Estado | Razão |
+|---|---|---|
+| Todos os CA satisfeitos e demonstráveis | **vazia** | Cinco critérios em aberto, com os credores acima |
+| Runbook, modelos e acta no repositório de provas; aprovados pelo Responsável de Segurança | **vazia** | Não há acta (o exercício não correu) e **ninguém aprovou**: a tabela de aprovação do runbook está em branco. O «repositório de provas» é privado e não é este. **Credor: SEG** |
+| Parecer jurídico pendente registado em KAM-104; nenhum prazo apresentado como obrigação legal sem confirmação | **vazia** | A segunda metade cumpre-se (critério 3, varredura a 0). A primeira não: a pergunta do canal dos titulares ainda não está no pacote (critério 8). **Credor: o pacote do KAM-104** |
+| Privacidade: sem dados pessoais nem segredos nos modelos, na acta ou nos anexos | **cumprida** | Varredura por telefone angolano (`+244…`, `9\d{8}`) e por e-mail sobre os 6 ficheiros novos: **0**. Os modelos usam marcadores `[A PREENCHER`; a acta é modelo e a preenchida vai para o repositório de provas privado (`exercicio_simulacao.md` §9). A lista de contactos guarda o papel e onde está o valor, nunca o valor |
+| Documentação ligada aos alertas P1 de `../docs/tecnica/09` §9.2 | **cumprida** | `resposta_incidentes.md` §4.3 liga os quatro alertas P1 (ingress parado, callbacks, WAL, *quality rating* vermelho) ao seu runbook operacional e à pergunta de entrada na árvore; a linha RB-K10 de `../docs/tecnica/09` §13 remete para o runbook (v1.4), o `08` §10 também (v1.5) |
+
+### Os linters, com o resultado lido
+
+Depois da última edição, com os ficheiros no índice (`git add`) — o `lint_refs` varre os versionados.
+
+| Comando | Resultado |
+|---|---|
+| `python -m lint_refs --root .. check` | conforme, 0 referências em falta |
+| `python -m lint_backlog --root .. check` | conforme, §4, blocos e §3 a dizer o mesmo |
+| `python -m lint_handoff --root .. check` | conforme — 0 defeituosos |
+| `python -m lint_contagens --root .. check` | conforme |
+| `python -m canon_lint --root .. check` e `canario` | conforme; 10 negativas vermelhas, 10 positivas verdes |
+| `python -m dict_export --root .. --check` | `canon/dicionario.yaml` corresponde ao dicionário |
+| Diagramas Mermaid dos dois blocos novos (parser do `make mermaid`, em contentor) | 2 blocos, 0 com erro. **Aviso:** o extractor do `make mermaid` só varre `docs/tecnica/` e `specs/`, pelo que **não vê** `docs/seguranca/`; corri o mesmo `verificar.mjs` sobre os meus dois blocos à mão |
+
+### O que isto muda, e o que não
+
+- **Não há código**, nem `ci/`, nem `.github/`, nem *script* de recolha.
+- Editado fora do âmbito directo e por necessidade da DoD: uma frase em `../docs/tecnica/08` §10 e
+  uma linha em `../docs/tecnica/09` §13, cada uma com a sua linha de «Controlo de versões».
+- **Decisão de desenho que o ticket não pediu e que o revisor deve ver:** a árvore tem duas
+  perguntas antes da dos dados pessoais (0a, credencial de plataforma em posse de terceiro; 0b,
+  estado de pagamento alterado fora do caminho autenticado). Os exemplos de `08` §10 obrigam a
+  elas — «chave de provedor comprometida» e «confirmação de pagamento forjada» são P1 sem
+  se saber se há dados pessoais —, e uma árvore só com as quatro perguntas do critério 2 dava-lhes P2.
+- **O limiar L = 100 titulares é uma proposta sem fonte**, e está dita como tal.
 
 ### Handoff para Claude Code
 
@@ -1204,3 +1269,4 @@ Abre PR com o template do §7.
 | 1.12 | Novembro 2026 | Contagem viva do *backlog* actualizada de 172 para 173 tickets (**KAM-174** acrescentado ao EPIC-01), na frase do bloco do KAM-149 que cita o `assert` do verificador. É contagem derivada e não emenda de conteúdo: o número cresce a cada ticket novo, que é o defeito estrutural que a própria frase descreve. | Equipa KAMBÁ |
 | 1.13 | Novembro 2026 | Contagem viva do *backlog* actualizada de 174 para 175 tickets (**KAM-175** acrescentado ao EPIC-05), na frase do bloco do KAM-149 que cita o `assert` do verificador, e o campo `Versão` do cabeçalho a acompanhar. É contagem derivada e não emenda de conteúdo: o número cresce a cada ticket novo, que é o defeito estrutural que a própria frase descreve. | Equipa KAMBÁ |
 | 1.14 | Novembro 2026 | Contagem viva do *backlog* actualizada de 175 para 176 tickets (**KAM-176** acrescentado ao EPIC-04), na frase do bloco do KAM-149 que cita o `assert` do verificador, e o campo `Versão` do cabeçalho a acompanhar. É contagem derivada e não emenda de conteúdo: o número cresce a cada ticket novo, que é o defeito estrutural que a própria frase descreve. | Equipa KAMBÁ |
+| 1.15 | Novembro 2026 | KAM-113 (resposta a incidentes e notificação de violação de dados): critérios 1, 3 e 6 e as caixas de DoD de privacidade e de ligação aos alertas P1 marcados, com a secção «Verificação dos Critérios de Aceitação»; critérios 2, 4, 5, 7 e 8 e três caixas de DoD ficam vazios com o credor escrito. Sem alteração de contagens. | Equipa KAMBÁ |
