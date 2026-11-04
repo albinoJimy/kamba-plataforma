@@ -635,7 +635,7 @@ def rascunho_do_turno(
 ) -> dict[str, Any]:
     """O rascunho `{draft_id, draft_version, linhas, entrega}` do §6.3.
 
-    ## O `draft_id` nasce **uma vez** e sobrevive ao *checkpoint*
+    ## O `draft_id` nasce **uma vez por rascunho** e sobrevive ao *checkpoint*
 
     E a letra do §6.3 do `docs/tecnica/03`: «`draft_id` e gerado uma vez, num no
     anterior ao de confirmacao, e persiste no checkpoint; `draft_version`
@@ -643,6 +643,31 @@ def rascunho_do_turno(
     entrega». Daí vir do `cart` que ja esta no estado, e so se gerar quando nao
     ha nenhum: um `draft_id` novo por turno dava **duas** encomendas a um duplo
     toque, porque a confirmacao chega num turno depois do carrinho.
+
+    ## E morre quando a encomenda nasce, senao **bloqueia a recompra**
+
+    «Uma vez» e por **rascunho**, e um rascunho que ja virou encomenda esta
+    gasto: o §6.3 escreve, na mesma frase das propriedades, «recompra ⇒ novo
+    `draft_id` ⇒ nova encomenda». Sem isto, uma recompra **identica** na mesma
+    conversa reusava o `draft_id` **e** a `draft_version` — porque as linhas nao
+    mudaram —, derivava a mesma `intent_key`, e o COM devolvia o recibo da
+    primeira: o cliente confirmava e recebia o numero da encomenda anterior, sem
+    encomenda nova e sem recusa.
+
+    **Medido, e e defeito do caminho feliz de uma tool `money`:** «quero comprar
+    uma camisa azul» → `confirm:` → encomenda; a mesma frase outra vez →
+    `confirm:` → **nenhuma** encomenda nova, com duas chamadas ao backend e a
+    mesma identidade nas duas. Achado da revisao adversarial, e a reciproca que
+    este ticket tinha escrito nao o apanhava: ela mede um carrinho **editado** (a
+    quantidade muda, e a `draft_version` sobe), e o caso que fecha e o do
+    conteudo **igual**.
+
+    Por isso o `create_order` marca o carrinho como `draft_gasto` quando a
+    encomenda nasce, e esta funcao trata um rascunho gasto como **ausente**: o
+    `draft_id` novo sai do `turn_seq`, que e outro no turno da recompra. O que
+    **nao** muda e o duplo toque: ali o `create_order` nao corre segunda vez (o
+    `stage` barra-o) e, quando corre, e sobre o mesmo *checkpoint* — o carrinho
+    que ele le ainda nao esta gasto.
 
     ## A forma e a canonica, e **nao se reescreve aqui**
 
@@ -658,7 +683,8 @@ def rascunho_do_turno(
     """
     anterior = estado.get("cart") or {}
     anteriores = tuple(anterior.get("linhas") or ())
-    if isinstance(anterior.get("draft_id"), str) and anterior["draft_id"]:
+    gasto = bool(anterior.get("draft_gasto"))
+    if not gasto and isinstance(anterior.get("draft_id"), str) and anterior["draft_id"]:
         draft_id = str(anterior["draft_id"])
         versao = int(anterior.get("draft_version") or 1)
         if _linhas_canonicas(anteriores) != _linhas_canonicas(linhas):
@@ -1410,7 +1436,19 @@ def create_order(deps: Dependencias):
         # O `stage` passa a `awaiting_payment` **e o carrinho fica**: o `compose`
         # precisa do `total_fact_id` para mostrar o valor, e um segundo toque e
         # barrado pelo estagio e nao pela ausencia do carrinho.
-        return {"stage": "awaiting_payment", "draft": {"dados": dict(resultado.data)}}
+        #
+        # **E o rascunho fica marcado como gasto**, que e o que faz a recompra
+        # funcionar: sem isto, a mesma frase outra vez na mesma conversa reusava
+        # o `draft_id` e a `draft_version` — as linhas nao mudaram — e o COM
+        # devolvia o recibo desta encomenda em vez de criar outra. Ver o
+        # `rascunho_do_turno` para a medicao. **O carrinho inteiro fica**, com o
+        # `cart_id` e o `total_fact_id`: o que se marca e o rascunho, nao o
+        # carrinho, e e por isso que o duplo toque continua barrado pelo `stage`.
+        return {
+            "stage": "awaiting_payment",
+            "cart": {**carrinho, "draft_gasto": True},
+            "draft": {"dados": dict(resultado.data)},
+        }
 
     return no
 

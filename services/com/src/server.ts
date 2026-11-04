@@ -66,7 +66,7 @@ import { createApp } from "./app.ts";
 import { DEFAULT_PORT, SERVICE } from "./meta.ts";
 import { operacoesDoCom } from "./adapters/medusa/index.ts";
 import { SEGREDO_DA_API } from "./api/interna.ts";
-import { REF_SEGREDO_DE_INTENTS } from "./orders/index.ts";
+import { REF_SEGREDO_DE_INTENTS, lerSegredo } from "./orders/index.ts";
 import type { ClienteSql, ComTenant } from "./port/index.ts";
 
 /** A variável com a cadeia de ligação. Lida na primeira ligação, não aqui. */
@@ -134,6 +134,21 @@ try {
   // marcador que a própria ferramenta prevê, com a razão.
   anel = await segredos.getRing(REF_SEGREDO_DE_INTENTS); // kamba:secrets-inventory dinamico a constante REF_SEGREDO_DE_INTENTS e o dono do nome em codigo
   credencial = await segredos.get(SEGREDO_DA_API); // kamba:secrets-inventory dinamico a constante SEGREDO_DA_API do api/interna.ts e o dono do nome em codigo
+  // **A forma do `segredo_intents` verifica-se aqui, e não no primeiro pedido.**
+  // O `Secrets.arrancar` prova que o segredo **existe**; o `lerSegredo` é que
+  // prova que ele serve — `<kid>:<base64 de 32 octetos>`. Sem esta linha, um
+  // valor com a forma errada passava o arranque e falhava na primeira
+  // `intent_key`, isto é, no primeiro cliente a confirmar um carrinho: um
+  // `mude-me-localmente` no `.env` dava um serviço com a sonda verde e a tool
+  // `money` quebrada. Achado da revisão adversarial, que notou que «troque-o
+  // localmente» é uma frase e não uma barreira.
+  //
+  // As **duas** versões do anel se verificam: uma `anterior` mal formada só
+  // falharia a ler um recibo antigo, que é o caminho mais raro e o mais difícil
+  // de diagnosticar.
+  for (const valor of anel) {
+    if (valor !== null) lerSegredo(valor);
+  }
 } catch (erro) {
   log.excepcao(erro, "cofre_indisponivel");
   // **Dois e não um**, que é o código que o AGR usa para a mesma falha: um

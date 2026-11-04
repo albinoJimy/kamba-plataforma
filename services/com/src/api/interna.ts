@@ -96,6 +96,12 @@ export const SEGREDO_DA_API = "com_internal_token";
  * leitura é o proxy de entrada (**KAM-076**). Oito KiB é a forma do
  * `CORPO_MAXIMO` daquele ficheiro, e os pedidos daqui têm no máximo vinte linhas
  * de carrinho.
+ *
+ * **E mede-se em octetos, com `Buffer.byteLength`.** O `String.length` conta
+ * unidades UTF-16: 8192 caracteres de três octetos são ~24 KiB a entrar no
+ * `JSON.parse`, que é precisamente o que este tecto diz impedir — e o caso que o
+ * media usava ASCII, onde as duas contagens coincidem. Achado da revisão
+ * adversarial.
  */
 export const CORPO_MAXIMO = 8 * 1024;
 
@@ -325,7 +331,7 @@ export function apiInterna(deps: DependenciasDaApi): Hono {
   for (const rota of ROTAS) {
     api.post(rota, async (c) => {
       const texto = await c.req.text();
-      if (texto.length > CORPO_MAXIMO) {
+      if (Buffer.byteLength(texto, "utf8") > CORPO_MAXIMO) {
         return json({ error: "payload_too_large" }, 413);
       }
       let corpo: Record<string, unknown>;
@@ -432,14 +438,30 @@ async function despachar(
   if (rota === "/internal/create-order") {
     const rascunho = rascunhoDoCorpo(corpo);
     const total = emMinor(corpo["total_esperado_minor"]);
-    if (rascunho === null || total === null) {
+    const cartId = corpo["cart_id"];
+    // **O `cart_id` é obrigatório nesta rota, e a primeira versão deixava-o
+    // opcional.** O `cartIdValido` do `create_order.ts` — a comparação em tempo
+    // constante que liga o botão `confirm:{cart_id}` ao rascunho, e que a
+    // revisão adversarial do KAM-046 pôs lá — só corre **se** o pedido o
+    // trouxer. Omiti-lo saltava a barreira **sem recusa**, com a identidade da
+    // intenção a vir inteiramente do chamador; a superfície nova deixava optar
+    // por não ter a barreira. Achado da revisão adversarial.
+    //
+    // Pela TLS ele vem sempre (`ArgumentosDeCriarPedido.cart_id` tem
+    // `min_length=1`), pelo que exigi-lo aqui não fecha nenhum caminho
+    // legítimo — fecha o caminho que não devia existir.
+    if (
+      rascunho === null ||
+      total === null ||
+      typeof cartId !== "string" ||
+      cartId.length === 0
+    ) {
       return json({ tipo: "erro", erro: "VALIDATION_ERROR" }, 400);
     }
-    const cartId = corpo["cart_id"];
     const pedido: PedidoDeCriacao = {
       rascunho,
       totalEsperadoMinor: total,
-      ...(typeof cartId === "string" && cartId.length > 0 ? { cartId } : {}),
+      cartId,
     };
     return responder(await deps.operacoes.createOrder(ctx, pedido));
   }
