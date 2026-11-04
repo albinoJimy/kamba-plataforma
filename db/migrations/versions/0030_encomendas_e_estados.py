@@ -1238,9 +1238,33 @@ def _triggers() -> None:
     # **A divida 175 tem credor, e esta paga: o KAM-175.** A `0029` passou a
     # `BEFORE TRUNCATE OR DELETE OR UPDATE ... FOR EACH STATEMENT`, e a medicao
     # dele acrescentou a metade que esta nota nao via: um `UPDATE` sem linhas
-    # tambem passava, pela mesma razao. **E essa metade continua aberta aqui**,
-    # porque o `order_state_log_sem_truncate` abaixo e `BEFORE TRUNCATE OR
-    # DELETE` e para ali — divida **176**, credor **KAM-176**.
+    # tambem passava, pela mesma razao.
+    #
+    # **E essa metade estava aberta aqui tambem, e o `0031` fecha-a (KAM-176).**
+    # O `order_state_log_sem_truncate` que esta revisao cria abaixo e
+    # `BEFORE TRUNCATE OR DELETE` e para ali: o argumento escrito acima —
+    # «um por linha nao dispara quando nao ha linhas» — nao tem nada de
+    # particular ao `DELETE` e vale letra por letra para o `UPDATE`, que esta no
+    # por linha pela mesma razao. Esta revisao seguiu-o ate metade. A revisao
+    # `0031` poe o por instrucao em
+    # `BEFORE TRUNCATE OR DELETE OR UPDATE ... FOR EACH STATEMENT`, sem *trigger*
+    # novo e sem funcao nova.
+    #
+    # **Nao se edita aqui, e a razao esta medida no `0031`:** a letra do criterio
+    # 5 do KAM-176 manda revisao nova, e a conclusao sustenta-se — uma revisao
+    # editada no sitio so e segura enquanto ninguem a aplicou, e essa janela
+    # esta a fechar-se. O que fica abaixo e a forma **inicial**; quem quiser a
+    # forma em vigor le o `0031`.
+    #
+    # **E depois do `0031` quem da a propriedade e o por instrucao**, nao o por
+    # linha: o `order_state_log_sem_mutacao` passa a ser estritamente redundante
+    # (medido no `TestCanarioDoTriggerPorInstrucaoDoRegisto`) e fica porque dois
+    # ensaios o prendem pelo nome.
+    #
+    # Das cinco tabelas *append-only* com esta forma, tres continuam com as duas
+    # metades abertas — `platform.audit_log` (`0006`, KAM-012),
+    # `platform.tool_audit` (`0021`, KAM-028) e `dat.llm_call_log` (`0023`,
+    # KAM-030). Divida **176**, com credor por tabela.
     op.execute(
         f"""
         CREATE TRIGGER order_state_log_sem_mutacao

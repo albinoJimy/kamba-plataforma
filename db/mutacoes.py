@@ -202,6 +202,8 @@ REV6 = "db/migrations/versions/0006_audit_log.py"
 REV29 = "db/migrations/versions/0029_ledger_de_pagamentos.py"
 #: KAM-044: as encomendas. A revisao, e a suite que a prova.
 REV30 = "db/migrations/versions/0030_encomendas_e_estados.py"
+#: KAM-176: o *trigger* por instrucao do registo passa a cobrir o `UPDATE`.
+REV31 = "db/migrations/versions/0031_registo_sem_mutacao_sem_linhas.py"
 AUDITORIA = "db/auditoria.py"
 #: KAM-009: a revisao do consumo de limites e a suite que a prova.
 REV7 = "db/migrations/versions/0007_ten_uso_e_limites.py"
@@ -5739,6 +5741,26 @@ MUTACOES = [
     # A quinta via: sem o `order_nasce_criada`, uma encomenda nasce `paga` por
     # `INSERT` directo, sem transicao, sem registo e sem evento. O
     # `TestAQuintaVia` tem de a matar.
+    # ---------------------------- KAM-176, o UPDATE sem linhas no registo
+    #
+    # **Uma, e e a barreira que a revisao `0031` entrega.** A `0030` deixava o
+    # `UPDATE` sem linhas passar — o por instrucao dela e
+    # `BEFORE TRUNCATE OR DELETE` e para ali, e um por linha nao dispara quando
+    # nao ha linhas. Retirar o `OR UPDATE` repoe exactamente esse defeito.
+    #
+    # **O alvo e unico no ficheiro**: o `downgrade` chama
+    # `_criar("TRUNCATE OR DELETE")`, que e outra cadeia, pelo que a substituicao
+    # nao o alcanca — e a forma que o `--aplicaveis` exige (uma ocorrencia).
+    #
+    # Tem de morrer no `test_o_update_sem_linhas_tambem_e_recusado` do
+    # `tests_encomendas/test_isolamento.py`. As sete da `0030` ficam como estao:
+    # nenhuma delas toca neste *trigger*, o que e precisamente a razao pela qual
+    # a metade do `UPDATE` ficou sem cobertura ate aqui.
+    ('revisao 0031: o trigger por instrucao do registo volta a nao cobrir o UPDATE',
+     REV31,
+     '_criar("TRUNCATE OR DELETE OR UPDATE")',
+     '_criar("TRUNCATE OR DELETE")',
+     "tests_encomendas"),
     # ------------------------------------------- KAM-053, o ledger de pagamentos
     #
     # Nove, e cada uma ataca **uma** barreira do ticket. A ordem e a do que custa

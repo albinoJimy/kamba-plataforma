@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Core de Comércio |
-| Versão | 1.6 |
+| Versão | 1.7 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/03_Core_Comercio_Medusa.md`, `../docs/tecnica/00_Arquitectura_Solucao.md` |
@@ -1514,7 +1514,7 @@ alteração o por linha já não é o que a dá.
 
 ### Critérios de Aceitação
 
-- [ ] 1. O `order_state_log_sem_truncate` passa a
+- [x] 1. O `order_state_log_sem_truncate` passa a
   `BEFORE TRUNCATE OR DELETE OR UPDATE … FOR EACH STATEMENT`, continua
   `ENABLE ALWAYS` e continua a chamar a `platform.deny_mutation()`. **Não há
   *trigger* novo e não há função nova**, e os dois nomes ficam como estão: é o
@@ -1525,19 +1525,19 @@ alteração o por linha já não é o que a dá.
   Medido: um `UPDATE` sem linhas passa a ser recusado com `42501`
   (`insufficient_privilege`), que é o `SQLSTATE` que a função já levanta e que a
   suite já afirma.
-- [ ] 2. **A metade que falta, sem desfazer a que está feita.** Entra um ensaio
+- [x] 2. **A metade que falta, sem desfazer a que está feita.** Entra um ensaio
   para o `UPDATE … WHERE <predicado que não casa>`, e o
   `test_o_delete_sem_linhas_tambem_e_recusado` que já existe fica como está e
   continua verde. São duas asserções separadas de propósito: uma barreira que
   cobre os dois casos com um ensaio só não distingue qual deles regrediu.
-- [ ] 3. **O que a barreira não impede continua a não impedir**, e há ensaio que
+- [x] 3. **O que a barreira não impede continua a não impedir**, e há ensaio que
   o prova em vez de o supor: o `INSERT` do `kamba_app` no registo passa (é a
   única escrita que ele tem), o `SELECT` passa — e tem de passar, porque é o
   *trigger* diferido `order_transicao_registada` que lê esta tabela como
   invocador —, e o `DROP TABLE` do `downgrade` passa: um `DROP TABLE` não é um
   `UPDATE`. Sem este critério, a prova de que a barreira morde é indistinguível
   de uma tabela que ninguém consegue usar.
-- [ ] 4. **Canário obrigatório, e nos dois sentidos.** Desligado **só** o
+- [x] 4. **Canário obrigatório, e nos dois sentidos.** Desligado **só** o
   `order_state_log_sem_truncate` — com o `order_state_log_sem_mutacao` ligado —,
   o `UPDATE` sem linhas tem de **passar** (`UPDATE 0`). É isso, e só isso, que
   prova que quem recusa o caso sem linhas é o *trigger* por instrução: com os
@@ -1547,7 +1547,7 @@ alteração o por linha já não é o que a dá.
   `../db/tests_encomendas/test_grafo.py`: um `ALTER TABLE` confirmado deixava a
   base do *gate* 8 sem barreira para os ensaios seguintes, e a suite passava a
   medir uma tabela sem *trigger*.
-- [ ] 5. **Revisão nova, e não edição da `0030` — e a razão é uma medição, não
+- [x] 5. **Revisão nova, e não edição da `0030` — e a razão é uma medição, não
   uma preferência.** A pergunta é a mesma que o critério 7 do KAM-175 faz:
   existe base onde a revisão já foi aplicada e que não se reconstrói de zero? Na
   `0030` a resposta **já está dada e é sim**: ela fundiu na `main` a 2026-11-03
@@ -1557,18 +1557,18 @@ alteração o por linha já não é o que a dá.
   nova com `DROP TRIGGER` e `CREATE TRIGGER`, com `down_revision` a apontar para
   a última, e com `downgrade` a repor a forma antiga (que é aditiva no sentido
   que importa: nenhuma linha se perde, e a revisão não larga a tabela).
-- [ ] 6. **A barreira nova entra na prova por mutação.** O
+- [x] 6. **A barreira nova entra na prova por mutação.** O
   `../db/mutacoes.py` leva sete mutações para a `0030`, uma por barreira; esta
   alteração acrescenta uma — retirar o `OR UPDATE` do *trigger* por instrução
   tem de matar o ensaio do critério 2. Sem isso, a metade nova fica com a mesma
   cobertura que a antiga tinha antes de alguém olhar para ela, que é nenhuma.
-- [ ] 7. **As duas notas da `0030` passam a dizer a verdade.** O comentário do
+- [x] 7. **As duas notas da `0030` passam a dizer a verdade.** O comentário do
   `_registo()` que explica porque é que são dois *triggers* descreve a forma
   antiga, e uma nota que descreve a forma antiga é pior do que nenhuma: passa a
   dizer o que cada um cobre depois desta alteração e qual deles dá a
   propriedade. E a nota que aponta a lacuna da `0029` para a dívida 175 passa a
   dizer que ela tem credor — o **KAM-175**.
-- [ ] 8. **Risca-se uma metade da dívida 176 e mais nada.** A linha 176 fica,
+- [x] 8. **Risca-se uma metade da dívida 176 e mais nada.** A linha 176 fica,
   com a metade do `order_state_log` riscada e as três tabelas irmãs intactas,
   cada uma ao seu credor (KAM-012, KAM-028, KAM-030). A **dívida 175 não se
   risca aqui**: ela é do KAM-175 e risca-se no PR que mexer no *trigger* da
@@ -1635,24 +1635,94 @@ alteração o por linha já não é o que a dá.
 
 ### Definition of Done
 
-- [ ] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
-- [ ] **O `UPDATE` sem linhas recusado**, com ensaio próprio e separado do do
+- [x] Todos os Critérios de Aceitação satisfeitos e demonstráveis.
+- [x] **O `UPDATE` sem linhas recusado**, com ensaio próprio e separado do do
   `DELETE`.
-- [ ] **Canário verde quando a barreira morde e vermelho quando deixa de
+- [x] **Canário verde quando a barreira morde e vermelho quando deixa de
   morder**, com o `ALTER TABLE` revertido.
-- [ ] Revisão nova e não edição da `0030`, pela pergunta do critério 5.
-- [ ] A mutação nova **apanhada**, e a linha de base da suite verde.
-- [ ] As duas notas da `0030` descrevem a forma nova, e dizem qual dos dois
+- [x] Revisão nova e não edição da `0030`, pela pergunta do critério 5.
+- [x] A mutação nova **apanhada**, e a linha de base da suite verde.
+- [x] As duas notas da `0030` descrevem a forma nova, e dizem qual dos dois
   *triggers* dá a propriedade.
-- [ ] *Gate* 8 verde: `upgrade`, `downgrade`, `upgrade` sem resíduos.
-- [ ] *Gate* 6 verde: a bateria de isolamento não muda de forma, e a
+- [x] *Gate* 8 verde: `upgrade`, `downgrade`, `upgrade` sem resíduos.
+- [x] *Gate* 6 verde: a bateria de isolamento não muda de forma, e a
   `order_state_log` continua em `SEM_RECEITA_COM_RAZAO`.
-- [ ] **A metade do `order_state_log` riscada na dívida 176**, e as outras três
+- [x] **A metade do `order_state_log` riscada na dívida 176**, e as outras três
   intactas.
-- [ ] **A dívida 175 não riscada** — é do KAM-175.
-- [ ] Linha de «Controlo de versões» em cada documento formal tocado, e o campo
+- [x] **A dívida 175 não riscada** — é do KAM-175.
+- [x] Linha de «Controlo de versões» em cada documento formal tocado, e o campo
   `Versão` do cabeçalho a condizer.
-- [ ] Revisão adversarial independente, com os achados fechados por teste.
+- [x] Revisão adversarial independente, com os achados fechados por teste.
+
+### Verificação dos Critérios de Aceitação
+
+Medição de **2026-11-04**, contra o PostgreSQL **18.6** descartável que o
+[`../db/gate_bd.py`](../db/gate_bd.py) levanta (`pgvector/pgvector:0.8.7-pg18`,
+fixado por *digest*). Reproduz-se com:
+
+```text
+python db/gate_bd.py --suite tests_encomendas   -> Ran 95 tests in 302.969s / OK
+python db/gate_bd.py --suite tests_isolamento   -> Ran 79 tests in 207.989s / OK
+python db/mutacoes.py --aplicaveis              -> 954 conferidas, 0 nao aplicaveis
+python db/mutacoes.py <python> tests_encomendas -> 8 corridas, 0 nao apanhadas
+```
+
+Eram **90** ensaios em `tests_encomendas` e são **95**: entram cinco, três em
+`TestRegistoAppendOnly` e dois na classe nova
+`TestCanarioDoTriggerPorInstrucaoDoRegisto`, os dois em
+[`../db/tests_encomendas/test_isolamento.py`](../db/tests_encomendas/test_isolamento.py).
+O `test_em_modo_replica_o_registo_continua_append_only`, que já existia, passou de
+uma instrução para **quatro**.
+
+| # | Critério | Estado | O que se mediu, e onde |
+|---|---|---|---|
+| 1 | O `order_state_log_sem_truncate` passa a `BEFORE TRUNCATE OR DELETE OR UPDATE … FOR EACH STATEMENT`, `ENABLE ALWAYS`, mesma função, sem *trigger* nem função nova | **marcada** | A revisão [`0031`](../db/migrations/versions/0031_registo_sem_mutacao_sem_linhas.py) faz `DROP TRIGGER` e `CREATE TRIGGER` com o **mesmo nome** e `ENABLE ALWAYS` a seguir — um *trigger* recriado nasce na omissão (`O`), e sem o `ALTER` um `session_replication_role = replica` saltava-o. Os três ensaios do `ENABLE ALWAYS` ficaram verdes, e o `test_em_modo_replica_o_registo_continua_append_only` passou a medir as **quatro** instruções (os dois verbos, com e sem linhas) em vez de só o `DELETE`: o `ALWAYS` do *trigger* novo tem de valer para a metade nova também. O `42501` é o da `deny_mutation`, que é da `0029` e não se toca |
+| 2 | A metade que falta, **sem desfazer a que está feita** | **marcada** | `test_o_update_sem_linhas_tambem_e_recusado`, ensaio próprio e separado do do `DELETE` — uma asserção que cobrisse os dois casos não distinguia qual regrediu. Corre **dois predicados**: `causa = 'nao-existe'` (o caso real) e `false` (o degenerado, onde o planeador sabe de antemão que não há linhas), que é a lição do achado 11 da revisão adversarial do KAM-175. O `test_o_delete_sem_linhas_tambem_e_recusado` ficou **sem uma linha de alteração** e verde |
+| 3 | O que a barreira não impede continua a não impedir: `INSERT` do `kamba_app`, `SELECT` e o `DROP TABLE` do `downgrade` | **marcada** | O `INSERT` do `kamba_app` é a única escrita que ele tem e é exercitado por cada `levar_a` da base de ensaio — se a barreira o apanhasse, as 95 passagens caíam. O `SELECT` mede-se em `test_o_registo_de_a_nao_se_le_do_contexto_de_b` (com a sonda positiva ao lado) e é **obrigatório**, porque é o *trigger* diferido `order_transicao_registada` que lê esta tabela como invocador. O `DROP TABLE` mede-se onde ele corre: o `test_downgrade.py` desce até à `0029`, o que obriga a correr o `downgrade` da `0031` **e** o da `0030`, e falharia se a barreira os apanhasse |
+| 4 | Canário nos dois sentidos, com o `ALTER TABLE` revertido | **marcada** | `TestCanarioDoTriggerPorInstrucaoDoRegisto`, duas direcções. `test_sem_o_trigger_por_instrucao_o_update_sem_linhas_passa`: desligado **só** o por instrução — e o ensaio lê o `tgenabled` do por linha **na mesma ligação** e exige `'A'`, para ser canário do por instrução e não de «a tabela não tem *triggers*» —, o `UPDATE` sem linhas **passa** com `rowcount == 0`. `test_sem_o_por_linha_o_update_com_linhas_continua_recusado`: o simétrico, com linhas semeadas e uma asserção que as conta primeiro (sem linhas o por instrução recusaria de qualquer forma e a asserção deixava de medir «com linhas»). O `ALTER TABLE` corre na ligação transaccional e o `finally` faz `rollback`, pela razão do `TestCanarioDoTrigger` de [`../db/tests_encomendas/test_grafo.py`](../db/tests_encomendas/test_grafo.py) |
+| 5 | **Revisão nova, e não edição da `0030`** | **marcada, e a razão do critério está devolvida** | Revisão nova, como a letra manda. **Mas a razão que o critério dá é falsa, e fica dito em vez de ser aproveitada em silêncio.** O critério decide por «a `0030` fundiu, logo qualquer clone que tenha corrido `alembic upgrade head` a tem»; medido no KAM-175: a `0029` **também** fundiu (`94bd634`, #104), pelo que a mesma regra daria revisão nova lá — e lá fez-se edição no sítio; e **nenhuma** base pode ter corrido `alembic upgrade head`, porque o [`../db/migrations/README.md`](../db/migrations/README.md) diz no último parágrafo que «não há ainda forma de aplicar as migrações ao PostgreSQL do compose de desenvolvimento: a rede de dados é interna e não publica portas», e o `../infra/compose/docker-compose.dev.yml` confirma-o (o serviço `db` não tem `ports:` e está só numa rede `internal: true`). **A conclusão sustenta-se por outra razão, e é essa que está escrita na `0031`:** «ninguém pode ter aplicado a `0030`» é uma propriedade da infraestrutura **de hoje**, e hoje é o dia em que o KAM-076 fundiu o compose de produção, com o KAM-078 a seguir — uma revisão editada no sítio só é segura enquanto ninguém a aplicou, e essa janela está a fechar-se. Uma revisão nova é correcta **com a premissa e sem ela**; a edição no sítio só com ela. **Emendar a letra do critério é de quem o escreveu**, pelo que fica devolvido |
+| 6 | A barreira nova entra na prova por mutação | **marcada** | Entra a mutação «revisão 0031: o *trigger* por instrução do registo volta a não cobrir o `UPDATE`» (`_criar("TRUNCATE OR DELETE OR UPDATE")` → `_criar("TRUNCATE OR DELETE")`), que repõe exactamente o defeito que esta revisão fecha. **O alvo é único no ficheiro**: o `downgrade` chama `_criar("TRUNCATE OR DELETE")`, que é outra cadeia, pelo que a substituição não o alcança — e é o que o `--aplicaveis` exige. **E morre:** `python db/mutacoes.py <python> tests_encomendas` dá `8 mutacao(oes) corrida(s), 0 nao apanhada(s)`, com a nova apanhada por **cinco** ensaios — o primeiro reportado é o `test_sem_o_por_linha_o_update_com_linhas_continua_recusado`, que é o canário simétrico: com o por linha desligado e o por instrução de volta à forma antiga, o `UPDATE` com linhas passa, e é isso que ele recusa. As **sete** da `0030` ficam como estão e continuam apanhadas; nenhuma delas tocava neste *trigger*, o que é precisamente a razão pela qual a metade do `UPDATE` ficou sem cobertura até aqui |
+| 7 | As duas notas da `0030` passam a dizer a verdade | **marcada** | A nota dos *triggers* da [`../db/migrations/versions/0030_encomendas_e_estados.py`](../db/migrations/versions/0030_encomendas_e_estados.py) passa a dizer que o argumento que ela própria escreve vale letra por letra para o `UPDATE` e que esta revisão o seguiu até metade, que a `0031` o fecha, **qual dos dois dá a propriedade depois disso** (o por instrução; o por linha fica estritamente redundante e fica porque dois ensaios o prendem pelo nome), e que a forma escrita ali é a **inicial** — quem quiser a em vigor lê a `0031`. A segunda nota, a que aponta a lacuna da `0029` para a dívida 175, já dizia que ela tem credor desde o PR do KAM-175; passa a dizer também que a metade gémea estava aberta aqui e que a `0031` a fecha. Nenhuma linha de DDL da `0030` é tocada |
+| 8 | Risca-se **uma metade** da dívida 176 e mais nada | **marcada** | A linha 176 de [`../docs/dividas-documentais.md`](../docs/dividas-documentais.md) fica, com a metade do `order_state_log` riscada e as três tabelas irmãs intactas, cada uma ao seu credor — **KAM-012** (`platform.audit_log`), **KAM-028** (`platform.tool_audit`) e **KAM-030** (`dat.llm_call_log`, que leva ainda a pergunta de ser particionada). A **dívida 175 não se risca aqui** e continua riscada pelo PR do KAM-175; a **178** continua aberta, com credor KAM-053. O diff não toca na `0006`, na `0021` nem na `0023` |
+
+#### Definition of Done
+
+| Caixa | Estado | Prova |
+|---|---|---|
+| Todos os CA satisfeitos e demonstráveis | **marcada** | Os oito acima, cada um com ensaio nomeado |
+| O `UPDATE` sem linhas recusado, com ensaio próprio e separado do do `DELETE` | **marcada** | Critério 2 |
+| Canário verde quando morde e vermelho quando deixa de morder, com o `ALTER TABLE` revertido | **marcada** | Critério 4 para o «verde quando morde» e para o «passa quando se desliga»; o «vermelho quando a barreira sai da revisão» é a mutação do critério 6 |
+| Revisão nova e não edição da `0030`, pela pergunta do critério 5 | **marcada, com a razão devolvida** | Critério 5 |
+| A mutação nova **apanhada**, e a linha de base da suite verde | **marcada** | `8 corridas, 0 nao apanhadas` — as sete da `0030` mais a nova, esta apanhada por cinco ensaios. A linha de base é `Ran 95 tests / OK`, que o corredor exige verde antes de mutar |
+| As duas notas da `0030` descrevem a forma nova e dizem qual *trigger* dá a propriedade | **marcada** | Critério 7 |
+| *Gate* 8 verde: `upgrade`, `downgrade`, `upgrade` sem resíduos | **marcada** | `db/gate_bd.py --suite tests_encomendas` → 95 ensaios, `OK`, e inclui o `test_downgrade.py`, que desce até à `0029` (logo corre o `downgrade` da `0031` e o da `0030`) e volta a subir. A cadeia tem **uma só cabeça**, a `0031`, e nenhuma ramificação — verificado por leitura dos 31 pares `revision`/`down_revision` |
+| *Gate* 6 verde: a bateria não muda de forma, e a `order_state_log` continua em `SEM_RECEITA_COM_RAZAO` | **marcada** | `db/gate_bd.py --suite tests_isolamento` → 79 ensaios, `OK`. O `git diff` não toca na bateria de `../db/tests_isolamento/` a não ser numa **cláusula de comentário** do `sementes.py`, declarada abaixo; a `order_state_log` continua no conjunto, e a razão é a mesma — a limpeza por `DELETE` é recusada |
+| A metade do `order_state_log` riscada na dívida 176, e as outras três intactas | **marcada** | Critério 8 |
+| A dívida 175 não riscada — é do KAM-175 | **marcada** | Riscada no PR dele e intacta neste diff |
+| Linha de «Controlo de versões» em cada documento formal tocado, e o campo `Versão` a condizer | **marcada** | Este epic em **1.7** (cabeçalho e última linha a condizer) e `docs/dividas-documentais.md` em **1.97**. Os dois números lidos da `main` (`8cef2dd`) e não deste ficheiro |
+| Revisão adversarial independente, com os achados fechados por teste | **marcada** | Uma passagem sobre o ramo empurrado, por um agente que não viu este raciocínio; os achados e o estado de cada um estão respondidos no corpo do PR |
+
+**Duas alterações fora dos critérios, as duas declaradas.** A primeira é uma
+cláusula de comentário em
+[`../db/tests_isolamento/sementes.py`](../db/tests_isolamento/sementes.py): a nota
+da `order_state_log` dizia que o `deny_mutation` recusa «incluindo um `DELETE`
+que não casa linha nenhuma» — verdade, mas a assimetria fazia inferir que o
+`UPDATE` sem linhas **não** estava coberto, que é exactamente a ressalva tácita
+que este ticket existe para fechar. Passa a nomear os dois. A segunda é o
+alargamento do `test_em_modo_replica_o_registo_continua_append_only` às quatro
+instruções, pela razão da célula 1.
+
+**E essa segunda alteração trouxe um defeito que vale guardar**, porque é da
+classe «ensaio a passar pela razão errada» e só apareceu por se ter escrito a
+asserção que o apanha. O `SET session_replication_role = replica` estava **uma
+vez antes do ciclo**, e o auxiliar `tentar` faz `rollback` em cada recusa — e um
+`SET` cru **é desfeito por um `ROLLBACK`**. A partir da segunda iteração a sessão
+estava de volta em `origin`, e as três instruções seguintes mediam o modo errado:
+verde sobre a barreira que o `replica` existe para contornar. Não mordia enquanto
+o ensaio tinha uma instrução só. O `SET` passou para dentro do ciclo, com um
+`SHOW session_replication_role` a confirmá-lo **antes de cada tentativa** — se um
+`rollback` repuser o `origin`, o ensaio falha em vez de passar a medir outra
+coisa.
 
 ### Handoff para Claude Code
 
@@ -1744,3 +1814,4 @@ Commits: fix(KAM-176): ...
 | 1.4 | Novembro 2026 | **KAM-176** acrescentado, e **não entregue no mesmo PR**: o que se entrega é o ticket, não a correcção. Fecha a metade do `platform.order_state_log` da dívida 176 de [`../docs/dividas-documentais.md`](../docs/dividas-documentais.md) — a barreira *append-only* que o KAM-044 escreveu tem um `FOR EACH STATEMENT` em `BEFORE TRUNCATE OR DELETE`, pelo que o `DELETE` sem linhas é recusado e o `UPDATE` sem linhas devolve `UPDATE 0` e **passa**. **O defeito é uma dedução deixada a meio e não uma gralha**: o comentário imediatamente acima daquele `CREATE TRIGGER` escreve o argumento inteiro — um *trigger* por linha não dispara quando não há linhas — e o argumento vale letra por letra para o `UPDATE`. Medido a 2026-11-03 contra um PostgreSQL **18.6** real ao escrever o **KAM-175**, que é o credor da metade gémea na `platform.payment_events`. O ticket impõe `BEFORE TRUNCATE OR DELETE OR UPDATE … FOR EACH STATEMENT` numa **revisão nova** e não por edição da `0030`, e a razão está medida: a `0030` fundiu na `main` a 2026-11-03 (`84f3169`), pelo que uma edição no sítio é invisível para qualquer base que já a tenha corrido. **Três tabelas irmãs da dívida 176 não são deste ticket** — `platform.audit_log` (KAM-012), `platform.tool_audit` (KAM-028) e `dat.llm_call_log` (KAM-030), esta com uma pergunta própria por ser particionada. O `Bloqueia` do **KAM-044** passa a nomear o KAM-176, que é a reciprocidade da dependência. Nenhuma caixa do KAM-176 é marcada. | Equipa KAMBÁ |
 | 1.5 | Novembro 2026 | **KAM-044: as duas secções de verificação, depois de o código ter fundido — e isso é um defeito de processo que fica dito.** O PR #112 fundiu a 2026-11-03 (`84f3169`) com os treze portões bloqueantes verdes e **sem tocar neste ficheiro**, pelo que o bloco ficou com as catorze caixas por marcar e sem secção de verificação; nesse intervalo o `vagas.py` da fábrica contou o KAM-044 como **vaga pronta**, porque decide pela existência do cabeçalho «Verificação dos Critérios de Aceitação» e não pelas caixas. **Cinco critérios marcados de oito e quatro itens de seis na DoD**, cada um com nome de ensaio e saída de execução. **Os três critérios devolvidos não são trabalho deste ticket, e o credor de cada um está nomeado:** o 3 pede que o evento seja autenticado pelo PAY, o que exige a FK `payment_charges.order_id` que não existe (**KAM-055**, a quem esta entrega impõe um contrato novo — inserir em `events_consumed` antes de chamar `transition`); o 7 pede um *job* agendado (**KAM-071**) e correcções que são do `createOrder` (**KAM-046**), do `releaseReservation` (**KAM-045**) e do lado do Registo, que é **NÃO VERIFICADO** por não haver Medusa em `../infra/compose/`; e o 8 pede seis eventos quando o sexto **não tem contrato publicado** — saem cinco, a ausência está medida em ensaio e a divergência é a **dívida 174**, sem credor. Na DoD ficam vazios o 1, que é a soma dos outros, e o 6, cuja segunda metade pede «revisão por dois revisores»: houve **uma** revisão adversarial independente, com os doze achados verificados um a um, e emendar a letra de um critério é de quem o escreveu. **Uma ressalva do critério 6 é agora um ticket:** o `FOR EACH STATEMENT` do registo é `BEFORE TRUNCATE OR DELETE` e deixa passar um `UPDATE` sem linhas a quem tem o privilégio — dívida 176, credor **KAM-176**. Nenhuma linha de código é tocada por esta emenda. | Equipa KAMBÁ |
 | 1.6 | Novembro 2026 | **KAM-044, critério 8: o sexto evento não existe, por decisão do fundador a 2026-11-04, e a caixa fecha.** A letra do critério enumerava seis eventos e o sexto — `order.reconciliation_issue` — não tinha contrato publicado, não estava nos trinta e oito tipos do §3.5 do dicionário e não estava no `../docs/tecnica/06` §5: estava só no §12 do `../docs/tecnica/03`, de onde saiu nesta data. O critério passa à **forma canónica** — cinco eventos —, pelo mesmo mecanismo com que o KAM-051 pôs quatro dos seus critérios caducados na forma do canon, e a célula da verificação passa de `parcial` a **marcada**. **A caixa 1 da Definition of Done continua vazia**, porque os critérios 3 e 7 continuam devolvidos: o 3 espera a FK do **KAM-055** e o 7 espera o **KAM-071**, o **KAM-046** e o **KAM-045**. Passa a ser **seis critérios marcados de oito**. O ensaio `test_o_sexto_tipo_nao_tem_contrato_publicado` fica e muda de papel: media uma ausência, passa a guardar a decisão. **A proveniência da decisão, porque afirmá-la sem ela era uma afirmação sem medição:** resposta directa do fundador a esta sessão (a do KAM-044) a 2026-11-04, à pergunta de qual das duas saídas que a dívida 174 escreveu seguir. **E o que o fecho da 174 deixou em aberto entra como dívida 177**, com credor **KAM-080**: a regra (2) do §10.3 fica com registo e com métrica e sem caminho de alerta. | Equipa KAMBÁ |
+| 1.7 | Novembro 2026 | **KAM-176 entregue.** Secção «Verificação dos Critérios de Aceitação» no bloco, com os **oito** critérios e as **doze** caixas do DoD, cada um com ensaio nomeado e saída de execução. **Vinte caixas marcadas e nenhuma devolvida**, e uma delas marcada **com a razão do critério devolvida**, que é coisa diferente. O `order_state_log_sem_truncate` passa a `BEFORE TRUNCATE OR DELETE OR UPDATE … FOR EACH STATEMENT` na revisão nova [`0031`](../db/migrations/versions/0031_registo_sem_mutacao_sem_linhas.py), sem *trigger* novo e sem função nova: o `DELETE` sem linhas já estava fechado e o `UPDATE` não, porque o argumento que o KAM-044 escreveu imediatamente acima do `CREATE TRIGGER` — «um `BEFORE DELETE … FOR EACH ROW` não dispara quando não há linhas» — vale letra por letra para o `UPDATE` e ele seguiu-o até metade. Não é gralha: é uma dedução deixada a meio. A suite passou de **90** para **95** ensaios, `OK`, e o *gate* 6 ficou em 79, `OK`. **O critério 5 cumpre-se à letra e a razão dele fica devolvida a quem a escreveu:** ele decide «revisão nova» por «a `0030` fundiu na `main`, logo qualquer clone que tenha corrido `alembic upgrade head` a tem», e a premissa é falsa nas duas pontas — a `0029` também fundiu (`94bd634`, #104) e o KAM-175 editou-a no sítio, e **nenhuma** base pode ter corrido aquele comando, porque o `../db/migrations/README.md` diz que não há forma de aplicar migrações ao PostgreSQL do compose (rede interna, serviço `db` sem `ports:`). A conclusão mantém-se, e por uma razão melhor, escrita na própria revisão: «ninguém pode ter aplicado a `0030`» é propriedade da infraestrutura **de hoje**, e hoje é o dia em que o KAM-076 fundiu o compose de produção — uma revisão editada no sítio só é segura enquanto ninguém a aplicou, e uma revisão nova é correcta com a premissa e sem ela. **O canário corre nos dois sentidos** e o segundo sentido entrou pela lição do achado 3 da revisão adversarial do KAM-175, onde a célula que afirmava a redundância do *trigger* por linha citava justamente o ensaio da proposição inversa. **Duas alterações fora dos critérios, as duas declaradas:** uma cláusula de comentário no `../db/tests_isolamento/sementes.py` (dizia «incluindo um `DELETE` que não casa linha nenhuma», e a assimetria fazia inferir que o `UPDATE` sem linhas não estava coberto — a ressalva tácita que este ticket existe para fechar), e o alargamento do ensaio de modo `replica` às quatro instruções, porque ele media o `ENABLE ALWAYS` só para o `DELETE`. **E esse alargamento trouxe um defeito que vale guardar:** o `SET session_replication_role = replica` estava uma vez antes do ciclo e o auxiliar `tentar` faz `rollback` em cada recusa — um `SET` cru **é desfeito por um `ROLLBACK`**, pelo que da segunda iteração em diante a sessão estava em `origin` e as três instruções restantes mediam o modo errado, verde sobre a barreira que o `replica` existe para contornar. Não mordia com uma instrução só. Corrigido com o `SET` dentro do ciclo e um `SHOW` a confirmá-lo antes de cada tentativa. **Meia dívida 176 riscada** — a do `order_state_log` —, com as três tabelas irmãs intactas aos seus credores (KAM-012, KAM-028, KAM-030); a **175 continua riscada** pelo PR do KAM-175 e a **178** continua aberta, com credor KAM-053. | Equipa KAMBÁ |
