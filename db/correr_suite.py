@@ -62,6 +62,9 @@ def main() -> int:
         # KAM-053: o ledger append-only, a porta unica de escrita e a cadeia de
         # hashes.
         "tests_pagamentos",
+        # KAM-044: as encomendas — o grafo, o CAS por versao, o registo
+        # append-only e a autenticidade de `paga`.
+        "tests_encomendas",
     ):
         print(f"suite desconhecida: {directorio!r}", file=sys.stderr)
         return 2

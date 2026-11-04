@@ -212,6 +212,18 @@ class TestCatalogoReal(ComBase):
                 # `tenant_id` e **parte da chave primaria** e nao uma
                 # coluna ao lado dela.
                 ("platform", "offer_terms", "tenant_id"),
+                # KAM-044: as quatro das encomendas. A ordem e a do `sorted()`
+                # por ponto de codigo, e nela o `_` (0x5F) vence o `s` (0x73):
+                # as tres `order_*` vem **antes** da `orders_mirror`, e todas
+                # depois de `offer_terms` («off» < «ord»).
+                #
+                # O `order_state_graph` **nao** esta aqui, e nao e falta: nao
+                # tem `tenant_id`, e a descoberta do X-05 pergunta pela coluna.
+                # E tabela de referencia, como a `evt_subscricoes`.
+                ("platform", "order_intents", "tenant_id"),
+                ("platform", "order_reconciliation_issues", "tenant_id"),
+                ("platform", "order_state_log", "tenant_id"),
+                ("platform", "orders_mirror", "tenant_id"),
                 ("platform", "outbound_messages", "tenant_id"),
                 # KAM-115: as duas do aviso ao dono, e a posicao e **depois**
                 # de `outbound_messages`: no `sorted()` por ponto de codigo,
@@ -418,6 +430,16 @@ class TestCatalogoReal(ComBase):
                 # `rls.enable_tenant_rls` e o unico sitio onde a politica se
                 # escreve, e nao toma parametros de papel.
                 ("offer_terms", "tenant_iso", "ALL", "{public}"),
+                # KAM-044: as **quatro** das encomendas, e no `ORDER BY 1` o
+                # `_` (0x5F) vence o `s` (0x73) — as tres `order_*` vem antes da
+                # `orders_mirror`. `ALL` e `{public}` nas quatro, como em todas:
+                # o `rls.enable_tenant_rls` e o unico sitio onde a politica se
+                # escreve. O `order_state_graph` nao aparece: nao tem
+                # `tenant_id`, e e tabela de referencia.
+                ("order_intents", "tenant_iso", "ALL", "{public}"),
+                ("order_reconciliation_issues", "tenant_iso", "ALL", "{public}"),
+                ("order_state_log", "tenant_iso", "ALL", "{public}"),
+                ("orders_mirror", "tenant_iso", "ALL", "{public}"),
                 ("outbound_messages", "tenant_iso", "ALL", "{public}"),
                 # KAM-115: as duas do aviso ao dono, depois de
                 # `outbound_messages` («ou» < «ow»).
@@ -564,7 +586,16 @@ class TestCatalogoReal(ComBase):
              # exactamente como a nota do KAM-115 tres entradas abaixo avisa: as
              # listas sao perguntas diferentes sobre a mesma tabela, e quem
              # acrescenta uma corre o *gate* 6 **inteiro**. Medido outra vez.
-             "message_templates", "offer_terms", "outbound_messages",
+             "message_templates", "offer_terms",
+             # KAM-044: as quatro das encomendas, e a nota de cima vale outra
+             # vez — **sexta lista deste ficheiro a precisar de uma tabela
+             # nova**, e as cinco anteriores ja estavam feitas quando esta
+             # falhou. Quem acrescentar uma tabela isolada corre o *gate* 6
+             # **inteiro**: as listas sao perguntas diferentes sobre a mesma
+             # tabela. Medido outra vez, com 31 erros e 2 falhas.
+             "order_intents", "order_reconciliation_issues",
+             "order_state_log", "orders_mirror",
+             "outbound_messages",
              # KAM-115: as duas do aviso ao dono. **Quarta lista deste ficheiro
              # a precisar delas**, e as outras tres ja estavam feitas quando esta
              # falhou — exactamente como o KAM-017 avisou duas notas acima. A

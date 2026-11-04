@@ -117,6 +117,22 @@ export const INVENTARIO: readonly Entrada[] = [
       "numero com prefixo. Sem o exemplo, o comentario nao se podia verificar",
   },
   {
+    ficheiro: "db/tests_encomendas/test_outbox.py",
+    ocorrencias: 2,
+    razao:
+      "controlo positivo da guarda de PII de platform.evt_emitir (KAM-044, " +
+      "criterio 8): o ensaio emite um order.cancelled com um numero de forma " +
+      "angolana no `motivo` e exige `check_violation` **antes** de qualquer " +
+      "escrita no outbox. Sem um numero de forma real a asercao nao prova que o " +
+      "padrao da revisao 0004 o ve, que e a razao da entrada do " +
+      "`contract_diff/tests/test_pii.py`. **Sao duas ocorrencias e o numero e " +
+      "um**: ele casa os **dois** padroes desta ferramenta — o `telefone_ao` " +
+      "pelo `+244 9...` e o `e164_entre_aspas` por estar entre aspas num " +
+      "literal de Python —, e o varrimento conta por padrao. Medido com os dois " +
+      "padroes de `numeros.ts` sobre o ficheiro. Sequencial a partir do prefixo " +
+      "movel, como os das outras entradas desta lista, e nao pertence a ninguem",
+  },
+  {
     ficheiro: "packages/core-ts/tests/avisos.test.ts",
     ocorrencias: 2,
     razao:

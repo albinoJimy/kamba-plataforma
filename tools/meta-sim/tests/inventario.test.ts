@@ -136,8 +136,22 @@ describe("o inventario deste repositorio", () => {
     // a mensagem a nomear o ficheiro. E a terceira vez que a mesma salvaguarda
     // morde um ticket que nao a estava a pensar — o KAM-115, o KAM-112 e este —
     // e e por isso que a contagem fica aqui e nao numa pasta isenta.
-    assert.equal(totalDeclarado(), 99);
-    assert.equal(INVENTARIO.length, 27);
+    //
+    // **101 em 28 ficheiros desde o KAM-044**, e as duas que entram sao **um
+    // numero**: o controlo positivo da guarda de PII de `platform.evt_emitir`
+    // no `db/tests_encomendas/test_outbox.py` — um `order.cancelled` com um
+    // numero de forma angolana no `motivo`, que tem de ser recusado **antes**
+    // de qualquer escrita no outbox. Conta duas vezes porque casa os **dois**
+    // padroes de `numeros.ts`: o `telefone_ao` pelo `+244 9...` e o
+    // `e164_entre_aspas` por estar entre aspas num literal de Python.
+    //
+    // **E este gate apanhou-o outra vez, e a mim**: o PR do KAM-044 abriu com
+    // o numero por declarar e o gate 7 ficou vermelho na primeira corrida, com
+    // a mensagem a nomear o ficheiro e a contagem. E a quarta vez que a mesma
+    // salvaguarda morde um ticket que nao a estava a pensar — o KAM-115, o
+    // KAM-112, o KAM-053 e este.
+    assert.equal(totalDeclarado(), 101);
+    assert.equal(INVENTARIO.length, 28);
   });
 
   it("nenhuma entrada e de uma pasta inteira", () => {

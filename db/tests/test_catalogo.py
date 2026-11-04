@@ -296,6 +296,29 @@ class TestConvencoes(ComBase):
                 # **nao** estao aqui, e estao no `por_identidade`: ali o que
                 # importa e a ordem, aqui e a chave que o chamador traz.
                 "payment_charges",
+                # KAM-044: as tres das encomendas com coluna `id`, `uuid`
+                # gerado. A `orders_mirror` pela razao geral — o `kamba_app`
+                # **le e escreve** esta tabela, e um `id` sequencial media
+                # quantas encomendas a plataforma inteira tem, lido pelo papel
+                # que atende um cliente.
+                #
+                # O `order_state_log` **nao** esta no `por_identidade`, ao
+                # contrario do que o §5.4 escreve e do que a `audit_log` faz, e
+                # a razao e a mesma a olhar para o outro lado: a propriedade que
+                # justifica as excepcoes de identidade — «nenhum papel sujeito a
+                # RLS le a coluna» — nao se verifica aqui, porque o *trigger*
+                # diferido `order_estado_exige_log` le a tabela **como
+                # invocador** e por isso o `kamba_app` tem de ter `SELECT` nela.
+                # Uma `SECURITY DEFINER` para o evitar lia zero linhas sob
+                # `FORCE` (ver `db/rls.py`).
+                #
+                # O `order_intents` e o `order_state_graph` nao estao aqui e nao
+                # e falta: nenhum tem coluna `id` — o primeiro tem chave natural
+                # `(tenant_id, intent_key)`, que e o recibo de idempotencia, e o
+                # segundo `(de, para)`, que e o par que ele declara valido.
+                "orders_mirror",
+                "order_state_log",
+                "order_reconciliation_issues",
             }
             | por_identidade,
         )
@@ -533,6 +556,36 @@ class TestConvencoes(ComBase):
                 # ("of" < "ou").
                 ("offer_terms", "sku", "text", None),
                 ("offer_terms", "tenant_id", "uuid", None),
+                # KAM-044: as cinco das encomendas, e tres formas diferentes.
+                #
+                # O `order_intents` tem chave **natural e composta**,
+                # `(tenant_id, intent_key)`, e e ela o recibo de idempotencia do
+                # secao 6.3: um `uuid` gerado ao lado era uma chave que nao
+                # impede a segunda criacao com a mesma intencao.
+                #
+                # O `order_state_graph` tem chave natural `(de, para)`, como a
+                # `evt_subscricoes` da `0004` e a `payment_outbox_map` da
+                # `0029`: e uma tabela de referencia, e a sua identidade e o
+                # par que ela declara valido. **Nao tem `tenant_id`**, e por
+                # isso a chave nao comeca por ele.
+                #
+                # A `orders_mirror`, o `order_state_log` e o
+                # `order_reconciliation_issues` seguem a regra geral, `uuid`
+                # gerado. O do registo de estados **nao** e de identidade,
+                # ao contrario do que o §5.4 escreve e do que a `audit_log`
+                # faz: o `kamba_app` tem de ler esta tabela (e o *trigger*
+                # diferido que a le, como invocador), pelo que a propriedade
+                # que justifica as excepcoes de identidade — «nenhum papel
+                # sujeito a RLS le a coluna» — nao se verifica aqui, e um
+                # `bigint` sequencial media as transicoes de toda a
+                # plataforma. A razao esta escrita na revisao `0030`.
+                ("order_intents", "intent_key", "text", None),
+                ("order_intents", "tenant_id", "uuid", None),
+                ("order_reconciliation_issues", "id", "uuid", "gen_random_uuid()"),
+                ("order_state_graph", "de", "text", None),
+                ("order_state_graph", "para", "text", None),
+                ("order_state_log", "id", "uuid", "gen_random_uuid()"),
+                ("orders_mirror", "id", "uuid", "gen_random_uuid()"),
                 ("outbound_messages", "id", "uuid", "gen_random_uuid()"),
                 ("owner_contacts", "id", "uuid", "gen_random_uuid()"),
                 ("owner_notices", "id", "uuid", "gen_random_uuid()"),
@@ -875,7 +928,34 @@ class TestConvencoes(ComBase):
              # `estado = 'emitida'`, e a segunda e a terceira colunas sao a
              # pergunta do `getValidQuote`: «a cotacao viva deste SKU, a
              # mais recente primeiro».
-             "offer_terms", "price_quotes"},
+             "offer_terms", "price_quotes",
+             # KAM-044. As **quatro** das encomendas, e cada uma satisfaz a
+             # regra por onde a sua pergunta e feita. A `orders_mirror` tem
+             # indice proprio `(tenant_id, estado, criado_at DESC)`, que e o
+             # `listOrders` da porta — a chave primaria e o `id` aleatorio,
+             # pelo que esta e a setima desta classe a nao satisfazer a
+             # convencao de graca. O `orders_mirror_expira_idx` **nao**
+             # comeca pelo `tenant_id` e nao deve: o varrimento da expiracao
+             # (KAM-045) corre como `kamba_batch` sobre a base toda e procura
+             # por instante, nao por tenant.
+             #
+             # O `order_intents` satisfaz-a de graca, como a `offer_terms`: a
+             # chave primaria **e** composta e comeca pelo `tenant_id`
+             # (`(tenant_id, intent_key)`), que e a chave de idempotencia do
+             # secao 6.3.
+             #
+             # O `order_state_log` satisfaz-a pela **unicidade**
+             # `(tenant_id, order_id, version)`, que nao esta la para
+             # indexar: e a restricao que torna «a mesma transicao gravada
+             # duas vezes» um `23505`. Indexa de graca a unica pergunta que
+             # se faz ao registo — o historico de uma encomenda, por versao.
+             #
+             # O `order_reconciliation_issues` levou indice proprio
+             # `(tenant_id, estado, aberta_at)`, e a segunda e a terceira
+             # colunas sao a metrica do bloco: «divergencias abertas > 5 min
+             # = 0».
+             "order_intents", "order_reconciliation_issues",
+             "order_state_log", "orders_mirror"},
         )
         for tabela, anulavel in com_tenant:
             with self.subTest(tabela=tabela):
@@ -988,6 +1068,25 @@ class TestConvencoes(ComBase):
         # pergunta como uma tabela. E a mesma coluna do ledger, pela mesma
         # razao, vista por quem audita.
         ("v_payment_events_audit", "valor_minor"),
+        # KAM-044, revisao `0030`. O total **desta encomenda** no instante em
+        # que o cliente a confirmou: a soma das linhas do `lines_snapshot`, na
+        # mesma unidade menor.
+        #
+        # **Nao e um saldo**, e aqui a distincao e mais curta do que nas de
+        # pagamento: um saldo e quantia que a plataforma **detem** e que se soma
+        # e subtrai ao longo do tempo, e este numero nao se soma a nada — ele
+        # **congela**. O `order_transicao_valida` recusa alterar o
+        # `total_minor`, o `lines_snapshot` e a `currency` depois de a encomenda
+        # sair de `criada`, pelo que a coluna e historia e nao posicao: e o que
+        # o cliente aceitou pagar, guardado para que a reconciliacao do secao
+        # 10.3 o possa fazer vencer contra o Registo. O dinheiro vai da conta do
+        # cliente para a da PME e a plataforma nao fica com nada por causa desta
+        # coluna, que e o que o ADR-004 recusa.
+        #
+        # E `bigint` e nao `numeric`, pela razao do §2 do dicionario, e tem
+        # `currency` explicita ao lado (`orders_mirror_currency_ck`, dominio de
+        # um valor).
+        ("orders_mirror", "total_minor"),
     }
 
     def test_nao_ha_colunas_de_dinheiro_nem_saldos(self) -> None:
@@ -1293,7 +1392,35 @@ class TestConvencoes(ComBase):
         # A `payment_outbox_map` nao tem FK nenhuma: e configuracao global, nao
         # tem `tenant_id`, e o `tipo_evento` e o `authn_method` sao dominios
         # fechados por `CHECK` e nao tabelas.
-        self.assertEqual(len(linhas), 50)
+        #
+        # **57 e nao 50** desde a `0030` (KAM-044): as **sete** das encomendas —
+        # duas da `orders_mirror` (`tenants` e a composta para `contacts`), duas
+        # do `order_intents` (`tenants` e a composta para `orders_mirror`), uma
+        # do `order_state_log` (a composta para `orders_mirror`) e duas do
+        # `order_reconciliation_issues` (`tenants` e a composta para
+        # `orders_mirror`).
+        #
+        # **Quatro das sete sao compostas com o `tenant_id`**, e e a correccao
+        # de 2026-10-27 do `docs/tecnica/03` secao 5.4 aplicada onde ela nomeia:
+        # «a mesma regra vale para toda a FK entre duas tabelas com `tenant_id`
+        # (`stock_reservations -> orders_mirror`, `order_state_log ->
+        # orders_mirror`, `price_quotes -> contacts`), e o KAM-044 e o KAM-045
+        # herdam-na daqui». As tres para `orders_mirror` assentam na
+        # `orders_mirror_tenant_id_uq`, que a revisao acrescenta para isso e
+        # para mais nada.
+        #
+        # O `order_state_log` tem **uma** so e nao duas, e e a unica diferenca
+        # de forma entre ele e as outras tres: a FK composta para a
+        # `orders_mirror` ja prende o `tenant_id` dele ao da encomenda, e uma
+        # segunda para `tenants` nao acrescentava garantia nenhuma — prendia o
+        # mesmo valor a mesma linhagem duas vezes, numa tabela *append-only*
+        # cujo `INSERT` corre no caminho de toda a transicao.
+        #
+        # O `order_state_graph` nao tem FK nenhuma: e referencia, nao tem
+        # `tenant_id`, e o `de` e o `para` sao o dominio fechado dos doze
+        # estados por `CHECK` — nao uma tabela de estados, que seria uma tabela
+        # de cinco linhas a dizer o que um `CHECK` diz.
+        self.assertEqual(len(linhas), 57)
         for nome, alvo in linhas:
             with self.subTest(fk=nome):
                 self.assertTrue(alvo.startswith("platform."), alvo)

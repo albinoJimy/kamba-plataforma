@@ -1270,6 +1270,40 @@ ci-8:
 	@# **Esta linha e que a faz correr.** Ver a licao do `tests_servicos` acima.
 	@echo "==> gate 8: ledger de pagamentos append-only (KAM-053)"
 	@$(VENV_PYTHON) db/gate_bd.py --suite tests_pagamentos
+	@#
+	@# ------------------------------------------- KAM-044: as encomendas
+	@#
+	@# O que esta suite prova, e o que nenhum duplo de teste pode: que o
+	@# *trigger* `BEFORE UPDATE` recusa **78 dos 88** pares que se medem por
+	@# execucao — os outros 56 dos 144 sao os 8 `X -> X`, que nao sao
+	@# transicoes, e os 48 em que um dos quatro estados do KAM-050 entra,
+	@# inalcancaveis por construcao. **A primeira versao deste comentario dizia
+	@# «cento e vinte» e a revisao adversarial contou: eram 67, porque o laco
+	@# nem exercitava o `em_entrega` como origem.** Com o canario que o desliga
+	@# e exige que a
+	@# transicao invalida **passe**, sem o qual o ensaio nao distingue o
+	@# *trigger* de um `CHECK` de dominio; que vinte transicoes concorrentes
+	@# sobre a mesma versao deixam **uma** a escrever e dezanove a reler, com o
+	@# canario que tira o `version = $$3` e exige que ganhem mais do que uma (em
+	@# serie, uma transicao depois da outra passa sempre e o criterio ficava por
+	@# provar); que o `CONSTRAINT TRIGGER` diferido recusa **no `COMMIT`** uma
+	@# mudanca de estado sem registo e um `paga` sem evento autenticado do PAY,
+	@# que e a barreira do criterio 3 — uma verificacao em TypeScript cobre so a
+	@# via do TypeScript, e o DoD diz «nenhuma via»; que uma encomenda nao nasce
+	@# paga (`order_nasce_criada`, a quinta via); que o `deny_mutation` recusa
+	@# `UPDATE`, `DELETE` e `TRUNCATE` no registo ao **superutilizador**; que o
+	@# gerador do `numero_publico` da dez mil valores distintos e usa os trinta e
+	@# dois simbolos de Crockford; que uma falha injectada depois da emissao
+	@# reverte **as duas** escritas; e que as sete cadeias de
+	@# `services/com/src/orders/consultas.ts` **correm** — a suite le-as do
+	@# proprio ficheiro TypeScript, como as do KAM-043 e do KAM-047.
+	@#
+	@# **Esta linha e que a faz correr.** Ver a licao do `tests_servicos` acima:
+	@# o `SUITES` do `gate_bd.py` e o `correr_suite.py` so a tornam corrivel, e
+	@# uma suite fora desta lista nunca corre no CI — em silencio, com o gate 8
+	@# verde.
+	@echo "==> gate 8: encomendas, grafo de estados e CAS (KAM-044)"
+	@$(VENV_PYTHON) db/gate_bd.py --suite tests_encomendas
 
 # -----------------------------------------------------------------------------
 # Limpeza
