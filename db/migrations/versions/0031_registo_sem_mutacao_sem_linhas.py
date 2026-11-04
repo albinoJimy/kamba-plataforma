@@ -53,13 +53,22 @@ Medido no KAM-175 e **a premissa nao se sustenta**, nem para a `0030` nem para a
   `infra/compose/docker-compose.dev.yml` confirma-o: o servico `db` nao tem
   `ports:` e esta so na rede `data`, que e `internal: true`.
 
-**A conclusao, porem, esta certa por outra razao, e e essa que a sustenta.**
-«Ninguem pode ter aplicado a `0030`» e uma propriedade da infraestrutura **de
-hoje**, e hoje e o dia em que o KAM-076 fundiu o compose de producao; o KAM-078 e
-o KAM-079 vem a seguir. Uma revisao editada no sitio so e segura enquanto ninguem
-a aplicou, e essa janela esta a fechar-se. **Uma revisao nova e correcta com a
-premissa e sem ela; a edicao no sitio so e correcta com ela** — e e por isso que
-esta revisao existe, e nao por o criterio o dizer.
+**A conclusao, porem, esta certa, e a razao suficiente e simples: uma revisao
+nova e correcta com a premissa e sem ela; a edicao no sitio so e correcta com
+ela.** Nao precisa de mais do que isto, e e por isso que esta revisao existe —
+nao por o criterio o dizer.
+
+**Uma razao a mais que se escreveu aqui primeiro, e que NAO se sustenta como
+medicao**, fica registada porque e instrutiva: dizia-se que «a janela esta a
+fechar-se», porque hoje e o dia em que o KAM-076 fundiu o compose de producao.
+Medido pela revisao adversarial: o `infra/compose/docker-compose.prod.yml`
+tambem poe o `postgres` **sem `ports:`** numa rede `internal: true`, e
+`grep -i alembic -- infra/` da **zero** — isto e, o compose de producao reproduz
+exactamente a propriedade que se estava a usar para provar o contrario. E o
+credor do buraco de aplicacao e o **KAM-075**, que ja fundiu (#103) sem o fechar.
+Logo «a janela esta a fechar-se» e uma **previsao** sobre o KAM-078, estado
+**NAO VERIFICADO**, e nao uma medicao — e e o mesmo genero de afirmacao que esta
+revisao recusa no criterio 5. Fica dito em vez de ficar a passar por medida.
 
 A divergencia fica registada no bloco do KAM-176 e **devolvida a quem escreveu o
 criterio**: emendar a letra de um criterio e de quem o escreveu, nao de quem o
@@ -85,8 +94,11 @@ executa.
   barreira de uma tabela *append-only* decide-se em quem a tem, e a
   `llm_call_log` leva uma pergunta propria por ser particionada — a `0023` mediu
   que o por linha e o `BEFORE TRUNCATE ... FOR EACH STATEMENT` no pai sao aceites
-  e que uma particao nova os herda, e nao diz nada sobre um
-  `BEFORE UPDATE ... FOR EACH STATEMENT` no pai.
+  e que uma particao nova os herda, e nao diz nada sobre um `BEFORE DELETE`
+  **nem** sobre um `BEFORE UPDATE ... FOR EACH STATEMENT` no pai. **Sao os dois
+  verbos**, porque na `0023` as duas metades estao abertas; a divida 176 nomeava
+  so o `DELETE` e a primeira versao deste cabecalho nomeava so o `UPDATE`, e as
+  duas eram mais estreitas do que a pergunta (achado 13 da revisao adversarial).
 
 ## O `downgrade` repoe a forma antiga, e e reversivel no sentido que importa
 

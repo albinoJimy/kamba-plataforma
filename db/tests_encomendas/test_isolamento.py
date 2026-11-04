@@ -435,6 +435,16 @@ class TestRegistoAppendOnly(ComEncomendas):
             por_linha,
             "o FOR EACH ROW nao admite TRUNCATE, e e a razao de serem dois",
         )
+        # **A funcao tambem, e nao so os verbos e o nivel.** O criterio 1 pede
+        # «continua a chamar a `platform.deny_mutation()`», e sem esta asercao
+        # uma revisao que apontasse o *trigger* para outra funcao ficava verde
+        # aqui e verde no `test_os_cinco_sao_enable_always`. Apanhado pela
+        # revisao adversarial do KAM-176.
+        for nome, definicao in (("sem_mutacao", por_linha), ("sem_truncate", por_instrucao)):
+            with self.subTest(trigger=nome, parte="funcao"):
+                self.assertIn(
+                    "EXECUTE FUNCTION platform.deny_mutation()", definicao
+                )
         for verbo in ("UPDATE", "DELETE"):
             with self.subTest(trigger="sem_mutacao", verbo=verbo):
                 self.assertIn(verbo, por_linha.split(" ON ")[0])
@@ -471,12 +481,24 @@ class TestRegistoAppendOnly(ComEncomendas):
         planeador**, antes de qualquer *trigger*, e o ensaio passava a medir um
         defeito do proprio ensaio em vez da barreira. Medido na primeira
         execucao desta suite.
+
+        **E a `version` tem de ser uma que NAO exista.** Com `version = 2` havia
+        **sempre** conflito — o `setUp` leva a encomenda a `aguarda_pagamento` e
+        o `transitar` escreve o registo com `version = 2` —, pelo que o ramo de
+        `UPDATE` era tomado e o `order_state_log_sem_mutacao` (`FOR EACH ROW`) ja
+        bastava para recusar: o ensaio ficava verde **com a barreira nova
+        retirada** e nao media nada do que o seu nome diz. Medido pela revisao
+        adversarial, que correu a suite com a mutacao aplicada e viu este ensaio
+        **sobreviver**. Com uma `version` livre nao ha conflito, o ramo de
+        `UPDATE` nunca e tomado, e so o *trigger* por instrucao pode recusar — e
+        e isso que torna esta asercao uma medicao da barreira da `0031`.
         """
         try:
             self.ensaio.execute(
                 "INSERT INTO platform.order_state_log "
                 "       (tenant_id, order_id, de, para, version, causa, actor_kind) "
-                "VALUES (%s, %s, 'criada', 'aguarda_pagamento', 2, 'repetida', 'ops') "
+                "VALUES (%s, %s, 'criada', 'aguarda_pagamento', 99, 'sem-conflito',"
+                "        'ops') "
                 " ON CONFLICT (tenant_id, order_id, version) "
                 "   DO UPDATE SET causa = 'adulterada'",
                 (self.tenant, self.encomenda),
@@ -554,18 +576,34 @@ class TestCanarioDoTriggerPorInstrucaoDoRegisto(ComEncomendas):
     def test_sem_o_por_linha_o_update_com_linhas_continua_recusado(self) -> None:
         """O sentido simetrico, e o que mede a redundancia do por linha.
 
-        Depois desta revisao o `order_state_log_sem_mutacao` e **estritamente
-        redundante**, e a afirmacao mede-se aqui em vez de se supor: desligado
-        so ele, com o por instrucao ligado, um `UPDATE` **com** linhas continua
-        recusado. O `setUp` deixou uma linha de registo, e sem ela o por
+        Desligado so ele, com o por instrucao ligado, um `UPDATE` **com** linhas
+        continua recusado. O `setUp` deixou uma linha de registo, e sem ela o por
         instrucao recusaria de qualquer forma — a asercao deixava de medir «com
         linhas», que e o defeito que o achado 3 do KAM-175 apanhou.
 
-        **Fica, e a razao nao e defesa em profundidade:** o
-        `TestOsTriggersSaoSempreActivos` prende o par
-        `('order_state_log', 'order_state_log_sem_mutacao')` e o
-        `db/tests/test_inventario.py` prende o nome. Remove-lo era mexer em dois
-        ensaios para nao ganhar barreira nenhuma.
+        ## «Redundante» tem um limite, e nao e «estritamente»
+
+        O por linha e redundante para **toda a instrucao SQL** — e o que este
+        ensaio mede. **Nao** e redundante para um `UPDATE` aplicado por
+        **replicacao logica**: o aplicador dispara *triggers* por linha marcados
+        `ALWAYS`/`REPLICA` e **nao** dispara os por instrucao, porque nao ha
+        instrucao a disparar. Nesse caminho o por linha e a **unica** barreira.
+
+        Esta distincao nao se mede aqui, e di-lo: um `SET
+        session_replication_role = replica` com um `UPDATE` SQL — que e o que o
+        `test_em_modo_replica_o_registo_continua_append_only` faz — **tem**
+        instrucao, logo dispara o por instrucao. Medir o outro caminho exigia
+        uma publicacao e uma subscricao reais, que este repositorio nao tem.
+        Estado: **NAO VERIFICADO** por execucao; a semantica do PostgreSQL e
+        documentada. Apanhado pela revisao adversarial do KAM-176.
+
+        **Logo o por linha fica por ter um caminho proprio**, e nao por
+        contabilidade de ensaios. Que dois ensaios o prendam pelo nome — o
+        `test_os_cinco_sao_enable_always` desta mesma suite e o
+        `test_a_lista_de_eventos_dos_triggers_do_registo_esta_no_catalogo` — e
+        consequencia, nao razao. (O `db/tests/test_inventario.py` **nao** prende
+        o nome destes dois *triggers*: prende as restricoes do
+        `order_state_log`. A primeira versao deste docstring dizia o contrario.)
         """
         self.assertGreater(
             self.consultar(

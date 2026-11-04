@@ -389,6 +389,9 @@ class ComEncomendas(ComBase):
         diferido corre, e um ensaio que nao confirmasse media so as barreiras
         imediatas — o grafo e os `CHECK` — e dava verde a uma transicao que a
         base recusaria no fim.
+
+        **E o `rollback` por recusa desfaz tambem o estado da sessao** — ver o
+        aviso no `tentar`, abaixo, que vale letra por letra para este.
         """
         try:
             self.transitar(tenant, encomenda, de, para, versao, causa, **campos)
@@ -403,6 +406,38 @@ class ComEncomendas(ComBase):
 
         Sem `SAVEPOINT`: a ligacao da semente e `autocommit` e nao os aceita, e
         esta e transaccional — um `rollback` desfaz o que a instrucao tentou.
+
+        ## O `rollback` por recusa desfaz tambem o estado da SESSAO
+
+        E a parte que a frase acima nao dizia, e custou um dia no KAM-176. Um
+        `SET` cru — nao `SET LOCAL` — feito dentro de uma transaccao e
+        **revertido quando ela aborta**, e este auxiliar aborta a transaccao em
+        **cada** recusa. Logo:
+
+            NUNCA     `SET session_replication_role = replica` uma vez, antes de
+                      um ciclo de varias chamadas ao `tentar`
+            SEMPRE    o `SET` dentro do ciclo, e um `SHOW` a confirma-lo antes
+                      de cada tentativa
+
+        **E invisivel enquanto o ensaio tiver uma instrucao so**, que e a razao
+        pela qual isto e um aviso e nao uma correccao: medido, o
+        `test_em_modo_replica_o_registo_continua_append_only` tinha uma, e ao
+        passar a quatro as tres ultimas ficaram a correr em `origin` — verde
+        sobre a barreira que o `session_replication_role = replica` existe
+        precisamente para contornar. Um ensaio de `ENABLE ALWAYS` que perca o
+        modo deixa de medir o `ALWAYS` e nao avisa.
+
+        O mesmo vale para qualquer estado de sessao posto por `SET`:
+        `search_path`, `statement_timeout`, `app.tenant_id` quando escrito sem o
+        terceiro argumento do `set_config` a `true`.
+
+        **E vale igualmente para o `tentar_transicao` acima**, que aborta a
+        transaccao do mesmo modo. Os dois auxiliares sao chamados de
+        `test_grafo.py`, `test_isolamento.py` e `test_pagamento.py` — tres
+        ficheiros, e nao os nove que uma busca por `tentar(` devolve: o
+        `_tentar` do `tests_agr/test_tranca.py` e o do
+        `tests_servicos/test_concorrencia.py` sao funcoes locais sem relacao com
+        estas.
         """
         try:
             self.ensaio.execute(sql, parametros)

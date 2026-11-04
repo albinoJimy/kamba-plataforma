@@ -1256,10 +1256,24 @@ def _triggers() -> None:
     # esta a fechar-se. O que fica abaixo e a forma **inicial**; quem quiser a
     # forma em vigor le o `0031`.
     #
-    # **E depois do `0031` quem da a propriedade e o por instrucao**, nao o por
-    # linha: o `order_state_log_sem_mutacao` passa a ser estritamente redundante
-    # (medido no `TestCanarioDoTriggerPorInstrucaoDoRegisto`) e fica porque dois
-    # ensaios o prendem pelo nome.
+    # **E depois do `0031` quem da a propriedade, para toda a instrucao SQL, e o
+    # por instrucao** — nao o por linha. O `order_state_log_sem_mutacao` passa a
+    # ser redundante **nesse** caminho, e esta medido nos dois sentidos no
+    # `TestCanarioDoTriggerPorInstrucaoDoRegisto`.
+    #
+    # **Mas «redundante» tem um limite, e o por linha fica por causa dele.** O
+    # aplicador de **replicacao logica** dispara *triggers* por linha marcados
+    # `ALWAYS`/`REPLICA` e **nao** dispara os por instrucao, porque nao ha
+    # instrucao a disparar: num `UPDATE` que chegue por essa via, o por linha e a
+    # **unica** barreira. Nao se confunda com o
+    # `test_em_modo_replica_o_registo_continua_append_only`, que corre instrucoes
+    # SQL com `session_replication_role = replica` — essas **tem** instrucao e
+    # disparam os dois. Estado: **NAO VERIFICADO** por execucao, porque nao ha
+    # publicacao nem subscricao neste repositorio; a semantica do PostgreSQL e
+    # documentada. Apanhado pela revisao adversarial do KAM-176.
+    #
+    # Logo o por linha fica por ter um caminho **proprio**, e nao por dois
+    # ensaios o prenderem pelo nome — isso e consequencia, nao razao.
     #
     # Das cinco tabelas *append-only* com esta forma, tres continuam com as duas
     # metades abertas — `platform.audit_log` (`0006`, KAM-012),
