@@ -214,6 +214,109 @@ class TestDowngradeDa0030(unittest.TestCase):
         self.cursor.execute("SELECT count(*) FROM platform.order_state_log")
         self.assertEqual(int(self.cursor.fetchone()[0]), 1)
 
+    def test_o_downgrade_da_0031_repoe_a_forma_antiga_do_trigger(self) -> None:
+        """A `0031` desce **a si propria** e nada mais, e observa-se o efeito.
+
+        **Este ensaio existe porque o `downgrade` da `0031` nunca era
+        observado.** Todos os `downgrade` desta suite e da `tests` vao a `0029`,
+        e nessa descida a `0031` recria o *trigger* na forma antiga e a `0030`
+        larga a tabela no passo seguinte — pelo que o efeito da `0031` era
+        destruido antes de qualquer asercao o ver. Consequencia medida pela
+        revisao adversarial do KAM-176: uma `0031` cujo `downgrade` chamasse
+        `_criar("TRUNCATE OR DELETE OR UPDATE")` — isto e, que nao desfizesse
+        nada — passava a suite inteira.
+
+        Desce-se a **`0030`**, nao a `0029`, e le-se o catalogo: a forma tem de
+        voltar a `BEFORE TRUNCATE OR DELETE` sem `UPDATE`, e o `tgenabled` tem de
+        ser `'A'` — um *trigger* recriado nasce na omissao (`O`), que o
+        `session_replication_role = replica` salta, pelo que o `downgrade` sem o
+        `ALTER` deixava a barreira antiga mais fraca do que era. E o item dos
+        *Testes Requeridos* que pede o catalogo «depois do `downgrade` e depois
+        de novo `upgrade`».
+        """
+        self._semear()
+        # Sem a variavel, e de proposito: a `0031` nao perde linha nenhuma, pelo
+        # que a guarda da `0030` nao se aplica a esta descida.
+        alembic_ok("downgrade", "0030")
+        self.assertEqual(
+            self.tabelas_existentes(),
+            sorted(TABELAS),
+            "a 0031 nao larga tabela nenhuma: as cinco ficam",
+        )
+        nome, definicao, estado = self._trigger_por_instrucao()
+        self.assertEqual(nome, "order_state_log_sem_truncate", "o nome nao muda")
+        self.assertEqual(estado, "A", "um trigger recriado nasce em 'O'")
+        eventos = definicao.split(" ON ")[0]
+        self.assertIn("TRUNCATE", eventos)
+        self.assertIn("DELETE", eventos)
+        self.assertNotIn(
+            "UPDATE",
+            eventos,
+            "o downgrade da 0031 tem de repor a forma antiga, e a forma antiga "
+            "nao cobre o UPDATE",
+        )
+
+        # E a volta: novo `upgrade` repoe a forma nova, com o `ALWAYS`.
+        alembic_ok("upgrade", "head")
+        _, definicao, estado = self._trigger_por_instrucao()
+        self.assertEqual(estado, "A")
+        self.assertIn("UPDATE", definicao.split(" ON ")[0])
+
+    def test_uma_descida_recusada_pela_0030_para_na_0031_e_di_lo(self) -> None:
+        """O que acontece a meio de um `downgrade` de duas revisoes.
+
+        O `env.py` corre com `transaction_per_migration=True`, pelo que
+        `downgrade 0029` a partir de `0031` sao **duas transaccoes**: a `0031`
+        desce e **confirma**, e so depois a `0030` levanta o seu `RuntimeError` e
+        e revertida. Isto e: o comando falha, e a base **mudou** — fica na
+        `0030`, com a barreira da `0030`.
+
+        **Nao e inconsistencia, e e por isso que isto e um ensaio e nao uma
+        correccao:** a base fica exactamente no estado que a sua linha de
+        `alembic_version` declara. O que e surpreendente e a leitura «o comando
+        falhou, logo nada mudou», que e falsa — e um operador que a faca conclui
+        que o registo continua a recusar o `UPDATE` sem linhas quando ja nao
+        recusa. Fica medido em vez de ser surpresa; a alternativa seria guardar o
+        `downgrade` da `0031` pelo mesmo predicado da `0030`, e isso era dar-lhe
+        uma guarda que ela nao precisa (nao perde linha nenhuma).
+
+        Apanhado pela revisao adversarial do KAM-176.
+        """
+        self._semear()
+        resultado = alembic("downgrade", ANTERIOR)
+        self.assertNotEqual(resultado.returncode, 0, "a 0030 tem de recusar")
+        self.assertIn(
+            "downgrade da 0030 recusado", resultado.stdout + resultado.stderr
+        )
+        self.cursor.execute("SELECT version_num FROM public.alembic_version")
+        self.assertEqual(
+            str(self.cursor.fetchone()[0]),
+            "0030",
+            "a 0031 desceu e confirmou antes de a 0030 recusar: a base esta na "
+            "0030, e nao na 0031 onde o comando comecou",
+        )
+        _, definicao, _ = self._trigger_por_instrucao()
+        self.assertNotIn(
+            "UPDATE",
+            definicao.split(" ON ")[0],
+            "e a barreira que esta na base e a da 0030, a condizer com a linha "
+            "de alembic_version",
+        )
+
+    def _trigger_por_instrucao(self) -> tuple[str, str, str]:
+        """O `(nome, pg_get_triggerdef, tgenabled)` do *trigger* por instrucao."""
+        self.cursor.execute(
+            "SELECT t.tgname::text, pg_get_triggerdef(t.oid), t.tgenabled::text "
+            "  FROM pg_trigger t "
+            "  JOIN pg_class c ON c.oid = t.tgrelid "
+            "  JOIN pg_namespace n ON n.oid = c.relnamespace "
+            " WHERE n.nspname = 'platform' AND c.relname = 'order_state_log' "
+            "   AND t.tgname = 'order_state_log_sem_truncate'"
+        )
+        linha = self.cursor.fetchone()
+        self.assertIsNotNone(linha, "o trigger por instrucao tem de existir")
+        return (str(linha[0]), str(linha[1]), str(linha[2]))
+
     def test_com_a_variavel_escreve_a_copia_e_desce(self) -> None:
         tenant = self._semear()
         destino = Path(tempfile.gettempdir()) / f"kamba-0030-{uuid.uuid4().hex}.jsonl"
