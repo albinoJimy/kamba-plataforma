@@ -147,8 +147,18 @@ function base(opcoes: Opcoes = {}): {
   return { cliente, visto };
 }
 
+/** O anel do `segredo_intents`, que o adaptador exige desde o KAM-178. */
+const ANEL: readonly [string, string | null] = [
+  `v1:${Buffer.alloc(32, 7).toString("base64")}`,
+  null,
+];
+
 function deps(cliente: ClienteSql): Dependencias {
-  return { comTenant: async (_t, trabalho) => trabalho(cliente) };
+  // O `anel` nao serve nenhum dos tres metodos do catalogo e e obrigatorio de
+  // qualquer modo: sem ele o `listOrders` nao assina cursor e o `createOrder`
+  // nao deriva chave, e um adaptador montado pela metade era um que falhava no
+  // primeiro pedido em vez de no arranque.
+  return { comTenant: async (_t, trabalho) => trabalho(cliente), anel: ANEL };
 }
 
 function ctx(kind: "agente" | "dono" | "sistema" | "ops" = "dono"): Ctx {

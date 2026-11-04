@@ -55,10 +55,28 @@ test("o SHA do commit vem do ambiente quando o CI o injecta", async () => {
 });
 
 test("uma rota desconhecida não responde 200", async () => {
-  for (const path of ["/", "/healthz/", "/metrics", "/admin"]) {
+  // **O `/metrics` saiu desta lista pelo KAM-178**, e não por conveniencia: ele
+  // passou a ser uma rota deste serviço, com o formato de exposição do
+  // Prometheus e sem credencial (critério 8, dicionário §3.39). Deixá-lo aqui
+  // era um caso a afirmar que uma superfície que existe não existe.
+  for (const path of ["/", "/healthz/", "/admin", "/internal", "/metricas"]) {
     const response = await sonda(path);
     assert.notEqual(response.status, 200, `${path} devia recusar`);
   }
+});
+
+test("o /metrics responde 200 e as rotas internas respondem 503 sem API montada", async () => {
+  // O `createApp()` sem dependências é a forma do esqueleto do KAM-001: serve a
+  // sonda e as métricas, e **não** serve a API interna. O 503 e não 404 é
+  // deliberado — ver a nota do `app.ts`.
+  const metricas = await sonda("/metrics");
+  assert.equal(metricas.status, 200);
+  assert.match(
+    metricas.headers.get("content-type") ?? "",
+    /^text\/plain; version=0\.0\.4/,
+  );
+  const interna = await sonda("/internal/get-order");
+  assert.equal(interna.status, 503);
 });
 
 // --- KAM-068: o erro de um tratador não sai pela consola ---------------------

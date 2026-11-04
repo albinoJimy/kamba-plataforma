@@ -53,6 +53,7 @@ import {
   SQL_PEDIDO_POR_PAGAR,
   SQL_RETOMAR_INTENCAO,
   TABELA_DAS_INTENCOES,
+  TABELA_DO_ESPELHO,
   TECTO_DE_ESPERA_MS,
   cartId,
   chavesDoAnel,
@@ -430,7 +431,7 @@ test("a saga corre em duas transacções e escreve o recibo antes do espelho", a
   assert.ok(o.transaccoes >= 2, `transacções: ${o.transaccoes}`);
   assert.deepEqual(
     o.inseridas.map((i) => i["tabela"]),
-    [TABELA_DAS_INTENCOES, "orders_mirror"],
+    [TABELA_DAS_INTENCOES, TABELA_DO_ESPELHO],
   );
   const guardado = o.intents.get(intentKey(ACTUAL, PARTES));
   assert.equal(guardado?.estado, "concluida");
@@ -491,7 +492,7 @@ test("uma linha confirmar_dono nasce `criada` com `pendente`, no próprio INSERT
   if (r.tipo !== "ok") return;
   assert.equal(r.valor.confirmacaoDono, "pendente");
   assert.equal(r.valor.estado, "criada");
-  const mirror = o.inseridas.find((i) => i["tabela"] === "orders_mirror");
+  const mirror = o.inseridas.find((i) => i["tabela"] === TABELA_DO_ESPELHO);
   assert.equal(String(mirror?.["confirmacao_dono"]), "pendente");
 });
 
@@ -501,7 +502,7 @@ test("o createOrder emite `order.created` e nada de pagamento", async () => {
   const { m, o } = montar({ termos: [termos()] });
   await createOrder(m, PEDIDO);
   assert.deepEqual(o.emitidos, ["order.created"]);
-  const mirror = o.inseridas.find((i) => i["tabela"] === "orders_mirror");
+  const mirror = o.inseridas.find((i) => i["tabela"] === TABELA_DO_ESPELHO);
   assert.equal("estado" in (mirror ?? {}), false, "o INSERT não passa estado");
   assert.equal("paga_via" in (mirror ?? {}), false);
 });
@@ -829,7 +830,7 @@ test("com o anel rodado e um recibo antigo abandonado, a encomenda nasce com a c
   });
   const r = await createOrder(m, PEDIDO);
   assert.equal(r.tipo, "ok", comoTexto(r));
-  const mirror = o.inseridas.find((i) => i["tabela"] === "orders_mirror");
+  const mirror = o.inseridas.find((i) => i["tabela"] === TABELA_DO_ESPELHO);
   assert.equal(String(mirror?.["intent_key"]), antiga);
   assert.equal(o.intents.get(antiga)?.estado, "concluida");
   // E nenhum recibo novo nasceu sob a chave actual.
