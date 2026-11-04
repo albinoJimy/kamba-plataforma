@@ -1,0 +1,34 @@
+# Dispensas de caso de isolamento (gate 6) — KAM-066, criterio 2
+#
+# O gate 6 falha se uma superficie enumerada — uma rota, uma tool do REG, uma
+# fila BullMQ, um consumidor EVT — nao tiver caso registado em
+# `security/isolation/baterias/`. Este ficheiro e a unica forma de dispensar
+# uma superficie, e **esta vazio**, e deve continuar vazio enquanto puder.
+#
+# Porque e que ele existe, se esta vazio: para que a unica alternativa a
+# escrever o caso seja escrever **aqui** quem o deve e porque. A alternativa
+# que nao se quer e a que o criterio 2 fecha — «nao existe "sem teste"
+# silencioso». Uma superficie sem caso e sem dispensa nao passa.
+#
+# Campos, todos obrigatorios (`security/isolation/casos.py` recusa o ficheiro
+# sem eles):
+#
+#   item     o identificador do item, exactamente como a enumeracao o imprime
+#            (`python -m isolation --listar`)
+#   credor   `KAM-NNN` — o ticket que escreve o caso. **Tem de existir no §4 do
+#            specs/INDICE.md**: uma dispensa cujo credor nao existe nunca e paga
+#   razao    o que o caso teria de levantar, e porque e que ainda nao pode.
+#            60 caracteres no minimo — o dobro do que o `rls_exceptions` pede,
+#            porque uma dispensa ao isolamento e a unica coisa destes ficheiros
+#            que ninguem mede depois
+#
+# Duas formas de uma dispensa morrer, e as duas **falham o gate**:
+#
+#   - o item ja nao e uma superficie enumerada (desapareceu, ou mudou de nome);
+#   - o item entretanto ganhou caso.
+#
+# Uma dispensa morta e uma porta que ficou aberta sem ninguem a usar.
+
+version: 1
+
+dispensas: []

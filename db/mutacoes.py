@@ -104,6 +104,16 @@ GUARD_PY = "libs/py-core/src/kamba_core/tenant_guard/__init__.py"
 PYCORE_UNIT = "pycore_unit"
 CATALOGO = "db/tests_isolamento/catalogo.py"
 ISOLAMENTO = "tests_isolamento"
+# ------------------------------------------------------------------- KAM-066
+#: O *harness* de isolamento cruzado: a maquina que recusa a ausencia de um
+#: teste. Cada mutacao daqui apaga **uma** verificacao dele, e o que tem de a
+#: matar sao as baterias de `tools/isolamento/tests`.
+ISOLAMENTO_UNIT = "isolamento_unit"
+ISO_ENUM = "tools/isolamento/enumeracao.py"
+ISO_CASOS = "tools/isolamento/casos.py"
+ISO_LINTS = "tools/isolamento/lints.py"
+ISO_ORACULO = "tools/isolamento/oraculo.py"
+ISO_C01 = "tools/isolamento/baterias/c01_contacto.py"
 REV3 = "db/migrations/versions/0003_identidade_de_contacto.py"
 IDENTIDADE = "tests_identidade"
 ID_CHAVES = "packages/core-ts/src/identity/chaves.ts"
@@ -160,6 +170,12 @@ SUITES_DE_TOOLS = {
     LLM_CONFIG: ("llm_config", "test_llm_config.py"),
     PIP_NA_BUILD: ("lint_arch", "test_pip_na_build.py"),
     COSIGN: ("supply_chain", "test_cosign.py"),
+    # KAM-066: as baterias de unidade do *harness* de isolamento cruzado.
+    # Correm sem base de dados — a enumeracao, a cobertura, o *lint* do `SET
+    # LOCAL` e o oraculo leem ficheiros —, e e por isso que as mutacoes do
+    # *harness* nao pagam um contentor cada. Os casos que precisam de
+    # PostgreSQL mutam-se com a suite `tests_isolamento`.
+    ISOLAMENTO_UNIT: ("isolamento", "test_*.py"),
 }
 #: O leitor de YAML (KAM-136). As duas suites leem por ele as listas de
 #: excepcoes de `ci/` e o limiar do estrato `critico`.
@@ -798,6 +814,52 @@ MUTACOES = [
      '    finally:\n'
      '        with _TRINCO_EM_USO:\n'
      '            _EM_USO.discard(chave)\n', PYCORE_UNIT),
+    # ------------------------------------------------------------- KAM-066
+    #
+    # O criterio 8 do bloco pede a prova nas duas direccoes, e e a parte que
+    # faz a diferenca entre uma suite e um portao: «uma suite de isolamento que
+    # fica verde com a RLS desligada e pior do que nao ter suite, porque da
+    # confianca». Cada mutacao destas apaga **uma** verificacao do *harness*, e
+    # o que tem de a matar sao as baterias dele.
+    ("isolamento: a enumeracao ignora as rotas de Python", ISO_ENUM,
+     "    return _rotas_ts(raiz) + _rotas_python(raiz)",
+     "    return _rotas_ts(raiz)", ISOLAMENTO_UNIT),
+    # Sem o sentinela, um tipo de superficie que deixe de ser lido passa por
+    # «conforme» — e a cobertura de 100% passa a ser sobre zero itens.
+    ("isolamento: um tipo de superficie vazio deixa de ser erro", ISO_ENUM,
+     "    vazios = [tipo for tipo, lista in por_tipo(itens).items() if not lista]",
+     "    vazios = []", ISOLAMENTO_UNIT),
+    # A mutacao mais directa do criterio 2: um item sem caso deixa de falhar.
+    ("isolamento: um item sem caso deixa de ser achado", ISO_CASOS,
+     "        if tem_caso or tem_dispensa:",
+     "        if tem_caso or tem_dispensa or True:", ISOLAMENTO_UNIT),
+    # O trinco que impede a valvula de virar porta: um credor inventado passa.
+    ("isolamento: um credor fora do backlog passa", ISO_CASOS,
+     "        if credor not in tickets:", "        if False:", ISOLAMENTO_UNIT),
+    # O *lint* deixa de reconhecer o `false` escrito a letra.
+    ("isolamento: o lint aceita set_config de sessao a letra", ISO_LINTS,
+     "_FALSIDADE = (\"false\", \"'false'\", '\"false\"')",
+     "_FALSIDADE = ()", ISOLAMENTO_UNIT),
+    # A regra 3 do *lint*: deixa de ir ver o que os chamadores passam. E a
+    # regra que apanha o unico sitio real deste conjunto, e nenhuma das outras
+    # duas o via — o SQL esta correcto e e **a chamada** que esta errada.
+    ("isolamento: o lint deixa de ver os chamadores do is_local", ISO_LINTS,
+     "                valores, indecisos = _is_local_dos_chamadores(raiz, nome)",
+     "                valores, indecisos = set(), []", ISOLAMENTO_UNIT),
+    # O oraculo deixa de encontrar. Sem a sonda positiva do
+    # `confirmar_que_morde`, esta mutacao tornava verdes **todas** as
+    # afirmacoes de «zero canarios» da suite — que e precisamente o cenario que
+    # o criterio 8 manda provar.
+    ("isolamento: o oraculo deixa de encontrar o canario", ISO_ORACULO,
+     "            posicao = texto.find(proibido)", "            posicao = -1",
+     ISOLAMENTO_UNIT),
+    # O eixo do contacto, contra a base: a leitura deixa de filtrar por
+    # contacto. **Nao ha RLS que a apanhe** — X e Y estao no mesmo tenant e a
+    # politica `tenant_iso` deixa passar os dois —, pelo que esta e a unica
+    # mutacao deste ficheiro que so o C-01 mata.
+    ("isolamento: a leitura do contacto deixa de filtrar por contacto", ISO_C01,
+     '            f"SELECT {coluna} FROM {schema}.{tabela} WHERE contact_id = %s",',
+     '            f"SELECT {coluna} FROM {schema}.{tabela}",', ISOLAMENTO),
     ("catalogo: a descoberta ignora o schema platform", CATALOGO,
      'SCHEMAS_DE_SISTEMA = ("pg_catalog", "information_schema", "pg_toast")',
      'SCHEMAS_DE_SISTEMA = ("pg_catalog", "information_schema", "pg_toast", "platform")',
@@ -6265,6 +6327,53 @@ def _copiar_para_os_contratos(destino: Path, ignorar) -> None:
     shutil.copy(RAIZ / "canon" / "dicionario.yaml", destino / "canon" / "dicionario.yaml")
 
 
+def _copiar_para_o_isolamento(destino: Path, ignorar) -> None:
+    """O que as mutacoes do *harness* de isolamento precisam (KAM-066).
+
+    E mais do que o pacote, e cada peca tem razao:
+
+    * `tools/isolamento` — o que se muta e as baterias que o medem;
+    * `tools/kamba_yaml.py` — por onde se leem as listas de `ci/`;
+    * `ci/isolamento-*.yaml` — as dispensas e as excepcoes ao `SET LOCAL`;
+    * `registry/` e `specs/INDICE.md` — a enumeracao de *tools* e de
+      consumidores le o registo, e o leitor de dispensas confronta o credor com
+      o §4 do backlog;
+    * `services/`, `packages/*/src` e `libs/py-core/src` — **a fonte que a
+      enumeracao varre e que o *lint* le**. Sem elas a enumeracao devolvia zero
+      itens e levantava, e a linha de base da suite ficava vermelha: uma
+      mutacao «apanhada» sobre isso nao significa nada (a licao que o KAM-004
+      pagou com dez mutacoes em dez);
+    * `db/mutacoes.py` — este ficheiro. O `test_lints.py` afirma que a lista de
+      mutacoes esta **fora** do corpus do *lint*, porque ela contem, como dado,
+      o texto `set_config(..., %s, false)`.
+    """
+    shutil.copytree(
+        RAIZ / "tools" / "isolamento", destino / "tools" / "isolamento",
+        ignore=ignorar,
+    )
+    shutil.copy(RAIZ / "tools" / "kamba_yaml.py", destino / "tools" / "kamba_yaml.py")
+    (destino / "ci").mkdir(parents=True, exist_ok=True)
+    for nome in ("isolamento-dispensas.yaml", "isolamento-set-sessao.yaml"):
+        shutil.copy(RAIZ / "ci" / nome, destino / "ci" / nome)
+    shutil.copytree(RAIZ / "registry", destino / "registry", ignore=ignorar)
+    (destino / "specs").mkdir(parents=True, exist_ok=True)
+    shutil.copy(RAIZ / "specs" / "INDICE.md", destino / "specs" / "INDICE.md")
+    shutil.copytree(RAIZ / "services", destino / "services", ignore=ignorar)
+    for pacote in ("contracts", "core-ts"):
+        shutil.copytree(
+            RAIZ / "packages" / pacote / "src",
+            destino / "packages" / pacote / "src",
+            ignore=ignorar,
+        )
+    shutil.copytree(
+        RAIZ / "libs" / "py-core" / "src",
+        destino / "libs" / "py-core" / "src",
+        ignore=ignorar,
+    )
+    (destino / "db").mkdir(parents=True, exist_ok=True)
+    shutil.copy(RAIZ / "db" / "mutacoes.py", destino / "db" / "mutacoes.py")
+
+
 def _copiar_para_as_contagens(destino: Path, ignorar) -> None:
     """O que as mutacoes do `lint_contagens` precisam, e so isso (KAM-158).
 
@@ -6415,6 +6524,7 @@ COPIA_DE_TOOLS = {
     LLM_CONFIG: _copiar_para_os_aliases,
     PIP_NA_BUILD: _copiar_para_o_pip_na_build,
     COSIGN: _copiar_para_o_cosign,
+    ISOLAMENTO_UNIT: _copiar_para_o_isolamento,
 }
 
 
