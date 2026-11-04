@@ -22,6 +22,10 @@
 
 ## Abertura A — o aviso vai pela PME, no canal que o titular já usa com ela
 
+> **Se o incidente envolve o WhatsApp, a Abertura A não se envia por ele.** A PME usa outro canal
+> que já tenha com o titular (e-mail, SMS); se não tiver nenhum, a Abertura A não é viável e
+> decide-se pela B, ou pelo parecer pedido no §13 do runbook.
+
 > Olá. Esta mensagem é de **[A PREENCHER: nome da loja]**. Fomos avisados pela plataforma
 > KAMBÁ, que nos presta o serviço de atendimento, de um problema de segurança que pode ter
 > envolvido dados seus.

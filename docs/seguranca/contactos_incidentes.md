@@ -29,12 +29,15 @@ como se não existisse: o runbook, ao precisar dela, escala ao fundador.
 | 8 | **SEG** (suplente) | | Telefone + canal interno | Cofre | SEG | — | **vago** |
 | 9 | **PRIV** (titular) | Responsável interno de privacidade | Telefone + e-mail | Cofre | PRIV | — | **por verificar** |
 | 10 | **PRIV** (suplente) | | | Cofre | PRIV | — | **vago** |
-| 11 | **OPS** (titular e suplente) | SRE de serviço | Telefone + escala | Cofre | OPS | — | **por verificar** |
-| 12 | **AP** (titular) | Arquitecto de Plataforma | Telefone + canal interno | Cofre | AP | — | **por verificar** |
-| 13 | **Fundador** | Escalada: decisões que não são do SEG (§9.4 do runbook) | Telefone | Cofre | SEG | — | **por verificar** |
-| 14 | **Contacto do dono de cada PME** | O canal alternativo verificado do dono (KAM-115) | E-mail do dono | Tabela de contactos do dono (`owner_contacts`), **não esta lista** | PRIV | por tenant | n/a — vive no sistema |
+| 11 | **OPS** (titular) | SRE de serviço | Telefone + escala | Cofre | OPS | — | **por verificar** |
+| 12 | **OPS** (suplente) | | | Cofre | OPS | — | **vago** |
+| 13 | **AP** (titular) | Arquitecto de Plataforma | Telefone + canal interno | Cofre | AP | — | **por verificar** |
+| 14 | **AP** (suplente) | | | Cofre | AP | — | **vago** |
+| 15 | **ADV** (suplente) | Segundo advogado ou escritório, para quando o titular não responde | E-mail + telefone | Repositório de provas | PRIV | — | **vago** |
+| 16 | **Fundador** | Escalada: decisões que não são do SEG (§9.4 do runbook). Sem suplente: é a última instância | Telefone | Cofre | SEG | — | **por verificar** |
+| 17 | **Contacto do dono de cada PME** | O canal alternativo verificado do dono (KAM-115) | E-mail do dono | Tabela de contactos do dono (`owner_contacts`), **não esta lista** | PRIV | por tenant | n/a — vive no sistema |
 
-**A entrada 14 não é uma linha desta lista:** o contacto de cada dono vive no sistema
+**A entrada 17 não é uma linha desta lista:** o contacto de cada dono vive no sistema
 ([`../avisos-ao-dono.md`](../avisos-ao-dono.md)), com a sua própria prova de verificação e a sua
 própria invalidação por falha de entrega. A lista só lembra que o aviso à PME (§7.2 do runbook)
 parte de lá.
@@ -50,7 +53,7 @@ parte de lá.
 
 - **Não há ADV** nem fornecedor de alojamento (D1); as entradas 4 e 6 não podem ser verificadas
   até existirem.
-- **Não há suplentes** nomeados: as entradas 8 e 10 estão vagas.
+- **Não há suplentes** nomeados: as entradas 8, 10, 12, 14 e 15 estão vagas.
 - **O canal da APD** é desconhecido (NÃO VERIFICADO): o site da APD tem formulários, mas qual se
   usa para violações depende de a Circular 02 se aplicar (A-05 do pacote do KAM-104).
 

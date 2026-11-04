@@ -51,7 +51,7 @@ o detectámos, e se já está contido.]
 
 **O que pode ter de fazer a seguir** *(a confirmar por parecer)*
 
-[A PREENCHER: se a PME, como responsável pelos dados dos seus clientes, tem o dever de
+[A PREENCHER: se a PME tem o dever de
 notificar a APD ou os clientes, e em que prazo, é uma questão **jurídica por responder** (D9). Este
 parágrafo é redigido pelo advogado; não o inventar.]
 

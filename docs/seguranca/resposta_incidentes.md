@@ -4,7 +4,7 @@
 |---|---|
 | Ticket | KAM-113 — Resposta a incidentes e notificação de violação de dados |
 | Fonte normativa | [`docs/tecnica/08_Seguranca_Conformidade.md`](../tecnica/08_Seguranca_Conformidade.md) §10 (o fluxo e as classes), §7.1 (a retenção de logs), §8.5 requisitos 12 e 25; [`docs/tecnica/evidencia/E3_Regulatorio_Dados.md`](../tecnica/evidencia/E3_Regulatorio_Dados.md) requisitos 12 e 25, pergunta 7 |
-| Runbook operacional | **RB-K10** de [`docs/tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §13 — este documento é o seu conteúdo |
+| Runbook operacional | **RB-K10** de [`docs/tecnica/09_Topologia_Operacao_Escala.md`](../tecnica/09_Topologia_Operacao_Escala.md) §13 — este documento é o seu conteúdo. O KAM-083 manda criar `ops/runbooks/RB-K10.md` no modelo comum dos runbooks (ainda não existe); esse ficheiro deve **remeter para aqui** e não duplicar, e se o KAM-083 preferir o contrário a decisão é dele |
 | Acompanham | [`modelos/`](modelos/) (APD, PME afectada, titular), [`contactos_incidentes.md`](contactos_incidentes.md), [`exercicio_simulacao.md`](exercicio_simulacao.md) |
 | Estado | **Esboço / proposta.** Nada aqui está ratificado, e nenhuma parte foi vista por advogado |
 
@@ -52,20 +52,23 @@ flowchart TD
 | A Lei 22/11 não obriga o responsável em geral a notificar violações (só prestadores de comunicações electrónicas) | **INDÍCIO** (leitura única, 2021) | `E3` §1 |
 | Existe uma «Circular 02» da APD sobre comunicação de incidentes informáticos, e a imprensa de 2026 refere multas por «não notificação» | **INDÍCIO**, **contraditório** com a linha anterior | `E3` §1, pergunta 7 |
 | O alvo de 72 h (PRZ-4, PRZ-5: boa prática; obrigação a confirmar por parecer) vem do projecto de revisão da lei (2025) e de boa prática | **INDÍCIO** | `E3` §1, `08` §10 |
-| Coimas do Art. 51.º: USD 75.000 a 150.000 (segurança, notificação), triplicadas para pessoas colectivas | **CONFIRMADO** em duas leituras de portais não oficiais — *verificar no Diário da República* | `E3` §1 |
+| Coimas do Art. 51.º: USD 75.000 a 150.000 (segurança, notificação), triplicadas para pessoas colectivas *(a confirmar por parecer)*. O `E3` não distingue aqui a notificação de uma violação da notificação do tratamento à APD | **CONFIRMADO** em duas leituras de portais não oficiais — *verificar no Diário da República* | `E3` §1 |
 | O intervalo «USD 7.000 a 15.000» para falta de notificação | **NÃO VERIFICADO** (contraditório, sem fonte aberta) | `E3` §1 |
 | A KAMBÁ é subcontratada ou co-responsável, e quem notifica | **Aberto** — decisão **D9** | `00` §13.3 |
 
 **Daí a postura, que é de engenharia e não de direito:** *assume-se a obrigação* de notificar
-(`E3` pergunta 7; `08` §10), porque o custo de notificar sem dever é pequeno e o de não
-notificar com dever são coimas. Isto não diz que o dever existe *(a confirmar por parecer)*.
+(`E3` pergunta 7; `08` §10), porque notificar sem dever custa, em princípio, menos do que não notificar com dever (coimas). Não custa
+nada: avisar o titular pode ser uma finalidade nova do contacto (§9.2), e por isso o texto passa
+pelo ADV. Isto não diz que o dever existe *(a confirmar por parecer)*.
 
 ---
 
 ## 2. Prazos
 
-Todos são **proposta**. **T0** é o instante em que alguém na KAMBÁ tem conhecimento razoável
-de que *pode* haver um incidente — a abertura do registo (§4), não a certeza. Contar desde T0
+Todos são **proposta**. **T0** é o instante em que a **primeira pessoa** na KAMBÁ tomou
+conhecimento razoável de que *pode* haver um incidente — a hora do alerta ou da mensagem, não a
+certeza, e **não** a hora em que alguém abriu o registo (§4): se o registo abre depois, escreve-se
+nele o T0 verdadeiro, retroactivo. Contar desde T0
 é a leitura mais exigente; `08` §10 não diz a partir de quando se conta, e quando o relógio
 começa é uma das perguntas do §13 *(a confirmar por parecer)*.
 
@@ -85,9 +88,9 @@ No resto do documento os prazos citam-se pelo **ID**, para que o valor e a marca
 
 ## 3. Quem faz o quê
 
-Os papéis são os de `08` §9. **Um dono por papel**, e um suplente por papel na
-[lista de contactos](contactos_incidentes.md); sem suplente o papel está vago e o incidente
-escala para o fundador.
+Os papéis são os da legenda de `08` §8.5. **Um dono por papel**, e um suplente por papel na
+[lista de contactos](contactos_incidentes.md) (hoje todos vagos); sem suplente o papel está vago e o
+incidente escala para o fundador.
 
 | Papel | Quem | No incidente |
 |---|---|---|
@@ -97,7 +100,7 @@ escala para o fundador.
 | **OPS** | SRE | Contenção técnica, preservação de evidência, recuperação |
 | **AP** | Arquitecto de Plataforma | Âmbito técnico (que tenants, que dados, que caminho), correcção de causa |
 
-O papel que **não** existe no `08` §9 e que o incidente precisa é o do **escriba**: quem
+O papel que **não** existe na legenda de `08` §8.5 e que o incidente precisa é o do **escriba**: quem
 mantém a linha temporal (§4.2). Não é o SEG, que está a decidir.
 
 ---
@@ -164,10 +167,14 @@ A classe decide a **intensidade da resposta** (`08` §10). Quem notifica e quand
   usou, **ou** ela esteve num sítio público — repositório público (este é público), *paste*,
   *log* ou página acessível. «Exposta» sem nenhuma dessas provas não é «em posse».
 - **Âmbito de plataforma** (uma credencial): serve mais do que um tenant, ou fala em nome da
-  KAMBÁ a um fornecedor — chave de LLM, token da Meta da plataforma, credencial do
-  facilitador, *master key* do gateway, *pepper* do HMAC, credencial da base de dados.
-  **Âmbito restrito**: serve um só tenant — um canal, um endpoint, o segredo de um webhook —,
-  mesmo que sirva vários canais desse tenant.
+  KAMBÁ a um fornecedor — chave de LLM, token da Meta da plataforma, **`meta_app_secret` e
+  `meta_verify_token`** (um valor para a plataforma inteira, `ops/secrets-inventory.yaml`),
+  credencial do facilitador, *master key* do gateway, *pepper* do HMAC, credencial da base de
+  dados. **Âmbito restrito**: serve um só tenant ou uma só conta — p. ex. o `webhook_token` de
+  uma conta de pagamento —, mesmo que sirva vários canais desse tenant.
+- **«Webhook secret exposto» de `08` §10 (P2) lê-se como o de âmbito restrito.** Se o segredo for
+  o `meta_app_secret` ou o `meta_verify_token`, é de plataforma e a árvore dá **P1** (0a). A
+  leitura de `08` §10 é nossa e fica a confirmar pelo SEG; em dúvida sobre qual é o segredo, é P1.
 
 ```mermaid
 flowchart TD
@@ -195,14 +202,15 @@ flowchart TD
 | **0b** | Um estado de **pagamento ou dinheiro** foi alterado **sem evento autenticado** (ADR-013), por atacante **ou por erro interno**? | `payment_events` e `audit_log` do tenant: confirmação sem a assinatura do facilitador; a reconciliação encontra o que o evento não explica |
 | **1** | **Dados pessoais** foram, **de facto**, devolvidos, lidos, alterados, apagados ou deixados expostos (um recurso aberto, que qualquer pedido alcançava) a quem não devia — incluindo abuso de acesso legítimo, como um colaborador que os leva para fora? Um defeito que **permitiria** isso, sem que os dados tenham saído, não é «sim»: vai à 5 | Consulta aos logs de acesso e ao `audit_log`; o achado da verificação da cadeia (§7.1); o âmbito do defeito (que tabelas, que RLS) |
 | **2** | A **exploração** está **confirmada com prova**, e não só possível? Uma exposição de que há registo de acesso por terceiros, ou um abuso de acesso legítimo com saída dos dados, é exploração | Registo de acesso de quem não devia; um achado de verificação da cadeia do `audit_log`. **A ausência de exploração só se afirma com os logs que a mostrariam, e quem decide que bastam é o SEG, por escrito.** Sem esses logs (nunca existiram, ou passaram a retenção de 30 dias, PRZ-7) a resposta é «sim» |
-| **3** | **Quantos tenants** têm dados afectados — contam-se os tenants **cujos dados** foram expostos, não o que os leu? Lista desconhecida: conta-se «2 ou mais» | `tenant_id` nos registos; a lista é parte da avaliação (PRZ-2) |
+| **3** | **Quantos tenants** estão envolvidos — contam-se **os dois lados**: o tenant cujos dados foram expostos e o que os acedeu. Uma fuga *entre* tenants envolve, por definição, pelo menos dois. Lista desconhecida: conta-se «2 ou mais» | `tenant_id` nos registos; a lista é parte da avaliação (PRZ-2) |
 | **4** | Com um só tenant: o n.º de **titulares** atinge o limiar **L**, ou há **dados sensíveis** (Art. 5.º c) da Lei 22/11, `08` §7.5)? **Conteúdo de conversa e áudio contam como sensíveis até prova em contrário**, porque o conteúdo não se filtra à entrada (*proposta*) | Contagem de `contact_hmac` distintos afectados; classes de dados da tabela `08` §7.1 |
-| **5** | Sem dados afectados: há uma **falha de controlo** que daria acesso (p. ex. uma política RLS furada), ou uma credencial de âmbito restrito **exposta**? | Revisão de código, teste de isolamento, varredura do *scanner* de segredos |
+| **5** | Sem dados afectados: há uma **falha de controlo** que daria acesso (p. ex. uma política RLS furada), uma credencial de âmbito restrito **exposta**, ou **indício de tomada de uma conta de pessoal** (início de sessão que o titular da conta não reconhece, ou fora de padrão com acção sensível)? | Revisão de código, teste de isolamento, varredura do *scanner* de segredos, registo de sessões |
 | **6** | Sem nada do anterior: foi uma **tentativa** que o controlo bloqueou? **Sim** → P3. **Não**, mas é uma anomalia de segurança sem impacto → P4. **Não é matéria de segurança** (p. ex. um pico de tráfego legítimo) → fecha-se o registo sem classe | O código de recusa nos logs (`error_code`); sem efeito observado |
 
-**O limiar L é uma proposta não calibrada: 100 titulares.** Foi escolhido para que um incidente
-pequeno num único tenant fique em P2 sem pôr em movimento a equipa completa, e **não tem
-fonte**. Calibra-se no primeiro exercício (§12) e por decisão do SEG; até lá, em dúvida
+**O limiar L é uma proposta não calibrada: 100 titulares, e não tem fonte.** Com o conteúdo de
+conversa e o áudio sensíveis por defeito, L só actua sobre fugas de contacto e de encomendas;
+qualquer fuga de conversa de um tenant com exploração confirmada é P1 com um só titular. A árvore
+é conservadora de propósito. Calibra-se no primeiro exercício (§12) e por decisão do SEG; até lá, em dúvida
 entre P1 e P2, é P1.
 
 **Sobre os dois «sim» antes da pergunta de dados (0a e 0b).** Os exemplos de `08` §10 obrigam a
@@ -253,9 +261,9 @@ temporal. As acções, e o que ainda **não existe** para as executar:
 | Acção | Quando | Como (hoje) | O que falta |
 |---|---|---|---|
 | **Revogar e rodar chaves** | Pergunta 0a «sim»; qualquer suspeita de segredo em posse de terceiro | RB-K07: fornecedores de LLM **primeiro** em incidente; anel `[actual, anterior]` onde o consumidor o suporta; registar a rotação no `audit_log` (o identificador e a hora, **nunca o valor**). LLM: [`docs/runbooks/rotacao-de-chaves-de-llm.md`](../runbooks/rotacao-de-chaves-de-llm.md), `infra/llm/chaves.py`, [`ops/secrets-inventory.yaml`](../../ops/secrets-inventory.yaml) | Meta, facilitador e HMAC: o suporte a duas chaves e o runbook por segredo são o **KAM-072**, ainda por entregar — hoje a rotação é manual |
-| **Isolar um tenant** | O incidente é de um tenant, ou um tenant é a origem | Estado do tenant → `suspenso` (dicionário §3), e revogar a chave virtual do tenant no gateway (gatilho `suspensao_de_tenant` do runbook de rotação). Avisar a PME por **canal alternativo** (§7.2) | — |
+| **Isolar um tenant** | O incidente é de um tenant, ou um tenant é a origem | Estado do tenant → `suspenso` (dicionário §3), e cortar o acesso da chave virtual do tenant no gateway (`max_budget: 0`; **não** é rodar o valor — o runbook de rotação, §3, distingue as duas). Avisar a PME por **canal alternativo** (§7.2) | — |
 | **Suspender um destino de transferência** | Um fornecedor de LLM/STT/cloud é a origem ou foi comprometido | O gate de destino de ADR-008 falha fechado: sem linha `autorizado` a chamada falha (`08` §7.4). Marcar o destino como não autorizado | A tabela `tenant_destinations` é o **KAM-069**. Até lá, em `prod` o gate recusa todos os fornecedores (`../runbooks/rotacao-de-chaves-de-llm.md` §5) |
-| **Segredo num repositório** | Um segredo foi *commitado* | **Rodar primeiro.** Este repositório é público: um segredo ali conta como em posse de terceiro (§5). Reescrever a história **não** torna o segredo seguro, apenas esconde-o; é segunda ordem | Limpar a história é reconhecido como resposta a incidente em KAM-131 e fica por especificar |
+| **Segredo num repositório** | Um segredo foi *commitado* | **Rodar primeiro.** Este repositório é público: um segredo ali conta como em posse de terceiro (§5). Reescrever a história **não** torna o segredo seguro, apenas esconde-o; é segunda ordem | Limpar a história: o KAM-131 devolve-a a este ticket («é resposta a incidente, KAM-113»), e **nenhum dos dois a especifica**. Este runbook só manda rodar primeiro |
 | **Cortar um caminho** | O ataque usa um endpoint ou integração | Desligar o caminho (flag, regra de CDN) em vez de desligar o serviço | — |
 
 **O que a contenção não faz:** não apaga logs, não reinicia o serviço afectado antes do
@@ -298,6 +306,16 @@ O `audit_log` tem uma cadeia de hash **por tenant** (`prev_hash`, `row_hash`; KA
    python db/auditoria.py verificar --tenant <uuid>
    ```
 
+   O comando usa a identidade omissa (`batch`), que vê tudo. Com `--papel audit` o papel é o
+   `kamba_audit` (só leitura), mas **só vê linhas com `--tenant`**: sem ele, vê zero linhas e
+   responde «intacta» sobre nada (`db/auditoria.py`, comentário em `main`).
+
+   **O que um `0` vale hoje é pouco**, e o texto não o esconde: nada escreve ainda no `audit_log`
+   em produção (`../auditoria.md` §8, item 8), o *job* nocturno é o KAM-078 e o conteúdo das
+   conversas não entra no `audit_log` (`08` §6). Um `0` diz que **as linhas que existem** estão
+   inteiras; não diz que o que devia ter sido registado o foi. Enquanto assim for, a pergunta 1 e
+   a 0b respondem-se também com os logs do serviço e com `payment_events`.
+
    Sai `0` se a cadeia está inteira. **Qualquer outro código é, só por si, um achado de
    incidente** — alguém alterou ou apagou prova de dinheiro, stock ou preço. Entra na árvore na
    pergunta 1, e **responde-se «sim»**: apagar ou alterar registos é alterar dados (regra
@@ -312,7 +330,7 @@ O `audit_log` tem uma cadeia de hash **por tenant** (`prev_hash`, `row_hash`; KA
 
 **Não existe um *script* de recolha.** O ticket admite um, opcional; só entra em `ci/` se o
 exercício (§12) mostrar que a exportação à mão falha PRZ-7. Hoje o extracto faz-se com o
-papel `kamba_audit` (só leitura).
+papel `kamba_audit` (só leitura), sempre com `--tenant`.
 
 ### 7.2 Avisar a PME por canal alternativo
 
@@ -335,15 +353,16 @@ Responde por escrito, com a prova, a cada pergunta. É o que alimenta os modelos
 | 1 | O que aconteceu, desde quando, e como foi detectado | SEG, AP |
 | 2 | Que **categorias** de dados (`08` §7.1: contacto, conteúdo de conversa, áudio, encomendas e pagamentos, consentimentos) | PRIV |
 | 3 | Quantos **titulares**, aproximadamente, e quantos **tenants** | PRIV, AP |
-| 4 | Há **dados sensíveis** (saúde, religião, política, vida privada, vida sexual; Art. 5.º c)) | PRIV |
+| 4 | Há **dados sensíveis** (saúde, religião, política, vida sexual, Art. 5.º c); a «vida privada» que o `E3` §1 também lista tem âmbito em aberto, A-04 do pacote do KAM-104) | PRIV |
 | 5 | Os dados estavam cifrados, **pseudonimizados** ou minimizados? Um HMAC de telefone é pseudonimização, **não** anonimização: continua dado pessoal (`08` §7.2) | AP, PRIV |
 | 6 | Consequências **prováveis** para os titulares (o que um terceiro pode fazer com isto) | PRIV |
 | 7 | A causa está **contida**? As medidas tomadas e as que faltam | OPS |
 | 8 | A classe mantém-se, sobe, ou desce (§5.2) | SEG |
 | 9 | Quem tem o **dever** de notificar, a quem, e se há prazo contado | ADV (*a confirmar por parecer*) |
 
-**Decisão de notificar** (`08` §10: «dados pessoais afectados?»): se a resposta à pergunta 1
-do §5 foi **sim**, há notificação — de P1 ou de P2. Se foi **não**, regista-se, revê-se, e
+**A pergunta 1 do §5 responde-se sempre aqui**, mesmo quando a classe já é P1 por 0a ou 0b e a árvore
+não a chegou a fazer. **Decisão de notificar** (`08` §10: «dados pessoais afectados?»): se a
+resposta à pergunta 1 foi **sim**, há notificação — de P1 ou de P2. Se foi **não**, regista-se, revê-se, e
 não se notifica; **a decisão de não notificar assina-a o SEG e fica no registo com as provas.**
 
 ---
@@ -468,7 +487,7 @@ exigida: ≥ 90% (*proposta*; 9 em 10 coincidem entre os dois e com a árvore).
 | C5 | Uma política RLS tem um furo identificado em revisão de código; nenhum log mostra que fosse explorado, e os logs cobrem todo o período do defeito | **P2** | 0a não → 0b não → 1 não → 5 sim |
 | C6 | Um *bucket* de áudios ficou legível sem autenticação 6 horas; os logs de acesso mostram só pedidos do nosso IP; 40 titulares; 1 tenant | **P2** | 1 sim → 2 não (logs completos) |
 | C7 | Um atacante testa 10 000 pedidos com cabeçalho forjado; o gateway recusa todos com 401 | **P3** | 1 não → 5 não → 6 sim |
-| C8 | O início de sessão de um colaborador, com 2FA válido, vem de um país onde a equipa nunca esteve; nenhuma acção sensível foi feita | **P4** | 1 não → 5 não → 6 não (não é tentativa), anomalia sem impacto |
+| C8 | O *scanner* de segredos assinala como credencial um valor que se confirma ser uma *fixture* de teste, nunca emitida por serviço nenhum | **P4** | 1 não → 5 não (não é credencial real) → 6 não (não é tentativa), anomalia sem impacto |
 | C9 | Um colaborador exporta o extracto de conversas de 2 tenants e envia-o por correio a uma conta pessoal; o `audit_log` regista o acesso | **P1** | 1 sim → 2 sim (o acesso está registado) → 3: 2 tenants |
 | C10 | A verificação nocturna da cadeia do `audit_log` de um tenant sai com «hash errado» numa linha de há 12 dias; ninguém sabe porquê | **P1** | 1 sim (regra do §7.1) → 2 sim (a linha foi alterada) → 3: 1 tenant → 4: sem contagem de titulares nem classe de dados, **sobe** |
 
