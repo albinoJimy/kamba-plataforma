@@ -109,7 +109,21 @@ export interface PedidoDeProposta {
   readonly qty: number;
 }
 
-/** O rascunho que o grafo mantém no *checkpoint*, com a identidade dele (§6.3). */
+/**
+ * O rascunho que o grafo mantém no *checkpoint*, com a identidade dele (§6.3).
+ *
+ * **As linhas vêm daqui e de mais nenhum sítio**, e isso é uma correcção que
+ * custou um achado de revisão adversarial. A primeira versão passava as linhas
+ * **duas** vezes — o `rascunho.linhas`, de onde saía o `draft_hash`, e um
+ * `itens[]` separado, de onde saíam os preços e o total —, e nada confrontava os
+ * dois. Medido: um pedido com `rascunho.linhas` de 2 unidades e `itens` de 5
+ * criava uma encomenda de **5** com o `draft_hash` de **2**, e o toque seguinte
+ * com os itens certos recebia essa encomenda como repetição — a barreira do
+ * critério 4 nunca disparava, porque o conteúdo que mudava não estava no *hash*.
+ *
+ * A correcção não é comparar os dois: é não haver dois. Uma fonte, e o defeito
+ * deixa de ser possível em vez de ser apanhado.
+ */
 export interface RascunhoDoCarrinho extends Rascunho {
   readonly draftId: string;
   readonly draftVersion: number;
@@ -251,6 +265,15 @@ export async function resolverLinha(
   if (cotacao !== undefined) {
     const total = emMinor(cotacao["preco_total_minor"]);
     if (total === null || total < 0n) return erro("VALIDATION_ERROR");
+    // **A moeda verifica-se nos dois caminhos**, e não só no do `offer_terms`.
+    // Hoje é inofensivo — o `price_quotes_currency_ck` e o
+    // `offer_terms_currency_ck` da revisão `0028` fecham os dois em `{AOA}` —,
+    // mas uma assimetria entre dois caminhos que resolvem a mesma coisa é como
+    // uma barreira desaparece quando o domínio alargar. Achado da revisão
+    // adversarial.
+    if (String(cotacao["currency"] ?? MOEDA) !== MOEDA) {
+      return erro("VALIDATION_ERROR");
+    }
     return ok({
       sku: termos.sku,
       nome: termos.nome,
@@ -328,10 +351,9 @@ export async function proposeCart(
   l: Leitura,
   anel: AnelDoSegredo,
   rascunho: RascunhoDoCarrinho,
-  itens: readonly PedidoDeProposta[],
   agora: Date,
 ): Promise<Resultado<Proposta>> {
-  if (!Array.isArray(itens) || itens.length === 0) {
+  if (!Array.isArray(rascunho?.linhas) || rascunho.linhas.length === 0) {
     return erro("VALIDATION_ERROR");
   }
 
@@ -342,8 +364,11 @@ export async function proposeCart(
     // A canonicalização corre **antes** das leituras, e não depois: ela é que
     // valida as linhas (sku não vazio, qty inteiro positivo), e validar depois
     // de N idas à base era pagar a base para recusar o que a forma já recusa.
+    //
+    // E é a **mesma** chamada que alimenta o `draft_hash` e a resolução de
+    // preços, pela razão escrita no `RascunhoDoCarrinho`: uma fonte.
     canonicos = linhasCanonicas(
-      itens.map((item) => ({ sku: item.sku, qty: item.qty })),
+      rascunho.linhas.map((linha) => ({ sku: linha.sku, qty: linha.qty })),
     );
     hash = draftHash({ linhas: canonicos, entregaModo: rascunho.entregaModo });
     partes = {

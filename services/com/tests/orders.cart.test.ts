@@ -299,7 +299,7 @@ test("o total é bigint e não perde precisão acima de 2^53", () => {
 
 test("o propose_cart soma no backend e devolve cart_id, total e as linhas", async () => {
   const { l } = leitura([[termos()], []]);
-  const r = await proposeCart(l, ANEL, RASCUNHO, [{ sku: "arroz-5kg", qty: 2 }], AGORA);
+  const r = await proposeCart(l, ANEL, RASCUNHO, AGORA);
   assert.equal(r.tipo, "ok");
   if (r.tipo !== "ok") return;
   assert.equal(r.valor.totalMinor, 250_000n);
@@ -313,7 +313,7 @@ test("o propose_cart não escreve: o inserirNoTenant explodia se escrevesse", as
   // Ver a nota do `leitura`. O que isto mede é «sem efeitos» do critério 1 por
   // execução e não por leitura do código.
   const { l, vistas } = leitura([[termos()], []]);
-  const r = await proposeCart(l, ANEL, RASCUNHO, [{ sku: "arroz-5kg", qty: 2 }], AGORA);
+  const r = await proposeCart(l, ANEL, RASCUNHO, AGORA);
   assert.equal(r.tipo, "ok");
   for (const vista of vistas) {
     assert.match(vista.sql.trim().slice(0, 6).toUpperCase(), /SELECT/);
@@ -332,11 +332,13 @@ test("uma linha que não resolve recusa o carrinho inteiro", async () => {
   const r = await proposeCart(
     l,
     ANEL,
-    { ...RASCUNHO, linhas: [{ sku: "arroz-5kg", qty: 1 }, { sku: "zzz", qty: 1 }] },
-    [
-      { sku: "arroz-5kg", qty: 1 },
-      { sku: "zzz", qty: 1 },
-    ],
+    {
+      ...RASCUNHO,
+      linhas: [
+        { sku: "arroz-5kg", qty: 1 },
+        { sku: "zzz", qty: 1 },
+      ],
+    },
     AGORA,
   );
   assert.deepEqual(r, { tipo: "erro", erro: "NOT_FOUND" });
@@ -344,20 +346,25 @@ test("uma linha que não resolve recusa o carrinho inteiro", async () => {
 
 test("uma linha confirmar_dono marca o carrinho como a exigir o dono", async () => {
   const { l } = leitura([[termos({ stock_modo: STOCK_QUE_EXIGE_O_DONO })], []]);
-  const r = await proposeCart(l, ANEL, RASCUNHO, [{ sku: "arroz-5kg", qty: 2 }], AGORA);
+  const r = await proposeCart(l, ANEL, RASCUNHO, AGORA);
   assert.equal(r.tipo, "ok");
   if (r.tipo !== "ok") return;
   assert.equal(r.valor.exigeConfirmacaoDoDono, true);
 });
 
-test("um carrinho sem linhas e um pedido com linha inválida são VALIDATION_ERROR", async () => {
+test("um rascunho sem linhas e uma linha inválida são VALIDATION_ERROR", async () => {
   const { l } = leitura([]);
-  assert.deepEqual(await proposeCart(l, ANEL, RASCUNHO, [], AGORA), {
-    tipo: "erro",
-    erro: "VALIDATION_ERROR",
-  });
   assert.deepEqual(
-    await proposeCart(l, ANEL, RASCUNHO, [{ sku: "", qty: 1 }], AGORA),
+    await proposeCart(l, ANEL, { ...RASCUNHO, linhas: [] }, AGORA),
+    { tipo: "erro", erro: "VALIDATION_ERROR" },
+  );
+  assert.deepEqual(
+    await proposeCart(
+      l,
+      ANEL,
+      { ...RASCUNHO, linhas: [{ sku: "", qty: 1 }] },
+      AGORA,
+    ),
     { tipo: "erro", erro: "VALIDATION_ERROR" },
   );
 });
@@ -375,13 +382,7 @@ test("as linhas voltam pela ordem canónica e não pela ordem do pedido", async 
     { sku: "sabao-azul", qty: 1 },
     { sku: "arroz-5kg", qty: 1 },
   ];
-  const r = await proposeCart(
-    l,
-    ANEL,
-    { ...RASCUNHO, linhas: itens },
-    itens,
-    AGORA,
-  );
+  const r = await proposeCart(l, ANEL, { ...RASCUNHO, linhas: itens }, AGORA);
   assert.equal(r.tipo, "ok");
   if (r.tipo !== "ok") return;
   assert.deepEqual(

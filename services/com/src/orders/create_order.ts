@@ -87,18 +87,21 @@ import {
 import type { Erro } from "../port/contrato.ts";
 import {
   CHAVE_DO_TECTO_MANUAL,
+  SQLSTATE_UNICIDADE,
   type Ctx,
   type LinhaDaEncomenda,
   type OrderState,
 } from "./contrato.ts";
 import {
   SQL_CONCLUIR_INTENCAO,
+  SQL_ENCOMENDA_DA_CHAVE,
   SQL_FALHAR_INTENCAO,
   SQL_LER_INTENCAO,
   SQL_PEDIDO_POR_PAGAR,
   SQL_RETOMAR_INTENCAO,
 } from "./consultas.ts";
 import {
+  cartIdValido,
   chavesDoAnel,
   draftHash,
   mesmoDraftHash,
@@ -108,15 +111,34 @@ import {
 import { registar } from "./mirror.ts";
 import { lerEncomenda, type Encomendas } from "./transition.ts";
 
-/** A tabela do recibo de intenção (revisão `0030`). */
-export const TABELA_DAS_INTENCOES = "order_intents";
+/**
+ * A tabela do recibo de intenção (revisão `0030`), **qualificada pelo esquema**.
+ *
+ * `platform.order_intents` e não `order_intents`, e não é estilo: o `inserir` do
+ * repo-base **constrói** o `INSERT` com o nome que esta constante dá, e nada
+ * neste repositório põe o `search_path` — o `comTenant` só corre
+ * `set_config('app.tenant_id', …)` e o `db/bootstrap.py` registra que um
+ * `ALTER ROLE … SET search_path` é apagado pelo `RESET ALL`. Com o `search_path`
+ * por omissão, o `platform` não está lá e o `INSERT` morre em `42P01`. Achado da
+ * revisão adversarial.
+ *
+ * **E as três constantes irmãs do KAM-044 não estão qualificadas** — o
+ * `TABELA_DO_ESPELHO` do `mirror.ts`, o `TABELA_DO_REGISTO` do `transition.ts` e
+ * o `TABELA_DAS_DIVERGENCIAS` do `reconcile.ts`. Nenhuma está neste diff e
+ * corrigi-las é mexer nos ficheiros daquele ticket, pelo que fica **relatado** e
+ * não corrigido aqui: é o mesmo defeito latente em três sítios, e nenhum é
+ * alcançável hoje porque a porta não está ligada e nada chama estes módulos em
+ * produção.
+ */
+export const TABELA_DAS_INTENCOES = "platform.order_intents";
 
 /**
  * Os códigos que esta operação devolve. Lista **fechada**, e nenhum é novo.
  *
  * **Qualificada pela superfície**, como o `ServicosModule.erro` do §3.3 e os
- * `OfferView.avisos` do §3.40: os oito valores são os do `tool_audit.error_code`
- * do §3.27, que o dicionário fecha em **treze** desde a emenda 1.47, e
+ * `OfferView.avisos` do §3.40: os **nove** valores são os do
+ * `tool_audit.error_code` do §3.27, que o dicionário fecha em **treze** desde a
+ * emenda 1.47, e
  * **importam-se** de lá pelo nome em vez de serem redeclarados com significado
  * novo. Nenhum nome novo entra no dicionário por causa desta lista.
  *
@@ -211,10 +233,14 @@ export type AbrirTransaccao = <T>(
   trabalho: (e: Encomendas) => Promise<T>,
 ) => Promise<T>;
 
-/** O pedido de criação. **Não leva `intent_key` nem preço** — ver as notas. */
+/**
+ * O pedido de criação. **Não leva `intent_key`, nem preço, nem linhas à parte.**
+ *
+ * As linhas vêm do `rascunho` e de mais nenhum sítio — ver a nota do
+ * `RascunhoDoCarrinho`, que diz o que a primeira versão fez e o que isso custou.
+ */
 export interface PedidoDeCriacao {
   readonly rascunho: RascunhoDoCarrinho;
-  readonly itens: readonly PedidoDeProposta[];
   /**
    * O total que o cliente confirmou, em unidade menor.
    *
@@ -337,8 +363,14 @@ function dormirPorOmissao(ms: number): Promise<void> {
   });
 }
 
-/** Um recibo de `order_intents`, como a base o tem. */
-interface Recibo {
+/**
+ * Um recibo de `order_intents`, como a base o tem.
+ *
+ * **Exportado** porque o `decidirSobreRecibo` o tem na assinatura, e essa
+ * função é pura de propósito: a decisão sobre um recibo que já existe mede-se
+ * sem base de dados, e só a retoma precisa de uma.
+ */
+export interface Recibo {
   readonly intentKey: string;
   readonly draftHash: Buffer;
   readonly estado: "em_curso" | "concluida" | "falhada";
@@ -409,6 +441,29 @@ export async function pedidoPorPagar(
   };
 }
 
+/** O SQLSTATE de um erro do *driver*, se ele tiver um. */
+function sqlstateDe(erro: unknown): string | null {
+  const codigo = (erro as { code?: unknown } | null)?.code;
+  return typeof codigo === "string" ? codigo : null;
+}
+
+/**
+ * A encomenda que **esta chave** já tem, ou `null`. Usada quando o `23505` chega.
+ *
+ * Lê pela `intent_key` e não pelo `order_id`, porque quando o `23505` chega não
+ * se sabe o `order_id`: sabe-se a chave, que é o que a unicidade violada
+ * compara.
+ */
+async function encomendaDaChave(
+  e: Encomendas,
+  chave: string,
+  porPagar: PedidoPorPagar | null,
+): Promise<EncomendaCriada | null> {
+  const linhas = await e.repo.noTenant(SQL_ENCOMENDA_DA_CHAVE, [chave]);
+  const linha = linhas[0];
+  return linha === undefined ? null : comoCriada(linha, porPagar);
+}
+
 /** A encomenda que um recibo `concluida` aponta, na forma da resposta. */
 async function encomendaDoRecibo(
   e: Encomendas,
@@ -416,7 +471,21 @@ async function encomendaDoRecibo(
   porPagar: PedidoPorPagar | null,
 ): Promise<EncomendaCriada | null> {
   const linha = await lerEncomenda(e, orderId);
-  if (linha === null) return null;
+  return linha === null ? null : comoCriada(linha, porPagar);
+}
+
+/**
+ * Uma linha de `orders_mirror` na forma da resposta, com `repeticao: true`.
+ *
+ * **Um projector e não dois**: as duas releituras desta operação — pelo
+ * `order_id` de um recibo `concluida` e pela `intent_key` depois de um `23505` —
+ * devolvem a mesma forma, e escrevê-la duas vezes era duas fontes para o mesmo
+ * mapeamento.
+ */
+function comoCriada(
+  linha: Readonly<Record<string, unknown>>,
+  porPagar: PedidoPorPagar | null,
+): EncomendaCriada {
   const bruto = linha["lines_snapshot"];
   const snapshot = (
     typeof bruto === "string" ? JSON.parse(bruto) : (bruto ?? [])
@@ -442,17 +511,72 @@ async function encomendaDoRecibo(
   };
 }
 
-/** O que a fase 1 decidiu. Exactamente um dos três vale. */
+/**
+ * O que a fase 1 decidiu. Exactamente um dos três vale.
+ *
+ * O `nosso` leva a **chave operativa** e não só a proposta, e é por causa do
+ * anel: quando o recibo que encontrámos está sob uma versão **anterior** do
+ * segredo, é essa chave que a encomenda tem de levar — senão o espelho nasce com
+ * uma `intent_key` que o recibo não conhece, e as duas barreiras do Contexto
+ * deixam de falar da mesma intenção.
+ */
 type DesfechoDaFase1 =
-  | { readonly tipo: "nosso"; readonly proposta: Proposta }
+  | {
+      readonly tipo: "nosso";
+      readonly proposta: Proposta;
+      readonly chave: string;
+    }
   | { readonly tipo: "repeticao"; readonly orderId: string }
   | { readonly tipo: "erro"; readonly erro: ErroDaCriacao };
 
 /**
- * A fase 1 do §6.3: reserva o recibo, ou lê o que já existe e decide.
+ * A fase 1 do §6.3: revalida, decide, e **só então** reserva o recibo.
  *
- * Corre **inteira** numa transacção que confirma antes de a fase 2 começar, e é
- * essa confirmação que torna o `em_curso` observável. Ver a nota do módulo.
+ * Corre inteira numa transacção que confirma antes de a fase 2 começar, e é essa
+ * confirmação que torna o `em_curso` observável. Ver a nota do módulo.
+ *
+ * ## A ordem mudou, e a razão é que a antiga fechava o carrinho por dois minutos
+ *
+ * A primeira versão reservava o recibo **primeiro** e revalidava depois. O
+ * `comTenant` **confirma** quando o trabalho devolve um valor e só desfaz num
+ * `throw` (`packages/core-ts/src/tenant_guard/index.ts`), pelo que toda a recusa
+ * posterior ao `INSERT` — `PRICE_CHANGED`, `LIMIT_EXCEEDED`, `OUT_OF_STOCK`, o
+ * `VALIDATION_ERROR` do `cart_id` — **confirmava** um recibo `em_curso` e
+ * devolvia o erro.
+ *
+ * O que isso fazia, medido: um preço que muda não muda nenhuma das quatro partes
+ * da chave nem as linhas do rascunho, pelo que o cliente que aceita o preço novo
+ * volta com a **mesma** `intent_key` e o **mesmo** `draft_hash`, encontra o
+ * recibo `em_curso` recente, espera três segundos e recebe `UPSTREAM_TIMEOUT`.
+ * O caminho normal do critério 6 ficava fechado dois minutos depois de uma
+ * recusa legítima, e cada recusa deixava um recibo órfão que ninguém limpa —
+ * porque um recibo sem encomenda não é nenhum dos cinco tipos de divergência do
+ * §10.3. Achado da revisão adversarial.
+ *
+ * A correcção é a ordem: **nada se escreve antes de a decisão estar tomada**. As
+ * duas leituras que a revalidação paga (os termos e a cotação) são `SELECT`, e
+ * N concorrentes pagam-nas N vezes — é o preço de uma recusa não deixar rasto, e
+ * é mais barato do que um carrinho envenenado.
+ *
+ * ## O anel procura-se **antes** do `INSERT`, e só quando há anel
+ *
+ * O `INSERT … ON CONFLICT (tenant_id, intent_key) DO NOTHING` desempata pela
+ * chave **actual**: um recibo derivado com a versão anterior do segredo não
+ * gera conflito nenhum, a saga ganha, e nasce uma **segunda** encomenda para o
+ * mesmo rascunho — a unicidade da revisão `0030` não junta o que a derivação
+ * separou. Medido: duas linhas em `orders_mirror`, e o `SQL_LER_INTENCAO` nunca
+ * corrido. Era o anel a ser código morto na saga, com a propriedade contrária
+ * escrita no §3.44 do dicionário e no inventário de segredos.
+ *
+ * Por isso, quando o anel tem mais do que uma versão, procura-se o recibo pelas
+ * **antigas** antes de inserir pela actual. Com uma versão só — que é o caso
+ * comum e o de sempre até à primeira rotação — não há leitura a mais: o `INSERT`
+ * serializa como serializava.
+ *
+ * A janela que fica é a da própria rotação: dois chamadores concorrentes podem
+ * os dois ler o recibo antigo, e aí o que os separa é o estado dele (um replay,
+ * ou uma espera, ou o `UPDATE` condicional da retoma). É estreita por construção
+ * e está dita.
  */
 export async function reservarIntencao(
   e: Encomendas,
@@ -464,74 +588,35 @@ export async function reservarIntencao(
 ): Promise<DesfechoDaFase1> {
   const chaveActual = chaves[0] as string;
 
-  const inseridas = await e.repo.inserirNoTenant({
-    tabela: TABELA_DAS_INTENCOES,
-    valores: { intent_key: chaveActual, draft_hash: hash },
-    sufixo:
-      "ON CONFLICT (tenant_id, intent_key) DO NOTHING " +
-      "RETURNING intent_key, draft_hash, estado, order_id, criado_at",
-  });
+  // ------------------------------------------- 1. revalidar, sem escrever nada
 
-  if (inseridas.length === 0) {
-    const recibos = await lerRecibos(e, chaves);
-    const recibo = recibos[0];
-    if (recibo === undefined) {
-      // O `INSERT` não escreveu e não há recibo: só sobra a linha ter sido
-      // apagada entre as duas instruções (a retenção do KAM-071 corre como
-      // `kamba_batch`). Reler outra vez era um laço; quem chama repete.
-      return { tipo: "erro", erro: "UPSTREAM_DOWN" };
-    }
-    // **O `draft_hash` compara-se primeiro**, antes do estado: um recibo
-    // `em_curso` com conteúdo diferente não é uma saga a correr para este
-    // pedido, e esperar por ela três segundos era esperar pelo trabalho de
-    // outro rascunho para depois recusar de qualquer forma (critério 4).
-    if (!mesmoDraftHash(recibo.draftHash, hash)) {
-      return { tipo: "erro", erro: "INTENT_REUSED_WITH_DIFFERENT_CONTENT" };
-    }
-    if (recibo.estado === "concluida" && recibo.orderId !== null) {
-      return { tipo: "repeticao", orderId: recibo.orderId };
-    }
-    if (recibo.estado === "em_curso") {
-      const idade = agora.getTime() - recibo.criadoAt.getTime();
-      if (idade <= MINUTOS_PARA_RETOMAR * 60_000) {
-        // Recente: é outra saga a correr. O caminho é esperar, e esse corre
-        // **fora** desta transacção — ver o `esperarPorOutra`.
-        return { tipo: "erro", erro: "UPSTREAM_TIMEOUT" };
-      }
-      // Abandonada: fecha-se e reabre-se, as duas por `UPDATE` condicional.
-      const falhadas = await e.repo.noTenant(SQL_FALHAR_INTENCAO, [
-        recibo.intentKey,
-        new Date(agora.getTime() - MINUTOS_PARA_RETOMAR * 60_000).toISOString(),
-      ]);
-      if (falhadas.length === 0) {
-        // Outro retomou-a entretanto. Não se insiste: o estado dele é que vale.
-        return { tipo: "erro", erro: "UPSTREAM_TIMEOUT" };
-      }
-    }
-    const retomadas = await e.repo.noTenant(SQL_RETOMAR_INTENCAO, [
-      recibo.intentKey,
-    ]);
-    if (retomadas.length === 0) {
-      return { tipo: "erro", erro: "UPSTREAM_TIMEOUT" };
-    }
-  }
-
-  // O recibo é nosso. Agora revalida-se, e **antes** de escrever o espelho.
-  const proposta = await proposeCart(
-    e,
-    m.anel,
-    pedido.rascunho,
-    pedido.itens,
-    agora,
-  );
+  const proposta = await proposeCart(e, m.anel, pedido.rascunho, agora);
   if (proposta.tipo === "erro") {
     return { tipo: "erro", erro: doDominio(proposta.erro) };
   }
   const valor = proposta.valor;
 
-  if (pedido.cartId !== undefined && pedido.cartId !== valor.cartId) {
-    // Um `cart_id` que não se re-deriva não é deste rascunho. Era o caminho pelo
-    // qual o carrinho de outro contacto resolvia a intenção deste (ISO-57..60).
+  if (
+    pedido.cartId !== undefined &&
+    !cartIdValido(
+      m.anel,
+      {
+        tenantId: e.ctx.tenantId,
+        contactId: pedido.rascunho.contactId,
+        draftId: pedido.rascunho.draftId,
+        draftVersion: pedido.rascunho.draftVersion,
+      },
+      pedido.cartId,
+    )
+  ) {
+    // **Pelo `cartIdValido` e não por `!==`**, e são duas diferenças: ele
+    // compara em tempo constante — o candidato vem de fora, e uma comparação
+    // que sai no primeiro caractere diferente mede quantos acertou — e conhece
+    // as **duas** versões do anel, pelo que um `cart_id` emitido antes de uma
+    // rotação continua a valer. A primeira versão fazia
+    // `pedido.cartId !== valor.cartId`, que não tem nenhuma das duas; achado da
+    // revisão adversarial, que notou também que a caixa 5 do DoD afirmava o
+    // contrário do que o código fazia.
     return { tipo: "erro", erro: "VALIDATION_ERROR" };
   }
 
@@ -565,7 +650,111 @@ export async function reservarIntencao(
   );
   if (!tecto.cabe) return { tipo: "erro", erro: "LIMIT_EXCEEDED" };
 
-  return { tipo: "nosso", proposta: valor };
+  // ----------------------------- 2. o anel: há recibo sob uma versão anterior?
+
+  if (chaves.length > 1) {
+    const antigo = (await lerRecibos(e, chaves.slice(1)))[0];
+    if (antigo !== undefined) {
+      return await sobreReciboExistente(e, antigo, valor, hash, agora);
+    }
+  }
+
+  // --------------------------------------------- 3. reservar o recibo, e só aqui
+
+  const inseridas = await e.repo.inserirNoTenant({
+    tabela: TABELA_DAS_INTENCOES,
+    valores: { intent_key: chaveActual, draft_hash: hash },
+    sufixo:
+      "ON CONFLICT (tenant_id, intent_key) DO NOTHING " +
+      "RETURNING intent_key, draft_hash, estado, order_id, criado_at",
+  });
+  if (inseridas.length > 0) {
+    return { tipo: "nosso", proposta: valor, chave: chaveActual };
+  }
+
+  const recibo = (await lerRecibos(e, chaves))[0];
+  if (recibo === undefined) {
+    // O `INSERT` não escreveu e não há recibo: só sobra a linha ter sido
+    // apagada entre as duas instruções (a retenção do KAM-071 corre como
+    // `kamba_batch`). Reler outra vez era um laço; quem chama repete.
+    return { tipo: "erro", erro: "UPSTREAM_DOWN" };
+  }
+  return await sobreReciboExistente(e, recibo, valor, hash, agora);
+}
+
+/**
+ * O que fazer com um recibo que já existe: decidir e, se for de retomar, retomar.
+ *
+ * A decisão é pura (`decidirSobreRecibo`) e a retoma é uma escrita, pelo que
+ * ficam separadas: a primeira mede-se sem base de dados e a segunda é que precisa
+ * de uma.
+ */
+async function sobreReciboExistente(
+  e: Encomendas,
+  recibo: Recibo,
+  proposta: Proposta,
+  hash: Buffer,
+  agora: Date,
+): Promise<DesfechoDaFase1> {
+  const decidido = decidirSobreRecibo(recibo, hash, agora);
+  if (decidido.tipo !== "retomar") return decidido;
+
+  // **São duas instruções e não uma**, e cada uma tem o estado esperado no
+  // predicado: de N concorrentes passa uma em cada passo. Um `em_curso`
+  // abandonado fecha-se primeiro (`em_curso` + velho → `falhada`), e só um
+  // `falhada` se reabre — que é a letra do critério 5, «é retomada **ou**
+  // marcada `falhada`».
+  if (recibo.estado === "em_curso") {
+    const falhadas = await e.repo.noTenant(SQL_FALHAR_INTENCAO, [
+      recibo.intentKey,
+      new Date(agora.getTime() - MINUTOS_PARA_RETOMAR * 60_000).toISOString(),
+    ]);
+    if (falhadas.length === 0) {
+      // Outro fechou-a entretanto. Não se insiste: o estado dele é que vale.
+      return { tipo: "erro", erro: "UPSTREAM_TIMEOUT" };
+    }
+  }
+  const retomadas = await e.repo.noTenant(SQL_RETOMAR_INTENCAO, [
+    recibo.intentKey,
+  ]);
+  if (retomadas.length === 0) return { tipo: "erro", erro: "UPSTREAM_TIMEOUT" };
+  // A chave operativa é a **do recibo**: com o anel a rodar, a encomenda tem de
+  // nascer com a `intent_key` que ele conhece.
+  return { tipo: "nosso", proposta, chave: recibo.intentKey };
+}
+
+/**
+ * O que um recibo que já existe manda fazer. **Função pura**, e por isso medível.
+ *
+ * Os quatro casos da tabela da nota do módulo, mais um quinto resultado que a
+ * tabela não tem porque não é um desfecho: `retomar` quer dizer «é teu, reabre-o»,
+ * e quem o faz é quem chama, porque reabrir é escrever.
+ *
+ * **O `draft_hash` compara-se primeiro**, antes do estado: um recibo `em_curso`
+ * com conteúdo diferente não é uma saga a correr para este pedido, e esperar por
+ * ela três segundos era esperar pelo trabalho de outro rascunho para depois
+ * recusar de qualquer forma (critério 4).
+ */
+export function decidirSobreRecibo(
+  recibo: Recibo,
+  hash: Buffer,
+  agora: Date,
+): DesfechoDaFase1 | { readonly tipo: "retomar" } {
+  if (!mesmoDraftHash(recibo.draftHash, hash)) {
+    return { tipo: "erro", erro: "INTENT_REUSED_WITH_DIFFERENT_CONTENT" };
+  }
+  if (recibo.estado === "concluida" && recibo.orderId !== null) {
+    return { tipo: "repeticao", orderId: recibo.orderId };
+  }
+  if (recibo.estado === "em_curso") {
+    const idade = agora.getTime() - recibo.criadoAt.getTime();
+    if (idade <= MINUTOS_PARA_RETOMAR * 60_000) {
+      // Recente: é outra saga a correr. O caminho é esperar, e esse corre
+      // **fora** desta transacção — ver o `esperarPorOutra`.
+      return { tipo: "erro", erro: "UPSTREAM_TIMEOUT" };
+    }
+  }
+  return { tipo: "retomar" };
 }
 
 /**
@@ -594,26 +783,47 @@ export async function concluirIntencao(
     ? "pendente"
     : "nao_aplicavel";
 
-  const estado = await registar(e, {
-    intentKey: chaveActual,
-    contactId: rascunho.contactId,
-    totalMinor: proposta.totalMinor,
-    currency: proposta.currency,
-    entregaModo: rascunho.entregaModo,
-    linhas: proposta.linhas.map((linha) => ({
+  let estado;
+  try {
+      estado = await registar(e, {
+      intentKey: chaveActual,
+      contactId: rascunho.contactId,
+      totalMinor: proposta.totalMinor,
+      currency: proposta.currency,
+      entregaModo: rascunho.entregaModo,
+      linhas: proposta.linhas.map((linha) => ({
       sku: linha.sku,
       nome: linha.nome,
       qty: linha.qty,
       precoMinor: linha.precoMinor,
       precoTipo: linha.precoTipo,
       origemPreco: linha.origemPreco,
-    })),
-    confirmacaoDono: confirmacao,
-    // Nulo em toda a Fase 0: não há Medusa em `infra/compose/` (KAM-042). É a
-    // `metadata.intent_key` do §6.3 que ficava do outro lado, e o lado existe
-    // quando o Registo existir.
-    medusaOrderId: null,
-  });
+      })),
+      confirmacaoDono: confirmacao,
+      // Nulo em toda a Fase 0: não há Medusa em `infra/compose/` (KAM-042). É a
+      // `metadata.intent_key` do §6.3 que ficava do outro lado, e o lado existe
+      // quando o Registo existir.
+      medusaOrderId: null,
+    });
+  } catch (erro) {
+    // **O `23505` da `orders_mirror_intent_uq` é a resposta, não uma avaria.**
+    //
+    // Chega aqui quando duas sagas correram para a mesma chave, e isso é
+    // alcançável: o `UPDATE_DA_APP_EM_INTENCOES` da revisão `0030` não dá o
+    // `criado_at` ao `kamba_app`, pelo que um recibo retomado continua a parecer
+    // velho e um segundo chamador pode falhá-lo e retomá-lo por cima de uma saga
+    // viva. Quem os separa é a unicidade da base — que é a «segunda barreira
+    // independente» que o Contexto do bloco nomeia —, e sem este `catch` ela
+    // chegava como **excepção**, fora do `Resultado` que a operação promete:
+    // numa operação de classe `money`, um 500 em vez da encomenda que existe.
+    //
+    // Achado da revisão adversarial. O que ele apanhou não foi a corrida — essa
+    // está travada —, foi a **forma** com que o travão chega.
+    if (sqlstateDe(erro) !== SQLSTATE_UNICIDADE) throw erro;
+    const existente = await encomendaDaChave(e, chaveActual, porPagar);
+    if (existente === null) throw erro;
+    return { tipo: "ok", valor: existente };
+  }
 
   const fechadas = await e.repo.noTenant(SQL_CONCLUIR_INTENCAO, [
     chaveActual,
@@ -796,7 +1006,10 @@ export async function createOrder(
     );
     return await concluirIntencao(
       e,
-      chaveActual,
+      // **A chave do desfecho e nao a actual**: com o anel a rodar, a saga
+      // pode estar a retomar um recibo sob a versao anterior do segredo, e a
+      // encomenda tem de nascer com a `intent_key` que esse recibo conhece.
+      fase1.chave,
       fase1.proposta,
       pedido.rascunho,
       porPagar,

@@ -165,7 +165,7 @@ export const SQL_EMITIR = `
 // ------------------------------------------- KAM-046: o recibo de intenção
 
 /*
- * As sete cadeias abaixo são a *saga* de `createOrder` do §6.3 e o fluxo de
+ * As oito cadeias abaixo são a *saga* de `createOrder` do §6.3 e o fluxo de
  * confirmação do dono do critério 7. O `INSERT` do recibo **não** está aqui,
  * pela razão de sempre: entra por `repo.inserirNoTenant`, com o
  * `ON CONFLICT (tenant_id, intent_key) DO NOTHING RETURNING` no `sufixo` — e é
@@ -227,14 +227,25 @@ export const SQL_CONCLUIR_INTENCAO = `
  * O instante entra como argumento e não é `now() - interval`, para que o ensaio
  * possa pôr a fronteira numa igualdade exacta em vez de dormir dois minutos.
  *
- * **O `criado_at` não se reescreve**, e não é escolha: o
- * `UPDATE_DA_APP_EM_INTENCOES` da revisão `0030` dá ao `kamba_app` duas colunas
- * — `estado` e `order_id` — e o instante da criação de um recibo não é de quem
- * o retoma. A consequência é dita: um recibo retomado continua a parecer velho,
- * pelo que a janela de abandono conta desde a **primeira** tentativa e não desde
- * a última. Para a retoma isso é inofensivo (o predicado é o estado, não a
- * idade); para uma segunda retoma concorrente também, porque o estado é que
- * decide.
+ * **O `criado_at` não se reescreve, e isso tem uma consequência que custou um
+ * achado de revisão adversarial.** O `UPDATE_DA_APP_EM_INTENCOES` da revisão
+ * `0030` dá ao `kamba_app` duas colunas — `estado` e `order_id` — e o instante
+ * da criação de um recibo não é de quem o retoma. Logo um recibo retomado
+ * continua a parecer velho, e o predicado desta instrução é o estado **e a
+ * idade**: um segundo chamador que chegue enquanto a saga retomada corre
+ * **volta a falhá-la** e retoma-a por cima de uma viva.
+ *
+ * A primeira versão desta nota dizia que isso era «inofensivo, porque o
+ * predicado é o estado, não a idade». Era falso nas duas metades: o predicado
+ * tem a idade, e a consequência não é inofensiva — duas sagas escrevem o
+ * espelho, e a segunda bate na `orders_mirror_intent_uq`.
+ *
+ * **O que fecha isto não é esta cadeia: é o `catch` do `23505` na fase 2** do
+ * `create_order.ts`, que relê a encomenda que o vencedor escreveu e devolve-a
+ * como repetição. A encomenda continua a ser **uma** — era sempre, pela
+ * unicidade —, e o que mudou foi a forma com que o travão chega a quem perde:
+ * uma resposta e não uma excepção. Uma guarda por idade a sério pedia uma coluna
+ * que esta revisão não tem, e dar-lha é alterar a `0030`.
  */
 export const SQL_FALHAR_INTENCAO = `
   UPDATE platform.order_intents
@@ -341,4 +352,33 @@ export const SQL_LER_CONFIRMACAO = `
   SELECT confirmacao_dono, estado, version
     FROM platform.orders_mirror
    WHERE tenant_id = $1 AND id = $2 AND deleted_at IS NULL
+`;
+
+/**
+ * A encomenda de uma `intent_key`. É a releitura que fecha a corrida perdida.
+ *
+ * **Existe por causa de um achado da revisão adversarial**, e vale escrever a
+ * cadeia de razões porque ela liga três coisas que pareciam separadas.
+ *
+ * O `UPDATE_DA_APP_EM_INTENCOES` da revisão `0030` dá ao `kamba_app` **duas**
+ * colunas — `estado` e `order_id` — e o `criado_at` não é uma delas. Logo um
+ * recibo retomado continua a parecer velho, e um segundo chamador pode
+ * falhá-lo e retomá-lo **por cima de uma saga viva**: dois a correr, dois a
+ * escrever o espelho. Quem os separa é o `orders_mirror_intent_uq`, que é a
+ * «segunda barreira independente» que o Contexto do bloco nomeia — mas ela
+ * chega como `23505`, isto é, como **excepção** e fora do `Resultado` que a
+ * operação promete. Numa operação de classe `money` isso é um 500 em vez da
+ * encomenda que já existe.
+ *
+ * Com esta leitura, o `23505` deixa de ser uma avaria e passa a ser a resposta
+ * certa: quem perdeu a corrida relê a encomenda que o vencedor escreveu e
+ * devolve-a como repetição. É a mesma forma que o `upsertProductDraft` do
+ * KAM-043 usou para o SKU novo — zero linhas, relê, segue — com a diferença de
+ * que aqui o sinal vem do erro e não da contagem.
+ */
+export const SQL_ENCOMENDA_DA_CHAVE = `
+  SELECT id, numero_publico, estado, version, total_minor, currency,
+         confirmacao_dono, lines_snapshot
+    FROM platform.orders_mirror
+   WHERE tenant_id = $1 AND intent_key = $2 AND deleted_at IS NULL
 `;

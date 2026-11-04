@@ -74,6 +74,7 @@ export {
   SQL_FECHAR_DIVERGENCIA,
   SQL_GRAFO,
   SQL_LER,
+  SQL_ENCOMENDA_DA_CHAVE,
   SQL_LER_CONFIRMACAO,
   SQL_LER_INTENCAO,
   SQL_PEDIDO_POR_PAGAR,
@@ -177,6 +178,7 @@ export {
   TECTO_DE_ESPERA_MS,
   concluirIntencao,
   createOrder,
+  decidirSobreRecibo,
   lerRecibos,
   pedidoPorPagar,
   reservarIntencao,
@@ -188,6 +190,7 @@ export {
   type MontagemDaCriacao,
   type PedidoDeCriacao,
   type PedidoPorPagar,
+  type Recibo,
   type ResultadoDaCriacao,
 } from "./create_order.ts";
 

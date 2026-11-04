@@ -61,6 +61,7 @@ from tests.base import sqlstate
 from tests_encomendas.base import LINHAS, TOTAL, ComEncomendas
 from tests_encomendas.consultas import (
     SQL_CONCLUIR_INTENCAO,
+    SQL_ENCOMENDA_DA_CHAVE,
     SQL_CONFIRMACAO_DO_DONO,
     SQL_EMITIR,
     SQL_FALHAR_INTENCAO,
@@ -429,13 +430,18 @@ class TestCinquentaConcorrentes(ComEncomendas):
             1,
         )
 
-    def test_a_unicidade_da_base_e_a_segunda_barreira_e_morde(self) -> None:
-        """O canario: sem o `ON CONFLICT`, a base recusa com `23505`.
+    def test_a_chave_primaria_do_recibo_recusa_o_segundo_com_23505(self) -> None:
+        """O canario da chave primaria de `order_intents`, e **so** dela.
 
         Sem isto, as asercoes acima ficavam verdes com o protocolo a funcionar e
         a barreira da base por provar — e sao **duas** barreiras independentes, e
-        o Contexto do bloco di-lo por extenso. Este caso mostra que a de baixo
-        existe.
+        o Contexto do bloco di-lo por extenso.
+
+        **O que este caso NAO mede**, e a revisao adversarial apanhou-o: a
+        unicidade que impede a segunda **encomenda** e a
+        `orders_mirror_intent_uq`, nao esta. Esta impede o segundo **recibo**,
+        que e outra propriedade. A outra esta na
+        `TestOTravaoDeUltimoRecurso`.
         """
         chave = _chave()
         self.semente.execute(
@@ -645,7 +651,7 @@ class TestFalhaERetoma(ComEncomendas):
         )
         self.assertEqual(self._recibo()[0], "em_curso")
 
-    def test_de_duas_retomas_concorrentes_passa_uma(self) -> None:
+    def test_de_oito_retomas_concorrentes_passa_uma(self) -> None:
         """A razao de a retoma ser um `UPDATE` condicional.
 
         Dois leitores de um recibo `falhada` liam os dois `falhada` e corriam os
@@ -677,7 +683,7 @@ class TestFalhaERetoma(ComEncomendas):
             ganhos = list(piscina.map(_retomar, range(8)))
         self.assertEqual(sum(1 for g in ganhos if g), 1, ganhos)
 
-    def test_um_em_curso_concorrente_devolve_a_mesma_resposta_quando_fecha(self) -> None:
+    def test_o_recibo_em_curso_passa_a_concluida_e_e_isso_que_a_espera_observa(self) -> None:
         """«`em_curso` concorrente aguarda <= 3 s e devolve a mesma resposta.»
 
         O que esta aqui e o **estado** que a espera observa, e nao a espera: ela
@@ -1029,5 +1035,136 @@ class TestIsolamentoDaIntencao(ComEncomendas):
                 desde,
                 _chave(),
             ),
+            [],
+        )
+
+
+class TestOTravaoDeUltimoRecurso(ComEncomendas):
+    """A `orders_mirror_intent_uq` e a leitura que a torna uma resposta.
+
+    **Esta classe nasceu de tres achados da revisao adversarial**, e os tres sao
+    o mesmo mecanismo visto de tres lados:
+
+    * o `criado_at` **nao se reescreve** (o `UPDATE_DA_APP_EM_INTENCOES` da
+      revisao `0030` da ao `kamba_app` duas colunas, e ele nao e uma delas),
+      pelo que um recibo retomado continua a parecer velho e um segundo chamador
+      pode falha-lo e retoma-lo por cima de uma saga viva;
+    * quem as separa e a `orders_mirror_intent_uq` — a «segunda barreira
+      independente» que o Contexto do bloco nomeia —, e **nenhum caso a
+      exercitava**: o canario da unicidade media a chave primaria do
+      `order_intents`, que e outra coisa;
+    * e ela chegava como `23505`, isto e, como **excepcao** fora do `Resultado`
+      que a operacao promete. O `SQL_ENCOMENDA_DA_CHAVE` e o que a transforma
+      numa resposta: quem perde a corrida rele a encomenda do vencedor.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.tenant = self.criar_tenant()
+        self.contacto = self.criar_contacto(self.tenant)
+        self.chave = _chave()
+        self.hash = _hash("arroz-5kg:1|levantamento")
+
+    def test_um_recibo_retomado_continua_a_parecer_velho(self) -> None:
+        """O achado, reproduzido: a guarda da idade vale **uma** vez.
+
+        E o caso que a secao de verificacao deste bloco cita, e o que ele mede e
+        o **limite** e nao a propriedade: depois de uma retoma, o
+        `SQL_FALHAR_INTENCAO` volta a encontrar a linha, porque o predicado dele
+        e o estado **e a idade** e a idade nao se reescreve. A primeira versao
+        desta suite afirmava que isso era inofensivo; nao e, e o que o fecha e o
+        travao de baixo e nao esta cadeia.
+        """
+        self.semente.execute(
+            "INSERT INTO platform.order_intents "
+            "       (tenant_id, intent_key, draft_hash) VALUES (%s, %s, %s)",
+            (self.tenant, self.chave, self.hash),
+        )
+        self.semente.execute(
+            "UPDATE platform.order_intents SET criado_at = now() - '3 minutes'::interval"
+            " WHERE tenant_id = %s AND intent_key = %s",
+            (self.tenant, self.chave),
+        )
+        limite = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=MINUTOS_PARA_RETOMAR)
+
+        # Primeira retoma: falha e reabre.
+        self.assertEqual(
+            len(_no_app(self.tenant, SQL_FALHAR_INTENCAO, self.tenant, self.chave, limite)),
+            1,
+        )
+        self.assertEqual(
+            len(_no_app(self.tenant, SQL_RETOMAR_INTENCAO, self.tenant, self.chave)),
+            1,
+        )
+
+        # **E a segunda encontra-a outra vez**, com a saga da primeira a correr.
+        self.assertEqual(
+            len(_no_app(self.tenant, SQL_FALHAR_INTENCAO, self.tenant, self.chave, limite)),
+            1,
+            "a guarda da idade so vale ate a primeira retoma: e o limite dito "
+            "no SQL_FALHAR_INTENCAO, e quem fecha o caso e a unicidade do "
+            "espelho mais o SQL_ENCOMENDA_DA_CHAVE",
+        )
+
+    def test_a_unicidade_do_espelho_recusa_a_segunda_encomenda_da_mesma_chave(self) -> None:
+        """O canario que faltava: a `orders_mirror_intent_uq`, e nao a PK do recibo.
+
+        E **esta** a barreira que impede a segunda encomenda, e o canario antigo
+        media a chave primaria do `order_intents` — que impede o segundo recibo,
+        que e outra propriedade.
+        """
+        self.criar_encomenda(self.tenant, self.contacto, intent_key=self.chave)
+        outro = self.criar_contacto(self.tenant)
+        estado = self.tentar(
+            "INSERT INTO platform.orders_mirror "
+            "       (tenant_id, contact_id, intent_key, total_minor, lines_snapshot) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (self.tenant, outro, self.chave, TOTAL, json.dumps(LINHAS)),
+        )
+        self.assertEqual(estado, "23505")
+
+    def test_a_leitura_pela_chave_devolve_a_encomenda_do_vencedor(self) -> None:
+        """O `SQL_ENCOMENDA_DA_CHAVE`: o que transforma o `23505` numa resposta."""
+        encomenda = self.criar_encomenda(
+            self.tenant, self.contacto, intent_key=self.chave
+        )
+        linhas = _no_app(
+            self.tenant, SQL_ENCOMENDA_DA_CHAVE, self.tenant, self.chave
+        )
+        self.assertEqual(len(linhas), 1)
+        self.assertEqual(str(linhas[0][0]), encomenda)
+        # As oito colunas que a resposta precisa, pela ordem da cadeia.
+        self.assertEqual(len(linhas[0]), 8)
+        self.assertEqual(linhas[0][2], "criada")
+
+    def test_a_leitura_pela_chave_nao_atravessa_tenants(self) -> None:
+        """Com a sonda positiva ao lado, pela razao de sempre."""
+        outro_tenant = self.criar_tenant()
+        contacto = self.criar_contacto(outro_tenant)
+        self.criar_encomenda(outro_tenant, contacto, intent_key=self.chave)
+        self.assertEqual(
+            _no_app(self.tenant, SQL_ENCOMENDA_DA_CHAVE, self.tenant, self.chave),
+            [],
+        )
+        self.assertEqual(
+            len(
+                _no_app(
+                    outro_tenant, SQL_ENCOMENDA_DA_CHAVE, outro_tenant, self.chave
+                )
+            ),
+            1,
+        )
+
+    def test_uma_encomenda_sob_soft_delete_nao_se_le_pela_chave(self) -> None:
+        """O `deleted_at IS NULL` do predicado (§5.6)."""
+        encomenda = self.criar_encomenda(
+            self.tenant, self.contacto, intent_key=self.chave
+        )
+        self.semente.execute(
+            "UPDATE platform.orders_mirror SET deleted_at = now() WHERE id = %s",
+            (encomenda,),
+        )
+        self.assertEqual(
+            _no_app(self.tenant, SQL_ENCOMENDA_DA_CHAVE, self.tenant, self.chave),
             [],
         )

@@ -103,11 +103,17 @@ export const OCTETOS_DO_SEGREDO = 32;
 /**
  * Quantos caracteres da base32 ficam na chave. **Vinte e seis, pelo critério 2.**
  *
- * São 130 bits dos 256 que o HMAC produz, e não um corte arbitrário: 26
- * caracteres de base32 são exactamente o que cabe sem *padding* parcial na
- * última posição que interessa, e 130 bits dão uma probabilidade de colisão
- * desprezável para a população de rascunhos de um tenant. O que o corte **não**
- * faz é tornar a chave reversível: o HMAC não é invertível com ou sem corte.
+ * São **130 bits** dos 256 que o HMAC produz (26 × 5), e o número vem do
+ * critério e não de uma propriedade da codificação. A primeira versão desta nota
+ * afirmava que 26 caracteres «cabem sem *padding* parcial»; **não é verdade** —
+ * 130 não é múltiplo de 8, e o 26.º caractere atravessa a fronteira do 16.º
+ * octeto. Achado da revisão adversarial, que verificou ao lado que a **aritmética
+ * do `emBase32` está certa** (os 130 bits mais significativos, 5000 digests,
+ * zero divergências contra uma leitura exacta em inteiro grande).
+ *
+ * O que 130 bits dão, e é a razão que importa: uma probabilidade de colisão
+ * desprezável para a população de rascunhos de um tenant. E o que o corte **não**
+ * faz é tornar a chave reversível — o HMAC não é invertível com ou sem corte.
  */
 export const CARACTERES_DA_CHAVE = 26;
 
