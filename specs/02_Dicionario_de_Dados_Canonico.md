@@ -3082,7 +3082,8 @@ passagem deste ticket: dezoito achados, seis deles em revisões que ele não toc
    `order_reconciliation_issues`**, que é o que os *Detalhes Técnicos* pedem e o
    que a métrica lê. Publicar o trigésimo-nono contrato era emenda ao §3.5 e
    tinha de vir com a contagem corrigida — **e deixou de estar em aberto: a
-   2026-11-04 o fundador decidiu que o evento não existe**, e a linha dele saiu
+   2026-11-04 o fundador decidiu que o evento não existe** (resposta directa dele
+   a quem executou o KAM-044, nessa data), e a linha dele saiu
    do §12 do `../docs/tecnica/03` (versão 1.5 desse documento). O §3.5 fica nos
    **trinta e oito** tipos e esta contagem não se toca.
 
@@ -3126,9 +3127,12 @@ confirma**.
   **KAM-054**. O que aqui existe é a exigência de que o evento venha do
   `sistema` com `evento_id`;
 * ~~**o trigésimo-nono contrato de evento** (`order.reconciliation_issue`) e a
-  contagem do §3.5~~ — **decidido a 2026-11-04**: o evento **não existe** e a
-  linha dele saiu do §12 do `../docs/tecnica/03`. O §3.5 fica nos trinta e oito
-  tipos, e a dívida documental 174 está riscada;
+  contagem do §3.5~~ — **decidido a 2026-11-04** por resposta directa do fundador
+  a quem executou o KAM-044: o evento **não existe** e a linha dele saiu do §12 do
+  `../docs/tecnica/03`. O §3.5 fica nos trinta e oito tipos, e a dívida documental
+  174 está riscada. **O que o fecho dela deixou em aberto tem número e credor:** a
+  regra (2) do §10.3 fica sem veículo de alerta escrito, o que é a dívida **177**,
+  com credor **KAM-080**;
 * **a API interna do COM** (`POST /internal/...`), que o §3.39 já registou como
   inexistente e atribuiu a este ticket. **Continua a não existir**: nenhum
   critério de aceitação do bloco a pede, e os oito descrevem base de dados,
