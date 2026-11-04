@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Epic — Segurança e Conformidade |
-| Versão | 1.15 |
+| Versão | 1.16 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `../docs/tecnica/08_Seguranca_Conformidade.md` |
@@ -1131,7 +1131,7 @@ O `../docs/seguranca/validar.py` é a **única verificação por máquina** dos 
 assert len(KAM) == 138 and len(ADR) == 20 and len(DEC) == 13, (len(KAM), len(ADR), len(DEC))
 ```
 
-O *backlog* tem 178 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
+O *backlog* tem 179 tickets, pelo que, da raiz do repositório, o `assert` aborta. A saída abaixo foi capturada quando ele ainda batia com a contagem da época — o primeiro elemento do tuplo **é** a contagem viva, pelo que cresce a cada entrada nova, e é por isso que o defeito é estrutural e não uma gralha:
 
 ```text
 AssertionError: (143, 20, 13)
@@ -1269,3 +1269,4 @@ Abre PR com o template do §7.
 | 1.13 | Novembro 2026 | Contagem viva do *backlog* actualizada de 174 para 175 tickets (**KAM-175** acrescentado ao EPIC-05), na frase do bloco do KAM-149 que cita o `assert` do verificador, e o campo `Versão` do cabeçalho a acompanhar. É contagem derivada e não emenda de conteúdo: o número cresce a cada ticket novo, que é o defeito estrutural que a própria frase descreve. | Equipa KAMBÁ |
 | 1.14 | Novembro 2026 | Contagem viva do *backlog* actualizada de 175 para 176 tickets (**KAM-176** acrescentado ao EPIC-04), na frase do bloco do KAM-149 que cita o `assert` do verificador, e o campo `Versão` do cabeçalho a acompanhar. É contagem derivada e não emenda de conteúdo: o número cresce a cada ticket novo, que é o defeito estrutural que a própria frase descreve. | Equipa KAMBÁ |
 | 1.15 | Novembro 2026 | KAM-113 (resposta a incidentes e notificação de violação de dados): critérios 1, 3 e 6 e as caixas de DoD de privacidade e de ligação aos alertas P1 marcados, com a secção «Verificação dos Critérios de Aceitação»; critérios 2, 4, 5, 7 e 8 e três caixas de DoD ficam vazios com o credor escrito. Sem alteração de contagens. | Equipa KAMBÁ |
+| 1.16 | Novembro 2026 | Contagem viva do *backlog* actualizada de 178 para **179** tickets (**KAM-180** acrescentado ao EPIC-01), na frase do bloco do KAM-149 que cita o `assert` do verificador, e o campo de versão do cabeçalho acompanha pela fronteira «conteúdo contra metadado» do KAM-167. É contagem derivada e não emenda de conteúdo: o número cresce a cada ticket novo, que é o defeito estrutural que a própria frase descreve. **O identificador 179 não entra na contagem** — está reclamado por um ramo e não existe no §4 do `INDICE.md`, pelo que não se cita na forma `KAM-NNN`. | Equipa KAMBÁ |
