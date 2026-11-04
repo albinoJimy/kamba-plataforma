@@ -22,14 +22,22 @@
 # `specs/tickets/KAM-164.md` diz que «o `lint_arch` do *gate* 2 verifica as
 # mensagens dos *commits* do ramo». **Nao verifica.** O `make ci-2` corre
 # `pnpm -r run typecheck`, `make lint-arch`, `log-lint`, `money-lint` e
-# `env-lint`; o `lint-arch` corre `python -m lint_arch --root . all`, que e
-# «deps, structure, tool-schema, aliases e medusa». O `commitlint` existe em
-# `package.json` e em `commitlint.config.cjs` mas **nenhum** *workflow* e
-# **nenhum** alvo `make` o invoca. Logo nada do lado do servidor verifica o
-# assunto de um *commit*: a forma do assunto e imposta so pelo *hook* local.
-# Achado da revisao adversarial deste ticket, registado na divida 173 — e e a
-# razao mais forte para esta verificacao correr **tambem** num PR de um so
-# *commit*, onde o assunto vem do *commit*.
+# `env-lint`. O `commitlint` existe em `package.json` e em
+# `commitlint.config.cjs` e **nenhum** *workflow* e **nenhum** alvo `make` o
+# invoca — isso continua verdade, e esta decidido assim no KAM-174 (`docs/ci.md`
+# §3): o `config-conventional` traz o seu proprio *parser*, e liga-lo ao CI punha
+# la uma segunda implementacao da forma.
+#
+# **O que mudou, e esta parte do comentario estava falsa.** Quando este ficheiro
+# nasceu, nada do lado do servidor verificava o assunto de um *commit* — era a
+# divida 173, e era a razao mais forte para esta verificacao correr **tambem** num
+# PR de um so *commit*. **Desde o KAM-174 o `lint-arch` do *gate* 2 le as
+# mensagens dos *commits* que o PR acrescenta**, pelo que a divida esta paga e os
+# dois caminhos para o assunto do `main` estao os dois cobertos: o titulo aqui, o
+# assunto do *commit* no *gate* 2. A decisao de verificar o titulo tambem num PR
+# de um so *commit* **mantem-se**, pelas outras tres razoes que o KAM-164 escreveu
+# (o numero de *commits* nao vem no evento; o `allow_auto_merge` transforma o
+# titulo em assunto sem nada reavaliar; e a regra fica mais simples de escrever).
 #
 # **O que isto esta a impedir.** A definicao do repositorio e
 # `squash_merge_commit_title: COMMIT_OR_PR_TITLE` (medido a 2026-11-03), que
