@@ -4,7 +4,7 @@
 |---|---|
 | Produto | KAMBÁ (nome de trabalho) — plataforma WhatsApp-native de comércio conversacional para Angola |
 | Documento | Técnica — Topologia, Operação e Escala |
-| Versão | 1.3 |
+| Versão | 1.4 |
 | Data | Outubro de 2026 |
 | Classificação | Documento de Referência — Interno |
 | Documento-fonte | `00_Arquitectura_Solucao.md`, `../exploracao/11-arquitetura-detalhada-engenharia.md` §1, §10, §11, `../exploracao/08-arquitetura-tecnica-v2.md` §7–§8 |
@@ -402,7 +402,7 @@ Regra: o utilizador nunca fica sem resposta; quando não há resposta útil, há
 | **RB-K07** | **Rotação de segredos** (planeada ou em incidente) | Calendário; suspeita de fuga | Inventário no cofre; dependências por segredo | Ensaiar em *staging*; GWY aceita `[actual, anterior]`; ProxyPay (chave = HMAC) com reconciliador activo; LiteLLM/provedores primeiro em incidente; registar em `audit_log` |
 | **RB-K08** | **BD indisponível ou corrompida; restauro PITR** | WAL parado, *host* perdido, erro de integridade | `pgbackrest check`, estado do disco | §8; N5; restaurar para ponto antes do erro; verificar hash-chain e E2E; reaplicar *erasure ledger* |
 | **RB-K09** | **Flood / *denial of wallet*** | Pico de mensagens de um contacto/IP, custo LLM anómalo | Por `contact_hmac`, IP, tenant | Bloqueio e handoff; *budget* por contacto; limitar a nível de CDN; avisar T&S |
-| **RB-K10** | **Incidente de segurança P1** | Ver `08` §10 | — | Contenção, notificações (APD 72 h) |
+| **RB-K10** | **Incidente de segurança P1** | Ver `08` §10 e [`../seguranca/resposta_incidentes.md`](../seguranca/resposta_incidentes.md) | — | Contenção, notificações (APD 72 h, *boa prática; obrigação a confirmar por parecer*) |
 
 Cada runbook é um documento versionado com ligação ao alerta; **game day** semestral injecta K01, K03, K08. 
 
@@ -619,3 +619,4 @@ Isto soma-se ao custo técnico do doc 09 §9; com 10 PMEs são ~13 a ~45 USD/mê
 | 1.1 | Outubro 2026 | **Emenda KAM-111** (dicionário canónico): §9.3 e §20, D-10 (`llm_call_log`). | Equipa KAMBÁ |
 | 1.2 | Outubro 2026 | KAM-128: As **23** referências aos documentos irmãos de `docs/tecnica/` passam a resolver: eram relativas à antiga raiz do conjunto e, depois de a árvore passar para `docs/`, não resolviam de posição nenhuma. Linha acrescentada pelo **KAM-146**, que paga as onze que o KAM-128 não escreveu. | Equipa KAMBÁ |
 | 1.3 | Outubro 2026 | KAM-130: a divergência (2) deixa de acusar a contagem de ADRs do `INDICE.md`. A metade do ADR-008 mantém-se aberta. | Equipa KAMBÁ |
+| 1.4 | Novembro 2026 | KAM-113: a linha RB-K10 do §13 remete para o runbook de resposta a incidentes (`docs/seguranca/resposta_incidentes.md`), que é o seu conteúdo. | Equipa KAMBÁ |
